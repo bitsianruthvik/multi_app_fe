@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars */
 import { useState, useEffect } from "react";
 import {
   Box,
@@ -12,11 +13,12 @@ import {
 } from "@mui/material";
 import { useFormik } from "formik";
 import * as yup from "yup";
-import { useNavigate, useLocation } from "react-router-dom";
+import { useNavigate, useLocation, useParams } from "react-router-dom";
 import Visibility from "@mui/icons-material/Visibility";
 import VisibilityOff from "@mui/icons-material/VisibilityOff";
-import api, { buildFullApiUrl } from "../../utils/axiosConfig";
-import { useAuth } from "../../contexts/AuthContext";
+import api, { buildFullApiUrl } from "@core/utils/axiosConfig";
+import { useAuth } from "@core/contexts/AuthContext";
+import { isAdminRole } from "@core/utils/roles";
 
 const validationSchema = yup.object({
   email: yup
@@ -32,6 +34,7 @@ export default function Login() {
   const { login, isAuthenticated, isInitialized } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
+  const { company, app } = useParams<{ company: string; app: string }>();
   const from = location.state?.from?.pathname || "/";
 
   // Redirect already-authenticated users away from login
@@ -57,18 +60,10 @@ export default function Login() {
       // Expect the path to be /:company/:app/... when scoped. If not present,
       // redirect to the company selection page.
       if (parts.length < 2) {
-        console.log(
-          "Missing company/app context, redirecting to select-company"
-        );
-        navigate("/select-company", { replace: true });
-      } else {
-        console.log("Company/App context found:", {
-          company: parts[0],
-          app: parts[1],
-        });
+        navigate("/", { replace: true });
       }
     } catch (e) {
-      console.log("Error checking path:", e);
+      // ignore in non-browser environments
       // ignore in non-browser environments
     }
   }, [navigate]);
@@ -84,7 +79,6 @@ export default function Login() {
         // POST to the login route under the current company/app context
         // Build absolute URL to ensure company/app slugs are included
         const fullUrl = buildFullApiUrl("/login");
-        console.log("Submitting login to:", fullUrl);
         const response = await api.post(fullUrl, values);
 
         if (response.data.token) {
@@ -92,22 +86,9 @@ export default function Login() {
           const companySlug = parts[0];
           const appSlug = parts[1];
 
-          console.log("Login response data:", {
-            user: response.data.user,
-            role: response.data.user?.role,
-          });
-
           login(response.data.token, response.data.user, companySlug, appSlug);
 
-          const role = (response.data.user?.role || "").toLowerCase();
-          const isAdmin = role.includes("admin");
-
-          console.log("Login redirect logic:", {
-            role,
-            isAdmin,
-            companySlug,
-            appSlug,
-          });
+          const isAdmin = isAdminRole(response.data.user?.role);
 
           const defaultDashboard = isAdmin
             ? `/${companySlug}/${appSlug}/admin/dashboard`
@@ -133,7 +114,6 @@ export default function Login() {
             target = `${url.pathname}${url.search}`;
           }
 
-          console.log("Navigating to:", target);
           navigate(target, { replace: true });
         }
       } catch (err: any) {
@@ -360,6 +340,27 @@ export default function Login() {
               Sign in
             </Button>
           </form>
+
+          <Typography variant="body2" sx={{ mt: 2, color: "#6b7280" }}>
+            <Box
+              component="span"
+              onClick={() => navigate(`/${company}/${app}/forgot-password`)}
+              sx={{ color: "#2563eb", fontWeight: 600, cursor: "pointer", "&:hover": { textDecoration: "underline" } }}
+            >
+              Forgot password?
+            </Box>
+          </Typography>
+
+          <Typography variant="body2" sx={{ mt: 1.5, color: "#6b7280" }}>
+            Don't have an account?{" "}
+            <Box
+              component="span"
+              onClick={() => navigate(`/${company}/${app}/register`)}
+              sx={{ color: "#2563eb", fontWeight: 600, cursor: "pointer", "&:hover": { textDecoration: "underline" } }}
+            >
+              Register
+            </Box>
+          </Typography>
         </Paper>
       </Box>
     </Container>

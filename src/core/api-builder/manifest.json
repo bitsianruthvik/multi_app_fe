@@ -1,0 +1,250 @@
+{
+  "schemaVersion": "1.3",
+  "generatedAt": "2026-05-17T00:00:00.000Z",
+  "resources": [
+    {
+      "name": "users",
+      "endpoint": "/api/query/v1/base_resource",
+      "fields": ["id", "name", "email", "age", "status", "teamName"],
+      "allowedOps": {
+        "filters": {
+          "id": ["eq", "in"],
+          "name": ["eq", "like"],
+          "age": ["eq", "gte", "lte", "between"],
+          "status": ["eq", "in"]
+        },
+        "ops": ["get", "post", "put"]
+      }
+    },
+    {
+      "name": "audio_recordings",
+      "endpoint": "/api/query/v1/base_resource",
+      "fields": [
+        "id",
+        "title",
+        "recorded_by",
+        "recorded_by_role",
+        "audio_url",
+        "audio_data",
+        "processed_audio",
+        "transcription",
+        "analysis",
+        "score",
+        "processed_url",
+        "keywords_of_improvement",
+        "created_at",
+        "medicine",
+        "status",
+        "duration_seconds",
+        "company_id",
+        "track",
+        "history_block",
+        "updated_at"
+      ],
+      "allowedOps": {
+        "filters": {
+          "id": ["eq", "in"],
+          "recorded_by": ["eq", "like"],
+          "status": ["eq", "in"],
+          "company_id": ["eq"],
+          "created_at": ["gte", "lte", "between"]
+        },
+        "ops": ["get", "post", "put", "delete"]
+      }
+    },
+    {
+      "name": "companies",
+      "endpoint": "/api/query/v1/base_resource",
+      "fields": ["id", "name", "slug", "status", "created_at"],
+      "allowedOps": {
+        "filters": {
+          "id": ["eq", "in"],
+          "slug": ["eq"],
+          "status": ["eq", "in"]
+        },
+        "ops": ["get", "post", "put"]
+      }
+    },
+    {
+      "name": "apps",
+      "endpoint": "/api/query/v1/base_resource",
+      "fields": ["id", "name", "slug", "company_id", "status", "created_at"],
+      "allowedOps": {
+        "filters": {
+          "id": ["eq", "in"],
+          "company_id": ["eq"],
+          "slug": ["eq"]
+        },
+        "ops": ["get", "post", "put"]
+      }
+    },
+    {
+      "name": "roles",
+      "endpoint": "/api/query/v1/base_resource",
+      "fields": ["id", "name", "role_tag"],
+      "allowedOps": {
+        "filters": {
+          "id": ["eq", "in"],
+          "name": ["eq"]
+        },
+        "ops": ["get", "post", "put"]
+      }
+    },
+    {
+      "name": "teams",
+      "endpoint": "/api/query/v1/base_resource",
+      "fields": ["id", "name", "company_id"],
+      "allowedOps": {
+        "filters": {
+          "id": ["eq", "in"],
+          "company_id": ["eq"]
+        },
+        "ops": ["get", "post", "put"]
+      }
+    },
+    {
+      "name": "features",
+      "endpoint": "/api/query/v1/base_resource",
+      "fields": ["id", "name", "feature_tag", "type"],
+      "allowedOps": {
+        "filters": {
+          "id": ["eq", "in"],
+          "feature_tag": ["eq"],
+          "type": ["eq"]
+        },
+        "ops": ["get", "post", "put"]
+      }
+    },
+    {
+      "name": "features_capability",
+      "endpoint": "/api/query/v1/base_resource",
+      "fields": ["id", "feature_id", "capability_id"],
+      "allowedOps": {
+        "filters": {
+          "id": ["eq", "in"],
+          "feature_id": ["eq"],
+          "capability_id": ["eq"]
+        },
+        "ops": ["get", "post", "put", "delete"]
+      }
+    },
+    {
+      "name": "role_capability",
+      "endpoint": "/api/query/v1/base_resource",
+      "fields": ["id", "role_id", "capability_id"],
+      "allowedOps": {
+        "filters": {
+          "id": ["eq", "in"],
+          "role_id": ["eq"],
+          "capability_id": ["eq"]
+        },
+        "ops": ["get", "post", "put", "delete"]
+      }
+    },
+    {
+      "name": "company_documents",
+      "endpoint": "/api/query/v1/base_resource",
+      "fields": ["id", "company_id", "title", "file_url", "medicine", "created_at"],
+      "allowedOps": {
+        "filters": {
+          "id": ["eq", "in"],
+          "company_id": ["eq"]
+        },
+        "ops": ["get", "post", "put", "delete"]
+      }
+    },
+    {
+      "name": "team_documents",
+      "endpoint": "/api/query/v1/base_resource",
+      "fields": ["id", "team_id", "title", "file_url", "medicine", "created_at"],
+      "allowedOps": {
+        "filters": {
+          "id": ["eq", "in"],
+          "team_id": ["eq"]
+        },
+        "ops": ["get", "post", "put", "delete"]
+      }
+    },
+    {
+      "name": "wf_clients",
+      "endpoint": "/api/query/v1/wf_clients",
+      "fields": ["id", "name", "contact_person", "contact_email", "contact_phone", "address", "notes", "created_at"],
+      "allowedOps": {
+        "filters": {
+          "id": ["eq", "in"],
+          "name": ["eq", "like"]
+        },
+        "ops": ["get", "post", "put", "delete"]
+      }
+    },
+    {
+      "name": "wf_end_clients",
+      "endpoint": "/api/query/v1/wf_end_clients",
+      "fields": ["id", "client_id", "name", "project_location", "contact_person", "contact_email", "notes", "created_at"],
+      "allowedOps": {
+        "filters": {
+          "id": ["eq", "in"],
+          "client_id": ["eq"],
+          "name": ["eq", "like"]
+        },
+        "ops": ["get", "post", "put", "delete"]
+      }
+    },
+    {
+      "name": "wf_projects",
+      "endpoint": "/api/query/v1/wf_projects",
+      "fields": ["id", "client_id", "end_client_id", "name", "project_code", "description", "total_quantity_mt", "status", "start_date", "expected_end_date", "actual_end_date", "notes", "created_at"],
+      "allowedOps": {
+        "filters": {
+          "id": ["eq", "in"],
+          "client_id": ["eq"],
+          "end_client_id": ["eq"],
+          "status": ["eq", "in"],
+          "created_at": ["gte", "lte", "between"]
+        },
+        "ops": ["get", "post", "put", "delete"]
+      }
+    },
+    {
+      "name": "wf_workflow_types",
+      "endpoint": "/api/query/v1/wf_workflow_types",
+      "fields": ["id", "name", "description", "category", "display_order", "created_at"],
+      "allowedOps": {
+        "filters": {
+          "id": ["eq", "in"],
+          "category": ["eq"]
+        },
+        "ops": ["get", "post", "put", "delete"]
+      }
+    },
+    {
+      "name": "wf_workflow_templates",
+      "endpoint": "/api/query/v1/wf_workflow_templates",
+      "fields": ["id", "workflow_type_id", "name", "description", "standard_duration_hours", "checklist_json", "created_at"],
+      "allowedOps": {
+        "filters": {
+          "id": ["eq", "in"],
+          "workflow_type_id": ["eq"],
+          "name": ["eq", "like"]
+        },
+        "ops": ["get", "post", "put", "delete"]
+      }
+    },
+    {
+      "name": "wf_workflow_instances",
+      "endpoint": "/api/query/v1/wf_workflow_instances",
+      "fields": ["id", "project_id", "template_id", "assigned_employee_id", "assigned_machine_id", "piece_mark", "quantity", "unit", "status", "priority", "scheduled_start", "scheduled_end", "actual_start", "actual_end", "notes", "hold_reason", "created_at"],
+      "allowedOps": {
+        "filters": {
+          "id": ["eq", "in"],
+          "project_id": ["eq"],
+          "template_id": ["eq"],
+          "status": ["eq", "in"],
+          "priority": ["eq"],
+          "created_at": ["gte", "lte", "between"]
+        },
+        "ops": ["get", "post", "put", "delete"]
+      }
+    }
+  ]
+}

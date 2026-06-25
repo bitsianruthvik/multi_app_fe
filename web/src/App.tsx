@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import React from "react";
 import AddCapability from "../src/pages/admin/AddCapability";
 import AdminRegister from "../src/pages/auth/AdminRegister";

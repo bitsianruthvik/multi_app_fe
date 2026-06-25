@@ -38,7 +38,6 @@ body {
 }
 .card:hover {
   font-weight: 700;
-  color: #fff;
   text-decoration: none;
 }
 
@@ -61,37 +60,6 @@ body {
   gap: var(--space-lg);
 }
 
-/* Responsive design */
-@media (max-width: 768px) {
-  .app-header-inner {
-    padding: 10px 16px;
-    gap: 12px;
-  }
-  .brand-link {
-    font-size: 16px;
-  }
-  .user-pill {
-    padding: 6px 10px;
-    font-size: 12px;
-  }
-  .header-actions {
-    gap: 8px;
-  }
-}
-
-@media (max-width: 480px) {
-  .app-header-inner {
-    padding: 8px 12px;
-  }
-  .brand-link {
-    font-size: 14px;
-  }
-  .user-pill {
-    padding: 5px 8px;
-    font-size: 11px;
-  }
-}
-
 @media (min-width: 900px) {
   .grid.cols-3 {
     grid-template-columns: repeat(3, 1fr);
@@ -107,72 +75,6 @@ body {
 }
 .muted {
   color: var(--color-muted);
-}
-
-/* AppShell header / footer */
-.app-header {
-  background: linear-gradient(
-    90deg,
-    var(--color-primary),
-    var(--color-primary-600)
-  );
-  border-bottom: none;
-  position: sticky;
-  top: 0;
-  z-index: 1200;
-  color: white;
-  width: 100%;
-  left: 0;
-}
-.app-header a.brand-link {
-  color: #fff;
-}
-.app-header-inner {
-  width: 100%;
-  margin: 0;
-  padding: 10px 20px;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-.brand-link {
-  font-weight: 700;
-  color: #fff;
-  text-decoration: none;
-  font-size: 18px;
-}
-.nav-links {
-  margin-left: 12px;
-  display: flex;
-  gap: 12px;
-  align-items: center;
-}
-.nav-link {
-  color: rgba(255, 255, 255, 0.9);
-  text-decoration: none;
-  padding: 6px 8px;
-  border-radius: 8px;
-}
-.nav-link:hover {
-  color: #fff;
-  background: rgba(255, 255, 255, 0.06);
-}
-.header-actions {
-  margin-left: auto;
-  display: flex;
-  gap: 12px;
-  align-items: center;
-}
-.user-pill {
-  padding: 6px 10px;
-  background: rgba(255, 255, 255, 0.12);
-  border-radius: 999px;
-  color: #fff;
-}
-.btn.small {
-  padding: 6px 10px;
-  font-size: 14px;
-  border-radius: 8px;
 }
 
 .app-main {
@@ -208,7 +110,7 @@ body {
   align-items: center;
   justify-content: center;
   min-height: calc(100vh - 160px);
-  background: linear-gradient(180deg, #f7fbff 0%, #ffffff 50%);
+  background: linear-gradient(180deg, var(--color-brand-50) 0%, var(--color-surface) 50%);
   padding: var(--space-lg);
 }
 .select-card {
@@ -236,9 +138,6 @@ body {
   .app-container {
     padding: var(--space-md);
   }
-  .app-header-inner {
-    padding: 8px 12px;
-  }
   .card {
     padding: var(--space-md);
     border-radius: 12px;
@@ -250,7 +149,7 @@ body {
 
 /* Skeleton */
 .skeleton {
-  background: linear-gradient(90deg, #f0f0f0 25%, #e6e6e6 37%, #f0f0f0 63%);
+  background: linear-gradient(90deg, var(--color-gray-100) 25%, var(--color-gray-200) 37%, var(--color-gray-100) 63%);
   background-size: 400% 100%;
   animation: shimmer 1.4s linear infinite;
   border-radius: 8px;
@@ -273,7 +172,7 @@ body {
 .table td {
   padding: 12px;
   text-align: left;
-  border-bottom: 1px solid #eee;
+  border-bottom: 1px solid var(--color-border);
 }
 @media (max-width: 600px) {
   .table thead {
@@ -308,7 +207,7 @@ select {
   padding: 10px 12px;
   border-radius: 8px;
   border: 1px solid rgba(0, 0, 0, 0.08);
-  background: white;
+  background: var(--color-surface);
 }
 .input:focus,
 input:focus,

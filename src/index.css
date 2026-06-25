@@ -7,6 +7,16 @@
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  --sidebar-bg:            #1a2744;
+  --sidebar-text:          #e2e8f0;
+  --sidebar-text-muted:    #94a3b8;
+  --sidebar-border:        rgba(255, 255, 255, 0.08);
+  --sidebar-hover-bg:      rgba(255, 255, 255, 0.06);
+  --sidebar-active-bg:     rgba(255, 255, 255, 0.12);
+  --sidebar-active-border: #3b82f6;
+  --sidebar-active-text:   #ffffff;
+  --color-brand-500:       #3b82f6;
+  --color-brand-700:       #1d4ed8;
 }
 
 /* Defer colors and background to theme.css/global.css */
@@ -19,4 +29,9 @@ body {
 a {
   color: inherit;
   text-decoration: inherit;
+}
+
+.app-workflow_fab {
+  --color-brand-500: #059669;
+  --color-brand-700: #047857;
 }

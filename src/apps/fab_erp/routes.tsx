@@ -1,0 +1,62 @@
+import React, { lazy } from 'react';
+import { Navigate, useParams } from 'react-router-dom';
+import type { RouteObject } from 'react-router-dom';
+import { RequireAppAccess } from '@core/components/RequireAppAccess';
+
+const Home               = lazy(() => import('./pages/Home'));
+const Plants             = lazy(() => import('./pages/Plants'));
+const ResourceTypes      = lazy(() => import('./pages/ResourceTypes'));
+const ItemMetrics        = lazy(() => import('./pages/ItemMetrics'));
+const Constants          = lazy(() => import('./pages/Constants'));
+const ItemCatalog        = lazy(() => import('./pages/ItemCatalog'));
+const ItemCatalogDetail  = lazy(() => import('./pages/ItemCatalogDetail'));
+const ItemBatches        = lazy(() => import('./pages/ItemBatches'));
+const ShiftCalendars     = lazy(() => import('./pages/ShiftCalendars'));
+const GrnDetail          = lazy(() => import('./pages/GrnDetail'));
+const GrnEntry           = lazy(() => import('./pages/GrnEntry'));
+const SalesOrders        = lazy(() => import('./pages/SalesOrders'));
+const SalesOrderDetail   = lazy(() => import('./pages/SalesOrderDetail'));
+const Suppliers          = lazy(() => import('./pages/Suppliers'));
+const SupplierDetail     = lazy(() => import('./pages/SupplierDetail'));
+const RoutingPlans       = lazy(() => import('./pages/RoutingPlans'));
+const RoutingPlanBuilder = lazy(() => import('./pages/RoutingPlanBuilder'));
+const MrpRun             = lazy(() => import('./pages/MrpRun'));
+const SchedulerPage      = lazy(() => import('./pages/SchedulerPage'));
+const PlanningWorkbench  = lazy(() => import('./pages/PlanningWorkbench'));
+
+export function getFabErpRoutes(
+  ProtectedRoute: React.ComponentType<{ children: React.ReactNode }>,
+): RouteObject[] {
+  const wrap = (el: React.ReactElement) => (
+    <ProtectedRoute><RequireAppAccess>{el}</RequireAppAccess></ProtectedRoute>
+  );
+
+  function FabErpDashboardRedirect() {
+    const { company } = useParams<{ company: string }>();
+    return <Navigate to={`/${company}/fab_erp/resource-types`} replace />;
+  }
+
+  return [
+    { path: '/:company/fab_erp/dashboard',                   element: <FabErpDashboardRedirect /> },
+    { path: '/:company/fab_erp/home',                        element: wrap(<Home />) },
+    { path: '/:company/fab_erp/plants',                      element: wrap(<Plants />) },
+    { path: '/:company/fab_erp/resource-types',              element: wrap(<ResourceTypes />) },
+    { path: '/:company/fab_erp/item-metrics',                element: wrap(<ItemMetrics />) },
+    { path: '/:company/fab_erp/constants',                   element: wrap(<Constants />) },
+    { path: '/:company/fab_erp/item-catalog',                element: wrap(<ItemCatalog />) },
+    { path: '/:company/fab_erp/item-catalog/:itemId',        element: wrap(<ItemCatalogDetail />) },
+    { path: '/:company/fab_erp/item-batches',                element: wrap(<ItemBatches />) },
+    { path: '/:company/fab_erp/shift-calendars',             element: wrap(<ShiftCalendars />) },
+    { path: '/:company/fab_erp/grn-detail',                  element: wrap(<GrnDetail />) },
+    { path: '/:company/fab_erp/grn',                         element: wrap(<GrnEntry />) },
+    { path: '/:company/fab_erp/orders',                       element: wrap(<SalesOrders />) },
+    { path: '/:company/fab_erp/orders/:soId',                 element: wrap(<SalesOrderDetail />) },
+    { path: '/:company/fab_erp/suppliers',                   element: wrap(<Suppliers />) },
+    { path: '/:company/fab_erp/suppliers/:supplierId',       element: wrap(<SupplierDetail />) },
+    { path: '/:company/fab_erp/routing-plans',              element: wrap(<RoutingPlans />) },
+    { path: '/:company/fab_erp/routing-plans/:planId',      element: wrap(<RoutingPlanBuilder />) },
+    { path: '/:company/fab_erp/mrp',                        element: wrap(<MrpRun />) },
+    { path: '/:company/fab_erp/scheduler',                  element: wrap(<SchedulerPage />) },
+    { path: '/:company/fab_erp/workbench',                  element: wrap(<PlanningWorkbench />) },
+  ];
+}

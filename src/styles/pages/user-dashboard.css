@@ -1,12 +1,8 @@
 @import "../theme.css";
-.user-dashboard .page-title {
-  color: var(--color-primary);
-}
-.user-dashboard .card {
-  padding: var(--space-md);
-}
-@media (max-width: 600px) {
-  .user-dashboard {
-    padding: var(--space-lg);
-  }
-}
+
+/*
+ * user-dashboard.css
+ * Dashboard.tsx uses MUI sx props exclusively — no CSS class selectors are
+ * applied by the component. This file is kept for legacy reference only.
+ * Hardcoded color rules removed; MUI theme tokens handle all styling.
+ */

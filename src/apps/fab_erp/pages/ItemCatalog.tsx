@@ -1,0 +1,1893 @@
+/**
+ * ItemCatalog — company-wide parts / materials library.
+ * Items defined here can be picked when building a project BOM.
+ *
+ * Page tabs: Items | Category | Group | Sub-group
+ * Clicking any taxonomy row opens TaxonomyDetailDialog (description + custom fields).
+ */
+
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
+import {
+  Alert,
+  Box,
+  Button,
+  Chip,
+  CircularProgress,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  Divider,
+  IconButton,
+  InputAdornment,
+  List,
+  ListItem,
+  ListItemText,
+  MenuItem,
+  Paper,
+  Select,
+  Snackbar,
+  Tab,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableRow,
+  Tabs,
+  TextField,
+  Tooltip,
+  Typography,
+} from '@mui/material';
+import AddIcon         from '@mui/icons-material/Add';
+import DeleteIcon      from '@mui/icons-material/Delete';
+import SearchIcon      from '@mui/icons-material/Search';
+import Inventory2Icon  from '@mui/icons-material/Inventory2';
+import ListAltIcon     from '@mui/icons-material/ListAlt';
+import EditIcon        from '@mui/icons-material/Edit';
+import OpenInNewIcon   from '@mui/icons-material/OpenInNew';
+import DownloadIcon    from '@mui/icons-material/Download';
+import UploadFileIcon  from '@mui/icons-material/UploadFile';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+
+import { fabQuery, fabMutate } from '../api/client';
+import type {
+  FabItemCatalog, FabItemCategory, FabItemGroup, FabItemSubgroup, FabCustomField,
+} from '../types';
+import { usePermission } from '@core/hooks/usePermission';
+import InfoTooltip, { type InfoContent } from '@shared/components/InfoTooltip';
+import api, { API_HOST } from '@core/utils/axiosConfig';
+
+// ─── INFO TOOLTIP CONTENT ─────────────────────────────────────────────────────
+// INFO_TOOLTIP — update this block whenever features on this page change.
+// Each constant below maps to one of the four tabs. Keep the bullets in sync
+// with what the UI actually does so hover help stays accurate for users.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const INFO_ITEMS: InfoContent = [
+  {
+    heading: 'What it is',
+    items: [
+      'Company-wide parts & materials library — every item that can appear in a BOM or order lives here.',
+    ],
+  },
+  {
+    heading: 'How to use',
+    items: [
+      'Add Item — click the button, fill in Name, Code (auto-generated), and Unit of measure.',
+      'Code is unique per company; it is auto-derived from the name but you can override it.',
+      'Assign a Category / Group / Sub-group to keep items organised — you can create new taxonomy entries inline.',
+      'Click any row to open the full detail view: BOM, stock levels, and custom metrics.',
+      'Export Template — downloads a fill-in Excel sheet with Category/Group/Sub-group columns plus a reference of existing taxonomy names.',
+      'Import Items — upload the filled template; any Category/Group/Sub-group name that does not exist yet is created automatically, preserving the parent relationship from the row.',
+    ],
+  },
+];
+
+const INFO_CATEGORY: InfoContent = [
+  {
+    heading: 'What it is',
+    items: [
+      'Top-level classification for items (e.g. Raw Material, Assembly, Packing Material).',
+    ],
+  },
+  {
+    heading: 'How to use',
+    items: [
+      'Create a category, then assign items to it from the Items tab or the item form.',
+      'Custom fields defined on a category are inherited by all items in that category.',
+      'Click a row to edit the description and manage inherited custom fields.',
+    ],
+  },
+];
+
+const INFO_GROUP: InfoContent = [
+  {
+    heading: 'What it is',
+    items: [
+      'Sub-division within a Category (e.g. Structural Steel inside Raw Material).',
+    ],
+  },
+  {
+    heading: 'How to use',
+    items: [
+      'A Group must belong to one Category.',
+      'Custom fields on a Group override the Category\'s fields for items in this Group.',
+      'Click a row to edit and manage its custom fields.',
+    ],
+  },
+];
+
+const INFO_SUBGROUP: InfoContent = [
+  {
+    heading: 'What it is',
+    items: ['Finest level of item taxonomy — sits inside a Group.'],
+  },
+  {
+    heading: 'How to use',
+    items: [
+      'A Sub-group belongs to one Group.',
+      'Custom fields are inherited from both Group and Category; you can override at any level.',
+      'Items assigned to a Sub-group automatically inherit all ancestor custom fields.',
+    ],
+  },
+];
+
+// ── Types ─────────────────────────────────────────────────────────────────────
+
+interface ItemDraft {
+  name: string; code: string; unit: string; description: string;
+  categoryId: number | null; groupId: number | null; subgroupId: number | null;
+  grossWeight: string; netWeight: string; weightUnit: string;
+  volume: string; volumeUnit: string;
+  length: string; width: string; height: string; dimensionUnit: string;
+  barcode: string; hsnCode: string; division: string;
+}
+
+const BLANK_ITEM = (): ItemDraft => ({
+  name: '', code: '', unit: 'pcs', description: '',
+  categoryId: null, groupId: null, subgroupId: null,
+  grossWeight: '', netWeight: '', weightUnit: 'kg',
+  volume: '', volumeUnit: 'm3',
+  length: '', width: '', height: '', dimensionUnit: 'mm',
+  barcode: '', hsnCode: '', division: '',
+});
+
+const ADD_NEW = '__add_new__';
+
+interface CustomFieldDraft {
+  id: number;
+  fieldKey: string;
+  fieldType: 'text' | 'number' | 'date' | 'dropdown';
+  fieldValue: string;
+}
+
+interface ImportItemsResult {
+  itemsCreated: number;
+  itemsSkipped: number;
+  categoriesCreated: number;
+  groupsCreated: number;
+  subgroupsCreated: number;
+  warnings: { row: number; message: string }[];
+}
+
+interface InheritedField {
+  fieldKey: string;
+  fieldType: string;
+  fieldValue: string | null;
+  source: 'category' | 'group' | 'subgroup';
+}
+
+// Auto-generate a code slug from a name
+function autoCode(name: string): string {
+  const c = name.trim().toUpperCase()
+    .replace(/[^A-Z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 20);
+  return c || 'CODE';
+}
+
+// ── TaxonomyAddForm (used inline inside CatalogDialog) ────────────────────────
+
+interface TaxonomyAddFormProps {
+  level: 'category' | 'group' | 'subgroup';
+  categories: FabItemCategory[];
+  groups: FabItemGroup[];
+  defaultCategoryId?: number | null;
+  defaultGroupId?: number | null;
+  onCancel: () => void;
+  onCreated: (id: number) => void;
+}
+
+function TaxonomyAddForm({
+  level, categories, groups, defaultCategoryId, defaultGroupId, onCancel, onCreated,
+}: TaxonomyAddFormProps) {
+  const [name, setName]               = useState('');
+  const [code, setCode]               = useState('');
+  const [description, setDescription] = useState('');
+  const [categoryId, setCategoryId]   = useState<number | ''>(defaultCategoryId ?? '');
+  const [groupId, setGroupId]         = useState<number | ''>(defaultGroupId ?? '');
+  const [saving, setSaving]           = useState(false);
+  const [err, setErr]                 = useState('');
+
+  const groupOptions = level === 'subgroup'
+    ? groups.filter((g) => !categoryId || g.categoryId === categoryId)
+    : groups;
+
+  // Auto-generate code from name
+  useEffect(() => { setCode(autoCode(name)); }, [name]);
+
+  async function handleSave() {
+    if (!name.trim()) { setErr('Name is required.'); return; }
+    if (level === 'group'    && !categoryId) { setErr('Category is required.'); return; }
+    if (level === 'subgroup' && !groupId)    { setErr('Group is required.'); return; }
+    setSaving(true); setErr('');
+    try {
+      const payload: Record<string, unknown> = {
+        name: name.trim(), code: (code.trim() || autoCode(name)).toUpperCase(),
+        description: description.trim() || null,
+      };
+      let resource = 'fabErpItemCategory';
+      if (level === 'group')    { resource = 'fabErpItemGroup';    payload.category_id = categoryId; }
+      if (level === 'subgroup') { resource = 'fabErpItemSubgroup'; payload.group_id    = groupId; }
+      const res = await fabMutate<{ ok: boolean; id: number }>(resource, 'insert', payload);
+      onCreated(res.id);
+    } catch (e: any) {
+      setErr(e.response?.data?.message ?? e.message);
+    } finally { setSaving(false); }
+  }
+
+  return (
+    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, p: 2, border: '1px dashed', borderColor: 'divider', borderRadius: 1, mt: 1 }}>
+      {err && <Alert severity="error" sx={{ py: 0 }}>{err}</Alert>}
+      {level === 'group' && (
+        <Select size="small" displayEmpty value={categoryId}
+          onChange={(e) => setCategoryId(e.target.value as number | '')}>
+          <MenuItem value="" disabled><em>Select category…</em></MenuItem>
+          {categories.map((c) => <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>)}
+        </Select>
+      )}
+      {level === 'subgroup' && (
+        <>
+          <Select size="small" displayEmpty value={categoryId}
+            onChange={(e) => { setCategoryId(e.target.value as number | ''); setGroupId(''); }}>
+            <MenuItem value=""><em>Filter by category (optional)…</em></MenuItem>
+            {categories.map((c) => <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>)}
+          </Select>
+          <Select size="small" displayEmpty value={groupId}
+            onChange={(e) => setGroupId(e.target.value as number | '')}>
+            <MenuItem value="" disabled><em>Select group…</em></MenuItem>
+            {groupOptions.map((g) => <MenuItem key={g.id} value={g.id}>{g.name}</MenuItem>)}
+          </Select>
+        </>
+      )}
+      <Box sx={{ display: 'flex', gap: 1.5 }}>
+        <TextField label="Name" value={name} size="small" sx={{ flex: 2 }} autoFocus
+          onChange={(e) => setName(e.target.value)} />
+        <TextField label="Code" value={code} size="small" sx={{ flex: 1 }}
+          onChange={(e) => setCode(e.target.value)} />
+      </Box>
+      <TextField label="Description (optional)" value={description} size="small" fullWidth multiline minRows={1}
+        onChange={(e) => setDescription(e.target.value)} />
+      <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1 }}>
+        <Button size="small" onClick={onCancel}>Cancel</Button>
+        <Button size="small" variant="contained" onClick={handleSave} disabled={saving}>
+          {saving ? <CircularProgress size={14} /> : 'Add'}
+        </Button>
+      </Box>
+    </Box>
+  );
+}
+
+// ── AddTaxonomyDialog (standalone modal for tab Add buttons) ──────────────────
+
+function AddTaxonomyDialog({ open, level, categories, groups, onClose, onCreated }: {
+  open: boolean;
+  level: 'category' | 'group' | 'subgroup';
+  categories: FabItemCategory[];
+  groups: FabItemGroup[];
+  onClose: () => void;
+  onCreated: () => Promise<void>;
+}) {
+  const [name, setName]               = useState('');
+  const [code, setCode]               = useState('');
+  const [description, setDescription] = useState('');
+  const [categoryId, setCategoryId]   = useState<number | ''>('');
+  const [groupId, setGroupId]         = useState<number | ''>('');
+  const [customFields, setCustomFields] = useState<CustomFieldDraft[]>([]);
+  const [saving, setSaving]           = useState(false);
+  const [err, setErr]                 = useState('');
+
+  useEffect(() => {
+    if (!open) return;
+    setName(''); setCode(''); setDescription('');
+    setCategoryId(''); setGroupId('');
+    setCustomFields([]); setErr('');
+  }, [open]);
+
+  // Auto-generate code from name
+  useEffect(() => { setCode(autoCode(name)); }, [name]);
+
+  const availableGroups = groups.filter((g) => !categoryId || g.categoryId === categoryId);
+  const levelLabel = level === 'category' ? 'Category' : level === 'group' ? 'Group' : 'Sub-group';
+
+  function addCf() {
+    if (customFields.length >= 10) return;
+    setCustomFields((d) => [...d, { id: -(Date.now()), fieldKey: '', fieldType: 'text', fieldValue: '' }]);
+  }
+  function updateCf(i: number, k: keyof CustomFieldDraft, v: string) {
+    setCustomFields((d) => d.map((r, j) => j === i ? { ...r, [k]: v } : r));
+  }
+
+  async function handleSave() {
+    if (!name.trim()) { setErr('Name is required.'); return; }
+    if (level === 'group'    && !categoryId) { setErr('Category is required.'); return; }
+    if (level === 'subgroup' && !groupId)    { setErr('Group is required.'); return; }
+    setSaving(true); setErr('');
+    try {
+      const finalCode = (code.trim() || autoCode(name)).toUpperCase();
+      const payload: Record<string, unknown> = {
+        name: name.trim(), code: finalCode,
+        description: description.trim() || null,
+      };
+      let resource = 'fabErpItemCategory';
+      if (level === 'group')    { resource = 'fabErpItemGroup';    payload.category_id = categoryId; }
+      if (level === 'subgroup') { resource = 'fabErpItemSubgroup'; payload.group_id    = groupId; }
+
+      const res = await fabMutate<{ ok: boolean; id: number }>(resource, 'insert', payload);
+
+      for (let i = 0; i < customFields.length; i++) {
+        const cf = customFields[i];
+        if (!cf.fieldKey.trim()) continue;
+        await fabMutate('fabErpCustomField', 'insert', {
+          level, level_id: res.id,
+          field_key: cf.fieldKey.trim(), field_type: cf.fieldType,
+          field_value: cf.fieldValue.trim() || null, sort_order: i,
+        });
+      }
+
+      await onCreated();
+    } catch (e: any) {
+      setErr(e.response?.data?.message ?? e.message);
+    } finally { setSaving(false); }
+  }
+
+  return (
+    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
+      <DialogTitle>Add {levelLabel}</DialogTitle>
+      <DialogContent dividers sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
+        {err && <Alert severity="error">{err}</Alert>}
+
+        {level === 'group' && (
+          <Box>
+            <Typography variant="caption" color="text.secondary">Category *</Typography>
+            <Select fullWidth size="small" displayEmpty value={categoryId}
+              onChange={(e) => setCategoryId(e.target.value as number | '')}>
+              <MenuItem value="" disabled><em>Select category…</em></MenuItem>
+              {categories.map((c) => <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>)}
+            </Select>
+          </Box>
+        )}
+
+        {level === 'subgroup' && (
+          <>
+            <Box>
+              <Typography variant="caption" color="text.secondary">Category (filter)</Typography>
+              <Select fullWidth size="small" displayEmpty value={categoryId}
+                onChange={(e) => { setCategoryId(e.target.value as number | ''); setGroupId(''); }}>
+                <MenuItem value=""><em>All categories</em></MenuItem>
+                {categories.map((c) => <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>)}
+              </Select>
+            </Box>
+            <Box>
+              <Typography variant="caption" color="text.secondary">Group *</Typography>
+              <Select fullWidth size="small" displayEmpty value={groupId}
+                onChange={(e) => setGroupId(e.target.value as number | '')}>
+                <MenuItem value="" disabled><em>Select group…</em></MenuItem>
+                {availableGroups.map((g) => <MenuItem key={g.id} value={g.id}>{g.name}</MenuItem>)}
+              </Select>
+            </Box>
+          </>
+        )}
+
+        <TextField label={`${levelLabel} Name *`} value={name} size="small" fullWidth autoFocus
+          onChange={(e) => setName(e.target.value)} />
+        <TextField label="Code (auto-generated, editable)" value={code} size="small" fullWidth
+          helperText="Unique identifier — auto-populated from name."
+          onChange={(e) => setCode(e.target.value.toUpperCase())} />
+        <TextField label="Description" value={description} size="small" fullWidth multiline minRows={2}
+          onChange={(e) => setDescription(e.target.value)} />
+
+        <Divider />
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Typography variant="subtitle2">Custom Fields ({customFields.length}/10)</Typography>
+          <Button size="small" startIcon={<AddIcon />} disabled={customFields.length >= 10} onClick={addCf}>
+            Add Field
+          </Button>
+        </Box>
+
+        {customFields.length === 0 ? (
+          <Typography variant="caption" color="text.secondary">No custom fields yet.</Typography>
+        ) : (
+          <Table size="small">
+            <TableHead>
+              <TableRow sx={{ bgcolor: 'action.hover' }}>
+                <TableCell sx={{ fontWeight: 700 }}>Field Name</TableCell>
+                <TableCell sx={{ fontWeight: 700, width: 120 }}>Type</TableCell>
+                <TableCell sx={{ fontWeight: 700 }}>Default Value</TableCell>
+                <TableCell sx={{ width: 48 }} />
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {customFields.map((cf, i) => (
+                <TableRow key={cf.id}>
+                  <TableCell sx={{ py: 0.5 }}>
+                    <TextField size="small" fullWidth value={cf.fieldKey} placeholder="e.g. Material Grade"
+                      onChange={(e) => updateCf(i, 'fieldKey', e.target.value)} />
+                  </TableCell>
+                  <TableCell sx={{ py: 0.5 }}>
+                    <TextField select size="small" fullWidth value={cf.fieldType}
+                      onChange={(e) => updateCf(i, 'fieldType', e.target.value)}>
+                      <MenuItem value="text">Text</MenuItem>
+                      <MenuItem value="number">Number</MenuItem>
+                      <MenuItem value="date">Date</MenuItem>
+                      <MenuItem value="dropdown">Dropdown</MenuItem>
+                    </TextField>
+                  </TableCell>
+                  <TableCell sx={{ py: 0.5 }}>
+                    <TextField size="small" fullWidth value={cf.fieldValue}
+                      placeholder={cf.fieldType === 'dropdown' ? 'Option1, Option2, …' : 'Default value…'}
+                      onChange={(e) => updateCf(i, 'fieldValue', e.target.value)} />
+                  </TableCell>
+                  <TableCell sx={{ py: 0.5 }}>
+                    <IconButton size="small" color="error"
+                      onClick={() => setCustomFields((d) => d.filter((_, j) => j !== i))}>
+                      <DeleteIcon fontSize="small" />
+                    </IconButton>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose}>Cancel</Button>
+        <Button variant="contained" onClick={handleSave} disabled={saving}>
+          {saving ? <CircularProgress size={16} /> : `Add ${levelLabel}`}
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
+
+// ── TaxonomyDeleteDialog (cascade delete confirmation) ─────────────────────────
+
+function TaxonomyDeleteDialog({ open, type, entity, groups, subgroups, onClose, onDeleted, setToast }: {
+  open: boolean;
+  type: 'category' | 'group' | 'subgroup' | null;
+  entity: FabItemCategory | FabItemGroup | FabItemSubgroup | null;
+  groups: FabItemGroup[];
+  subgroups: FabItemSubgroup[];
+  onClose: () => void;
+  onDeleted: () => Promise<void>;
+  setToast: (msg: string) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+
+  if (!entity || !type) return null;
+
+  const affectedGroups = type === 'category'
+    ? groups.filter((g) => g.categoryId === entity.id)
+    : [];
+  const affectedGroupIds = new Set(affectedGroups.map((g) => g.id));
+
+  const affectedSubgroups = type === 'category'
+    ? subgroups.filter((s) => affectedGroupIds.has(s.groupId))
+    : type === 'group'
+    ? subgroups.filter((s) => s.groupId === entity.id)
+    : [];
+
+  const levelLabel = type === 'category' ? 'Category' : type === 'group' ? 'Group' : 'Sub-group';
+
+  async function handleDelete() {
+    if (!entity || !type) return;
+    setBusy(true);
+    try {
+      // Cascade: subgroups first, then groups, then the entity
+      for (const s of affectedSubgroups) {
+        await fabMutate('fabErpItemSubgroup', 'delete', { id: s.id });
+      }
+      for (const g of affectedGroups) {
+        await fabMutate('fabErpItemGroup', 'delete', { id: g.id });
+      }
+      const resource = type === 'category' ? 'fabErpItemCategory'
+                     : type === 'group'    ? 'fabErpItemGroup'
+                                           : 'fabErpItemSubgroup';
+      await fabMutate(resource, 'delete', { id: entity.id });
+      setToast('Deleted.');
+      await onDeleted();
+    } catch (e: any) {
+      setToast(e.response?.data?.message ?? e.message);
+      onClose();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>
+      <DialogTitle>Delete {levelLabel}?</DialogTitle>
+      <DialogContent>
+        <Typography>
+          Are you sure you want to delete <strong>{entity.name}</strong>?
+        </Typography>
+        {(affectedGroups.length > 0 || affectedSubgroups.length > 0) && (
+          <Alert severity="warning" sx={{ mt: 2 }}>
+            <Typography variant="body2" fontWeight={600} gutterBottom>
+              The following will also be permanently deleted:
+            </Typography>
+            <Box component="ul" sx={{ m: 0, pl: 2 }}>
+              {affectedGroups.length > 0 && (
+                <li>
+                  <Typography variant="body2">
+                    {affectedGroups.length} group{affectedGroups.length !== 1 ? 's' : ''}: {affectedGroups.map((g) => g.name).join(', ')}
+                  </Typography>
+                </li>
+              )}
+              {affectedSubgroups.length > 0 && (
+                <li>
+                  <Typography variant="body2">
+                    {affectedSubgroups.length} sub-group{affectedSubgroups.length !== 1 ? 's' : ''}: {affectedSubgroups.map((s) => s.name).join(', ')}
+                  </Typography>
+                </li>
+              )}
+            </Box>
+          </Alert>
+        )}
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose} disabled={busy}>Cancel</Button>
+        <Button color="error" variant="contained" onClick={handleDelete} disabled={busy}>
+          {busy ? <CircularProgress size={16} /> : 'Delete'}
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
+
+// ── CatalogDialog (add/edit catalog item) ─────────────────────────────────────
+
+function CatalogDialog({ open, initial, categories, groups, subgroups, canManageTaxonomy, onClose, onSaved, refetchTaxonomy }: {
+  open: boolean; initial: FabItemCatalog | null;
+  categories: FabItemCategory[]; groups: FabItemGroup[]; subgroups: FabItemSubgroup[];
+  canManageTaxonomy: boolean; onClose: () => void; onSaved: () => void;
+  refetchTaxonomy: () => Promise<void>;
+}) {
+  const isNew = !initial;
+  const [draft,  setDraft]  = useState<ItemDraft>(BLANK_ITEM());
+  const [saving, setSaving] = useState(false);
+  const [err,    setErr]    = useState('');
+  const [addingLevel, setAddingLevel] = useState<'category' | 'group' | 'subgroup' | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    setDraft(initial ? {
+      name: initial.name, code: initial.code, unit: initial.unit ?? 'pcs',
+      description: initial.description ?? '', categoryId: initial.categoryId ?? null,
+      groupId: initial.groupId ?? null, subgroupId: initial.subgroupId ?? null,
+      grossWeight: initial.grossWeight != null ? String(initial.grossWeight) : '',
+      netWeight:   initial.netWeight   != null ? String(initial.netWeight)   : '',
+      weightUnit:  initial.weightUnit  ?? 'kg',
+      volume:      initial.volume      != null ? String(initial.volume)      : '',
+      volumeUnit:  initial.volumeUnit  ?? 'm3',
+      length:      initial.length      != null ? String(initial.length)      : '',
+      width:       initial.width       != null ? String(initial.width)       : '',
+      height:      initial.height      != null ? String(initial.height)      : '',
+      dimensionUnit: initial.dimensionUnit ?? 'mm',
+      barcode:     initial.barcode  ?? '', hsnCode: initial.hsnCode  ?? '',
+      division:    initial.division ?? '',
+    } : BLANK_ITEM());
+    setErr(''); setAddingLevel(null);
+  }, [open, initial]);
+
+  const set = (k: keyof ItemDraft, v: string) => setDraft((d) => ({ ...d, [k]: v }));
+  const availableGroups    = groups.filter((g) => !draft.categoryId || g.categoryId === draft.categoryId);
+  const availableSubgroups = subgroups.filter((s) => !draft.groupId || s.groupId === draft.groupId);
+
+  function onCategoryChange(value: string) {
+    if (value === ADD_NEW) { setAddingLevel('category'); return; }
+    const categoryId = value === '' ? null : Number(value);
+    setDraft((d) => {
+      const groupOk = d.groupId != null && groups.some((g) => g.id === d.groupId && g.categoryId === categoryId);
+      return { ...d, categoryId, groupId: groupOk ? d.groupId : null, subgroupId: groupOk ? d.subgroupId : null };
+    });
+  }
+  function onGroupChange(value: string) {
+    if (value === ADD_NEW) { setAddingLevel('group'); return; }
+    const groupId = value === '' ? null : Number(value);
+    setDraft((d) => {
+      const sgOk = d.subgroupId != null && subgroups.some((s) => s.id === d.subgroupId && s.groupId === groupId);
+      return { ...d, groupId, subgroupId: sgOk ? d.subgroupId : null };
+    });
+  }
+  function onSubgroupChange(value: string) {
+    if (value === ADD_NEW) { setAddingLevel('subgroup'); return; }
+    setDraft((d) => ({ ...d, subgroupId: value === '' ? null : Number(value) }));
+  }
+  async function handleTaxonomyCreated(level: 'category' | 'group' | 'subgroup', id: number) {
+    await refetchTaxonomy(); setAddingLevel(null);
+    if (level === 'category') setDraft((d) => ({ ...d, categoryId: id, groupId: null, subgroupId: null }));
+    if (level === 'group')    setDraft((d) => ({ ...d, groupId: id, subgroupId: null }));
+    if (level === 'subgroup') setDraft((d) => ({ ...d, subgroupId: id }));
+  }
+  const pn = (v: string) => v.trim() === '' ? null : Number(v);
+  async function save() {
+    if (!draft.name.trim() || !draft.code.trim()) { setErr('Name and Code are required.'); return; }
+    setSaving(true); setErr('');
+    try {
+      const payload = {
+        name: draft.name.trim(), code: draft.code.trim().toUpperCase(),
+        unit: draft.unit.trim() || 'pcs', description: draft.description.trim() || null,
+        category_id: draft.categoryId, group_id: draft.groupId, subgroup_id: draft.subgroupId,
+        gross_weight: pn(draft.grossWeight), net_weight: pn(draft.netWeight), weight_unit: draft.weightUnit || 'kg',
+        volume: pn(draft.volume), volume_unit: draft.volumeUnit || 'm3',
+        length: pn(draft.length), width: pn(draft.width), height: pn(draft.height),
+        dimension_unit: draft.dimensionUnit || 'mm',
+        barcode: draft.barcode.trim() || null, hsn_code: draft.hsnCode.trim() || null,
+        division: draft.division.trim() || null,
+      };
+      if (isNew) await fabMutate('fabErpItemCatalog', 'insert', payload);
+      else        await fabMutate('fabErpItemCatalog', 'update', { id: initial!.id, ...payload });
+      onSaved();
+    } catch (e: any) { setErr(e.response?.data?.message ?? e.message); }
+    finally { setSaving(false); }
+  }
+
+  return (
+    <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
+      <DialogTitle>{isNew ? 'Add Catalog Item' : `Edit — ${initial?.name}`}</DialogTitle>
+      <DialogContent dividers sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
+        {err && <Alert severity="error">{err}</Alert>}
+        <Box sx={{ display: 'flex', gap: 2 }}>
+          <TextField label="Item Name" value={draft.name} size="small" required autoFocus sx={{ flex: 3 }}
+            onChange={(e) => set('name', e.target.value)} />
+          <TextField label="Code" value={draft.code} size="small" required sx={{ flex: 1 }}
+            onChange={(e) => set('code', e.target.value)} />
+          <TextField label="Unit" value={draft.unit} size="small" sx={{ flex: 1 }} placeholder="pcs"
+            onChange={(e) => set('unit', e.target.value)} />
+        </Box>
+        <TextField label="Description (optional)" value={draft.description} size="small" fullWidth multiline minRows={2}
+          onChange={(e) => set('description', e.target.value)} />
+        <Box sx={{ display: 'flex', gap: 2 }}>
+          <Box sx={{ flex: 1 }}>
+            <Typography variant="caption" color="text.secondary">Category</Typography>
+            <Select fullWidth size="small" displayEmpty value={draft.categoryId ?? ''}
+              onChange={(e) => onCategoryChange(String(e.target.value))}>
+              <MenuItem value="">None</MenuItem>
+              {categories.map((c) => <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>)}
+              {canManageTaxonomy && <MenuItem value={ADD_NEW}><em>+ Add new…</em></MenuItem>}
+            </Select>
+          </Box>
+          <Box sx={{ flex: 1 }}>
+            <Typography variant="caption" color="text.secondary">Group</Typography>
+            <Select fullWidth size="small" displayEmpty value={draft.groupId ?? ''}
+              onChange={(e) => onGroupChange(String(e.target.value))}>
+              <MenuItem value="">None</MenuItem>
+              {availableGroups.map((g) => <MenuItem key={g.id} value={g.id}>{g.name}</MenuItem>)}
+              {canManageTaxonomy && <MenuItem value={ADD_NEW}><em>+ Add new…</em></MenuItem>}
+            </Select>
+          </Box>
+          <Box sx={{ flex: 1 }}>
+            <Typography variant="caption" color="text.secondary">Sub-group</Typography>
+            <Select fullWidth size="small" displayEmpty value={draft.subgroupId ?? ''}
+              onChange={(e) => onSubgroupChange(String(e.target.value))}>
+              <MenuItem value="">None</MenuItem>
+              {availableSubgroups.map((s) => <MenuItem key={s.id} value={s.id}>{s.name}</MenuItem>)}
+              {canManageTaxonomy && <MenuItem value={ADD_NEW}><em>+ Add new…</em></MenuItem>}
+            </Select>
+          </Box>
+        </Box>
+        <Typography variant="subtitle2" color="text.secondary" sx={{ mt: 1 }}>Basic Data</Typography>
+        <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+          <TextField label="Gross Weight" value={draft.grossWeight} size="small" type="number" sx={{ flex: '1 1 120px' }} onChange={(e) => set('grossWeight', e.target.value)} />
+          <TextField label="Net Weight"   value={draft.netWeight}   size="small" type="number" sx={{ flex: '1 1 120px' }} onChange={(e) => set('netWeight',   e.target.value)} />
+          <TextField label="Weight Unit"  value={draft.weightUnit}  size="small" sx={{ flex: '0 1 80px' }} placeholder="kg" onChange={(e) => set('weightUnit', e.target.value)} />
+          <TextField label="Volume"       value={draft.volume}      size="small" type="number" sx={{ flex: '1 1 120px' }} onChange={(e) => set('volume',      e.target.value)} />
+          <TextField label="Volume Unit"  value={draft.volumeUnit}  size="small" sx={{ flex: '0 1 80px' }} placeholder="m3" onChange={(e) => set('volumeUnit', e.target.value)} />
+        </Box>
+        <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+          <TextField label="Length"             value={draft.length}        size="small" type="number" sx={{ flex: '1 1 120px' }} onChange={(e) => set('length',        e.target.value)} />
+          <TextField label="Width"              value={draft.width}         size="small" type="number" sx={{ flex: '1 1 120px' }} onChange={(e) => set('width',         e.target.value)} />
+          <TextField label="Height / Thickness" value={draft.height}        size="small" type="number" sx={{ flex: '1 1 120px' }} onChange={(e) => set('height',        e.target.value)} />
+          <TextField label="Dimension Unit"     value={draft.dimensionUnit} size="small" sx={{ flex: '0 1 80px' }} placeholder="mm" onChange={(e) => set('dimensionUnit', e.target.value)} />
+        </Box>
+        <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+          <TextField label="Barcode / EAN" value={draft.barcode}  size="small" sx={{ flex: '1 1 160px' }} onChange={(e) => set('barcode',  e.target.value)} />
+          <TextField label="HSN Code"      value={draft.hsnCode}  size="small" sx={{ flex: '1 1 120px' }} onChange={(e) => set('hsnCode',  e.target.value)} />
+          <TextField label="Division"      value={draft.division} size="small" sx={{ flex: '1 1 120px' }} onChange={(e) => set('division', e.target.value)} />
+        </Box>
+        {addingLevel === 'category' && (
+          <TaxonomyAddForm level="category" categories={categories} groups={groups}
+            onCancel={() => setAddingLevel(null)} onCreated={(id) => handleTaxonomyCreated('category', id)} />
+        )}
+        {addingLevel === 'group' && (
+          <TaxonomyAddForm level="group" categories={categories} groups={groups}
+            defaultCategoryId={draft.categoryId}
+            onCancel={() => setAddingLevel(null)} onCreated={(id) => handleTaxonomyCreated('group', id)} />
+        )}
+        {addingLevel === 'subgroup' && (
+          <TaxonomyAddForm level="subgroup" categories={categories} groups={groups}
+            defaultCategoryId={draft.categoryId} defaultGroupId={draft.groupId}
+            onCancel={() => setAddingLevel(null)} onCreated={(id) => handleTaxonomyCreated('subgroup', id)} />
+        )}
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose}>Cancel</Button>
+        <Button variant="contained" onClick={save} disabled={saving || !draft.name.trim() || !draft.code.trim()}>
+          {saving ? <CircularProgress size={16} /> : 'Save'}
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
+
+// ── DeleteDialog (catalog items) ──────────────────────────────────────────────
+
+function DeleteDialog({ item, onClose, onDeleted }: {
+  item: FabItemCatalog | null; onClose: () => void; onDeleted: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  async function confirm() {
+    if (!item) return;
+    setBusy(true);
+    try { await fabMutate('fabErpItemCatalog', 'delete', { id: item.id }); onDeleted(); }
+    catch { /* ignore */ } finally { setBusy(false); }
+  }
+  return (
+    <Dialog open={!!item} onClose={onClose} maxWidth="xs" fullWidth>
+      <DialogTitle>Remove from Catalog</DialogTitle>
+      <DialogContent>
+        <Typography>
+          Remove <strong>{item?.name}</strong> from the catalog?
+          Existing BOM entries that reference it are unaffected.
+        </Typography>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose}>Cancel</Button>
+        <Button color="error" variant="contained" onClick={confirm} disabled={busy}>
+          {busy ? <CircularProgress size={16} /> : 'Remove'}
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
+
+// ── TaxonomyDetailDialog ──────────────────────────────────────────────────────
+
+const FIELD_TYPE_LABEL: Record<string, string> = {
+  text: 'Text', number: 'Number', date: 'Date', dropdown: 'Dropdown',
+};
+
+function TaxonomyDetailDialog({ level, entity, categories, groups, canEdit, onClose, onSaved }: {
+  level: 'category' | 'group' | 'subgroup';
+  entity: FabItemCategory | FabItemGroup | FabItemSubgroup;
+  categories: FabItemCategory[];
+  groups: FabItemGroup[];
+  canEdit: boolean;
+  onClose: () => void;
+  onSaved: () => Promise<void>;
+}) {
+  const isSystem = entity.isSystem === 1;
+
+  const [name, setName]               = useState(entity.name);
+  const [code, setCode]               = useState(entity.code);
+  const [description, setDescription] = useState(entity.description ?? '');
+  const [saving, setSaving]           = useState(false);
+  const [err, setErr]                 = useState('');
+
+  const [ownFields,  setOwnFields]  = useState<FabCustomField[]>([]);
+  const [ownDraft,   setOwnDraft]   = useState<CustomFieldDraft[]>([]);
+  const [inherited,  setInherited]  = useState<InheritedField[]>([]);
+  const [loadingFields, setLoadingFields] = useState(true);
+
+  const parentGroup    = level === 'subgroup' ? groups.find((g) => g.id === (entity as FabItemSubgroup).groupId) : undefined;
+  const parentCategory = level === 'group'    ? categories.find((c) => c.id === (entity as FabItemGroup).categoryId)
+                       : level === 'subgroup'  ? categories.find((c) => c.id === parentGroup?.categoryId)
+                       : undefined;
+
+  useEffect(() => {
+    setName(entity.name);
+    setCode(entity.code);
+    setDescription(entity.description ?? '');
+    setErr('');
+    loadFields();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entity.id]);
+
+  async function loadFields() {
+    setLoadingFields(true);
+    try {
+      const ownRes = await fabQuery<{ data: FabCustomField[] }>('fabErpCustomField', {
+        filters: { level, levelId: entity.id },
+        orderBy: [{ field: 'sortOrder', direction: 'asc' }],
+        pagination: { limit: 100 },
+      });
+      const own = ownRes.data ?? [];
+      setOwnFields(own);
+      setOwnDraft(own.map((f) => ({
+        id: f.id, fieldKey: f.fieldKey,
+        fieldType: f.fieldType as CustomFieldDraft['fieldType'],
+        fieldValue: f.fieldValue ?? '',
+      })));
+
+      // Load ancestor fields
+      let inh: InheritedField[] = [];
+
+      if (level === 'group') {
+        const catId = (entity as FabItemGroup).categoryId;
+        if (catId) {
+          const res = await fabQuery<{ data: FabCustomField[] }>('fabErpCustomField', {
+            filters: { level: 'category', levelId: catId },
+            orderBy: [{ field: 'sortOrder', direction: 'asc' }],
+            pagination: { limit: 100 },
+          });
+          inh = (res.data ?? []).map((f) => ({
+            fieldKey: f.fieldKey, fieldType: f.fieldType,
+            fieldValue: f.fieldValue, source: 'category' as const,
+          }));
+        }
+      } else if (level === 'subgroup') {
+        const grpId = (entity as FabItemSubgroup).groupId;
+        const grp   = groups.find((g) => g.id === grpId);
+        const catId = grp?.categoryId;
+        const [catRes, grpRes] = await Promise.all([
+          catId ? fabQuery<{ data: FabCustomField[] }>('fabErpCustomField', {
+            filters: { level: 'category', levelId: catId },
+            orderBy: [{ field: 'sortOrder', direction: 'asc' }],
+            pagination: { limit: 100 },
+          }) : Promise.resolve({ data: [] as FabCustomField[] }),
+          grpId ? fabQuery<{ data: FabCustomField[] }>('fabErpCustomField', {
+            filters: { level: 'group', levelId: grpId },
+            orderBy: [{ field: 'sortOrder', direction: 'asc' }],
+            pagination: { limit: 100 },
+          }) : Promise.resolve({ data: [] as FabCustomField[] }),
+        ]);
+        const map = new Map<string, InheritedField>(
+          (catRes.data ?? []).map((f) => [f.fieldKey, {
+            fieldKey: f.fieldKey, fieldType: f.fieldType, fieldValue: f.fieldValue, source: 'category' as const,
+          }])
+        );
+        for (const gf of (grpRes.data ?? [])) {
+          map.set(gf.fieldKey, { fieldKey: gf.fieldKey, fieldType: gf.fieldType, fieldValue: gf.fieldValue, source: 'group' as const });
+        }
+        inh = Array.from(map.values());
+      }
+      setInherited(inh);
+    } finally {
+      setLoadingFields(false);
+    }
+  }
+
+  function addField() {
+    if (ownDraft.length >= 10) return;
+    setOwnDraft((d) => [...d, { id: -(Date.now()), fieldKey: '', fieldType: 'text', fieldValue: '' }]);
+  }
+
+  function updateField(i: number, k: keyof CustomFieldDraft, v: string) {
+    setOwnDraft((d) => d.map((r, j) => j === i ? { ...r, [k]: v } : r));
+  }
+
+  function removeField(i: number) {
+    setOwnDraft((d) => d.filter((_, j) => j !== i));
+  }
+
+  // Add or focus override for an inherited field
+  function overrideInherited(f: InheritedField) {
+    const existing = ownDraft.findIndex((d) => d.fieldKey === f.fieldKey);
+    if (existing >= 0) return; // already in own draft
+    setOwnDraft((d) => [
+      ...d,
+      {
+        id: -(Date.now()),
+        fieldKey: f.fieldKey,
+        fieldType: f.fieldType as CustomFieldDraft['fieldType'],
+        fieldValue: f.fieldValue ?? '',
+      },
+    ]);
+  }
+
+  async function save() {
+    setSaving(true); setErr('');
+    try {
+      const resource = level === 'category' ? 'fabErpItemCategory'
+                     : level === 'group'    ? 'fabErpItemGroup'
+                                            : 'fabErpItemSubgroup';
+      const payload: Record<string, unknown> = { id: entity.id, description: description.trim() || null };
+      if (!isSystem) {
+        if (!name.trim() || !code.trim()) { setErr('Name and Code are required.'); setSaving(false); return; }
+        payload.name = name.trim();
+        payload.code = code.trim().toUpperCase();
+      }
+      await fabMutate(resource, 'update', payload);
+
+      const removedIds = ownFields.filter((f) => !ownDraft.find((d) => d.id === f.id)).map((f) => f.id);
+      for (const rid of removedIds) {
+        await fabMutate('fabErpCustomField', 'delete', { id: rid });
+      }
+
+      for (let i = 0; i < ownDraft.length; i++) {
+        const d = ownDraft[i];
+        if (!d.fieldKey.trim()) continue;
+        if (d.id < 0) {
+          await fabMutate('fabErpCustomField', 'insert', {
+            level, level_id: entity.id,
+            field_key: d.fieldKey.trim(), field_type: d.fieldType,
+            field_value: d.fieldValue.trim() || null, sort_order: i,
+          });
+        } else {
+          await fabMutate('fabErpCustomField', 'update', {
+            id: d.id, field_key: d.fieldKey.trim(), field_type: d.fieldType,
+            field_value: d.fieldValue.trim() || null, sort_order: i,
+          });
+        }
+      }
+
+      await onSaved();
+      onClose();
+    } catch (e: any) {
+      setErr(e.response?.data?.message ?? e.message);
+    } finally { setSaving(false); }
+  }
+
+  const levelLabel = level === 'category' ? 'Category' : level === 'group' ? 'Group' : 'Sub-group';
+
+  // Set of fieldKeys that have a local override in ownDraft
+  const overriddenKeys = new Set(
+    ownDraft
+      .filter((d) => inherited.some((inh) => inh.fieldKey === d.fieldKey))
+      .map((d) => d.fieldKey)
+  );
+
+  return (
+    <Dialog open onClose={onClose} maxWidth="md" fullWidth>
+      <DialogTitle>
+        {levelLabel}: {entity.name}
+        {isSystem && <Chip label="System" size="small" color="primary" sx={{ ml: 1 }} />}
+      </DialogTitle>
+      <DialogContent dividers sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
+        {err && <Alert severity="error">{err}</Alert>}
+
+        {/* Parent breadcrumb */}
+        {(parentCategory || parentGroup) && (
+          <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
+            {parentCategory && (
+              <Chip label={`Category: ${parentCategory.name}`} size="small" variant="outlined" />
+            )}
+            {parentGroup && (
+              <Chip label={`Group: ${parentGroup.name}`} size="small" variant="outlined" />
+            )}
+          </Box>
+        )}
+
+        {/* Name / Code / Description */}
+        <Box sx={{ display: 'flex', gap: 2 }}>
+          <TextField label="Name" value={name} size="small" sx={{ flex: 2 }}
+            disabled={!canEdit || isSystem}
+            onChange={(e) => setName(e.target.value)} />
+          <TextField label="Code" value={code} size="small" sx={{ flex: 1 }}
+            disabled={!canEdit || isSystem}
+            onChange={(e) => setCode(e.target.value)} />
+        </Box>
+        <TextField label="Description" value={description} size="small" fullWidth multiline minRows={2}
+          disabled={!canEdit}
+          onChange={(e) => setDescription(e.target.value)} />
+
+        {/* Inherited fields from ancestors */}
+        {!loadingFields && inherited.length > 0 && (
+          <>
+            <Divider />
+            <Typography variant="subtitle2" color="text.secondary">
+              Inherited from parent ({inherited.length} field{inherited.length !== 1 ? 's' : ''})
+            </Typography>
+            <Table size="small">
+              <TableHead>
+                <TableRow sx={{ bgcolor: 'action.hover' }}>
+                  <TableCell sx={{ fontWeight: 700 }}>Field Name</TableCell>
+                  <TableCell sx={{ fontWeight: 700, width: 100 }}>Type</TableCell>
+                  <TableCell sx={{ fontWeight: 700 }}>Effective Default</TableCell>
+                  <TableCell sx={{ fontWeight: 700, width: 110 }}>Source</TableCell>
+                  <TableCell sx={{ fontWeight: 700, width: 160 }}>Override at this level</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {inherited.map((f) => {
+                  const overrideIdx = ownDraft.findIndex((d) => d.fieldKey === f.fieldKey);
+                  const isOverridden = overrideIdx >= 0;
+                  return (
+                    <TableRow key={f.fieldKey}>
+                      <TableCell>
+                        <Typography variant="body2" color="text.secondary">{f.fieldKey}</Typography>
+                      </TableCell>
+                      <TableCell>
+                        <Typography variant="caption">{FIELD_TYPE_LABEL[f.fieldType] ?? f.fieldType}</Typography>
+                      </TableCell>
+                      <TableCell>
+                        <Typography
+                          variant="body2"
+                          color="text.secondary"
+                          sx={isOverridden ? { textDecoration: 'line-through', color: 'text.disabled' } : undefined}
+                        >
+                          {f.fieldValue ?? '—'}
+                        </Typography>
+                      </TableCell>
+                      <TableCell>
+                        <Chip
+                          label={f.source === 'category' ? 'Category' : 'Group'}
+                          size="small"
+                          color={f.source === 'category' ? 'default' : 'info'}
+                          variant="outlined"
+                        />
+                      </TableCell>
+                      <TableCell>
+                        {isOverridden ? (
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                            <TextField
+                              size="small"
+                              value={ownDraft[overrideIdx].fieldValue}
+                              disabled={!canEdit}
+                              sx={{ flex: 1, minWidth: 80 }}
+                              placeholder="Override value…"
+                              onChange={(e) => updateField(overrideIdx, 'fieldValue', e.target.value)}
+                            />
+                            {canEdit && (
+                              <Tooltip title="Remove override">
+                                <IconButton size="small" color="error" onClick={() => removeField(overrideIdx)}>
+                                  <DeleteIcon fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
+                            )}
+                          </Box>
+                        ) : canEdit ? (
+                          <Button size="small" variant="outlined" onClick={() => overrideInherited(f)}>
+                            Override
+                          </Button>
+                        ) : (
+                          <Typography variant="caption" color="text.disabled">—</Typography>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </>
+        )}
+
+        {/* Own custom fields */}
+        <Divider />
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Typography variant="subtitle2">
+            Custom Fields at this {levelLabel} ({ownDraft.length}/10)
+          </Typography>
+          {canEdit && (
+            <Button size="small" startIcon={<AddIcon />}
+              disabled={ownDraft.length >= 10} onClick={addField}>
+              Add Field
+            </Button>
+          )}
+        </Box>
+
+        {loadingFields ? (
+          <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}><CircularProgress size={24} /></Box>
+        ) : ownDraft.length === 0 ? (
+          <Typography variant="body2" color="text.secondary">
+            No custom fields at this level yet.{canEdit ? ' Add up to 10 or override inherited fields above.' : ''}
+          </Typography>
+        ) : (
+          <Table size="small">
+            <TableHead>
+              <TableRow sx={{ bgcolor: 'action.hover' }}>
+                <TableCell sx={{ fontWeight: 700 }}>Field Name</TableCell>
+                <TableCell sx={{ fontWeight: 700, width: 130 }}>Type</TableCell>
+                <TableCell sx={{ fontWeight: 700 }}>Default Value</TableCell>
+                <TableCell sx={{ fontWeight: 700, width: 100 }}>Note</TableCell>
+                {canEdit && <TableCell sx={{ width: 48 }} />}
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {ownDraft.map((d, i) => (
+                <TableRow key={d.id}>
+                  <TableCell sx={{ py: 0.5 }}>
+                    <TextField size="small" fullWidth value={d.fieldKey} disabled={!canEdit}
+                      placeholder="e.g. Material Grade"
+                      onChange={(e) => updateField(i, 'fieldKey', e.target.value)} />
+                  </TableCell>
+                  <TableCell sx={{ py: 0.5 }}>
+                    <TextField select size="small" fullWidth value={d.fieldType} disabled={!canEdit}
+                      onChange={(e) => updateField(i, 'fieldType', e.target.value)}>
+                      <MenuItem value="text">Text</MenuItem>
+                      <MenuItem value="number">Number</MenuItem>
+                      <MenuItem value="date">Date</MenuItem>
+                      <MenuItem value="dropdown">Dropdown</MenuItem>
+                    </TextField>
+                  </TableCell>
+                  <TableCell sx={{ py: 0.5 }}>
+                    <TextField size="small" fullWidth value={d.fieldValue} disabled={!canEdit}
+                      placeholder={d.fieldType === 'dropdown' ? 'Option1, Option2, …' : 'Default value…'}
+                      onChange={(e) => updateField(i, 'fieldValue', e.target.value)} />
+                  </TableCell>
+                  <TableCell sx={{ py: 0.5 }}>
+                    {overriddenKeys.has(d.fieldKey) && (
+                      <Chip label="Override" size="small" color="warning" variant="outlined" />
+                    )}
+                  </TableCell>
+                  {canEdit && (
+                    <TableCell sx={{ py: 0.5 }}>
+                      <IconButton size="small" color="error" onClick={() => removeField(i)}>
+                        <DeleteIcon fontSize="small" />
+                      </IconButton>
+                    </TableCell>
+                  )}
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose}>Close</Button>
+        {canEdit && (
+          <Button variant="contained" onClick={save} disabled={saving}>
+            {saving ? <CircularProgress size={16} /> : 'Save'}
+          </Button>
+        )}
+      </DialogActions>
+    </Dialog>
+  );
+}
+
+// ── CategoriesTab ─────────────────────────────────────────────────────────────
+
+function CategoriesTab({ categories, onRowClick, onAddClick, onDeleteClick, canEdit }: {
+  categories: FabItemCategory[];
+  onRowClick: (c: FabItemCategory) => void;
+  onAddClick: () => void;
+  onDeleteClick: (c: FabItemCategory) => void;
+  canEdit: boolean;
+}) {
+  return (
+    <Box>
+      {canEdit && (
+        <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 2 }}>
+          <Button variant="outlined" startIcon={<AddIcon />} onClick={onAddClick}>
+            Add Category
+          </Button>
+        </Box>
+      )}
+      <Paper variant="outlined" sx={{ overflowX: 'auto' }}>
+        <Table size="small">
+          <TableHead>
+            <TableRow sx={{ bgcolor: 'action.hover' }}>
+              <TableCell sx={{ fontWeight: 700 }}>Name</TableCell>
+              <TableCell sx={{ fontWeight: 700, width: 110 }}>Code</TableCell>
+              <TableCell sx={{ fontWeight: 700 }}>Description</TableCell>
+              <TableCell sx={{ width: 80 }}>System</TableCell>
+              <TableCell sx={{ width: 90 }} align="right" />
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {categories.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={5}>
+                  <Typography variant="body2" color="text.secondary" sx={{ py: 2, textAlign: 'center' }}>
+                    No categories yet.
+                  </Typography>
+                </TableCell>
+              </TableRow>
+            ) : categories.map((c) => (
+              <TableRow key={c.id} hover sx={{ cursor: 'pointer' }} onClick={() => onRowClick(c)}>
+                <TableCell sx={{ fontWeight: 500 }}>{c.name}</TableCell>
+                <TableCell>
+                  <Typography variant="caption" sx={{ fontFamily: 'monospace' }}>{c.code}</Typography>
+                </TableCell>
+                <TableCell>
+                  <Typography variant="body2" color="text.secondary">{c.description ?? '—'}</Typography>
+                </TableCell>
+                <TableCell>
+                  {c.isSystem === 1 && <Chip label="System" size="small" color="primary" variant="outlined" />}
+                </TableCell>
+                <TableCell align="right" onClick={(e) => e.stopPropagation()}>
+                  <Tooltip title="Open detail">
+                    <IconButton size="small" onClick={() => onRowClick(c)}><OpenInNewIcon fontSize="small" /></IconButton>
+                  </Tooltip>
+                  {canEdit && c.isSystem === 0 && (
+                    <Tooltip title="Delete">
+                      <IconButton size="small" color="error" onClick={() => onDeleteClick(c)}>
+                        <DeleteIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                  )}
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </Paper>
+    </Box>
+  );
+}
+
+// ── GroupsTab ─────────────────────────────────────────────────────────────────
+
+function GroupsTab({ categories, groups, onRowClick, onAddClick, onDeleteClick, canEdit }: {
+  categories: FabItemCategory[];
+  groups: FabItemGroup[];
+  onRowClick: (g: FabItemGroup) => void;
+  onAddClick: () => void;
+  onDeleteClick: (g: FabItemGroup) => void;
+  canEdit: boolean;
+}) {
+  const [filterCatId, setFilterCatId] = useState<number | ''>('');
+
+  const visible = useMemo(
+    () => groups.filter((g) => !filterCatId || g.categoryId === filterCatId),
+    [groups, filterCatId],
+  );
+
+  return (
+    <Box>
+      <Box sx={{ display: 'flex', gap: 2, mb: 2, alignItems: 'flex-end', justifyContent: 'space-between' }}>
+        <Box sx={{ width: 220 }}>
+          <Typography variant="caption" color="text.secondary">Filter by Category</Typography>
+          <Select fullWidth size="small" displayEmpty value={filterCatId}
+            onChange={(e) => setFilterCatId(e.target.value as number | '')}>
+            <MenuItem value="">All Categories</MenuItem>
+            {categories.map((c) => <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>)}
+          </Select>
+        </Box>
+        {canEdit && (
+          <Button variant="outlined" startIcon={<AddIcon />} onClick={onAddClick}>
+            Add Group
+          </Button>
+        )}
+      </Box>
+      <Paper variant="outlined" sx={{ overflowX: 'auto' }}>
+        <Table size="small">
+          <TableHead>
+            <TableRow sx={{ bgcolor: 'action.hover' }}>
+              <TableCell sx={{ fontWeight: 700 }}>Name</TableCell>
+              <TableCell sx={{ fontWeight: 700, width: 110 }}>Code</TableCell>
+              <TableCell sx={{ fontWeight: 700, width: 150 }}>Category</TableCell>
+              <TableCell sx={{ fontWeight: 700 }}>Description</TableCell>
+              <TableCell sx={{ width: 80 }}>System</TableCell>
+              <TableCell sx={{ width: 90 }} align="right" />
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {visible.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={6}>
+                  <Typography variant="body2" color="text.secondary" sx={{ py: 2, textAlign: 'center' }}>
+                    No groups found.
+                  </Typography>
+                </TableCell>
+              </TableRow>
+            ) : visible.map((g) => (
+              <TableRow key={g.id} hover sx={{ cursor: 'pointer' }} onClick={() => onRowClick(g)}>
+                <TableCell sx={{ fontWeight: 500 }}>{g.name}</TableCell>
+                <TableCell>
+                  <Typography variant="caption" sx={{ fontFamily: 'monospace' }}>{g.code}</Typography>
+                </TableCell>
+                <TableCell>{g.categoryName ?? '—'}</TableCell>
+                <TableCell>
+                  <Typography variant="body2" color="text.secondary">{g.description ?? '—'}</Typography>
+                </TableCell>
+                <TableCell>
+                  {g.isSystem === 1 && <Chip label="System" size="small" color="primary" variant="outlined" />}
+                </TableCell>
+                <TableCell align="right" onClick={(e) => e.stopPropagation()}>
+                  <Tooltip title="Open detail">
+                    <IconButton size="small" onClick={() => onRowClick(g)}><OpenInNewIcon fontSize="small" /></IconButton>
+                  </Tooltip>
+                  {canEdit && g.isSystem === 0 && (
+                    <Tooltip title="Delete">
+                      <IconButton size="small" color="error" onClick={() => onDeleteClick(g)}>
+                        <DeleteIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                  )}
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </Paper>
+    </Box>
+  );
+}
+
+// ── SubgroupsTab ──────────────────────────────────────────────────────────────
+
+function SubgroupsTab({ categories, groups, subgroups, onRowClick, onAddClick, onDeleteClick, canEdit }: {
+  categories: FabItemCategory[];
+  groups: FabItemGroup[];
+  subgroups: FabItemSubgroup[];
+  onRowClick: (s: FabItemSubgroup) => void;
+  onAddClick: () => void;
+  onDeleteClick: (s: FabItemSubgroup) => void;
+  canEdit: boolean;
+}) {
+  const [filterCatId, setFilterCatId] = useState<number | ''>('');
+  const [filterGrpId, setFilterGrpId] = useState<number | ''>('');
+
+  const visibleGroups = useMemo(
+    () => groups.filter((g) => !filterCatId || g.categoryId === filterCatId),
+    [groups, filterCatId],
+  );
+
+  const visible = useMemo(() => {
+    return subgroups.filter((s) => {
+      if (filterGrpId && s.groupId !== filterGrpId) return false;
+      if (filterCatId) {
+        const grp = groups.find((g) => g.id === s.groupId);
+        if (!grp || grp.categoryId !== filterCatId) return false;
+      }
+      return true;
+    });
+  }, [subgroups, groups, filterCatId, filterGrpId]);
+
+  return (
+    <Box>
+      <Box sx={{ display: 'flex', gap: 2, mb: 2, alignItems: 'flex-end', justifyContent: 'space-between', flexWrap: 'wrap' }}>
+        <Box sx={{ display: 'flex', gap: 2 }}>
+          <Box sx={{ width: 220 }}>
+            <Typography variant="caption" color="text.secondary">Filter by Category</Typography>
+            <Select fullWidth size="small" displayEmpty value={filterCatId}
+              onChange={(e) => { setFilterCatId(e.target.value as number | ''); setFilterGrpId(''); }}>
+              <MenuItem value="">All Categories</MenuItem>
+              {categories.map((c) => <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>)}
+            </Select>
+          </Box>
+          <Box sx={{ width: 220 }}>
+            <Typography variant="caption" color="text.secondary">Filter by Group</Typography>
+            <Select fullWidth size="small" displayEmpty value={filterGrpId}
+              onChange={(e) => setFilterGrpId(e.target.value as number | '')}>
+              <MenuItem value="">All Groups</MenuItem>
+              {visibleGroups.map((g) => <MenuItem key={g.id} value={g.id}>{g.name}</MenuItem>)}
+            </Select>
+          </Box>
+        </Box>
+        {canEdit && (
+          <Button variant="outlined" startIcon={<AddIcon />} onClick={onAddClick}>
+            Add Sub-group
+          </Button>
+        )}
+      </Box>
+      <Paper variant="outlined" sx={{ overflowX: 'auto' }}>
+        <Table size="small">
+          <TableHead>
+            <TableRow sx={{ bgcolor: 'action.hover' }}>
+              <TableCell sx={{ fontWeight: 700 }}>Name</TableCell>
+              <TableCell sx={{ fontWeight: 700, width: 110 }}>Code</TableCell>
+              <TableCell sx={{ fontWeight: 700, width: 150 }}>Category</TableCell>
+              <TableCell sx={{ fontWeight: 700, width: 150 }}>Group</TableCell>
+              <TableCell sx={{ fontWeight: 700 }}>Description</TableCell>
+              <TableCell sx={{ width: 80 }}>System</TableCell>
+              <TableCell sx={{ width: 90 }} align="right" />
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {visible.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={7}>
+                  <Typography variant="body2" color="text.secondary" sx={{ py: 2, textAlign: 'center' }}>
+                    No sub-groups found.
+                  </Typography>
+                </TableCell>
+              </TableRow>
+            ) : visible.map((s) => {
+              const grp = groups.find((g) => g.id === s.groupId);
+              const cat = grp ? categories.find((c) => c.id === grp.categoryId) : undefined;
+              return (
+                <TableRow key={s.id} hover sx={{ cursor: 'pointer' }} onClick={() => onRowClick(s)}>
+                  <TableCell sx={{ fontWeight: 500 }}>{s.name}</TableCell>
+                  <TableCell>
+                    <Typography variant="caption" sx={{ fontFamily: 'monospace' }}>{s.code}</Typography>
+                  </TableCell>
+                  <TableCell>{cat?.name ?? '—'}</TableCell>
+                  <TableCell>{s.groupName ?? grp?.name ?? '—'}</TableCell>
+                  <TableCell>
+                    <Typography variant="body2" color="text.secondary">{s.description ?? '—'}</Typography>
+                  </TableCell>
+                  <TableCell>
+                    {s.isSystem === 1 && <Chip label="System" size="small" color="primary" variant="outlined" />}
+                  </TableCell>
+                  <TableCell align="right" onClick={(e) => e.stopPropagation()}>
+                    <Tooltip title="Open detail">
+                      <IconButton size="small" onClick={() => onRowClick(s)}><OpenInNewIcon fontSize="small" /></IconButton>
+                    </Tooltip>
+                    {canEdit && s.isSystem === 0 && (
+                      <Tooltip title="Delete">
+                        <IconButton size="small" color="error" onClick={() => onDeleteClick(s)}>
+                          <DeleteIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    )}
+                  </TableCell>
+                </TableRow>
+              );
+            })}
+          </TableBody>
+        </Table>
+      </Paper>
+    </Box>
+  );
+}
+
+// ── Main page ─────────────────────────────────────────────────────────────────
+
+type TaxonomyDetailState = {
+  level: 'category' | 'group' | 'subgroup';
+  entity: FabItemCategory | FabItemGroup | FabItemSubgroup;
+} | null;
+
+type TaxonomyDeleteState = {
+  type: 'category' | 'group' | 'subgroup';
+  entity: FabItemCategory | FabItemGroup | FabItemSubgroup;
+} | null;
+
+export default function ItemCatalog() {
+  const canManage         = usePermission('fab_erp_items_meta_manage');
+  const canManageTaxonomy = usePermission('fab_erp_taxonomy_manage');
+  const navigate          = useNavigate();
+  const { company }       = useParams<{ company: string }>();
+
+  const [items,   setItems]   = useState<FabItemCatalog[]>([]);
+  const [search,  setSearch]  = useState('');
+  const [loading, setLoading] = useState(true);
+  const [error,   setError]   = useState('');
+  const [toast,   setToast]   = useState('');
+  const [pageTab, setPageTab] = useState(0);
+
+  const [dlg,     setDlg]    = useState<{ open: boolean; item: FabItemCatalog | null }>({ open: false, item: null });
+  const [delItem, setDelItem] = useState<FabItemCatalog | null>(null);
+  const [taxonomyDetail, setTaxonomyDetail] = useState<TaxonomyDetailState>(null);
+
+  // Add taxonomy dialog
+  const [addTaxonomyLevel, setAddTaxonomyLevel] = useState<'category' | 'group' | 'subgroup' | null>(null);
+
+  // Delete taxonomy dialog (with cascade)
+  const [taxonomyDelete, setTaxonomyDelete] = useState<TaxonomyDeleteState>(null);
+
+  const [categories, setCategories] = useState<FabItemCategory[]>([]);
+  const [groups,     setGroups]     = useState<FabItemGroup[]>([]);
+  const [subgroups,  setSubgroups]  = useState<FabItemSubgroup[]>([]);
+
+  const [filterCategoryId, setFilterCategoryId] = useState<number | ''>('');
+  const [filterGroupId,    setFilterGroupId]    = useState<number | ''>('');
+  const [filterSubgroupId, setFilterSubgroupId] = useState<number | ''>('');
+
+  const fetchAll = useCallback(async () => {
+    setLoading(true); setError('');
+    try {
+      const res = await fabQuery<{ data: FabItemCatalog[] }>('fabErpItemCatalog', {
+        orderBy: [{ field: 'name', direction: 'asc' }], pagination: { limit: 1000 },
+      });
+      setItems(res.data ?? []);
+    } catch (e: any) { setError(e.message); }
+    finally { setLoading(false); }
+  }, []);
+
+  const refetchTaxonomy = useCallback(async () => {
+    try {
+      const [catRes, grpRes, subRes] = await Promise.all([
+        fabQuery<{ data: FabItemCategory[] }>('fabErpItemCategory', { orderBy: [{ field: 'name', direction: 'asc' }], pagination: { limit: 1000 } }),
+        fabQuery<{ data: FabItemGroup[] }>('fabErpItemGroup',       { orderBy: [{ field: 'name', direction: 'asc' }], pagination: { limit: 1000 } }),
+        fabQuery<{ data: FabItemSubgroup[] }>('fabErpItemSubgroup', { orderBy: [{ field: 'name', direction: 'asc' }], pagination: { limit: 1000 } }),
+      ]);
+      setCategories(catRes.data ?? []);
+      setGroups(grpRes.data ?? []);
+      setSubgroups(subRes.data ?? []);
+    } catch { /* supplementary — ignore */ }
+  }, []);
+
+  useEffect(() => { fetchAll(); refetchTaxonomy(); }, [fetchAll, refetchTaxonomy]);
+
+  const filtered = useMemo(() => items.filter((it) => {
+    const matchSearch = !search
+      || it.name.toLowerCase().includes(search.toLowerCase())
+      || it.code.toLowerCase().includes(search.toLowerCase());
+    return matchSearch
+      && (!filterCategoryId || it.categoryId === filterCategoryId)
+      && (!filterGroupId    || it.groupId    === filterGroupId)
+      && (!filterSubgroupId || it.subgroupId === filterSubgroupId);
+  }), [items, search, filterCategoryId, filterGroupId, filterSubgroupId]);
+
+  const filterGroupOptions    = groups.filter((g) => !filterCategoryId || g.categoryId === filterCategoryId);
+  const filterSubgroupOptions = subgroups.filter((s) => !filterGroupId || s.groupId === filterGroupId);
+
+  // ── Import / Export ──────────────────────────────────────────────────────
+  const importFileRef = useRef<HTMLInputElement>(null);
+  const [exporting, setExporting]       = useState(false);
+  const [importing, setImporting]       = useState(false);
+  const [importResult, setImportResult] = useState<ImportItemsResult | null>(null);
+  const [importErr, setImportErr]       = useState('');
+
+  async function downloadTemplate() {
+    setExporting(true);
+    try {
+      const companySlug = localStorage.getItem('companySlug');
+      const res = await api.get(`${API_HOST}/api/${companySlug}/fab_erp/items/export-template`, { responseType: 'blob' });
+      const url = URL.createObjectURL(res.data as Blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'Item_Catalog_Import_Template.xlsx'; a.click();
+      URL.revokeObjectURL(url);
+    } catch (e: any) {
+      setError(e.response?.data?.message ?? e.message);
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  async function handleImportFile(file: File) {
+    setImporting(true); setImportErr(''); setImportResult(null);
+    try {
+      const companySlug = localStorage.getItem('companySlug');
+      const form = new FormData();
+      form.append('excel_file', file);
+      const res = await api.post<ImportItemsResult>(
+        `${API_HOST}/api/${companySlug}/fab_erp/items/import`, form,
+        { headers: { 'Content-Type': 'multipart/form-data' } },
+      );
+      setImportResult(res.data);
+      await Promise.all([fetchAll(), refetchTaxonomy()]);
+    } catch (e: any) {
+      setImportErr(e.response?.data?.message ?? e.message);
+    } finally {
+      setImporting(false);
+    }
+  }
+
+  function onFilterCategoryChange(value: string) {
+    const id = value === '' ? '' : Number(value);
+    setFilterCategoryId(id);
+    if (filterGroupId && !groups.some((g) => g.id === filterGroupId && g.categoryId === id)) {
+      setFilterGroupId(''); setFilterSubgroupId('');
+    }
+  }
+  function onFilterGroupChange(value: string) {
+    const id = value === '' ? '' : Number(value);
+    setFilterGroupId(id);
+    if (filterSubgroupId && !subgroups.some((s) => s.id === filterSubgroupId && s.groupId === id)) {
+      setFilterSubgroupId('');
+    }
+  }
+
+  function onSaved()   { setDlg({ open: false, item: null }); setToast('Saved.'); fetchAll(); }
+  function onDeleted() { setDelItem(null); setToast('Removed.'); fetchAll(); }
+
+  const handleTaxonomyRowClick = (
+    level: 'category' | 'group' | 'subgroup',
+    entity: FabItemCategory | FabItemGroup | FabItemSubgroup,
+  ) => setTaxonomyDetail({ level, entity });
+
+  return (
+    <Box sx={{ p: 3 }}>
+      {/* Header */}
+      <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', mb: 2 }}>
+        <Box>
+          <Typography variant="h5" fontWeight={700}>Item Catalog</Typography>
+          <Typography variant="body2" color="text.secondary">
+            Reusable parts and materials — pick from here when building a project BOM
+          </Typography>
+        </Box>
+        {pageTab === 0 && canManage && (
+          <Box sx={{ display: 'flex', gap: 1 }}>
+            <Button
+              variant="outlined" size="small" startIcon={exporting ? <CircularProgress size={14} /> : <DownloadIcon />}
+              onClick={downloadTemplate} disabled={exporting}
+            >
+              Export Template
+            </Button>
+            <Button
+              variant="outlined" size="small" startIcon={importing ? <CircularProgress size={14} /> : <UploadFileIcon />}
+              onClick={() => importFileRef.current?.click()} disabled={importing}
+            >
+              Import Items
+            </Button>
+            <input
+              ref={importFileRef} type="file" accept=".xlsx" hidden
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) handleImportFile(file);
+                e.target.value = '';
+              }}
+            />
+            <Button variant="contained" startIcon={<AddIcon />}
+              onClick={() => setDlg({ open: true, item: null })}>
+              Add Item
+            </Button>
+          </Box>
+        )}
+      </Box>
+
+      {importErr && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setImportErr('')}>{importErr}</Alert>}
+
+      {/* Page tabs */}
+      <Tabs value={pageTab} onChange={(_, v) => setPageTab(v)} sx={{ mb: 3, borderBottom: 1, borderColor: 'divider' }}>
+        <Tab label={<Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>Items<InfoTooltip content={INFO_ITEMS} placement="bottom" /></Box>} />
+        <Tab label={<Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>Category<InfoTooltip content={INFO_CATEGORY} placement="bottom" /></Box>} />
+        <Tab label={<Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>Group<InfoTooltip content={INFO_GROUP} placement="bottom" /></Box>} />
+        <Tab label={<Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>Sub-group<InfoTooltip content={INFO_SUBGROUP} placement="bottom" /></Box>} />
+      </Tabs>
+
+      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+
+      {/* ── Tab 0: Items ── */}
+      {pageTab === 0 && (
+        <>
+          <Box sx={{ display: 'flex', gap: 2, mb: 2, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+            <TextField
+              placeholder="Search by name or code…" value={search} size="small" sx={{ width: 300 }}
+              onChange={(e) => setSearch(e.target.value)}
+              slotProps={{ input: { startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" /></InputAdornment> } }}
+            />
+            <Box sx={{ width: 180 }}>
+              <Typography variant="caption" color="text.secondary">Category</Typography>
+              <Select fullWidth size="small" displayEmpty value={filterCategoryId}
+                onChange={(e) => onFilterCategoryChange(String(e.target.value))}>
+                <MenuItem value="">All</MenuItem>
+                {categories.map((c) => <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>)}
+              </Select>
+            </Box>
+            <Box sx={{ width: 180 }}>
+              <Typography variant="caption" color="text.secondary">Group</Typography>
+              <Select fullWidth size="small" displayEmpty value={filterGroupId}
+                onChange={(e) => onFilterGroupChange(String(e.target.value))}>
+                <MenuItem value="">All</MenuItem>
+                {filterGroupOptions.map((g) => <MenuItem key={g.id} value={g.id}>{g.name}</MenuItem>)}
+              </Select>
+            </Box>
+            <Box sx={{ width: 180 }}>
+              <Typography variant="caption" color="text.secondary">Sub-group</Typography>
+              <Select fullWidth size="small" displayEmpty value={filterSubgroupId}
+                onChange={(e) => setFilterSubgroupId(e.target.value === '' ? '' : Number(e.target.value))}>
+                <MenuItem value="">All</MenuItem>
+                {filterSubgroupOptions.map((s) => <MenuItem key={s.id} value={s.id}>{s.name}</MenuItem>)}
+              </Select>
+            </Box>
+          </Box>
+
+          {loading ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', mt: 8 }}><CircularProgress /></Box>
+          ) : filtered.length === 0 ? (
+            <Paper sx={{ p: 6, textAlign: 'center' }}>
+              <Inventory2Icon sx={{ fontSize: 48, color: 'text.disabled', mb: 1 }} />
+              <Typography color="text.secondary">
+                {search ? 'No items match your search.' : 'Catalog is empty.'}
+              </Typography>
+              {!search && canManage && (
+                <Button sx={{ mt: 2 }} variant="contained" startIcon={<AddIcon />}
+                  onClick={() => setDlg({ open: true, item: null })}>
+                  Add First Item
+                </Button>
+              )}
+            </Paper>
+          ) : (
+            <Paper variant="outlined" sx={{ overflowX: 'auto' }}>
+              <Table size="small" sx={{ minWidth: 1800 }}>
+                <TableHead>
+                  <TableRow sx={{ bgcolor: 'action.hover' }}>
+                    <TableCell sx={{ fontWeight: 700, minWidth: 200 }}>Name</TableCell>
+                    <TableCell sx={{ fontWeight: 700, width: 110 }}>Code</TableCell>
+                    <TableCell sx={{ fontWeight: 700, width: 70 }}>Unit</TableCell>
+                    <TableCell sx={{ fontWeight: 700, minWidth: 180 }}>Description</TableCell>
+                    <TableCell sx={{ fontWeight: 700, width: 130 }}>Category</TableCell>
+                    <TableCell sx={{ fontWeight: 700, width: 130 }}>Group</TableCell>
+                    <TableCell sx={{ fontWeight: 700, width: 130 }}>Sub-group</TableCell>
+                    <TableCell sx={{ fontWeight: 700, width: 95 }} align="right">Gross Wt</TableCell>
+                    <TableCell sx={{ fontWeight: 700, width: 90 }} align="right">Net Wt</TableCell>
+                    <TableCell sx={{ fontWeight: 700, width: 60 }}>Wt Unit</TableCell>
+                    <TableCell sx={{ fontWeight: 700, width: 80 }} align="right">Volume</TableCell>
+                    <TableCell sx={{ fontWeight: 700, width: 60 }}>Vol Unit</TableCell>
+                    <TableCell sx={{ fontWeight: 700, width: 80 }} align="right">Length</TableCell>
+                    <TableCell sx={{ fontWeight: 700, width: 80 }} align="right">Width</TableCell>
+                    <TableCell sx={{ fontWeight: 700, width: 80 }} align="right">Height</TableCell>
+                    <TableCell sx={{ fontWeight: 700, width: 60 }}>Dim Unit</TableCell>
+                    <TableCell sx={{ fontWeight: 700, width: 130 }}>Barcode</TableCell>
+                    <TableCell sx={{ fontWeight: 700, width: 100 }}>HSN</TableCell>
+                    <TableCell sx={{ fontWeight: 700, width: 100 }}>Division</TableCell>
+                    <TableCell sx={{ width: 60 }} align="center">Batches</TableCell>
+                    {canManage && <TableCell sx={{ width: 80 }} align="right" />}
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {filtered.map((it) => (
+                    <TableRow key={it.id} hover sx={{ cursor: 'pointer' }}
+                      onClick={() => navigate(`/${company}/fab_erp/item-catalog/${it.id}`)}>
+                      <TableCell sx={{ fontWeight: 500 }}>{it.name}</TableCell>
+                      <TableCell>
+                        <Typography variant="caption" sx={{ fontFamily: 'monospace', bgcolor: 'action.selected', px: 0.75, py: 0.25, borderRadius: 0.5 }}>
+                          {it.code}
+                        </Typography>
+                      </TableCell>
+                      <TableCell>{it.unit ?? 'pcs'}</TableCell>
+                      <TableCell>
+                        <Typography variant="body2" color="text.secondary" noWrap sx={{ maxWidth: 180 }}>
+                          {it.description ?? '—'}
+                        </Typography>
+                      </TableCell>
+                      <TableCell>{it.categoryName  ?? '—'}</TableCell>
+                      <TableCell>{it.groupName     ?? '—'}</TableCell>
+                      <TableCell>{it.subgroupName  ?? '—'}</TableCell>
+                      <TableCell align="right">{it.grossWeight != null ? it.grossWeight : '—'}</TableCell>
+                      <TableCell align="right">{it.netWeight   != null ? it.netWeight   : '—'}</TableCell>
+                      <TableCell>{it.weightUnit    ?? 'kg'}</TableCell>
+                      <TableCell align="right">{it.volume      != null ? it.volume      : '—'}</TableCell>
+                      <TableCell>{it.volumeUnit    ?? 'm3'}</TableCell>
+                      <TableCell align="right">{it.length      != null ? it.length      : '—'}</TableCell>
+                      <TableCell align="right">{it.width       != null ? it.width       : '—'}</TableCell>
+                      <TableCell align="right">{it.height      != null ? it.height      : '—'}</TableCell>
+                      <TableCell>{it.dimensionUnit ?? 'mm'}</TableCell>
+                      <TableCell>
+                        <Typography variant="caption" sx={{ fontFamily: 'monospace' }}>{it.barcode ?? '—'}</Typography>
+                      </TableCell>
+                      <TableCell>{it.hsnCode  ?? '—'}</TableCell>
+                      <TableCell>{it.division ?? '—'}</TableCell>
+                      <TableCell align="center">
+                        <Tooltip title="View Batches">
+                          <IconButton size="small" onClick={(e) => { e.stopPropagation(); navigate(`/${company}/fab_erp/item-batches?itemId=${it.id}`); }}>
+                            <ListAltIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                      </TableCell>
+                      {canManage && (
+                        <TableCell align="right">
+                          <Tooltip title="Edit">
+                            <IconButton size="small" onClick={(e) => { e.stopPropagation(); setDlg({ open: true, item: it }); }}>
+                              <EditIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                          <Tooltip title="Remove">
+                            <IconButton size="small" color="error" onClick={(e) => { e.stopPropagation(); setDelItem(it); }}>
+                              <DeleteIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        </TableCell>
+                      )}
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </Paper>
+          )}
+        </>
+      )}
+
+      {/* ── Tab 1: Category ── */}
+      {pageTab === 1 && (
+        <CategoriesTab
+          categories={categories}
+          canEdit={canManageTaxonomy}
+          onRowClick={(c) => handleTaxonomyRowClick('category', c)}
+          onAddClick={() => setAddTaxonomyLevel('category')}
+          onDeleteClick={(c) => setTaxonomyDelete({ type: 'category', entity: c })}
+        />
+      )}
+
+      {/* ── Tab 2: Group ── */}
+      {pageTab === 2 && (
+        <GroupsTab
+          categories={categories} groups={groups}
+          canEdit={canManageTaxonomy}
+          onRowClick={(g) => handleTaxonomyRowClick('group', g)}
+          onAddClick={() => setAddTaxonomyLevel('group')}
+          onDeleteClick={(g) => setTaxonomyDelete({ type: 'group', entity: g })}
+        />
+      )}
+
+      {/* ── Tab 3: Sub-group ── */}
+      {pageTab === 3 && (
+        <SubgroupsTab
+          categories={categories} groups={groups} subgroups={subgroups}
+          canEdit={canManageTaxonomy}
+          onRowClick={(s) => handleTaxonomyRowClick('subgroup', s)}
+          onAddClick={() => setAddTaxonomyLevel('subgroup')}
+          onDeleteClick={(s) => setTaxonomyDelete({ type: 'subgroup', entity: s })}
+        />
+      )}
+
+      {/* ── Dialogs ── */}
+      <CatalogDialog
+        open={dlg.open} initial={dlg.item}
+        categories={categories} groups={groups} subgroups={subgroups}
+        canManageTaxonomy={canManageTaxonomy}
+        onClose={() => setDlg({ open: false, item: null })}
+        onSaved={onSaved}
+        refetchTaxonomy={refetchTaxonomy}
+      />
+      <DeleteDialog item={delItem} onClose={() => setDelItem(null)} onDeleted={onDeleted} />
+
+      {taxonomyDetail && (
+        <TaxonomyDetailDialog
+          level={taxonomyDetail.level}
+          entity={taxonomyDetail.entity}
+          categories={categories}
+          groups={groups}
+          canEdit={canManageTaxonomy}
+          onClose={() => setTaxonomyDetail(null)}
+          onSaved={async () => { await refetchTaxonomy(); setToast('Saved.'); }}
+        />
+      )}
+
+      <AddTaxonomyDialog
+        open={addTaxonomyLevel !== null}
+        level={addTaxonomyLevel ?? 'category'}
+        categories={categories}
+        groups={groups}
+        onClose={() => setAddTaxonomyLevel(null)}
+        onCreated={async () => {
+          await refetchTaxonomy();
+          setAddTaxonomyLevel(null);
+          setToast('Added.');
+        }}
+      />
+
+      <TaxonomyDeleteDialog
+        open={taxonomyDelete !== null}
+        type={taxonomyDelete?.type ?? null}
+        entity={taxonomyDelete?.entity ?? null}
+        groups={groups}
+        subgroups={subgroups}
+        onClose={() => setTaxonomyDelete(null)}
+        onDeleted={async () => {
+          setTaxonomyDelete(null);
+          await refetchTaxonomy();
+        }}
+        setToast={setToast}
+      />
+
+      {/* Import result summary */}
+      <Dialog open={importResult !== null} onClose={() => setImportResult(null)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <CheckCircleIcon color="success" fontSize="small" />
+          Import Complete
+        </DialogTitle>
+        <DialogContent dividers>
+          {importResult && (
+            <>
+              <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mb: 2 }}>
+                <Chip color="success" label={`${importResult.itemsCreated} item(s) created`} />
+                {importResult.itemsSkipped > 0 && <Chip color="warning" label={`${importResult.itemsSkipped} skipped (duplicate code)`} />}
+                {importResult.categoriesCreated > 0 && <Chip variant="outlined" label={`${importResult.categoriesCreated} new Category`} />}
+                {importResult.groupsCreated > 0 && <Chip variant="outlined" label={`${importResult.groupsCreated} new Group`} />}
+                {importResult.subgroupsCreated > 0 && <Chip variant="outlined" label={`${importResult.subgroupsCreated} new Sub-group`} />}
+              </Box>
+              {importResult.warnings.length > 0 && (
+                <>
+                  <Typography variant="subtitle2" sx={{ mb: 0.5 }}>Warnings</Typography>
+                  <List dense disablePadding sx={{ maxHeight: 240, overflow: 'auto', bgcolor: 'background.default', borderRadius: 1 }}>
+                    {importResult.warnings.map((w, i) => (
+                      <ListItem key={i} sx={{ py: 0.25 }}>
+                        <ListItemText
+                          primaryTypographyProps={{ variant: 'caption' }}
+                          primary={`Row ${w.row}: ${w.message}`}
+                        />
+                      </ListItem>
+                    ))}
+                  </List>
+                </>
+              )}
+            </>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setImportResult(null)}>Close</Button>
+        </DialogActions>
+      </Dialog>
+
+      <Snackbar open={!!toast} autoHideDuration={3000} onClose={() => setToast('')} message={toast} />
+    </Box>
+  );
+}
