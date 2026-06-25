@@ -115,17 +115,17 @@ function OperationNode({ data, selected }: NodeProps<NodeData>) {
   const scoreColor = SCORE_COLOR[data.score as number] ?? SCORE_COLOR[0];
   return (
     <Box sx={{
-      border: '2px solid', borderColor: data.isDropTarget ? 'info.main' : selected ? 'primary.main' : 'grey.300',
-      borderRadius: 2, width: 200, position: 'relative', overflow: 'hidden',
-      bgcolor: data.isDropTarget ? '#e3f2fd' : selected ? '#e8f0fe' : 'white',
-      boxShadow: data.isDropTarget ? '0 0 0 3px #90caf9' : selected ? 4 : 1,
+      border: '2px solid', borderColor: data.isDropTarget ? 'var(--c-info-500)' : selected ? 'var(--c-primary-600)' : 'var(--c-divider)',
+      borderRadius: 'var(--r-md)', width: 200, position: 'relative', overflow: 'hidden', fontFamily: 'var(--font-ui)',
+      bgcolor: data.isDropTarget ? 'var(--c-info-50)' : selected ? 'var(--c-primary-50)' : 'var(--c-surface)',
+      boxShadow: data.isDropTarget ? '0 0 0 3px var(--c-info-200)' : selected ? 'var(--e-2)' : 'var(--e-1)',
       transition: 'all 0.12s',
     }}>
       <Handle type="target" position={Position.Left}
-        style={{ width: 16, height: 16, background: '#6366f1', border: '2px solid white',
+        style={{ width: 16, height: 16, background: 'var(--c-primary-600)', border: '2px solid white',
           boxShadow: '0 1px 4px rgba(0,0,0,0.25)', left: -9, cursor: 'crosshair' }} />
       <Handle type="source" position={Position.Right}
-        style={{ width: 16, height: 16, background: '#6366f1', border: '2px solid white',
+        style={{ width: 16, height: 16, background: 'var(--c-primary-600)', border: '2px solid white',
           boxShadow: '0 1px 4px rgba(0,0,0,0.25)', right: -9, cursor: 'crosshair' }} />
 
       {/* Completion stripe at bottom */}

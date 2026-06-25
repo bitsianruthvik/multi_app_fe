@@ -7,66 +7,42 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link as RouterLink, useParams, useSearchParams } from 'react-router-dom';
 import {
-  Alert,
-  Autocomplete,
-  Box,
-  CircularProgress,
-  Dialog,
-  DialogContent,
-  DialogTitle,
-  IconButton,
-  Link,
-  MenuItem,
-  Paper,
-  Select,
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableRow,
-  TextField,
-  Tooltip,
-  Typography,
+  Alert, Autocomplete, Box, CircularProgress, Dialog, DialogContent, DialogTitle,
+  IconButton, Link, MenuItem, Select, Table, TableBody, TableCell, TableHead, TableRow,
+  TextField, Tooltip, Typography,
 } from '@mui/material';
-import ReceiptLongIcon from '@mui/icons-material/ReceiptLong';
-import Inventory2Icon   from '@mui/icons-material/Inventory2';
+import ReceiptLongRounded from '@mui/icons-material/ReceiptLongRounded';
+import Inventory2Rounded from '@mui/icons-material/Inventory2Rounded';
 
-import { fabQuery }      from '../api/client';
-import type {
-  FabItemBatch,
-  FabItemCatalog,
-  FabPlant,
-  FabStockLedger,
-  FabStockLocation,
-} from '../types';
+import { fabQuery } from '../api/client';
+import type { FabItemBatch, FabItemCatalog, FabPlant, FabStockLedger, FabStockLocation } from '../types';
 import { usePermission } from '@core/hooks/usePermission';
+import { Surface, PageHeader, Mono, EmptyState, ListSkeleton } from '../components';
 
-interface ItemOption { id: number; name: string; code: string; }
+interface ItemOption { id: number; name: string; code: string }
 
 function ReceiptsDialog({ batch, company, onClose }: {
-  batch:   FabItemBatch | null;
-  company: string | undefined;
-  onClose: () => void;
+  batch: FabItemBatch | null; company: string | undefined; onClose: () => void;
 }) {
-  const [rows,    setRows]    = useState<FabStockLedger[]>([]);
+  const [rows, setRows] = useState<FabStockLedger[]>([]);
   const [loading, setLoading] = useState(false);
-  const [error,   setError]   = useState('');
+  const [error, setError] = useState('');
 
   useEffect(() => {
     if (!batch) return;
     setLoading(true); setError('');
-    fabQuery<{ data: FabStockLedger[] }>('fabErpStockLedger', {
-      filters: { batchId: batch.id },
-      orderBy: [{ field: 'txnDate', direction: 'desc' }],
-    })
+    fabQuery<{ data: FabStockLedger[] }>('fabErpStockLedger', { filters: { batchId: batch.id }, orderBy: [{ field: 'txnDate', direction: 'desc' }] })
       .then((res) => setRows(res.data ?? []))
-      .catch((e: any) => setError(e.message))
+      .catch((e) => setError((e as Error).message))
       .finally(() => setLoading(false));
   }, [batch]);
 
+  const th = { fontFamily: 'var(--font-ui)', fontWeight: 600, fontSize: 12, color: 'var(--c-text-2)', textTransform: 'uppercase', letterSpacing: '.05em', borderColor: 'var(--c-divider)' } as const;
+  const td = { borderColor: 'var(--c-divider)', fontSize: 13, color: 'var(--c-text)' } as const;
+
   return (
     <Dialog open={!!batch} onClose={onClose} maxWidth="sm" fullWidth>
-      <DialogTitle>Receipts — {batch?.batchCode}</DialogTitle>
+      <DialogTitle sx={{ fontWeight: 600 }}>Receipts — <Mono>{batch?.batchCode}</Mono></DialogTitle>
       <DialogContent>
         {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
         {loading ? (
@@ -76,24 +52,24 @@ function ReceiptsDialog({ batch, company, onClose }: {
         ) : (
           <Table size="small">
             <TableHead>
-              <TableRow sx={{ bgcolor: 'action.hover' }}>
-                <TableCell sx={{ fontWeight: 700 }}>Txn Date</TableCell>
-                <TableCell sx={{ fontWeight: 700 }}>Qty</TableCell>
-                <TableCell sx={{ fontWeight: 700 }}>Unit Cost</TableCell>
-                <TableCell sx={{ fontWeight: 700 }}>Supplier</TableCell>
-                <TableCell sx={{ fontWeight: 700 }}>GRN</TableCell>
+              <TableRow sx={{ background: 'var(--c-surface-2)' }}>
+                <TableCell sx={th}>Txn date</TableCell>
+                <TableCell sx={th} align="right">Qty</TableCell>
+                <TableCell sx={th} align="right">Unit cost</TableCell>
+                <TableCell sx={th}>Supplier</TableCell>
+                <TableCell sx={th}>GRN</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
               {rows.map((r) => (
                 <TableRow key={r.id} hover>
-                  <TableCell>{r.txnDate}</TableCell>
-                  <TableCell>{r.qty}</TableCell>
-                  <TableCell>{r.unitCost ?? '—'}</TableCell>
-                  <TableCell>{r.supplierName ?? '—'}</TableCell>
-                  <TableCell>
+                  <TableCell sx={td}><Mono>{r.txnDate}</Mono></TableCell>
+                  <TableCell sx={td} align="right"><Mono tabular>{r.qty}</Mono></TableCell>
+                  <TableCell sx={td} align="right">{r.unitCost ?? '—'}</TableCell>
+                  <TableCell sx={td}>{r.supplierName ?? '—'}</TableCell>
+                  <TableCell sx={td}>
                     {r.grnId != null ? (
-                      <Link component={RouterLink} to={`/${company}/fab_erp/grn-detail?grnId=${r.grnId}`}>
+                      <Link component={RouterLink} to={`/${company}/fab_erp/grn-detail?grnId=${r.grnId}`} sx={{ color: 'var(--c-primary-700)' }}>
                         View GRN
                       </Link>
                     ) : '—'}
@@ -114,19 +90,16 @@ export default function ItemBatches() {
   const [searchParams] = useSearchParams();
   const itemIdParam = searchParams.get('itemId');
 
-  const [item,     setItem]     = useState<FabItemCatalog | null>(null);
+  const [item, setItem] = useState<FabItemCatalog | null>(null);
   const [allItems, setAllItems] = useState<ItemOption[]>([]);
   const [selectedItem, setSelectedItem] = useState<ItemOption | null>(null);
-
-  const [plants,    setPlants]    = useState<FabPlant[]>([]);
+  const [plants, setPlants] = useState<FabPlant[]>([]);
   const [locations, setLocations] = useState<FabStockLocation[]>([]);
-  const [plantId,    setPlantId]    = useState<number | ''>('');
+  const [plantId, setPlantId] = useState<number | ''>('');
   const [locationId, setLocationId] = useState<number | ''>('');
-
   const [batches, setBatches] = useState<FabItemBatch[]>([]);
   const [loading, setLoading] = useState(false);
-  const [error,   setError]   = useState('');
-
+  const [error, setError] = useState('');
   const [receiptsBatch, setReceiptsBatch] = useState<FabItemBatch | null>(null);
 
   const catalogItemId = itemIdParam ? Number(itemIdParam) : selectedItem?.id;
@@ -135,31 +108,28 @@ export default function ItemBatches() {
     if (!itemIdParam) return;
     fabQuery<{ data: FabItemCatalog[] }>('fabErpItemCatalog', { filters: { id: Number(itemIdParam) } })
       .then((res) => setItem(res.data?.[0] ?? null))
-      .catch((e: any) => setError(e.message));
+      .catch((e) => setError((e as Error).message));
   }, [itemIdParam]);
 
   useEffect(() => {
     if (itemIdParam) return;
-    fabQuery<{ data: FabItemCatalog[] }>('fabErpItemCatalog', {
-      orderBy: [{ field: 'name', direction: 'asc' }],
-      pagination: { limit: 1000 },
-    })
+    fabQuery<{ data: FabItemCatalog[] }>('fabErpItemCatalog', { orderBy: [{ field: 'name', direction: 'asc' }], pagination: { limit: 1000 } })
       .then((res) => setAllItems((res.data ?? []).map((it) => ({ id: it.id, name: it.name, code: it.code }))))
-      .catch((e: any) => setError(e.message));
+      .catch((e) => setError((e as Error).message));
   }, [itemIdParam]);
 
   useEffect(() => {
     fabQuery<{ data: FabPlant[] }>('fabErpPlant', { orderBy: [{ field: 'name', direction: 'asc' }] })
       .then((res) => setPlants(res.data ?? []))
-      .catch((e: any) => setError(e.message));
+      .catch((e) => setError((e as Error).message));
   }, []);
 
   useEffect(() => {
-    const params: any = { orderBy: [{ field: 'name', direction: 'asc' }] };
+    const params: { orderBy: { field: string; direction: 'asc' | 'desc' }[]; filters?: Record<string, unknown> } = { orderBy: [{ field: 'name', direction: 'asc' }] };
     if (plantId !== '') params.filters = { plantId };
     fabQuery<{ data: FabStockLocation[] }>('fabErpStockLocation', params)
       .then((res) => setLocations(res.data ?? []))
-      .catch((e: any) => setError(e.message));
+      .catch((e) => setError((e as Error).message));
   }, [plantId]);
 
   const fetchBatches = useCallback(async () => {
@@ -167,44 +137,33 @@ export default function ItemBatches() {
     setLoading(true); setError('');
     try {
       const filters: Record<string, unknown> = { catalogItemId };
-      if (plantId !== '')    filters.plantId = plantId;
+      if (plantId !== '') filters.plantId = plantId;
       if (locationId !== '') filters.stockLocationId = locationId;
-      const res = await fabQuery<{ data: FabItemBatch[] }>('fabErpItemBatch', {
-        filters,
-        orderBy: [{ field: 'receivedDate', direction: 'desc' }],
-      });
+      const res = await fabQuery<{ data: FabItemBatch[] }>('fabErpItemBatch', { filters, orderBy: [{ field: 'receivedDate', direction: 'desc' }] });
       setBatches(res.data ?? []);
-    } catch (e: any) { setError(e.message); }
+    } catch (e) { setError((e as Error).message); }
     finally { setLoading(false); }
   }, [catalogItemId, plantId, locationId]);
 
   useEffect(() => { fetchBatches(); }, [fetchBatches]);
 
-  if (!canView) {
-    return (
-      <Box sx={{ p: 3, maxWidth: 960, mx: 'auto' }}>
-        <Alert severity="warning">You don't have permission to view this page.</Alert>
-      </Box>
-    );
-  }
+  if (!canView) return <Alert severity="warning" sx={{ maxWidth: 960, mx: 'auto' }}>You don't have permission to view this page.</Alert>;
+
+  const th = { fontFamily: 'var(--font-ui)', fontWeight: 600, fontSize: 12, color: 'var(--c-text-2)', textTransform: 'uppercase', letterSpacing: '.05em', borderColor: 'var(--c-divider)' } as const;
+  const td = { borderColor: 'var(--c-divider)', fontSize: 13, color: 'var(--c-text)' } as const;
 
   return (
-    <Box sx={{ p: 3, maxWidth: 960, mx: 'auto' }}>
-      <Box sx={{ mb: 3 }}>
-        <Typography variant="h5" fontWeight={700}>Item Batches</Typography>
-        <Typography variant="body2" color="text.secondary">
-          Batch/lot level stock on hand by plant and location
-        </Typography>
-      </Box>
+    <Box sx={{ maxWidth: 960, mx: 'auto' }}>
+      <PageHeader title="Item Batches" subtitle="Batch/lot level stock on hand by plant and location" />
 
       {itemIdParam ? (
         <Box sx={{ mb: 2 }}>
           {item && (
-            <Typography variant="subtitle1" fontWeight={600}>
+            <Typography sx={{ fontSize: 14, fontWeight: 600, color: 'var(--c-text)' }}>
               {item.name} ({item.code}) {item.unit ? `— ${item.unit}` : ''}
             </Typography>
           )}
-          <Link component={RouterLink} to={`/${company}/fab_erp/item-catalog`}>
+          <Link component={RouterLink} to={`/${company}/fab_erp/item-catalog`} sx={{ color: 'var(--c-primary-700)' }}>
             Back to Item Catalog
           </Link>
         </Box>
@@ -215,25 +174,17 @@ export default function ItemBatches() {
           value={selectedItem}
           onChange={(_, v) => setSelectedItem(v)}
           sx={{ mb: 2, maxWidth: 400 }}
-          renderInput={(params) => <TextField {...params} label="Select Item" size="small" />}
+          renderInput={(params) => <TextField {...params} label="Select item" size="small" />}
         />
       )}
 
       <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
-        <Select
-          size="small" displayEmpty sx={{ minWidth: 180 }}
-          value={plantId}
-          onChange={(e) => { setPlantId(e.target.value as number | ''); setLocationId(''); }}
-        >
-          <MenuItem value="">All Plants</MenuItem>
+        <Select size="small" displayEmpty sx={{ minWidth: 180 }} value={plantId} onChange={(e) => { setPlantId(e.target.value as number | ''); setLocationId(''); }}>
+          <MenuItem value="">All plants</MenuItem>
           {plants.map((p) => <MenuItem key={p.id} value={p.id}>{p.name}</MenuItem>)}
         </Select>
-        <Select
-          size="small" displayEmpty sx={{ minWidth: 200 }}
-          value={locationId}
-          onChange={(e) => setLocationId(e.target.value as number | '')}
-        >
-          <MenuItem value="">All Stock Locations</MenuItem>
+        <Select size="small" displayEmpty sx={{ minWidth: 200 }} value={locationId} onChange={(e) => setLocationId(e.target.value as number | '')}>
+          <MenuItem value="">All stock locations</MenuItem>
           {locations.map((l) => <MenuItem key={l.id} value={l.id}>{l.name}</MenuItem>)}
         </Select>
       </Box>
@@ -241,60 +192,46 @@ export default function ItemBatches() {
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
       {!catalogItemId ? (
-        <Paper sx={{ p: 6, textAlign: 'center' }}>
-          <Inventory2Icon sx={{ fontSize: 48, color: 'text.disabled', mb: 1 }} />
-          <Typography color="text.secondary">Select an item to view its batches.</Typography>
-        </Paper>
+        <EmptyState icon={<Inventory2Rounded />} title="Select an item to view its batches" />
       ) : loading ? (
-        <Box sx={{ display: 'flex', justifyContent: 'center', mt: 8 }}><CircularProgress /></Box>
+        <ListSkeleton rows={4} />
       ) : batches.length === 0 ? (
-        <Paper sx={{ p: 6, textAlign: 'center' }}>
-          <Inventory2Icon sx={{ fontSize: 48, color: 'text.disabled', mb: 1 }} />
-          <Typography color="text.secondary">No batches found.</Typography>
-        </Paper>
+        <EmptyState icon={<Inventory2Rounded />} title="No batches found" />
       ) : (
-        <Paper variant="outlined">
+        <Surface e={1} sx={{ overflow: 'hidden' }}>
           <Table size="small">
             <TableHead>
-              <TableRow sx={{ bgcolor: 'action.hover' }}>
-                <TableCell sx={{ fontWeight: 700 }}>Batch Code</TableCell>
-                <TableCell sx={{ fontWeight: 700 }}>Plant</TableCell>
-                <TableCell sx={{ fontWeight: 700 }}>Stock Location</TableCell>
-                <TableCell sx={{ fontWeight: 700 }}>Qty on Hand</TableCell>
-                <TableCell sx={{ fontWeight: 700 }}>Received Date</TableCell>
-                <TableCell sx={{ fontWeight: 700 }}>Notes</TableCell>
-                <TableCell sx={{ width: 60 }} align="right" />
+              <TableRow sx={{ background: 'var(--c-surface-2)' }}>
+                <TableCell sx={th}>Batch code</TableCell>
+                <TableCell sx={th}>Plant</TableCell>
+                <TableCell sx={th}>Stock location</TableCell>
+                <TableCell sx={th} align="right">Qty on hand</TableCell>
+                <TableCell sx={th}>Received date</TableCell>
+                <TableCell sx={th}>Notes</TableCell>
+                <TableCell sx={{ ...th, width: 60 }} align="right" />
               </TableRow>
             </TableHead>
             <TableBody>
               {batches.map((b) => (
                 <TableRow key={b.id} hover>
-                  <TableCell>
-                    <Typography variant="caption" sx={{ fontFamily: 'monospace', bgcolor: 'action.selected', px: 0.75, py: 0.25, borderRadius: 0.5 }}>
-                      {b.batchCode}
-                    </Typography>
-                  </TableCell>
-                  <TableCell>{b.plantName ?? '—'}</TableCell>
-                  <TableCell>{b.stockLocationName ?? '—'}</TableCell>
-                  <TableCell>{b.qtyOnHand}</TableCell>
-                  <TableCell>{b.receivedDate ?? '—'}</TableCell>
-                  <TableCell>
-                    <Typography variant="body2" color="text.secondary" noWrap sx={{ maxWidth: 240 }}>
+                  <TableCell sx={td}><Mono chip>{b.batchCode}</Mono></TableCell>
+                  <TableCell sx={td}>{b.plantName ?? '—'}</TableCell>
+                  <TableCell sx={td}>{b.stockLocationName ?? '—'}</TableCell>
+                  <TableCell sx={td} align="right"><Mono tabular>{b.qtyOnHand}</Mono></TableCell>
+                  <TableCell sx={td}>{b.receivedDate ?? '—'}</TableCell>
+                  <TableCell sx={td}>
+                    <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 240 }}>
                       {b.notes ?? '—'}
                     </Typography>
                   </TableCell>
-                  <TableCell align="right">
-                    <Tooltip title="Receipts">
-                      <IconButton size="small" onClick={() => setReceiptsBatch(b)}>
-                        <ReceiptLongIcon fontSize="small" />
-                      </IconButton>
-                    </Tooltip>
+                  <TableCell sx={td} align="right">
+                    <Tooltip title="Receipts"><IconButton size="small" onClick={() => setReceiptsBatch(b)}><ReceiptLongRounded fontSize="small" /></IconButton></Tooltip>
                   </TableCell>
                 </TableRow>
               ))}
             </TableBody>
           </Table>
-        </Paper>
+        </Surface>
       )}
 
       <ReceiptsDialog batch={receiptsBatch} company={company} onClose={() => setReceiptsBatch(null)} />

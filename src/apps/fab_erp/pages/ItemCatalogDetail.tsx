@@ -1,133 +1,92 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { useNavigate, useParams }                            from 'react-router-dom';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
 import {
-  Alert,
-  Box,
-  Button,
-  Chip,
-  CircularProgress,
-  Divider,
-  IconButton,
-  MenuItem,
-  Paper,
-  Snackbar,
-  Tab,
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableRow,
-  Tabs,
-  TextField,
-  Typography,
+  Alert, Box, Button, CircularProgress, Divider, IconButton, MenuItem, Table, TableBody,
+  TableCell, TableHead, TableRow, TextField, Typography,
 } from '@mui/material';
+import AddIcon from '@mui/icons-material/Add';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
-import AddIcon       from '@mui/icons-material/Add';
-import DeleteIcon    from '@mui/icons-material/Delete';
-import SaveIcon      from '@mui/icons-material/Save';
+import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
+import SaveIcon from '@mui/icons-material/Save';
 
-import { fabQuery, fabMutate }   from '../api/client';
+import { fabQuery, fabMutate } from '../api/client';
 import type { FabItemCatalog, FabCustomField } from '../types';
-import { usePermission }         from '@core/hooks/usePermission';
-import BomDesigner               from '../components/BomDesigner';
+import { usePermission } from '@core/hooks/usePermission';
+import BomDesigner from '../components/BomDesigner';
+import { Surface, DetailLayout, Mono, StatusBadge, useToast } from '../components';
 
 const MATERIAL_TYPES = [
-  { value: 'raw_material',  label: 'Raw Material' },
+  { value: 'raw_material', label: 'Raw Material' },
   { value: 'semi_finished', label: 'Semi-Finished' },
-  { value: 'finished',      label: 'Finished Good' },
-  { value: 'co_product',    label: 'Co-product' },
-  { value: 'component',     label: 'Component (generic)' },
+  { value: 'finished', label: 'Finished Good' },
+  { value: 'co_product', label: 'Co-product' },
+  { value: 'component', label: 'Component (generic)' },
 ];
 
 const PROCUREMENT_TYPES = [
-  { value: 'buy',  label: 'Buy (external procurement)' },
+  { value: 'buy', label: 'Buy (external procurement)' },
   { value: 'make', label: 'Make (in-house production)' },
   { value: 'both', label: 'Both (make or buy)' },
 ];
 
-// ── Main page ─────────────────────────────────────────────────────────────
+const th = { fontFamily: 'var(--font-ui)', fontWeight: 600, fontSize: 12, color: 'var(--c-text-2)', textTransform: 'uppercase', letterSpacing: '.05em', borderColor: 'var(--c-divider)' } as const;
+const td = { borderColor: 'var(--c-divider)', fontSize: 13, color: 'var(--c-text)' } as const;
 
 export default function ItemCatalogDetail() {
   const { company, itemId } = useParams<{ company: string; itemId: string }>();
-  const navigate             = useNavigate();
-  const canManage            = usePermission('fab_erp_items_meta_view');
-  const id                   = Number(itemId);
+  const navigate = useNavigate();
+  const canManage = usePermission('fab_erp_items_meta_view');
+  const id = Number(itemId);
+  const { toast } = useToast();
 
-  const [item,     setItem]     = useState<FabItemCatalog | null>(null);
-  const [loading,  setLoading]  = useState(true);
-  const [saving,   setSaving]   = useState(false);
-  const [error,    setError]    = useState('');
-  const [toast,    setToast]    = useState('');
-  const [tab,      setTab]      = useState(0);
+  const [item, setItem] = useState<FabItemCatalog | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [tab, setTab] = useState(0);
 
-  // Editable draft for Basic Info + Basic Data
   const [draft, setDraft] = useState<Partial<FabItemCatalog>>({});
   function set<K extends keyof FabItemCatalog>(k: K, v: FabItemCatalog[K]) {
     setDraft((d) => ({ ...d, [k]: v }));
   }
 
-  // Custom fields (item-level) + ancestor fields for inheritance display
-  const [configs,        setConfigs]       = useState<FabCustomField[]>([]);
-  const [configDraft,    setConfigDraft]   = useState<FabCustomField[]>([]);
-  const [configSaving,   setConfigSaving]  = useState(false);
+  const [configs, setConfigs] = useState<FabCustomField[]>([]);
+  const [configDraft, setConfigDraft] = useState<FabCustomField[]>([]);
+  const [configSaving, setConfigSaving] = useState(false);
   const [ancestorFields, setAncestorFields] = useState<{ fields: FabCustomField[]; source: 'category' | 'group' | 'subgroup' }[]>([]);
 
   const fetchAll = useCallback(async () => {
     setLoading(true); setError('');
     try {
-      const itemRes = await fabQuery<{ data: FabItemCatalog[] }>('fabErpItemCatalog', {
-        filters: { id }, pagination: { limit: 1 },
-      });
+      const itemRes = await fabQuery<{ data: FabItemCatalog[] }>('fabErpItemCatalog', { filters: { id }, pagination: { limit: 1 } });
       const it = itemRes.data?.[0] ?? null;
       setItem(it);
       if (it) setDraft({ ...it });
 
-      // Item's own custom fields
       const configRes = await fabQuery<{ data: FabCustomField[] }>('fabErpCustomField', {
-        filters: { level: 'item', levelId: id },
-        orderBy: [{ field: 'sortOrder', direction: 'asc' }],
-        pagination: { limit: 100 },
+        filters: { level: 'item', levelId: id }, orderBy: [{ field: 'sortOrder', direction: 'asc' }], pagination: { limit: 100 },
       });
       const cfgs = configRes.data ?? [];
       setConfigs(cfgs);
       setConfigDraft(cfgs.map((c) => ({ ...c })));
 
-      // Ancestor custom fields for inheritance display
       if (it) {
         const ancestorQueries: Promise<{ fields: FabCustomField[]; source: 'category' | 'group' | 'subgroup' }>[] = [];
         if (it.categoryId) {
-          ancestorQueries.push(
-            fabQuery<{ data: FabCustomField[] }>('fabErpCustomField', {
-              filters: { level: 'category', levelId: it.categoryId },
-              orderBy: [{ field: 'sortOrder', direction: 'asc' }], pagination: { limit: 100 },
-            }).then((r) => ({ fields: r.data ?? [], source: 'category' as const }))
-          );
+          ancestorQueries.push(fabQuery<{ data: FabCustomField[] }>('fabErpCustomField', { filters: { level: 'category', levelId: it.categoryId }, orderBy: [{ field: 'sortOrder', direction: 'asc' }], pagination: { limit: 100 } }).then((r) => ({ fields: r.data ?? [], source: 'category' as const })));
         }
         if (it.groupId) {
-          ancestorQueries.push(
-            fabQuery<{ data: FabCustomField[] }>('fabErpCustomField', {
-              filters: { level: 'group', levelId: it.groupId },
-              orderBy: [{ field: 'sortOrder', direction: 'asc' }], pagination: { limit: 100 },
-            }).then((r) => ({ fields: r.data ?? [], source: 'group' as const }))
-          );
+          ancestorQueries.push(fabQuery<{ data: FabCustomField[] }>('fabErpCustomField', { filters: { level: 'group', levelId: it.groupId }, orderBy: [{ field: 'sortOrder', direction: 'asc' }], pagination: { limit: 100 } }).then((r) => ({ fields: r.data ?? [], source: 'group' as const })));
         }
         if (it.subgroupId) {
-          ancestorQueries.push(
-            fabQuery<{ data: FabCustomField[] }>('fabErpCustomField', {
-              filters: { level: 'subgroup', levelId: it.subgroupId },
-              orderBy: [{ field: 'sortOrder', direction: 'asc' }], pagination: { limit: 100 },
-            }).then((r) => ({ fields: r.data ?? [], source: 'subgroup' as const }))
-          );
+          ancestorQueries.push(fabQuery<{ data: FabCustomField[] }>('fabErpCustomField', { filters: { level: 'subgroup', levelId: it.subgroupId }, orderBy: [{ field: 'sortOrder', direction: 'asc' }], pagination: { limit: 100 } }).then((r) => ({ fields: r.data ?? [], source: 'subgroup' as const })));
         }
         setAncestorFields(await Promise.all(ancestorQueries));
       }
-    } catch (e: any) { setError(e.message); }
-    finally { setLoading(false); }
+    } catch (e) { setError((e as Error).message); } finally { setLoading(false); }
   }, [id]);
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
-
-  // ── Save basic info + basic data ────────────────────────────────────────
 
   async function saveItem() {
     if (!item) return;
@@ -135,49 +94,28 @@ export default function ItemCatalogDetail() {
     try {
       await fabMutate('fabErpItemCatalog', 'update', {
         id,
-        name:           draft.name ?? item.name,
-        code:           draft.code ?? item.code,
-        unit:           draft.unit ?? null,
-        description:    draft.description ?? null,
-        material_type:     draft.materialType ?? null,
-        purchase_cost:     draft.purchaseCost ?? null,
-        procurement_type:  draft.procurementType ?? 'buy',
-        lead_time_days:    draft.leadTimeDays ?? null,
-        mrp_active:        draft.mrpActive ?? 1,
-        category_id:    draft.categoryId ?? null,
-        group_id:       draft.groupId ?? null,
-        subgroup_id:    draft.subgroupId ?? null,
-        gross_weight:   draft.grossWeight ?? null,
-        net_weight:     draft.netWeight ?? null,
-        weight_unit:    draft.weightUnit ?? 'kg',
-        volume:         draft.volume ?? null,
-        volume_unit:    draft.volumeUnit ?? 'm3',
-        length:         draft.length ?? null,
-        width:          draft.width ?? null,
-        height:         draft.height ?? null,
-        dimension_unit: draft.dimensionUnit ?? 'mm',
-        barcode:        draft.barcode ?? null,
-        hsn_code:       draft.hsnCode ?? null,
-        division:       draft.division ?? null,
+        name: draft.name ?? item.name, code: draft.code ?? item.code, unit: draft.unit ?? null, description: draft.description ?? null,
+        material_type: draft.materialType ?? null, purchase_cost: draft.purchaseCost ?? null,
+        procurement_type: draft.procurementType ?? 'buy', lead_time_days: draft.leadTimeDays ?? null, mrp_active: draft.mrpActive ?? 1,
+        category_id: draft.categoryId ?? null, group_id: draft.groupId ?? null, subgroup_id: draft.subgroupId ?? null,
+        gross_weight: draft.grossWeight ?? null, net_weight: draft.netWeight ?? null, weight_unit: draft.weightUnit ?? 'kg',
+        volume: draft.volume ?? null, volume_unit: draft.volumeUnit ?? 'm3', length: draft.length ?? null, width: draft.width ?? null,
+        height: draft.height ?? null, dimension_unit: draft.dimensionUnit ?? 'mm', barcode: draft.barcode ?? null,
+        hsn_code: draft.hsnCode ?? null, division: draft.division ?? null,
       });
-      setToast('Saved.');
+      toast('Item saved');
       fetchAll();
-    } catch (e: any) { setError(e.response?.data?.error ?? e.message); }
-    finally { setSaving(false); }
+    } catch (e) {
+      const ax = e as { response?: { data?: { error?: string } }; message?: string };
+      setError(ax.response?.data?.error ?? ax.message ?? 'Save failed');
+    } finally { setSaving(false); }
   }
 
-  // ── Custom field management ──────────────────────────────────────────────
-
-  // Merged inherited fields (category → group → subgroup, later overrides earlier)
   const mergedInherited = useMemo(() => {
     const map = new Map<string, { field: FabCustomField; source: string }>();
     for (const src of ['category', 'group', 'subgroup'] as const) {
       const entry = ancestorFields.find((a) => a.source === src);
-      if (entry) {
-        for (const f of entry.fields) {
-          map.set(f.fieldKey, { field: f, source: src });
-        }
-      }
+      if (entry) for (const f of entry.fields) map.set(f.fieldKey, { field: f, source: src });
     }
     return Array.from(map.values());
   }, [ancestorFields]);
@@ -186,8 +124,7 @@ export default function ItemCatalogDetail() {
     if (configDraft.length >= 10) return;
     const placeholder: FabCustomField = {
       id: -(Date.now()), companyId: 0, level: 'item', levelId: id,
-      fieldKey: '', fieldType: 'text', fieldValue: null, sortOrder: configDraft.length,
-      createdAt: '', updatedAt: '', deletedAt: null,
+      fieldKey: '', fieldType: 'text', fieldValue: null, sortOrder: configDraft.length, createdAt: '', updatedAt: '', deletedAt: null,
     };
     setConfigDraft((d) => [...d, placeholder]);
   }
@@ -196,263 +133,156 @@ export default function ItemCatalogDetail() {
     setConfigSaving(true); setError('');
     try {
       const removedIds = configs.filter((c) => !configDraft.find((d) => d.id === c.id)).map((c) => c.id);
-      for (const rid of removedIds) {
-        await fabMutate('fabErpCustomField', 'delete', { id: rid });
-      }
+      for (const rid of removedIds) await fabMutate('fabErpCustomField', 'delete', { id: rid });
       for (let i = 0; i < configDraft.length; i++) {
         const d = configDraft[i];
         if (!d.fieldKey.trim()) continue;
-        if (d.id < 0) {
-          await fabMutate('fabErpCustomField', 'insert', {
-            level: 'item', level_id: id,
-            field_key: d.fieldKey.trim(), field_type: d.fieldType,
-            field_value: d.fieldValue ?? null, sort_order: i,
-          });
-        } else {
-          await fabMutate('fabErpCustomField', 'update', {
-            id: d.id, field_key: d.fieldKey.trim(), field_type: d.fieldType,
-            field_value: d.fieldValue ?? null, sort_order: i,
-          });
-        }
+        if (d.id < 0) await fabMutate('fabErpCustomField', 'insert', { level: 'item', level_id: id, field_key: d.fieldKey.trim(), field_type: d.fieldType, field_value: d.fieldValue ?? null, sort_order: i });
+        else await fabMutate('fabErpCustomField', 'update', { id: d.id, field_key: d.fieldKey.trim(), field_type: d.fieldType, field_value: d.fieldValue ?? null, sort_order: i });
       }
-      setToast('Custom fields saved.');
+      toast('Custom fields saved');
       fetchAll();
-    } catch (e: any) { setError(e.response?.data?.error ?? e.message); }
-    finally { setConfigSaving(false); }
+    } catch (e) {
+      const ax = e as { response?: { data?: { error?: string } }; message?: string };
+      setError(ax.response?.data?.error ?? ax.message ?? 'Save failed');
+    } finally { setConfigSaving(false); }
   }
 
-  // ── Field helper ──────────────────────────────────────────────────────────
-
-  function Field({ label, k, type = 'text', suffix }: {
-    label: string; k: keyof FabItemCatalog; type?: string; suffix?: string;
-  }) {
+  function Field({ label, k, type = 'text', suffix }: { label: string; k: keyof FabItemCatalog; type?: string; suffix?: string }) {
     return (
       <TextField
         label={label} size="small" type={type} fullWidth disabled={!canManage}
         value={(draft[k] as string | number | undefined) ?? ''}
         onChange={(e) => set(k, (type === 'number' ? (e.target.value === '' ? null : Number(e.target.value)) : e.target.value) as FabItemCatalog[typeof k])}
-        slotProps={suffix ? { input: { endAdornment: <Typography variant="caption" color="text.secondary">{suffix}</Typography> } } : undefined}
+        slotProps={suffix ? { input: { endAdornment: <Typography variant="caption" sx={{ color: 'var(--c-text-3)' }}>{suffix}</Typography> } } : undefined}
       />
     );
   }
 
-  // ── Render ────────────────────────────────────────────────────────────────
-
   if (loading) return <Box sx={{ display: 'flex', justifyContent: 'center', mt: 10 }}><CircularProgress /></Box>;
-  if (!item)   return <Box sx={{ p: 3 }}><Alert severity="error">Item not found.</Alert></Box>;
+  if (!item) return <Box><Alert severity="error">Item not found.</Alert></Box>;
 
   return (
-    <Box sx={{ p: 3, maxWidth: 1100, mx: 'auto' }}>
-      {/* Header */}
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 3 }}>
-        <Button startIcon={<ArrowBackIcon />} onClick={() => navigate(`/${company}/fab_erp/item-catalog`)}>
-          Item Catalog
-        </Button>
-        <Typography variant="h6" fontWeight={700} sx={{ flex: 1 }}>
-          {item.name} <Typography component="span" variant="h6" color="text.secondary" fontWeight={400}>({item.code})</Typography>
-        </Typography>
-      </Box>
-
+    <DetailLayout
+      header={
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+          <Button startIcon={<ArrowBackIcon />} onClick={() => navigate(`/${company}/fab_erp/item-catalog`)}>Item Catalog</Button>
+          <Box sx={{ flex: 1 }}>
+            <Typography sx={{ fontSize: 17, fontWeight: 600, color: 'var(--c-text)' }}>
+              {item.name} <Mono chip sx={{ ml: 0.5 }}>{item.code}</Mono>
+            </Typography>
+          </Box>
+        </Box>
+      }
+      tabs={[{ value: '0', label: 'Item Details' }, { value: '1', label: 'Custom Fields', count: configDraft.length || undefined }, { value: '2', label: 'Bill of Materials' }]}
+      active={String(tab)}
+      onTab={(v) => setTab(Number(v))}
+      maxWidth={1100}
+    >
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
 
-      <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 3 }}>
-        <Tab label="Item Details" />
-        <Tab label="Custom Fields" />
-        <Tab label="Bill of Materials" />
-      </Tabs>
-
-      {/* ── Tab 0: Item Details (Basic Info + Basic Data merged) ─────── */}
       {tab === 0 && (
-        <Paper variant="outlined" sx={{ p: 3 }}>
-          <Typography variant="subtitle2" color="text.secondary" gutterBottom>General</Typography>
+        <Surface e={1} sx={{ p: 3 }}>
+          <Typography sx={{ fontSize: 11, fontWeight: 600, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--c-text-3)', mb: 1.5 }}>General</Typography>
           <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2, mb: 3 }}>
             <Field label="Name" k="name" />
             <Field label="Code" k="code" />
             <Field label="Unit" k="unit" />
             <Field label="Description" k="description" />
-            <TextField
-              select label="Material Type" size="small" fullWidth disabled={!canManage}
-              value={draft.materialType ?? ''}
-              onChange={e => set('materialType', e.target.value as any)}
-            >
+            <TextField select label="Material type" size="small" fullWidth disabled={!canManage} value={draft.materialType ?? ''} onChange={(e) => set('materialType', e.target.value as FabItemCatalog['materialType'])}>
               <MenuItem value="">— unset —</MenuItem>
-              {MATERIAL_TYPES.map(mt => <MenuItem key={mt.value} value={mt.value}>{mt.label}</MenuItem>)}
+              {MATERIAL_TYPES.map((mt) => <MenuItem key={mt.value} value={mt.value}>{mt.label}</MenuItem>)}
             </TextField>
-            <TextField
-              label="Purchase Cost (material cost)" size="small" fullWidth type="number" disabled={!canManage}
+            <TextField label="Purchase cost (material cost)" size="small" fullWidth type="number" disabled={!canManage}
               value={(draft.purchaseCost as number | undefined) ?? ''}
-              onChange={e => set('purchaseCost', e.target.value === '' ? null : Number(e.target.value) as any)}
-              slotProps={{ input: { endAdornment: <Typography variant="caption" color="text.secondary">per unit</Typography> } }}
-            />
+              onChange={(e) => set('purchaseCost', (e.target.value === '' ? null : Number(e.target.value)) as FabItemCatalog['purchaseCost'])}
+              slotProps={{ input: { endAdornment: <Typography variant="caption" sx={{ color: 'var(--c-text-3)' }}>per unit</Typography> } }} />
           </Box>
-          <Divider sx={{ my: 2 }} />
-          <Typography variant="subtitle2" color="text.secondary" gutterBottom>MRP / Planning</Typography>
+          <Divider sx={{ my: 2, borderColor: 'var(--c-divider)' }} />
+          <Typography sx={{ fontSize: 11, fontWeight: 600, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--c-text-3)', mb: 1.5 }}>MRP / Planning</Typography>
           <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 2, mb: 3 }}>
-            <TextField
-              select label="Procurement Type" size="small" fullWidth disabled={!canManage}
-              value={draft.procurementType ?? 'buy'}
-              onChange={e => set('procurementType', e.target.value as any)}
-            >
-              {PROCUREMENT_TYPES.map(pt => <MenuItem key={pt.value} value={pt.value}>{pt.label}</MenuItem>)}
+            <TextField select label="Procurement type" size="small" fullWidth disabled={!canManage} value={draft.procurementType ?? 'buy'} onChange={(e) => set('procurementType', e.target.value as FabItemCatalog['procurementType'])}>
+              {PROCUREMENT_TYPES.map((pt) => <MenuItem key={pt.value} value={pt.value}>{pt.label}</MenuItem>)}
             </TextField>
-            <TextField
-              label="Default Lead Time" size="small" fullWidth type="number" disabled={!canManage}
+            <TextField label="Default lead time" size="small" fullWidth type="number" disabled={!canManage}
               value={(draft.leadTimeDays as number | undefined) ?? ''}
-              onChange={e => set('leadTimeDays', e.target.value === '' ? null : Number(e.target.value) as any)}
-              slotProps={{ input: { endAdornment: <Typography variant="caption" color="text.secondary">days</Typography> } }}
-            />
-            <TextField
-              select label="Include in MRP" size="small" fullWidth disabled={!canManage}
-              value={String(draft.mrpActive ?? 1)}
-              onChange={e => set('mrpActive', Number(e.target.value) as any)}
-            >
-              <MenuItem value="1">Yes</MenuItem>
-              <MenuItem value="0">No</MenuItem>
+              onChange={(e) => set('leadTimeDays', (e.target.value === '' ? null : Number(e.target.value)) as FabItemCatalog['leadTimeDays'])}
+              slotProps={{ input: { endAdornment: <Typography variant="caption" sx={{ color: 'var(--c-text-3)' }}>days</Typography> } }} />
+            <TextField select label="Include in MRP" size="small" fullWidth disabled={!canManage} value={String(draft.mrpActive ?? 1)} onChange={(e) => set('mrpActive', Number(e.target.value) as FabItemCatalog['mrpActive'])}>
+              <MenuItem value="1">Yes</MenuItem><MenuItem value="0">No</MenuItem>
             </TextField>
           </Box>
-          <Divider sx={{ my: 2 }} />
-          <Typography variant="subtitle2" color="text.secondary" gutterBottom>Weights</Typography>
+          <Divider sx={{ my: 2, borderColor: 'var(--c-divider)' }} />
+          <Typography sx={{ fontSize: 11, fontWeight: 600, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--c-text-3)', mb: 1.5 }}>Weights</Typography>
           <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr 80px', gap: 2, mb: 3 }}>
-            <Field label="Gross Weight" k="grossWeight" type="number" />
-            <Field label="Net Weight"   k="netWeight"   type="number" />
-            <Field label="Unit"         k="weightUnit" />
+            <Field label="Gross weight" k="grossWeight" type="number" />
+            <Field label="Net weight" k="netWeight" type="number" />
+            <Field label="Unit" k="weightUnit" />
           </Box>
-          <Divider sx={{ my: 2 }} />
-          <Typography variant="subtitle2" color="text.secondary" gutterBottom>Volume</Typography>
+          <Divider sx={{ my: 2, borderColor: 'var(--c-divider)' }} />
+          <Typography sx={{ fontSize: 11, fontWeight: 600, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--c-text-3)', mb: 1.5 }}>Volume</Typography>
           <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 80px', gap: 2, mb: 3 }}>
-            <Field label="Volume" k="volume"    type="number" />
-            <Field label="Unit"   k="volumeUnit" />
+            <Field label="Volume" k="volume" type="number" />
+            <Field label="Unit" k="volumeUnit" />
           </Box>
-          <Divider sx={{ my: 2 }} />
-          <Typography variant="subtitle2" color="text.secondary" gutterBottom>Dimensions</Typography>
+          <Divider sx={{ my: 2, borderColor: 'var(--c-divider)' }} />
+          <Typography sx={{ fontSize: 11, fontWeight: 600, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--c-text-3)', mb: 1.5 }}>Dimensions</Typography>
           <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 80px', gap: 2, mb: 3 }}>
             <Field label="Length" k="length" type="number" />
-            <Field label="Width"  k="width"  type="number" />
+            <Field label="Width" k="width" type="number" />
             <Field label="Height" k="height" type="number" />
-            <Field label="Unit"   k="dimensionUnit" />
+            <Field label="Unit" k="dimensionUnit" />
           </Box>
-          <Divider sx={{ my: 2 }} />
-          <Typography variant="subtitle2" color="text.secondary" gutterBottom>Classification</Typography>
+          <Divider sx={{ my: 2, borderColor: 'var(--c-divider)' }} />
+          <Typography sx={{ fontSize: 11, fontWeight: 600, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--c-text-3)', mb: 1.5 }}>Classification</Typography>
           <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 2 }}>
-            <Field label="Barcode"  k="barcode"  />
-            <Field label="HSN Code" k="hsnCode"  />
+            <Field label="Barcode" k="barcode" />
+            <Field label="HSN code" k="hsnCode" />
             <Field label="Division" k="division" />
           </Box>
           {canManage && (
-            <Box sx={{ mt: 2 }}>
-              <Button variant="contained" startIcon={saving ? <CircularProgress size={14} /> : <SaveIcon />}
-                disabled={saving} onClick={saveItem}>
-                Save
-              </Button>
+            <Box sx={{ mt: 3 }}>
+              <Button variant="contained" startIcon={saving ? <CircularProgress size={14} color="inherit" /> : <SaveIcon />} disabled={saving} onClick={saveItem}>Save</Button>
             </Box>
           )}
-        </Paper>
+        </Surface>
       )}
 
-      {/* ── Tab 1: Custom Fields ────────────────────────────────────── */}
       {tab === 1 && (
-        <Paper variant="outlined" sx={{ p: 3 }}>
-
-          {/* Inherited fields from taxonomy */}
+        <Surface e={1} sx={{ p: 3 }}>
           {mergedInherited.length > 0 && (
             <>
-              <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                Inherited from Taxonomy ({mergedInherited.length})
-              </Typography>
-              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
-                To override an inherited field at the item level, add an Item Field with the same Field Name.
-              </Typography>
+              <Typography sx={{ fontSize: 11, fontWeight: 600, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--c-text-3)', mb: 0.5 }}>Inherited from taxonomy ({mergedInherited.length})</Typography>
+              <Typography variant="caption" sx={{ display: 'block', mb: 1, color: 'var(--c-text-3)' }}>To override an inherited field at the item level, add an item field with the same field name.</Typography>
               <Table size="small" sx={{ mb: 3 }}>
-                <TableHead>
-                  <TableRow sx={{ bgcolor: 'action.hover' }}>
-                    <TableCell sx={{ fontWeight: 700 }}>Field Name</TableCell>
-                    <TableCell sx={{ fontWeight: 700, width: 100 }}>Type</TableCell>
-                    <TableCell sx={{ fontWeight: 700 }}>Effective Default</TableCell>
-                    <TableCell sx={{ fontWeight: 700, width: 110 }}>From</TableCell>
-                    <TableCell sx={{ fontWeight: 700, width: 180 }}>Override at item level</TableCell>
-                  </TableRow>
-                </TableHead>
+                <TableHead><TableRow sx={{ background: 'var(--c-surface-2)' }}>
+                  <TableCell sx={th}>Field name</TableCell><TableCell sx={{ ...th, width: 100 }}>Type</TableCell>
+                  <TableCell sx={th}>Effective default</TableCell><TableCell sx={{ ...th, width: 110 }}>From</TableCell>
+                  <TableCell sx={{ ...th, width: 180 }}>Override at item level</TableCell>
+                </TableRow></TableHead>
                 <TableBody>
                   {mergedInherited.map(({ field, source }) => {
                     const overrideIdx = configDraft.findIndex((d) => d.fieldKey === field.fieldKey);
                     const isOverridden = overrideIdx >= 0;
                     return (
                       <TableRow key={field.fieldKey}>
-                        <TableCell>
-                          <Typography variant="body2" color="text.secondary">{field.fieldKey}</Typography>
+                        <TableCell sx={td}><Mono>{field.fieldKey}</Mono></TableCell>
+                        <TableCell sx={td}><Mono chip>{field.fieldType}</Mono></TableCell>
+                        <TableCell sx={td}>
+                          <Typography sx={isOverridden ? { textDecoration: 'line-through', color: 'var(--c-text-3)', fontSize: 13 } : { fontSize: 13, color: 'var(--c-text-2)' }}>{field.fieldValue ?? '—'}</Typography>
                         </TableCell>
-                        <TableCell>
-                          <Typography variant="caption">{field.fieldType}</Typography>
-                        </TableCell>
-                        <TableCell>
-                          <Typography
-                            variant="body2"
-                            color="text.secondary"
-                            sx={isOverridden ? { textDecoration: 'line-through', color: 'text.disabled' } : undefined}
-                          >
-                            {field.fieldValue ?? '—'}
-                          </Typography>
-                        </TableCell>
-                        <TableCell>
-                          <Chip
-                            label={source === 'category' ? 'Category' : source === 'group' ? 'Group' : 'Sub-group'}
-                            size="small"
-                            color={source === 'category' ? 'default' : source === 'group' ? 'info' : 'secondary'}
-                            variant="outlined"
-                          />
-                        </TableCell>
-                        <TableCell>
+                        <TableCell sx={td}><StatusBadge status={source === 'category' ? 'Category' : source === 'group' ? 'Group' : 'Sub-group'} family="info" /></TableCell>
+                        <TableCell sx={td}>
                           {isOverridden ? (
                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                              <TextField
-                                size="small"
-                                value={configDraft[overrideIdx].fieldValue ?? ''}
-                                disabled={!canManage}
-                                sx={{ flex: 1, minWidth: 80 }}
-                                placeholder="Override value…"
-                                onChange={(e) =>
-                                  setConfigDraft((d) =>
-                                    d.map((r, j) => j === overrideIdx ? { ...r, fieldValue: e.target.value } : r)
-                                  )
-                                }
-                              />
-                              {canManage && (
-                                <IconButton
-                                  size="small"
-                                  color="error"
-                                  onClick={() => setConfigDraft((d) => d.filter((_, j) => j !== overrideIdx))}
-                                >
-                                  <DeleteIcon fontSize="small" />
-                                </IconButton>
-                              )}
+                              <TextField size="small" value={configDraft[overrideIdx].fieldValue ?? ''} disabled={!canManage} sx={{ flex: 1, minWidth: 80 }} placeholder="Override value…"
+                                onChange={(e) => setConfigDraft((d) => d.map((r, j) => (j === overrideIdx ? { ...r, fieldValue: e.target.value } : r)))} />
+                              {canManage && <IconButton size="small" color="error" onClick={() => setConfigDraft((d) => d.filter((_, j) => j !== overrideIdx))}><DeleteOutlineRounded fontSize="small" /></IconButton>}
                             </Box>
                           ) : canManage ? (
-                            <Button
-                              size="small"
-                              variant="outlined"
-                              onClick={() =>
-                                setConfigDraft((d) => [
-                                  ...d,
-                                  {
-                                    id: -(Date.now()),
-                                    companyId: 0,
-                                    level: 'item' as const,
-                                    levelId: id,
-                                    fieldKey: field.fieldKey,
-                                    fieldType: field.fieldType as FabCustomField['fieldType'],
-                                    fieldValue: field.fieldValue,
-                                    sortOrder: d.length,
-                                    createdAt: '',
-                                    updatedAt: '',
-                                    deletedAt: null,
-                                  },
-                                ])
-                              }
-                            >
-                              Override
-                            </Button>
+                            <Button size="small" variant="outlined" onClick={() => setConfigDraft((d) => [...d, { id: -(Date.now()), companyId: 0, level: 'item' as const, levelId: id, fieldKey: field.fieldKey, fieldType: field.fieldType as FabCustomField['fieldType'], fieldValue: field.fieldValue, sortOrder: d.length, createdAt: '', updatedAt: '', deletedAt: null }])}>Override</Button>
                           ) : (
-                            <Typography variant="caption" color="text.disabled">—</Typography>
+                            <Typography sx={{ color: 'var(--c-text-3)' }}>—</Typography>
                           )}
                         </TableCell>
                       </TableRow>
@@ -460,63 +290,33 @@ export default function ItemCatalogDetail() {
                   })}
                 </TableBody>
               </Table>
-              <Divider sx={{ mb: 2 }} />
+              <Divider sx={{ mb: 2, borderColor: 'var(--c-divider)' }} />
             </>
           )}
 
-          {/* Item's own custom fields */}
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-            <Typography variant="subtitle2">Item Fields ({configDraft.length}/10)</Typography>
-            {canManage && (
-              <Button size="small" startIcon={<AddIcon />} disabled={configDraft.length >= 10} onClick={addConfigRow}>
-                Add Field
-              </Button>
-            )}
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1.5 }}>
+            <Typography sx={{ fontSize: 11, fontWeight: 600, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--c-text-3)' }}>Item fields ({configDraft.length}/10)</Typography>
+            {canManage && <Button size="small" startIcon={<AddIcon />} disabled={configDraft.length >= 10} onClick={addConfigRow}>Add field</Button>}
           </Box>
           {configDraft.length === 0 ? (
-            <Typography color="text.secondary" variant="body2">
-              No item-specific fields yet. Add up to 10.
-            </Typography>
+            <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>No item-specific fields yet. Add up to 10.</Typography>
           ) : (
             <Table size="small">
-              <TableHead>
-                <TableRow sx={{ bgcolor: 'action.hover' }}>
-                  <TableCell sx={{ fontWeight: 700 }}>Field Name</TableCell>
-                  <TableCell sx={{ fontWeight: 700, width: 130 }}>Type</TableCell>
-                  <TableCell sx={{ fontWeight: 700 }}>Value</TableCell>
-                  {canManage && <TableCell sx={{ width: 48 }} />}
-                </TableRow>
-              </TableHead>
+              <TableHead><TableRow sx={{ background: 'var(--c-surface-2)' }}>
+                <TableCell sx={th}>Field name</TableCell><TableCell sx={{ ...th, width: 130 }}>Type</TableCell>
+                <TableCell sx={th}>Value</TableCell>{canManage && <TableCell sx={{ ...th, width: 48 }} />}
+              </TableRow></TableHead>
               <TableBody>
                 {configDraft.map((cfg, i) => (
                   <TableRow key={cfg.id}>
-                    <TableCell sx={{ py: 0.5 }}>
-                      <TextField size="small" fullWidth value={cfg.fieldKey} disabled={!canManage}
-                        placeholder="e.g. Material Grade"
-                        onChange={(e) => setConfigDraft((d) => d.map((r, j) => j === i ? { ...r, fieldKey: e.target.value } : r))} />
-                    </TableCell>
-                    <TableCell sx={{ py: 0.5 }}>
-                      <TextField select size="small" fullWidth value={cfg.fieldType ?? 'text'} disabled={!canManage}
-                        onChange={(e) => setConfigDraft((d) => d.map((r, j) => j === i ? { ...r, fieldType: e.target.value as FabCustomField['fieldType'] } : r))}>
-                        <MenuItem value="text">Text</MenuItem>
-                        <MenuItem value="number">Number</MenuItem>
-                        <MenuItem value="date">Date</MenuItem>
-                        <MenuItem value="dropdown">Dropdown</MenuItem>
+                    <TableCell sx={{ ...td, py: 0.5 }}><TextField size="small" fullWidth value={cfg.fieldKey} disabled={!canManage} placeholder="e.g. Material Grade" onChange={(e) => setConfigDraft((d) => d.map((r, j) => (j === i ? { ...r, fieldKey: e.target.value } : r)))} /></TableCell>
+                    <TableCell sx={{ ...td, py: 0.5 }}>
+                      <TextField select size="small" fullWidth value={cfg.fieldType ?? 'text'} disabled={!canManage} onChange={(e) => setConfigDraft((d) => d.map((r, j) => (j === i ? { ...r, fieldType: e.target.value as FabCustomField['fieldType'] } : r)))}>
+                        <MenuItem value="text">Text</MenuItem><MenuItem value="number">Number</MenuItem><MenuItem value="date">Date</MenuItem><MenuItem value="dropdown">Dropdown</MenuItem>
                       </TextField>
                     </TableCell>
-                    <TableCell sx={{ py: 0.5 }}>
-                      <TextField size="small" fullWidth value={cfg.fieldValue ?? ''} disabled={!canManage}
-                        placeholder="e.g. IS2062 E250"
-                        onChange={(e) => setConfigDraft((d) => d.map((r, j) => j === i ? { ...r, fieldValue: e.target.value } : r))} />
-                    </TableCell>
-                    {canManage && (
-                      <TableCell sx={{ py: 0.5 }}>
-                        <IconButton size="small" color="error"
-                          onClick={() => setConfigDraft((d) => d.filter((_, j) => j !== i))}>
-                          <DeleteIcon fontSize="small" />
-                        </IconButton>
-                      </TableCell>
-                    )}
+                    <TableCell sx={{ ...td, py: 0.5 }}><TextField size="small" fullWidth value={cfg.fieldValue ?? ''} disabled={!canManage} placeholder="e.g. IS2062 E250" onChange={(e) => setConfigDraft((d) => d.map((r, j) => (j === i ? { ...r, fieldValue: e.target.value } : r)))} /></TableCell>
+                    {canManage && <TableCell sx={{ ...td, py: 0.5 }}><IconButton size="small" color="error" onClick={() => setConfigDraft((d) => d.filter((_, j) => j !== i))}><DeleteOutlineRounded fontSize="small" /></IconButton></TableCell>}
                   </TableRow>
                 ))}
               </TableBody>
@@ -524,29 +324,17 @@ export default function ItemCatalogDetail() {
           )}
           {canManage && configDraft.length > 0 && (
             <Box sx={{ mt: 2 }}>
-              <Button variant="contained" startIcon={configSaving ? <CircularProgress size={14} /> : <SaveIcon />}
-                disabled={configSaving} onClick={saveConfigs}>
-                Save Fields
-              </Button>
+              <Button variant="contained" startIcon={configSaving ? <CircularProgress size={14} color="inherit" /> : <SaveIcon />} disabled={configSaving} onClick={saveConfigs}>Save fields</Button>
             </Box>
           )}
-        </Paper>
+        </Surface>
       )}
 
-      {/* ── Tab 2: Bill of Materials ─────────────────────────────────── */}
       {tab === 2 && (
-        <Paper variant="outlined" sx={{ height: 600, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-          <BomDesigner
-          catalogItemId={id}
-          catalogItemName={item.name}
-          catalogItemCode={item.code}
-          catalogItemUnit={item.unit ?? undefined}
-          mode={canManage ? 'edit' : 'readonly'}
-        />
-        </Paper>
+        <Surface e={1} sx={{ height: 600, display: 'flex', flexDirection: 'column', overflow: 'hidden', p: 0 }}>
+          <BomDesigner catalogItemId={id} catalogItemName={item.name} catalogItemCode={item.code} catalogItemUnit={item.unit ?? undefined} mode={canManage ? 'edit' : 'readonly'} />
+        </Surface>
       )}
-
-      <Snackbar open={!!toast} autoHideDuration={3000} onClose={() => setToast('')} message={toast} />
-    </Box>
+    </DetailLayout>
   );
 }

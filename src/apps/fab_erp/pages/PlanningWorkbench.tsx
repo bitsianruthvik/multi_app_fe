@@ -1,154 +1,105 @@
 import { useCallback, useEffect, useState } from 'react';
-import {
-  Alert, Box, Button, Chip, CircularProgress, Collapse,
-  Divider, Paper, Snackbar, Tooltip, Typography,
-} from '@mui/material';
-import ExpandMoreIcon          from '@mui/icons-material/ExpandMore';
-import ExpandLessIcon          from '@mui/icons-material/ExpandLess';
-import CheckCircleOutlineIcon  from '@mui/icons-material/CheckCircleOutline';
-import WarningAmberIcon        from '@mui/icons-material/WarningAmber';
-import ShoppingCartIcon        from '@mui/icons-material/ShoppingCart';
-import PrecisionManufacturingIcon from '@mui/icons-material/PrecisionManufacturing';
-import InventoryIcon           from '@mui/icons-material/Inventory';
+import { Alert, Box, Button, CircularProgress, Collapse, Divider, Tooltip, Typography } from '@mui/material';
+import ExpandMoreRounded from '@mui/icons-material/ExpandMoreRounded';
+import ExpandLessRounded from '@mui/icons-material/ExpandLessRounded';
+import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
+import WarningAmberRounded from '@mui/icons-material/WarningAmberRounded';
+import ShoppingCartRounded from '@mui/icons-material/ShoppingCartRounded';
+import PrecisionManufacturingRounded from '@mui/icons-material/PrecisionManufacturingRounded';
+import Inventory2Rounded from '@mui/icons-material/Inventory2Rounded';
 
 import { fabGet, fabPost } from '../api/client';
-import { usePermission }   from '@core/hooks/usePermission';
+import { usePermission } from '@core/hooks/usePermission';
+import { Surface, PageHeader, StatStrip, StatusBadge, Mono, EmptyState, useToast, type Stat } from '../components';
 
-// ── Types ─────────────────────────────────────────────────────────────────────
 interface PlannedOrderNode {
-  id: number;
-  orderNumber: string;
-  type: 'mrp_make' | 'mrp_buy';
-  status: string;
-  qty: number;
-  requiredDate: string;
-  scheduledStart: string | null;
-  catalogItemId: number;
-  itemName: string;
-  itemCode: string;
-  procurementType: string;
-  leadTimeDays: number;
-  stockOnHand: number;
-  stockOnOrder: number;
-  netQtyRequired: number;
-  children: PlannedOrderNode[];
+  id: number; orderNumber: string; type: 'mrp_make' | 'mrp_buy'; status: string;
+  qty: number; requiredDate: string; scheduledStart: string | null;
+  catalogItemId: number; itemName: string; itemCode: string;
+  procurementType: string; leadTimeDays: number; stockOnHand: number; stockOnOrder: number;
+  netQtyRequired: number; children: PlannedOrderNode[];
 }
-
 interface DemandGroup {
-  demandType: 'sales_order' | 'safety_stock';
-  soId: number | null;
-  soNumber: string | null;
-  customerName: string | null;
-  customerPoRef: string | null;
-  priority: string | null;
-  soNotes: string | null;
-  soRequiredDate: string | null;
-  soStatus: string | null;
-  tree: PlannedOrderNode[];
-  totalOrders: number;
-  makeCount: number;
-  buyCount: number;
+  demandType: 'sales_order' | 'safety_stock'; soId: number | null; soNumber: string | null;
+  customerName: string | null; customerPoRef: string | null; priority: string | null;
+  soNotes: string | null; soRequiredDate: string | null; soStatus: string | null;
+  tree: PlannedOrderNode[]; totalOrders: number; makeCount: number; buyCount: number;
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
 function collectIds(node: PlannedOrderNode): number[] {
   return [node.id, ...(node.children ?? []).flatMap(collectIds)];
 }
-
-function priorityColor(p: string | null): 'error' | 'warning' | 'info' | 'default' {
-  switch (p) {
-    case 'critical': return 'error';
-    case 'high':     return 'warning';
-    case 'medium':   return 'info';
-    default:         return 'default';
-  }
+function priorityFamily(p: string | null): 'danger' | 'warning' | 'info' | 'neutral' {
+  if (p === 'critical') return 'danger';
+  if (p === 'high') return 'warning';
+  if (p === 'medium') return 'info';
+  return 'neutral';
 }
 
-// ── Single planned order row (recursive) ──────────────────────────────────────
-function OrderRow({
-  node, depth, selected, onToggle, canManage,
-}: {
-  node: PlannedOrderNode;
-  depth: number;
-  selected: Set<number>;
-  onToggle: (ids: number[]) => void;
-  canManage: boolean;
+function OrderRow({ node, depth, selected, onToggle, canManage }: {
+  node: PlannedOrderNode; depth: number; selected: Set<number>; onToggle: (ids: number[]) => void; canManage: boolean;
 }) {
-  const allIds    = collectIds(node);
-  const allChosen = allIds.every(id => selected.has(id));
-  const someChosen = allIds.some(id => selected.has(id));
-  const isMake    = node.type === 'mrp_make';
-  const stockOk   = node.stockOnHand + node.stockOnOrder >= node.qty;
+  const allIds = collectIds(node);
+  const allChosen = allIds.every((id) => selected.has(id));
+  const someChosen = allIds.some((id) => selected.has(id));
+  const isMake = node.type === 'mrp_make';
+  const stockOk = node.stockOnHand + node.stockOnOrder >= node.qty;
 
   return (
     <>
-      <Box sx={{
-        display: 'flex', alignItems: 'center', gap: 1,
-        pl: 2 + depth * 3, pr: 2, py: 0.75,
-        borderLeft: depth > 0 ? '2px dashed' : 'none',
-        borderColor: 'divider',
-        ml: depth > 0 ? 3 : 0,
-        bgcolor: allChosen ? 'action.selected' : 'transparent',
-        borderRadius: 0.5,
-        '&:hover': { bgcolor: allChosen ? 'action.selected' : 'action.hover' },
-        cursor: canManage ? 'pointer' : 'default',
-        transition: 'background 0.1s',
-      }}
-        onClick={() => canManage && onToggle(allIds)}>
-
-        {/* Type icon */}
-        <Tooltip title={isMake ? 'Make — Manufacturing Work Order' : 'Buy — Purchase Order'}>
+      <Box
+        sx={{
+          display: 'flex', alignItems: 'center', gap: 1.25,
+          pl: `${16 + depth * 24}px`, pr: 2, py: 1,
+          borderLeft: depth > 0 ? '2px dashed var(--c-border)' : 'none',
+          ml: depth > 0 ? 3 : 0,
+          background: allChosen ? 'var(--c-primary-50)' : 'transparent',
+          borderRadius: 'var(--r-sm)',
+          cursor: canManage ? 'pointer' : 'default',
+          transition: 'background var(--t-fast) var(--ease)',
+          '&:hover': { background: allChosen ? 'var(--c-primary-50)' : 'var(--c-surface-2)' },
+        }}
+        onClick={() => canManage && onToggle(allIds)}
+      >
+        <Tooltip title={isMake ? 'Make — manufacturing work order' : 'Buy — purchase order'}>
           {isMake
-            ? <PrecisionManufacturingIcon fontSize="small" color="secondary" />
-            : <ShoppingCartIcon fontSize="small" color="info" />}
+            ? <PrecisionManufacturingRounded fontSize="small" sx={{ color: 'var(--c-primary-600)' }} />
+            : <ShoppingCartRounded fontSize="small" sx={{ color: 'var(--c-info-600)' }} />}
         </Tooltip>
 
-        {/* Item info */}
         <Box sx={{ flex: 1, minWidth: 0 }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexWrap: 'wrap' }}>
-            <Typography variant="body2" fontWeight={600} noWrap>{node.itemName}</Typography>
-            <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'monospace' }}>
-              {node.itemCode}
-            </Typography>
+            <Typography sx={{ fontSize: 13.5, fontWeight: 500, color: 'var(--c-text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{node.itemName}</Typography>
+            <Mono sx={{ color: 'var(--c-text-3)' }}>{node.itemCode}</Mono>
           </Box>
-          <Typography variant="caption" color="text.secondary">
-            {node.orderNumber}
-          </Typography>
+          <Mono sx={{ color: 'var(--c-text-3)' }}>{node.orderNumber}</Mono>
         </Box>
 
-        {/* Qty + stock */}
         <Box sx={{ textAlign: 'right', minWidth: 90 }}>
-          <Typography variant="body2" fontWeight={700}>
-            {node.qty.toLocaleString()} {node.qty === 1 ? 'pc' : 'pcs'}
+          <Typography sx={{ fontSize: 13, fontWeight: 600, color: 'var(--c-text)' }}>
+            <Mono tabular>{node.qty.toLocaleString()}</Mono> {node.qty === 1 ? 'pc' : 'pcs'}
           </Typography>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.4, justifyContent: 'flex-end' }}>
-            <InventoryIcon sx={{ fontSize: 11, color: stockOk ? 'success.main' : 'text.disabled' }} />
-            <Typography variant="caption" color={stockOk ? 'success.main' : 'text.secondary'}>
-              {node.stockOnHand} on hand
-            </Typography>
+            <Inventory2Rounded sx={{ fontSize: 11, color: stockOk ? 'var(--c-success-600)' : 'var(--c-text-3)' }} />
+            <Typography sx={{ fontSize: 11, color: stockOk ? 'var(--c-success-600)' : 'var(--c-text-2)' }}>{node.stockOnHand} on hand</Typography>
           </Box>
         </Box>
 
-        {/* Required date */}
         <Box sx={{ textAlign: 'right', minWidth: 80 }}>
-          <Typography variant="caption" color="text.secondary" display="block">Required</Typography>
-          <Typography variant="caption" fontWeight={600}>
-            {node.requiredDate?.slice(0, 10) ?? '—'}
-          </Typography>
+          <Typography sx={{ fontSize: 10.5, color: 'var(--c-text-3)' }}>Required</Typography>
+          <Mono sx={{ fontWeight: 600 }}>{node.requiredDate?.slice(0, 10) ?? '—'}</Mono>
         </Box>
 
-        {/* Lead time */}
-        <Box sx={{ textAlign: 'right', minWidth: 60 }}>
-          <Typography variant="caption" color="text.secondary" display="block">Lead</Typography>
-          <Typography variant="caption">{node.leadTimeDays}d</Typography>
+        <Box sx={{ textAlign: 'right', minWidth: 50 }}>
+          <Typography sx={{ fontSize: 10.5, color: 'var(--c-text-3)' }}>Lead</Typography>
+          <Mono>{node.leadTimeDays}d</Mono>
         </Box>
 
-        {/* Selection indicator */}
         {canManage && (
           <Box sx={{
             width: 20, height: 20, borderRadius: '50%', border: '2px solid',
-            borderColor: allChosen ? 'primary.main' : someChosen ? 'warning.main' : 'divider',
-            bgcolor: allChosen ? 'primary.main' : 'transparent',
+            borderColor: allChosen ? 'var(--c-primary-500)' : someChosen ? 'var(--c-warning-600)' : 'var(--c-border)',
+            background: allChosen ? 'var(--c-primary-500)' : 'transparent',
             display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
           }}>
             {allChosen && <CheckCircleOutlineIcon sx={{ fontSize: 14, color: '#fff' }} />}
@@ -156,147 +107,89 @@ function OrderRow({
         )}
       </Box>
 
-      {/* Children */}
-      {node.children.map(child => (
-        <OrderRow
-          key={child.id}
-          node={child}
-          depth={depth + 1}
-          selected={selected}
-          onToggle={onToggle}
-          canManage={canManage}
-        />
+      {node.children.map((child) => (
+        <OrderRow key={child.id} node={child} depth={depth + 1} selected={selected} onToggle={onToggle} canManage={canManage} />
       ))}
     </>
   );
 }
 
-// ── Demand group card ─────────────────────────────────────────────────────────
-function DemandGroupCard({
-  group, onFirmed, canManage,
-}: {
-  group: DemandGroup;
-  onFirmed: (msg: string) => void;
-  canManage: boolean;
-}) {
+function DemandGroupCard({ group, onFirmed, canManage }: { group: DemandGroup; onFirmed: (msg: string) => void; canManage: boolean }) {
   const [expanded, setExpanded] = useState(true);
   const [selected, setSelected] = useState<Set<number>>(new Set());
-  const [firming,  setFirming]  = useState(false);
-  const [error,    setError]    = useState('');
+  const [firming, setFirming] = useState(false);
+  const [error, setError] = useState('');
 
-  // Collect all IDs in this group
   const allGroupIds = group.tree.flatMap(collectIds);
 
   function toggleIds(ids: number[]) {
-    setSelected(prev => {
+    setSelected((prev) => {
       const next = new Set(prev);
-      const allIn = ids.every(id => next.has(id));
-      ids.forEach(id => allIn ? next.delete(id) : next.add(id));
+      const allIn = ids.every((id) => next.has(id));
+      ids.forEach((id) => (allIn ? next.delete(id) : next.add(id)));
       return next;
     });
   }
-
-  function selectAll() {
-    setSelected(new Set(allGroupIds));
-  }
-  function deselectAll() {
-    setSelected(new Set());
-  }
+  function selectAll() { setSelected(new Set(allGroupIds)); }
+  function deselectAll() { setSelected(new Set()); }
 
   async function firmSelected() {
     if (selected.size === 0) return;
     setFirming(true); setError('');
     try {
-      const res = await fabPost<{ firmed: { id: number; orderNumber: string; orderType: string }[] }>(
-        'planner/firm-tree',
-        { orderIds: [...selected] },
-      );
-      const wos = res.firmed.filter(f => f.orderType === 'manufacturing').map(f => f.orderNumber);
-      const pos = res.firmed.filter(f => f.orderType === 'purchase').map(f => f.orderNumber);
-      const parts = [];
+      const res = await fabPost<{ firmed: { id: number; orderNumber: string; orderType: string }[] }>('planner/firm-tree', { orderIds: [...selected] });
+      const wos = res.firmed.filter((f) => f.orderType === 'manufacturing').map((f) => f.orderNumber);
+      const pos = res.firmed.filter((f) => f.orderType === 'purchase').map((f) => f.orderNumber);
+      const parts: string[] = [];
       if (wos.length) parts.push(`${wos.length} WO${wos.length > 1 ? 's' : ''}`);
       if (pos.length) parts.push(`${pos.length} PO${pos.length > 1 ? 's' : ''}`);
       setSelected(new Set());
-      onFirmed(`Firmed: ${parts.join(' + ')} — ${res.firmed.map(f => f.orderNumber).join(', ')}`);
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
-      setError((e as { response?: { data?: { message?: string } } })?.response?.data?.message ?? msg);
-    } finally {
-      setFirming(false);
-    }
+      onFirmed(`Firmed: ${parts.join(' + ')} — ${res.firmed.map((f) => f.orderNumber).join(', ')}`);
+    } catch (e) {
+      setError((e as { response?: { data?: { message?: string } }; message?: string }).response?.data?.message ?? (e as Error).message);
+    } finally { setFirming(false); }
   }
 
   const isSalesOrder = group.demandType === 'sales_order';
-  const allSelected  = allGroupIds.length > 0 && allGroupIds.every(id => selected.has(id));
+  const allSelected = allGroupIds.length > 0 && allGroupIds.every((id) => selected.has(id));
 
   return (
-    <Paper variant="outlined" sx={{ mb: 2 }}>
-      {/* Group header */}
+    <Surface e={1} sx={{ mb: 2, overflow: 'hidden' }}>
       <Box
-        sx={{
-          px: 2, py: 1.5, display: 'flex', alignItems: 'flex-start', gap: 1.5,
-          cursor: 'pointer', '&:hover': { bgcolor: 'action.hover' }, borderRadius: '4px 4px 0 0',
-        }}
-        onClick={() => setExpanded(v => !v)}>
-
-        {expanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+        sx={{ px: 2, py: 1.5, display: 'flex', alignItems: 'flex-start', gap: 1.5, cursor: 'pointer', '&:hover': { background: 'var(--c-surface-2)' } }}
+        onClick={() => setExpanded((v) => !v)}
+      >
+        {expanded ? <ExpandLessRounded sx={{ color: 'var(--c-text-2)' }} /> : <ExpandMoreRounded sx={{ color: 'var(--c-text-2)' }} />}
 
         <Box sx={{ flex: 1 }}>
           {isSalesOrder ? (
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
-              <Typography variant="subtitle1" fontWeight={700}>{group.soNumber}</Typography>
-              {group.customerName && (
-                <Typography variant="body2" color="text.secondary">— {group.customerName}</Typography>
-              )}
-              {group.customerPoRef && (
-                <Typography variant="caption" color="text.disabled">PO: {group.customerPoRef}</Typography>
-              )}
-              {group.priority && (
-                <Chip label={group.priority.toUpperCase()} size="small"
-                  color={priorityColor(group.priority)} />
-              )}
-              {group.soStatus && (
-                <Chip label={group.soStatus.replace(/_/g, ' ')} size="small" variant="outlined" />
-              )}
+              <Mono sx={{ fontSize: 14, fontWeight: 600, color: 'var(--c-text)' }}>{group.soNumber}</Mono>
+              {group.customerName && <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>— {group.customerName}</Typography>}
+              {group.customerPoRef && <Typography sx={{ fontSize: 11, color: 'var(--c-text-3)' }}>PO: {group.customerPoRef}</Typography>}
+              {group.priority && <StatusBadge status={group.priority} family={priorityFamily(group.priority)} />}
+              {group.soStatus && <StatusBadge status={group.soStatus} />}
             </Box>
           ) : (
-            <Typography variant="subtitle1" fontWeight={700}>Safety Stock Replenishment</Typography>
+            <Typography sx={{ fontSize: 14, fontWeight: 600, color: 'var(--c-text)' }}>Safety Stock Replenishment</Typography>
           )}
-          {group.soNotes && (
-            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>
-              {group.soNotes}
-            </Typography>
-          )}
+          {group.soNotes && <Typography sx={{ fontSize: 12, color: 'var(--c-text-2)', mt: 0.25 }}>{group.soNotes}</Typography>}
           <Box sx={{ display: 'flex', gap: 2, mt: 0.5 }}>
             {group.soRequiredDate && (
-              <Typography variant="caption" color="text.secondary">
-                Customer due: <strong>{group.soRequiredDate.slice(0, 10)}</strong>
-              </Typography>
+              <Typography sx={{ fontSize: 12, color: 'var(--c-text-2)' }}>Customer due: <strong>{group.soRequiredDate.slice(0, 10)}</strong></Typography>
             )}
-            <Typography variant="caption" color="text.secondary">
-              {group.makeCount} make · {group.buyCount} buy · {group.totalOrders} total orders
-            </Typography>
+            <Typography sx={{ fontSize: 12, color: 'var(--c-text-2)' }}>{group.makeCount} make · {group.buyCount} buy · {group.totalOrders} total orders</Typography>
           </Box>
         </Box>
 
-        {/* Firm controls */}
         {canManage && (
-          <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexShrink: 0 }}
-            onClick={e => e.stopPropagation()}>
-            {selected.size > 0 && (
-              <Typography variant="caption" color="primary">
-                {selected.size} selected
-              </Typography>
-            )}
-            <Button size="small" variant="outlined"
-              onClick={allSelected ? deselectAll : selectAll}>
-              {allSelected ? 'Deselect All' : 'Select All'}
+          <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexShrink: 0 }} onClick={(e) => e.stopPropagation()}>
+            {selected.size > 0 && <Typography sx={{ fontSize: 12, color: 'var(--c-primary-600)', fontWeight: 500 }}>{selected.size} selected</Typography>}
+            <Button size="small" variant="outlined" onClick={allSelected ? deselectAll : selectAll}>
+              {allSelected ? 'Deselect all' : 'Select all'}
             </Button>
-            <Button
-              size="small" variant="contained" color="success"
-              disabled={selected.size === 0 || firming}
-              startIcon={firming ? <CircularProgress size={14} color="inherit" /> : <CheckCircleOutlineIcon />}
-              onClick={firmSelected}>
+            <Button size="small" variant="contained" color="success" disabled={selected.size === 0 || firming}
+              startIcon={firming ? <CircularProgress size={14} color="inherit" /> : <CheckCircleOutlineIcon />} onClick={firmSelected}>
               Firm {selected.size > 0 ? `(${selected.size})` : ''}
             </Button>
           </Box>
@@ -306,140 +199,86 @@ function DemandGroupCard({
       {error && <Alert severity="error" sx={{ mx: 2, mb: 1 }} onClose={() => setError('')}>{error}</Alert>}
 
       <Collapse in={expanded}>
-        <Divider />
+        <Divider sx={{ borderColor: 'var(--c-divider)' }} />
         <Box sx={{ py: 0.5 }}>
-          {group.tree.map(node => (
-            <OrderRow
-              key={node.id}
-              node={node}
-              depth={0}
-              selected={selected}
-              onToggle={toggleIds}
-              canManage={canManage}
-            />
+          {group.tree.map((node) => (
+            <OrderRow key={node.id} node={node} depth={0} selected={selected} onToggle={toggleIds} canManage={canManage} />
           ))}
         </Box>
 
-        {/* Legend */}
         {canManage && (
-          <Box sx={{ px: 2, py: 1, bgcolor: 'action.hover', borderTop: '1px solid', borderColor: 'divider',
-            display: 'flex', gap: 2, alignItems: 'center' }}>
-            <Typography variant="caption" color="text.secondary">
-              Click a row to select/deselect it and its sub-tree.
-            </Typography>
+          <Box sx={{ px: 2, py: 1, background: 'var(--c-surface-2)', borderTop: '1px solid var(--c-divider)', display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
+            <Typography sx={{ fontSize: 11.5, color: 'var(--c-text-3)' }}>Click a row to select/deselect it and its sub-tree.</Typography>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-              <PrecisionManufacturingIcon fontSize="small" color="secondary" />
-              <Typography variant="caption">= Manufacturing WO</Typography>
+              <PrecisionManufacturingRounded fontSize="small" sx={{ color: 'var(--c-primary-600)' }} />
+              <Typography sx={{ fontSize: 11.5, color: 'var(--c-text-2)' }}>= Manufacturing WO</Typography>
             </Box>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-              <ShoppingCartIcon fontSize="small" color="info" />
-              <Typography variant="caption">= Purchase Order</Typography>
+              <ShoppingCartRounded fontSize="small" sx={{ color: 'var(--c-info-600)' }} />
+              <Typography sx={{ fontSize: 11.5, color: 'var(--c-text-2)' }}>= Purchase Order</Typography>
             </Box>
           </Box>
         )}
       </Collapse>
-    </Paper>
+    </Surface>
   );
 }
 
-// ── Main page ─────────────────────────────────────────────────────────────────
 export default function PlanningWorkbench() {
   const canManage = usePermission('fab_erp_projects_manage');
+  const { toast } = useToast();
 
-  const [groups,  setGroups]  = useState<DemandGroup[]>([]);
+  const [groups, setGroups] = useState<DemandGroup[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error,   setError]   = useState('');
-  const [toast,   setToast]   = useState('');
+  const [error, setError] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true); setError('');
     try {
       const data = await fabGet<DemandGroup[]>('planner/workbench');
       setGroups(data ?? []);
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
-      setError((e as { response?: { data?: { message?: string } } })?.response?.data?.message ?? msg);
-    } finally {
-      setLoading(false);
-    }
+    } catch (e) {
+      setError((e as { response?: { data?: { message?: string } }; message?: string }).response?.data?.message ?? (e as Error).message);
+    } finally { setLoading(false); }
   }, []);
 
   useEffect(() => { load(); }, [load]);
 
-  function onFirmed(msg: string) {
-    setToast(msg);
-    load();   // reload to show firmed orders have moved out of workbench
-  }
+  function onFirmed(msg: string) { toast(msg); load(); }
 
   const totalOrders = groups.reduce((s, g) => s + g.totalOrders, 0);
-  const totalMake   = groups.reduce((s, g) => s + g.makeCount,   0);
-  const totalBuy    = groups.reduce((s, g) => s + g.buyCount,    0);
+  const totalMake = groups.reduce((s, g) => s + g.makeCount, 0);
+  const totalBuy = groups.reduce((s, g) => s + g.buyCount, 0);
+
+  const stats: Stat[] = [
+    { label: 'Awaiting firm', value: totalOrders, tone: totalOrders ? 'warning' : 'default', icon: <WarningAmberRounded /> },
+    { label: 'Manufacturing', value: totalMake, tone: 'primary', icon: <PrecisionManufacturingRounded /> },
+    { label: 'Purchase', value: totalBuy, tone: 'info', icon: <ShoppingCartRounded /> },
+    { label: 'Demand groups', value: groups.length, icon: <Inventory2Rounded /> },
+  ];
 
   return (
-    <Box sx={{ p: 3 }}>
-      {/* Header */}
-      <Box sx={{ mb: 2 }}>
-        <Typography variant="h5" fontWeight={700}>Planning Workbench</Typography>
-        <Typography variant="body2" color="text.secondary">
-          Review MRP-generated planned orders grouped by demand source. Select and firm to convert into work orders and purchase orders.
-        </Typography>
-      </Box>
+    <Box>
+      <PageHeader
+        title="Planning Workbench"
+        subtitle="Review MRP-generated planned orders grouped by demand source — select and firm to convert into work orders and purchase orders."
+        actions={!loading && groups.length > 0 ? <Button size="small" variant="outlined" onClick={load}>Refresh</Button> : undefined}
+      />
 
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
 
       {loading ? (
-        <Box sx={{ display: 'flex', justifyContent: 'center', mt: 8 }}>
-          <CircularProgress />
-        </Box>
+        <Surface e={1} sx={{ p: 6, display: 'flex', justifyContent: 'center' }}><CircularProgress /></Surface>
       ) : groups.length === 0 ? (
-        <Paper variant="outlined" sx={{ p: 6, textAlign: 'center' }}>
-          <InventoryIcon sx={{ fontSize: 48, color: 'text.disabled', mb: 1 }} />
-          <Typography color="text.secondary" gutterBottom>
-            No pending planned orders.
-          </Typography>
-          <Typography variant="body2" color="text.secondary">
-            Run MRP first to generate planned orders, then come back here to firm them.
-          </Typography>
-        </Paper>
+        <EmptyState icon={<Inventory2Rounded />} title="No pending planned orders" hint="Run MRP first to generate planned orders, then come back here to firm them." />
       ) : (
         <>
-          {/* Summary banner */}
-          <Box sx={{
-            display: 'flex', gap: 3, mb: 2.5, px: 2, py: 1.25,
-            bgcolor: 'action.hover', borderRadius: 1, flexWrap: 'wrap',
-            alignItems: 'center',
-          }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
-              <WarningAmberIcon color="warning" fontSize="small" />
-              <Typography variant="body2">
-                <strong>{totalOrders}</strong> planned order{totalOrders !== 1 ? 's' : ''} awaiting firm
-              </Typography>
-            </Box>
-            <Typography variant="body2" color="text.secondary">
-              <strong>{totalMake}</strong> manufacturing · <strong>{totalBuy}</strong> purchase
-            </Typography>
-            <Typography variant="body2" color="text.secondary">
-              <strong>{groups.length}</strong> demand group{groups.length !== 1 ? 's' : ''}
-            </Typography>
-            <Button size="small" variant="outlined" onClick={load} sx={{ ml: 'auto' }}>
-              Refresh
-            </Button>
-          </Box>
-
-          {/* Demand groups */}
+          <StatStrip stats={stats} />
           {groups.map((group, i) => (
-            <DemandGroupCard
-              key={group.soId ?? `safety-${i}`}
-              group={group}
-              onFirmed={onFirmed}
-              canManage={canManage}
-            />
+            <DemandGroupCard key={group.soId ?? `safety-${i}`} group={group} onFirmed={onFirmed} canManage={canManage} />
           ))}
         </>
       )}
-
-      <Snackbar open={!!toast} autoHideDuration={6000} onClose={() => setToast('')}
-        message={toast} anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }} />
     </Box>
   );
 }

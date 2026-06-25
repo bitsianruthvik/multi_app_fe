@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { NavLink } from 'react-router-dom';
+import { NavLink, useLocation } from 'react-router-dom';
 import {
   Drawer,
   Tooltip,
@@ -9,6 +9,7 @@ import {
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import { usePermission } from '@core/hooks/usePermission';
+import { useAuth } from '@core/contexts/AuthContext';
 
 export interface NavItem {
   label: string;
@@ -16,6 +17,10 @@ export interface NavItem {
   to: string;
   permission?: string;
   end?: boolean;
+  /** Optional group label (e.g. "Operate", "Configure"). Items sharing a section
+   *  are rendered together under one caps-label divider. Items with no section
+   *  render ungrouped, exactly as before — fully backward-compatible. */
+  section?: string;
 }
 
 interface SidebarProps {
@@ -89,6 +94,39 @@ function NavItemWrapper({ item, collapsed }: { item: NavItem; collapsed: boolean
   return navLink;
 }
 
+/** Groups consecutive items sharing the same `section` so an empty section
+ *  (every item inside it hidden by permission) can collapse as a whole. */
+function groupBySection(items: NavItem[]): { section?: string; items: NavItem[] }[] {
+  const groups: { section?: string; items: NavItem[] }[] = [];
+  for (const item of items) {
+    const last = groups[groups.length - 1];
+    if (last && last.section === item.section) {
+      last.items.push(item);
+    } else {
+      groups.push({ section: item.section, items: [item] });
+    }
+  }
+  return groups;
+}
+
+/** Plain (non-hook) re-implementation of usePermission's visibility logic, so
+ *  SidebarContent can decide "does this section have anything to show" without
+ *  calling a hook per item (which would violate rules-of-hooks inside a loop).
+ *  Pulls the same two hook results (`user`, current app slug) once at the top
+ *  of the component instead. */
+function isPermitted(user: ReturnType<typeof useAuth>['user'], appSlug: string, featureTag?: string): boolean {
+  if (!featureTag) return true;
+  const appRole = user?.appRoles?.[appSlug];
+  if (appRole?.uiPermissions) {
+    return appRole.uiPermissions.includes(featureTag);
+  }
+  const perms = user?.uiPermissions ?? [];
+  if (!perms.length) return false;
+  return perms.some((p: { feature_tag?: string } | string) =>
+    typeof p === 'string' ? p === featureTag : p?.feature_tag === featureTag,
+  );
+}
+
 function SidebarContent({
   items,
   collapsed,
@@ -102,6 +140,10 @@ function SidebarContent({
   avatarSlot?: React.ReactNode;
   footerSlot?: React.ReactNode;
 }) {
+  const { user } = useAuth();
+  const location = useLocation();
+  const appSlug = location.pathname.split('/').filter(Boolean)[1] ?? '';
+
   return (
     <>
       {avatarSlot}
@@ -115,9 +157,31 @@ function SidebarContent({
           flexDirection: 'column',
         }}
       >
-        {items.map((item) => (
-          <NavItemWrapper key={item.to} item={item} collapsed={collapsed} />
-        ))}
+        {groupBySection(items).map((group, gi) => {
+          const hasVisibleItem = group.items.some((item) => isPermitted(user, appSlug, item.permission));
+          if (!hasVisibleItem) return null;
+          return (
+          <React.Fragment key={gi}>
+            {group.section && !collapsed && (
+              <div
+                style={{
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  letterSpacing: '0.06em',
+                  textTransform: 'uppercase',
+                  color: 'var(--sidebar-text-muted)',
+                  padding: gi === 0 ? '4px 12px 6px' : '16px 12px 6px',
+                }}
+              >
+                {group.section}
+              </div>
+            )}
+            {group.items.map((item) => (
+              <NavItemWrapper key={item.to} item={item} collapsed={collapsed} />
+            ))}
+          </React.Fragment>
+          );
+        })}
         <button
           onClick={() => {
             const next = !collapsed;

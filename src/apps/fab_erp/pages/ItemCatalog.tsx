@@ -25,7 +25,6 @@ import {
   ListItem,
   ListItemText,
   MenuItem,
-  Paper,
   Select,
   Snackbar,
   Tab,
@@ -57,6 +56,10 @@ import type {
 import { usePermission } from '@core/hooks/usePermission';
 import InfoTooltip, { type InfoContent } from '@shared/components/InfoTooltip';
 import api, { API_HOST } from '@core/utils/axiosConfig';
+import { Surface, PageHeader, Mono, StatusBadge, EmptyState, ListSkeleton } from '../components';
+
+const TH = { fontFamily: 'var(--font-ui)', fontWeight: 600, fontSize: 12, color: 'var(--c-text-2)', textTransform: 'uppercase', letterSpacing: '.05em', borderColor: 'var(--c-divider)' } as const;
+const TD = { borderColor: 'var(--c-divider)', fontSize: 13, color: 'var(--c-text)' } as const;
 
 // ─── INFO TOOLTIP CONTENT ─────────────────────────────────────────────────────
 // INFO_TOOLTIP — update this block whenever features on this page change.
@@ -178,6 +181,12 @@ interface InheritedField {
   source: 'category' | 'group' | 'subgroup';
 }
 
+// Extract a human-readable message from an unknown caught error
+function errMsg(e: unknown): string {
+  const ax = e as { response?: { data?: { message?: string } }; message?: string };
+  return ax.response?.data?.message ?? ax.message ?? 'Something went wrong';
+}
+
 // Auto-generate a code slug from a name
 function autoCode(name: string): string {
   const c = name.trim().toUpperCase()
@@ -232,8 +241,8 @@ function TaxonomyAddForm({
       if (level === 'subgroup') { resource = 'fabErpItemSubgroup'; payload.group_id    = groupId; }
       const res = await fabMutate<{ ok: boolean; id: number }>(resource, 'insert', payload);
       onCreated(res.id);
-    } catch (e: any) {
-      setErr(e.response?.data?.message ?? e.message);
+    } catch (e) {
+      setErr(errMsg(e));
     } finally { setSaving(false); }
   }
 
@@ -347,8 +356,8 @@ function AddTaxonomyDialog({ open, level, categories, groups, onClose, onCreated
       }
 
       await onCreated();
-    } catch (e: any) {
-      setErr(e.response?.data?.message ?? e.message);
+    } catch (e) {
+      setErr(errMsg(e));
     } finally { setSaving(false); }
   }
 
@@ -507,8 +516,8 @@ function TaxonomyDeleteDialog({ open, type, entity, groups, subgroups, onClose, 
       await fabMutate(resource, 'delete', { id: entity.id });
       setToast('Deleted.');
       await onDeleted();
-    } catch (e: any) {
-      setToast(e.response?.data?.message ?? e.message);
+    } catch (e) {
+      setToast(errMsg(e));
       onClose();
     } finally {
       setBusy(false);
@@ -640,7 +649,7 @@ function CatalogDialog({ open, initial, categories, groups, subgroups, canManage
       if (isNew) await fabMutate('fabErpItemCatalog', 'insert', payload);
       else        await fabMutate('fabErpItemCatalog', 'update', { id: initial!.id, ...payload });
       onSaved();
-    } catch (e: any) { setErr(e.response?.data?.message ?? e.message); }
+    } catch (e) { setErr(errMsg(e)); }
     finally { setSaving(false); }
   }
 
@@ -935,8 +944,8 @@ function TaxonomyDetailDialog({ level, entity, categories, groups, canEdit, onCl
 
       await onSaved();
       onClose();
-    } catch (e: any) {
-      setErr(e.response?.data?.message ?? e.message);
+    } catch (e) {
+      setErr(errMsg(e));
     } finally { setSaving(false); }
   }
 
@@ -1161,59 +1170,47 @@ function CategoriesTab({ categories, onRowClick, onAddClick, onDeleteClick, canE
       {canEdit && (
         <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 2 }}>
           <Button variant="outlined" startIcon={<AddIcon />} onClick={onAddClick}>
-            Add Category
+            Add category
           </Button>
         </Box>
       )}
-      <Paper variant="outlined" sx={{ overflowX: 'auto' }}>
-        <Table size="small">
-          <TableHead>
-            <TableRow sx={{ bgcolor: 'action.hover' }}>
-              <TableCell sx={{ fontWeight: 700 }}>Name</TableCell>
-              <TableCell sx={{ fontWeight: 700, width: 110 }}>Code</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>Description</TableCell>
-              <TableCell sx={{ width: 80 }}>System</TableCell>
-              <TableCell sx={{ width: 90 }} align="right" />
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {categories.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={5}>
-                  <Typography variant="body2" color="text.secondary" sx={{ py: 2, textAlign: 'center' }}>
-                    No categories yet.
-                  </Typography>
-                </TableCell>
+      {categories.length === 0 ? (
+        <EmptyState title="No categories yet" />
+      ) : (
+        <Surface e={1} sx={{ overflowX: 'auto', p: 0 }}>
+          <Table size="small">
+            <TableHead>
+              <TableRow sx={{ background: 'var(--c-surface-2)' }}>
+                <TableCell sx={TH}>Name</TableCell>
+                <TableCell sx={{ ...TH, width: 110 }}>Code</TableCell>
+                <TableCell sx={TH}>Description</TableCell>
+                <TableCell sx={{ ...TH, width: 80 }}>System</TableCell>
+                <TableCell sx={{ ...TH, width: 90 }} align="right" />
               </TableRow>
-            ) : categories.map((c) => (
-              <TableRow key={c.id} hover sx={{ cursor: 'pointer' }} onClick={() => onRowClick(c)}>
-                <TableCell sx={{ fontWeight: 500 }}>{c.name}</TableCell>
-                <TableCell>
-                  <Typography variant="caption" sx={{ fontFamily: 'monospace' }}>{c.code}</Typography>
-                </TableCell>
-                <TableCell>
-                  <Typography variant="body2" color="text.secondary">{c.description ?? '—'}</Typography>
-                </TableCell>
-                <TableCell>
-                  {c.isSystem === 1 && <Chip label="System" size="small" color="primary" variant="outlined" />}
-                </TableCell>
-                <TableCell align="right" onClick={(e) => e.stopPropagation()}>
-                  <Tooltip title="Open detail">
-                    <IconButton size="small" onClick={() => onRowClick(c)}><OpenInNewIcon fontSize="small" /></IconButton>
-                  </Tooltip>
-                  {canEdit && c.isSystem === 0 && (
-                    <Tooltip title="Delete">
-                      <IconButton size="small" color="error" onClick={() => onDeleteClick(c)}>
-                        <DeleteIcon fontSize="small" />
-                      </IconButton>
+            </TableHead>
+            <TableBody>
+              {categories.map((c) => (
+                <TableRow key={c.id} hover sx={{ cursor: 'pointer' }} onClick={() => onRowClick(c)}>
+                  <TableCell sx={{ ...TD, fontWeight: 500 }}>{c.name}</TableCell>
+                  <TableCell sx={TD}><Mono>{c.code}</Mono></TableCell>
+                  <TableCell sx={TD}><Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>{c.description ?? '—'}</Typography></TableCell>
+                  <TableCell sx={TD}>{c.isSystem === 1 && <StatusBadge status="System" family="info" />}</TableCell>
+                  <TableCell sx={TD} align="right" onClick={(e) => e.stopPropagation()}>
+                    <Tooltip title="Open detail">
+                      <IconButton size="small" onClick={() => onRowClick(c)}><OpenInNewIcon fontSize="small" /></IconButton>
                     </Tooltip>
-                  )}
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </Paper>
+                    {canEdit && c.isSystem === 0 && (
+                      <Tooltip title="Delete">
+                        <IconButton size="small" color="error" onClick={() => onDeleteClick(c)}><DeleteIcon fontSize="small" /></IconButton>
+                      </Tooltip>
+                    )}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </Surface>
+      )}
     </Box>
   );
 }
@@ -1239,70 +1236,58 @@ function GroupsTab({ categories, groups, onRowClick, onAddClick, onDeleteClick, 
     <Box>
       <Box sx={{ display: 'flex', gap: 2, mb: 2, alignItems: 'flex-end', justifyContent: 'space-between' }}>
         <Box sx={{ width: 220 }}>
-          <Typography variant="caption" color="text.secondary">Filter by Category</Typography>
+          <Typography variant="caption" sx={{ color: 'var(--c-text-3)' }}>Filter by category</Typography>
           <Select fullWidth size="small" displayEmpty value={filterCatId}
             onChange={(e) => setFilterCatId(e.target.value as number | '')}>
-            <MenuItem value="">All Categories</MenuItem>
+            <MenuItem value="">All categories</MenuItem>
             {categories.map((c) => <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>)}
           </Select>
         </Box>
         {canEdit && (
           <Button variant="outlined" startIcon={<AddIcon />} onClick={onAddClick}>
-            Add Group
+            Add group
           </Button>
         )}
       </Box>
-      <Paper variant="outlined" sx={{ overflowX: 'auto' }}>
-        <Table size="small">
-          <TableHead>
-            <TableRow sx={{ bgcolor: 'action.hover' }}>
-              <TableCell sx={{ fontWeight: 700 }}>Name</TableCell>
-              <TableCell sx={{ fontWeight: 700, width: 110 }}>Code</TableCell>
-              <TableCell sx={{ fontWeight: 700, width: 150 }}>Category</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>Description</TableCell>
-              <TableCell sx={{ width: 80 }}>System</TableCell>
-              <TableCell sx={{ width: 90 }} align="right" />
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {visible.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={6}>
-                  <Typography variant="body2" color="text.secondary" sx={{ py: 2, textAlign: 'center' }}>
-                    No groups found.
-                  </Typography>
-                </TableCell>
+      {visible.length === 0 ? (
+        <EmptyState title="No groups found" />
+      ) : (
+        <Surface e={1} sx={{ overflowX: 'auto', p: 0 }}>
+          <Table size="small">
+            <TableHead>
+              <TableRow sx={{ background: 'var(--c-surface-2)' }}>
+                <TableCell sx={TH}>Name</TableCell>
+                <TableCell sx={{ ...TH, width: 110 }}>Code</TableCell>
+                <TableCell sx={{ ...TH, width: 150 }}>Category</TableCell>
+                <TableCell sx={TH}>Description</TableCell>
+                <TableCell sx={{ ...TH, width: 80 }}>System</TableCell>
+                <TableCell sx={{ ...TH, width: 90 }} align="right" />
               </TableRow>
-            ) : visible.map((g) => (
-              <TableRow key={g.id} hover sx={{ cursor: 'pointer' }} onClick={() => onRowClick(g)}>
-                <TableCell sx={{ fontWeight: 500 }}>{g.name}</TableCell>
-                <TableCell>
-                  <Typography variant="caption" sx={{ fontFamily: 'monospace' }}>{g.code}</Typography>
-                </TableCell>
-                <TableCell>{g.categoryName ?? '—'}</TableCell>
-                <TableCell>
-                  <Typography variant="body2" color="text.secondary">{g.description ?? '—'}</Typography>
-                </TableCell>
-                <TableCell>
-                  {g.isSystem === 1 && <Chip label="System" size="small" color="primary" variant="outlined" />}
-                </TableCell>
-                <TableCell align="right" onClick={(e) => e.stopPropagation()}>
-                  <Tooltip title="Open detail">
-                    <IconButton size="small" onClick={() => onRowClick(g)}><OpenInNewIcon fontSize="small" /></IconButton>
-                  </Tooltip>
-                  {canEdit && g.isSystem === 0 && (
-                    <Tooltip title="Delete">
-                      <IconButton size="small" color="error" onClick={() => onDeleteClick(g)}>
-                        <DeleteIcon fontSize="small" />
-                      </IconButton>
+            </TableHead>
+            <TableBody>
+              {visible.map((g) => (
+                <TableRow key={g.id} hover sx={{ cursor: 'pointer' }} onClick={() => onRowClick(g)}>
+                  <TableCell sx={{ ...TD, fontWeight: 500 }}>{g.name}</TableCell>
+                  <TableCell sx={TD}><Mono>{g.code}</Mono></TableCell>
+                  <TableCell sx={TD}>{g.categoryName ?? '—'}</TableCell>
+                  <TableCell sx={TD}><Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>{g.description ?? '—'}</Typography></TableCell>
+                  <TableCell sx={TD}>{g.isSystem === 1 && <StatusBadge status="System" family="info" />}</TableCell>
+                  <TableCell sx={TD} align="right" onClick={(e) => e.stopPropagation()}>
+                    <Tooltip title="Open detail">
+                      <IconButton size="small" onClick={() => onRowClick(g)}><OpenInNewIcon fontSize="small" /></IconButton>
                     </Tooltip>
-                  )}
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </Paper>
+                    {canEdit && g.isSystem === 0 && (
+                      <Tooltip title="Delete">
+                        <IconButton size="small" color="error" onClick={() => onDeleteClick(g)}><DeleteIcon fontSize="small" /></IconButton>
+                      </Tooltip>
+                    )}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </Surface>
+      )}
     </Box>
   );
 }
@@ -1342,85 +1327,73 @@ function SubgroupsTab({ categories, groups, subgroups, onRowClick, onAddClick, o
       <Box sx={{ display: 'flex', gap: 2, mb: 2, alignItems: 'flex-end', justifyContent: 'space-between', flexWrap: 'wrap' }}>
         <Box sx={{ display: 'flex', gap: 2 }}>
           <Box sx={{ width: 220 }}>
-            <Typography variant="caption" color="text.secondary">Filter by Category</Typography>
+            <Typography variant="caption" sx={{ color: 'var(--c-text-3)' }}>Filter by category</Typography>
             <Select fullWidth size="small" displayEmpty value={filterCatId}
               onChange={(e) => { setFilterCatId(e.target.value as number | ''); setFilterGrpId(''); }}>
-              <MenuItem value="">All Categories</MenuItem>
+              <MenuItem value="">All categories</MenuItem>
               {categories.map((c) => <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>)}
             </Select>
           </Box>
           <Box sx={{ width: 220 }}>
-            <Typography variant="caption" color="text.secondary">Filter by Group</Typography>
+            <Typography variant="caption" sx={{ color: 'var(--c-text-3)' }}>Filter by group</Typography>
             <Select fullWidth size="small" displayEmpty value={filterGrpId}
               onChange={(e) => setFilterGrpId(e.target.value as number | '')}>
-              <MenuItem value="">All Groups</MenuItem>
+              <MenuItem value="">All groups</MenuItem>
               {visibleGroups.map((g) => <MenuItem key={g.id} value={g.id}>{g.name}</MenuItem>)}
             </Select>
           </Box>
         </Box>
         {canEdit && (
           <Button variant="outlined" startIcon={<AddIcon />} onClick={onAddClick}>
-            Add Sub-group
+            Add sub-group
           </Button>
         )}
       </Box>
-      <Paper variant="outlined" sx={{ overflowX: 'auto' }}>
-        <Table size="small">
-          <TableHead>
-            <TableRow sx={{ bgcolor: 'action.hover' }}>
-              <TableCell sx={{ fontWeight: 700 }}>Name</TableCell>
-              <TableCell sx={{ fontWeight: 700, width: 110 }}>Code</TableCell>
-              <TableCell sx={{ fontWeight: 700, width: 150 }}>Category</TableCell>
-              <TableCell sx={{ fontWeight: 700, width: 150 }}>Group</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>Description</TableCell>
-              <TableCell sx={{ width: 80 }}>System</TableCell>
-              <TableCell sx={{ width: 90 }} align="right" />
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {visible.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={7}>
-                  <Typography variant="body2" color="text.secondary" sx={{ py: 2, textAlign: 'center' }}>
-                    No sub-groups found.
-                  </Typography>
-                </TableCell>
+      {visible.length === 0 ? (
+        <EmptyState title="No sub-groups found" />
+      ) : (
+        <Surface e={1} sx={{ overflowX: 'auto', p: 0 }}>
+          <Table size="small">
+            <TableHead>
+              <TableRow sx={{ background: 'var(--c-surface-2)' }}>
+                <TableCell sx={TH}>Name</TableCell>
+                <TableCell sx={{ ...TH, width: 110 }}>Code</TableCell>
+                <TableCell sx={{ ...TH, width: 150 }}>Category</TableCell>
+                <TableCell sx={{ ...TH, width: 150 }}>Group</TableCell>
+                <TableCell sx={TH}>Description</TableCell>
+                <TableCell sx={{ ...TH, width: 80 }}>System</TableCell>
+                <TableCell sx={{ ...TH, width: 90 }} align="right" />
               </TableRow>
-            ) : visible.map((s) => {
-              const grp = groups.find((g) => g.id === s.groupId);
-              const cat = grp ? categories.find((c) => c.id === grp.categoryId) : undefined;
-              return (
-                <TableRow key={s.id} hover sx={{ cursor: 'pointer' }} onClick={() => onRowClick(s)}>
-                  <TableCell sx={{ fontWeight: 500 }}>{s.name}</TableCell>
-                  <TableCell>
-                    <Typography variant="caption" sx={{ fontFamily: 'monospace' }}>{s.code}</Typography>
-                  </TableCell>
-                  <TableCell>{cat?.name ?? '—'}</TableCell>
-                  <TableCell>{s.groupName ?? grp?.name ?? '—'}</TableCell>
-                  <TableCell>
-                    <Typography variant="body2" color="text.secondary">{s.description ?? '—'}</Typography>
-                  </TableCell>
-                  <TableCell>
-                    {s.isSystem === 1 && <Chip label="System" size="small" color="primary" variant="outlined" />}
-                  </TableCell>
-                  <TableCell align="right" onClick={(e) => e.stopPropagation()}>
-                    <Tooltip title="Open detail">
-                      <IconButton size="small" onClick={() => onRowClick(s)}><OpenInNewIcon fontSize="small" /></IconButton>
-                    </Tooltip>
-                    {canEdit && s.isSystem === 0 && (
-                      <Tooltip title="Delete">
-                        <IconButton size="small" color="error" onClick={() => onDeleteClick(s)}>
-                          <DeleteIcon fontSize="small" />
-                        </IconButton>
+            </TableHead>
+            <TableBody>
+              {visible.map((s) => {
+                const grp = groups.find((g) => g.id === s.groupId);
+                const cat = grp ? categories.find((c) => c.id === grp.categoryId) : undefined;
+                return (
+                  <TableRow key={s.id} hover sx={{ cursor: 'pointer' }} onClick={() => onRowClick(s)}>
+                    <TableCell sx={{ ...TD, fontWeight: 500 }}>{s.name}</TableCell>
+                    <TableCell sx={TD}><Mono>{s.code}</Mono></TableCell>
+                    <TableCell sx={TD}>{cat?.name ?? '—'}</TableCell>
+                    <TableCell sx={TD}>{s.groupName ?? grp?.name ?? '—'}</TableCell>
+                    <TableCell sx={TD}><Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>{s.description ?? '—'}</Typography></TableCell>
+                    <TableCell sx={TD}>{s.isSystem === 1 && <StatusBadge status="System" family="info" />}</TableCell>
+                    <TableCell sx={TD} align="right" onClick={(e) => e.stopPropagation()}>
+                      <Tooltip title="Open detail">
+                        <IconButton size="small" onClick={() => onRowClick(s)}><OpenInNewIcon fontSize="small" /></IconButton>
                       </Tooltip>
-                    )}
-                  </TableCell>
-                </TableRow>
-              );
-            })}
-          </TableBody>
-        </Table>
-      </Paper>
+                      {canEdit && s.isSystem === 0 && (
+                        <Tooltip title="Delete">
+                          <IconButton size="small" color="error" onClick={() => onDeleteClick(s)}><DeleteIcon fontSize="small" /></IconButton>
+                        </Tooltip>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        </Surface>
+      )}
     </Box>
   );
 }
@@ -1475,7 +1448,7 @@ export default function ItemCatalog() {
         orderBy: [{ field: 'name', direction: 'asc' }], pagination: { limit: 1000 },
       });
       setItems(res.data ?? []);
-    } catch (e: any) { setError(e.message); }
+    } catch (e) { setError(errMsg(e)); }
     finally { setLoading(false); }
   }, []);
 
@@ -1523,8 +1496,8 @@ export default function ItemCatalog() {
       const a = document.createElement('a');
       a.href = url; a.download = 'Item_Catalog_Import_Template.xlsx'; a.click();
       URL.revokeObjectURL(url);
-    } catch (e: any) {
-      setError(e.response?.data?.message ?? e.message);
+    } catch (e) {
+      setError(errMsg(e));
     } finally {
       setExporting(false);
     }
@@ -1542,8 +1515,8 @@ export default function ItemCatalog() {
       );
       setImportResult(res.data);
       await Promise.all([fetchAll(), refetchTaxonomy()]);
-    } catch (e: any) {
-      setImportErr(e.response?.data?.message ?? e.message);
+    } catch (e) {
+      setImportErr(errMsg(e));
     } finally {
       setImporting(false);
     }
@@ -1573,28 +1546,23 @@ export default function ItemCatalog() {
   ) => setTaxonomyDetail({ level, entity });
 
   return (
-    <Box sx={{ p: 3 }}>
-      {/* Header */}
-      <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', mb: 2 }}>
-        <Box>
-          <Typography variant="h5" fontWeight={700}>Item Catalog</Typography>
-          <Typography variant="body2" color="text.secondary">
-            Reusable parts and materials — pick from here when building a project BOM
-          </Typography>
-        </Box>
-        {pageTab === 0 && canManage && (
+    <Box>
+      <PageHeader
+        title="Item Catalog"
+        subtitle="Reusable parts and materials — pick from here when building a project BOM"
+        actions={pageTab === 0 && canManage ? (
           <Box sx={{ display: 'flex', gap: 1 }}>
             <Button
-              variant="outlined" size="small" startIcon={exporting ? <CircularProgress size={14} /> : <DownloadIcon />}
+              variant="outlined" size="small" startIcon={exporting ? <CircularProgress size={14} color="inherit" /> : <DownloadIcon />}
               onClick={downloadTemplate} disabled={exporting}
             >
-              Export Template
+              Export template
             </Button>
             <Button
-              variant="outlined" size="small" startIcon={importing ? <CircularProgress size={14} /> : <UploadFileIcon />}
+              variant="outlined" size="small" startIcon={importing ? <CircularProgress size={14} color="inherit" /> : <UploadFileIcon />}
               onClick={() => importFileRef.current?.click()} disabled={importing}
             >
-              Import Items
+              Import items
             </Button>
             <input
               ref={importFileRef} type="file" accept=".xlsx" hidden
@@ -1606,16 +1574,16 @@ export default function ItemCatalog() {
             />
             <Button variant="contained" startIcon={<AddIcon />}
               onClick={() => setDlg({ open: true, item: null })}>
-              Add Item
+              Add item
             </Button>
           </Box>
-        )}
-      </Box>
+        ) : undefined}
+      />
 
       {importErr && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setImportErr('')}>{importErr}</Alert>}
 
       {/* Page tabs */}
-      <Tabs value={pageTab} onChange={(_, v) => setPageTab(v)} sx={{ mb: 3, borderBottom: 1, borderColor: 'divider' }}>
+      <Tabs value={pageTab} onChange={(_, v) => setPageTab(v)} sx={{ mb: 3, borderBottom: '1px solid var(--c-divider)' }}>
         <Tab label={<Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>Items<InfoTooltip content={INFO_ITEMS} placement="bottom" /></Box>} />
         <Tab label={<Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>Category<InfoTooltip content={INFO_CATEGORY} placement="bottom" /></Box>} />
         <Tab label={<Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>Group<InfoTooltip content={INFO_GROUP} placement="bottom" /></Box>} />
@@ -1660,90 +1628,79 @@ export default function ItemCatalog() {
           </Box>
 
           {loading ? (
-            <Box sx={{ display: 'flex', justifyContent: 'center', mt: 8 }}><CircularProgress /></Box>
+            <ListSkeleton rows={6} />
           ) : filtered.length === 0 ? (
-            <Paper sx={{ p: 6, textAlign: 'center' }}>
-              <Inventory2Icon sx={{ fontSize: 48, color: 'text.disabled', mb: 1 }} />
-              <Typography color="text.secondary">
-                {search ? 'No items match your search.' : 'Catalog is empty.'}
-              </Typography>
-              {!search && canManage && (
-                <Button sx={{ mt: 2 }} variant="contained" startIcon={<AddIcon />}
-                  onClick={() => setDlg({ open: true, item: null })}>
-                  Add First Item
-                </Button>
-              )}
-            </Paper>
+            <EmptyState
+              icon={<Inventory2Icon />}
+              title={search ? 'No items match your search' : 'Catalog is empty'}
+              action={!search && canManage ? (
+                <Button variant="contained" startIcon={<AddIcon />} onClick={() => setDlg({ open: true, item: null })}>Add first item</Button>
+              ) : undefined}
+            />
           ) : (
-            <Paper variant="outlined" sx={{ overflowX: 'auto' }}>
+            <Surface e={1} sx={{ overflowX: 'auto', p: 0 }}>
               <Table size="small" sx={{ minWidth: 1800 }}>
                 <TableHead>
-                  <TableRow sx={{ bgcolor: 'action.hover' }}>
-                    <TableCell sx={{ fontWeight: 700, minWidth: 200 }}>Name</TableCell>
-                    <TableCell sx={{ fontWeight: 700, width: 110 }}>Code</TableCell>
-                    <TableCell sx={{ fontWeight: 700, width: 70 }}>Unit</TableCell>
-                    <TableCell sx={{ fontWeight: 700, minWidth: 180 }}>Description</TableCell>
-                    <TableCell sx={{ fontWeight: 700, width: 130 }}>Category</TableCell>
-                    <TableCell sx={{ fontWeight: 700, width: 130 }}>Group</TableCell>
-                    <TableCell sx={{ fontWeight: 700, width: 130 }}>Sub-group</TableCell>
-                    <TableCell sx={{ fontWeight: 700, width: 95 }} align="right">Gross Wt</TableCell>
-                    <TableCell sx={{ fontWeight: 700, width: 90 }} align="right">Net Wt</TableCell>
-                    <TableCell sx={{ fontWeight: 700, width: 60 }}>Wt Unit</TableCell>
-                    <TableCell sx={{ fontWeight: 700, width: 80 }} align="right">Volume</TableCell>
-                    <TableCell sx={{ fontWeight: 700, width: 60 }}>Vol Unit</TableCell>
-                    <TableCell sx={{ fontWeight: 700, width: 80 }} align="right">Length</TableCell>
-                    <TableCell sx={{ fontWeight: 700, width: 80 }} align="right">Width</TableCell>
-                    <TableCell sx={{ fontWeight: 700, width: 80 }} align="right">Height</TableCell>
-                    <TableCell sx={{ fontWeight: 700, width: 60 }}>Dim Unit</TableCell>
-                    <TableCell sx={{ fontWeight: 700, width: 130 }}>Barcode</TableCell>
-                    <TableCell sx={{ fontWeight: 700, width: 100 }}>HSN</TableCell>
-                    <TableCell sx={{ fontWeight: 700, width: 100 }}>Division</TableCell>
-                    <TableCell sx={{ width: 60 }} align="center">Batches</TableCell>
-                    {canManage && <TableCell sx={{ width: 80 }} align="right" />}
+                  <TableRow sx={{ background: 'var(--c-surface-2)' }}>
+                    <TableCell sx={{ ...TH, minWidth: 200 }}>Name</TableCell>
+                    <TableCell sx={{ ...TH, width: 110 }}>Code</TableCell>
+                    <TableCell sx={{ ...TH, width: 70 }}>Unit</TableCell>
+                    <TableCell sx={{ ...TH, minWidth: 180 }}>Description</TableCell>
+                    <TableCell sx={{ ...TH, width: 130 }}>Category</TableCell>
+                    <TableCell sx={{ ...TH, width: 130 }}>Group</TableCell>
+                    <TableCell sx={{ ...TH, width: 130 }}>Sub-group</TableCell>
+                    <TableCell sx={{ ...TH, width: 95 }} align="right">Gross wt</TableCell>
+                    <TableCell sx={{ ...TH, width: 90 }} align="right">Net wt</TableCell>
+                    <TableCell sx={{ ...TH, width: 60 }}>Wt unit</TableCell>
+                    <TableCell sx={{ ...TH, width: 80 }} align="right">Volume</TableCell>
+                    <TableCell sx={{ ...TH, width: 60 }}>Vol unit</TableCell>
+                    <TableCell sx={{ ...TH, width: 80 }} align="right">Length</TableCell>
+                    <TableCell sx={{ ...TH, width: 80 }} align="right">Width</TableCell>
+                    <TableCell sx={{ ...TH, width: 80 }} align="right">Height</TableCell>
+                    <TableCell sx={{ ...TH, width: 60 }}>Dim unit</TableCell>
+                    <TableCell sx={{ ...TH, width: 130 }}>Barcode</TableCell>
+                    <TableCell sx={{ ...TH, width: 100 }}>HSN</TableCell>
+                    <TableCell sx={{ ...TH, width: 100 }}>Division</TableCell>
+                    <TableCell sx={{ ...TH, width: 60 }} align="center">Batches</TableCell>
+                    {canManage && <TableCell sx={{ ...TH, width: 80 }} align="right" />}
                   </TableRow>
                 </TableHead>
                 <TableBody>
                   {filtered.map((it) => (
                     <TableRow key={it.id} hover sx={{ cursor: 'pointer' }}
                       onClick={() => navigate(`/${company}/fab_erp/item-catalog/${it.id}`)}>
-                      <TableCell sx={{ fontWeight: 500 }}>{it.name}</TableCell>
-                      <TableCell>
-                        <Typography variant="caption" sx={{ fontFamily: 'monospace', bgcolor: 'action.selected', px: 0.75, py: 0.25, borderRadius: 0.5 }}>
-                          {it.code}
-                        </Typography>
-                      </TableCell>
-                      <TableCell>{it.unit ?? 'pcs'}</TableCell>
-                      <TableCell>
-                        <Typography variant="body2" color="text.secondary" noWrap sx={{ maxWidth: 180 }}>
+                      <TableCell sx={{ ...TD, fontWeight: 500 }}>{it.name}</TableCell>
+                      <TableCell sx={TD}><Mono chip>{it.code}</Mono></TableCell>
+                      <TableCell sx={TD}>{it.unit ?? 'pcs'}</TableCell>
+                      <TableCell sx={TD}>
+                        <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 180 }}>
                           {it.description ?? '—'}
                         </Typography>
                       </TableCell>
-                      <TableCell>{it.categoryName  ?? '—'}</TableCell>
-                      <TableCell>{it.groupName     ?? '—'}</TableCell>
-                      <TableCell>{it.subgroupName  ?? '—'}</TableCell>
-                      <TableCell align="right">{it.grossWeight != null ? it.grossWeight : '—'}</TableCell>
-                      <TableCell align="right">{it.netWeight   != null ? it.netWeight   : '—'}</TableCell>
-                      <TableCell>{it.weightUnit    ?? 'kg'}</TableCell>
-                      <TableCell align="right">{it.volume      != null ? it.volume      : '—'}</TableCell>
-                      <TableCell>{it.volumeUnit    ?? 'm3'}</TableCell>
-                      <TableCell align="right">{it.length      != null ? it.length      : '—'}</TableCell>
-                      <TableCell align="right">{it.width       != null ? it.width       : '—'}</TableCell>
-                      <TableCell align="right">{it.height      != null ? it.height      : '—'}</TableCell>
-                      <TableCell>{it.dimensionUnit ?? 'mm'}</TableCell>
-                      <TableCell>
-                        <Typography variant="caption" sx={{ fontFamily: 'monospace' }}>{it.barcode ?? '—'}</Typography>
-                      </TableCell>
-                      <TableCell>{it.hsnCode  ?? '—'}</TableCell>
-                      <TableCell>{it.division ?? '—'}</TableCell>
-                      <TableCell align="center">
-                        <Tooltip title="View Batches">
+                      <TableCell sx={TD}>{it.categoryName  ?? '—'}</TableCell>
+                      <TableCell sx={TD}>{it.groupName     ?? '—'}</TableCell>
+                      <TableCell sx={TD}>{it.subgroupName  ?? '—'}</TableCell>
+                      <TableCell sx={TD} align="right"><Mono tabular>{it.grossWeight != null ? it.grossWeight : '—'}</Mono></TableCell>
+                      <TableCell sx={TD} align="right"><Mono tabular>{it.netWeight   != null ? it.netWeight   : '—'}</Mono></TableCell>
+                      <TableCell sx={TD}>{it.weightUnit    ?? 'kg'}</TableCell>
+                      <TableCell sx={TD} align="right"><Mono tabular>{it.volume      != null ? it.volume      : '—'}</Mono></TableCell>
+                      <TableCell sx={TD}>{it.volumeUnit    ?? 'm3'}</TableCell>
+                      <TableCell sx={TD} align="right"><Mono tabular>{it.length      != null ? it.length      : '—'}</Mono></TableCell>
+                      <TableCell sx={TD} align="right"><Mono tabular>{it.width       != null ? it.width       : '—'}</Mono></TableCell>
+                      <TableCell sx={TD} align="right"><Mono tabular>{it.height      != null ? it.height      : '—'}</Mono></TableCell>
+                      <TableCell sx={TD}>{it.dimensionUnit ?? 'mm'}</TableCell>
+                      <TableCell sx={TD}><Mono>{it.barcode ?? '—'}</Mono></TableCell>
+                      <TableCell sx={TD}>{it.hsnCode  ?? '—'}</TableCell>
+                      <TableCell sx={TD}>{it.division ?? '—'}</TableCell>
+                      <TableCell sx={TD} align="center">
+                        <Tooltip title="View batches">
                           <IconButton size="small" onClick={(e) => { e.stopPropagation(); navigate(`/${company}/fab_erp/item-batches?itemId=${it.id}`); }}>
                             <ListAltIcon fontSize="small" />
                           </IconButton>
                         </Tooltip>
                       </TableCell>
                       {canManage && (
-                        <TableCell align="right">
+                        <TableCell sx={TD} align="right">
                           <Tooltip title="Edit">
                             <IconButton size="small" onClick={(e) => { e.stopPropagation(); setDlg({ open: true, item: it }); }}>
                               <EditIcon fontSize="small" />
@@ -1760,7 +1717,7 @@ export default function ItemCatalog() {
                   ))}
                 </TableBody>
               </Table>
-            </Paper>
+            </Surface>
           )}
         </>
       )}

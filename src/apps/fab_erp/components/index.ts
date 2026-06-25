@@ -1,0 +1,18 @@
+/** fab_erp shared UI primitives — see DESIGN_SYSTEM.md §7. */
+export { Surface } from './Surface';
+export { GlassBar } from './GlassBar';
+export { StatusBadge } from './StatusBadge';
+export { Mono } from './Mono';
+export { PageHeader } from './PageHeader';
+export { StatStrip, type Stat } from './StatStrip';
+export { FilterBar, FacetChip } from './FilterBar';
+export { EntityList, EntityRow } from './EntityList';
+export { EmptyState } from './EmptyState';
+export { SkeletonBlock, ListSkeleton, StatSkeleton } from './Skeletons';
+export { ToastProvider, useToast } from './Toast';
+export { DetailLayout, CrossLink, FactItem, type DetailTab } from './DetailLayout';
+export { TreeRow } from './TreeRow';
+export { RunPanel, type RunState } from './RunPanel';
+export { PipelineBoard, PipelineCard, type PipelineStage } from './PipelineBoard';
+export { WorkQueueCard } from './WorkQueueCard';
+export { statusFamily, type StatusFamily } from '../statusMap';

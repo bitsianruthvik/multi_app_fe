@@ -5,31 +5,15 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link as RouterLink, useParams, useSearchParams } from 'react-router-dom';
 import {
-  Alert,
-  Box,
-  CircularProgress,
-  Link,
-  Paper,
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableRow,
-  Typography,
+  Alert, Box, CircularProgress, Link, Table, TableBody, TableCell, TableHead, TableRow,
 } from '@mui/material';
+import LocalShippingRounded from '@mui/icons-material/LocalShippingRounded';
 
 import { fabQuery } from '../api/client';
 import type { FabGrn, FabGrnLine } from '../types';
 import { usePermission } from '@core/hooks/usePermission';
-
-function Field({ label, value }: { label: string; value: string }) {
-  return (
-    <Box sx={{ display: 'flex', gap: 1, mb: 0.5 }}>
-      <Typography variant="body2" color="text.secondary" sx={{ minWidth: 120 }}>{label}</Typography>
-      <Typography variant="body2" fontWeight={500}>{value}</Typography>
-    </Box>
-  );
-}
+import { Surface, PageHeader, FactItem, StatusBadge, Mono, EmptyState } from '../components';
+import { statusFamily } from '../statusMap';
 
 export default function GrnDetail() {
   const canView = usePermission('fab_erp_grn_view');
@@ -37,10 +21,10 @@ export default function GrnDetail() {
   const [searchParams] = useSearchParams();
   const grnId = searchParams.get('grnId');
 
-  const [grn,   setGrn]   = useState<FabGrn | null>(null);
+  const [grn, setGrn] = useState<FabGrn | null>(null);
   const [lines, setLines] = useState<FabGrnLine[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error,   setError]   = useState('');
+  const [error, setError] = useState('');
 
   const fetchAll = useCallback(async () => {
     if (!grnId) { setLoading(false); return; }
@@ -52,87 +36,77 @@ export default function GrnDetail() {
       ]);
       setGrn(grnRes.data?.[0] ?? null);
       setLines(linesRes.data ?? []);
-    } catch (e: any) { setError(e.message); }
+    } catch (e) { setError((e as Error).message); }
     finally { setLoading(false); }
   }, [grnId]);
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
 
   if (!canView) {
-    return (
-      <Box sx={{ p: 3, maxWidth: 960, mx: 'auto' }}>
-        <Alert severity="warning">You don't have permission to view this page.</Alert>
-      </Box>
-    );
+    return <Alert severity="warning" sx={{ maxWidth: 960, mx: 'auto' }}>You don't have permission to view this page.</Alert>;
   }
 
+  const th = { fontFamily: 'var(--font-ui)', fontWeight: 600, fontSize: 12, color: 'var(--c-text-2)', textTransform: 'uppercase', letterSpacing: '.05em', borderColor: 'var(--c-divider)' } as const;
+  const td = { borderColor: 'var(--c-divider)', fontSize: 13, color: 'var(--c-text)' } as const;
+
   return (
-    <Box sx={{ p: 3, maxWidth: 960, mx: 'auto' }}>
-      <Box sx={{ mb: 3 }}>
-        <Typography variant="h5" fontWeight={700}>GRN Detail</Typography>
-        <Typography variant="body2" color="text.secondary">
-          Goods Receipt Note summary and line items
-        </Typography>
-      </Box>
+    <Box sx={{ maxWidth: 960, mx: 'auto' }}>
+      <PageHeader title="GRN Detail" subtitle="Goods receipt note summary and line items" />
 
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
       {loading ? (
-        <Box sx={{ display: 'flex', justifyContent: 'center', mt: 8 }}><CircularProgress /></Box>
+        <Surface e={1} sx={{ p: 6, display: 'flex', justifyContent: 'center' }}><CircularProgress /></Surface>
       ) : !grn ? (
-        <Paper sx={{ p: 6, textAlign: 'center' }}>
-          <Typography color="text.secondary">GRN not found.</Typography>
-        </Paper>
+        <EmptyState icon={<LocalShippingRounded />} title="GRN not found" />
       ) : (
         <>
-          <Paper sx={{ p: 3, mb: 3 }}>
-            <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1 }}>
-              <Field label="GRN Number" value={grn.grnNumber} />
-              <Field label="Date" value={grn.grnDate} />
-              <Field label="Plant" value={grn.plantName ?? '—'} />
-              <Field label="Stock Location" value={grn.stockLocationName ?? '—'} />
-              <Field label="Supplier" value={grn.supplierName ?? '—'} />
-              <Field label="Supplier Ref" value={grn.supplierRef ?? '—'} />
-              <Field label="Notes" value={grn.notes ?? '—'} />
-              <Field label="Status" value={grn.status} />
+          <Surface e={1} sx={{ p: 3, mb: 3 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 2.5 }}>
+              <Mono sx={{ fontSize: 16, fontWeight: 500, color: 'var(--c-text)' }}>{grn.grnNumber}</Mono>
+              <StatusBadge status={grn.status} family={statusFamily(grn.status)} />
             </Box>
-          </Paper>
+            <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 2 }}>
+              <FactItem label="Date" value={grn.grnDate} />
+              <FactItem label="Plant" value={grn.plantName ?? '—'} />
+              <FactItem label="Stock location" value={grn.stockLocationName ?? '—'} />
+              <FactItem label="Supplier" value={grn.supplierName ?? '—'} />
+              <FactItem label="Supplier ref" value={grn.supplierRef ?? '—'} />
+              <FactItem label="Notes" value={grn.notes ?? '—'} />
+            </Box>
+          </Surface>
 
-          <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 1 }}>Line Items</Typography>
           {lines.length === 0 ? (
-            <Paper sx={{ p: 4, textAlign: 'center' }}>
-              <Typography color="text.secondary">No line items found.</Typography>
-            </Paper>
+            <EmptyState title="No line items found" />
           ) : (
-            <Paper variant="outlined">
+            <Surface e={1} sx={{ overflow: 'hidden' }}>
               <Table size="small">
                 <TableHead>
-                  <TableRow sx={{ bgcolor: 'action.hover' }}>
-                    <TableCell sx={{ fontWeight: 700 }}>Item</TableCell>
-                    <TableCell sx={{ fontWeight: 700 }}>Batch Code</TableCell>
-                    <TableCell sx={{ fontWeight: 700 }}>Qty</TableCell>
-                    <TableCell sx={{ fontWeight: 700 }}>Unit Cost</TableCell>
+                  <TableRow sx={{ background: 'var(--c-surface-2)' }}>
+                    <TableCell sx={th}>Item</TableCell>
+                    <TableCell sx={th}>Batch code</TableCell>
+                    <TableCell sx={th} align="right">Qty</TableCell>
+                    <TableCell sx={th} align="right">Unit cost</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
                   {lines.map((line) => (
                     <TableRow key={line.id} hover>
-                      <TableCell>
-                        {line.catalogItemName ?? '—'}
-                        {line.catalogItemCode ? ` (${line.catalogItemCode})` : ''}
+                      <TableCell sx={td}>
+                        {line.catalogItemName ?? '—'}{line.catalogItemCode ? ` (${line.catalogItemCode})` : ''}
                       </TableCell>
-                      <TableCell>
-                        <Link component={RouterLink} to={`/${company}/fab_erp/item-batches?itemId=${line.catalogItemId}`}>
-                          {line.batchCode}
+                      <TableCell sx={td}>
+                        <Link component={RouterLink} to={`/${company}/fab_erp/item-batches?itemId=${line.catalogItemId}`} sx={{ color: 'var(--c-primary-700)', textDecorationColor: 'var(--c-primary-200)' }}>
+                          <Mono>{line.batchCode}</Mono>
                         </Link>
                       </TableCell>
-                      <TableCell>{line.qty}</TableCell>
-                      <TableCell>{line.unitCost ?? '—'}</TableCell>
+                      <TableCell sx={td} align="right"><Mono tabular>{line.qty}</Mono></TableCell>
+                      <TableCell sx={td} align="right">{line.unitCost ?? '—'}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
               </Table>
-            </Paper>
+            </Surface>
           )}
         </>
       )}

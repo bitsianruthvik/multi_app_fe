@@ -33,7 +33,7 @@ export function getFabErpRoutes(
 
   function FabErpDashboardRedirect() {
     const { company } = useParams<{ company: string }>();
-    return <Navigate to={`/${company}/fab_erp/resource-types`} replace />;
+    return <Navigate to={`/${company}/fab_erp/home`} replace />;
   }
 
   return [

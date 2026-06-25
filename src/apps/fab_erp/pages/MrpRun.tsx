@@ -1,19 +1,15 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
-  Alert, Box, Button, Chip, CircularProgress, Divider, FormControlLabel,
-  MenuItem, Paper, Snackbar, Switch, TextField, Tooltip, Typography,
+  Alert, Box, Button, FormControlLabel, MenuItem, Switch, TextField, Tooltip, Typography,
 } from '@mui/material';
-import PlayArrowIcon      from '@mui/icons-material/PlayArrow';
-import CheckCircleIcon    from '@mui/icons-material/CheckCircle';
-import ErrorIcon          from '@mui/icons-material/Error';
-import HourglassEmptyIcon from '@mui/icons-material/HourglassEmpty';
-import ScheduleIcon       from '@mui/icons-material/Schedule';
-import SaveIcon           from '@mui/icons-material/Save';
+import ScheduleRounded from '@mui/icons-material/ScheduleRounded';
+import SaveIcon from '@mui/icons-material/SaveRounded';
+import AutoGraphRounded from '@mui/icons-material/AutoGraphRounded';
 
 import { fabPost, fabGet, fabPut } from '../api/client';
-import { usePermission }           from '@core/hooks/usePermission';
+import { usePermission } from '@core/hooks/usePermission';
+import { Surface, RunPanel, StatusBadge, Mono, EmptyState, useToast } from '../components';
 
-// ── Types ─────────────────────────────────────────────────────────────────────
 interface MrpRun {
   id: number;
   triggered_by: 'manual' | 'cron';
@@ -25,54 +21,39 @@ interface MrpRun {
   planned_orders_deleted: number;
   error_message: string | null;
 }
-
 interface MrpSettings {
-  auto_run_enabled: number;
-  run_hour: number;
-  run_minute: number;
-  last_auto_run_date: string | null;
+  auto_run_enabled: number; run_hour: number; run_minute: number; last_auto_run_date: string | null;
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-function statusChip(status: MrpRun['status']) {
-  if (status === 'success') return <Chip icon={<CheckCircleIcon />}    label="Success" color="success" size="small" />;
-  if (status === 'error')   return <Chip icon={<ErrorIcon />}          label="Error"   color="error"   size="small" />;
-  return                           <Chip icon={<HourglassEmptyIcon />} label="Running" color="warning" size="small" />;
+function runStatusFamily(s: MrpRun['status']): 'success' | 'danger' | 'warning' {
+  if (s === 'success') return 'success';
+  if (s === 'error') return 'danger';
+  return 'warning';
 }
 
-function fmt(iso: string | null) {
-  if (!iso) return '—';
-  return new Date(iso).toLocaleString();
-}
-
+function fmt(iso: string | null) { return iso ? new Date(iso).toLocaleString() : '—'; }
 function duration(start: string, end: string | null) {
   if (!end) return '—';
   const ms = new Date(end).getTime() - new Date(start).getTime();
-  if (ms < 1000) return `${ms} ms`;
-  return `${(ms / 1000).toFixed(1)} s`;
+  return ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(1)} s`;
 }
-
 function pad(n: number) { return String(n).padStart(2, '0'); }
-
-const HOURS   = Array.from({ length: 24 }, (_, i) => i);
+const HOURS = Array.from({ length: 24 }, (_, i) => i);
 const MINUTES = [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55];
 
-// ── Component ─────────────────────────────────────────────────────────────────
 export default function MrpRun() {
   const canManage = usePermission('fab_erp_projects_manage');
+  const { toast } = useToast();
 
-  const [runs,     setRuns]     = useState<MrpRun[]>([]);
+  const [runs, setRuns] = useState<MrpRun[]>([]);
   const [settings, setSettings] = useState<MrpSettings | null>(null);
-  const [loading,  setLoading]  = useState(true);
-  const [running,  setRunning]  = useState(false);
-  const [saving,   setSaving]   = useState(false);
-  const [error,    setError]    = useState('');
-  const [toast,    setToast]    = useState('');
+  const [running, setRunning] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
 
-  // Local settings draft
   const [autoEnabled, setAutoEnabled] = useState(true);
-  const [runHour,     setRunHour]     = useState(23);
-  const [runMinute,   setRunMinute]   = useState(0);
+  const [runHour, setRunHour] = useState(23);
+  const [runMinute, setRunMinute] = useState(0);
 
   const fetchAll = useCallback(async () => {
     try {
@@ -88,10 +69,9 @@ export default function MrpRun() {
         setRunHour(s.run_hour);
         setRunMinute(s.run_minute);
       }
-    } catch (e: any) {
-      setError(e.response?.data?.message ?? e.message);
-    } finally {
-      setLoading(false);
+    } catch (e) {
+      const ax = e as { response?: { data?: { message?: string } }; message?: string };
+      setError(ax.response?.data?.message ?? ax.message ?? 'Load failed');
     }
   }, []);
 
@@ -101,26 +81,23 @@ export default function MrpRun() {
     setRunning(true); setError('');
     try {
       const res = await fabPost<{ ok: boolean; runId: number; created: number; deleted: number }>('mrp/run');
-      setToast(`MRP complete — ${res.created} planned orders created, ${res.deleted} previous ones cleared.`);
+      toast(`MRP complete — ${res.created} planned orders created, ${res.deleted} previous ones cleared`);
       fetchAll();
-    } catch (e: any) {
-      setError(e.response?.data?.message ?? e.message);
-    } finally {
-      setRunning(false);
-    }
+    } catch (e) {
+      const ax = e as { response?: { data?: { message?: string } }; message?: string };
+      setError(ax.response?.data?.message ?? ax.message ?? 'Run failed');
+    } finally { setRunning(false); }
   }
 
   async function saveSettings() {
     setSaving(true); setError('');
     try {
       await fabPut('mrp/settings', { autoRunEnabled: autoEnabled, runHour, runMinute });
-      setToast('Schedule saved.');
-      fetchAll();
-    } catch (e: any) {
-      setError(e.response?.data?.message ?? e.message);
-    } finally {
-      setSaving(false);
-    }
+      toast('Schedule saved'); fetchAll();
+    } catch (e) {
+      const ax = e as { response?: { data?: { message?: string } }; message?: string };
+      setError(ax.response?.data?.message ?? ax.message ?? 'Save failed');
+    } finally { setSaving(false); }
   }
 
   const lastRun = runs[0] ?? null;
@@ -129,57 +106,22 @@ export default function MrpRun() {
     : false;
 
   return (
-    <Box sx={{ p: 3, maxWidth: 900 }}>
-      {/* Header */}
-      <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', mb: 3 }}>
-        <Box>
-          <Typography variant="h5" fontWeight={700}>MRP Run</Typography>
-          <Typography variant="body2" color="text.secondary">
-            Material Requirements Planning — explodes demand through BOMs and generates planned orders.
-          </Typography>
-        </Box>
-        {canManage && (
-          <Button
-            variant="contained" size="large"
-            startIcon={running ? <CircularProgress size={18} color="inherit" /> : <PlayArrowIcon />}
-            onClick={triggerRun} disabled={running}
-            sx={{ minWidth: 160 }}
-          >
-            {running ? 'Running…' : 'Run MRP Now'}
-          </Button>
-        )}
-      </Box>
-
+    <Box sx={{ maxWidth: 900 }}>
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
 
-      {/* How it works */}
-      <Paper variant="outlined" sx={{ p: 2.5, mb: 3 }}>
-        <Typography variant="subtitle2" fontWeight={700} gutterBottom>How MRP works</Typography>
-        <Box component="ol" sx={{ m: 0, pl: 2.5, '& li': { mb: 0.5 } }}>
-          <Typography component="li" variant="body2">
-            Reads gross demand from all open <strong>Sales Orders</strong> (open lines, net of qty already completed).
-          </Typography>
-          <Typography component="li" variant="body2">
-            Adds reorder demand for items where <strong>stock on hand</strong> is below the reorder minimum.
-          </Typography>
-          <Typography component="li" variant="body2">
-            Subtracts available stock (on-hand + on-order) to calculate the <strong>net requirement</strong>.
-          </Typography>
-          <Typography component="li" variant="body2">
-            Explodes each item's <strong>Bill of Materials</strong> (up to 8 levels deep) to calculate component requirements.
-          </Typography>
-          <Typography component="li" variant="body2">
-            Creates <strong>Planned Orders</strong> — type <em>mrp_make</em> for manufactured items,
-            <em>mrp_buy</em> for purchased. Visible in <strong>Orders → Planned</strong> tab.
-          </Typography>
-        </Box>
-      </Paper>
+      <RunPanel
+        title="MRP Run"
+        summary="Reads open sales-order demand + reorder shortfalls, explodes BOMs up to 8 levels, and creates planned orders (mrp_make / mrp_buy) — visible in Orders → Planned."
+        runLabel="Run MRP now"
+        state={running ? 'running' : 'idle'}
+        onRun={triggerRun}
+        disabled={!canManage}
+      />
 
-      {/* Schedule settings */}
-      <Paper variant="outlined" sx={{ p: 2.5, mb: 3 }}>
+      <Surface e={1} sx={{ p: 2.5, mb: 2.5, mt: 2.5 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5 }}>
-          <ScheduleIcon fontSize="small" color="action" />
-          <Typography variant="subtitle2" fontWeight={700}>Automatic Schedule</Typography>
+          <ScheduleRounded sx={{ fontSize: 18, color: 'var(--c-text-2)' }} />
+          <Typography sx={{ fontSize: 14, fontWeight: 600, color: 'var(--c-text)' }}>Automatic schedule</Typography>
         </Box>
         <FormControlLabel
           control={<Switch checked={autoEnabled} onChange={(e) => setAutoEnabled(e.target.checked)} disabled={!canManage} />}
@@ -188,100 +130,70 @@ export default function MrpRun() {
         />
         {autoEnabled && (
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
-            <Typography variant="body2" color="text.secondary">Run at</Typography>
-            <TextField select size="small" label="Hour" value={runHour} sx={{ width: 90 }}
-              onChange={(e) => setRunHour(Number(e.target.value))} disabled={!canManage}>
+            <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>Run at</Typography>
+            <TextField select size="small" label="Hour" value={runHour} sx={{ width: 90 }} onChange={(e) => setRunHour(Number(e.target.value))} disabled={!canManage}>
               {HOURS.map((h) => <MenuItem key={h} value={h}>{pad(h)}</MenuItem>)}
             </TextField>
-            <TextField select size="small" label="Minute" value={runMinute} sx={{ width: 90 }}
-              onChange={(e) => setRunMinute(Number(e.target.value))} disabled={!canManage}>
+            <TextField select size="small" label="Minute" value={runMinute} sx={{ width: 90 }} onChange={(e) => setRunMinute(Number(e.target.value))} disabled={!canManage}>
               {MINUTES.map((m) => <MenuItem key={m} value={m}>{pad(m)}</MenuItem>)}
             </TextField>
-            <Typography variant="body2" color="text.secondary">
-              (server time — currently {new Date().toLocaleTimeString()})
-            </Typography>
+            <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>(server time — currently {new Date().toLocaleTimeString()})</Typography>
           </Box>
         )}
         {settings?.last_auto_run_date && (
-          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
-            Last auto-run: {settings.last_auto_run_date}
-          </Typography>
+          <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)', mt: 1 }}>Last auto-run: {settings.last_auto_run_date}</Typography>
         )}
         {canManage && (
           <Box sx={{ mt: 2 }}>
-            <Button variant="outlined" size="small" startIcon={<SaveIcon />}
-              onClick={saveSettings} disabled={saving || !settingsChanged}>
-              {saving ? 'Saving…' : 'Save Schedule'}
+            <Button variant="outlined" size="small" startIcon={<SaveIcon />} onClick={saveSettings} disabled={saving || !settingsChanged}>
+              {saving ? 'Saving…' : 'Save schedule'}
             </Button>
           </Box>
         )}
-      </Paper>
+      </Surface>
 
-      {/* Last run summary */}
       {lastRun && (
-        <Paper variant="outlined" sx={{ p: 2.5, mb: 3 }}>
-          <Typography variant="subtitle2" fontWeight={700} gutterBottom>Last Run</Typography>
-          <Box sx={{ display: 'flex', gap: 3, flexWrap: 'wrap', alignItems: 'center' }}>
-            {statusChip(lastRun.status)}
-            <Typography variant="body2"><strong>Started:</strong> {fmt(lastRun.started_at)}</Typography>
-            <Typography variant="body2"><strong>Duration:</strong> {duration(lastRun.started_at, lastRun.finished_at)}</Typography>
-            <Typography variant="body2"><strong>Trigger:</strong> {lastRun.triggered_by}</Typography>
+        <Surface e={1} sx={{ p: 2.5, mb: 2.5 }}>
+          <Typography sx={{ fontSize: 11, fontWeight: 600, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--c-text-3)', mb: 1.5 }}>Last run</Typography>
+          <Box sx={{ display: 'flex', gap: 2.5, flexWrap: 'wrap', alignItems: 'center' }}>
+            <StatusBadge status={lastRun.status} family={runStatusFamily(lastRun.status)} />
+            <Typography sx={{ fontSize: 13, color: 'var(--c-text)' }}>Started: <Mono>{fmt(lastRun.started_at)}</Mono></Typography>
+            <Typography sx={{ fontSize: 13, color: 'var(--c-text)' }}>Duration: <Mono>{duration(lastRun.started_at, lastRun.finished_at)}</Mono></Typography>
+            <Typography sx={{ fontSize: 13, color: 'var(--c-text)' }}>Trigger: {lastRun.triggered_by}</Typography>
             {lastRun.status === 'success' && (<>
-              <Chip label={`+${lastRun.planned_orders_created} created`} size="small" color="success" variant="outlined" />
-              <Chip label={`−${lastRun.planned_orders_deleted} cleared`} size="small" color="default" variant="outlined" />
+              <Box sx={{ fontSize: 12, fontFamily: 'var(--font-mono)', color: 'var(--c-success-600)', fontWeight: 500 }}>+{lastRun.planned_orders_created} created</Box>
+              <Box sx={{ fontSize: 12, fontFamily: 'var(--font-mono)', color: 'var(--c-text-3)' }}>−{lastRun.planned_orders_deleted} cleared</Box>
             </>)}
             {lastRun.error_message && (
-              <Tooltip title={lastRun.error_message}>
-                <Chip label="View error" size="small" color="error" />
-              </Tooltip>
+              <Tooltip title={lastRun.error_message}><Box><StatusBadge status="error" family="danger" /></Box></Tooltip>
             )}
           </Box>
-        </Paper>
+        </Surface>
       )}
 
-      {/* Run history */}
-      <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1 }}>Run History</Typography>
-      {loading ? (
-        <Box sx={{ display: 'flex', justifyContent: 'center', mt: 4 }}><CircularProgress /></Box>
-      ) : runs.length === 0 ? (
-        <Paper variant="outlined" sx={{ p: 4, textAlign: 'center' }}>
-          <Typography color="text.secondary">No MRP runs yet. Click "Run MRP Now" to start.</Typography>
-        </Paper>
+      <Typography sx={{ fontSize: 11, fontWeight: 600, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--c-text-3)', mb: 1.5 }}>Run history</Typography>
+      {runs.length === 0 ? (
+        <EmptyState icon={<AutoGraphRounded />} title="No MRP runs yet" hint='Click "Run MRP now" to start.' />
       ) : (
-        <Paper variant="outlined">
-          <Box sx={{
-            display: 'grid',
-            gridTemplateColumns: '70px 1fr 100px 90px 80px 80px 90px',
-            px: 2, py: 1,
-            bgcolor: 'action.hover',
-            borderBottom: 1, borderColor: 'divider',
-          }}>
+        <Surface e={1} sx={{ overflow: 'hidden' }}>
+          <Box sx={{ display: 'grid', gridTemplateColumns: '70px 1fr 100px 90px 80px 80px 90px', px: 2, py: 1, background: 'var(--c-surface-2)', borderBottom: '1px solid var(--c-divider)' }}>
             {['ID', 'Started', 'Duration', 'Trigger', 'Created', 'Cleared', 'Status'].map((h) => (
-              <Typography key={h} variant="caption" color="text.secondary" fontWeight={700}>{h}</Typography>
+              <Typography key={h} sx={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--c-text-2)' }}>{h}</Typography>
             ))}
           </Box>
           {runs.map((r, i) => (
-            <Box key={r.id} sx={{
-              display: 'grid',
-              gridTemplateColumns: '70px 1fr 100px 90px 80px 80px 90px',
-              px: 2, py: 1.25,
-              borderBottom: i < runs.length - 1 ? 1 : 0,
-              borderColor: 'divider',
-              '&:hover': { bgcolor: 'action.hover' },
-            }}>
-              <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>#{r.id}</Typography>
-              <Typography variant="body2">{fmt(r.started_at)}</Typography>
-              <Typography variant="body2">{duration(r.started_at, r.finished_at)}</Typography>
-              <Typography variant="body2">{r.triggered_by}</Typography>
-              <Typography variant="body2" color="success.main">+{r.planned_orders_created}</Typography>
-              <Typography variant="body2" color="text.secondary">−{r.planned_orders_deleted}</Typography>
-              <Box>{statusChip(r.status)}</Box>
+            <Box key={r.id} sx={{ display: 'grid', gridTemplateColumns: '70px 1fr 100px 90px 80px 80px 90px', px: 2, py: 1.25, borderBottom: i < runs.length - 1 ? '1px solid var(--c-divider)' : 'none', '&:hover': { background: 'var(--c-surface-2)' } }}>
+              <Mono>#{r.id}</Mono>
+              <Typography sx={{ fontSize: 13, color: 'var(--c-text)' }}>{fmt(r.started_at)}</Typography>
+              <Typography sx={{ fontSize: 13, color: 'var(--c-text)' }}>{duration(r.started_at, r.finished_at)}</Typography>
+              <Typography sx={{ fontSize: 13, color: 'var(--c-text)' }}>{r.triggered_by}</Typography>
+              <Box sx={{ fontSize: 12, fontFamily: 'var(--font-mono)', color: 'var(--c-success-600)' }}>+{r.planned_orders_created}</Box>
+              <Box sx={{ fontSize: 12, fontFamily: 'var(--font-mono)', color: 'var(--c-text-3)' }}>−{r.planned_orders_deleted}</Box>
+              <Box><StatusBadge status={r.status} family={runStatusFamily(r.status)} /></Box>
             </Box>
           ))}
-        </Paper>
+        </Surface>
       )}
-
-      <Snackbar open={!!toast} autoHideDuration={6000} onClose={() => setToast('')} message={toast} />
     </Box>
   );
 }
