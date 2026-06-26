@@ -26,7 +26,6 @@ import {
   ListItemText,
   MenuItem,
   Select,
-  Snackbar,
   Tab,
   Table,
   TableBody,
@@ -44,7 +43,6 @@ import SearchIcon      from '@mui/icons-material/Search';
 import Inventory2Icon  from '@mui/icons-material/Inventory2';
 import ListAltIcon     from '@mui/icons-material/ListAlt';
 import EditIcon        from '@mui/icons-material/Edit';
-import OpenInNewIcon   from '@mui/icons-material/OpenInNew';
 import DownloadIcon    from '@mui/icons-material/Download';
 import UploadFileIcon  from '@mui/icons-material/UploadFile';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
@@ -56,7 +54,7 @@ import type {
 import { usePermission } from '@core/hooks/usePermission';
 import InfoTooltip, { type InfoContent } from '@shared/components/InfoTooltip';
 import api, { API_HOST } from '@core/utils/axiosConfig';
-import { Surface, PageHeader, Mono, StatusBadge, EmptyState, ListSkeleton } from '../components';
+import { Surface, PageHeader, Mono, StatusBadge, EmptyState, ListSkeleton, EntityList, EntityRow, useToast } from '../components';
 
 const TH = { fontFamily: 'var(--font-ui)', fontWeight: 600, fontSize: 12, color: 'var(--c-text-2)', textTransform: 'uppercase', letterSpacing: '.05em', borderColor: 'var(--c-divider)' } as const;
 const TD = { borderColor: 'var(--c-divider)', fontSize: 13, color: 'var(--c-text)' } as const;
@@ -962,7 +960,7 @@ function TaxonomyDetailDialog({ level, entity, categories, groups, canEdit, onCl
     <Dialog open onClose={onClose} maxWidth="md" fullWidth>
       <DialogTitle>
         {levelLabel}: {entity.name}
-        {isSystem && <Chip label="System" size="small" color="primary" sx={{ ml: 1 }} />}
+        {isSystem && <Box component="span" sx={{ ml: 1, display: 'inline-block' }}><StatusBadge status="System" family="info" /></Box>}
       </DialogTitle>
       <DialogContent dividers sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
         {err && <Alert severity="error">{err}</Alert>}
@@ -1031,11 +1029,9 @@ function TaxonomyDetailDialog({ level, entity, categories, groups, canEdit, onCl
                         </Typography>
                       </TableCell>
                       <TableCell>
-                        <Chip
-                          label={f.source === 'category' ? 'Category' : 'Group'}
-                          size="small"
-                          color={f.source === 'category' ? 'default' : 'info'}
-                          variant="outlined"
+                        <StatusBadge
+                          status={f.source === 'category' ? 'Category' : 'Group'}
+                          family={f.source === 'category' ? 'neutral' : 'info'}
                         />
                       </TableCell>
                       <TableCell>
@@ -1128,7 +1124,7 @@ function TaxonomyDetailDialog({ level, entity, categories, groups, canEdit, onCl
                   </TableCell>
                   <TableCell sx={{ py: 0.5 }}>
                     {overriddenKeys.has(d.fieldKey) && (
-                      <Chip label="Override" size="small" color="warning" variant="outlined" />
+                      <StatusBadge status="Override" family="warning" />
                     )}
                   </TableCell>
                   {canEdit && (
@@ -1177,39 +1173,21 @@ function CategoriesTab({ categories, onRowClick, onAddClick, onDeleteClick, canE
       {categories.length === 0 ? (
         <EmptyState title="No categories yet" />
       ) : (
-        <Surface e={1} sx={{ overflowX: 'auto', p: 0 }}>
-          <Table size="small">
-            <TableHead>
-              <TableRow sx={{ background: 'var(--c-surface-2)' }}>
-                <TableCell sx={TH}>Name</TableCell>
-                <TableCell sx={{ ...TH, width: 110 }}>Code</TableCell>
-                <TableCell sx={TH}>Description</TableCell>
-                <TableCell sx={{ ...TH, width: 80 }}>System</TableCell>
-                <TableCell sx={{ ...TH, width: 90 }} align="right" />
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {categories.map((c) => (
-                <TableRow key={c.id} hover sx={{ cursor: 'pointer' }} onClick={() => onRowClick(c)}>
-                  <TableCell sx={{ ...TD, fontWeight: 500 }}>{c.name}</TableCell>
-                  <TableCell sx={TD}><Mono>{c.code}</Mono></TableCell>
-                  <TableCell sx={TD}><Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>{c.description ?? '—'}</Typography></TableCell>
-                  <TableCell sx={TD}>{c.isSystem === 1 && <StatusBadge status="System" family="info" />}</TableCell>
-                  <TableCell sx={TD} align="right" onClick={(e) => e.stopPropagation()}>
-                    <Tooltip title="Open detail">
-                      <IconButton size="small" onClick={() => onRowClick(c)}><OpenInNewIcon fontSize="small" /></IconButton>
-                    </Tooltip>
-                    {canEdit && c.isSystem === 0 && (
-                      <Tooltip title="Delete">
-                        <IconButton size="small" color="error" onClick={() => onDeleteClick(c)}><DeleteIcon fontSize="small" /></IconButton>
-                      </Tooltip>
-                    )}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </Surface>
+        <EntityList>
+          {categories.map((c) => (
+            <EntityRow
+              key={c.id}
+              code={<Mono chip>{c.code}</Mono>}
+              primary={c.name}
+              secondary={c.description ?? undefined}
+              trailing={c.isSystem === 1 ? <StatusBadge status="System" family="info" /> : undefined}
+              onClick={() => onRowClick(c)}
+              actions={canEdit && c.isSystem === 0 ? (
+                <Tooltip title="Delete"><IconButton size="small" color="error" onClick={() => onDeleteClick(c)}><DeleteIcon fontSize="small" /></IconButton></Tooltip>
+              ) : undefined}
+            />
+          ))}
+        </EntityList>
       )}
     </Box>
   );
@@ -1252,41 +1230,21 @@ function GroupsTab({ categories, groups, onRowClick, onAddClick, onDeleteClick, 
       {visible.length === 0 ? (
         <EmptyState title="No groups found" />
       ) : (
-        <Surface e={1} sx={{ overflowX: 'auto', p: 0 }}>
-          <Table size="small">
-            <TableHead>
-              <TableRow sx={{ background: 'var(--c-surface-2)' }}>
-                <TableCell sx={TH}>Name</TableCell>
-                <TableCell sx={{ ...TH, width: 110 }}>Code</TableCell>
-                <TableCell sx={{ ...TH, width: 150 }}>Category</TableCell>
-                <TableCell sx={TH}>Description</TableCell>
-                <TableCell sx={{ ...TH, width: 80 }}>System</TableCell>
-                <TableCell sx={{ ...TH, width: 90 }} align="right" />
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {visible.map((g) => (
-                <TableRow key={g.id} hover sx={{ cursor: 'pointer' }} onClick={() => onRowClick(g)}>
-                  <TableCell sx={{ ...TD, fontWeight: 500 }}>{g.name}</TableCell>
-                  <TableCell sx={TD}><Mono>{g.code}</Mono></TableCell>
-                  <TableCell sx={TD}>{g.categoryName ?? '—'}</TableCell>
-                  <TableCell sx={TD}><Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>{g.description ?? '—'}</Typography></TableCell>
-                  <TableCell sx={TD}>{g.isSystem === 1 && <StatusBadge status="System" family="info" />}</TableCell>
-                  <TableCell sx={TD} align="right" onClick={(e) => e.stopPropagation()}>
-                    <Tooltip title="Open detail">
-                      <IconButton size="small" onClick={() => onRowClick(g)}><OpenInNewIcon fontSize="small" /></IconButton>
-                    </Tooltip>
-                    {canEdit && g.isSystem === 0 && (
-                      <Tooltip title="Delete">
-                        <IconButton size="small" color="error" onClick={() => onDeleteClick(g)}><DeleteIcon fontSize="small" /></IconButton>
-                      </Tooltip>
-                    )}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </Surface>
+        <EntityList>
+          {visible.map((g) => (
+            <EntityRow
+              key={g.id}
+              code={<Mono chip>{g.code}</Mono>}
+              primary={g.name}
+              secondary={[g.categoryName, g.description].filter(Boolean).join(' · ') || undefined}
+              trailing={g.isSystem === 1 ? <StatusBadge status="System" family="info" /> : undefined}
+              onClick={() => onRowClick(g)}
+              actions={canEdit && g.isSystem === 0 ? (
+                <Tooltip title="Delete"><IconButton size="small" color="error" onClick={() => onDeleteClick(g)}><DeleteIcon fontSize="small" /></IconButton></Tooltip>
+              ) : undefined}
+            />
+          ))}
+        </EntityList>
       )}
     </Box>
   );
@@ -1352,47 +1310,25 @@ function SubgroupsTab({ categories, groups, subgroups, onRowClick, onAddClick, o
       {visible.length === 0 ? (
         <EmptyState title="No sub-groups found" />
       ) : (
-        <Surface e={1} sx={{ overflowX: 'auto', p: 0 }}>
-          <Table size="small">
-            <TableHead>
-              <TableRow sx={{ background: 'var(--c-surface-2)' }}>
-                <TableCell sx={TH}>Name</TableCell>
-                <TableCell sx={{ ...TH, width: 110 }}>Code</TableCell>
-                <TableCell sx={{ ...TH, width: 150 }}>Category</TableCell>
-                <TableCell sx={{ ...TH, width: 150 }}>Group</TableCell>
-                <TableCell sx={TH}>Description</TableCell>
-                <TableCell sx={{ ...TH, width: 80 }}>System</TableCell>
-                <TableCell sx={{ ...TH, width: 90 }} align="right" />
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {visible.map((s) => {
-                const grp = groups.find((g) => g.id === s.groupId);
-                const cat = grp ? categories.find((c) => c.id === grp.categoryId) : undefined;
-                return (
-                  <TableRow key={s.id} hover sx={{ cursor: 'pointer' }} onClick={() => onRowClick(s)}>
-                    <TableCell sx={{ ...TD, fontWeight: 500 }}>{s.name}</TableCell>
-                    <TableCell sx={TD}><Mono>{s.code}</Mono></TableCell>
-                    <TableCell sx={TD}>{cat?.name ?? '—'}</TableCell>
-                    <TableCell sx={TD}>{s.groupName ?? grp?.name ?? '—'}</TableCell>
-                    <TableCell sx={TD}><Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>{s.description ?? '—'}</Typography></TableCell>
-                    <TableCell sx={TD}>{s.isSystem === 1 && <StatusBadge status="System" family="info" />}</TableCell>
-                    <TableCell sx={TD} align="right" onClick={(e) => e.stopPropagation()}>
-                      <Tooltip title="Open detail">
-                        <IconButton size="small" onClick={() => onRowClick(s)}><OpenInNewIcon fontSize="small" /></IconButton>
-                      </Tooltip>
-                      {canEdit && s.isSystem === 0 && (
-                        <Tooltip title="Delete">
-                          <IconButton size="small" color="error" onClick={() => onDeleteClick(s)}><DeleteIcon fontSize="small" /></IconButton>
-                        </Tooltip>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
-        </Surface>
+        <EntityList>
+          {visible.map((s) => {
+            const grp = groups.find((g) => g.id === s.groupId);
+            const cat = grp ? categories.find((c) => c.id === grp.categoryId) : undefined;
+            return (
+              <EntityRow
+                key={s.id}
+                code={<Mono chip>{s.code}</Mono>}
+                primary={s.name}
+                secondary={[cat?.name, s.groupName ?? grp?.name, s.description].filter(Boolean).join(' · ') || undefined}
+                trailing={s.isSystem === 1 ? <StatusBadge status="System" family="info" /> : undefined}
+                onClick={() => onRowClick(s)}
+                actions={canEdit && s.isSystem === 0 ? (
+                  <Tooltip title="Delete"><IconButton size="small" color="error" onClick={() => onDeleteClick(s)}><DeleteIcon fontSize="small" /></IconButton></Tooltip>
+                ) : undefined}
+              />
+            );
+          })}
+        </EntityList>
       )}
     </Box>
   );
@@ -1420,7 +1356,7 @@ export default function ItemCatalog() {
   const [search,  setSearch]  = useState('');
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState('');
-  const [toast,   setToast]   = useState('');
+  const { toast } = useToast();
   const [pageTab, setPageTab] = useState(0);
 
   const [dlg,     setDlg]    = useState<{ open: boolean; item: FabItemCatalog | null }>({ open: false, item: null });
@@ -1537,8 +1473,8 @@ export default function ItemCatalog() {
     }
   }
 
-  function onSaved()   { setDlg({ open: false, item: null }); setToast('Saved.'); fetchAll(); }
-  function onDeleted() { setDelItem(null); setToast('Removed.'); fetchAll(); }
+  function onSaved()   { setDlg({ open: false, item: null }); toast('Saved.'); fetchAll(); }
+  function onDeleted() { setDelItem(null); toast('Removed.'); fetchAll(); }
 
   const handleTaxonomyRowClick = (
     level: 'category' | 'group' | 'subgroup',
@@ -1774,7 +1710,7 @@ export default function ItemCatalog() {
           groups={groups}
           canEdit={canManageTaxonomy}
           onClose={() => setTaxonomyDetail(null)}
-          onSaved={async () => { await refetchTaxonomy(); setToast('Saved.'); }}
+          onSaved={async () => { await refetchTaxonomy(); toast('Saved.'); }}
         />
       )}
 
@@ -1787,7 +1723,7 @@ export default function ItemCatalog() {
         onCreated={async () => {
           await refetchTaxonomy();
           setAddTaxonomyLevel(null);
-          setToast('Added.');
+          toast('Added.');
         }}
       />
 
@@ -1802,7 +1738,7 @@ export default function ItemCatalog() {
           setTaxonomyDelete(null);
           await refetchTaxonomy();
         }}
-        setToast={setToast}
+        setToast={toast}
       />
 
       {/* Import result summary */}
@@ -1815,11 +1751,11 @@ export default function ItemCatalog() {
           {importResult && (
             <>
               <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mb: 2 }}>
-                <Chip color="success" label={`${importResult.itemsCreated} item(s) created`} />
-                {importResult.itemsSkipped > 0 && <Chip color="warning" label={`${importResult.itemsSkipped} skipped (duplicate code)`} />}
-                {importResult.categoriesCreated > 0 && <Chip variant="outlined" label={`${importResult.categoriesCreated} new Category`} />}
-                {importResult.groupsCreated > 0 && <Chip variant="outlined" label={`${importResult.groupsCreated} new Group`} />}
-                {importResult.subgroupsCreated > 0 && <Chip variant="outlined" label={`${importResult.subgroupsCreated} new Sub-group`} />}
+                <StatusBadge status={`${importResult.itemsCreated} item(s) created`} family="success" />
+                {importResult.itemsSkipped > 0 && <StatusBadge status={`${importResult.itemsSkipped} skipped (duplicate code)`} family="warning" />}
+                {importResult.categoriesCreated > 0 && <StatusBadge status={`${importResult.categoriesCreated} new Category`} family="neutral" />}
+                {importResult.groupsCreated > 0 && <StatusBadge status={`${importResult.groupsCreated} new Group`} family="neutral" />}
+                {importResult.subgroupsCreated > 0 && <StatusBadge status={`${importResult.subgroupsCreated} new Sub-group`} family="neutral" />}
               </Box>
               {importResult.warnings.length > 0 && (
                 <>
@@ -1844,7 +1780,6 @@ export default function ItemCatalog() {
         </DialogActions>
       </Dialog>
 
-      <Snackbar open={!!toast} autoHideDuration={3000} onClose={() => setToast('')} message={toast} />
     </Box>
   );
 }
