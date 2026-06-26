@@ -52,7 +52,11 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
   const isGlassPage = onCompanyLanding || onAppSelector || onLoginPage;
 
-  if (isGlassPage || isAdminRoute || onAudioFlow || onSalesFlow) return <>{children}</>;
+  if (isGlassPage || onAudioFlow || onSalesFlow) return <>{children}</>;
+
+  // Admin routes (AdminLayout) render their own shell — they don't get UserLayout —
+  // but fab_erp's admin pages should still pick up the violet theme/tokens.
+  if (isAdminRoute) return onFabErp ? <FabErpThemeScope>{children}</FabErpThemeScope> : <>{children}</>;
 
   const layout = <UserLayout>{children}</UserLayout>;
   return onFabErp ? <FabErpThemeScope>{layout}</FabErpThemeScope> : layout;
