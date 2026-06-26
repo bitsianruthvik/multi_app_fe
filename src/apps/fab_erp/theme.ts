@@ -110,6 +110,52 @@ export function createFabErpTheme(mode: AppThemeMode) {
         styleOverrides: { root: { borderColor: isDark ? 'rgba(255,255,255,.06)' : '#ECEDF5' } },
       },
       MuiListItemButton: { styleOverrides: { root: { borderRadius: '8px' } } },
+      MuiDialog: {
+        styleOverrides: {
+          paper: {
+            borderRadius: 'var(--r-lg)',
+            boxShadow: 'var(--e-3)',
+            border: `1px solid ${isDark ? 'rgba(255,255,255,.09)' : '#E4E6F0'}`,
+          },
+        },
+      },
+      MuiDialogTitle: {
+        styleOverrides: {
+          root: {
+            fontFamily: "'Geist', system-ui, -apple-system, 'Segoe UI', sans-serif",
+            fontSize: '20px',
+            fontWeight: 600,
+            padding: '20px 24px 12px',
+          },
+        },
+      },
+      MuiDialogContent: {
+        styleOverrides: {
+          root: { padding: '4px 24px', fontSize: '14px' },
+        },
+      },
+      MuiDialogActions: {
+        styleOverrides: {
+          root: { padding: '16px 24px 20px', gap: '8px' },
+        },
+      },
+      MuiBackdrop: {
+        styleOverrides: {
+          root: {
+            backgroundColor: 'var(--glass-bg)',
+            backdropFilter: 'var(--glass-blur)',
+            WebkitBackdropFilter: 'var(--glass-blur)',
+            '@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)))': {
+              backgroundColor: isDark ? 'rgba(12,14,23,.72)' : 'rgba(26,28,46,.48)',
+            },
+            '@media (prefers-reduced-transparency: reduce)': {
+              backgroundColor: isDark ? 'rgba(12,14,23,.72)' : 'rgba(26,28,46,.48)',
+              backdropFilter: 'none',
+              WebkitBackdropFilter: 'none',
+            },
+          },
+        },
+      },
     },
   });
 }

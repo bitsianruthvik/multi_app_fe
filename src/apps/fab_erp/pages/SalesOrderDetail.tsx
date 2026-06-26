@@ -83,6 +83,10 @@ export default function SalesOrderDetail() {
     if (!so) return;
     setSaving(true); setError('');
     try {
+      // DATE columns reject full ISO timestamps (e.g. "2026-07-19T18:30:00.000Z")
+      // under MySQL strict mode — these fields round-trip from the API as ISO
+      // strings, so truncate to the date-only portion before writing back.
+      const dateOnly = (v?: string | null) => (v ? v.slice(0, 10) : null);
       await fabMutate('fabErpOrder', 'update', {
         id,
         order_number: draft.orderNumber ?? so.orderNumber,
@@ -92,9 +96,9 @@ export default function SalesOrderDetail() {
         priority: draft.priority ?? null,
         customer_name: draft.customerName ?? null,
         customer_po_ref: draft.customerPoRef ?? null,
-        required_date: draft.requiredDate ?? null,
-        confirmed_date: draft.confirmedDate ?? null,
-        scheduled_ship_date: draft.scheduledShipDate ?? null,
+        required_date: dateOnly(draft.requiredDate),
+        confirmed_date: dateOnly(draft.confirmedDate),
+        scheduled_ship_date: dateOnly(draft.scheduledShipDate),
         plant_id: draft.plantId ?? null,
         currency: draft.currency ?? null,
         payment_terms: draft.paymentTerms ?? null,
