@@ -14,7 +14,7 @@ import CalendarMonthRounded from '@mui/icons-material/CalendarMonthRounded';
 import { fabQuery, fabMutate } from '@apps/fab_erp/api/client';
 import type { FabShiftCalendar, FabShift, FabCalendarDay } from '@apps/fab_erp/types';
 import { usePermission } from '@core/hooks/usePermission';
-import { Surface, PageHeader, Mono, StatusBadge, EmptyState, ListSkeleton, useToast } from '../components';
+import { Surface, PageHeader, Mono, StatusBadge, EmptyState, ListSkeleton, useToast, EntityList, EntityRow } from '../components';
 
 interface QueryResult<T> { data: T[]; total?: number }
 interface CalendarDraft { name: string; code: string }
@@ -451,32 +451,26 @@ export default function ShiftCalendars() {
         <EmptyState icon={<CalendarMonthRounded />} title="No shift calendars yet" action={newBtn ?? undefined} />
       ) : (
         <>
-          <Surface e={1} sx={{ overflow: 'hidden', mb: 1 }}>
-            <Table size="small">
-              <TableHead><TableRow sx={{ background: 'var(--c-surface-2)' }}>
-                <TableCell sx={th}>Name</TableCell><TableCell sx={th}>Code</TableCell>{canManage && <TableCell sx={{ ...th, width: 100 }} />}
-              </TableRow></TableHead>
-              <TableBody>
-                {calendars.map((cal) => {
-                  const isSelected = selected?.id === cal.id;
-                  return (
-                    <TableRow key={cal.id} hover selected={isSelected} onClick={() => setSelected(isSelected ? null : cal)} sx={{ cursor: 'pointer' }}>
-                      <TableCell sx={{ ...td, fontWeight: isSelected ? 700 : 400 }}>{cal.name}</TableCell>
-                      <TableCell sx={td}><Mono chip>{cal.code}</Mono></TableCell>
-                      {canManage && (
-                        <TableCell sx={td} onClick={(e) => e.stopPropagation()}>
-                          <Tooltip title="Edit"><IconButton size="small" onClick={() => setCalDlg({ open: true, item: cal })}><EditRounded fontSize="small" /></IconButton></Tooltip>
-                          <Tooltip title="Delete"><IconButton size="small" color="error" onClick={() => setDelDlg({ open: true, item: cal })}><DeleteOutlineRounded fontSize="small" /></IconButton></Tooltip>
-                        </TableCell>
-                      )}
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          </Surface>
+          <EntityList>
+            {calendars.map((cal) => {
+              const isSelected = selected?.id === cal.id;
+              return (
+                <EntityRow
+                  key={cal.id}
+                  code={<Mono chip>{cal.code}</Mono>}
+                  primary={cal.name}
+                  trailing={isSelected ? <StatusBadge status="Viewing" family="info" /> : undefined}
+                  onClick={() => setSelected(isSelected ? null : cal)}
+                  actions={canManage ? (<>
+                    <Tooltip title="Edit"><IconButton size="small" onClick={() => setCalDlg({ open: true, item: cal })}><EditRounded fontSize="small" /></IconButton></Tooltip>
+                    <Tooltip title="Delete"><IconButton size="small" color="error" onClick={() => setDelDlg({ open: true, item: cal })}><DeleteOutlineRounded fontSize="small" /></IconButton></Tooltip>
+                  </>) : undefined}
+                />
+              );
+            })}
+          </EntityList>
 
-          <Typography variant="caption" sx={{ color: 'var(--c-text-3)' }}>Click a row to view or edit its shifts and calendar days.</Typography>
+          <Typography variant="caption" sx={{ color: 'var(--c-text-3)', mt: 1, display: 'block' }}>Click a calendar to view or edit its shifts and calendar days.</Typography>
 
           {selected && <CalendarDetail calendar={selected} canManage={canManage} />}
         </>
