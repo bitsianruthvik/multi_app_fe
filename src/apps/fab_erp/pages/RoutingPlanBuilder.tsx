@@ -40,6 +40,7 @@ import SaveIcon         from '@mui/icons-material/Save';
 import VerifiedIcon     from '@mui/icons-material/Verified';
 
 import { fabGet, fabPost, fabPut, fabPatch, fabDel } from '../api/client';
+import { StatusBadge } from '../components/StatusBadge';
 import type {
   FabRoutingPlan, FabRoutingOpStep, FabRoutingOpDep,
   FabRoutingOpInput, FabRoutingOpOutput, FabRoutingOpFormula,
@@ -88,7 +89,13 @@ const FORMULA_TYPES = [
 ] as const;
 type FormulaType = typeof FORMULA_TYPES[number]['value'];
 
-const SCORE_COLOR = ['#ef5350', '#ff7043', '#ffa726', '#8bc34a', '#4caf50'];
+const SCORE_COLOR = [
+  'var(--c-danger-600)',
+  'var(--c-warning-600)',
+  'var(--c-warning-600)',
+  'var(--c-info-600)',
+  'var(--c-success-600)',
+];
 
 function stepScore(s: FabRoutingOpStep, ins: FabRoutingOpInput[], outs: FabRoutingOpOutput[], fmls: FabRoutingOpFormula[]) {
   return (s.resourceTypeId ? 1 : 0) + (ins.length > 0 ? 1 : 0) + (outs.length > 0 ? 1 : 0) + (fmls.length > 0 ? 1 : 0);
@@ -502,10 +509,12 @@ function StepPanel(p: StepPanelProps) {
                 sx={{ p: 0.75, display: 'flex', alignItems: 'center', gap: 1, borderRadius: 1 }}>
                 <Box sx={{ flex: 1, minWidth: 0 }}>
                   <Typography variant="body2" fontWeight={500} noWrap>{out.name}</Typography>
-                  <Chip size="small"
-                    label={out.outputType === 'final' ? 'Final Product' : out.outputType === 'scrap' ? 'Scrap' : 'WIP'}
-                    color={out.outputType === 'final' ? 'success' : out.outputType === 'scrap' ? 'error' : 'default'}
-                    sx={{ height: 16, fontSize: 10, mt: 0.25 }} />
+                  <Box mt={0.25}>
+                    <StatusBadge
+                      status={out.outputType === 'final' ? 'Final Product' : out.outputType === 'scrap' ? 'Scrap' : 'WIP'}
+                      family={out.outputType === 'final' ? 'success' : out.outputType === 'scrap' ? 'danger' : 'neutral'}
+                    />
+                  </Box>
                 </Box>
                 {!isRO && (
                   <IconButton size="small" color="error" onClick={() => p.onDeleteOutput(out.id)}>
@@ -526,7 +535,7 @@ function StepPanel(p: StepPanelProps) {
                       <Typography variant="body2" fontWeight={500}>{p.catalogItemName}</Typography>
                       <Typography variant="caption" color="text.secondary">Final manufactured product</Typography>
                     </Box>
-                    <Chip size="small" label="Final" color="success" sx={{ fontSize: 10 }} />
+                    <StatusBadge status="Final" family="success" />
                     <AddIcon sx={{ fontSize: 15, color: 'success.main' }} />
                   </Paper>
                 )}
@@ -583,7 +592,7 @@ function StepPanel(p: StepPanelProps) {
                 <Box key={ft.value}>
                   <Stack direction="row" alignItems="center" mb={0.5}>
                     <Typography variant="caption" fontWeight={700} sx={{ flex: 1 }}>{ft.label}</Typography>
-                    {saved && <Chip size="small" label="saved" color="success" variant="outlined" sx={{ height: 15, fontSize: 9 }} />}
+                    {saved && <StatusBadge status="saved" family="success" />}
                   </Stack>
                   <TextField
                     value={formulaDrafts[ft.value]}
@@ -925,8 +934,7 @@ function RoutingPlanBuilderInner() {
           <Typography variant="subtitle1" fontWeight={700} lineHeight={1.2} noWrap>{plan?.name}</Typography>
           <Typography variant="caption" color="text.secondary">{plan?.catalogItemName} · {plan?.bomName}</Typography>
         </Box>
-        <Chip size="small" label={plan?.status ?? 'draft'}
-          color={plan?.status === 'released' ? 'success' : plan?.status === 'archived' ? 'error' : 'default'} />
+        <StatusBadge status={plan?.status ?? 'draft'} />
         <Box sx={{ flex: 1 }} />
         <Tooltip title="Auto-arrange nodes left to right">
           <span>
