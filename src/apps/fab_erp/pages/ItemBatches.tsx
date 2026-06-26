@@ -17,7 +17,7 @@ import Inventory2Rounded from '@mui/icons-material/Inventory2Rounded';
 import { fabQuery } from '../api/client';
 import type { FabItemBatch, FabItemCatalog, FabPlant, FabStockLedger, FabStockLocation } from '../types';
 import { usePermission } from '@core/hooks/usePermission';
-import { Surface, PageHeader, Mono, EmptyState, ListSkeleton } from '../components';
+import { Surface, PageHeader, Mono, EmptyState, ListSkeleton, FilterBar } from '../components';
 
 interface ItemOption { id: number; name: string; code: string }
 
@@ -178,7 +178,7 @@ export default function ItemBatches() {
         />
       )}
 
-      <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
+      <FilterBar>
         <Select size="small" displayEmpty sx={{ minWidth: 180 }} value={plantId} onChange={(e) => { setPlantId(e.target.value as number | ''); setLocationId(''); }}>
           <MenuItem value="">All plants</MenuItem>
           {plants.map((p) => <MenuItem key={p.id} value={p.id}>{p.name}</MenuItem>)}
@@ -187,7 +187,7 @@ export default function ItemBatches() {
           <MenuItem value="">All stock locations</MenuItem>
           {locations.map((l) => <MenuItem key={l.id} value={l.id}>{l.name}</MenuItem>)}
         </Select>
-      </Box>
+      </FilterBar>
 
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
