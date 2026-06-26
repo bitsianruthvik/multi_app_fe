@@ -34,6 +34,7 @@ import AccountTreeIcon  from '@mui/icons-material/AccountTree';
 import { fabQuery, fabMutate, fabGet, fabPost } from '../api/client';
 import type { FabMaterialBom, FabMaterialBomItem, FabItemCatalog } from '../types';
 import InfoTooltip, { type InfoContent } from '@shared/components/InfoTooltip';
+import { STANDARD_UOMS } from '../constants/uom';
 
 // ─── INFO TOOLTIP CONTENT ─────────────────────────────────────────────────────
 // INFO_TOOLTIP — update this block whenever features in BomDesigner change.
@@ -551,7 +552,10 @@ function NewItemDialog({ open, onClose, onCreated }: NewItemDialogProps) {
           <TextField label="Item name" size="small" fullWidth autoFocus value={name} onChange={e => setName(e.target.value)} />
           <TextField label="Item code" size="small" fullWidth value={code} onChange={e => setCode(e.target.value)} inputProps={{ style: { textTransform: 'uppercase' } }} />
           <Box sx={{ display: 'flex', gap: 1 }}>
-            <TextField label="Unit" size="small" sx={{ flex: 1 }} value={unit} onChange={e => setUnit(e.target.value)} />
+            <Autocomplete freeSolo options={STANDARD_UOMS.map((u) => u.value)} sx={{ flex: 1 }}
+              value={unit}
+              onInputChange={(_, value) => setUnit(value)}
+              renderInput={(params) => <TextField {...params} label="Unit" size="small" />} />
             <TextField select label="Type" size="small" sx={{ flex: 1 }} value={procType} onChange={e => setProcType(e.target.value as 'buy' | 'make')}>
               <MenuItem value="buy">Buy (purchased)</MenuItem>
               <MenuItem value="make">Make (manufactured)</MenuItem>
@@ -592,20 +596,27 @@ interface BomItemEditorProps {
   onItemCreated:   (item: CatalogOption) => void;
 }
 
+const BOM_ITEM_SEARCH_LIMIT = 50;
+
 function BomItemEditor({ row, showTypePicker, onChange, onRemove, onItemCreated }: BomItemEditorProps) {
   const [opts, setOpts] = useState<CatalogOption[]>([]);
   const [newItemOpen, setNewItemOpen] = useState(false);
+  const [lastQuery, setLastQuery] = useState('');
+  const [truncated, setTruncated] = useState(false);
   const debRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const search = useCallback((q: string) => {
     if (debRef.current) clearTimeout(debRef.current);
     debRef.current = setTimeout(async () => {
       const res = await fabQuery<{ data: FabItemCatalog[] }>('fabErpItemCatalog', {
-        filters:    q ? { name: q } : undefined,
+        filters:    q ? { 'name.LIKE': `%${q}%` } : undefined,
         orderBy:    [{ field: 'name', direction: 'asc' }],
-        pagination: { limit: 30 },
+        pagination: { limit: BOM_ITEM_SEARCH_LIMIT },
       });
-      setOpts((res.data ?? []).map(c => ({ id: c.id, name: c.name, code: c.code, unit: c.unit ?? null })));
+      const data = res.data ?? [];
+      setOpts(data.map(c => ({ id: c.id, name: c.name, code: c.code, unit: c.unit ?? null })));
+      setLastQuery(q);
+      setTruncated(!!q && data.length === BOM_ITEM_SEARCH_LIMIT);
     }, 200);
   }, []);
 
@@ -615,36 +626,42 @@ function BomItemEditor({ row, showTypePicker, onChange, onRemove, onItemCreated 
 
   return (
     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.75, flexWrap: 'wrap' }}>
-      <Autocomplete
-        sx={{ flex: '2 1 180px' }}
-        size="small"
-        options={opts}
-        getOptionLabel={o => `${o.name}${o.code ? ` (${o.code})` : ''}`}
-        isOptionEqualToValue={(a, b) => a.id === b.id}
-        value={selectedOpt}
-        filterOptions={x => x}
-        onOpen={() => search(row.refCatalogItemId ? '' : row.name)}
-        onInputChange={(_, v, reason) => {
-          // Don't trigger a search when MUI resets input after selection ('reset' reason)
-          if (reason === 'reset') return;
-          onChange({ name: v });
-          search(v);
-        }}
-        onChange={(_, v) => onChange({
-          refCatalogItemId: v?.id ?? null,
-          name: v?.name ?? '',
-          unit: v?.unit ?? row.unit,
-        })}
-        renderInput={params => <TextField {...params} label="Item" size="small" />}
-        renderOption={(props, o) => (
-          <li {...props} key={o.id}>
-            <Box>
-              <Typography variant="body2">{o.name}</Typography>
-              {o.code && <Typography variant="caption" color="text.disabled" fontFamily="monospace">{o.code}</Typography>}
-            </Box>
-          </li>
+      <Box sx={{ flex: '2 1 180px' }}>
+        <Autocomplete
+          size="small"
+          options={opts}
+          getOptionLabel={o => `${o.name}${o.code ? ` (${o.code})` : ''}`}
+          isOptionEqualToValue={(a, b) => a.id === b.id}
+          value={selectedOpt}
+          filterOptions={x => x}
+          onOpen={() => search(row.refCatalogItemId ? '' : row.name)}
+          onInputChange={(_, v, reason) => {
+            // Don't trigger a search when MUI resets input after selection ('reset' reason)
+            if (reason === 'reset') return;
+            onChange({ name: v });
+            search(v);
+          }}
+          onChange={(_, v) => onChange({
+            refCatalogItemId: v?.id ?? null,
+            name: v?.name ?? '',
+            unit: v?.unit ?? row.unit,
+          })}
+          renderInput={params => <TextField {...params} label="Item" size="small" />}
+          renderOption={(props, o) => (
+            <li {...props} key={o.id}>
+              <Box>
+                <Typography variant="body2">{o.name}</Typography>
+                {o.code && <Typography variant="caption" color="text.disabled" fontFamily="monospace">{o.code}</Typography>}
+              </Box>
+            </li>
+          )}
+        />
+        {truncated && lastQuery && (
+          <Typography variant="caption" color="text.disabled" sx={{ display: 'block', mt: 0.25, fontStyle: 'italic' }}>
+            Showing first {BOM_ITEM_SEARCH_LIMIT} results — refine your search to see more.
+          </Typography>
         )}
-      />
+      </Box>
       <TextField
         label="Qty" type="number" size="small" sx={{ flex: '0 1 72px' }}
         value={row.qty}

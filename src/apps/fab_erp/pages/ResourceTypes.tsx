@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
-  Alert, Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle,
+  Alert, Autocomplete, Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle,
   Grid, IconButton, MenuItem, Stack, Tab, Table, TableBody, TableCell, TableHead, TableRow,
   Tabs, TextField, Tooltip, Typography,
 } from '@mui/material';
@@ -16,12 +16,29 @@ import type {
   FabPlant, FabResource, FabResourceCustomField, FabResourceType, FabResourceTypeProperty, FabStockLocation,
 } from '@apps/fab_erp/types';
 import { usePermission } from '@core/hooks/usePermission';
-import { PageHeader, Mono, EmptyState, ListSkeleton, useToast, EntityList, EntityRow } from '../components';
+import { PageHeader, Mono, EmptyState, ListSkeleton, useToast, EntityList, EntityRow, type SortableField } from '../components';
 
 interface QueryResult<T> { data: T[]; total?: number }
 
 const th = { fontFamily: 'var(--font-ui)', fontWeight: 600, fontSize: 12, color: 'var(--c-text-2)', textTransform: 'uppercase', letterSpacing: '.05em', borderColor: 'var(--c-divider)' } as const;
 const td = { borderColor: 'var(--c-divider)', fontSize: 13, color: 'var(--c-text)' } as const;
+
+function errMsg(e: unknown): string {
+  const ax = e as { response?: { data?: { message?: string; error?: string } }; message?: string };
+  return ax.response?.data?.message ?? ax.response?.data?.error ?? ax.message ?? 'Something went wrong';
+}
+
+const CREATE_NEW_TYPE = '__create_new_type__';
+interface ResourceTypeOption { id: number | typeof CREATE_NEW_TYPE; label: string }
+
+const RESOURCE_SORT_FIELDS: SortableField<FabResource>[] = [
+  { key: 'name', label: 'Name' },
+  { key: 'code', label: 'Code' },
+];
+const RESOURCE_TYPE_SORT_FIELDS: SortableField<FabResourceType>[] = [
+  { key: 'name', label: 'Name' },
+  { key: 'code', label: 'Code' },
+];
 
 const STD_FIELDS = [
   { key: 'capacityHrsPerDay', label: 'Available Hours/Day', unit: 'hrs', inputType: 'number', section: 'Capacity' },
@@ -507,6 +524,177 @@ function ResourceTypeDetailDialog({ open, initial, plants, canManage, onClose, o
 interface ResDraft { name: string; code: string; resourceTypeId: number | null; plantId: number | null; stockLocationId: number | null; shiftCalendarId: number | null }
 interface FabShiftCalendarOption { id: number; name: string; code: string; plantId: number | null }
 
+interface NewTypeDraft { name: string; code: string }
+const BLANK_NEW_TYPE = (): NewTypeDraft => ({ name: '', code: '' });
+
+function AddResourceDialog({ open, resourceTypes, plants, onClose, onSaved, onTypeCreated }: {
+  open: boolean; resourceTypes: FabResourceType[]; plants: FabPlant[];
+  onClose: () => void; onSaved: () => void; onTypeCreated: () => Promise<void>;
+}) {
+  const [basic, setBasic] = useState<ResDraft>({ name: '', code: '', resourceTypeId: null, plantId: null, stockLocationId: null, shiftCalendarId: null });
+  const [typeInput, setTypeInput] = useState<ResourceTypeOption | null>(null);
+  const [creatingType, setCreatingType] = useState(false);
+  const [newType, setNewType] = useState<NewTypeDraft>(BLANK_NEW_TYPE());
+  const [newTypeSaving, setNewTypeSaving] = useState(false);
+  const [newTypeErr, setNewTypeErr] = useState('');
+  const [stockLocations, setStockLocations] = useState<FabStockLocation[]>([]);
+  const [shiftCalendars, setShiftCalendars] = useState<FabShiftCalendarOption[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState('');
+
+  useEffect(() => {
+    if (!open) return;
+    setBasic({ name: '', code: '', resourceTypeId: null, plantId: null, stockLocationId: null, shiftCalendarId: null });
+    setTypeInput(null);
+    setCreatingType(false); setNewType(BLANK_NEW_TYPE()); setNewTypeErr('');
+    setErr('');
+  }, [open]);
+
+  useEffect(() => {
+    if (!open || basic.plantId == null) { setStockLocations([]); return; }
+    fabQuery<QueryResult<FabStockLocation>>('fabErpStockLocation', { filters: { plantId: basic.plantId }, orderBy: [{ field: 'name', direction: 'asc' }], pagination: { limit: 500 } })
+      .then((res) => setStockLocations(res.data ?? [])).catch(() => setStockLocations([]));
+  }, [open, basic.plantId]);
+
+  useEffect(() => {
+    if (!open) return;
+    fabQuery<QueryResult<FabShiftCalendarOption>>('fabErpShiftCalendar', { orderBy: [{ field: 'name', direction: 'asc' }], pagination: { limit: 200 } })
+      .then((res) => setShiftCalendars(res.data ?? [])).catch(() => setShiftCalendars([]));
+  }, [open]);
+
+  const typeOptions: ResourceTypeOption[] = resourceTypes.map((rt) => ({ id: rt.id, label: `${rt.code} — ${rt.name}` }));
+
+  function selectType(option: ResourceTypeOption | null) {
+    if (!option) { setTypeInput(null); setBasic((d) => ({ ...d, resourceTypeId: null })); return; }
+    if (option.id === CREATE_NEW_TYPE) { setCreatingType(true); setNewType(BLANK_NEW_TYPE()); setNewTypeErr(''); return; }
+    setTypeInput(option);
+    setBasic((d) => ({ ...d, resourceTypeId: option.id as number }));
+  }
+
+  async function saveNewType() {
+    if (!newType.name.trim() || !newType.code.trim()) { setNewTypeErr('Name and code are required.'); return; }
+    setNewTypeSaving(true); setNewTypeErr('');
+    try {
+      const res = await fabMutate<{ ok: boolean; id: number }>('fabErpResourceType', 'insert', { name: newType.name.trim(), code: newType.code.trim() });
+      await onTypeCreated();
+      const label = `${newType.code.trim()} — ${newType.name.trim()}`;
+      setTypeInput({ id: res.id, label });
+      setBasic((d) => ({ ...d, resourceTypeId: res.id }));
+      setCreatingType(false);
+    } catch (e) {
+      const status = (e as { response?: { status?: number } })?.response?.status;
+      if (status === 409) {
+        try {
+          const existing = await fabQuery<QueryResult<{ id: number; name: string; code: string }>>('fabErpResourceType', { filters: { code: newType.code.trim() }, pagination: { limit: 1 } });
+          const match = existing.data?.[0];
+          if (match) {
+            await onTypeCreated();
+            setTypeInput({ id: match.id, label: `${match.code} — ${match.name}` });
+            setBasic((d) => ({ ...d, resourceTypeId: match.id }));
+            setCreatingType(false);
+            return;
+          }
+        } catch { /* fall through to showing the original error */ }
+      }
+      setNewTypeErr(errMsg(e));
+    } finally { setNewTypeSaving(false); }
+  }
+
+  async function save() {
+    if (!basic.name.trim() || !basic.code.trim() || !basic.resourceTypeId) { setErr('Name, code and resource type are required.'); return; }
+    setSaving(true); setErr('');
+    try {
+      const payload = {
+        name: basic.name.trim(), code: basic.code.trim(), resource_type_id: basic.resourceTypeId,
+        plant_id: basic.plantId, stock_location_id: basic.stockLocationId, shift_calendar_id: basic.shiftCalendarId,
+      };
+      await fabMutate('fabErpResource', 'insert', payload);
+      onSaved();
+      onClose();
+    } catch (e) {
+      setErr(errMsg(e));
+    } finally { setSaving(false); }
+  }
+
+  return (
+    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
+      <DialogTitle sx={{ fontWeight: 600 }}>New resource</DialogTitle>
+      <DialogContent dividers sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
+        {err && <Alert severity="error">{err}</Alert>}
+        <Alert severity="info" icon={<InfoOutlinedIcon fontSize="small" />}>
+          A resource is the actual physical machine or worker, e.g. "Lathe Machine 1". If its category doesn't exist yet, create it inline below.
+        </Alert>
+        <Grid container spacing={2}>
+          <Grid size={{ xs: 12, sm: 4 }}><TextField label="Code *" size="small" fullWidth value={basic.code} onChange={(e) => setBasic((d) => ({ ...d, code: e.target.value }))} /></Grid>
+          <Grid size={{ xs: 12, sm: 8 }}><TextField label="Name *" size="small" fullWidth value={basic.name} onChange={(e) => setBasic((d) => ({ ...d, name: e.target.value }))} /></Grid>
+          <Grid size={{ xs: 12 }}>
+            <Autocomplete
+              options={typeOptions}
+              value={typeInput}
+              getOptionLabel={(o) => o.label}
+              isOptionEqualToValue={(a, b) => a.id === b.id}
+              onChange={(_, value) => selectType(value)}
+              filterOptions={(options, state) => {
+                const filtered = options.filter((o) => o.label.toLowerCase().includes(state.inputValue.toLowerCase()));
+                filtered.push({ id: CREATE_NEW_TYPE, label: '+ Create new type…' });
+                return filtered;
+              }}
+              renderOption={(props, option) => (
+                <li {...props} key={option.id}>
+                  {option.id === CREATE_NEW_TYPE ? <em>{option.label}</em> : option.label}
+                </li>
+              )}
+              renderInput={(params) => <TextField {...params} label="Resource type *" size="small" placeholder="Select or create a type…" />}
+            />
+          </Grid>
+          {creatingType && (
+            <Grid size={{ xs: 12 }}>
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, p: 2, border: '1px dashed', borderColor: 'divider', borderRadius: 1 }}>
+                {newTypeErr && <Alert severity="error" sx={{ py: 0 }}>{newTypeErr}</Alert>}
+                <Typography variant="subtitle2" color="text.secondary">New resource type</Typography>
+                <Box sx={{ display: 'flex', gap: 1.5 }}>
+                  <TextField label="Name" value={newType.name} size="small" sx={{ flex: 2 }} autoFocus
+                    onChange={(e) => setNewType((d) => ({ ...d, name: e.target.value }))} />
+                  <TextField label="Code" value={newType.code} size="small" sx={{ flex: 1 }}
+                    onChange={(e) => setNewType((d) => ({ ...d, code: e.target.value }))} />
+                </Box>
+                <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1 }}>
+                  <Button size="small" onClick={() => setCreatingType(false)}>Cancel</Button>
+                  <Button size="small" variant="contained" onClick={saveNewType} disabled={newTypeSaving}>
+                    {newTypeSaving ? <CircularProgress size={14} /> : 'Create type'}
+                  </Button>
+                </Box>
+              </Box>
+            </Grid>
+          )}
+          <Grid size={{ xs: 12, sm: 6 }}>
+            <TextField select label="Plant" size="small" fullWidth value={basic.plantId ?? ''} onChange={(e) => setBasic((d) => ({ ...d, plantId: e.target.value === '' ? null : Number(e.target.value), stockLocationId: null }))} helperText="Leave blank for company-wide">
+              <MenuItem value="">— (company-wide)</MenuItem>
+              {plants.map((p) => <MenuItem key={p.id} value={p.id}>{p.code} — {p.name}</MenuItem>)}
+            </TextField>
+          </Grid>
+          <Grid size={{ xs: 12, sm: 6 }}>
+            <TextField select label="Stock location" size="small" fullWidth value={basic.stockLocationId ?? ''} onChange={(e) => setBasic((d) => ({ ...d, stockLocationId: e.target.value === '' ? null : Number(e.target.value) }))} disabled={basic.plantId == null} helperText={basic.plantId == null ? 'Select a plant first' : 'Optional'}>
+              <MenuItem value="">— (none)</MenuItem>
+              {stockLocations.map((sl) => <MenuItem key={sl.id} value={sl.id}>{sl.code} — {sl.name}</MenuItem>)}
+            </TextField>
+          </Grid>
+          <Grid size={{ xs: 12 }}>
+            <TextField select label="Shift calendar" size="small" fullWidth value={basic.shiftCalendarId ?? ''} onChange={(e) => setBasic((d) => ({ ...d, shiftCalendarId: e.target.value === '' ? null : Number(e.target.value) }))} helperText="Working hours / shift pattern for this machine">
+              <MenuItem value="">— (none)</MenuItem>
+              {shiftCalendars.map((sc) => <MenuItem key={sc.id} value={sc.id}>{sc.code} — {sc.name}</MenuItem>)}
+            </TextField>
+          </Grid>
+        </Grid>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose}>Cancel</Button>
+        <Button variant="contained" onClick={save} disabled={saving}>{saving ? <CircularProgress size={16} color="inherit" /> : 'Create resource'}</Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
+
 function ResourceDetailDialog({ open, initial, resourceTypes, plants, canManage, onClose, onSaved }: {
   open: boolean; initial: FabResource | null; resourceTypes: FabResourceType[]; plants: FabPlant[]; canManage: boolean; onClose: () => void; onSaved: () => void;
 }) {
@@ -652,7 +840,7 @@ export default function ResourceTypes() {
   const canManage = usePermission('fab_erp_resources_manage');
   const { toast } = useToast();
 
-  const [tab, setTab] = useState(0);
+  const [tab, setTab] = useState(0); // 0 = Resources (default), 1 = Resource Types
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -666,6 +854,7 @@ export default function ResourceTypes() {
   const [rtDeleting, setRtDeleting] = useState(false);
 
   const [resDetail, setResDetail] = useState<{ open: boolean; item: FabResource | null }>({ open: false, item: null });
+  const [addResOpen, setAddResOpen] = useState(false);
   const [resDelete, setResDelete] = useState<FabResource | null>(null);
   const [resDeleting, setResDeleting] = useState(false);
 
@@ -726,8 +915,8 @@ export default function ResourceTypes() {
 
       <Box sx={{ borderBottom: '1px solid var(--c-divider)', mb: 2.5 }}>
         <Tabs value={tab} onChange={(_, v) => setTab(v)}>
-          <Tab label="Resource Types" />
           <Tab label="Resources" />
+          <Tab label="Resource Types" />
         </Tabs>
       </Box>
 
@@ -735,55 +924,23 @@ export default function ResourceTypes() {
         <>
           {tab === 0 && (
             <>
+              <Alert severity="info" icon={<InfoOutlinedIcon fontSize="small" />} sx={{ mb: 2 }}>
+                Resources are the actual physical machines or workers, e.g. "Lathe Machine 1", "Lathe Machine 2". Each resource belongs to a Resource Type — a category like "Lathe" — managed in the Resource Types tab.
+              </Alert>
               {canManage && (
                 <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 2 }}>
-                  <Button variant="contained" startIcon={<AddIcon />} onClick={() => setRtDetail({ open: true, item: null })}>New resource type</Button>
-                </Box>
-              )}
-              {resourceTypes.length === 0 ? (
-                <EmptyState icon={<PrecisionManufacturingRounded />} title="No resource types defined" hint='Click "New resource type" to add one.' />
-              ) : (
-                <>
-                  <EntityList>
-                    {resourceTypes.map((rt) => {
-                      const plant = rt.plantId != null ? plantMap.get(rt.plantId) : undefined;
-                      return (
-                        <EntityRow
-                          key={rt.id}
-                          code={<Mono chip>{rt.code}</Mono>}
-                          primary={rt.name}
-                          secondary={[rt.category, plant ? `${plant.code} — ${plant.name}` : 'Company-wide'].filter(Boolean).join(' · ')}
-                          trailing={(<>
-                            {rt.capacityHrsPerDay != null && <Mono chip>{rt.capacityHrsPerDay} hrs × {rt.numUnits ?? 1} units</Mono>}
-                            {rt.costPerHour != null && <Mono chip>{rt.costPerHour} {rt.currency ?? 'INR'}/hr</Mono>}
-                          </>)}
-                          onClick={() => setRtDetail({ open: true, item: rt })}
-                          actions={canManage ? (
-                            <Tooltip title="Delete"><IconButton size="small" color="error" onClick={() => setRtDelete(rt)}><DeleteOutlineRounded fontSize="small" /></IconButton></Tooltip>
-                          ) : undefined}
-                        />
-                      );
-                    })}
-                  </EntityList>
-                  <Typography variant="caption" sx={{ mt: 1, display: 'block', color: 'var(--c-text-3)' }}>Click a row to view/edit details, custom fields, and formula properties.</Typography>
-                </>
-              )}
-            </>
-          )}
-
-          {tab === 1 && (
-            <>
-              {canManage && (
-                <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 2 }}>
-                  <Button variant="contained" startIcon={<AddIcon />} onClick={() => setResDetail({ open: true, item: null })}>New resource</Button>
+                  <Button variant="contained" startIcon={<AddIcon />} onClick={() => setAddResOpen(true)}>New resource</Button>
                 </Box>
               )}
               {resources.length === 0 ? (
                 <EmptyState icon={<PrecisionManufacturingRounded />} title="No resources defined" hint='Click "New resource" to add one.' />
               ) : (
                 <>
-                  <EntityList>
-                    {resources.map((r) => {
+                  <EntityList
+                    rows={resources}
+                    sortableFields={RESOURCE_SORT_FIELDS}
+                    defaultSortKey="name"
+                    renderRow={(r) => {
                       const rt = rtMap.get(r.resourceTypeId);
                       const plant = r.plantId != null ? plantMap.get(r.plantId) : undefined;
                       const sl = r.stockLocationId != null ? slMap.get(r.stockLocationId) : undefined;
@@ -803,9 +960,53 @@ export default function ResourceTypes() {
                           ) : undefined}
                         />
                       );
-                    })}
-                  </EntityList>
+                    }}
+                  />
                   <Typography variant="caption" sx={{ mt: 1, display: 'block', color: 'var(--c-text-3)' }}>Click a row to view/edit details and override capacity/scheduling/costing values. Mono chips indicate resource-specific overrides.</Typography>
+                </>
+              )}
+            </>
+          )}
+
+          {tab === 1 && (
+            <>
+              <Alert severity="info" icon={<InfoOutlinedIcon fontSize="small" />} sx={{ mb: 2 }}>
+                Resource Types are categories of equipment, e.g. "Lathe". They hold shared capacity/scheduling/costing defaults. Individual machines (e.g. "Lathe Machine 1", "Lathe Machine 2") are created in the Resources tab.
+              </Alert>
+              {canManage && (
+                <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 2 }}>
+                  <Button variant="contained" startIcon={<AddIcon />} onClick={() => setRtDetail({ open: true, item: null })}>New resource type</Button>
+                </Box>
+              )}
+              {resourceTypes.length === 0 ? (
+                <EmptyState icon={<PrecisionManufacturingRounded />} title="No resource types defined" hint='Click "New resource type" to add one.' />
+              ) : (
+                <>
+                  <EntityList
+                    rows={resourceTypes}
+                    sortableFields={RESOURCE_TYPE_SORT_FIELDS}
+                    defaultSortKey="name"
+                    renderRow={(rt) => {
+                      const plant = rt.plantId != null ? plantMap.get(rt.plantId) : undefined;
+                      return (
+                        <EntityRow
+                          key={rt.id}
+                          code={<Mono chip>{rt.code}</Mono>}
+                          primary={rt.name}
+                          secondary={[rt.category, plant ? `${plant.code} — ${plant.name}` : 'Company-wide'].filter(Boolean).join(' · ')}
+                          trailing={(<>
+                            {rt.capacityHrsPerDay != null && <Mono chip>{rt.capacityHrsPerDay} hrs × {rt.numUnits ?? 1} units</Mono>}
+                            {rt.costPerHour != null && <Mono chip>{rt.costPerHour} {rt.currency ?? 'INR'}/hr</Mono>}
+                          </>)}
+                          onClick={() => setRtDetail({ open: true, item: rt })}
+                          actions={canManage ? (
+                            <Tooltip title="Delete"><IconButton size="small" color="error" onClick={() => setRtDelete(rt)}><DeleteOutlineRounded fontSize="small" /></IconButton></Tooltip>
+                          ) : undefined}
+                        />
+                      );
+                    }}
+                  />
+                  <Typography variant="caption" sx={{ mt: 1, display: 'block', color: 'var(--c-text-3)' }}>Click a row to view/edit details, custom fields, and formula properties.</Typography>
                 </>
               )}
             </>
@@ -815,6 +1016,7 @@ export default function ResourceTypes() {
 
       <ResourceTypeDetailDialog open={rtDetail.open} initial={rtDetail.item} plants={plants} canManage={canManage} onClose={() => setRtDetail({ open: false, item: null })} onSaved={onSaved} />
       <ResourceDetailDialog open={resDetail.open} initial={resDetail.item} resourceTypes={resourceTypes} plants={plants} canManage={canManage} onClose={() => setResDetail({ open: false, item: null })} onSaved={onSaved} />
+      <AddResourceDialog open={addResOpen} resourceTypes={resourceTypes} plants={plants} onClose={() => setAddResOpen(false)} onSaved={onSaved} onTypeCreated={fetchAll} />
 
       <DeleteDialog open={!!rtDelete} label={rtDelete ? `${rtDelete.code} — ${rtDelete.name}` : ''} onClose={() => setRtDelete(null)} onConfirm={handleDeleteResourceType} />
       {rtDeleting && <CircularProgress size={20} sx={{ position: 'fixed', bottom: 24, right: 24 }} />}

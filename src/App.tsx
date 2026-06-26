@@ -21,6 +21,7 @@ import { getFabFlowRoutes } from "@apps/fab_flow/routes";
 import { getFabErpRoutes } from "@apps/fab_erp/routes";
 import AppShell from "@core/components/AppShell";
 import { RequireAppAccess } from "@core/components/RequireAppAccess";
+import { ErrorBoundary } from "@core/components/ErrorBoundary";
 import Login from "./pages/auth/Login";
 import Register from "./pages/auth/Register";
 import ForgotPassword from "./pages/auth/ForgotPassword";
@@ -206,7 +207,9 @@ function App() {
                   element={
                     <ProtectedRoute>
                       <RequireAppAccess>
-                        <ProfilePage />
+                        <ErrorBoundary level="page">
+                          <ProfilePage />
+                        </ErrorBoundary>
                       </RequireAppAccess>
                     </ProtectedRoute>
                   }
@@ -216,7 +219,9 @@ function App() {
                   element={
                     <ProtectedRoute>
                       <RequireAppAccess>
-                        <SettingsPage />
+                        <ErrorBoundary level="page">
+                          <SettingsPage />
+                        </ErrorBoundary>
                       </RequireAppAccess>
                     </ProtectedRoute>
                   }

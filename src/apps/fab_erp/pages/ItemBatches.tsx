@@ -8,7 +8,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link as RouterLink, useParams, useSearchParams } from 'react-router-dom';
 import {
   Alert, Autocomplete, Box, CircularProgress, Dialog, DialogContent, DialogTitle,
-  IconButton, Link, MenuItem, Select, Table, TableBody, TableCell, TableHead, TableRow,
+  IconButton, Link, MenuItem, Select, Table, TableBody, TableCell, TableRow,
   TextField, Tooltip, Typography,
 } from '@mui/material';
 import ReceiptLongRounded from '@mui/icons-material/ReceiptLongRounded';
@@ -17,9 +17,21 @@ import Inventory2Rounded from '@mui/icons-material/Inventory2Rounded';
 import { fabQuery } from '../api/client';
 import type { FabItemBatch, FabItemCatalog, FabPlant, FabStockLedger, FabStockLocation } from '../types';
 import { usePermission } from '@core/hooks/usePermission';
-import { Surface, PageHeader, Mono, EmptyState, ListSkeleton, FilterBar } from '../components';
+import { Surface, PageHeader, Mono, EmptyState, ListSkeleton, FilterBar, SortableTableHead, type SortableColumn } from '../components';
+import { useSortableData } from '../hooks/useSortableData';
 
 interface ItemOption { id: number; name: string; code: string }
+
+const TH = { fontFamily: 'var(--font-ui)', fontWeight: 600, fontSize: 12, color: 'var(--c-text-2)', textTransform: 'uppercase', letterSpacing: '.05em', borderColor: 'var(--c-divider)' } as const;
+
+const BATCH_COLUMNS: SortableColumn<FabItemBatch>[] = [
+  { key: 'batchCode',         label: 'Batch code',    sx: { ...TH, width: 130 } },
+  { key: 'plantName',         label: 'Plant',         sx: { ...TH, width: 140 } },
+  { key: 'stockLocationName', label: 'Stock location', sx: { ...TH, width: 140 } },
+  { key: 'qtyOnHand',         label: 'Qty on hand',   align: 'right', sx: { ...TH, width: 100 } },
+  { key: 'receivedDate',      label: 'Received date', sx: { ...TH, width: 120 } },
+  { key: 'notes',             label: 'Notes',         sx: { ...TH, minWidth: 240 } },
+];
 
 function ReceiptsDialog({ batch, company, onClose }: {
   batch: FabItemBatch | null; company: string | undefined; onClose: () => void;
@@ -147,10 +159,9 @@ export default function ItemBatches() {
 
   useEffect(() => { fetchBatches(); }, [fetchBatches]);
 
-  if (!canView) return <Alert severity="warning" sx={{ maxWidth: 960, mx: 'auto' }}>You don't have permission to view this page.</Alert>;
+  const { sortedRows, sortKey, sortDirection, requestSort } = useSortableData(batches, 'receivedDate', 'desc');
 
-  const th = { fontFamily: 'var(--font-ui)', fontWeight: 600, fontSize: 12, color: 'var(--c-text-2)', textTransform: 'uppercase', letterSpacing: '.05em', borderColor: 'var(--c-divider)' } as const;
-  const td = { borderColor: 'var(--c-divider)', fontSize: 13, color: 'var(--c-text)' } as const;
+  if (!canView) return <Alert severity="warning" sx={{ maxWidth: 960, mx: 'auto' }}>You don't have permission to view this page.</Alert>;
 
   return (
     <Box sx={{ maxWidth: 960, mx: 'auto' }}>
@@ -200,19 +211,15 @@ export default function ItemBatches() {
       ) : (
         <Surface e={1} sx={{ overflow: 'hidden' }}>
           <Table size="small">
-            <TableHead>
-              <TableRow sx={{ background: 'var(--c-surface-2)' }}>
-                <TableCell sx={th}>Batch code</TableCell>
-                <TableCell sx={th}>Plant</TableCell>
-                <TableCell sx={th}>Stock location</TableCell>
-                <TableCell sx={th} align="right">Qty on hand</TableCell>
-                <TableCell sx={th}>Received date</TableCell>
-                <TableCell sx={th}>Notes</TableCell>
-                <TableCell sx={{ ...th, width: 60 }} align="right" />
-              </TableRow>
-            </TableHead>
+            <SortableTableHead<FabItemBatch>
+              columns={BATCH_COLUMNS}
+              sortKey={sortKey}
+              sortDirection={sortDirection}
+              onRequestSort={requestSort}
+              extraCell={<TableCell sx={{ ...TH, width: 60 }} align="right" />}
+            />
             <TableBody>
-              {batches.map((b) => (
+              {sortedRows.map((b) => (
                 <TableRow key={b.id} hover>
                   <TableCell sx={td}><Mono chip>{b.batchCode}</Mono></TableCell>
                   <TableCell sx={td}>{b.plantName ?? '—'}</TableCell>

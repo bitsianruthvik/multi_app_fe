@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   Alert, Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle,
-  FormControlLabel, Grid, IconButton, Stack, Switch, Tab, Table, TableBody, TableCell, TableHead,
+  FormControlLabel, Grid, IconButton, Stack, Switch, Tab, Table, TableBody, TableCell,
   TableRow, Tabs, TextField, Tooltip, Typography,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
@@ -14,7 +14,8 @@ import CalendarMonthRounded from '@mui/icons-material/CalendarMonthRounded';
 import { fabQuery, fabMutate } from '@apps/fab_erp/api/client';
 import type { FabShiftCalendar, FabShift, FabCalendarDay } from '@apps/fab_erp/types';
 import { usePermission } from '@core/hooks/usePermission';
-import { Surface, PageHeader, Mono, StatusBadge, EmptyState, ListSkeleton, useToast, EntityList, EntityRow } from '../components';
+import { Surface, PageHeader, Mono, StatusBadge, EmptyState, ListSkeleton, useToast, EntityList, EntityRow, SortableTableHead, type SortableColumn } from '../components';
+import { useSortableData } from '../hooks/useSortableData';
 
 interface QueryResult<T> { data: T[]; total?: number }
 interface CalendarDraft { name: string; code: string }
@@ -27,6 +28,18 @@ const BLANK_DAY = (): DayDraft => ({ dayDate: '', isWorking: true });
 
 const th = { fontFamily: 'var(--font-ui)', fontWeight: 600, fontSize: 12, color: 'var(--c-text-2)', textTransform: 'uppercase', letterSpacing: '.05em', borderColor: 'var(--c-divider)' } as const;
 const td = { borderColor: 'var(--c-divider)', fontSize: 13, color: 'var(--c-text)' } as const;
+
+const SHIFT_COLUMNS: SortableColumn<FabShift>[] = [
+  { key: 'name',           label: 'Name',            sx: { ...th, width: 140 } },
+  { key: 'startTime',      label: 'Start',           sx: { ...th, width: 90 } },
+  { key: 'endTime',        label: 'End',             sx: { ...th, width: 90 } },
+  { key: 'workingMinutes', label: 'Working min',     sx: { ...th, width: 110 } },
+];
+
+const CALENDAR_DAY_COLUMNS: SortableColumn<FabCalendarDay>[] = [
+  { key: 'dayDate', label: 'Date',   sx: { ...th, width: 120 } },
+  { key: 'isWorking', label: 'Status', sx: { ...th, width: 140 } },
+];
 
 function timeToMinutes(t: string): number {
   const [h = '0', m = '0'] = t.split(':');
@@ -251,6 +264,8 @@ function ShiftsPanel({ calendarId, canManage }: { calendarId: number; canManage:
 
   useEffect(() => { load(); }, [load]);
 
+  const { sortedRows: sortedShifts, sortKey, sortDirection, requestSort } = useSortableData(shifts, 'startTime');
+
   async function handleDelete() {
     if (!delDlg.item) return;
     try { await fabMutate('fabErpShift', 'delete', { id: delDlg.item.id }); setDelDlg({ open: false, item: null }); load(); }
@@ -275,12 +290,15 @@ function ShiftsPanel({ calendarId, canManage }: { calendarId: number; canManage:
       ) : (
         <Surface e={1} sx={{ overflow: 'hidden' }}>
           <Table size="small">
-            <TableHead><TableRow sx={{ background: 'var(--c-surface-2)' }}>
-              <TableCell sx={th}>Name</TableCell><TableCell sx={th}>Start</TableCell><TableCell sx={th}>End</TableCell>
-              <TableCell sx={th}>Working min</TableCell>{canManage && <TableCell sx={{ ...th, width: 90 }} />}
-            </TableRow></TableHead>
+            <SortableTableHead<FabShift>
+              columns={SHIFT_COLUMNS}
+              sortKey={sortKey}
+              sortDirection={sortDirection}
+              onRequestSort={requestSort}
+              extraCell={canManage ? <TableCell sx={{ ...th, width: 90 }} /> : undefined}
+            />
             <TableBody>
-              {shifts.map((s) => (
+              {sortedShifts.map((s) => (
                 <TableRow key={s.id} hover>
                   <TableCell sx={td}>{s.name}</TableCell>
                   <TableCell sx={td}><Mono>{s.startTime?.slice(0, 5) ?? '—'}</Mono></TableCell>
@@ -321,6 +339,8 @@ function CalendarDaysPanel({ calendarId, canManage }: { calendarId: number; canM
 
   useEffect(() => { load(); }, [load]);
 
+  const { sortedRows: sortedDays, sortKey, sortDirection, requestSort } = useSortableData(days, 'dayDate');
+
   async function handleDelete() {
     if (!delDlg.item) return;
     try { await fabMutate('fabErpCalendarDay', 'delete', { id: delDlg.item.id }); setDelDlg({ open: false, item: null }); load(); }
@@ -352,11 +372,15 @@ function CalendarDaysPanel({ calendarId, canManage }: { calendarId: number; canM
       ) : (
         <Surface e={1} sx={{ overflow: 'hidden' }}>
           <Table size="small">
-            <TableHead><TableRow sx={{ background: 'var(--c-surface-2)' }}>
-              <TableCell sx={th}>Date</TableCell><TableCell sx={th}>Status</TableCell>{canManage && <TableCell sx={{ ...th, width: 90 }} />}
-            </TableRow></TableHead>
+            <SortableTableHead<FabCalendarDay>
+              columns={CALENDAR_DAY_COLUMNS}
+              sortKey={sortKey}
+              sortDirection={sortDirection}
+              onRequestSort={requestSort}
+              extraCell={canManage ? <TableCell sx={{ ...th, width: 90 }} /> : undefined}
+            />
             <TableBody>
-              {days.map((d) => (
+              {sortedDays.map((d) => (
                 <TableRow key={d.id} hover sx={{ background: d.isWorking ? undefined : 'var(--c-surface-2)' }}>
                   <TableCell sx={{ ...td, fontWeight: d.isWorking ? 500 : 400, color: d.isWorking ? 'var(--c-text)' : 'var(--c-text-3)' }}><Mono>{d.dayDate?.slice(0, 10) ?? '—'}</Mono></TableCell>
                   <TableCell sx={td}><StatusBadge status={d.isWorking ? 'Working' : 'Non-working'} family={d.isWorking ? 'success' : 'neutral'} /></TableCell>

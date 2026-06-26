@@ -11,7 +11,7 @@ import ChevronRightRounded from '@mui/icons-material/ChevronRightRounded';
 import { fabGet, fabPost } from '../api/client';
 import type { FabRoutingPlan } from '../types';
 import InfoTooltip, { type InfoContent } from '@shared/components/InfoTooltip';
-import { PageHeader, EntityList, EntityRow, StatusBadge, Mono, EmptyState, ListSkeleton } from '../components';
+import { PageHeader, EntityList, EntityRow, StatusBadge, Mono, EmptyState, ListSkeleton, type SortableField } from '../components';
 import { statusFamily } from '../statusMap';
 
 const INFO_ROUTING_PLANS: InfoContent = [
@@ -37,6 +37,14 @@ const INFO_ROUTING_PLANS: InfoContent = [
 interface BomRow {
   id: number; bom_name: string; catalog_item_id: number; catalog_item_name: string; catalog_item_code: string;
 }
+
+const ROUTING_PLAN_SORT_FIELDS: SortableField<FabRoutingPlan>[] = [
+  { key: 'name', label: 'Name' },
+  { key: 'catalogItemName', label: 'Item' },
+  { key: 'bomName', label: 'BOM' },
+  { key: 'status', label: 'Status' },
+  { key: 'updatedAt', label: 'Updated' },
+];
 
 export default function RoutingPlans() {
   const { company } = useParams<{ company: string }>();
@@ -102,8 +110,11 @@ export default function RoutingPlans() {
       ) : plans.length === 0 ? (
         <EmptyState icon={<RouteRounded />} title="No routing plans yet" hint="Create one from a BOM to define its manufacturing steps." action={newBtn} />
       ) : (
-        <EntityList>
-          {plans.map((p) => (
+        <EntityList
+          rows={plans}
+          sortableFields={ROUTING_PLAN_SORT_FIELDS}
+          defaultSortKey="name"
+          renderRow={(p) => (
             <EntityRow
               key={p.id}
               primary={p.name}
@@ -122,8 +133,8 @@ export default function RoutingPlans() {
               onClick={() => navigate(`/${company}/fab_erp/routing-plans/${p.id}`)}
               actions={<ChevronRightRounded fontSize="small" sx={{ color: 'var(--c-text-3)' }} />}
             />
-          ))}
-        </EntityList>
+          )}
+        />
       )}
 
       <Dialog open={dlgOpen} onClose={() => setDlgOpen(false)} fullWidth maxWidth="sm">

@@ -10,6 +10,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   Alert,
+  Autocomplete,
   Box,
   Button,
   Chip,
@@ -54,10 +55,34 @@ import type {
 import { usePermission } from '@core/hooks/usePermission';
 import InfoTooltip, { type InfoContent } from '@shared/components/InfoTooltip';
 import api, { API_HOST } from '@core/utils/axiosConfig';
-import { Surface, PageHeader, Mono, StatusBadge, EmptyState, ListSkeleton, EntityList, EntityRow, useToast } from '../components';
+import { Surface, PageHeader, Mono, StatusBadge, EmptyState, ListSkeleton, EntityList, EntityRow, useToast, SortableTableHead, type SortableColumn } from '../components';
+import { useSortableData } from '../hooks/useSortableData';
+import { STANDARD_UOMS } from '../constants/uom';
 
 const TH = { fontFamily: 'var(--font-ui)', fontWeight: 600, fontSize: 12, color: 'var(--c-text-2)', textTransform: 'uppercase', letterSpacing: '.05em', borderColor: 'var(--c-divider)' } as const;
 const TD = { borderColor: 'var(--c-divider)', fontSize: 13, color: 'var(--c-text)' } as const;
+
+const ITEM_COLUMNS: SortableColumn<FabItemCatalog>[] = [
+  { key: 'name',           label: 'Name',        sx: { ...TH, minWidth: 200 } },
+  { key: 'code',           label: 'Code',         sx: { ...TH, width: 110 } },
+  { key: 'unit',           label: 'Unit',         sx: { ...TH, width: 70 } },
+  { key: 'description',    label: 'Description',  sx: { ...TH, minWidth: 180 } },
+  { key: 'categoryName',   label: 'Category',     sx: { ...TH, width: 130 } },
+  { key: 'groupName',      label: 'Group',        sx: { ...TH, width: 130 } },
+  { key: 'subgroupName',   label: 'Sub-group',    sx: { ...TH, width: 130 } },
+  { key: 'grossWeight',    label: 'Gross wt',     align: 'right', sx: { ...TH, width: 95 } },
+  { key: 'netWeight',      label: 'Net wt',       align: 'right', sx: { ...TH, width: 90 } },
+  { key: 'weightUnit',     label: 'Wt unit',      sx: { ...TH, width: 60 } },
+  { key: 'volume',         label: 'Volume',       align: 'right', sx: { ...TH, width: 80 } },
+  { key: 'volumeUnit',     label: 'Vol unit',     sx: { ...TH, width: 60 } },
+  { key: 'length',         label: 'Length',       align: 'right', sx: { ...TH, width: 80 } },
+  { key: 'width',          label: 'Width',        align: 'right', sx: { ...TH, width: 80 } },
+  { key: 'height',         label: 'Height',       align: 'right', sx: { ...TH, width: 80 } },
+  { key: 'dimensionUnit',  label: 'Dim unit',     sx: { ...TH, width: 60 } },
+  { key: 'barcode',        label: 'Barcode',      sx: { ...TH, width: 130 } },
+  { key: 'hsnCode',        label: 'HSN',          sx: { ...TH, width: 100 } },
+  { key: 'division',       label: 'Division',     sx: { ...TH, width: 100 } },
+];
 
 // ─── INFO TOOLTIP CONTENT ─────────────────────────────────────────────────────
 // INFO_TOOLTIP — update this block whenever features on this page change.
@@ -143,6 +168,7 @@ interface ItemDraft {
   volume: string; volumeUnit: string;
   length: string; width: string; height: string; dimensionUnit: string;
   barcode: string; hsnCode: string; division: string;
+  dimensionDecimals: string;
 }
 
 const BLANK_ITEM = (): ItemDraft => ({
@@ -152,9 +178,19 @@ const BLANK_ITEM = (): ItemDraft => ({
   volume: '', volumeUnit: 'm3',
   length: '', width: '', height: '', dimensionUnit: 'mm',
   barcode: '', hsnCode: '', division: '',
+  dimensionDecimals: '3',
 });
 
 const ADD_NEW = '__add_new__';
+
+// Monotonic counter for client-only draft row ids — Date.now() can collide
+// when two rows are added within the same millisecond, which corrupts the
+// React `key` → row mapping for that row's controls (incl. the Type select).
+let cfDraftSeq = 0;
+function nextCfDraftId(): number {
+  cfDraftSeq -= 1;
+  return cfDraftSeq;
+}
 
 interface CustomFieldDraft {
   id: number;
@@ -320,7 +356,7 @@ function AddTaxonomyDialog({ open, level, categories, groups, onClose, onCreated
 
   function addCf() {
     if (customFields.length >= 10) return;
-    setCustomFields((d) => [...d, { id: -(Date.now()), fieldKey: '', fieldType: 'text', fieldValue: '' }]);
+    setCustomFields((d) => [...d, { id: nextCfDraftId(), fieldKey: '', fieldType: 'text', fieldValue: '' }]);
   }
   function updateCf(i: number, k: keyof CustomFieldDraft, v: string) {
     setCustomFields((d) => d.map((r, j) => j === i ? { ...r, [k]: v } : r));
@@ -575,10 +611,13 @@ function CatalogDialog({ open, initial, categories, groups, subgroups, canManage
   const [draft,  setDraft]  = useState<ItemDraft>(BLANK_ITEM());
   const [saving, setSaving] = useState(false);
   const [err,    setErr]    = useState('');
+  const [categoryError, setCategoryError] = useState('');
   const [addingLevel, setAddingLevel] = useState<'category' | 'group' | 'subgroup' | null>(null);
+  const [customFields, setCustomFields] = useState<CustomFieldDraft[]>([]);
 
   useEffect(() => {
     if (!open) return;
+    setCustomFields([]);
     setDraft(initial ? {
       name: initial.name, code: initial.code, unit: initial.unit ?? 'pcs',
       description: initial.description ?? '', categoryId: initial.categoryId ?? null,
@@ -594,8 +633,9 @@ function CatalogDialog({ open, initial, categories, groups, subgroups, canManage
       dimensionUnit: initial.dimensionUnit ?? 'mm',
       barcode:     initial.barcode  ?? '', hsnCode: initial.hsnCode  ?? '',
       division:    initial.division ?? '',
+      dimensionDecimals: initial.dimensionDecimals != null ? String(initial.dimensionDecimals) : '3',
     } : BLANK_ITEM());
-    setErr(''); setAddingLevel(null);
+    setErr(''); setCategoryError(''); setAddingLevel(null);
   }, [open, initial]);
 
   const set = (k: keyof ItemDraft, v: string) => setDraft((d) => ({ ...d, [k]: v }));
@@ -604,6 +644,7 @@ function CatalogDialog({ open, initial, categories, groups, subgroups, canManage
 
   function onCategoryChange(value: string) {
     if (value === ADD_NEW) { setAddingLevel('category'); return; }
+    setCategoryError('');
     const categoryId = value === '' ? null : Number(value);
     setDraft((d) => {
       const groupOk = d.groupId != null && groups.some((g) => g.id === d.groupId && g.categoryId === categoryId);
@@ -629,23 +670,110 @@ function CatalogDialog({ open, initial, categories, groups, subgroups, canManage
     if (level === 'subgroup') setDraft((d) => ({ ...d, subgroupId: id }));
   }
   const pn = (v: string) => v.trim() === '' ? null : Number(v);
+
+  function addCf() {
+    if (customFields.length >= 10) return;
+    setCustomFields((d) => [...d, { id: nextCfDraftId(), fieldKey: '', fieldType: 'text', fieldValue: '' }]);
+  }
+  function updateCf(i: number, k: keyof CustomFieldDraft, v: string) {
+    setCustomFields((d) => d.map((r, j) => j === i ? { ...r, [k]: v } : r));
+  }
+
+  async function resolveDefaultGroup(categoryId: number): Promise<number> {
+    const existing = await fabQuery<{ data: FabItemGroup[] }>('fabErpItemGroup', {
+      filters: { categoryId, name: 'Default' },
+      pagination: { limit: 1 },
+    });
+    if (existing.data?.[0]) return existing.data[0].id;
+    try {
+      const res = await fabMutate<{ ok: boolean; id: number }>('fabErpItemGroup', 'insert', {
+        category_id: categoryId, name: 'Default', code: 'default', description: null, is_system: 0,
+      });
+      return res.id;
+    } catch (e) {
+      const status = (e as { response?: { status?: number } }).response?.status;
+      if (status === 409) {
+        const retry = await fabQuery<{ data: FabItemGroup[] }>('fabErpItemGroup', {
+          filters: { categoryId, name: 'Default' },
+          pagination: { limit: 1 },
+        });
+        if (retry.data?.[0]) return retry.data[0].id;
+      }
+      throw e;
+    }
+  }
+
+  async function resolveDefaultSubgroup(groupId: number): Promise<number> {
+    const existing = await fabQuery<{ data: FabItemSubgroup[] }>('fabErpItemSubgroup', {
+      filters: { groupId, name: 'Default' },
+      pagination: { limit: 1 },
+    });
+    if (existing.data?.[0]) return existing.data[0].id;
+    try {
+      const res = await fabMutate<{ ok: boolean; id: number }>('fabErpItemSubgroup', 'insert', {
+        group_id: groupId, name: 'Default', code: 'default', description: null, is_system: 0,
+      });
+      return res.id;
+    } catch (e) {
+      const status = (e as { response?: { status?: number } }).response?.status;
+      if (status === 409) {
+        const retry = await fabQuery<{ data: FabItemSubgroup[] }>('fabErpItemSubgroup', {
+          filters: { groupId, name: 'Default' },
+          pagination: { limit: 1 },
+        });
+        if (retry.data?.[0]) return retry.data[0].id;
+      }
+      throw e;
+    }
+  }
+
   async function save() {
     if (!draft.name.trim() || !draft.code.trim()) { setErr('Name and Code are required.'); return; }
+    if (!draft.categoryId) { setCategoryError('Category is required.'); return; }
+    setCategoryError('');
     setSaving(true); setErr('');
     try {
+      let groupId = draft.groupId;
+      let subgroupId = draft.subgroupId;
+      if (!groupId) groupId = await resolveDefaultGroup(draft.categoryId);
+      if (groupId && !subgroupId) subgroupId = await resolveDefaultSubgroup(groupId);
+
       const payload = {
         name: draft.name.trim(), code: draft.code.trim().toUpperCase(),
         unit: draft.unit.trim() || 'pcs', description: draft.description.trim() || null,
-        category_id: draft.categoryId, group_id: draft.groupId, subgroup_id: draft.subgroupId,
+        category_id: draft.categoryId, group_id: groupId, subgroup_id: subgroupId,
         gross_weight: pn(draft.grossWeight), net_weight: pn(draft.netWeight), weight_unit: draft.weightUnit || 'kg',
         volume: pn(draft.volume), volume_unit: draft.volumeUnit || 'm3',
         length: pn(draft.length), width: pn(draft.width), height: pn(draft.height),
         dimension_unit: draft.dimensionUnit || 'mm',
         barcode: draft.barcode.trim() || null, hsn_code: draft.hsnCode.trim() || null,
         division: draft.division.trim() || null,
+        dimension_decimals: draft.dimensionDecimals.trim() === '' ? 3 : Number(draft.dimensionDecimals),
       };
-      if (isNew) await fabMutate('fabErpItemCatalog', 'insert', payload);
-      else        await fabMutate('fabErpItemCatalog', 'update', { id: initial!.id, ...payload });
+      let itemId = initial?.id;
+      if (isNew) {
+        const res = await fabMutate<{ ok: boolean; id: number }>('fabErpItemCatalog', 'insert', payload);
+        itemId = res.id;
+      } else {
+        await fabMutate('fabErpItemCatalog', 'update', { id: initial!.id, ...payload });
+      }
+
+      try {
+        for (let i = 0; i < customFields.length; i++) {
+          const cf = customFields[i];
+          if (!cf.fieldKey.trim()) continue;
+          await fabMutate('fabErpCustomField', 'insert', {
+            level: 'item', level_id: itemId,
+            field_key: cf.fieldKey.trim(), field_type: cf.fieldType,
+            field_value: cf.fieldValue.trim() || null, sort_order: i,
+          });
+        }
+      } catch (cfErr) {
+        setErr(`Item was saved, but a custom field failed to save: ${errMsg(cfErr)}`);
+        setSaving(false);
+        return;
+      }
+
       onSaved();
     } catch (e) { setErr(errMsg(e)); }
     finally { setSaving(false); }
@@ -661,20 +789,23 @@ function CatalogDialog({ open, initial, categories, groups, subgroups, canManage
             onChange={(e) => set('name', e.target.value)} />
           <TextField label="Code" value={draft.code} size="small" required sx={{ flex: 1 }}
             onChange={(e) => set('code', e.target.value)} />
-          <TextField label="Unit" value={draft.unit} size="small" sx={{ flex: 1 }} placeholder="pcs"
-            onChange={(e) => set('unit', e.target.value)} />
+          <Autocomplete freeSolo options={STANDARD_UOMS.map((u) => u.value)} sx={{ flex: 1 }}
+            value={draft.unit}
+            onInputChange={(_, value) => set('unit', value)}
+            renderInput={(params) => <TextField {...params} label="Unit" size="small" placeholder="pcs" />} />
         </Box>
         <TextField label="Description (optional)" value={draft.description} size="small" fullWidth multiline minRows={2}
           onChange={(e) => set('description', e.target.value)} />
         <Box sx={{ display: 'flex', gap: 2 }}>
           <Box sx={{ flex: 1 }}>
-            <Typography variant="caption" color="text.secondary">Category</Typography>
+            <Typography variant="caption" color="text.secondary">Category *</Typography>
             <Select fullWidth size="small" displayEmpty value={draft.categoryId ?? ''}
-              onChange={(e) => onCategoryChange(String(e.target.value))}>
+              onChange={(e) => onCategoryChange(String(e.target.value))} error={!!categoryError}>
               <MenuItem value="">None</MenuItem>
               {categories.map((c) => <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>)}
               {canManageTaxonomy && <MenuItem value={ADD_NEW}><em>+ Add new…</em></MenuItem>}
             </Select>
+            {categoryError && <Typography variant="caption" sx={{ color: 'error.main', display: 'block', mt: 0.5 }}>{categoryError}</Typography>}
           </Box>
           <Box sx={{ flex: 1 }}>
             <Typography variant="caption" color="text.secondary">Group</Typography>
@@ -708,6 +839,9 @@ function CatalogDialog({ open, initial, categories, groups, subgroups, canManage
           <TextField label="Width"              value={draft.width}         size="small" type="number" sx={{ flex: '1 1 120px' }} onChange={(e) => set('width',         e.target.value)} />
           <TextField label="Height / Thickness" value={draft.height}        size="small" type="number" sx={{ flex: '1 1 120px' }} onChange={(e) => set('height',        e.target.value)} />
           <TextField label="Dimension Unit"     value={draft.dimensionUnit} size="small" sx={{ flex: '0 1 80px' }} placeholder="mm" onChange={(e) => set('dimensionUnit', e.target.value)} />
+          <TextField label="Decimal places" value={draft.dimensionDecimals} size="small" type="number"
+            slotProps={{ htmlInput: { min: 0, max: 6 } }} sx={{ flex: '0 1 110px' }}
+            onChange={(e) => set('dimensionDecimals', e.target.value)} />
         </Box>
         <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
           <TextField label="Barcode / EAN" value={draft.barcode}  size="small" sx={{ flex: '1 1 160px' }} onChange={(e) => set('barcode',  e.target.value)} />
@@ -727,6 +861,59 @@ function CatalogDialog({ open, initial, categories, groups, subgroups, canManage
           <TaxonomyAddForm level="subgroup" categories={categories} groups={groups}
             defaultCategoryId={draft.categoryId} defaultGroupId={draft.groupId}
             onCancel={() => setAddingLevel(null)} onCreated={(id) => handleTaxonomyCreated('subgroup', id)} />
+        )}
+
+        <Divider />
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Typography variant="subtitle2">Custom Fields ({customFields.length}/10)</Typography>
+          <Button size="small" startIcon={<AddIcon />} disabled={customFields.length >= 10} onClick={addCf}>
+            Add Field
+          </Button>
+        </Box>
+
+        {customFields.length === 0 ? (
+          <Typography variant="caption" color="text.secondary">No custom fields yet.</Typography>
+        ) : (
+          <Table size="small">
+            <TableHead>
+              <TableRow sx={{ bgcolor: 'action.hover' }}>
+                <TableCell sx={{ fontWeight: 700 }}>Field Name</TableCell>
+                <TableCell sx={{ fontWeight: 700, width: 120 }}>Type</TableCell>
+                <TableCell sx={{ fontWeight: 700 }}>Default Value</TableCell>
+                <TableCell sx={{ width: 48 }} />
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {customFields.map((cf, i) => (
+                <TableRow key={cf.id}>
+                  <TableCell sx={{ py: 0.5 }}>
+                    <TextField size="small" fullWidth value={cf.fieldKey} placeholder="e.g. Material Grade"
+                      onChange={(e) => updateCf(i, 'fieldKey', e.target.value)} />
+                  </TableCell>
+                  <TableCell sx={{ py: 0.5 }}>
+                    <TextField select size="small" fullWidth value={cf.fieldType}
+                      onChange={(e) => updateCf(i, 'fieldType', e.target.value)}>
+                      <MenuItem value="text">Text</MenuItem>
+                      <MenuItem value="number">Number</MenuItem>
+                      <MenuItem value="date">Date</MenuItem>
+                      <MenuItem value="dropdown">Dropdown</MenuItem>
+                    </TextField>
+                  </TableCell>
+                  <TableCell sx={{ py: 0.5 }}>
+                    <TextField size="small" fullWidth value={cf.fieldValue}
+                      placeholder={cf.fieldType === 'dropdown' ? 'Option1, Option2, …' : 'Default value…'}
+                      onChange={(e) => updateCf(i, 'fieldValue', e.target.value)} />
+                  </TableCell>
+                  <TableCell sx={{ py: 0.5 }}>
+                    <IconButton size="small" color="error"
+                      onClick={() => setCustomFields((d) => d.filter((_, j) => j !== i))}>
+                      <DeleteIcon fontSize="small" />
+                    </IconButton>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
         )}
       </DialogContent>
       <DialogActions>
@@ -878,7 +1065,7 @@ function TaxonomyDetailDialog({ level, entity, categories, groups, canEdit, onCl
 
   function addField() {
     if (ownDraft.length >= 10) return;
-    setOwnDraft((d) => [...d, { id: -(Date.now()), fieldKey: '', fieldType: 'text', fieldValue: '' }]);
+    setOwnDraft((d) => [...d, { id: nextCfDraftId(), fieldKey: '', fieldType: 'text', fieldValue: '' }]);
   }
 
   function updateField(i: number, k: keyof CustomFieldDraft, v: string) {
@@ -896,7 +1083,7 @@ function TaxonomyDetailDialog({ level, entity, categories, groups, canEdit, onCl
     setOwnDraft((d) => [
       ...d,
       {
-        id: -(Date.now()),
+        id: nextCfDraftId(),
         fieldKey: f.fieldKey,
         fieldType: f.fieldType as CustomFieldDraft['fieldType'],
         fieldValue: f.fieldValue ?? '',
@@ -1413,6 +1600,8 @@ export default function ItemCatalog() {
       && (!filterSubgroupId || it.subgroupId === filterSubgroupId);
   }), [items, search, filterCategoryId, filterGroupId, filterSubgroupId]);
 
+  const { sortedRows, sortKey, sortDirection, requestSort } = useSortableData(filtered, 'name');
+
   const filterGroupOptions    = groups.filter((g) => !filterCategoryId || g.categoryId === filterCategoryId);
   const filterSubgroupOptions = subgroups.filter((s) => !filterGroupId || s.groupId === filterGroupId);
 
@@ -1565,7 +1754,7 @@ export default function ItemCatalog() {
 
           {loading ? (
             <ListSkeleton rows={6} />
-          ) : filtered.length === 0 ? (
+          ) : sortedRows.length === 0 ? (
             <EmptyState
               icon={<Inventory2Icon />}
               title={search ? 'No items match your search' : 'Catalog is empty'}
@@ -1576,33 +1765,20 @@ export default function ItemCatalog() {
           ) : (
             <Surface e={1} sx={{ overflowX: 'auto', p: 0 }}>
               <Table size="small" sx={{ minWidth: 1800 }}>
-                <TableHead>
-                  <TableRow sx={{ background: 'var(--c-surface-2)' }}>
-                    <TableCell sx={{ ...TH, minWidth: 200 }}>Name</TableCell>
-                    <TableCell sx={{ ...TH, width: 110 }}>Code</TableCell>
-                    <TableCell sx={{ ...TH, width: 70 }}>Unit</TableCell>
-                    <TableCell sx={{ ...TH, minWidth: 180 }}>Description</TableCell>
-                    <TableCell sx={{ ...TH, width: 130 }}>Category</TableCell>
-                    <TableCell sx={{ ...TH, width: 130 }}>Group</TableCell>
-                    <TableCell sx={{ ...TH, width: 130 }}>Sub-group</TableCell>
-                    <TableCell sx={{ ...TH, width: 95 }} align="right">Gross wt</TableCell>
-                    <TableCell sx={{ ...TH, width: 90 }} align="right">Net wt</TableCell>
-                    <TableCell sx={{ ...TH, width: 60 }}>Wt unit</TableCell>
-                    <TableCell sx={{ ...TH, width: 80 }} align="right">Volume</TableCell>
-                    <TableCell sx={{ ...TH, width: 60 }}>Vol unit</TableCell>
-                    <TableCell sx={{ ...TH, width: 80 }} align="right">Length</TableCell>
-                    <TableCell sx={{ ...TH, width: 80 }} align="right">Width</TableCell>
-                    <TableCell sx={{ ...TH, width: 80 }} align="right">Height</TableCell>
-                    <TableCell sx={{ ...TH, width: 60 }}>Dim unit</TableCell>
-                    <TableCell sx={{ ...TH, width: 130 }}>Barcode</TableCell>
-                    <TableCell sx={{ ...TH, width: 100 }}>HSN</TableCell>
-                    <TableCell sx={{ ...TH, width: 100 }}>Division</TableCell>
-                    <TableCell sx={{ ...TH, width: 60 }} align="center">Batches</TableCell>
-                    {canManage && <TableCell sx={{ ...TH, width: 80 }} align="right" />}
-                  </TableRow>
-                </TableHead>
+                <SortableTableHead<FabItemCatalog>
+                  columns={ITEM_COLUMNS}
+                  sortKey={sortKey}
+                  sortDirection={sortDirection}
+                  onRequestSort={requestSort}
+                  extraCell={(
+                    <>
+                      <TableCell sx={{ ...TH, width: 60 }} align="center">Batches</TableCell>
+                      {canManage && <TableCell sx={{ ...TH, width: 80 }} align="right" />}
+                    </>
+                  )}
+                />
                 <TableBody>
-                  {filtered.map((it) => (
+                  {sortedRows.map((it) => (
                     <TableRow key={it.id} hover sx={{ cursor: 'pointer' }}
                       onClick={() => navigate(`/${company}/fab_erp/item-catalog/${it.id}`)}>
                       <TableCell sx={{ ...TD, fontWeight: 500 }}>{it.name}</TableCell>
@@ -1616,14 +1792,14 @@ export default function ItemCatalog() {
                       <TableCell sx={TD}>{it.categoryName  ?? '—'}</TableCell>
                       <TableCell sx={TD}>{it.groupName     ?? '—'}</TableCell>
                       <TableCell sx={TD}>{it.subgroupName  ?? '—'}</TableCell>
-                      <TableCell sx={TD} align="right"><Mono tabular>{it.grossWeight != null ? it.grossWeight : '—'}</Mono></TableCell>
-                      <TableCell sx={TD} align="right"><Mono tabular>{it.netWeight   != null ? it.netWeight   : '—'}</Mono></TableCell>
+                      <TableCell sx={TD} align="right"><Mono tabular>{it.grossWeight != null ? Number(it.grossWeight).toFixed(it.dimensionDecimals ?? 3) : '—'}</Mono></TableCell>
+                      <TableCell sx={TD} align="right"><Mono tabular>{it.netWeight   != null ? Number(it.netWeight).toFixed(it.dimensionDecimals ?? 3)   : '—'}</Mono></TableCell>
                       <TableCell sx={TD}>{it.weightUnit    ?? 'kg'}</TableCell>
-                      <TableCell sx={TD} align="right"><Mono tabular>{it.volume      != null ? it.volume      : '—'}</Mono></TableCell>
+                      <TableCell sx={TD} align="right"><Mono tabular>{it.volume      != null ? Number(it.volume).toFixed(it.dimensionDecimals ?? 3)      : '—'}</Mono></TableCell>
                       <TableCell sx={TD}>{it.volumeUnit    ?? 'm3'}</TableCell>
-                      <TableCell sx={TD} align="right"><Mono tabular>{it.length      != null ? it.length      : '—'}</Mono></TableCell>
-                      <TableCell sx={TD} align="right"><Mono tabular>{it.width       != null ? it.width       : '—'}</Mono></TableCell>
-                      <TableCell sx={TD} align="right"><Mono tabular>{it.height      != null ? it.height      : '—'}</Mono></TableCell>
+                      <TableCell sx={TD} align="right"><Mono tabular>{it.length      != null ? Number(it.length).toFixed(it.dimensionDecimals ?? 3)      : '—'}</Mono></TableCell>
+                      <TableCell sx={TD} align="right"><Mono tabular>{it.width       != null ? Number(it.width).toFixed(it.dimensionDecimals ?? 3)       : '—'}</Mono></TableCell>
+                      <TableCell sx={TD} align="right"><Mono tabular>{it.height      != null ? Number(it.height).toFixed(it.dimensionDecimals ?? 3)      : '—'}</Mono></TableCell>
                       <TableCell sx={TD}>{it.dimensionUnit ?? 'mm'}</TableCell>
                       <TableCell sx={TD}><Mono>{it.barcode ?? '—'}</Mono></TableCell>
                       <TableCell sx={TD}>{it.hsnCode  ?? '—'}</TableCell>

@@ -1,6 +1,9 @@
 import React from 'react';
-import { Box } from '@mui/material';
+import { Box, MenuItem, TextField, ToggleButton } from '@mui/material';
+import ArrowUpwardRounded from '@mui/icons-material/ArrowUpwardRounded';
+import ArrowDownwardRounded from '@mui/icons-material/ArrowDownwardRounded';
 import { Surface } from './Surface';
+import { useSortableData, type SortDirection } from '../hooks/useSortableData';
 
 /**
  * One row in a collection list (DESIGN_SYSTEM.md §4.2/§7.5).
@@ -93,7 +96,64 @@ export function EntityRow({
   );
 }
 
-/** Vertical stack of EntityRows. */
-export function EntityList({ children }: { children: React.ReactNode }) {
-  return <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>{children}</Box>;
+export interface SortableField<T> { key: keyof T; label: string }
+
+/**
+ * Vertical stack of EntityRows. EntityRow children are rendered as-is unless
+ * `rows` + `renderRow` + `sortableFields` are supplied, in which case a sort
+ * control (field picker + asc/desc toggle) appears above the list and the
+ * rows are sorted via useSortableData before rendering.
+ */
+export function EntityList<T>({
+  children,
+  rows,
+  renderRow,
+  sortableFields,
+  defaultSortKey,
+}: {
+  children?: React.ReactNode;
+  rows?: T[];
+  renderRow?: (row: T) => React.ReactNode;
+  sortableFields?: SortableField<T>[];
+  defaultSortKey?: keyof T;
+}) {
+  const { sortedRows, sortKey, sortDirection, requestSort } = useSortableData<T>(
+    rows ?? [],
+    defaultSortKey,
+  );
+
+  const showSortControl = !!sortableFields && sortableFields.length > 0 && !!rows && !!renderRow;
+
+  return (
+    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+      {showSortControl && (
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+          <TextField
+            select
+            size="small"
+            label="Sort by"
+            value={String(sortKey ?? '')}
+            onChange={(e) => requestSort(e.target.value as keyof T)}
+            sx={{ minWidth: 180 }}
+          >
+            {sortableFields!.map((f) => (
+              <MenuItem key={String(f.key)} value={String(f.key)}>{f.label}</MenuItem>
+            ))}
+          </TextField>
+          <ToggleButton
+            size="small"
+            value="direction"
+            selected={sortDirection === 'desc'}
+            onChange={() => sortKey && requestSort(sortKey)}
+            disabled={!sortKey}
+          >
+            {sortDirection === 'desc' ? <ArrowDownwardRounded fontSize="small" /> : <ArrowUpwardRounded fontSize="small" />}
+          </ToggleButton>
+        </Box>
+      )}
+      {showSortControl ? sortedRows.map((row) => renderRow!(row)) : children}
+    </Box>
+  );
 }
+
+export type { SortDirection };

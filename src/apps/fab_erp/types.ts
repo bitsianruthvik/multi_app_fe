@@ -355,6 +355,7 @@ export interface FabItemCatalog extends FabBase {
   procurementType?:  string | null;
   leadTimeDays?:     number | null;
   mrpActive?:        number | null; // 0 | 1
+  dimensionDecimals: number;
 }
 
 /**

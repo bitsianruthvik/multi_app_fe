@@ -12,10 +12,16 @@ import HandshakeRounded from '@mui/icons-material/HandshakeRounded';
 import { fabQuery, fabMutate } from '../api/client';
 import type { FabSupplier } from '../types';
 import { usePermission } from '@core/hooks/usePermission';
-import { PageHeader, FilterBar, EntityList, EntityRow, Mono, EmptyState, ListSkeleton, useToast } from '../components';
+import { PageHeader, FilterBar, EntityList, EntityRow, Mono, EmptyState, ListSkeleton, useToast, type SortableField } from '../components';
 
 interface Draft { name: string; code: string; contact_name: string; phone: string; email: string; address: string; notes: string }
 const blank = (): Draft => ({ name: '', code: '', contact_name: '', phone: '', email: '', address: '', notes: '' });
+
+const SUPPLIER_SORT_FIELDS: SortableField<FabSupplier>[] = [
+  { key: 'name', label: 'Name' },
+  { key: 'code', label: 'Code' },
+  { key: 'contactName', label: 'Contact name' },
+];
 
 function SupplierDialog({ open, initial, onClose, onSaved }: {
   open: boolean; initial: FabSupplier | null; onClose: () => void; onSaved: () => void;
@@ -153,8 +159,11 @@ export default function Suppliers() {
           action={!search ? newBtn ?? undefined : undefined}
         />
       ) : (
-        <EntityList>
-          {filtered.map((s) => (
+        <EntityList
+          rows={filtered}
+          sortableFields={SUPPLIER_SORT_FIELDS}
+          defaultSortKey="name"
+          renderRow={(s) => (
             <EntityRow
               key={s.id}
               code={<Mono chip>{s.code}</Mono>}
@@ -166,8 +175,8 @@ export default function Suppliers() {
                 <Tooltip title="Delete"><IconButton size="small" color="error" onClick={() => setDelTarget(s)}><DeleteOutlineRounded fontSize="small" /></IconButton></Tooltip>
               </>) : undefined}
             />
-          ))}
-        </EntityList>
+          )}
+        />
       )}
 
       <SupplierDialog

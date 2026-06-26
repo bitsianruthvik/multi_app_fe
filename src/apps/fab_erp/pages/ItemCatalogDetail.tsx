@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
-  Alert, Box, Button, CircularProgress, Divider, IconButton, MenuItem, Table, TableBody,
+  Alert, Autocomplete, Box, Button, CircularProgress, Divider, IconButton, MenuItem, Select, Table, TableBody,
   TableCell, TableHead, TableRow, TextField, Typography,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
@@ -10,10 +10,11 @@ import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
 import SaveIcon from '@mui/icons-material/Save';
 
 import { fabQuery, fabMutate } from '../api/client';
-import type { FabItemCatalog, FabCustomField } from '../types';
+import type { FabItemCatalog, FabCustomField, FabItemCategory, FabItemGroup, FabItemSubgroup } from '../types';
 import { usePermission } from '@core/hooks/usePermission';
 import BomDesigner from '../components/BomDesigner';
 import { Surface, DetailLayout, Mono, StatusBadge, useToast } from '../components';
+import { STANDARD_UOMS } from '../constants/uom';
 
 const MATERIAL_TYPES = [
   { value: 'raw_material', label: 'Raw Material' },
@@ -28,6 +29,15 @@ const PROCUREMENT_TYPES = [
   { value: 'make', label: 'Make (in-house production)' },
   { value: 'both', label: 'Both (make or buy)' },
 ];
+
+// Monotonic counter for client-only draft row ids — Date.now() can collide
+// when two rows are added within the same millisecond, which corrupts the
+// React `key` → row mapping for that row's controls (incl. the Type select).
+let cfDraftSeq = 0;
+function nextCfDraftId(): number {
+  cfDraftSeq -= 1;
+  return cfDraftSeq;
+}
 
 const th = { fontFamily: 'var(--font-ui)', fontWeight: 600, fontSize: 12, color: 'var(--c-text-2)', textTransform: 'uppercase', letterSpacing: '.05em', borderColor: 'var(--c-divider)' } as const;
 const td = { borderColor: 'var(--c-divider)', fontSize: 13, color: 'var(--c-text)' } as const;
@@ -55,13 +65,66 @@ export default function ItemCatalogDetail() {
   const [configSaving, setConfigSaving] = useState(false);
   const [ancestorFields, setAncestorFields] = useState<{ fields: FabCustomField[]; source: 'category' | 'group' | 'subgroup' }[]>([]);
 
+  const [categories, setCategories] = useState<FabItemCategory[]>([]);
+  const [groups, setGroups] = useState<FabItemGroup[]>([]);
+  const [subgroups, setSubgroups] = useState<FabItemSubgroup[]>([]);
+  const [categoryError, setCategoryError] = useState('');
+
+  const availableGroups = useMemo(
+    () => groups.filter((g) => !draft.categoryId || g.categoryId === draft.categoryId),
+    [groups, draft.categoryId],
+  );
+  const availableSubgroups = useMemo(
+    () => subgroups.filter((s) => !draft.groupId || s.groupId === draft.groupId),
+    [subgroups, draft.groupId],
+  );
+
+  function onCategoryChange(value: string) {
+    const categoryId = value === '' ? null : Number(value);
+    setCategoryError('');
+    setDraft((d) => {
+      const groupOk = d.groupId != null && groups.some((g) => g.id === d.groupId && g.categoryId === categoryId);
+      return { ...d, categoryId, groupId: groupOk ? d.groupId : null, subgroupId: groupOk ? d.subgroupId : null };
+    });
+  }
+  function onGroupChange(value: string) {
+    const groupId = value === '' ? null : Number(value);
+    setDraft((d) => {
+      const sgOk = d.subgroupId != null && subgroups.some((s) => s.id === d.subgroupId && s.groupId === groupId);
+      return { ...d, groupId, subgroupId: sgOk ? d.subgroupId : null };
+    });
+  }
+  function onSubgroupChange(value: string) {
+    setDraft((d) => ({ ...d, subgroupId: value === '' ? null : Number(value) }));
+  }
+
   const fetchAll = useCallback(async () => {
     setLoading(true); setError('');
     try {
       const itemRes = await fabQuery<{ data: FabItemCatalog[] }>('fabErpItemCatalog', { filters: { id }, pagination: { limit: 1 } });
       const it = itemRes.data?.[0] ?? null;
       setItem(it);
-      if (it) setDraft({ ...it });
+      if (it) {
+        const dec = it.dimensionDecimals ?? 3;
+        setDraft({
+          ...it,
+          grossWeight: it.grossWeight != null ? Number(Number(it.grossWeight).toFixed(dec)) : it.grossWeight,
+          netWeight:   it.netWeight   != null ? Number(Number(it.netWeight).toFixed(dec))   : it.netWeight,
+          volume:      it.volume      != null ? Number(Number(it.volume).toFixed(dec))      : it.volume,
+          length:      it.length      != null ? Number(Number(it.length).toFixed(dec))      : it.length,
+          width:       it.width       != null ? Number(Number(it.width).toFixed(dec))       : it.width,
+          height:      it.height      != null ? Number(Number(it.height).toFixed(dec))      : it.height,
+        });
+      }
+
+      const [catRes, grpRes, subRes] = await Promise.all([
+        fabQuery<{ data: FabItemCategory[] }>('fabErpItemCategory', { orderBy: [{ field: 'name', direction: 'asc' }], pagination: { limit: 1000 } }),
+        fabQuery<{ data: FabItemGroup[] }>('fabErpItemGroup', { orderBy: [{ field: 'name', direction: 'asc' }], pagination: { limit: 1000 } }),
+        fabQuery<{ data: FabItemSubgroup[] }>('fabErpItemSubgroup', { orderBy: [{ field: 'name', direction: 'asc' }], pagination: { limit: 1000 } }),
+      ]);
+      setCategories(catRes.data ?? []);
+      setGroups(grpRes.data ?? []);
+      setSubgroups(subRes.data ?? []);
 
       const configRes = await fabQuery<{ data: FabCustomField[] }>('fabErpCustomField', {
         filters: { level: 'item', levelId: id }, orderBy: [{ field: 'sortOrder', direction: 'asc' }], pagination: { limit: 100 },
@@ -90,6 +153,8 @@ export default function ItemCatalogDetail() {
 
   async function saveItem() {
     if (!item) return;
+    if (!draft.categoryId) { setCategoryError('Category is required.'); return; }
+    setCategoryError('');
     setSaving(true); setError('');
     try {
       await fabMutate('fabErpItemCatalog', 'update', {
@@ -102,6 +167,7 @@ export default function ItemCatalogDetail() {
         volume: draft.volume ?? null, volume_unit: draft.volumeUnit ?? 'm3', length: draft.length ?? null, width: draft.width ?? null,
         height: draft.height ?? null, dimension_unit: draft.dimensionUnit ?? 'mm', barcode: draft.barcode ?? null,
         hsn_code: draft.hsnCode ?? null, division: draft.division ?? null,
+        dimension_decimals: draft.dimensionDecimals ?? 3,
       });
       toast('Item saved');
       fetchAll();
@@ -123,7 +189,7 @@ export default function ItemCatalogDetail() {
   function addConfigRow() {
     if (configDraft.length >= 10) return;
     const placeholder: FabCustomField = {
-      id: -(Date.now()), companyId: 0, level: 'item', levelId: id,
+      id: nextCfDraftId(), companyId: 0, level: 'item', levelId: id,
       fieldKey: '', fieldType: 'text', fieldValue: null, sortOrder: configDraft.length, createdAt: '', updatedAt: '', deletedAt: null,
     };
     setConfigDraft((d) => [...d, placeholder]);
@@ -187,7 +253,10 @@ export default function ItemCatalogDetail() {
           <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2, mb: 3 }}>
             <Field label="Name" k="name" />
             <Field label="Code" k="code" />
-            <Field label="Unit" k="unit" />
+            <Autocomplete freeSolo fullWidth options={STANDARD_UOMS.map((u) => u.value)} disabled={!canManage}
+              value={(draft.unit as string | undefined) ?? ''}
+              onInputChange={(_, value) => set('unit', value as FabItemCatalog['unit'])}
+              renderInput={(params) => <TextField {...params} label="Unit" size="small" />} />
             <Field label="Description" k="description" />
             <TextField select label="Material type" size="small" fullWidth disabled={!canManage} value={draft.materialType ?? ''} onChange={(e) => set('materialType', e.target.value as FabItemCatalog['materialType'])}>
               <MenuItem value="">— unset —</MenuItem>
@@ -233,8 +302,41 @@ export default function ItemCatalogDetail() {
             <Field label="Height" k="height" type="number" />
             <Field label="Unit" k="dimensionUnit" />
           </Box>
+          <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 80px', gap: 2, mb: 3 }}>
+            <TextField label="Decimal places" size="small" fullWidth type="number" disabled={!canManage}
+              slotProps={{ htmlInput: { min: 0, max: 6 } }}
+              value={(draft.dimensionDecimals as number | undefined) ?? 3}
+              onChange={(e) => set('dimensionDecimals', (e.target.value === '' ? 3 : Number(e.target.value)) as FabItemCatalog['dimensionDecimals'])} />
+          </Box>
           <Divider sx={{ my: 2, borderColor: 'var(--c-divider)' }} />
           <Typography sx={{ fontSize: 11, fontWeight: 600, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--c-text-3)', mb: 1.5 }}>Classification</Typography>
+          <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 2, mb: 3 }}>
+            <Box>
+              <Typography variant="caption" color="text.secondary">Category *</Typography>
+              <Select fullWidth size="small" displayEmpty disabled={!canManage} value={draft.categoryId ?? ''}
+                onChange={(e) => onCategoryChange(String(e.target.value))} error={!!categoryError}>
+                <MenuItem value=""><em>None</em></MenuItem>
+                {categories.map((c) => <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>)}
+              </Select>
+              {categoryError && <Typography variant="caption" sx={{ color: 'error.main', display: 'block', mt: 0.5 }}>{categoryError}</Typography>}
+            </Box>
+            <Box>
+              <Typography variant="caption" color="text.secondary">Group</Typography>
+              <Select fullWidth size="small" displayEmpty disabled={!canManage} value={draft.groupId ?? ''}
+                onChange={(e) => onGroupChange(String(e.target.value))}>
+                <MenuItem value=""><em>None</em></MenuItem>
+                {availableGroups.map((g) => <MenuItem key={g.id} value={g.id}>{g.name}</MenuItem>)}
+              </Select>
+            </Box>
+            <Box>
+              <Typography variant="caption" color="text.secondary">Sub-group</Typography>
+              <Select fullWidth size="small" displayEmpty disabled={!canManage} value={draft.subgroupId ?? ''}
+                onChange={(e) => onSubgroupChange(String(e.target.value))}>
+                <MenuItem value=""><em>None</em></MenuItem>
+                {availableSubgroups.map((s) => <MenuItem key={s.id} value={s.id}>{s.name}</MenuItem>)}
+              </Select>
+            </Box>
+          </Box>
           <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 2 }}>
             <Field label="Barcode" k="barcode" />
             <Field label="HSN code" k="hsnCode" />
@@ -280,7 +382,7 @@ export default function ItemCatalogDetail() {
                               {canManage && <IconButton size="small" color="error" onClick={() => setConfigDraft((d) => d.filter((_, j) => j !== overrideIdx))}><DeleteOutlineRounded fontSize="small" /></IconButton>}
                             </Box>
                           ) : canManage ? (
-                            <Button size="small" variant="outlined" onClick={() => setConfigDraft((d) => [...d, { id: -(Date.now()), companyId: 0, level: 'item' as const, levelId: id, fieldKey: field.fieldKey, fieldType: field.fieldType as FabCustomField['fieldType'], fieldValue: field.fieldValue, sortOrder: d.length, createdAt: '', updatedAt: '', deletedAt: null }])}>Override</Button>
+                            <Button size="small" variant="outlined" onClick={() => setConfigDraft((d) => [...d, { id: nextCfDraftId(), companyId: 0, level: 'item' as const, levelId: id, fieldKey: field.fieldKey, fieldType: field.fieldType as FabCustomField['fieldType'], fieldValue: field.fieldValue, sortOrder: d.length, createdAt: '', updatedAt: '', deletedAt: null }])}>Override</Button>
                           ) : (
                             <Typography sx={{ color: 'var(--c-text-3)' }}>—</Typography>
                           )}

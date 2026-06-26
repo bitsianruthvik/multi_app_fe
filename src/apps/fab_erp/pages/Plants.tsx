@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   Alert, Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle,
-  Grid, IconButton, MenuItem, Stack, Tab, Table, TableBody, TableCell, TableHead, TableRow,
+  Grid, IconButton, MenuItem, Stack, Tab, Table, TableBody, TableCell, TableRow,
   Tabs, TextField, Tooltip, Typography,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
@@ -11,7 +11,8 @@ import EditRounded from '@mui/icons-material/EditRounded';
 import { fabQuery, fabMutate } from '@apps/fab_erp/api/client';
 import type { FabPlant, FabStockLocation, FabItemBatch, FabStockBalance, FabStockPolicy } from '@apps/fab_erp/types';
 import { usePermission } from '@core/hooks/usePermission';
-import { Surface, PageHeader, Mono, StatusBadge, EmptyState, ListSkeleton, useToast, EntityList, EntityRow } from '../components';
+import { Surface, PageHeader, Mono, StatusBadge, EmptyState, ListSkeleton, useToast, EntityList, EntityRow, SortableTableHead, type SortableColumn } from '../components';
+import { useSortableData } from '../hooks/useSortableData';
 import FactoryRounded from '@mui/icons-material/FactoryRounded';
 
 interface QueryResult<T> { data: T[]; total?: number }
@@ -28,6 +29,16 @@ interface StockLevelRow {
 
 const th = { fontFamily: 'var(--font-ui)', fontWeight: 600, fontSize: 12, color: 'var(--c-text-2)', textTransform: 'uppercase', letterSpacing: '.05em', borderColor: 'var(--c-divider)' } as const;
 const td = { borderColor: 'var(--c-divider)', fontSize: 13, color: 'var(--c-text)' } as const;
+
+const STOCK_LEVEL_COLUMNS: SortableColumn<StockLevelRow>[] = [
+  { key: 'catalogItemName',   label: 'Item',              sx: { ...th, minWidth: 200 } },
+  { key: 'plantName',         label: 'Plant',             sx: { ...th, width: 140 } },
+  { key: 'stockLocationName', label: 'Stock location',    sx: { ...th, width: 140 } },
+  { key: 'qtyAvailable',      label: 'Available',         align: 'right', sx: { ...th, width: 100 } },
+  { key: 'qtyOrdered',        label: 'Ordered',           align: 'right', sx: { ...th, width: 100 } },
+  { key: 'qtyEarmarked',      label: 'Earmarked',         align: 'right', sx: { ...th, width: 100 } },
+  { key: 'minQty',            label: 'Min qty',           align: 'right', sx: { ...th, width: 100 } },
+];
 
 function PlantDialog({ open, initial, onClose, onSaved }: {
   open: boolean; initial: FabPlant | null; onClose: () => void; onSaved: () => void;
@@ -230,6 +241,8 @@ export default function Plants() {
     if (!stockLocationsAll.some((l) => l.id === slvStockLocationId)) setSlvStockLocationId(null);
   }, [stockLocationsAll, slvStockLocationId]);
 
+  const { sortedRows: sortedStockLevels, sortKey, sortDirection, requestSort } = useSortableData(stockLevels, 'catalogItemName');
+
   useEffect(() => {
     if (!canViewInventory || tab !== 2) return;
     const filters: Record<string, number> = {};
@@ -374,13 +387,14 @@ export default function Plants() {
               ) : (
                 <Surface e={1} sx={{ overflow: 'hidden' }}>
                   <Table size="small">
-                    <TableHead><TableRow sx={{ background: 'var(--c-surface-2)' }}>
-                      <TableCell sx={th}>Item</TableCell><TableCell sx={th}>Plant</TableCell><TableCell sx={th}>Stock location</TableCell>
-                      <TableCell sx={th} align="right">Available</TableCell><TableCell sx={th} align="right">Ordered</TableCell>
-                      <TableCell sx={th} align="right">Earmarked</TableCell><TableCell sx={th} align="right">Min qty</TableCell>
-                    </TableRow></TableHead>
+                    <SortableTableHead<StockLevelRow>
+                      columns={STOCK_LEVEL_COLUMNS}
+                      sortKey={sortKey}
+                      sortDirection={sortDirection}
+                      onRequestSort={requestSort}
+                    />
                     <TableBody>
-                      {stockLevels.map((row) => {
+                      {sortedStockLevels.map((row) => {
                         const belowMin = row.minQty > 0 && row.qtyAvailable < row.minQty;
                         return (
                           <TableRow key={`${row.catalogItemId}-${row.plantId}-${row.stockLocationId}`} hover>
