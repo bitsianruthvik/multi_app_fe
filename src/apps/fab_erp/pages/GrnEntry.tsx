@@ -13,7 +13,7 @@ import { fabQuery, fabMutate } from '../api/client';
 import api, { API_HOST } from '@core/utils/axiosConfig';
 import type { FabItemCatalog, FabPlant, FabStockLocation, FabSupplier } from '../types';
 import { usePermission } from '@core/hooks/usePermission';
-import { Surface, PageHeader, Mono, EmptyState, useToast } from '../components';
+import { Surface, PageHeader, Mono, EmptyState, useToast, EntityList, EntityRow } from '../components';
 
 interface QueryResult<T> { data: T[]; total?: number }
 
@@ -371,37 +371,20 @@ export default function GrnEntry() {
           {suppliers.length === 0 ? (
             <EmptyState title="No suppliers defined" />
           ) : (
-            <Surface e={1} sx={{ overflow: 'hidden' }}>
-              <Table size="small">
-                <TableHead>
-                  <TableRow sx={{ background: 'var(--c-surface-2)' }}>
-                    <TableCell sx={th}>Name</TableCell>
-                    <TableCell sx={{ ...th, width: 120 }}>Code</TableCell>
-                    <TableCell sx={th}>Contact name</TableCell>
-                    <TableCell sx={th}>Phone</TableCell>
-                    <TableCell sx={th}>Email</TableCell>
-                    {canManage && <TableCell sx={{ ...th, width: 96 }} align="right" />}
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {suppliers.map((s) => (
-                    <TableRow key={s.id} hover>
-                      <TableCell sx={{ ...td, fontWeight: 500 }}>{s.name}</TableCell>
-                      <TableCell sx={td}><Mono chip>{s.code}</Mono></TableCell>
-                      <TableCell sx={td}>{s.contactName ?? '—'}</TableCell>
-                      <TableCell sx={td}>{s.phone ?? '—'}</TableCell>
-                      <TableCell sx={td}>{s.email ?? '—'}</TableCell>
-                      {canManage && (
-                        <TableCell sx={td} align="right">
-                          <Tooltip title="Edit"><IconButton size="small" onClick={() => setSupDlg({ open: true, item: s })}><EditRounded fontSize="small" /></IconButton></Tooltip>
-                          <Tooltip title="Delete"><IconButton size="small" color="error" onClick={() => setSupDelete(s)}><DeleteOutlineRounded fontSize="small" /></IconButton></Tooltip>
-                        </TableCell>
-                      )}
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </Surface>
+            <EntityList>
+              {suppliers.map((s) => (
+                <EntityRow
+                  key={s.id}
+                  code={<Mono chip>{s.code}</Mono>}
+                  primary={s.name}
+                  secondary={[s.contactName, s.phone, s.email].filter(Boolean).join(' · ') || 'No contact info'}
+                  actions={canManage ? (<>
+                    <Tooltip title="Edit"><IconButton size="small" onClick={() => setSupDlg({ open: true, item: s })}><EditRounded fontSize="small" /></IconButton></Tooltip>
+                    <Tooltip title="Delete"><IconButton size="small" color="error" onClick={() => setSupDelete(s)}><DeleteOutlineRounded fontSize="small" /></IconButton></Tooltip>
+                  </>) : undefined}
+                />
+              ))}
+            </EntityList>
           )}
         </Box>
       )}
