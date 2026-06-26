@@ -16,7 +16,7 @@ import type {
   FabPlant, FabResource, FabResourceCustomField, FabResourceType, FabResourceTypeProperty, FabStockLocation,
 } from '@apps/fab_erp/types';
 import { usePermission } from '@core/hooks/usePermission';
-import { Surface, PageHeader, Mono, EmptyState, ListSkeleton, useToast } from '../components';
+import { PageHeader, Mono, EmptyState, ListSkeleton, useToast, EntityList, EntityRow } from '../components';
 
 interface QueryResult<T> { data: T[]; total?: number }
 
@@ -744,33 +744,27 @@ export default function ResourceTypes() {
                 <EmptyState icon={<PrecisionManufacturingRounded />} title="No resource types defined" hint='Click "New resource type" to add one.' />
               ) : (
                 <>
-                  <Surface e={1} sx={{ overflow: 'hidden' }}>
-                    <Table size="small">
-                      <TableHead><TableRow sx={{ background: 'var(--c-surface-2)' }}>
-                        <TableCell sx={th}>Code</TableCell><TableCell sx={th}>Name</TableCell><TableCell sx={th}>Category</TableCell>
-                        <TableCell sx={th}>Plant</TableCell><TableCell sx={th}>Capacity (hrs/day)</TableCell><TableCell sx={th}>Cost/hr</TableCell>
-                        <TableCell sx={{ ...th, width: 60 }} />
-                      </TableRow></TableHead>
-                      <TableBody>
-                        {resourceTypes.map((rt) => {
-                          const plant = rt.plantId != null ? plantMap.get(rt.plantId) : undefined;
-                          return (
-                            <TableRow key={rt.id} hover sx={{ cursor: 'pointer' }} onClick={() => setRtDetail({ open: true, item: rt })}>
-                              <TableCell sx={td}><Mono chip>{rt.code}</Mono></TableCell>
-                              <TableCell sx={td}><Typography sx={{ fontSize: 13.5, fontWeight: 500, color: 'var(--c-primary-700)' }}>{rt.name}</Typography></TableCell>
-                              <TableCell sx={td}>{rt.category ?? <Typography sx={{ color: 'var(--c-text-3)' }}>—</Typography>}</TableCell>
-                              <TableCell sx={td}>{plant ? <Mono chip>{plant.code} — {plant.name}</Mono> : <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>Company-wide</Typography>}</TableCell>
-                              <TableCell sx={td}>{rt.capacityHrsPerDay != null ? <Mono>{rt.capacityHrsPerDay} hrs × {rt.numUnits ?? 1} units</Mono> : <Typography sx={{ color: 'var(--c-text-3)' }}>—</Typography>}</TableCell>
-                              <TableCell sx={td}>{rt.costPerHour != null ? <Mono>{rt.costPerHour} {rt.currency ?? 'INR'}/hr</Mono> : <Typography sx={{ color: 'var(--c-text-3)' }}>—</Typography>}</TableCell>
-                              <TableCell sx={td} onClick={(e) => e.stopPropagation()}>
-                                <Tooltip title="Delete"><span><IconButton size="small" color="error" disabled={!canManage} onClick={() => setRtDelete(rt)}><DeleteOutlineRounded fontSize="small" /></IconButton></span></Tooltip>
-                              </TableCell>
-                            </TableRow>
-                          );
-                        })}
-                      </TableBody>
-                    </Table>
-                  </Surface>
+                  <EntityList>
+                    {resourceTypes.map((rt) => {
+                      const plant = rt.plantId != null ? plantMap.get(rt.plantId) : undefined;
+                      return (
+                        <EntityRow
+                          key={rt.id}
+                          code={<Mono chip>{rt.code}</Mono>}
+                          primary={rt.name}
+                          secondary={[rt.category, plant ? `${plant.code} — ${plant.name}` : 'Company-wide'].filter(Boolean).join(' · ')}
+                          trailing={(<>
+                            {rt.capacityHrsPerDay != null && <Mono chip>{rt.capacityHrsPerDay} hrs × {rt.numUnits ?? 1} units</Mono>}
+                            {rt.costPerHour != null && <Mono chip>{rt.costPerHour} {rt.currency ?? 'INR'}/hr</Mono>}
+                          </>)}
+                          onClick={() => setRtDetail({ open: true, item: rt })}
+                          actions={canManage ? (
+                            <Tooltip title="Delete"><IconButton size="small" color="error" onClick={() => setRtDelete(rt)}><DeleteOutlineRounded fontSize="small" /></IconButton></Tooltip>
+                          ) : undefined}
+                        />
+                      );
+                    })}
+                  </EntityList>
                   <Typography variant="caption" sx={{ mt: 1, display: 'block', color: 'var(--c-text-3)' }}>Click a row to view/edit details, custom fields, and formula properties.</Typography>
                 </>
               )}
@@ -788,38 +782,29 @@ export default function ResourceTypes() {
                 <EmptyState icon={<PrecisionManufacturingRounded />} title="No resources defined" hint='Click "New resource" to add one.' />
               ) : (
                 <>
-                  <Surface e={1} sx={{ overflow: 'hidden' }}>
-                    <Table size="small">
-                      <TableHead><TableRow sx={{ background: 'var(--c-surface-2)' }}>
-                        <TableCell sx={th}>Code</TableCell><TableCell sx={th}>Name</TableCell><TableCell sx={th}>Resource type</TableCell>
-                        <TableCell sx={th}>Plant</TableCell><TableCell sx={th}>Capacity override</TableCell><TableCell sx={th}>Cost override</TableCell>
-                        <TableCell sx={{ ...th, width: 60 }} />
-                      </TableRow></TableHead>
-                      <TableBody>
-                        {resources.map((r) => {
-                          const rt = rtMap.get(r.resourceTypeId);
-                          const plant = r.plantId != null ? plantMap.get(r.plantId) : undefined;
-                          const sl = r.stockLocationId != null ? slMap.get(r.stockLocationId) : undefined;
-                          return (
-                            <TableRow key={r.id} hover sx={{ cursor: 'pointer' }} onClick={() => setResDetail({ open: true, item: r })}>
-                              <TableCell sx={td}><Mono chip>{r.code}</Mono></TableCell>
-                              <TableCell sx={td}>
-                                <Typography sx={{ fontSize: 13.5, fontWeight: 500, color: 'var(--c-primary-700)' }}>{r.name}</Typography>
-                                {sl && <Typography sx={{ fontSize: 11.5, color: 'var(--c-text-3)' }}>{sl.code}</Typography>}
-                              </TableCell>
-                              <TableCell sx={td}>{rt ? <Mono chip>{rt.code} — {rt.name}</Mono> : <Typography sx={{ color: 'var(--c-text-3)' }}>—</Typography>}</TableCell>
-                              <TableCell sx={td}>{plant ? <Mono chip>{plant.code} — {plant.name}</Mono> : <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>Company-wide</Typography>}</TableCell>
-                              <TableCell sx={td}>{r.capacityHrsPerDay != null ? <Mono chip>{r.capacityHrsPerDay} hrs/day</Mono> : <Typography sx={{ fontSize: 13, color: 'var(--c-text-3)' }}>Inherited</Typography>}</TableCell>
-                              <TableCell sx={td}>{r.costPerHour != null ? <Mono chip>{r.costPerHour} {r.currency ?? 'INR'}/hr</Mono> : <Typography sx={{ fontSize: 13, color: 'var(--c-text-3)' }}>Inherited</Typography>}</TableCell>
-                              <TableCell sx={td} onClick={(e) => e.stopPropagation()}>
-                                <Tooltip title="Delete"><span><IconButton size="small" color="error" disabled={!canManage} onClick={() => setResDelete(r)}><DeleteOutlineRounded fontSize="small" /></IconButton></span></Tooltip>
-                              </TableCell>
-                            </TableRow>
-                          );
-                        })}
-                      </TableBody>
-                    </Table>
-                  </Surface>
+                  <EntityList>
+                    {resources.map((r) => {
+                      const rt = rtMap.get(r.resourceTypeId);
+                      const plant = r.plantId != null ? plantMap.get(r.plantId) : undefined;
+                      const sl = r.stockLocationId != null ? slMap.get(r.stockLocationId) : undefined;
+                      return (
+                        <EntityRow
+                          key={r.id}
+                          code={<Mono chip>{r.code}</Mono>}
+                          primary={r.name}
+                          secondary={[sl?.code, rt ? `${rt.code} — ${rt.name}` : null, plant ? `${plant.code} — ${plant.name}` : 'Company-wide'].filter(Boolean).join(' · ')}
+                          trailing={(<>
+                            {r.capacityHrsPerDay != null && <Mono chip>{r.capacityHrsPerDay} hrs/day</Mono>}
+                            {r.costPerHour != null && <Mono chip>{r.costPerHour} {r.currency ?? 'INR'}/hr</Mono>}
+                          </>)}
+                          onClick={() => setResDetail({ open: true, item: r })}
+                          actions={canManage ? (
+                            <Tooltip title="Delete"><IconButton size="small" color="error" onClick={() => setResDelete(r)}><DeleteOutlineRounded fontSize="small" /></IconButton></Tooltip>
+                          ) : undefined}
+                        />
+                      );
+                    })}
+                  </EntityList>
                   <Typography variant="caption" sx={{ mt: 1, display: 'block', color: 'var(--c-text-3)' }}>Click a row to view/edit details and override capacity/scheduling/costing values. Mono chips indicate resource-specific overrides.</Typography>
                 </>
               )}
