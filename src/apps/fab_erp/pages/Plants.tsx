@@ -11,7 +11,7 @@ import EditRounded from '@mui/icons-material/EditRounded';
 import { fabQuery, fabMutate } from '@apps/fab_erp/api/client';
 import type { FabPlant, FabStockLocation, FabItemBatch, FabStockBalance, FabStockPolicy } from '@apps/fab_erp/types';
 import { usePermission } from '@core/hooks/usePermission';
-import { Surface, PageHeader, Mono, StatusBadge, EmptyState, ListSkeleton, useToast } from '../components';
+import { Surface, PageHeader, Mono, StatusBadge, EmptyState, ListSkeleton, useToast, EntityList, EntityRow } from '../components';
 import FactoryRounded from '@mui/icons-material/FactoryRounded';
 
 interface QueryResult<T> { data: T[]; total?: number }
@@ -301,28 +301,20 @@ export default function Plants() {
               {plants.length === 0 ? (
                 <EmptyState icon={<FactoryRounded />} title="No plants defined" />
               ) : (
-                <Surface e={1} sx={{ overflow: 'hidden' }}>
-                  <Table size="small">
-                    <TableHead><TableRow sx={{ background: 'var(--c-surface-2)' }}>
-                      <TableCell sx={th}>Code</TableCell><TableCell sx={th}>Name</TableCell>
-                      {canManage && <TableCell sx={{ ...th, width: 96 }}>Actions</TableCell>}
-                    </TableRow></TableHead>
-                    <TableBody>
-                      {plants.map((p) => (
-                        <TableRow key={p.id} hover sx={{ cursor: 'pointer' }} onClick={() => { setSlPlantId(p.id); setTab(1); }}>
-                          <TableCell sx={td}><Mono chip>{p.code}</Mono></TableCell>
-                          <TableCell sx={td}>{p.name}</TableCell>
-                          {canManage && (
-                            <TableCell sx={td}>
-                              <Tooltip title="Edit"><IconButton size="small" onClick={(e) => { e.stopPropagation(); setPlantDialog({ open: true, item: p }); }}><EditRounded fontSize="small" /></IconButton></Tooltip>
-                              <Tooltip title="Delete"><IconButton size="small" color="error" onClick={(e) => { e.stopPropagation(); setPlantDelete(p); }}><DeleteOutlineRounded fontSize="small" /></IconButton></Tooltip>
-                            </TableCell>
-                          )}
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </Surface>
+                <EntityList>
+                  {plants.map((p) => (
+                    <EntityRow
+                      key={p.id}
+                      code={<Mono chip>{p.code}</Mono>}
+                      primary={p.name}
+                      onClick={() => { setSlPlantId(p.id); setTab(1); }}
+                      actions={canManage ? (<>
+                        <Tooltip title="Edit"><IconButton size="small" onClick={() => setPlantDialog({ open: true, item: p })}><EditRounded fontSize="small" /></IconButton></Tooltip>
+                        <Tooltip title="Delete"><IconButton size="small" color="error" onClick={() => setPlantDelete(p)}><DeleteOutlineRounded fontSize="small" /></IconButton></Tooltip>
+                      </>) : undefined}
+                    />
+                  ))}
+                </EntityList>
               )}
             </>
           )}
@@ -344,29 +336,21 @@ export default function Plants() {
                 {slLoading ? <ListSkeleton rows={3} /> : stockLocations.length === 0 ? (
                   <EmptyState title="No stock locations for this plant" />
                 ) : (
-                  <Surface e={1} sx={{ overflow: 'hidden' }}>
-                    <Table size="small">
-                      <TableHead><TableRow sx={{ background: 'var(--c-surface-2)' }}>
-                        <TableCell sx={th}>Name</TableCell><TableCell sx={th}>Code</TableCell><TableCell sx={th}>Description</TableCell>
-                        {canManageStockLocations && <TableCell sx={{ ...th, width: 96 }}>Actions</TableCell>}
-                      </TableRow></TableHead>
-                      <TableBody>
-                        {stockLocations.map((sl) => (
-                          <TableRow key={sl.id} hover sx={{ cursor: 'pointer' }} onClick={() => { setSlvPlantId(slPlantId); setSlvStockLocationId(sl.id); setTab(2); }}>
-                            <TableCell sx={td}>{sl.name}</TableCell>
-                            <TableCell sx={td}><Mono chip>{sl.code}</Mono></TableCell>
-                            <TableCell sx={td}>{sl.description ?? <Typography sx={{ color: 'var(--c-text-3)' }}>—</Typography>}</TableCell>
-                            {canManageStockLocations && (
-                              <TableCell sx={td}>
-                                <Tooltip title="Edit"><IconButton size="small" onClick={(e) => { e.stopPropagation(); setSlDialog({ open: true, item: sl }); }}><EditRounded fontSize="small" /></IconButton></Tooltip>
-                                <Tooltip title="Delete"><IconButton size="small" color="error" onClick={(e) => { e.stopPropagation(); setSlDelete(sl); }}><DeleteOutlineRounded fontSize="small" /></IconButton></Tooltip>
-                              </TableCell>
-                            )}
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </Surface>
+                  <EntityList>
+                    {stockLocations.map((sl) => (
+                      <EntityRow
+                        key={sl.id}
+                        code={<Mono chip>{sl.code}</Mono>}
+                        primary={sl.name}
+                        secondary={sl.description ?? undefined}
+                        onClick={() => { setSlvPlantId(slPlantId); setSlvStockLocationId(sl.id); setTab(2); }}
+                        actions={canManageStockLocations ? (<>
+                          <Tooltip title="Edit"><IconButton size="small" onClick={() => setSlDialog({ open: true, item: sl })}><EditRounded fontSize="small" /></IconButton></Tooltip>
+                          <Tooltip title="Delete"><IconButton size="small" color="error" onClick={() => setSlDelete(sl)}><DeleteOutlineRounded fontSize="small" /></IconButton></Tooltip>
+                        </>) : undefined}
+                      />
+                    ))}
+                  </EntityList>
                 )}
               </>
             )
