@@ -40,6 +40,8 @@ const FAB_ERP_SECTIONS: Record<string, string> = {
   'routing-plans': 'BOMs & Routings',
   'shift-calendars': 'Shift Calendars',
   suppliers: 'Suppliers',
+  customers: 'Customers',
+  'codegen-settings': 'Code Generation',
 };
 
 /** Top-bar breadcrumb for fab_erp: Fab ERP / Section [/ detail]. */

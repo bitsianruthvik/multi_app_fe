@@ -6,10 +6,12 @@ import Inventory2RoundedIcon      from '@mui/icons-material/Inventory2Rounded';
 import LocalShippingRoundedIcon   from '@mui/icons-material/LocalShippingRounded';
 import ReceiptLongRoundedIcon     from '@mui/icons-material/ReceiptLongRounded';
 import HandshakeRoundedIcon       from '@mui/icons-material/HandshakeRounded';
+import PeopleAltRoundedIcon       from '@mui/icons-material/PeopleAltRounded';
 import RouteRoundedIcon           from '@mui/icons-material/RouteRounded';
 import AutoGraphRoundedIcon       from '@mui/icons-material/AutoGraphRounded';
 import CalendarViewWeekRoundedIcon from '@mui/icons-material/CalendarViewWeekRounded';
 import AccountTreeRoundedIcon      from '@mui/icons-material/AccountTreeRounded';
+import TuneRoundedIcon            from '@mui/icons-material/TuneRounded';
 import type { NavItem } from '@core/components/Sidebar';
 
 function buildUserNav(company: string, app: string): NavItem[] {
@@ -33,6 +35,8 @@ function buildUserNav(company: string, app: string): NavItem[] {
     { label: 'Resource Catalog',    icon: React.createElement(CategoryRoundedIcon),         to: `${base}/resource-types`, end: false, permission: 'fab_erp_resources_view',  section: CONFIGURE },
     { label: 'BOMs & Routings',     icon: React.createElement(RouteRoundedIcon),            to: `${base}/routing-plans`,  end: false, permission: 'fab_erp_resources_view',  section: CONFIGURE },
     { label: 'Suppliers',           icon: React.createElement(HandshakeRoundedIcon),        to: `${base}/suppliers`,      end: false, permission: 'fab_erp_grn_view',        section: CONFIGURE },
+    { label: 'Customers',           icon: React.createElement(PeopleAltRoundedIcon),        to: `${base}/customers`,      end: false, permission: 'fab_erp_projects_view',   section: CONFIGURE },
+    { label: 'Code Generation',     icon: React.createElement(TuneRoundedIcon),             to: `${base}/codegen-settings`, end: false, permission: 'fab_erp_items_meta_view', section: CONFIGURE },
   ];
 }
 

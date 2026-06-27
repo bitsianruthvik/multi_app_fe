@@ -474,6 +474,33 @@ export interface FabSupplier extends FabBase {
 }
 
 /**
+ * fab_customers: Customer master data
+ */
+export interface FabCustomer extends FabBase {
+  name: string;
+  code: string;
+  contactName: string | null;
+  phone: string | null;
+  email: string | null;
+  address: string | null;
+  notes: string | null;
+}
+
+export type CodegenSegment =
+  | { type: 'fixed'; value: string }
+  | { type: 'free_text'; value: string }
+  | { type: 'date'; format: 'YYYY' | 'YY' | 'MM' | 'DD' | 'YYMM' | 'YYYYMM' | 'YYYYMMDD' }
+  | { type: 'category_shortform'; length: number }
+  | { type: 'sequence'; digits: number; resetPeriod: 'never' | 'yearly' | 'monthly' };
+
+export interface FabCodegenRule {
+  segments: CodegenSegment[];
+  nextSeq: number;
+  seqPeriodKey: string | null;
+  isDefault: boolean;
+}
+
+/**
  * fab_stock_balance: Qty on hand, ordered, and earmarked per item/plant/location
  */
 export interface FabStockBalance extends FabBase {

@@ -7,8 +7,9 @@ import {
 import AddIcon from '@mui/icons-material/Add';
 import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
 import EditRounded from '@mui/icons-material/EditRounded';
+import AutorenewRounded from '@mui/icons-material/AutorenewRounded';
 
-import { fabQuery, fabMutate } from '@apps/fab_erp/api/client';
+import { fabQuery, fabMutate, fabPost } from '@apps/fab_erp/api/client';
 import type { FabPlant, FabStockLocation, FabItemBatch, FabStockBalance, FabStockPolicy } from '@apps/fab_erp/types';
 import { usePermission } from '@core/hooks/usePermission';
 import { Surface, PageHeader, Mono, StatusBadge, EmptyState, ListSkeleton, useToast, EntityList, EntityRow, SortableTableHead, type SortableColumn } from '../components';
@@ -46,6 +47,7 @@ function PlantDialog({ open, initial, onClose, onSaved }: {
   const [draft, setDraft] = useState<PlantDraft>(BLANK_PLANT());
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
+  const [generatingCode, setGeneratingCode] = useState(false);
   const isNew = !initial;
 
   useEffect(() => {
@@ -55,6 +57,15 @@ function PlantDialog({ open, initial, onClose, onSaved }: {
   }, [open, initial]);
 
   const set = (k: keyof PlantDraft, v: string) => setDraft((d) => ({ ...d, [k]: v }));
+
+  async function generateCode() {
+    setGeneratingCode(true);
+    try {
+      const res = await fabPost<{ code: string }>('codegen/next-code', { entityType: 'plant', context: {} });
+      set('code', res.code);
+    } catch { /* leave code field as-is */ }
+    finally { setGeneratingCode(false); }
+  }
 
   async function save() {
     setSaving(true); setErr('');
@@ -74,7 +85,16 @@ function PlantDialog({ open, initial, onClose, onSaved }: {
       <DialogContent dividers sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
         {err && <Alert severity="error">{err}</Alert>}
         <Grid container spacing={2}>
-          <Grid size={{ xs: 12, sm: 5 }}><TextField label="Code" value={draft.code} onChange={(e) => set('code', e.target.value)} size="small" fullWidth required /></Grid>
+          <Grid size={{ xs: 12, sm: 5 }}>
+            <TextField label="Code" value={draft.code} onChange={(e) => set('code', e.target.value)} size="small" fullWidth required
+              slotProps={{ input: { endAdornment: (
+                <Tooltip title="Generate code from the company's plant code rule">
+                  <IconButton size="small" onClick={generateCode} disabled={generatingCode}>
+                    {generatingCode ? <CircularProgress size={14} /> : <AutorenewRounded fontSize="small" />}
+                  </IconButton>
+                </Tooltip>
+              ) } }} />
+          </Grid>
           <Grid size={{ xs: 12, sm: 7 }}><TextField label="Name" value={draft.name} onChange={(e) => set('name', e.target.value)} size="small" fullWidth required /></Grid>
         </Grid>
       </DialogContent>

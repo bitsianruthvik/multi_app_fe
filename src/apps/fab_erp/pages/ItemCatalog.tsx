@@ -53,8 +53,9 @@ import DownloadIcon    from '@mui/icons-material/Download';
 import UploadFileIcon  from '@mui/icons-material/UploadFile';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import ExpandMoreIcon  from '@mui/icons-material/ExpandMore';
+import AutorenewRounded from '@mui/icons-material/AutorenewRounded';
 
-import { fabQuery, fabMutate } from '../api/client';
+import { fabQuery, fabMutate, fabPost } from '../api/client';
 import type {
   FabItemCatalog, FabItemCategory, FabItemGroup, FabItemSubgroup, FabCustomField,
 } from '../types';
@@ -631,6 +632,7 @@ function CatalogDialog({ open, initial, categories, groups, subgroups, canManage
   const [categoryError, setCategoryError] = useState('');
   const [addingLevel, setAddingLevel] = useState<'category' | 'group' | 'subgroup' | null>(null);
   const [customFields, setCustomFields] = useState<CustomFieldDraft[]>([]);
+  const [generatingCode, setGeneratingCode] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -691,6 +693,17 @@ function CatalogDialog({ open, initial, categories, groups, subgroups, canManage
     if (level === 'subgroup') setDraft((d) => ({ ...d, subgroupId: id }));
   }
   const pn = (v: string) => v.trim() === '' ? null : Number(v);
+
+  async function generateCode() {
+    setGeneratingCode(true);
+    try {
+      const res = await fabPost<{ code: string }>('codegen/next-code', {
+        entityType: 'item', context: { categoryId: draft.categoryId },
+      });
+      set('code', res.code);
+    } catch { /* leave code field as-is */ }
+    finally { setGeneratingCode(false); }
+  }
 
   function addCf() {
     if (customFields.length >= 10) return;
@@ -809,7 +822,14 @@ function CatalogDialog({ open, initial, categories, groups, subgroups, canManage
           <TextField label="Item Name" value={draft.name} size="small" required autoFocus sx={{ flex: 3 }}
             onChange={(e) => set('name', e.target.value)} />
           <TextField label="Code" value={draft.code} size="small" required sx={{ flex: 1 }}
-            onChange={(e) => set('code', e.target.value)} />
+            onChange={(e) => set('code', e.target.value)}
+            slotProps={{ input: { endAdornment: (
+              <Tooltip title="Generate code from the company's item code rule">
+                <IconButton size="small" onClick={generateCode} disabled={generatingCode}>
+                  {generatingCode ? <CircularProgress size={14} /> : <AutorenewRounded fontSize="small" />}
+                </IconButton>
+              </Tooltip>
+            ) } }} />
           <Autocomplete freeSolo options={STANDARD_UOMS.map((u) => u.value)} sx={{ flex: 1 }}
             value={draft.unit}
             onInputChange={(_, value) => set('unit', value)}

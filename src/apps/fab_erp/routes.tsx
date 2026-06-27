@@ -18,6 +18,8 @@ const SalesOrders        = lazy(() => import('./pages/SalesOrders'));
 const SalesOrderDetail   = lazy(() => import('./pages/SalesOrderDetail'));
 const Suppliers          = lazy(() => import('./pages/Suppliers'));
 const SupplierDetail     = lazy(() => import('./pages/SupplierDetail'));
+const Customers          = lazy(() => import('./pages/Customers'));
+const CodegenSettings    = lazy(() => import('./pages/CodegenSettings'));
 const BomsAndRoutings    = lazy(() => import('./pages/BomsAndRoutings'));
 const RoutingPlanBuilder = lazy(() => import('./pages/RoutingPlanBuilder'));
 const MrpRun             = lazy(() => import('./pages/MrpRun'));
@@ -53,6 +55,8 @@ export function getFabErpRoutes(
     { path: '/:company/fab_erp/orders/:soId',                 element: wrap(<SalesOrderDetail />) },
     { path: '/:company/fab_erp/suppliers',                   element: wrap(<Suppliers />) },
     { path: '/:company/fab_erp/suppliers/:supplierId',       element: wrap(<SupplierDetail />) },
+    { path: '/:company/fab_erp/customers',                   element: wrap(<Customers />) },
+    { path: '/:company/fab_erp/codegen-settings',            element: wrap(<CodegenSettings />) },
     { path: '/:company/fab_erp/routing-plans',              element: wrap(<BomsAndRoutings />) },
     { path: '/:company/fab_erp/routing-plans/:planId',      element: wrap(<RoutingPlanBuilder />) },
     { path: '/:company/fab_erp/mrp',                        element: wrap(<MrpRun />) },

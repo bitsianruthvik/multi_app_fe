@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
-  Alert, Box, Button, CircularProgress, Dialog, DialogActions,
+  Alert, Autocomplete, Box, Button, CircularProgress, Dialog, DialogActions,
   DialogContent, DialogTitle, IconButton, MenuItem, TextField, Tooltip, Typography,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
@@ -22,12 +22,15 @@ import { statusFamily } from '../statusMap';
 
 interface FabOrder {
   id: number; companyId: number; orderNumber: string; orderType: string; type: string; status: string;
-  customerName?: string; customerPoRef?: string; supplierRef?: string;
+  customerId?: number; customerName?: string; customerPoRef?: string;
+  supplierId?: number; supplierName?: string; supplierRef?: string;
   plantId?: number; plantName?: string;
   requiredDate?: string; confirmedDate?: string; scheduledShipDate?: string;
   priority?: string; mrpController?: string; notes?: string;
   createdAt: string; updatedAt: string; deletedAt: string | null;
 }
+
+interface PickerOption { id: number; name: string; code: string }
 
 const ORDER_TYPE_CONFIG: Record<string, { label: string; subtypes: string[]; statuses: string[] }> = {
   sales:         { label: 'Sales Order',       subtypes: ['standard', 'rush', 'blanket', 'internal'],                  statuses: ['draft', 'confirmed', 'in_production', 'shipped', 'closed', 'cancelled'] },
@@ -69,7 +72,7 @@ function stageOf(status: string): string {
 function orderSummary(o: FabOrder): string {
   if (o.orderType === 'sales') return o.customerName || 'No customer';
   if (o.orderType === 'purchase' || o.orderType === 'subcontract')
-    return o.supplierRef ? `Ref: ${o.supplierRef}` : 'No supplier ref';
+    return o.supplierName || (o.supplierRef ? `Ref: ${o.supplierRef}` : 'No supplier');
   return ORDER_TYPE_CONFIG[o.orderType]?.label ?? o.orderType;
 }
 
@@ -78,13 +81,14 @@ function orderSummary(o: FabOrder): string {
 // ─────────────────────────────────────────────────────────────────────────────
 interface OrderDraft {
   orderNumber: string; orderType: string; type: string; status: string;
-  customerName: string; customerPoRef: string; supplierRef: string;
+  customerId: number | null; customerPoRef: string;
+  supplierId: number | null; supplierRef: string;
   priority: string; requiredDate: string; confirmedDate: string;
 }
 const BLANK = (orderType = 'sales'): OrderDraft => ({
   orderNumber: '', orderType,
   type: ORDER_TYPE_CONFIG[orderType]?.subtypes[0] ?? 'standard',
-  status: 'draft', customerName: '', customerPoRef: '', supplierRef: '',
+  status: 'draft', customerId: null, customerPoRef: '', supplierId: null, supplierRef: '',
   priority: '', requiredDate: '', confirmedDate: '',
 });
 
@@ -96,23 +100,33 @@ function OrderDialog({ open, initial, defaultOrderType, onClose, onSaved }: {
   const [draft, setDraft] = useState<OrderDraft>(BLANK());
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
+  const [customers, setCustomers] = useState<PickerOption[]>([]);
+  const [suppliers, setSuppliers] = useState<PickerOption[]>([]);
+
+  useEffect(() => {
+    if (!open) return;
+    fabQuery<{ data: PickerOption[] }>('fabErpCustomer', { orderBy: [{ field: 'name', direction: 'asc' }], pagination: { limit: 500 } })
+      .then((res) => setCustomers(res.data ?? [])).catch(() => setCustomers([]));
+    fabQuery<{ data: PickerOption[] }>('fabErpSupplier', { orderBy: [{ field: 'name', direction: 'asc' }], pagination: { limit: 500 } })
+      .then((res) => setSuppliers(res.data ?? [])).catch(() => setSuppliers([]));
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
     setErr('');
     setDraft(initial ? {
       orderNumber: initial.orderNumber, orderType: initial.orderType, type: initial.type ?? '',
-      status: initial.status, customerName: initial.customerName ?? '', customerPoRef: initial.customerPoRef ?? '',
-      supplierRef: initial.supplierRef ?? '', priority: initial.priority ?? '',
+      status: initial.status, customerId: initial.customerId ?? null, customerPoRef: initial.customerPoRef ?? '',
+      supplierId: initial.supplierId ?? null, supplierRef: initial.supplierRef ?? '', priority: initial.priority ?? '',
       requiredDate: initial.requiredDate?.slice(0, 10) ?? '', confirmedDate: initial.confirmedDate?.slice(0, 10) ?? '',
     } : BLANK(defaultOrderType ?? 'sales'));
   }, [open, initial, defaultOrderType]);
 
-  const set = (k: keyof OrderDraft, v: string) =>
+  const set = <K extends keyof OrderDraft>(k: K, v: OrderDraft[K]) =>
     setDraft((d) => {
       const next = { ...d, [k]: v };
       if (k === 'orderType') {
-        const cfg = ORDER_TYPE_CONFIG[v];
+        const cfg = ORDER_TYPE_CONFIG[v as string];
         next.type = cfg?.subtypes[0] ?? 'standard';
         next.status = 'draft';
       }
@@ -122,15 +136,21 @@ function OrderDialog({ open, initial, defaultOrderType, onClose, onSaved }: {
   const cfg = ORDER_TYPE_CONFIG[draft.orderType];
   const showCustomer = ['sales'].includes(draft.orderType);
   const showSupplier = ['purchase', 'subcontract'].includes(draft.orderType);
+  const customerMissing = showCustomer && !draft.customerId;
+  const supplierMissing = showSupplier && !draft.supplierId;
 
   async function save() {
     if (!draft.orderNumber.trim()) { setErr('Order number is required.'); return; }
+    if (customerMissing) { setErr('Customer is required for sales orders.'); return; }
+    if (supplierMissing) { setErr('Supplier is required for purchase/subcontract orders.'); return; }
     setSaving(true); setErr('');
     try {
+      const selectedCustomer = customers.find((c) => c.id === draft.customerId);
       const payload: Record<string, unknown> = {
         order_number: draft.orderNumber.trim(), order_type: draft.orderType, type: draft.type || null,
-        status: draft.status, customer_name: draft.customerName.trim() || null,
-        customer_po_ref: draft.customerPoRef.trim() || null, supplier_ref: draft.supplierRef.trim() || null,
+        status: draft.status, customer_id: draft.customerId, customer_name: selectedCustomer?.name ?? null,
+        customer_po_ref: draft.customerPoRef.trim() || null,
+        supplier_id: draft.supplierId, supplier_ref: draft.supplierRef.trim() || null,
         priority: draft.priority || null, required_date: draft.requiredDate || null,
         confirmed_date: draft.confirmedDate || null,
       };
@@ -171,15 +191,33 @@ function OrderDialog({ open, initial, defaultOrderType, onClose, onSaved }: {
             {ALL_PRIORITIES.map((p) => <MenuItem key={p} value={p}>{p}</MenuItem>)}
           </TextField>
           {showCustomer && (<>
-            <TextField label="Customer name" value={draft.customerName} size="small"
-              onChange={(e) => set('customerName', e.target.value)} />
+            <Autocomplete
+              options={customers}
+              getOptionLabel={(o) => `${o.code} — ${o.name}`}
+              isOptionEqualToValue={(o, v) => o.id === v.id}
+              value={customers.find((c) => c.id === draft.customerId) ?? null}
+              onChange={(_, v) => set('customerId', v?.id ?? null)}
+              renderInput={(params) => (
+                <TextField {...params} label="Customer *" size="small" error={customerMissing} helperText={customerMissing ? 'Required' : ' '} />
+              )}
+            />
             <TextField label="Customer PO ref" value={draft.customerPoRef} size="small"
               onChange={(e) => set('customerPoRef', e.target.value)} />
           </>)}
-          {showSupplier && (
+          {showSupplier && (<>
+            <Autocomplete
+              options={suppliers}
+              getOptionLabel={(o) => `${o.code} — ${o.name}`}
+              isOptionEqualToValue={(o, v) => o.id === v.id}
+              value={suppliers.find((s) => s.id === draft.supplierId) ?? null}
+              onChange={(_, v) => set('supplierId', v?.id ?? null)}
+              renderInput={(params) => (
+                <TextField {...params} label="Supplier *" size="small" error={supplierMissing} helperText={supplierMissing ? 'Required' : ' '} />
+              )}
+            />
             <TextField label="Supplier ref" value={draft.supplierRef} size="small"
               onChange={(e) => set('supplierRef', e.target.value)} />
-          )}
+          </>)}
           <TextField label="Required date" value={draft.requiredDate} size="small" type="date"
             slotProps={{ inputLabel: { shrink: true } }} onChange={(e) => set('requiredDate', e.target.value)} />
           <TextField label="Confirmed date" value={draft.confirmedDate} size="small" type="date"
@@ -188,7 +226,7 @@ function OrderDialog({ open, initial, defaultOrderType, onClose, onSaved }: {
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose}>Cancel</Button>
-        <Button variant="contained" onClick={save} disabled={saving || !draft.orderNumber.trim()}>
+        <Button variant="contained" onClick={save} disabled={saving || !draft.orderNumber.trim() || customerMissing || supplierMissing}>
           {saving ? <CircularProgress size={16} color="inherit" /> : 'Save'}
         </Button>
       </DialogActions>
