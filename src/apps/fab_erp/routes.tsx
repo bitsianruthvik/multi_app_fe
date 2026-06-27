@@ -18,7 +18,7 @@ const SalesOrders        = lazy(() => import('./pages/SalesOrders'));
 const SalesOrderDetail   = lazy(() => import('./pages/SalesOrderDetail'));
 const Suppliers          = lazy(() => import('./pages/Suppliers'));
 const SupplierDetail     = lazy(() => import('./pages/SupplierDetail'));
-const RoutingPlans       = lazy(() => import('./pages/RoutingPlans'));
+const BomsAndRoutings    = lazy(() => import('./pages/BomsAndRoutings'));
 const RoutingPlanBuilder = lazy(() => import('./pages/RoutingPlanBuilder'));
 const MrpRun             = lazy(() => import('./pages/MrpRun'));
 const SchedulerPage      = lazy(() => import('./pages/SchedulerPage'));
@@ -53,7 +53,7 @@ export function getFabErpRoutes(
     { path: '/:company/fab_erp/orders/:soId',                 element: wrap(<SalesOrderDetail />) },
     { path: '/:company/fab_erp/suppliers',                   element: wrap(<Suppliers />) },
     { path: '/:company/fab_erp/suppliers/:supplierId',       element: wrap(<SupplierDetail />) },
-    { path: '/:company/fab_erp/routing-plans',              element: wrap(<RoutingPlans />) },
+    { path: '/:company/fab_erp/routing-plans',              element: wrap(<BomsAndRoutings />) },
     { path: '/:company/fab_erp/routing-plans/:planId',      element: wrap(<RoutingPlanBuilder />) },
     { path: '/:company/fab_erp/mrp',                        element: wrap(<MrpRun />) },
     { path: '/:company/fab_erp/scheduler',                  element: wrap(<SchedulerPage />) },

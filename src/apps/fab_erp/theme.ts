@@ -141,19 +141,26 @@ export function createFabErpTheme(mode: AppThemeMode) {
       },
       MuiBackdrop: {
         styleOverrides: {
-          root: {
-            backgroundColor: 'var(--glass-bg)',
-            backdropFilter: 'var(--glass-blur)',
-            WebkitBackdropFilter: 'var(--glass-blur)',
-            '@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)))': {
-              backgroundColor: isDark ? 'rgba(12,14,23,.72)' : 'rgba(26,28,46,.48)',
-            },
-            '@media (prefers-reduced-transparency: reduce)': {
-              backgroundColor: isDark ? 'rgba(12,14,23,.72)' : 'rgba(26,28,46,.48)',
-              backdropFilter: 'none',
-              WebkitBackdropFilter: 'none',
-            },
-          },
+          // Select/Menu/Autocomplete popovers render an *invisible* Backdrop by
+          // default (click-through, no scrim). Only apply the glass scrim to
+          // real modal backdrops (Dialog/Drawer) — otherwise every dropdown
+          // inherits the heavy modal fog. See DESIGN_SYSTEM.md §5.3.
+          root: ({ ownerState }: { ownerState: { invisible?: boolean } }) =>
+            ownerState.invisible
+              ? { backgroundColor: 'transparent' }
+              : {
+                  backgroundColor: 'var(--glass-bg)',
+                  backdropFilter: 'var(--glass-blur)',
+                  WebkitBackdropFilter: 'var(--glass-blur)',
+                  '@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)))': {
+                    backgroundColor: isDark ? 'rgba(12,14,23,.72)' : 'rgba(26,28,46,.48)',
+                  },
+                  '@media (prefers-reduced-transparency: reduce)': {
+                    backgroundColor: isDark ? 'rgba(12,14,23,.72)' : 'rgba(26,28,46,.48)',
+                    backdropFilter: 'none',
+                    WebkitBackdropFilter: 'none',
+                  },
+                },
         },
       },
     },

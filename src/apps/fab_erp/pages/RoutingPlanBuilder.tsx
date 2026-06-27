@@ -243,6 +243,7 @@ interface StepPanelProps {
   onSaveFormula:   (formulaType: FormulaType, expression: string) => Promise<void>;
   onClose:         () => void;
   planStatus:      FabRoutingPlan['status'];
+  viewOnly?:       boolean;
 }
 
 function StepPanel(p: StepPanelProps) {
@@ -290,7 +291,7 @@ function StepPanel(p: StepPanelProps) {
       .then(r => setRtVars(r.vars ?? [])).catch(() => setRtVars([]));
   }, [rtId]);
 
-  const isRO = p.planStatus !== 'draft';
+  const isRO = p.planStatus !== 'draft' || !!p.viewOnly;
   const addedBomIds = new Set(p.inputs.map(i => i.bomItemId).filter(Boolean));
   const remainComps = p.bomComponents.filter(b => !addedBomIds.has(b.id));
   const remainCoProd = p.bomCoProducts.filter(b => !p.outputs.some(o => o.name === b.name));
@@ -621,10 +622,23 @@ function StepPanel(p: StepPanelProps) {
 
 // ─── Main Builder ─────────────────────────────────────────────────────────────
 
-function RoutingPlanBuilderInner() {
-  const { company, planId } = useParams<{ company: string; planId: string }>();
+interface RoutingPlanCanvasProps {
+  /** Routing plan id. When used as the full page, the wrapper reads this from the URL. */
+  planId:    number;
+  /** Disables all editing (add/delete/connect/drag/release) regardless of plan status — used when
+   *  embedded read-only in RouteDialog. The plan's own status-driven read-only (non-draft) still applies. */
+  readOnly?: boolean;
+  /** Overrides the back button's navigation (e.g. close a dialog instead of navigating away). */
+  onBack?:   () => void;
+  /** Extra controls rendered at the end of the top bar (e.g. a View/Edit toggle when embedded). */
+  toolbarRight?: React.ReactNode;
+}
+
+function RoutingPlanCanvasInner({ planId: planIdProp, readOnly = false, onBack, toolbarRight }: RoutingPlanCanvasProps) {
+  const { company } = useParams<{ company: string }>();
   const navigate = useNavigate();
   const { screenToFlowPosition, fitView } = useReactFlow();
+  const planId = String(planIdProp);
 
   const [full,          setFull]          = useState<FullPlan | null>(null);
   const [nodes,         setNodes,         onNodesChange] = useNodesState<NodeData>([]);
@@ -915,19 +929,20 @@ function RoutingPlanBuilderInner() {
 
   if (loading) return <Box display="flex" justifyContent="center" p={6}><CircularProgress /></Box>;
 
-  const plan    = full?.plan;
-  const isDraft = plan?.status === 'draft';
+  const plan     = full?.plan;
+  const isDraft  = plan?.status === 'draft';
+  const editable = isDraft && !readOnly;
 
   const stepInputs   = selectedStep ? (full?.inputs[selectedStep.id]   ?? []) : [];
   const stepOutputs  = selectedStep ? (full?.outputs[selectedStep.id]  ?? []) : [];
   const stepFormulas = selectedStep ? (full?.formulas[selectedStep.id] ?? []) : [];
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
+    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
       {/* ── Top Bar ── */}
       <Box sx={{ px: 2, py: 1, borderBottom: '1px solid', borderColor: 'divider',
         background: 'background.paper', display: 'flex', alignItems: 'center', gap: 1.5, flexShrink: 0 }}>
-        <IconButton size="small" onClick={() => navigate(`/${company}/fab_erp/routing-plans`)}>
+        <IconButton size="small" onClick={() => (onBack ? onBack() : navigate(`/${company}/fab_erp/routing-plans`))}>
           <ArrowBackIcon />
         </IconButton>
         <Box sx={{ minWidth: 0 }}>
@@ -939,12 +954,12 @@ function RoutingPlanBuilderInner() {
         <Tooltip title="Auto-arrange nodes left to right">
           <span>
             <Button size="small" startIcon={<AccountTreeIcon />} onClick={handleAutoLayout}
-              disabled={nodes.length < 2}>
+              disabled={nodes.length < 2 || !editable}>
               Layout
             </Button>
           </span>
         </Tooltip>
-        {isDraft && (
+        {editable && (
           <Tooltip title="Double-click canvas to add at position">
             <Button size="small" startIcon={<AddIcon />} variant="outlined"
               onClick={() => {/* handled by double-click, but button still available */
@@ -980,12 +995,13 @@ function RoutingPlanBuilderInner() {
           </Tooltip>
         )}
         <Button size="small" startIcon={<VerifiedIcon />} onClick={handleValidate}>Validate</Button>
-        {isDraft && (
+        {editable && (
           <Button size="small" variant="contained" color="success"
             startIcon={<PublishIcon />} onClick={handleRelease} disabled={!validated}>
             Release
           </Button>
         )}
+        {toolbarRight}
       </Box>
 
       {/* ── Alerts ── */}
@@ -1063,15 +1079,17 @@ function RoutingPlanBuilderInner() {
           <ReactFlow
             nodes={nodes} edges={edges} nodeTypes={nodeTypes}
             onNodesChange={onNodesChange} onEdgesChange={onEdgesChange}
-            onConnect={isDraft ? onConnect : undefined}
-            onEdgesDelete={isDraft ? onEdgesDelete : undefined}
-            onNodeDragStop={isDraft ? onNodeDragStop : undefined}
+            onConnect={editable ? onConnect : undefined}
+            onEdgesDelete={editable ? onEdgesDelete : undefined}
+            onNodeDragStop={editable ? onNodeDragStop : undefined}
             onNodeClick={onNodeClick}
-            onDragOver={onCanvasDragOver}
-            onDrop={onCanvasDrop}
+            onDragOver={editable ? onCanvasDragOver : undefined}
+            onDrop={editable ? onCanvasDrop : undefined}
             onDragLeave={() => setDropTargetId(null)}
+            nodesDraggable={editable}
+            nodesConnectable={editable}
             fitView fitViewOptions={{ padding: 0.25 }}
-            deleteKeyCode={isDraft ? 'Backspace' : null}>
+            deleteKeyCode={editable ? 'Backspace' : null}>
             <Background variant={BackgroundVariant.Dots} gap={16} size={1} />
             <Controls />
             <MiniMap nodeStrokeWidth={3} />
@@ -1100,6 +1118,7 @@ function RoutingPlanBuilderInner() {
               onSaveFormula={handleSaveFormula}
               onClose={() => setSelectedStep(null)}
               planStatus={plan?.status ?? 'draft'}
+              viewOnly={readOnly}
             />
           </Box>
         )}
@@ -1108,6 +1127,18 @@ function RoutingPlanBuilderInner() {
   );
 }
 
+/** Reusable canvas — embed in a Dialog (RouteDialog) or mount full-page (below). */
+export function RoutingPlanCanvas(props: RoutingPlanCanvasProps) {
+  return <ReactFlowProvider><RoutingPlanCanvasInner {...props} /></ReactFlowProvider>;
+}
+
+/** Full-page route (`/routing-plans/:planId`) — reads the plan id from the URL. */
 export default function RoutingPlanBuilder() {
-  return <ReactFlowProvider><RoutingPlanBuilderInner /></ReactFlowProvider>;
+  const { planId } = useParams<{ planId: string }>();
+  if (!planId) return null;
+  return (
+    <Box sx={{ height: '100vh' }}>
+      <RoutingPlanCanvas planId={Number(planId)} />
+    </Box>
+  );
 }

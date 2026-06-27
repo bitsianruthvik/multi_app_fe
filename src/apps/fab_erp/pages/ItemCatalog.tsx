@@ -9,6 +9,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
+  Accordion,
+  AccordionDetails,
+  AccordionSummary,
   Alert,
   Autocomplete,
   Box,
@@ -34,10 +37,12 @@ import {
   TableHead,
   TableRow,
   Tabs,
+  TableSortLabel,
   TextField,
   Tooltip,
   Typography,
 } from '@mui/material';
+import { FixedSizeList, type ListChildComponentProps } from 'react-window';
 import AddIcon         from '@mui/icons-material/Add';
 import DeleteIcon      from '@mui/icons-material/Delete';
 import SearchIcon      from '@mui/icons-material/Search';
@@ -47,6 +52,7 @@ import EditIcon        from '@mui/icons-material/Edit';
 import DownloadIcon    from '@mui/icons-material/Download';
 import UploadFileIcon  from '@mui/icons-material/UploadFile';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import ExpandMoreIcon  from '@mui/icons-material/ExpandMore';
 
 import { fabQuery, fabMutate } from '../api/client';
 import type {
@@ -55,7 +61,7 @@ import type {
 import { usePermission } from '@core/hooks/usePermission';
 import InfoTooltip, { type InfoContent } from '@shared/components/InfoTooltip';
 import api, { API_HOST } from '@core/utils/axiosConfig';
-import { Surface, PageHeader, Mono, StatusBadge, EmptyState, ListSkeleton, EntityList, EntityRow, useToast, SortableTableHead, type SortableColumn } from '../components';
+import { Surface, PageHeader, Mono, StatusBadge, EmptyState, ListSkeleton, EntityList, EntityRow, useToast, type SortableColumn } from '../components';
 import { useSortableData } from '../hooks/useSortableData';
 import { STANDARD_UOMS } from '../constants/uom';
 
@@ -83,6 +89,17 @@ const ITEM_COLUMNS: SortableColumn<FabItemCatalog>[] = [
   { key: 'hsnCode',        label: 'HSN',          sx: { ...TH, width: 100 } },
   { key: 'division',       label: 'Division',     sx: { ...TH, width: 100 } },
 ];
+
+// Fixed pixel widths per column, used by the virtualized row/header below —
+// row virtualization needs deterministic widths (unlike a normal flexible <table>).
+const ITEM_COL_WIDTH: Record<string, number> = {
+  name: 220, code: 110, unit: 70, description: 220, categoryName: 130, groupName: 130,
+  subgroupName: 130, grossWeight: 95, netWeight: 90, weightUnit: 60, volume: 80, volumeUnit: 60,
+  length: 80, width: 80, height: 80, dimensionUnit: 60, barcode: 130, hsnCode: 100, division: 100,
+};
+const BATCHES_COL_WIDTH = 64;
+const ACTIONS_COL_WIDTH = 84;
+const ROW_HEIGHT = 38;
 
 // ─── INFO TOOLTIP CONTENT ─────────────────────────────────────────────────────
 // INFO_TOOLTIP — update this block whenever features on this page change.
@@ -639,6 +656,10 @@ function CatalogDialog({ open, initial, categories, groups, subgroups, canManage
   }, [open, initial]);
 
   const set = (k: keyof ItemDraft, v: string) => setDraft((d) => ({ ...d, [k]: v }));
+  const advancedFieldCount = ([
+    draft.grossWeight, draft.netWeight, draft.volume, draft.length, draft.width, draft.height,
+    draft.barcode, draft.hsnCode, draft.division,
+  ] as string[]).filter((v) => v.trim() !== '').length;
   const availableGroups    = groups.filter((g) => !draft.categoryId || g.categoryId === draft.categoryId);
   const availableSubgroups = subgroups.filter((s) => !draft.groupId || s.groupId === draft.groupId);
 
@@ -826,28 +847,6 @@ function CatalogDialog({ open, initial, categories, groups, subgroups, canManage
             </Select>
           </Box>
         </Box>
-        <Typography variant="subtitle2" color="text.secondary" sx={{ mt: 1 }}>Basic Data</Typography>
-        <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-          <TextField label="Gross Weight" value={draft.grossWeight} size="small" type="number" sx={{ flex: '1 1 120px' }} onChange={(e) => set('grossWeight', e.target.value)} />
-          <TextField label="Net Weight"   value={draft.netWeight}   size="small" type="number" sx={{ flex: '1 1 120px' }} onChange={(e) => set('netWeight',   e.target.value)} />
-          <TextField label="Weight Unit"  value={draft.weightUnit}  size="small" sx={{ flex: '0 1 80px' }} placeholder="kg" onChange={(e) => set('weightUnit', e.target.value)} />
-          <TextField label="Volume"       value={draft.volume}      size="small" type="number" sx={{ flex: '1 1 120px' }} onChange={(e) => set('volume',      e.target.value)} />
-          <TextField label="Volume Unit"  value={draft.volumeUnit}  size="small" sx={{ flex: '0 1 80px' }} placeholder="m3" onChange={(e) => set('volumeUnit', e.target.value)} />
-        </Box>
-        <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-          <TextField label="Length"             value={draft.length}        size="small" type="number" sx={{ flex: '1 1 120px' }} onChange={(e) => set('length',        e.target.value)} />
-          <TextField label="Width"              value={draft.width}         size="small" type="number" sx={{ flex: '1 1 120px' }} onChange={(e) => set('width',         e.target.value)} />
-          <TextField label="Height / Thickness" value={draft.height}        size="small" type="number" sx={{ flex: '1 1 120px' }} onChange={(e) => set('height',        e.target.value)} />
-          <TextField label="Dimension Unit"     value={draft.dimensionUnit} size="small" sx={{ flex: '0 1 80px' }} placeholder="mm" onChange={(e) => set('dimensionUnit', e.target.value)} />
-          <TextField label="Decimal places" value={draft.dimensionDecimals} size="small" type="number"
-            slotProps={{ htmlInput: { min: 0, max: 6 } }} sx={{ flex: '0 1 110px' }}
-            onChange={(e) => set('dimensionDecimals', e.target.value)} />
-        </Box>
-        <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-          <TextField label="Barcode / EAN" value={draft.barcode}  size="small" sx={{ flex: '1 1 160px' }} onChange={(e) => set('barcode',  e.target.value)} />
-          <TextField label="HSN Code"      value={draft.hsnCode}  size="small" sx={{ flex: '1 1 120px' }} onChange={(e) => set('hsnCode',  e.target.value)} />
-          <TextField label="Division"      value={draft.division} size="small" sx={{ flex: '1 1 120px' }} onChange={(e) => set('division', e.target.value)} />
-        </Box>
         {addingLevel === 'category' && (
           <TaxonomyAddForm level="category" categories={categories} groups={groups}
             onCancel={() => setAddingLevel(null)} onCreated={(id) => handleTaxonomyCreated('category', id)} />
@@ -863,58 +862,95 @@ function CatalogDialog({ open, initial, categories, groups, subgroups, canManage
             onCancel={() => setAddingLevel(null)} onCreated={(id) => handleTaxonomyCreated('subgroup', id)} />
         )}
 
-        <Divider />
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <Typography variant="subtitle2">Custom Fields ({customFields.length}/10)</Typography>
-          <Button size="small" startIcon={<AddIcon />} disabled={customFields.length >= 10} onClick={addCf}>
-            Add Field
-          </Button>
-        </Box>
+        <Accordion disableGutters elevation={0} variant="outlined" sx={{ '&::before': { display: 'none' } }}>
+          <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+            <Typography variant="subtitle2">
+              Additional details
+              {(advancedFieldCount + customFields.length) > 0 && (
+                <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>
+                  ({advancedFieldCount + customFields.length} filled)
+                </Typography>
+              )}
+            </Typography>
+          </AccordionSummary>
+          <AccordionDetails sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <Typography variant="caption" color="text.secondary">Weights, dimensions, identifiers — fill in only what applies.</Typography>
+            <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+              <TextField label="Gross Weight" value={draft.grossWeight} size="small" type="number" sx={{ flex: '1 1 120px' }} onChange={(e) => set('grossWeight', e.target.value)} />
+              <TextField label="Net Weight"   value={draft.netWeight}   size="small" type="number" sx={{ flex: '1 1 120px' }} onChange={(e) => set('netWeight',   e.target.value)} />
+              <TextField label="Weight Unit"  value={draft.weightUnit}  size="small" sx={{ flex: '0 1 80px' }} placeholder="kg" onChange={(e) => set('weightUnit', e.target.value)} />
+              <TextField label="Volume"       value={draft.volume}      size="small" type="number" sx={{ flex: '1 1 120px' }} onChange={(e) => set('volume',      e.target.value)} />
+              <TextField label="Volume Unit"  value={draft.volumeUnit}  size="small" sx={{ flex: '0 1 80px' }} placeholder="m3" onChange={(e) => set('volumeUnit', e.target.value)} />
+            </Box>
+            <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+              <TextField label="Length"             value={draft.length}        size="small" type="number" sx={{ flex: '1 1 120px' }} onChange={(e) => set('length',        e.target.value)} />
+              <TextField label="Width"              value={draft.width}         size="small" type="number" sx={{ flex: '1 1 120px' }} onChange={(e) => set('width',         e.target.value)} />
+              <TextField label="Height / Thickness" value={draft.height}        size="small" type="number" sx={{ flex: '1 1 120px' }} onChange={(e) => set('height',        e.target.value)} />
+              <TextField label="Dimension Unit"     value={draft.dimensionUnit} size="small" sx={{ flex: '0 1 80px' }} placeholder="mm" onChange={(e) => set('dimensionUnit', e.target.value)} />
+              <TextField label="Decimal places" value={draft.dimensionDecimals} size="small" type="number"
+                slotProps={{ htmlInput: { min: 0, max: 6 } }} sx={{ flex: '0 1 110px' }}
+                onChange={(e) => set('dimensionDecimals', e.target.value)} />
+            </Box>
+            <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+              <TextField label="Barcode / EAN" value={draft.barcode}  size="small" sx={{ flex: '1 1 160px' }} onChange={(e) => set('barcode',  e.target.value)} />
+              <TextField label="HSN Code"      value={draft.hsnCode}  size="small" sx={{ flex: '1 1 120px' }} onChange={(e) => set('hsnCode',  e.target.value)} />
+              <TextField label="Division"      value={draft.division} size="small" sx={{ flex: '1 1 120px' }} onChange={(e) => set('division', e.target.value)} />
+            </Box>
 
-        {customFields.length === 0 ? (
-          <Typography variant="caption" color="text.secondary">No custom fields yet.</Typography>
-        ) : (
-          <Table size="small">
-            <TableHead>
-              <TableRow sx={{ bgcolor: 'action.hover' }}>
-                <TableCell sx={{ fontWeight: 700 }}>Field Name</TableCell>
-                <TableCell sx={{ fontWeight: 700, width: 120 }}>Type</TableCell>
-                <TableCell sx={{ fontWeight: 700 }}>Default Value</TableCell>
-                <TableCell sx={{ width: 48 }} />
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {customFields.map((cf, i) => (
-                <TableRow key={cf.id}>
-                  <TableCell sx={{ py: 0.5 }}>
-                    <TextField size="small" fullWidth value={cf.fieldKey} placeholder="e.g. Material Grade"
-                      onChange={(e) => updateCf(i, 'fieldKey', e.target.value)} />
-                  </TableCell>
-                  <TableCell sx={{ py: 0.5 }}>
-                    <TextField select size="small" fullWidth value={cf.fieldType}
-                      onChange={(e) => updateCf(i, 'fieldType', e.target.value)}>
-                      <MenuItem value="text">Text</MenuItem>
-                      <MenuItem value="number">Number</MenuItem>
-                      <MenuItem value="date">Date</MenuItem>
-                      <MenuItem value="dropdown">Dropdown</MenuItem>
-                    </TextField>
-                  </TableCell>
-                  <TableCell sx={{ py: 0.5 }}>
-                    <TextField size="small" fullWidth value={cf.fieldValue}
-                      placeholder={cf.fieldType === 'dropdown' ? 'Option1, Option2, …' : 'Default value…'}
-                      onChange={(e) => updateCf(i, 'fieldValue', e.target.value)} />
-                  </TableCell>
-                  <TableCell sx={{ py: 0.5 }}>
-                    <IconButton size="small" color="error"
-                      onClick={() => setCustomFields((d) => d.filter((_, j) => j !== i))}>
-                      <DeleteIcon fontSize="small" />
-                    </IconButton>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        )}
+            <Divider />
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Typography variant="subtitle2">Custom Fields ({customFields.length}/10)</Typography>
+              <Button size="small" startIcon={<AddIcon />} disabled={customFields.length >= 10} onClick={addCf}>
+                Add Field
+              </Button>
+            </Box>
+
+            {customFields.length === 0 ? (
+              <Typography variant="caption" color="text.secondary">No custom fields yet.</Typography>
+            ) : (
+              <Table size="small">
+                <TableHead>
+                  <TableRow sx={{ bgcolor: 'action.hover' }}>
+                    <TableCell sx={{ fontWeight: 700 }}>Field Name</TableCell>
+                    <TableCell sx={{ fontWeight: 700, width: 120 }}>Type</TableCell>
+                    <TableCell sx={{ fontWeight: 700 }}>Default Value</TableCell>
+                    <TableCell sx={{ width: 48 }} />
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {customFields.map((cf, i) => (
+                    <TableRow key={cf.id}>
+                      <TableCell sx={{ py: 0.5 }}>
+                        <TextField size="small" fullWidth value={cf.fieldKey} placeholder="e.g. Material Grade"
+                          onChange={(e) => updateCf(i, 'fieldKey', e.target.value)} />
+                      </TableCell>
+                      <TableCell sx={{ py: 0.5 }}>
+                        <TextField select size="small" fullWidth value={cf.fieldType}
+                          onChange={(e) => updateCf(i, 'fieldType', e.target.value)}>
+                          <MenuItem value="text">Text</MenuItem>
+                          <MenuItem value="number">Number</MenuItem>
+                          <MenuItem value="date">Date</MenuItem>
+                          <MenuItem value="dropdown">Dropdown</MenuItem>
+                        </TextField>
+                      </TableCell>
+                      <TableCell sx={{ py: 0.5 }}>
+                        <TextField size="small" fullWidth value={cf.fieldValue}
+                          placeholder={cf.fieldType === 'dropdown' ? 'Option1, Option2, …' : 'Default value…'}
+                          onChange={(e) => updateCf(i, 'fieldValue', e.target.value)} />
+                      </TableCell>
+                      <TableCell sx={{ py: 0.5 }}>
+                        <IconButton size="small" color="error"
+                          onClick={() => setCustomFields((d) => d.filter((_, j) => j !== i))}>
+                          <DeleteIcon fontSize="small" />
+                        </IconButton>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </AccordionDetails>
+        </Accordion>
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose}>Cancel</Button>
@@ -1568,7 +1604,7 @@ export default function ItemCatalog() {
     setLoading(true); setError('');
     try {
       const res = await fabQuery<{ data: FabItemCatalog[] }>('fabErpItemCatalog', {
-        orderBy: [{ field: 'name', direction: 'asc' }], pagination: { limit: 1000 },
+        orderBy: [{ field: 'name', direction: 'asc' }], pagination: { limit: 20000 },
       });
       setItems(res.data ?? []);
     } catch (e) { setError(errMsg(e)); }
@@ -1578,9 +1614,9 @@ export default function ItemCatalog() {
   const refetchTaxonomy = useCallback(async () => {
     try {
       const [catRes, grpRes, subRes] = await Promise.all([
-        fabQuery<{ data: FabItemCategory[] }>('fabErpItemCategory', { orderBy: [{ field: 'name', direction: 'asc' }], pagination: { limit: 1000 } }),
-        fabQuery<{ data: FabItemGroup[] }>('fabErpItemGroup',       { orderBy: [{ field: 'name', direction: 'asc' }], pagination: { limit: 1000 } }),
-        fabQuery<{ data: FabItemSubgroup[] }>('fabErpItemSubgroup', { orderBy: [{ field: 'name', direction: 'asc' }], pagination: { limit: 1000 } }),
+        fabQuery<{ data: FabItemCategory[] }>('fabErpItemCategory', { orderBy: [{ field: 'name', direction: 'asc' }], pagination: { limit: 5000 } }),
+        fabQuery<{ data: FabItemGroup[] }>('fabErpItemGroup',       { orderBy: [{ field: 'name', direction: 'asc' }], pagination: { limit: 5000 } }),
+        fabQuery<{ data: FabItemSubgroup[] }>('fabErpItemSubgroup', { orderBy: [{ field: 'name', direction: 'asc' }], pagination: { limit: 5000 } }),
       ]);
       setCategories(catRes.data ?? []);
       setGroups(grpRes.data ?? []);
@@ -1669,6 +1705,64 @@ export default function ItemCatalog() {
     level: 'category' | 'group' | 'subgroup',
     entity: FabItemCategory | FabItemGroup | FabItemSubgroup,
   ) => setTaxonomyDetail({ level, entity });
+
+  const itemsTotalWidth = ITEM_COLUMNS.reduce((sum, col) => sum + ITEM_COL_WIDTH[col.key as string], 0)
+    + BATCHES_COL_WIDTH + (canManage ? ACTIONS_COL_WIDTH : 0);
+
+  const renderItemRow = useCallback(({ index, style }: ListChildComponentProps) => {
+    const it = sortedRows[index];
+    return (
+      <Box
+        style={style}
+        sx={{
+          display: 'flex', alignItems: 'center', cursor: 'pointer',
+          borderBottom: '1px solid var(--c-divider)', '&:hover': { bgcolor: 'action.hover' },
+        }}
+        onClick={() => navigate(`/${company}/fab_erp/item-catalog/${it.id}`)}
+      >
+        <Box sx={{ ...TD, width: ITEM_COL_WIDTH.name, minWidth: ITEM_COL_WIDTH.name, flex: '0 0 auto', boxSizing: 'border-box', px: 2, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{it.name}</Box>
+        <Box sx={{ ...TD, width: ITEM_COL_WIDTH.code, minWidth: ITEM_COL_WIDTH.code, flex: '0 0 auto', boxSizing: 'border-box', px: 2 }}><Mono chip>{it.code}</Mono></Box>
+        <Box sx={{ ...TD, width: ITEM_COL_WIDTH.unit, minWidth: ITEM_COL_WIDTH.unit, flex: '0 0 auto', boxSizing: 'border-box', px: 2 }}>{it.unit ?? 'pcs'}</Box>
+        <Box sx={{ ...TD, width: ITEM_COL_WIDTH.description, minWidth: ITEM_COL_WIDTH.description, flex: '0 0 auto', boxSizing: 'border-box', px: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--c-text-2)' }}>{it.description ?? '—'}</Box>
+        <Box sx={{ ...TD, width: ITEM_COL_WIDTH.categoryName, minWidth: ITEM_COL_WIDTH.categoryName, flex: '0 0 auto', boxSizing: 'border-box', px: 2 }}>{it.categoryName ?? '—'}</Box>
+        <Box sx={{ ...TD, width: ITEM_COL_WIDTH.groupName, minWidth: ITEM_COL_WIDTH.groupName, flex: '0 0 auto', boxSizing: 'border-box', px: 2 }}>{it.groupName ?? '—'}</Box>
+        <Box sx={{ ...TD, width: ITEM_COL_WIDTH.subgroupName, minWidth: ITEM_COL_WIDTH.subgroupName, flex: '0 0 auto', boxSizing: 'border-box', px: 2 }}>{it.subgroupName ?? '—'}</Box>
+        <Box sx={{ ...TD, width: ITEM_COL_WIDTH.grossWeight, minWidth: ITEM_COL_WIDTH.grossWeight, flex: '0 0 auto', boxSizing: 'border-box', px: 2, textAlign: 'right' }}><Mono tabular>{it.grossWeight != null ? Number(it.grossWeight).toFixed(it.dimensionDecimals ?? 3) : '—'}</Mono></Box>
+        <Box sx={{ ...TD, width: ITEM_COL_WIDTH.netWeight, minWidth: ITEM_COL_WIDTH.netWeight, flex: '0 0 auto', boxSizing: 'border-box', px: 2, textAlign: 'right' }}><Mono tabular>{it.netWeight != null ? Number(it.netWeight).toFixed(it.dimensionDecimals ?? 3) : '—'}</Mono></Box>
+        <Box sx={{ ...TD, width: ITEM_COL_WIDTH.weightUnit, minWidth: ITEM_COL_WIDTH.weightUnit, flex: '0 0 auto', boxSizing: 'border-box', px: 2 }}>{it.weightUnit ?? 'kg'}</Box>
+        <Box sx={{ ...TD, width: ITEM_COL_WIDTH.volume, minWidth: ITEM_COL_WIDTH.volume, flex: '0 0 auto', boxSizing: 'border-box', px: 2, textAlign: 'right' }}><Mono tabular>{it.volume != null ? Number(it.volume).toFixed(it.dimensionDecimals ?? 3) : '—'}</Mono></Box>
+        <Box sx={{ ...TD, width: ITEM_COL_WIDTH.volumeUnit, minWidth: ITEM_COL_WIDTH.volumeUnit, flex: '0 0 auto', boxSizing: 'border-box', px: 2 }}>{it.volumeUnit ?? 'm3'}</Box>
+        <Box sx={{ ...TD, width: ITEM_COL_WIDTH.length, minWidth: ITEM_COL_WIDTH.length, flex: '0 0 auto', boxSizing: 'border-box', px: 2, textAlign: 'right' }}><Mono tabular>{it.length != null ? Number(it.length).toFixed(it.dimensionDecimals ?? 3) : '—'}</Mono></Box>
+        <Box sx={{ ...TD, width: ITEM_COL_WIDTH.width, minWidth: ITEM_COL_WIDTH.width, flex: '0 0 auto', boxSizing: 'border-box', px: 2, textAlign: 'right' }}><Mono tabular>{it.width != null ? Number(it.width).toFixed(it.dimensionDecimals ?? 3) : '—'}</Mono></Box>
+        <Box sx={{ ...TD, width: ITEM_COL_WIDTH.height, minWidth: ITEM_COL_WIDTH.height, flex: '0 0 auto', boxSizing: 'border-box', px: 2, textAlign: 'right' }}><Mono tabular>{it.height != null ? Number(it.height).toFixed(it.dimensionDecimals ?? 3) : '—'}</Mono></Box>
+        <Box sx={{ ...TD, width: ITEM_COL_WIDTH.dimensionUnit, minWidth: ITEM_COL_WIDTH.dimensionUnit, flex: '0 0 auto', boxSizing: 'border-box', px: 2 }}>{it.dimensionUnit ?? 'mm'}</Box>
+        <Box sx={{ ...TD, width: ITEM_COL_WIDTH.barcode, minWidth: ITEM_COL_WIDTH.barcode, flex: '0 0 auto', boxSizing: 'border-box', px: 2 }}><Mono>{it.barcode ?? '—'}</Mono></Box>
+        <Box sx={{ ...TD, width: ITEM_COL_WIDTH.hsnCode, minWidth: ITEM_COL_WIDTH.hsnCode, flex: '0 0 auto', boxSizing: 'border-box', px: 2 }}>{it.hsnCode ?? '—'}</Box>
+        <Box sx={{ ...TD, width: ITEM_COL_WIDTH.division, minWidth: ITEM_COL_WIDTH.division, flex: '0 0 auto', boxSizing: 'border-box', px: 2 }}>{it.division ?? '—'}</Box>
+        <Box sx={{ width: BATCHES_COL_WIDTH, minWidth: BATCHES_COL_WIDTH, flex: '0 0 auto', boxSizing: 'border-box', display: 'flex', justifyContent: 'center' }}>
+          <Tooltip title="View batches">
+            <IconButton size="small" onClick={(e) => { e.stopPropagation(); navigate(`/${company}/fab_erp/item-batches?itemId=${it.id}`); }}>
+              <ListAltIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+        </Box>
+        {canManage && (
+          <Box sx={{ width: ACTIONS_COL_WIDTH, minWidth: ACTIONS_COL_WIDTH, flex: '0 0 auto', boxSizing: 'border-box', display: 'flex', justifyContent: 'flex-end', px: 1 }}>
+            <Tooltip title="Edit">
+              <IconButton size="small" onClick={(e) => { e.stopPropagation(); setDlg({ open: true, item: it }); }}>
+                <EditIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+            <Tooltip title="Remove">
+              <IconButton size="small" color="error" onClick={(e) => { e.stopPropagation(); setDelItem(it); }}>
+                <DeleteIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          </Box>
+        )}
+      </Box>
+    );
+  }, [sortedRows, canManage, navigate, company]);
 
   return (
     <Box>
@@ -1764,71 +1858,34 @@ export default function ItemCatalog() {
             />
           ) : (
             <Surface e={1} sx={{ overflowX: 'auto', p: 0 }}>
-              <Table size="small" sx={{ minWidth: 1800 }}>
-                <SortableTableHead<FabItemCatalog>
-                  columns={ITEM_COLUMNS}
-                  sortKey={sortKey}
-                  sortDirection={sortDirection}
-                  onRequestSort={requestSort}
-                  extraCell={(
-                    <>
-                      <TableCell sx={{ ...TH, width: 60 }} align="center">Batches</TableCell>
-                      {canManage && <TableCell sx={{ ...TH, width: 80 }} align="right" />}
-                    </>
-                  )}
-                />
-                <TableBody>
-                  {sortedRows.map((it) => (
-                    <TableRow key={it.id} hover sx={{ cursor: 'pointer' }}
-                      onClick={() => navigate(`/${company}/fab_erp/item-catalog/${it.id}`)}>
-                      <TableCell sx={{ ...TD, fontWeight: 500 }}>{it.name}</TableCell>
-                      <TableCell sx={TD}><Mono chip>{it.code}</Mono></TableCell>
-                      <TableCell sx={TD}>{it.unit ?? 'pcs'}</TableCell>
-                      <TableCell sx={TD}>
-                        <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 180 }}>
-                          {it.description ?? '—'}
-                        </Typography>
-                      </TableCell>
-                      <TableCell sx={TD}>{it.categoryName  ?? '—'}</TableCell>
-                      <TableCell sx={TD}>{it.groupName     ?? '—'}</TableCell>
-                      <TableCell sx={TD}>{it.subgroupName  ?? '—'}</TableCell>
-                      <TableCell sx={TD} align="right"><Mono tabular>{it.grossWeight != null ? Number(it.grossWeight).toFixed(it.dimensionDecimals ?? 3) : '—'}</Mono></TableCell>
-                      <TableCell sx={TD} align="right"><Mono tabular>{it.netWeight   != null ? Number(it.netWeight).toFixed(it.dimensionDecimals ?? 3)   : '—'}</Mono></TableCell>
-                      <TableCell sx={TD}>{it.weightUnit    ?? 'kg'}</TableCell>
-                      <TableCell sx={TD} align="right"><Mono tabular>{it.volume      != null ? Number(it.volume).toFixed(it.dimensionDecimals ?? 3)      : '—'}</Mono></TableCell>
-                      <TableCell sx={TD}>{it.volumeUnit    ?? 'm3'}</TableCell>
-                      <TableCell sx={TD} align="right"><Mono tabular>{it.length      != null ? Number(it.length).toFixed(it.dimensionDecimals ?? 3)      : '—'}</Mono></TableCell>
-                      <TableCell sx={TD} align="right"><Mono tabular>{it.width       != null ? Number(it.width).toFixed(it.dimensionDecimals ?? 3)       : '—'}</Mono></TableCell>
-                      <TableCell sx={TD} align="right"><Mono tabular>{it.height      != null ? Number(it.height).toFixed(it.dimensionDecimals ?? 3)      : '—'}</Mono></TableCell>
-                      <TableCell sx={TD}>{it.dimensionUnit ?? 'mm'}</TableCell>
-                      <TableCell sx={TD}><Mono>{it.barcode ?? '—'}</Mono></TableCell>
-                      <TableCell sx={TD}>{it.hsnCode  ?? '—'}</TableCell>
-                      <TableCell sx={TD}>{it.division ?? '—'}</TableCell>
-                      <TableCell sx={TD} align="center">
-                        <Tooltip title="View batches">
-                          <IconButton size="small" onClick={(e) => { e.stopPropagation(); navigate(`/${company}/fab_erp/item-batches?itemId=${it.id}`); }}>
-                            <ListAltIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                      </TableCell>
-                      {canManage && (
-                        <TableCell sx={TD} align="right">
-                          <Tooltip title="Edit">
-                            <IconButton size="small" onClick={(e) => { e.stopPropagation(); setDlg({ open: true, item: it }); }}>
-                              <EditIcon fontSize="small" />
-                            </IconButton>
-                          </Tooltip>
-                          <Tooltip title="Remove">
-                            <IconButton size="small" color="error" onClick={(e) => { e.stopPropagation(); setDelItem(it); }}>
-                              <DeleteIcon fontSize="small" />
-                            </IconButton>
-                          </Tooltip>
-                        </TableCell>
-                      )}
-                    </TableRow>
+              <Box sx={{ width: itemsTotalWidth, minWidth: itemsTotalWidth }}>
+                {/* Header — fixed pixel widths so it stays aligned with the virtualized rows below */}
+                <Box sx={{ display: 'flex', borderBottom: '1px solid var(--c-divider)', bgcolor: 'var(--c-surface-2)' }}>
+                  {ITEM_COLUMNS.map((col) => (
+                    <Box key={String(col.key)} sx={{
+                      ...col.sx, width: ITEM_COL_WIDTH[col.key as string], minWidth: ITEM_COL_WIDTH[col.key as string],
+                      flex: '0 0 auto', boxSizing: 'border-box', display: 'flex', alignItems: 'center',
+                      justifyContent: col.align === 'right' ? 'flex-end' : 'flex-start', px: 2, py: 1,
+                    }}>
+                      <TableSortLabel active={sortKey === col.key} direction={sortDirection} onClick={() => requestSort(col.key)}>
+                        {col.label}
+                      </TableSortLabel>
+                    </Box>
                   ))}
-                </TableBody>
-              </Table>
+                  <Box sx={{ ...TH, width: BATCHES_COL_WIDTH, minWidth: BATCHES_COL_WIDTH, flex: '0 0 auto', boxSizing: 'border-box', display: 'flex', alignItems: 'center', justifyContent: 'center', px: 1, py: 1 }}>Batches</Box>
+                  {canManage && <Box sx={{ width: ACTIONS_COL_WIDTH, minWidth: ACTIONS_COL_WIDTH, flex: '0 0 auto' }} />}
+                </Box>
+
+                {/* Virtualized body — only rows in view are ever mounted, regardless of item count */}
+                <FixedSizeList
+                  height={Math.min(sortedRows.length * ROW_HEIGHT, 640)}
+                  width={itemsTotalWidth}
+                  itemCount={sortedRows.length}
+                  itemSize={ROW_HEIGHT}
+                >
+                  {renderItemRow}
+                </FixedSizeList>
+              </Box>
             </Surface>
           )}
         </>

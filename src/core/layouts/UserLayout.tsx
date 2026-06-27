@@ -37,7 +37,7 @@ const FAB_ERP_SECTIONS: Record<string, string> = {
   'item-metrics': 'Item Metrics',
   constants: 'Constants',
   'resource-types': 'Resource Catalog',
-  'routing-plans': 'Routing Plans',
+  'routing-plans': 'BOMs & Routings',
   'shift-calendars': 'Shift Calendars',
   suppliers: 'Suppliers',
 };

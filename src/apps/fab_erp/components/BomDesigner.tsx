@@ -29,12 +29,12 @@ import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import StarIcon         from '@mui/icons-material/Star';
 import StarBorderIcon   from '@mui/icons-material/StarBorder';
 import NoteAddIcon      from '@mui/icons-material/NoteAdd';
-import AccountTreeIcon  from '@mui/icons-material/AccountTree';
 
-import { fabQuery, fabMutate, fabGet, fabPost } from '../api/client';
+import { fabQuery, fabMutate } from '../api/client';
 import type { FabMaterialBom, FabMaterialBomItem, FabItemCatalog } from '../types';
 import InfoTooltip, { type InfoContent } from '@shared/components/InfoTooltip';
 import { STANDARD_UOMS } from '../constants/uom';
+import RouteBadge from './RouteBadge';
 
 // ─── INFO TOOLTIP CONTENT ─────────────────────────────────────────────────────
 // INFO_TOOLTIP — update this block whenever features in BomDesigner change.
@@ -62,27 +62,10 @@ const INFO_BOM: InfoContent = [
     items: [
       'Tabs at the top = BOM versions. Star icon sets a tab as the default.',
       '+ Version button creates a new revision (e.g. Rev B).',
-      'Edit button — enter edit mode to add, change, or remove rows; set qty and unit; Save to commit.',
+      'Edit button — edit rows directly in the tree (no popup); set qty and unit; Save to commit.',
       'NoteAdd icon (on mfg rows without a BOM) — create a BOM for that sub-item directly from here.',
       '+ icon inside the item picker — create a brand-new catalog item on the fly.',
-    ],
-  },
-];
-
-const INFO_ROUTING: InfoContent = [
-  {
-    heading: 'What it is',
-    items: [
-      'A routing plan is the ordered sequence of manufacturing operations for this BOM.',
-    ],
-  },
-  {
-    heading: 'How to use',
-    items: [
-      'Add Route — type a name and confirm; opens the visual route builder.',
-      'Edit button — re-open the builder to add / reorder steps or link resource types.',
-      'A BOM can have multiple routes (e.g. Standard, Rework); only Released routes are used in scheduling.',
-      'Status badges: Draft → Released → Superseded / Archived.',
+      'Route badge — next to the head item, and on any manufactured sub-item with its own BOM. Click to view it; Edit inside the popup to change it.',
     ],
   },
 ];
@@ -279,23 +262,26 @@ function SubBomExpander({
           Quantities auto-scaled for {fmt(neededQty)} {neededUnit ?? ''} of {catalogItemName}
           {bom ? ` (BOM base: ${fmt(base)} ${bom.baseUnit ?? neededUnit ?? ''})` : ''}
         </Typography>
-        {bom && mode === 'edit' && (
-          <Button
-            size="small"
-            startIcon={<EditIcon sx={{ fontSize: '12px !important' }} />}
-            sx={{ ml: 'auto', fontSize: 11, py: 0.25, minHeight: 0 }}
-            onClick={() => onEdit({
-              bomId: bom.id, bom,
-              catalogItemId, catalogItemName,
-              catalogItemCode, catalogItemUnit: catalogItemUnit ?? undefined,
-            })}
-          >
-            Edit BOM
-          </Button>
-        )}
-        {!bom && (
-          <Typography variant="caption" color="text.disabled" sx={{ ml: 'auto' }}>No BOM defined</Typography>
-        )}
+        <Box sx={{ ml: 'auto', display: 'flex', alignItems: 'center', gap: 1 }}>
+          {bom && <RouteBadge bomId={bom.id} mode={mode} />}
+          {bom && mode === 'edit' && (
+            <Button
+              size="small"
+              startIcon={<EditIcon sx={{ fontSize: '12px !important' }} />}
+              sx={{ fontSize: 11, py: 0.25, minHeight: 0 }}
+              onClick={() => onEdit({
+                bomId: bom.id, bom,
+                catalogItemId, catalogItemName,
+                catalogItemCode, catalogItemUnit: catalogItemUnit ?? undefined,
+              })}
+            >
+              Edit BOM
+            </Button>
+          )}
+          {!bom && (
+            <Typography variant="caption" color="text.disabled">No BOM defined</Typography>
+          )}
+        </Box>
       </Box>
 
       {bom && items.length > 0 && (
@@ -704,14 +690,19 @@ function BomItemEditor({ row, showTypePicker, onChange, onRemove, onItemCreated 
   );
 }
 
-interface BomEditModalProps {
-  open:    boolean;
-  target:  EditTarget | null;
-  onClose: () => void;
+interface BomInlineEditorProps {
+  target:  EditTarget;
+  onCancel: () => void;
   onSaved: () => void;
 }
 
-function BomEditModal({ open, target, onClose, onSaved }: BomEditModalProps) {
+/**
+ * Inline BOM editor — replaces the tree view in place while editing (no
+ * popup). Save commits and reverts to the read-only tree; Cancel discards
+ * the local draft. Reused for the top-level selected BOM and for any nested
+ * sub-BOM opened via SubBomExpander's "Edit BOM".
+ */
+function BomInlineEditor({ target, onCancel, onSaved }: BomInlineEditorProps) {
   const [items,    setItems]    = useState<ItemDraft[]>([]);
   const [baseQty,  setBaseQty]  = useState('1');
   const [baseUnit, setBaseUnit] = useState('');
@@ -720,7 +711,7 @@ function BomEditModal({ open, target, onClose, onSaved }: BomEditModalProps) {
   const [error,    setError]    = useState('');
 
   useEffect(() => {
-    if (!open || !target) return;
+    if (!target) return;
     setLoading(true); setError('');
     setBaseQty(String(target.bom.baseQty ?? 1));
     setBaseUnit(target.bom.baseUnit ?? target.catalogItemUnit ?? '');
@@ -740,7 +731,7 @@ function BomEditModal({ open, target, onClose, onSaved }: BomEditModalProps) {
       })));
     }).catch(e => setError(e.message))
       .finally(() => setLoading(false));
-  }, [open, target?.bomId]);
+  }, [target.bomId]);
 
   function addRow(cat: ItemDraft['itemCategory']) {
     setItems(prev => [...prev, { refCatalogItemId: null, name: '', qty: '1', unit: '', itemCategory: cat, _new: true }]);
@@ -798,8 +789,6 @@ function BomEditModal({ open, target, onClose, onSaved }: BomEditModalProps) {
     finally { setSaving(false); }
   }
 
-  if (!target) return null;
-
   const inputIdxs  = items.reduce<number[]>((a, r, i) => { if (!r._deleted && r.itemCategory === 'component') a.push(i); return a; }, []);
   const outputIdxs = items.reduce<number[]>((a, r, i) => { if (!r._deleted && r.itemCategory !== 'component') a.push(i); return a; }, []);
   const visible    = items.filter(r => !r._deleted);
@@ -818,101 +807,104 @@ function BomEditModal({ open, target, onClose, onSaved }: BomEditModalProps) {
   }
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
-      <DialogTitle sx={{ pb: 1 }}>
-        Edit BOM — {target.catalogItemName}
-        <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>
-          ({target.bom.name})
+    <Paper variant="outlined" sx={{ p: 2 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1.5 }}>
+        <Typography variant="subtitle2">
+          Editing BOM — {target.catalogItemName}
+          <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>
+            ({target.bom.name})
+          </Typography>
         </Typography>
-      </DialogTitle>
-      <DialogContent dividers>
-        {loading ? (
-          <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}><CircularProgress /></Box>
-        ) : (
-          <>
-            {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+        <Box sx={{ display: 'flex', gap: 1 }}>
+          <Button size="small" onClick={onCancel} disabled={saving}>Cancel</Button>
+          <Button size="small" variant="contained" onClick={save} disabled={saving || loading}>
+            {saving ? <CircularProgress size={16} /> : 'Save'}
+          </Button>
+        </Box>
+      </Box>
 
-            {/* Main output yield */}
-            <Typography variant="caption" fontWeight={500} sx={{ textTransform: 'uppercase', letterSpacing: '0.06em', color: 'text.disabled', display: 'block', mb: 1 }}>
-              Main output (this item)
-            </Typography>
-            <Box sx={{
-              display: 'inline-flex', alignItems: 'center', gap: 1.5,
-              border: '1.5px solid #185FA5', borderRadius: 2, px: 2, py: 1, mb: 2, bgcolor: '#E6F1FB',
-            }}>
-              <Box>
-                <Typography variant="body2" fontWeight={500} color="#042C53">{target.catalogItemName}</Typography>
-                {target.catalogItemCode && (
-                  <Typography variant="caption" fontFamily="monospace" color="#185FA5">{target.catalogItemCode}</Typography>
-                )}
-              </Box>
-              <Divider orientation="vertical" flexItem />
-              <Typography variant="caption" color="text.secondary">Yield per run</Typography>
-              <TextField
-                size="small" type="number" sx={{ width: 72 }}
-                value={baseQty}
-                onChange={e => setBaseQty(e.target.value)}
-              />
-              <TextField
-                size="small" placeholder="unit" sx={{ width: 64 }}
-                value={baseUnit}
-                onChange={e => setBaseUnit(e.target.value)}
-              />
-            </Box>
+      {loading ? (
+        <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}><CircularProgress /></Box>
+      ) : (
+        <>
+          {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
-            <Divider sx={{ my: 2 }}>
-              <Typography variant="caption" color="text.disabled">input materials → process → outputs</Typography>
-            </Divider>
-
-            {/* Inputs */}
-            <Box sx={{ mb: 2 }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
-                <Typography variant="caption" fontWeight={500} sx={{ textTransform: 'uppercase', letterSpacing: '0.06em', color: 'text.disabled' }}>
-                  Input materials
-                </Typography>
-                <Button size="small" startIcon={<AddIcon />} onClick={() => addRow('component')} sx={{ fontSize: 11 }}>
-                  Add material
-                </Button>
-              </Box>
-              {inputIdxs.length === 0 && (
-                <Typography variant="caption" color="text.disabled" sx={{ display: 'block', py: 0.5 }}>None yet</Typography>
-              )}
-              {renderRows(inputIdxs, false)}
-            </Box>
-
-            <Divider sx={{ my: 2 }} />
-
-            {/* Outputs (co/by-products) */}
+          {/* Main output yield — the head element this BOM produces */}
+          <Typography variant="caption" fontWeight={500} sx={{ textTransform: 'uppercase', letterSpacing: '0.06em', color: 'text.disabled', display: 'block', mb: 1 }}>
+            Main output (this item)
+          </Typography>
+          <Box sx={{
+            display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap',
+            border: '1.5px solid #185FA5', borderRadius: 2, px: 2, py: 1, mb: 2, bgcolor: '#E6F1FB',
+          }}>
             <Box>
-              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
-                <Typography variant="caption" fontWeight={500} sx={{ textTransform: 'uppercase', letterSpacing: '0.06em', color: 'text.disabled' }}>
-                  Co / by-products
-                </Typography>
-                <Button size="small" startIcon={<AddIcon />} onClick={() => addRow('co_product')} sx={{ fontSize: 11 }}>
-                  Add output
-                </Button>
-              </Box>
-              {outputIdxs.length === 0 && (
-                <Typography variant="caption" color="text.disabled" sx={{ display: 'block', py: 0.5 }}>None yet</Typography>
+              <Typography variant="body2" fontWeight={500} color="#042C53">{target.catalogItemName}</Typography>
+              {target.catalogItemCode && (
+                <Typography variant="caption" fontFamily="monospace" color="#185FA5">{target.catalogItemCode}</Typography>
               )}
-              {renderRows(outputIdxs, true)}
             </Box>
+            <Divider orientation="vertical" flexItem />
+            <Typography variant="caption" color="text.secondary">Yield per run</Typography>
+            <TextField
+              size="small" type="number" sx={{ width: 72 }}
+              value={baseQty}
+              onChange={e => setBaseQty(e.target.value)}
+            />
+            <TextField
+              size="small" placeholder="unit" sx={{ width: 64 }}
+              value={baseUnit}
+              onChange={e => setBaseUnit(e.target.value)}
+            />
+            <Divider orientation="vertical" flexItem />
+            <RouteBadge bomId={target.bomId} mode="edit" />
+          </Box>
 
-            {visible.length === 0 && inputIdxs.length === 0 && outputIdxs.length === 0 && (
-              <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 2 }}>
-                Use the buttons above to add input materials or co/by-products.
+          <Divider sx={{ my: 2 }}>
+            <Typography variant="caption" color="text.disabled">input materials → process → outputs</Typography>
+          </Divider>
+
+          {/* Inputs */}
+          <Box sx={{ mb: 2 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+              <Typography variant="caption" fontWeight={500} sx={{ textTransform: 'uppercase', letterSpacing: '0.06em', color: 'text.disabled' }}>
+                Input materials
               </Typography>
+              <Button size="small" startIcon={<AddIcon />} onClick={() => addRow('component')} sx={{ fontSize: 11 }}>
+                Add material
+              </Button>
+            </Box>
+            {inputIdxs.length === 0 && (
+              <Typography variant="caption" color="text.disabled" sx={{ display: 'block', py: 0.5 }}>None yet</Typography>
             )}
-          </>
-        )}
-      </DialogContent>
-      <DialogActions>
-        <Button onClick={onClose}>Cancel</Button>
-        <Button variant="contained" onClick={save} disabled={saving || loading}>
-          {saving ? <CircularProgress size={16} /> : 'Save BOM'}
-        </Button>
-      </DialogActions>
-    </Dialog>
+            {renderRows(inputIdxs, false)}
+          </Box>
+
+          <Divider sx={{ my: 2 }} />
+
+          {/* Outputs (co/by-products) */}
+          <Box>
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+              <Typography variant="caption" fontWeight={500} sx={{ textTransform: 'uppercase', letterSpacing: '0.06em', color: 'text.disabled' }}>
+                Co / by-products
+              </Typography>
+              <Button size="small" startIcon={<AddIcon />} onClick={() => addRow('co_product')} sx={{ fontSize: 11 }}>
+                Add output
+              </Button>
+            </Box>
+            {outputIdxs.length === 0 && (
+              <Typography variant="caption" color="text.disabled" sx={{ display: 'block', py: 0.5 }}>None yet</Typography>
+            )}
+            {renderRows(outputIdxs, true)}
+          </Box>
+
+          {visible.length === 0 && inputIdxs.length === 0 && outputIdxs.length === 0 && (
+            <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 2 }}>
+              Use the buttons above to add input materials or co/by-products.
+            </Typography>
+          )}
+        </>
+      )}
+    </Paper>
   );
 }
 
@@ -921,8 +913,6 @@ function BomEditModal({ open, target, onClose, onSaved }: BomEditModalProps) {
 export default function BomDesigner({
   catalogItemId, catalogItemName, catalogItemCode, catalogItemUnit, mode = 'edit',
 }: BomDesignerProps) {
-  const navigate = useNavigate();
-  const { company } = useParams<{ company: string }>();
   const [boms,             setBoms]             = useState<FabMaterialBom[]>([]);
   const [selectedBomIdx,   setSelectedBomIdx]   = useState(0);
   const [topItems,         setTopItems]         = useState<FabMaterialBomItem[]>([]);
@@ -934,9 +924,6 @@ export default function BomDesigner({
   const [newBomName,       setNewBomName]       = useState('');
   const [error,            setError]            = useState('');
   const [toast,            setToast]            = useState('');
-  const [routingPlans,     setRoutingPlans]     = useState<any[]>([]);
-  const [newRouteName,     setNewRouteName]     = useState('');
-  const [addingRoute,      setAddingRoute]      = useState(false);
 
   const selectedBom = boms[selectedBomIdx] ?? null;
 
@@ -990,10 +977,6 @@ export default function BomDesigner({
   useEffect(() => {
     if (!selectedBom) return;
     loadTopItems(selectedBom.id).then(setTopItems).catch(e => setError(e.message));
-    // Load routing plans for this BOM
-    fabGet<{ data: any[] }>('routing/plans', { bomId: selectedBom.id })
-      .then(r => setRoutingPlans(r.data ?? []))
-      .catch(() => setRoutingPlans([]));
   }, [selectedBomIdx, selectedBom?.id]);
 
   async function createBom() {
@@ -1051,15 +1034,6 @@ export default function BomDesigner({
       }
       const ids = await loadAllBomCatalogIds();
       setAllBomCatalogIds(ids);
-    } catch (e: any) { setError(e.message); }
-  }
-
-  async function handleAddRoute() {
-    if (!selectedBom || !newRouteName.trim()) return;
-    try {
-      const res = await fabPost<{ id: number }>('routing/plans', { bomId: selectedBom.id, name: newRouteName.trim() });
-      setAddingRoute(false); setNewRouteName('');
-      navigate(`/${company}/fab_erp/routing-plans/${res.id}`);
     } catch (e: any) { setError(e.message); }
   }
 
@@ -1157,123 +1131,80 @@ export default function BomDesigner({
         )}
       </Box>
 
-      {/* Tree */}
+      {/* Tree / inline editor */}
       <Box sx={{ flex: 1, overflowY: 'auto', p: 2 }}>
-        <Legend />
-        {topItems.length === 0 ? (
-          <Paper variant="outlined" sx={{ p: 4, textAlign: 'center' }}>
-            <Typography color="text.secondary" gutterBottom>This BOM has no items yet.</Typography>
-            {mode === 'edit' && selectedBom && (
-              <Button
-                variant="outlined" startIcon={<EditIcon />}
-                onClick={() => setEditTarget({
-                  bomId: selectedBom.id, bom: selectedBom,
-                  catalogItemId, catalogItemName, catalogItemCode, catalogItemUnit,
-                })}
-              >
-                Open BOM editor
-              </Button>
-            )}
-          </Paper>
+        {editTarget ? (
+          <BomInlineEditor
+            target={editTarget}
+            onCancel={() => setEditTarget(null)}
+            onSaved={async () => {
+              setEditTarget(null);
+              setToast('BOM saved');
+              const ids = await loadAllBomCatalogIds();
+              setAllBomCatalogIds(ids);
+              setTreeKey(k => k + 1);
+            }}
+          />
         ) : (
-          <Paper variant="outlined" sx={{ overflow: 'hidden' }}>
-            <BomTreeLevel
-              items={topItems}
-              scale={1}
-              allBomCatalogIds={allBomCatalogIds}
-              treeKey={treeKey}
-              onEdit={setEditTarget}
-              mode={mode}
-              depth={0}
-              onCreateBom={mode === 'edit' ? handleCreateBomForItem : undefined}
-            />
-          </Paper>
-        )}
+          <>
+            <Legend />
 
-        {/* Routing Plans section */}
-        {selectedBom && (
-          <Box sx={{ mt: 2, border: '1px solid', borderColor: 'divider', borderRadius: 2, overflow: 'hidden' }}>
-            <Box sx={{
-              display: 'flex', alignItems: 'center', gap: 1,
-              px: 2, py: 1, bgcolor: 'background.default', borderBottom: '1px solid', borderColor: 'divider',
-            }}>
-              <AccountTreeIcon sx={{ fontSize: 16, color: 'text.secondary' }} />
-              <Typography variant="caption" fontWeight={600} sx={{ textTransform: 'uppercase', letterSpacing: '0.06em', color: 'text.secondary' }}>
-                Routing Plans
-              </Typography>
-              <InfoTooltip content={INFO_ROUTING} placement="right" size={14} />
-              <Box sx={{ flex: 1 }} />
-              {mode === 'edit' && (
-                addingRoute ? (
-                  <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center' }}>
-                    <TextField
-                      size="small" value={newRouteName} onChange={e => setNewRouteName(e.target.value)}
-                      placeholder="Route name" autoFocus sx={{ width: 160 }}
-                      onKeyDown={e => { if (e.key === 'Enter') handleAddRoute(); if (e.key === 'Escape') { setAddingRoute(false); setNewRouteName(''); } }}
-                    />
-                    <Button size="small" variant="contained" onClick={handleAddRoute} disabled={!newRouteName.trim()}>Add</Button>
-                    <Button size="small" onClick={() => { setAddingRoute(false); setNewRouteName(''); }}>×</Button>
-                  </Box>
-                ) : (
-                  <Button size="small" startIcon={<AddIcon />} onClick={() => setAddingRoute(true)} sx={{ fontSize: 11 }}>
-                    Add Route
-                  </Button>
-                )
-              )}
-            </Box>
-            {routingPlans.length === 0 ? (
-              <Typography variant="caption" color="text.disabled" sx={{ display: 'block', px: 2, py: 1.5 }}>
-                No routing plans defined for this BOM.
-              </Typography>
-            ) : (
-              routingPlans.map((plan: any) => (
-                <Box key={plan.id} sx={{
-                  display: 'flex', alignItems: 'center', gap: 1.5, px: 2, py: 1,
-                  borderBottom: '0.5px solid', borderColor: 'divider', '&:last-child': { borderBottom: 'none' },
-                  '&:hover': { bgcolor: 'action.hover' },
-                }}>
-                  <Box sx={{ flex: 1, minWidth: 0 }}>
-                    <Typography variant="body2" noWrap fontWeight={500}>{plan.name}</Typography>
-                    <Typography variant="caption" color="text.disabled">
-                      {plan.stepCount ?? 0} step{plan.stepCount !== 1 ? 's' : ''} · {plan.status}
-                      {plan.isCurrent ? ' · current' : ''}
-                    </Typography>
-                  </Box>
-                  <Box sx={{
-                    px: 1, py: 0.25, borderRadius: 1, fontSize: 11,
-                    bgcolor: plan.status === 'released' ? '#DCFCE7' : plan.status === 'draft' ? '#FEF9C3' : '#F3F4F6',
-                    color:   plan.status === 'released' ? '#166534' : plan.status === 'draft' ? '#854D0E' : '#6B7280',
-                    fontWeight: 500,
-                  }}>
-                    {plan.status}
-                  </Box>
-                  <Button
-                    size="small" startIcon={<EditIcon sx={{ fontSize: '13px !important' }} />}
-                    variant="outlined" sx={{ fontSize: 11, py: 0.25, minHeight: 0 }}
-                    onClick={() => navigate(`/${company}/fab_erp/routing-plans/${plan.id}`)}
-                  >
-                    {mode === 'edit' ? 'Edit' : 'View'}
-                  </Button>
+            {/* Head row — the item this BOM produces, shown as the current element */}
+            {selectedBom && (
+              <Box sx={{
+                display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap',
+                border: '1.5px solid #185FA5', borderRadius: 2, px: 2, py: 1, mb: 1.5, bgcolor: '#E6F1FB',
+              }}>
+                <Typography variant="caption" fontWeight={500} sx={{ textTransform: 'uppercase', letterSpacing: '0.06em', color: '#185FA5' }}>
+                  Produces
+                </Typography>
+                <Box>
+                  <Typography variant="body2" fontWeight={600} color="#042C53">{catalogItemName}</Typography>
+                  {catalogItemCode && (
+                    <Typography variant="caption" fontFamily="monospace" color="#185FA5">{catalogItemCode}</Typography>
+                  )}
                 </Box>
-              ))
+                <Divider orientation="vertical" flexItem />
+                <Typography variant="caption" color="text.secondary">
+                  Yield {fmt(selectedBom.baseQty ?? 1)} {selectedBom.baseUnit ?? catalogItemUnit ?? ''} per run
+                </Typography>
+                <Box sx={{ flex: 1 }} />
+                <RouteBadge bomId={selectedBom.id} mode={mode} />
+              </Box>
             )}
-          </Box>
+
+            {topItems.length === 0 ? (
+              <Paper variant="outlined" sx={{ p: 4, textAlign: 'center' }}>
+                <Typography color="text.secondary" gutterBottom>This BOM has no items yet.</Typography>
+                {mode === 'edit' && selectedBom && (
+                  <Button
+                    variant="outlined" startIcon={<EditIcon />}
+                    onClick={() => setEditTarget({
+                      bomId: selectedBom.id, bom: selectedBom,
+                      catalogItemId, catalogItemName, catalogItemCode, catalogItemUnit,
+                    })}
+                  >
+                    Open BOM editor
+                  </Button>
+                )}
+              </Paper>
+            ) : (
+              <Paper variant="outlined" sx={{ overflow: 'hidden' }}>
+                <BomTreeLevel
+                  items={topItems}
+                  scale={1}
+                  allBomCatalogIds={allBomCatalogIds}
+                  treeKey={treeKey}
+                  onEdit={setEditTarget}
+                  mode={mode}
+                  depth={0}
+                  onCreateBom={mode === 'edit' ? handleCreateBomForItem : undefined}
+                />
+              </Paper>
+            )}
+          </>
         )}
       </Box>
-
-      {/* Edit modal */}
-      <BomEditModal
-        open={!!editTarget}
-        target={editTarget}
-        onClose={() => setEditTarget(null)}
-        onSaved={async () => {
-          setEditTarget(null);
-          setToast('BOM saved');
-          const ids = await loadAllBomCatalogIds();
-          setAllBomCatalogIds(ids);
-          setTreeKey(k => k + 1);
-        }}
-      />
 
       {error && (
         <Snackbar open autoHideDuration={5000} onClose={() => setError('')}>

@@ -31,7 +31,7 @@ function buildUserNav(company: string, app: string): NavItem[] {
     { label: 'Plants',              icon: React.createElement(FactoryRoundedIcon),          to: `${base}/plants`,         end: false, permission: 'fab_erp_resources_view',  section: CONFIGURE },
     { label: 'Item Catalog',        icon: React.createElement(Inventory2RoundedIcon),       to: `${base}/item-catalog`,   end: false, permission: 'fab_erp_items_meta_view', section: CONFIGURE },
     { label: 'Resource Catalog',    icon: React.createElement(CategoryRoundedIcon),         to: `${base}/resource-types`, end: false, permission: 'fab_erp_resources_view',  section: CONFIGURE },
-    { label: 'Routing Plans',       icon: React.createElement(RouteRoundedIcon),            to: `${base}/routing-plans`,  end: false, permission: 'fab_erp_resources_view',  section: CONFIGURE },
+    { label: 'BOMs & Routings',     icon: React.createElement(RouteRoundedIcon),            to: `${base}/routing-plans`,  end: false, permission: 'fab_erp_resources_view',  section: CONFIGURE },
     { label: 'Suppliers',           icon: React.createElement(HandshakeRoundedIcon),        to: `${base}/suppliers`,      end: false, permission: 'fab_erp_grn_view',        section: CONFIGURE },
   ];
 }

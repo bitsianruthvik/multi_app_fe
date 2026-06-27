@@ -16,4 +16,6 @@ export { RunPanel, type RunState } from './RunPanel';
 export { PipelineBoard, PipelineCard, type PipelineStage } from './PipelineBoard';
 export { WorkQueueCard } from './WorkQueueCard';
 export { SortableTableHead, type SortableColumn } from './SortableTableHead';
+export { default as RouteBadge } from './RouteBadge';
+export { default as RouteDialog } from './RouteDialog';
 export { statusFamily, type StatusFamily } from '../statusMap';
