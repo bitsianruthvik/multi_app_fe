@@ -18,4 +18,5 @@ export { WorkQueueCard } from './WorkQueueCard';
 export { SortableTableHead, type SortableColumn } from './SortableTableHead';
 export { default as RouteBadge } from './RouteBadge';
 export { default as RouteDialog } from './RouteDialog';
+export { GlobalSearch } from './GlobalSearch';
 export { statusFamily, type StatusFamily } from '../statusMap';

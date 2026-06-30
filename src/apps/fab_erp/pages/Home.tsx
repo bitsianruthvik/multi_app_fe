@@ -13,7 +13,7 @@ import PlaylistAddCheckRounded from '@mui/icons-material/PlaylistAddCheckRounded
 import { fabQuery } from '../api/client';
 import { usePermission } from '@core/hooks/usePermission';
 import { useAuth } from '@core/contexts/AuthContext';
-import { PageHeader, StatStrip, WorkQueueCard, StatSkeleton, EmptyState, type Stat } from '../components';
+import { PageHeader, StatStrip, WorkQueueCard, StatSkeleton, EmptyState, GlobalSearch, type Stat } from '../components';
 
 interface OrderRow {
   id: number;
@@ -187,6 +187,8 @@ export default function Home() {
         title={`Welcome back, ${firstName}`}
         subtitle="Here's what needs you today."
       />
+
+      <GlobalSearch />
 
       {loading ? (
         <>
