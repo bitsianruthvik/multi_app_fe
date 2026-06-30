@@ -491,6 +491,8 @@ export type CodegenSegment =
   | { type: 'free_text'; value: string }
   | { type: 'date'; format: 'YYYY' | 'YY' | 'MM' | 'DD' | 'YYMM' | 'YYYYMM' | 'YYYYMMDD' }
   | { type: 'category_shortform'; length: number }
+  | { type: 'group_shortform'; length: number }
+  | { type: 'subgroup_shortform'; length: number }
   | { type: 'sequence'; digits: number; resetPeriod: 'never' | 'yearly' | 'monthly' };
 
 export interface FabCodegenRule {

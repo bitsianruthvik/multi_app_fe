@@ -23,12 +23,20 @@ const ENTITY_TYPES = [
   { value: 'route', label: 'Routes' },
 ];
 
-const SEGMENT_TYPES: { value: CodegenSegment['type']; label: string }[] = [
+const SEGMENT_TYPES_BASE: { value: CodegenSegment['type']; label: string; entityOnly?: string[] }[] = [
   { value: 'fixed', label: 'Fixed text' },
-  { value: 'category_shortform', label: 'Category shortform' },
   { value: 'date', label: 'Date' },
   { value: 'sequence', label: 'Running sequence' },
+  { value: 'category_shortform', label: 'Category shortform', entityOnly: ['item'] },
+  { value: 'group_shortform', label: 'Group shortform', entityOnly: ['item'] },
+  { value: 'subgroup_shortform', label: 'Subgroup shortform', entityOnly: ['item'] },
 ];
+
+function segmentTypesFor(entityType: string) {
+  return SEGMENT_TYPES_BASE.filter(
+    (t) => !t.entityOnly || t.entityOnly.includes(entityType),
+  );
+}
 
 const DATE_FORMATS = ['YYYY', 'YY', 'MM', 'DD', 'YYMM', 'YYYYMM', 'YYYYMMDD'];
 const RESET_PERIODS: { value: 'never' | 'yearly' | 'monthly'; label: string }[] = [
@@ -43,19 +51,28 @@ function blankSegment(type: CodegenSegment['type']): CodegenSegment {
     case 'free_text': return { type: 'free_text', value: '' };
     case 'date': return { type: 'date', format: 'YYYY' };
     case 'category_shortform': return { type: 'category_shortform', length: 3 };
+    case 'group_shortform': return { type: 'group_shortform', length: 3 };
+    case 'subgroup_shortform': return { type: 'subgroup_shortform', length: 3 };
     case 'sequence': return { type: 'sequence', digits: 4, resetPeriod: 'never' };
   }
 }
 
-function SegmentRow({ segment, onChange, onRemove, onMove, isFirst, isLast }: {
-  segment: CodegenSegment; onChange: (s: CodegenSegment) => void; onRemove: () => void;
+function SegmentRow({ segment, entityType, onChange, onRemove, onMove, isFirst, isLast }: {
+  segment: CodegenSegment; entityType: string; onChange: (s: CodegenSegment) => void; onRemove: () => void;
   onMove: (dir: -1 | 1) => void; isFirst: boolean; isLast: boolean;
 }) {
+  const availableTypes = segmentTypesFor(entityType);
+
+  const lengthField = (s: { length: number }) => (
+    <TextField size="small" type="number" label="Length" value={s.length} sx={{ width: 100 }}
+      onChange={(e) => onChange({ ...segment, length: Math.max(1, Number(e.target.value) || 1) } as CodegenSegment)} />
+  );
+
   return (
     <Stack direction="row" spacing={1.5} alignItems="center" sx={{ p: 1.25, borderRadius: 'var(--r-sm)', background: 'var(--c-surface-2)' }}>
-      <TextField select size="small" label="Segment" value={segment.type} sx={{ minWidth: 180 }}
+      <TextField select size="small" label="Segment" value={segment.type} sx={{ minWidth: 190 }}
         onChange={(e) => onChange(blankSegment(e.target.value as CodegenSegment['type']))}>
-        {SEGMENT_TYPES.map((t) => <MenuItem key={t.value} value={t.value}>{t.label}</MenuItem>)}
+        {availableTypes.map((t) => <MenuItem key={t.value} value={t.value}>{t.label}</MenuItem>)}
       </TextField>
 
       {segment.type === 'fixed' && (
@@ -68,10 +85,9 @@ function SegmentRow({ segment, onChange, onRemove, onMove, isFirst, isLast }: {
           {DATE_FORMATS.map((f) => <MenuItem key={f} value={f}>{f}</MenuItem>)}
         </TextField>
       )}
-      {segment.type === 'category_shortform' && (
-        <TextField size="small" type="number" label="Length" value={segment.length} sx={{ width: 100 }}
-          onChange={(e) => onChange({ ...segment, length: Math.max(1, Number(e.target.value) || 1) })} />
-      )}
+      {segment.type === 'category_shortform' && lengthField(segment)}
+      {segment.type === 'group_shortform' && lengthField(segment)}
+      {segment.type === 'subgroup_shortform' && lengthField(segment)}
       {segment.type === 'sequence' && (<>
         <TextField size="small" type="number" label="Digits" value={segment.digits} sx={{ width: 100 }}
           onChange={(e) => onChange({ ...segment, digits: Math.max(1, Number(e.target.value) || 1) })} />
@@ -176,7 +192,7 @@ export default function CodegenSettings() {
             <Stack spacing={1.25} sx={{ mb: 2 }}>
               {segments.map((seg, i) => (
                 <SegmentRow
-                  key={i} segment={seg}
+                  key={i} segment={seg} entityType={entityType}
                   onChange={(s) => updateSegment(i, s)}
                   onRemove={() => removeSegment(i)}
                   onMove={(dir) => moveSegment(i, dir)}
