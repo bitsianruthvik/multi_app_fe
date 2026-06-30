@@ -16,7 +16,6 @@ import MenuIcon from '@mui/icons-material/Menu';
 import NotificationsNoneIcon from '@mui/icons-material/NotificationsNone';
 import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
 import ChevronRightRounded from '@mui/icons-material/ChevronRightRounded';
-import SearchRounded from '@mui/icons-material/SearchRounded';
 import Sidebar from '@core/components/Sidebar';
 import { ErrorBoundary } from '@core/components/ErrorBoundary';
 import { buildUserNavItems } from '../../config/userNav';
@@ -266,49 +265,6 @@ export default function UserLayout({ children }: { children: React.ReactNode }) 
           )}
           {isFabErp ? <FabErpBreadcrumb parts={parts} /> : null}
           <Box sx={{ flex: 1 }} />
-          {isFabErp && !isMobile && (
-            <Box
-              component="button"
-              type="button"
-              onClick={() => document.dispatchEvent(new CustomEvent('fab-erp-open-palette'))}
-              aria-label="Open command palette"
-              sx={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 1,
-                height: 34,
-                pl: 1.25,
-                pr: 0.75,
-                borderRadius: 'var(--r-sm)',
-                border: '1px solid var(--c-border)',
-                background: 'var(--c-surface)',
-                color: 'var(--c-text-3)',
-                cursor: 'pointer',
-                fontFamily: 'var(--font-ui)',
-                fontSize: 13,
-                transition: 'all var(--t-fast) var(--ease)',
-                '&:hover': { borderColor: 'var(--c-primary-200)', color: 'var(--c-text-2)' },
-              }}
-            >
-              <SearchRounded sx={{ fontSize: 16 }} />
-              <Box component="span" sx={{ mr: 2 }}>Search…</Box>
-              <Box
-                component="kbd"
-                sx={{
-                  fontFamily: 'var(--font-mono)',
-                  fontSize: 11,
-                  px: 0.75,
-                  py: 0.125,
-                  borderRadius: 'var(--r-sm)',
-                  background: 'var(--c-surface-2)',
-                  border: '1px solid var(--c-border)',
-                  color: 'var(--c-text-3)',
-                }}
-              >
-                ⌘K
-              </Box>
-            </Box>
-          )}
           <Tooltip title="Notifications">
             <IconButton size="small" sx={isFabErp ? { color: 'var(--c-text-2)' } : undefined}>
               <NotificationsNoneIcon />

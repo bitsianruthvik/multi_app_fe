@@ -135,17 +135,17 @@ export function GlobalSearch() {
           px: 2.5,
           height: 56,
           borderRadius: 'var(--r-md)',
-          background: 'var(--c-surface-1)',
+          background: 'var(--c-surface)',
           border: '1.5px solid var(--c-border)',
           transition: 'border-color 0.15s, box-shadow 0.15s',
           '&:focus-within': {
-            borderColor: 'var(--c-accent)',
-            boxShadow: '0 0 0 3px color-mix(in srgb, var(--c-accent) 15%, transparent)',
+            borderColor: 'var(--c-primary-500)',
+            boxShadow: '0 0 0 3px color-mix(in srgb, var(--c-primary-500) 15%, transparent)',
           },
         }}
       >
         {loading ? (
-          <CircularProgress size={20} sx={{ color: 'var(--c-accent)', flexShrink: 0 }} />
+          <CircularProgress size={20} sx={{ color: 'var(--c-primary-500)', flexShrink: 0 }} />
         ) : (
           <SearchRounded sx={{ fontSize: 22, color: 'var(--c-text-3)', flexShrink: 0 }} />
         )}
@@ -160,7 +160,7 @@ export function GlobalSearch() {
           sx={{
             fontSize: 15,
             fontFamily: 'var(--font-sans)',
-            color: 'var(--c-text-1)',
+            color: 'var(--c-text)',
             '& input::placeholder': { color: 'var(--c-text-3)' },
           }}
           inputProps={{ 'aria-label': 'Global search' }}
@@ -181,7 +181,7 @@ export function GlobalSearch() {
             left: 0,
             right: 0,
             zIndex: 1300,
-            background: 'var(--c-surface-1)',
+            background: 'var(--c-surface)',
             border: '1.5px solid var(--c-border)',
             borderRadius: 'var(--r-md)',
             boxShadow: '0 8px 40px rgba(0,0,0,0.20)',
@@ -243,7 +243,7 @@ export function GlobalSearch() {
                       sx={{
                         fontSize: 14,
                         fontWeight: 500,
-                        color: 'var(--c-text-1)',
+                        color: 'var(--c-text)',
                         whiteSpace: 'nowrap',
                         overflow: 'hidden',
                         textOverflow: 'ellipsis',
