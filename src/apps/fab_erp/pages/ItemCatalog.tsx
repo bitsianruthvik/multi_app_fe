@@ -53,7 +53,6 @@ import DownloadIcon    from '@mui/icons-material/Download';
 import UploadFileIcon  from '@mui/icons-material/UploadFile';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import ExpandMoreIcon  from '@mui/icons-material/ExpandMore';
-import AutorenewRounded from '@mui/icons-material/AutorenewRounded';
 
 import { fabQuery, fabMutate, fabPost } from '../api/client';
 import type {
@@ -622,7 +621,7 @@ function TaxonomyDeleteDialog({ open, type, entity, groups, subgroups, onClose, 
 function CatalogDialog({ open, initial, categories, groups, subgroups, canManageTaxonomy, onClose, onSaved, refetchTaxonomy }: {
   open: boolean; initial: FabItemCatalog | null;
   categories: FabItemCategory[]; groups: FabItemGroup[]; subgroups: FabItemSubgroup[];
-  canManageTaxonomy: boolean; onClose: () => void; onSaved: () => void;
+  canManageTaxonomy: boolean; onClose: () => void; onSaved: (code?: string) => void;
   refetchTaxonomy: () => Promise<void>;
 }) {
   const isNew = !initial;
@@ -632,8 +631,6 @@ function CatalogDialog({ open, initial, categories, groups, subgroups, canManage
   const [categoryError, setCategoryError] = useState('');
   const [addingLevel, setAddingLevel] = useState<'category' | 'group' | 'subgroup' | null>(null);
   const [customFields, setCustomFields] = useState<CustomFieldDraft[]>([]);
-  const [generatingCode, setGeneratingCode] = useState(false);
-
   useEffect(() => {
     if (!open) return;
     setCustomFields([]);
@@ -694,17 +691,6 @@ function CatalogDialog({ open, initial, categories, groups, subgroups, canManage
   }
   const pn = (v: string) => v.trim() === '' ? null : Number(v);
 
-  async function generateCode() {
-    setGeneratingCode(true);
-    try {
-      const res = await fabPost<{ code: string }>('codegen/next-code', {
-        entityType: 'item', context: { categoryId: draft.categoryId },
-      });
-      set('code', res.code);
-    } catch { /* leave code field as-is */ }
-    finally { setGeneratingCode(false); }
-  }
-
   function addCf() {
     if (customFields.length >= 10) return;
     setCustomFields((d) => [...d, { id: nextCfDraftId(), fieldKey: '', fieldType: 'text', fieldValue: '' }]);
@@ -762,7 +748,8 @@ function CatalogDialog({ open, initial, categories, groups, subgroups, canManage
   }
 
   async function save() {
-    if (!draft.name.trim() || !draft.code.trim()) { setErr('Name and Code are required.'); return; }
+    if (!draft.name.trim()) { setErr('Name is required.'); return; }
+    if (!isNew && !draft.code.trim()) { setErr('Code is required.'); return; }
     if (!draft.categoryId) { setCategoryError('Category is required.'); return; }
     setCategoryError('');
     setSaving(true); setErr('');
@@ -772,8 +759,22 @@ function CatalogDialog({ open, initial, categories, groups, subgroups, canManage
       if (!groupId) groupId = await resolveDefaultGroup(draft.categoryId);
       if (groupId && !subgroupId) subgroupId = await resolveDefaultSubgroup(groupId);
 
+      let itemCode = draft.code.trim().toUpperCase();
+      if (isNew) {
+        try {
+          const codeRes = await fabPost<{ code: string }>('codegen/next-code', {
+            entityType: 'item', context: { categoryId: draft.categoryId },
+          });
+          itemCode = codeRes.code.toUpperCase();
+        } catch {
+          setErr('Failed to generate item code. Please try again.');
+          setSaving(false);
+          return;
+        }
+      }
+
       const payload = {
-        name: draft.name.trim(), code: draft.code.trim().toUpperCase(),
+        name: draft.name.trim(), code: itemCode,
         unit: draft.unit.trim() || 'pcs', description: draft.description.trim() || null,
         category_id: draft.categoryId, group_id: groupId, subgroup_id: subgroupId,
         gross_weight: pn(draft.grossWeight), net_weight: pn(draft.netWeight), weight_unit: draft.weightUnit || 'kg',
@@ -808,7 +809,7 @@ function CatalogDialog({ open, initial, categories, groups, subgroups, canManage
         return;
       }
 
-      onSaved();
+      onSaved(isNew ? itemCode : undefined);
     } catch (e) { setErr(errMsg(e)); }
     finally { setSaving(false); }
   }
@@ -821,15 +822,10 @@ function CatalogDialog({ open, initial, categories, groups, subgroups, canManage
         <Box sx={{ display: 'flex', gap: 2 }}>
           <TextField label="Item Name" value={draft.name} size="small" required autoFocus sx={{ flex: 3 }}
             onChange={(e) => set('name', e.target.value)} />
-          <TextField label="Code" value={draft.code} size="small" required sx={{ flex: 1 }}
-            onChange={(e) => set('code', e.target.value)}
-            slotProps={{ input: { endAdornment: (
-              <Tooltip title="Generate code from the company's item code rule">
-                <IconButton size="small" onClick={generateCode} disabled={generatingCode}>
-                  {generatingCode ? <CircularProgress size={14} /> : <AutorenewRounded fontSize="small" />}
-                </IconButton>
-              </Tooltip>
-            ) } }} />
+          {!isNew && (
+            <TextField label="Code" value={draft.code} size="small" sx={{ flex: 1 }}
+              slotProps={{ input: { readOnly: true } }} />
+          )}
           <Autocomplete freeSolo options={STANDARD_UOMS.map((u) => u.value)} sx={{ flex: 1 }}
             value={draft.unit}
             onInputChange={(_, value) => set('unit', value)}
@@ -974,7 +970,7 @@ function CatalogDialog({ open, initial, categories, groups, subgroups, canManage
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose}>Cancel</Button>
-        <Button variant="contained" onClick={save} disabled={saving || !draft.name.trim() || !draft.code.trim()}>
+        <Button variant="contained" onClick={save} disabled={saving || !draft.name.trim() || (!isNew && !draft.code.trim())}>
           {saving ? <CircularProgress size={16} /> : 'Save'}
         </Button>
       </DialogActions>
@@ -1718,7 +1714,7 @@ export default function ItemCatalog() {
     }
   }
 
-  function onSaved()   { setDlg({ open: false, item: null }); toast('Saved.'); fetchAll(); }
+  function onSaved(code?: string) { setDlg({ open: false, item: null }); toast(code ? `Item created — code: ${code}` : 'Saved.'); fetchAll(); }
   function onDeleted() { setDelItem(null); toast('Removed.'); fetchAll(); }
 
   const handleTaxonomyRowClick = (

@@ -23,7 +23,7 @@ import { statusFamily } from '../statusMap';
 
 interface FabOrder {
   id: number; companyId: number; orderNumber: string; orderType: string; type: string; status: string;
-  customerName?: string; customerPoRef?: string; plantId?: number; plantName?: string;
+  customerId?: number; customerName?: string; customerPoRef?: string; plantId?: number; plantName?: string;
   requiredDate?: string; confirmedDate?: string; scheduledShipDate?: string;
   priority?: string; mrpController?: string; notes?: string; currency?: string; paymentTerms?: string;
   createdAt: string; updatedAt: string; deletedAt: string | null;
@@ -90,10 +90,11 @@ export default function SalesOrderDetail() {
       await fabMutate('fabErpOrder', 'update', {
         id,
         order_number: draft.orderNumber ?? so.orderNumber,
-        order_type: 'sales',
+        order_type: so.orderType,
         type: draft.type ?? so.type,
         status: draft.status ?? so.status,
         priority: draft.priority ?? null,
+        customer_id: so.customerId ?? null,
         customer_name: draft.customerName ?? null,
         customer_po_ref: draft.customerPoRef ?? null,
         required_date: dateOnly(draft.requiredDate),

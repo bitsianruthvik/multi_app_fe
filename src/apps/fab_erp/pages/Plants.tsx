@@ -7,7 +7,6 @@ import {
 import AddIcon from '@mui/icons-material/Add';
 import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
 import EditRounded from '@mui/icons-material/EditRounded';
-import AutorenewRounded from '@mui/icons-material/AutorenewRounded';
 
 import { fabQuery, fabMutate, fabPost } from '@apps/fab_erp/api/client';
 import type { FabPlant, FabStockLocation, FabItemBatch, FabStockBalance, FabStockPolicy } from '@apps/fab_erp/types';
@@ -42,12 +41,11 @@ const STOCK_LEVEL_COLUMNS: SortableColumn<StockLevelRow>[] = [
 ];
 
 function PlantDialog({ open, initial, onClose, onSaved }: {
-  open: boolean; initial: FabPlant | null; onClose: () => void; onSaved: () => void;
+  open: boolean; initial: FabPlant | null; onClose: () => void; onSaved: (code?: string) => void;
 }) {
   const [draft, setDraft] = useState<PlantDraft>(BLANK_PLANT());
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
-  const [generatingCode, setGeneratingCode] = useState(false);
   const isNew = !initial;
 
   useEffect(() => {
@@ -58,21 +56,25 @@ function PlantDialog({ open, initial, onClose, onSaved }: {
 
   const set = (k: keyof PlantDraft, v: string) => setDraft((d) => ({ ...d, [k]: v }));
 
-  async function generateCode() {
-    setGeneratingCode(true);
-    try {
-      const res = await fabPost<{ code: string }>('codegen/next-code', { entityType: 'plant', context: {} });
-      set('code', res.code);
-    } catch { /* leave code field as-is */ }
-    finally { setGeneratingCode(false); }
-  }
-
   async function save() {
     setSaving(true); setErr('');
     try {
-      if (isNew) await fabMutate('fabErpPlant', 'insert', { name: draft.name, code: draft.code });
-      else await fabMutate('fabErpPlant', 'update', { id: initial!.id, name: draft.name, code: draft.code });
-      onSaved();
+      if (isNew) {
+        let generatedCode: string;
+        try {
+          const res = await fabPost<{ code: string }>('codegen/next-code', { entityType: 'plant', context: {} });
+          generatedCode = res.code;
+        } catch {
+          setErr('Failed to generate plant code. Please try again.');
+          setSaving(false);
+          return;
+        }
+        await fabMutate('fabErpPlant', 'insert', { name: draft.name, code: generatedCode });
+        onSaved(generatedCode);
+      } else {
+        await fabMutate('fabErpPlant', 'update', { id: initial!.id, name: draft.name, code: draft.code });
+        onSaved();
+      }
     } catch (e) {
       const err = e as { response?: { data?: { error?: string } }; message?: string };
       setErr(err.response?.data?.error ?? err.message ?? 'Unknown error');
@@ -85,22 +87,20 @@ function PlantDialog({ open, initial, onClose, onSaved }: {
       <DialogContent dividers sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
         {err && <Alert severity="error">{err}</Alert>}
         <Grid container spacing={2}>
-          <Grid size={{ xs: 12, sm: 5 }}>
-            <TextField label="Code" value={draft.code} onChange={(e) => set('code', e.target.value)} size="small" fullWidth required
-              slotProps={{ input: { endAdornment: (
-                <Tooltip title="Generate code from the company's plant code rule">
-                  <IconButton size="small" onClick={generateCode} disabled={generatingCode}>
-                    {generatingCode ? <CircularProgress size={14} /> : <AutorenewRounded fontSize="small" />}
-                  </IconButton>
-                </Tooltip>
-              ) } }} />
+          {!isNew && (
+            <Grid size={{ xs: 12, sm: 5 }}>
+              <TextField label="Code" value={draft.code} size="small" fullWidth
+                slotProps={{ input: { readOnly: true } }} />
+            </Grid>
+          )}
+          <Grid size={{ xs: 12, sm: isNew ? 12 : 7 }}>
+            <TextField label="Name" value={draft.name} onChange={(e) => set('name', e.target.value)} size="small" fullWidth required />
           </Grid>
-          <Grid size={{ xs: 12, sm: 7 }}><TextField label="Name" value={draft.name} onChange={(e) => set('name', e.target.value)} size="small" fullWidth required /></Grid>
         </Grid>
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose}>Cancel</Button>
-        <Button variant="contained" onClick={save} disabled={saving || !draft.name || !draft.code}>
+        <Button variant="contained" onClick={save} disabled={saving || !draft.name}>
           {saving ? <CircularProgress size={16} color="inherit" /> : 'Save'}
         </Button>
       </DialogActions>
@@ -211,7 +211,7 @@ export default function Plants() {
   useEffect(() => { fetchAll(); }, [fetchAll]);
   useEffect(() => { if (slPlantId === null && plants.length > 0) setSlPlantId(plants[0].id); }, [plants, slPlantId]);
 
-  function onSaved() { fetchAll(); setPlantDialog({ open: false, item: null }); toast('Plant saved'); }
+  function onSaved(code?: string) { fetchAll(); setPlantDialog({ open: false, item: null }); toast(code ? `Plant created — code: ${code}` : 'Plant saved'); }
 
   async function handleDeletePlant() {
     if (!plantDelete) return;

@@ -94,7 +94,7 @@ const BLANK = (orderType = 'sales'): OrderDraft => ({
 
 function OrderDialog({ open, initial, defaultOrderType, onClose, onSaved }: {
   open: boolean; initial: FabOrder | null; defaultOrderType?: string;
-  onClose: () => void; onSaved: () => void;
+  onClose: () => void; onSaved: (orderNumber?: string) => void;
 }) {
   const isNew = !initial;
   const [draft, setDraft] = useState<OrderDraft>(BLANK());
@@ -140,23 +140,39 @@ function OrderDialog({ open, initial, defaultOrderType, onClose, onSaved }: {
   const supplierMissing = showSupplier && !draft.supplierId;
 
   async function save() {
-    if (!draft.orderNumber.trim()) { setErr('Order number is required.'); return; }
+    if (!isNew && !draft.orderNumber.trim()) { setErr('Order number is required.'); return; }
     if (customerMissing) { setErr('Customer is required for sales orders.'); return; }
     if (supplierMissing) { setErr('Supplier is required for purchase/subcontract orders.'); return; }
     setSaving(true); setErr('');
     try {
       const selectedCustomer = customers.find((c) => c.id === draft.customerId);
+      const selectedSupplier = suppliers.find((s) => s.id === draft.supplierId);
+
+      let orderNumber = draft.orderNumber.trim();
+      if (isNew) {
+        try {
+          const entityType = `${draft.orderType}_order`;
+          const codeRes = await fabPost<{ code: string }>('codegen/next-code', { entityType, context: {} });
+          orderNumber = codeRes.code;
+        } catch {
+          setErr('Failed to generate order number. Please try again.');
+          setSaving(false);
+          return;
+        }
+      }
+
       const payload: Record<string, unknown> = {
-        order_number: draft.orderNumber.trim(), order_type: draft.orderType, type: draft.type || null,
+        order_number: orderNumber, order_type: draft.orderType, type: draft.type || null,
         status: draft.status, customer_id: draft.customerId, customer_name: selectedCustomer?.name ?? null,
         customer_po_ref: draft.customerPoRef.trim() || null,
-        supplier_id: draft.supplierId, supplier_ref: draft.supplierRef.trim() || null,
+        supplier_id: draft.supplierId, supplier_name: selectedSupplier?.name ?? null,
+        supplier_ref: draft.supplierRef.trim() || null,
         priority: draft.priority || null, required_date: draft.requiredDate || null,
         confirmed_date: draft.confirmedDate || null,
       };
       if (isNew) await fabMutate('fabErpOrder', 'insert', payload);
       else await fabMutate('fabErpOrder', 'update', { id: initial!.id, ...payload });
-      onSaved();
+      onSaved(isNew ? orderNumber : undefined);
     } catch (e) {
       const ax = e as { response?: { data?: { message?: string; error?: string } }; message?: string };
       setErr(ax.response?.data?.message ?? ax.response?.data?.error ?? ax.message ?? 'Save failed');
@@ -169,10 +185,13 @@ function OrderDialog({ open, initial, defaultOrderType, onClose, onSaved }: {
       <DialogContent dividers sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
         {err && <Alert severity="error">{err}</Alert>}
         <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2 }}>
-          <TextField label="Order number *" value={draft.orderNumber} size="small" autoFocus
-            onChange={(e) => set('orderNumber', e.target.value)} />
+          {!isNew && (
+            <TextField label="Order number" value={draft.orderNumber} size="small"
+              slotProps={{ input: { readOnly: true } }} />
+          )}
           <TextField select label="Order type *" value={draft.orderType} size="small"
-            onChange={(e) => set('orderType', e.target.value)} disabled={!isNew}>
+            onChange={(e) => set('orderType', e.target.value)} disabled={!isNew}
+            sx={isNew ? { gridColumn: '1 / -1' } : {}}>
             {ORDER_TYPE_KEYS.map((t) => <MenuItem key={t} value={t}>{ORDER_TYPE_CONFIG[t].label}</MenuItem>)}
           </TextField>
           {cfg && (
@@ -226,7 +245,7 @@ function OrderDialog({ open, initial, defaultOrderType, onClose, onSaved }: {
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose}>Cancel</Button>
-        <Button variant="contained" onClick={save} disabled={saving || !draft.orderNumber.trim() || customerMissing || supplierMissing}>
+        <Button variant="contained" onClick={save} disabled={saving || (!isNew && !draft.orderNumber.trim()) || customerMissing || supplierMissing}>
           {saving ? <CircularProgress size={16} color="inherit" /> : 'Save'}
         </Button>
       </DialogActions>
@@ -486,7 +505,7 @@ export default function Orders() {
         open={dlg.open} initial={dlg.order}
         defaultOrderType={typeFilter === 'all' ? 'sales' : typeFilter}
         onClose={() => setDlg({ open: false, order: null })}
-        onSaved={() => { setDlg({ open: false, order: null }); toast('Order saved'); fetchAll(); }}
+        onSaved={(orderNumber) => { setDlg({ open: false, order: null }); toast(orderNumber ? `Order created — ${orderNumber}` : 'Order saved'); fetchAll(); }}
       />
       <DeleteDialog order={delOrder} onClose={() => setDelOrder(null)}
         onDeleted={() => { setDelOrder(null); toast('Order deleted'); fetchAll(); }} />
