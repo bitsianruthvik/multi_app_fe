@@ -356,6 +356,16 @@ export interface FabItemCatalog extends FabBase {
   leadTimeDays?:     number | null;
   mrpActive?:        number | null; // 0 | 1
   dimensionDecimals: number;
+  // Traceability — NULL means "inherit from Category"; 0/1 overrides it.
+  batchRequiredOverride?:  number | null;
+  serialRequiredOverride?: number | null;
+  heatRequiredOverride?:   number | null;
+  markRequiredOverride?:   number | null;
+  // Effective Category defaults, joined in for convenience.
+  categoryBatchRequired?:  number | null;
+  categorySerialRequired?: number | null;
+  categoryHeatRequired?:   number | null;
+  categoryMarkRequired?:   number | null;
 }
 
 /**
@@ -422,6 +432,12 @@ export interface FabItemCategory extends FabBase {
   code: string;
   description: string | null;
   isSystem: number; // 0 | 1
+  // Traceability requirements ("Item Type" level) — items inherit these,
+  // overridable per item. 0 | 1.
+  batchRequired: number;
+  serialRequired: number;
+  heatRequired: number;
+  markRequired: number;
 }
 
 /**
@@ -540,7 +556,12 @@ export interface FabItemBatch extends FabBase {
   catalogItemId: number;
   plantId: number;
   stockLocationId: number;
-  batchCode: string;
+  /** @deprecated legacy display fallback — prefer batchNo/serialNo/heatNo/markNo */
+  batchCode: string | null;
+  batchNo: string | null;
+  serialNo: string | null;
+  heatNo: string | null;
+  markNo: string | null;
   qtyOnHand: number;
   receivedDate: string | null;
   notes: string | null;
@@ -575,7 +596,11 @@ export interface FabGrnLine extends FabBase {
   grnId: number;
   catalogItemId: number;
   batchId: number | null;
-  batchCode: string;
+  batchCode: string | null;
+  batchNo: string | null;
+  serialNo: string | null;
+  heatNo: string | null;
+  markNo: string | null;
   qty: number;
   unitCost: number | null;
   catalogItemName?: string;
@@ -668,7 +693,11 @@ export interface FabStockLedger extends FabBase {
   plantId: number;
   stockLocationId: number;
   batchId: number;
-  batchCode: string;
+  batchCode: string | null;
+  batchNo: string | null;
+  serialNo: string | null;
+  heatNo: string | null;
+  markNo: string | null;
   txnType: string;
   qty: number;
   unitCost: number | null;

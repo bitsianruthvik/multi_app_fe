@@ -25,7 +25,10 @@ interface ItemOption { id: number; name: string; code: string }
 const TH = { fontFamily: 'var(--font-ui)', fontWeight: 600, fontSize: 12, color: 'var(--c-text-2)', textTransform: 'uppercase', letterSpacing: '.05em', borderColor: 'var(--c-divider)' } as const;
 
 const BATCH_COLUMNS: SortableColumn<FabItemBatch>[] = [
-  { key: 'batchCode',         label: 'Batch code',    sx: { ...TH, width: 130 } },
+  { key: 'batchNo',           label: 'Batch no.',     sx: { ...TH, width: 110 } },
+  { key: 'serialNo',          label: 'Serial no.',    sx: { ...TH, width: 110 } },
+  { key: 'heatNo',            label: 'Heat no.',      sx: { ...TH, width: 110 } },
+  { key: 'markNo',            label: 'Mark no.',      sx: { ...TH, width: 110 } },
   { key: 'plantName',         label: 'Plant',         sx: { ...TH, width: 140 } },
   { key: 'stockLocationName', label: 'Stock location', sx: { ...TH, width: 140 } },
   { key: 'qtyOnHand',         label: 'Qty on hand',   align: 'right', sx: { ...TH, width: 100 } },
@@ -54,7 +57,9 @@ function ReceiptsDialog({ batch, company, onClose }: {
 
   return (
     <Dialog open={!!batch} onClose={onClose} maxWidth="sm" fullWidth>
-      <DialogTitle sx={{ fontWeight: 600 }}>Receipts — <Mono>{batch?.batchCode}</Mono></DialogTitle>
+      <DialogTitle sx={{ fontWeight: 600 }}>
+        Receipts — <Mono>{batch?.batchNo ?? batch?.serialNo ?? batch?.heatNo ?? batch?.markNo ?? batch?.batchCode ?? '—'}</Mono>
+      </DialogTitle>
       <DialogContent>
         {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
         {loading ? (
@@ -221,7 +226,10 @@ export default function ItemBatches() {
             <TableBody>
               {sortedRows.map((b) => (
                 <TableRow key={b.id} hover>
-                  <TableCell sx={td}><Mono chip>{b.batchCode}</Mono></TableCell>
+                  <TableCell sx={td}>{b.batchNo ? <Mono chip>{b.batchNo}</Mono> : '—'}</TableCell>
+                  <TableCell sx={td}>{b.serialNo ? <Mono chip>{b.serialNo}</Mono> : '—'}</TableCell>
+                  <TableCell sx={td}>{b.heatNo ? <Mono chip>{b.heatNo}</Mono> : '—'}</TableCell>
+                  <TableCell sx={td}>{b.markNo ? <Mono chip>{b.markNo}</Mono> : '—'}</TableCell>
                   <TableCell sx={td}>{b.plantName ?? '—'}</TableCell>
                   <TableCell sx={td}>{b.stockLocationName ?? '—'}</TableCell>
                   <TableCell sx={td} align="right"><Mono tabular>{b.qtyOnHand}</Mono></TableCell>

@@ -11,11 +11,24 @@ import EditRounded from '@mui/icons-material/EditRounded';
 
 import { fabQuery, fabMutate } from '../api/client';
 import api, { API_HOST } from '@core/utils/axiosConfig';
-import type { FabItemCatalog, FabPlant, FabStockLocation, FabSupplier } from '../types';
+import type { FabItemCatalog, FabItemCategory, FabPlant, FabStockLocation, FabSupplier } from '../types';
 import { usePermission } from '@core/hooks/usePermission';
 import { Surface, PageHeader, Mono, EmptyState, useToast, EntityList, EntityRow } from '../components';
 
 interface QueryResult<T> { data: T[]; total?: number }
+
+interface TraceRequirements { batchNo: boolean; serialNo: boolean; heatNo: boolean; markNo: boolean }
+
+function effectiveTraceability(item: CatalogOption, categoriesById: Map<number, FabItemCategory>): TraceRequirements {
+  const cat = item.categoryId ? categoriesById.get(item.categoryId) : undefined;
+  const pick = (override: number | null | undefined, base: number | undefined) => (override ?? base ?? 0) === 1;
+  return {
+    batchNo:  pick(item.batchRequiredOverride, cat?.batchRequired),
+    serialNo: pick(item.serialRequiredOverride, cat?.serialRequired),
+    heatNo:   pick(item.heatRequiredOverride, cat?.heatRequired),
+    markNo:   pick(item.markRequiredOverride, cat?.markRequired),
+  };
+}
 
 function todayStr(): string {
   const d = new Date();
@@ -24,7 +37,11 @@ function todayStr(): string {
   return `${d.getFullYear()}-${mm}-${dd}`;
 }
 
-interface CatalogOption { id: number; name: string; code: string }
+interface CatalogOption {
+  id: number; name: string; code: string; categoryId: number | null;
+  batchRequiredOverride: number | null; serialRequiredOverride: number | null;
+  heatRequiredOverride: number | null; markRequiredOverride: number | null;
+}
 interface SupplierDraft { name: string; code: string; contactName: string; phone: string; email: string; address: string; notes: string }
 const BLANK_SUPPLIER = (): SupplierDraft => ({ name: '', code: '', contactName: '', phone: '', email: '', address: '', notes: '' });
 
@@ -132,8 +149,12 @@ function SupplierDeleteDialog({ item, onClose, onDeleted }: { item: FabSupplier 
   );
 }
 
-interface LineDraft { catalogItem: CatalogOption | null; batchCode: string; qty: string; unitCost: string }
-const BLANK_LINE = (): LineDraft => ({ catalogItem: null, batchCode: '', qty: '', unitCost: '' });
+interface LineDraft {
+  catalogItem: CatalogOption | null;
+  batchNo: string; serialNo: string; heatNo: string; markNo: string;
+  qty: string; unitCost: string;
+}
+const BLANK_LINE = (): LineDraft => ({ catalogItem: null, batchNo: '', serialNo: '', heatNo: '', markNo: '', qty: '', unitCost: '' });
 
 const ADD_SUPPLIER_OPTION: FabSupplier = {
   id: -1, companyId: 0, name: '+ Add new supplier', code: '',
@@ -155,6 +176,7 @@ export default function GrnEntry() {
   const [stockLocations, setStockLocations] = useState<FabStockLocation[]>([]);
   const [suppliers, setSuppliers] = useState<FabSupplier[]>([]);
   const [catalogItems, setCatalogItems] = useState<CatalogOption[]>([]);
+  const [categoriesById, setCategoriesById] = useState<Map<number, FabItemCategory>>(new Map());
 
   const [grnNumber, setGrnNumber] = useState('');
   const [grnDate, setGrnDate] = useState(todayStr());
@@ -181,12 +203,18 @@ export default function GrnEntry() {
 
   const fetchInitial = useCallback(async () => {
     try {
-      const [plantsRes, catalogRes] = await Promise.all([
+      const [plantsRes, catalogRes, categoryRes] = await Promise.all([
         fabQuery<QueryResult<FabPlant>>('fabErpPlant', { orderBy: [{ field: 'name', direction: 'asc' }], pagination: { limit: 1000 } }),
         fabQuery<QueryResult<FabItemCatalog>>('fabErpItemCatalog', { orderBy: [{ field: 'name', direction: 'asc' }], pagination: { limit: 1000 } }),
+        fabQuery<QueryResult<FabItemCategory>>('fabErpItemCategory', { pagination: { limit: 1000 } }),
       ]);
       setPlants(plantsRes.data ?? []);
-      setCatalogItems((catalogRes.data ?? []).map((c) => ({ id: c.id, name: c.name, code: c.code })));
+      setCatalogItems((catalogRes.data ?? []).map((c) => ({
+        id: c.id, name: c.name, code: c.code, categoryId: c.categoryId ?? null,
+        batchRequiredOverride: c.batchRequiredOverride ?? null, serialRequiredOverride: c.serialRequiredOverride ?? null,
+        heatRequiredOverride: c.heatRequiredOverride ?? null, markRequiredOverride: c.markRequiredOverride ?? null,
+      })));
+      setCategoriesById(new Map((categoryRes.data ?? []).map((c) => [c.id, c])));
       await fetchSuppliers();
     } catch (e) { setFormError((e as Error).message); }
   }, [fetchSuppliers]);
@@ -213,7 +241,11 @@ export default function GrnEntry() {
     if (lines.length === 0) return 'At least one line item is required.';
     for (const [i, l] of lines.entries()) {
       if (!l.catalogItem) return `Line ${i + 1}: an item must be selected.`;
-      if (!l.batchCode.trim()) return `Line ${i + 1}: batch code is required.`;
+      const reqs = effectiveTraceability(l.catalogItem, categoriesById);
+      if (reqs.batchNo && !l.batchNo.trim()) return `Line ${i + 1}: this item requires a batch number.`;
+      if (reqs.serialNo && !l.serialNo.trim()) return `Line ${i + 1}: this item requires a serial number.`;
+      if (reqs.heatNo && !l.heatNo.trim()) return `Line ${i + 1}: this item requires a heat number.`;
+      if (reqs.markNo && !l.markNo.trim()) return `Line ${i + 1}: this item requires a mark number.`;
       const qty = Number(l.qty);
       if (!l.qty || !(qty > 0)) return `Line ${i + 1}: quantity must be greater than 0.`;
     }
@@ -232,7 +264,9 @@ export default function GrnEntry() {
           supplier_id: supplier?.id ?? null, supplier_ref: supplierRef.trim() || null, notes: notes.trim() || null,
         },
         lines: lines.map((l) => ({
-          catalog_item_id: l.catalogItem!.id, batch_code: l.batchCode.trim(),
+          catalog_item_id: l.catalogItem!.id,
+          batch_no: l.batchNo.trim() || null, serial_no: l.serialNo.trim() || null,
+          heat_no: l.heatNo.trim() || null, mark_no: l.markNo.trim() || null,
           qty: Number(l.qty), unit_cost: l.unitCost.trim() !== '' ? Number(l.unitCost) : null,
         })),
       };
@@ -311,14 +345,19 @@ export default function GrnEntry() {
               <TableHead>
                 <TableRow sx={{ background: 'var(--c-surface-2)' }}>
                   <TableCell sx={th}>Item</TableCell>
-                  <TableCell sx={{ ...th, width: 160 }}>Batch code</TableCell>
+                  <TableCell sx={{ ...th, width: 120 }}>Batch no.</TableCell>
+                  <TableCell sx={{ ...th, width: 120 }}>Serial no.</TableCell>
+                  <TableCell sx={{ ...th, width: 120 }}>Heat no.</TableCell>
+                  <TableCell sx={{ ...th, width: 120 }}>Mark no.</TableCell>
                   <TableCell sx={{ ...th, width: 110 }}>Qty</TableCell>
                   <TableCell sx={{ ...th, width: 130 }}>Unit cost</TableCell>
                   <TableCell sx={{ ...th, width: 48 }} />
                 </TableRow>
               </TableHead>
               <TableBody>
-                {lines.map((line, i) => (
+                {lines.map((line, i) => {
+                  const reqs = line.catalogItem ? effectiveTraceability(line.catalogItem, categoriesById) : null;
+                  return (
                   <TableRow key={i}>
                     <TableCell sx={td}>
                       <Autocomplete<CatalogOption, false, false, false>
@@ -331,7 +370,16 @@ export default function GrnEntry() {
                       />
                     </TableCell>
                     <TableCell sx={td}>
-                      <TextField value={line.batchCode} size="small" fullWidth required disabled={!canManage} onChange={(e) => setLine(i, { batchCode: e.target.value })} />
+                      <TextField value={line.batchNo} size="small" fullWidth required={reqs?.batchNo} disabled={!canManage} placeholder={reqs?.batchNo ? 'Required' : 'Optional'} onChange={(e) => setLine(i, { batchNo: e.target.value })} />
+                    </TableCell>
+                    <TableCell sx={td}>
+                      <TextField value={line.serialNo} size="small" fullWidth required={reqs?.serialNo} disabled={!canManage} placeholder={reqs?.serialNo ? 'Required' : 'Optional'} onChange={(e) => setLine(i, { serialNo: e.target.value })} />
+                    </TableCell>
+                    <TableCell sx={td}>
+                      <TextField value={line.heatNo} size="small" fullWidth required={reqs?.heatNo} disabled={!canManage} placeholder={reqs?.heatNo ? 'Required' : 'Optional'} onChange={(e) => setLine(i, { heatNo: e.target.value })} />
+                    </TableCell>
+                    <TableCell sx={td}>
+                      <TextField value={line.markNo} size="small" fullWidth required={reqs?.markNo} disabled={!canManage} placeholder={reqs?.markNo ? 'Required' : 'Optional'} onChange={(e) => setLine(i, { markNo: e.target.value })} />
                     </TableCell>
                     <TableCell sx={td}>
                       <TextField type="number" value={line.qty} size="small" fullWidth required disabled={!canManage} slotProps={{ htmlInput: { min: 0, step: 'any' } }} onChange={(e) => setLine(i, { qty: e.target.value })} />
@@ -347,7 +395,8 @@ export default function GrnEntry() {
                       </Tooltip>
                     </TableCell>
                   </TableRow>
-                ))}
+                  );
+                })}
               </TableBody>
             </Table>
           </Surface>

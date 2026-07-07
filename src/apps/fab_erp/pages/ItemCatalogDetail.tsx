@@ -168,6 +168,10 @@ export default function ItemCatalogDetail() {
         height: draft.height ?? null, dimension_unit: draft.dimensionUnit ?? 'mm', barcode: draft.barcode ?? null,
         hsn_code: draft.hsnCode ?? null, division: draft.division ?? null,
         dimension_decimals: draft.dimensionDecimals ?? 3,
+        batch_required_override: draft.batchRequiredOverride ?? null,
+        serial_required_override: draft.serialRequiredOverride ?? null,
+        heat_required_override: draft.heatRequiredOverride ?? null,
+        mark_required_override: draft.markRequiredOverride ?? null,
       });
       toast('Item saved');
       fetchAll();
@@ -240,7 +244,7 @@ export default function ItemCatalogDetail() {
           </Box>
         </Box>
       }
-      tabs={[{ value: '0', label: 'Item Details' }, { value: '1', label: 'Custom Fields', count: configDraft.length || undefined }, { value: '2', label: 'Bill of Materials' }]}
+      tabs={[{ value: '0', label: 'Item Details' }, { value: '1', label: 'Bill of Materials' }]}
       active={String(tab)}
       onTab={(v) => setTab(Number(v))}
       maxWidth={1100}
@@ -342,16 +346,41 @@ export default function ItemCatalogDetail() {
             <Field label="HSN code" k="hsnCode" />
             <Field label="Division" k="division" />
           </Box>
+          <Divider sx={{ my: 2, borderColor: 'var(--c-divider)' }} />
+          <Typography sx={{ fontSize: 11, fontWeight: 600, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--c-text-3)', mb: 1.5 }}>Traceability</Typography>
+          <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 2, mb: 1 }}>
+            {(
+              [
+                ['batchRequiredOverride', 'categoryBatchRequired', 'Batch no.'],
+                ['serialRequiredOverride', 'categorySerialRequired', 'Serial no.'],
+                ['heatRequiredOverride', 'categoryHeatRequired', 'Heat no.'],
+                ['markRequiredOverride', 'categoryMarkRequired', 'Mark no.'],
+              ] as const
+            ).map(([overrideKey, categoryKey, label]) => {
+              const overrideVal = draft[overrideKey];
+              const categoryDefault = item[categoryKey] === 1;
+              return (
+                <Box key={overrideKey}>
+                  <Typography variant="caption" color="text.secondary">{label}</Typography>
+                  <Select fullWidth size="small" disabled={!canManage}
+                    value={overrideVal === null || overrideVal === undefined ? 'inherit' : String(overrideVal)}
+                    onChange={(e) => set(overrideKey, (e.target.value === 'inherit' ? null : Number(e.target.value)) as FabItemCatalog[typeof overrideKey])}>
+                    <MenuItem value="inherit">Inherit from Category ({categoryDefault ? 'Required' : 'Not required'})</MenuItem>
+                    <MenuItem value="1">Required</MenuItem>
+                    <MenuItem value="0">Not required</MenuItem>
+                  </Select>
+                </Box>
+              );
+            })}
+          </Box>
           {canManage && (
             <Box sx={{ mt: 3 }}>
               <Button variant="contained" startIcon={saving ? <CircularProgress size={14} color="inherit" /> : <SaveIcon />} disabled={saving} onClick={saveItem}>Save</Button>
             </Box>
           )}
-        </Surface>
-      )}
 
-      {tab === 1 && (
-        <Surface e={1} sx={{ p: 3 }}>
+          <Divider sx={{ my: 3, borderColor: 'var(--c-divider)' }} />
+          <Typography sx={{ fontSize: 11, fontWeight: 600, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--c-text-3)', mb: 1.5 }}>Custom Fields</Typography>
           {mergedInherited.length > 0 && (
             <>
               <Typography sx={{ fontSize: 11, fontWeight: 600, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--c-text-3)', mb: 0.5 }}>Inherited from taxonomy ({mergedInherited.length})</Typography>
@@ -432,7 +461,7 @@ export default function ItemCatalogDetail() {
         </Surface>
       )}
 
-      {tab === 2 && (
+      {tab === 1 && (
         <Surface e={1} sx={{ height: 600, display: 'flex', flexDirection: 'column', overflow: 'hidden', p: 0 }}>
           <BomDesigner catalogItemId={id} catalogItemName={item.name} catalogItemCode={item.code} catalogItemUnit={item.unit ?? undefined} mode={canManage ? 'edit' : 'readonly'} />
         </Surface>

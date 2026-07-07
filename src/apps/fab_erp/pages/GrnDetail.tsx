@@ -84,7 +84,10 @@ export default function GrnDetail() {
                 <TableHead>
                   <TableRow sx={{ background: 'var(--c-surface-2)' }}>
                     <TableCell sx={th}>Item</TableCell>
-                    <TableCell sx={th}>Batch code</TableCell>
+                    <TableCell sx={th}>Batch no.</TableCell>
+                    <TableCell sx={th}>Serial no.</TableCell>
+                    <TableCell sx={th}>Heat no.</TableCell>
+                    <TableCell sx={th}>Mark no.</TableCell>
                     <TableCell sx={th} align="right">Qty</TableCell>
                     <TableCell sx={th} align="right">Unit cost</TableCell>
                   </TableRow>
@@ -93,13 +96,14 @@ export default function GrnDetail() {
                   {lines.map((line) => (
                     <TableRow key={line.id} hover>
                       <TableCell sx={td}>
-                        {line.catalogItemName ?? '—'}{line.catalogItemCode ? ` (${line.catalogItemCode})` : ''}
-                      </TableCell>
-                      <TableCell sx={td}>
                         <Link component={RouterLink} to={`/${company}/fab_erp/item-batches?itemId=${line.catalogItemId}`} sx={{ color: 'var(--c-primary-700)', textDecorationColor: 'var(--c-primary-200)' }}>
-                          <Mono>{line.batchCode}</Mono>
+                          {line.catalogItemName ?? '—'}{line.catalogItemCode ? ` (${line.catalogItemCode})` : ''}
                         </Link>
                       </TableCell>
+                      <TableCell sx={td}><Mono>{line.batchNo ?? '—'}</Mono></TableCell>
+                      <TableCell sx={td}><Mono>{line.serialNo ?? '—'}</Mono></TableCell>
+                      <TableCell sx={td}><Mono>{line.heatNo ?? '—'}</Mono></TableCell>
+                      <TableCell sx={td}><Mono>{line.markNo ?? '—'}</Mono></TableCell>
                       <TableCell sx={td} align="right"><Mono tabular>{line.qty}</Mono></TableCell>
                       <TableCell sx={td} align="right">{line.unitCost ?? '—'}</TableCell>
                     </TableRow>

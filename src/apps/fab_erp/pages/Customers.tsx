@@ -57,8 +57,8 @@ function CustomerDialog({ open, initial, onClose, onSaved }: {
       else await fabMutate('fabErpCustomer', 'update', { id: initial!.id, ...payload });
       onSaved();
     } catch (e) {
-      const ax = e as { response?: { data?: { error?: string } }; message?: string };
-      setErr(ax.response?.data?.error ?? ax.message ?? 'Save failed');
+      const ax = e as { response?: { data?: { message?: string } }; message?: string };
+      setErr(ax.response?.data?.message ?? ax.message ?? 'Save failed');
     } finally { setSaving(false); }
   }
 
@@ -128,8 +128,8 @@ export default function Customers() {
       await fabMutate('fabErpCustomer', 'delete', { id: delTarget.id });
       setDelTarget(null); toast('Customer deleted'); load();
     } catch (e) {
-      const ax = e as { response?: { data?: { error?: string } }; message?: string };
-      setError(ax.response?.data?.error ?? ax.message ?? 'Delete failed');
+      const ax = e as { response?: { data?: { message?: string } }; message?: string };
+      setError(ax.response?.data?.message ?? ax.message ?? 'Delete failed');
     } finally { setDelBusy(false); }
   }
 

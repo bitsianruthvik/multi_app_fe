@@ -16,6 +16,7 @@ import {
   Autocomplete,
   Box,
   Button,
+  Checkbox,
   Chip,
   CircularProgress,
   Dialog,
@@ -23,6 +24,8 @@ import {
   DialogContent,
   DialogTitle,
   Divider,
+  FormControlLabel,
+  FormGroup,
   IconButton,
   InputAdornment,
   List,
@@ -1032,6 +1035,12 @@ function TaxonomyDetailDialog({ level, entity, categories, groups, canEdit, onCl
   const [saving, setSaving]           = useState(false);
   const [err, setErr]                 = useState('');
 
+  const asCategory = level === 'category' ? (entity as FabItemCategory) : undefined;
+  const [batchRequired, setBatchRequired]   = useState(asCategory?.batchRequired === 1);
+  const [serialRequired, setSerialRequired] = useState(asCategory?.serialRequired === 1);
+  const [heatRequired, setHeatRequired]     = useState(asCategory?.heatRequired === 1);
+  const [markRequired, setMarkRequired]     = useState(asCategory?.markRequired === 1);
+
   const [ownFields,  setOwnFields]  = useState<FabCustomField[]>([]);
   const [ownDraft,   setOwnDraft]   = useState<CustomFieldDraft[]>([]);
   const [inherited,  setInherited]  = useState<InheritedField[]>([]);
@@ -1046,6 +1055,11 @@ function TaxonomyDetailDialog({ level, entity, categories, groups, canEdit, onCl
     setName(entity.name);
     setCode(entity.code);
     setDescription(entity.description ?? '');
+    const cat = level === 'category' ? (entity as FabItemCategory) : undefined;
+    setBatchRequired(cat?.batchRequired === 1);
+    setSerialRequired(cat?.serialRequired === 1);
+    setHeatRequired(cat?.heatRequired === 1);
+    setMarkRequired(cat?.markRequired === 1);
     setErr('');
     loadFields();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1155,6 +1169,12 @@ function TaxonomyDetailDialog({ level, entity, categories, groups, canEdit, onCl
         payload.name = name.trim();
         payload.code = code.trim().toUpperCase();
       }
+      if (level === 'category') {
+        payload.batch_required = batchRequired ? 1 : 0;
+        payload.serial_required = serialRequired ? 1 : 0;
+        payload.heat_required = heatRequired ? 1 : 0;
+        payload.mark_required = markRequired ? 1 : 0;
+      }
       await fabMutate(resource, 'update', payload);
 
       const removedIds = ownFields.filter((f) => !ownDraft.find((d) => d.id === f.id)).map((f) => f.id);
@@ -1228,6 +1248,27 @@ function TaxonomyDetailDialog({ level, entity, categories, groups, canEdit, onCl
         <TextField label="Description" value={description} size="small" fullWidth multiline minRows={2}
           disabled={!canEdit}
           onChange={(e) => setDescription(e.target.value)} />
+
+        {/* Traceability requirements — Category ("Item Type") level only */}
+        {level === 'category' && (
+          <>
+            <Divider />
+            <Typography variant="subtitle2">Traceability required for items in this Category</Typography>
+            <FormGroup row>
+              <FormControlLabel disabled={!canEdit} label="Batch no."
+                control={<Checkbox checked={batchRequired} onChange={(e) => setBatchRequired(e.target.checked)} />} />
+              <FormControlLabel disabled={!canEdit} label="Serial no."
+                control={<Checkbox checked={serialRequired} onChange={(e) => setSerialRequired(e.target.checked)} />} />
+              <FormControlLabel disabled={!canEdit} label="Heat no."
+                control={<Checkbox checked={heatRequired} onChange={(e) => setHeatRequired(e.target.checked)} />} />
+              <FormControlLabel disabled={!canEdit} label="Mark no."
+                control={<Checkbox checked={markRequired} onChange={(e) => setMarkRequired(e.target.checked)} />} />
+            </FormGroup>
+            <Typography variant="caption" color="text.secondary">
+              Items in this Category must have these identifiers when received or issued. Each item can override this in its own Item Details.
+            </Typography>
+          </>
+        )}
 
         {/* Inherited fields from ancestors */}
         {!loadingFields && inherited.length > 0 && (
