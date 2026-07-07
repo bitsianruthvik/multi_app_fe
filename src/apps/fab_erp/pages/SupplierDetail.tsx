@@ -79,7 +79,7 @@ export default function SupplierDetail() {
     setSaving(true); setError('');
     try {
       await fabMutate('fabErpSupplier', 'update', {
-        id, name: draft.name ?? supplier.name, code: draft.code ?? supplier.code,
+        id, name: draft.name ?? supplier.name,
         contact_name: draft.contactName ?? null, phone: draft.phone ?? null,
         email: draft.email ?? null, address: draft.address ?? null, notes: draft.notes ?? null,
       });
@@ -124,7 +124,7 @@ export default function SupplierDetail() {
           <Surface e={1} sx={{ p: 3 }}>
             <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2 }}>
               <TextField label="Name" size="small" value={draft.name ?? ''} disabled={!canManage} onChange={(e) => set('name', e.target.value)} />
-              <TextField label="Code" size="small" value={draft.code ?? ''} disabled={!canManage} onChange={(e) => set('code', e.target.value)} />
+              <TextField label="Code" size="small" value={supplier.code} disabled helperText="Auto-generated" />
               <TextField label="Contact name" size="small" value={draft.contactName ?? ''} disabled={!canManage} onChange={(e) => set('contactName', e.target.value)} />
               <TextField label="Phone" size="small" value={draft.phone ?? ''} disabled={!canManage} onChange={(e) => set('phone', e.target.value)} />
               <TextField label="Email" size="small" value={draft.email ?? ''} disabled={!canManage} onChange={(e) => set('email', e.target.value)} />

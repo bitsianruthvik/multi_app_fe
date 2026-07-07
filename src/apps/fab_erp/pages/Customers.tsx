@@ -13,8 +13,8 @@ import type { FabCustomer } from '../types';
 import { usePermission } from '@core/hooks/usePermission';
 import { PageHeader, FilterBar, EntityList, EntityRow, Mono, EmptyState, ListSkeleton, useToast, type SortableField } from '../components';
 
-interface Draft { name: string; code: string; contact_name: string; phone: string; email: string; address: string; notes: string }
-const blank = (): Draft => ({ name: '', code: '', contact_name: '', phone: '', email: '', address: '', notes: '' });
+interface Draft { name: string; contact_name: string; phone: string; email: string; address: string; notes: string }
+const blank = (): Draft => ({ name: '', contact_name: '', phone: '', email: '', address: '', notes: '' });
 
 const CUSTOMER_SORT_FIELDS: SortableField<FabCustomer>[] = [
   { key: 'name', label: 'Name' },
@@ -34,7 +34,7 @@ function CustomerDialog({ open, initial, onClose, onSaved }: {
     if (!open) return;
     if (initial) {
       setDraft({
-        name: initial.name, code: initial.code,
+        name: initial.name,
         contact_name: initial.contactName ?? '', phone: initial.phone ?? '',
         email: initial.email ?? '', address: initial.address ?? '', notes: initial.notes ?? '',
       });
@@ -45,11 +45,11 @@ function CustomerDialog({ open, initial, onClose, onSaved }: {
   const set = (k: keyof Draft, v: string) => setDraft((d) => ({ ...d, [k]: v }));
 
   async function save() {
-    if (!draft.name.trim() || !draft.code.trim()) { setErr('Name and code are required.'); return; }
+    if (!draft.name.trim()) { setErr('Name is required.'); return; }
     setSaving(true); setErr('');
     try {
       const payload = {
-        name: draft.name.trim(), code: draft.code.trim(),
+        name: draft.name.trim(),
         contact_name: draft.contact_name || null, phone: draft.phone || null,
         email: draft.email || null, address: draft.address || null, notes: draft.notes || null,
       };
@@ -69,7 +69,14 @@ function CustomerDialog({ open, initial, onClose, onSaved }: {
         {err && <Alert severity="error">{err}</Alert>}
         <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2 }}>
           <TextField label="Name" value={draft.name} size="small" fullWidth required onChange={(e) => set('name', e.target.value)} />
-          <TextField label="Code" value={draft.code} size="small" fullWidth required onChange={(e) => set('code', e.target.value)} />
+          {isNew ? (
+            <TextField label="Code" value="(auto-generated on save)" size="small" fullWidth disabled />
+          ) : (
+            <Box sx={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 0.5 }}>
+              <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>Code</Typography>
+              <Mono chip>{initial!.code}</Mono>
+            </Box>
+          )}
           <TextField label="Contact name" value={draft.contact_name} size="small" fullWidth onChange={(e) => set('contact_name', e.target.value)} />
           <TextField label="Phone" value={draft.phone} size="small" fullWidth onChange={(e) => set('phone', e.target.value)} />
           <TextField label="Email" value={draft.email} size="small" fullWidth sx={{ gridColumn: 'span 2' }} onChange={(e) => set('email', e.target.value)} />
@@ -79,7 +86,7 @@ function CustomerDialog({ open, initial, onClose, onSaved }: {
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose}>Cancel</Button>
-        <Button variant="contained" onClick={save} disabled={saving || !draft.name.trim() || !draft.code.trim()}>
+        <Button variant="contained" onClick={save} disabled={saving || !draft.name.trim()}>
           {saving ? <CircularProgress size={16} color="inherit" /> : 'Save'}
         </Button>
       </DialogActions>

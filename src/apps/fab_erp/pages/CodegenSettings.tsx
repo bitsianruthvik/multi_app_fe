@@ -21,6 +21,8 @@ const ENTITY_TYPES = [
   { value: 'stock_location', label: 'Stock Locations' },
   { value: 'bom', label: 'BOMs' },
   { value: 'route', label: 'Routes' },
+  { value: 'customer', label: 'Customers' },
+  { value: 'supplier', label: 'Suppliers' },
 ];
 
 const SEGMENT_TYPES_BASE: { value: CodegenSegment['type']; label: string; entityOnly?: string[] }[] = [

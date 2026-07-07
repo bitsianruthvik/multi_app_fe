@@ -355,6 +355,7 @@ function AddTaxonomyDialog({ open, level, categories, groups, onClose, onCreated
   const [name, setName]               = useState('');
   const [code, setCode]               = useState('');
   const [description, setDescription] = useState('');
+  const [shortform, setShortform]     = useState('');
   const [categoryId, setCategoryId]   = useState<number | ''>('');
   const [groupId, setGroupId]         = useState<number | ''>('');
   const [customFields, setCustomFields] = useState<CustomFieldDraft[]>([]);
@@ -363,7 +364,7 @@ function AddTaxonomyDialog({ open, level, categories, groups, onClose, onCreated
 
   useEffect(() => {
     if (!open) return;
-    setName(''); setCode(''); setDescription('');
+    setName(''); setCode(''); setDescription(''); setShortform('');
     setCategoryId(''); setGroupId('');
     setCustomFields([]); setErr('');
   }, [open]);
@@ -392,6 +393,7 @@ function AddTaxonomyDialog({ open, level, categories, groups, onClose, onCreated
       const payload: Record<string, unknown> = {
         name: name.trim(), code: finalCode,
         description: description.trim() || null,
+        shortform: shortform.trim() || null,
       };
       let resource = 'fabErpItemCategory';
       if (level === 'group')    { resource = 'fabErpItemGroup';    payload.category_id = categoryId; }
@@ -460,6 +462,8 @@ function AddTaxonomyDialog({ open, level, categories, groups, onClose, onCreated
           onChange={(e) => setCode(e.target.value.toUpperCase())} />
         <TextField label="Description" value={description} size="small" fullWidth multiline minRows={2}
           onChange={(e) => setDescription(e.target.value)} />
+        <TextField label="Shortform" value={shortform} size="small" fullWidth
+          onChange={(e) => setShortform(e.target.value)} />
 
         <Divider />
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -1032,6 +1036,7 @@ function TaxonomyDetailDialog({ level, entity, categories, groups, canEdit, onCl
   const [name, setName]               = useState(entity.name);
   const [code, setCode]               = useState(entity.code);
   const [description, setDescription] = useState(entity.description ?? '');
+  const [shortform, setShortform]     = useState(entity.shortform ?? '');
   const [saving, setSaving]           = useState(false);
   const [err, setErr]                 = useState('');
 
@@ -1055,6 +1060,7 @@ function TaxonomyDetailDialog({ level, entity, categories, groups, canEdit, onCl
     setName(entity.name);
     setCode(entity.code);
     setDescription(entity.description ?? '');
+    setShortform(entity.shortform ?? '');
     const cat = level === 'category' ? (entity as FabItemCategory) : undefined;
     setBatchRequired(cat?.batchRequired === 1);
     setSerialRequired(cat?.serialRequired === 1);
@@ -1163,7 +1169,11 @@ function TaxonomyDetailDialog({ level, entity, categories, groups, canEdit, onCl
       const resource = level === 'category' ? 'fabErpItemCategory'
                      : level === 'group'    ? 'fabErpItemGroup'
                                             : 'fabErpItemSubgroup';
-      const payload: Record<string, unknown> = { id: entity.id, description: description.trim() || null };
+      const payload: Record<string, unknown> = {
+        id: entity.id,
+        description: description.trim() || null,
+        shortform: shortform.trim() || null,
+      };
       if (!isSystem) {
         if (!name.trim() || !code.trim()) { setErr('Name and Code are required.'); setSaving(false); return; }
         payload.name = name.trim();
@@ -1248,6 +1258,9 @@ function TaxonomyDetailDialog({ level, entity, categories, groups, canEdit, onCl
         <TextField label="Description" value={description} size="small" fullWidth multiline minRows={2}
           disabled={!canEdit}
           onChange={(e) => setDescription(e.target.value)} />
+        <TextField label="Shortform" value={shortform} size="small" fullWidth
+          disabled={!canEdit}
+          onChange={(e) => setShortform(e.target.value)} />
 
         {/* Traceability requirements — Category ("Item Type") level only */}
         {level === 'category' && (
@@ -1459,7 +1472,7 @@ function CategoriesTab({ categories, onRowClick, onAddClick, onDeleteClick, canE
               key={c.id}
               code={<Mono chip>{c.code}</Mono>}
               primary={c.name}
-              secondary={c.description ?? undefined}
+              secondary={[c.description, c.shortform ? `Shortform: ${c.shortform}` : undefined].filter(Boolean).join(' · ') || undefined}
               trailing={c.isSystem === 1 ? <StatusBadge status="System" family="info" /> : undefined}
               onClick={() => onRowClick(c)}
               actions={canEdit && c.isSystem === 0 ? (
@@ -1516,7 +1529,7 @@ function GroupsTab({ categories, groups, onRowClick, onAddClick, onDeleteClick, 
               key={g.id}
               code={<Mono chip>{g.code}</Mono>}
               primary={g.name}
-              secondary={[g.categoryName, g.description].filter(Boolean).join(' · ') || undefined}
+              secondary={[g.categoryName, g.description, g.shortform ? `Shortform: ${g.shortform}` : undefined].filter(Boolean).join(' · ') || undefined}
               trailing={g.isSystem === 1 ? <StatusBadge status="System" family="info" /> : undefined}
               onClick={() => onRowClick(g)}
               actions={canEdit && g.isSystem === 0 ? (
@@ -1599,7 +1612,7 @@ function SubgroupsTab({ categories, groups, subgroups, onRowClick, onAddClick, o
                 key={s.id}
                 code={<Mono chip>{s.code}</Mono>}
                 primary={s.name}
-                secondary={[cat?.name, s.groupName ?? grp?.name, s.description].filter(Boolean).join(' · ') || undefined}
+                secondary={[cat?.name, s.groupName ?? grp?.name, s.description, s.shortform ? `Shortform: ${s.shortform}` : undefined].filter(Boolean).join(' · ') || undefined}
                 trailing={s.isSystem === 1 ? <StatusBadge status="System" family="info" /> : undefined}
                 onClick={() => onRowClick(s)}
                 actions={canEdit && s.isSystem === 0 ? (

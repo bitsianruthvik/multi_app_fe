@@ -431,6 +431,7 @@ export interface FabItemCategory extends FabBase {
   name: string;
   code: string;
   description: string | null;
+  shortform: string | null;
   isSystem: number; // 0 | 1
   // Traceability requirements ("Item Type" level) — items inherit these,
   // overridable per item. 0 | 1.
@@ -448,6 +449,7 @@ export interface FabItemGroup extends FabBase {
   name: string;
   code: string;
   description: string | null;
+  shortform: string | null;
   isSystem: number;
   categoryName?: string;
 }
@@ -460,6 +462,7 @@ export interface FabItemSubgroup extends FabBase {
   name: string;
   code: string;
   description: string | null;
+  shortform: string | null;
   isSystem: number;
   groupName?: string;
 }
