@@ -1,12 +1,13 @@
 /**
  * ItemBatches — item-level stock summary view (live-aggregated from
- * fab_stock_pieces via the /stock/summary route), with an open-ended
- * "Segment by" dimension per item (batch/heat/serial/mark/location/status
- * or a custom field) that expands the row in place into sub-rows, and a
- * drill-down into the stock ledger for a clicked sub-row.
+ * fab_stock_pieces via the /stock/summary route), with a "Segment by"
+ * dimension per item (batch, heat, or individual stock piece) that expands
+ * the row in place into sub-rows, and a drill-down into the stock ledger for
+ * a clicked sub-row. Stock Piece segments additionally show every
+ * stock-piece-level custom field (e.g. Width, Length) inline.
  */
 
-import { Fragment, useCallback, useEffect, useMemo, useState, type MouseEvent } from 'react';
+import { Fragment, useCallback, useEffect, useState, type MouseEvent } from 'react';
 import { Link as RouterLink, useParams, useSearchParams } from 'react-router-dom';
 import {
   Alert, Box, Button, CircularProgress, Dialog, DialogContent, DialogTitle,
@@ -19,7 +20,7 @@ import ExpandMoreRounded from '@mui/icons-material/ExpandMoreRounded';
 import KeyboardArrowDownRounded from '@mui/icons-material/KeyboardArrowDownRounded';
 
 import { fabQuery, fabGet, type FilterValue } from '../api/client';
-import type { FabCustomField, FabPlant, FabStockLedger, FabStockLocation } from '../types';
+import type { FabPlant, FabStockLedger, FabStockLocation } from '../types';
 import { usePermission } from '@core/hooks/usePermission';
 import { Surface, PageHeader, Mono, EmptyState, ListSkeleton, FilterBar } from '../components';
 
@@ -30,7 +31,18 @@ const td = { borderColor: 'var(--c-divider)', fontSize: 13, color: 'var(--c-text
 // /stock/summary response shape (see multi_app_be/apps/fab_erp/routes/stock.js)
 // ---------------------------------------------------------------------------
 
-interface StockSummarySegment { value: string | number | null; qty: number }
+interface StockSummaryCustomField { fieldKey: string; fieldValue: string | null }
+interface StockSummarySegment {
+  value: string | number | null;
+  qty: number;
+  pieceId?: number;
+  batchNo?: string | null;
+  heatNo?: string | null;
+  serialNo?: string | null;
+  markNo?: string | null;
+  status?: string | null;
+  customFields?: StockSummaryCustomField[];
+}
 interface StockSummaryItem {
   catalogItemId: number;
   name: string;
@@ -41,27 +53,20 @@ interface StockSummaryItem {
 }
 interface StockSummaryResponse { ok: boolean; data: { items: StockSummaryItem[] } }
 
-// Base (non-custom-field) segmentation options — value is the exact
-// `groupBy` query param the backend accepts.
+// Segmentation options — value is the exact `groupBy` query param the
+// backend accepts.
 const BASE_SEGMENT_OPTIONS: { key: string; label: string }[] = [
   { key: 'batchNo', label: 'Batch' },
   { key: 'heatNo', label: 'Heat' },
-  { key: 'serialNo', label: 'Serial' },
-  { key: 'markNo', label: 'Mark' },
-  { key: 'stockLocationId', label: 'Location' },
-  { key: 'status', label: 'Status' },
+  { key: 'piece', label: 'Stock Piece' },
 ];
 
 // groupBy keys that map onto a fab_stock_ledger column we can filter on for
-// the drill-down dialog. `status` and `customField:*` segments have no
-// matching column on fab_stock_ledger, so the drill-down falls back to an
-// item-only filter for those (see ReceiptsDialog below).
+// the drill-down dialog.
 const LEDGER_FILTER_FIELD: Record<string, string> = {
   batchNo: 'batchNo',
   heatNo: 'heatNo',
-  serialNo: 'serialNo',
-  markNo: 'markNo',
-  stockLocationId: 'stockLocationId',
+  piece: 'pieceId',
 };
 
 interface DrillTarget {
@@ -69,6 +74,7 @@ interface DrillTarget {
   groupByKey: string;
   segmentLabel: string;
   value: string | number | null;
+  displayValue: string | number | null;
 }
 
 interface ExpandedState {
@@ -102,7 +108,7 @@ function ReceiptsDialog({ target, onClose }: { target: DrillTarget | null; onClo
   return (
     <Dialog open={!!target} onClose={onClose} maxWidth="sm" fullWidth>
       <DialogTitle sx={{ fontWeight: 600 }}>
-        Ledger — <Mono>{target?.value ?? '—'}</Mono>
+        Ledger — <Mono>{target?.displayValue ?? '—'}</Mono>
       </DialogTitle>
       <DialogContent>
         {!ledgerField && target && (
@@ -161,14 +167,12 @@ export default function ItemBatches() {
   const [items, setItems] = useState<StockSummaryItem[]>([]);
   const [plants, setPlants] = useState<FabPlant[]>([]);
   const [locations, setLocations] = useState<FabStockLocation[]>([]);
-  const [allLocations, setAllLocations] = useState<FabStockLocation[]>([]);
   const [plantId, setPlantId] = useState<number | ''>('');
   const [locationId, setLocationId] = useState<number | ''>('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
   const [expanded, setExpanded] = useState<Record<number, ExpandedState>>({});
-  const [customFieldKeys, setCustomFieldKeys] = useState<Record<number, string[]>>({});
   const [menuAnchor, setMenuAnchor] = useState<{ el: HTMLElement; catalogItemId: number } | null>(null);
   const [drillTarget, setDrillTarget] = useState<DrillTarget | null>(null);
 
@@ -186,20 +190,6 @@ export default function ItemBatches() {
       .catch((e) => setError((e as Error).message));
   }, [plantId]);
 
-  // Unfiltered lookup of every stock location, used to label "Location"
-  // segment values (which come back from the backend as raw stockLocationId).
-  useEffect(() => {
-    fabQuery<{ data: FabStockLocation[] }>('fabErpStockLocation', { pagination: { limit: 1000 } })
-      .then((res) => setAllLocations(res.data ?? []))
-      .catch(() => setAllLocations([]));
-  }, []);
-
-  const locationNameById = useMemo(() => {
-    const m = new Map<number, string>();
-    for (const l of allLocations) m.set(l.id, l.name);
-    return m;
-  }, [allLocations]);
-
   const fetchItems = useCallback(async () => {
     setLoading(true); setError('');
     try {
@@ -216,20 +206,8 @@ export default function ItemBatches() {
 
   useEffect(() => { fetchItems(); setExpanded({}); }, [fetchItems]);
 
-  const ensureCustomFieldKeys = useCallback(async (catalogItemId: number) => {
-    if (customFieldKeys[catalogItemId]) return;
-    try {
-      const res = await fabQuery<{ data: FabCustomField[] }>('fabErpCustomField', { filters: { level: 'item', levelId: catalogItemId } });
-      const keys = Array.from(new Set((res.data ?? []).map((f) => f.fieldKey).filter(Boolean)));
-      setCustomFieldKeys((prev) => ({ ...prev, [catalogItemId]: keys }));
-    } catch {
-      setCustomFieldKeys((prev) => ({ ...prev, [catalogItemId]: [] }));
-    }
-  }, [customFieldKeys]);
-
-  async function openSegmentMenu(e: MouseEvent<HTMLElement>, catalogItemId: number) {
+  function openSegmentMenu(e: MouseEvent<HTMLElement>, catalogItemId: number) {
     setMenuAnchor({ el: e.currentTarget, catalogItemId });
-    ensureCustomFieldKeys(catalogItemId);
   }
 
   async function selectSegment(catalogItemId: number, groupByKey: string, optionLabel: string) {
@@ -257,20 +235,18 @@ export default function ItemBatches() {
     }
   }
 
-  function segmentValueLabel(groupByKey: string, value: string | number | null): string {
+  function segmentValueLabel(value: string | number | null): string {
     if (value === null || value === undefined || value === '') return '(none)';
-    if (groupByKey === 'stockLocationId') return locationNameById.get(Number(value)) ?? `Location #${value}`;
     return String(value);
   }
 
   if (!canView) return <Alert severity="warning" sx={{ maxWidth: 960, mx: 'auto' }}>You don't have permission to view this page.</Alert>;
 
   const menuItemId = menuAnchor?.catalogItemId;
-  const menuCustomKeys = menuItemId != null ? (customFieldKeys[menuItemId] ?? []) : [];
 
   return (
     <Box sx={{ maxWidth: 1100, mx: 'auto' }}>
-      <PageHeader title="Item Batches" subtitle="Live stock on hand by item, segmentable by batch, heat, serial, mark, location, status, or custom field" />
+      <PageHeader title="Item Batches" subtitle="Live stock on hand by item, segmentable by batch, heat, or individual stock piece" />
 
       {focusedItemId != null && (
         <Box sx={{ mb: 2 }}>
@@ -349,30 +325,41 @@ export default function ItemBatches() {
                           ) : (
                             <Table size="small">
                               <TableBody>
-                                {exp.segments.map((seg, i) => (
-                                  <TableRow
-                                    key={`${item.catalogItemId}-${exp.groupByKey}-${i}`}
-                                    hover
-                                    sx={{ cursor: 'pointer' }}
-                                    onClick={() => setDrillTarget({
-                                      catalogItemId: item.catalogItemId,
-                                      groupByKey: exp.groupByKey,
-                                      segmentLabel: exp.optionLabel,
-                                      value: seg.value,
-                                    })}
-                                  >
-                                    <TableCell sx={{ ...td, pl: 5, width: 200 }}>
-                                      <ExpandMoreRounded fontSize="small" sx={{ verticalAlign: 'middle', mr: 0.5, color: 'var(--c-text-2)', transform: 'rotate(-90deg)' }} />
-                                      {segmentValueLabel(exp.groupByKey, seg.value)}
-                                    </TableCell>
-                                    <TableCell sx={td} />
-                                    <TableCell sx={td} />
-                                    <TableCell sx={td} align="right"><Mono tabular>{seg.qty}</Mono></TableCell>
-                                    <TableCell sx={td} align="right">
-                                      <ReceiptLongRounded fontSize="small" sx={{ color: 'var(--c-text-2)' }} />
-                                    </TableCell>
-                                  </TableRow>
-                                ))}
+                                {exp.segments.map((seg, i) => {
+                                  const isPiece = exp.groupByKey === 'piece';
+                                  const customFieldsText = (seg.customFields ?? [])
+                                    .map((cf) => `${cf.fieldKey}: ${cf.fieldValue ?? '—'}`)
+                                    .join('  ·  ');
+                                  return (
+                                    <TableRow
+                                      key={`${item.catalogItemId}-${exp.groupByKey}-${i}`}
+                                      hover
+                                      sx={{ cursor: 'pointer' }}
+                                      onClick={() => setDrillTarget({
+                                        catalogItemId: item.catalogItemId,
+                                        groupByKey: exp.groupByKey,
+                                        segmentLabel: exp.optionLabel,
+                                        value: isPiece ? (seg.pieceId ?? null) : seg.value,
+                                        displayValue: seg.value,
+                                      })}
+                                    >
+                                      <TableCell sx={{ ...td, pl: 5, width: 200 }}>
+                                        <ExpandMoreRounded fontSize="small" sx={{ verticalAlign: 'middle', mr: 0.5, color: 'var(--c-text-2)', transform: 'rotate(-90deg)' }} />
+                                        {segmentValueLabel(seg.value)}
+                                      </TableCell>
+                                      <TableCell sx={td}>
+                                        {isPiece ? (seg.heatNo ?? '—') : ''}
+                                      </TableCell>
+                                      <TableCell sx={{ ...td, color: 'var(--c-text-2)' }}>
+                                        {isPiece ? (customFieldsText || '—') : ''}
+                                      </TableCell>
+                                      <TableCell sx={td} align="right"><Mono tabular>{seg.qty}</Mono></TableCell>
+                                      <TableCell sx={td} align="right">
+                                        <ReceiptLongRounded fontSize="small" sx={{ color: 'var(--c-text-2)' }} />
+                                      </TableCell>
+                                    </TableRow>
+                                  );
+                                })}
                               </TableBody>
                             </Table>
                           )}
@@ -393,14 +380,6 @@ export default function ItemBatches() {
             {opt.label}
           </MenuItem>
         ))}
-        {menuCustomKeys.length > 0 && [
-          <MenuItem key="__divider" disabled sx={{ opacity: 0.5, fontSize: 11, textTransform: 'uppercase' }}>Custom fields</MenuItem>,
-          ...menuCustomKeys.map((key) => (
-            <MenuItem key={`cf-${key}`} onClick={() => menuItemId != null && selectSegment(menuItemId, `customField:${key}`, key)}>
-              {key}
-            </MenuItem>
-          )),
-        ]}
       </Menu>
 
       <ReceiptsDialog target={drillTarget} onClose={() => setDrillTarget(null)} />

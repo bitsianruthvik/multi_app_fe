@@ -634,6 +634,7 @@ export interface FabStockLedger extends FabBase {
   plantId: number;
   stockLocationId: number;
   batchId: number;
+  pieceId: number | null;
   batchCode: string | null;
   batchNo: string | null;
   serialNo: string | null;
