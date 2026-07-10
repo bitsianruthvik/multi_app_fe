@@ -79,26 +79,14 @@ const ITEM_COLUMNS: SortableColumn<FabItemCatalog>[] = [
   { key: 'categoryName',   label: 'Category',     sx: { ...TH, width: 130 } },
   { key: 'groupName',      label: 'Group',        sx: { ...TH, width: 130 } },
   { key: 'subgroupName',   label: 'Sub-group',    sx: { ...TH, width: 130 } },
-  { key: 'grossWeight',    label: 'Gross wt',     align: 'right', sx: { ...TH, width: 95 } },
-  { key: 'netWeight',      label: 'Net wt',       align: 'right', sx: { ...TH, width: 90 } },
-  { key: 'weightUnit',     label: 'Wt unit',      sx: { ...TH, width: 60 } },
-  { key: 'volume',         label: 'Volume',       align: 'right', sx: { ...TH, width: 80 } },
-  { key: 'volumeUnit',     label: 'Vol unit',     sx: { ...TH, width: 60 } },
-  { key: 'length',         label: 'Length',       align: 'right', sx: { ...TH, width: 80 } },
-  { key: 'width',          label: 'Width',        align: 'right', sx: { ...TH, width: 80 } },
-  { key: 'height',         label: 'Height',       align: 'right', sx: { ...TH, width: 80 } },
-  { key: 'dimensionUnit',  label: 'Dim unit',     sx: { ...TH, width: 60 } },
-  { key: 'barcode',        label: 'Barcode',      sx: { ...TH, width: 130 } },
   { key: 'hsnCode',        label: 'HSN',          sx: { ...TH, width: 100 } },
-  { key: 'division',       label: 'Division',     sx: { ...TH, width: 100 } },
 ];
 
 // Fixed pixel widths per column, used by the virtualized row/header below —
 // row virtualization needs deterministic widths (unlike a normal flexible <table>).
 const ITEM_COL_WIDTH: Record<string, number> = {
   name: 220, code: 110, unit: 70, description: 220, categoryName: 130, groupName: 130,
-  subgroupName: 130, grossWeight: 95, netWeight: 90, weightUnit: 60, volume: 80, volumeUnit: 60,
-  length: 80, width: 80, height: 80, dimensionUnit: 60, barcode: 130, hsnCode: 100, division: 100,
+  subgroupName: 130, hsnCode: 100,
 };
 const BATCHES_COL_WIDTH = 64;
 const ACTIONS_COL_WIDTH = 84;
@@ -184,21 +172,13 @@ const INFO_SUBGROUP: InfoContent = [
 interface ItemDraft {
   name: string; code: string; unit: string; description: string;
   categoryId: number | null; groupId: number | null; subgroupId: number | null;
-  grossWeight: string; netWeight: string; weightUnit: string;
-  volume: string; volumeUnit: string;
-  length: string; width: string; height: string; dimensionUnit: string;
-  barcode: string; hsnCode: string; division: string;
-  dimensionDecimals: string;
+  hsnCode: string;
 }
 
 const BLANK_ITEM = (): ItemDraft => ({
   name: '', code: '', unit: 'pcs', description: '',
   categoryId: null, groupId: null, subgroupId: null,
-  grossWeight: '', netWeight: '', weightUnit: 'kg',
-  volume: '', volumeUnit: 'm3',
-  length: '', width: '', height: '', dimensionUnit: 'mm',
-  barcode: '', hsnCode: '', division: '',
-  dimensionDecimals: '3',
+  hsnCode: '',
 });
 
 const ADD_NEW = '__add_new__';
@@ -645,27 +625,13 @@ function CatalogDialog({ open, initial, categories, groups, subgroups, canManage
       name: initial.name, code: initial.code, unit: initial.unit ?? 'pcs',
       description: initial.description ?? '', categoryId: initial.categoryId ?? null,
       groupId: initial.groupId ?? null, subgroupId: initial.subgroupId ?? null,
-      grossWeight: initial.grossWeight != null ? String(initial.grossWeight) : '',
-      netWeight:   initial.netWeight   != null ? String(initial.netWeight)   : '',
-      weightUnit:  initial.weightUnit  ?? 'kg',
-      volume:      initial.volume      != null ? String(initial.volume)      : '',
-      volumeUnit:  initial.volumeUnit  ?? 'm3',
-      length:      initial.length      != null ? String(initial.length)      : '',
-      width:       initial.width       != null ? String(initial.width)       : '',
-      height:      initial.height      != null ? String(initial.height)      : '',
-      dimensionUnit: initial.dimensionUnit ?? 'mm',
-      barcode:     initial.barcode  ?? '', hsnCode: initial.hsnCode  ?? '',
-      division:    initial.division ?? '',
-      dimensionDecimals: initial.dimensionDecimals != null ? String(initial.dimensionDecimals) : '3',
+      hsnCode: initial.hsnCode ?? '',
     } : BLANK_ITEM());
     setErr(''); setCategoryError(''); setAddingLevel(null);
   }, [open, initial]);
 
   const set = (k: keyof ItemDraft, v: string) => setDraft((d) => ({ ...d, [k]: v }));
-  const advancedFieldCount = ([
-    draft.grossWeight, draft.netWeight, draft.volume, draft.length, draft.width, draft.height,
-    draft.barcode, draft.hsnCode, draft.division,
-  ] as string[]).filter((v) => v.trim() !== '').length;
+  const advancedFieldCount = ([draft.hsnCode] as string[]).filter((v) => v.trim() !== '').length;
   const availableGroups    = groups.filter((g) => !draft.categoryId || g.categoryId === draft.categoryId);
   const availableSubgroups = subgroups.filter((s) => !draft.groupId || s.groupId === draft.groupId);
 
@@ -696,7 +662,6 @@ function CatalogDialog({ open, initial, categories, groups, subgroups, canManage
     if (level === 'group')    setDraft((d) => ({ ...d, groupId: id, subgroupId: null }));
     if (level === 'subgroup') setDraft((d) => ({ ...d, subgroupId: id }));
   }
-  const pn = (v: string) => v.trim() === '' ? null : Number(v);
 
   function addCf() {
     if (customFields.length >= 10) return;
@@ -784,13 +749,7 @@ function CatalogDialog({ open, initial, categories, groups, subgroups, canManage
         name: draft.name.trim(), code: itemCode,
         unit: draft.unit.trim() || 'pcs', description: draft.description.trim() || null,
         category_id: draft.categoryId, group_id: groupId, subgroup_id: subgroupId,
-        gross_weight: pn(draft.grossWeight), net_weight: pn(draft.netWeight), weight_unit: draft.weightUnit || 'kg',
-        volume: pn(draft.volume), volume_unit: draft.volumeUnit || 'm3',
-        length: pn(draft.length), width: pn(draft.width), height: pn(draft.height),
-        dimension_unit: draft.dimensionUnit || 'mm',
-        barcode: draft.barcode.trim() || null, hsn_code: draft.hsnCode.trim() || null,
-        division: draft.division.trim() || null,
-        dimension_decimals: draft.dimensionDecimals.trim() === '' ? 3 : Number(draft.dimensionDecimals),
+        hsn_code: draft.hsnCode.trim() || null,
       };
       let itemId = initial?.id;
       if (isNew) {
@@ -897,28 +856,12 @@ function CatalogDialog({ open, initial, categories, groups, subgroups, canManage
             </Typography>
           </AccordionSummary>
           <AccordionDetails sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-            <Typography variant="caption" color="text.secondary">Weights, dimensions, identifiers — fill in only what applies.</Typography>
             <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-              <TextField label="Gross Weight" value={draft.grossWeight} size="small" type="number" sx={{ flex: '1 1 120px' }} onChange={(e) => set('grossWeight', e.target.value)} />
-              <TextField label="Net Weight"   value={draft.netWeight}   size="small" type="number" sx={{ flex: '1 1 120px' }} onChange={(e) => set('netWeight',   e.target.value)} />
-              <TextField label="Weight Unit"  value={draft.weightUnit}  size="small" sx={{ flex: '0 1 80px' }} placeholder="kg" onChange={(e) => set('weightUnit', e.target.value)} />
-              <TextField label="Volume"       value={draft.volume}      size="small" type="number" sx={{ flex: '1 1 120px' }} onChange={(e) => set('volume',      e.target.value)} />
-              <TextField label="Volume Unit"  value={draft.volumeUnit}  size="small" sx={{ flex: '0 1 80px' }} placeholder="m3" onChange={(e) => set('volumeUnit', e.target.value)} />
+              <TextField label="HSN Code" value={draft.hsnCode} size="small" sx={{ flex: '1 1 120px' }} onChange={(e) => set('hsnCode', e.target.value)} />
             </Box>
-            <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-              <TextField label="Length"             value={draft.length}        size="small" type="number" sx={{ flex: '1 1 120px' }} onChange={(e) => set('length',        e.target.value)} />
-              <TextField label="Width"              value={draft.width}         size="small" type="number" sx={{ flex: '1 1 120px' }} onChange={(e) => set('width',         e.target.value)} />
-              <TextField label="Height / Thickness" value={draft.height}        size="small" type="number" sx={{ flex: '1 1 120px' }} onChange={(e) => set('height',        e.target.value)} />
-              <TextField label="Dimension Unit"     value={draft.dimensionUnit} size="small" sx={{ flex: '0 1 80px' }} placeholder="mm" onChange={(e) => set('dimensionUnit', e.target.value)} />
-              <TextField label="Decimal places" value={draft.dimensionDecimals} size="small" type="number"
-                slotProps={{ htmlInput: { min: 0, max: 6 } }} sx={{ flex: '0 1 110px' }}
-                onChange={(e) => set('dimensionDecimals', e.target.value)} />
-            </Box>
-            <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-              <TextField label="Barcode / EAN" value={draft.barcode}  size="small" sx={{ flex: '1 1 160px' }} onChange={(e) => set('barcode',  e.target.value)} />
-              <TextField label="HSN Code"      value={draft.hsnCode}  size="small" sx={{ flex: '1 1 120px' }} onChange={(e) => set('hsnCode',  e.target.value)} />
-              <TextField label="Division"      value={draft.division} size="small" sx={{ flex: '1 1 120px' }} onChange={(e) => set('division', e.target.value)} />
-            </Box>
+            <Typography variant="caption" color="text.secondary">
+              Need to record weight, dimensions, barcode, or other specs? Add them below as Custom Fields.
+            </Typography>
 
             <Divider />
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -1797,18 +1740,7 @@ export default function ItemCatalog() {
         <Box sx={{ ...TD, width: ITEM_COL_WIDTH.categoryName, minWidth: ITEM_COL_WIDTH.categoryName, flex: '0 0 auto', boxSizing: 'border-box', px: 2 }}>{it.categoryName ?? '—'}</Box>
         <Box sx={{ ...TD, width: ITEM_COL_WIDTH.groupName, minWidth: ITEM_COL_WIDTH.groupName, flex: '0 0 auto', boxSizing: 'border-box', px: 2 }}>{it.groupName ?? '—'}</Box>
         <Box sx={{ ...TD, width: ITEM_COL_WIDTH.subgroupName, minWidth: ITEM_COL_WIDTH.subgroupName, flex: '0 0 auto', boxSizing: 'border-box', px: 2 }}>{it.subgroupName ?? '—'}</Box>
-        <Box sx={{ ...TD, width: ITEM_COL_WIDTH.grossWeight, minWidth: ITEM_COL_WIDTH.grossWeight, flex: '0 0 auto', boxSizing: 'border-box', px: 2, textAlign: 'right' }}><Mono tabular>{it.grossWeight != null ? Number(it.grossWeight).toFixed(it.dimensionDecimals ?? 3) : '—'}</Mono></Box>
-        <Box sx={{ ...TD, width: ITEM_COL_WIDTH.netWeight, minWidth: ITEM_COL_WIDTH.netWeight, flex: '0 0 auto', boxSizing: 'border-box', px: 2, textAlign: 'right' }}><Mono tabular>{it.netWeight != null ? Number(it.netWeight).toFixed(it.dimensionDecimals ?? 3) : '—'}</Mono></Box>
-        <Box sx={{ ...TD, width: ITEM_COL_WIDTH.weightUnit, minWidth: ITEM_COL_WIDTH.weightUnit, flex: '0 0 auto', boxSizing: 'border-box', px: 2 }}>{it.weightUnit ?? 'kg'}</Box>
-        <Box sx={{ ...TD, width: ITEM_COL_WIDTH.volume, minWidth: ITEM_COL_WIDTH.volume, flex: '0 0 auto', boxSizing: 'border-box', px: 2, textAlign: 'right' }}><Mono tabular>{it.volume != null ? Number(it.volume).toFixed(it.dimensionDecimals ?? 3) : '—'}</Mono></Box>
-        <Box sx={{ ...TD, width: ITEM_COL_WIDTH.volumeUnit, minWidth: ITEM_COL_WIDTH.volumeUnit, flex: '0 0 auto', boxSizing: 'border-box', px: 2 }}>{it.volumeUnit ?? 'm3'}</Box>
-        <Box sx={{ ...TD, width: ITEM_COL_WIDTH.length, minWidth: ITEM_COL_WIDTH.length, flex: '0 0 auto', boxSizing: 'border-box', px: 2, textAlign: 'right' }}><Mono tabular>{it.length != null ? Number(it.length).toFixed(it.dimensionDecimals ?? 3) : '—'}</Mono></Box>
-        <Box sx={{ ...TD, width: ITEM_COL_WIDTH.width, minWidth: ITEM_COL_WIDTH.width, flex: '0 0 auto', boxSizing: 'border-box', px: 2, textAlign: 'right' }}><Mono tabular>{it.width != null ? Number(it.width).toFixed(it.dimensionDecimals ?? 3) : '—'}</Mono></Box>
-        <Box sx={{ ...TD, width: ITEM_COL_WIDTH.height, minWidth: ITEM_COL_WIDTH.height, flex: '0 0 auto', boxSizing: 'border-box', px: 2, textAlign: 'right' }}><Mono tabular>{it.height != null ? Number(it.height).toFixed(it.dimensionDecimals ?? 3) : '—'}</Mono></Box>
-        <Box sx={{ ...TD, width: ITEM_COL_WIDTH.dimensionUnit, minWidth: ITEM_COL_WIDTH.dimensionUnit, flex: '0 0 auto', boxSizing: 'border-box', px: 2 }}>{it.dimensionUnit ?? 'mm'}</Box>
-        <Box sx={{ ...TD, width: ITEM_COL_WIDTH.barcode, minWidth: ITEM_COL_WIDTH.barcode, flex: '0 0 auto', boxSizing: 'border-box', px: 2 }}><Mono>{it.barcode ?? '—'}</Mono></Box>
         <Box sx={{ ...TD, width: ITEM_COL_WIDTH.hsnCode, minWidth: ITEM_COL_WIDTH.hsnCode, flex: '0 0 auto', boxSizing: 'border-box', px: 2 }}>{it.hsnCode ?? '—'}</Box>
-        <Box sx={{ ...TD, width: ITEM_COL_WIDTH.division, minWidth: ITEM_COL_WIDTH.division, flex: '0 0 auto', boxSizing: 'border-box', px: 2 }}>{it.division ?? '—'}</Box>
         <Box sx={{ width: BATCHES_COL_WIDTH, minWidth: BATCHES_COL_WIDTH, flex: '0 0 auto', boxSizing: 'border-box', display: 'flex', justifyContent: 'center' }}>
           <Tooltip title="View batches">
             <IconButton size="small" onClick={(e) => { e.stopPropagation(); navigate(`/${company}/fab_erp/item-batches?itemId=${it.id}`); }}>

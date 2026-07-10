@@ -8,8 +8,8 @@ import AddIcon from '@mui/icons-material/Add';
 import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
 import EditRounded from '@mui/icons-material/EditRounded';
 
-import { fabQuery, fabMutate, fabPost } from '@apps/fab_erp/api/client';
-import type { FabPlant, FabStockLocation, FabItemBatch, FabStockBalance, FabStockPolicy } from '@apps/fab_erp/types';
+import { fabQuery, fabMutate, fabPost, fabGet } from '@apps/fab_erp/api/client';
+import type { FabPlant, FabStockLocation, FabStockPolicy } from '@apps/fab_erp/types';
 import { usePermission } from '@core/hooks/usePermission';
 import { Surface, PageHeader, Mono, StatusBadge, EmptyState, ListSkeleton, useToast, EntityList, EntityRow, SortableTableHead, type SortableColumn } from '../components';
 import { useSortableData } from '../hooks/useSortableData';
@@ -24,19 +24,32 @@ const BLANK_STOCK_LOCATION = (): StockLocationDraft => ({ name: '', code: '', de
 interface StockLevelRow {
   catalogItemId: number; catalogItemName: string; catalogItemCode: string; unit: string;
   plantId: number; plantName: string; stockLocationId: number; stockLocationName: string;
-  qtyAvailable: number; qtyOrdered: number; qtyEarmarked: number; minQty: number;
+  qtyAvailable: number; minQty: number;
 }
+
+// /stock/summary response shape (see multi_app_be/apps/fab_erp/routes/stock.js)
+interface StockSummarySegment { value: string | number | null; qty: number }
+interface StockSummaryItem {
+  catalogItemId: number; name: string; code: string; unit: string | null; qty: number;
+  segments?: StockSummarySegment[];
+}
+interface StockSummaryResponse { ok: boolean; data: { items: StockSummaryItem[] } }
 
 const th = { fontFamily: 'var(--font-ui)', fontWeight: 600, fontSize: 12, color: 'var(--c-text-2)', textTransform: 'uppercase', letterSpacing: '.05em', borderColor: 'var(--c-divider)' } as const;
 const td = { borderColor: 'var(--c-divider)', fontSize: 13, color: 'var(--c-text)' } as const;
 
+// NOTE: "Ordered" (qtyOrdered) and "Earmarked" (qtyEarmarked) columns were
+// sourced from the now-deleted fabErpStockBalance resource. "Earmarked" is
+// dropped entirely per plan (confirmed dead — always hardcoded 0, no FE
+// mutation existed). "Ordered" is also dropped: /stock/summary (the live
+// fab_stock_pieces aggregate) has no concept of on-order qty — that data
+// isn't exposed by any current endpoint, so re-adding this column is out of
+// scope here (would require a new backend endpoint/field).
 const STOCK_LEVEL_COLUMNS: SortableColumn<StockLevelRow>[] = [
   { key: 'catalogItemName',   label: 'Item',              sx: { ...th, minWidth: 200 } },
   { key: 'plantName',         label: 'Plant',             sx: { ...th, width: 140 } },
   { key: 'stockLocationName', label: 'Stock location',    sx: { ...th, width: 140 } },
   { key: 'qtyAvailable',      label: 'Available',         align: 'right', sx: { ...th, width: 100 } },
-  { key: 'qtyOrdered',        label: 'Ordered',           align: 'right', sx: { ...th, width: 100 } },
-  { key: 'qtyEarmarked',      label: 'Earmarked',         align: 'right', sx: { ...th, width: 100 } },
   { key: 'minQty',            label: 'Min qty',           align: 'right', sx: { ...th, width: 100 } },
 ];
 
@@ -265,44 +278,66 @@ export default function Plants() {
 
   useEffect(() => {
     if (!canViewInventory || tab !== 2) return;
-    const filters: Record<string, number> = {};
-    if (slvPlantId != null) filters.plantId = slvPlantId;
-    if (slvStockLocationId != null) filters.stockLocationId = slvStockLocationId;
+
+    // On-hand qty now comes live from fab_stock_pieces via /stock/summary
+    // (fabErpItemBatch / fabErpStockBalance were dropped along with
+    // fab_item_batches / fab_stock_balances). groupBy=stockLocationId gives
+    // per-location segments so this grid keeps its item x location grain.
+    const summaryParams: Record<string, unknown> = { groupBy: 'stockLocationId' };
+    if (slvPlantId != null) summaryParams.plantId = slvPlantId;
+    if (slvStockLocationId != null) summaryParams.stockLocationId = slvStockLocationId;
+
+    const policyFilters: Record<string, number> = {};
+    if (slvPlantId != null) policyFilters.plantId = slvPlantId;
+    if (slvStockLocationId != null) policyFilters.stockLocationId = slvStockLocationId;
 
     setStockLevelsLoading(true); setError('');
 
     Promise.all([
-      fabQuery<QueryResult<FabItemBatch>>('fabErpItemBatch', { filters, pagination: { limit: 1000 } }),
-      fabQuery<QueryResult<FabStockBalance>>('fabErpStockBalance', { filters, pagination: { limit: 1000 } }),
-      fabQuery<QueryResult<FabStockPolicy>>('fabErpStockPolicy', { filters, pagination: { limit: 1000 } }),
-    ]).then(([batchesRes, balancesRes, policiesRes]) => {
+      fabGet<StockSummaryResponse>('stock/summary', summaryParams),
+      fabQuery<QueryResult<FabStockPolicy>>('fabErpStockPolicy', { filters: policyFilters, pagination: { limit: 1000 } }),
+    ]).then(([summaryRes, policiesRes]) => {
+      const locationById = new Map(stockLocationsAll.map((l) => [l.id, l]));
       const rows = new Map<string, StockLevelRow>();
-      const keyOf = (catalogItemId: number, plantId: number, stockLocationId: number) => `${catalogItemId}-${plantId}-${stockLocationId}`;
-      const getRow = (catalogItemId: number, plantId: number, stockLocationId: number, catalogItemName?: string, catalogItemCode?: string, unit?: string, plantName?: string, stockLocationName?: string): StockLevelRow => {
-        const key = keyOf(catalogItemId, plantId, stockLocationId);
+      const keyOf = (catalogItemId: number, stockLocationId: number) => `${catalogItemId}-${stockLocationId}`;
+      const getRow = (catalogItemId: number, stockLocationId: number, catalogItemName?: string, catalogItemCode?: string, unit?: string): StockLevelRow => {
+        const key = keyOf(catalogItemId, stockLocationId);
         let row = rows.get(key);
         if (!row) {
-          row = { catalogItemId, catalogItemName: catalogItemName ?? '', catalogItemCode: catalogItemCode ?? '', unit: unit ?? '', plantId, plantName: plantName ?? '', stockLocationId, stockLocationName: stockLocationName ?? '', qtyAvailable: 0, qtyOrdered: 0, qtyEarmarked: 0, minQty: 0 };
+          const loc = locationById.get(stockLocationId);
+          row = {
+            catalogItemId, catalogItemName: catalogItemName ?? '', catalogItemCode: catalogItemCode ?? '', unit: unit ?? '',
+            plantId: loc?.plantId ?? 0, plantName: loc?.plantName ?? '', stockLocationId, stockLocationName: loc?.name ?? '',
+            qtyAvailable: 0, minQty: 0,
+          };
           rows.set(key, row);
         } else {
           if (!row.catalogItemName && catalogItemName) row.catalogItemName = catalogItemName;
           if (!row.catalogItemCode && catalogItemCode) row.catalogItemCode = catalogItemCode;
           if (!row.unit && unit) row.unit = unit;
-          if (!row.plantName && plantName) row.plantName = plantName;
-          if (!row.stockLocationName && stockLocationName) row.stockLocationName = stockLocationName;
         }
         return row;
       };
-      for (const b of batchesRes.data ?? []) { const row = getRow(b.catalogItemId, b.plantId, b.stockLocationId, b.catalogItemName, b.catalogItemCode, b.unit, b.plantName, b.stockLocationName); row.qtyAvailable += Number(b.qtyOnHand) || 0; }
-      for (const sb of balancesRes.data ?? []) { const row = getRow(sb.catalogItemId, sb.plantId, sb.stockLocationId, sb.catalogItemName, sb.catalogItemCode, sb.unit, sb.plantName, sb.stockLocationName); row.qtyOrdered = Number(sb.qtyOrdered) || 0; row.qtyEarmarked = Number(sb.qtyEarmarked) || 0; }
-      for (const sp of policiesRes.data ?? []) { const row = getRow(sp.catalogItemId, sp.plantId, sp.stockLocationId, sp.catalogItemName, undefined, undefined, sp.plantName, sp.stockLocationName); row.minQty = Number(sp.minQty) || 0; }
+
+      for (const item of summaryRes.data?.items ?? []) {
+        for (const seg of item.segments ?? []) {
+          const stockLocationId = Number(seg.value);
+          if (!Number.isFinite(stockLocationId)) continue; // pieces with no stock_location_id
+          const row = getRow(item.catalogItemId, stockLocationId, item.name, item.code, item.unit ?? undefined);
+          row.qtyAvailable += Number(seg.qty) || 0;
+        }
+      }
+      for (const sp of policiesRes.data ?? []) {
+        const row = getRow(sp.catalogItemId, sp.stockLocationId, sp.catalogItemName);
+        row.minQty = Number(sp.minQty) || 0;
+      }
       setStockLevels(Array.from(rows.values()));
     }).catch((e) => {
       const err = e as { response?: { data?: { error?: string } }; message?: string };
       setError(err.response?.data?.error ?? err.message ?? 'Failed to load data');
       setStockLevels([]);
     }).finally(() => setStockLevelsLoading(false));
-  }, [canViewInventory, tab, slvPlantId, slvStockLocationId]);
+  }, [canViewInventory, tab, slvPlantId, slvStockLocationId, stockLocationsAll]);
 
   return (
     <Box sx={{ maxWidth: 1300, mx: 'auto' }}>
@@ -427,8 +462,6 @@ export default function Plants() {
                                 {belowMin && <StatusBadge status="Below min" family="warning" />}
                               </Stack>
                             </TableCell>
-                            <TableCell sx={td} align="right"><Mono tabular>{row.qtyOrdered}</Mono></TableCell>
-                            <TableCell sx={td} align="right"><Mono tabular>{row.qtyEarmarked}</Mono></TableCell>
                             <TableCell sx={td} align="right"><Mono tabular>{row.minQty}</Mono></TableCell>
                           </TableRow>
                         );

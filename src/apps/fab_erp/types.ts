@@ -283,7 +283,7 @@ export interface FabItemConfigValue extends FabBase {
 }
 
 export interface FabCustomField extends FabBase {
-  level:      'category' | 'group' | 'subgroup' | 'item';
+  level:      'category' | 'group' | 'subgroup' | 'item' | 'stock_piece';
   levelId:    number;
   fieldKey:   string;
   fieldType:  'text' | 'number' | 'date' | 'dropdown';
@@ -330,37 +330,15 @@ export interface FabItemCatalog extends FabBase {
   categoryId?:   number | null;
   groupId?:      number | null;
   subgroupId?:   number | null;
-  // Basic Data — weights
-  grossWeight?:  number | null;
-  netWeight?:    number | null;
-  weightUnit?:   string | null;
-  // Basic Data — volume
-  volume?:       number | null;
-  volumeUnit?:   string | null;
-  // Basic Data — dimensions
-  length?:       number | null;
-  width?:        number | null;
-  height?:       number | null;
-  dimensionUnit?: string | null;
   // Basic Data — classification
-  barcode?:      string | null;
   hsnCode?:      string | null;
-  division?:     string | null;
   // joined taxonomy names
   categoryName?: string;
   groupName?:    string;
   subgroupName?: string;
-  materialType?:     string | null;
-  purchaseCost?:     number | null;
   procurementType?:  string | null;
   leadTimeDays?:     number | null;
-  mrpActive?:        number | null; // 0 | 1
-  dimensionDecimals: number;
-  // Traceability — NULL means "inherit from Category"; 0/1 overrides it.
-  batchRequiredOverride?:  number | null;
-  serialRequiredOverride?: number | null;
-  heatRequiredOverride?:   number | null;
-  markRequiredOverride?:   number | null;
+  mrpPolicy:         'manual' | 'reorder_point' | 'lot_for_lot';
   // Effective Category defaults, joined in for convenience.
   categoryBatchRequired?:  number | null;
   categorySerialRequired?: number | null;
@@ -522,23 +500,6 @@ export interface FabCodegenRule {
 }
 
 /**
- * fab_stock_balance: Qty on hand, ordered, and earmarked per item/plant/location
- */
-export interface FabStockBalance extends FabBase {
-  catalogItemId: number;
-  plantId: number;
-  stockLocationId: number;
-  qtyOnHand: number;
-  qtyOrdered: number;
-  qtyEarmarked: number;
-  catalogItemName?: string;
-  catalogItemCode?: string;
-  unit?: string;
-  plantName?: string;
-  stockLocationName?: string;
-}
-
-/**
  * fab_stock_policies: Min/reorder qty levels per item/plant/location
  */
 export interface FabStockPolicy extends FabBase {
@@ -548,29 +509,6 @@ export interface FabStockPolicy extends FabBase {
   minQty: number;
   reorderQty: number;
   catalogItemName?: string;
-  plantName?: string;
-  stockLocationName?: string;
-}
-
-/**
- * fab_item_batches: Batch/lot tracking for stock (qty on hand by batch)
- */
-export interface FabItemBatch extends FabBase {
-  catalogItemId: number;
-  plantId: number;
-  stockLocationId: number;
-  /** @deprecated legacy display fallback — prefer batchNo/serialNo/heatNo/markNo */
-  batchCode: string | null;
-  batchNo: string | null;
-  serialNo: string | null;
-  heatNo: string | null;
-  markNo: string | null;
-  qtyOnHand: number;
-  receivedDate: string | null;
-  notes: string | null;
-  catalogItemName?: string;
-  catalogItemCode?: string;
-  unit?: string;
   plantName?: string;
   stockLocationName?: string;
 }

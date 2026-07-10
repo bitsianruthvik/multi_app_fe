@@ -16,18 +16,16 @@ import BomDesigner from '../components/BomDesigner';
 import { Surface, DetailLayout, Mono, StatusBadge, useToast } from '../components';
 import { STANDARD_UOMS } from '../constants/uom';
 
-const MATERIAL_TYPES = [
-  { value: 'raw_material', label: 'Raw Material' },
-  { value: 'semi_finished', label: 'Semi-Finished' },
-  { value: 'finished', label: 'Finished Good' },
-  { value: 'co_product', label: 'Co-product' },
-  { value: 'component', label: 'Component (generic)' },
-];
-
 const PROCUREMENT_TYPES = [
   { value: 'buy', label: 'Buy (external procurement)' },
   { value: 'make', label: 'Make (in-house production)' },
   { value: 'both', label: 'Both (make or buy)' },
+];
+
+const MRP_POLICIES = [
+  { value: 'manual', label: 'Manual' },
+  { value: 'reorder_point', label: 'Reorder Point' },
+  { value: 'lot_for_lot', label: 'Lot-for-Lot' },
 ];
 
 // Monotonic counter for client-only draft row ids — Date.now() can collide
@@ -59,6 +57,9 @@ export default function ItemCatalogDetail() {
   function set<K extends keyof FabItemCatalog>(k: K, v: FabItemCatalog[K]) {
     setDraft((d) => ({ ...d, [k]: v }));
   }
+  // mrp_policy replaced the old mrp_active boolean; not yet reflected in the
+  // shared FabItemCatalog type, so it's tracked separately rather than on draft.
+  const [mrpPolicy, setMrpPolicy] = useState<string>('manual');
 
   const [configs, setConfigs] = useState<FabCustomField[]>([]);
   const [configDraft, setConfigDraft] = useState<FabCustomField[]>([]);
@@ -105,16 +106,8 @@ export default function ItemCatalogDetail() {
       const it = itemRes.data?.[0] ?? null;
       setItem(it);
       if (it) {
-        const dec = it.dimensionDecimals ?? 3;
-        setDraft({
-          ...it,
-          grossWeight: it.grossWeight != null ? Number(Number(it.grossWeight).toFixed(dec)) : it.grossWeight,
-          netWeight:   it.netWeight   != null ? Number(Number(it.netWeight).toFixed(dec))   : it.netWeight,
-          volume:      it.volume      != null ? Number(Number(it.volume).toFixed(dec))      : it.volume,
-          length:      it.length      != null ? Number(Number(it.length).toFixed(dec))      : it.length,
-          width:       it.width       != null ? Number(Number(it.width).toFixed(dec))       : it.width,
-          height:      it.height      != null ? Number(Number(it.height).toFixed(dec))      : it.height,
-        });
+        setDraft({ ...it });
+        setMrpPolicy(it.mrpPolicy ?? 'manual');
       }
 
       const [catRes, grpRes, subRes] = await Promise.all([
@@ -160,18 +153,9 @@ export default function ItemCatalogDetail() {
       await fabMutate('fabErpItemCatalog', 'update', {
         id,
         name: draft.name ?? item.name, code: draft.code ?? item.code, unit: draft.unit ?? null, description: draft.description ?? null,
-        material_type: draft.materialType ?? null, purchase_cost: draft.purchaseCost ?? null,
-        procurement_type: draft.procurementType ?? 'buy', lead_time_days: draft.leadTimeDays ?? null, mrp_active: draft.mrpActive ?? 1,
+        procurement_type: draft.procurementType ?? 'buy', lead_time_days: draft.leadTimeDays ?? null, mrp_policy: mrpPolicy,
         category_id: draft.categoryId ?? null, group_id: draft.groupId ?? null, subgroup_id: draft.subgroupId ?? null,
-        gross_weight: draft.grossWeight ?? null, net_weight: draft.netWeight ?? null, weight_unit: draft.weightUnit ?? 'kg',
-        volume: draft.volume ?? null, volume_unit: draft.volumeUnit ?? 'm3', length: draft.length ?? null, width: draft.width ?? null,
-        height: draft.height ?? null, dimension_unit: draft.dimensionUnit ?? 'mm', barcode: draft.barcode ?? null,
-        hsn_code: draft.hsnCode ?? null, division: draft.division ?? null,
-        dimension_decimals: draft.dimensionDecimals ?? 3,
-        batch_required_override: draft.batchRequiredOverride ?? null,
-        serial_required_override: draft.serialRequiredOverride ?? null,
-        heat_required_override: draft.heatRequiredOverride ?? null,
-        mark_required_override: draft.markRequiredOverride ?? null,
+        hsn_code: draft.hsnCode ?? null,
       });
       toast('Item saved');
       fetchAll();
@@ -262,14 +246,6 @@ export default function ItemCatalogDetail() {
               onInputChange={(_, value) => set('unit', value as FabItemCatalog['unit'])}
               renderInput={(params) => <TextField {...params} label="Unit" size="small" />} />
             <Field label="Description" k="description" />
-            <TextField select label="Material type" size="small" fullWidth disabled={!canManage} value={draft.materialType ?? ''} onChange={(e) => set('materialType', e.target.value as FabItemCatalog['materialType'])}>
-              <MenuItem value="">— unset —</MenuItem>
-              {MATERIAL_TYPES.map((mt) => <MenuItem key={mt.value} value={mt.value}>{mt.label}</MenuItem>)}
-            </TextField>
-            <TextField label="Purchase cost (material cost)" size="small" fullWidth type="number" disabled={!canManage}
-              value={(draft.purchaseCost as number | undefined) ?? ''}
-              onChange={(e) => set('purchaseCost', (e.target.value === '' ? null : Number(e.target.value)) as FabItemCatalog['purchaseCost'])}
-              slotProps={{ input: { endAdornment: <Typography variant="caption" sx={{ color: 'var(--c-text-3)' }}>per unit</Typography> } }} />
           </Box>
           <Divider sx={{ my: 2, borderColor: 'var(--c-divider)' }} />
           <Typography sx={{ fontSize: 11, fontWeight: 600, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--c-text-3)', mb: 1.5 }}>MRP / Planning</Typography>
@@ -281,36 +257,9 @@ export default function ItemCatalogDetail() {
               value={(draft.leadTimeDays as number | undefined) ?? ''}
               onChange={(e) => set('leadTimeDays', (e.target.value === '' ? null : Number(e.target.value)) as FabItemCatalog['leadTimeDays'])}
               slotProps={{ input: { endAdornment: <Typography variant="caption" sx={{ color: 'var(--c-text-3)' }}>days</Typography> } }} />
-            <TextField select label="Include in MRP" size="small" fullWidth disabled={!canManage} value={String(draft.mrpActive ?? 1)} onChange={(e) => set('mrpActive', Number(e.target.value) as FabItemCatalog['mrpActive'])}>
-              <MenuItem value="1">Yes</MenuItem><MenuItem value="0">No</MenuItem>
+            <TextField select label="MRP policy" size="small" fullWidth disabled={!canManage} value={mrpPolicy} onChange={(e) => setMrpPolicy(e.target.value)}>
+              {MRP_POLICIES.map((mp) => <MenuItem key={mp.value} value={mp.value}>{mp.label}</MenuItem>)}
             </TextField>
-          </Box>
-          <Divider sx={{ my: 2, borderColor: 'var(--c-divider)' }} />
-          <Typography sx={{ fontSize: 11, fontWeight: 600, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--c-text-3)', mb: 1.5 }}>Weights</Typography>
-          <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr 80px', gap: 2, mb: 3 }}>
-            <Field label="Gross weight" k="grossWeight" type="number" />
-            <Field label="Net weight" k="netWeight" type="number" />
-            <Field label="Unit" k="weightUnit" />
-          </Box>
-          <Divider sx={{ my: 2, borderColor: 'var(--c-divider)' }} />
-          <Typography sx={{ fontSize: 11, fontWeight: 600, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--c-text-3)', mb: 1.5 }}>Volume</Typography>
-          <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 80px', gap: 2, mb: 3 }}>
-            <Field label="Volume" k="volume" type="number" />
-            <Field label="Unit" k="volumeUnit" />
-          </Box>
-          <Divider sx={{ my: 2, borderColor: 'var(--c-divider)' }} />
-          <Typography sx={{ fontSize: 11, fontWeight: 600, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--c-text-3)', mb: 1.5 }}>Dimensions</Typography>
-          <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 80px', gap: 2, mb: 3 }}>
-            <Field label="Length" k="length" type="number" />
-            <Field label="Width" k="width" type="number" />
-            <Field label="Height" k="height" type="number" />
-            <Field label="Unit" k="dimensionUnit" />
-          </Box>
-          <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 80px', gap: 2, mb: 3 }}>
-            <TextField label="Decimal places" size="small" fullWidth type="number" disabled={!canManage}
-              slotProps={{ htmlInput: { min: 0, max: 6 } }}
-              value={(draft.dimensionDecimals as number | undefined) ?? 3}
-              onChange={(e) => set('dimensionDecimals', (e.target.value === '' ? 3 : Number(e.target.value)) as FabItemCatalog['dimensionDecimals'])} />
           </Box>
           <Divider sx={{ my: 2, borderColor: 'var(--c-divider)' }} />
           <Typography sx={{ fontSize: 11, fontWeight: 600, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--c-text-3)', mb: 1.5 }}>Classification</Typography>
@@ -341,37 +290,8 @@ export default function ItemCatalogDetail() {
               </Select>
             </Box>
           </Box>
-          <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 2 }}>
-            <Field label="Barcode" k="barcode" />
+          <Box sx={{ display: 'grid', gridTemplateColumns: '1fr', gap: 2 }}>
             <Field label="HSN code" k="hsnCode" />
-            <Field label="Division" k="division" />
-          </Box>
-          <Divider sx={{ my: 2, borderColor: 'var(--c-divider)' }} />
-          <Typography sx={{ fontSize: 11, fontWeight: 600, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--c-text-3)', mb: 1.5 }}>Traceability</Typography>
-          <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 2, mb: 1 }}>
-            {(
-              [
-                ['batchRequiredOverride', 'categoryBatchRequired', 'Batch no.'],
-                ['serialRequiredOverride', 'categorySerialRequired', 'Serial no.'],
-                ['heatRequiredOverride', 'categoryHeatRequired', 'Heat no.'],
-                ['markRequiredOverride', 'categoryMarkRequired', 'Mark no.'],
-              ] as const
-            ).map(([overrideKey, categoryKey, label]) => {
-              const overrideVal = draft[overrideKey];
-              const categoryDefault = item[categoryKey] === 1;
-              return (
-                <Box key={overrideKey}>
-                  <Typography variant="caption" color="text.secondary">{label}</Typography>
-                  <Select fullWidth size="small" disabled={!canManage}
-                    value={overrideVal === null || overrideVal === undefined ? 'inherit' : String(overrideVal)}
-                    onChange={(e) => set(overrideKey, (e.target.value === 'inherit' ? null : Number(e.target.value)) as FabItemCatalog[typeof overrideKey])}>
-                    <MenuItem value="inherit">Inherit from Category ({categoryDefault ? 'Required' : 'Not required'})</MenuItem>
-                    <MenuItem value="1">Required</MenuItem>
-                    <MenuItem value="0">Not required</MenuItem>
-                  </Select>
-                </Box>
-              );
-            })}
           </Box>
           {canManage && (
             <Box sx={{ mt: 3 }}>
@@ -381,6 +301,9 @@ export default function ItemCatalogDetail() {
 
           <Divider sx={{ my: 3, borderColor: 'var(--c-divider)' }} />
           <Typography sx={{ fontSize: 11, fontWeight: 600, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--c-text-3)', mb: 1.5 }}>Custom Fields</Typography>
+          <Typography variant="caption" sx={{ display: 'block', mb: 2, color: 'var(--c-text-3)' }}>
+            Item specs like weight, dimensions, barcode, or material grade are recorded here as custom fields rather than built-in columns.
+          </Typography>
           {mergedInherited.length > 0 && (
             <>
               <Typography sx={{ fontSize: 11, fontWeight: 600, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--c-text-3)', mb: 0.5 }}>Inherited from taxonomy ({mergedInherited.length})</Typography>

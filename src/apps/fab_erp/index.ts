@@ -28,6 +28,7 @@ function buildUserNav(company: string, app: string): NavItem[] {
     { label: 'MRP',                 icon: React.createElement(AutoGraphRoundedIcon),        to: `${base}/mrp`,          end: false, permission: 'fab_erp_planning_view',   section: OPERATE },
     { label: 'Scheduler',           icon: React.createElement(CalendarViewWeekRoundedIcon), to: `${base}/scheduler`,    end: false, permission: 'fab_erp_scheduler_view',  section: OPERATE },
     { label: 'Goods Receipt (GRN)', icon: React.createElement(LocalShippingRoundedIcon),    to: `${base}/grn`,          end: false, permission: 'fab_erp_grn_view',        section: OPERATE },
+    { label: 'Item Batches',        icon: React.createElement(Inventory2RoundedIcon),       to: `${base}/item-batches`, end: false, permission: 'fab_erp_inventory_view',  section: OPERATE },
 
     // ── Configure: the factory model (plants, items, BOMs, routings, resources) ──
     { label: 'Plants',              icon: React.createElement(FactoryRoundedIcon),          to: `${base}/plants`,         end: false, permission: 'fab_erp_resources_view',  section: CONFIGURE },

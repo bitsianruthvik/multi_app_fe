@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { Fragment, useCallback, useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import {
   Alert, Autocomplete, Box, Button, CircularProgress, Dialog, DialogActions, DialogContent,
@@ -11,24 +11,11 @@ import EditRounded from '@mui/icons-material/EditRounded';
 
 import { fabQuery, fabMutate } from '../api/client';
 import api, { API_HOST } from '@core/utils/axiosConfig';
-import type { FabItemCatalog, FabItemCategory, FabPlant, FabStockLocation, FabSupplier } from '../types';
+import type { FabCustomField, FabItemCatalog, FabPlant, FabStockLocation, FabSupplier } from '../types';
 import { usePermission } from '@core/hooks/usePermission';
 import { Surface, PageHeader, Mono, EmptyState, useToast, EntityList, EntityRow } from '../components';
 
 interface QueryResult<T> { data: T[]; total?: number }
-
-interface TraceRequirements { batchNo: boolean; serialNo: boolean; heatNo: boolean; markNo: boolean }
-
-function effectiveTraceability(item: CatalogOption, categoriesById: Map<number, FabItemCategory>): TraceRequirements {
-  const cat = item.categoryId ? categoriesById.get(item.categoryId) : undefined;
-  const pick = (override: number | null | undefined, base: number | undefined) => (override ?? base ?? 0) === 1;
-  return {
-    batchNo:  pick(item.batchRequiredOverride, cat?.batchRequired),
-    serialNo: pick(item.serialRequiredOverride, cat?.serialRequired),
-    heatNo:   pick(item.heatRequiredOverride, cat?.heatRequired),
-    markNo:   pick(item.markRequiredOverride, cat?.markRequired),
-  };
-}
 
 function todayStr(): string {
   const d = new Date();
@@ -37,11 +24,8 @@ function todayStr(): string {
   return `${d.getFullYear()}-${mm}-${dd}`;
 }
 
-interface CatalogOption {
-  id: number; name: string; code: string; categoryId: number | null;
-  batchRequiredOverride: number | null; serialRequiredOverride: number | null;
-  heatRequiredOverride: number | null; markRequiredOverride: number | null;
-}
+interface CatalogOption { id: number; name: string; code: string }
+
 interface SupplierDraft { name: string; code: string; contactName: string; phone: string; email: string; address: string; notes: string }
 const BLANK_SUPPLIER = (): SupplierDraft => ({ name: '', code: '', contactName: '', phone: '', email: '', address: '', notes: '' });
 
@@ -149,12 +133,24 @@ function SupplierDeleteDialog({ item, onClose, onDeleted }: { item: FabSupplier 
   );
 }
 
+let pieceKeySeq = 0;
+interface PieceDraft {
+  key: number;
+  qty: string; batchNo: string; heatNo: string; serialNo: string; markNo: string;
+  customValues: Record<string, string>;
+}
+function makePiece(qty: string): PieceDraft {
+  return { key: ++pieceKeySeq, qty, batchNo: '', heatNo: '', serialNo: '', markNo: '', customValues: {} };
+}
+
 interface LineDraft {
   catalogItem: CatalogOption | null;
-  batchNo: string; serialNo: string; heatNo: string; markNo: string;
-  qty: string; unitCost: string;
+  qty: string; // target total qty — UI convenience only, prefills the first piece; not sent to the server directly
+  unitCost: string;
+  pieces: PieceDraft[];
+  customFieldTemplates: FabCustomField[];
 }
-const BLANK_LINE = (): LineDraft => ({ catalogItem: null, batchNo: '', serialNo: '', heatNo: '', markNo: '', qty: '', unitCost: '' });
+const BLANK_LINE = (): LineDraft => ({ catalogItem: null, qty: '', unitCost: '', pieces: [], customFieldTemplates: [] });
 
 const ADD_SUPPLIER_OPTION: FabSupplier = {
   id: -1, companyId: 0, name: '+ Add new supplier', code: '',
@@ -176,7 +172,6 @@ export default function GrnEntry() {
   const [stockLocations, setStockLocations] = useState<FabStockLocation[]>([]);
   const [suppliers, setSuppliers] = useState<FabSupplier[]>([]);
   const [catalogItems, setCatalogItems] = useState<CatalogOption[]>([]);
-  const [categoriesById, setCategoriesById] = useState<Map<number, FabItemCategory>>(new Map());
 
   const [grnNumber, setGrnNumber] = useState('');
   const [grnDate, setGrnDate] = useState(todayStr());
@@ -203,18 +198,12 @@ export default function GrnEntry() {
 
   const fetchInitial = useCallback(async () => {
     try {
-      const [plantsRes, catalogRes, categoryRes] = await Promise.all([
+      const [plantsRes, catalogRes] = await Promise.all([
         fabQuery<QueryResult<FabPlant>>('fabErpPlant', { orderBy: [{ field: 'name', direction: 'asc' }], pagination: { limit: 1000 } }),
         fabQuery<QueryResult<FabItemCatalog>>('fabErpItemCatalog', { orderBy: [{ field: 'name', direction: 'asc' }], pagination: { limit: 1000 } }),
-        fabQuery<QueryResult<FabItemCategory>>('fabErpItemCategory', { pagination: { limit: 1000 } }),
       ]);
       setPlants(plantsRes.data ?? []);
-      setCatalogItems((catalogRes.data ?? []).map((c) => ({
-        id: c.id, name: c.name, code: c.code, categoryId: c.categoryId ?? null,
-        batchRequiredOverride: c.batchRequiredOverride ?? null, serialRequiredOverride: c.serialRequiredOverride ?? null,
-        heatRequiredOverride: c.heatRequiredOverride ?? null, markRequiredOverride: c.markRequiredOverride ?? null,
-      })));
-      setCategoriesById(new Map((categoryRes.data ?? []).map((c) => [c.id, c])));
+      setCatalogItems((catalogRes.data ?? []).map((c) => ({ id: c.id, name: c.name, code: c.code })));
       await fetchSuppliers();
     } catch (e) { setFormError((e as Error).message); }
   }, [fetchSuppliers]);
@@ -233,6 +222,44 @@ export default function GrnEntry() {
   function addLine() { setLines((ls) => [...ls, BLANK_LINE()]); }
   function removeLine(i: number) { setLines((ls) => (ls.length <= 1 ? ls : ls.filter((_, idx) => idx !== i))); }
 
+  function setLineQty(i: number, qty: string) {
+    setLines((ls) => ls.map((l, idx) => {
+      if (idx !== i) return l;
+      // Keep the single default piece's qty in sync with the target qty until the user manually redistributes.
+      const pieces = l.pieces.length === 1 ? [{ ...l.pieces[0], qty }] : l.pieces;
+      return { ...l, qty, pieces };
+    }));
+  }
+
+  async function selectItemForLine(i: number, newVal: CatalogOption | null, currentQty: string) {
+    setLine(i, { catalogItem: newVal, customFieldTemplates: [], pieces: newVal ? [makePiece(currentQty)] : [] });
+    if (!newVal) return;
+    try {
+      const res = await fabQuery<QueryResult<FabCustomField>>('fabErpCustomField', {
+        filters: { level: 'item', levelId: newVal.id },
+        orderBy: [{ field: 'sortOrder', direction: 'asc' }],
+        pagination: { limit: 100 },
+      });
+      setLine(i, { customFieldTemplates: res.data ?? [] });
+    } catch { /* ignore — item just won't show custom-field inputs */ }
+  }
+
+  function addPiece(i: number) {
+    setLines((ls) => ls.map((l, idx) => (idx === i ? { ...l, pieces: [...l.pieces, makePiece('')] } : l)));
+  }
+  function removePiece(i: number, pieceKey: number) {
+    setLines((ls) => ls.map((l, idx) => (idx === i ? { ...l, pieces: l.pieces.filter((p) => p.key !== pieceKey) } : l)));
+  }
+  function setPiece(i: number, pieceKey: number, patch: Partial<PieceDraft>) {
+    setLines((ls) => ls.map((l, idx) => (idx === i ? { ...l, pieces: l.pieces.map((p) => (p.key === pieceKey ? { ...p, ...patch } : p)) } : l)));
+  }
+  function setPieceCustomValue(i: number, pieceKey: number, fieldKey: string, value: string) {
+    setLines((ls) => ls.map((l, idx) => (idx === i ? {
+      ...l,
+      pieces: l.pieces.map((p) => (p.key === pieceKey ? { ...p, customValues: { ...p.customValues, [fieldKey]: value } } : p)),
+    } : l)));
+  }
+
   function validate(): string | null {
     if (!grnNumber.trim()) return 'GRN number is required.';
     if (!grnDate.trim()) return 'GRN date is required.';
@@ -241,13 +268,11 @@ export default function GrnEntry() {
     if (lines.length === 0) return 'At least one line item is required.';
     for (const [i, l] of lines.entries()) {
       if (!l.catalogItem) return `Line ${i + 1}: an item must be selected.`;
-      const reqs = effectiveTraceability(l.catalogItem, categoriesById);
-      if (reqs.batchNo && !l.batchNo.trim()) return `Line ${i + 1}: this item requires a batch number.`;
-      if (reqs.serialNo && !l.serialNo.trim()) return `Line ${i + 1}: this item requires a serial number.`;
-      if (reqs.heatNo && !l.heatNo.trim()) return `Line ${i + 1}: this item requires a heat number.`;
-      if (reqs.markNo && !l.markNo.trim()) return `Line ${i + 1}: this item requires a mark number.`;
-      const qty = Number(l.qty);
-      if (!l.qty || !(qty > 0)) return `Line ${i + 1}: quantity must be greater than 0.`;
+      if (l.pieces.length === 0) return `Line ${i + 1}: at least one piece is required.`;
+      for (const [j, p] of l.pieces.entries()) {
+        const qty = Number(p.qty);
+        if (!p.qty || !(qty > 0)) return `Line ${i + 1}, piece ${j + 1}: quantity must be greater than 0.`;
+      }
     }
     return null;
   }
@@ -265,9 +290,22 @@ export default function GrnEntry() {
         },
         lines: lines.map((l) => ({
           catalog_item_id: l.catalogItem!.id,
-          batch_no: l.batchNo.trim() || null, serial_no: l.serialNo.trim() || null,
-          heat_no: l.heatNo.trim() || null, mark_no: l.markNo.trim() || null,
-          qty: Number(l.qty), unit_cost: l.unitCost.trim() !== '' ? Number(l.unitCost) : null,
+          unit_cost: l.unitCost.trim() !== '' ? Number(l.unitCost) : null,
+          pieces: l.pieces.map((p) => ({
+            qty: Number(p.qty),
+            batch_no: p.batchNo.trim() || null,
+            heat_no: p.heatNo.trim() || null,
+            serial_no: p.serialNo.trim() || null,
+            mark_no: p.markNo.trim() || null,
+            custom_fields: l.customFieldTemplates
+              .filter((t) => (p.customValues[t.fieldKey] ?? '').trim() !== '')
+              .map((t, idx) => ({
+                field_key: t.fieldKey,
+                field_type: t.fieldType,
+                field_value: (p.customValues[t.fieldKey] ?? '').trim(),
+                sort_order: t.sortOrder ?? idx,
+              })),
+          })),
         })),
       };
       const res = await api.post(`${API_HOST}/api/${company}/fab_erp/grn/post`, body);
@@ -345,44 +383,32 @@ export default function GrnEntry() {
               <TableHead>
                 <TableRow sx={{ background: 'var(--c-surface-2)' }}>
                   <TableCell sx={th}>Item</TableCell>
-                  <TableCell sx={{ ...th, width: 120 }}>Batch no.</TableCell>
-                  <TableCell sx={{ ...th, width: 120 }}>Serial no.</TableCell>
-                  <TableCell sx={{ ...th, width: 120 }}>Heat no.</TableCell>
-                  <TableCell sx={{ ...th, width: 120 }}>Mark no.</TableCell>
-                  <TableCell sx={{ ...th, width: 110 }}>Qty</TableCell>
-                  <TableCell sx={{ ...th, width: 130 }}>Unit cost</TableCell>
+                  <TableCell sx={{ ...th, width: 140 }}>Target qty</TableCell>
+                  <TableCell sx={{ ...th, width: 140 }}>Unit cost</TableCell>
                   <TableCell sx={{ ...th, width: 48 }} />
                 </TableRow>
               </TableHead>
               <TableBody>
                 {lines.map((line, i) => {
-                  const reqs = line.catalogItem ? effectiveTraceability(line.catalogItem, categoriesById) : null;
+                  const distributed = line.pieces.reduce((sum, p) => sum + (Number(p.qty) || 0), 0);
+                  const target = Number(line.qty) || 0;
+                  const showDistribution = line.qty.trim() !== '';
+                  const mismatch = showDistribution && distributed !== target;
                   return (
-                  <TableRow key={i}>
+                  <Fragment key={i}>
+                  <TableRow>
                     <TableCell sx={td}>
                       <Autocomplete<CatalogOption, false, false, false>
                         options={catalogItems} value={line.catalogItem}
                         getOptionLabel={(o) => `${o.name} (${o.code})`}
                         isOptionEqualToValue={(o, v) => o.id === v.id}
                         disabled={!canManage} size="small"
-                        onChange={(_e, newVal) => setLine(i, { catalogItem: newVal })}
+                        onChange={(_e, newVal) => selectItemForLine(i, newVal, line.qty)}
                         renderInput={(params) => <TextField {...params} placeholder="Select item…" size="small" required />}
                       />
                     </TableCell>
                     <TableCell sx={td}>
-                      <TextField value={line.batchNo} size="small" fullWidth required={reqs?.batchNo} disabled={!canManage} placeholder={reqs?.batchNo ? 'Required' : 'Optional'} onChange={(e) => setLine(i, { batchNo: e.target.value })} />
-                    </TableCell>
-                    <TableCell sx={td}>
-                      <TextField value={line.serialNo} size="small" fullWidth required={reqs?.serialNo} disabled={!canManage} placeholder={reqs?.serialNo ? 'Required' : 'Optional'} onChange={(e) => setLine(i, { serialNo: e.target.value })} />
-                    </TableCell>
-                    <TableCell sx={td}>
-                      <TextField value={line.heatNo} size="small" fullWidth required={reqs?.heatNo} disabled={!canManage} placeholder={reqs?.heatNo ? 'Required' : 'Optional'} onChange={(e) => setLine(i, { heatNo: e.target.value })} />
-                    </TableCell>
-                    <TableCell sx={td}>
-                      <TextField value={line.markNo} size="small" fullWidth required={reqs?.markNo} disabled={!canManage} placeholder={reqs?.markNo ? 'Required' : 'Optional'} onChange={(e) => setLine(i, { markNo: e.target.value })} />
-                    </TableCell>
-                    <TableCell sx={td}>
-                      <TextField type="number" value={line.qty} size="small" fullWidth required disabled={!canManage} slotProps={{ htmlInput: { min: 0, step: 'any' } }} onChange={(e) => setLine(i, { qty: e.target.value })} />
+                      <TextField type="number" value={line.qty} size="small" fullWidth disabled={!canManage} slotProps={{ htmlInput: { min: 0, step: 'any' } }} onChange={(e) => setLineQty(i, e.target.value)} />
                     </TableCell>
                     <TableCell sx={td}>
                       <TextField type="number" value={line.unitCost} size="small" fullWidth disabled={!canManage} slotProps={{ htmlInput: { min: 0, step: 'any' } }} onChange={(e) => setLine(i, { unitCost: e.target.value })} />
@@ -395,6 +421,80 @@ export default function GrnEntry() {
                       </Tooltip>
                     </TableCell>
                   </TableRow>
+                  <TableRow>
+                    <TableCell colSpan={4} sx={{ ...td, background: 'var(--c-surface-1)', p: 2 }}>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1.5 }}>
+                        <Typography sx={{ fontSize: 12, fontWeight: 600, color: 'var(--c-text-3)' }}>
+                          Pieces
+                          {showDistribution && (
+                            <Box component="span" sx={{ ml: 1, fontWeight: 400, color: mismatch ? 'var(--c-warning-700, #b45309)' : 'var(--c-text-3)' }}>
+                              — distributed {distributed} of {target}
+                            </Box>
+                          )}
+                        </Typography>
+                        <Button size="small" startIcon={<AddIcon />} disabled={!canManage || !line.catalogItem} onClick={() => addPiece(i)}>Add piece</Button>
+                      </Box>
+                      {!line.catalogItem ? (
+                        <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>Select an item to add pieces.</Typography>
+                      ) : (
+                        <Table size="small">
+                          <TableHead>
+                            <TableRow>
+                              <TableCell sx={{ ...th, width: 100 }}>Qty</TableCell>
+                              <TableCell sx={th}>Batch no.</TableCell>
+                              <TableCell sx={th}>Heat no.</TableCell>
+                              <TableCell sx={th}>Serial no.</TableCell>
+                              <TableCell sx={th}>Mark no.</TableCell>
+                              {line.customFieldTemplates.map((t) => (
+                                <TableCell key={t.id} sx={th}>{t.fieldKey}</TableCell>
+                              ))}
+                              <TableCell sx={{ ...th, width: 40 }} />
+                            </TableRow>
+                          </TableHead>
+                          <TableBody>
+                            {line.pieces.map((p) => (
+                              <TableRow key={p.key}>
+                                <TableCell sx={td}>
+                                  <TextField type="number" value={p.qty} size="small" fullWidth required disabled={!canManage} slotProps={{ htmlInput: { min: 0, step: 'any' } }} onChange={(e) => setPiece(i, p.key, { qty: e.target.value })} />
+                                </TableCell>
+                                <TableCell sx={td}>
+                                  <TextField value={p.batchNo} size="small" fullWidth disabled={!canManage} placeholder="Optional" onChange={(e) => setPiece(i, p.key, { batchNo: e.target.value })} />
+                                </TableCell>
+                                <TableCell sx={td}>
+                                  <TextField value={p.heatNo} size="small" fullWidth disabled={!canManage} placeholder="Optional" onChange={(e) => setPiece(i, p.key, { heatNo: e.target.value })} />
+                                </TableCell>
+                                <TableCell sx={td}>
+                                  <TextField value={p.serialNo} size="small" fullWidth disabled={!canManage} placeholder="Optional" onChange={(e) => setPiece(i, p.key, { serialNo: e.target.value })} />
+                                </TableCell>
+                                <TableCell sx={td}>
+                                  <TextField value={p.markNo} size="small" fullWidth disabled={!canManage} placeholder="Optional" onChange={(e) => setPiece(i, p.key, { markNo: e.target.value })} />
+                                </TableCell>
+                                {line.customFieldTemplates.map((t) => (
+                                  <TableCell key={t.id} sx={td}>
+                                    <TextField
+                                      value={p.customValues[t.fieldKey] ?? ''}
+                                      size="small" fullWidth disabled={!canManage}
+                                      type={(t.fieldType === 'number' || (t.fieldType as string) === 'decimal') ? 'number' : 'text'}
+                                      placeholder={t.fieldValue ?? ''}
+                                      onChange={(e) => setPieceCustomValue(i, p.key, t.fieldKey, e.target.value)}
+                                    />
+                                  </TableCell>
+                                ))}
+                                <TableCell sx={td} align="right">
+                                  <Tooltip title="Remove piece">
+                                    <IconButton size="small" color="error" disabled={!canManage || line.pieces.length <= 1} onClick={() => removePiece(i, p.key)}>
+                                      <DeleteOutlineRounded fontSize="small" />
+                                    </IconButton>
+                                  </Tooltip>
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                  </Fragment>
                   );
                 })}
               </TableBody>
