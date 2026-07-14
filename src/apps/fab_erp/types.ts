@@ -200,6 +200,86 @@ export interface FabProcessTemplateStep extends FabBase {
 }
 
 /**
+ * fab_operations: Operation definitions for manufacturing steps
+ */
+export interface FabOperation {
+  id: number;
+  companyId: number;
+  name: string;
+  code: string;
+  defaultResourceTypeId: number | null;
+  timeFormula: string | null;
+  timeUnit: 'min' | 'hr' | 'sec';
+  active: number;
+  createdAt: string;
+  updatedAt: string;
+  defaultResourceTypeName?: string;
+}
+
+/**
+ * fab_operation_variables: Variables for operations
+ */
+export interface FabOperationVariable {
+  id: number;
+  companyId: number;
+  operationId: number;
+  varKey: string;
+  label: string;
+  unit: string | null;
+  defaultValue: number | null;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * fab_operation_resource_types: Join table for operation → resource type mappings
+ */
+export interface FabOperationResourceType {
+  id: number;
+  companyId: number;
+  operationId: number;
+  resourceTypeId: number;
+  createdAt: string;
+  updatedAt: string;
+  resourceTypeName?: string;
+  resourceTypeCode?: string;
+  operationName?: string;
+}
+
+/**
+ * fab_operation_flows: Flow definitions (sequences of operations)
+ */
+export interface FabOperationFlow {
+  id: number;
+  companyId: number;
+  name: string;
+  code: string;
+  active: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * fab_operation_flow_steps: Steps within an operation flow
+ */
+export interface FabOperationFlowStep {
+  id: number;
+  companyId: number;
+  flowId: number;
+  operationId: number;
+  seqNo: number;
+  dependsOn: string | null;
+  resourceTypeId: number | null;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+  operationName?: string;
+  operationCode?: string;
+  resourceTypeName?: string;
+}
+
+/**
  * fab_orders: Unified order header (sales, manufacturing, purchase, planned, etc.)
  */
 export interface FabOrder extends FabBase {

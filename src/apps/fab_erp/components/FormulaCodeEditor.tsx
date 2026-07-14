@@ -3,7 +3,7 @@
  *
  * Features:
  *  - Namespaced autocomplete: typing "machine." shows all machine.* variables
- *  - Red wavy underline for unknown namespaced variables (machine.*, item.*, step.*)
+ *  - Red wavy underline for unknown namespaced variables (machine.*, item.*, step.*, op.*)
  *  - ThoughtSpot-style UX: inline suggestions, click to insert
  *  - readOnly mode for view-only display
  *
@@ -56,6 +56,8 @@ interface Props {
   variables: FormulaVariables;
   /** Extra step.* variable keys defined for this step (no "step." prefix) */
   stepVars?: string[];
+  /** Extra op.* variable keys (operation's own variables, no "op." prefix) */
+  opVars?: string[];
   /** If true, disables editing */
   readOnly?: boolean;
 }
@@ -67,6 +69,7 @@ export default function FormulaCodeEditor({
   onChange,
   variables,
   stepVars = [],
+  opVars = [],
   readOnly = false,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -78,19 +81,22 @@ export default function FormulaCodeEditor({
     variables.machine.forEach((v) => keys.add(v.key));
     variables.item.forEach((v) => keys.add(v.key));
     stepVars.forEach((k) => keys.add(`step.${k}`));
+    opVars.forEach((k) => keys.add(`op.${k}`));
     return keys;
-  }, [variables, stepVars]);
+  }, [variables, stepVars, opVars]);
 
   // Keep latest refs so the CodeMirror extensions (created once on mount) can
   // always access the current values without re-creating the editor.
   const knownKeysRef  = useRef(knownKeys);
   const variablesRef  = useRef(variables);
   const stepVarsRef   = useRef(stepVars);
+  const opVarsRef     = useRef(opVars);
   const onChangeRef   = useRef(onChange);
 
   useEffect(() => { knownKeysRef.current  = knownKeys;   }, [knownKeys]);
   useEffect(() => { variablesRef.current  = variables;   }, [variables]);
   useEffect(() => { stepVarsRef.current   = stepVars;    }, [stepVars]);
+  useEffect(() => { opVarsRef.current     = opVars;      }, [opVars]);
   useEffect(() => { onChangeRef.current   = onChange;    }, [onChange]);
 
   // Create the CodeMirror editor once on mount
@@ -104,6 +110,7 @@ export default function FormulaCodeEditor({
 
       const vars  = variablesRef.current;
       const sVars = stepVarsRef.current;
+      const oVars = opVarsRef.current;
 
       const options = [
         ...vars.machine.map((v) => ({
@@ -119,6 +126,11 @@ export default function FormulaCodeEditor({
         ...sVars.map((k) => ({
           label:  `step.${k}`,
           detail: 'step parameter',
+          type:   'variable' as const,
+        })),
+        ...oVars.map((k) => ({
+          label:  `op.${k}`,
+          detail: 'operation variable',
           type:   'variable' as const,
         })),
         {
@@ -140,7 +152,7 @@ export default function FormulaCodeEditor({
     const formulaLinter = linter((view: any) => {
       const text        = view.state.doc.toString();
       const diagnostics: Diagnostic[] = [];
-      const identRe     = /\b(machine|item|step)\.([a-zA-Z_]\w*)\b/g;
+      const identRe     = /\b(machine|item|step|op)\.([a-zA-Z_]\w*)\b/g;
       let m: RegExpExecArray | null;
 
       while ((m = identRe.exec(text)) !== null) {

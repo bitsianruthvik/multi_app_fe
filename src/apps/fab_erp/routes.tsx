@@ -25,6 +25,8 @@ const RoutingPlanBuilder = lazy(() => import('./pages/RoutingPlanBuilder'));
 const MrpRun             = lazy(() => import('./pages/MrpRun'));
 const SchedulerPage      = lazy(() => import('./pages/SchedulerPage'));
 const PlanningWorkbench  = lazy(() => import('./pages/PlanningWorkbench'));
+const Operations         = lazy(() => import('./pages/Operations'));
+const OperationFlows     = lazy(() => import('./pages/OperationFlows'));
 
 export function getFabErpRoutes(
   ProtectedRoute: React.ComponentType<{ children: React.ReactNode }>,
@@ -59,6 +61,8 @@ export function getFabErpRoutes(
     { path: '/:company/fab_erp/codegen-settings',            element: wrap(<CodegenSettings />) },
     { path: '/:company/fab_erp/routing-plans',              element: wrap(<BomsAndRoutings />) },
     { path: '/:company/fab_erp/routing-plans/:planId',      element: wrap(<RoutingPlanBuilder />) },
+    { path: '/:company/fab_erp/operations',                 element: wrap(<Operations />) },
+    { path: '/:company/fab_erp/operation-flows',            element: wrap(<OperationFlows />) },
     { path: '/:company/fab_erp/mrp',                        element: wrap(<MrpRun />) },
     { path: '/:company/fab_erp/scheduler',                  element: wrap(<SchedulerPage />) },
     { path: '/:company/fab_erp/workbench',                  element: wrap(<PlanningWorkbench />) },

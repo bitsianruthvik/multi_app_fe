@@ -12,6 +12,8 @@ import AutoGraphRoundedIcon       from '@mui/icons-material/AutoGraphRounded';
 import CalendarViewWeekRoundedIcon from '@mui/icons-material/CalendarViewWeekRounded';
 import AccountTreeRoundedIcon      from '@mui/icons-material/AccountTreeRounded';
 import TuneRoundedIcon            from '@mui/icons-material/TuneRounded';
+import PrecisionManufacturingRounded from '@mui/icons-material/PrecisionManufacturingRounded';
+import CallSplitRounded           from '@mui/icons-material/CallSplitRounded';
 import type { NavItem } from '@core/components/Sidebar';
 
 function buildUserNav(company: string, app: string): NavItem[] {
@@ -35,6 +37,8 @@ function buildUserNav(company: string, app: string): NavItem[] {
     { label: 'Item Catalog',        icon: React.createElement(Inventory2RoundedIcon),       to: `${base}/item-catalog`,   end: false, permission: 'fab_erp_items_meta_view', section: CONFIGURE },
     { label: 'Resource Catalog',    icon: React.createElement(CategoryRoundedIcon),         to: `${base}/resource-types`, end: false, permission: 'fab_erp_resources_view',  section: CONFIGURE },
     { label: 'BOMs & Routings',     icon: React.createElement(RouteRoundedIcon),            to: `${base}/routing-plans`,  end: false, permission: 'fab_erp_resources_view',  section: CONFIGURE },
+    { label: 'Operations',          icon: React.createElement(PrecisionManufacturingRounded), to: `${base}/operations`,     end: false, permission: 'fab_erp_operations_view', section: CONFIGURE },
+    { label: 'Operation Flows',     icon: React.createElement(CallSplitRounded),            to: `${base}/operation-flows`, end: false, permission: 'fab_erp_flows_view',    section: CONFIGURE },
     { label: 'Suppliers',           icon: React.createElement(HandshakeRoundedIcon),        to: `${base}/suppliers`,      end: false, permission: 'fab_erp_grn_view',        section: CONFIGURE },
     { label: 'Customers',           icon: React.createElement(PeopleAltRoundedIcon),        to: `${base}/customers`,      end: false, permission: 'fab_erp_projects_view',   section: CONFIGURE },
     { label: 'Code Generation',     icon: React.createElement(TuneRoundedIcon),             to: `${base}/codegen-settings`, end: false, permission: 'fab_erp_items_meta_view', section: CONFIGURE },

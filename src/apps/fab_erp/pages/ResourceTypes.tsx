@@ -13,7 +13,7 @@ import PrecisionManufacturingRounded from '@mui/icons-material/PrecisionManufact
 
 import { fabQuery, fabMutate } from '@apps/fab_erp/api/client';
 import type {
-  FabPlant, FabResource, FabResourceCustomField, FabResourceType, FabResourceTypeProperty, FabStockLocation,
+  FabOperation, FabOperationResourceType, FabPlant, FabResource, FabResourceCustomField, FabResourceType, FabResourceTypeProperty, FabStockLocation,
 } from '@apps/fab_erp/types';
 import { usePermission } from '@core/hooks/usePermission';
 import { PageHeader, Mono, EmptyState, ListSkeleton, useToast, EntityList, EntityRow, type SortableField } from '../components';
@@ -450,6 +450,105 @@ function FormulaPropertiesEditor({ rtId, canManage }: { rtId: number; canManage:
   );
 }
 
+function OperationsMappingEditor({ rtId, canManage }: { rtId: number; canManage: boolean }) {
+  const [mappings, setMappings] = useState<FabOperationResourceType[]>([]);
+  const [operations, setOperations] = useState<FabOperation[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [addOpValue, setAddOpValue] = useState<FabOperation | null>(null);
+  const [addSaving, setAddSaving] = useState(false);
+  const [opErr, setOpErr] = useState('');
+  const [delTarget, setDelTarget] = useState<FabOperationResourceType | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fabQuery<QueryResult<FabOperationResourceType>>('fabErpOperationResourceType', { filters: { resourceTypeId: rtId }, pagination: { limit: 200 } });
+      setMappings(res.data ?? []);
+    } catch { setMappings([]); } finally { setLoading(false); }
+  }, [rtId]);
+
+  useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    fabQuery<QueryResult<FabOperation>>('fabErpOperation', { orderBy: [{ field: 'name', direction: 'asc' }], pagination: { limit: 500 } })
+      .then((res) => setOperations(res.data ?? [])).catch(() => setOperations([]));
+  }, []);
+
+  const mappedOperationIds = new Set(mappings.map((m) => m.operationId));
+  const operationOptions = operations.filter((op) => !mappedOperationIds.has(op.id));
+
+  async function addMapping() {
+    if (!addOpValue) return;
+    setAddSaving(true); setOpErr('');
+    try {
+      await fabMutate('fabErpOperationResourceType', 'insert', { operation_id: addOpValue.id, resource_type_id: rtId });
+      setAddOpValue(null);
+      await load();
+    } catch (e) { setOpErr(errMsg(e)); } finally { setAddSaving(false); }
+  }
+
+  async function removeMapping(m: FabOperationResourceType) {
+    await fabMutate('fabErpOperationResourceType', 'delete', { id: m.id });
+    setDelTarget(null); await load();
+  }
+
+  return (
+    <Box>
+      {loading ? <CircularProgress size={20} /> : (
+        <>
+          {canManage && (
+            <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1, mb: 2 }}>
+              <Autocomplete
+                options={operationOptions}
+                value={addOpValue}
+                getOptionLabel={(o) => `${o.code} — ${o.name}`}
+                isOptionEqualToValue={(a, b) => a.id === b.id}
+                onChange={(_, value) => setAddOpValue(value)}
+                sx={{ minWidth: 320 }}
+                renderInput={(params) => <TextField {...params} label="Add operation" size="small" placeholder="Select an operation…" />}
+              />
+              <Button variant="outlined" startIcon={<AddIcon />} disabled={!addOpValue || addSaving} onClick={addMapping} sx={{ mt: 0.3 }}>
+                {addSaving ? <CircularProgress size={16} /> : 'Add'}
+              </Button>
+            </Box>
+          )}
+          {opErr && <Alert severity="error" sx={{ mb: 2 }}>{opErr}</Alert>}
+          {mappings.length === 0 ? (
+            <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>No operations mapped to this resource type yet.</Typography>
+          ) : (
+            <Table size="small">
+              <TableHead><TableRow sx={{ background: 'var(--c-surface-2)' }}>
+                <TableCell sx={th}>Operation</TableCell>{canManage && <TableCell sx={{ ...th, width: 80 }} />}
+              </TableRow></TableHead>
+              <TableBody>
+                {mappings.map((m) => (
+                  <TableRow key={m.id} hover>
+                    <TableCell sx={td}>{m.operationName ?? `#${m.operationId}`}</TableCell>
+                    {canManage && (
+                      <TableCell sx={td}>
+                        <Tooltip title="Remove"><IconButton size="small" color="error" onClick={() => setDelTarget(m)}><DeleteOutlineRounded fontSize="small" /></IconButton></Tooltip>
+                      </TableCell>
+                    )}
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </>
+      )}
+
+      <Dialog open={!!delTarget} onClose={() => setDelTarget(null)} maxWidth="xs" fullWidth>
+        <DialogTitle sx={{ fontWeight: 600 }}>Remove operation mapping</DialogTitle>
+        <DialogContent><Typography>Remove <strong>{delTarget?.operationName}</strong> from this resource type?</Typography></DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDelTarget(null)}>Cancel</Button>
+          <Button color="error" variant="contained" onClick={() => delTarget && removeMapping(delTarget)}>Remove</Button>
+        </DialogActions>
+      </Dialog>
+    </Box>
+  );
+}
+
 interface RtBasicDraft { name: string; code: string; category: string; plantId: number | null }
 
 function ResourceTypeDetailDialog({ open, initial, plants, canManage, onClose, onSaved }: {
@@ -484,7 +583,7 @@ function ResourceTypeDetailDialog({ open, initial, plants, canManage, onClose, o
     } finally { setSaving(false); }
   }
 
-  const tabLabels = isNew ? ['Basic Info', 'Capacity & Scheduling'] : ['Basic Info', 'Capacity & Scheduling', 'Custom Fields (10)', 'Formula Properties'];
+  const tabLabels = isNew ? ['Basic Info', 'Capacity & Scheduling'] : ['Basic Info', 'Capacity & Scheduling', 'Custom Fields (10)', 'Formula Properties', 'Operations'];
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="lg" fullWidth>
@@ -510,6 +609,7 @@ function ResourceTypeDetailDialog({ open, initial, plants, canManage, onClose, o
         {tab === 1 && <StdFieldsSection draft={std} onChange={(k, v) => setStd((d) => ({ ...d, [k]: v }))} canEdit={canManage} />}
         {tab === 2 && !isNew && initial && <CustomFieldsEditor level="resource_type" levelId={initial.id} canManage={canManage} />}
         {tab === 3 && !isNew && initial && <FormulaPropertiesEditor rtId={initial.id} canManage={canManage} />}
+        {tab === 4 && !isNew && initial && <OperationsMappingEditor rtId={initial.id} canManage={canManage} />}
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose}>Close</Button>
