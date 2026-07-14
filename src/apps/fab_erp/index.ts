@@ -7,10 +7,6 @@ import LocalShippingRoundedIcon   from '@mui/icons-material/LocalShippingRounded
 import ReceiptLongRoundedIcon     from '@mui/icons-material/ReceiptLongRounded';
 import HandshakeRoundedIcon       from '@mui/icons-material/HandshakeRounded';
 import PeopleAltRoundedIcon       from '@mui/icons-material/PeopleAltRounded';
-import RouteRoundedIcon           from '@mui/icons-material/RouteRounded';
-import AutoGraphRoundedIcon       from '@mui/icons-material/AutoGraphRounded';
-import CalendarViewWeekRoundedIcon from '@mui/icons-material/CalendarViewWeekRounded';
-import AccountTreeRoundedIcon      from '@mui/icons-material/AccountTreeRounded';
 import TuneRoundedIcon            from '@mui/icons-material/TuneRounded';
 import PrecisionManufacturingRounded from '@mui/icons-material/PrecisionManufacturingRounded';
 import CallSplitRounded           from '@mui/icons-material/CallSplitRounded';
@@ -29,9 +25,6 @@ function buildUserNav(company: string, app: string): NavItem[] {
 
     // ── Operate: daily transactional flow (orders → plan → schedule → receive) ──
     { label: 'Orders',              icon: React.createElement(ReceiptLongRoundedIcon),      to: `${base}/orders`,       end: false, permission: 'fab_erp_projects_view',   section: OPERATE },
-    { label: 'Planning Workbench',  icon: React.createElement(AccountTreeRoundedIcon),      to: `${base}/workbench`,    end: false, permission: 'fab_erp_projects_manage', section: OPERATE },
-    { label: 'MRP',                 icon: React.createElement(AutoGraphRoundedIcon),        to: `${base}/mrp`,          end: false, permission: 'fab_erp_planning_view',   section: OPERATE },
-    { label: 'Scheduler',           icon: React.createElement(CalendarViewWeekRoundedIcon), to: `${base}/scheduler`,    end: false, permission: 'fab_erp_scheduler_view',  section: OPERATE },
     { label: 'Project Task DAG',    icon: React.createElement(DeviceHubRoundedIcon),        to: `${base}/project-dag`,  end: false, permission: 'fab_erp_projectdag_view', section: OPERATE },
     { label: 'Task Queue',          icon: React.createElement(PlaylistPlayRoundedIcon),     to: `${base}/task-queue`,  end: false, permission: 'fab_erp_taskqueue_view', section: OPERATE },
     { label: 'Goods Receipt (GRN)', icon: React.createElement(LocalShippingRoundedIcon),    to: `${base}/grn`,          end: false, permission: 'fab_erp_grn_view',        section: OPERATE },
@@ -41,7 +34,6 @@ function buildUserNav(company: string, app: string): NavItem[] {
     { label: 'Plants',              icon: React.createElement(FactoryRoundedIcon),          to: `${base}/plants`,         end: false, permission: 'fab_erp_resources_view',  section: CONFIGURE },
     { label: 'Item Catalog',        icon: React.createElement(Inventory2RoundedIcon),       to: `${base}/item-catalog`,   end: false, permission: 'fab_erp_items_meta_view', section: CONFIGURE },
     { label: 'Resource Catalog',    icon: React.createElement(CategoryRoundedIcon),         to: `${base}/resource-types`, end: false, permission: 'fab_erp_resources_view',  section: CONFIGURE },
-    { label: 'BOMs & Routings',     icon: React.createElement(RouteRoundedIcon),            to: `${base}/routing-plans`,  end: false, permission: 'fab_erp_resources_view',  section: CONFIGURE },
     { label: 'BOM Templates',       icon: React.createElement(ListAltRoundedIcon),          to: `${base}/bom-templates`,  end: false, permission: 'fab_erp_bomtemplate_view', section: CONFIGURE },
     { label: 'Operations',          icon: React.createElement(PrecisionManufacturingRounded), to: `${base}/operations`,     end: false, permission: 'fab_erp_operations_view', section: CONFIGURE },
     { label: 'Operation Flows',     icon: React.createElement(CallSplitRounded),            to: `${base}/operation-flows`, end: false, permission: 'fab_erp_flows_view',    section: CONFIGURE },

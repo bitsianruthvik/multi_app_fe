@@ -50,7 +50,7 @@ function resultRoute(result: SearchResult, company: string): string {
     case 'supplier':       return `${base}/suppliers/${result.id}`;
     case 'customer':       return `${base}/customers`;
     case 'plant':          return `${base}/plants`;
-    case 'bom':            return `${base}/routing-plans/${result.id}`;
+    case 'bom':            return `${base}/item-catalog`;
     case 'grn':            return `${base}/grn-detail`;
     case 'resource_type':  return `${base}/resource-types`;
     case 'stock_location': return `${base}/plants`;

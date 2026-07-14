@@ -3,8 +3,6 @@ import { Box, Typography } from '@mui/material';
 import { useNavigate, useParams } from 'react-router-dom';
 import ReceiptLongRounded from '@mui/icons-material/ReceiptLongRounded';
 import WarningAmberRounded from '@mui/icons-material/WarningAmberRounded';
-import AccountTreeRounded from '@mui/icons-material/AccountTreeRounded';
-import AutoGraphRounded from '@mui/icons-material/AutoGraphRounded';
 import LocalShippingRounded from '@mui/icons-material/LocalShippingRounded';
 import Inventory2Rounded from '@mui/icons-material/Inventory2Rounded';
 import CheckCircleRounded from '@mui/icons-material/CheckCircleRounded';
@@ -31,8 +29,6 @@ export default function Home() {
   const go = (path: string) => navigate(`/${company}/fab_erp/${path}`);
 
   const canOrders = usePermission('fab_erp_projects_view');
-  const canPlan = usePermission('fab_erp_planning_view');
-  const canSchedule = usePermission('fab_erp_scheduler_view');
   const canGrn = usePermission('fab_erp_grn_view');
   const canItems = usePermission('fab_erp_items_meta_view');
 
@@ -75,12 +71,11 @@ export default function Home() {
     const open = orders.filter((o) => !SHIPPED_STATES.has(o.status));
     const overdue = open.filter((o) => o.requiredDate && new Date(o.requiredDate) < today);
     const draftSales = orders.filter((o) => o.orderType === 'sales' && o.status === 'draft');
-    const plannedToFirm = orders.filter((o) => o.orderType === 'planned' && o.status === 'draft');
     const posSent = orders.filter((o) => o.orderType === 'purchase' && o.status === 'sent');
     const released = orders.filter(
       (o) => o.orderType === 'manufacturing' && (o.status === 'released' || o.status === 'in_progress'),
     );
-    return { open, overdue, draftSales, plannedToFirm, posSent, released };
+    return { open, overdue, draftSales, posSent, released };
   }, [orders]);
 
   const firstName = user?.name?.split(' ')[0] ?? 'there';
@@ -88,8 +83,7 @@ export default function Home() {
   const stats: Stat[] = [
     { label: 'Open orders', value: m.open.length, icon: <ReceiptLongRounded />, onClick: () => go('orders') },
     { label: 'Overdue', value: m.overdue.length, tone: m.overdue.length ? 'danger' : 'default', icon: <WarningAmberRounded />, onClick: () => go('orders') },
-    { label: 'Planned to firm', value: m.plannedToFirm.length, tone: m.plannedToFirm.length ? 'warning' : 'default', icon: <AccountTreeRounded />, onClick: () => go('workbench') },
-    { label: 'In production', value: m.released.length, tone: 'info', icon: <AutoGraphRounded />, onClick: () => go('scheduler') },
+    { label: 'In production', value: m.released.length, tone: 'info', icon: <PlaylistAddCheckRounded />, onClick: () => go('task-queue') },
   ];
 
   // Build role-filtered work queues.
@@ -119,34 +113,6 @@ export default function Home() {
         actionLabel="Resolve"
         onAction={() => go('orders')}
         tone={m.overdue.length ? 'danger' : 'success'}
-      />,
-    );
-  }
-  if (canPlan || canSchedule) {
-    queues.push(
-      <WorkQueueCard
-        key="firm"
-        icon={<AccountTreeRounded />}
-        title="Planned orders"
-        count={m.plannedToFirm.length}
-        unit="to firm"
-        description="MRP suggestions awaiting your decision in the workbench."
-        actionLabel="Open workbench"
-        onAction={() => go('workbench')}
-        tone="warning"
-      />,
-    );
-    queues.push(
-      <WorkQueueCard
-        key="mrp"
-        icon={<AutoGraphRounded />}
-        title="Material planning"
-        count={m.open.length}
-        unit="open demands"
-        description="Run MRP to explode BOMs against stock and generate plans."
-        actionLabel="Run MRP"
-        onAction={() => go('mrp')}
-        tone="info"
       />,
     );
   }

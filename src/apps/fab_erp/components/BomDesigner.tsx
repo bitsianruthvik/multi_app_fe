@@ -34,7 +34,6 @@ import { fabQuery, fabMutate } from '../api/client';
 import type { FabMaterialBom, FabMaterialBomItem, FabItemCatalog } from '../types';
 import InfoTooltip, { type InfoContent } from '@shared/components/InfoTooltip';
 import { STANDARD_UOMS } from '../constants/uom';
-import RouteBadge from './RouteBadge';
 
 // ─── INFO TOOLTIP CONTENT ─────────────────────────────────────────────────────
 // INFO_TOOLTIP — update this block whenever features in BomDesigner change.
@@ -277,7 +276,6 @@ function SubBomExpander({
           {bom ? ` (BOM base: ${fmt(base)} ${bom.baseUnit ?? neededUnit ?? ''})` : ''}
         </Typography>
         <Box sx={{ ml: 'auto', display: 'flex', alignItems: 'center', gap: 1 }}>
-          {bom && <RouteBadge bomId={bom.id} mode={mode} />}
           {bom && mode === 'edit' && (
             <Button
               size="small"
@@ -869,8 +867,6 @@ function BomInlineEditor({ target, onCancel, onSaved }: BomInlineEditorProps) {
               value={baseUnit}
               onChange={e => setBaseUnit(e.target.value)}
             />
-            <Divider orientation="vertical" flexItem />
-            <RouteBadge bomId={target.bomId} mode="edit" />
           </Box>
 
           <Divider sx={{ my: 2 }}>
@@ -1244,8 +1240,6 @@ export default function BomDesigner({
                     Flow: {flows.find(f => f.id === flowBinding?.flowId)?.name ?? 'None'}
                   </Typography>
                 )}
-                <Box sx={{ flex: 1 }} />
-                <RouteBadge bomId={selectedBom.id} mode={mode} />
               </Box>
             )}
 

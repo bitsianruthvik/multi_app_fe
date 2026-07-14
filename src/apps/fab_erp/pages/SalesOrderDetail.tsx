@@ -10,7 +10,6 @@ import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
 import SaveIcon from '@mui/icons-material/SaveRounded';
 import AddIcon from '@mui/icons-material/Add';
 import FactoryRounded from '@mui/icons-material/FactoryRounded';
-import CalendarViewWeekRounded from '@mui/icons-material/CalendarViewWeekRounded';
 import Inventory2Rounded from '@mui/icons-material/Inventory2Rounded';
 
 import { fabQuery, fabMutate } from '../api/client';
@@ -154,7 +153,6 @@ export default function SalesOrderDetail() {
     <>
       <CrossLink icon={<Inventory2Rounded />} label="Line items" count={items.length} onClick={() => setTab('lines')} />
       {so.plantId && <CrossLink icon={<FactoryRounded />} label={so.plantName ?? 'Plant'} onClick={() => go('plants')} />}
-      <CrossLink icon={<CalendarViewWeekRounded />} label="Scheduler" onClick={() => go('scheduler')} />
     </>
   );
 

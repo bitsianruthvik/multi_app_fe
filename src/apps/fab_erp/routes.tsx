@@ -20,11 +20,6 @@ const Suppliers          = lazy(() => import('./pages/Suppliers'));
 const SupplierDetail     = lazy(() => import('./pages/SupplierDetail'));
 const Customers          = lazy(() => import('./pages/Customers'));
 const CodegenSettings    = lazy(() => import('./pages/CodegenSettings'));
-const BomsAndRoutings    = lazy(() => import('./pages/BomsAndRoutings'));
-const RoutingPlanBuilder = lazy(() => import('./pages/RoutingPlanBuilder'));
-const MrpRun             = lazy(() => import('./pages/MrpRun'));
-const SchedulerPage      = lazy(() => import('./pages/SchedulerPage'));
-const PlanningWorkbench  = lazy(() => import('./pages/PlanningWorkbench'));
 const Operations         = lazy(() => import('./pages/Operations'));
 const OperationFlows     = lazy(() => import('./pages/OperationFlows'));
 const BomTemplates       = lazy(() => import('./pages/BomTemplates'));
@@ -62,14 +57,9 @@ export function getFabErpRoutes(
     { path: '/:company/fab_erp/suppliers/:supplierId',       element: wrap(<SupplierDetail />) },
     { path: '/:company/fab_erp/customers',                   element: wrap(<Customers />) },
     { path: '/:company/fab_erp/codegen-settings',            element: wrap(<CodegenSettings />) },
-    { path: '/:company/fab_erp/routing-plans',              element: wrap(<BomsAndRoutings />) },
-    { path: '/:company/fab_erp/routing-plans/:planId',      element: wrap(<RoutingPlanBuilder />) },
     { path: '/:company/fab_erp/operations',                 element: wrap(<Operations />) },
     { path: '/:company/fab_erp/operation-flows',            element: wrap(<OperationFlows />) },
     { path: '/:company/fab_erp/bom-templates',               element: wrap(<BomTemplates />) },
-    { path: '/:company/fab_erp/mrp',                        element: wrap(<MrpRun />) },
-    { path: '/:company/fab_erp/scheduler',                  element: wrap(<SchedulerPage />) },
-    { path: '/:company/fab_erp/workbench',                  element: wrap(<PlanningWorkbench />) },
     { path: '/:company/fab_erp/project-dag',                element: wrap(<ProjectDag />) },
     { path: '/:company/fab_erp/task-queue',                 element: wrap(<TaskQueue />) },
   ];
