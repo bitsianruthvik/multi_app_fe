@@ -1,7 +1,7 @@
 import { Fragment, useCallback, useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import {
-  Alert, Autocomplete, Box, Button, CircularProgress, Dialog, DialogActions, DialogContent,
+  Alert, Autocomplete, Box, Button, Checkbox, CircularProgress, Dialog, DialogActions, DialogContent,
   DialogTitle, IconButton, Link, MenuItem, Tab, Table, TableBody, TableCell, TableHead, TableRow,
   Tabs, TextField, Tooltip, Typography,
 } from '@mui/material';
@@ -149,8 +149,13 @@ interface LineDraft {
   unitCost: string;
   pieces: PieceDraft[];
   customFieldTemplates: FabCustomField[];
+  selectedPieceKeys: Set<number>;
+  bulkFieldValues: Record<string, string>;
 }
-const BLANK_LINE = (): LineDraft => ({ catalogItem: null, qty: '', unitCost: '', pieces: [], customFieldTemplates: [] });
+const BLANK_LINE = (): LineDraft => ({
+  catalogItem: null, qty: '', unitCost: '', pieces: [], customFieldTemplates: [],
+  selectedPieceKeys: new Set(), bulkFieldValues: {},
+});
 
 const ADD_SUPPLIER_OPTION: FabSupplier = {
   id: -1, companyId: 0, name: '+ Add new supplier', code: '',
@@ -232,7 +237,10 @@ export default function GrnEntry() {
   }
 
   async function selectItemForLine(i: number, newVal: CatalogOption | null, currentQty: string) {
-    setLine(i, { catalogItem: newVal, customFieldTemplates: [], pieces: newVal ? [makePiece(currentQty)] : [] });
+    setLine(i, {
+      catalogItem: newVal, customFieldTemplates: [], pieces: newVal ? [makePiece(currentQty)] : [],
+      selectedPieceKeys: new Set(), bulkFieldValues: {},
+    });
     if (!newVal) return;
     try {
       const res = await fabQuery<QueryResult<FabCustomField>>('fabErpCustomField', {
@@ -248,7 +256,12 @@ export default function GrnEntry() {
     setLines((ls) => ls.map((l, idx) => (idx === i ? { ...l, pieces: [...l.pieces, makePiece('')] } : l)));
   }
   function removePiece(i: number, pieceKey: number) {
-    setLines((ls) => ls.map((l, idx) => (idx === i ? { ...l, pieces: l.pieces.filter((p) => p.key !== pieceKey) } : l)));
+    setLines((ls) => ls.map((l, idx) => {
+      if (idx !== i) return l;
+      const nextSelected = new Set(l.selectedPieceKeys);
+      nextSelected.delete(pieceKey);
+      return { ...l, pieces: l.pieces.filter((p) => p.key !== pieceKey), selectedPieceKeys: nextSelected };
+    }));
   }
   function setPiece(i: number, pieceKey: number, patch: Partial<PieceDraft>) {
     setLines((ls) => ls.map((l, idx) => (idx === i ? { ...l, pieces: l.pieces.map((p) => (p.key === pieceKey ? { ...p, ...patch } : p)) } : l)));
@@ -258,6 +271,31 @@ export default function GrnEntry() {
       ...l,
       pieces: l.pieces.map((p) => (p.key === pieceKey ? { ...p, customValues: { ...p.customValues, [fieldKey]: value } } : p)),
     } : l)));
+  }
+  function togglePieceSelected(i: number, pieceKey: number) {
+    setLines((ls) => ls.map((l, idx) => {
+      if (idx !== i) return l;
+      const next = new Set(l.selectedPieceKeys);
+      if (next.has(pieceKey)) next.delete(pieceKey); else next.add(pieceKey);
+      return { ...l, selectedPieceKeys: next };
+    }));
+  }
+  function toggleAllPiecesSelected(i: number, checked: boolean) {
+    setLines((ls) => ls.map((l, idx) => (idx === i ? { ...l, selectedPieceKeys: checked ? new Set(l.pieces.map((p) => p.key)) : new Set() } : l)));
+  }
+  function setBulkFieldValue(i: number, fieldKey: string, value: string) {
+    setLines((ls) => ls.map((l, idx) => (idx === i ? { ...l, bulkFieldValues: { ...l.bulkFieldValues, [fieldKey]: value } } : l)));
+  }
+  function applyBulkField(i: number, fieldKey: string, target: 'selected' | 'all') {
+    setLines((ls) => ls.map((l, idx) => {
+      if (idx !== i) return l;
+      const value = l.bulkFieldValues[fieldKey] ?? '';
+      const applyKeys = target === 'all' ? new Set(l.pieces.map((p) => p.key)) : l.selectedPieceKeys;
+      return {
+        ...l,
+        pieces: l.pieces.map((p) => (applyKeys.has(p.key) ? { ...p, customValues: { ...p.customValues, [fieldKey]: value } } : p)),
+      };
+    }));
   }
 
   function validate(): string | null {
@@ -437,9 +475,38 @@ export default function GrnEntry() {
                       {!line.catalogItem ? (
                         <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>Select an item to add pieces.</Typography>
                       ) : (
+                        <>
+                        {line.customFieldTemplates.length > 0 && (
+                          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, mb: 1.5, p: 1.5, background: 'var(--c-surface-2)', borderRadius: 1 }}>
+                            <Typography sx={{ fontSize: 11, fontWeight: 600, letterSpacing: '.04em', textTransform: 'uppercase', color: 'var(--c-text-3)' }}>
+                              Bulk-fill custom fields ({line.selectedPieceKeys.size} piece{line.selectedPieceKeys.size === 1 ? '' : 's'} selected)
+                            </Typography>
+                            {line.customFieldTemplates.map((t) => (
+                              <Box key={t.id} sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                                <TextField
+                                  label={t.fieldKey} value={line.bulkFieldValues[t.fieldKey] ?? ''} size="small" sx={{ flex: 1, maxWidth: 260 }}
+                                  disabled={!canManage}
+                                  type={(t.fieldType === 'number' || (t.fieldType as string) === 'decimal') ? 'number' : 'text'}
+                                  onChange={(e) => setBulkFieldValue(i, t.fieldKey, e.target.value)}
+                                />
+                                <Button size="small" disabled={!canManage || line.selectedPieceKeys.size === 0} onClick={() => applyBulkField(i, t.fieldKey, 'selected')}>Apply to selected</Button>
+                                <Button size="small" disabled={!canManage || line.pieces.length === 0} onClick={() => applyBulkField(i, t.fieldKey, 'all')}>Apply to all</Button>
+                              </Box>
+                            ))}
+                          </Box>
+                        )}
                         <Table size="small">
                           <TableHead>
                             <TableRow>
+                              <TableCell sx={{ ...th, width: 36 }}>
+                                <Checkbox
+                                  size="small"
+                                  checked={line.pieces.length > 0 && line.selectedPieceKeys.size === line.pieces.length}
+                                  indeterminate={line.selectedPieceKeys.size > 0 && line.selectedPieceKeys.size < line.pieces.length}
+                                  disabled={!canManage || line.pieces.length === 0}
+                                  onChange={(e) => toggleAllPiecesSelected(i, e.target.checked)}
+                                />
+                              </TableCell>
                               <TableCell sx={{ ...th, width: 100 }}>Qty</TableCell>
                               <TableCell sx={th}>Batch no.</TableCell>
                               <TableCell sx={th}>Heat no.</TableCell>
@@ -454,6 +521,9 @@ export default function GrnEntry() {
                           <TableBody>
                             {line.pieces.map((p) => (
                               <TableRow key={p.key}>
+                                <TableCell sx={td}>
+                                  <Checkbox size="small" checked={line.selectedPieceKeys.has(p.key)} disabled={!canManage} onChange={() => togglePieceSelected(i, p.key)} />
+                                </TableCell>
                                 <TableCell sx={td}>
                                   <TextField type="number" value={p.qty} size="small" fullWidth required disabled={!canManage} slotProps={{ htmlInput: { min: 0, step: 'any' } }} onChange={(e) => setPiece(i, p.key, { qty: e.target.value })} />
                                 </TableCell>
@@ -491,6 +561,7 @@ export default function GrnEntry() {
                             ))}
                           </TableBody>
                         </Table>
+                        </>
                       )}
                     </TableCell>
                   </TableRow>

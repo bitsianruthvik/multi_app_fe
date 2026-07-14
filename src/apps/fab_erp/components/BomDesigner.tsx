@@ -96,6 +96,20 @@ interface CatalogOption {
   unit: string | null;
 }
 
+interface FlowOption {
+  id:     number;
+  name:   string;
+  code:   string;
+  active: number;
+}
+
+interface BomFlowBinding {
+  id:     number;
+  bomId:  number;
+  flowId: number;
+  active: number;
+}
+
 // ─── Visual constants ─────────────────────────────────────────────────────────
 
 const CATEGORY = {
@@ -924,8 +938,53 @@ export default function BomDesigner({
   const [newBomName,       setNewBomName]       = useState('');
   const [error,            setError]            = useState('');
   const [toast,            setToast]            = useState('');
+  const [flows,            setFlows]            = useState<FlowOption[]>([]);
+  const [flowBinding,      setFlowBinding]      = useState<BomFlowBinding | null>(null);
 
   const selectedBom = boms[selectedBomIdx] ?? null;
+
+  useEffect(() => {
+    fabQuery<{ data: FlowOption[] }>('fabErpOperationFlow', {
+      filters:    { active: 1 },
+      orderBy:    [{ field: 'name', direction: 'asc' }],
+      pagination: { limit: 200 },
+    }).then(res => setFlows(res.data ?? [])).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (!selectedBom) { setFlowBinding(null); return; }
+    let cancelled = false;
+    fabQuery<{ data: BomFlowBinding[] }>('fabErpBomFlowBinding', {
+      filters:    { bomId: selectedBom.id, active: 1 },
+      pagination: { limit: 1 },
+    }).then(res => { if (!cancelled) setFlowBinding((res.data ?? [])[0] ?? null); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [selectedBom?.id]);
+
+  async function handleFlowChange(flowId: number | '') {
+    if (!selectedBom) return;
+    try {
+      if (flowId === '') {
+        if (flowBinding) {
+          await fabMutate('fabErpBomFlowBinding', 'update', {
+            id: flowBinding.id, bom_id: flowBinding.bomId, flow_id: flowBinding.flowId, active: 0,
+          });
+          setFlowBinding(null);
+        }
+      } else if (flowBinding) {
+        await fabMutate('fabErpBomFlowBinding', 'update', {
+          id: flowBinding.id, bom_id: selectedBom.id, flow_id: flowId, active: 1,
+        });
+        setFlowBinding({ ...flowBinding, flowId, active: 1 });
+      } else {
+        const res = await fabMutate<{ id: number }>('fabErpBomFlowBinding', 'insert', {
+          bom_id: selectedBom.id, flow_id: flowId, active: 1,
+        });
+        setFlowBinding({ id: res.id, bomId: selectedBom.id, flowId, active: 1 });
+      }
+    } catch (e: any) { setError(e.response?.data?.error ?? e.message); }
+  }
 
   const loadBoms = useCallback(async () => {
     const res = await fabQuery<{ data: FabMaterialBom[] }>('fabErpMaterialBom', {
@@ -1168,6 +1227,23 @@ export default function BomDesigner({
                 <Typography variant="caption" color="text.secondary">
                   Yield {fmt(selectedBom.baseQty ?? 1)} {selectedBom.baseUnit ?? catalogItemUnit ?? ''} per run
                 </Typography>
+                <Divider orientation="vertical" flexItem />
+                {mode === 'edit' ? (
+                  <TextField
+                    select size="small" label="Manufacturing flow" sx={{ minWidth: 180 }}
+                    value={flowBinding?.flowId ?? ''}
+                    onChange={e => handleFlowChange(e.target.value === '' ? '' : Number(e.target.value))}
+                  >
+                    <MenuItem value="">None</MenuItem>
+                    {flows.map(f => (
+                      <MenuItem key={f.id} value={f.id}>{f.name}</MenuItem>
+                    ))}
+                  </TextField>
+                ) : (
+                  <Typography variant="caption" color="text.secondary">
+                    Flow: {flows.find(f => f.id === flowBinding?.flowId)?.name ?? 'None'}
+                  </Typography>
+                )}
                 <Box sx={{ flex: 1 }} />
                 <RouteBadge bomId={selectedBom.id} mode={mode} />
               </Box>

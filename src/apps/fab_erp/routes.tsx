@@ -27,6 +27,9 @@ const SchedulerPage      = lazy(() => import('./pages/SchedulerPage'));
 const PlanningWorkbench  = lazy(() => import('./pages/PlanningWorkbench'));
 const Operations         = lazy(() => import('./pages/Operations'));
 const OperationFlows     = lazy(() => import('./pages/OperationFlows'));
+const BomTemplates       = lazy(() => import('./pages/BomTemplates'));
+const ProjectDag         = lazy(() => import('./pages/ProjectDag'));
+const TaskQueue          = lazy(() => import('./pages/TaskQueue'));
 
 export function getFabErpRoutes(
   ProtectedRoute: React.ComponentType<{ children: React.ReactNode }>,
@@ -63,8 +66,11 @@ export function getFabErpRoutes(
     { path: '/:company/fab_erp/routing-plans/:planId',      element: wrap(<RoutingPlanBuilder />) },
     { path: '/:company/fab_erp/operations',                 element: wrap(<Operations />) },
     { path: '/:company/fab_erp/operation-flows',            element: wrap(<OperationFlows />) },
+    { path: '/:company/fab_erp/bom-templates',               element: wrap(<BomTemplates />) },
     { path: '/:company/fab_erp/mrp',                        element: wrap(<MrpRun />) },
     { path: '/:company/fab_erp/scheduler',                  element: wrap(<SchedulerPage />) },
     { path: '/:company/fab_erp/workbench',                  element: wrap(<PlanningWorkbench />) },
+    { path: '/:company/fab_erp/project-dag',                element: wrap(<ProjectDag />) },
+    { path: '/:company/fab_erp/task-queue',                 element: wrap(<TaskQueue />) },
   ];
 }
