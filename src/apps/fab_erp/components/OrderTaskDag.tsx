@@ -1,44 +1,25 @@
 /**
- * ProjectDag.tsx — EU-11: project task-DAG viewer.
+ * OrderTaskDag.tsx — EU-6: whole-order task-DAG viewer, embedded as a tab in
+ * SalesOrderDetail.tsx.
  *
- * Project picker + node-link rendering of GET /tasks/graph?projectId=.
+ * Extracted from pages/ProjectDag.tsx (EU-11's standalone project-DAG page).
+ * The project picker from that page is intentionally NOT carried over here —
+ * `orderId` is fixed by the surrounding route/tab context, so there is
+ * nothing to select. This component fetches GET /tasks/graph?orderId=<id>
+ * directly on mount/prop-change and renders every task the route returns
+ * (across all of the order's top-level items) as one graph.
  *
- * Project picker note: resourceDef.json has NO top-level `fabErpProject`
- * resource (fab_projects only appears as a JOIN target, e.g. aliases
- * `fproj_fi` / `fproj_pt` — searched the whole file, confirmed). The closest
- * queryable resource carrying project identity is `fabErpProjectTask`
- * (table fab_project_tasks), which exposes `projectId` / `projectName` /
- * `projectCode` fields. The picker below queries that resource and
- * client-side de-dupes rows into a distinct project list. This only surfaces
- * projects that already have materialized tasks — acceptable here since a
- * project with zero fab_project_tasks rows has an empty DAG anyway.
- *
- * Layout: no graph library in fab_erp (and none is being added here) — nodes
- * are grouped into columns by dependency depth (depth 0 = no predecessors,
- * depth N = 1 + max(depth of predecessors)) and laid out as absolutely
- * positioned boxes with an SVG line overlay connecting dependent nodes.
+ * Layout logic (dependency-depth columns + SVG line overlay) and the
+ * status color legend are unchanged from ProjectDag.tsx.
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useParams } from 'react-router-dom';
-import { Alert, Autocomplete, Box, CircularProgress, TextField, Typography } from '@mui/material';
+import { Alert, Box, Button, CircularProgress, Typography } from '@mui/material';
+import RefreshRounded from '@mui/icons-material/RefreshRounded';
+import BuildCircleRounded from '@mui/icons-material/BuildCircleRounded';
 
-import { fabQuery, fabGet } from '../api/client';
-import { PageHeader, Surface, useToast } from '../components';
-
-interface QueryResult<T> { data: T[]; total?: number }
-
-interface ProjectTaskRow {
-  projectId: number;
-  projectName: string | null;
-  projectCode: string | null;
-}
-
-interface ProjectOption {
-  id: number;
-  name: string;
-  code: string | null;
-}
+import { fabGet, fabPost } from '../api/client';
+import { Surface, useToast } from '../components';
 
 type TaskStatus = 'blocked' | 'eligible' | 'in_progress' | 'paused' | 'done' | 'cancelled';
 
@@ -65,22 +46,19 @@ interface DagEdge {
 
 interface GraphResponse {
   ok: boolean;
+  orderId?: number;
+  orderNumber?: string;
   nodes: DagNode[];
   edges: DagEdge[];
 }
 
 /**
- * Status -> color mapping, per exact spec:
+ * Status -> color mapping, per exact spec (unchanged from ProjectDag.tsx):
  *   blocked -> grey, eligible (not yet started) -> red,
  *   in_progress -> yellow, done -> light green.
- * `paused` and `cancelled` are not covered by the spec's four buckets — a
- * deliberate call was made (documented here rather than silently reusing
- * blocked/grey):
- *   paused    -> amber/orange — visually close to in_progress (it WAS
- *                running) but distinct, since a paused task is not actively
- *                advancing the same way blocked/eligible/in_progress are.
- *   cancelled -> dark slate, with strikethrough label — reads as "removed
- *                from the flow" rather than any of the four active states.
+ * `paused` and `cancelled` are not covered by the spec's four buckets — same
+ * deliberate call as ProjectDag.tsx is kept here:
+ *   paused    -> amber/orange, cancelled -> dark slate w/ strikethrough label.
  */
 const STATUS_COLOR: Record<TaskStatus, string> = {
   eligible: '#ef4444',
@@ -160,51 +138,19 @@ function layoutNodes(nodes: DagNode[], edges: DagEdge[]): { laid: LayoutNode[]; 
   return { laid, width, height };
 }
 
-export default function ProjectDag() {
-  useParams<{ company: string }>();
+export default function OrderTaskDag({ orderId, canManage }: { orderId: number; canManage?: boolean }) {
   const { toast } = useToast();
 
-  const [projects, setProjects] = useState<ProjectOption[]>([]);
-  const [project, setProject] = useState<ProjectOption | null>(null);
-  const [loadingProjects, setLoadingProjects] = useState(true);
-  const [loadingGraph, setLoadingGraph] = useState(false);
+  const [loadingGraph, setLoadingGraph] = useState(true);
+  const [materializing, setMaterializing] = useState(false);
   const [error, setError] = useState('');
   const [graph, setGraph] = useState<GraphResponse | null>(null);
 
-  const fetchProjects = useCallback(async () => {
-    setLoadingProjects(true);
-    try {
-      const res = await fabQuery<QueryResult<ProjectTaskRow>>('fabErpProjectTask', {
-        fields: ['projectId', 'projectName', 'projectCode'],
-        orderBy: [{ field: 'projectId', direction: 'asc' }],
-        pagination: { limit: 5000 },
-      });
-      const byId = new Map<number, ProjectOption>();
-      for (const row of res.data ?? []) {
-        if (!byId.has(row.projectId)) {
-          byId.set(row.projectId, {
-            id: row.projectId,
-            name: row.projectName ?? `Project #${row.projectId}`,
-            code: row.projectCode,
-          });
-        }
-      }
-      const list = [...byId.values()].sort((a, b) => a.name.localeCompare(b.name));
-      setProjects(list);
-    } catch (e) {
-      setError((e as Error).message || 'Failed to load projects.');
-    } finally {
-      setLoadingProjects(false);
-    }
-  }, []);
-
-  useEffect(() => { fetchProjects(); }, [fetchProjects]);
-
-  const fetchGraph = useCallback(async (projectId: number) => {
+  const fetchGraph = useCallback(async () => {
     setLoadingGraph(true);
     setError('');
     try {
-      const res = await fabGet<GraphResponse>('tasks/graph', { projectId });
+      const res = await fabGet<GraphResponse>('tasks/graph', { orderId });
       setGraph(res);
     } catch (e) {
       const ax = e as { response?: { data?: { message?: string } }; message?: string };
@@ -215,12 +161,26 @@ export default function ProjectDag() {
     } finally {
       setLoadingGraph(false);
     }
-  }, [toast]);
+  }, [orderId, toast]);
 
-  useEffect(() => {
-    if (project) fetchGraph(project.id);
-    else setGraph(null);
-  }, [project, fetchGraph]);
+  useEffect(() => { fetchGraph(); }, [fetchGraph]);
+
+  async function materialize() {
+    setMaterializing(true);
+    setError('');
+    try {
+      await fabPost('tasks/materialize', { orderId });
+      toast('Tasks materialized');
+      await fetchGraph();
+    } catch (e) {
+      const ax = e as { response?: { data?: { message?: string } }; message?: string };
+      const msg = ax.response?.data?.message ?? ax.message ?? 'Failed to materialize tasks.';
+      setError(msg);
+      toast(msg, 'error');
+    } finally {
+      setMaterializing(false);
+    }
+  }
 
   const { laid, width, height } = useMemo(
     () => (graph ? layoutNodes(graph.nodes, graph.edges) : { laid: [], width: 0, height: 0 }),
@@ -230,43 +190,12 @@ export default function ProjectDag() {
   const posById = useMemo(() => new Map(laid.map((n) => [n.id, n])), [laid]);
 
   return (
-    <Box sx={{ maxWidth: 1400, mx: 'auto' }}>
-      <PageHeader title="Project Task DAG" subtitle="Full dependency graph of every task across a project's items" />
-
+    <Box>
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
 
       <Surface e={1} sx={{ p: 2.5, mb: 2.5 }}>
-        <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
-          <Autocomplete<ProjectOption, false, false, false>
-            options={projects}
-            value={project}
-            loading={loadingProjects}
-            getOptionLabel={(o) => (o.code ? `${o.code} — ${o.name}` : o.name)}
-            isOptionEqualToValue={(o, v) => o.id === v.id}
-            sx={{ minWidth: 320 }}
-            onChange={(_e, newVal) => setProject(newVal)}
-            renderInput={(params) => (
-              <TextField
-                {...params}
-                label="Project"
-                size="small"
-                placeholder="Select a project…"
-                slotProps={{
-                  input: {
-                    ...params.InputProps,
-                    endAdornment: (
-                      <>
-                        {loadingProjects ? <CircularProgress size={16} /> : null}
-                        {params.InputProps.endAdornment}
-                      </>
-                    ),
-                  },
-                }}
-              />
-            )}
-          />
-
-          <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', ml: { sm: 2 } }}>
+        <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'space-between' }}>
+          <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
             {(Object.keys(STATUS_COLOR) as TaskStatus[]).map((s) => (
               <Box key={s} sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
                 <Box sx={{ width: 12, height: 12, borderRadius: '3px', background: STATUS_COLOR[s], border: '1px solid rgba(0,0,0,.15)' }} />
@@ -274,30 +203,46 @@ export default function ProjectDag() {
               </Box>
             ))}
           </Box>
+
+          <Box sx={{ display: 'flex', gap: 1 }}>
+            <Button
+              size="small"
+              startIcon={<RefreshRounded fontSize="small" />}
+              onClick={fetchGraph}
+              disabled={loadingGraph}
+            >
+              Refresh
+            </Button>
+            {canManage !== false && (
+              <Button
+                size="small"
+                variant="contained"
+                startIcon={materializing ? <CircularProgress size={14} color="inherit" /> : <BuildCircleRounded fontSize="small" />}
+                disabled={materializing}
+                onClick={materialize}
+              >
+                Materialize tasks
+              </Button>
+            )}
+          </Box>
         </Box>
       </Surface>
 
-      {!project && (
-        <Surface e={1} sx={{ p: 4, textAlign: 'center' }}>
-          <Typography sx={{ color: 'var(--c-text-3)' }}>Select a project to view its task graph.</Typography>
-        </Surface>
-      )}
-
-      {project && loadingGraph && (
+      {loadingGraph && (
         <Surface e={1} sx={{ p: 4, display: 'flex', justifyContent: 'center' }}>
           <CircularProgress size={24} />
         </Surface>
       )}
 
-      {project && !loadingGraph && graph && graph.nodes.length === 0 && (
+      {!loadingGraph && graph && graph.nodes.length === 0 && (
         <Surface e={1} sx={{ p: 4, textAlign: 'center' }}>
           <Typography sx={{ color: 'var(--c-text-3)' }}>
-            No tasks have been materialized for this project yet.
+            No tasks have been materialized for this order yet.
           </Typography>
         </Surface>
       )}
 
-      {project && !loadingGraph && graph && graph.nodes.length > 0 && (
+      {!loadingGraph && graph && graph.nodes.length > 0 && (
         <Surface e={1} sx={{ p: 2.5, overflow: 'auto' }}>
           <Box sx={{ position: 'relative', width: Math.max(width, 400), height: Math.max(height, 100) }}>
             <svg

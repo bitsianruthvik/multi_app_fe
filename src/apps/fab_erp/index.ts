@@ -11,7 +11,6 @@ import TuneRoundedIcon            from '@mui/icons-material/TuneRounded';
 import PrecisionManufacturingRounded from '@mui/icons-material/PrecisionManufacturingRounded';
 import CallSplitRounded           from '@mui/icons-material/CallSplitRounded';
 import ListAltRoundedIcon         from '@mui/icons-material/ListAltRounded';
-import DeviceHubRoundedIcon       from '@mui/icons-material/DeviceHubRounded';
 import PlaylistPlayRoundedIcon    from '@mui/icons-material/PlaylistPlayRounded';
 import type { NavItem } from '@core/components/Sidebar';
 
@@ -25,7 +24,6 @@ function buildUserNav(company: string, app: string): NavItem[] {
 
     // ── Operate: daily transactional flow (orders → plan → schedule → receive) ──
     { label: 'Orders',              icon: React.createElement(ReceiptLongRoundedIcon),      to: `${base}/orders`,       end: false, permission: 'fab_erp_projects_view',   section: OPERATE },
-    { label: 'Project Task DAG',    icon: React.createElement(DeviceHubRoundedIcon),        to: `${base}/project-dag`,  end: false, permission: 'fab_erp_projectdag_view', section: OPERATE },
     { label: 'Task Queue',          icon: React.createElement(PlaylistPlayRoundedIcon),     to: `${base}/task-queue`,  end: false, permission: 'fab_erp_taskqueue_view', section: OPERATE },
     { label: 'Goods Receipt (GRN)', icon: React.createElement(LocalShippingRoundedIcon),    to: `${base}/grn`,          end: false, permission: 'fab_erp_grn_view',        section: OPERATE },
     { label: 'Item Batches',        icon: React.createElement(Inventory2RoundedIcon),       to: `${base}/item-batches`, end: false, permission: 'fab_erp_inventory_view',  section: OPERATE },

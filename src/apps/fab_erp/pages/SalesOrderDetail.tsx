@@ -19,6 +19,8 @@ import {
   Surface, DetailLayout, CrossLink, FactItem, StatusBadge, Mono, EmptyState, useToast,
 } from '../components';
 import { statusFamily } from '../statusMap';
+import OrderItemsTree from '../components/OrderItemsTree';
+import OrderTaskDag from '../components/OrderTaskDag';
 
 interface FabOrder {
   id: number; companyId: number; orderNumber: string; orderType: string; type: string; status: string;
@@ -166,6 +168,8 @@ export default function SalesOrderDetail() {
         tabs={[
           { value: 'overview', label: 'Overview' },
           { value: 'lines', label: 'Line items', count: items.length },
+          { value: 'items', label: 'Items / BOM' },
+          { value: 'dag', label: 'Task DAG' },
         ]}
         active={tab}
         onTab={setTab}
@@ -220,8 +224,12 @@ export default function SalesOrderDetail() {
               </Box>
             )}
           </Surface>
-        ) : (
+        ) : tab === 'lines' ? (
           <LineItemsTab soId={id} items={items} plants={plants} canManage={canManage} company={company!} onRefresh={fetchAll} toast={toast} setError={setError} />
+        ) : tab === 'items' ? (
+          <OrderItemsTree orderId={id} canManage={canManage} />
+        ) : (
+          <OrderTaskDag orderId={id} canManage={canManage} />
         )}
       </DetailLayout>
     </Box>
