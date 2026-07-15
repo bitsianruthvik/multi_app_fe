@@ -255,6 +255,7 @@ export interface FabOperationFlow {
   companyId: number;
   name: string;
   code: string;
+  description: string | null;
   active: number;
   createdAt: string;
   updatedAt: string;

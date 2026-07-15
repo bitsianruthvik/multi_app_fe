@@ -11,30 +11,41 @@
  * ShiftCalendars.tsx (master EntityList + selected-row detail panel with sub-tabs).
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Alert, Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle,
-  IconButton, MenuItem, Select, Switch, Tab, Table, TableBody, TableCell, TableHead, TableRow,
+  IconButton, List, ListItem, ListItemText, MenuItem, Select, Switch, Tab, Table, TableBody, TableCell, TableHead, TableRow,
   Tabs, TextField, Tooltip, Typography,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
+import DownloadIcon from '@mui/icons-material/Download';
 import EditRounded from '@mui/icons-material/EditRounded';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import BuildCircleRounded from '@mui/icons-material/BuildCircleRounded';
 import StarRounded from '@mui/icons-material/StarRounded';
 import StarBorderRounded from '@mui/icons-material/StarBorderRounded';
+import UploadFileIcon from '@mui/icons-material/UploadFile';
 
 import { fabQuery, fabMutate } from '../api/client';
 import type { FabOperation, FabOperationVariable, FabOperationResourceType, FabResourceType } from '../types';
 import { usePermission } from '@core/hooks/usePermission';
+import api, { API_HOST } from '@core/utils/axiosConfig';
 import {
-  Surface, PageHeader, Mono, EmptyState, ListSkeleton, useToast, EntityList, EntityRow, type SortableField,
+  Surface, PageHeader, Mono, StatusBadge, EmptyState, ListSkeleton, useToast, EntityList, EntityRow, type SortableField,
 } from '../components';
 import FormulaCodeEditor from '../components/FormulaCodeEditor';
 import { useFormulaVariables } from '../hooks/useFormulaVariables';
 
 interface QueryResult<T> { data: T[]; total?: number }
+
+interface ImportOperationsResult {
+  operationsCreated: number;
+  operationsSkipped: number;
+  mappingsCreated: number;
+  warnings: { row: number; message: string }[];
+}
 
 const th = { fontFamily: 'var(--font-ui)', fontWeight: 600, fontSize: 12, color: 'var(--c-text-2)', textTransform: 'uppercase', letterSpacing: '.05em', borderColor: 'var(--c-divider)' } as const;
 const td = { borderColor: 'var(--c-divider)', fontSize: 13, color: 'var(--c-text)' } as const;
@@ -516,6 +527,12 @@ export default function Operations() {
   const [delTarget, setDelTarget] = useState<FabOperation | null>(null);
   const [deleting, setDeleting] = useState(false);
 
+  const importFileRef = useRef<HTMLInputElement>(null);
+  const [exporting, setExporting] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState<ImportOperationsResult | null>(null);
+  const [importErr, setImportErr] = useState('');
+
   const fetchAll = useCallback(async (): Promise<FabOperation[]> => {
     setLoading(true); setError('');
     try {
@@ -532,6 +549,41 @@ export default function Operations() {
   }, []);
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
+
+  async function downloadOperationsTemplate() {
+    setExporting(true);
+    try {
+      const companySlug = localStorage.getItem('companySlug');
+      const res = await api.get(`${API_HOST}/api/${companySlug}/fab_erp/operations/export-template`, { responseType: 'blob' });
+      const url = URL.createObjectURL(res.data as Blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'Operations_Import_Template.xlsx'; a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setError(errMsg(e));
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  async function handleImportOperationsFile(file: File) {
+    setImporting(true); setImportErr(''); setImportResult(null);
+    try {
+      const companySlug = localStorage.getItem('companySlug');
+      const form = new FormData();
+      form.append('excel_file', file);
+      const res = await api.post<ImportOperationsResult>(
+        `${API_HOST}/api/${companySlug}/fab_erp/operations/import`, form,
+        { headers: { 'Content-Type': 'multipart/form-data' } },
+      );
+      setImportResult(res.data);
+      await fetchAll();
+    } catch (e) {
+      setImportErr(errMsg(e));
+    } finally {
+      setImporting(false);
+    }
+  }
 
   async function createOperation() {
     if (!newName.trim() || !newCode.trim()) { setCreateErr('Name and code are required.'); return; }
@@ -582,11 +634,38 @@ export default function Operations() {
     <Button variant="contained" startIcon={<AddIcon />} onClick={() => { setCreateErr(''); setCreating(true); }}>New operation</Button>
   ) : null;
 
+  const headerActions = canManage ? (
+    <Box sx={{ display: 'flex', gap: 1 }}>
+      <Button
+        variant="outlined" size="small" startIcon={exporting ? <CircularProgress size={14} color="inherit" /> : <DownloadIcon />}
+        onClick={downloadOperationsTemplate} disabled={exporting}
+      >
+        Export template
+      </Button>
+      <Button
+        variant="outlined" size="small" startIcon={importing ? <CircularProgress size={14} color="inherit" /> : <UploadFileIcon />}
+        onClick={() => importFileRef.current?.click()} disabled={importing}
+      >
+        Import
+      </Button>
+      <input
+        ref={importFileRef} type="file" accept=".xlsx" hidden
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) handleImportOperationsFile(file);
+          e.target.value = '';
+        }}
+      />
+      {newBtn}
+    </Box>
+  ) : null;
+
   return (
     <Box sx={{ maxWidth: 1200, mx: 'auto' }}>
-      <PageHeader title="Operations" subtitle="Manufacturing operations — time formula, default resource type, and formula variables used by routings" actions={newBtn} />
+      <PageHeader title="Operations" subtitle="Manufacturing operations — time formula, default resource type, and formula variables used by routings" actions={headerActions} />
 
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
+      {importErr && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setImportErr('')}>{importErr}</Alert>}
 
       {creating && (
         <Surface e={1} sx={{ p: 2, mb: 2, display: 'flex', flexDirection: 'column', gap: 1.5 }}>
@@ -652,6 +731,42 @@ export default function Operations() {
       )}
 
       <DeleteDialog open={!!delTarget} label={delTarget ? `${delTarget.code} — ${delTarget.name}` : ''} busy={deleting} onClose={() => setDelTarget(null)} onConfirm={handleDelete} />
+
+      <Dialog open={importResult !== null} onClose={() => setImportResult(null)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <CheckCircleIcon color="success" fontSize="small" />
+          Import Complete
+        </DialogTitle>
+        <DialogContent dividers>
+          {importResult && (
+            <>
+              <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mb: 2 }}>
+                <StatusBadge status={`${importResult.operationsCreated} operation(s) created`} family="success" />
+                <StatusBadge status={`${importResult.mappingsCreated} resource-type mapping(s) created`} family="success" />
+                {importResult.operationsSkipped > 0 && <StatusBadge status={`${importResult.operationsSkipped} operation(s) skipped`} family="warning" />}
+              </Box>
+              {importResult.warnings.length > 0 && (
+                <>
+                  <Typography variant="subtitle2" sx={{ mb: 0.5 }}>Warnings</Typography>
+                  <List dense disablePadding sx={{ maxHeight: 240, overflow: 'auto', bgcolor: 'background.default', borderRadius: 1 }}>
+                    {importResult.warnings.map((w, i) => (
+                      <ListItem key={i} sx={{ py: 0.25 }}>
+                        <ListItemText
+                          primaryTypographyProps={{ variant: 'caption' }}
+                          primary={`Row ${w.row}: ${w.message}`}
+                        />
+                      </ListItem>
+                    ))}
+                  </List>
+                </>
+              )}
+            </>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setImportResult(null)}>Close</Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }

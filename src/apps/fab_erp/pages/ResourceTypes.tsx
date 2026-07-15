@@ -1,24 +1,36 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Alert, Autocomplete, Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle,
-  Grid, IconButton, MenuItem, Stack, Tab, Table, TableBody, TableCell, TableHead, TableRow,
+  Grid, IconButton, List, ListItem, ListItemText, MenuItem, Stack, Tab, Table, TableBody, TableCell, TableHead, TableRow,
   Tabs, TextField, Tooltip, Typography,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import ClearIcon from '@mui/icons-material/Clear';
 import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
+import DownloadIcon from '@mui/icons-material/Download';
 import EditRounded from '@mui/icons-material/EditRounded';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import PrecisionManufacturingRounded from '@mui/icons-material/PrecisionManufacturingRounded';
+import UploadFileIcon from '@mui/icons-material/UploadFile';
 
 import { fabQuery, fabMutate } from '@apps/fab_erp/api/client';
 import type {
   FabOperation, FabOperationResourceType, FabPlant, FabResource, FabResourceCustomField, FabResourceType, FabResourceTypeProperty, FabStockLocation,
 } from '@apps/fab_erp/types';
 import { usePermission } from '@core/hooks/usePermission';
-import { PageHeader, Mono, EmptyState, ListSkeleton, useToast, EntityList, EntityRow, type SortableField } from '../components';
+import api, { API_HOST } from '@core/utils/axiosConfig';
+import { PageHeader, Mono, EmptyState, ListSkeleton, StatusBadge, useToast, EntityList, EntityRow, type SortableField } from '../components';
 
 interface QueryResult<T> { data: T[]; total?: number }
+
+interface ImportResourcesResult {
+  resourceTypesCreated: number;
+  resourceTypesSkipped: number;
+  resourcesCreated: number;
+  resourcesSkipped: number;
+  warnings: { row: number; message: string }[];
+}
 
 const th = { fontFamily: 'var(--font-ui)', fontWeight: 600, fontSize: 12, color: 'var(--c-text-2)', textTransform: 'uppercase', letterSpacing: '.05em', borderColor: 'var(--c-divider)' } as const;
 const td = { borderColor: 'var(--c-divider)', fontSize: 13, color: 'var(--c-text)' } as const;
@@ -958,6 +970,12 @@ export default function ResourceTypes() {
   const [resDelete, setResDelete] = useState<FabResource | null>(null);
   const [resDeleting, setResDeleting] = useState(false);
 
+  const importFileRef = useRef<HTMLInputElement>(null);
+  const [exporting, setExporting] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState<ImportResourcesResult | null>(null);
+  const [importErr, setImportErr] = useState('');
+
   const fetchAll = useCallback(async () => {
     setLoading(true); setError('');
     try {
@@ -977,6 +995,41 @@ export default function ResourceTypes() {
   useEffect(() => { fetchAll(); }, [fetchAll]);
 
   function onSaved() { fetchAll(); }
+
+  async function downloadResourcesTemplate() {
+    setExporting(true);
+    try {
+      const companySlug = localStorage.getItem('companySlug');
+      const res = await api.get(`${API_HOST}/api/${companySlug}/fab_erp/resources/export-template`, { responseType: 'blob' });
+      const url = URL.createObjectURL(res.data as Blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'Resource_Catalog_Import_Template.xlsx'; a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setError(errMsg(e));
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  async function handleImportResourcesFile(file: File) {
+    setImporting(true); setImportErr(''); setImportResult(null);
+    try {
+      const companySlug = localStorage.getItem('companySlug');
+      const form = new FormData();
+      form.append('excel_file', file);
+      const res = await api.post<ImportResourcesResult>(
+        `${API_HOST}/api/${companySlug}/fab_erp/resources/import`, form,
+        { headers: { 'Content-Type': 'multipart/form-data' } },
+      );
+      setImportResult(res.data);
+      await fetchAll();
+    } catch (e) {
+      setImportErr(errMsg(e));
+    } finally {
+      setImporting(false);
+    }
+  }
 
   const plantMap = new Map(plants.map((p) => [p.id, p]));
   const rtMap = new Map(resourceTypes.map((rt) => [rt.id, rt]));
@@ -1004,9 +1057,37 @@ export default function ResourceTypes() {
 
   return (
     <Box sx={{ maxWidth: 1300, mx: 'auto' }}>
-      <PageHeader title="Resource Catalog" subtitle="Resource types with capacity/scheduling/costing defaults · individual resources with overrides · custom fields" />
+      <PageHeader
+        title="Resource Catalog"
+        subtitle="Resource types with capacity/scheduling/costing defaults · individual resources with overrides · custom fields"
+        actions={canManage ? (
+          <Box sx={{ display: 'flex', gap: 1 }}>
+            <Button
+              variant="outlined" size="small" startIcon={exporting ? <CircularProgress size={14} color="inherit" /> : <DownloadIcon />}
+              onClick={downloadResourcesTemplate} disabled={exporting}
+            >
+              Export template
+            </Button>
+            <Button
+              variant="outlined" size="small" startIcon={importing ? <CircularProgress size={14} color="inherit" /> : <UploadFileIcon />}
+              onClick={() => importFileRef.current?.click()} disabled={importing}
+            >
+              Import
+            </Button>
+            <input
+              ref={importFileRef} type="file" accept=".xlsx" hidden
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) handleImportResourcesFile(file);
+                e.target.value = '';
+              }}
+            />
+          </Box>
+        ) : undefined}
+      />
 
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
+      {importErr && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setImportErr('')}>{importErr}</Alert>}
 
       <Stack direction="row" spacing={1} sx={{ mb: 2 }}>
         <Mono chip>{resourceTypes.length} resource types</Mono>
@@ -1122,6 +1203,43 @@ export default function ResourceTypes() {
       {rtDeleting && <CircularProgress size={20} sx={{ position: 'fixed', bottom: 24, right: 24 }} />}
       <DeleteDialog open={!!resDelete} label={resDelete ? `${resDelete.code} — ${resDelete.name}` : ''} onClose={() => setResDelete(null)} onConfirm={handleDeleteResource} />
       {resDeleting && <CircularProgress size={20} sx={{ position: 'fixed', bottom: 24, right: 24 }} />}
+
+      <Dialog open={importResult !== null} onClose={() => setImportResult(null)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <CheckCircleIcon color="success" fontSize="small" />
+          Import Complete
+        </DialogTitle>
+        <DialogContent dividers>
+          {importResult && (
+            <>
+              <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mb: 2 }}>
+                <StatusBadge status={`${importResult.resourceTypesCreated} resource type(s) created`} family="success" />
+                <StatusBadge status={`${importResult.resourcesCreated} resource(s) created`} family="success" />
+                {importResult.resourceTypesSkipped > 0 && <StatusBadge status={`${importResult.resourceTypesSkipped} resource type(s) skipped`} family="warning" />}
+                {importResult.resourcesSkipped > 0 && <StatusBadge status={`${importResult.resourcesSkipped} resource(s) skipped`} family="warning" />}
+              </Box>
+              {importResult.warnings.length > 0 && (
+                <>
+                  <Typography variant="subtitle2" sx={{ mb: 0.5 }}>Warnings</Typography>
+                  <List dense disablePadding sx={{ maxHeight: 240, overflow: 'auto', bgcolor: 'background.default', borderRadius: 1 }}>
+                    {importResult.warnings.map((w, i) => (
+                      <ListItem key={i} sx={{ py: 0.25 }}>
+                        <ListItemText
+                          primaryTypographyProps={{ variant: 'caption' }}
+                          primary={`Row ${w.row}: ${w.message}`}
+                        />
+                      </ListItem>
+                    ))}
+                  </List>
+                </>
+              )}
+            </>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setImportResult(null)}>Close</Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }

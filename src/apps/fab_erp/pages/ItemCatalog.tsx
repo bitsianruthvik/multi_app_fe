@@ -82,12 +82,16 @@ const ITEM_COLUMNS: SortableColumn<FabItemCatalog>[] = [
   { key: 'hsnCode',        label: 'HSN',          sx: { ...TH, width: 100 } },
 ];
 
-// Fixed pixel widths per column, used by the virtualized row/header below —
+// Default pixel widths per column, used by the virtualized row/header below —
 // row virtualization needs deterministic widths (unlike a normal flexible <table>).
-const ITEM_COL_WIDTH: Record<string, number> = {
+// User-adjusted widths (via the drag handle in each header cell) are persisted
+// to localStorage under COL_WIDTH_STORAGE_KEY and override these on load.
+const DEFAULT_ITEM_COL_WIDTH: Record<string, number> = {
   name: 220, code: 110, unit: 70, description: 220, categoryName: 130, groupName: 130,
   subgroupName: 130, hsnCode: 100,
 };
+const COL_WIDTH_STORAGE_KEY = 'fab_erp_item_catalog_col_widths';
+const MIN_COL_WIDTH = 60;
 const BATCHES_COL_WIDTH = 64;
 const ACTIONS_COL_WIDTH = 84;
 const ROW_HEIGHT = 38;
@@ -112,8 +116,9 @@ const INFO_ITEMS: InfoContent = [
       'Code is unique per company; it is auto-derived from the name but you can override it.',
       'Assign a Category / Group / Sub-group to keep items organised — you can create new taxonomy entries inline.',
       'Click any row to open the full detail view: BOM, stock levels, and custom metrics.',
-      'Export Template — downloads a fill-in Excel sheet with Category/Group/Sub-group columns plus a reference of existing taxonomy names.',
+      'Export Template — downloads a fill-in Excel sheet with dropdown-validated Category/Group/Sub-group columns plus a reference of existing taxonomy names.',
       'Import Items — upload the filled template; any Category/Group/Sub-group name that does not exist yet is created automatically, preserving the parent relationship from the row.',
+      'After import, download the import log — an Excel sheet listing every row, whether it was created or skipped, and why.',
     ],
   },
 ];
@@ -206,6 +211,19 @@ interface ImportItemsResult {
   groupsCreated: number;
   subgroupsCreated: number;
   warnings: { row: number; message: string }[];
+  reportBase64?: string;
+}
+
+// Convert a base64 .xlsx payload into a downloaded file
+function downloadBase64Xlsx(base64: string, filename: string) {
+  const bytes = atob(base64);
+  const arr = new Uint8Array(bytes.length);
+  for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
+  const blob = new Blob([arr], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename; a.click();
+  URL.revokeObjectURL(url);
 }
 
 interface InheritedField {
@@ -1613,6 +1631,49 @@ export default function ItemCatalog() {
   const [filterGroupId,    setFilterGroupId]    = useState<number | ''>('');
   const [filterSubgroupId, setFilterSubgroupId] = useState<number | ''>('');
 
+  // Per-column text filters shown in a filter row under the table header
+  const [colFilters, setColFilters] = useState<Record<string, string>>({});
+
+  // Drag-to-resize column widths, persisted per browser
+  const [colWidths, setColWidths] = useState<Record<string, number>>(() => {
+    try {
+      const saved = localStorage.getItem(COL_WIDTH_STORAGE_KEY);
+      if (saved) return { ...DEFAULT_ITEM_COL_WIDTH, ...JSON.parse(saved) };
+    } catch { /* ignore malformed storage */ }
+    return { ...DEFAULT_ITEM_COL_WIDTH };
+  });
+  const resizingRef = useRef<{ key: string; startX: number; startWidth: number } | null>(null);
+
+  const handleResizeMove = useCallback((e: MouseEvent) => {
+    const r = resizingRef.current;
+    if (!r) return;
+    const next = Math.max(MIN_COL_WIDTH, r.startWidth + (e.clientX - r.startX));
+    setColWidths((w) => ({ ...w, [r.key]: next }));
+  }, []);
+
+  const handleResizeEnd = useCallback(() => {
+    resizingRef.current = null;
+    document.removeEventListener('mousemove', handleResizeMove);
+    document.removeEventListener('mouseup', handleResizeEnd);
+    setColWidths((w) => {
+      try { localStorage.setItem(COL_WIDTH_STORAGE_KEY, JSON.stringify(w)); } catch { /* ignore */ }
+      return w;
+    });
+  }, [handleResizeMove]);
+
+  const handleResizeStart = useCallback((key: string, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    resizingRef.current = { key, startX: e.clientX, startWidth: colWidths[key] };
+    document.addEventListener('mousemove', handleResizeMove);
+    document.addEventListener('mouseup', handleResizeEnd);
+  }, [colWidths, handleResizeMove, handleResizeEnd]);
+
+  useEffect(() => () => {
+    document.removeEventListener('mousemove', handleResizeMove);
+    document.removeEventListener('mouseup', handleResizeEnd);
+  }, [handleResizeMove, handleResizeEnd]);
+
   const fetchAll = useCallback(async () => {
     setLoading(true); setError('');
     try {
@@ -1643,11 +1704,17 @@ export default function ItemCatalog() {
     const matchSearch = !search
       || it.name.toLowerCase().includes(search.toLowerCase())
       || it.code.toLowerCase().includes(search.toLowerCase());
-    return matchSearch
+    const matchColFilters = ITEM_COLUMNS.every((col) => {
+      const needle = colFilters[col.key as string]?.trim().toLowerCase();
+      if (!needle) return true;
+      const raw = (it as unknown as Record<string, unknown>)[col.key as string];
+      return String(raw ?? '').toLowerCase().includes(needle);
+    });
+    return matchSearch && matchColFilters
       && (!filterCategoryId || it.categoryId === filterCategoryId)
       && (!filterGroupId    || it.groupId    === filterGroupId)
       && (!filterSubgroupId || it.subgroupId === filterSubgroupId);
-  }), [items, search, filterCategoryId, filterGroupId, filterSubgroupId]);
+  }), [items, search, colFilters, filterCategoryId, filterGroupId, filterSubgroupId]);
 
   const { sortedRows, sortKey, sortDirection, requestSort } = useSortableData(filtered, 'name');
 
@@ -1719,7 +1786,7 @@ export default function ItemCatalog() {
     entity: FabItemCategory | FabItemGroup | FabItemSubgroup,
   ) => setTaxonomyDetail({ level, entity });
 
-  const itemsTotalWidth = ITEM_COLUMNS.reduce((sum, col) => sum + ITEM_COL_WIDTH[col.key as string], 0)
+  const itemsTotalWidth = ITEM_COLUMNS.reduce((sum, col) => sum + colWidths[col.key as string], 0)
     + BATCHES_COL_WIDTH + (canManage ? ACTIONS_COL_WIDTH : 0);
 
   const renderItemRow = useCallback(({ index, style }: ListChildComponentProps) => {
@@ -1733,14 +1800,14 @@ export default function ItemCatalog() {
         }}
         onClick={() => navigate(`/${company}/fab_erp/item-catalog/${it.id}`)}
       >
-        <Box sx={{ ...TD, width: ITEM_COL_WIDTH.name, minWidth: ITEM_COL_WIDTH.name, flex: '0 0 auto', boxSizing: 'border-box', px: 2, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{it.name}</Box>
-        <Box sx={{ ...TD, width: ITEM_COL_WIDTH.code, minWidth: ITEM_COL_WIDTH.code, flex: '0 0 auto', boxSizing: 'border-box', px: 2 }}><Mono chip>{it.code}</Mono></Box>
-        <Box sx={{ ...TD, width: ITEM_COL_WIDTH.unit, minWidth: ITEM_COL_WIDTH.unit, flex: '0 0 auto', boxSizing: 'border-box', px: 2 }}>{it.unit ?? 'pcs'}</Box>
-        <Box sx={{ ...TD, width: ITEM_COL_WIDTH.description, minWidth: ITEM_COL_WIDTH.description, flex: '0 0 auto', boxSizing: 'border-box', px: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--c-text-2)' }}>{it.description ?? '—'}</Box>
-        <Box sx={{ ...TD, width: ITEM_COL_WIDTH.categoryName, minWidth: ITEM_COL_WIDTH.categoryName, flex: '0 0 auto', boxSizing: 'border-box', px: 2 }}>{it.categoryName ?? '—'}</Box>
-        <Box sx={{ ...TD, width: ITEM_COL_WIDTH.groupName, minWidth: ITEM_COL_WIDTH.groupName, flex: '0 0 auto', boxSizing: 'border-box', px: 2 }}>{it.groupName ?? '—'}</Box>
-        <Box sx={{ ...TD, width: ITEM_COL_WIDTH.subgroupName, minWidth: ITEM_COL_WIDTH.subgroupName, flex: '0 0 auto', boxSizing: 'border-box', px: 2 }}>{it.subgroupName ?? '—'}</Box>
-        <Box sx={{ ...TD, width: ITEM_COL_WIDTH.hsnCode, minWidth: ITEM_COL_WIDTH.hsnCode, flex: '0 0 auto', boxSizing: 'border-box', px: 2 }}>{it.hsnCode ?? '—'}</Box>
+        <Box sx={{ ...TD, width: colWidths.name, minWidth: colWidths.name, flex: '0 0 auto', boxSizing: 'border-box', px: 2, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{it.name}</Box>
+        <Box sx={{ ...TD, width: colWidths.code, minWidth: colWidths.code, flex: '0 0 auto', boxSizing: 'border-box', px: 2 }}><Mono chip>{it.code}</Mono></Box>
+        <Box sx={{ ...TD, width: colWidths.unit, minWidth: colWidths.unit, flex: '0 0 auto', boxSizing: 'border-box', px: 2 }}>{it.unit ?? 'pcs'}</Box>
+        <Box sx={{ ...TD, width: colWidths.description, minWidth: colWidths.description, flex: '0 0 auto', boxSizing: 'border-box', px: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--c-text-2)' }}>{it.description ?? '—'}</Box>
+        <Box sx={{ ...TD, width: colWidths.categoryName, minWidth: colWidths.categoryName, flex: '0 0 auto', boxSizing: 'border-box', px: 2 }}>{it.categoryName ?? '—'}</Box>
+        <Box sx={{ ...TD, width: colWidths.groupName, minWidth: colWidths.groupName, flex: '0 0 auto', boxSizing: 'border-box', px: 2 }}>{it.groupName ?? '—'}</Box>
+        <Box sx={{ ...TD, width: colWidths.subgroupName, minWidth: colWidths.subgroupName, flex: '0 0 auto', boxSizing: 'border-box', px: 2 }}>{it.subgroupName ?? '—'}</Box>
+        <Box sx={{ ...TD, width: colWidths.hsnCode, minWidth: colWidths.hsnCode, flex: '0 0 auto', boxSizing: 'border-box', px: 2 }}>{it.hsnCode ?? '—'}</Box>
         <Box sx={{ width: BATCHES_COL_WIDTH, minWidth: BATCHES_COL_WIDTH, flex: '0 0 auto', boxSizing: 'border-box', display: 'flex', justifyContent: 'center' }}>
           <Tooltip title="View batches">
             <IconButton size="small" onClick={(e) => { e.stopPropagation(); navigate(`/${company}/fab_erp/item-batches?itemId=${it.id}`); }}>
@@ -1764,7 +1831,7 @@ export default function ItemCatalog() {
         )}
       </Box>
     );
-  }, [sortedRows, canManage, navigate, company]);
+  }, [sortedRows, canManage, navigate, company, colWidths]);
 
   return (
     <Box>
@@ -1861,20 +1928,46 @@ export default function ItemCatalog() {
           ) : (
             <Surface e={1} sx={{ overflowX: 'auto', p: 0 }}>
               <Box sx={{ width: itemsTotalWidth, minWidth: itemsTotalWidth }}>
-                {/* Header — fixed pixel widths so it stays aligned with the virtualized rows below */}
+                {/* Header — widths come from colWidths so drag-resize stays aligned with the virtualized rows below */}
                 <Box sx={{ display: 'flex', borderBottom: '1px solid var(--c-divider)', bgcolor: 'var(--c-surface-2)' }}>
                   {ITEM_COLUMNS.map((col) => (
                     <Box key={String(col.key)} sx={{
-                      ...col.sx, width: ITEM_COL_WIDTH[col.key as string], minWidth: ITEM_COL_WIDTH[col.key as string],
-                      flex: '0 0 auto', boxSizing: 'border-box', display: 'flex', alignItems: 'center',
+                      ...col.sx, width: colWidths[col.key as string], minWidth: colWidths[col.key as string],
+                      flex: '0 0 auto', boxSizing: 'border-box', display: 'flex', alignItems: 'center', position: 'relative',
                       justifyContent: col.align === 'right' ? 'flex-end' : 'flex-start', px: 2, py: 1,
                     }}>
                       <TableSortLabel active={sortKey === col.key} direction={sortDirection} onClick={() => requestSort(col.key)}>
                         {col.label}
                       </TableSortLabel>
+                      <Box
+                        onMouseDown={(e) => handleResizeStart(col.key as string, e)}
+                        sx={{
+                          position: 'absolute', right: -3, top: 0, bottom: 0, width: 6, cursor: 'col-resize',
+                          zIndex: 1, '&:hover': { bgcolor: 'primary.main', opacity: 0.5 },
+                        }}
+                      />
                     </Box>
                   ))}
                   <Box sx={{ ...TH, width: BATCHES_COL_WIDTH, minWidth: BATCHES_COL_WIDTH, flex: '0 0 auto', boxSizing: 'border-box', display: 'flex', alignItems: 'center', justifyContent: 'center', px: 1, py: 1 }}>Batches</Box>
+                  {canManage && <Box sx={{ width: ACTIONS_COL_WIDTH, minWidth: ACTIONS_COL_WIDTH, flex: '0 0 auto' }} />}
+                </Box>
+
+                {/* Filter row — one text filter per column, ANDed with the search box and taxonomy filters above */}
+                <Box sx={{ display: 'flex', borderBottom: '1px solid var(--c-divider)', bgcolor: 'var(--c-surface-1)', alignItems: 'center' }}>
+                  {ITEM_COLUMNS.map((col) => (
+                    <Box key={String(col.key)} sx={{
+                      width: colWidths[col.key as string], minWidth: colWidths[col.key as string],
+                      flex: '0 0 auto', boxSizing: 'border-box', px: 1, py: 0.5,
+                    }}>
+                      <TextField
+                        placeholder="Filter…" value={colFilters[col.key as string] ?? ''} size="small" fullWidth
+                        variant="standard"
+                        onChange={(e) => setColFilters((f) => ({ ...f, [col.key as string]: e.target.value }))}
+                        slotProps={{ input: { sx: { fontSize: 12 } } }}
+                      />
+                    </Box>
+                  ))}
+                  <Box sx={{ width: BATCHES_COL_WIDTH, minWidth: BATCHES_COL_WIDTH, flex: '0 0 auto' }} />
                   {canManage && <Box sx={{ width: ACTIONS_COL_WIDTH, minWidth: ACTIONS_COL_WIDTH, flex: '0 0 auto' }} />}
                 </Box>
 
@@ -2011,6 +2104,14 @@ export default function ItemCatalog() {
           )}
         </DialogContent>
         <DialogActions>
+          {importResult?.reportBase64 && (
+            <Button
+              startIcon={<DownloadIcon />}
+              onClick={() => downloadBase64Xlsx(importResult.reportBase64!, 'Item_Import_Log.xlsx')}
+            >
+              Download import log
+            </Button>
+          )}
           <Button onClick={() => setImportResult(null)}>Close</Button>
         </DialogActions>
       </Dialog>
