@@ -11,7 +11,7 @@ import EditRounded from '@mui/icons-material/EditRounded';
 
 import { fabQuery, fabMutate } from '../api/client';
 import api, { API_HOST } from '@core/utils/axiosConfig';
-import type { FabCustomField, FabItemCatalog, FabPlant, FabStockLocation, FabSupplier } from '../types';
+import type { FabCustomField, FabGrn, FabItemCatalog, FabPlant, FabStockLocation, FabSupplier } from '../types';
 import { usePermission } from '@core/hooks/usePermission';
 import { Surface, PageHeader, Mono, EmptyState, useToast, EntityList, EntityRow } from '../components';
 
@@ -195,6 +195,26 @@ export default function GrnEntry() {
   const [supDlg, setSupDlg] = useState<{ open: boolean; item: FabSupplier | null }>({ open: false, item: null });
   const [supDelete, setSupDelete] = useState<FabSupplier | null>(null);
 
+  // ── GRN history tab ──
+  const [grns, setGrns] = useState<FabGrn[]>([]);
+  const [grnsLoading, setGrnsLoading] = useState(false);
+  const [locById, setLocById] = useState<Map<number, FabStockLocation>>(new Map());
+
+  const fetchGrns = useCallback(async () => {
+    setGrnsLoading(true);
+    try {
+      const [g, locs] = await Promise.all([
+        fabQuery<QueryResult<FabGrn>>('fabErpGrn', { orderBy: [{ field: 'grnDate', direction: 'desc' }, { field: 'id', direction: 'desc' }], pagination: { limit: 500 } }),
+        fabQuery<QueryResult<FabStockLocation>>('fabErpStockLocation', { pagination: { limit: 1000 } }),
+      ]);
+      setGrns(g.data ?? []);
+      setLocById(new Map((locs.data ?? []).map((l) => [l.id, l])));
+    } catch (e) { setFormError((e as Error).message); }
+    finally { setGrnsLoading(false); }
+  }, []);
+
+  useEffect(() => { if (tab === 2) fetchGrns(); }, [tab, fetchGrns]);
+
   const fetchSuppliers = useCallback(async () => {
     const res = await fabQuery<QueryResult<FabSupplier>>('fabErpSupplier', { orderBy: [{ field: 'name', direction: 'asc' }], pagination: { limit: 1000 } });
     setSuppliers(res.data ?? []);
@@ -364,6 +384,7 @@ export default function GrnEntry() {
         <Tabs value={tab} onChange={(_, v) => setTab(v)}>
           <Tab label="New GRN" />
           <Tab label="Suppliers" />
+          <Tab label="History" />
         </Tabs>
       </Box>
 
@@ -605,6 +626,50 @@ export default function GrnEntry() {
                 />
               ))}
             </EntityList>
+          )}
+        </Box>
+      )}
+
+      {tab === 2 && (
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          {grnsLoading ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}><CircularProgress size={28} /></Box>
+          ) : grns.length === 0 ? (
+            <EmptyState title="No GRNs posted yet" />
+          ) : (
+            <Surface e={1} sx={{ p: 0, overflow: 'auto' }}>
+              <Table size="small">
+                <TableHead>
+                  <TableRow sx={{ background: 'var(--c-surface-2)' }}>
+                    <TableCell>GRN #</TableCell>
+                    <TableCell>Date</TableCell>
+                    <TableCell>Plant</TableCell>
+                    <TableCell>Location</TableCell>
+                    <TableCell>Supplier</TableCell>
+                    <TableCell>Status</TableCell>
+                    <TableCell align="right">Details</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {grns.map((g) => {
+                    const plant = plants.find((p) => p.id === g.plantId);
+                    const loc = locById.get(g.stockLocationId);
+                    const sup = suppliers.find((s) => s.id === g.supplierId);
+                    return (
+                      <TableRow key={g.id} hover>
+                        <TableCell><Mono>{g.grnNumber}</Mono></TableCell>
+                        <TableCell>{g.grnDate}</TableCell>
+                        <TableCell>{plant ? `${plant.code} — ${plant.name}` : g.plantId}</TableCell>
+                        <TableCell>{loc ? loc.name : (g.stockLocationName ?? g.stockLocationId)}</TableCell>
+                        <TableCell>{sup ? sup.name : (g.supplierName ?? '—')}</TableCell>
+                        <TableCell>{g.status}</TableCell>
+                        <TableCell align="right"><Link href={`/${company}/fab_erp/grn-detail?grnId=${g.id}`}>View</Link></TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </Surface>
           )}
         </Box>
       )}
