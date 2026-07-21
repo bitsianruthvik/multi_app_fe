@@ -19,13 +19,16 @@
  * startedAt, pausedAt, completedAt, createdAt, updatedAt}] }.
  *
  * Lifecycle actions (also verified against routes/tasks.js):
- *   POST /tasks/:id/start  body { delay_reason }  — legal from eligible|paused
+ *   POST /tasks/:id/start  no reason required (EU-2/EU-3) — legal from eligible|paused
  *   POST /tasks/:id/pause  no body                — legal from in_progress
  *   POST /tasks/:id/stop   no body                — legal from in_progress
  * All three are called via fabPost, and the queue-summary is refetched after
  * any of them succeeds so the card list reflects the new state (a task that
  * moves to 'done' via stop simply disappears, since queue-summary only
  * returns eligible/in_progress/paused rows).
+ *
+ * EU-5: each row can be expanded to lazy-fetch GET /tasks/:id/wait-breakdown
+ * (only on first expand, then cached) and render it via <WaitBreakdownBar>.
  */
 
 import { useCallback, useEffect, useState } from 'react';
@@ -40,16 +43,15 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
-  FormControl,
-  FormControlLabel,
-  Radio,
-  RadioGroup,
   TextField,
   Typography,
 } from '@mui/material';
+import ExpandMoreRounded from '@mui/icons-material/ExpandMoreRounded';
+import ChevronRightRounded from '@mui/icons-material/ChevronRightRounded';
 
-import { fabQuery, fabGet, fabPost } from '../api/client';
+import { fabQuery, fabGet, fabPost, getWaitBreakdown, type WaitBreakdownResponse } from '../api/client';
 import { PageHeader, StatusBadge, Surface, useToast } from '../components';
+import { WaitBreakdownBar, formatWaitMinutes } from '../components/WaitBreakdownBar';
 
 interface QueryResult<T> { data: T[]; total?: number }
 
@@ -101,20 +103,122 @@ interface QueueSummaryResponse {
   tasks: QueueTask[];
 }
 
-const DELAY_REASONS: { value: string; label: string }[] = [
-  { value: 'lack_of_manpower', label: 'Lack of manpower' },
-  { value: 'machine_down', label: 'Machine down' },
-  { value: 'lack_of_consumable', label: 'Lack of consumable' },
-  { value: 'planning_issue', label: 'Planning issue' },
-  { value: 'minor_operational_delay', label: 'Minor operational delay' },
-];
-
 function formatWaitDuration(minutes: number | null): string {
   if (minutes === null || minutes === undefined || Number.isNaN(minutes)) return 'waiting —';
   const total = Math.max(0, Math.round(minutes));
   const h = Math.floor(total / 60);
   const m = total % 60;
   return `waiting ${h}h ${m}m (working hours)`;
+}
+
+function errMsg(e: unknown, fallback: string): string {
+  const ax = e as { response?: { data?: { message?: string } }; message?: string };
+  return ax.response?.data?.message ?? ax.message ?? fallback;
+}
+
+/**
+ * One task card. Wait-breakdown is fetched lazily on first expand and then
+ * cached locally (mirrors OrderRow's lazy-graph-fetch pattern in TaskEngine.tsx)
+ * so switching machines doesn't fire a wait-breakdown call per row up front.
+ */
+function TaskRow({
+  task,
+  busy,
+  onStart,
+  onAction,
+}: {
+  task: QueueTask;
+  busy: boolean;
+  onStart: (task: QueueTask) => void;
+  onAction: (task: QueueTask, action: 'pause' | 'stop') => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const [breakdown, setBreakdown] = useState<WaitBreakdownResponse | null>(null);
+  const [loadingBreakdown, setLoadingBreakdown] = useState(false);
+  const [breakdownErr, setBreakdownErr] = useState('');
+
+  const fetchBreakdown = useCallback(async () => {
+    setLoadingBreakdown(true);
+    setBreakdownErr('');
+    try {
+      const res = await getWaitBreakdown(task.id);
+      setBreakdown(res);
+    } catch (e) {
+      setBreakdownErr(errMsg(e, 'Failed to load wait breakdown.'));
+    } finally {
+      setLoadingBreakdown(false);
+    }
+  }, [task.id]);
+
+  useEffect(() => {
+    if (expanded && !breakdown && !loadingBreakdown) fetchBreakdown();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expanded]);
+
+  const startEnabled = task.status === 'eligible' || task.status === 'paused';
+  const pauseEnabled = task.status === 'in_progress';
+  const stopEnabled = task.status === 'in_progress';
+
+  return (
+    <Surface e={1} sx={{ overflow: 'hidden' }}>
+      <Box sx={{ p: 2, display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
+        <Box
+          onClick={() => setExpanded((v) => !v)}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpanded((v) => !v); }
+          }}
+          sx={{ flex: 1, minWidth: 240, display: 'flex', gap: 1, cursor: 'pointer' }}
+        >
+          {expanded ? <ExpandMoreRounded sx={{ color: 'var(--c-text-3)', mt: 0.25 }} /> : <ChevronRightRounded sx={{ color: 'var(--c-text-3)', mt: 0.25 }} />}
+          <Box sx={{ minWidth: 0, flex: 1 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+              <Typography sx={{ fontSize: 15, fontWeight: 600, color: 'var(--c-text)' }}>
+                {task.operationName ?? `Operation #${task.operationId ?? '?'}`}
+              </Typography>
+              <StatusBadge status={task.status} />
+            </Box>
+            <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)', mt: 0.25 }}>
+              {(task.projectName ?? `Project #${task.projectId}`)} · Item #{task.itemId} · seq {task.seqNo}
+            </Typography>
+            <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)', mt: 0.25 }}>
+              {formatWaitDuration(task.waitWorkingMinutes)}
+            </Typography>
+          </Box>
+        </Box>
+
+        <Box sx={{ display: 'flex', gap: 1 }}>
+          <Button size="small" variant="outlined" disabled={!startEnabled || busy} onClick={() => onStart(task)}>
+            Start
+          </Button>
+          <Button size="small" variant="outlined" disabled={!pauseEnabled || busy} onClick={() => onAction(task, 'pause')}>
+            Pause
+          </Button>
+          <Button size="small" variant="outlined" color="error" disabled={!stopEnabled || busy} onClick={() => onAction(task, 'stop')}>
+            Stop
+          </Button>
+        </Box>
+      </Box>
+
+      {expanded && (
+        <Box sx={{ px: 2, pb: 2, pt: 0.5, borderTop: '1px solid var(--c-divider)' }}>
+          {loadingBreakdown ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', p: 2 }}><CircularProgress size={18} /></Box>
+          ) : breakdownErr ? (
+            <Typography sx={{ fontSize: 12, color: 'var(--c-danger-600)', mt: 1.5 }}>{breakdownErr}</Typography>
+          ) : breakdown ? (
+            <Box sx={{ mt: 1.5 }}>
+              <Typography sx={{ fontSize: 12.5, fontWeight: 500, color: 'var(--c-text-2)', mb: 0.75 }}>
+                Waited {formatWaitMinutes(breakdown.totalWaitMinutes)}
+              </Typography>
+              <WaitBreakdownBar totals={breakdown.totals} showLegend />
+            </Box>
+          ) : null}
+        </Box>
+      )}
+    </Surface>
+  );
 }
 
 export default function TaskQueue() {
@@ -129,7 +233,6 @@ export default function TaskQueue() {
   const [summary, setSummary] = useState<QueueSummaryResponse | null>(null);
 
   const [startTask, setStartTask] = useState<QueueTask | null>(null);
-  const [delayReason, setDelayReason] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [actioningId, setActioningId] = useState<number | null>(null);
 
@@ -186,19 +289,17 @@ export default function TaskQueue() {
 
   const openStartDialog = (task: QueueTask) => {
     setStartTask(task);
-    setDelayReason('');
   };
 
   const closeStartDialog = () => {
     setStartTask(null);
-    setDelayReason('');
   };
 
   const confirmStart = async () => {
-    if (!startTask || !delayReason) return;
+    if (!startTask) return;
     setSubmitting(true);
     try {
-      await fabPost(`tasks/${startTask.id}/start`, { delay_reason: delayReason });
+      await fabPost(`tasks/${startTask.id}/start`, {});
       toast('Task started.', 'success');
       closeStartDialog();
       refetchQueue();
@@ -295,79 +396,28 @@ export default function TaskQueue() {
 
       {resource && !loadingQueue && summary && summary.tasks.length > 0 && (
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
-          {summary.tasks.map((t) => {
-            const startEnabled = t.status === 'eligible' || t.status === 'paused';
-            const pauseEnabled = t.status === 'in_progress';
-            const stopEnabled = t.status === 'in_progress';
-            const busy = actioningId === t.id;
-
-            return (
-              <Surface key={t.id} e={1} sx={{ p: 2, display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
-                <Box sx={{ flex: 1, minWidth: 240 }}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
-                    <Typography sx={{ fontSize: 15, fontWeight: 600, color: 'var(--c-text)' }}>
-                      {t.operationName ?? `Operation #${t.operationId ?? '?'}`}
-                    </Typography>
-                    <StatusBadge status={t.status} />
-                  </Box>
-                  <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)', mt: 0.25 }}>
-                    {(t.projectName ?? `Project #${t.projectId}`)} · Item #{t.itemId} · seq {t.seqNo}
-                  </Typography>
-                  <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)', mt: 0.25 }}>
-                    {formatWaitDuration(t.waitWorkingMinutes)}
-                  </Typography>
-                </Box>
-
-                <Box sx={{ display: 'flex', gap: 1 }}>
-                  <Button
-                    size="small"
-                    variant="outlined"
-                    disabled={!startEnabled || busy}
-                    onClick={() => openStartDialog(t)}
-                  >
-                    Start
-                  </Button>
-                  <Button
-                    size="small"
-                    variant="outlined"
-                    disabled={!pauseEnabled || busy}
-                    onClick={() => runAction(t, 'pause')}
-                  >
-                    Pause
-                  </Button>
-                  <Button
-                    size="small"
-                    variant="outlined"
-                    color="error"
-                    disabled={!stopEnabled || busy}
-                    onClick={() => runAction(t, 'stop')}
-                  >
-                    Stop
-                  </Button>
-                </Box>
-              </Surface>
-            );
-          })}
+          {summary.tasks.map((t) => (
+            <TaskRow
+              key={t.id}
+              task={t}
+              busy={actioningId === t.id}
+              onStart={openStartDialog}
+              onAction={runAction}
+            />
+          ))}
         </Box>
       )}
 
       <Dialog open={!!startTask} onClose={submitting ? undefined : closeStartDialog} maxWidth="xs" fullWidth>
         <DialogTitle>Start task</DialogTitle>
         <DialogContent>
-          <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)', mb: 2 }}>
-            {startTask?.operationName ?? `Operation #${startTask?.operationId ?? '?'}`} — select a delay reason before starting.
+          <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>
+            Start {startTask?.operationName ?? `Operation #${startTask?.operationId ?? '?'}`} now?
           </Typography>
-          <FormControl>
-            <RadioGroup value={delayReason} onChange={(e) => setDelayReason(e.target.value)}>
-              {DELAY_REASONS.map((r) => (
-                <FormControlLabel key={r.value} value={r.value} control={<Radio size="small" />} label={r.label} />
-              ))}
-            </RadioGroup>
-          </FormControl>
         </DialogContent>
         <DialogActions>
           <Button onClick={closeStartDialog} disabled={submitting}>Cancel</Button>
-          <Button onClick={confirmStart} variant="contained" disabled={!delayReason || submitting}>
+          <Button onClick={confirmStart} variant="contained" disabled={submitting}>
             {submitting ? <CircularProgress size={18} /> : 'Start'}
           </Button>
         </DialogActions>

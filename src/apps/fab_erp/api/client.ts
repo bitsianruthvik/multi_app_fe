@@ -174,3 +174,41 @@ export async function fabMutate<T = unknown>(
 
   return res.data;
 }
+
+// ---------------------------------------------------------------------------
+// Task wait-breakdown (EU-5) — GET /tasks/:id/wait-breakdown
+// ---------------------------------------------------------------------------
+
+/** Wait-time reason enum, as returned by GET /tasks/:id/wait-breakdown. */
+export type WaitReason =
+  | 'waiting_predecessors'
+  | 'waiting_materials'
+  | 'no_shift'
+  | 'machine_down'
+  | 'no_operator'
+  | 'machine_busy'
+  | 'output_blocked'
+  | 'unexplained_idle';
+
+/** One contiguous wait segment within the breakdown. */
+export interface WaitBreakdownSegment {
+  reason: WaitReason;
+  segStart: string;
+  segEnd: string;
+  workingMinutes: number;
+}
+
+export interface WaitBreakdownResponse {
+  ok: boolean;
+  taskId: number;
+  /** Per-reason total working minutes. Reasons with no wait time are omitted. */
+  totals: Partial<Record<WaitReason, number>>;
+  totalWaitMinutes: number;
+  /** Ordered by segStart. */
+  segments: WaitBreakdownSegment[];
+}
+
+/** Fetch the per-reason wait-time breakdown for one task. */
+export async function getWaitBreakdown(taskId: number): Promise<WaitBreakdownResponse> {
+  return fabGet<WaitBreakdownResponse>(`tasks/${taskId}/wait-breakdown`);
+}

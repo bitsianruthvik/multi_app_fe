@@ -13,6 +13,7 @@ import CallSplitRounded           from '@mui/icons-material/CallSplitRounded';
 import ListAltRoundedIcon         from '@mui/icons-material/ListAltRounded';
 import PlaylistPlayRoundedIcon    from '@mui/icons-material/PlaylistPlayRounded';
 import AccountTreeRoundedIcon     from '@mui/icons-material/AccountTreeRounded';
+import BuildCircleRoundedIcon     from '@mui/icons-material/BuildCircleRounded';
 import type { NavItem } from '@core/components/Sidebar';
 
 function buildUserNav(company: string, app: string): NavItem[] {
@@ -27,6 +28,7 @@ function buildUserNav(company: string, app: string): NavItem[] {
     { label: 'Orders',              icon: React.createElement(ReceiptLongRoundedIcon),      to: `${base}/orders`,       end: false, permission: 'fab_erp_projects_view',   section: OPERATE },
     { label: 'Task Queue',          icon: React.createElement(PlaylistPlayRoundedIcon),     to: `${base}/task-queue`,  end: false, permission: 'fab_erp_taskqueue_view', section: OPERATE },
     { label: 'Task Engine',         icon: React.createElement(AccountTreeRoundedIcon),      to: `${base}/task-engine`, end: false, permission: 'fab_erp_taskengine_view', section: OPERATE },
+    { label: 'Machine Board',       icon: React.createElement(BuildCircleRoundedIcon),      to: `${base}/machine-board`, end: false, permission: 'fab_erp_machine_state_manage', section: OPERATE },
     { label: 'Goods Receipt (GRN)', icon: React.createElement(LocalShippingRoundedIcon),    to: `${base}/grn`,          end: false, permission: 'fab_erp_grn_view',        section: OPERATE },
     { label: 'Item Batches',        icon: React.createElement(Inventory2RoundedIcon),       to: `${base}/item-batches`, end: false, permission: 'fab_erp_inventory_view',  section: OPERATE },
 

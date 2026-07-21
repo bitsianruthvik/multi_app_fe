@@ -25,6 +25,7 @@ const OperationFlows     = lazy(() => import('./pages/OperationFlows'));
 const BomTemplates       = lazy(() => import('./pages/BomTemplates'));
 const TaskQueue          = lazy(() => import('./pages/TaskQueue'));
 const TaskEngine         = lazy(() => import('./pages/TaskEngine'));
+const MachineBoard       = lazy(() => import('./pages/MachineBoard'));
 
 export function getFabErpRoutes(
   ProtectedRoute: React.ComponentType<{ children: React.ReactNode }>,
@@ -62,5 +63,6 @@ export function getFabErpRoutes(
     { path: '/:company/fab_erp/bom-templates',               element: wrap(<BomTemplates />) },
     { path: '/:company/fab_erp/task-queue',                 element: wrap(<TaskQueue />) },
     { path: '/:company/fab_erp/task-engine',                element: wrap(<TaskEngine />) },
+    { path: '/:company/fab_erp/machine-board',               element: wrap(<MachineBoard />) },
   ];
 }
