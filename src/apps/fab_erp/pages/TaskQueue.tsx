@@ -13,7 +13,7 @@
  * called the same way ProjectDag.tsx calls GET /tasks/graph — via fabGet.
  * Response shape verified by reading multi_app_be/apps/fab_erp/routes/tasks.js
  * directly: { ok, counts: {eligible,in_progress,paused}, tasks: [{id,
- * operationId, operationName, projectId, projectName, itemId, seqNo, status,
+ * operationId, operationName, orderId, orderNumber, itemId, seqNo, status,
  * depsClearedAt, waitWorkingMinutes, blockedByOtherTasksMinutes,
  * idleWaitMinutes, delayReason, computedHours, assignedResourceId, queuedAt,
  * startedAt, pausedAt, completedAt, createdAt, updatedAt}] }.
@@ -29,6 +29,21 @@
  *
  * EU-5: each row can be expanded to lazy-fetch GET /tasks/:id/wait-breakdown
  * (only on first expand, then cached) and render it via <WaitBreakdownBar>.
+ *
+ * EU-11: each row also gets a "Log past work" (eligible/paused) or "Adjust
+ * times" (done) button opening <LogPastWorkDialog>, which backfills the
+ * task's start/pause/complete times via POST /tasks/:id/events/backfill
+ * (EU-10). Gated on the fab_erp_time_backfill permission tag, mirroring
+ * Operations.tsx's canManage pattern (usePermission called once at page
+ * level, never inside the row map) — admins bypass the tag on the backend,
+ * so the frontend check ORs in isAdminRole(user.role) too, otherwise an
+ * admin without the explicit tag would see no button for an action they're
+ * actually allowed to perform. NOTE: queue-summary's SQL only ever returns
+ * status IN ('eligible','in_progress','paused') (see routes/tasks.js), so
+ * "done" tasks never actually reach TaskRow today — the done-status branch
+ * below is dead code under the current backend but kept for forward
+ * compatibility (harmless, and cheap to keep in sync if a later ticket
+ * starts including recently-completed tasks in this response).
  */
 
 import { useCallback, useEffect, useState } from 'react';
@@ -48,10 +63,16 @@ import {
 } from '@mui/material';
 import ExpandMoreRounded from '@mui/icons-material/ExpandMoreRounded';
 import ChevronRightRounded from '@mui/icons-material/ChevronRightRounded';
+import WarningAmberRounded from '@mui/icons-material/WarningAmberRounded';
+
+import { useAuth } from '@core/contexts/AuthContext';
+import { usePermission } from '@core/hooks/usePermission';
+import { isAdminRole } from '@core/utils/roles';
 
 import { fabQuery, fabGet, fabPost, getWaitBreakdown, type WaitBreakdownResponse } from '../api/client';
 import { PageHeader, StatusBadge, Surface, useToast } from '../components';
 import { WaitBreakdownBar, formatWaitMinutes } from '../components/WaitBreakdownBar';
+import { LogPastWorkDialog, type LogPastWorkTask } from '../components/LogPastWorkDialog';
 
 interface QueryResult<T> { data: T[]; total?: number }
 
@@ -77,8 +98,8 @@ interface QueueTask {
   id: number;
   operationId: number | null;
   operationName: string | null;
-  projectId: number;
-  projectName: string | null;
+  orderId: number;
+  orderNumber: string | null;
   itemId: number;
   seqNo: number;
   status: TaskStatus;
@@ -117,6 +138,36 @@ function errMsg(e: unknown, fallback: string): string {
 }
 
 /**
+ * EU-15 "running Nx typical" nudge. Source of "typical" is the task's own
+ * computedHours field, already present on the queue-summary payload (see
+ * routes/tasks.js `t.computed_hours AS computedHours`) — no extra fetch
+ * needed. computedHours is the learned p80 duration (hours) when EU-15's
+ * materialization wiring found a usable stat for the task's operation/
+ * resource-type, else the formula-derived estimate, so this nudge is
+ * meaningful either way. Returns null unless the task is in_progress, has a
+ * positive computedHours, and has actually run past it.
+ */
+function computeRunningRatio(task: QueueTask, now: number): number | null {
+  if (task.status !== 'in_progress' || !task.startedAt) return null;
+  const hours = task.computedHours;
+  if (hours === null || hours === undefined || !(hours > 0)) return null;
+  const elapsedHours = (now - new Date(task.startedAt).getTime()) / 3_600_000;
+  if (elapsedHours <= hours) return null;
+  return elapsedHours / hours;
+}
+
+/** Narrow a QueueTask down to what LogPastWorkDialog needs. */
+function taskToLogPastWorkTask(task: QueueTask): LogPastWorkTask {
+  return {
+    id: task.id,
+    operationName: task.operationName,
+    operationId: task.operationId,
+    startedAt: task.startedAt,
+    completedAt: task.completedAt,
+  };
+}
+
+/**
  * One task card. Wait-breakdown is fetched lazily on first expand and then
  * cached locally (mirrors OrderRow's lazy-graph-fetch pattern in TaskEngine.tsx)
  * so switching machines doesn't fire a wait-breakdown call per row up front.
@@ -124,18 +175,32 @@ function errMsg(e: unknown, fallback: string): string {
 function TaskRow({
   task,
   busy,
+  canBackfill,
   onStart,
   onAction,
+  onLogPastWork,
 }: {
   task: QueueTask;
   busy: boolean;
+  canBackfill: boolean;
   onStart: (task: QueueTask) => void;
   onAction: (task: QueueTask, action: 'pause' | 'stop') => void;
+  onLogPastWork: (task: QueueTask, mode: 'log' | 'adjust') => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [breakdown, setBreakdown] = useState<WaitBreakdownResponse | null>(null);
   const [loadingBreakdown, setLoadingBreakdown] = useState(false);
   const [breakdownErr, setBreakdownErr] = useState('');
+
+  // Ticks once a minute so the "running Nx typical" nudge below stays live
+  // without needing a queue-summary refetch; only runs while in_progress.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (task.status !== 'in_progress') return;
+    const id = setInterval(() => setNow(Date.now()), 60_000);
+    return () => clearInterval(id);
+  }, [task.status]);
+  const runningRatio = computeRunningRatio(task, now);
 
   const fetchBreakdown = useCallback(async () => {
     setLoadingBreakdown(true);
@@ -158,6 +223,9 @@ function TaskRow({
   const startEnabled = task.status === 'eligible' || task.status === 'paused';
   const pauseEnabled = task.status === 'in_progress';
   const stopEnabled = task.status === 'in_progress';
+  // 'done' never actually reaches this row today (see header comment) — kept for forward compatibility.
+  const logPastWorkEnabled = task.status === 'eligible' || task.status === 'paused';
+  const adjustTimesEnabled = task.status === 'done';
 
   return (
     <Surface e={1} sx={{ overflow: 'hidden' }}>
@@ -178,9 +246,29 @@ function TaskRow({
                 {task.operationName ?? `Operation #${task.operationId ?? '?'}`}
               </Typography>
               <StatusBadge status={task.status} />
+              {runningRatio !== null && (
+                <Box
+                  component="span"
+                  sx={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    background: 'var(--c-warning-50)',
+                    color: 'var(--c-warning-800)',
+                    borderRadius: 'var(--r-sm)',
+                    padding: '3px 9px',
+                    fontSize: 12,
+                    fontWeight: 500,
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  <WarningAmberRounded sx={{ fontSize: 14 }} aria-hidden />
+                  running {runningRatio.toFixed(1)}× typical
+                </Box>
+              )}
             </Box>
             <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)', mt: 0.25 }}>
-              {(task.projectName ?? `Project #${task.projectId}`)} · Item #{task.itemId} · seq {task.seqNo}
+              {(task.orderNumber ?? `Order #${task.orderId}`)} · Item #{task.itemId} · seq {task.seqNo}
             </Typography>
             <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)', mt: 0.25 }}>
               {formatWaitDuration(task.waitWorkingMinutes)}
@@ -198,6 +286,16 @@ function TaskRow({
           <Button size="small" variant="outlined" color="error" disabled={!stopEnabled || busy} onClick={() => onAction(task, 'stop')}>
             Stop
           </Button>
+          {canBackfill && logPastWorkEnabled && (
+            <Button size="small" variant="text" disabled={busy} onClick={() => onLogPastWork(task, 'log')}>
+              Log past work
+            </Button>
+          )}
+          {canBackfill && adjustTimesEnabled && (
+            <Button size="small" variant="text" disabled={busy} onClick={() => onLogPastWork(task, 'adjust')}>
+              Adjust times
+            </Button>
+          )}
         </Box>
       </Box>
 
@@ -224,6 +322,13 @@ function TaskRow({
 export default function TaskQueue() {
   useParams<{ company: string }>();
   const { toast } = useToast();
+  const { user } = useAuth();
+  // Admins bypass the tag on the backend (see routes/tasks.js), so OR it in here too —
+  // otherwise an admin without the explicit grant would never see the button.
+  // (usePermission must be called unconditionally — react-hooks/rules-of-hooks —
+  // so it's combined with isAdminRole after, not short-circuited inside the ||.)
+  const hasBackfillTag = usePermission('fab_erp_time_backfill');
+  const canBackfill = isAdminRole(user?.role) || hasBackfillTag;
 
   const [resources, setResources] = useState<ResourceOption[]>([]);
   const [resource, setResource] = useState<ResourceOption | null>(null);
@@ -235,6 +340,9 @@ export default function TaskQueue() {
   const [startTask, setStartTask] = useState<QueueTask | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [actioningId, setActioningId] = useState<number | null>(null);
+
+  const [logPastWorkTask, setLogPastWorkTask] = useState<QueueTask | null>(null);
+  const [logPastWorkMode, setLogPastWorkMode] = useState<'log' | 'adjust'>('log');
 
   const fetchResources = useCallback(async () => {
     setLoadingResources(true);
@@ -293,6 +401,15 @@ export default function TaskQueue() {
 
   const closeStartDialog = () => {
     setStartTask(null);
+  };
+
+  const openLogPastWork = (task: QueueTask, mode: 'log' | 'adjust') => {
+    setLogPastWorkMode(mode);
+    setLogPastWorkTask(task);
+  };
+
+  const closeLogPastWork = () => {
+    setLogPastWorkTask(null);
   };
 
   const confirmStart = async () => {
@@ -401,8 +518,10 @@ export default function TaskQueue() {
               key={t.id}
               task={t}
               busy={actioningId === t.id}
+              canBackfill={canBackfill}
               onStart={openStartDialog}
               onAction={runAction}
+              onLogPastWork={openLogPastWork}
             />
           ))}
         </Box>
@@ -422,6 +541,14 @@ export default function TaskQueue() {
           </Button>
         </DialogActions>
       </Dialog>
+
+      <LogPastWorkDialog
+        open={!!logPastWorkTask}
+        task={logPastWorkTask ? taskToLogPastWorkTask(logPastWorkTask) : null}
+        mode={logPastWorkMode}
+        onClose={closeLogPastWork}
+        onSaved={refetchQueue}
+      />
     </Box>
   );
 }

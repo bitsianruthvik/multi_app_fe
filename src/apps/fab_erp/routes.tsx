@@ -26,6 +26,10 @@ const BomTemplates       = lazy(() => import('./pages/BomTemplates'));
 const TaskQueue          = lazy(() => import('./pages/TaskQueue'));
 const TaskEngine         = lazy(() => import('./pages/TaskEngine'));
 const MachineBoard       = lazy(() => import('./pages/MachineBoard'));
+const BufferConfig       = lazy(() => import('./pages/BufferConfig'));
+const MachineTimeline    = lazy(() => import('./pages/MachineTimeline'));
+const Reconciliation     = lazy(() => import('./pages/Reconciliation'));
+const ShopfloorAnalytics = lazy(() => import('./pages/ShopfloorAnalytics'));
 
 export function getFabErpRoutes(
   ProtectedRoute: React.ComponentType<{ children: React.ReactNode }>,
@@ -64,5 +68,9 @@ export function getFabErpRoutes(
     { path: '/:company/fab_erp/task-queue',                 element: wrap(<TaskQueue />) },
     { path: '/:company/fab_erp/task-engine',                element: wrap(<TaskEngine />) },
     { path: '/:company/fab_erp/machine-board',               element: wrap(<MachineBoard />) },
+    { path: '/:company/fab_erp/buffer-config',               element: wrap(<BufferConfig />) },
+    { path: '/:company/fab_erp/machine-timeline',            element: wrap(<MachineTimeline />) },
+    { path: '/:company/fab_erp/reconciliation',              element: wrap(<Reconciliation />) },
+    { path: '/:company/fab_erp/analytics',                   element: wrap(<ShopfloorAnalytics />) },
   ];
 }
