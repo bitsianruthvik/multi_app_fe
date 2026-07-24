@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   Alert, Autocomplete, Box, Button, CircularProgress, Dialog, DialogActions,
-  DialogContent, DialogTitle, IconButton, MenuItem, TextField, Tooltip, Typography,
+  DialogContent, DialogTitle, IconButton, LinearProgress, MenuItem, TextField, Tooltip, Typography,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
@@ -27,6 +27,7 @@ interface FabOrder {
   plantId?: number; plantName?: string;
   requiredDate?: string; confirmedDate?: string; scheduledShipDate?: string;
   priority?: string; mrpController?: string; notes?: string;
+  progressPct?: number;
   createdAt: string; updatedAt: string; deletedAt: string | null;
 }
 
@@ -74,6 +75,29 @@ function orderSummary(o: FabOrder): string {
   if (o.orderType === 'purchase' || o.orderType === 'subcontract')
     return o.supplierName || (o.supplierRef ? `Ref: ${o.supplierRef}` : 'No supplier');
   return ORDER_TYPE_CONFIG[o.orderType]?.label ?? o.orderType;
+}
+
+// FEAT-03: task-count production progress bar. Hidden until there's real
+// progress (draft/not-started orders stay clean); turns green at 100%.
+function OrderProgressBar({ pct, compact = false }: { pct?: number; compact?: boolean }) {
+  if (pct == null || pct <= 0) return null;
+  const v = Math.min(100, Math.max(0, Math.round(pct)));
+  return (
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mt: compact ? 0 : 0.75, minWidth: compact ? 92 : undefined }}>
+      <LinearProgress
+        variant="determinate"
+        value={v}
+        sx={{
+          flex: 1, height: 5, borderRadius: 3, minWidth: compact ? 52 : undefined,
+          bgcolor: 'var(--c-surface-3, rgba(120,120,140,0.18))',
+          '& .MuiLinearProgress-bar': { bgcolor: v >= 100 ? 'var(--c-success, #2e7d32)' : 'var(--c-accent, #6b5cff)' },
+        }}
+      />
+      <Typography sx={{ fontSize: 11, color: 'var(--c-text-3)', fontVariantNumeric: 'tabular-nums', minWidth: 26, textAlign: 'right' }}>
+        {v}%
+      </Typography>
+    </Box>
+  );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -425,6 +449,7 @@ export default function Orders() {
             </Typography>
             <StatusBadge status={o.status} family={statusFamily(o.status)} />
           </Box>
+          <OrderProgressBar pct={o.progressPct} />
           {o.requiredDate && (
             <Typography sx={{ fontSize: 11.5, color: 'var(--c-text-2)', mt: 0.75, fontFamily: 'var(--font-mono)' }}>
               due {o.requiredDate.slice(0, 10)}
@@ -468,7 +493,13 @@ export default function Orders() {
         <EmptyState
           icon={<ReceiptLongRounded />}
           title={`No ${typeFilter === 'all' ? '' : (ORDER_TYPE_CONFIG[typeFilter]?.label ?? typeFilter) + ' '}orders${search ? ' match your search' : ' yet'}`}
-          hint={search ? 'Try a different search or clear the filter.' : 'Create your first order to start the production flow.'}
+          // BUG-14: don't tell users to "create an order" when they lack the
+          // permission to (the action button is null for non-manage roles).
+          hint={search
+            ? 'Try a different search or clear the filter.'
+            : canManage
+              ? 'Create your first order to start the production flow.'
+              : 'No orders yet. You don’t have permission to create one — ask an administrator.'}
           action={newOrder ?? undefined}
         />
       ) : view === 'board' ? (
@@ -487,7 +518,12 @@ export default function Orders() {
                   {o.priority && <span>Priority: {o.priority}</span>}
                 </Box>
               }
-              trailing={<StatusBadge status={o.status} family={statusFamily(o.status)} />}
+              trailing={
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                  <OrderProgressBar pct={o.progressPct} compact />
+                  <StatusBadge status={o.status} family={statusFamily(o.status)} />
+                </Box>
+              }
               onClick={() => navigate(`/${company}/fab_erp/orders/${o.id}`)}
               actions={canManage ? (<>
                 {o.orderType === 'planned' && o.status === 'draft' && (

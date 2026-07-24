@@ -51,6 +51,7 @@ import { useParams } from 'react-router-dom';
 import {
   Alert,
   Autocomplete,
+  createFilterOptions,
   Box,
   Button,
   CircularProgress,
@@ -58,6 +59,8 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
+  FormControlLabel,
+  Switch,
   TextField,
   Typography,
 } from '@mui/material';
@@ -91,6 +94,12 @@ interface ResourceOption {
   plantName: string | null;
   resourceTypeName: string | null;
 }
+
+// BUG-16: filter the machine picker by typed text across code, name, plant and
+// resource type (not just the label), so typing "Cutter-1" narrows the list.
+const machineFilter = createFilterOptions<ResourceOption>({
+  stringify: (o) => `${o.code ?? ''} ${o.name} ${o.plantName ?? ''} ${o.resourceTypeName ?? ''}`,
+});
 
 type TaskStatus = 'blocked' | 'eligible' | 'in_progress' | 'paused' | 'done' | 'cancelled';
 
@@ -178,13 +187,15 @@ function TaskRow({
   canBackfill,
   onStart,
   onAction,
+  onComplete,
   onLogPastWork,
 }: {
   task: QueueTask;
   busy: boolean;
   canBackfill: boolean;
   onStart: (task: QueueTask) => void;
-  onAction: (task: QueueTask, action: 'pause' | 'stop') => void;
+  onAction: (task: QueueTask, action: 'pause') => void;
+  onComplete: (task: QueueTask) => void;
   onLogPastWork: (task: QueueTask, mode: 'log' | 'adjust') => void;
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -283,8 +294,8 @@ function TaskRow({
           <Button size="small" variant="outlined" disabled={!pauseEnabled || busy} onClick={() => onAction(task, 'pause')}>
             Pause
           </Button>
-          <Button size="small" variant="outlined" color="error" disabled={!stopEnabled || busy} onClick={() => onAction(task, 'stop')}>
-            Stop
+          <Button size="small" variant="outlined" color="success" disabled={!stopEnabled || busy} onClick={() => onComplete(task)}>
+            Complete
           </Button>
           {canBackfill && logPastWorkEnabled && (
             <Button size="small" variant="text" disabled={busy} onClick={() => onLogPastWork(task, 'log')}>
@@ -340,6 +351,12 @@ export default function TaskQueue() {
   const [startTask, setStartTask] = useState<QueueTask | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [actioningId, setActioningId] = useState<number | null>(null);
+
+  // FEAT-05: completion dialog (production-output capture) state.
+  const [completeTask, setCompleteTask] = useState<QueueTask | null>(null);
+  const [producedQty, setProducedQty] = useState('');
+  const [scrapQty, setScrapQty] = useState('0');
+  const [qcPassed, setQcPassed] = useState(true);
 
   const [logPastWorkTask, setLogPastWorkTask] = useState<QueueTask | null>(null);
   const [logPastWorkMode, setLogPastWorkMode] = useState<'log' | 'adjust'>('log');
@@ -416,7 +433,9 @@ export default function TaskQueue() {
     if (!startTask) return;
     setSubmitting(true);
     try {
-      await fabPost(`tasks/${startTask.id}/start`, {});
+      // BUG-09: tell the backend which machine is running this task so it's
+      // recorded on the task (capacity truth) and double-booking can be caught.
+      await fabPost(`tasks/${startTask.id}/start`, { resourceId: resource?.id });
       toast('Task started.', 'success');
       closeStartDialog();
       refetchQueue();
@@ -429,11 +448,11 @@ export default function TaskQueue() {
     }
   };
 
-  const runAction = async (task: QueueTask, action: 'pause' | 'stop') => {
+  const runAction = async (task: QueueTask, action: 'pause') => {
     setActioningId(task.id);
     try {
       await fabPost(`tasks/${task.id}/${action}`, {});
-      toast(action === 'pause' ? 'Task paused.' : 'Task stopped.', 'success');
+      toast('Task paused.', 'success');
       refetchQueue();
     } catch (e) {
       const ax = e as { response?: { data?: { message?: string } }; message?: string };
@@ -441,6 +460,47 @@ export default function TaskQueue() {
       toast(msg, 'error');
     } finally {
       setActioningId(null);
+    }
+  };
+
+  // FEAT-05: open the completion dialog, pre-filled to a clean full-yield pass
+  // (blank produced → backend uses the item's planned qty; scrap 0; QC pass).
+  const openCompleteDialog = (task: QueueTask) => {
+    setProducedQty('');
+    setScrapQty('0');
+    setQcPassed(true);
+    setCompleteTask(task);
+  };
+
+  const closeCompleteDialog = () => {
+    if (submitting) return;
+    setCompleteTask(null);
+  };
+
+  const producedInvalid = producedQty.trim() !== '' && (!Number.isFinite(Number(producedQty)) || Number(producedQty) < 0);
+  const scrapInvalid = scrapQty.trim() !== '' && (!Number.isFinite(Number(scrapQty)) || Number(scrapQty) < 0);
+
+  const confirmComplete = async () => {
+    if (!completeTask || producedInvalid || scrapInvalid) return;
+    setSubmitting(true);
+    try {
+      const payload: Record<string, unknown> = { qcResult: qcPassed ? 'pass' : 'fail' };
+      if (producedQty.trim() !== '') payload.producedQty = Number(producedQty);
+      if (scrapQty.trim() !== '') payload.scrapQty = Number(scrapQty);
+      const res = await fabPost<{ reworkTaskId: number | null }>(`tasks/${completeTask.id}/stop`, payload);
+      if (!qcPassed && res?.reworkTaskId) {
+        toast(`QC fail recorded — rework task #${res.reworkTaskId} queued.`, 'info');
+      } else {
+        toast('Task completed.', 'success');
+      }
+      setCompleteTask(null);
+      refetchQueue();
+    } catch (e) {
+      const ax = e as { response?: { data?: { message?: string } }; message?: string };
+      const msg = ax.response?.data?.message ?? ax.message ?? 'Failed to complete task.';
+      toast(msg, 'error');
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -456,6 +516,8 @@ export default function TaskQueue() {
           value={resource}
           loading={loadingResources}
           getOptionLabel={(o) => (o.code ? `${o.code} — ${o.name}` : o.name)}
+          filterOptions={machineFilter}
+          autoHighlight
           isOptionEqualToValue={(o, v) => o.id === v.id}
           sx={{ minWidth: 340 }}
           onChange={(_e, newVal) => setResource(newVal)}
@@ -521,6 +583,7 @@ export default function TaskQueue() {
               canBackfill={canBackfill}
               onStart={openStartDialog}
               onAction={runAction}
+              onComplete={openCompleteDialog}
               onLogPastWork={openLogPastWork}
             />
           ))}
@@ -538,6 +601,61 @@ export default function TaskQueue() {
           <Button onClick={closeStartDialog} disabled={submitting}>Cancel</Button>
           <Button onClick={confirmStart} variant="contained" disabled={submitting}>
             {submitting ? <CircularProgress size={18} /> : 'Start'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* FEAT-05: completion dialog — capture produced/scrap/QC. Pre-filled to a
+          clean full-yield pass so the common case is a single confirming click. */}
+      <Dialog open={!!completeTask} onClose={closeCompleteDialog} maxWidth="xs" fullWidth>
+        <DialogTitle>Complete task</DialogTitle>
+        <DialogContent>
+          <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)', mb: 2 }}>
+            {completeTask?.operationName ?? `Operation #${completeTask?.operationId ?? '?'}`} — record production output.
+          </Typography>
+          <TextField
+            label="Good quantity produced"
+            type="number"
+            fullWidth
+            size="small"
+            value={producedQty}
+            onChange={(e) => setProducedQty(e.target.value)}
+            error={producedInvalid}
+            helperText={producedInvalid ? 'Must be a number ≥ 0.' : 'Leave blank to use the item’s planned quantity.'}
+            inputProps={{ min: 0, step: 'any' }}
+            sx={{ mb: 2 }}
+          />
+          <TextField
+            label="Scrap / rejected quantity"
+            type="number"
+            fullWidth
+            size="small"
+            value={scrapQty}
+            onChange={(e) => setScrapQty(e.target.value)}
+            error={scrapInvalid}
+            helperText={scrapInvalid ? 'Must be a number ≥ 0.' : ' '}
+            inputProps={{ min: 0, step: 'any' }}
+            sx={{ mb: 1 }}
+          />
+          <FormControlLabel
+            control={<Switch checked={qcPassed} onChange={(e) => setQcPassed(e.target.checked)} color="success" />}
+            label={qcPassed ? 'QC passed' : 'QC failed'}
+          />
+          {!qcPassed && (
+            <Alert severity="warning" sx={{ mt: 1 }}>
+              A rework task will be queued for this operation. No finished stock is booked until the rework passes QC.
+            </Alert>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={closeCompleteDialog} disabled={submitting}>Cancel</Button>
+          <Button
+            onClick={confirmComplete}
+            variant="contained"
+            color={qcPassed ? 'success' : 'warning'}
+            disabled={submitting || producedInvalid || scrapInvalid}
+          >
+            {submitting ? <CircularProgress size={18} /> : qcPassed ? 'Complete' : 'Record QC fail'}
           </Button>
         </DialogActions>
       </Dialog>

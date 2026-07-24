@@ -7,7 +7,8 @@
 
 import { memo, useState } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
-import { Box, Chip, Divider, Popover, Typography } from '@mui/material';
+import { Box, Chip, Divider, Popover, Tooltip, Typography } from '@mui/material';
+import WarningAmberRounded from '@mui/icons-material/WarningAmberRounded';
 import { STATUS_COLOR, STATUS_LABEL, type OperationNodeData } from './types';
 import { OP_W, OP_H } from './graphLayout';
 
@@ -29,6 +30,9 @@ function OperationNode({ data }: NodeProps) {
 
   const opName = d.operationName ?? `Op #${d.operationId ?? '?'}`;
   const partName = d.itemName ?? `Item #${d.itemId}`;
+  // FEAT-09: no computed duration (operation has no time formula) → scheduling/ETA
+  // can't estimate this task. Flag it on the card and in the detail popover.
+  const missingDuration = d.computedHours === null || d.computedHours === undefined;
 
   return (
     <>
@@ -54,6 +58,11 @@ function OperationNode({ data }: NodeProps) {
           >
             {opName}
           </Typography>
+          {missingDuration && (
+            <Tooltip title="No duration — this operation has no time formula, so scheduling/ETA can’t estimate it.">
+              <WarningAmberRounded sx={{ fontSize: 15, color: 'var(--c-warning, #ed6c02)', flexShrink: 0, ml: 'auto' }} />
+            </Tooltip>
+          )}
         </Box>
 
         <Chip
@@ -92,7 +101,7 @@ function OperationNode({ data }: NodeProps) {
         <DetailRow label="Sequence" value={d.seqNo} />
         <DetailRow label="Resource type" value={d.resourceTypeName} />
         <DetailRow label="Assigned resource" value={d.assignedResourceId} />
-        <DetailRow label="Est. hours" value={d.computedHours} />
+        <DetailRow label="Est. hours" value={missingDuration ? '⚠ missing (no time formula)' : d.computedHours} />
         <DetailRow label="Wait (working min)" value={d.waitWorkingMinutes} />
         <DetailRow label="Blocked by others (min)" value={d.blockedByOtherTasksMinutes} />
         <DetailRow label="Idle wait (min)" value={d.idleWaitMinutes} />

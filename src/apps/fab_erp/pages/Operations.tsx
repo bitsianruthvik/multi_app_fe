@@ -28,7 +28,7 @@ import StarRounded from '@mui/icons-material/StarRounded';
 import StarBorderRounded from '@mui/icons-material/StarBorderRounded';
 import UploadFileIcon from '@mui/icons-material/UploadFile';
 
-import { fabQuery, fabMutate } from '../api/client';
+import { fabQuery, fabMutate, fabPost } from '../api/client';
 import type { FabOperation, FabOperationVariable, FabOperationResourceType, FabResourceType } from '../types';
 import { usePermission } from '@core/hooks/usePermission';
 import api, { API_HOST } from '@core/utils/axiosConfig';
@@ -586,11 +586,24 @@ export default function Operations() {
   }
 
   async function createOperation() {
-    if (!newName.trim() || !newCode.trim()) { setCreateErr('Name and code are required.'); return; }
+    // BUG-15: only the name is required — the code auto-generates (OP-####) like
+    // every other entity (customers, orders, items). A manual code is optional.
+    if (!newName.trim()) { setCreateErr('Name is required.'); return; }
     setCreateSaving(true); setCreateErr('');
+    let code = newCode.trim().toUpperCase();
+    if (!code) {
+      try {
+        const codeRes = await fabPost<{ code: string }>('codegen/next-code', { entityType: 'operation' });
+        code = codeRes.code.toUpperCase();
+      } catch {
+        setCreateErr('Failed to generate an operation code. Enter one manually or try again.');
+        setCreateSaving(false);
+        return;
+      }
+    }
     try {
       const res = await fabMutate<{ ok: boolean; id: number }>('fabErpOperation', 'insert', {
-        name: newName.trim(), code: newCode.trim(), default_resource_type_id: null,
+        name: newName.trim(), code, default_resource_type_id: null,
         time_formula: null, time_unit: 'min', active: 1,
       });
       setNewName(''); setNewCode(''); setCreating(false);
@@ -604,7 +617,7 @@ export default function Operations() {
         // Duplicate name/code — re-resolve the existing row instead of failing silently.
         try {
           const existing = await fabQuery<QueryResult<FabOperation>>('fabErpOperation', {
-            filters: { code: newCode.trim() }, pagination: { limit: 1 },
+            filters: { code }, pagination: { limit: 1 },
           });
           const match = existing.data?.[0];
           if (match) {
@@ -673,8 +686,11 @@ export default function Operations() {
           <Typography sx={{ fontSize: 13, fontWeight: 600, color: 'var(--c-text-2)' }}>New operation</Typography>
           <Box sx={{ display: 'flex', gap: 1.5 }}>
             <TextField label="Name" value={newName} size="small" sx={{ flex: 2 }} autoFocus onChange={(e) => setNewName(e.target.value)} />
-            <TextField label="Code" value={newCode} size="small" sx={{ flex: 1 }} onChange={(e) => setNewCode(e.target.value)} />
+            <TextField label="Code (optional)" placeholder="auto (OP-####)" value={newCode} size="small" sx={{ flex: 1 }} onChange={(e) => setNewCode(e.target.value)} />
           </Box>
+          <Typography sx={{ fontSize: 11.5, color: 'var(--c-text-3)' }}>
+            The default resource type and time formula are configured after creation, on the operation’s Details tab.
+          </Typography>
           <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1 }}>
             <Button size="small" onClick={() => { setCreating(false); setNewName(''); setNewCode(''); setCreateErr(''); }}>Cancel</Button>
             <Button size="small" variant="contained" onClick={createOperation} disabled={createSaving}>
@@ -687,7 +703,7 @@ export default function Operations() {
       {loading ? <ListSkeleton rows={5} /> : (
         <>
           <Alert severity="info" icon={<InfoOutlinedIcon fontSize="small" />} sx={{ mb: 2 }}>
-            Operations are the manufacturing steps used in routings (e.g. "Cut", "Weld", "Paint"). Each defines a time formula and the resource type it defaults to.
+            Operations are the manufacturing steps used in routings (e.g. "Cut", "Weld", "Paint"). Create one with just a name, then set its default resource type, time formula, and variables on the operation’s Details tab. A flow step using an operation with no time formula produces a zero-duration task.
           </Alert>
 
           {operations.length === 0 ? (

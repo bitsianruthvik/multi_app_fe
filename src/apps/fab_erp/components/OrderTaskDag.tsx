@@ -13,9 +13,14 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, Box, Button, CircularProgress, Typography } from '@mui/material';
+import {
+  Alert, Box, Button, Chip, CircularProgress, Dialog, DialogActions, DialogContent,
+  DialogTitle, Divider, Typography,
+} from '@mui/material';
 import RefreshRounded from '@mui/icons-material/RefreshRounded';
 import BuildCircleRounded from '@mui/icons-material/BuildCircleRounded';
+import AutorenewRounded from '@mui/icons-material/AutorenewRounded';
+import WarningAmberRounded from '@mui/icons-material/WarningAmberRounded';
 
 import { fabGet, fabPost } from '../api/client';
 import { Surface, useToast } from '../components';
@@ -29,6 +34,18 @@ interface GraphResponse {
   edges: TaskGraphEdge[];
 }
 
+// FEAT-07: re-materialization preview shape (mirrors rematerializeService).
+interface RematStep { taskId?: number; seqNo: number; operationName: string | null; status?: string; changes?: string[]; retained?: boolean }
+interface RematItem {
+  itemId: number; itemName: string; flowName: string | null;
+  added: RematStep[]; removed: RematStep[]; changed: RematStep[];
+}
+interface RematPreview {
+  ok: boolean;
+  summary: { itemsAffected: number; added: number; removed: number; changed: number; retainedStarted: number };
+  items: RematItem[];
+}
+
 export default function OrderTaskDag({ orderId, canManage }: { orderId: number; canManage?: boolean }) {
   const { toast } = useToast();
 
@@ -37,6 +54,11 @@ export default function OrderTaskDag({ orderId, canManage }: { orderId: number; 
   const [error, setError] = useState('');
   const [graph, setGraph] = useState<GraphResponse | null>(null);
   const [filter, setFilter] = useState<BomDrillPickerValue>({ itemId: null, scope: 'subtree' });
+
+  // FEAT-07: re-generate (preview → apply) state.
+  const [preview, setPreview] = useState<RematPreview | null>(null);
+  const [previewing, setPreviewing] = useState(false);
+  const [applying, setApplying] = useState(false);
 
   const fetchGraph = useCallback(async () => {
     setLoadingGraph(true);
@@ -78,6 +100,42 @@ export default function OrderTaskDag({ orderId, canManage }: { orderId: number; 
     }
   }
 
+  // FEAT-07: fetch the diff and open the confirmation dialog.
+  async function openRegenerate() {
+    setPreviewing(true);
+    setError('');
+    try {
+      const res = await fabPost<RematPreview>('tasks/rematerialize/preview', { orderId });
+      setPreview(res);
+    } catch (e) {
+      const ax = e as { response?: { data?: { message?: string } }; message?: string };
+      const msg = ax.response?.data?.message ?? ax.message ?? 'Failed to compute re-generation preview.';
+      setError(msg);
+      toast(msg, 'error');
+    } finally {
+      setPreviewing(false);
+    }
+  }
+
+  // FEAT-07: apply the re-generation, then refresh the graph.
+  async function applyRegenerate() {
+    setApplying(true);
+    try {
+      const res = await fabPost<{ deletedUnstarted: number; rebuilt: { tasksInserted: number } }>('tasks/rematerialize', { orderId });
+      toast(`Re-generated — ${res.rebuilt?.tasksInserted ?? 0} task(s) rebuilt, ${res.deletedUnstarted ?? 0} unstarted replaced.`, 'success');
+      setPreview(null);
+      await fetchGraph();
+    } catch (e) {
+      const ax = e as { response?: { data?: { message?: string } }; message?: string };
+      const msg = ax.response?.data?.message ?? ax.message ?? 'Failed to re-generate tasks.';
+      toast(msg, 'error');
+    } finally {
+      setApplying(false);
+    }
+  }
+
+  const hasChanges = !!preview && (preview.summary.added + preview.summary.removed + preview.summary.changed) > 0;
+
   return (
     <Box>
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
@@ -106,9 +164,80 @@ export default function OrderTaskDag({ orderId, canManage }: { orderId: number; 
                 Materialize tasks
               </Button>
             )}
+            {canManage !== false && (graph?.nodes.length ?? 0) > 0 && (
+              <Button
+                size="small"
+                variant="outlined"
+                startIcon={previewing ? <CircularProgress size={14} color="inherit" /> : <AutorenewRounded fontSize="small" />}
+                disabled={previewing || materializing}
+                onClick={openRegenerate}
+              >
+                Re-generate
+              </Button>
+            )}
           </Box>
         </Box>
       </Surface>
+
+      {/* FEAT-07: re-generation diff/preview + confirm. */}
+      <Dialog open={!!preview} onClose={applying ? undefined : () => setPreview(null)} maxWidth="sm" fullWidth>
+        <DialogTitle>Re-generate task DAG</DialogTitle>
+        <DialogContent dividers>
+          {!hasChanges ? (
+            <Typography sx={{ fontSize: 14, color: 'var(--c-text-2)' }}>
+              The task DAG already matches the current flow definitions — nothing to re-generate.
+            </Typography>
+          ) : (
+            <>
+              <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mb: 1.5 }}>
+                <Chip size="small" color="success" variant="outlined" label={`${preview!.summary.added} added`} />
+                <Chip size="small" color="error" variant="outlined" label={`${preview!.summary.removed} removed`} />
+                <Chip size="small" color="warning" variant="outlined" label={`${preview!.summary.changed} changed`} />
+              </Box>
+              {preview!.summary.retainedStarted > 0 && (
+                <Alert severity="info" icon={<WarningAmberRounded fontSize="inherit" />} sx={{ mb: 1.5 }}>
+                  {preview!.summary.retainedStarted} affected task(s) are already started or done — they’ll be
+                  kept as-is (their flow change won’t take effect until they’re re-run). Only unstarted tasks are rebuilt.
+                </Alert>
+              )}
+              {preview!.items.map((it) => (
+                <Box key={it.itemId} sx={{ mb: 1.5 }}>
+                  <Typography sx={{ fontSize: 13, fontWeight: 600, color: 'var(--c-text)' }}>
+                    {it.itemName}{it.flowName ? ` · ${it.flowName}` : ''}
+                  </Typography>
+                  <Divider sx={{ my: 0.5 }} />
+                  {it.added.map((s, i) => (
+                    <Typography key={`a${i}`} sx={{ fontSize: 12.5, color: 'var(--c-success, #2e7d32)' }}>
+                      + add · seq {s.seqNo} · {s.operationName ?? '—'}
+                    </Typography>
+                  ))}
+                  {it.removed.map((s, i) => (
+                    <Typography key={`r${i}`} sx={{ fontSize: 12.5, color: 'var(--c-danger, #d32f2f)' }}>
+                      − remove · seq {s.seqNo} · {s.operationName ?? '—'}{s.retained ? ' (started — kept)' : ''}
+                    </Typography>
+                  ))}
+                  {it.changed.map((s, i) => (
+                    <Typography key={`c${i}`} sx={{ fontSize: 12.5, color: 'var(--c-warning, #ed6c02)' }}>
+                      ~ change · seq {s.seqNo} · {s.operationName ?? '—'} · {(s.changes ?? []).join(', ')}
+                      {s.retained ? ' (started — kept)' : ''}
+                    </Typography>
+                  ))}
+                </Box>
+              ))}
+            </>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setPreview(null)} disabled={applying}>Cancel</Button>
+          <Button
+            onClick={applyRegenerate}
+            variant="contained"
+            disabled={applying || !hasChanges}
+          >
+            {applying ? <CircularProgress size={18} /> : 'Apply re-generation'}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {loadingGraph && (
         <Surface e={1} sx={{ p: 4, display: 'flex', justifyContent: 'center' }}>

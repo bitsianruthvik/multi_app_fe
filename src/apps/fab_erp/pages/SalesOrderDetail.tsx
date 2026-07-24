@@ -265,7 +265,10 @@ function LineItemsTab({ soId, items, plants, canManage, company, onRefresh, toas
   const loadCatalog = useCallback(async (search = '') => {
     try {
       const res = await fabQuery<{ data: CatalogOption[] }>('fabErpItemCatalog', {
-        filters: search ? { name: search } : undefined,
+        // Substring search: the generic query treats a plain { name } filter as
+        // exact equality, so use the dotted LIKE operator with our own wildcards
+        // (mirrors the BOM picker in OrderItemsTree). BUG-04.
+        filters: search ? { 'name.LIKE': `%${search}%` } : undefined,
         orderBy: [{ field: 'name', direction: 'asc' }],
         pagination: { limit: 50 },
       });

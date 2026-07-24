@@ -105,14 +105,21 @@ function AddItemRow({ orderId, parentItemId, onCreated, onCancel }: {
   }, []);
 
   async function create() {
-    const name = (selected?.name ?? inputValue).trim();
+    // BUG-08: freeSolo confirm-by-Enter leaves `selected` null even when the
+    // typed text names a real catalog item, silently saving it as uncatalogued
+    // (catalog_item_id NULL → no inventory/costing/planning link). If the input
+    // exactly matches a loaded option's name, bind to it. Genuine free text
+    // (e.g. an RM cut with no catalog row) still saves unlinked, as intended.
+    const typed = inputValue.trim();
+    const match = selected ?? opts.find((o) => o.name.trim().toLowerCase() === typed.toLowerCase()) ?? null;
+    const name = (match?.name ?? inputValue).trim();
     if (!name) { setError('Name is required'); return; }
     setSaving(true); setError('');
     try {
       const res = await fabMutate<{ id: number }>('fabErpItem', 'insert', {
         order_id: orderId,
         parent_item_id: parentItemId,
-        catalog_item_id: selected?.id ?? null,
+        catalog_item_id: match?.id ?? null,
         name,
         unit: unit.trim() || null,
         qty: parseFloat(qty) || 1,
@@ -125,12 +132,12 @@ function AddItemRow({ orderId, parentItemId, onCreated, onCancel }: {
         orderId,
         flowId: null,
         parentItemId,
-        catalogItemId: selected?.id ?? null,
+        catalogItemId: match?.id ?? null,
         name,
         unit: unit.trim() || null,
         qty: parseFloat(qty) || 1,
-        catalogItemCode: selected?.code ?? null,
-        catalogItemUnit: selected?.unit ?? null,
+        catalogItemCode: match?.code ?? null,
+        catalogItemUnit: match?.unit ?? null,
       });
     } catch (e) {
       setError(errMsg(e, 'Create failed'));

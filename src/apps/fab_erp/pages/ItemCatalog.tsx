@@ -178,13 +178,31 @@ interface ItemDraft {
   name: string; code: string; unit: string; description: string;
   categoryId: number | null; groupId: number | null; subgroupId: number | null;
   hsnCode: string;
+  // BUG-05: make-vs-buy (and MRP policy) must be settable at creation. Left
+  // unset, fab_item_catalog.procurement_type defaults to 'buy', so a finished
+  // good you intend to manufacture would be planned as a purchased part.
+  procurementType: string; mrpPolicy: string;
 }
 
 const BLANK_ITEM = (): ItemDraft => ({
   name: '', code: '', unit: 'pcs', description: '',
   categoryId: null, groupId: null, subgroupId: null,
   hsnCode: '',
+  procurementType: 'buy', mrpPolicy: 'manual',
 });
+
+// Mirrors the fuller ItemCatalogDetail controls so the quick add/edit dialog
+// exposes the same make/buy + planning choices.
+const PROCUREMENT_TYPES = [
+  { value: 'buy', label: 'Buy (external procurement)' },
+  { value: 'make', label: 'Make (in-house production)' },
+  { value: 'both', label: 'Both (make or buy)' },
+];
+const MRP_POLICIES = [
+  { value: 'manual', label: 'Manual' },
+  { value: 'reorder_point', label: 'Reorder Point' },
+  { value: 'lot_for_lot', label: 'Lot-for-Lot' },
+];
 
 const ADD_NEW = '__add_new__';
 
@@ -644,6 +662,7 @@ function CatalogDialog({ open, initial, categories, groups, subgroups, canManage
       description: initial.description ?? '', categoryId: initial.categoryId ?? null,
       groupId: initial.groupId ?? null, subgroupId: initial.subgroupId ?? null,
       hsnCode: initial.hsnCode ?? '',
+      procurementType: initial.procurementType ?? 'buy', mrpPolicy: initial.mrpPolicy ?? 'manual',
     } : BLANK_ITEM());
     setErr(''); setCategoryError(''); setAddingLevel(null);
   }, [open, initial]);
@@ -740,7 +759,9 @@ function CatalogDialog({ open, initial, categories, groups, subgroups, canManage
   async function save() {
     if (!draft.name.trim()) { setErr('Name is required.'); return; }
     if (!isNew && !draft.code.trim()) { setErr('Code is required.'); return; }
-    if (!draft.categoryId) { setCategoryError('Category is required.'); return; }
+    // BUG-13: also surface the category error in the dialog's top Alert (not
+    // only the inline field caption, which is easily scrolled out of view).
+    if (!draft.categoryId) { setCategoryError('Category is required.'); setErr('Category is required.'); return; }
     setCategoryError('');
     setSaving(true); setErr('');
     try {
@@ -768,6 +789,8 @@ function CatalogDialog({ open, initial, categories, groups, subgroups, canManage
         unit: draft.unit.trim() || 'pcs', description: draft.description.trim() || null,
         category_id: draft.categoryId, group_id: groupId, subgroup_id: subgroupId,
         hsn_code: draft.hsnCode.trim() || null,
+        // BUG-05: persist make-vs-buy + MRP policy chosen in the dialog.
+        procurement_type: draft.procurementType || 'buy', mrp_policy: draft.mrpPolicy || 'manual',
       };
       let itemId = initial?.id;
       if (isNew) {
@@ -846,6 +869,18 @@ function CatalogDialog({ open, initial, categories, groups, subgroups, canManage
               {canManageTaxonomy && <MenuItem value={ADD_NEW}><em>+ Add new…</em></MenuItem>}
             </Select>
           </Box>
+        </Box>
+        {/* BUG-05: make-vs-buy + MRP policy, so a manufactured item isn't silently stored as 'buy'. */}
+        <Box sx={{ display: 'flex', gap: 2 }}>
+          <TextField select label="Procurement type" size="small" sx={{ flex: 1 }}
+            value={draft.procurementType} onChange={(e) => set('procurementType', e.target.value)}
+            helperText="'Make' is required for anything you manufacture in-house.">
+            {PROCUREMENT_TYPES.map((pt) => <MenuItem key={pt.value} value={pt.value}>{pt.label}</MenuItem>)}
+          </TextField>
+          <TextField select label="MRP policy" size="small" sx={{ flex: 1 }}
+            value={draft.mrpPolicy} onChange={(e) => set('mrpPolicy', e.target.value)}>
+            {MRP_POLICIES.map((mp) => <MenuItem key={mp.value} value={mp.value}>{mp.label}</MenuItem>)}
+          </TextField>
         </Box>
         {addingLevel === 'category' && (
           <TaxonomyAddForm level="category" categories={categories} groups={groups}

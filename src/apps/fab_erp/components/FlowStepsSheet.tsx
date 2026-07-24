@@ -23,6 +23,7 @@ import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
 import DownloadIcon from '@mui/icons-material/Download';
 import ListAltRounded from '@mui/icons-material/ListAltRounded';
 import UploadFileIcon from '@mui/icons-material/UploadFile';
+import WarningAmberRounded from '@mui/icons-material/WarningAmberRounded';
 
 import { fabQuery, fabMutate } from '@apps/fab_erp/api/client';
 import type { FabOperationFlow, FabOperationFlowStep, FabOperation, FabResourceType } from '@apps/fab_erp/types';
@@ -114,15 +115,23 @@ function StepRow({ step, allSteps, flowId, operations, resourceTypes, canManage,
         />
       </Box>
       <Box component="td" sx={{ ...gridCell, minWidth: 220 }}>
-        <Autocomplete
-          size="small" disabled={!canManage}
-          options={operationOptions}
-          value={operationOptions.find((o) => o.id === draft.operationId) ?? null}
-          getOptionLabel={(o) => o.label}
-          isOptionEqualToValue={(a, b) => a.id === b.id}
-          onChange={(_, value) => commit({ operationId: value ? value.id : null })}
-          renderInput={(params) => <TextField {...params} variant="standard" slotProps={{ input: { ...params.InputProps, disableUnderline: true } }} />}
-        />
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+          <Autocomplete
+            size="small" disabled={!canManage} fullWidth sx={{ flex: 1 }}
+            options={operationOptions}
+            value={operationOptions.find((o) => o.id === draft.operationId) ?? null}
+            getOptionLabel={(o) => o.label}
+            isOptionEqualToValue={(a, b) => a.id === b.id}
+            onChange={(_, value) => commit({ operationId: value ? value.id : null })}
+            renderInput={(params) => <TextField {...params} variant="standard" slotProps={{ input: { ...params.InputProps, disableUnderline: true } }} />}
+          />
+          {/* FEAT-09: flag operations with no time formula — their tasks get no duration/ETA. */}
+          {op && !op.timeFormula?.trim() && (
+            <Tooltip title="This operation has no time formula — its task will have no duration/ETA, which breaks scheduling. Add one in Operations.">
+              <WarningAmberRounded fontSize="small" sx={{ color: 'var(--c-warning, #ed6c02)', flexShrink: 0 }} />
+            </Tooltip>
+          )}
+        </Box>
       </Box>
       <Box component="td" sx={{ ...gridCell, minWidth: 160 }}>
         <Autocomplete
@@ -305,10 +314,30 @@ export default function FlowStepsSheet({ flow, canManage, operations, resourceTy
   const sortedSteps = steps.slice().sort((a, b) => a.seqNo - b.seqNo);
   const nextSeq = sortedSteps.length > 0 ? Math.max(...sortedSteps.map((s) => s.seqNo)) + 1 : 1;
 
+  // FEAT-09: operations referenced by this flow that have no time formula. Their
+  // materialized tasks get NULL computed_hours (no duration), which silently
+  // breaks scheduling/ETA — so warn before the flow is used.
+  const opById = new Map(operations.map((o) => [o.id, o]));
+  const formulalessOps = [...new Map(
+    sortedSteps
+      .map((s) => (s.operationId != null ? opById.get(s.operationId) : undefined))
+      .filter((o): o is FabOperation => !!o && !o.timeFormula?.trim())
+      .map((o) => [o.id, `${o.code} — ${o.name}`]),
+  ).values()];
+
   return (
     <Box>
       {err && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setErr('')}>{err}</Alert>}
       {importErr && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setImportErr('')}>{importErr}</Alert>}
+
+      {formulalessOps.length > 0 && (
+        <Alert severity="warning" icon={<WarningAmberRounded fontSize="inherit" />} sx={{ mb: 2 }}>
+          {formulalessOps.length} operation{formulalessOps.length > 1 ? 's' : ''} in this flow{' '}
+          {formulalessOps.length > 1 ? 'have' : 'has'} no time formula — their tasks will have no
+          duration/ETA, so scheduling can’t estimate them. Add a time formula in Operations for:{' '}
+          {formulalessOps.join(', ')}.
+        </Alert>
+      )}
 
       {canManage && (
         <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1, mb: 1.5 }}>

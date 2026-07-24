@@ -46,6 +46,10 @@ function CustomerDialog({ open, initial, onClose, onSaved }: {
 
   async function save() {
     if (!draft.name.trim()) { setErr('Name is required.'); return; }
+    // BUG-12: reject a malformed email rather than storing it verbatim.
+    if (draft.email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(draft.email.trim())) {
+      setErr('Enter a valid email address, or leave it blank.'); return;
+    }
     setSaving(true); setErr('');
     try {
       const payload = {
