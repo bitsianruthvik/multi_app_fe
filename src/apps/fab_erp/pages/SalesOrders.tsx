@@ -34,7 +34,7 @@ interface FabOrder {
 interface PickerOption { id: number; name: string; code: string }
 
 const ORDER_TYPE_CONFIG: Record<string, { label: string; subtypes: string[]; statuses: string[] }> = {
-  sales:         { label: 'Sales Order',       subtypes: ['standard', 'rush', 'blanket', 'internal'],                  statuses: ['draft', 'confirmed', 'in_production', 'shipped', 'closed', 'cancelled'] },
+  sales:         { label: 'Sales Order',       subtypes: ['standard', 'rush', 'blanket', 'internal'],                  statuses: ['draft', 'confirmed', 'scheduled', 'in_production', 'ready_to_ship', 'shipped', 'closed', 'cancelled'] },
   manufacturing: { label: 'Manufacturing Order',subtypes: ['standard', 'rework', 'repair'],                            statuses: ['draft', 'released', 'in_progress', 'completed', 'cancelled'] },
   purchase:      { label: 'Purchase Order',     subtypes: ['standard', 'urgent'],                                      statuses: ['draft', 'sent', 'confirmed', 'received', 'closed', 'cancelled'] },
   planned:       { label: 'Planned Order',      subtypes: ['forecast', 'mrp'],                                         statuses: ['draft', 'confirmed', 'converted', 'cancelled'] },

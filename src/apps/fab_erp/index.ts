@@ -18,6 +18,7 @@ import ViewTimelineRoundedIcon    from '@mui/icons-material/ViewTimelineRounded'
 import FactCheckRoundedIcon       from '@mui/icons-material/FactCheckRounded';
 import WarehouseRoundedIcon       from '@mui/icons-material/WarehouseRounded';
 import InsightsRounded            from '@mui/icons-material/InsightsRounded';
+import StackedBarChartRounded     from '@mui/icons-material/StackedBarChartRounded';
 import type { NavItem } from '@core/components/Sidebar';
 
 function buildUserNav(company: string, app: string): NavItem[] {
@@ -46,6 +47,7 @@ function buildUserNav(company: string, app: string): NavItem[] {
     { label: 'BOM Templates',       icon: React.createElement(ListAltRoundedIcon),          to: `${base}/bom-templates`,  end: false, permission: 'fab_erp_bomtemplate_view', section: CONFIGURE },
     { label: 'Operations',          icon: React.createElement(PrecisionManufacturingRounded), to: `${base}/operations`,     end: false, permission: 'fab_erp_operations_view', section: CONFIGURE },
     { label: 'Operation Flows',     icon: React.createElement(CallSplitRounded),            to: `${base}/operation-flows`, end: false, permission: 'fab_erp_flows_view',    section: CONFIGURE },
+    { label: 'Progress Templates',  icon: React.createElement(StackedBarChartRounded),      to: `${base}/progress-templates`, end: false, permission: 'fab_erp_taskengine_view', section: CONFIGURE },
     { label: 'Suppliers',           icon: React.createElement(HandshakeRoundedIcon),        to: `${base}/suppliers`,      end: false, permission: 'fab_erp_grn_view',        section: CONFIGURE },
     { label: 'Customers',           icon: React.createElement(PeopleAltRoundedIcon),        to: `${base}/customers`,      end: false, permission: 'fab_erp_projects_view',   section: CONFIGURE },
     { label: 'Code Generation',     icon: React.createElement(TuneRoundedIcon),             to: `${base}/codegen-settings`, end: false, permission: 'fab_erp_items_meta_view', section: CONFIGURE },

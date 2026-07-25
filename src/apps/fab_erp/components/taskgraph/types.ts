@@ -32,6 +32,8 @@ export interface TaskGraphNode {
   pausedAt: string | null;
   completedAt: string | null;
   computedHours: number | null;
+  actualHours?: number | null;   // FEAT-16: actual touch hours (done tasks)
+  varianceHours?: number | null; // FEAT-16: actual − plan (done tasks)
 }
 
 export type TaskGraphEdgeKind = 'flow' | 'component';

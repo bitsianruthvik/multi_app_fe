@@ -60,6 +60,7 @@ import {
   DialogContent,
   DialogTitle,
   FormControlLabel,
+  MenuItem,
   Switch,
   TextField,
   Typography,
@@ -100,6 +101,16 @@ interface ResourceOption {
 const machineFilter = createFilterOptions<ResourceOption>({
   stringify: (o) => `${o.code ?? ''} ${o.name} ${o.plantName ?? ''} ${o.resourceTypeName ?? ''}`,
 });
+
+// FEAT-12: downtime reasons captured when a task is paused (mirror the backend
+// delay_reason ENUM).
+const PAUSE_REASON_LABELS: Record<string, string> = {
+  lack_of_manpower: 'Lack of manpower',
+  machine_down: 'Machine down',
+  lack_of_consumable: 'Lack of consumable',
+  planning_issue: 'Planning issue',
+  minor_operational_delay: 'Minor operational delay',
+};
 
 type TaskStatus = 'blocked' | 'eligible' | 'in_progress' | 'paused' | 'done' | 'cancelled';
 
@@ -186,7 +197,7 @@ function TaskRow({
   busy,
   canBackfill,
   onStart,
-  onAction,
+  onPause,
   onComplete,
   onLogPastWork,
 }: {
@@ -194,7 +205,7 @@ function TaskRow({
   busy: boolean;
   canBackfill: boolean;
   onStart: (task: QueueTask) => void;
-  onAction: (task: QueueTask, action: 'pause') => void;
+  onPause: (task: QueueTask) => void;
   onComplete: (task: QueueTask) => void;
   onLogPastWork: (task: QueueTask, mode: 'log' | 'adjust') => void;
 }) {
@@ -291,7 +302,7 @@ function TaskRow({
           <Button size="small" variant="outlined" disabled={!startEnabled || busy} onClick={() => onStart(task)}>
             Start
           </Button>
-          <Button size="small" variant="outlined" disabled={!pauseEnabled || busy} onClick={() => onAction(task, 'pause')}>
+          <Button size="small" variant="outlined" disabled={!pauseEnabled || busy} onClick={() => onPause(task)}>
             Pause
           </Button>
           <Button size="small" variant="outlined" color="success" disabled={!stopEnabled || busy} onClick={() => onComplete(task)}>
@@ -350,13 +361,18 @@ export default function TaskQueue() {
 
   const [startTask, setStartTask] = useState<QueueTask | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const [actioningId, setActioningId] = useState<number | null>(null);
+  // Lifecycle actions (start/pause/complete) now run through their own dialogs,
+  // which track their own `submitting` state — no per-row busy flag needed.
 
   // FEAT-05: completion dialog (production-output capture) state.
   const [completeTask, setCompleteTask] = useState<QueueTask | null>(null);
   const [producedQty, setProducedQty] = useState('');
   const [scrapQty, setScrapQty] = useState('0');
   const [qcPassed, setQcPassed] = useState(true);
+
+  // FEAT-12: pause dialog (downtime reason) state.
+  const [pauseTask, setPauseTask] = useState<QueueTask | null>(null);
+  const [pauseReason, setPauseReason] = useState('');
 
   const [logPastWorkTask, setLogPastWorkTask] = useState<QueueTask | null>(null);
   const [logPastWorkMode, setLogPastWorkMode] = useState<'log' | 'adjust'>('log');
@@ -448,18 +464,25 @@ export default function TaskQueue() {
     }
   };
 
-  const runAction = async (task: QueueTask, action: 'pause') => {
-    setActioningId(task.id);
+  // FEAT-12: pause opens a dialog to capture a downtime reason (optional).
+  const openPauseDialog = (task: QueueTask) => {
+    setPauseReason('');
+    setPauseTask(task);
+  };
+
+  const confirmPause = async () => {
+    if (!pauseTask) return;
+    setSubmitting(true);
     try {
-      await fabPost(`tasks/${task.id}/${action}`, {});
-      toast('Task paused.', 'success');
+      await fabPost(`tasks/${pauseTask.id}/pause`, pauseReason ? { reason: pauseReason } : {});
+      toast(pauseReason ? `Task paused — ${PAUSE_REASON_LABELS[pauseReason]}.` : 'Task paused.', 'success');
+      setPauseTask(null);
       refetchQueue();
     } catch (e) {
       const ax = e as { response?: { data?: { message?: string } }; message?: string };
-      const msg = ax.response?.data?.message ?? ax.message ?? `Failed to ${action} task.`;
-      toast(msg, 'error');
+      toast(ax.response?.data?.message ?? ax.message ?? 'Failed to pause task.', 'error');
     } finally {
-      setActioningId(null);
+      setSubmitting(false);
     }
   };
 
@@ -487,11 +510,19 @@ export default function TaskQueue() {
       const payload: Record<string, unknown> = { qcResult: qcPassed ? 'pass' : 'fail' };
       if (producedQty.trim() !== '') payload.producedQty = Number(producedQty);
       if (scrapQty.trim() !== '') payload.scrapQty = Number(scrapQty);
-      const res = await fabPost<{ reworkTaskId: number | null }>(`tasks/${completeTask.id}/stop`, payload);
+      const res = await fabPost<{ reworkTaskId: number | null; variance?: { varianceHours: number | null; variancePct: number | null } | null }>(`tasks/${completeTask.id}/stop`, payload);
       if (!qcPassed && res?.reworkTaskId) {
         toast(`QC fail recorded — rework task #${res.reworkTaskId} queued.`, 'info');
       } else {
-        toast('Task completed.', 'success');
+        // FEAT-16: show plan-vs-actual variance in the completion toast when known.
+        const v = res?.variance;
+        if (v && v.varianceHours != null) {
+          const sign = v.varianceHours > 0 ? '+' : '';
+          const pct = v.variancePct != null ? ` (${sign}${v.variancePct}%)` : '';
+          toast(`Task completed — ${sign}${v.varianceHours}h vs plan${pct}.`, v.varianceHours > 0 ? 'info' : 'success');
+        } else {
+          toast('Task completed.', 'success');
+        }
       }
       setCompleteTask(null);
       refetchQueue();
@@ -579,10 +610,10 @@ export default function TaskQueue() {
             <TaskRow
               key={t.id}
               task={t}
-              busy={actioningId === t.id}
+              busy={false}
               canBackfill={canBackfill}
               onStart={openStartDialog}
-              onAction={runAction}
+              onPause={openPauseDialog}
               onComplete={openCompleteDialog}
               onLogPastWork={openLogPastWork}
             />
@@ -601,6 +632,29 @@ export default function TaskQueue() {
           <Button onClick={closeStartDialog} disabled={submitting}>Cancel</Button>
           <Button onClick={confirmStart} variant="contained" disabled={submitting}>
             {submitting ? <CircularProgress size={18} /> : 'Start'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* FEAT-12: pause dialog — capture an optional downtime reason. */}
+      <Dialog open={!!pauseTask} onClose={submitting ? undefined : () => setPauseTask(null)} maxWidth="xs" fullWidth>
+        <DialogTitle>Pause task</DialogTitle>
+        <DialogContent>
+          <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)', mb: 2 }}>
+            Why is {pauseTask?.operationName ?? `Operation #${pauseTask?.operationId ?? '?'}`} pausing? (optional — helps wait-time attribution)
+          </Typography>
+          <TextField
+            select fullWidth size="small" label="Downtime reason"
+            value={pauseReason} onChange={(e) => setPauseReason(e.target.value)}
+          >
+            <MenuItem value="">— none —</MenuItem>
+            {Object.entries(PAUSE_REASON_LABELS).map(([k, v]) => <MenuItem key={k} value={k}>{v}</MenuItem>)}
+          </TextField>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setPauseTask(null)} disabled={submitting}>Cancel</Button>
+          <Button onClick={confirmPause} variant="contained" disabled={submitting}>
+            {submitting ? <CircularProgress size={18} /> : 'Pause'}
           </Button>
         </DialogActions>
       </Dialog>

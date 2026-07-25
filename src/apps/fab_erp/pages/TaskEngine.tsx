@@ -9,16 +9,19 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, Box, Button, CircularProgress, LinearProgress, Typography } from '@mui/material';
+import { Alert, Box, Button, CircularProgress, LinearProgress, ToggleButton, ToggleButtonGroup, Typography } from '@mui/material';
 import RefreshRounded from '@mui/icons-material/RefreshRounded';
 import ChevronRightRounded from '@mui/icons-material/ChevronRightRounded';
 import ExpandMoreRounded from '@mui/icons-material/ExpandMoreRounded';
+import AccountTreeRounded from '@mui/icons-material/AccountTreeRounded';
+import StackedBarChartRounded from '@mui/icons-material/StackedBarChartRounded';
 
 import { fabGet } from '../api/client';
 import { PageHeader, Surface, EmptyState, useToast } from '../components';
 import TaskFlowGraph from '../components/taskgraph/TaskFlowGraph';
 import BomDrillPicker, { type BomDrillPickerValue } from '../components/taskgraph/BomDrillPicker';
 import { STATUS_COLOR, type TaskGraphNode, type TaskGraphEdge } from '../components/taskgraph/types';
+import ProgressReportView from '../components/progress/ProgressReportView';
 
 interface OrderCounts {
   total: number;
@@ -137,6 +140,7 @@ function OrderRow({ order }: { order: OverviewOrder }) {
 
 export default function TaskEngine() {
   const { toast } = useToast();
+  const [view, setView] = useState<'dag' | 'progress'>('dag');
   const [orders, setOrders] = useState<OverviewOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -155,28 +159,48 @@ export default function TaskEngine() {
     }
   }, [toast]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { if (view === 'dag') load(); }, [view, load]);
 
   return (
     <Box sx={{ maxWidth: 1400, mx: 'auto' }}>
       <PageHeader
         title="Task Engine"
-        subtitle="Live task graph across all active orders — expand an order to trace its build, drill into any sub-assembly."
+        subtitle={view === 'dag'
+          ? 'Live task graph across all active orders — expand an order to trace its build, drill into any sub-assembly.'
+          : 'Project progress by process stage — expand a project for its per-stage breakdown, drill into any sub-assembly.'}
         actions={
-          <Button size="small" startIcon={<RefreshRounded fontSize="small" />} onClick={load} disabled={loading}>
-            Refresh
-          </Button>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <ToggleButtonGroup
+              size="small"
+              exclusive
+              value={view}
+              onChange={(_, v) => { if (v) setView(v); }}
+            >
+              <ToggleButton value="dag"><AccountTreeRounded fontSize="small" sx={{ mr: 0.5 }} /> DAG</ToggleButton>
+              <ToggleButton value="progress"><StackedBarChartRounded fontSize="small" sx={{ mr: 0.5 }} /> Progress</ToggleButton>
+            </ToggleButtonGroup>
+            {view === 'dag' && (
+              <Button size="small" startIcon={<RefreshRounded fontSize="small" />} onClick={load} disabled={loading}>
+                Refresh
+              </Button>
+            )}
+          </Box>
         }
       />
 
-      {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
-
-      {loading ? (
-        <Surface e={1} sx={{ p: 4, display: 'flex', justifyContent: 'center' }}><CircularProgress /></Surface>
-      ) : orders.length === 0 ? (
-        <EmptyState title="No active orders" hint="Orders appear here once their tasks are materialized and there is open work remaining." />
+      {view === 'progress' ? (
+        <ProgressReportView />
       ) : (
-        orders.map((o) => <OrderRow key={o.orderId} order={o} />)
+        <>
+          {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
+          {loading ? (
+            <Surface e={1} sx={{ p: 4, display: 'flex', justifyContent: 'center' }}><CircularProgress /></Surface>
+          ) : orders.length === 0 ? (
+            <EmptyState title="No active orders" hint="Orders appear here once their tasks are materialized and there is open work remaining." />
+          ) : (
+            orders.map((o) => <OrderRow key={o.orderId} order={o} />)
+          )}
+        </>
       )}
     </Box>
   );

@@ -101,7 +101,20 @@ function OperationNode({ data }: NodeProps) {
         <DetailRow label="Sequence" value={d.seqNo} />
         <DetailRow label="Resource type" value={d.resourceTypeName} />
         <DetailRow label="Assigned resource" value={d.assignedResourceId} />
-        <DetailRow label="Est. hours" value={missingDuration ? '⚠ missing (no time formula)' : d.computedHours} />
+        <DetailRow label={d.status === 'done' && d.actualHours != null ? 'Plan hours' : 'Est. hours'} value={missingDuration ? '⚠ missing (no time formula)' : d.computedHours} />
+        {d.status === 'done' && d.actualHours != null && (
+          <>
+            <DetailRow label="Actual hours" value={d.actualHours} />
+            {d.varianceHours != null && (
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2, py: 0.15 }}>
+                <Typography sx={{ fontSize: 11.5, color: 'var(--c-text-3)' }}>Variance</Typography>
+                <Typography sx={{ fontSize: 11.5, fontWeight: 600, textAlign: 'right', color: d.varianceHours > 0 ? 'var(--c-danger, #d32f2f)' : 'var(--c-success, #2e7d32)' }}>
+                  {d.varianceHours > 0 ? '+' : ''}{d.varianceHours}h{d.computedHours ? ` (${d.varianceHours > 0 ? '+' : ''}${Math.round((d.varianceHours / d.computedHours) * 100)}%)` : ''}
+                </Typography>
+              </Box>
+            )}
+          </>
+        )}
         <DetailRow label="Wait (working min)" value={d.waitWorkingMinutes} />
         <DetailRow label="Blocked by others (min)" value={d.blockedByOtherTasksMinutes} />
         <DetailRow label="Idle wait (min)" value={d.idleWaitMinutes} />
