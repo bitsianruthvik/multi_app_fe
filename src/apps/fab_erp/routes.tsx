@@ -31,6 +31,7 @@ const BufferConfig       = lazy(() => import('./pages/BufferConfig'));
 const MachineTimeline    = lazy(() => import('./pages/MachineTimeline'));
 const Reconciliation     = lazy(() => import('./pages/Reconciliation'));
 const ShopfloorAnalytics = lazy(() => import('./pages/ShopfloorAnalytics'));
+const CriticalChain      = lazy(() => import('./pages/CriticalChain'));
 
 export function getFabErpRoutes(
   ProtectedRoute: React.ComponentType<{ children: React.ReactNode }>,
@@ -74,5 +75,6 @@ export function getFabErpRoutes(
     { path: '/:company/fab_erp/machine-timeline',            element: wrap(<MachineTimeline />) },
     { path: '/:company/fab_erp/reconciliation',              element: wrap(<Reconciliation />) },
     { path: '/:company/fab_erp/analytics',                   element: wrap(<ShopfloorAnalytics />) },
+    { path: '/:company/fab_erp/critical-chain',              element: wrap(<CriticalChain />) },
   ];
 }

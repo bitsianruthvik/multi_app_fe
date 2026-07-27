@@ -74,9 +74,11 @@ import { usePermission } from '@core/hooks/usePermission';
 import { isAdminRole } from '@core/utils/roles';
 
 import { fabQuery, fabGet, fabPost, getWaitBreakdown, type WaitBreakdownResponse } from '../api/client';
+import { getCcWhatIf, type CcWhatIfResponse } from '../api/cc';
 import { PageHeader, StatusBadge, Surface, useToast } from '../components';
 import { WaitBreakdownBar, formatWaitMinutes } from '../components/WaitBreakdownBar';
 import { LogPastWorkDialog, type LogPastWorkTask } from '../components/LogPastWorkDialog';
+import { DetourWarningDialog } from '../components/cc/DetourWarningDialog';
 
 interface QueryResult<T> { data: T[]; total?: number }
 
@@ -364,6 +366,17 @@ export default function TaskQueue() {
   // Lifecycle actions (start/pause/complete) now run through their own dialogs,
   // which track their own `submitting` state — no per-row busy flag needed.
 
+  // EU-13: "Google-Maps detour" pre-flight — GET /cc/whatif is checked before a
+  // task's Start flow opens. `checkingTaskId` drives the per-row Start button's
+  // loading state while that check is in flight (blocks double-click). If the
+  // check reports impacts, `detourTask`/`whatIf` open the blocking warning
+  // dialog instead of the normal "Start task" confirm; otherwise (no impacts,
+  // or the whatif call itself failed — a CC hiccup must never block real work)
+  // the normal confirm dialog opens exactly as before.
+  const [checkingTaskId, setCheckingTaskId] = useState<number | null>(null);
+  const [detourTask, setDetourTask] = useState<QueueTask | null>(null);
+  const [whatIf, setWhatIf] = useState<CcWhatIfResponse | null>(null);
+
   // FEAT-05: completion dialog (production-output capture) state.
   const [completeTask, setCompleteTask] = useState<QueueTask | null>(null);
   const [producedQty, setProducedQty] = useState('');
@@ -436,6 +449,61 @@ export default function TaskQueue() {
     setStartTask(null);
   };
 
+  // Shared start logic (the actual POST /tasks/:id/start call) — reused by
+  // both the plain "Start task" confirm dialog and the detour dialog's
+  // "Start anyway" so the request itself is never duplicated/forked.
+  const runStart = useCallback(async (task: QueueTask) => {
+    setSubmitting(true);
+    try {
+      // BUG-09: tell the backend which machine is running this task so it's
+      // recorded on the task (capacity truth) and double-booking can be caught.
+      await fabPost(`tasks/${task.id}/start`, { resourceId: resource?.id });
+      toast('Task started.', 'success');
+      refetchQueue();
+      return true;
+    } catch (e) {
+      toast(errMsg(e, 'Failed to start task.'), 'error');
+      return false;
+    } finally {
+      setSubmitting(false);
+    }
+  }, [resource, refetchQueue, toast]);
+
+  // EU-13: entry point for the row's Start button. Checks the CC detour
+  // what-if before deciding which dialog (if any) to open.
+  const handleStartClick = useCallback(async (task: QueueTask) => {
+    setCheckingTaskId(task.id);
+    try {
+      const res = await getCcWhatIf(task.id, task.assignedResourceId ?? undefined);
+      if (res.impacts.length > 0) {
+        setWhatIf(res);
+        setDetourTask(task);
+      } else {
+        openStartDialog(task);
+      }
+    } catch {
+      // A CC hiccup must never block real work — fall through to the normal flow.
+      openStartDialog(task);
+    } finally {
+      setCheckingTaskId(null);
+    }
+  }, []);
+
+  const closeDetourDialog = () => {
+    if (submitting) return;
+    setDetourTask(null);
+    setWhatIf(null);
+  };
+
+  const confirmDetourStart = async () => {
+    if (!detourTask) return;
+    const ok = await runStart(detourTask);
+    if (ok) {
+      setDetourTask(null);
+      setWhatIf(null);
+    }
+  };
+
   const openLogPastWork = (task: QueueTask, mode: 'log' | 'adjust') => {
     setLogPastWorkMode(mode);
     setLogPastWorkTask(task);
@@ -447,21 +515,8 @@ export default function TaskQueue() {
 
   const confirmStart = async () => {
     if (!startTask) return;
-    setSubmitting(true);
-    try {
-      // BUG-09: tell the backend which machine is running this task so it's
-      // recorded on the task (capacity truth) and double-booking can be caught.
-      await fabPost(`tasks/${startTask.id}/start`, { resourceId: resource?.id });
-      toast('Task started.', 'success');
-      closeStartDialog();
-      refetchQueue();
-    } catch (e) {
-      const ax = e as { response?: { data?: { message?: string } }; message?: string };
-      const msg = ax.response?.data?.message ?? ax.message ?? 'Failed to start task.';
-      toast(msg, 'error');
-    } finally {
-      setSubmitting(false);
-    }
+    const ok = await runStart(startTask);
+    if (ok) closeStartDialog();
   };
 
   // FEAT-12: pause opens a dialog to capture a downtime reason (optional).
@@ -610,9 +665,9 @@ export default function TaskQueue() {
             <TaskRow
               key={t.id}
               task={t}
-              busy={false}
+              busy={checkingTaskId === t.id}
               canBackfill={canBackfill}
-              onStart={openStartDialog}
+              onStart={handleStartClick}
               onPause={openPauseDialog}
               onComplete={openCompleteDialog}
               onLogPastWork={openLogPastWork}
@@ -635,6 +690,16 @@ export default function TaskQueue() {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* EU-13: detour dialog — blocking warning shown instead of the plain
+          "Start task" confirm when the CC what-if reports impacted projects. */}
+      <DetourWarningDialog
+        open={!!detourTask}
+        whatIf={whatIf}
+        submitting={submitting}
+        onCancel={closeDetourDialog}
+        onConfirm={confirmDetourStart}
+      />
 
       {/* FEAT-12: pause dialog — capture an optional downtime reason. */}
       <Dialog open={!!pauseTask} onClose={submitting ? undefined : () => setPauseTask(null)} maxWidth="xs" fullWidth>
