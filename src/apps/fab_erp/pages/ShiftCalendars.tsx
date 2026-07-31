@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   Alert, Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle,
-  FormControlLabel, Grid, IconButton, Stack, Switch, Tab, Table, TableBody, TableCell,
-  TableRow, Tabs, TextField, Tooltip, Typography,
+  FormControlLabel, Grid, IconButton, Stack, Switch, Tab,
+  Tabs, TextField, Tooltip, Typography,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
@@ -14,8 +14,7 @@ import CalendarMonthRounded from '@mui/icons-material/CalendarMonthRounded';
 import { fabQuery, fabMutate } from '@apps/fab_erp/api/client';
 import type { FabShiftCalendar, FabShift, FabCalendarDay } from '@apps/fab_erp/types';
 import { usePermission } from '@core/hooks/usePermission';
-import { Surface, PageHeader, Mono, StatusBadge, EmptyState, ListSkeleton, useToast, EntityList, EntityRow, SortableTableHead, type SortableColumn } from '../components';
-import { useSortableData } from '../hooks/useSortableData';
+import { PageHeader, Mono, StatusBadge, EmptyState, ListSkeleton, useToast, EntityList, EntityRow, DataTable } from '../components';
 
 interface QueryResult<T> { data: T[]; total?: number }
 interface CalendarDraft { name: string; code: string }
@@ -26,20 +25,8 @@ const BLANK_CALENDAR = (): CalendarDraft => ({ name: '', code: '' });
 const BLANK_SHIFT = (): ShiftDraft => ({ name: '', startTime: '', endTime: '', workingMinutes: '' });
 const BLANK_DAY = (): DayDraft => ({ dayDate: '', isWorking: true });
 
-const th = { fontFamily: 'var(--font-ui)', fontWeight: 600, fontSize: 12, color: 'var(--c-text-2)', textTransform: 'uppercase', letterSpacing: '.05em', borderColor: 'var(--c-divider)' } as const;
-const td = { borderColor: 'var(--c-divider)', fontSize: 13, color: 'var(--c-text)' } as const;
 
-const SHIFT_COLUMNS: SortableColumn<FabShift>[] = [
-  { key: 'name',           label: 'Name',            sx: { ...th, width: 140 } },
-  { key: 'startTime',      label: 'Start',           sx: { ...th, width: 90 } },
-  { key: 'endTime',        label: 'End',             sx: { ...th, width: 90 } },
-  { key: 'workingMinutes', label: 'Working min',     sx: { ...th, width: 110 } },
-];
 
-const CALENDAR_DAY_COLUMNS: SortableColumn<FabCalendarDay>[] = [
-  { key: 'dayDate', label: 'Date',   sx: { ...th, width: 120 } },
-  { key: 'isWorking', label: 'Status', sx: { ...th, width: 140 } },
-];
 
 function timeToMinutes(t: string): number {
   const [h = '0', m = '0'] = t.split(':');
@@ -264,7 +251,6 @@ function ShiftsPanel({ calendarId, canManage }: { calendarId: number; canManage:
 
   useEffect(() => { load(); }, [load]);
 
-  const { sortedRows: sortedShifts, sortKey, sortDirection, requestSort } = useSortableData(shifts, 'startTime');
 
   async function handleDelete() {
     if (!delDlg.item) return;
@@ -288,33 +274,32 @@ function ShiftsPanel({ calendarId, canManage }: { calendarId: number; canManage:
       {loading ? <ListSkeleton rows={3} /> : shifts.length === 0 ? (
         <EmptyState title="No shifts defined for this calendar" />
       ) : (
-        <Surface e={1} sx={{ overflow: 'hidden' }}>
-          <Table size="small">
-            <SortableTableHead<FabShift>
-              columns={SHIFT_COLUMNS}
-              sortKey={sortKey}
-              sortDirection={sortDirection}
-              onRequestSort={requestSort}
-              extraCell={canManage ? <TableCell sx={{ ...th, width: 90 }} /> : undefined}
-            />
-            <TableBody>
-              {sortedShifts.map((s) => (
-                <TableRow key={s.id} hover>
-                  <TableCell sx={td}>{s.name}</TableCell>
-                  <TableCell sx={td}><Mono>{s.startTime?.slice(0, 5) ?? '—'}</Mono></TableCell>
-                  <TableCell sx={td}><Mono>{s.endTime?.slice(0, 5) ?? '—'}</Mono></TableCell>
-                  <TableCell sx={td}><Mono chip>{s.workingMinutes} min</Mono></TableCell>
-                  {canManage && (
-                    <TableCell sx={td}>
-                      <Tooltip title="Edit"><IconButton size="small" onClick={() => setShiftDlg({ open: true, item: s })}><EditRounded fontSize="small" /></IconButton></Tooltip>
-                      <Tooltip title="Delete"><IconButton size="small" color="error" onClick={() => setDelDlg({ open: true, item: s })}><DeleteOutlineRounded fontSize="small" /></IconButton></Tooltip>
-                    </TableCell>
-                  )}
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </Surface>
+        <DataTable
+          rows={shifts}
+          getRowId={(s) => s.id}
+          storageKey="calendar-shifts"
+          exportName="shifts"
+          defaultSortKey="startTime"
+          columns={[
+            { key: 'name', header: 'Name', width: 160, render: (s) => s.name, sortValue: (s) => s.name },
+            { key: 'startTime', header: 'Start', width: 100, render: (s) => <Mono>{s.startTime?.slice(0, 5) ?? '—'}</Mono>, sortValue: (s) => s.startTime ?? '' },
+            { key: 'endTime', header: 'End', width: 100, render: (s) => <Mono>{s.endTime?.slice(0, 5) ?? '—'}</Mono>, sortValue: (s) => s.endTime ?? '' },
+            {
+              key: 'workingMinutes',
+              header: 'Working min',
+              width: 130,
+              numeric: true,
+              render: (s) => <Mono chip>{s.workingMinutes} min</Mono>,
+              sortValue: (s) => s.workingMinutes,
+            },
+          ]}
+          rowActions={canManage ? (s) => (
+            <>
+              <Tooltip title="Edit"><IconButton size="small" onClick={() => setShiftDlg({ open: true, item: s })} aria-label={`Edit ${s.name}`}><EditRounded fontSize="small" /></IconButton></Tooltip>
+              <Tooltip title="Delete"><IconButton size="small" color="error" onClick={() => setDelDlg({ open: true, item: s })} aria-label={`Delete ${s.name}`}><DeleteOutlineRounded fontSize="small" /></IconButton></Tooltip>
+            </>
+          ) : undefined}
+        />
       )}
       <ShiftDialog open={shiftDlg.open} initial={shiftDlg.item} calendarId={calendarId} onClose={() => setShiftDlg({ open: false, item: null })} onSaved={onSaved} />
       <DeleteConfirm open={delDlg.open} label={delDlg.item?.name ?? ''} onClose={() => setDelDlg({ open: false, item: null })} onConfirm={handleDelete} />
@@ -339,7 +324,6 @@ function CalendarDaysPanel({ calendarId, canManage }: { calendarId: number; canM
 
   useEffect(() => { load(); }, [load]);
 
-  const { sortedRows: sortedDays, sortKey, sortDirection, requestSort } = useSortableData(days, 'dayDate');
 
   async function handleDelete() {
     if (!delDlg.item) return;
@@ -370,31 +354,43 @@ function CalendarDaysPanel({ calendarId, canManage }: { calendarId: number; canM
       {loading ? <ListSkeleton rows={3} /> : days.length === 0 ? (
         <EmptyState title="No calendar days defined" hint="Add specific dates to mark working / non-working days." />
       ) : (
-        <Surface e={1} sx={{ overflow: 'hidden' }}>
-          <Table size="small">
-            <SortableTableHead<FabCalendarDay>
-              columns={CALENDAR_DAY_COLUMNS}
-              sortKey={sortKey}
-              sortDirection={sortDirection}
-              onRequestSort={requestSort}
-              extraCell={canManage ? <TableCell sx={{ ...th, width: 90 }} /> : undefined}
-            />
-            <TableBody>
-              {sortedDays.map((d) => (
-                <TableRow key={d.id} hover sx={{ background: d.isWorking ? undefined : 'var(--c-surface-2)' }}>
-                  <TableCell sx={{ ...td, fontWeight: d.isWorking ? 500 : 400, color: d.isWorking ? 'var(--c-text)' : 'var(--c-text-3)' }}><Mono>{d.dayDate?.slice(0, 10) ?? '—'}</Mono></TableCell>
-                  <TableCell sx={td}><StatusBadge status={d.isWorking ? 'Working' : 'Non-working'} family={d.isWorking ? 'success' : 'neutral'} /></TableCell>
-                  {canManage && (
-                    <TableCell sx={td}>
-                      <Tooltip title="Edit"><IconButton size="small" onClick={() => setDayDlg({ open: true, item: d })}><EditRounded fontSize="small" /></IconButton></Tooltip>
-                      <Tooltip title="Delete"><IconButton size="small" color="error" onClick={() => setDelDlg({ open: true, item: d })}><DeleteOutlineRounded fontSize="small" /></IconButton></Tooltip>
-                    </TableCell>
-                  )}
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </Surface>
+        <DataTable
+          rows={days}
+          getRowId={(d) => d.id}
+          storageKey="calendar-days"
+          exportName="calendar-days"
+          defaultSortKey="dayDate"
+          columns={[
+            {
+              key: 'dayDate',
+              header: 'Date',
+              width: 140,
+              render: (d) => (
+                // Non-working days recede rather than getting a row tint — the
+                // StatusBadge beside them already carries the meaning, and a
+                // full-row background fights DataTable's hover/selection states.
+                <Mono sx={{ color: d.isWorking ? 'var(--c-text)' : 'var(--c-text-3)' }}>
+                  {d.dayDate?.slice(0, 10) ?? '—'}
+                </Mono>
+              ),
+              sortValue: (d) => d.dayDate ?? '',
+            },
+            {
+              key: 'isWorking',
+              header: 'Status',
+              width: 160,
+              render: (d) => <StatusBadge status={d.isWorking ? 'Working' : 'Non-working'} family={d.isWorking ? 'success' : 'neutral'} />,
+              sortValue: (d) => (d.isWorking ? 1 : 0),
+              exportValue: (d) => (d.isWorking ? 'Working' : 'Non-working'),
+            },
+          ]}
+          rowActions={canManage ? (d) => (
+            <>
+              <Tooltip title="Edit"><IconButton size="small" onClick={() => setDayDlg({ open: true, item: d })} aria-label={`Edit ${d.dayDate?.slice(0, 10)}`}><EditRounded fontSize="small" /></IconButton></Tooltip>
+              <Tooltip title="Delete"><IconButton size="small" color="error" onClick={() => setDelDlg({ open: true, item: d })} aria-label={`Delete ${d.dayDate?.slice(0, 10)}`}><DeleteOutlineRounded fontSize="small" /></IconButton></Tooltip>
+            </>
+          ) : undefined}
+        />
       )}
       <DayDialog open={dayDlg.open} initial={dayDlg.item} calendarId={calendarId} onClose={() => setDayDlg({ open: false, item: null })} onSaved={onSaved} />
       <DeleteConfirm open={delDlg.open} label={delDlg.item?.dayDate?.slice(0, 10) ?? ''} onClose={() => setDelDlg({ open: false, item: null })} onConfirm={handleDelete} />

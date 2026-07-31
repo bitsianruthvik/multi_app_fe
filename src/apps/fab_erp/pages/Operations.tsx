@@ -14,7 +14,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Alert, Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle,
-  IconButton, List, ListItem, ListItemText, MenuItem, Select, Switch, Tab, Table, TableBody, TableCell, TableHead, TableRow,
+  IconButton, List, ListItem, ListItemText, MenuItem, Select, Switch, Tab,
   Tabs, TextField, Tooltip, Typography,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
@@ -33,7 +33,7 @@ import type { FabOperation, FabOperationVariable, FabOperationResourceType, FabR
 import { usePermission } from '@core/hooks/usePermission';
 import api, { API_HOST } from '@core/utils/axiosConfig';
 import {
-  Surface, PageHeader, Mono, StatusBadge, EmptyState, ListSkeleton, useToast, EntityList, EntityRow, type SortableField,
+  Surface, PageHeader, Mono, StatusBadge, EmptyState, ListSkeleton, useToast, EntityList, EntityRow, DataTable, NumberCell, type SortableField,
 } from '../components';
 import FormulaCodeEditor from '../components/FormulaCodeEditor';
 import { useFormulaVariables } from '../hooks/useFormulaVariables';
@@ -47,8 +47,6 @@ interface ImportOperationsResult {
   warnings: { row: number; message: string }[];
 }
 
-const th = { fontFamily: 'var(--font-ui)', fontWeight: 600, fontSize: 12, color: 'var(--c-text-2)', textTransform: 'uppercase', letterSpacing: '.05em', borderColor: 'var(--c-divider)' } as const;
-const td = { borderColor: 'var(--c-divider)', fontSize: 13, color: 'var(--c-text)' } as const;
 
 function errMsg(e: unknown): string {
   const ax = e as { response?: { data?: { message?: string; error?: string } }; message?: string };
@@ -307,37 +305,28 @@ function VariablesPanel({ operationId, canManage, onVarsChanged }: {
       {rows.length === 0 ? (
         <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>No variables defined for this operation yet.</Typography>
       ) : (
-        <Surface e={1} sx={{ overflow: 'hidden' }}>
-          <Table size="small">
-            <TableHead>
-              <TableRow sx={{ background: 'var(--c-surface-2)' }}>
-                <TableCell sx={th}>Var key</TableCell>
-                <TableCell sx={th}>Label</TableCell>
-                <TableCell sx={th}>Unit</TableCell>
-                <TableCell sx={th}>Default</TableCell>
-                <TableCell sx={{ ...th, width: 70 }}>Sort</TableCell>
-                {canManage && <TableCell sx={{ ...th, width: 96 }}>Actions</TableCell>}
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {rows.map((r) => (
-                <TableRow key={r.id} hover>
-                  <TableCell sx={td}><Mono>op.{r.varKey}</Mono></TableCell>
-                  <TableCell sx={td}>{r.label}</TableCell>
-                  <TableCell sx={td}>{r.unit ?? '—'}</TableCell>
-                  <TableCell sx={td}>{r.defaultValue ?? '—'}</TableCell>
-                  <TableCell sx={td}>{r.sortOrder}</TableCell>
-                  {canManage && (
-                    <TableCell sx={td}>
-                      <Tooltip title="Edit"><IconButton size="small" onClick={() => setDlg({ open: true, item: r })}><EditRounded fontSize="small" /></IconButton></Tooltip>
-                      <Tooltip title="Delete"><IconButton size="small" color="error" onClick={() => setDelTarget(r)}><DeleteOutlineRounded fontSize="small" /></IconButton></Tooltip>
-                    </TableCell>
-                  )}
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </Surface>
+        <DataTable
+          rows={rows}
+          getRowId={(r) => r.id}
+          storageKey="operation-variables"
+          exportName="operation-variables"
+          defaultSortKey="sortOrder"
+          columns={[
+            { key: 'varKey', header: 'Var key', render: (r) => <Mono>op.{r.varKey}</Mono>, sortValue: (r) => r.varKey },
+            { key: 'label', header: 'Label', render: (r) => r.label, sortValue: (r) => r.label },
+            { key: 'unit', header: 'Unit', render: (r) => r.unit ?? '—', sortValue: (r) => r.unit ?? '' },
+            // default_value is decimal(18,4), so it arrives as "12.0000" —
+            // NumberCell trims that to "12" and right-aligns it.
+            { key: 'defaultValue', header: 'Default', numeric: true, render: (r) => <NumberCell value={r.defaultValue} />, sortValue: (r) => r.defaultValue ?? null },
+            { key: 'sortOrder', header: 'Sort', width: 90, numeric: true, render: (r) => r.sortOrder, sortValue: (r) => r.sortOrder },
+          ]}
+          rowActions={canManage ? (r) => (
+            <>
+              <Tooltip title="Edit"><IconButton size="small" onClick={() => setDlg({ open: true, item: r })} aria-label={`Edit ${r.varKey}`}><EditRounded fontSize="small" /></IconButton></Tooltip>
+              <Tooltip title="Delete"><IconButton size="small" color="error" onClick={() => setDelTarget(r)} aria-label={`Delete ${r.varKey}`}><DeleteOutlineRounded fontSize="small" /></IconButton></Tooltip>
+            </>
+          ) : undefined}
+        />
       )}
       <VariableDialog open={dlg.open} initial={dlg.item} nextSort={rows.length} onClose={() => setDlg({ open: false, item: null })} onSave={save} />
       <DeleteDialog open={!!delTarget} label={delTarget?.varKey ?? ''} busy={deleting} onClose={() => setDelTarget(null)} onConfirm={handleDelete} />
@@ -367,7 +356,7 @@ function ResourceTypesPanel({ operation, resourceTypes, canManage, onOperationSa
       });
       setRows(res.data ?? []);
     } catch (e) { setErr(errMsg(e)); } finally { setLoading(false); }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [operation.id]);
 
   useEffect(() => { load(); }, [load]);
@@ -428,40 +417,40 @@ function ResourceTypesPanel({ operation, resourceTypes, canManage, onOperationSa
       {rows.length === 0 ? (
         <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>No resource types mapped to this operation yet.</Typography>
       ) : (
-        <Surface e={1} sx={{ overflow: 'hidden' }}>
-          <Table size="small">
-            <TableHead>
-              <TableRow sx={{ background: 'var(--c-surface-2)' }}>
-                <TableCell sx={th}>Code</TableCell>
-                <TableCell sx={th}>Resource type</TableCell>
-                <TableCell sx={{ ...th, width: 100 }}>Default</TableCell>
-                {canManage && <TableCell sx={{ ...th, width: 140 }}>Actions</TableCell>}
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {rows.map((r) => {
-                const isDefault = operation.defaultResourceTypeId === r.resourceTypeId;
-                return (
-                  <TableRow key={r.id} hover>
-                    <TableCell sx={td}><Mono chip>{r.resourceTypeCode}</Mono></TableCell>
-                    <TableCell sx={td}>{r.resourceTypeName}</TableCell>
-                    <TableCell sx={td}>
-                      {isDefault ? <StarRounded fontSize="small" sx={{ color: 'var(--c-warning-600)' }} titleAccess="Default" /> : <StarBorderRounded fontSize="small" sx={{ color: 'var(--c-text-3)' }} />}
-                    </TableCell>
-                    {canManage && (
-                      <TableCell sx={td}>
-                        {!isDefault && (
-                          <Tooltip title="Set as default"><IconButton size="small" onClick={() => setDefault(r.resourceTypeId)}><StarBorderRounded fontSize="small" /></IconButton></Tooltip>
-                        )}
-                        <Tooltip title="Remove mapping"><IconButton size="small" color="error" onClick={() => setDelTarget(r)}><DeleteOutlineRounded fontSize="small" /></IconButton></Tooltip>
-                      </TableCell>
-                    )}
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
-        </Surface>
+        <DataTable
+          rows={rows}
+          getRowId={(r) => r.id}
+          storageKey="operation-resource-types"
+          exportName="operation-resource-types"
+          defaultSortKey="resourceTypeCode"
+          columns={[
+            { key: 'resourceTypeCode', header: 'Code', width: 150, render: (r) => <Mono chip>{r.resourceTypeCode}</Mono>, sortValue: (r) => r.resourceTypeCode },
+            { key: 'resourceTypeName', header: 'Resource type', render: (r) => r.resourceTypeName, sortValue: (r) => r.resourceTypeName },
+            {
+              key: 'default',
+              header: 'Default',
+              width: 110,
+              render: (r) => (operation.defaultResourceTypeId === r.resourceTypeId
+                ? <StarRounded fontSize="small" sx={{ color: 'var(--c-warning-600)' }} titleAccess="Default" />
+                : <StarBorderRounded fontSize="small" sx={{ color: 'var(--c-text-3)' }} titleAccess="Not default" />),
+              // Sort defaults to the top — it's the row you look for first.
+              sortValue: (r) => (operation.defaultResourceTypeId === r.resourceTypeId ? 0 : 1),
+              exportValue: (r) => (operation.defaultResourceTypeId === r.resourceTypeId ? 'default' : ''),
+            },
+          ]}
+          rowActions={canManage ? (r) => (
+            <>
+              {operation.defaultResourceTypeId !== r.resourceTypeId && (
+                <Tooltip title="Set as default">
+                  <IconButton size="small" onClick={() => setDefault(r.resourceTypeId)} aria-label={`Set ${r.resourceTypeCode} as default`}><StarBorderRounded fontSize="small" /></IconButton>
+                </Tooltip>
+              )}
+              <Tooltip title="Remove mapping">
+                <IconButton size="small" color="error" onClick={() => setDelTarget(r)} aria-label={`Remove ${r.resourceTypeCode}`}><DeleteOutlineRounded fontSize="small" /></IconButton>
+              </Tooltip>
+            </>
+          ) : undefined}
+        />
       )}
       <DeleteDialog open={!!delTarget} label={delTarget ? `${delTarget.resourceTypeCode} — ${delTarget.resourceTypeName}` : ''} busy={deleting} onClose={() => setDelTarget(null)} onConfirm={handleDelete} />
     </Box>

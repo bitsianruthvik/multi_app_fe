@@ -3,7 +3,7 @@ import { Link as RouterLink, useNavigate, useParams } from 'react-router-dom';
 import {
   Alert, Autocomplete, Box, Button, CircularProgress, Dialog, DialogActions,
   DialogContent, DialogTitle, Divider, IconButton, Link, MenuItem,
-  Table, TableBody, TableCell, TableHead, TableRow, TextField, Tooltip, Typography,
+  TextField, Tooltip, Typography,
 } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBackRounded';
 import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
@@ -18,6 +18,7 @@ import type { FabPlant } from '../types';
 import { usePermission } from '@core/hooks/usePermission';
 import {
   Surface, DetailLayout, CrossLink, FactItem, StatusBadge, Mono, EmptyState, useToast,
+  DataTable, QtyCell, NumberCell, DateCell,
 } from '../components';
 import { statusFamily } from '../statusMap';
 import OrderItemsTree from '../components/OrderItemsTree';
@@ -306,8 +307,6 @@ function LineItemsTab({ soId, items, plants, canManage, company, onRefresh, toas
     catch (e) { setError((e as Error).message); }
   }
 
-  const th = { fontFamily: 'var(--font-ui)', fontWeight: 600, fontSize: 12, color: 'var(--c-text-2)', textTransform: 'uppercase', letterSpacing: '.05em', borderColor: 'var(--c-divider)' } as const;
-  const td = { borderColor: 'var(--c-divider)', fontSize: 13, color: 'var(--c-text)' } as const;
 
   return (
     <Box>
@@ -353,48 +352,38 @@ function LineItemsTab({ soId, items, plants, canManage, company, onRefresh, toas
       {items.length === 0 ? (
         <EmptyState icon={<Inventory2Rounded />} title="No line items yet" hint="Add catalog items above to build out this order." />
       ) : (
-        <Surface e={1} sx={{ overflow: 'hidden' }}>
-          <Table size="small">
-            <TableHead>
-              <TableRow sx={{ background: 'var(--c-surface-2)' }}>
-                <TableCell sx={th}>Item</TableCell>
-                <TableCell sx={{ ...th, width: 110 }}>Code</TableCell>
-                <TableCell sx={{ ...th, width: 80 }} align="right">Qty</TableCell>
-                <TableCell sx={{ ...th, width: 60 }}>Unit</TableCell>
-                <TableCell sx={{ ...th, width: 110 }} align="right">Unit price</TableCell>
-                <TableCell sx={{ ...th, width: 120 }}>Req. date</TableCell>
-                <TableCell sx={{ ...th, width: 130 }}>Target plant</TableCell>
-                {canManage && <TableCell sx={{ ...th, width: 48 }} />}
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {items.map((item) => (
-                <TableRow key={item.id} hover>
-                  <TableCell sx={td}>
-                    <Link component={RouterLink} to={`/${company}/fab_erp/item-catalog/${item.catalogItemId}`} sx={{ color: 'var(--c-primary-700)', textDecorationColor: 'var(--c-primary-200)' }}>
-                      {item.catalogItemName ?? '—'}
-                    </Link>
-                  </TableCell>
-                  <TableCell sx={td}>{item.catalogItemCode ? <Mono chip>{item.catalogItemCode}</Mono> : '—'}</TableCell>
-                  <TableCell sx={td} align="right"><Mono tabular>{item.qty}</Mono></TableCell>
-                  <TableCell sx={td}>{item.unit ?? item.catalogItemUnit ?? '—'}</TableCell>
-                  <TableCell sx={td} align="right">{item.unitPrice != null ? <Mono tabular>{item.unitPrice}</Mono> : '—'}</TableCell>
-                  <TableCell sx={td}>{item.requestedDate ? <Mono>{item.requestedDate.slice(0, 10)}</Mono> : '—'}</TableCell>
-                  <TableCell sx={td}>{item.targetPlantName ?? '—'}</TableCell>
-                  {canManage && (
-                    <TableCell sx={td}>
-                      <Tooltip title="Remove">
-                        <IconButton size="small" color="error" onClick={() => setDelItem(item)}>
-                          <DeleteOutlineRounded fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
-                    </TableCell>
-                  )}
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </Surface>
+        <DataTable
+          rows={items}
+          getRowId={(i) => i.id}
+          storageKey="order-lines"
+          exportName="order-lines"
+          defaultSortKey="catalogItemName"
+          columns={[
+            {
+              key: 'catalogItemName',
+              header: 'Item',
+              render: (i) => (
+                <Link component={RouterLink} to={`/${company}/fab_erp/item-catalog/${i.catalogItemId}`} sx={{ color: 'var(--c-primary-700)', textDecorationColor: 'var(--c-primary-200)' }}>
+                  {i.catalogItemName ?? '—'}
+                </Link>
+              ),
+              sortValue: (i) => i.catalogItemName ?? '',
+            },
+            { key: 'catalogItemCode', header: 'Code', width: 150, render: (i) => (i.catalogItemCode ? <Mono chip>{i.catalogItemCode}</Mono> : '—'), sortValue: (i) => i.catalogItemCode ?? '' },
+            { key: 'qty', header: 'Qty', width: 100, numeric: true, render: (i) => <QtyCell value={i.qty} />, sortValue: (i) => i.qty },
+            { key: 'unit', header: 'Unit', width: 80, render: (i) => i.unit ?? i.catalogItemUnit ?? '—', sortValue: (i) => i.unit ?? i.catalogItemUnit ?? '' },
+            { key: 'unitPrice', header: 'Unit price', width: 130, numeric: true, render: (i) => <NumberCell value={i.unitPrice} />, sortValue: (i) => i.unitPrice ?? null },
+            { key: 'requestedDate', header: 'Req. date', width: 140, render: (i) => <DateCell value={i.requestedDate} />, sortValue: (i) => i.requestedDate ?? '' },
+            { key: 'targetPlantName', header: 'Target plant', width: 150, render: (i) => i.targetPlantName ?? '—', sortValue: (i) => i.targetPlantName ?? '' },
+          ]}
+          rowActions={canManage ? (item) => (
+            <Tooltip title="Remove">
+              <IconButton size="small" color="error" onClick={() => setDelItem(item)} aria-label={`Remove ${item.catalogItemName ?? 'line'}`}>
+                <DeleteOutlineRounded fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          ) : undefined}
+        />
       )}
 
       <Dialog open={!!delItem} onClose={() => setDelItem(null)} maxWidth="xs" fullWidth>

@@ -3,7 +3,7 @@ import { Link as RouterLink, useNavigate, useParams } from 'react-router-dom';
 import {
   Alert, Autocomplete, Box, Button, Checkbox, CircularProgress, Dialog, DialogActions,
   DialogContent, DialogTitle, Divider, FormControlLabel, IconButton, Link,
-  Table, TableBody, TableCell, TableHead, TableRow, TextField, Tooltip, Typography,
+  TextField, Tooltip, Typography,
 } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBackRounded';
 import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
@@ -17,7 +17,7 @@ import Inventory2Rounded from '@mui/icons-material/Inventory2Rounded';
 import { fabQuery, fabMutate } from '../api/client';
 import { useDetailTitle } from '../components/nav/detailTitleContext';
 import { usePermission } from '@core/hooks/usePermission';
-import { Surface, DetailLayout, FactItem, Mono, EmptyState, useToast } from '../components';
+import { Surface, DetailLayout, FactItem, Mono, EmptyState, useToast, DataTable, NumberCell } from '../components';
 
 interface FabSupplier {
   id: number; companyId: number; name: string; code: string;
@@ -251,8 +251,6 @@ function SupplierItemsTab({ supplierId, items, canManage, company, onRefresh, to
     catch (e) { setError((e as Error).message); }
   }
 
-  const th = { fontFamily: 'var(--font-ui)', fontWeight: 600, fontSize: 12, color: 'var(--c-text-2)', textTransform: 'uppercase', letterSpacing: '.05em', borderColor: 'var(--c-divider)' } as const;
-  const td = { borderColor: 'var(--c-divider)', fontSize: 13, color: 'var(--c-text)' } as const;
 
   return (
     <Box>
@@ -290,55 +288,58 @@ function SupplierItemsTab({ supplierId, items, canManage, company, onRefresh, to
       {items.length === 0 ? (
         <EmptyState icon={<Inventory2Rounded />} title="No items linked to this supplier yet" />
       ) : (
-        <Surface e={1} sx={{ overflow: 'hidden' }}>
-          <Table size="small">
-            <TableHead>
-              <TableRow sx={{ background: 'var(--c-surface-2)' }}>
-                <TableCell sx={th}>Item</TableCell>
-                <TableCell sx={{ ...th, width: 100 }}>Code</TableCell>
-                <TableCell sx={{ ...th, width: 110 }} align="right">Lead time</TableCell>
-                <TableCell sx={{ ...th, width: 110 }} align="right">Unit cost</TableCell>
-                <TableCell sx={{ ...th, width: 70 }}>Currency</TableCell>
-                <TableCell sx={{ ...th, width: 100 }} align="right">Min qty</TableCell>
-                <TableCell sx={{ ...th, width: 80 }} align="center">Preferred</TableCell>
-                <TableCell sx={th}>Notes</TableCell>
-                {canManage && <TableCell sx={{ ...th, width: 80 }} />}
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {items.map((item) => (
-                <TableRow key={item.id} hover>
-                  <TableCell sx={td}>
-                    <Link component={RouterLink} to={`/${company}/fab_erp/item-catalog/${item.catalogItemId}`} sx={{ color: 'var(--c-primary-700)', textDecorationColor: 'var(--c-primary-200)' }}>
-                      {item.catalogItemName ?? '—'}
-                    </Link>
-                  </TableCell>
-                  <TableCell sx={td}>{item.catalogItemCode ? <Mono chip>{item.catalogItemCode}</Mono> : '—'}</TableCell>
-                  <TableCell sx={td} align="right"><Mono tabular>{item.leadTimeDays != null ? `${item.leadTimeDays}d` : '—'}</Mono></TableCell>
-                  <TableCell sx={td} align="right">{item.unitCost != null ? <Mono tabular>{item.unitCost}</Mono> : '—'}</TableCell>
-                  <TableCell sx={td}>{item.currency ?? '—'}</TableCell>
-                  <TableCell sx={td} align="right">{item.minOrderQty != null ? <Mono tabular>{item.minOrderQty}</Mono> : '—'}</TableCell>
-                  <TableCell sx={td} align="center">
-                    {item.isPreferred === 1
-                      ? <StarRounded fontSize="small" sx={{ color: 'var(--c-warning-600)' }} />
-                      : <StarBorderRounded fontSize="small" sx={{ color: 'var(--c-text-3)' }} />}
-                  </TableCell>
-                  <TableCell sx={td}>
-                    <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 180 }}>
-                      {item.notes ?? '—'}
-                    </Typography>
-                  </TableCell>
-                  {canManage && (
-                    <TableCell sx={td}>
-                      <Tooltip title="Edit"><IconButton size="small" onClick={() => openEdit(item)}><EditRounded fontSize="small" /></IconButton></Tooltip>
-                      <Tooltip title="Remove"><IconButton size="small" color="error" onClick={() => setDelItem(item)}><DeleteOutlineRounded fontSize="small" /></IconButton></Tooltip>
-                    </TableCell>
-                  )}
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </Surface>
+        <DataTable
+          rows={items}
+          getRowId={(i) => i.id}
+          storageKey="supplier-items"
+          exportName="supplier-items"
+          defaultSortKey="catalogItemName"
+          columns={[
+            {
+              key: 'catalogItemName',
+              header: 'Item',
+              render: (i) => (
+                <Link component={RouterLink} to={`/${company}/fab_erp/item-catalog/${i.catalogItemId}`} sx={{ color: 'var(--c-primary-700)', textDecorationColor: 'var(--c-primary-200)' }}>
+                  {i.catalogItemName ?? '—'}
+                </Link>
+              ),
+              sortValue: (i) => i.catalogItemName ?? '',
+            },
+            { key: 'catalogItemCode', header: 'Code', width: 140, render: (i) => (i.catalogItemCode ? <Mono chip>{i.catalogItemCode}</Mono> : '—'), sortValue: (i) => i.catalogItemCode ?? '' },
+            { key: 'leadTimeDays', header: 'Lead time', width: 120, numeric: true, render: (i) => (i.leadTimeDays != null ? <Mono tabular>{i.leadTimeDays}d</Mono> : <Mono sx={{ color: 'var(--c-text-3)' }}>—</Mono>), sortValue: (i) => i.leadTimeDays ?? null },
+            { key: 'unitCost', header: 'Unit cost', width: 120, numeric: true, render: (i) => <NumberCell value={i.unitCost} />, sortValue: (i) => i.unitCost ?? null },
+            { key: 'currency', header: 'Currency', width: 100, render: (i) => i.currency ?? '—', sortValue: (i) => i.currency ?? '' },
+            { key: 'minOrderQty', header: 'Min qty', width: 110, numeric: true, render: (i) => <NumberCell value={i.minOrderQty} />, sortValue: (i) => i.minOrderQty ?? null },
+            {
+              key: 'isPreferred',
+              header: 'Preferred',
+              width: 110,
+              align: 'center',
+              render: (i) => (i.isPreferred === 1
+                ? <StarRounded fontSize="small" sx={{ color: 'var(--c-warning-600)' }} titleAccess="Preferred supplier for this item" />
+                : <StarBorderRounded fontSize="small" sx={{ color: 'var(--c-text-3)' }} titleAccess="Not preferred" />),
+              // Preferred first — it's the row a buyer looks for.
+              sortValue: (i) => (i.isPreferred === 1 ? 0 : 1),
+              exportValue: (i) => (i.isPreferred === 1 ? 'preferred' : ''),
+            },
+            {
+              key: 'notes',
+              header: 'Notes',
+              render: (i) => (
+                <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 180 }}>
+                  {i.notes ?? '—'}
+                </Typography>
+              ),
+              sortValue: (i) => i.notes ?? '',
+            },
+          ]}
+          rowActions={canManage ? (item) => (
+            <>
+              <Tooltip title="Edit"><IconButton size="small" onClick={() => openEdit(item)} aria-label={`Edit ${item.catalogItemName ?? 'item'}`}><EditRounded fontSize="small" /></IconButton></Tooltip>
+              <Tooltip title="Remove"><IconButton size="small" color="error" onClick={() => setDelItem(item)} aria-label={`Remove ${item.catalogItemName ?? 'item'}`}><DeleteOutlineRounded fontSize="small" /></IconButton></Tooltip>
+            </>
+          ) : undefined}
+        />
       )}
 
       <Dialog open={!!editItem} onClose={() => setEditItem(null)} maxWidth="sm" fullWidth>
