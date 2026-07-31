@@ -10,6 +10,7 @@ import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
 import SaveIcon from '@mui/icons-material/Save';
 
 import { fabQuery, fabMutate } from '../api/client';
+import { useDetailTitle } from '../components/nav/detailTitleContext';
 import type { FabItemCatalog, FabCustomField, FabItemCategory, FabItemGroup, FabItemSubgroup } from '../types';
 import { usePermission } from '@core/hooks/usePermission';
 import BomDesigner from '../components/BomDesigner';
@@ -48,6 +49,8 @@ export default function ItemCatalogDetail() {
   const { toast } = useToast();
 
   const [item, setItem] = useState<FabItemCatalog | null>(null);
+  // Breadcrumb reads "Items / FG-GIRDER-PG1500", not "Items / 42".
+  useDetailTitle(item?.code);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');

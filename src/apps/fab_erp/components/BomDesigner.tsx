@@ -467,7 +467,10 @@ interface BomTreeLevelProps {
 }
 
 function BomTreeLevel({ items, scale, allBomCatalogIds, treeKey, onEdit, mode, depth, onCreateBom }: BomTreeLevelProps) {
-  const inputs  = items.filter(i => i.itemCategory === 'component' || i.itemCategory === 'mfg');
+  // 'mfg' is a *display* category derived from expandability (see dotType
+  // below) — it is never a stored item_category, so testing for it here was
+  // dead. Manufactured inputs are persisted as 'component' and already match.
+  const inputs  = items.filter(i => i.itemCategory === 'component');
   const outputs = items.filter(i => i.itemCategory === 'co_product' || i.itemCategory === 'by_product');
   const isScaled = scale !== 1;
 

@@ -9,8 +9,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   Alert, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel,
-  IconButton, MenuItem, Switch, Table, TableBody, TableCell, TableHead, TableRow,
-  TextField, Tooltip, Typography,
+  IconButton, MenuItem, Switch, TextField, Tooltip, Typography,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import EditRounded from '@mui/icons-material/EditRounded';
@@ -19,7 +18,10 @@ import ArrowBackRounded from '@mui/icons-material/ArrowBackRounded';
 import StackedBarChartRounded from '@mui/icons-material/StackedBarChartRounded';
 
 import { fabQuery, fabMutate } from '../api/client';
-import { PageHeader, Surface, StatusBadge, Mono, EmptyState, ListSkeleton, useToast } from '../components';
+import {
+  PageHeader, Surface, StatusBadge, Mono, EmptyState, ListSkeleton, useToast,
+  DataTable, ConfirmDialog,
+} from '../components';
 import ProgressStagesSheet from '../components/ProgressStagesSheet';
 import type { FabOperation, FabItemCategory } from '../types';
 
@@ -33,9 +35,6 @@ function errMsg(e: unknown): string {
   const ax = e as { response?: { data?: { message?: string; error?: string } }; message?: string };
   return ax.response?.data?.message ?? ax.response?.data?.error ?? ax.message ?? 'Something went wrong.';
 }
-
-const th = { fontSize: 11.5, fontWeight: 700, color: 'var(--c-text-3)', textTransform: 'uppercase' as const, letterSpacing: 0.4 };
-const td = { fontSize: 13.5, color: 'var(--c-text)' };
 
 // ── Create / edit template dialog ────────────────────────────────────────────
 function TemplateDialog({ open, initial, categories, onClose, onSaved }: {
@@ -146,15 +145,16 @@ export default function ProgressTemplates() {
 
   const selected = templates.find((t) => t.id === selectedId) ?? null;
 
+  // Deliberately does NOT catch: ConfirmDialog surfaces the backend message
+  // in-dialog and keeps itself open on failure. Swallowing the error here
+  // would close the dialog and leave the user thinking the delete worked.
   async function handleDelete() {
     if (!delTarget) return;
-    try {
-      await fabMutate('fabErpProgressTemplate', 'delete', { id: delTarget.id });
-      if (selectedId === delTarget.id) setSelectedId(null);
-      setDelTarget(null);
-      fetchTemplates();
-      toast('Template deleted');
-    } catch (e) { setError(errMsg(e)); setDelTarget(null); }
+    await fabMutate('fabErpProgressTemplate', 'delete', { id: delTarget.id });
+    if (selectedId === delTarget.id) setSelectedId(null);
+    setDelTarget(null);
+    fetchTemplates();
+    toast('Template deleted');
   }
 
   const newBtn = (
@@ -175,33 +175,50 @@ export default function ProgressTemplates() {
         templates.length === 0 ? (
           <EmptyState icon={<StackedBarChartRounded />} title="No progress templates yet" hint='Click "New template" to define reporting stages.' action={newBtn} />
         ) : (
-          <Surface e={1} sx={{ overflow: 'hidden' }}>
-            <Table size="small">
-              <TableHead>
-                <TableRow sx={{ background: 'var(--c-surface-2)' }}>
-                  <TableCell sx={{ ...th, width: 120 }}>Code</TableCell>
-                  <TableCell sx={th}>Name</TableCell>
-                  <TableCell sx={th}>Auto-match category</TableCell>
-                  <TableCell sx={{ ...th, width: 100 }}>Status</TableCell>
-                  <TableCell sx={{ ...th, width: 110 }}>Actions</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {templates.map((t) => (
-                  <TableRow key={t.id} hover sx={{ cursor: 'pointer' }} onClick={() => setSelectedId(t.id)}>
-                    <TableCell sx={td}>{t.code ? <Mono chip>{t.code}</Mono> : '—'}</TableCell>
-                    <TableCell sx={{ ...td, fontWeight: 500 }}>{t.name}</TableCell>
-                    <TableCell sx={{ ...td, color: t.matchCategoryName ? 'var(--c-text)' : 'var(--c-text-3)' }}>{t.matchCategoryName ?? '—'}</TableCell>
-                    <TableCell sx={td}><StatusBadge status={t.active ? 'Active' : 'Inactive'} family={t.active ? 'success' : 'neutral'} /></TableCell>
-                    <TableCell sx={td} onClick={(e) => e.stopPropagation()}>
-                      <Tooltip title="Edit"><IconButton size="small" onClick={() => setDlg({ open: true, template: t })}><EditRounded fontSize="small" /></IconButton></Tooltip>
-                      <Tooltip title="Delete"><IconButton size="small" color="error" onClick={() => setDelTarget(t)}><DeleteOutlineRounded fontSize="small" /></IconButton></Tooltip>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </Surface>
+          <DataTable
+            rows={templates}
+            getRowId={(t) => t.id}
+            onRowClick={(t) => setSelectedId(t.id)}
+            storageKey="progress-templates"
+            exportName="progress-templates"
+            defaultSortKey="name"
+            columns={[
+              { key: 'code', header: 'Code', width: 130, render: (t) => (t.code ? <Mono chip>{t.code}</Mono> : '—'), sortValue: (t) => t.code ?? '' },
+              { key: 'name', header: 'Name', render: (t) => <Box sx={{ fontWeight: 500 }}>{t.name}</Box>, sortValue: (t) => t.name },
+              {
+                key: 'matchCategoryName',
+                header: 'Auto-match category',
+                render: (t) => (
+                  <Box sx={{ color: t.matchCategoryName ? 'var(--c-text)' : 'var(--c-text-3)' }}>
+                    {t.matchCategoryName ?? '—'}
+                  </Box>
+                ),
+                sortValue: (t) => t.matchCategoryName ?? '',
+              },
+              {
+                key: 'active',
+                header: 'Status',
+                width: 120,
+                render: (t) => <StatusBadge status={t.active ? 'Active' : 'Inactive'} family={t.active ? 'success' : 'neutral'} />,
+                sortValue: (t) => (t.active ? 1 : 0),
+                exportValue: (t) => (t.active ? 'Active' : 'Inactive'),
+              },
+            ]}
+            rowActions={(t) => (
+              <>
+                <Tooltip title="Edit">
+                  <IconButton size="small" onClick={() => setDlg({ open: true, template: t })} aria-label={`Edit ${t.name}`}>
+                    <EditRounded fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+                <Tooltip title="Delete">
+                  <IconButton size="small" color="error" onClick={() => setDelTarget(t)} aria-label={`Delete ${t.name}`}>
+                    <DeleteOutlineRounded fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              </>
+            )}
+          />
         )
       ) : (
         <>
@@ -233,14 +250,14 @@ export default function ProgressTemplates() {
         onSaved={(id) => { setDlg({ open: false, template: null }); toast('Template saved'); fetchTemplates(id); }}
       />
 
-      <Dialog open={!!delTarget} onClose={() => setDelTarget(null)} maxWidth="xs" fullWidth>
-        <DialogTitle>Delete template?</DialogTitle>
-        <DialogContent><Typography sx={{ fontSize: 14 }}>Delete “{delTarget?.name}” and its stages? Orders keep their tasks; they just lose this reporting view.</Typography></DialogContent>
-        <DialogActions>
-          <Button onClick={() => setDelTarget(null)}>Cancel</Button>
-          <Button color="error" variant="contained" onClick={handleDelete}>Delete</Button>
-        </DialogActions>
-      </Dialog>
+      <ConfirmDialog
+        open={!!delTarget}
+        title="Delete template"
+        entityName={delTarget?.name}
+        body="Its stages go with it. Orders keep their tasks — they just lose this reporting view."
+        onClose={() => setDelTarget(null)}
+        onConfirm={handleDelete}
+      />
     </Box>
   );
 }

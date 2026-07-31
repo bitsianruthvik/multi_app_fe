@@ -14,7 +14,7 @@
  * to the linked catalog item, the slot's param label, or a generic role tag.
  */
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Alert, Autocomplete, Box, Button, CircularProgress, Dialog, DialogActions,
   DialogContent, DialogTitle, Divider, IconButton, MenuItem, Switch,

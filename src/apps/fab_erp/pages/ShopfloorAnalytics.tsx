@@ -270,7 +270,10 @@ function ProjectSection() {
     <Surface e={1} sx={{ p: 2.5 }}>
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 2, flexWrap: 'wrap' }}>
         <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>Order</Typography>
-        <Select
+        {/* Explicit generic: without it MUI infers Value=number from `value`,
+            so TS thinks the `=== ''` guard is impossible even though the
+            "Select an order…" MenuItem really does emit ''. */}
+        <Select<number | ''>
           size="small"
           value={orderId}
           displayEmpty

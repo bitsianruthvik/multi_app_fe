@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   Alert, Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle,
-  Grid, IconButton, MenuItem, Stack, Tab, Table, TableBody, TableCell, TableRow,
+  Grid, IconButton, MenuItem, Stack, Tab,
   Tabs, TextField, Tooltip, Typography,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
@@ -11,8 +11,7 @@ import EditRounded from '@mui/icons-material/EditRounded';
 import { fabQuery, fabMutate, fabPost, fabGet } from '@apps/fab_erp/api/client';
 import type { FabPlant, FabStockLocation, FabStockPolicy } from '@apps/fab_erp/types';
 import { usePermission } from '@core/hooks/usePermission';
-import { Surface, PageHeader, Mono, StatusBadge, EmptyState, ListSkeleton, useToast, EntityList, EntityRow, SortableTableHead, type SortableColumn } from '../components';
-import { useSortableData } from '../hooks/useSortableData';
+import { PageHeader, Mono, StatusBadge, EmptyState, ListSkeleton, useToast, EntityList, EntityRow, DataTable, QtyCell } from '../components';
 import FactoryRounded from '@mui/icons-material/FactoryRounded';
 
 interface QueryResult<T> { data: T[]; total?: number }
@@ -35,23 +34,6 @@ interface StockSummaryItem {
 }
 interface StockSummaryResponse { ok: boolean; data: { items: StockSummaryItem[] } }
 
-const th = { fontFamily: 'var(--font-ui)', fontWeight: 600, fontSize: 12, color: 'var(--c-text-2)', textTransform: 'uppercase', letterSpacing: '.05em', borderColor: 'var(--c-divider)' } as const;
-const td = { borderColor: 'var(--c-divider)', fontSize: 13, color: 'var(--c-text)' } as const;
-
-// NOTE: "Ordered" (qtyOrdered) and "Earmarked" (qtyEarmarked) columns were
-// sourced from the now-deleted fabErpStockBalance resource. "Earmarked" is
-// dropped entirely per plan (confirmed dead — always hardcoded 0, no FE
-// mutation existed). "Ordered" is also dropped: /stock/summary (the live
-// fab_stock_pieces aggregate) has no concept of on-order qty — that data
-// isn't exposed by any current endpoint, so re-adding this column is out of
-// scope here (would require a new backend endpoint/field).
-const STOCK_LEVEL_COLUMNS: SortableColumn<StockLevelRow>[] = [
-  { key: 'catalogItemName',   label: 'Item',              sx: { ...th, minWidth: 200 } },
-  { key: 'plantName',         label: 'Plant',             sx: { ...th, width: 140 } },
-  { key: 'stockLocationName', label: 'Stock location',    sx: { ...th, width: 140 } },
-  { key: 'qtyAvailable',      label: 'Available',         align: 'right', sx: { ...th, width: 100 } },
-  { key: 'minQty',            label: 'Min qty',           align: 'right', sx: { ...th, width: 100 } },
-];
 
 function PlantDialog({ open, initial, onClose, onSaved }: {
   open: boolean; initial: FabPlant | null; onClose: () => void; onSaved: (code?: string) => void;
@@ -274,7 +256,7 @@ export default function Plants() {
     if (!stockLocationsAll.some((l) => l.id === slvStockLocationId)) setSlvStockLocationId(null);
   }, [stockLocationsAll, slvStockLocationId]);
 
-  const { sortedRows: sortedStockLevels, sortKey, sortDirection, requestSort } = useSortableData(stockLevels, 'catalogItemName');
+
 
   useEffect(() => {
     if (!canViewInventory || tab !== 2) return;
@@ -440,35 +422,44 @@ export default function Plants() {
               {stockLevelsLoading ? <ListSkeleton rows={4} /> : stockLevels.length === 0 ? (
                 <EmptyState title="No stock data for the selected filters" />
               ) : (
-                <Surface e={1} sx={{ overflow: 'hidden' }}>
-                  <Table size="small">
-                    <SortableTableHead<StockLevelRow>
-                      columns={STOCK_LEVEL_COLUMNS}
-                      sortKey={sortKey}
-                      sortDirection={sortDirection}
-                      onRequestSort={requestSort}
-                    />
-                    <TableBody>
-                      {sortedStockLevels.map((row) => {
-                        const belowMin = row.minQty > 0 && row.qtyAvailable < row.minQty;
-                        return (
-                          <TableRow key={`${row.catalogItemId}-${row.plantId}-${row.stockLocationId}`} hover>
-                            <TableCell sx={td}>{row.catalogItemName}{row.catalogItemCode && <Mono chip sx={{ ml: 1 }}>{row.catalogItemCode}</Mono>}</TableCell>
-                            <TableCell sx={td}>{row.plantName}</TableCell>
-                            <TableCell sx={td}>{row.stockLocationName}</TableCell>
-                            <TableCell sx={td} align="right">
-                              <Stack direction="row" spacing={1} alignItems="center" justifyContent="flex-end">
-                                <Mono tabular>{row.qtyAvailable}{row.unit ? ` ${row.unit}` : ''}</Mono>
-                                {belowMin && <StatusBadge status="Below min" family="warning" />}
-                              </Stack>
-                            </TableCell>
-                            <TableCell sx={td} align="right"><Mono tabular>{row.minQty}</Mono></TableCell>
-                          </TableRow>
-                        );
-                      })}
-                    </TableBody>
-                  </Table>
-                </Surface>
+                <DataTable
+                  rows={stockLevels}
+                  getRowId={(r) => `${r.catalogItemId}-${r.plantId}-${r.stockLocationId}`}
+                  storageKey="stock-levels"
+                  exportName="stock-levels"
+                  defaultSortKey="catalogItemName"
+                  columns={[
+                    {
+                      key: 'catalogItemName',
+                      header: 'Item',
+                      render: (r) => (
+                        <>
+                          {r.catalogItemName}
+                          {r.catalogItemCode && <Mono chip sx={{ ml: 1 }}>{r.catalogItemCode}</Mono>}
+                        </>
+                      ),
+                      sortValue: (r) => r.catalogItemName,
+                      exportValue: (r) => `${r.catalogItemName}${r.catalogItemCode ? ` (${r.catalogItemCode})` : ''}`,
+                    },
+                    { key: 'plantName', header: 'Plant', render: (r) => r.plantName, sortValue: (r) => r.plantName },
+                    { key: 'stockLocationName', header: 'Stock location', render: (r) => r.stockLocationName, sortValue: (r) => r.stockLocationName },
+                    {
+                      key: 'qtyAvailable',
+                      header: 'Available',
+                      numeric: true,
+                      render: (r) => (
+                        <Stack direction="row" spacing={1} alignItems="center" justifyContent="flex-end">
+                          <QtyCell value={r.qtyAvailable} uom={r.unit} />
+                          {/* Below-min is a stock exception, so it earns a badge
+                              rather than just a colour (a11y: never colour alone). */}
+                          {r.minQty > 0 && r.qtyAvailable < r.minQty && <StatusBadge status="Below min" family="warning" />}
+                        </Stack>
+                      ),
+                      sortValue: (r) => r.qtyAvailable,
+                    },
+                    { key: 'minQty', header: 'Min', numeric: true, render: (r) => <QtyCell value={r.minQty} />, sortValue: (r) => r.minQty },
+                  ]}
+                />
               )}
             </>
           )}

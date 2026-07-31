@@ -415,7 +415,7 @@ function ResourceTypesPanel({ operation, resourceTypes, canManage, onOperationSa
       {err && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setErr('')}>{err}</Alert>}
       {canManage && (
         <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', mb: 1.5 }}>
-          <Select size="small" displayEmpty value={addRtId} sx={{ minWidth: 260 }}
+          <Select<number | ''> size="small" displayEmpty value={addRtId} sx={{ minWidth: 260 }}
             onChange={(e) => setAddRtId(e.target.value === '' ? '' : Number(e.target.value))}>
             <MenuItem value="" disabled><em>Select a resource type to map…</em></MenuItem>
             {availableTypes.map((rt) => <MenuItem key={rt.id} value={rt.id}>{rt.code} — {rt.name}</MenuItem>)}

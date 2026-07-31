@@ -13,6 +13,7 @@ import FactoryRounded from '@mui/icons-material/FactoryRounded';
 import Inventory2Rounded from '@mui/icons-material/Inventory2Rounded';
 
 import { fabQuery, fabMutate } from '../api/client';
+import { useDetailTitle } from '../components/nav/detailTitleContext';
 import type { FabPlant } from '../types';
 import { usePermission } from '@core/hooks/usePermission';
 import {
@@ -51,6 +52,8 @@ export default function SalesOrderDetail() {
   const go = (p: string) => navigate(`/${company}/fab_erp/${p}`);
 
   const [so, setSo] = useState<FabOrder | null>(null);
+  // Breadcrumb reads "Orders / SO-20260715-0002", not "Orders / 81".
+  useDetailTitle(so?.orderNumber);
   const [items, setItems] = useState<FabOrderLine[]>([]);
   const [plants, setPlants] = useState<FabPlant[]>([]);
   const [loading, setLoading] = useState(true);

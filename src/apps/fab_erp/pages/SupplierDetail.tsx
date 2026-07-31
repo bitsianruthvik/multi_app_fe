@@ -15,6 +15,7 @@ import StarBorderRounded from '@mui/icons-material/StarBorderRounded';
 import Inventory2Rounded from '@mui/icons-material/Inventory2Rounded';
 
 import { fabQuery, fabMutate } from '../api/client';
+import { useDetailTitle } from '../components/nav/detailTitleContext';
 import { usePermission } from '@core/hooks/usePermission';
 import { Surface, DetailLayout, FactItem, Mono, EmptyState, useToast } from '../components';
 
@@ -48,6 +49,8 @@ export default function SupplierDetail() {
   const id = Number(supplierId);
 
   const [supplier, setSupplier] = useState<FabSupplier | null>(null);
+  // Breadcrumb reads the supplier's name rather than its row id.
+  useDetailTitle(supplier?.name);
   const [siItems, setSiItems] = useState<FabSupplierItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);

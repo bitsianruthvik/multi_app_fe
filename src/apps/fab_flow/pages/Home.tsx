@@ -66,7 +66,10 @@ export default function Home() {
       await api.post(`${API_HOST}/api/query/v1/base_resource`, {
         operation: 'insert',
         resource:  'fab_project_plans',
-        data: { ...form, company_id: companyId, created_by: user?.id },
+        // `companyId` was an undeclared identifier here — creating a plan threw
+        // a ReferenceError before the request was ever sent. AuthContext exposes
+        // the tenant id as `company_id`.
+        data: { ...form, company_id: user?.company_id, created_by: user?.id },
       });
       setDialog(false);
       setForm({ project_code:'',project_name:'',client_name:'',site_location:'',plan_name:'',plan_revision:'Rev 0',notes:'' });

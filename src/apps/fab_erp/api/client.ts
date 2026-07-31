@@ -382,7 +382,7 @@ export async function getBufferBoard(): Promise<BufferBoardResponse> {
   return fabGet<BufferBoardResponse>('buffers/board');
 }
 
-export interface MoveBufferContentBody {
+export type MoveBufferContentBody = {
   contentId?: number;
   taskId?: number;
   toBufferId?: number;
@@ -426,7 +426,7 @@ export async function getBufferConfig(resourceId: number): Promise<BufferConfigR
   return fabGet<BufferConfigResponse>('buffers/config', { resourceId });
 }
 
-export interface SaveBufferConfigBody {
+export type SaveBufferConfigBody = {
   resourceId: number;
   kind: BufferKind;
   stockLocationId?: number;
@@ -459,7 +459,7 @@ export async function deleteBufferConfig(id: number): Promise<{ ok: boolean }> {
 export type MachineStateKey = 'running' | 'idle' | 'down' | 'off';
 
 /** Optional date-range for every analytics endpoint. */
-export interface AnalyticsRange {
+export type AnalyticsRange = {
   from?: string;
   to?: string;
 }

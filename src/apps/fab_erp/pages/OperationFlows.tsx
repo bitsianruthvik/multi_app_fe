@@ -13,7 +13,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   Alert, Box, Button, CircularProgress, Dialog, DialogActions, DialogContent,
-  DialogTitle, IconButton, Switch, Table, TableBody, TableCell, TableHead, TableRow,
+  DialogTitle, IconButton, Switch,
   TextField, Tooltip, Typography,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
@@ -26,13 +26,11 @@ import AccountTreeRounded from '@mui/icons-material/AccountTreeRounded';
 import { fabQuery, fabMutate } from '@apps/fab_erp/api/client';
 import type { FabOperationFlow, FabOperationFlowStep, FabOperation, FabResourceType } from '@apps/fab_erp/types';
 import { usePermission } from '@core/hooks/usePermission';
-import { Surface, PageHeader, Mono, StatusBadge, EmptyState, ListSkeleton, useToast } from '../components';
+import { Surface, PageHeader, Mono, StatusBadge, EmptyState, ListSkeleton, useToast, DataTable } from '../components';
 import FlowStepsSheet from '../components/FlowStepsSheet';
 
 interface QueryResult<T> { data: T[]; total?: number }
 
-const th = { fontFamily: 'var(--font-ui)', fontWeight: 600, fontSize: 12, color: 'var(--c-text-2)', textTransform: 'uppercase', letterSpacing: '.05em', borderColor: 'var(--c-divider)' } as const;
-const td = { borderColor: 'var(--c-divider)', fontSize: 13, color: 'var(--c-text)', verticalAlign: 'top' } as const;
 
 function errMsg(e: unknown): string {
   const ax = e as { response?: { data?: { message?: string; error?: string } }; message?: string };
@@ -319,40 +317,49 @@ export default function OperationFlows() {
         flows.length === 0 ? (
           <EmptyState icon={<AccountTreeRounded />} title="No operation flows yet" hint='Click "New flow" to create one.' action={newBtn ?? undefined} />
         ) : (
-          <Surface e={1} sx={{ overflow: 'hidden' }}>
-            <Table size="small">
-              <TableHead>
-                <TableRow sx={{ background: 'var(--c-surface-2)' }}>
-                  <TableCell sx={{ ...th, width: 120 }}>Code</TableCell>
-                  <TableCell sx={th}>Name</TableCell>
-                  <TableCell sx={th}>Description</TableCell>
-                  <TableCell sx={{ ...th, width: 110 }}>Status</TableCell>
-                  {canManage && <TableCell sx={{ ...th, width: 150 }}>Actions</TableCell>}
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {flows.map((f) => (
-                  <TableRow key={f.id} hover sx={{ cursor: 'pointer' }} onClick={() => setSelectedId(f.id)}>
-                    <TableCell sx={td}><Mono chip>{f.code}</Mono></TableCell>
-                    <TableCell sx={{ ...td, fontWeight: 500 }}>{f.name}</TableCell>
-                    <TableCell sx={{ ...td, color: f.description ? 'var(--c-text)' : 'var(--c-text-3)', maxWidth: 360 }}>
-                      {f.description || '—'}
-                    </TableCell>
-                    <TableCell sx={td}>
-                      <StatusBadge status={f.active ? 'Active' : 'Inactive'} family={f.active ? 'success' : 'neutral'} />
-                    </TableCell>
-                    {canManage && (
-                      <TableCell sx={td} onClick={(e) => e.stopPropagation()}>
-                        <Tooltip title="Edit name/description"><IconButton size="small" onClick={() => setEditTarget(f)}><EditRounded fontSize="small" /></IconButton></Tooltip>
-                        <Tooltip title="Duplicate"><IconButton size="small" onClick={() => setDupTarget(f)}><ContentCopyRounded fontSize="small" /></IconButton></Tooltip>
-                        <Tooltip title="Delete"><IconButton size="small" color="error" onClick={() => setDelTarget(f)}><DeleteOutlineRounded fontSize="small" /></IconButton></Tooltip>
-                      </TableCell>
-                    )}
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </Surface>
+          <DataTable
+            rows={flows}
+            getRowId={(f) => f.id}
+            onRowClick={(f) => setSelectedId(f.id)}
+            storageKey="operation-flows"
+            exportName="operation-flows"
+            defaultSortKey="code"
+            columns={[
+              { key: 'code', header: 'Code', width: 130, render: (f) => <Mono chip>{f.code}</Mono>, sortValue: (f) => f.code },
+              { key: 'name', header: 'Name', render: (f) => <Box sx={{ fontWeight: 500 }}>{f.name}</Box>, sortValue: (f) => f.name },
+              {
+                key: 'description',
+                header: 'Description',
+                render: (f) => (
+                  <Box sx={{ color: f.description ? 'var(--c-text)' : 'var(--c-text-3)', maxWidth: 360, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {f.description || '—'}
+                  </Box>
+                ),
+                sortValue: (f) => f.description ?? '',
+              },
+              {
+                key: 'active',
+                header: 'Status',
+                width: 120,
+                render: (f) => <StatusBadge status={f.active ? 'Active' : 'Inactive'} family={f.active ? 'success' : 'neutral'} />,
+                sortValue: (f) => (f.active ? 1 : 0),
+                exportValue: (f) => (f.active ? 'Active' : 'Inactive'),
+              },
+            ]}
+            rowActions={canManage ? (f) => (
+              <>
+                <Tooltip title="Edit name/description">
+                  <IconButton size="small" onClick={() => setEditTarget(f)} aria-label={`Edit ${f.code}`}><EditRounded fontSize="small" /></IconButton>
+                </Tooltip>
+                <Tooltip title="Duplicate">
+                  <IconButton size="small" onClick={() => setDupTarget(f)} aria-label={`Duplicate ${f.code}`}><ContentCopyRounded fontSize="small" /></IconButton>
+                </Tooltip>
+                <Tooltip title="Delete">
+                  <IconButton size="small" color="error" onClick={() => setDelTarget(f)} aria-label={`Delete ${f.code}`}><DeleteOutlineRounded fontSize="small" /></IconButton>
+                </Tooltip>
+              </>
+            ) : undefined}
+          />
         )
       ) : (
         <>

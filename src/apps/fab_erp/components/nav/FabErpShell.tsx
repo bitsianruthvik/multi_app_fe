@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useMemo, useState, type ReactNode } from 'react';
 import { Box, useMediaQuery, useTheme } from '@mui/material';
 import { Link, useLocation } from 'react-router-dom';
 import ChevronRightRounded from '@mui/icons-material/ChevronRightRounded';
@@ -11,6 +11,7 @@ import { MobileNavSheet } from './MobileNavSheet';
 import { ShortcutsHelp } from '../ShortcutsHelp';
 import { useShortcutsHelp } from '../../hooks/useShortcutsHelp';
 import { useCompanySlug } from '../../hooks/useCompanySlug';
+import { DetailTitleContext } from './detailTitleContext';
 
 /**
  * The fab_erp application shell (FAB_ERP_UX_ELEVATION_PLAN.md §2.1).
@@ -37,8 +38,12 @@ export function FabErpShell({ children }: { children: ReactNode }) {
   const resolved = useMemo(() => resolveRoute(pathname), [pathname]);
   const onDetail = !!resolved?.isChild;
 
-  // The last URL segment — an id, or an entity code where routes carry one.
-  const detailLabel = pathname.split('/').filter(Boolean).slice(3).join(' / ');
+  // Detail pages publish their own label (order number, item code…) via
+  // useDetailTitle. Until one does, fall back to the URL's trailing segments.
+  const [detailTitle, setDetailTitle] = useState<string | null>(null);
+  const publishTitle = useCallback((t: string | null) => setDetailTitle(t), []);
+  const urlLabel = pathname.split('/').filter(Boolean).slice(3).join(' / ');
+  const detailLabel = detailTitle ?? urlLabel;
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden', background: 'var(--c-canvas)' }}>
@@ -95,7 +100,7 @@ export function FabErpShell({ children }: { children: ReactNode }) {
 
       <Box component="main" sx={{ flex: 1, overflow: 'auto', minWidth: 0 }}>
         <Box
-          key={resolved?.entry.slug ?? pathname}
+          key={pathname}
           sx={{
             p: { xs: 2, md: 3 },
             minHeight: '100%',
@@ -108,7 +113,11 @@ export function FabErpShell({ children }: { children: ReactNode }) {
             },
           }}
         >
-          <ErrorBoundary level="page">{children}</ErrorBoundary>
+          <ErrorBoundary level="page">
+            <DetailTitleContext.Provider value={publishTitle}>
+              {children}
+            </DetailTitleContext.Provider>
+          </ErrorBoundary>
         </Box>
       </Box>
     </Box>

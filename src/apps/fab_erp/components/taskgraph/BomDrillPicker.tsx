@@ -146,11 +146,16 @@ export default function BomDrillPicker({ orderId, value, onChange }: BomDrillPic
         let guard = 0;
         while (currentId != null && guard < 25) {
           guard += 1;
+          // Both annotations are load-bearing: without them TS chases
+          // currentId -> row -> res -> filters -> currentId and gives up with
+          // "implicitly has type any because it is referenced in its own
+          // initializer" (TS7022), silently losing all typing in this loop.
+          const lookupId: number = currentId;
           const res = await fabQuery<{ data: FabItemRow[] }>('fabErpItem', {
-            filters: { id: currentId },
+            filters: { id: lookupId },
             pagination: { limit: 1 },
           });
-          const row = res.data?.[0];
+          const row: FabItemRow | undefined = res.data?.[0];
           if (!row) break;
           chain.unshift(row);
           currentId = row.parentItemId;

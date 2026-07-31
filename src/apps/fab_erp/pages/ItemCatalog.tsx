@@ -1942,7 +1942,7 @@ export default function ItemCatalog() {
             </Box>
             <Box sx={{ width: 180 }}>
               <Typography variant="caption" color="text.secondary">Sub-group</Typography>
-              <Select fullWidth size="small" displayEmpty value={filterSubgroupId}
+              <Select<number | ''> fullWidth size="small" displayEmpty value={filterSubgroupId}
                 onChange={(e) => setFilterSubgroupId(e.target.value === '' ? '' : Number(e.target.value))}>
                 <MenuItem value="">All</MenuItem>
                 {filterSubgroupOptions.map((s) => <MenuItem key={s.id} value={s.id}>{s.name}</MenuItem>)}
