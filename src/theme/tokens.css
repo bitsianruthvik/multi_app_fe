@@ -30,6 +30,14 @@ html[data-app='fab_erp'] {
   --c-info-50: #E2F1FB;     --c-info-600: #0284C7;     --c-info-800: #0A4A75;
   --c-neutral-50: #F1F2F7;  --c-neutral-600: #5A5E78;  --c-neutral-800: #2C2E40;
 
+  /* ── Semantic tint borders — for a bordered panel on a -50 fill, so it can
+     match its family instead of falling back to the neutral --c-border ── */
+  --c-success-200: #B7E4CE;
+  --c-warning-200: #F2D9A8;
+  --c-danger-200: #F5C2CC;
+  --c-info-200: #B8DCF3;
+  --c-neutral-200: #D8DAE6;
+
   /* ── Board stage accents (categorical, not status — pipeline columns) ── */
   --c-stage-capture: #D97706;
   --c-stage-planned: #0284C7;
@@ -37,20 +45,57 @@ html[data-app='fab_erp'] {
   --c-stage-production: #DB5A2C;
   --c-stage-shipped: #0E9F6E;
 
+  /* ── Machine / task run states (shop-floor screens: Machine Board, Machine
+     Timeline, Shopfloor Analytics, Reconciliation). These are a fixed 4-value
+     state scale, NOT the open-ended status families, so they get their own
+     tokens rather than borrowing success/danger ── */
+  --c-state-running: #0E9F6E;
+  --c-state-idle: #8A8EA8;
+  --c-state-down: #E11D48;
+  --c-state-off: #4B5169;
+  --c-state-wait: #D97706;
+
+  /* ── Chart palette — categorical, hue- and lightness-spaced, deliberately
+     distinct from the status families so a series never reads as a status.
+     Series 1 is the brand violet. Use in order; do not reorder per chart ── */
+  --c-chart-1: #6D28D9;
+  --c-chart-2: #0891B2;
+  --c-chart-3: #DB2777;
+  --c-chart-4: #CA8A04;
+  --c-chart-5: #4338CA;
+  --c-chart-6: #0F766E;
+  --c-chart-7: #C2410C;
+  --c-chart-8: #64748B;
+  --c-chart-grid: #ECEDF5;
+  --c-chart-axis: #8A8EA8;
+  --c-chart-tooltip-bg: #1A1C2E;
+  --c-chart-tooltip-text: #FFFFFF;
+
   /* ── Neutrals (light) ── */
   --c-canvas: #F6F7FB;
   --c-surface: #FFFFFF;
   --c-surface-2: #F7F8FD;
+  --c-surface-3: #EFF1F8;
   --c-text: #1A1C2E;
   --c-text-2: #5A5E78;
   --c-text-3: #8A8EA8;
   --c-border: #E4E6F0;
   --c-divider: #ECEDF5;
+  --c-focus: #7C3AED;
 
   /* ── Elevation (replaces glass as the depth mechanism — §5.2) ── */
+  --e-0: none;
   --e-1: 0 1px 2px rgba(16,24,40,.04), 0 1px 3px rgba(16,24,40,.06);
   --e-2: 0 2px 4px rgba(16,24,40,.04), 0 6px 16px rgba(16,24,40,.08);
   --e-3: 0 8px 24px rgba(16,24,40,.12), 0 2px 6px rgba(16,24,40,.06);
+  --e-hover: 0 2px 4px rgba(16,24,40,.05), 0 8px 20px rgba(16,24,40,.10);
+
+  /* ── Stacking order — every overlay reads from here instead of guessing ── */
+  --z-sticky: 5;
+  --z-topnav: 20;
+  --z-sheet: 1200;
+  --z-palette: 1400;
+  --z-toast: 1600;
 
   /* ── Glass — ONLY for the top bar + modal/palette scrims (§5.3) ── */
   --glass-bg: rgba(255,255,255,.72);
@@ -70,6 +115,13 @@ html[data-app='fab_erp'] {
   --t-slow: 320ms;
   --ease: cubic-bezier(.2,.8,.2,1);
 
+  /* ── Density — DataTable and EntityRow read --row-h / --row-px so a single
+     data-density attribute on the html element retunes every list at once.
+     Default is cosy; the toggle writes data-density="compact|comfy" ── */
+  --row-h: 40px;
+  --row-px: 12px;
+  --row-fs: 13px;
+
   /* ── Shared Sidebar component (Sidebar.tsx) — scoped override so fab_erp's
      rail differs from audio_intelligence/sales_control without touching
      their tokens ── */
@@ -87,11 +139,24 @@ html[data-app='fab_erp'] {
   --color-brand-700: #5B21B6;
 }
 
+/* ── Density variants (see --row-h above) ── */
+html[data-app='fab_erp'][data-density='compact'] {
+  --row-h: 32px;
+  --row-px: 8px;
+  --row-fs: 12.5px;
+}
+html[data-app='fab_erp'][data-density='comfy'] {
+  --row-h: 48px;
+  --row-px: 16px;
+  --row-fs: 14px;
+}
+
 html[data-app='fab_erp'][data-theme='dark'],
 html[data-app='fab_erp'] [data-theme='dark'] {
   --c-canvas: #0C0E17;
   --c-surface: #161826;
   --c-surface-2: #1C1F2E;
+  --c-surface-3: #232637;
   --c-text: #EAECF8;
   --c-text-2: #A7ABC6;
   --c-text-3: #6E7290;
@@ -99,6 +164,40 @@ html[data-app='fab_erp'] [data-theme='dark'] {
   --c-divider: rgba(255,255,255,.06);
   --glass-bg: rgba(22,24,36,.72);
   --glass-border: rgba(255,255,255,.10);
+
+  /* Elevation in dark: same offsets, deeper alpha (§5.2) */
+  --e-1: 0 1px 2px rgba(0,0,0,.40), 0 1px 3px rgba(0,0,0,.45);
+  --e-2: 0 2px 4px rgba(0,0,0,.40), 0 6px 16px rgba(0,0,0,.50);
+  --e-3: 0 8px 24px rgba(0,0,0,.55), 0 2px 6px rgba(0,0,0,.45);
+  --e-hover: 0 2px 4px rgba(0,0,0,.42), 0 8px 20px rgba(0,0,0,.52);
+
+  /* Tint borders lift off the dark fills rather than darkening into them */
+  --c-success-200: #1C6A52;
+  --c-warning-200: #7A5312;
+  --c-danger-200: #7C2438;
+  --c-info-200: #1B4E72;
+  --c-neutral-200: #3A3E55;
+
+  /* Chart series lightened for contrast against the dark canvas */
+  --c-chart-1: #A78BFA;
+  --c-chart-2: #22D3EE;
+  --c-chart-3: #F472B6;
+  --c-chart-4: #FACC15;
+  --c-chart-5: #818CF8;
+  --c-chart-6: #2DD4BF;
+  --c-chart-7: #FB923C;
+  --c-chart-8: #94A3B8;
+  --c-chart-grid: rgba(255,255,255,.08);
+  --c-chart-axis: #6E7290;
+  --c-chart-tooltip-bg: #2C2E40;
+  --c-chart-tooltip-text: #EAECF8;
+
+  /* Run states brightened for the shop-floor wall display */
+  --c-state-running: #34D399;
+  --c-state-idle: #6E7290;
+  --c-state-down: #FB7185;
+  --c-state-off: #3A3E55;
+  --c-state-wait: #FBBF24;
 }
 
 /* ── Glass fallbacks — degrade to solid when unsupported or undesired ── */
@@ -134,6 +233,6 @@ html[data-app='fab_erp'] .glass {
 
 /* ── Focus visibility — scoped to fab_erp, matching its violet accent ── */
 html[data-app='fab_erp'] :focus-visible {
-  outline: 2px solid #7C3AED;
+  outline: 2px solid var(--c-focus);
   outline-offset: 2px;
 }

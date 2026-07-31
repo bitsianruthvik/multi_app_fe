@@ -207,17 +207,17 @@ export default function OrderTaskDag({ orderId, canManage }: { orderId: number; 
                   </Typography>
                   <Divider sx={{ my: 0.5 }} />
                   {it.added.map((s, i) => (
-                    <Typography key={`a${i}`} sx={{ fontSize: 12.5, color: 'var(--c-success, #2e7d32)' }}>
+                    <Typography key={`a${i}`} sx={{ fontSize: 12.5, color: 'var(--c-success-600)' }}>
                       + add · seq {s.seqNo} · {s.operationName ?? '—'}
                     </Typography>
                   ))}
                   {it.removed.map((s, i) => (
-                    <Typography key={`r${i}`} sx={{ fontSize: 12.5, color: 'var(--c-danger, #d32f2f)' }}>
+                    <Typography key={`r${i}`} sx={{ fontSize: 12.5, color: 'var(--c-danger-600)' }}>
                       − remove · seq {s.seqNo} · {s.operationName ?? '—'}{s.retained ? ' (started — kept)' : ''}
                     </Typography>
                   ))}
                   {it.changed.map((s, i) => (
-                    <Typography key={`c${i}`} sx={{ fontSize: 12.5, color: 'var(--c-warning, #ed6c02)' }}>
+                    <Typography key={`c${i}`} sx={{ fontSize: 12.5, color: 'var(--c-warning-600)' }}>
                       ~ change · seq {s.seqNo} · {s.operationName ?? '—'} · {(s.changes ?? []).join(', ')}
                       {s.retained ? ' (started — kept)' : ''}
                     </Typography>

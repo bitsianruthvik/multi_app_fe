@@ -53,10 +53,13 @@ function ymd(d: Date): string {
 
 /** Local colours for machine states — no shared export exists in MachineBoard. */
 const STATE_META: Record<MachineStateKey, { label: string; color: string }> = {
-  running: { label: 'Running', color: '#16A34A' }, // success green
-  idle: { label: 'Idle', color: '#8A8EA8' }, // neutral/slate (matches no_shift)
-  down: { label: 'Down', color: '#E11D48' }, // rose (matches machine_down)
-  off: { label: 'Off', color: '#334155' }, // dark slate
+  // Run-state tokens (tokens.css --c-state-*), shared with MachineBoard,
+  // MachineTimeline and the Heatstrip so the four states read identically
+  // everywhere and follow light/dark. These used to be private hex here.
+  running: { label: 'Running', color: 'var(--c-state-running)' },
+  idle: { label: 'Idle', color: 'var(--c-state-idle)' },
+  down: { label: 'Down', color: 'var(--c-state-down)' },
+  off: { label: 'Off', color: 'var(--c-state-off)' },
 };
 const STATE_ORDER: MachineStateKey[] = ['running', 'idle', 'down', 'off'];
 
@@ -218,8 +221,8 @@ function WaitPareto({ data }: { data: WaitParetoResponse | null }) {
 
 // ── project touch-vs-wait ─────────────────────────────────────────────────────
 
-const TOUCH_COLOR = '#16A34A';
-const WAIT_COLOR = '#D97706';
+const TOUCH_COLOR = 'var(--c-state-running)';
+const WAIT_COLOR = 'var(--c-state-wait)';
 
 function TouchWaitBar({ touch, wait }: { touch: number; wait: number }) {
   const total = touch + wait;

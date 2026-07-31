@@ -5,6 +5,8 @@ import UserLayout from '@core/layouts/UserLayout';
 import { useThemePreference } from '@core/contexts/ThemeContext';
 import { createFabErpTheme } from '@apps/fab_erp/theme';
 import { ToastProvider } from '@apps/fab_erp/components/Toast';
+import { CommandPaletteProvider } from '@apps/fab_erp/components/CommandPalette';
+import { FabErpShell } from '@apps/fab_erp/components/nav/FabErpShell';
 
 /**
  * Scopes the fab_erp redesign (violet accent, Geist, solid-elevation surfaces)
@@ -33,7 +35,11 @@ function FabErpThemeScope({ children }: { children: React.ReactNode }) {
 
   return (
     <MuiThemeProvider theme={fabErpTheme}>
-      <ToastProvider>{children}</ToastProvider>
+      <ToastProvider>
+        {/* Mounted here, above the shell, so ⌘K works on every fab_erp route
+            including the admin ones that don't get FabErpShell. */}
+        <CommandPaletteProvider>{children}</CommandPaletteProvider>
+      </ToastProvider>
     </MuiThemeProvider>
   );
 }
@@ -58,6 +64,17 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   // but fab_erp's admin pages should still pick up the violet theme/tokens.
   if (isAdminRoute) return onFabErp ? <FabErpThemeScope>{children}</FabErpThemeScope> : <>{children}</>;
 
-  const layout = <UserLayout>{children}</UserLayout>;
-  return onFabErp ? <FabErpThemeScope>{layout}</FabErpThemeScope> : layout;
+  // fab_erp uses its own two-row top-nav shell instead of UserLayout's sidebar
+  // rail (FAB_ERP_UX_ELEVATION_PLAN.md §2.1). UserLayout and Sidebar.tsx are
+  // shared with audio_intelligence and sales_control, so they are left alone —
+  // fab_erp simply never renders them.
+  if (onFabErp) {
+    return (
+      <FabErpThemeScope>
+        <FabErpShell>{children}</FabErpShell>
+      </FabErpThemeScope>
+    );
+  }
+
+  return <UserLayout>{children}</UserLayout>;
 }

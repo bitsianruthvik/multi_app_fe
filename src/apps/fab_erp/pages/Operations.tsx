@@ -446,7 +446,7 @@ function ResourceTypesPanel({ operation, resourceTypes, canManage, onOperationSa
                     <TableCell sx={td}><Mono chip>{r.resourceTypeCode}</Mono></TableCell>
                     <TableCell sx={td}>{r.resourceTypeName}</TableCell>
                     <TableCell sx={td}>
-                      {isDefault ? <StarRounded fontSize="small" sx={{ color: 'var(--c-warning-600, #b58900)' }} titleAccess="Default" /> : <StarBorderRounded fontSize="small" sx={{ color: 'var(--c-text-3)' }} />}
+                      {isDefault ? <StarRounded fontSize="small" sx={{ color: 'var(--c-warning-600)' }} titleAccess="Default" /> : <StarBorderRounded fontSize="small" sx={{ color: 'var(--c-text-3)' }} />}
                     </TableCell>
                     {canManage && (
                       <TableCell sx={td}>

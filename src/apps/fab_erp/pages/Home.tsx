@@ -11,7 +11,7 @@ import PlaylistAddCheckRounded from '@mui/icons-material/PlaylistAddCheckRounded
 import { fabQuery } from '../api/client';
 import { usePermission } from '@core/hooks/usePermission';
 import { useAuth } from '@core/contexts/AuthContext';
-import { PageHeader, StatStrip, WorkQueueCard, StatSkeleton, EmptyState, GlobalSearch, type Stat } from '../components';
+import { PageHeader, StatStrip, WorkQueueCard, StatSkeleton, EmptyState, type Stat } from '../components';
 
 interface OrderRow {
   id: number;
@@ -154,8 +154,9 @@ export default function Home() {
         subtitle="Here's what needs you today."
       />
 
-      <GlobalSearch />
-
+      {/* The inline search box that used to sit here is gone: the top bar now
+          carries a global search field (⌘K) on every screen, so a second,
+          Home-only search was both redundant and the weaker of the two. */}
       {loading ? (
         <>
           <StatSkeleton count={4} />

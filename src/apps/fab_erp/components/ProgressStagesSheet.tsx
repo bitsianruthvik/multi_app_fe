@@ -118,7 +118,7 @@ function StageRow({ stage, allStages, operations, stageOps, onChanged }: {
           renderValue={(value, getItemProps) => value.map((o, i) => <Chip size="small" label={o.label} {...getItemProps({ index: i })} key={o.id} />)}
           renderInput={(params) => <TextField {...params} variant="standard" placeholder={selectedOps.length === 0 ? 'Map operations…' : ''} slotProps={{ input: { ...params.InputProps, disableUnderline: true } }} />}
         />
-        {err && <Typography sx={{ fontSize: 11, color: 'var(--c-danger, #d32f2f)' }}>{err}</Typography>}
+        {err && <Typography sx={{ fontSize: 11, color: 'var(--c-danger-600)' }}>{err}</Typography>}
       </Box>
       <Box component="td" sx={{ ...gridCell, width: 120 }}>
         <Stack direction="row" spacing={0.25} alignItems="center">

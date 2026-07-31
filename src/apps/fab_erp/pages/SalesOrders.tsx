@@ -56,11 +56,13 @@ const TYPE_FACETS = [
 
 // ── Lifecycle pipeline (DESIGN_SYSTEM.md §4.4 + §5.1 board accents) ──
 const STAGES: PipelineStage[] = [
-  { key: 'capture',    label: 'Capture',       accent: '#D97706' },
-  { key: 'confirmed',  label: 'Confirmed',     accent: '#0284C7' },
-  { key: 'scheduled',  label: 'Scheduled',     accent: '#7C3AED' },
-  { key: 'production', label: 'In production',  accent: '#DB5A2C' },
-  { key: 'done',       label: 'Closed',        accent: '#0E9F6E' },
+  // Board stage accents come from tokens.css (--c-stage-*), which already
+  // defined this exact palette — these were duplicated literals.
+  { key: 'capture',    label: 'Capture',       accent: 'var(--c-stage-capture)' },
+  { key: 'confirmed',  label: 'Confirmed',     accent: 'var(--c-stage-planned)' },
+  { key: 'scheduled',  label: 'Scheduled',     accent: 'var(--c-stage-scheduled)' },
+  { key: 'production', label: 'In production', accent: 'var(--c-stage-production)' },
+  { key: 'done',       label: 'Closed',        accent: 'var(--c-stage-shipped)' },
 ];
 function stageOf(status: string): string {
   if (status === 'draft') return 'capture';
@@ -90,7 +92,7 @@ function OrderProgressBar({ pct, compact = false }: { pct?: number; compact?: bo
         sx={{
           flex: 1, height: 5, borderRadius: 3, minWidth: compact ? 52 : undefined,
           bgcolor: 'var(--c-surface-3, rgba(120,120,140,0.18))',
-          '& .MuiLinearProgress-bar': { bgcolor: v >= 100 ? 'var(--c-success, #2e7d32)' : 'var(--c-accent, #6b5cff)' },
+          '& .MuiLinearProgress-bar': { bgcolor: v >= 100 ? 'var(--c-success-600)' : 'var(--c-primary-500)' },
         }}
       />
       <Typography sx={{ fontSize: 11, color: 'var(--c-text-3)', fontVariantNumeric: 'tabular-nums', minWidth: 26, textAlign: 'right' }}>
@@ -426,7 +428,7 @@ export default function Orders() {
     for (const s of STAGES) map[s.key] = [];
     for (const o of filtered) {
       const key = stageOf(o.status);
-      const accent = STAGES.find((s) => s.key === key)?.accent ?? '#5A5E78';
+      const accent = STAGES.find((s) => s.key === key)?.accent ?? 'var(--c-neutral-600)';
       map[key].push(
         <PipelineCard key={o.id} accent={accent} onClick={() => navigate(`/${company}/fab_erp/orders/${o.id}`)}>
           <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, mb: 0.75 }}>

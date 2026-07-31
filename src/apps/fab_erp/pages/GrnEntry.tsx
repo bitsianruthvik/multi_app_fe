@@ -486,7 +486,7 @@ export default function GrnEntry() {
                         <Typography sx={{ fontSize: 12, fontWeight: 600, color: 'var(--c-text-3)' }}>
                           Pieces
                           {showDistribution && (
-                            <Box component="span" sx={{ ml: 1, fontWeight: 400, color: mismatch ? 'var(--c-warning-700, #b45309)' : 'var(--c-text-3)' }}>
+                            <Box component="span" sx={{ ml: 1, fontWeight: 400, color: mismatch ? 'var(--c-warning-800)' : 'var(--c-text-3)' }}>
                               — distributed {distributed} of {target}
                             </Box>
                           )}

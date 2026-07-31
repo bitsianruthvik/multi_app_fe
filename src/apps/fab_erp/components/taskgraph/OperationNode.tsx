@@ -60,7 +60,7 @@ function OperationNode({ data }: NodeProps) {
           </Typography>
           {missingDuration && (
             <Tooltip title="No duration — this operation has no time formula, so scheduling/ETA can’t estimate it.">
-              <WarningAmberRounded sx={{ fontSize: 15, color: 'var(--c-warning, #ed6c02)', flexShrink: 0, ml: 'auto' }} />
+              <WarningAmberRounded sx={{ fontSize: 15, color: 'var(--c-warning-600)', flexShrink: 0, ml: 'auto' }} />
             </Tooltip>
           )}
         </Box>
@@ -108,7 +108,7 @@ function OperationNode({ data }: NodeProps) {
             {d.varianceHours != null && (
               <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2, py: 0.15 }}>
                 <Typography sx={{ fontSize: 11.5, color: 'var(--c-text-3)' }}>Variance</Typography>
-                <Typography sx={{ fontSize: 11.5, fontWeight: 600, textAlign: 'right', color: d.varianceHours > 0 ? 'var(--c-danger, #d32f2f)' : 'var(--c-success, #2e7d32)' }}>
+                <Typography sx={{ fontSize: 11.5, fontWeight: 600, textAlign: 'right', color: d.varianceHours > 0 ? 'var(--c-danger-600)' : 'var(--c-success-600)' }}>
                   {d.varianceHours > 0 ? '+' : ''}{d.varianceHours}h{d.computedHours ? ` (${d.varianceHours > 0 ? '+' : ''}${Math.round((d.varianceHours / d.computedHours) * 100)}%)` : ''}
                 </Typography>
               </Box>

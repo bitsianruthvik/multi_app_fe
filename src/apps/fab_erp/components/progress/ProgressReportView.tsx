@@ -47,7 +47,7 @@ function OverallBar({ pct }: { pct: number }) {
         sx={{
           flex: 1, maxWidth: 340, height: 6, borderRadius: 3,
           bgcolor: 'var(--c-surface-3, rgba(120,120,140,0.18))',
-          '& .MuiLinearProgress-bar': { backgroundColor: v >= 100 ? 'var(--c-success, #2e7d32)' : 'var(--c-accent, #6b5cff)' },
+          '& .MuiLinearProgress-bar': { backgroundColor: v >= 100 ? 'var(--c-success-600)' : 'var(--c-primary-500)' },
         }}
       />
       <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)', flexShrink: 0, minWidth: 30 }}>{v}%</Typography>
@@ -69,7 +69,7 @@ function StageBar({ stage }: { stage: Stage }) {
         sx={{
           flex: 1, height: 8, borderRadius: 4,
           bgcolor: 'var(--c-surface-3, rgba(120,120,140,0.18))',
-          '& .MuiLinearProgress-bar': { backgroundColor: v >= 100 ? 'var(--c-success, #2e7d32)' : 'var(--c-accent, #6b5cff)' },
+          '& .MuiLinearProgress-bar': { backgroundColor: v >= 100 ? 'var(--c-success-600)' : 'var(--c-primary-500)' },
         }}
       />
       <Typography sx={{ fontSize: 12, color: 'var(--c-text-2)', width: 84, flexShrink: 0, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>

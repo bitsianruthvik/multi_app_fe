@@ -32,6 +32,7 @@ const MachineTimeline    = lazy(() => import('./pages/MachineTimeline'));
 const Reconciliation     = lazy(() => import('./pages/Reconciliation'));
 const ShopfloorAnalytics = lazy(() => import('./pages/ShopfloorAnalytics'));
 const CriticalChain      = lazy(() => import('./pages/CriticalChain'));
+const Setup              = lazy(() => import('./pages/Setup'));
 
 export function getFabErpRoutes(
   ProtectedRoute: React.ComponentType<{ children: React.ReactNode }>,
@@ -48,6 +49,7 @@ export function getFabErpRoutes(
   return [
     { path: '/:company/fab_erp/dashboard',                   element: <FabErpDashboardRedirect /> },
     { path: '/:company/fab_erp/home',                        element: wrap(<Home />) },
+    { path: '/:company/fab_erp/setup',                       element: wrap(<Setup />) },
     { path: '/:company/fab_erp/plants',                      element: wrap(<Plants />) },
     { path: '/:company/fab_erp/resource-types',              element: wrap(<ResourceTypes />) },
     { path: '/:company/fab_erp/item-metrics',                element: wrap(<ItemMetrics />) },

@@ -16,5 +16,19 @@ export { RunPanel, type RunState } from './RunPanel';
 export { PipelineBoard, PipelineCard, type PipelineStage } from './PipelineBoard';
 export { WorkQueueCard } from './WorkQueueCard';
 export { SortableTableHead, type SortableColumn } from './SortableTableHead';
-export { GlobalSearch } from './GlobalSearch';
 export { statusFamily, type StatusFamily } from '../statusMap';
+
+// ── Elevation-plan primitives (FAB_ERP_UX_ELEVATION_PLAN.md §3.2) ──
+export { DataTable, type DataColumn } from './DataTable';
+export { FormDialog, ConfirmDialog } from './FormDialog';
+export { backendMessage } from '../utils/backendMessage';
+export { SideSheet } from './SideSheet';
+export { SectionCard, StickyActionBar } from './SectionCard';
+export { CommandPaletteProvider } from './CommandPalette';
+export { useCommandPalette } from './commandPaletteContext';
+export { ShortcutsHelp } from './ShortcutsHelp';
+export { useShortcutsHelp } from '../hooks/useShortcutsHelp';
+export { NumberCell, QtyCell, DateCell } from './Cells';
+export { Sparkline } from './charts/Sparkline';
+export { Heatstrip, HeatstripLegend, type HeatSegment, type RunState as HeatRunState } from './charts/Heatstrip';
+export { useChartColors, type ChartColors } from './charts/useChartColors';

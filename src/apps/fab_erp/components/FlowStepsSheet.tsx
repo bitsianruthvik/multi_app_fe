@@ -128,7 +128,7 @@ function StepRow({ step, allSteps, flowId, operations, resourceTypes, canManage,
           {/* FEAT-09: flag operations with no time formula — their tasks get no duration/ETA. */}
           {op && !op.timeFormula?.trim() && (
             <Tooltip title="This operation has no time formula — its task will have no duration/ETA, which breaks scheduling. Add one in Operations.">
-              <WarningAmberRounded fontSize="small" sx={{ color: 'var(--c-warning, #ed6c02)', flexShrink: 0 }} />
+              <WarningAmberRounded fontSize="small" sx={{ color: 'var(--c-warning-600)', flexShrink: 0 }} />
             </Tooltip>
           )}
         </Box>

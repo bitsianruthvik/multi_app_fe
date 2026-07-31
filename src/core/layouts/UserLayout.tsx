@@ -15,69 +15,17 @@ import {
 import MenuIcon from '@mui/icons-material/Menu';
 import NotificationsNoneIcon from '@mui/icons-material/NotificationsNone';
 import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
-import ChevronRightRounded from '@mui/icons-material/ChevronRightRounded';
 import Sidebar from '@core/components/Sidebar';
 import { ErrorBoundary } from '@core/components/ErrorBoundary';
 import { buildUserNavItems } from '../../config/userNav';
 import { useAuth } from '@core/contexts/AuthContext';
 
-// fab_erp section slug → human label (drives the top-bar breadcrumb).
-const FAB_ERP_SECTIONS: Record<string, string> = {
-  home: 'Home',
-  orders: 'Orders',
-  workbench: 'Planning Workbench',
-  mrp: 'MRP',
-  scheduler: 'Scheduler',
-  grn: 'Goods Receipt',
-  'grn-detail': 'Goods Receipt',
-  plants: 'Plants',
-  'item-catalog': 'Item Catalog',
-  'item-batches': 'Item Batches',
-  'item-metrics': 'Item Metrics',
-  constants: 'Constants',
-  'resource-types': 'Resource Catalog',
-  'routing-plans': 'BOMs & Routings',
-  'shift-calendars': 'Shift Calendars',
-  suppliers: 'Suppliers',
-  customers: 'Customers',
-  'codegen-settings': 'Code Generation',
-};
-
-/** Top-bar breadcrumb for fab_erp: Fab ERP / Section [/ detail]. */
-function FabErpBreadcrumb({ parts }: { parts: string[] }) {
-  // parts = [company, 'fab_erp', section, maybeId, ...]
-  const section = parts[2];
-  const detail = parts[3];
-  const crumbs: string[] = ['Fab ERP'];
-  if (section) crumbs.push(FAB_ERP_SECTIONS[section] ?? section.replace(/-/g, ' '));
-  if (detail) crumbs.push(detail);
-  const lastIsDetail = !!detail;
-  return (
-    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, minWidth: 0 }}>
-      {crumbs.map((c, i) => {
-        const isLast = i === crumbs.length - 1;
-        return (
-          <Box key={i} sx={{ display: 'flex', alignItems: 'center', gap: 0.5, minWidth: 0 }}>
-            {i > 0 && <ChevronRightRounded sx={{ fontSize: 16, color: 'var(--c-text-3)', flexShrink: 0 }} />}
-            <Typography
-              sx={{
-                fontSize: 13,
-                fontWeight: isLast ? 600 : 500,
-                color: isLast ? 'var(--c-text)' : 'var(--c-text-2)',
-                fontFamily: isLast && lastIsDetail ? 'var(--font-mono)' : 'var(--font-ui)',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              {c}
-            </Typography>
-          </Box>
-        );
-      })}
-    </Box>
-  );
-}
+// NOTE: fab_erp no longer renders this layout — it has its own two-row top-nav
+// shell (apps/fab_erp/components/nav/FabErpShell.tsx), routed in AppShell.tsx.
+// The fab_erp breadcrumb and section-label map that used to live here have been
+// removed: their labels now come from apps/fab_erp/navMeta.ts, the single
+// source of truth. Do not add app-specific breadcrumbs back into this shared
+// layout — the old map silently went stale for 12 of 30 fab_erp routes.
 
 // ---------------------------------------------------------------------------
 // AvatarMenu — shown in the sidebar avatarSlot
@@ -209,7 +157,6 @@ export default function UserLayout({ children }: { children: React.ReactNode }) 
   const parts = location.pathname.split('/').filter(Boolean);
   const company = parts[0] ?? '';
   const app = parts[1] ?? '';
-  const isFabErp = app === 'fab_erp';
   const { user } = useAuth();
   const navItems = buildUserNavItems(company, app, user ?? undefined);
 
@@ -239,21 +186,17 @@ export default function UserLayout({ children }: { children: React.ReactNode }) 
           overflow: 'hidden',
         }}
       >
-        {/* Top header bar — glass for fab_erp (the one allowed glass surface),
-            solid paper for other apps. The `glass` class + --glass-* vars only
-            exist under [data-app="fab_erp"]; the bgcolor fallback covers others. */}
         <Box
           component="header"
-          className={isFabErp ? 'glass' : undefined}
           sx={{
             height: '56px',
             display: 'flex',
             alignItems: 'center',
             px: 2,
             gap: 1.5,
-            bgcolor: isFabErp ? 'transparent' : 'background.paper',
+            bgcolor: 'background.paper',
             borderBottom: '1px solid',
-            borderColor: isFabErp ? 'var(--glass-border)' : 'divider',
+            borderColor: 'divider',
             flexShrink: 0,
             zIndex: 10,
           }}
@@ -263,27 +206,17 @@ export default function UserLayout({ children }: { children: React.ReactNode }) 
               <MenuIcon />
             </IconButton>
           )}
-          {isFabErp ? <FabErpBreadcrumb parts={parts} /> : null}
           <Box sx={{ flex: 1 }} />
           <Tooltip title="Notifications">
-            <IconButton size="small" sx={isFabErp ? { color: 'var(--c-text-2)' } : undefined}>
+            <IconButton size="small">
               <NotificationsNoneIcon />
             </IconButton>
           </Tooltip>
         </Box>
 
         {/* Main content */}
-        <Box
-          component="main"
-          sx={{ flex: 1, overflow: 'auto', p: isFabErp ? 0 : 3, bgcolor: isFabErp ? 'var(--c-canvas)' : undefined }}
-        >
-          {isFabErp ? (
-            <Box sx={{ p: 3, minHeight: '100%' }}>
-              <ErrorBoundary level="page">{children}</ErrorBoundary>
-            </Box>
-          ) : (
-            <ErrorBoundary level="page">{children}</ErrorBoundary>
-          )}
+        <Box component="main" sx={{ flex: 1, overflow: 'auto', p: 3 }}>
+          <ErrorBoundary level="page">{children}</ErrorBoundary>
         </Box>
       </Box>
     </Box>
