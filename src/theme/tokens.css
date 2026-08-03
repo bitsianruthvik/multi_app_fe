@@ -55,6 +55,15 @@ html[data-app='fab_erp'] {
   --c-state-off: #4B5169;
   --c-state-wait: #D97706;
 
+  /* ── BOM node categories (BomDesigner). A fixed 4-value domain scale, like
+     the run states above — not open-ended status — so it gets its own tokens
+     rather than borrowing a status family. Inputs read cool, outputs warm, so
+     "what goes in" and "what comes out" separate at a glance. ── */
+  --c-bom-component-50: #E6F1FB;   --c-bom-component-600: #185FA5;  --c-bom-component-800: #042C53;
+  --c-bom-mfg-50: #EEEDFE;         --c-bom-mfg-600: #534AB7;        --c-bom-mfg-800: #26215C;
+  --c-bom-coproduct-50: #EAF3DE;   --c-bom-coproduct-600: #3B6D11;  --c-bom-coproduct-800: #173404;
+  --c-bom-byproduct-50: #FAEEDA;   --c-bom-byproduct-600: #854F0B;  --c-bom-byproduct-800: #412402;
+
   /* ── Chart palette — categorical, hue- and lightness-spaced, deliberately
      distinct from the status families so a series never reads as a status.
      Series 1 is the brand violet. Use in order; do not reorder per chart ── */
@@ -191,6 +200,13 @@ html[data-app='fab_erp'] [data-theme='dark'] {
   --c-chart-axis: #6E7290;
   --c-chart-tooltip-bg: #2C2E40;
   --c-chart-tooltip-text: #EAECF8;
+
+  /* BOM categories: dark fills, light strokes — same hues, inverted weight, so
+     the designer stays legible on the dark canvas instead of glowing. */
+  --c-bom-component-50: #0C447C;   --c-bom-component-600: #85B7EB;  --c-bom-component-800: #E6F1FB;
+  --c-bom-mfg-50: #3C3489;         --c-bom-mfg-600: #AFA9EC;        --c-bom-mfg-800: #EEEDFE;
+  --c-bom-coproduct-50: #27500A;   --c-bom-coproduct-600: #97C459;  --c-bom-coproduct-800: #EAF3DE;
+  --c-bom-byproduct-50: #633806;   --c-bom-byproduct-600: #EF9F27;  --c-bom-byproduct-800: #FAEEDA;
 
   /* Run states brightened for the shop-floor wall display */
   --c-state-running: #34D399;

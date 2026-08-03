@@ -14,7 +14,7 @@
  * to the linked catalog item, the slot's param label, or a generic role tag.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert, Autocomplete, Box, Button, CircularProgress, Dialog, DialogActions,
   DialogContent, DialogTitle, Divider, IconButton, MenuItem, Switch,
@@ -28,7 +28,8 @@ import { usePermission } from '@core/hooks/usePermission';
 import { fabQuery, fabMutate } from '../api/client';
 import {
   PageHeader, FilterBar, EntityList, EntityRow, Mono, StatusBadge,
-  EmptyState, ListSkeleton, TreeRow, useToast, type SortableField,
+  EmptyState, ListSkeleton, TreeRow, useToast, StatStrip,
+  type SortableField, type Stat,
 } from '../components';
 import InfoTooltip, { type InfoContent } from '@shared/components/InfoTooltip';
 import { STANDARD_UOMS } from '../constants/uom';
@@ -632,6 +633,22 @@ export default function BomTemplates() {
   const { toast } = useToast();
 
   const [templates, setTemplates] = useState<BomTemplate[]>([]);
+
+  /**
+   * "No base unit" earns its place here: a template whose base unit is unset
+   * can't scale its quantities against an order line, so every BOM built from
+   * it silently produces wrong quantities. It's the failure mode this screen
+   * exists to prevent.
+   */
+  const templateStats: Stat[] = useMemo(() => {
+    const active = templates.filter((t) => t.active === 1);
+    const noUnit = templates.filter((t) => !t.baseUnit);
+    return [
+      { label: 'Templates', value: templates.length },
+      { label: 'Active', value: active.length, tone: active.length ? 'success' : 'default' },
+      { label: 'No base unit', value: noUnit.length, tone: noUnit.length ? 'warning' : 'default' },
+    ];
+  }, [templates]);
   const [loadingTemplates, setLoadingTemplates] = useState(true);
   const [templateSearch, setTemplateSearch] = useState('');
   const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -725,6 +742,8 @@ export default function BomTemplates() {
       <Box sx={{ display: 'flex', gap: 2, alignItems: 'flex-start' }}>
         {/* ── Left pane: template master list ───────────────────────────── */}
         <Box sx={{ flex: '0 0 340px', minWidth: 280 }}>
+          {templates.length > 0 && <StatStrip stats={templateStats} />}
+
           <FilterBar search={templateSearch} onSearch={setTemplateSearch} placeholder="Search templates…" />
 
           {listError && <Alert severity="error" sx={{ mb: 2 }}>{listError}</Alert>}

@@ -112,10 +112,12 @@ interface BomFlowBinding {
 // ─── Visual constants ─────────────────────────────────────────────────────────
 
 const CATEGORY = {
-  component:  { bg: '#B5D4F4', border: '#185FA5', label: 'Input material (purchased)'    },
-  mfg:        { bg: '#EEEDFE', border: '#534AB7', label: 'Input material (manufactured)' },
-  co_product: { bg: '#C0DD97', border: '#3B6D11', label: 'Co-product output'             },
-  by_product: { bg: '#FAC775', border: '#854F0B', label: 'By-product output'             },
+  // --c-bom-* tokens (tokens.css). These were raw CDS-ramp hex, so the whole
+  // designer ignored dark mode — the one screen an engineer spends all day in.
+  component:  { bg: 'var(--c-bom-component-50)', border: 'var(--c-bom-component-600)', fg: 'var(--c-bom-component-800)', label: 'Input material (purchased)'    },
+  mfg:        { bg: 'var(--c-bom-mfg-50)',       border: 'var(--c-bom-mfg-600)',       fg: 'var(--c-bom-mfg-800)',       label: 'Input material (manufactured)' },
+  co_product: { bg: 'var(--c-bom-coproduct-50)', border: 'var(--c-bom-coproduct-600)', fg: 'var(--c-bom-coproduct-800)', label: 'Co-product output'             },
+  by_product: { bg: 'var(--c-bom-byproduct-50)', border: 'var(--c-bom-byproduct-600)', fg: 'var(--c-bom-byproduct-800)', label: 'By-product output'             },
 } as const;
 
 const ITEM_CAT_LABELS: Record<string, string> = {
@@ -125,7 +127,7 @@ const ITEM_CAT_LABELS: Record<string, string> = {
 };
 
 function Dot({ type }: { type: string }) {
-  const s = CATEGORY[type as keyof typeof CATEGORY] ?? { bg: '#E0E0E0', border: '#9E9E9E' };
+  const s = CATEGORY[type as keyof typeof CATEGORY] ?? { bg: 'var(--c-neutral-50)', border: 'var(--c-neutral-600)' };
   return (
     <Box sx={{
       width: 10, height: 10, borderRadius: '3px', flexShrink: 0,
@@ -269,9 +271,9 @@ function SubBomExpander({
     <Box sx={{ bgcolor: 'action.hover', borderTop: '0.5px solid', borderColor: 'divider' }}>
       <Box sx={{
         display: 'flex', alignItems: 'center', gap: 1, px: 2, py: 0.75,
-        bgcolor: '#EEEDFE', borderBottom: '0.5px solid #AFA9EC',
+        bgcolor: 'var(--c-bom-mfg-50)', borderBottom: '1px solid var(--c-bom-mfg-600)',
       }}>
-        <Typography variant="caption" color="#534AB7" sx={{ fontStyle: 'italic' }}>
+        <Typography variant="caption" sx={{ color: "var(--c-bom-mfg-800)", fontStyle: "italic" }}>
           Quantities auto-scaled for {fmt(neededQty)} {neededUnit ?? ''} of {catalogItemName}
           {bom ? ` (BOM base: ${fmt(base)} ${bom.baseUnit ?? neededUnit ?? ''})` : ''}
         </Typography>
@@ -372,7 +374,7 @@ function BomRow({
           <Typography
             variant="body2"
             fontStyle={isOutput ? 'italic' : 'normal'}
-            color={isOutput ? 'text.secondary' : (isExpandable ? '#3C3489' : 'text.primary')}
+            color={isOutput ? 'var(--c-text-2)' : (isExpandable ? 'var(--c-bom-mfg-800)' : 'var(--c-text)')}
             fontWeight={isExpandable ? 500 : 400}
             noWrap
           >
@@ -390,8 +392,8 @@ function BomRow({
           variant="body2"
           color={
             isOutput
-              ? (dotType === 'co_product' ? '#3B6D11' : '#854F0B')
-              : (isScaled ? '#534AB7' : 'text.secondary')
+              ? (dotType === 'co_product' ? 'var(--c-bom-coproduct-600)' : 'var(--c-bom-byproduct-600)')
+              : (isScaled ? 'var(--c-bom-mfg-600)' : 'var(--c-text-2)')
           }
           fontStyle={isScaled ? 'italic' : 'normal'}
           sx={{ flexShrink: 0, minWidth: 60, textAlign: 'right', mr: 0.5 }}
@@ -850,12 +852,12 @@ function BomInlineEditor({ target, onCancel, onSaved }: BomInlineEditorProps) {
           </Typography>
           <Box sx={{
             display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap',
-            border: '1.5px solid #185FA5', borderRadius: 2, px: 2, py: 1, mb: 2, bgcolor: '#E6F1FB',
+            border: '1px solid var(--c-bom-component-600)', borderRadius: 'var(--r-md)', px: 2, py: 1, mb: 2, bgcolor: 'var(--c-bom-component-50)',
           }}>
             <Box>
-              <Typography variant="body2" fontWeight={500} color="#042C53">{target.catalogItemName}</Typography>
+              <Typography variant="body2" fontWeight={500} sx={{ color: "var(--c-bom-component-800)" }}>{target.catalogItemName}</Typography>
               {target.catalogItemCode && (
-                <Typography variant="caption" fontFamily="monospace" color="#185FA5">{target.catalogItemCode}</Typography>
+                <Typography variant="caption" fontFamily="monospace" sx={{ color: "var(--c-bom-component-600)" }}>{target.catalogItemCode}</Typography>
               )}
             </Box>
             <Divider orientation="vertical" flexItem />
@@ -1211,15 +1213,15 @@ export default function BomDesigner({
             {selectedBom && (
               <Box sx={{
                 display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap',
-                border: '1.5px solid #185FA5', borderRadius: 2, px: 2, py: 1, mb: 1.5, bgcolor: '#E6F1FB',
+                border: '1px solid var(--c-bom-component-600)', borderRadius: 'var(--r-md)', px: 2, py: 1, mb: 1.5, bgcolor: 'var(--c-bom-component-50)',
               }}>
-                <Typography variant="caption" fontWeight={500} sx={{ textTransform: 'uppercase', letterSpacing: '0.06em', color: '#185FA5' }}>
+                <Typography variant="caption" fontWeight={500} sx={{ textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--c-bom-component-600)' }}>
                   Produces
                 </Typography>
                 <Box>
-                  <Typography variant="body2" fontWeight={600} color="#042C53">{catalogItemName}</Typography>
+                  <Typography variant="body2" fontWeight={600} sx={{ color: "var(--c-bom-component-800)" }}>{catalogItemName}</Typography>
                   {catalogItemCode && (
-                    <Typography variant="caption" fontFamily="monospace" color="#185FA5">{catalogItemCode}</Typography>
+                    <Typography variant="caption" fontFamily="monospace" sx={{ color: "var(--c-bom-component-600)" }}>{catalogItemCode}</Typography>
                   )}
                 </Box>
                 <Divider orientation="vertical" flexItem />
