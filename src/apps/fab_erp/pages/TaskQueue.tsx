@@ -126,6 +126,8 @@ interface QueueTask {
   /** Leaf part name + its ancestors (root first), from queue-summary's recursive walk. */
   itemName: string | null;
   itemPath?: string[];
+  /** Piece mark — what's painted on the steel. Leads the row when present. */
+  itemMark: string | null;
   itemCode: string | null;
   itemQty: number | string | null;
   itemUnit: string | null;
@@ -287,6 +289,22 @@ function TaskRow({
               </Typography>
             )}
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+              {/* The mark leads when it exists: it is the string painted on the
+                  steel, so it's what the operator matches against the physical
+                  piece. The descriptive name follows for confirmation. */}
+              {task.itemMark && (
+                <Box
+                  component="span"
+                  sx={{
+                    fontFamily: 'var(--font-mono)', fontSize: 15, fontWeight: 600,
+                    color: 'var(--c-primary-900)', background: 'var(--c-primary-50)',
+                    border: '1px solid var(--c-primary-200)', borderRadius: 'var(--r-sm)',
+                    px: 1, py: 0.25, whiteSpace: 'nowrap',
+                  }}
+                >
+                  {task.itemMark}
+                </Box>
+              )}
               <Typography sx={{ fontSize: 15, fontWeight: 600, color: 'var(--c-text)' }}>
                 {task.itemName ?? `Item #${task.itemId}`}
               </Typography>

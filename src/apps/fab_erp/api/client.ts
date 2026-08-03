@@ -614,3 +614,49 @@ export type PulseResponse = { kpis: PulseKpis; exceptions: PulseExceptions };
 export async function getPulse(): Promise<PulseResponse> {
   return fabGet<PulseResponse>('pulse');
 }
+
+// ── Piece marks (Issue 2 — FAB_ERP_SHOPFLOOR_REALITY_PLAN.md) ───────────────
+
+export interface CutListItem {
+  id: number;
+  mark: string | null;
+  name: string;
+  qty: number | string;
+  unit: string | null;
+  parentMark: string | null;
+  catalogCode: string | null;
+  catalogName: string | null;
+}
+
+/**
+ * Assign marks to every *unmarked* item on an order. Never renumbers an
+ * existing mark — someone may already have painted it on a plate — so this is
+ * safe to run repeatedly. `skipped` counts rows left untouched.
+ */
+export async function generateMarks(orderId: number): Promise<{
+  ok: boolean; assigned: number; skipped: number; total: number;
+}> {
+  return fabPost(`orders/${orderId}/marks/generate`, {});
+}
+
+/**
+ * Set or clear one mark by hand — fabricators inherit marks from client
+ * drawings more often than they invent them.
+ *
+ * Renaming a parent leaves children on the old stem. The server does NOT
+ * cascade by default (that would rename possibly-painted steel) and instead
+ * returns `childrenOnOldStem`; call again with `cascadeChildren` once the user
+ * has decided.
+ */
+export async function setItemMark(
+  itemId: number,
+  mark: string,
+  cascadeChildren = false,
+): Promise<{ ok: boolean; mark: string | null; childrenRenamed: number; childrenOnOldStem: number }> {
+  return fabPatch(`items/${itemId}/mark`, { mark, cascadeChildren });
+}
+
+/** The flat, mark-ordered parts list the shop actually carries. */
+export async function getCutList(orderId: number): Promise<{ ok: boolean; items: CutListItem[] }> {
+  return fabGet(`orders/${orderId}/cut-list`);
+}

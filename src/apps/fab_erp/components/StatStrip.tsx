@@ -87,8 +87,15 @@ export function StatStrip({ stats }: { stats: Stat[] }) {
         mb: 3,
       }}
     >
+      {/* The key includes the value, not just the index.
+          A stat card owns an animated counter, and animation state must never
+          be able to outlive the number it describes — a strip that disagrees
+          with the table beneath it is worse than one that doesn't animate.
+          Keying on the value means a changed figure produces a fresh card that
+          initialises from the truth, which is also the intended visual (the
+          number re-counts when it changes). */}
       {stats.map((s, i) => (
-        <StatCard key={i} stat={s} />
+        <StatCard key={`${i}:${s.label}:${s.display ?? s.value}`} stat={s} />
       ))}
     </Box>
   );

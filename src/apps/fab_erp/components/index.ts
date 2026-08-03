@@ -30,6 +30,7 @@ export { ShortcutsHelp } from './ShortcutsHelp';
 export { useShortcutsHelp } from '../hooks/useShortcutsHelp';
 export { NumberCell, QtyCell, DateCell } from './Cells';
 export { ExceptionFeed, type ExceptionItem, type ExceptionSeverity } from './ExceptionFeed';
+export { MarksPanel } from './MarksPanel';
 export { LiveIndicator } from './LiveIndicator';
 export { formatElapsed } from '../utils/formatElapsed';
 export { useLiveRefresh, useNowTick, formatAge } from '../hooks/useLiveRefresh';

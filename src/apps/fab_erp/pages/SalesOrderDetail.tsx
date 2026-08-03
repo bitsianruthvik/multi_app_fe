@@ -18,7 +18,7 @@ import type { FabPlant } from '../types';
 import { usePermission } from '@core/hooks/usePermission';
 import {
   Surface, DetailLayout, CrossLink, FactItem, StatusBadge, Mono, EmptyState, useToast,
-  DataTable, QtyCell, NumberCell, DateCell,
+  DataTable, QtyCell, NumberCell, DateCell, MarksPanel,
 } from '../components';
 import { statusFamily } from '../statusMap';
 import OrderItemsTree from '../components/OrderItemsTree';
@@ -173,6 +173,7 @@ export default function SalesOrderDetail() {
           { value: 'overview', label: 'Overview' },
           { value: 'lines', label: 'Line items', count: items.length },
           { value: 'items', label: 'Items / BOM' },
+          { value: 'marks', label: 'Marks' },
           { value: 'dag', label: 'Task DAG' },
         ]}
         active={tab}
@@ -232,6 +233,8 @@ export default function SalesOrderDetail() {
           <LineItemsTab soId={id} items={items} plants={plants} canManage={canManage} company={company!} onRefresh={fetchAll} toast={toast} setError={setError} />
         ) : tab === 'items' ? (
           <OrderItemsTree orderId={id} canManage={canManage} />
+        ) : tab === 'marks' ? (
+          <MarksPanel orderId={id} canManage={canManage} />
         ) : (
           <OrderTaskDag orderId={id} canManage={canManage} />
         )}
