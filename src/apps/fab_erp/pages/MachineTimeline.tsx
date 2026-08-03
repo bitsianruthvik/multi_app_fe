@@ -102,11 +102,18 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const BAR_H = 30;
 const BAR_GAP = 4;
 
+// Run-state tokens, matching Machine Board / Shopfloor Analytics / Heatstrip.
+// These were the *semantic* families (success/danger/neutral), which meant the
+// same four states rendered in subtly different colours on three screens.
+//
+// This chart stays hand-rolled rather than moving to <Heatstrip>: it is a true
+// Gantt with absolute time positioning, gaps and lanes, and a Heatstrip is a
+// proportional flow with no time axis. Same palette, different instrument.
 const STATE_STYLE: Record<MachineState, { fill: string; label: string }> = {
-  running: { fill: 'var(--c-success-600)', label: 'Running' },
-  idle:    { fill: 'var(--c-neutral-600)', label: 'Idle' },
-  down:    { fill: 'var(--c-danger-600)',  label: 'Down' },
-  off:     { fill: 'var(--c-neutral-800)', label: 'Off' },
+  running: { fill: 'var(--c-state-running)', label: 'Running' },
+  idle:    { fill: 'var(--c-state-idle)',    label: 'Idle' },
+  down:    { fill: 'var(--c-state-down)',    label: 'Down' },
+  off:     { fill: 'var(--c-state-off)',     label: 'Off' },
 };
 
 type Family = 'success' | 'warning' | 'danger' | 'info' | 'neutral';

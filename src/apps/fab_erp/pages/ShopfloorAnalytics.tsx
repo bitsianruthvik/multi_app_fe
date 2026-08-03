@@ -36,7 +36,7 @@ import {
   type ProjectAnalyticsResponse,
   type MachineStateKey,
 } from '../api/client';
-import { PageHeader, Surface, EmptyState, ChartSkeleton } from '../components';
+import { PageHeader, Surface, EmptyState, ChartSkeleton, Heatstrip, HeatstripLegend, BarChart } from '../components';
 import { WAIT_REASON_META, formatWaitMinutes } from '../components/WaitBreakdownBar';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -169,16 +169,20 @@ function MachineRow({ m }: { m: AnalyticsMachine }) {
       </Box>
 
       {total > 0 ? (
-        <Box sx={{
-          display: 'flex', width: '100%', height: 14, borderRadius: 'var(--r-sm)',
-          overflow: 'hidden', border: '1px solid var(--c-border)',
-        }}>
-          {STATE_ORDER.filter((k) => m.states[k] > 0).map((k) => (
-            <Box key={k}
-              title={`${STATE_META[k].label}: ${formatWaitMinutes(m.states[k])}`}
-              sx={{ width: `${(m.states[k] / total) * 100}%`, height: '100%', background: STATE_META[k].color }} />
-          ))}
-        </Box>
+        // Shared Heatstrip rather than a local flex-of-divs: same proportional
+        // segments, but it also carries the tooltips, the --c-state-* palette
+        // and an aria-label describing the whole distribution, so this row and
+        // the Machine Board read identically.
+        <Heatstrip
+          height={14}
+          segments={STATE_ORDER
+            .filter((k) => m.states[k] > 0)
+            .map((k) => ({ state: k, minutes: m.states[k] }))}
+          ariaLabel={`${m.name}: ${STATE_ORDER
+            .filter((k) => m.states[k] > 0)
+            .map((k) => `${STATE_META[k].label} ${formatWaitMinutes(m.states[k])}`)
+            .join(', ')}`}
+        />
       ) : (
         <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>No state logged in this range</Typography>
       )}
@@ -193,28 +197,20 @@ function WaitPareto({ data }: { data: WaitParetoResponse | null }) {
     return <EmptyState icon={<HourglassBottomRounded />} title="No wait time recorded"
       hint="No wait segments fall inside this date range." />;
   }
-  const max = Math.max(...data.byReason.map((r) => r.minutes), 1);
+  // Shared BarChart. Reason colours still come from WAIT_REASON_META so this
+  // agrees with the Task Queue's wait breakdown — the chart adopts the domain's
+  // palette rather than imposing a generic one.
   return (
-    <Surface e={1} sx={{ p: 2.5, display: 'flex', flexDirection: 'column', gap: 1.5 }}>
-      {data.byReason.map((r) => {
-        const meta = WAIT_REASON_META[r.reason];
-        const pctOfTotal = data.totalMinutes > 0 ? (r.minutes / data.totalMinutes) * 100 : 0;
-        return (
-          <Box key={r.reason} sx={{ display: 'flex', alignItems: 'center', gap: 1.25 }}>
-            <Box sx={{ width: 150, flexShrink: 0, display: 'flex', alignItems: 'center', gap: 0.75 }}>
-              <Box sx={{ width: 9, height: 9, borderRadius: '50%', background: meta.color, flexShrink: 0 }} />
-              <Typography sx={{ fontSize: 12.5, color: 'var(--c-text)' }} noWrap>{meta.label}</Typography>
-            </Box>
-            <Box sx={{ flex: 1, minWidth: 0 }}>
-              <Box sx={{ height: 16, borderRadius: 'var(--r-sm)', background: meta.color,
-                width: `${Math.max((r.minutes / max) * 100, 2)}%` }} />
-            </Box>
-            <Typography sx={{ fontFamily: 'var(--font-mono)', fontSize: 12.5, color: 'var(--c-text-2)', width: 120, textAlign: 'right', flexShrink: 0 }}>
-              {formatWaitMinutes(r.minutes)} · {Math.round(pctOfTotal)}%
-            </Typography>
-          </Box>
-        );
-      })}
+    <Surface e={1} sx={{ p: 2.5 }}>
+      <BarChart
+        data={data.byReason.map((r) => ({
+          key: r.reason,
+          label: WAIT_REASON_META[r.reason].label,
+          value: r.minutes,
+          color: WAIT_REASON_META[r.reason].color,
+          display: formatWaitMinutes(r.minutes),
+        }))}
+      />
     </Surface>
   );
 }
@@ -420,18 +416,15 @@ export default function ShopfloorAnalytics() {
             <EmptyState icon={<PrecisionManufacturingRounded />} title="No machines"
               hint="No resources with logged state in this range." />
           ) : (
-            <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 1.5 }}>
-              {sortedMachines.map((m) => <MachineRow key={m.resourceId} m={m} />)}
+            <Box>
+              {/* One legend for every strip below — repeating it per card would
+                  be noise, and without it the bars are colour-only. */}
+              <Box sx={{ mb: 1.5 }}><HeatstripLegend states={STATE_ORDER} /></Box>
+              <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 1.5 }}>
+                {sortedMachines.map((m) => <MachineRow key={m.resourceId} m={m} />)}
+              </Box>
             </Box>
           )}
-          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1.5, mt: 1.25 }}>
-            {STATE_ORDER.map((k) => (
-              <Box key={k} sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                <Box sx={{ width: 9, height: 9, borderRadius: '50%', background: STATE_META[k].color }} />
-                <Typography sx={{ fontSize: 11.5, color: 'var(--c-text-2)' }}>{STATE_META[k].label}</Typography>
-              </Box>
-            ))}
-          </Box>
 
           <SectionTitle>Wait Pareto — where work waits</SectionTitle>
           <WaitPareto data={pareto} />

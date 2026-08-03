@@ -48,6 +48,15 @@ export interface FabQueryParams {
     limit?: number;
     cursor?: string;
   };
+  /**
+   * Ask the backend for a true `COUNT(*)` over the same secured WHERE, returned
+   * as `total` alongside `data`.
+   *
+   * Opt-in because it costs a second round trip. **Never infer a total from
+   * `data.length`** — with pagination that is the page size, which is how the
+   * cockpit came to report "1 part defined" against 8 items.
+   */
+  includeTotal?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -66,17 +75,18 @@ export async function fabQuery<T = unknown>(
   resource: string,
   params: FabQueryParams = {},
 ): Promise<T> {
-  const { fields, filters, orderBy, pagination } = params;
+  const { fields, filters, orderBy, pagination, includeTotal } = params;
 
   const body: Record<string, unknown> = {
     operation: 'query',
     resource,
   };
 
-  if (fields !== undefined)     body.fields     = fields;
-  if (filters !== undefined)    body.filters    = filters;
-  if (orderBy !== undefined)    body.orderBy    = orderBy;
-  if (pagination !== undefined) body.pagination = pagination;
+  if (fields !== undefined)      body.fields       = fields;
+  if (filters !== undefined)     body.filters      = filters;
+  if (orderBy !== undefined)     body.orderBy      = orderBy;
+  if (pagination !== undefined)  body.pagination   = pagination;
+  if (includeTotal)              body.includeTotal = true;
 
   const res = await api.post<T>(
     `${API_HOST}/api/query/v1/base_resource`,
