@@ -75,7 +75,7 @@ import { isAdminRole } from '@core/utils/roles';
 
 import { fabQuery, fabGet, fabPost, getWaitBreakdown, type WaitBreakdownResponse } from '../api/client';
 import { getCcWhatIf, type CcWhatIfResponse } from '../api/cc';
-import { PageHeader, StatusBadge, Surface, useToast, LiveIndicator, useLiveRefresh, useNowTick } from '../components';
+import { PageHeader, StatusBadge, Surface, useToast, LiveIndicator, useLiveRefresh, useNowTick, Mono, QtyCell } from '../components';
 import { WaitBreakdownBar, formatWaitMinutes } from '../components/WaitBreakdownBar';
 import { LogPastWorkDialog, type LogPastWorkTask } from '../components/LogPastWorkDialog';
 import { DetourWarningDialog } from '../components/cc/DetourWarningDialog';
@@ -123,6 +123,12 @@ interface QueueTask {
   orderId: number;
   orderNumber: string | null;
   itemId: number;
+  /** Leaf part name + its ancestors (root first), from queue-summary's recursive walk. */
+  itemName: string | null;
+  itemPath?: string[];
+  itemCode: string | null;
+  itemQty: number | string | null;
+  itemUnit: string | null;
   seqNo: number;
   status: TaskStatus;
   depsClearedAt: string | null;
@@ -265,10 +271,26 @@ function TaskRow({
         >
           {expanded ? <ExpandMoreRounded sx={{ color: 'var(--c-text-3)', mt: 0.25 }} /> : <ChevronRightRounded sx={{ color: 'var(--c-text-3)', mt: 0.25 }} />}
           <Box sx={{ minWidth: 0, flex: 1 }}>
+            {/* Part first, operation second. An operator's first question is
+                "what do I pick up?", not "what verb am I doing?" — the queue
+                used to answer only the second, because the item was never even
+                fetched. The BOM path above it says where the part sits in the
+                project, so they can find it on the floor. */}
+            {task.itemPath && task.itemPath.length > 0 && (
+              <Typography
+                sx={{
+                  fontSize: 11.5, color: 'var(--c-text-3)', mb: 0.25,
+                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                }}
+              >
+                {task.itemPath.join(' › ')}
+              </Typography>
+            )}
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
               <Typography sx={{ fontSize: 15, fontWeight: 600, color: 'var(--c-text)' }}>
-                {task.operationName ?? `Operation #${task.operationId ?? '?'}`}
+                {task.itemName ?? `Item #${task.itemId}`}
               </Typography>
+              {task.itemCode && <Mono chip>{task.itemCode}</Mono>}
               <StatusBadge status={task.status} />
               {runningRatio !== null && (
                 <Box
@@ -291,8 +313,20 @@ function TaskRow({
                 </Box>
               )}
             </Box>
+            {/* The operation moves here — still prominent, but it answers the
+                second question, not the first. "Item #123" is gone: an internal
+                row id told the operator nothing they could act on. */}
             <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)', mt: 0.25 }}>
-              {(task.orderNumber ?? `Order #${task.orderId}`)} · Item #{task.itemId} · seq {task.seqNo}
+              <Box component="span" sx={{ fontWeight: 500, color: 'var(--c-text)' }}>
+                {task.operationName ?? `Operation #${task.operationId ?? '?'}`}
+              </Box>
+              {' · '}{task.orderNumber ?? `Order #${task.orderId}`}
+              {/* QtyCell, not interpolation: fab_items.qty is DECIMAL(18,4) so
+                  the raw value arrives as "2.0000". */}
+              {task.itemQty != null && (
+                <> · <QtyCell value={task.itemQty} uom={task.itemUnit} /></>
+              )}
+              {' · '}seq {task.seqNo}
             </Typography>
             <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)', mt: 0.25 }}>
               {formatWaitDuration(task.waitWorkingMinutes)}
@@ -432,11 +466,6 @@ export default function TaskQueue() {
     }
   }, [toast]);
 
-  useEffect(() => {
-    if (resource) fetchQueue(resource.id);
-    else setSummary(null);
-  }, [resource, fetchQueue]);
-
   const refetchQueue = useCallback(() => {
     if (resource) fetchQueue(resource.id);
   }, [resource, fetchQueue]);
@@ -446,6 +475,15 @@ export default function TaskQueue() {
   // shift, so a stale list is the failure mode that actually costs them.
   const live = useLiveRefresh(refetchQueue, { intervalMs: 30_000, enabled: !!resource });
   const pageNow = useNowTick(15_000);
+
+  // Machine-change fetch goes through the live hook so `lastUpdated` is set
+  // immediately; fetching directly left the indicator reading "Live · never"
+  // until the first poll landed, which says the opposite of the truth.
+  useEffect(() => {
+    if (resource) void live.refreshNow();
+    else setSummary(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resource]);
 
   const openStartDialog = (task: QueueTask) => {
     setStartTask(task);
