@@ -36,7 +36,7 @@ import {
   type ProjectAnalyticsResponse,
   type MachineStateKey,
 } from '../api/client';
-import { PageHeader, Surface, EmptyState } from '../components';
+import { PageHeader, Surface, EmptyState, ChartSkeleton } from '../components';
 import { WAIT_REASON_META, formatWaitMinutes } from '../components/WaitBreakdownBar';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -407,7 +407,7 @@ export default function ShopfloorAnalytics() {
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
 
       {loading ? (
-        <Surface e={1} sx={{ p: 5, display: 'flex', justifyContent: 'center' }}><CircularProgress /></Surface>
+        <ChartSkeleton />
       ) : (
         <>
           <ConstraintHero data={constraint} />

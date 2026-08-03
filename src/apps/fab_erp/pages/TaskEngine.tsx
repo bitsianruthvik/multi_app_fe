@@ -17,7 +17,7 @@ import AccountTreeRounded from '@mui/icons-material/AccountTreeRounded';
 import StackedBarChartRounded from '@mui/icons-material/StackedBarChartRounded';
 
 import { fabGet } from '../api/client';
-import { PageHeader, Surface, EmptyState, useToast } from '../components';
+import { PageHeader, Surface, EmptyState, useToast, ListSkeleton } from '../components';
 import TaskFlowGraph from '../components/taskgraph/TaskFlowGraph';
 import BomDrillPicker, { type BomDrillPickerValue } from '../components/taskgraph/BomDrillPicker';
 import { STATUS_COLOR, type TaskGraphNode, type TaskGraphEdge } from '../components/taskgraph/types';
@@ -194,7 +194,7 @@ export default function TaskEngine() {
         <>
           {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
           {loading ? (
-            <Surface e={1} sx={{ p: 4, display: 'flex', justifyContent: 'center' }}><CircularProgress /></Surface>
+            <ListSkeleton rows={5} />
           ) : orders.length === 0 ? (
             <EmptyState title="No active orders" hint="Orders appear here once their tasks are materialized and there is open work remaining." />
           ) : (

@@ -31,7 +31,7 @@ import {
   getCcPortfolio, getCcPlan, getCcDrum, getCcAlerts, runCcReplan,
   type CcPortfolioProject, type CcPlanDetailResponse, type CcDrumResponse, type CcAlert,
 } from '../api/cc';
-import { PageHeader, Surface, EmptyState, useToast } from '../components';
+import { PageHeader, Surface, EmptyState, useToast, ChartSkeleton } from '../components';
 import FeverChart from '../components/cc/FeverChart';
 import CriticalChainGantt from '../components/cc/CriticalChainGantt';
 import AlertsStrip from '../components/cc/AlertsStrip';
@@ -289,7 +289,7 @@ export default function CriticalChain() {
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
 
       {loading ? (
-        <Surface e={1} sx={{ p: 4, display: 'flex', justifyContent: 'center' }}><CircularProgress /></Surface>
+        <ChartSkeleton />
       ) : (
         <>
           <ConstraintBanner drum={drum?.drum ?? null} canManage={canManage} busy={replanBusy} onReplan={handleReplan} />

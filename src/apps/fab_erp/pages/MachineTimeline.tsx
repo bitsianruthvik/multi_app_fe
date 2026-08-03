@@ -31,7 +31,7 @@ import DragIndicatorRounded from '@mui/icons-material/DragIndicatorRounded';
 import {
   fabQuery, correctTaskEvent, backfillTaskWork, type FilterValue,
 } from '../api/client';
-import { PageHeader, Surface, EmptyState, useToast } from '../components';
+import { PageHeader, Surface, EmptyState, useToast, ChartSkeleton } from '../components';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -575,7 +575,7 @@ export default function MachineTimeline() {
           {/* Strip */}
           <Surface e={1} sx={{ p: 2, flex: 1, minWidth: 320, position: 'relative' }}>
             {loading ? (
-              <Box sx={{ p: 4, display: 'flex', justifyContent: 'center' }}><CircularProgress /></Box>
+              <ChartSkeleton height={180} />
             ) : (
               <>
                 {/* Hour axis */}

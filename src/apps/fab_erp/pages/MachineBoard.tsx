@@ -22,7 +22,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert, Box, Button, Chip, CircularProgress, Drawer, IconButton, TextField, Tooltip, Typography,
 } from '@mui/material';
-import RefreshRounded from '@mui/icons-material/RefreshRounded';
 import CloseRounded from '@mui/icons-material/CloseRounded';
 import PowerSettingsNewRounded from '@mui/icons-material/PowerSettingsNewRounded';
 import ReportProblemRounded from '@mui/icons-material/ReportProblemRounded';
@@ -32,7 +31,7 @@ import PersonRounded from '@mui/icons-material/PersonRounded';
 import ArrowForwardRounded from '@mui/icons-material/ArrowForwardRounded';
 
 import { fabGet, fabPost, fabQuery, getBufferBoard, moveBufferContent, type BufferBoardMachine, type BufferKind, type BufferSide, type BufferStatus } from '../api/client';
-import { PageHeader, Surface, EmptyState, useToast } from '../components';
+import { PageHeader, Surface, EmptyState, useToast, CardGridSkeleton, LiveIndicator, useLiveRefresh, useNowTick } from '../components';
 
 // ── Types — mirror GET /machines/board response exactly ────────────────────
 
@@ -109,11 +108,17 @@ function StateChip({ state }: { state: MachineState }) {
   );
 }
 
-function formatElapsed(startedAt: string | null): string {
+/**
+ * Elapsed run time. Takes `now` from the page's shared tick rather than
+ * calling Date.now() itself: computed once at render, the value froze until the
+ * next fetch, so a card could claim "12m elapsed" half an hour later. A frozen
+ * timer on a shop-floor board is worse than none, because it still looks live.
+ */
+function formatElapsed(startedAt: string | null, now: number): string {
   if (!startedAt) return '';
   const startMs = new Date(startedAt).getTime();
   if (isNaN(startMs)) return '';
-  const diffMin = Math.max(0, Math.floor((Date.now() - startMs) / 60000));
+  const diffMin = Math.max(0, Math.floor((now - startMs) / 60000));
   const h = Math.floor(diffMin / 60);
   const m = diffMin % 60;
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
@@ -332,11 +337,14 @@ function BufferContentsSheet({
 function MachineCard({
   machine,
   bufferEntry,
+  now,
   onClick,
   onOpenBuffer,
 }: {
   machine: MachineBoardItem;
   bufferEntry: BufferBoardMachine | undefined;
+  /** Shared tick, so every card's elapsed timer advances in lockstep. */
+  now: number;
   onClick: () => void;
   onOpenBuffer: (kind: BufferKind) => void;
 }) {
@@ -376,7 +384,7 @@ function MachineCard({
             </Typography>
             <Typography sx={{ fontSize: 12, color: 'var(--c-text-2)' }}>
               {machine.currentTask.itemName ?? 'Unknown item'}
-              {machine.currentTask.startedAt && ` · ${formatElapsed(machine.currentTask.startedAt)} elapsed`}
+              {machine.currentTask.startedAt && ` · ${formatElapsed(machine.currentTask.startedAt, now)} elapsed`}
             </Typography>
           </>
         ) : (
@@ -633,15 +641,21 @@ export default function MachineBoard() {
     await Promise.all([load(), loadBufferBoard()]);
   }, [load, loadBufferBoard]);
 
-  useEffect(() => { load(); loadBufferBoard(); }, [load, loadBufferBoard]);
-
-  // Poll every 30s while the tab is visible.
-  useEffect(() => {
-    const id = setInterval(() => {
-      if (!document.hidden) { load(); loadBufferBoard(); }
-    }, 30000);
-    return () => clearInterval(id);
+  // Auto-refresh (§7.2). Replaces a hand-rolled setInterval that polled a
+  // hidden tab all night, never showed the data's age, and couldn't be paused
+  // — a board whose staleness is invisible reads as current when it isn't.
+  const refreshBoth = useCallback(async () => {
+    await Promise.all([load(), loadBufferBoard()]);
   }, [load, loadBufferBoard]);
+
+  const live = useLiveRefresh(refreshBoth, { intervalMs: 30_000 });
+  const now = useNowTick(15_000);
+
+  // One-shot initial fetch, routed through the live hook so `lastUpdated` is
+  // set from the very first paint. Without it the indicator reads
+  // "Live · never" until the first 30s poll lands — the opposite of the truth.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { void live.refreshNow(); }, []);
 
   const selectedMachine = machines.find((m) => m.id === selectedId) ?? null;
   const bufferByResource = useMemo(() => new Map(bufferBoard.map((b) => [b.resourceId, b])), [bufferBoard]);
@@ -661,16 +675,21 @@ export default function MachineBoard() {
         title="Machine Board"
         subtitle="Live state of every machine on the shop floor — tap a card to log a state change or mark an operator absent."
         actions={
-          <Button size="small" startIcon={<RefreshRounded fontSize="small" />} onClick={manualRefresh} disabled={loading}>
-            Refresh
-          </Button>
+          <LiveIndicator
+            paused={live.paused}
+            onTogglePause={() => live.setPaused((p) => !p)}
+            lastUpdated={live.lastUpdated}
+            now={now}
+            busy={live.busy || loading}
+            onRefreshNow={manualRefresh}
+          />
         }
       />
 
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
 
       {loading ? (
-        <Surface e={1} sx={{ p: 4, display: 'flex', justifyContent: 'center' }}><CircularProgress /></Surface>
+        <CardGridSkeleton count={6} />
       ) : machines.length === 0 ? (
         <EmptyState title="No machines configured" hint="Machines appear here once resources are added under Resource Catalog." />
       ) : (
@@ -686,6 +705,7 @@ export default function MachineBoard() {
               key={m.id}
               machine={m}
               bufferEntry={bufferByResource.get(m.id)}
+              now={now}
               onClick={() => setSelectedId(m.id)}
               onOpenBuffer={(kind) => setSelectedBuffer({ resourceId: m.id, kind, resourceName: m.name })}
             />

@@ -17,7 +17,7 @@ import Inventory2Rounded from '@mui/icons-material/Inventory2Rounded';
 import { fabQuery, fabMutate } from '../api/client';
 import { useDetailTitle } from '../components/nav/detailTitleContext';
 import { usePermission } from '@core/hooks/usePermission';
-import { Surface, DetailLayout, FactItem, Mono, EmptyState, useToast, DataTable, NumberCell } from '../components';
+import { Surface, DetailLayout, FactItem, Mono, EmptyState, useToast, DataTable, NumberCell, DetailSkeleton } from '../components';
 
 interface FabSupplier {
   id: number; companyId: number; name: string; code: string;
@@ -93,7 +93,7 @@ export default function SupplierDetail() {
     } finally { setSaving(false); }
   }
 
-  if (loading) return <Surface e={1} sx={{ p: 6, display: 'flex', justifyContent: 'center' }}><CircularProgress /></Surface>;
+  if (loading) return <DetailSkeleton />;
   if (!supplier) return <Alert severity="error">Supplier not found.</Alert>;
 
   const header = (

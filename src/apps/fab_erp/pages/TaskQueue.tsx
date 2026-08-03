@@ -75,7 +75,7 @@ import { isAdminRole } from '@core/utils/roles';
 
 import { fabQuery, fabGet, fabPost, getWaitBreakdown, type WaitBreakdownResponse } from '../api/client';
 import { getCcWhatIf, type CcWhatIfResponse } from '../api/cc';
-import { PageHeader, StatusBadge, Surface, useToast } from '../components';
+import { PageHeader, StatusBadge, Surface, useToast, LiveIndicator, useLiveRefresh, useNowTick } from '../components';
 import { WaitBreakdownBar, formatWaitMinutes } from '../components/WaitBreakdownBar';
 import { LogPastWorkDialog, type LogPastWorkTask } from '../components/LogPastWorkDialog';
 import { DetourWarningDialog } from '../components/cc/DetourWarningDialog';
@@ -441,6 +441,12 @@ export default function TaskQueue() {
     if (resource) fetchQueue(resource.id);
   }, [resource, fetchQueue]);
 
+  // Live mode (§7.2). Only polls once a machine is picked — there's nothing to
+  // refresh before that, and the queue is what operators leave on screen all
+  // shift, so a stale list is the failure mode that actually costs them.
+  const live = useLiveRefresh(refetchQueue, { intervalMs: 30_000, enabled: !!resource });
+  const pageNow = useNowTick(15_000);
+
   const openStartDialog = (task: QueueTask) => {
     setStartTask(task);
   };
@@ -592,7 +598,20 @@ export default function TaskQueue() {
 
   return (
     <Box sx={{ maxWidth: 1100, mx: 'auto' }}>
-      <PageHeader title="Task Queue" subtitle="Per-machine queue of eligible, in-progress, and paused tasks" />
+      <PageHeader
+        title="Task Queue"
+        subtitle="Per-machine queue of eligible, in-progress, and paused tasks"
+        actions={resource ? (
+          <LiveIndicator
+            paused={live.paused}
+            onTogglePause={() => live.setPaused((p) => !p)}
+            lastUpdated={live.lastUpdated}
+            now={pageNow}
+            busy={live.busy || loadingQueue}
+            onRefreshNow={refetchQueue}
+          />
+        ) : undefined}
+      />
 
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
 

@@ -25,7 +25,7 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
-import { Box, Button, Chip, CircularProgress, Alert, Typography } from '@mui/material';
+import { Box, Button, Chip, Alert, Typography } from '@mui/material';
 import RefreshRounded from '@mui/icons-material/RefreshRounded';
 import HourglassEmptyRounded from '@mui/icons-material/HourglassEmptyRounded';
 import TimerRounded from '@mui/icons-material/TimerRounded';
@@ -38,7 +38,7 @@ import {
   resolveAnomaly,
   type ReconciliationAnomaly,
 } from '../api/client';
-import { PageHeader, Surface, EmptyState, useToast } from '../components';
+import { PageHeader, Surface, EmptyState, useToast, ListSkeleton } from '../components';
 import { LogPastWorkDialog, type LogPastWorkTask } from '../components/LogPastWorkDialog';
 
 function errMsg(e: unknown, fallback: string): string {
@@ -239,7 +239,7 @@ export default function Reconciliation() {
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
 
       {loading ? (
-        <Surface e={1} sx={{ p: 4, display: 'flex', justifyContent: 'center' }}><CircularProgress /></Surface>
+        <ListSkeleton rows={5} />
       ) : anomalies.length === 0 ? (
         <EmptyState
           icon={<FactCheckRounded />}

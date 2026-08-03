@@ -14,7 +14,7 @@ import { useDetailTitle } from '../components/nav/detailTitleContext';
 import type { FabItemCatalog, FabCustomField, FabItemCategory, FabItemGroup, FabItemSubgroup } from '../types';
 import { usePermission } from '@core/hooks/usePermission';
 import BomDesigner from '../components/BomDesigner';
-import { Surface, DetailLayout, Mono, StatusBadge, useToast } from '../components';
+import { Surface, DetailLayout, Mono, StatusBadge, useToast, DetailSkeleton } from '../components';
 import { STANDARD_UOMS } from '../constants/uom';
 
 const PROCUREMENT_TYPES = [
@@ -216,7 +216,7 @@ export default function ItemCatalogDetail() {
     );
   }
 
-  if (loading) return <Box sx={{ display: 'flex', justifyContent: 'center', mt: 10 }}><CircularProgress /></Box>;
+  if (loading) return <DetailSkeleton />;
   if (!item) return <Box><Alert severity="error">Item not found.</Alert></Box>;
 
   return (

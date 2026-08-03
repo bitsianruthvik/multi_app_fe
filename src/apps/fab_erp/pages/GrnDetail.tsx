@@ -14,7 +14,7 @@ import KeyboardArrowRightRounded from '@mui/icons-material/KeyboardArrowRightRou
 import { fabQuery } from '../api/client';
 import type { FabCustomField, FabGrn, FabItemCatalog } from '../types';
 import { usePermission } from '@core/hooks/usePermission';
-import { Surface, PageHeader, FactItem, StatusBadge, Mono, EmptyState } from '../components';
+import { Surface, PageHeader, FactItem, StatusBadge, Mono, EmptyState, DetailSkeleton } from '../components';
 import { statusFamily } from '../statusMap';
 
 interface QueryResult<T> { data: T[]; total?: number }
@@ -109,7 +109,7 @@ export default function GrnDetail() {
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
       {loading ? (
-        <Surface e={1} sx={{ p: 6, display: 'flex', justifyContent: 'center' }}><CircularProgress /></Surface>
+        <DetailSkeleton />
       ) : !grn ? (
         <EmptyState icon={<LocalShippingRounded />} title="GRN not found" />
       ) : (
