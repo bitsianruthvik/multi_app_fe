@@ -105,6 +105,10 @@ export interface PartGroupNodeData {
   statusCounts: PartStatusCounts;
   totalCount: number;
   doneCount: number;
+  /** Direct sub-assemblies revealed by expanding this part (drill-down). */
+  childPartCount: number;
+  /** BOM depth within the current scope; 0 = top level. */
+  depth: number;
   /** Called with this group's itemId when the collapse/expand toggle is clicked. */
   onToggle: (itemId: number) => void;
 }

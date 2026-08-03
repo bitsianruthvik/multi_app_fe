@@ -181,17 +181,21 @@ function TaskFlowGraphInner({ nodes: taskNodes, edges: taskEdges, onOpenTask, he
   // underlying data (order / filter) changes, not on every re-render.
   const signature = useMemo(() => allItemIds.slice().sort((a, b) => a - b).join(','), [allItemIds]);
 
-  const [collapsed, setCollapsed] = useState<Set<number>>(() => new Set(allItemIds));
+  // Which parts are OPENED. Starts empty: the graph opens at the top level of
+  // the BOM and you drill in. It used to track the inverse — every part in the
+  // order rendered at once, collapsed — which meant a fifty-part girder opened
+  // as a wall of fifty lanes.
+  const [expanded, setExpanded] = useState<Set<number>>(() => new Set());
   const lastSig = useRef(signature);
   useEffect(() => {
     if (lastSig.current !== signature) {
       lastSig.current = signature;
-      setCollapsed(new Set(allItemIds)); // default: all parts collapsed
+      setExpanded(new Set());
     }
-  }, [signature, allItemIds]);
+  }, [signature]);
 
   const toggleGroup = useCallback((itemId: number) => {
-    setCollapsed((prev) => {
+    setExpanded((prev) => {
       const next = new Set(prev);
       if (next.has(itemId)) next.delete(itemId); else next.add(itemId);
       return next;
@@ -199,8 +203,8 @@ function TaskFlowGraphInner({ nodes: taskNodes, edges: taskEdges, onOpenTask, he
   }, []);
 
   const layout = useMemo(
-    () => buildTaskGraphLayout(taskNodes, taskEdges, collapsed, { onOpenTask, onToggleGroup: toggleGroup }),
-    [taskNodes, taskEdges, collapsed, onOpenTask, toggleGroup],
+    () => buildTaskGraphLayout(taskNodes, taskEdges, expanded, { onOpenTask, onToggleGroup: toggleGroup }),
+    [taskNodes, taskEdges, expanded, onOpenTask, toggleGroup],
   );
 
   const [rfNodes, setRfNodes, onNodesChange] = useNodesState<Node>([]);
@@ -208,9 +212,12 @@ function TaskFlowGraphInner({ nodes: taskNodes, edges: taskEdges, onOpenTask, he
   useEffect(() => { setRfNodes(layout.nodes); }, [layout, setRfNodes]);
   useEffect(() => { setRfEdges(layout.edges); }, [layout, setRfEdges]);
 
-  const expandAll = useCallback(() => setCollapsed(new Set()), []);
-  const collapseAll = useCallback(() => setCollapsed(new Set(allItemIds)), [allItemIds]);
-  const expandedCount = allItemIds.length - collapsed.size;
+  const expandAll = useCallback(() => setExpanded(new Set(allItemIds)), [allItemIds]);
+  const collapseAll = useCallback(() => setExpanded(new Set()), []);
+  const expandedCount = expanded.size;
+  // What's actually on the canvas right now — the honest denominator for a
+  // drill-down, where most parts are deliberately not drawn yet.
+  const visibleCount = layout.nodes.filter((n) => n.type === 'partGroup').length;
 
   // Keyboard driving. React Flow's own pane doesn't pan on arrow keys, so the
   // viewport is moved directly. Only fires when focus is inside the canvas
@@ -254,17 +261,17 @@ function TaskFlowGraphInner({ nodes: taskNodes, edges: taskEdges, onOpenTask, he
           background: 'var(--c-surface-2)',
         }}
       >
-        <Button size="small" variant="outlined" startIcon={<UnfoldMoreRounded fontSize="small" />} onClick={expandAll} disabled={collapsed.size === 0}>
+        <Button size="small" variant="outlined" startIcon={<UnfoldMoreRounded fontSize="small" />} onClick={expandAll} disabled={expandedCount === allItemIds.length}>
           Expand all
         </Button>
-        <Button size="small" variant="outlined" startIcon={<UnfoldLessRounded fontSize="small" />} onClick={collapseAll} disabled={collapsed.size === allItemIds.length}>
-          Collapse all
+        <Button size="small" variant="outlined" startIcon={<UnfoldLessRounded fontSize="small" />} onClick={collapseAll} disabled={expandedCount === 0}>
+          Top level
         </Button>
         <Button size="small" variant="text" startIcon={<CenterFocusStrongRounded fontSize="small" />} onClick={() => viewport.current?.fit()}>
           Fit
         </Button>
         <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)', whiteSpace: 'nowrap' }}>
-          {expandedCount} of {allItemIds.length} parts expanded
+          Showing {visibleCount} of {allItemIds.length} parts
         </Typography>
 
         <Divider orientation="vertical" flexItem sx={{ mx: 0.5, borderColor: 'var(--c-divider)' }} />

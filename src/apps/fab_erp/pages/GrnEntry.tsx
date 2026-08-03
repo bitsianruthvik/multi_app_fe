@@ -13,7 +13,7 @@ import { fabQuery, fabMutate } from '../api/client';
 import api, { API_HOST } from '@core/utils/axiosConfig';
 import type { FabCustomField, FabGrn, FabItemCatalog, FabPlant, FabStockLocation, FabSupplier } from '../types';
 import { usePermission } from '@core/hooks/usePermission';
-import { Surface, PageHeader, Mono, EmptyState, useToast, EntityList, EntityRow } from '../components';
+import { Surface, PageHeader, Mono, EmptyState, useToast, EntityList, EntityRow, SectionCard, StickyActionBar } from '../components';
 
 interface QueryResult<T> { data: T[]; total?: number }
 
@@ -331,9 +331,47 @@ export default function GrnEntry() {
         const qty = Number(p.qty);
         if (!p.qty || !(qty > 0)) return `Line ${i + 1}, piece ${j + 1}: quantity must be greater than 0.`;
       }
+      // The pieces are what actually gets received — the line's `qty` is a UI
+      // convenience that prefills the first piece and is never sent. So a target
+      // of 100 with pieces summing to 30 used to post 30 while the operator
+      // believed they had entered 100, with nothing but a grey line to say so.
+      // A goods receipt books inventory; a silent shortfall here becomes a stock
+      // discrepancy someone chases weeks later.
+      const target = Number(l.qty);
+      if (l.qty.trim() !== '' && Number.isFinite(target)) {
+        const distributed = l.pieces.reduce((sum, p) => sum + (Number(p.qty) || 0), 0);
+        if (distributed !== target) {
+          return `Line ${i + 1}: pieces add up to ${distributed}, but the target quantity is ${target}. `
+            + 'Fix the pieces, or clear the target quantity if the delivery genuinely differs.';
+        }
+      }
     }
     return null;
   }
+
+  /**
+   * What this GRN is actually worth, and whether it adds up.
+   *
+   * A goods receipt books inventory value, and until now the screen never
+   * showed that value anywhere — you filled in per-piece quantities and a
+   * per-line unit cost and posted it blind. Quantity comes from the PIECES,
+   * not the line's target, because the pieces are what gets sent.
+   */
+  const totals = lines.reduce(
+    (acc, l) => {
+      const qty = l.pieces.reduce((s, p) => s + (Number(p.qty) || 0), 0);
+      const cost = Number(l.unitCost);
+      acc.pieces += l.pieces.length;
+      acc.qty += qty;
+      if (Number.isFinite(cost) && l.unitCost.trim() !== '') acc.value += qty * cost;
+      else acc.linesWithoutCost += 1;
+
+      const target = Number(l.qty);
+      if (l.qty.trim() !== '' && Number.isFinite(target) && qty !== target) acc.mismatched += 1;
+      return acc;
+    },
+    { qty: 0, pieces: 0, value: 0, linesWithoutCost: 0, mismatched: 0 },
+  );
 
   async function submit() {
     const validationError = validate();
@@ -399,8 +437,7 @@ export default function GrnEntry() {
             </Alert>
           )}
 
-          <Surface e={1} sx={{ p: 2.5 }}>
-            <Typography sx={{ fontSize: 11, fontWeight: 600, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--c-text-3)', mb: 1.5 }}>GRN header</Typography>
+          <SectionCard title="GRN header" subtitle="Where the delivery landed, and who it came from">
             <Box sx={{ display: 'flex', gap: 2, mb: 2, flexWrap: 'wrap' }}>
               <TextField label="GRN number" value={grnNumber} size="small" required sx={{ flex: 1, minWidth: 160 }} disabled={!canManage} onChange={(e) => setGrnNumber(e.target.value)} />
               <TextField label="GRN date" type="date" value={grnDate} size="small" required sx={{ flex: 1, minWidth: 160 }} disabled={!canManage} slotProps={{ inputLabel: { shrink: true } }} onChange={(e) => setGrnDate(e.target.value)} />
@@ -431,13 +468,13 @@ export default function GrnEntry() {
               <TextField label="Supplier ref" value={supplierRef} size="small" sx={{ flex: 1, minWidth: 160 }} disabled={!canManage} onChange={(e) => setSupplierRef(e.target.value)} />
               <TextField label="Notes" value={notes} size="small" multiline minRows={1} sx={{ flex: 2, minWidth: 220 }} disabled={!canManage} onChange={(e) => setNotes(e.target.value)} />
             </Box>
-          </Surface>
+          </SectionCard>
 
-          <Surface e={1} sx={{ p: 2.5 }}>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1.5 }}>
-              <Typography sx={{ fontSize: 11, fontWeight: 600, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--c-text-3)' }}>Line items</Typography>
-              <Button size="small" startIcon={<AddIcon />} onClick={addLine} disabled={!canManage}>Add line</Button>
-            </Box>
+          <SectionCard
+            title="Line items"
+            subtitle="One line per catalogue item; split each into the physical pieces you actually received"
+            action={<Button size="small" startIcon={<AddIcon />} onClick={addLine} disabled={!canManage}>Add line</Button>}
+          >
             <Table size="small">
               <TableHead>
                 <TableRow sx={{ background: 'var(--c-surface-2)' }}>
@@ -591,13 +628,45 @@ export default function GrnEntry() {
                 })}
               </TableBody>
             </Table>
-          </Surface>
+          </SectionCard>
 
-          <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
+          {/* The post action follows you down the form. A GRN with five lines and
+              six pieces each runs well past a screen, and "Post" used to sit at
+              the very bottom — you had to scroll past everything to find out you
+              could commit. The totals ride along with it because that is the
+              moment they matter: this is the number being booked into stock. */}
+          <StickyActionBar
+            message={
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
+                <Box component="span">
+                  <Box component="span" sx={{ fontFamily: 'var(--font-mono)', fontWeight: 600, color: 'var(--c-text)' }}>{totals.pieces}</Box>
+                  {' '}piece{totals.pieces === 1 ? '' : 's'} ·{' '}
+                  <Box component="span" sx={{ fontFamily: 'var(--font-mono)', fontWeight: 600, color: 'var(--c-text)' }}>{totals.qty}</Box>
+                  {' '}total qty
+                </Box>
+                <Box component="span">
+                  Value{' '}
+                  <Box component="span" sx={{ fontFamily: 'var(--font-mono)', fontWeight: 600, color: 'var(--c-text)' }}>
+                    {totals.value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </Box>
+                  {totals.linesWithoutCost > 0 && (
+                    <Box component="span" sx={{ color: 'var(--c-text-3)' }}>
+                      {' '}({totals.linesWithoutCost} line{totals.linesWithoutCost === 1 ? '' : 's'} without a cost)
+                    </Box>
+                  )}
+                </Box>
+                {totals.mismatched > 0 && (
+                  <Box component="span" sx={{ color: 'var(--c-warning-800)', fontWeight: 500 }}>
+                    {totals.mismatched} line{totals.mismatched === 1 ? "'s pieces don't" : "s' pieces don't"} match the target qty
+                  </Box>
+                )}
+              </Box>
+            }
+          >
             <Button variant="contained" size="large" disabled={!canManage || submitting} onClick={submit}>
               {submitting ? <CircularProgress size={20} color="inherit" /> : 'Post GRN'}
             </Button>
-          </Box>
+          </StickyActionBar>
         </Box>
       )}
 

@@ -14,7 +14,7 @@ import { useDetailTitle } from '../components/nav/detailTitleContext';
 import type { FabItemCatalog, FabCustomField, FabItemCategory, FabItemGroup, FabItemSubgroup } from '../types';
 import { usePermission } from '@core/hooks/usePermission';
 import BomDesigner from '../components/BomDesigner';
-import { Surface, DetailLayout, Mono, StatusBadge, useToast, DetailSkeleton } from '../components';
+import { SectionCard, Surface, DetailLayout, Mono, StatusBadge, useToast, DetailSkeleton } from '../components';
 import { STANDARD_UOMS } from '../constants/uom';
 
 const PROCUREMENT_TYPES = [
@@ -238,8 +238,22 @@ export default function ItemCatalogDetail() {
     >
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
 
+      {/* One card per concern, and — critically — each Save sits in the header
+          of the card it actually saves. This tab has TWO independent save
+          actions hitting two different endpoints (the item record, and its
+          custom fields); when both were plain buttons stacked in one long
+          Surface, nothing on screen said which one wrote what, so editing a
+          field and pressing the nearer button silently discarded the other
+          half. */}
       {tab === 0 && (
-        <Surface e={1} sx={{ p: 3 }}>
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+        <SectionCard
+          title="Item"
+          subtitle="Identity, planning defaults and where it sits in the taxonomy"
+          action={canManage ? (
+            <Button variant="contained" size="small" startIcon={saving ? <CircularProgress size={14} color="inherit" /> : <SaveIcon />} disabled={saving} onClick={saveItem}>Save item</Button>
+          ) : undefined}
+        >
           <Typography sx={{ fontSize: 11, fontWeight: 600, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--c-text-3)', mb: 1.5 }}>General</Typography>
           <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2, mb: 3 }}>
             <Field label="Name" k="name" />
@@ -296,17 +310,15 @@ export default function ItemCatalogDetail() {
           <Box sx={{ display: 'grid', gridTemplateColumns: '1fr', gap: 2 }}>
             <Field label="HSN code" k="hsnCode" />
           </Box>
-          {canManage && (
-            <Box sx={{ mt: 3 }}>
-              <Button variant="contained" startIcon={saving ? <CircularProgress size={14} color="inherit" /> : <SaveIcon />} disabled={saving} onClick={saveItem}>Save</Button>
-            </Box>
-          )}
+        </SectionCard>
 
-          <Divider sx={{ my: 3, borderColor: 'var(--c-divider)' }} />
-          <Typography sx={{ fontSize: 11, fontWeight: 600, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--c-text-3)', mb: 1.5 }}>Custom Fields</Typography>
-          <Typography variant="caption" sx={{ display: 'block', mb: 2, color: 'var(--c-text-3)' }}>
-            Item specs like weight, dimensions, barcode, or material grade are recorded here as custom fields rather than built-in columns.
-          </Typography>
+        <SectionCard
+          title="Custom fields"
+          subtitle="Item specs like weight, dimensions, barcode or material grade live here rather than as built-in columns"
+          action={canManage && configDraft.length > 0 ? (
+            <Button variant="contained" size="small" startIcon={configSaving ? <CircularProgress size={14} color="inherit" /> : <SaveIcon />} disabled={configSaving} onClick={saveConfigs}>Save fields</Button>
+          ) : undefined}
+        >
           {mergedInherited.length > 0 && (
             <>
               <Typography sx={{ fontSize: 11, fontWeight: 600, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--c-text-3)', mb: 0.5 }}>Inherited from taxonomy ({mergedInherited.length})</Typography>
@@ -379,12 +391,8 @@ export default function ItemCatalogDetail() {
               </TableBody>
             </Table>
           )}
-          {canManage && configDraft.length > 0 && (
-            <Box sx={{ mt: 2 }}>
-              <Button variant="contained" startIcon={configSaving ? <CircularProgress size={14} color="inherit" /> : <SaveIcon />} disabled={configSaving} onClick={saveConfigs}>Save fields</Button>
-            </Box>
-          )}
-        </Surface>
+        </SectionCard>
+        </Box>
       )}
 
       {tab === 1 && (

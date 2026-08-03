@@ -8,6 +8,7 @@ import AddIcon from '@mui/icons-material/Add';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import ClearIcon from '@mui/icons-material/Clear';
 import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
+import LayersRounded from '@mui/icons-material/LayersRounded';
 import DownloadIcon from '@mui/icons-material/Download';
 import EditRounded from '@mui/icons-material/EditRounded';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
@@ -21,6 +22,7 @@ import type {
 import { usePermission } from '@core/hooks/usePermission';
 import api, { API_HOST } from '@core/utils/axiosConfig';
 import { PageHeader, Mono, EmptyState, ListSkeleton, StatusBadge, useToast, EntityList, EntityRow, type SortableField } from '../components';
+import { BatchingSummary, BatchingDialog } from '../components/BatchingRules';
 
 interface QueryResult<T> { data: T[]; total?: number }
 
@@ -470,6 +472,10 @@ function OperationsMappingEditor({ rtId, canManage }: { rtId: number; canManage:
   const [addSaving, setAddSaving] = useState(false);
   const [opErr, setOpErr] = useState('');
   const [delTarget, setDelTarget] = useState<FabOperationResourceType | null>(null);
+  // Issue 4: the same junction row is editable from the Operations page too —
+  // both sides now share one editor, so batchability can't be invisible from
+  // whichever end you happen to approach it from.
+  const [batchTarget, setBatchTarget] = useState<FabOperationResourceType | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -530,14 +536,18 @@ function OperationsMappingEditor({ rtId, canManage }: { rtId: number; canManage:
           ) : (
             <Table size="small">
               <TableHead><TableRow sx={{ background: 'var(--c-surface-2)' }}>
-                <TableCell sx={th}>Operation</TableCell>{canManage && <TableCell sx={{ ...th, width: 80 }} />}
+                <TableCell sx={th}>Operation</TableCell>
+                <TableCell sx={{ ...th, width: 240 }}>Batching</TableCell>
+                {canManage && <TableCell sx={{ ...th, width: 96 }} />}
               </TableRow></TableHead>
               <TableBody>
                 {mappings.map((m) => (
                   <TableRow key={m.id} hover>
                     <TableCell sx={td}>{m.operationName ?? `#${m.operationId}`}</TableCell>
+                    <TableCell sx={td}><BatchingSummary row={m} /></TableCell>
                     {canManage && (
                       <TableCell sx={td}>
+                        <Tooltip title="Batching rules"><IconButton size="small" onClick={() => setBatchTarget(m)} aria-label={`Batching rules for ${m.operationName ?? m.operationId}`}><LayersRounded fontSize="small" /></IconButton></Tooltip>
                         <Tooltip title="Remove"><IconButton size="small" color="error" onClick={() => setDelTarget(m)}><DeleteOutlineRounded fontSize="small" /></IconButton></Tooltip>
                       </TableCell>
                     )}
@@ -548,6 +558,13 @@ function OperationsMappingEditor({ rtId, canManage }: { rtId: number; canManage:
           )}
         </>
       )}
+
+      <BatchingDialog
+        row={batchTarget}
+        title={batchTarget?.operationName ?? 'this operation'}
+        onClose={() => setBatchTarget(null)}
+        onSaved={async () => { setBatchTarget(null); await load(); }}
+      />
 
       <Dialog open={!!delTarget} onClose={() => setDelTarget(null)} maxWidth="xs" fullWidth>
         <DialogTitle sx={{ fontWeight: 600 }}>Remove operation mapping</DialogTitle>

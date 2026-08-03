@@ -30,8 +30,10 @@ import PersonOffRounded from '@mui/icons-material/PersonOffRounded';
 import PersonRounded from '@mui/icons-material/PersonRounded';
 import LayersRounded from '@mui/icons-material/LayersRounded';
 import ArrowForwardRounded from '@mui/icons-material/ArrowForwardRounded';
+import HistoryEduRounded from '@mui/icons-material/HistoryEduRounded';
 
 import { fabGet, fabPost, fabQuery, getBufferBoard, moveBufferContent, type BufferBoardMachine, type BufferKind, type BufferSide, type BufferStatus } from '../api/client';
+import { useCompanySlug } from '../hooks/useCompanySlug';
 import { PageHeader, Surface, EmptyState, useToast, CardGridSkeleton, LiveIndicator, useLiveRefresh, useNowTick } from '../components';
 
 // ── Types — mirror GET /machines/board response exactly ────────────────────
@@ -488,6 +490,7 @@ function ActionSheet({
   onDone: () => void;
 }) {
   const { toast } = useToast();
+  const companySlug = useCompanySlug();
   const [busy, setBusy] = useState(false);
   const [markDownOpen, setMarkDownOpen] = useState(false);
   const [reasons, setReasons] = useState<DowntimeReason[]>([]);
@@ -542,6 +545,21 @@ function ActionSheet({
           <CloseRounded fontSize="small" />
         </IconButton>
       </Box>
+
+      {/* Everything below this point happens NOW — the state posted here is
+          stamped at the current instant. Yesterday's breakdown, and the operator
+          who wasn't in on Tuesday, belong in the shift log, which is the only
+          screen that takes a date. */}
+      <Button
+        fullWidth
+        variant="text"
+        size="small"
+        startIcon={<HistoryEduRounded fontSize="small" />}
+        href={`/${companySlug}/fab_erp/shift-log`}
+        sx={{ mb: 1.5, justifyContent: 'flex-start' }}
+      >
+        Log past downtime or absence →
+      </Button>
 
       <Box sx={{ display: 'flex', gap: 1, mb: markDownOpen ? 1.5 : 2.5 }}>
         <Button

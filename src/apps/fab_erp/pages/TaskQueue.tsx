@@ -70,6 +70,7 @@ import {
 import ExpandMoreRounded from '@mui/icons-material/ExpandMoreRounded';
 import ChevronRightRounded from '@mui/icons-material/ChevronRightRounded';
 import WarningAmberRounded from '@mui/icons-material/WarningAmberRounded';
+import HistoryEduRounded from '@mui/icons-material/HistoryEduRounded';
 
 import { useAuth } from '@core/contexts/AuthContext';
 import { usePermission } from '@core/hooks/usePermission';
@@ -77,6 +78,7 @@ import { isAdminRole } from '@core/utils/roles';
 
 import { fabQuery, fabGet, fabPost, getWaitBreakdown, type WaitBreakdownResponse } from '../api/client';
 import { getCcWhatIf, type CcWhatIfResponse } from '../api/cc';
+import { useCompanySlug } from '../hooks/useCompanySlug';
 import {
   getBatchCandidates, previewBatch, startBatch as startBatchApi, completeBatch as completeBatchApi,
   type BatchCandidate, type BatchEstimate, type BatchPolicy, type CompleteOutcome,
@@ -458,6 +460,7 @@ export default function TaskQueue() {
   // otherwise an admin without the explicit grant would never see the button.
   // (usePermission must be called unconditionally — react-hooks/rules-of-hooks —
   // so it's combined with isAdminRole after, not short-circuited inside the ||.)
+  const companySlug = useCompanySlug();
   const hasBackfillTag = usePermission('fab_erp_time_backfill');
   const canBackfill = isAdminRole(user?.role) || hasBackfillTag;
 
@@ -833,6 +836,21 @@ export default function TaskQueue() {
         title="Task Queue"
         subtitle="Per-machine queue of eligible, in-progress, and paused tasks"
         actions={resource ? (
+          <>
+          {/* Per-task back-entry is the wrong tool for a whole shift — six jobs
+              meant six searches and six dialogs, which is why the clipboard
+              never got typed up. Point people at the screen built for it. */}
+          {canBackfill && (
+            <Button
+              size="small"
+              variant="outlined"
+              startIcon={<HistoryEduRounded fontSize="small" />}
+              href={`/${companySlug}/fab_erp/shift-log`}
+              sx={{ mr: 1 }}
+            >
+              Write up a shift
+            </Button>
+          )}
           <LiveIndicator
             paused={live.paused}
             onTogglePause={() => live.setPaused((p) => !p)}
@@ -841,6 +859,7 @@ export default function TaskQueue() {
             busy={live.busy || loadingQueue}
             onRefreshNow={refetchQueue}
           />
+          </>
         ) : undefined}
       />
 
