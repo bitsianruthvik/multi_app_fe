@@ -169,7 +169,25 @@ Confirm"), derived from real queries, permission-gated. **Don't** make it a char
 Plans, GRNs, Orders (list mode), Batches, Calendars, Metrics, Constants. **Anatomy:** PageHeader
 (title + primary "New") → **FilterBar** (search + facet chips, solid, sticky, `e1`) → **EntityList**
 (solid rows). Rows: code (mono) · primary name · meta · `StatusBadge` · hover-revealed actions. Click
-row → Detail. Empty state when no rows. **Don't** use MUI's default DataGrid chrome — use `EntityRow`.
+row → Detail. Empty state when no rows. **Don't** use MUI's default DataGrid chrome.
+
+**Add a `StatStrip` above the FilterBar** *(2026-07-31)*. Derive 2–4 metrics from the rows already
+loaded — no extra request — and make them describe the **filtered** set, so the numbers always agree
+with the list beneath. Earn the space: prefer a metric that names a *failure mode* the user can fix
+("No time formula 4", "Unclassified 7", "Overdue 2") over a restatement of the row count.
+
+#### Choosing `EntityRow` vs `DataTable` vs neither
+- **≤4 meaningful attributes**, or rows that are primarily a name you click → `EntityList`/`EntityRow`.
+- **≥5 attributes**, or the user compares values down a column → `DataTable` (sort, column control,
+  density, selection, CSV, pagination).
+- **Neither** if any cell contains an input, or any row expands. `DataTable` has no editing model and
+  no row expansion, so converting such a screen *deletes* functionality. Screens correctly excluded
+  today: ItemCatalog Items (virtualized + column resize + per-column filters), ItemBatches and
+  GrnDetail (expandable rows), ItemCatalogDetail custom fields (inline-editable), GrnEntry (form).
+
+  **Read the cells before counting them.** A grep for `<Table` counts `TableHead`/`TableSortLabel`
+  and tells you nothing about whether a screen is a naive table or a purpose-built grid — that
+  mistake has been made three times on this codebase.
 
 ### 4.3 Record / Detail
 **Purpose:** one entity + its related sub-collections. **Routes:** Item, Supplier, Order, GRN detail.
@@ -210,6 +228,24 @@ completeness ("Plants ✓ · Items 50 · BOMs 12 · Routings 8 · Calendars ✓ 
 linking to its Collection screen, plus warnings ("4 items have no BOM"). Makes Configure feel guided.
 
 ---
+
+### 4.9 Analytical dashboard *(added 2026-07-31)*
+**Purpose:** understand a trend or distribution — reading, not acting. **Routes:** `/analytics`,
+`/critical-chain`, `/machine-timeline`. **Who:** planners and management.
+**Anatomy:** `PageHeader` (+ range/scope controls in `actions`) → optional `StatStrip` of headline
+figures → a grid of `SectionCard`s each holding **one** chart with its own legend and empty state.
+Charts use the §5.1 chart palette via `useChartColors` — never a private hex, never a status colour
+for a data series. Every chart states its window ("last 7 days") in its card subtitle; a chart whose
+time range is ambiguous is worse than no chart.
+**Don't** mix an analytical dashboard with a to-do surface — the cockpit (4.1) is where action lives.
+If a number here needs acting on, link it to the screen that acts.
+
+### 4.10 Settings / Configuration *(added 2026-07-31)*
+**Purpose:** change how the system behaves, not what data it holds. **Routes:** `/codegen-settings`,
+`/buffer-config`. **Anatomy:** 880px max width → labelled `SectionCard` groups of related fields,
+each field with helper text explaining its consequence → `StickyActionBar` with Save, disabled until
+dirty. Destructive or wide-blast-radius settings state their effect in the helper text, not in a
+tooltip. **Don't** auto-save; configuration changes should be deliberate and reviewable before commit.
 
 ## 5. Visual language (tokens)
 
@@ -506,27 +542,41 @@ export function useCountUp(to: number, ms = 900) {
 
 ## 8. Route → archetype map
 
+Complete as of 2026-07-31 — every live route appears here. `/mrp`, `/workbench`, `/scheduler` and
+`/routing-plans` were removed from the product in 2026-07-14 (EU-15) and are gone from this table;
+don't reintroduce rows for them.
+
 | Route | Archetype | Notes |
 |---|---|---|
-| `/home` | **Cockpit** (4.1) | new default landing; role-filtered work queues |
+| `/home` | **Cockpit** (4.1) | Factory Pulse: KPI row → exception feed → role work queues. One `GET /pulse` |
+| `/setup` | **Readiness** (4.8) | Setup hub; the 13 config screens as cards with live counts |
 | `/orders` | **Pipeline** (4.4) default + **List** (4.2) toggle | board is the headline; keep list for power users |
-| `/orders/:id` | **Detail** (4.3) | header + cross-links (lines→items, BOM, schedule, supplier) + tabs |
-| `/mrp` | **Run** (4.6) | params → planned-order results → "firm" hand-off |
-| `/workbench` | **Run** (4.6) + **Tree** (4.7) | planned-order tree, firm-tree action |
-| `/scheduler` | **Canvas** (4.5) | Gantt + docked solid toolbars; keep list fallback |
-| `/grn`, `/grn-detail` | **Run/Form** (4.6) + **Detail** (4.3) | receive flow → lines → stock |
-| `/item-catalog` | **List** (4.2) | facet chips by category/group/type |
-| `/item-catalog/:id` | **Detail** (4.3) | tabs: Overview · BOM · Routing · Stock · Suppliers · Orders |
+| `/orders/:id` | **Detail** (4.3) | header + cross-links + tabs; lines table is a `DataTable` |
+| `/customers` | **List** (4.2) | |
+| `/grn` | **Run/Form** (4.6) | receive flow; NOT a `DataTable` candidate — it's an entry form |
+| `/grn-detail` | **Detail** (4.3) | expandable lines; NOT a `DataTable` candidate |
+| `/item-batches` | **List** (4.2) | expandable stock rows; NOT a `DataTable` candidate |
+| `/task-queue` | **Cockpit-of-work** (4.1 variant) | operator-facing, live |
+| `/task-engine` | **Canvas** (4.5) | React Flow swimlanes + docked inspector |
+| `/machine-board` | **Board** (4.4 variant) | machine cards by state, live |
+| `/machine-timeline` | **Analytical dashboard** (4.9) | Gantt/utilisation over a time window |
+| `/reconciliation` | **Run** (4.6) | resolve unaccounted machine time |
+| `/critical-chain` | **Analytical dashboard** (4.9) | fever charts, drum strip, chain Gantt |
+| `/analytics` | **Analytical dashboard** (4.9) | touch vs wait, machine-state distribution |
+| `/item-catalog` | **List** (4.2) | Items tab is a virtualized grid — see §4.2 note; taxonomy tabs are tables |
+| `/item-catalog/:id` | **Detail** (4.3) | custom-field tables are inline-editable forms, NOT `DataTable` |
 | BOM designer (in item detail) | **Canvas** (4.5) / **Tree** (4.7) | structural editor |
-| `/routing-plans` | **List** (4.2) | |
-| `/routing-plans/:id` | **Canvas** (4.5) | node-graph builder + solid inspector |
-| `/resource-types` | **List**/**Detail** | types → resources + machines tab |
-| `/plants` | **List** → **Detail** | plant → stock locations, resources, calendars |
-| `/suppliers`, `/suppliers/:id` | **List** + **Detail** | supplier → supplier×item, GRNs |
-| `/shift-calendars` | **List** + **Detail** | calendar → shifts, working days |
+| `/bom-templates` | **List** (4.2) | |
+| `/operations` | **List** (4.2) + **Detail** | Details · Variables · Resource Types tabs |
+| `/operation-flows` | **List** (4.2) + **Canvas/Sheet** | flow list → editable step sheet |
+| `/progress-templates` | **List** (4.2) + **Detail** | template → ordered stages |
+| `/plants` | **List** (4.2) → **Detail** | plants · stock locations · stock levels tabs |
+| `/resource-types` | **List** (4.2) / **Detail** | types → resources + machines tab |
+| `/shift-calendars` | **List** (4.2) + **Detail** | calendar → shifts, working days |
+| `/suppliers`, `/suppliers/:id` | **List** + **Detail** | supplier → supplier×item |
 | `/item-metrics`, `/constants` | **List** (4.2) | simple reference tables |
-| `/item-batches` | **List** (4.2) | stock batch table |
-| (new) Configure landing | **Readiness** (4.8) | model-completeness checklist |
+| `/buffer-config` | **Settings** (4.10) | per-machine buffer setup |
+| `/codegen-settings` | **Settings** (4.10) | prefixes and sequences |
 
 ---
 

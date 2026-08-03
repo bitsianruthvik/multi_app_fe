@@ -64,7 +64,7 @@ import type {
 import { usePermission } from '@core/hooks/usePermission';
 import InfoTooltip, { type InfoContent } from '@shared/components/InfoTooltip';
 import api, { API_HOST } from '@core/utils/axiosConfig';
-import { Surface, PageHeader, Mono, StatusBadge, EmptyState, ListSkeleton, EntityList, EntityRow, useToast, type SortableColumn } from '../components';
+import { Surface, PageHeader, Mono, StatusBadge, EmptyState, ListSkeleton, EntityList, EntityRow, useToast, StatStrip, type Stat, type SortableColumn } from '../components';
 import { useSortableData } from '../hooks/useSortableData';
 import { STANDARD_UOMS } from '../constants/uom';
 
@@ -1642,6 +1642,22 @@ export default function ItemCatalog() {
   const { company }       = useParams<{ company: string }>();
 
   const [items,   setItems]   = useState<FabItemCatalog[]>([]);
+
+  /**
+   * Catalog health, derived from loaded rows. "Unclassified" is the one that
+   * matters: an item with no category falls out of the taxonomy filters and
+   * out of any template that auto-matches on category, so it quietly stops
+   * being reachable.
+   */
+  const itemStats: Stat[] = useMemo(() => {
+    const unclassified = items.filter((i) => !i.categoryId);
+    const noUnit = items.filter((i) => !i.unit);
+    return [
+      { label: 'Items', value: items.length },
+      { label: 'Unclassified', value: unclassified.length, tone: unclassified.length ? 'warning' : 'success' },
+      { label: 'No unit', value: noUnit.length, tone: noUnit.length ? 'warning' : 'default' },
+    ];
+  }, [items]);
   const [search,  setSearch]  = useState('');
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState('');
@@ -1904,6 +1920,10 @@ export default function ItemCatalog() {
       />
 
       {importErr && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setImportErr('')}>{importErr}</Alert>}
+
+      {/* Only on the Items tab — the taxonomy tabs count different things, and
+          a strip that doesn't match the table under it is noise. */}
+      {pageTab === 0 && !loading && items.length > 0 && <StatStrip stats={itemStats} />}
 
       {/* Page tabs */}
       <Tabs value={pageTab} onChange={(_, v) => setPageTab(v)} sx={{ mb: 3, borderBottom: '1px solid var(--c-divider)' }}>

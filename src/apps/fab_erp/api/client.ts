@@ -570,3 +570,37 @@ export async function getProjectAnalytics(
 ): Promise<ProjectAnalyticsResponse> {
   return fabGet<ProjectAnalyticsResponse>(`analytics/project/${orderId}`, range);
 }
+
+// ── Factory Pulse cockpit (GET /pulse) ──────────────────────────────────────
+
+export type PulseKpis = {
+  openOrders?: number;
+  overdueOrders?: number;
+  tasksInProgress?: number;
+  tasksBlocked?: number;
+  tasksEligible?: number;
+  machinesRunning?: number;
+  machinesTotal?: number;
+  redBuffers?: number;
+  draftSalesOrders?: number;
+  posInTransit?: number;
+  items?: number;
+};
+
+export type PulseExceptions = {
+  overdueOrders?: { id: number; orderNumber: string; status: string; requiredDate: string; daysLate: number }[];
+  blockedWork?: { orderId: number; orderNumber: string; blockedCount: number }[];
+  flowsMissingFormula?: { id: number; code: string; name: string }[];
+  redBuffers?: { id: number; kind: string; orderId: number | null; orderNumber: string | null; consumedPct: number }[];
+};
+
+export type PulseResponse = { kpis: PulseKpis; exceptions: PulseExceptions };
+
+/**
+ * One round trip for the whole cockpit. Every field is optional: the endpoint
+ * omits any aggregate whose query failed rather than failing the response, so
+ * the UI must treat a missing key as "no card" and never as zero.
+ */
+export async function getPulse(): Promise<PulseResponse> {
+  return fabGet<PulseResponse>('pulse');
+}

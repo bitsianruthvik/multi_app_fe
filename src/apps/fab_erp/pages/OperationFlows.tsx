@@ -10,7 +10,7 @@
  * Excel import/export.
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert, Box, Button, CircularProgress, Dialog, DialogActions, DialogContent,
   DialogTitle, IconButton, Switch,
@@ -26,7 +26,7 @@ import AccountTreeRounded from '@mui/icons-material/AccountTreeRounded';
 import { fabQuery, fabMutate } from '@apps/fab_erp/api/client';
 import type { FabOperationFlow, FabOperationFlowStep, FabOperation, FabResourceType } from '@apps/fab_erp/types';
 import { usePermission } from '@core/hooks/usePermission';
-import { Surface, PageHeader, Mono, StatusBadge, EmptyState, ListSkeleton, useToast, DataTable } from '../components';
+import { Surface, PageHeader, Mono, StatusBadge, EmptyState, ListSkeleton, useToast, DataTable, StatStrip, type Stat } from '../components';
 import FlowStepsSheet from '../components/FlowStepsSheet';
 
 interface QueryResult<T> { data: T[]; total?: number }
@@ -225,6 +225,18 @@ export default function OperationFlows() {
   const { toast } = useToast();
 
   const [flows, setFlows] = useState<FabOperationFlow[]>([]);
+
+  const flowStats: Stat[] = useMemo(() => {
+    const active = flows.filter((f) => f.active === 1);
+    const undescribed = flows.filter((f) => !f.description || !f.description.trim());
+    return [
+      { label: 'Flows', value: flows.length },
+      { label: 'Active', value: active.length, tone: active.length ? 'success' : 'default' },
+      // Not an error, just a findability cost — the description is what the
+      // flow list is searched and scanned by.
+      { label: 'No description', value: undescribed.length, tone: undescribed.length ? 'warning' : 'default' },
+    ];
+  }, [flows]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -312,6 +324,8 @@ export default function OperationFlows() {
       />
 
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
+
+      {!loading && !selectedFlow && flows.length > 0 && <StatStrip stats={flowStats} />}
 
       {loading ? <ListSkeleton rows={5} /> : !selectedFlow ? (
         flows.length === 0 ? (

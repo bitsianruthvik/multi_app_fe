@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { Box, Typography } from '@mui/material';
+import { Box, Button, Typography } from '@mui/material';
 import { useNavigate, useParams } from 'react-router-dom';
 import ReceiptLongRounded from '@mui/icons-material/ReceiptLongRounded';
 import WarningAmberRounded from '@mui/icons-material/WarningAmberRounded';
@@ -7,20 +7,35 @@ import LocalShippingRounded from '@mui/icons-material/LocalShippingRounded';
 import Inventory2Rounded from '@mui/icons-material/Inventory2Rounded';
 import CheckCircleRounded from '@mui/icons-material/CheckCircleRounded';
 import PlaylistAddCheckRounded from '@mui/icons-material/PlaylistAddCheckRounded';
+import PrecisionManufacturingRounded from '@mui/icons-material/PrecisionManufacturingRounded';
+import BlockRounded from '@mui/icons-material/BlockRounded';
+import RouteRounded from '@mui/icons-material/RouteRounded';
+import RefreshRounded from '@mui/icons-material/RefreshRounded';
 
-import { fabQuery } from '../api/client';
+import { getPulse, type PulseResponse } from '../api/client';
 import { usePermission } from '@core/hooks/usePermission';
 import { useAuth } from '@core/contexts/AuthContext';
-import { PageHeader, StatStrip, WorkQueueCard, StatSkeleton, EmptyState, type Stat } from '../components';
+import {
+  PageHeader, StatStrip, WorkQueueCard, StatSkeleton, EmptyState,
+  ExceptionFeed, type Stat, type ExceptionItem,
+} from '../components';
 
-interface OrderRow {
-  id: number;
-  orderType: string;
-  status: string;
-  requiredDate?: string;
-}
-
-const SHIPPED_STATES = new Set(['shipped', 'received', 'completed', 'closed', 'cancelled', 'converted']);
+/**
+ * Factory Pulse — the cockpit (DESIGN_SYSTEM.md §4.1, elevation plan §6.1).
+ *
+ * Answers "what needs me today?" in three bands:
+ *   1. Pulse row      — live KPIs, each one clickable through to its screen
+ *   2. Exception feed — the specific records that are wrong, worst first
+ *   3. Your queues    — role-filtered standing work
+ *
+ * It is a to-do surface, not a chart dashboard. Every number here is a door:
+ * a count you cannot click is a dead end, which is the thing this redesign was
+ * meant to remove.
+ *
+ * All cockpit data comes from a single GET /pulse. Every field is optional —
+ * the endpoint omits aggregates whose query failed — so a missing KPI hides its
+ * card rather than showing a misleading zero.
+ */
 
 export default function Home() {
   const navigate = useNavigate();
@@ -31,62 +46,109 @@ export default function Home() {
   const canOrders = usePermission('fab_erp_projects_view');
   const canGrn = usePermission('fab_erp_grn_view');
   const canItems = usePermission('fab_erp_items_meta_view');
+  const canTasks = usePermission('fab_erp_taskqueue_view');
+  const canCc = usePermission('fab_erp_cc_view');
 
-  const [orders, setOrders] = useState<OrderRow[]>([]);
-  const [itemCount, setItemCount] = useState<number | null>(null);
+  const [pulse, setPulse] = useState<PulseResponse | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // One request for the entire cockpit. The queue counts used to come from a
+  // 500-row fabQuery filtered client-side, and the item count from a
+  // `pagination:{limit:1}` query whose `total` is the size of the page it just
+  // returned — so it always read "1 part defined". Both are real COUNTs now.
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [ordRes, itemRes] = await Promise.allSettled([
-        fabQuery<{ data: OrderRow[] }>('fabErpOrder', {
-          fields: ['id', 'orderType', 'status', 'requiredDate'],
-          pagination: { limit: 500 },
-        }),
-        canItems
-          ? fabQuery<{ data: { id: number }[]; total?: number }>('fabErpItemCatalog', {
-              fields: ['id'],
-              pagination: { limit: 1 },
-            })
-          : Promise.resolve({ data: [], total: 0 } as { data: { id: number }[]; total?: number }),
-      ]);
-      if (ordRes.status === 'fulfilled') setOrders(ordRes.value.data ?? []);
-      if (itemRes.status === 'fulfilled') {
-        const v = itemRes.value as { data: { id: number }[]; total?: number };
-        setItemCount(v.total ?? v.data?.length ?? 0);
-      }
+      setPulse(await getPulse());
+    } catch {
+      // A cockpit that renders nothing is worse than one with no cards; keep
+      // whatever was last shown and let the user retry via Refresh.
     } finally {
       setLoading(false);
     }
-  }, [canItems]);
+  }, []);
 
-  useEffect(() => {
-    load();
-  }, [load]);
+  useEffect(() => { load(); }, [load]);
 
-  const m = useMemo(() => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const open = orders.filter((o) => !SHIPPED_STATES.has(o.status));
-    const overdue = open.filter((o) => o.requiredDate && new Date(o.requiredDate) < today);
-    const draftSales = orders.filter((o) => o.orderType === 'sales' && o.status === 'draft');
-    const posSent = orders.filter((o) => o.orderType === 'purchase' && o.status === 'sent');
-    const released = orders.filter(
-      (o) => o.orderType === 'manufacturing' && (o.status === 'released' || o.status === 'in_progress'),
-    );
-    return { open, overdue, draftSales, posSent, released };
-  }, [orders]);
-
+  const k = pulse?.kpis ?? {};
   const firstName = user?.name?.split(' ')[0] ?? 'there';
 
+  // Each stat is a door. `undefined` means the aggregate failed — hide the card
+  // rather than render a zero the user would read as fact.
   const stats: Stat[] = [
-    { label: 'Open orders', value: m.open.length, icon: <ReceiptLongRounded />, onClick: () => go('orders') },
-    { label: 'Overdue', value: m.overdue.length, tone: m.overdue.length ? 'danger' : 'default', icon: <WarningAmberRounded />, onClick: () => go('orders') },
-    { label: 'In production', value: m.released.length, tone: 'info', icon: <PlaylistAddCheckRounded />, onClick: () => go('task-queue') },
-  ];
+    k.openOrders !== undefined && canOrders && {
+      label: 'Open orders', value: k.openOrders, icon: <ReceiptLongRounded />,
+      onClick: () => go('orders'),
+    },
+    k.overdueOrders !== undefined && canOrders && {
+      label: 'Overdue', value: k.overdueOrders,
+      tone: k.overdueOrders > 0 ? 'danger' : 'default',
+      icon: <WarningAmberRounded />, onClick: () => go('orders'),
+    },
+    k.tasksInProgress !== undefined && canTasks && {
+      label: 'In progress', value: k.tasksInProgress, tone: 'info',
+      icon: <PlaylistAddCheckRounded />, onClick: () => go('task-queue'),
+    },
+    k.tasksBlocked !== undefined && canTasks && {
+      label: 'Blocked', value: k.tasksBlocked,
+      tone: k.tasksBlocked > 0 ? 'warning' : 'default',
+      icon: <BlockRounded />, onClick: () => go('task-queue'),
+    },
+    k.machinesRunning !== undefined && {
+      label: 'Machines running', value: k.machinesRunning,
+      // Running alone is meaningless — "2" of 3 reads very differently from 2 of 40.
+      display: `${k.machinesRunning}/${k.machinesTotal ?? 0}`,
+      tone: k.machinesRunning > 0 ? 'success' : 'default',
+      icon: <PrecisionManufacturingRounded />, onClick: () => go('machine-board'),
+    },
+    k.redBuffers !== undefined && canCc && {
+      label: 'Buffers in red', value: k.redBuffers,
+      tone: k.redBuffers > 0 ? 'danger' : 'default',
+      icon: <RouteRounded />, onClick: () => go('critical-chain'),
+    },
+  ].filter(Boolean) as Stat[];
 
-  // Build role-filtered work queues.
+  const exceptions: ExceptionItem[] = useMemo(() => {
+    const e = pulse?.exceptions;
+    if (!e) return [];
+    const out: ExceptionItem[] = [];
+
+    for (const o of e.overdueOrders ?? []) {
+      out.push({
+        id: `overdue-${o.id}`, severity: 'danger', label: o.orderNumber, code: true,
+        detail: `Past its required date and still ${o.status.replace(/_/g, ' ')}`,
+        metric: `${o.daysLate}d late`,
+        onClick: () => go(`orders/${o.id}`),
+      });
+    }
+    for (const b of e.redBuffers ?? []) {
+      out.push({
+        id: `buffer-${b.id}`, severity: 'danger',
+        label: b.orderNumber ?? `Plan buffer #${b.id}`, code: !!b.orderNumber,
+        detail: `${b.kind === 'feeding' ? 'Feeding' : 'Project'} buffer past its action threshold`,
+        metric: `${b.consumedPct}% used`,
+        onClick: () => go('critical-chain'),
+      });
+    }
+    for (const w of e.blockedWork ?? []) {
+      out.push({
+        id: `blocked-${w.orderId}`, severity: 'warning', label: w.orderNumber, code: true,
+        detail: w.blockedCount === 1 ? 'A task is blocked on its inputs' : 'Tasks are blocked on their inputs',
+        metric: `${w.blockedCount} blocked`,
+        onClick: () => go(`orders/${w.orderId}`),
+      });
+    }
+    for (const f of e.flowsMissingFormula ?? []) {
+      out.push({
+        id: `flow-${f.id}`, severity: 'warning', label: f.name,
+        // This one is quietly corrosive, so the detail spells out the consequence.
+        detail: `Flow ${f.code} has a step whose operation has no time formula — it schedules as zero duration`,
+        onClick: () => go('operation-flows'),
+      });
+    }
+    return out;
+  }, [pulse, company]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const queues: ReactNode[] = [];
   if (canOrders) {
     queues.push(
@@ -94,25 +156,12 @@ export default function Home() {
         key="confirm"
         icon={<CheckCircleRounded />}
         title="Draft sales orders"
-        count={m.draftSales.length}
+        count={k.draftSalesOrders ?? 0}
         unit="to confirm"
         description="Sales orders captured but not yet confirmed for production."
         actionLabel="Review orders"
         onAction={() => go('orders')}
         tone="primary"
-      />,
-    );
-    queues.push(
-      <WorkQueueCard
-        key="overdue"
-        icon={<WarningAmberRounded />}
-        title="Overdue orders"
-        count={m.overdue.length}
-        unit="past due"
-        description="Open orders whose required date has already passed."
-        actionLabel="Resolve"
-        onAction={() => go('orders')}
-        tone={m.overdue.length ? 'danger' : 'success'}
       />,
     );
   }
@@ -122,7 +171,7 @@ export default function Home() {
         key="grn"
         icon={<LocalShippingRounded />}
         title="Goods receipt"
-        count={m.posSent.length}
+        count={k.posInTransit ?? 0}
         unit="POs in transit"
         description="Purchase orders sent to suppliers, awaiting receipt into stock."
         actionLabel="Receive goods"
@@ -137,9 +186,9 @@ export default function Home() {
         key="items"
         icon={<Inventory2Rounded />}
         title="Item catalog"
-        count={itemCount ?? 0}
-        unit="parts defined"
-        description="Maintain items, BOMs and routings — the model MRP and scheduling burn."
+        count={k.items ?? 0}
+        unit={k.items === 1 ? "part defined" : "parts defined"}
+        description="Maintain items, BOMs and flows — the model scheduling burns."
         actionLabel="Open catalog"
         onAction={() => go('item-catalog')}
         tone="success"
@@ -152,18 +201,32 @@ export default function Home() {
       <PageHeader
         title={`Welcome back, ${firstName}`}
         subtitle="Here's what needs you today."
+        actions={
+          <Button
+            size="small"
+            startIcon={<RefreshRounded />}
+            onClick={load}
+            disabled={loading}
+            sx={{ color: 'var(--c-text-2)' }}
+          >
+            Refresh
+          </Button>
+        }
       />
 
-      {/* The inline search box that used to sit here is gone: the top bar now
-          carries a global search field (⌘K) on every screen, so a second,
-          Home-only search was both redundant and the weaker of the two. */}
       {loading ? (
-        <>
-          <StatSkeleton count={4} />
-        </>
+        <StatSkeleton count={6} />
       ) : (
         <>
-          <StatStrip stats={stats} />
+          {stats.length > 0 && <StatStrip stats={stats} />}
+
+          <Box sx={{ mb: 3 }}>
+            <ExceptionFeed
+              items={exceptions}
+              emptyMessage="No overdue orders, blocked work, or buffers in the red."
+            />
+          </Box>
+
           {queues.length === 0 ? (
             <EmptyState
               icon={<PlaylistAddCheckRounded />}
@@ -173,7 +236,10 @@ export default function Home() {
           ) : (
             <>
               <Typography
-                sx={{ fontSize: 11, fontWeight: 600, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--c-text-3)', mb: 1.5 }}
+                sx={{
+                  fontSize: 11, fontWeight: 600, letterSpacing: '.06em',
+                  textTransform: 'uppercase', color: 'var(--c-text-3)', mb: 1.5,
+                }}
               >
                 Your queues
               </Typography>

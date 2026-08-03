@@ -17,6 +17,7 @@ import { usePermission } from '@core/hooks/usePermission';
 import {
   PageHeader, FilterBar, FacetChip, PipelineBoard, PipelineCard, type PipelineStage,
   EntityList, EntityRow, StatusBadge, Mono, EmptyState, ListSkeleton, useToast,
+  StatStrip, type Stat,
 } from '../components';
 import { statusFamily } from '../statusMap';
 
@@ -64,6 +65,9 @@ const STAGES: PipelineStage[] = [
   { key: 'production', label: 'In production', accent: 'var(--c-stage-production)' },
   { key: 'done',       label: 'Closed',        accent: 'var(--c-stage-shipped)' },
 ];
+/** Stages that mean the order no longer needs attention. */
+const CLOSED_STAGES = new Set(['done']);
+
 function stageOf(status: string): string {
   if (status === 'draft') return 'capture';
   if (status === 'confirmed' || status === 'sent') return 'confirmed';
@@ -423,6 +427,25 @@ export default function Orders() {
     return c;
   }, [orders]);
 
+  /**
+   * Header metrics, derived from the rows already loaded — no extra request.
+   * These describe the *filtered* set so the numbers always agree with the
+   * board below; a strip that ignores the active filter is worse than none.
+   */
+  const stats: Stat[] = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const open = filtered.filter((o) => !CLOSED_STAGES.has(stageOf(o.status)));
+    const overdue = open.filter((o) => o.requiredDate && new Date(o.requiredDate) < today);
+    const inProduction = filtered.filter((o) => stageOf(o.status) === 'production');
+    return [
+      { label: 'Shown', value: filtered.length },
+      { label: 'Open', value: open.length, tone: 'info' },
+      { label: 'Overdue', value: overdue.length, tone: overdue.length ? 'danger' : 'default' },
+      { label: 'In production', value: inProduction.length, tone: inProduction.length ? 'success' : 'default' },
+    ];
+  }, [filtered]);
+
   const cardsByStage = useMemo(() => {
     const map: Record<string, React.ReactNode[]> = {};
     for (const s of STAGES) map[s.key] = [];
@@ -479,6 +502,8 @@ export default function Orders() {
           {newOrder}
         </>}
       />
+
+      {!loading && orders.length > 0 && <StatStrip stats={stats} />}
 
       <FilterBar search={search} onSearch={setSearch} placeholder="Search order #, customer, supplier ref…">
         {TYPE_FACETS.map((f) => (

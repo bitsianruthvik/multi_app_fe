@@ -29,6 +29,7 @@ export { useCommandPalette } from './commandPaletteContext';
 export { ShortcutsHelp } from './ShortcutsHelp';
 export { useShortcutsHelp } from '../hooks/useShortcutsHelp';
 export { NumberCell, QtyCell, DateCell } from './Cells';
+export { ExceptionFeed, type ExceptionItem, type ExceptionSeverity } from './ExceptionFeed';
 export { Sparkline } from './charts/Sparkline';
 export { Heatstrip, HeatstripLegend, type HeatSegment, type RunState as HeatRunState } from './charts/Heatstrip';
 export { useChartColors, type ChartColors } from './charts/useChartColors';

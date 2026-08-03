@@ -11,7 +11,7 @@
  * ShiftCalendars.tsx (master EntityList + selected-row detail panel with sub-tabs).
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert, Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle,
   IconButton, List, ListItem, ListItemText, MenuItem, Select, Switch, Tab,
@@ -33,7 +33,7 @@ import type { FabOperation, FabOperationVariable, FabOperationResourceType, FabR
 import { usePermission } from '@core/hooks/usePermission';
 import api, { API_HOST } from '@core/utils/axiosConfig';
 import {
-  Surface, PageHeader, Mono, StatusBadge, EmptyState, ListSkeleton, useToast, EntityList, EntityRow, DataTable, NumberCell, type SortableField,
+  Surface, PageHeader, Mono, StatusBadge, EmptyState, ListSkeleton, useToast, EntityList, EntityRow, DataTable, NumberCell, StatStrip, type Stat, type SortableField,
 } from '../components';
 import FormulaCodeEditor from '../components/FormulaCodeEditor';
 import { useFormulaVariables } from '../hooks/useFormulaVariables';
@@ -502,6 +502,22 @@ export default function Operations() {
   const { toast } = useToast();
 
   const [operations, setOperations] = useState<FabOperation[]>([]);
+
+  /**
+   * "No time formula" is the metric that earns this strip its space: a flow
+   * step whose operation has no formula schedules as zero duration (FEAT-09),
+   * which silently corrupts every plan built on it. The same condition drives
+   * the cockpit's exception feed — this is where you come to fix it.
+   */
+  const opStats: Stat[] = useMemo(() => {
+    const noFormula = operations.filter((o) => !o.timeFormula || !String(o.timeFormula).trim());
+    const inactive = operations.filter((o) => o.active !== 1);
+    return [
+      { label: 'Operations', value: operations.length },
+      { label: 'No time formula', value: noFormula.length, tone: noFormula.length ? 'warning' : 'success' },
+      { label: 'Inactive', value: inactive.length, tone: inactive.length ? 'default' : 'default' },
+    ];
+  }, [operations]);
   const [resourceTypes, setResourceTypes] = useState<FabResourceType[]>([]);
   const [selected, setSelected] = useState<FabOperation | null>(null);
   const [loading, setLoading] = useState(true);
@@ -668,6 +684,8 @@ export default function Operations() {
 
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
       {importErr && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setImportErr('')}>{importErr}</Alert>}
+
+      {!loading && operations.length > 0 && <StatStrip stats={opStats} />}
 
       {creating && (
         <Surface e={1} sx={{ p: 2, mb: 2, display: 'flex', flexDirection: 'column', gap: 1.5 }}>
