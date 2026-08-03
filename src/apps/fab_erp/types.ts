@@ -240,6 +240,16 @@ export interface FabOperationResourceType {
   companyId: number;
   operationId: number;
   resourceTypeId: number;
+  /**
+   * Issue 4 — batching lives here, on operation × resource type, because the
+   * machine decides: a plasma table batches and a welding bay doesn't, and the
+   * same "Drill" operation batches on a multi-spindle line but not a mag drill.
+   */
+  batchMode?: 'none' | 'shared_setup' | 'fixed_cycle' | 'capacity_cycle';
+  /** How many at once. Falls back to the machine's own unit count when null. */
+  batchCapacity?: number | null;
+  /** JSON array of item metric keys that must match, e.g. ["thickness_mm"]. */
+  batchMatchKeys?: string | string[] | null;
   createdAt: string;
   updatedAt: string;
   resourceTypeName?: string;

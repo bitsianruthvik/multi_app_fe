@@ -61,13 +61,13 @@ function PartGroupNode({ data }: NodeProps) {
 
   return (
     <>
-      <Handle type="target" position={Position.Left} style={{ width: 8, height: 8, background: '#7c3aed', border: 'none' }} />
+      <Handle type="target" position={Position.Left} style={{ width: 8, height: 8, background: 'var(--c-graph-edge-component)', border: 'none' }} />
 
       <Box
         sx={{
           width: '100%', height: '100%', boxSizing: 'border-box',
           borderRadius: 'var(--r-md, 8px)',
-          border: `1.5px ${d.collapsed ? 'solid' : 'dashed'} #c4b5fd`,
+          border: `1.5px ${d.collapsed ? 'solid' : 'dashed'} var(--c-graph-lane)`,
           background: d.collapsed ? 'var(--c-surface)' : 'var(--c-surface-2)',
           boxShadow: d.collapsed ? 'var(--e-1)' : 'none',
           display: 'flex', flexDirection: 'column', overflow: 'hidden',
@@ -84,7 +84,7 @@ function PartGroupNode({ data }: NodeProps) {
         )}
       </Box>
 
-      <Handle type="source" position={Position.Right} style={{ width: 8, height: 8, background: '#7c3aed', border: 'none' }} />
+      <Handle type="source" position={Position.Right} style={{ width: 8, height: 8, background: 'var(--c-graph-edge-component)', border: 'none' }} />
     </>
   );
 }

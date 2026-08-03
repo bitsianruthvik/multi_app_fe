@@ -25,7 +25,7 @@ function DetailRow({ label, value }: { label: string; value: string | number | n
 function OperationNode({ data }: NodeProps) {
   const d = data as unknown as OperationNodeData;
   const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null);
-  const color = STATUS_COLOR[d.status] ?? '#9ca3af';
+  const color = STATUS_COLOR[d.status] ?? 'var(--c-task-eligible)';
   const open = Boolean(anchorEl);
 
   const opName = d.operationName ?? `Op #${d.operationId ?? '?'}`;

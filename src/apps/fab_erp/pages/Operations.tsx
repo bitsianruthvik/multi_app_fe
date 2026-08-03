@@ -23,6 +23,7 @@ import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
 import DownloadIcon from '@mui/icons-material/Download';
 import EditRounded from '@mui/icons-material/EditRounded';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
+import LayersRounded from '@mui/icons-material/LayersRounded';
 import BuildCircleRounded from '@mui/icons-material/BuildCircleRounded';
 import StarRounded from '@mui/icons-material/StarRounded';
 import StarBorderRounded from '@mui/icons-material/StarBorderRounded';
@@ -347,6 +348,8 @@ function ResourceTypesPanel({ operation, resourceTypes, canManage, onOperationSa
   const [adding, setAdding] = useState(false);
   const [delTarget, setDelTarget] = useState<FabOperationResourceType | null>(null);
   const [deleting, setDeleting] = useState(false);
+  // Issue 4: which mapping's batching rules are being edited.
+  const [batchTarget, setBatchTarget] = useState<FabOperationResourceType | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true); setErr('');
@@ -437,9 +440,23 @@ function ResourceTypesPanel({ operation, resourceTypes, canManage, onOperationSa
               sortValue: (r) => (operation.defaultResourceTypeId === r.resourceTypeId ? 0 : 1),
               exportValue: (r) => (operation.defaultResourceTypeId === r.resourceTypeId ? 'default' : ''),
             },
+            {
+              // Issue 4. Reads as prose because "shared_setup / 6 / [thickness_mm]"
+              // is a database row, and the person configuring this is deciding
+              // whether a machine can run several parts at once.
+              key: 'batching',
+              header: 'Batching',
+              width: 240,
+              render: (r) => <BatchingSummary row={r} />,
+              sortValue: (r) => r.batchMode ?? 'none',
+              exportValue: (r) => r.batchMode ?? 'none',
+            },
           ]}
           rowActions={canManage ? (r) => (
             <>
+              <Tooltip title="Batching rules">
+                <IconButton size="small" onClick={() => setBatchTarget(r)} aria-label={`Batching rules for ${r.resourceTypeCode}`}><LayersRounded fontSize="small" /></IconButton>
+              </Tooltip>
               {operation.defaultResourceTypeId !== r.resourceTypeId && (
                 <Tooltip title="Set as default">
                   <IconButton size="small" onClick={() => setDefault(r.resourceTypeId)} aria-label={`Set ${r.resourceTypeCode} as default`}><StarBorderRounded fontSize="small" /></IconButton>
@@ -452,8 +469,135 @@ function ResourceTypesPanel({ operation, resourceTypes, canManage, onOperationSa
           ) : undefined}
         />
       )}
+      <BatchingDialog
+        row={batchTarget}
+        onClose={() => setBatchTarget(null)}
+        onSaved={async () => { setBatchTarget(null); await load(); toast('Batching rules saved'); }}
+      />
       <DeleteDialog open={!!delTarget} label={delTarget ? `${delTarget.resourceTypeCode} — ${delTarget.resourceTypeName}` : ''} busy={deleting} onClose={() => setDelTarget(null)} onConfirm={handleDelete} />
     </Box>
+  );
+}
+
+// ── Batching rules (Issue 4) ────────────────────────────────────────────────
+
+const BATCH_MODE_OPTIONS: Array<{ value: NonNullable<FabOperationResourceType['batchMode']>; label: string; help: string }> = [
+  { value: 'none', label: 'Not batchable', help: 'Tasks run one at a time on this kind of machine.' },
+  { value: 'shared_setup', label: 'Shared setup', help: 'Each piece is still worked individually, but setup is paid once — stack and drill.' },
+  { value: 'fixed_cycle', label: 'Fixed cycle', help: 'One run costs the same however many pieces go in — a galvanising dip, one nested cut.' },
+  { value: 'capacity_cycle', label: 'Capacity cycle', help: 'Like fixed cycle, but the machine holds a limited number, so more pieces means more cycles.' },
+];
+
+function parseKeys(raw: FabOperationResourceType['batchMatchKeys']): string[] {
+  if (!raw) return [];
+  if (Array.isArray(raw)) return raw.map(String);
+  try {
+    const v = JSON.parse(raw);
+    return Array.isArray(v) ? v.map(String) : [];
+  } catch { return []; }
+}
+
+function BatchingSummary({ row }: { row: FabOperationResourceType }) {
+  const mode = row.batchMode ?? 'none';
+  if (mode === 'none') {
+    return <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-3)' }}>One at a time</Typography>;
+  }
+  const opt = BATCH_MODE_OPTIONS.find((o) => o.value === mode);
+  const keys = parseKeys(row.batchMatchKeys);
+  return (
+    <Box>
+      <Typography sx={{ fontSize: 12.5, color: 'var(--c-text)' }}>{opt?.label ?? mode}</Typography>
+      <Typography sx={{ fontSize: 11.5, color: 'var(--c-text-3)' }}>
+        {row.batchCapacity ? `up to ${row.batchCapacity}` : 'machine’s unit count'}
+        {keys.length > 0 && ` · match ${keys.join(', ')}`}
+      </Typography>
+    </Box>
+  );
+}
+
+function BatchingDialog({ row, onClose, onSaved }: {
+  row: FabOperationResourceType | null;
+  onClose: () => void;
+  onSaved: () => void | Promise<void>;
+}) {
+  const [mode, setMode] = useState<NonNullable<FabOperationResourceType['batchMode']>>('none');
+  const [capacity, setCapacity] = useState('');
+  const [keys, setKeys] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState('');
+
+  useEffect(() => {
+    if (!row) return;
+    setMode(row.batchMode ?? 'none');
+    setCapacity(row.batchCapacity != null ? String(row.batchCapacity) : '');
+    setKeys(parseKeys(row.batchMatchKeys).join(', '));
+    setErr('');
+  }, [row]);
+
+  const capacityInvalid = capacity.trim() !== '' && !(Number(capacity) > 0 && Number.isInteger(Number(capacity)));
+
+  async function save() {
+    if (!row || capacityInvalid) return;
+    setSaving(true); setErr('');
+    try {
+      const keyList = keys.split(',').map((k) => k.trim()).filter(Boolean);
+      await fabMutate('fabErpOperationResourceType', 'update', {
+        id: row.id,
+        batch_mode: mode,
+        batch_capacity: capacity.trim() === '' ? null : Number(capacity),
+        // Stored as a JSON column; an empty list is written as NULL so "no
+        // constraint" and "an empty constraint" can't drift apart.
+        batch_match_keys: keyList.length ? JSON.stringify(keyList) : null,
+      });
+      await onSaved();
+    } catch (e) { setErr(errMsg(e)); } finally { setSaving(false); }
+  }
+
+  const selected = BATCH_MODE_OPTIONS.find((o) => o.value === mode);
+
+  return (
+    <Dialog open={!!row} onClose={saving ? undefined : onClose} maxWidth="sm" fullWidth>
+      <DialogTitle>Batching on {row?.resourceTypeName ?? 'this resource type'}</DialogTitle>
+      <DialogContent>
+        {err && <Alert severity="error" sx={{ mb: 2 }}>{err}</Alert>}
+        <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)', mb: 2 }}>
+          Whether several parts can go through this kind of machine in one run — and how that run’s time is charged.
+        </Typography>
+        <TextField
+          select fullWidth size="small" label="Batch mode" value={mode}
+          onChange={(e) => setMode(e.target.value as NonNullable<FabOperationResourceType['batchMode']>)}
+          sx={{ mb: 0.75 }}
+        >
+          {BATCH_MODE_OPTIONS.map((o) => <MenuItem key={o.value} value={o.value}>{o.label}</MenuItem>)}
+        </TextField>
+        <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)', mb: 2.5 }}>{selected?.help}</Typography>
+
+        {mode !== 'none' && (
+          <>
+            <TextField
+              label="Capacity (pieces per run)" type="number" fullWidth size="small"
+              value={capacity} onChange={(e) => setCapacity(e.target.value)}
+              error={capacityInvalid}
+              helperText={capacityInvalid ? 'Must be a whole number greater than 0.' : 'Leave blank to use each machine’s own unit count.'}
+              inputProps={{ min: 1, step: 1 }}
+              sx={{ mb: 2 }}
+            />
+            <TextField
+              label="Must match" fullWidth size="small"
+              value={keys} onChange={(e) => setKeys(e.target.value)}
+              placeholder="thickness_mm, material_grade"
+              helperText="Item metric keys that must be equal for parts to share a run. You can’t nest 20 mm and 6 mm plate on the same cut."
+            />
+          </>
+        )}
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose} disabled={saving}>Cancel</Button>
+        <Button onClick={save} variant="contained" disabled={saving || capacityInvalid}>
+          {saving ? <CircularProgress size={18} /> : 'Save'}
+        </Button>
+      </DialogActions>
+    </Dialog>
   );
 }
 

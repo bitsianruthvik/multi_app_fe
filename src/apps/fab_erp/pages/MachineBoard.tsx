@@ -28,6 +28,7 @@ import ReportProblemRounded from '@mui/icons-material/ReportProblemRounded';
 import PlayCircleRounded from '@mui/icons-material/PlayCircleRounded';
 import PersonOffRounded from '@mui/icons-material/PersonOffRounded';
 import PersonRounded from '@mui/icons-material/PersonRounded';
+import LayersRounded from '@mui/icons-material/LayersRounded';
 import ArrowForwardRounded from '@mui/icons-material/ArrowForwardRounded';
 
 import { fabGet, fabPost, fabQuery, getBufferBoard, moveBufferContent, type BufferBoardMachine, type BufferKind, type BufferSide, type BufferStatus } from '../api/client';
@@ -41,7 +42,16 @@ interface CurrentTask {
   id: number;
   operationName: string | null;
   itemName: string | null;
+  /** Piece mark — what's painted on the steel (Issue 2). */
+  itemMark: string | null;
   startedAt: string | null;
+  /** Issue 4: set when this machine is running a batch. */
+  batchId: number | null;
+  /** How many tasks are in progress on this machine — >1 means a batch. */
+  taskCount: number;
+  /** True only when every in-progress task shares one batch; several unbatched
+   *  in-progress tasks on one machine is still a conflict, not a batch. */
+  batched: boolean;
 }
 
 interface Operator {
@@ -348,73 +358,119 @@ function MachineCard({
   onClick: () => void;
   onOpenBuffer: (kind: BufferKind) => void;
 }) {
+  const task = machine.currentTask;
+  // Several in-progress tasks that DON'T share a batch is the old data conflict;
+  // sharing one batch is Issue 4 working as designed.
+  const unbatchedConflict = !!task && task.taskCount > 1 && !task.batched;
+
   return (
     <Surface
       e={1}
       onClick={onClick}
       sx={{
-        p: 2, cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: 1.25,
+        cursor: 'pointer', display: 'flex', overflow: 'hidden',
         transition: 'box-shadow var(--t-fast) var(--ease), transform var(--t-fast) var(--ease)',
         '&:hover': { boxShadow: 'var(--e-2)', transform: 'translateY(-1px)' },
       }}
     >
-      <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 1 }}>
-        <Box sx={{ minWidth: 0 }}>
-          <Typography sx={{ fontSize: 15, fontWeight: 600, color: 'var(--c-text)', lineHeight: 1.3 }}>
-            {machine.name}
-          </Typography>
-          <Typography sx={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--c-text-3)' }}>
-            {machine.code}
-          </Typography>
+      {/* State rail. The board is a wall display as much as a screen: from six
+          feet away nobody reads a chip, they read colour. A 4px bar down the
+          edge of every card turns the grid into something you can scan for
+          "what's down" without reading a word. The chip stays — colour alone is
+          never the only carrier (DESIGN_SYSTEM.md §6). */}
+      <Box
+        sx={{
+          width: 4, flexShrink: 0, alignSelf: 'stretch',
+          background: `var(--c-state-${machine.effectiveState})`,
+        }}
+      />
+
+      <Box sx={{ p: 2, pl: 1.75, display: 'flex', flexDirection: 'column', gap: 1.25, flex: 1, minWidth: 0 }}>
+        <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 1 }}>
+          <Box sx={{ minWidth: 0 }}>
+            <Typography sx={{ fontSize: 15, fontWeight: 600, color: 'var(--c-text)', lineHeight: 1.3 }}>
+              {machine.name}
+            </Typography>
+            <Typography sx={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--c-text-3)' }}>
+              {machine.code}
+            </Typography>
+          </Box>
+          <StateChip state={machine.effectiveState} />
         </Box>
-        <StateChip state={machine.effectiveState} />
-      </Box>
 
-      {(machine.effectiveState === 'down' || machine.effectiveState === 'off') && machine.currentTask && (
-        <Alert severity="warning" sx={{ py: 0, fontSize: 11.5 }}>
-          Marked {machine.effectiveState} while a task is still assigned — data conflict.
-        </Alert>
-      )}
-
-      <Box sx={{ minHeight: 40 }}>
-        {machine.currentTask ? (
-          <>
-            <Typography sx={{ fontSize: 13, fontWeight: 500, color: 'var(--c-text)' }}>
-              {machine.currentTask.operationName ?? 'Unnamed operation'}
-            </Typography>
-            <Typography sx={{ fontSize: 12, color: 'var(--c-text-2)' }}>
-              {machine.currentTask.itemName ?? 'Unknown item'}
-              {machine.currentTask.startedAt && ` · ${formatElapsed(machine.currentTask.startedAt, now)} elapsed`}
-            </Typography>
-          </>
-        ) : (
-          <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-3)' }}>No task in progress</Typography>
+        {(machine.effectiveState === 'down' || machine.effectiveState === 'off') && task && (
+          <Alert severity="warning" sx={{ py: 0, fontSize: 11.5 }}>
+            Marked {machine.effectiveState} while a task is still assigned — data conflict.
+          </Alert>
         )}
-      </Box>
-
-      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-        {machine.operators.length === 0 ? (
-          <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>No operators assigned</Typography>
-        ) : (
-          machine.operators.map((op) => (
-            <Chip
-              key={op.userId}
-              size="small"
-              icon={op.absentToday ? <PersonOffRounded sx={{ fontSize: 14 }} /> : <PersonRounded sx={{ fontSize: 14 }} />}
-              label={op.name}
-              sx={{
-                fontSize: 11.5, height: 22,
-                background: op.absentToday ? 'var(--c-warning-50)' : 'var(--c-surface-2)',
-                color: op.absentToday ? 'var(--c-warning-800)' : 'var(--c-text-2)',
-              }}
-            />
-          ))
+        {unbatchedConflict && (
+          <Alert severity="warning" sx={{ py: 0, fontSize: 11.5 }}>
+            {task.taskCount} tasks in progress here but not batched together — double-booked.
+          </Alert>
         )}
-      </Box>
 
-      <Box sx={{ display: 'flex', gap: 0.75, mt: 0.5 }}>
-        <BufferGauge kind="input" side={bufferEntry?.input ?? null} onClick={() => onOpenBuffer('input')} />
-        <BufferGauge kind="output" side={bufferEntry?.output ?? null} onClick={() => onOpenBuffer('output')} />
+        <Box sx={{ minHeight: 40 }}>
+          {task ? (
+            <>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexWrap: 'wrap' }}>
+                <Typography sx={{ fontSize: 13, fontWeight: 500, color: 'var(--c-text)' }}>
+                  {task.operationName ?? 'Unnamed operation'}
+                </Typography>
+                {task.batched && (
+                  <Box
+                    component="span"
+                    sx={{
+                      display: 'inline-flex', alignItems: 'center', gap: '4px',
+                      fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap',
+                      color: 'var(--c-primary-800)', background: 'var(--c-primary-50)',
+                      border: '1px solid var(--c-primary-200)', borderRadius: 'var(--r-sm)',
+                      px: 0.75, py: '1px',
+                    }}
+                  >
+                    <LayersRounded sx={{ fontSize: 13 }} aria-hidden />
+                    {task.taskCount} together
+                  </Box>
+                )}
+              </Box>
+              <Typography sx={{ fontSize: 12, color: 'var(--c-text-2)' }}>
+                {/* The mark is what's painted on the part, so it leads. Naming a
+                    single part while four are on the machine would be a lie by
+                    omission — say the count instead. */}
+                {task.batched
+                  ? `${task.taskCount} parts`
+                  : [task.itemMark, task.itemName ?? 'Unknown item'].filter(Boolean).join(' · ')}
+                {task.startedAt && ` · ${formatElapsed(task.startedAt, now)} elapsed`}
+              </Typography>
+            </>
+          ) : (
+            <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-3)' }}>No task in progress</Typography>
+          )}
+        </Box>
+
+        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+          {machine.operators.length === 0 ? (
+            <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>No operators assigned</Typography>
+          ) : (
+            machine.operators.map((op) => (
+              <Chip
+                key={op.userId}
+                size="small"
+                icon={op.absentToday ? <PersonOffRounded sx={{ fontSize: 14 }} /> : <PersonRounded sx={{ fontSize: 14 }} />}
+                label={op.name}
+                sx={{
+                  fontSize: 11.5, height: 22,
+                  background: op.absentToday ? 'var(--c-warning-50)' : 'var(--c-surface-2)',
+                  color: op.absentToday ? 'var(--c-warning-800)' : 'var(--c-text-2)',
+                }}
+              />
+            ))
+          )}
+        </Box>
+
+        <Box sx={{ display: 'flex', gap: 0.75, mt: 0.5 }}>
+          <BufferGauge kind="input" side={bufferEntry?.input ?? null} onClick={() => onOpenBuffer('input')} />
+          <BufferGauge kind="output" side={bufferEntry?.output ?? null} onClick={() => onOpenBuffer('output')} />
+        </Box>
       </Box>
     </Surface>
   );

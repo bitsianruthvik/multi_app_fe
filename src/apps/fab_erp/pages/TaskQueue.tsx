@@ -46,7 +46,7 @@
  * starts including recently-completed tasks in this response).
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import {
   Alert,
@@ -54,6 +54,7 @@ import {
   createFilterOptions,
   Box,
   Button,
+  Checkbox,
   CircularProgress,
   Dialog,
   DialogActions,
@@ -63,6 +64,7 @@ import {
   MenuItem,
   Switch,
   TextField,
+  Tooltip,
   Typography,
 } from '@mui/material';
 import ExpandMoreRounded from '@mui/icons-material/ExpandMoreRounded';
@@ -75,7 +77,14 @@ import { isAdminRole } from '@core/utils/roles';
 
 import { fabQuery, fabGet, fabPost, getWaitBreakdown, type WaitBreakdownResponse } from '../api/client';
 import { getCcWhatIf, type CcWhatIfResponse } from '../api/cc';
-import { PageHeader, StatusBadge, Surface, useToast, LiveIndicator, useLiveRefresh, useNowTick, Mono, QtyCell } from '../components';
+import {
+  getBatchCandidates, previewBatch, startBatch as startBatchApi, completeBatch as completeBatchApi,
+  type BatchCandidate, type BatchEstimate, type BatchPolicy, type CompleteOutcome,
+} from '../api/batches';
+import {
+  PageHeader, StatusBadge, Surface, useToast, LiveIndicator, useLiveRefresh, useNowTick, Mono, QtyCell,
+  BatchBar, RunningBatchCard, CompleteBatchDialog,
+} from '../components';
 import { WaitBreakdownBar, formatWaitMinutes } from '../components/WaitBreakdownBar';
 import { LogPastWorkDialog, type LogPastWorkTask } from '../components/LogPastWorkDialog';
 import { DetourWarningDialog } from '../components/cc/DetourWarningDialog';
@@ -140,6 +149,8 @@ interface QueueTask {
   delayReason: string | null;
   computedHours: number | null;
   assignedResourceId: number | null;
+  /** Set when this task is running as part of a batch (Issue 4). */
+  batchId: number | null;
   queuedAt: string | null;
   startedAt: string | null;
   pausedAt: string | null;
@@ -206,6 +217,10 @@ function TaskRow({
   task,
   busy,
   canBackfill,
+  selectable,
+  selected,
+  blockedReason,
+  onToggleSelect,
   onStart,
   onPause,
   onComplete,
@@ -214,6 +229,12 @@ function TaskRow({
   task: QueueTask;
   busy: boolean;
   canBackfill: boolean;
+  /** Issue 4: this row can join the batch being assembled. */
+  selectable: boolean;
+  selected: boolean;
+  /** Why this row can't join, when it can't — shown, never silently greyed. */
+  blockedReason: string | null;
+  onToggleSelect: (task: QueueTask) => void;
   onStart: (task: QueueTask) => void;
   onPause: (task: QueueTask) => void;
   onComplete: (task: QueueTask) => void;
@@ -259,9 +280,35 @@ function TaskRow({
   const logPastWorkEnabled = task.status === 'eligible' || task.status === 'paused';
   const adjustTimesEnabled = task.status === 'done';
 
+  // A row that can't join the batch is dimmed, not hidden — an operator needs
+  // to see that the task is still there and read why it isn't an option.
+  const dimmed = blockedReason !== null;
+
   return (
-    <Surface e={1} sx={{ overflow: 'hidden' }}>
+    <Surface
+      e={1}
+      sx={{
+        overflow: 'hidden',
+        opacity: dimmed ? 0.5 : 1,
+        transition: 'opacity var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease)',
+        ...(selected && { borderColor: 'var(--c-primary-600)', boxShadow: 'var(--e-2)' }),
+      }}
+    >
       <Box sx={{ p: 2, display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
+        {(selectable || selected || dimmed) && (
+          <Tooltip title={blockedReason ?? 'Select to run together'}>
+            <Box component="span" sx={{ display: 'inline-flex' }}>
+              <Checkbox
+                size="small"
+                checked={selected}
+                disabled={dimmed}
+                onChange={() => onToggleSelect(task)}
+                inputProps={{ 'aria-label': `Add ${task.itemMark ?? task.itemName ?? `task ${task.id}`} to the batch` }}
+                sx={{ p: 0.5 }}
+              />
+            </Box>
+          </Tooltip>
+        )}
         <Box
           onClick={() => setExpanded((v) => !v)}
           role="button"
@@ -310,6 +357,11 @@ function TaskRow({
               </Typography>
               {task.itemCode && <Mono chip>{task.itemCode}</Mono>}
               <StatusBadge status={task.status} />
+              {task.batchId != null && (
+                <Tooltip title="Running together with the other parts in this batch">
+                  <Box component="span"><Mono chip>Batch {task.batchId}</Mono></Box>
+                </Tooltip>
+              )}
               {runningRatio !== null && (
                 <Box
                   component="span"
@@ -348,6 +400,9 @@ function TaskRow({
             </Typography>
             <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)', mt: 0.25 }}>
               {formatWaitDuration(task.waitWorkingMinutes)}
+              {blockedReason && (
+                <Box component="span" sx={{ color: 'var(--c-warning-800)' }}> · can’t batch: {blockedReason}</Box>
+              )}
             </Typography>
           </Box>
         </Box>
@@ -442,6 +497,20 @@ export default function TaskQueue() {
   const [logPastWorkTask, setLogPastWorkTask] = useState<QueueTask | null>(null);
   const [logPastWorkMode, setLogPastWorkMode] = useState<'log' | 'adjust'>('log');
 
+  // ── Issue 4: batching ──────────────────────────────────────────────────────
+  // The selection is anchored on the FIRST task picked. Eligibility (same
+  // operation, matching thickness/grade, capacity) is a property of the pair,
+  // not of a task on its own, so there is nothing to evaluate until there is an
+  // anchor — and once there is one, the backend answers for every other row at
+  // once rather than n round-trips as the operator clicks.
+  const [selectedIds, setSelectedIds] = useState<number[]>([]);
+  const [candidates, setCandidates] = useState<BatchCandidate[] | null>(null);
+  const [batchPolicy, setBatchPolicy] = useState<BatchPolicy | null>(null);
+  const [batchEstimate, setBatchEstimate] = useState<BatchEstimate | null>(null);
+  const [batchLoading, setBatchLoading] = useState(false);
+  const [batchStarting, setBatchStarting] = useState(false);
+  const [completingBatchId, setCompletingBatchId] = useState<number | null>(null);
+
   const fetchResources = useCallback(async () => {
     setLoadingResources(true);
     try {
@@ -502,6 +571,112 @@ export default function TaskQueue() {
     else setSummary(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resource]);
+
+  // ── Batching: selection, eligibility, estimate ─────────────────────────────
+
+  const clearSelection = useCallback(() => {
+    setSelectedIds([]);
+    setCandidates(null);
+    setBatchPolicy(null);
+    setBatchEstimate(null);
+  }, []);
+
+  // Switching machines invalidates everything about the selection.
+  useEffect(() => { clearSelection(); }, [resource, clearSelection]);
+
+  const toggleSelect = useCallback((task: QueueTask) => {
+    setSelectedIds((prev) => (prev.includes(task.id) ? prev.filter((id) => id !== task.id) : [...prev, task.id]));
+  }, []);
+
+  const anchorId = selectedIds[0] ?? null;
+
+  // Ask who can join, once, when the anchor changes.
+  useEffect(() => {
+    if (!resource || anchorId == null) return;
+    let cancelled = false;
+    setBatchLoading(true);
+    getBatchCandidates(resource.id, anchorId)
+      .then((res) => {
+        if (cancelled) return;
+        setBatchPolicy(res.policy);
+        setCandidates(res.batchable ? res.candidates : []);
+        if (!res.batchable) {
+          toast(`${res.policy.operationName ?? 'This operation'} isn’t set up to batch on ${res.policy.resourceName}.`, 'info');
+          setSelectedIds([]);
+        }
+      })
+      .catch(() => { if (!cancelled) { setCandidates([]); setBatchPolicy(null); } })
+      .finally(() => { if (!cancelled) setBatchLoading(false); });
+    return () => { cancelled = true; };
+  }, [resource, anchorId, toast]);
+
+  // Re-estimate whenever the selection changes — the number on the button is
+  // the whole reason to batch, so it must never lag the checkboxes.
+  useEffect(() => {
+    if (!resource || selectedIds.length < 2) { setBatchEstimate(null); return; }
+    let cancelled = false;
+    previewBatch(resource.id, selectedIds)
+      .then((res) => { if (!cancelled) { setBatchEstimate(res.estimate); setBatchPolicy(res.policy); } })
+      .catch(() => { if (!cancelled) setBatchEstimate(null); });
+    return () => { cancelled = true; };
+  }, [resource, selectedIds]);
+
+  /** taskId → why it can't join the current batch (null = it can). */
+  const blockedReasons = useMemo(() => {
+    const m = new Map<number, string>();
+    if (!candidates) return m;
+    for (const c of candidates) if (!c.eligible) m.set(c.taskId, c.reason ?? 'Not compatible');
+    return m;
+  }, [candidates]);
+
+  const confirmStartBatch = useCallback(async () => {
+    if (!resource || selectedIds.length < 2) return;
+    setBatchStarting(true);
+    try {
+      const res = await startBatchApi(resource.id, selectedIds);
+      toast(`Batch #${res.batchId} started — ${res.taskIds.length} parts running together.`, 'success');
+      clearSelection();
+      refetchQueue();
+    } catch (e) {
+      toast(errMsg(e, 'Failed to start the batch.'), 'error');
+    } finally {
+      setBatchStarting(false);
+    }
+  }, [resource, selectedIds, toast, clearSelection, refetchQueue]);
+
+  const confirmCompleteBatch = useCallback(async (outcomes: Record<number, CompleteOutcome>) => {
+    if (completingBatchId == null) return false;
+    try {
+      const res = await completeBatchApi(completingBatchId, outcomes);
+      const reworks = res.members.filter((m) => m.reworkTaskId).length;
+      const v = res.variance;
+      const sign = v.varianceMinutes > 0 ? '+' : '';
+      toast(
+        reworks
+          ? `Batch completed — ${reworks} rework task${reworks > 1 ? 's' : ''} queued.`
+          : `Batch completed in ${Math.round(res.totalMinutes)} min (${sign}${v.varianceMinutes} min vs plan).`,
+        reworks || v.varianceMinutes > 0 ? 'info' : 'success',
+      );
+      setCompletingBatchId(null);
+      refetchQueue();
+      return true;
+    } catch (e) {
+      toast(errMsg(e, 'Failed to complete the batch.'), 'error');
+      return false;
+    }
+  }, [completingBatchId, toast, refetchQueue]);
+
+  /** In-progress batches on this machine, each with its member count. */
+  const runningBatches = useMemo(() => {
+    const out = new Map<number, { taskCount: number; startedAt: string | null; operationName: string | null }>();
+    for (const t of summary?.tasks ?? []) {
+      if (t.batchId == null || t.status !== 'in_progress') continue;
+      const cur = out.get(t.batchId);
+      if (cur) cur.taskCount += 1;
+      else out.set(t.batchId, { taskCount: 1, startedAt: t.startedAt, operationName: t.operationName });
+    }
+    return [...out.entries()].map(([batchId, v]) => ({ batchId, ...v }));
+  }, [summary]);
 
   const openStartDialog = (task: QueueTask) => {
     setStartTask(task);
@@ -736,20 +911,61 @@ export default function TaskQueue() {
 
       {resource && !loadingQueue && summary && summary.tasks.length > 0 && (
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
-          {summary.tasks.map((t) => (
-            <TaskRow
-              key={t.id}
-              task={t}
-              busy={checkingTaskId === t.id}
-              canBackfill={canBackfill}
-              onStart={handleStartClick}
-              onPause={openPauseDialog}
-              onComplete={openCompleteDialog}
-              onLogPastWork={openLogPastWork}
+          {/* Running batches lead: they share one clock, and finishing them is
+              one action, not one per part. */}
+          {runningBatches.map((b) => (
+            <RunningBatchCard
+              key={b.batchId}
+              batchId={b.batchId}
+              startedAt={b.startedAt}
+              operationName={b.operationName}
+              taskCount={b.taskCount}
+              now={pageNow}
+              busy={submitting}
+              onComplete={() => setCompletingBatchId(b.batchId)}
             />
           ))}
+          {summary.tasks.map((t) => {
+            const queueable = t.status === 'eligible' || t.status === 'paused';
+            const selected = selectedIds.includes(t.id);
+            return (
+              <TaskRow
+                key={t.id}
+                task={t}
+                busy={checkingTaskId === t.id}
+                canBackfill={canBackfill}
+                // Before an anchor exists every queueable row is offerable; after
+                // one exists, the backend has said which of them actually fit.
+                selectable={queueable && t.batchId == null}
+                selected={selected}
+                blockedReason={selected ? null : (blockedReasons.get(t.id) ?? null)}
+                onToggleSelect={toggleSelect}
+                onStart={handleStartClick}
+                onPause={openPauseDialog}
+                onComplete={openCompleteDialog}
+                onLogPastWork={openLogPastWork}
+              />
+            );
+          })}
         </Box>
       )}
+
+      <BatchBar
+        count={selectedIds.length}
+        policy={batchPolicy}
+        estimate={batchEstimate}
+        loading={batchLoading}
+        starting={batchStarting}
+        onStart={confirmStartBatch}
+        onClear={clearSelection}
+      />
+
+      <CompleteBatchDialog
+        open={completingBatchId != null}
+        batchId={completingBatchId}
+        onClose={() => setCompletingBatchId(null)}
+        onCompleted={confirmCompleteBatch}
+      />
 
       <Dialog open={!!startTask} onClose={submitting ? undefined : closeStartDialog} maxWidth="xs" fullWidth>
         <DialogTitle>Start task</DialogTitle>

@@ -55,6 +55,33 @@ html[data-app='fab_erp'] {
   --c-state-off: #4B5169;
   --c-state-wait: #D97706;
 
+  /* ── Task lifecycle (Task Engine DAG, part swimlanes, order rollups).
+     A task moves blocked → eligible → in_progress ⇄ paused → done, and the
+     colour has to make that progression readable at a glance on a canvas where
+     the label may be too small to read.
+
+     These replace a hardcoded hex palette in taskgraph/types.ts that had
+     `eligible` in alarm red (#ef4444) and `done` in pale mint (#86efac) — a
+     task that was ready to start screamed for attention while a finished one
+     receded, which is backwards, and none of it inverted in dark mode.
+
+     Blocked is the red one: it is the only state where something is wrong.
+     Eligible is calm slate — ready, nothing to do about it. Done is the
+     success green, in_progress the brand violet (it's the thing happening
+     now), paused amber. ── */
+  --c-task-blocked: #E11D48;
+  --c-task-eligible: #8A8EA8;
+  --c-task-in-progress: #6D4AFF;
+  --c-task-paused: #D97706;
+  --c-task-done: #0E9F6E;
+  --c-task-cancelled: #4B5169;
+
+  /* Graph chrome: the two edge kinds and the swimlane container. */
+  --c-graph-edge-flow: #A9ADC4;
+  --c-graph-edge-component: #6D4AFF;
+  --c-graph-lane: #C9BEFF;
+  --c-graph-dots: #C4C7D6;
+
   /* ── BOM node categories (BomDesigner). A fixed 4-value domain scale, like
      the run states above — not open-ended status — so it gets its own tokens
      rather than borrowing a status family. Inputs read cool, outputs warm, so
@@ -214,6 +241,18 @@ html[data-app='fab_erp'] [data-theme='dark'] {
   --c-state-down: #FB7185;
   --c-state-off: #3A3E55;
   --c-state-wait: #FBBF24;
+
+  --c-task-blocked: #FB7185;
+  --c-task-eligible: #8A8EA8;
+  --c-task-in-progress: #9B87FF;
+  --c-task-paused: #FBBF24;
+  --c-task-done: #34D399;
+  --c-task-cancelled: #565B75;
+
+  --c-graph-edge-flow: #575B75;
+  --c-graph-edge-component: #9B87FF;
+  --c-graph-lane: #5B4E9E;
+  --c-graph-dots: #3A3E55;
 }
 
 /* ── Glass fallbacks — degrade to solid when unsupported or undesired ── */

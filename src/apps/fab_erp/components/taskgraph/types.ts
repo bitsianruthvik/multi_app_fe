@@ -46,16 +46,22 @@ export interface TaskGraphEdge {
 }
 
 // ─── Status legend ──────────────────────────────────────────────────────────
-// Copied from OrderTaskDag.tsx (that file is due for refactor per this unit's
-// brief, so we keep a local copy here instead of importing from it).
-
+//
+// These were six hardcoded hex values, and two of them said the wrong thing:
+// `eligible` was alarm red (#ef4444) and `done` was pale mint (#86efac), so a
+// task that was ready to start shouted and a finished one receded. On a canvas
+// where a node's label is often too small to read, colour IS the status, and
+// that palette was actively misleading. They also didn't invert in dark mode.
+//
+// Now they point at the --c-task-* token scale (theme/tokens.css), which has
+// both themes and puts red where the actual problem is: blocked.
 export const STATUS_COLOR: Record<TaskStatus, string> = {
-  eligible: '#ef4444',
-  blocked: '#9ca3af',
-  in_progress: '#eab308',
-  done: '#86efac',
-  paused: '#f97316',
-  cancelled: '#475569',
+  eligible: 'var(--c-task-eligible)',
+  blocked: 'var(--c-task-blocked)',
+  in_progress: 'var(--c-task-in-progress)',
+  done: 'var(--c-task-done)',
+  paused: 'var(--c-task-paused)',
+  cancelled: 'var(--c-task-cancelled)',
 };
 
 export const STATUS_LABEL: Record<TaskStatus, string> = {

@@ -25,8 +25,10 @@ export const GROUP_PAD = 16;
 export const COLLAPSED_W = 250;
 export const COLLAPSED_H = 84;
 
-const FLOW_STROKE = '#94a3b8';
-const COMPONENT_STROKE = '#7c3aed';
+// SVG stroke accepts var(), so edges follow the theme like the rest of the
+// canvas instead of staying light-mode grey on a dark surface.
+const FLOW_STROKE = 'var(--c-graph-edge-flow)';
+const COMPONENT_STROKE = 'var(--c-graph-edge-component)';
 
 function emptyCounts(): PartStatusCounts {
   return { blocked: 0, eligible: 0, in_progress: 0, paused: 0, done: 0, cancelled: 0 };
