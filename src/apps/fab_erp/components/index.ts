@@ -31,6 +31,7 @@ export { useShortcutsHelp } from '../hooks/useShortcutsHelp';
 export { NumberCell, QtyCell, DateCell } from './Cells';
 export { ExceptionFeed, type ExceptionItem, type ExceptionSeverity } from './ExceptionFeed';
 export { MarksPanel } from './MarksPanel';
+export { CrewPanel } from './CrewPanel';
 export { BatchBar } from './BatchBar';
 export { formatMinutes } from '../utils/formatMinutes';
 export { RunningBatchCard, CompleteBatchDialog } from './BatchPanel';

@@ -70,6 +70,7 @@ export const NAV_SECTIONS: NavSection[] = [
       // No countKey: "unaccounted time gaps" needs a per-machine shift-vs-events
       // diff, which is too expensive for a nav badge that reloads on every
       // section change. Add one only if /nav-counts can answer it in one query.
+      { slug: 'people', label: 'People', permission: 'fab_erp_machine_state_manage', keywords: ['crew', 'operator', 'worker', 'roster', 'contractor', 'vendor', 'staff'] },
       { slug: 'shift-log', label: 'Shift Log', permission: 'fab_erp_time_backfill', keywords: ['back-entry', 'paper', 'clipboard', 'past', 'downtime', 'absent', 'yesterday'] },
       { slug: 'reconciliation', label: 'Reconcile', permission: 'fab_erp_machine_state_manage', keywords: ['gaps', 'unaccounted', 'time'] },
     ],

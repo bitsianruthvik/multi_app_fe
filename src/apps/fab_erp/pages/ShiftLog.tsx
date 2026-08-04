@@ -37,8 +37,6 @@ import {
 import AddIcon from '@mui/icons-material/Add';
 import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
 import CheckCircleRounded from '@mui/icons-material/CheckCircleRounded';
-import PersonOffRounded from '@mui/icons-material/PersonOffRounded';
-import PersonRounded from '@mui/icons-material/PersonRounded';
 import ReportProblemRounded from '@mui/icons-material/ReportProblemRounded';
 
 import { useAuth } from '@core/contexts/AuthContext';
@@ -51,7 +49,7 @@ import {
 } from '../api/shiftLog';
 import {
   PageHeader, SectionCard, StickyActionBar, Surface, Mono, EmptyState,
-  ListSkeleton, useToast, backendMessage,
+  ListSkeleton, useToast, backendMessage, CrewPanel,
 } from '../components';
 
 interface QueryResult<T> { data: T[]; total?: number }
@@ -117,7 +115,6 @@ export default function ShiftLog() {
 
   const [workRows, setWorkRows] = useState<WorkRow[]>([]);
   const [downRows, setDownRows] = useState<DownRow[]>([]);
-  const [absent, setAbsent] = useState<Record<number, boolean>>({});
 
   useEffect(() => {
     fabQuery<QueryResult<ResourceOption>>('fabErpResource', {
@@ -140,7 +137,6 @@ export default function ShiftLog() {
       const shiftStart = res.shift.intervals[0]?.start;
       setWorkRows([newWorkRow(shiftStart ? toHhmm(shiftStart) : '')]);
       setDownRows([]);
-      setAbsent(Object.fromEntries(res.operators.map((o) => [o.userId, o.absent])));
     } catch (e) {
       setError(backendMessage(e, 'Failed to load the shift log.'));
       setData(null);
@@ -178,14 +174,7 @@ export default function ShiftLog() {
   // "this didn't run", not "this ran for zero minutes".
   const filledWork = workRows.filter((r) => r.taskId && r.start);
   const filledDown = downRows.filter((r) => r.from);
-  const absenceChanges = useMemo(() => {
-    const orig = new Map((data?.operators ?? []).map((o) => [o.userId, o.absent]));
-    return Object.entries(absent)
-      .map(([k, v]) => ({ userId: Number(k), absent: v }))
-      .filter((a) => orig.get(a.userId) !== a.absent);
-  }, [absent, data]);
-
-  const nothingToSave = filledWork.length === 0 && filledDown.length === 0 && absenceChanges.length === 0;
+  const nothingToSave = filledWork.length === 0 && filledDown.length === 0;
 
   const rowError = (r: WorkRow): string | null => {
     if (!r.taskId || !r.start) return null;
@@ -214,11 +203,10 @@ export default function ShiftLog() {
         reasonCode: r.reasonCode || null,
         note: r.note || null,
       }));
-      const res = await saveShiftLog({ resourceId: resource.id, date, work, downtime, absences: absenceChanges });
+      const res = await saveShiftLog({ resourceId: resource.id, date, work, downtime, absences: [] });
       const parts = [
         res.workLogged ? `${res.workLogged} job${res.workLogged === 1 ? '' : 's'}` : null,
         res.downtimeLogged ? `${res.downtimeLogged} downtime period${res.downtimeLogged === 1 ? '' : 's'}` : null,
-        res.absencesSet ? `${res.absencesSet} absence change${res.absencesSet === 1 ? '' : 's'}` : null,
       ].filter(Boolean);
       toast(`Logged ${parts.join(' · ')}.`, 'success');
       if (res.warnings?.length) res.warnings.forEach((w) => toast(w, 'info'));
@@ -476,32 +464,22 @@ export default function ShiftLog() {
           </SectionCard>
 
           {/* ── People ─────────────────────────────────────────────────────── */}
-          <SectionCard title="People" subtitle={`Operators standing against ${data.resource.name}. Tap anyone who wasn't in.`}>
-            {data.operators.length === 0 ? (
-              <Typography sx={{ fontSize: 13, color: 'var(--c-text-3)' }}>
-                No operators are assigned to this machine.
-              </Typography>
-            ) : (
-              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-                {data.operators.map((o) => {
-                  const isAbsent = absent[o.userId] ?? o.absent;
-                  return (
-                    <Chip
-                      key={o.userId}
-                      icon={isAbsent ? <PersonOffRounded sx={{ fontSize: 16 }} /> : <PersonRounded sx={{ fontSize: 16 }} />}
-                      label={isAbsent ? `${o.name} — absent` : o.name}
-                      onClick={() => setAbsent((a) => ({ ...a, [o.userId]: !isAbsent }))}
-                      sx={{
-                        cursor: 'pointer',
-                        background: isAbsent ? 'var(--c-warning-50)' : 'var(--c-surface-2)',
-                        color: isAbsent ? 'var(--c-warning-800)' : 'var(--c-text-2)',
-                        border: isAbsent ? '1px solid var(--c-warning-200)' : '1px solid transparent',
-                      }}
-                    />
-                  );
-                })}
-              </Box>
-            )}
+          {/* The crew is editable right here — add a contract welder, move
+              someone off, record that they left at 4 — rather than being a
+              read-only list that sends you somewhere else to change it. Saves
+              immediately (assignment is a fact about the world, not a draft),
+              which is why it sits outside the Save-shift-log batch. */}
+          <SectionCard
+            title="People"
+            subtitle={`Who was on ${data.resource.name} on ${date}. Click someone to record time away; the ✕ takes them off the machine.`}
+          >
+            <CrewPanel
+              resourceId={data.resource.id}
+              resourceName={data.resource.name}
+              from={`${date}T00:00:00`}
+              to={`${date}T23:59:59`}
+              onChanged={load}
+            />
           </SectionCard>
 
           <StickyActionBar
@@ -511,10 +489,11 @@ export default function ShiftLog() {
                   <Box component="span" sx={{ fontFamily: 'var(--font-mono)', fontWeight: 600, color: 'var(--c-text)' }}>{filledWork.length}</Box>
                   {' '}job{filledWork.length === 1 ? '' : 's'} ·{' '}
                   <Box component="span" sx={{ fontFamily: 'var(--font-mono)', fontWeight: 600, color: 'var(--c-text)' }}>{filledDown.length}</Box>
-                  {' '}downtime ·{' '}
-                  <Box component="span" sx={{ fontFamily: 'var(--font-mono)', fontWeight: 600, color: 'var(--c-text)' }}>{absenceChanges.length}</Box>
-                  {' '}absence change{absenceChanges.length === 1 ? '' : 's'}
+                  {' '}downtime period{filledDown.length === 1 ? '' : 's'}
                 </span>
+                {/* People aren't counted here: crew changes save the moment
+                    they're made, because who is on a machine is a fact about
+                    the world rather than a draft you might abandon. */}
                 {anyRowError && <Box component="span" sx={{ color: 'var(--c-danger-600)' }}>Fix the highlighted rows first</Box>}
               </Box>
             }

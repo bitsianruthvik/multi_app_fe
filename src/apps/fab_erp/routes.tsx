@@ -30,6 +30,7 @@ const MachineBoard       = lazy(() => import('./pages/MachineBoard'));
 const BufferConfig       = lazy(() => import('./pages/BufferConfig'));
 const MachineTimeline    = lazy(() => import('./pages/MachineTimeline'));
 const ShiftLog           = lazy(() => import('./pages/ShiftLog'));
+const People             = lazy(() => import('./pages/People'));
 const Reconciliation     = lazy(() => import('./pages/Reconciliation'));
 const ShopfloorAnalytics = lazy(() => import('./pages/ShopfloorAnalytics'));
 const CriticalChain      = lazy(() => import('./pages/CriticalChain'));
@@ -76,6 +77,7 @@ export function getFabErpRoutes(
     { path: '/:company/fab_erp/machine-board',               element: wrap(<MachineBoard />) },
     { path: '/:company/fab_erp/buffer-config',               element: wrap(<BufferConfig />) },
     { path: '/:company/fab_erp/machine-timeline',            element: wrap(<MachineTimeline />) },
+    { path: '/:company/fab_erp/people',                     element: wrap(<People />) },
     { path: '/:company/fab_erp/shift-log',                  element: wrap(<ShiftLog />) },
     { path: '/:company/fab_erp/reconciliation',              element: wrap(<Reconciliation />) },
     { path: '/:company/fab_erp/analytics',                   element: wrap(<ShopfloorAnalytics />) },

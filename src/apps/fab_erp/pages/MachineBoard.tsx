@@ -34,7 +34,7 @@ import HistoryEduRounded from '@mui/icons-material/HistoryEduRounded';
 
 import { fabGet, fabPost, fabQuery, getBufferBoard, moveBufferContent, type BufferBoardMachine, type BufferKind, type BufferSide, type BufferStatus } from '../api/client';
 import { useCompanySlug } from '../hooks/useCompanySlug';
-import { PageHeader, Surface, EmptyState, useToast, CardGridSkeleton, LiveIndicator, useLiveRefresh, useNowTick } from '../components';
+import { PageHeader, Surface, EmptyState, useToast, CardGridSkeleton, LiveIndicator, useLiveRefresh, useNowTick, CrewPanel } from '../components';
 
 // ── Types — mirror GET /machines/board response exactly ────────────────────
 
@@ -518,22 +518,6 @@ function ActionSheet({
     }
   }, [machine.id, machine.name, onDone, toast]);
 
-  const toggleAbsent = useCallback(async (op: Operator) => {
-    setBusy(true);
-    try {
-      await fabPost(`machines/${machine.id}/operator-absent`, {
-        user_id: op.userId,
-        clear: op.absentToday,
-      });
-      toast(`${op.name} marked ${op.absentToday ? 'present' : 'absent'} today.`, 'success');
-      onDone();
-    } catch (e) {
-      toast(errMsg(e, 'Failed to update operator absence.'), 'error');
-    } finally {
-      setBusy(false);
-    }
-  }, [machine.id, onDone, toast]);
-
   return (
     <Box sx={{ p: 2.5, pb: 3 }}>
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
@@ -560,6 +544,15 @@ function ActionSheet({
       >
         Log past downtime or absence →
       </Button>
+
+      {/* Crew, editable here rather than on a settings screen — this is where
+          someone actually notices that the roster is wrong. */}
+      <Box sx={{ mb: 2, p: 1.5, borderRadius: 'var(--r-sm)', background: 'var(--c-surface-2)' }}>
+        <Typography sx={{ fontSize: 11, fontWeight: 600, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--c-text-3)', mb: 1 }}>
+          On this machine
+        </Typography>
+        <CrewPanel resourceId={machine.id} resourceName={machine.name} onChanged={onDone} />
+      </Box>
 
       <Box sx={{ display: 'flex', gap: 1, mb: markDownOpen ? 1.5 : 2.5 }}>
         <Button
@@ -636,39 +629,11 @@ function ActionSheet({
         </Surface>
       )}
 
-      <Typography sx={{ fontSize: 12, fontWeight: 600, color: 'var(--c-text-2)', mb: 1 }}>
-        Operators
-      </Typography>
-      {machine.operators.length === 0 ? (
-        <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-3)' }}>No operators assigned to this machine.</Typography>
-      ) : (
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75 }}>
-          {machine.operators.map((op) => (
-            <Box
-              key={op.userId}
-              sx={{
-                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                px: 1.5, py: 1, background: 'var(--c-surface-2)', borderRadius: 'var(--r-sm)',
-              }}
-            >
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                {op.absentToday ? <PersonOffRounded sx={{ fontSize: 18, color: 'var(--c-warning-800)' }} /> : <PersonRounded sx={{ fontSize: 18, color: 'var(--c-text-2)' }} />}
-                <Typography sx={{ fontSize: 13.5, color: 'var(--c-text)' }}>
-                  {op.name}{op.isPrimary && <Typography component="span" sx={{ fontSize: 11, color: 'var(--c-text-3)' }}> · primary</Typography>}
-                </Typography>
-              </Box>
-              <Button
-                size="small"
-                disabled={busy}
-                onClick={() => toggleAbsent(op)}
-                sx={{ fontSize: 12, color: op.absentToday ? 'var(--c-warning-800)' : 'var(--c-text-2)' }}
-              >
-                {op.absentToday ? 'Mark present' : 'Absent today'}
-              </Button>
-            </Box>
-          ))}
-        </Box>
-      )}
+      {/* The old per-operator "Absent today" list lived here. It wrote to
+          fab_resource_operators.absent_on — a DATE, so it could only ever say
+          "off for the whole day" — and nothing reads that table any more. The
+          crew panel above replaces it and can express "left at 4" as well as
+          "off today", because absence is now an interval. */}
     </Box>
   );
 }
