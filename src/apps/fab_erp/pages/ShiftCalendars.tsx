@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   Alert, Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle,
-  FormControlLabel, Grid, IconButton, Stack, Switch, Tab,
+  FormControlLabel, Grid, IconButton, MenuItem, Stack, Switch, Tab,
   Tabs, TextField, Tooltip, Typography,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
@@ -17,11 +17,11 @@ import { usePermission } from '@core/hooks/usePermission';
 import { PageHeader, Mono, StatusBadge, EmptyState, ListSkeleton, useToast, EntityList, EntityRow, DataTable } from '../components';
 
 interface QueryResult<T> { data: T[]; total?: number }
-interface CalendarDraft { name: string; code: string }
+interface CalendarDraft { name: string; code: string; plantId: number | '' }
 interface ShiftDraft { name: string; startTime: string; endTime: string; workingMinutes: number | '' }
 interface DayDraft { dayDate: string; isWorking: boolean }
 
-const BLANK_CALENDAR = (): CalendarDraft => ({ name: '', code: '' });
+const BLANK_CALENDAR = (): CalendarDraft => ({ name: '', code: '', plantId: '' });
 const BLANK_SHIFT = (): ShiftDraft => ({ name: '', startTime: '', endTime: '', workingMinutes: '' });
 const BLANK_DAY = (): DayDraft => ({ dayDate: '', isWorking: true });
 
@@ -48,17 +48,35 @@ function CalendarDialog({ open, initial, onClose, onSaved }: {
 
   useEffect(() => {
     if (!open) return;
-    setDraft(initial ? { name: initial.name, code: initial.code } : BLANK_CALENDAR());
+    setDraft(initial ? { name: initial.name, code: initial.code, plantId: initial.plantId ?? '' } : BLANK_CALENDAR());
     setErr('');
   }, [open, initial]);
 
-  const set = (k: keyof CalendarDraft, v: string) => setDraft((d) => ({ ...d, [k]: v }));
+  const set = <K extends keyof CalendarDraft>(k: K, v: CalendarDraft[K]) => setDraft((d) => ({ ...d, [k]: v }));
+
+  // Plants, so a calendar can actually be scoped to one. resolveCalendarIds()
+  // prefers a plant-matched calendar and only falls back to every calendar in
+  // the company — which quietly looks correct while there is one calendar, and
+  // silently applies the wrong shift pattern the moment there are two plants.
+  const [plants, setPlants] = useState<Array<{ id: number; name: string; code: string }>>([]);
+  useEffect(() => {
+    if (!open) return;
+    fabQuery<QueryResult<{ id: number; name: string; code: string }>>('fabErpPlant', {
+      orderBy: [{ field: 'name', direction: 'asc' }], pagination: { limit: 500 },
+    }).then((r) => setPlants(r.data ?? [])).catch(() => setPlants([]));
+  }, [open]);
 
   async function save() {
     if (!draft.name.trim() || !draft.code.trim()) { setErr('Name and code are required.'); return; }
     setSaving(true); setErr('');
     try {
-      const payload: Record<string, unknown> = { name: draft.name.trim(), code: draft.code.trim().toUpperCase() };
+      const payload: Record<string, unknown> = {
+        name: draft.name.trim(),
+        code: draft.code.trim().toUpperCase(),
+        // NULL = company-wide, which is what the fallback in resolveCalendarIds
+        // already assumes when nothing matches a plant.
+        plant_id: draft.plantId === '' ? null : draft.plantId,
+      };
       if (!isNew) payload.id = initial!.id;
       await fabMutate('fabErpShiftCalendar', isNew ? 'insert' : 'update', payload);
       onSaved();
@@ -75,6 +93,15 @@ function CalendarDialog({ open, initial, onClose, onSaved }: {
         {err && <Alert severity="error">{err}</Alert>}
         <TextField label="Calendar name" value={draft.name} onChange={(e) => set('name', e.target.value)} size="small" fullWidth required autoFocus />
         <TextField label="Code" value={draft.code} onChange={(e) => set('code', e.target.value)} size="small" fullWidth required slotProps={{ htmlInput: { style: { textTransform: 'uppercase' } } }} helperText="Short identifier, e.g. CAL-A" />
+        <TextField
+          select label="Plant" size="small" fullWidth
+          value={draft.plantId}
+          onChange={(e) => set('plantId', e.target.value === '' ? '' : Number(e.target.value))}
+          helperText="Which plant works these shifts. Leave blank for a company-wide calendar."
+        >
+          <MenuItem value=""><em>Company-wide (all plants)</em></MenuItem>
+          {plants.map((p) => <MenuItem key={p.id} value={p.id}>{p.code} — {p.name}</MenuItem>)}
+        </TextField>
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose}>Cancel</Button>
