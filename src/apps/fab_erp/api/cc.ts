@@ -206,6 +206,16 @@ export interface CcDrumSlot {
   plannedStart: string | null;
   plannedEnd: string | null;
   isCommitted: boolean;
+  /**
+   * CCPM capacity buffer: protective idle minutes on the constraint AFTER this
+   * slot, sized at 25% of this project's drum load, so an overrun here is
+   * absorbed instead of shunting every project queued behind it. 0 on the last
+   * slot (nothing follows) and on a project with no drum work left.
+   *
+   * Optional because the frontend ships separately from the backend — against
+   * an older API the field is simply absent, which reads the same as "no gap".
+   */
+  capacityBufferMinutes?: number;
 }
 
 export interface CcDrumResponse {
