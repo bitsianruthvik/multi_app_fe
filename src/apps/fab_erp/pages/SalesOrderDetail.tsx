@@ -11,14 +11,16 @@ import SaveIcon from '@mui/icons-material/SaveRounded';
 import AddIcon from '@mui/icons-material/Add';
 import FactoryRounded from '@mui/icons-material/FactoryRounded';
 import Inventory2Rounded from '@mui/icons-material/Inventory2Rounded';
+import RestartAltRounded from '@mui/icons-material/RestartAltRounded';
 
 import { fabQuery, fabMutate } from '../api/client';
+import { baselineCcOrder } from '../api/cc';
 import { useDetailTitle } from '../components/nav/detailTitleContext';
 import type { FabPlant } from '../types';
 import { usePermission } from '@core/hooks/usePermission';
 import {
   Surface, DetailLayout, CrossLink, FactItem, StatusBadge, Mono, EmptyState, useToast,
-  DataTable, QtyCell, NumberCell, DateCell, MarksPanel,
+  DataTable, QtyCell, NumberCell, DateCell, MarksPanel, ConfirmDialog,
 } from '../components';
 import { statusFamily } from '../statusMap';
 import OrderItemsTree from '../components/OrderItemsTree';
@@ -48,6 +50,9 @@ export default function SalesOrderDetail() {
   const { company, soId } = useParams<{ company: string; soId: string }>();
   const navigate = useNavigate();
   const canManage = usePermission('fab_erp_projects_manage');
+  // Re-baselining is a critical-chain action, not an order edit — same gate as
+  // the Critical chain page's replan.
+  const canCcManage = usePermission('fab_erp_cc_manage');
   const { toast } = useToast();
   const id = Number(soId);
   const go = (p: string) => navigate(`/${company}/fab_erp/${p}`);
@@ -62,6 +67,7 @@ export default function SalesOrderDetail() {
   const [error, setError] = useState('');
   const [tab, setTab] = useState('overview');
   const [draft, setDraft] = useState<Partial<FabOrder>>({});
+  const [rebaseOpen, setRebaseOpen] = useState(false);
 
   const set = <K extends keyof FabOrder>(k: K, v: FabOrder[K]) => setDraft((d) => ({ ...d, [k]: v }));
 
@@ -206,6 +212,20 @@ export default function SalesOrderDetail() {
               <TextField label="Scheduled ship date" size="small" type="date" slotProps={{ inputLabel: { shrink: true } }} value={draft.scheduledShipDate?.slice(0, 10) ?? ''} disabled={!canManage} onChange={(e) => set('scheduledShipDate', e.target.value)} />
             </FormGrid>
 
+            {/* Placed with the dates because this is where a wrong committed
+                date gets noticed. Deliberately a plain text button — it is a
+                rare corrective action, not part of editing the order. */}
+            {canCcManage && (
+              <Box sx={{ mt: 1.5, display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap' }}>
+                <Button size="small" startIcon={<RestartAltRounded fontSize="small" />} onClick={() => setRebaseOpen(true)}>
+                  Re-baseline critical chain
+                </Button>
+                <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>
+                  Recomputes this order’s buffer and committed date — use after a calendar, capacity or BOM change.
+                </Typography>
+              </Box>
+            )}
+
             <Divider sx={{ my: 2.5, borderColor: 'var(--c-divider)' }} />
             <SectionLabel>Production</SectionLabel>
             <FormGrid cols={2}>
@@ -239,6 +259,26 @@ export default function SalesOrderDetail() {
           <OrderTaskDag orderId={id} canManage={canManage} />
         )}
       </DetailLayout>
+
+      <ConfirmDialog
+        open={rebaseOpen}
+        title="Re-baseline critical chain?"
+        entityName={so.orderNumber}
+        confirmLabel="Re-baseline"
+        body="Rebuilds this order’s critical chain from its tasks now and recomputes its buffer and committed date — the date given to the customer can move."
+        onClose={() => setRebaseOpen(false)}
+        onConfirm={async () => {
+          const res = await baselineCcOrder(id);
+          // created:false means the builder found no tasks — a success with
+          // nothing planned, which must not read as "re-baselined".
+          if (res.created === false) {
+            toast('No tasks to plan yet — baseline unchanged.', 'info');
+          } else {
+            toast('Critical chain re-baselined');
+          }
+          fetchAll();
+        }}
+      />
     </Box>
   );
 }

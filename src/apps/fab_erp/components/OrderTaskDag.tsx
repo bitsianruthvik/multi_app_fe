@@ -14,7 +14,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import {
-  Alert, Box, Button, Chip, CircularProgress, Dialog, DialogActions, DialogContent,
+  Alert, AlertTitle, Box, Button, Chip, CircularProgress, Dialog, DialogActions, DialogContent,
   DialogTitle, Divider, Typography,
 } from '@mui/material';
 import RefreshRounded from '@mui/icons-material/RefreshRounded';
@@ -23,7 +23,7 @@ import AutorenewRounded from '@mui/icons-material/AutorenewRounded';
 import WarningAmberRounded from '@mui/icons-material/WarningAmberRounded';
 
 import { fabGet, fabPost } from '../api/client';
-import { Surface, useToast } from '../components';
+import { Surface, useToast, backendMessage } from '../components';
 import TaskFlowGraph from './taskgraph/TaskFlowGraph';
 import BomDrillPicker, { type BomDrillPickerValue } from './taskgraph/BomDrillPicker';
 import type { TaskGraphNode, TaskGraphEdge } from './taskgraph/types';
@@ -46,6 +46,62 @@ interface RematPreview {
   items: RematItem[];
 }
 
+/**
+ * POST /tasks/materialize (mirrors taskGatingService.materializeTasks).
+ *
+ * `itemsSkipped` is the field that matters and the one that used to be thrown
+ * away: an item with no operation flow generates no tasks at all. Since new
+ * items default to no flow and the Excel importer downgrades an unrecognised
+ * flow name to a warning, partial coverage is the normal case, not the rare
+ * one — so a bare "Tasks materialized" reads as complete success over a
+ * half-built DAG, and the critical chain is then computed over the wrong scope.
+ */
+export interface MaterializeResponse {
+  ok: boolean;
+  /** Items that had a flow and produced at least one task. */
+  itemsProcessed: number;
+  /** Items that produced nothing because they have no operation flow. */
+  itemsSkipped: number;
+  tasksInserted: number;
+  /** Unstarted tasks deleted before the rebuild. Absent when the order had no items. */
+  cleared?: number;
+}
+
+/**
+ * Shared outcome panel for a materialize run, rendered in-page rather than as
+ * a toast on purpose: the skipped-item count is exactly the thing a 2.6s
+ * auto-dismissing toast loses, and it is also the only warning a planner gets
+ * that part of the order will never be scheduled, built, or dispatched.
+ * Used from both the Task DAG tab and the Items / BOM tree.
+ */
+export function MaterializeOutcome({ result, onClose }: {
+  result: MaterializeResponse;
+  onClose: () => void;
+}) {
+  const skipped = result.itemsSkipped;
+  return (
+    <Alert severity={skipped > 0 ? 'warning' : 'success'} sx={{ mb: 2 }} onClose={onClose}>
+      <AlertTitle sx={{ fontSize: 13.5, fontWeight: 600, color: 'var(--c-text)' }}>
+        {result.tasksInserted} task(s) built from {result.itemsProcessed} item(s)
+        {skipped > 0 ? `— ${skipped} item(s) produced none` : ''}
+      </AlertTitle>
+      {skipped > 0 && (
+        <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)' }}>
+          Those {skipped} item(s) have no operation flow, so nothing was generated for them. They
+          will not be scheduled, will not be built, and are invisible to Dispatch and the Task
+          Queue. Set a flow in the <strong>Flow</strong> column of the Items / BOM tree, then build
+          tasks again.
+        </Typography>
+      )}
+      {!!result.cleared && (
+        <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)', mt: skipped > 0 ? 0.75 : 0 }}>
+          {result.cleared} previously generated unstarted task(s) were replaced.
+        </Typography>
+      )}
+    </Alert>
+  );
+}
+
 export default function OrderTaskDag({ orderId, canManage }: { orderId: number; canManage?: boolean }) {
   const { toast } = useToast();
 
@@ -54,6 +110,7 @@ export default function OrderTaskDag({ orderId, canManage }: { orderId: number; 
   const [error, setError] = useState('');
   const [graph, setGraph] = useState<GraphResponse | null>(null);
   const [filter, setFilter] = useState<BomDrillPickerValue>({ itemId: null, scope: 'subtree' });
+  const [materializeResult, setMaterializeResult] = useState<MaterializeResponse | null>(null);
 
   // FEAT-07: re-generate (preview → apply) state.
   const [preview, setPreview] = useState<RematPreview | null>(null);
@@ -87,12 +144,20 @@ export default function OrderTaskDag({ orderId, canManage }: { orderId: number; 
     setMaterializing(true);
     setError('');
     try {
-      await fabPost('tasks/materialize', { orderId });
-      toast('Tasks materialized');
+      const res = await fabPost<MaterializeResponse>('tasks/materialize', { orderId });
+      // The panel, not the toast, is the record of what actually happened —
+      // toasts have no 'warning' tone and disappear on their own, and a
+      // partially materialized order is precisely what must not scroll away.
+      setMaterializeResult(res);
+      toast(
+        res.itemsSkipped > 0
+          ? `${res.tasksInserted} task(s) built — ${res.itemsSkipped} item(s) skipped, see the notice above.`
+          : `${res.tasksInserted} task(s) built from ${res.itemsProcessed} item(s).`,
+        res.itemsSkipped > 0 ? 'info' : 'success',
+      );
       await fetchGraph();
     } catch (e) {
-      const ax = e as { response?: { data?: { message?: string } }; message?: string };
-      const msg = ax.response?.data?.message ?? ax.message ?? 'Failed to materialize tasks.';
+      const msg = backendMessage(e, 'Failed to materialize tasks.');
       setError(msg);
       toast(msg, 'error');
     } finally {
@@ -124,6 +189,9 @@ export default function OrderTaskDag({ orderId, canManage }: { orderId: number; 
       const res = await fabPost<{ deletedUnstarted: number; rebuilt: { tasksInserted: number } }>('tasks/rematerialize', { orderId });
       toast(`Re-generated — ${res.rebuilt?.tasksInserted ?? 0} task(s) rebuilt, ${res.deletedUnstarted ?? 0} unstarted replaced.`, 'success');
       setPreview(null);
+      // A re-generation supersedes whatever the last materialize run reported;
+      // leaving that panel up would describe a DAG that no longer exists.
+      setMaterializeResult(null);
       await fetchGraph();
     } catch (e) {
       const ax = e as { response?: { data?: { message?: string } }; message?: string };
@@ -139,6 +207,10 @@ export default function OrderTaskDag({ orderId, canManage }: { orderId: number; 
   return (
     <Box>
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
+
+      {materializeResult && (
+        <MaterializeOutcome result={materializeResult} onClose={() => setMaterializeResult(null)} />
+      )}
 
       <Surface e={1} sx={{ p: 2, mb: 2 }}>
         <Box sx={{ display: 'flex', gap: 2, alignItems: 'flex-start', flexWrap: 'wrap', justifyContent: 'space-between' }}>

@@ -1,17 +1,20 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  Alert, Autocomplete, Box, Button, CircularProgress, IconButton, MenuItem,
+  Alert, AlertTitle, Autocomplete, Box, Button, CircularProgress, IconButton, MenuItem,
   TextField, Tooltip, Typography,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
+import BuildCircleRounded from '@mui/icons-material/BuildCircleRounded';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
+import CloseRounded from '@mui/icons-material/CloseRounded';
 import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
 import DownloadIcon from '@mui/icons-material/Download';
 import UploadFileIcon from '@mui/icons-material/UploadFile';
 
-import { fabQuery, fabMutate } from '../api/client';
+import { fabQuery, fabMutate, fabPost } from '../api/client';
 import type { FilterValue } from '../api/client';
-import { Surface, EmptyState, useToast } from '../components';
+import { Surface, EmptyState, useToast, backendMessage } from '../components';
+import { MaterializeOutcome, type MaterializeResponse } from './OrderTaskDag';
 import api, { API_HOST } from '@core/utils/axiosConfig';
 
 // Tree can be 1000+ rows across hundreds of top-level branches — everything
@@ -201,12 +204,14 @@ function AddItemRow({ orderId, parentItemId, onCreated, onCancel }: {
 
 // ─── One tree node (recursive) ─────────────────────────────────────────────
 
-function ItemNode({ item, depth, canManage, flows, onDeleted }: {
+function ItemNode({ item, depth, canManage, flows, onDeleted, onItemAdded }: {
   item: FabItemRow;
   depth: number;
   canManage: boolean;
   flows: FlowOption[];
   onDeleted: (id: number) => void;
+  /** Bubbles a new child up to the root so it can re-offer "build tasks". */
+  onItemAdded: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [childrenLoaded, setChildrenLoaded] = useState(false);
@@ -537,6 +542,7 @@ function ItemNode({ item, depth, canManage, flows, onDeleted }: {
                   canManage={canManage}
                   flows={flows}
                   onDeleted={handleChildDeleted}
+                  onItemAdded={onItemAdded}
                 />
               ))}
               {hasMoreChildren && (
@@ -551,7 +557,7 @@ function ItemNode({ item, depth, canManage, flows, onDeleted }: {
                   <AddItemRow
                     orderId={item.orderId}
                     parentItemId={item.id}
-                    onCreated={(row) => { setChildren((prev) => [...prev, row]); setAddingChild(false); }}
+                    onCreated={(row) => { setChildren((prev) => [...prev, row]); setAddingChild(false); onItemAdded(); }}
                     onCancel={() => setAddingChild(false)}
                   />
                 </Box>
@@ -587,6 +593,18 @@ export default function OrderItemsTree({ orderId, canManage }: OrderItemsTreePro
   const [importResult, setImportResult] = useState<ImportItemsResult | null>(null);
   const importFileRef = useRef<HTMLInputElement>(null);
 
+  // An item tree on its own produces no work: until tasks are materialized the
+  // order has no schedule, no critical chain, and is invisible to Dispatch and
+  // the Task Queue. That button used to live only on the Task DAG tab, so a
+  // planner could import 400 rows here, walk away, and never learn the order
+  // was inert. `taskCount === null` means the count could not be read — that is
+  // not the same as zero, so it must never trigger the prompt on its own.
+  const [taskCount, setTaskCount] = useState<number | null>(null);
+  const [itemsChanged, setItemsChanged] = useState(false);
+  const [ctaDismissed, setCtaDismissed] = useState(false);
+  const [materializing, setMaterializing] = useState(false);
+  const [materializeResult, setMaterializeResult] = useState<MaterializeResponse | null>(null);
+
   // Lazy: only top-level items (parentItemId === null) are fetched here —
   // never the whole order's item list. Filter keys are camelCase for reads
   // (orderId / parentItemId), matching fabErpItem's exposed field names —
@@ -612,15 +630,26 @@ export default function OrderItemsTree({ orderId, canManage }: OrderItemsTreePro
         orderBy: [{ field: 'name', direction: 'asc' }],
         pagination: { limit: 200 },
       }).then((r) => r.data ?? []).catch(() => []),
-    ]).then(([rows, flowRows]) => {
+      // Cheap "are there tasks yet?" probe — a true COUNT over the same secured
+      // WHERE, never rows.length, and one row fetched only because the query API
+      // always returns a page. Failure resolves to null (unknown), not 0, so a
+      // hiccup here can never invent a "no tasks" warning.
+      fabQuery<{ total?: number | null }>('fabErpProjectTask', {
+        fields: ['id'],
+        filters: { orderId },
+        pagination: { limit: 1 },
+        includeTotal: true,
+      }).then((r) => r.total ?? null).catch(() => null),
+    ]).then(([rows, flowRows, tasks]) => {
       if (cancelled) return;
       setTopItems(rows);
       setHasMore(rows.length === TOP_LEVEL_PAGE_SIZE);
       setFlows(flowRows);
+      setTaskCount(tasks);
     }).catch((e) => { if (!cancelled) setError(errMsg(e)); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [loadTop]);
+  }, [loadTop, orderId]);
 
   async function loadMore() {
     if (topItems.length === 0) return;
@@ -640,6 +669,38 @@ export default function OrderItemsTree({ orderId, canManage }: OrderItemsTreePro
   function handleDeleted(id: number) {
     setTopItems((prev) => prev.filter((r) => r.id !== id));
     toast('Item removed');
+  }
+
+  // New rows always arrive with flow_id NULL and no tasks behind them, so any
+  // add re-opens the prompt — including one the user dismissed earlier, and
+  // including an order that already had tasks (the new rows still have none).
+  // The previous run's outcome is cleared because it no longer describes the tree.
+  function markItemsChanged() {
+    setItemsChanged(true);
+    setCtaDismissed(false);
+    setMaterializeResult(null);
+  }
+
+  // Same endpoint the Task DAG tab's "Materialize tasks" button calls — the
+  // point of the prompt is that acting on it must not require finding another tab.
+  async function buildTasks() {
+    setMaterializing(true); setError('');
+    try {
+      const res = await fabPost<MaterializeResponse>('tasks/materialize', { orderId });
+      setMaterializeResult(res);
+      setItemsChanged(false);
+      setTaskCount(res.tasksInserted);
+      toast(
+        res.itemsSkipped > 0
+          ? `${res.tasksInserted} task(s) built — ${res.itemsSkipped} item(s) skipped, see the notice above.`
+          : `${res.tasksInserted} task(s) built from ${res.itemsProcessed} item(s).`,
+        res.itemsSkipped > 0 ? 'info' : 'success',
+      );
+    } catch (e) {
+      setError(backendMessage(e, 'Failed to build tasks for this order.'));
+    } finally {
+      setMaterializing(false);
+    }
   }
 
   async function downloadItemsTemplate() {
@@ -677,6 +738,7 @@ export default function OrderItemsTree({ orderId, canManage }: OrderItemsTreePro
       const rows = await loadTop();
       setTopItems(rows);
       setHasMore(rows.length === TOP_LEVEL_PAGE_SIZE);
+      if (res.data.itemsCreated > 0) markItemsChanged();
       toast(`${res.data.itemsCreated} item(s) imported`);
     } catch (e) {
       setImportErr(errMsg(e, 'Import failed'));
@@ -692,6 +754,15 @@ export default function OrderItemsTree({ orderId, canManage }: OrderItemsTreePro
       </Surface>
     );
   }
+
+  // Only prompt when there is genuinely something to build: rows exist, and
+  // either the order has no tasks at all or rows were added since the last run.
+  // An order whose tasks are already current shows nothing.
+  const showBuildPrompt = canManage
+    && topItems.length > 0
+    && !ctaDismissed
+    && !materializeResult
+    && (taskCount === 0 || itemsChanged);
 
   return (
     <Box>
@@ -749,13 +820,54 @@ export default function OrderItemsTree({ orderId, canManage }: OrderItemsTreePro
         </Alert>
       )}
 
+      {showBuildPrompt && (
+        <Alert
+          severity="warning"
+          icon={<BuildCircleRounded fontSize="inherit" />}
+          sx={{ mb: 1.5 }}
+          action={(
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+              <Button
+                size="small"
+                variant="contained"
+                disabled={materializing}
+                onClick={buildTasks}
+                startIcon={materializing
+                  ? <CircularProgress size={12} color="inherit" />
+                  : <BuildCircleRounded fontSize="small" />}
+              >
+                Build tasks
+              </Button>
+              <Tooltip title="Dismiss">
+                <IconButton size="small" aria-label="Dismiss" onClick={() => setCtaDismissed(true)}>
+                  <CloseRounded fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            </Box>
+          )}
+        >
+          <AlertTitle sx={{ fontSize: 13.5, fontWeight: 600, color: 'var(--c-text)' }}>
+            {taskCount === 0 ? 'No tasks have been built for this order' : 'Items added — their tasks are not built yet'}
+          </AlertTitle>
+          <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)' }}>
+            An item tree produces no work on its own. Until tasks are built, this order has no
+            schedule, no critical chain, and never reaches Dispatch or the Task Queue. Items with no
+            flow set in the <strong>Flow</strong> column below are skipped, so set those first.
+          </Typography>
+        </Alert>
+      )}
+
+      {materializeResult && (
+        <MaterializeOutcome result={materializeResult} onClose={() => setMaterializeResult(null)} />
+      )}
+
       {canManage && (
         <Box sx={{ mb: 2 }}>
           {addingRoot ? (
             <AddItemRow
               orderId={orderId}
               parentItemId={null}
-              onCreated={(row) => { setTopItems((prev) => [...prev, row]); setAddingRoot(false); toast('Item added'); }}
+              onCreated={(row) => { setTopItems((prev) => [...prev, row]); setAddingRoot(false); markItemsChanged(); toast('Item added'); }}
               onCancel={() => setAddingRoot(false)}
             />
           ) : (
@@ -778,6 +890,7 @@ export default function OrderItemsTree({ orderId, canManage }: OrderItemsTreePro
               canManage={canManage}
               flows={flows}
               onDeleted={handleDeleted}
+              onItemAdded={markItemsChanged}
             />
           ))}
         </Surface>

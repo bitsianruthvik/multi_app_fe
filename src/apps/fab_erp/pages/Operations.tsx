@@ -11,7 +11,7 @@
  * ShiftCalendars.tsx (master EntityList + selected-row detail panel with sub-tabs).
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   Alert, Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle,
   IconButton, List, ListItem, ListItemText, MenuItem, Select, Switch, Tab,
@@ -27,13 +27,16 @@ import BuildCircleRounded from '@mui/icons-material/BuildCircleRounded';
 import StarRounded from '@mui/icons-material/StarRounded';
 import StarBorderRounded from '@mui/icons-material/StarBorderRounded';
 import UploadFileIcon from '@mui/icons-material/UploadFile';
+import WarningAmberRounded from '@mui/icons-material/WarningAmberRounded';
+import ErrorOutlineRounded from '@mui/icons-material/ErrorOutlineRounded';
+import CheckCircleRounded from '@mui/icons-material/CheckCircleRounded';
 
 import { fabQuery, fabMutate, fabPost } from '../api/client';
 import type { FabOperation, FabOperationVariable, FabOperationResourceType, FabResourceType } from '../types';
 import { usePermission } from '@core/hooks/usePermission';
 import api, { API_HOST } from '@core/utils/axiosConfig';
 import {
-  Surface, PageHeader, Mono, StatusBadge, EmptyState, ListSkeleton, useToast, EntityList, EntityRow, DataTable, NumberCell, StatStrip, type Stat, type SortableField,
+  Surface, PageHeader, Mono, StatusBadge, EmptyState, ListSkeleton, useToast, EntityList, EntityRow, DataTable, NumberCell, StatStrip, ConfirmDialog, backendMessage, type Stat, type SortableField,
 } from '../components';
 import FormulaCodeEditor from '../components/FormulaCodeEditor';
 import { useFormulaVariables } from '../hooks/useFormulaVariables';
@@ -83,6 +86,87 @@ function DeleteDialog({ open, label, onClose, onConfirm, busy }: {
   );
 }
 
+// ── Time-formula validation ────────────────────────────────────────────────────
+
+/**
+ * POST /formula/validate. Returns 200 with `valid: false` for a bad formula —
+ * it is a checker, not a write, so a rejection is a normal response.
+ *
+ * Every field past `valid` is optional here on purpose: this client must not
+ * break if the endpoint grows or renames a field, because failing to *parse* the
+ * verdict must never be mistaken for a passing verdict.
+ */
+interface FormulaValidateResponse {
+  valid: boolean;
+  variables?: string[];
+  unresolved?: string[];
+  error?: string;
+}
+
+/**
+ * The verdict on the draft formula.
+ *
+ * `unresolved` is the one that matters most and shows least: the engine reads an
+ * unknown variable as 0, so `machine.sped` saves cleanly, the task estimates at
+ * zero, it contributes nothing to the critical chain, the project buffer is sized
+ * off that, and a customer is promised a date the shop cannot hit. Nothing
+ * downstream ever raises an error. This gate is the only place that chain breaks.
+ */
+type FormulaCheck =
+  | { status: 'idle' }                                        // no formula to check
+  | { status: 'checking' }
+  | { status: 'ok'; variables: string[] }
+  | { status: 'syntax'; message: string }                     // will not parse — never overridable
+  | { status: 'unresolved'; vars: string[]; message: string }
+  | { status: 'unchecked'; message: string };                 // the validator itself failed
+
+/** The two verdicts a user may knowingly overrule; a syntax error is not one of them. */
+type OverridableCheck = Extract<FormulaCheck, { status: 'unresolved' } | { status: 'unchecked' }>;
+
+/** One-line verdict under the editor — icon and colour carry severity, text names the variables. */
+function FormulaStatus({ check }: { check: FormulaCheck }) {
+  let icon: ReactNode = null;
+  let colour = 'var(--c-text-3)';
+  let text = '';
+
+  switch (check.status) {
+    case 'idle':
+      return null;
+    case 'checking':
+      icon = <CircularProgress size={12} />;
+      text = 'Checking variables…';
+      break;
+    case 'ok':
+      icon = <CheckCircleRounded sx={{ fontSize: 15 }} />;
+      colour = 'var(--c-success-600)';
+      text = check.variables.length
+        ? `All ${check.variables.length} variable${check.variables.length > 1 ? 's' : ''} resolve.`
+        : 'Formula is valid.';
+      break;
+    case 'unresolved':
+      icon = <WarningAmberRounded sx={{ fontSize: 15 }} />;
+      colour = 'var(--c-warning-600)';
+      text = check.message;
+      break;
+    case 'syntax':
+      icon = <ErrorOutlineRounded sx={{ fontSize: 15 }} />;
+      colour = 'var(--c-danger-600)';
+      text = check.message;
+      break;
+    case 'unchecked':
+      icon = <ErrorOutlineRounded sx={{ fontSize: 15 }} />;
+      text = check.message;
+      break;
+  }
+
+  return (
+    <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 0.75, mt: 0.75, color: colour }}>
+      {icon}
+      <Typography sx={{ fontSize: 12, color: 'inherit' }}>{text}</Typography>
+    </Box>
+  );
+}
+
 // ── Details tab ────────────────────────────────────────────────────────────────
 
 interface DetailsDraft {
@@ -108,27 +192,101 @@ function DetailsPanel({ operation, resourceTypes, variableKeys, canManage, onSav
   const [draft, setDraft] = useState<DetailsDraft>(fromOp(operation));
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
-  const { vars: formulaVars } = useFormulaVariables();
+  const { vars: formulaVars, loading: varsLoading, error: varsError } = useFormulaVariables();
+  const [unknownVars, setUnknownVars] = useState<string[]>([]);
+  const [check, setCheck] = useState<FormulaCheck>({ status: 'idle' });
+  const [override, setOverride] = useState<OverridableCheck | null>(null);
 
   useEffect(() => { setDraft(fromOp(operation)); setErr(''); }, [operation]);
 
   const dirty = JSON.stringify(draft) !== JSON.stringify(fromOp(operation));
 
-  async function save() {
+  /**
+   * Ask the server whether every variable this formula names actually resolves.
+   *
+   * `resourceTypeId` narrows machine.* to the type that will really run the
+   * operation — company-wide, two types may both declare `speed`, so without it
+   * a formula reading another machine's property passes and then evaluates to 0.
+   * `operationId` does the same for op.*.
+   */
+  const runCheck = useCallback(async (
+    formula: string,
+    resourceTypeId: number | null,
+  ): Promise<FormulaCheck> => {
+    if (!formula) return { status: 'idle' };
+    try {
+      const res = await fabPost<FormulaValidateResponse>('formula/validate', {
+        formula,
+        operationId: operation.id,
+        resourceTypeId,
+      });
+      const unresolved = res.unresolved ?? [];
+      if (unresolved.length > 0) {
+        return {
+          status: 'unresolved',
+          vars: unresolved,
+          message: res.error
+            ?? `Unrecognised variable${unresolved.length > 1 ? 's' : ''}: ${unresolved.join(', ')}.`,
+        };
+      }
+      if (!res.valid) return { status: 'syntax', message: res.error ?? 'This formula could not be parsed.' };
+      return { status: 'ok', variables: res.variables ?? [] };
+    } catch (e) {
+      return { status: 'unchecked', message: backendMessage(e, 'The formula could not be verified.') };
+    }
+  }, [operation.id]);
+
+  // Live verdict while typing — the same check save() enforces, so the outcome is
+  // visible before the button is pressed rather than only after a round trip.
+  useEffect(() => {
+    const formula = draft.timeFormula.trim();
+    if (!formula) { setCheck({ status: 'idle' }); return; }
+    setCheck({ status: 'checking' });
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      runCheck(formula, draft.defaultResourceTypeId).then((r) => { if (!cancelled) setCheck(r); });
+    }, 500);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [draft.timeFormula, draft.defaultResourceTypeId, runCheck]);
+
+  /**
+   * Only trust the editor's underlining once the variable catalogue has loaded.
+   * An empty catalogue marks every machine.* and item.* as unknown, so blocking
+   * on it would lock the whole page whenever /formula/variables is unavailable.
+   */
+  const clientBlocked = !varsLoading && !varsError && unknownVars.length > 0;
+
+  async function save(force = false) {
     if (!draft.name.trim() || !draft.code.trim()) { setErr('Name and code are required.'); return; }
+    const formula = draft.timeFormula.trim();
     setSaving(true); setErr('');
     try {
+      // Re-check rather than reuse `check`: the debounce may still be pending, and
+      // only a verdict on the exact text being written is worth anything.
+      const verdict: FormulaCheck = formula
+        ? await runCheck(formula, draft.defaultResourceTypeId)
+        : { status: 'idle' };
+      setCheck(verdict);
+
+      if (verdict.status === 'syntax') { setErr(verdict.message); return; }
+      // Not a silent pass: saving an unresolved formula takes a second, deliberate
+      // confirmation that spells out what it costs.
+      if (!force && (verdict.status === 'unresolved' || verdict.status === 'unchecked')) {
+        setOverride(verdict);
+        return;
+      }
+
       await fabMutate('fabErpOperation', 'update', {
         id: operation.id,
         name: draft.name.trim(),
         code: draft.code.trim(),
         default_resource_type_id: draft.defaultResourceTypeId,
-        time_formula: draft.timeFormula.trim() || null,
+        time_formula: formula || null,
         time_unit: draft.timeUnit,
         active: draft.active ? 1 : 0,
       });
       onSaved();
-    } catch (e) { setErr(errMsg(e)); } finally { setSaving(false); }
+    } catch (e) { setErr(backendMessage(e, 'Could not save this operation.')); } finally { setSaving(false); }
   }
 
   return (
@@ -156,10 +314,12 @@ function DetailsPanel({ operation, resourceTypes, variableKeys, canManage, onSav
           variables={formulaVars}
           opVars={variableKeys}
           readOnly={!canManage}
+          onUnknownVars={setUnknownVars}
         />
         <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)', mt: 0.5 }}>
           Reference this operation's own variables as <Mono>op.&lt;var_key&gt;</Mono>, or use <Mono>machine.*</Mono> / <Mono>item.*</Mono>.
         </Typography>
+        <FormulaStatus check={check} />
       </Box>
 
       <TextField select label="Time unit" size="small" sx={{ width: 200 }} value={draft.timeUnit}
@@ -173,11 +333,43 @@ function DetailsPanel({ operation, resourceTypes, variableKeys, canManage, onSav
       </Box>
 
       {canManage && (
-        <Box>
-          <Button variant="contained" onClick={save} disabled={saving || !dirty}>
-            {saving ? <CircularProgress size={16} color="inherit" /> : 'Save changes'}
-          </Button>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap' }}>
+          {/* A variable the editor has already underlined needs no round trip to
+              reject — the button says so instead of the user finding out on save. */}
+          <Tooltip title={clientBlocked ? `Unrecognised: ${unknownVars.join(', ')}` : ''}>
+            <span>
+              <Button variant="contained" onClick={() => save()} disabled={saving || !dirty || clientBlocked}>
+                {saving ? <CircularProgress size={16} color="inherit" /> : 'Save changes'}
+              </Button>
+            </span>
+          </Tooltip>
+          {clientBlocked && (
+            <Typography sx={{ fontSize: 12, color: 'var(--c-danger-600)' }}>
+              Fix the underlined variable{unknownVars.length > 1 ? 's' : ''} to save — {unknownVars.join(', ')} {unknownVars.length > 1 ? 'do' : 'does'} not exist.
+            </Typography>
+          )}
         </Box>
+      )}
+
+      {override && (
+        <ConfirmDialog
+          open
+          title={override.status === 'unresolved' ? 'Save with unrecognised variables?' : 'Save without verifying?'}
+          entityName={draft.timeFormula.trim()}
+          confirmLabel="Save anyway"
+          onClose={() => setOverride(null)}
+          onConfirm={() => save(true)}
+          body={
+            <>
+              <Box sx={{ mb: 1 }}>{override.message}</Box>
+              <Box>
+                {override.status === 'unresolved'
+                  ? 'An unrecognised variable evaluates to 0, so this operation will estimate as zero time. Every task, buffer and promised date computed from it will be wrong, and nothing downstream will report an error.'
+                  : 'This formula has not been checked. If it names a variable that does not exist it will estimate as zero time, with no error anywhere downstream.'}
+              </Box>
+            </>
+          }
+        />
       )}
     </Box>
   );
@@ -466,6 +658,21 @@ function OperationDetail({ operation, resourceTypes, canManage, onSaved }: {
   const [variableKeys, setVariableKeys] = useState<string[]>([]);
 
   useEffect(() => { setSubTab(0); }, [operation.id]);
+
+  // The Details tab lints `op.<key>` against this list and refuses to save what it
+  // cannot resolve, so the list has to exist before the Variables tab is opened —
+  // otherwise a correct formula is blocked purely because nobody clicked tab 2.
+  // VariablesPanel keeps it fresh from there on via onVarsChanged.
+  useEffect(() => {
+    let cancelled = false;
+    fabQuery<QueryResult<FabOperationVariable>>('fabErpOperationVariable', {
+      filters: { operationId: operation.id }, pagination: { limit: 200 },
+    })
+      .then((res) => { if (!cancelled) setVariableKeys((res.data ?? []).map((v) => v.varKey)); })
+      // Left to the server-side check on save: it resolves op.* from the same table.
+      .catch(() => { if (!cancelled) setVariableKeys([]); });
+    return () => { cancelled = true; };
+  }, [operation.id]);
 
   return (
     <Box sx={{ mt: 3 }}>

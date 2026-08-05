@@ -30,6 +30,14 @@
  * EU-5: each row can be expanded to lazy-fetch GET /tasks/:id/wait-breakdown
  * (only on first expand, then cached) and render it via <WaitBreakdownBar>.
  *
+ * Start gates: queue-summary also returns `startBlocked` / `blockKind` /
+ * `blockReason` per task. Until that existed the two gates that actually decide
+ * whether Start succeeds — a full output buffer, and an input material a
+ * sibling task consumed first — were only evaluated inside POST /tasks/:id/start,
+ * so this list cheerfully showed work that 409'd on the first click with nothing
+ * but a red toast to explain it. `counts.blocked` carries the same truth in
+ * aggregate. All of it is optional and fail-soft: see startBlockOf() below.
+ *
  * EU-11: each row also gets a "Log past work" (eligible/paused) or "Adjust
  * times" (done) button opening <LogPastWorkDialog>, which backfills the
  * task's start/pause/complete times via POST /tasks/:id/events/backfill
@@ -69,6 +77,9 @@ import ExpandMoreRounded from '@mui/icons-material/ExpandMoreRounded';
 import ChevronRightRounded from '@mui/icons-material/ChevronRightRounded';
 import WarningAmberRounded from '@mui/icons-material/WarningAmberRounded';
 import HistoryEduRounded from '@mui/icons-material/HistoryEduRounded';
+import Inventory2Rounded from '@mui/icons-material/Inventory2Rounded';
+import WarehouseRounded from '@mui/icons-material/WarehouseRounded';
+import BlockRounded from '@mui/icons-material/BlockRounded';
 
 import { useAuth } from '@core/contexts/AuthContext';
 import { usePermission } from '@core/hooks/usePermission';
@@ -79,6 +90,7 @@ import { getCcWhatIf, type CcWhatIfResponse } from '../api/cc';
 import { useCompanySlug } from '../hooks/useCompanySlug';
 import {
   PageHeader, StatusBadge, Surface, useToast, LiveIndicator, useLiveRefresh, useNowTick, Mono, QtyCell,
+  StatStrip, type Stat,
 } from '../components';
 import { WaitBreakdownBar, formatWaitMinutes } from '../components/WaitBreakdownBar';
 import { LogPastWorkDialog, type LogPastWorkTask } from '../components/LogPastWorkDialog';
@@ -120,6 +132,12 @@ const PAUSE_REASON_LABELS: Record<string, string> = {
 
 type TaskStatus = 'blocked' | 'eligible' | 'in_progress' | 'paused' | 'done' | 'cancelled';
 
+/**
+ * Why Start would refuse. Distinct from TaskStatus 'blocked' (which is about
+ * unmet task dependencies) — this is about the shop floor right now.
+ */
+type BlockKind = 'output_blocked' | 'material_short';
+
 interface QueueTask {
   id: number;
   operationId: number | null;
@@ -150,11 +168,17 @@ interface QueueTask {
   completedAt: string | null;
   createdAt: string;
   updatedAt: string;
+  /** Start-gate preview — all three optional, see startBlockOf(). */
+  startBlocked?: boolean;
+  blockKind?: BlockKind | null;
+  blockReason?: string | null;
 }
 
 interface QueueSummaryResponse {
   ok: boolean;
-  counts: { eligible: number; in_progress: number; paused: number };
+  /** `blocked` = eligible-on-paper tasks that would refuse right now. Optional
+   *  for the same reason the per-task fields are — an older backend omits it. */
+  counts: { eligible: number; in_progress: number; paused: number; blocked?: number };
   tasks: QueueTask[];
 }
 
@@ -164,6 +188,85 @@ function formatWaitDuration(minutes: number | null): string {
   const h = Math.floor(total / 60);
   const m = total % 60;
   return `waiting ${h}h ${m}m (working hours)`;
+}
+
+interface BlockTone {
+  fg: string;
+  bg: string;
+  border: string;
+  accent: string;
+  /** MUI palette key for buttons — MUI spells our "danger" token "error". */
+  button: 'warning' | 'error';
+}
+
+const BLOCK_TONES: Record<'warning' | 'danger', BlockTone> = {
+  warning: {
+    fg: 'var(--c-warning-800)', bg: 'var(--c-warning-50)',
+    border: 'var(--c-warning-200)', accent: 'var(--c-warning-600)', button: 'warning',
+  },
+  danger: {
+    fg: 'var(--c-danger-800)', bg: 'var(--c-danger-50)',
+    border: 'var(--c-danger-200)', accent: 'var(--c-danger-600)', button: 'error',
+  },
+};
+
+interface BlockInfo {
+  kind: BlockKind | null;
+  /** Chip label — names the class of problem, not this instance of it. */
+  label: string;
+  /** What has to change off this screen before the task can run. */
+  fix: string;
+  /** The backend's specific sentence, e.g. "MS Plate 20mm E350 B0: none in stock". */
+  reason: string | null;
+  tone: BlockTone;
+  Icon: typeof WarehouseRounded;
+}
+
+/**
+ * The two gates are different problems with different fixes — you clear a full
+ * output buffer by moving steel off the downstream machine, and a material
+ * shortage by receiving or freeing stock. Nobody standing at a machine can act
+ * on "blocked", so they never share an icon, a label or a colour. The shortage
+ * is the harder stop of the two (the start transaction hard-fails on
+ * INSUFFICIENT_STOCK and no override gets past it), hence danger vs warning.
+ */
+const BLOCK_META: Record<BlockKind, Omit<BlockInfo, 'kind' | 'reason'>> = {
+  material_short: {
+    label: 'Material short',
+    fix: 'Stock has to be received or freed up before this task can consume it.',
+    tone: BLOCK_TONES.danger,
+    Icon: Inventory2Rounded,
+  },
+  output_blocked: {
+    label: 'Output buffer full',
+    fix: 'Move finished pieces out of the staging area downstream, then this can run.',
+    tone: BLOCK_TONES.warning,
+    Icon: WarehouseRounded,
+  },
+};
+
+/** startBlocked with an unrecognised kind still earns a warning — we just can't
+ *  name the fix, and guessing would conflate the two cases we do understand. */
+const UNKNOWN_BLOCK: Omit<BlockInfo, 'kind' | 'reason'> = {
+  label: 'Won’t start yet',
+  fix: 'Something on the floor has to change before this task can run.',
+  tone: BLOCK_TONES.warning,
+  Icon: BlockRounded,
+};
+
+/**
+ * Fail-soft by construction. The backend's blocker check is best-effort — it
+ * logs and degrades to "nothing blocked" if it throws — and builds older than
+ * it omit the fields entirely. So only an explicit `startBlocked === true`
+ * flags a row; `undefined` reads exactly like `false` and the queue behaves as
+ * it always did. A gate check that can't run must never be able to grey out
+ * every row on the screen.
+ */
+function startBlockOf(task: QueueTask): BlockInfo | null {
+  if (task.startBlocked !== true) return null;
+  const kind = task.blockKind ?? null;
+  const meta = (kind && BLOCK_META[kind]) || UNKNOWN_BLOCK;
+  return { ...meta, kind, reason: task.blockReason ?? null };
 }
 
 function errMsg(e: unknown, fallback: string): string {
@@ -263,6 +366,9 @@ function TaskRow({
   const logPastWorkEnabled = task.status === 'eligible' || task.status === 'paused';
   const adjustTimesEnabled = task.status === 'done';
 
+  // Only meaningful where Start is a legal action at all — a running task's
+  // gate state is noise, it already got past the gates.
+  const block = startEnabled ? startBlockOf(task) : null;
 
   return (
     <Surface
@@ -270,6 +376,11 @@ function TaskRow({
       sx={{
         overflow: 'hidden',
         transition: 'opacity var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease)',
+        // Accent the edge rather than tint the whole card: on a machine where
+        // most of the queue is short of material, a wall of colour stops being
+        // a signal. The rail plus the chip is enough to sort real work from
+        // work that will bounce while scanning down the list.
+        ...(block && { borderColor: block.tone.border, borderLeft: `3px solid ${block.tone.accent}` }),
       }}
     >
       <Box sx={{ p: 2, display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
@@ -321,6 +432,29 @@ function TaskRow({
               </Typography>
               {task.itemCode && <Mono chip>{task.itemCode}</Mono>}
               <StatusBadge status={task.status} />
+              {/* Sits right beside the status badge because it contradicts it:
+                  the row says "eligible" and this says "not really". */}
+              {block && (
+                <Box
+                  component="span"
+                  sx={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    background: block.tone.bg,
+                    color: block.tone.fg,
+                    border: `1px solid ${block.tone.border}`,
+                    borderRadius: 'var(--r-sm)',
+                    padding: '3px 9px',
+                    fontSize: 12,
+                    fontWeight: 500,
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  <block.Icon sx={{ fontSize: 14 }} aria-hidden />
+                  {block.label}
+                </Box>
+              )}
               {runningRatio !== null && (
                 <Box
                   component="span"
@@ -360,12 +494,41 @@ function TaskRow({
             <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)', mt: 0.25 }}>
               {formatWaitDuration(task.waitWorkingMinutes)}
             </Typography>
+            {/* The backend's own sentence names the actual material or machine,
+                which is what makes this actionable — "none in stock" is a fact
+                someone can chase. Fall back to the generic fix if the check
+                flagged the row without saying why. */}
+            {block && (
+              <Typography
+                sx={{
+                  fontSize: 12, color: block.tone.fg, mt: 0.5,
+                  display: 'flex', alignItems: 'flex-start', gap: 0.75,
+                }}
+              >
+                <block.Icon sx={{ fontSize: 14, mt: '1px', flexShrink: 0 }} aria-hidden />
+                <Box component="span">{block.reason ?? block.fix}</Box>
+              </Typography>
+            )}
           </Box>
         </Box>
 
         <Box sx={{ display: 'flex', gap: 1 }}>
-          <Button size="small" variant="outlined" disabled={!startEnabled || busy} onClick={() => onStart(task)}>
-            Start
+          {/* Demoted, not disabled. The gate state is a snapshot up to a poll
+              old and the check is best-effort, so a hard disable would strand
+              an operator in front of a machine that has since been cleared —
+              and the backend re-checks authoritatively on Start anyway. Text
+              variant + the block's own colour + "Start anyway" makes it read
+              as the escape hatch it is; the click lands on a dialog that says
+              what will happen, not straight on a 409. */}
+          <Button
+            size="small"
+            variant={block ? 'text' : 'outlined'}
+            color={block ? block.tone.button : 'primary'}
+            startIcon={block ? <block.Icon sx={{ fontSize: 16 }} /> : undefined}
+            disabled={!startEnabled || busy}
+            onClick={() => onStart(task)}
+          >
+            {block ? 'Start anyway' : 'Start'}
           </Button>
           <Button size="small" variant="outlined" disabled={!pauseEnabled || busy} onClick={() => onPause(task)}>
             Pause
@@ -416,7 +579,8 @@ export default function TaskQueue() {
   // so it's combined with isAdminRole after, not short-circuited inside the ||.)
   const companySlug = useCompanySlug();
   const hasBackfillTag = usePermission('fab_erp_time_backfill');
-  const canBackfill = isAdminRole(user?.role) || hasBackfillTag;
+  const isAdmin = isAdminRole(user?.role);
+  const canBackfill = isAdmin || hasBackfillTag;
 
   const [resources, setResources] = useState<ResourceOption[]>([]);
   const [resource, setResource] = useState<ResourceOption | null>(null);
@@ -440,6 +604,10 @@ export default function TaskQueue() {
   const [checkingTaskId, setCheckingTaskId] = useState<number | null>(null);
   const [detourTask, setDetourTask] = useState<QueueTask | null>(null);
   const [whatIf, setWhatIf] = useState<CcWhatIfResponse | null>(null);
+
+  // Start-gate dialog: opened instead of the normal confirm when the queue
+  // already knows this task would refuse.
+  const [blockedTask, setBlockedTask] = useState<QueueTask | null>(null);
 
   // FEAT-05: completion dialog (production-output capture) state.
   const [completeTask, setCompleteTask] = useState<QueueTask | null>(null);
@@ -528,17 +696,24 @@ export default function TaskQueue() {
   // Shared start logic (the actual POST /tasks/:id/start call) — reused by
   // both the plain "Start task" confirm dialog and the detour dialog's
   // "Start anyway" so the request itself is never duplicated/forked.
-  const runStart = useCallback(async (task: QueueTask) => {
+  // `force` is the EU-8 admin override, and it only buys past the output-blocked
+  // guard — a material shortage throws INSUFFICIENT_STOCK inside the start
+  // transaction and nothing gets past that. Callers decide; see canForceStart.
+  const runStart = useCallback(async (task: QueueTask, force = false) => {
     setSubmitting(true);
     try {
       // BUG-09: tell the backend which machine is running this task so it's
       // recorded on the task (capacity truth) and double-booking can be caught.
-      await fabPost(`tasks/${task.id}/start`, { resourceId: resource?.id });
-      toast('Task started.', 'success');
+      await fabPost(`tasks/${task.id}/start`, { resourceId: resource?.id, ...(force ? { force: true } : {}) });
+      toast(force ? 'Task force-started — the output block was overridden.' : 'Task started.', 'success');
       refetchQueue();
       return true;
     } catch (e) {
       toast(errMsg(e, 'Failed to start task.'), 'error');
+      // A refused start is the authoritative gate check answering, and it may
+      // disagree with the snapshot the row is drawn from. Re-sync so the list
+      // shows the block it just hit instead of a stale-looking ready row.
+      refetchQueue();
       return false;
     } finally {
       setSubmitting(false);
@@ -548,6 +723,13 @@ export default function TaskQueue() {
   // EU-13: entry point for the row's Start button. Checks the CC detour
   // what-if before deciding which dialog (if any) to open.
   const handleStartClick = useCallback(async (task: QueueTask) => {
+    // The floor gates come first. A task the queue already knows will refuse
+    // has no useful detour to warn about, and the what-if round trip would only
+    // delay a dialog whose answer is "this isn't going to run".
+    if (startBlockOf(task)) {
+      setBlockedTask(task);
+      return;
+    }
     setCheckingTaskId(task.id);
     try {
       const res = await getCcWhatIf(task.id, task.assignedResourceId ?? undefined);
@@ -578,6 +760,23 @@ export default function TaskQueue() {
       setDetourTask(null);
       setWhatIf(null);
     }
+  };
+
+  const blockedInfo = blockedTask ? startBlockOf(blockedTask) : null;
+  // The backend honours force only for the output-buffer guard, and only for
+  // admins. Offering "Force start" on a material shortage would be a lie — that
+  // one fails inside the transaction no matter who clicks it.
+  const canForceStart = isAdmin && blockedInfo?.kind === 'output_blocked';
+
+  const closeBlockedDialog = () => {
+    if (submitting) return;
+    setBlockedTask(null);
+  };
+
+  const confirmBlockedStart = async () => {
+    if (!blockedTask) return;
+    const ok = await runStart(blockedTask, canForceStart);
+    if (ok) setBlockedTask(null);
   };
 
   const openLogPastWork = (task: QueueTask, mode: 'log' | 'adjust') => {
@@ -630,6 +829,25 @@ export default function TaskQueue() {
     if (submitting) return;
     setCompleteTask(null);
   };
+
+  // Counts strip. `blocked` is appended only when the backend actually reported
+  // it — rendering a hard 0 for a check that never ran would claim the queue is
+  // all clear on no evidence.
+  const counts = summary?.counts ?? null;
+  const blockedCount = counts?.blocked ?? 0;
+  const queueStats: Stat[] = [];
+  if (counts) {
+    queueStats.push({ label: 'Eligible', value: counts.eligible, tone: 'primary' });
+    queueStats.push({ label: 'In progress', value: counts.in_progress, tone: 'success' });
+    queueStats.push({ label: 'Paused', value: counts.paused, tone: 'warning' });
+    if (counts.blocked !== undefined) {
+      queueStats.push({
+        label: 'Can’t start now',
+        value: counts.blocked,
+        tone: counts.blocked > 0 ? 'danger' : 'default',
+      });
+    }
+  }
 
   const producedInvalid = producedQty.trim() !== '' && (!Number.isFinite(Number(producedQty)) || Number(producedQty) < 0);
   const scrapInvalid = scrapQty.trim() !== '' && (!Number.isFinite(Number(scrapQty)) || Number(scrapQty) < 0);
@@ -756,6 +974,17 @@ export default function TaskQueue() {
         </Surface>
       )}
 
+      {resource && !loadingQueue && queueStats.length > 0 && <StatStrip stats={queueStats} />}
+
+      {/* The one number that explains why the list is longer than the work.
+          Without it the operator reads a queue of twelve, finds three they can
+          actually pick up, and concludes the screen is wrong. */}
+      {resource && !loadingQueue && blockedCount > 0 && (
+        <Alert severity="warning" icon={<BlockRounded fontSize="inherit" />} sx={{ mb: 2.5 }}>
+          {blockedCount} of {counts?.eligible ?? blockedCount} eligible tasks can’t start right now — they’re flagged below with the reason.
+        </Alert>
+      )}
+
       {resource && !loadingQueue && summary && summary.tasks.length === 0 && (
         <Surface e={1} sx={{ p: 4, textAlign: 'center' }}>
           <Typography sx={{ color: 'var(--c-text-3)' }}>
@@ -807,6 +1036,59 @@ export default function TaskQueue() {
         onCancel={closeDetourDialog}
         onConfirm={confirmDetourStart}
       />
+
+      {/* Start-gate dialog — shown instead of the plain "Start task" confirm
+          when the queue already knows this one would refuse. It exists to turn
+          a red 409 toast into something the operator can act on before they
+          walk to the machine: what is blocking it, and who has to clear it. */}
+      <Dialog open={!!blockedTask} onClose={closeBlockedDialog} maxWidth="xs" fullWidth>
+        <DialogTitle>This task won’t start yet</DialogTitle>
+        <DialogContent>
+          <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)', mb: 2 }}>
+            {blockedTask?.operationName ?? `Operation #${blockedTask?.operationId ?? '?'}`}
+            {blockedTask?.itemMark ? ` on ${blockedTask.itemMark}` : ''} is queued, but the floor isn’t ready for it.
+          </Typography>
+          {blockedInfo && (
+            <Box
+              sx={{
+                p: 1.5,
+                borderRadius: 'var(--r-sm)',
+                background: blockedInfo.tone.bg,
+                border: `1px solid ${blockedInfo.tone.border}`,
+              }}
+            >
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+                <blockedInfo.Icon sx={{ fontSize: 16, color: blockedInfo.tone.fg }} aria-hidden />
+                <Typography sx={{ fontSize: 12.5, fontWeight: 600, color: blockedInfo.tone.fg }}>
+                  {blockedInfo.label}
+                </Typography>
+              </Box>
+              {blockedInfo.reason && (
+                <Typography sx={{ fontSize: 12.5, color: blockedInfo.tone.fg }}>{blockedInfo.reason}</Typography>
+              )}
+              <Typography sx={{ fontSize: 12, color: 'var(--c-text-2)', mt: 0.75 }}>{blockedInfo.fix}</Typography>
+            </Box>
+          )}
+          <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)', mt: 1.5 }}>
+            {canForceStart
+              ? 'Forcing past a full output buffer is recorded against the task.'
+              : 'This list refreshes every 30 seconds, so the check runs again on Start — if the floor has changed since, it may still go through.'}
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={closeBlockedDialog} disabled={submitting}>Cancel</Button>
+          {/* Outlined, never contained: proceeding here is the exception, and
+              the dialog should not be offering it as the obvious next click. */}
+          <Button
+            onClick={confirmBlockedStart}
+            variant="outlined"
+            color={blockedInfo?.tone.button ?? 'warning'}
+            disabled={submitting}
+          >
+            {submitting ? <CircularProgress size={18} /> : canForceStart ? 'Force start' : 'Try anyway'}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* FEAT-12: pause dialog — capture an optional downtime reason. */}
       <Dialog open={!!pauseTask} onClose={submitting ? undefined : () => setPauseTask(null)} maxWidth="xs" fullWidth>

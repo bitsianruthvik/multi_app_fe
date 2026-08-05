@@ -10,7 +10,7 @@
  * Keep in sync with multi_app_be/apps/fab_erp/services/ccBufferService.js.
  */
 
-import { fabGet, fabPost } from './client';
+import { fabGet, fabPost, fabQuery, fabMutate } from './client';
 
 export type CcZone = 'green' | 'yellow' | 'red';
 
@@ -132,9 +132,69 @@ export async function runCcReplan(): Promise<CcReplanResponse> {
   return fabPost<CcReplanResponse>('cc/replan');
 }
 
+/**
+ * Result of a single-order re-baseline.
+ *
+ * `created: false` is a success, not a failure — it means the builder found
+ * nothing to plan (`reason: 'no_tasks'`, i.e. the order has no materialized
+ * tasks yet). The caller must say so rather than reporting a fresh baseline
+ * that does not exist.
+ */
+export interface CcBaselineResponse {
+  ok: boolean;
+  created?: boolean;
+  reason?: string;
+  planId?: number;
+  committedFinish?: string | null;
+  projectBufferMinutes?: number | null;
+  /** True when the builder fell back off the shift calendar to plain elapsed time. */
+  calendarFallback?: boolean;
+}
+
 /** POST /cc/plans/:orderId/baseline — (re)build the CCPM baseline for one order. */
-export async function baselineCcOrder(orderId: number): Promise<{ ok: boolean; created?: boolean; planId?: number }> {
-  return fabPost<{ ok: boolean; created?: boolean; planId?: number }>(`cc/plans/${orderId}/baseline`);
+export async function baselineCcOrder(orderId: number): Promise<CcBaselineResponse> {
+  return fabPost<CcBaselineResponse>(`cc/plans/${orderId}/baseline`);
+}
+
+// ── manual project ordering (fab_orders.priority_rank) ──────────────────────
+
+/**
+ * The two fab_orders columns the sequencers actually read when deciding which
+ * project goes first: the planner's manual rank, then the order's required
+ * date as the tiebreak (drumService project sequencing, dispatchService task
+ * ranking — both `priority_rank -> required_date -> order_id`).
+ *
+ * They live on fab_orders, not fab_cc_plans, so /cc/portfolio does not carry
+ * them; they come back through the generic query API instead.
+ */
+export interface CcOrderPlanning {
+  id: number;
+  priorityRank: number | null;
+  requiredDate: string | null;
+}
+
+/** Read the manual rank + required date for a set of orders. Empty in, empty out. */
+export async function getCcOrderPlanning(orderIds: number[]): Promise<CcOrderPlanning[]> {
+  if (orderIds.length === 0) return [];
+  const res = await fabQuery<{ data: CcOrderPlanning[] }>('fabErpOrder', {
+    fields: ['id', 'priorityRank', 'requiredDate'],
+    // An array filter becomes `IN (...)` server-side; the explicit limit stops
+    // the API's default page size from silently truncating a big portfolio.
+    filters: { id: orderIds },
+    pagination: { limit: orderIds.length },
+  });
+  return res.data ?? [];
+}
+
+/**
+ * Set — or with `null`, clear — one order's manual sequencing rank.
+ *
+ * Lower number wins; null means unranked, which drops the order back to
+ * required-date order. Nothing re-sequences on write: the value is only read
+ * the next time the drum is replanned or dispatch is computed.
+ */
+export async function setCcOrderPriorityRank(orderId: number, rank: number | null): Promise<void> {
+  await fabMutate('fabErpOrder', 'update', { id: orderId, priority_rank: rank });
 }
 
 // ── drum ────────────────────────────────────────────────────────────────────
