@@ -9,18 +9,15 @@
  * multi_app_be/apps/fab_erp/routes/machineState.js — see that file for the
  * exact response contract.
  *
- * EU-9: each card also shows two small buffer gauges (input/output), fed by
- * one GET /buffers/board call for the whole board (not per-card — mirrors the
- * backend's set-based response) and mapped by resourceId. Tapping a gauge
- * (stopPropagation so it doesn't also open the state-change sheet) opens a
- * bottom sheet listing that buffer's open contents — resolved via a small
- * fabErpBuffer lookup then fabErpBufferContent query, both generic-query-API
- * reads — with a per-row "Move" button calling POST /buffers/move.
+ * EU-9: each card also shows two small read-only buffer gauges (input/output),
+ * fed by one GET /buffers/board call for the whole board. Load is derived from
+ * the WIP pieces standing at the machine's stock area; a gauge reads — when
+ * the buffer has no capacity configured, which is not the same as empty.
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  Alert, Box, Button, Chip, CircularProgress, Drawer, IconButton, TextField, Tooltip, Typography,
+  Alert, Box, Button, Chip, Drawer, IconButton, TextField, Tooltip, Typography,
 } from '@mui/material';
 import CloseRounded from '@mui/icons-material/CloseRounded';
 import PowerSettingsNewRounded from '@mui/icons-material/PowerSettingsNewRounded';
@@ -28,10 +25,9 @@ import ReportProblemRounded from '@mui/icons-material/ReportProblemRounded';
 import PlayCircleRounded from '@mui/icons-material/PlayCircleRounded';
 import PersonOffRounded from '@mui/icons-material/PersonOffRounded';
 import PersonRounded from '@mui/icons-material/PersonRounded';
-import ArrowForwardRounded from '@mui/icons-material/ArrowForwardRounded';
 import HistoryEduRounded from '@mui/icons-material/HistoryEduRounded';
 
-import { fabGet, fabPost, fabQuery, getBufferBoard, moveBufferContent, type BufferBoardMachine, type BufferKind, type BufferSide, type BufferStatus } from '../api/client';
+import { fabGet, fabPost, getBufferBoard, type BufferBoardMachine, type BufferKind, type BufferSide, type BufferStatus } from '../api/client';
 import { useCompanySlug } from '../hooks/useCompanySlug';
 import { PageHeader, Surface, EmptyState, useToast, CardGridSkeleton, LiveIndicator, useLiveRefresh, useNowTick, CrewPanel } from '../components';
 
@@ -143,14 +139,19 @@ const BUFFER_STATUS_FILL: Record<BufferStatus, string> = {
 };
 
 /**
- * Small thin-bar gauge for one buffer side. Renders "—" with no interaction
- * when the machine has no buffer of this kind. Click stops propagation so it
- * doesn't also trigger the card's onClick (which opens the state-change sheet).
+ * Small thin-bar gauge for one buffer side. Renders "—" when the machine has no
+ * buffer of this kind, and now also when the buffer exists but has no capacity
+ * set: an unmeasured buffer is not an empty one, and drawing it at 0% made a
+ * machine nobody had configured look like it had room.
+ *
+ * Read-only since 2026-08-05. It used to open a sheet listing the buffer's
+ * contents with a per-row Move; contents come from the WIP pieces at the
+ * machine's stock area now, and those move when the next operation starts.
  */
-function BufferGauge({ kind, side, onClick }: { kind: BufferKind; side: BufferSide | null; onClick: () => void }) {
+function BufferGauge({ kind, side }: { kind: BufferKind; side: BufferSide | null }) {
   const label = kind === 'input' ? 'In' : 'Out';
 
-  if (!side) {
+  if (!side || side.pct == null) {
     return (
       <Box sx={{ flex: 1, px: 1, py: 0.6, borderRadius: 'var(--r-sm)', background: 'var(--c-surface-2)', opacity: 0.7 }}>
         <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
@@ -166,12 +167,11 @@ function BufferGauge({ kind, side, onClick }: { kind: BufferKind; side: BufferSi
 
   return (
     <Tooltip
-      title={`${label} buffer: ${side.load}${side.capacity != null ? ` / ${side.capacity}` : ''} (${side.status}) — tap for contents`}
+      title={`${label} buffer: ${side.load}${side.capacity != null ? ` / ${side.capacity}` : ''} (${side.status})`}
       arrow
     >
       <Box
-        onClick={(e) => { e.stopPropagation(); onClick(); }}
-        sx={{ flex: 1, cursor: 'pointer', px: 1, py: 0.6, borderRadius: 'var(--r-sm)', background: 'var(--c-surface-2)' }}
+        sx={{ flex: 1, px: 1, py: 0.6, borderRadius: 'var(--r-sm)', background: 'var(--c-surface-2)' }}
       >
         <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
           <Typography sx={{ fontSize: 11, fontWeight: 600, color: 'var(--c-text-2)' }}>{label}</Typography>
@@ -185,162 +185,13 @@ function BufferGauge({ kind, side, onClick }: { kind: BufferKind; side: BufferSi
   );
 }
 
-// ── Buffer contents bottom sheet (EU-9) ─────────────────────────────────────
-
-interface BufferContentRow {
-  id: number;
-  taskId: number | null;
-  itemId: number;
-  qty: number | null;
-  unit: string | null;
-  computedWeight: number | null;
-  placedAt: string;
-}
-
-/**
- * Open contents of one machine's buffer, tapped from a BufferGauge. Resolves
- * the buffer id via a fabErpBuffer lookup (board response doesn't carry it),
- * then queries fabErpBufferContent for open rows, then fabErpItem for names
- * (both plain generic-query-API reads — no custom endpoint needed for either).
+/*
+ * BufferContentsSheet listed a buffer's open fab_buffer_contents rows with a
+ * per-row Move button. Both are gone: what a machine holds is now derived from
+ * the WIP pieces standing at its stock area, and those move when the next
+ * operation starts. The gauges still show how full a machine is; the pieces
+ * themselves are listed on the Stock screen, which reads the same rows.
  */
-function BufferContentsSheet({
-  resourceId,
-  kind,
-  resourceName,
-  onClose,
-  onMoved,
-}: {
-  resourceId: number;
-  kind: BufferKind;
-  resourceName: string | null;
-  onClose: () => void;
-  onMoved: () => void;
-}) {
-  const { toast } = useToast();
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [bufferId, setBufferId] = useState<number | null>(null);
-  const [rows, setRows] = useState<BufferContentRow[]>([]);
-  const [itemNames, setItemNames] = useState<Map<number, string>>(new Map());
-  const [movingId, setMovingId] = useState<number | null>(null);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError('');
-    try {
-      const bufRes = await fabQuery<{ data: { id: number }[] }>('fabErpBuffer', {
-        fields: ['id'],
-        filters: { resourceId, kind },
-        pagination: { limit: 1 },
-      });
-      const buf = bufRes.data?.[0];
-      if (!buf) {
-        setBufferId(null);
-        setRows([]);
-        return;
-      }
-      setBufferId(buf.id);
-
-      const contentRes = await fabQuery<{ data: BufferContentRow[] }>('fabErpBufferContent', {
-        fields: ['id', 'taskId', 'itemId', 'qty', 'unit', 'computedWeight', 'placedAt'],
-        filters: { bufferId: buf.id, movedOutAt: null },
-        orderBy: [{ field: 'placedAt', direction: 'asc' }],
-        pagination: { limit: 200 },
-      });
-      const contentRows = contentRes.data ?? [];
-      setRows(contentRows);
-
-      const itemIds = [...new Set(contentRows.map((r) => r.itemId))];
-      if (itemIds.length > 0) {
-        const itemRes = await fabQuery<{ data: { id: number; name: string }[] }>('fabErpItem', {
-          fields: ['id', 'name'],
-          filters: { id: itemIds },
-          pagination: { limit: itemIds.length },
-        });
-        setItemNames(new Map((itemRes.data ?? []).map((it) => [it.id, it.name])));
-      } else {
-        setItemNames(new Map());
-      }
-    } catch (e) {
-      setError(errMsg(e, 'Failed to load buffer contents.'));
-    } finally {
-      setLoading(false);
-    }
-  }, [resourceId, kind]);
-
-  useEffect(() => { load(); }, [load]);
-
-  const move = useCallback(async (row: BufferContentRow) => {
-    setMovingId(row.id);
-    try {
-      await moveBufferContent({ contentId: row.id });
-      toast('Moved to next buffer.', 'success');
-      onMoved();
-      await load();
-    } catch (e) {
-      toast(errMsg(e, 'Failed to move content.'), 'error');
-    } finally {
-      setMovingId(null);
-    }
-  }, [load, onMoved, toast]);
-
-  return (
-    <Box sx={{ p: 2.5, pb: 3 }}>
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
-        <Box>
-          <Typography sx={{ fontSize: 16, fontWeight: 600, color: 'var(--c-text)' }}>
-            {resourceName ?? 'Machine'} — {kind === 'input' ? 'Input' : 'Output'} buffer
-          </Typography>
-          <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>Open contents, oldest first</Typography>
-        </Box>
-        <IconButton size="small" onClick={onClose} aria-label="Close">
-          <CloseRounded fontSize="small" />
-        </IconButton>
-      </Box>
-
-      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
-
-      {loading ? (
-        <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}><CircularProgress size={22} /></Box>
-      ) : !bufferId ? (
-        <Typography sx={{ fontSize: 13, color: 'var(--c-text-3)' }}>No {kind} buffer configured for this machine.</Typography>
-      ) : rows.length === 0 ? (
-        <Typography sx={{ fontSize: 13, color: 'var(--c-text-3)' }}>Buffer is empty.</Typography>
-      ) : (
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75 }}>
-          {rows.map((row) => (
-            <Box
-              key={row.id}
-              sx={{
-                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                px: 1.5, py: 1, background: 'var(--c-surface-2)', borderRadius: 'var(--r-sm)',
-              }}
-            >
-              <Box sx={{ minWidth: 0 }}>
-                <Typography sx={{ fontSize: 13.5, color: 'var(--c-text)' }}>
-                  {itemNames.get(row.itemId) ?? `Item #${row.itemId}`}
-                </Typography>
-                <Typography sx={{ fontSize: 11.5, color: 'var(--c-text-3)' }}>
-                  {row.qty != null ? `qty ${row.qty}${row.unit ? ` ${row.unit}` : ''}` : ''}
-                  {row.computedWeight != null && ` · ${row.computedWeight} kg`}
-                </Typography>
-              </Box>
-              <Button
-                size="small"
-                variant="outlined"
-                startIcon={<ArrowForwardRounded fontSize="small" />}
-                disabled={movingId === row.id}
-                onClick={() => move(row)}
-              >
-                {movingId === row.id ? <CircularProgress size={14} /> : 'Move'}
-              </Button>
-            </Box>
-          ))}
-        </Box>
-      )}
-    </Box>
-  );
-}
 
 // ── Machine card ─────────────────────────────────────────────────────────────
 
@@ -349,14 +200,12 @@ function MachineCard({
   bufferEntry,
   now,
   onClick,
-  onOpenBuffer,
 }: {
   machine: MachineBoardItem;
   bufferEntry: BufferBoardMachine | undefined;
   /** Shared tick, so every card's elapsed timer advances in lockstep. */
   now: number;
   onClick: () => void;
-  onOpenBuffer: (kind: BufferKind) => void;
 }) {
   const task = machine.currentTask;
   // More than one task in progress on a single machine is a double-booking.
@@ -450,8 +299,8 @@ function MachineCard({
         </Box>
 
         <Box sx={{ display: 'flex', gap: 0.75, mt: 0.5 }}>
-          <BufferGauge kind="input" side={bufferEntry?.input ?? null} onClick={() => onOpenBuffer('input')} />
-          <BufferGauge kind="output" side={bufferEntry?.output ?? null} onClick={() => onOpenBuffer('output')} />
+          <BufferGauge kind="input" side={bufferEntry?.input ?? null} />
+          <BufferGauge kind="output" side={bufferEntry?.output ?? null} />
         </Box>
       </Box>
     </Surface>
@@ -630,7 +479,6 @@ export default function MachineBoard() {
   // EU-9: buffer board fetched once for the whole page (set-based, mirrors the
   // backend), then mapped by resourceId for O(1) lookup per card.
   const [bufferBoard, setBufferBoard] = useState<BufferBoardMachine[]>([]);
-  const [selectedBuffer, setSelectedBuffer] = useState<{ resourceId: number; kind: BufferKind; resourceName: string | null } | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -726,7 +574,6 @@ export default function MachineBoard() {
               bufferEntry={bufferByResource.get(m.id)}
               now={now}
               onClick={() => setSelectedId(m.id)}
-              onOpenBuffer={(kind) => setSelectedBuffer({ resourceId: m.id, kind, resourceName: m.name })}
             />
           ))}
         </Box>
@@ -747,22 +594,6 @@ export default function MachineBoard() {
         )}
       </Drawer>
 
-      <Drawer
-        anchor="bottom"
-        open={selectedBuffer !== null}
-        onClose={() => setSelectedBuffer(null)}
-        PaperProps={{ sx: { borderTopLeftRadius: 'var(--r-lg)', borderTopRightRadius: 'var(--r-lg)', maxWidth: 560, mx: 'auto', width: '100%' } }}
-      >
-        {selectedBuffer && (
-          <BufferContentsSheet
-            resourceId={selectedBuffer.resourceId}
-            kind={selectedBuffer.kind}
-            resourceName={selectedBuffer.resourceName}
-            onClose={() => setSelectedBuffer(null)}
-            onMoved={loadBufferBoard}
-          />
-        )}
-      </Drawer>
     </Box>
   );
 }

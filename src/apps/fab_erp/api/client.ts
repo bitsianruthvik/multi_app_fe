@@ -408,9 +408,6 @@ export interface MoveBufferContentResponse {
 }
 
 /** POST /buffers/move — one-tap move of a buffer content row (destination auto-resolved when omitted). */
-export async function moveBufferContent(body: MoveBufferContentBody): Promise<MoveBufferContentResponse> {
-  return fabPost<MoveBufferContentResponse>('buffers/move', body);
-}
 
 /** One fab_buffers row, as returned by GET /buffers/config. */
 export interface BufferConfigRow {

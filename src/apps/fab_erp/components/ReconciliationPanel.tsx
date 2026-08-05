@@ -11,7 +11,10 @@
  *   - longRunning: "Adjust times" reopens the existing LogPastWorkDialog
  *     (EU-11) against this task, so a stuck-looking task can be corrected
  *     without leaving the page.
- *   - stuckBuffer: "Move" calls POST /buffers/move directly (EU-7's
+ *   - stuckBuffer: informational since 2026-08-05. Moving a piece IS starting
+ *     its next operation, so there is no separate gesture to offer; the card
+ *     names where the metal is and the queue is where it gets moved.
+ *     (was: "Move" calling POST /buffers/move — EU-7's
  *     one-tap-move endpoint) with just the contentId, letting the backend
  *     auto-resolve the destination buffer — there is no standalone Buffer
  *     Board frontend page yet to link out to, so this in-place action is
@@ -39,7 +42,6 @@ import Inventory2Rounded from '@mui/icons-material/Inventory2Rounded';
 import FactCheckRounded from '@mui/icons-material/FactCheckRounded';
 
 import {
-  fabPost,
   getReconciliationFeed,
   resolveAnomaly,
   type ReconciliationAnomaly,
@@ -65,13 +67,11 @@ function AnomalyCard({
   busy,
   onResolveIdle,
   onAdjustTimes,
-  onMoveBuffer,
 }: {
   anomaly: ReconciliationAnomaly;
   busy: boolean;
   onResolveIdle: (a: ReconciliationAnomaly, reason: string) => void;
   onAdjustTimes: (a: ReconciliationAnomaly) => void;
-  onMoveBuffer: (a: ReconciliationAnomaly) => void;
 }) {
   const style = TYPE_STYLE[anomaly.type];
 
@@ -135,18 +135,6 @@ function AnomalyCard({
         </Box>
       )}
 
-      {anomaly.type === 'stuckBuffer' && (
-        <Box sx={{ mt: 0.5 }}>
-          <Button
-            size="small"
-            variant="outlined"
-            disabled={busy}
-            onClick={() => onMoveBuffer(anomaly)}
-          >
-            Move
-          </Button>
-        </Box>
-      )}
     </Surface>
   );
 }
@@ -207,20 +195,6 @@ export default function ReconciliationPanel() {
     });
   }, []);
 
-  const handleMoveBuffer = useCallback(async (a: ReconciliationAnomaly) => {
-    if (a.contentId == null) return;
-    const key = keyOf(a);
-    setBusyKey(key);
-    try {
-      await fabPost('buffers/move', { contentId: a.contentId });
-      toast('Buffer content moved.', 'success');
-      await load();
-    } catch (e) {
-      toast(errMsg(e, 'Failed to move buffer content.'), 'error');
-    } finally {
-      setBusyKey(null);
-    }
-  }, [load, toast]);
 
   return (
     <Surface e={1} sx={{ p: 2 }}>
@@ -260,7 +234,6 @@ export default function ReconciliationPanel() {
               busy={busyKey === keyOf(a)}
               onResolveIdle={handleResolveIdle}
               onAdjustTimes={handleAdjustTimes}
-              onMoveBuffer={handleMoveBuffer}
             />
           ))}
         </Box>

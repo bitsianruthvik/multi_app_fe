@@ -12,14 +12,16 @@
  * which are removed with them.
  *
  * Reads GET /analytics/machines, which is kept because it is the only place
- * inputBufferPct is computed -- it derives from fab_buffer_level_snapshots
- * rather than from live buffer contents, so this screen shows the trend the
- * Machine Board's live gauges cannot.
+ * inputBufferPct is reported alongside utilisation -- one row per machine,
+ * how busy it is next to how full it is.
  *
- * NOTE for Phase 4: buffer load is being re-pointed from fab_buffer_contents to
- * fab_stock_pieces. The snapshot table this screen reads is written by
- * placeOutput/moveContent, both of which that phase deletes -- so the new path
- * must keep calling snapshot() or this screen quietly freezes at its last value.
+ * inputBufferPct is derived live from the WIP pieces standing at the machine's
+ * stock area, the same aggregate the Machine Board's gauges render, so the two
+ * screens cannot disagree. It was previously read from a snapshot history
+ * table; that table had one writer, the writer was deleted with
+ * fab_buffer_contents, and it had never held a row in any environment -- this
+ * column was blank from the day it shipped. Everything else on the row is
+ * windowed by the range picker; buffer fullness is always current.
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
