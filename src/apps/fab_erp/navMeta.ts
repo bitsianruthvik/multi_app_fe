@@ -83,6 +83,7 @@ export const NAV_SECTIONS: NavSection[] = [
       { slug: 'customers', label: 'Customers', permission: 'fab_erp_projects_view', keywords: ['client', 'buyer'] },
       { slug: 'grn', label: 'Receiving', permission: 'fab_erp_grn_view', countKey: 'posInTransit', keywords: ['grn', 'goods receipt', 'inward'] },
       { slug: 'item-batches', label: 'Stock', permission: 'fab_erp_inventory_view', keywords: ['batches', 'inventory', 'on hand'] },
+      { slug: 'stock-in', label: 'Stock in', permission: 'fab_erp_inventory_manage', keywords: ['receive', 'goods in', 'inward', 'add stock', 'raw material', 'grn'] },
       { slug: 'suppliers', label: 'Suppliers', permission: 'fab_erp_grn_view', keywords: ['vendor'], childSlugs: ['suppliers/:supplierId'] },
     ],
   },

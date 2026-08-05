@@ -11,6 +11,7 @@ const Constants          = lazy(() => import('./pages/Constants'));
 const ItemCatalog        = lazy(() => import('./pages/ItemCatalog'));
 const ItemCatalogDetail  = lazy(() => import('./pages/ItemCatalogDetail'));
 const ItemBatches        = lazy(() => import('./pages/ItemBatches'));
+const StockIn            = lazy(() => import('./pages/StockIn'));
 const ShiftCalendars     = lazy(() => import('./pages/ShiftCalendars'));
 const GrnDetail          = lazy(() => import('./pages/GrnDetail'));
 const GrnEntry           = lazy(() => import('./pages/GrnEntry'));
@@ -59,6 +60,7 @@ export function getFabErpRoutes(
     { path: '/:company/fab_erp/item-catalog',                element: wrap(<ItemCatalog />) },
     { path: '/:company/fab_erp/item-catalog/:itemId',        element: wrap(<ItemCatalogDetail />) },
     { path: '/:company/fab_erp/item-batches',                element: wrap(<ItemBatches />) },
+    { path: '/:company/fab_erp/stock-in',                    element: wrap(<StockIn />) },
     { path: '/:company/fab_erp/shift-calendars',             element: wrap(<ShiftCalendars />) },
     { path: '/:company/fab_erp/grn-detail',                  element: wrap(<GrnDetail />) },
     { path: '/:company/fab_erp/grn',                         element: wrap(<GrnEntry />) },
