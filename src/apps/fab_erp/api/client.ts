@@ -509,44 +509,10 @@ export interface ConstraintRankRow {
   reason: string;
 }
 
-export interface ConstraintResponse {
-  ok: boolean;
-  from: string;
-  to: string;
-  /** The top-ranked machine, or null when there are no machines. */
-  constraint: { resourceId: number; name: string; score: number; reason: string } | null;
-  ranked: ConstraintRankRow[];
-}
-
-/** GET /analytics/constraint — rank machines by the constraint heuristic. */
-export async function getConstraint(range: AnalyticsRange = {}): Promise<ConstraintResponse> {
-  return fabGet<ConstraintResponse>('analytics/constraint', range);
-}
-
 /** One reason bucket in the wait Pareto. */
 export interface WaitParetoRow {
   reason: WaitReason;
   minutes: number;
-}
-
-export interface WaitParetoResponse {
-  ok: boolean;
-  from: string;
-  to: string;
-  orderId: number | null;
-  /** Descending by minutes; reasons with zero minutes are omitted. */
-  byReason: WaitParetoRow[];
-  totalMinutes: number;
-}
-
-/** GET /analytics/wait-pareto — total wait minutes by reason (optionally one order). */
-export async function getWaitPareto(
-  range: AnalyticsRange = {},
-  orderId?: number,
-): Promise<WaitParetoResponse> {
-  const params: Record<string, unknown> = { ...range };
-  if (orderId != null) params.orderId = orderId;
-  return fabGet<WaitParetoResponse>('analytics/wait-pareto', params);
 }
 
 /** One item's touch-vs-wait row within a project. */
@@ -557,28 +523,6 @@ export interface ProjectAnalyticsItem {
   waitMinutes: number;
   /** touch / wait, or null when there is no wait time. */
   ratio: number | null;
-}
-
-export interface ProjectAnalyticsResponse {
-  ok: boolean;
-  from: string;
-  to: string;
-  order: {
-    orderId: number;
-    orderNumber: string;
-    touchMinutes: number;
-    waitMinutes: number;
-    ratio: number | null;
-  };
-  items: ProjectAnalyticsItem[];
-}
-
-/** GET /analytics/project/:orderId — per-item + order touch-time vs wait-time. */
-export async function getProjectAnalytics(
-  orderId: number,
-  range: AnalyticsRange = {},
-): Promise<ProjectAnalyticsResponse> {
-  return fabGet<ProjectAnalyticsResponse>(`analytics/project/${orderId}`, range);
 }
 
 // ── Factory Pulse cockpit (GET /pulse) ──────────────────────────────────────

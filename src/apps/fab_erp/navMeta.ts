@@ -90,7 +90,7 @@ export const NAV_SECTIONS: NavSection[] = [
     label: 'Analyse',
     items: [
       { slug: 'critical-chain', label: 'Critical chain', permission: 'fab_erp_cc_view', countKey: 'redBuffers', keywords: ['ccpm', 'buffer', 'fever', 'drum', 'toc'] },
-      { slug: 'analytics', label: 'Analytics', permission: 'fab_erp_shopfloor_analytics_view', keywords: ['reports', 'utilisation', 'wait', 'touch time'] },
+      { slug: 'analytics', label: 'Machine buffers', permission: 'fab_erp_shopfloor_analytics_view', keywords: ['buffer', 'wip', 'queue', 'reports', 'analytics'] },
     ],
   },
   {
