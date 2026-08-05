@@ -66,13 +66,12 @@ export const NAV_SECTIONS: NavSection[] = [
       { slug: 'task-queue', label: 'Queue', permission: 'fab_erp_taskqueue_view', countKey: 'openTasks', keywords: ['work', 'operator', 'start', 'stop'] },
       { slug: 'task-engine', label: 'Engine', permission: 'fab_erp_taskengine_view', countKey: 'activeOrders', keywords: ['dag', 'graph', 'swimlane', 'progress'] },
       { slug: 'machine-board', label: 'Machines', permission: 'fab_erp_machine_state_manage', countKey: 'machinesRunning', keywords: ['shop floor', 'state', 'running', 'down'] },
-      { slug: 'machine-timeline', label: 'Timeline', permission: 'fab_erp_time_backfill', keywords: ['gantt', 'utilisation', 'backfill', 'history'] },
+      { slug: 'machine-timeline', label: 'Timeline', permission: 'fab_erp_time_backfill', keywords: ['gantt', 'utilisation', 'backfill', 'history', 'reconcile', 'gaps', 'unaccounted', 'anomalies'] },
       // No countKey: "unaccounted time gaps" needs a per-machine shift-vs-events
       // diff, which is too expensive for a nav badge that reloads on every
       // section change. Add one only if /nav-counts can answer it in one query.
       { slug: 'people', label: 'People', permission: 'fab_erp_machine_state_manage', keywords: ['crew', 'operator', 'worker', 'roster', 'contractor', 'vendor', 'staff'] },
       { slug: 'shift-log', label: 'Shift Log', permission: 'fab_erp_time_backfill', keywords: ['back-entry', 'paper', 'clipboard', 'past', 'downtime', 'absent', 'yesterday'] },
-      { slug: 'reconciliation', label: 'Reconcile', permission: 'fab_erp_machine_state_manage', keywords: ['gaps', 'unaccounted', 'time'] },
     ],
   },
   {
@@ -105,9 +104,8 @@ export const NAV_SECTIONS: NavSection[] = [
       { slug: 'resource-types', label: 'Resources', permission: 'fab_erp_resources_view', countKey: 'machines', keywords: ['machines', 'labour', 'capacity', 'resource type'] },
       { slug: 'shift-calendars', label: 'Calendars', permission: 'fab_erp_calendars_view', keywords: ['shifts', 'working days', 'holidays'] },
       { slug: 'progress-templates', label: 'Progress stages', permission: 'fab_erp_taskengine_view', keywords: ['stage template', 'project progress'] },
+      { slug: 'item-metrics', label: 'Metrics', permission: 'fab_erp_items_meta_view', keywords: ['dimension', 'attribute', 'length', 'thickness', 'weight'] },
       { slug: 'buffer-config', label: 'Buffers', permission: 'fab_erp_buffer_config', keywords: ['physical buffer', 'stock area', 'wip'] },
-      { slug: 'item-metrics', label: 'Metrics', permission: 'fab_erp_items_meta_view', keywords: ['dimension', 'attribute'] },
-      { slug: 'constants', label: 'Constants', permission: 'fab_erp_formulas_view', keywords: ['formula input', 'variable'] },
       { slug: 'codegen-settings', label: 'Code generation', permission: 'fab_erp_items_meta_view', keywords: ['numbering', 'prefix', 'sequence'] },
     ],
   },

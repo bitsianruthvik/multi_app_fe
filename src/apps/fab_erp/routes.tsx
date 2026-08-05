@@ -7,7 +7,6 @@ const Home               = lazy(() => import('./pages/Home'));
 const Plants             = lazy(() => import('./pages/Plants'));
 const ResourceTypes      = lazy(() => import('./pages/ResourceTypes'));
 const ItemMetrics        = lazy(() => import('./pages/ItemMetrics'));
-const Constants          = lazy(() => import('./pages/Constants'));
 const ItemCatalog        = lazy(() => import('./pages/ItemCatalog'));
 const ItemCatalogDetail  = lazy(() => import('./pages/ItemCatalogDetail'));
 const ItemBatches        = lazy(() => import('./pages/ItemBatches'));
@@ -27,7 +26,6 @@ const BufferConfig       = lazy(() => import('./pages/BufferConfig'));
 const MachineTimeline    = lazy(() => import('./pages/MachineTimeline'));
 const ShiftLog           = lazy(() => import('./pages/ShiftLog'));
 const People             = lazy(() => import('./pages/People'));
-const Reconciliation     = lazy(() => import('./pages/Reconciliation'));
 const MachineBuffers     = lazy(() => import('./pages/MachineBuffers'));
 const CriticalChain      = lazy(() => import('./pages/CriticalChain'));
 const Setup              = lazy(() => import('./pages/Setup'));
@@ -51,7 +49,6 @@ export function getFabErpRoutes(
     { path: '/:company/fab_erp/plants',                      element: wrap(<Plants />) },
     { path: '/:company/fab_erp/resource-types',              element: wrap(<ResourceTypes />) },
     { path: '/:company/fab_erp/item-metrics',                element: wrap(<ItemMetrics />) },
-    { path: '/:company/fab_erp/constants',                   element: wrap(<Constants />) },
     { path: '/:company/fab_erp/item-catalog',                element: wrap(<ItemCatalog />) },
     { path: '/:company/fab_erp/item-catalog/:itemId',        element: wrap(<ItemCatalogDetail />) },
     { path: '/:company/fab_erp/item-batches',                element: wrap(<ItemBatches />) },
@@ -71,7 +68,6 @@ export function getFabErpRoutes(
     { path: '/:company/fab_erp/machine-timeline',            element: wrap(<MachineTimeline />) },
     { path: '/:company/fab_erp/people',                     element: wrap(<People />) },
     { path: '/:company/fab_erp/shift-log',                  element: wrap(<ShiftLog />) },
-    { path: '/:company/fab_erp/reconciliation',              element: wrap(<Reconciliation />) },
     { path: '/:company/fab_erp/analytics',                   element: wrap(<MachineBuffers />) },
     { path: '/:company/fab_erp/critical-chain',              element: wrap(<CriticalChain />) },
   ];

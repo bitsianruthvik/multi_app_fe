@@ -11,7 +11,6 @@ import CalendarMonthRounded from '@mui/icons-material/CalendarMonthRounded';
 import StackedBarChartRounded from '@mui/icons-material/StackedBarChartRounded';
 import WarehouseRounded from '@mui/icons-material/WarehouseRounded';
 import StraightenRounded from '@mui/icons-material/StraightenRounded';
-import FunctionsRounded from '@mui/icons-material/FunctionsRounded';
 import TuneRounded from '@mui/icons-material/TuneRounded';
 
 import { PageHeader, Surface } from '../components';
@@ -49,7 +48,6 @@ const GROUPS: { title: string; hint: string; cards: SetupCard[] }[] = [
       { slug: 'item-catalog', label: 'Items', blurb: 'Parts, raw materials and finished goods, with their taxonomy.', icon: <Inventory2Rounded />, permission: 'fab_erp_items_meta_view', countKey: 'items', unit: 'items' },
       { slug: 'item-catalog', label: 'BOMs', blurb: 'What goes into what, and in what quantity. Built per item, inside the catalog.', icon: <AccountTreeRounded />, permission: 'fab_erp_items_meta_view', countKey: 'boms', unit: 'BOMs' },
       { slug: 'item-metrics', label: 'Metrics', blurb: 'Dimensions and attributes that formulas read.', icon: <StraightenRounded />, permission: 'fab_erp_items_meta_view' },
-      { slug: 'constants', label: 'Constants', blurb: 'Named values shared across time and cost formulas.', icon: <FunctionsRounded />, permission: 'fab_erp_formulas_view' },
     ],
   },
   {

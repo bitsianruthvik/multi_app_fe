@@ -70,7 +70,6 @@ const ACTIONS: PaletteAction[] = [
   { id: 'new-order',   label: 'New order',        hint: 'Capture a sales, purchase or work order', permission: 'fab_erp_projects_manage', slug: 'orders?new=1' },
   { id: 'new-item',    label: 'New item',         hint: 'Add a part to the catalog',               permission: 'fab_erp_items_meta_manage', slug: 'item-catalog?new=1' },
   { id: 'start-work',  label: 'Start work',       hint: 'Open the operator task queue',            permission: 'fab_erp_taskqueue_manage', slug: 'task-queue' },
-  { id: 'reconcile',   label: 'Reconcile time',   hint: 'Resolve unaccounted machine time',        permission: 'fab_erp_machine_state_manage', slug: 'reconciliation' },
 ];
 
 const RECENTS_KEY = 'fab_erp:palette:recents';

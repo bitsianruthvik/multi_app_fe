@@ -1,5 +1,5 @@
 /**
- * Reconciliation.tsx — EU-13: Reconciliation feed + unexplained-idle prompt.
+ * ReconciliationPanel — the anomaly feed, shown inside Machine Timeline.
  *
  * One list of "things a supervisor should look at" — computed live on every
  * load from GET /reconciliation/feed (no nightly job; see the backend route
@@ -17,6 +17,12 @@
  *     Board frontend page yet to link out to, so this in-place action is
  *     more useful than a dead link (see the ticket report for this
  *     deviation).
+ *
+ * Was its own screen until 2026-08-05. It is not a separate job from reading a
+ * machine's day -- "what happened" and "what looks wrong" belong on one screen,
+ * and the plan's shorthand for this fold ("Reconcile is only find the gaps")
+ * undersold it: each anomaly type carries its own resolution, so a filter on the
+ * timeline would have dropped the actions entirely.
  *
  * NAV BADGE: GET /reconciliation/count is exposed via api/client.ts, but the
  * shared Sidebar has no dynamic-badge mechanism to plug it into without
@@ -38,7 +44,7 @@ import {
   resolveAnomaly,
   type ReconciliationAnomaly,
 } from '../api/client';
-import { PageHeader, Surface, EmptyState, useToast, ListSkeleton } from '../components';
+import { Surface, EmptyState, useToast, ListSkeleton } from '../components';
 import { LogPastWorkDialog, type LogPastWorkTask } from '../components/LogPastWorkDialog';
 
 function errMsg(e: unknown, fallback: string): string {
@@ -145,7 +151,7 @@ function AnomalyCard({
   );
 }
 
-export default function Reconciliation() {
+export default function ReconciliationPanel() {
   const { toast } = useToast();
   const [anomalies, setAnomalies] = useState<ReconciliationAnomaly[]>([]);
   const [loading, setLoading] = useState(true);
@@ -217,11 +223,10 @@ export default function Reconciliation() {
   }, [load, toast]);
 
   return (
-    <Box sx={{ maxWidth: 900, mx: 'auto' }}>
-      <PageHeader
-        title="Reconciliation"
-        subtitle="Anomalies flagged from live shop-floor data — resolve them here or jump to the right screen."
-        actions={
+    <Surface e={1} sx={{ p: 2 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, mb: 1.5 }}>
+        <Typography sx={{ fontSize: 14, fontWeight: 600, color: 'var(--c-text)' }}>Needs attention</Typography>
+        {
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
             <Chip
               size="small"
@@ -234,7 +239,7 @@ export default function Reconciliation() {
             </Button>
           </Box>
         }
-      />
+      </Box>
 
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
 
@@ -268,6 +273,6 @@ export default function Reconciliation() {
         onClose={() => setAdjustTask(null)}
         onSaved={load}
       />
-    </Box>
+    </Surface>
   );
 }

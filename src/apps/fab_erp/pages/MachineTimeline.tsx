@@ -32,6 +32,7 @@ import {
   fabQuery, correctTaskEvent, backfillTaskWork, type FilterValue,
 } from '../api/client';
 import { PageHeader, Surface, EmptyState, useToast, ChartSkeleton } from '../components';
+import ReconciliationPanel from '../components/ReconciliationPanel';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -779,6 +780,10 @@ export default function MachineTimeline() {
         </Box>
       )}
 
+
+      {/* What happened on this machine, and what looks wrong about it, belong on
+          one screen -- this was its own 'Reconcile' route until 2026-08-05. */}
+      <Box sx={{ mt: 2 }}><ReconciliationPanel /></Box>
       {backfill && (
         <BackfillDialog
           task={backfill.task}
