@@ -102,3 +102,27 @@ export default defineConfig([
   },
 ]);
 ```
+
+## Deployment
+
+Vercel builds this repo on push to `main`. Two things in `vercel.json` are load-bearing.
+
+**`build.env.VITE_API_HOST`** is pinned in the repo rather than left to the Vercel
+dashboard. Getting it wrong takes production down silently: the app still loads,
+and every request fails. It has already happened once — the deployed bundle was
+calling `https://multi-app-be.onrender.com`, which is a real, live Render service
+but **not ours**. Render appended `-svpc` to our hostname because the bare name
+was already taken by a stranger, and the bundle was posting logins to their
+server. Keeping the value here means it shows up in a diff instead of living only
+in a dashboard nobody opens.
+
+**`rewrites`** sends every path to `index.html`. Without it, a deep link or a page
+refresh anywhere except `/` returns a 404, because the routes only exist in the
+client-side router.
+
+Do not add explanatory `"//"` keys to `vercel.json`. Vercel validates it against a
+strict schema and rejects unknown properties outright — the build fails with
+*"should NOT have additional property"* and Vercel keeps serving the last good
+bundle, so the site looks fine while every new commit silently fails to deploy.
+That is exactly how this file went unnoticed for a day. JSON has no comments;
+this section is where the reasoning goes.

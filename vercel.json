@@ -1,5 +1,4 @@
 {
-  "//": "VITE_API_HOST is pinned here, not left to the dashboard, because getting it wrong takes production down silently. The deployed bundle was calling https://multi-app-be.onrender.com — a real Render service, but NOT ours: Render appended -svpc to our host because the bare name was already taken by someone else. The app loaded fine and every login returned 500, because it was talking to a stranger's server. Keeping the value in the repo means it is reviewable in a diff instead of living only in a dashboard nobody reads.",
   "build": {
     "env": {
       "VITE_API_HOST": "https://multi-app-be-svpc.onrender.com"
