@@ -20,6 +20,7 @@ const Operations         = lazy(() => import('./pages/Operations'));
 const OperationFlows     = lazy(() => import('./pages/OperationFlows'));
 const ProgressTemplates  = lazy(() => import('./pages/ProgressTemplates'));
 const TaskQueue          = lazy(() => import('./pages/TaskQueue'));
+const Dispatch           = lazy(() => import('./pages/Dispatch'));
 const TaskEngine         = lazy(() => import('./pages/TaskEngine'));
 const MachineBoard       = lazy(() => import('./pages/MachineBoard'));
 const BufferConfig       = lazy(() => import('./pages/BufferConfig'));
@@ -62,6 +63,7 @@ export function getFabErpRoutes(
     { path: '/:company/fab_erp/operation-flows',            element: wrap(<OperationFlows />) },
     { path: '/:company/fab_erp/progress-templates',          element: wrap(<ProgressTemplates />) },
     { path: '/:company/fab_erp/task-queue',                 element: wrap(<TaskQueue />) },
+    { path: '/:company/fab_erp/dispatch',                    element: wrap(<Dispatch />) },
     { path: '/:company/fab_erp/task-engine',                element: wrap(<TaskEngine />) },
     { path: '/:company/fab_erp/machine-board',               element: wrap(<MachineBoard />) },
     { path: '/:company/fab_erp/buffer-config',               element: wrap(<BufferConfig />) },

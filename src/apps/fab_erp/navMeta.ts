@@ -64,6 +64,7 @@ export const NAV_SECTIONS: NavSection[] = [
     label: 'Production',
     items: [
       { slug: 'task-queue', label: 'Queue', permission: 'fab_erp_taskqueue_view', countKey: 'openTasks', keywords: ['work', 'operator', 'start', 'stop'] },
+      { slug: 'dispatch', label: 'Dispatch', permission: 'fab_erp_taskqueue_view', keywords: ['dispatch', 'plan', 'planning', 'assign', 'next job', 'what next', 'ranking', 'priority', 'run'] },
       { slug: 'task-engine', label: 'Engine', permission: 'fab_erp_taskengine_view', countKey: 'activeOrders', keywords: ['dag', 'graph', 'swimlane', 'progress'] },
       { slug: 'machine-board', label: 'Machines', permission: 'fab_erp_machine_state_manage', countKey: 'machinesRunning', keywords: ['shop floor', 'state', 'running', 'down'] },
       { slug: 'machine-timeline', label: 'Timeline', permission: 'fab_erp_time_backfill', keywords: ['gantt', 'utilisation', 'backfill', 'history', 'reconcile', 'gaps', 'unaccounted', 'anomalies'] },

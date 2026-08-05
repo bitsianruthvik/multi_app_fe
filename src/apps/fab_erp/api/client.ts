@@ -601,3 +601,117 @@ export async function setItemMark(
 export async function getCutList(orderId: number): Promise<{ ok: boolean; items: CutListItem[] }> {
   return fabGet(`orders/${orderId}/cut-list`);
 }
+
+// ---------------------------------------------------------------------------
+// Dispatch — production planning: what each machine works on next.
+// GET /dispatch/preview · POST /dispatch/confirm · GET /dispatch/latest.
+// See multi_app_be/apps/fab_erp/routes/dispatch.js for the exact contracts.
+//
+// Preview and latest are deliberately different types. Preview is the live
+// ranking joined to everything that explains it; latest reads back only the
+// columns the run table froze. Modelling them as one type would mean pretending
+// fields exist on a stored run that were never written.
+// ---------------------------------------------------------------------------
+
+/** One ranked task in a freshly computed preview. */
+export interface DispatchTask {
+  id: number;
+  orderId: number | null;
+  orderNumber: string | null;
+  seqNo: number | null;
+  operationName: string | null;
+  itemName: string | null;
+  /** 1-based position within this machine's list. */
+  rank: number;
+  /** Pre-composed explanation, e.g. "priority #1 · 42.1 days spare · critical chain". */
+  reason: string | null;
+  /** Working minutes of slack on the parent order; null when it has no baseline. */
+  orderSlackMinutes: number | null;
+  isCriticalChain: boolean;
+  priorityRank: number | null;
+  requiredDate: string | null;
+  queuedAt: string | null;
+}
+
+export interface DispatchMachine {
+  resourceId: number;
+  resourceName: string | null;
+  /** Empty when the machine has no eligible work — every machine is returned. */
+  tasks: DispatchTask[];
+}
+
+export interface DispatchPreviewResponse {
+  ok: boolean;
+  machines: DispatchMachine[];
+  /**
+   * Candidates dropped before ranking. `blocked` = the machine's output buffer
+   * would not take the piece; `claimed` = an unassigned task another machine of
+   * the same type took first.
+   */
+  skipped: { blocked: number; claimed: number };
+}
+
+/** Compute the ranking without persisting anything. Backend clamps to 1..25. */
+export async function getDispatchPreview(limitPerMachine: number): Promise<DispatchPreviewResponse> {
+  return fabGet<DispatchPreviewResponse>('dispatch/preview', { limitPerMachine });
+}
+
+export interface DispatchConfirmResponse {
+  ok: boolean;
+  runId: number;
+  taskCount: number;
+  machineCount: number;
+  /** What was actually stored — it recomputes, so it can differ from the preview. */
+  machines: DispatchMachine[];
+}
+
+/**
+ * Persist a dispatch run. Requires `fab_erp_projects_manage` (admins bypass).
+ * The server recomputes rather than trusting a client-supplied list, so the
+ * caller must show the result rather than assume its preview was recorded.
+ */
+export async function confirmDispatchRun(limitPerMachine: number): Promise<DispatchConfirmResponse> {
+  return fabPost<DispatchConfirmResponse>('dispatch/confirm', { limitPerMachine });
+}
+
+/** One task as stored on a confirmed run — the id comes back as `taskId`. */
+export interface DispatchRunTask {
+  taskId: number;
+  orderId: number | null;
+  orderNumber: string | null;
+  seqNo: number | null;
+  operationName: string | null;
+  rank: number;
+  reason: string | null;
+  orderSlackMinutes: number | null;
+  /** Stored as TINYINT(1), so this arrives as 0/1 rather than a boolean. */
+  isCriticalChain: number | boolean;
+}
+
+export interface DispatchRunMachine {
+  resourceId: number;
+  resourceName: string | null;
+  tasks: DispatchRunTask[];
+}
+
+export interface DispatchRun {
+  id: number;
+  computedAt: string | null;
+  confirmedAt: string | null;
+  /** users.id. This endpoint does not join a name — resolve it or show the id. */
+  confirmedBy: number | null;
+  machineCount: number;
+  taskCount: number;
+}
+
+export interface DispatchLatestResponse {
+  ok: boolean;
+  /** null until the first run is confirmed. */
+  run: DispatchRun | null;
+  machines: DispatchRunMachine[];
+}
+
+/** The last confirmed run, read back with its frozen scores. */
+export async function getDispatchLatest(): Promise<DispatchLatestResponse> {
+  return fabGet<DispatchLatestResponse>('dispatch/latest');
+}
