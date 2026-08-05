@@ -89,7 +89,6 @@ function ReceiptsDialog({ target, onClose }: { target: DrillTarget | null; onClo
   const [rows, setRows] = useState<FabStockLedger[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const { company } = useParams<{ company: string }>();
 
   const ledgerField = target ? LEDGER_FILTER_FIELD[target.groupByKey] : undefined;
 
@@ -129,8 +128,8 @@ function ReceiptsDialog({ target, onClose }: { target: DrillTarget | null; onClo
                 <TableCell sx={th}>Txn date</TableCell>
                 <TableCell sx={th} align="right">Qty</TableCell>
                 <TableCell sx={th} align="right">Unit cost</TableCell>
-                <TableCell sx={th}>Supplier</TableCell>
-                <TableCell sx={th}>GRN</TableCell>
+                <TableCell sx={th}>Type</TableCell>
+                <TableCell sx={th}>Batch / heat</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -139,14 +138,13 @@ function ReceiptsDialog({ target, onClose }: { target: DrillTarget | null; onClo
                   <TableCell sx={td}><Mono>{r.txnDate}</Mono></TableCell>
                   <TableCell sx={td} align="right"><Mono tabular>{r.qty}</Mono></TableCell>
                   <TableCell sx={td} align="right">{r.unitCost ?? '—'}</TableCell>
-                  <TableCell sx={td}>{r.supplierName ?? '—'}</TableCell>
-                  <TableCell sx={td}>
-                    {r.grnId != null ? (
-                      <Link component={RouterLink} to={`/${company}/fab_erp/grn-detail?grnId=${r.grnId}`} sx={{ color: 'var(--c-primary-700)' }}>
-                        View GRN
-                      </Link>
-                    ) : '—'}
-                  </TableCell>
+                  {/* Supplier and a link to the GRN used to sit here. With no
+                      purchase order there is no supplier to name and no receipt
+                      document to open, so the row carries what it can still
+                      prove instead: what kind of movement this was, and which
+                      physical piece it touched. */}
+                  <TableCell sx={td}>{r.txnType ?? '—'}</TableCell>
+                  <TableCell sx={td}>{r.batchCode ?? r.heatNo ?? '—'}</TableCell>
                 </TableRow>
               ))}
             </TableBody>

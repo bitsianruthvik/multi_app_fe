@@ -8,11 +8,9 @@ import BoltRounded from '@mui/icons-material/BoltRounded';
 import HistoryRounded from '@mui/icons-material/HistoryRounded';
 import Inventory2Rounded from '@mui/icons-material/Inventory2Rounded';
 import ReceiptLongRounded from '@mui/icons-material/ReceiptLongRounded';
-import LocalShippingRounded from '@mui/icons-material/LocalShippingRounded';
 import PeopleRounded from '@mui/icons-material/PeopleRounded';
 import FactoryRounded from '@mui/icons-material/FactoryRounded';
 import AccountTreeRounded from '@mui/icons-material/AccountTreeRounded';
-import MoveToInboxRounded from '@mui/icons-material/MoveToInboxRounded';
 import BuildRounded from '@mui/icons-material/BuildRounded';
 import WarehouseRounded from '@mui/icons-material/WarehouseRounded';
 import { useNavigate } from 'react-router-dom';
@@ -42,11 +40,9 @@ import { useCompanySlug } from '../hooks/useCompanySlug';
 const TYPE_META: Record<string, { icon: ReactNode; label: string; route: (id: number) => string }> = {
   item:           { icon: <Inventory2Rounded />,    label: 'Item',     route: (id) => `item-catalog/${id}` },
   order:          { icon: <ReceiptLongRounded />,   label: 'Order',    route: (id) => `orders/${id}` },
-  supplier:       { icon: <LocalShippingRounded />, label: 'Supplier', route: (id) => `suppliers/${id}` },
   customer:       { icon: <PeopleRounded />,        label: 'Customer', route: () => 'customers' },
   plant:          { icon: <FactoryRounded />,       label: 'Plant',    route: () => 'plants' },
   bom:            { icon: <AccountTreeRounded />,   label: 'BOM',      route: () => 'bom-templates' },
-  grn:            { icon: <MoveToInboxRounded />,   label: 'GRN',      route: () => 'grn' },
   resource_type:  { icon: <BuildRounded />,         label: 'Resource', route: () => 'resource-types' },
   stock_location: { icon: <WarehouseRounded />,     label: 'Location', route: () => 'plants' },
 };
@@ -73,7 +69,6 @@ interface PaletteAction {
 const ACTIONS: PaletteAction[] = [
   { id: 'new-order',   label: 'New order',        hint: 'Capture a sales, purchase or work order', permission: 'fab_erp_projects_manage', slug: 'orders?new=1' },
   { id: 'new-item',    label: 'New item',         hint: 'Add a part to the catalog',               permission: 'fab_erp_items_meta_manage', slug: 'item-catalog?new=1' },
-  { id: 'receive',     label: 'Receive goods',    hint: 'Book a GRN against a purchase order',     permission: 'fab_erp_grn_manage',      slug: 'grn?new=1' },
   { id: 'start-work',  label: 'Start work',       hint: 'Open the operator task queue',            permission: 'fab_erp_taskqueue_manage', slug: 'task-queue' },
   { id: 'reconcile',   label: 'Reconcile time',   hint: 'Resolve unaccounted machine time',        permission: 'fab_erp_machine_state_manage', slug: 'reconciliation' },
 ];
@@ -310,7 +305,7 @@ function Palette({ open, onClose }: { open: boolean; onClose: () => void }) {
             autoFocus
             value={q}
             onChange={(e) => { setQ(e.target.value); setCursor(0); }}
-            placeholder="Search orders, items, suppliers — or jump to a screen"
+            placeholder="Search orders, items, stock — or jump to a screen"
             inputProps={{ 'aria-label': 'Search or run a command' }}
             sx={{ flex: 1, fontFamily: 'var(--font-ui)', fontSize: 15, color: 'var(--c-text)' }}
           />

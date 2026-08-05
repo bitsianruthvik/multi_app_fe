@@ -13,7 +13,6 @@ import WarehouseRounded from '@mui/icons-material/WarehouseRounded';
 import StraightenRounded from '@mui/icons-material/StraightenRounded';
 import FunctionsRounded from '@mui/icons-material/FunctionsRounded';
 import TuneRounded from '@mui/icons-material/TuneRounded';
-import HandshakeRounded from '@mui/icons-material/HandshakeRounded';
 
 import { PageHeader, Surface } from '../components';
 import { useIsPermitted } from '../hooks/useIsPermitted';
@@ -76,7 +75,6 @@ const GROUPS: { title: string; hint: string; cards: SetupCard[] }[] = [
     title: 'Who you deal with, and how things are named',
     hint: '',
     cards: [
-      { slug: 'suppliers', label: 'Suppliers', blurb: 'Vendors, their lead times and per-item pricing.', icon: <HandshakeRounded />, permission: 'fab_erp_grn_view' },
       { slug: 'codegen-settings', label: 'Code generation', blurb: 'Prefixes and sequences for auto-generated codes.', icon: <TuneRounded />, permission: 'fab_erp_items_meta_view' },
     ],
   },

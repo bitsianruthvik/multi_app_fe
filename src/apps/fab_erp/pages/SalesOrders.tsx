@@ -8,7 +8,6 @@ import AddIcon from '@mui/icons-material/Add';
 import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
 import EditRounded from '@mui/icons-material/EditRounded';
 import ReceiptLongRounded from '@mui/icons-material/ReceiptLongRounded';
-import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import ViewKanbanRounded from '@mui/icons-material/ViewKanbanRounded';
 import ViewListRounded from '@mui/icons-material/ViewListRounded';
 
@@ -24,7 +23,6 @@ import { statusFamily } from '../statusMap';
 interface FabOrder {
   id: number; companyId: number; orderNumber: string; orderType: string; type: string; status: string;
   customerId?: number; customerName?: string; customerPoRef?: string;
-  supplierId?: number; supplierName?: string; supplierRef?: string;
   plantId?: number; plantName?: string;
   requiredDate?: string; confirmedDate?: string; scheduledShipDate?: string;
   priority?: string; mrpController?: string; notes?: string;
@@ -36,11 +34,6 @@ interface PickerOption { id: number; name: string; code: string }
 
 const ORDER_TYPE_CONFIG: Record<string, { label: string; subtypes: string[]; statuses: string[] }> = {
   sales:         { label: 'Sales Order',       subtypes: ['standard', 'rush', 'blanket', 'internal'],                  statuses: ['draft', 'confirmed', 'scheduled', 'in_production', 'ready_to_ship', 'shipped', 'closed', 'cancelled'] },
-  manufacturing: { label: 'Manufacturing Order',subtypes: ['standard', 'rework', 'repair'],                            statuses: ['draft', 'released', 'in_progress', 'completed', 'cancelled'] },
-  purchase:      { label: 'Purchase Order',     subtypes: ['standard', 'urgent'],                                      statuses: ['draft', 'sent', 'confirmed', 'received', 'closed', 'cancelled'] },
-  planned:       { label: 'Planned Order',      subtypes: ['forecast', 'mrp'],                                         statuses: ['draft', 'confirmed', 'converted', 'cancelled'] },
-  subcontract:   { label: 'Subcontract Order',  subtypes: ['standard'],                                                statuses: ['draft', 'sent', 'confirmed', 'in_progress', 'received', 'closed', 'cancelled'] },
-  transfer:      { label: 'Transfer Order',     subtypes: ['inter_plant', 'inter_warehouse'],                          statuses: ['draft', 'in_transit', 'received', 'cancelled'] },
 };
 const ORDER_TYPE_KEYS = Object.keys(ORDER_TYPE_CONFIG);
 const ALL_PRIORITIES = ['critical', 'high', 'medium', 'low'];
@@ -48,11 +41,6 @@ const ALL_PRIORITIES = ['critical', 'high', 'medium', 'low'];
 const TYPE_FACETS = [
   { value: 'all', label: 'All' },
   { value: 'sales', label: 'Sales' },
-  { value: 'manufacturing', label: 'Manufacturing' },
-  { value: 'purchase', label: 'Purchase' },
-  { value: 'planned', label: 'Planned' },
-  { value: 'subcontract', label: 'Subcontract' },
-  { value: 'transfer', label: 'Transfer' },
 ];
 
 // ── Lifecycle pipeline (DESIGN_SYSTEM.md §4.4 + §5.1 board accents) ──
@@ -78,8 +66,6 @@ function stageOf(status: string): string {
 
 function orderSummary(o: FabOrder): string {
   if (o.orderType === 'sales') return o.customerName || 'No customer';
-  if (o.orderType === 'purchase' || o.orderType === 'subcontract')
-    return o.supplierName || (o.supplierRef ? `Ref: ${o.supplierRef}` : 'No supplier');
   return ORDER_TYPE_CONFIG[o.orderType]?.label ?? o.orderType;
 }
 
@@ -112,13 +98,12 @@ function OrderProgressBar({ pct, compact = false }: { pct?: number; compact?: bo
 interface OrderDraft {
   orderNumber: string; orderType: string; type: string; status: string;
   customerId: number | null; customerPoRef: string;
-  supplierId: number | null; supplierRef: string;
   priority: string; requiredDate: string; confirmedDate: string;
 }
 const BLANK = (orderType = 'sales'): OrderDraft => ({
   orderNumber: '', orderType,
   type: ORDER_TYPE_CONFIG[orderType]?.subtypes[0] ?? 'standard',
-  status: 'draft', customerId: null, customerPoRef: '', supplierId: null, supplierRef: '',
+  status: 'draft', customerId: null, customerPoRef: '',
   priority: '', requiredDate: '', confirmedDate: '',
 });
 
@@ -131,14 +116,11 @@ function OrderDialog({ open, initial, defaultOrderType, onClose, onSaved }: {
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
   const [customers, setCustomers] = useState<PickerOption[]>([]);
-  const [suppliers, setSuppliers] = useState<PickerOption[]>([]);
 
   useEffect(() => {
     if (!open) return;
     fabQuery<{ data: PickerOption[] }>('fabErpCustomer', { orderBy: [{ field: 'name', direction: 'asc' }], pagination: { limit: 500 } })
       .then((res) => setCustomers(res.data ?? [])).catch(() => setCustomers([]));
-    fabQuery<{ data: PickerOption[] }>('fabErpSupplier', { orderBy: [{ field: 'name', direction: 'asc' }], pagination: { limit: 500 } })
-      .then((res) => setSuppliers(res.data ?? [])).catch(() => setSuppliers([]));
   }, [open]);
 
   useEffect(() => {
@@ -147,7 +129,7 @@ function OrderDialog({ open, initial, defaultOrderType, onClose, onSaved }: {
     setDraft(initial ? {
       orderNumber: initial.orderNumber, orderType: initial.orderType, type: initial.type ?? '',
       status: initial.status, customerId: initial.customerId ?? null, customerPoRef: initial.customerPoRef ?? '',
-      supplierId: initial.supplierId ?? null, supplierRef: initial.supplierRef ?? '', priority: initial.priority ?? '',
+      priority: initial.priority ?? '',
       requiredDate: initial.requiredDate?.slice(0, 10) ?? '', confirmedDate: initial.confirmedDate?.slice(0, 10) ?? '',
     } : BLANK(defaultOrderType ?? 'sales'));
   }, [open, initial, defaultOrderType]);
@@ -165,18 +147,14 @@ function OrderDialog({ open, initial, defaultOrderType, onClose, onSaved }: {
 
   const cfg = ORDER_TYPE_CONFIG[draft.orderType];
   const showCustomer = ['sales'].includes(draft.orderType);
-  const showSupplier = ['purchase', 'subcontract'].includes(draft.orderType);
   const customerMissing = showCustomer && !draft.customerId;
-  const supplierMissing = showSupplier && !draft.supplierId;
 
   async function save() {
     if (!isNew && !draft.orderNumber.trim()) { setErr('Order number is required.'); return; }
     if (customerMissing) { setErr('Customer is required for sales orders.'); return; }
-    if (supplierMissing) { setErr('Supplier is required for purchase/subcontract orders.'); return; }
     setSaving(true); setErr('');
     try {
       const selectedCustomer = customers.find((c) => c.id === draft.customerId);
-      const selectedSupplier = suppliers.find((s) => s.id === draft.supplierId);
 
       let orderNumber = draft.orderNumber.trim();
       if (isNew) {
@@ -195,8 +173,6 @@ function OrderDialog({ open, initial, defaultOrderType, onClose, onSaved }: {
         order_number: orderNumber, order_type: draft.orderType, type: draft.type || null,
         status: draft.status, customer_id: draft.customerId, customer_name: selectedCustomer?.name ?? null,
         customer_po_ref: draft.customerPoRef.trim() || null,
-        supplier_id: draft.supplierId, supplier_name: selectedSupplier?.name ?? null,
-        supplier_ref: draft.supplierRef.trim() || null,
         priority: draft.priority || null, required_date: draft.requiredDate || null,
         confirmed_date: draft.confirmedDate || null,
       };
@@ -253,20 +229,6 @@ function OrderDialog({ open, initial, defaultOrderType, onClose, onSaved }: {
             <TextField label="Customer PO ref" value={draft.customerPoRef} size="small"
               onChange={(e) => set('customerPoRef', e.target.value)} />
           </>)}
-          {showSupplier && (<>
-            <Autocomplete
-              options={suppliers}
-              getOptionLabel={(o) => `${o.code} — ${o.name}`}
-              isOptionEqualToValue={(o, v) => o.id === v.id}
-              value={suppliers.find((s) => s.id === draft.supplierId) ?? null}
-              onChange={(_, v) => set('supplierId', v?.id ?? null)}
-              renderInput={(params) => (
-                <TextField {...params} label="Supplier *" size="small" error={supplierMissing} helperText={supplierMissing ? 'Required' : ' '} />
-              )}
-            />
-            <TextField label="Supplier ref" value={draft.supplierRef} size="small"
-              onChange={(e) => set('supplierRef', e.target.value)} />
-          </>)}
           <TextField label="Required date" value={draft.requiredDate} size="small" type="date"
             slotProps={{ inputLabel: { shrink: true } }} onChange={(e) => set('requiredDate', e.target.value)} />
           <TextField label="Confirmed date" value={draft.confirmedDate} size="small" type="date"
@@ -275,7 +237,7 @@ function OrderDialog({ open, initial, defaultOrderType, onClose, onSaved }: {
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose}>Cancel</Button>
-        <Button variant="contained" onClick={save} disabled={saving || (!isNew && !draft.orderNumber.trim()) || customerMissing || supplierMissing}>
+        <Button variant="contained" onClick={save} disabled={saving || (!isNew && !draft.orderNumber.trim()) || customerMissing}>
           {saving ? <CircularProgress size={16} color="inherit" /> : 'Save'}
         </Button>
       </DialogActions>
@@ -307,40 +269,6 @@ function DeleteDialog({ order, onClose, onDeleted }: { order: FabOrder | null; o
   );
 }
 
-function FirmDialog({ order, onClose, onFirmed }: { order: FabOrder | null; onClose: () => void; onFirmed: (wo: string) => void }) {
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState('');
-  async function confirm() {
-    if (!order) return;
-    setBusy(true); setErr('');
-    try {
-      const res = await fabPost<{ orderNumber: string }>(`orders/${order.id}/firm`, {});
-      onFirmed(res.orderNumber);
-    } catch (e) {
-      const ax = e as { response?: { data?: { message?: string } }; message?: string };
-      setErr(ax.response?.data?.message ?? ax.message ?? 'Firm failed');
-    } finally { setBusy(false); }
-  }
-  return (
-    <Dialog open={!!order} onClose={onClose} maxWidth="xs" fullWidth>
-      <DialogTitle sx={{ fontWeight: 600 }}>Firm planned order</DialogTitle>
-      <DialogContent>
-        {err && <Alert severity="error" sx={{ mb: 2 }}>{err}</Alert>}
-        <Typography gutterBottom>Convert <strong>{order?.orderNumber}</strong> into a manufacturing work order?</Typography>
-        <Typography variant="body2" color="text.secondary">
-          The order will be locked from MRP changes and scheduled immediately.
-        </Typography>
-      </DialogContent>
-      <DialogActions>
-        <Button onClick={onClose} disabled={busy}>Cancel</Button>
-        <Button variant="contained" color="success" onClick={confirm} disabled={busy}
-          startIcon={busy ? <CircularProgress size={14} color="inherit" /> : <CheckCircleOutlineIcon />}>
-          Firm order
-        </Button>
-      </DialogActions>
-    </Dialog>
-  );
-}
 
 // ── View toggle (Board | List) ──
 function ViewToggle({ view, onChange }: { view: 'board' | 'list'; onChange: (v: 'board' | 'list') => void }) {
@@ -391,7 +319,6 @@ export default function Orders() {
   const [error, setError] = useState('');
   const [dlg, setDlg] = useState<{ open: boolean; order: FabOrder | null }>({ open: false, order: null });
   const [delOrder, setDelOrder] = useState<FabOrder | null>(null);
-  const [firmOrder, setFirmOrder] = useState<FabOrder | null>(null);
 
   const fetchAll = useCallback(async () => {
     setLoading(true); setError('');
@@ -416,7 +343,7 @@ export default function Orders() {
       return (
         o.orderNumber.toLowerCase().includes(q) ||
         (o.customerName ?? '').toLowerCase().includes(q) ||
-        (o.supplierRef ?? '').toLowerCase().includes(q)
+        (o.customerPoRef ?? '').toLowerCase().includes(q)
       );
     });
   }, [orders, typeFilter, search]);
@@ -456,14 +383,6 @@ export default function Orders() {
         <PipelineCard key={o.id} accent={accent} onClick={() => navigate(`/${company}/fab_erp/orders/${o.id}`)}>
           <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, mb: 0.75 }}>
             <Mono chip>{o.orderNumber}</Mono>
-            {canManage && o.orderType === 'planned' && o.status === 'draft' && (
-              <Tooltip title="Firm — convert to work order">
-                <IconButton size="small" color="success"
-                  onClick={(e) => { e.stopPropagation(); setFirmOrder(o); }}>
-                  <CheckCircleOutlineIcon fontSize="small" />
-                </IconButton>
-              </Tooltip>
-            )}
           </Box>
           <Typography sx={{ fontSize: 13.5, fontWeight: 500, color: 'var(--c-text)', mb: 0.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {orderSummary(o)}
@@ -484,7 +403,7 @@ export default function Orders() {
       );
     }
     return map;
-  }, [filtered, canManage, company, navigate]);
+  }, [filtered, company, navigate]);
 
   const newOrder = canManage ? (
     <Button variant="contained" startIcon={<AddIcon />} onClick={() => setDlg({ open: true, order: null })}>
@@ -553,9 +472,6 @@ export default function Orders() {
               }
               onClick={() => navigate(`/${company}/fab_erp/orders/${o.id}`)}
               actions={canManage ? (<>
-                {o.orderType === 'planned' && o.status === 'draft' && (
-                  <Tooltip title="Firm order"><IconButton size="small" color="success" onClick={() => setFirmOrder(o)}><CheckCircleOutlineIcon fontSize="small" /></IconButton></Tooltip>
-                )}
                 <Tooltip title="Edit"><IconButton size="small" onClick={() => setDlg({ open: true, order: o })}><EditRounded fontSize="small" /></IconButton></Tooltip>
                 <Tooltip title="Delete"><IconButton size="small" color="error" onClick={() => setDelOrder(o)}><DeleteOutlineRounded fontSize="small" /></IconButton></Tooltip>
               </>) : undefined}
@@ -572,8 +488,6 @@ export default function Orders() {
       />
       <DeleteDialog order={delOrder} onClose={() => setDelOrder(null)}
         onDeleted={() => { setDelOrder(null); toast('Order deleted'); fetchAll(); }} />
-      <FirmDialog order={firmOrder} onClose={() => setFirmOrder(null)}
-        onFirmed={(wo) => { setFirmOrder(null); toast(`Firmed → ${wo} · scheduling started`); fetchAll(); }} />
     </Box>
   );
 }

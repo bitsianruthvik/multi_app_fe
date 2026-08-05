@@ -3,7 +3,7 @@
  * output buffer (stock location, capacity, warn/block thresholds, active).
  *
  * Gated on `fab_erp_buffer_config` (admin bypass on the backend, mirrored
- * here as a page-level gate — precedent: GrnDetail.tsx's `canView` check).
+ * here as a page-level gate — a page-level canView check).
  *
  * Machine picker mirrors TaskQueue.tsx: query `fabErpResource` (table
  * fab_resources) for id/name/code/plantName/resourceTypeName/stockLocationId.

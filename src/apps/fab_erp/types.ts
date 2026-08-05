@@ -392,25 +392,6 @@ export interface FabMaterialBom extends FabBase {
 }
 
 /**
- * fab_supplier_items: Vendor-specific lead time, cost, MOQ per catalog item
- */
-export interface FabSupplierItem extends FabBase {
-  supplierId:       number;
-  catalogItemId:    number;
-  leadTimeDays?:    number | null;
-  unitCost?:        number | null;
-  currency?:        string | null;
-  minOrderQty?:     number | null;
-  isPreferred:      number; // 0 | 1
-  notes?:           string | null;
-  supplierName?:    string;
-  supplierCode?:    string;
-  catalogItemName?: string;
-  catalogItemCode?: string;
-  catalogItemUnit?: string;
-}
-
-/**
  * fab_item_catalog: Company-level parts library — reusable items across projects
  */
 export interface FabItemCatalog extends FabBase {
@@ -549,19 +530,6 @@ export interface FabStockLocation extends FabBase {
 }
 
 /**
- * fab_suppliers: Supplier/vendor master data
- */
-export interface FabSupplier extends FabBase {
-  name: string;
-  code: string;
-  contactName: string | null;
-  phone: string | null;
-  email: string | null;
-  address: string | null;
-  notes: string | null;
-}
-
-/**
  * fab_customers: Customer master data
  */
 export interface FabCustomer extends FabBase {
@@ -602,42 +570,6 @@ export interface FabStockPolicy extends FabBase {
   catalogItemName?: string;
   plantName?: string;
   stockLocationName?: string;
-}
-
-/**
- * fab_grn: Goods Receipt Notes (inbound purchases)
- */
-export interface FabGrn extends FabBase {
-  grnNumber: string;
-  grnDate: string;
-  plantId: number;
-  stockLocationId: number;
-  supplierId: number | null;
-  supplierRef: string | null;
-  notes: string | null;
-  status: string;
-  plantName?: string;
-  stockLocationName?: string;
-  supplierName?: string;
-}
-
-/**
- * fab_grn_lines: Line items within a GRN
- */
-export interface FabGrnLine extends FabBase {
-  grnId: number;
-  catalogItemId: number;
-  batchId: number | null;
-  batchCode: string | null;
-  batchNo: string | null;
-  serialNo: string | null;
-  heatNo: string | null;
-  markNo: string | null;
-  qty: number;
-  unitCost: number | null;
-  catalogItemName?: string;
-  catalogItemCode?: string;
-  unit?: string;
 }
 
 // ─── Routing Plans ───────────────────────────────────────────────────────────
@@ -734,9 +666,6 @@ export interface FabStockLedger extends FabBase {
   txnType: string;
   qty: number;
   unitCost: number | null;
-  supplierId: number | null;
-  grnId: number | null;
-  grnLineId: number | null;
   txnDate: string;
   notes: string | null;
   catalogItemName?: string;
@@ -744,5 +673,4 @@ export interface FabStockLedger extends FabBase {
   unit?: string;
   plantName?: string;
   stockLocationName?: string;
-  supplierName?: string;
 }

@@ -13,12 +13,8 @@ const ItemCatalogDetail  = lazy(() => import('./pages/ItemCatalogDetail'));
 const ItemBatches        = lazy(() => import('./pages/ItemBatches'));
 const StockIn            = lazy(() => import('./pages/StockIn'));
 const ShiftCalendars     = lazy(() => import('./pages/ShiftCalendars'));
-const GrnDetail          = lazy(() => import('./pages/GrnDetail'));
-const GrnEntry           = lazy(() => import('./pages/GrnEntry'));
 const SalesOrders        = lazy(() => import('./pages/SalesOrders'));
 const SalesOrderDetail   = lazy(() => import('./pages/SalesOrderDetail'));
-const Suppliers          = lazy(() => import('./pages/Suppliers'));
-const SupplierDetail     = lazy(() => import('./pages/SupplierDetail'));
 const Customers          = lazy(() => import('./pages/Customers'));
 const CodegenSettings    = lazy(() => import('./pages/CodegenSettings'));
 const Operations         = lazy(() => import('./pages/Operations'));
@@ -62,12 +58,8 @@ export function getFabErpRoutes(
     { path: '/:company/fab_erp/item-batches',                element: wrap(<ItemBatches />) },
     { path: '/:company/fab_erp/stock-in',                    element: wrap(<StockIn />) },
     { path: '/:company/fab_erp/shift-calendars',             element: wrap(<ShiftCalendars />) },
-    { path: '/:company/fab_erp/grn-detail',                  element: wrap(<GrnDetail />) },
-    { path: '/:company/fab_erp/grn',                         element: wrap(<GrnEntry />) },
     { path: '/:company/fab_erp/orders',                       element: wrap(<SalesOrders />) },
     { path: '/:company/fab_erp/orders/:soId',                 element: wrap(<SalesOrderDetail />) },
-    { path: '/:company/fab_erp/suppliers',                   element: wrap(<Suppliers />) },
-    { path: '/:company/fab_erp/suppliers/:supplierId',       element: wrap(<SupplierDetail />) },
     { path: '/:company/fab_erp/customers',                   element: wrap(<Customers />) },
     { path: '/:company/fab_erp/codegen-settings',            element: wrap(<CodegenSettings />) },
     { path: '/:company/fab_erp/operations',                 element: wrap(<Operations />) },
