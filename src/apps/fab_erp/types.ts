@@ -295,7 +295,8 @@ export interface FabOperationFlowStep {
  */
 export interface FabOrder extends FabBase {
   orderNumber:          string;
-  orderType:            'sales' | 'manufacturing' | 'purchase' | 'planned' | 'subcontract' | 'transfer';
+  /** Collapsed to sales only on 2026-08-05; the column survives with one legal value. */
+  orderType:            'sales';
   type?:                string | null;
   status:               string;
   plantId?:             number | null;
