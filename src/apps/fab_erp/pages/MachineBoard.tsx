@@ -28,7 +28,6 @@ import ReportProblemRounded from '@mui/icons-material/ReportProblemRounded';
 import PlayCircleRounded from '@mui/icons-material/PlayCircleRounded';
 import PersonOffRounded from '@mui/icons-material/PersonOffRounded';
 import PersonRounded from '@mui/icons-material/PersonRounded';
-import LayersRounded from '@mui/icons-material/LayersRounded';
 import ArrowForwardRounded from '@mui/icons-material/ArrowForwardRounded';
 import HistoryEduRounded from '@mui/icons-material/HistoryEduRounded';
 
@@ -47,13 +46,12 @@ interface CurrentTask {
   /** Piece mark — what's painted on the steel (Issue 2). */
   itemMark: string | null;
   startedAt: string | null;
-  /** Issue 4: set when this machine is running a batch. */
-  batchId: number | null;
-  /** How many tasks are in progress on this machine — >1 means a batch. */
+  /**
+   * How many tasks are in progress on this machine. Since batching was removed
+   * (2026-08-05) there is no legitimate way for this to exceed 1 — anything
+   * higher is a double-booking.
+   */
   taskCount: number;
-  /** True only when every in-progress task shares one batch; several unbatched
-   *  in-progress tasks on one machine is still a conflict, not a batch. */
-  batched: boolean;
 }
 
 interface Operator {
@@ -361,9 +359,10 @@ function MachineCard({
   onOpenBuffer: (kind: BufferKind) => void;
 }) {
   const task = machine.currentTask;
-  // Several in-progress tasks that DON'T share a batch is the old data conflict;
-  // sharing one batch is Issue 4 working as designed.
-  const unbatchedConflict = !!task && task.taskCount > 1 && !task.batched;
+  // More than one task in progress on a single machine is a double-booking.
+  // This used to exempt tasks sharing a batch; batching is gone, so any count
+  // above one is a conflict again.
+  const doubleBooked = !!task && task.taskCount > 1;
 
   return (
     <Surface
@@ -405,9 +404,9 @@ function MachineCard({
             Marked {machine.effectiveState} while a task is still assigned — data conflict.
           </Alert>
         )}
-        {unbatchedConflict && (
+        {doubleBooked && (
           <Alert severity="warning" sx={{ py: 0, fontSize: 11.5 }}>
-            {task.taskCount} tasks in progress here but not batched together — double-booked.
+            {task.taskCount} tasks in progress on this machine — double-booked.
           </Alert>
         )}
 
@@ -418,29 +417,10 @@ function MachineCard({
                 <Typography sx={{ fontSize: 13, fontWeight: 500, color: 'var(--c-text)' }}>
                   {task.operationName ?? 'Unnamed operation'}
                 </Typography>
-                {task.batched && (
-                  <Box
-                    component="span"
-                    sx={{
-                      display: 'inline-flex', alignItems: 'center', gap: '4px',
-                      fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap',
-                      color: 'var(--c-primary-800)', background: 'var(--c-primary-50)',
-                      border: '1px solid var(--c-primary-200)', borderRadius: 'var(--r-sm)',
-                      px: 0.75, py: '1px',
-                    }}
-                  >
-                    <LayersRounded sx={{ fontSize: 13 }} aria-hidden />
-                    {task.taskCount} together
-                  </Box>
-                )}
               </Box>
               <Typography sx={{ fontSize: 12, color: 'var(--c-text-2)' }}>
-                {/* The mark is what's painted on the part, so it leads. Naming a
-                    single part while four are on the machine would be a lie by
-                    omission — say the count instead. */}
-                {task.batched
-                  ? `${task.taskCount} parts`
-                  : [task.itemMark, task.itemName ?? 'Unknown item'].filter(Boolean).join(' · ')}
+                {/* The mark is what's painted on the part, so it leads. */}
+                {[task.itemMark, task.itemName ?? 'Unknown item'].filter(Boolean).join(' · ')}
                 {task.startedAt && ` · ${formatElapsed(task.startedAt, now)} elapsed`}
               </Typography>
             </>

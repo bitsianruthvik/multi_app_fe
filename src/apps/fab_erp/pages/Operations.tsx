@@ -23,7 +23,6 @@ import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
 import DownloadIcon from '@mui/icons-material/Download';
 import EditRounded from '@mui/icons-material/EditRounded';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
-import LayersRounded from '@mui/icons-material/LayersRounded';
 import BuildCircleRounded from '@mui/icons-material/BuildCircleRounded';
 import StarRounded from '@mui/icons-material/StarRounded';
 import StarBorderRounded from '@mui/icons-material/StarBorderRounded';
@@ -36,7 +35,6 @@ import api, { API_HOST } from '@core/utils/axiosConfig';
 import {
   Surface, PageHeader, Mono, StatusBadge, EmptyState, ListSkeleton, useToast, EntityList, EntityRow, DataTable, NumberCell, StatStrip, type Stat, type SortableField,
 } from '../components';
-import { BatchingSummary, BatchingDialog } from '../components/BatchingRules';
 import FormulaCodeEditor from '../components/FormulaCodeEditor';
 import { useFormulaVariables } from '../hooks/useFormulaVariables';
 
@@ -349,8 +347,6 @@ function ResourceTypesPanel({ operation, resourceTypes, canManage, onOperationSa
   const [adding, setAdding] = useState(false);
   const [delTarget, setDelTarget] = useState<FabOperationResourceType | null>(null);
   const [deleting, setDeleting] = useState(false);
-  // Issue 4: which mapping's batching rules are being edited.
-  const [batchTarget, setBatchTarget] = useState<FabOperationResourceType | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true); setErr('');
@@ -441,23 +437,9 @@ function ResourceTypesPanel({ operation, resourceTypes, canManage, onOperationSa
               sortValue: (r) => (operation.defaultResourceTypeId === r.resourceTypeId ? 0 : 1),
               exportValue: (r) => (operation.defaultResourceTypeId === r.resourceTypeId ? 'default' : ''),
             },
-            {
-              // Issue 4. Reads as prose because "shared_setup / 6 / [thickness_mm]"
-              // is a database row, and the person configuring this is deciding
-              // whether a machine can run several parts at once.
-              key: 'batching',
-              header: 'Batching',
-              width: 240,
-              render: (r) => <BatchingSummary row={r} />,
-              sortValue: (r) => r.batchMode ?? 'none',
-              exportValue: (r) => r.batchMode ?? 'none',
-            },
           ]}
           rowActions={canManage ? (r) => (
             <>
-              <Tooltip title="Batching rules">
-                <IconButton size="small" onClick={() => setBatchTarget(r)} aria-label={`Batching rules for ${r.resourceTypeCode}`}><LayersRounded fontSize="small" /></IconButton>
-              </Tooltip>
               {operation.defaultResourceTypeId !== r.resourceTypeId && (
                 <Tooltip title="Set as default">
                   <IconButton size="small" onClick={() => setDefault(r.resourceTypeId)} aria-label={`Set ${r.resourceTypeCode} as default`}><StarBorderRounded fontSize="small" /></IconButton>
@@ -470,12 +452,6 @@ function ResourceTypesPanel({ operation, resourceTypes, canManage, onOperationSa
           ) : undefined}
         />
       )}
-      <BatchingDialog
-        row={batchTarget}
-        title={batchTarget?.resourceTypeName ?? 'this resource type'}
-        onClose={() => setBatchTarget(null)}
-        onSaved={async () => { setBatchTarget(null); await load(); toast('Batching rules saved'); }}
-      />
       <DeleteDialog open={!!delTarget} label={delTarget ? `${delTarget.resourceTypeCode} — ${delTarget.resourceTypeName}` : ''} busy={deleting} onClose={() => setDelTarget(null)} onConfirm={handleDelete} />
     </Box>
   );
