@@ -98,8 +98,7 @@ export const NAV_SECTIONS: NavSection[] = [
     label: 'Setup',
     items: [
       { slug: 'setup', label: 'Readiness', keywords: ['hub', 'overview', 'checklist', 'configure'] },
-      { slug: 'item-catalog', label: 'Items', permission: 'fab_erp_items_meta_view', countKey: 'items', keywords: ['parts', 'catalog', 'category', 'group', 'taxonomy'], childSlugs: ['item-catalog/:itemId'] },
-      { slug: 'bom-templates', label: 'BOMs', permission: 'fab_erp_bomtemplate_view', countKey: 'boms', keywords: ['bill of materials', 'structure'] },
+      { slug: 'item-catalog', label: 'Items', permission: 'fab_erp_items_meta_view', countKey: 'items', keywords: ['parts', 'catalog', 'category', 'group', 'taxonomy', 'bom', 'bill of materials'], childSlugs: ['item-catalog/:itemId'] },
       { slug: 'operations', label: 'Operations', permission: 'fab_erp_operations_view', countKey: 'operations', keywords: ['process', 'time formula'] },
       { slug: 'operation-flows', label: 'Flows', permission: 'fab_erp_flows_view', countKey: 'flows', keywords: ['routing', 'sequence', 'steps'] },
       { slug: 'plants', label: 'Plants', permission: 'fab_erp_resources_view', keywords: ['site', 'stock location', 'warehouse'] },

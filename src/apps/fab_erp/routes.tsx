@@ -19,7 +19,6 @@ const Customers          = lazy(() => import('./pages/Customers'));
 const CodegenSettings    = lazy(() => import('./pages/CodegenSettings'));
 const Operations         = lazy(() => import('./pages/Operations'));
 const OperationFlows     = lazy(() => import('./pages/OperationFlows'));
-const BomTemplates       = lazy(() => import('./pages/BomTemplates'));
 const ProgressTemplates  = lazy(() => import('./pages/ProgressTemplates'));
 const TaskQueue          = lazy(() => import('./pages/TaskQueue'));
 const TaskEngine         = lazy(() => import('./pages/TaskEngine'));
@@ -64,7 +63,6 @@ export function getFabErpRoutes(
     { path: '/:company/fab_erp/codegen-settings',            element: wrap(<CodegenSettings />) },
     { path: '/:company/fab_erp/operations',                 element: wrap(<Operations />) },
     { path: '/:company/fab_erp/operation-flows',            element: wrap(<OperationFlows />) },
-    { path: '/:company/fab_erp/bom-templates',               element: wrap(<BomTemplates />) },
     { path: '/:company/fab_erp/progress-templates',          element: wrap(<ProgressTemplates />) },
     { path: '/:company/fab_erp/task-queue',                 element: wrap(<TaskQueue />) },
     { path: '/:company/fab_erp/task-engine',                element: wrap(<TaskEngine />) },

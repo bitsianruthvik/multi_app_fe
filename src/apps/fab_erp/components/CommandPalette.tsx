@@ -42,7 +42,7 @@ const TYPE_META: Record<string, { icon: ReactNode; label: string; route: (id: nu
   order:          { icon: <ReceiptLongRounded />,   label: 'Order',    route: (id) => `orders/${id}` },
   customer:       { icon: <PeopleRounded />,        label: 'Customer', route: () => 'customers' },
   plant:          { icon: <FactoryRounded />,       label: 'Plant',    route: () => 'plants' },
-  bom:            { icon: <AccountTreeRounded />,   label: 'BOM',      route: () => 'bom-templates' },
+  bom:            { icon: <AccountTreeRounded />,   label: 'BOM',      route: () => 'item-catalog' },
   resource_type:  { icon: <BuildRounded />,         label: 'Resource', route: () => 'resource-types' },
   stock_location: { icon: <WarehouseRounded />,     label: 'Location', route: () => 'plants' },
 };

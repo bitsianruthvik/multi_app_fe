@@ -47,7 +47,7 @@ const GROUPS: { title: string; hint: string; cards: SetupCard[] }[] = [
     hint: 'The parts and their structure. MRP explodes these.',
     cards: [
       { slug: 'item-catalog', label: 'Items', blurb: 'Parts, raw materials and finished goods, with their taxonomy.', icon: <Inventory2Rounded />, permission: 'fab_erp_items_meta_view', countKey: 'items', unit: 'items' },
-      { slug: 'bom-templates', label: 'BOMs', blurb: 'What goes into what, and in what quantity.', icon: <AccountTreeRounded />, permission: 'fab_erp_bomtemplate_view', countKey: 'boms', unit: 'templates' },
+      { slug: 'item-catalog', label: 'BOMs', blurb: 'What goes into what, and in what quantity. Built per item, inside the catalog.', icon: <AccountTreeRounded />, permission: 'fab_erp_items_meta_view', countKey: 'boms', unit: 'BOMs' },
       { slug: 'item-metrics', label: 'Metrics', blurb: 'Dimensions and attributes that formulas read.', icon: <StraightenRounded />, permission: 'fab_erp_items_meta_view' },
       { slug: 'constants', label: 'Constants', blurb: 'Named values shared across time and cost formulas.', icon: <FunctionsRounded />, permission: 'fab_erp_formulas_view' },
     ],
