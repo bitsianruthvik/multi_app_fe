@@ -33,6 +33,8 @@ export { ExceptionFeed, type ExceptionItem, type ExceptionSeverity } from './Exc
 export { MarksPanel } from './MarksPanel';
 export { CrewPanel } from './CrewPanel';
 export { PersonSheet, shiftSpan, type ShiftOption } from './PersonSheet';
+export { LeaveDialog } from './LeaveDialog';
+export { ExitWorkerDialog } from './ExitWorkerDialog';
 export { AddPeopleDialog, type MachineOption } from './AddPeopleDialog';
 export { LiveIndicator } from './LiveIndicator';
 export { formatElapsed } from '../utils/formatElapsed';

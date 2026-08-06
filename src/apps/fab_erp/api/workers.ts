@@ -52,6 +52,27 @@ export interface Worker {
   currentShiftName?: string | null;
   currentShiftStart?: string | null;
   currentShiftEnd?: string | null;
+  /** Set once they leave the firm. Distinct from an `away` interval. */
+  exitedAt?: string | null;
+  /** The away interval covering right now, if any — drives the row status. */
+  awayFrom?: string | null;
+  awayTo?: string | null;
+  awayReason?: string | null;
+}
+
+/**
+ * What the row shows. Exit wins over away (you cannot be on leave from a job you
+ * left), and a bounded away reads differently from an open-ended one.
+ */
+export type WorkerStatus =
+  | { kind: 'exited'; since: string | null }
+  | { kind: 'away'; until: string | null; reason: string | null }
+  | { kind: 'working' };
+
+export function workerStatus(w: Worker): WorkerStatus {
+  if (!w.active || w.exitedAt) return { kind: 'exited', since: w.exitedAt ?? null };
+  if (w.awayFrom) return { kind: 'away', until: w.awayTo ?? null, reason: w.awayReason ?? null };
+  return { kind: 'working' };
 }
 
 /** A machine with nobody rostered on it. */
@@ -110,6 +131,25 @@ export function setAway(workerId: number, body: { from: string; to?: string | nu
 
 export function removeInterval(id: number) {
   return fabDel<{ ok: boolean; removed: number }>(`worker-intervals/${id}`);
+}
+
+// ── leaving, and coming back ────────────────────────────────────────────────
+
+/**
+ * They left the firm. NOT an away interval — an open-ended absence would keep
+ * them on the roster forever with their machine assignment never closing. This
+ * closes the intervals, so history stays true and the present goes quiet.
+ */
+export function exitWorker(workerId: number, body: { at?: string; note?: string } = {}) {
+  return fabPost<{
+    ok: boolean; name: string; exitedAt: string;
+    assignmentsClosed: number; shiftsClosed: number;
+  }>(`workers/${workerId}/exit`, body as unknown as Record<string, unknown>);
+}
+
+/** They rejoined. Old intervals stay closed; the new stint starts fresh. */
+export function reactivateWorker(workerId: number) {
+  return fabPost<{ ok: boolean }>(`workers/${workerId}/reactivate`, {});
 }
 
 // ── detail + history ─────────────────────────────────────────────────────────

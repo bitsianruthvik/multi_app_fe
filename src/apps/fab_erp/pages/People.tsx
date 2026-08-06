@@ -15,21 +15,24 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Box, Button, Chip, FormControlLabel, MenuItem, Switch, TextField, Tooltip, Typography } from '@mui/material';
+import { Alert, Box, Button, Chip, FormControlLabel, IconButton, MenuItem, Switch, TextField, Tooltip, Typography } from '@mui/material';
 import PersonAddAlt1Rounded from '@mui/icons-material/PersonAddAlt1Rounded';
 import BadgeRounded from '@mui/icons-material/BadgeRounded';
 import EditRounded from '@mui/icons-material/EditRounded';
+import EventBusyRounded from '@mui/icons-material/EventBusyRounded';
+import PersonOffRounded from '@mui/icons-material/PersonOffRounded';
 
 import { usePermission } from '@core/hooks/usePermission';
 import { useAuth } from '@core/contexts/AuthContext';
 import { isAdminRole } from '@core/utils/roles';
 import {
-  getRoster, updateWorker, WORKER_TYPE_LABELS, type Worker, type WorkerType,
+  getRoster, updateWorker, workerStatus, WORKER_TYPE_LABELS, type Worker, type WorkerType,
 } from '../api/workers';
 import { fabQuery } from '../api/client';
 import {
   PageHeader, DataTable, StatStrip, ListSkeleton, EmptyState, Mono, useToast,
   FormDialog, backendMessage, PersonSheet, AddPeopleDialog, shiftSpan,
+  LeaveDialog, ExitWorkerDialog,
   type Stat, type ShiftOption, type MachineOption,
 } from '../components';
 
@@ -55,6 +58,8 @@ export default function People() {
   const [peeking, setPeeking] = useState<Worker | null>(null);
   const [shifts, setShifts] = useState<ShiftOption[]>([]);
   const [machines, setMachines] = useState<MachineOption[]>([]);
+  const [leaveFor, setLeaveFor] = useState<Worker | null>(null);
+  const [exitFor, setExitFor] = useState<Worker | null>(null);
   const [draft, setDraft] = useState({
     name: '', code: '', workerType: 'employee' as WorkerType, vendorName: '', phone: '', active: true,
   });
@@ -202,6 +207,36 @@ export default function People() {
               sortValue: (w) => w.currentShiftName ?? '',
             },
             {
+              // The current truth, in one cell. Exit wins over away — you cannot
+              // be on leave from a job you have left.
+              key: 'status', header: 'Status', width: 165,
+              render: (w) => {
+                const st = workerStatus(w);
+                if (st.kind === 'exited') {
+                  return (
+                    <Tooltip title={st.since ? `Left ${new Date(st.since).toLocaleDateString()}` : 'No longer on the roster'}>
+                      <Chip size="small" label="Inactive" sx={{ height: 20, fontSize: 11, bgcolor: 'var(--c-surface-2)', color: 'var(--c-text-3)' }} />
+                    </Tooltip>
+                  );
+                }
+                if (st.kind === 'away') {
+                  const until = st.until ? new Date(st.until) : null;
+                  const sameDay = until && until.toDateString() === new Date().toDateString();
+                  return (
+                    <Tooltip title={until ? `Back ${until.toLocaleString()}` : 'No end time recorded'}>
+                      <Chip
+                        size="small"
+                        label={st.reason === 'sick' ? 'Sick' : sameDay ? `Away till ${until!.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : 'On leave'}
+                        sx={{ height: 20, fontSize: 11, bgcolor: 'var(--c-warning-50)', color: 'var(--c-warning-800)' }}
+                      />
+                    </Tooltip>
+                  );
+                }
+                return <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-3)' }}>Working</Typography>;
+              },
+              sortValue: (w) => workerStatus(w).kind,
+            },
+            {
               key: 'currentResourceName', header: 'On machine', width: 190,
               render: (w) => (w.currentResourceName
                 ? <Typography sx={{ fontSize: 13 }}>{w.currentResourceName}</Typography>
@@ -219,18 +254,40 @@ export default function People() {
             },
           ]}
           onRowClick={(w) => setPeeking(w)}
-          rowActions={canManage ? (w) => (
-            <Tooltip title="Edit">
-              <Button
-                size="small" variant="text" startIcon={<EditRounded fontSize="small" />}
-                // Stop the row's own click handler, or editing would also open
-                // the peek sheet behind the dialog.
-                onClick={(e) => { e.stopPropagation(); setEditing(w); }}
-              >
-                Edit
-              </Button>
-            </Tooltip>
-          ) : undefined}
+          // Two acts, two buttons — they are different kinds of fact and must not
+          // be reachable from one control. Leave is bounded and about a day;
+          // Inactive is open-ended and about the person. Every handler stops
+          // propagation, or the row's own click opens the peek sheet behind the
+          // dialog.
+          rowActions={canManage ? (w) => {
+            const st = workerStatus(w);
+            const gone = st.kind === 'exited';
+            return (
+              <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center' }}>
+                {!gone && (
+                  <Tooltip title="Full day, half day, or a few hours">
+                    <Button size="small" variant="text"
+                      startIcon={<EventBusyRounded fontSize="small" />}
+                      onClick={(e) => { e.stopPropagation(); setLeaveFor(w); }}>
+                      Leave
+                    </Button>
+                  </Tooltip>
+                )}
+                <Tooltip title={gone ? 'They rejoined — put them back on the roster' : 'They have left the firm'}>
+                  <Button size="small" variant="text" color={gone ? 'primary' : 'inherit'}
+                    startIcon={gone ? <PersonAddAlt1Rounded fontSize="small" /> : <PersonOffRounded fontSize="small" />}
+                    onClick={(e) => { e.stopPropagation(); setExitFor(w); }}>
+                    {gone ? 'Reactivate' : 'Inactivate'}
+                  </Button>
+                </Tooltip>
+                <Tooltip title="Edit details">
+                  <IconButton size="small" onClick={(e) => { e.stopPropagation(); setEditing(w); }}>
+                    <EditRounded fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              </Box>
+            );
+          } : undefined}
         />
       )}
 
@@ -250,6 +307,20 @@ export default function People() {
         onSaved={load}
         shifts={shifts}
         machines={machines}
+      />
+
+      <LeaveDialog
+        worker={leaveFor}
+        open={!!leaveFor}
+        onClose={() => setLeaveFor(null)}
+        onSaved={load}
+      />
+
+      <ExitWorkerDialog
+        worker={exitFor}
+        open={!!exitFor}
+        onClose={() => setExitFor(null)}
+        onSaved={load}
       />
 
       <FormDialog
