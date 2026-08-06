@@ -111,28 +111,21 @@ export function LeaveDialog({ worker, open, onClose, onSaved }: {
   async function save() {
     setSaving(true); setErr('');
     try {
-      let fromIso: string;
-      let toIso: string | null;
-
+      // Send WALL CLOCK, not instants. The backend resolves these through the
+      // worker's plant timezone, so "12:30" means 12:30 at the site. Converting
+      // here with new Date() would resolve them in the BROWSER's zone, which is
+      // only the same thing while whoever is typing sits in the same country as
+      // the plant — and fails silently, by the offset, when they don't.
       if (mode === 'full') {
-        // Whole days, midnight to midnight. A range ends at the START of the day
-        // after the last day off, so "10th to 12th" covers all of the 12th.
-        const last = toDate || date;
-        fromIso = new Date(`${date}T00:00:00`).toISOString();
-        const end = new Date(`${last}T00:00:00`);
-        end.setDate(end.getDate() + 1);
-        toIso = end.toISOString();
+        await setAway(worker!.id, {
+          date, toDate: toDate || undefined, reason, note: note.trim() || undefined,
+        });
       } else {
         if (!from || !to) { setErr('Both times are required.'); setSaving(false); return; }
-        // Times are local wall clock at the person; a half day that crosses
-        // midnight (night shift, second half) ends on the following day.
-        const f = new Date(`${date}T${from}:00`);
-        const t = new Date(`${date}T${to}:00`);
-        if (t <= f) t.setDate(t.getDate() + 1);
-        fromIso = f.toISOString(); toIso = t.toISOString();
+        await setAway(worker!.id, {
+          date, fromTime: from, toTime: to, reason, note: note.trim() || undefined,
+        });
       }
-
-      await setAway(worker!.id, { from: fromIso, to: toIso, reason, note: note.trim() || undefined });
       toast(`${worker!.name} marked away.`, 'success');
       onSaved(); onClose();
     } catch (e) {

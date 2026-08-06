@@ -34,7 +34,7 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
-import { Box, Button, Chip, Alert, Typography } from '@mui/material';
+import { Box, Button, Chip, Alert, Dialog, DialogContent, DialogTitle, DialogActions, Typography } from '@mui/material';
 import RefreshRounded from '@mui/icons-material/RefreshRounded';
 import HourglassEmptyRounded from '@mui/icons-material/HourglassEmptyRounded';
 import TimerRounded from '@mui/icons-material/TimerRounded';
@@ -43,10 +43,10 @@ import FactCheckRounded from '@mui/icons-material/FactCheckRounded';
 
 import {
   getReconciliationFeed,
-  resolveAnomaly,
   type ReconciliationAnomaly,
 } from '../api/client';
-import { Surface, EmptyState, useToast, ListSkeleton } from '../components';
+import { Surface, EmptyState, ListSkeleton } from '../components';
+import { GapTable } from './GapTable';
 import { LogPastWorkDialog, type LogPastWorkTask } from '../components/LogPastWorkDialog';
 
 function errMsg(e: unknown, fallback: string): string {
@@ -54,7 +54,6 @@ function errMsg(e: unknown, fallback: string): string {
   return ax.response?.data?.message ?? ax.message ?? fallback;
 }
 
-const IDLE_REASONS = ['Waiting on instructions', 'Break/shift change', 'Material issue', 'Other'];
 
 const TYPE_STYLE: Record<ReconciliationAnomaly['type'], { icon: React.ReactNode; bg: string; fg: string; label: string }> = {
   unexplainedIdle: { icon: <HourglassEmptyRounded sx={{ fontSize: 20 }} />, bg: 'var(--c-warning-50)', fg: 'var(--c-warning-800)', label: 'Unexplained idle' },
@@ -64,13 +63,11 @@ const TYPE_STYLE: Record<ReconciliationAnomaly['type'], { icon: React.ReactNode;
 
 function AnomalyCard({
   anomaly,
-  busy,
-  onResolveIdle,
+  onAccountForDay,
   onAdjustTimes,
 }: {
   anomaly: ReconciliationAnomaly;
-  busy: boolean;
-  onResolveIdle: (a: ReconciliationAnomaly, reason: string) => void;
+  onAccountForDay: (a: ReconciliationAnomaly) => void;
   onAdjustTimes: (a: ReconciliationAnomaly) => void;
 }) {
   const style = TYPE_STYLE[anomaly.type];
@@ -103,20 +100,28 @@ function AnomalyCard({
         </Box>
       </Box>
 
-      {anomaly.type === 'unexplainedIdle' && (
-        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75, mt: 0.5 }}>
-          {IDLE_REASONS.map((reason) => (
-            <Button
-              key={reason}
-              size="small"
-              variant="outlined"
-              disabled={busy}
-              onClick={() => onResolveIdle(anomaly, reason)}
-              sx={{ fontSize: 12.5, py: 0.75, px: 1.5 }}
-            >
-              {reason}
-            </Button>
-          ))}
+      {/*
+        This used to be four reason buttons that wrote a `state_note` and left
+        the segment reading `unexplained_idle` forever — the same stall could be
+        explained every day and the number never moved. A form that visibly
+        changes nothing stops being filled in honestly, and these streams are
+        shared, so that belief spreads into the production timing everything
+        else is estimated from.
+
+        It now opens the gap table for that machine's day, which writes a real
+        event and genuinely removes the segment.
+      */}
+      {anomaly.type === 'unexplainedIdle' && anomaly.resourceId && (
+        <Box sx={{ mt: 0.5 }}>
+          <Button
+            size="small"
+            variant="outlined"
+            startIcon={<HourglassEmptyRounded sx={{ fontSize: 16 }} />}
+            onClick={() => onAccountForDay(anomaly)}
+            sx={{ fontSize: 12.5, py: 0.75, px: 1.5 }}
+          >
+            Account for this time
+          </Button>
         </Box>
       )}
 
@@ -127,7 +132,6 @@ function AnomalyCard({
             variant="outlined"
             color="error"
             startIcon={<TimerRounded fontSize="small" />}
-            disabled={busy}
             onClick={() => onAdjustTimes(anomaly)}
           >
             Adjust times
@@ -140,12 +144,11 @@ function AnomalyCard({
 }
 
 export default function ReconciliationPanel() {
-  const { toast } = useToast();
   const [anomalies, setAnomalies] = useState<ReconciliationAnomaly[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [busyKey, setBusyKey] = useState<string | null>(null);
   const [adjustTask, setAdjustTask] = useState<LogPastWorkTask | null>(null);
+  const [accountFor, setAccountFor] = useState<{ resourceId: number; date: string } | null>(null);
 
   const keyOf = (a: ReconciliationAnomaly) =>
     `${a.type}:${a.taskId ?? ''}:${a.segmentId ?? ''}:${a.contentId ?? ''}`;
@@ -169,20 +172,15 @@ export default function ReconciliationPanel() {
     await load();
   }, [load]);
 
-  const handleResolveIdle = useCallback(async (a: ReconciliationAnomaly, reason: string) => {
-    if (a.taskId == null) return;
-    const key = keyOf(a);
-    setBusyKey(key);
-    try {
-      await resolveAnomaly({ type: 'unexplainedIdle', taskId: a.taskId, segmentId: a.segmentId, reason });
-      toast('Idle time annotated.', 'success');
-      await load();
-    } catch (e) {
-      toast(errMsg(e, 'Failed to resolve anomaly.'), 'error');
-    } finally {
-      setBusyKey(null);
-    }
-  }, [load, toast]);
+  // Opens the gap table on the machine-day this idle belongs to. The old
+  // handler wrote a state_note and left the segment unchanged; explaining a
+  // stall has to actually remove it or the exercise is theatre.
+  const handleAccountForDay = useCallback((a: ReconciliationAnomaly) => {
+    if (!a.resourceId || !a.segStart) return;
+    // The segment's own start decides the sheet, so the user lands on the day
+    // the idle is on rather than today.
+    setAccountFor({ resourceId: a.resourceId, date: String(a.segStart).slice(0, 10) });
+  }, []);
 
   const handleAdjustTimes = useCallback((a: ReconciliationAnomaly) => {
     if (a.taskId == null) return;
@@ -231,13 +229,24 @@ export default function ReconciliationPanel() {
             <AnomalyCard
               key={keyOf(a)}
               anomaly={a}
-              busy={busyKey === keyOf(a)}
-              onResolveIdle={handleResolveIdle}
+              onAccountForDay={handleAccountForDay}
               onAdjustTimes={handleAdjustTimes}
             />
           ))}
         </Box>
       )}
+
+      <Dialog open={!!accountFor} onClose={() => { setAccountFor(null); void load(); }} maxWidth="md" fullWidth>
+        <DialogTitle sx={{ pb: 0.5 }}>Account for the day</DialogTitle>
+        <DialogContent>
+          {accountFor && (
+            <GapTable resourceId={accountFor.resourceId} date={accountFor.date} onChanged={load} />
+          )}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button size="small" onClick={() => { setAccountFor(null); void load(); }}>Done</Button>
+        </DialogActions>
+      </Dialog>
 
       <LogPastWorkDialog
         open={adjustTask !== null}

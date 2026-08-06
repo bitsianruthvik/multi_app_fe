@@ -48,7 +48,7 @@ import {
   type ShiftLogResponse, type ShiftLogTask, type WorkEntry, type DowntimeEntry,
 } from '../api/shiftLog';
 import {
-  PageHeader, SectionCard, StickyActionBar, Surface, Mono, EmptyState,
+  PageHeader, SectionCard, StickyActionBar, Surface, Mono, EmptyState, GapTable, GapExcelBar,
   ListSkeleton, useToast, backendMessage, CrewPanel,
 } from '../components';
 
@@ -480,6 +480,19 @@ export default function ShiftLog() {
               to={`${date}T23:59:59`}
               onChanged={load}
             />
+          </SectionCard>
+
+          {/* Accounting for the day. Sits AFTER work/downtime/people, because
+              the gaps it shows are what those three left over — it is the last
+              question of the day, not the first. */}
+          <SectionCard
+            title="Account for the day"
+            subtitle={`Time on ${data.resource.name} with nothing recorded against it. Say what happened, or leave it unaccounted — an honest blank beats a guess.`}
+          >
+            <GapTable resourceId={data.resource.id} date={date} onChanged={load} />
+            {/* The whole-day Excel path sits under the single-machine table:
+                writing up eight machines is a sheet, writing up one is a form. */}
+            <GapExcelBar date={date} onApplied={load} />
           </SectionCard>
 
           <StickyActionBar

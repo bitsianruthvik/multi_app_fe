@@ -124,8 +124,22 @@ export function unassignWorker(workerId: number, resourceId: number, at?: string
   return fabPost<{ ok: boolean; closed: number }>(`workers/${workerId}/unassign`, { resourceId, at });
 }
 
-/** One shape for "off today", "left at 4" and "at training all week". */
-export function setAway(workerId: number, body: { from: string; to?: string | null; reason?: string; note?: string }) {
+/**
+ * One shape for "off today", "left at 4" and "at training all week".
+ *
+ * Two input forms. Prefer the wall-clock one (`date` + `fromTime`/`toTime`, or
+ * `date` + `toDate` for whole days): the backend resolves it through the
+ * WORKER'S PLANT timezone, so the times mean what the board at the site says.
+ * Converting in the browser instead would be right only while whoever is typing
+ * sits in the same country as the plant.
+ *
+ * The `from`/`to` instant form stays for callers that genuinely know the instant
+ * (CrewPanel's "left just now", the Shift Log).
+ */
+export function setAway(workerId: number, body:
+  | { date: string; fromTime: string; toTime?: string; reason?: string; note?: string }
+  | { date: string; toDate?: string; reason?: string; note?: string }
+  | { from: string; to?: string | null; reason?: string; note?: string }) {
   return fabPost<{ ok: boolean; id: number }>(`workers/${workerId}/away`, body as unknown as Record<string, unknown>);
 }
 

@@ -314,6 +314,8 @@ export interface ReconciliationAnomaly {
   taskId?: number;
   resourceId?: number | null;
   segmentId?: number;
+  /** The segment start — decides which machine-day sheet to open. */
+  segStart?: string;
   minutes?: number;
   contentId?: number;
   bufferId?: number;

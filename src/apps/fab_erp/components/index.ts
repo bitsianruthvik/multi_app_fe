@@ -34,6 +34,8 @@ export { MarksPanel } from './MarksPanel';
 export { CrewPanel } from './CrewPanel';
 export { PersonSheet, shiftSpan, type ShiftOption } from './PersonSheet';
 export { LeaveDialog } from './LeaveDialog';
+export { GapTable } from './GapTable';
+export { GapExcelBar } from './GapExcelBar';
 export { ExitWorkerDialog } from './ExitWorkerDialog';
 export { AddPeopleDialog, type MachineOption } from './AddPeopleDialog';
 export { LiveIndicator } from './LiveIndicator';
