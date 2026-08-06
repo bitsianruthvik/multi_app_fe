@@ -138,6 +138,24 @@ type TaskStatus = 'blocked' | 'eligible' | 'in_progress' | 'paused' | 'done' | '
  */
 type BlockKind = 'output_blocked' | 'material_short';
 
+/**
+ * 409 from the busy rule (FAB_ERP_PEOPLE_PLAN.md §12). A person may run any
+ * number of tasks on the machine they're assigned to, and is blocked on every
+ * other machine — so this refusal is answerable by moving them, and the payload
+ * carries what's needed to offer that rather than just saying no.
+ */
+interface WorkerBusyError {
+  code: 'WORKER_BUSY_ELSEWHERE';
+  canMove: boolean;
+  message: string;
+  workers: {
+    workerId: number;
+    name: string;
+    currentResourceId: number | null;
+    currentResourceName: string | null;
+  }[];
+}
+
 interface QueueTask {
   id: number;
   operationId: number | null;
@@ -590,6 +608,11 @@ export default function TaskQueue() {
   const [summary, setSummary] = useState<QueueSummaryResponse | null>(null);
 
   const [startTask, setStartTask] = useState<QueueTask | null>(null);
+  // Raised when the busy rule refuses: somebody named on this start is currently
+  // assigned to a different machine. Carries enough to offer the move.
+  const [busyWorkers, setBusyWorkers] = useState<
+    { task: QueueTask; detail: WorkerBusyError; force: boolean } | null
+  >(null);
   const [submitting, setSubmitting] = useState(false);
   // Lifecycle actions (start/pause/complete) now run through their own dialogs,
   // which track their own `submitting` state — no per-row busy flag needed.
@@ -699,16 +722,43 @@ export default function TaskQueue() {
   // `force` is the EU-8 admin override, and it only buys past the output-blocked
   // guard — a material shortage throws INSUFFICIENT_STOCK inside the start
   // transaction and nothing gets past that. Callers decide; see canForceStart.
-  const runStart = useCallback(async (task: QueueTask, force = false) => {
+  const runStart = useCallback(async (
+    task: QueueTask,
+    force = false,
+    opts: { workerIds?: number[]; moveWorkers?: boolean } = {},
+  ) => {
     setSubmitting(true);
     try {
       // BUG-09: tell the backend which machine is running this task so it's
       // recorded on the task (capacity truth) and double-booking can be caught.
-      await fabPost(`tasks/${task.id}/start`, { resourceId: resource?.id, ...(force ? { force: true } : {}) });
-      toast(force ? 'Task force-started — the output block was overridden.' : 'Task started.', 'success');
+      const res = await fabPost<{ movedWorkers?: { name: string; from: string | null }[] }>(
+        `tasks/${task.id}/start`,
+        {
+          resourceId: resource?.id,
+          ...(force ? { force: true } : {}),
+          ...(opts.workerIds?.length ? { workerIds: opts.workerIds } : {}),
+          ...(opts.moveWorkers ? { moveWorkers: true } : {}),
+        },
+      );
+      const moved = res?.movedWorkers ?? [];
+      toast(
+        moved.length
+          // Say who was moved. Relocating a person on the board without telling
+          // anyone would make the Machine Board change behind the user's back.
+          ? `Task started — ${moved.map((m) => `${m.name} moved from ${m.from ?? 'another machine'}`).join(', ')}.`
+          : force ? 'Task force-started — the output block was overridden.' : 'Task started.',
+        'success',
+      );
       refetchQueue();
       return true;
     } catch (e) {
+      // The busy rule refuses with the people and the machine they're on, so the
+      // operator gets "move them?" instead of a dead end.
+      const body = (e as { response?: { data?: WorkerBusyError } })?.response?.data;
+      if (body?.code === 'WORKER_BUSY_ELSEWHERE' && body.canMove) {
+        setBusyWorkers({ task, detail: body, force });
+        return false;
+      }
       toast(errMsg(e, 'Failed to start task.'), 'error');
       // A refused start is the authoritative gate check answering, and it may
       // disagree with the snapshot the row is drawn from. Re-sync so the list
@@ -1023,6 +1073,47 @@ export default function TaskQueue() {
           <Button onClick={closeStartDialog} disabled={submitting}>Cancel</Button>
           <Button onClick={confirmStart} variant="contained" disabled={submitting}>
             {submitting ? <CircularProgress size={18} /> : 'Start'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* The busy rule refused: somebody named on this start is on another
+          machine. Offered as a decision ("move them") rather than an error,
+          because moving is the normal answer — the person walked over. */}
+      <Dialog open={!!busyWorkers} onClose={submitting ? undefined : () => setBusyWorkers(null)} maxWidth="xs" fullWidth>
+        <DialogTitle>Already on another machine</DialogTitle>
+        <DialogContent>
+          <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)', mb: 1.5 }}>
+            {busyWorkers?.detail.message}
+          </Typography>
+          <Box component="ul" sx={{ m: 0, pl: 2.5, fontSize: 12.5 }}>
+            {busyWorkers?.detail.workers.map((w) => (
+              <li key={w.workerId}>
+                <strong>{w.name}</strong> — on {w.currentResourceName ?? 'another machine'}
+              </li>
+            ))}
+          </Box>
+          <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)', mt: 1.5 }}>
+            Moving them ends their assignment on that machine from now. If it's left
+            with no crew, its idle time from this point is recorded as “no operator”.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setBusyWorkers(null)} disabled={submitting}>Cancel</Button>
+          <Button
+            variant="contained"
+            disabled={submitting}
+            onClick={async () => {
+              if (!busyWorkers) return;
+              const { task, detail, force } = busyWorkers;
+              setBusyWorkers(null);
+              await runStart(task, force, {
+                workerIds: detail.workers.map((w) => w.workerId),
+                moveWorkers: true,
+              });
+            }}
+          >
+            {submitting ? <CircularProgress size={18} /> : 'Move and start'}
           </Button>
         </DialogActions>
       </Dialog>

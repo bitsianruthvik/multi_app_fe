@@ -24,11 +24,13 @@ import { usePermission } from '@core/hooks/usePermission';
 import { useAuth } from '@core/contexts/AuthContext';
 import { isAdminRole } from '@core/utils/roles';
 import {
-  getRoster, addWorker, updateWorker, WORKER_TYPE_LABELS, type Worker, type WorkerType,
+  getRoster, updateWorker, WORKER_TYPE_LABELS, type Worker, type WorkerType,
 } from '../api/workers';
+import { fabQuery } from '../api/client';
 import {
   PageHeader, DataTable, StatStrip, ListSkeleton, EmptyState, Mono, useToast,
-  FormDialog, backendMessage, type Stat,
+  FormDialog, backendMessage, PersonSheet, AddPeopleDialog, shiftSpan,
+  type Stat, type ShiftOption, type MachineOption,
 } from '../components';
 
 const TYPE_TONE: Record<WorkerType, { bg: string; fg: string }> = {
@@ -48,6 +50,11 @@ export default function People() {
   const [error, setError] = useState('');
   const [editing, setEditing] = useState<Worker | null>(null);
   const [creating, setCreating] = useState(false);
+  // Clicking a row opens the person; editing is a deliberate second step from
+  // inside the sheet, so a mis-click never lands you in a form.
+  const [peeking, setPeeking] = useState<Worker | null>(null);
+  const [shifts, setShifts] = useState<ShiftOption[]>([]);
+  const [machines, setMachines] = useState<MachineOption[]>([]);
   const [draft, setDraft] = useState({
     name: '', code: '', workerType: 'employee' as WorkerType, vendorName: '', phone: '', active: true,
   });
@@ -59,10 +66,8 @@ export default function People() {
         name: editing.name, code: editing.code ?? '', workerType: editing.workerType,
         vendorName: editing.vendorName ?? '', phone: editing.phone ?? '', active: !!editing.active,
       });
-    } else if (creating) {
-      setDraft({ name: '', code: '', workerType: 'employee', vendorName: '', phone: '', active: true });
     }
-  }, [editing, creating]);
+  }, [editing]);
 
   const load = useCallback(async () => {
     setLoading(true); setError('');
@@ -76,7 +81,24 @@ export default function People() {
     }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  // Shifts and machines back the pickers in the add grid and the person sheet.
+  // Advisory: a failure leaves the pickers empty rather than blocking the roster.
+  const loadOptions = useCallback(async () => {
+    try {
+      const [s, m] = await Promise.all([
+        fabQuery<{ data: ShiftOption[] }>('fabErpShift', {
+          orderBy: [{ field: 'name', direction: 'asc' }], pagination: { limit: 200 },
+        }),
+        fabQuery<{ data: MachineOption[] }>('fabErpResource', {
+          orderBy: [{ field: 'name', direction: 'asc' }], pagination: { limit: 500 },
+        }),
+      ]);
+      setShifts(s.data ?? []);
+      setMachines(m.data ?? []);
+    } catch { /* pickers degrade to empty */ }
+  }, []);
+
+  useEffect(() => { load(); loadOptions(); }, [load, loadOptions]);
 
   const stats: Stat[] = useMemo(() => {
     const active = workers.filter((w) => w.active);
@@ -88,21 +110,18 @@ export default function People() {
     ];
   }, [workers]);
 
+  // Only edits an existing person now — creation moved to AddPeopleDialog, which
+  // handles one or forty through the same path.
   async function save() {
-    const values = {
-      name: draft.name.trim(), code: draft.code.trim() || null,
-      workerType: draft.workerType, vendorName: draft.vendorName.trim() || null,
-      phone: draft.phone.trim() || null,
-    };
+    if (!editing) return;
     try {
-      if (editing) {
-        await updateWorker(editing.id, { ...values, active: draft.active ? 1 : 0 } as Partial<Worker>);
-        toast('Saved.', 'success');
-      } else {
-        await addWorker(values as { name: string });
-        toast('Added to the roster.', 'success');
-      }
-      setEditing(null); setCreating(false);
+      await updateWorker(editing.id, {
+        name: draft.name.trim(), code: draft.code.trim() || null,
+        workerType: draft.workerType, vendorName: draft.vendorName.trim() || null,
+        phone: draft.phone.trim() || null, active: draft.active ? 1 : 0,
+      } as Partial<Worker>);
+      toast('Saved.', 'success');
+      setEditing(null);
       await load();
     } catch (e) {
       toast(backendMessage(e, 'Failed to save.'), 'error');
@@ -118,7 +137,7 @@ export default function People() {
         subtitle="Everyone who works the floor — including contract and vendor staff, who need no login"
         actions={canManage ? (
           <Button size="small" variant="contained" startIcon={<PersonAddAlt1Rounded fontSize="small" />} onClick={() => setCreating(true)}>
-            Add person
+            Add people
           </Button>
         ) : undefined}
       />
@@ -130,7 +149,7 @@ export default function People() {
       {workers.length === 0 ? (
         <EmptyState
           title="Nobody on the roster yet"
-          hint="Add people here, or straight onto a machine from the Machine Board — a contract welder just needs a name."
+          hint="Add people here — type a few in, or upload a spreadsheet. A contract welder just needs a name. Machines with no crew cannot be scheduled, so this is worth filling in."
         />
       ) : (
         <DataTable
@@ -165,6 +184,24 @@ export default function People() {
               sortValue: (w) => w.workerType,
             },
             {
+              // A person with no shift contributes no working time to any machine
+              // they're on, so an empty cell here is a real gap, not a cosmetic one.
+              key: 'currentShiftName', header: 'Shift', width: 170,
+              render: (w) => (w.currentShiftName ? (
+                <Box>
+                  <Typography sx={{ fontSize: 13 }}>{w.currentShiftName}</Typography>
+                  <Typography sx={{ fontSize: 11, color: 'var(--c-text-3)' }}>
+                    {shiftSpan(w.currentShiftStart, w.currentShiftEnd)}
+                  </Typography>
+                </Box>
+              ) : (
+                <Tooltip title="No shift set — this person adds no working time to their machine">
+                  <Typography sx={{ fontSize: 12.5, color: 'var(--c-warning-800)' }}>Not set</Typography>
+                </Tooltip>
+              )),
+              sortValue: (w) => w.currentShiftName ?? '',
+            },
+            {
               key: 'currentResourceName', header: 'On machine', width: 190,
               render: (w) => (w.currentResourceName
                 ? <Typography sx={{ fontSize: 13 }}>{w.currentResourceName}</Typography>
@@ -181,19 +218,45 @@ export default function People() {
               sortValue: (w) => (w.userId ? 1 : 0),
             },
           ]}
+          onRowClick={(w) => setPeeking(w)}
           rowActions={canManage ? (w) => (
             <Tooltip title="Edit">
-              <Button size="small" variant="text" startIcon={<EditRounded fontSize="small" />} onClick={() => setEditing(w)}>Edit</Button>
+              <Button
+                size="small" variant="text" startIcon={<EditRounded fontSize="small" />}
+                // Stop the row's own click handler, or editing would also open
+                // the peek sheet behind the dialog.
+                onClick={(e) => { e.stopPropagation(); setEditing(w); }}
+              >
+                Edit
+              </Button>
             </Tooltip>
           ) : undefined}
         />
       )}
 
+      <PersonSheet
+        worker={peeking}
+        shifts={shifts}
+        open={!!peeking}
+        canManage={canManage}
+        onClose={() => setPeeking(null)}
+        onEdit={() => { if (peeking) { setEditing(peeking); setPeeking(null); } }}
+        onChanged={load}
+      />
+
+      <AddPeopleDialog
+        open={creating}
+        onClose={() => setCreating(false)}
+        onSaved={load}
+        shifts={shifts}
+        machines={machines}
+      />
+
       <FormDialog
-        open={creating || !!editing}
-        title={editing ? `Edit ${editing.name}` : 'Add someone to the roster'}
+        open={!!editing}
+        title={editing ? `Edit ${editing.name}` : ''}
         subtitle="Contract and vendor staff need no login — a name is enough."
-        onClose={() => { setEditing(null); setCreating(false); }}
+        onClose={() => setEditing(null)}
         onSubmit={save}
       >
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 0.5 }}>

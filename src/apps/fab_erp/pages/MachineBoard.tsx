@@ -28,6 +28,7 @@ import PersonRounded from '@mui/icons-material/PersonRounded';
 import HistoryEduRounded from '@mui/icons-material/HistoryEduRounded';
 
 import { fabGet, fabPost, getBufferBoard, type BufferBoardMachine, type BufferKind, type BufferSide, type BufferStatus } from '../api/client';
+import { getCrewCoverage, type CoverageGap } from '../api/workers';
 import { useCompanySlug } from '../hooks/useCompanySlug';
 import { PageHeader, Surface, EmptyState, useToast, CardGridSkeleton, LiveIndicator, useLiveRefresh, useNowTick, CrewPanel } from '../components';
 
@@ -479,6 +480,7 @@ export default function MachineBoard() {
   // EU-9: buffer board fetched once for the whole page (set-based, mirrors the
   // backend), then mapped by resourceId for O(1) lookup per card.
   const [bufferBoard, setBufferBoard] = useState<BufferBoardMachine[]>([]);
+  const [coverage, setCoverage] = useState<CoverageGap[]>([]);
 
   const load = useCallback(async () => {
     try {
@@ -490,6 +492,18 @@ export default function MachineBoard() {
       setError(msg);
     } finally {
       setLoading(false);
+    }
+  }, []);
+
+  // Crew coverage. An unmanned machine has ZERO capacity and cannot be
+  // scheduled at all, so the board says so up front rather than letting the
+  // planner fail once per task later (FAB_ERP_PEOPLE_PLAN.md §9).
+  const loadCoverage = useCallback(async () => {
+    try {
+      const res = await getCrewCoverage();
+      setCoverage(res.unmanned ?? []);
+    } catch {
+      // Advisory only — a failed coverage check must never blank the board.
     }
   }, []);
 
@@ -505,15 +519,15 @@ export default function MachineBoard() {
 
   const manualRefresh = useCallback(async () => {
     setLoading(true);
-    await Promise.all([load(), loadBufferBoard()]);
-  }, [load, loadBufferBoard]);
+    await Promise.all([load(), loadBufferBoard(), loadCoverage()]);
+  }, [load, loadBufferBoard, loadCoverage]);
 
   // Auto-refresh (§7.2). Replaces a hand-rolled setInterval that polled a
   // hidden tab all night, never showed the data's age, and couldn't be paused
   // — a board whose staleness is invisible reads as current when it isn't.
   const refreshBoth = useCallback(async () => {
-    await Promise.all([load(), loadBufferBoard()]);
-  }, [load, loadBufferBoard]);
+    await Promise.all([load(), loadBufferBoard(), loadCoverage()]);
+  }, [load, loadBufferBoard, loadCoverage]);
 
   const live = useLiveRefresh(refreshBoth, { intervalMs: 30_000 });
   const now = useNowTick(15_000);
@@ -554,6 +568,28 @@ export default function MachineBoard() {
       />
 
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
+
+      {/*
+        Unmanned machines. Ranked so the ones actually holding work up come
+        first — "unmanned" alone is a configuration gap, "unmanned with 6 tasks
+        queued" is today's problem. Phrased as what the system cannot do rather
+        than as an error, because on a fresh install every machine is here.
+      */}
+      {coverage.length > 0 && (
+        <Alert
+          severity={coverage.some((c) => c.waitingTasks > 0) ? 'warning' : 'info'}
+          sx={{ mb: 2 }}
+        >
+          <Typography sx={{ fontSize: 13, fontWeight: 600, mb: 0.25 }}>
+            {coverage.length} machine{coverage.length === 1 ? '' : 's'} with no crew assigned
+          </Typography>
+          <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)' }}>
+            {coverage.some((c) => c.waitingTasks > 0)
+              ? `${coverage.filter((c) => c.waitingTasks > 0).map((c) => `${c.name} (${c.waitingTasks} waiting)`).join(', ')} — work is queued on these and they cannot be scheduled until somebody is on them.`
+              : 'Nothing is queued on them yet, so nothing is blocked — but they cannot be scheduled until somebody is assigned.'}
+          </Typography>
+        </Alert>
+      )}
 
       {loading ? (
         <CardGridSkeleton count={6} />
