@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
-  Alert, Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle,
+  Alert, Autocomplete, Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle,
   Grid, IconButton, MenuItem, Stack, Tab,
   Tabs, TextField, Tooltip, Typography,
 } from '@mui/material';
@@ -15,8 +15,31 @@ import { PageHeader, Mono, StatusBadge, EmptyState, ListSkeleton, useToast, Enti
 import FactoryRounded from '@mui/icons-material/FactoryRounded';
 
 interface QueryResult<T> { data: T[]; total?: number }
-interface PlantDraft { name: string; code: string }
-const BLANK_PLANT = (): PlantDraft => ({ name: '', code: '' });
+interface PlantDraft { name: string; code: string; timezone: string }
+const BLANK_PLANT = (): PlantDraft => ({ name: '', code: '', timezone: '' });
+
+/**
+ * Zones offered for a plant. The browser knows every IANA zone, so the list is
+ * generated rather than hardcoded — a hand-written list goes stale and cannot
+ * cover a site nobody anticipated. A picker rather than a text field because a
+ * typo'd zone name silently falls back to UTC, which is the failure this whole
+ * change exists to remove.
+ */
+const TIME_ZONES: string[] = (() => {
+  try {
+    // supportedValuesOf is available in every browser this app targets; the
+    // fallback keeps the dialog usable if it ever isn't.
+    const all = (Intl as unknown as { supportedValuesOf?: (k: string) => string[] })
+      .supportedValuesOf?.('timeZone');
+    if (all?.length) return all;
+  } catch { /* fall through */ }
+  return ['UTC', 'Asia/Kolkata', 'Europe/London', 'America/New_York', 'America/Chicago', 'America/Los_Angeles', 'Asia/Dubai', 'Asia/Singapore', 'Australia/Sydney'];
+})();
+
+/** The browser's own guess — the right default for a site you're sitting at. */
+const LOCAL_TZ = (() => {
+  try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch { return ''; }
+})();
 interface StockLocationDraft { name: string; code: string; description: string }
 const BLANK_STOCK_LOCATION = (): StockLocationDraft => ({ name: '', code: '', description: '' });
 
@@ -45,7 +68,9 @@ function PlantDialog({ open, initial, onClose, onSaved }: {
 
   useEffect(() => {
     if (!open) return;
-    setDraft(initial ? { name: initial.name, code: initial.code } : BLANK_PLANT());
+    setDraft(initial
+      ? { name: initial.name, code: initial.code, timezone: initial.timezone ?? '' }
+      : BLANK_PLANT());
     setErr('');
   }, [open, initial]);
 
@@ -64,10 +89,10 @@ function PlantDialog({ open, initial, onClose, onSaved }: {
           setSaving(false);
           return;
         }
-        await fabMutate('fabErpPlant', 'insert', { name: draft.name, code: generatedCode });
+        await fabMutate('fabErpPlant', 'insert', { name: draft.name, code: generatedCode, timezone: draft.timezone || null });
         onSaved(generatedCode);
       } else {
-        await fabMutate('fabErpPlant', 'update', { id: initial!.id, name: draft.name, code: draft.code });
+        await fabMutate('fabErpPlant', 'update', { id: initial!.id, name: draft.name, code: draft.code, timezone: draft.timezone || null });
         onSaved();
       }
     } catch (e) {
@@ -90,6 +115,37 @@ function PlantDialog({ open, initial, onClose, onSaved }: {
           )}
           <Grid size={{ xs: 12, sm: isNew ? 12 : 7 }}>
             <TextField label="Name" value={draft.name} onChange={(e) => set('name', e.target.value)} size="small" fullWidth required />
+          </Grid>
+          {/*
+            The zone the shift times at this site are WRITTEN IN. Without it a
+            shift entered as 08:00 is read as 08:00 UTC, so an Indian plant on a
+            UTC server runs 5h30 late in every derived number — no_shift
+            attribution, the coverage meter, and the scheduling calendar once
+            capacity comes from crew. Blank keeps the old behaviour (UTC).
+          */}
+          <Grid size={{ xs: 12 }}>
+            <Autocomplete
+              options={TIME_ZONES}
+              value={draft.timezone || null}
+              onChange={(_, v) => set('timezone', v ?? '')}
+              size="small"
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  label="Timezone"
+                  helperText={
+                    draft.timezone
+                      ? `Shift times at this plant are read as ${draft.timezone}.`
+                      : 'Not set — shift times are read as UTC. Set this to the site’s own zone, or shifts will be off by its offset.'
+                  }
+                />
+              )}
+            />
+            {!draft.timezone && LOCAL_TZ && (
+              <Button size="small" sx={{ mt: 0.5 }} onClick={() => set('timezone', LOCAL_TZ)}>
+                Use this browser&rsquo;s zone ({LOCAL_TZ})
+              </Button>
+            )}
           </Grid>
         </Grid>
       </DialogContent>
@@ -357,6 +413,15 @@ export default function Plants() {
                       key={p.id}
                       code={<Mono chip>{p.code}</Mono>}
                       primary={p.name}
+                      // An unset zone is not cosmetic: shift times fall back to
+                      // UTC, so on a UTC server an Indian site's whole working
+                      // day is read hours off. Say so on the row rather than
+                      // leaving it to be discovered in a wrong delay figure.
+                      secondary={p.timezone
+                        ? p.timezone
+                        : <Box component="span" sx={{ color: 'var(--c-warning-800)' }}>
+                            No timezone — shift times read as UTC
+                          </Box>}
                       onClick={() => { setSlPlantId(p.id); setTab(1); }}
                       actions={canManage ? (<>
                         <Tooltip title="Edit"><IconButton size="small" onClick={() => setPlantDialog({ open: true, item: p })}><EditRounded fontSize="small" /></IconButton></Tooltip>

@@ -22,6 +22,12 @@ export interface FabBase {
 export interface FabPlant extends FabBase {
   name: string;
   code: string;
+  /**
+   * IANA zone the shift times at this site are written in (e.g. 'Asia/Kolkata').
+   * NULL falls back to the company default, then UTC — which is the behaviour
+   * that existed before the column, so leaving it unset changes nothing.
+   */
+  timezone?: string | null;
 }
 
 /**
