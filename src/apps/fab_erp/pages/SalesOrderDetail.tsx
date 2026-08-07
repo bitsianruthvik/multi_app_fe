@@ -24,6 +24,7 @@ import {
 } from '../components';
 import { statusFamily } from '../statusMap';
 import OrderItemsTree from '../components/OrderItemsTree';
+import OrderNesting from '../components/OrderNesting';
 import OrderTaskDag from '../components/OrderTaskDag';
 
 interface FabOrder {
@@ -179,6 +180,7 @@ export default function SalesOrderDetail() {
           { value: 'overview', label: 'Overview' },
           { value: 'lines', label: 'Line items', count: items.length },
           { value: 'items', label: 'Items / BOM' },
+          { value: 'nesting', label: 'Nesting' },
           { value: 'marks', label: 'Marks' },
           { value: 'dag', label: 'Task DAG' },
         ]}
@@ -253,6 +255,8 @@ export default function SalesOrderDetail() {
           <LineItemsTab soId={id} items={items} plants={plants} canManage={canManage} company={company!} onRefresh={fetchAll} toast={toast} setError={setError} />
         ) : tab === 'items' ? (
           <OrderItemsTree orderId={id} canManage={canManage} />
+        ) : tab === 'nesting' ? (
+          <OrderNesting orderId={id} />
         ) : tab === 'marks' ? (
           <MarksPanel orderId={id} canManage={canManage} />
         ) : (

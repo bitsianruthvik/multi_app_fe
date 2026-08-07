@@ -68,7 +68,8 @@ interface ImportItemsResult {
   itemsCreated: number;
   itemsSkipped: number;
   itemsDeleted?: number;
-  itemsCoded?: number;
+  /** Raw-material links created from the Nesting sheet (material → part). */
+  nestingLinks?: number;
   totalWeight?: number | null;
   unweighedLeaves?: number;
   warnings: Array<{ row?: number; message: string }>;
@@ -1101,9 +1102,11 @@ export default function OrderItemsTree({ orderId, canManage }: OrderItemsTreePro
         <DialogTitle sx={{ fontWeight: 600 }}>Import items from Excel</DialogTitle>
         <DialogContent dividers>
           <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)', mb: 2 }}>
-            Fill in the <strong>Level 1</strong>, <strong>Level 2</strong>, … sheets and the{' '}
-            <strong>Raw Material</strong> sheet of the exported workbook. Add more level sheets if this
-            job goes deeper — there is no fixed number of levels.
+            Fill in the <strong>Level 1</strong>, <strong>Level 2</strong>, … sheets: write each row&rsquo;s
+            name and a short <strong>Abbr</strong>, and its <strong>Code</strong> appears on its own —
+            copy that into the next sheet&rsquo;s <strong>Parent Code</strong>. The <strong>Nesting</strong>{' '}
+            sheet then says which parts come out of which raw material. Add more level sheets if this job
+            goes deeper — there is no fixed number of levels.
           </Typography>
           <RadioGroup value={importMode} onChange={(e) => setImportMode(e.target.value as 'append' | 'replace')}>
             <FormControlLabel
@@ -1168,6 +1171,7 @@ export default function OrderItemsTree({ orderId, canManage }: OrderItemsTreePro
           {importResult.mode === 'replace' && (importResult.itemsDeleted ?? 0) > 0
             ? `Replaced the tree: ${importResult.itemsDeleted} item(s) removed, ` : ''}
           {importResult.itemsCreated} item(s) created
+          {(importResult.nestingLinks ?? 0) > 0 ? `, ${importResult.nestingLinks} material link(s) nested` : ''}
           {importResult.itemsSkipped > 0 ? `, ${importResult.itemsSkipped} skipped` : ''}.
           {importResult.totalWeight != null ? ` Total weight ${fmtWeight(importResult.totalWeight)} kg.` : ''}
           {importResult.warnings.map((w) => ` ${w.message}`).join('')}
