@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  Alert, AlertTitle, Autocomplete, Box, Button, CircularProgress, IconButton, MenuItem,
+  Alert, AlertTitle, Autocomplete, Box, Button, CircularProgress, Dialog, DialogActions,
+  DialogContent, DialogTitle, FormControlLabel, IconButton, MenuItem, Radio, RadioGroup,
   TextField, Tooltip, Typography,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
@@ -9,6 +10,8 @@ import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import CloseRounded from '@mui/icons-material/CloseRounded';
 import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
 import DownloadIcon from '@mui/icons-material/Download';
+import StraightenRounded from '@mui/icons-material/StraightenRounded';
+import TagRounded from '@mui/icons-material/TagRounded';
 import UploadFileIcon from '@mui/icons-material/UploadFile';
 
 import { fabQuery, fabMutate, fabPost } from '../api/client';
@@ -35,8 +38,22 @@ interface FabItemRow {
   parentItemId: number | null;
   catalogItemId: number | null;
   name: string;
+  /** Generated identity code — server-issued and frozen, never edited here. */
+  code?: string | null;
   unit: string | null;
   qty: number;
+  /** Cut dimensions — meaningful on the bottom rows, blank once parts are joined. */
+  length?: number | null;
+  width?: number | null;
+  height?: number | null;
+  dimUnit?: string | null;
+  /** Weight of ONE, typed by a human. Null when nobody has entered it. */
+  unitWeight?: number | null;
+  /** Σ(child qty × child effective weight). Server-owned — never written from here. */
+  computedUnitWeight?: number | null;
+  /** (unitWeight ?? computedUnitWeight) × qty. Server-owned. */
+  totalWeight?: number | null;
+  weightUnit?: string | null;
   createdAt?: string;
   updatedAt?: string;
   orderNumber?: string;
@@ -46,14 +63,32 @@ interface FabItemRow {
 
 interface CatalogOption { id: number; name: string; code: string; unit: string | null }
 interface FlowOption { id: number; name: string; code?: string; active?: number }
-interface CustomFieldRow {
-  id: number; level: string; levelId: number; fieldKey: string; fieldType: string; fieldValue: string | null;
-}
 interface ImportItemsResult {
+  mode?: 'append' | 'replace';
   itemsCreated: number;
   itemsSkipped: number;
+  itemsDeleted?: number;
+  itemsCoded?: number;
+  totalWeight?: number | null;
+  unweighedLeaves?: number;
   warnings: Array<{ row?: number; message: string }>;
   reportBase64?: string;
+}
+interface ItemsSummary {
+  totalWeight: number | null;
+  itemCount: number;
+  unweighedLeaves: number;
+  uncodedItems: number;
+  /** Shared `CUSTOMER-SONUMBER` head of every code in this order. */
+  codePrefix: string | null;
+}
+
+/** Trims trailing zeros so 150.000000 reads as 150 and 271.3 stays 271.3. */
+function fmtWeight(v: number | null | undefined): string | null {
+  if (v === null || v === undefined) return null;
+  const n = Number(v);
+  if (!Number.isFinite(n)) return null;
+  return `${Number(n.toFixed(3))}`;
 }
 
 function downloadBase64Xlsx(base64: string, filename: string) {
@@ -204,7 +239,7 @@ function AddItemRow({ orderId, parentItemId, onCreated, onCancel }: {
 
 // ─── One tree node (recursive) ─────────────────────────────────────────────
 
-function ItemNode({ item, depth, canManage, flows, onDeleted, onItemAdded }: {
+function ItemNode({ item, depth, canManage, flows, onDeleted, onItemAdded, onWeightChanged, treeVersion, codePrefix }: {
   item: FabItemRow;
   depth: number;
   canManage: boolean;
@@ -212,6 +247,12 @@ function ItemNode({ item, depth, canManage, flows, onDeleted, onItemAdded }: {
   onDeleted: (id: number) => void;
   /** Bubbles a new child up to the root so it can re-offer "build tasks". */
   onItemAdded: () => void;
+  /** Editing a weight or qty changes every ancestor's total — tells the root to recompute. */
+  onWeightChanged: () => void;
+  /** Bumped after a recompute or code run; nodes re-read themselves and their loaded children. */
+  treeVersion: number;
+  /** Shared head of every code in this order, stripped from the row display. */
+  codePrefix: string | null;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [childrenLoaded, setChildrenLoaded] = useState(false);
@@ -233,13 +274,42 @@ function ItemNode({ item, depth, canManage, flows, onDeleted, onItemAdded }: {
   const [deleting, setDeleting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
-  const [customFieldsLoaded, setCustomFieldsLoaded] = useState(false);
-  const [showCustomFields, setShowCustomFields] = useState(false);
-  const [lengthField, setLengthField] = useState<{ id: number | null; value: string }>({ id: null, value: '' });
-  const [widthField, setWidthField] = useState<{ id: number | null; value: string }>({ id: null, value: '' });
-  const [savingCustom, setSavingCustom] = useState(false);
+  // Dimensions and weight are plain columns on fab_items now. They used to live
+  // in fab_custom_fields under level='item', which the Item Catalog also uses
+  // with a catalog-item id — two different ID spaces in one key. Reading them
+  // from the row removes that collision and the extra round-trip with it.
+  const [showDims, setShowDims] = useState(false);
+  const [dims, setDims] = useState({
+    length:     item.length     != null ? String(item.length)     : '',
+    width:      item.width      != null ? String(item.width)      : '',
+    height:     item.height     != null ? String(item.height)     : '',
+    unitWeight: item.unitWeight != null ? String(item.unitWeight) : '',
+  });
+  const [savingDims, setSavingDims] = useState(false);
+  // Last values known to be persisted, so a blur with nothing changed does not
+  // fire a write. Mirrors savedRef's job for the inline row fields.
+  const savedDimsRef = useRef<Record<'length' | 'width' | 'height' | 'unitWeight', number | null>>({
+    length:     item.length     ?? null,
+    width:      item.width      ?? null,
+    height:     item.height     ?? null,
+    unitWeight: item.unitWeight ?? null,
+  });
+  // Server-owned figures. Kept in state (not read straight off `item`) so a
+  // recompute can refresh them in place without remounting the tree.
+  const [computedWeight, setComputedWeight] = useState<number | null>(item.computedUnitWeight ?? null);
+  const [totalWeight, setTotalWeight] = useState<number | null>(item.totalWeight ?? null);
+  const [enteredWeight, setEnteredWeight] = useState<number | null>(item.unitWeight ?? null);
+  // Also server-owned: issued by itemCodeService, frozen once set, never edited here.
+  const [code, setCode] = useState<string | null>(item.code ?? null);
 
   const atMaxDepth = depth >= MAX_ITEM_TREE_DEPTH;
+  const weightUnit = item.weightUnit || 'kg';
+  const dimUnit = item.dimUnit || 'mm';
+  // A typed weight on an assembly is legitimate — welds, bolts and paint make it
+  // heavier than the sum of its parts — so it wins, but the gap is surfaced
+  // rather than hidden, because the same symptom also means "a child is missing".
+  const weightOverridden = enteredWeight != null && computedWeight != null
+    && Math.abs(enteredWeight - computedWeight) > 0.001;
 
   async function loadChildren(afterId?: number) {
     setLoadingChildren(afterId ? loadingChildren : true);
@@ -265,22 +335,35 @@ function ItemNode({ item, depth, canManage, flows, onDeleted, onItemAdded }: {
     }
   }
 
-  async function loadCustomFields() {
+  /**
+   * Re-read this row's server-owned fields (weights, code) after a recompute or
+   * code run elsewhere in the tree, and refresh any children already on screen.
+   * Without this, editing a plate's weight would leave every assembly above it
+   * showing a stale total until the page was reloaded.
+   */
+  const refreshServerFields = useCallback(async () => {
     try {
-      const res = await fabQuery<{ data: CustomFieldRow[] }>('fabErpCustomField', {
-        filters: { level: 'item', levelId: item.id },
-        pagination: { limit: 20 },
+      const res = await fabQuery<{ data: FabItemRow[] }>('fabErpItem', {
+        filters: { id: item.id },
+        pagination: { limit: 1 },
       });
-      const rows = res.data ?? [];
-      const len = rows.find((r) => r.fieldKey === 'length');
-      const wid = rows.find((r) => r.fieldKey === 'width');
-      setLengthField({ id: len?.id ?? null, value: len?.fieldValue ?? '' });
-      setWidthField({ id: wid?.id ?? null, value: wid?.fieldValue ?? '' });
-      setCustomFieldsLoaded(true);
-    } catch {
-      // non-fatal — length/width are optional
-    }
-  }
+      const row = res.data?.[0];
+      if (row) {
+        setComputedWeight(row.computedUnitWeight ?? null);
+        setTotalWeight(row.totalWeight ?? null);
+        setEnteredWeight(row.unitWeight ?? null);
+        setCode(row.code ?? null);
+      }
+    } catch { /* a stale total is not worth an error banner */ }
+  }, [item.id]);
+
+  useEffect(() => {
+    if (treeVersion === 0) return;
+    refreshServerFields();
+    if (childrenLoaded) loadChildren();
+    // loadChildren is stable enough for this purpose and adding it would loop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [treeVersion, refreshServerFields]);
 
   function toggleExpand() {
     if (atMaxDepth) return;
@@ -302,6 +385,8 @@ function ItemNode({ item, depth, canManage, flows, onDeleted, onItemAdded }: {
       && patch.flowId === undefined;
     if (unchanged) return;
 
+    const qtyChanged = parsedQty !== savedRef.current.qty;
+
     setSavingRow(true); setRowError('');
     try {
       await fabMutate('fabErpItem', 'update', {
@@ -313,8 +398,14 @@ function ItemNode({ item, depth, canManage, flows, onDeleted, onItemAdded }: {
         unit: nextUnit.trim() || null,
         qty: parsedQty,
         flow_id: nextFlowId === '' ? null : nextFlowId,
+        // Dimensions/weight are deliberately absent — the generic update is a
+        // partial SET, so untouched columns stay as they are and saveDims owns
+        // them exclusively.
       });
       savedRef.current = { name: nextName, qty: parsedQty, unit: nextUnit };
+      // Quantity is a multiplier in every ancestor's roll-up, so changing it
+      // moves totals all the way to the top of the order.
+      if (qtyChanged) onWeightChanged();
     } catch (e) {
       setRowError(errMsg(e, 'Save failed'));
     } finally {
@@ -341,36 +432,43 @@ function ItemNode({ item, depth, canManage, flows, onDeleted, onItemAdded }: {
     }
   }
 
-  async function saveCustomField(key: 'length' | 'width') {
-    const field = key === 'length' ? lengthField : widthField;
-    const setField = key === 'length' ? setLengthField : setWidthField;
-    const trimmed = field.value.trim();
-    setSavingCustom(true);
+  /**
+   * One write for the whole dimensions/weight panel. A blank box clears the
+   * column rather than storing 0 — "nobody measured this" and "this weighs
+   * nothing" are different claims, and only NULL keeps a half-filled tree
+   * reporting an honest "unknown" total instead of a confidently wrong one.
+   */
+  async function saveDims(key: 'length' | 'width' | 'height' | 'unitWeight') {
+    const raw = dims[key].trim();
+    const parsed = raw === '' ? null : Number(raw);
+    if (parsed !== null && !Number.isFinite(parsed)) {
+      setRowError(`${key === 'unitWeight' ? 'Weight' : key} must be a number.`);
+      return;
+    }
+    const current = savedDimsRef.current[key];
+    if (parsed === null && current === null) return;
+    if (parsed !== null && current !== null && Math.abs(parsed - current) < 1e-6) return;
+
+    setSavingDims(true); setRowError('');
     try {
-      if (!trimmed) {
-        if (field.id) {
-          await fabMutate('fabErpCustomField', 'delete', { id: field.id });
-          setField({ id: null, value: '' });
-        }
-      } else if (field.id) {
-        await fabMutate('fabErpCustomField', 'update', {
-          id: field.id, level: 'item', level_id: item.id, field_key: key, field_type: 'number', field_value: trimmed, sort_order: 0,
-        });
-      } else {
-        const res = await fabMutate<{ id: number }>('fabErpCustomField', 'insert', {
-          level: 'item', level_id: item.id, field_key: key, field_type: 'number', field_value: trimmed, sort_order: 0,
-        });
-        setField({ id: res.id, value: trimmed });
+      const column = key === 'unitWeight' ? 'unit_weight' : key;
+      await fabMutate('fabErpItem', 'update', { id: item.id, [column]: parsed });
+      savedDimsRef.current[key] = parsed;
+      if (key === 'unitWeight') {
+        setEnteredWeight(parsed);
+        onWeightChanged(); // every ancestor's total just moved
       }
     } catch (e) {
-      setRowError(errMsg(e, 'Failed to save dimension'));
+      setRowError(errMsg(e, 'Failed to save'));
     } finally {
-      setSavingCustom(false);
+      setSavingDims(false);
     }
   }
 
   function handleChildDeleted(id: number) {
     setChildren((prev) => prev.filter((r) => r.id !== id));
+    // A deleted branch stops contributing its weight upward.
+    onWeightChanged();
   }
 
   const th = { fontSize: 13, color: 'var(--c-text)' } as const;
@@ -441,10 +539,56 @@ function ItemNode({ item, depth, canManage, flows, onDeleted, onItemAdded }: {
           {flows.map((f) => <MenuItem key={f.id} value={f.id}>{f.name}</MenuItem>)}
         </TextField>
 
+        {/* The customer + order-number head is identical on every row, so only
+            the chain that identifies THIS piece is shown. Full code on hover. */}
+        {code && (
+          <Tooltip title={`${code} — click to copy`}>
+            <Typography
+              variant="caption" fontFamily="monospace"
+              onClick={() => navigator.clipboard?.writeText(code)}
+              sx={{
+                flexShrink: 0, maxWidth: 190, overflow: 'hidden', textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap', cursor: 'copy', color: 'var(--c-text-3)',
+              }}
+            >
+              {codePrefix && code.startsWith(`${codePrefix}-`) ? code.slice(codePrefix.length + 1) : code}
+            </Typography>
+          </Tooltip>
+        )}
+
         {item.catalogItemCode && (
           <Typography variant="caption" color="text.disabled" fontFamily="monospace" sx={{ flexShrink: 0 }}>
             {item.catalogItemCode}
           </Typography>
+        )}
+
+        {/* Weight is the number people scan this tree for, so it reads in the
+            row rather than only inside the panel. An em dash means "not known
+            yet" — it is never shown as 0. */}
+        <Tooltip
+          title={totalWeight == null
+            ? 'No weight yet — enter it on the rows at the bottom of the tree'
+            : enteredWeight != null
+              ? `${fmtWeight(enteredWeight)} ${weightUnit} each (typed) x ${qty || 0}`
+              : `${fmtWeight(computedWeight)} ${weightUnit} each (added up from parts) x ${qty || 0}`}
+        >
+          <Typography
+            variant="caption"
+            fontFamily="monospace"
+            sx={{
+              flexShrink: 0, minWidth: 74, textAlign: 'right',
+              color: totalWeight == null ? 'var(--c-text-3)' : 'var(--c-text-2)',
+              fontStyle: enteredWeight == null && totalWeight != null ? 'italic' : 'normal',
+            }}
+          >
+            {totalWeight == null ? '—' : `${fmtWeight(totalWeight)} ${weightUnit}`}
+          </Typography>
+        </Tooltip>
+
+        {weightOverridden && (
+          <Tooltip title={`Typed ${fmtWeight(enteredWeight)} ${weightUnit}, parts add up to ${fmtWeight(computedWeight)} ${weightUnit}. The typed figure is used.`}>
+            <Typography variant="caption" sx={{ flexShrink: 0, color: 'var(--c-warning-700, #9a6700)', fontWeight: 600 }}>!</Typography>
+          </Tooltip>
         )}
 
         {savingRow && <CircularProgress size={12} />}
@@ -458,9 +602,9 @@ function ItemNode({ item, depth, canManage, flows, onDeleted, onItemAdded }: {
             </Tooltip>
           )}
           {canManage && (
-            <Tooltip title="Dimensions (length / width)">
-              <IconButton size="small" onClick={() => { setShowCustomFields((s) => !s); if (!customFieldsLoaded) loadCustomFields(); }} sx={{ p: 0.25 }}>
-                <Typography variant="caption" sx={{ fontWeight: 600 }}>L×W</Typography>
+            <Tooltip title="Dimensions and weight">
+              <IconButton size="small" onClick={() => setShowDims((s) => !s)} sx={{ p: 0.25 }}>
+                <StraightenRounded fontSize="small" />
               </IconButton>
             </Tooltip>
           )}
@@ -492,23 +636,38 @@ function ItemNode({ item, depth, canManage, flows, onDeleted, onItemAdded }: {
         </Box>
       )}
 
-      {showCustomFields && (
-        <Box sx={{ ml: `${6 + depth * 24 + 24}px`, mr: 1.5, mb: 1, display: 'flex', gap: 1.5, alignItems: 'center' }}>
-          <TextField
-            label="Length" type="number" size="small" variant="standard" sx={{ width: 90 }}
-            value={lengthField.value}
-            disabled={!canManage || savingCustom}
-            onChange={(e) => setLengthField((f) => ({ ...f, value: e.target.value }))}
-            onBlur={() => saveCustomField('length')}
-          />
-          <TextField
-            label="Width" type="number" size="small" variant="standard" sx={{ width: 90 }}
-            value={widthField.value}
-            disabled={!canManage || savingCustom}
-            onChange={(e) => setWidthField((f) => ({ ...f, value: e.target.value }))}
-            onBlur={() => saveCustomField('width')}
-          />
-          {savingCustom && <CircularProgress size={12} />}
+      {showDims && (
+        <Box sx={{ ml: `${6 + depth * 24 + 24}px`, mr: 1.5, mb: 1 }}>
+          <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'center', flexWrap: 'wrap' }}>
+            {(['length', 'width', 'height'] as const).map((k) => (
+              <TextField
+                key={k}
+                label={`${k[0].toUpperCase()}${k.slice(1)} (${dimUnit})`}
+                type="number" size="small" variant="standard" sx={{ width: 104 }}
+                value={dims[k]}
+                disabled={!canManage || savingDims}
+                onChange={(e) => setDims((d) => ({ ...d, [k]: e.target.value }))}
+                onBlur={() => saveDims(k)}
+              />
+            ))}
+            <TextField
+              label={`Weight each (${weightUnit})`}
+              type="number" size="small" variant="standard" sx={{ width: 128 }}
+              value={dims.unitWeight}
+              disabled={!canManage || savingDims}
+              onChange={(e) => setDims((d) => ({ ...d, unitWeight: e.target.value }))}
+              onBlur={() => saveDims('unitWeight')}
+              placeholder={computedWeight != null ? fmtWeight(computedWeight) ?? '' : ''}
+            />
+            {savingDims && <CircularProgress size={12} />}
+          </Box>
+          <Typography variant="caption" sx={{ display: 'block', mt: 0.5, color: 'var(--c-text-3)' }}>
+            {computedWeight != null
+              ? weightOverridden
+                ? `Parts add up to ${fmtWeight(computedWeight)} ${weightUnit} — your typed figure is used instead.`
+                : `Added up from the parts below. Type a figure only if you know the real weight.`
+              : 'Fill in dimensions and weight on the rows at the bottom of the tree — everything above adds up on its own.'}
+          </Typography>
         </Box>
       )}
 
@@ -543,6 +702,9 @@ function ItemNode({ item, depth, canManage, flows, onDeleted, onItemAdded }: {
                   flows={flows}
                   onDeleted={handleChildDeleted}
                   onItemAdded={onItemAdded}
+                  onWeightChanged={onWeightChanged}
+                  treeVersion={treeVersion}
+                  codePrefix={codePrefix}
                 />
               ))}
               {hasMoreChildren && (
@@ -557,7 +719,13 @@ function ItemNode({ item, depth, canManage, flows, onDeleted, onItemAdded }: {
                   <AddItemRow
                     orderId={item.orderId}
                     parentItemId={item.id}
-                    onCreated={(row) => { setChildren((prev) => [...prev, row]); setAddingChild(false); onItemAdded(); }}
+                    onCreated={(row) => {
+                      setChildren((prev) => [...prev, row]);
+                      setAddingChild(false);
+                      // onItemAdded re-rolls the weights and issues the new
+                      // row's code — no separate onWeightChanged needed here.
+                      onItemAdded();
+                    }}
                     onCancel={() => setAddingChild(false)}
                   />
                 </Box>
@@ -592,6 +760,17 @@ export default function OrderItemsTree({ orderId, canManage }: OrderItemsTreePro
   const [importErr, setImportErr] = useState('');
   const [importResult, setImportResult] = useState<ImportItemsResult | null>(null);
   const importFileRef = useRef<HTMLInputElement>(null);
+  // Replace wipes the order's tree, so it is a deliberate choice made before the
+  // file picker opens rather than a switch sitting next to a one-click Import.
+  const [importMode, setImportMode] = useState<'append' | 'replace'>('append');
+  const [modeDialogOpen, setModeDialogOpen] = useState(false);
+
+  const [summary, setSummary] = useState<ItemsSummary | null>(null);
+  // Incremented after every recompute or code run; every node watches it and
+  // re-reads its server-owned fields, so editing a plate at the bottom updates
+  // the girder at the top without remounting the tree.
+  const [treeVersion, setTreeVersion] = useState(0);
+  const [coding, setCoding] = useState(false);
 
   // An item tree on its own produces no work: until tasks are materialized the
   // order has no schedule, no critical chain, and is invisible to Dispatch and
@@ -651,6 +830,57 @@ export default function OrderItemsTree({ orderId, canManage }: OrderItemsTreePro
     return () => { cancelled = true; };
   }, [loadTop, orderId]);
 
+  const apiBase = useCallback(
+    () => `${API_HOST}/api/${localStorage.getItem('companySlug')}/fab_erp/orders/${orderId}/items`,
+    [orderId],
+  );
+
+  const loadSummary = useCallback(async () => {
+    try {
+      const res = await api.get<ItemsSummary>(`${apiBase()}/weight-summary`);
+      setSummary(res.data);
+    } catch { /* the strip is informational — never block the tree on it */ }
+  }, [apiBase]);
+
+  useEffect(() => { loadSummary(); }, [loadSummary]);
+
+  /**
+   * A weight or quantity changed somewhere in the tree. Roll-up is a whole-order
+   * calculation — a plate at the bottom moves every assembly above it — so the
+   * server recomputes the order and every mounted node re-reads itself.
+   */
+  const handleWeightChanged = useCallback(async () => {
+    try {
+      await api.post(`${apiBase()}/recompute-weights`, {});
+      setTreeVersion((v) => v + 1);
+      await loadSummary();
+    } catch { /* leave the last good totals on screen rather than blanking them */ }
+  }, [apiBase, loadSummary]);
+
+  /**
+   * Issue codes for rows that do not have one. Never touches an existing code —
+   * by the time one exists it is on a drawing, so it has to stay put even if the
+   * item is later renamed or moved.
+   */
+  async function generateCodes() {
+    setCoding(true); setError('');
+    try {
+      const res = await api.post<{ coded: number; alreadyCoded: number; skipped: number }>(
+        `${apiBase()}/generate-codes`, {},
+      );
+      setTreeVersion((v) => v + 1);
+      await loadSummary();
+      toast(res.data.coded > 0
+        ? `${res.data.coded} code(s) issued${res.data.alreadyCoded ? ` — ${res.data.alreadyCoded} already had one` : ''}.`
+        : 'Every item already has a code.',
+      res.data.coded > 0 ? 'success' : 'info');
+    } catch (e) {
+      setError(backendMessage(e, 'Failed to generate codes.'));
+    } finally {
+      setCoding(false);
+    }
+  }
+
   async function loadMore() {
     if (topItems.length === 0) return;
     setLoadingMore(true);
@@ -669,6 +899,7 @@ export default function OrderItemsTree({ orderId, canManage }: OrderItemsTreePro
   function handleDeleted(id: number) {
     setTopItems((prev) => prev.filter((r) => r.id !== id));
     toast('Item removed');
+    handleWeightChanged();
   }
 
   // New rows always arrive with flow_id NULL and no tasks behind them, so any
@@ -679,6 +910,22 @@ export default function OrderItemsTree({ orderId, canManage }: OrderItemsTreePro
     setItemsChanged(true);
     setCtaDismissed(false);
     setMaterializeResult(null);
+  }
+
+  /**
+   * A row was added. Both derived things — the roll-up and the new row's code —
+   * are whole-order calculations, so they run together and every mounted node
+   * re-reads itself afterwards. Code generation only ever fills blanks, so
+   * calling it on each add cannot disturb rows that already have one.
+   */
+  async function handleItemAdded() {
+    markItemsChanged();
+    try {
+      await api.post(`${apiBase()}/recompute-weights`, {});
+      await api.post(`${apiBase()}/generate-codes`, {});
+      setTreeVersion((v) => v + 1);
+      await loadSummary();
+    } catch { /* the row is saved; derived values catch up on the next action */ }
   }
 
   // Same endpoint the Task DAG tab's "Materialize tasks" button calls — the
@@ -706,11 +953,7 @@ export default function OrderItemsTree({ orderId, canManage }: OrderItemsTreePro
   async function downloadItemsTemplate() {
     setExporting(true);
     try {
-      const companySlug = localStorage.getItem('companySlug');
-      const res = await api.get(
-        `${API_HOST}/api/${companySlug}/fab_erp/orders/${orderId}/items/export-template`,
-        { responseType: 'blob' },
-      );
+      const res = await api.get(`${apiBase()}/export-template`, { responseType: 'blob' });
       const url = URL.createObjectURL(res.data as Blob);
       const a = document.createElement('a');
       a.href = url; a.download = 'Order_Items_Import_Template.xlsx'; a.click();
@@ -725,25 +968,30 @@ export default function OrderItemsTree({ orderId, canManage }: OrderItemsTreePro
   async function handleImportItemsFile(file: File) {
     setImporting(true); setImportErr(''); setImportResult(null);
     try {
-      const companySlug = localStorage.getItem('companySlug');
       const form = new FormData();
       form.append('excel_file', file);
+      form.append('mode', importMode);
       const res = await api.post<ImportItemsResult>(
-        `${API_HOST}/api/${companySlug}/fab_erp/orders/${orderId}/items/import`, form,
+        `${apiBase()}/import`, form,
         { headers: { 'Content-Type': 'multipart/form-data' } },
       );
       setImportResult(res.data);
       // Re-fetch top-level items — an import can add new top-level branches
-      // (e.g. G11, G12) alongside whatever was already there.
+      // alongside whatever was already there, and a replace clears the lot.
       const rows = await loadTop();
       setTopItems(rows);
       setHasMore(rows.length === TOP_LEVEL_PAGE_SIZE);
       if (res.data.itemsCreated > 0) markItemsChanged();
+      // The importer already rolled up weights and issued codes inside its
+      // transaction, so this only needs to re-read them — not re-run them.
+      setTreeVersion((v) => v + 1);
+      await loadSummary();
       toast(`${res.data.itemsCreated} item(s) imported`);
     } catch (e) {
       setImportErr(errMsg(e, 'Import failed'));
     } finally {
       setImporting(false);
+      setImportMode('append'); // never let a replace carry over to the next upload
     }
   }
 
@@ -768,22 +1016,73 @@ export default function OrderItemsTree({ orderId, canManage }: OrderItemsTreePro
     <Box>
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
 
+      {/* Tonnage is what a fabricator quotes, invoices and plans lifts around,
+          so the order's total sits above the tree rather than being something
+          you assemble by expanding branches. */}
+      {summary && summary.itemCount > 0 && (
+        <Surface e={1} sx={{ px: 2, py: 1.25, mb: 1.5, display: 'flex', gap: 3, alignItems: 'center', flexWrap: 'wrap' }}>
+          <Box>
+            <Typography sx={{ fontSize: 10.5, fontWeight: 600, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--c-text-3)' }}>
+              Total weight
+            </Typography>
+            <Typography sx={{ fontSize: 18, fontFamily: 'monospace', color: 'var(--c-text)' }}>
+              {summary.totalWeight == null ? '—' : `${fmtWeight(summary.totalWeight)} kg`}
+            </Typography>
+          </Box>
+          <Box>
+            <Typography sx={{ fontSize: 10.5, fontWeight: 600, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--c-text-3)' }}>
+              Items
+            </Typography>
+            <Typography sx={{ fontSize: 18, fontFamily: 'monospace', color: 'var(--c-text)' }}>{summary.itemCount}</Typography>
+          </Box>
+          {summary.codePrefix && (
+            <Box>
+              <Typography sx={{ fontSize: 10.5, fontWeight: 600, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--c-text-3)' }}>
+                Code prefix
+              </Typography>
+              <Tooltip title="Every item code on this order starts with this. The tree shows only what comes after it.">
+                <Typography sx={{ fontSize: 14, fontFamily: 'monospace', color: 'var(--c-text-2)' }}>
+                  {summary.codePrefix}-…
+                </Typography>
+              </Tooltip>
+            </Box>
+          )}
+          {summary.unweighedLeaves > 0 && (
+            <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)', maxWidth: 420 }}>
+              {summary.unweighedLeaves} bottom-level item(s) have no weight, so this total is incomplete.
+              Open the ruler icon on those rows to fill it in.
+            </Typography>
+          )}
+        </Surface>
+      )}
+
       {canManage && (
-        <Box sx={{ display: 'flex', gap: 1, mb: 1.5 }}>
+        <Box sx={{ display: 'flex', gap: 1, mb: 1.5, flexWrap: 'wrap' }}>
           <Button
             variant="outlined" size="small"
             startIcon={exporting ? <CircularProgress size={14} color="inherit" /> : <DownloadIcon />}
             onClick={downloadItemsTemplate} disabled={exporting}
           >
-            Export template
+            {topItems.length > 0 ? 'Export to Excel' : 'Download template'}
           </Button>
           <Button
             variant="outlined" size="small"
             startIcon={importing ? <CircularProgress size={14} color="inherit" /> : <UploadFileIcon />}
-            onClick={() => importFileRef.current?.click()} disabled={importing}
+            onClick={() => { setImportMode('append'); setModeDialogOpen(true); }} disabled={importing}
           >
             Import from Excel
           </Button>
+          {(summary?.uncodedItems ?? 0) > 0 && (
+            <Tooltip title="Issues a code for each item that does not have one. Existing codes are never changed.">
+              <Button
+                variant="outlined" size="small"
+                startIcon={coding ? <CircularProgress size={14} color="inherit" /> : <TagRounded />}
+                onClick={generateCodes} disabled={coding}
+              >
+                Generate codes ({summary?.uncodedItems})
+              </Button>
+            </Tooltip>
+          )}
           <input
             ref={importFileRef}
             type="file"
@@ -797,6 +1096,58 @@ export default function OrderItemsTree({ orderId, canManage }: OrderItemsTreePro
           />
         </Box>
       )}
+
+      <Dialog open={modeDialogOpen} onClose={() => setModeDialogOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ fontWeight: 600 }}>Import items from Excel</DialogTitle>
+        <DialogContent dividers>
+          <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)', mb: 2 }}>
+            Fill in the <strong>Level 1</strong>, <strong>Level 2</strong>, … sheets and the{' '}
+            <strong>Raw Material</strong> sheet of the exported workbook. Add more level sheets if this
+            job goes deeper — there is no fixed number of levels.
+          </Typography>
+          <RadioGroup value={importMode} onChange={(e) => setImportMode(e.target.value as 'append' | 'replace')}>
+            <FormControlLabel
+              value="append" control={<Radio size="small" />}
+              label={(
+                <Box sx={{ py: 0.5 }}>
+                  <Typography sx={{ fontSize: 13.5, fontWeight: 500 }}>Add to what is already here</Typography>
+                  <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>
+                    New rows join the existing tree. Parents may name items already on the order.
+                  </Typography>
+                </Box>
+              )}
+            />
+            <FormControlLabel
+              value="replace" control={<Radio size="small" />}
+              label={(
+                <Box sx={{ py: 0.5 }}>
+                  <Typography sx={{ fontSize: 13.5, fontWeight: 500 }}>Replace the whole tree</Typography>
+                  <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>
+                    Clears this order&rsquo;s {summary?.itemCount ?? 0} item(s) first. Refused if any task on
+                    the order has already been started or finished.
+                  </Typography>
+                </Box>
+              )}
+            />
+          </RadioGroup>
+          {importMode === 'replace' && (
+            <Alert severity="warning" sx={{ mt: 1.5 }}>
+              Tasks built from the current items are removed too. You will need to build tasks again after
+              the import.
+            </Alert>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setModeDialogOpen(false)}>Cancel</Button>
+          <Button
+            variant="contained"
+            color={importMode === 'replace' ? 'warning' : 'primary'}
+            onClick={() => { setModeDialogOpen(false); importFileRef.current?.click(); }}
+          >
+            Choose file…
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {importErr && <Alert severity="error" sx={{ mb: 1.5 }} onClose={() => setImportErr('')}>{importErr}</Alert>}
 
@@ -814,9 +1165,13 @@ export default function OrderItemsTree({ orderId, canManage }: OrderItemsTreePro
             </Button>
           ) : undefined}
         >
+          {importResult.mode === 'replace' && (importResult.itemsDeleted ?? 0) > 0
+            ? `Replaced the tree: ${importResult.itemsDeleted} item(s) removed, ` : ''}
           {importResult.itemsCreated} item(s) created
           {importResult.itemsSkipped > 0 ? `, ${importResult.itemsSkipped} skipped` : ''}.
-          {importResult.warnings.length > 0 ? ` ${importResult.warnings.length} warning(s) — see report.` : ''}
+          {importResult.totalWeight != null ? ` Total weight ${fmtWeight(importResult.totalWeight)} kg.` : ''}
+          {importResult.warnings.map((w) => ` ${w.message}`).join('')}
+          {importResult.itemsSkipped > 0 ? ' Download the report for the reason on each skipped row.' : ''}
         </Alert>
       )}
 
@@ -867,7 +1222,12 @@ export default function OrderItemsTree({ orderId, canManage }: OrderItemsTreePro
             <AddItemRow
               orderId={orderId}
               parentItemId={null}
-              onCreated={(row) => { setTopItems((prev) => [...prev, row]); setAddingRoot(false); markItemsChanged(); toast('Item added'); }}
+              onCreated={(row) => {
+                setTopItems((prev) => [...prev, row]);
+                setAddingRoot(false);
+                handleItemAdded();
+                toast('Item added');
+              }}
               onCancel={() => setAddingRoot(false)}
             />
           ) : (
@@ -890,7 +1250,10 @@ export default function OrderItemsTree({ orderId, canManage }: OrderItemsTreePro
               canManage={canManage}
               flows={flows}
               onDeleted={handleDeleted}
-              onItemAdded={markItemsChanged}
+              onItemAdded={handleItemAdded}
+              onWeightChanged={handleWeightChanged}
+              treeVersion={treeVersion}
+              codePrefix={summary?.codePrefix ?? null}
             />
           ))}
         </Surface>
