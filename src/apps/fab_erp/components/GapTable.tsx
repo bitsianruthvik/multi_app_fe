@@ -15,6 +15,17 @@
  * and fiction in this stream flows into fab_operation_stats and every future
  * estimate — the screen would look tidier and the plant would get less
  * predictable. The colour reads "unknown", never "your fault".
+ *
+ * TWO MODES, because a shift and a calendar day are not the same window:
+ *
+ *   instance mode  the caller has already fetched a shift instance and passes it
+ *                  in. The table renders exactly that shift — which is the only
+ *                  way a 22:00–06:00 night shift shows as one sheet instead of
+ *                  two half-sheets on either side of midnight. Controlled: writes
+ *                  report up via onChanged and the parent refetches.
+ *   day mode       no instance given, so the table fetches the whole calendar day
+ *                  itself. Still used by the reconciliation panel, which comes at
+ *                  this from a date rather than from a shift.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -30,7 +41,7 @@ import PrecisionManufacturingRounded from '@mui/icons-material/PrecisionManufact
 
 import {
   getGapReasons, getDayGaps, explainGap, withdrawExplained,
-  type DayGaps, type GapReason, type ExplainedSpan,
+  type DayGaps, type GapReason, type ExplainedSpan, type ShiftInstance,
 } from '../api/gaps';
 import { saveShiftLog } from '../api/shiftLog';
 import { useToast } from './Toast';
@@ -58,6 +69,35 @@ function siteTime(iso: string, tz: string) {
  */
 const localIso = (date: string, hhmm: string) => new Date(`${date}T${hhmm}:00`).toISOString();
 
+const plusDays = (date: string, n: number) => {
+  const d = new Date(`${date}T00:00:00`);
+  d.setDate(d.getDate() + n);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
+/**
+ * The work path's pair of instants, resolved the same way the server resolves a
+ * gap reason — see the `windowStart` note on explainGap. Two corrections, and
+ * both are needed on a night shift:
+ *
+ *   both times after midnight   01:00–06:00 on a 22:00–06:00 shift. Resolved on
+ *                               the shift's start date they land 24h early, so
+ *                               the pair rolls forward together.
+ *   the span itself crosses     23:00–01:00. Only the end rolls.
+ */
+function workSpan(date: string, from: string, to: string, windowStart?: string) {
+  let day = date;
+  if (windowStart && +new Date(localIso(date, from)) < +new Date(windowStart)) {
+    day = plusDays(date, 1);
+  }
+  const startedAt = localIso(day, from);
+  let completedAt = localIso(day, to);
+  if (+new Date(completedAt) <= +new Date(startedAt)) {
+    completedAt = localIso(plusDays(day, 1), to);
+  }
+  return { startedAt, completedAt };
+}
+
 const mins = (a: string, b: string) => Math.round((+new Date(b) - +new Date(a)) / 60000);
 const fmtDur = (m: number) => (m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m`.replace(' 0m', '') : `${m}m`);
 
@@ -76,9 +116,24 @@ const SCOPE_ICON = {
 
 export interface GapWorkTask { id: number; label: string; plannedQty?: number | null }
 
-export function GapTable({ resourceId, date, workTasks = [], onSummary, onChanged }: {
+export function GapTable({
+  resourceId, date, instance, timezone, resourceName, workTasks = [], onSummary, onChanged,
+}: {
   resourceId: number | null;
+  /**
+   * The date writes are anchored to. In instance mode this is the date the shift
+   * STARTED, so a night shift's tail is written against the day the crew would
+   * call it — the backend rolls a `to` that lands before `from` onto the next day.
+   */
   date: string;
+  /**
+   * Supply this to render one shift rather than a calendar day. The table then
+   * fetches nothing and reports writes up through `onChanged`.
+   */
+  instance?: ShiftInstance;
+  /** Plant timezone. Required with `instance`; day mode reads it off its fetch. */
+  timezone?: string;
+  resourceName?: string;
   /**
    * Jobs that could have run on this machine that day. Supplying these turns on
    * "Worked on a job" as a row type — and without it the table can only explain
@@ -114,6 +169,9 @@ export function GapTable({ resourceId, date, workTasks = [], onSummary, onChange
   onSummaryRef.current = onSummary;
 
   const load = useCallback(async () => {
+    // Instance mode is controlled — the shift came in as a prop, and fetching a
+    // day here would silently widen the window back out to midnight-to-midnight.
+    if (instance) return;
     if (!resourceId) { setDay(null); return; }
     setLoading(true); setErr('');
     try {
@@ -123,46 +181,71 @@ export function GapTable({ resourceId, date, workTasks = [], onSummary, onChange
     } finally {
       setLoading(false);
     }
-  }, [resourceId, date]);
+  }, [resourceId, date, instance]);
 
   useEffect(() => { void load(); }, [load]);
+
+  /** What the table renders — one shift, or a whole calendar day. */
+  const view = useMemo(() => {
+    if (instance) {
+      return {
+        resourceName: resourceName ?? 'this machine',
+        timezone: timezone ?? 'UTC',
+        workingMinutes: instance.workingMinutes,
+        explainedMinutes: instance.explainedMinutes,
+        gapMinutes: instance.gapMinutes,
+        explained: instance.explained,
+        gaps: instance.gaps,
+      };
+    }
+    if (!day) return null;
+    return {
+      resourceName: day.resourceName,
+      timezone: view.timezone,
+      workingMinutes: day.workingMinutes,
+      explainedMinutes: day.explainedMinutes,
+      gapMinutes: day.gapMinutes,
+      explained: day.explained,
+      gaps: day.gaps,
+    };
+  }, [instance, day, timezone, resourceName]);
 
   // Push the totals up whenever they change, from whichever path produced them
   // — initial load, an explain, a withdraw, or a work row.
   useEffect(() => {
-    if (!day) return;
+    if (!view) return;
     onSummaryRef.current?.({
-      workingMinutes: day.workingMinutes,
-      explainedMinutes: day.explainedMinutes,
-      gapMinutes: day.gapMinutes,
+      workingMinutes: view.workingMinutes,
+      explainedMinutes: view.explainedMinutes,
+      gapMinutes: view.gapMinutes,
     });
-  }, [day]);
+  }, [view]);
   useEffect(() => { getGapReasons().then((r) => setReasons(r.reasons ?? [])).catch(() => {}); }, []);
 
   const reasonByCode = useMemo(() => new Map(reasons.map((r) => [r.code, r])), [reasons]);
   const chosen = draft ? reasonByCode.get(draft.code) : undefined;
 
-  // Tasks on this machine that day — needed when a task-scoped reason is chosen.
+  // Tasks on this machine in this window — needed for a task-scoped reason.
   const tasksToday = useMemo(
-    () => (day?.explained ?? []).filter((e) => e.kind === 'work' && e.taskId),
-    [day],
+    () => (view?.explained ?? []).filter((e) => e.kind === 'work' && e.taskId),
+    [view],
   );
 
   function openDraft(gapIdx: number) {
-    if (!day) return;
-    const g = day.gaps[gapIdx];
+    if (!view) return;
+    const g = view.gaps[gapIdx];
     setDraft({
       gapIdx, code: '',
       // Prefilled to the whole gap. Most days are one cause, and the common case
       // should be: pick a reason, press save.
-      from: siteTime(g.start, day.timezone),
-      to: siteTime(g.end, day.timezone),
+      from: siteTime(g.start, view.timezone),
+      to: siteTime(g.end, view.timezone),
       taskId: '', party: '', note: '', good: '', scrap: '', qcFail: false,
     });
   }
 
   async function save() {
-    if (!draft || !day || !resourceId) return;
+    if (!draft || !view || !resourceId) return;
     if (!draft.code) { setErr('Say what this time was.'); return; }
 
     const isWork = draft.code === WORK_CODE;
@@ -178,12 +261,13 @@ export function GapTable({ resourceId, date, workTasks = [], onSummary, onChange
         // spawns rework on a QC fail and advances the DAG. Writing the events
         // directly would record that the work happened while leaving the metal
         // and every downstream task where they were.
+        const { startedAt, completedAt } = workSpan(date, draft.from, draft.to, instance?.start);
         await saveShiftLog({
           resourceId, date,
           work: [{
             taskId: Number(draft.taskId),
-            startedAt: localIso(date, draft.from),
-            completedAt: localIso(date, draft.to),
+            startedAt,
+            completedAt,
             producedQty: draft.good === '' ? null : Number(draft.good),
             scrapQty: draft.scrap === '' ? null : Number(draft.scrap),
             qcResult: draft.qcFail ? 'fail' : 'pass',
@@ -191,16 +275,20 @@ export function GapTable({ resourceId, date, workTasks = [], onSummary, onChange
           }],
           downtime: [], absences: [],
         });
-        setDay(await getDayGaps(resourceId, date));
+        if (!instance) setDay(await getDayGaps(resourceId, date));
         toast('Work recorded.', 'success');
       } else {
-        setDay(await explainGap({
+        const next = await explainGap({
           resourceId, date, code: draft.code,
           fromTime: draft.from, toTime: draft.to,
+          windowStart: instance?.start,
           taskId: draft.taskId ? Number(draft.taskId) : undefined,
           party: draft.party.trim() || undefined,
           note: draft.note.trim() || undefined,
-        }));
+        });
+        // In instance mode the response is a calendar day, which is the wrong
+        // window — the parent's refetch is what brings this shift back.
+        if (!instance) setDay(next);
         toast('Recorded.', 'success');
       }
       setDraft(null);
@@ -215,7 +303,8 @@ export function GapTable({ resourceId, date, workTasks = [], onSummary, onChange
   async function withdraw(e: ExplainedSpan) {
     if (!resourceId || !e.id) return;
     try {
-      setDay(await withdrawExplained(e.stream, e.id, resourceId, date));
+      const next = await withdrawExplained(e.stream, e.id, resourceId, date);
+      if (!instance) setDay(next);
       toast('Withdrawn — the time is unaccounted again.', 'success');
       onChanged?.();
     } catch (x) {
@@ -224,21 +313,21 @@ export function GapTable({ resourceId, date, workTasks = [], onSummary, onChange
   }
 
   if (!resourceId) return null;
-  if (loading && !day) return <Typography sx={{ fontSize: 13, color: 'var(--c-text-3)' }}>Loading the day…</Typography>;
-  if (!day) return null;
+  if (loading && !view) return <Typography sx={{ fontSize: 13, color: 'var(--c-text-3)' }}>Loading the day…</Typography>;
+  if (!view) return null;
 
-  if (day.workingMinutes === 0) {
+  if (view.workingMinutes === 0) {
     return (
       <Alert severity="info" sx={{ mt: 1 }}>
-        No working time on {day.resourceName} for this date — no shift is configured, so
+        No working time on {view.resourceName} for this date — no shift is configured, so
         there is nothing to account for. A day the plant was closed is not a gap.
       </Alert>
     );
   }
 
   const rows = [
-    ...day.explained.map((e) => ({ type: 'explained' as const, e })),
-    ...day.gaps.map((g, i) => ({ type: 'gap' as const, g, i })),
+    ...view.explained.map((e) => ({ type: 'explained' as const, e })),
+    ...view.gaps.map((g, i) => ({ type: 'gap' as const, g, i })),
   ].sort((a, b) => +new Date(a.type === 'gap' ? a.g.start : a.e.from) - +new Date(b.type === 'gap' ? b.g.start : b.e.from));
 
   return (
@@ -247,15 +336,16 @@ export function GapTable({ resourceId, date, workTasks = [], onSummary, onChange
           user should be able to see it rather than trust us. */}
       <Box sx={{ display: 'flex', gap: 2, alignItems: 'baseline', mb: 1 }}>
         <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-3)' }}>
-          Working day <strong style={{ color: 'var(--c-text)' }}>{fmtDur(day.workingMinutes)}</strong>
-          {'  =  '}accounted {fmtDur(day.explainedMinutes)}
+          {instance ? 'Shift' : 'Working day'}{' '}
+          <strong style={{ color: 'var(--c-text)' }}>{fmtDur(view.workingMinutes)}</strong>
+          {'  =  '}accounted {fmtDur(view.explainedMinutes)}
           {'  +  '}
-          <Box component="span" sx={{ color: day.gapMinutes > 0 ? 'var(--c-warning-800)' : 'var(--c-text-3)', fontWeight: 600 }}>
-            unaccounted {fmtDur(day.gapMinutes)}
+          <Box component="span" sx={{ color: view.gapMinutes > 0 ? 'var(--c-warning-800)' : 'var(--c-text-3)', fontWeight: 600 }}>
+            unaccounted {fmtDur(view.gapMinutes)}
           </Box>
         </Typography>
         <Box sx={{ flex: 1 }} />
-        <Typography sx={{ fontSize: 11.5, color: 'var(--c-text-3)' }}>times are {day.timezone}</Typography>
+        <Typography sx={{ fontSize: 11.5, color: 'var(--c-text-3)' }}>times are {view.timezone}</Typography>
       </Box>
 
       {err && <Alert severity="warning" sx={{ mb: 1 }} onClose={() => setErr('')}>{err}</Alert>}
@@ -286,8 +376,8 @@ export function GapTable({ resourceId, date, workTasks = [], onSummary, onChange
                   <Typography sx={{ fontSize: 12.5, overflow: 'hidden', textOverflow: 'ellipsis' }}>{e.label}</Typography>
                   {isWork && <Chip size="small" label="ran" sx={{ height: 16, fontSize: 9.5 }} />}
                 </Box>
-                <Box>{siteTime(e.from, day.timezone)}</Box>
-                <Box>{siteTime(e.to, day.timezone)}</Box>
+                <Box>{siteTime(e.from, view.timezone)}</Box>
+                <Box>{siteTime(e.to, view.timezone)}</Box>
                 <Box sx={{ color: 'var(--c-text-3)' }}>{fmtDur(mins(e.from, e.to))}</Box>
                 <Box>
                   {e.removable && (
@@ -317,8 +407,8 @@ export function GapTable({ resourceId, date, workTasks = [], onSummary, onChange
                   <Typography sx={{ fontSize: 12.5, fontWeight: 600 }}>Unaccounted</Typography>
                   <Typography sx={{ fontSize: 11.5, opacity: 0.8 }}>— nothing recorded for this time</Typography>
                 </Box>
-                <Box>{siteTime(g.start, day.timezone)}</Box>
-                <Box>{siteTime(g.end, day.timezone)}</Box>
+                <Box>{siteTime(g.start, view.timezone)}</Box>
+                <Box>{siteTime(g.end, view.timezone)}</Box>
                 <Box>{fmtDur(mins(g.start, g.end))}</Box>
                 <Box>
                   {!isDrafting && (
@@ -366,8 +456,8 @@ export function GapTable({ resourceId, date, workTasks = [], onSummary, onChange
                     {/* One tap for the common case: the whole gap was one thing. */}
                     <Button size="small" onClick={() => setDraft({
                       ...draft,
-                      from: siteTime(g.start, day.timezone),
-                      to: siteTime(g.end, day.timezone),
+                      from: siteTime(g.start, view.timezone),
+                      to: siteTime(g.end, view.timezone),
                     })}>
                       Rest of the gap
                     </Button>
@@ -441,7 +531,7 @@ export function GapTable({ resourceId, date, workTasks = [], onSummary, onChange
         })}
       </Box>
 
-      {day.gapMinutes > 0 && (
+      {view.gapMinutes > 0 && (
         <Typography sx={{ fontSize: 11.5, color: 'var(--c-text-3)', mt: 1 }}>
           Leaving time unaccounted is fine — it is recorded as unknown rather than guessed at.
         </Typography>

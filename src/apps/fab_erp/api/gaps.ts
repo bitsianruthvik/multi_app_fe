@@ -48,6 +48,67 @@ export interface DayGaps {
   gaps: Interval[];
 }
 
+/**
+ * One shift as a crew actually worked it. The key is (shiftId, the local date
+ * the shift STARTED) — which is what keeps a 22:00–06:00 night shift whole
+ * instead of splitting it across two calendar days.
+ */
+export interface ShiftInstance {
+  key: string;
+  shiftId: number;
+  shiftName: string | null;
+  /** The date the shift STARTED, not the date a span falls on. */
+  localDate: string;
+  startTime: string;
+  endTime: string;
+  crossesMidnight: boolean;
+  start: string;
+  end: string;
+  working: Interval[];
+  explained: ExplainedSpan[];
+  gaps: Interval[];
+  workingMinutes: number;
+  explainedMinutes: number;
+  gapMinutes: number;
+}
+
+export interface RangeGaps {
+  ok: boolean;
+  resourceId: number;
+  resourceName: string;
+  from: string;
+  to: string;
+  timezone: string;
+  instances: ShiftInstance[];
+  workingMinutes: number;
+  explainedMinutes: number;
+  gapMinutes: number;
+}
+
+/** `none` = nothing to account for. Grey, never red — see the backend note. */
+export type CoverageState = 'none' | 'partial' | 'complete';
+
+export interface MachineCoverage {
+  resourceId: number;
+  name: string;
+  code: string | null;
+  workingMinutes: number;
+  explainedMinutes: number;
+  gapMinutes: number;
+  state: CoverageState;
+}
+
+export function getRangeGaps(resourceId: number, from: string, to: string) {
+  return fabGet<RangeGaps>('gaps', { resourceId, from, to });
+}
+
+/** Totals for every machine in one request — what colours the tab dots. */
+export function getCoverage(from: string, to: string) {
+  return fabGet<{ ok: boolean; from: string; to: string; machines: MachineCoverage[] }>(
+    'gaps/coverage', { from, to },
+  );
+}
+
 export function getGapReasons() {
   return fabGet<{ ok: boolean; reasons: GapReason[] }>('gap-reasons');
 }
@@ -66,6 +127,13 @@ export function explainGap(body: {
   code: string;
   fromTime: string;
   toTime: string;
+  /**
+   * The instant the shift being written up began. Wall clock alone is ambiguous
+   * on a night shift — a 22:00–06:00 shift's 01:00–06:00 gap has both times after
+   * midnight, and without this the server resolves them onto the shift's start
+   * date, 24h early, into the previous night. Send it whenever writing a shift.
+   */
+  windowStart?: string;
   taskId?: number;
   party?: string;
   reference?: string;

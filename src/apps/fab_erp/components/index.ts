@@ -36,6 +36,7 @@ export { PersonSheet, shiftSpan, type ShiftOption } from './PersonSheet';
 export { LeaveDialog } from './LeaveDialog';
 export { GapTable } from './GapTable';
 export { GapExcelBar } from './GapExcelBar';
+export { MachineTabs } from './MachineTabs';
 export { ExitWorkerDialog } from './ExitWorkerDialog';
 export { AddPeopleDialog, type MachineOption } from './AddPeopleDialog';
 export { LiveIndicator } from './LiveIndicator';
