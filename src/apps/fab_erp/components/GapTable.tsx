@@ -17,9 +17,9 @@
  * predictable. The colour reads "unknown", never "your fault".
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Alert, Box, Button, Chip, IconButton, MenuItem, TextField, Tooltip, Typography,
+  Alert, Box, Button, Chip, Divider, IconButton, MenuItem, TextField, Tooltip, Typography,
 } from '@mui/material';
 import AddRounded from '@mui/icons-material/AddRounded';
 import CloseRounded from '@mui/icons-material/CloseRounded';
@@ -32,6 +32,7 @@ import {
   getGapReasons, getDayGaps, explainGap, withdrawExplained,
   type DayGaps, type GapReason, type ExplainedSpan,
 } from '../api/gaps';
+import { saveShiftLog } from '../api/shiftLog';
 import { useToast } from './Toast';
 import { backendMessage } from '../utils/backendMessage';
 
@@ -46,8 +47,26 @@ function siteTime(iso: string, tz: string) {
   }
 }
 
+/**
+ * 'HH:MM' on the sheet's date → an ISO instant, in the BROWSER's zone.
+ *
+ * Only used for the work path, because `saveShiftLog` has always taken absolute
+ * instants and every existing caller feeds it browser-local times. The gap
+ * reasons go through /gaps/explain instead, which takes wall clock and resolves
+ * it through the PLANT's zone — the correct treatment. Worth converging, but not
+ * by silently changing what the shift-log endpoint means to its other callers.
+ */
+const localIso = (date: string, hhmm: string) => new Date(`${date}T${hhmm}:00`).toISOString();
+
 const mins = (a: string, b: string) => Math.round((+new Date(b) - +new Date(a)) / 60000);
 const fmtDur = (m: number) => (m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m`.replace(' 0m', '') : `${m}m`);
+
+/**
+ * Logging work is not a "gap reason" — it writes started/completed task events
+ * rather than an explanation — but it belongs in the same table because from the
+ * supervisor's side it is the same act: saying what this hour was.
+ */
+const WORK_CODE = '__work__';
 
 const SCOPE_ICON = {
   site: <CloudRounded sx={{ fontSize: 15 }} />,
@@ -55,9 +74,24 @@ const SCOPE_ICON = {
   task: <AssignmentLateRounded sx={{ fontSize: 15 }} />,
 } as const;
 
-export function GapTable({ resourceId, date, onChanged }: {
+export interface GapWorkTask { id: number; label: string; plannedQty?: number | null }
+
+export function GapTable({ resourceId, date, workTasks = [], onSummary, onChanged }: {
   resourceId: number | null;
   date: string;
+  /**
+   * Jobs that could have run on this machine that day. Supplying these turns on
+   * "Worked on a job" as a row type — and without it the table can only explain
+   * why NOTHING happened, which is the less common case. Most unaccounted time
+   * on a shop floor is work somebody did and nobody wrote down.
+   */
+  workTasks?: GapWorkTask[];
+  /**
+   * Reports the day's totals up so a parent header can show them. Fed from the
+   * SAME fetch the table renders — a second request would drift the moment a
+   * row is added.
+   */
+  onSummary?: (s: { workingMinutes: number; explainedMinutes: number; gapMinutes: number }) => void;
   onChanged?: () => void;
 }) {
   const { toast } = useToast();
@@ -67,8 +101,17 @@ export function GapTable({ resourceId, date, onChanged }: {
   const [err, setErr] = useState('');
 
   // The row being added, anchored to a specific gap.
-  const [draft, setDraft] = useState<{ gapIdx: number; code: string; from: string; to: string; taskId: string; party: string; note: string } | null>(null);
+  const [draft, setDraft] = useState<{
+    gapIdx: number; code: string; from: string; to: string;
+    taskId: string; party: string; note: string;
+    good: string; scrap: string; qcFail: boolean;
+  } | null>(null);
   const [saving, setSaving] = useState(false);
+
+  // Held in a ref so an inline arrow from the parent doesn't re-fire the effect
+  // on every render — that would be a render loop, not a summary.
+  const onSummaryRef = useRef(onSummary);
+  onSummaryRef.current = onSummary;
 
   const load = useCallback(async () => {
     if (!resourceId) { setDay(null); return; }
@@ -83,6 +126,17 @@ export function GapTable({ resourceId, date, onChanged }: {
   }, [resourceId, date]);
 
   useEffect(() => { void load(); }, [load]);
+
+  // Push the totals up whenever they change, from whichever path produced them
+  // — initial load, an explain, a withdraw, or a work row.
+  useEffect(() => {
+    if (!day) return;
+    onSummaryRef.current?.({
+      workingMinutes: day.workingMinutes,
+      explainedMinutes: day.explainedMinutes,
+      gapMinutes: day.gapMinutes,
+    });
+  }, [day]);
   useEffect(() => { getGapReasons().then((r) => setReasons(r.reasons ?? [])).catch(() => {}); }, []);
 
   const reasonByCode = useMemo(() => new Map(reasons.map((r) => [r.code, r])), [reasons]);
@@ -103,27 +157,53 @@ export function GapTable({ resourceId, date, onChanged }: {
       // should be: pick a reason, press save.
       from: siteTime(g.start, day.timezone),
       to: siteTime(g.end, day.timezone),
-      taskId: '', party: '', note: '',
+      taskId: '', party: '', note: '', good: '', scrap: '', qcFail: false,
     });
   }
 
   async function save() {
     if (!draft || !day || !resourceId) return;
-    if (!draft.code) { setErr('Pick a reason.'); return; }
-    if (chosen?.scope === 'task' && !draft.taskId) {
+    if (!draft.code) { setErr('Say what this time was.'); return; }
+
+    const isWork = draft.code === WORK_CODE;
+    if (isWork && !draft.taskId) { setErr('Pick which job ran.'); return; }
+    if (!isWork && chosen?.scope === 'task' && !draft.taskId) {
       setErr(`"${chosen.label}" applies to a job — pick which one.`); return;
     }
     setSaving(true); setErr('');
     try {
-      const res = await explainGap({
-        resourceId, date, code: draft.code,
-        fromTime: draft.from, toTime: draft.to,
-        taskId: draft.taskId ? Number(draft.taskId) : undefined,
-        party: draft.party.trim() || undefined,
-        note: draft.note.trim() || undefined,
-      });
-      setDay(res); setDraft(null);
-      toast('Recorded.', 'success');
+      if (isWork) {
+        // Routed through the shift-log save rather than reimplemented here: that
+        // path already moves the WIP piece, books produced/scrap quantities,
+        // spawns rework on a QC fail and advances the DAG. Writing the events
+        // directly would record that the work happened while leaving the metal
+        // and every downstream task where they were.
+        await saveShiftLog({
+          resourceId, date,
+          work: [{
+            taskId: Number(draft.taskId),
+            startedAt: localIso(date, draft.from),
+            completedAt: localIso(date, draft.to),
+            producedQty: draft.good === '' ? null : Number(draft.good),
+            scrapQty: draft.scrap === '' ? null : Number(draft.scrap),
+            qcResult: draft.qcFail ? 'fail' : 'pass',
+            note: draft.note.trim() || null,
+          }],
+          downtime: [], absences: [],
+        });
+        setDay(await getDayGaps(resourceId, date));
+        toast('Work recorded.', 'success');
+      } else {
+        setDay(await explainGap({
+          resourceId, date, code: draft.code,
+          fromTime: draft.from, toTime: draft.to,
+          taskId: draft.taskId ? Number(draft.taskId) : undefined,
+          party: draft.party.trim() || undefined,
+          note: draft.note.trim() || undefined,
+        }));
+        toast('Recorded.', 'success');
+      }
+      setDraft(null);
       onChanged?.();
     } catch (e) {
       setErr(backendMessage(e, 'Could not record that.'));
@@ -255,9 +335,20 @@ export function GapTable({ resourceId, date, onChanged }: {
                 <Box sx={{ p: 1.5, borderTop: '1px solid var(--c-border)', bgcolor: 'var(--c-surface-2)' }}>
                   <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'flex-start' }}>
                     <TextField
-                      select size="small" label="What happened" sx={{ minWidth: 230 }}
+                      select size="small" label="What was this time?" sx={{ minWidth: 250 }}
                       value={draft.code} onChange={(e) => setDraft({ ...draft, code: e.target.value })}
                     >
+                      {/* First, and separated: on a shop floor most unaccounted
+                          time is work that happened and nobody wrote down. */}
+                      {workTasks.length > 0 && (
+                        <MenuItem value={WORK_CODE}>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                            <PrecisionManufacturingRounded sx={{ fontSize: 15 }} />
+                            <strong>Worked on a job</strong>
+                          </Box>
+                        </MenuItem>
+                      )}
+                      {workTasks.length > 0 && <Divider />}
                       {reasons.map((r) => (
                         <MenuItem key={r.code} value={r.code}>
                           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
@@ -281,6 +372,29 @@ export function GapTable({ resourceId, date, onChanged }: {
                       Rest of the gap
                     </Button>
                   </Box>
+
+                  {draft.code === WORK_CODE && (
+                    <Box sx={{ display: 'flex', gap: 1, mt: 1.25, flexWrap: 'wrap', alignItems: 'center' }}>
+                      <TextField select size="small" label="Which job" sx={{ minWidth: 260 }}
+                        value={draft.taskId} onChange={(e) => setDraft({ ...draft, taskId: e.target.value })}>
+                        {workTasks.map((t) => (
+                          <MenuItem key={t.id} value={String(t.id)}>{t.label}</MenuItem>
+                        ))}
+                      </TextField>
+                      <TextField size="small" type="number" label="Good qty" sx={{ width: 110 }}
+                        value={draft.good} onChange={(e) => setDraft({ ...draft, good: e.target.value })} />
+                      <TextField size="small" type="number" label="Scrap" sx={{ width: 100 }}
+                        value={draft.scrap} onChange={(e) => setDraft({ ...draft, scrap: e.target.value })} />
+                      <Button
+                        size="small"
+                        variant={draft.qcFail ? 'contained' : 'outlined'}
+                        color={draft.qcFail ? 'error' : 'inherit'}
+                        onClick={() => setDraft({ ...draft, qcFail: !draft.qcFail })}
+                      >
+                        {draft.qcFail ? 'QC failed' : 'QC passed'}
+                      </Button>
+                    </Box>
+                  )}
 
                   {chosen?.scope === 'task' && (
                     <Box sx={{ display: 'flex', gap: 1, mt: 1.25, flexWrap: 'wrap' }}>
@@ -306,6 +420,13 @@ export function GapTable({ resourceId, date, onChanged }: {
                     </Button>
                   </Box>
 
+                  {draft.code === WORK_CODE && (
+                    <Typography sx={{ fontSize: 11.5, color: 'var(--c-text-3)', mt: 1 }}>
+                      Records the job as run: moves the material, books the quantities and
+                      releases whatever was waiting on it.
+                      {draft.qcFail && ' A QC fail books no good stock and raises a rework task.'}
+                    </Typography>
+                  )}
                   {chosen && (
                     <Typography sx={{ fontSize: 11.5, color: 'var(--c-text-3)', mt: 1 }}>
                       {chosen.scope === 'site' && 'Applies to the whole plant — one entry covers every machine on site.'}
