@@ -198,10 +198,19 @@ export type WaitReason =
   | 'no_operator'
   | 'machine_busy'
   | 'output_blocked'
-  | 'unexplained_idle';
+  | 'unexplained_idle'
+  // Asserted causes — a supervisor said so, rather than the engine inferring it.
+  | 'waiting_inspection'
+  | 'weather'
+  | 'drawing_hold'
+  | 'other_explained';
 
 /** One contiguous wait segment within the breakdown. */
 export interface WaitBreakdownSegment {
+  /** What was holding the task during this slice — named when exactly one thing was outstanding. */
+  blockerType?: string | null;
+  blockerRefId?: number | null;
+  blockerLabel?: string | null;
   reason: WaitReason;
   segStart: string;
   segEnd: string;

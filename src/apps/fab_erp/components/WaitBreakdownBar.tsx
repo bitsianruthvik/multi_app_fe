@@ -22,6 +22,12 @@ export const WAIT_REASON_META: Record<WaitReason, { label: string; color: string
   machine_busy: { label: 'Machine busy', color: '#D97706' }, // amber (warning)
   output_blocked: { label: 'Output blocked', color: '#0D9488' }, // teal (secondary) — Phase 2, currently always 0
   unexplained_idle: { label: 'Unexplained idle', color: '#DB5A2C' }, // saturated attention (board "in production" accent)
+  // Asserted causes (2026-08-06). Without these the bar renders blank for any
+  // time a supervisor has actually explained -- the opposite of the intent.
+  waiting_inspection: { label: 'Waiting on inspection', color: '#7C3AED' }, // violet -- external, not ours
+  weather: { label: 'Weather / site stoppage', color: '#64748B' }, // slate -- nobody's fault
+  drawing_hold: { label: 'Drawing / customer hold', color: '#B45309' }, // dark amber -- upstream of the shop
+  other_explained: { label: 'Explained (other)', color: '#0F766E' }, // teal -- known, just uncategorised
 };
 
 const REASON_ORDER = Object.keys(WAIT_REASON_META) as WaitReason[];
