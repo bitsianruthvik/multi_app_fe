@@ -98,13 +98,13 @@ function OrderProgressBar({ pct, compact = false }: { pct?: number; compact?: bo
 interface OrderDraft {
   orderNumber: string; orderType: string; type: string; status: string;
   customerId: number | null; customerPoRef: string;
-  priority: string; requiredDate: string; confirmedDate: string;
+  priority: string; requiredDate: string;
 }
 const BLANK = (orderType = 'sales'): OrderDraft => ({
   orderNumber: '', orderType,
   type: ORDER_TYPE_CONFIG[orderType]?.subtypes[0] ?? 'standard',
   status: 'draft', customerId: null, customerPoRef: '',
-  priority: '', requiredDate: '', confirmedDate: '',
+  priority: '', requiredDate: '',
 });
 
 function OrderDialog({ open, initial, defaultOrderType, onClose, onSaved }: {
@@ -130,7 +130,7 @@ function OrderDialog({ open, initial, defaultOrderType, onClose, onSaved }: {
       orderNumber: initial.orderNumber, orderType: initial.orderType, type: initial.type ?? '',
       status: initial.status, customerId: initial.customerId ?? null, customerPoRef: initial.customerPoRef ?? '',
       priority: initial.priority ?? '',
-      requiredDate: initial.requiredDate?.slice(0, 10) ?? '', confirmedDate: initial.confirmedDate?.slice(0, 10) ?? '',
+      requiredDate: initial.requiredDate?.slice(0, 10) ?? '',
     } : BLANK(defaultOrderType ?? 'sales'));
   }, [open, initial, defaultOrderType]);
 
@@ -174,7 +174,6 @@ function OrderDialog({ open, initial, defaultOrderType, onClose, onSaved }: {
         status: draft.status, customer_id: draft.customerId, customer_name: selectedCustomer?.name ?? null,
         customer_po_ref: draft.customerPoRef.trim() || null,
         priority: draft.priority || null, required_date: draft.requiredDate || null,
-        confirmed_date: draft.confirmedDate || null,
       };
       if (isNew) await fabMutate('fabErpOrder', 'insert', payload);
       else await fabMutate('fabErpOrder', 'update', { id: initial!.id, ...payload });
@@ -229,10 +228,12 @@ function OrderDialog({ open, initial, defaultOrderType, onClose, onSaved }: {
             <TextField label="Customer PO ref" value={draft.customerPoRef} size="small"
               onChange={(e) => set('customerPoRef', e.target.value)} />
           </>)}
+          {/* No "Confirmed date" here. It is stamped by the server when the
+              order actually moves to 'confirmed' — asking for it up front
+              invited a date typed before the thing it records had happened.
+              Corrections still live on the order's Overview tab. */}
           <TextField label="Required date" value={draft.requiredDate} size="small" type="date"
             slotProps={{ inputLabel: { shrink: true } }} onChange={(e) => set('requiredDate', e.target.value)} />
-          <TextField label="Confirmed date" value={draft.confirmedDate} size="small" type="date"
-            slotProps={{ inputLabel: { shrink: true } }} onChange={(e) => set('confirmedDate', e.target.value)} />
         </Box>
       </DialogContent>
       <DialogActions>

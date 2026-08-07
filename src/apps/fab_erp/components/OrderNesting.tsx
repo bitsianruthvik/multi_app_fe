@@ -29,6 +29,12 @@ interface NestedPart {
   partQty: number;
   qtyPerPart: number | null;
 }
+/** One physical plate, and the parts laid out on it. */
+interface Nest {
+  key: string;
+  nestNo: string | null;
+  parts: NestedPart[];
+}
 interface NestedMaterial {
   catalogItemId: number;
   materialCode: string;
@@ -37,11 +43,14 @@ interface NestedMaterial {
   onHand: number;
   pieces: number;
   inStock: boolean;
+  nests: Nest[];
   parts: NestedPart[];
 }
 interface NestingResponse {
   materials: NestedMaterial[];
+  nests: number;
   waitingOnStock: number;
+  nestsBlocked: number;
   partsBlocked: number;
 }
 
@@ -92,9 +101,10 @@ export default function OrderNesting({ orderId }: { orderId: number }) {
       {data.waitingOnStock > 0 ? (
         <Alert severity="warning" icon={<HourglassEmptyRounded fontSize="inherit" />} sx={{ mb: 2 }}>
           Waiting on <strong>{data.waitingOnStock}</strong> material
-          {data.waitingOnStock === 1 ? '' : 's'}, holding up <strong>{data.partsBlocked}</strong> part
-          {data.partsBlocked === 1 ? '' : 's'}. Work on those parts starts by itself the moment the
-          material is received into stock — nothing here needs to be clicked.
+          {data.waitingOnStock === 1 ? '' : 's'} — <strong>{data.nestsBlocked}</strong> nest
+          {data.nestsBlocked === 1 ? '' : 's'}, <strong>{data.partsBlocked}</strong> part
+          {data.partsBlocked === 1 ? '' : 's'}. Work starts by itself the moment the material is
+          received into stock — nothing here needs to be clicked.
         </Alert>
       ) : (
         <Alert severity="success" icon={<CheckCircleRounded fontSize="inherit" />} sx={{ mb: 2 }}>
@@ -125,38 +135,49 @@ export default function OrderNesting({ orderId }: { orderId: number }) {
                 ? `In stock — ${m.onHand} ${m.unit ?? ''}`.trim()
                 : 'Not in stock'}
             />
-            <Tooltip title="Parts nested out of this material on this order">
+            <Tooltip title="Physical pieces of this material, and the parts laid out on them">
               <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-3)' }}>
-                {m.parts.length} part{m.parts.length === 1 ? '' : 's'}
+                {m.nests.length} nest{m.nests.length === 1 ? '' : 's'} · {m.parts.length} part{m.parts.length === 1 ? '' : 's'}
               </Typography>
             </Tooltip>
           </Box>
 
+          {/* Grouped by nest — one block per physical plate. A flat list of
+              ninety parts against a material cannot answer "what comes off
+              this plate", which is the question actually asked at the table. */}
           <Box sx={{ px: 2, py: 0.5 }}>
-            {m.parts.map((p) => (
-              <Box
-                key={p.linkId}
-                sx={{
-                  display: 'flex', alignItems: 'center', gap: 1.5, py: 0.75, flexWrap: 'wrap',
-                  borderBottom: '0.5px solid var(--c-divider)', '&:last-child': { borderBottom: 'none' },
-                }}
-              >
-                <Typography sx={{ fontSize: 13, color: 'var(--c-text)', flex: 1, minWidth: 140 }}>
-                  {p.partName}
-                </Typography>
-                {p.partCode && (
-                  <Tooltip title={p.partCode}>
-                    <Typography sx={{
-                      fontFamily: 'monospace', fontSize: 11.5, color: 'var(--c-text-3)',
-                      maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                    }}>
-                      {p.partCode}
+            {m.nests.map((nest) => (
+              <Box key={nest.key} sx={{ py: 0.75, borderBottom: '0.5px solid var(--c-divider)', '&:last-child': { borderBottom: 'none' } }}>
+                <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1, mb: 0.5 }}>
+                  <Typography sx={{ fontFamily: 'monospace', fontSize: 12, fontWeight: 600, color: 'var(--c-text-2)' }}>
+                    {nest.nestNo ?? 'un-nested'}
+                  </Typography>
+                  <Typography sx={{ fontSize: 11.5, color: 'var(--c-text-3)' }}>
+                    {nest.nestNo
+                      ? `${nest.parts.length} part${nest.parts.length === 1 ? '' : 's'} off this piece`
+                      : 'not assigned to a nest'}
+                  </Typography>
+                </Box>
+                {nest.parts.map((p) => (
+                  <Box key={p.linkId} sx={{ display: 'flex', alignItems: 'center', gap: 1.5, py: 0.4, pl: 1.5, flexWrap: 'wrap' }}>
+                    <Typography sx={{ fontSize: 13, color: 'var(--c-text)', flex: 1, minWidth: 140 }}>
+                      {p.partName}
                     </Typography>
-                  </Tooltip>
-                )}
-                <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)', minWidth: 88, textAlign: 'right' }}>
-                  {p.partQty} off
-                </Typography>
+                    {p.partCode && (
+                      <Tooltip title={p.partCode}>
+                        <Typography sx={{
+                          fontFamily: 'monospace', fontSize: 11.5, color: 'var(--c-text-3)',
+                          maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                        }}>
+                          {p.partCode}
+                        </Typography>
+                      </Tooltip>
+                    )}
+                    <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)', minWidth: 88, textAlign: 'right' }}>
+                      {p.partQty} off
+                    </Typography>
+                  </Box>
+                ))}
               </Box>
             ))}
           </Box>
