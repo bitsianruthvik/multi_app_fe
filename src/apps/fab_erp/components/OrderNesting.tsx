@@ -33,6 +33,10 @@ interface NestedPart {
 interface Nest {
   key: string;
   nestNo: string | null;
+  /** How much material this ONE plate is — drawn once, not once per part. */
+  qty: number | null;
+  /** True once the plate has gone to the floor. */
+  issued: boolean;
   parts: NestedPart[];
 }
 interface NestedMaterial {
@@ -43,6 +47,12 @@ interface NestedMaterial {
   onHand: number;
   pieces: number;
   inStock: boolean;
+  /** One plate per nest — never the sum of the per-part figures. */
+  required: number | null;
+  /** What is still to be drawn: plates already cut no longer count. */
+  stillRequired: number | null;
+  nestsIssued: number;
+  short: boolean;
   nests: Nest[];
   parts: NestedPart[];
 }
@@ -126,14 +136,25 @@ export default function OrderNesting({ orderId }: { orderId: number }) {
               {m.materialName}
             </Typography>
 
+            {/* Needed is one plate per nest. Showing it beside what is on hand
+                is the whole point — "in stock" alone can be true while still
+                not covering the plates this order has left to cut. */}
+            {m.stillRequired != null && (
+              <Tooltip title={`One plate per nest: ${m.nests.length} nest(s)${m.nestsIssued ? `, ${m.nestsIssued} already drawn` : ''}. Never the sum of the per-part figures.`}>
+                <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)', fontFamily: 'monospace' }}>
+                  need {Number(m.stillRequired.toFixed(3))} / have {Number(m.onHand.toFixed(3))} {m.unit ?? ''}
+                </Typography>
+              </Tooltip>
+            )}
+
             <Chip
               size="small"
-              icon={m.inStock ? <CheckCircleRounded /> : <HourglassEmptyRounded />}
-              color={m.inStock ? 'success' : 'warning'}
-              variant={m.inStock ? 'filled' : 'outlined'}
-              label={m.inStock
-                ? `In stock — ${m.onHand} ${m.unit ?? ''}`.trim()
-                : 'Not in stock'}
+              icon={m.short ? <HourglassEmptyRounded /> : <CheckCircleRounded />}
+              color={m.short ? 'warning' : 'success'}
+              variant={m.short ? 'outlined' : 'filled'}
+              label={m.short
+                ? (m.inStock ? 'Short' : 'Not in stock')
+                : `Covered — ${Number(m.onHand.toFixed(3))} ${m.unit ?? ''}`.trim()}
             />
             <Tooltip title="Physical pieces of this material, and the parts laid out on them">
               <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-3)' }}>
@@ -156,7 +177,15 @@ export default function OrderNesting({ orderId }: { orderId: number }) {
                     {nest.nestNo
                       ? `${nest.parts.length} part${nest.parts.length === 1 ? '' : 's'} off this piece`
                       : 'not assigned to a nest'}
+                    {nest.qty != null ? ` · ${Number(nest.qty.toFixed(3))} ${m.unit ?? ''}` : ''}
                   </Typography>
+                  {nest.issued && (
+                    <Tooltip title="This plate has already been drawn from stock. The other parts on it start without drawing anything more.">
+                      <Typography sx={{ fontSize: 11, color: 'var(--c-success-700, #1a7f37)', fontWeight: 600 }}>
+                        drawn
+                      </Typography>
+                    </Tooltip>
+                  )}
                 </Box>
                 {nest.parts.map((p) => (
                   <Box key={p.linkId} sx={{ display: 'flex', alignItems: 'center', gap: 1.5, py: 0.4, pl: 1.5, flexWrap: 'wrap' }}>
