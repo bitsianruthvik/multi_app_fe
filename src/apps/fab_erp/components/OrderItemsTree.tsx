@@ -20,7 +20,7 @@ import type { FilterValue } from '../api/client';
 import { Surface, EmptyState, useToast, backendMessage } from '../components';
 import { MaterializeOutcome, type MaterializeResponse } from './OrderTaskDag';
 import type { OrderReadiness } from '../api/readiness';
-import BoqWizardDialog from './BoqWizardDialog';
+import BoqWizardDialog, { type WizardLine } from './BoqWizardDialog';
 import api, { API_HOST } from '@core/utils/axiosConfig';
 
 // Tree can be 1000+ rows across hundreds of top-level branches — everything
@@ -781,7 +781,7 @@ export default function OrderItemsTree({ orderId, canManage, readiness, onStageC
   const [modeDialogOpen, setModeDialogOpen] = useState(false);
   const [wizardOpen, setWizardOpen] = useState(false);
   /** Structure types on this order's lines — shown as a hint in the wizard. */
-  const [lineTypes, setLineTypes] = useState<string[]>([]);
+  const [lines, setLines] = useState<WizardLine[]>([]);
 
   const [summary, setSummary] = useState<ItemsSummary | null>(null);
   // Incremented after every recompute or code run; every node watches it and
@@ -867,12 +867,16 @@ export default function OrderItemsTree({ orderId, canManage, readiness, onStageC
 
   useEffect(() => { loadSummary(); }, [loadSummary]);
 
+  // The wizard needs the lines themselves, not just their distinct types: the
+  // chosen line supplies the span code, and its type supplies the default parts.
   useEffect(() => {
-    fabQuery<{ data: Array<{ lineType?: string | null }> }>('fabErpOrderLine', {
-      filters: { orderId }, pagination: { limit: 100 },
+    fabQuery<{ data: WizardLine[] }>('fabErpOrderLine', {
+      filters: { orderId },
+      orderBy: [{ field: 'lineNo', direction: 'asc' }],
+      pagination: { limit: 200 },
     })
-      .then((r) => setLineTypes([...new Set((r.data ?? []).map((l) => l.lineType).filter(Boolean) as string[])]))
-      .catch(() => setLineTypes([]));
+      .then((r) => setLines(r.data ?? []))
+      .catch(() => setLines([]));
   }, [orderId]);
 
   /**
@@ -1199,7 +1203,7 @@ export default function OrderItemsTree({ orderId, canManage, readiness, onStageC
       <BoqWizardDialog
         open={wizardOpen}
         orderId={orderId}
-        lineTypes={lineTypes}
+        lines={lines}
         onClose={() => setWizardOpen(false)}
       />
 
