@@ -5,6 +5,26 @@
  */
 
 /**
+ * What kind of structure an order line is. Drives the BOQ wizard and, through
+ * flow rules, what each level gets made by. Shared so the sales order and the
+ * flow-rules screen cannot drift apart.
+ */
+export const LINE_TYPES = [
+  'Composite Girder', 'BowString', 'Tub Girder', 'Openweb Girder', 'PEB',
+] as const;
+
+/**
+ * The levels of a BOQ, outermost first. Only some of them carry work — a span
+ * and a girder are usually groupings, and no flow means nothing to do.
+ */
+export const BOQ_LEVELS = [
+  { key: 'span', label: 'Span' },
+  { key: 'girder', label: 'Girder' },
+  { key: 'segment', label: 'Segment' },
+  { key: 'part', label: 'Part' },
+] as const;
+
+/**
  * Base interface for all fab_erp tables
  * Includes standard audit columns returned by the generic query API
  */

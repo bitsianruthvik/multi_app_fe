@@ -16,7 +16,7 @@ import RestartAltRounded from '@mui/icons-material/RestartAltRounded';
 import { fabQuery, fabMutate } from '../api/client';
 import { baselineCcOrder } from '../api/cc';
 import { useDetailTitle } from '../components/nav/detailTitleContext';
-import type { FabPlant } from '../types';
+import { LINE_TYPES, type FabPlant } from '../types';
 import { usePermission } from '@core/hooks/usePermission';
 import {
   Surface, DetailLayout, CrossLink, FactItem, StatusBadge, Mono, EmptyState, useToast,
@@ -35,9 +35,6 @@ interface FabOrder {
   priority?: string; mrpController?: string; notes?: string; currency?: string; paymentTerms?: string;
   createdAt: string; updatedAt: string; deletedAt: string | null;
 }
-/** What kind of structure this line is — decides what the BOQ wizard offers. */
-const LINE_TYPES = ['Composite Girder', 'BowString', 'Tub Girder', 'Openweb Girder', 'PEB'];
-
 interface FabOrderLine {
   id: number; companyId: number; orderId: number; lineNo: number; catalogItemId: number;
   lineType?: string | null;
