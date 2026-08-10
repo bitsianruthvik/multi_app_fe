@@ -260,7 +260,7 @@ export default function SalesOrderDetail() {
         ) : tab === 'items' ? (
           <OrderItemsTree orderId={id} canManage={canManage} />
         ) : tab === 'nesting' ? (
-          <OrderNesting orderId={id} />
+          <OrderNesting orderId={id} canManage={canManage} />
         ) : tab === 'marks' ? (
           <MarksPanel orderId={id} canManage={canManage} />
         ) : (

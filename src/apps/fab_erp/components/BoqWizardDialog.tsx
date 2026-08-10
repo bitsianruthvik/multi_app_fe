@@ -1,13 +1,12 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Alert, Box, Button, CircularProgress, Dialog, DialogActions, DialogContent,
-  DialogTitle, IconButton, MenuItem, TextField, Tooltip, Typography,
+  DialogTitle, IconButton, TextField, Tooltip, Typography,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
 import DownloadIcon from '@mui/icons-material/Download';
 
-import { fabQuery } from '../api/client';
 import api, { API_HOST } from '@core/utils/axiosConfig';
 import { Surface } from '../components';
 
@@ -27,15 +26,11 @@ interface PartSpec {
   key: number;
   code: string;
   name: string;
-  rmCode: string;
   qty: string;
-  flowRef: string;
 }
-interface FlowOption { id: number; name: string }
-interface MaterialOption { id: number; code: string; name: string }
 
 let nextKey = 1;
-const blankPart = (): PartSpec => ({ key: nextKey++, code: '', name: '', rmCode: '', qty: '1', flowRef: '' });
+const blankPart = (): PartSpec => ({ key: nextKey++, code: '', name: '', qty: '1' });
 
 export default function BoqWizardDialog({ open, orderId, lineTypes, onClose }: {
   open: boolean;
@@ -47,28 +42,11 @@ export default function BoqWizardDialog({ open, orderId, lineTypes, onClose }: {
   const [spanCode, setSpanCode] = useState('S1');
   const [girders, setGirders] = useState('6');
   const [segments, setSegments] = useState('5');
-  const [assemblyFlow, setAssemblyFlow] = useState('');
   const [parts, setParts] = useState<PartSpec[]>([blankPart()]);
-  const [flows, setFlows] = useState<FlowOption[]>([]);
-  const [materials, setMaterials] = useState<MaterialOption[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
-  const load = useCallback(async () => {
-    try {
-      const [f, m] = await Promise.all([
-        fabQuery<{ data: FlowOption[] }>('fabErpOperationFlow', {
-          filters: { active: 1 }, orderBy: [{ field: 'name', direction: 'asc' }], pagination: { limit: 200 },
-        }).then((r) => r.data ?? []).catch(() => []),
-        fabQuery<{ data: MaterialOption[] }>('fabErpItemCatalog', {
-          filters: { procurementType: 'buy' }, orderBy: [{ field: 'code', direction: 'asc' }], pagination: { limit: 300 },
-        }).then((r) => r.data ?? []).catch(() => []),
-      ]);
-      setFlows(f); setMaterials(m);
-    } catch { /* the wizard still works with free text */ }
-  }, []);
-
-  useEffect(() => { if (open) { load(); setError(''); } }, [open, load]);
+  useEffect(() => { if (open) setError(''); }, [open]);
 
   const setPart = (key: number, patch: Partial<PartSpec>) =>
     setParts((ps) => ps.map((p) => (p.key === key ? { ...p, ...patch } : p)));
@@ -88,13 +66,10 @@ export default function BoqWizardDialog({ open, orderId, lineTypes, onClose }: {
           spanCode: spanCode.trim() || 'S1',
           girders: g,
           segmentsPerGirder: s,
-          assemblyFlow: assemblyFlow || undefined,
           parts: parts.filter((p) => p.code.trim()).map((p) => ({
             code: p.code.trim(),
             name: p.name.trim() || undefined,
-            rmCode: p.rmCode || undefined,
             qty: Number(p.qty) || 1,
-            flowRef: p.flowRef || undefined,
           })),
         },
         { responseType: 'blob' },
@@ -121,6 +96,7 @@ export default function BoqWizardDialog({ open, orderId, lineTypes, onClose }: {
         <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)', mb: 2 }}>
           This only makes a spreadsheet — nothing is saved to the order. Lay out the shape roughly,
           then fill in dimensions and change whatever you like in Excel before uploading.
+          Material and operation flows are set later, on the Nesting sheet and in flow allocation.
           {lineTypes.length > 0 && <> This order&rsquo;s lines are <strong>{lineTypes.join(', ')}</strong>.</>}
         </Typography>
 
@@ -135,12 +111,6 @@ export default function BoqWizardDialog({ open, orderId, lineTypes, onClose }: {
             <TextField label="Segments each" size="small" type="number" value={segments} sx={{ width: 130 }}
               onChange={(e) => setSegments(e.target.value)} />
           </Tooltip>
-          <TextField select label="Assembly flow" size="small" value={assemblyFlow} sx={{ flex: '1 1 220px' }}
-            onChange={(e) => setAssemblyFlow(e.target.value)}
-            helperText="Goes on each segment — welding a segment is work in its own right">
-            <MenuItem value="">— none —</MenuItem>
-            {flows.map((f) => <MenuItem key={f.id} value={f.name}>{f.name}</MenuItem>)}
-          </TextField>
         </Box>
 
         <Typography sx={{ fontSize: 11, fontWeight: 600, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--c-text-3)', mb: 1 }}>
@@ -154,18 +124,8 @@ export default function BoqWizardDialog({ open, orderId, lineTypes, onClose }: {
                 onChange={(e) => setPart(p.key, { code: e.target.value })} />
               <TextField label="Part name" size="small" value={p.name} sx={{ flex: '2 1 180px' }} placeholder="Top Flange"
                 onChange={(e) => setPart(p.key, { name: e.target.value })} />
-              <TextField select label="Raw material" size="small" value={p.rmCode} sx={{ flex: '1 1 190px' }}
-                onChange={(e) => setPart(p.key, { rmCode: e.target.value })}>
-                <MenuItem value="">— set later —</MenuItem>
-                {materials.map((m) => <MenuItem key={m.id} value={m.code}>{m.code}</MenuItem>)}
-              </TextField>
               <TextField label="Qty" size="small" type="number" value={p.qty} sx={{ width: 76 }}
                 onChange={(e) => setPart(p.key, { qty: e.target.value })} />
-              <TextField select label="Flow" size="small" value={p.flowRef} sx={{ flex: '1 1 180px' }}
-                onChange={(e) => setPart(p.key, { flowRef: e.target.value })}>
-                <MenuItem value="">— set later —</MenuItem>
-                {flows.map((f) => <MenuItem key={f.id} value={f.name}>{f.name}</MenuItem>)}
-              </TextField>
               <IconButton size="small" color="error" aria-label="Remove part"
                 onClick={() => setParts((ps) => (ps.length > 1 ? ps.filter((x) => x.key !== p.key) : ps))}>
                 <DeleteOutlineRounded fontSize="small" />

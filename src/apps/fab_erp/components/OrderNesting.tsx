@@ -1,11 +1,35 @@
-import { useCallback, useEffect, useState } from 'react';
-import { Alert, Box, Chip, CircularProgress, Tooltip, Typography } from '@mui/material';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  Alert, Box, Button, Chip, CircularProgress, Dialog, DialogActions, DialogContent,
+  DialogTitle, FormControlLabel, Radio, RadioGroup, Tooltip, Typography,
+} from '@mui/material';
 import CheckCircleRounded from '@mui/icons-material/CheckCircleRounded';
+import DownloadIcon from '@mui/icons-material/Download';
 import HourglassEmptyRounded from '@mui/icons-material/HourglassEmptyRounded';
 import Inventory2Rounded from '@mui/icons-material/Inventory2Rounded';
+import UploadFileIcon from '@mui/icons-material/UploadFile';
 
 import api, { API_HOST } from '@core/utils/axiosConfig';
-import { Surface, EmptyState } from '../components';
+import { Surface, EmptyState, useToast } from '../components';
+
+interface NestingImportResult {
+  nests: number; links: number; skipped: number; deleted?: number;
+  totalWeight?: number | null;
+  warnings: Array<{ message: string }>;
+  reportBase64?: string;
+}
+
+function downloadBase64Xlsx(base64: string, filename: string) {
+  const bytes = atob(base64);
+  const arr = new Uint8Array(bytes.length);
+  for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
+  const url = URL.createObjectURL(new Blob([arr], {
+    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  }));
+  const a = document.createElement('a');
+  a.href = url; a.download = filename; a.click();
+  URL.revokeObjectURL(url);
+}
 
 /**
  * Nesting — each raw material on the order, and every part cut from it.
@@ -64,18 +88,28 @@ interface NestingResponse {
   partsBlocked: number;
 }
 
-export default function OrderNesting({ orderId }: { orderId: number }) {
+export default function OrderNesting({ orderId, canManage = false }: { orderId: number; canManage?: boolean }) {
+  const { toast } = useToast();
   const [data, setData] = useState<NestingResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [importResult, setImportResult] = useState<NestingImportResult | null>(null);
+  // Replace clears this order's material links, so it is chosen before the file
+  // picker opens rather than sitting next to a one-click Upload.
+  const [mode, setMode] = useState<'append' | 'replace'>('append');
+  const [modeOpen, setModeOpen] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const base = useCallback(
+    () => `${API_HOST}/api/${localStorage.getItem('companySlug')}/fab_erp/orders/${orderId}`,
+    [orderId],
+  );
 
   const load = useCallback(async () => {
     setLoading(true); setError('');
     try {
-      const companySlug = localStorage.getItem('companySlug');
-      const res = await api.get<NestingResponse>(
-        `${API_HOST}/api/${companySlug}/fab_erp/orders/${orderId}/items/nesting`,
-      );
+      const res = await api.get<NestingResponse>(`${base()}/items/nesting`);
       setData(res.data);
     } catch (e) {
       const ax = e as { response?: { data?: { message?: string } }; message?: string };
@@ -83,9 +117,43 @@ export default function OrderNesting({ orderId }: { orderId: number }) {
     } finally {
       setLoading(false);
     }
-  }, [orderId]);
+  }, [base]);
 
   useEffect(() => { load(); }, [load]);
+
+  async function downloadSheet() {
+    setBusy(true); setError('');
+    try {
+      const res = await api.get(`${base()}/nesting/export`, { responseType: 'blob' });
+      const url = URL.createObjectURL(res.data as Blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'Order_Nesting.xlsx'; a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      const ax = e as { response?: { data?: { message?: string } }; message?: string };
+      setError(ax.response?.data?.message ?? ax.message ?? 'Could not download the nesting sheet');
+    } finally { setBusy(false); }
+  }
+
+  async function uploadSheet(file: File) {
+    setBusy(true); setError(''); setImportResult(null);
+    try {
+      const form = new FormData();
+      form.append('excel_file', file);
+      form.append('mode', mode);
+      const res = await api.post<NestingImportResult>(`${base()}/nesting/import`, form,
+        { headers: { 'Content-Type': 'multipart/form-data' } });
+      setImportResult(res.data);
+      await load();
+      toast(`${res.data.links} part(s) nested across ${res.data.nests} plate(s)`);
+    } catch (e) {
+      const ax = e as { response?: { data?: { message?: string } }; message?: string };
+      setError(ax.response?.data?.message ?? ax.message ?? 'Nesting upload failed');
+    } finally {
+      setBusy(false);
+      setMode('append'); // never let a replace carry into the next upload
+    }
+  }
 
   if (loading) {
     return (
@@ -94,20 +162,96 @@ export default function OrderNesting({ orderId }: { orderId: number }) {
       </Surface>
     );
   }
-  if (error) return <Alert severity="error" onClose={() => setError('')}>{error}</Alert>;
+  const toolbar = canManage && (
+    <Box sx={{ display: 'flex', gap: 1, mb: 2, flexWrap: 'wrap' }}>
+      <Button variant="outlined" size="small" disabled={busy}
+        startIcon={busy ? <CircularProgress size={14} color="inherit" /> : <DownloadIcon />}
+        onClick={downloadSheet}>
+        {data && data.materials.length > 0 ? 'Export nesting' : 'Download nesting sheet'}
+      </Button>
+      <Button variant="outlined" size="small" disabled={busy}
+        startIcon={<UploadFileIcon />}
+        onClick={() => { setMode('append'); setModeOpen(true); }}>
+        Import nesting
+      </Button>
+      <input ref={fileRef} type="file" accept=".xlsx" hidden
+        onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadSheet(f); e.target.value = ''; }} />
+    </Box>
+  );
+
+  const dialogs = (
+    <>
+      <Dialog open={modeOpen} onClose={() => setModeOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ fontWeight: 600 }}>Import nesting</DialogTitle>
+        <DialogContent dividers>
+          <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)', mb: 2 }}>
+            One row per plate: the material, the plate&rsquo;s own dimensions, and the codes of the
+            parts cut from it. This only touches material links — the BOQ tree is left alone either way.
+          </Typography>
+          <RadioGroup value={mode} onChange={(e) => setMode(e.target.value as 'append' | 'replace')}>
+            <FormControlLabel value="append" control={<Radio size="small" />}
+              label={<Typography sx={{ fontSize: 13.5 }}>Add to what is already nested</Typography>} />
+            <FormControlLabel value="replace" control={<Radio size="small" />}
+              label={<Typography sx={{ fontSize: 13.5 }}>Replace all nesting on this order</Typography>} />
+          </RadioGroup>
+          {mode === 'replace' && (
+            <Alert severity="warning" sx={{ mt: 1.5 }}>
+              Clears every material link on this order and any record of plates already drawn.
+              The item tree itself is untouched.
+            </Alert>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setModeOpen(false)}>Cancel</Button>
+          <Button variant="contained" color={mode === 'replace' ? 'warning' : 'primary'}
+            onClick={() => { setModeOpen(false); fileRef.current?.click(); }}>
+            Choose file…
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {importResult && (
+        <Alert
+          severity={importResult.skipped > 0 ? 'warning' : 'success'}
+          sx={{ mb: 2 }}
+          onClose={() => setImportResult(null)}
+          action={importResult.reportBase64 ? (
+            <Button size="small" onClick={() => downloadBase64Xlsx(importResult.reportBase64!, 'Nesting_Report.xlsx')}>
+              Download report
+            </Button>
+          ) : undefined}
+        >
+          {importResult.links} part(s) nested across {importResult.nests} plate(s)
+          {importResult.deleted ? `, ${importResult.deleted} previous link(s) cleared` : ''}
+          {importResult.skipped > 0 ? `, ${importResult.skipped} skipped` : ''}.
+          {importResult.warnings.map((w) => ` ${w.message}`).join('')}
+        </Alert>
+      )}
+    </>
+  );
+
+  if (error) {
+    return <Box>{toolbar}<Alert severity="error" onClose={() => setError('')}>{error}</Alert></Box>;
+  }
 
   if (!data || data.materials.length === 0) {
     return (
-      <EmptyState
-        icon={<Inventory2Rounded />}
-        title="Nothing nested yet"
-        hint="Fill in the Nesting sheet of the Excel template — one raw material per row, and the codes of the parts cut from it."
-      />
+      <Box>
+        {toolbar}
+        {dialogs}
+        <EmptyState
+          icon={<Inventory2Rounded />}
+          title="Nothing nested yet"
+          hint="Download the nesting sheet: one row per plate, with the material, the plate's size, and the codes of the parts cut from it."
+        />
+      </Box>
     );
   }
 
   return (
     <Box>
+      {toolbar}
+      {dialogs}
       {data.waitingOnStock > 0 ? (
         <Alert severity="warning" icon={<HourglassEmptyRounded fontSize="inherit" />} sx={{ mb: 2 }}>
           Waiting on <strong>{data.waitingOnStock}</strong> material
