@@ -19,6 +19,11 @@ const STATUS_FAMILY: Record<string, StatusFamily> = {
   in_transit: 'info',
   scheduled: 'info',
 
+  // `ready_to_ship` sat unmapped and so rendered as an anonymous grey chip on
+  // the one screen where "the order is made, go and load it" is the most
+  // consequential thing it could say.
+  ready_to_ship: 'success',
+
   // success — final / good outcome
   confirmed: 'success',
   approved: 'success',

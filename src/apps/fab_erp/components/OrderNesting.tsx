@@ -11,12 +11,15 @@ import UploadFileIcon from '@mui/icons-material/UploadFile';
 
 import api, { API_HOST } from '@core/utils/axiosConfig';
 import { Surface, EmptyState, useToast } from '../components';
+import type { OrderReadiness } from '../api/readiness';
 
 interface NestingImportResult {
   nests: number; links: number; skipped: number; deleted?: number;
   totalWeight?: number | null;
   warnings: Array<{ message: string }>;
   reportBase64?: string;
+  /** Recomputed server-side after the upload — saves the page asking again. */
+  readiness?: OrderReadiness | null;
 }
 
 function downloadBase64Xlsx(base64: string, filename: string) {
@@ -88,7 +91,14 @@ interface NestingResponse {
   partsBlocked: number;
 }
 
-export default function OrderNesting({ orderId, canManage = false }: { orderId: number; canManage?: boolean }) {
+export default function OrderNesting({ orderId, canManage = false, onStageChanged }: {
+  orderId: number; canManage?: boolean;
+  /**
+   * Tell the order page a stage moved, so the strip above follows along.
+   * Pass the readiness an endpoint already returned to save a round-trip.
+   */
+  onStageChanged?: (next?: OrderReadiness | null) => void;
+}) {
   const { toast } = useToast();
   const [data, setData] = useState<NestingResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -145,6 +155,7 @@ export default function OrderNesting({ orderId, canManage = false }: { orderId: 
         { headers: { 'Content-Type': 'multipart/form-data' } });
       setImportResult(res.data);
       await load();
+      onStageChanged?.(res.data.readiness);
       toast(`${res.data.links} part(s) nested across ${res.data.nests} plate(s)`);
     } catch (e) {
       const ax = e as { response?: { data?: { message?: string } }; message?: string };

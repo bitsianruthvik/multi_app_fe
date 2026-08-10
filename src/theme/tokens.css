@@ -41,6 +41,9 @@ html[data-app='fab_erp'] {
   /* ── Board stage accents (categorical, not status — pipeline columns) ── */
   --c-stage-capture: #D97706;
   --c-stage-planned: #0284C7;
+  /* Prepared, waiting on a planner — sits between planned's blue and
+     scheduled's violet, because that is exactly where it sits in the flow. */
+  --c-stage-ready: #4F46E5;
   --c-stage-scheduled: #7C3AED;
   --c-stage-production: #DB5A2C;
   --c-stage-shipped: #0E9F6E;

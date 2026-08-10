@@ -7,6 +7,7 @@ import {
 import AddIcon from '@mui/icons-material/Add';
 import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
 import EditRounded from '@mui/icons-material/EditRounded';
+import PlayArrowRounded from '@mui/icons-material/PlayArrowRounded';
 import ReceiptLongRounded from '@mui/icons-material/ReceiptLongRounded';
 import ViewKanbanRounded from '@mui/icons-material/ViewKanbanRounded';
 import ViewListRounded from '@mui/icons-material/ViewListRounded';
@@ -19,6 +20,7 @@ import {
   StatStrip, type Stat,
 } from '../components';
 import { statusFamily } from '../statusMap';
+import SalesOrderWizard from '../components/SalesOrderWizard';
 
 interface FabOrder {
   id: number; companyId: number; orderNumber: string; orderType: string; type: string; status: string;
@@ -109,7 +111,7 @@ const BLANK = (orderType = 'sales'): OrderDraft => ({
 
 function OrderDialog({ open, initial, defaultOrderType, onClose, onSaved }: {
   open: boolean; initial: FabOrder | null; defaultOrderType?: string;
-  onClose: () => void; onSaved: (orderNumber?: string) => void;
+  onClose: () => void; onSaved: (orderNumber?: string, newId?: number) => void;
 }) {
   const isNew = !initial;
   const [draft, setDraft] = useState<OrderDraft>(BLANK());
@@ -175,9 +177,16 @@ function OrderDialog({ open, initial, defaultOrderType, onClose, onSaved }: {
         customer_po_ref: draft.customerPoRef.trim() || null,
         priority: draft.priority || null, required_date: draft.requiredDate || null,
       };
-      if (isNew) await fabMutate('fabErpOrder', 'insert', payload);
-      else await fabMutate('fabErpOrder', 'update', { id: initial!.id, ...payload });
-      onSaved(isNew ? orderNumber : undefined);
+      if (isNew) {
+        const res = await fabMutate<{ id: number }>('fabErpOrder', 'insert', payload);
+        // The id goes back so the caller can open the wizard on the order that
+        // was just created — creating an order and then setting it up are one
+        // action to the person doing it, not two.
+        onSaved(orderNumber, res?.id);
+      } else {
+        await fabMutate('fabErpOrder', 'update', { id: initial!.id, ...payload });
+        onSaved();
+      }
     } catch (e) {
       const ax = e as { response?: { data?: { message?: string; error?: string } }; message?: string };
       setErr(ax.response?.data?.message ?? ax.response?.data?.error ?? ax.message ?? 'Save failed');
@@ -320,6 +329,8 @@ export default function Orders() {
   const [error, setError] = useState('');
   const [dlg, setDlg] = useState<{ open: boolean; order: FabOrder | null }>({ open: false, order: null });
   const [delOrder, setDelOrder] = useState<FabOrder | null>(null);
+  /** The order whose setup wizard is open, if any. */
+  const [wizard, setWizard] = useState<{ id: number; number?: string } | null>(null);
 
   const fetchAll = useCallback(async () => {
     setLoading(true); setError('');
@@ -400,11 +411,25 @@ export default function Orders() {
               due {o.requiredDate.slice(0, 10)}
             </Typography>
           )}
+          {/* A draft is an order part-way through its wizard, so the wizard is
+              one click from the board — the whole point of being able to close
+              it is being able to get back in without hunting. stopPropagation
+              because the card itself navigates to the order. */}
+          {o.status === 'draft' && canManage && (
+            <Button
+              size="small" variant="outlined" fullWidth
+              sx={{ mt: 1, fontSize: 11.5, py: 0.25 }}
+              startIcon={<PlayArrowRounded sx={{ fontSize: 14 }} />}
+              onClick={(e) => { e.stopPropagation(); setWizard({ id: o.id, number: o.orderNumber }); }}
+            >
+              Continue setup
+            </Button>
+          )}
         </PipelineCard>,
       );
     }
     return map;
-  }, [filtered, company, navigate]);
+  }, [filtered, company, navigate, canManage]);
 
   const newOrder = canManage ? (
     <Button variant="contained" startIcon={<AddIcon />} onClick={() => setDlg({ open: true, order: null })}>
@@ -485,8 +510,25 @@ export default function Orders() {
         open={dlg.open} initial={dlg.order}
         defaultOrderType={typeFilter === 'all' ? 'sales' : typeFilter}
         onClose={() => setDlg({ open: false, order: null })}
-        onSaved={(orderNumber) => { setDlg({ open: false, order: null }); toast(orderNumber ? `Order created — ${orderNumber}` : 'Order saved'); fetchAll(); }}
+        onSaved={(orderNumber, newId) => {
+          setDlg({ open: false, order: null });
+          toast(orderNumber ? `Order created — ${orderNumber}` : 'Order saved');
+          fetchAll();
+          // Straight into the wizard. Creating the order is step zero of setting
+          // it up, and making someone find the order again to carry on would be
+          // an odd place to stop.
+          if (newId) setWizard({ id: newId, number: orderNumber });
+        }}
       />
+      {wizard && (
+        <SalesOrderWizard
+          orderId={wizard.id}
+          orderNumber={wizard.number}
+          open
+          canManage={canManage}
+          onClose={() => { setWizard(null); fetchAll(); }}
+        />
+      )}
       <DeleteDialog order={delOrder} onClose={() => setDelOrder(null)}
         onDeleted={() => { setDelOrder(null); toast('Order deleted'); fetchAll(); }} />
     </Box>

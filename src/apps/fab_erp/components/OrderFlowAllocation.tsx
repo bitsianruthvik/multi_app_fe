@@ -8,6 +8,7 @@ import RouteRounded from '@mui/icons-material/RouteRounded';
 import { fabQuery } from '../api/client';
 import api, { API_HOST } from '@core/utils/axiosConfig';
 import { Surface, EmptyState, useToast } from '../components';
+import type { OrderReadiness } from '../api/readiness';
 
 /**
  * Flow allocation — stage 3 of a sales order.
@@ -49,8 +50,13 @@ const LEVEL_LABEL: Record<string, string> = {
   span: 'Span', girder: 'Girder', segment: 'Segment', part: 'Part',
 };
 
-export default function OrderFlowAllocation({ orderId, canManage = false }: {
+export default function OrderFlowAllocation({ orderId, canManage = false, onStageChanged }: {
   orderId: number; canManage?: boolean;
+  /**
+   * Tell the order page a stage moved, so the strip above follows along.
+   * Pass the readiness an endpoint already returned to save a round-trip.
+   */
+  onStageChanged?: (next?: OrderReadiness | null) => void;
 }) {
   const { toast } = useToast();
   const [summary, setSummary] = useState<FlowSummary | null>(null);
@@ -92,10 +98,12 @@ export default function OrderFlowAllocation({ orderId, canManage = false }: {
   async function apply(reassign: boolean) {
     setBusy(true); setError('');
     try {
-      const res = await api.post<{ assigned: number; unchanged: number; noRule: number; message?: string }>(
-        `${base()}/orders/${orderId}/flows/apply`, { reassign },
-      );
+      const res = await api.post<{
+        assigned: number; unchanged: number; noRule: number; message?: string;
+        readiness?: OrderReadiness | null;
+      }>(`${base()}/orders/${orderId}/flows/apply`, { reassign });
       await load();
+      onStageChanged?.(res.data.readiness);
       toast(res.data.message
         ?? (res.data.assigned > 0
           ? `${res.data.assigned} item(s) given a flow`
@@ -113,9 +121,11 @@ export default function OrderFlowAllocation({ orderId, canManage = false }: {
       setItems((prev) => prev.map((x) => (x.id === item.id
         ? { ...x, flowId: flowId === '' ? null : flowId, flowSource: flowId === '' ? null : 'manual' }
         : x)));
-      // The per-level counts move with it.
+      // The per-level counts move with it — and so may the last exception on the
+      // order, which is what completes the stage.
       api.get<FlowSummary>(`${base()}/orders/${orderId}/flows/summary`)
         .then((r) => setSummary(r.data)).catch(() => {});
+      onStageChanged?.();
     } catch (e) {
       const ax = e as { response?: { data?: { message?: string } }; message?: string };
       setError(ax.response?.data?.message ?? ax.message ?? 'Could not set the flow');

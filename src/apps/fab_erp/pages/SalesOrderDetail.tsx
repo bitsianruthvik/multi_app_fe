@@ -1,32 +1,33 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { Link as RouterLink, useNavigate, useParams } from 'react-router-dom';
+import { useCallback, useEffect, useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
 import {
-  Alert, Autocomplete, Box, Button, CircularProgress, Dialog, DialogActions,
-  DialogContent, DialogTitle, Divider, IconButton, Link, MenuItem,
-  TextField, Tooltip, Typography,
+  Alert, Box, Button, CircularProgress, Divider, MenuItem,
+  TextField, Typography,
 } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBackRounded';
-import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
 import SaveIcon from '@mui/icons-material/SaveRounded';
-import AddIcon from '@mui/icons-material/Add';
 import FactoryRounded from '@mui/icons-material/FactoryRounded';
 import Inventory2Rounded from '@mui/icons-material/Inventory2Rounded';
 import RestartAltRounded from '@mui/icons-material/RestartAltRounded';
+import PlayArrowRounded from '@mui/icons-material/PlayArrowRounded';
 
 import { fabQuery, fabMutate } from '../api/client';
 import { baselineCcOrder } from '../api/cc';
 import { useDetailTitle } from '../components/nav/detailTitleContext';
-import { LINE_TYPES, type FabPlant } from '../types';
+import { type FabPlant } from '../types';
 import { usePermission } from '@core/hooks/usePermission';
 import {
-  Surface, DetailLayout, CrossLink, FactItem, StatusBadge, Mono, EmptyState, useToast,
-  DataTable, QtyCell, NumberCell, DateCell, MarksPanel, ConfirmDialog,
+  Surface, DetailLayout, CrossLink, FactItem, StatusBadge, Mono, useToast, ConfirmDialog,
 } from '../components';
+import OrderLinesPanel, { type FabOrderLine } from '../components/OrderLinesPanel';
+import SalesOrderWizard from '../components/SalesOrderWizard';
 import { statusFamily } from '../statusMap';
 import OrderItemsTree from '../components/OrderItemsTree';
 import OrderFlowAllocation from '../components/OrderFlowAllocation';
 import OrderNesting from '../components/OrderNesting';
 import OrderTaskDag from '../components/OrderTaskDag';
+import OrderStageStrip from '../components/OrderStageStrip';
+import { fetchOrderReadiness, type OrderReadiness, type ReadinessStage } from '../api/readiness';
 
 interface FabOrder {
   id: number; companyId: number; orderNumber: string; orderType: string; type: string; status: string;
@@ -35,19 +36,32 @@ interface FabOrder {
   priority?: string; mrpController?: string; notes?: string; currency?: string; paymentTerms?: string;
   createdAt: string; updatedAt: string; deletedAt: string | null;
 }
-interface FabOrderLine {
-  id: number; companyId: number; orderId: number; lineNo: number; catalogItemId: number;
-  lineType?: string | null;
-  qty: number; unit?: string; unitPrice?: number; discount?: number;
-  targetPlantId?: number; requestedDate?: string; notes?: string;
-  catalogItemName?: string; catalogItemCode?: string; catalogItemUnit?: string;
-  targetPlantName?: string; createdAt: string; updatedAt: string; deletedAt: string | null;
-}
-interface CatalogOption { id: number; name: string; code: string; unit?: string }
 
 const SO_TYPES = ['standard', 'rush', 'blanket', 'internal'];
-const SO_STATUSES = ['draft', 'confirmed', 'in_production', 'shipped', 'closed', 'cancelled'];
+/**
+ * The statuses a person sets by hand. The rest — scheduled, in_production,
+ * ready_to_ship — are consequences the system works out from task progress,
+ * and offering them here would invite someone to declare an order in
+ * production that has not started.
+ *
+ * `confirmed` is absent too, and deliberately: an order leaves draft by being
+ * confirmed at the END OF THE WIZARD, once its lines, BOM, nesting, flows and
+ * project tree are all done. A dropdown that let anyone skip all of that
+ * would make the wizard advisory.
+ */
+const SO_STATUSES = ['draft', 'shipped', 'closed', 'cancelled'];
 const SO_PRIORITIES = ['critical', 'high', 'medium', 'low'];
+
+/**
+ * The dropdown options, always including whatever the order is on now.
+ *
+ * Without this an automatic status renders as an EMPTY select — the field just
+ * looks blank, which reads as data loss on a screen whose whole job is to show
+ * the record faithfully.
+ */
+function statusOptions(current?: string): string[] {
+  return current && !SO_STATUSES.includes(current) ? [current, ...SO_STATUSES] : SO_STATUSES;
+}
 
 export default function SalesOrderDetail() {
   const { company, soId } = useParams<{ company: string; soId: string }>();
@@ -71,27 +85,59 @@ export default function SalesOrderDetail() {
   const [tab, setTab] = useState('overview');
   const [draft, setDraft] = useState<Partial<FabOrder>>({});
   const [rebaseOpen, setRebaseOpen] = useState(false);
+  const [wizardOpen, setWizardOpen] = useState(false);
+  // Where the order stands across the five preparation stages. Owned here
+  // rather than inside each tab because the strip has to be visible from every
+  // tab — the point of it is that you can see the whole sequence while working
+  // on one part of it.
+  const [readiness, setReadiness] = useState<OrderReadiness | null>(null);
 
   const set = <K extends keyof FabOrder>(k: K, v: FabOrder[K]) => setDraft((d) => ({ ...d, [k]: v }));
 
   const fetchAll = useCallback(async () => {
     setLoading(true); setError('');
     try {
-      const [soRes, itemsRes, plantsRes] = await Promise.all([
+      const [soRes, itemsRes, plantsRes, readinessRes] = await Promise.all([
         fabQuery<{ data: FabOrder[] }>('fabErpOrder', { filters: { id }, pagination: { limit: 1 } }),
         fabQuery<{ data: FabOrderLine[] }>('fabErpOrderLine', { filters: { orderId: id }, orderBy: [{ field: 'lineNo', direction: 'asc' }] }),
         fabQuery<{ data: FabPlant[] }>('fabErpPlant', { orderBy: [{ field: 'name', direction: 'asc' }], pagination: { limit: 200 } }),
+        // The strip is a guide, not a gate: if readiness cannot be read the
+        // order still opens and every tab still works.
+        fetchOrderReadiness(id).catch(() => null),
       ]);
       const record = soRes.data?.[0] ?? null;
       setSo(record);
       if (record) setDraft({ ...record });
       setItems(itemsRes.data ?? []);
       setPlants(plantsRes.data ?? []);
+      setReadiness(readinessRes);
     } catch (e) { setError((e as Error).message); }
     finally { setLoading(false); }
   }, [id]);
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
+
+  /**
+   * Re-read readiness after something changed a step.
+   *
+   * Also reconciles the status, because confirming inside the wizard moves the
+   * order out of draft server-side — the badge in the header would otherwise
+   * keep showing the status the page loaded with. An unsaved choice in the
+   * Status dropdown is left alone: the user's edit outranks the automation.
+   */
+  const soStatus = so?.status;
+  const refreshReadiness = useCallback(async (next?: OrderReadiness | null) => {
+    try {
+      // Most write endpoints already recomputed this and handed it back, so the
+      // common path costs nothing.
+      const r = next ?? await fetchOrderReadiness(id);
+      setReadiness(r);
+      if (soStatus && r.status !== soStatus) {
+        setSo((prev) => (prev ? { ...prev, status: r.status } : prev));
+        setDraft((d) => (d.status === soStatus ? { ...d, status: r.status } : d));
+      }
+    } catch { /* leave the last known state on screen */ }
+  }, [id, soStatus]);
 
   async function saveSo() {
     if (!so) return;
@@ -154,6 +200,14 @@ export default function SalesOrderDetail() {
             {so.customerName || 'No customer'}
           </Typography>
         </Box>
+        {/* A draft is an order still in the wizard, so the wizard is the
+            headline action while it is one — the tabs below are for looking
+            things up, not for working through the sequence. */}
+        {so.status === 'draft' && canManage && (
+          <Button variant="contained" startIcon={<PlayArrowRounded />} onClick={() => setWizardOpen(true)}>
+            Continue setup
+          </Button>
+        )}
       </Box>
       <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 2 }}>
         <FactItem label="Type" value={so.type?.replace(/_/g, ' ') ?? '—'} />
@@ -164,6 +218,10 @@ export default function SalesOrderDetail() {
     </Box>
   );
 
+  /** A tab's completion marker, or undefined while readiness is unknown. */
+  const stageDot = (key: ReadinessStage['key']) =>
+    readiness?.stages.find((s) => s.key === key)?.state;
+
   const crossLinks = (
     <>
       <CrossLink icon={<Inventory2Rounded />} label="Line items" count={items.length} onClick={() => setTab('lines')} />
@@ -173,19 +231,32 @@ export default function SalesOrderDetail() {
 
   return (
     <Box>
+      <SalesOrderWizard
+        orderId={id}
+        orderNumber={so.orderNumber}
+        open={wizardOpen}
+        canManage={canManage}
+        onClose={() => { setWizardOpen(false); fetchAll(); }}
+      />
       {error && <Alert severity="error" sx={{ mb: 2, maxWidth: 1100, mx: 'auto' }} onClose={() => setError('')}>{error}</Alert>}
+      {readiness && (
+        <Box sx={{ maxWidth: 1100, mx: 'auto' }}>
+          <OrderStageStrip readiness={readiness} activeTab={tab} onGoToTab={setTab} />
+        </Box>
+      )}
       <DetailLayout
         maxWidth={1100}
         header={header}
         crossLinks={crossLinks}
         tabs={[
           { value: 'overview', label: 'Overview' },
-          { value: 'lines', label: 'Line items', count: items.length },
-          { value: 'items', label: 'Items / BOM' },
-          { value: 'nesting', label: 'Nesting' },
-          { value: 'flows', label: 'Flows' },
-          { value: 'marks', label: 'Marks' },
-          { value: 'dag', label: 'Task DAG' },
+          // Ordered as the work is done, and each carrying its own state, so
+          // the sequence is legible from the tab bar alone.
+          { value: 'lines', label: 'Line items', count: items.length, dot: stageDot('lines') },
+          { value: 'items', label: 'Items / BOM', dot: stageDot('boq') },
+          { value: 'nesting', label: 'Nesting', dot: stageDot('nesting') },
+          { value: 'flows', label: 'Flows', dot: stageDot('flows') },
+          { value: 'dag', label: 'Project tree', dot: stageDot('tasks') },
         ]}
         active={tab}
         onTab={setTab}
@@ -199,7 +270,9 @@ export default function SalesOrderDetail() {
                 {SO_TYPES.map((t) => <MenuItem key={t} value={t}>{t}</MenuItem>)}
               </TextField>
               <TextField select label="Status" size="small" value={draft.status ?? ''} disabled={!canManage} onChange={(e) => set('status', e.target.value)}>
-                {SO_STATUSES.map((s) => <MenuItem key={s} value={s}>{s.replace(/_/g, ' ')}</MenuItem>)}
+                {statusOptions(draft.status ?? so.status).map((s) => (
+                  <MenuItem key={s} value={s}>{s.replace(/_/g, ' ')}</MenuItem>
+                ))}
               </TextField>
               <TextField select label="Priority" size="small" value={draft.priority ?? ''} disabled={!canManage} onChange={(e) => set('priority', e.target.value)}>
                 <MenuItem value="">— none —</MenuItem>
@@ -255,15 +328,18 @@ export default function SalesOrderDetail() {
             )}
           </Surface>
         ) : tab === 'lines' ? (
-          <LineItemsTab soId={id} items={items} plants={plants} canManage={canManage} company={company!} onRefresh={fetchAll} toast={toast} setError={setError} />
+          <OrderLinesPanel orderId={id} canManage={canManage} onChanged={fetchAll} />
         ) : tab === 'items' ? (
-          <OrderItemsTree orderId={id} canManage={canManage} />
+          <OrderItemsTree
+            orderId={id}
+            canManage={canManage}
+            readiness={readiness}
+            onStageChanged={refreshReadiness}
+          />
         ) : tab === 'nesting' ? (
-          <OrderNesting orderId={id} canManage={canManage} />
+          <OrderNesting orderId={id} canManage={canManage} onStageChanged={refreshReadiness} />
         ) : tab === 'flows' ? (
-          <OrderFlowAllocation orderId={id} canManage={canManage} />
-        ) : tab === 'marks' ? (
-          <MarksPanel orderId={id} canManage={canManage} />
+          <OrderFlowAllocation orderId={id} canManage={canManage} onStageChanged={refreshReadiness} />
         ) : (
           <OrderTaskDag orderId={id} canManage={canManage} />
         )}
@@ -303,160 +379,3 @@ function FormGrid({ cols, children }: { cols: number; children: React.ReactNode 
   return <Box sx={{ display: 'grid', gridTemplateColumns: `repeat(${cols}, 1fr)`, gap: 2 }}>{children}</Box>;
 }
 
-function LineItemsTab({ soId, items, plants, canManage, company, onRefresh, toast, setError }: {
-  soId: number; items: FabOrderLine[]; plants: FabPlant[]; canManage: boolean; company: string;
-  onRefresh: () => void; toast: (m: string, t?: 'success' | 'error' | 'info') => void; setError: (m: string) => void;
-}) {
-  const [catalogOptions, setCatalogOptions] = useState<CatalogOption[]>([]);
-  const [catalogInput, setCatalogInput] = useState('');
-  const [selectedItem, setSelectedItem] = useState<CatalogOption | null>(null);
-  const [qty, setQty] = useState('');
-  const [lineType, setLineType] = useState('');
-  const [unitPrice, setUnitPrice] = useState('');
-  const [targetPlantId, setTargetPlantId] = useState<number | ''>('');
-  const [reqDate, setReqDate] = useState('');
-  const [adding, setAdding] = useState(false);
-  const [delItem, setDelItem] = useState<FabOrderLine | null>(null);
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const loadCatalog = useCallback(async (search = '') => {
-    try {
-      const res = await fabQuery<{ data: CatalogOption[] }>('fabErpItemCatalog', {
-        // Substring search: the generic query treats a plain { name } filter as
-        // exact equality, so use the dotted LIKE operator with our own wildcards
-        // (mirrors the BOM picker in OrderItemsTree). BUG-04.
-        filters: search ? { 'name.LIKE': `%${search}%` } : undefined,
-        orderBy: [{ field: 'name', direction: 'asc' }],
-        pagination: { limit: 50 },
-      });
-      setCatalogOptions(res.data ?? []);
-    } catch { /* ignore */ }
-  }, []);
-
-  useEffect(() => {
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => loadCatalog(catalogInput.trim()), 200);
-  }, [catalogInput, loadCatalog]);
-
-  async function addItem() {
-    if (!selectedItem || !qty) return;
-    setAdding(true);
-    try {
-      await fabMutate('fabErpOrderLine', 'insert', {
-        order_id: soId, catalog_item_id: selectedItem.id, qty: Number(qty),
-        line_type: lineType || null,
-        unit: selectedItem.unit ?? null, unit_price: unitPrice ? Number(unitPrice) : null,
-        target_plant_id: targetPlantId || null, requested_date: reqDate || null,
-      });
-      setSelectedItem(null); setCatalogInput(''); setQty(''); setLineType(''); setUnitPrice(''); setTargetPlantId(''); setReqDate('');
-      toast('Line item added'); onRefresh();
-    } catch (e) {
-      const ax = e as { response?: { data?: { message?: string; error?: string } }; message?: string };
-      setError(ax.response?.data?.message ?? ax.response?.data?.error ?? ax.message ?? 'Add failed');
-    } finally { setAdding(false); }
-  }
-
-  async function deleteItem(item: FabOrderLine) {
-    try { await fabMutate('fabErpOrderLine', 'delete', { id: item.id }); setDelItem(null); toast('Line item removed'); onRefresh(); }
-    catch (e) { setError((e as Error).message); }
-  }
-
-
-  return (
-    <Box>
-      {canManage && (
-        <Surface e={1} sx={{ p: 2, mb: 2 }}>
-          <SectionLabel>Add line item</SectionLabel>
-          <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'flex-end' }}>
-            <Autocomplete
-              sx={{ flex: '2 1 220px' }}
-              options={catalogOptions}
-              getOptionLabel={(o) => `${o.name}${o.code ? ` (${o.code})` : ''}`}
-              value={selectedItem}
-              inputValue={catalogInput}
-              onOpen={() => loadCatalog(catalogInput.trim())}
-              onInputChange={(_, v) => setCatalogInput(v)}
-              onChange={(_, v) => setSelectedItem(v)}
-              filterOptions={(x) => x}
-              isOptionEqualToValue={(a, b) => a.id === b.id}
-              renderOption={(props, o) => (
-                <li {...props} key={o.id}>
-                  <Box>
-                    <Typography variant="body2">{o.name}</Typography>
-                    <Typography variant="caption" color="text.secondary">{o.code}</Typography>
-                  </Box>
-                </li>
-              )}
-              renderInput={(params) => <TextField {...params} label="Catalog item" size="small" />}
-            />
-            <TextField label="Qty" size="small" type="number" value={qty} sx={{ flex: '0 1 80px' }} onChange={(e) => setQty(e.target.value)} />
-            {/* Decides what the BOQ wizard offers for this line — a PEB and a
-                composite girder are not built the same way. */}
-            <TextField select label="Structure type" size="small" value={lineType} sx={{ flex: '1 1 170px' }} onChange={(e) => setLineType(e.target.value)}>
-              <MenuItem value="">— not set —</MenuItem>
-              {LINE_TYPES.map((t) => <MenuItem key={t} value={t}>{t}</MenuItem>)}
-            </TextField>
-            <TextField label="Unit price" size="small" type="number" value={unitPrice} sx={{ flex: '0 1 110px' }} onChange={(e) => setUnitPrice(e.target.value)} />
-            <TextField select label="Target plant" size="small" value={targetPlantId} sx={{ flex: '1 1 160px' }} onChange={(e) => setTargetPlantId(e.target.value === '' ? '' : Number(e.target.value))}>
-              <MenuItem value="">— none —</MenuItem>
-              {plants.map((p) => <MenuItem key={p.id} value={p.id}>{p.name}</MenuItem>)}
-            </TextField>
-            <TextField label="Requested date" size="small" type="date" slotProps={{ inputLabel: { shrink: true } }} value={reqDate} sx={{ flex: '0 1 150px' }} onChange={(e) => setReqDate(e.target.value)} />
-            <Button variant="contained" startIcon={adding ? <CircularProgress size={14} color="inherit" /> : <AddIcon />} disabled={adding || !selectedItem || !qty} onClick={addItem}>
-              Add
-            </Button>
-          </Box>
-        </Surface>
-      )}
-
-      {items.length === 0 ? (
-        <EmptyState icon={<Inventory2Rounded />} title="No line items yet" hint="Add catalog items above to build out this order." />
-      ) : (
-        <DataTable
-          rows={items}
-          getRowId={(i) => i.id}
-          storageKey="order-lines"
-          exportName="order-lines"
-          defaultSortKey="catalogItemName"
-          columns={[
-            {
-              key: 'catalogItemName',
-              header: 'Item',
-              render: (i) => (
-                <Link component={RouterLink} to={`/${company}/fab_erp/item-catalog/${i.catalogItemId}`} sx={{ color: 'var(--c-primary-700)', textDecorationColor: 'var(--c-primary-200)' }}>
-                  {i.catalogItemName ?? '—'}
-                </Link>
-              ),
-              sortValue: (i) => i.catalogItemName ?? '',
-            },
-            { key: 'catalogItemCode', header: 'Code', width: 150, render: (i) => (i.catalogItemCode ? <Mono chip>{i.catalogItemCode}</Mono> : '—'), sortValue: (i) => i.catalogItemCode ?? '' },
-            { key: 'lineType', header: 'Structure', width: 150, render: (i) => i.lineType ?? '—', sortValue: (i) => i.lineType ?? '' },
-            { key: 'qty', header: 'Qty', width: 100, numeric: true, render: (i) => <QtyCell value={i.qty} />, sortValue: (i) => i.qty },
-            { key: 'unit', header: 'Unit', width: 80, render: (i) => i.unit ?? i.catalogItemUnit ?? '—', sortValue: (i) => i.unit ?? i.catalogItemUnit ?? '' },
-            { key: 'unitPrice', header: 'Unit price', width: 130, numeric: true, render: (i) => <NumberCell value={i.unitPrice} />, sortValue: (i) => i.unitPrice ?? null },
-            { key: 'requestedDate', header: 'Req. date', width: 140, render: (i) => <DateCell value={i.requestedDate} />, sortValue: (i) => i.requestedDate ?? '' },
-            { key: 'targetPlantName', header: 'Target plant', width: 150, render: (i) => i.targetPlantName ?? '—', sortValue: (i) => i.targetPlantName ?? '' },
-          ]}
-          rowActions={canManage ? (item) => (
-            <Tooltip title="Remove">
-              <IconButton size="small" color="error" onClick={() => setDelItem(item)} aria-label={`Remove ${item.catalogItemName ?? 'line'}`}>
-                <DeleteOutlineRounded fontSize="small" />
-              </IconButton>
-            </Tooltip>
-          ) : undefined}
-        />
-      )}
-
-      <Dialog open={!!delItem} onClose={() => setDelItem(null)} maxWidth="xs" fullWidth>
-        <DialogTitle sx={{ fontWeight: 600 }}>Remove line item</DialogTitle>
-        <DialogContent>
-          <Typography>Remove <strong>{delItem?.catalogItemName}</strong> from this order?</Typography>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setDelItem(null)}>Cancel</Button>
-          <Button color="error" variant="contained" onClick={() => delItem && deleteItem(delItem)}>Remove</Button>
-        </DialogActions>
-      </Dialog>
-    </Box>
-  );
-}

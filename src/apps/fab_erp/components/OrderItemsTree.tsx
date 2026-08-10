@@ -19,6 +19,7 @@ import { fabQuery, fabMutate, fabPost } from '../api/client';
 import type { FilterValue } from '../api/client';
 import { Surface, EmptyState, useToast, backendMessage } from '../components';
 import { MaterializeOutcome, type MaterializeResponse } from './OrderTaskDag';
+import type { OrderReadiness } from '../api/readiness';
 import BoqWizardDialog from './BoqWizardDialog';
 import api, { API_HOST } from '@core/utils/axiosConfig';
 
@@ -78,6 +79,8 @@ interface ImportItemsResult {
   unweighedLeaves?: number;
   warnings: Array<{ row?: number; message: string }>;
   reportBase64?: string;
+  /** Recomputed server-side after the upload — saves the page asking again. */
+  readiness?: OrderReadiness | null;
 }
 interface ItemsSummary {
   totalWeight: number | null;
@@ -748,9 +751,16 @@ function ItemNode({ item, depth, canManage, flows, onDeleted, onItemAdded, onWei
 export interface OrderItemsTreeProps {
   orderId: number;
   canManage: boolean;
+  /** The order's stage readiness — supplies the Build tasks warning its counts. */
+  readiness?: OrderReadiness | null;
+  /**
+   * Tell the order page a stage moved, so the strip above follows along.
+   * Pass the readiness an endpoint already returned to save a round-trip.
+   */
+  onStageChanged?: (next?: OrderReadiness | null) => void;
 }
 
-export default function OrderItemsTree({ orderId, canManage }: OrderItemsTreeProps) {
+export default function OrderItemsTree({ orderId, canManage, readiness, onStageChanged }: OrderItemsTreeProps) {
   const { toast } = useToast();
   const [topItems, setTopItems] = useState<FabItemRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -927,10 +937,15 @@ export default function OrderItemsTree({ orderId, canManage }: OrderItemsTreePro
   // add re-opens the prompt — including one the user dismissed earlier, and
   // including an order that already had tasks (the new rows still have none).
   // The previous run's outcome is cleared because it no longer describes the tree.
-  function markItemsChanged() {
+  function markItemsChanged(next?: OrderReadiness | null) {
     setItemsChanged(true);
     setCtaDismissed(false);
     setMaterializeResult(null);
+    // Every tree change can move a stage — a new part is a part with no
+    // material and no flow, and the strip has to say so immediately. Endpoints
+    // that already computed readiness hand it over rather than making the page
+    // ask for it again.
+    onStageChanged?.(next);
   }
 
   /**
@@ -958,6 +973,7 @@ export default function OrderItemsTree({ orderId, canManage }: OrderItemsTreePro
       setMaterializeResult(res);
       setItemsChanged(false);
       setTaskCount(res.tasksInserted);
+      onStageChanged?.();
       toast(
         res.itemsSkipped > 0
           ? `${res.tasksInserted} task(s) built — ${res.itemsSkipped} item(s) skipped, see the notice above.`
@@ -1002,7 +1018,11 @@ export default function OrderItemsTree({ orderId, canManage }: OrderItemsTreePro
       const rows = await loadTop();
       setTopItems(rows);
       setHasMore(rows.length === TOP_LEVEL_PAGE_SIZE);
-      if (res.data.itemsCreated > 0) markItemsChanged();
+      // A replace that removed rows and created none still moved the stages, so
+      // the strip is told either way — markItemsChanged already does it, and
+      // this covers the branch where it does not run.
+      if (res.data.itemsCreated > 0) markItemsChanged(res.data.readiness);
+      else onStageChanged?.(res.data.readiness);
       // The importer already rolled up weights and issued codes inside its
       // transaction, so this only needs to re-read them — not re-run them.
       setTreeVersion((v) => v + 1);
@@ -1242,9 +1262,24 @@ export default function OrderItemsTree({ orderId, canManage }: OrderItemsTreePro
           </AlertTitle>
           <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)' }}>
             An item tree produces no work on its own. Until tasks are built, this order has no
-            schedule, no critical chain, and never reaches Dispatch or the Task Queue. Items with no
-            flow set in the <strong>Flow</strong> column below are skipped, so set those first.
+            schedule, no critical chain, and never reaches Dispatch or the Task Queue.
           </Typography>
+
+          {/* The old copy said items with no flow "are skipped" and left the
+              reader to go and count them. These are the actual numbers, from the
+              same readiness the strip above renders — and they are a warning,
+              not a gate: building tasks for a half-nested order is a legitimate
+              thing to do when you want the shop cutting while the rest of the
+              BOQ is still being drawn. */}
+          {(readiness?.blockers.length ?? 0) > 0 && (
+            <Box component="ul" sx={{ m: 0, mt: 1, pl: 2.25, display: 'flex', flexDirection: 'column', gap: 0.4 }}>
+              {readiness!.blockers.map((b, i) => (
+                <Typography key={i} component="li" sx={{ fontSize: 12.5, color: 'var(--c-text-2)' }}>
+                  {b.message}
+                </Typography>
+              ))}
+            </Box>
+          )}
         </Alert>
       )}
 

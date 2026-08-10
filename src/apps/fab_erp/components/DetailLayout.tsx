@@ -56,7 +56,20 @@ export interface DetailTab {
   value: string;
   label: string;
   count?: number;
+  /**
+   * Optional completion marker. For a record whose tabs form a SEQUENCE rather
+   * than a set of peers — a sales order is prepared lines → BOQ → nesting →
+   * flows → tasks — this makes the state of each step legible without opening
+   * it. Left undefined, a tab looks exactly as it did before.
+   */
+  dot?: 'done' | 'partial' | 'todo';
 }
+
+const DOT_COLOR: Record<NonNullable<DetailTab['dot']>, string> = {
+  done: 'var(--c-success-600)',
+  partial: 'var(--c-warning-600)',
+  todo: 'var(--c-text-3)',
+};
 
 /**
  * Record/Detail scaffold (DESIGN_SYSTEM.md §4.3/§7.5): solid e2 header → cross-link
@@ -136,6 +149,13 @@ export function DetailLayout({
                   '&:hover': { color: 'var(--c-primary-700)' },
                 }}
               >
+                {t.dot && (
+                  <Box
+                    component="span"
+                    aria-hidden
+                    sx={{ width: 6, height: 6, borderRadius: '50%', bgcolor: DOT_COLOR[t.dot], flexShrink: 0 }}
+                  />
+                )}
                 {t.label}
                 {t.count !== undefined && (
                   <Box component="span" sx={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: on ? 'var(--c-primary-600)' : 'var(--c-text-3)' }}>
