@@ -10,6 +10,7 @@ import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import CloseRounded from '@mui/icons-material/CloseRounded';
 import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
 import DownloadIcon from '@mui/icons-material/Download';
+import AutoFixHighRounded from '@mui/icons-material/AutoFixHighRounded';
 import StraightenRounded from '@mui/icons-material/StraightenRounded';
 import TagRounded from '@mui/icons-material/TagRounded';
 import UploadFileIcon from '@mui/icons-material/UploadFile';
@@ -18,6 +19,7 @@ import { fabQuery, fabMutate, fabPost } from '../api/client';
 import type { FilterValue } from '../api/client';
 import { Surface, EmptyState, useToast, backendMessage } from '../components';
 import { MaterializeOutcome, type MaterializeResponse } from './OrderTaskDag';
+import BoqWizardDialog from './BoqWizardDialog';
 import api, { API_HOST } from '@core/utils/axiosConfig';
 
 // Tree can be 1000+ rows across hundreds of top-level branches — everything
@@ -68,8 +70,10 @@ interface ImportItemsResult {
   itemsCreated: number;
   itemsSkipped: number;
   itemsDeleted?: number;
-  /** Raw-material links created from the Nesting sheet (material → part). */
-  nestingLinks?: number;
+  /** Span / girder / segment rows created on the way to a part. */
+  levelsCreated?: number;
+  /** Raw-material links created from the Raw Material column. */
+  rmLinks?: number;
   totalWeight?: number | null;
   unweighedLeaves?: number;
   warnings: Array<{ row?: number; message: string }>;
@@ -765,6 +769,9 @@ export default function OrderItemsTree({ orderId, canManage }: OrderItemsTreePro
   // file picker opens rather than a switch sitting next to a one-click Import.
   const [importMode, setImportMode] = useState<'append' | 'replace'>('append');
   const [modeDialogOpen, setModeDialogOpen] = useState(false);
+  const [wizardOpen, setWizardOpen] = useState(false);
+  /** Structure types on this order's lines — shown as a hint in the wizard. */
+  const [lineTypes, setLineTypes] = useState<string[]>([]);
 
   const [summary, setSummary] = useState<ItemsSummary | null>(null);
   // Incremented after every recompute or code run; every node watches it and
@@ -835,6 +842,11 @@ export default function OrderItemsTree({ orderId, canManage }: OrderItemsTreePro
     () => `${API_HOST}/api/${localStorage.getItem('companySlug')}/fab_erp/orders/${orderId}/items`,
     [orderId],
   );
+  /** The BOQ sheet lives on its own routes — one sheet, four level columns. */
+  const boqBase = useCallback(
+    () => `${API_HOST}/api/${localStorage.getItem('companySlug')}/fab_erp/orders/${orderId}/boq`,
+    [orderId],
+  );
 
   const loadSummary = useCallback(async () => {
     try {
@@ -844,6 +856,14 @@ export default function OrderItemsTree({ orderId, canManage }: OrderItemsTreePro
   }, [apiBase]);
 
   useEffect(() => { loadSummary(); }, [loadSummary]);
+
+  useEffect(() => {
+    fabQuery<{ data: Array<{ lineType?: string | null }> }>('fabErpOrderLine', {
+      filters: { orderId }, pagination: { limit: 100 },
+    })
+      .then((r) => setLineTypes([...new Set((r.data ?? []).map((l) => l.lineType).filter(Boolean) as string[])]))
+      .catch(() => setLineTypes([]));
+  }, [orderId]);
 
   /**
    * A weight or quantity changed somewhere in the tree. Roll-up is a whole-order
@@ -954,10 +974,10 @@ export default function OrderItemsTree({ orderId, canManage }: OrderItemsTreePro
   async function downloadItemsTemplate() {
     setExporting(true);
     try {
-      const res = await api.get(`${apiBase()}/export-template`, { responseType: 'blob' });
+      const res = await api.get(`${boqBase()}/export`, { responseType: 'blob' });
       const url = URL.createObjectURL(res.data as Blob);
       const a = document.createElement('a');
-      a.href = url; a.download = 'Order_Items_Import_Template.xlsx'; a.click();
+      a.href = url; a.download = 'Order_BOQ.xlsx'; a.click();
       URL.revokeObjectURL(url);
     } catch (e) {
       setError(errMsg(e, 'Failed to download template'));
@@ -973,7 +993,7 @@ export default function OrderItemsTree({ orderId, canManage }: OrderItemsTreePro
       form.append('excel_file', file);
       form.append('mode', importMode);
       const res = await api.post<ImportItemsResult>(
-        `${apiBase()}/import`, form,
+        `${boqBase()}/import`, form,
         { headers: { 'Content-Type': 'multipart/form-data' } },
       );
       setImportResult(res.data);
@@ -1064,8 +1084,13 @@ export default function OrderItemsTree({ orderId, canManage }: OrderItemsTreePro
             startIcon={exporting ? <CircularProgress size={14} color="inherit" /> : <DownloadIcon />}
             onClick={downloadItemsTemplate} disabled={exporting}
           >
-            {topItems.length > 0 ? 'Export to Excel' : 'Download template'}
+            {topItems.length > 0 ? 'Export BOQ' : 'Download BOQ template'}
           </Button>
+          <Tooltip title="Lay out span / girders / segments and the parts in each, and download a sheet to fill in. Nothing is saved until you upload it.">
+            <Button variant="outlined" size="small" startIcon={<AutoFixHighRounded />} onClick={() => setWizardOpen(true)}>
+              Structure wizard
+            </Button>
+          </Tooltip>
           <Button
             variant="outlined" size="small"
             startIcon={importing ? <CircularProgress size={14} color="inherit" /> : <UploadFileIcon />}
@@ -1102,11 +1127,10 @@ export default function OrderItemsTree({ orderId, canManage }: OrderItemsTreePro
         <DialogTitle sx={{ fontWeight: 600 }}>Import items from Excel</DialogTitle>
         <DialogContent dividers>
           <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)', mb: 2 }}>
-            Fill in the <strong>Level 1</strong>, <strong>Level 2</strong>, … sheets: write each row&rsquo;s
-            name and a short <strong>Abbr</strong>, and its <strong>Code</strong> appears on its own —
-            copy that into the next sheet&rsquo;s <strong>Parent Code</strong>. The <strong>Nesting</strong>{' '}
-            sheet then says which parts come out of which raw material. Add more level sheets if this job
-            goes deeper — there is no fixed number of levels.
+            One <strong>BOQ</strong> sheet. The <strong>Span / Girder / Segment / Part</strong> columns
+            hold codes and those codes <em>are</em> the structure — repeat the span and girder down the
+            rows and the levels are built for you. Weight is not in the sheet: fill in Thick, Length,
+            Width and the Raw Material, and it is worked out the way your BOQ works it out.
           </Typography>
           <RadioGroup value={importMode} onChange={(e) => setImportMode(e.target.value as 'append' | 'replace')}>
             <FormControlLabel
@@ -1152,6 +1176,13 @@ export default function OrderItemsTree({ orderId, canManage }: OrderItemsTreePro
         </DialogActions>
       </Dialog>
 
+      <BoqWizardDialog
+        open={wizardOpen}
+        orderId={orderId}
+        lineTypes={lineTypes}
+        onClose={() => setWizardOpen(false)}
+      />
+
       {importErr && <Alert severity="error" sx={{ mb: 1.5 }} onClose={() => setImportErr('')}>{importErr}</Alert>}
 
       {importResult && (
@@ -1170,8 +1201,9 @@ export default function OrderItemsTree({ orderId, canManage }: OrderItemsTreePro
         >
           {importResult.mode === 'replace' && (importResult.itemsDeleted ?? 0) > 0
             ? `Replaced the tree: ${importResult.itemsDeleted} item(s) removed, ` : ''}
-          {importResult.itemsCreated} item(s) created
-          {(importResult.nestingLinks ?? 0) > 0 ? `, ${importResult.nestingLinks} material link(s) nested` : ''}
+          {importResult.itemsCreated} row(s) created
+          {(importResult.levelsCreated ?? 0) > 0 ? `, ${importResult.levelsCreated} level(s) built` : ''}
+          {(importResult.rmLinks ?? 0) > 0 ? `, ${importResult.rmLinks} material link(s)` : ''}
           {importResult.itemsSkipped > 0 ? `, ${importResult.itemsSkipped} skipped` : ''}.
           {importResult.totalWeight != null ? ` Total weight ${fmtWeight(importResult.totalWeight)} kg.` : ''}
           {importResult.warnings.map((w) => ` ${w.message}`).join('')}

@@ -34,8 +34,12 @@ interface FabOrder {
   priority?: string; mrpController?: string; notes?: string; currency?: string; paymentTerms?: string;
   createdAt: string; updatedAt: string; deletedAt: string | null;
 }
+/** What kind of structure this line is — decides what the BOQ wizard offers. */
+const LINE_TYPES = ['Composite Girder', 'BowString', 'Tub Girder', 'Openweb Girder', 'PEB'];
+
 interface FabOrderLine {
   id: number; companyId: number; orderId: number; lineNo: number; catalogItemId: number;
+  lineType?: string | null;
   qty: number; unit?: string; unitPrice?: number; discount?: number;
   targetPlantId?: number; requestedDate?: string; notes?: string;
   catalogItemName?: string; catalogItemCode?: string; catalogItemUnit?: string;
@@ -306,6 +310,7 @@ function LineItemsTab({ soId, items, plants, canManage, company, onRefresh, toas
   const [catalogInput, setCatalogInput] = useState('');
   const [selectedItem, setSelectedItem] = useState<CatalogOption | null>(null);
   const [qty, setQty] = useState('');
+  const [lineType, setLineType] = useState('');
   const [unitPrice, setUnitPrice] = useState('');
   const [targetPlantId, setTargetPlantId] = useState<number | ''>('');
   const [reqDate, setReqDate] = useState('');
@@ -338,10 +343,11 @@ function LineItemsTab({ soId, items, plants, canManage, company, onRefresh, toas
     try {
       await fabMutate('fabErpOrderLine', 'insert', {
         order_id: soId, catalog_item_id: selectedItem.id, qty: Number(qty),
+        line_type: lineType || null,
         unit: selectedItem.unit ?? null, unit_price: unitPrice ? Number(unitPrice) : null,
         target_plant_id: targetPlantId || null, requested_date: reqDate || null,
       });
-      setSelectedItem(null); setCatalogInput(''); setQty(''); setUnitPrice(''); setTargetPlantId(''); setReqDate('');
+      setSelectedItem(null); setCatalogInput(''); setQty(''); setLineType(''); setUnitPrice(''); setTargetPlantId(''); setReqDate('');
       toast('Line item added'); onRefresh();
     } catch (e) {
       const ax = e as { response?: { data?: { message?: string; error?: string } }; message?: string };
@@ -383,6 +389,12 @@ function LineItemsTab({ soId, items, plants, canManage, company, onRefresh, toas
               renderInput={(params) => <TextField {...params} label="Catalog item" size="small" />}
             />
             <TextField label="Qty" size="small" type="number" value={qty} sx={{ flex: '0 1 80px' }} onChange={(e) => setQty(e.target.value)} />
+            {/* Decides what the BOQ wizard offers for this line — a PEB and a
+                composite girder are not built the same way. */}
+            <TextField select label="Structure type" size="small" value={lineType} sx={{ flex: '1 1 170px' }} onChange={(e) => setLineType(e.target.value)}>
+              <MenuItem value="">— not set —</MenuItem>
+              {LINE_TYPES.map((t) => <MenuItem key={t} value={t}>{t}</MenuItem>)}
+            </TextField>
             <TextField label="Unit price" size="small" type="number" value={unitPrice} sx={{ flex: '0 1 110px' }} onChange={(e) => setUnitPrice(e.target.value)} />
             <TextField select label="Target plant" size="small" value={targetPlantId} sx={{ flex: '1 1 160px' }} onChange={(e) => setTargetPlantId(e.target.value === '' ? '' : Number(e.target.value))}>
               <MenuItem value="">— none —</MenuItem>
@@ -417,6 +429,7 @@ function LineItemsTab({ soId, items, plants, canManage, company, onRefresh, toas
               sortValue: (i) => i.catalogItemName ?? '',
             },
             { key: 'catalogItemCode', header: 'Code', width: 150, render: (i) => (i.catalogItemCode ? <Mono chip>{i.catalogItemCode}</Mono> : '—'), sortValue: (i) => i.catalogItemCode ?? '' },
+            { key: 'lineType', header: 'Structure', width: 150, render: (i) => i.lineType ?? '—', sortValue: (i) => i.lineType ?? '' },
             { key: 'qty', header: 'Qty', width: 100, numeric: true, render: (i) => <QtyCell value={i.qty} />, sortValue: (i) => i.qty },
             { key: 'unit', header: 'Unit', width: 80, render: (i) => i.unit ?? i.catalogItemUnit ?? '—', sortValue: (i) => i.unit ?? i.catalogItemUnit ?? '' },
             { key: 'unitPrice', header: 'Unit price', width: 130, numeric: true, render: (i) => <NumberCell value={i.unitPrice} />, sortValue: (i) => i.unitPrice ?? null },
