@@ -24,6 +24,7 @@ import {
 } from '../components';
 import { statusFamily } from '../statusMap';
 import OrderItemsTree from '../components/OrderItemsTree';
+import OrderFlowAllocation from '../components/OrderFlowAllocation';
 import OrderNesting from '../components/OrderNesting';
 import OrderTaskDag from '../components/OrderTaskDag';
 
@@ -185,6 +186,7 @@ export default function SalesOrderDetail() {
           { value: 'lines', label: 'Line items', count: items.length },
           { value: 'items', label: 'Items / BOM' },
           { value: 'nesting', label: 'Nesting' },
+          { value: 'flows', label: 'Flows' },
           { value: 'marks', label: 'Marks' },
           { value: 'dag', label: 'Task DAG' },
         ]}
@@ -261,6 +263,8 @@ export default function SalesOrderDetail() {
           <OrderItemsTree orderId={id} canManage={canManage} />
         ) : tab === 'nesting' ? (
           <OrderNesting orderId={id} canManage={canManage} />
+        ) : tab === 'flows' ? (
+          <OrderFlowAllocation orderId={id} canManage={canManage} />
         ) : tab === 'marks' ? (
           <MarksPanel orderId={id} canManage={canManage} />
         ) : (
