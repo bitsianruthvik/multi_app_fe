@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Alert, Box, Button, Chip, CircularProgress, Dialog, DialogActions, DialogContent,
-  DialogTitle, FormControlLabel, Radio, RadioGroup, Tooltip, Typography,
+  DialogTitle, Divider, FormControlLabel, Radio, RadioGroup, Tooltip, Typography,
 } from '@mui/material';
 import CheckCircleRounded from '@mui/icons-material/CheckCircleRounded';
 import DownloadIcon from '@mui/icons-material/Download';
@@ -12,6 +12,7 @@ import UploadFileIcon from '@mui/icons-material/UploadFile';
 import api, { API_HOST } from '@core/utils/axiosConfig';
 import { Surface, EmptyState, useToast } from '../components';
 import type { OrderReadiness } from '../api/readiness';
+import NestingBoard from './NestingBoard';
 
 interface NestingImportResult {
   nests: number; links: number; skipped: number; deleted?: number;
@@ -263,6 +264,13 @@ export default function OrderNesting({ orderId, canManage = false, onStageChange
     <Box>
       {toolbar}
       {dialogs}
+
+      {/* Arrange plates here; the Excel path below stays for bulk entry and for
+          the material readiness the board does not try to duplicate. */}
+      <NestingBoard orderId={orderId} canManage={canManage} onStageChanged={onStageChanged} />
+
+      <Divider sx={{ my: 3, borderColor: 'var(--c-divider)' }} />
+
       {data.waitingOnStock > 0 ? (
         <Alert severity="warning" icon={<HourglassEmptyRounded fontSize="inherit" />} sx={{ mb: 2 }}>
           Waiting on <strong>{data.waitingOnStock}</strong> material
