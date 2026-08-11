@@ -246,37 +246,36 @@ export default function OrderNesting({ orderId, canManage = false, onStageChange
     return <Box>{toolbar}<Alert severity="error" onClose={() => setError('')}>{error}</Alert></Box>;
   }
 
-  if (!data || data.materials.length === 0) {
-    return (
-      <Box>
-        {toolbar}
-        {dialogs}
-        <EmptyState
-          icon={<Inventory2Rounded />}
-          title="Nothing nested yet"
-          hint="Download the nesting sheet: one row per plate, with the material, the plate's size, and the codes of the parts cut from it."
-        />
-      </Box>
-    );
-  }
+  // "Nothing nested yet" is a statement about the SECTION BELOW — the material
+  // readiness rollup, which genuinely has nothing to show until plates exist.
+  // It used to return early for the whole tab, which meant the board was hidden
+  // in exactly the situation it exists for: an order with nothing nested yet.
+  const rollup = data && data.materials.length > 0 ? data : null;
 
   return (
     <Box>
       {toolbar}
       {dialogs}
 
-      {/* Arrange plates here; the Excel path below stays for bulk entry and for
-          the material readiness the board does not try to duplicate. */}
+      {/* Arrange plates here; the Excel path stays for bulk entry, and the
+          readiness rollup below is the material's-eye view the board does not
+          try to duplicate. */}
       <NestingBoard orderId={orderId} canManage={canManage} onStageChanged={onStageChanged} />
 
       <Divider sx={{ my: 3, borderColor: 'var(--c-divider)' }} />
 
-      {data.waitingOnStock > 0 ? (
+      {!rollup ? (
+        <EmptyState
+          icon={<Inventory2Rounded />}
+          title="Nothing nested yet"
+          hint="Drag parts onto a plate above, or download the nesting sheet: one row per plate, with the material, the plate's size, and the codes of the parts cut from it."
+        />
+      ) : rollup.waitingOnStock > 0 ? (
         <Alert severity="warning" icon={<HourglassEmptyRounded fontSize="inherit" />} sx={{ mb: 2 }}>
-          Waiting on <strong>{data.waitingOnStock}</strong> material
-          {data.waitingOnStock === 1 ? '' : 's'} — <strong>{data.nestsBlocked}</strong> nest
-          {data.nestsBlocked === 1 ? '' : 's'}, <strong>{data.partsBlocked}</strong> part
-          {data.partsBlocked === 1 ? '' : 's'}. Work starts by itself the moment the material is
+          Waiting on <strong>{rollup.waitingOnStock}</strong> material
+          {rollup.waitingOnStock === 1 ? '' : 's'} — <strong>{rollup.nestsBlocked}</strong> nest
+          {rollup.nestsBlocked === 1 ? '' : 's'}, <strong>{rollup.partsBlocked}</strong> part
+          {rollup.partsBlocked === 1 ? '' : 's'}. Work starts by itself the moment the material is
           received into stock — nothing here needs to be clicked.
         </Alert>
       ) : (
@@ -285,7 +284,7 @@ export default function OrderNesting({ orderId, canManage = false, onStageChange
         </Alert>
       )}
 
-      {data.materials.map((m) => (
+      {rollup?.materials.map((m) => (
         <Surface key={m.catalogItemId} e={1} sx={{ mb: 1.5, overflow: 'hidden' }}>
           <Box sx={{
             display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap',
