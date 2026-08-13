@@ -1205,7 +1205,6 @@ export default function OrderItemsTree({ orderId, canManage, readiness, onStageC
         orderId={orderId}
         lines={lines}
         onClose={() => setWizardOpen(false)}
-        onImported={() => { markItemsChanged(); loadSummary(); setTreeVersion((v) => v + 1); loadTop().then(setTopItems).catch(() => {}); }}
       />
 
       {importErr && <Alert severity="error" sx={{ mb: 1.5 }} onClose={() => setImportErr('')}>{importErr}</Alert>}

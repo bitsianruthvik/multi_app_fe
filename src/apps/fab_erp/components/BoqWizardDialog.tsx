@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Alert, Box, Button, CircularProgress, Dialog, DialogActions, DialogContent,
   DialogTitle, IconButton, MenuItem, TextField, Tooltip, Typography,
@@ -6,17 +6,13 @@ import {
 import AddIcon from '@mui/icons-material/Add';
 import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
 import DownloadIcon from '@mui/icons-material/Download';
-import UploadFileIcon from '@mui/icons-material/UploadFile';
 import ExpandMoreRounded from '@mui/icons-material/ExpandMoreRounded';
 import ExpandLessRounded from '@mui/icons-material/ExpandLessRounded';
 
 import api, { API_HOST } from '@core/utils/axiosConfig';
 import { fabQuery } from '../api/client';
-import {
-  fetchRawMaterials, materialsForThickness as materialsFor, materialLabel,
-  type RawMaterial as Material,
-} from '../api/rawMaterials';
 import { Surface } from '../components';
+import { DEFAULT_PARTS } from '../types';
 
 /**
  * Structure wizard — scaffolding for the BOQ sheet.
@@ -40,57 +36,31 @@ interface PartSpec {
   rmCode: string;
 }
 
-/**
- * One part of a structure type's BOM template — the company's answer to "what
- * is a composite girder made of", editable in Setup rather than compiled in.
- */
-interface TemplatePart {
-  id: number;
-  lineType: string;
-  code: string;
-  name?: string | null;
-  qty?: number | null;
+/** A raw material, as the picker needs it. */
+interface Material {
+  id: number; code: string; name: string;
   thicknessMm?: number | null;
-  rmCode?: string | null;
+  materialForm?: string | null;
 }
 
-
-
-/** One line's worth of wizard settings, as the endpoint wants them. */
-interface LineSpec {
-  spanCode: string;
-  girders: number;
-  segmentsPerGirder: number;
-  segmentCounts: number[];
-  parts: { code: string; name?: string; qty: number; thick?: number; rmCode?: string }[];
-  overrides: Record<string, { rmCode?: string; thick?: number }>;
+/**
+ * The materials a part of this thickness could be cut from.
+ *
+ * Plates match on thickness; sections are ALWAYS offered, because an angle is
+ * one item — a 100x100x10 is not "a 10mm thing" — so it can never be reached by
+ * filtering on thickness and leaving it out would make it unpickable. With no
+ * thickness typed yet, everything is on offer rather than nothing.
+ */
+function materialsFor(all: Material[], thick: string): Material[] {
+  const t = Number(thick);
+  const sections = all.filter((m) => m.materialForm === 'section');
+  if (!thick.trim() || !Number.isFinite(t)) return all;
+  const plates = all.filter((m) => m.materialForm !== 'section' && Number(m.thicknessMm) === t);
+  return [...plates, ...sections];
 }
 
 let nextKey = 1;
 const blankPart = (): PartSpec => ({ key: nextKey++, code: '', name: '', qty: '1', thick: '', rmCode: '' });
-
-/**
- * Freeze a line's part list into a spec, for parking while another line is
- * edited. Girder and segment counts are re-read on restore from the same
- * fields, so only what the form holds needs capturing here.
- */
-function buildSpecFrom(spanCode: string, parts: PartSpec[], girders = 0, segs = 0,
-  counts: number[] = [], overrides: Record<string, { rmCode?: string; thick?: number }> = {}): LineSpec {
-  return {
-    spanCode,
-    girders,
-    segmentsPerGirder: segs,
-    segmentCounts: counts,
-    parts: parts.map((p) => ({
-      code: p.code.trim(),
-      name: p.name.trim() || undefined,
-      qty: Number(p.qty) || 1,
-      thick: p.thick.trim() ? Number(p.thick) : undefined,
-      rmCode: p.rmCode || undefined,
-    })),
-    overrides,
-  };
-}
 
 export interface WizardLine {
   id: number;
@@ -99,14 +69,12 @@ export interface WizardLine {
   lineType?: string | null;
 }
 
-export default function BoqWizardDialog({ open, orderId, lines, onClose, onImported }: {
+export default function BoqWizardDialog({ open, orderId, lines, onClose }: {
   open: boolean;
   orderId: number;
   /** The order's lines. The chosen one supplies the span code and the defaults. */
   lines: WizardLine[];
   onClose: () => void;
-  /** Fired after a sheet is uploaded here, so the tree behind refreshes. */
-  onImported?: () => void;
 }) {
   const [lineId, setLineId] = useState<number | ''>('');
   const [girders, setGirders] = useState('6');
@@ -117,22 +85,9 @@ export default function BoqWizardDialog({ open, orderId, lines, onClose, onImpor
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [materials, setMaterials] = useState<Material[]>([]);
-  /** The company's BOM templates, grouped by structure type. */
-  const [templates, setTemplates] = useState<Record<string, TemplatePart[]>>({});
   /** Per-instance material/thickness, keyed "girder/segment/partCode". */
   const [overrides, setOverrides] = useState<Record<string, { rmCode?: string; thick?: number }>>({});
   const [expanded, setExpanded] = useState(false);
-  /**
-   * What has been set up for the lines NOT currently on screen.
-   *
-   * The panel below edits one line at a time — six girders and their parts is
-   * already a dense form, and showing three lines' worth at once would be
-   * unreadable. So switching lines parks the current settings here and pulls
-   * back whatever that line had, and Generate emits every one of them.
-   */
-  const [configs, setConfigs] = useState<Record<number, LineSpec>>({});
-  const prevLineRef = useRef<number | ''>('');
-  const fileRef = useRef<HTMLInputElement>(null);
 
   const line = lines.find((l) => l.id === lineId) ?? null;
   /**
@@ -152,64 +107,17 @@ export default function BoqWizardDialog({ open, orderId, lines, onClose, onImpor
     if (lines.length === 1) setLineId(lines[0].id);
   }, [open, lines]);
 
-  /**
-   * Picking a line pulls in what that kind of structure is usually made of.
-   *
-   * These come from the company's own BOM templates now, not a constant baked
-   * into the bundle — so a shop that builds its girders differently, or one that
-   * works in structure types nobody has hardcoded, changes them in Setup instead
-   * of asking for a deploy.
-   */
+  /** Picking a line pulls in what that kind of structure is usually made of. */
   useEffect(() => {
     if (!line) return;
-
-    // Park what the previous line had before overwriting the form with this
-    // one's — otherwise switching to check something silently discards it.
-    const prev = prevLineRef.current;
-    if (prev !== '' && prev !== line.id) {
-      const prevLine = lines.find((l) => l.id === prev);
-      const prevParts = parts.filter((p) => p.code.trim());
-      if (prevLine?.code && prevParts.length) {
-        setConfigs((c) => ({
-          ...c,
-          [prev]: buildSpecFrom(prevLine.code!.trim(), prevParts, g, s, segmentCounts, overrides),
-        }));
-      }
-    }
-    prevLineRef.current = line.id;
-
-    // Already configured in this session? Restore it rather than resetting to
-    // the template, which would throw away work the moment somebody looked away.
-    const saved = configs[line.id];
-    if (saved) {
-      setGirders(String(saved.girders));
-      setSegments(String(saved.segmentsPerGirder));
-      setPerGirder(saved.segmentCounts.map(String));
-      setParts(saved.parts.map((p) => ({
-        key: nextKey++, code: p.code, name: p.name ?? '', qty: String(p.qty ?? 1),
-        thick: p.thick != null ? String(p.thick) : '', rmCode: p.rmCode ?? '',
-      })));
-      setOverrides(saved.overrides ?? {});
-      return;
-    }
-
-    const defaults = line.lineType ? templates[line.lineType] : undefined;
+    const defaults = line.lineType ? DEFAULT_PARTS[line.lineType] : undefined;
     setParts(defaults?.length
-      ? defaults.map((d) => ({
-        key: nextKey++,
-        code: d.code,
-        name: d.name ?? '',
-        // DECIMAL arrives from mysql2 as a string, so a qty of 1 reaches the
-        // field as "1.0000" unless it is put back through Number first.
-        qty: d.qty != null ? String(Number(d.qty)) : '1',
-        thick: d.thicknessMm != null ? String(Number(d.thicknessMm)) : '',
-        rmCode: d.rmCode ?? '',
-      }))
+      ? defaults.map((d) => ({ key: nextKey++, code: d.code, name: d.name, qty: '1', thick: '', rmCode: '' }))
       : [blankPart()]);
     // Overrides are keyed by part code, so a different part list makes them
     // meaningless — clearing beats silently applying them to the wrong rows.
     setOverrides({});
-  }, [line?.id, line?.lineType, templates]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [line?.id, line?.lineType]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const setPart = (key: number, patch: Partial<PartSpec>) =>
     setParts((ps) => ps.map((p) => (p.key === key ? { ...p, ...patch } : p)));
@@ -217,25 +125,11 @@ export default function BoqWizardDialog({ open, orderId, lines, onClose, onImpor
   useEffect(() => {
     if (!open) return;
     // Only what a part can actually be cut from: the catalog's bought items.
-    fetchRawMaterials().then(setMaterials).catch(() => setMaterials([]));
-
-    // Every template in one query rather than one per line selected — there are
-    // a handful of structure types, and re-fetching each time somebody changes
-    // the line would make the parts list flicker for no reason.
-    fabQuery<{ data: TemplatePart[] }>('fabErpBomTemplate', {
-      filters: { active: 1 },
-      orderBy: [{ field: 'sortOrder', direction: 'asc' }, { field: 'id', direction: 'asc' }],
+    fabQuery<{ data: Material[] }>('fabErpItemCatalog', {
+      filters: { procurementType: 'buy' },
+      orderBy: [{ field: 'code', direction: 'asc' }],
       pagination: { limit: 500 },
-    })
-      .then((r) => {
-        const by: Record<string, TemplatePart[]> = {};
-        for (const t of r.data ?? []) {
-          if (!t.lineType || !t.code) continue;
-          (by[t.lineType] ??= []).push(t);
-        }
-        setTemplates(by);
-      })
-      .catch(() => setTemplates({}));
+    }).then((r) => setMaterials(r.data ?? [])).catch(() => setMaterials([]));
   }, [open]);
 
   const partCount = parts.filter((p) => p.code.trim()).length;
@@ -298,80 +192,26 @@ export default function BoqWizardDialog({ open, orderId, lines, onClose, onImpor
     return o && (o.rmCode || o.thick != null);
   }).length;
 
-  /**
-   * Upload the sheet that was just filled in.
-   *
-   * Always APPEND. The wizard's whole purpose is adding structure to an order,
-   * and a replace here would wipe a tree somebody else spent the morning on
-   * because a colleague generated a starter sheet for one more line. Replace
-   * stays on the Items / BOM tab, where it is a deliberate choice with a
-   * confirmation in front of it.
-   */
-  async function upload(file: File) {
-    setBusy(true); setError('');
-    try {
-      const companySlug = localStorage.getItem('companySlug');
-      const form = new FormData();
-      form.append('excel_file', file);
-      form.append('mode', 'append');
-      const res = await api.post<{ itemsCreated?: number; rmLinks?: number }>(
-        `${API_HOST}/api/${companySlug}/fab_erp/orders/${orderId}/boq/import`, form,
-        { headers: { 'Content-Type': 'multipart/form-data' } },
-      );
-      onImported?.();
-      onClose();
-      const n = res.data?.itemsCreated ?? 0;
-      // Toasting from the parent would need plumbing; the tree refresh behind
-      // the closing dialog is the confirmation that matters.
-      if (!n) setError('That sheet added no rows — check the Span column matches a line code.');
-    } catch (e) {
-      const ax = e as { response?: { data?: { message?: string } }; message?: string };
-      setError(ax.response?.data?.message ?? ax.message ?? 'Could not read that sheet');
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  /** The spec for whichever line is on screen right now. */
-  function currentSpec(): LineSpec {
-    return {
-      spanCode,
-      girders: g,
-      segmentsPerGirder: s,
-      segmentCounts,
-      parts: parts.filter((p) => p.code.trim()).map((p) => ({
-        code: p.code.trim(),
-        name: p.name.trim() || undefined,
-        qty: Number(p.qty) || 1,
-        thick: p.thick.trim() ? Number(p.thick) : undefined,
-        rmCode: p.rmCode || undefined,
-      })),
-      overrides,
-    };
-  }
-
   async function generate() {
     setBusy(true); setError('');
     try {
       const companySlug = localStorage.getItem('companySlug');
-      /**
-       * EVERY configured line goes in one sheet.
-       *
-       * The wizard used to build a sheet for the single line on screen, so a
-       * two-line order meant running it twice and stitching the downloads —
-       * or, far more likely, forgetting the second line entirely. Each line
-       * becomes its own span, keyed by that line's code, which is the same
-       * string the importer matches a row back to.
-       */
-      const specs = lines
-        .map((l) => (l.id === lineId ? currentSpec() : configs[l.id]))
-        .filter((sp): sp is LineSpec =>
-          !!sp && !!sp.spanCode && sp.parts.length > 0);
-      if (!specs.length) { setError('Nothing to generate — give at least one line some parts.'); setBusy(false); return; }
-
       const res = await api.post(
         `${API_HOST}/api/${companySlug}/fab_erp/orders/${orderId}/boq/wizard`,
-        { specs },
+        {
+          spanCode,
+          girders: g,
+          segmentsPerGirder: s,
+          segmentCounts,
+          parts: parts.filter((p) => p.code.trim()).map((p) => ({
+            code: p.code.trim(),
+            name: p.name.trim() || undefined,
+            qty: Number(p.qty) || 1,
+            thick: p.thick.trim() ? Number(p.thick) : undefined,
+            rmCode: p.rmCode || undefined,
+          })),
+          overrides,
+        },
         { responseType: 'blob' },
       );
       const url = URL.createObjectURL(res.data as Blob);
@@ -458,11 +298,11 @@ export default function BoqWizardDialog({ open, orderId, lines, onClose, onImpor
 
         <Typography sx={{ fontSize: 11, fontWeight: 600, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--c-text-3)', mb: 1 }}>
           Parts in every segment
-          {line?.lineType && templates[line.lineType]?.length ? (
+          {line?.lineType && DEFAULT_PARTS[line.lineType] && (
             <Box component="span" sx={{ textTransform: 'none', letterSpacing: 0, fontWeight: 400, color: 'var(--c-text-3)' }}>
-              {' '}— from your {line.lineType} template; edit freely
+              {' '}— filled in from {line.lineType}; edit freely
             </Box>
-          ) : null}
+          )}
         </Typography>
 
         <Surface e={1} sx={{ p: 1.5, mb: 1 }}>
@@ -488,7 +328,7 @@ export default function BoqWizardDialog({ open, orderId, lines, onClose, onImpor
                 <MenuItem value="">— not set —</MenuItem>
                 {materialsFor(materials, p.thick).map((m) => (
                   <MenuItem key={m.id} value={m.code}>
-                    {materialLabel(m)}
+                    {m.code}{m.materialForm === 'section' ? '  (section)' : ''}
                   </MenuItem>
                 ))}
               </TextField>
@@ -562,7 +402,7 @@ export default function BoqWizardDialog({ open, orderId, lines, onClose, onImpor
                         <MenuItem value="">— not set —</MenuItem>
                         {materialsFor(materials, thick).map((m) => (
                           <MenuItem key={m.id} value={m.code}>
-                            {materialLabel(m)}
+                            {m.code}{m.materialForm === 'section' ? '  (section)' : ''}
                           </MenuItem>
                         ))}
                       </TextField>
@@ -590,21 +430,6 @@ export default function BoqWizardDialog({ open, orderId, lines, onClose, onImpor
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose}>Cancel</Button>
-        <Box sx={{ flex: 1 }} />
-        {/* Download and upload belong together. The upload used to live on the
-            Items / BOM tab, so the round trip was: wizard, download, fill in,
-            close, find the other tab, upload. Two places for one job. */}
-        <input
-          ref={fileRef} type="file" accept=".xlsx" hidden
-          onChange={(e) => { const f = e.target.files?.[0]; if (f) upload(f); e.target.value = ''; }}
-        />
-        <Button
-          startIcon={busy ? <CircularProgress size={14} color="inherit" /> : <UploadFileIcon />}
-          disabled={busy}
-          onClick={() => fileRef.current?.click()}
-        >
-          Upload filled sheet
-        </Button>
         <Button
           variant="contained"
           startIcon={busy ? <CircularProgress size={14} color="inherit" /> : <DownloadIcon />}
