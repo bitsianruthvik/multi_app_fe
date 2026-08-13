@@ -13,32 +13,6 @@ export const LINE_TYPES = [
   'Composite Girder', 'BowString', 'Tub Girder', 'Openweb Girder', 'PEB',
 ] as const;
 
-/**
- * What a structure type is made of, as the BOM wizard's starting point.
- *
- * These are defaults, not a schema — every one of them can be edited, deleted
- * or added to in the wizard before anything is generated, and the sheet that
- * comes back is the real structure. The point is that a composite girder is the
- * same seven parts nearly every time, and typing them out per job was busywork.
- *
- * THE `/D` ON THE HOLED VARIANTS IS LOAD-BEARING. Flow rules match a code
- * suffix, so `BS` gets the plain fabrication flow and `BS/D` gets the drilled
- * one, automatically, with no per-item decision. That is exactly the
- * plain-versus-drilled split these pairs exist to express — naming them
- * `BS1`/`BS2` would look tidier and silently send holed stiffeners down the
- * flow that never drills them.
- */
-export const DEFAULT_PARTS: Record<string, { code: string; name: string }[]> = {
-  'Composite Girder': [
-    { code: 'TF', name: 'Top Flange' },
-    { code: 'WP', name: 'Web Plate' },
-    { code: 'BF', name: 'Bottom Flange' },
-    { code: 'BS', name: 'Bearing Stiffener Plain' },
-    { code: 'BS/D', name: 'Bearing Stiffener Hole' },
-    { code: 'IS', name: 'Intermediate Stiffener Plain' },
-    { code: 'IS/D', name: 'Intermediate Stiffener Hole' },
-  ],
-};
 
 /**
  * The levels of a BOQ, outermost first. Only some of them carry work — a span
