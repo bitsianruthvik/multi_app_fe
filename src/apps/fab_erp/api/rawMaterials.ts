@@ -23,12 +23,22 @@ export interface RawMaterial {
   materialForm?: string | null;
 }
 
-/** Every raw material this company can cut from. */
+/**
+ * Every raw material this company can cut from.
+ *
+ * The cap is deliberately well above any real stock list — a fabricator runs
+ * tens of plate and section grades, not thousands. It was 500, which is close
+ * enough to a plausible catalog to be worth moving: the query returns no total,
+ * so hitting the cap would silently drop materials from every picker on the
+ * screen with nothing to show that it had happened.
+ */
+const MAX_MATERIALS = 2000;
+
 export async function fetchRawMaterials(): Promise<RawMaterial[]> {
   const res = await fabQuery<{ data: RawMaterial[] }>('fabErpItemCatalog', {
     filters: { procurementType: 'buy' },
     orderBy: [{ field: 'code', direction: 'asc' }],
-    pagination: { limit: 500 },
+    pagination: { limit: MAX_MATERIALS },
   });
   return res.data ?? [];
 }
@@ -63,6 +73,25 @@ export function materialsForThickness(all: RawMaterial[], thick: string | number
   );
   const unclassified = all.filter((m) => m.materialForm !== 'section' && m.thicknessMm == null);
   return [...plates, ...unclassified, ...sections];
+}
+
+/**
+ * The filtered list, guaranteed to still contain whatever is already selected.
+ *
+ * A picker filtered by thickness can exclude the material a row is ALREADY set
+ * to — a 20mm plate on a row whose thickness later reads 12, say. The value
+ * then matches no option, so MUI renders the field empty while the state
+ * underneath still holds the material and still submits it. The field says
+ * "not set" and means "20mm plate", which is the worst of both.
+ *
+ * Keeping the selection pinned to the front is the honest answer: it shows what
+ * the row is actually set to, and lets it be changed.
+ */
+export function withSelected(
+  list: RawMaterial[], all: RawMaterial[], isSelected: (m: RawMaterial) => boolean,
+): RawMaterial[] {
+  const sel = all.find(isSelected);
+  return sel && !list.some((m) => m.id === sel.id) ? [sel, ...list] : list;
 }
 
 /** How a material reads in a dropdown — sections say so, since it matters. */

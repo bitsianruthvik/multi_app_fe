@@ -13,7 +13,7 @@ import ExpandLessRounded from '@mui/icons-material/ExpandLessRounded';
 import api, { API_HOST } from '@core/utils/axiosConfig';
 import { fabQuery } from '../api/client';
 import {
-  fetchRawMaterials, materialsForThickness as materialsFor, materialLabel,
+  fetchRawMaterials, materialsForThickness as materialsFor, materialLabel, withSelected,
   type RawMaterial as Material,
 } from '../api/rawMaterials';
 import { Surface } from '../components';
@@ -132,6 +132,16 @@ export default function BoqWizardDialog({ open, orderId, lines, onClose, onImpor
    */
   const [configs, setConfigs] = useState<Record<number, LineSpec>>({});
   const prevLineRef = useRef<number | ''>('');
+  /**
+   * Which line's part list has been seeded, and whether from a real template.
+   *
+   * `fromTemplates: false` means the list on screen is the blank placeholder
+   * put there before the template fetch came back — the one case where seeding
+   * again is an upgrade rather than a clobbering.
+   */
+  const seededRef = useRef<{ lineId: number | ''; fromTemplates: boolean }>(
+    { lineId: '', fromTemplates: false },
+  );
   const fileRef = useRef<HTMLInputElement>(null);
 
   const line = lines.find((l) => l.id === lineId) ?? null;
@@ -176,12 +186,28 @@ export default function BoqWizardDialog({ open, orderId, lines, onClose, onImpor
         }));
       }
     }
+    const switching = prev !== '' && prev !== line.id;
     prevLineRef.current = line.id;
+
+    /**
+     * Templates arriving must never overwrite a form somebody is filling in.
+     *
+     * This effect also runs when `templates` resolves, which is a fetch — so on
+     * a slow connection the order was: seed one blank row, user starts typing,
+     * templates land, effect re-runs, and every keystroke is replaced by the
+     * template. Re-seeding the SAME line is only ever an upgrade from that
+     * placeholder, so it is allowed only while the placeholder is untouched.
+     */
+    if (!switching && seededRef.current.lineId === line.id) {
+      const pristine = parts.length === 1 && !parts[0].code.trim() && !parts[0].name.trim();
+      if (seededRef.current.fromTemplates || !pristine) return;
+    }
 
     // Already configured in this session? Restore it rather than resetting to
     // the template, which would throw away work the moment somebody looked away.
     const saved = configs[line.id];
     if (saved) {
+      seededRef.current = { lineId: line.id, fromTemplates: true };
       setGirders(String(saved.girders));
       setSegments(String(saved.segmentsPerGirder));
       setPerGirder(saved.segmentCounts.map(String));
@@ -194,6 +220,10 @@ export default function BoqWizardDialog({ open, orderId, lines, onClose, onImpor
     }
 
     const defaults = line.lineType ? templates[line.lineType] : undefined;
+    // Only a list that actually came from a template counts as seeded — a blank
+    // row put there while the fetch was still in flight is still a placeholder,
+    // and must stay replaceable when the real thing arrives.
+    seededRef.current = { lineId: line.id, fromTemplates: !!defaults?.length };
     setParts(defaults?.length
       ? defaults.map((d) => ({
         key: nextKey++,
@@ -318,12 +348,25 @@ export default function BoqWizardDialog({ open, orderId, lines, onClose, onImpor
         `${API_HOST}/api/${companySlug}/fab_erp/orders/${orderId}/boq/import`, form,
         { headers: { 'Content-Type': 'multipart/form-data' } },
       );
+      // Refresh either way: even a sheet that created no items may have linked
+      // raw materials to rows that were already there.
       onImported?.();
-      onClose();
+
+      /**
+       * A sheet that added nothing KEEPS THE DIALOG OPEN.
+       *
+       * This used to close first and set the message after, so the one case the
+       * message exists for — a Span column that matches no line code, which is
+       * the easiest thing in the world to get wrong — closed the dialog, left
+       * the tree looking exactly as before, and said nothing at all. The upload
+       * lives here now, so the explanation has to live here too.
+       */
       const n = res.data?.itemsCreated ?? 0;
-      // Toasting from the parent would need plumbing; the tree refresh behind
-      // the closing dialog is the confirmation that matters.
-      if (!n) setError('That sheet added no rows — check the Span column matches a line code.');
+      if (!n) {
+        setError('That sheet added no rows — check the Span column matches a line code.');
+        return;
+      }
+      onClose();
     } catch (e) {
       const ax = e as { response?: { data?: { message?: string } }; message?: string };
       setError(ax.response?.data?.message ?? ax.message ?? 'Could not read that sheet');
@@ -486,7 +529,8 @@ export default function BoqWizardDialog({ open, orderId, lines, onClose, onImpor
                   ? 'Nothing stocked at that thickness' : ' '}
               >
                 <MenuItem value="">— not set —</MenuItem>
-                {materialsFor(materials, p.thick).map((m) => (
+                {withSelected(materialsFor(materials, p.thick), materials,
+                  (m) => !!p.rmCode && m.code === p.rmCode).map((m) => (
                   <MenuItem key={m.id} value={m.code}>
                     {materialLabel(m)}
                   </MenuItem>
@@ -560,7 +604,8 @@ export default function BoqWizardDialog({ open, orderId, lines, onClose, onImpor
                         onChange={(e) => set({ rmCode: e.target.value })}
                       >
                         <MenuItem value="">— not set —</MenuItem>
-                        {materialsFor(materials, thick).map((m) => (
+                        {withSelected(materialsFor(materials, thick), materials,
+                          (m) => !!rm && m.code === rm).map((m) => (
                           <MenuItem key={m.id} value={m.code}>
                             {materialLabel(m)}
                           </MenuItem>
