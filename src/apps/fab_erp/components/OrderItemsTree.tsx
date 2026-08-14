@@ -585,28 +585,45 @@ function ItemNode({ item, depth, canManage, flows, onDeleted, onItemAdded, onWei
           </Typography>
         )}
 
-        {/* Make or buy. Only 'buy' is drawn: on a fabrication BOM nearly every
-            row is made here, so marking them all would be noise on hundreds of
-            rows and would bury the handful that get purchased. The exceptions
-            are what somebody needs to spot. */}
-        {procurementOf(item) === 'buy' && (
-          <Tooltip title={item.catalogItemCode
-            ? `Bought in — ${item.catalogItemCode} is a 'buy' item in the catalog`
-            : 'Bought in — set on this row rather than by its catalog item'}>
-            <Box
-              component="span"
-              sx={{
-                flexShrink: 0, fontSize: 10, fontWeight: 600, letterSpacing: '.05em',
-                textTransform: 'uppercase', px: 0.75, py: 0.125, borderRadius: 0.75,
-                color: 'var(--c-warn-fg, #8a5a00)',
-                bgcolor: 'var(--c-warn-bg, rgba(255,176,32,.14))',
-                border: '1px solid var(--c-warn-border, rgba(255,176,32,.35))',
-              }}
-            >
-              buy
-            </Box>
-          </Tooltip>
-        )}
+        {/* Make or buy, on EVERY row.
+            An earlier pass drew only 'buy', on the reasoning that a fabrication
+            BOM is nearly all made-here and badging all of it is noise. That is
+            true of the ink and false of the question: reading no badge cannot
+            distinguish "this one is made here" from "this row predates the
+            column" or "I am looking at the wrong column", and the whole point
+            of the field is that somebody can answer it per row without going
+            and asking. 'buy' still carries the colour, so the exceptions stay
+            scannable; 'make' recedes into the row without disappearing. */}
+        <Tooltip title={
+          procurementOf(item) === 'buy'
+            ? (item.catalogItemCode
+              ? `Bought in — ${item.catalogItemCode} is a 'buy' item in the catalog`
+              : 'Bought in — set on this row rather than by its catalog item')
+            : (item.catalogItemCode
+              ? `Made here — ${item.catalogItemCode} is a 'make' item in the catalog`
+              : 'Made here — nothing in the catalog says otherwise')
+        }>
+          <Box
+            component="span"
+            sx={{
+              flexShrink: 0, fontSize: 10, fontWeight: 600, letterSpacing: '.05em',
+              textTransform: 'uppercase', px: 0.75, py: 0.125, borderRadius: 0.75,
+              ...(procurementOf(item) === 'buy'
+                ? {
+                  color: 'var(--c-warn-fg, #8a5a00)',
+                  bgcolor: 'var(--c-warn-bg, rgba(255,176,32,.14))',
+                  border: '1px solid var(--c-warn-border, rgba(255,176,32,.35))',
+                }
+                : {
+                  color: 'var(--c-text-3)',
+                  bgcolor: 'transparent',
+                  border: '1px solid var(--c-border)',
+                }),
+            }}
+          >
+            {procurementOf(item)}
+          </Box>
+        </Tooltip>
 
         {/* Weight is the number people scan this tree for, so it reads in the
             row rather than only inside the panel. An em dash means "not known
@@ -822,6 +839,7 @@ export default function OrderItemsTree({ orderId, canManage, readiness, onStageC
   const [lines, setLines] = useState<WizardLine[]>([]);
 
   const [summary, setSummary] = useState<ItemsSummary | null>(null);
+  const [procCounts, setProcCounts] = useState<{ make: number; buy: number } | null>(null);
   // Incremented after every recompute or code run; every node watches it and
   // re-reads its server-owned fields, so editing a plate at the bottom updates
   // the girder at the top without remounting the tree.
@@ -903,7 +921,31 @@ export default function OrderItemsTree({ orderId, canManage, readiness, onStageC
     } catch { /* the strip is informational — never block the tree on it */ }
   }, [apiBase]);
 
-  useEffect(() => { loadSummary(); }, [loadSummary]);
+  /**
+   * How much of this order is bought in, counted across the WHOLE tree.
+   *
+   * Counted by the server rather than from the rows on screen: the tree loads
+   * children a page at a time and only where somebody has expanded, so
+   * anything counted in the browser would be a count of what has been looked
+   * at. Two `total`s off the query API cost less than a new endpoint.
+   */
+  const loadProcurementCounts = useCallback(async () => {
+    try {
+      const ask = (procurementType: string) => fabQuery<{ total?: number | null }>('fabErpItem', {
+        // `total` is opt-in on this API and is a real COUNT over the same
+        // secured WHERE — asking without the flag returns no total at all, and
+        // reading data.length would report the page size instead.
+        fields: ['id'],
+        filters: { orderId, procurementType },
+        pagination: { limit: 1 },
+        includeTotal: true,
+      }).then((r) => r.total ?? 0);
+      const [make, buy] = await Promise.all([ask('make'), ask('buy')]);
+      setProcCounts({ make, buy });
+    } catch { /* informational, same as the strip it sits in */ }
+  }, [orderId]);
+
+  useEffect(() => { loadSummary(); loadProcurementCounts(); }, [loadSummary, loadProcurementCounts]);
 
   // The wizard needs the lines themselves, not just their distinct types: the
   // chosen line supplies the span code, and its type supplies the default parts.
@@ -926,9 +968,13 @@ export default function OrderItemsTree({ orderId, canManage, readiness, onStageC
     try {
       await api.post(`${apiBase()}/recompute-weights`, {});
       setTreeVersion((v) => v + 1);
-      await loadSummary();
+      // The split is re-read here even though a weight cannot change it: a
+      // deleted node deep in the tree reports itself through this same
+      // callback, and that DOES remove rows from the count. Two cheap COUNTs
+      // on an edit that did not need them beats a stale split after a delete.
+      await Promise.all([loadSummary(), loadProcurementCounts()]);
     } catch { /* leave the last good totals on screen rather than blanking them */ }
-  }, [apiBase, loadSummary]);
+  }, [apiBase, loadSummary, loadProcurementCounts]);
 
   /**
    * Issue codes for rows that do not have one. Never touches an existing code —
@@ -942,6 +988,7 @@ export default function OrderItemsTree({ orderId, canManage, readiness, onStageC
         `${apiBase()}/generate-codes`, {},
       );
       setTreeVersion((v) => v + 1);
+      // Issuing codes creates nothing, so the make/buy split is unchanged.
       await loadSummary();
       toast(res.data.coded > 0
         ? `${res.data.coded} code(s) issued${res.data.alreadyCoded ? ` — ${res.data.alreadyCoded} already had one` : ''}.`
@@ -972,6 +1019,7 @@ export default function OrderItemsTree({ orderId, canManage, readiness, onStageC
   function handleDeleted(id: number) {
     setTopItems((prev) => prev.filter((r) => r.id !== id));
     toast('Item removed');
+    // Re-reads the split too — a removed branch takes its bought-in rows with it.
     handleWeightChanged();
   }
 
@@ -1002,7 +1050,7 @@ export default function OrderItemsTree({ orderId, canManage, readiness, onStageC
       await api.post(`${apiBase()}/recompute-weights`, {});
       await api.post(`${apiBase()}/generate-codes`, {});
       setTreeVersion((v) => v + 1);
-      await loadSummary();
+      await loadSummary(); await loadProcurementCounts();
     } catch { /* the row is saved; derived values catch up on the next action */ }
   }
 
@@ -1068,7 +1116,7 @@ export default function OrderItemsTree({ orderId, canManage, readiness, onStageC
       // The importer already rolled up weights and issued codes inside its
       // transaction, so this only needs to re-read them — not re-run them.
       setTreeVersion((v) => v + 1);
-      await loadSummary();
+      await loadSummary(); await loadProcurementCounts();
       toast(`${res.data.itemsCreated} item(s) imported`);
     } catch (e) {
       setImportErr(errMsg(e, 'Import failed'));
@@ -1118,6 +1166,25 @@ export default function OrderItemsTree({ orderId, canManage, readiness, onStageC
             </Typography>
             <Typography sx={{ fontSize: 18, fontFamily: 'monospace', color: 'var(--c-text)' }}>{summary.itemCount}</Typography>
           </Box>
+          {/* What this order has to be bought in for, against what it builds.
+              The number the purchasing step will act on, so it reads here
+              rather than only by scanning several hundred rows for badges. */}
+          {procCounts && (procCounts.make > 0 || procCounts.buy > 0) && (
+            <Box>
+              <Typography sx={{ fontSize: 10.5, fontWeight: 600, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--c-text-3)' }}>
+                Make / Buy
+              </Typography>
+              <Tooltip title={`${procCounts.make} made here, ${procCounts.buy} bought in. A row is bought in when the catalog item it is bound to says so; everything else is made here.`}>
+                <Typography sx={{ fontSize: 18, fontFamily: 'monospace', color: 'var(--c-text)' }}>
+                  {procCounts.make}
+                  <Box component="span" sx={{ color: 'var(--c-text-3)', px: 0.5 }}>/</Box>
+                  <Box component="span" sx={{ color: procCounts.buy > 0 ? 'var(--c-warn-fg, #8a5a00)' : 'var(--c-text-3)' }}>
+                    {procCounts.buy}
+                  </Box>
+                </Typography>
+              </Tooltip>
+            </Box>
+          )}
           {summary.codePrefix && (
             <Box>
               <Typography sx={{ fontSize: 10.5, fontWeight: 600, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--c-text-3)' }}>
@@ -1243,7 +1310,7 @@ export default function OrderItemsTree({ orderId, canManage, readiness, onStageC
         orderId={orderId}
         lines={lines}
         onClose={() => setWizardOpen(false)}
-        onImported={() => { markItemsChanged(); loadSummary(); setTreeVersion((v) => v + 1); loadTop().then(setTopItems).catch(() => {}); }}
+        onImported={() => { markItemsChanged(); loadSummary(); loadProcurementCounts(); setTreeVersion((v) => v + 1); loadTop().then(setTopItems).catch(() => {}); }}
       />
 
       {importErr && <Alert severity="error" sx={{ mb: 1.5 }} onClose={() => setImportErr('')}>{importErr}</Alert>}
