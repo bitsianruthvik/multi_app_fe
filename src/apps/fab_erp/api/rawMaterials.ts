@@ -4,15 +4,20 @@ import { fabQuery } from './client';
  * One definition of "what a part can be cut from", for the screens.
  *
  * The rule is `procurementType = 'buy'` — things the shop BUYS rather than
- * makes. It is deliberately NOT an item group or category, which is worth
- * saying because "Raw Materials" is also the name of a category and the two are
- * unrelated: a part is never cut from a finished good, whatever anybody filed
- * it under.
+ * makes — MINUS consumables and fasteners.
+ *
+ * It is deliberately not an item group, and the "Raw Materials" category is
+ * still not an inclusion test: that category is a filing decision, and a part
+ * is never cut from a finished good whatever anybody filed it under. The two
+ * exclusions are different in kind — they are seeded system categories whose
+ * contents (flux, primer, gas, bolts) are never cut into anything.
  *
  * This mirrors rawMaterialService.js on the backend. The two cannot share code
  * — separate repos — so they are kept deliberately identical, and the rule is
  * stated once on each side rather than five times across both.
  */
+
+const NOT_CUT_FROM = ['cons', 'fast'];
 
 export interface RawMaterial {
   id: number;
@@ -21,6 +26,8 @@ export interface RawMaterial {
   unit?: string | null;
   thicknessMm?: number | null;
   materialForm?: string | null;
+  /** System category code — read only to exclude consumables and fasteners. */
+  categoryCode?: string | null;
 }
 
 /**
@@ -40,7 +47,19 @@ export async function fetchRawMaterials(): Promise<RawMaterial[]> {
     orderBy: [{ field: 'code', direction: 'asc' }],
     pagination: { limit: MAX_MATERIALS },
   });
-  return res.data ?? [];
+  /**
+   * Bought, and not a consumable or a fastener.
+   *
+   * `procurement_type = 'buy'` is right for "did we buy this" and wrong on its
+   * own for "what is this part cut from": a real catalog also holds welding
+   * flux, zinc primer, CO2 cylinders and M24 bolts. Production had 48 bought
+   * items of which 14 were those, so every material picker offered paint
+   * alongside plate. Mirrors NOT_CUT_FROM in rawMaterialService.js.
+   *
+   * Filtered here rather than in the query because the exclusion is a NOT IN
+   * over a joined column, which this query builder has no operator for.
+   */
+  return (res.data ?? []).filter((m) => !NOT_CUT_FROM.includes(m.categoryCode ?? ''));
 }
 
 /**

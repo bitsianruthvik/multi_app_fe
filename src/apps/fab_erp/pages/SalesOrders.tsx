@@ -35,7 +35,7 @@ interface FabOrder {
 interface PickerOption { id: number; name: string; code: string }
 
 const ORDER_TYPE_CONFIG: Record<string, { label: string; subtypes: string[]; statuses: string[] }> = {
-  sales:         { label: 'Sales Order',       subtypes: ['standard', 'rush', 'blanket', 'internal'],                  statuses: ['draft', 'confirmed', 'scheduled', 'in_production', 'ready_to_ship', 'shipped', 'closed', 'cancelled'] },
+  sales:         { label: 'Sales Order',       subtypes: ['standard', 'rush', 'blanket', 'internal'],                  statuses: ['draft', 'confirmed', 'waiting_material', 'in_production', 'ready_to_ship', 'shipped', 'closed', 'cancelled'] },
 };
 const ORDER_TYPE_KEYS = Object.keys(ORDER_TYPE_CONFIG);
 const ALL_PRIORITIES = ['critical', 'high', 'medium', 'low'];
@@ -51,7 +51,10 @@ const STAGES: PipelineStage[] = [
   // defined this exact palette — these were duplicated literals.
   { key: 'capture',    label: 'Capture',       accent: 'var(--c-stage-capture)' },
   { key: 'confirmed',  label: 'Confirmed',     accent: 'var(--c-stage-planned)' },
-  { key: 'scheduled',  label: 'Scheduled',     accent: 'var(--c-stage-scheduled)' },
+  // 'Scheduled' used to mean the DAG existed. That is now true the moment a
+  // production order is raised and says nothing about whether the shop can
+  // start; what a planner needs at this stage is whether it is held up.
+  { key: 'scheduled',  label: 'Waiting for material', accent: 'var(--c-stage-scheduled)' },
   { key: 'production', label: 'In production', accent: 'var(--c-stage-production)' },
   { key: 'done',       label: 'Closed',        accent: 'var(--c-stage-shipped)' },
 ];
@@ -61,7 +64,7 @@ const CLOSED_STAGES = new Set(['done']);
 function stageOf(status: string): string {
   if (status === 'draft') return 'capture';
   if (status === 'confirmed' || status === 'sent') return 'confirmed';
-  if (status === 'released' || status === 'scheduled') return 'scheduled';
+  if (['released', 'scheduled', 'waiting_material'].includes(status)) return 'scheduled';
   if (['in_production', 'in_progress', 'in_transit'].includes(status)) return 'production';
   return 'done';
 }

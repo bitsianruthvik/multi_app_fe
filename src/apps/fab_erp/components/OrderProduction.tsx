@@ -18,9 +18,12 @@ import {
   Alert, Box, Button, Chip, CircularProgress, LinearProgress, Typography,
 } from '@mui/material';
 import PrecisionManufacturingRounded from '@mui/icons-material/PrecisionManufacturingRounded';
+import CheckCircleRounded from '@mui/icons-material/CheckCircleRounded';
 
 import { Surface, EmptyState, ListSkeleton, useToast, backendMessage, Mono } from '../components';
-import { fetchProduction, raiseProduction, type ProductionView } from '../api/procurementOrders';
+import {
+  fetchProduction, raiseProduction, approveProduction, type ProductionView,
+} from '../api/procurementOrders';
 
 export default function OrderProduction({ orderId, canManage, onChanged }: {
   orderId: number;
@@ -44,12 +47,26 @@ export default function OrderProduction({ orderId, canManage, onChanged }: {
 
   useEffect(() => { load(); }, [load]);
 
+  async function approve() {
+    if (!view?.production) return;
+    setBusy(true); setError('');
+    try {
+      const st = await approveProduction(view.production.id);
+      toast(st?.status === 'in_production'
+        ? 'Approved — material is in stock, so it is in production'
+        : 'Approved — waiting for material', 'success');
+      await load(); onChanged?.();
+    } catch (e) {
+      setError(backendMessage(e, 'Could not approve the production order.'));
+    } finally { setBusy(false); }
+  }
+
   async function raise() {
     setBusy(true); setError('');
     try {
       const res = await raiseProduction(orderId);
       toast(res.created
-        ? `Production order ${res.orderNumber} raised — ${res.tasksClaimed} task(s)`
+        ? `${res.orderNumber} raised — ${res.tasksMaterialized} task(s) built`
         : `${res.tasksClaimed} new task(s) added to ${res.orderNumber}`, 'success');
       await load(); onChanged?.();
     } catch (e) {
@@ -80,8 +97,9 @@ export default function OrderProduction({ orderId, canManage, onChanged }: {
         <Surface e={1} sx={{ p: 3, textAlign: 'center' }}>
           <Typography sx={{ fontSize: 14, mb: 0.5 }}>No production order yet</Typography>
           <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)', mb: 2 }}>
-            {makeItems} item(s) in this order are made here. Raising the production order gives that
-            work its own document and puts the task tree under it.
+            {makeItems} item(s) in this order are made here. Raising the production order builds the
+            task tree and puts it under that order — it starts as a draft, and stays one until
+            somebody approves it.
           </Typography>
           <Button
             variant="contained" size="small" disabled={!canManage || busy}
@@ -130,6 +148,29 @@ export default function OrderProduction({ orderId, canManage, onChanged }: {
               ))}
             </Box>
           </Surface>
+
+          {/* Approval is the one transition a person makes; everything after it
+              follows from the shop floor. A draft says so plainly rather than
+              looking like an order that is simply not moving. */}
+          {mo.status === 'draft' && (
+            <Alert severity="info" sx={{ mb: 2 }}
+              action={(
+                <Button size="small" variant="contained" disabled={!canManage || busy}
+                  onClick={approve}
+                  startIcon={busy ? <CircularProgress size={14} color="inherit" /> : <CheckCircleRounded />}>
+                  Approve
+                </Button>
+              )}>
+              This order is a draft — the work is planned but nobody has committed to it. Approving
+              moves it to waiting, or straight into production if its material is already in stock.
+            </Alert>
+          )}
+          {mo.status === 'waiting' && (
+            <Alert severity="warning" sx={{ mb: 2 }}>
+              Approved, and waiting for material. Every task is still blocked; the moment the first
+              raw material it needs is received, this moves to in production on its own.
+            </Alert>
+          )}
 
           {/* Tasks built after the order was raised do not join it by themselves.
               Saying so beats a count that is quietly out of date. */}

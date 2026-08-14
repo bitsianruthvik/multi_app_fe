@@ -101,9 +101,19 @@ export const raiseProcurement = async (
 export const releaseReservations = async (orderId: number): Promise<{ released: number }> =>
   (await api.post<{ released: number }>(`${base()}/orders/${orderId}/procurement/release`, {})).data;
 
+/**
+ * Raise the production order, which also BUILDS THE DAG.
+ *
+ * The two were separate steps and are one act: an order describing work that
+ * had never been broken down is a document about nothing.
+ */
 export const raiseProduction = async (orderId: number): Promise<ProductionView['production'] & {
-  created: boolean; tasksClaimed: number;
+  created: boolean; tasksClaimed: number; tasksMaterialized: number; itemsSkipped: number;
 }> => (await api.post(`${base()}/orders/${orderId}/production/raise`, {})).data;
+
+/** Approve it: draft → waiting, or straight to in production if steel is already in. */
+export const approveProduction = async (moId: number) =>
+  (await api.post(`${base()}/production-orders/${moId}/approve`, {})).data;
 
 /** Book delivered stock against the line that ordered it. */
 export const receiveAgainstLine = async (
