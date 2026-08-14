@@ -21,6 +21,7 @@ import { Surface, EmptyState, useToast, backendMessage } from '../components';
 import { MaterializeOutcome, type MaterializeResponse } from './OrderTaskDag';
 import type { OrderReadiness } from '../api/readiness';
 import BoqWizardDialog, { type WizardLine } from './BoqWizardDialog';
+import { procurementOf } from '../api/procurement';
 import api, { API_HOST } from '@core/utils/axiosConfig';
 
 // Tree can be 1000+ rows across hundreds of top-level branches — everything
@@ -62,9 +63,16 @@ interface FabItemRow {
   orderNumber?: string;
   catalogItemCode?: string | null;
   catalogItemUnit?: string | null;
+  /** 'make' | 'buy'. Null on rows created before the column existed — read it
+   *  through procurementOf(), which treats absent as 'make'. */
+  procurementType?: string | null;
 }
 
-interface CatalogOption { id: number; name: string; code: string; unit: string | null }
+interface CatalogOption {
+  id: number; name: string; code: string; unit: string | null;
+  /** Whether the shop buys this or makes it — carried onto the row it creates. */
+  procurementType?: string | null;
+}
 interface FlowOption { id: number; name: string; code?: string; active?: number }
 interface ImportItemsResult {
   mode?: 'append' | 'replace';
@@ -172,6 +180,12 @@ function AddItemRow({ orderId, parentItemId, onCreated, onCancel }: {
         // Every new item starts with no flow assignment, independent of its
         // parent — flow_id is never inherited/pre-filled from the parent.
         flow_id: null,
+        // Make or buy, decided the same way the server decides it on import:
+        // the catalog answers for anything bound to it, and anything else is
+        // made here. Set at insert because a row added by hand never passes
+        // through an import sweep, and an unclassified row reads as 'make' —
+        // which would quietly mislabel a bought-in part as something to build.
+        procurement_type: match?.procurementType === 'buy' ? 'buy' : 'make',
       });
       onCreated({
         id: res.id,
@@ -184,6 +198,7 @@ function AddItemRow({ orderId, parentItemId, onCreated, onCancel }: {
         qty: parseFloat(qty) || 1,
         catalogItemCode: match?.code ?? null,
         catalogItemUnit: match?.unit ?? null,
+        procurementType: match?.procurementType === 'buy' ? 'buy' : 'make',
       });
     } catch (e) {
       setError(errMsg(e, 'Create failed'));
@@ -568,6 +583,29 @@ function ItemNode({ item, depth, canManage, flows, onDeleted, onItemAdded, onWei
           <Typography variant="caption" color="text.disabled" fontFamily="monospace" sx={{ flexShrink: 0 }}>
             {item.catalogItemCode}
           </Typography>
+        )}
+
+        {/* Make or buy. Only 'buy' is drawn: on a fabrication BOM nearly every
+            row is made here, so marking them all would be noise on hundreds of
+            rows and would bury the handful that get purchased. The exceptions
+            are what somebody needs to spot. */}
+        {procurementOf(item) === 'buy' && (
+          <Tooltip title={item.catalogItemCode
+            ? `Bought in — ${item.catalogItemCode} is a 'buy' item in the catalog`
+            : 'Bought in — set on this row rather than by its catalog item'}>
+            <Box
+              component="span"
+              sx={{
+                flexShrink: 0, fontSize: 10, fontWeight: 600, letterSpacing: '.05em',
+                textTransform: 'uppercase', px: 0.75, py: 0.125, borderRadius: 0.75,
+                color: 'var(--c-warn-fg, #8a5a00)',
+                bgcolor: 'var(--c-warn-bg, rgba(255,176,32,.14))',
+                border: '1px solid var(--c-warn-border, rgba(255,176,32,.35))',
+              }}
+            >
+              buy
+            </Box>
+          </Tooltip>
         )}
 
         {/* Weight is the number people scan this tree for, so it reads in the
