@@ -64,7 +64,11 @@ export const NAV_SECTIONS: NavSection[] = [
     label: 'Production',
     items: [
       { slug: 'task-queue', label: 'Queue', permission: 'fab_erp_taskqueue_view', countKey: 'openTasks', keywords: ['work', 'operator', 'start', 'stop'] },
-      { slug: 'dispatch', label: 'Dispatch', permission: 'fab_erp_taskqueue_view', keywords: ['dispatch', 'plan', 'planning', 'assign', 'next job', 'what next', 'ranking', 'priority', 'run'] },
+      // Absorbed the old Dispatch page (2026-08-14) — it answered the same
+      // question without a time axis, and two screens disagreeing about what to
+      // work on next is worse than either alone. Its keywords are inherited so
+      // the palette still finds this by the old name.
+      { slug: 'planner', label: 'Planner', permission: 'fab_erp_planner_view', keywords: ['dispatch', 'plan', 'planning', 'schedule', 'gantt', 'day', 'week', 'capacity', 'assign', 'next job', 'what next', 'ranking', 'priority', 'shift', 'suggest'] },
       { slug: 'task-engine', label: 'Engine', permission: 'fab_erp_taskengine_view', countKey: 'activeOrders', keywords: ['dag', 'graph', 'swimlane', 'progress'] },
       { slug: 'machine-board', label: 'Machines', permission: 'fab_erp_machine_state_manage', countKey: 'machinesRunning', keywords: ['shop floor', 'state', 'running', 'down'] },
       { slug: 'machine-timeline', label: 'Timeline', permission: 'fab_erp_time_backfill', keywords: ['gantt', 'utilisation', 'backfill', 'history', 'reconcile', 'gaps', 'unaccounted', 'anomalies'] },

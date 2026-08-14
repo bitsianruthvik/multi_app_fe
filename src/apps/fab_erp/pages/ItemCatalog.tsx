@@ -63,6 +63,8 @@ import type {
   FabItemCatalog, FabItemCategory, FabItemGroup, FabItemSubgroup, FabCustomField,
 } from '../types';
 import { usePermission } from '@core/hooks/usePermission';
+import { useAuth } from '@core/contexts/AuthContext';
+import { isAdminRole } from '@core/utils/roles';
 import InfoTooltip, { type InfoContent } from '@shared/components/InfoTooltip';
 import api, { API_HOST } from '@core/utils/axiosConfig';
 import { Surface, PageHeader, Mono, StatusBadge, EmptyState, ListSkeleton, EntityList, EntityRow, useToast, StatStrip, DataTable, FormDialog, ConfirmDialog, backendMessage, type Stat, type SortableColumn, type DataColumn } from '../components';
@@ -1911,8 +1913,15 @@ type TaxonomyDeleteState = {
 } | null;
 
 export default function ItemCatalog() {
-  const canManage         = usePermission('fab_erp_items_meta_manage');
-  const canManageTaxonomy = usePermission('fab_erp_taxonomy_manage');
+  // Admins bypass these tags on the BACKEND, so without OR-ing the role in here
+  // an admin whose JWT predates the grant (uiPermissions is baked at login and
+  // never refreshed) sees the Category/Group tabs but no "Add Field" button —
+  // the custom-fields editor looks deleted rather than merely un-granted. Same
+  // pattern as TaskQueue.tsx and Dispatch/Planner.
+  const { user }          = useAuth();
+  const admin             = isAdminRole(user?.role);
+  const canManage         = usePermission('fab_erp_items_meta_manage') || admin;
+  const canManageTaxonomy = usePermission('fab_erp_taxonomy_manage') || admin;
   const navigate          = useNavigate();
   const { company }       = useParams<{ company: string }>();
 

@@ -73,10 +73,20 @@ export default function Suppliers() {
   useEffect(() => { load(); }, [load]);
 
   async function save() {
-    if (!edit || !edit.name.trim() || !edit.code.trim()) return;
+    if (!edit || !edit.name.trim()) return;
+    // Blank is legal now: mutateController generates SUP-#### for a supplier
+    // inserted without one (AUTOGEN_CODE_RESOURCES, mode 'ifBlank'). A typed
+    // code is still kept, because it is usually the vendor's own account number.
     const code = edit.code.trim().toUpperCase();
-    const clash = rows.find((r) => r.id !== edit.id && r.code.toUpperCase() === code);
-    if (clash) { setError(`${code} is already used by ${clash.name}.`); return; }
+    if (code) {
+      const clash = rows.find((r) => r.id !== edit.id && r.code.toUpperCase() === code);
+      if (clash) { setError(`${code} is already used by ${clash.name}.`); return; }
+    } else if (edit.id) {
+      // Autogen only fires on INSERT, so clearing the code of an existing
+      // supplier would blank it rather than reissue one.
+      setError('An existing supplier needs a code. Clear it only when creating a new one.');
+      return;
+    }
 
     const payload = {
       code,
@@ -179,7 +189,8 @@ export default function Suppliers() {
         <DialogTitle sx={{ fontWeight: 600 }}>{edit?.id ? 'Edit supplier' : 'Add supplier'}</DialogTitle>
         <DialogContent dividers sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
           <Box sx={{ display: 'flex', gap: 2 }}>
-            <TextField size="small" label="Code *" value={edit?.code ?? ''} sx={{ width: 150 }}
+            <TextField size="small" label="Code" value={edit?.code ?? ''} sx={{ width: 170 }}
+              helperText={edit?.id ? undefined : 'Blank = auto (SUP-0001)'}
               slotProps={{ htmlInput: { style: { textTransform: 'uppercase' }, maxLength: 60 } }}
               onChange={(e) => setEdit((v) => (v ? { ...v, code: e.target.value } : v))} />
             <TextField size="small" label="Name *" value={edit?.name ?? ''} sx={{ flex: 1 }}

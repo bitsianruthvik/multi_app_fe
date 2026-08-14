@@ -12,6 +12,8 @@ import StackedBarChartRounded from '@mui/icons-material/StackedBarChartRounded';
 import WarehouseRounded from '@mui/icons-material/WarehouseRounded';
 import StraightenRounded from '@mui/icons-material/StraightenRounded';
 import TuneRounded from '@mui/icons-material/TuneRounded';
+import GroupsRounded from '@mui/icons-material/GroupsRounded';
+import LocalShippingRounded from '@mui/icons-material/LocalShippingRounded';
 
 import { PageHeader, Surface } from '../components';
 import { useIsPermitted } from '../hooks/useIsPermitted';
@@ -73,6 +75,12 @@ const GROUPS: { title: string; hint: string; cards: SetupCard[] }[] = [
     title: 'Who you deal with, and how things are named',
     hint: '',
     cards: [
+      // The group was named for these two and then shipped without them —
+      // Customers only ever appeared under Orders and Suppliers only in the
+      // Setup sub-nav, so the readiness hub asked you to set up a factory with
+      // nobody to build for and nobody to buy from.
+      { slug: 'customers', label: 'Customers', blurb: 'Who the orders are for. Codes are issued automatically.', icon: <GroupsRounded />, permission: 'fab_erp_projects_view', countKey: 'customers', unit: 'customers' },
+      { slug: 'suppliers', label: 'Suppliers', blurb: 'Mills and stockists you raise purchase orders against.', icon: <LocalShippingRounded />, permission: 'fab_erp_inventory_view', countKey: 'suppliers', unit: 'suppliers' },
       { slug: 'codegen-settings', label: 'Code generation', blurb: 'Prefixes and sequences for auto-generated codes.', icon: <TuneRounded />, permission: 'fab_erp_items_meta_view' },
     ],
   },

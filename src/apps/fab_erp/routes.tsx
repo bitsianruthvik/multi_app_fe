@@ -23,7 +23,7 @@ const BomTemplates       = lazy(() => import('./pages/BomTemplates'));
 const Suppliers          = lazy(() => import('./pages/Suppliers'));
 const ProgressTemplates  = lazy(() => import('./pages/ProgressTemplates'));
 const TaskQueue          = lazy(() => import('./pages/TaskQueue'));
-const Dispatch           = lazy(() => import('./pages/Dispatch'));
+const Planner            = lazy(() => import('./pages/Planner'));
 const TaskEngine         = lazy(() => import('./pages/TaskEngine'));
 const MachineBoard       = lazy(() => import('./pages/MachineBoard'));
 const BufferConfig       = lazy(() => import('./pages/BufferConfig'));
@@ -70,7 +70,12 @@ export function getFabErpRoutes(
     { path: '/:company/fab_erp/flow-rules',                 element: wrap(<FlowRules />) },
     { path: '/:company/fab_erp/progress-templates',          element: wrap(<ProgressTemplates />) },
     { path: '/:company/fab_erp/task-queue',                 element: wrap(<TaskQueue />) },
-    { path: '/:company/fab_erp/dispatch',                    element: wrap(<Dispatch />) },
+    { path: '/:company/fab_erp/planner',                     element: wrap(<Planner />) },
+    // Dispatch was absorbed by the Planner (2026-08-14). The old path is kept as
+    // a redirect-by-render rather than deleted: it is bookmarked, and 404ing the
+    // shop floor's "what next" screen on upgrade day is not an acceptable way to
+    // retire a route.
+    { path: '/:company/fab_erp/dispatch',                    element: wrap(<Planner />) },
     { path: '/:company/fab_erp/task-engine',                element: wrap(<TaskEngine />) },
     { path: '/:company/fab_erp/machine-board',               element: wrap(<MachineBoard />) },
     { path: '/:company/fab_erp/buffer-config',               element: wrap(<BufferConfig />) },
