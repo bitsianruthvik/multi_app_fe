@@ -19,6 +19,8 @@ import OrderItemsTree from './OrderItemsTree';
 import OrderNesting from './OrderNesting';
 import OrderFlowAllocation from './OrderFlowAllocation';
 import OrderTaskDag from './OrderTaskDag';
+import OrderProcurement from './OrderProcurement';
+import OrderProduction from './OrderProduction';
 import OrderLinesPanel from './OrderLinesPanel';
 
 /**
@@ -242,6 +244,12 @@ export default function SalesOrderWizard({
             )}
             {step === 'tasks' && (
               <OrderTaskDag orderId={orderId} canManage={canManage} />
+            )}
+            {step === 'procurement' && (
+              <OrderProcurement orderId={orderId} canManage={canManage} onChanged={refresh} />
+            )}
+            {step === 'production' && (
+              <OrderProduction orderId={orderId} canManage={canManage} onChanged={refresh} />
             )}
           </>
         )}

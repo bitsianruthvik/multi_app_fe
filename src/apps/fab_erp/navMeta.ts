@@ -104,6 +104,7 @@ export const NAV_SECTIONS: NavSection[] = [
       { slug: 'operation-flows', label: 'Flows', permission: 'fab_erp_flows_view', countKey: 'flows', keywords: ['routing', 'sequence', 'steps'] },
       { slug: 'bom-templates', label: 'BOM templates', permission: 'fab_erp_flows_view', keywords: ['structure template', 'default parts', 'composite girder', 'what is it made of', 'wizard parts'] },
       { slug: 'flow-rules', label: 'Flow rules', permission: 'fab_erp_flows_view', keywords: ['flow allocation', 'default flow', 'suffix', 'drilled', 'per level', 'assign flows'] },
+      { slug: 'suppliers', label: 'Suppliers', permission: 'fab_erp_inventory_view', keywords: ['vendor', 'purchase order', 'procurement', 'buy from', 'mill', 'stockist'] },
       { slug: 'plants', label: 'Plants', permission: 'fab_erp_resources_view', keywords: ['site', 'stock location', 'warehouse'] },
       { slug: 'resource-types', label: 'Resources', permission: 'fab_erp_resources_view', countKey: 'machines', keywords: ['machines', 'labour', 'capacity', 'resource type'] },
       { slug: 'shift-calendars', label: 'Calendars', permission: 'fab_erp_calendars_view', keywords: ['shifts', 'working days', 'holidays'] },

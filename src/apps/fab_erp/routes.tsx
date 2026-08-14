@@ -20,6 +20,7 @@ const Operations         = lazy(() => import('./pages/Operations'));
 const OperationFlows     = lazy(() => import('./pages/OperationFlows'));
 const FlowRules          = lazy(() => import('./pages/FlowRules'));
 const BomTemplates       = lazy(() => import('./pages/BomTemplates'));
+const Suppliers          = lazy(() => import('./pages/Suppliers'));
 const ProgressTemplates  = lazy(() => import('./pages/ProgressTemplates'));
 const TaskQueue          = lazy(() => import('./pages/TaskQueue'));
 const Dispatch           = lazy(() => import('./pages/Dispatch'));
@@ -65,6 +66,7 @@ export function getFabErpRoutes(
     { path: '/:company/fab_erp/operations',                 element: wrap(<Operations />) },
     { path: '/:company/fab_erp/operation-flows',            element: wrap(<OperationFlows />) },
     { path: '/:company/fab_erp/bom-templates',              element: wrap(<BomTemplates />) },
+    { path: '/:company/fab_erp/suppliers',                  element: wrap(<Suppliers />) },
     { path: '/:company/fab_erp/flow-rules',                 element: wrap(<FlowRules />) },
     { path: '/:company/fab_erp/progress-templates',          element: wrap(<ProgressTemplates />) },
     { path: '/:company/fab_erp/task-queue',                 element: wrap(<TaskQueue />) },

@@ -25,6 +25,8 @@ import { statusFamily } from '../statusMap';
 import OrderItemsTree from '../components/OrderItemsTree';
 import OrderFlowAllocation from '../components/OrderFlowAllocation';
 import OrderNesting from '../components/OrderNesting';
+import OrderProcurement from '../components/OrderProcurement';
+import OrderProduction from '../components/OrderProduction';
 import OrderTaskDag from '../components/OrderTaskDag';
 import OrderStageStrip from '../components/OrderStageStrip';
 import { fetchOrderReadiness, type OrderReadiness, type ReadinessStage } from '../api/readiness';
@@ -257,6 +259,11 @@ export default function SalesOrderDetail() {
           { value: 'nesting', label: 'Nesting', dot: stageDot('nesting') },
           { value: 'flows', label: 'Flows', dot: stageDot('flows') },
           { value: 'dag', label: 'Project tree', dot: stageDot('tasks') },
+          // The two documents the finished tree leads to. Reachable here as well
+          // as in the wizard, because receiving a delivery happens long after
+          // the order was confirmed and the wizard closed.
+          { value: 'procurement', label: 'Procurement', dot: stageDot('procurement') },
+          { value: 'production', label: 'Production', dot: stageDot('production') },
         ]}
         active={tab}
         onTab={setTab}
@@ -340,6 +347,10 @@ export default function SalesOrderDetail() {
           <OrderNesting orderId={id} canManage={canManage} onStageChanged={refreshReadiness} />
         ) : tab === 'flows' ? (
           <OrderFlowAllocation orderId={id} canManage={canManage} onStageChanged={refreshReadiness} />
+        ) : tab === 'procurement' ? (
+          <OrderProcurement orderId={id} canManage={canManage} onChanged={refreshReadiness} />
+        ) : tab === 'production' ? (
+          <OrderProduction orderId={id} canManage={canManage} onChanged={refreshReadiness} />
         ) : (
           <OrderTaskDag orderId={id} canManage={canManage} />
         )}
