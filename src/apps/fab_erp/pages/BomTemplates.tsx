@@ -35,13 +35,10 @@ import { fabQuery, fabMutate } from '../api/client';
 import { usePermission } from '@core/hooks/usePermission';
 import {
   PageHeader, Surface, Mono, EmptyState, ListSkeleton, useToast, DataTable,
-  ConfirmDialog, backendMessage,
+  ConfirmDialog, backendMessage, RawMaterialSelect,
 } from '../components';
 import { LINE_TYPES } from '../types';
-import {
-  fetchRawMaterials, materialsForThickness as materialsFor, materialLabel, withSelected,
-  type RawMaterial as Material,
-} from '../api/rawMaterials';
+import { fetchRawMaterials, type RawMaterial as Material } from '../api/rawMaterials';
 
 interface BomTemplate {
   id: number;
@@ -272,16 +269,16 @@ export default function BomTemplates() {
               onChange={(e) => setEdit((v) => (v ? { ...v, qty: e.target.value } : v))} />
             <TextField size="small" type="number" label="Thick" value={edit?.thick ?? ''} sx={{ width: 100 }}
               onChange={(e) => setEdit((v) => (v ? { ...v, thick: e.target.value, rmCatalogItemId: '' } : v))} />
-            <TextField select size="small" label="Raw material" value={edit?.rmCatalogItemId ?? ''} sx={{ flex: 1 }}
-              onChange={(e) => setEdit((v) => (v ? { ...v, rmCatalogItemId: e.target.value === '' ? '' : Number(e.target.value) } : v))}>
-              <MenuItem value="">— not set —</MenuItem>
-              {withSelected(materialsFor(materials, edit?.thick ?? ''), materials,
-                (m) => m.id === edit?.rmCatalogItemId).map((m) => (
-                <MenuItem key={m.id} value={m.id}>
-                  {materialLabel(m)}
-                </MenuItem>
-              ))}
-            </TextField>
+            <RawMaterialSelect
+              materials={materials}
+              thickness={edit?.thick ?? ''}
+              value={edit?.rmCatalogItemId ?? ''}
+              valueOf={(m) => m.id}
+              onChange={(v) => setEdit((prev) => (prev
+                ? { ...prev, rmCatalogItemId: v === '' ? '' : Number(v) }
+                : prev))}
+              sx={{ flex: 1 }}
+            />
           </Box>
           <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
             <TextField size="small" type="number" label="Order" value={edit?.sortOrder ?? ''} sx={{ width: 100 }}

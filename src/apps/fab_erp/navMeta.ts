@@ -84,7 +84,10 @@ export const NAV_SECTIONS: NavSection[] = [
     label: 'Orders',
     items: [
       { slug: 'orders', label: 'Orders', permission: 'fab_erp_projects_view', countKey: 'openOrders', keywords: ['sales', 'purchase', 'manufacturing', 'so', 'po'], childSlugs: ['orders/:soId'] },
-      { slug: 'customers', label: 'Customers', permission: 'fab_erp_projects_view', keywords: ['client', 'buyer'] },
+      // Customers is NOT here — it is master data, and it lives beside Suppliers
+      // under Setup. It sat in this section while the Setup hub also carried a
+      // Customers card, so the card navigated correctly and then row 1 lit up
+      // "Orders", which reads as the click having gone somewhere else.
       { slug: 'item-batches', label: 'Stock', permission: 'fab_erp_inventory_view', keywords: ['batches', 'inventory', 'on hand'] },
       { slug: 'stock-in', label: 'Stock in', permission: 'fab_erp_inventory_manage', keywords: ['receive', 'goods in', 'inward', 'add stock', 'raw material', 'grn'] },
     ],
@@ -108,7 +111,8 @@ export const NAV_SECTIONS: NavSection[] = [
       { slug: 'operation-flows', label: 'Flows', permission: 'fab_erp_flows_view', countKey: 'flows', keywords: ['routing', 'sequence', 'steps'] },
       { slug: 'bom-templates', label: 'BOM templates', permission: 'fab_erp_flows_view', keywords: ['structure template', 'default parts', 'composite girder', 'what is it made of', 'wizard parts'] },
       { slug: 'flow-rules', label: 'Flow rules', permission: 'fab_erp_flows_view', keywords: ['flow allocation', 'default flow', 'suffix', 'drilled', 'per level', 'assign flows'] },
-      { slug: 'suppliers', label: 'Suppliers', permission: 'fab_erp_inventory_view', keywords: ['vendor', 'purchase order', 'procurement', 'buy from', 'mill', 'stockist'] },
+      { slug: 'customers', label: 'Customers', permission: 'fab_erp_projects_view', countKey: 'customers', keywords: ['client', 'buyer', 'who we sell to'] },
+      { slug: 'suppliers', label: 'Suppliers', permission: 'fab_erp_inventory_view', countKey: 'suppliers', keywords: ['vendor', 'purchase order', 'procurement', 'buy from', 'mill', 'stockist'] },
       { slug: 'plants', label: 'Plants', permission: 'fab_erp_resources_view', keywords: ['site', 'stock location', 'warehouse'] },
       { slug: 'resource-types', label: 'Resources', permission: 'fab_erp_resources_view', countKey: 'machines', keywords: ['machines', 'labour', 'capacity', 'resource type'] },
       { slug: 'shift-calendars', label: 'Calendars', permission: 'fab_erp_calendars_view', keywords: ['shifts', 'working days', 'holidays'] },

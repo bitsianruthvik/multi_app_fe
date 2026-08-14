@@ -651,8 +651,42 @@ function ResourceTypesPanel({ operation, resourceTypes, canManage, onOperationSa
 
 // ── Operation detail (tabs) ──────────────────────────────────────────────────────
 
-function OperationDetail({ operation, resourceTypes, canManage, onSaved }: {
-  operation: FabOperation; resourceTypes: FabResourceType[]; canManage: boolean; onSaved: () => void;
+/**
+ * A DIALOG, not a panel under the list.
+ *
+ * This was rendered inline below the EntityList, which meant that on a shop with
+ * forty operations, clicking one scrolled nothing, highlighted nothing, and
+ * appended the whole editor several screens below the fold. The formula editor
+ * and the resource-type mapping were both already here and both read as missing:
+ * the click looked like it had done nothing at all.
+ *
+ * Same shape as ResourceTypes.tsx's detail dialog, deliberately — an operation
+ * and a resource type are the same kind of record and should not be edited two
+ * different ways.
+ */
+function OperationDetailDialog({ operation, resourceTypes, canManage, onClose, onSaved }: {
+  operation: FabOperation | null; resourceTypes: FabResourceType[]; canManage: boolean;
+  onClose: () => void; onSaved: () => void;
+}) {
+  return (
+    <Dialog open={!!operation} onClose={onClose} maxWidth="lg" fullWidth>
+      {operation && (
+        <OperationDetailBody
+          key={operation.id}
+          operation={operation}
+          resourceTypes={resourceTypes}
+          canManage={canManage}
+          onClose={onClose}
+          onSaved={onSaved}
+        />
+      )}
+    </Dialog>
+  );
+}
+
+function OperationDetailBody({ operation, resourceTypes, canManage, onClose, onSaved }: {
+  operation: FabOperation; resourceTypes: FabResourceType[]; canManage: boolean;
+  onClose: () => void; onSaved: () => void;
 }) {
   const [subTab, setSubTab] = useState(0);
   const [variableKeys, setVariableKeys] = useState<string[]>([]);
@@ -675,30 +709,36 @@ function OperationDetail({ operation, resourceTypes, canManage, onSaved }: {
   }, [operation.id]);
 
   return (
-    <Box sx={{ mt: 3 }}>
-      <Box sx={{ borderTop: '1px solid var(--c-divider)', pt: 2.5, mb: 2 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-          <Typography sx={{ fontSize: 17, fontWeight: 600, color: 'var(--c-text)' }}>{operation.name}</Typography>
-          <Mono chip>{operation.code}</Mono>
-        </Box>
-        <Box sx={{ borderBottom: '1px solid var(--c-divider)' }}>
-          <Tabs value={subTab} onChange={(_, v) => setSubTab(v)}>
-            <Tab label="Details" sx={{ minHeight: 40 }} />
-            <Tab label="Variables" sx={{ minHeight: 40 }} />
-            <Tab label="Resource Types" sx={{ minHeight: 40 }} />
-          </Tabs>
-        </Box>
+    <>
+      <DialogTitle sx={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 1.5 }}>
+        <span>{operation.name}</span>
+        <Mono chip>{operation.code}</Mono>
+      </DialogTitle>
+      <Box sx={{ borderBottom: '1px solid var(--c-divider)', px: 3 }}>
+        <Tabs value={subTab} onChange={(_, v) => setSubTab(v)}>
+          {/* "Time formula" rather than "Details": the formula is what people
+              open an operation to write, and a tab called Details gives no clue
+              that it is where the editor lives. */}
+          <Tab label="Details & time formula" sx={{ minHeight: 40 }} />
+          <Tab label="Variables" sx={{ minHeight: 40 }} />
+          <Tab label="Resource Types" sx={{ minHeight: 40 }} />
+        </Tabs>
       </Box>
-      {subTab === 0 && (
-        <DetailsPanel operation={operation} resourceTypes={resourceTypes} variableKeys={variableKeys} canManage={canManage} onSaved={onSaved} />
-      )}
-      {subTab === 1 && (
-        <VariablesPanel operationId={operation.id} canManage={canManage} onVarsChanged={setVariableKeys} />
-      )}
-      {subTab === 2 && (
-        <ResourceTypesPanel operation={operation} resourceTypes={resourceTypes} canManage={canManage} onOperationSaved={onSaved} />
-      )}
-    </Box>
+      <DialogContent dividers sx={{ minHeight: 420 }}>
+        {subTab === 0 && (
+          <DetailsPanel operation={operation} resourceTypes={resourceTypes} variableKeys={variableKeys} canManage={canManage} onSaved={onSaved} />
+        )}
+        {subTab === 1 && (
+          <VariablesPanel operationId={operation.id} canManage={canManage} onVarsChanged={setVariableKeys} />
+        )}
+        {subTab === 2 && (
+          <ResourceTypesPanel operation={operation} resourceTypes={resourceTypes} canManage={canManage} onOperationSaved={onSaved} />
+        )}
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose}>Close</Button>
+      </DialogActions>
+    </>
   );
 }
 
@@ -949,16 +989,22 @@ export default function Operations() {
                 }}
               />
               <Typography variant="caption" sx={{ mt: 1, display: 'block', color: 'var(--c-text-3)' }}>
-                Click an operation to view/edit its details, variables, and resource-type mappings.
+                Click an operation to open its time formula, variables and resource-type mappings.
               </Typography>
             </>
           )}
 
-          {selected && (
-            <OperationDetail operation={selected} resourceTypes={resourceTypes} canManage={canManage} onSaved={fetchAll} />
-          )}
         </>
       )}
+
+      <OperationDetailDialog
+        operation={selected}
+        resourceTypes={resourceTypes}
+        canManage={canManage}
+        onClose={() => setSelected(null)}
+        onSaved={fetchAll}
+      />
+
 
       <DeleteDialog open={!!delTarget} label={delTarget ? `${delTarget.code} — ${delTarget.name}` : ''} busy={deleting} onClose={() => setDelTarget(null)} onConfirm={handleDelete} />
 

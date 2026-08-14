@@ -12,11 +12,8 @@ import ExpandLessRounded from '@mui/icons-material/ExpandLessRounded';
 
 import api, { API_HOST } from '@core/utils/axiosConfig';
 import { fabQuery } from '../api/client';
-import {
-  fetchRawMaterials, materialsForThickness as materialsFor, materialLabel, withSelected,
-  type RawMaterial as Material,
-} from '../api/rawMaterials';
-import { Surface } from '../components';
+import { fetchRawMaterials, type RawMaterial as Material } from '../api/rawMaterials';
+import { RawMaterialSelect, Surface } from '../components';
 
 /**
  * Structure wizard — scaffolding for the BOQ sheet.
@@ -522,20 +519,14 @@ export default function BoqWizardDialog({ open, orderId, lines, onClose, onImpor
                   mean choosing from everything. */}
               <TextField label="Thick" size="small" type="number" value={p.thick} sx={{ width: 80 }}
                 onChange={(e) => setPart(p.key, { thick: e.target.value, rmCode: '' })} />
-              <TextField
-                select label="Raw material" size="small" value={p.rmCode} sx={{ flex: '1 1 190px' }}
-                onChange={(e) => setPart(p.key, { rmCode: e.target.value })}
-                helperText={p.thick.trim() && materialsFor(materials, p.thick).length === 0
-                  ? 'Nothing stocked at that thickness' : ' '}
-              >
-                <MenuItem value="">— not set —</MenuItem>
-                {withSelected(materialsFor(materials, p.thick), materials,
-                  (m) => !!p.rmCode && m.code === p.rmCode).map((m) => (
-                  <MenuItem key={m.id} value={m.code}>
-                    {materialLabel(m)}
-                  </MenuItem>
-                ))}
-              </TextField>
+              <RawMaterialSelect
+                materials={materials}
+                thickness={p.thick}
+                value={p.rmCode}
+                valueOf={(m) => m.code}
+                onChange={(v) => setPart(p.key, { rmCode: v })}
+                sx={{ flex: '1 1 230px' }}
+              />
               <IconButton size="small" color="error" aria-label="Remove part"
                 onClick={() => setParts((ps) => (ps.length > 1 ? ps.filter((x) => x.key !== p.key) : ps))}>
                 <DeleteOutlineRounded fontSize="small" />
@@ -599,18 +590,14 @@ export default function BoqWizardDialog({ open, orderId, lines, onClose, onImpor
                           rmCode: '',
                         })}
                       />
-                      <TextField
-                        select size="small" label="Raw material" value={rm} sx={{ flex: 1 }}
-                        onChange={(e) => set({ rmCode: e.target.value })}
-                      >
-                        <MenuItem value="">— not set —</MenuItem>
-                        {withSelected(materialsFor(materials, thick), materials,
-                          (m) => !!rm && m.code === rm).map((m) => (
-                          <MenuItem key={m.id} value={m.code}>
-                            {materialLabel(m)}
-                          </MenuItem>
-                        ))}
-                      </TextField>
+                      <RawMaterialSelect
+                        materials={materials}
+                        thickness={thick}
+                        value={rm}
+                        valueOf={(m) => m.code}
+                        onChange={(v) => set({ rmCode: v })}
+                        sx={{ flex: 1 }}
+                      />
                     </Box>
                   );
                 })}

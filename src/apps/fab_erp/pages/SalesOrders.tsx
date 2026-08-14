@@ -20,6 +20,7 @@ import {
   StatStrip, type Stat,
 } from '../components';
 import { statusFamily } from '../statusMap';
+import { hasSetupWizard, orderTypeLabel } from '../constants/orderTypes';
 import SalesOrderWizard from '../components/SalesOrderWizard';
 
 interface FabOrder {
@@ -34,15 +35,29 @@ interface FabOrder {
 
 interface PickerOption { id: number; name: string; code: string }
 
+/**
+ * The order types a person CREATES here. Only sales: a purchase order is raised
+ * from a sales order's Procurement tab against a supplier, and a manufacturing
+ * order is raised from its Production tab — both are consequences of a sales
+ * order, not documents somebody opens this dialog to type in.
+ */
 const ORDER_TYPE_CONFIG: Record<string, { label: string; subtypes: string[]; statuses: string[] }> = {
   sales:         { label: 'Sales Order',       subtypes: ['standard', 'rush', 'blanket', 'internal'],                  statuses: ['draft', 'confirmed', 'waiting_material', 'in_production', 'ready_to_ship', 'shipped', 'closed', 'cancelled'] },
 };
 const ORDER_TYPE_KEYS = Object.keys(ORDER_TYPE_CONFIG);
 const ALL_PRIORITIES = ['critical', 'high', 'medium', 'low'];
 
+// How every type READS — including the two nobody creates by hand — lives in
+// constants/orderTypes.ts. "What can be created" and "what can be displayed"
+// are different questions, and answering both from ORDER_TYPE_CONFIG meant a
+// raised purchase order rendered as the raw string `purchase` on the board.
+const typeLabel = orderTypeLabel;
+
 const TYPE_FACETS = [
   { value: 'all', label: 'All' },
   { value: 'sales', label: 'Sales' },
+  { value: 'purchase', label: 'Purchase' },
+  { value: 'manufacturing', label: 'Production' },
 ];
 
 // ── Lifecycle pipeline (DESIGN_SYSTEM.md §4.4 + §5.1 board accents) ──
@@ -71,7 +86,7 @@ function stageOf(status: string): string {
 
 function orderSummary(o: FabOrder): string {
   if (o.orderType === 'sales') return o.customerName || 'No customer';
-  return ORDER_TYPE_CONFIG[o.orderType]?.label ?? o.orderType;
+  return `${typeLabel(o.orderType)} order`;
 }
 
 // FEAT-03: task-count production progress bar. Hidden until there's real
@@ -404,7 +419,7 @@ export default function Orders() {
           </Typography>
           <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
             <Typography sx={{ fontSize: 11.5, color: 'var(--c-text-3)' }}>
-              {ORDER_TYPE_CONFIG[o.orderType]?.label.replace(' Order', '') ?? o.orderType}
+              {typeLabel(o.orderType)}
             </Typography>
             <StatusBadge status={o.status} family={statusFamily(o.status)} />
           </Box>
@@ -414,11 +429,13 @@ export default function Orders() {
               due {o.requiredDate.slice(0, 10)}
             </Typography>
           )}
-          {/* A draft is an order part-way through its wizard, so the wizard is
-              one click from the board — the whole point of being able to close
-              it is being able to get back in without hunting. stopPropagation
-              because the card itself navigates to the order. */}
-          {o.status === 'draft' && canManage && (
+          {/* A draft SALES order is one part-way through its wizard, so the
+              wizard is one click from the board — the whole point of being able
+              to close it is being able to get back in without hunting. A draft
+              purchase or production order is not mid-wizard, it is simply not
+              approved yet, which is why hasSetupWizard gates this.
+              stopPropagation because the card itself navigates to the order. */}
+          {o.status === 'draft' && hasSetupWizard(o.orderType) && canManage && (
             <Button
               size="small" variant="outlined" fullWidth
               sx={{ mt: 1, fontSize: 11.5, py: 0.25 }}
@@ -467,7 +484,7 @@ export default function Orders() {
       ) : filtered.length === 0 ? (
         <EmptyState
           icon={<ReceiptLongRounded />}
-          title={`No ${typeFilter === 'all' ? '' : (ORDER_TYPE_CONFIG[typeFilter]?.label ?? typeFilter) + ' '}orders${search ? ' match your search' : ' yet'}`}
+          title={`No ${typeFilter === 'all' ? '' : typeLabel(typeFilter) + ' '}orders${search ? ' match your search' : ' yet'}`}
           // BUG-14: don't tell users to "create an order" when they lack the
           // permission to (the action button is null for non-manage roles).
           hint={search
@@ -488,7 +505,7 @@ export default function Orders() {
               primary={orderSummary(o)}
               secondary={
                 <Box component="span" sx={{ display: 'inline-flex', gap: 1.5, flexWrap: 'wrap' }}>
-                  <span>{ORDER_TYPE_CONFIG[o.orderType]?.label ?? o.orderType}</span>
+                  <span>{typeLabel(o.orderType)} order</span>
                   {o.requiredDate && <span>Required {o.requiredDate.slice(0, 10)}</span>}
                   {o.priority && <span>Priority: {o.priority}</span>}
                 </Box>
@@ -511,7 +528,9 @@ export default function Orders() {
 
       <OrderDialog
         open={dlg.open} initial={dlg.order}
-        defaultOrderType={typeFilter === 'all' ? 'sales' : typeFilter}
+        // Always sales — the facet may be filtered to Purchase or Production,
+        // but neither is a thing this dialog can create (see ORDER_TYPE_CONFIG).
+        defaultOrderType="sales"
         onClose={() => setDlg({ open: false, order: null })}
         onSaved={(orderNumber, newId) => {
           setDlg({ open: false, order: null });

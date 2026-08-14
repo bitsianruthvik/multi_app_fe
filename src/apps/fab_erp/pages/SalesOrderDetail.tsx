@@ -29,6 +29,7 @@ import OrderProcurement from '../components/OrderProcurement';
 import OrderProduction from '../components/OrderProduction';
 import OrderTaskDag from '../components/OrderTaskDag';
 import OrderStageStrip from '../components/OrderStageStrip';
+import { hasSetupWizard, orderTypeLabel } from '../constants/orderTypes';
 import { fetchOrderReadiness, type OrderReadiness, type ReadinessStage } from '../api/readiness';
 
 interface FabOrder {
@@ -185,6 +186,18 @@ export default function SalesOrderDetail() {
   }
   if (!so) return <Alert severity="error">Order not found.</Alert>;
 
+  /**
+   * Everything below the Overview tab describes preparing a thing to BUILD:
+   * its BOM, its nesting, its flows, its task tree, and the two documents that
+   * tree leads to. All of it belongs to the sales order.
+   *
+   * A purchase order is a list of steel ordered from a supplier and a
+   * manufacturing order is the DAG this sales order already produced — they get
+   * the record and its lines, and nothing that would invite someone to nest
+   * plate for a document with no geometry.
+   */
+  const isSales = hasSetupWizard(so.orderType);
+
   const header = (
     <Box>
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5 }}>
@@ -199,13 +212,16 @@ export default function SalesOrderDetail() {
             <StatusBadge status={so.status} family={statusFamily(so.status)} />
           </Box>
           <Typography sx={{ fontSize: 14, color: 'var(--c-text-2)' }}>
-            {so.customerName || 'No customer'}
+            {isSales
+              ? (so.customerName || 'No customer')
+              : `${orderTypeLabel(so.orderType)} order`}
           </Typography>
         </Box>
-        {/* A draft is an order still in the wizard, so the wizard is the
+        {/* A draft SALES order is one still in the wizard, so the wizard is the
             headline action while it is one — the tabs below are for looking
-            things up, not for working through the sequence. */}
-        {so.status === 'draft' && canManage && (
+            things up, not for working through the sequence. A draft purchase or
+            production order is simply not approved yet; there is no wizard. */}
+        {so.status === 'draft' && isSales && canManage && (
           <Button variant="contained" startIcon={<PlayArrowRounded />} onClick={() => setWizardOpen(true)}>
             Continue setup
           </Button>
@@ -233,15 +249,17 @@ export default function SalesOrderDetail() {
 
   return (
     <Box>
-      <SalesOrderWizard
-        orderId={id}
-        orderNumber={so.orderNumber}
-        open={wizardOpen}
-        canManage={canManage}
-        onClose={() => { setWizardOpen(false); fetchAll(); }}
-      />
+      {isSales && (
+        <SalesOrderWizard
+          orderId={id}
+          orderNumber={so.orderNumber}
+          open={wizardOpen}
+          canManage={canManage}
+          onClose={() => { setWizardOpen(false); fetchAll(); }}
+        />
+      )}
       {error && <Alert severity="error" sx={{ mb: 2, maxWidth: 1100, mx: 'auto' }} onClose={() => setError('')}>{error}</Alert>}
-      {readiness && (
+      {isSales && readiness && (
         <Box sx={{ maxWidth: 1100, mx: 'auto' }}>
           <OrderStageStrip readiness={readiness} activeTab={tab} onGoToTab={setTab} />
         </Box>
@@ -254,16 +272,18 @@ export default function SalesOrderDetail() {
           { value: 'overview', label: 'Overview' },
           // Ordered as the work is done, and each carrying its own state, so
           // the sequence is legible from the tab bar alone.
-          { value: 'lines', label: 'Line items', count: items.length, dot: stageDot('lines') },
-          { value: 'items', label: 'Items / BOM', dot: stageDot('boq') },
-          { value: 'nesting', label: 'Nesting', dot: stageDot('nesting') },
-          { value: 'flows', label: 'Flows', dot: stageDot('flows') },
-          { value: 'dag', label: 'Project tree', dot: stageDot('tasks') },
-          // The two documents the finished tree leads to. Reachable here as well
-          // as in the wizard, because receiving a delivery happens long after
-          // the order was confirmed and the wizard closed.
-          { value: 'procurement', label: 'Procurement', dot: stageDot('procurement') },
-          { value: 'production', label: 'Production', dot: stageDot('production') },
+          { value: 'lines', label: 'Line items', count: items.length, dot: isSales ? stageDot('lines') : undefined },
+          ...(isSales ? [
+            { value: 'items', label: 'Items / BOM', dot: stageDot('boq') },
+            { value: 'nesting', label: 'Nesting', dot: stageDot('nesting') },
+            { value: 'flows', label: 'Flows', dot: stageDot('flows') },
+            { value: 'dag', label: 'Project tree', dot: stageDot('tasks') },
+            // The two documents the finished tree leads to. Reachable here as
+            // well as in the wizard, because receiving a delivery happens long
+            // after the order was confirmed and the wizard closed.
+            { value: 'procurement', label: 'Procurement', dot: stageDot('procurement') },
+            { value: 'production', label: 'Production', dot: stageDot('production') },
+          ] : []),
         ]}
         active={tab}
         onTab={setTab}
@@ -336,7 +356,7 @@ export default function SalesOrderDetail() {
           </Surface>
         ) : tab === 'lines' ? (
           <OrderLinesPanel orderId={id} canManage={canManage} onChanged={fetchAll} />
-        ) : tab === 'items' ? (
+        ) : !isSales ? null : tab === 'items' ? (
           <OrderItemsTree
             orderId={id}
             canManage={canManage}

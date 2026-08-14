@@ -1,9 +1,20 @@
 /**
- * StockIn.tsx — add raw material straight into a stock area.
+ * StockIn.tsx — material arriving, recorded two ways.
  *
- * Replaces GrnEntry (761 LOC) and GrnDetail. There is no purchase order, no
- * supplier and no delivery document to group under, so this is a single form
- * for one item rather than a header with line items.
+ *   AGAINST A PURCHASE ORDER (GrnAgainstPoPanel) — a lorry turns up with a
+ *   delivery note quoting a PO. Pick the order, say how much of each line came.
+ *   The point is the LINKAGE: stock booked against the line that ordered it, so
+ *   "what is still outstanding" is a fact rather than somebody's memory.
+ *
+ *   DIRECT — the original form below. Steel bought off the shelf with no
+ *   purchase order, no supplier and no document to group under, so it is a
+ *   single form for one item rather than a header with line items.
+ *
+ * Both were needed. This screen shipped with only the second, on the reasoning
+ * that purchase orders had been removed from the system — they came back in
+ * 2026-08 and the receiving screen never followed, so the only way to receive
+ * against a PO was to find its sales order and use the Procurement tab's dialog
+ * one line at a time.
  *
  * Writes through POST /stock/receive, never the generic /mutate path.
  * fabErpStockPiece is writable through the query API, but mutateController has
@@ -22,7 +33,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
-  Alert, Autocomplete, Box, Button, Collapse, IconButton, MenuItem, TextField, Tooltip, Typography,
+  Alert, Autocomplete, Box, Button, Collapse, IconButton, MenuItem, Tab, Tabs,
+  TextField, Tooltip, Typography,
 } from '@mui/material';
 import AddRounded from '@mui/icons-material/AddRounded';
 import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
@@ -36,6 +48,7 @@ import {
   PageHeader, SectionCard, StickyActionBar, DataTable, Mono, QtyCell, DateCell,
   EmptyState, ListSkeleton, useToast, backendMessage, type DataColumn,
 } from '../components';
+import GrnAgainstPoPanel from '../components/GrnAgainstPoPanel';
 
 interface QueryResult<T> { data: T[]; total?: number }
 
@@ -87,6 +100,14 @@ export default function StockIn() {
   const [locations, setLocations] = useState<LocationRow[]>([]);
   const [loadingRefs, setLoadingRefs] = useState(true);
 
+  /**
+   * Which way the material is arriving. Defaults to the purchase order, because
+   * that is the one with a document behind it — direct stock-in is the
+   * exception, and defaulting to it invites somebody holding a delivery note to
+   * type its contents in by hand and lose the linkage.
+   */
+  const [mode, setMode] = useState<'po' | 'direct'>('po');
+
   // ── the form ───────────────────────────────────────────────────────────────
   const [item, setItem] = useState<CatalogOption | null>(null);
   const [plantId, setPlantId] = useState<number | ''>('');
@@ -137,11 +158,14 @@ export default function StockIn() {
         setLocations(loc.data ?? []);
         // Preselect when there is no decision to make.
         if ((pl.data ?? []).length === 1) setPlantId(pl.data[0].id);
-        // ?itemId= from the Stock screen's "Add stock" action.
+        // ?itemId= from the Stock screen's "Add stock" action. That action names
+        // an ITEM, not an order, so it means the direct form — landing on the
+        // purchase-order tab with the item silently preselected behind it would
+        // look like the link had done nothing.
         const wanted = Number(search.get('itemId'));
         if (Number.isInteger(wanted)) {
           const hit = (cat.data ?? []).find((c) => c.id === wanted);
-          if (hit) setItem(hit);
+          if (hit) { setItem(hit); setMode('direct'); }
         }
       } finally {
         if (!cancelled) setLoadingRefs(false);
@@ -273,7 +297,7 @@ export default function StockIn() {
     <Box>
       <PageHeader
         title="Stock in"
-        subtitle="Add raw material straight into a stock area. Tasks waiting on it become eligible as soon as it lands."
+        subtitle="Record material arriving. Tasks waiting on it become eligible as soon as it lands."
       />
 
       {!canManage && (
@@ -283,7 +307,27 @@ export default function StockIn() {
       )}
 
       {canManage && (
-        <SectionCard title="Receive material">
+        <Box sx={{ borderBottom: '1px solid var(--c-divider)', mb: 2 }}>
+          <Tabs value={mode} onChange={(_, v) => setMode(v as 'po' | 'direct')}>
+            <Tab value="po" label="Against a purchase order" sx={{ minHeight: 42 }} />
+            <Tab value="direct" label="Direct stock in" sx={{ minHeight: 42 }} />
+          </Tabs>
+        </Box>
+      )}
+
+      {canManage && mode === 'po' && (
+        <GrnAgainstPoPanel
+          plants={plants}
+          locations={locations}
+          onReceived={loadRecent}
+        />
+      )}
+
+      {canManage && mode === 'direct' && (
+        <SectionCard
+          title="Receive material"
+          subtitle="Material bought without a purchase order — there is no line to close, so this records the stock only."
+        >
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, maxWidth: 860 }}>
             {err && <Alert severity="error" onClose={() => setErr('')}>{err}</Alert>}
 

@@ -24,6 +24,7 @@ export { FormDialog, ConfirmDialog } from './FormDialog';
 export { backendMessage } from '../utils/backendMessage';
 export { SideSheet } from './SideSheet';
 export { SectionCard, StickyActionBar } from './SectionCard';
+export { default as RawMaterialSelect } from './RawMaterialSelect';
 export { CommandPaletteProvider } from './CommandPalette';
 export { useCommandPalette } from './commandPaletteContext';
 export { ShortcutsHelp } from './ShortcutsHelp';
