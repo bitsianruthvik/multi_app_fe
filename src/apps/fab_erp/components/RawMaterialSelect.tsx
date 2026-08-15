@@ -96,23 +96,24 @@ export default function RawMaterialSelect({
       ? [subheader(filtering ? `Plate — ${t} mm` : 'Plate'), ...g.plates.map((m) => materialOption(m, valueOf))]
       : []),
     ...(g.sections.length
-      ? [subheader('Sections — any thickness'), ...g.sections.map((m) => materialOption(m, valueOf))]
+      ? [subheader(filtering ? `Sections — ${t} mm` : 'Sections'), ...g.sections.map((m) => materialOption(m, valueOf))]
       : []),
-    // Only ever populated when nothing matched exactly (see materialGroups), so
-    // this heading appears as an explicit fallback rather than as filler.
+    // Untyped stock, and ONLY when no thickness was given to filter on —
+    // materialGroups returns none of it while filtering. A catalog row whose
+    // thickness nobody filled in is not evidence of a match.
     ...(g.unclassified.length
       ? [subheader('No thickness recorded'), ...g.unclassified.map((m) => materialOption(m, valueOf))]
       : []),
   ];
 
-  const nothingAtThickness = filtering && g.plates.length === 0;
+  const nothingAtThickness = filtering && g.plates.length === 0 && g.sections.length === 0;
 
   return (
     <TextField
       select size="small" label={label} value={value} disabled={disabled} sx={sx}
       onChange={(e) => onChange(e.target.value)}
       helperText={nothingAtThickness
-        ? `Nothing stocked at ${t} mm — showing sections and untyped material`
+        ? `Nothing stocked at ${t} mm — add it to the catalog, or clear the thickness to see all material`
         : ' '}
     >
       {options}

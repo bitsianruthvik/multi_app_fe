@@ -27,6 +27,31 @@ export interface ShortfallLine {
   available: number;
   /** required − available, floored at zero. The only number a PO is raised for. */
   short: number;
+  /**
+   * The same requirement broken down by the PLATE SIZE nesting asked for.
+   *
+   * A catalog item is a thickness and a grade, not a size, so matching on it
+   * alone let a 2000×1000 offcut cover a nest needing 12000×2500. Each entry
+   * compares one size against stock pieces of exactly that size.
+   */
+  sizes?: ShortfallSize[];
+  /** Pieces of this item in stock whose length/width nobody recorded. */
+  unsizedOnHand?: number;
+}
+
+export interface ShortfallSize {
+  thick: number | null;
+  length: number | null;
+  width: number | null;
+  required: number;
+  /** In stock at EXACTLY this size. */
+  onHand: number;
+  /** In stock for this item but with no size recorded — cannot be matched. */
+  unsized: number;
+  /** False when the requirement itself carries no size, so nothing to match on. */
+  sized: boolean;
+  /** null when `sized` is false — the catalog-level number applies instead. */
+  short: number | null;
 }
 
 /** A bought-in row with no catalog item — unpurchasable, and worth saying so. */
@@ -128,7 +153,15 @@ export const receiveAgainstLine = async (
   lineId: number,
   payload: {
     plant_id: number; stock_location_id: number; received_date: string;
-    pieces: Array<{ qty: number; heat_no?: string; batch_no?: string }>;
+    /**
+     * `length_mm`/`width_mm` are the piece's own size — what procurement
+     * matches a nest against. Optional because it is not always known at
+     * receipt, but a piece received without it cannot satisfy a sized nest.
+     */
+    pieces: Array<{
+      qty: number; heat_no?: string; batch_no?: string;
+      length_mm?: number; width_mm?: number;
+    }>;
   },
 ) => (await api.post(`${base()}/purchase-lines/${lineId}/receive`, payload)).data;
 

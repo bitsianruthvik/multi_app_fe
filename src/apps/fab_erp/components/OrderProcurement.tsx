@@ -67,14 +67,39 @@ export default function OrderProcurement({ orderId, canManage, onChanged }: {
 
   useEffect(() => { load(); }, [load]);
 
-  const shortLines = useMemo(
-    () => (view?.lines ?? []).filter((l) => l.short > 0),
-    [view],
+  /**
+   * How much to buy of each line.
+   *
+   * Defaults to the computed shortfall, but is editable — including on lines
+   * the system thinks are fully covered. "Covered by stock" was previously
+   * inert text with no control beside it, so an operator who knew the match was
+   * wrong (the right thickness but the wrong size plate, material earmarked for
+   * a job the system does not know about, stock that has been scrapped but not
+   * written off) had no way to buy it anyway short of leaving the app.
+   */
+  const [buyQty, setBuyQty] = useState<Record<number, string>>({});
+  const qtyFor = useCallback(
+    (l: { catalogItemId: number; short: number }) => {
+      const typed = buyQty[l.catalogItemId];
+      if (typed === undefined || typed.trim() === '') return l.short;
+      const n = Number(typed);
+      return Number.isFinite(n) && n > 0 ? n : 0;
+    },
+    [buyQty],
   );
-  /** Only lines that are short AND have somebody to buy them from. */
+
+  /** Anything with a supplier chosen and a quantity above zero. */
   const ready = useMemo(
-    () => shortLines.filter((l) => supplierFor[l.catalogItemId]),
-    [shortLines, supplierFor],
+    () => (view?.lines ?? []).filter(
+      (l) => supplierFor[l.catalogItemId] && qtyFor(l) > 0,
+    ),
+    [view, supplierFor, qtyFor],
+  );
+
+  /** Genuinely short, and nobody picked to buy it from — the case worth naming. */
+  const shortWithoutSupplier = useMemo(
+    () => (view?.lines ?? []).filter((l) => l.short > 0 && !supplierFor[l.catalogItemId]).length,
+    [view, supplierFor],
   );
 
   async function raise() {
@@ -83,7 +108,7 @@ export default function OrderProcurement({ orderId, canManage, onChanged }: {
     try {
       const res = await raiseProcurement(orderId, ready.map((l) => ({
         catalogItemId: l.catalogItemId,
-        qty: l.short,
+        qty: qtyFor(l),
         supplierId: Number(supplierFor[l.catalogItemId]),
       })));
       const made = res.orders.length;
@@ -151,6 +176,39 @@ export default function OrderProcurement({ orderId, canManage, onChanged }: {
                     <Typography component="span" sx={{ ml: 1, fontSize: 12.5, color: 'var(--c-text-2)' }}>
                       {l.name}
                     </Typography>
+                    {/* The sizes nesting actually asked for. Without this the
+                        row is one number for "20mm plate" and there is no way
+                        to see that the pieces on the shelf are the wrong size
+                        for the nest that needs them. */}
+                    {(l.sizes ?? []).filter((s) => s.sized).length > 0 && (
+                      <Box sx={{ mt: 0.5, display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                        {(l.sizes ?? []).filter((s) => s.sized).map((s, i) => (
+                          <Tooltip
+                            key={i}
+                            title={(s.short ?? 0) > 0
+                              ? `Need ${num(s.required)} at this size, ${num(s.onHand)} in stock at exactly this size`
+                              : `Covered: ${num(s.onHand)} in stock at exactly this size`}
+                          >
+                            <Box
+                              component="span"
+                              sx={{
+                                fontSize: 11, fontFamily: 'var(--font-mono)', px: 0.75, py: 0.25,
+                                borderRadius: '4px', border: '1px solid var(--c-border)',
+                                color: (s.short ?? 0) > 0 ? 'var(--c-warn-fg, #8a5a00)' : 'var(--c-text-3)',
+                              }}
+                            >
+                              {[s.thick, s.length, s.width].map((v) => (v ?? '?')).join('×')}
+                              {' · '}{num(s.onHand)}/{num(s.required)}
+                            </Box>
+                          </Tooltip>
+                        ))}
+                      </Box>
+                    )}
+                    {(l.unsizedOnHand ?? 0) > 0 && (
+                      <Typography sx={{ fontSize: 11, color: 'var(--c-text-3)', mt: 0.25 }}>
+                        {num(l.unsizedOnHand ?? 0)} in stock with no size recorded — not counted as a match
+                      </Typography>
+                    )}
                   </td>
                   <td className="n">{num(l.required)}</td>
                   <td className="n">{num(l.onHand)}</td>
@@ -165,12 +223,25 @@ export default function OrderProcurement({ orderId, canManage, onChanged }: {
                       ? <Box component="span" sx={{ color: 'var(--c-warn-fg, #8a5a00)', fontWeight: 600 }}>{num(l.short)}</Box>
                       : <Box component="span" sx={{ color: 'var(--c-text-3)' }}>—</Box>}
                   </td>
+                  {/* Buy from — offered on EVERY line, not only short ones.
+                      A covered line still gets a supplier and a quantity so an
+                      operator who knows the match is wrong can order anyway. */}
                   <td>
-                    {l.short > 0 ? (
+                    <Box sx={{ display: 'flex', gap: 0.75, alignItems: 'flex-start' }}>
+                      <TextField
+                        size="small" type="number" label="Qty" sx={{ width: 92 }}
+                        slotProps={{ inputLabel: { shrink: true } }}
+                        inputProps={{ min: 0, step: 'any' }}
+                        placeholder={String(l.short)}
+                        value={buyQty[l.catalogItemId] ?? ''}
+                        disabled={!canManage}
+                        onChange={(e) => setBuyQty((q) => ({ ...q, [l.catalogItemId]: e.target.value }))}
+                      />
                       <TextField
                         select size="small" sx={{ minWidth: 190 }}
                         value={supplierFor[l.catalogItemId] ?? ''}
                         disabled={!canManage}
+                        helperText={l.short > 0 ? ' ' : 'Covered by stock — order anyway if you need to'}
                         onChange={(e) => setSupplierFor((s) => ({
                           ...s, [l.catalogItemId]: e.target.value === '' ? '' : Number(e.target.value),
                         }))}
@@ -182,9 +253,7 @@ export default function OrderProcurement({ orderId, canManage, onChanged }: {
                           </MenuItem>
                         ))}
                       </TextField>
-                    ) : (
-                      <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-3)' }}>Covered by stock</Typography>
-                    )}
+                    </Box>
                   </td>
                 </tr>
               ))}
@@ -193,7 +262,9 @@ export default function OrderProcurement({ orderId, canManage, onChanged }: {
         </Surface>
       )}
 
-      {shortLines.length > 0 && (
+      {/* Shown whenever there is anything to buy from, not only when something
+          is short — a covered line can now be ordered deliberately. */}
+      {lines.length > 0 && (
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3, flexWrap: 'wrap' }}>
           <Button
             variant="contained" size="small"
@@ -204,8 +275,8 @@ export default function OrderProcurement({ orderId, canManage, onChanged }: {
             Reserve stock and raise {ready.length || ''} purchase order{ready.length === 1 ? '' : 's'}
           </Button>
           <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)', maxWidth: 560 }}>
-            {ready.length < shortLines.length
-              ? `${shortLines.length - ready.length} short item(s) still have no supplier — those are left alone rather than ordered from nobody.`
+            {shortWithoutSupplier > 0
+              ? `${shortWithoutSupplier} short item(s) still have no supplier — those are left alone rather than ordered from nobody.`
               : 'Stock that can cover this order is earmarked for it at the same time, so another order cannot take it.'}
           </Typography>
         </Box>
@@ -277,6 +348,11 @@ function ReceiveDialog({ po, onClose, onDone, onError }: {
   const [locationId, setLocationId] = useState<number | ''>('');
   const [qty, setQty] = useState('');
   const [heat, setHeat] = useState('');
+  // The PIECE's size. Procurement matches a nest against stock of exactly this
+  // size, so a receipt with no size recorded can never satisfy a sized nest —
+  // it is optional, but leaving it blank is what makes stock unmatchable.
+  const [lenMm, setLenMm] = useState('');
+  const [widMm, setWidMm] = useState('');
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -311,7 +387,12 @@ function ReceiveDialog({ po, onClose, onDone, onError }: {
         plant_id: Number(location.plantId),
         stock_location_id: Number(location.id),
         received_date: new Date().toISOString().slice(0, 10),
-        pieces: [{ qty: Number(qty), heat_no: heat.trim() || undefined }],
+        pieces: [{
+          qty: Number(qty),
+          heat_no: heat.trim() || undefined,
+          length_mm: lenMm.trim() ? Number(lenMm) : undefined,
+          width_mm: widMm.trim() ? Number(widMm) : undefined,
+        }],
       });
       onDone();
     } catch (e) {
@@ -343,6 +424,19 @@ function ReceiveDialog({ po, onClose, onDone, onError }: {
           <TextField size="small" label="Heat / batch no" value={heat} sx={{ flex: 1 }}
             helperText="Kept per piece for traceability"
             onChange={(e) => setHeat(e.target.value)} />
+        </Box>
+        {/* Size is what makes this piece matchable. Procurement compares a nest
+            against stock of exactly this size, so a plate received with no size
+            can never satisfy a sized nest — it will keep showing as short. */}
+        <Box sx={{ display: 'flex', gap: 2, alignItems: 'flex-start' }}>
+          <TextField size="small" type="number" label="Length (mm)" value={lenMm} sx={{ width: 160 }}
+            onChange={(e) => setLenMm(e.target.value)} />
+          <TextField size="small" type="number" label="Width (mm)" value={widMm} sx={{ width: 160 }}
+            onChange={(e) => setWidMm(e.target.value)} />
+          <Typography sx={{ fontSize: 11.5, color: 'var(--c-text-3)', flex: 1, pt: 1 }}>
+            The plate's own size. Thickness comes from the item itself. Leave blank only if
+            you genuinely do not know — unsized stock cannot be matched to a nest.
+          </Typography>
         </Box>
         {Number(qty) > outstanding && outstanding > 0 && (
           <Alert severity="info">

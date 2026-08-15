@@ -63,34 +63,40 @@ export async function fetchRawMaterials(): Promise<RawMaterial[]> {
 }
 
 /**
- * Of those, the ones a part of this thickness could actually be made from,
- * split into the groups a picker should show as headed groups rather than as
- * one undifferentiated list.
+ * Of those, the ones a part of this thickness could actually be made from.
  *
- *   plates       of exactly that thickness — the actual match
- *   sections     ALWAYS. An angle is one item; a 100x100x10 is not "a 10mm
- *                thing", so it can never be reached by a thickness filter and
- *                omitting it would make it unpickable rather than merely
- *                unmatched.
- *   unclassified plate with NO thickness recorded. Offered only when nothing
- *                matches exactly — see below.
+ * WITH A THICKNESS, ONLY EXACT MATCHES ARE RETURNED — plate and section alike.
+ * Nothing approximate, nothing untyped.
  *
- * WHY `unclassified` IS NOW CONDITIONAL. It used to be returned always, on the
- * reasoning that "not knowing a thickness is not the same as knowing it is
- * wrong". True, but it only justifies offering those items when there is
- * nothing better: with an exact match on the shelf, a plate whose thickness
- * nobody ever filled in is a worse answer, and including it put the same
- * handful of untyped rows into the list of every part at every thickness. Once
- * a catalog has a few of them, every picker in the BOM reads the same and the
- * thickness filter stops meaning anything.
+ *   plates       non-section stock of exactly that thickness
+ *   sections     sections of exactly that thickness
+ *   unclassified always empty while filtering; see below
  *
- * They stay reachable: with no exact match this falls back to them exactly as
- * before, and RawMaterialSelect additionally pins whatever a row is ALREADY set
- * to — a filter that excluded the current value would render the field empty
- * while the state underneath still held, and still submitted, the material.
+ * Two earlier escape hatches are gone, because both put material into the list
+ * that does not match and a picker that shows a non-match is claiming it is a
+ * candidate:
  *
- * A blank or unusable thickness returns everything: with nothing to filter on,
- * offering the lot beats offering none.
+ *   SECTIONS USED TO BE UNCONDITIONAL, on the reasoning that a 100x100x10 angle
+ *   "is not a 10mm thing" so a thickness filter could never reach it. That is
+ *   wrong for the actual catalog: sections DO carry `thicknessMm` (the leg
+ *   thickness — ISA 100x100x10 records 10), so they filter exactly like plate.
+ *   Passing them all through meant every part at every thickness listed every
+ *   section in the catalog under a heading that admitted they were unmatched.
+ *
+ *   UNTYPED STOCK USED TO BE A FALLBACK when nothing matched exactly, on the
+ *   reasoning that not knowing a thickness is not the same as knowing it is
+ *   wrong. Also true, and also not a reason to offer it: a catalog row nobody
+ *   ever filled in is not evidence of a match, and one such row ("Trial Item")
+ *   was enough to appear in the picker for every part that had no exact match.
+ *   Nothing stocked at this thickness should read as an empty list — that is
+ *   the honest answer, and the helper text says so.
+ *
+ * Untyped stock stays reachable by clearing the part's thickness, which returns
+ * everything: with nothing to filter on, offering the lot beats offering none.
+ * RawMaterialSelect additionally pins whatever a row is ALREADY set to — that
+ * is a correctness guard, not a match claim, since a filter that excluded the
+ * current value would render the field empty while the state underneath still
+ * held, and still submitted, the material.
  */
 export interface MaterialGroups {
   plates: RawMaterial[];
@@ -111,12 +117,11 @@ export function materialGroups(all: RawMaterial[], thick: string | number | null
       unfiltered: true,
     };
   }
-  const plates = all.filter((m) => !isSection(m) && m.thicknessMm != null && Number(m.thicknessMm) === t);
+  const exact = (m: RawMaterial) => m.thicknessMm != null && Number(m.thicknessMm) === t;
   return {
-    plates,
-    sections: all.filter(isSection),
-    // Only when there is no exact match to offer instead.
-    unclassified: plates.length > 0 ? [] : all.filter((m) => !isSection(m) && m.thicknessMm == null),
+    plates: all.filter((m) => !isSection(m) && exact(m)),
+    sections: all.filter((m) => isSection(m) && exact(m)),
+    unclassified: [],
     unfiltered: false,
   };
 }

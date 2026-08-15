@@ -7,6 +7,7 @@ import AddIcon from '@mui/icons-material/Add';
 import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
 import DownloadIcon from '@mui/icons-material/Download';
 import UploadFileIcon from '@mui/icons-material/UploadFile';
+import CheckRoundedIcon from '@mui/icons-material/CheckRounded';
 import ExpandMoreRounded from '@mui/icons-material/ExpandMoreRounded';
 import ExpandLessRounded from '@mui/icons-material/ExpandLessRounded';
 
@@ -390,6 +391,62 @@ export default function BoqWizardDialog({ open, orderId, lines, onClose, onImpor
     };
   }
 
+  /**
+   * Every configured line, as the backend's `specs` — shared by "accept" and
+   * "download" so the two cannot disagree about what was configured.
+   * Returns null (having set the error) when there is nothing worth sending.
+   */
+  function collectSpecs(): LineSpec[] | null {
+    const specs = lines
+      .map((l) => (l.id === lineId ? currentSpec() : configs[l.id]))
+      .filter((sp): sp is LineSpec => !!sp && !!sp.spanCode && sp.parts.length > 0);
+    if (!specs.length) {
+      setError('Nothing to generate — give at least one line some parts.');
+      return null;
+    }
+    return specs;
+  }
+
+  /**
+   * Save the generated structure straight onto the order.
+   *
+   * The wizard could only ever hand back a spreadsheet, so the way to actually
+   * get this structure onto the order was to save the file and upload it again
+   * — a mandatory Excel round trip even when the generated structure was
+   * exactly right and nothing needed editing. Download is still there for when
+   * the sheet DOES need editing; this is for when it does not.
+   *
+   * Server-side this renders the same sheet and reads it back through the same
+   * importer, so accepting and download-then-uploading cannot produce different
+   * trees from the same input.
+   */
+  async function accept() {
+    setBusy(true); setError('');
+    try {
+      const specs = collectSpecs();
+      if (!specs) { setBusy(false); return; }
+      const companySlug = localStorage.getItem('companySlug');
+      const res = await api.post<{ itemsCreated?: number }>(
+        `${API_HOST}/api/${companySlug}/fab_erp/orders/${orderId}/boq/wizard/apply`,
+        { specs, mode: 'append' },
+      );
+      onImported?.();
+      const n = res.data?.itemsCreated ?? 0;
+      if (!n) {
+        // Same reasoning as upload(): the dialog stays open to explain itself
+        // rather than closing onto an unchanged tree.
+        setError('That produced no rows — check each line has a span code and at least one part.');
+        return;
+      }
+      onClose();
+    } catch (e) {
+      const ax = e as { response?: { data?: { message?: string } }; message?: string };
+      setError(ax.response?.data?.message ?? ax.message ?? 'Could not save this structure');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function generate() {
     setBusy(true); setError('');
     try {
@@ -403,11 +460,8 @@ export default function BoqWizardDialog({ open, orderId, lines, onClose, onImpor
        * becomes its own span, keyed by that line's code, which is the same
        * string the importer matches a row back to.
        */
-      const specs = lines
-        .map((l) => (l.id === lineId ? currentSpec() : configs[l.id]))
-        .filter((sp): sp is LineSpec =>
-          !!sp && !!sp.spanCode && sp.parts.length > 0);
-      if (!specs.length) { setError('Nothing to generate — give at least one line some parts.'); setBusy(false); return; }
+      const specs = collectSpecs();
+      if (!specs) { setBusy(false); return; }
 
       const res = await api.post(
         `${API_HOST}/api/${companySlug}/fab_erp/orders/${orderId}/boq/wizard`,
@@ -434,9 +488,11 @@ export default function BoqWizardDialog({ open, orderId, lines, onClose, onImpor
         {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
 
         <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)', mb: 2 }}>
-          This only makes a spreadsheet — nothing is saved to the order. Lay out the shape roughly,
-          then fill in dimensions and change whatever you like in Excel before uploading.
-          Material and operation flows are set later, on the Nesting sheet and in flow allocation.
+          Lay out the shape here, then <strong>Accept &amp; save</strong> to put it straight on the
+          order — or <strong>Download sheet</strong> if you would rather fill in dimensions and edit
+          it in Excel first, and upload it when you are done. Either way you can still change
+          everything afterwards in the tree. Material and operation flows are set later, on the
+          Nesting sheet and in flow allocation.
         </Typography>
 
         <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', mb: 2, alignItems: 'flex-start' }}>
@@ -638,12 +694,23 @@ export default function BoqWizardDialog({ open, orderId, lines, onClose, onImpor
           Upload filled sheet
         </Button>
         <Button
-          variant="contained"
           startIcon={busy ? <CircularProgress size={14} color="inherit" /> : <DownloadIcon />}
           disabled={busy}
           onClick={generate}
         >
           Download sheet
+        </Button>
+        {/* The primary action, because accepting a structure that is already
+            right is the common case — downloading is for when it needs editing
+            first. It was the only option, which made the Excel round trip
+            mandatory rather than a choice. */}
+        <Button
+          variant="contained"
+          startIcon={busy ? <CircularProgress size={14} color="inherit" /> : <CheckRoundedIcon />}
+          disabled={busy}
+          onClick={accept}
+        >
+          Accept &amp; save
         </Button>
       </DialogActions>
     </Dialog>
