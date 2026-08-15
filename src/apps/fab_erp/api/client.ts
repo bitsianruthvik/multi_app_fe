@@ -550,6 +550,11 @@ export type PulseKpis = {
 };
 
 export type PulseExceptions = {
+  /** `daysLate` is negative when the service is due but not yet late. */
+  maintenanceDue?: {
+    planId: number; resourceId: number; resourceName: string;
+    planName: string; nextDueAt: string; daysLate: number;
+  }[];
   overdueOrders?: { id: number; orderNumber: string; status: string; requiredDate: string; daysLate: number }[];
   blockedWork?: { orderId: number; orderNumber: string; blockedCount: number }[];
   flowsMissingFormula?: { id: number; code: string; name: string }[];

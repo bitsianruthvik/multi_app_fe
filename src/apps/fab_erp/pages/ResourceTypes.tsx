@@ -21,6 +21,7 @@ import type {
 import { usePermission } from '@core/hooks/usePermission';
 import api, { API_HOST } from '@core/utils/axiosConfig';
 import { PageHeader, Mono, EmptyState, ListSkeleton, StatusBadge, useToast, EntityList, EntityRow, type SortableField } from '../components';
+import MachineAssetPanel from '../components/MachineAssetPanel';
 
 interface QueryResult<T> { data: T[]; total?: number }
 
@@ -870,7 +871,9 @@ function ResourceDetailDialog({ open, initial, resourceTypes, plants, canManage,
     } finally { setSaving(false); }
   }
 
-  const tabLabels = isNew ? ['Basic Info', 'Capacity & Scheduling'] : ['Basic Info', 'Capacity & Scheduling', 'Custom Fields (10)'];
+  const tabLabels = isNew
+    ? ['Basic Info', 'Capacity & Scheduling']
+    : ['Basic Info', 'Capacity & Scheduling', 'Asset & Maintenance', 'Custom Fields (10)'];
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="lg" fullWidth>
@@ -924,7 +927,17 @@ function ResourceDetailDialog({ open, initial, resourceTypes, plants, canManage,
             <StdFieldsSection draft={std} onChange={(k, v) => setStd((d) => ({ ...d, [k]: v }))} typeDefaults={typeDefaults} canEdit={canManage} />
           </>
         )}
-        {tab === 2 && !isNew && initial && <CustomFieldsEditor level="resource" levelId={initial.id} canManage={canManage} />}
+        {/* Owns its own saving — starting maintenance takes the machine out of
+            service, which must not happen as a side effect of Save. */}
+        {tab === 2 && !isNew && initial && (
+          <MachineAssetPanel
+            resourceId={initial.id}
+            resource={initial as unknown as Record<string, unknown>}
+            canManage={canManage}
+            onChanged={onSaved}
+          />
+        )}
+        {tab === 3 && !isNew && initial && <CustomFieldsEditor level="resource" levelId={initial.id} canManage={canManage} />}
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose}>Close</Button>

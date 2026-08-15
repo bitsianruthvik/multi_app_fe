@@ -113,6 +113,19 @@ export default function Home() {
     if (!e) return [];
     const out: ExceptionItem[] = [];
 
+    // Maintenance first: a machine that seizes takes every job on it with it,
+    // and unlike a late order there is a window in which it is still cheap.
+    for (const m of e.maintenanceDue ?? []) {
+      const late = Number(m.daysLate) > 0;
+      out.push({
+        id: `maint-${m.planId}`,
+        severity: late ? 'danger' : 'warning',
+        label: m.resourceName,
+        detail: `${m.planName} — ${late ? 'overdue' : 'due'}`,
+        metric: late ? `${m.daysLate}d late` : `due ${m.nextDueAt}`,
+        onClick: () => go('resource-types'),
+      });
+    }
     for (const o of e.overdueOrders ?? []) {
       out.push({
         id: `overdue-${o.id}`, severity: 'danger', label: o.orderNumber, code: true,
