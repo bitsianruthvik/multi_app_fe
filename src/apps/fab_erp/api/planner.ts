@@ -29,6 +29,8 @@ export type PlanErrorCode =
   | 'ALREADY_PLANNED'
   | 'PREDECESSOR_UNPLANNED'
   | 'PREDECESSOR_LATER'
+  /** Waiting on stock. Unlike the two above, no arrangement of the plan fixes it. */
+  | 'AWAITING_MATERIAL'
   | 'ENTRY_NOT_FOUND'
   | 'NOT_SPLITTABLE'
   | 'RUN_NOT_FOUND';
@@ -157,6 +159,70 @@ export interface BacklogTask {
   computedHours: string | null;
   requiredDate: string | null;
   mustFinishBy: string | null;
+  /**
+   * Why a `blocked` row is blocked. Null when it is not blocked.
+   *
+   * The distinction decides whether the planner can do anything about it:
+   * a predecessor is a thing you SCHEDULE (plan it, then this goes after it),
+   * material is a thing you RECEIVE.
+   */
+  blockedBy: 'material' | 'predecessor' | 'both' | null;
+  /** False only for material — the one blocker no arrangement of the plan fixes. */
+  plannable: boolean;
+  /** The unfinished predecessors, each with whether it is already on the plan. */
+  waitingFor: Array<{
+    taskId: number;
+    seqNo: number | null;
+    operationName: string | null;
+    itemName: string | null;
+    planned: boolean;
+    plannedEnd: string | null;
+  }>;
+  /**
+   * The first instant this may legally be placed — the latest predecessor's
+   * planned end. Null while any predecessor is still unplanned, because there
+   * is no earliest legal instant yet and inventing one would be a guess.
+   */
+  earliestStart: string | null;
+}
+
+// ── the ground rules, set before a suggestion is computed ────────────────────
+
+/** Priority levels the planner ranks by, highest first. */
+export const PRIORITY_LEVELS = ['critical', 'high', 'medium', 'low'] as const;
+export type PriorityLevel = (typeof PRIORITY_LEVELS)[number];
+
+export interface PlanOrder {
+  orderId: number;
+  orderNumber: string | null;
+  customerName: string | null;
+  priority: string | null;
+  priorityRank: number | null;
+  /** The date declared non-negotiable. Null means the required date may move. */
+  mustFinishBy: string | null;
+  requiredDate: string | null;
+  taskCount: number;
+  totalHours: number;
+  /** Why it sits where it does — "critical", "sequenced #2", "least slack". */
+  rankReason: string;
+}
+
+/** GET /plan/orders — orders a run would sequence, in the sequence it would use. */
+export async function getPlanOrders(params: { resourceTypeIds?: number[] } = {}):
+Promise<{ ok: boolean; orders: PlanOrder[] }> {
+  return fabGet('plan/orders', {
+    ...(params.resourceTypeIds?.length ? { resourceTypeIds: params.resourceTypeIds.join(',') } : {}),
+  });
+}
+
+/**
+ * POST /plan/orders — save them. The ARRAY ORDER is the sequence: `priority_rank`
+ * is written from it, so callers must send the list as arranged on screen.
+ */
+export async function savePlanOrders(orders: Array<{
+  orderId: number; priority: string | null; mustFinishBy: string | null;
+}>): Promise<{ ok: boolean; updated: number }> {
+  return fabPost('plan/orders', { orders } as unknown as Record<string, unknown>);
 }
 
 /** GET /plan/backlog — unplanned work, ranked the way the engine ranks. */

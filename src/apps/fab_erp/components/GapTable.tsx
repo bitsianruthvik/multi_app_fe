@@ -30,7 +30,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Alert, Box, Button, Chip, Divider, IconButton, MenuItem, TextField, Tooltip, Typography,
+  Alert, Box, Button, Chip, IconButton, ListSubheader, MenuItem, TextField, Tooltip, Typography,
 } from '@mui/material';
 import AddRounded from '@mui/icons-material/AddRounded';
 import CloseRounded from '@mui/icons-material/CloseRounded';
@@ -43,7 +43,7 @@ import {
   getGapReasons, getDayGaps, explainGap, withdrawExplained,
   type DayGaps, type GapReason, type ExplainedSpan, type ShiftInstance,
 } from '../api/gaps';
-import { saveShiftLog } from '../api/shiftLog';
+import { getShiftLog, saveShiftLog } from '../api/shiftLog';
 import { useToast } from './Toast';
 import { backendMessage } from '../utils/backendMessage';
 
@@ -114,10 +114,51 @@ const SCOPE_ICON = {
   task: <AssignmentLateRounded sx={{ fontSize: 15 }} />,
 } as const;
 
-export interface GapWorkTask { id: number; label: string; plannedQty?: number | null }
+/**
+ * The reason list, in groups.
+ *
+ * It was fifteen flat entries in one dropdown, which is a scroll and a read at
+ * the end of a shift — and this form only works if it is faster than the paper
+ * it replaces. Grouping does NOT merge or drop any reason: every code still
+ * writes exactly what it wrote before, so attribution and every report built on
+ * it are untouched. The grouping key is `scope`, which already meant this —
+ * machine-scoped reasons ARE the machine stopping — so the headings are the
+ * model's own distinction made visible rather than a second taxonomy.
+ *
+ * `other` is pulled out of `machine` into its own group. It is scope-machine for
+ * storage reasons, but presenting it under "Machine stopped" reads as a kind of
+ * breakdown, and it is the opposite: the escape hatch for something we know and
+ * cannot name.
+ */
+const REASON_GROUPS: { key: string; label: string; scope: GapReason['scope'] }[] = [
+  { key: 'machine', label: 'Machine stopped', scope: 'machine' },
+  { key: 'site', label: 'Site stopped', scope: 'site' },
+  { key: 'task', label: 'Waiting on someone', scope: 'task' },
+];
+
+export interface GapWorkTask {
+  id: number;
+  label: string;
+  plannedQty?: number | null;
+  group?: 'planned' | 'open' | 'blocked' | 'logged';
+  blockedNote?: string | null;
+}
+
+/** Headings for the job picker, in the order a supervisor should read them. */
+const TASK_GROUPS: { key: NonNullable<GapWorkTask['group']>; label: string; hint?: string }[] = [
+  { key: 'planned', label: 'Planned for this shift' },
+  { key: 'open', label: 'Open on this machine' },
+  { key: 'blocked', label: 'Not yet released', hint: 'the system did not expect these to run' },
+  { key: 'logged', label: 'Already logged this shift' },
+];
+
+const SUBHEADER_SX = {
+  fontSize: 10.5, fontWeight: 600, letterSpacing: '.06em', textTransform: 'uppercase',
+  color: 'var(--c-text-3)', lineHeight: '26px', background: 'var(--c-surface)',
+} as const;
 
 export function GapTable({
-  resourceId, date, instance, timezone, resourceName, workTasks = [], onSummary, onChanged,
+  resourceId, date, instance, timezone, resourceName, workTasks, onSummary, onChanged,
 }: {
   resourceId: number | null;
   /**
@@ -135,10 +176,18 @@ export function GapTable({
   timezone?: string;
   resourceName?: string;
   /**
-   * Jobs that could have run on this machine that day. Supplying these turns on
-   * "Worked on a job" as a row type — and without it the table can only explain
-   * why NOTHING happened, which is the less common case. Most unaccounted time
-   * on a shop floor is work somebody did and nobody wrote down.
+   * Jobs that could have run on this machine on `date`. OPTIONAL, and normally
+   * omitted: the table fetches its own, for its own date.
+   *
+   * It used to be required, and ShiftLog passed ONE list — fetched for the last
+   * day of the selected period — to every shift card in the range. Writing up
+   * Tuesday on a "last 7 days" view therefore offered Friday's jobs, and the
+   * "already logged" flags belonged to Friday too. A prop that must be kept in
+   * step with a sibling prop (`date`) is a prop that will fall out of step, so
+   * the fetch now hangs off `date` itself and cannot disagree with it.
+   *
+   * Passing a list still works and skips the fetch, for a caller that already
+   * has one.
    */
   workTasks?: GapWorkTask[];
   /**
@@ -185,6 +234,46 @@ export function GapTable({
 
   useEffect(() => { void load(); }, [load]);
 
+  /**
+   * The jobs offered under "Operated on a task", for THIS date.
+   *
+   * Fetched lazily — the first time somebody opens a row — because most gaps get
+   * explained without ever touching the job list, and a shift log showing seven
+   * shifts would otherwise fire seven of these on load. Keyed by date so moving
+   * between shift cards refetches rather than reusing the wrong day's answer.
+   */
+  const [fetchedTasks, setFetchedTasks] = useState<{ date: string; tasks: GapWorkTask[]; truncated: boolean } | null>(null);
+  const [tasksLoading, setTasksLoading] = useState(false);
+
+  const loadWorkTasks = useCallback(async () => {
+    if (workTasks || !resourceId) return;
+    if (fetchedTasks?.date === date || tasksLoading) return;
+    setTasksLoading(true);
+    try {
+      const res = await getShiftLog(resourceId, date);
+      setFetchedTasks({
+        date,
+        truncated: !!res.tasksTruncated,
+        tasks: (res.tasks ?? []).map((t) => ({
+          id: t.id,
+          label: [t.itemMark, t.operationName ?? `Step ${t.seqNo}`, t.itemName].filter(Boolean).join(' · '),
+          plannedQty: t.plannedQty == null ? null : Number(t.plannedQty),
+          group: t.group ?? (t.alreadyLogged ? 'logged' : 'open'),
+          blockedNote: t.blockedNote ?? null,
+        })),
+      });
+    } catch {
+      // A failed job list must still leave the reasons usable — explaining why
+      // nothing ran is the other half of this form and does not need tasks.
+      setFetchedTasks({ date, tasks: [], truncated: false });
+    } finally {
+      setTasksLoading(false);
+    }
+  }, [workTasks, resourceId, date, fetchedTasks, tasksLoading]);
+
+  const tasks = workTasks ?? (fetchedTasks?.date === date ? fetchedTasks.tasks : []);
+  const tasksTruncated = !workTasks && fetchedTasks?.date === date && fetchedTasks.truncated;
+
   /** What the table renders — one shift, or a whole calendar day. */
   const view = useMemo(() => {
     if (instance) {
@@ -201,7 +290,12 @@ export function GapTable({
     if (!day) return null;
     return {
       resourceName: day.resourceName,
-      timezone: view.timezone,
+      // `view.timezone` — the memo referring to ITSELF. In day mode that is a
+      // TDZ ReferenceError the moment the fetch resolves, which crashed the
+      // Reconciliation panel's "account for this time" table every time it
+      // loaded. It also made `view` implicitly `any`, which is why every
+      // callback below lost its parameter types.
+      timezone: day.timezone ?? timezone ?? 'UTC',
       workingMinutes: day.workingMinutes,
       explainedMinutes: day.explainedMinutes,
       gapMinutes: day.gapMinutes,
@@ -224,6 +318,7 @@ export function GapTable({
 
   const reasonByCode = useMemo(() => new Map(reasons.map((r) => [r.code, r])), [reasons]);
   const chosen = draft ? reasonByCode.get(draft.code) : undefined;
+  const chosenTask = draft?.taskId ? tasks.find((t) => String(t.id) === draft.taskId) : undefined;
 
   // Tasks on this machine in this window — needed for a task-scoped reason.
   const tasksToday = useMemo(
@@ -234,6 +329,7 @@ export function GapTable({
   function openDraft(gapIdx: number) {
     if (!view) return;
     const g = view.gaps[gapIdx];
+    void loadWorkTasks();
     setDraft({
       gapIdx, code: '',
       // Prefilled to the whole gap. Most days are one cause, and the common case
@@ -262,7 +358,7 @@ export function GapTable({
         // directly would record that the work happened while leaving the metal
         // and every downstream task where they were.
         const { startedAt, completedAt } = workSpan(date, draft.from, draft.to, instance?.start);
-        await saveShiftLog({
+        const res = await saveShiftLog({
           resourceId, date,
           work: [{
             taskId: Number(draft.taskId),
@@ -276,7 +372,19 @@ export function GapTable({
           downtime: [], absences: [],
         });
         if (!instance) setDay(await getDayGaps(resourceId, date));
-        toast('Work recorded.', 'success');
+        // The write path partially succeeds by design — a material movement can
+        // roll back to its savepoint while the times stand — and it says so in
+        // `warnings`. Those were being thrown away and every save toasted as a
+        // clean success, so "the steel never left stock" was invisible. It
+        // matters more now that tasks the engine has NOT released are offered:
+        // that is precisely the case where nothing can be issued.
+        const warnings = res?.warnings ?? [];
+        if (warnings.length) {
+          setErr(warnings.join(' '));
+          toast('Recorded, with something to check.', 'info');
+        } else {
+          toast('Work recorded.', 'success');
+        }
       } else {
         const next = await explainGap({
           resourceId, date, code: draft.code,
@@ -425,27 +533,52 @@ export function GapTable({
                 <Box sx={{ p: 1.5, borderTop: '1px solid var(--c-border)', bgcolor: 'var(--c-surface-2)' }}>
                   <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'flex-start' }}>
                     <TextField
-                      select size="small" label="What was this time?" sx={{ minWidth: 250 }}
+                      select size="small" label="What was this time?" sx={{ minWidth: 260 }}
                       value={draft.code} onChange={(e) => setDraft({ ...draft, code: e.target.value })}
                     >
-                      {/* First, and separated: on a shop floor most unaccounted
-                          time is work that happened and nobody wrote down. */}
-                      {workTasks.length > 0 && (
-                        <MenuItem value={WORK_CODE}>
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
-                            <PrecisionManufacturingRounded sx={{ fontSize: 15 }} />
-                            <strong>Worked on a job</strong>
-                          </Box>
-                        </MenuItem>
+                      {/* First, and always present — never gated on the job list
+                          having loaded or being non-empty. On a shop floor most
+                          unaccounted time is work that happened and nobody wrote
+                          down, so this is the answer the form should lead with;
+                          hiding it when the list came back empty made the most
+                          common case the one you could not express. */}
+                      <MenuItem value={WORK_CODE}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                          <PrecisionManufacturingRounded sx={{ fontSize: 15 }} />
+                          <strong>Operated on a task</strong>
+                        </Box>
+                      </MenuItem>
+                      {REASON_GROUPS.flatMap((grp) => {
+                        const inGroup = reasons.filter(
+                          (r) => r.scope === grp.scope && r.code !== 'other',
+                        );
+                        if (!inGroup.length) return [];
+                        return [
+                          <ListSubheader key={grp.key} sx={SUBHEADER_SX}>{grp.label}</ListSubheader>,
+                          ...inGroup.map((r) => (
+                            <MenuItem key={r.code} value={r.code} sx={{ pl: 3 }}>
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                                {SCOPE_ICON[r.scope]}{r.label}
+                              </Box>
+                            </MenuItem>
+                          )),
+                        ];
+                      })}
+                      {/* Anything a company added under a scope we don't group,
+                          plus `other`. Never dropped — a reason that exists and
+                          renders nowhere is worse than an ungrouped one. */}
+                      {reasons.some((r) => r.code === 'other' || !REASON_GROUPS.some((g) => g.scope === r.scope)) && (
+                        <ListSubheader key="__other" sx={SUBHEADER_SX}>Something else</ListSubheader>
                       )}
-                      {workTasks.length > 0 && <Divider />}
-                      {reasons.map((r) => (
-                        <MenuItem key={r.code} value={r.code}>
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
-                            {SCOPE_ICON[r.scope]}{r.label}
-                          </Box>
-                        </MenuItem>
-                      ))}
+                      {reasons
+                        .filter((r) => r.code === 'other' || !REASON_GROUPS.some((g) => g.scope === r.scope))
+                        .map((r) => (
+                          <MenuItem key={r.code} value={r.code} sx={{ pl: 3 }}>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                              {SCOPE_ICON[r.scope]}{r.label}
+                            </Box>
+                          </MenuItem>
+                        ))}
                     </TextField>
                     <TextField size="small" type="time" label="From" sx={{ width: 118 }}
                       InputLabelProps={{ shrink: true }}
@@ -465,11 +598,48 @@ export function GapTable({
 
                   {draft.code === WORK_CODE && (
                     <Box sx={{ display: 'flex', gap: 1, mt: 1.25, flexWrap: 'wrap', alignItems: 'center' }}>
-                      <TextField select size="small" label="Which job" sx={{ minWidth: 260 }}
-                        value={draft.taskId} onChange={(e) => setDraft({ ...draft, taskId: e.target.value })}>
-                        {workTasks.map((t) => (
-                          <MenuItem key={t.id} value={String(t.id)}>{t.label}</MenuItem>
-                        ))}
+                      <TextField
+                        select size="small" label="Which task" sx={{ minWidth: 320 }}
+                        value={draft.taskId}
+                        onChange={(e) => setDraft({ ...draft, taskId: e.target.value })}
+                        disabled={tasksLoading || tasks.length === 0}
+                        helperText={
+                          tasksLoading ? 'Loading this machine’s tasks…'
+                            : tasks.length === 0 ? 'No tasks on this machine yet — check the order has been materialised'
+                              : tasksTruncated ? 'Showing the first 300 — planned and this machine’s own work first'
+                                : ' '
+                        }
+                      >
+                        {TASK_GROUPS.flatMap((grp) => {
+                          const inGroup = tasks.filter((t) => (t.group ?? 'open') === grp.key);
+                          if (!inGroup.length) return [];
+                          return [
+                            <ListSubheader key={grp.key} sx={SUBHEADER_SX}>
+                              {grp.label}{grp.hint ? ` — ${grp.hint}` : ''}
+                            </ListSubheader>,
+                            ...inGroup.map((t) => (
+                              <MenuItem key={t.id} value={String(t.id)} sx={{ pl: 3 }}>
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}>
+                                  <Box component="span" sx={{
+                                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                                    opacity: grp.key === 'logged' ? 0.6 : 1,
+                                  }}>
+                                    {t.label}
+                                  </Box>
+                                  {t.blockedNote && (
+                                    <Chip
+                                      size="small" label={t.blockedNote}
+                                      sx={{
+                                        height: 16, fontSize: 9.5,
+                                        bgcolor: 'var(--c-warning-50)', color: 'var(--c-warning-800)',
+                                      }}
+                                    />
+                                  )}
+                                </Box>
+                              </MenuItem>
+                            )),
+                          ];
+                        })}
                       </TextField>
                       <TextField size="small" type="number" label="Good qty" sx={{ width: 110 }}
                         value={draft.good} onChange={(e) => setDraft({ ...draft, good: e.target.value })} />
@@ -512,9 +682,19 @@ export function GapTable({
 
                   {draft.code === WORK_CODE && (
                     <Typography sx={{ fontSize: 11.5, color: 'var(--c-text-3)', mt: 1 }}>
-                      Records the job as run: moves the material, books the quantities and
+                      Records the task as run: moves the material, books the quantities and
                       releases whatever was waiting on it.
                       {draft.qcFail && ' A QC fail books no good stock and raises a rework task.'}
+                      {/* Said before saving, not discovered in a warning after.
+                          The times are still recorded either way — see the
+                          savepoint in the shift-log write path. */}
+                      {chosenTask?.group === 'blocked' && (
+                        <Box component="span" sx={{ color: 'var(--c-warning-800)' }}>
+                          {' '}This task was {chosenTask.blockedNote ?? 'not released'}, so the material may
+                          not be on hand — the times are recorded regardless, and you will be told if
+                          nothing could be issued.
+                        </Box>
+                      )}
                     </Typography>
                   )}
                   {chosen && (

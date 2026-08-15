@@ -20,6 +20,7 @@
  * planner sees the proposal in place, against the same capacity, before deciding.
  */
 
+import { useEffect, useRef, useState } from 'react';
 import { Box, Tooltip, Typography } from '@mui/material';
 import PushPinRounded from '@mui/icons-material/PushPinRounded';
 import WarningAmberRounded from '@mui/icons-material/WarningAmberRounded';
@@ -29,8 +30,36 @@ import {
   buildTicks, fmtMinutes, fmtLocalTime, type Scale,
 } from './plannerTime';
 
-const LANE_H = 62;
-const HEADER_W = 190;
+/**
+ * Lane height follows how many bars actually stack in it — see `stackBars`. A
+ * fixed 62px with two hard-coded rows meant a third overlapping bar was drawn
+ * back on top of the first, so a busy lane silently hid its own work.
+ */
+const ROW_H = 26;
+const LANE_PAD = 12;
+const MIN_LANE_H = 56;
+const HEADER_W = 150;
+/** Below this a bar cannot hold readable text, so it shows as a block + tooltip. */
+const LABEL_MIN_PX = 46;
+
+/**
+ * Assign each bar the lowest row where it does not overlap what is already there.
+ *
+ * The old rule was `i % 2` — alternate rows regardless of whether the bars
+ * actually clash. Two consequences, both bad on a real day: bars that do not
+ * overlap at all were pushed onto separate rows for nothing, and the third of
+ * three genuinely concurrent bars landed back on row 0 underneath the first.
+ */
+function stackBars<T extends { start: string; end: string }>(bars: T[]): Array<T & { row: number }> {
+  const rowEnds: number[] = [];
+  return bars.map((b) => {
+    const s = new Date(b.start).getTime();
+    const e = new Date(b.end).getTime();
+    let row = rowEnds.findIndex((end) => end <= s);
+    if (row === -1) { row = rowEnds.length; rowEnds.push(e); } else { rowEnds[row] = e; }
+    return { ...b, row };
+  });
+}
 
 /** A bar the grid can draw — a real entry or a suggestion, normalised. */
 interface Bar {
@@ -96,7 +125,33 @@ export function PlannerGrid({
   onSelectEntry: (entry: PlanEntry) => void;
   onSelectSuggestion: (s: SuggestionItem) => void;
 }) {
-  const ticks = buildTicks(scale);
+  /**
+   * The track's real width, so the tick density can be chosen from it rather
+   * than guessed. Measured rather than assumed because this grid is squeezed
+   * between a lane header and a backlog rail, and how much room is left depends
+   * on the viewport.
+   */
+  const trackRef = useRef<HTMLDivElement | null>(null);
+  const [trackPx, setTrackPx] = useState(0);
+  useEffect(() => {
+    const measure = () => {
+      const el = trackRef.current;
+      if (el) setTrackPx(el.getBoundingClientRect().width);
+    };
+    measure();
+    // BOTH, because neither alone was enough. The ResizeObserver misses cases
+    // where the element's own box is re-laid-out without the observer firing in
+    // time, and a window listener misses a resize of the pane the grid sits in
+    // with no window resize at all — which is how the tick density got stuck at
+    // whatever it measured on mount and rendered 3-hourly labels on a wide
+    // screen with room for 2.
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : null;
+    if (ro && trackRef.current) ro.observe(trackRef.current);
+    window.addEventListener('resize', measure);
+    return () => { ro?.disconnect(); window.removeEventListener('resize', measure); };
+  }, [lanes.length, scale.mode]);
+
+  const ticks = buildTicks(scale, trackPx);
 
   const suggestionsByLane = new Map<number, SuggestionItem[]>();
   for (const s of suggestions) {
@@ -106,12 +161,21 @@ export function PlannerGrid({
 
   return (
     <Box sx={{ overflowX: 'auto' }}>
-      <Box sx={{ minWidth: 880 }}>
+      {/* 880 forced an inner horizontal scrollbar on a 1280px laptop, because the
+          card only gets ~810 once the backlog rail has taken its share — so the
+          grid scrolled inside a page that was not itself scrolling. 640 fits,
+          and the tick density adapts to whatever is actually available. */}
+      <Box sx={{ minWidth: 640 }}>
         {/* ── time axis ─────────────────────────────────────────────────── */}
         <Box sx={{ display: 'flex', alignItems: 'stretch', borderBottom: '1px solid var(--c-border)' }}>
           <Box sx={{ width: HEADER_W, flexShrink: 0 }} />
-          <Box sx={{ position: 'relative', flex: 1, height: 26 }}>
-            {ticks.map((t) => (
+          {/* The measured element is THIS one — the axis header, which renders
+              once — not a lane track. A ref inside the lane map lands on
+              whichever lane rendered last and stops being observed the moment
+              the lanes re-render, so the tick density would freeze at whatever
+              it was on mount. Same width by construction. */}
+          <Box ref={trackRef} sx={{ position: 'relative', flex: 1, height: 26 }}>
+            {ticks.filter((t) => t.label).map((t) => (
               <Typography
                 key={t.label + t.leftPct}
                 sx={{
@@ -134,11 +198,13 @@ export function PlannerGrid({
 
         {/* ── lanes ─────────────────────────────────────────────────────── */}
         {lanes.map((lane) => {
-          const bars: Bar[] = [
+          const bars = stackBars([
             ...lane.entries.map(entryToBar),
             ...(suggestionsByLane.get(lane.resourceTypeId) ?? []).map(suggestionToBar),
-          ].sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime());
+          ].sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime()));
 
+          // The lane grows to hold its own bars rather than clipping them.
+          const laneH = Math.max(MIN_LANE_H, LANE_PAD + (Math.max(...bars.map((b) => b.row), 0) + 1) * ROW_H);
           const overDays = lane.days.filter((d) => d.overAllocated);
           const laneMinutes = lane.days.reduce((n, d) => n + d.plannedMinutes, 0);
 
@@ -176,7 +242,7 @@ export function PlannerGrid({
               </Box>
 
               {/* lane track */}
-              <Box sx={{ position: 'relative', flex: 1, height: LANE_H, background: 'var(--c-surface)' }}>
+              <Box sx={{ position: 'relative', flex: 1, height: laneH, background: 'var(--c-surface)' }}>
                 {/* no calendar at all — say so rather than shading it dead */}
                 {lane.unbounded && (
                   <Tooltip title="No shift calendar on this lane, so the engine plans it around the clock. Set one up in Setup › Calendars.">
@@ -227,13 +293,16 @@ export function PlannerGrid({
                 ))}
 
                 {/* bars */}
-                {bars.map((bar, i) => {
+                {bars.map((bar) => {
                   const pos = scale.place(bar.start, bar.end);
                   if (!pos) return null;
                   const selected = !!bar.entry && bar.entry.id === selectedEntryId;
-                  // Stagger overlapping bars so a lane running 3 units in parallel
-                  // shows three bars rather than one on top of two others.
-                  const row = i % 2;
+                  const row = bar.row;
+                  // A 40-minute job on a 24-hour axis is around 20px. Text in that
+                  // is a smear of clipped glyphs that reads as a rendering fault;
+                  // the block plus its tooltip is the honest version.
+                  const barPx = trackPx > 0 ? (trackPx * pos.widthPct) / 100 : 999;
+                  const showLabel = barPx >= LABEL_MIN_PX;
                   return (
                     <Tooltip
                       key={bar.key}
@@ -267,12 +336,15 @@ export function PlannerGrid({
                           position: 'absolute',
                           left: `${pos.leftPct}%`,
                           width: `${pos.widthPct}%`,
-                          top: 6 + row * 26,
-                          height: 22,
+                          // A real job is minutes wide on a 24-hour axis. Without
+                          // a floor it renders as a hairline nobody can hit.
+                          minWidth: 8,
+                          top: 6 + row * ROW_H,
+                          height: ROW_H - 4,
                           borderRadius: 'var(--r-sm)',
                           cursor: 'pointer',
                           display: 'flex', alignItems: 'center', gap: 0.5,
-                          px: 0.75,
+                          px: showLabel ? 0.75 : 0,
                           overflow: 'hidden',
                           fontSize: 11,
                           fontWeight: 600,
@@ -289,13 +361,15 @@ export function PlannerGrid({
                           '&:hover': { boxShadow: 'var(--e-2)' },
                         }}
                       >
-                        {bar.pinned && <PushPinRounded sx={{ fontSize: 12, flexShrink: 0 }} />}
-                        <Box component="span" sx={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                          {bar.label}
-                        </Box>
-                        {bar.taskCount > 1 && (
-                          <Box component="span" sx={{ opacity: 0.7, flexShrink: 0 }}>×{bar.taskCount}</Box>
-                        )}
+                        {showLabel && (<>
+                          {bar.pinned && <PushPinRounded sx={{ fontSize: 12, flexShrink: 0 }} />}
+                          <Box component="span" sx={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {bar.label}
+                          </Box>
+                          {bar.taskCount > 1 && (
+                            <Box component="span" sx={{ opacity: 0.7, flexShrink: 0 }}>×{bar.taskCount}</Box>
+                          )}
+                        </>)}
                       </Box>
                     </Tooltip>
                   );

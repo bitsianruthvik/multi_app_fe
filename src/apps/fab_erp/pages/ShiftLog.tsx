@@ -36,7 +36,6 @@ import {
 import { useAuth } from '@core/contexts/AuthContext';
 import { usePermission } from '@core/hooks/usePermission';
 import { isAdminRole } from '@core/utils/roles';
-import { getShiftLog, type ShiftLogResponse } from '../api/shiftLog';
 import { getCoverage, getRangeGaps, type MachineCoverage, type RangeGaps, type ShiftInstance } from '../api/gaps';
 import { getCrew, type CrewMember } from '../api/workers';
 import {
@@ -79,7 +78,6 @@ export default function ShiftLog() {
   const [resourceId, setResourceId] = useState<number | null>(null);
 
   const [range, setRange] = useState<RangeGaps | null>(null);
-  const [data, setData] = useState<ShiftLogResponse | null>(null);
   const [crew, setCrew] = useState<CrewMember[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -110,14 +108,17 @@ export default function ShiftLog() {
   useEffect(() => { setSheetDate(to); }, [to]);
 
   const load = useCallback(async () => {
-    if (!resourceId) { setRange(null); setData(null); setCrew([]); return; }
+    if (!resourceId) { setRange(null); setCrew([]); return; }
     setLoading(true); setError('');
     try {
       const r = await getRangeGaps(resourceId, from, to);
       setRange(r);
-      // The candidate job list still comes from the shift-log read, keyed on the
-      // most recent day in range — it is what "Worked on a job" offers.
-      try { setData(await getShiftLog(resourceId, to)); } catch { setData(null); }
+      // The candidate task list is NOT fetched here any more. It used to be —
+      // once, keyed on `to`, the most recent day in range — and the same list
+      // was then handed to every shift card below, so writing up Tuesday on a
+      // "last 7 days" view offered Friday's tasks and Friday's already-logged
+      // flags. Each GapTable now loads its own, for its own date, the first
+      // time somebody opens a row. See its `workTasks` prop.
       try {
         const c = await getCrew(resourceId, `${to}T00:00:00`, `${to}T23:59:59`);
         setCrew(c.crew ?? []);
@@ -148,11 +149,6 @@ export default function ShiftLog() {
 
   const onCrew = crew.filter((c) => !(c.away ?? []).length);
   const awayCrew = crew.filter((c) => (c.away ?? []).length > 0);
-  const workTasks = (data?.tasks ?? []).map((t) => ({
-    id: t.id,
-    label: [t.itemMark, t.operationName ?? `Step ${t.seqNo}`, t.itemName].filter(Boolean).join(' · '),
-    plannedQty: t.plannedQty == null ? null : Number(t.plannedQty),
-  }));
 
   return (
     <Box sx={{ maxWidth: 1280, mx: 'auto' }}>
@@ -268,7 +264,6 @@ export default function ShiftLog() {
                     instance={i}
                     timezone={range.timezone}
                     resourceName={range.resourceName}
-                    workTasks={workTasks}
                     onChanged={refreshAll}
                   />
                 </SectionCard>

@@ -50,8 +50,9 @@ import {
   useToast, backendMessage,
 } from '../components';
 import { PlannerGrid } from '../components/planner/PlannerGrid';
+import { SuggestSetupDialog } from '../components/planner/SuggestSetupDialog';
 import {
-  buildScale, todayYMD, addDaysYMD, dayStartUtc, zonedWallClockToUtc,
+  buildScale, todayYMD, addDaysYMD, dayStartUtc, zonedWallClockToUtc, zonedParts,
   fmtMinutes, fmtLocalTime, type ViewMode,
 } from '../components/planner/plannerTime';
 
@@ -82,6 +83,7 @@ export default function Planner() {
   const [run, setRun] = useState<SuggestResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [suggesting, setSuggesting] = useState(false);
+  const [setupOpen, setSetupOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const [selectedTaskIds, setSelectedTaskIds] = useState<number[]>([]);
@@ -123,26 +125,41 @@ export default function Planner() {
 
   useEffect(() => { void load(); }, [load]);
 
+  /** The window a run would cover — the days currently on the grid. */
+  const suggestWindow = useMemo(() => ({
+    from: dayStartUtc(fromYMD, timeZone).toISOString(),
+    to: dayStartUtc(addDaysYMD(fromYMD, mode === 'day' ? 1 : 7), timeZone).toISOString(),
+  }), [fromYMD, mode, timeZone]);
+
+  /**
+   * The window is entirely in the past, so a suggestion over it is guaranteed
+   * empty — the engine anchors at now. Worth naming, because "0 bars" on its own
+   * reads as a broken engine rather than as an impossible request.
+   */
+  const windowEnded = useMemo(
+    () => new Date(suggestWindow.to).getTime() <= Date.now(),
+    [suggestWindow.to],
+  );
+
   const onSuggest = useCallback(async () => {
     setSuggesting(true);
     setError(null);
     try {
-      const from = dayStartUtc(fromYMD, timeZone);
-      const to = dayStartUtc(addDaysYMD(fromYMD, mode === 'day' ? 1 : 7), timeZone);
       const r = await suggestPlan({
-        from: from.toISOString(),
-        to: to.toISOString(),
+        from: suggestWindow.from,
+        to: suggestWindow.to,
         resourceTypeIds: laneFilter.length ? laneFilter : undefined,
         bundling,
       });
       setRun(r);
-      if (r.entryCount === 0) toast('Nothing left to suggest for this window.', 'info');
+      // Reload so the rules just saved show up in the backlog's own ranking.
+      await load();
     } catch (err) {
       setError(backendMessage(err) ?? 'Could not compute a suggestion.');
     } finally {
       setSuggesting(false);
     }
-  }, [fromYMD, mode, timeZone, laneFilter, bundling, toast]);
+  }, [suggestWindow, laneFilter, bundling, load]);
 
   const onAccept = useCallback(async (pin: boolean) => {
     if (!run) return;
@@ -178,6 +195,32 @@ export default function Planner() {
       else toast(backendMessage(err) ?? 'Could not add to the plan.', 'error');
     }
   }, [selectedTaskIds, placeDay, placeAt, timeZone, toast, load]);
+
+  /**
+   * Select this task and aim the placement controls at the first slot it can
+   * legally take — the moment its last predecessor is planned to finish.
+   *
+   * The rule was already enforced (place too early and the server refuses with
+   * PREDECESSOR_LATER), but only ever discoverable by being refused: you had to
+   * guess a time, get told it was wrong, read an ISO timestamp out of the
+   * message and translate it back into the picker. This makes the legal answer
+   * the one-click one.
+   */
+  const onPlaceAfter = useCallback((t: BacklogTask) => {
+    if (!t.earliestStart) return;
+    const { ymd, hour, minute } = zonedParts(t.earliestStart, timeZone);
+    // Move the VIEW there first when the slot falls outside the days currently
+    // on screen. The day picker's options are the visible scale, so setting it
+    // to a day the scale does not contain leaves a MUI Select rendering blank —
+    // the field would say nothing and mean the 17th, and pressing Add would
+    // place against an empty day. Scrolling the grid to the work you are about
+    // to plan is what you wanted anyway.
+    if (!scale.days.includes(ymd)) setFromYMD(ymd);
+    setPlaceDay(ymd);
+    setPlaceAt(`${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`);
+    setSelectedTaskIds((prev) => (prev.includes(t.id) ? prev : [...prev, t.id]));
+    setRefusal(null);
+  }, [timeZone, scale.days]);
 
   const onTogglePin = useCallback(async (entry: PlanEntry) => {
     try {
@@ -275,7 +318,10 @@ export default function Planner() {
                 size="small"
                 variant="contained"
                 startIcon={suggesting ? <CircularProgress size={14} color="inherit" /> : <AutoAwesomeRounded />}
-                onClick={() => void onSuggest()}
+                // Opens the ground rules first. Suggest used to fire straight
+                // off whatever the grid was showing, with no way to state the
+                // priority the engine ranks by.
+                onClick={() => setSetupOpen(true)}
                 disabled={suggesting}
               >
                 Suggest
@@ -300,16 +346,36 @@ export default function Planner() {
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap' }}>
             <AutoAwesomeRounded sx={{ color: 'var(--c-primary-500)' }} />
             <Typography sx={{ fontSize: 14, fontWeight: 600 }}>
-              Suggestion #{run.runId}: {run.entryCount} bar{run.entryCount === 1 ? '' : 's'},{' '}
-              {run.taskCount} task{run.taskCount === 1 ? '' : 's'}, {fmtMinutes(run.plannedMinutes)}
+              {run.entryCount === 0
+                ? `Suggestion #${run.runId}: nothing to place`
+                : `Suggestion #${run.runId}: ${run.entryCount} bar${run.entryCount === 1 ? '' : 's'}, `
+                  + `${run.taskCount} task${run.taskCount === 1 ? '' : 's'}, ${fmtMinutes(run.plannedMinutes)}`}
             </Typography>
             <Box sx={{ flex: 1 }} />
             <Button size="small" startIcon={<CloseRounded />} onClick={() => setRun(null)}>Dismiss</Button>
-            <Button size="small" onClick={() => void onAccept(true)}>Accept &amp; pin</Button>
-            <Button size="small" variant="contained" startIcon={<CheckRounded />} onClick={() => void onAccept(false)}>
-              Accept all
-            </Button>
+            {/* Never offer to accept an empty run. "Accept all" beside "0 bars"
+                reads as a plan you cannot see rather than as no plan. */}
+            {run.entryCount > 0 && (<>
+              <Button size="small" onClick={() => void onAccept(true)}>Accept &amp; pin</Button>
+              <Button size="small" variant="contained" startIcon={<CheckRounded />} onClick={() => void onAccept(false)}>
+                Accept all
+              </Button>
+            </>)}
           </Box>
+          {run.entryCount === 0 && (
+            <Alert severity="info" sx={{ mt: 1.5 }}>
+              {windowEnded
+                ? 'This window has already ended, and work can only be scheduled from now onwards — '
+                  + 'so there is nothing the engine could put in it. Move the grid to today or later and suggest again.'
+                : 'Nothing was left to place in this window. Everything open is either already on the plan, '
+                  + 'waiting for raw material, or scheduled beyond these days.'}
+            </Alert>
+          )}
+          {run.entryCount > 0 && (
+            <Typography sx={{ fontSize: 12, color: 'var(--c-text-2)', mt: 1 }}>
+              Shown as dashed bars on the grid below — nothing is on the plan until you accept.
+            </Typography>
+          )}
           {(run.unschedulable.length > 0 || run.missingDuration > 0 || run.items.some((i) => i.breachesPin)) && (
             <Box sx={{ mt: 1.5, display: 'flex', gap: 1, flexWrap: 'wrap' }}>
               {run.unschedulable.length > 0 && (
@@ -340,7 +406,7 @@ export default function Planner() {
         </Surface>
       )}
 
-      <Box sx={{ display: 'flex', gap: 2, alignItems: 'flex-start', flexWrap: { xs: 'wrap', lg: 'nowrap' } }}>
+      <Box sx={{ display: 'flex', gap: 2, alignItems: 'flex-start', flexWrap: { xs: 'wrap', xl: 'nowrap' } }}>
         {/* ── grid ──────────────────────────────────────────────────────── */}
         <Surface e={1} sx={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
           {loading ? (
@@ -375,7 +441,11 @@ export default function Planner() {
         </Surface>
 
         {/* ── backlog rail ──────────────────────────────────────────────── */}
-        <Box sx={{ width: { xs: '100%', lg: 340 }, flexShrink: 0 }}>
+        {/* 340 at the lg breakpoint (1200px) left the grid ~810px, under its own
+            minimum. 300, and the rail only sits alongside from xl — below that
+            it wraps under the grid, where it has the full width and the grid
+            gets the hours it needs. */}
+        <Box sx={{ width: { xs: '100%', xl: 300 }, flexShrink: 0 }}>
           <SectionCard
             title="Unplanned work"
             subtitle={`${backlog.length} task${backlog.length === 1 ? '' : 's'}, most urgent first`}
@@ -420,20 +490,28 @@ export default function Planner() {
                 <EmptyState title="Nothing unplanned" hint="Every open task is on the plan." />
               ) : backlog.map((t) => {
                 const checked = selectedTaskIds.includes(t.id);
+                // Material is the only blocker that makes a row unselectable.
+                // A predecessor is a thing you schedule; steel is a thing you
+                // receive, and no arrangement of the plan produces it.
+                const selectable = canManage && t.plannable !== false;
+                const blockNote = blockNoteFor(t, timeZone);
                 return (
                   <Box
                     key={t.id}
-                    onClick={() => canManage && setSelectedTaskIds((prev) =>
+                    onClick={() => selectable && setSelectedTaskIds((prev) =>
                       prev.includes(t.id) ? prev.filter((x) => x !== t.id) : [...prev, t.id])}
                     sx={{
                       display: 'flex', alignItems: 'center', gap: 1, px: 2, py: 1,
                       borderTop: '1px solid var(--c-divider)',
-                      cursor: canManage ? 'pointer' : 'default',
+                      cursor: selectable ? 'pointer' : 'default',
+                      opacity: t.plannable === false ? 0.62 : 1,
                       background: checked ? 'var(--c-primary-50)' : 'transparent',
-                      '&:hover': { background: canManage ? 'var(--c-surface-2)' : undefined },
+                      '&:hover': { background: selectable ? 'var(--c-surface-2)' : undefined },
                     }}
                   >
-                    {canManage && <Checkbox size="small" checked={checked} sx={{ p: 0.25 }} />}
+                    {canManage && (
+                      <Checkbox size="small" checked={checked} disabled={!selectable} sx={{ p: 0.25 }} />
+                    )}
                     <Box sx={{ minWidth: 0, flex: 1 }}>
                       <Typography sx={{ fontSize: 12.5, fontWeight: 600, color: 'var(--c-text)', lineHeight: 1.3 }} noWrap>
                         {t.operationName ?? 'Operation'}
@@ -441,13 +519,33 @@ export default function Planner() {
                       <Typography sx={{ fontSize: 11, color: 'var(--c-text-3)' }} noWrap>
                         {t.itemName ?? `item ${t.itemId}`}{t.orderNumber ? ` · ${t.orderNumber}` : ''}
                       </Typography>
+                      {/* WHY it is blocked, and what to do about it. "blocked"
+                          alone told you nothing and read as "cannot be planned",
+                          which is wrong for the predecessor case — the one the
+                          planner exists to lay out. */}
+                      {blockNote && (
+                        <Typography sx={{
+                          fontSize: 10.5, lineHeight: 1.35, mt: 0.25,
+                          color: selectable ? 'var(--c-text-2)' : 'var(--c-warning-800)',
+                        }}>
+                          {blockNote}
+                        </Typography>
+                      )}
                     </Box>
                     <Box sx={{ textAlign: 'right', flexShrink: 0 }}>
                       <Mono sx={{ fontSize: 11 }}>
                         {t.computedHours ? fmtMinutes(Number(t.computedHours) * 60) : '—'}
                       </Mono>
-                      {t.status === 'blocked' && (
-                        <Typography sx={{ fontSize: 10, color: 'var(--c-text-3)' }}>blocked</Typography>
+                      {t.earliestStart && (
+                        <Tooltip title="Set the placement time to the first slot this can legally take">
+                          <Button
+                            size="small"
+                            sx={{ display: 'block', ml: 'auto', fontSize: 10, py: 0, minWidth: 0 }}
+                            onClick={(e) => { e.stopPropagation(); onPlaceAfter(t); }}
+                          >
+                            after it
+                          </Button>
+                        </Tooltip>
                       )}
                     </Box>
                   </Box>
@@ -459,6 +557,16 @@ export default function Planner() {
       </Box>
 
       {/* ── selected bar ──────────────────────────────────────────────────── */}
+      <SuggestSetupDialog
+        open={setupOpen}
+        onClose={() => setSetupOpen(false)}
+        windowFrom={suggestWindow.from}
+        windowTo={suggestWindow.to}
+        resourceTypeIds={laneFilter.length ? laneFilter : undefined}
+        timeZone={timeZone}
+        onConfirm={() => { setSetupOpen(false); void onSuggest(); }}
+      />
+
       <SideSheet
         open={!!sheetEntry}
         onClose={() => setSheetEntry(null)}
@@ -517,6 +625,39 @@ export default function Planner() {
       </SideSheet>
     </Box>
   );
+}
+
+/**
+ * One line saying why a backlog row is blocked, in the planner's own terms.
+ *
+ * Three distinct situations, and each wants a different next action:
+ *
+ *   material            receive it. Nothing on this screen helps.
+ *   predecessor, unplanned   plan that first — and it says WHICH, because
+ *                       "a predecessor" is not something you can go and find.
+ *   predecessor, planned     ready to go after a stated time. This is the case
+ *                       that used to be indistinguishable from the other two
+ *                       and looked forbidden.
+ */
+function blockNoteFor(t: BacklogTask, timeZone: string): string | null {
+  if (t.status !== 'blocked') return null;
+  if (t.blockedBy === 'material' || t.blockedBy === 'both') return 'waiting for raw material';
+
+  const waiting = t.waitingFor ?? [];
+  if (!waiting.length) return 'blocked';
+
+  const name = (w: BacklogTask['waitingFor'][number]) =>
+    w.operationName ?? (w.seqNo != null ? `step ${w.seqNo}` : `task ${w.taskId}`);
+
+  const unplanned = waiting.filter((w) => !w.planned);
+  if (unplanned.length) {
+    return unplanned.length === 1
+      ? `plan ${name(unplanned[0])} first`
+      : `plan ${unplanned.length} earlier steps first`;
+  }
+  return t.earliestStart
+    ? `can follow ${name(waiting[waiting.length - 1])} — from ${fmtLocalTime(t.earliestStart, timeZone)}`
+    : 'ready to follow its earlier step';
 }
 
 function Legend({ swatch, label }: { swatch: Record<string, unknown>; label: string }) {

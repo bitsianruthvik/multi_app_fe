@@ -25,6 +25,19 @@ export interface ShiftLogTask {
   scrapQty: number | string | null;
   /** Already has started/completed events on this date — don't invite a duplicate. */
   alreadyLogged: boolean;
+  /**
+   * Which bucket the picker files this under. Decided server-side, next to the
+   * queries that produced it, so the two cannot disagree.
+   *
+   *   planned  the Production Planner put it on this machine for this date
+   *   open     released work on this machine (eligible / running / paused)
+   *   blocked  the engine has NOT released it — see blockedNote
+   *   logged   already written up for this date; shown so it is visibly done
+   */
+  group: 'planned' | 'open' | 'blocked' | 'logged';
+  planned: boolean;
+  /** Why a blocked task is not released, e.g. "waiting on material". */
+  blockedNote: string | null;
 }
 
 export interface ShiftLogResponse {
@@ -33,6 +46,8 @@ export interface ShiftLogResponse {
   date: string;
   shift: { minutes: number; intervals: Array<{ start: string; end: string }> };
   tasks: ShiftLogTask[];
+  /** The candidate list hit its cap — say so rather than letting it just end. */
+  tasksTruncated?: boolean;
   downtime: Array<{ id: number; state: string; reasonCode: string | null; at: string; note: string | null }>;
   operators: Array<{ userId: number; name: string; isPrimary: number; absent: boolean }>;
   downtimeReasons: Array<{ code: string; label: string }>;

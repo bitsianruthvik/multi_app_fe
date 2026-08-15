@@ -145,16 +145,35 @@ export function buildScale(mode: ViewMode, fromYMD: string, timeZone: string): S
   return { mode, timeZone, fromYMD, days, startMs, endMs, frac, place };
 }
 
+/** A gridline, and its label if one fits there. An empty label draws the line only. */
+export interface Tick { label: string; leftPct: number; major: boolean }
+
 /** Column ticks: hours in day view, days in week view. */
-export function buildTicks(scale: Scale): { label: string; leftPct: number; major: boolean }[] {
-  const out: { label: string; leftPct: number; major: boolean }[] = [];
+export function buildTicks(scale: Scale, trackPx?: number): Tick[] {
+  const out: Tick[] = [];
   if (scale.mode === 'day') {
+    /**
+     * Gridlines every hour; LABELS only as often as they fit.
+     *
+     * Every hour was labelled unconditionally, and a day view is 24 of them. In
+     * the width this grid actually gets on a laptop — around 690px once the lane
+     * headers and the backlog rail have taken theirs — that is 28px per label
+     * for a string ("00:00") that needs about 38. They physically overlapped,
+     * which is most of why the grid read as crumpled.
+     *
+     * The step is chosen from the measured track rather than fixed, so a wide
+     * screen still gets hourly labels and a narrow one degrades to 2, 3, 4 or 6
+     * hourly instead of turning to mush.
+     */
+    const LABEL_PX = 46;
+    const px = trackPx && trackPx > 0 ? trackPx : 690;
+    const step = [1, 2, 3, 4, 6, 8, 12].find((s) => (px / (24 / s)) >= LABEL_PX) ?? 12;
     for (let h = 0; h < 24; h += 1) {
       const at = zonedWallClockToUtc(scale.fromYMD, `${String(h).padStart(2, '0')}:00`, scale.timeZone);
       out.push({
-        label: `${String(h).padStart(2, '0')}:00`,
+        label: h % step === 0 ? `${String(h).padStart(2, '0')}:00` : '',
         leftPct: scale.frac(at) * 100,
-        major: h % 6 === 0,
+        major: h % Math.max(step, 6) === 0,
       });
     }
     return out;
