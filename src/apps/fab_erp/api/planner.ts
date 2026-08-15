@@ -156,7 +156,13 @@ export interface BacklogTask {
   resourceId: number | null;
   operationId: number | null;
   operationName: string | null;
+  /**
+   * PER PIECE, as stored. A formula is a cycle time, so this is one part — the
+   * time the task actually occupies a machine is this × `taskQty`.
+   */
   computedHours: string | null;
+  /** Pieces this task covers. Null ⇒ 1. */
+  taskQty: string | number | null;
   requiredDate: string | null;
   mustFinishBy: string | null;
   /**

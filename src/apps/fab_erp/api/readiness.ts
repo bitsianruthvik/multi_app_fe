@@ -12,7 +12,7 @@ import api, { API_HOST } from '@core/utils/axiosConfig';
 export type StageState = 'todo' | 'partial' | 'done';
 
 export interface ReadinessStage {
-  key: 'lines' | 'boq' | 'nesting' | 'flows' | 'tasks' | 'procurement' | 'production';
+  key: 'lines' | 'boq' | 'flows' | 'params' | 'nesting' | 'tasks' | 'procurement' | 'production';
   label: string;
   state: StageState;
   count: number;
@@ -53,8 +53,9 @@ export async function fetchOrderReadiness(orderId: number): Promise<OrderReadine
 export const STAGE_TAB: Record<ReadinessStage['key'], string> = {
   lines: 'lines',
   boq: 'items',
-  nesting: 'nesting',
   flows: 'flows',
+  params: 'params',
+  nesting: 'nesting',
   tasks: 'dag',
   procurement: 'procurement',
   production: 'production',

@@ -107,9 +107,17 @@ export const releaseReservations = async (orderId: number): Promise<{ released: 
  * The two were separate steps and are one act: an order describing work that
  * had never been broken down is a document about nothing.
  */
-export const raiseProduction = async (orderId: number): Promise<ProductionView['production'] & {
+export const raiseProduction = async (
+  orderId: number,
+  /**
+   * Proceed despite parts missing values their operations need. Raising is what
+   * freezes every formula onto its task, so those tasks get a duration of zero —
+   * the escape hatch is real, but it must be a deliberate second act.
+   */
+  force = false,
+): Promise<ProductionView['production'] & {
   created: boolean; tasksClaimed: number; tasksMaterialized: number; itemsSkipped: number;
-}> => (await api.post(`${base()}/orders/${orderId}/production/raise`, {})).data;
+}> => (await api.post(`${base()}/orders/${orderId}/production/raise`, force ? { force: true } : {})).data;
 
 /** Approve it: draft → waiting, or straight to in production if steel is already in. */
 export const approveProduction = async (moId: number) =>

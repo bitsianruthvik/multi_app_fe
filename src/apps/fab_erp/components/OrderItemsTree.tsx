@@ -15,7 +15,7 @@ import StraightenRounded from '@mui/icons-material/StraightenRounded';
 import TagRounded from '@mui/icons-material/TagRounded';
 import UploadFileIcon from '@mui/icons-material/UploadFile';
 
-import { fabQuery, fabMutate, fabPost } from '../api/client';
+import { fabQuery, fabMutate } from '../api/client';
 import type { FilterValue } from '../api/client';
 import { Surface, EmptyState, useToast, backendMessage } from '../components';
 import { MaterializeOutcome, type MaterializeResponse } from './OrderTaskDag';
@@ -855,7 +855,6 @@ export default function OrderItemsTree({ orderId, canManage, readiness, onStageC
   const [taskCount, setTaskCount] = useState<number | null>(null);
   const [itemsChanged, setItemsChanged] = useState(false);
   const [ctaDismissed, setCtaDismissed] = useState(false);
-  const [materializing, setMaterializing] = useState(false);
   const [materializeResult, setMaterializeResult] = useState<MaterializeResponse | null>(null);
 
   // Lazy: only top-level items (parentItemId === null) are fetched here —
@@ -1056,26 +1055,11 @@ export default function OrderItemsTree({ orderId, canManage, readiness, onStageC
 
   // Same endpoint the Task DAG tab's "Materialize tasks" button calls — the
   // point of the prompt is that acting on it must not require finding another tab.
-  async function buildTasks() {
-    setMaterializing(true); setError('');
-    try {
-      const res = await fabPost<MaterializeResponse>('tasks/materialize', { orderId });
-      setMaterializeResult(res);
-      setItemsChanged(false);
-      setTaskCount(res.tasksInserted);
-      onStageChanged?.();
-      toast(
-        res.itemsSkipped > 0
-          ? `${res.tasksInserted} task(s) built — ${res.itemsSkipped} item(s) skipped, see the notice above.`
-          : `${res.tasksInserted} task(s) built from ${res.itemsProcessed} item(s).`,
-        res.itemsSkipped > 0 ? 'info' : 'success',
-      );
-    } catch (e) {
-      setError(backendMessage(e, 'Failed to build tasks for this order.'));
-    } finally {
-      setMaterializing(false);
-    }
-  }
+  // buildTasks() REMOVED 2026-08-15. Raising the production order already builds
+  // the tree in the same transaction (ensureProductionOrder → materializeOrderTasks),
+  // so this created it before the order that owns it existed and before the
+  // Parameters step had been done — freezing every estimate against values
+  // nobody had entered. The prompt below stays and now points at that step.
 
   async function downloadItemsTemplate() {
     setExporting(true);
@@ -1348,17 +1332,9 @@ export default function OrderItemsTree({ orderId, canManage, readiness, onStageC
           sx={{ mb: 1.5 }}
           action={(
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-              <Button
-                size="small"
-                variant="contained"
-                disabled={materializing}
-                onClick={buildTasks}
-                startIcon={materializing
-                  ? <CircularProgress size={12} color="inherit" />
-                  : <BuildCircleRounded fontSize="small" />}
-              >
-                Build tasks
-              </Button>
+              {/* The "Build tasks" button is gone — see buildTasks() above. The
+                  prompt itself is still worth having: knowing the tree is not
+                  built is useful, and the text now names the step that builds it. */}
               <Tooltip title="Dismiss">
                 <IconButton size="small" aria-label="Dismiss" onClick={() => setCtaDismissed(true)}>
                   <CloseRounded fontSize="small" />
@@ -1373,6 +1349,9 @@ export default function OrderItemsTree({ orderId, canManage, readiness, onStageC
           <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)' }}>
             An item tree produces no work on its own. Until tasks are built, this order has no
             schedule, no critical chain, and never reaches Dispatch or the Task Queue.
+            Finish <strong>Flows</strong> and <strong>Parameters</strong>, then raise the
+            production order on the <strong>Production</strong> tab — that is what builds them,
+            and it is also what freezes every estimate, so the values want to be right first.
           </Typography>
 
           {/* The old copy said items with no flow "are skipped" and left the

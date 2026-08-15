@@ -17,6 +17,7 @@ import { useToast, backendMessage } from '../components';
 import { fetchOrderReadiness, type OrderReadiness, type ReadinessStage, type StageState } from '../api/readiness';
 import OrderItemsTree from './OrderItemsTree';
 import OrderNesting from './OrderNesting';
+import OrderParameters from './OrderParameters';
 import OrderFlowAllocation from './OrderFlowAllocation';
 import OrderTaskDag from './OrderTaskDag';
 import OrderProcurement from './OrderProcurement';
@@ -236,11 +237,16 @@ export default function SalesOrderWizard({
                 readiness={readiness} onStageChanged={refresh}
               />
             )}
-            {step === 'nesting' && (
-              <OrderNesting orderId={orderId} canManage={canManage} onStageChanged={refresh} />
-            )}
+            {/* Flows BEFORE parameters: which fields a part needs is derived from
+                its flow's formulas, so the flow has to be known first. */}
             {step === 'flows' && (
               <OrderFlowAllocation orderId={orderId} canManage={canManage} onStageChanged={refresh} />
+            )}
+            {step === 'params' && (
+              <OrderParameters orderId={orderId} canManage={canManage} onStageChanged={refresh} />
+            )}
+            {step === 'nesting' && (
+              <OrderNesting orderId={orderId} canManage={canManage} onStageChanged={refresh} />
             )}
             {step === 'tasks' && (
               <OrderTaskDag orderId={orderId} canManage={canManage} />

@@ -28,7 +28,7 @@ import WarningAmberRounded from '@mui/icons-material/WarningAmberRounded';
 import { fabQuery, fabMutate } from '@apps/fab_erp/api/client';
 import type { FabOperationFlow, FabOperationFlowStep, FabOperation, FabResourceType } from '@apps/fab_erp/types';
 import api, { API_HOST } from '@core/utils/axiosConfig';
-import { EmptyState, ListSkeleton, StatusBadge, useToast } from './index';
+import { EmptyState, ListSkeleton, Mono, StatusBadge, useToast, backendMessage } from './index';
 
 interface QueryResult<T> { data: T[]; total?: number }
 
@@ -58,10 +58,12 @@ interface RowDraft {
   dependsOn: number[];
   resourceTypeId: number | null;
   notes: string;
+  /** Raw JSON string as stored — parsed only where the values are needed. */
+  paramsJson: string | null;
 }
 
 function fromStep(s: FabOperationFlowStep): RowDraft {
-  return { seqNo: s.seqNo, operationId: s.operationId, dependsOn: parseDependsOn(s.dependsOn), resourceTypeId: s.resourceTypeId, notes: s.notes ?? '' };
+  return { seqNo: s.seqNo, operationId: s.operationId, dependsOn: parseDependsOn(s.dependsOn), resourceTypeId: s.resourceTypeId, notes: s.notes ?? '', paramsJson: s.paramsJson ?? null };
 }
 
 function StepRow({ step, allSteps, flowId, operations, resourceTypes, canManage, isFirst, isLast, onChanged, onDeleted, onMove }: {
@@ -73,8 +75,23 @@ function StepRow({ step, allSteps, flowId, operations, resourceTypes, canManage,
   const [draft, setDraft] = useState<RowDraft>(fromStep(step));
   const [notesDraft, setNotesDraft] = useState(step.notes ?? '');
   const [saving, setSaving] = useState(false);
+  const [paramsOpen, setParamsOpen] = useState(false);
 
   useEffect(() => { setDraft(fromStep(step)); setNotesDraft(step.notes ?? ''); }, [step]);
+
+  /** The step's parameters, parsed. Tolerates the driver returning an object. */
+  const params = useMemo<Record<string, number>>(() => {
+    const raw = draft.paramsJson;
+    if (!raw) return {};
+    try {
+      const o = typeof raw === 'string' ? JSON.parse(raw) : raw;
+      if (!o || typeof o !== 'object' || Array.isArray(o)) return {};
+      return Object.fromEntries(Object.entries(o)
+        .map(([k, v]) => [k, Number(v)])
+        .filter(([, v]) => Number.isFinite(v as number))) as Record<string, number>;
+    } catch { return {}; }
+  }, [draft.paramsJson]);
+  const paramCount = Object.keys(params).length;
 
   const earlierSeqNos = useMemo(() => Array.from(new Set(
     allSteps.filter((s) => s.id !== step.id && s.seqNo < draft.seqNo).map((s) => s.seqNo),
@@ -93,6 +110,7 @@ function StepRow({ step, allSteps, flowId, operations, resourceTypes, canManage,
         depends_on: merged.dependsOn.length > 0 ? merged.dependsOn.slice().sort((a, b) => a - b).join(',') : null,
         resource_type_id: merged.resourceTypeId,
         notes: merged.notes.trim() || null,
+        params_json: merged.paramsJson,
       });
       onChanged();
     } finally { setSaving(false); }
@@ -169,6 +187,19 @@ function StepRow({ step, allSteps, flowId, operations, resourceTypes, canManage,
           onBlur={() => { if (notesDraft !== (step.notes ?? '')) commit({ notes: notesDraft }); }}
         />
       </Box>
+      {/* step.* — this step's own parameters.
+          The same operation legitimately behaves differently in different flows:
+          one rolls a plate along its length, another across its width. Without
+          this the only way to say so is to clone the operation, leaving two
+          "Cut Plate" rows whose formulas drift apart. */}
+      <Box component="td" sx={{ ...gridCell, width: 120 }}>
+        <Button
+          size="small" disabled={!canManage} onClick={() => setParamsOpen(true)}
+          sx={{ fontSize: 11.5, textTransform: 'none', minWidth: 0 }}
+        >
+          {paramCount > 0 ? `${paramCount} param${paramCount === 1 ? '' : 's'}` : 'Set…'}
+        </Button>
+      </Box>
       {canManage && (
         <Box component="td" sx={{ ...gridCell, width: 132 }}>
           <Stack direction="row" spacing={0.25} alignItems="center">
@@ -183,7 +214,106 @@ function StepRow({ step, allSteps, flowId, operations, resourceTypes, canManage,
           </Stack>
         </Box>
       )}
+      <StepParamsDialog
+        open={paramsOpen}
+        onClose={() => setParamsOpen(false)}
+        params={params}
+        operationName={op ? `${op.code} — ${op.name}` : `Step ${draft.seqNo}`}
+        onSave={async (next) => {
+          await commit({ paramsJson: Object.keys(next).length ? JSON.stringify(next) : null });
+          setParamsOpen(false);
+        }}
+      />
     </Box>
+  );
+}
+
+/**
+ * A flow step's `step.*` parameters — free key/value, numeric only.
+ *
+ * Numeric only because the engine coerces with Number(): a text value would
+ * become NaN, the try/catch would return null, and the task would plan as a
+ * zero-length bar with no error anywhere. The same reason a text FIELD can
+ * never be formula-usable.
+ *
+ * Keys are free rather than picked from a registry: unlike item fields, which
+ * describe a thing and want one shared vocabulary, a step parameter is local to
+ * one step of one flow — "the axis this particular cut runs along". Registering
+ * those centrally would be a registry of one-offs.
+ */
+function StepParamsDialog({ open, onClose, params, operationName, onSave }: {
+  open: boolean;
+  onClose: () => void;
+  params: Record<string, number>;
+  operationName: string;
+  onSave: (next: Record<string, number>) => Promise<void>;
+}) {
+  const [rows, setRows] = useState<Array<{ k: string; v: string }>>([]);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+
+  useEffect(() => {
+    if (!open) return;
+    const existing = Object.entries(params).map(([k, v]) => ({ k, v: String(v) }));
+    setRows(existing.length ? existing : [{ k: '', v: '' }]);
+    setErr('');
+  }, [open, params]);
+
+  const setRow = (i: number, patch: Partial<{ k: string; v: string }>) =>
+    setRows((prev) => prev.map((r, j) => (j === i ? { ...r, ...patch } : r)));
+
+  async function save() {
+    const next: Record<string, number> = {};
+    for (const r of rows) {
+      const key = r.k.trim();
+      if (!key) continue;
+      const n = Number(r.v);
+      if (!Number.isFinite(n)) { setErr(`"${key}" must be a number — a formula cannot read anything else.`); return; }
+      next[key] = n;
+    }
+    setBusy(true); setErr('');
+    try { await onSave(next); }
+    catch (e) { setErr(backendMessage(e, 'Could not save the parameters.')); }
+    finally { setBusy(false); }
+  }
+
+  return (
+    <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>
+      <DialogTitle sx={{ fontWeight: 600, fontSize: 16 }}>Step parameters — {operationName}</DialogTitle>
+      <DialogContent dividers sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, pt: 2 }}>
+        {err && <Alert severity="error" onClose={() => setErr('')}>{err}</Alert>}
+        <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)' }}>
+          Read in this operation’s time formula as <Mono>step.&lt;key&gt;</Mono>. Only this step —
+          the same operation on another flow keeps its own.
+        </Typography>
+        {rows.map((r, i) => (
+          <Box key={i} sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+            <TextField
+              size="small" label="Key" value={r.k} sx={{ flex: 1 }}
+              placeholder="axis_length"
+              onChange={(e) => setRow(i, { k: e.target.value.replace(/\s+/g, '_').toLowerCase() })}
+            />
+            <TextField
+              size="small" label="Value" type="number" value={r.v} sx={{ width: 120 }}
+              onChange={(e) => setRow(i, { v: e.target.value })}
+            />
+            <IconButton size="small" color="error" aria-label="Remove parameter"
+              onClick={() => setRows((prev) => (prev.length === 1 ? [{ k: '', v: '' }] : prev.filter((_, j) => j !== i)))}>
+              <DeleteOutlineRounded fontSize="small" />
+            </IconButton>
+          </Box>
+        ))}
+        <Button size="small" onClick={() => setRows((prev) => [...prev, { k: '', v: '' }])} sx={{ alignSelf: 'flex-start' }}>
+          Add parameter
+        </Button>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose} disabled={busy}>Cancel</Button>
+        <Button variant="contained" onClick={save} disabled={busy}>
+          {busy ? <CircularProgress size={16} color="inherit" /> : 'Save'}
+        </Button>
+      </DialogActions>
+    </Dialog>
   );
 }
 
@@ -372,6 +502,7 @@ export default function FlowStepsSheet({ flow, canManage, operations, resourceTy
                 <Box component="th" sx={gridHeader}>Depends on</Box>
                 <Box component="th" sx={gridHeader}>Resource type</Box>
                 <Box component="th" sx={gridHeader}>Notes</Box>
+                <Box component="th" sx={gridHeader}>Params</Box>
                 {canManage && <Box component="th" sx={gridHeader}>Actions</Box>}
               </Box>
             </Box>

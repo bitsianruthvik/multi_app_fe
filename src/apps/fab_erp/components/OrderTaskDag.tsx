@@ -8,8 +8,10 @@
  * <BomDrillPicker> that filters the graph to an item subtree (or that item
  * alone) via the GET /tasks/graph `itemId` / `scope` params.
  *
- * `orderId` is fixed by the surrounding route/tab context. The "Materialize
- * tasks" action and the read-only nature of the view are unchanged.
+ * `orderId` is fixed by the surrounding route/tab context. The view is read-only:
+ * the "Materialize tasks" button was removed 2026-08-15 because raising the
+ * production order builds the tree in the same transaction, and building it
+ * early froze every estimate against parameters nobody had entered yet.
  */
 
 import { useCallback, useEffect, useState } from 'react';
@@ -18,12 +20,11 @@ import {
   DialogTitle, Divider, Typography,
 } from '@mui/material';
 import RefreshRounded from '@mui/icons-material/RefreshRounded';
-import BuildCircleRounded from '@mui/icons-material/BuildCircleRounded';
 import AutorenewRounded from '@mui/icons-material/AutorenewRounded';
 import WarningAmberRounded from '@mui/icons-material/WarningAmberRounded';
 
 import { fabGet, fabPost } from '../api/client';
-import { Surface, useToast, backendMessage } from '../components';
+import { Surface, useToast } from '../components';
 import TaskFlowGraph from './taskgraph/TaskFlowGraph';
 import BomDrillPicker, { type BomDrillPickerValue } from './taskgraph/BomDrillPicker';
 import type { TaskGraphNode, TaskGraphEdge } from './taskgraph/types';
@@ -106,7 +107,8 @@ export default function OrderTaskDag({ orderId, canManage }: { orderId: number; 
   const { toast } = useToast();
 
   const [loadingGraph, setLoadingGraph] = useState(true);
-  const [materializing, setMaterializing] = useState(false);
+  // Retained only as a disabled-guard for the re-generate buttons.
+  const [materializing] = useState(false);
   const [error, setError] = useState('');
   const [graph, setGraph] = useState<GraphResponse | null>(null);
   const [filter, setFilter] = useState<BomDrillPickerValue>({ itemId: null, scope: 'subtree' });
@@ -140,30 +142,8 @@ export default function OrderTaskDag({ orderId, canManage }: { orderId: number; 
 
   useEffect(() => { fetchGraph(); }, [fetchGraph]);
 
-  async function materialize() {
-    setMaterializing(true);
-    setError('');
-    try {
-      const res = await fabPost<MaterializeResponse>('tasks/materialize', { orderId });
-      // The panel, not the toast, is the record of what actually happened —
-      // toasts have no 'warning' tone and disappear on their own, and a
-      // partially materialized order is precisely what must not scroll away.
-      setMaterializeResult(res);
-      toast(
-        res.itemsSkipped > 0
-          ? `${res.tasksInserted} task(s) built — ${res.itemsSkipped} item(s) skipped, see the notice above.`
-          : `${res.tasksInserted} task(s) built from ${res.itemsProcessed} item(s).`,
-        res.itemsSkipped > 0 ? 'info' : 'success',
-      );
-      await fetchGraph();
-    } catch (e) {
-      const msg = backendMessage(e, 'Failed to materialize tasks.');
-      setError(msg);
-      toast(msg, 'error');
-    } finally {
-      setMaterializing(false);
-    }
-  }
+  // materialize() removed 2026-08-15 — raising the production order is the only
+  // trigger. setMaterializing is kept: re-materialize below still uses it.
 
   // FEAT-07: fetch the diff and open the confirmation dialog.
   async function openRegenerate() {
@@ -225,17 +205,16 @@ export default function OrderTaskDag({ orderId, canManage }: { orderId: number; 
             >
               Refresh
             </Button>
-            {canManage !== false && (
-              <Button
-                size="small"
-                variant="contained"
-                startIcon={materializing ? <CircularProgress size={14} color="inherit" /> : <BuildCircleRounded fontSize="small" />}
-                disabled={materializing}
-                onClick={materialize}
-              >
-                Materialize tasks
-              </Button>
-            )}
+            {/* "Materialize tasks" REMOVED 2026-08-15.
+                Raising the production order already builds the DAG in the same
+                transaction — `ensureProductionOrder` calls materializeOrderTasks
+                — so this button let the tree be built BEFORE the order that is
+                supposed to own it existed, and before the Parameters step had
+                been done. Materialization is where every formula is evaluated
+                and frozen, so building early froze estimates computed from
+                values nobody had entered yet. One trigger now: the Production
+                step. Re-materialize (below) is unaffected — that is a deliberate
+                correction of an existing tree, not a way to create one. */}
             {canManage !== false && (graph?.nodes.length ?? 0) > 0 && (
               <Button
                 size="small"

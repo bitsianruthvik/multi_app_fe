@@ -25,6 +25,7 @@ import { statusFamily } from '../statusMap';
 import OrderItemsTree from '../components/OrderItemsTree';
 import OrderFlowAllocation from '../components/OrderFlowAllocation';
 import OrderNesting from '../components/OrderNesting';
+import OrderParameters from '../components/OrderParameters';
 import OrderProcurement from '../components/OrderProcurement';
 import OrderProduction from '../components/OrderProduction';
 import OrderTaskDag from '../components/OrderTaskDag';
@@ -274,9 +275,12 @@ export default function SalesOrderDetail() {
           // the sequence is legible from the tab bar alone.
           { value: 'lines', label: 'Line items', count: items.length, dot: isSales ? stageDot('lines') : undefined },
           ...(isSales ? [
-            { value: 'items', label: 'Items / BOM', dot: stageDot('boq') },
-            { value: 'nesting', label: 'Nesting', dot: stageDot('nesting') },
+            // Resequenced 2026-08-15: flows before parameters (the flow decides
+            // which values a part needs), nesting after (it needs the dimensions).
+            { value: 'items', label: 'Structure', dot: stageDot('boq') },
             { value: 'flows', label: 'Flows', dot: stageDot('flows') },
+            { value: 'params', label: 'Parameters', dot: stageDot('params') },
+            { value: 'nesting', label: 'Nesting', dot: stageDot('nesting') },
             { value: 'dag', label: 'Project tree', dot: stageDot('tasks') },
             // The two documents the finished tree leads to. Reachable here as
             // well as in the wizard, because receiving a delivery happens long
@@ -363,10 +367,12 @@ export default function SalesOrderDetail() {
             readiness={readiness}
             onStageChanged={refreshReadiness}
           />
-        ) : tab === 'nesting' ? (
-          <OrderNesting orderId={id} canManage={canManage} onStageChanged={refreshReadiness} />
         ) : tab === 'flows' ? (
           <OrderFlowAllocation orderId={id} canManage={canManage} onStageChanged={refreshReadiness} />
+        ) : tab === 'params' ? (
+          <OrderParameters orderId={id} canManage={canManage} onStageChanged={refreshReadiness} />
+        ) : tab === 'nesting' ? (
+          <OrderNesting orderId={id} canManage={canManage} onStageChanged={refreshReadiness} />
         ) : tab === 'procurement' ? (
           <OrderProcurement orderId={id} canManage={canManage} onChanged={refreshReadiness} />
         ) : tab === 'production' ? (

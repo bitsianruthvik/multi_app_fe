@@ -117,7 +117,9 @@ export const NAV_SECTIONS: NavSection[] = [
       { slug: 'resource-types', label: 'Resources', permission: 'fab_erp_resources_view', countKey: 'machines', keywords: ['machines', 'labour', 'capacity', 'resource type'] },
       { slug: 'shift-calendars', label: 'Calendars', permission: 'fab_erp_calendars_view', keywords: ['shifts', 'working days', 'holidays'] },
       { slug: 'progress-templates', label: 'Progress stages', permission: 'fab_erp_taskengine_view', keywords: ['stage template', 'project progress'] },
-      { slug: 'item-metrics', label: 'Metrics', permission: 'fab_erp_items_meta_view', keywords: ['dimension', 'attribute', 'length', 'thickness', 'weight'] },
+      // "Metrics" was the confusing layer — it WAS the field registry all along,
+      // just named as if it were something separate from custom fields.
+      { slug: 'item-metrics', label: 'Item fields', permission: 'fab_erp_items_meta_view', keywords: ['metric', 'metrics', 'dimension', 'attribute', 'custom field', 'length', 'thickness', 'weight', 'unit', 'formula variable'] },
       { slug: 'buffer-config', label: 'Buffers', permission: 'fab_erp_buffer_config', keywords: ['physical buffer', 'stock area', 'wip'] },
       { slug: 'codegen-settings', label: 'Code generation', permission: 'fab_erp_items_meta_view', keywords: ['numbering', 'prefix', 'sequence'] },
     ],

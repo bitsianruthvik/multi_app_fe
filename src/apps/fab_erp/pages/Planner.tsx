@@ -533,9 +533,19 @@ export default function Planner() {
                       )}
                     </Box>
                     <Box sx={{ textAlign: 'right', flexShrink: 0 }}>
+                      {/* The TOTAL the machine is occupied for, with the
+                          per-piece figure beneath when there is more than one.
+                          The stored estimate is a cycle time, so showing it
+                          alone on a 20-piece task understates the bar it draws
+                          by a factor of twenty. */}
                       <Mono sx={{ fontSize: 11 }}>
-                        {t.computedHours ? fmtMinutes(Number(t.computedHours) * 60) : '—'}
+                        {t.computedHours ? fmtMinutes(taskTotalMinutes(t)) : '—'}
                       </Mono>
+                      {t.computedHours && Number(t.taskQty ?? 1) > 1 && (
+                        <Typography sx={{ fontSize: 10, color: 'var(--c-text-3)' }}>
+                          {fmtMinutes(Number(t.computedHours) * 60)} × {Number(t.taskQty)}
+                        </Typography>
+                      )}
                       {t.earliestStart && (
                         <Tooltip title="Set the placement time to the first slot this can legally take">
                           <Button
@@ -625,6 +635,20 @@ export default function Planner() {
       </SideSheet>
     </Box>
   );
+}
+
+/**
+ * Minutes a backlog task actually occupies — per piece × pieces.
+ *
+ * Mirrors `taskDuration.taskMinutes` on the backend, which is what the engine
+ * schedules by. Showing the stored per-piece figure here instead would make the
+ * rail disagree with the bar the planner is about to draw.
+ */
+function taskTotalMinutes(t: BacklogTask): number {
+  const unit = Number(t.computedHours);
+  if (!Number.isFinite(unit) || unit <= 0) return 0;
+  const qty = Number(t.taskQty);
+  return unit * 60 * (Number.isFinite(qty) && qty > 0 ? qty : 1);
 }
 
 /**

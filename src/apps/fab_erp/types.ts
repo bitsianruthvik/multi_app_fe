@@ -137,6 +137,33 @@ export interface FabItemMetricDef extends FabBase {
 }
 
 /**
+ * fab_field_defs: THE field registry (2026-08-15) — one definition of every
+ * value an item can carry, superseding FabItemMetricDef.
+ *
+ * A field with `formulaUsable` is `item.<fieldKey>` in a formula the moment it
+ * is saved; `/formula/variables` reads this table, so the editor autocompletes
+ * and lints against it. `pieceVarying` is opt-in and decides whether the issued
+ * stock piece's own value overrides the item's — which changes a task's
+ * estimate at issue time, so it is never assumed.
+ */
+export interface FabFieldDef extends FabBase {
+  fieldKey: string;
+  label: string;
+  /** number | integer | text. Text can never be formulaUsable. */
+  dataType: string;
+  unit: string | null;
+  formulaUsable: number;
+  pieceVarying: number;
+  defaultValue: number | string | null;
+  categoryId: number | null;
+  groupId: number | null;
+  subgroupId: number | null;
+  sortOrder: number;
+  active: number;
+  notes: string | null;
+}
+
+/**
  * fab_constants: Constant values used in formulas (conversion factors, etc.)
  */
 export interface FabConstant extends FabBase {
@@ -310,6 +337,12 @@ export interface FabOperationFlowStep {
   dependsOn: string | null;
   resourceTypeId: number | null;
   notes: string | null;
+  /**
+   * `step.*` parameters as stored JSON — this step's own values, read by the
+   * operation's time formula. Lets one "Cut Plate" run along the length on one
+   * flow and across the width on another without cloning the operation.
+   */
+  paramsJson: string | null;
   createdAt: string;
   updatedAt: string;
   operationName?: string;

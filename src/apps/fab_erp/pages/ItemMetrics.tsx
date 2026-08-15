@@ -1,12 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Box, Button, IconButton, MenuItem, TextField, Tooltip } from '@mui/material';
+import {
+  Alert, Box, Button, Checkbox, FormControlLabel, IconButton, MenuItem, TextField, Tooltip,
+  Typography,
+} from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
 import EditRounded from '@mui/icons-material/EditRounded';
 import AutoGraphRounded from '@mui/icons-material/AutoGraphRounded';
 
 import { fabQuery, fabMutate } from '../api/client';
-import type { FabItemMetricDef } from '../types';
+import type { FabFieldDef } from '../types';
 import { usePermission } from '@core/hooks/usePermission';
 import {
   PageHeader, Mono, EmptyState, useToast, DataTable, FormDialog, ConfirmDialog,
@@ -14,22 +17,46 @@ import {
 } from '../components';
 
 /**
- * Item metric definitions — reference list (DESIGN_SYSTEM.md §4.2).
+ * Item fields — the ONE registry.
  *
- * Migrated to the shared primitives (elevation plan Phase 2): the hand-rolled
- * MUI table became a `DataTable` (sort, column control, density, CSV export,
- * pagination) and both dialogs became `FormDialog`/`ConfirmDialog`, which
- * surface the backend's message instead of the raw axios string.
+ * This page was "Item metrics", which was the confusing layer: that table was
+ * already the only thing in the system carrying BOTH a data type and a unit —
+ * it was the field registry all along — but it sat beside `fab_custom_fields`
+ * and the hardcoded `fab_items.length/width/height` columns, and formulas read
+ * only its values. So the dimensions people actually typed never reached a
+ * formula, and every `item.*` silently resolved to 0: "Cut Plate" fell from
+ * 38.8 minutes to its constant 10 on every part regardless of size.
+ *
+ * One registry now. A field defined here IS a formula variable the moment it is
+ * saved — `/formula/variables` reads this table, so the editor autocompletes and
+ * lints against it, and `itemFieldService` resolves its value down the chain
+ * (piece → order item → catalog item → sub-group → group → category → default).
+ *
+ * TWO FLAGS EARN THEIR PLACE
+ *
+ *   formula usable   a TEXT field can never be. The engine coerces with
+ *                    Number(), so text yields NaN, the try/catch returns null,
+ *                    and the task plans as a zero-length bar with no error.
+ *   varies by piece  opt-in, off by default. A blanket piece-level override
+ *                    would change a task's estimate the moment stock was
+ *                    issued — right for "this coil came in at 6000 not 12000",
+ *                    alarming for anything else.
  */
 
-const DATA_TYPES = ['number', 'string', 'boolean'] as const;
+const DATA_TYPES = ['number', 'integer', 'text'] as const;
 type DataType = (typeof DATA_TYPES)[number];
 
-interface Draft { metricKey: string; metricLabel: string; dataType: DataType; unit: string }
-const BLANK = (): Draft => ({ metricKey: '', metricLabel: '', dataType: 'number', unit: '' });
+interface Draft {
+  fieldKey: string; label: string; dataType: DataType; unit: string;
+  formulaUsable: boolean; pieceVarying: boolean; defaultValue: string;
+}
+const BLANK = (): Draft => ({
+  fieldKey: '', label: '', dataType: 'number', unit: '',
+  formulaUsable: true, pieceVarying: false, defaultValue: '',
+});
 
-function ItemMetricDialog({ open, initial, onClose, onSaved }: {
-  open: boolean; initial: FabItemMetricDef | null; onClose: () => void; onSaved: () => void;
+function FieldDialog({ open, initial, onClose, onSaved }: {
+  open: boolean; initial: FabFieldDef | null; onClose: () => void; onSaved: () => void;
 }) {
   const [draft, setDraft] = useState<Draft>(BLANK());
   const isNew = !initial;
@@ -38,68 +65,112 @@ function ItemMetricDialog({ open, initial, onClose, onSaved }: {
     if (!open) return;
     setDraft(initial
       ? {
-          metricKey: initial.metricKey,
-          metricLabel: initial.metricLabel,
+          fieldKey: initial.fieldKey,
+          label: initial.label,
           dataType: (initial.dataType as DataType) ?? 'number',
           unit: initial.unit ?? '',
+          formulaUsable: Number(initial.formulaUsable) === 1,
+          pieceVarying: Number(initial.pieceVarying) === 1,
+          defaultValue: initial.defaultValue != null ? String(initial.defaultValue) : '',
         }
       : BLANK());
   }, [open, initial]);
 
-  const set = (k: keyof Draft, v: string) => setDraft((d) => ({ ...d, [k]: v }));
+  const set = <K extends keyof Draft>(k: K, v: Draft[K]) => setDraft((d) => ({ ...d, [k]: v }));
+
+  const isText = draft.dataType === 'text';
 
   // Throwing keeps the dialog open with the user's input and shows the real
   // backend message — FormDialog handles both.
   const save = async () => {
     const payload = {
-      metric_key: draft.metricKey.trim(),
-      metric_label: draft.metricLabel.trim(),
+      field_key: draft.fieldKey.trim(),
+      label: draft.label.trim(),
       data_type: draft.dataType,
       unit: draft.unit.trim() || null,
+      // Enforced here as well as explained: a text field reaching a formula
+      // nulls the whole duration silently.
+      formula_usable: isText ? 0 : (draft.formulaUsable ? 1 : 0),
+      piece_varying: draft.pieceVarying ? 1 : 0,
+      default_value: draft.defaultValue !== '' && !isText ? Number(draft.defaultValue) : null,
     };
-    if (isNew) await fabMutate('fabErpItemMetricDef', 'insert', payload);
-    else await fabMutate('fabErpItemMetricDef', 'update', { id: initial!.id, ...payload });
+    if (isNew) await fabMutate('fabErpFieldDef', 'insert', payload);
+    else await fabMutate('fabErpFieldDef', 'update', { id: initial!.id, ...payload });
     onSaved();
   };
 
   return (
     <FormDialog
       open={open}
-      title={isNew ? 'New item metric' : `Edit ${initial?.metricKey}`}
+      title={isNew ? 'New field' : `Edit ${initial?.fieldKey}`}
       onClose={onClose}
       onSubmit={save}
-      submitDisabled={!draft.metricKey.trim() || !draft.metricLabel.trim()}
+      submitDisabled={!draft.fieldKey.trim() || !draft.label.trim()}
     >
-      <TextField label="Metric key" value={draft.metricKey} onChange={(e) => set('metricKey', e.target.value)} size="small" fullWidth required helperText="Snake-case identifier, e.g. weld_length_mm" />
-      <TextField label="Metric label" value={draft.metricLabel} onChange={(e) => set('metricLabel', e.target.value)} size="small" fullWidth required helperText="Human-readable name shown in the UI" />
-      <TextField select label="Data type" value={draft.dataType} onChange={(e) => set('dataType', e.target.value)} size="small" fullWidth>
-        {DATA_TYPES.map((t) => <MenuItem key={t} value={t}>{t}</MenuItem>)}
-      </TextField>
-      <TextField label="Unit" value={draft.unit} onChange={(e) => set('unit', e.target.value)} size="small" fullWidth helperText="Optional — e.g. mm, kg, m²" />
+      <TextField
+        label="Field key" value={draft.fieldKey} onChange={(e) => set('fieldKey', e.target.value)}
+        size="small" fullWidth required
+        helperText={draft.fieldKey.trim() && !isText
+          ? `Used in formulas as item.${draft.fieldKey.trim()}`
+          : 'Snake-case identifier, e.g. weld_length_m'}
+      />
+      <TextField label="Label" value={draft.label} onChange={(e) => set('label', e.target.value)} size="small" fullWidth required helperText="Human-readable name shown in the UI" />
+      <Box sx={{ display: 'flex', gap: 2 }}>
+        <TextField select label="Data type" value={draft.dataType} onChange={(e) => set('dataType', e.target.value as DataType)} size="small" sx={{ flex: 1 }}>
+          {DATA_TYPES.map((t) => <MenuItem key={t} value={t}>{t}</MenuItem>)}
+        </TextField>
+        <TextField label="Unit" value={draft.unit} onChange={(e) => set('unit', e.target.value)} size="small" sx={{ flex: 1 }} disabled={isText} helperText="e.g. mm, kg, m²" />
+      </Box>
+      <TextField
+        label="Default value" type="number" value={draft.defaultValue} disabled={isText}
+        onChange={(e) => set('defaultValue', e.target.value)} size="small" fullWidth
+        helperText="Used when nothing further down the chain has a value"
+      />
+      <Box>
+        <FormControlLabel
+          control={<Checkbox size="small" checked={!isText && draft.formulaUsable} disabled={isText} onChange={(e) => set('formulaUsable', e.target.checked)} />}
+          label={<Typography sx={{ fontSize: 13 }}>Can be used in formulas</Typography>}
+        />
+        {isText && (
+          <Typography sx={{ fontSize: 11.5, color: 'var(--c-text-3)', ml: 3.5, mt: -0.5 }}>
+            A text field can’t be — it would evaluate to nothing and plan the task as instant.
+          </Typography>
+        )}
+        <FormControlLabel
+          sx={{ display: 'block' }}
+          control={<Checkbox size="small" checked={draft.pieceVarying} onChange={(e) => set('pieceVarying', e.target.checked)} />}
+          label={<Typography sx={{ fontSize: 13 }}>Varies by piece / batch</Typography>}
+        />
+        <Typography sx={{ fontSize: 11.5, color: 'var(--c-text-3)', ml: 3.5, mt: -0.5 }}>
+          Only then does the issued piece’s own value override the item’s — so a task’s
+          estimate can change when stock is issued.
+        </Typography>
+      </Box>
     </FormDialog>
   );
 }
 
-export default function ItemMetrics() {
+export default function ItemFields() {
   const canManage = usePermission('fab_erp_items_meta_manage');
   const { toast } = useToast();
 
-  const [rows, setRows] = useState<FabItemMetricDef[]>([]);
+  const [rows, setRows] = useState<FabFieldDef[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
-  const [editDialog, setEditDialog] = useState<{ open: boolean; item: FabItemMetricDef | null }>({ open: false, item: null });
-  const [delItem, setDelItem] = useState<FabItemMetricDef | null>(null);
+  const [editDialog, setEditDialog] = useState<{ open: boolean; item: FabFieldDef | null }>({ open: false, item: null });
+  const [delItem, setDelItem] = useState<FabFieldDef | null>(null);
 
   const fetchRows = useCallback(async () => {
     setLoading(true); setError('');
     try {
-      const res = await fabQuery<{ data: FabItemMetricDef[] }>('fabErpItemMetricDef', {
-        orderBy: [{ field: 'metricKey', direction: 'asc' }], pagination: { limit: 500 },
+      const res = await fabQuery<{ data: FabFieldDef[] }>('fabErpFieldDef', {
+        orderBy: [{ field: 'sortOrder', direction: 'asc' }, { field: 'fieldKey', direction: 'asc' }],
+        pagination: { limit: 500 },
       });
       setRows(res.data ?? []);
     } catch (e) {
-      setError(backendMessage(e, 'Failed to load metric definitions'));
+      setError(backendMessage(e, 'Failed to load field definitions'));
     } finally { setLoading(false); }
   }, []);
 
@@ -109,27 +180,39 @@ export default function ItemMetrics() {
     const q = search.trim().toLowerCase();
     if (!q) return rows;
     return rows.filter((r) =>
-      r.metricKey.toLowerCase().includes(q) || r.metricLabel.toLowerCase().includes(q));
+      r.fieldKey.toLowerCase().includes(q) || (r.label ?? '').toLowerCase().includes(q));
   }, [rows, search]);
 
-  const columns: DataColumn<FabItemMetricDef>[] = [
-    { key: 'metricKey', header: 'Metric key', render: (r) => <Mono>{r.metricKey}</Mono>, sortValue: (r) => r.metricKey },
-    { key: 'metricLabel', header: 'Label', render: (r) => r.metricLabel, sortValue: (r) => r.metricLabel },
-    { key: 'dataType', header: 'Data type', render: (r) => r.dataType, sortValue: (r) => r.dataType },
-    { key: 'unit', header: 'Unit', render: (r) => r.unit ?? '—', sortValue: (r) => r.unit ?? '' },
+  const columns: DataColumn<FabFieldDef>[] = [
+    { key: 'fieldKey', header: 'Field key', render: (r) => <Mono>{r.fieldKey}</Mono>, sortValue: (r) => r.fieldKey },
+    { key: 'label', header: 'Label', render: (r) => r.label, sortValue: (r) => r.label },
+    { key: 'dataType', header: 'Type', width: 90, render: (r) => r.dataType, sortValue: (r) => r.dataType },
+    { key: 'unit', header: 'Unit', width: 80, render: (r) => r.unit ?? '—', sortValue: (r) => r.unit ?? '' },
+    {
+      key: 'formulaUsable', header: 'In formulas', width: 150,
+      render: (r) => (Number(r.formulaUsable) === 1
+        ? <Mono>item.{r.fieldKey}</Mono>
+        : <Box component="span" sx={{ color: 'var(--c-text-3)' }}>—</Box>),
+      sortValue: (r) => Number(r.formulaUsable),
+    },
+    {
+      key: 'pieceVarying', header: 'Per piece', width: 90,
+      render: (r) => (Number(r.pieceVarying) === 1 ? 'yes' : '—'),
+      sortValue: (r) => Number(r.pieceVarying),
+    },
   ];
 
   const newBtn = canManage ? (
     <Button variant="contained" startIcon={<AddIcon />} onClick={() => setEditDialog({ open: true, item: null })}>
-      Add metric
+      Add field
     </Button>
   ) : null;
 
   return (
     <Box sx={{ maxWidth: 1100, mx: 'auto' }}>
       <PageHeader
-        title="Item metrics"
-        subtitle="Measurable metrics that can be captured on fabrication items, and read by formulas."
+        title="Item fields"
+        subtitle="Every value an item can carry, with its unit and type. A field marked for formulas becomes item.<key> immediately."
         actions={newBtn}
       />
 
@@ -140,11 +223,11 @@ export default function ItemMetrics() {
       {!loading && filtered.length === 0 ? (
         <EmptyState
           icon={<AutoGraphRounded />}
-          title={search ? 'No metrics match your search' : 'No metric definitions yet'}
+          title={search ? 'No fields match your search' : 'No fields defined yet'}
           hint={search
             ? 'Try a different search.'
             : canManage
-              ? 'Define a metric so items can carry measurable values.'
+              ? 'Define a field so items can carry it and formulas can read it.'
               : 'Ask an administrator to define one.'}
           action={search ? undefined : newBtn ?? undefined}
         />
@@ -154,18 +237,18 @@ export default function ItemMetrics() {
           columns={columns}
           getRowId={(r) => r.id}
           loading={loading}
-          storageKey="item-metrics"
-          exportName="item-metrics"
-          defaultSortKey="metricKey"
+          storageKey="item-fields"
+          exportName="item-fields"
+          defaultSortKey="fieldKey"
           rowActions={canManage ? (row) => (
             <>
               <Tooltip title="Edit">
-                <IconButton size="small" onClick={() => setEditDialog({ open: true, item: row })} aria-label={`Edit ${row.metricKey}`}>
+                <IconButton size="small" onClick={() => setEditDialog({ open: true, item: row })} aria-label={`Edit ${row.fieldKey}`}>
                   <EditRounded fontSize="small" />
                 </IconButton>
               </Tooltip>
               <Tooltip title="Delete">
-                <IconButton size="small" color="error" onClick={() => setDelItem(row)} aria-label={`Delete ${row.metricKey}`}>
+                <IconButton size="small" color="error" onClick={() => setDelItem(row)} aria-label={`Delete ${row.fieldKey}`}>
                   <DeleteOutlineRounded fontSize="small" />
                 </IconButton>
               </Tooltip>
@@ -174,21 +257,22 @@ export default function ItemMetrics() {
         />
       )}
 
-      <ItemMetricDialog
+      <FieldDialog
         open={editDialog.open}
         initial={editDialog.item}
         onClose={() => setEditDialog({ open: false, item: null })}
-        onSaved={() => { setEditDialog({ open: false, item: null }); toast('Metric saved'); fetchRows(); }}
+        onSaved={() => { setEditDialog({ open: false, item: null }); toast('Field saved'); fetchRows(); }}
       />
       <ConfirmDialog
         open={!!delItem}
-        title="Delete metric definition"
-        entityName={delItem?.metricKey}
+        title="Delete field"
+        entityName={delItem?.fieldKey}
+        body="Any formula referencing this field will stop resolving it and estimate from zero."
         onClose={() => setDelItem(null)}
         onConfirm={async () => {
-          await fabMutate('fabErpItemMetricDef', 'delete', { id: delItem!.id });
+          await fabMutate('fabErpFieldDef', 'delete', { id: delItem!.id });
           setDelItem(null);
-          toast('Metric deleted');
+          toast('Field deleted');
           fetchRows();
         }}
       />

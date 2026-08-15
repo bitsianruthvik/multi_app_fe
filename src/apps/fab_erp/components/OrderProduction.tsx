@@ -21,6 +21,7 @@ import PrecisionManufacturingRounded from '@mui/icons-material/PrecisionManufact
 import CheckCircleRounded from '@mui/icons-material/CheckCircleRounded';
 
 import { Surface, EmptyState, ListSkeleton, useToast, backendMessage, Mono } from '../components';
+import { fieldGapOf, type FieldGap } from '../api/fieldReadiness';
 import {
   fetchProduction, raiseProduction, approveProduction, type ProductionView,
 } from '../api/procurementOrders';
@@ -35,6 +36,8 @@ export default function OrderProduction({ orderId, canManage, onChanged }: {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  /** A FIELDS_MISSING refusal, held so it can be shown as a list rather than a string. */
+  const [fieldGap, setFieldGap] = useState<FieldGap | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true); setError('');
@@ -61,16 +64,26 @@ export default function OrderProduction({ orderId, canManage, onChanged }: {
     } finally { setBusy(false); }
   }
 
-  async function raise() {
-    setBusy(true); setError('');
+  async function raise(force = false) {
+    setBusy(true); setError(''); if (force) setFieldGap(null);
     try {
-      const res = await raiseProduction(orderId);
+      const res = await raiseProduction(orderId, force);
       toast(res.created
         ? `${res.orderNumber} raised — ${res.tasksMaterialized} task(s) built`
         : `${res.tasksClaimed} new task(s) added to ${res.orderNumber}`, 'success');
+      setFieldGap(null);
       await load(); onChanged?.();
     } catch (e) {
-      setError(backendMessage(e, 'Could not raise the production order.'));
+      /**
+       * A 409 FIELDS_MISSING is an ANSWER, not a failure — the order can be
+       * raised, it just should not be yet. Showing it as a red error string
+       * would hide the one thing that makes it actionable: which parts, and
+       * which values. Raising anyway stays available, because a shop that knows
+       * its estimate is rough may still want the tasks.
+       */
+      const gap = fieldGapOf(e);
+      if (gap) setFieldGap(gap);
+      else setError(backendMessage(e, 'Could not raise the production order.'));
     } finally { setBusy(false); }
   }
 
@@ -93,6 +106,56 @@ export default function OrderProduction({ orderId, canManage, onChanged }: {
     <Box>
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
 
+      {/* Not an error — a reason. Raising the order is what evaluates and
+          FREEZES every formula onto its task, so a part missing a value gets a
+          duration of zero and everything after inherits it: capacity, the
+          critical chain, the buffer, the promised date. */}
+      {fieldGap && (
+        <Alert severity="warning" sx={{ mb: 2 }} onClose={() => setFieldGap(null)}>
+          <Typography sx={{ fontSize: 13.5, fontWeight: 600, mb: 0.5 }}>{fieldGap.message}</Typography>
+
+          {fieldGap.detail?.missingValues?.length > 0 && (
+            <Box sx={{ mb: 1 }}>
+              <Typography sx={{ fontSize: 11.5, color: 'var(--c-text-2)', mb: 0.25 }}>
+                Parts missing a value — fill these in on the Items / BOM tab:
+              </Typography>
+              <Box component="ul" sx={{ m: 0, pl: 2.5, fontSize: 12.5 }}>
+                {fieldGap.detail.missingValues.slice(0, 12).map((v) => (
+                  <li key={v.itemId}>
+                    {v.itemCode ? <Mono>{v.itemCode}</Mono> : v.itemName}
+                    {' — '}{v.missing.join(', ')}
+                  </li>
+                ))}
+              </Box>
+              {fieldGap.detail.missingValues.length > 12 && (
+                <Typography sx={{ fontSize: 11.5, color: 'var(--c-text-3)' }}>
+                  …and {fieldGap.detail.missingValues.length - 12} more
+                </Typography>
+              )}
+            </Box>
+          )}
+
+          {/* Kept separate on purpose: no amount of filling in parts fixes a
+              formula that names a field which does not exist. */}
+          {fieldGap.detail?.unknownFields?.length > 0 && (
+            <Box sx={{ mb: 1 }}>
+              <Typography sx={{ fontSize: 11.5, color: 'var(--c-text-2)', mb: 0.25 }}>
+                Operations whose formula names a field that does not exist — fix these in Operations:
+              </Typography>
+              <Box component="ul" sx={{ m: 0, pl: 2.5, fontSize: 12.5 }}>
+                {fieldGap.detail.unknownFields.map((u) => (
+                  <li key={u.operationId}>{u.operationName} — <Mono>{u.keys.join(', ')}</Mono></li>
+                ))}
+              </Box>
+            </Box>
+          )}
+
+          <Button size="small" disabled={busy} onClick={() => void raise(true)} sx={{ mt: 0.5 }}>
+            Raise anyway
+          </Button>
+        </Alert>
+      )}
+
       {!mo ? (
         <Surface e={1} sx={{ p: 3, textAlign: 'center' }}>
           <Typography sx={{ fontSize: 14, mb: 0.5 }}>No production order yet</Typography>
@@ -104,7 +167,7 @@ export default function OrderProduction({ orderId, canManage, onChanged }: {
           <Button
             variant="contained" size="small" disabled={!canManage || busy}
             startIcon={busy ? <CircularProgress size={14} color="inherit" /> : <PrecisionManufacturingRounded />}
-            onClick={raise}
+            onClick={() => void raise()}
           >
             Raise production order
           </Button>
@@ -175,7 +238,7 @@ export default function OrderProduction({ orderId, canManage, onChanged }: {
           {/* Tasks built after the order was raised do not join it by themselves.
               Saying so beats a count that is quietly out of date. */}
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
-            <Button size="small" disabled={!canManage || busy} onClick={raise}
+            <Button size="small" disabled={!canManage || busy} onClick={() => void raise()}
               startIcon={busy ? <CircularProgress size={14} color="inherit" /> : undefined}>
               Re-claim tasks
             </Button>
