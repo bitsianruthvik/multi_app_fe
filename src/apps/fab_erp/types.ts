@@ -264,6 +264,11 @@ export interface FabOperation {
   defaultResourceTypeId: number | null;
   timeFormula: string | null;
   timeUnit: 'min' | 'hr' | 'sec';
+  /**
+   * Minutes charged ONCE per task, never multiplied by quantity — unlike the
+   * formula, which is per piece. Always minutes regardless of `timeUnit`.
+   */
+  setupMinutes: number | null;
   active: number;
   createdAt: string;
   updatedAt: string;

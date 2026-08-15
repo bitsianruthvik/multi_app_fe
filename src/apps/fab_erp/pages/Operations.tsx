@@ -175,13 +175,18 @@ interface DetailsDraft {
   defaultResourceTypeId: number | null;
   timeFormula: string;
   timeUnit: (typeof TIME_UNITS)[number]['value'];
+  setupMinutes: string;
   active: boolean;
 }
 
 function fromOp(op: FabOperation): DetailsDraft {
   return {
     name: op.name, code: op.code, defaultResourceTypeId: op.defaultResourceTypeId,
-    timeFormula: op.timeFormula ?? '', timeUnit: op.timeUnit, active: op.active === 1,
+    timeFormula: op.timeFormula ?? '', timeUnit: op.timeUnit,
+    // Kept as a string in the draft so the field can be cleared to blank; '' is
+    // a meaningful value here (no setup) and 0 is not the same as "unset".
+    setupMinutes: op.setupMinutes == null ? '' : String(op.setupMinutes),
+    active: op.active === 1,
   };
 }
 
@@ -283,6 +288,7 @@ function DetailsPanel({ operation, resourceTypes, variableKeys, canManage, onSav
         default_resource_type_id: draft.defaultResourceTypeId,
         time_formula: formula || null,
         time_unit: draft.timeUnit,
+        setup_minutes: draft.setupMinutes.trim() === '' ? null : Number(draft.setupMinutes),
         active: draft.active ? 1 : 0,
       });
       onSaved();
@@ -322,10 +328,18 @@ function DetailsPanel({ operation, resourceTypes, variableKeys, canManage, onSav
         <FormulaStatus check={check} />
       </Box>
 
-      <TextField select label="Time unit" size="small" sx={{ width: 200 }} value={draft.timeUnit}
-        onChange={(e) => setDraft((d) => ({ ...d, timeUnit: e.target.value as DetailsDraft['timeUnit'] }))} disabled={!canManage}>
-        {TIME_UNITS.map((u) => <MenuItem key={u.value} value={u.value}>{u.label}</MenuItem>)}
-      </TextField>
+      <Box sx={{ display: 'flex', gap: 2, alignItems: 'flex-start' }}>
+        <TextField select label="Time unit" size="small" sx={{ width: 200 }} value={draft.timeUnit}
+          onChange={(e) => setDraft((d) => ({ ...d, timeUnit: e.target.value as DetailsDraft['timeUnit'] }))} disabled={!canManage}>
+          {TIME_UNITS.map((u) => <MenuItem key={u.value} value={u.value}>{u.label}</MenuItem>)}
+        </TextField>
+        <TextField label="Setup (minutes)" size="small" type="number" sx={{ width: 260 }}
+          value={draft.setupMinutes}
+          onChange={(e) => setDraft((d) => ({ ...d, setupMinutes: e.target.value }))}
+          disabled={!canManage}
+          inputProps={{ min: 0, step: 1 }}
+          helperText="Charged once per task. The formula above is per piece and is multiplied by quantity — setup is not." />
+      </Box>
 
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
         <Switch checked={draft.active} onChange={(e) => setDraft((d) => ({ ...d, active: e.target.checked }))} disabled={!canManage} />
@@ -978,6 +992,8 @@ export default function Operations() {
                       secondary={op.defaultResourceTypeName ? `Default: ${op.defaultResourceTypeName}` : undefined}
                       trailing={(<>
                         <Mono chip>{op.timeUnit}</Mono>
+                        {op.setupMinutes != null && Number(op.setupMinutes) > 0
+                          && <Mono chip>setup {Number(op.setupMinutes)}m</Mono>}
                         {!op.active && <Mono chip>inactive</Mono>}
                       </>)}
                       onClick={() => setSelected(isSelected ? null : op)}
