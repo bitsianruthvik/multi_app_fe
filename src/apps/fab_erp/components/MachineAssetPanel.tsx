@@ -71,6 +71,9 @@ export default function MachineAssetPanel({ resourceId, resource, canManage, onC
     useful_life_years: str(resource.usefulLifeYears),
     depreciation_method: str(resource.depreciationMethod),
     depreciation_rate_pct: str(resource.depreciationRatePct),
+    useful_life_units: str(resource.usefulLifeUnits),
+    units_used: str(resource.unitsUsed),
+    units_uom: str(resource.unitsUom),
   });
 
   const [valuation, setValuation] = useState<Valuation | null>(null);
@@ -129,6 +132,9 @@ export default function MachineAssetPanel({ resourceId, resource, canManage, onC
         useful_life_years: numOrNull(asset.useful_life_years),
         depreciation_method: asset.depreciation_method || null,
         depreciation_rate_pct: numOrNull(asset.depreciation_rate_pct),
+        useful_life_units: numOrNull(asset.useful_life_units),
+        units_used: numOrNull(asset.units_used),
+        units_uom: asset.units_uom.trim() || null,
       });
       toast('Asset details saved', 'success');
       await load(); onChanged?.();
@@ -246,7 +252,37 @@ export default function MachineAssetPanel({ resourceId, resource, canManage, onC
               value={asset.depreciation_rate_pct} disabled={!canManage}
               onChange={(e) => setAsset((a) => ({ ...a, depreciation_rate_pct: e.target.value }))} />
           )}
+          {/* Both accelerated methods derive their rate from the life, so that
+              is the only extra input either of them needs. */}
+          {(asset.depreciation_method === 'double_declining'
+            || asset.depreciation_method === 'sum_of_years') && (
+            <TextField size="small" type="number" label="Useful life (years)" sx={{ width: 170 }}
+              value={asset.useful_life_years} disabled={!canManage}
+              onChange={(e) => setAsset((a) => ({ ...a, useful_life_years: e.target.value }))} />
+          )}
+          {asset.depreciation_method === 'units_of_production' && (
+            <>
+              <TextField size="small" type="number" label="Total expected" sx={{ width: 160 }}
+                value={asset.useful_life_units} disabled={!canManage}
+                helperText="Over its whole life"
+                onChange={(e) => setAsset((a) => ({ ...a, useful_life_units: e.target.value }))} />
+              <TextField size="small" type="number" label="Used so far" sx={{ width: 150 }}
+                value={asset.units_used} disabled={!canManage}
+                helperText="Off the hour meter"
+                onChange={(e) => setAsset((a) => ({ ...a, units_used: e.target.value }))} />
+              <TextField size="small" label="Measured in" sx={{ width: 140 }} placeholder="hours"
+                value={asset.units_uom} disabled={!canManage}
+                onChange={(e) => setAsset((a) => ({ ...a, units_uom: e.target.value }))} />
+            </>
+          )}
         </Box>
+        {asset.depreciation_method && (
+          <Typography sx={{ fontSize: 11.5, color: 'var(--c-text-3)', mt: 1 }}>
+            {DEPRECIATION_METHODS.find((m) => m.value === asset.depreciation_method)?.hint}
+            {asset.depreciation_method === 'units_of_production'
+              && '. Readings are entered, not taken from machine events — a book value that moved as the event log filled in could not be reconciled twice.'}
+          </Typography>
+        )}
 
         {/* Book value is computed server-side — never typed, never stored. */}
         {valuation && (
@@ -258,9 +294,19 @@ export default function MachineAssetPanel({ resourceId, resource, canManage, onC
                 <span style={{ color: 'var(--c-text-2)' }}>
                   depreciated {money(valuation.accumulated, valuation.currency)} over {valuation.ageYears}y
                 </span>
-                <span style={{ color: 'var(--c-text-2)' }}>
-                  next year {money(valuation.annualCharge, valuation.currency)}
-                </span>
+                {/* Units-of-production has no next-year figure without knowing
+                    how hard the machine will be worked. Showing a zero there
+                    would be a claim; showing the rate is the useful answer. */}
+                {valuation.annualCharge != null ? (
+                  <span style={{ color: 'var(--c-text-2)' }}>
+                    next year {money(valuation.annualCharge, valuation.currency)}
+                  </span>
+                ) : valuation.perUnit != null ? (
+                  <span style={{ color: 'var(--c-text-2)' }}>
+                    {money(valuation.perUnit, valuation.currency)} per unit ·
+                    {' '}{valuation.unitsUsed ?? 0} of {valuation.unitsTotal ?? 0} used
+                  </span>
+                ) : null}
               </Box>
             ) : (
               <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-3)' }}>

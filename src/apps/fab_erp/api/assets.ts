@@ -58,7 +58,12 @@ export interface Valuation {
   ageYears: number | null;
   accumulated: number | null;
   bookValue: number | null;
+  /** null under units-of-production — unanswerable without a usage forecast. */
   annualCharge: number | null;
+  /** Units-of-production only. */
+  perUnit?: number | null;
+  unitsUsed?: number | null;
+  unitsTotal?: number | null;
 }
 
 export interface AssetPurchase {
@@ -72,10 +77,18 @@ export interface AssetPurchase {
   value: number;
 }
 
+/**
+ * Every method carries a hint, because the difference between two of them is
+ * not obvious from the name: WDV and double declining are both reducing
+ * balance, and they differ in where the rate comes from and what it applies to.
+ */
 export const DEPRECIATION_METHODS = [
-  { value: 'straight_line', label: 'Straight line' },
-  { value: 'wdv', label: 'Reducing balance (WDV)' },
-  { value: 'none', label: 'None' },
+  { value: 'straight_line', label: 'Straight line', hint: 'Equal charge every year' },
+  { value: 'wdv', label: 'Reducing balance (WDV)', hint: 'A rate you state, applied to the remaining value' },
+  { value: 'double_declining', label: 'Double declining', hint: 'Twice the straight-line rate, applied to the full cost' },
+  { value: 'sum_of_years', label: "Sum of years' digits", hint: 'Accelerated, and lands exactly on salvage' },
+  { value: 'units_of_production', label: 'Units of production', hint: 'By use, not by time — hours, cycles or tonnes' },
+  { value: 'none', label: 'None', hint: 'Held at cost' },
 ] as const;
 
 /** Due list across the whole shop. */
