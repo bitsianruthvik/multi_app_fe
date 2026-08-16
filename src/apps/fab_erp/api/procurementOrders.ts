@@ -120,8 +120,11 @@ export const fetchProduction = async (orderId: number): Promise<ProductionView> 
 export const raiseProcurement = async (
   orderId: number,
   lines: Array<{ catalogItemId: number; qty: number; supplierId: number; expectedDate?: string }>,
+  /** Proceed despite a nesting the checks say cannot be cut. A deliberate second act. */
+  force = false,
 ): Promise<RaiseResult> =>
-  (await api.post<RaiseResult>(`${base()}/orders/${orderId}/procurement/raise`, { lines })).data;
+  (await api.post<RaiseResult>(`${base()}/orders/${orderId}/procurement/raise`,
+    force ? { lines, force: true } : { lines })).data;
 
 export const releaseReservations = async (orderId: number): Promise<{ released: number }> =>
   (await api.post<{ released: number }>(`${base()}/orders/${orderId}/procurement/release`, {})).data;
@@ -238,3 +241,43 @@ export const receiveAgainstOrder = async (
   },
 ): Promise<ReceiveOrderResult> =>
   (await api.post<ReceiveOrderResult>(`${base()}/purchase-orders/${poId}/receive`, payload)).data;
+
+// ── Nesting integrity (Phase 5) ─────────────────────────────────────────────
+
+export interface NestingIssue {
+  type: string;
+  message: string;
+  partId?: number;
+  partCode?: string | null;
+  partName?: string | null;
+  materialCode?: string | null;
+  nestNo?: string | null;
+}
+
+export interface NestingIntegrity {
+  ok: boolean;
+  checked: number;
+  issues: NestingIssue[];
+  blocking: NestingIssue[];
+  summary: Record<string, number>;
+}
+
+export const fetchNestingIntegrity = async (orderId: number): Promise<NestingIntegrity> =>
+  (await api.get<NestingIntegrity>(`${base()}/orders/${orderId}/nesting/integrity`)).data;
+
+/**
+ * The 409 raised when an order's nesting could not physically be cut.
+ *
+ * Same shape as `fieldGapOf`: returns null for anything else, so a caller can
+ * tell "this specific, explainable refusal" from "something went wrong" — and
+ * show the list instead of a stack trace.
+ */
+export function nestingGapOf(err: unknown): { message: string; issues: NestingIssue[] } | null {
+  const res = (err as { response?: { status?: number; data?: Record<string, unknown> } })?.response;
+  if (res?.status !== 409 || res?.data?.code !== 'NESTING_INVALID') return null;
+  const detail = (res.data.detail ?? {}) as { issues?: NestingIssue[] };
+  return {
+    message: String(res.data.message ?? 'This order\u2019s nesting cannot be cut as drawn.'),
+    issues: detail.issues ?? [],
+  };
+}

@@ -24,8 +24,8 @@ import InventoryRounded from '@mui/icons-material/Inventory2Rounded';
 import { fabQuery } from '../api/client';
 import { Surface, EmptyState, ListSkeleton, useToast, backendMessage, Mono } from '../components';
 import {
-  fetchProcurement, raiseProcurement, receiveAgainstLine,
-  type ProcurementView, type ShortfallLine, type PurchaseOrderRow,
+  fetchProcurement, raiseProcurement, receiveAgainstLine, nestingGapOf,
+  type ProcurementView, type ShortfallLine, type PurchaseOrderRow, type NestingIssue,
 } from '../api/procurementOrders';
 
 interface SupplierOption { id: number; code: string; name: string; leadTimeDays?: number | null }
@@ -47,6 +47,8 @@ export default function OrderProcurement({ orderId, canManage, onChanged }: {
   /** Chosen supplier per catalog item. Nothing is guessed — see the raise guard. */
   const [supplierFor, setSupplierFor] = useState<Record<number, number | ''>>({});
   const [receiving, setReceiving] = useState<{ poId: number; lineId: number; code: string } | null>(null);
+  /** Set when the raise was refused because the nesting could not be cut. */
+  const [nestingGap, setNestingGap] = useState<{ message: string; issues: NestingIssue[] } | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true); setError('');
@@ -120,6 +122,32 @@ export default function OrderProcurement({ orderId, canManage, onChanged }: {
       }
       await load(); onChanged?.();
     } catch (e) {
+      /**
+       * A nesting that cannot be cut is refused here, and the list is the whole
+       * point — "could not raise the purchase orders" tells a buyer nothing
+       * they can act on, while "Top Flange is 3000×1600 but its plate is
+       * 2000×1000" tells them exactly which row to fix.
+       */
+      const gap = nestingGapOf(e);
+      if (gap) { setNestingGap(gap); setError(''); }
+      else setError(backendMessage(e, 'Could not raise the purchase orders.'));
+    } finally { setBusy(false); }
+  }
+
+  /** Raise anyway, having seen why it was refused. */
+  async function raiseAnyway() {
+    setNestingGap(null);
+    setBusy(true); setError('');
+    try {
+      const res = await raiseProcurement(orderId, ready.map((l) => ({
+        catalogItemId: l.catalogItemId,
+        qty: qtyFor(l),
+        supplierId: Number(supplierFor[l.catalogItemId]),
+      })), true);
+      toast(res.orders.length ? `${res.orders.length} purchase order(s) raised` : 'Nothing ordered',
+        res.orders.length ? 'success' : 'info');
+      await load(); onChanged?.();
+    } catch (e) {
       setError(backendMessage(e, 'Could not raise the purchase orders.'));
     } finally { setBusy(false); }
   }
@@ -131,6 +159,24 @@ export default function OrderProcurement({ orderId, canManage, onChanged }: {
   return (
     <Box>
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
+
+      {/* Refused because the nesting is physically impossible. Every line names
+          the row to fix, because "could not raise" is not actionable and
+          "Top Flange is 3000×1600 but its plate is 2000×1000" is. */}
+      {nestingGap && (
+        <Alert severity="warning" sx={{ mb: 2 }} onClose={() => setNestingGap(null)}>
+          <Typography sx={{ fontWeight: 600, fontSize: 13.5, mb: 0.5 }}>{nestingGap.message}</Typography>
+          <Box component="ul" sx={{ m: 0, pl: 2.5, fontSize: 12.5 }}>
+            {nestingGap.issues.slice(0, 10).map((i, n) => <li key={n}>{i.message}</li>)}
+          </Box>
+          {nestingGap.issues.length > 10 && (
+            <Typography sx={{ fontSize: 12, mt: 0.5 }}>…and {nestingGap.issues.length - 10} more.</Typography>
+          )}
+          <Button size="small" sx={{ mt: 1 }} disabled={busy} onClick={raiseAnyway}>
+            Order anyway
+          </Button>
+        </Alert>
+      )}
 
       {view && view.unmatched.length > 0 && (
         <Alert severity="warning" sx={{ mb: 2 }}>
