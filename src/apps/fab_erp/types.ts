@@ -153,7 +153,18 @@ export interface FabFieldDef extends FabBase {
   dataType: string;
   unit: string | null;
   formulaUsable: number;
+  /** @deprecated superseded by `level`; kept for definitions predating it. */
   pieceVarying: number;
+  /**
+   * Where the value is authored: item | piece | both.
+   *
+   * A boolean could say "may differ per piece" but not "meaningless on the
+   * item" — and a length on "MS Plate 20mm" is meaningless, since that item
+   * covers every length ever bought.
+   */
+  level?: string | null;
+  /** Present ⇒ this field is a picker restricted to these values. */
+  allowedValues?: string[] | string | null;
   defaultValue: number | string | null;
   categoryId: number | null;
   groupId: number | null;

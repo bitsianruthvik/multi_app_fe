@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  Alert, Box, Button, Checkbox, FormControlLabel, IconButton, MenuItem, TextField, Tooltip,
-  Typography,
+  Alert, Box, Button, Checkbox, FormControlLabel, IconButton, ListSubheader, MenuItem,
+  TextField, Tooltip, Typography,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
 import EditRounded from '@mui/icons-material/EditRounded';
 import AutoGraphRounded from '@mui/icons-material/AutoGraphRounded';
 
-import { fabQuery, fabMutate } from '../api/client';
+import { fabQuery, fabMutate, fabGet } from '../api/client';
 import type { FabFieldDef } from '../types';
 import { usePermission } from '@core/hooks/usePermission';
 import {
@@ -43,16 +43,52 @@ import {
  *                    alarming for anything else.
  */
 
-const DATA_TYPES = ['number', 'integer', 'text'] as const;
+const DATA_TYPES = ['number', 'integer', 'text', 'date', 'bool'] as const;
 type DataType = (typeof DATA_TYPES)[number];
+
+interface Vocabulary {
+  dataTypes: { value: string; label: string }[];
+  units: { group: string; values: string[] }[];
+  levels: { value: string; label: string; hint: string }[];
+}
+
+/**
+ * The unit / level vocabulary, served rather than duplicated here.
+ *
+ * Falls back to a minimal set if the fetch fails, for the same reason
+ * `useFormulaVariables` does: a definition editor that renders empty dropdowns
+ * because one request failed looks exactly like a system with no units, and
+ * somebody will "fix" it by adding them again by hand.
+ */
+const FALLBACK_VOCAB: Vocabulary = {
+  dataTypes: DATA_TYPES.map((v) => ({ value: v, label: v })),
+  units: [{ group: 'Common', values: ['mm', 'm', 'm2', 'kg', 'hrs', 'nos', '%'] }],
+  levels: [
+    { value: 'item', label: 'On the item', hint: 'Same for every piece' },
+    { value: 'piece', label: 'On each piece', hint: 'Differs per piece' },
+    { value: 'both', label: 'Item, overridable', hint: 'Set on the item, changed per piece' },
+  ],
+};
+
+function useVocabulary(): Vocabulary {
+  const [vocab, setVocab] = useState<Vocabulary>(FALLBACK_VOCAB);
+  useEffect(() => {
+    fabGet<Vocabulary>('fields/vocabulary')
+      .then((v) => { if (v?.units?.length) setVocab(v); })
+      .catch(() => { /* keep the fallback */ });
+  }, []);
+  return vocab;
+}
 
 interface Draft {
   fieldKey: string; label: string; dataType: DataType; unit: string;
   formulaUsable: boolean; pieceVarying: boolean; defaultValue: string;
+  level: string; allowedValues: string;
 }
 const BLANK = (): Draft => ({
   fieldKey: '', label: '', dataType: 'number', unit: '',
   formulaUsable: true, pieceVarying: false, defaultValue: '',
+  level: 'item', allowedValues: '',
 });
 
 function FieldDialog({ open, initial, onClose, onSaved }: {
@@ -60,6 +96,7 @@ function FieldDialog({ open, initial, onClose, onSaved }: {
 }) {
   const [draft, setDraft] = useState<Draft>(BLANK());
   const isNew = !initial;
+  const vocab = useVocabulary();
 
   useEffect(() => {
     if (!open) return;
@@ -71,6 +108,12 @@ function FieldDialog({ open, initial, onClose, onSaved }: {
           unit: initial.unit ?? '',
           formulaUsable: Number(initial.formulaUsable) === 1,
           pieceVarying: Number(initial.pieceVarying) === 1,
+          // Definitions created before the level column fall back to what the
+          // old boolean meant, so editing one does not silently demote it.
+          level: initial.level ?? (Number(initial.pieceVarying) === 1 ? 'both' : 'item'),
+          allowedValues: Array.isArray(initial.allowedValues)
+            ? initial.allowedValues.join(', ')
+            : (initial.allowedValues ?? ''),
           defaultValue: initial.defaultValue != null ? String(initial.defaultValue) : '',
         }
       : BLANK());
@@ -91,7 +134,14 @@ function FieldDialog({ open, initial, onClose, onSaved }: {
       // Enforced here as well as explained: a text field reaching a formula
       // nulls the whole duration silently.
       formula_usable: isText ? 0 : (draft.formulaUsable ? 1 : 0),
-      piece_varying: draft.pieceVarying ? 1 : 0,
+      level: draft.level,
+      // Kept in step with `level` rather than edited separately. The boolean is
+      // still read by definitions that predate the column, and two controls for
+      // one idea is how they end up disagreeing.
+      piece_varying: draft.level === 'item' ? 0 : 1,
+      allowed_values: draft.allowedValues.trim()
+        ? JSON.stringify(draft.allowedValues.split(',').map((s) => s.trim()).filter(Boolean))
+        : null,
       default_value: draft.defaultValue !== '' && !isText ? Number(draft.defaultValue) : null,
     };
     if (isNew) await fabMutate('fabErpFieldDef', 'insert', payload);
@@ -119,8 +169,44 @@ function FieldDialog({ open, initial, onClose, onSaved }: {
         <TextField select label="Data type" value={draft.dataType} onChange={(e) => set('dataType', e.target.value as DataType)} size="small" sx={{ flex: 1 }}>
           {DATA_TYPES.map((t) => <MenuItem key={t} value={t}>{t}</MenuItem>)}
         </TextField>
-        <TextField label="Unit" value={draft.unit} onChange={(e) => set('unit', e.target.value)} size="small" sx={{ flex: 1 }} disabled={isText} helperText="e.g. mm, kg, m²" />
+        {/* A picked unit, not typed. Two people typing "m2" and "m²" produce
+            two units for one thing, which is how this registry already grew a
+            free-text `Thickness (mm)` beside the numeric `thickness_mm`. */}
+        <TextField
+          select label="Unit" value={vocab.units.flatMap((g) => g.values).includes(draft.unit) ? draft.unit : ''}
+          onChange={(e) => set('unit', e.target.value)}
+          size="small" sx={{ flex: 1 }} disabled={isText}
+          helperText="Declared, not converted — see below"
+        >
+          <MenuItem value="">— none —</MenuItem>
+          {vocab.units.flatMap((g) => [
+            <ListSubheader key={`h-${g.group}`} sx={{ fontSize: 11, lineHeight: '26px' }}>{g.group}</ListSubheader>,
+            ...g.values.map((u) => <MenuItem key={u} value={u}>{u}</MenuItem>),
+          ])}
+        </TextField>
       </Box>
+
+      {/* Where the value is authored. Replaces the old "varies by piece" tick,
+          which could say "may differ per piece" but not "meaningless on the
+          item" — and a length on "MS Plate 20mm" is meaningless, because that
+          item covers every length ever bought. */}
+      <TextField
+        select label="Where is this set?" value={draft.level} size="small" fullWidth
+        onChange={(e) => set('level', e.target.value)}
+        helperText={vocab.levels.find((l) => l.value === draft.level)?.hint ?? ' '}
+      >
+        {vocab.levels.map((l) => <MenuItem key={l.value} value={l.value}>{l.label}</MenuItem>)}
+      </TextField>
+
+      {/* Allowed values turn any type into a picker. Deliberately not a
+          separate "picker" data type: that would permit a picker with no
+          options, and make a numeric picker (6 / 8 / 10 mm) unexpressible. */}
+      <TextField
+        label="Allowed values" value={draft.allowedValues} size="small" fullWidth
+        onChange={(e) => set('allowedValues', e.target.value)}
+        placeholder="expense, capitalise"
+        helperText="Comma-separated. Leave blank for free entry; fill it in and this becomes a dropdown that rejects anything else."
+      />
       <TextField
         label="Default value" type="number" value={draft.defaultValue} disabled={isText}
         onChange={(e) => set('defaultValue', e.target.value)} size="small" fullWidth
@@ -136,14 +222,12 @@ function FieldDialog({ open, initial, onClose, onSaved }: {
             A text field can’t be — it would evaluate to nothing and plan the task as instant.
           </Typography>
         )}
-        <FormControlLabel
-          sx={{ display: 'block' }}
-          control={<Checkbox size="small" checked={draft.pieceVarying} onChange={(e) => set('pieceVarying', e.target.checked)} />}
-          label={<Typography sx={{ fontSize: 13 }}>Varies by piece / batch</Typography>}
-        />
-        <Typography sx={{ fontSize: 11.5, color: 'var(--c-text-3)', ml: 3.5, mt: -0.5 }}>
-          Only then does the issued piece’s own value override the item’s — so a task’s
-          estimate can change when stock is issued.
+        {/* The "varies by piece" tick that used to sit here is now the
+            "Where is this set?" dropdown above — one control, three answers,
+            including the one a boolean could not express. */}
+        <Typography sx={{ fontSize: 11.5, color: 'var(--c-text-3)', mt: 1 }}>
+          A unit is documentation — nothing converts between them. Define a length in metres
+          against a formula written for millimetres and the answer is plausible and wrong by 1000×.
         </Typography>
       </Box>
     </FormDialog>
@@ -196,9 +280,22 @@ export default function ItemFields() {
       sortValue: (r) => Number(r.formulaUsable),
     },
     {
-      key: 'pieceVarying', header: 'Per piece', width: 90,
-      render: (r) => (Number(r.pieceVarying) === 1 ? 'yes' : '—'),
-      sortValue: (r) => Number(r.pieceVarying),
+      key: 'level', header: 'Set on', width: 110,
+      // Falls back to what the old boolean meant, so definitions predating the
+      // level column read correctly instead of all showing "item".
+      render: (r) => (r.level ?? (Number(r.pieceVarying) === 1 ? 'both' : 'item')),
+      sortValue: (r) => String(r.level ?? (Number(r.pieceVarying) === 1 ? 'both' : 'item')),
+    },
+    {
+      key: 'allowedValues', header: 'Values', width: 130,
+      render: (r) => {
+        const v = Array.isArray(r.allowedValues)
+          ? r.allowedValues
+          : (typeof r.allowedValues === 'string' && r.allowedValues.trim()
+            ? JSON.parse(r.allowedValues) as string[] : null);
+        return v?.length ? `${v.length} allowed` : '—';
+      },
+      sortValue: (r) => (r.allowedValues ? 1 : 0),
     },
   ];
 
