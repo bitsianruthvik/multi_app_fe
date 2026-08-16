@@ -127,18 +127,14 @@ export interface FabResourceCustomField extends FabBase {
 }
 
 /**
- * fab_item_metric_defs: Definitions of metrics that can be measured on items
- */
-export interface FabItemMetricDef extends FabBase {
-  metricKey: string;
-  metricLabel: string;
-  dataType: string;
-  unit: string | null;
-}
-
-/**
  * fab_field_defs: THE field registry (2026-08-15) — one definition of every
- * value an item can carry, superseding FabItemMetricDef.
+ * value an item can carry.
+ *
+ * It superseded `FabItemMetricDef` / `fab_item_metric_defs`, which was dropped
+ * on 2026-08-17 once a divergence report confirmed nothing read it and all
+ * eight of its keys had landed here. Note that `fab_item_metric_VALUES` still
+ * exists — same era, near-identical name, still written on every weight
+ * roll-up.
  *
  * A field with `formulaUsable` is `item.<fieldKey>` in a formula the moment it
  * is saved; `/formula/variables` reads this table, so the editor autocompletes
