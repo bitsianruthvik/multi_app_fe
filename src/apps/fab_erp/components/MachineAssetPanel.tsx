@@ -29,7 +29,9 @@ import { backendMessage, useToast } from '../components';
 import {
   DEPRECIATION_METHODS, fetchMachineMaintenance, fetchValuation, fetchAssetPurchases,
   saveMaintenancePlan, deleteMaintenancePlan, startMaintenance, stopMaintenance,
+  fetchMachineLocation, fetchMachineAreas, moveMachine, fetchSpareSpend,
   type MaintenanceView, type Valuation, type AssetPurchase, type MaintenancePlan,
+  type MachineLocation, type MachineArea, type SpareSpend,
 } from '../api/assets';
 
 interface Props {
@@ -74,19 +76,40 @@ export default function MachineAssetPanel({ resourceId, resource, canManage, onC
   const [valuation, setValuation] = useState<Valuation | null>(null);
   const [maint, setMaint] = useState<MaintenanceView | null>(null);
   const [purchases, setPurchases] = useState<AssetPurchase[]>([]);
+  const [location, setLocation] = useState<MachineLocation | null>(null);
+  const [areas, setAreas] = useState<MachineArea[]>([]);
+  const [spend, setSpend] = useState<SpareSpend | null>(null);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [v, m, p] = await Promise.all([
+      // Each falls back to null rather than failing the panel: a machine with no
+      // stock piece has no location, which is a state to render, not an error.
+      const [v, m, p, loc, ar, sp] = await Promise.all([
         fetchValuation(resourceId).catch(() => null),
         fetchMachineMaintenance(resourceId).catch(() => null),
         fetchAssetPurchases({ resourceId }).then((r) => r.orders).catch(() => []),
+        fetchMachineLocation(resourceId).catch(() => null),
+        fetchMachineAreas().then((r) => r.locations).catch(() => []),
+        fetchSpareSpend(resourceId).catch(() => null),
       ]);
       setValuation(v); setMaint(m); setPurchases(p);
+      setLocation(loc); setAreas(ar); setSpend(sp);
     } finally { setLoading(false); }
   }, [resourceId]);
+
+  async function move(stockLocationId: number) {
+    if (!stockLocationId || stockLocationId === location?.locationId) return;
+    setSaving(true); setError('');
+    try {
+      const r = await moveMachine(resourceId, stockLocationId);
+      toast(r.offSite ? 'Moved off site — still schedulable' : `Moved to ${r.to.name}`, 'success');
+      await load(); onChanged?.();
+    } catch (e) {
+      setError(backendMessage(e, 'Could not move this machine.'));
+    } finally { setSaving(false); }
+  }
 
   useEffect(() => { load(); }, [load]);
 
@@ -363,9 +386,71 @@ export default function MachineAssetPanel({ resourceId, resource, canManage, onC
 
       <Divider />
 
+      {/* ── Where it is ───────────────────────────────────────────────────── */}
+      <Box>
+        {label('Where it is')}
+        {!location?.pieceId ? (
+          <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-3)' }}>
+            Not tracked as a physical asset yet — give this machine a plant and it registers automatically.
+          </Typography>
+        ) : (
+          <>
+            <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
+              <TextField
+                select size="small" label="Stock area" sx={{ minWidth: 240 }}
+                value={location.locationId ?? ''} disabled={!canManage || saving}
+                onChange={(e) => move(Number(e.target.value))}
+              >
+                {areas.map((a) => (
+                  <MenuItem key={a.id} value={a.id}>
+                    {a.name}{a.plantName ? ` · ${a.plantName}` : ''}
+                  </MenuItem>
+                ))}
+              </TextField>
+              {location.offSite && (
+                <Chip size="small" label="Off site" sx={{ height: 22, fontSize: 11,
+                  bgcolor: 'var(--c-warn-50, #fff8e1)', color: 'var(--c-warn-800, #8a5a00)' }} />
+              )}
+              <Typography sx={{ fontSize: 11.5, color: 'var(--c-text-3)' }}>
+                Serial {location.serialNo ?? '—'}
+              </Typography>
+            </Box>
+            {/* Said out loud because it is the thing people assume changes. */}
+            <Typography sx={{ fontSize: 11.5, color: 'var(--c-text-3)', mt: 1 }}>
+              Moving a machine records where it is — it stays schedulable wherever it goes, because
+              off-site work is still work. To take it out of service, use maintenance or mark it down.
+            </Typography>
+            {location.history.length > 0 && (
+              <Box sx={{ mt: 1.5 }}>
+                {location.history.slice(0, 5).filter((h) => Number(h.qty) > 0).map((h) => (
+                  <Typography key={h.id} sx={{ fontSize: 11.5, color: 'var(--c-text-2)', py: 0.2 }}>
+                    {String(h.txnDate).slice(0, 10)} · {h.notes ?? `moved to ${h.locationName}`}
+                  </Typography>
+                ))}
+              </Box>
+            )}
+          </>
+        )}
+      </Box>
+
+      <Divider />
+
       {/* ── Purchases ─────────────────────────────────────────────────────── */}
       <Box>
         {label('Bought for this machine')}
+        {spend && spend.lineCount > 0 && (
+          <Box sx={{ display: 'flex', gap: 3, flexWrap: 'wrap', fontSize: 12.5, mb: 1.5 }}>
+            <span><b>Expensed</b> {money(spend.expensed, spend.currency)}</span>
+            <span><b>Capitalised</b> {money(spend.capitalised, spend.currency)}</span>
+            {spend.unclassified > 0 && (
+              <Tooltip title="Free-text lines with no catalog item, so no cost treatment to inherit. Pick spares from the catalog to classify them.">
+                <span style={{ color: 'var(--c-warn-fg, #8a5a00)' }}>
+                  Unclassified {money(spend.unclassified, spend.currency)}
+                </span>
+              </Tooltip>
+            )}
+          </Box>
+        )}
         {purchases.length === 0 ? (
           <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-3)' }}>
             No purchase orders raised for this machine yet.

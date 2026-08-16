@@ -12,6 +12,7 @@ import DownloadIcon from '@mui/icons-material/Download';
 import EditRounded from '@mui/icons-material/EditRounded';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import PrecisionManufacturingRounded from '@mui/icons-material/PrecisionManufacturingRounded';
+import ShoppingCartRounded from '@mui/icons-material/ShoppingCartRounded';
 import UploadFileIcon from '@mui/icons-material/UploadFile';
 
 import { fabQuery, fabMutate } from '@apps/fab_erp/api/client';
@@ -22,6 +23,7 @@ import { usePermission } from '@core/hooks/usePermission';
 import api, { API_HOST } from '@core/utils/axiosConfig';
 import { PageHeader, Mono, EmptyState, ListSkeleton, StatusBadge, useToast, EntityList, EntityRow, type SortableField } from '../components';
 import MachineAssetPanel from '../components/MachineAssetPanel';
+import BuyMachineDialog from '../components/BuyMachineDialog';
 
 interface QueryResult<T> { data: T[]; total?: number }
 
@@ -977,6 +979,8 @@ export default function ResourceTypes() {
 
   const [rtDetail, setRtDetail] = useState<{ open: boolean; item: FabResourceType | null }>({ open: false, item: null });
   const [rtDelete, setRtDelete] = useState<FabResourceType | null>(null);
+  /** The type a new machine is being ordered for, if any. */
+  const [buyType, setBuyType] = useState<FabResourceType | null>(null);
   const [rtDeleting, setRtDeleting] = useState(false);
 
   const [resDetail, setResDetail] = useState<{ open: boolean; item: FabResource | null }>({ open: false, item: null });
@@ -1195,7 +1199,17 @@ export default function ResourceTypes() {
                           </>)}
                           onClick={() => setRtDetail({ open: true, item: rt })}
                           actions={canManage ? (
-                            <Tooltip title="Delete"><IconButton size="small" color="error" onClick={() => setRtDelete(rt)}><DeleteOutlineRounded fontSize="small" /></IconButton></Tooltip>
+                            <>
+                              {/* Buying another machine of this type is a purchase
+                                  order against the TYPE — the machine itself does
+                                  not exist yet, which is the point. */}
+                              <Tooltip title={`Buy another ${rt.name}`}>
+                                <IconButton size="small" onClick={(e) => { e.stopPropagation(); setBuyType(rt); }}>
+                                  <ShoppingCartRounded fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
+                              <Tooltip title="Delete"><IconButton size="small" color="error" onClick={() => setRtDelete(rt)}><DeleteOutlineRounded fontSize="small" /></IconButton></Tooltip>
+                            </>
                           ) : undefined}
                         />
                       );
@@ -1209,6 +1223,12 @@ export default function ResourceTypes() {
         </>
       )}
 
+      <BuyMachineDialog
+        open={!!buyType}
+        resourceType={buyType ? { id: buyType.id, name: buyType.name, code: buyType.code } : null}
+        onClose={() => setBuyType(null)}
+        onDone={onSaved}
+      />
       <ResourceTypeDetailDialog open={rtDetail.open} initial={rtDetail.item} plants={plants} canManage={canManage} onClose={() => setRtDetail({ open: false, item: null })} onSaved={onSaved} />
       <ResourceDetailDialog open={resDetail.open} initial={resDetail.item} resourceTypes={resourceTypes} plants={plants} canManage={canManage} onClose={() => setResDetail({ open: false, item: null })} onSaved={onSaved} />
       <AddResourceDialog open={addResOpen} resourceTypes={resourceTypes} plants={plants} onClose={() => setAddResOpen(false)} onSaved={onSaved} onTypeCreated={fetchAll} />

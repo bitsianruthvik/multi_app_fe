@@ -117,3 +117,66 @@ export const raiseAssetPurchase = (body: {
 
 export const fetchAssetPurchases = (params: { resourceId?: number; resourceTypeId?: number }) =>
   fabGet<{ orders: AssetPurchase[] }>('assets/purchases', params);
+
+// ── Where a machine is (Phase 8) ────────────────────────────────────────────
+
+export interface MachineArea {
+  id: number;
+  code: string;
+  name: string;
+  plantId: number | null;
+  plantName: string | null;
+}
+
+export interface MachineLocation {
+  resourceId: number;
+  name: string;
+  code: string | null;
+  pieceId: number | null;
+  serialNo: string | null;
+  locationId: number | null;
+  locationCode: string | null;
+  locationName: string | null;
+  plantName: string | null;
+  /** In an off-site area. It is STILL schedulable — off-site work is real work. */
+  offSite: boolean;
+  history: Array<{
+    id: number; txnType: string; qty: number; txnDate: string;
+    notes: string | null; locationCode: string | null; locationName: string | null;
+  }>;
+}
+
+export interface SparePart {
+  id: number; code: string; name: string; unit: string | null;
+  categoryCode: string; groupName: string | null;
+}
+
+export interface SpareSpend {
+  resourceId: number;
+  currency: string | null;
+  lineCount: number;
+  /** Charged to the period — routine spares. */
+  expensed: number;
+  /** Added to what the machine is worth — major and insurance spares. */
+  capitalised: number;
+  /** Free-text lines with no catalog item, so no treatment to inherit. */
+  unclassified: number;
+  total: number;
+}
+
+export const fetchMachineAreas = (plantId?: number) =>
+  fabGet<{ locations: MachineArea[] }>('assets/machine-locations', plantId ? { plantId } : {});
+
+export const fetchMachineLocation = (resourceId: number) =>
+  fabGet<MachineLocation>(`assets/resources/${resourceId}/location`);
+
+export const moveMachine = (resourceId: number, stockLocationId: number, note?: string) =>
+  fabPost<{ ok: true; to: MachineArea; offSite: boolean; stillSchedulable: boolean }>(
+    `assets/resources/${resourceId}/move`, { stockLocationId, note },
+  );
+
+export const fetchSpareParts = (q?: string) =>
+  fabGet<{ items: SparePart[] }>('assets/spare-parts', q ? { q } : {});
+
+export const fetchSpareSpend = (resourceId: number) =>
+  fabGet<SpareSpend>(`assets/resources/${resourceId}/spend`);
