@@ -26,6 +26,7 @@ import api, { API_HOST } from '@core/utils/axiosConfig';
 import { useToast } from './Toast';
 import { backendMessage } from '../utils/backendMessage';
 import { shiftSpan, type ShiftOption } from './PersonSheet';
+import { DialogCloseButton } from './FormDialog';
 
 export interface MachineOption { id: number; name: string }
 
@@ -118,6 +119,7 @@ export function AddPeopleDialog({
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="lg" fullWidth>
+      <DialogCloseButton absolute onClose={() => onClose()} />
       <DialogTitle sx={{ pb: 0.5 }}>
         Add people
         <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-3)', mt: 0.25 }}>

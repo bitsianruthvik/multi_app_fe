@@ -1,4 +1,5 @@
 import { Box, Dialog, DialogContent, DialogTitle } from '@mui/material';
+import { DialogCloseButton } from './FormDialog';
 
 /**
  * The `?` shortcuts overlay (DESIGN_SYSTEM.md §11, the keyboard contract).
@@ -40,6 +41,7 @@ const GROUPS: { title: string; rows: [string, string][] }[] = [
 export function ShortcutsHelp({ open, onClose }: { open: boolean; onClose: () => void }) {
   return (
     <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>
+      <DialogCloseButton absolute onClose={() => onClose()} />
       <DialogTitle>Keyboard shortcuts</DialogTitle>
       <DialogContent sx={{ pb: 3 }}>
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2.5 }}>

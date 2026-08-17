@@ -21,6 +21,7 @@ import {
 import { fabQuery } from '../api/client';
 import { backendMessage, useToast } from '../components';
 import { raiseAssetPurchase } from '../api/assets';
+import { DialogCloseButton } from './FormDialog';
 
 interface Supplier { id: number; code: string; name: string }
 
@@ -75,6 +76,7 @@ export default function BuyMachineDialog({ open, resourceType, onClose, onDone }
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
+      <DialogCloseButton absolute onClose={() => onClose()} />
       <DialogTitle sx={{ fontWeight: 600 }}>
         Buy another {resourceType?.name ?? 'machine'}
       </DialogTitle>

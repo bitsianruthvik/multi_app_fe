@@ -47,6 +47,7 @@ import {
 import { backfillTaskWork, type BackfillPause } from '../api/client';
 import { FacetChip } from './FilterBar';
 import { useToast } from './Toast';
+import { DialogCloseButton } from './FormDialog';
 
 export interface LogPastWorkTask {
   id: number;
@@ -232,6 +233,7 @@ export function LogPastWorkDialog({ open, task, mode, onClose, onSaved }: LogPas
 
   return (
     <Dialog open={open} onClose={handleClose} maxWidth="xs" fullWidth>
+      <DialogCloseButton absolute onClose={() => handleClose()} />
       <DialogTitle sx={{ fontWeight: 600 }}>{title}</DialogTitle>
       <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 1 }}>
         <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>{taskLabel}</Typography>

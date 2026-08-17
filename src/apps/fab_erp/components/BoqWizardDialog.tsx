@@ -15,6 +15,7 @@ import api, { API_HOST } from '@core/utils/axiosConfig';
 import { fabQuery } from '../api/client';
 import { fetchRawMaterials, type RawMaterial as Material } from '../api/rawMaterials';
 import { RawMaterialSelect, Surface } from '../components';
+import { DialogCloseButton } from './FormDialog';
 
 /**
  * Structure wizard — scaffolding for the BOQ sheet.
@@ -483,6 +484,7 @@ export default function BoqWizardDialog({ open, orderId, lines, onClose, onImpor
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
+      <DialogCloseButton absolute onClose={() => onClose()} />
       <DialogTitle sx={{ fontWeight: 600 }}>Build a starting BOQ sheet</DialogTitle>
       <DialogContent dividers>
         {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}

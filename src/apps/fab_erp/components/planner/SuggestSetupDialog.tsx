@@ -44,6 +44,7 @@ import {
 import { Mono } from '../Mono';
 import { backendMessage } from '../../utils/backendMessage';
 import { fmtMinutes } from './plannerTime';
+import { DialogCloseButton } from '../FormDialog';
 
 export interface SuggestSetupResult {
   /** True when the rules were changed and saved — the caller should reload. */
@@ -138,6 +139,7 @@ export function SuggestSetupDialog({
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
+      <DialogCloseButton absolute onClose={() => onClose()} />
       <DialogTitle sx={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 1 }}>
         <AutoAwesomeRounded sx={{ color: 'var(--c-primary-500)' }} />
         Suggest — set the ground rules

@@ -1,9 +1,57 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import {
   Alert, Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle,
+  IconButton, Tooltip,
 } from '@mui/material';
 import WarningAmberRounded from '@mui/icons-material/WarningAmberRounded';
+import CloseRounded from '@mui/icons-material/CloseRounded';
 import { backendMessage } from '../utils/backendMessage';
+
+/**
+ * The close affordance every dialog in fab_erp gets (DESIGN_SYSTEM.md §7.5).
+ *
+ * Exported because ~30 hand-rolled `<Dialog>` blocks still exist outside
+ * FormDialog/ConfirmDialog — panels, wizards and sheets that are not forms and
+ * so cannot adopt the wrapper. They should all render THIS rather than each
+ * inventing a close button, or the icon, size and hit target drift apart.
+ *
+ * Why a dialog needs one even when it has a Cancel button: Cancel reads as
+ * "abandon what I typed", which is not what someone means when they opened a
+ * panel to look at something. Escape already closes, but it is invisible, and a
+ * dialog with no visible way out is the single most reported thing here.
+ *
+ * `disabled` is honoured so an in-flight save cannot be closed out from under
+ * itself — the same rule as `onClose={busy ? undefined : onClose}`.
+ */
+export function DialogCloseButton({
+  onClose, disabled = false, label = 'Close', absolute = false,
+}: { onClose: () => void; disabled?: boolean; label?: string; absolute?: boolean }) {
+  return (
+    <Tooltip title={label}>
+      {/* span keeps the tooltip alive while the button is disabled */}
+      <span
+        style={absolute
+          // `absolute` is for the ~50 hand-rolled dialogs being retrofitted. It
+          // pins to the dialog corner without restructuring each DialogTitle,
+          // which is what makes the retrofit a safe mechanical edit instead of
+          // 50 bespoke layout changes. New dialogs should use FormDialog, which
+          // lays the button out inline and cannot collide with a long title.
+          ? { position: 'absolute', top: 8, right: 8, zIndex: 1, display: 'inline-flex' }
+          : { marginLeft: 'auto', display: 'inline-flex' }}
+      >
+        <IconButton
+          onClick={onClose}
+          disabled={disabled}
+          size="small"
+          aria-label={label}
+          sx={{ color: 'var(--c-text-2)', '&:hover': { color: 'var(--c-text)' } }}
+        >
+          <CloseRounded fontSize="small" />
+        </IconButton>
+      </span>
+    </Tooltip>
+  );
+}
 
 /**
  * The one form dialog in fab_erp (DESIGN_SYSTEM.md §7.5).
@@ -88,13 +136,16 @@ export function FormDialog({
         }
       }}
     >
-      <DialogTitle>
-        {title}
-        {subtitle && (
-          <Box sx={{ fontSize: 13, fontWeight: 400, color: 'var(--c-text-2)', mt: 0.5 }}>
-            {subtitle}
-          </Box>
-        )}
+      <DialogTitle sx={{ display: 'flex', alignItems: 'flex-start', gap: 1 }}>
+        <Box sx={{ minWidth: 0 }}>
+          {title}
+          {subtitle && (
+            <Box sx={{ fontSize: 13, fontWeight: 400, color: 'var(--c-text-2)', mt: 0.5 }}>
+              {subtitle}
+            </Box>
+          )}
+        </Box>
+        <DialogCloseButton onClose={onClose} disabled={busy} label="Close without saving" />
       </DialogTitle>
       <DialogContent>
         {error && (
@@ -170,6 +221,7 @@ export function ConfirmDialog({
       <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1.25 }}>
         <WarningAmberRounded sx={{ color: 'var(--c-danger-600)' }} aria-hidden />
         {title ?? `${confirmLabel}?`}
+        <DialogCloseButton onClose={onClose} disabled={busy} />
       </DialogTitle>
       <DialogContent>
         {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}

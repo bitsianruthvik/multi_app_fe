@@ -35,6 +35,7 @@ import {
   PageHeader, Surface, Mono, EmptyState, ListSkeleton, useToast, DataTable, ConfirmDialog,
 } from '../components';
 import { LINE_TYPES, BOQ_LEVELS } from '../types';
+import { DialogCloseButton } from '../components/FormDialog';
 
 interface FlowRule {
   id: number; companyId: number;
@@ -122,6 +123,7 @@ function RuleDialog({ open, initial, flows, existing, onClose, onSaved }: {
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
+      <DialogCloseButton absolute onClose={() => onClose()} />
       <DialogTitle sx={{ fontWeight: 600 }}>{initial ? 'Edit rule' : 'New flow rule'}</DialogTitle>
       <DialogContent dividers sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
         {err && <Alert severity="error">{err}</Alert>}

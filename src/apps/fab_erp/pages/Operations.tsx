@@ -40,6 +40,7 @@ import {
 } from '../components';
 import FormulaCodeEditor from '../components/FormulaCodeEditor';
 import { useFormulaVariables } from '../hooks/useFormulaVariables';
+import { DialogCloseButton } from '../components/FormDialog';
 
 interface QueryResult<T> { data: T[]; total?: number }
 
@@ -74,6 +75,7 @@ function DeleteDialog({ open, label, onClose, onConfirm, busy }: {
 }) {
   return (
     <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>
+      <DialogCloseButton absolute onClose={() => onClose()} />
       <DialogTitle sx={{ fontWeight: 600 }}>Confirm delete</DialogTitle>
       <DialogContent><Typography>Delete <strong>{label}</strong>? This action cannot be undone.</Typography></DialogContent>
       <DialogActions>
@@ -424,6 +426,7 @@ function VariableDialog({ open, initial, nextSort, onClose, onSave }: {
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
+      <DialogCloseButton absolute onClose={() => onClose()} />
       <DialogTitle sx={{ fontWeight: 600 }}>{isNew ? 'New variable' : `Edit — ${initial?.varKey}`}</DialogTitle>
       <DialogContent dividers sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
         {err && <Alert severity="error">{err}</Alert>}
@@ -684,6 +687,7 @@ function OperationDetailDialog({ operation, resourceTypes, canManage, onClose, o
 }) {
   return (
     <Dialog open={!!operation} onClose={onClose} maxWidth="lg" fullWidth>
+      <DialogCloseButton absolute onClose={() => onClose()} />
       {operation && (
         <OperationDetailBody
           key={operation.id}
@@ -1025,6 +1029,7 @@ export default function Operations() {
       <DeleteDialog open={!!delTarget} label={delTarget ? `${delTarget.code} — ${delTarget.name}` : ''} busy={deleting} onClose={() => setDelTarget(null)} onConfirm={handleDelete} />
 
       <Dialog open={importResult !== null} onClose={() => setImportResult(null)} maxWidth="sm" fullWidth>
+      <DialogCloseButton absolute onClose={() => (() => setImportResult(null))()} />
         <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
           <CheckCircleIcon color="success" fontSize="small" />
           Import Complete

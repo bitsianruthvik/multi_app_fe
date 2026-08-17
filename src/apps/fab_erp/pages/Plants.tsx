@@ -13,6 +13,7 @@ import type { FabPlant, FabStockLocation, FabStockPolicy } from '@apps/fab_erp/t
 import { usePermission } from '@core/hooks/usePermission';
 import { PageHeader, Mono, StatusBadge, EmptyState, ListSkeleton, useToast, EntityList, EntityRow, DataTable, QtyCell } from '../components';
 import FactoryRounded from '@mui/icons-material/FactoryRounded';
+import { DialogCloseButton } from '../components/FormDialog';
 
 interface QueryResult<T> { data: T[]; total?: number }
 interface PlantDraft { name: string; code: string; timezone: string }
@@ -103,6 +104,7 @@ function PlantDialog({ open, initial, onClose, onSaved }: {
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
+      <DialogCloseButton absolute onClose={() => onClose()} />
       <DialogTitle sx={{ fontWeight: 600 }}>{isNew ? 'New plant' : `Edit — ${initial?.name}`}</DialogTitle>
       <DialogContent dividers sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
         {err && <Alert severity="error">{err}</Alert>}
@@ -190,6 +192,7 @@ function StockLocationDialog({ open, initial, plantId, onClose, onSaved }: {
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
+      <DialogCloseButton absolute onClose={() => onClose()} />
       <DialogTitle sx={{ fontWeight: 600 }}>{isNew ? 'New stock location' : `Edit — ${initial?.name}`}</DialogTitle>
       <DialogContent dividers sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
         {err && <Alert severity="error">{err}</Alert>}
@@ -212,6 +215,7 @@ function StockLocationDialog({ open, initial, plantId, onClose, onSaved }: {
 function DeleteDialog({ open, label, onClose, onConfirm }: { open: boolean; label: string; onClose: () => void; onConfirm: () => void }) {
   return (
     <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>
+      <DialogCloseButton absolute onClose={() => onClose()} />
       <DialogTitle sx={{ fontWeight: 600 }}>Confirm delete</DialogTitle>
       <DialogContent><Typography>Delete <strong>{label}</strong>? This action cannot be undone.</Typography></DialogContent>
       <DialogActions>

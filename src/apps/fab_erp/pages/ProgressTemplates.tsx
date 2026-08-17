@@ -24,6 +24,7 @@ import {
 } from '../components';
 import ProgressStagesSheet from '../components/ProgressStagesSheet';
 import type { FabOperation, FabItemCategory } from '../types';
+import { DialogCloseButton } from '../components/FormDialog';
 
 interface QueryResult<T> { data: T[] }
 interface FabProgressTemplate {
@@ -83,6 +84,7 @@ function TemplateDialog({ open, initial, categories, onClose, onSaved }: {
 
   return (
     <Dialog open={open} onClose={saving ? undefined : onClose} maxWidth="sm" fullWidth>
+      <DialogCloseButton absolute onClose={() => onClose()} disabled={saving} />
       <DialogTitle>{initial ? 'Edit template' : 'New progress template'}</DialogTitle>
       <DialogContent>
         {err && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setErr('')}>{err}</Alert>}

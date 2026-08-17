@@ -22,6 +22,7 @@ import {
 import { exitWorker, reactivateWorker, type Worker } from '../api/workers';
 import { useToast } from './Toast';
 import { backendMessage } from '../utils/backendMessage';
+import { DialogCloseButton } from './FormDialog';
 
 const nowLocalDatetime = () => {
   const d = new Date();
@@ -75,6 +76,7 @@ export function ExitWorkerDialog({ worker, open, onClose, onSaved }: {
 
   return (
     <Dialog open={open} onClose={saving ? undefined : onClose} maxWidth="xs" fullWidth>
+      <DialogCloseButton absolute onClose={() => onClose()} disabled={saving} />
       <DialogTitle>{rejoining ? `Reactivate ${worker.name}?` : `Mark ${worker.name} inactive`}</DialogTitle>
 
       <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>

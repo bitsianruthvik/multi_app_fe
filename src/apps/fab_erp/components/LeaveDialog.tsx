@@ -23,6 +23,7 @@ import {
 import { setAway, type Worker } from '../api/workers';
 import { useToast } from './Toast';
 import { backendMessage } from '../utils/backendMessage';
+import { DialogCloseButton } from './FormDialog';
 
 const REASONS = [
   { value: 'leave', label: 'Leave' },
@@ -137,6 +138,7 @@ export function LeaveDialog({ worker, open, onClose, onSaved }: {
 
   return (
     <Dialog open={open} onClose={saving ? undefined : onClose} maxWidth="sm" fullWidth>
+      <DialogCloseButton absolute onClose={() => onClose()} disabled={saving} />
       <DialogTitle sx={{ pb: 0.5 }}>
         {worker.name} — time away
         <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-3)', mt: 0.25 }}>

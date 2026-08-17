@@ -10,6 +10,7 @@ import Inventory2Rounded from '@mui/icons-material/Inventory2Rounded';
 import { fabQuery, fabMutate } from '../api/client';
 import { Surface, EmptyState, useToast, DataTable, QtyCell, NumberCell, Mono, backendMessage } from '../components';
 import { LINE_TYPES } from '../types';
+import { DialogCloseButton } from './FormDialog';
 
 /**
  * Step 1: what this order is selling.
@@ -197,6 +198,7 @@ export default function OrderLinesPanel({ orderId, canManage, onChanged }: {
       )}
 
       <Dialog open={!!delLine} onClose={() => setDelLine(null)} maxWidth="xs" fullWidth>
+      <DialogCloseButton absolute onClose={() => (() => setDelLine(null))()} />
         <DialogTitle sx={{ fontWeight: 600 }}>Remove line item</DialogTitle>
         <DialogContent>
           <Typography sx={{ fontSize: 13.5 }}>

@@ -22,6 +22,7 @@ import {
 import { statusFamily } from '../statusMap';
 import { hasSetupWizard, orderTypeLabel } from '../constants/orderTypes';
 import SalesOrderWizard from '../components/SalesOrderWizard';
+import { DialogCloseButton } from '../components/FormDialog';
 
 interface FabOrder {
   id: number; companyId: number; orderNumber: string; orderType: string; type: string; status: string;
@@ -213,6 +214,7 @@ function OrderDialog({ open, initial, defaultOrderType, onClose, onSaved }: {
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
+      <DialogCloseButton absolute onClose={() => onClose()} />
       <DialogTitle sx={{ fontWeight: 600 }}>{isNew ? 'New order' : `Edit — ${initial?.orderNumber}`}</DialogTitle>
       <DialogContent dividers sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
         {err && <Alert severity="error">{err}</Alert>}
@@ -283,6 +285,7 @@ function DeleteDialog({ order, onClose, onDeleted }: { order: FabOrder | null; o
   }
   return (
     <Dialog open={!!order} onClose={onClose} maxWidth="xs" fullWidth>
+      <DialogCloseButton absolute onClose={() => onClose()} />
       <DialogTitle sx={{ fontWeight: 600 }}>Delete order</DialogTitle>
       <DialogContent>
         <Typography>Delete <strong>{order?.orderNumber}</strong>? This cannot be undone.</Typography>

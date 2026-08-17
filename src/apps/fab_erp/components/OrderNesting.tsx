@@ -13,6 +13,7 @@ import api, { API_HOST } from '@core/utils/axiosConfig';
 import { Surface, EmptyState, useToast } from '../components';
 import type { OrderReadiness } from '../api/readiness';
 import NestingBoard from './NestingBoard';
+import { DialogCloseButton } from './FormDialog';
 
 interface NestingImportResult {
   nests: number; links: number; skipped: number; deleted?: number;
@@ -194,6 +195,7 @@ export default function OrderNesting({ orderId, canManage = false, onStageChange
   const dialogs = (
     <>
       <Dialog open={modeOpen} onClose={() => setModeOpen(false)} maxWidth="sm" fullWidth>
+      <DialogCloseButton absolute onClose={() => (() => setModeOpen(false))()} />
         <DialogTitle sx={{ fontWeight: 600 }}>Import nesting</DialogTitle>
         <DialogContent dividers>
           <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)', mb: 2 }}>

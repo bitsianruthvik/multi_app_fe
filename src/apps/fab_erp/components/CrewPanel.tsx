@@ -15,6 +15,7 @@ import {
 } from '../api/workers';
 import { backendMessage } from '../utils/backendMessage';
 import { useToast } from './Toast';
+import { DialogCloseButton } from './FormDialog';
 
 /**
  * The crew on one machine, editable in place.
@@ -223,6 +224,7 @@ function AddCrewDialog({ open, available, resourceId, resourceName, onClose, onP
 
   return (
     <Dialog open={open} onClose={saving ? undefined : onClose} maxWidth="xs" fullWidth>
+      <DialogCloseButton absolute onClose={() => onClose()} disabled={saving} />
       <DialogTitle>Add someone to {resourceName ?? 'this machine'}</DialogTitle>
       <DialogContent>
         <Autocomplete<Worker, false, false, false>
@@ -321,6 +323,7 @@ function AwayDialog({ member, onClose, onSaved }: {
 
   return (
     <Dialog open={!!member} onClose={saving ? undefined : onClose} maxWidth="xs" fullWidth>
+      <DialogCloseButton absolute onClose={() => onClose()} disabled={saving} />
       <DialogTitle>{member?.name} — time away</DialogTitle>
       <DialogContent>
         <TextField select label="When" size="small" fullWidth value={mode}

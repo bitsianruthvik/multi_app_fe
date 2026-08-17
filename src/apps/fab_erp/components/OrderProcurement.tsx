@@ -27,6 +27,7 @@ import {
   fetchProcurement, raiseProcurement, receiveAgainstLine, nestingGapOf,
   type ProcurementView, type ShortfallLine, type PurchaseOrderRow, type NestingIssue,
 } from '../api/procurementOrders';
+import { DialogCloseButton } from './FormDialog';
 
 interface SupplierOption { id: number; code: string; name: string; leadTimeDays?: number | null }
 interface LocationOption { id: number; name: string; plantId: number | null }
@@ -449,6 +450,7 @@ function ReceiveDialog({ po, onClose, onDone, onError }: {
 
   return (
     <Dialog open onClose={onClose} maxWidth="sm" fullWidth>
+      <DialogCloseButton absolute onClose={() => onClose()} />
       <DialogTitle sx={{ fontWeight: 600 }}>Receive against {po.code}</DialogTitle>
       <DialogContent dividers sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
         <TextField select size="small" label="Line" value={lineId}

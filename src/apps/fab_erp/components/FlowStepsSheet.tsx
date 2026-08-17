@@ -29,6 +29,7 @@ import { fabQuery, fabMutate } from '@apps/fab_erp/api/client';
 import type { FabOperationFlow, FabOperationFlowStep, FabOperation, FabResourceType } from '@apps/fab_erp/types';
 import api, { API_HOST } from '@core/utils/axiosConfig';
 import { EmptyState, ListSkeleton, Mono, StatusBadge, useToast, backendMessage } from './index';
+import { DialogCloseButton } from './FormDialog';
 
 interface QueryResult<T> { data: T[]; total?: number }
 
@@ -279,6 +280,7 @@ function StepParamsDialog({ open, onClose, params, operationName, onSave }: {
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>
+      <DialogCloseButton absolute onClose={() => onClose()} />
       <DialogTitle sx={{ fontWeight: 600, fontSize: 16 }}>Step parameters — {operationName}</DialogTitle>
       <DialogContent dividers sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, pt: 2 }}>
         {err && <Alert severity="error" onClose={() => setErr('')}>{err}</Alert>}
@@ -530,6 +532,7 @@ export default function FlowStepsSheet({ flow, canManage, operations, resourceTy
       )}
 
       <Dialog open={importResult !== null} onClose={() => setImportResult(null)} maxWidth="sm" fullWidth>
+      <DialogCloseButton absolute onClose={() => (() => setImportResult(null))()} />
         <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
           <CheckCircleIcon color="success" fontSize="small" />
           Import Complete

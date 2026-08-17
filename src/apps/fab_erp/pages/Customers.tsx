@@ -12,6 +12,7 @@ import { fabQuery, fabMutate } from '../api/client';
 import type { FabCustomer } from '../types';
 import { usePermission } from '@core/hooks/usePermission';
 import { PageHeader, FilterBar, EntityList, EntityRow, Mono, EmptyState, ListSkeleton, useToast, type SortableField } from '../components';
+import { DialogCloseButton } from '../components/FormDialog';
 
 interface Draft { name: string; contact_name: string; phone: string; email: string; address: string; notes: string }
 const blank = (): Draft => ({ name: '', contact_name: '', phone: '', email: '', address: '', notes: '' });
@@ -68,6 +69,7 @@ function CustomerDialog({ open, initial, onClose, onSaved }: {
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
+      <DialogCloseButton absolute onClose={() => onClose()} />
       <DialogTitle sx={{ fontWeight: 600 }}>{isNew ? 'New customer' : `Edit — ${initial?.name}`}</DialogTitle>
       <DialogContent dividers sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
         {err && <Alert severity="error">{err}</Alert>}
@@ -193,6 +195,7 @@ export default function Customers() {
       />
 
       <Dialog open={!!delTarget} onClose={() => setDelTarget(null)} maxWidth="xs" fullWidth>
+      <DialogCloseButton absolute onClose={() => (() => setDelTarget(null))()} />
         <DialogTitle sx={{ fontWeight: 600 }}>Delete customer</DialogTitle>
         <DialogContent>
           <Typography>Delete <strong>{delTarget?.name}</strong>? This cannot be undone.</Typography>

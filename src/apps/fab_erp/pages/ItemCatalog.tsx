@@ -70,6 +70,7 @@ import api, { API_HOST } from '@core/utils/axiosConfig';
 import { Surface, PageHeader, Mono, StatusBadge, EmptyState, ListSkeleton, EntityList, EntityRow, useToast, StatStrip, DataTable, FormDialog, ConfirmDialog, backendMessage, type Stat, type SortableColumn, type DataColumn } from '../components';
 import { useSortableData } from '../hooks/useSortableData';
 import { STANDARD_UOMS } from '../constants/uom';
+import { DialogCloseButton } from '../components/FormDialog';
 
 const TH = { fontFamily: 'var(--font-ui)', fontWeight: 600, fontSize: 12, color: 'var(--c-text-2)', textTransform: 'uppercase', letterSpacing: '.05em', borderColor: 'var(--c-divider)' } as const;
 const TD = { borderColor: 'var(--c-divider)', fontSize: 13, color: 'var(--c-text)' } as const;
@@ -458,6 +459,7 @@ function AddTaxonomyDialog({ open, level, categories, groups, onClose, onCreated
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
+      <DialogCloseButton absolute onClose={() => onClose()} />
       <DialogTitle>Add {levelLabel}</DialogTitle>
       <DialogContent dividers sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
         {err && <Alert severity="error">{err}</Alert>}
@@ -623,6 +625,7 @@ function TaxonomyDeleteDialog({ open, type, entity, groups, subgroups, onClose, 
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>
+      <DialogCloseButton absolute onClose={() => onClose()} />
       <DialogTitle>Delete {levelLabel}?</DialogTitle>
       <DialogContent>
         <Typography>
@@ -846,6 +849,7 @@ function CatalogDialog({ open, initial, categories, groups, subgroups, canManage
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
+      <DialogCloseButton absolute onClose={() => onClose()} />
       <DialogTitle>{isNew ? 'Add Catalog Item' : `Edit — ${initial?.name}`}</DialogTitle>
       <DialogContent dividers sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
         {err && <Alert severity="error">{err}</Alert>}
@@ -1018,6 +1022,7 @@ function DeleteDialog({ item, onClose, onDeleted }: {
   }
   return (
     <Dialog open={!!item} onClose={onClose} maxWidth="xs" fullWidth>
+      <DialogCloseButton absolute onClose={() => onClose()} />
       <DialogTitle>Remove from Catalog</DialogTitle>
       <DialogContent>
         <Typography>
@@ -1246,6 +1251,7 @@ function TaxonomyDetailDialog({ level, entity, categories, groups, canEdit, onCl
 
   return (
     <Dialog open onClose={onClose} maxWidth="md" fullWidth>
+      <DialogCloseButton absolute onClose={() => onClose()} />
       <DialogTitle>
         {levelLabel}: {entity.name}
         {isSystem && <Box component="span" sx={{ ml: 1, display: 'inline-block' }}><StatusBadge status="System" family="info" /></Box>}
@@ -2428,6 +2434,7 @@ export default function ItemCatalog() {
 
       {/* Import result summary */}
       <Dialog open={importResult !== null} onClose={() => setImportResult(null)} maxWidth="sm" fullWidth>
+      <DialogCloseButton absolute onClose={() => (() => setImportResult(null))()} />
         <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
           <CheckCircleIcon color="success" fontSize="small" />
           Import Complete

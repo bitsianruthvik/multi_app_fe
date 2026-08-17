@@ -39,6 +39,7 @@ import {
 } from '../components';
 import { LINE_TYPES } from '../types';
 import { fetchRawMaterials, type RawMaterial as Material } from '../api/rawMaterials';
+import { DialogCloseButton } from '../components/FormDialog';
 
 interface BomTemplate {
   id: number;
@@ -249,6 +250,7 @@ export default function BomTemplates() {
       )}
 
       <Dialog open={!!edit} onClose={() => setEdit(null)} maxWidth="sm" fullWidth>
+      <DialogCloseButton absolute onClose={() => (() => setEdit(null))()} />
         <DialogTitle sx={{ fontWeight: 600 }}>{edit?.id ? 'Edit part' : 'Add part'}</DialogTitle>
         <DialogContent dividers sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
           <TextField select size="small" label="Structure type" value={edit?.lineType ?? ''}

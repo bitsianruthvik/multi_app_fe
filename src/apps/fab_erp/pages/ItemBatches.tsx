@@ -23,6 +23,7 @@ import { fabQuery, fabGet, type FilterValue } from '../api/client';
 import type { FabPlant, FabStockLedger, FabStockLocation } from '../types';
 import { usePermission } from '@core/hooks/usePermission';
 import { Surface, PageHeader, Mono, EmptyState, ListSkeleton, FilterBar } from '../components';
+import { DialogCloseButton } from '../components/FormDialog';
 
 const th = { fontFamily: 'var(--font-ui)', fontWeight: 600, fontSize: 12, color: 'var(--c-text-2)', textTransform: 'uppercase', letterSpacing: '.05em', borderColor: 'var(--c-divider)' } as const;
 const td = { borderColor: 'var(--c-divider)', fontSize: 13, color: 'var(--c-text)' } as const;
@@ -106,6 +107,7 @@ function ReceiptsDialog({ target, onClose }: { target: DrillTarget | null; onClo
 
   return (
     <Dialog open={!!target} onClose={onClose} maxWidth="sm" fullWidth>
+      <DialogCloseButton absolute onClose={() => onClose()} />
       <DialogTitle sx={{ fontWeight: 600 }}>
         Ledger — <Mono>{target?.displayValue ?? '—'}</Mono>
       </DialogTitle>

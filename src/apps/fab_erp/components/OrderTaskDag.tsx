@@ -28,6 +28,7 @@ import { Surface, useToast } from '../components';
 import TaskFlowGraph from './taskgraph/TaskFlowGraph';
 import BomDrillPicker, { type BomDrillPickerValue } from './taskgraph/BomDrillPicker';
 import type { TaskGraphNode, TaskGraphEdge } from './taskgraph/types';
+import { DialogCloseButton } from './FormDialog';
 
 interface GraphResponse {
   ok: boolean;
@@ -232,6 +233,7 @@ export default function OrderTaskDag({ orderId, canManage }: { orderId: number; 
 
       {/* FEAT-07: re-generation diff/preview + confirm. */}
       <Dialog open={!!preview} onClose={applying ? undefined : () => setPreview(null)} maxWidth="sm" fullWidth>
+      <DialogCloseButton absolute onClose={() => (() => setPreview(null))()} disabled={applying} />
         <DialogTitle>Re-generate task DAG</DialogTitle>
         <DialogContent dividers>
           {!hasChanges ? (

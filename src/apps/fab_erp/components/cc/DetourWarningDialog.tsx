@@ -4,11 +4,14 @@
  * promised finish date on one or more projects (see api/cc.ts getCcWhatIf).
  *
  * Purely presentational — TaskQueue.tsx owns the open/whatIf state and the
- * actual POST /tasks/:id/start call. "Start anyway" and "Cancel" are the only
- * two ways out; there is no dismiss-on-backdrop-click while submitting.
+ * actual POST /tasks/:id/start call. "Start anyway", "Cancel" and the close
+ * button all decline; there is no dismiss-on-backdrop-click while submitting,
+ * and the close button is disabled then too, so a submit cannot be abandoned
+ * halfway. Closing is NOT "start anyway" — the safe path is the default.
  */
 import { Alert, Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, Typography } from '@mui/material';
 import WarningAmberRounded from '@mui/icons-material/WarningAmberRounded';
+import { DialogCloseButton } from '../FormDialog';
 
 import type { CcWhatIfResponse } from '../../api/cc';
 
@@ -37,6 +40,7 @@ export function DetourWarningDialog({
 
   return (
     <Dialog open={open} onClose={submitting ? undefined : onCancel} maxWidth="sm" fullWidth>
+      <DialogCloseButton absolute onClose={() => onCancel()} disabled={submitting} />
       <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
         <WarningAmberRounded sx={{ color: 'var(--c-warning-600)' }} aria-hidden />
         This will delay other projects

@@ -34,6 +34,7 @@ import { fabQuery, fabMutate } from '../api/client';
 import type { FabMaterialBom, FabMaterialBomItem, FabItemCatalog } from '../types';
 import InfoTooltip, { type InfoContent } from '@shared/components/InfoTooltip';
 import { STANDARD_UOMS } from '../constants/uom';
+import { DialogCloseButton } from './FormDialog';
 
 // ─── INFO TOOLTIP CONTENT ─────────────────────────────────────────────────────
 // INFO_TOOLTIP — update this block whenever features in BomDesigner change.
@@ -548,6 +549,7 @@ function NewItemDialog({ open, onClose, onCreated }: NewItemDialogProps) {
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>
+      <DialogCloseButton absolute onClose={() => onClose()} />
       <DialogTitle>Create New Item</DialogTitle>
       <DialogContent dividers>
         {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}

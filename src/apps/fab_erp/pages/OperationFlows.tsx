@@ -28,6 +28,7 @@ import type { FabOperationFlow, FabOperationFlowStep, FabOperation, FabResourceT
 import { usePermission } from '@core/hooks/usePermission';
 import { Surface, PageHeader, Mono, StatusBadge, EmptyState, ListSkeleton, useToast, DataTable, StatStrip, type Stat } from '../components';
 import FlowStepsSheet from '../components/FlowStepsSheet';
+import { DialogCloseButton } from '../components/FormDialog';
 
 interface QueryResult<T> { data: T[]; total?: number }
 
@@ -84,6 +85,7 @@ function CreateFlowDialog({ open, onClose, onCreated }: {
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
+      <DialogCloseButton absolute onClose={() => onClose()} />
       <DialogTitle sx={{ fontWeight: 600 }}>New operation flow</DialogTitle>
       <DialogContent dividers sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
         {err && <Alert severity="error">{err}</Alert>}
@@ -131,6 +133,7 @@ function EditFlowDialog({ open, flow, onClose, onSaved }: {
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
+      <DialogCloseButton absolute onClose={() => onClose()} />
       <DialogTitle sx={{ fontWeight: 600 }}>Edit flow — {flow?.code}</DialogTitle>
       <DialogContent dividers sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
         {err && <Alert severity="error">{err}</Alert>}
@@ -188,6 +191,7 @@ function DuplicateFlowDialog({ open, source, onClose, onDuplicated }: {
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
+      <DialogCloseButton absolute onClose={() => onClose()} />
       <DialogTitle sx={{ fontWeight: 600 }}>Duplicate flow — {source?.code}</DialogTitle>
       <DialogContent dividers sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
         {err && <Alert severity="error">{err}</Alert>}
@@ -208,6 +212,7 @@ function DuplicateFlowDialog({ open, source, onClose, onDuplicated }: {
 function DeleteDialog({ open, label, onClose, onConfirm }: { open: boolean; label: string; onClose: () => void; onConfirm: () => void }) {
   return (
     <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>
+      <DialogCloseButton absolute onClose={() => onClose()} />
       <DialogTitle sx={{ fontWeight: 600 }}>Confirm delete</DialogTitle>
       <DialogContent><Typography>Delete <strong>{label}</strong>? This cannot be undone.</Typography></DialogContent>
       <DialogActions>

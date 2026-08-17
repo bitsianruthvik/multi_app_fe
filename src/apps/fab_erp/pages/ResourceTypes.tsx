@@ -24,6 +24,7 @@ import api, { API_HOST } from '@core/utils/axiosConfig';
 import { PageHeader, Mono, EmptyState, ListSkeleton, StatusBadge, useToast, EntityList, EntityRow, type SortableField } from '../components';
 import MachineAssetPanel from '../components/MachineAssetPanel';
 import BuyMachineDialog from '../components/BuyMachineDialog';
+import { DialogCloseButton } from '../components/FormDialog';
 
 interface QueryResult<T> { data: T[]; total?: number }
 
@@ -296,6 +297,7 @@ function CustomFieldsEditor({ level, levelId, canManage }: { level: 'resource_ty
       )}
 
       <Dialog open={!!currentDlg} onClose={() => { setAddDlg(null); setEditDlg(null); }} maxWidth="sm" fullWidth>
+      <DialogCloseButton absolute onClose={() => (() => { setAddDlg(null); setEditDlg(null); })()} />
         <DialogTitle sx={{ fontWeight: 600 }}>{currentDlgId ? 'Edit custom field' : 'Add custom field'}</DialogTitle>
         <DialogContent dividers sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
           {cfErr && <Alert severity="error">{cfErr}</Alert>}
@@ -328,6 +330,7 @@ function CustomFieldsEditor({ level, levelId, canManage }: { level: 'resource_ty
       </Dialog>
 
       <Dialog open={!!delTarget} onClose={() => setDelTarget(null)} maxWidth="xs" fullWidth>
+      <DialogCloseButton absolute onClose={() => (() => setDelTarget(null))()} />
         <DialogTitle sx={{ fontWeight: 600 }}>Delete custom field</DialogTitle>
         <DialogContent><Typography>Delete <strong>{delTarget?.fieldLabel}</strong> ({delTarget?.fieldKey})? This cannot be undone.</Typography></DialogContent>
         <DialogActions>
@@ -427,6 +430,7 @@ function FormulaPropertiesEditor({ rtId, canManage }: { rtId: number; canManage:
       )}
 
       <Dialog open={propDlg.open} onClose={() => setPropDlg({ open: false, item: null })} maxWidth="sm" fullWidth>
+      <DialogCloseButton absolute onClose={() => (() => setPropDlg({ open: false, item: null }))()} />
         <DialogTitle sx={{ fontWeight: 600 }}>{propDlg.item ? `Edit — ${propDlg.item.propertyKey}` : 'Add formula property'}</DialogTitle>
         <DialogContent dividers sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
           {propErr && <Alert severity="error">{propErr}</Alert>}
@@ -454,6 +458,7 @@ function FormulaPropertiesEditor({ rtId, canManage }: { rtId: number; canManage:
       </Dialog>
 
       <Dialog open={!!delTarget} onClose={() => setDelTarget(null)} maxWidth="xs" fullWidth>
+      <DialogCloseButton absolute onClose={() => (() => setDelTarget(null))()} />
         <DialogTitle sx={{ fontWeight: 600 }}>Delete property</DialogTitle>
         <DialogContent><Typography>Delete <strong>{delTarget?.propertyKey}</strong>? This cannot be undone.</Typography></DialogContent>
         <DialogActions>
@@ -554,6 +559,7 @@ function OperationsMappingEditor({ rtId, canManage }: { rtId: number; canManage:
       )}
 
       <Dialog open={!!delTarget} onClose={() => setDelTarget(null)} maxWidth="xs" fullWidth>
+      <DialogCloseButton absolute onClose={() => (() => setDelTarget(null))()} />
         <DialogTitle sx={{ fontWeight: 600 }}>Remove operation mapping</DialogTitle>
         <DialogContent><Typography>Remove <strong>{delTarget?.operationName}</strong> from this resource type?</Typography></DialogContent>
         <DialogActions>
@@ -603,6 +609,7 @@ function ResourceTypeDetailDialog({ open, initial, plants, canManage, onClose, o
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="lg" fullWidth>
+      <DialogCloseButton absolute onClose={() => onClose()} />
       <DialogTitle sx={{ fontWeight: 600 }}>{isNew ? 'New resource type' : `Resource type — ${initial?.code} · ${initial?.name}`}</DialogTitle>
       <Box sx={{ borderBottom: '1px solid var(--c-divider)', px: 3 }}>
         <Tabs value={tab} onChange={(_, v) => setTab(v)}>{tabLabels.map((l, i) => <Tab key={i} label={l} />)}</Tabs>
@@ -734,6 +741,7 @@ function AddResourceDialog({ open, resourceTypes, plants, onClose, onSaved, onTy
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
+      <DialogCloseButton absolute onClose={() => onClose()} />
       <DialogTitle sx={{ fontWeight: 600 }}>New resource</DialogTitle>
       <DialogContent dividers sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
         {err && <Alert severity="error">{err}</Alert>}
@@ -879,6 +887,7 @@ function ResourceDetailDialog({ open, initial, resourceTypes, plants, canManage,
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="lg" fullWidth>
+      <DialogCloseButton absolute onClose={() => onClose()} />
       <DialogTitle sx={{ fontWeight: 600 }}>{isNew ? 'New resource' : `Resource — ${initial?.code} · ${initial?.name}`}</DialogTitle>
       <Box sx={{ borderBottom: '1px solid var(--c-divider)', px: 3 }}>
         <Tabs value={tab} onChange={(_, v) => setTab(v)}>{tabLabels.map((l, i) => <Tab key={i} label={l} />)}</Tabs>
@@ -954,6 +963,7 @@ function ResourceDetailDialog({ open, initial, resourceTypes, plants, canManage,
 function DeleteDialog({ open, label, onClose, onConfirm }: { open: boolean; label: string; onClose: () => void; onConfirm: () => void }) {
   return (
     <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>
+      <DialogCloseButton absolute onClose={() => onClose()} />
       <DialogTitle sx={{ fontWeight: 600 }}>Confirm delete</DialogTitle>
       <DialogContent><Typography>Delete <strong>{label}</strong>? This action cannot be undone.</Typography></DialogContent>
       <DialogActions>
@@ -1239,6 +1249,7 @@ export default function ResourceTypes() {
       {resDeleting && <CircularProgress size={20} sx={{ position: 'fixed', bottom: 24, right: 24 }} />}
 
       <Dialog open={importResult !== null} onClose={() => setImportResult(null)} maxWidth="sm" fullWidth>
+      <DialogCloseButton absolute onClose={() => (() => setImportResult(null))()} />
         <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
           <CheckCircleIcon color="success" fontSize="small" />
           Import Complete

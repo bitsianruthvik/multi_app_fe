@@ -33,6 +33,7 @@ import {
 } from '../api/client';
 import { PageHeader, Surface, EmptyState, useToast, ChartSkeleton } from '../components';
 import ReconciliationPanel from '../components/ReconciliationPanel';
+import { DialogCloseButton } from '../components/FormDialog';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -219,6 +220,7 @@ function BackfillDialog({
   return (
     <Dialog open onClose={onClose} maxWidth="xs" fullWidth
       PaperProps={{ sx: { borderRadius: 'var(--r-lg)' } }}>
+      <DialogCloseButton absolute onClose={() => onClose()} />
       <DialogTitle sx={{ fontSize: 16, fontWeight: 600, color: 'var(--c-text)' }}>
         Log time for {taskLabel}
       </DialogTitle>

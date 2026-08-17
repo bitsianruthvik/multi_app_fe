@@ -28,6 +28,7 @@ import {
   PageHeader, Surface, Mono, EmptyState, ListSkeleton, useToast, DataTable,
   ConfirmDialog, backendMessage,
 } from '../components';
+import { DialogCloseButton } from '../components/FormDialog';
 
 interface Supplier {
   id: number;
@@ -186,6 +187,7 @@ export default function Suppliers() {
       )}
 
       <Dialog open={!!edit} onClose={() => setEdit(null)} maxWidth="sm" fullWidth>
+      <DialogCloseButton absolute onClose={() => (() => setEdit(null))()} />
         <DialogTitle sx={{ fontWeight: 600 }}>{edit?.id ? 'Edit supplier' : 'Add supplier'}</DialogTitle>
         <DialogContent dividers sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
           <Box sx={{ display: 'flex', gap: 2 }}>

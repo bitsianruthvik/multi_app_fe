@@ -15,6 +15,7 @@ import { fabQuery, fabMutate } from '@apps/fab_erp/api/client';
 import type { FabShiftCalendar, FabShift, FabCalendarDay } from '@apps/fab_erp/types';
 import { usePermission } from '@core/hooks/usePermission';
 import { PageHeader, Mono, StatusBadge, EmptyState, ListSkeleton, useToast, EntityList, EntityRow, DataTable } from '../components';
+import { DialogCloseButton } from '../components/FormDialog';
 
 interface QueryResult<T> { data: T[]; total?: number }
 interface CalendarDraft { name: string; code: string; plantId: number | '' }
@@ -88,6 +89,7 @@ function CalendarDialog({ open, initial, onClose, onSaved }: {
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>
+      <DialogCloseButton absolute onClose={() => onClose()} />
       <DialogTitle sx={{ fontWeight: 600 }}>{isNew ? 'New shift calendar' : `Edit — ${initial?.code}`}</DialogTitle>
       <DialogContent dividers sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
         {err && <Alert severity="error">{err}</Alert>}
@@ -164,6 +166,7 @@ function ShiftDialog({ open, initial, calendarId, onClose, onSaved }: {
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
+      <DialogCloseButton absolute onClose={() => onClose()} />
       <DialogTitle sx={{ fontWeight: 600 }}>{isNew ? 'New shift' : `Edit — ${initial?.name}`}</DialogTitle>
       <DialogContent dividers sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
         {err && <Alert severity="error">{err}</Alert>}
@@ -229,6 +232,7 @@ function DayDialog({ open, initial, calendarId, onClose, onSaved }: {
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>
+      <DialogCloseButton absolute onClose={() => onClose()} />
       <DialogTitle sx={{ fontWeight: 600 }}>{isNew ? 'New calendar day' : `Edit — ${initial?.dayDate?.slice(0, 10)}`}</DialogTitle>
       <DialogContent dividers sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
         {err && <Alert severity="error">{err}</Alert>}
@@ -249,6 +253,7 @@ function DeleteConfirm({ open, label, onClose, onConfirm }: { open: boolean; lab
   const [busy, setBusy] = useState(false);
   return (
     <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>
+      <DialogCloseButton absolute onClose={() => onClose()} />
       <DialogTitle sx={{ fontWeight: 600 }}>Confirm delete</DialogTitle>
       <DialogContent><Typography>Delete <strong>{label}</strong>? This cannot be undone.</Typography></DialogContent>
       <DialogActions>

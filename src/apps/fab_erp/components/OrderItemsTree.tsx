@@ -23,6 +23,7 @@ import type { OrderReadiness } from '../api/readiness';
 import BoqWizardDialog, { type WizardLine } from './BoqWizardDialog';
 import { procurementOf } from '../api/procurement';
 import api, { API_HOST } from '@core/utils/axiosConfig';
+import { DialogCloseButton } from './FormDialog';
 
 // Tree can be 1000+ rows across hundreds of top-level branches — everything
 // here is lazy: top-level items load one page at a time, and a node's
@@ -1237,6 +1238,7 @@ export default function OrderItemsTree({ orderId, canManage, readiness, onStageC
       )}
 
       <Dialog open={modeDialogOpen} onClose={() => setModeDialogOpen(false)} maxWidth="sm" fullWidth>
+      <DialogCloseButton absolute onClose={() => (() => setModeDialogOpen(false))()} />
         <DialogTitle sx={{ fontWeight: 600 }}>Import items from Excel</DialogTitle>
         <DialogContent dividers>
           <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)', mb: 2 }}>

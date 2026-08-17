@@ -48,6 +48,7 @@ import {
 import { Surface, EmptyState, ListSkeleton } from '../components';
 import { GapTable } from './GapTable';
 import { LogPastWorkDialog, type LogPastWorkTask } from '../components/LogPastWorkDialog';
+import { DialogCloseButton } from './FormDialog';
 
 function errMsg(e: unknown, fallback: string): string {
   const ax = e as { response?: { data?: { message?: string } }; message?: string };
@@ -237,6 +238,7 @@ export default function ReconciliationPanel() {
       )}
 
       <Dialog open={!!accountFor} onClose={() => { setAccountFor(null); void load(); }} maxWidth="md" fullWidth>
+      <DialogCloseButton absolute onClose={() => (() => { setAccountFor(null); void load(); })()} />
         <DialogTitle sx={{ pb: 0.5 }}>Account for the day</DialogTitle>
         <DialogContent>
           {accountFor && (

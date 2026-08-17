@@ -95,6 +95,7 @@ import {
 import { WaitBreakdownBar, formatWaitMinutes } from '../components/WaitBreakdownBar';
 import { LogPastWorkDialog, type LogPastWorkTask } from '../components/LogPastWorkDialog';
 import { DetourWarningDialog } from '../components/cc/DetourWarningDialog';
+import { DialogCloseButton } from '../components/FormDialog';
 
 interface QueryResult<T> { data: T[]; total?: number }
 
@@ -1063,6 +1064,7 @@ export default function TaskQueue() {
 
 
       <Dialog open={!!startTask} onClose={submitting ? undefined : closeStartDialog} maxWidth="xs" fullWidth>
+      <DialogCloseButton absolute onClose={() => closeStartDialog()} disabled={submitting} />
         <DialogTitle>Start task</DialogTitle>
         <DialogContent>
           <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>
@@ -1081,6 +1083,7 @@ export default function TaskQueue() {
           machine. Offered as a decision ("move them") rather than an error,
           because moving is the normal answer — the person walked over. */}
       <Dialog open={!!busyWorkers} onClose={submitting ? undefined : () => setBusyWorkers(null)} maxWidth="xs" fullWidth>
+      <DialogCloseButton absolute onClose={() => (() => setBusyWorkers(null))()} disabled={submitting} />
         <DialogTitle>Already on another machine</DialogTitle>
         <DialogContent>
           <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)', mb: 1.5 }}>
@@ -1133,6 +1136,7 @@ export default function TaskQueue() {
           a red 409 toast into something the operator can act on before they
           walk to the machine: what is blocking it, and who has to clear it. */}
       <Dialog open={!!blockedTask} onClose={closeBlockedDialog} maxWidth="xs" fullWidth>
+      <DialogCloseButton absolute onClose={() => closeBlockedDialog()} />
         <DialogTitle>This task won’t start yet</DialogTitle>
         <DialogContent>
           <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)', mb: 2 }}>
@@ -1183,6 +1187,7 @@ export default function TaskQueue() {
 
       {/* FEAT-12: pause dialog — capture an optional downtime reason. */}
       <Dialog open={!!pauseTask} onClose={submitting ? undefined : () => setPauseTask(null)} maxWidth="xs" fullWidth>
+      <DialogCloseButton absolute onClose={() => (() => setPauseTask(null))()} disabled={submitting} />
         <DialogTitle>Pause task</DialogTitle>
         <DialogContent>
           <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)', mb: 2 }}>
@@ -1207,6 +1212,7 @@ export default function TaskQueue() {
       {/* FEAT-05: completion dialog — capture produced/scrap/QC. Pre-filled to a
           clean full-yield pass so the common case is a single confirming click. */}
       <Dialog open={!!completeTask} onClose={closeCompleteDialog} maxWidth="xs" fullWidth>
+      <DialogCloseButton absolute onClose={() => closeCompleteDialog()} />
         <DialogTitle>Complete task</DialogTitle>
         <DialogContent>
           <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)', mb: 2 }}>
