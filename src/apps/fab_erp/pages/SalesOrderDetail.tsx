@@ -30,7 +30,7 @@ import OrderProcurement from '../components/OrderProcurement';
 import OrderProduction from '../components/OrderProduction';
 import OrderTaskDag from '../components/OrderTaskDag';
 import OrderStageStrip from '../components/OrderStageStrip';
-import { hasSetupWizard, orderTypeLabel } from '../constants/orderTypes';
+import { hasSetupWizard, orderTypeLabel, showsField } from '../constants/orderTypes';
 import { fetchOrderReadiness, type OrderReadiness, type ReadinessStage } from '../api/readiness';
 
 interface FabOrder {
@@ -199,6 +199,16 @@ export default function SalesOrderDetail() {
    */
   const isSales = hasSetupWizard(so.orderType);
 
+  /**
+   * Which fields this order type actually owns (constants/orderTypes.ts).
+   *
+   * The Overview tab rendered all 40 columns of `fab_orders` for every type, so
+   * a sales order asked for an MRP controller and a purchase order offered a
+   * customer PO ref. Same definition the create screen reads, so the two cannot
+   * disagree about what a sales order is.
+   */
+  const shows = (field: string) => showsField(so.orderType, field, 'detail');
+
   const header = (
     <Box>
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5 }}>
@@ -309,16 +319,26 @@ export default function SalesOrderDetail() {
                 <MenuItem value="">— none —</MenuItem>
                 {SO_PRIORITIES.map((p) => <MenuItem key={p} value={p}>{p}</MenuItem>)}
               </TextField>
-              <TextField label="Customer name" size="small" value={draft.customerName ?? ''} disabled={!canManage} onChange={(e) => set('customerName', e.target.value)} />
-              <TextField label="Customer PO ref" size="small" value={draft.customerPoRef ?? ''} disabled={!canManage} onChange={(e) => set('customerPoRef', e.target.value)} />
+              {shows('customerName') && (
+                <TextField label="Customer name" size="small" value={draft.customerName ?? ''} disabled={!canManage} onChange={(e) => set('customerName', e.target.value)} />
+              )}
+              {shows('customerPoRef') && (
+                <TextField label="Customer PO ref" size="small" value={draft.customerPoRef ?? ''} disabled={!canManage} onChange={(e) => set('customerPoRef', e.target.value)} />
+              )}
             </FormGrid>
 
             <Divider sx={{ my: 2.5, borderColor: 'var(--c-divider)' }} />
             <SectionLabel>Dates</SectionLabel>
             <FormGrid cols={3}>
-              <TextField label="Required date" size="small" type="date" slotProps={{ inputLabel: { shrink: true } }} value={draft.requiredDate?.slice(0, 10) ?? ''} disabled={!canManage} onChange={(e) => set('requiredDate', e.target.value)} />
-              <TextField label="Confirmed date" size="small" type="date" slotProps={{ inputLabel: { shrink: true } }} value={draft.confirmedDate?.slice(0, 10) ?? ''} disabled={!canManage} onChange={(e) => set('confirmedDate', e.target.value)} />
-              <TextField label="Scheduled ship date" size="small" type="date" slotProps={{ inputLabel: { shrink: true } }} value={draft.scheduledShipDate?.slice(0, 10) ?? ''} disabled={!canManage} onChange={(e) => set('scheduledShipDate', e.target.value)} />
+              {shows('requiredDate') && (
+                <TextField label="Required date" size="small" type="date" slotProps={{ inputLabel: { shrink: true } }} value={draft.requiredDate?.slice(0, 10) ?? ''} disabled={!canManage} onChange={(e) => set('requiredDate', e.target.value)} />
+              )}
+              {shows('confirmedDate') && (
+                <TextField label="Confirmed date" size="small" type="date" slotProps={{ inputLabel: { shrink: true } }} value={draft.confirmedDate?.slice(0, 10) ?? ''} disabled={!canManage} onChange={(e) => set('confirmedDate', e.target.value)} />
+              )}
+              {shows('scheduledShipDate') && (
+                <TextField label="Scheduled ship date" size="small" type="date" slotProps={{ inputLabel: { shrink: true } }} value={draft.scheduledShipDate?.slice(0, 10) ?? ''} disabled={!canManage} onChange={(e) => set('scheduledShipDate', e.target.value)} />
+              )}
             </FormGrid>
 
             {/* Placed with the dates because this is where a wrong committed
@@ -338,13 +358,24 @@ export default function SalesOrderDetail() {
             <Divider sx={{ my: 2.5, borderColor: 'var(--c-divider)' }} />
             <SectionLabel>Production</SectionLabel>
             <FormGrid cols={2}>
-              <TextField select label="Plant" size="small" value={draft.plantId ?? ''} disabled={!canManage} onChange={(e) => set('plantId', e.target.value === '' ? undefined : (Number(e.target.value) as FabOrder['plantId']))}>
-                <MenuItem value="">— none —</MenuItem>
-                {plants.map((p) => <MenuItem key={p.id} value={p.id}>{p.name}</MenuItem>)}
-              </TextField>
-              <TextField label="Currency" size="small" value={draft.currency ?? ''} disabled={!canManage} onChange={(e) => set('currency', e.target.value)} />
-              <TextField label="Payment terms" size="small" value={draft.paymentTerms ?? ''} disabled={!canManage} onChange={(e) => set('paymentTerms', e.target.value)} />
-              <TextField label="MRP controller" size="small" value={draft.mrpController ?? ''} disabled={!canManage} onChange={(e) => set('mrpController', e.target.value)} />
+              {shows('plantId') && (
+                <TextField select label="Plant" size="small" value={draft.plantId ?? ''} disabled={!canManage} onChange={(e) => set('plantId', e.target.value === '' ? undefined : (Number(e.target.value) as FabOrder['plantId']))}>
+                  <MenuItem value="">— none —</MenuItem>
+                  {plants.map((p) => <MenuItem key={p.id} value={p.id}>{p.name}</MenuItem>)}
+                </TextField>
+              )}
+              {shows('currency') && (
+                <TextField label="Currency" size="small" value={draft.currency ?? ''} disabled={!canManage} onChange={(e) => set('currency', e.target.value)} />
+              )}
+              {shows('paymentTerms') && (
+                <TextField label="Payment terms" size="small" value={draft.paymentTerms ?? ''} disabled={!canManage} onChange={(e) => set('paymentTerms', e.target.value)} />
+              )}
+              {/* MRP controller is a planning field on a production order. It was
+                  asked of every sales order, which is one of the fields that
+                  prompted this split. */}
+              {shows('mrpController') && (
+                <TextField label="MRP controller" size="small" value={draft.mrpController ?? ''} disabled={!canManage} onChange={(e) => set('mrpController', e.target.value)} />
+              )}
             </FormGrid>
 
             <Divider sx={{ my: 2.5, borderColor: 'var(--c-divider)' }} />

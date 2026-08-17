@@ -20,7 +20,10 @@ import {
   StatStrip, type Stat,
 } from '../components';
 import { statusFamily } from '../statusMap';
-import { hasSetupWizard, orderTypeLabel } from '../constants/orderTypes';
+import {
+  hasSetupWizard, orderTypeLabel, showsField,
+  CREATABLE_ORDER_TYPES, ORDER_TYPE_ORIGIN, ORDER_TYPE_LABELS,
+} from '../constants/orderTypes';
 import SalesOrderWizard from '../components/SalesOrderWizard';
 import { DialogCloseButton } from '../components/FormDialog';
 
@@ -45,7 +48,9 @@ interface PickerOption { id: number; name: string; code: string }
 const ORDER_TYPE_CONFIG: Record<string, { label: string; subtypes: string[]; statuses: string[] }> = {
   sales:         { label: 'Sales Order',       subtypes: ['standard', 'rush', 'blanket', 'internal'],                  statuses: ['draft', 'confirmed', 'waiting_material', 'in_production', 'ready_to_ship', 'shipped', 'closed', 'cancelled'] },
 };
-const ORDER_TYPE_KEYS = Object.keys(ORDER_TYPE_CONFIG);
+// The creatable set now comes from CREATABLE_ORDER_TYPES in constants/orderTypes.ts,
+// which the type-picker screen reads alongside every type's origin copy. This
+// held the same list derived from ORDER_TYPE_CONFIG's keys.
 const ALL_PRIORITIES = ['critical', 'high', 'medium', 'low'];
 
 // How every type READS — including the two nobody creates by hand — lives in
@@ -167,8 +172,19 @@ function OrderDialog({ open, initial, defaultOrderType, onClose, onSaved }: {
     });
 
   const cfg = ORDER_TYPE_CONFIG[draft.orderType];
-  const showCustomer = ['sales'].includes(draft.orderType);
-  const customerMissing = showCustomer && !draft.customerId;
+  /**
+   * Creating is TWO screens: pick the type, then answer that type's questions.
+   *
+   * Editing is one — the type is already decided and cannot change, so a type
+   * screen on the way to fixing a date would be pure ceremony.
+   */
+  const [phase, setPhase] = useState<'type' | 'fields'>('type');
+  useEffect(() => { if (open) setPhase(isNew ? 'type' : 'fields'); }, [open, isNew]);
+
+  /** Which fields this order type asks for. Editing keeps the wider detail set. */
+  const asks = (field: string) => showsField(draft.orderType, field, isNew ? 'create' : 'detail');
+  const showCustomer = asks('customerId') || asks('customerName');
+  const customerMissing = draft.orderType === 'sales' && !draft.customerId;
 
   async function save() {
     if (!isNew && !draft.orderNumber.trim()) { setErr('Order number is required.'); return; }
@@ -215,61 +231,112 @@ function OrderDialog({ open, initial, defaultOrderType, onClose, onSaved }: {
   return (
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
       <DialogCloseButton absolute onClose={() => onClose()} />
-      <DialogTitle sx={{ fontWeight: 600 }}>{isNew ? 'New order' : `Edit — ${initial?.orderNumber}`}</DialogTitle>
+      <DialogTitle sx={{ fontWeight: 600 }}>
+        {!isNew ? `Edit — ${initial?.orderNumber}`
+          : phase === 'type' ? 'What kind of order?'
+            : `New ${orderTypeLabel(draft.orderType).toLowerCase()} order`}
+      </DialogTitle>
       <DialogContent dividers sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
         {err && <Alert severity="error">{err}</Alert>}
-        <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2 }}>
-          {!isNew && (
-            <TextField label="Order number" value={draft.orderNumber} size="small"
-              slotProps={{ input: { readOnly: true } }} />
-          )}
-          <TextField select label="Order type *" value={draft.orderType} size="small"
-            onChange={(e) => set('orderType', e.target.value)} disabled={!isNew}
-            sx={isNew ? { gridColumn: '1 / -1' } : {}}>
-            {ORDER_TYPE_KEYS.map((t) => <MenuItem key={t} value={t}>{ORDER_TYPE_CONFIG[t].label}</MenuItem>)}
-          </TextField>
-          {cfg && (
-            <TextField select label="Sub-type" value={draft.type} size="small"
-              onChange={(e) => set('type', e.target.value)}>
-              {cfg.subtypes.map((t) => <MenuItem key={t} value={t}>{t.replace(/_/g, ' ')}</MenuItem>)}
-            </TextField>
-          )}
-          <TextField select label="Status" value={draft.status} size="small"
-            onChange={(e) => set('status', e.target.value)}>
-            {(cfg?.statuses ?? ['draft']).map((s) => <MenuItem key={s} value={s}>{s.replace(/_/g, ' ')}</MenuItem>)}
-          </TextField>
-          <TextField select label="Priority" value={draft.priority} size="small"
-            onChange={(e) => set('priority', e.target.value)}>
-            <MenuItem value="">— none —</MenuItem>
-            {ALL_PRIORITIES.map((p) => <MenuItem key={p} value={p}>{p}</MenuItem>)}
-          </TextField>
-          {showCustomer && (<>
-            <Autocomplete
-              options={customers}
-              getOptionLabel={(o) => `${o.code} — ${o.name}`}
-              isOptionEqualToValue={(o, v) => o.id === v.id}
-              value={customers.find((c) => c.id === draft.customerId) ?? null}
-              onChange={(_, v) => set('customerId', v?.id ?? null)}
-              renderInput={(params) => (
-                <TextField {...params} label="Customer *" size="small" error={customerMissing} helperText={customerMissing ? 'Required' : ' '} />
-              )}
-            />
-            <TextField label="Customer PO ref" value={draft.customerPoRef} size="small"
-              onChange={(e) => set('customerPoRef', e.target.value)} />
-          </>)}
-          {/* No "Confirmed date" here. It is stamped by the server when the
-              order actually moves to 'confirmed' — asking for it up front
-              invited a date typed before the thing it records had happened.
-              Corrections still live on the order's Overview tab. */}
-          <TextField label="Required date" value={draft.requiredDate} size="small" type="date"
-            slotProps={{ inputLabel: { shrink: true } }} onChange={(e) => set('requiredDate', e.target.value)} />
-        </Box>
+
+        {phase === 'type' ? (
+          /* Every type is listed, not just the creatable one. A screen showing a
+             single option reads like something is broken; showing all three with
+             where the other two come from answers the question it provokes. */
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+            {Object.keys(ORDER_TYPE_LABELS).map((t) => {
+              const creatable = (CREATABLE_ORDER_TYPES as readonly string[]).includes(t);
+              return (
+                <Box
+                  key={t}
+                  onClick={creatable ? () => { set('orderType', t); setPhase('fields'); } : undefined}
+                  sx={{
+                    p: 1.75, borderRadius: 'var(--r-md)',
+                    border: '1px solid var(--c-border)',
+                    background: creatable ? 'var(--c-surface)' : 'var(--c-surface-2)',
+                    cursor: creatable ? 'pointer' : 'default',
+                    opacity: creatable ? 1 : 0.65,
+                    '&:hover': creatable
+                      ? { borderColor: 'var(--c-primary-500)', background: 'var(--c-surface-2)' }
+                      : undefined,
+                  }}
+                >
+                  <Typography sx={{ fontWeight: 600, fontSize: 14 }}>
+                    {orderTypeLabel(t)} order
+                  </Typography>
+                  <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)', mt: 0.25 }}>
+                    {ORDER_TYPE_ORIGIN[t]}
+                  </Typography>
+                </Box>
+              );
+            })}
+          </Box>
+        ) : (
+          <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2 }}>
+            {asks('orderNumber') && (
+              <TextField label="Order number" value={draft.orderNumber} size="small"
+                slotProps={{ input: { readOnly: true } }} />
+            )}
+            {asks('type') && cfg && (
+              <TextField select label="Sub-type" value={draft.type} size="small"
+                onChange={(e) => set('type', e.target.value)}>
+                {cfg.subtypes.map((t) => <MenuItem key={t} value={t}>{t.replace(/_/g, ' ')}</MenuItem>)}
+              </TextField>
+            )}
+            {/* Status is not asked when creating — a new order is a draft by
+                definition, and offering the full lifecycle invited someone to
+                create an order already marked 'shipped'. */}
+            {asks('status') && (
+              <TextField select label="Status" value={draft.status} size="small"
+                onChange={(e) => set('status', e.target.value)}>
+                {(cfg?.statuses ?? ['draft']).map((s) => <MenuItem key={s} value={s}>{s.replace(/_/g, ' ')}</MenuItem>)}
+              </TextField>
+            )}
+            {asks('priority') && (
+              <TextField select label="Priority" value={draft.priority} size="small"
+                onChange={(e) => set('priority', e.target.value)}>
+                <MenuItem value="">— none —</MenuItem>
+                {ALL_PRIORITIES.map((p) => <MenuItem key={p} value={p}>{p}</MenuItem>)}
+              </TextField>
+            )}
+            {showCustomer && (
+              <Autocomplete
+                options={customers}
+                getOptionLabel={(o) => `${o.code} — ${o.name}`}
+                isOptionEqualToValue={(o, v) => o.id === v.id}
+                value={customers.find((c) => c.id === draft.customerId) ?? null}
+                onChange={(_, v) => set('customerId', v?.id ?? null)}
+                renderInput={(params) => (
+                  <TextField {...params} label="Customer *" size="small" error={customerMissing} helperText={customerMissing ? 'Required' : ' '} />
+                )}
+              />
+            )}
+            {asks('customerPoRef') && (
+              <TextField label="Customer PO ref" value={draft.customerPoRef} size="small"
+                onChange={(e) => set('customerPoRef', e.target.value)} />
+            )}
+            {/* No "Confirmed date" here. It is stamped by the server when the
+                order actually moves to 'confirmed' — asking for it up front
+                invited a date typed before the thing it records had happened.
+                Corrections still live on the order's Overview tab. */}
+            {asks('requiredDate') && (
+              <TextField label="Required date" value={draft.requiredDate} size="small" type="date"
+                slotProps={{ inputLabel: { shrink: true } }} onChange={(e) => set('requiredDate', e.target.value)} />
+            )}
+          </Box>
+        )}
       </DialogContent>
       <DialogActions>
+        {phase === 'fields' && isNew && (
+          <Button onClick={() => setPhase('type')}>Back</Button>
+        )}
+        <Box sx={{ flex: 1 }} />
         <Button onClick={onClose}>Cancel</Button>
-        <Button variant="contained" onClick={save} disabled={saving || (!isNew && !draft.orderNumber.trim()) || customerMissing}>
-          {saving ? <CircularProgress size={16} color="inherit" /> : 'Save'}
-        </Button>
+        {phase === 'fields' && (
+          <Button variant="contained" onClick={save} disabled={saving || (!isNew && !draft.orderNumber.trim()) || customerMissing}>
+            {saving ? <CircularProgress size={16} color="inherit" /> : 'Save'}
+          </Button>
+        )}
       </DialogActions>
     </Dialog>
   );
