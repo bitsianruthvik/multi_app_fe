@@ -18,6 +18,7 @@ import { fetchOrderReadiness, type OrderReadiness, type ReadinessStage, type Sta
 import OrderItemsTree from './OrderItemsTree';
 import OrderNesting from './OrderNesting';
 import OrderParameters from './OrderParameters';
+import SimilarGroupsPanel from './SimilarGroupsPanel';
 import OrderFlowAllocation from './OrderFlowAllocation';
 import OrderTaskDag from './OrderTaskDag';
 import OrderProcurement from './OrderProcurement';
@@ -44,9 +45,16 @@ import OrderLinesPanel from './OrderLinesPanel';
  * task automation is forbidden from advancing one, so the project-tree step
  * cannot walk the order past the confirmation nobody has made yet.
  *
- * No step is gated on the one before it. Someone will want to nest a few plates
- * before the BOM is finished, and there is no good reason to stop them. Only
- * Confirm is a genuine gate, because confirming is a promise to a customer.
+ * THE RAIL IS NEVER GATED; NEXT IS. Someone will want to nest a few plates
+ * before the BOM is finished, and there is no good reason to stop them — so
+ * every step stays clickable in the rail above. But NEXT is a recommendation,
+ * and it used to recommend moving on from an unfinished step: an order reached
+ * nesting with no parameters entered, and every duration downstream was then
+ * computed from a missing value defaulted to zero. That does not error, it
+ * quietly produces fiction. So Next is disabled while the current step is
+ * unfinished and says which one it is; the rail remains the deliberate way past.
+ *
+ * Only Confirm is a hard gate, because confirming is a promise to a customer.
  */
 
 const STATE_COLOR: Record<StageState, string> = {
@@ -158,8 +166,19 @@ export default function SalesOrderWizard({
       {/* Header — the close button is deliberately prominent and unqualified.
           There is no "are you sure": nothing is lost by closing, and a
           confirmation dialog would imply otherwise. */}
+      {/*
+        `flexShrink: 0` on the header and the rail below it.
+
+        The dialog paper is a flex COLUMN, so by default every child is allowed
+        to shrink. A step panel with a few hundred rows in it therefore squeezed
+        the two bars above it until their content spilled over — which reads as
+        the steps being overlapped by the panel, because that is exactly what
+        was happening. The panel gets `minHeight: 0` for the same reason: a flex
+        item will not scroll below its content height without it, so it grows
+        instead of scrolling and pushes into whatever is above.
+      */}
       <Box sx={{
-        display: 'flex', alignItems: 'center', gap: 2, px: 3, py: 1.75,
+        display: 'flex', alignItems: 'center', gap: 2, px: 3, py: 1.75, flexShrink: 0,
         borderBottom: '1px solid var(--c-border)', bgcolor: 'var(--c-surface)',
       }}>
         <Box sx={{ flex: 1, minWidth: 0 }}>
@@ -180,7 +199,7 @@ export default function SalesOrderWizard({
       {/* Step rail */}
       {steps.length > 0 && (
         <Box sx={{
-          display: 'flex', alignItems: 'stretch', gap: 0.5, px: 2, py: 1,
+          display: 'flex', alignItems: 'stretch', gap: 0.5, px: 2, py: 1, flexShrink: 0,
           borderBottom: '1px solid var(--c-border)', bgcolor: 'var(--c-surface)',
           overflowX: 'auto',
         }}>
@@ -221,7 +240,7 @@ export default function SalesOrderWizard({
         </Box>
       )}
 
-      <DialogContent sx={{ p: 3, bgcolor: 'var(--c-bg)' }}>
+      <DialogContent sx={{ p: 3, bgcolor: 'var(--c-bg)', flex: 1, minHeight: 0 }}>
         {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
 
         {loading ? (
@@ -232,10 +251,16 @@ export default function SalesOrderWizard({
               <OrderLinesPanel orderId={orderId} canManage={canManage} onChanged={() => refresh()} />
             )}
             {step === 'boq' && (
+              <>
+                {/* Marking copies belongs with the structure, because that is
+                    where the copies are visible. What it saves shows up two
+                    steps later, on Parameters. */}
+                <SimilarGroupsPanel orderId={orderId} canManage={canManage} onChanged={refresh} />
               <OrderItemsTree
                 orderId={orderId} canManage={canManage}
                 readiness={readiness} onStageChanged={refresh}
               />
+              </>
             )}
             {/* Flows BEFORE parameters: which fields a part needs is derived from
                 its flow's formulas, so the flow has to be known first. */}
@@ -300,13 +325,37 @@ export default function SalesOrderWizard({
             </span>
           </Tooltip>
         ) : (
-          <Button
-            variant="contained"
-            endIcon={<ArrowForwardRounded />}
-            onClick={() => goTo(steps[idx + 1].key)}
-          >
-            Next
-          </Button>
+          /**
+           * NEXT IS BLOCKED WHEN THE CURRENT STEP IS NOT DONE.
+           *
+           * The rail above stays clickable, deliberately. Nothing is gated on
+           * anything else in this wizard — somebody will want to nest a few
+           * plates before the BOM is finished and there is no good reason to
+           * stop them. But NEXT is a recommendation, and recommending the next
+           * step while this one is unfinished is how an order reached nesting
+           * with no parameters entered: every duration downstream is then
+           * computed from a missing value defaulted to zero, which does not
+           * error, it just quietly produces fiction.
+           *
+           * So the button says why, and the rail is still there for anyone who
+           * genuinely means to skip ahead.
+           */
+          <Tooltip title={
+            current && current.state !== 'done'
+              ? `${current.label} is not finished — ${current.detail}. Use the steps above if you mean to skip it.`
+              : `Go to ${steps[idx + 1].label}`
+          }>
+            <span>
+              <Button
+                variant="contained"
+                endIcon={<ArrowForwardRounded />}
+                disabled={!!current && current.state !== 'done'}
+                onClick={() => goTo(steps[idx + 1].key)}
+              >
+                Next
+              </Button>
+            </span>
+          </Tooltip>
         )}
       </Box>
     </Dialog>

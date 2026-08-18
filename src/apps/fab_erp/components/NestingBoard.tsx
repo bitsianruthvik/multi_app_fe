@@ -9,7 +9,8 @@ import LockRounded from '@mui/icons-material/LockRounded';
 import UndoRounded from '@mui/icons-material/UndoRounded';
 
 import api, { API_HOST } from '@core/utils/axiosConfig';
-import { Surface, EmptyState, useToast, backendMessage } from '../components';
+import { Surface, EmptyState, useToast, backendMessage, RawMaterialSelect } from '../components';
+import { fetchRawMaterials, type RawMaterial } from '../api/rawMaterials';
 import type { OrderReadiness } from '../api/readiness';
 
 /**
@@ -109,6 +110,47 @@ export default function NestingBoard({ orderId, canManage = false, onStageChange
   }, [base]);
 
   useEffect(() => { load(); }, [load]);
+
+  /**
+   * The full catalogue, for the "Cut from" pickers on the un-materialled parts.
+   *
+   * `board.materials` is only what this order already uses, which is exactly
+   * the wrong list for a part that has none — it would offer nothing on a fresh
+   * order and quietly hide any material nobody had picked yet.
+   */
+  const [materials, setMaterials] = useState<RawMaterial[]>([]);
+  const [pendingMaterial, setPendingMaterial] = useState<Record<number, number | ''>>({});
+  const [savingMaterial, setSavingMaterial] = useState<number | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    fetchRawMaterials()
+      .then((m) => { if (alive) setMaterials(m); })
+      .catch(() => { if (alive) setMaterials([]); });
+    return () => { alive = false; };
+  }, []);
+
+  async function assignMaterial(partId: number, value: string) {
+    const id = value === '' ? null : Number(value);
+    setPendingMaterial((p) => ({ ...p, [partId]: id ?? '' }));
+    setSavingMaterial(partId);
+    setError('');
+    try {
+      // NOT under base() — that is `…/orders/:orderId`, and the material route
+      // hangs off the app root because it identifies the part by id alone.
+      await api.post(
+        `${API_HOST}/api/${localStorage.getItem('companySlug')}/fab_erp/items/${partId}/material`,
+        { materialId: id },
+      );
+      // Reload rather than patch: the part leaves "no material" and joins the
+      // nestable list, and the board decides which list it belongs in.
+      await load();
+      onStageChanged?.();
+    } catch (e) {
+      setPendingMaterial((p) => ({ ...p, [partId]: '' }));
+      setError(backendMessage(e, 'Could not set the material.'));
+    } finally { setSavingMaterial(null); }
+  }
 
   async function move(part: BoardPart, nestNo: string | null, materialId?: number) {
     if (!part.linkId) return;
@@ -215,13 +257,42 @@ export default function NestingBoard({ orderId, canManage = false, onStageChange
               <Typography sx={{ fontSize: 11, fontWeight: 600, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--c-warning-600)', mb: 0.75 }}>
                 No material yet · {board.noMaterial.length}
               </Typography>
-              <Typography sx={{ fontSize: 11.5, color: 'var(--c-text-2)', mb: 0.75 }}>
-                These cannot be nested until the BOM says what they are cut from. Set it on
-                the Structure step — the ruler icon on a part row has a “Cut from” picker —
-                or fill the Raw Material column in the BOQ sheet and re-upload.
+              {/*
+                MATERIAL IS SET HERE, not on the Structure step (2026-08-18).
+
+                It briefly lived on the part row in the item tree, which put
+                "what is this cut from" one step away from "which plate does it
+                come off" — two halves of the same decision, asked on two
+                different screens. Both are nesting's question, so both are
+                asked here: pick the material and the part moves straight into
+                the list above, ready to drop onto a plate.
+
+                The BOQ sheet's Raw Material column still works and is still the
+                fast path for hundreds of parts at once.
+              */}
+              <Typography sx={{ fontSize: 11.5, color: 'var(--c-text-2)', mb: 1 }}>
+                Pick what each is cut from and it joins the list above, ready to nest.
+                For a whole order at once, the Raw Material column in the BOQ sheet is quicker.
               </Typography>
               {board.noMaterial.map((p) => (
-                <PartCard key={p.partId} part={p} draggable={false} faded />
+                <Box key={p.partId} sx={{ mb: 1 }}>
+                  <PartCard part={p} draggable={false} faded />
+                  {canManage && (
+                    <Box sx={{ pl: 1, pt: 0.5 }}>
+                      <RawMaterialSelect
+                        materials={materials}
+                        thickness={p.thick}
+                        value={pendingMaterial[p.partId] ?? ''}
+                        onChange={(v) => assignMaterial(p.partId, v)}
+                        valueOf={(m) => m.id}
+                        label="Cut from"
+                        disabled={savingMaterial === p.partId}
+                        sx={{ minWidth: 260 }}
+                      />
+                      {savingMaterial === p.partId && <CircularProgress size={12} sx={{ ml: 1 }} />}
+                    </Box>
+                  )}
+                </Box>
               ))}
             </Box>
           )}

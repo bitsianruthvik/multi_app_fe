@@ -11,35 +11,41 @@
  * rows and the fastest way to fill them in is to see them together, which is why
  * the BOQ was a spreadsheet in the first place.
  *
+ * THE GRID IS BUILT ON THE SERVER (2026-08-18). It used to be assembled here
+ * from items, field definitions and values, which meant the screen could only
+ * show the union of every field ANY flow on the order wanted, against EVERY
+ * part — so a plate that is only ever cut had an editable weld-length cell.
+ * A cell now exists only where that part's own flow asks for it; everywhere else
+ * shows a dash, because "not asked" and "asked but empty" are different states
+ * and an empty box cannot tell them apart.
+ *
+ * ONE ROW PER SIMILARITY GROUP. Where girders or segments are marked as copies
+ * of each other, their thirty Top Flanges are one row that writes to all thirty.
+ *
  * A blank cell is not zero. The formula engine defaults unknown symbols to 0 so
  * `IF()` fallbacks can work, so a part with no thickness does not error — it is
  * estimated as free to cut. Blank cells are flagged, and the production order
  * refuses to be raised while any remain (see the FIELDS_MISSING gate).
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  Alert, Box, Button, CircularProgress, TextField, Tooltip, Typography,
+  Alert, Box, Button, Chip, CircularProgress, TextField, Tooltip, Typography,
 } from '@mui/material';
-import WarningAmberRounded from '@mui/icons-material/WarningAmberRounded';
 import CheckCircleRounded from '@mui/icons-material/CheckCircleRounded';
+import DownloadIcon from '@mui/icons-material/Download';
+import UploadFileIcon from '@mui/icons-material/UploadFile';
 
-import { fabQuery, fabMutate } from '../api/client';
+import api from '@core/utils/axiosConfig';
+import {
+  getParameterGrid, saveParameters, exportParametersUrl, importParameters,
+  type ParameterGrid, type ParameterEdit,
+} from '../api/parameters';
 import { getFieldReadiness, type FieldReadiness } from '../api/fieldReadiness';
 import {
-  Surface, EmptyState, ListSkeleton, useToast, backendMessage, Mono, StickyActionBar,
+  EmptyState, ListSkeleton, useToast, backendMessage, Mono, StickyActionBar,
 } from '../components';
-import type { FabFieldDef } from '../types';
 
-interface OrderItemRow {
-  id: number;
-  name: string | null;
-  code: string | null;
-  flowId: number | null;
-  levelKind: string | null;
-}
-
-/** One editable cell: an item's value for one field. */
 type CellKey = string; // `${itemId}:${fieldKey}`
 const cellKey = (itemId: number, fieldKey: string): CellKey => `${itemId}:${fieldKey}`;
 
@@ -49,40 +55,25 @@ export default function OrderParameters({ orderId, canManage, onStageChanged }: 
   onStageChanged?: () => void;
 }) {
   const { toast } = useToast();
+  const [grid, setGrid] = useState<ParameterGrid | null>(null);
   const [readiness, setReadiness] = useState<FieldReadiness | null>(null);
-  const [items, setItems] = useState<OrderItemRow[]>([]);
-  const [defs, setDefs] = useState<FabFieldDef[]>([]);
-  const [values, setValues] = useState<Record<CellKey, string>>({});
-  const [dirty, setDirty] = useState<Set<CellKey>>(new Set());
+  const [edits, setEdits] = useState<Record<CellKey, string>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [importing, setImporting] = useState(false);
   const [error, setError] = useState('');
+  const fileRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
     setLoading(true); setError('');
     try {
-      const [r, itemRes, defRes, valRes] = await Promise.all([
-        getFieldReadiness(orderId),
-        fabQuery<{ data: OrderItemRow[] }>('fabErpItem', {
-          filters: { orderId }, orderBy: [{ field: 'id', direction: 'asc' }], pagination: { limit: 2000 },
-        }),
-        fabQuery<{ data: FabFieldDef[] }>('fabErpFieldDef', {
-          orderBy: [{ field: 'sortOrder', direction: 'asc' }], pagination: { limit: 500 },
-        }),
-        fabQuery<{ data: Array<{ levelId: number; fieldKey: string; fieldValue: string | null }> }>(
-          'fabErpCustomField',
-          { filters: { level: 'order_item' }, pagination: { limit: 5000 } },
-        ),
+      const [g, r] = await Promise.all([
+        getParameterGrid(orderId),
+        getFieldReadiness(orderId).catch(() => null),
       ]);
+      setGrid(g);
       setReadiness(r);
-      setItems(itemRes.data ?? []);
-      setDefs(defRes.data ?? []);
-      const v: Record<CellKey, string> = {};
-      for (const row of valRes.data ?? []) {
-        v[cellKey(row.levelId, row.fieldKey)] = row.fieldValue ?? '';
-      }
-      setValues(v);
-      setDirty(new Set());
+      setEdits({});
     } catch (e) {
       setError(backendMessage(e, 'Could not load the order’s parameters.'));
     } finally { setLoading(false); }
@@ -90,68 +81,33 @@ export default function OrderParameters({ orderId, canManage, onStageChanged }: 
 
   useEffect(() => { void load(); }, [load]);
 
-  const defByKey = useMemo(() => new Map(defs.map((d) => [d.fieldKey, d])), [defs]);
-
-  /**
-   * The columns: every field any of this order's flows asks for, in registry
-   * order. Derived from what the formulas actually reference — nothing is shown
-   * because it is conventionally a dimension.
-   */
-  const columns = useMemo(() => {
-    const needed = new Set<string>();
-    for (const m of readiness?.missingValues ?? []) m.missing.forEach((k) => needed.add(k));
-    // A part that is already complete contributes no "missing" keys, so the
-    // union above alone would hide columns the moment they were filled in.
-    // Every value present on a flow-bearing item counts too.
-    for (const k of Object.keys(values)) {
-      const fk = k.split(':')[1];
-      if (fk) needed.add(fk);
-    }
-    return [...needed]
-      .map((k) => defByKey.get(k))
-      .filter((d): d is FabFieldDef => !!d && Number(d.formulaUsable) === 1)
-      .sort((a, b) => a.sortOrder - b.sortOrder || a.fieldKey.localeCompare(b.fieldKey));
-  }, [readiness, values, defByKey]);
-
-  /** Only parts that carry a flow — the rest have no operations and need nothing. */
-  const rows = useMemo(() => items.filter((i) => i.flowId != null), [items]);
-
-  const missingByItem = useMemo(() => {
-    const m = new Map<number, Set<string>>();
-    for (const v of readiness?.missingValues ?? []) m.set(v.itemId, new Set(v.missing));
-    return m;
-  }, [readiness]);
-
-  function setCell(itemId: number, fieldKey: string, raw: string) {
+  const valueAt = (itemId: number, fieldKey: string) => {
     const k = cellKey(itemId, fieldKey);
-    setValues((prev) => ({ ...prev, [k]: raw }));
-    setDirty((prev) => new Set(prev).add(k));
-  }
+    if (k in edits) return edits[k];
+    const row = grid?.rows.find((r) => r.itemId === itemId);
+    return row?.values[fieldKey] ?? '';
+  };
+
+  const setCell = (itemId: number, fieldKey: string, raw: string) =>
+    setEdits((p) => ({ ...p, [cellKey(itemId, fieldKey)]: raw }));
 
   async function save() {
-    if (!dirty.size) return;
+    const list: ParameterEdit[] = Object.entries(edits).map(([k, v]) => {
+      const [idStr, fieldKey] = k.split(':');
+      return { itemId: Number(idStr), fieldKey, value: v.trim() === '' ? null : v.trim() };
+    });
+    if (!list.length) return;
     setSaving(true); setError('');
     try {
-      // One mutate per changed cell. The generic write path has no bulk upsert,
-      // and a changed cell is a deliberate edit — a girder run is filled in a
-      // column at a time, not a thousand cells at once.
-      for (const k of dirty) {
-        const [idStr, fieldKey] = k.split(':');
-        const itemId = Number(idStr);
-        const raw = (values[k] ?? '').trim();
-        const existingId = await findValueId(itemId, fieldKey);
-        if (raw === '') {
-          if (existingId) await fabMutate('fabErpCustomField', 'delete', { id: existingId });
-          continue;
-        }
-        const payload = {
-          level: 'order_item', level_id: itemId, field_key: fieldKey,
-          field_type: 'number', field_value: raw, sort_order: 0,
-        };
-        if (existingId) await fabMutate('fabErpCustomField', 'update', { id: existingId, ...payload });
-        else await fabMutate('fabErpCustomField', 'insert', payload);
-      }
-      toast(`${dirty.size} value(s) saved`, 'success');
+      const res = await saveParameters(orderId, list);
+      // `written` counts the fan-out, so on a grouped order it is larger than
+      // the number of cells touched — which is the point, and worth saying.
+      toast(
+        res.written > list.length
+          ? `${list.length} value(s) → ${res.written} part(s) via similar groups`
+          : `${res.written} value(s) saved`,
+        'success',
+      );
       await load();
       onStageChanged?.();
     } catch (e) {
@@ -159,17 +115,41 @@ export default function OrderParameters({ orderId, canManage, onStageChanged }: 
     } finally { setSaving(false); }
   }
 
-  /** The row id of an existing value, or null. Re-read so a concurrent edit is not clobbered. */
-  async function findValueId(itemId: number, fieldKey: string): Promise<number | null> {
-    const res = await fabQuery<{ data: Array<{ id: number }> }>('fabErpCustomField', {
-      filters: { level: 'order_item', levelId: itemId, fieldKey }, pagination: { limit: 1 },
-    });
-    return res.data?.[0]?.id ?? null;
+  async function download() {
+    try {
+      const res = await api.get(exportParametersUrl(orderId), { responseType: 'blob' });
+      const url = URL.createObjectURL(res.data as Blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'parameters.xlsx';
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setError(backendMessage(e, 'Could not export the parameters.'));
+    }
+  }
+
+  async function upload(file: File) {
+    setImporting(true); setError('');
+    try {
+      const res = await importParameters(orderId, file);
+      toast(`${res.edits} change(s) from ${res.rowsRead} row(s) → ${res.written} part(s)`, 'success');
+      if (res.warnings?.length) {
+        setError(`${res.warnings.length} row(s) skipped: ${res.warnings.slice(0, 3).map((w) => w.message).join(' ')}`);
+      }
+      await load();
+      onStageChanged?.();
+    } catch (e) {
+      setError(backendMessage(e, 'Could not import that sheet.'));
+    } finally {
+      setImporting(false);
+      if (fileRef.current) fileRef.current.value = '';
+    }
   }
 
   if (loading) return <ListSkeleton rows={6} />;
 
-  if (rows.length === 0) {
+  if (!grid || grid.rows.length === 0) {
     return (
       <EmptyState
         title="No parts with a flow yet"
@@ -177,8 +157,7 @@ export default function OrderParameters({ orderId, canManage, onStageChanged }: 
       />
     );
   }
-
-  if (columns.length === 0) {
+  if (grid.columns.length === 0) {
     return (
       <EmptyState
         icon={<CheckCircleRounded />}
@@ -188,7 +167,7 @@ export default function OrderParameters({ orderId, canManage, onStageChanged }: 
     );
   }
 
-  const short = readiness?.itemsShort ?? 0;
+  const dirtyCount = Object.keys(edits).length;
 
   return (
     <Box>
@@ -197,92 +176,121 @@ export default function OrderParameters({ orderId, canManage, onStageChanged }: 
       {(readiness?.unknownFields?.length ?? 0) > 0 && (
         <Alert severity="warning" sx={{ mb: 2 }}>
           <Typography sx={{ fontSize: 13, fontWeight: 600, mb: 0.25 }}>
-            Some operations name a field that does not exist
+            Some formulas name fields that do not exist
           </Typography>
           <Typography sx={{ fontSize: 12.5 }}>
-            Filling in parts cannot fix these — the formula is wrong. Fix them in Operations:{' '}
-            {readiness!.unknownFields.map((u) => `${u.operationName} (${u.keys.join(', ')})`).join('; ')}
+            {readiness!.unknownFields.map((u) => `${u.operationName}: ${u.keys.join(', ')}`).join(' · ')}
+            {' '}— these cannot be fixed by filling anything in here; the formula needs correcting.
           </Typography>
         </Alert>
       )}
 
-      <Alert severity={short > 0 ? 'warning' : 'success'} sx={{ mb: 2 }}>
-        {short > 0
-          ? `${short} of ${readiness?.itemsChecked ?? rows.length} part(s) are missing a value their operations need. `
-            + 'A blank is not zero — those tasks would be estimated as taking no time.'
-          : `All ${readiness?.itemsChecked ?? rows.length} part(s) have what their operations need.`}
-      </Alert>
+      {/* The spreadsheet path, asked for because "many times it is easier to
+          enter that way" — and because the values usually already exist in one. */}
+      <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', mb: 1.5, flexWrap: 'wrap' }}>
+        <Button size="small" startIcon={<DownloadIcon />} onClick={download}>
+          Export to Excel
+        </Button>
+        <Button
+          size="small" startIcon={importing ? <CircularProgress size={13} /> : <UploadFileIcon />}
+          disabled={!canManage || importing}
+          onClick={() => fileRef.current?.click()}
+        >
+          {importing ? 'Importing…' : 'Import filled sheet'}
+        </Button>
+        <input
+          ref={fileRef} type="file" hidden accept=".xlsx"
+          onChange={(e) => { const f = e.target.files?.[0]; if (f) void upload(f); }}
+        />
+        {grid.groupedAway > 0 && (
+          <Tooltip title="Girders or segments marked as copies of each other. Fill one row and every copy gets it.">
+            <Chip
+              size="small"
+              label={`${grid.groupedAway} row(s) folded into similar groups`}
+              sx={{ bgcolor: 'var(--c-primary-50)', color: 'var(--c-primary-700)' }}
+            />
+          </Tooltip>
+        )}
+      </Box>
 
-      <Surface e={1} sx={{ p: 0, overflowX: 'auto' }}>
-        <Box component="table" sx={{
-          width: '100%', borderCollapse: 'collapse', fontSize: 13,
-          '& th': {
-            textAlign: 'left', px: 1.25, py: 1, fontSize: 10.5, fontWeight: 600,
-            letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--c-text-3)',
-            borderBottom: '1px solid var(--c-border)', whiteSpace: 'nowrap',
-            background: 'var(--c-surface-2)',
-          },
-          '& td': { px: 1.25, py: 0.5, borderBottom: '1px solid var(--c-border)', verticalAlign: 'middle' },
-        }}>
-          <thead>
-            <tr>
-              <th>Part</th>
-              {columns.map((c) => (
-                <th key={c.fieldKey} style={{ width: 130 }}>
-                  {c.label}{c.unit ? ` (${c.unit})` : ''}
-                </th>
+      <Box sx={{ overflowX: 'auto', border: '1px solid var(--c-border)', borderRadius: 'var(--r-md)' }}>
+        <Box component="table" sx={{ borderCollapse: 'collapse', width: '100%', fontSize: 13 }}>
+          <Box component="thead">
+            <Box component="tr" sx={{ bgcolor: 'var(--c-surface-2)' }}>
+              <Box component="th" sx={{ textAlign: 'left', p: 1, position: 'sticky', left: 0, bgcolor: 'var(--c-surface-2)', minWidth: 260 }}>
+                Part
+              </Box>
+              {grid.columns.map((c) => (
+                <Box component="th" key={c.fieldKey} sx={{ textAlign: 'left', p: 1, whiteSpace: 'nowrap' }}>
+                  {c.label}{c.unit ? <Typography component="span" sx={{ fontSize: 11, color: 'var(--c-text-3)' }}> ({c.unit})</Typography> : null}
+                </Box>
               ))}
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((item) => {
-              const missing = missingByItem.get(item.id);
-              return (
-                <tr key={item.id}>
-                  <td>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
-                      {missing && missing.size > 0 && (
-                        <Tooltip title={`Missing: ${[...missing].join(', ')}`}>
-                          <WarningAmberRounded sx={{ fontSize: 15, color: 'var(--c-warning-600)' }} />
-                        </Tooltip>
-                      )}
-                      {item.code ? <Mono chip>{item.code}</Mono> : null}
-                      <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)' }}>{item.name}</Typography>
+            </Box>
+          </Box>
+          <Box component="tbody">
+            {grid.rows.map((r) => (
+              <Box component="tr" key={r.itemId} sx={{ borderTop: '1px solid var(--c-divider)' }}>
+                <Box component="td" sx={{ p: 1, position: 'sticky', left: 0, bgcolor: 'var(--c-surface)' }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                    <Box sx={{ minWidth: 0 }}>
+                      <Typography sx={{ fontSize: 13 }}>{r.name}</Typography>
+                      <Mono sx={{ fontSize: 11, color: 'var(--c-text-3)' }}>{r.code}</Mono>
                     </Box>
-                  </td>
-                  {columns.map((c) => {
-                    const k = cellKey(item.id, c.fieldKey);
-                    const isMissing = missing?.has(c.fieldKey);
+                    {r.represents > 1 && (
+                      <Tooltip title={`Writes to all ${r.represents} copies`}>
+                        <Chip size="small" label={`×${r.represents}`} sx={{ height: 18, fontSize: 10.5 }} />
+                      </Tooltip>
+                    )}
+                  </Box>
+                </Box>
+                {grid.columns.map((c) => {
+                  // Not asked for by THIS part's flow. A dash, not an empty box:
+                  // an empty box invites a value that no formula will ever read.
+                  if (!r.required.includes(c.fieldKey)) {
                     return (
-                      <td key={c.fieldKey}>
-                        <TextField
-                          size="small" type="number" variant="standard" fullWidth
-                          disabled={!canManage}
-                          value={values[k] ?? ''}
-                          onChange={(e) => setCell(item.id, c.fieldKey, e.target.value)}
-                          slotProps={{ input: { disableUnderline: true } }}
-                          sx={{
-                            '& input': {
-                              fontFamily: 'var(--font-mono)', fontSize: 12.5,
-                              background: isMissing ? 'var(--c-warning-50)' : undefined,
-                              borderRadius: 'var(--r-sm)', px: 0.5,
-                            },
-                          }}
-                        />
-                      </td>
+                      <Box component="td" key={c.fieldKey} sx={{ p: 1, textAlign: 'center', color: 'var(--c-text-3)' }}>
+                        <Tooltip title="This part's flow does not use this value">
+                          <span>—</span>
+                        </Tooltip>
+                      </Box>
                     );
-                  })}
-                </tr>
-              );
-            })}
-          </tbody>
+                  }
+                  const v = valueAt(r.itemId, c.fieldKey);
+                  const missing = String(v).trim() === '';
+                  return (
+                    <Box component="td" key={c.fieldKey} sx={{ p: 0.5 }}>
+                      <TextField
+                        size="small" variant="standard" type="number"
+                        value={v ?? ''}
+                        disabled={!canManage}
+                        onChange={(e) => setCell(r.itemId, c.fieldKey, e.target.value)}
+                        sx={{
+                          width: 96,
+                          '& input': { fontSize: 13, py: 0.4 },
+                          ...(missing ? { '& .MuiInput-root:before': { borderBottomColor: 'var(--c-warning-600)' } } : {}),
+                        }}
+                      />
+                    </Box>
+                  );
+                })}
+              </Box>
+            ))}
+          </Box>
         </Box>
-      </Surface>
+      </Box>
 
-      {canManage && (
-        <StickyActionBar message={dirty.size ? `${dirty.size} unsaved change(s)` : 'No changes'}>
-          <Button variant="contained" onClick={() => void save()} disabled={saving || dirty.size === 0}>
-            {saving ? <CircularProgress size={16} color="inherit" /> : 'Save values'}
+      {canManage && dirtyCount > 0 && (
+        <StickyActionBar>
+          <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>
+            {dirtyCount} cell(s) changed
+          </Typography>
+          <Box sx={{ flex: 1 }} />
+          <Button onClick={() => setEdits({})} disabled={saving}>Discard</Button>
+          <Button
+            variant="contained" onClick={save} disabled={saving}
+            startIcon={saving ? <CircularProgress size={14} color="inherit" /> : undefined}
+          >
+            {saving ? 'Saving…' : 'Save values'}
           </Button>
         </StickyActionBar>
       )}
