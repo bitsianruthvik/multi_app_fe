@@ -25,6 +25,7 @@ import { PageHeader, Mono, EmptyState, ListSkeleton, StatusBadge, useToast, Enti
 import MachineAssetPanel from '../components/MachineAssetPanel';
 import BuyMachineDialog from '../components/BuyMachineDialog';
 import { DialogCloseButton } from '../components/FormDialog';
+import ResourceTypePurchases from '../components/ResourceTypePurchases';
 
 interface QueryResult<T> { data: T[]; total?: number }
 
@@ -605,7 +606,7 @@ function ResourceTypeDetailDialog({ open, initial, plants, canManage, onClose, o
     } finally { setSaving(false); }
   }
 
-  const tabLabels = isNew ? ['Basic Info', 'Capacity & Scheduling'] : ['Basic Info', 'Capacity & Scheduling', 'Custom Fields (10)', 'Formula Properties', 'Operations'];
+  const tabLabels = isNew ? ['Basic Info', 'Capacity & Scheduling'] : ['Basic Info', 'Capacity & Scheduling', 'Custom Fields (10)', 'Formula Properties', 'Operations', 'Purchases'];
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="lg" fullWidth>
@@ -633,6 +634,10 @@ function ResourceTypeDetailDialog({ open, initial, plants, canManage, onClose, o
         {tab === 2 && !isNew && initial && <CustomFieldsEditor level="resource_type" levelId={initial.id} canManage={canManage} />}
         {tab === 3 && !isNew && initial && <FormulaPropertiesEditor rtId={initial.id} canManage={canManage} />}
         {tab === 4 && !isNew && initial && <OperationsMappingEditor rtId={initial.id} canManage={canManage} />}
+        {/* Machines ordered OF this type. Raising one worked already; seeing it
+            afterwards did not, so "have we already ordered another?" had no
+            answer short of reading every purchase order on the board. */}
+        {tab === 5 && !isNew && initial && <ResourceTypePurchases resourceTypeId={initial.id} />}
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose}>Close</Button>
@@ -644,8 +649,10 @@ function ResourceTypeDetailDialog({ open, initial, plants, canManage, onClose, o
   );
 }
 
-interface ResDraft { name: string; code: string; resourceTypeId: number | null; plantId: number | null; stockLocationId: number | null; shiftCalendarId: number | null }
-interface FabShiftCalendarOption { id: number; name: string; code: string; plantId: number | null }
+// No shift on a resource: a machine can technically run 24 hours, and what
+// actually limits it is whether a PERSON is there. That is tracked on the
+// worker's shift, so a second, machine-side answer could only ever disagree.
+interface ResDraft { name: string; code: string; serialNo: string; resourceTypeId: number | null; plantId: number | null; stockLocationId: number | null }
 
 interface NewTypeDraft { name: string; code: string }
 const BLANK_NEW_TYPE = (): NewTypeDraft => ({ name: '', code: '' });
@@ -654,20 +661,19 @@ function AddResourceDialog({ open, resourceTypes, plants, onClose, onSaved, onTy
   open: boolean; resourceTypes: FabResourceType[]; plants: FabPlant[];
   onClose: () => void; onSaved: () => void; onTypeCreated: () => Promise<void>;
 }) {
-  const [basic, setBasic] = useState<ResDraft>({ name: '', code: '', resourceTypeId: null, plantId: null, stockLocationId: null, shiftCalendarId: null });
+  const [basic, setBasic] = useState<ResDraft>({ name: '', code: '', serialNo: '', resourceTypeId: null, plantId: null, stockLocationId: null });
   const [typeInput, setTypeInput] = useState<ResourceTypeOption | null>(null);
   const [creatingType, setCreatingType] = useState(false);
   const [newType, setNewType] = useState<NewTypeDraft>(BLANK_NEW_TYPE());
   const [newTypeSaving, setNewTypeSaving] = useState(false);
   const [newTypeErr, setNewTypeErr] = useState('');
   const [stockLocations, setStockLocations] = useState<FabStockLocation[]>([]);
-  const [shiftCalendars, setShiftCalendars] = useState<FabShiftCalendarOption[]>([]);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
 
   useEffect(() => {
     if (!open) return;
-    setBasic({ name: '', code: '', resourceTypeId: null, plantId: null, stockLocationId: null, shiftCalendarId: null });
+    setBasic({ name: '', code: '', serialNo: '', resourceTypeId: null, plantId: null, stockLocationId: null });
     setTypeInput(null);
     setCreatingType(false); setNewType(BLANK_NEW_TYPE()); setNewTypeErr('');
     setErr('');
@@ -681,8 +687,6 @@ function AddResourceDialog({ open, resourceTypes, plants, onClose, onSaved, onTy
 
   useEffect(() => {
     if (!open) return;
-    fabQuery<QueryResult<FabShiftCalendarOption>>('fabErpShiftCalendar', { orderBy: [{ field: 'name', direction: 'asc' }], pagination: { limit: 200 } })
-      .then((res) => setShiftCalendars(res.data ?? [])).catch(() => setShiftCalendars([]));
   }, [open]);
 
   const typeOptions: ResourceTypeOption[] = resourceTypes.map((rt) => ({ id: rt.id, label: `${rt.code} — ${rt.name}` }));
@@ -729,7 +733,7 @@ function AddResourceDialog({ open, resourceTypes, plants, onClose, onSaved, onTy
     try {
       const payload = {
         name: basic.name.trim(), code: basic.code.trim(), resource_type_id: basic.resourceTypeId,
-        plant_id: basic.plantId, stock_location_id: basic.stockLocationId, shift_calendar_id: basic.shiftCalendarId,
+        plant_id: basic.plantId, stock_location_id: basic.stockLocationId, serial_no: basic.serialNo.trim() || null,
       };
       await fabMutate('fabErpResource', 'insert', payload);
       onSaved();
@@ -798,16 +802,20 @@ function AddResourceDialog({ open, resourceTypes, plants, onClose, onSaved, onTy
             </TextField>
           </Grid>
           <Grid size={{ xs: 12, sm: 6 }}>
-            <TextField select label="Stock location" size="small" fullWidth value={basic.stockLocationId ?? ''} onChange={(e) => setBasic((d) => ({ ...d, stockLocationId: e.target.value === '' ? null : Number(e.target.value) }))} disabled={basic.plantId == null} helperText={basic.plantId == null ? 'Select a plant first' : 'Optional'}>
-              <MenuItem value="">— (none)</MenuItem>
+            {/* A machine is somewhere. "None" was a real option and produced resources
+                  with no location, which is what made the machine-as-stock-piece work
+                  skip them: a stock piece must have a location, so an unplaced machine
+                  could not be registered as one and never appeared in a stock area. */}
+            <TextField select label="Stock location *" size="small" fullWidth value={basic.stockLocationId ?? ''} onChange={(e) => setBasic((d) => ({ ...d, stockLocationId: e.target.value === '' ? null : Number(e.target.value) }))} disabled={basic.plantId == null} error={basic.plantId != null && basic.stockLocationId == null} helperText={basic.plantId == null ? 'Select a plant first' : 'Where this machine physically sits'}>
               {stockLocations.map((sl) => <MenuItem key={sl.id} value={sl.id}>{sl.code} — {sl.name}</MenuItem>)}
             </TextField>
           </Grid>
-          <Grid size={{ xs: 12 }}>
-            <TextField select label="Shift calendar" size="small" fullWidth value={basic.shiftCalendarId ?? ''} onChange={(e) => setBasic((d) => ({ ...d, shiftCalendarId: e.target.value === '' ? null : Number(e.target.value) }))} helperText="Working hours / shift pattern for this machine">
-              <MenuItem value="">— (none)</MenuItem>
-              {shiftCalendars.map((sc) => <MenuItem key={sc.id} value={sc.id}>{sc.code} — {sc.name}</MenuItem>)}
-            </TextField>
+          <Grid size={{ xs: 12, sm: 6 }}>
+            {/* The maker's number, stamped on the plate. It is identity, not
+                depreciation paperwork, and it is what a supplier asks for — so it
+                belongs here beside the name and code. The old "asset tag" was a
+                second internal id for something  already names. */}
+            <TextField label="Serial no" size="small" fullWidth value={basic.serialNo} onChange={(e) => setBasic((d) => ({ ...d, serialNo: e.target.value }))} helperText="As stamped on the machine" />
           </Grid>
         </Grid>
       </DialogContent>
@@ -823,12 +831,11 @@ function ResourceDetailDialog({ open, initial, resourceTypes, plants, canManage,
   open: boolean; initial: FabResource | null; resourceTypes: FabResourceType[]; plants: FabPlant[]; canManage: boolean; onClose: () => void; onSaved: () => void;
 }) {
   const [tab, setTab] = useState(0);
-  const [basic, setBasic] = useState<ResDraft>({ name: '', code: '', resourceTypeId: null, plantId: null, stockLocationId: null, shiftCalendarId: null });
+  const [basic, setBasic] = useState<ResDraft>({ name: '', code: '', serialNo: '', resourceTypeId: null, plantId: null, stockLocationId: null });
   const [std, setStd] = useState<StdDraft>(blankStd());
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
   const [stockLocations, setStockLocations] = useState<FabStockLocation[]>([]);
-  const [shiftCalendars, setShiftCalendars] = useState<FabShiftCalendarOption[]>([]);
   const isNew = !initial;
 
   const selectedType = resourceTypes.find((rt) => rt.id === basic.resourceTypeId);
@@ -838,10 +845,10 @@ function ResourceDetailDialog({ open, initial, resourceTypes, plants, canManage,
     if (!open) return;
     setTab(0); setErr('');
     if (initial) {
-      setBasic({ name: initial.name, code: initial.code, resourceTypeId: initial.resourceTypeId, plantId: initial.plantId ?? null, stockLocationId: initial.stockLocationId ?? null, shiftCalendarId: (initial as unknown as { shiftCalendarId?: number }).shiftCalendarId ?? null });
+      setBasic({ name: initial.name, code: initial.code, serialNo: (initial as unknown as { serialNo?: string }).serialNo ?? '', resourceTypeId: initial.resourceTypeId, plantId: initial.plantId ?? null, stockLocationId: initial.stockLocationId ?? null });
       setStd(fromResStd(initial));
     } else {
-      setBasic({ name: '', code: '', resourceTypeId: null, plantId: null, stockLocationId: null, shiftCalendarId: null });
+      setBasic({ name: '', code: '', serialNo: '', resourceTypeId: null, plantId: null, stockLocationId: null });
       setStd(blankStd());
     }
   }, [open, initial]);
@@ -854,8 +861,6 @@ function ResourceDetailDialog({ open, initial, resourceTypes, plants, canManage,
 
   useEffect(() => {
     if (!open) return;
-    fabQuery<QueryResult<FabShiftCalendarOption>>('fabErpShiftCalendar', { orderBy: [{ field: 'name', direction: 'asc' }], pagination: { limit: 200 } })
-      .then((res) => setShiftCalendars(res.data ?? [])).catch(() => setShiftCalendars([]));
   }, [open]);
 
   useEffect(() => {
@@ -869,7 +874,7 @@ function ResourceDetailDialog({ open, initial, resourceTypes, plants, canManage,
     try {
       const payload = {
         name: basic.name.trim(), code: basic.code.trim(), resource_type_id: basic.resourceTypeId,
-        plant_id: basic.plantId, stock_location_id: basic.stockLocationId, shift_calendar_id: basic.shiftCalendarId, ...toStdPayload(std),
+        plant_id: basic.plantId, stock_location_id: basic.stockLocationId, serial_no: basic.serialNo.trim() || null, ...toStdPayload(std),
       };
       if (isNew) await fabMutate('fabErpResource', 'insert', payload);
       else await fabMutate('fabErpResource', 'update', { id: initial!.id, ...payload });
@@ -911,16 +916,17 @@ function ResourceDetailDialog({ open, initial, resourceTypes, plants, canManage,
               </TextField>
             </Grid>
             <Grid size={{ xs: 12, sm: 6 }}>
-              <TextField select label="Stock location" size="small" fullWidth value={basic.stockLocationId ?? ''} onChange={(e) => setBasic((d) => ({ ...d, stockLocationId: e.target.value === '' ? null : Number(e.target.value) }))} disabled={!canManage || basic.plantId == null} helperText={basic.plantId == null ? 'Select a plant first' : 'Optional'}>
-                <MenuItem value="">— (none)</MenuItem>
+              <TextField select label="Stock location *" size="small" fullWidth value={basic.stockLocationId ?? ''} onChange={(e) => setBasic((d) => ({ ...d, stockLocationId: e.target.value === '' ? null : Number(e.target.value) }))} disabled={!canManage || basic.plantId == null} error={basic.plantId != null && basic.stockLocationId == null} helperText={basic.plantId == null ? 'Select a plant first' : 'Where this machine physically sits'}>
                 {stockLocations.map((sl) => <MenuItem key={sl.id} value={sl.id}>{sl.code} — {sl.name}</MenuItem>)}
               </TextField>
             </Grid>
-            <Grid size={{ xs: 12 }}>
-              <TextField select label="Shift calendar" size="small" fullWidth value={basic.shiftCalendarId ?? ''} onChange={(e) => setBasic((d) => ({ ...d, shiftCalendarId: e.target.value === '' ? null : Number(e.target.value) }))} helperText="Working hours / shift pattern for this machine" disabled={!canManage}>
-                <MenuItem value="">— (none)</MenuItem>
-                {shiftCalendars.map((sc) => <MenuItem key={sc.id} value={sc.id}>{sc.code} — {sc.name}</MenuItem>)}
-              </TextField>
+            <Grid size={{ xs: 12, sm: 6 }}>
+              {/* Identity, not depreciation paperwork — see the new-resource
+                  dialog. Moved here from Asset & maintenance, where "asset tag"
+                  used to sit beside it recording the same fact as `code`. */}
+              <TextField label="Serial no" size="small" fullWidth value={basic.serialNo} disabled={!canManage}
+                onChange={(e) => setBasic((d) => ({ ...d, serialNo: e.target.value }))}
+                helperText="As stamped on the machine" />
             </Grid>
           </Grid>
         )}
@@ -979,6 +985,19 @@ export default function ResourceTypes() {
   const { toast } = useToast();
 
   const [tab, setTab] = useState(0); // 0 = Resources (default), 1 = Resource Types
+
+  /**
+   * Per-tab search. Client-side because both lists are already fully loaded —
+   * a shop has tens of machines, not thousands — so a round trip per keystroke
+   * would be slower and would make the list flicker between results.
+   *
+   * It matches across the fields people actually recall a machine by: its name,
+   * its code, the serial stamped on it, and where it lives. Searching only the
+   * name means knowing the exact name, which is the thing you are searching
+   * because you do not know.
+   */
+  const [resQuery, setResQuery] = useState('');
+  const [typeQuery, setTypeQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -1063,6 +1082,28 @@ export default function ResourceTypes() {
   const rtMap = new Map(resourceTypes.map((rt) => [rt.id, rt]));
   const slMap = new Map(stockLocations.map((sl) => [sl.id, sl]));
 
+  // Every term must match somewhere, so "lathe 2" narrows rather than widening
+  // — typing more words getting you MORE results is the surprising direction.
+  const hits = (q: string, ...fields: Array<string | null | undefined>) => {
+    const terms = q.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    if (!terms.length) return true;
+    const hay = fields.filter(Boolean).join(' ').toLowerCase();
+    return terms.every((t) => hay.includes(t));
+  };
+
+  const shownResources = resources.filter((r) => hits(
+    resQuery, r.name, r.code,
+    (r as unknown as { serialNo?: string }).serialNo,
+    rtMap.get(r.resourceTypeId)?.name, rtMap.get(r.resourceTypeId)?.code,
+    r.plantId != null ? plantMap.get(r.plantId)?.name : null,
+    r.stockLocationId != null ? slMap.get(r.stockLocationId)?.name : null,
+  ));
+
+  const shownTypes = resourceTypes.filter((rt) => hits(
+    typeQuery, rt.name, rt.code, rt.category,
+    rt.plantId != null ? plantMap.get(rt.plantId)?.name : null,
+  ));
+
   async function handleDeleteResourceType() {
     if (!rtDelete) return;
     setRtDeleting(true);
@@ -1129,6 +1170,9 @@ export default function ResourceTypes() {
         </Tabs>
       </Box>
 
+      {/* Each tab filters itself. A catalogue people scroll to find one lathe
+          in is a catalogue with a search box; without one the only way to reach
+          a machine was to know where it sorted. */}
       {loading ? <ListSkeleton rows={5} /> : (
         <>
           {tab === 0 && (
@@ -1136,17 +1180,28 @@ export default function ResourceTypes() {
               <Alert severity="info" icon={<InfoOutlinedIcon fontSize="small" />} sx={{ mb: 2 }}>
                 Resources are the actual physical machines or workers, e.g. "Lathe Machine 1", "Lathe Machine 2". Each resource belongs to a Resource Type — a category like "Lathe" — managed in the Resource Types tab.
               </Alert>
-              {canManage && (
-                <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 2 }}>
+              <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'center', mb: 2 }}>
+                <TextField
+                  size="small" placeholder="Search name, code, serial, type or plant…"
+                  value={resQuery} onChange={(e) => setResQuery(e.target.value)}
+                  sx={{ flex: 1, maxWidth: 420 }}
+                />
+                {resQuery && (
+                  <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)' }}>
+                    {shownResources.length} of {resources.length}
+                  </Typography>
+                )}
+                <Box sx={{ flex: 1 }} />
+                {canManage && (
                   <Button variant="contained" startIcon={<AddIcon />} onClick={() => setAddResOpen(true)}>New resource</Button>
-                </Box>
-              )}
+                )}
+              </Box>
               {resources.length === 0 ? (
                 <EmptyState icon={<PrecisionManufacturingRounded />} title="No resources defined" hint='Click "New resource" to add one.' />
               ) : (
                 <>
                   <EntityList
-                    rows={resources}
+                    rows={shownResources}
                     sortableFields={RESOURCE_SORT_FIELDS}
                     defaultSortKey="name"
                     renderRow={(r) => {
@@ -1182,17 +1237,28 @@ export default function ResourceTypes() {
               <Alert severity="info" icon={<InfoOutlinedIcon fontSize="small" />} sx={{ mb: 2 }}>
                 Resource Types are categories of equipment, e.g. "Lathe". They hold shared capacity/scheduling/costing defaults. Individual machines (e.g. "Lathe Machine 1", "Lathe Machine 2") are created in the Resources tab.
               </Alert>
-              {canManage && (
-                <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 2 }}>
+              <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'center', mb: 2 }}>
+                <TextField
+                  size="small" placeholder="Search name, code, category or plant…"
+                  value={typeQuery} onChange={(e) => setTypeQuery(e.target.value)}
+                  sx={{ flex: 1, maxWidth: 420 }}
+                />
+                {typeQuery && (
+                  <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)' }}>
+                    {shownTypes.length} of {resourceTypes.length}
+                  </Typography>
+                )}
+                <Box sx={{ flex: 1 }} />
+                {canManage && (
                   <Button variant="contained" startIcon={<AddIcon />} onClick={() => setRtDetail({ open: true, item: null })}>New resource type</Button>
-                </Box>
-              )}
+                )}
+              </Box>
               {resourceTypes.length === 0 ? (
                 <EmptyState icon={<PrecisionManufacturingRounded />} title="No resource types defined" hint='Click "New resource type" to add one.' />
               ) : (
                 <>
                   <EntityList
-                    rows={resourceTypes}
+                    rows={shownTypes}
                     sortableFields={RESOURCE_TYPE_SORT_FIELDS}
                     defaultSortKey="name"
                     renderRow={(rt) => {

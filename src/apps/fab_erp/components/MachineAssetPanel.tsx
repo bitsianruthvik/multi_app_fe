@@ -25,6 +25,7 @@ import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
 import AddRounded from '@mui/icons-material/AddRounded';
 
 import { fabMutate } from '../api/client';
+import OrderSparesDialog from './OrderSparesDialog';
 import { backendMessage, useToast } from '../components';
 import {
   DEPRECIATION_METHODS, fetchMachineMaintenance, fetchValuation, fetchAssetPurchases,
@@ -63,8 +64,6 @@ export default function MachineAssetPanel({ resourceId, resource, canManage, onC
   const [asset, setAsset] = useState({
     purchase_date: dateOnly(resource.purchaseDate),
     commissioned_date: dateOnly(resource.commissionedDate),
-    serial_no: str(resource.serialNo),
-    asset_tag: str(resource.assetTag),
     warranty_until: dateOnly(resource.warrantyUntil),
     asset_cost: str(resource.assetCost),
     salvage_value: str(resource.salvageValue),
@@ -83,6 +82,7 @@ export default function MachineAssetPanel({ resourceId, resource, canManage, onC
   const [areas, setAreas] = useState<MachineArea[]>([]);
   const [spend, setSpend] = useState<SpareSpend | null>(null);
   const [loading, setLoading] = useState(true);
+  const [sparesOpen, setSparesOpen] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -124,8 +124,6 @@ export default function MachineAssetPanel({ resourceId, resource, canManage, onC
         id: resourceId,
         purchase_date: asset.purchase_date || null,
         commissioned_date: asset.commissioned_date || null,
-        serial_no: asset.serial_no.trim() || null,
-        asset_tag: asset.asset_tag.trim() || null,
         warranty_until: asset.warranty_until || null,
         asset_cost: numOrNull(asset.asset_cost),
         salvage_value: numOrNull(asset.salvage_value),
@@ -223,10 +221,18 @@ export default function MachineAssetPanel({ resourceId, resource, canManage, onC
           <TextField size="small" type="date" label="Warranty until" sx={{ width: 170 }}
             slotProps={{ inputLabel: { shrink: true } }} value={asset.warranty_until} disabled={!canManage}
             onChange={(e) => setAsset((a) => ({ ...a, warranty_until: e.target.value }))} />
-          <TextField size="small" label="Serial no" sx={{ width: 180 }} value={asset.serial_no} disabled={!canManage}
-            onChange={(e) => setAsset((a) => ({ ...a, serial_no: e.target.value }))} />
-          <TextField size="small" label="Asset tag" sx={{ width: 150 }} value={asset.asset_tag} disabled={!canManage}
-            onChange={(e) => setAsset((a) => ({ ...a, asset_tag: e.target.value }))} />
+          {/*
+            Serial no moved to Basic Info, and Asset tag is gone entirely
+            (2026-08-18).
+
+            The asset tag was a second internal identifier for a thing that
+            already has `code`, so it was the same fact recorded twice with no
+            rule about which one wins. The serial number is different in kind —
+            it is stamped on the machine by whoever built it, is the number a
+            supplier asks for, and nobody here gets to choose it. That makes it
+            identity, which belongs with the name and code rather than filed
+            under depreciation.
+          */}
         </Box>
 
         <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', mt: 2 }}>
@@ -483,7 +489,14 @@ export default function MachineAssetPanel({ resourceId, resource, canManage, onC
 
       {/* ── Purchases ─────────────────────────────────────────────────────── */}
       <Box>
-        {label('Bought for this machine')}
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <Box sx={{ flex: 1 }}>{label('Bought for this machine')}</Box>
+          {canManage && (
+            <Button size="small" variant="outlined" startIcon={<AddRounded />} onClick={() => setSparesOpen(true)}>
+              Order spares
+            </Button>
+          )}
+        </Box>
         {spend && spend.lineCount > 0 && (
           <Box sx={{ display: 'flex', gap: 3, flexWrap: 'wrap', fontSize: 12.5, mb: 1.5 }}>
             <span><b>Expensed</b> {money(spend.expensed, spend.currency)}</span>
@@ -512,6 +525,19 @@ export default function MachineAssetPanel({ resourceId, resource, canManage, onC
           </Box>
         ))}
       </Box>
+
+      {/* Raised against THIS machine — for_resource_id — so the spend is
+          attributable rather than landing in a general maintenance pot. */}
+      <OrderSparesDialog
+        open={sparesOpen}
+        resource={{
+          id: resourceId,
+          name: String(resource.name ?? ''),
+          code: String(resource.code ?? ''),
+        }}
+        onClose={() => setSparesOpen(false)}
+        onDone={() => { void load(); onChanged?.(); }}
+      />
     </Box>
   );
 }
