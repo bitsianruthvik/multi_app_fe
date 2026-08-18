@@ -27,12 +27,8 @@ const Planner            = lazy(() => import('./pages/Planner'));
 const TaskEngine         = lazy(() => import('./pages/TaskEngine'));
 const MachineBoard       = lazy(() => import('./pages/MachineBoard'));
 const BufferConfig       = lazy(() => import('./pages/BufferConfig'));
-const MachineTimeline    = lazy(() => import('./pages/MachineTimeline'));
 const ShiftLog           = lazy(() => import('./pages/ShiftLog'));
 const People             = lazy(() => import('./pages/People'));
-const MachineBuffers     = lazy(() => import('./pages/MachineBuffers'));
-const MachinePerformance = lazy(() => import('./pages/MachinePerformance'));
-const CriticalChain      = lazy(() => import('./pages/CriticalChain'));
 const Setup              = lazy(() => import('./pages/Setup'));
 
 export function getFabErpRoutes(
@@ -79,11 +75,7 @@ export function getFabErpRoutes(
     { path: '/:company/fab_erp/task-engine',                element: wrap(<TaskEngine />) },
     { path: '/:company/fab_erp/machine-board',               element: wrap(<MachineBoard />) },
     { path: '/:company/fab_erp/buffer-config',               element: wrap(<BufferConfig />) },
-    { path: '/:company/fab_erp/machine-timeline',            element: wrap(<MachineTimeline />) },
     { path: '/:company/fab_erp/people',                     element: wrap(<People />) },
     { path: '/:company/fab_erp/shift-log',                  element: wrap(<ShiftLog />) },
-    { path: '/:company/fab_erp/analytics',                   element: wrap(<MachineBuffers />) },
-    { path: '/:company/fab_erp/machine-performance',         element: wrap(<MachinePerformance />) },
-    { path: '/:company/fab_erp/critical-chain',              element: wrap(<CriticalChain />) },
   ];
 }

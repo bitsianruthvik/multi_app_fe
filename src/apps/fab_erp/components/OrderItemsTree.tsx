@@ -12,6 +12,7 @@ import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
 import DownloadIcon from '@mui/icons-material/Download';
 import AutoFixHighRounded from '@mui/icons-material/AutoFixHighRounded';
 import StraightenRounded from '@mui/icons-material/StraightenRounded';
+import DescriptionRounded from '@mui/icons-material/DescriptionRounded';
 import TagRounded from '@mui/icons-material/TagRounded';
 import UploadFileIcon from '@mui/icons-material/UploadFile';
 
@@ -19,6 +20,7 @@ import { fabQuery, fabMutate } from '../api/client';
 import type { FilterValue } from '../api/client';
 import { Surface, EmptyState, useToast, backendMessage } from '../components';
 import { MaterializeOutcome, type MaterializeResponse } from './OrderTaskDag';
+import DrawingsPanel from './DrawingsPanel';
 import type { OrderReadiness } from '../api/readiness';
 import BoqWizardDialog, { type WizardLine } from './BoqWizardDialog';
 import { procurementOf } from '../api/procurement';
@@ -303,6 +305,7 @@ function ItemNode({ item, depth, canManage, flows, onDeleted, onItemAdded, onWei
   // with a catalog-item id — two different ID spaces in one key. Reading them
   // from the row removes that collision and the extra round-trip with it.
   const [showDims, setShowDims] = useState(false);
+  const [showDrawings, setShowDrawings] = useState(false);
 
   const [dims, setDims] = useState({
     length:     item.length     != null ? String(item.length)     : '',
@@ -666,6 +669,11 @@ function ItemNode({ item, depth, canManage, flows, onDeleted, onItemAdded, onWei
               </IconButton>
             </Tooltip>
           )}
+          <Tooltip title="Drawings">
+            <IconButton size="small" onClick={() => setShowDrawings((v) => !v)} sx={{ p: 0.25 }}>
+              <DescriptionRounded fontSize="small" />
+            </IconButton>
+          </Tooltip>
           {canManage && (
             <Tooltip title="Dimensions and weight">
               <IconButton size="small" onClick={() => setShowDims((s) => !s)} sx={{ p: 0.25 }}>
@@ -698,6 +706,15 @@ function ItemNode({ item, depth, canManage, flows, onDeleted, onItemAdded, onWei
             {deleting ? <CircularProgress size={12} color="inherit" /> : 'Confirm'}
           </Button>
           <Button size="small" onClick={() => setConfirmDelete(false)} disabled={deleting}>Cancel</Button>
+        </Box>
+      )}
+
+      {showDrawings && (
+        <Box sx={{ ml: `${6 + depth * 24 + 24}px`, mr: 1.5, mb: 1 }}>
+          {/* Attached here, read at the machine. A drawing put on the girder is
+              inherited by every part beneath it, which is why the general
+              arrangement never has to be attached two hundred times. */}
+          <DrawingsPanel itemId={item.id} canManage={canManage} dense />
         </Box>
       )}
 

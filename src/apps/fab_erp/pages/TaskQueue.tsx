@@ -86,7 +86,6 @@ import { usePermission } from '@core/hooks/usePermission';
 import { isAdminRole } from '@core/utils/roles';
 
 import { fabQuery, fabGet, fabPost, getWaitBreakdown, type WaitBreakdownResponse } from '../api/client';
-import { getCcWhatIf, type CcWhatIfResponse } from '../api/cc';
 import { useCompanySlug } from '../hooks/useCompanySlug';
 import {
   PageHeader, StatusBadge, Surface, useToast, LiveIndicator, useLiveRefresh, useNowTick, Mono, QtyCell,
@@ -94,8 +93,9 @@ import {
 } from '../components';
 import { WaitBreakdownBar, formatWaitMinutes } from '../components/WaitBreakdownBar';
 import { LogPastWorkDialog, type LogPastWorkTask } from '../components/LogPastWorkDialog';
-import { DetourWarningDialog } from '../components/cc/DetourWarningDialog';
 import { DialogCloseButton } from '../components/FormDialog';
+import DrawingsPanel from '../components/DrawingsPanel';
+import DescriptionRounded from '@mui/icons-material/DescriptionRounded';
 
 interface QueryResult<T> { data: T[]; total?: number }
 
@@ -330,7 +330,6 @@ function taskToLogPastWorkTask(task: QueueTask): LogPastWorkTask {
  */
 function TaskRow({
   task,
-  busy,
   canBackfill,
   onStart,
   onPause,
@@ -338,13 +337,13 @@ function TaskRow({
   onLogPastWork,
 }: {
   task: QueueTask;
-  busy: boolean;
   canBackfill: boolean;
   onStart: (task: QueueTask) => void;
   onPause: (task: QueueTask) => void;
   onComplete: (task: QueueTask) => void;
   onLogPastWork: (task: QueueTask, mode: 'log' | 'adjust') => void;
 }) {
+  const [showDrawings, setShowDrawings] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [breakdown, setBreakdown] = useState<WaitBreakdownResponse | null>(null);
   const [loadingBreakdown, setLoadingBreakdown] = useState(false);
@@ -544,29 +543,48 @@ function TaskRow({
             variant={block ? 'text' : 'outlined'}
             color={block ? block.tone.button : 'primary'}
             startIcon={block ? <block.Icon sx={{ fontSize: 16 }} /> : undefined}
-            disabled={!startEnabled || busy}
+            disabled={!startEnabled}
             onClick={() => onStart(task)}
           >
             {block ? 'Start anyway' : 'Start'}
           </Button>
-          <Button size="small" variant="outlined" disabled={!pauseEnabled || busy} onClick={() => onPause(task)}>
+          {/* The drawings for this task's item AND everything above it. On the
+              floor this is the most-reached-for thing on the card: you cannot
+              cut a plate from a number alone. */}
+          <Button
+            size="small" variant="text" startIcon={<DescriptionRounded fontSize="small" />}
+            onClick={() => setShowDrawings((v) => !v)}
+          >
+            Drawings
+          </Button>
+          <Button size="small" variant="outlined" disabled={!pauseEnabled} onClick={() => onPause(task)}>
             Pause
           </Button>
-          <Button size="small" variant="outlined" color="success" disabled={!stopEnabled || busy} onClick={() => onComplete(task)}>
+          <Button size="small" variant="outlined" color="success" disabled={!stopEnabled} onClick={() => onComplete(task)}>
             Complete
           </Button>
           {canBackfill && logPastWorkEnabled && (
-            <Button size="small" variant="text" disabled={busy} onClick={() => onLogPastWork(task, 'log')}>
+            <Button size="small" variant="text" onClick={() => onLogPastWork(task, 'log')}>
               Log past work
             </Button>
           )}
           {canBackfill && adjustTimesEnabled && (
-            <Button size="small" variant="text" disabled={busy} onClick={() => onLogPastWork(task, 'adjust')}>
+            <Button size="small" variant="text" onClick={() => onLogPastWork(task, 'adjust')}>
               Adjust times
             </Button>
           )}
         </Box>
       </Box>
+
+      {showDrawings && (
+        <Box sx={{ px: 2, pb: 1.5, pt: 0.5, borderTop: '1px solid var(--c-divider)' }}>
+          <DrawingsPanel
+            taskId={task.id}
+            dense
+            emptyHint="No drawing on this part or anything it belongs to. Attach one on the order's Structure step."
+          />
+        </Box>
+      )}
 
       {expanded && (
         <Box sx={{ px: 2, pb: 2, pt: 0.5, borderTop: '1px solid var(--c-divider)' }}>
@@ -618,16 +636,6 @@ export default function TaskQueue() {
   // Lifecycle actions (start/pause/complete) now run through their own dialogs,
   // which track their own `submitting` state — no per-row busy flag needed.
 
-  // EU-13: "Google-Maps detour" pre-flight — GET /cc/whatif is checked before a
-  // task's Start flow opens. `checkingTaskId` drives the per-row Start button's
-  // loading state while that check is in flight (blocks double-click). If the
-  // check reports impacts, `detourTask`/`whatIf` open the blocking warning
-  // dialog instead of the normal "Start task" confirm; otherwise (no impacts,
-  // or the whatif call itself failed — a CC hiccup must never block real work)
-  // the normal confirm dialog opens exactly as before.
-  const [checkingTaskId, setCheckingTaskId] = useState<number | null>(null);
-  const [detourTask, setDetourTask] = useState<QueueTask | null>(null);
-  const [whatIf, setWhatIf] = useState<CcWhatIfResponse | null>(null);
 
   // Start-gate dialog: opened instead of the normal confirm when the queue
   // already knows this task would refuse.
@@ -772,46 +780,20 @@ export default function TaskQueue() {
   }, [resource, refetchQueue, toast]);
 
   // EU-13: entry point for the row's Start button. Checks the CC detour
-  // what-if before deciding which dialog (if any) to open.
-  const handleStartClick = useCallback(async (task: QueueTask) => {
-    // The floor gates come first. A task the queue already knows will refuse
-    // has no useful detour to warn about, and the what-if round trip would only
-    // delay a dialog whose answer is "this isn't going to run".
+  // Opens the floor-gate dialog when the queue already knows the task will
+  // refuse, otherwise the normal Start confirm. The critical-chain "detour"
+  // pre-flight that used to sit in front of this went with the Analyse
+  // section on 2026-08-18 — it warned about a promise date computed from a
+  // model the catalog work has since replaced.
+  const handleStartClick = useCallback((task: QueueTask) => {
     if (startBlockOf(task)) {
       setBlockedTask(task);
       return;
     }
-    setCheckingTaskId(task.id);
-    try {
-      const res = await getCcWhatIf(task.id, task.assignedResourceId ?? undefined);
-      if (res.impacts.length > 0) {
-        setWhatIf(res);
-        setDetourTask(task);
-      } else {
-        openStartDialog(task);
-      }
-    } catch {
-      // A CC hiccup must never block real work — fall through to the normal flow.
-      openStartDialog(task);
-    } finally {
-      setCheckingTaskId(null);
-    }
+    openStartDialog(task);
   }, []);
 
-  const closeDetourDialog = () => {
-    if (submitting) return;
-    setDetourTask(null);
-    setWhatIf(null);
-  };
 
-  const confirmDetourStart = async () => {
-    if (!detourTask) return;
-    const ok = await runStart(detourTask);
-    if (ok) {
-      setDetourTask(null);
-      setWhatIf(null);
-    }
-  };
 
   const blockedInfo = blockedTask ? startBlockOf(blockedTask) : null;
   // The backend honours force only for the output-buffer guard, and only for
@@ -1050,7 +1032,6 @@ export default function TaskQueue() {
               <TaskRow
                 key={t.id}
                 task={t}
-                busy={checkingTaskId === t.id}
                 canBackfill={canBackfill}
                 onStart={handleStartClick}
                 onPause={openPauseDialog}
@@ -1123,13 +1104,6 @@ export default function TaskQueue() {
 
       {/* EU-13: detour dialog — blocking warning shown instead of the plain
           "Start task" confirm when the CC what-if reports impacted projects. */}
-      <DetourWarningDialog
-        open={!!detourTask}
-        whatIf={whatIf}
-        submitting={submitting}
-        onCancel={closeDetourDialog}
-        onConfirm={confirmDetourStart}
-      />
 
       {/* Start-gate dialog — shown instead of the plain "Start task" confirm
           when the queue already knows this one would refuse. It exists to turn

@@ -34,6 +34,8 @@ import {
 } from '@mui/material';
 import AddRounded from '@mui/icons-material/AddRounded';
 import CloseRounded from '@mui/icons-material/CloseRounded';
+import ScheduleRounded from '@mui/icons-material/ScheduleRounded';
+import CorrectTimeDialog from './CorrectTimeDialog';
 import BuildRounded from '@mui/icons-material/BuildRounded';
 import CloudRounded from '@mui/icons-material/CloudRounded';
 import AssignmentLateRounded from '@mui/icons-material/AssignmentLateRounded';
@@ -201,6 +203,9 @@ export function GapTable({
   const { toast } = useToast();
   const [day, setDay] = useState<DayGaps | null>(null);
   const [reasons, setReasons] = useState<GapReason[]>([]);
+  // Correcting an already-logged span. The only thing MachineTimeline could
+  // do that nothing else could, rehomed here when it was removed.
+  const [correcting, setCorrecting] = useState<{ taskId: number; label: string } | null>(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState('');
 
@@ -487,7 +492,17 @@ export function GapTable({
                 <Box>{siteTime(e.from, view.timezone)}</Box>
                 <Box>{siteTime(e.to, view.timezone)}</Box>
                 <Box sx={{ color: 'var(--c-text-3)' }}>{fmtDur(mins(e.from, e.to))}</Box>
-                <Box>
+                <Box sx={{ display: 'flex', gap: 0.25 }}>
+                  {/* A work row is not withdrawable — it is what the machine
+                      actually did — but its times can be wrong, and this is
+                      where somebody notices. */}
+                  {isWork && e.taskId != null && (
+                    <Tooltip title="Correct the logged start or finish time">
+                      <IconButton size="small" onClick={() => setCorrecting({ taskId: e.taskId!, label: e.label })}>
+                        <ScheduleRounded sx={{ fontSize: 15 }} />
+                      </IconButton>
+                    </Tooltip>
+                  )}
                   {e.removable && (
                     <Tooltip title="Withdraw — this time becomes unaccounted again">
                       <IconButton size="small" onClick={() => withdraw(e)}>
@@ -716,6 +731,14 @@ export function GapTable({
           Leaving time unaccounted is fine — it is recorded as unknown rather than guessed at.
         </Typography>
       )}
+
+      <CorrectTimeDialog
+        open={!!correcting}
+        taskId={correcting?.taskId ?? null}
+        taskLabel={correcting?.label}
+        onClose={() => setCorrecting(null)}
+        onCorrected={() => { setCorrecting(null); void load(); }}
+      />
     </Box>
   );
 }

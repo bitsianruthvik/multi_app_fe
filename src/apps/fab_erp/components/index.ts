@@ -43,5 +43,4 @@ export { AddPeopleDialog, type MachineOption } from './AddPeopleDialog';
 export { LiveIndicator } from './LiveIndicator';
 export { formatElapsed } from '../utils/formatElapsed';
 export { useLiveRefresh, useNowTick, formatAge } from '../hooks/useLiveRefresh';
-export { Heatstrip, HeatstripLegend, type HeatSegment, type RunState as HeatRunState } from './charts/Heatstrip';
 export { BarChart, ChartCard, type BarDatum } from './charts/BarChart';

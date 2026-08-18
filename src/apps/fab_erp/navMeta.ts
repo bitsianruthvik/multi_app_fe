@@ -71,7 +71,6 @@ export const NAV_SECTIONS: NavSection[] = [
       { slug: 'planner', label: 'Planner', permission: 'fab_erp_planner_view', keywords: ['dispatch', 'plan', 'planning', 'schedule', 'gantt', 'day', 'week', 'capacity', 'assign', 'next job', 'what next', 'ranking', 'priority', 'shift', 'suggest'] },
       { slug: 'task-engine', label: 'Engine', permission: 'fab_erp_taskengine_view', countKey: 'activeOrders', keywords: ['dag', 'graph', 'swimlane', 'progress'] },
       { slug: 'machine-board', label: 'Machines', permission: 'fab_erp_machine_state_manage', countKey: 'machinesRunning', keywords: ['shop floor', 'state', 'running', 'down'] },
-      { slug: 'machine-timeline', label: 'Timeline', permission: 'fab_erp_time_backfill', keywords: ['gantt', 'utilisation', 'backfill', 'history', 'reconcile', 'gaps', 'unaccounted', 'anomalies'] },
       // No countKey: "unaccounted time gaps" needs a per-machine shift-vs-events
       // diff, which is too expensive for a nav badge that reloads on every
       // section change. Add one only if /nav-counts can answer it in one query.
@@ -92,15 +91,19 @@ export const NAV_SECTIONS: NavSection[] = [
       { slug: 'stock-in', label: 'Stock in', permission: 'fab_erp_inventory_manage', keywords: ['receive', 'goods in', 'inward', 'add stock', 'raw material', 'grn'] },
     ],
   },
-  {
-    id: 'analyse',
-    label: 'Analyse',
-    items: [
-      { slug: 'critical-chain', label: 'Critical chain', permission: 'fab_erp_cc_view', countKey: 'redBuffers', keywords: ['ccpm', 'buffer', 'fever', 'drum', 'toc'] },
-      { slug: 'machine-performance', label: 'Machines', permission: 'fab_erp_shopfloor_analytics_view', keywords: ['utilisation', 'utilization', 'throughput', 'tonnes', 'tonnage', 'output', 'productivity', 'variation', 'oee', 'performance', 'idle'] },
-      { slug: 'analytics', label: 'Machine buffers', permission: 'fab_erp_shopfloor_analytics_view', keywords: ['buffer', 'wip', 'queue', 'reports', 'analytics'] },
-    ],
-  },
+  /*
+   * ANALYSE IS GONE (2026-08-18), to be rebuilt against the new reality.
+   *
+   * It held Critical chain, Machines and Machine buffers. All three were built
+   * on assumptions the catalog-unification work has since replaced — machines
+   * are stock pieces now, buffers are stock areas, and a machine no longer
+   * carries its own shift — so their numbers were describing a model that had
+   * moved underneath them. Removed rather than left showing plausible figures
+   * nobody should act on.
+   *
+   * The DATA is untouched: fab_cc_* and the analytics tables are all still
+   * there, so a rebuild starts from history rather than from nothing.
+   */
   {
     id: 'setup',
     label: 'Setup',
