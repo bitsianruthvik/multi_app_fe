@@ -15,9 +15,10 @@ import StraightenRounded from '@mui/icons-material/StraightenRounded';
 import TagRounded from '@mui/icons-material/TagRounded';
 import UploadFileIcon from '@mui/icons-material/UploadFile';
 
-import { fabQuery, fabMutate } from '../api/client';
+import { fabQuery, fabMutate, fabPost } from '../api/client';
 import type { FilterValue } from '../api/client';
-import { Surface, EmptyState, useToast, backendMessage } from '../components';
+import { Surface, EmptyState, useToast, backendMessage, RawMaterialSelect } from '../components';
+import { fetchRawMaterials, type RawMaterial } from '../api/rawMaterials';
 import { MaterializeOutcome, type MaterializeResponse } from './OrderTaskDag';
 import type { OrderReadiness } from '../api/readiness';
 import BoqWizardDialog, { type WizardLine } from './BoqWizardDialog';
@@ -303,6 +304,68 @@ function ItemNode({ item, depth, canManage, flows, onDeleted, onItemAdded, onWei
   // with a catalog-item id — two different ID spaces in one key. Reading them
   // from the row removes that collision and the extra round-trip with it.
   const [showDims, setShowDims] = useState(false);
+
+  /**
+   * The material link, loaded only when the panel is opened.
+   *
+   * It is a CHILD row (`catalog_item_id` set, `flow_id` null) rather than a
+   * column on the part, so it is fetched rather than read off `item`. Lazily,
+   * because the tree renders a few hundred rows and almost none of them are
+   * open at once — eager loading would be a few hundred queries to populate a
+   * field nobody is looking at.
+   */
+  const [materials, setMaterials] = useState<RawMaterial[]>([]);
+  const [materialsLoaded, setMaterialsLoaded] = useState(false);
+  const [materialId, setMaterialId] = useState<number | ''>('');
+  const [savingMaterial, setSavingMaterial] = useState(false);
+
+  useEffect(() => {
+    if (!showDims || materialsLoaded || item.catalogItemId != null) return;
+    let alive = true;
+    (async () => {
+      try {
+        const [cat, link] = await Promise.all([
+          fetchRawMaterials(),
+          fabQuery<{ data: FabItemRow[] }>('fabErpOrderItem', {
+            filters: { parentItemId: item.id },
+            pagination: { limit: 50 },
+          }),
+        ]);
+        if (!alive) return;
+        setMaterials(cat);
+        // The material child is the one with a catalog item and no flow — the
+        // same test the backend and the formula engine use to tell a raw
+        // material input from a made child part.
+        const mat = (link.data ?? []).find((c) => c.catalogItemId != null && c.flowId == null);
+        setMaterialId(mat?.catalogItemId ?? '');
+      } catch {
+        if (alive) setMaterials([]);
+      } finally {
+        if (alive) setMaterialsLoaded(true);
+      }
+    })();
+    return () => { alive = false; };
+  }, [showDims, materialsLoaded, item.id, item.catalogItemId]);
+
+  async function saveMaterial(next: string) {
+    const id = next === '' ? null : Number(next);
+    const prev = materialId;
+    setMaterialId(id ?? '');
+    setSavingMaterial(true);
+    setRowError('');
+    try {
+      await fabPost(`items/${item.id}/material`, { materialId: id });
+      // Material carries density, and weight is volume x density — changing it
+      // changes this row's computed weight and every ancestor total with it.
+      onWeightChanged();
+    } catch (e) {
+      setMaterialId(prev); // put the field back — the server did not accept it
+      setRowError(backendMessage(e, 'Could not set the material.'));
+    } finally {
+      setSavingMaterial(false);
+    }
+  }
+
   const [dims, setDims] = useState({
     length:     item.length     != null ? String(item.length)     : '',
     width:      item.width      != null ? String(item.width)      : '',
@@ -666,7 +729,7 @@ function ItemNode({ item, depth, canManage, flows, onDeleted, onItemAdded, onWei
             </Tooltip>
           )}
           {canManage && (
-            <Tooltip title="Dimensions and weight">
+            <Tooltip title="Material, dimensions and weight">
               <IconButton size="small" onClick={() => setShowDims((s) => !s)} sx={{ p: 0.25 }}>
                 <StraightenRounded fontSize="small" />
               </IconButton>
@@ -702,6 +765,45 @@ function ItemNode({ item, depth, canManage, flows, onDeleted, onItemAdded, onWei
 
       {showDims && (
         <Box sx={{ ml: `${6 + depth * 24 + 24}px`, mr: 1.5, mb: 1 }}>
+          {/*
+            WHAT THIS PART IS CUT FROM — the screen equivalent of the BOQ
+            sheet's Raw Material column.
+
+            Until this existed there was no way to set a material anywhere in
+            the UI, and the nesting step's own empty state said "set the Raw
+            Material column and re-upload" — a spreadsheet round trip to change
+            one dropdown, on an order whose structure the wizard had just
+            created without needing Excel at all.
+
+            Only on MADE items. A row that already carries `catalogItemId` IS a
+            material row (or a bought item), and asking what a plate is cut from
+            is a question about itself.
+
+            The thickness passed in is the part's `height`, which is the column
+            that has always held thickness here — the filter offers exact
+            matches at that thickness, so it stays empty until a thickness is
+            entered rather than offering the whole catalogue.
+          */}
+          {canManage && item.catalogItemId == null && (
+            <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', mb: 1.25 }}>
+              <RawMaterialSelect
+                materials={materials}
+                thickness={dims.height}
+                value={materialId}
+                onChange={saveMaterial}
+                valueOf={(m) => m.id}
+                label="Cut from"
+                disabled={savingMaterial || !materialsLoaded}
+                sx={{ minWidth: 300 }}
+              />
+              {savingMaterial && <CircularProgress size={12} />}
+              {materialId !== '' && !savingMaterial && (
+                <Button size="small" onClick={() => saveMaterial('')} sx={{ fontSize: 11 }}>
+                  Clear
+                </Button>
+              )}
+            </Box>
+          )}
           <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'center', flexWrap: 'wrap' }}>
             {(['length', 'width', 'height'] as const).map((k) => (
               <TextField

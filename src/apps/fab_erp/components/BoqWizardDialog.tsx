@@ -493,8 +493,9 @@ export default function BoqWizardDialog({ open, orderId, lines, onClose, onImpor
           Lay out the shape here, then <strong>Accept &amp; save</strong> to put it straight on the
           order — or <strong>Download sheet</strong> if you would rather fill in dimensions and edit
           it in Excel first, and upload it when you are done. Either way you can still change
-          everything afterwards in the tree. Material and operation flows are set later, on the
-          Nesting sheet and in flow allocation.
+          everything afterwards in the tree, including what each part is cut from — the ruler
+          icon on a part row has a “Cut from” picker. Operation flows are set separately, in
+          flow allocation.
         </Typography>
 
         <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', mb: 2, alignItems: 'flex-start' }}>

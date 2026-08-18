@@ -216,8 +216,9 @@ export default function NestingBoard({ orderId, canManage = false, onStageChange
                 No material yet · {board.noMaterial.length}
               </Typography>
               <Typography sx={{ fontSize: 11.5, color: 'var(--c-text-2)', mb: 0.75 }}>
-                These cannot be nested until the BOM says what they are cut from — set the
-                Raw Material column and re-upload.
+                These cannot be nested until the BOM says what they are cut from. Set it on
+                the Structure step — the ruler icon on a part row has a “Cut from” picker —
+                or fill the Raw Material column in the BOQ sheet and re-upload.
               </Typography>
               {board.noMaterial.map((p) => (
                 <PartCard key={p.partId} part={p} draggable={false} faded />
