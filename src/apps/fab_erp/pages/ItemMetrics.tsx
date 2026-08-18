@@ -9,7 +9,7 @@ import EditRounded from '@mui/icons-material/EditRounded';
 import AutoGraphRounded from '@mui/icons-material/AutoGraphRounded';
 
 import { fabQuery, fabMutate, fabGet } from '../api/client';
-import type { FabFieldDef } from '../types';
+import type { FabBase } from '../types';
 import { usePermission } from '@core/hooks/usePermission';
 import {
   PageHeader, Mono, EmptyState, useToast, DataTable, FormDialog, ConfirmDialog,
@@ -32,28 +32,70 @@ import {
  * lints against it, and `itemFieldService` resolves its value down the chain
  * (piece → order item → catalog item → sub-group → group → category → default).
  *
- * TWO FLAGS EARN THEIR PLACE
+ * ONE FLAG EARNS ITS PLACE
  *
  *   formula usable   a TEXT field can never be. The engine coerces with
  *                    Number(), so text yields NaN, the try/catch returns null,
  *                    and the task plans as a zero-length bar with no error.
- *   varies by piece  opt-in, off by default. A blanket piece-level override
- *                    would change a task's estimate the moment stock was
- *                    issued — right for "this coil came in at 6000 not 12000",
- *                    alarming for anything else.
+ *
+ * This page authors `fab_fields`, the table `/formula/variables` reads. It
+ * briefly wrote the retired `fab_field_defs` instead, which meant a field saved
+ * here never appeared in autocomplete and linted as unknown — the one failure
+ * mode a registry cannot have.
  */
 
 const DATA_TYPES = ['number', 'integer', 'text', 'date', 'bool'] as const;
 type DataType = (typeof DATA_TYPES)[number];
 
-interface Vocabulary {
-  dataTypes: { value: string; label: string }[];
-  units: { group: string; values: string[] }[];
-  levels: { value: string; label: string; hint: string }[];
+/**
+ * The row this page authors — `fab_fields` via the `fabErpField` resource.
+ * Declared here rather than in types.ts because `FabFieldDef` still describes
+ * the retired `fab_field_defs` shape that other readers have not moved off yet.
+ */
+interface FabField extends FabBase {
+  fieldKey: string;
+  label: string;
+  /** number | integer | text | date | bool. Text can never be formulaUsable. */
+  dataType: string;
+  defaultUnit: string | null;
+  formulaUsable: number;
+  /** The NARROWEST rung a value may be set on — see APPLIES_AT. */
+  appliesAt: string | null;
+  /** Present ⇒ this field is a picker restricted to these values. */
+  allowedValues?: string[] | string | null;
+  defaultNum: number | string | null;
+  /** Seeded, and referenced by feature code under this exact key. */
+  isStandard: number;
+  sortOrder: number;
+  active: number;
+  notes: string | null;
 }
 
 /**
- * The unit / level vocabulary, served rather than duplicated here.
+ * Where a value may be authored, phrased as the question people actually ask.
+ *
+ * The stored value is the narrowest rung on the resolver's ladder that this
+ * field is allowed to reach, so `order_item` is precisely "a piece cannot
+ * disagree with its item" — a thickness is a property of the part, whereas a
+ * length on "MS Plate 20mm" is meaningless because that item covers every
+ * length ever bought.
+ *
+ * Not taken from /fields/vocabulary any more: that endpoint still serves the
+ * item|piece|both trio of the retired table, none of which `fab_fields.applies_at`
+ * accepts.
+ */
+const APPLIES_AT = [
+  { value: 'order_item',  label: 'Same for every piece', hint: 'Thickness, grade, model' },
+  { value: 'stock_piece', label: 'Differs per piece',    hint: 'Length, heat number, serial' },
+] as const;
+
+interface Vocabulary {
+  dataTypes: { value: string; label: string }[];
+  units: { group: string; values: string[] }[];
+}
+
+/**
+ * The unit vocabulary, served rather than duplicated here.
  *
  * Falls back to a minimal set if the fetch fails, for the same reason
  * `useFormulaVariables` does: a definition editor that renders empty dropdowns
@@ -63,11 +105,6 @@ interface Vocabulary {
 const FALLBACK_VOCAB: Vocabulary = {
   dataTypes: DATA_TYPES.map((v) => ({ value: v, label: v })),
   units: [{ group: 'Common', values: ['mm', 'm', 'm2', 'kg', 'hrs', 'nos', '%'] }],
-  levels: [
-    { value: 'item', label: 'On the item', hint: 'Same for every piece' },
-    { value: 'piece', label: 'On each piece', hint: 'Differs per piece' },
-    { value: 'both', label: 'Item, overridable', hint: 'Set on the item, changed per piece' },
-  ],
 };
 
 function useVocabulary(): Vocabulary {
@@ -81,18 +118,18 @@ function useVocabulary(): Vocabulary {
 }
 
 interface Draft {
-  fieldKey: string; label: string; dataType: DataType; unit: string;
-  formulaUsable: boolean; pieceVarying: boolean; defaultValue: string;
-  level: string; allowedValues: string;
+  fieldKey: string; label: string; dataType: DataType; defaultUnit: string;
+  formulaUsable: boolean; defaultNum: string;
+  appliesAt: string; allowedValues: string;
 }
 const BLANK = (): Draft => ({
-  fieldKey: '', label: '', dataType: 'number', unit: '',
-  formulaUsable: true, pieceVarying: false, defaultValue: '',
-  level: 'item', allowedValues: '',
+  fieldKey: '', label: '', dataType: 'number', defaultUnit: '',
+  formulaUsable: true, defaultNum: '',
+  appliesAt: 'order_item', allowedValues: '',
 });
 
 function FieldDialog({ open, initial, onClose, onSaved }: {
-  open: boolean; initial: FabFieldDef | null; onClose: () => void; onSaved: () => void;
+  open: boolean; initial: FabField | null; onClose: () => void; onSaved: () => void;
 }) {
   const [draft, setDraft] = useState<Draft>(BLANK());
   const isNew = !initial;
@@ -105,16 +142,16 @@ function FieldDialog({ open, initial, onClose, onSaved }: {
           fieldKey: initial.fieldKey,
           label: initial.label,
           dataType: (initial.dataType as DataType) ?? 'number',
-          unit: initial.unit ?? '',
+          defaultUnit: initial.defaultUnit ?? '',
           formulaUsable: Number(initial.formulaUsable) === 1,
-          pieceVarying: Number(initial.pieceVarying) === 1,
-          // Definitions created before the level column fall back to what the
-          // old boolean meant, so editing one does not silently demote it.
-          level: initial.level ?? (Number(initial.pieceVarying) === 1 ? 'both' : 'item'),
+          // Anything broader than order_item (a seeded catalog_item field, say)
+          // shows as the item option: both mean "a piece may not disagree", and
+          // offering a third choice here would let an edit widen it by accident.
+          appliesAt: initial.appliesAt === 'stock_piece' ? 'stock_piece' : 'order_item',
           allowedValues: Array.isArray(initial.allowedValues)
             ? initial.allowedValues.join(', ')
             : (initial.allowedValues ?? ''),
-          defaultValue: initial.defaultValue != null ? String(initial.defaultValue) : '',
+          defaultNum: initial.defaultNum != null ? String(initial.defaultNum) : '',
         }
       : BLANK());
   }, [open, initial]);
@@ -122,6 +159,10 @@ function FieldDialog({ open, initial, onClose, onSaved }: {
   const set = <K extends keyof Draft>(k: K, v: Draft[K]) => setDraft((d) => ({ ...d, [k]: v }));
 
   const isText = draft.dataType === 'text';
+  // Features are written against the key of a standard field, so renaming one
+  // breaks them silently — the value simply stops resolving. Everything else
+  // about the field stays editable.
+  const keyLocked = Number(initial?.isStandard) === 1;
 
   // Throwing keeps the dialog open with the user's input and shows the real
   // backend message — FormDialog handles both.
@@ -130,22 +171,21 @@ function FieldDialog({ open, initial, onClose, onSaved }: {
       field_key: draft.fieldKey.trim(),
       label: draft.label.trim(),
       data_type: draft.dataType,
-      unit: draft.unit.trim() || null,
+      default_unit: draft.defaultUnit.trim() || null,
       // Enforced here as well as explained: a text field reaching a formula
       // nulls the whole duration silently.
       formula_usable: isText ? 0 : (draft.formulaUsable ? 1 : 0),
-      level: draft.level,
-      // Kept in step with `level` rather than edited separately. The boolean is
-      // still read by definitions that predate the column, and two controls for
-      // one idea is how they end up disagreeing.
-      piece_varying: draft.level === 'item' ? 0 : 1,
+      applies_at: draft.appliesAt,
       allowed_values: draft.allowedValues.trim()
         ? JSON.stringify(draft.allowedValues.split(',').map((s) => s.trim()).filter(Boolean))
         : null,
-      default_value: draft.defaultValue !== '' && !isText ? Number(draft.defaultValue) : null,
+      default_num: draft.defaultNum !== '' && !isText ? Number(draft.defaultNum) : null,
     };
-    if (isNew) await fabMutate('fabErpFieldDef', 'insert', payload);
-    else await fabMutate('fabErpFieldDef', 'update', { id: initial!.id, ...payload });
+    // A standard field's key is what features reference, so an update must not
+    // carry the (read-only) input back as a change.
+    if (keyLocked) delete (payload as Partial<typeof payload>).field_key;
+    if (isNew) await fabMutate('fabErpField', 'insert', payload);
+    else await fabMutate('fabErpField', 'update', { id: initial!.id, ...payload });
     onSaved();
   };
 
@@ -160,9 +200,12 @@ function FieldDialog({ open, initial, onClose, onSaved }: {
       <TextField
         label="Field key" value={draft.fieldKey} onChange={(e) => set('fieldKey', e.target.value)}
         size="small" fullWidth required
-        helperText={draft.fieldKey.trim() && !isText
-          ? `Used in formulas as item.${draft.fieldKey.trim()}`
-          : 'Snake-case identifier, e.g. weld_length_m'}
+        slotProps={{ input: { readOnly: keyLocked } }}
+        helperText={keyLocked
+          ? 'Standard field — features are written against this key, so it can’t be renamed. Label, unit and scoping are still yours.'
+          : (draft.fieldKey.trim() && !isText
+            ? `Used in formulas as item.${draft.fieldKey.trim()}`
+            : 'Snake-case identifier, e.g. weld_length_m')}
       />
       <TextField label="Label" value={draft.label} onChange={(e) => set('label', e.target.value)} size="small" fullWidth required helperText="Human-readable name shown in the UI" />
       <Box sx={{ display: 'flex', gap: 2 }}>
@@ -173,8 +216,8 @@ function FieldDialog({ open, initial, onClose, onSaved }: {
             two units for one thing, which is how this registry already grew a
             free-text `Thickness (mm)` beside the numeric `thickness_mm`. */}
         <TextField
-          select label="Unit" value={vocab.units.flatMap((g) => g.values).includes(draft.unit) ? draft.unit : ''}
-          onChange={(e) => set('unit', e.target.value)}
+          select label="Unit" value={vocab.units.flatMap((g) => g.values).includes(draft.defaultUnit) ? draft.defaultUnit : ''}
+          onChange={(e) => set('defaultUnit', e.target.value)}
           size="small" sx={{ flex: 1 }} disabled={isText}
           helperText="Declared, not converted — see below"
         >
@@ -186,16 +229,15 @@ function FieldDialog({ open, initial, onClose, onSaved }: {
         </TextField>
       </Box>
 
-      {/* Where the value is authored. Replaces the old "varies by piece" tick,
-          which could say "may differ per piece" but not "meaningless on the
-          item" — and a length on "MS Plate 20mm" is meaningless, because that
-          item covers every length ever bought. */}
+      {/* Asked as a property of the VALUE rather than of the storage: people
+          know whether two pieces of the same part can differ, and nobody knows
+          which rung of the resolver ladder that implies. */}
       <TextField
-        select label="Where is this set?" value={draft.level} size="small" fullWidth
-        onChange={(e) => set('level', e.target.value)}
-        helperText={vocab.levels.find((l) => l.value === draft.level)?.hint ?? ' '}
+        select label="Where is this set?" value={draft.appliesAt} size="small" fullWidth
+        onChange={(e) => set('appliesAt', e.target.value)}
+        helperText={APPLIES_AT.find((l) => l.value === draft.appliesAt)?.hint ?? ' '}
       >
-        {vocab.levels.map((l) => <MenuItem key={l.value} value={l.value}>{l.label}</MenuItem>)}
+        {APPLIES_AT.map((l) => <MenuItem key={l.value} value={l.value}>{l.label}</MenuItem>)}
       </TextField>
 
       {/* Allowed values turn any type into a picker. Deliberately not a
@@ -208,8 +250,8 @@ function FieldDialog({ open, initial, onClose, onSaved }: {
         helperText="Comma-separated. Leave blank for free entry; fill it in and this becomes a dropdown that rejects anything else."
       />
       <TextField
-        label="Default value" type="number" value={draft.defaultValue} disabled={isText}
-        onChange={(e) => set('defaultValue', e.target.value)} size="small" fullWidth
+        label="Default value" type="number" value={draft.defaultNum} disabled={isText}
+        onChange={(e) => set('defaultNum', e.target.value)} size="small" fullWidth
         helperText="Used when nothing further down the chain has a value"
       />
       <Box>
@@ -222,9 +264,6 @@ function FieldDialog({ open, initial, onClose, onSaved }: {
             A text field can’t be — it would evaluate to nothing and plan the task as instant.
           </Typography>
         )}
-        {/* The "varies by piece" tick that used to sit here is now the
-            "Where is this set?" dropdown above — one control, three answers,
-            including the one a boolean could not express. */}
         <Typography sx={{ fontSize: 11.5, color: 'var(--c-text-3)', mt: 1 }}>
           A unit is documentation — nothing converts between them. Define a length in metres
           against a formula written for millimetres and the answer is plausible and wrong by 1000×.
@@ -238,17 +277,17 @@ export default function ItemFields() {
   const canManage = usePermission('fab_erp_items_meta_manage');
   const { toast } = useToast();
 
-  const [rows, setRows] = useState<FabFieldDef[]>([]);
+  const [rows, setRows] = useState<FabField[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
-  const [editDialog, setEditDialog] = useState<{ open: boolean; item: FabFieldDef | null }>({ open: false, item: null });
-  const [delItem, setDelItem] = useState<FabFieldDef | null>(null);
+  const [editDialog, setEditDialog] = useState<{ open: boolean; item: FabField | null }>({ open: false, item: null });
+  const [delItem, setDelItem] = useState<FabField | null>(null);
 
   const fetchRows = useCallback(async () => {
     setLoading(true); setError('');
     try {
-      const res = await fabQuery<{ data: FabFieldDef[] }>('fabErpFieldDef', {
+      const res = await fabQuery<{ data: FabField[] }>('fabErpField', {
         orderBy: [{ field: 'sortOrder', direction: 'asc' }, { field: 'fieldKey', direction: 'asc' }],
         pagination: { limit: 500 },
       });
@@ -267,11 +306,20 @@ export default function ItemFields() {
       r.fieldKey.toLowerCase().includes(q) || (r.label ?? '').toLowerCase().includes(q));
   }, [rows, search]);
 
-  const columns: DataColumn<FabFieldDef>[] = [
-    { key: 'fieldKey', header: 'Field key', render: (r) => <Mono>{r.fieldKey}</Mono>, sortValue: (r) => r.fieldKey },
+  const columns: DataColumn<FabField>[] = [
+    {
+      key: 'fieldKey', header: 'Field key', sortValue: (r) => r.fieldKey,
+      render: (r) => (Number(r.isStandard) === 1
+        ? (
+          <Tooltip title="Standard field — features reference this key, so it can’t be renamed or deleted">
+            <Box component="span"><Mono>{r.fieldKey}</Mono></Box>
+          </Tooltip>
+        )
+        : <Mono>{r.fieldKey}</Mono>),
+    },
     { key: 'label', header: 'Label', render: (r) => r.label, sortValue: (r) => r.label },
     { key: 'dataType', header: 'Type', width: 90, render: (r) => r.dataType, sortValue: (r) => r.dataType },
-    { key: 'unit', header: 'Unit', width: 80, render: (r) => r.unit ?? '—', sortValue: (r) => r.unit ?? '' },
+    { key: 'defaultUnit', header: 'Unit', width: 80, render: (r) => r.defaultUnit ?? '—', sortValue: (r) => r.defaultUnit ?? '' },
     {
       key: 'formulaUsable', header: 'In formulas', width: 150,
       render: (r) => (Number(r.formulaUsable) === 1
@@ -280,11 +328,11 @@ export default function ItemFields() {
       sortValue: (r) => Number(r.formulaUsable),
     },
     {
-      key: 'level', header: 'Set on', width: 110,
-      // Falls back to what the old boolean meant, so definitions predating the
-      // level column read correctly instead of all showing "item".
-      render: (r) => (r.level ?? (Number(r.pieceVarying) === 1 ? 'both' : 'item')),
-      sortValue: (r) => String(r.level ?? (Number(r.pieceVarying) === 1 ? 'both' : 'item')),
+      key: 'appliesAt', header: 'Set on', width: 170,
+      // The human phrasing, not the stored rung: this column exists to be
+      // scanned, and "order_item" reads as a table name rather than an answer.
+      render: (r) => (APPLIES_AT.find((l) => l.value === r.appliesAt)?.label ?? APPLIES_AT[0].label),
+      sortValue: (r) => String(r.appliesAt ?? ''),
     },
     {
       key: 'allowedValues', header: 'Values', width: 130,
@@ -344,10 +392,19 @@ export default function ItemFields() {
                   <EditRounded fontSize="small" />
                 </IconButton>
               </Tooltip>
-              <Tooltip title="Delete">
-                <IconButton size="small" color="error" onClick={() => setDelItem(row)} aria-label={`Delete ${row.fieldKey}`}>
-                  <DeleteOutlineRounded fontSize="small" />
-                </IconButton>
+              {/* Shown but disabled rather than hidden: a missing button reads
+                  as a permission problem, and the reason is the useful part. */}
+              <Tooltip title={Number(row.isStandard) === 1
+                ? 'Standard field — features are written against this key'
+                : 'Delete'}>
+                <Box component="span">
+                  <IconButton
+                    size="small" color="error" disabled={Number(row.isStandard) === 1}
+                    onClick={() => setDelItem(row)} aria-label={`Delete ${row.fieldKey}`}
+                  >
+                    <DeleteOutlineRounded fontSize="small" />
+                  </IconButton>
+                </Box>
               </Tooltip>
             </>
           ) : undefined}
@@ -367,7 +424,7 @@ export default function ItemFields() {
         body="Any formula referencing this field will stop resolving it and estimate from zero."
         onClose={() => setDelItem(null)}
         onConfirm={async () => {
-          await fabMutate('fabErpFieldDef', 'delete', { id: delItem!.id });
+          await fabMutate('fabErpField', 'delete', { id: delItem!.id });
           setDelItem(null);
           toast('Field deleted');
           fetchRows();
