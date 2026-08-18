@@ -17,6 +17,7 @@ import TagRounded from '@mui/icons-material/TagRounded';
 import UploadFileIcon from '@mui/icons-material/UploadFile';
 
 import { fabQuery, fabMutate } from '../api/client';
+import { setFieldValues } from '../api/fields';
 import type { FilterValue } from '../api/client';
 import { Surface, EmptyState, useToast, backendMessage } from '../components';
 import { MaterializeOutcome, type MaterializeResponse } from './OrderTaskDag';
@@ -479,8 +480,25 @@ function ItemNode({ item, depth, canManage, flows, onDeleted, onItemAdded, onWei
 
     setSavingDims(true); setRowError('');
     try {
-      const column = key === 'unitWeight' ? 'unit_weight' : key;
-      await fabMutate('fabErpItem', 'update', { id: item.id, [column]: parsed });
+      if (key === 'unitWeight') {
+        // Weight is still a column on fab_items and has no field behind it.
+        await fabMutate('fabErpItem', 'update', { id: item.id, unit_weight: parsed });
+      } else {
+        /**
+         * Dimensions go through the field system now, not the column.
+         *
+         * `fab_items.length/width/height` became a DERIVED projection in step 4
+         * — setFields writes them from the value. Writing the column directly
+         * from here would set the projection without the value it is supposed
+         * to be derived from, so the formula engine and every matcher would see
+         * the old number while the screen showed the new one.
+         *
+         * Note `height` IS thickness: the BOQ sheet's Thick column is declared
+         * with key `height`, so it maps to `thickness_mm` and not to any height.
+         */
+        const FIELD_OF = { length: 'length_mm', width: 'width_mm', height: 'thickness_mm' } as const;
+        await setFieldValues('order_item', item.id, { [FIELD_OF[key]]: parsed });
+      }
       savedDimsRef.current[key] = parsed;
       if (key === 'unitWeight') {
         setEnteredWeight(parsed);
