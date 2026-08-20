@@ -24,7 +24,20 @@ export interface SuggestedPart {
 export interface SuggestedNest {
   thickness: number;
   grade: string | null;
-  plate: { id: number; code: string; name: string; length: number; width: number };
+  plate: {
+    /** The CATALOG item the part is linked to. For an offcut this is the item it was cut from. */
+    id: number;
+    /** The single physical offcut, when this plate is one. Null for a catalogue size. */
+    pieceId: number | null;
+    /** Already-paid-for steel rather than a sheet to buy. */
+    isOffcut: boolean;
+    /** The offcut's size was computed from a nesting layout, not measured. */
+    estimatedSize: boolean;
+    code: string;
+    name: string;
+    length: number;
+    width: number;
+  };
   parts: SuggestedPart[];
   pieces: number;
   utilisationPct: number;
@@ -77,7 +90,7 @@ export const suggestNesting = (orderId: number, opts: SuggestOptions = {}) =>
   });
 
 export const acceptNesting = (orderId: number, nests: SuggestedNest[]) =>
-  fabPost<{ nestsCreated: number; partsNested: number }>(
+  fabPost<{ nestsCreated: number; partsNested: number; offcutsClaimed: number }>(
     `orders/${orderId}/nesting/suggest/accept`,
     { nests },
   );

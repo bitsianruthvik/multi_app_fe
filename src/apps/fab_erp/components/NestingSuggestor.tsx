@@ -81,7 +81,9 @@ export default function NestingSuggestor({ orderId, onAccepted, disabled }: Prop
     setSaving(true);
     try {
       const res = await acceptNesting(orderId, nests as SuggestedNest[]);
-      toast(`${res.nestsCreated} plate(s) nested, ${res.partsNested} part(s) placed.`, 'success');
+      toast(`${res.nestsCreated} plate(s) nested, ${res.partsNested} part(s) placed`
+        + (res.offcutsClaimed ? `, ${res.offcutsClaimed} offcut(s) claimed for this order.` : '.'),
+      'success');
       setOpen(false);
       setSuggestion(null);
       onAccepted?.();
@@ -99,6 +101,14 @@ export default function NestingSuggestor({ orderId, onAccepted, disabled }: Prop
   });
 
   const summary = suggestion?.summary;
+  /** Plate area this suggestion takes off the shelf rather than buying. */
+  const fromOffcuts = useMemo(() => {
+    const picked = (suggestion?.groups ?? []).filter((g) => g.plate.isOffcut);
+    return {
+      plates: picked.length,
+      area: picked.reduce((s, g) => s + g.plate.length * g.plate.width, 0),
+    };
+  }, [suggestion]);
   const chosenWaste = useMemo(() => {
     if (!suggestion) return null;
     const picked = suggestion.groups.filter((_, i) => chosen.has(i));
@@ -174,6 +184,19 @@ export default function NestingSuggestor({ orderId, onAccepted, disabled }: Prop
                     value={`${summary.wasteAreaM2} m² · ${summary.wastePct}%`}
                     emphasis={summary.wastePct > 20 ? 'warning' : 'good'}
                   />
+                  {/*
+                    Steel taken off the shelf instead of bought. Reported
+                    separately from waste because it is a different kind of
+                    saving: waste is plate you bought and did not use, this is
+                    plate you did not have to buy at all.
+                  */}
+                  {fromOffcuts.plates > 0 && (
+                    <Stat
+                      label="From offcuts"
+                      value={`${fromOffcuts.plates} plate(s) · ${m2(fromOffcuts.area)} m² not bought`}
+                      emphasis="good"
+                    />
+                  )}
                 </Box>
               )}
 
@@ -240,7 +263,30 @@ export default function NestingSuggestor({ orderId, onAccepted, disabled }: Prop
                             <Checkbox size="small" checked={chosen.has(i)} onChange={() => toggle(i)} />
                           </TableCell>
                           <TableCell>
-                            <Typography variant="body2" fontWeight={600}>{g.plate.code}</Typography>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                              <Typography variant="body2" fontWeight={600}>{g.plate.code}</Typography>
+                              {/*
+                                An offcut is a materially different statement
+                                from a plate: this one is already in the yard
+                                and already paid for. Saying so on the row is
+                                the difference between a buying decision and a
+                                fetching one.
+                              */}
+                              {g.plate.isOffcut && (
+                                <Tooltip title={g.plate.estimatedSize
+                                  ? 'Cut from an offcut already in stock. Its size was computed '
+                                    + 'from the nesting that produced it, not measured — worth '
+                                    + 'checking against the piece before cutting.'
+                                  : 'Cut from an offcut already in stock, at its measured size.'}>
+                                  <Chip
+                                    size="small"
+                                    color="success"
+                                    variant="outlined"
+                                    label={g.plate.estimatedSize ? 'offcut · est.' : 'offcut'}
+                                  />
+                                </Tooltip>
+                              )}
+                            </Box>
                             <Typography variant="caption" color="text.secondary">
                               {g.thickness} mm{g.grade ? ` · ${g.grade}` : ''}
                             </Typography>
