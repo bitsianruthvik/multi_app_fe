@@ -734,54 +734,6 @@ function CatalogDialog({ open, initial, categories, groups, subgroups, canManage
     setCustomFields((d) => d.map((r, j) => j === i ? { ...r, [k]: v } : r));
   }
 
-  async function resolveDefaultGroup(categoryId: number): Promise<number> {
-    const existing = await fabQuery<{ data: FabItemGroup[] }>('fabErpItemGroup', {
-      filters: { categoryId, name: 'Default' },
-      pagination: { limit: 1 },
-    });
-    if (existing.data?.[0]) return existing.data[0].id;
-    try {
-      const res = await fabMutate<{ ok: boolean; id: number }>('fabErpItemGroup', 'insert', {
-        category_id: categoryId, name: 'Default', code: 'default', description: null, is_system: 0,
-      });
-      return res.id;
-    } catch (e) {
-      const status = (e as { response?: { status?: number } }).response?.status;
-      if (status === 409) {
-        const retry = await fabQuery<{ data: FabItemGroup[] }>('fabErpItemGroup', {
-          filters: { categoryId, name: 'Default' },
-          pagination: { limit: 1 },
-        });
-        if (retry.data?.[0]) return retry.data[0].id;
-      }
-      throw e;
-    }
-  }
-
-  async function resolveDefaultSubgroup(groupId: number): Promise<number> {
-    const existing = await fabQuery<{ data: FabItemSubgroup[] }>('fabErpItemSubgroup', {
-      filters: { groupId, name: 'Default' },
-      pagination: { limit: 1 },
-    });
-    if (existing.data?.[0]) return existing.data[0].id;
-    try {
-      const res = await fabMutate<{ ok: boolean; id: number }>('fabErpItemSubgroup', 'insert', {
-        group_id: groupId, name: 'Default', code: 'default', description: null, is_system: 0,
-      });
-      return res.id;
-    } catch (e) {
-      const status = (e as { response?: { status?: number } }).response?.status;
-      if (status === 409) {
-        const retry = await fabQuery<{ data: FabItemSubgroup[] }>('fabErpItemSubgroup', {
-          filters: { groupId, name: 'Default' },
-          pagination: { limit: 1 },
-        });
-        if (retry.data?.[0]) return retry.data[0].id;
-      }
-      throw e;
-    }
-  }
-
   async function save() {
     if (!draft.name.trim()) { setErr('Name is required.'); return; }
     if (!isNew && !draft.code.trim()) { setErr('Code is required.'); return; }
@@ -791,10 +743,23 @@ function CatalogDialog({ open, initial, categories, groups, subgroups, canManage
     setCategoryError('');
     setSaving(true); setErr('');
     try {
-      let groupId = draft.groupId;
-      let subgroupId = draft.subgroupId;
-      if (!groupId) groupId = await resolveDefaultGroup(draft.categoryId);
-      if (groupId && !subgroupId) subgroupId = await resolveDefaultSubgroup(groupId);
+      // Taxonomy is stored exactly as the user chose it. An unset Group or
+      // Sub-group is persisted as NULL — we deliberately do NOT invent a
+      // placeholder "Default" group/sub-group here. The taxonomy is the
+      // scoping key for the field system (fields attach at category / group /
+      // sub-group and inherit down), so silently bucketing an item under an
+      // auto-created "Default" would both misplace the item and leak any field
+      // later added to that "Default" node onto everything that fell into it.
+      // The backend field ladder walks item -> subgroup -> group -> category
+      // and skips null levels, so a category-only item still inherits its
+      // category-level fields.
+      const subgroupId = draft.subgroupId;
+      // The Sub-group select is not gated on Group, so a sub-group can be
+      // chosen while Group is still "None". In that case adopt the sub-group's
+      // real parent group rather than storing a broken chain — this reuses
+      // existing taxonomy and never creates any.
+      const groupId = draft.groupId
+        ?? (subgroupId != null ? subgroups.find((s) => s.id === subgroupId)?.groupId ?? null : null);
 
       let itemCode = draft.code.trim().toUpperCase();
       if (isNew) {

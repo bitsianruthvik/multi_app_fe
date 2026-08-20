@@ -14,7 +14,7 @@ import { useDetailTitle } from '../components/nav/detailTitleContext';
 import type { FabItemCatalog, FabCustomField, FabItemCategory, FabItemGroup, FabItemSubgroup } from '../types';
 import { usePermission } from '@core/hooks/usePermission';
 import BomDesigner from '../components/BomDesigner';
-import { SectionCard, Surface, DetailLayout, Mono, StatusBadge, useToast, DetailSkeleton } from '../components';
+import { SectionCard, StickyActionBar, Surface, DetailLayout, Mono, StatusBadge, useToast, DetailSkeleton } from '../components';
 import { STANDARD_UOMS } from '../constants/uom';
 
 const PROCUREMENT_TYPES = [
@@ -147,9 +147,27 @@ export default function ItemCatalogDetail() {
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
 
-  async function saveItem() {
+  /**
+   * ONE honest save for the whole Item Details tab.
+   *
+   * The tab writes to two different places — the item record and its custom
+   * fields — and used to expose a button for each ("Save item" in the card
+   * header, "Save fields" buried further down). Overriding an inherited field
+   * and then pressing the visually-primary "Save item" fired exactly one
+   * request, toasted success, and silently dropped the field edit on the next
+   * reload. Splitting one mental action ("save this item") across two buttons
+   * IS the bug; no amount of relabelling fixes it. So there is now a single
+   * save that awaits both writes and only reports success once both landed.
+   */
+  async function saveAll() {
     if (!item) return;
-    if (!draft.categoryId) { setCategoryError('Category is required.'); return; }
+    if (!draft.categoryId) {
+      setCategoryError('Category is required.');
+      // Loud, never silent: nothing was written and nothing was discarded —
+      // configDraft still holds the pending field edits.
+      setError('Nothing was saved — Category is required. Your changes are still on screen.');
+      return;
+    }
     setCategoryError('');
     setSaving(true); setError('');
     try {
@@ -160,12 +178,35 @@ export default function ItemCatalogDetail() {
         category_id: draft.categoryId ?? null, group_id: draft.groupId ?? null, subgroup_id: draft.subgroupId ?? null,
         hsn_code: draft.hsnCode ?? null,
       });
-      toast('Item saved');
+
+      // Custom-field flush — the same sequence the standalone "Save fields"
+      // ran: deletes for rows dropped from the draft, then insert (negative
+      // draft id) or update for each remaining row, blank field names skipped.
+      // Run unconditionally rather than behind a dirty check, because a
+      // false negative in change detection would reintroduce precisely the
+      // silent data loss this function exists to remove.
+      setConfigSaving(true);
+      const removedIds = configs.filter((c) => !configDraft.find((d) => d.id === c.id)).map((c) => c.id);
+      for (const rid of removedIds) await fabMutate('fabErpCustomField', 'delete', { id: rid });
+      let wroteFields = removedIds.length > 0;
+      for (let i = 0; i < configDraft.length; i++) {
+        const d = configDraft[i];
+        if (!d.fieldKey.trim()) continue;
+        wroteFields = true;
+        if (d.id < 0) await fabMutate('fabErpCustomField', 'insert', { level: 'item', level_id: id, field_key: d.fieldKey.trim(), field_type: d.fieldType, field_value: d.fieldValue ?? null, sort_order: i });
+        else await fabMutate('fabErpCustomField', 'update', { id: d.id, field_key: d.fieldKey.trim(), field_type: d.fieldType, field_value: d.fieldValue ?? null, sort_order: i });
+      }
+
+      // One toast and one refetch for the whole operation, never two.
+      toast(wroteFields ? 'Item and custom fields saved' : 'Item saved');
       fetchAll();
     } catch (e) {
+      // Deliberately no fetchAll() here: on a mid-sequence failure the draft
+      // keeps the user's edits rather than being overwritten by a
+      // partially-written server state, and no success is reported.
       const ax = e as { response?: { data?: { error?: string } }; message?: string };
       setError(ax.response?.data?.error ?? ax.message ?? 'Save failed');
-    } finally { setSaving(false); }
+    } finally { setSaving(false); setConfigSaving(false); }
   }
 
   const mergedInherited = useMemo(() => {
@@ -186,24 +227,38 @@ export default function ItemCatalogDetail() {
     setConfigDraft((d) => [...d, placeholder]);
   }
 
-  async function saveConfigs() {
-    setConfigSaving(true); setError('');
-    try {
-      const removedIds = configs.filter((c) => !configDraft.find((d) => d.id === c.id)).map((c) => c.id);
-      for (const rid of removedIds) await fabMutate('fabErpCustomField', 'delete', { id: rid });
-      for (let i = 0; i < configDraft.length; i++) {
-        const d = configDraft[i];
-        if (!d.fieldKey.trim()) continue;
-        if (d.id < 0) await fabMutate('fabErpCustomField', 'insert', { level: 'item', level_id: id, field_key: d.fieldKey.trim(), field_type: d.fieldType, field_value: d.fieldValue ?? null, sort_order: i });
-        else await fabMutate('fabErpCustomField', 'update', { id: d.id, field_key: d.fieldKey.trim(), field_type: d.fieldType, field_value: d.fieldValue ?? null, sort_order: i });
-      }
-      toast('Custom fields saved');
-      fetchAll();
-    } catch (e) {
-      const ax = e as { response?: { data?: { error?: string } }; message?: string };
-      setError(ax.response?.data?.error ?? ax.message ?? 'Save failed');
-    } finally { setConfigSaving(false); }
-  }
+  // Which half of the tab has unsaved edits. Used ONLY to render the
+  // "unsaved changes" markers — saveAll never consults these, so a wrong
+  // answer here can mislabel a badge but can never skip a write.
+  const itemDirty = useMemo(() => {
+    if (!item) return false;
+    const norm = (v: unknown) => (v === null || v === undefined || v === '' ? '' : String(v));
+    const pairs: [unknown, unknown][] = [
+      [draft.name, item.name],
+      [draft.code, item.code],
+      [draft.unit, item.unit],
+      [draft.description, item.description],
+      [draft.procurementType ?? 'buy', item.procurementType ?? 'buy'],
+      [draft.leadTimeDays, item.leadTimeDays],
+      [mrpPolicy, item.mrpPolicy ?? 'manual'],
+      [draft.categoryId, item.categoryId],
+      [draft.groupId, item.groupId],
+      [draft.subgroupId, item.subgroupId],
+      [draft.hsnCode, item.hsnCode],
+    ];
+    return pairs.some(([a, b]) => norm(a) !== norm(b));
+  }, [draft, item, mrpPolicy]);
+
+  const fieldsDirty = useMemo(() => {
+    if (configDraft.length !== configs.length) return true;
+    return configDraft.some((d) => {
+      const orig = configs.find((c) => c.id === d.id);
+      if (!orig) return true;
+      return orig.fieldKey !== d.fieldKey
+        || orig.fieldType !== d.fieldType
+        || (orig.fieldValue ?? '') !== (d.fieldValue ?? '');
+    });
+  }, [configs, configDraft]);
 
   function Field({ label, k, type = 'text', suffix }: { label: string; k: keyof FabItemCatalog; type?: string; suffix?: string }) {
     return (
@@ -218,6 +273,11 @@ export default function ItemCatalogDetail() {
 
   if (loading) return <DetailSkeleton />;
   if (!item) return <Box><Alert severity="error">Item not found.</Alert></Box>;
+
+  const dirtyMessage = itemDirty && fieldsDirty ? 'Unsaved changes in Item and Custom fields'
+    : itemDirty ? 'Unsaved changes in Item'
+    : fieldsDirty ? 'Unsaved changes in Custom fields'
+    : 'No unsaved changes';
 
   return (
     <DetailLayout
@@ -238,20 +298,23 @@ export default function ItemCatalogDetail() {
     >
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
 
-      {/* One card per concern, and — critically — each Save sits in the header
-          of the card it actually saves. This tab has TWO independent save
-          actions hitting two different endpoints (the item record, and its
-          custom fields); when both were plain buttons stacked in one long
-          Surface, nothing on screen said which one wrote what, so editing a
-          field and pressing the nearer button silently discarded the other
-          half. */}
+      {/* One card per concern, but only ONE save. This tab writes to two
+          endpoints (the item record and its custom fields) and previously put
+          a save button in each card header — which reads as "this button
+          saves this card" and so invited the user to press one and lose the
+          other card's work. Both writes now hang off the single button in the
+          StickyActionBar below, which stays in the viewport from either
+          section; the cards themselves only report whether they are dirty. */}
       {tab === 0 && (
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
         <SectionCard
           title="Item"
           subtitle="Identity, planning defaults and where it sits in the taxonomy"
-          action={canManage ? (
-            <Button variant="contained" size="small" startIcon={saving ? <CircularProgress size={14} color="inherit" /> : <SaveIcon />} disabled={saving} onClick={saveItem}>Save item</Button>
+          action={canManage && itemDirty ? (
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, color: 'var(--c-warning-600)' }}>
+              <Box aria-hidden sx={{ width: 7, height: 7, borderRadius: '50%', bgcolor: 'var(--c-warning-600)' }} />
+              <Typography sx={{ fontSize: 12, fontWeight: 600 }}>Unsaved changes</Typography>
+            </Box>
           ) : undefined}
         >
           <Typography sx={{ fontSize: 11, fontWeight: 600, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--c-text-3)', mb: 1.5 }}>General</Typography>
@@ -315,8 +378,13 @@ export default function ItemCatalogDetail() {
         <SectionCard
           title="Custom fields"
           subtitle="Item specs like weight, dimensions, barcode or material grade live here rather than as built-in columns"
-          action={canManage && configDraft.length > 0 ? (
-            <Button variant="contained" size="small" startIcon={configSaving ? <CircularProgress size={14} color="inherit" /> : <SaveIcon />} disabled={configSaving} onClick={saveConfigs}>Save fields</Button>
+          action={canManage && (configSaving || fieldsDirty) ? (
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, color: 'var(--c-warning-600)' }}>
+              {configSaving
+                ? <CircularProgress size={13} color="inherit" />
+                : <Box aria-hidden sx={{ width: 7, height: 7, borderRadius: '50%', bgcolor: 'var(--c-warning-600)' }} />}
+              <Typography sx={{ fontSize: 12, fontWeight: 600 }}>{configSaving ? 'Saving…' : 'Unsaved changes'}</Typography>
+            </Box>
           ) : undefined}
         >
           {mergedInherited.length > 0 && (
@@ -392,6 +460,21 @@ export default function ItemCatalogDetail() {
             </Table>
           )}
         </SectionCard>
+
+        {/* The one and only save on this tab. Sticky so it is reachable from
+            the fields section without scrolling back up, and its message line
+            names which sections are pending before you click. */}
+        {canManage && (
+          <StickyActionBar message={dirtyMessage}>
+            <Button
+              variant="contained" size="small"
+              startIcon={saving ? <CircularProgress size={14} color="inherit" /> : <SaveIcon />}
+              disabled={saving} onClick={saveAll}
+            >
+              {saving ? 'Saving…' : 'Save changes'}
+            </Button>
+          </StickyActionBar>
+        )}
         </Box>
       )}
 
