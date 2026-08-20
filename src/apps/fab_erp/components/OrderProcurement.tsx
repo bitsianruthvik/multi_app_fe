@@ -530,6 +530,7 @@ function ReceiveDialog({ po, onClose, onDone, onError }: {
     id: number; code: string | null; qty: number; qtyReceived: number;
   }>>([]);
   const [locations, setLocations] = useState<LocationOption[]>([]);
+  const [hiddenAreaCount, setHiddenAreaCount] = useState(0);
   const [lineId, setLineId] = useState<number | ''>('');
   const [locationId, setLocationId] = useState<number | ''>('');
   const [qty, setQty] = useState('');
@@ -552,13 +553,39 @@ function ReceiveDialog({ po, onClose, onDone, onError }: {
       if (open) setLineId(open.id);
     }).catch(() => setLines([]));
 
-    fabQuery<{ data: LocationOption[] }>('fabErpStockLocation', {
-      orderBy: [{ field: 'name', direction: 'asc' }], pagination: { limit: 200 },
-    }).then((r) => {
-      const rows = r.data ?? [];
-      setLocations(rows);
-      if (rows.length === 1) setLocationId(rows[0].id);
-    }).catch(() => setLocations([]));
+    /**
+     * A MACHINE'S WIP AREA IS NOT A DELIVERY DESTINATION.
+     *
+     * This is the THIRD receive dialog in the app, and the last one still
+     * offering every stock area — including `Assembler-1 WIP`, which sorts
+     * first alphabetically, so the obvious click dropped bought steel onto a
+     * machine. The same fix already landed in GrnAgainstPoPanel and StockIn.
+     *
+     * `fab_stock_locations` has no type column, so the discriminator is the
+     * LINK: a location that is some machine's own `stock_location_id`. Not a
+     * name match on "WIP" — that would break the first time somebody renamed
+     * an area, and miss any area not spelled that way.
+     *
+     * If the machine list cannot be read, or filtering would leave nothing to
+     * pick, the full list stands: a delivery must never become un-bookable
+     * because a secondary query failed.
+     */
+    Promise.all([
+      fabQuery<{ data: LocationOption[] }>('fabErpStockLocation', {
+        orderBy: [{ field: 'name', direction: 'asc' }], pagination: { limit: 200 },
+      }).then((r) => r.data ?? []).catch(() => [] as LocationOption[]),
+      fabQuery<{ data: { stockLocationId: number | null }[] }>('fabErpResource', {
+        pagination: { limit: 1000 },
+      }).then((r) => new Set((r.data ?? [])
+        .map((m) => m.stockLocationId).filter((id): id is number => id != null)))
+        .catch(() => null),
+    ]).then(([rows, machineAreaIds]) => {
+      const kept = machineAreaIds ? rows.filter((l) => !machineAreaIds.has(l.id)) : rows;
+      const usable = kept.length > 0 ? kept : rows;
+      setHiddenAreaCount(rows.length - usable.length);
+      setLocations(usable);
+      if (usable.length === 1) setLocationId(usable[0].id);
+    });
   }, [po.poId]);
 
   const chosen = lines.find((l) => l.id === lineId) ?? null;
@@ -604,6 +631,11 @@ function ReceiveDialog({ po, onClose, onDone, onError }: {
           onChange={(e) => setLocationId(e.target.value === '' ? '' : Number(e.target.value))}>
           {locations.map((l) => <MenuItem key={l.id} value={l.id}>{l.name}</MenuItem>)}
         </TextField>
+        {hiddenAreaCount > 0 && (
+          <Typography sx={{ fontSize: 11.5, color: 'var(--c-text-3)', mt: -1 }}>
+            {hiddenAreaCount} machine work-in-progress area(s) not shown
+          </Typography>
+        )}
         <Box sx={{ display: 'flex', gap: 2 }}>
           <TextField size="small" type="number" label="Quantity" value={qty} sx={{ width: 140 }}
             helperText={chosen ? `${outstanding} outstanding` : ' '}
