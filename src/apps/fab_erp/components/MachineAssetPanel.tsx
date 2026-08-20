@@ -24,7 +24,7 @@ import StopRounded from '@mui/icons-material/StopRounded';
 import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
 import AddRounded from '@mui/icons-material/AddRounded';
 
-import { fabMutate } from '../api/client';
+import { fabMutate, fabGet, fabPost } from '../api/client';
 import OrderSparesDialog from './OrderSparesDialog';
 import { backendMessage, useToast } from '../components';
 import {
@@ -49,6 +49,36 @@ const STATUS_TONE: Record<string, { bg: string; fg: string; label: string }> = {
   overdue:     { bg: 'var(--c-err-50, #ffebee)',  fg: 'var(--c-err-800, #b71c1c)',  label: 'Overdue' },
   in_progress: { bg: 'var(--c-info-50, #e3f2fd)', fg: 'var(--c-info-800, #0d47a1)', label: 'In maintenance' },
 };
+
+/**
+ * The machine's WORK area — where its work-in-process sits — as answered by
+ * GET/POST /resources/:id/area.
+ *
+ * Deliberately NOT the same thing as the "Where it is" section below, which
+ * moves the machine's own asset piece (`stock_piece_id`) through
+ * /assets/resources/:id/move. One is where the metal stands, the other is where
+ * the job sits; they are separate columns and separate decisions, and the panel
+ * shows them as two sections for that reason.
+ */
+interface AreaPreview {
+  currentLocationId: number | null;
+  areaOwnership: 'dedicated' | 'shared' | 'empty' | 'none';
+  sharedWith: { id: number; name: string; code: string | null }[];
+  pieceCount: number;
+}
+interface AreaSkip {
+  pieceId: number; pieceCode: string | null; qty: number; status: string;
+  reason: string; reasonText: string; heldBy: string | null;
+}
+interface AreaResult {
+  changed: boolean;
+  provisioned: boolean;
+  message: string;
+  movedCount: number;
+  skippedCount: number;
+  to: { id: number; code: string | null; name: string };
+  skipped: AreaSkip[];
+}
 
 const str = (v: unknown) => (v == null ? '' : String(v));
 const dateOnly = (v: unknown) => (v == null ? '' : String(v).slice(0, 10));
@@ -84,23 +114,48 @@ export default function MachineAssetPanel({ resourceId, resource, canManage, onC
   const [loading, setLoading] = useState(true);
   const [sparesOpen, setSparesOpen] = useState(false);
 
+  // ── work area (fab_resources.stock_location_id) ───────────────────────────
+  const [areaInfo, setAreaInfo] = useState<AreaPreview | null>(null);
+  const [areaResult, setAreaResult] = useState<AreaResult | null>(null);
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
       // Each falls back to null rather than failing the panel: a machine with no
       // stock piece has no location, which is a state to render, not an error.
-      const [v, m, p, loc, ar, sp] = await Promise.all([
+      const [v, m, p, loc, ar, sp, wa] = await Promise.all([
         fetchValuation(resourceId).catch(() => null),
         fetchMachineMaintenance(resourceId).catch(() => null),
         fetchAssetPurchases({ resourceId }).then((r) => r.orders).catch(() => []),
         fetchMachineLocation(resourceId).catch(() => null),
         fetchMachineAreas().then((r) => r.locations).catch(() => []),
         fetchSpareSpend(resourceId).catch(() => null),
+        fabGet<AreaPreview>(`resources/${resourceId}/area`).catch(() => null),
       ]);
       setValuation(v); setMaint(m); setPurchases(p);
-      setLocation(loc); setAreas(ar); setSpend(sp);
+      setLocation(loc); setAreas(ar); setSpend(sp); setAreaInfo(wa);
     } finally { setLoading(false); }
   }, [resourceId]);
+
+  /**
+   * Reassign the WORK area, taking the stock with it.
+   *
+   * Never `fabMutate` — a column write moves the pointer and orphans the stock,
+   * which is the whole reason this endpoint exists. `mode: 'dedicated'` is the
+   * "this machine shares the pool and should not" case: it provisions the
+   * machine's own WIP area and moves what it can attribute in one action.
+   */
+  async function reassignArea(body: { toLocationId?: number; mode?: 'dedicated' }) {
+    setSaving(true); setError(''); setAreaResult(null);
+    try {
+      const r = await fabPost<AreaResult>(`resources/${resourceId}/area`, body);
+      setAreaResult(r);
+      toast(r.changed ? r.message : 'Already in that area — nothing moved.', r.changed ? 'success' : 'info');
+      await load(); onChanged?.();
+    } catch (e) {
+      setError(backendMessage(e, 'Could not change this machine\'s work area.'));
+    } finally { setSaving(false); }
+  }
 
   async function move(stockLocationId: number) {
     if (!stockLocationId || stockLocationId === location?.locationId) return;
@@ -438,9 +493,81 @@ export default function MachineAssetPanel({ resourceId, resource, canManage, onC
 
       <Divider />
 
+      {/* ── Where its WORK sits ───────────────────────────────────────────── */}
+      <Box>
+        {label('Where its work sits')}
+        {!areaInfo ? (
+          <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-3)' }}>
+            No work area recorded for this machine yet.
+          </Typography>
+        ) : (
+          <>
+            <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
+              <TextField
+                select size="small" label="Work area" sx={{ minWidth: 240 }}
+                value={areaInfo.currentLocationId ?? ''} disabled={!canManage || saving}
+                onChange={(e) => reassignArea({ toLocationId: Number(e.target.value) })}
+              >
+                {areas.map((a) => (
+                  <MenuItem key={a.id} value={a.id}>
+                    {a.name}{a.plantName ? ` · ${a.plantName}` : ''}
+                  </MenuItem>
+                ))}
+              </TextField>
+              {areaInfo.areaOwnership === 'shared' && (
+                <Tooltip title={`Shared with ${areaInfo.sharedWith.map((s) => s.name).join(', ')}`}>
+                  <Chip size="small" label={`Pooled · ${areaInfo.sharedWith.length} other machine${areaInfo.sharedWith.length === 1 ? '' : 's'}`}
+                    sx={{ height: 22, fontSize: 11,
+                      bgcolor: 'var(--c-warn-50, #fff8e1)', color: 'var(--c-warn-800, #8a5a00)' }} />
+                </Tooltip>
+              )}
+              {areaInfo.areaOwnership === 'dedicated' && (
+                <Chip size="small" label="Its own area" sx={{ height: 22, fontSize: 11,
+                  bgcolor: 'var(--c-ok-50, #e8f5e9)', color: 'var(--c-ok-800, #1b5e20)' }} />
+              )}
+              <Typography sx={{ fontSize: 11.5, color: 'var(--c-text-3)' }}>
+                {areaInfo.pieceCount} piece{areaInfo.pieceCount === 1 ? '' : 's'} in it
+              </Typography>
+              {canManage && areaInfo.areaOwnership === 'shared' && (
+                <Button size="small" variant="outlined" disabled={saving}
+                  onClick={() => reassignArea({ mode: 'dedicated' })}>
+                  Give it its own area
+                </Button>
+              )}
+            </Box>
+            {/* The thing the old column write got wrong, said plainly. */}
+            <Typography sx={{ fontSize: 11.5, color: 'var(--c-text-3)', mt: 1 }}>
+              This is where this machine&apos;s work in progress sits — not where the machine stands.
+              Changing it moves the stock and records both halves in the ledger. In a pooled area only
+              work this machine can be shown to hold moves; anything else stays, and is listed below.
+            </Typography>
+            {areaResult && (
+              <Alert severity={areaResult.skippedCount ? 'warning' : 'success'} sx={{ mt: 1.5 }}
+                onClose={() => setAreaResult(null)}>
+                {areaResult.message}
+                {areaResult.skipped.length > 0 && (
+                  <Box component="ul" sx={{ m: '6px 0 0', pl: 2.5 }}>
+                    {areaResult.skipped.map((s) => (
+                      <li key={s.pieceId}>
+                        <Typography component="span" sx={{ fontSize: 11.5 }}>
+                          {s.pieceCode ?? `piece ${s.pieceId}`} ({s.qty}, {s.status}) — {s.reasonText}
+                          {s.heldBy ? `: ${s.heldBy}` : ''}
+                        </Typography>
+                      </li>
+                    ))}
+                  </Box>
+                )}
+              </Alert>
+            )}
+          </>
+        )}
+      </Box>
+
+      <Divider />
+
       {/* ── Where it is ───────────────────────────────────────────────────── */}
       <Box>
-        {label('Where it is')}
+        {label('Where the machine stands')}
         {!location?.pieceId ? (
           <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-3)' }}>
             Not tracked as a physical asset yet — give this machine a plant and it registers automatically.

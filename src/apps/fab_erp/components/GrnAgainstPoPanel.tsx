@@ -38,7 +38,10 @@ import {
 
 interface PlantRow { id: number; name: string; code: string | null }
 interface LocationRow { id: number; name: string; code: string | null; plantId: number | null }
+/** The legacy single-area column still carried on `fab_resources`. */
 interface MachineRow { id: number; stockLocationId: number | null }
+/** One row of `fab_resource_stock_areas` — the canonical machine-to-area link. */
+interface ResourceAreaRow { stockLocationId: number | null }
 
 /** What the user typed against one line. Blank qty = not received. */
 interface LineEntry { qty: string; heatNo: string }
@@ -76,10 +79,23 @@ export default function GrnAgainstPoPanel({ plants, locations, onReceived }: {
    * from a supplier lands there, and offering one on a goods receipt is how
    * purchased plate ends up recorded as WIP on a cutter.
    *
-   * The discriminator is the LINK, not the name: `fab_resources.stock_location_id`
-   * is a machine's area, and it is the same column `fab_resource_stock_areas`
-   * (role 'wip') was backfilled from in the catalog-unification migration. No
-   * string matching on "WIP" — a shop is free to call the area anything.
+   * The discriminator is the LINK, not the name. No string matching on "WIP" —
+   * a shop is free to call the area anything.
+   *
+   * EVERY linked area is hidden, whatever its `role` says. `role` is free text
+   * by deliberate design ('input' | 'output' | 'wip' today, whatever a shop
+   * needs tomorrow), so a role-aware rule would have to decide what an
+   * unrecognised value means — and "not a role I know, therefore safe to
+   * deliver into" is the wrong default. Hiding a machine's `input` area that a
+   * shop genuinely does deliver into costs one transfer; showing an area whose
+   * role nobody anticipated silently books bought steel onto a machine. Letting
+   * input areas through is a product decision that needs its own explicit flag,
+   * not an inference from free text. `active = 0` is no exemption either —
+   * soft-deleting the link row is how a shop says an area is no longer a
+   * machine's.
+   *
+   * ADVISORY ONLY. /stock/receive validates nothing about the destination, so
+   * this narrows what is easy to do, not what is possible.
    */
   const [machineAreaIds, setMachineAreaIds] = useState<Set<number> | null>(null);
   const [receivedDate, setReceivedDate] = useState(todayISO());
@@ -106,20 +122,37 @@ export default function GrnAgainstPoPanel({ plants, locations, onReceived }: {
     if (plantId === '' && plants.length === 1) setPlantId(plants[0].id);
   }, [plants, plantId]);
 
-  // Which areas belong to a machine. Failing to answer must not block a
-  // delivery, so an error leaves the list exactly as it was before.
+  /**
+   * Which areas belong to a machine — the UNION of two sources, because
+   * neither one is complete on its own.
+   *
+   *   • `fab_resource_stock_areas` is canonical: one row per (machine, area,
+   *     role), so a machine may own several areas. The old code could not read
+   *     it at all, and in production it lists machine areas that no
+   *     `fab_resources.stock_location_id` points at — they stayed on offer.
+   *   • `fab_resources.stock_location_id` is the legacy single-area column,
+   *     still written by the machine editor. A machine created since the
+   *     catalog-unification backfill has that column set and NO link row, so
+   *     dropping this source would open a new hole while closing the old one.
+   *
+   * Failing to answer must not block a delivery, so each source degrades to
+   * "contributes nothing" on error and the list stays exactly as it was.
+   */
   useEffect(() => {
     let cancelled = false;
-    fabQuery<{ data: MachineRow[] }>('fabErpResource', { pagination: { limit: 1000 } })
-      .then((res) => {
-        if (cancelled) return;
-        setMachineAreaIds(new Set(
-          (res.data ?? [])
-            .map((r) => r.stockLocationId)
-            .filter((id): id is number => typeof id === 'number'),
-        ));
-      })
-      .catch(() => { if (!cancelled) setMachineAreaIds(new Set()); });
+    void Promise.all([
+      fabQuery<{ data: ResourceAreaRow[] }>('fabErpResourceStockArea', { pagination: { limit: 2000 } })
+        .then((r) => r.data ?? []).catch(() => [] as ResourceAreaRow[]),
+      fabQuery<{ data: MachineRow[] }>('fabErpResource', { pagination: { limit: 1000 } })
+        .then((r) => r.data ?? []).catch(() => [] as MachineRow[]),
+    ]).then(([areas, machines]) => {
+      if (cancelled) return;
+      setMachineAreaIds(new Set(
+        [...areas, ...machines]
+          .map((r) => r.stockLocationId)
+          .filter((id): id is number => typeof id === 'number'),
+      ));
+    });
     return () => { cancelled = true; };
   }, []);
 
@@ -325,7 +358,7 @@ export default function GrnAgainstPoPanel({ plants, locations, onReceived }: {
                   plantId === ''
                     ? 'Pick a plant first'
                     : hiddenMachineAreas.length && receivableLocations.length < plantLocations.length
-                      ? `${hiddenMachineAreas.length} machine work-in-progress area(s) not shown`
+                      ? `${hiddenMachineAreas.length} machine stock area(s) not shown`
                       : ' '
                 }
               >

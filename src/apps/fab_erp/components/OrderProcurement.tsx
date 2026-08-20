@@ -31,6 +31,8 @@ import { DialogCloseButton } from './FormDialog';
 
 interface SupplierOption { id: number; code: string; name: string; leadTimeDays?: number | null }
 interface LocationOption { id: number; name: string; plantId: number | null }
+/** One row of `fab_resource_stock_areas` — the canonical machine-to-area link. */
+interface ResourceAreaRow { stockLocationId: number | null }
 
 const num = (v: unknown) => Number(v ?? 0);
 
@@ -531,6 +533,16 @@ function ReceiveDialog({ po, onClose, onDone, onError }: {
   }>>([]);
   const [locations, setLocations] = useState<LocationOption[]>([]);
   const [hiddenAreaCount, setHiddenAreaCount] = useState(0);
+  /**
+   * Plant names, so two areas that share a name can be told apart.
+   *
+   * init.sql seeds MACH-ON / MACH-OFF once PER PLANT, so a multi-plant company
+   * legitimately has several areas called "Machines - on site" — they are not
+   * duplicates. This dialog lists every plant's areas and then DERIVES the
+   * receipt's plant from whichever one is chosen, so two identical-looking
+   * options silently booked the delivery into different factories.
+   */
+  const [plantName, setPlantName] = useState<Map<number, string>>(new Map());
   const [lineId, setLineId] = useState<number | ''>('');
   const [locationId, setLocationId] = useState<number | ''>('');
   const [qty, setQty] = useState('');
@@ -554,36 +566,61 @@ function ReceiveDialog({ po, onClose, onDone, onError }: {
     }).catch(() => setLines([]));
 
     /**
-     * A MACHINE'S WIP AREA IS NOT A DELIVERY DESTINATION.
+     * A MACHINE'S OWN STOCK AREA IS NOT A DELIVERY DESTINATION.
      *
-     * This is the THIRD receive dialog in the app, and the last one still
-     * offering every stock area — including `Assembler-1 WIP`, which sorts
-     * first alphabetically, so the obvious click dropped bought steel onto a
-     * machine. The same fix already landed in GrnAgainstPoPanel and StockIn.
+     * This is the THIRD receive dialog in the app; the same rule lives in
+     * GrnAgainstPoPanel and StockIn, and all three read the same two sources.
      *
      * `fab_stock_locations` has no type column, so the discriminator is the
-     * LINK: a location that is some machine's own `stock_location_id`. Not a
-     * name match on "WIP" — that would break the first time somebody renamed
-     * an area, and miss any area not spelled that way.
+     * LINK, never a name match on "WIP" — that would break the first time
+     * somebody renamed an area, and miss any area not spelled that way. Two
+     * sources, unioned, because neither is complete on its own:
      *
-     * If the machine list cannot be read, or filtering would leave nothing to
-     * pick, the full list stands: a delivery must never become un-bookable
-     * because a secondary query failed.
+     *   • `fab_resource_stock_areas` is canonical: one row per (machine, area,
+     *     role), so a machine may own several areas. In production it lists
+     *     machine areas that no `fab_resources.stock_location_id` points at —
+     *     which is exactly how two of them stayed on offer here.
+     *   • `fab_resources.stock_location_id` is the legacy single-area column,
+     *     still written by the machine editor, so a machine created since the
+     *     catalog-unification backfill has it set and NO link row.
+     *
+     * EVERY linked area is hidden, whatever its `role` says. `role` is free
+     * text by deliberate design, so a role-aware rule would have to decide what
+     * an unrecognised value means, and "not a role I know, therefore safe to
+     * deliver into" is the wrong default. Hiding a machine's `input` area that
+     * a shop genuinely does deliver into costs one transfer; showing an area
+     * whose role nobody anticipated silently books bought steel onto a machine.
+     *
+     * If a source cannot be read, or filtering would leave nothing to pick, the
+     * full list stands: a delivery must never become un-bookable because a
+     * secondary query failed. ADVISORY ONLY — /stock/receive validates nothing
+     * about the destination.
      */
-    Promise.all([
+    void Promise.all([
       fabQuery<{ data: LocationOption[] }>('fabErpStockLocation', {
         orderBy: [{ field: 'name', direction: 'asc' }], pagination: { limit: 200 },
       }).then((r) => r.data ?? []).catch(() => [] as LocationOption[]),
-      fabQuery<{ data: { stockLocationId: number | null }[] }>('fabErpResource', {
+      fabQuery<{ data: ResourceAreaRow[] }>('fabErpResourceStockArea', {
+        pagination: { limit: 2000 },
+      }).then((r) => r.data ?? []).catch(() => [] as ResourceAreaRow[]),
+      fabQuery<{ data: ResourceAreaRow[] }>('fabErpResource', {
         pagination: { limit: 1000 },
-      }).then((r) => new Set((r.data ?? [])
-        .map((m) => m.stockLocationId).filter((id): id is number => id != null)))
-        .catch(() => null),
-    ]).then(([rows, machineAreaIds]) => {
-      const kept = machineAreaIds ? rows.filter((l) => !machineAreaIds.has(l.id)) : rows;
+      }).then((r) => r.data ?? []).catch(() => [] as ResourceAreaRow[]),
+      fabQuery<{ data: { id: number; name: string }[] }>('fabErpPlant', {
+        pagination: { limit: 200 },
+      }).then((r) => r.data ?? []).catch(() => [] as { id: number; name: string }[]),
+    ]).then(([rows, areas, machines, plants]) => {
+      setPlantName(new Map(plants.map((pl) => [pl.id, pl.name])));
+      const machineAreaIds = new Set(
+        [...areas, ...machines]
+          .map((m) => m.stockLocationId)
+          .filter((id): id is number => id != null),
+      );
+      const kept = rows.filter((l) => !machineAreaIds.has(l.id));
       const usable = kept.length > 0 ? kept : rows;
       setHiddenAreaCount(rows.length - usable.length);
       setLocations(usable);
+      setLocationId((cur) => (cur !== '' && !usable.some((l) => l.id === cur) ? '' : cur));
       if (usable.length === 1) setLocationId(usable[0].id);
     });
   }, [po.poId]);
@@ -629,11 +666,16 @@ function ReceiveDialog({ po, onClose, onDone, onError }: {
         </TextField>
         <TextField select size="small" label="Into stock area" value={locationId}
           onChange={(e) => setLocationId(e.target.value === '' ? '' : Number(e.target.value))}>
-          {locations.map((l) => <MenuItem key={l.id} value={l.id}>{l.name}</MenuItem>)}
+          {locations.map((l) => (
+            <MenuItem key={l.id} value={l.id}>
+              {l.name}
+              {l.plantId != null && plantName.get(l.plantId) ? ` — ${plantName.get(l.plantId)}` : ''}
+            </MenuItem>
+          ))}
         </TextField>
         {hiddenAreaCount > 0 && (
           <Typography sx={{ fontSize: 11.5, color: 'var(--c-text-3)', mt: -1 }}>
-            {hiddenAreaCount} machine work-in-progress area(s) not shown
+            {hiddenAreaCount} machine stock area(s) not shown
           </Typography>
         )}
         <Box sx={{ display: 'flex', gap: 2 }}>

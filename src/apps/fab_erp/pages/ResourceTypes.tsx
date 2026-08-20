@@ -15,7 +15,7 @@ import PrecisionManufacturingRounded from '@mui/icons-material/PrecisionManufact
 import ShoppingCartRounded from '@mui/icons-material/ShoppingCartRounded';
 import UploadFileIcon from '@mui/icons-material/UploadFile';
 
-import { fabQuery, fabMutate } from '@apps/fab_erp/api/client';
+import { fabQuery, fabMutate, fabPost } from '@apps/fab_erp/api/client';
 import type {
   FabOperation, FabOperationResourceType, FabPlant, FabResource, FabResourceCustomField, FabResourceType, FabResourceTypeProperty, FabStockLocation,
 } from '@apps/fab_erp/types';
@@ -43,6 +43,22 @@ const td = { borderColor: 'var(--c-divider)', fontSize: 13, color: 'var(--c-text
 function errMsg(e: unknown): string {
   const ax = e as { response?: { data?: { message?: string; error?: string } }; message?: string };
   return ax.response?.data?.message ?? ax.response?.data?.error ?? ax.message ?? 'Something went wrong';
+}
+
+/**
+ * What POST /resources/:id/area answers with.
+ *
+ * Only the fields this page renders. The full shape (per-piece `moved` /
+ * `skipped` arrays, `moveRefs`, `sharedWith`) is documented on the route; the
+ * dialog shows the sentence and the counts, and MachineAssetPanel shows the
+ * detail.
+ */
+interface AreaReassignResult {
+  changed: boolean;
+  message: string;
+  movedCount: number;
+  skippedCount: number;
+  areaOwnership: 'dedicated' | 'shared' | 'empty' | 'none' | 'unchanged';
 }
 
 const CREATE_NEW_TYPE = '__create_new_type__';
@@ -835,7 +851,10 @@ function ResourceDetailDialog({ open, initial, resourceTypes, plants, canManage,
   const [std, setStd] = useState<StdDraft>(blankStd());
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
+  /** What the last area reassignment moved, and what it left behind. */
+  const [areaNote, setAreaNote] = useState('');
   const [stockLocations, setStockLocations] = useState<FabStockLocation[]>([]);
+  const [locationsLoaded, setLocationsLoaded] = useState(false);
   const isNew = !initial;
 
   const selectedType = resourceTypes.find((rt) => rt.id === basic.resourceTypeId);
@@ -844,6 +863,7 @@ function ResourceDetailDialog({ open, initial, resourceTypes, plants, canManage,
   useEffect(() => {
     if (!open) return;
     setTab(0); setErr('');
+    setAreaNote('');
     if (initial) {
       setBasic({ name: initial.name, code: initial.code, serialNo: (initial as unknown as { serialNo?: string }).serialNo ?? '', resourceTypeId: initial.resourceTypeId, plantId: initial.plantId ?? null, stockLocationId: initial.stockLocationId ?? null });
       setStd(fromResStd(initial));
@@ -854,35 +874,72 @@ function ResourceDetailDialog({ open, initial, resourceTypes, plants, canManage,
   }, [open, initial]);
 
   useEffect(() => {
-    if (!open || basic.plantId == null) { setStockLocations([]); return; }
+    if (!open || basic.plantId == null) { setStockLocations([]); setLocationsLoaded(false); return; }
+    setLocationsLoaded(false);
     fabQuery<QueryResult<FabStockLocation>>('fabErpStockLocation', { filters: { plantId: basic.plantId }, orderBy: [{ field: 'name', direction: 'asc' }], pagination: { limit: 500 } })
-      .then((res) => setStockLocations(res.data ?? [])).catch(() => setStockLocations([]));
+      .then((res) => setStockLocations(res.data ?? []))
+      .catch(() => setStockLocations([]))
+      .finally(() => setLocationsLoaded(true));
   }, [open, basic.plantId]);
 
+  /**
+   * Drop an area that is not in the chosen plant — but only once the list has
+   * actually arrived.
+   *
+   * This used to run against the empty list that exists for the first render
+   * after the dialog opens, so opening a machine for edit silently cleared its
+   * stock location, and Save then wrote that NULL back. Which is one way a
+   * machine stops pointing at the area holding its work.
+   */
   useEffect(() => {
-    if (!open) return;
-  }, [open]);
-
-  useEffect(() => {
-    if (basic.stockLocationId == null) return;
+    if (!locationsLoaded || basic.stockLocationId == null) return;
     if (!stockLocations.some((l) => l.id === basic.stockLocationId)) setBasic((d) => ({ ...d, stockLocationId: null }));
-  }, [stockLocations, basic.stockLocationId]);
+  }, [locationsLoaded, stockLocations, basic.stockLocationId]);
 
   async function save() {
     if (!basic.name.trim() || !basic.code.trim() || !basic.resourceTypeId) { setErr('Name, code and resource type are required.'); return; }
-    setSaving(true); setErr('');
+    setSaving(true); setErr(''); setAreaNote('');
     try {
-      const payload = {
+      const payload: Record<string, unknown> = {
         name: basic.name.trim(), code: basic.code.trim(), resource_type_id: basic.resourceTypeId,
         plant_id: basic.plantId, stock_location_id: basic.stockLocationId, serial_no: basic.serialNo.trim() || null, ...toStdPayload(std),
       };
-      if (isNew) await fabMutate('fabErpResource', 'insert', payload);
-      else await fabMutate('fabErpResource', 'update', { id: initial!.id, ...payload });
+      if (isNew) {
+        // Creation keeps `stock_location_id` on the mutate payload: a machine
+        // that did not exist a moment ago has no stock anywhere, so there is
+        // nothing to carry across and no ledger row to write.
+        await fabMutate('fabErpResource', 'insert', payload);
+      } else {
+        /**
+         * CHANGING the area is not a column write (2026-08-20).
+         *
+         * `stock_location_id` is where this machine's work-in-process lives.
+         * Sent through `/mutate` the pointer moved and the stock did not, which
+         * is how production ended up with two WIP areas holding stock that no
+         * machine points at. So the field is stripped out of the generic update
+         * and the change goes through POST /resources/:id/area, which moves the
+         * pieces and writes the ledger in the same transaction — and tells us
+         * what it left behind when the old area was shared.
+         */
+        const changedArea = basic.stockLocationId != null
+          && basic.stockLocationId !== (initial!.stockLocationId ?? null);
+        delete payload.stock_location_id;
+        await fabMutate('fabErpResource', 'update', { id: initial!.id, ...payload });
+        if (changedArea) {
+          const r = await fabPost<AreaReassignResult>(`resources/${initial!.id}/area`, {
+            toLocationId: basic.stockLocationId,
+          });
+          // Said out loud rather than assumed: a shared area moves only what it
+          // can attribute, and a silent partial move is the failure mode this
+          // endpoint exists to stop.
+          setAreaNote(r.message);
+        }
+      }
       onSaved();
       if (isNew) onClose();
     } catch (e) {
-      const e2 = e as { response?: { data?: { error?: string } }; message?: string };
-      setErr(e2.response?.data?.error ?? e2.message ?? 'Save failed');
+      const e2 = e as { response?: { data?: { error?: string; message?: string } }; message?: string };
+      setErr(e2.response?.data?.message ?? e2.response?.data?.error ?? e2.message ?? 'Save failed');
     } finally { setSaving(false); }
   }
 
@@ -899,6 +956,10 @@ function ResourceDetailDialog({ open, initial, resourceTypes, plants, canManage,
       </Box>
       <DialogContent dividers sx={{ minHeight: 400 }}>
         {err && <Alert severity="error" sx={{ mb: 2 }}>{err}</Alert>}
+        {/* The outcome of a stock move belongs on screen, not in a toast that
+            scrolls away — when an area is shared, this sentence is the only
+            place that says which pieces stayed behind and why. */}
+        {areaNote && <Alert severity="info" sx={{ mb: 2 }} onClose={() => setAreaNote('')}>{areaNote}</Alert>}
         {tab === 0 && (
           <Grid container spacing={2}>
             <Grid size={{ xs: 12, sm: 4 }}><TextField label="Code *" size="small" fullWidth value={basic.code} onChange={(e) => setBasic((d) => ({ ...d, code: e.target.value }))} disabled={!canManage} /></Grid>
@@ -916,7 +977,15 @@ function ResourceDetailDialog({ open, initial, resourceTypes, plants, canManage,
               </TextField>
             </Grid>
             <Grid size={{ xs: 12, sm: 6 }}>
-              <TextField select label="Stock location *" size="small" fullWidth value={basic.stockLocationId ?? ''} onChange={(e) => setBasic((d) => ({ ...d, stockLocationId: e.target.value === '' ? null : Number(e.target.value) }))} disabled={!canManage || basic.plantId == null} error={basic.plantId != null && basic.stockLocationId == null} helperText={basic.plantId == null ? 'Select a plant first' : 'Where this machine physically sits'}>
+              {/* Changing this MOVES stock. The helper says so, because the
+                  old wording ("where this machine physically sits") described
+                  the asset's whereabouts — a different column, edited on the
+                  Asset tab — and gave no hint that saving relocates work. */}
+              <TextField select label="Work area *" size="small" fullWidth value={basic.stockLocationId ?? ''} onChange={(e) => setBasic((d) => ({ ...d, stockLocationId: e.target.value === '' ? null : Number(e.target.value) }))} disabled={!canManage || basic.plantId == null} error={basic.plantId != null && basic.stockLocationId == null}
+                helperText={basic.plantId == null
+                  ? 'Select a plant first'
+                  : (isNew ? 'Where this machine\'s work in progress will sit'
+                    : 'Where this machine\'s work in progress sits. Changing it moves the stock too.')}>
                 {stockLocations.map((sl) => <MenuItem key={sl.id} value={sl.id}>{sl.code} — {sl.name}</MenuItem>)}
               </TextField>
             </Grid>
