@@ -262,7 +262,18 @@ export default function OrderNesting({ orderId, canManage = false, onStageChange
       {/* Arrange plates here; the Excel path stays for bulk entry, and the
           readiness rollup below is the material's-eye view the board does not
           try to duplicate. */}
-      <NestingBoard orderId={orderId} canManage={canManage} onStageChanged={onStageChanged} />
+      {/*
+        The board's callback was passed straight through to the parent, which
+        refreshes READINESS — and left this component's own rollup untouched.
+        So every board change (a drag, a break-up, an accepted suggestion) left
+        the material view below still calling parts "un-nested" while the plates
+        directly above plainly held them. It reloads here too now.
+      */}
+      <NestingBoard
+        orderId={orderId}
+        canManage={canManage}
+        onStageChanged={(next) => { void load(); onStageChanged?.(next); }}
+      />
 
       <Divider sx={{ my: 3, borderColor: 'var(--c-divider)' }} />
 

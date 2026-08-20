@@ -12,6 +12,7 @@ import api, { API_HOST } from '@core/utils/axiosConfig';
 import { Surface, EmptyState, useToast, backendMessage, RawMaterialSelect } from '../components';
 import { fetchRawMaterials, type RawMaterial } from '../api/rawMaterials';
 import type { OrderReadiness } from '../api/readiness';
+import NestingSuggestor from './NestingSuggestor';
 
 /**
  * Nesting as a board: parts on the left, plates on the right, drag between them.
@@ -318,6 +319,22 @@ export default function NestingBoard({ orderId, canManage = false, onStageChange
               >
                 Add plate
               </Button>
+              {/*
+                The third way in. Filling plates by hand is still the way to
+                arrange a job you know; this is for the four-hundred-part order
+                where somewhere to start is worth more than a blank board. It
+                proposes only — accepting drops the result here, where every
+                plate can still be dragged apart.
+              */}
+              <NestingSuggestor
+                orderId={orderId}
+                disabled={!!draft}
+                // Reload the board AND tell the parent, the same pair every
+                // other mutation here does. Reloading only the board left the
+                // panel underneath still calling every part "un-nested" while
+                // the plates above it plainly held them.
+                onAccepted={async () => { await load(); onStageChanged?.(); }}
+              />
               <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>
                 A plate holds one material. Drag parts onto it — the list on the left dims
                 anything that could not go there.

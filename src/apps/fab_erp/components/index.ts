@@ -25,6 +25,7 @@ export { backendMessage } from '../utils/backendMessage';
 export { SideSheet } from './SideSheet';
 export { SectionCard, StickyActionBar } from './SectionCard';
 export { default as RawMaterialSelect } from './RawMaterialSelect';
+export { default as NestingSuggestor } from './NestingSuggestor';
 export { CommandPaletteProvider } from './CommandPalette';
 export { useCommandPalette } from './commandPaletteContext';
 export { ShortcutsHelp } from './ShortcutsHelp';
