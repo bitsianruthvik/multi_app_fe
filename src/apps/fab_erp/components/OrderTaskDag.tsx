@@ -303,8 +303,28 @@ export default function OrderTaskDag({ orderId, canManage }: { orderId: number; 
           <Typography sx={{ color: 'var(--c-text-3)' }}>
             {filter.itemId
               ? 'No tasks for the selected item.'
-              : 'No tasks have been materialized for this order yet.'}
+              : 'No tasks yet — raising the production order builds this tree.'}
           </Typography>
+          {!filter.itemId && (
+            /**
+             * WHY THERE IS NO BUILD BUTTON HERE.
+             *
+             * There used to be one, and it was removed deliberately on
+             * 2026-08-15: materializing is where every formula is FROZEN, so
+             * building the tree before the Production step froze estimates
+             * against parameters nobody had entered yet. Raising the production
+             * order materializes in the same transaction, which is the only
+             * moment the inputs are known to be complete.
+             *
+             * So the empty state explains where the tree comes from rather than
+             * offering a shortcut to it. "Re-generate" is not that shortcut
+             * either — it diffs an EXISTING graph and never renders at zero.
+             */
+            <Typography variant="body2" sx={{ color: 'var(--c-text-3)', mt: 1 }}>
+              Finish the earlier steps, then raise the production order in Production.
+              It creates the tasks and puts them under that order.
+            </Typography>
+          )}
         </Surface>
       )}
 

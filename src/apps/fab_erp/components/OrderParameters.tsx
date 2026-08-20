@@ -26,12 +26,27 @@
  * `IF()` fallbacks can work, so a part with no thickness does not error — it is
  * estimated as free to cut. Blank cells are flagged, and the production order
  * refuses to be raised while any remain (see the FIELDS_MISSING gate).
+ *
+ * ONE KEYSTROKE MUST COST ONE CELL (2026-08-20). The pending edits used to be a
+ * single `edits` object in this component's state, so every character typed
+ * re-rendered all 28×5 MUI TextFields — measured at ~210 ms per keystroke on a
+ * SMALL order, and a realistic 210-part span (1050 cells) is simply unusable.
+ * The edits now live in a tiny external store (below) that notifies per cell:
+ * a keystroke re-renders exactly one <ParameterCell> and nothing above it, so
+ * the cost is O(1) in the size of the grid rather than O(cells). The rows and
+ * the unsaved-changes bar subscribe separately, which is why this component
+ * itself does not re-render at all while you type. Deliberately NOT a debounce —
+ * a debounce hides the lag on a keystroke but leaves the whole-grid re-render in
+ * place, and does nothing for the bulk import path that sets every cell at once.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore,
+} from 'react';
 import {
   Alert, Box, Button, Chip, CircularProgress, TextField, Tooltip, Typography,
 } from '@mui/material';
+import type { SxProps, Theme } from '@mui/material/styles';
 import CheckCircleRounded from '@mui/icons-material/CheckCircleRounded';
 import DownloadIcon from '@mui/icons-material/Download';
 import UploadFileIcon from '@mui/icons-material/UploadFile';
@@ -39,7 +54,7 @@ import UploadFileIcon from '@mui/icons-material/UploadFile';
 import api from '@core/utils/axiosConfig';
 import {
   getParameterGrid, saveParameters, exportParametersUrl, importParameters,
-  type ParameterGrid, type ParameterEdit,
+  type ParameterGrid, type ParameterColumn, type ParameterRow, type ParameterEdit,
 } from '../api/parameters';
 import { getFieldReadiness, type FieldReadiness } from '../api/fieldReadiness';
 import {
@@ -49,6 +64,213 @@ import {
 type CellKey = string; // `${itemId}:${fieldKey}`
 const cellKey = (itemId: number, fieldKey: string): CellKey => `${itemId}:${fieldKey}`;
 
+// ── the pending-edit store ──────────────────────────────────────────────────
+/**
+ * Deliberately outside React state. A `useState` object here means every cell
+ * subscribes to every other cell's keystrokes; a Map plus per-key listeners
+ * means a cell only hears about itself. Semantics are otherwise identical to
+ * the object it replaces: a key exists from the first keystroke in that cell
+ * until save or discard, whatever was typed, so the save payload and the
+ * "n cell(s) changed" count are exactly what they were before.
+ */
+type Listener = () => void;
+
+function createEditStore() {
+  const values = new Map<CellKey, string>();
+  const cellSubs = new Map<CellKey, Set<Listener>>();
+  const countSubs = new Set<Listener>();
+
+  // The dirty count is the one thing outside a cell that moves while editing,
+  // and it moved 139 times during a 140-cell bulk set — measured at ~920 ms of
+  // the 1.46 s that cost, because the action bar is two MUI Buttons. Coalescing
+  // to one notification per microtask makes a bulk set pay for it once. Nothing
+  // can be lost by the delay: `entries()` is the save payload and it is written
+  // synchronously; only the displayed number lands a microtask later.
+  let countQueued = false;
+  const notifyCount = () => {
+    if (countQueued) return;
+    countQueued = true;
+    queueMicrotask(() => { countQueued = false; countSubs.forEach((fn) => fn()); });
+  };
+
+  return {
+    subscribeCell(key: CellKey, fn: Listener) {
+      const subs = cellSubs.get(key) ?? new Set<Listener>();
+      cellSubs.set(key, subs);
+      subs.add(fn);
+      return () => {
+        subs.delete(fn);
+        // `=== subs` so a late unsubscribe from a remounted cell cannot drop
+        // the set that replaced it (StrictMode subscribes twice on mount).
+        if (subs.size === 0 && cellSubs.get(key) === subs) cellSubs.delete(key);
+      };
+    },
+    /** Stable identity — `useSyncExternalStore` resubscribes if this changes. */
+    subscribeCount(fn: Listener) {
+      countSubs.add(fn);
+      return () => { countSubs.delete(fn); };
+    },
+    getCell(key: CellKey) { return values.get(key); },
+    getCount() { return values.size; },
+    /** Insertion-ordered, matching the old `Object.entries(edits)`. */
+    entries() { return [...values.entries()]; },
+    set(key: CellKey, raw: string) {
+      const isNew = !values.has(key);
+      values.set(key, raw);
+      cellSubs.get(key)?.forEach((fn) => fn());
+      // The count only moves the first time a cell is touched, so typing four
+      // digits wakes the action bar once rather than four times.
+      if (isNew) notifyCount();
+    },
+    clear() {
+      if (values.size === 0) return;
+      const touched = [...values.keys()];
+      values.clear();
+      touched.forEach((k) => cellSubs.get(k)?.forEach((fn) => fn()));
+      notifyCount();
+    },
+  };
+}
+
+type EditStore = ReturnType<typeof createEditStore>;
+
+// Hoisted so emotion sees the same object every time rather than a fresh one
+// per render — and so a cell flipping between filled and blank swaps a
+// reference instead of rebuilding a style object.
+const SX_CELL: SxProps<Theme> = {
+  width: 96,
+  '& input': { fontSize: 13, py: 0.4 },
+};
+const SX_CELL_MISSING: SxProps<Theme> = {
+  width: 96,
+  '& input': { fontSize: 13, py: 0.4 },
+  '& .MuiInput-root:before': { borderBottomColor: 'var(--c-warning-600)' },
+};
+const SX_TD_INPUT: SxProps<Theme> = { p: 0.5 };
+const SX_TD_DASH: SxProps<Theme> = { p: 1, textAlign: 'center', color: 'var(--c-text-3)' };
+const SX_TR: SxProps<Theme> = { borderTop: '1px solid var(--c-divider)' };
+const SX_TD_NAME: SxProps<Theme> = { p: 1, position: 'sticky', left: 0, bgcolor: 'var(--c-surface)' };
+
+// ── one cell ────────────────────────────────────────────────────────────────
+
+const ParameterCell = memo(function ParameterCell({ store, ck, base, disabled }: {
+  store: EditStore;
+  ck: CellKey;
+  /** The saved value behind this cell — shown until it is edited. */
+  base: string;
+  disabled: boolean;
+}) {
+  const subscribe = useCallback((fn: Listener) => store.subscribeCell(ck, fn), [store, ck]);
+  const getSnapshot = useCallback(() => store.getCell(ck), [store, ck]);
+  const edited = useSyncExternalStore(subscribe, getSnapshot);
+
+  const v = edited ?? base;
+  const missing = v.trim() === '';
+
+  return (
+    <TextField
+      size="small" variant="standard" type="number"
+      value={v}
+      disabled={disabled}
+      onChange={(e) => store.set(ck, e.target.value)}
+      sx={missing ? SX_CELL_MISSING : SX_CELL}
+    />
+  );
+});
+
+// Not asked for by THIS part's flow. A dash, not an empty box: an empty box
+// invites a value that no formula will ever read.
+const DashCell = memo(function DashCell() {
+  return (
+    <Box component="td" sx={SX_TD_DASH}>
+      <Tooltip title="This part's flow does not use this value">
+        <span>—</span>
+      </Tooltip>
+    </Box>
+  );
+});
+
+// ── one row ─────────────────────────────────────────────────────────────────
+
+const ParameterGridRow = memo(function ParameterGridRow({ store, row, columns, disabled }: {
+  store: EditStore;
+  row: ParameterRow;
+  columns: ParameterColumn[];
+  disabled: boolean;
+}) {
+  // `required` is a short array but it was scanned once per cell per render;
+  // a Set built once per row keeps the row's own render linear in its columns.
+  const required = useMemo(() => new Set(row.required), [row.required]);
+
+  return (
+    <Box component="tr" sx={SX_TR}>
+      <Box component="td" sx={SX_TD_NAME}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+          <Box sx={{ minWidth: 0 }}>
+            <Typography sx={{ fontSize: 13 }}>{row.name}</Typography>
+            <Mono sx={{ fontSize: 11, color: 'var(--c-text-3)' }}>{row.code}</Mono>
+          </Box>
+          {row.represents > 1 && (
+            <Tooltip title={`Writes to all ${row.represents} copies`}>
+              <Chip size="small" label={`×${row.represents}`} sx={{ height: 18, fontSize: 10.5 }} />
+            </Tooltip>
+          )}
+        </Box>
+      </Box>
+      {columns.map((c) => (
+        required.has(c.fieldKey) ? (
+          <Box component="td" key={c.fieldKey} sx={SX_TD_INPUT}>
+            {/* `base` is String()-ed because the server sends numeric fields as
+                numbers despite the declared type — normalise once here rather
+                than defending inside the cell on every keystroke. */}
+            <ParameterCell
+              store={store}
+              ck={cellKey(row.itemId, c.fieldKey)}
+              base={String(row.values[c.fieldKey] ?? '')}
+              disabled={disabled}
+            />
+          </Box>
+        ) : (
+          <DashCell key={c.fieldKey} />
+        )
+      ))}
+    </Box>
+  );
+});
+
+// ── the unsaved-changes bar ─────────────────────────────────────────────────
+/**
+ * Reads the dirty count itself so the count landing does not re-render the
+ * grid above it. This is the only thing that reacts to the first keystroke in
+ * a cell, and it renders three elements.
+ */
+function DirtyBar({ store, saving, onDiscard, onSave }: {
+  store: EditStore;
+  saving: boolean;
+  onDiscard: () => void;
+  onSave: () => void;
+}) {
+  const dirtyCount = useSyncExternalStore(store.subscribeCount, store.getCount);
+  if (dirtyCount === 0) return null;
+  return (
+    <StickyActionBar>
+      <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>
+        {dirtyCount} cell(s) changed
+      </Typography>
+      <Box sx={{ flex: 1 }} />
+      <Button onClick={onDiscard} disabled={saving}>Discard</Button>
+      <Button
+        variant="contained" onClick={onSave} disabled={saving}
+        startIcon={saving ? <CircularProgress size={14} color="inherit" /> : undefined}
+      >
+        {saving ? 'Saving…' : 'Save values'}
+      </Button>
+    </StickyActionBar>
+  );
+}
+
+// ── the step ────────────────────────────────────────────────────────────────
+
 export default function OrderParameters({ orderId, canManage, onStageChanged }: {
   orderId: number;
   canManage: boolean;
@@ -57,12 +279,14 @@ export default function OrderParameters({ orderId, canManage, onStageChanged }: 
   const { toast } = useToast();
   const [grid, setGrid] = useState<ParameterGrid | null>(null);
   const [readiness, setReadiness] = useState<FieldReadiness | null>(null);
-  const [edits, setEdits] = useState<Record<CellKey, string>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [importing, setImporting] = useState(false);
   const [error, setError] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
+  // One store for the life of the component — its identity is a prop of every
+  // memoised row, so it must never be rebuilt.
+  const [store] = useState(createEditStore);
 
   const load = useCallback(async () => {
     setLoading(true); setError('');
@@ -73,26 +297,18 @@ export default function OrderParameters({ orderId, canManage, onStageChanged }: 
       ]);
       setGrid(g);
       setReadiness(r);
-      setEdits({});
+      store.clear();
     } catch (e) {
       setError(backendMessage(e, 'Could not load the order’s parameters.'));
     } finally { setLoading(false); }
-  }, [orderId]);
+  }, [orderId, store]);
 
   useEffect(() => { void load(); }, [load]);
 
-  const valueAt = (itemId: number, fieldKey: string) => {
-    const k = cellKey(itemId, fieldKey);
-    if (k in edits) return edits[k];
-    const row = grid?.rows.find((r) => r.itemId === itemId);
-    return row?.values[fieldKey] ?? '';
-  };
+  const discard = useCallback(() => { store.clear(); }, [store]);
 
-  const setCell = (itemId: number, fieldKey: string, raw: string) =>
-    setEdits((p) => ({ ...p, [cellKey(itemId, fieldKey)]: raw }));
-
-  async function save() {
-    const list: ParameterEdit[] = Object.entries(edits).map(([k, v]) => {
+  const save = useCallback(async () => {
+    const list: ParameterEdit[] = store.entries().map(([k, v]) => {
       const [idStr, fieldKey] = k.split(':');
       return { itemId: Number(idStr), fieldKey, value: v.trim() === '' ? null : v.trim() };
     });
@@ -113,7 +329,7 @@ export default function OrderParameters({ orderId, canManage, onStageChanged }: 
     } catch (e) {
       setError(backendMessage(e, 'Could not save the parameters.'));
     } finally { setSaving(false); }
-  }
+  }, [orderId, store, toast, load, onStageChanged]);
 
   async function download() {
     try {
@@ -166,8 +382,6 @@ export default function OrderParameters({ orderId, canManage, onStageChanged }: 
       />
     );
   }
-
-  const dirtyCount = Object.keys(edits).length;
 
   return (
     <Box>
@@ -229,70 +443,20 @@ export default function OrderParameters({ orderId, canManage, onStageChanged }: 
           </Box>
           <Box component="tbody">
             {grid.rows.map((r) => (
-              <Box component="tr" key={r.itemId} sx={{ borderTop: '1px solid var(--c-divider)' }}>
-                <Box component="td" sx={{ p: 1, position: 'sticky', left: 0, bgcolor: 'var(--c-surface)' }}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
-                    <Box sx={{ minWidth: 0 }}>
-                      <Typography sx={{ fontSize: 13 }}>{r.name}</Typography>
-                      <Mono sx={{ fontSize: 11, color: 'var(--c-text-3)' }}>{r.code}</Mono>
-                    </Box>
-                    {r.represents > 1 && (
-                      <Tooltip title={`Writes to all ${r.represents} copies`}>
-                        <Chip size="small" label={`×${r.represents}`} sx={{ height: 18, fontSize: 10.5 }} />
-                      </Tooltip>
-                    )}
-                  </Box>
-                </Box>
-                {grid.columns.map((c) => {
-                  // Not asked for by THIS part's flow. A dash, not an empty box:
-                  // an empty box invites a value that no formula will ever read.
-                  if (!r.required.includes(c.fieldKey)) {
-                    return (
-                      <Box component="td" key={c.fieldKey} sx={{ p: 1, textAlign: 'center', color: 'var(--c-text-3)' }}>
-                        <Tooltip title="This part's flow does not use this value">
-                          <span>—</span>
-                        </Tooltip>
-                      </Box>
-                    );
-                  }
-                  const v = valueAt(r.itemId, c.fieldKey);
-                  const missing = String(v).trim() === '';
-                  return (
-                    <Box component="td" key={c.fieldKey} sx={{ p: 0.5 }}>
-                      <TextField
-                        size="small" variant="standard" type="number"
-                        value={v ?? ''}
-                        disabled={!canManage}
-                        onChange={(e) => setCell(r.itemId, c.fieldKey, e.target.value)}
-                        sx={{
-                          width: 96,
-                          '& input': { fontSize: 13, py: 0.4 },
-                          ...(missing ? { '& .MuiInput-root:before': { borderBottomColor: 'var(--c-warning-600)' } } : {}),
-                        }}
-                      />
-                    </Box>
-                  );
-                })}
-              </Box>
+              <ParameterGridRow
+                key={r.itemId}
+                store={store}
+                row={r}
+                columns={grid.columns}
+                disabled={!canManage}
+              />
             ))}
           </Box>
         </Box>
       </Box>
 
-      {canManage && dirtyCount > 0 && (
-        <StickyActionBar>
-          <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>
-            {dirtyCount} cell(s) changed
-          </Typography>
-          <Box sx={{ flex: 1 }} />
-          <Button onClick={() => setEdits({})} disabled={saving}>Discard</Button>
-          <Button
-            variant="contained" onClick={save} disabled={saving}
-            startIcon={saving ? <CircularProgress size={14} color="inherit" /> : undefined}
-          >
-            {saving ? 'Saving…' : 'Save values'}
-          </Button>
-        </StickyActionBar>
+      {canManage && (
+        <DirtyBar store={store} saving={saving} onDiscard={discard} onSave={() => void save()} />
       )}
     </Box>
   );

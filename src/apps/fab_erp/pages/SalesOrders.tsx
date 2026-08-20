@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
-  Alert, Autocomplete, Box, Button, CircularProgress, Dialog, DialogActions,
+  Alert, Autocomplete, Box, Button, ButtonBase, CircularProgress, Dialog, DialogActions,
   DialogContent, DialogTitle, IconButton, LinearProgress, MenuItem, TextField, Tooltip, Typography,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
@@ -246,27 +246,53 @@ function OrderDialog({ open, initial, defaultOrderType, onClose, onSaved }: {
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
             {Object.keys(ORDER_TYPE_LABELS).map((t) => {
               const creatable = (CREATABLE_ORDER_TYPES as readonly string[]).includes(t);
-              return (
-                <Box
-                  key={t}
-                  onClick={creatable ? () => { set('orderType', t); setPhase('fields'); } : undefined}
-                  sx={{
-                    p: 1.75, borderRadius: 'var(--r-md)',
-                    border: '1px solid var(--c-border)',
-                    background: creatable ? 'var(--c-surface)' : 'var(--c-surface-2)',
-                    cursor: creatable ? 'pointer' : 'default',
-                    opacity: creatable ? 1 : 0.65,
-                    '&:hover': creatable
-                      ? { borderColor: 'var(--c-primary-500)', background: 'var(--c-surface-2)' }
-                      : undefined,
-                  }}
-                >
+              const body = (
+                <>
                   <Typography sx={{ fontWeight: 600, fontSize: 14 }}>
                     {orderTypeLabel(t)} order
                   </Typography>
                   <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)', mt: 0.25 }}>
                     {ORDER_TYPE_ORIGIN[t]}
                   </Typography>
+                </>
+              );
+              /* Same box, two different things. The creatable type is a real
+                 <button>, so Tab reaches it and Enter/Space fires it — it used
+                 to be a div with onClick, which put the entry point to the whole
+                 order flow out of reach of a keyboard entirely.
+                 The other two are NOT buttons and must not be: they are here to
+                 answer "where do those come from", and rendering them as
+                 disabled controls would announce three choices where there is
+                 one, then refuse two of them. Prose stays prose. */
+              const look = {
+                p: 1.75, borderRadius: 'var(--r-md)',
+                border: '1px solid var(--c-border)',
+                textAlign: 'left' as const,
+              };
+              return creatable ? (
+                <ButtonBase
+                  key={t}
+                  onClick={() => { set('orderType', t); setPhase('fields'); }}
+                  sx={{
+                    ...look,
+                    display: 'block', width: '100%',
+                    background: 'var(--c-surface)',
+                    '&:hover': { borderColor: 'var(--c-primary-500)', background: 'var(--c-surface-2)' },
+                    '&:focus-visible': {
+                      borderColor: 'var(--c-primary-500)',
+                      outline: '2px solid var(--c-primary-500)',
+                      outlineOffset: 2,
+                    },
+                  }}
+                >
+                  {body}
+                </ButtonBase>
+              ) : (
+                <Box
+                  key={t}
+                  sx={{ ...look, background: 'var(--c-surface-2)', opacity: 0.65 }}
+                >
+                  {body}
                 </Box>
               );
             })}

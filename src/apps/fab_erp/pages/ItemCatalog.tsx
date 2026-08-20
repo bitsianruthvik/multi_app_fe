@@ -31,6 +31,7 @@ import {
   List,
   ListItem,
   ListItemText,
+  ListSubheader,
   MenuItem,
   Select,
   Tab,
@@ -59,8 +60,15 @@ import ExpandMoreIcon  from '@mui/icons-material/ExpandMore';
 import LabelRounded    from '@mui/icons-material/LabelRounded';
 
 import { fabQuery, fabMutate, fabPost } from '../api/client';
+import {
+  blankRow, boolValue, BOOL_OPTIONS, commitFieldRows, displayValue, fieldValueError, getFieldValues,
+  listFieldDefs, rowFromDef, uiTypeOf, UI_FIELD_TYPES, unitsByDimension, useFieldVocabulary,
+  valuePlaceholder,
+  type FieldDefRow, type FieldDefScope, type FieldRowDraft, type ResolvedValue,
+  type UiFieldType,
+} from '../api/fields';
 import type {
-  FabItemCatalog, FabItemCategory, FabItemGroup, FabItemSubgroup, FabCustomField,
+  FabItemCatalog, FabItemCategory, FabItemGroup, FabItemSubgroup,
 } from '../types';
 import { usePermission } from '@core/hooks/usePermission';
 import { useAuth } from '@core/contexts/AuthContext';
@@ -230,20 +238,139 @@ const MRP_POLICIES = [
 
 const ADD_NEW = '__add_new__';
 
-// Monotonic counter for client-only draft row ids — Date.now() can collide
-// when two rows are added within the same millisecond, which corrupts the
-// React `key` → row mapping for that row's controls (incl. the Type select).
-let cfDraftSeq = 0;
-function nextCfDraftId(): number {
-  cfDraftSeq -= 1;
-  return cfDraftSeq;
+/**
+ * CUSTOM FIELDS ARE REGISTRY FIELDS NOW.
+ *
+ * Every editor on this page used to write one `fab_custom_fields` row per
+ * field — a key and a string, through the generic /mutate path, which validates
+ * nothing. So a "field" had no type anything could check, no unit anything
+ * could compare, and no definition at all: `fab_fields` stayed empty and
+ * `fab_field_values` stayed at zero rows through an entire UI test.
+ *
+ * A field is now two rows. `ensureFieldDef` writes the DEFINITION (type, unit,
+ * options) into `fab_fields`; `POST /fields/values` writes the VALUE, and it is
+ * the only path that validates one. `commitFieldRows` does both in the order
+ * that works. Reads go through `GET /fields/values`, which resolves the ladder
+ * server-side and reports which rung each value came from — so inheritance and
+ * its provenance are the server's answer rather than this page's guess.
+ */
+
+/** Definitions for the whole company, loaded while a dialog is open. */
+function useFieldDefs(active: boolean): FieldDefRow[] {
+  const [defs, setDefs] = useState<FieldDefRow[]>([]);
+  useEffect(() => {
+    if (!active) return;
+    let alive = true;
+    listFieldDefs()
+      .then((r) => { if (alive) setDefs(r.data ?? []); })
+      .catch(() => { /* an empty registry just means every row is new */ });
+    return () => { alive = false; };
+  }, [active]);
+  return defs;
 }
 
-interface CustomFieldDraft {
-  id: number;
-  fieldKey: string;
-  fieldType: 'text' | 'number' | 'date' | 'dropdown';
-  fieldValue: string;
+const FIELD_HEAD_SX = { fontWeight: 700 } as const;
+
+/** The header that matches FieldRowCells. */
+function FieldTableHead({ valueLabel, canEdit }: { valueLabel: string; canEdit: boolean }) {
+  return (
+    <TableHead>
+      <TableRow sx={{ bgcolor: 'action.hover' }}>
+        <TableCell sx={FIELD_HEAD_SX}>Field Name</TableCell>
+        <TableCell sx={{ ...FIELD_HEAD_SX, width: 120 }}>Type</TableCell>
+        {/* One column for the two things that qualify a value: a unit for a
+            number, the option list for a dropdown. A number with no unit is how
+            stock came to hold the string "2000 mm" — the figure and its unit
+            fused together, so nothing could compare, convert or sum them. */}
+        <TableCell sx={{ ...FIELD_HEAD_SX, width: 150 }}>Unit / options</TableCell>
+        <TableCell sx={FIELD_HEAD_SX}>{valueLabel}</TableCell>
+        {canEdit && <TableCell sx={{ width: 48 }} />}
+      </TableRow>
+    </TableHead>
+  );
+}
+
+/**
+ * One editable field row: name, type, unit-or-options, value.
+ *
+ * A standard field is locked apart from its value — its key is what feature
+ * code is written against, and its type and unit are what those features
+ * assume, so retyping it here would break them silently.
+ */
+function FieldRowCells({ row, canEdit, unitGroups, onPatch, onRemove }: {
+  row: FieldRowDraft;
+  canEdit: boolean;
+  unitGroups: ReturnType<typeof unitsByDimension>;
+  onPatch: (patch: Partial<FieldRowDraft>) => void;
+  onRemove?: () => void;
+}) {
+  const allowed = row.options.split(',').map((s) => s.trim()).filter(Boolean);
+  const valueErr = fieldValueError(row.type, row.value, allowed);
+  const locked = !canEdit || row.isStandard;
+  return (
+    <>
+      <TableCell sx={{ py: 0.5 }}>
+        <TextField size="small" fullWidth value={row.label} disabled={locked}
+          placeholder="e.g. Material Grade"
+          helperText={row.fieldKey || undefined}
+          onChange={(e) => onPatch({ label: e.target.value })} />
+      </TableCell>
+      <TableCell sx={{ py: 0.5 }}>
+        <Tooltip title={row.isStandard ? 'Standard field — features are written against its type and unit' : ''}>
+          <TextField select size="small" fullWidth value={row.type} disabled={locked}
+            onChange={(e) => onPatch({ type: e.target.value as UiFieldType })}>
+            {UI_FIELD_TYPES.map((t) => <MenuItem key={t.value} value={t.value}>{t.label}</MenuItem>)}
+          </TextField>
+        </Tooltip>
+      </TableCell>
+      <TableCell sx={{ py: 0.5 }}>
+        {row.type === 'number' ? (
+          // Picked, never typed. Two people typing "m2" and "m²" make two units
+          // for one thing; the list comes from fab_units, which also carries the
+          // conversion factor that makes 6 m and 6000 mm the same length.
+          <TextField select size="small" fullWidth value={row.unit} disabled={locked}
+            onChange={(e) => onPatch({ unit: e.target.value })}>
+            <MenuItem value="">— no unit —</MenuItem>
+            {unitGroups.flatMap((g) => [
+              <ListSubheader key={`h-${g.group}`} sx={{ fontSize: 11, lineHeight: '26px' }}>{g.group}</ListSubheader>,
+              ...g.units.map((u) => <MenuItem key={u.code} value={u.code}>{u.code}</MenuItem>),
+            ])}
+          </TextField>
+        ) : row.type === 'dropdown' ? (
+          <TextField size="small" fullWidth value={row.options} disabled={locked}
+            placeholder="Option1, Option2, …" onChange={(e) => onPatch({ options: e.target.value })} />
+        ) : (
+          <Typography variant="caption" color="text.disabled">—</Typography>
+        )}
+      </TableCell>
+      <TableCell sx={{ py: 0.5 }}>
+        {row.type === 'bool' ? (
+          <TextField select size="small" fullWidth value={boolValue(row.value)} disabled={!canEdit}
+            onChange={(e) => onPatch({ value: e.target.value })}>
+            <MenuItem value="">— none —</MenuItem>
+            {BOOL_OPTIONS.map((o) => <MenuItem key={o.value} value={o.value}>{o.label}</MenuItem>)}
+          </TextField>
+        ) : row.type === 'dropdown' && allowed.length ? (
+          <TextField select size="small" fullWidth value={allowed.includes(row.value) ? row.value : ''} disabled={!canEdit}
+            onChange={(e) => onPatch({ value: e.target.value })}>
+            <MenuItem value="">— none —</MenuItem>
+            {allowed.map((a) => <MenuItem key={a} value={a}>{a}</MenuItem>)}
+          </TextField>
+        ) : (
+          <TextField size="small" fullWidth value={row.value} disabled={!canEdit}
+            // Type-aware: a steel grade is not a placeholder for a number.
+            placeholder={valuePlaceholder(row.type, row.unit)}
+            error={!!valueErr} helperText={valueErr ?? undefined}
+            onChange={(e) => onPatch({ value: e.target.value })} />
+        )}
+      </TableCell>
+      {canEdit && onRemove && (
+        <TableCell sx={{ py: 0.5 }}>
+          <IconButton size="small" color="error" onClick={onRemove}><DeleteIcon fontSize="small" /></IconButton>
+        </TableCell>
+      )}
+    </>
+  );
 }
 
 interface ImportItemsResult {
@@ -268,12 +395,17 @@ function downloadBase64Xlsx(base64: string, filename: string) {
   URL.revokeObjectURL(url);
 }
 
+/** An inherited value with the rung it was resolved from. */
 interface InheritedField {
   fieldKey: string;
-  fieldType: string;
-  fieldValue: string | null;
-  source: 'category' | 'group' | 'subgroup';
+  def: FieldDefRow | undefined;
+  value: ResolvedValue;
+  source: string;
 }
+
+const SOURCE_LABEL: Record<string, string> = {
+  category: 'Category', group: 'Group', subgroup: 'Sub-group', default: 'Field default',
+};
 
 // Extract a human-readable message from an unknown caught error
 function errMsg(e: unknown): string {
@@ -398,9 +530,12 @@ function AddTaxonomyDialog({ open, level, categories, groups, onClose, onCreated
   const [shortform, setShortform]     = useState('');
   const [categoryId, setCategoryId]   = useState<number | ''>('');
   const [groupId, setGroupId]         = useState<number | ''>('');
-  const [customFields, setCustomFields] = useState<CustomFieldDraft[]>([]);
+  const [customFields, setCustomFields] = useState<FieldRowDraft[]>([]);
   const [saving, setSaving]           = useState(false);
   const [err, setErr]                 = useState('');
+  const defs = useFieldDefs(open);
+  const vocab = useFieldVocabulary();
+  const unitGroups = useMemo(() => unitsByDimension(vocab), [vocab]);
 
   useEffect(() => {
     if (!open) return;
@@ -417,10 +552,10 @@ function AddTaxonomyDialog({ open, level, categories, groups, onClose, onCreated
 
   function addCf() {
     if (customFields.length >= 10) return;
-    setCustomFields((d) => [...d, { id: nextCfDraftId(), fieldKey: '', fieldType: 'text', fieldValue: '' }]);
+    setCustomFields((d) => [...d, blankRow(d.length)]);
   }
-  function updateCf(i: number, k: keyof CustomFieldDraft, v: string) {
-    setCustomFields((d) => d.map((r, j) => j === i ? { ...r, [k]: v } : r));
+  function patchCf(rowId: number, patch: Partial<FieldRowDraft>) {
+    setCustomFields((d) => d.map((r) => (r.rowId === rowId ? { ...r, ...patch } : r)));
   }
 
   async function handleSave() {
@@ -441,15 +576,24 @@ function AddTaxonomyDialog({ open, level, categories, groups, onClose, onCreated
 
       const res = await fabMutate<{ ok: boolean; id: number }>(resource, 'insert', payload);
 
-      for (let i = 0; i < customFields.length; i++) {
-        const cf = customFields[i];
-        if (!cf.fieldKey.trim()) continue;
-        await fabMutate('fabErpCustomField', 'insert', {
-          level, level_id: res.id,
-          field_key: cf.fieldKey.trim(), field_type: cf.fieldType,
-          field_value: cf.fieldValue.trim() || null, sort_order: i,
-        });
-      }
+      // The node exists, so its fields can be written against it. Definition
+      // then value, via the validated path — see commitFieldRows.
+      const parentCatId = level === 'subgroup'
+        ? (groups.find((g) => g.id === groupId)?.categoryId ?? null)
+        : (categoryId === '' ? null : Number(categoryId));
+      const { rejection } = await commitFieldRows({
+        scope: level, scopeId: res.id,
+        rows: customFields, baseline: [],
+        defs, units: vocab.units,
+        defScope: {
+          categoryId: level === 'category' ? res.id : parentCatId,
+          groupId: level === 'group' ? res.id : (level === 'subgroup' ? Number(groupId) : null),
+          subgroupId: level === 'subgroup' ? res.id : null,
+        },
+      });
+      // The taxonomy row IS created at this point, so this cannot roll back —
+      // saying which values were refused is the only honest option.
+      if (rejection) { setErr(`${levelLabel} created. ${rejection}`); setSaving(false); return; }
 
       await onCreated();
     } catch (e) {
@@ -518,41 +662,15 @@ function AddTaxonomyDialog({ open, level, categories, groups, onClose, onCreated
           <Typography variant="caption" color="text.secondary">No custom fields yet.</Typography>
         ) : (
           <Table size="small">
-            <TableHead>
-              <TableRow sx={{ bgcolor: 'action.hover' }}>
-                <TableCell sx={{ fontWeight: 700 }}>Field Name</TableCell>
-                <TableCell sx={{ fontWeight: 700, width: 120 }}>Type</TableCell>
-                <TableCell sx={{ fontWeight: 700 }}>Default Value</TableCell>
-                <TableCell sx={{ width: 48 }} />
-              </TableRow>
-            </TableHead>
+            <FieldTableHead valueLabel="Default value" canEdit />
             <TableBody>
-              {customFields.map((cf, i) => (
-                <TableRow key={cf.id}>
-                  <TableCell sx={{ py: 0.5 }}>
-                    <TextField size="small" fullWidth value={cf.fieldKey} placeholder="e.g. Material Grade"
-                      onChange={(e) => updateCf(i, 'fieldKey', e.target.value)} />
-                  </TableCell>
-                  <TableCell sx={{ py: 0.5 }}>
-                    <TextField select size="small" fullWidth value={cf.fieldType}
-                      onChange={(e) => updateCf(i, 'fieldType', e.target.value)}>
-                      <MenuItem value="text">Text</MenuItem>
-                      <MenuItem value="number">Number</MenuItem>
-                      <MenuItem value="date">Date</MenuItem>
-                      <MenuItem value="dropdown">Dropdown</MenuItem>
-                    </TextField>
-                  </TableCell>
-                  <TableCell sx={{ py: 0.5 }}>
-                    <TextField size="small" fullWidth value={cf.fieldValue}
-                      placeholder={cf.fieldType === 'dropdown' ? 'Option1, Option2, …' : 'Default value…'}
-                      onChange={(e) => updateCf(i, 'fieldValue', e.target.value)} />
-                  </TableCell>
-                  <TableCell sx={{ py: 0.5 }}>
-                    <IconButton size="small" color="error"
-                      onClick={() => setCustomFields((d) => d.filter((_, j) => j !== i))}>
-                      <DeleteIcon fontSize="small" />
-                    </IconButton>
-                  </TableCell>
+              {customFields.map((cf) => (
+                <TableRow key={cf.rowId}>
+                  <FieldRowCells
+                    row={cf} canEdit unitGroups={unitGroups}
+                    onPatch={(p) => patchCf(cf.rowId, p)}
+                    onRemove={() => setCustomFields((d) => d.filter((r) => r.rowId !== cf.rowId))}
+                  />
                 </TableRow>
               ))}
             </TableBody>
@@ -679,7 +797,10 @@ function CatalogDialog({ open, initial, categories, groups, subgroups, canManage
   const [err,    setErr]    = useState('');
   const [categoryError, setCategoryError] = useState('');
   const [addingLevel, setAddingLevel] = useState<'category' | 'group' | 'subgroup' | null>(null);
-  const [customFields, setCustomFields] = useState<CustomFieldDraft[]>([]);
+  const [customFields, setCustomFields] = useState<FieldRowDraft[]>([]);
+  const defs = useFieldDefs(open);
+  const vocab = useFieldVocabulary();
+  const unitGroups = useMemo(() => unitsByDimension(vocab), [vocab]);
   useEffect(() => {
     if (!open) return;
     setCustomFields([]);
@@ -728,10 +849,10 @@ function CatalogDialog({ open, initial, categories, groups, subgroups, canManage
 
   function addCf() {
     if (customFields.length >= 10) return;
-    setCustomFields((d) => [...d, { id: nextCfDraftId(), fieldKey: '', fieldType: 'text', fieldValue: '' }]);
+    setCustomFields((d) => [...d, blankRow(d.length)]);
   }
-  function updateCf(i: number, k: keyof CustomFieldDraft, v: string) {
-    setCustomFields((d) => d.map((r, j) => j === i ? { ...r, [k]: v } : r));
+  function patchCf(rowId: number, patch: Partial<FieldRowDraft>) {
+    setCustomFields((d) => d.map((r) => (r.rowId === rowId ? { ...r, ...patch } : r)));
   }
 
   async function save() {
@@ -792,15 +913,16 @@ function CatalogDialog({ open, initial, categories, groups, subgroups, canManage
       }
 
       try {
-        for (let i = 0; i < customFields.length; i++) {
-          const cf = customFields[i];
-          if (!cf.fieldKey.trim()) continue;
-          await fabMutate('fabErpCustomField', 'insert', {
-            level: 'item', level_id: itemId,
-            field_key: cf.fieldKey.trim(), field_type: cf.fieldType,
-            field_value: cf.fieldValue.trim() || null, sort_order: i,
-          });
-        }
+        const { rejection } = await commitFieldRows({
+          scope: 'catalog_item', scopeId: itemId!,
+          rows: customFields, baseline: [],
+          defs, units: vocab.units,
+          // A field invented on an item is filed at the item's own taxonomy
+          // path — the narrowest home the registry has, since `fab_fields` has
+          // no per-item column. Its VALUE is still this item's alone.
+          defScope: { categoryId: draft.categoryId, groupId, subgroupId },
+        });
+        if (rejection) { setErr(`Item was saved. ${rejection}`); setSaving(false); return; }
       } catch (cfErr) {
         setErr(`Item was saved, but a custom field failed to save: ${errMsg(cfErr)}`);
         setSaving(false);
@@ -920,41 +1042,15 @@ function CatalogDialog({ open, initial, categories, groups, subgroups, canManage
               <Typography variant="caption" color="text.secondary">No custom fields yet.</Typography>
             ) : (
               <Table size="small">
-                <TableHead>
-                  <TableRow sx={{ bgcolor: 'action.hover' }}>
-                    <TableCell sx={{ fontWeight: 700 }}>Field Name</TableCell>
-                    <TableCell sx={{ fontWeight: 700, width: 120 }}>Type</TableCell>
-                    <TableCell sx={{ fontWeight: 700 }}>Default Value</TableCell>
-                    <TableCell sx={{ width: 48 }} />
-                  </TableRow>
-                </TableHead>
+                <FieldTableHead valueLabel="Value" canEdit />
                 <TableBody>
-                  {customFields.map((cf, i) => (
-                    <TableRow key={cf.id}>
-                      <TableCell sx={{ py: 0.5 }}>
-                        <TextField size="small" fullWidth value={cf.fieldKey} placeholder="e.g. Material Grade"
-                          onChange={(e) => updateCf(i, 'fieldKey', e.target.value)} />
-                      </TableCell>
-                      <TableCell sx={{ py: 0.5 }}>
-                        <TextField select size="small" fullWidth value={cf.fieldType}
-                          onChange={(e) => updateCf(i, 'fieldType', e.target.value)}>
-                          <MenuItem value="text">Text</MenuItem>
-                          <MenuItem value="number">Number</MenuItem>
-                          <MenuItem value="date">Date</MenuItem>
-                          <MenuItem value="dropdown">Dropdown</MenuItem>
-                        </TextField>
-                      </TableCell>
-                      <TableCell sx={{ py: 0.5 }}>
-                        <TextField size="small" fullWidth value={cf.fieldValue}
-                          placeholder={cf.fieldType === 'dropdown' ? 'Option1, Option2, …' : 'Default value…'}
-                          onChange={(e) => updateCf(i, 'fieldValue', e.target.value)} />
-                      </TableCell>
-                      <TableCell sx={{ py: 0.5 }}>
-                        <IconButton size="small" color="error"
-                          onClick={() => setCustomFields((d) => d.filter((_, j) => j !== i))}>
-                          <DeleteIcon fontSize="small" />
-                        </IconButton>
-                      </TableCell>
+                  {customFields.map((cf) => (
+                    <TableRow key={cf.rowId}>
+                      <FieldRowCells
+                        row={cf} canEdit unitGroups={unitGroups}
+                        onPatch={(p) => patchCf(cf.rowId, p)}
+                        onRemove={() => setCustomFields((d) => d.filter((r) => r.rowId !== cf.rowId))}
+                      />
                     </TableRow>
                   ))}
                 </TableBody>
@@ -1007,16 +1103,19 @@ function DeleteDialog({ item, onClose, onDeleted }: {
 
 // ── TaxonomyDetailDialog ──────────────────────────────────────────────────────
 
-const FIELD_TYPE_LABEL: Record<string, string> = {
-  text: 'Text', number: 'Number', date: 'Date', dropdown: 'Dropdown',
-};
-
-function TaxonomyDetailDialog({ level, entity, categories, groups, canEdit, onClose, onSaved }: {
+function TaxonomyDetailDialog({ level, entity, categories, groups, canEdit, canEditFields, onClose, onSaved }: {
   level: 'category' | 'group' | 'subgroup';
   entity: FabItemCategory | FabItemGroup | FabItemSubgroup;
   categories: FabItemCategory[];
   groups: FabItemGroup[];
   canEdit: boolean;
+  /**
+   * Fields are gated on `fab_erp_items_meta_manage`, which is what both the
+   * `fabErpField` resource and `POST /fields/values` require — a different tag
+   * from the taxonomy edit above. Showing an editor the server will 403 turns a
+   * save into a mystery.
+   */
+  canEditFields: boolean;
   onClose: () => void;
   onSaved: () => Promise<void>;
 }) {
@@ -1035,10 +1134,14 @@ function TaxonomyDetailDialog({ level, entity, categories, groups, canEdit, onCl
   const [heatRequired, setHeatRequired]     = useState(asCategory?.heatRequired === 1);
   const [markRequired, setMarkRequired]     = useState(asCategory?.markRequired === 1);
 
-  const [ownFields,  setOwnFields]  = useState<FabCustomField[]>([]);
-  const [ownDraft,   setOwnDraft]   = useState<CustomFieldDraft[]>([]);
+  const [ownFields,  setOwnFields]  = useState<FieldRowDraft[]>([]);
+  const [ownDraft,   setOwnDraft]   = useState<FieldRowDraft[]>([]);
   const [inherited,  setInherited]  = useState<InheritedField[]>([]);
+  const [resolved,   setResolved]   = useState<Record<string, ResolvedValue>>({});
   const [loadingFields, setLoadingFields] = useState(true);
+  const [defs, setDefs] = useState<FieldDefRow[]>([]);
+  const vocab = useFieldVocabulary();
+  const unitGroups = useMemo(() => unitsByDimension(vocab), [vocab]);
 
   const parentGroup    = level === 'subgroup' ? groups.find((g) => g.id === (entity as FabItemSubgroup).groupId) : undefined;
   const parentCategory = level === 'group'    ? categories.find((c) => c.id === (entity as FabItemGroup).categoryId)
@@ -1060,64 +1163,46 @@ function TaxonomyDetailDialog({ level, entity, categories, groups, canEdit, onCl
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [entity.id]);
 
+  /**
+   * ONE call answers both halves.
+   *
+   * `GET /fields/values` resolves the whole ladder for this node and reports
+   * the rung each value came from, so "own" is simply the keys that resolved
+   * HERE and "inherited" is everything that resolved further up. The old code
+   * fired a query per ancestor level against `fab_custom_fields` and merged
+   * them in the browser — a second implementation of the ladder that could
+   * disagree with the server's, and a NULL parent it had to special-case.
+   */
   async function loadFields() {
     setLoadingFields(true);
     try {
-      const ownRes = await fabQuery<{ data: FabCustomField[] }>('fabErpCustomField', {
-        filters: { level, levelId: entity.id },
-        orderBy: [{ field: 'sortOrder', direction: 'asc' }],
-        pagination: { limit: 100 },
-      });
-      const own = ownRes.data ?? [];
-      setOwnFields(own);
-      setOwnDraft(own.map((f) => ({
-        id: f.id, fieldKey: f.fieldKey,
-        fieldType: f.fieldType as CustomFieldDraft['fieldType'],
-        fieldValue: f.fieldValue ?? '',
-      })));
+      const [defRes, valRes] = await Promise.all([
+        listFieldDefs(),
+        getFieldValues(level, entity.id),
+      ]);
+      const allDefs = defRes.data ?? [];
+      setDefs(allDefs);
+      const byKey = new Map(allDefs.map((d) => [d.fieldKey, d]));
+      const values = valRes.values ?? {};
+      setResolved(values);
 
-      // Load ancestor fields
-      let inh: InheritedField[] = [];
-
-      if (level === 'group') {
-        const catId = (entity as FabItemGroup).categoryId;
-        if (catId) {
-          const res = await fabQuery<{ data: FabCustomField[] }>('fabErpCustomField', {
-            filters: { level: 'category', levelId: catId },
-            orderBy: [{ field: 'sortOrder', direction: 'asc' }],
-            pagination: { limit: 100 },
-          });
-          inh = (res.data ?? []).map((f) => ({
-            fieldKey: f.fieldKey, fieldType: f.fieldType,
-            fieldValue: f.fieldValue, source: 'category' as const,
-          }));
+      const own: FieldRowDraft[] = [];
+      const inh: InheritedField[] = [];
+      for (const [key, v] of Object.entries(values)) {
+        const def = byKey.get(key);
+        if (v.from?.scope === level && Number(v.from.scopeId) === Number(entity.id)) {
+          if (def) own.push(rowFromDef(def, v, own.length));
+        } else if (v.from?.scope === 'category' || v.from?.scope === 'group' || v.from?.scope === 'subgroup') {
+          // A registry-wide default (`from.scope === 'default'`) is deliberately
+          // not listed as inherited — it is not taxonomy, and calling it that
+          // would give the word a third meaning on one screen.
+          inh.push({ fieldKey: key, def, value: v, source: String(v.from.scope) });
         }
-      } else if (level === 'subgroup') {
-        const grpId = (entity as FabItemSubgroup).groupId;
-        const grp   = groups.find((g) => g.id === grpId);
-        const catId = grp?.categoryId;
-        const [catRes, grpRes] = await Promise.all([
-          catId ? fabQuery<{ data: FabCustomField[] }>('fabErpCustomField', {
-            filters: { level: 'category', levelId: catId },
-            orderBy: [{ field: 'sortOrder', direction: 'asc' }],
-            pagination: { limit: 100 },
-          }) : Promise.resolve({ data: [] as FabCustomField[] }),
-          grpId ? fabQuery<{ data: FabCustomField[] }>('fabErpCustomField', {
-            filters: { level: 'group', levelId: grpId },
-            orderBy: [{ field: 'sortOrder', direction: 'asc' }],
-            pagination: { limit: 100 },
-          }) : Promise.resolve({ data: [] as FabCustomField[] }),
-        ]);
-        const map = new Map<string, InheritedField>(
-          (catRes.data ?? []).map((f) => [f.fieldKey, {
-            fieldKey: f.fieldKey, fieldType: f.fieldType, fieldValue: f.fieldValue, source: 'category' as const,
-          }])
-        );
-        for (const gf of (grpRes.data ?? [])) {
-          map.set(gf.fieldKey, { fieldKey: gf.fieldKey, fieldType: gf.fieldType, fieldValue: gf.fieldValue, source: 'group' as const });
-        }
-        inh = Array.from(map.values());
       }
+      own.sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+      inh.sort((a, b) => (a.def?.sortOrder ?? 0) - (b.def?.sortOrder ?? 0) || a.fieldKey.localeCompare(b.fieldKey));
+      setOwnFields(own);
+      setOwnDraft(own.map((r) => ({ ...r })));
       setInherited(inh);
     } finally {
       setLoadingFields(false);
@@ -1126,76 +1211,66 @@ function TaxonomyDetailDialog({ level, entity, categories, groups, canEdit, onCl
 
   function addField() {
     if (ownDraft.length >= 10) return;
-    setOwnDraft((d) => [...d, { id: nextCfDraftId(), fieldKey: '', fieldType: 'text', fieldValue: '' }]);
+    setOwnDraft((d) => [...d, blankRow(d.length)]);
   }
 
-  function updateField(i: number, k: keyof CustomFieldDraft, v: string) {
-    setOwnDraft((d) => d.map((r, j) => j === i ? { ...r, [k]: v } : r));
+  function patchField(rowId: number, patch: Partial<FieldRowDraft>) {
+    setOwnDraft((d) => d.map((r) => (r.rowId === rowId ? { ...r, ...patch } : r)));
   }
 
-  function removeField(i: number) {
-    setOwnDraft((d) => d.filter((_, j) => j !== i));
+  function removeField(rowId: number) {
+    setOwnDraft((d) => d.filter((r) => r.rowId !== rowId));
   }
 
   // Add or focus override for an inherited field
   function overrideInherited(f: InheritedField) {
-    const existing = ownDraft.findIndex((d) => d.fieldKey === f.fieldKey);
-    if (existing >= 0) return; // already in own draft
-    setOwnDraft((d) => [
-      ...d,
-      {
-        id: nextCfDraftId(),
-        fieldKey: f.fieldKey,
-        fieldType: f.fieldType as CustomFieldDraft['fieldType'],
-        fieldValue: f.fieldValue ?? '',
-      },
-    ]);
+    if (ownDraft.some((d) => d.fieldKey === f.fieldKey)) return;
+    const row = f.def
+      ? rowFromDef(f.def, f.value, ownDraft.length)
+      : { ...blankRow(ownDraft.length), fieldKey: f.fieldKey, label: f.fieldKey, value: f.value.value == null ? '' : String(f.value.value) };
+    setOwnDraft((d) => [...d, row]);
   }
 
   async function save() {
     setSaving(true); setErr('');
     try {
-      const resource = level === 'category' ? 'fabErpItemCategory'
-                     : level === 'group'    ? 'fabErpItemGroup'
-                                            : 'fabErpItemSubgroup';
-      const payload: Record<string, unknown> = {
-        id: entity.id,
-        description: description.trim() || null,
-        shortform: shortform.trim() || null,
-      };
-      if (!isSystem) {
-        if (!name.trim() || !code.trim()) { setErr('Name and Code are required.'); setSaving(false); return; }
-        payload.name = name.trim();
-        payload.code = code.trim().toUpperCase();
-      }
-      if (level === 'category') {
-        payload.batch_required = batchRequired ? 1 : 0;
-        payload.serial_required = serialRequired ? 1 : 0;
-        payload.heat_required = heatRequired ? 1 : 0;
-        payload.mark_required = markRequired ? 1 : 0;
-      }
-      await fabMutate(resource, 'update', payload);
-
-      const removedIds = ownFields.filter((f) => !ownDraft.find((d) => d.id === f.id)).map((f) => f.id);
-      for (const rid of removedIds) {
-        await fabMutate('fabErpCustomField', 'delete', { id: rid });
-      }
-
-      for (let i = 0; i < ownDraft.length; i++) {
-        const d = ownDraft[i];
-        if (!d.fieldKey.trim()) continue;
-        if (d.id < 0) {
-          await fabMutate('fabErpCustomField', 'insert', {
-            level, level_id: entity.id,
-            field_key: d.fieldKey.trim(), field_type: d.fieldType,
-            field_value: d.fieldValue.trim() || null, sort_order: i,
-          });
-        } else {
-          await fabMutate('fabErpCustomField', 'update', {
-            id: d.id, field_key: d.fieldKey.trim(), field_type: d.fieldType,
-            field_value: d.fieldValue.trim() || null, sort_order: i,
-          });
+      // The two halves are gated on different permission tags, so each is only
+      // attempted by someone who holds its own — otherwise a user with fields
+      // but not taxonomy would 403 on a row they never edited.
+      if (canEdit) {
+        const resource = level === 'category' ? 'fabErpItemCategory'
+                       : level === 'group'    ? 'fabErpItemGroup'
+                                              : 'fabErpItemSubgroup';
+        const payload: Record<string, unknown> = {
+          id: entity.id,
+          description: description.trim() || null,
+          shortform: shortform.trim() || null,
+        };
+        if (!isSystem) {
+          if (!name.trim() || !code.trim()) { setErr('Name and Code are required.'); setSaving(false); return; }
+          payload.name = name.trim();
+          payload.code = code.trim().toUpperCase();
         }
+        if (level === 'category') {
+          payload.batch_required = batchRequired ? 1 : 0;
+          payload.serial_required = serialRequired ? 1 : 0;
+          payload.heat_required = heatRequired ? 1 : 0;
+          payload.mark_required = markRequired ? 1 : 0;
+        }
+        await fabMutate(resource, 'update', payload);
+      }
+
+      if (canEditFields) {
+        const { rejection } = await commitFieldRows({
+          scope: level, scopeId: entity.id,
+          rows: ownDraft, baseline: ownFields,
+          defs, units: vocab.units, defScope: defScope(),
+        });
+        // The taxonomy row already saved, so this cannot roll back. Keep the
+        // dialog open and name the refusals rather than closing on a success
+        // the user never got — a dropped value that looks like a save is the
+        // failure this whole cutover exists to remove.
+        if (rejection) { setErr(rejection); setSaving(false); await loadFields(); return; }
       }
 
       await onSaved();
@@ -1206,6 +1281,20 @@ function TaxonomyDetailDialog({ level, entity, categories, groups, canEdit, onCl
   }
 
   const levelLabel = level === 'category' ? 'Category' : level === 'group' ? 'Group' : 'Sub-group';
+
+  /** Where a field invented on this node is filed in the registry. */
+  function defScope(): FieldDefScope {
+    if (level === 'category') return { categoryId: entity.id, groupId: null, subgroupId: null };
+    if (level === 'group') {
+      return { categoryId: (entity as FabItemGroup).categoryId ?? null, groupId: entity.id, subgroupId: null };
+    }
+    const grpId = (entity as FabItemSubgroup).groupId;
+    return {
+      categoryId: groups.find((g) => g.id === grpId)?.categoryId ?? null,
+      groupId: grpId ?? null,
+      subgroupId: entity.id,
+    };
+  }
 
   // Set of fieldKeys that have a local override in ownDraft
   const overriddenKeys = new Set(
@@ -1280,27 +1369,40 @@ function TaxonomyDetailDialog({ level, entity, categories, groups, canEdit, onCl
             <Typography variant="subtitle2" color="text.secondary">
               Inherited from parent ({inherited.length} field{inherited.length !== 1 ? 's' : ''})
             </Typography>
+            <Typography variant="caption" color="text.secondary">
+              Inherited default is what this {levelLabel.toLowerCase()} receives; Effective is what the system will use here.
+            </Typography>
             <Table size="small">
               <TableHead>
                 <TableRow sx={{ bgcolor: 'action.hover' }}>
                   <TableCell sx={{ fontWeight: 700 }}>Field Name</TableCell>
                   <TableCell sx={{ fontWeight: 700, width: 100 }}>Type</TableCell>
-                  <TableCell sx={{ fontWeight: 700 }}>Effective Default</TableCell>
+                  {/* Two columns, because they are two different numbers. One
+                      column headed "effective default" showing the parent's
+                      figure states a value the system will not use the moment
+                      an override exists. */}
+                  <TableCell sx={{ fontWeight: 700 }}>Inherited default</TableCell>
                   <TableCell sx={{ fontWeight: 700, width: 110 }}>Source</TableCell>
+                  <TableCell sx={{ fontWeight: 700 }}>Effective</TableCell>
                   <TableCell sx={{ fontWeight: 700, width: 160 }}>Override at this level</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
                 {inherited.map((f) => {
-                  const overrideIdx = ownDraft.findIndex((d) => d.fieldKey === f.fieldKey);
-                  const isOverridden = overrideIdx >= 0;
+                  const row = ownDraft.find((d) => d.fieldKey === f.fieldKey);
+                  const isOverridden = !!row;
+                  const type: UiFieldType = f.def ? uiTypeOf(f.def) : 'text';
+                  const pending = isOverridden && row.value.trim() !== ''
+                    && row.value.trim() !== String(resolved[f.fieldKey]?.value ?? '');
                   return (
                     <TableRow key={f.fieldKey}>
                       <TableCell>
-                        <Typography variant="body2" color="text.secondary">{f.fieldKey}</Typography>
+                        <Typography variant="body2">{f.def?.label ?? f.fieldKey}</Typography>
+                        <Mono sx={{ fontSize: 11, color: 'text.disabled' }}>{f.fieldKey}</Mono>
                       </TableCell>
                       <TableCell>
-                        <Typography variant="caption">{FIELD_TYPE_LABEL[f.fieldType] ?? f.fieldType}</Typography>
+                        <Typography variant="caption">{type}</Typography>
+                        {f.def?.defaultUnit && <Typography variant="caption" color="text.disabled"> · {f.def.defaultUnit}</Typography>}
                       </TableCell>
                       <TableCell>
                         <Typography
@@ -1308,35 +1410,50 @@ function TaxonomyDetailDialog({ level, entity, categories, groups, canEdit, onCl
                           color="text.secondary"
                           sx={isOverridden ? { textDecoration: 'line-through', color: 'text.disabled' } : undefined}
                         >
-                          {f.fieldValue ?? '—'}
+                          {displayValue(f.value)}
                         </Typography>
                       </TableCell>
                       <TableCell>
                         <StatusBadge
-                          status={f.source === 'category' ? 'Category' : 'Group'}
+                          status={SOURCE_LABEL[f.source] ?? f.source}
                           family={f.source === 'category' ? 'neutral' : 'info'}
                         />
+                      </TableCell>
+                      <TableCell>
+                        <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                          {pending
+                            ? `${row.value.trim()}${f.def?.defaultUnit ? ` ${f.def.defaultUnit}` : ''} (unsaved)`
+                            : displayValue(resolved[f.fieldKey] ?? f.value)}
+                        </Typography>
                       </TableCell>
                       <TableCell>
                         {isOverridden ? (
                           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                             <TextField
                               size="small"
-                              value={ownDraft[overrideIdx].fieldValue}
-                              disabled={!canEdit}
+                              select={type === 'bool'}
+                              value={type === 'bool' ? boolValue(row.value) : row.value}
+                              disabled={!canEditFields}
                               sx={{ flex: 1, minWidth: 80 }}
-                              placeholder="Override value…"
-                              onChange={(e) => updateField(overrideIdx, 'fieldValue', e.target.value)}
-                            />
-                            {canEdit && (
+                              placeholder={valuePlaceholder(type, f.def?.defaultUnit)}
+                              error={!!fieldValueError(type, row.value)}
+                              helperText={fieldValueError(type, row.value) ?? undefined}
+                              onChange={(e) => patchField(row.rowId, { value: e.target.value })}
+                            >
+                              {type === 'bool'
+                                ? [<MenuItem key="" value="">— none —</MenuItem>,
+                                   ...BOOL_OPTIONS.map((o) => <MenuItem key={o.value} value={o.value}>{o.label}</MenuItem>)]
+                                : null}
+                            </TextField>
+                            {canEditFields && (
                               <Tooltip title="Remove override">
-                                <IconButton size="small" color="error" onClick={() => removeField(overrideIdx)}>
+                                <IconButton size="small" color="error" onClick={() => removeField(row.rowId)}>
                                   <DeleteIcon fontSize="small" />
                                 </IconButton>
                               </Tooltip>
                             )}
                           </Box>
-                        ) : canEdit ? (
+                        ) : canEditFields ? (
                           <Button size="small" variant="outlined" onClick={() => overrideInherited(f)}>
                             Override
                           </Button>
@@ -1358,61 +1475,52 @@ function TaxonomyDetailDialog({ level, entity, categories, groups, canEdit, onCl
           <Typography variant="subtitle2">
             Custom Fields at this {levelLabel} ({ownDraft.length}/10)
           </Typography>
-          {canEdit && (
+          {canEditFields && (
             <Button size="small" startIcon={<AddIcon />}
               disabled={ownDraft.length >= 10} onClick={addField}>
               Add Field
             </Button>
           )}
         </Box>
+        {!canEditFields && (
+          <Alert severity="info" sx={{ py: 0 }}>
+            Fields are read-only for you — editing them needs the “Manage Item Metrics” permission.
+          </Alert>
+        )}
 
         {loadingFields ? (
           <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}><CircularProgress size={24} /></Box>
         ) : ownDraft.length === 0 ? (
           <Typography variant="body2" color="text.secondary">
-            No custom fields at this level yet.{canEdit ? ' Add up to 10 or override inherited fields above.' : ''}
+            No custom fields at this level yet.{canEditFields ? ' Add up to 10 or override inherited fields above.' : ''}
           </Typography>
         ) : (
           <Table size="small">
             <TableHead>
               <TableRow sx={{ bgcolor: 'action.hover' }}>
-                <TableCell sx={{ fontWeight: 700 }}>Field Name</TableCell>
-                <TableCell sx={{ fontWeight: 700, width: 130 }}>Type</TableCell>
-                <TableCell sx={{ fontWeight: 700 }}>Default Value</TableCell>
-                <TableCell sx={{ fontWeight: 700, width: 100 }}>Note</TableCell>
-                {canEdit && <TableCell sx={{ width: 48 }} />}
+                <TableCell sx={FIELD_HEAD_SX}>Field Name</TableCell>
+                <TableCell sx={{ ...FIELD_HEAD_SX, width: 120 }}>Type</TableCell>
+                <TableCell sx={{ ...FIELD_HEAD_SX, width: 150 }}>Unit / options</TableCell>
+                <TableCell sx={FIELD_HEAD_SX}>Default value</TableCell>
+                <TableCell sx={{ ...FIELD_HEAD_SX, width: 100 }}>Note</TableCell>
+                {canEditFields && <TableCell sx={{ width: 48 }} />}
               </TableRow>
             </TableHead>
             <TableBody>
-              {ownDraft.map((d, i) => (
-                <TableRow key={d.id}>
-                  <TableCell sx={{ py: 0.5 }}>
-                    <TextField size="small" fullWidth value={d.fieldKey} disabled={!canEdit}
-                      placeholder="e.g. Material Grade"
-                      onChange={(e) => updateField(i, 'fieldKey', e.target.value)} />
-                  </TableCell>
-                  <TableCell sx={{ py: 0.5 }}>
-                    <TextField select size="small" fullWidth value={d.fieldType} disabled={!canEdit}
-                      onChange={(e) => updateField(i, 'fieldType', e.target.value)}>
-                      <MenuItem value="text">Text</MenuItem>
-                      <MenuItem value="number">Number</MenuItem>
-                      <MenuItem value="date">Date</MenuItem>
-                      <MenuItem value="dropdown">Dropdown</MenuItem>
-                    </TextField>
-                  </TableCell>
-                  <TableCell sx={{ py: 0.5 }}>
-                    <TextField size="small" fullWidth value={d.fieldValue} disabled={!canEdit}
-                      placeholder={d.fieldType === 'dropdown' ? 'Option1, Option2, …' : 'Default value…'}
-                      onChange={(e) => updateField(i, 'fieldValue', e.target.value)} />
-                  </TableCell>
+              {ownDraft.map((d) => (
+                <TableRow key={d.rowId}>
+                  <FieldRowCells
+                    row={d} canEdit={canEditFields} unitGroups={unitGroups}
+                    onPatch={(p) => patchField(d.rowId, p)}
+                  />
                   <TableCell sx={{ py: 0.5 }}>
                     {overriddenKeys.has(d.fieldKey) && (
                       <StatusBadge status="Override" family="warning" />
                     )}
                   </TableCell>
-                  {canEdit && (
+                  {canEditFields && (
                     <TableCell sx={{ py: 0.5 }}>
-                      <IconButton size="small" color="error" onClick={() => removeField(i)}>
+                      <IconButton size="small" color="error" onClick={() => removeField(d.rowId)}>
                         <DeleteIcon fontSize="small" />
                       </IconButton>
                     </TableCell>
@@ -1425,7 +1533,10 @@ function TaxonomyDetailDialog({ level, entity, categories, groups, canEdit, onCl
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose}>Close</Button>
-        {canEdit && (
+        {/* One save for the whole dialog — the taxonomy row and its fields are
+            two writes but one mental action, and splitting them is how the item
+            page came to drop field edits silently. */}
+        {(canEdit || canEditFields) && (
           <Button variant="contained" onClick={save} disabled={saving}>
             {saving ? <CircularProgress size={16} /> : 'Save'}
           </Button>
@@ -2365,6 +2476,7 @@ export default function ItemCatalog() {
           categories={categories}
           groups={groups}
           canEdit={canManageTaxonomy}
+          canEditFields={canManage}
           onClose={() => setTaxonomyDetail(null)}
           onSaved={async () => { await refetchTaxonomy(); toast('Saved.'); }}
         />

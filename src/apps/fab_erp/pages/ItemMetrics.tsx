@@ -91,7 +91,17 @@ const APPLIES_AT = [
 
 interface Vocabulary {
   dataTypes: { value: string; label: string }[];
-  units: { group: string; values: string[] }[];
+  /**
+   * GROUPED units, which the endpoint serves as `unitGroups` — NOT as `units`.
+   *
+   * `/fields/vocabulary` returns both: `units` is a FLAT array of unit records
+   * (code, dimension, factor), and `unitGroups` is that same list bucketed by
+   * dimension. This screen read `units` and then called `g.values.map(...)` on
+   * each entry, which is a TypeError the moment a real response replaces the
+   * fallback — i.e. the unit dropdown threw as soon as it was opened, while
+   * looking fine in any test that never fetched.
+   */
+  unitGroups: { group: string; values: string[] }[];
 }
 
 /**
@@ -104,14 +114,14 @@ interface Vocabulary {
  */
 const FALLBACK_VOCAB: Vocabulary = {
   dataTypes: DATA_TYPES.map((v) => ({ value: v, label: v })),
-  units: [{ group: 'Common', values: ['mm', 'm', 'm2', 'kg', 'hrs', 'nos', '%'] }],
+  unitGroups: [{ group: 'Common', values: ['mm', 'm', 'm2', 'kg', 'hrs', 'nos', '%'] }],
 };
 
 function useVocabulary(): Vocabulary {
   const [vocab, setVocab] = useState<Vocabulary>(FALLBACK_VOCAB);
   useEffect(() => {
     fabGet<Vocabulary>('fields/vocabulary')
-      .then((v) => { if (v?.units?.length) setVocab(v); })
+      .then((v) => { if (v?.unitGroups?.length) setVocab(v); })
       .catch(() => { /* keep the fallback */ });
   }, []);
   return vocab;
@@ -216,13 +226,13 @@ function FieldDialog({ open, initial, onClose, onSaved }: {
             two units for one thing, which is how this registry already grew a
             free-text `Thickness (mm)` beside the numeric `thickness_mm`. */}
         <TextField
-          select label="Unit" value={vocab.units.flatMap((g) => g.values).includes(draft.defaultUnit) ? draft.defaultUnit : ''}
+          select label="Unit" value={vocab.unitGroups.flatMap((g) => g.values).includes(draft.defaultUnit) ? draft.defaultUnit : ''}
           onChange={(e) => set('defaultUnit', e.target.value)}
           size="small" sx={{ flex: 1 }} disabled={isText}
           helperText="Declared, not converted — see below"
         >
           <MenuItem value="">— none —</MenuItem>
-          {vocab.units.flatMap((g) => [
+          {vocab.unitGroups.flatMap((g) => [
             <ListSubheader key={`h-${g.group}`} sx={{ fontSize: 11, lineHeight: '26px' }}>{g.group}</ListSubheader>,
             ...g.values.map((u) => <MenuItem key={u} value={u}>{u}</MenuItem>),
           ])}

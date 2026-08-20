@@ -4,25 +4,56 @@
  * dimension per item (batch, heat, or individual stock piece) that expands
  * the row in place into sub-rows, and a drill-down into the stock ledger for
  * a clicked sub-row. Stock Piece segments additionally show every
- * stock-piece-level custom field (e.g. Width, Length) inline.
+ * stock-piece-level field value inline, and are the one place in the app where
+ * a value can be SET on an individual piece.
+ *
+ * WHY THE PIECE EDITOR LIVES HERE. A physical plate is not its catalog item:
+ * the item says "MS Plate E350 16mm", the plate in the rack says "5850 long,
+ * because that is what the mill actually sent". Until this screen had a write
+ * path there was none anywhere in the frontend — /stock/summary returned each
+ * piece's values and the row rendered them read-only, so the only way a piece
+ * ever acquired a value was a hand-written INSERT. Everything downstream that
+ * matches steel to a nest reads those values, so "no editor" meant "the size
+ * on the shelf is whatever the item guessed".
+ *
+ * IT WRITES THROUGH THE FIELD REGISTRY, NOT fab_custom_fields. POST
+ * /fields/values -> setFields is the only path that validates: it refuses an
+ * unknown key, a non-number in a number field, an out-of-list enum, and — the
+ * one that matters here — a value at a rung the field may not be set on. It
+ * also stores value_num and unit_code separately, which is what stops the
+ * fused "2000 mm" strings the legacy table is full of.
+ *
+ * THE LADDER GATE IS SHOWN, NOT SWALLOWED. `appliesAt` names the NARROWEST rung
+ * a field may be set on. A field declared to be the same for every piece
+ * (appliesAt = catalog_item / order_item) is rendered read-only with the reason
+ * printed next to it, and if the server refuses a write anyway its `rejected[]`
+ * is displayed verbatim and the dialog stays open. A refusal that looks like a
+ * save is the failure mode worth engineering against.
  */
 
-import { Fragment, useCallback, useEffect, useState, type MouseEvent } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useState, type MouseEvent } from 'react';
 import { Link as RouterLink, useParams, useSearchParams } from 'react-router-dom';
 import {
-  Alert, Box, Button, CircularProgress, Dialog, DialogContent, DialogTitle,
-  Link, Menu, MenuItem, Select, Table, TableBody, TableCell, TableHead, TableRow,
-  Typography,
+  Alert, Box, Button, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle,
+  FormControlLabel, IconButton, Link, Menu, MenuItem, Select, Switch, Table, TableBody, TableCell,
+  TableHead, TableRow, TextField, Tooltip, Typography,
 } from '@mui/material';
 import ReceiptLongRounded from '@mui/icons-material/ReceiptLongRounded';
 import Inventory2Rounded from '@mui/icons-material/Inventory2Rounded';
 import ExpandMoreRounded from '@mui/icons-material/ExpandMoreRounded';
 import KeyboardArrowDownRounded from '@mui/icons-material/KeyboardArrowDownRounded';
+import TuneRounded from '@mui/icons-material/TuneRounded';
 
 import { fabQuery, fabGet, type FilterValue } from '../api/client';
+import {
+  getFieldValues, getFieldVocabulary, setFieldValues,
+  type FieldDef, type FieldVocabulary, type ResolvedValue,
+} from '../api/fields';
 import type { FabPlant, FabStockLedger, FabStockLocation } from '../types';
 import { usePermission } from '@core/hooks/usePermission';
-import { Surface, PageHeader, Mono, EmptyState, ListSkeleton, FilterBar } from '../components';
+import { useAuth } from '@core/contexts/AuthContext';
+import { isAdminRole } from '@core/utils/roles';
+import { Surface, PageHeader, Mono, EmptyState, ListSkeleton, FilterBar, useToast, backendMessage } from '../components';
 import { DialogCloseButton } from '../components/FormDialog';
 
 const th = { fontFamily: 'var(--font-ui)', fontWeight: 600, fontSize: 12, color: 'var(--c-text-2)', textTransform: 'uppercase', letterSpacing: '.05em', borderColor: 'var(--c-divider)' } as const;
@@ -84,6 +115,77 @@ interface ExpandedState {
   loading: boolean;
   error?: string;
   segments: StockSummarySegment[];
+}
+
+// ---------------------------------------------------------------------------
+// Field-value helpers
+// ---------------------------------------------------------------------------
+
+/** Where a resolved value came from, in words a person can act on. */
+const RUNG_LABEL: Record<string, string> = {
+  default: 'the field default',
+  category: 'the category',
+  group: 'the group',
+  subgroup: 'the subgroup',
+  catalog_item: 'the item',
+  order_item: 'the order item',
+  stock_piece: 'this piece',
+};
+
+/** The item's place in the taxonomy, used to hide fields that do not apply. */
+interface Taxonomy { categoryId: number | null; groupId: number | null; subgroupId: number | null }
+const NO_TAXONOMY: Taxonomy = { categoryId: null, groupId: null, subgroupId: null };
+
+/**
+ * A field carrying a category/group/subgroup is offered only under that branch.
+ * A null on the field means "anywhere", which is why each test is skipped
+ * rather than compared against null — comparing would hide every global field.
+ */
+function taxonomyMatches(def: FieldDef, tax: Taxonomy): boolean {
+  if (def.categoryId != null && def.categoryId !== tax.categoryId) return false;
+  if (def.groupId != null && def.groupId !== tax.groupId) return false;
+  if (def.subgroupId != null && def.subgroupId !== tax.subgroupId) return false;
+  return true;
+}
+
+function formatValue(v: ResolvedValue['value']): string {
+  if (v === null || v === undefined || v === '') return '—';
+  if (typeof v === 'boolean') return v ? 'Yes' : 'No';
+  return String(v);
+}
+
+function withUnit(v: ResolvedValue): string {
+  const text = formatValue(v.value);
+  return v.unit && text !== '—' ? `${text} ${v.unit}` : text;
+}
+
+/** The editor's text form of a resolved value. Booleans become the Select's keys. */
+function toDraft(v: ResolvedValue | undefined): string {
+  if (!v || v.value === null || v.value === undefined) return '';
+  if (typeof v.value === 'boolean') return v.value ? 'true' : 'false';
+  return String(v.value);
+}
+
+/**
+ * Run `fn` over `items` with at most `limit` in flight.
+ *
+ * An expanded item can hold fifty pieces and each needs its own
+ * /fields/values call — the route resolves one target at a time. Firing all
+ * fifty at once is what turns a table expansion into a stalled browser.
+ */
+async function mapPool<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const out = new Array<R>(items.length);
+  let cursor = 0;
+  const worker = async () => {
+    for (;;) {
+      const i = cursor;
+      cursor += 1;
+      if (i >= items.length) return;
+      out[i] = await fn(items[i]);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return out;
 }
 
 function ReceiptsDialog({ target, onClose }: { target: DrillTarget | null; onClose: () => void }) {
@@ -157,8 +259,389 @@ function ReceiptsDialog({ target, onClose }: { target: DrillTarget | null; onClo
   );
 }
 
+// ---------------------------------------------------------------------------
+// PieceFieldsDialog — the write path for a single physical piece
+// ---------------------------------------------------------------------------
+
+interface PieceEditTarget {
+  pieceId: number;
+  catalogItemId: number;
+  /** What the row calls this piece, so the dialog title names the same thing. */
+  label: string;
+}
+
+/** One field's editing state. Kept as text so a half-typed number is not lost. */
+type DraftMap = Record<string, string>;
+
+function PieceFieldsDialog({ target, onClose, onSaved }: {
+  target: PieceEditTarget | null;
+  onClose: () => void;
+  /** Hand the freshly resolved values back so the row behind updates. */
+  onSaved: (pieceId: number, values: Record<string, ResolvedValue>, defs: FieldDef[]) => void;
+}) {
+  const { toast } = useToast();
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [defs, setDefs] = useState<FieldDef[]>([]);
+  const [values, setValues] = useState<Record<string, ResolvedValue>>({});
+  const [tax, setTax] = useState<Taxonomy>(NO_TAXONOMY);
+  const [vocab, setVocab] = useState<FieldVocabulary | null>(null);
+  const [draft, setDraft] = useState<DraftMap>({});
+  const [units, setUnits] = useState<DraftMap>({});
+  const [rejected, setRejected] = useState<Array<{ fieldKey: string; why: string }>>([]);
+  const [showAll, setShowAll] = useState(false);
+
+  const catalogItemId = target?.catalogItemId ?? null;
+
+  const seed = useCallback((fieldDefs: FieldDef[], resolved: Record<string, ResolvedValue>) => {
+    const d: DraftMap = {};
+    const u: DraftMap = {};
+    for (const f of fieldDefs) {
+      const v = resolved[f.fieldKey];
+      // Only a value AUTHORED on this piece prefills the box. Prefilling an
+      // inherited one would turn every save into a copy of the item's value
+      // onto the piece, which is precisely the drift this screen prevents.
+      d[f.fieldKey] = v && v.from.scope === 'stock_piece' ? toDraft(v) : '';
+      u[f.fieldKey] = (v && v.from.scope === 'stock_piece' ? v.unit : null) ?? f.unit ?? '';
+    }
+    setDraft(d);
+    setUnits(u);
+  }, []);
+
+  // Keyed on the target OBJECT, not its id: reopening the same piece must
+  // refetch, or a stale copy of values someone else has since changed would be
+  // what the next edit is based on.
+  const load = useCallback(async () => {
+    if (!target) return;
+    setLoading(true); setError(''); setRejected([]);
+    try {
+      const res = await getFieldValues('stock_piece', target.pieceId);
+      setDefs(res.fields ?? []);
+      setValues(res.values ?? {});
+      seed(res.fields ?? [], res.values ?? {});
+    } catch (e) {
+      setError(backendMessage(e, 'Could not load this piece’s fields.'));
+    } finally {
+      setLoading(false);
+    }
+  }, [target, seed]);
+
+  useEffect(() => { void load(); }, [load]);
+
+  // The item's branch of the taxonomy, so a plate is not offered the
+  // depreciation fields that belong to machines. Best-effort: a failure here
+  // only means the unfiltered list, never a blocked editor.
+  useEffect(() => {
+    if (catalogItemId == null) { setTax(NO_TAXONOMY); return; }
+    let cancelled = false;
+    fabQuery<{ data: Array<{ id: number; categoryId: number | null; groupId: number | null; subgroupId: number | null }> }>(
+      'fabErpItemCatalog',
+      { filters: { id: catalogItemId }, pagination: { limit: 1 } },
+    ).then((r) => {
+      if (cancelled) return;
+      const row = (r.data ?? [])[0];
+      setTax(row
+        ? { categoryId: row.categoryId ?? null, groupId: row.groupId ?? null, subgroupId: row.subgroupId ?? null }
+        : NO_TAXONOMY);
+    }).catch(() => { if (!cancelled) setTax(NO_TAXONOMY); });
+    return () => { cancelled = true; };
+  }, [catalogItemId]);
+
+  // Units carry conversion factors, so a length authored in metres lands in the
+  // column as millimetres. Optional — without it the field's declared unit is
+  // simply the only choice.
+  useEffect(() => {
+    if (target == null || vocab != null) return;
+    let cancelled = false;
+    getFieldVocabulary().then((v) => { if (!cancelled) setVocab(v); }).catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [target, vocab]);
+
+  const inBranch = useCallback(
+    (f: FieldDef) => showAll || taxonomyMatches(f, tax) || values[f.fieldKey]?.from.scope === 'stock_piece',
+    [showAll, tax, values],
+  );
+
+  /** Fields this piece may hold a value of its own for. */
+  const settable = useMemo(
+    () => defs.filter((f) => f.appliesAt === 'stock_piece' && inBranch(f)),
+    [defs, inBranch],
+  );
+
+  /**
+   * Fields that resolve onto this piece but may NOT be set on it — the ladder
+   * gate, rendered rather than hidden. Hiding them would leave someone hunting
+   * a box that is deliberately absent.
+   */
+  const fixed = useMemo(
+    () => defs.filter((f) => f.appliesAt !== 'stock_piece' && values[f.fieldKey] != null && inBranch(f)),
+    [defs, values, inBranch],
+  );
+
+  const unitOptions = useCallback((f: FieldDef) => {
+    if (!vocab || !f.dimension) return f.unit ? [f.unit] : [];
+    const codes = vocab.units.filter((u) => u.dimension === f.dimension).map((u) => u.code);
+    if (f.unit && !codes.includes(f.unit)) codes.unshift(f.unit);
+    return codes;
+  }, [vocab]);
+
+  /** Only what the user actually changed, so an untouched form writes nothing. */
+  const payload = useMemo(() => {
+    const out: Record<string, string | null | { value: string; unit?: string }> = {};
+    for (const f of settable) {
+      const next = (draft[f.fieldKey] ?? '').trim();
+      const current = values[f.fieldKey];
+      const own = current?.from.scope === 'stock_piece';
+      const ownText = own ? toDraft(current) : '';
+      const ownUnit = (own ? current.unit : null) ?? f.unit ?? '';
+      const nextUnit = units[f.fieldKey] ?? f.unit ?? '';
+
+      if (next === '') {
+        // Clearing something never set on the piece is a no-op, not a delete.
+        if (own) out[f.fieldKey] = null;
+        continue;
+      }
+      if (next === ownText && nextUnit === ownUnit) continue;
+      out[f.fieldKey] = f.dataType === 'number' && nextUnit
+        ? { value: next, unit: nextUnit }
+        : next;
+    }
+    return out;
+  }, [settable, draft, units, values]);
+
+  const changedCount = Object.keys(payload).length;
+
+  async function save() {
+    if (!target) return;
+    if (changedCount === 0) { setError('Nothing has changed.'); return; }
+    setSaving(true); setError(''); setRejected([]);
+    try {
+      const res = await setFieldValues('stock_piece', target.pieceId, payload);
+
+      // Refetch rather than patch: the server converts units and applies the
+      // ladder, so what it now resolves is the only trustworthy answer.
+      const fresh = await getFieldValues('stock_piece', target.pieceId);
+      setDefs(fresh.fields ?? []);
+      setValues(fresh.values ?? {});
+      seed(fresh.fields ?? [], fresh.values ?? {});
+      onSaved(target.pieceId, fresh.values ?? {}, fresh.fields ?? []);
+
+      // A refusal is reported, never swallowed. setFields returns 200 with the
+      // rejects listed precisely so one bad key does not discard the rest —
+      // which also means a silent client would show a green tick over a value
+      // that was thrown away.
+      if (res.rejected?.length) {
+        setRejected(res.rejected);
+        toast(`${res.written} saved, ${res.rejected.length} refused.`, 'error');
+        return;
+      }
+      toast(res.written > 0 || res.cleared > 0 ? 'Piece values saved.' : 'Nothing to save.', 'success');
+      onClose();
+    } catch (e) {
+      setError(backendMessage(e, 'Could not save this piece’s values.'));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function renderInput(f: FieldDef) {
+    const current = values[f.fieldKey];
+    const inherited = current && current.from.scope !== 'stock_piece';
+    const placeholder = inherited ? `${withUnit(current)} (inherited)` : '';
+    const value = draft[f.fieldKey] ?? '';
+    const set = (v: string) => setDraft((prev) => ({ ...prev, [f.fieldKey]: v }));
+
+    if (f.dataType === 'bool') {
+      return (
+        <Select size="small" displayEmpty value={value} sx={{ width: 220 }}
+          onChange={(e) => set(String(e.target.value))}>
+          <MenuItem value="">{placeholder || '— not set —'}</MenuItem>
+          <MenuItem value="true">Yes</MenuItem>
+          <MenuItem value="false">No</MenuItem>
+        </Select>
+      );
+    }
+    if (f.dataType === 'enum') {
+      return (
+        <Select size="small" displayEmpty value={value} sx={{ width: 220 }}
+          onChange={(e) => set(String(e.target.value))}>
+          <MenuItem value="">{placeholder || '— not set —'}</MenuItem>
+          {(f.allowedValues ?? []).map((a) => <MenuItem key={a} value={a}>{a}</MenuItem>)}
+        </Select>
+      );
+    }
+    if (f.dataType === 'date') {
+      return (
+        <TextField size="small" type="date" sx={{ width: 220 }} value={value}
+          InputLabelProps={{ shrink: true }} helperText={placeholder || ' '}
+          onChange={(e) => set(e.target.value)} />
+      );
+    }
+
+    const opts = f.dataType === 'number' ? unitOptions(f) : [];
+    return (
+      <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-start' }}>
+        <TextField
+          size="small"
+          type={f.dataType === 'number' ? 'number' : 'text'}
+          sx={{ width: opts.length > 1 ? 150 : 220 }}
+          value={value}
+          placeholder={placeholder}
+          onChange={(e) => set(e.target.value)}
+        />
+        {opts.length > 1 && (
+          <Select size="small" sx={{ width: 100 }} value={units[f.fieldKey] ?? f.unit ?? ''}
+            onChange={(e) => setUnits((prev) => ({ ...prev, [f.fieldKey]: String(e.target.value) }))}>
+            {opts.map((u) => <MenuItem key={u} value={u}>{u}</MenuItem>)}
+          </Select>
+        )}
+        {opts.length === 1 && (
+          <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-3)', pt: 1.2 }}>{opts[0]}</Typography>
+        )}
+      </Box>
+    );
+  }
+
+  return (
+    <Dialog open={!!target} onClose={saving ? undefined : onClose} maxWidth="md" fullWidth>
+      <DialogCloseButton absolute onClose={onClose} disabled={saving} label="Close without saving" />
+      <DialogTitle sx={{ fontWeight: 600 }}>
+        Piece values — <Mono>{target?.label ?? ''}</Mono>
+        <Typography sx={{ fontSize: 13, fontWeight: 400, color: 'var(--c-text-2)', mt: 0.5 }}>
+          What is true of THIS physical piece. Leave a box empty to keep inheriting the item's
+          value; type one to record what was actually measured.
+        </Typography>
+      </DialogTitle>
+
+      <DialogContent dividers>
+        {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
+
+        {rejected.length > 0 && (
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            <Typography sx={{ fontWeight: 600, fontSize: 13.5, mb: 0.5 }}>
+              {rejected.length} value{rejected.length > 1 ? 's were' : ' was'} refused and NOT saved
+            </Typography>
+            {rejected.map((r) => (
+              <Typography key={r.fieldKey} sx={{ fontSize: 12.5 }}>
+                <Mono>{r.fieldKey}</Mono> — {r.why}
+              </Typography>
+            ))}
+          </Alert>
+        )}
+
+        {loading ? (
+          <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}><CircularProgress size={22} /></Box>
+        ) : (
+          <>
+            <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 1 }}>
+              <FormControlLabel
+                control={<Switch size="small" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} />}
+                label={<Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)' }}>Show fields from other categories</Typography>}
+              />
+            </Box>
+
+            {settable.length === 0 ? (
+              <Alert severity="info">
+                No field in the registry may be set on an individual piece for this item.
+                Turn on "Show fields from other categories" to see the rest.
+              </Alert>
+            ) : (
+              <Table size="small">
+                <TableHead>
+                  <TableRow>
+                    <TableCell sx={{ ...th, width: 220 }}>Field</TableCell>
+                    <TableCell sx={{ ...th, width: 280 }}>This piece</TableCell>
+                    <TableCell sx={th}>Currently resolves to</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {settable.map((f) => {
+                    const current = values[f.fieldKey];
+                    const own = current?.from.scope === 'stock_piece';
+                    return (
+                      <TableRow key={f.fieldKey}>
+                        <TableCell sx={td}>
+                          {f.label}
+                          <Typography sx={{ fontSize: 11, color: 'var(--c-text-3)' }}>
+                            <Mono>{f.fieldKey}</Mono>
+                          </Typography>
+                        </TableCell>
+                        <TableCell sx={td}>{renderInput(f)}</TableCell>
+                        <TableCell sx={td}>
+                          {current ? (
+                            <>
+                              {withUnit(current)}{' '}
+                              <Chip
+                                size="small"
+                                variant={own ? 'filled' : 'outlined'}
+                                color={own ? 'primary' : 'default'}
+                                label={own ? 'set on this piece' : `from ${RUNG_LABEL[current.from.scope] ?? current.from.scope}`}
+                                sx={{ height: 20, fontSize: 11 }}
+                              />
+                            </>
+                          ) : <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-3)' }}>not set anywhere</Typography>}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            )}
+
+            {fixed.length > 0 && (
+              <Box sx={{ mt: 3 }}>
+                <Typography sx={{ fontSize: 12.5, fontWeight: 600, color: 'var(--c-text-2)', mb: 0.5 }}>
+                  Same for every piece — cannot be changed here
+                </Typography>
+                <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)', mb: 1 }}>
+                  These fields are declared to be a property of the item, not of one plate. Two rows
+                  disagreeing about them would leave nothing to say which is right, so the server
+                  refuses the write; change them on the item instead.
+                </Typography>
+                <Table size="small">
+                  <TableBody>
+                    {fixed.map((f) => (
+                      <TableRow key={f.fieldKey}>
+                        <TableCell sx={{ ...td, width: 220 }}>{f.label}</TableCell>
+                        <TableCell sx={{ ...td, width: 280 }}>{withUnit(values[f.fieldKey])}</TableCell>
+                        <TableCell sx={{ ...td, color: 'var(--c-text-3)', fontSize: 12 }}>
+                          set at <Mono>{f.appliesAt}</Mono> or broader
+                          {' · '}currently from {RUNG_LABEL[values[f.fieldKey].from.scope] ?? values[f.fieldKey].from.scope}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </Box>
+            )}
+          </>
+        )}
+      </DialogContent>
+
+      <DialogActions>
+        <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-3)', mr: 'auto', pl: 1 }}>
+          {changedCount === 0 ? 'No changes' : `${changedCount} change${changedCount > 1 ? 's' : ''} to save`}
+        </Typography>
+        <Button onClick={onClose} disabled={saving}>Cancel</Button>
+        <Button
+          variant="contained"
+          onClick={save}
+          disabled={saving || loading || changedCount === 0}
+          startIcon={saving ? <CircularProgress size={14} color="inherit" /> : undefined}
+        >
+          {saving ? 'Saving…' : 'Save piece values'}
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
+
 export default function ItemBatches() {
   const canView = usePermission('fab_erp_inventory_view');
+  const canEditFields = usePermission('fab_erp_items_meta_manage');
+  const { user } = useAuth();
+  const canEdit = canEditFields || isAdminRole(user?.role);
   const { company } = useParams<{ company: string }>();
   const [searchParams] = useSearchParams();
   const itemIdParam = searchParams.get('itemId');
@@ -175,6 +658,27 @@ export default function ItemBatches() {
   const [expanded, setExpanded] = useState<Record<number, ExpandedState>>({});
   const [menuAnchor, setMenuAnchor] = useState<{ el: HTMLElement; catalogItemId: number } | null>(null);
   const [drillTarget, setDrillTarget] = useState<DrillTarget | null>(null);
+  const [editTarget, setEditTarget] = useState<PieceEditTarget | null>(null);
+
+  /**
+   * Registry values per piece, and the labels to print them with.
+   *
+   * /stock/summary still answers with the LEGACY fab_custom_fields rows, so a
+   * value written through the field registry would otherwise be invisible on
+   * the very row that was just edited. Read here until that route resolves
+   * fields itself.
+   */
+  const [pieceValues, setPieceValues] = useState<Record<number, Record<string, ResolvedValue>>>({});
+  const [fieldLabels, setFieldLabels] = useState<Record<string, string>>({});
+
+  const rememberLabels = useCallback((defs: FieldDef[]) => {
+    if (!defs.length) return;
+    setFieldLabels((prev) => {
+      const next = { ...prev };
+      for (const f of defs) next[f.fieldKey] = f.label;
+      return next;
+    });
+  }, []);
 
   useEffect(() => {
     fabQuery<{ data: FabPlant[] }>('fabErpPlant', { orderBy: [{ field: 'name', direction: 'asc' }] })
@@ -204,7 +708,28 @@ export default function ItemBatches() {
     finally { setLoading(false); }
   }, [plantId, locationId, focusedItemId]);
 
-  useEffect(() => { fetchItems(); setExpanded({}); }, [fetchItems]);
+  useEffect(() => { fetchItems(); setExpanded({}); setPieceValues({}); }, [fetchItems]);
+
+  /** Pull the registry values for the pieces just revealed, a few at a time. */
+  const loadPieceValues = useCallback(async (ids: number[]) => {
+    if (!ids.length) return;
+    const results = await mapPool(ids, 6, async (id) => {
+      try {
+        const res = await getFieldValues('stock_piece', id);
+        rememberLabels(res.fields ?? []);
+        return { id, values: res.values ?? {} };
+      } catch {
+        // A piece whose values cannot be read still shows its quantity and its
+        // legacy fields — losing the whole expansion over it would be worse.
+        return { id, values: {} as Record<string, ResolvedValue> };
+      }
+    });
+    setPieceValues((prev) => {
+      const next = { ...prev };
+      for (const r of results) next[r.id] = r.values;
+      return next;
+    });
+  }, [rememberLabels]);
 
   function openSegmentMenu(e: MouseEvent<HTMLElement>, catalogItemId: number) {
     setMenuAnchor({ el: e.currentTarget, catalogItemId });
@@ -229,7 +754,11 @@ export default function ItemBatches() {
       // The backend's catalogItemId scoping is best-effort; filter client-side
       // to the item we asked about regardless of what came back.
       const match = (res.data?.items ?? []).find((it) => it.catalogItemId === catalogItemId);
-      setExpanded((prev) => ({ ...prev, [catalogItemId]: { groupByKey, optionLabel, loading: false, segments: match?.segments ?? [] } }));
+      const segments = match?.segments ?? [];
+      setExpanded((prev) => ({ ...prev, [catalogItemId]: { groupByKey, optionLabel, loading: false, segments } }));
+      if (groupByKey === 'piece') {
+        void loadPieceValues(segments.map((s) => s.pieceId).filter((id): id is number => id != null));
+      }
     } catch (e) {
       setExpanded((prev) => ({ ...prev, [catalogItemId]: { groupByKey, optionLabel, loading: false, segments: [], error: (e as Error).message } }));
     }
@@ -238,6 +767,24 @@ export default function ItemBatches() {
   function segmentValueLabel(value: string | number | null): string {
     if (value === null || value === undefined || value === '') return '(none)';
     return String(value);
+  }
+
+  /**
+   * What the piece row prints: its LEGACY custom fields plus every registry
+   * value authored on the piece itself. Inherited values are left off on
+   * purpose — the row is a list of the ways this plate differs from its item,
+   * and repeating the item on every row would bury exactly that.
+   */
+  function pieceFieldText(seg: StockSummarySegment): string {
+    const parts = (seg.customFields ?? []).map((cf) => `${cf.fieldKey}: ${cf.fieldValue ?? '—'}`);
+    const own = seg.pieceId != null ? pieceValues[seg.pieceId] : undefined;
+    if (own) {
+      for (const [key, v] of Object.entries(own)) {
+        if (v.from.scope !== 'stock_piece') continue;
+        parts.push(`${fieldLabels[key] ?? key}: ${withUnit(v)}`);
+      }
+    }
+    return parts.join('  ·  ');
   }
 
   if (!canView) return <Alert severity="warning" sx={{ maxWidth: 960, mx: 'auto' }}>You don't have permission to view this page.</Alert>;
@@ -327,9 +874,7 @@ export default function ItemBatches() {
                               <TableBody>
                                 {exp.segments.map((seg, i) => {
                                   const isPiece = exp.groupByKey === 'piece';
-                                  const customFieldsText = (seg.customFields ?? [])
-                                    .map((cf) => `${cf.fieldKey}: ${cf.fieldValue ?? '—'}`)
-                                    .join('  ·  ');
+                                  const customFieldsText = isPiece ? pieceFieldText(seg) : '';
                                   return (
                                     <TableRow
                                       key={`${item.catalogItemId}-${exp.groupByKey}-${i}`}
@@ -354,8 +899,27 @@ export default function ItemBatches() {
                                         {isPiece ? (customFieldsText || '—') : ''}
                                       </TableCell>
                                       <TableCell sx={td} align="right"><Mono tabular>{seg.qty}</Mono></TableCell>
-                                      <TableCell sx={td} align="right">
-                                        <ReceiptLongRounded fontSize="small" sx={{ color: 'var(--c-text-2)' }} />
+                                      <TableCell sx={{ ...td, whiteSpace: 'nowrap' }} align="right">
+                                        {isPiece && seg.pieceId != null && canEdit && (
+                                          <Tooltip title="Set values on this piece">
+                                            <IconButton
+                                              size="small"
+                                              aria-label={`Edit values for piece ${segmentValueLabel(seg.value)}`}
+                                              // The row itself opens the ledger; this must not.
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                setEditTarget({
+                                                  pieceId: seg.pieceId!,
+                                                  catalogItemId: item.catalogItemId,
+                                                  label: segmentValueLabel(seg.value),
+                                                });
+                                              }}
+                                            >
+                                              <TuneRounded fontSize="small" sx={{ color: 'var(--c-text-2)' }} />
+                                            </IconButton>
+                                          </Tooltip>
+                                        )}
+                                        <ReceiptLongRounded fontSize="small" sx={{ color: 'var(--c-text-2)', verticalAlign: 'middle', ml: 0.5 }} />
                                       </TableCell>
                                     </TableRow>
                                   );
@@ -383,6 +947,15 @@ export default function ItemBatches() {
       </Menu>
 
       <ReceiptsDialog target={drillTarget} onClose={() => setDrillTarget(null)} />
+
+      <PieceFieldsDialog
+        target={editTarget}
+        onClose={() => setEditTarget(null)}
+        onSaved={(id, values, defs) => {
+          rememberLabels(defs);
+          setPieceValues((prev) => ({ ...prev, [id]: values }));
+        }}
+      />
     </Box>
   );
 }

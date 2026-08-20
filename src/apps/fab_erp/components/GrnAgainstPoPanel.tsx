@@ -27,6 +27,7 @@ import {
   Alert, Autocomplete, Box, Button, Chip, CircularProgress, MenuItem, TextField, Typography,
 } from '@mui/material';
 
+import { fabQuery } from '../api/client';
 import {
   fetchPurchaseOrders, fetchPurchaseOrderLines, receiveAgainstOrder,
   type OpenPurchaseOrder, type PurchaseOrderLine,
@@ -37,6 +38,7 @@ import {
 
 interface PlantRow { id: number; name: string; code: string | null }
 interface LocationRow { id: number; name: string; code: string | null; plantId: number | null }
+interface MachineRow { id: number; stockLocationId: number | null }
 
 /** What the user typed against one line. Blank qty = not received. */
 interface LineEntry { qty: string; heatNo: string }
@@ -67,6 +69,19 @@ export default function GrnAgainstPoPanel({ plants, locations, onReceived }: {
 
   const [plantId, setPlantId] = useState<number | ''>('');
   const [locationId, setLocationId] = useState<number | ''>('');
+  /**
+   * Stock areas that belong to a machine. `null` while unknown.
+   *
+   * A machine's own area is where its work in process sits — nothing bought
+   * from a supplier lands there, and offering one on a goods receipt is how
+   * purchased plate ends up recorded as WIP on a cutter.
+   *
+   * The discriminator is the LINK, not the name: `fab_resources.stock_location_id`
+   * is a machine's area, and it is the same column `fab_resource_stock_areas`
+   * (role 'wip') was backfilled from in the catalog-unification migration. No
+   * string matching on "WIP" — a shop is free to call the area anything.
+   */
+  const [machineAreaIds, setMachineAreaIds] = useState<Set<number> | null>(null);
   const [receivedDate, setReceivedDate] = useState(todayISO());
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
@@ -91,16 +106,52 @@ export default function GrnAgainstPoPanel({ plants, locations, onReceived }: {
     if (plantId === '' && plants.length === 1) setPlantId(plants[0].id);
   }, [plants, plantId]);
 
+  // Which areas belong to a machine. Failing to answer must not block a
+  // delivery, so an error leaves the list exactly as it was before.
+  useEffect(() => {
+    let cancelled = false;
+    fabQuery<{ data: MachineRow[] }>('fabErpResource', { pagination: { limit: 1000 } })
+      .then((res) => {
+        if (cancelled) return;
+        setMachineAreaIds(new Set(
+          (res.data ?? [])
+            .map((r) => r.stockLocationId)
+            .filter((id): id is number => typeof id === 'number'),
+        ));
+      })
+      .catch(() => { if (!cancelled) setMachineAreaIds(new Set()); });
+    return () => { cancelled = true; };
+  }, []);
+
   const plantLocations = useMemo(
     () => locations.filter((l) => plantId === '' || l.plantId === plantId),
     [locations, plantId],
   );
 
-  // Changing plant invalidates a stock area chosen under the old one.
+  const hiddenMachineAreas = useMemo(
+    () => (machineAreaIds ? plantLocations.filter((l) => machineAreaIds.has(l.id)) : []),
+    [plantLocations, machineAreaIds],
+  );
+
+  /**
+   * The areas a purchase receipt may actually go into.
+   *
+   * Falls back to the whole list if the rule would leave nothing to pick — a
+   * shop whose every area is attached to a machine still has to be able to
+   * book a delivery, and an empty required dropdown is a dead end.
+   */
+  const receivableLocations = useMemo(() => {
+    if (!hiddenMachineAreas.length) return plantLocations;
+    const kept = plantLocations.filter((l) => !machineAreaIds!.has(l.id));
+    return kept.length ? kept : plantLocations;
+  }, [plantLocations, hiddenMachineAreas, machineAreaIds]);
+
+  // Changing plant invalidates a stock area chosen under the old one — as does
+  // learning, a moment after mount, that the one showing is a machine's.
   useEffect(() => {
-    if (locationId !== '' && !plantLocations.some((l) => l.id === locationId)) setLocationId('');
-    if (locationId === '' && plantLocations.length === 1) setLocationId(plantLocations[0].id);
-  }, [plantLocations, locationId]);
+    if (locationId !== '' && !receivableLocations.some((l) => l.id === locationId)) setLocationId('');
+    if (locationId === '' && receivableLocations.length === 1) setLocationId(receivableLocations[0].id);
+  }, [receivableLocations, locationId]);
 
   /**
    * Load the chosen order's lines, prefilled with what is outstanding.
@@ -270,9 +321,15 @@ export default function GrnAgainstPoPanel({ plants, locations, onReceived }: {
                 value={locationId}
                 onChange={(e) => setLocationId(e.target.value === '' ? '' : Number(e.target.value))}
                 disabled={plantId === ''}
-                helperText={plantId === '' ? 'Pick a plant first' : ' '}
+                helperText={
+                  plantId === ''
+                    ? 'Pick a plant first'
+                    : hiddenMachineAreas.length && receivableLocations.length < plantLocations.length
+                      ? `${hiddenMachineAreas.length} machine work-in-progress area(s) not shown`
+                      : ' '
+                }
               >
-                {plantLocations.map((l) => <MenuItem key={l.id} value={l.id}>{l.code ? `${l.code} — ${l.name}` : l.name}</MenuItem>)}
+                {receivableLocations.map((l) => <MenuItem key={l.id} value={l.id}>{l.code ? `${l.code} — ${l.name}` : l.name}</MenuItem>)}
               </TextField>
               <TextField
                 label="Received *" type="date" size="small" sx={{ width: 180 }}

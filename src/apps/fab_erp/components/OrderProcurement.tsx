@@ -34,6 +34,60 @@ interface LocationOption { id: number; name: string; plantId: number | null }
 
 const num = (v: unknown) => Number(v ?? 0);
 
+/**
+ * The half-finished buying decision, kept across a tab switch.
+ *
+ * The wizard unmounts every step panel when you leave it, so picking a supplier
+ * and then going back to Parameters to check a size threw the choice away and
+ * reverted the button to "raise purchase orders" with no count. On a 28-row
+ * order that is the whole job done twice.
+ *
+ * It is NOT persisted server-side, and that is deliberate rather than lazy:
+ * there is no demand row to persist it ON. A shortfall line is computed at the
+ * moment somebody asks (see api/procurementOrders.ts) — required minus what is
+ * free right now — so "supplier for catalog item 69 on order 211" would need a
+ * new table to hold a decision that is not a decision until the PO is raised.
+ * The PO is where the choice becomes a fact; until then it is scratch.
+ *
+ * sessionStorage rather than localStorage for the same reason: an abandoned
+ * pick should not still be sitting there next week, quietly pre-selecting a
+ * supplier for whoever opens the order next.
+ */
+interface ProcurementDraft {
+  suppliers: Record<number, number | ''>;
+  qty: Record<number, string>;
+}
+
+const draftKey = (orderId: number) => `fab_erp:order:${orderId}:procurement-draft`;
+
+function readDraft(orderId: number): ProcurementDraft {
+  const empty: ProcurementDraft = { suppliers: {}, qty: {} };
+  try {
+    const raw = sessionStorage.getItem(draftKey(orderId));
+    if (!raw) return empty;
+    const p = JSON.parse(raw) as { suppliers?: Record<string, number | ''>; qty?: Record<string, string> };
+    return {
+      suppliers: Object.fromEntries(
+        Object.entries(p.suppliers ?? {}).map(([k, v]) => [Number(k), v]),
+      ),
+      qty: Object.fromEntries(Object.entries(p.qty ?? {}).map(([k, v]) => [Number(k), v])),
+    };
+  } catch {
+    // Corrupt or unavailable storage must never stop somebody buying steel.
+    return empty;
+  }
+}
+
+function writeDraft(orderId: number, d: ProcurementDraft) {
+  try {
+    sessionStorage.setItem(draftKey(orderId), JSON.stringify(d));
+  } catch { /* private mode / quota — the picker still works, it just will not survive a remount */ }
+}
+
+function clearDraft(orderId: number) {
+  try { sessionStorage.removeItem(draftKey(orderId)); } catch { /* see writeDraft */ }
+}
+
 export default function OrderProcurement({ orderId, canManage, onChanged }: {
   orderId: number;
   canManage: boolean;
@@ -45,24 +99,40 @@ export default function OrderProcurement({ orderId, canManage, onChanged }: {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  /** Chosen supplier per catalog item. Nothing is guessed — see the raise guard. */
-  const [supplierFor, setSupplierFor] = useState<Record<number, number | ''>>({});
+  /**
+   * Chosen supplier per catalog item. Nothing is guessed — see the raise guard.
+   * Seeded from the session draft so leaving this tab and coming back does not
+   * throw the picking away.
+   */
+  const [supplierFor, setSupplierFor] = useState<Record<number, number | ''>>(
+    () => readDraft(orderId).suppliers,
+  );
   const [receiving, setReceiving] = useState<{ poId: number; lineId: number; code: string } | null>(null);
   /** Set when the raise was refused because the nesting could not be cut. */
   const [nestingGap, setNestingGap] = useState<{ message: string; issues: NestingIssue[] } | null>(null);
+  /**
+   * How many BOM rows this order has AT ALL — the difference between "nothing
+   * to buy" and "nothing here yet", which used to read identically.
+   * `null` means the count could not be read, so nothing is claimed about it.
+   */
+  const [itemTotal, setItemTotal] = useState<number | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true); setError('');
     try {
-      const [v, sup] = await Promise.all([
+      const [v, sup, total] = await Promise.all([
         fetchProcurement(orderId),
         fabQuery<{ data: SupplierOption[] }>('fabErpSupplier', {
           filters: { active: 1 },
           orderBy: [{ field: 'name', direction: 'asc' }],
           pagination: { limit: 500 },
         }).then((r) => r.data ?? []).catch(() => []),
+        // includeTotal, not data.length: the page size is not the count.
+        fabQuery<{ total?: number }>('fabErpItem', {
+          fields: ['id'], filters: { orderId }, pagination: { limit: 1 }, includeTotal: true,
+        }).then((r) => r.total ?? 0).catch(() => null),
       ]);
-      setView(v); setSuppliers(sup);
+      setView(v); setSuppliers(sup); setItemTotal(total);
     } catch (e) {
       setError(backendMessage(e, 'Could not work out what this order needs.'));
     } finally { setLoading(false); }
@@ -80,7 +150,23 @@ export default function OrderProcurement({ orderId, canManage, onChanged }: {
    * a job the system does not know about, stock that has been scrapped but not
    * written off) had no way to buy it anyway short of leaving the app.
    */
-  const [buyQty, setBuyQty] = useState<Record<number, string>>({});
+  const [buyQty, setBuyQty] = useState<Record<number, string>>(() => readDraft(orderId).qty);
+
+  /**
+   * Re-seed when the panel is pointed at a different order, and write every
+   * change straight back out. Both halves of the picking are held together —
+   * a supplier that survives a tab switch while the quantity beside it does not
+   * would be a worse lie than losing both.
+   */
+  useEffect(() => {
+    const d = readDraft(orderId);
+    setSupplierFor(d.suppliers); setBuyQty(d.qty);
+  }, [orderId]);
+
+  useEffect(() => {
+    writeDraft(orderId, { suppliers: supplierFor, qty: buyQty });
+  }, [orderId, supplierFor, buyQty]);
+
   const qtyFor = useCallback(
     (l: { catalogItemId: number; short: number }) => {
       const typed = buyQty[l.catalogItemId];
@@ -121,6 +207,8 @@ export default function OrderProcurement({ orderId, canManage, onChanged }: {
       if (res.skipped.length) {
         setError(`Not ordered: ${res.skipped.map((s) => s.reason).join('; ')}`);
       }
+      // The picking became a purchase order, so it stops being scratch.
+      clearDraft(orderId); setSupplierFor({}); setBuyQty({});
       await load(); onChanged?.();
     } catch (e) {
       /**
@@ -147,6 +235,7 @@ export default function OrderProcurement({ orderId, canManage, onChanged }: {
       })), true);
       toast(res.orders.length ? `${res.orders.length} purchase order(s) raised` : 'Nothing ordered',
         res.orders.length ? 'success' : 'info');
+      clearDraft(orderId); setSupplierFor({}); setBuyQty({});
       await load(); onChanged?.();
     } catch (e) {
       setError(backendMessage(e, 'Could not raise the purchase orders.'));
@@ -156,6 +245,43 @@ export default function OrderProcurement({ orderId, canManage, onChanged }: {
   if (loading) return <ListSkeleton rows={5} />;
 
   const lines = view?.lines ?? [];
+  const unmatched = view?.unmatched ?? [];
+  /** Every buy row is covered by free stock — nothing HAS to be bought. */
+  const allCovered = lines.length > 0 && lines.every((l) => l.short <= 0);
+
+  /**
+   * Why there is nothing here, said accurately.
+   *
+   * These used to collapse into one sentence — "this order is made entirely
+   * in-house" — which was asserted just as confidently about an order with
+   * nothing in it at all. The Production step said the mirror-image thing about
+   * the same empty order, so the two steps contradicted each other while
+   * neither was right. An empty state is a claim about the data; it has to be
+   * one the data supports.
+   */
+  const emptyState = (() => {
+    if (lines.length > 0) return null;
+    if (itemTotal === 0) {
+      return {
+        title: 'Nothing in this order yet',
+        hint: 'This order has no BOM rows, so there is nothing to price against stock. '
+            + 'Build the structure on the Structure step and what has to be bought will appear here.',
+      };
+    }
+    if (unmatched.length > 0) {
+      return {
+        title: 'Nothing that can be bought yet',
+        hint: `${unmatched.length} bought-in row(s) name no catalog item, so there is nothing to `
+            + 'match against stock or order. Bind them to a catalog item on the Structure step.',
+      };
+    }
+    return {
+      title: 'Nothing to buy',
+      hint: itemTotal == null
+        ? 'No row in this order’s BOM is marked as bought in, so there is no procurement step to complete.'
+        : `All ${itemTotal} row(s) in this order’s BOM are made here, so there is nothing to buy.`,
+    };
+  })();
 
   return (
     <Box>
@@ -179,18 +305,31 @@ export default function OrderProcurement({ orderId, canManage, onChanged }: {
         </Alert>
       )}
 
-      {view && view.unmatched.length > 0 && (
+      {/* Suppressed when there is no table at all — the empty state below says
+          the same thing as the reason there is nothing here. */}
+      {unmatched.length > 0 && lines.length > 0 && (
         <Alert severity="warning" sx={{ mb: 2 }}>
-          {view.unmatched.length} bought-in row(s) name no catalog item, so they cannot be checked
+          {unmatched.length} bought-in row(s) name no catalog item, so they cannot be checked
           against stock or purchased. Bind them to a catalog item on the BOM tab.
         </Alert>
       )}
 
-      {lines.length === 0 ? (
+      {/* The third case, and the one that reads as a contradiction if it is not
+          said out loud: there IS something to buy, and none of it needs buying
+          because the yard already holds it. */}
+      {allCovered && (
+        <Alert severity="success" sx={{ mb: 2 }}>
+          Nothing needs buying — free stock already covers all {lines.length} bought-in row(s).
+          Raising below earmarks that stock for this order; a row can still be ordered deliberately
+          if you know the match is wrong.
+        </Alert>
+      )}
+
+      {emptyState ? (
         <EmptyState
           icon={<InventoryRounded />}
-          title="Nothing to buy"
-          hint="Every row in this order's BOM is made here. There is no procurement step to complete."
+          title={emptyState.title}
+          hint={emptyState.hint}
         />
       ) : (
         <Surface e={1} sx={{ p: 0, mb: 2, overflowX: 'auto' }}>
