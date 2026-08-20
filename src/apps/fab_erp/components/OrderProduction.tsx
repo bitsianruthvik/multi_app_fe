@@ -134,7 +134,10 @@ export default function OrderProduction({ orderId, canManage, onChanged }: {
     setNestingGap(null);
     setBusy(true); setError(''); if (force) setFieldGap(null);
     try {
-      const res = await raiseProduction(orderId, force);
+      // The nesting override must travel to the SERVER, not just past the
+      // check above — the endpoint enforces the same gate, so a local-only
+      // override left "Raise anyway" refused with nothing further to press.
+      const res = await raiseProduction(orderId, force, ignoreNesting || nestingOverride);
       toast(res.created
         ? `${res.orderNumber} raised — ${res.tasksMaterialized} task(s) built`
         : `${res.tasksClaimed} new task(s) added to ${res.orderNumber}`, 'success');

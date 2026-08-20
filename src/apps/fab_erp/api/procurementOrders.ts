@@ -143,9 +143,24 @@ export const raiseProduction = async (
    * the escape hatch is real, but it must be a deliberate second act.
    */
   force = false,
+  /**
+   * Proceed despite nesting that cannot be cut. A SEPARATE flag from `force`,
+   * because the two refusals are different questions and answering one must not
+   * silently answer the other.
+   *
+   * It has to reach the body: the endpoint enforces the nesting gate server-side
+   * (a client-only check missed every other caller, and the Production tab needs
+   * a different permission from the integrity read). Omitting it is how the
+   * "Raise anyway" button came to pass the client gate and then be refused by
+   * the server with nothing left to press.
+   */
+  ignoreNesting = false,
 ): Promise<ProductionView['production'] & {
   created: boolean; tasksClaimed: number; tasksMaterialized: number; itemsSkipped: number;
-}> => (await api.post(`${base()}/orders/${orderId}/production/raise`, force ? { force: true } : {})).data;
+}> => (await api.post(`${base()}/orders/${orderId}/production/raise`, {
+  ...(force ? { force: true } : {}),
+  ...(ignoreNesting ? { ignoreNesting: true } : {}),
+})).data;
 
 /** Approve it: draft → waiting, or straight to in production if steel is already in. */
 export const approveProduction = async (moId: number) =>
