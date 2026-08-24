@@ -146,15 +146,22 @@ export default function OrderLinesPanel({ orderId, canManage, onChanged }: {
        * trusting an insertId the mutate API does not return.
        */
       if (material.trim() || grade.trim()) {
+        /**
+         * Found by CODE, not by "newest id". The mutate API does not hand back
+         * the row it inserted, and ordering by id descending quietly returned
+         * nothing here — so the steel typed into the form was silently dropped
+         * and the line came out saying "not set". The code is unique within an
+         * order (`duplicate` above enforces it), which makes it the reliable
+         * way to find the row that was just written.
+         */
         const fresh = await fabQuery<{ data: FabOrderLine[] }>('fabErpOrderLine', {
           filters: { orderId },
-          orderBy: [{ field: 'id', direction: 'desc' }],
-          pagination: { limit: 1 },
-        }).then((r) => r.data?.[0]).catch(() => null);
+          pagination: { limit: 500 },
+        }).then((r) => (r.data ?? []).find((l) => (l.code ?? '').toUpperCase() === trimmed));
         if (fresh) {
           await api.post(`${specBase()}/spec/lines/${fresh.id}`, {
             material: material.trim(), grade: grade.trim(),
-          }).catch(() => null);
+          });
         }
       }
       setCode(''); setDescription(''); setQty('1'); setLineType(''); setUnitPrice('');
