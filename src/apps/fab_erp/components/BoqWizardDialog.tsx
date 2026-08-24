@@ -13,8 +13,8 @@ import ExpandLessRounded from '@mui/icons-material/ExpandLessRounded';
 
 import api, { API_HOST } from '@core/utils/axiosConfig';
 import { fabQuery } from '../api/client';
-import { fetchRawMaterials, type RawMaterial as Material } from '../api/rawMaterials';
-import { RawMaterialSelect, Surface } from '../components';
+
+import { Surface } from '../components';
 import { DialogCloseButton } from './FormDialog';
 
 /**
@@ -34,9 +34,11 @@ interface PartSpec {
   code: string;
   name: string;
   qty: string;
-  /** Plate thickness in mm — also what filters this part's material list. */
+  /** Plate thickness in mm — one of the three axes nesting matches on. */
   thick: string;
-  rmCode: string;
+  /** Blank means "whatever the order line says", which is the usual case. */
+  material: string;
+  grade: string;
 }
 
 /**
@@ -50,7 +52,8 @@ interface TemplatePart {
   name?: string | null;
   qty?: number | null;
   thicknessMm?: number | null;
-  rmCode?: string | null;
+  material?: string | null;
+  grade?: string | null;
 }
 
 
@@ -61,12 +64,12 @@ interface LineSpec {
   girders: number;
   segmentsPerGirder: number;
   segmentCounts: number[];
-  parts: { code: string; name?: string; qty: number; thick?: number; rmCode?: string }[];
-  overrides: Record<string, { rmCode?: string; thick?: number }>;
+  parts: { code: string; name?: string; qty: number; thick?: number; material?: string; grade?: string }[];
+  overrides: Record<string, { material?: string; grade?: string; thick?: number }>;
 }
 
 let nextKey = 1;
-const blankPart = (): PartSpec => ({ key: nextKey++, code: '', name: '', qty: '1', thick: '', rmCode: '' });
+const blankPart = (): PartSpec => ({ key: nextKey++, code: '', name: '', qty: '1', thick: '', material: '', grade: '' });
 
 /**
  * Freeze a line's part list into a spec, for parking while another line is
@@ -74,7 +77,7 @@ const blankPart = (): PartSpec => ({ key: nextKey++, code: '', name: '', qty: '1
  * fields, so only what the form holds needs capturing here.
  */
 function buildSpecFrom(spanCode: string, parts: PartSpec[], girders = 0, segs = 0,
-  counts: number[] = [], overrides: Record<string, { rmCode?: string; thick?: number }> = {}): LineSpec {
+  counts: number[] = [], overrides: Record<string, { material?: string; grade?: string; thick?: number }> = {}): LineSpec {
   return {
     spanCode,
     girders,
@@ -85,7 +88,8 @@ function buildSpecFrom(spanCode: string, parts: PartSpec[], girders = 0, segs = 
       name: p.name.trim() || undefined,
       qty: Number(p.qty) || 1,
       thick: p.thick.trim() ? Number(p.thick) : undefined,
-      rmCode: p.rmCode || undefined,
+      material: p.material || undefined,
+      grade: p.grade || undefined,
     })),
     overrides,
   };
@@ -115,11 +119,11 @@ export default function BoqWizardDialog({ open, orderId, lines, onClose, onImpor
   const [parts, setParts] = useState<PartSpec[]>([blankPart()]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [materials, setMaterials] = useState<Material[]>([]);
+
   /** The company's BOM templates, grouped by structure type. */
   const [templates, setTemplates] = useState<Record<string, TemplatePart[]>>({});
   /** Per-instance material/thickness, keyed "girder/segment/partCode". */
-  const [overrides, setOverrides] = useState<Record<string, { rmCode?: string; thick?: number }>>({});
+  const [overrides, setOverrides] = useState<Record<string, { material?: string; grade?: string; thick?: number }>>({});
   const [expanded, setExpanded] = useState(false);
   /**
    * What has been set up for the lines NOT currently on screen.
@@ -212,7 +216,8 @@ export default function BoqWizardDialog({ open, orderId, lines, onClose, onImpor
       setPerGirder(saved.segmentCounts.map(String));
       setParts(saved.parts.map((p) => ({
         key: nextKey++, code: p.code, name: p.name ?? '', qty: String(p.qty ?? 1),
-        thick: p.thick != null ? String(p.thick) : '', rmCode: p.rmCode ?? '',
+        thick: p.thick != null ? String(p.thick) : '',
+        material: p.material ?? '', grade: p.grade ?? '',
       })));
       setOverrides(saved.overrides ?? {});
       return;
@@ -232,7 +237,8 @@ export default function BoqWizardDialog({ open, orderId, lines, onClose, onImpor
         // field as "1.0000" unless it is put back through Number first.
         qty: d.qty != null ? String(Number(d.qty)) : '1',
         thick: d.thicknessMm != null ? String(Number(d.thicknessMm)) : '',
-        rmCode: d.rmCode ?? '',
+        material: d.material ?? '',
+        grade: d.grade ?? '',
       }))
       : [blankPart()]);
     // Overrides are keyed by part code, so a different part list makes them
@@ -245,8 +251,8 @@ export default function BoqWizardDialog({ open, orderId, lines, onClose, onImpor
 
   useEffect(() => {
     if (!open) return;
-    // Only what a part can actually be cut from: the catalog's bought items.
-    fetchRawMaterials().then(setMaterials).catch(() => setMaterials([]));
+
+
 
     // Every template in one query rather than one per line selected — there are
     // a handful of structure types, and re-fetching each time somebody changes
@@ -300,7 +306,7 @@ export default function BoqWizardDialog({ open, orderId, lines, onClose, onImpor
    */
   const instances = useMemo(() => {
     const live = parts.filter((p) => p.code.trim());
-    const out: { key: string; label: string; thick: string; rmCode: string }[] = [];
+    const out: { key: string; label: string; thick: string; material: string; grade: string }[] = [];
     const push = (girder: string, segment: string) => {
       for (const p of live) {
         const code = p.code.trim();
@@ -308,7 +314,8 @@ export default function BoqWizardDialog({ open, orderId, lines, onClose, onImpor
           key: `${girder}/${segment}/${code}`,
           label: [girder, segment, code].filter(Boolean).join(' / ') || code,
           thick: p.thick,
-          rmCode: p.rmCode,
+          material: p.material,
+          grade: p.grade,
         });
       }
     };
@@ -324,7 +331,7 @@ export default function BoqWizardDialog({ open, orderId, lines, onClose, onImpor
 
   const overrideCount = Object.keys(overrides).filter((k) => {
     const o = overrides[k];
-    return o && (o.rmCode || o.thick != null);
+    return o && (o.material || o.grade || o.thick != null);
   }).length;
 
   /**
@@ -386,7 +393,8 @@ export default function BoqWizardDialog({ open, orderId, lines, onClose, onImpor
         name: p.name.trim() || undefined,
         qty: Number(p.qty) || 1,
         thick: p.thick.trim() ? Number(p.thick) : undefined,
-        rmCode: p.rmCode || undefined,
+        material: p.material || undefined,
+        grade: p.grade || undefined,
       })),
       overrides,
     };
@@ -573,19 +581,19 @@ export default function BoqWizardDialog({ open, orderId, lines, onClose, onImpor
                 onChange={(e) => setPart(p.key, { name: e.target.value })} />
               <TextField label="Qty" size="small" type="number" value={p.qty} sx={{ width: 72 }}
                 onChange={(e) => setPart(p.key, { qty: e.target.value })} />
-              {/* Thickness first, because it is what narrows the material list
-                  below it — choosing a material for an unknown thickness would
-                  mean choosing from everything. */}
+              {/* Thickness, material and grade are the three axes nesting matches
+                  on. They no longer name a catalogue item: which PLATE a part is
+                  cut from depends on what else goes on the same sheet, so that
+                  is decided at nesting. Leave material and grade blank unless
+                  this part differs from the order line. */}
               <TextField label="Thick" size="small" type="number" value={p.thick} sx={{ width: 80 }}
-                onChange={(e) => setPart(p.key, { thick: e.target.value, rmCode: '' })} />
-              <RawMaterialSelect
-                materials={materials}
-                thickness={p.thick}
-                value={p.rmCode}
-                valueOf={(m) => m.code}
-                onChange={(v) => setPart(p.key, { rmCode: v })}
-                sx={{ flex: '1 1 230px' }}
-              />
+                onChange={(e) => setPart(p.key, { thick: e.target.value })} />
+              <TextField label="Material" size="small" value={p.material} sx={{ width: 112 }}
+                placeholder="from line"
+                onChange={(e) => setPart(p.key, { material: e.target.value })} />
+              <TextField label="Grade" size="small" value={p.grade} sx={{ width: 112 }}
+                placeholder="from line"
+                onChange={(e) => setPart(p.key, { grade: e.target.value })} />
               <IconButton size="small" color="error" aria-label="Remove part"
                 onClick={() => setParts((ps) => (ps.length > 1 ? ps.filter((x) => x.key !== p.key) : ps))}>
                 <DeleteOutlineRounded fontSize="small" />
@@ -631,8 +639,9 @@ export default function BoqWizardDialog({ open, orderId, lines, onClose, onImpor
                 {instances.map((inst) => {
                   const o = overrides[inst.key] ?? {};
                   const thick = o.thick != null ? String(o.thick) : inst.thick;
-                  const rm = o.rmCode ?? inst.rmCode;
-                  const set = (patch: { rmCode?: string; thick?: number }) =>
+                  const material = o.material ?? inst.material;
+                  const grade = o.grade ?? inst.grade;
+                  const set = (patch: { material?: string; grade?: string; thick?: number }) =>
                     setOverrides((prev) => ({ ...prev, [inst.key]: { ...prev[inst.key], ...patch } }));
                   return (
                     <Box key={inst.key} sx={{ display: 'flex', gap: 1, mb: 0.75, alignItems: 'center' }}>
@@ -646,16 +655,17 @@ export default function BoqWizardDialog({ open, orderId, lines, onClose, onImpor
                         size="small" type="number" label="Thick" value={thick} sx={{ width: 88 }}
                         onChange={(e) => set({
                           thick: e.target.value === '' ? undefined : Number(e.target.value),
-                          rmCode: '',
                         })}
                       />
-                      <RawMaterialSelect
-                        materials={materials}
-                        thickness={thick}
-                        value={rm}
-                        valueOf={(m) => m.code}
-                        onChange={(v) => set({ rmCode: v })}
-                        sx={{ flex: 1 }}
+                      <TextField
+                        size="small" label="Material" value={material} sx={{ width: 124 }}
+                        placeholder="from line"
+                        onChange={(e) => set({ material: e.target.value })}
+                      />
+                      <TextField
+                        size="small" label="Grade" value={grade} sx={{ width: 124 }}
+                        placeholder="from line"
+                        onChange={(e) => set({ grade: e.target.value })}
                       />
                     </Box>
                   );

@@ -9,8 +9,7 @@ import LockRounded from '@mui/icons-material/LockRounded';
 import UndoRounded from '@mui/icons-material/UndoRounded';
 
 import api, { API_HOST } from '@core/utils/axiosConfig';
-import { Surface, EmptyState, useToast, backendMessage, RawMaterialSelect } from '../components';
-import { fetchRawMaterials, type RawMaterial } from '../api/rawMaterials';
+import { Surface, EmptyState, useToast, backendMessage } from '../components';
 import type { OrderReadiness } from '../api/readiness';
 import NestingSuggestor from './NestingSuggestor';
 
@@ -112,54 +111,14 @@ export default function NestingBoard({ orderId, canManage = false, onStageChange
 
   useEffect(() => { load(); }, [load]);
 
-  /**
-   * The full catalogue, for the "Cut from" pickers on the un-materialled parts.
-   *
-   * `board.materials` is only what this order already uses, which is exactly
-   * the wrong list for a part that has none — it would offer nothing on a fresh
-   * order and quietly hide any material nobody had picked yet.
-   */
-  const [materials, setMaterials] = useState<RawMaterial[]>([]);
-  const [pendingMaterial, setPendingMaterial] = useState<Record<number, number | ''>>({});
-  const [savingMaterial, setSavingMaterial] = useState<number | null>(null);
-
-  useEffect(() => {
-    let alive = true;
-    fetchRawMaterials()
-      .then((m) => { if (alive) setMaterials(m); })
-      .catch(() => { if (alive) setMaterials([]); });
-    return () => { alive = false; };
-  }, []);
-
-  async function assignMaterial(partId: number, value: string) {
-    const id = value === '' ? null : Number(value);
-    setPendingMaterial((p) => ({ ...p, [partId]: id ?? '' }));
-    setSavingMaterial(partId);
-    setError('');
-    try {
-      // NOT under base() — that is `…/orders/:orderId`, and the material route
-      // hangs off the app root because it identifies the part by id alone.
-      await api.post(
-        `${API_HOST}/api/${localStorage.getItem('companySlug')}/fab_erp/items/${partId}/material`,
-        { materialId: id },
-      );
-      // Reload rather than patch: the part leaves "no material" and joins the
-      // nestable list, and the board decides which list it belongs in.
-      await load();
-      onStageChanged?.();
-    } catch (e) {
-      setPendingMaterial((p) => ({ ...p, [partId]: '' }));
-      setError(backendMessage(e, 'Could not set the material.'));
-    } finally { setSavingMaterial(null); }
-  }
-
   async function move(part: BoardPart, nestNo: string | null, materialId?: number) {
-    if (!part.linkId) return;
+    const target = materialId ?? part.materialId ?? undefined;
+    if (!part.linkId && (!target || !nestNo)) return;
     setBusy(true); setError('');
     try {
-      const res = await api.post<Board>(`${base()}/nesting/assign`, {
-        linkIds: [part.linkId], nestNo,
-      });
+      const res = await api.post<Board>(`${base()}/nesting/assign`, part.linkId
+        ? { linkIds: [part.linkId], nestNo }
+        : { partIds: [part.partId], materialId: target, nestNo });
       apply(res.data);
       // The draft becomes real the moment it holds something.
       if (nestNo && draft?.nestNo === nestNo && draft.materialId === materialId) setDraft(null);
@@ -206,8 +165,19 @@ export default function NestingBoard({ orderId, canManage = false, onStageChange
     ? [...board.nests, draft as DraftNest]
     : board.nests;
 
+  /**
+   * A part with NO material yet may be dropped on any plate — that drop is what
+   * chooses the material, so filtering it by one it does not have would make it
+   * undroppable everywhere. A part that already has one still only goes back
+   * onto its own steel.
+   *
+   * Either way this is presentation. The server checks thickness, grade and
+   * material on every drop and refuses the ones that disagree; this only makes
+   * the wrong move look wrong before you make it.
+   */
   const canDrop = (nestMaterialId: number, issued: boolean) =>
-    !!dragging && dragging.materialId === nestMaterialId && !issued && canManage;
+    !!dragging && !issued && canManage
+    && (dragging.materialId == null || dragging.materialId === nestMaterialId);
 
   return (
     <Box>
@@ -259,40 +229,29 @@ export default function NestingBoard({ orderId, canManage = false, onStageChange
                 No material yet · {board.noMaterial.length}
               </Typography>
               {/*
-                MATERIAL IS SET HERE, not on the Structure step (2026-08-18).
+                THE MATERIAL PICKER THAT WAS HERE IS GONE (2026-08-24).
 
-                It briefly lived on the part row in the item tree, which put
-                "what is this cut from" one step away from "which plate does it
-                come off" — two halves of the same decision, asked on two
-                different screens. Both are nesting's question, so both are
-                asked here: pick the material and the part moves straight into
-                the list above, ready to drop onto a plate.
+                It asked "what is this part cut from" as a separate step before
+                nesting, and that question stopped being answerable. A catalogue
+                item now carries a SIZE as well as a material, so picking one
+                also picks a 2000-wide plate over a 2500-wide one — and which
+                size to buy depends on what else is being cut from the same
+                sheet. That is the nesting decision, which is made by dropping
+                the part on a plate, one screen down from where this picker sat.
 
-                The BOQ sheet's Raw Material column still works and is still the
-                fast path for hundreds of parts at once.
+                So these parts are simply DRAGGED onto a plate like any other,
+                and the link is created on the drop. What the steel IS —
+                material, grade, thickness — comes from the order line, or from
+                the part where it differs, and the drop is refused if it does
+                not match the plate.
               */}
               <Typography sx={{ fontSize: 11.5, color: 'var(--c-text-2)', mb: 1 }}>
-                Pick what each is cut from and it joins the list above, ready to nest.
-                For a whole order at once, the Raw Material column in the BOQ sheet is quicker.
+                These have not been laid on a plate yet. Drag one onto a plate on the right —
+                the plate has to match its material, grade and thickness, or the drop is refused.
               </Typography>
               {board.noMaterial.map((p) => (
                 <Box key={p.partId} sx={{ mb: 1 }}>
-                  <PartCard part={p} draggable={false} faded />
-                  {canManage && (
-                    <Box sx={{ pl: 1, pt: 0.5 }}>
-                      <RawMaterialSelect
-                        materials={materials}
-                        thickness={p.thick}
-                        value={pendingMaterial[p.partId] ?? ''}
-                        onChange={(v) => assignMaterial(p.partId, v)}
-                        valueOf={(m) => m.id}
-                        label="Cut from"
-                        disabled={savingMaterial === p.partId}
-                        sx={{ minWidth: 260 }}
-                      />
-                      {savingMaterial === p.partId && <CircularProgress size={12} sx={{ ml: 1 }} />}
-                    </Box>
-                  )}
+                  <PartCard part={p} draggable={canManage} />
                 </Box>
               ))}
             </Box>

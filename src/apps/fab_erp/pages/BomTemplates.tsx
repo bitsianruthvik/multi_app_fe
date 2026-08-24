@@ -35,10 +35,9 @@ import { fabQuery, fabMutate } from '../api/client';
 import { usePermission } from '@core/hooks/usePermission';
 import {
   PageHeader, Surface, Mono, EmptyState, ListSkeleton, useToast, DataTable,
-  ConfirmDialog, backendMessage, RawMaterialSelect,
+  ConfirmDialog, backendMessage,
 } from '../components';
 import { LINE_TYPES } from '../types';
-import { fetchRawMaterials, type RawMaterial as Material } from '../api/rawMaterials';
 import { DialogCloseButton } from '../components/FormDialog';
 
 interface BomTemplate {
@@ -48,8 +47,9 @@ interface BomTemplate {
   name?: string | null;
   qty?: number | null;
   thicknessMm?: number | null;
-  rmCatalogItemId?: number | null;
-  rmCode?: string | null;
+  /** What the steel IS. Which plate it comes off is nesting's decision. */
+  material?: string | null;
+  grade?: string | null;
   sortOrder?: number | null;
   active: number;
   notes?: string | null;
@@ -57,7 +57,7 @@ interface BomTemplate {
 
 
 const blank = (lineType: string) => ({
-  id: 0, lineType, code: '', name: '', qty: '1', thick: '', rmCatalogItemId: '' as number | '',
+  id: 0, lineType, code: '', name: '', qty: '1', thick: '', material: '', grade: '',
   sortOrder: '', active: 1, notes: '',
 });
 
@@ -65,7 +65,6 @@ export default function BomTemplates() {
   const canManage = usePermission('fab_erp_flows_manage');
   const { toast } = useToast();
   const [rows, setRows] = useState<BomTemplate[]>([]);
-  const [materials, setMaterials] = useState<Material[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [lineType, setLineType] = useState<string>(LINE_TYPES[0]);
@@ -75,14 +74,13 @@ export default function BomTemplates() {
   const load = useCallback(async () => {
     setLoading(true); setError('');
     try {
-      const [t, m] = await Promise.all([
-        fabQuery<{ data: BomTemplate[] }>('fabErpBomTemplate', {
-          orderBy: [{ field: 'sortOrder', direction: 'asc' }, { field: 'id', direction: 'asc' }],
-          pagination: { limit: 500 },
-        }).then((r) => r.data ?? []),
-        fetchRawMaterials().catch(() => []),
-      ]);
-      setRows(t); setMaterials(m);
+      // The raw-material catalogue is no longer fetched here: a template states
+      // what the steel IS, and the plate it comes off is nesting's decision.
+      const t = await fabQuery<{ data: BomTemplate[] }>('fabErpBomTemplate', {
+        orderBy: [{ field: 'sortOrder', direction: 'asc' }, { field: 'id', direction: 'asc' }],
+        pagination: { limit: 500 },
+      }).then((r) => r.data ?? []);
+      setRows(t);
     } catch (e) {
       setError(backendMessage(e, 'Could not load BOM templates.'));
     } finally { setLoading(false); }
@@ -138,7 +136,10 @@ export default function BomTemplates() {
       // which is what the disabled Save is there to keep sane.
       qty: edit.qty.trim() === '' ? 1 : Number(edit.qty),
       thickness_mm: edit.thick.trim() ? Number(edit.thick) : null,
-      rm_catalog_item_id: edit.rmCatalogItemId === '' ? null : Number(edit.rmCatalogItemId),
+      // What the steel IS. Which PLATE is nesting's decision, so a template
+      // cannot state it: the size to buy depends on what else is cut from it.
+      material: edit.material.trim() || null,
+      grade: edit.grade.trim() || null,
       // Counted within the type being SAVED, not the one the toolbar happens to
       // be showing — they differ the moment the dialog's own type is changed.
       sort_order: edit.sortOrder.trim()
@@ -222,7 +223,8 @@ export default function BomTemplates() {
             { key: 'name', header: 'Name', render: (r) => r.name ?? '—', sortValue: (r) => r.name ?? '' },
             { key: 'qty', header: 'Qty', width: 80, numeric: true, render: (r) => r.qty ?? 1, sortValue: (r) => r.qty ?? 1 },
             { key: 'thicknessMm', header: 'Thick', width: 90, numeric: true, render: (r) => (r.thicknessMm != null ? Number(r.thicknessMm) : '—'), sortValue: (r) => r.thicknessMm ?? null },
-            { key: 'rmCode', header: 'Raw material', width: 190, render: (r) => (r.rmCode ? <Mono>{r.rmCode}</Mono> : '—'), sortValue: (r) => r.rmCode ?? '' },
+            { key: 'material', header: 'Material', width: 120, render: (r) => (r.material ? <Mono>{r.material}</Mono> : '—'), sortValue: (r) => r.material ?? '' },
+            { key: 'grade', header: 'Grade', width: 120, render: (r) => (r.grade ? <Mono>{r.grade}</Mono> : '—'), sortValue: (r) => r.grade ?? '' },
             { key: 'active', header: 'Active', width: 80, render: (r) => (r.active ? 'Yes' : 'No'), sortValue: (r) => r.active },
           ]}
           rowActions={canManage ? (r) => (
@@ -232,7 +234,8 @@ export default function BomTemplates() {
                   id: r.id, lineType: r.lineType, code: r.code, name: r.name ?? '',
                   qty: String(r.qty ?? 1),
                   thick: r.thicknessMm != null ? String(Number(r.thicknessMm)) : '',
-                  rmCatalogItemId: r.rmCatalogItemId ?? '',
+                  material: r.material ?? '',
+                  grade: r.grade ?? '',
                   sortOrder: r.sortOrder != null ? String(r.sortOrder) : '',
                   active: r.active, notes: r.notes ?? '',
                 })}>
@@ -270,17 +273,17 @@ export default function BomTemplates() {
               error={qtyBad} helperText={qtyBad ? 'Must be above 0' : ' '}
               onChange={(e) => setEdit((v) => (v ? { ...v, qty: e.target.value } : v))} />
             <TextField size="small" type="number" label="Thick" value={edit?.thick ?? ''} sx={{ width: 100 }}
-              onChange={(e) => setEdit((v) => (v ? { ...v, thick: e.target.value, rmCatalogItemId: '' } : v))} />
-            <RawMaterialSelect
-              materials={materials}
-              thickness={edit?.thick ?? ''}
-              value={edit?.rmCatalogItemId ?? ''}
-              valueOf={(m) => m.id}
-              onChange={(v) => setEdit((prev) => (prev
-                ? { ...prev, rmCatalogItemId: v === '' ? '' : Number(v) }
-                : prev))}
-              sx={{ flex: 1 }}
-            />
+              onChange={(e) => setEdit((v) => (v ? { ...v, thick: e.target.value } : v))} />
+            {/* Thickness, material and grade are the three axes nesting matches
+                on. A template no longer names a catalogue item, because naming
+                one also picks a plate SIZE — and which size to buy depends on
+                what else is cut from the same sheet. */}
+            <TextField size="small" label="Material" value={edit?.material ?? ''} sx={{ flex: 1 }}
+              placeholder="MS"
+              onChange={(e) => setEdit((v) => (v ? { ...v, material: e.target.value } : v))} />
+            <TextField size="small" label="Grade" value={edit?.grade ?? ''} sx={{ flex: 1 }}
+              placeholder="E350 BO"
+              onChange={(e) => setEdit((v) => (v ? { ...v, grade: e.target.value } : v))} />
           </Box>
           <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
             <TextField size="small" type="number" label="Order" value={edit?.sortOrder ?? ''} sx={{ width: 100 }}
