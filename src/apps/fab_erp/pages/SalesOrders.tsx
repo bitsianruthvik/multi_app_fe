@@ -12,12 +12,12 @@ import ReceiptLongRounded from '@mui/icons-material/ReceiptLongRounded';
 import ViewKanbanRounded from '@mui/icons-material/ViewKanbanRounded';
 import ViewListRounded from '@mui/icons-material/ViewListRounded';
 
-import { fabQuery, fabMutate, fabPost } from '../api/client';
+import { fabQuery, fabMutate, fabPost, fabDel } from '../api/client';
 import { usePermission } from '@core/hooks/usePermission';
 import {
   PageHeader, FilterBar, FacetChip, PipelineBoard, PipelineCard, type PipelineStage,
   EntityList, EntityRow, StatusBadge, Mono, EmptyState, ListSkeleton, useToast,
-  StatStrip, type Stat,
+  StatStrip, type Stat, backendMessage,
 } from '../components';
 import { statusFamily } from '../statusMap';
 import {
@@ -368,20 +368,76 @@ function OrderDialog({ open, initial, defaultOrderType, onClose, onSaved }: {
   );
 }
 
+/**
+ * Deleting an order, and saying what that means.
+ *
+ * A SALES order is a tree, not a row. It used to be removed with the generic
+ * single-row delete, which set `deleted_at` on the order and left its BOM, its
+ * tasks, its production order and its stock reservations live — a deleted job
+ * carried on holding steel and loading machines, with nothing on screen to
+ * explain it. Sales orders now go through an endpoint that takes the tree down
+ * with them and releases what it was holding.
+ *
+ * The dialog says so before asking. "Cannot be undone" was true and unhelpful:
+ * what a person needs to know is what else disappears.
+ */
 function DeleteDialog({ order, onClose, onDeleted }: { order: FabOrder | null; onClose: () => void; onDeleted: () => void }) {
+  const { toast } = useToast();
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const isSales = order?.orderType === 'sales';
+
   async function confirm() {
     if (!order) return;
-    setBusy(true);
-    try { await fabMutate('fabErpOrder', 'delete', { id: order.id }); onDeleted(); }
-    catch { /* ignore */ } finally { setBusy(false); }
+    setBusy(true); setError('');
+    try {
+      if (isSales) {
+        const r = await fabDel<{
+          deleted: Record<string, number>;
+          reservationsReleased: number;
+          purchaseOrdersKept: { orderNumber: string; status: string }[];
+        }>(`orders/${order.id}`);
+        const parts = [
+          r.deleted.items ? `${r.deleted.items} BOM row(s)` : null,
+          r.deleted.tasks ? `${r.deleted.tasks} task(s)` : null,
+          r.reservationsReleased ? `${r.reservationsReleased} reservation(s) released` : null,
+        ].filter(Boolean);
+        toast(`${order.orderNumber} deleted${parts.length ? ` — ${parts.join(', ')}` : ''}`);
+        if (r.purchaseOrdersKept?.length) {
+          // Kept on purpose: a received PO became stock that is really in the yard.
+          toast(`${r.purchaseOrdersKept.map((p) => p.orderNumber).join(', ')} still stands — `
+            + 'a purchase order is an agreement with a supplier, so it was left alone.');
+        }
+      } else {
+        await fabMutate('fabErpOrder', 'delete', { id: order.id });
+        toast(`${order.orderNumber} deleted`);
+      }
+      onDeleted();
+    } catch (e) {
+      // Previously swallowed, so a failed delete looked exactly like a successful one.
+      setError(backendMessage(e, 'Could not delete that order.'));
+    } finally { setBusy(false); }
   }
+
   return (
     <Dialog open={!!order} onClose={onClose} maxWidth="xs" fullWidth>
       <DialogCloseButton absolute onClose={() => onClose()} />
       <DialogTitle sx={{ fontWeight: 600 }}>Delete order</DialogTitle>
       <DialogContent>
-        <Typography>Delete <strong>{order?.orderNumber}</strong>? This cannot be undone.</Typography>
+        {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
+        <Typography sx={{ fontSize: 14 }}>
+          Delete <strong>{order?.orderNumber}</strong>?
+        </Typography>
+        {isSales && (
+          <Typography sx={{ fontSize: 13.5, color: 'var(--c-text-2)', mt: 1.5 }}>
+            Its BOM, its tasks and its production order go with it, and any stock it
+            has reserved is released back to the shelf. Purchase orders raised from
+            it are left alone — those are agreements with a supplier.
+          </Typography>
+        )}
+        <Typography sx={{ fontSize: 13, color: 'var(--c-text-3)', mt: 1.5 }}>
+          This cannot be undone.
+        </Typography>
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose}>Cancel</Button>
