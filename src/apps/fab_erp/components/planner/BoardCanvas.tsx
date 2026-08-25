@@ -68,13 +68,63 @@ export interface BlockHit {
   y: number;
 }
 
+/**
+ * Where on a handle the pointer went down, and therefore what the drag means.
+ *
+ * The edges are what make "fix the start and stretch" a gesture rather than a
+ * dialogue box — you grab the end that should move and the other one stays.
+ */
+export type GrabZone = 'body' | 'startEdge' | 'endEdge';
+
+export interface GrabInfo {
+  groupIdx: number;
+  zone: GrabZone;
+  /** Where in the window the pointer went down, in ms from the window start. */
+  atRel: number;
+  /** The group's envelope at the moment of the grab. */
+  startRel: number;
+  endRel: number;
+}
+
+/**
+ * A move or stretch being dragged right now, applied at draw time only.
+ *
+ * Previewed on the client rather than round-tripped: a drag is sixty frames a
+ * second and the answer to "where would this land" is arithmetic. Whether the
+ * landing is LEGAL is a different question, and that one does go to the server
+ * — debounced, while the drag is still in the air.
+ */
+export interface PreviewTransform {
+  groupIdx: number;
+  /** move: shift every bar by this. */
+  deltaMs: number;
+  /** stretch: scale offsets from anchorRel; durations are untouched. */
+  scale: number;
+  anchorRel: number;
+  /** The server has refused this placement — draw it as refused. */
+  refused: boolean;
+}
+
 export interface BoardCanvasProps {
   lanes: BoardLane[];
   grouping: BoardGrouping;
   /** One entry per group, same indexing as grouping.groups. */
   colors: ColorSet[];
-  /** Per group, its blocks merged across lanes: [startRel, durMs] × n, sorted. */
+  /**
+   * Per group, its blocks merged across lanes, sorted:
+   * [startRel, durMs, entryStartRel] × n.
+   *
+   * The third number is what makes a stretch previewable. A stretch scales the
+   * offsets of BARS and leaves each bar's own length alone — so a block has to
+   * know which bar it belongs to, or previewing the gesture would stretch the
+   * work itself, which is the one thing stretching must never do.
+   */
   groupBlocks: Float64Array[];
+  /** Bar id → the bar's start, relative ms. Same reason as above. */
+  entryStartRel: Map<number, number>;
+  preview: PreviewTransform | null;
+  /** True once a group is selected: its bars become draggable in the lanes too. */
+  onGrab?: (grab: GrabInfo) => void;
   rows: BoardRow[];
   windowMs: number;
   /** Milliseconds from the window start to now; null if now is outside it. */
@@ -110,6 +160,9 @@ function ellipsise(ctx: CanvasRenderingContext2D, text: string, maxPx: number): 
   return lo > 0 ? `${text.slice(0, lo)}…` : '';
 }
 
+/** How close to a capsule's end counts as grabbing that end rather than the bar. */
+const EDGE_PX = 7;
+
 /** Below this width, a label is an ellipsis and nothing else. */
 const LABEL_MIN_PX = 52;
 /** Below this row height, a label crowds the block out of its own row. */
@@ -128,6 +181,8 @@ interface Palette {
   railTrack: string;
   ungrouped: string;
   separator: string;
+  /** A placement the server has already said no to, while it is still in hand. */
+  refused: string;
   /** Text drawn ON a block — the block's fill is the ground, not the page. */
   onBlock: string;
   text: string;
@@ -145,6 +200,7 @@ function palette(dark: boolean): Palette {
       railTrack: 'rgba(255,255,255,.06)',
       ungrouped: '#3A3F55',
       separator: 'rgba(8,10,16,.55)',
+      refused: '#B4344F',
       onBlock: 'rgba(10,12,20,.88)',
       text: 'rgba(255,255,255,.86)',
     }
@@ -158,6 +214,7 @@ function palette(dark: boolean): Palette {
       railTrack: 'rgba(26,28,46,.05)',
       ungrouped: '#C3C7D6',
       separator: 'rgba(255,255,255,.7)',
+      refused: '#E11D48',
       onBlock: 'rgba(255,255,255,.96)',
       text: 'rgba(26,28,46,.9)',
     };
@@ -165,13 +222,17 @@ function palette(dark: boolean): Palette {
 
 export function BoardCanvas(props: BoardCanvasProps) {
   const {
-    lanes, grouping, colors, groupBlocks, rows, windowMs, nowRel, gridRel, gridMajor,
-    selectedGroup, hoverGroup, dark, onHover, onPick, onWidth, blockLabel,
+    lanes, grouping, colors, groupBlocks, entryStartRel, rows, windowMs, nowRel,
+    gridRel, gridMajor, selectedGroup, hoverGroup, dark, onHover, onPick, onWidth,
+    blockLabel, preview, onGrab,
   } = props;
 
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [width, setWidth] = useState(0);
+  const [hoverZone, setHoverZone] = useState<GrabZone | null>(null);
+  const [dragZone, setDragZone] = useState<GrabZone | null>(null);
+  const dragging = preview != null;
 
   const totalH = rows.reduce((n, r) => n + r.h, 0);
 
@@ -226,6 +287,20 @@ export function BoardCanvas(props: BoardCanvasProps) {
     const anySelection = selectedGroup != null;
 
     const colorOf = (g: number) => colors[g];
+
+    /**
+     * Where a block lands under the drag in flight.
+     *
+     * A move shifts the block. A stretch moves the block's BAR and carries the
+     * block along at its own offset inside it — the bar spreads, the work does
+     * not get slower. Blocks outside the dragged group are untouched.
+     */
+    const shiftOf = (g: number, entryStart: number) => {
+      if (!preview || g !== preview.groupIdx) return 0;
+      if (preview.scale === 1) return preview.deltaMs;
+      const moved = preview.anchorRel + (entryStart - preview.anchorRel) * preview.scale;
+      return moved - entryStart;
+    };
 
     // 1. Row substrate: what is manned, and what is not.
     let y = 0;
@@ -314,9 +389,12 @@ export function BoardCanvas(props: BoardCanvasProps) {
           const g = domG[c];
           const grp = g >= 0 ? colorOf(g) : null;
           const dim = anySelection && g !== selectedGroup;
+          const bad = preview?.refused && g === preview.groupIdx;
+          ctx.globalAlpha = bad ? 0.34 : 1;
           ctx.fillStyle = grp ? (dim ? grp.dim : grp.fill) : pal.ungrouped;
           const bh = Math.max(2, Math.min(1, fill) * (h - inset * 2));
           ctx.fillRect(c, top + inset + (h - inset * 2 - bh), 1, bh);
+          ctx.globalAlpha = 1;
         }
         return;
       }
@@ -327,8 +405,13 @@ export function BoardCanvas(props: BoardCanvasProps) {
         if (x0 + w <= 0 || x0 >= width) continue;
         const grp = g >= 0 ? colorOf(g) : null;
         const dim = anySelection && g !== selectedGroup;
+        // A refused placement is GHOSTED, not recoloured — see the note above
+        // drawRefusedMark. It keeps its own hue and loses its solidity.
+        const bad = preview?.refused && g === preview.groupIdx;
+        ctx.globalAlpha = bad ? 0.34 : 1;
         ctx.fillStyle = grp ? (dim ? grp.dim : grp.fill) : pal.ungrouped;
         ctx.fillRect(x0, top + inset, w, h - inset * 2);
+        ctx.globalAlpha = 1;
         // A separator only where there is room for one, and drawn in the
         // GROUND rather than in a darker version of the block. A dark edge on
         // every block turns a row of forty operations into a barcode, which
@@ -366,11 +449,16 @@ export function BoardCanvas(props: BoardCanvasProps) {
         const gi = grouping.laneGroupIdx[row.laneIdx];
         const blocks = lane.blocks;
         drawSpans(
-          (i) => ({
-            s: blocks[i * BLOCK_STRIDE + BLOCK_START],
-            d: blocks[i * BLOCK_STRIDE + BLOCK_DUR],
-            g: gi ? gi[i] : -1,
-          }),
+          (i) => {
+            const g = gi ? gi[i] : -1;
+            const entryStart = entryStartRel.get(blocks[i * BLOCK_STRIDE + BLOCK_ENTRY])
+              ?? blocks[i * BLOCK_STRIDE + BLOCK_START];
+            return {
+              s: blocks[i * BLOCK_STRIDE + BLOCK_START] + shiftOf(g, entryStart),
+              d: blocks[i * BLOCK_STRIDE + BLOCK_DUR],
+              g,
+            };
+          },
           lane.blockCount,
           y,
           row.h,
@@ -390,9 +478,23 @@ export function BoardCanvas(props: BoardCanvasProps) {
         const dim = anySelection && g !== selectedGroup;
         // The envelope first — start to end INCLUDING the holes, so the handle
         // shows the reach of the unit and the blocks inside it show the holes.
-        if (grp && grp.startRel >= 0) {
-          const x0 = grp.startRel * pxPerMs;
-          const w = Math.max(3, grp.endRel * pxPerMs - x0);
+        // Under a drag the envelope is derived from the moved bars, not from the
+        // stored one — a stretch changes where the unit ends, and a handle that
+        // does not follow the gesture is a handle nobody trusts.
+        let envStart = grp?.startRel ?? -1;
+        let envEnd = grp?.endRel ?? -1;
+        if (spans && preview && g === preview.groupIdx && spans.length >= 3) {
+          envStart = Infinity;
+          envEnd = -Infinity;
+          for (let i = 0; i < spans.length; i += 3) {
+            const sh = shiftOf(g, spans[i + 2]);
+            envStart = Math.min(envStart, spans[i] + sh);
+            envEnd = Math.max(envEnd, spans[i] + spans[i + 1] + sh);
+          }
+        }
+        if (grp && envStart >= 0 && envEnd > envStart) {
+          const x0 = envStart * pxPerMs;
+          const w = Math.max(3, envEnd * pxPerMs - x0);
           const active = g === selectedGroup || g === hoverGroup;
           // Filled AND outlined, always. A translucent fill on its own reads as
           // a highlight painted on the background; the outline is what makes it
@@ -403,17 +505,31 @@ export function BoardCanvas(props: BoardCanvasProps) {
           ctx.globalAlpha = dim ? 0.14 : 0.26;
           ctx.fillStyle = c.rail;
           ctx.fill();
+          /**
+           * The handle's outline carries the verdict.
+           *
+           * Dashed and in the refusal colour when the server has said no — a
+           * dash reads as "not real yet" at any size and survives being the
+           * same hue as the unit, which recolouring the blocks does not.
+           */
+          const refusedHere = !!preview?.refused && g === preview.groupIdx;
           ctx.globalAlpha = dim ? 0.35 : (active ? 1 : 0.7);
-          ctx.strokeStyle = c.edge;
-          ctx.lineWidth = active ? 1.5 : 1;
+          ctx.strokeStyle = refusedHere ? pal.refused : c.edge;
+          ctx.lineWidth = refusedHere ? 2 : (active ? 1.5 : 1);
+          if (refusedHere) ctx.setLineDash([4, 3]);
           ctx.stroke();
+          ctx.setLineDash([]);
           ctx.globalAlpha = 1;
           ctx.lineWidth = 1;
         }
         if (spans) {
           drawSpans(
-            (i) => ({ s: spans[i * 2], d: spans[i * 2 + 1], g }),
-            spans.length / 2,
+            (i) => ({
+              s: spans[i * 3] + shiftOf(g, spans[i * 3 + 2]),
+              d: spans[i * 3 + 1],
+              g,
+            }),
+            spans.length / 3,
             y,
             row.h,
             3,
@@ -439,6 +555,7 @@ export function BoardCanvas(props: BoardCanvasProps) {
   }, [
     lanes, grouping, groupBlocks, rows, windowMs, nowRel, gridRel, gridMajor,
     selectedGroup, hoverGroup, dark, width, totalH, blockLabel, colors,
+    entryStartRel, preview,
   ]);
 
   // ── hit testing ────────────────────────────────────────────────────────────
@@ -511,12 +628,73 @@ export function BoardCanvas(props: BoardCanvasProps) {
     return null;
   }, [rows]);
 
+  /**
+   * What a press here would grab, if anything.
+   *
+   * A rail capsule is always grabbable — that is what it is for. A bar in a lane
+   * is grabbable only once its unit is SELECTED, so that exploring the board by
+   * clicking around cannot move fifty operations by accident. Selecting is one
+   * click; the second gesture is the one that commits.
+   */
+  const zoneAt = useCallback((clientX: number, clientY: number): GrabInfo | null => {
+    const canvas = canvasRef.current;
+    if (!canvas || width <= 0) return null;
+    const rect = canvas.getBoundingClientRect();
+    const x = clientX - rect.left;
+    const y = clientY - rect.top;
+    const pxPerMs = width / Math.max(1, windowMs);
+    const atRel = (x / width) * windowMs;
+
+    let top = 0;
+    let target: BoardRow | null = null;
+    for (const row of rows) {
+      if (y >= top && y < top + row.h) { target = row; break; }
+      top += row.h;
+    }
+    if (!target) return null;
+
+    if (target.kind === 'rail') {
+      const g = grouping.groups[target.groupIdx];
+      if (!g || g.startRel < 0) return null;
+      const x0 = g.startRel * pxPerMs;
+      const x1 = g.endRel * pxPerMs;
+      if (x < x0 - EDGE_PX || x > x1 + EDGE_PX) return null;
+      // Edge zones are clamped so a very short capsule is still mostly body —
+      // otherwise a two-hour unit at month zoom would be nothing but edges.
+      const edge = Math.min(EDGE_PX, Math.max(2, (x1 - x0) / 3));
+      let zone: GrabZone = 'body';
+      if (x <= x0 + edge) zone = 'startEdge';
+      else if (x >= x1 - edge) zone = 'endEdge';
+      return { groupIdx: target.groupIdx, zone, atRel, startRel: g.startRel, endRel: g.endRel };
+    }
+
+    if (selectedGroup == null) return null;
+    const hit = hitAt(clientX, clientY);
+    if (!hit || hit.groupIdx !== selectedGroup) return null;
+    const g = grouping.groups[selectedGroup];
+    if (!g || g.startRel < 0) return null;
+    return { groupIdx: selectedGroup, zone: 'body', atRel, startRel: g.startRel, endRel: g.endRel };
+  }, [rows, grouping, width, windowMs, selectedGroup, hitAt]);
+
+  const cursor = dragging
+    ? (dragZone === 'body' ? 'grabbing' : 'col-resize')
+    : (hoverZone === 'body' ? 'grab' : (hoverZone ? 'col-resize' : 'crosshair'));
+
   return (
     <Box ref={wrapRef} sx={{ position: 'relative', width: '100%' }}>
       <canvas
         ref={canvasRef}
-        style={{ display: 'block', cursor: 'crosshair' }}
+        style={{ display: 'block', cursor }}
+        onMouseDown={(e) => {
+          if (e.button !== 0 || !onGrab) return;
+          const grab = zoneAt(e.clientX, e.clientY);
+          if (!grab) return;
+          e.preventDefault();
+          setDragZone(grab.zone);
+          onGrab(grab);
+        }}
         onMouseMove={(e) => {
+          setHoverZone(dragging ? dragZone : (onGrab ? zoneAt(e.clientX, e.clientY)?.zone ?? null : null));
           const rail = railGroupAt(e.clientY);
           if (rail != null) {
             onHover({
@@ -529,7 +707,7 @@ export function BoardCanvas(props: BoardCanvasProps) {
           }
           onHover(hitAt(e.clientX, e.clientY));
         }}
-        onMouseLeave={() => onHover(null)}
+        onMouseLeave={() => { onHover(null); setHoverZone(null); }}
         onClick={(e) => {
           const rail = railGroupAt(e.clientY);
           if (rail != null) {

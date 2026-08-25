@@ -451,3 +451,78 @@ export async function getPlanBoard(params: {
     ...(params.resourceTypeIds?.length ? { resourceTypeIds: params.resourceTypeIds.join(',') } : {}),
   });
 }
+
+// ── moving a unit ────────────────────────────────────────────────────────────
+
+/**
+ * A whole unit of work — a girder, a span, an order — moved as one.
+ *
+ * Not a loop over `updatePlanEntry`. Every intermediate state of a group move is
+ * illegal, so bar-at-a-time is refused on the first call for a violation the
+ * finished move would not have had. The backend validates the FINAL state and
+ * writes it in one transaction.
+ */
+export type GroupOp = 'move' | 'stretch' | 'pushLeft' | 'restore';
+
+export interface GroupPlacement {
+  entryId: number;
+  plannedStart: string;
+  plannedEnd: string;
+  /** Pinned, already started, or unplaceable — it stayed where it was. */
+  held?: boolean;
+}
+
+/** Something worth saying that is not a reason to refuse. */
+export interface GroupWarning {
+  code: 'SUCCESSORS_STRANDED' | 'OVER_CAPACITY' | 'OFF_SHIFT' | 'NO_ROOM' | 'CALENDAR_NOT_CHECKED';
+  message: string;
+  detail: Record<string, unknown>;
+}
+
+export interface GroupResult {
+  ok: boolean;
+  applied: boolean;
+  movedCount: number;
+  placements: GroupPlacement[];
+  /** Where everything was before — feed this straight back as a `restore`. */
+  previous: GroupPlacement[];
+  warnings: GroupWarning[];
+}
+
+export interface GroupRefusal {
+  code: PlanErrorCode | 'PAST_PLACEMENT' | 'NOTHING_MOVABLE';
+  message: string;
+  detail: PlanErrorDetail & { entryId?: number; proposedStart?: string };
+}
+
+/**
+ * Pull a group refusal out of an axios error. Unlike `planErrorOf` this keeps
+ * the whole list: a group move can be refused for several bars at once, and
+ * naming only the first makes the second look like a new problem.
+ */
+export function groupErrorOf(err: unknown): { message: string; refusals: GroupRefusal[] } | null {
+  const res = (err as { response?: { status?: number; data?: Record<string, unknown> } })?.response;
+  if (res?.status !== 409 || !res?.data?.code) return null;
+  const data = res.data;
+  const list = Array.isArray(data.refusals) ? (data.refusals as GroupRefusal[]) : [];
+  return {
+    message: String(data.message ?? 'That move is not possible.'),
+    refusals: list.length > 0
+      ? list
+      : [{ code: data.code as GroupRefusal['code'], message: String(data.message ?? ''), detail: (data.detail ?? {}) as GroupRefusal['detail'] }],
+  };
+}
+
+/** POST /plan/group — move, stretch, push left, or restore. */
+export async function transformPlanGroup(body: {
+  entryIds: number[];
+  op: GroupOp;
+  deltaMs?: number;
+  anchorMs?: number;
+  scale?: number;
+  placements?: GroupPlacement[];
+  /** Validate and return without writing — what a drag calls while in flight. */
+  dryRun?: boolean;
+}): Promise<GroupResult> {
+  return fabPost('plan/group', body as unknown as Record<string, unknown>);
+}

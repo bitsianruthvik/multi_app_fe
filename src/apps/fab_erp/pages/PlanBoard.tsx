@@ -32,7 +32,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Alert, Box, Chip, IconButton, LinearProgress, MenuItem,
+  Alert, Box, Button, Chip, IconButton, LinearProgress, MenuItem,
   Paper, Stack, TextField, ToggleButton, ToggleButtonGroup, Tooltip, Typography,
   useTheme,
 } from '@mui/material';
@@ -40,19 +40,24 @@ import RefreshRounded from '@mui/icons-material/RefreshRounded';
 import ChevronLeftRounded from '@mui/icons-material/ChevronLeftRounded';
 import ChevronRightRounded from '@mui/icons-material/ChevronRightRounded';
 import TodayRounded from '@mui/icons-material/TodayRounded';
+import KeyboardDoubleArrowLeftRounded from '@mui/icons-material/KeyboardDoubleArrowLeftRounded';
+import UndoRounded from '@mui/icons-material/UndoRounded';
 
 import { usePermission } from '@core/hooks/usePermission';
 import { useAuth } from '@core/contexts/AuthContext';
 import { isAdminRole } from '@core/utils/roles';
 
 import {
-  getPlanBoard, BLOCK_STRIDE, BLOCK_START, BLOCK_DUR,
-  type BoardResponse,
+  getPlanBoard, transformPlanGroup, groupErrorOf,
+  BLOCK_STRIDE, BLOCK_START, BLOCK_DUR, BLOCK_ENTRY,
+  type BoardResponse, type GroupPlacement,
 } from '../api/planner';
 import {
-  PageHeader, Surface, EmptyState, ListSkeleton, Mono, backendMessage,
+  PageHeader, Surface, EmptyState, ListSkeleton, Mono, useToast, backendMessage,
 } from '../components';
-import { BoardCanvas, type BoardRow, type BlockHit } from '../components/planner/BoardCanvas';
+import {
+  BoardCanvas, type BoardRow, type BlockHit, type GrabInfo, type PreviewTransform,
+} from '../components/planner/BoardCanvas';
 import {
   buildGrouping, buildColors, fmtWorkMs, shortenLabel, LEGIBLE_UNIT_LIMIT,
   GROUP_LEVELS, GROUP_LEVEL_LABEL, type GroupLevel, type ColorSet,
@@ -80,12 +85,34 @@ const ROW_H: Record<ViewMode, { lane: number; rail: number }> = {
   day: { lane: 48, rail: 22 },
 };
 
+/**
+ * Snap ladder for a drag, coarsest first once the zoom demands it.
+ *
+ * Chosen by PIXELS, not by zoom name: at five weeks a pixel is three quarters of
+ * an hour, so a fifteen-minute snap is finer than the mouse can express and the
+ * unit lands somewhere the planner did not aim. The smallest step at least
+ * SNAP_MIN_PX wide is the one that makes the gesture honest.
+ */
+const SNAP_MINUTES = [15, 30, 60, 120, 240, 480, 1440];
+const SNAP_MIN_PX = 4;
+
+/**
+ * The drawn track, measured during a drag.
+ *
+ * A drag reads pixels off the DOM rather than trusting the width the canvas
+ * last reported: the two disagree for one frame after any resize, and one frame
+ * of disagreement is a unit landing an hour from where it was dropped.
+ */
+const TRACK_ID = 'plan-board-track';
+
 export default function PlanBoard() {
+  const { toast } = useToast();
   const { user } = useAuth();
   const theme = useTheme();
   const dark = theme.palette.mode === 'dark';
   const admin = isAdminRole(user?.role);
   const canView = usePermission('fab_erp_planner_view') || admin;
+  const canManage = usePermission('fab_erp_planner_manage') || admin;
 
   const [mode, setMode] = useState<ViewMode>('week');
   const [timeZone, setTimeZone] = useState<string>(FALLBACK_TZ);
@@ -139,7 +166,40 @@ export default function PlanBoard() {
     [board, level],
   );
 
-  /** Each group's blocks, merged across every lane and sorted — the rail draws these. */
+  /** Where each BAR starts. A stretch moves bars, so a block has to find its own. */
+  const entryStartRel = useMemo(() => {
+    const out = new Map<number, number>();
+    for (const lane of board?.lanes ?? []) {
+      for (let b = 0; b < lane.blockCount; b += 1) {
+        const id = lane.blocks[b * BLOCK_STRIDE + BLOCK_ENTRY];
+        const at = lane.blocks[b * BLOCK_STRIDE + BLOCK_START];
+        const cur = out.get(id);
+        if (cur === undefined || at < cur) out.set(id, at);
+      }
+    }
+    return out;
+  }, [board]);
+
+  /** The bars each unit is made of — what a group transform is actually applied to. */
+  const entryIdsByGroup = useMemo(() => {
+    if (!board || !grouping) return [] as number[][];
+    const acc: Set<number>[] = grouping.groups.map(() => new Set<number>());
+    board.lanes.forEach((lane, li) => {
+      const gi = grouping.laneGroupIdx[li];
+      if (!gi) return;
+      for (let b = 0; b < lane.blockCount; b += 1) {
+        const g = gi[b];
+        if (g >= 0) acc[g].add(lane.blocks[b * BLOCK_STRIDE + BLOCK_ENTRY]);
+      }
+    });
+    return acc.map((set) => [...set]);
+  }, [board, grouping]);
+
+  /**
+   * Each group's blocks, merged across every lane and sorted — the rail draws
+   * these. Triples: start, duration, and the start of the BAR the block sits in,
+   * which is what lets a stretch be previewed without stretching the work.
+   */
   const groupBlocks = useMemo(() => {
     if (!board || !grouping) return [] as Float64Array[];
     const acc: number[][] = grouping.groups.map(() => []);
@@ -149,20 +209,26 @@ export default function PlanBoard() {
       for (let b = 0; b < lane.blockCount; b += 1) {
         const g = gi[b];
         if (g < 0) continue;
-        acc[g].push(lane.blocks[b * BLOCK_STRIDE + BLOCK_START], lane.blocks[b * BLOCK_STRIDE + BLOCK_DUR]);
+        const at = lane.blocks[b * BLOCK_STRIDE + BLOCK_START];
+        acc[g].push(
+          at,
+          lane.blocks[b * BLOCK_STRIDE + BLOCK_DUR],
+          entryStartRel.get(lane.blocks[b * BLOCK_STRIDE + BLOCK_ENTRY]) ?? at,
+        );
       }
     });
     return acc.map((flat) => {
-      const n = flat.length / 2;
-      const order = Array.from({ length: n }, (_, i) => i).sort((a, b) => flat[a * 2] - flat[b * 2]);
+      const n = flat.length / 3;
+      const order = Array.from({ length: n }, (_, i) => i).sort((a, b) => flat[a * 3] - flat[b * 3]);
       const out = new Float64Array(flat.length);
       order.forEach((src, dst) => {
-        out[dst * 2] = flat[src * 2];
-        out[dst * 2 + 1] = flat[src * 2 + 1];
+        out[dst * 3] = flat[src * 3];
+        out[dst * 3 + 1] = flat[src * 3 + 1];
+        out[dst * 3 + 2] = flat[src * 3 + 2];
       });
       return out;
     });
-  }, [board, grouping]);
+  }, [board, grouping, entryStartRel]);
 
   const colors = useMemo<ColorSet[]>(
     () => (grouping ? buildColors(grouping, dark) : []),
@@ -219,6 +285,254 @@ export default function PlanBoard() {
     const n = Date.now() - scale.startMs;
     return n >= 0 && n <= windowMs ? n : null;
   }, [scale.startMs, windowMs]);
+
+  // ── dragging ───────────────────────────────────────────────────────────────
+  /**
+   * A gesture in flight. Held here rather than in the canvas because it outlives
+   * the canvas's own events: the pointer leaves the element constantly during a
+   * drag, so move and release are listened for on the window.
+   */
+  const [drag, setDrag] = useState<{
+    grab: GrabInfo;
+    entryIds: number[];
+    deltaMs: number;
+    scale: number;
+    anchorRel: number;
+    refused: string | null;
+  } | null>(null);
+  const [busy, setBusy] = useState(false);
+  /** The last applied transform, kept so it can be taken back. */
+  const [undoable, setUndoable] = useState<
+  { entryIds: number[]; previous: GroupPlacement[]; what: string } | null>(null);
+
+  const msPerPx = windowMs / Math.max(1, trackPx);
+  const snapMs = useMemo(() => {
+    const step = SNAP_MINUTES.find((m) => (m * 60000) / msPerPx >= SNAP_MIN_PX);
+    return (step ?? SNAP_MINUTES[SNAP_MINUTES.length - 1]) * 60000;
+  }, [msPerPx]);
+
+  const preview = useMemo<PreviewTransform | null>(() => (drag
+    ? {
+      groupIdx: drag.grab.groupIdx,
+      deltaMs: drag.deltaMs,
+      scale: drag.scale,
+      anchorRel: drag.anchorRel,
+      refused: drag.refused != null,
+    }
+    : null), [drag]);
+
+  /**
+   * Ask the server whether the placement in hand is legal, while it is still in
+   * hand. Debounced and sequenced: a drag fires this many times a second and
+   * answers can arrive out of order, so a stale "no" must not paint a legal
+   * placement red.
+   */
+  const dryRunSeq = useRef(0);
+  const dryRunTimer = useRef<number | null>(null);
+  const checkDrag = useCallback((d: {
+    entryIds: number[]; deltaMs: number; scale: number; anchorRel: number;
+  }) => {
+    if (dryRunTimer.current != null) window.clearTimeout(dryRunTimer.current);
+    const seq = dryRunSeq.current + 1;
+    dryRunSeq.current = seq;
+    dryRunTimer.current = window.setTimeout(async () => {
+      const body = d.scale === 1
+        ? { entryIds: d.entryIds, op: 'move' as const, deltaMs: d.deltaMs, dryRun: true }
+        : {
+          entryIds: d.entryIds,
+          op: 'stretch' as const,
+          anchorMs: scale.startMs + d.anchorRel,
+          scale: d.scale,
+          dryRun: true,
+        };
+      try {
+        await transformPlanGroup(body);
+        if (dryRunSeq.current === seq) setDrag((cur) => (cur ? { ...cur, refused: null } : cur));
+      } catch (err) {
+        if (dryRunSeq.current !== seq) return;
+        const refused = groupErrorOf(err);
+        setDrag((cur) => (cur
+          ? { ...cur, refused: refused?.message ?? backendMessage(err, 'Not possible here.') }
+          : cur));
+      }
+    }, 160);
+  }, [scale.startMs]);
+
+  const onGrab = useCallback((grab: GrabInfo) => {
+    const ids = entryIdsByGroup[grab.groupIdx] ?? [];
+    if (ids.length === 0) return;
+    setSelected(grouping?.groups[grab.groupIdx].key ?? null);
+    setDrag({
+      grab,
+      entryIds: ids,
+      deltaMs: 0,
+      scale: 1,
+      // A stretch holds the end you did NOT grab. That is what "fix the start
+      // and stretch" means as a gesture, and it is why there are two edges.
+      anchorRel: grab.zone === 'startEdge' ? grab.endRel : grab.startRel,
+      refused: null,
+    });
+  }, [entryIdsByGroup, grouping]);
+
+  const commit = useCallback(async (d: {
+    entryIds: number[]; deltaMs: number; scale: number; anchorRel: number;
+  }) => {
+    if (d.scale === 1 && d.deltaMs === 0) return;
+    setBusy(true);
+    try {
+      const res = await transformPlanGroup(d.scale === 1
+        ? { entryIds: d.entryIds, op: 'move', deltaMs: d.deltaMs }
+        : { entryIds: d.entryIds, op: 'stretch', anchorMs: scale.startMs + d.anchorRel, scale: d.scale });
+      if (res.applied) {
+        setUndoable({
+          entryIds: d.entryIds,
+          previous: res.previous,
+          what: d.scale === 1 ? 'move' : 'stretch',
+        });
+        toast(`${res.movedCount} bar${res.movedCount === 1 ? '' : 's'} moved.`, 'success');
+      }
+      for (const w of res.warnings) toast(w.message, 'info');
+      await load();
+    } catch (err) {
+      const refused = groupErrorOf(err);
+      toast(refused?.message ?? backendMessage(err, 'That move was refused.'), 'error');
+    } finally {
+      setBusy(false);
+    }
+  }, [scale.startMs, toast, load]);
+
+  /**
+   * The drag, also in a ref.
+   *
+   * The window handlers below need to READ the gesture and to cause things —
+   * a debounced validation, a write on release. Doing either from inside a
+   * setState updater is a bug that only shows up in development, where React
+   * deliberately invokes updaters twice to catch exactly this: the release
+   * handler posted the move twice, and a ten-hour drag landed twenty hours out.
+   * Updaters return state and nothing else; effects live out here.
+   */
+  const dragRef = useRef<typeof drag>(null);
+  useEffect(() => { dragRef.current = drag; }, [drag]);
+
+  // Move and release belong to the window: the pointer leaves the canvas the
+  // moment a drag goes anywhere interesting.
+  useEffect(() => {
+    if (!drag) return undefined;
+    const onMove = (e: MouseEvent) => {
+      const cur = dragRef.current;
+      const el = document.getElementById(TRACK_ID);
+      if (!cur || !el) return;
+      const rect = el.getBoundingClientRect();
+      const atRel = ((e.clientX - rect.left) / Math.max(1, rect.width)) * windowMs;
+      const snap = (v: number) => (e.altKey ? v : Math.round(v / snapMs) * snapMs);
+
+      let next = cur;
+      if (cur.grab.zone === 'body') {
+        const delta = snap(atRel - cur.grab.atRel);
+        if (delta === cur.deltaMs) return;
+        next = { ...cur, deltaMs: delta, scale: 1 };
+      } else {
+        const anchor = cur.anchorRel;
+        const grabbed = cur.grab.zone === 'endEdge' ? cur.grab.endRel : cur.grab.startRel;
+        const reach = grabbed - anchor;
+        if (Math.abs(reach) < 1) return;
+        // Clamped, not free: a scale of zero collapses a unit onto an instant,
+        // and there is no gesture back out of that.
+        const raw = (snap(atRel) - anchor) / reach;
+        const scaled = Math.min(20, Math.max(0.05, raw));
+        if (Math.abs(scaled - cur.scale) < 1e-6) return;
+        next = { ...cur, scale: scaled, deltaMs: 0 };
+      }
+      dragRef.current = next;
+      setDrag(next);
+      checkDrag(next);
+    };
+    const onUp = () => {
+      const cur = dragRef.current;
+      dragRef.current = null;
+      setDrag(null);
+      if (cur) void commit(cur);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { dragRef.current = null; setDrag(null); }
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [drag, windowMs, snapMs, checkDrag, commit]);
+
+  const pushLeft = useCallback(async () => {
+    if (selectedIdx == null) return;
+    const ids = entryIdsByGroup[selectedIdx] ?? [];
+    if (ids.length === 0) return;
+    setBusy(true);
+    try {
+      const res = await transformPlanGroup({ entryIds: ids, op: 'pushLeft' });
+      if (res.applied) {
+        setUndoable({ entryIds: ids, previous: res.previous, what: 'push' });
+        toast(`Pushed left — ${res.movedCount} bar${res.movedCount === 1 ? '' : 's'} moved.`, 'success');
+        await load();
+      }
+      for (const w of res.warnings) toast(w.message, 'info');
+    } catch (err) {
+      const refused = groupErrorOf(err);
+      toast(refused?.message ?? backendMessage(err, 'Could not push that unit.'), 'error');
+    } finally {
+      setBusy(false);
+    }
+  }, [selectedIdx, entryIdsByGroup, toast, load]);
+
+  const undo = useCallback(async () => {
+    if (!undoable) return;
+    setBusy(true);
+    try {
+      await transformPlanGroup({
+        entryIds: undoable.entryIds, op: 'restore', placements: undoable.previous,
+      });
+      setUndoable(null);
+      toast('Put back.', 'success');
+      await load();
+    } catch (err) {
+      const refused = groupErrorOf(err);
+      toast(refused?.message ?? backendMessage(err, 'Could not put it back.'), 'error');
+    } finally {
+      setBusy(false);
+    }
+  }, [undoable, toast, load]);
+
+  /**
+   * What the gesture currently says, in words.
+   *
+   * A drag without a readout is a guess: at five weeks a pixel is three quarters
+   * of an hour, so "about here" is not a plan. The unit's new start and end are
+   * the two numbers that will actually be written, so those are the two shown.
+   */
+  const dragReadout = useMemo(() => {
+    if (!drag || !grouping) return null;
+    const g = grouping.groups[drag.grab.groupIdx];
+    if (!g || g.startRel < 0) return null;
+    const shift = (at: number) => (drag.scale === 1
+      ? at + drag.deltaMs
+      : drag.anchorRel + (at - drag.anchorRel) * drag.scale);
+    const startRel = Math.min(shift(g.startRel), shift(g.endRel));
+    const endRel = Math.max(shift(g.startRel), shift(g.endRel));
+    const abs = (rel: number) => new Date(scale.startMs + rel);
+    const amount = drag.scale === 1
+      ? `${drag.deltaMs >= 0 ? '+' : '−'}${fmtWorkMs(Math.abs(drag.deltaMs))}`
+      : `×${drag.scale.toFixed(2)}`;
+    return {
+      label: drag.grab.zone === 'body' ? `Move ${amount}` : `Stretch ${amount}`,
+      when: `${zonedYMD(abs(startRel), timeZone)} ${fmtLocalTime(abs(startRel), timeZone)}`
+        + ` → ${zonedYMD(abs(endRel), timeZone)} ${fmtLocalTime(abs(endRel), timeZone)}`,
+      unit: g.shortLabel,
+      refused: drag.refused,
+    };
+  }, [drag, grouping, scale.startMs, timeZone]);
 
   /** Machine-minutes booked against machine-minutes crewed, per lane. */
   const laneLoad = useMemo(() => lanes.map((lane) => {
@@ -286,6 +600,11 @@ export default function PlanBoard() {
       else if (e.key === 'Escape') setSelected(null);
       else if (e.key === '[') changeMode(mode === 'day' ? 'week' : 'month');
       else if (e.key === ']') changeMode(mode === 'month' ? 'week' : 'day');
+      else if ((e.key === 'l' || e.key === 'L') && canManage) { void pushLeft(); e.preventDefault(); }
+      else if ((e.key === 'z' || e.key === 'Z') && (e.ctrlKey || e.metaKey) && canManage) {
+        void undo();
+        e.preventDefault();
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -469,6 +788,36 @@ export default function PlanBoard() {
             onClick={() => setOnlyBusyLanes((v) => !v)}
             label={onlyBusyLanes ? 'Machines with work' : 'All machines'}
           />
+          {canManage && (
+            <Tooltip title="Slide this unit as far left as its bars will fit, around everything else (L)">
+              <span>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  startIcon={<KeyboardDoubleArrowLeftRounded />}
+                  disabled={selectedIdx == null || busy}
+                  onClick={() => void pushLeft()}
+                >
+                  Push left
+                </Button>
+              </span>
+            </Tooltip>
+          )}
+          {canManage && undoable && (
+            <Tooltip title="Put that back where it was (Ctrl+Z)">
+              <span>
+                <Button
+                  size="small"
+                  variant="text"
+                  startIcon={<UndoRounded />}
+                  disabled={busy}
+                  onClick={() => void undo()}
+                >
+                  Undo {undoable.what}
+                </Button>
+              </span>
+            </Tooltip>
+          )}
           <Mono sx={{ fontSize: 12, color: 'text.secondary' }}>{timeZone}</Mono>
         </Stack>
 
@@ -600,11 +949,17 @@ export default function PlanBoard() {
                 })}
               </Box>
 
-              <Box sx={{ flex: 1, minWidth: 0 }}>
+              <Box
+                id={TRACK_ID}
+                sx={{ flex: 1, minWidth: 0, userSelect: drag ? 'none' : 'auto' }}
+              >
                 <BoardCanvas
                   lanes={lanes}
                   grouping={laneGrouping}
                   colors={colors}
+                  entryStartRel={entryStartRel}
+                  preview={preview}
+                  onGrab={canManage ? onGrab : undefined}
                   groupBlocks={groupBlocks}
                   rows={rows}
                   windowMs={windowMs}
@@ -627,7 +982,7 @@ export default function PlanBoard() {
             </Box>
 
             {/* ── hover card ─────────────────────────────────────────────── */}
-            {hoverCard && (
+            {hoverCard && !drag && (
               <Paper
                 elevation={6}
                 sx={{
@@ -650,9 +1005,45 @@ export default function PlanBoard() {
                 ))}
               </Paper>
             )}
+            {dragReadout && (
+              <Paper
+                elevation={8}
+                sx={{
+                  position: 'absolute',
+                  left: GUTTER_PX + 12,
+                  top: 4,
+                  px: 1.5,
+                  py: 0.75,
+                  zIndex: 6,
+                  pointerEvents: 'none',
+                  borderLeft: 3,
+                  borderColor: dragReadout.refused ? 'error.main' : 'primary.main',
+                }}
+              >
+                <Stack direction="row" spacing={1.5} alignItems="baseline">
+                  <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                    {dragReadout.unit} · {dragReadout.label}
+                  </Typography>
+                  <Mono sx={{ fontSize: 12, color: 'text.secondary' }}>{dragReadout.when}</Mono>
+                </Stack>
+                {dragReadout.refused && (
+                  <Typography variant="caption" sx={{ color: 'error.main', display: 'block' }}>
+                    {dragReadout.refused}
+                  </Typography>
+                )}
+              </Paper>
+            )}
           </Box>
         )}
       </Surface>
+
+      {canManage && (
+        <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+          Drag a unit&rsquo;s handle to move it, or its ends to stretch it — hold Alt to ignore the
+          snap. Once a unit is selected its bars can be dragged in the lanes too. <b>Push left</b> (L)
+          slides it as far left as its bars will fit around everything else.
+        </Typography>
+      )}
 
       {grouping && grouping.groups.length > LEGIBLE_UNIT_LIMIT && (
         <Alert severity="info" variant="outlined">
