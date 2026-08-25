@@ -346,3 +346,108 @@ export async function splitPlanEntry(id: number, body: { taskIds?: number[] } = 
 export async function deletePlanEntry(id: number): Promise<{ ok: boolean; removed: boolean }> {
   return fabDel(`plan/entries/${id}`);
 }
+
+// ── the board ────────────────────────────────────────────────────────────────
+
+/**
+ * The same plan the grid draws, in the shape a canvas can paint.
+ *
+ * Geometry arrives as flat number tuples and the words arrive once, in lookup
+ * tables — see the backend's getPlanBoard for why. Times are milliseconds
+ * RELATIVE to `from`; nothing here is an epoch timestamp.
+ */
+export interface BoardLane {
+  resourceTypeId: number;
+  name: string;
+  code: string | null;
+  totalUnits: number;
+  /** No shift calendar: the engine plans this 24/7, so it is never shaded unmanned. */
+  unbounded: boolean;
+  resourceCount: number;
+  /** [startRel, endRel, coveredUnits] × n. */
+  coverage: number[];
+  /** [startRel, durationMs, itemId, taskId, entryId] × blockCount. */
+  blocks: number[];
+  blockCount: number;
+}
+
+/** Stride of one block in `BoardLane.blocks`. Read the fields through BLOCK_*. */
+export const BLOCK_STRIDE = 5;
+export const BLOCK_START = 0;
+export const BLOCK_DUR = 1;
+export const BLOCK_ITEM = 2;
+export const BLOCK_TASK = 3;
+export const BLOCK_ENTRY = 4;
+
+export interface BoardItem {
+  id: number;
+  parentItemId: number | null;
+  orderId: number | null;
+  orderLineId: number | null;
+  /** 'span' | 'girder' | 'segment' | 'part' | 'material' | null. */
+  levelKind: string | null;
+  name: string | null;
+  code: string | null;
+  mark: string | null;
+}
+
+export interface BoardOrder {
+  id: number;
+  orderNumber: string | null;
+  customerName: string | null;
+  priority: string | null;
+  priorityRank: number | null;
+  requiredDate: string | null;
+  mustFinishBy: string | null;
+}
+
+export interface BoardLine {
+  id: number;
+  orderId: number;
+  lineNo: number | null;
+  code: string | null;
+  description: string | null;
+}
+
+export interface BoardEntry {
+  id: number;
+  orderId: number | null;
+  operationId: number | null;
+  resourceId: number | null;
+  isPinned: boolean;
+  source: 'suggested' | 'manual';
+  /**
+   * Present only when there is no operation to name the bar. Otherwise the
+   * label was "<operation> · <item>" — both halves of which the client already
+   * has, and repeating it on every entry was most of the payload.
+   */
+  label?: string | null;
+}
+
+/** id → name, so a name is sent once rather than on every entry that uses it. */
+export interface BoardNamed { id: number; name: string | null }
+
+export interface BoardResponse {
+  ok: boolean;
+  from: string;
+  to: string;
+  timezone: string;
+  lanes: BoardLane[];
+  items: BoardItem[];
+  orders: BoardOrder[];
+  lines: BoardLine[];
+  entries: BoardEntry[];
+  operations: BoardNamed[];
+  resources: BoardNamed[];
+}
+
+/** GET /plan/board — lanes, coverage and every operation as a block. */
+export async function getPlanBoard(params: {
+  from: string; to: string; resourceTypeIds?: number[];
+}): Promise<BoardResponse> {
+  return fabGet<BoardResponse>('plan/board', {
+    from: params.from,
+    to: params.to,
+    ...(params.resourceTypeIds?.length ? { resourceTypeIds: params.resourceTypeIds.join(',') } : {}),
+  });
+}

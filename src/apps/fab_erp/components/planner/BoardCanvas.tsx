@@ -1,0 +1,547 @@
+/**
+ * BoardCanvas.tsx — the plan, drawn.
+ *
+ * WHY A CANVAS
+ * ------------
+ * The Planner grid puts one absolutely-positioned element on screen per BAR
+ * over one to seven days, which is the right tool for that job. This view asks
+ * a different question — where are the gaps, across five weeks, for every
+ * machine at once — and a real bridge order is several thousand operations.
+ * At that count the DOM is not slow, it is unusable: layout alone takes longer
+ * than the frame, and the browser is doing text and event plumbing for shapes
+ * two pixels wide that will never be clicked individually.
+ *
+ * WHAT IS DRAWN, AND WHY IT STAYS DRAWN AT EVERY ZOOM
+ * --------------------------------------------------
+ * Every operation is a block at every zoom. Nothing is rolled up into a
+ * summary bar, because the summary is exactly what hides the answer: two
+ * girders that each "occupy" the same fortnight may interleave perfectly or
+ * collide completely, and only the individual blocks say which. What changes
+ * with zoom is HOW a block is drawn:
+ *
+ *   ≤ ~20 min per pixel   rectangles, each block its own shape, edges where
+ *                         they fit and labels where they fit.
+ *   > ~20 min per pixel   density columns. Each pixel column accumulates the
+ *                         work that falls inside it and is drawn at a HEIGHT
+ *                         proportional to how full it is, in the colour of
+ *                         whichever unit owns most of it. A half-used hour
+ *                         becomes a half-height column, which is the thing the
+ *                         planner is actually looking for: not "is there work
+ *                         here" but "how much room is left here".
+ *
+ * The switch is on measured pixels, not on the zoom's name, so a wide monitor
+ * gets rectangles for longer than a laptop does and neither has to be told.
+ *
+ * COLOUR IS THE GROUPING
+ * ----------------------
+ * Every unit at the chosen level of the BOM ladder gets its own hue. That is
+ * what makes a five-week row legible: girder 1's blocks are one colour, girder
+ * 2's another, and the white between them is the room to push into.
+ */
+
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { Box } from '@mui/material';
+
+import {
+  BLOCK_STRIDE, BLOCK_START, BLOCK_DUR, BLOCK_ITEM, BLOCK_TASK, BLOCK_ENTRY,
+  type BoardLane,
+} from '../../api/planner';
+import type { BoardGrouping, ColorSet } from './boardModel';
+
+/** A row of the board. Rail rows are group handles; lane rows are machines. */
+export type BoardRow =
+  | { kind: 'rail'; groupIdx: number; h: number }
+  | { kind: 'lane'; laneIdx: number; h: number }
+  | { kind: 'gap'; h: number };
+
+export interface BlockHit {
+  laneIdx: number;
+  blockIdx: number;
+  itemId: number;
+  taskId: number;
+  entryId: number;
+  groupIdx: number;
+  startRel: number;
+  durMs: number;
+  /** Pixel centre of the block, for anchoring a tooltip. */
+  x: number;
+  y: number;
+}
+
+export interface BoardCanvasProps {
+  lanes: BoardLane[];
+  grouping: BoardGrouping;
+  /** One entry per group, same indexing as grouping.groups. */
+  colors: ColorSet[];
+  /** Per group, its blocks merged across lanes: [startRel, durMs] × n, sorted. */
+  groupBlocks: Float64Array[];
+  rows: BoardRow[];
+  windowMs: number;
+  /** Milliseconds from the window start to now; null if now is outside it. */
+  nowRel: number | null;
+  /** Relative ms of each gridline. */
+  gridRel: number[];
+  /** Which of those gridlines are major (week starts, or 6-hourly). */
+  gridMajor: boolean[];
+  selectedGroup: number | null;
+  hoverGroup: number | null;
+  dark: boolean;
+  onHover: (hit: BlockHit | null) => void;
+  onPick: (hit: BlockHit | null) => void;
+  onWidth?: (px: number) => void;
+  /**
+   * What to write inside a block wide enough to hold writing. Called only at
+   * the zoom where that is true, so it can be as expensive as a map lookup.
+   */
+  blockLabel?: (entryId: number, itemId: number) => string;
+}
+
+/** Trim to fit, with an ellipsis, using the context's current font. */
+function ellipsise(ctx: CanvasRenderingContext2D, text: string, maxPx: number): string {
+  if (maxPx <= 0) return '';
+  if (ctx.measureText(text).width <= maxPx) return text;
+  let lo = 0;
+  let hi = text.length;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (ctx.measureText(`${text.slice(0, mid)}…`).width <= maxPx) lo = mid;
+    else hi = mid - 1;
+  }
+  return lo > 0 ? `${text.slice(0, lo)}…` : '';
+}
+
+/** Below this width, a label is an ellipsis and nothing else. */
+const LABEL_MIN_PX = 52;
+/** Below this row height, a label crowds the block out of its own row. */
+const LABEL_MIN_ROW = 30;
+
+/** Above this, blocks are too narrow to be shapes and become density columns. */
+const DENSITY_THRESHOLD_MS_PER_PX = 20 * 60 * 1000;
+
+interface Palette {
+  laneBase: string;
+  unmanned: string;
+  mannedTop: string;
+  grid: string;
+  gridMajor: string;
+  now: string;
+  railTrack: string;
+  ungrouped: string;
+  separator: string;
+  /** Text drawn ON a block — the block's fill is the ground, not the page. */
+  onBlock: string;
+  text: string;
+}
+
+function palette(dark: boolean): Palette {
+  return dark
+    ? {
+      laneBase: '#0E1019',
+      unmanned: '#080A10',
+      mannedTop: '#1B1E2E',
+      grid: 'rgba(255,255,255,.05)',
+      gridMajor: 'rgba(255,255,255,.14)',
+      now: '#22D3EE',
+      railTrack: 'rgba(255,255,255,.06)',
+      ungrouped: '#3A3F55',
+      separator: 'rgba(8,10,16,.55)',
+      onBlock: 'rgba(10,12,20,.88)',
+      text: 'rgba(255,255,255,.86)',
+    }
+    : {
+      laneBase: '#FFFFFF',
+      unmanned: '#EDEEF5',
+      mannedTop: '#FFFFFF',
+      grid: 'rgba(26,28,46,.06)',
+      gridMajor: 'rgba(26,28,46,.16)',
+      now: '#0891B2',
+      railTrack: 'rgba(26,28,46,.05)',
+      ungrouped: '#C3C7D6',
+      separator: 'rgba(255,255,255,.7)',
+      onBlock: 'rgba(255,255,255,.96)',
+      text: 'rgba(26,28,46,.9)',
+    };
+}
+
+export function BoardCanvas(props: BoardCanvasProps) {
+  const {
+    lanes, grouping, colors, groupBlocks, rows, windowMs, nowRel, gridRel, gridMajor,
+    selectedGroup, hoverGroup, dark, onHover, onPick, onWidth, blockLabel,
+  } = props;
+
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const [width, setWidth] = useState(0);
+
+  const totalH = rows.reduce((n, r) => n + r.h, 0);
+
+  /**
+   * Measured two ways, and both are needed.
+   *
+   * The ResizeObserver catches the container changing under a canvas that has
+   * no reason to re-render — a window drag, a panel opening. But it delivers on
+   * the rendering lifecycle, so a tab that is not compositing never hears from
+   * it, and a canvas whose only size source is the observer stays 300×150 for
+   * ever. The layout-effect measure runs on every render regardless, which
+   * makes the first paint independent of when the observer wakes up.
+   */
+  const measure = useCallback((w: number) => {
+    setWidth((cur) => (cur === w ? cur : w));
+    onWidth?.(w);
+  }, [onWidth]);
+
+  useLayoutEffect(() => {
+    const el = wrapRef.current;
+    if (el) measure(Math.max(0, Math.round(el.getBoundingClientRect().width)));
+  });
+
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return undefined;
+    const ro = new ResizeObserver((es) => {
+      measure(Math.max(0, Math.round(es[0].contentRect.width)));
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [measure]);
+
+  // ── draw ───────────────────────────────────────────────────────────────────
+  useLayoutEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || width <= 0 || totalH <= 0) return;
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = Math.round(width * dpr);
+    canvas.height = Math.round(totalH * dpr);
+    canvas.style.width = `${width}px`;
+    canvas.style.height = `${totalH}px`;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, width, totalH);
+
+    const pal = palette(dark);
+    const pxPerMs = width / Math.max(1, windowMs);
+    const msPerPx = Math.max(1, windowMs) / Math.max(1, width);
+    const dense = msPerPx > DENSITY_THRESHOLD_MS_PER_PX;
+    const anySelection = selectedGroup != null;
+
+    const colorOf = (g: number) => colors[g];
+
+    // 1. Row substrate: what is manned, and what is not.
+    let y = 0;
+    for (const row of rows) {
+      if (row.kind === 'lane') {
+        const lane = lanes[row.laneIdx];
+        if (lane.unbounded) {
+          // No shift calendar. The engine plans this machine 24/7, so shading
+          // it unmanned would have the board and the engine asserting opposite
+          // things about the same lane.
+          ctx.fillStyle = pal.laneBase;
+          ctx.fillRect(0, y, width, row.h);
+        } else {
+          ctx.fillStyle = pal.unmanned;
+          ctx.fillRect(0, y, width, row.h);
+          const total = Math.max(1, lane.totalUnits);
+          for (let i = 0; i + 2 < lane.coverage.length; i += 3) {
+            const x0 = lane.coverage[i] * pxPerMs;
+            const x1 = lane.coverage[i + 1] * pxPerMs;
+            if (x1 <= 0 || x0 >= width) continue;
+            // Alpha is the fraction of the lane's machines actually crewed —
+            // a half-manned stretch reads as half-open, which is what it is.
+            ctx.globalAlpha = Math.min(1, Math.max(0.28, lane.coverage[i + 2] / total));
+            ctx.fillStyle = pal.mannedTop;
+            ctx.fillRect(Math.max(0, x0), y, Math.min(width, x1) - Math.max(0, x0), row.h);
+            ctx.globalAlpha = 1;
+          }
+        }
+      } else if (row.kind === 'rail') {
+        ctx.fillStyle = pal.railTrack;
+        ctx.fillRect(0, y + row.h - 2, width, 1);
+      }
+      y += row.h;
+    }
+
+    // 2. Gridlines, over the substrate and under the work.
+    for (let i = 0; i < gridRel.length; i += 1) {
+      const x = Math.round(gridRel[i] * pxPerMs) + 0.5;
+      if (x < 0 || x > width) continue;
+      ctx.strokeStyle = gridMajor[i] ? pal.gridMajor : pal.grid;
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, totalH);
+      ctx.stroke();
+    }
+
+    // 3. The work.
+    const cols = dense ? new Float32Array(width) : null;
+    const domG = dense ? new Int32Array(width) : null;
+    const domW = dense ? new Float32Array(width) : null;
+
+    const drawSpans = (
+      read: (i: number) => { s: number; d: number; g: number },
+      count: number,
+      top: number,
+      h: number,
+      inset: number,
+      labelAt?: (i: number) => string,
+    ) => {
+      if (count === 0) return;
+      if (dense && cols && domG && domW) {
+        cols.fill(0);
+        domG.fill(-1);
+        domW.fill(0);
+        for (let i = 0; i < count; i += 1) {
+          const { s, d, g } = read(i);
+          const x0 = s * pxPerMs;
+          const x1 = (s + d) * pxPerMs;
+          if (x1 <= 0 || x0 >= width) continue;
+          const c0 = Math.max(0, Math.floor(x0));
+          const c1 = Math.min(width - 1, Math.floor(x1));
+          for (let c = c0; c <= c1; c += 1) {
+            // How much of this one-pixel column the block actually fills. A
+            // block narrower than a pixel contributes a fraction, which is why
+            // a column of short operations is shorter than a column of a long
+            // one — the height IS the load.
+            const covered = Math.min(c + 1, x1) - Math.max(c, x0);
+            if (covered <= 0) continue;
+            cols[c] += covered;
+            if (covered > domW[c]) { domW[c] = covered; domG[c] = g; }
+          }
+        }
+        for (let c = 0; c < width; c += 1) {
+          const fill = cols[c];
+          if (fill <= 0) continue;
+          const g = domG[c];
+          const grp = g >= 0 ? colorOf(g) : null;
+          const dim = anySelection && g !== selectedGroup;
+          ctx.fillStyle = grp ? (dim ? grp.dim : grp.fill) : pal.ungrouped;
+          const bh = Math.max(2, Math.min(1, fill) * (h - inset * 2));
+          ctx.fillRect(c, top + inset + (h - inset * 2 - bh), 1, bh);
+        }
+        return;
+      }
+      for (let i = 0; i < count; i += 1) {
+        const { s, d, g } = read(i);
+        const x0 = s * pxPerMs;
+        const w = Math.max(1.25, d * pxPerMs);
+        if (x0 + w <= 0 || x0 >= width) continue;
+        const grp = g >= 0 ? colorOf(g) : null;
+        const dim = anySelection && g !== selectedGroup;
+        ctx.fillStyle = grp ? (dim ? grp.dim : grp.fill) : pal.ungrouped;
+        ctx.fillRect(x0, top + inset, w, h - inset * 2);
+        // A separator only where there is room for one, and drawn in the
+        // GROUND rather than in a darker version of the block. A dark edge on
+        // every block turns a row of forty operations into a barcode, which
+        // reads as texture instead of as forty things.
+        if (w >= 5) {
+          ctx.fillStyle = pal.separator;
+          ctx.fillRect(x0 + w - 1, top + inset, 1, h - inset * 2);
+        }
+        // The name, where the block is big enough to be read rather than
+        // counted. Clipped to its own block: a label that spills onto the next
+        // one is worse than no label, because it looks like it belongs there.
+        if (labelAt && !dim && w >= LABEL_MIN_PX && h >= LABEL_MIN_ROW) {
+          const text = labelAt(i);
+          if (text) {
+            ctx.save();
+            ctx.beginPath();
+            ctx.rect(x0 + 4, top + inset, w - 8, h - inset * 2);
+            ctx.clip();
+            ctx.fillStyle = pal.onBlock;
+            ctx.font = '11px ui-sans-serif, system-ui, sans-serif';
+            ctx.textBaseline = 'middle';
+            // Ellipsised rather than clipped. A clip cuts mid-glyph and reads
+            // as a rendering fault; an ellipsis reads as "there is more".
+            ctx.fillText(ellipsise(ctx, text, w - 12), x0 + 6, top + h / 2);
+            ctx.restore();
+          }
+        }
+      }
+    };
+
+    y = 0;
+    for (const row of rows) {
+      if (row.kind === 'lane') {
+        const lane = lanes[row.laneIdx];
+        const gi = grouping.laneGroupIdx[row.laneIdx];
+        const blocks = lane.blocks;
+        drawSpans(
+          (i) => ({
+            s: blocks[i * BLOCK_STRIDE + BLOCK_START],
+            d: blocks[i * BLOCK_STRIDE + BLOCK_DUR],
+            g: gi ? gi[i] : -1,
+          }),
+          lane.blockCount,
+          y,
+          row.h,
+          row.h >= 40 ? 5 : 3,
+          blockLabel
+            ? (i) => blockLabel(
+              blocks[i * BLOCK_STRIDE + BLOCK_ENTRY],
+              blocks[i * BLOCK_STRIDE + BLOCK_ITEM],
+            )
+            : undefined,
+        );
+      } else if (row.kind === 'rail') {
+        const g = row.groupIdx;
+        const grp = grouping.groups[g];
+        const spans = groupBlocks[g];
+        const c = colorOf(g);
+        const dim = anySelection && g !== selectedGroup;
+        // The envelope first — start to end INCLUDING the holes, so the handle
+        // shows the reach of the unit and the blocks inside it show the holes.
+        if (grp && grp.startRel >= 0) {
+          const x0 = grp.startRel * pxPerMs;
+          const w = Math.max(3, grp.endRel * pxPerMs - x0);
+          const active = g === selectedGroup || g === hoverGroup;
+          // Filled AND outlined, always. A translucent fill on its own reads as
+          // a highlight painted on the background; the outline is what makes it
+          // an object with two ends — which is what will be grabbed.
+          const r = Math.min(4, (row.h - 4) / 2);
+          ctx.beginPath();
+          ctx.roundRect(x0, y + 1, w, row.h - 4, r);
+          ctx.globalAlpha = dim ? 0.14 : 0.26;
+          ctx.fillStyle = c.rail;
+          ctx.fill();
+          ctx.globalAlpha = dim ? 0.35 : (active ? 1 : 0.7);
+          ctx.strokeStyle = c.edge;
+          ctx.lineWidth = active ? 1.5 : 1;
+          ctx.stroke();
+          ctx.globalAlpha = 1;
+          ctx.lineWidth = 1;
+        }
+        if (spans) {
+          drawSpans(
+            (i) => ({ s: spans[i * 2], d: spans[i * 2 + 1], g }),
+            spans.length / 2,
+            y,
+            row.h,
+            3,
+          );
+        }
+      }
+      y += row.h;
+    }
+
+    // 4. Now.
+    if (nowRel != null) {
+      const x = Math.round(nowRel * pxPerMs) + 0.5;
+      if (x >= 0 && x <= width) {
+        ctx.strokeStyle = pal.now;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, totalH);
+        ctx.stroke();
+        ctx.lineWidth = 1;
+      }
+    }
+  }, [
+    lanes, grouping, groupBlocks, rows, windowMs, nowRel, gridRel, gridMajor,
+    selectedGroup, hoverGroup, dark, width, totalH, blockLabel, colors,
+  ]);
+
+  // ── hit testing ────────────────────────────────────────────────────────────
+  const hitAt = useCallback((clientX: number, clientY: number): BlockHit | null => {
+    const canvas = canvasRef.current;
+    if (!canvas || width <= 0) return null;
+    const rect = canvas.getBoundingClientRect();
+    const x = clientX - rect.left;
+    const y = clientY - rect.top;
+    let top = 0;
+    let target: BoardRow | null = null;
+    for (const row of rows) {
+      if (y >= top && y < top + row.h) { target = row; break; }
+      top += row.h;
+    }
+    if (!target || target.kind !== 'lane') return null;
+
+    const lane = lanes[target.laneIdx];
+    const gi = grouping.laneGroupIdx[target.laneIdx];
+    const pxPerMs = width / Math.max(1, windowMs);
+    const at = (x / width) * windowMs;
+
+    // Blocks arrive sorted by start, so find the neighbourhood by bisection and
+    // then take the nearest within a few pixels — at five weeks a block is
+    // often thinner than the cursor, and demanding a containment test would
+    // make most of the board unclickable.
+    let lo = 0;
+    let hi = lane.blockCount - 1;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if (lane.blocks[mid * BLOCK_STRIDE + BLOCK_START] <= at) lo = mid;
+      else hi = mid - 1;
+    }
+    let best: number | null = null;
+    let bestDist = Infinity;
+    for (let i = Math.max(0, lo - 24); i < Math.min(lane.blockCount, lo + 24); i += 1) {
+      const s = lane.blocks[i * BLOCK_STRIDE + BLOCK_START];
+      const d = lane.blocks[i * BLOCK_STRIDE + BLOCK_DUR];
+      const x0 = s * pxPerMs;
+      const x1 = (s + d) * pxPerMs;
+      const dist = x < x0 ? x0 - x : (x > x1 ? x - x1 : 0);
+      if (dist < bestDist) { bestDist = dist; best = i; }
+    }
+    if (best == null || bestDist > 4) return null;
+    const o = best * BLOCK_STRIDE;
+    return {
+      laneIdx: target.laneIdx,
+      blockIdx: best,
+      itemId: lane.blocks[o + BLOCK_ITEM],
+      taskId: lane.blocks[o + BLOCK_TASK],
+      entryId: lane.blocks[o + BLOCK_ENTRY],
+      groupIdx: gi ? gi[best] : -1,
+      startRel: lane.blocks[o + BLOCK_START],
+      durMs: lane.blocks[o + BLOCK_DUR],
+      x: (lane.blocks[o + BLOCK_START] + lane.blocks[o + BLOCK_DUR] / 2) * pxPerMs,
+      y: top + target.h / 2,
+    };
+  }, [lanes, grouping, rows, width, windowMs]);
+
+  /** Rail rows answer to the group they represent, not to any one block. */
+  const railGroupAt = useCallback((clientY: number): number | null => {
+    const canvas = canvasRef.current;
+    if (!canvas) return null;
+    const y = clientY - canvas.getBoundingClientRect().top;
+    let top = 0;
+    for (const row of rows) {
+      if (y >= top && y < top + row.h) return row.kind === 'rail' ? row.groupIdx : null;
+      top += row.h;
+    }
+    return null;
+  }, [rows]);
+
+  return (
+    <Box ref={wrapRef} sx={{ position: 'relative', width: '100%' }}>
+      <canvas
+        ref={canvasRef}
+        style={{ display: 'block', cursor: 'crosshair' }}
+        onMouseMove={(e) => {
+          const rail = railGroupAt(e.clientY);
+          if (rail != null) {
+            onHover({
+              laneIdx: -1, blockIdx: -1, itemId: 0, taskId: 0, entryId: 0,
+              groupIdx: rail, startRel: 0, durMs: 0,
+              x: e.clientX - (canvasRef.current?.getBoundingClientRect().left ?? 0),
+              y: e.clientY - (canvasRef.current?.getBoundingClientRect().top ?? 0),
+            });
+            return;
+          }
+          onHover(hitAt(e.clientX, e.clientY));
+        }}
+        onMouseLeave={() => onHover(null)}
+        onClick={(e) => {
+          const rail = railGroupAt(e.clientY);
+          if (rail != null) {
+            onPick({
+              laneIdx: -1, blockIdx: -1, itemId: 0, taskId: 0, entryId: 0,
+              groupIdx: rail, startRel: 0, durMs: 0, x: 0, y: 0,
+            });
+            return;
+          }
+          onPick(hitAt(e.clientX, e.clientY));
+        }}
+      />
+    </Box>
+  );
+}

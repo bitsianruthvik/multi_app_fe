@@ -13,7 +13,41 @@
  *      drifts by an hour across a DST change.
  */
 
-export type ViewMode = 'day' | 'week';
+/**
+ * The three zooms, named for the unit a planner is thinking in.
+ *
+ *   day    one day, hour by hour. Where a bar is nudged onto a specific shift.
+ *   week   seven days. Where a girder is pushed left into the gaps left by the
+ *          one before it.
+ *   month  five weeks, starting on a Monday. Where the shape of the quarter is
+ *          read: which machines are solid, which are hollow, and whether there
+ *          is room for the order being quoted.
+ *
+ * Five weeks rather than a calendar month because the row is scanned by WEEK. A
+ * calendar month starts on a different weekday every time, so Monday would sit
+ * under one column in March and another in April, and comparing two rows would
+ * become arithmetic. A fixed 35 days always begins on a Monday, so every seventh
+ * column is the same weekday and a weekly rhythm is visible as a rhythm.
+ */
+export type ViewMode = 'day' | 'week' | 'month';
+
+/** Days drawn by each zoom. */
+export const MODE_DAYS: Record<ViewMode, number> = { day: 1, week: 7, month: 35 };
+
+/**
+ * The Monday on or before `ymd`.
+ *
+ * Only the month view snaps. The week view deliberately does NOT (see buildScale):
+ * "the next week" means from now, and snapping would hide the second half of
+ * today every Sunday.
+ */
+export function weekStartYMD(ymd: string): string {
+  const [y, m, d] = ymd.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  const back = (dt.getUTCDay() + 6) % 7; // Sunday = 0 in JS; weeks start Monday here
+  dt.setUTCDate(dt.getUTCDate() - back);
+  return dt.toISOString().slice(0, 10);
+}
 
 /** Local wall-clock parts of an instant, in a given IANA zone. */
 export function zonedParts(iso: string | Date, timeZone: string) {
@@ -118,7 +152,7 @@ export interface Scale {
 }
 
 export function buildScale(mode: ViewMode, fromYMD: string, timeZone: string): Scale {
-  const dayCount = mode === 'day' ? 1 : 7;
+  const dayCount = MODE_DAYS[mode] ?? 7;
   const days: string[] = [];
   let cursor = fromYMD;
   for (let i = 0; i < dayCount; i += 1) { days.push(cursor); cursor = nextYMD(cursor); }
@@ -174,6 +208,30 @@ export function buildTicks(scale: Scale, trackPx?: number): Tick[] {
         label: h % step === 0 ? `${String(h).padStart(2, '0')}:00` : '',
         leftPct: scale.frac(at) * 100,
         major: h % Math.max(step, 6) === 0,
+      });
+    }
+    return out;
+  }
+  if (scale.mode === 'month') {
+    /**
+     * A line per day, a LABEL per week.
+     *
+     * Thirty-five day labels do not fit and, more to the point, are not what is
+     * being read at this zoom: nobody looks at a five-week row to find out what
+     * Tuesday the 9th holds. They look for where the solid stretches end. The
+     * daily lines give that shape a ruler; the weekly labels say roughly when.
+     */
+    for (let i = 0; i < scale.days.length; i += 1) {
+      const ymd = scale.days[i];
+      const at = dayStartUtc(ymd, scale.timeZone);
+      const dt = new Date(`${ymd}T12:00:00Z`);
+      const weekStart = i % 7 === 0;
+      out.push({
+        label: weekStart
+          ? `${dt.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}`
+          : '',
+        leftPct: scale.frac(at) * 100,
+        major: weekStart,
       });
     }
     return out;
