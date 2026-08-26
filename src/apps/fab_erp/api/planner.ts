@@ -474,8 +474,8 @@ export interface GroupPlacement {
 
 /** Something worth saying that is not a reason to refuse. */
 export interface GroupWarning {
-  code: 'CASCADED' | 'SUCCESSORS_STRANDED' | 'OVER_CAPACITY' | 'OFF_SHIFT' | 'NO_ROOM'
-    | 'CALENDAR_NOT_CHECKED';
+  code: 'CASCADED' | 'YIELDED' | 'NO_ROOM_TO_YIELD' | 'SUCCESSORS_STRANDED'
+    | 'OVER_CAPACITY' | 'OFF_SHIFT' | 'NO_ROOM' | 'CALENDAR_NOT_CHECKED';
   message: string;
   detail: Record<string, unknown>;
 }
@@ -489,6 +489,11 @@ export interface GroupResult {
    * have left them starting before their predecessors finish.
    */
   cascadedCount: number;
+  /**
+   * Bars with no dependency on the unit that stepped aside anyway, because the
+   * move put their machine over capacity.
+   */
+  yieldedCount: number;
   /**
    * How many bars the UNIT actually has, resolved server-side over the whole
    * order. Null when the caller named bars explicitly instead of a unit.
@@ -558,6 +563,13 @@ export async function transformPlanGroup(body: {
    * dependants did not" is not a plan a planner would ever have meant.
    */
   cascade?: boolean;
+  /**
+   * With `cascade`, also step independent work aside where this move put a
+   * machine over capacity. Only congestion the move caused, forward only, least
+   * important first. Cannot invent capacity — on a saturated lane it reports
+   * what it could not clear.
+   */
+  yieldFree?: boolean;
   deltaMs?: number;
   anchorMs?: number;
   scale?: number;

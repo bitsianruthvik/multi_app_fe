@@ -302,6 +302,8 @@ export default function PlanBoard() {
     unitSize: number | null;
     /** Bars outside the unit that will follow it; null until the dry run answers. */
     cascadeSize: number | null;
+    /** Unrelated bars that will step aside; null until the dry run answers. */
+    yieldSize: number | null;
     /**
      * Where the WHOLE unit would land, epoch ms — from the dry run's placements,
      * which cover every bar and not just the drawn ones. Without it the readout
@@ -351,12 +353,12 @@ export default function PlanBoard() {
     dryRunSeq.current = seq;
     dryRunTimer.current = window.setTimeout(async () => {
       const body = d.scale === 1
-        ? { unit: d.unit, entryIds: d.entryIds, op: 'move' as const, cascade: true, deltaMs: d.deltaMs, dryRun: true }
+        ? { unit: d.unit, entryIds: d.entryIds, op: 'move' as const, cascade: true, yieldFree: true, deltaMs: d.deltaMs, dryRun: true }
         : {
           unit: d.unit,
           entryIds: d.entryIds,
           op: 'stretch' as const,
-          cascade: true,
+          cascade: true, yieldFree: true,
           anchorMs: scale.startMs + d.anchorRel,
           scale: d.scale,
           dryRun: true,
@@ -377,6 +379,7 @@ export default function PlanBoard() {
               refused: null,
               unitSize: res.unitSize ?? cur.unitSize,
               cascadeSize: res.cascadedCount ?? cur.cascadeSize,
+              yieldSize: res.yieldedCount ?? cur.yieldSize,
               unitSpan: span,
             }
             : cur));
@@ -401,6 +404,7 @@ export default function PlanBoard() {
       unit: { level, key: group.key },
       unitSize: null,
       cascadeSize: null,
+      yieldSize: null,
       unitSpan: null,
       entryIds: ids,
       deltaMs: 0,
@@ -419,12 +423,12 @@ export default function PlanBoard() {
     setBusy(true);
     try {
       const res = await transformPlanGroup(d.scale === 1
-        ? { unit: d.unit, entryIds: d.entryIds, op: 'move', cascade: true, deltaMs: d.deltaMs }
+        ? { unit: d.unit, entryIds: d.entryIds, op: 'move', cascade: true, yieldFree: true, deltaMs: d.deltaMs }
         : {
           unit: d.unit,
           entryIds: d.entryIds,
           op: 'stretch',
-          cascade: true,
+          cascade: true, yieldFree: true,
           anchorMs: scale.startMs + d.anchorRel,
           scale: d.scale,
         });
@@ -439,11 +443,11 @@ export default function PlanBoard() {
           previous: res.previous,
           what: d.scale === 1 ? 'move' : 'stretch',
         });
-        toast(
-          `${res.movedCount} bars moved`
-            + (res.cascadedCount ? ` — ${res.cascadedCount} of them downstream.` : '.'),
-          'success',
-        );
+        const extra = [
+          res.cascadedCount ? `${res.cascadedCount} downstream` : null,
+          res.yieldedCount ? `${res.yieldedCount} stepped aside` : null,
+        ].filter(Boolean).join(', ');
+        toast(`${res.movedCount} bars moved${extra ? ` — ${extra}.` : '.'}`, 'success');
       }
       for (const w of res.warnings) toast(w.message, 'info');
       await load();
@@ -528,7 +532,7 @@ export default function PlanBoard() {
     setBusy(true);
     try {
       const res = await transformPlanGroup({
-        unit: { level, key: group.key }, entryIds: ids, op: 'pushLeft', cascade: true,
+        unit: { level, key: group.key }, entryIds: ids, op: 'pushLeft', cascade: true, yieldFree: true,
       });
       if (res.applied) {
         // Same reason as in commit(): the server's list, not the drawn one.
@@ -613,7 +617,8 @@ export default function PlanBoard() {
           + (offscreen > 0 ? ` · ${offscreen} beyond this window` : '')
           // Said while the handle is still down, because "and 1,240 other bars
           // moved" is not something to find out afterwards.
-          + (drag.cascadeSize ? ` · ${drag.cascadeSize} downstream will follow` : ''),
+          + (drag.cascadeSize ? ` · ${drag.cascadeSize} downstream will follow` : '')
+          + (drag.yieldSize ? ` · ${drag.yieldSize} will step aside` : ''),
       refused: drag.refused,
     };
   }, [drag, grouping, scale.startMs, timeZone]);
@@ -1131,7 +1136,8 @@ export default function PlanBoard() {
           Drag a unit&rsquo;s handle to move it, or its ends to stretch it — hold Alt to ignore the
           snap. Once a unit is selected its bars can be dragged in the lanes too. <b>Push left</b> (L)
           slides it as far left as its bars will fit around everything else. Every gesture moves the
-          <b> whole</b> unit, including the bars outside this window — the count is shown as you drag.
+          <b> whole</b> unit, including the bars outside this window; what depends on it follows, and
+          unrelated work steps aside where the move fills a machine. The counts are shown as you drag.
         </Typography>
       )}
 
