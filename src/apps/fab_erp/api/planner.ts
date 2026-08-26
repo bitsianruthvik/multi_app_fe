@@ -483,6 +483,15 @@ export interface GroupResult {
   ok: boolean;
   applied: boolean;
   movedCount: number;
+  /**
+   * How many bars the UNIT actually has, resolved server-side over the whole
+   * order. Null when the caller named bars explicitly instead of a unit.
+   *
+   * Worth showing: the board only ever draws one window, so a girder with
+   * forty-four bars can have one of them on screen. Before this existed, the
+   * handle moved what was drawn and said nothing about the rest.
+   */
+  unitSize: number | null;
   placements: GroupPlacement[];
   /** Where everything was before — feed this straight back as a `restore`. */
   previous: GroupPlacement[];
@@ -490,7 +499,8 @@ export interface GroupResult {
 }
 
 export interface GroupRefusal {
-  code: PlanErrorCode | 'PAST_PLACEMENT' | 'NOTHING_MOVABLE';
+  code: PlanErrorCode | 'PAST_PLACEMENT' | 'NOTHING_MOVABLE'
+    | 'BAD_UNIT' | 'UNIT_NOT_FOUND' | 'UNIT_MISMATCH';
   message: string;
   detail: PlanErrorDetail & { entryId?: number; proposedStart?: string };
 }
@@ -513,8 +523,26 @@ export function groupErrorOf(err: unknown): { message: string; refusals: GroupRe
   };
 }
 
+/** Which unit of work to act on — a level of the BOM ladder and the node on it. */
+export interface GroupUnit { level: GroupLevelName; key: string }
+
+/** Mirrors boardModel's GROUP_LEVELS; kept here so the API type is self-contained. */
+export type GroupLevelName = 'order' | 'line' | 'span' | 'girder' | 'segment' | 'part';
+
 /** POST /plan/group — move, stretch, push left, or restore. */
 export async function transformPlanGroup(body: {
+  /**
+   * The unit. Preferred over `entryIds` for move/stretch/pushLeft: the server
+   * resolves every bar of it across the whole order, so a handle moves the whole
+   * girder rather than the part of it that happened to be in the window.
+   */
+  unit?: GroupUnit;
+  /**
+   * With `unit`, the bars the BOARD believes are in it — a witness the server
+   * cross-checks its own answer against, so a disagreement between the two
+   * copies of the grouping rule refuses loudly instead of moving the wrong work.
+   * Without `unit` (which is how `restore` works) it is the set itself.
+   */
   entryIds: number[];
   op: GroupOp;
   deltaMs?: number;

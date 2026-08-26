@@ -50,7 +50,7 @@ import { isAdminRole } from '@core/utils/roles';
 import {
   getPlanBoard, transformPlanGroup, groupErrorOf,
   BLOCK_STRIDE, BLOCK_START, BLOCK_DUR, BLOCK_ENTRY,
-  type BoardResponse, type GroupPlacement,
+  type BoardResponse, type GroupPlacement, type GroupUnit,
 } from '../api/planner';
 import {
   PageHeader, Surface, EmptyState, ListSkeleton, Mono, useToast, backendMessage,
@@ -294,7 +294,19 @@ export default function PlanBoard() {
    */
   const [drag, setDrag] = useState<{
     grab: GrabInfo;
+    /** The unit itself — what the server resolves the bars from. */
+    unit: GroupUnit;
+    /** The bars ON SCREEN. Sent as a cross-check, not as the set to move. */
     entryIds: number[];
+    /** How many bars the unit really has; null until a dry run has answered. */
+    unitSize: number | null;
+    /**
+     * Where the WHOLE unit would land, epoch ms — from the dry run's placements,
+     * which cover every bar and not just the drawn ones. Without it the readout
+     * would quote the on-screen envelope while eight bars went somewhere else,
+     * which is the same half-truth the window scoping fix exists to remove.
+     */
+    unitSpan: { start: number; end: number } | null;
     deltaMs: number;
     scale: number;
     anchorRel: number;
@@ -330,15 +342,16 @@ export default function PlanBoard() {
   const dryRunSeq = useRef(0);
   const dryRunTimer = useRef<number | null>(null);
   const checkDrag = useCallback((d: {
-    entryIds: number[]; deltaMs: number; scale: number; anchorRel: number;
+    unit: GroupUnit; entryIds: number[]; deltaMs: number; scale: number; anchorRel: number;
   }) => {
     if (dryRunTimer.current != null) window.clearTimeout(dryRunTimer.current);
     const seq = dryRunSeq.current + 1;
     dryRunSeq.current = seq;
     dryRunTimer.current = window.setTimeout(async () => {
       const body = d.scale === 1
-        ? { entryIds: d.entryIds, op: 'move' as const, deltaMs: d.deltaMs, dryRun: true }
+        ? { unit: d.unit, entryIds: d.entryIds, op: 'move' as const, deltaMs: d.deltaMs, dryRun: true }
         : {
+          unit: d.unit,
           entryIds: d.entryIds,
           op: 'stretch' as const,
           anchorMs: scale.startMs + d.anchorRel,
@@ -346,8 +359,19 @@ export default function PlanBoard() {
           dryRun: true,
         };
       try {
-        await transformPlanGroup(body);
-        if (dryRunSeq.current === seq) setDrag((cur) => (cur ? { ...cur, refused: null } : cur));
+        const res = await transformPlanGroup(body);
+        if (dryRunSeq.current === seq) {
+          const times = res.placements.map((pl) => [
+            new Date(pl.plannedStart).getTime(),
+            new Date(pl.plannedEnd).getTime(),
+          ]);
+          const span = times.length > 0
+            ? { start: Math.min(...times.map((t) => t[0])), end: Math.max(...times.map((t) => t[1])) }
+            : null;
+          setDrag((cur) => (cur
+            ? { ...cur, refused: null, unitSize: res.unitSize ?? cur.unitSize, unitSpan: span }
+            : cur));
+        }
       } catch (err) {
         if (dryRunSeq.current !== seq) return;
         const refused = groupErrorOf(err);
@@ -360,10 +384,14 @@ export default function PlanBoard() {
 
   const onGrab = useCallback((grab: GrabInfo) => {
     const ids = entryIdsByGroup[grab.groupIdx] ?? [];
-    if (ids.length === 0) return;
-    setSelected(grouping?.groups[grab.groupIdx].key ?? null);
+    const group = grouping?.groups[grab.groupIdx];
+    if (ids.length === 0 || !group) return;
+    setSelected(group.key);
     setDrag({
       grab,
+      unit: { level, key: group.key },
+      unitSize: null,
+      unitSpan: null,
       entryIds: ids,
       deltaMs: 0,
       scale: 1,
@@ -372,24 +400,38 @@ export default function PlanBoard() {
       anchorRel: grab.zone === 'startEdge' ? grab.endRel : grab.startRel,
       refused: null,
     });
-  }, [entryIdsByGroup, grouping]);
+  }, [entryIdsByGroup, grouping, level]);
 
   const commit = useCallback(async (d: {
-    entryIds: number[]; deltaMs: number; scale: number; anchorRel: number;
+    unit: GroupUnit; entryIds: number[]; deltaMs: number; scale: number; anchorRel: number;
   }) => {
     if (d.scale === 1 && d.deltaMs === 0) return;
     setBusy(true);
     try {
       const res = await transformPlanGroup(d.scale === 1
-        ? { entryIds: d.entryIds, op: 'move', deltaMs: d.deltaMs }
-        : { entryIds: d.entryIds, op: 'stretch', anchorMs: scale.startMs + d.anchorRel, scale: d.scale });
-      if (res.applied) {
-        setUndoable({
+        ? { unit: d.unit, entryIds: d.entryIds, op: 'move', deltaMs: d.deltaMs }
+        : {
+          unit: d.unit,
           entryIds: d.entryIds,
+          op: 'stretch',
+          anchorMs: scale.startMs + d.anchorRel,
+          scale: d.scale,
+        });
+      if (res.applied) {
+        // Undo restores what the SERVER wrote, so its bar list comes from the
+        // server's answer and never from the ids this page happened to send.
+        // Those are the bars on screen; the transform covers the whole unit. A
+        // restore of ten bars out of eighteen puts half a girder back and is
+        // refused by the DAG gate — correctly, and confusingly.
+        setUndoable({
+          entryIds: res.previous.map((pl) => pl.entryId),
           previous: res.previous,
           what: d.scale === 1 ? 'move' : 'stretch',
         });
-        toast(`${res.movedCount} bar${res.movedCount === 1 ? '' : 's'} moved.`, 'success');
+        toast(
+          `${res.movedCount} of ${res.unitSize ?? res.movedCount} bars moved.`,
+          'success',
+        );
       }
       for (const w of res.warnings) toast(w.message, 'info');
       await load();
@@ -467,15 +509,26 @@ export default function PlanBoard() {
   }, [drag, windowMs, snapMs, checkDrag, commit]);
 
   const pushLeft = useCallback(async () => {
-    if (selectedIdx == null) return;
+    if (selectedIdx == null || !grouping) return;
     const ids = entryIdsByGroup[selectedIdx] ?? [];
-    if (ids.length === 0) return;
+    const group = grouping.groups[selectedIdx];
+    if (ids.length === 0 || !group) return;
     setBusy(true);
     try {
-      const res = await transformPlanGroup({ entryIds: ids, op: 'pushLeft' });
+      const res = await transformPlanGroup({
+        unit: { level, key: group.key }, entryIds: ids, op: 'pushLeft',
+      });
       if (res.applied) {
-        setUndoable({ entryIds: ids, previous: res.previous, what: 'push' });
-        toast(`Pushed left — ${res.movedCount} bar${res.movedCount === 1 ? '' : 's'} moved.`, 'success');
+        // Same reason as in commit(): the server's list, not the drawn one.
+        setUndoable({
+          entryIds: res.previous.map((pl) => pl.entryId),
+          previous: res.previous,
+          what: 'push',
+        });
+        toast(
+          `Pushed left — ${res.movedCount} of ${res.unitSize ?? res.movedCount} bars moved.`,
+          'success',
+        );
         await load();
       }
       for (const w of res.warnings) toast(w.message, 'info');
@@ -485,7 +538,7 @@ export default function PlanBoard() {
     } finally {
       setBusy(false);
     }
-  }, [selectedIdx, entryIdsByGroup, toast, load]);
+  }, [selectedIdx, entryIdsByGroup, grouping, level, toast, load]);
 
   const undo = useCallback(async () => {
     if (!undoable) return;
@@ -522,14 +575,30 @@ export default function PlanBoard() {
     const startRel = Math.min(shift(g.startRel), shift(g.endRel));
     const endRel = Math.max(shift(g.startRel), shift(g.endRel));
     const abs = (rel: number) => new Date(scale.startMs + rel);
+    const from = drag.unitSpan ? new Date(drag.unitSpan.start) : abs(startRel);
+    const to = drag.unitSpan ? new Date(drag.unitSpan.end) : abs(endRel);
     const amount = drag.scale === 1
       ? `${drag.deltaMs >= 0 ? '+' : '−'}${fmtWorkMs(Math.abs(drag.deltaMs))}`
       : `×${drag.scale.toFixed(2)}`;
+    /**
+     * How much of the unit is not on screen.
+     *
+     * The board draws one window; a girder can have forty-four bars and one of
+     * them here. The gesture moves all of them — which is what a planner means
+     * by moving a girder — but being told that only after the fact is a nasty
+     * surprise, so it is said while the handle is still in hand. The count
+     * arrives with the first validity check, a fraction of a second in.
+     */
+    const offscreen = drag.unitSize != null ? drag.unitSize - drag.entryIds.length : 0;
     return {
       label: drag.grab.zone === 'body' ? `Move ${amount}` : `Stretch ${amount}`,
-      when: `${zonedYMD(abs(startRel), timeZone)} ${fmtLocalTime(abs(startRel), timeZone)}`
-        + ` → ${zonedYMD(abs(endRel), timeZone)} ${fmtLocalTime(abs(endRel), timeZone)}`,
+      when: `${zonedYMD(from, timeZone)} ${fmtLocalTime(from, timeZone)}`
+        + ` → ${zonedYMD(to, timeZone)} ${fmtLocalTime(to, timeZone)}`,
       unit: g.shortLabel,
+      scope: drag.unitSize == null
+        ? null
+        : `${drag.unitSize} bar${drag.unitSize === 1 ? '' : 's'}`
+          + (offscreen > 0 ? ` · ${offscreen} beyond this window` : ''),
       refused: drag.refused,
     };
   }, [drag, grouping, scale.startMs, timeZone]);
@@ -1026,6 +1095,11 @@ export default function PlanBoard() {
                   </Typography>
                   <Mono sx={{ fontSize: 12, color: 'text.secondary' }}>{dragReadout.when}</Mono>
                 </Stack>
+                {dragReadout.scope && (
+                  <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block' }}>
+                    {dragReadout.scope}
+                  </Typography>
+                )}
                 {dragReadout.refused && (
                   <Typography variant="caption" sx={{ color: 'error.main', display: 'block' }}>
                     {dragReadout.refused}
@@ -1041,7 +1115,8 @@ export default function PlanBoard() {
         <Typography variant="caption" sx={{ color: 'text.secondary' }}>
           Drag a unit&rsquo;s handle to move it, or its ends to stretch it — hold Alt to ignore the
           snap. Once a unit is selected its bars can be dragged in the lanes too. <b>Push left</b> (L)
-          slides it as far left as its bars will fit around everything else.
+          slides it as far left as its bars will fit around everything else. Every gesture moves the
+          <b> whole</b> unit, including the bars outside this window — the count is shown as you drag.
         </Typography>
       )}
 
