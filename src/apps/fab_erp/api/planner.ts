@@ -474,7 +474,8 @@ export interface GroupPlacement {
 
 /** Something worth saying that is not a reason to refuse. */
 export interface GroupWarning {
-  code: 'SUCCESSORS_STRANDED' | 'OVER_CAPACITY' | 'OFF_SHIFT' | 'NO_ROOM' | 'CALENDAR_NOT_CHECKED';
+  code: 'CASCADED' | 'SUCCESSORS_STRANDED' | 'OVER_CAPACITY' | 'OFF_SHIFT' | 'NO_ROOM'
+    | 'CALENDAR_NOT_CHECKED';
   message: string;
   detail: Record<string, unknown>;
 }
@@ -483,6 +484,11 @@ export interface GroupResult {
   ok: boolean;
   applied: boolean;
   movedCount: number;
+  /**
+   * Bars NOT in the unit that moved anyway, because the unit would otherwise
+   * have left them starting before their predecessors finish.
+   */
+  cascadedCount: number;
   /**
    * How many bars the UNIT actually has, resolved server-side over the whole
    * order. Null when the caller named bars explicitly instead of a unit.
@@ -500,7 +506,7 @@ export interface GroupResult {
 
 export interface GroupRefusal {
   code: PlanErrorCode | 'PAST_PLACEMENT' | 'NOTHING_MOVABLE'
-    | 'BAD_UNIT' | 'UNIT_NOT_FOUND' | 'UNIT_MISMATCH';
+    | 'BAD_UNIT' | 'UNIT_NOT_FOUND' | 'UNIT_MISMATCH' | 'CASCADE_TOO_LARGE';
   message: string;
   detail: PlanErrorDetail & { entryId?: number; proposedStart?: string };
 }
@@ -545,6 +551,13 @@ export async function transformPlanGroup(body: {
    */
   entryIds: number[];
   op: GroupOp;
+  /**
+   * Shift everything downstream that this move would otherwise leave illegal.
+   * Off at the API by default so no other caller changes behaviour; the board
+   * sends it on every gesture, because "the girder slipped a week and its
+   * dependants did not" is not a plan a planner would ever have meant.
+   */
+  cascade?: boolean;
   deltaMs?: number;
   anchorMs?: number;
   scale?: number;

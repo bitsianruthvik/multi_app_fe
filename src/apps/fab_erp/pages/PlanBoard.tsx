@@ -300,6 +300,8 @@ export default function PlanBoard() {
     entryIds: number[];
     /** How many bars the unit really has; null until a dry run has answered. */
     unitSize: number | null;
+    /** Bars outside the unit that will follow it; null until the dry run answers. */
+    cascadeSize: number | null;
     /**
      * Where the WHOLE unit would land, epoch ms — from the dry run's placements,
      * which cover every bar and not just the drawn ones. Without it the readout
@@ -349,11 +351,12 @@ export default function PlanBoard() {
     dryRunSeq.current = seq;
     dryRunTimer.current = window.setTimeout(async () => {
       const body = d.scale === 1
-        ? { unit: d.unit, entryIds: d.entryIds, op: 'move' as const, deltaMs: d.deltaMs, dryRun: true }
+        ? { unit: d.unit, entryIds: d.entryIds, op: 'move' as const, cascade: true, deltaMs: d.deltaMs, dryRun: true }
         : {
           unit: d.unit,
           entryIds: d.entryIds,
           op: 'stretch' as const,
+          cascade: true,
           anchorMs: scale.startMs + d.anchorRel,
           scale: d.scale,
           dryRun: true,
@@ -369,7 +372,13 @@ export default function PlanBoard() {
             ? { start: Math.min(...times.map((t) => t[0])), end: Math.max(...times.map((t) => t[1])) }
             : null;
           setDrag((cur) => (cur
-            ? { ...cur, refused: null, unitSize: res.unitSize ?? cur.unitSize, unitSpan: span }
+            ? {
+              ...cur,
+              refused: null,
+              unitSize: res.unitSize ?? cur.unitSize,
+              cascadeSize: res.cascadedCount ?? cur.cascadeSize,
+              unitSpan: span,
+            }
             : cur));
         }
       } catch (err) {
@@ -391,6 +400,7 @@ export default function PlanBoard() {
       grab,
       unit: { level, key: group.key },
       unitSize: null,
+      cascadeSize: null,
       unitSpan: null,
       entryIds: ids,
       deltaMs: 0,
@@ -409,11 +419,12 @@ export default function PlanBoard() {
     setBusy(true);
     try {
       const res = await transformPlanGroup(d.scale === 1
-        ? { unit: d.unit, entryIds: d.entryIds, op: 'move', deltaMs: d.deltaMs }
+        ? { unit: d.unit, entryIds: d.entryIds, op: 'move', cascade: true, deltaMs: d.deltaMs }
         : {
           unit: d.unit,
           entryIds: d.entryIds,
           op: 'stretch',
+          cascade: true,
           anchorMs: scale.startMs + d.anchorRel,
           scale: d.scale,
         });
@@ -429,7 +440,8 @@ export default function PlanBoard() {
           what: d.scale === 1 ? 'move' : 'stretch',
         });
         toast(
-          `${res.movedCount} of ${res.unitSize ?? res.movedCount} bars moved.`,
+          `${res.movedCount} bars moved`
+            + (res.cascadedCount ? ` — ${res.cascadedCount} of them downstream.` : '.'),
           'success',
         );
       }
@@ -516,7 +528,7 @@ export default function PlanBoard() {
     setBusy(true);
     try {
       const res = await transformPlanGroup({
-        unit: { level, key: group.key }, entryIds: ids, op: 'pushLeft',
+        unit: { level, key: group.key }, entryIds: ids, op: 'pushLeft', cascade: true,
       });
       if (res.applied) {
         // Same reason as in commit(): the server's list, not the drawn one.
@@ -598,7 +610,10 @@ export default function PlanBoard() {
       scope: drag.unitSize == null
         ? null
         : `${drag.unitSize} bar${drag.unitSize === 1 ? '' : 's'}`
-          + (offscreen > 0 ? ` · ${offscreen} beyond this window` : ''),
+          + (offscreen > 0 ? ` · ${offscreen} beyond this window` : '')
+          // Said while the handle is still down, because "and 1,240 other bars
+          // moved" is not something to find out afterwards.
+          + (drag.cascadeSize ? ` · ${drag.cascadeSize} downstream will follow` : ''),
       refused: drag.refused,
     };
   }, [drag, grouping, scale.startMs, timeZone]);
