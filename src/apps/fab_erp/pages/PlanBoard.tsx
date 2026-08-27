@@ -300,6 +300,7 @@ export default function PlanBoard() {
     entryIds: number[];
     /** How many bars the unit really has; null until a dry run has answered. */
     unitSize: number | null;
+    settleSize: number | null;
     /** Bars outside the unit that will follow it; null until the dry run answers. */
     cascadeSize: number | null;
     /** Unrelated bars that will step aside; null until the dry run answers. */
@@ -394,6 +395,7 @@ export default function PlanBoard() {
               ...cur,
               refused: null,
               unitSize: res.unitSize ?? cur.unitSize,
+              settleSize: res.settledCount ?? cur.settleSize,
               cascadeSize: res.cascadedCount ?? cur.cascadeSize,
               yieldSize: res.yieldedCount ?? cur.yieldSize,
               unitSpan: span,
@@ -419,6 +421,7 @@ export default function PlanBoard() {
       grab,
       unit: { level, key: group.key },
       unitSize: null,
+      settleSize: null,
       cascadeSize: null,
       yieldSize: null,
       unitSpan: null,
@@ -469,6 +472,7 @@ export default function PlanBoard() {
         const extra = [
           res.cascadedCount ? `${res.cascadedCount} downstream` : null,
           res.yieldedCount ? `${res.yieldedCount} stepped aside` : null,
+          res.settledCount ? `${res.settledCount} waited for a gap` : null,
         ].filter(Boolean).join(', ');
         toast(`${res.movedCount} bars moved${extra ? ` — ${extra}.` : '.'}`, 'success');
       }
@@ -647,7 +651,10 @@ export default function PlanBoard() {
           // Said while the handle is still down, because "and 1,240 other bars
           // moved" is not something to find out afterwards.
           + (drag.cascadeSize ? ` · ${drag.cascadeSize} downstream will follow` : '')
-          + (drag.yieldSize ? ` · ${drag.yieldSize} will step aside` : ''),
+          + (drag.yieldSize ? ` · ${drag.yieldSize} will step aside` : '')
+          // Said before release, not after: a unit that lands later than it was
+          // dropped looks like a bug unless you were told the machine was busy.
+          + (drag.settleSize ? ` · ${drag.settleSize} will wait for a gap` : ''),
       refused: drag.refused,
     };
   }, [drag, grouping, scale.startMs, timeZone]);

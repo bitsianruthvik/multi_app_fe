@@ -495,6 +495,16 @@ export interface GroupResult {
    */
   yieldedCount: number;
   /**
+   * Bars OF the unit that landed later than they were dropped, because the
+   * machine was busy and the work already there outranked them.
+   *
+   * The other side of yieldedCount: a drop is a request to put the unit around
+   * here, and whether the unit waits for a gap or the incumbent steps aside is
+   * decided by whose job matters more. Worth showing on its own, because "it
+   * did not go exactly where I let go" is otherwise indistinguishable from a bug.
+   */
+  settledCount: number;
+  /**
    * How many bars the UNIT actually has, resolved server-side over the whole
    * order. Null when the caller named bars explicitly instead of a unit.
    *
