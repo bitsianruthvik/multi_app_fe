@@ -163,6 +163,23 @@ function ellipsise(ctx: CanvasRenderingContext2D, text: string, maxPx: number): 
 /** How close to a capsule's end counts as grabbing that end rather than the bar. */
 const EDGE_PX = 7;
 
+/**
+ * The width of a capsule's end grip.
+ *
+ * Used by BOTH the drawing and the hit test, deliberately. When the grab zone
+ * was an invisible region near the end, the gesture was unguessable: a planner
+ * pressing anywhere on the capsule got a move, pressing seven pixels further
+ * left got a stretch, and nothing on screen said which was which or that the
+ * second existed at all. Drawing the same number that decides the hit makes the
+ * affordance honest — the grip you can see is exactly the grip you can grab.
+ *
+ * Clamped to a third of the capsule so a short unit is still mostly body: a
+ * two-hour girder at month zoom must not be nothing but handles.
+ */
+function gripWidth(x0: number, x1: number): number {
+  return Math.min(EDGE_PX, Math.max(2, (x1 - x0) / 3));
+}
+
 /** Below this width, a label is an ellipsis and nothing else. */
 const LABEL_MIN_PX = 52;
 /** Below this row height, a label crowds the block out of its own row. */
@@ -233,6 +250,8 @@ export function BoardCanvas(props: BoardCanvasProps) {
   const [hoverZone, setHoverZone] = useState<GrabZone | null>(null);
   const [dragZone, setDragZone] = useState<GrabZone | null>(null);
   const dragging = preview != null;
+  /** Whether this board may be edited at all — the grips only exist if it can. */
+  const canGrab = !!onGrab;
 
   const totalH = rows.reduce((n, r) => n + r.h, 0);
 
@@ -521,6 +540,47 @@ export function BoardCanvas(props: BoardCanvasProps) {
           ctx.setLineDash([]);
           ctx.globalAlpha = 1;
           ctx.lineWidth = 1;
+
+          /**
+           * The two stretch grips.
+           *
+           * Only on the unit under the cursor or the selected one. Every unit
+           * wearing handles at once turns the rail into a row of brackets and
+           * makes the one you are actually pointing at harder to find, not
+           * easier — the affordance has to appear where the hand already is.
+           *
+           * Solid, in the unit's own edge colour, so they read as part of the
+           * capsule rather than decoration on top of it, with a notch down the
+           * middle: two ends and something to pull is the whole vocabulary of
+           * "this can be made longer".
+           */
+          if (canGrab && active && !dim) {
+            const gw = gripWidth(x0, x0 + w);
+            const gy = y + 1;
+            const gh = row.h - 4;
+            ctx.fillStyle = c.edge;
+            ctx.globalAlpha = 0.95;
+            for (const gx of [x0, x0 + w - gw]) {
+              ctx.beginPath();
+              ctx.roundRect(gx, gy, gw, gh, r);
+              ctx.fill();
+            }
+            // The notch. Skipped on a capsule too narrow to show one, where it
+            // would just thicken the grip into a smudge.
+            if (gw >= 5) {
+              ctx.strokeStyle = pal.railTrack;
+              ctx.globalAlpha = 0.9;
+              ctx.lineWidth = 1;
+              for (const gx of [x0, x0 + w - gw]) {
+                const mx = Math.round(gx + gw / 2) + 0.5;
+                ctx.beginPath();
+                ctx.moveTo(mx, gy + gh * 0.28);
+                ctx.lineTo(mx, gy + gh * 0.72);
+                ctx.stroke();
+              }
+            }
+            ctx.globalAlpha = 1;
+          }
         }
         if (spans) {
           drawSpans(
@@ -555,7 +615,7 @@ export function BoardCanvas(props: BoardCanvasProps) {
   }, [
     lanes, grouping, groupBlocks, rows, windowMs, nowRel, gridRel, gridMajor,
     selectedGroup, hoverGroup, dark, width, totalH, blockLabel, colors,
-    entryStartRel, preview,
+    entryStartRel, preview, canGrab,
   ]);
 
   // ── hit testing ────────────────────────────────────────────────────────────
@@ -659,9 +719,8 @@ export function BoardCanvas(props: BoardCanvasProps) {
       const x0 = g.startRel * pxPerMs;
       const x1 = g.endRel * pxPerMs;
       if (x < x0 - EDGE_PX || x > x1 + EDGE_PX) return null;
-      // Edge zones are clamped so a very short capsule is still mostly body —
-      // otherwise a two-hour unit at month zoom would be nothing but edges.
-      const edge = Math.min(EDGE_PX, Math.max(2, (x1 - x0) / 3));
+      // The same width that was drawn — see gripWidth.
+      const edge = gripWidth(x0, x1);
       let zone: GrabZone = 'body';
       if (x <= x0 + edge) zone = 'startEdge';
       else if (x >= x1 - edge) zone = 'endEdge';
