@@ -44,6 +44,7 @@ import TodayRounded from '@mui/icons-material/TodayRounded';
 import KeyboardDoubleArrowLeftRounded from '@mui/icons-material/KeyboardDoubleArrowLeftRounded';
 import UndoRounded from '@mui/icons-material/UndoRounded';
 import RestartAltRounded from '@mui/icons-material/RestartAltRounded';
+import HelpOutlineRounded from '@mui/icons-material/HelpOutlineRounded';
 
 import { usePermission } from '@core/hooks/usePermission';
 import { useAuth } from '@core/contexts/AuthContext';
@@ -54,6 +55,9 @@ import {
   BLOCK_STRIDE, BLOCK_START, BLOCK_DUR, BLOCK_ENTRY,
   type BoardResponse, type GroupPlacement, type GroupUnit,
   replanFromNow,
+  simulateOrder,
+  getPlanOrders,
+  type PlanOrder,
 } from '../api/planner';
 import {
   PageHeader, Surface, EmptyState, ListSkeleton, Mono, useToast, backendMessage,
@@ -621,6 +625,47 @@ export default function PlanBoard() {
    */
   const [replanning, setReplanning] = useState(false);
   const [confirmReplan, setConfirmReplan] = useState(false);
+
+  /**
+   * "If we take this order, when does it land?"
+   *
+   * Read-only, and gated on view rather than manage: asking is not planning, and
+   * the person who has to answer a customer is often not the person who moves
+   * bars. The answer is levelled against the committed plan held fixed, so it is
+   * a date that accounts for everything already promised — the only kind worth
+   * quoting.
+   */
+  const [simOpen, setSimOpen] = useState(false);
+  const [simOrders, setSimOrders] = useState<PlanOrder[]>([]);
+  const [simOrderId, setSimOrderId] = useState<number | ''>('');
+  const [simBusy, setSimBusy] = useState(false);
+  const [simResult, setSimResult] = useState<Awaited<ReturnType<typeof simulateOrder>> | null>(null);
+  const [simError, setSimError] = useState<string | null>(null);
+
+  const openSim = useCallback(async () => {
+    setSimOpen(true);
+    setSimResult(null);
+    setSimError(null);
+    try {
+      const res = await getPlanOrders();
+      setSimOrders(res.orders);
+    } catch (err) {
+      setSimError(backendMessage(err, 'Could not list orders.'));
+    }
+  }, []);
+
+  const runSim = useCallback(async (orderId: number) => {
+    setSimBusy(true);
+    setSimResult(null);
+    setSimError(null);
+    try {
+      setSimResult(await simulateOrder({ orderId, granularity: mode }));
+    } catch (err) {
+      setSimError(backendMessage(err, 'Could not work out a date for that order.'));
+    } finally {
+      setSimBusy(false);
+    }
+  }, [mode]);
   const doReplan = useCallback(async () => {
     setReplanning(true);
     setBusy(true);
@@ -1035,6 +1080,18 @@ export default function PlanBoard() {
               </span>
             </Tooltip>
           )}
+          <Tooltip title="If we took an order, when would it finish? Levelled against everything already committed. Changes nothing.">
+            <span>
+              <Button
+                size="small"
+                variant="text"
+                startIcon={<HelpOutlineRounded />}
+                onClick={() => void openSim()}
+              >
+                What if?
+              </Button>
+            </span>
+          </Tooltip>
           {canManage && undoable && (
             <Tooltip title="Put that back where it was (Ctrl+Z)">
               <span>
@@ -1336,6 +1393,79 @@ export default function PlanBoard() {
           >
             Re-plan
           </Button>
+        </DialogActions>
+      </Dialog>
+      <Dialog open={simOpen} onClose={() => setSimOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>If we took this order, when would it finish?</DialogTitle>
+        <DialogContent>
+          <DialogContentText sx={{ mb: 2 }}>
+            Scheduled against everything already on the plan, held where it is. Nothing is changed.
+          </DialogContentText>
+          <TextField
+            select
+            fullWidth
+            size="small"
+            label="Order"
+            value={simOrderId}
+            onChange={(e) => {
+              const id = Number(e.target.value);
+              setSimOrderId(id);
+              void runSim(id);
+            }}
+          >
+            {simOrders.map((o) => (
+              <MenuItem key={o.orderId} value={o.orderId}>
+                {o.orderNumber ?? `Order ${o.orderId}`}
+                {o.customerName ? ` — ${o.customerName}` : ''}
+                {` · ${o.taskCount} tasks, ${Math.round(o.totalHours)} h`}
+              </MenuItem>
+            ))}
+          </TextField>
+
+          {simBusy && <LinearProgress sx={{ mt: 2 }} />}
+          {simError && <Alert severity="warning" sx={{ mt: 2 }}>{simError}</Alert>}
+
+          {simResult && !simBusy && (
+            <Box sx={{ mt: 2 }}>
+              <Stack direction="row" spacing={3} sx={{ mb: 1.5 }}>
+                <Box>
+                  <Typography variant="caption" color="text.secondary">Earliest start</Typography>
+                  <Typography variant="body1">
+                    {zonedYMD(new Date(simResult.earliestStart), timeZone)}
+                  </Typography>
+                </Box>
+                <Box>
+                  <Typography variant="caption" color="text.secondary">Would finish</Typography>
+                  <Typography variant="body1" sx={{ fontWeight: 600 }}>
+                    {zonedYMD(new Date(simResult.finishesAt), timeZone)}
+                  </Typography>
+                </Box>
+                <Box>
+                  <Typography variant="caption" color="text.secondary">From tomorrow</Typography>
+                  <Typography variant="body1">{simResult.calendarDays} days</Typography>
+                </Box>
+              </Stack>
+              <Typography variant="body2" color="text.secondary">
+                {simResult.taskCount} tasks · {simResult.workHours} h of work · scheduled around{' '}
+                {simResult.againstCommitted} bars already committed.
+              </Typography>
+              {simResult.bottleneck && (
+                <Alert severity="info" variant="outlined" sx={{ mt: 2 }}>
+                  Most of it lands on <b>{simResult.bottleneck.name}</b> —{' '}
+                  {simResult.bottleneck.hours} h. If the date disappoints, that is the thing to argue with.
+                </Alert>
+              )}
+              <Box sx={{ mt: 1.5 }}>
+                {simResult.load.map((l) => (
+                  <Chip key={l.name} size="small" variant="outlined" sx={{ mr: 0.5, mb: 0.5 }}
+                    label={`${l.name} ${l.hours}h`} />
+                ))}
+              </Box>
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setSimOpen(false)}>Close</Button>
         </DialogActions>
       </Dialog>
     </Box>
