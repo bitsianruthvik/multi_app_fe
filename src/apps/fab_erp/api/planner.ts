@@ -596,6 +596,17 @@ export async function transformPlanGroup(body: {
    * Omitted, the server takes the stricter of the two.
    */
   granularity?: 'day' | 'week' | 'month';
+  /**
+   * Ties every request of ONE drag together so they share their reads.
+   *
+   * Minted when the handle goes down and sent unchanged until it is released.
+   * While a planner holds a unit the rest of the plan is frozen, so the server
+   * can answer the second and later validity checks — and the commit — out of
+   * what it loaded for the first. It re-checks that the plan has not moved
+   * underneath, and quietly reloads if it has, so this is an optimisation and
+   * never a correctness assumption.
+   */
+  sessionId?: string;
 }): Promise<GroupResult> {
   return fabPost('plan/group', body as unknown as Record<string, unknown>);
 }

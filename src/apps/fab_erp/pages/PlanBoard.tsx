@@ -103,6 +103,18 @@ const SNAP_MIN_PX = 4;
  * last reported: the two disagree for one frame after any resize, and one frame
  * of disagreement is a unit landing an hour from where it was dropped.
  */
+/**
+ * A fresh id for one gesture.
+ *
+ * randomUUID needs a secure context, which localhost and production both are,
+ * but a preview served over plain http is not — so there is a fallback rather
+ * than a drag that throws on mousedown.
+ */
+function newDragId(): string {
+  const c = globalThis.crypto;
+  if (c && typeof c.randomUUID === 'function') return c.randomUUID();
+  return `d-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+}
 const TRACK_ID = 'plan-board-track';
 
 export default function PlanBoard() {
@@ -301,6 +313,8 @@ export default function PlanBoard() {
     /** How many bars the unit really has; null until a dry run has answered. */
     unitSize: number | null;
     settleSize: number | null;
+    /** This gesture's id. See transformPlanGroup's sessionId. */
+    sessionId: string;
     /** Bars outside the unit that will follow it; null until the dry run answers. */
     cascadeSize: number | null;
     /** Unrelated bars that will step aside; null until the dry run answers. */
@@ -359,6 +373,7 @@ export default function PlanBoard() {
   const dryRunTimer = useRef<number | null>(null);
   const checkDrag = useCallback((d: {
     unit: GroupUnit; entryIds: number[]; deltaMs: number; scale: number; anchorRel: number;
+    sessionId: string;
   }) => {
     if (dryRunTimer.current != null) window.clearTimeout(dryRunTimer.current);
     const seq = dryRunSeq.current + 1;
@@ -368,7 +383,7 @@ export default function PlanBoard() {
         ? {
           unit: d.unit, entryIds: d.entryIds, op: 'move' as const,
           cascade: true, yieldFree: true, deltaMs: d.deltaMs,
-          granularity: mode, dryRun: true,
+          granularity: mode, sessionId: d.sessionId, dryRun: true,
         }
         : {
           unit: d.unit,
@@ -378,6 +393,7 @@ export default function PlanBoard() {
           anchorMs: scale.startMs + d.anchorRel,
           scale: d.scale,
           granularity: mode,
+          sessionId: d.sessionId,
           dryRun: true,
         };
       try {
@@ -420,6 +436,9 @@ export default function PlanBoard() {
     setDrag({
       grab,
       unit: { level, key: group.key },
+      // New for every grab: a gesture is the unit of caching, and reusing an
+      // id across two drags would offer the second one the first one's world.
+      sessionId: newDragId(),
       unitSize: null,
       settleSize: null,
       cascadeSize: null,
@@ -438,6 +457,7 @@ export default function PlanBoard() {
 
   const commit = useCallback(async (d: {
     unit: GroupUnit; entryIds: number[]; deltaMs: number; scale: number; anchorRel: number;
+    sessionId: string;
   }) => {
     if (d.scale === 1 && d.deltaMs === 0) return;
     setBusy(true);
@@ -448,6 +468,7 @@ export default function PlanBoard() {
         ? {
           unit: d.unit, entryIds: d.entryIds, op: 'move',
           cascade: true, yieldFree: true, deltaMs: d.deltaMs, granularity: mode,
+          sessionId: d.sessionId,
         }
         : {
           unit: d.unit,
@@ -457,6 +478,7 @@ export default function PlanBoard() {
           anchorMs: scale.startMs + d.anchorRel,
           scale: d.scale,
           granularity: mode,
+          sessionId: d.sessionId,
         });
       if (res.applied) {
         // Undo restores what the SERVER wrote, so its bar list comes from the
