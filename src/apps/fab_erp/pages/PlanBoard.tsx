@@ -1451,14 +1451,16 @@ export default function PlanBoard() {
               </Typography>
               {simResult.bottleneck && (
                 <Alert severity="info" variant="outlined" sx={{ mt: 2 }}>
-                  Most of it lands on <b>{simResult.bottleneck.name}</b> —{' '}
-                  {simResult.bottleneck.hours} h. If the date disappoints, that is the thing to argue with.
+                  The busiest machine is <b>{simResult.bottleneck.name}</b> —{' '}
+                  {simResult.bottleneck.hoursPerMachine} h on{' '}
+                  {simResult.bottleneck.machines === 1 ? 'its only machine' : `each of its ${simResult.bottleneck.machines}`}.{' '}
+                  If the date disappoints, that is the thing to argue with.
                 </Alert>
               )}
               <Box sx={{ mt: 1.5 }}>
                 {simResult.load.map((l) => (
                   <Chip key={l.name} size="small" variant="outlined" sx={{ mr: 0.5, mb: 0.5 }}
-                    label={`${l.name} ${l.hours}h`} />
+                    label={l.machines > 1 ? `${l.name} ${l.hoursPerMachine}h ×${l.machines}` : `${l.name} ${l.hoursPerMachine}h`} />
                 ))}
               </Box>
             </Box>

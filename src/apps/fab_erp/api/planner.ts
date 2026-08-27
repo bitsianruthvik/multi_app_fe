@@ -333,8 +333,19 @@ export async function replanFromNow(body: { granularity?: 'day' | 'week' | 'mont
   return fabPost('plan/replan', body);
 }
 
-/** One resource type's share of an order's work. */
-export interface SimulatedLoad { name: string; hours: number }
+/**
+ * One resource type's share of an order's work.
+ *
+ * Ranked by hoursPerMachine, not hours: two cranes carrying a thousand hours
+ * between them are half the problem one edge-preparation station is with six
+ * hundred. What bounds a date is the busiest single machine.
+ */
+export interface SimulatedLoad {
+  name: string;
+  hours: number;
+  machines: number;
+  hoursPerMachine: number;
+}
 
 /**
  * GET /plan/simulate — when would this order finish, if we took it?
