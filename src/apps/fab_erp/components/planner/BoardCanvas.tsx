@@ -125,6 +125,15 @@ export interface BoardCanvasProps {
   preview: PreviewTransform | null;
   /** True once a group is selected: its bars become draggable in the lanes too. */
   onGrab?: (grab: GrabInfo) => void;
+  /**
+   * What the server says this drag does to everything ELSE, entryId → its own
+   * shift and why it moved.
+   *
+   * The counts were already on screen; where the work went was not. This is the
+   * same answer the dry run has always returned and the board has always thrown
+   * away.
+   */
+  ripple?: Map<number, { deltaMs: number; why: string }> | null;
   rows: BoardRow[];
   windowMs: number;
   /** Milliseconds from the window start to now; null if now is outside it. */
@@ -200,6 +209,10 @@ interface Palette {
   separator: string;
   /** A placement the server has already said no to, while it is still in hand. */
   refused: string;
+  /** Work that had to follow the unit, because it depends on it. */
+  rippleCascade: string;
+  /** Work that stepped aside, because the unit filled its machine. */
+  rippleYield: string;
   /** Text drawn ON a block — the block's fill is the ground, not the page. */
   onBlock: string;
   text: string;
@@ -218,6 +231,8 @@ function palette(dark: boolean): Palette {
       ungrouped: '#3A3F55',
       separator: 'rgba(8,10,16,.55)',
       refused: '#B4344F',
+      rippleCascade: '#38BDF8',
+      rippleYield: '#F59E0B',
       onBlock: 'rgba(10,12,20,.88)',
       text: 'rgba(255,255,255,.86)',
     }
@@ -232,6 +247,8 @@ function palette(dark: boolean): Palette {
       ungrouped: '#C3C7D6',
       separator: 'rgba(255,255,255,.7)',
       refused: '#E11D48',
+      rippleCascade: '#0284C7',
+      rippleYield: '#B45309',
       onBlock: 'rgba(255,255,255,.96)',
       text: 'rgba(26,28,46,.9)',
     };
@@ -241,7 +258,7 @@ export function BoardCanvas(props: BoardCanvasProps) {
   const {
     lanes, grouping, colors, groupBlocks, entryStartRel, rows, windowMs, nowRel,
     gridRel, gridMajor, selectedGroup, hoverGroup, dark, onHover, onPick, onWidth,
-    blockLabel, preview, onGrab,
+    blockLabel, preview, onGrab, ripple,
   } = props;
 
   const wrapRef = useRef<HTMLDivElement | null>(null);
@@ -314,11 +331,22 @@ export function BoardCanvas(props: BoardCanvasProps) {
      * block along at its own offset inside it — the bar spreads, the work does
      * not get slower. Blocks outside the dragged group are untouched.
      */
-    const shiftOf = (g: number, entryStart: number) => {
-      if (!preview || g !== preview.groupIdx) return 0;
-      if (preview.scale === 1) return preview.deltaMs;
-      const moved = preview.anchorRel + (entryStart - preview.anchorRel) * preview.scale;
-      return moved - entryStart;
+    const shiftOf = (g: number, entryStart: number, entryId?: number) => {
+      if (preview && g === preview.groupIdx) {
+        // The dragged unit follows the MOUSE, not the server.
+        //
+        // Deliberately ahead of the ripple: the validity check answers a beat
+        // after the hand stops, and letting its answer win here would freeze the
+        // unit at the last checked position while the cursor kept going. What
+        // the unit will really do when it cannot land on the drop is said in
+        // words instead — see the drag caption's "will wait for a gap".
+        if (preview.scale === 1) return preview.deltaMs;
+        const moved = preview.anchorRel + (entryStart - preview.anchorRel) * preview.scale;
+        return moved - entryStart;
+      }
+      // Everything else moves by exactly what the server worked out for it.
+      const r = entryId == null ? undefined : ripple?.get(entryId);
+      return r ? r.deltaMs : 0;
     };
 
     // 1. Row substrate: what is manned, and what is not.
@@ -473,7 +501,8 @@ export function BoardCanvas(props: BoardCanvasProps) {
             const entryStart = entryStartRel.get(blocks[i * BLOCK_STRIDE + BLOCK_ENTRY])
               ?? blocks[i * BLOCK_STRIDE + BLOCK_START];
             return {
-              s: blocks[i * BLOCK_STRIDE + BLOCK_START] + shiftOf(g, entryStart),
+              s: blocks[i * BLOCK_STRIDE + BLOCK_START]
+                + shiftOf(g, entryStart, blocks[i * BLOCK_STRIDE + BLOCK_ENTRY]),
               d: blocks[i * BLOCK_STRIDE + BLOCK_DUR],
               g,
             };
@@ -489,6 +518,37 @@ export function BoardCanvas(props: BoardCanvasProps) {
             )
             : undefined,
         );
+
+        /**
+         * Where the disturbed work used to be.
+         *
+         * A hollow outline at the old position of every bar this move pushes,
+         * in the colour of WHY it moved — blue for work that had to follow the
+         * unit, amber for work that merely stood where the unit landed. Seeing
+         * the gap it left is what makes the ripple legible; the counts alone
+         * never were.
+         *
+         * Drawn after the blocks so an outline is never buried under one, and
+         * skipped at density zoom where a one-pixel outline would be noise.
+         */
+        if (ripple && ripple.size > 0 && !dense) {
+          ctx.save();
+          ctx.lineWidth = 1;
+          ctx.setLineDash([3, 2]);
+          for (let i = 0; i < lane.blockCount; i += 1) {
+            const o = i * BLOCK_STRIDE;
+            const r = ripple.get(blocks[o + BLOCK_ENTRY]);
+            if (!r || r.deltaMs === 0) continue;
+            const x0 = blocks[o + BLOCK_START] * pxPerMs;
+            const w = Math.max(1.5, blocks[o + BLOCK_DUR] * pxPerMs);
+            if (x0 + w <= 0 || x0 >= width) continue;
+            ctx.strokeStyle = r.why === 'yield' ? pal.rippleYield : pal.rippleCascade;
+            ctx.globalAlpha = 0.85;
+            const inset = row.h >= 40 ? 5 : 3;
+            ctx.strokeRect(x0, y + inset, w, row.h - inset * 2);
+          }
+          ctx.restore();
+        }
       } else if (row.kind === 'rail') {
         const g = row.groupIdx;
         const grp = grouping.groups[g];
@@ -615,7 +675,7 @@ export function BoardCanvas(props: BoardCanvasProps) {
   }, [
     lanes, grouping, groupBlocks, rows, windowMs, nowRel, gridRel, gridMajor,
     selectedGroup, hoverGroup, dark, width, totalH, blockLabel, colors,
-    entryStartRel, preview, canGrab,
+    entryStartRel, preview, canGrab, ripple,
   ]);
 
   // ── hit testing ────────────────────────────────────────────────────────────

@@ -465,6 +465,18 @@ export async function getPlanBoard(params: {
 export type GroupOp = 'move' | 'stretch' | 'pushLeft' | 'restore';
 
 export interface GroupPlacement {
+  /**
+   * Why this bar is where it is.
+   *
+   *   unit     the planner dragged it
+   *   settle   it is theirs, and it waited for a gap instead of landing on the drop
+   *   cascade  it depends on theirs, so it had to follow
+   *   yield    it depends on nothing of theirs; the move filled its machine
+   *
+   * The board draws the ripple from this. Absent on responses from before it
+   * existed, which the caller should treat as 'cascade'.
+   */
+  why?: 'unit' | 'settle' | 'cascade' | 'yield';
   entryId: number;
   plannedStart: string;
   plannedEnd: string;

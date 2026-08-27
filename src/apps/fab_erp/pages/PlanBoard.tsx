@@ -313,6 +313,15 @@ export default function PlanBoard() {
     /** How many bars the unit really has; null until a dry run has answered. */
     unitSize: number | null;
     settleSize: number | null;
+    /**
+     * What this drag does to everything else: entryId → its own shift and why.
+     *
+     * Only bars OUTSIDE the dragged unit are in here. The unit itself follows
+     * the mouse, and its own settling is said in words rather than drawn, so
+     * that a validity check landing mid-gesture cannot yank it out from under
+     * the cursor. See BoardCanvas.shiftOf.
+     */
+    ripple: Map<number, { deltaMs: number; why: string }> | null;
     /** This gesture's id. See transformPlanGroup's sessionId. */
     sessionId: string;
     /** Bars outside the unit that will follow it; null until the dry run answers. */
@@ -406,10 +415,25 @@ export default function PlanBoard() {
           const span = times.length > 0
             ? { start: Math.min(...times.map((t) => t[0])), end: Math.max(...times.map((t) => t[1])) }
             : null;
+          // Everything the move disturbs, ready to draw. Bars of the dragged
+          // unit are left out on purpose — see the note on `ripple` above.
+          const own = new Set(res.placements.filter((pl) => pl.why === 'unit' || pl.why === 'settle')
+            .map((pl) => pl.entryId));
+          const was = new Map(res.previous.map((pl) => [pl.entryId, new Date(pl.plannedStart).getTime()]));
+          const rip = new Map<number, { deltaMs: number; why: string }>();
+          for (const pl of res.placements) {
+            if (own.has(pl.entryId)) continue;
+            const from = was.get(pl.entryId);
+            if (from == null) continue;
+            const deltaMs = new Date(pl.plannedStart).getTime() - from;
+            if (deltaMs === 0) continue;
+            rip.set(pl.entryId, { deltaMs, why: pl.why ?? 'cascade' });
+          }
           setDrag((cur) => (cur
             ? {
               ...cur,
               refused: null,
+              ripple: rip,
               unitSize: res.unitSize ?? cur.unitSize,
               settleSize: res.settledCount ?? cur.settleSize,
               cascadeSize: res.cascadedCount ?? cur.cascadeSize,
@@ -421,8 +445,9 @@ export default function PlanBoard() {
       } catch (err) {
         if (dryRunSeq.current !== seq) return;
         const refused = groupErrorOf(err);
+        // A refused placement has no ripple: nothing would move.
         setDrag((cur) => (cur
-          ? { ...cur, refused: refused?.message ?? backendMessage(err, 'Not possible here.') }
+          ? { ...cur, ripple: null, refused: refused?.message ?? backendMessage(err, 'Not possible here.') }
           : cur));
       }
     }, 160);
@@ -441,6 +466,7 @@ export default function PlanBoard() {
       sessionId: newDragId(),
       unitSize: null,
       settleSize: null,
+      ripple: null,
       cascadeSize: null,
       yieldSize: null,
       unitSpan: null,
@@ -1114,6 +1140,7 @@ export default function PlanBoard() {
                   colors={colors}
                   entryStartRel={entryStartRel}
                   preview={preview}
+                  ripple={drag?.ripple ?? null}
                   onGrab={canManage ? onGrab : undefined}
                   groupBlocks={groupBlocks}
                   rows={rows}
@@ -1204,6 +1231,11 @@ export default function PlanBoard() {
           slides it as far left as its bars will fit around everything else. Every gesture moves the
           <b> whole</b> unit, including the bars outside this window; what depends on it follows, and
           unrelated work steps aside where the move fills a machine. The counts are shown as you drag.
+          {' '}
+          <b>Everything the move disturbs moves with it on the board</b>, and a dashed outline is left
+          where it used to be &mdash; <Box component="span" sx={{ color: '#0284C7', fontWeight: 600 }}>blue</Box> for
+          work that had to follow the unit, <Box component="span" sx={{ color: '#B45309', fontWeight: 600 }}>amber</Box>{' '}
+          for work that merely stood where the unit landed.
         </Typography>
       )}
 
