@@ -576,6 +576,16 @@ export async function transformPlanGroup(body: {
   placements?: GroupPlacement[];
   /** Validate and return without writing — what a drag calls while in flight. */
   dryRun?: boolean;
+  /**
+   * Which zoom the gesture was made at, which sets how early work may be put.
+   *
+   * The floor is the start of tomorrow, except in the day view where it is the
+   * start of today: at day zoom a pixel is minutes and filling the rest of
+   * today's second shift is a real intention, while at month zoom a pixel is
+   * hours and a drop on "today" is far more likely to be a slip of the hand.
+   * Omitted, the server takes the stricter of the two.
+   */
+  granularity?: 'day' | 'week' | 'month';
 }): Promise<GroupResult> {
   return fabPost('plan/group', body as unknown as Record<string, unknown>);
 }

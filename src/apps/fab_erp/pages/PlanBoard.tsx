@@ -364,7 +364,11 @@ export default function PlanBoard() {
     dryRunSeq.current = seq;
     dryRunTimer.current = window.setTimeout(async () => {
       const body = d.scale === 1
-        ? { unit: d.unit, entryIds: d.entryIds, op: 'move' as const, cascade: true, yieldFree: true, deltaMs: d.deltaMs, dryRun: true }
+        ? {
+          unit: d.unit, entryIds: d.entryIds, op: 'move' as const,
+          cascade: true, yieldFree: true, deltaMs: d.deltaMs,
+          granularity: mode, dryRun: true,
+        }
         : {
           unit: d.unit,
           entryIds: d.entryIds,
@@ -372,6 +376,7 @@ export default function PlanBoard() {
           cascade: true, yieldFree: true,
           anchorMs: scale.startMs + d.anchorRel,
           scale: d.scale,
+          granularity: mode,
           dryRun: true,
         };
       try {
@@ -403,7 +408,7 @@ export default function PlanBoard() {
           : cur));
       }
     }, 160);
-  }, [scale.startMs]);
+  }, [scale.startMs, mode]);
 
   const onGrab = useCallback((grab: GrabInfo) => {
     const ids = entryIdsByGroup[grab.groupIdx] ?? [];
@@ -434,8 +439,13 @@ export default function PlanBoard() {
     if (d.scale === 1 && d.deltaMs === 0) return;
     setBusy(true);
     try {
+      // Same granularity the dry run was judged at, or the preview could go
+      // green at day zoom and the commit be refused by the tomorrow floor.
       const res = await transformPlanGroup(d.scale === 1
-        ? { unit: d.unit, entryIds: d.entryIds, op: 'move', cascade: true, yieldFree: true, deltaMs: d.deltaMs }
+        ? {
+          unit: d.unit, entryIds: d.entryIds, op: 'move',
+          cascade: true, yieldFree: true, deltaMs: d.deltaMs, granularity: mode,
+        }
         : {
           unit: d.unit,
           entryIds: d.entryIds,
@@ -443,6 +453,7 @@ export default function PlanBoard() {
           cascade: true, yieldFree: true,
           anchorMs: scale.startMs + d.anchorRel,
           scale: d.scale,
+          granularity: mode,
         });
       if (res.applied) {
         // Undo restores what the SERVER wrote, so its bar list comes from the
@@ -472,7 +483,7 @@ export default function PlanBoard() {
       setDrag(null);
       setBusy(false);
     }
-  }, [scale.startMs, toast, load]);
+  }, [scale.startMs, toast, load, mode]);
 
   /**
    * The drag, also in a ref.
