@@ -312,6 +312,55 @@ export async function acceptRun(body: {
   return fabPost('plan/accept', body);
 }
 
+/**
+ * POST /plan/replan — the world moved; make the plan true again.
+ *
+ * One action for a changed shift pattern, somebody on leave, or a morning that
+ * did not happen. Retires everything not started and not pinned, re-levels the
+ * rest from tomorrow, and accepts it. Started work stays where it is and still
+ * occupies its machine.
+ */
+export async function replanFromNow(body: { granularity?: 'day' | 'week' | 'month' } = {}): Promise<{
+  ok: boolean;
+  retired: number;
+  keptStarted: number;
+  keptPinned: number;
+  runId: number;
+  planned: number;
+  skipped: { runItemId: number; reason: string }[];
+  from: string;
+}> {
+  return fabPost('plan/replan', body);
+}
+
+/** One resource type's share of an order's work. */
+export interface SimulatedLoad { name: string; hours: number }
+
+/**
+ * GET /plan/simulate — when would this order finish, if we took it?
+ *
+ * Writes nothing. Levelled against the committed plan held fixed, so the answer
+ * accounts for everything already promised rather than describing an empty shop.
+ */
+export async function simulateOrder(params: { orderId: number; granularity?: 'day' | 'week' | 'month' }):
+Promise<{
+  ok: boolean;
+  orderId: number;
+  taskCount: number;
+  earliestStart: string;
+  finishesAt: string;
+  calendarDays: number;
+  workHours: number;
+  load: SimulatedLoad[];
+  bottleneck: SimulatedLoad | null;
+  againstCommitted: number;
+}> {
+  return fabGet('plan/simulate', {
+    orderId: String(params.orderId),
+    ...(params.granularity ? { granularity: params.granularity } : {}),
+  });
+}
+
 // ── editing ──────────────────────────────────────────────────────────────────
 
 /** POST /plan/entries — place work by hand. Refused (409) if the DAG says no. */

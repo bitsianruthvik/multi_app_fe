@@ -32,7 +32,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Alert, Box, Button, Chip, IconButton, LinearProgress, MenuItem,
+  Alert, Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogContentText,
+  DialogTitle, IconButton, LinearProgress, MenuItem,
   Paper, Stack, TextField, ToggleButton, ToggleButtonGroup, Tooltip, Typography,
   useTheme,
 } from '@mui/material';
@@ -42,6 +43,7 @@ import ChevronRightRounded from '@mui/icons-material/ChevronRightRounded';
 import TodayRounded from '@mui/icons-material/TodayRounded';
 import KeyboardDoubleArrowLeftRounded from '@mui/icons-material/KeyboardDoubleArrowLeftRounded';
 import UndoRounded from '@mui/icons-material/UndoRounded';
+import RestartAltRounded from '@mui/icons-material/RestartAltRounded';
 
 import { usePermission } from '@core/hooks/usePermission';
 import { useAuth } from '@core/contexts/AuthContext';
@@ -51,6 +53,7 @@ import {
   getPlanBoard, transformPlanGroup, groupErrorOf,
   BLOCK_STRIDE, BLOCK_START, BLOCK_DUR, BLOCK_ENTRY,
   type BoardResponse, type GroupPlacement, type GroupUnit,
+  replanFromNow,
 } from '../api/planner';
 import {
   PageHeader, Surface, EmptyState, ListSkeleton, Mono, useToast, backendMessage,
@@ -605,6 +608,46 @@ export default function PlanBoard() {
     };
   }, [drag, windowMs, snapMs, checkDrag, commit]);
 
+  /**
+   * Make the plan true again.
+   *
+   * A shift pattern changed, somebody went on leave, or the three jobs that were
+   * supposed to run this morning did not — and from then on every date on the
+   * board is wrong. This retires everything not started and not pinned, re-levels
+   * the rest from tomorrow, and accepts it. What the shop actually did stays put
+   * and still occupies its machine.
+   *
+   * Confirmed first, because it rewrites every unstarted bar on the board.
+   */
+  const [replanning, setReplanning] = useState(false);
+  const [confirmReplan, setConfirmReplan] = useState(false);
+  const doReplan = useCallback(async () => {
+    setReplanning(true);
+    setBusy(true);
+    try {
+      const res = await replanFromNow({ granularity: mode });
+      const kept = [
+        res.keptStarted ? `${res.keptStarted} already started` : null,
+        res.keptPinned ? `${res.keptPinned} pinned` : null,
+      ].filter(Boolean).join(' and ');
+      toast(
+        `Re-planned ${res.planned} bars from ${zonedYMD(new Date(res.from), timeZone)}`
+        + (kept ? ` — left ${kept} where they were.` : '.'),
+        'success',
+      );
+      if (res.skipped.length > 0) {
+        toast(`${res.skipped.length} could not be planned — see the run for why.`, 'info');
+      }
+      setUndoable(null);
+      await load();
+    } catch (err) {
+      toast(backendMessage(err, 'Could not re-plan.'), 'error');
+    } finally {
+      setReplanning(false);
+      setBusy(false);
+    }
+  }, [mode, timeZone, toast, load]);
+
   const pushLeft = useCallback(async () => {
     if (selectedIdx == null || !grouping) return;
     const ids = entryIdsByGroup[selectedIdx] ?? [];
@@ -976,6 +1019,22 @@ export default function PlanBoard() {
               </span>
             </Tooltip>
           )}
+          {canManage && (
+            <Tooltip title="Rebuild the plan from tomorrow against what has actually happened — a changed shift, someone on leave, or work that did not run. Started and pinned bars stay where they are.">
+              <span>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  color="secondary"
+                  startIcon={<RestartAltRounded />}
+                  disabled={busy}
+                  onClick={() => setConfirmReplan(true)}
+                >
+                  {replanning ? 'Re-planning…' : 'Re-plan'}
+                </Button>
+              </span>
+            </Tooltip>
+          )}
           {canManage && undoable && (
             <Tooltip title="Put that back where it was (Ctrl+Z)">
               <span>
@@ -1247,6 +1306,38 @@ export default function PlanBoard() {
           {' '}Click a block to pull its handle up, or group one level coarser.
         </Alert>
       )}
+
+      {/*
+        * Confirmed, because it rewrites every unstarted bar on the board.
+        *
+        * Not a scary dialog — this is a routine thing to do on a Monday morning
+        * — but it is not undoable by Ctrl+Z either, so it should not happen on a
+        * misclick next to Push left.
+        */}
+      <Dialog open={confirmReplan} onClose={() => setConfirmReplan(false)} maxWidth="xs">
+        <DialogTitle>Re-plan from tomorrow?</DialogTitle>
+        <DialogContent>
+          <DialogContentText component="div">
+            Every bar that has not started and is not pinned will be rebuilt from tomorrow,
+            against the calendar and the crew as they stand now.
+            <Box component="ul" sx={{ pl: 2.5, mt: 1, mb: 0 }}>
+              <li>Work already started stays exactly where it is, and still holds its machine.</li>
+              <li>Pinned bars stay too.</li>
+              <li>Anything that was due to run before tomorrow moves forward.</li>
+            </Box>
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setConfirmReplan(false)}>Cancel</Button>
+          <Button
+            variant="contained"
+            color="secondary"
+            onClick={() => { setConfirmReplan(false); void doReplan(); }}
+          >
+            Re-plan
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }

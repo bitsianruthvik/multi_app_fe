@@ -68,8 +68,7 @@ export const NAV_SECTIONS: NavSection[] = [
       // question without a time axis, and two screens disagreeing about what to
       // work on next is worse than either alone. Its keywords are inherited so
       // the palette still finds this by the old name.
-      { slug: 'planner', label: 'Planner', permission: 'fab_erp_planner_view', keywords: ['dispatch', 'plan', 'planning', 'schedule', 'gantt', 'day', 'week', 'capacity', 'assign', 'next job', 'what next', 'ranking', 'priority', 'shift', 'suggest'] },
-      { slug: 'plan-board', label: 'Board', permission: 'fab_erp_planner_view', keywords: ['board', 'month', 'week', 'zoom', 'load', 'gaps', 'girder', 'group', 'timeline', 'utilisation', 'utilization', 'canvas', 'capacity'] },
+      { slug: 'plan-board', label: 'Board', permission: 'fab_erp_planner_view', keywords: ['board', 'plan', 'planner', 'planning', 'schedule', 'gantt', 'dispatch', 'month', 'week', 'day', 'zoom', 'load', 'gaps', 'girder', 'group', 'timeline', 'utilisation', 'utilization', 'canvas', 'capacity', 'suggest', 'replan', 're-plan'] },
       { slug: 'task-engine', label: 'Engine', permission: 'fab_erp_taskengine_view', countKey: 'activeOrders', keywords: ['dag', 'graph', 'swimlane', 'progress'] },
       { slug: 'machine-board', label: 'Machines', permission: 'fab_erp_machine_state_manage', countKey: 'machinesRunning', keywords: ['shop floor', 'state', 'running', 'down'] },
       // No countKey: "unaccounted time gaps" needs a per-machine shift-vs-events

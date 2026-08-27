@@ -23,7 +23,6 @@ const BomTemplates       = lazy(() => import('./pages/BomTemplates'));
 const Suppliers          = lazy(() => import('./pages/Suppliers'));
 const ProgressTemplates  = lazy(() => import('./pages/ProgressTemplates'));
 const TaskQueue          = lazy(() => import('./pages/TaskQueue'));
-const Planner            = lazy(() => import('./pages/Planner'));
 const PlanBoard          = lazy(() => import('./pages/PlanBoard'));
 const TaskEngine         = lazy(() => import('./pages/TaskEngine'));
 const MachineBoard       = lazy(() => import('./pages/MachineBoard'));
@@ -67,16 +66,13 @@ export function getFabErpRoutes(
     { path: '/:company/fab_erp/flow-rules',                 element: wrap(<FlowRules />) },
     { path: '/:company/fab_erp/progress-templates',          element: wrap(<ProgressTemplates />) },
     { path: '/:company/fab_erp/task-queue',                 element: wrap(<TaskQueue />) },
-    { path: '/:company/fab_erp/planner',                     element: wrap(<Planner />) },
-    // The same plan at the zoom above it — five weeks of every machine at once.
-    // Kept as its own route rather than a tab on the Planner: the two answer
-    // different questions and a planner moves between them, not within one.
+    // The Board IS the planner (2026-08-27). The day/week grid it replaced, and
+    // the /dispatch path that grid had itself absorbed, are both gone: two
+    // screens answering the same question is how they drift apart, and this one
+    // answers it at every zoom. /planner and /dispatch now 404 — deliberately,
+    // rather than quietly rendering something else that is not what the
+    // bookmark meant.
     { path: '/:company/fab_erp/plan-board',                  element: wrap(<PlanBoard />) },
-    // Dispatch was absorbed by the Planner (2026-08-14). The old path is kept as
-    // a redirect-by-render rather than deleted: it is bookmarked, and 404ing the
-    // shop floor's "what next" screen on upgrade day is not an acceptable way to
-    // retire a route.
-    { path: '/:company/fab_erp/dispatch',                    element: wrap(<Planner />) },
     { path: '/:company/fab_erp/task-engine',                element: wrap(<TaskEngine />) },
     { path: '/:company/fab_erp/machine-board',               element: wrap(<MachineBoard />) },
     { path: '/:company/fab_erp/buffer-config',               element: wrap(<BufferConfig />) },
