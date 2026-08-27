@@ -315,6 +315,17 @@ export default function PlanBoard() {
     scale: number;
     anchorRel: number;
     refused: string | null;
+    /**
+     * The mouse is up and the write is in flight.
+     *
+     * The preview stays on screen until the board has reloaded. Dropping it at
+     * mouseup — which is what this did — makes the unit snap back to where it
+     * came from and sit there for as long as the write takes, which on a move
+     * that cascades into a few hundred bars is twenty seconds of looking like
+     * nothing happened. Then it jumps. Every planner who tried it read that as
+     * "it will not stay where I put it".
+     */
+    committing: boolean;
   } | null>(null);
   const [busy, setBusy] = useState(false);
   /** The last applied transform, kept so it can be taken back. */
@@ -406,6 +417,7 @@ export default function PlanBoard() {
       cascadeSize: null,
       yieldSize: null,
       unitSpan: null,
+      committing: false,
       entryIds: ids,
       deltaMs: 0,
       scale: 1,
@@ -455,6 +467,9 @@ export default function PlanBoard() {
       const refused = groupErrorOf(err);
       toast(refused?.message ?? backendMessage(err, 'That move was refused.'), 'error');
     } finally {
+      // Only now: the board is showing the new positions, so letting go of the
+      // preview does not flash the unit back to where it started.
+      setDrag(null);
       setBusy(false);
     }
   }, [scale.startMs, toast, load]);
@@ -475,11 +490,11 @@ export default function PlanBoard() {
   // Move and release belong to the window: the pointer leaves the canvas the
   // moment a drag goes anywhere interesting.
   useEffect(() => {
-    if (!drag) return undefined;
+    if (!drag || drag.committing) return undefined;
     const onMove = (e: MouseEvent) => {
       const cur = dragRef.current;
       const el = document.getElementById(TRACK_ID);
-      if (!cur || !el) return;
+      if (!cur || cur.committing || !el) return;
       const rect = el.getBoundingClientRect();
       const atRel = ((e.clientX - rect.left) / Math.max(1, rect.width)) * windowMs;
       const snap = (v: number) => (e.altKey ? v : Math.round(v / snapMs) * snapMs);
@@ -508,8 +523,11 @@ export default function PlanBoard() {
     const onUp = () => {
       const cur = dragRef.current;
       dragRef.current = null;
-      setDrag(null);
-      if (cur) void commit(cur);
+      if (!cur) { setDrag(null); return; }
+      if (cur.scale === 1 && cur.deltaMs === 0) { setDrag(null); return; }
+      // Hold the preview; commit() takes it down once the board has caught up.
+      setDrag({ ...cur, committing: true });
+      void commit(cur);
     };
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') { dragRef.current = null; setDrag(null); }
@@ -912,7 +930,15 @@ export default function PlanBoard() {
 
         {error && <Alert severity="error" sx={{ m: 2 }}>{error}</Alert>}
         {loading && !board && <Box sx={{ p: 2 }}><ListSkeleton rows={6} /></Box>}
-        {loading && board && <LinearProgress />}
+        {(loading || busy) && board && <LinearProgress />}
+        {busy && (
+          <Alert severity="info" variant="outlined" sx={{ m: 2, mb: 0 }}>
+            {drag?.committing && drag.cascadeSize != null
+              ? `Moving ${(drag.unitSize ?? 0) + drag.cascadeSize + (drag.yieldSize ?? 0)} bars — `
+                + 'the unit, what follows it, and what steps aside. This can take a moment.'
+              : 'Writing the plan…'}
+          </Alert>
+        )}
 
         {board && !loading && lanes.length === 0 && (
           <EmptyState
