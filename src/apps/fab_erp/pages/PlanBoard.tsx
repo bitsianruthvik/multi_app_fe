@@ -57,7 +57,9 @@ import {
   replanFromNow,
   simulateOrder,
   getPlanOrders,
+  getMachineLoad,
   type PlanOrder,
+  type MachineLoadRow,
 } from '../api/planner';
 import {
   PageHeader, Surface, EmptyState, ListSkeleton, Mono, useToast, backendMessage,
@@ -65,6 +67,7 @@ import {
 import {
   BoardCanvas, type BoardRow, type BlockHit, type GrabInfo, type PreviewTransform,
 } from '../components/planner/BoardCanvas';
+import { MachineLoadPanel } from '../components/planner/MachineLoadPanel';
 import {
   buildGrouping, buildColors, fmtWorkMs, shortenLabel, LEGIBLE_UNIT_LIMIT,
   GROUP_LEVELS, GROUP_LEVEL_LABEL, type GroupLevel, type ColorSet,
@@ -155,6 +158,10 @@ export default function PlanBoard() {
       const res = await getPlanBoard({
         from: new Date(scale.startMs).toISOString(),
         to: new Date(scale.endMs).toISOString(),
+        // A row per MACHINE on the day, per resource TYPE above it. Standing in
+        // front of the shop the question is which of the four welders; a month
+        // out it is whether welding as a whole is full.
+        lanesBy: mode === 'day' ? 'machine' : 'type',
       });
       setBoard(res);
       if (res.timezone && res.timezone !== timeZone) setTimeZone(res.timezone);
@@ -163,7 +170,7 @@ export default function PlanBoard() {
     } finally {
       setLoading(false);
     }
-  }, [scale.startMs, scale.endMs, timeZone]);
+  }, [scale.startMs, scale.endMs, timeZone, mode]);
 
   useEffect(() => { if (canView) void load(); }, [canView, load]);
 
@@ -635,6 +642,33 @@ export default function PlanBoard() {
    * a date that accounts for everything already promised — the only kind worth
    * quoting.
    */
+  /**
+   * Planned output per machine, for the week and month views.
+   *
+   * Loaded beside the board rather than folded into it: the board answers "when",
+   * this answers "how much, and how much is still coming", and they want
+   * different shapes. Only fetched at week and month zoom, where comparing
+   * machines is the point — on the day the machines are already their own lanes.
+   */
+  const [machineLoad, setMachineLoad] = useState<{ bucketKeys: string[]; bucket: string; machines: MachineLoadRow[] } | null>(null);
+  useEffect(() => {
+    if (mode === 'day') { setMachineLoad(null); return undefined; }
+    let alive = true;
+    (async () => {
+      try {
+        const res = await getMachineLoad({
+          from: new Date(scale.startMs).toISOString(),
+          to: new Date(scale.endMs).toISOString(),
+          bucket: mode === 'month' ? 'week' : 'week',
+        });
+        if (alive) setMachineLoad({ bucketKeys: res.bucketKeys, bucket: res.bucket, machines: res.machines });
+      } catch {
+        if (alive) setMachineLoad(null);
+      }
+    })();
+    return () => { alive = false; };
+  }, [mode, scale.startMs, scale.endMs]);
+
   const [simOpen, setSimOpen] = useState(false);
   const [simOrders, setSimOrders] = useState<PlanOrder[]>([]);
   const [simOrderId, setSimOrderId] = useState<number | ''>('');
@@ -1353,6 +1387,19 @@ export default function PlanBoard() {
           work that had to follow the unit, <Box component="span" sx={{ color: '#B45309', fontWeight: 600 }}>amber</Box>{' '}
           for work that merely stood where the unit landed.
         </Typography>
+      )}
+
+      {machineLoad && machineLoad.machines.length > 0 && (
+        <Surface sx={{ p: 2 }}>
+          <Typography variant="subtitle2" sx={{ mb: 1.5 }}>
+            Planned output per machine
+          </Typography>
+          <MachineLoadPanel
+            rows={machineLoad.machines}
+            bucketKeys={machineLoad.bucketKeys}
+            bucket={machineLoad.bucket}
+          />
+        </Surface>
       )}
 
       {grouping && grouping.groups.length > LEGIBLE_UNIT_LIMIT && (

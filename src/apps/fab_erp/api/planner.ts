@@ -372,6 +372,46 @@ Promise<{
   });
 }
 
+/** One machine's planned output in one week or month. */
+export interface MachineBucket {
+  bucket: string;
+  /** Steel this machine is planned to process. */
+  tonnes: number;
+  hours: number;
+  tasks: number;
+  /** Tonnage still planned on this machine AFTER this bucket — the queue ahead. */
+  backlogTonnes: number;
+}
+
+export interface MachineLoadRow {
+  machineId: number;
+  name: string;
+  typeId: number;
+  typeName: string;
+  totalTonnes: number;
+  totalHours: number;
+  beyondWindowTonnes: number;
+  buckets: MachineBucket[];
+}
+
+/**
+ * GET /plan/machine-load — planned output and queue per machine.
+ *
+ * Tonnes, because that is what a fab shop counts. The same steel is counted at
+ * every station it passes: a 13 t segment cut, welded and painted gives 13 t to
+ * each of those three, since each really handles it. Per machine that is right;
+ * adding the machines together is meaningless.
+ */
+export async function getMachineLoad(params: {
+  from: string; to: string; bucket?: 'week' | 'month';
+}): Promise<{ ok: boolean; bucket: string; bucketKeys: string[]; machines: MachineLoadRow[] }> {
+  return fabGet('plan/machine-load', {
+    from: params.from,
+    to: params.to,
+    ...(params.bucket ? { bucket: params.bucket } : {}),
+  });
+}
+
 // ── editing ──────────────────────────────────────────────────────────────────
 
 /** POST /plan/entries — place work by hand. Refused (409) if the DAG says no. */
@@ -418,6 +458,13 @@ export async function deletePlanEntry(id: number): Promise<{ ok: boolean; remove
  */
 export interface BoardLane {
   resourceTypeId: number;
+  /**
+   * Set only when the board was asked for machine lanes. Null means this row is
+   * the whole resource type, which is how the week and month views draw it.
+   */
+  machineId: number | null;
+  /** The type's name, even on a machine lane — "SAW Welding" above "Welder 2". */
+  typeName: string;
   name: string;
   code: string | null;
   totalUnits: number;
@@ -504,11 +551,20 @@ export interface BoardResponse {
 /** GET /plan/board — lanes, coverage and every operation as a block. */
 export async function getPlanBoard(params: {
   from: string; to: string; resourceTypeIds?: number[];
+  /**
+   * One row per machine instead of per resource type.
+   *
+   * What the day view wants: a type lane with four welders draws four bars side
+   * by side and cannot say which welder has what, which is fine at month zoom
+   * and useless standing in front of the machines.
+   */
+  lanesBy?: 'type' | 'machine';
 }): Promise<BoardResponse> {
   return fabGet<BoardResponse>('plan/board', {
     from: params.from,
     to: params.to,
     ...(params.resourceTypeIds?.length ? { resourceTypeIds: params.resourceTypeIds.join(',') } : {}),
+    ...(params.lanesBy === 'machine' ? { lanesBy: 'machine' } : {}),
   });
 }
 
