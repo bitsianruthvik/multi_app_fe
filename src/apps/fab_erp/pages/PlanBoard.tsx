@@ -68,6 +68,7 @@ import {
   BoardCanvas, type BoardRow, type BlockHit, type GrabInfo, type PreviewTransform,
 } from '../components/planner/BoardCanvas';
 import { MachineLoadPanel } from '../components/planner/MachineLoadPanel';
+import { MachineAgendaPanel } from '../components/planner/MachineAgendaPanel';
 import {
   buildGrouping, buildColors, fmtWorkMs, shortenLabel, LEGIBLE_UNIT_LIMIT,
   GROUP_LEVELS, GROUP_LEVEL_LABEL, type GroupLevel, type ColorSet,
@@ -668,6 +669,16 @@ export default function PlanBoard() {
     })();
     return () => { alive = false; };
   }, [mode, scale.startMs, scale.endMs]);
+
+  /**
+   * Which machine lane the planner is looking at, on the day view.
+   *
+   * Only meaningful when lanes ARE machines, which is day zoom — see the
+   * lanesBy the board is fetched with. Cleared whenever the zoom changes, since
+   * a week lane is a resource type and has no single machine to show.
+   */
+  const [selectedMachine, setSelectedMachine] = useState<{ id: number; name: string } | null>(null);
+  useEffect(() => { if (mode !== 'day') setSelectedMachine(null); }, [mode]);
 
   const [simOpen, setSimOpen] = useState(false);
   const [simOrders, setSimOrders] = useState<PlanOrder[]>([]);
@@ -1303,6 +1314,18 @@ export default function PlanBoard() {
                   dark={dark}
                   onHover={setHover}
                   onPick={(hit) => {
+                    // On the day view a lane IS a machine, so picking anywhere
+                    // in one opens its week beside the board. The unit selection
+                    // below is unchanged — the two answer different questions and
+                    // a planner uses both at once.
+                    if (mode === 'day' && hit && hit.laneIdx >= 0) {
+                      const lane = lanes[hit.laneIdx];
+                      if (lane?.machineId != null) {
+                        setSelectedMachine((cur) => (cur?.id === lane.machineId
+                          ? null
+                          : { id: lane.machineId as number, name: lane.name }));
+                      }
+                    }
                     if (!hit || hit.groupIdx < 0 || !grouping) { setSelected(null); return; }
                     const key = grouping.groups[hit.groupIdx].key;
                     setSelected((cur) => (cur === key ? null : key));
@@ -1311,6 +1334,24 @@ export default function PlanBoard() {
                   blockLabel={blockLabel}
                 />
               </Box>
+
+              {/*
+                * The chosen machine's week, beside the day it is standing in.
+                *
+                * Inside the row with the canvas rather than under it, because the
+                * two are read together: what is on this machine now, and what is
+                * coming. Day view only — above it a lane is a resource type and
+                * has no single machine to show.
+                */}
+              {mode === 'day' && selectedMachine && (
+                <MachineAgendaPanel
+                  machineId={selectedMachine.id}
+                  from={new Date(scale.startMs)}
+                  timeZone={timeZone}
+                  canManage={canManage}
+                  onMoved={() => void load()}
+                />
+              )}
             </Box>
 
             {/* ── hover card ─────────────────────────────────────────────── */}

@@ -412,6 +412,77 @@ export async function getMachineLoad(params: {
   });
 }
 
+/** One task on a machine's agenda. */
+export interface MachineAgendaTask {
+  entryId: number;
+  taskId: number;
+  start: string;
+  end: string;
+  minutes: number;
+  itemCode: string | null;
+  itemName: string | null;
+  operationName: string | null;
+  orderNumber: string | null;
+  tonnes: number;
+}
+
+/** One day of a machine's agenda. */
+export interface MachineAgendaDay {
+  day: string;
+  tonnes: number;
+  hours: number;
+  tasks: MachineAgendaTask[];
+}
+
+/** A machine this task could run on instead, and whether it is free then. */
+export interface TaskMachineOption {
+  machineId: number;
+  name: string;
+  free: boolean;
+  busyWithTaskId: number | null;
+  current: boolean;
+}
+
+/**
+ * GET /plan/machine-agenda — one machine, day by day.
+ *
+ * The panel beside the day view. Per day rather than per week because the
+ * question asked while looking at a single day is "and then what".
+ */
+export async function getMachineAgenda(params: { machineId: number; from: string; days?: number }):
+Promise<{
+  ok: boolean; machineId: number; machineName: string; typeId: number; typeName: string;
+  totalTonnes: number; totalHours: number; agenda: MachineAgendaDay[];
+}> {
+  return fabGet('plan/machine-agenda', {
+    machineId: String(params.machineId),
+    from: params.from,
+    ...(params.days ? { days: String(params.days) } : {}),
+  });
+}
+
+/** GET /plan/task-machines — where else could this task run, and is it free there. */
+export async function getTaskMachines(params: { entryId: number; taskId: number }):
+Promise<{ ok: boolean; currentMachineId: number | null; machines: TaskMachineOption[] }> {
+  return fabGet('plan/task-machines', {
+    entryId: String(params.entryId),
+    taskId: String(params.taskId),
+  });
+}
+
+/**
+ * POST /plan/assign-task — run named tasks on a particular machine.
+ *
+ * Refused if the machine is already running something then, naming what it
+ * would have collided with. A machine does one job at a time.
+ */
+export async function assignTaskToMachine(body: {
+  pairs: { entryId: number; taskId: number }[];
+  resourceId: number;
+}): Promise<{ ok: boolean; moved: number; machineId: number; machineName: string }> {
+  return fabPost('plan/assign-task', body);
+}
+
 // ── editing ──────────────────────────────────────────────────────────────────
 
 /** POST /plan/entries — place work by hand. Refused (409) if the DAG says no. */
