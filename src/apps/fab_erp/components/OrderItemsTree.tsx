@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Alert, AlertTitle, Autocomplete, Box, Button, CircularProgress, Dialog, DialogActions,
-  DialogContent, DialogTitle, FormControlLabel, IconButton, MenuItem, Radio, RadioGroup,
+  DialogContent, DialogTitle, FormControlLabel, IconButton, List, ListItemButton,
+  ListItemText, MenuItem, Radio, RadioGroup,
   TextField, Tooltip, Typography,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
@@ -23,7 +24,15 @@ import { Surface, EmptyState, useToast, backendMessage } from '../components';
 import { MaterializeOutcome, type MaterializeResponse } from './OrderTaskDag';
 import DrawingsPanel from './DrawingsPanel';
 import type { OrderReadiness } from '../api/readiness';
-import BoqWizardDialog, { type WizardLine } from './BoqWizardDialog';
+import TemplateWizardDialog from './TemplateWizardDialog';
+
+/** An order line, as the structure wizard and the line picker need it. */
+interface WizardLine {
+  id: number;
+  code?: string | null;
+  description?: string | null;
+  lineType?: string | null;
+}
 import { procurementOf } from '../api/procurement';
 import api, { API_HOST } from '@core/utils/axiosConfig';
 import { DialogCloseButton } from './FormDialog';
@@ -871,9 +880,25 @@ export default function OrderItemsTree({ orderId, canManage, readiness, onStageC
   // file picker opens rather than a switch sitting next to a one-click Import.
   const [importMode, setImportMode] = useState<'append' | 'replace'>('append');
   const [modeDialogOpen, setModeDialogOpen] = useState(false);
-  const [wizardOpen, setWizardOpen] = useState(false);
-  /** Structure types on this order's lines — shown as a hint in the wizard. */
   const [lines, setLines] = useState<WizardLine[]>([]);
+  const [wizardOpen, setWizardOpen] = useState(false);
+  /**
+   * The line the structure is being built for.
+   *
+   * The wizard builds ONE line's structure — an order with three lines is three
+   * structures, and the codes below each are prefixed by its own code. The old
+   * dialog carried a line selector inside itself; this asks first, because with
+   * a single line there is nothing to ask and the question should not appear.
+   */
+  const [wizardLine, setWizardLine] = useState<WizardLine | null>(null);
+  const [linePickerOpen, setLinePickerOpen] = useState(false);
+
+  const openStructureWizard = useCallback(() => {
+    if (lines.length === 1) { setWizardLine(lines[0]); setWizardOpen(true); return; }
+    if (lines.length === 0) { setImportErr('Add an order line first — the structure hangs off one.'); return; }
+    setLinePickerOpen(true);
+  }, [lines]);
+  /** Structure types on this order's lines — shown as a hint in the wizard. */
 
   const [summary, setSummary] = useState<ItemsSummary | null>(null);
   const [procCounts, setProcCounts] = useState<{ make: number; buy: number } | null>(null);
@@ -1236,8 +1261,8 @@ export default function OrderItemsTree({ orderId, canManage, readiness, onStageC
           >
             {topItems.length > 0 ? 'Export BOQ' : 'Download BOQ template'}
           </Button>
-          <Tooltip title="Lay out span / girders / segments and the parts in each, and download a sheet to fill in. Nothing is saved until you upload it.">
-            <Button variant="outlined" size="small" startIcon={<AutoFixHighRounded />} onClick={() => setWizardOpen(true)}>
+          <Tooltip title="Build this line's structure from a catalog BOM — it asks only what the BOM asks, and shows what it would create before anything exists.">
+            <Button variant="outlined" size="small" startIcon={<AutoFixHighRounded />} onClick={openStructureWizard}>
               Structure wizard
             </Button>
           </Tooltip>
@@ -1327,12 +1352,38 @@ export default function OrderItemsTree({ orderId, canManage, readiness, onStageC
         </DialogActions>
       </Dialog>
 
-      <BoqWizardDialog
+      {/*
+        * Which line, when there is more than one. A structure belongs to a line
+        * and takes its code, so this cannot be guessed.
+        */}
+      <Dialog open={linePickerOpen} onClose={() => setLinePickerOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle>Which line?</DialogTitle>
+        <DialogContent>
+          <List dense>
+            {lines.map((l) => (
+              <ListItemButton
+                key={l.id}
+                onClick={() => { setWizardLine(l); setLinePickerOpen(false); setWizardOpen(true); }}
+              >
+                <ListItemText
+                  primary={l.description || l.code || `Line ${l.id}`}
+                  secondary={l.code ? `code ${l.code}` : undefined}
+                />
+              </ListItemButton>
+            ))}
+          </List>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setLinePickerOpen(false)}>Cancel</Button>
+        </DialogActions>
+      </Dialog>
+
+      <TemplateWizardDialog
         open={wizardOpen}
         orderId={orderId}
-        lines={lines}
-        onClose={() => setWizardOpen(false)}
-        onImported={() => { markItemsChanged(); loadSummary(); loadProcurementCounts(); setTreeVersion((v) => v + 1); loadTop().then(setTopItems).catch(() => {}); }}
+        orderLine={wizardLine ? { id: wizardLine.id, code: wizardLine.code ?? null } : null}
+        onClose={() => { setWizardOpen(false); setWizardLine(null); }}
+        onDone={() => { markItemsChanged(); loadSummary(); loadProcurementCounts(); setTreeVersion((v) => v + 1); loadTop().then(setTopItems).catch(() => {}); }}
       />
 
       {importErr && <Alert severity="error" sx={{ mb: 1.5 }} onClose={() => setImportErr('')}>{importErr}</Alert>}

@@ -272,9 +272,18 @@ export default function TemplateWizardDialog({
 
   // ── create ────────────────────────────────────────────────────────────────
 
-  async function create() {
+  /**
+   * Set when the line already has a structure.
+   *
+   * Not an error to dismiss — a question. The answers are still on screen and
+   * the only thing left to decide is whether to replace what is there, so the
+   * dialog asks rather than sending somebody away to delete rows by hand.
+   */
+  const [existing, setExisting] = useState<number | null>(null);
+
+  async function create(replace = false) {
     if (itemId === '') return;
-    setBusy(true); setError('');
+    setBusy(true); setError(''); setExisting(null);
     try {
       await instantiateTemplate(orderId, {
         itemId,
@@ -282,13 +291,19 @@ export default function TemplateWizardDialog({
         params,
         perInstance,
         lineCode: orderLine?.code ?? null,
+        ...(replace ? { replace: true } : {}),
       });
       onDone();
       onClose();
     } catch (e) {
-      // Stay open on failure. The answers took effort and re-typing them is the
-      // fastest way to make somebody give up on the wizard.
-      setError(backendMessage(e, 'Could not create that structure.'));
+      const res = (e as { response?: { status?: number; data?: { code?: string; existing?: number } } }).response;
+      if (res?.status === 409 && res.data?.code === 'ALREADY_BUILT') {
+        setExisting(res.data.existing ?? 0);
+      } else {
+        // Stay open on failure. The answers took effort and re-typing them is the
+        // fastest way to make somebody give up on the wizard.
+        setError(backendMessage(e, 'Could not create that structure.'));
+      }
     } finally {
       setBusy(false);
     }
@@ -327,6 +342,14 @@ export default function TemplateWizardDialog({
       <DialogTitle sx={{ fontWeight: 600 }}>Build the structure</DialogTitle>
       <DialogContent dividers>
         {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
+
+        {existing != null && (
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            This line already has <b>{existing}</b> item(s). Building again would add a second
+            copy of everything — every code is prefixed by the line, so the duplicates would look
+            like ordinary rows. Replace what is there, or close and pick a different line.
+          </Alert>
+        )}
 
         <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)', mb: 2 }}>
           Pick what you are building, answer how many of each, then check the preview before
@@ -548,14 +571,26 @@ export default function TemplateWizardDialog({
       <DialogActions>
         <Button onClick={onClose} disabled={busy}>Cancel</Button>
         <Box sx={{ flex: 1 }} />
-        <Button
-          variant="contained"
-          disabled={!canCreate}
-          startIcon={busy ? <CircularProgress size={14} color="inherit" /> : <CheckRoundedIcon />}
-          onClick={create}
-        >
-          {preview ? `Create ${preview.nodes} item${preview.nodes === 1 ? '' : 's'}` : 'Create'}
-        </Button>
+        {existing != null ? (
+          <Button
+            variant="contained"
+            color="warning"
+            disabled={busy}
+            startIcon={busy ? <CircularProgress size={14} color="inherit" /> : <CheckRoundedIcon />}
+            onClick={() => void create(true)}
+          >
+            Replace the {existing} item(s)
+          </Button>
+        ) : (
+          <Button
+            variant="contained"
+            disabled={!canCreate}
+            startIcon={busy ? <CircularProgress size={14} color="inherit" /> : <CheckRoundedIcon />}
+            onClick={() => void create(false)}
+          >
+            {preview ? `Create ${preview.nodes} item${preview.nodes === 1 ? '' : 's'}` : 'Create'}
+          </Button>
+        )}
       </DialogActions>
     </Dialog>
   );

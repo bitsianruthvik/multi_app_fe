@@ -208,5 +208,15 @@ export const instantiateTemplate = (
     params?: TemplateParams;
     perInstance?: TemplatePerInstance;
     lineCode?: string | null;
+    /**
+     * Rebuild a line that already has a structure.
+     *
+     * Without it the server refuses with 409 ALREADY_BUILT rather than adding a
+     * second copy of everything — every code is prefixed by the line, so
+     * duplicates look like ordinary rows and nobody would spot them. With it,
+     * the line's existing items and their tasks are soft-deleted first, and it
+     * is still refused if any of that work has been started.
+     */
+    replace?: boolean;
   },
 ) => fabPost<InstantiateResult>(`orders/${orderId}/instantiate`, { ...body });
