@@ -682,12 +682,12 @@ export default function ItemCatalogDetail() {
           {/*
             * Repointed at fab_item_bom (2026-08-29).
             *
-            * This rendered BomDesigner, which reads fab_material_boms — a table
-            * with ZERO rows in this company. The real structure lived in
-            * fab_item_bom all along: Span contains Girder contains Segment
-            * contains seven parts, for all six girder types. So opening a Span
-            * and clicking Bill of Materials showed nothing, and the only way to
-            * see the BOM was to query the database.
+            * This rendered a designer over fab_material_boms — a table with zero
+            * rows in this company — while the real structure sat in fab_item_bom
+            * all along: Span contains Girder contains Segment contains seven
+            * parts, for all six girder types. So opening a Span and clicking
+            * Bill of Materials showed nothing, and the only way to see the BOM
+            * was to query the database. That designer has since been deleted.
             */}
           <ItemBomDesigner
             catalogItemId={id}
