@@ -16,7 +16,7 @@
  * re-run rather than a half-built order.
  */
 
-import { fabGet, fabPost } from './client';
+import { fabGet, fabPost, fabDel } from './client';
 import type { OrderReadiness } from './readiness';
 
 /**
@@ -124,6 +124,57 @@ export interface InstantiateResult {
 }
 
 /** Everything this company can build, ordered by category then name. */
+/** One BOM line as the editor sees it — a template line plus its own id and depth. */
+export interface ItemBomLine extends TemplateBomLine {
+  id: number;
+  parentItemId: number;
+  childUnit: string | null;
+  /**
+   * How many lines the CHILD has under it.
+   *
+   * Sent with the list so the editor can mark which rows go deeper without a
+   * request per row. A Segment with seven parts under it and a Top Flange with
+   * none look identical in a flat list, and that difference is the structure.
+   */
+  childLineCount: number;
+}
+
+export interface ItemBomResponse {
+  ok: boolean;
+  parent: { id: number; code: string | null; name: string; unit: string | null; levelKind: string | null };
+  lines: ItemBomLine[];
+  /** Every question the whole tree under this item would ask an order. */
+  parameters: TemplateParameter[];
+}
+
+/** GET /item-bom/:itemId — the lines directly under one catalog item. */
+export const getItemBom = (itemId: number) =>
+  fabGet<ItemBomResponse>(`item-bom/${itemId}`);
+
+/**
+ * POST /item-bom — add or edit one line.
+ *
+ * Exactly one of `qtyNum` or `qtyParam`. Both would be two answers to "how
+ * many"; neither would silently expand to zero and collapse the level with no
+ * explanation. The server refuses either way, and refuses a cycle.
+ */
+export const saveItemBomLine = (line: {
+  id?: number | null;
+  parentItemId: number;
+  childItemId: number;
+  qtyNum?: number | string | null;
+  qtyParam?: string | null;
+  defaultQty?: number | string | null;
+  perInstanceQty?: boolean;
+  codeSegment?: string | null;
+  helpText?: string | null;
+  sortOrder?: number;
+}) => fabPost<{ ok: boolean }>('item-bom', line as unknown as Record<string, unknown>);
+
+/** DELETE /item-bom/:id — remove a line. The child item itself is untouched. */
+export const deleteItemBomLine = (id: number) =>
+  fabDel<{ ok: boolean }>(`item-bom/${id}`);
+
 export const listTemplates = () =>
   fabGet<{ templates: StructureTemplate[] }>('templates');
 

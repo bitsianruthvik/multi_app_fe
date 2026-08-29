@@ -15,7 +15,7 @@ import type { FabItemCatalog, FabItemCategory, FabItemGroup, FabItemSubgroup } f
 import { usePermission } from '@core/hooks/usePermission';
 import { useAuth } from '@core/contexts/AuthContext';
 import { isAdminRole } from '@core/utils/roles';
-import BomDesigner from '../components/BomDesigner';
+import ItemBomDesigner from '../components/ItemBomDesigner';
 import { SectionCard, StickyActionBar, Surface, DetailLayout, Mono, StatusBadge, useToast, DetailSkeleton } from '../components';
 import { STANDARD_UOMS } from '../constants/uom';
 import {
@@ -679,7 +679,21 @@ export default function ItemCatalogDetail() {
 
       {tab === 1 && (
         <Surface e={1} sx={{ height: 600, display: 'flex', flexDirection: 'column', overflow: 'hidden', p: 0 }}>
-          <BomDesigner catalogItemId={id} catalogItemName={item.name} catalogItemCode={item.code} catalogItemUnit={item.unit ?? undefined} mode={canManage ? 'edit' : 'readonly'} />
+          {/*
+            * Repointed at fab_item_bom (2026-08-29).
+            *
+            * This rendered BomDesigner, which reads fab_material_boms — a table
+            * with ZERO rows in this company. The real structure lived in
+            * fab_item_bom all along: Span contains Girder contains Segment
+            * contains seven parts, for all six girder types. So opening a Span
+            * and clicking Bill of Materials showed nothing, and the only way to
+            * see the BOM was to query the database.
+            */}
+          <ItemBomDesigner
+            catalogItemId={id}
+            catalogItemName={item.name}
+            mode={canManage ? 'edit' : 'readonly'}
+          />
         </Surface>
       )}
     </DetailLayout>
