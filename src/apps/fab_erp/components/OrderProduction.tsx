@@ -265,6 +265,21 @@ export default function OrderProduction({ orderId, canManage, onChanged }: {
             </Box>
           )}
 
+          {/* Registered but not formula-usable: the field is wrong, not the
+              formula, so this points at Item fields and not at Operations. */}
+          {(fieldGap.detail?.unusableFields?.length ?? 0) > 0 && (
+            <Box sx={{ mb: 1 }}>
+              <Typography sx={{ fontSize: 11.5, color: 'var(--c-text-2)', mb: 0.25 }}>
+                Operations using a field that is not set up for formulas — fix these in Item fields:
+              </Typography>
+              <Box component="ul" sx={{ m: 0, pl: 2.5, fontSize: 12.5 }}>
+                {fieldGap.detail.unusableFields!.map((u) => (
+                  <li key={u.operationId}>{u.operationName} — <Mono>{u.keys.join(', ')}</Mono></li>
+                ))}
+              </Box>
+            </Box>
+          )}
+
           <Button size="small" disabled={busy} onClick={() => void raise({ force: true })} sx={{ mt: 0.5 }}>
             Raise anyway
           </Button>

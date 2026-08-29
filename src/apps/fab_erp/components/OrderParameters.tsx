@@ -399,6 +399,27 @@ export default function OrderParameters({ orderId, canManage, onStageChanged }: 
         </Alert>
       )}
 
+      {/*
+        * A DIFFERENT problem, and it used to be reported as the one above.
+        *
+        * "The formula needs correcting" sent somebody to rewrite a formula that
+        * was perfectly good: `unit_weight_kg` was registered as text, so it was
+        * not formula-usable, so it came through the same channel as a typo. The
+        * field is what needs fixing, once, and every formula naming it is fine.
+        */}
+      {(readiness?.unusableFields?.length ?? 0) > 0 && (
+        <Alert severity="warning" sx={{ mb: 2 }}>
+          <Typography sx={{ fontSize: 13, fontWeight: 600, mb: 0.25 }}>
+            Some formulas use a field that is not set up for formulas
+          </Typography>
+          <Typography sx={{ fontSize: 12.5 }}>
+            {readiness!.unusableFields!.map((u) => `${u.operationName}: ${u.keys.join(', ')}`).join(' · ')}
+            {' '}— the formulas are fine. Open <b>Item fields</b>, make each of these a number
+            and tick &ldquo;usable in formulas&rdquo;.
+          </Typography>
+        </Alert>
+      )}
+
       {/* The spreadsheet path, asked for because "many times it is easier to
           enter that way" — and because the values usually already exist in one. */}
       <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', mb: 1.5, flexWrap: 'wrap' }}>

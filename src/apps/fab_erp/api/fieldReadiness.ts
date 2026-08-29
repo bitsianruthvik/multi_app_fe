@@ -10,6 +10,10 @@
  *
  *   missingValues  a registered field this part's flow needs, with no value
  *                  anywhere down the chain. A DATA problem — fix the part.
+ *   unusableFields a formula names a field that IS registered but is not usable
+ *                  in formulas — a text field, usually. The FIELD is wrong, not
+ *                  the formula, and it is fixed once on Item fields rather than
+ *                  in every formula that names it.
  *   unknownFields  a formula names a field that does not exist (or is text, so
  *                  can never resolve). An AUTHORING problem — fix the formula.
  *                  Reported once per operation, because reporting a single typo
@@ -32,6 +36,8 @@ export interface FieldReadiness {
     missing: string[];
   }>;
   unknownFields: Array<{ operationId: number; operationName: string | null; keys: string[] }>;
+  /** Registered but not formula-usable — fix the field, not the formula. */
+  unusableFields?: Array<{ operationId: number; operationName: string | null; keys: string[] }>;
   noFormula: Array<{ operationId: number; operationName: string | null }>;
 }
 
