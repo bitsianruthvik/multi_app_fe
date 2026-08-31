@@ -69,6 +69,10 @@ export const NAV_SECTIONS: NavSection[] = [
       // work on next is worse than either alone. Its keywords are inherited so
       // the palette still finds this by the old name.
       { slug: 'plan-board', label: 'Board', permission: 'fab_erp_planner_view', keywords: ['board', 'plan', 'planner', 'planning', 'schedule', 'gantt', 'dispatch', 'month', 'week', 'day', 'zoom', 'load', 'gaps', 'girder', 'group', 'timeline', 'utilisation', 'utilization', 'canvas', 'capacity', 'suggest', 'replan', 're-plan'] },
+      // The Board's mirror image: same window, same ladder, drawn from what
+      // HAPPENED. Sits next to it deliberately — the pair is "what we intend"
+      // and "what we did", and separating them across sections would hide that.
+      { slug: 'actuals', label: 'Actuals', permission: 'fab_erp_actuals_view', keywords: ['actual', 'actuals', 'progress', 'done', 'completed', 'history', 'retrospective', 'month', 'monthly', 'this month', 'review', 'achieved', 'output', 'produced', 'tonnes', 'tonnage', 'what happened', 'in progress', 'running'] },
       { slug: 'task-engine', label: 'Engine', permission: 'fab_erp_taskengine_view', countKey: 'activeOrders', keywords: ['dag', 'graph', 'swimlane', 'progress'] },
       { slug: 'machine-board', label: 'Machines', permission: 'fab_erp_machine_state_manage', countKey: 'machinesRunning', keywords: ['shop floor', 'state', 'running', 'down'] },
       // No countKey: "unaccounted time gaps" needs a per-machine shift-vs-events

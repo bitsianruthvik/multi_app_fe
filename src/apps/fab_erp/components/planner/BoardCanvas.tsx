@@ -1,5 +1,20 @@
 /**
- * BoardCanvas.tsx — the plan, drawn.
+ * BoardCanvas.tsx — the plan, drawn. And, since 2026-08-31, the actuals too.
+ *
+ * TWO BOARDS, ONE RENDERER
+ * ------------------------
+ * The Actuals Board asks the same question backwards — not "where is the room
+ * next month" but "what did the shop do last month" — and everything hard here
+ * is the same either way: the density switch, the hit-test bisection, the DPR
+ * handling, the two ways of measuring width. So it draws through this component
+ * rather than through a copy of it, and the differences arrive as OPTIONAL props
+ * (`blockStatus`, `statusStyle`, `spines`) that default to exactly the previous
+ * behaviour. Nothing about the Plan Board changes because the second board
+ * exists.
+ *
+ * The alternative — a second canvas — was rejected on this codebase's own
+ * evidence: three places once reconstructed a bundle's member times and a bug
+ * lived in the gap between them. Two renderers would be that shape again.
  *
  * WHY A CANVAS
  * ------------
@@ -152,7 +167,47 @@ export interface BoardCanvasProps {
    * What to write inside a block wide enough to hold writing. Called only at
    * the zoom where that is true, so it can be as expensive as a map lookup.
    */
-  blockLabel?: (entryId: number, itemId: number) => string;
+  blockLabel?: (entryId: number, itemId: number, laneIdx: number, blockIdx: number) => string;
+  /**
+   * What each block IS, one small code per block, indexed like `lanes`.
+   *
+   * Only the Actuals Board supplies this; on the plan every bar is an intention
+   * and there is nothing to distinguish. When it is absent every block draws
+   * solid, exactly as before, so this feature existing costs the Plan Board
+   * nothing.
+   *
+   * COLOUR IS ALREADY SPOKEN FOR. A unit's hue comes off a golden-angle wheel,
+   * so at any moment one unit is about to be red — the same reason a refused
+   * drag is ghosted rather than recoloured. Status therefore changes the FILL
+   * TREATMENT and never the hue: solid, hatched, outlined, or ruled.
+   */
+  blockStatus?: (ArrayLike<number> | undefined)[];
+  /**
+   * How each status code is drawn. Absent codes draw solid.
+   *
+   * Passed in rather than hard-coded so the canvas keeps knowing about geometry
+   * and nothing about what a shop calls a paused task.
+   */
+  statusStyle?: Record<number, BlockStyle>;
+  /**
+   * The reach of a unit, drawn faintly behind its blocks.
+   *
+   * What makes "one bar per girder" survive being split into the stretches it
+   * was actually worked in: the spine says where the unit began and ended, the
+   * blocks on top say when anybody touched it, and the space between the two is
+   * the idle — which is the thing this board exists to show.
+   */
+  spines?: BoardSpine[];
+}
+
+/** How a block with a given status code is painted. */
+export type BlockStyle = 'solid' | 'hatched' | 'outlined' | 'live' | 'ruled';
+
+export interface BoardSpine {
+  laneIdx: number;
+  startRel: number;
+  endRel: number;
+  groupIdx: number;
 }
 
 /** Trim to fit, with an ellipsis, using the context's current font. */
@@ -216,6 +271,10 @@ interface Palette {
   /** Text drawn ON a block — the block's fill is the ground, not the page. */
   onBlock: string;
   text: string;
+  /** A finish that came after the plan said it would. */
+  late: string;
+  /** The reach of a unit, behind its work. */
+  spine: string;
 }
 
 function palette(dark: boolean): Palette {
@@ -235,6 +294,8 @@ function palette(dark: boolean): Palette {
       rippleYield: '#F59E0B',
       onBlock: 'rgba(10,12,20,.88)',
       text: 'rgba(255,255,255,.86)',
+      late: '#F43F5E',
+      spine: 'rgba(255,255,255,.13)',
     }
     : {
       laneBase: '#FFFFFF',
@@ -251,6 +312,8 @@ function palette(dark: boolean): Palette {
       rippleYield: '#B45309',
       onBlock: 'rgba(255,255,255,.96)',
       text: 'rgba(26,28,46,.9)',
+      late: '#BE123C',
+      spine: 'rgba(26,28,46,.12)',
     };
 }
 
@@ -258,7 +321,7 @@ export function BoardCanvas(props: BoardCanvasProps) {
   const {
     lanes, grouping, colors, groupBlocks, entryStartRel, rows, windowMs, nowRel,
     gridRel, gridMajor, selectedGroup, hoverGroup, dark, onHover, onPick, onWidth,
-    blockLabel, preview, onGrab, ripple,
+    blockLabel, preview, onGrab, ripple, blockStatus, statusStyle, spines,
   } = props;
 
   const wrapRef = useRef<HTMLDivElement | null>(null);
@@ -394,13 +457,64 @@ export function BoardCanvas(props: BoardCanvasProps) {
       ctx.stroke();
     }
 
-    // 3. The work.
+    // 3. Spines: the reach of a unit, under its work.
+    if (spines && spines.length > 0) {
+      const topOf = new Map<number, { y: number; h: number }>();
+      let sy = 0;
+      for (const row of rows) {
+        if (row.kind === 'lane') topOf.set(row.laneIdx, { y: sy, h: row.h });
+        sy += row.h;
+      }
+      /**
+       * A thin CONNECTOR in the unit's own hue, not a full-height grey fill.
+       *
+       * The grey version was the first attempt and it lost: a lane is already
+       * banded light and dark by the shift coverage underneath, so a faint
+       * full-height rectangle on top of that is indistinguishable from the
+       * calendar. Colour and thinness both do work here — the hue says WHOSE
+       * reach this is, and a line between the blocks reads as "the same girder,
+       * still open" rather than as more shading.
+       */
+      for (const sp of spines) {
+        const at = topOf.get(sp.laneIdx);
+        if (!at) continue;
+        const x0 = sp.startRel * pxPerMs;
+        const w = Math.max(1, sp.endRel * pxPerMs - x0);
+        if (x0 + w <= 0 || x0 >= width) continue;
+        const c = sp.groupIdx >= 0 ? colorOf(sp.groupIdx) : null;
+        const dim = anySelection && sp.groupIdx !== selectedGroup;
+        const th = Math.max(2, Math.min(4, at.h / 8));
+        ctx.fillStyle = c ? (dim ? c.dim : c.rail) : pal.spine;
+        ctx.globalAlpha = dim ? 0.3 : 0.55;
+        ctx.fillRect(x0, at.y + (at.h - th) / 2, w, th);
+        // End caps, so the reach has two ends rather than fading out.
+        ctx.globalAlpha = dim ? 0.4 : 0.8;
+        const capH = Math.max(4, at.h * 0.4);
+        for (const cx of [x0, x0 + w - 1.5]) {
+          ctx.fillRect(cx, at.y + (at.h - capH) / 2, 1.5, capH);
+        }
+        ctx.globalAlpha = 1;
+      }
+    }
+
+    // 4. The work.
     const cols = dense ? new Float32Array(width) : null;
     const domG = dense ? new Int32Array(width) : null;
     const domW = dense ? new Float32Array(width) : null;
+    /**
+     * Density columns carry work that is still MOVING separately.
+     *
+     * At month zoom a block is thinner than a pixel and a fill treatment is
+     * invisible, so status has to change the column's shape instead: the done
+     * portion is drawn from the baseline and whatever is still running is
+     * stacked on top of it, lighter. Without this the live edge — the only part
+     * of a retrospective that is not history — disappears at exactly the zoom
+     * where somebody is looking for it.
+     */
+    const live = dense ? new Float32Array(width) : null;
 
     const drawSpans = (
-      read: (i: number) => { s: number; d: number; g: number },
+      read: (i: number) => { s: number; d: number; g: number; st?: number },
       count: number,
       top: number,
       h: number,
@@ -408,15 +522,17 @@ export function BoardCanvas(props: BoardCanvasProps) {
       labelAt?: (i: number) => string,
     ) => {
       if (count === 0) return;
-      if (dense && cols && domG && domW) {
+      if (dense && cols && domG && domW && live) {
         cols.fill(0);
         domG.fill(-1);
         domW.fill(0);
+        live.fill(0);
         for (let i = 0; i < count; i += 1) {
-          const { s, d, g } = read(i);
+          const { s, d, g, st } = read(i);
           const x0 = s * pxPerMs;
           const x1 = (s + d) * pxPerMs;
           if (x1 <= 0 || x0 >= width) continue;
+          const moving = st != null && statusStyle?.[st] === 'live';
           const c0 = Math.max(0, Math.floor(x0));
           const c1 = Math.min(width - 1, Math.floor(x1));
           for (let c = c0; c <= c1; c += 1) {
@@ -427,6 +543,7 @@ export function BoardCanvas(props: BoardCanvasProps) {
             const covered = Math.min(c + 1, x1) - Math.max(c, x0);
             if (covered <= 0) continue;
             cols[c] += covered;
+            if (moving) live[c] += covered;
             if (covered > domW[c]) { domW[c] = covered; domG[c] = g; }
           }
         }
@@ -439,14 +556,22 @@ export function BoardCanvas(props: BoardCanvasProps) {
           const bad = preview?.refused && g === preview.groupIdx;
           ctx.globalAlpha = bad ? 0.34 : 1;
           ctx.fillStyle = grp ? (dim ? grp.dim : grp.fill) : pal.ungrouped;
-          const bh = Math.max(2, Math.min(1, fill) * (h - inset * 2));
-          ctx.fillRect(c, top + inset + (h - inset * 2 - bh), 1, bh);
+          const room = h - inset * 2;
+          const bh = Math.max(2, Math.min(1, fill) * room);
+          ctx.fillRect(c, top + inset + (room - bh), 1, bh);
+          // The running share, stacked on top in the unit's own lighter edge
+          // colour. Same hue — this is a state, not a different girder.
+          const lh = Math.min(bh, Math.min(1, live[c]) * room);
+          if (lh > 0 && grp) {
+            ctx.fillStyle = dim ? grp.dim : grp.edge;
+            ctx.fillRect(c, top + inset + (room - bh), 1, Math.max(1, lh));
+          }
           ctx.globalAlpha = 1;
         }
         return;
       }
       for (let i = 0; i < count; i += 1) {
-        const { s, d, g } = read(i);
+        const { s, d, g, st } = read(i);
         const x0 = s * pxPerMs;
         const w = Math.max(1.25, d * pxPerMs);
         if (x0 + w <= 0 || x0 >= width) continue;
@@ -456,14 +581,77 @@ export function BoardCanvas(props: BoardCanvasProps) {
         // drawRefusedMark. It keeps its own hue and loses its solidity.
         const bad = preview?.refused && g === preview.groupIdx;
         ctx.globalAlpha = bad ? 0.34 : 1;
-        ctx.fillStyle = grp ? (dim ? grp.dim : grp.fill) : pal.ungrouped;
-        ctx.fillRect(x0, top + inset, w, h - inset * 2);
+        const ink = grp ? (dim ? grp.dim : grp.fill) : pal.ungrouped;
+        const bh = h - inset * 2;
+        const style: BlockStyle = (st != null && statusStyle?.[st]) || 'solid';
+
+        if (style === 'outlined') {
+          // Rework: the hue says whose, the hollowness says "this is here
+          // because something failed". Filling it would let a month of repairs
+          // read as a month of production.
+          ctx.strokeStyle = grp ? (dim ? grp.dim : grp.edge) : pal.ungrouped;
+          ctx.lineWidth = 1;
+          ctx.strokeRect(x0 + 0.5, top + inset + 0.5, Math.max(1, w - 1), Math.max(1, bh - 1));
+        } else {
+          ctx.fillStyle = ink;
+          // Hatched work is drawn faint and then scored, so a paused bar reads
+          // as interrupted rather than as a different unit.
+          ctx.globalAlpha = (bad ? 0.34 : 1) * (style === 'hatched' ? 0.5 : 1);
+          ctx.fillRect(x0, top + inset, w, bh);
+          ctx.globalAlpha = bad ? 0.34 : 1;
+          if (style === 'hatched' && w >= 4) {
+            ctx.save();
+            ctx.beginPath();
+            ctx.rect(x0, top + inset, w, bh);
+            ctx.clip();
+            ctx.strokeStyle = grp ? (dim ? grp.dim : grp.edge) : pal.ungrouped;
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            for (let hx = x0 - bh; hx < x0 + w; hx += 4) {
+              ctx.moveTo(hx, top + inset + bh);
+              ctx.lineTo(hx + bh, top + inset);
+            }
+            ctx.stroke();
+            ctx.restore();
+          }
+          if (style === 'live') {
+            /**
+             * The leading edge of work that has not stopped, in the SAME ink as
+             * the now line.
+             *
+             * On the right, because that is where it is still growing. And in
+             * `pal.now` rather than in the unit's own edge colour, which was the
+             * first attempt and was invisible: a 2px darker shade of the fill
+             * made a running operation look exactly like a finished one, which
+             * is the single worst thing this board could get wrong.
+             *
+             * Borrowing the now line's cyan is safe by construction — `hueFor`
+             * steps OVER 188°–212° precisely so no unit is ever that colour, so
+             * this cap can never be mistaken for somebody's girder.
+             */
+            const cap = Math.min(3, w);
+            ctx.fillStyle = pal.now;
+            ctx.globalAlpha = (bad ? 0.34 : 1) * (dim ? 0.4 : 1);
+            ctx.fillRect(x0 + w - cap, top + inset, cap, bh);
+            ctx.globalAlpha = bad ? 0.34 : 1;
+          }
+          if (style === 'ruled') {
+            // Finished, but after the plan said it would be. A rule along the
+            // bottom rather than a colour: the unit's hue is already meaning
+            // something else.
+            ctx.fillStyle = pal.late;
+            ctx.fillRect(x0, top + inset + bh - 2, w, 2);
+          }
+        }
         ctx.globalAlpha = 1;
         // A separator only where there is room for one, and drawn in the
         // GROUND rather than in a darker version of the block. A dark edge on
         // every block turns a row of forty operations into a barcode, which
         // reads as texture instead of as forty things.
-        if (w >= 5) {
+        // …but never over a status mark that lives on the same edge: the
+        // separator is painted in the GROUND colour, so drawn last it would rub
+        // out the right-hand third of the live cap it was meant to sit beside.
+        if (w >= 5 && style !== 'outlined' && style !== 'live') {
           ctx.fillStyle = pal.separator;
           ctx.fillRect(x0 + w - 1, top + inset, 1, h - inset * 2);
         }
@@ -495,6 +683,7 @@ export function BoardCanvas(props: BoardCanvasProps) {
         const lane = lanes[row.laneIdx];
         const gi = grouping.laneGroupIdx[row.laneIdx];
         const blocks = lane.blocks;
+        const sts = blockStatus?.[row.laneIdx];
         drawSpans(
           (i) => {
             const g = gi ? gi[i] : -1;
@@ -505,6 +694,7 @@ export function BoardCanvas(props: BoardCanvasProps) {
                 + shiftOf(g, entryStart, blocks[i * BLOCK_STRIDE + BLOCK_ENTRY]),
               d: blocks[i * BLOCK_STRIDE + BLOCK_DUR],
               g,
+              st: sts ? sts[i] : undefined,
             };
           },
           lane.blockCount,
@@ -515,6 +705,8 @@ export function BoardCanvas(props: BoardCanvasProps) {
             ? (i) => blockLabel(
               blocks[i * BLOCK_STRIDE + BLOCK_ENTRY],
               blocks[i * BLOCK_STRIDE + BLOCK_ITEM],
+              row.laneIdx,
+              i,
             )
             : undefined,
         );
@@ -659,7 +851,7 @@ export function BoardCanvas(props: BoardCanvasProps) {
       y += row.h;
     }
 
-    // 4. Now.
+    // 5. Now.
     if (nowRel != null) {
       const x = Math.round(nowRel * pxPerMs) + 0.5;
       if (x >= 0 && x <= width) {
@@ -675,7 +867,7 @@ export function BoardCanvas(props: BoardCanvasProps) {
   }, [
     lanes, grouping, groupBlocks, rows, windowMs, nowRel, gridRel, gridMajor,
     selectedGroup, hoverGroup, dark, width, totalH, blockLabel, colors,
-    entryStartRel, preview, canGrab, ripple,
+    entryStartRel, preview, canGrab, ripple, blockStatus, statusStyle, spines,
   ]);
 
   // ── hit testing ────────────────────────────────────────────────────────────

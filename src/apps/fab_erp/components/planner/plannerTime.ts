@@ -151,8 +151,44 @@ export interface Scale {
   place: (startIso: string | Date, endIso: string | Date) => { leftPct: number; widthPct: number } | null;
 }
 
-export function buildScale(mode: ViewMode, fromYMD: string, timeZone: string): Scale {
-  const dayCount = MODE_DAYS[mode] ?? 7;
+/** The 1st of the month containing `ymd`. */
+export function monthStartYMD(ymd: string): string {
+  return `${ymd.slice(0, 7)}-01`;
+}
+
+/** Days in the calendar month containing `ymd`. */
+export function daysInMonth(ymd: string): number {
+  const [y, m] = ymd.split('-').map(Number);
+  return new Date(Date.UTC(y, m, 0)).getUTCDate();
+}
+
+/** `n` calendar months from the month containing `ymd`, as its 1st. */
+export function addMonthsYMD(ymd: string, n: number): string {
+  const [y, m] = ymd.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1 + n, 1));
+  return dt.toISOString().slice(0, 10);
+}
+
+/**
+ * @param dayCount  Override the zoom's day count.
+ *
+ * The Plan Board never passes it: its month is deliberately 35 days snapped to
+ * Monday, because a plan is scanned by week and a calendar month puts Monday
+ * under a different column every month.
+ *
+ * The ACTUALS Board always passes it, and for the opposite and equally good
+ * reason: it is asked for "this month", and a monthly figure that runs from the
+ * 3rd of August to the 6th of September is not a monthly figure. Reporting wants
+ * the calendar; planning wants the rhythm. One scale builder, two callers, and
+ * the divergence stated here rather than discovered later.
+ */
+export function buildScale(
+  mode: ViewMode,
+  fromYMD: string,
+  timeZone: string,
+  dayCountOverride?: number,
+): Scale {
+  const dayCount = dayCountOverride ?? MODE_DAYS[mode] ?? 7;
   const days: string[] = [];
   let cursor = fromYMD;
   for (let i = 0; i < dayCount; i += 1) { days.push(cursor); cursor = nextYMD(cursor); }
