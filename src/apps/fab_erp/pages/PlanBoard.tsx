@@ -45,6 +45,7 @@ import KeyboardDoubleArrowLeftRounded from '@mui/icons-material/KeyboardDoubleAr
 import UndoRounded from '@mui/icons-material/UndoRounded';
 import RestartAltRounded from '@mui/icons-material/RestartAltRounded';
 import HelpOutlineRounded from '@mui/icons-material/HelpOutlineRounded';
+import PlaylistAddCheckRounded from '@mui/icons-material/PlaylistAddCheckRounded';
 
 import { usePermission } from '@core/hooks/usePermission';
 import { useAuth } from '@core/contexts/AuthContext';
@@ -56,6 +57,7 @@ import {
   type BoardResponse, type GroupPlacement, type GroupUnit,
   replanFromNow,
   simulateOrder,
+  suggestPlan,
   getPlanOrders,
   getMachineLoad,
   type PlanOrder,
@@ -69,6 +71,7 @@ import {
 } from '../components/planner/BoardCanvas';
 import { MachineLoadPanel } from '../components/planner/MachineLoadPanel';
 import { MachineAgendaPanel } from '../components/planner/MachineAgendaPanel';
+import { SuggestionReview } from '../components/planner/SuggestionReview';
 import {
   buildGrouping, buildColors, fmtWorkMs, shortenLabel, LEGIBLE_UNIT_LIMIT,
   GROUP_LEVELS, GROUP_LEVEL_LABEL, type GroupLevel, type ColorSet,
@@ -680,6 +683,38 @@ export default function PlanBoard() {
   const [selectedMachine, setSelectedMachine] = useState<{ id: number; name: string } | null>(null);
   useEffect(() => { if (mode !== 'day') setSelectedMachine(null); }, [mode]);
 
+  /**
+   * Plan by hand — see what the engine would do, take the parts you agree with.
+   *
+   * Re-plan is the whole-board move: it retires everything unstarted and accepts
+   * a fresh answer entire. That is right after a shift changes and wrong when
+   * only some of the answer is any good. This computes the same suggestion and
+   * puts NOTHING on the board — the bars land only as they are ticked in the
+   * drawer.
+   *
+   * The window runs from tomorrow, matching the planning floor the drag guard
+   * already enforces, out to the 92 days the endpoint will accept.
+   */
+  const [suggesting, setSuggesting] = useState(false);
+  const [reviewRunId, setReviewRunId] = useState<number | null>(null);
+  const [reviewOpen, setReviewOpen] = useState(false);
+
+  const openSuggestion = useCallback(async () => {
+    setSuggesting(true);
+    try {
+      const from = dayStartUtc(addDaysYMD(todayYMD(timeZone), 1), timeZone);
+      const to = dayStartUtc(addDaysYMD(todayYMD(timeZone), 92), timeZone);
+      const res = await suggestPlan({ from: from.toISOString(), to: to.toISOString() });
+      setReviewRunId(res.runId);
+      setReviewOpen(true);
+      if (!res.entryCount) toast('Nothing left to plan in the next 92 days', 'info');
+    } catch (err) {
+      toast(backendMessage(err, 'Could not work out a suggestion'), 'error');
+    } finally {
+      setSuggesting(false);
+    }
+  }, [timeZone, toast]);
+
   const [simOpen, setSimOpen] = useState(false);
   const [simOrders, setSimOrders] = useState<PlanOrder[]>([]);
   const [simOrderId, setSimOrderId] = useState<number | ''>('');
@@ -1125,6 +1160,21 @@ export default function PlanBoard() {
               </span>
             </Tooltip>
           )}
+          {canManage && (
+            <Tooltip title="Ask the engine where it would put the unplanned work — then pick the parts you agree with. Nothing lands on the board until you add it.">
+              <span>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  startIcon={<PlaylistAddCheckRounded />}
+                  disabled={busy || suggesting}
+                  onClick={() => void openSuggestion()}
+                >
+                  {suggesting ? 'Working it out…' : 'Suggest'}
+                </Button>
+              </span>
+            </Tooltip>
+          )}
           <Tooltip title="If we took an order, when would it finish? Levelled against everything already committed. Changes nothing.">
             <span>
               <Button
@@ -1459,6 +1509,16 @@ export default function PlanBoard() {
         * — but it is not undoable by Ctrl+Z either, so it should not happen on a
         * misclick next to Push left.
         */}
+      <SuggestionReview
+        open={reviewOpen}
+        runId={reviewRunId}
+        timeZone={timeZone}
+        canManage={canManage}
+        onClose={() => setReviewOpen(false)}
+        onPickRun={(id) => setReviewRunId(id)}
+        onAccepted={() => void load()}
+      />
+
       <Dialog open={confirmReplan} onClose={() => setConfirmReplan(false)} maxWidth="xs">
         <DialogTitle>Re-plan from tomorrow?</DialogTitle>
         <DialogContent>

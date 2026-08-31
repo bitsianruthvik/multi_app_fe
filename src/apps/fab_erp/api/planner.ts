@@ -288,6 +288,67 @@ export interface SuggestResponse {
   items: SuggestionItem[];
 }
 
+/** One bar of a saved suggestion, and whether it is already on the plan. */
+export interface PlanRunItem {
+  runItemId: number;
+  resourceTypeId: number;
+  resourceTypeName: string | null;
+  resourceId: number | null;
+  resourceName: string | null;
+  orderId: number | null;
+  orderNumber: string | null;
+  ancestorItemId: number | null;
+  ancestorCode: string | null;
+  ancestorName: string | null;
+  plannedStart: string;
+  plannedEnd: string;
+  plannedMinutes: number;
+  taskCount: number;
+  taskIds: number[];
+  isCriticalChain: boolean;
+  /** Why the engine put it here — "least slack", "critical", "no baseline". */
+  reason: string | null;
+  label: string | null;
+  /**
+   * Already on the plan.
+   *
+   * Read from the plan itself, not a flag on the suggestion: a bar accepted and
+   * later deleted reads as not accepted, which a flag could not say without
+   * being maintained in two places.
+   */
+  accepted: boolean;
+}
+
+export interface PlanRunSummary {
+  id: number;
+  status: 'suggested' | 'accepted' | 'superseded';
+  createdAt: string;
+  acceptedAt: string | null;
+  windowFrom: string;
+  windowTo: string;
+  itemCount: number;
+  acceptedCount: number;
+}
+
+/** GET /plan/runs — recent suggestions, newest first. */
+export async function getPlanRuns(limit = 10): Promise<{ ok: boolean; runs: PlanRunSummary[] }> {
+  return fabGet('plan/runs', { limit: String(limit) });
+}
+
+/**
+ * GET /plan/runs/:runId — one suggestion, bar by bar.
+ *
+ * Lets a suggestion be worked through a few bars at a time, and survive a
+ * reload. Before this it existed only in the response that created it.
+ */
+export async function getPlanRun(runId: number): Promise<{
+  ok: boolean;
+  run: { id: number; status: string; windowFrom: string; windowTo: string; createdAt: string };
+  items: PlanRunItem[];
+}> {
+  return fabGet(`plan/runs/${runId}`);
+}
+
 /**
  * GET /plan/suggest — compute a suggestion and freeze it as a run.
  *
