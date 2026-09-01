@@ -293,13 +293,39 @@ export default function ActualsBoard() {
     return opName ? (itName ? `${opName} · ${itName}` : opName) : itName;
   }, [view, opNameById, itemById]);
 
-  /** The number beside a unit, in whichever currency is selected. */
+  /**
+   * Server-side LABOUR and OPERATION COUNT per unit — neither of which is what
+   * the drawn blocks add up to in rolled-up mode.
+   */
+  const unitLabourMs = useMemo(
+    () => new Map((board?.units ?? []).map((u) => [u.key, u.workMs])),
+    [board],
+  );
+  const unitTaskCount = useMemo(
+    () => new Map((board?.units ?? []).map((u) => [u.key, u.taskCount])),
+    [board],
+  );
+
+  /**
+   * The number beside a unit, in whichever currency is selected.
+   *
+   * HOURS COME FROM THE SERVER'S PER-UNIT LABOUR, not from summing the blocks on
+   * screen. In rolled-up mode a block is a RUN — concurrent tasks on ten
+   * machines are merged into one stretch — so adding the drawn blocks gives
+   * OCCUPANCY, not work. Measured on the prod fixture: one girder drew 188h 45m
+   * of runs over 321h 30m of labour, and the header (labour) and the gutter
+   * (occupancy) sat on the same screen disagreeing by 40% with nothing to say
+   * why. Machine mode happens to agree because there a block is a task, which is
+   * exactly what made this easy to miss locally.
+   */
   const unitFigure = useCallback((key: string, workMs: number, blocks: number) => {
-    if (measure === 'hours') return fmtWorkMs(workMs);
-    if (measure === 'count') return `${blocks}`;
+    if (measure === 'hours') return fmtWorkMs(unitLabourMs.get(key) ?? workMs);
+    // Same trap as the hours: a rolled-up block is a run, so counting blocks
+    // counts stretches of activity rather than operations.
+    if (measure === 'count') return `${unitTaskCount.get(key) ?? blocks}`;
     const t = board?.unitTonnes?.[key];
     return t == null ? '—' : `${t.toFixed(t >= 10 ? 0 : 1)} t`;
-  }, [measure, board]);
+  }, [measure, board, unitLabourMs, unitTaskCount]);
 
   // ── stats ──────────────────────────────────────────────────────────────────
   const stats = useMemo<Stat[]>(() => {
