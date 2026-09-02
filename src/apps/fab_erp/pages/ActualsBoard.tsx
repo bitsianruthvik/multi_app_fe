@@ -34,9 +34,11 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  Alert, Box, Chip, MenuItem, Paper, Stack, Switch, FormControlLabel, TextField,
+  Alert, Box, Button, Chip, MenuItem, Paper, Stack, Switch, FormControlLabel, TextField,
   ToggleButton, ToggleButtonGroup, Tooltip, Typography, IconButton, useTheme,
 } from '@mui/material';
+import { Link as RouterLink, useParams } from 'react-router-dom';
+import DescriptionRounded from '@mui/icons-material/DescriptionRounded';
 import ChevronLeftRounded from '@mui/icons-material/ChevronLeftRounded';
 import ChevronRightRounded from '@mui/icons-material/ChevronRightRounded';
 import TodayRounded from '@mui/icons-material/TodayRounded';
@@ -98,6 +100,7 @@ export default function ActualsBoard() {
   const theme = useTheme();
   const dark = theme.palette.mode === 'dark';
   const { user } = useAuth();
+  const { company: companySlug } = useParams<{ company: string }>();
   const canView = usePermission('fab_erp_actuals_view') || isAdminRole(user?.role);
 
   const [board, setBoard] = useState<ActualsBoardResponse | null>(null);
@@ -575,6 +578,20 @@ export default function ActualsBoard() {
               control={<Switch size="small" checked={withPlan} onChange={(e) => setWithPlan(e.target.checked)} />}
               label={<Typography variant="body2">Compare with plan</Typography>}
             />
+          </Tooltip>
+
+          {/* The month as a document, for the client. Carries the window and the
+              level, so the report is of what is on screen rather than of some
+              default the reader has to re-choose. */}
+          <Tooltip title="A printable progress report for this month">
+            <Button
+              size="small"
+              startIcon={<DescriptionRounded />}
+              component={RouterLink}
+              to={`/${companySlug}/fab_erp/actuals/report?month=${scale.days[0].slice(0, 7)}&level=${level}`}
+            >
+              Report
+            </Button>
           </Tooltip>
 
           {boardMode === 'machine' && (

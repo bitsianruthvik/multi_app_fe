@@ -109,6 +109,17 @@ export interface ActualsUnit {
   taskCount: number;
 }
 
+/** Per-unit progress across the WHOLE order, not just this window. */
+export interface ActualsUnitProgress {
+  done: number;
+  total: number;
+  state: 'complete' | 'in_progress' | 'not_started';
+  firstStart: string | null;
+  /** Only set once every task is done — a half-built unit has no finish date. */
+  lastEnd: string | null;
+  touchedInWindow: boolean;
+}
+
 export interface ActualsStats {
   hours: number;
   /** Null when the window touched more items than the roll-up will load. */
@@ -186,6 +197,14 @@ export interface ActualsBoardResponse {
    * roll-up was skipped — see `stats.degraded`.
    */
   unitTonnes: Record<string, number>;
+  /**
+   * Per-unit progress, keyed like the grouping — the monthly report's table.
+   *
+   * Covers EVERY unit of the touched orders, including ones that saw no work in
+   * the window: a progress report that silently omits the girder nobody touched
+   * is the row a client looks for first.
+   */
+  unitProgress: Record<string, ActualsUnitProgress>;
   laneCount: number;
   /** Present only when the board was asked for `plan=1`. */
   plan: ActualsPlan | null;

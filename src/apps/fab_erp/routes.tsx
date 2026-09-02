@@ -25,6 +25,7 @@ const ProgressTemplates  = lazy(() => import('./pages/ProgressTemplates'));
 const TaskQueue          = lazy(() => import('./pages/TaskQueue'));
 const PlanBoard          = lazy(() => import('./pages/PlanBoard'));
 const ActualsBoard       = lazy(() => import('./pages/ActualsBoard'));
+const ActualsReport      = lazy(() => import('./pages/ActualsReport'));
 const TaskEngine         = lazy(() => import('./pages/TaskEngine'));
 const MachineBoard       = lazy(() => import('./pages/MachineBoard'));
 const BufferConfig       = lazy(() => import('./pages/BufferConfig'));
@@ -79,6 +80,9 @@ export function getFabErpRoutes(
     // the other is a record you cannot, and a tab strip implies they are the
     // same kind of thing.
     { path: '/:company/fab_erp/actuals',                     element: wrap(<ActualsBoard />) },
+    // The month, written to be printed and sent to the client. Its own route so
+    // it can be linked and bookmarked; ?month=YYYY-MM&level=girder.
+    { path: '/:company/fab_erp/actuals/report',              element: wrap(<ActualsReport />) },
     { path: '/:company/fab_erp/task-engine',                element: wrap(<TaskEngine />) },
     { path: '/:company/fab_erp/machine-board',               element: wrap(<MachineBoard />) },
     { path: '/:company/fab_erp/buffer-config',               element: wrap(<BufferConfig />) },
