@@ -623,8 +623,10 @@ export interface BoardItem {
   parentItemId: number | null;
   orderId: number | null;
   orderLineId: number | null;
-  /** 'span' | 'girder' | 'segment' | 'part' | 'material' | null. */
-  levelKind: string | null;
+  /** Distance from the line's root node. 0 is the top assembly. */
+  depth: number;
+  /** 'structure' | 'material'. */
+  nodeKind: string | null;
   name: string | null;
   code: string | null;
   mark: string | null;
@@ -673,6 +675,12 @@ export interface BoardResponse {
   timezone: string;
   lanes: BoardLane[];
   items: BoardItem[];
+  /**
+   * What to call each depth: `{ d0: 'Span', d1: 'Girder', … }`, taken from the
+   * commonest item name at that depth. The "Group by" picker is built from this
+   * rather than from a list of level names.
+   */
+  depthLabels: Record<string, string>;
   orders: BoardOrder[];
   lines: BoardLine[];
   entries: BoardEntry[];
@@ -807,8 +815,14 @@ export function groupErrorOf(err: unknown): { message: string; refusals: GroupRe
 /** Which unit of work to act on — a level of the BOM ladder and the node on it. */
 export interface GroupUnit { level: GroupLevelName; key: string }
 
-/** Mirrors boardModel's GROUP_LEVELS; kept here so the API type is self-contained. */
-export type GroupLevelName = 'order' | 'line' | 'span' | 'girder' | 'segment' | 'part';
+/**
+ * `'order'`, `'line'`, or a depth written `'d0'`, `'d1'`, …
+ *
+ * Not a union any more: which depths exist is a property of the order's BOM,
+ * not of this file, so a company whose structure is five deep needs no edit
+ * here. Mirrors boardModel; kept here so the API type is self-contained.
+ */
+export type GroupLevelName = string;
 
 /** POST /plan/group — move, stretch, push left, or restore. */
 export async function transformPlanGroup(body: {

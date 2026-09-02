@@ -35,7 +35,7 @@ interface Candidate {
   similarGroup: string | null; childCount: number;
 }
 interface CandidateSet {
-  key: string; levelKind: string; parentId: number | null; parentCode: string | null;
+  key: string; depth: number; name: string | null; parentId: number | null; parentCode: string | null;
   items: Candidate[];
 }
 
@@ -87,9 +87,9 @@ export default function SimilarGroupsPanel({ orderId, canManage, onChanged }: {
       // member rather than asking anyone to name their girders.
       const ids = [...picked];
       const set = sets.find((s) => s.key === activeSet);
-      const key = `${set?.levelKind ?? 'grp'}-${Math.min(...ids)}`;
+      const key = `${set?.name?.replace(/\s+/g, '') ?? 'grp'}-${Math.min(...ids)}`;
       const res = await markSimilar(orderId, ids, key);
-      toast(`${res.members} ${set?.levelKind ?? 'item'}s marked as copies of each other`, 'success');
+      toast(`${res.members} ${set?.name ?? 'item'}s marked as copies of each other`, 'success');
       setPicked(new Set());
       setActiveSet(null);
       await load();
@@ -140,7 +140,7 @@ export default function SimilarGroupsPanel({ orderId, canManage, onChanged }: {
               display: 'flex', alignItems: 'center', gap: 1, mb: 0.75, p: 1,
               borderRadius: 'var(--r-sm)', bgcolor: 'var(--c-surface-2)',
             }}>
-              <Chip size="small" label={g.levelKind} sx={{ height: 20, fontSize: 11 }} />
+              <Chip size="small" label={g.name ?? `Level ${g.depth + 1}`} sx={{ height: 20, fontSize: 11 }} />
               <Typography sx={{ fontSize: 12.5, flex: 1, minWidth: 0 }}>
                 {g.members.map((m) => m.code?.split('-').pop() ?? m.name).join(' ≡ ')}
               </Typography>
@@ -156,7 +156,7 @@ export default function SimilarGroupsPanel({ orderId, canManage, onChanged }: {
                 fontSize: 11, fontWeight: 600, letterSpacing: '.06em',
                 textTransform: 'uppercase', color: 'var(--c-text-3)', mb: 0.5,
               }}>
-                {s.levelKind}s{s.parentCode ? ` under ${s.parentCode.split('-').pop()}` : ''}
+                {s.name ?? `Level ${s.depth + 1}`}s{s.parentCode ? ` under ${s.parentCode.split('-').pop()}` : ''}
               </Typography>
               <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
                 {s.items.map((it) => {

@@ -26,7 +26,8 @@ export interface ParameterRow {
   itemId: number;
   code: string | null;
   name: string | null;
-  levelKind: string | null;
+  /** Distance from the line root. 0 is the top assembly. */
+  depth: number;
   flowId: number | null;
   /** How many real parts this row writes to — >1 when it leads a similarity group. */
   represents: number;
@@ -71,7 +72,9 @@ export async function importParameters(orderId: number, file: File) {
 
 export interface SimilarGroup {
   groupKey: string;
-  levelKind: string;
+  depth: number;
+  /** What the rows in this group are called — the label the old `levelKind` gave. */
+  name: string | null;
   members: Array<{ id: number; code: string | null; name: string | null }>;
 }
 

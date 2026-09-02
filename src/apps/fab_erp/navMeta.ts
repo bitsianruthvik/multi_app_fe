@@ -116,8 +116,6 @@ export const NAV_SECTIONS: NavSection[] = [
       { slug: 'item-catalog', label: 'Items', permission: 'fab_erp_items_meta_view', countKey: 'items', keywords: ['parts', 'catalog', 'category', 'group', 'taxonomy', 'bom', 'bill of materials'], childSlugs: ['item-catalog/:itemId'] },
       { slug: 'operations', label: 'Operations', permission: 'fab_erp_operations_view', countKey: 'operations', keywords: ['process', 'time formula'] },
       { slug: 'operation-flows', label: 'Flows', permission: 'fab_erp_flows_view', countKey: 'flows', keywords: ['routing', 'sequence', 'steps'] },
-      { slug: 'bom-templates', label: 'BOM templates', permission: 'fab_erp_flows_view', keywords: ['structure template', 'default parts', 'composite girder', 'what is it made of', 'wizard parts'] },
-      { slug: 'flow-rules', label: 'Flow rules', permission: 'fab_erp_flows_view', keywords: ['flow allocation', 'default flow', 'suffix', 'drilled', 'per level', 'assign flows'] },
       { slug: 'customers', label: 'Customers', permission: 'fab_erp_projects_view', countKey: 'customers', keywords: ['client', 'buyer', 'who we sell to'] },
       { slug: 'suppliers', label: 'Suppliers', permission: 'fab_erp_inventory_view', countKey: 'suppliers', keywords: ['vendor', 'purchase order', 'procurement', 'buy from', 'mill', 'stockist'] },
       { slug: 'plants', label: 'Plants', permission: 'fab_erp_resources_view', keywords: ['site', 'stock location', 'warehouse'] },

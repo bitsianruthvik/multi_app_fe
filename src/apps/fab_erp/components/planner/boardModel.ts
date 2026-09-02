@@ -20,30 +20,46 @@
 import type { BoardResponse, BoardItem } from '../../api/planner';
 import { BLOCK_STRIDE, BLOCK_START, BLOCK_DUR, BLOCK_ITEM } from '../../api/planner';
 
-/** Coarse → fine. The order IS the ladder; the index is the rank. */
-export const GROUP_LEVELS = ['order', 'line', 'span', 'girder', 'segment', 'part'] as const;
-export type GroupLevel = (typeof GROUP_LEVELS)[number];
+/**
+ * The two rungs ABOVE the item tree. Everything below is a DEPTH — `d0`, `d1`…
+ *
+ * Must match `planUnitService` exactly. The two copies of this walk are
+ * deliberately cross-checked rather than trusted (`assertContains` on the
+ * server refuses a drag whose bars it does not agree are in the unit), so a
+ * mismatch here is a loud refusal rather than a plan quietly moving the wrong
+ * work — see the header of that file.
+ *
+ * This used to be a fixed ladder of six with a `KIND_RANK` lookup. A company
+ * whose structure is five deep had nowhere to put the fifth rung and a flat one
+ * carried two dead ones. `material` needed a rank of its own purely so that an
+ * operation sitting on a plate row walked UP rather than falling out of every
+ * group; with depth that falls out for free, because a material row is simply
+ * one deeper than the part it belongs to.
+ */
+export const FIXED_GROUP_LEVELS = ['order', 'line'] as const;
+export type GroupLevel = string;
 
-export const GROUP_LEVEL_LABEL: Record<GroupLevel, string> = {
-  order: 'Order',
-  line: 'Line item',
-  span: 'Span',
-  girder: 'Girder',
-  segment: 'Segment',
-  part: 'Part',
-};
+export const isDepthLevel = (l: string) => /^d\d+$/.test(l);
+export const depthOfLevel = (l: string) => Number(l.slice(1));
 
 /**
- * Rank of a BOM level_kind on the same scale as GROUP_LEVELS.
+ * The levels this board can offer, given the depths its items actually have.
  *
- * `material` sits below `part` and is never a grouping level of its own — a
- * plate is bought, not built, so there is no work to group under it — but it
- * still has to rank, so that an operation sitting on a material row walks up
- * rather than falling out of every group.
+ * Labels come from `board.depthLabels` — the commonest item name at each depth —
+ * so the picker still reads "Span / Girder / Segment", named by the data rather
+ * than by a constant in this file.
  */
-const KIND_RANK: Record<string, number> = {
-  span: 2, girder: 3, segment: 4, part: 5, material: 6,
-};
+export function groupLevelsFor(
+  depths: number[],
+  depthLabels: Record<string, string> = {},
+): { key: GroupLevel; label: string }[] {
+  const uniq = [...new Set(depths.filter((d) => Number.isFinite(d)))].sort((a, b) => a - b);
+  return [
+    { key: 'order', label: 'Order' },
+    { key: 'line', label: 'Line item' },
+    ...uniq.map((d) => ({ key: `d${d}`, label: depthLabels[`d${d}`] ?? `Level ${d + 1}` })),
+  ];
+}
 
 export interface BoardGroup {
   key: string;
@@ -110,11 +126,10 @@ function buildItemIndex(board: BoardResponse): ItemIndex {
 const MAX_WALK = 24;
 
 function groupKeyFor(idx: ItemIndex, itemId: number, level: GroupLevel): string | null {
-  const wanted = GROUP_LEVELS.indexOf(level);
   const start = idx.byId.get(itemId) ?? null;
   if (!start) return null;
 
-  if (wanted <= 1) {
+  if (level === 'order' || level === 'line') {
     // order / line are not BOM nodes. Climb until the ids appear: a deep part
     // usually carries them, but an item created outside the wizard may only
     // have them on its root.
@@ -126,13 +141,14 @@ function groupKeyFor(idx: ItemIndex, itemId: number, level: GroupLevel): string 
     }
     return null;
   }
+  if (!isDepthLevel(level)) return null;
 
+  const wanted = depthOfLevel(level);
   let node: BoardItem | null = start;
   for (let i = 0; i < MAX_WALK && node; i += 1) {
-    const rank = KIND_RANK[node.levelKind ?? ''] ?? 0;
-    // At the wanted level, or already coarser than it because that level does
-    // not exist on this branch. Either way this is the closest containing unit.
-    if (rank <= wanted) return `i:${node.id}`;
+    // At the wanted depth, or already shallower because that depth does not
+    // exist on this branch. Either way this is the closest containing unit.
+    if ((node.depth ?? 0) <= wanted) return `i:${node.id}`;
     node = node.parentItemId != null ? idx.byId.get(node.parentItemId) ?? null : null;
   }
   return null;
@@ -205,11 +221,20 @@ export function buildGrouping(board: BoardResponse, level: GroupLevel): BoardGro
   /**
    * The level whose hue a fine-grained group borrows.
    *
-   * Two steps coarser, not one: at "part", one step is "segment", and a bridge
-   * has nearly as many segments as parts — borrowing from it would swap one
-   * rainbow for another. Two steps lands on the unit a planner actually moves.
+   * Two steps coarser, not one: at the leaves, one step up is the assembly
+   * holding them, and a bridge has nearly as many of those as leaves —
+   * borrowing from it would swap one rainbow for another. Two steps lands on
+   * the unit a planner actually moves.
+   *
+   * Below `d0` the two rungs above the tree take over, which is what the old
+   * fixed ladder did by running off the front of the array.
    */
-  const familyLevel = GROUP_LEVELS[Math.max(0, GROUP_LEVELS.indexOf(level) - 2)];
+  const familyLevel: GroupLevel = (() => {
+    if (!isDepthLevel(level)) return 'order';
+    const d = depthOfLevel(level) - 2;
+    if (d >= 0) return `d${d}`;
+    return d === -1 ? 'line' : 'order';
+  })();
   const familyMemo = new Map<number, string | null>();
   const familyOf = (itemId: number) => {
     if (familyMemo.has(itemId)) return familyMemo.get(itemId) ?? null;

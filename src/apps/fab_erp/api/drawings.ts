@@ -22,7 +22,8 @@ export interface Drawing {
   createdAt: string;
   itemName: string | null;
   itemCode: string | null;
-  levelKind: string | null;
+  /** 'structure' | 'material'. */
+  nodeKind: string | null;
   /** True when it belongs to an ancestor rather than this item. */
   inherited: boolean;
   /** 0 = this item, 1 = its parent, and so on. */

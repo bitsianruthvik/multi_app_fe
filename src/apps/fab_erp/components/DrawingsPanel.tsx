@@ -131,13 +131,13 @@ export default function DrawingsPanel({
                   )}
                 </Typography>
                 <Typography sx={{ fontSize: 11, color: 'var(--c-text-3)' }}>
-                  {d.inherited ? `from ${d.levelKind ?? 'above'} ` : 'this item · '}
+                  {d.inherited ? `from ${d.itemName ?? 'above'} ` : 'this item · '}
                   {d.inherited && <Mono sx={{ fontSize: 11 }}>{d.itemCode?.split('-').pop()}</Mono>}
                   {' · '}{fmtSize(d.sizeBytes)}
                 </Typography>
               </Box>
               {d.inherited && (
-                <Chip size="small" label={d.levelKind ?? 'above'} sx={{ height: 18, fontSize: 10 }} />
+                <Chip size="small" label={d.itemName ?? 'above'} sx={{ height: 18, fontSize: 10 }} />
               )}
               <Tooltip title="Open in a new tab">
                 <IconButton size="small" onClick={() => window.open(drawingFileUrl(d.id), '_blank', 'noopener')}>

@@ -11,44 +11,48 @@ import { Surface, EmptyState, useToast } from '../components';
 import type { OrderReadiness } from '../api/readiness';
 
 /**
- * Flow allocation — stage 3 of a sales order.
+ * Flows — stage 3 of a sales order.
  *
- * Assigning flows is not a per-item job. On a real order every girder segment
- * gets the same assembly flow and every part gets the same fabrication flow bar
- * the drilled ones, so this screen is mostly one button. What it shows is the
- * state per LEVEL, because that is the unit the decision is actually made in.
+ * THIS IS NOW A REVIEW SCREEN, not an assignment one. Each item's flow arrives
+ * with the structure, from the BOM line it was expanded from
+ * (`fab_item_bom.default_flow_id`), so by the time anybody opens this tab the
+ * answer is usually already right and the job is to check it and make the odd
+ * exception.
  *
- * NO FLOW MEANS NOTHING TO DO. Spans and girders are groupings and legitimately
- * carry no flow, so a level with none is reported plainly and never flagged as
- * a problem.
+ * It used to drive `fab_flow_rules` — a table matching
+ * (line type, level, code suffix) that somebody had to fill in separately and
+ * then remember to press Apply against. The BOM says the same thing in the
+ * place the structure is already described, and says it better: the line is the
+ * item IN CONTEXT of its parent, so a Top Flange in a Girder Segment can differ
+ * from one in a PEB member.
+ *
+ * The one button left re-pulls the BOM's answer for items that still have no
+ * flow — for when a default was set after the order was built.
+ *
+ * NO FLOW MEANS NOTHING TO DO. An assembly that only groups its children
+ * legitimately carries none, so a depth with no flows is reported plainly and
+ * never flagged as a problem.
  */
 
 interface LevelState {
-  level: string;
+  depth: number;
+  /** What the rows at this depth are called, from the items themselves. */
+  label: string;
   items: number;
   withFlow: number;
   wouldAssign: number;
   flows: Array<{ name: string; count: number }>;
 }
-interface RuleView {
-  id: number; lineType: string | null; level: string;
-  suffix: string | null; flowId: number; flowName: string;
-}
 interface FlowSummary {
-  lineType: string | null;
-  rules: RuleView[];
   levels: LevelState[];
   wouldAssign: number;
 }
 interface ItemRow {
   id: number; code: string | null; name: string;
-  levelKind: string | null; flowId: number | null; flowSource?: string | null;
+  depth: number; nodeKind: string | null; isLeaf?: number;
+  flowId: number | null;
 }
 interface FlowOption { id: number; name: string }
-
-const LEVEL_LABEL: Record<string, string> = {
-  span: 'Span', girder: 'Girder', segment: 'Segment', part: 'Part',
-};
 
 export default function OrderFlowAllocation({ orderId, canManage = false, onStageChanged }: {
   orderId: number; canManage?: boolean;
@@ -62,7 +66,12 @@ export default function OrderFlowAllocation({ orderId, canManage = false, onStag
   const [summary, setSummary] = useState<FlowSummary | null>(null);
   const [flows, setFlows] = useState<FlowOption[]>([]);
   const [items, setItems] = useState<ItemRow[]>([]);
-  const [levelFilter, setLevelFilter] = useState('part');
+  /**
+   * `'leaf'` rather than a depth: the rows that carry fabrication work are the
+   * leaves, wherever they turn out to be. The old default of 'part' assumed
+   * they were always at rung four.
+   */
+  const [levelFilter, setLevelFilter] = useState<string>('leaf');
   const [search, setSearch] = useState('');
   const [onlyNoFlow, setOnlyNoFlow] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -107,11 +116,11 @@ export default function OrderFlowAllocation({ orderId, canManage = false, onStag
       toast(res.data.message
         ?? (res.data.assigned > 0
           ? `${res.data.assigned} item(s) given a flow`
-          : 'Nothing to assign — everything already matches the rules.'),
+          : 'Nothing to pull in — every item already has the flow its BOM line gives.'),
       res.data.assigned > 0 ? 'success' : 'info');
     } catch (e) {
       const ax = e as { response?: { data?: { message?: string } }; message?: string };
-      setError(ax.response?.data?.message ?? ax.message ?? 'Could not apply the flow rules');
+      setError(ax.response?.data?.message ?? ax.message ?? 'Could not pull the flows from the BOM');
     } finally { setBusy(false); }
   }
 
@@ -119,7 +128,7 @@ export default function OrderFlowAllocation({ orderId, canManage = false, onStag
     try {
       await api.post(`${base()}/items/${item.id}/flow`, { flowId: flowId === '' ? null : flowId });
       setItems((prev) => prev.map((x) => (x.id === item.id
-        ? { ...x, flowId: flowId === '' ? null : flowId, flowSource: flowId === '' ? null : 'manual' }
+        ? { ...x, flowId: flowId === '' ? null : flowId }
         : x)));
       // The per-level counts move with it — and so may the last exception on the
       // order, which is what completes the stage.
@@ -137,8 +146,9 @@ export default function OrderFlowAllocation({ orderId, canManage = false, onStag
   }
 
   const visible = items.filter((i) => {
-    if (!i.levelKind || i.levelKind === 'material') return false;
-    if (levelFilter !== 'all' && i.levelKind !== levelFilter) return false;
+    if (i.nodeKind === 'material') return false;
+    if (levelFilter === 'leaf' && !Number(i.isLeaf)) return false;
+    if (levelFilter !== 'all' && levelFilter !== 'leaf' && `d${i.depth}` !== levelFilter) return false;
     if (onlyNoFlow && i.flowId) return false;
     const q = search.trim().toLowerCase();
     if (q && !(`${i.code ?? ''} ${i.name}`.toLowerCase().includes(q))) return false;
@@ -149,28 +159,27 @@ export default function OrderFlowAllocation({ orderId, canManage = false, onStag
     <Box>
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
 
-      {/* Per level, because that is the unit the decision is made in. */}
+      {/* Per depth, named from the items sitting at it. */}
       <Surface e={1} sx={{ p: 2, mb: 2 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 1.5, flexWrap: 'wrap' }}>
           <Typography sx={{ fontSize: 11, fontWeight: 600, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--c-text-3)' }}>
             Where flows stand
           </Typography>
-          {summary?.lineType && <Chip size="small" label={summary.lineType} variant="outlined" />}
           <Box sx={{ flex: 1 }} />
           {canManage && (
             <>
-              <Tooltip title="Fills every item that has no flow yet, using the rules below. Anything you set by hand is left alone.">
+              <Tooltip title="Pulls in the default flow from the BOM for items that still have none. Anything you set by hand is left alone.">
                 <span>
                   <Button variant="contained" size="small" disabled={busy || !(summary?.wouldAssign)}
                     startIcon={busy ? <CircularProgress size={14} color="inherit" /> : <AutoFixHighRounded />}
                     onClick={() => apply(false)}>
-                    Apply rules{summary?.wouldAssign ? ` (${summary.wouldAssign})` : ''}
+                    Pull from BOM{summary?.wouldAssign ? ` (${summary.wouldAssign})` : ''}
                   </Button>
                 </span>
               </Tooltip>
-              <Tooltip title="Re-runs the rules over everything, replacing flows set by hand as well.">
+              <Tooltip title="Re-reads the BOM for every item, replacing flows set by hand as well.">
                 <span>
-                  <Button size="small" disabled={busy} onClick={() => apply(true)}>Re-apply to all</Button>
+                  <Button size="small" disabled={busy} onClick={() => apply(true)}>Reset all to BOM</Button>
                 </span>
               </Tooltip>
             </>
@@ -179,9 +188,9 @@ export default function OrderFlowAllocation({ orderId, canManage = false, onStag
 
         <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 1.5 }}>
           {(summary?.levels ?? []).filter((l) => l.items > 0).map((l) => (
-            <Box key={l.level} sx={{ p: 1.25, border: '0.5px solid var(--c-divider)', borderRadius: 1 }}>
+            <Box key={l.depth} sx={{ p: 1.25, border: '0.5px solid var(--c-divider)', borderRadius: 1 }}>
               <Typography sx={{ fontSize: 12.5, fontWeight: 600, color: 'var(--c-text)' }}>
-                {LEVEL_LABEL[l.level] ?? l.level}
+                {l.label || `Level ${l.depth + 1}`}
               </Typography>
               <Typography sx={{ fontSize: 12, color: 'var(--c-text-2)' }}>
                 {l.withFlow} of {l.items} have a flow
@@ -205,22 +214,16 @@ export default function OrderFlowAllocation({ orderId, canManage = false, onStag
           ))}
         </Box>
 
-        {(summary?.rules.length ?? 0) > 0 ? (
-          <Box sx={{ mt: 1.5 }}>
-            <Typography sx={{ fontSize: 11.5, color: 'var(--c-text-3)', mb: 0.5 }}>
-              Rules in play — a rule with no suffix is that level&rsquo;s default:
-            </Typography>
-            {summary!.rules.map((r) => (
-              <Typography key={r.id} sx={{ fontSize: 12, fontFamily: 'monospace', color: 'var(--c-text-2)' }}>
-                {(r.lineType ?? 'any type').padEnd(18)} · {LEVEL_LABEL[r.level] ?? r.level}
-                {r.suffix ? ` · code ends ${r.suffix}` : ' · default'} → {r.flowName}
-              </Typography>
-            ))}
-          </Box>
+        {(summary?.levels.some((l) => l.withFlow > 0) ?? false) ? (
+          <Typography sx={{ fontSize: 11.5, color: 'var(--c-text-3)', mt: 1.5 }}>
+            Each flow came from its BOM line. Change one below to make an exception for this order,
+            or set the default on the item&rsquo;s BOM to change it for every future order.
+          </Typography>
         ) : (
           <Alert severity="info" sx={{ mt: 1.5 }}>
-            No flow rules are set up yet. Add them under Operations › Flow rules — one per level, plus
-            one per code suffix such as <strong>/D</strong> for drilled parts.
+            Nothing on this order has a flow yet. Flows come from the BOM — open the item in the
+            catalogue and set a <strong>default flow</strong> on each of its BOM lines, then press
+            Pull from BOM.
           </Alert>
         )}
       </Surface>
@@ -228,10 +231,14 @@ export default function OrderFlowAllocation({ orderId, canManage = false, onStag
       {/* Exceptions. The only genuinely per-item decision. */}
       <Surface e={1} sx={{ p: 2 }}>
         <Box sx={{ display: 'flex', gap: 1.5, mb: 1.5, flexWrap: 'wrap', alignItems: 'center' }}>
-          <TextField select size="small" label="Level" value={levelFilter} sx={{ width: 140 }}
+          <TextField select size="small" label="Level" value={levelFilter} sx={{ width: 160 }}
             onChange={(e) => setLevelFilter(e.target.value)}>
             <MenuItem value="all">All</MenuItem>
-            {Object.entries(LEVEL_LABEL).map(([k, v]) => <MenuItem key={k} value={k}>{v}</MenuItem>)}
+            {/* The rows that carry fabrication work, wherever they sit. */}
+            <MenuItem value="leaf">Made items</MenuItem>
+            {(summary?.levels ?? []).map((l) => (
+              <MenuItem key={l.depth} value={`d${l.depth}`}>{l.label || `Level ${l.depth + 1}`}</MenuItem>
+            ))}
           </TextField>
           <TextField size="small" label="Find" placeholder="code or name" value={search} sx={{ flex: '1 1 220px' }}
             onChange={(e) => setSearch(e.target.value)} />
@@ -260,12 +267,11 @@ export default function OrderFlowAllocation({ orderId, canManage = false, onStag
                     }}>{i.code}</Typography>
                   </Tooltip>
                 )}
-                <Chip size="small" variant="outlined" label={LEVEL_LABEL[i.levelKind ?? ''] ?? i.levelKind} />
-                {i.flowSource === 'manual' && (
-                  <Tooltip title="Set by hand — Apply rules will not change it">
-                    <Chip size="small" color="info" variant="outlined" label="manual" />
-                  </Tooltip>
-                )}
+                <Chip
+                  size="small"
+                  variant="outlined"
+                  label={summary?.levels.find((l) => l.depth === i.depth)?.label || `Level ${i.depth + 1}`}
+                />
                 <TextField select size="small" variant="standard" value={i.flowId ?? ''} sx={{ width: 210 }}
                   disabled={!canManage}
                   onChange={(e) => setFlow(i, e.target.value === '' ? '' : Number(e.target.value))}>

@@ -74,7 +74,7 @@ import { MachineAgendaPanel } from '../components/planner/MachineAgendaPanel';
 import { SuggestionReview } from '../components/planner/SuggestionReview';
 import {
   buildGrouping, buildColors, fmtWorkMs, shortenLabel, LEGIBLE_UNIT_LIMIT,
-  GROUP_LEVELS, GROUP_LEVEL_LABEL, type GroupLevel, type ColorSet,
+  groupLevelsFor, type GroupLevel, type ColorSet,
 } from '../components/planner/boardModel';
 import {
   buildScale, buildTicks, todayYMD, addDaysYMD, weekStartYMD, dayStartUtc, zonedYMD,
@@ -143,7 +143,13 @@ export default function PlanBoard() {
   const [mode, setMode] = useState<ViewMode>('week');
   const [timeZone, setTimeZone] = useState<string>(FALLBACK_TZ);
   const [fromYMD, setFromYMD] = useState<string>(() => todayYMD(FALLBACK_TZ));
-  const [level, setLevel] = useState<GroupLevel>('girder');
+  /**
+   * `d1` is the old default of "girder" stated structurally: one rung below the
+   * line's top assembly, which is the unit a planner actually drags. An order
+   * whose tree is shallower falls back to whatever depths it has — see
+   * `levelOptions` below.
+   */
+  const [level, setLevel] = useState<GroupLevel>('d1');
   const [board, setBoard] = useState<BoardResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -153,6 +159,38 @@ export default function PlanBoard() {
   const [onlyBusyLanes, setOnlyBusyLanes] = useState(true);
 
   const scale = useMemo(() => buildScale(mode, fromYMD, timeZone), [mode, fromYMD, timeZone]);
+
+  /**
+   * The "Group by" options, derived from the depths this board's items actually
+   * have and labelled from the item names sitting at each one.
+   *
+   * So the picker reads Order · Line item · Span · Girder · Segment · Top Flange
+   * for a bridge, and Order · Line item · Frame · Member for something flatter,
+   * with no list of level names anywhere in the frontend.
+   */
+  const levelOptions = useMemo(
+    () => groupLevelsFor(board?.items?.map((i) => i.depth) ?? [], board?.depthLabels ?? {}),
+    [board],
+  );
+
+  /** What to call the current level in a sentence — "12 girders in view". */
+  const levelLabel = useMemo(
+    () => levelOptions.find((l) => l.key === level)?.label ?? 'unit',
+    [levelOptions, level],
+  );
+
+  /**
+   * Keep the chosen level reachable. Loading an order shallower than the last
+   * one leaves `level` pointing at a depth that no longer exists, and every
+   * group key then resolves to null — a board that draws nothing and explains
+   * nothing. Falling back to the deepest available rung is the closest thing to
+   * what was asked for.
+   */
+  useEffect(() => {
+    if (!board || levelOptions.length === 0) return;
+    if (levelOptions.some((l) => l.key === level)) return;
+    setLevel(levelOptions[levelOptions.length - 1].key);
+  }, [board, levelOptions, level]);
 
   // ── load ───────────────────────────────────────────────────────────────────
   const load = useCallback(async () => {
@@ -1024,7 +1062,7 @@ export default function PlanBoard() {
         `${fmtLocalTime(s, timeZone)} → ${fmtLocalTime(e, timeZone)} · ${fmtWorkMs(hover.durMs)}`,
         // Only when it adds something. Grouping at the level a task already
         // sits on makes this line an echo of the one above it.
-        grp && grp.label !== piece ? `in ${GROUP_LEVEL_LABEL[level].toLowerCase()} ${grp.label}` : '',
+        grp && grp.label !== piece ? `in ${levelLabel.toLowerCase()} ${grp.label}` : '',
       ].filter(Boolean) as string[],
       colorIdx: hover.groupIdx,
     };
@@ -1073,8 +1111,8 @@ export default function PlanBoard() {
               onChange={(e) => { setLevel(e.target.value as GroupLevel); setSelected(null); }}
               sx={{ minWidth: 132 }}
             >
-              {GROUP_LEVELS.map((l) => (
-                <MenuItem key={l} value={l}>{GROUP_LEVEL_LABEL[l]}</MenuItem>
+              {levelOptions.map((l) => (
+                <MenuItem key={l.key} value={l.key}>{l.label}</MenuItem>
               ))}
             </TextField>
             <Tooltip title="Refresh">
@@ -1107,7 +1145,7 @@ export default function PlanBoard() {
           <Chip
             size="small"
             variant="outlined"
-            label={`${totals.groups} ${GROUP_LEVEL_LABEL[level].toLowerCase()}${totals.groups === 1 ? '' : 's'} in view`}
+            label={`${totals.groups} ${levelLabel.toLowerCase()}${totals.groups === 1 ? '' : 's'} in view`}
           />
           {grouping?.shaded && (
             <Tooltip title="Too many units for one hue each, so hue is the containing unit and shade separates the units inside it.">
@@ -1495,7 +1533,7 @@ export default function PlanBoard() {
 
       {grouping && grouping.groups.length > LEGIBLE_UNIT_LIMIT && (
         <Alert severity="info" variant="outlined">
-          {grouping.groups.length} {GROUP_LEVEL_LABEL[level].toLowerCase()}s in this window — more than one
+          {grouping.groups.length} {levelLabel.toLowerCase()}s in this window — more than one
           board can give a handle each, or a colour each.
           {grouping.shaded && ' Hue is now the containing unit and shade is the individual one, so a run of one colour is one unit’s work.'}
           {' '}Click a block to pull its handle up, or group one level coarser.

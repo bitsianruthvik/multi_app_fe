@@ -43,7 +43,7 @@ import {
 import { fabQuery } from '../api/client';
 import { backendMessage } from '../components';
 
-interface CatalogOption { id: number; name: string; code: string | null; levelKind?: string | null }
+interface CatalogOption { id: number; name: string; code: string | null }
 
 /** A line being edited. `qtyMode` is UI-only — the wire has one or the other. */
 interface Draft {
@@ -57,11 +57,14 @@ interface Draft {
   codeSegment: string;
   helpText: string;
   sortOrder: number;
+  /** '' means no flow — a valid answer for a level that only groups. */
+  defaultFlowId: number | '';
 }
 
 const blankDraft = (sortOrder: number): Draft => ({
   id: null, childItemId: '', qtyMode: 'fixed', qtyNum: '1', qtyParam: '',
   defaultQty: '', perInstanceQty: false, codeSegment: '', helpText: '', sortOrder,
+  defaultFlowId: '',
 });
 
 const draftFrom = (l: ItemBomLine): Draft => ({
@@ -75,6 +78,7 @@ const draftFrom = (l: ItemBomLine): Draft => ({
   codeSegment: l.codeSegment ?? '',
   helpText: l.helpText ?? '',
   sortOrder: l.sortOrder ?? 0,
+  defaultFlowId: l.defaultFlowId ?? '',
 });
 
 export default function ItemBomDesigner({
@@ -131,6 +135,18 @@ export default function ItemBomDesigner({
       .catch(() => setOptions([]));
   }, []);
 
+  /** The flows a line can default to. Same list the order's Flows tab offers. */
+  const [flows, setFlows] = useState<{ id: number; name: string }[]>([]);
+  useEffect(() => {
+    fabQuery<{ data: { id: number; name: string }[] }>('fabErpOperationFlow', {
+      filters: { active: 1 },
+      orderBy: [{ field: 'name', direction: 'asc' }],
+      pagination: { limit: 200 },
+    })
+      .then((r) => setFlows(r.data ?? []))
+      .catch(() => setFlows([]));
+  }, []);
+
   // ── editing one line ─────────────────────────────────────────────────────
   const [draft, setDraft] = useState<Draft | null>(null);
   const [saving, setSaving] = useState(false);
@@ -154,6 +170,7 @@ export default function ItemBomDesigner({
         codeSegment: draft.codeSegment || null,
         helpText: draft.helpText || null,
         sortOrder: draft.sortOrder,
+        defaultFlowId: draft.defaultFlowId === '' ? null : Number(draft.defaultFlowId),
       });
       setDraft(null);
       await load();
@@ -252,6 +269,11 @@ export default function ItemBomDesigner({
                         )}
                         {l.codeSegment && (
                           <Chip size="small" variant="outlined" label={`code ${l.codeSegment}`} />
+                        )}
+                        {l.defaultFlowName && (
+                          <Tooltip title="Every item built from this line starts with this flow">
+                            <Chip size="small" color="primary" variant="outlined" label={l.defaultFlowName} />
+                          </Tooltip>
                         )}
                       </Stack>
                       {l.helpText && (
@@ -389,6 +411,33 @@ export default function ItemBomDesigner({
                     {o.name}{o.code ? ` — ${o.code}` : ''}
                   </MenuItem>
                 ))}
+              </TextField>
+
+              {/*
+                * THE DEFAULT FLOW, and the reason it lives on the LINE.
+                *
+                * A Top Flange inside a Girder Segment can be made differently
+                * from a Top Flange inside a PEB member — same catalog item,
+                * different context — and the line is the only place that
+                * distinction exists. This replaced `fab_flow_rules`, which
+                * matched (line type, level, code suffix) and so could only ever
+                * see the type.
+                *
+                * Blank is a real answer, not a missing one.
+                */}
+              <TextField
+                select
+                size="small"
+                label="Default flow"
+                value={draft.defaultFlowId}
+                onChange={(e) => setDraft({
+                  ...draft,
+                  defaultFlowId: e.target.value === '' ? '' : Number(e.target.value),
+                })}
+                helperText="How every one of these gets made. Leave blank for a level that only groups its children."
+              >
+                <MenuItem value="">No flow — this level only groups</MenuItem>
+                {flows.map((f) => <MenuItem key={f.id} value={f.id}>{f.name}</MenuItem>)}
               </TextField>
 
               <TextField

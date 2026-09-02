@@ -36,7 +36,6 @@ export interface StructureTemplate {
   id: number;
   code: string | null;
   name: string;
-  levelKind: string | null;
   categoryName: string | null;
   categoryId: number | null;
   /** How many BOM lines hang directly off it — a rough "how big is this". */
@@ -74,6 +73,19 @@ export interface TemplateBomLine {
   codeSegment: string | null;
   helpText: string | null;
   sortOrder: number;
+  /**
+   * The flow every item expanded from this line starts with.
+   *
+   * On the LINE rather than the child item, because the line is the child in
+   * context of its parent: a Top Flange inside a Girder Segment can be made
+   * differently from a Top Flange inside a PEB member. Replaces
+   * `fab_flow_rules`, which could only key on the type.
+   *
+   * Null is a real answer — an assembly that only groups its children carries
+   * no flow at all.
+   */
+  defaultFlowId: number | null;
+  defaultFlowName?: string | null;
 }
 
 export interface TemplateQuestions {
@@ -141,7 +153,7 @@ export interface ItemBomLine extends TemplateBomLine {
 
 export interface ItemBomResponse {
   ok: boolean;
-  parent: { id: number; code: string | null; name: string; unit: string | null; levelKind: string | null };
+  parent: { id: number; code: string | null; name: string; unit: string | null };
   lines: ItemBomLine[];
   /** Every question the whole tree under this item would ask an order. */
   parameters: TemplateParameter[];
@@ -169,6 +181,8 @@ export const saveItemBomLine = (line: {
   codeSegment?: string | null;
   helpText?: string | null;
   sortOrder?: number;
+  /** Null clears it, which is a valid answer for a grouping level. */
+  defaultFlowId?: number | null;
 }) => fabPost<{ ok: boolean }>('item-bom', line as unknown as Record<string, unknown>);
 
 /** DELETE /item-bom/:id — remove a line. The child item itself is untouched. */
