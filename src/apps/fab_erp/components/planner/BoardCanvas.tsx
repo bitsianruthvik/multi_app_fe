@@ -198,6 +198,18 @@ export interface BoardCanvasProps {
    * the idle — which is the thing this board exists to show.
    */
   spines?: BoardSpine[];
+  /**
+   * Where each drawn task was SUPPOSED to be, by task id → [startRel, durMs].
+   *
+   * Drawn as a dashed hollow outline behind the actual block, so the drift is a
+   * distance on screen rather than a number to work out. Dashed because that is
+   * this page's one idiom for "the plan" — the S-curve's target line is dashed
+   * for the same reason, and a reader should only have to learn it once.
+   *
+   * Absent on the Plan Board, where every bar IS the plan and a ghost of itself
+   * would be nothing but noise.
+   */
+  ghosts?: Map<number, [number, number]>;
 }
 
 /** How a block with a given status code is painted. */
@@ -321,7 +333,7 @@ export function BoardCanvas(props: BoardCanvasProps) {
   const {
     lanes, grouping, colors, groupBlocks, entryStartRel, rows, windowMs, nowRel,
     gridRel, gridMajor, selectedGroup, hoverGroup, dark, onHover, onPick, onWidth,
-    blockLabel, preview, onGrab, ripple, blockStatus, statusStyle, spines,
+    blockLabel, preview, onGrab, ripple, blockStatus, statusStyle, spines, ghosts,
   } = props;
 
   const wrapRef = useRef<HTMLDivElement | null>(null);
@@ -495,6 +507,43 @@ export function BoardCanvas(props: BoardCanvasProps) {
         }
         ctx.globalAlpha = 1;
       }
+    }
+
+    /**
+     * 3b. Ghosts: where the plan said this work would be.
+     *
+     * Under the blocks, so the actual is never obscured by its own intention,
+     * and dashed because that is this page's single idiom for "the plan". Only
+     * at rectangle zoom: a one-pixel dashed outline at month density is noise
+     * that reads as texture, exactly like the block separators it sits beside.
+     */
+    if (ghosts && ghosts.size > 0 && !dense) {
+      let gy = 0;
+      ctx.save();
+      ctx.lineWidth = 1;
+      ctx.setLineDash([3, 2]);
+      for (const row of rows) {
+        if (row.kind !== 'lane') { gy += row.h; continue; }
+        const lane = lanes[row.laneIdx];
+        const gi = grouping.laneGroupIdx[row.laneIdx];
+        const inset = row.h >= 40 ? 5 : 3;
+        for (let i = 0; i < lane.blockCount; i += 1) {
+          const taskId = lane.blocks[i * BLOCK_STRIDE + BLOCK_TASK];
+          const g = ghosts.get(taskId);
+          if (!g) continue;
+          const x0 = g[0] * pxPerMs;
+          const w = Math.max(1.5, g[1] * pxPerMs);
+          if (x0 + w <= 0 || x0 >= width) continue;
+          const grp = gi && gi[i] >= 0 ? colorOf(gi[i]) : null;
+          const dim = anySelection && (!gi || gi[i] !== selectedGroup);
+          ctx.strokeStyle = grp ? (dim ? grp.dim : grp.edge) : pal.ungrouped;
+          ctx.globalAlpha = dim ? 0.3 : 0.7;
+          ctx.strokeRect(x0 + 0.5, gy + inset + 0.5, w - 1, row.h - inset * 2 - 1);
+        }
+        gy += row.h;
+      }
+      ctx.restore();
+      ctx.globalAlpha = 1;
     }
 
     // 4. The work.
@@ -867,7 +916,7 @@ export function BoardCanvas(props: BoardCanvasProps) {
   }, [
     lanes, grouping, groupBlocks, rows, windowMs, nowRel, gridRel, gridMajor,
     selectedGroup, hoverGroup, dark, width, totalH, blockLabel, colors,
-    entryStartRel, preview, canGrab, ripple, blockStatus, statusStyle, spines,
+    entryStartRel, preview, canGrab, ripple, blockStatus, statusStyle, spines, ghosts,
   ]);
 
   // ── hit testing ────────────────────────────────────────────────────────────

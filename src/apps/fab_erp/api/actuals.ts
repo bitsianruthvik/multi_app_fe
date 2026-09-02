@@ -135,6 +135,31 @@ export interface ActualsStats {
   degraded: boolean;
 }
 
+/**
+ * Cumulative planned vs EARNED minutes, one point per day of the window.
+ *
+ * Earned credits each completed task with its PLANNED minutes, so both series
+ * are the same currency and the vertical gap is schedule variance. Hours spent
+ * would not be comparable — see the SCurve header.
+ */
+export interface ActualsCurve {
+  /** Plant-local days, ascending. */
+  days: string[];
+  plannedCumMin: number[];
+  earnedCumMin: number[];
+  /** The whole plan, not just this window — the denominator for "% complete". */
+  totalPlannedMin: number;
+  openingPlannedMin: number;
+}
+
+export interface ActualsPlan {
+  /** [taskId, startRel, durMs] × n — where each drawn task was SUPPOSED to be. */
+  ghosts: number[];
+  curve: ActualsCurve;
+}
+
+export const GHOST_STRIDE = 3;
+
 export interface ActualsBoardResponse {
   ok: boolean;
   from: string;
@@ -162,6 +187,8 @@ export interface ActualsBoardResponse {
    */
   unitTonnes: Record<string, number>;
   laneCount: number;
+  /** Present only when the board was asked for `plan=1`. */
+  plan: ActualsPlan | null;
   stats: ActualsStats;
 }
 
@@ -172,6 +199,8 @@ export async function getActualsBoard(params: {
   mode: ActualsMode;
   level: ActualsLevel;
   orderIds?: number[];
+  /** Also fetch the plan comparison. Opt-in: it costs three more reads. */
+  withPlan?: boolean;
   resourceTypeIds?: number[];
 }): Promise<ActualsBoardResponse> {
   return fabGet<ActualsBoardResponse>('actuals/board', {
@@ -179,6 +208,7 @@ export async function getActualsBoard(params: {
     to: params.to,
     mode: params.mode,
     level: params.level,
+    ...(params.withPlan ? { plan: '1' } : {}),
     ...(params.orderIds?.length ? { orderIds: params.orderIds.join(',') } : {}),
     ...(params.resourceTypeIds?.length
       ? { resourceTypeIds: params.resourceTypeIds.join(',') }

@@ -49,6 +49,7 @@ import { isAdminRole } from '@core/utils/roles';
 
 import {
   getActualsBoard, ACTUALS_LEVELS, ACTUALS_LEVEL_LABEL,
+  GHOST_STRIDE,
   type ActualsBoardResponse, type ActualsLevel, type ActualsMode, type ActualsLane,
 } from '../api/actuals';
 import {
@@ -63,6 +64,7 @@ import {
   ACTUALS_STATUS_STYLE, STATUS_LEGEND, buildActualsGrouping, buildGroupBlocks,
   buildSpines, nestByHierarchy,
 } from '../components/actuals/actualsModel';
+import { SCurve } from '../components/actuals/SCurve';
 import {
   buildScale, buildTicks, todayYMD, addDaysYMD, monthStartYMD, daysInMonth,
   addMonthsYMD, type ViewMode,
@@ -108,6 +110,12 @@ export default function ActualsBoard() {
   const [measure, setMeasure] = useState<Measure>('hours');
   const [nest, setNest] = useState(true);
   const [onlyBusy, setOnlyBusy] = useState(true);
+  /**
+   * Compare against the plan. Off by default, and both halves of that are
+   * deliberate: it costs three more reads, and the board's ordinary job is to
+   * say what happened, not to argue with what was intended.
+   */
+  const [withPlan, setWithPlan] = useState(false);
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
   const [selected, setSelected] = useState<string | null>(null);
   const [hover, setHover] = useState<BlockHit | null>(null);
@@ -151,6 +159,7 @@ export default function ActualsBoard() {
         from: new Date(scale.startMs).toISOString(),
         to: new Date(scale.endMs).toISOString(),
         mode: boardMode,
+        withPlan,
         level,
       });
       setBoard(res);
@@ -160,7 +169,7 @@ export default function ActualsBoard() {
     } finally {
       setLoading(false);
     }
-  }, [canView, scale.startMs, scale.endMs, boardMode, level]);
+  }, [canView, scale.startMs, scale.endMs, boardMode, level, withPlan]);
 
   useEffect(() => { setLoading(true); void load(); }, [load]);
 
@@ -231,6 +240,23 @@ export default function ActualsBoard() {
     () => (board && view && boardMode === 'unit' ? buildSpines(board, view.grouping) : undefined),
     [board, view, boardMode],
   );
+
+  /**
+   * Ghosts keyed by task id.
+   *
+   * Only ever drawn in MACHINE mode. A rolled-up block is a run — several tasks
+   * merged into one stretch — so it has no single task whose plan it could be
+   * compared against, and outlining it against one member's plan would be a
+   * confident-looking lie. The curve is where rolled-up mode answers "against
+   * the plan", and it answers it for the whole window at once.
+   */
+  const ghosts = useMemo(() => {
+    if (!board?.plan || boardMode !== 'machine') return undefined;
+    const g = board.plan.ghosts;
+    const m = new Map<number, [number, number]>();
+    for (let i = 0; i + 2 < g.length; i += GHOST_STRIDE) m.set(g[i], [g[i + 1], g[i + 2]]);
+    return m;
+  }, [board, boardMode]);
 
   const selectedIdx = selected && view ? view.grouping.byKey.get(selected) ?? null : null;
 
@@ -544,6 +570,13 @@ export default function ActualsBoard() {
             <MenuItem value="count">Operations</MenuItem>
           </TextField>
 
+          <Tooltip title="Draw where the plan said this work would be, and chart progress against it">
+            <FormControlLabel
+              control={<Switch size="small" checked={withPlan} onChange={(e) => setWithPlan(e.target.checked)} />}
+              label={<Typography variant="body2">Compare with plan</Typography>}
+            />
+          </Tooltip>
+
           {boardMode === 'machine' && (
             <>
               <FormControlLabel
@@ -603,6 +636,16 @@ export default function ActualsBoard() {
           </Typography>
         </Stack>
       </Paper>
+
+      {/* ── the S-curve ───────────────────────────────────────────────────── */}
+      {withPlan && board?.plan && (
+        <Surface sx={{ p: 1.5, mb: 2 }}>
+          <SCurve
+            curve={board.plan.curve}
+            nowYMD={nowInWindow ? todayYMD(timeZone) : null}
+          />
+        </Surface>
+      )}
 
       {/* ── the board ─────────────────────────────────────────────────────── */}
       <Surface sx={{ p: 0, overflow: 'hidden' }}>
@@ -767,6 +810,7 @@ export default function ActualsBoard() {
                   blockStatus={view.blockStatus}
                   statusStyle={ACTUALS_STATUS_STYLE}
                   spines={spines}
+                  ghosts={ghosts}
                 />
 
                 {hoverCard && hover && (
