@@ -65,17 +65,31 @@ const td = { borderColor: 'var(--c-divider)', fontSize: 13, color: 'var(--c-text
 export default function ItemCatalogDetail() {
   const { company, itemId } = useParams<{ company: string; itemId: string }>();
   const navigate = useNavigate();
-  const canManage = usePermission('fab_erp_items_meta_view');
-  /**
-   * Fields are gated separately, and on the MANAGE tag.
-   *
-   * `POST /fields/values` and the `fabErpField` resource both require
-   * `fab_erp_items_meta_manage`; the item record above is gated on the view tag
-   * this page has always used. Showing an editor the server will 403 is how a
-   * save turns into a mystery, so the field section simply goes read-only.
-   */
   const { user } = useAuth();
-  const canManageFields = usePermission('fab_erp_items_meta_manage') || isAdminRole(user?.role);
+  /**
+   * ONE TAG FOR THE WHOLE PAGE, and it is the one the server enforces.
+   *
+   * This used to gate editing on `fab_erp_items_meta_VIEW` while every write it
+   * makes needs `..._MANAGE`, so the three things on this screen answered to
+   * three different permissions:
+   *
+   *   the item record   fabErpItemCatalog -> fab_erp_items_meta_manage
+   *   its custom fields POST /fields/values -> fab_erp_items_meta_manage
+   *   its BOM           POST /item-bom -> fab_erp_PROJECTS_manage (!)
+   *
+   * The results were role-dependent and equally confusing either way. An
+   * `engineer` (view + manage, no projects) got an editable BOM designer that
+   * 403'd on save; a `pm` (projects only) could not rename an item at all;
+   * `stores` (view only) got editable fields that would not save.
+   *
+   * Now the page, the field section and the BOM route all require
+   * `fab_erp_items_meta_manage`, with the same admin bypass the rest of fab_erp
+   * has. Editing an item's BOM is editing the item — it is not order work, and
+   * gating it on a projects tag was the mismatch that made the tab read-only
+   * for the people whose job it is.
+   */
+  const canManage = usePermission('fab_erp_items_meta_manage') || isAdminRole(user?.role);
+  const canManageFields = canManage;
   const id = Number(itemId);
   const { toast } = useToast();
 
@@ -578,7 +592,7 @@ export default function ItemCatalogDetail() {
           </Box>
           {!canManageFields && (
             <Alert severity="info" sx={{ mb: 1.5 }}>
-              Fields are read-only for you — editing them needs the “Manage Item Metrics” permission.
+              Fields are read-only for you — editing them needs the “Manage item fields” permission.
             </Alert>
           )}
           {configDraft.length === 0 ? (

@@ -40,8 +40,11 @@ import {
   getItemBom, saveItemBomLine, deleteItemBomLine, previewTemplate,
   type ItemBomLine, type TemplateParameter, type TemplatePreview,
 } from '../api/templates';
-import { fabQuery } from '../api/client';
+import { fabQuery, fabPost, fabMutate } from '../api/client';
 import { backendMessage } from '../components';
+
+/** Sentinel for the picker's "create one" row — never a real item id. */
+const NEW_ITEM = '__new__';
 
 interface CatalogOption { id: number; name: string; code: string | null }
 
@@ -126,14 +129,70 @@ export default function ItemBomDesigner({
 
   // ── the pick list ────────────────────────────────────────────────────────
   const [options, setOptions] = useState<CatalogOption[]>([]);
-  useEffect(() => {
-    fabQuery<{ data: CatalogOption[] }>('fabErpItemCatalog', {
+  const loadOptions = useCallback(
+    () => fabQuery<{ data: CatalogOption[] }>('fabErpItemCatalog', {
       orderBy: [{ field: 'name', direction: 'asc' }],
       pagination: { limit: 1000 },
     })
-      .then((r) => setOptions(r.data ?? []))
-      .catch(() => setOptions([]));
+      .then((r) => { setOptions(r.data ?? []); return r.data ?? []; })
+      .catch(() => { setOptions([]); return [] as CatalogOption[]; }),
+    [],
+  );
+  useEffect(() => { void loadOptions(); }, [loadOptions]);
+
+  /**
+   * CREATING THE CHILD FROM HERE, because the moment you need it is here.
+   *
+   * Authoring a BOM is where you discover the catalogue is missing a part — an
+   * End Stiffener that nobody had entered, say. Sending someone to the Items
+   * page to create it loses the line they were half way through writing, and
+   * they come back to an empty dialog.
+   *
+   * Deliberately the SMALLEST item that is still valid: name, category, unit.
+   * Category because the whole field-inheritance ladder hangs off it and an item
+   * without one inherits nothing; the code comes from the generator, exactly as
+   * the Items page does it, so the two cannot drift into different formats.
+   * Everything else is editable on the item's own page afterwards.
+   */
+  const [categories, setCategories] = useState<{ id: number; name: string }[]>([]);
+  useEffect(() => {
+    fabQuery<{ data: { id: number; name: string }[] }>('fabErpItemCategory', {
+      orderBy: [{ field: 'name', direction: 'asc' }], pagination: { limit: 200 },
+    })
+      .then((r) => setCategories(r.data ?? []))
+      .catch(() => setCategories([]));
   }, []);
+
+  const [newItem, setNewItem] = useState<{ name: string; categoryId: number | ''; unit: string } | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+
+  const createItem = useCallback(async () => {
+    if (!newItem || !newItem.name.trim() || newItem.categoryId === '') return;
+    setCreating(true);
+    setCreateError(null);
+    try {
+      const { code } = await fabPost<{ code: string }>('codegen/next-code', {
+        entityType: 'item', context: { categoryId: newItem.categoryId },
+      });
+      const res = await fabMutate<{ ok: boolean; id: number }>('fabErpItemCatalog', 'insert', {
+        name: newItem.name.trim(),
+        code: String(code).toUpperCase(),
+        unit: newItem.unit.trim() || 'nos',
+        category_id: newItem.categoryId,
+        procurement_type: 'make',
+        mrp_policy: 'manual',
+      });
+      await loadOptions();
+      // Drop it straight into the line being written, which is the whole point.
+      setDraft((d) => (d ? { ...d, childItemId: res.id } : d));
+      setNewItem(null);
+    } catch (err) {
+      setCreateError(backendMessage(err, 'Could not create that item.'));
+    } finally {
+      setCreating(false);
+    }
+  }, [newItem, loadOptions]);
 
   /** The flows a line can default to. Same list the order's Flows tab offers. */
   const [flows, setFlows] = useState<{ id: number; name: string }[]>([]);
@@ -404,8 +463,18 @@ export default function ItemBomDesigner({
                 size="small"
                 label="Item"
                 value={draft.childItemId}
-                onChange={(e) => setDraft({ ...draft, childItemId: Number(e.target.value) })}
+                onChange={(e) => {
+                  if (e.target.value === NEW_ITEM) {
+                    setNewItem({ name: '', categoryId: '', unit: 'nos' });
+                    return;
+                  }
+                  setDraft({ ...draft, childItemId: Number(e.target.value) });
+                }}
               >
+                <MenuItem value={NEW_ITEM} sx={{ fontWeight: 600 }}>
+                  ＋ Create a new item…
+                </MenuItem>
+                <Divider />
                 {options.map((o) => (
                   <MenuItem key={o.id} value={o.id}>
                     {o.name}{o.code ? ` — ${o.code}` : ''}
@@ -512,6 +581,59 @@ export default function ItemBomDesigner({
             onClick={() => void save()}
           >
             {saving ? 'Saving…' : 'Save'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/*
+        * Creating the missing part without leaving the line you are writing.
+        * Stacks over the line dialog rather than replacing it, so cancelling
+        * puts you back exactly where you were.
+        */}
+      <Dialog open={!!newItem} onClose={() => setNewItem(null)} maxWidth="xs" fullWidth>
+        <DialogTitle>New item</DialogTitle>
+        <DialogContent>
+          {createError && <Alert severity="warning" sx={{ mb: 2 }}>{createError}</Alert>}
+          {newItem && (
+            <Stack spacing={2} sx={{ mt: 0.5 }}>
+              <TextField
+                autoFocus
+                size="small"
+                label="Name"
+                value={newItem.name}
+                onChange={(e) => setNewItem({ ...newItem, name: e.target.value })}
+              />
+              <TextField
+                select
+                size="small"
+                label="Category"
+                value={newItem.categoryId}
+                onChange={(e) => setNewItem({ ...newItem, categoryId: Number(e.target.value) })}
+                helperText="Decides which field defaults the item inherits."
+              >
+                {categories.map((c) => <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>)}
+              </TextField>
+              <TextField
+                size="small"
+                label="Unit"
+                value={newItem.unit}
+                onChange={(e) => setNewItem({ ...newItem, unit: e.target.value })}
+              />
+              <Typography variant="caption" color="text.secondary">
+                The code is generated. Everything else — description, taxonomy, custom fields —
+                is editable on the item’s own page.
+              </Typography>
+            </Stack>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setNewItem(null)}>Cancel</Button>
+          <Button
+            variant="contained"
+            disabled={creating || !newItem?.name.trim() || newItem?.categoryId === ''}
+            onClick={() => void createItem()}
+          >
+            {creating ? 'Creating…' : 'Create and use'}
           </Button>
         </DialogActions>
       </Dialog>

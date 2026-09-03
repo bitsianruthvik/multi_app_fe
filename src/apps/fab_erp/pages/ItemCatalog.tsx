@@ -127,7 +127,7 @@ const INFO_ITEMS: InfoContent = [
       'Add Item — click the button, fill in Name, Code (auto-generated), and Unit of measure.',
       'Code is unique per company; it is auto-derived from the name but you can override it.',
       'Assign a Category / Group / Sub-group to keep items organised — you can create new taxonomy entries inline.',
-      'Click any row to open the full detail view: BOM, stock levels, and custom metrics.',
+      'Click any row to open the full detail view: BOM, stock levels, and custom fields.',
       'Export Template — downloads a fill-in Excel sheet with dropdown-validated Category/Group/Sub-group columns plus a reference of existing taxonomy names.',
       'Import Items — upload the filled template; any Category/Group/Sub-group name that does not exist yet is created automatically, preserving the parent relationship from the row.',
       'After import, download the import log — an Excel sheet listing every row, whether it was created or skipped, and why.',
@@ -1484,7 +1484,7 @@ function TaxonomyDetailDialog({ level, entity, categories, groups, canEdit, canE
         </Box>
         {!canEditFields && (
           <Alert severity="info" sx={{ py: 0 }}>
-            Fields are read-only for you — editing them needs the “Manage Item Metrics” permission.
+            Fields are read-only for you — editing them needs the “Manage item fields” permission.
           </Alert>
         )}
 
