@@ -146,12 +146,24 @@ export default function NestingSuggestor({ orderId, onAccepted, disabled }: Prop
       proposedT,
       deltaT,
       nowPlates: cur.plates,
+      /**
+       * The comparison describes the WHOLE proposal, so it only stands while
+       * the whole proposal is ticked. Un-ticking a plate leaves its parts where
+       * they are, and what would then be saved is neither of these two numbers
+       * — showing the full delta over a partial selection would be a confident
+       * figure for something nobody is about to do.
+       */
+      allSelected: chosen.size === suggestion.groups.length,
       // A tonne either way is noise against a 690 t order; below it, say so
       // rather than dressing up a rounding difference as a saving.
       verdict: deltaT < -0.05 ? 'better' : deltaT > 0.05 ? 'worse' : 'same',
       valueInr: Math.round(Math.abs(deltaT) * 85000),
     } as const;
-  }, [suggestion, summary]);
+  }, [suggestion, summary, chosen]);
+
+  /** Accepting this would buy more steel than the order already has. */
+  const losing = !!versusAccepted && versusAccepted.allSelected
+    && versusAccepted.verdict === 'worse';
 
   /** Plate area this suggestion takes off the shelf rather than buying. */
   const fromOffcuts = useMemo(() => {
@@ -253,7 +265,31 @@ export default function NestingSuggestor({ orderId, onAccepted, disabled }: Prop
               </Box>
 
               {suggestion.message && !suggestion.groups.length && (
-                <Alert severity="info">{suggestion.message}</Alert>
+                <Alert severity="info">
+                  {suggestion.message}
+                  {/*
+                    SAY WHAT RE-PLANNING IS LIKELY TO DO, before somebody spends
+                    five minutes finding out.
+                    A re-plan is a fresh randomised search, not a refinement of
+                    what is there — it does not start from the accepted nesting
+                    and improve it. On an order already nested well, it usually
+                    lands slightly worse: measured on a 1,090-part order, Quick
+                    came back 1.96 t worse and Deep 5.82 t worse. It is worth
+                    running when something has actually changed underneath — the
+                    BOQ, the plate catalogue, or offcuts arriving in the yard.
+                    Without this the invitation to "re-run including nested
+                    parts" reads as an offer to improve.
+                  */}
+                  {suggestion.current && suggestion.current.plates > 0 && (
+                    <Typography variant="body2" sx={{ mt: 1 }}>
+                      A re-plan is a fresh search rather than an improvement on what is
+                      there, so on an order already nested well it usually lands slightly
+                      worse. Worth running when the BOQ, the plate catalog or the offcuts
+                      in the yard have changed — otherwise the nesting you have is likely
+                      the better one. Either way nothing is saved until you accept.
+                    </Typography>
+                  )}
+                </Alert>
               )}
 
               {/*
@@ -263,15 +299,18 @@ export default function NestingSuggestor({ orderId, onAccepted, disabled }: Prop
               */}
               {versusAccepted && suggestion.groups.length > 0 && (
                 <Alert
-                  severity={versusAccepted.verdict === 'better' ? 'success'
-                    : versusAccepted.verdict === 'worse' ? 'warning' : 'info'}
+                  severity={!versusAccepted.allSelected ? 'info'
+                    : versusAccepted.verdict === 'better' ? 'success'
+                      : versusAccepted.verdict === 'worse' ? 'warning' : 'info'}
                 >
                   <AlertTitle>
-                    {versusAccepted.verdict === 'better'
+                    {!versusAccepted.allSelected
+                      && 'Compared with the nesting already on the order'}
+                    {versusAccepted.allSelected && versusAccepted.verdict === 'better'
                       && `This saves ${Math.abs(versusAccepted.deltaT).toFixed(2)} t`}
-                    {versusAccepted.verdict === 'worse'
+                    {versusAccepted.allSelected && versusAccepted.verdict === 'worse'
                       && `This costs ${versusAccepted.deltaT.toFixed(2)} t MORE than the nesting already on the order`}
-                    {versusAccepted.verdict === 'same'
+                    {versusAccepted.allSelected && versusAccepted.verdict === 'same'
                       && 'No better than the nesting already on the order'}
                   </AlertTitle>
                   <Typography variant="body2">
@@ -279,12 +318,19 @@ export default function NestingSuggestor({ orderId, onAccepted, disabled }: Prop
                     {`${versusAccepted.nowT.toFixed(2)} t. `}
                     {`This proposal: ${summary?.plates} plate(s), ${versusAccepted.proposedT.toFixed(2)} t.`}
                   </Typography>
-                  {versusAccepted.verdict !== 'same' && (
+                  {versusAccepted.allSelected && versusAccepted.verdict !== 'same' && (
                     <Typography variant="body2" sx={{ mt: 0.5 }}>
                       {`About Rs ${versusAccepted.valueInr.toLocaleString('en-IN')} at Rs 85,000 a tonne. `}
                       {versusAccepted.verdict === 'worse'
                         ? 'Keep what you have, or run it again — the search is random, so a re-run can land better or worse.'
                         : 'Accepting replaces the current nesting.'}
+                    </Typography>
+                  )}
+                  {!versusAccepted.allSelected && (
+                    <Typography variant="body2" sx={{ mt: 0.5, fontStyle: 'italic' }}>
+                      Those figures are for the whole proposal. You have un-ticked some plates,
+                      so accepting now would do something in between — tick them all to compare
+                      like for like.
                     </Typography>
                   )}
                 </Alert>
@@ -452,14 +498,28 @@ export default function NestingSuggestor({ orderId, onAccepted, disabled }: Prop
               : 'Nothing selected'}
           </Typography>
           <Box>
-            <Button onClick={() => setOpen(false)} disabled={saving}>Cancel</Button>
+            <Button onClick={() => setOpen(false)} disabled={saving}>
+              {losing ? 'Keep what I have' : 'Cancel'}
+            </Button>
+            {/*
+              THE BUTTON STOPS RECOMMENDING ITSELF WHEN THE ANSWER IS WORSE.
+              A filled primary button is an instruction, and leaving it filled
+              under a warning that says this costs two tonnes puts the strongest
+              thing on the screen behind the wrong action. Outlined and
+              "anyway" still accept — the person may have a reason the packer
+              cannot see, such as preferring a size the yard actually stocks —
+              but nothing here is urging them on.
+            */}
             <Button
-              variant="contained"
+              variant={losing ? 'outlined' : 'contained'}
+              color={losing ? 'warning' : 'primary'}
               onClick={accept}
               disabled={saving || !chosen.size}
               sx={{ ml: 1 }}
             >
-              {saving ? 'Saving…' : `Accept ${chosen.size || ''} plate(s)`}
+              {saving ? 'Saving…'
+                : losing ? `Accept ${chosen.size || ''} plate(s) anyway`
+                  : `Accept ${chosen.size || ''} plate(s)`}
             </Button>
           </Box>
         </DialogActions>
