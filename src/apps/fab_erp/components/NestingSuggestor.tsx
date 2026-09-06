@@ -1,16 +1,16 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert, AlertTitle, Box, Button, Checkbox, Chip, CircularProgress, Dialog,
   DialogActions, DialogContent, DialogTitle, Divider, FormControlLabel,
   LinearProgress, Stack, Table, TableBody, TableCell, TableHead, TableRow,
-  Tooltip, Typography,
+  ToggleButton, ToggleButtonGroup, Tooltip, Typography,
 } from '@mui/material';
 import AutoAwesomeRounded from '@mui/icons-material/AutoAwesomeRounded';
 
 import { useToast, backendMessage } from '../components';
 import {
-  suggestNesting, acceptNesting,
-  type NestingSuggestion, type SuggestedNest,
+  suggestNesting, acceptNesting, EFFORT_CHOICES,
+  type NestingSuggestion, type SuggestedNest, type NestingEffort,
 } from '../api/nestingSuggest';
 
 /**
@@ -49,10 +49,29 @@ export default function NestingSuggestor({ orderId, onAccepted, disabled }: Prop
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [includeNested, setIncludeNested] = useState(false);
+  const [effort, setEffort] = useState<NestingEffort>('standard');
   const [suggestion, setSuggestion] = useState<NestingSuggestion | null>(null);
   const [chosen, setChosen] = useState<Set<number>>(new Set());
 
-  const run = useCallback(async (opts: { includeNested: boolean }) => {
+  /**
+   * SECONDS ELAPSED, because Deep can run for five minutes.
+   *
+   * A spinner that has not moved in four minutes is indistinguishable from a
+   * hung page, and the reasonable thing to do about a hung page is reload —
+   * which throws away a nest that was nearly finished. A number that keeps
+   * climbing is the difference between waiting and giving up.
+   */
+  const [elapsed, setElapsed] = useState(0);
+  const startedAt = useRef(0);
+  useEffect(() => {
+    if (!loading) return undefined;
+    startedAt.current = Date.now();
+    setElapsed(0);
+    const t = setInterval(() => setElapsed(Math.round((Date.now() - startedAt.current) / 1000)), 1000);
+    return () => clearInterval(t);
+  }, [loading]);
+
+  const run = useCallback(async (opts: { includeNested: boolean; effort: NestingEffort }) => {
     setLoading(true);
     try {
       const s = await suggestNesting(orderId, opts);
@@ -71,8 +90,8 @@ export default function NestingSuggestor({ orderId, onAccepted, disabled }: Prop
 
   const start = useCallback(() => {
     setOpen(true);
-    void run({ includeNested: false });
-  }, [run]);
+    void run({ includeNested: false, effort });
+  }, [run, effort]);
 
   const accept = useCallback(async () => {
     if (!suggestion) return;
@@ -101,6 +120,39 @@ export default function NestingSuggestor({ orderId, onAccepted, disabled }: Prop
   });
 
   const summary = suggestion?.summary;
+
+  /**
+   * IS THIS PROPOSAL BETTER THAN THE NESTING ALREADY ON THE ORDER?
+   *
+   * The question the accept button is really asking, and until now the screen
+   * did not answer it. The search is randomised, so pressing Deep does not
+   * reliably produce something better than what is already there — a deep
+   * re-plan of a 1,090-part order came back 6 m² WORSE than the accepted
+   * nesting, fewer plates but bigger ones. Shown on its own, a confident set of
+   * figures reads as an improvement, because asking for more compute feels like
+   * it ought to buy one.
+   *
+   * Weight, not area, decides better or worse: a square metre of 40 mm plate is
+   * 3.3 times the steel of a square metre of 12 mm.
+   */
+  const versusAccepted = useMemo(() => {
+    const cur = suggestion?.current;
+    if (!cur || !summary || !cur.comparable) return null;
+    const nowT = cur.steelTonnes;
+    const proposedT = summary.steelTonnes ?? 0;
+    const deltaT = proposedT - nowT;
+    return {
+      nowT,
+      proposedT,
+      deltaT,
+      nowPlates: cur.plates,
+      // A tonne either way is noise against a 690 t order; below it, say so
+      // rather than dressing up a rounding difference as a saving.
+      verdict: deltaT < -0.05 ? 'better' : deltaT > 0.05 ? 'worse' : 'same',
+      valueInr: Math.round(Math.abs(deltaT) * 85000),
+    } as const;
+  }, [suggestion, summary]);
+
   /** Plate area this suggestion takes off the shelf rather than buying. */
   const fromOffcuts = useMemo(() => {
     const picked = (suggestion?.groups ?? []).filter((g) => g.plate.isOffcut);
@@ -150,27 +202,92 @@ export default function NestingSuggestor({ orderId, onAccepted, disabled }: Prop
               <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
                 Working out which plates waste least…
               </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                {`${elapsed}s`}
+                {effort === 'deep' && ' — Deep takes up to five minutes. Leave this open.'}
+              </Typography>
             </Box>
           )}
 
           {!loading && suggestion && (
             <Stack spacing={2}>
-              <FormControlLabel
-                control={(
-                  <Checkbox
-                    size="small"
-                    checked={includeNested}
-                    onChange={(e) => {
-                      setIncludeNested(e.target.checked);
-                      void run({ includeNested: e.target.checked });
-                    }}
-                  />
-                )}
-                label="Re-plan parts that are already on a plate"
-              />
+              <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'center' }}>
+                {/*
+                  HOW HARD TO LOOK, offered rather than decided for them.
+                  A minute is the right trade almost every time, which is why it
+                  is the default — but the person about to raise a purchase
+                  order for six hundred tonnes is the one who should decide
+                  whether the last fraction of a percent is worth five minutes,
+                  and they cannot decide it if the control is not there.
+                */}
+                <ToggleButtonGroup
+                  size="small"
+                  exclusive
+                  value={effort}
+                  onChange={(_, v: NestingEffort | null) => {
+                    if (!v || v === effort) return;
+                    setEffort(v);
+                    void run({ includeNested, effort: v });
+                  }}
+                >
+                  {EFFORT_CHOICES.map((c) => (
+                    <Tooltip key={c.key} title={`Takes ${c.takes}. ${c.note}`}>
+                      <ToggleButton value={c.key}>{c.label}</ToggleButton>
+                    </Tooltip>
+                  ))}
+                </ToggleButtonGroup>
+
+                <FormControlLabel
+                  control={(
+                    <Checkbox
+                      size="small"
+                      checked={includeNested}
+                      onChange={(e) => {
+                        setIncludeNested(e.target.checked);
+                        void run({ includeNested: e.target.checked, effort });
+                      }}
+                    />
+                  )}
+                  label="Re-plan parts that are already on a plate"
+                />
+              </Box>
 
               {suggestion.message && !suggestion.groups.length && (
                 <Alert severity="info">{suggestion.message}</Alert>
+              )}
+
+              {/*
+                WHAT IS ALREADY ON THE ORDER, above the proposal's own figures
+                — because this is the comparison the accept button turns on, and
+                a number with nothing beside it is not a decision.
+              */}
+              {versusAccepted && suggestion.groups.length > 0 && (
+                <Alert
+                  severity={versusAccepted.verdict === 'better' ? 'success'
+                    : versusAccepted.verdict === 'worse' ? 'warning' : 'info'}
+                >
+                  <AlertTitle>
+                    {versusAccepted.verdict === 'better'
+                      && `This saves ${Math.abs(versusAccepted.deltaT).toFixed(2)} t`}
+                    {versusAccepted.verdict === 'worse'
+                      && `This costs ${versusAccepted.deltaT.toFixed(2)} t MORE than the nesting already on the order`}
+                    {versusAccepted.verdict === 'same'
+                      && 'No better than the nesting already on the order'}
+                  </AlertTitle>
+                  <Typography variant="body2">
+                    {`On the order now: ${versusAccepted.nowPlates} plate(s), `}
+                    {`${versusAccepted.nowT.toFixed(2)} t. `}
+                    {`This proposal: ${summary?.plates} plate(s), ${versusAccepted.proposedT.toFixed(2)} t.`}
+                  </Typography>
+                  {versusAccepted.verdict !== 'same' && (
+                    <Typography variant="body2" sx={{ mt: 0.5 }}>
+                      {`About Rs ${versusAccepted.valueInr.toLocaleString('en-IN')} at Rs 85,000 a tonne. `}
+                      {versusAccepted.verdict === 'worse'
+                        ? 'Keep what you have, or run it again — the search is random, so a re-run can land better or worse.'
+                        : 'Accepting replaces the current nesting.'}
+                    </Typography>
+                  )}
+                </Alert>
               )}
 
               {summary && suggestion.groups.length > 0 && (
