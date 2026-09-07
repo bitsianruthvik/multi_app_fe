@@ -11,7 +11,7 @@ import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import CloseRounded from '@mui/icons-material/CloseRounded';
 import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
 import DownloadIcon from '@mui/icons-material/Download';
-import AutoFixHighRounded from '@mui/icons-material/AutoFixHighRounded';
+import AccountTreeRounded from '@mui/icons-material/AccountTreeRounded';
 import StraightenRounded from '@mui/icons-material/StraightenRounded';
 import DescriptionRounded from '@mui/icons-material/DescriptionRounded';
 import TagRounded from '@mui/icons-material/TagRounded';
@@ -25,16 +25,16 @@ import { Surface, EmptyState, useToast, backendMessage } from '../components';
 import { MaterializeOutcome, type MaterializeResponse } from './OrderTaskDag';
 import DrawingsPanel from './DrawingsPanel';
 import type { OrderReadiness } from '../api/readiness';
-import TemplateWizardDialog from './TemplateWizardDialog';
+import StructureEditor from './StructureEditor';
 
 /**
- * An order line, as the structure wizard and the line picker need it.
+ * An order line, as the structure editor and the line picker need it.
  *
  * `templateItemId` is what the line was sold AS — the catalog item whose BOM is
- * this structure. It is why the wizard no longer opens on a template picker:
+ * this structure. It is why the editor no longer opens on a template picker:
  * the line answered that question when it was added.
  */
-interface WizardLine {
+interface OrderLineRef {
   id: number;
   code?: string | null;
   description?: string | null;
@@ -954,25 +954,25 @@ export default function OrderItemsTree({ orderId, canManage, readiness, onStageC
   // file picker opens rather than a switch sitting next to a one-click Import.
   const [importMode, setImportMode] = useState<'append' | 'replace'>('append');
   const [modeDialogOpen, setModeDialogOpen] = useState(false);
-  const [lines, setLines] = useState<WizardLine[]>([]);
-  const [wizardOpen, setWizardOpen] = useState(false);
+  const [lines, setLines] = useState<OrderLineRef[]>([]);
+  const [editorOpen, setEditorOpen] = useState(false);
   /**
-   * The line the structure is being built for.
+   * The line whose structure is being edited.
    *
-   * The wizard builds ONE line's structure — an order with three lines is three
+   * A structure belongs to ONE line — an order with three lines is three
    * structures, and the codes below each are prefixed by its own code. The old
    * dialog carried a line selector inside itself; this asks first, because with
    * a single line there is nothing to ask and the question should not appear.
    */
-  const [wizardLine, setWizardLine] = useState<WizardLine | null>(null);
+  const [editorLine, setEditorLine] = useState<OrderLineRef | null>(null);
   const [linePickerOpen, setLinePickerOpen] = useState(false);
 
-  const openStructureWizard = useCallback(() => {
-    if (lines.length === 1) { setWizardLine(lines[0]); setWizardOpen(true); return; }
+  const openStructureEditor = useCallback(() => {
+    if (lines.length === 1) { setEditorLine(lines[0]); setEditorOpen(true); return; }
     if (lines.length === 0) { setImportErr('Add an order line first — the structure hangs off one.'); return; }
     setLinePickerOpen(true);
   }, [lines]);
-  /** Structure types on this order's lines — shown as a hint in the wizard. */
+  /** Structure types on this order's lines — shown as a hint in the editor. */
 
   const [summary, setSummary] = useState<ItemsSummary | null>(null);
   const [procCounts, setProcCounts] = useState<{ make: number; buy: number } | null>(null);
@@ -1082,10 +1082,10 @@ export default function OrderItemsTree({ orderId, canManage, readiness, onStageC
 
   useEffect(() => { loadSummary(); loadProcurementCounts(); }, [loadSummary, loadProcurementCounts]);
 
-  // The wizard needs the lines themselves, not just their distinct types: the
+  // The editor needs the lines themselves, not just their distinct types: the
   // chosen line supplies the span code, and its type supplies the default parts.
   useEffect(() => {
-    fabQuery<{ data: WizardLine[] }>('fabErpOrderLine', {
+    fabQuery<{ data: OrderLineRef[] }>('fabErpOrderLine', {
       filters: { orderId },
       orderBy: [{ field: 'lineNo', direction: 'asc' }],
       pagination: { limit: 200 },
@@ -1335,9 +1335,9 @@ export default function OrderItemsTree({ orderId, canManage, readiness, onStageC
           >
             {topItems.length > 0 ? 'Export BOQ' : 'Download BOQ template'}
           </Button>
-          <Tooltip title="Build this line's structure from a catalog BOM — it asks only what the BOM asks, and shows what it would create before anything exists.">
-            <Button variant="outlined" size="small" startIcon={<AutoFixHighRounded />} onClick={openStructureWizard}>
-              Structure wizard
+          <Tooltip title="Open this line's BOM and edit it — change quantities, remove what this job does not have, copy a branch. Nothing is written until you press Create.">
+            <Button variant="outlined" size="small" startIcon={<AccountTreeRounded />} onClick={openStructureEditor}>
+              Edit structure
             </Button>
           </Tooltip>
           <Button
@@ -1437,7 +1437,7 @@ export default function OrderItemsTree({ orderId, canManage, readiness, onStageC
             {lines.map((l) => (
               <ListItemButton
                 key={l.id}
-                onClick={() => { setWizardLine(l); setLinePickerOpen(false); setWizardOpen(true); }}
+                onClick={() => { setEditorLine(l); setLinePickerOpen(false); setEditorOpen(true); }}
               >
                 <ListItemText
                   primary={l.description || l.code || `Line ${l.id}`}
@@ -1452,16 +1452,16 @@ export default function OrderItemsTree({ orderId, canManage, readiness, onStageC
         </DialogActions>
       </Dialog>
 
-      <TemplateWizardDialog
-        open={wizardOpen}
+      <StructureEditor
+        open={editorOpen}
         orderId={orderId}
-        orderLine={wizardLine ? {
-          id: wizardLine.id,
-          code: wizardLine.code ?? null,
-          // What this line is — so the wizard opens on it rather than asking again.
-          itemId: wizardLine.templateItemId ?? wizardLine.catalogItemId ?? null,
+        orderLine={editorLine ? {
+          id: editorLine.id,
+          code: editorLine.code ?? null,
+          // What this line is — so the editor opens on it rather than asking again.
+          itemId: editorLine.templateItemId ?? editorLine.catalogItemId ?? null,
         } : null}
-        onClose={() => { setWizardOpen(false); setWizardLine(null); }}
+        onClose={() => { setEditorOpen(false); setEditorLine(null); }}
         onDone={() => { markItemsChanged(); loadSummary(); loadProcurementCounts(); setTreeVersion((v) => v + 1); loadTop().then(setTopItems).catch(() => {}); }}
       />
 

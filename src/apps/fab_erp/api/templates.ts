@@ -354,3 +354,48 @@ export const instantiateTemplate = (
     replace?: boolean;
   },
 ) => fabPost<InstantiateResult>(`orders/${orderId}/instantiate`, { ...body });
+
+/* ─────────────────────────── the editable BOM ─────────────────────────── */
+
+/**
+ * One node of the structure being edited.
+ *
+ * It is the BOM's own shape, not an expansion: a Girder line is ONE node
+ * reading ×6, which is what you edit and what gets built. `key` is a local id
+ * so the editor can address a node that does not exist anywhere yet.
+ */
+export interface DraftNode {
+  key: string;
+  catalogItemId: number;
+  name: string;
+  unit: string | null;
+  qty: number;
+  codeSegment: string | null;
+  codeJoin: 'dash' | 'absorb';
+  defaultFlowId: number | null;
+  /** The BOM line it came from — null once somebody adds a row by hand. */
+  bomLineId: number | null;
+  /** What the BOM called this quantity, if it asked for one. Shown as a hint. */
+  qtyParam: string | null;
+  children: DraftNode[];
+}
+
+/** GET the BOM as a tree to edit. Writes nothing. */
+export const getDraftTree = (itemId: number) =>
+  fabGet<{ tree: DraftNode }>(`templates/${itemId}/draft`);
+
+/**
+ * Build exactly this tree on the line.
+ *
+ * `replace` is refused unless it is passed, and refused anyway when tasks on
+ * the line have been started — rebuilding would throw shop-floor history away.
+ */
+export const buildStructure = (
+  orderId: number,
+  body: {
+    tree: DraftNode;
+    orderLineId?: number | null;
+    lineCode?: string | null;
+    replace?: boolean;
+  },
+) => fabPost<InstantiateResult>(`orders/${orderId}/build`, { ...body });
