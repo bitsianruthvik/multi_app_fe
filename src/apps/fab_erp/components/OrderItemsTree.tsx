@@ -1,24 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Alert, AlertTitle, Autocomplete, Box, Button, CircularProgress, Dialog, DialogActions,
-  DialogContent, DialogTitle, FormControlLabel, IconButton, List, ListItemButton,
-  ListItemText, MenuItem, Radio, RadioGroup,
-  TextField, Tooltip, Typography,
+  DialogContent, DialogTitle, IconButton, List, ListItemButton,
+  ListItemText, MenuItem, TextField, Tooltip, Typography,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import BuildCircleRounded from '@mui/icons-material/BuildCircleRounded';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import CloseRounded from '@mui/icons-material/CloseRounded';
 import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
-import DownloadIcon from '@mui/icons-material/Download';
 import AccountTreeRounded from '@mui/icons-material/AccountTreeRounded';
-import StraightenRounded from '@mui/icons-material/StraightenRounded';
 import DescriptionRounded from '@mui/icons-material/DescriptionRounded';
-import UploadFileIcon from '@mui/icons-material/UploadFile';
 
-import { getItemDemand, type DemandPart } from '../api/orderItems';
 import { fabQuery, fabMutate } from '../api/client';
-import { setFieldValues } from '../api/fields';
 import type { FilterValue } from '../api/client';
 import { Surface, EmptyState, useToast } from '../components';
 import { MaterializeOutcome, type MaterializeResponse } from './OrderTaskDag';
@@ -43,7 +37,6 @@ interface OrderLineRef {
 }
 import { procurementOf } from '../api/procurement';
 import api, { API_HOST } from '@core/utils/axiosConfig';
-import { DialogCloseButton } from './FormDialog';
 
 // Tree can be 1000+ rows across hundreds of top-level branches — everything
 // here is lazy: top-level items load one page at a time, and a node's
@@ -95,22 +88,6 @@ interface CatalogOption {
   procurementType?: string | null;
 }
 interface FlowOption { id: number; name: string; code?: string; active?: number }
-interface ImportItemsResult {
-  mode?: 'append' | 'replace';
-  itemsCreated: number;
-  itemsSkipped: number;
-  itemsDeleted?: number;
-  /** Span / girder / segment rows created on the way to a part. */
-  levelsCreated?: number;
-  /** Raw-material links created from the Raw Material column. */
-  rmLinks?: number;
-  totalWeight?: number | null;
-  unweighedLeaves?: number;
-  warnings: Array<{ row?: number; message: string }>;
-  reportBase64?: string;
-  /** Recomputed server-side after the upload — saves the page asking again. */
-  readiness?: OrderReadiness | null;
-}
 interface ItemsSummary {
   totalWeight: number | null;
   itemCount: number;
@@ -120,24 +97,7 @@ interface ItemsSummary {
   codePrefix: string | null;
 }
 
-/** Trims trailing zeros so 150.000000 reads as 150 and 271.3 stays 271.3. */
-function fmtWeight(v: number | null | undefined): string | null {
-  if (v === null || v === undefined) return null;
-  const n = Number(v);
-  if (!Number.isFinite(n)) return null;
-  return `${Number(n.toFixed(3))}`;
-}
 
-function downloadBase64Xlsx(base64: string, filename: string) {
-  const bytes = atob(base64);
-  const arr = new Uint8Array(bytes.length);
-  for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
-  const blob = new Blob([arr], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url; a.download = filename; a.click();
-  URL.revokeObjectURL(url);
-}
 
 function errMsg(e: unknown, fallback = 'Something went wrong'): string {
   const ax = e as { response?: { status?: number; data?: { message?: string; error?: string } }; message?: string };
@@ -283,7 +243,7 @@ function AddItemRow({ orderId, parentItemId, onCreated, onCancel }: {
 
 // ─── One tree node (recursive) ─────────────────────────────────────────────
 
-function ItemNode({ item, depth, canManage, flows, onDeleted, onItemAdded, onWeightChanged, treeVersion, codePrefix }: {
+function ItemNode({ item, depth, canManage, flows, onDeleted, onItemAdded, onTreeChanged, treeVersion, codePrefix }: {
   item: FabItemRow;
   depth: number;
   canManage: boolean;
@@ -292,7 +252,7 @@ function ItemNode({ item, depth, canManage, flows, onDeleted, onItemAdded, onWei
   /** Bubbles a new child up to the root so it can re-offer "build tasks". */
   onItemAdded: () => void;
   /** Editing a weight or qty changes every ancestor's total — tells the root to recompute. */
-  onWeightChanged: () => void;
+  onTreeChanged: () => void;
   /** Bumped after a recompute or code run; nodes re-read themselves and their loaded children. */
   treeVersion: number;
   /** Shared head of every code in this order, stripped from the row display. */
@@ -306,7 +266,6 @@ function ItemNode({ item, depth, canManage, flows, onDeleted, onItemAdded, onWei
   const [hasMoreChildren, setHasMoreChildren] = useState(false);
   const [childrenError, setChildrenError] = useState('');
   /** Parts this assembly needs but does not contain — see loadChildren. */
-  const [demand, setDemand] = useState<DemandPart[]>([]);
   const [addingChild, setAddingChild] = useState(false);
 
   const [name, setName] = useState(item.name ?? '');
@@ -320,51 +279,34 @@ function ItemNode({ item, depth, canManage, flows, onDeleted, onItemAdded, onWei
   const [deleting, setDeleting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
-  // Dimensions and weight are plain columns on fab_items now. They used to live
-  // in fab_custom_fields under level='item', which the Item Catalog also uses
-  // with a catalog-item id — two different ID spaces in one key. Reading them
-  // from the row removes that collision and the extra round-trip with it.
-  const [showDims, setShowDims] = useState(false);
   const [showDrawings, setShowDrawings] = useState(false);
-
-  const [dims, setDims] = useState({
-    length:     item.length     != null ? String(item.length)     : '',
-    width:      item.width      != null ? String(item.width)      : '',
-    height:     item.height     != null ? String(item.height)     : '',
-    unitWeight: item.unitWeight != null ? String(item.unitWeight) : '',
-  });
-  const [savingDims, setSavingDims] = useState(false);
-  // Last values known to be persisted, so a blur with nothing changed does not
-  // fire a write. Mirrors savedRef's job for the inline row fields.
-  const savedDimsRef = useRef<Record<'length' | 'width' | 'height' | 'unitWeight', number | null>>({
-    length:     item.length     ?? null,
-    width:      item.width      ?? null,
-    height:     item.height     ?? null,
-    unitWeight: item.unitWeight ?? null,
-  });
   // Server-owned figures. Kept in state (not read straight off `item`) so a
   // recompute can refresh them in place without remounting the tree.
-  const [computedWeight, setComputedWeight] = useState<number | null>(item.computedUnitWeight ?? null);
-  const [totalWeight, setTotalWeight] = useState<number | null>(item.totalWeight ?? null);
-  const [enteredWeight, setEnteredWeight] = useState<number | null>(item.unitWeight ?? null);
   // Also server-owned: issued by itemCodeService, frozen once set, never edited here.
   const [code, setCode] = useState<string | null>(item.code ?? null);
 
   const atMaxDepth = depth >= MAX_ITEM_TREE_DEPTH;
-  const weightUnit = item.weightUnit || 'kg';
-  const dimUnit = item.dimUnit || 'mm';
   // A typed weight on an assembly is legitimate — welds, bolts and paint make it
   // heavier than the sum of its parts — so it wins, but the gap is surfaced
   // rather than hidden, because the same symptom also means "a child is missing".
-  const weightOverridden = enteredWeight != null && computedWeight != null
-    && Math.abs(enteredWeight - computedWeight) > 0.001;
 
   async function loadChildren(afterId?: number) {
     setLoadingChildren(afterId ? loadingChildren : true);
     if (afterId) setLoadingMoreChildren(true);
     setChildrenError('');
     try {
-      const filters: Record<string, FilterValue> = { parentItemId: item.id };
+      /*
+       * STRUCTURE ONLY, NOT MATERIAL.
+       *
+       * Accepting a nest hangs a row under every part naming the plate it was
+       * cut from — `node_kind = 'material'`. Those are links, not structure, and
+       * showing them here turned a clean BOM into a tree with a plate dangling
+       * off every leaf. The nesting board is where a part meets its plate.
+       */
+      const filters: Record<string, FilterValue> = {
+        parentItemId: item.id,
+        'nodeKind.NEQ': 'material',
+      };
       if (afterId) filters['id.GT'] = afterId;
       const res = await fabQuery<{ data: FabItemRow[] }>('fabErpItem', {
         filters,
@@ -375,29 +317,6 @@ function ItemNode({ item, depth, canManage, flows, onDeleted, onItemAdded, onWei
       setChildren((prev) => (afterId ? [...prev, ...rows] : rows));
       setHasMoreChildren(rows.length === CHILD_PAGE_SIZE);
       setChildrenLoaded(true);
-      /**
-       * WHAT THIS ASSEMBLY NEEDS, which is no longer the same as what it holds.
-       *
-       * Identical parts are consolidated onto the order line — twelve stiffeners
-       * under ED1 and twelve under ED2 are one row of twenty-four — so a
-       * diaphragm has no children at all. Listing children alone showed an empty
-       * assembly, which reads as nothing being wrong rather than as the question
-       * having moved.
-       *
-       * Only asked on the first page: demand belongs to the node, not to a page
-       * of its children, and re-fetching it while paging would be the same
-       * answer three times.
-       */
-      if (!afterId) {
-        try {
-          const d = await getItemDemand(item.orderId, item.id);
-          setDemand(d.parts ?? []);
-        } catch {
-          // A tree that cannot answer "what does it need" is still a usable
-          // tree. Failing the whole expansion over it would be worse.
-          setDemand([]);
-        }
-      }
     } catch (e) {
       setChildrenError(errMsg(e, 'Failed to load children'));
     } finally {
@@ -420,9 +339,6 @@ function ItemNode({ item, depth, canManage, flows, onDeleted, onItemAdded, onWei
       });
       const row = res.data?.[0];
       if (row) {
-        setComputedWeight(row.computedUnitWeight ?? null);
-        setTotalWeight(row.totalWeight ?? null);
-        setEnteredWeight(row.unitWeight ?? null);
         setCode(row.code ?? null);
       }
     } catch { /* a stale total is not worth an error banner */ }
@@ -476,7 +392,7 @@ function ItemNode({ item, depth, canManage, flows, onDeleted, onItemAdded, onWei
       savedRef.current = { name: nextName, qty: parsedQty, unit: nextUnit };
       // Quantity is a multiplier in every ancestor's roll-up, so changing it
       // moves totals all the way to the top of the order.
-      if (qtyChanged) onWeightChanged();
+      if (qtyChanged) onTreeChanged();
     } catch (e) {
       setRowError(errMsg(e, 'Save failed'));
     } finally {
@@ -503,60 +419,11 @@ function ItemNode({ item, depth, canManage, flows, onDeleted, onItemAdded, onWei
     }
   }
 
-  /**
-   * One write for the whole dimensions/weight panel. A blank box clears the
-   * column rather than storing 0 — "nobody measured this" and "this weighs
-   * nothing" are different claims, and only NULL keeps a half-filled tree
-   * reporting an honest "unknown" total instead of a confidently wrong one.
-   */
-  async function saveDims(key: 'length' | 'width' | 'height' | 'unitWeight') {
-    const raw = dims[key].trim();
-    const parsed = raw === '' ? null : Number(raw);
-    if (parsed !== null && !Number.isFinite(parsed)) {
-      setRowError(`${key === 'unitWeight' ? 'Weight' : key} must be a number.`);
-      return;
-    }
-    const current = savedDimsRef.current[key];
-    if (parsed === null && current === null) return;
-    if (parsed !== null && current !== null && Math.abs(parsed - current) < 1e-6) return;
-
-    setSavingDims(true); setRowError('');
-    try {
-      if (key === 'unitWeight') {
-        // Weight is still a column on fab_items and has no field behind it.
-        await fabMutate('fabErpItem', 'update', { id: item.id, unit_weight: parsed });
-      } else {
-        /**
-         * Dimensions go through the field system now, not the column.
-         *
-         * `fab_items.length/width/height` became a DERIVED projection in step 4
-         * — setFields writes them from the value. Writing the column directly
-         * from here would set the projection without the value it is supposed
-         * to be derived from, so the formula engine and every matcher would see
-         * the old number while the screen showed the new one.
-         *
-         * Note `height` IS thickness: the BOQ sheet's Thick column is declared
-         * with key `height`, so it maps to `thickness_mm` and not to any height.
-         */
-        const FIELD_OF = { length: 'length_mm', width: 'width_mm', height: 'thickness_mm' } as const;
-        await setFieldValues('order_item', item.id, { [FIELD_OF[key]]: parsed });
-      }
-      savedDimsRef.current[key] = parsed;
-      if (key === 'unitWeight') {
-        setEnteredWeight(parsed);
-        onWeightChanged(); // every ancestor's total just moved
-      }
-    } catch (e) {
-      setRowError(errMsg(e, 'Failed to save'));
-    } finally {
-      setSavingDims(false);
-    }
-  }
 
   function handleChildDeleted(id: number) {
     setChildren((prev) => prev.filter((r) => r.id !== id));
     // A deleted branch stops contributing its weight upward.
-    onWeightChanged();
+    onTreeChanged();
   }
 
   const th = { fontSize: 13, color: 'var(--c-text)' } as const;
@@ -690,34 +557,7 @@ function ItemNode({ item, depth, canManage, flows, onDeleted, onItemAdded, onWei
           </Box>
         </Tooltip>
 
-        {/* Weight is the number people scan this tree for, so it reads in the
-            row rather than only inside the panel. An em dash means "not known
-            yet" — it is never shown as 0. */}
-        <Tooltip
-          title={totalWeight == null
-            ? 'No weight yet — enter it on the rows at the bottom of the tree'
-            : enteredWeight != null
-              ? `${fmtWeight(enteredWeight)} ${weightUnit} each (typed) x ${qty || 0}`
-              : `${fmtWeight(computedWeight)} ${weightUnit} each (added up from parts) x ${qty || 0}`}
-        >
-          <Typography
-            variant="caption"
-            fontFamily="monospace"
-            sx={{
-              flexShrink: 0, minWidth: 74, textAlign: 'right',
-              color: totalWeight == null ? 'var(--c-text-3)' : 'var(--c-text-2)',
-              fontStyle: enteredWeight == null && totalWeight != null ? 'italic' : 'normal',
-            }}
-          >
-            {totalWeight == null ? '—' : `${fmtWeight(totalWeight)} ${weightUnit}`}
-          </Typography>
-        </Tooltip>
-
-        {weightOverridden && (
-          <Tooltip title={`Typed ${fmtWeight(enteredWeight)} ${weightUnit}, parts add up to ${fmtWeight(computedWeight)} ${weightUnit}. The typed figure is used.`}>
-            <Typography variant="caption" sx={{ flexShrink: 0, color: 'var(--c-warning-700, #9a6700)', fontWeight: 600 }}>!</Typography>
-          </Tooltip>
-        )}
+        {/*,          The weight column has gone with the dimensions that fed it. It could,          only ever read "—" now, and a column of em dashes is not information.,        */}
 
         {savingRow && <CircularProgress size={12} />}
 
@@ -734,13 +574,6 @@ function ItemNode({ item, depth, canManage, flows, onDeleted, onItemAdded, onWei
               <DescriptionRounded fontSize="small" />
             </IconButton>
           </Tooltip>
-          {canManage && (
-            <Tooltip title="Dimensions and weight">
-              <IconButton size="small" onClick={() => setShowDims((s) => !s)} sx={{ p: 0.25 }}>
-                <StraightenRounded fontSize="small" />
-              </IconButton>
-            </Tooltip>
-          )}
           {canManage && (
             <Tooltip title="Remove">
               <IconButton size="small" color="error" onClick={() => setConfirmDelete(true)} sx={{ p: 0.25 }} disabled={deleting}>
@@ -778,40 +611,7 @@ function ItemNode({ item, depth, canManage, flows, onDeleted, onItemAdded, onWei
         </Box>
       )}
 
-      {showDims && (
-        <Box sx={{ ml: `${6 + depth * 24 + 24}px`, mr: 1.5, mb: 1 }}>
-          <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'center', flexWrap: 'wrap' }}>
-            {(['length', 'width', 'height'] as const).map((k) => (
-              <TextField
-                key={k}
-                label={`${k[0].toUpperCase()}${k.slice(1)} (${dimUnit})`}
-                type="number" size="small" variant="standard" sx={{ width: 104 }}
-                value={dims[k]}
-                disabled={!canManage || savingDims}
-                onChange={(e) => setDims((d) => ({ ...d, [k]: e.target.value }))}
-                onBlur={() => saveDims(k)}
-              />
-            ))}
-            <TextField
-              label={`Weight each (${weightUnit})`}
-              type="number" size="small" variant="standard" sx={{ width: 128 }}
-              value={dims.unitWeight}
-              disabled={!canManage || savingDims}
-              onChange={(e) => setDims((d) => ({ ...d, unitWeight: e.target.value }))}
-              onBlur={() => saveDims('unitWeight')}
-              placeholder={computedWeight != null ? fmtWeight(computedWeight) ?? '' : ''}
-            />
-            {savingDims && <CircularProgress size={12} />}
-          </Box>
-          <Typography variant="caption" sx={{ display: 'block', mt: 0.5, color: 'var(--c-text-3)' }}>
-            {computedWeight != null
-              ? weightOverridden
-                ? `Parts add up to ${fmtWeight(computedWeight)} ${weightUnit} — your typed figure is used instead.`
-                : `Added up from the parts below. Type a figure only if you know the real weight.`
-              : 'Fill in dimensions and weight on the rows at the bottom of the tree — everything above adds up on its own.'}
-          </Typography>
-        </Box>
-      )}
+      {/*,        DIMENSIONS AND WEIGHT ARE NOT ENTERED HERE ANY MORE.,,        Length, width, thickness and weight-each were typed onto the order row.,        They describe a piece of steel, and a BOM row is not a piece of steel —,        it is "six of this design". The size belongs to the blank the row draws,        from, which is a catalog item, and that is also where nesting can filter,        on it and where a weight can be worked out once for everybody.,,        Coming back on the catalog item, not on this row.,      */}
 
       {atMaxDepth && expanded === false && depth === MAX_ITEM_TREE_DEPTH && (
         <Typography variant="caption" color="text.disabled" sx={{ display: 'block', ml: `${6 + depth * 24 + 24}px`, mb: 1 }}>
@@ -830,47 +630,9 @@ function ItemNode({ item, depth, canManage, flows, onDeleted, onItemAdded, onWei
             <Alert severity="error" sx={{ mx: 2, my: 1 }}>{childrenError}</Alert>
           ) : (
             <>
-              {/*
-                PARTS THIS ASSEMBLY NEEDS, shown where its children used to be.
+              {/*,                THE "NEEDS" BLOCK HAS GONE, with the consolidation that made it,                necessary. Parts were moved out from under their assemblies onto,                the order line, so a diaphragm listed no children and this block,                stood in for them. Parts are children again; when they become,                stock lots they will be an input on the task, not a row here.,              */}
 
-                Not children, and drawn so: they live on the order line because
-                identical parts across every assembly are one row, and this one
-                needs some of them. "12 of 288" is the honest statement — twelve
-                here, two hundred and eighty-eight cut in one go for everybody.
-
-                They are not editable from here. Changing a shared part from
-                inside one diaphragm would change it for the ninety others, and
-                a tree row is not where somebody expects that to happen.
-              */}
-              {demand.length > 0 && (
-                <Box sx={{ pl: 2, py: 0.75 }}>
-                  <Typography sx={{
-                    fontSize: 10.5, fontWeight: 600, letterSpacing: '.06em',
-                    textTransform: 'uppercase', color: 'var(--c-text-3)', mb: 0.5,
-                  }}>
-                    Needs
-                  </Typography>
-                  {demand.map((d) => (
-                    <Box key={d.partId} sx={{ display: 'flex', gap: 1, alignItems: 'baseline', py: 0.15 }}>
-                      <Typography sx={{ fontSize: 12, fontWeight: 600, minWidth: 62 }}>
-                        {d.qty} ×
-                      </Typography>
-                      <Typography sx={{ fontSize: 12 }}>{d.name}</Typography>
-                      <Typography sx={{ fontSize: 11.5, fontFamily: 'monospace', color: 'var(--c-text-3)' }}>
-                        {d.code}
-                      </Typography>
-                      <Typography sx={{ fontSize: 11.5, color: 'var(--c-text-3)' }}>
-                        {d.totalQty != null && d.totalQty !== d.qty
-                          ? `of ${d.totalQty} cut for the order`
-                          : ''}
-                        {d.plateCount > 1 ? ` · from ${d.plateCount} plates` : ''}
-                      </Typography>
-                    </Box>
-                  ))}
-                </Box>
-              )}
-
-              {children.length === 0 && demand.length === 0 && !addingChild && (
+              {children.length === 0 && !addingChild && (
                 <Typography variant="caption" color="text.disabled" sx={{ display: 'block', pl: 3, py: 1 }}>
                   No children
                 </Typography>
@@ -884,7 +646,7 @@ function ItemNode({ item, depth, canManage, flows, onDeleted, onItemAdded, onWei
                   flows={flows}
                   onDeleted={handleChildDeleted}
                   onItemAdded={onItemAdded}
-                  onWeightChanged={onWeightChanged}
+                  onTreeChanged={onTreeChanged}
                   treeVersion={treeVersion}
                   codePrefix={codePrefix}
                 />
@@ -905,7 +667,7 @@ function ItemNode({ item, depth, canManage, flows, onDeleted, onItemAdded, onWei
                       setChildren((prev) => [...prev, row]);
                       setAddingChild(false);
                       // onItemAdded re-rolls the weights and issues the new
-                      // row's code — no separate onWeightChanged needed here.
+                      // row's code — no separate onTreeChanged needed here.
                       onItemAdded();
                     }}
                     onCancel={() => setAddingChild(false)}
@@ -944,15 +706,6 @@ export default function OrderItemsTree({ orderId, canManage, readiness, onStageC
   const [flows, setFlows] = useState<FlowOption[]>([]);
   const [addingRoot, setAddingRoot] = useState(false);
 
-  const [exporting, setExporting] = useState(false);
-  const [importing, setImporting] = useState(false);
-  const [importErr, setImportErr] = useState('');
-  const [importResult, setImportResult] = useState<ImportItemsResult | null>(null);
-  const importFileRef = useRef<HTMLInputElement>(null);
-  // Replace wipes the order's tree, so it is a deliberate choice made before the
-  // file picker opens rather than a switch sitting next to a one-click Import.
-  const [importMode, setImportMode] = useState<'append' | 'replace'>('append');
-  const [modeDialogOpen, setModeDialogOpen] = useState(false);
   const [lines, setLines] = useState<OrderLineRef[]>([]);
   const [editorOpen, setEditorOpen] = useState(false);
   /**
@@ -968,7 +721,7 @@ export default function OrderItemsTree({ orderId, canManage, readiness, onStageC
 
   const openStructureEditor = useCallback(() => {
     if (lines.length === 1) { setEditorLine(lines[0]); setEditorOpen(true); return; }
-    if (lines.length === 0) { setImportErr('Add an order line first — the structure hangs off one.'); return; }
+    if (lines.length === 0) { setError('Add an order line first — the structure hangs off one.'); return; }
     setLinePickerOpen(true);
   }, [lines]);
   /** Structure types on this order's lines — shown as a hint in the editor. */
@@ -1041,11 +794,6 @@ export default function OrderItemsTree({ orderId, canManage, readiness, onStageC
     () => `${API_HOST}/api/${localStorage.getItem('companySlug')}/fab_erp/orders/${orderId}/items`,
     [orderId],
   );
-  /** The BOQ sheet lives on its own routes — one sheet, four level columns. */
-  const boqBase = useCallback(
-    () => `${API_HOST}/api/${localStorage.getItem('companySlug')}/fab_erp/orders/${orderId}/boq`,
-    [orderId],
-  );
 
   const loadSummary = useCallback(async () => {
     try {
@@ -1093,21 +841,16 @@ export default function OrderItemsTree({ orderId, canManage, readiness, onStageC
   }, [orderId]);
 
   /**
-   * A weight or quantity changed somewhere in the tree. Roll-up is a whole-order
-   * calculation — a plate at the bottom moves every assembly above it — so the
-   * server recomputes the order and every mounted node re-reads itself.
+   * A quantity changed, or a row went away. There is no weight to roll up any
+   * more — the dimensions it was computed from are not entered here — but the
+   * counts above the tree still move, so they are re-read.
    */
-  const handleWeightChanged = useCallback(async () => {
+  const handleTreeChanged = useCallback(async () => {
     try {
-      await api.post(`${apiBase()}/recompute-weights`, {});
       setTreeVersion((v) => v + 1);
-      // The split is re-read here even though a weight cannot change it: a
-      // deleted node deep in the tree reports itself through this same
-      // callback, and that DOES remove rows from the count. Two cheap COUNTs
-      // on an edit that did not need them beats a stale split after a delete.
       await Promise.all([loadSummary(), loadProcurementCounts()]);
     } catch { /* leave the last good totals on screen rather than blanking them */ }
-  }, [apiBase, loadSummary, loadProcurementCounts]);
+  }, [loadSummary, loadProcurementCounts]);
 
 
   async function loadMore() {
@@ -1129,7 +872,7 @@ export default function OrderItemsTree({ orderId, canManage, readiness, onStageC
     setTopItems((prev) => prev.filter((r) => r.id !== id));
     toast('Item removed');
     // Re-reads the split too — a removed branch takes its bought-in rows with it.
-    handleWeightChanged();
+    handleTreeChanged();
   }
 
   // New rows always arrive with flow_id NULL and no tasks behind them, so any
@@ -1148,19 +891,20 @@ export default function OrderItemsTree({ orderId, canManage, readiness, onStageC
   }
 
   /**
-   * A row was added. Both derived things — the roll-up and the new row's code —
-   * are whole-order calculations, so they run together and every mounted node
-   * re-reads itself afterwards. Code generation only ever fills blanks, so
-   * calling it on each add cannot disturb rows that already have one.
+   * A row was added.
+   *
+   * This used to recompute weights AND issue codes for the whole order. Both
+   * are gone: there are no dimensions to roll up, and a code minted here would
+   * be exactly the positional code the BOM step stopped writing — added one
+   * hand-typed row at a time instead of all at once, which is worse, not
+   * better. Only the counts above the tree need re-reading.
    */
   async function handleItemAdded() {
     markItemsChanged();
     try {
-      await api.post(`${apiBase()}/recompute-weights`, {});
-      await api.post(`${apiBase()}/generate-codes`, {});
       setTreeVersion((v) => v + 1);
       await loadSummary(); await loadProcurementCounts();
-    } catch { /* the row is saved; derived values catch up on the next action */ }
+    } catch { /* the row is saved; the counts catch up on the next action */ }
   }
 
   // Same endpoint the Task DAG tab's "Materialize tasks" button calls — the
@@ -1171,54 +915,6 @@ export default function OrderItemsTree({ orderId, canManage, readiness, onStageC
   // Parameters step had been done — freezing every estimate against values
   // nobody had entered. The prompt below stays and now points at that step.
 
-  async function downloadItemsTemplate() {
-    setExporting(true);
-    try {
-      const res = await api.get(`${boqBase()}/export`, { responseType: 'blob' });
-      const url = URL.createObjectURL(res.data as Blob);
-      const a = document.createElement('a');
-      a.href = url; a.download = 'Order_BOQ.xlsx'; a.click();
-      URL.revokeObjectURL(url);
-    } catch (e) {
-      setError(errMsg(e, 'Failed to download template'));
-    } finally {
-      setExporting(false);
-    }
-  }
-
-  async function handleImportItemsFile(file: File) {
-    setImporting(true); setImportErr(''); setImportResult(null);
-    try {
-      const form = new FormData();
-      form.append('excel_file', file);
-      form.append('mode', importMode);
-      const res = await api.post<ImportItemsResult>(
-        `${boqBase()}/import`, form,
-        { headers: { 'Content-Type': 'multipart/form-data' } },
-      );
-      setImportResult(res.data);
-      // Re-fetch top-level items — an import can add new top-level branches
-      // alongside whatever was already there, and a replace clears the lot.
-      const rows = await loadTop();
-      setTopItems(rows);
-      setHasMore(rows.length === TOP_LEVEL_PAGE_SIZE);
-      // A replace that removed rows and created none still moved the stages, so
-      // the strip is told either way — markItemsChanged already does it, and
-      // this covers the branch where it does not run.
-      if (res.data.itemsCreated > 0) markItemsChanged(res.data.readiness);
-      else onStageChanged?.(res.data.readiness);
-      // The importer already rolled up weights and issued codes inside its
-      // transaction, so this only needs to re-read them — not re-run them.
-      setTreeVersion((v) => v + 1);
-      await loadSummary(); await loadProcurementCounts();
-      toast(`${res.data.itemsCreated} item(s) imported`);
-    } catch (e) {
-      setImportErr(errMsg(e, 'Import failed'));
-    } finally {
-      setImporting(false);
-      setImportMode('append'); // never let a replace carry over to the next upload
-    }
-  }
 
   if (loading) {
     return (
@@ -1231,6 +927,8 @@ export default function OrderItemsTree({ orderId, canManage, readiness, onStageC
   // Only prompt when there is genuinely something to build: rows exist, and
   // either the order has no tasks at all or rows were added since the last run.
   // An order whose tasks are already current shows nothing.
+  const blockersHere = (readiness?.blockers ?? []).filter((b) => b.stage !== 'nesting');
+
   const showBuildPrompt = canManage
     && topItems.length > 0
     && !ctaDismissed
@@ -1241,19 +939,18 @@ export default function OrderItemsTree({ orderId, canManage, readiness, onStageC
     <Box>
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
 
-      {/* Tonnage is what a fabricator quotes, invoices and plans lifts around,
-          so the order's total sits above the tree rather than being something
-          you assemble by expanding branches. */}
+      {/*
+        WHAT THIS STEP COUNTS, and what it no longer does.
+
+        Total weight used to sit here. It was rolled up from length, width and
+        thickness typed onto each row — and those fields have gone, because a
+        blank's size belongs to the blank, not to the row that happens to want
+        one. Until dimensions come back on the catalog item, a weight here could
+        only read "—", and a statistic that never has a value is worse than no
+        statistic at all.
+      */}
       {summary && summary.itemCount > 0 && (
         <Surface e={1} sx={{ px: 2, py: 1.25, mb: 1.5, display: 'flex', gap: 3, alignItems: 'center', flexWrap: 'wrap' }}>
-          <Box>
-            <Typography sx={{ fontSize: 10.5, fontWeight: 600, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--c-text-3)' }}>
-              Total weight
-            </Typography>
-            <Typography sx={{ fontSize: 18, fontFamily: 'monospace', color: 'var(--c-text)' }}>
-              {summary.totalWeight == null ? '—' : `${fmtWeight(summary.totalWeight)} kg`}
-            </Typography>
-          </Box>
           <Box>
             <Typography sx={{ fontSize: 10.5, fontWeight: 600, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--c-text-3)' }}>
               Items
@@ -1279,113 +976,32 @@ export default function OrderItemsTree({ orderId, canManage, readiness, onStageC
               </Tooltip>
             </Box>
           )}
-          {/* The code prefix belongs with the codes, and the codes are not
-              issued at this step. It reappears wherever they are. */}
-          {summary.unweighedLeaves > 0 && (
-            <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)', maxWidth: 420 }}>
-              {summary.unweighedLeaves} bottom-level item(s) have no weight, so this total is incomplete.
-              Open the ruler icon on those rows to fill it in.
-            </Typography>
-          )}
         </Surface>
       )}
 
       {canManage && (
         <Box sx={{ display: 'flex', gap: 1, mb: 1.5, flexWrap: 'wrap' }}>
-          <Button
-            variant="outlined" size="small"
-            startIcon={exporting ? <CircularProgress size={14} color="inherit" /> : <DownloadIcon />}
-            onClick={downloadItemsTemplate} disabled={exporting}
-          >
-            {topItems.length > 0 ? 'Export BOQ' : 'Download BOQ template'}
-          </Button>
           <Tooltip title="Open this line's BOM and edit it — change quantities, remove what this job does not have, copy a branch. Nothing is written until you press Create.">
             <Button variant="outlined" size="small" startIcon={<AccountTreeRounded />} onClick={openStructureEditor}>
               Edit structure
             </Button>
           </Tooltip>
-          <Button
-            variant="outlined" size="small"
-            startIcon={importing ? <CircularProgress size={14} color="inherit" /> : <UploadFileIcon />}
-            onClick={() => { setImportMode('append'); setModeDialogOpen(true); }} disabled={importing}
-          >
-            Import from Excel
-          </Button>
           {/*
-            NO "GENERATE CODES" HERE ANY MORE.
-            The BOM step deliberately writes no codes: a row says "six of this
-            design", and there is nothing yet to point at on the floor. A button
-            that filled those blanks would put back, one click at a time, exactly
-            the positional codes the build stopped minting. Codes are issued at
-            production-order time instead, where the pieces become real.
+            THE EXCEL IS GONE FROM THIS STEP, and so is code generation.
+
+            The BOQ sheet's four code columns WERE the structure — span, girder,
+            segment, part — with tree position baked into every code. That is the
+            model the BOM step stopped using: a row is a design, the quantity
+            lives on the row, and codes are issued at production-order time. An
+            importer that still writes positional codes and per-piece rows would
+            undo all of that on the first upload.
+
+            An Excel route back in wants to speak the new language — blanks,
+            lots, quantities — so it is a rewrite, not a button to re-enable.
           */}
-          <input
-            ref={importFileRef}
-            type="file"
-            accept=".xlsx"
-            hidden
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) handleImportItemsFile(file);
-              e.target.value = '';
-            }}
-          />
         </Box>
       )}
 
-      <Dialog open={modeDialogOpen} onClose={() => setModeDialogOpen(false)} maxWidth="sm" fullWidth>
-      <DialogCloseButton absolute onClose={() => (() => setModeDialogOpen(false))()} />
-        <DialogTitle sx={{ fontWeight: 600 }}>Import items from Excel</DialogTitle>
-        <DialogContent dividers>
-          <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)', mb: 2 }}>
-            One <strong>BOQ</strong> sheet. The <strong>Span / Girder / Segment / Part</strong> columns
-            hold codes and those codes <em>are</em> the structure — repeat the span and girder down the
-            rows and the levels are built for you. Weight is not in the sheet: fill in Thick, Length,
-            Width and the Raw Material, and it is worked out the way your BOQ works it out.
-          </Typography>
-          <RadioGroup value={importMode} onChange={(e) => setImportMode(e.target.value as 'append' | 'replace')}>
-            <FormControlLabel
-              value="append" control={<Radio size="small" />}
-              label={(
-                <Box sx={{ py: 0.5 }}>
-                  <Typography sx={{ fontSize: 13.5, fontWeight: 500 }}>Add to what is already here</Typography>
-                  <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>
-                    New rows join the existing tree. Parents may name items already on the order.
-                  </Typography>
-                </Box>
-              )}
-            />
-            <FormControlLabel
-              value="replace" control={<Radio size="small" />}
-              label={(
-                <Box sx={{ py: 0.5 }}>
-                  <Typography sx={{ fontSize: 13.5, fontWeight: 500 }}>Replace the whole tree</Typography>
-                  <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>
-                    Clears this order&rsquo;s {summary?.itemCount ?? 0} item(s) first. Refused if any task on
-                    the order has already been started or finished.
-                  </Typography>
-                </Box>
-              )}
-            />
-          </RadioGroup>
-          {importMode === 'replace' && (
-            <Alert severity="warning" sx={{ mt: 1.5 }}>
-              Tasks built from the current items are removed too. You will need to build tasks again after
-              the import.
-            </Alert>
-          )}
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setModeDialogOpen(false)}>Cancel</Button>
-          <Button
-            variant="contained"
-            color={importMode === 'replace' ? 'warning' : 'primary'}
-            onClick={() => { setModeDialogOpen(false); importFileRef.current?.click(); }}
-          >
-            Choose file…
-          </Button>
-        </DialogActions>
-      </Dialog>
 
       {/*
         * Which line, when there is more than one. A structure belongs to a line
@@ -1426,34 +1042,6 @@ export default function OrderItemsTree({ orderId, canManage, readiness, onStageC
         onDone={() => { markItemsChanged(); loadSummary(); loadProcurementCounts(); setTreeVersion((v) => v + 1); loadTop().then(setTopItems).catch(() => {}); }}
       />
 
-      {importErr && <Alert severity="error" sx={{ mb: 1.5 }} onClose={() => setImportErr('')}>{importErr}</Alert>}
-
-      {importResult && (
-        <Alert
-          severity={importResult.itemsSkipped > 0 ? 'warning' : 'success'}
-          sx={{ mb: 1.5 }}
-          onClose={() => setImportResult(null)}
-          action={importResult.reportBase64 ? (
-            <Button
-              size="small"
-              onClick={() => downloadBase64Xlsx(importResult.reportBase64!, 'Order_Items_Import_Report.xlsx')}
-            >
-              Download report
-            </Button>
-          ) : undefined}
-        >
-          {importResult.mode === 'replace' && (importResult.itemsDeleted ?? 0) > 0
-            ? `Replaced the tree: ${importResult.itemsDeleted} item(s) removed, ` : ''}
-          {importResult.itemsCreated} row(s) created
-          {(importResult.levelsCreated ?? 0) > 0 ? `, ${importResult.levelsCreated} level(s) built` : ''}
-          {(importResult.rmLinks ?? 0) > 0 ? `, ${importResult.rmLinks} material link(s)` : ''}
-          {importResult.itemsSkipped > 0 ? `, ${importResult.itemsSkipped} skipped` : ''}.
-          {importResult.totalWeight != null ? ` Total weight ${fmtWeight(importResult.totalWeight)} kg.` : ''}
-          {importResult.warnings.map((w) => ` ${w.message}`).join('')}
-          {importResult.itemsSkipped > 0 ? ' Download the report for the reason on each skipped row.' : ''}
-        </Alert>
-      )}
-
       {showBuildPrompt && (
         <Alert
           severity="warning"
@@ -1489,9 +1077,15 @@ export default function OrderItemsTree({ orderId, canManage, readiness, onStageC
               not a gate: building tasks for a half-nested order is a legitimate
               thing to do when you want the shop cutting while the rest of the
               BOQ is still being drawn. */}
-          {(readiness?.blockers.length ?? 0) > 0 && (
+          {/*
+              NESTING BLOCKERS ARE NOT SHOWN HERE. "26 of 26 parts have no raw
+              material" is a true sentence about the nesting step, and it was
+              being read on the structure step, where raw material is not a
+              question that has been asked yet. It still reads on Nesting.
+          */}
+          {blockersHere.length > 0 && (
             <Box component="ul" sx={{ m: 0, mt: 1, pl: 2.25, display: 'flex', flexDirection: 'column', gap: 0.4 }}>
-              {readiness!.blockers.map((b, i) => (
+              {blockersHere.map((b, i) => (
                 <Typography key={i} component="li" sx={{ fontSize: 12.5, color: 'var(--c-text-2)' }}>
                   {b.message}
                 </Typography>
@@ -1540,7 +1134,7 @@ export default function OrderItemsTree({ orderId, canManage, readiness, onStageC
               flows={flows}
               onDeleted={handleDeleted}
               onItemAdded={handleItemAdded}
-              onWeightChanged={handleWeightChanged}
+              onTreeChanged={handleTreeChanged}
               treeVersion={treeVersion}
               codePrefix={summary?.codePrefix ?? null}
             />

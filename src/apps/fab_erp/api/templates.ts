@@ -27,22 +27,6 @@ import type { OrderReadiness } from './readiness';
 export type Decimalish = number | string | null;
 
 /**
- * A catalog item with BOM lines under it and nothing above it.
- *
- * Derived server-side rather than flagged, so there is no `is_template` column
- * to fall out of step with the structure it claims to describe.
- */
-export interface StructureTemplate {
-  id: number;
-  code: string | null;
-  name: string;
-  categoryName: string | null;
-  categoryId: number | null;
-  /** How many BOM lines hang directly off it — a rough "how big is this". */
-  childLines: number;
-}
-
-/**
  * One question the template asks, found by walking the BOM for parameterised
  * quantities. There is no parameters table: a line whose qty is a parameter
  * name IS the question, so the two cannot disagree.
@@ -88,13 +72,6 @@ export interface TemplateBomLine {
   defaultFlowName?: string | null;
 }
 
-export interface TemplateQuestions {
-  itemId: number;
-  /** In top-down walk order: "how many girders" before "how many segments each". */
-  parameters: TemplateParameter[];
-  lines: TemplateBomLine[];
-}
-
 /** One node from the preview's shallow sample — enough to check a code reads right. */
 export interface TemplateSampleNode {
   /** 0 is the root. */
@@ -123,118 +100,11 @@ export type TemplateParams = Record<string, number>;
 /** param -> per-parent counts, indexed by the PARENT's 1-based ordinal. */
 export type TemplatePerInstance = Record<string, number[]>;
 
-/* ────────────────────────────── the drill-down ────────────────────────────── */
-
-/**
- * THE STRUCTURE SPEC — the drill-down wizard's complete answer sheet.
- *
- * Keyed by code path relative to the line root (`G1`, `G1-1`), which is what a
- * person reads on screen. An ABSENT NODE INHERITS, so a span whose six girders
- * are all the same is one entry, not six.
- *
- * `sameAs` is the only output of the grouping control. Split and Similar are
- * inverses of each other at the same rung, so they are one concept: a group is
- * a set of paths pointing at one canonical path. Building them as two features
- * would mean two data shapes and an undefined state when both were used.
+/*
+ * THE DRILL-DOWN WIZARD'S TYPES LIVED HERE — StructureSpec, the outline, and
+ * instantiateTemplate. All gone with the wizard itself. The structure is now
+ * edited as a tree (DraftNode, below) and written exactly as sent.
  */
-export interface StructureSpecNode {
-  /** BOM line id -> how many. Absent lines keep the template's own answer. */
-  children?: Record<string, number>;
-  /** "This node is the same as that one" — the similarity link. */
-  sameAs?: string;
-}
-
-export interface StructureSpec {
-  version: 2;
-  /**
-   * The UNIFORM answer, keyed by catalog item id -> BOM line id -> count.
-   *
-   * "Every Line takes 3 Segments" is one entry however many Lines there are.
-   * Writing it out per node instead would put a thousand entries in a column to
-   * say one thing, and the spec would stop being readable.
-   */
-  defaults?: Record<string, Record<string, number>>;
-  /** The EXCEPTIONS, keyed by code path, plus the `sameAs` grouping links. */
-  nodes: Record<string, StructureSpecNode>;
-}
-
-/** One BOM line offered at a step. */
-export interface OutlineLine {
-  lineId: number;
-  childItemId: number;
-  childName: string | null;
-  codeSegment: string | null;
-  helpText: string | null;
-  qtyParam: string | null;
-  defaultQty: number | null;
-  /**
-   * True when each one becomes its own row with its own code and tasks — four
-   * girders are four girders. False means a PART with a quantity: twenty
-   * identical stiffeners are one row of twenty, which is how the BOQ writes
-   * them and how nesting wants them.
-   */
-  explode: boolean;
-  /** Has its own BOM below it, so answering 0 hoists rather than deletes. */
-  hasChildren: boolean;
-}
-
-/** One node whose contents this step decides. */
-export interface OutlineParent {
-  /** Code path relative to the line root — the spec's key. */
-  path: string;
-  code: string;
-  name: string;
-  catalogItemId: number;
-  /** The group it answers with, or null when it answers for itself. */
-  similarGroup: string | null;
-}
-
-/**
- * One rung of the drill-down: a single kind of parent and what it contains.
- *
- * Per KIND, not merely per depth. Depth 1 of a composite span holds Lines, End
- * Diaphragms, Intermediate Diaphragms and Splices — 69 nodes and 18 BOM lines
- * between them, and almost every pairing is meaningless. Split by catalog item
- * and each step asks one honest question.
- */
-export interface OutlineStep {
-  /** Stable across re-outlines, so the wizard stays put while answers change. */
-  key: string;
-  depth: number;
-  catalogItemId: number;
-  /** The catalog item's own name. Never an enum. */
-  label: string;
-  parents: OutlineParent[];
-  parentCount: number;
-  /** False when there are too many parents to edit individually. */
-  perNode: boolean;
-  lines: OutlineLine[];
-  /** parent path -> (line id -> count in force right now). */
-  values: Record<string, Record<string, number>>;
-}
-
-export interface StructureOutline {
-  steps: OutlineStep[];
-  nodes: number;
-  byName: Record<string, number>;
-  rootCode: string;
-}
-
-/**
- * The structure one rung at a time, for the answers so far. WRITES NOTHING.
- *
- * Re-fetched after every change because a step's parents are produced by the
- * step above it: answer "3 segments" and the next rung has three nodes to talk
- * about, not five.
- */
-export const outlineTemplate = (
-  itemId: number,
-  body: {
-    params?: TemplateParams;
-    perInstance?: TemplatePerInstance;
-    structure?: StructureSpec | null;
-  },
-) => fabPost<StructureOutline>(`templates/${itemId}/outline`, { ...body });
 
 export interface InstantiateResult {
   ok: boolean;
@@ -302,12 +172,6 @@ export const saveItemBomLine = (line: {
 export const deleteItemBomLine = (id: number) =>
   fabDel<{ ok: boolean }>(`item-bom/${id}`);
 
-export const listTemplates = () =>
-  fabGet<{ templates: StructureTemplate[] }>('templates');
-
-/** The questions one template asks, plus its immediate BOM. */
-export const getTemplateQuestions = (itemId: number) =>
-  fabGet<TemplateQuestions>(`templates/${itemId}/parameters`);
 
 /**
  * The shape these answers would produce. WRITES NOTHING — safe to call on
@@ -317,43 +181,8 @@ export const previewTemplate = (
   itemId: number,
   params: TemplateParams,
   perInstance: TemplatePerInstance = {},
-  structure: StructureSpec | null = null,
-) => fabPost<TemplatePreview>(`templates/${itemId}/preview`, { params, perInstance, structure });
+) => fabPost<TemplatePreview>(`templates/${itemId}/preview`, { params, perInstance });
 
-/**
- * Create the structure on an order line.
- *
- * `lineCode` is the line's own code and becomes the top level of every code
- * below it, exactly as the BOQ sheet's Span column always was. The order's
- * prefix is resolved server-side and cannot be passed — a code that does not
- * match its order is a code nobody can find later.
- */
-export const instantiateTemplate = (
-  orderId: number,
-  body: {
-    itemId: number;
-    orderLineId?: number | null;
-    params?: TemplateParams;
-    perInstance?: TemplatePerInstance;
-    /**
-     * The drill-down's answers. Saved onto the line, so the wizard can be
-     * reopened on a structure rather than rebuilt from memory, and so
-     * re-running it produces the identical tree.
-     */
-    structure?: StructureSpec | null;
-    lineCode?: string | null;
-    /**
-     * Rebuild a line that already has a structure.
-     *
-     * Without it the server refuses with 409 ALREADY_BUILT rather than adding a
-     * second copy of everything — every code is prefixed by the line, so
-     * duplicates look like ordinary rows and nobody would spot them. With it,
-     * the line's existing items and their tasks are soft-deleted first, and it
-     * is still refused if any of that work has been started.
-     */
-    replace?: boolean;
-  },
-) => fabPost<InstantiateResult>(`orders/${orderId}/instantiate`, { ...body });
 
 /* ─────────────────────────── the editable BOM ─────────────────────────── */
 
