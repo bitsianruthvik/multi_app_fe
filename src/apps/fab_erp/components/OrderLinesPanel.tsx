@@ -11,6 +11,8 @@ import LayersRounded from '@mui/icons-material/LayersRounded';
 import api, { API_HOST } from '@core/utils/axiosConfig';
 import { fabQuery, fabMutate } from '../api/client';
 import { Surface, EmptyState, useToast, DataTable, QtyCell, NumberCell, Mono, backendMessage } from '../components';
+import { DialogCloseButton } from './FormDialog';
+
 /**
  * A catalog item as the line picker needs it: what it is, and enough taxonomy
  * to tell two similarly-named things apart in a list.
@@ -21,8 +23,8 @@ interface CatalogOption {
   code: string | null;
   categoryName?: string | null;
   groupName?: string | null;
+  subgroupName?: string | null;
 }
-import { DialogCloseButton } from './FormDialog';
 
 /**
  * Step 1: what this order is selling.
@@ -286,16 +288,37 @@ export default function OrderLinesPanel({ orderId, canManage, onChanged }: {
               getOptionLabel={(o) => o.name}
               isOptionEqualToValue={(a, b) => a.id === b.id}
               sx={{ flex: '2 1 260px' }}
+              /**
+               * THE NAME LEADS, THE TAXONOMY DISAMBIGUATES.
+               *
+               * Five items are called some kind of "Span" and one of them is
+               * called just "Span" — the name alone cannot tell you which
+               * structure you are about to build. Category, group and subgroup
+               * underneath answer that without competing with the name for
+               * attention.
+               */
               renderOption={(props, o) => (
                 <li {...props} key={o.id}>
-                  <Box>
-                    <Typography sx={{ fontSize: 13 }}>{o.name}</Typography>
+                  <Box sx={{ py: 0.25 }}>
+                    <Typography sx={{ fontSize: 13.5, fontWeight: 600 }}>{o.name}</Typography>
                     <Typography sx={{ fontSize: 11, color: 'var(--c-text-3)' }}>
-                      {[o.code, o.categoryName, o.groupName].filter(Boolean).join(' · ')}
+                      {[o.categoryName, o.groupName, o.subgroupName].filter(Boolean).join(' › ')}
+                      {o.code ? `  ·  ${o.code}` : ''}
                     </Typography>
                   </Box>
                 </li>
               )}
+              /**
+               * Typing matches the taxonomy too, so "composite" finds the Span
+               * that is only distinguishable by its group.
+               */
+              filterOptions={(opts, { inputValue }) => {
+                const q = inputValue.trim().toLowerCase();
+                if (!q) return opts;
+                return opts.filter((o) => [
+                  o.name, o.code, o.categoryName, o.groupName, o.subgroupName,
+                ].filter(Boolean).join(' ').toLowerCase().includes(q));
+              }}
               renderInput={(params) => (
                 <TextField
                   {...params} label="Item" size="small" required
