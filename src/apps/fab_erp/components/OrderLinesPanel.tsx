@@ -154,12 +154,36 @@ export default function OrderLinesPanel({ orderId, canManage, onChanged }: {
   const [catalog, setCatalog] = useState<CatalogOption[]>([]);
   const [item, setItem] = useState<CatalogOption | null>(null);
   useEffect(() => {
-    fabQuery<{ data: CatalogOption[] }>('fabErpItemCatalog', {
-      orderBy: [{ field: 'name', direction: 'asc' }],
-      pagination: { limit: 1000 },
-    })
-      .then((r) => setCatalog((r.data ?? []).filter((c) => c.categoryName !== 'Raw Materials')))
-      .catch(() => setCatalog([]));
+    /**
+     * THE EXCLUSION IS THE SERVER'S JOB, and doing it here cost the screen its
+     * answer. Filtering after a `limit: 1000` filters what the limit LEFT: the
+     * first thousand names run out inside the angle sections, at
+     * "ISA 75 x 75 x 10 x 9000", so 42 of the 104 fabricated items ever reached
+     * the browser and searching "Span" found only BowString Span — everything
+     * from S onwards had been cut before the filter ran.
+     */
+    /*
+     * Filtered on category_id, a column on the row itself, rather than on the
+     * joined category NAME — a filter-only column depends on the join being
+     * present, and a picker that silently returns the wrong set is the failure
+     * being fixed here, not one to risk again.
+     */
+    (async () => {
+      try {
+        const cats = await fabQuery<{ data: { id: number; name: string }[] }>('fabErpItemCategory', {
+          pagination: { limit: 200 },
+        });
+        const wanted = (cats.data ?? [])
+          .filter((c) => c.name !== 'Raw Materials')
+          .map((c) => c.id);
+        const r = await fabQuery<{ data: CatalogOption[] }>('fabErpItemCatalog', {
+          filters: wanted.length ? { categoryId: wanted } : {},
+          orderBy: [{ field: 'name', direction: 'asc' }],
+          pagination: { limit: 1000 },
+        });
+        setCatalog(r.data ?? []);
+      } catch { setCatalog([]); }
+    })();
   }, []);
 
   /**
@@ -238,6 +262,9 @@ export default function OrderLinesPanel({ orderId, canManage, onChanged }: {
           });
         }
       }
+      // The item clears with the rest, or the next pick finds code and
+      // description already filled and leaves the previous line's values in place.
+      setItem(null);
       setCode(''); setDescription(''); setQty('1'); setLineType(''); setUnitPrice('');
       setMaterial(''); setGrade('');
       await load();
@@ -326,20 +353,31 @@ export default function OrderLinesPanel({ orderId, canManage, onChanged }: {
                 />
               )}
             />
-            <TextField
-              label="Code" size="small" required value={code} sx={{ flex: '0 1 150px' }}
-              onChange={(e) => setCode(e.target.value)}
-              error={duplicate}
-              helperText={duplicate ? 'Already used on this order'
-                : item ? 'Generated — edit if the customer marks it differently'
-                  : 'Top level of the BOM'}
-              slotProps={{ htmlInput: { style: { textTransform: 'uppercase' }, maxLength: 60 } }}
-            />
-            <TextField
-              label="Description" size="small" value={description} sx={{ flex: '2 1 220px' }}
-              onChange={(e) => setDescription(e.target.value)}
-              helperText={item ? 'From the item — change it if you like' : 'What it is, in your words'}
-            />
+            {/*
+              CODE AND DESCRIPTION ARE NOT ASKED FOR when the item answers them.
+              Both are derived the moment one is picked — SPAN1 from the name
+              and this line's ordinal, the description from the name itself — so
+              two boxes that fill themselves are two boxes in the way. They are
+              in the table below and editable there, which is where somebody
+              looks when they want to change one.
+
+              The code box survives with no item, because a free-text line has
+              nothing to derive from and the code is what the BOM sheet keys on.
+            */}
+            {!item && (
+              <TextField
+                label="Code" size="small" required value={code} sx={{ flex: '0 1 150px' }}
+                onChange={(e) => setCode(e.target.value)}
+                error={duplicate}
+                helperText={duplicate ? 'Already used on this order' : 'Top level of the BOM'}
+                slotProps={{ htmlInput: { style: { textTransform: 'uppercase' }, maxLength: 60 } }}
+              />
+            )}
+            {item && duplicate && (
+              <Alert severity="warning" sx={{ flex: '1 1 220px', py: 0 }}>
+                {`${trimmed} is already on this order — rename it in the table below after adding.`}
+              </Alert>
+            )}
             <TextField
               label="Qty" size="small" type="number" value={qty} sx={{ flex: '0 1 90px' }}
               onChange={(e) => setQty(e.target.value)}
