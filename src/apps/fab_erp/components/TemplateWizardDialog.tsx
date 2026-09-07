@@ -64,6 +64,14 @@ const groupLabel = (i: number): string => {
 export interface TemplateWizardLine {
   id: number;
   code: string | null;
+  /**
+   * The catalog item this line was sold AS — its BOM is the structure.
+   *
+   * The line already answered "what are you building" when it was added, so
+   * asking again here was the same question twice, on two screens, free to
+   * disagree. When it is set the picker collapses to a statement of fact.
+   */
+  itemId?: number | null;
 }
 
 export default function TemplateWizardDialog({
@@ -120,6 +128,20 @@ export default function TemplateWizardDialog({
       .catch((e) => setError(backendMessage(e, 'Could not load the templates.')))
       .finally(() => setLoadingTemplates(false));
   }, [open]);
+
+  /**
+   * THE LINE ALREADY SAID WHAT IT IS.
+   *
+   * Adding the line picked a catalog item, and that item's BOM is this
+   * structure. Opening on a template picker asked the same question a second
+   * time and let the two answers differ — a line sold as a Tub Girder built as
+   * a PEB, with nothing to notice.
+   */
+  useEffect(() => {
+    if (!open) return;
+    const fromLine = orderLine?.itemId;
+    if (fromLine != null) setItemId(Number(fromLine));
+  }, [open, orderLine?.itemId]);
 
   // Reopening must not greet anyone with the last run's answers or its preview.
   useEffect(() => {
@@ -371,7 +393,29 @@ export default function TemplateWizardDialog({
           until you press <strong>Create</strong>.
         </Typography>
 
-        {/* 1 — what are we building */}
+        {/*
+          1 — what are we building.
+
+          Shown as a STATEMENT when the line already says so, and as a picker
+          only when it does not — an order line added before this existed, or
+          one sold as free text. Hiding it entirely would leave those lines with
+          no way to build anything at all.
+        */}
+        {orderLine?.itemId != null ? (
+          <Box sx={{ mb: 2 }}>
+            <Typography sx={{ fontSize: 11, fontWeight: 600, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--c-text-3)' }}>
+              Building
+            </Typography>
+            <Typography sx={{ fontSize: 15, fontWeight: 600 }}>
+              {chosen?.name ?? 'this line'}
+              {chosen?.code ? <span style={{ fontSize: 12, fontWeight: 400, color: 'var(--c-text-3)' }}>{`  ·  ${chosen.code}`}</span> : null}
+            </Typography>
+            <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>
+              {orderLine.code ? `From line ${orderLine.code}. ` : ''}
+              Change it on the line item if this is wrong.
+            </Typography>
+          </Box>
+        ) : (
         <TextField
           select
           fullWidth
@@ -403,6 +447,7 @@ export default function TemplateWizardDialog({
             )),
           ])}
         </TextField>
+        )}
 
         {itemId !== '' && !outline && loadingOutline && (
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, py: 2 }}>

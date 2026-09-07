@@ -27,12 +27,20 @@ import DrawingsPanel from './DrawingsPanel';
 import type { OrderReadiness } from '../api/readiness';
 import TemplateWizardDialog from './TemplateWizardDialog';
 
-/** An order line, as the structure wizard and the line picker need it. */
+/**
+ * An order line, as the structure wizard and the line picker need it.
+ *
+ * `templateItemId` is what the line was sold AS — the catalog item whose BOM is
+ * this structure. It is why the wizard no longer opens on a template picker:
+ * the line answered that question when it was added.
+ */
 interface WizardLine {
   id: number;
   code?: string | null;
   description?: string | null;
   lineType?: string | null;
+  templateItemId?: number | null;
+  catalogItemId?: number | null;
 }
 import { procurementOf } from '../api/procurement';
 import api, { API_HOST } from '@core/utils/axiosConfig';
@@ -1447,7 +1455,12 @@ export default function OrderItemsTree({ orderId, canManage, readiness, onStageC
       <TemplateWizardDialog
         open={wizardOpen}
         orderId={orderId}
-        orderLine={wizardLine ? { id: wizardLine.id, code: wizardLine.code ?? null } : null}
+        orderLine={wizardLine ? {
+          id: wizardLine.id,
+          code: wizardLine.code ?? null,
+          // What this line is — so the wizard opens on it rather than asking again.
+          itemId: wizardLine.templateItemId ?? wizardLine.catalogItemId ?? null,
+        } : null}
         onClose={() => { setWizardOpen(false); setWizardLine(null); }}
         onDone={() => { markItemsChanged(); loadSummary(); loadProcurementCounts(); setTreeVersion((v) => v + 1); loadTop().then(setTopItems).catch(() => {}); }}
       />
