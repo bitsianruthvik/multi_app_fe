@@ -370,6 +370,11 @@ export interface DraftNode {
   name: string;
   unit: string | null;
   qty: number;
+  /**
+   * The BOM's own abbreviation for this rung, and how it joins to its parent's.
+   * NOT used to name anything here — the BOM step writes no codes. They are
+   * carried so the code pass at production-order time has them.
+   */
   codeSegment: string | null;
   codeJoin: 'dash' | 'absorb';
   defaultFlowId: number | null;
@@ -387,6 +392,10 @@ export const getDraftTree = (itemId: number) =>
 /**
  * Build exactly this tree on the line.
  *
+ * The rows it creates have NO CODE. At BOM time nothing physical exists to
+ * name — the row says "six of this design" — and codes are minted later, at
+ * production-order time, where the pieces become real.
+ *
  * `replace` is refused unless it is passed, and refused anyway when tasks on
  * the line have been started — rebuilding would throw shop-floor history away.
  */
@@ -395,7 +404,6 @@ export const buildStructure = (
   body: {
     tree: DraftNode;
     orderLineId?: number | null;
-    lineCode?: string | null;
     replace?: boolean;
   },
 ) => fabPost<InstantiateResult>(`orders/${orderId}/build`, { ...body });

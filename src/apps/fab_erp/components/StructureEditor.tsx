@@ -170,9 +170,9 @@ export default function StructureEditor({
         name: picked.name,
         unit: null,
         qty: 1,
-        // No BOM line to take a segment from, so the code falls back to the
-        // name's initials server-side. Recorded as null rather than guessed
-        // here, so one rule decides it.
+        // The BOM's own abbreviation for this rung. A hand-added row has none,
+        // and nothing here needs one: the BOM step writes no codes at all.
+        // These ride along for the code pass at production-order time.
         codeSegment: null,
         codeJoin: 'dash',
         defaultFlowId: null,
@@ -191,7 +191,6 @@ export default function StructureEditor({
       await buildStructure(orderId, {
         tree,
         orderLineId: orderLine?.id ?? null,
-        lineCode: orderLine?.code ?? null,
         ...(replace ? { replace: true } : {}),
       });
       onDone();
