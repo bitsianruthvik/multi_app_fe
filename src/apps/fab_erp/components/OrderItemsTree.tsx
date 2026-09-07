@@ -14,14 +14,13 @@ import DownloadIcon from '@mui/icons-material/Download';
 import AccountTreeRounded from '@mui/icons-material/AccountTreeRounded';
 import StraightenRounded from '@mui/icons-material/StraightenRounded';
 import DescriptionRounded from '@mui/icons-material/DescriptionRounded';
-import TagRounded from '@mui/icons-material/TagRounded';
 import UploadFileIcon from '@mui/icons-material/UploadFile';
 
 import { getItemDemand, type DemandPart } from '../api/orderItems';
 import { fabQuery, fabMutate } from '../api/client';
 import { setFieldValues } from '../api/fields';
 import type { FilterValue } from '../api/client';
-import { Surface, EmptyState, useToast, backendMessage } from '../components';
+import { Surface, EmptyState, useToast } from '../components';
 import { MaterializeOutcome, type MaterializeResponse } from './OrderTaskDag';
 import DrawingsPanel from './DrawingsPanel';
 import type { OrderReadiness } from '../api/readiness';
@@ -980,7 +979,6 @@ export default function OrderItemsTree({ orderId, canManage, readiness, onStageC
   // re-reads its server-owned fields, so editing a plate at the bottom updates
   // the girder at the top without remounting the tree.
   const [treeVersion, setTreeVersion] = useState(0);
-  const [coding, setCoding] = useState(false);
 
   // An item tree on its own produces no work: until tasks are materialized the
   // order has no schedule, no critical chain, and is invisible to Dispatch and
@@ -1111,30 +1109,6 @@ export default function OrderItemsTree({ orderId, canManage, readiness, onStageC
     } catch { /* leave the last good totals on screen rather than blanking them */ }
   }, [apiBase, loadSummary, loadProcurementCounts]);
 
-  /**
-   * Issue codes for rows that do not have one. Never touches an existing code —
-   * by the time one exists it is on a drawing, so it has to stay put even if the
-   * item is later renamed or moved.
-   */
-  async function generateCodes() {
-    setCoding(true); setError('');
-    try {
-      const res = await api.post<{ coded: number; alreadyCoded: number; skipped: number }>(
-        `${apiBase()}/generate-codes`, {},
-      );
-      setTreeVersion((v) => v + 1);
-      // Issuing codes creates nothing, so the make/buy split is unchanged.
-      await loadSummary();
-      toast(res.data.coded > 0
-        ? `${res.data.coded} code(s) issued${res.data.alreadyCoded ? ` — ${res.data.alreadyCoded} already had one` : ''}.`
-        : 'Every item already has a code.',
-      res.data.coded > 0 ? 'success' : 'info');
-    } catch (e) {
-      setError(backendMessage(e, 'Failed to generate codes.'));
-    } finally {
-      setCoding(false);
-    }
-  }
 
   async function loadMore() {
     if (topItems.length === 0) return;
@@ -1305,18 +1279,8 @@ export default function OrderItemsTree({ orderId, canManage, readiness, onStageC
               </Tooltip>
             </Box>
           )}
-          {summary.codePrefix && (
-            <Box>
-              <Typography sx={{ fontSize: 10.5, fontWeight: 600, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--c-text-3)' }}>
-                Code prefix
-              </Typography>
-              <Tooltip title="Every item code on this order starts with this. The tree shows only what comes after it.">
-                <Typography sx={{ fontSize: 14, fontFamily: 'monospace', color: 'var(--c-text-2)' }}>
-                  {summary.codePrefix}-…
-                </Typography>
-              </Tooltip>
-            </Box>
-          )}
+          {/* The code prefix belongs with the codes, and the codes are not
+              issued at this step. It reappears wherever they are. */}
           {summary.unweighedLeaves > 0 && (
             <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)', maxWidth: 420 }}>
               {summary.unweighedLeaves} bottom-level item(s) have no weight, so this total is incomplete.
@@ -1347,17 +1311,14 @@ export default function OrderItemsTree({ orderId, canManage, readiness, onStageC
           >
             Import from Excel
           </Button>
-          {(summary?.uncodedItems ?? 0) > 0 && (
-            <Tooltip title="Issues a code for each item that does not have one. Existing codes are never changed.">
-              <Button
-                variant="outlined" size="small"
-                startIcon={coding ? <CircularProgress size={14} color="inherit" /> : <TagRounded />}
-                onClick={generateCodes} disabled={coding}
-              >
-                Generate codes ({summary?.uncodedItems})
-              </Button>
-            </Tooltip>
-          )}
+          {/*
+            NO "GENERATE CODES" HERE ANY MORE.
+            The BOM step deliberately writes no codes: a row says "six of this
+            design", and there is nothing yet to point at on the floor. A button
+            that filled those blanks would put back, one click at a time, exactly
+            the positional codes the build stopped minting. Codes are issued at
+            production-order time instead, where the pieces become real.
+          */}
           <input
             ref={importFileRef}
             type="file"
