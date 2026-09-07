@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
-  Alert, Box, Button, CircularProgress, Dialog, DialogActions, DialogContent,
-  DialogTitle, IconButton, MenuItem, TextField, Tooltip, Typography,
+  Alert, Autocomplete, Box, Button, CircularProgress, Dialog, DialogActions,
+  DialogContent, DialogTitle, IconButton, TextField, Tooltip, Typography,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
@@ -11,7 +11,17 @@ import LayersRounded from '@mui/icons-material/LayersRounded';
 import api, { API_HOST } from '@core/utils/axiosConfig';
 import { fabQuery, fabMutate } from '../api/client';
 import { Surface, EmptyState, useToast, DataTable, QtyCell, NumberCell, Mono, backendMessage } from '../components';
-import { LINE_TYPES } from '../types';
+/**
+ * A catalog item as the line picker needs it: what it is, and enough taxonomy
+ * to tell two similarly-named things apart in a list.
+ */
+interface CatalogOption {
+  id: number;
+  name: string;
+  code: string | null;
+  categoryName?: string | null;
+  groupName?: string | null;
+}
 import { DialogCloseButton } from './FormDialog';
 
 /**
@@ -124,6 +134,59 @@ export default function OrderLinesPanel({ orderId, canManage, onChanged }: {
     } finally { setSavingSpec(false); }
   }
 
+  /**
+   * WHAT IS BEING SOLD, picked from the catalog rather than typed twice.
+   *
+   * This replaced a "Structure type" dropdown reading a hardcoded list, which
+   * was the third place one fact was recorded: a line already carried
+   * `catalog_item_id` and `template_item_id` holding the SAME number, beside a
+   * `line_type` string holding that item's category. The picker sets the item;
+   * the other two are derived from it.
+   *
+   * Raw materials are excluded. A plate is stock you consume, not a line you
+   * sell, and 1,426 of the 1,536 catalog items are plates and angles — leaving
+   * them in makes the search a raw-material search with a few girders lost in
+   * it. Anything else is offered, so selling a single fabricated part still
+   * works.
+   */
+  const [catalog, setCatalog] = useState<CatalogOption[]>([]);
+  const [item, setItem] = useState<CatalogOption | null>(null);
+  useEffect(() => {
+    fabQuery<{ data: CatalogOption[] }>('fabErpItemCatalog', {
+      orderBy: [{ field: 'name', direction: 'asc' }],
+      pagination: { limit: 1000 },
+    })
+      .then((r) => setCatalog((r.data ?? []).filter((c) => c.categoryName !== 'Raw Materials')))
+      .catch(() => setCatalog([]));
+  }, []);
+
+  /**
+   * A code the person does not have to invent.
+   *
+   * It cannot come from the BOM — two spans built from one template need two
+   * codes, and the template has no notion of "which one". So it is the item's
+   * name plus this line's ordinal: Span, Span -> SPAN1, SPAN2. Editable,
+   * because a customer's own mark for a span beats anything generated.
+   */
+  const suggestCode = useCallback((picked: CatalogOption | null) => {
+    if (!picked) return '';
+    const stem = String(picked.name).replace(/[^A-Za-z0-9]+/g, '').toUpperCase().slice(0, 12);
+    const used = new Set(lines.map((l) => (l.code ?? '').toUpperCase()));
+    for (let n = lines.length + 1; n < lines.length + 50; n += 1) {
+      if (!used.has(`${stem}${n}`)) return `${stem}${n}`;
+    }
+    return stem;
+  }, [lines]);
+
+  const pickItem = (picked: CatalogOption | null) => {
+    setItem(picked);
+    if (!picked) return;
+    // Only fill what is still blank — retyping over somebody's edit because
+    // they changed their mind about the item is worse than leaving it stale.
+    setCode((c) => (c.trim() ? c : suggestCode(picked)));
+    setDescription((d) => (d.trim() ? d : picked.name));
+  };
+
   const trimmed = code.trim().toUpperCase();
   const duplicate = trimmed !== '' && lines.some((l) => (l.code ?? '').toUpperCase() === trimmed);
 
@@ -137,7 +200,16 @@ export default function OrderLinesPanel({ orderId, canManage, onChanged }: {
         code: trimmed,
         description: description.trim() || null,
         qty: Number(qty),
-        line_type: lineType || null,
+        /**
+         * ONE PICK, THREE COLUMNS — because all three were always the same
+         * fact. `catalog_item_id` is what was chosen, `template_item_id` is the
+         * BOM to expand and is the same item, and `line_type` is that item's
+         * group. Written together from one answer instead of asked three times
+         * and left to disagree.
+         */
+        catalog_item_id: item?.id ?? null,
+        template_item_id: item?.id ?? null,
+        line_type: item?.groupName ?? lineType ?? null,
         unit_price: unitPrice ? Number(unitPrice) : null,
       });
       /**
@@ -203,31 +275,52 @@ export default function OrderLinesPanel({ orderId, canManage, onChanged }: {
             Add line item
           </Typography>
           <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+            {/*
+              THE ONE THING THAT HAS TO BE CHOSEN. It decides the structure, so
+              it comes first and everything after it is a detail of this line.
+            */}
+            <Autocomplete
+              options={catalog}
+              value={item}
+              onChange={(_, v) => pickItem(v)}
+              getOptionLabel={(o) => o.name}
+              isOptionEqualToValue={(a, b) => a.id === b.id}
+              sx={{ flex: '2 1 260px' }}
+              renderOption={(props, o) => (
+                <li {...props} key={o.id}>
+                  <Box>
+                    <Typography sx={{ fontSize: 13 }}>{o.name}</Typography>
+                    <Typography sx={{ fontSize: 11, color: 'var(--c-text-3)' }}>
+                      {[o.code, o.categoryName, o.groupName].filter(Boolean).join(' · ')}
+                    </Typography>
+                  </Box>
+                </li>
+              )}
+              renderInput={(params) => (
+                <TextField
+                  {...params} label="Item" size="small" required
+                  helperText="What you are selling — its BOM becomes the structure"
+                />
+              )}
+            />
             <TextField
               label="Code" size="small" required value={code} sx={{ flex: '0 1 150px' }}
               onChange={(e) => setCode(e.target.value)}
               error={duplicate}
-              helperText={duplicate ? 'Already used on this order' : 'Top level of the BOM'}
+              helperText={duplicate ? 'Already used on this order'
+                : item ? 'Generated — edit if the customer marks it differently'
+                  : 'Top level of the BOM'}
               slotProps={{ htmlInput: { style: { textTransform: 'uppercase' }, maxLength: 60 } }}
             />
             <TextField
               label="Description" size="small" value={description} sx={{ flex: '2 1 220px' }}
               onChange={(e) => setDescription(e.target.value)}
-              helperText="What it is, in your words"
+              helperText={item ? 'From the item — change it if you like' : 'What it is, in your words'}
             />
             <TextField
               label="Qty" size="small" type="number" value={qty} sx={{ flex: '0 1 90px' }}
               onChange={(e) => setQty(e.target.value)}
             />
-            {/* Decides what the BOM wizard offers for this line — a PEB and a
-                composite girder are not built the same way. */}
-            <TextField
-              select label="Structure type" size="small" value={lineType} sx={{ flex: '1 1 180px' }}
-              onChange={(e) => setLineType(e.target.value)}
-            >
-              <MenuItem value="">— not set —</MenuItem>
-              {LINE_TYPES.map((t) => <MenuItem key={t} value={t}>{t}</MenuItem>)}
-            </TextField>
             <TextField
               label="Unit price" size="small" type="number" value={unitPrice} sx={{ flex: '0 1 120px' }}
               onChange={(e) => setUnitPrice(e.target.value)}
