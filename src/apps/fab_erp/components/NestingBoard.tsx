@@ -37,7 +37,16 @@ interface BoardPart {
   partId: number;
   code: string | null;
   name: string;
+  /** How many the whole ORDER needs of this part. */
   qty: number | null;
+  /**
+   * How many are cut from THIS plate.
+   *
+   * Identical parts are one row now, so a part wanting 756 pieces is cut across
+   * fourteen sheets and 56 of them come off this one. Showing the order total
+   * against a single plate would read as 756 pieces on one sheet.
+   */
+  piecesHere?: number;
   length: number | null;
   width: number | null;
   thick: number | null;
@@ -367,7 +376,7 @@ export default function NestingBoard({ orderId, canManage = false, onStageChange
                     <Typography sx={{ fontSize: 12, color: 'var(--c-text-2)', mb: 1 }}>
                       {material?.code ?? real?.materialCode}
                       {real && dim(real) ? ` · ${dim(real)}` : ''}
-                      {real && real.plates > 1 ? ` · ×${real.plates}` : ''}
+{/* A nest is one plate; the count that used to be here was a piece count. */}
                     </Typography>
 
                     {real && !real.issued && canManage && (
@@ -445,12 +454,33 @@ function PartCard({ part, draggable, faded, onDragStart, onDragEnd, onRemove }: 
         '&:hover': draggable ? { borderColor: 'var(--c-primary-200)' } : undefined,
       }}
     >
+      {/*
+        HOW MANY COME OFF THIS PLATE, which the card never had to say before.
+
+        A part used to mean one piece on one sheet, so a count would have been
+        noise. Identical parts are one row now: 756 stiffeners cut across
+        fourteen plates, 56 of them here. Without the number a plate holding 56
+        and a plate holding 3 look identical, and neither says what the order
+        still needs.
+      */}
+      {part.piecesHere != null && part.piecesHere > 0 && (
+        <Typography sx={{
+          fontSize: 13, fontWeight: 700, minWidth: 34, textAlign: 'right',
+          fontVariantNumeric: 'tabular-nums', color: 'var(--c-text-2)',
+        }}>
+          {part.piecesHere}
+        </Typography>
+      )}
       <Box sx={{ flex: 1, minWidth: 0 }}>
         <Typography sx={{ fontSize: 12, fontFamily: 'monospace', color: 'var(--c-text)', overflow: 'hidden', textOverflow: 'ellipsis' }}>
           {part.code ?? '—'}
         </Typography>
         <Typography sx={{ fontSize: 11, color: 'var(--c-text-3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {part.name}{d ? ` · ${d}` : ''}
+          {/* The rest of the order, so a plate is read in context of the whole. */}
+          {part.qty != null && part.piecesHere != null && part.qty > part.piecesHere
+            ? ` · ${part.piecesHere} of ${part.qty}`
+            : ''}
         </Typography>
       </Box>
       {onRemove && (

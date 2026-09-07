@@ -17,6 +17,7 @@ import DescriptionRounded from '@mui/icons-material/DescriptionRounded';
 import TagRounded from '@mui/icons-material/TagRounded';
 import UploadFileIcon from '@mui/icons-material/UploadFile';
 
+import { getItemDemand, type DemandPart } from '../api/orderItems';
 import { fabQuery, fabMutate } from '../api/client';
 import { setFieldValues } from '../api/fields';
 import type { FilterValue } from '../api/client';
@@ -297,6 +298,8 @@ function ItemNode({ item, depth, canManage, flows, onDeleted, onItemAdded, onWei
   const [loadingMoreChildren, setLoadingMoreChildren] = useState(false);
   const [hasMoreChildren, setHasMoreChildren] = useState(false);
   const [childrenError, setChildrenError] = useState('');
+  /** Parts this assembly needs but does not contain — see loadChildren. */
+  const [demand, setDemand] = useState<DemandPart[]>([]);
   const [addingChild, setAddingChild] = useState(false);
 
   const [name, setName] = useState(item.name ?? '');
@@ -365,6 +368,29 @@ function ItemNode({ item, depth, canManage, flows, onDeleted, onItemAdded, onWei
       setChildren((prev) => (afterId ? [...prev, ...rows] : rows));
       setHasMoreChildren(rows.length === CHILD_PAGE_SIZE);
       setChildrenLoaded(true);
+      /**
+       * WHAT THIS ASSEMBLY NEEDS, which is no longer the same as what it holds.
+       *
+       * Identical parts are consolidated onto the order line — twelve stiffeners
+       * under ED1 and twelve under ED2 are one row of twenty-four — so a
+       * diaphragm has no children at all. Listing children alone showed an empty
+       * assembly, which reads as nothing being wrong rather than as the question
+       * having moved.
+       *
+       * Only asked on the first page: demand belongs to the node, not to a page
+       * of its children, and re-fetching it while paging would be the same
+       * answer three times.
+       */
+      if (!afterId) {
+        try {
+          const d = await getItemDemand(item.orderId, item.id);
+          setDemand(d.parts ?? []);
+        } catch {
+          // A tree that cannot answer "what does it need" is still a usable
+          // tree. Failing the whole expansion over it would be worse.
+          setDemand([]);
+        }
+      }
     } catch (e) {
       setChildrenError(errMsg(e, 'Failed to load children'));
     } finally {
@@ -797,7 +823,47 @@ function ItemNode({ item, depth, canManage, flows, onDeleted, onItemAdded, onWei
             <Alert severity="error" sx={{ mx: 2, my: 1 }}>{childrenError}</Alert>
           ) : (
             <>
-              {children.length === 0 && !addingChild && (
+              {/*
+                PARTS THIS ASSEMBLY NEEDS, shown where its children used to be.
+
+                Not children, and drawn so: they live on the order line because
+                identical parts across every assembly are one row, and this one
+                needs some of them. "12 of 288" is the honest statement — twelve
+                here, two hundred and eighty-eight cut in one go for everybody.
+
+                They are not editable from here. Changing a shared part from
+                inside one diaphragm would change it for the ninety others, and
+                a tree row is not where somebody expects that to happen.
+              */}
+              {demand.length > 0 && (
+                <Box sx={{ pl: 2, py: 0.75 }}>
+                  <Typography sx={{
+                    fontSize: 10.5, fontWeight: 600, letterSpacing: '.06em',
+                    textTransform: 'uppercase', color: 'var(--c-text-3)', mb: 0.5,
+                  }}>
+                    Needs
+                  </Typography>
+                  {demand.map((d) => (
+                    <Box key={d.partId} sx={{ display: 'flex', gap: 1, alignItems: 'baseline', py: 0.15 }}>
+                      <Typography sx={{ fontSize: 12, fontWeight: 600, minWidth: 62 }}>
+                        {d.qty} ×
+                      </Typography>
+                      <Typography sx={{ fontSize: 12 }}>{d.name}</Typography>
+                      <Typography sx={{ fontSize: 11.5, fontFamily: 'monospace', color: 'var(--c-text-3)' }}>
+                        {d.code}
+                      </Typography>
+                      <Typography sx={{ fontSize: 11.5, color: 'var(--c-text-3)' }}>
+                        {d.totalQty != null && d.totalQty !== d.qty
+                          ? `of ${d.totalQty} cut for the order`
+                          : ''}
+                        {d.plateCount > 1 ? ` · from ${d.plateCount} plates` : ''}
+                      </Typography>
+                    </Box>
+                  ))}
+                </Box>
+              )}
+
+              {children.length === 0 && demand.length === 0 && !addingChild && (
                 <Typography variant="caption" color="text.disabled" sx={{ display: 'block', pl: 3, py: 1 }}>
                   No children
                 </Typography>
