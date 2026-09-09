@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Alert, AlertTitle, Autocomplete, Box, Button, CircularProgress, Dialog, DialogActions,
   DialogContent, DialogTitle, IconButton, List, ListItemButton,
-  ListItemText, MenuItem, TextField, Tooltip, Typography,
+  ListItemText, TextField, Tooltip, Typography,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import BuildCircleRounded from '@mui/icons-material/BuildCircleRounded';
@@ -87,7 +87,6 @@ interface CatalogOption {
   /** Whether the shop buys this or makes it — carried onto the row it creates. */
   procurementType?: string | null;
 }
-interface FlowOption { id: number; name: string; code?: string; active?: number }
 interface ItemsSummary {
   totalWeight: number | null;
   itemCount: number;
@@ -243,11 +242,10 @@ function AddItemRow({ orderId, parentItemId, onCreated, onCancel }: {
 
 // ─── One tree node (recursive) ─────────────────────────────────────────────
 
-function ItemNode({ item, depth, canManage, flows, onDeleted, onItemAdded, onTreeChanged, treeVersion, codePrefix }: {
+function ItemNode({ item, depth, canManage, onDeleted, onItemAdded, onTreeChanged, treeVersion, codePrefix }: {
   item: FabItemRow;
   depth: number;
   canManage: boolean;
-  flows: FlowOption[];
   onDeleted: (id: number) => void;
   /** Bubbles a new child up to the root so it can re-offer "build tasks". */
   onItemAdded: () => void;
@@ -271,7 +269,6 @@ function ItemNode({ item, depth, canManage, flows, onDeleted, onItemAdded, onTre
   const [name, setName] = useState(item.name ?? '');
   const [qty, setQty] = useState(String(item.qty ?? ''));
   const [unit, setUnit] = useState(item.unit ?? '');
-  const [flowId, setFlowId] = useState<number | ''>(item.flowId ?? '');
   const savedRef = useRef({ name: item.name ?? '', qty: item.qty, unit: item.unit ?? '' });
 
   const [rowError, setRowError] = useState('');
@@ -359,17 +356,15 @@ function ItemNode({ item, depth, canManage, flows, onDeleted, onItemAdded, onTre
     if (next && !childrenLoaded) loadChildren();
   }
 
-  async function saveRow(patch: Partial<{ name: string; qty: string; unit: string; flowId: number | '' }>) {
+  async function saveRow(patch: Partial<{ name: string; qty: string; unit: string }>) {
     const nextName = patch.name ?? name;
     const nextQty = patch.qty ?? qty;
     const nextUnit = patch.unit ?? unit;
-    const nextFlowId = patch.flowId !== undefined ? patch.flowId : flowId;
 
     const parsedQty = parseFloat(nextQty) || 0;
     const unchanged = nextName === savedRef.current.name
       && parsedQty === savedRef.current.qty
-      && (nextUnit || '') === (savedRef.current.unit || '')
-      && patch.flowId === undefined;
+      && (nextUnit || '') === (savedRef.current.unit || '');
     if (unchanged) return;
 
     const qtyChanged = parsedQty !== savedRef.current.qty;
@@ -384,10 +379,15 @@ function ItemNode({ item, depth, canManage, flows, onDeleted, onItemAdded, onTre
         name: nextName,
         unit: nextUnit.trim() || null,
         qty: parsedQty,
-        flow_id: nextFlowId === '' ? null : nextFlowId,
-        // Dimensions/weight are deliberately absent — the generic update is a
-        // partial SET, so untouched columns stay as they are and saveDims owns
-        // them exclusively.
+        /*
+         * flow_id IS DELIBERATELY ABSENT, and that is load-bearing.
+         *
+         * The generic update is a partial SET, so a column not named here keeps
+         * its value. Sending `flow_id` from a row that no longer has a flow
+         * picker would null it on every rename — the Flows step owns that
+         * column now. Same reasoning for dimensions and weight, which this step
+         * no longer collects at all.
+         */
       });
       savedRef.current = { name: nextName, qty: parsedQty, unit: nextUnit };
       // Quantity is a multiplier in every ancestor's roll-up, so changing it
@@ -398,13 +398,6 @@ function ItemNode({ item, depth, canManage, flows, onDeleted, onItemAdded, onTre
     } finally {
       setSavingRow(false);
     }
-  }
-
-  async function handleFlowChange(newFlowId: number | '') {
-    const prev = flowId;
-    setFlowId(newFlowId);
-    await saveRow({ flowId: newFlowId });
-    if (rowError) setFlowId(prev);
   }
 
   async function handleDelete() {
@@ -480,19 +473,13 @@ function ItemNode({ item, depth, canManage, flows, onDeleted, onItemAdded, onTre
           placeholder="unit"
         />
 
-        <TextField
-          select
-          variant="standard"
-          size="small"
-          label="Flow"
-          value={flowId}
-          disabled={!canManage}
-          onChange={(e) => handleFlowChange(e.target.value === '' ? '' : Number(e.target.value))}
-          sx={{ flex: '0 1 140px' }}
-        >
-          <MenuItem value="">None</MenuItem>
-          {flows.map((f) => <MenuItem key={f.id} value={f.id}>{f.name}</MenuItem>)}
-        </TextField>
+        {/*
+          NO FLOW PICKER HERE. Flows are their own step, and that step is a
+          review screen: a flow arrives with the structure from the BOM line it
+          came from, and the job there is to check it and make the odd
+          exception. A second dropdown on every structure row was the same
+          decision offered in two places, which is how the two come to disagree.
+        */}
 
         {/* The customer + order-number head is identical on every row, so only
             the chain that identifies THIS piece is shown. Full code on hover. */}
@@ -557,7 +544,11 @@ function ItemNode({ item, depth, canManage, flows, onDeleted, onItemAdded, onTre
           </Box>
         </Tooltip>
 
-        {/*,          The weight column has gone with the dimensions that fed it. It could,          only ever read "—" now, and a column of em dashes is not information.,        */}
+        {/*
+          The weight column has gone with the dimensions that fed it. It
+          could only ever read "—" now, and a column of em dashes is not
+          information.
+        */}
 
         {savingRow && <CircularProgress size={12} />}
 
@@ -643,7 +634,6 @@ function ItemNode({ item, depth, canManage, flows, onDeleted, onItemAdded, onTre
                   item={child}
                   depth={depth + 1}
                   canManage={canManage}
-                  flows={flows}
                   onDeleted={handleChildDeleted}
                   onItemAdded={onItemAdded}
                   onTreeChanged={onTreeChanged}
@@ -703,7 +693,6 @@ export default function OrderItemsTree({ orderId, canManage, readiness, onStageC
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(false);
   const [error, setError] = useState('');
-  const [flows, setFlows] = useState<FlowOption[]>([]);
   const [addingRoot, setAddingRoot] = useState(false);
 
   const [lines, setLines] = useState<OrderLineRef[]>([]);
@@ -764,11 +753,6 @@ export default function OrderItemsTree({ orderId, canManage, readiness, onStageC
     setLoading(true); setError('');
     Promise.all([
       loadTop(),
-      fabQuery<{ data: FlowOption[] }>('fabErpOperationFlow', {
-        filters: { active: 1 },
-        orderBy: [{ field: 'name', direction: 'asc' }],
-        pagination: { limit: 200 },
-      }).then((r) => r.data ?? []).catch(() => []),
       // Cheap "are there tasks yet?" probe — a true COUNT over the same secured
       // WHERE, never rows.length, and one row fetched only because the query API
       // always returns a page. Failure resolves to null (unknown), not 0, so a
@@ -779,11 +763,10 @@ export default function OrderItemsTree({ orderId, canManage, readiness, onStageC
         pagination: { limit: 1 },
         includeTotal: true,
       }).then((r) => r.total ?? null).catch(() => null),
-    ]).then(([rows, flowRows, tasks]) => {
+    ]).then(([rows, tasks]) => {
       if (cancelled) return;
       setTopItems(rows);
       setHasMore(rows.length === TOP_LEVEL_PAGE_SIZE);
-      setFlows(flowRows);
       setTaskCount(tasks);
     }).catch((e) => { if (!cancelled) setError(errMsg(e)); })
       .finally(() => { if (!cancelled) setLoading(false); });
@@ -1131,7 +1114,6 @@ export default function OrderItemsTree({ orderId, canManage, readiness, onStageC
               item={row}
               depth={0}
               canManage={canManage}
-              flows={flows}
               onDeleted={handleDeleted}
               onItemAdded={handleItemAdded}
               onTreeChanged={handleTreeChanged}
