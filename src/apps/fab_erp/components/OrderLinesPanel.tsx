@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   Alert, Autocomplete, Box, Button, CircularProgress, Dialog, DialogActions,
-  DialogContent, DialogTitle, IconButton, TextField, Tooltip, Typography,
+  DialogContent, DialogTitle, IconButton, MenuItem, TextField, Tooltip, Typography,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
@@ -84,6 +84,32 @@ export default function OrderLinesPanel({ orderId, canManage, onChanged }: {
    */
   const [material, setMaterial] = useState('');
   const [grade, setGrade] = useState('');
+
+  /**
+   * THE STEEL IS PICKED, NOT TYPED.
+   *
+   * A blank's identity is material + grade + size, so "E350 BO", "E350BO" and
+   * "e350 bo" would mint three catalog items for one piece of steel. The real
+   * list is one material and four grades, read off the raw materials somebody
+   * can actually buy — short enough that free text only ever added spellings.
+   *
+   * Grades are held per material rather than flat. Every grade pairs with MS
+   * today so the distinction is invisible; it stops being on the first job in
+   * something other than mild steel.
+   */
+  const [steel, setSteel] = useState<{ materials: string[]; byMaterial: Record<string, string[]> }>(
+    { materials: [], byMaterial: {} },
+  );
+  useEffect(() => {
+    api.get<{ materials: string[]; byMaterial: Record<string, string[]> }>(
+      `${API_HOST}/api/${localStorage.getItem('companySlug')}/fab_erp/steel-options`,
+    ).then((r) => setSteel(r.data)).catch(() => {});
+  }, []);
+  const gradesFor = useCallback(
+    (m: string) => (m && steel.byMaterial[m]) ? steel.byMaterial[m]
+      : [...new Set(Object.values(steel.byMaterial).flat())].sort(),
+    [steel],
+  );
   const [spec, setSpec] = useState<Record<number, LineSpec>>({});
   const [editSpec, setEditSpec] = useState<
     { line: FabOrderLine; material: string; grade: string } | null>(null);
@@ -363,15 +389,27 @@ export default function OrderLinesPanel({ orderId, canManage, onChanged }: {
                 fine — a part can state its own, and nesting will ask for one
                 before it can choose a plate. */}
             <TextField
-              label="Material" size="small" value={material} sx={{ flex: '0 1 120px' }}
-              onChange={(e) => setMaterial(e.target.value)}
-              placeholder="MS" helperText="Applies to every part"
-            />
+              select label="Material" size="small" value={material} sx={{ flex: '0 1 130px' }}
+              onChange={(e) => {
+                const next = e.target.value;
+                setMaterial(next);
+                // A grade that does not exist for the new material is not a
+                // choice somebody made — it is one they made about the old one.
+                if (next && grade && !gradesFor(next).includes(grade)) setGrade('');
+              }}
+              helperText="Applies to every part"
+            >
+              <MenuItem value="">—</MenuItem>
+              {steel.materials.map((m) => <MenuItem key={m} value={m}>{m}</MenuItem>)}
+            </TextField>
             <TextField
-              label="Grade" size="small" value={grade} sx={{ flex: '0 1 130px' }}
+              select label="Grade" size="small" value={grade} sx={{ flex: '0 1 150px' }}
               onChange={(e) => setGrade(e.target.value)}
-              placeholder="E350 BO" helperText="Unless a part differs"
-            />
+              helperText="Unless a part differs"
+            >
+              <MenuItem value="">—</MenuItem>
+              {gradesFor(material).map((g) => <MenuItem key={g} value={g}>{g}</MenuItem>)}
+            </TextField>
             <Button
               variant="contained" sx={{ mt: 0.25 }}
               startIcon={adding ? <CircularProgress size={14} color="inherit" /> : <AddIcon />}
@@ -477,15 +515,26 @@ export default function OrderLinesPanel({ orderId, canManage, onChanged }: {
           </Typography>
           <Box sx={{ display: 'flex', gap: 2, mt: 1 }}>
             <TextField
-              label="Material" size="small" fullWidth autoFocus
-              value={editSpec?.material ?? ''} placeholder="MS"
-              onChange={(e) => setEditSpec((v) => (v ? { ...v, material: e.target.value } : v))}
-            />
+              select label="Material" size="small" fullWidth autoFocus
+              value={editSpec?.material ?? ''}
+              onChange={(e) => setEditSpec((v) => {
+                if (!v) return v;
+                const next = e.target.value;
+                const keepGrade = !next || !v.grade || gradesFor(next).includes(v.grade);
+                return { ...v, material: next, grade: keepGrade ? v.grade : '' };
+              })}
+            >
+              <MenuItem value="">—</MenuItem>
+              {steel.materials.map((m) => <MenuItem key={m} value={m}>{m}</MenuItem>)}
+            </TextField>
             <TextField
-              label="Grade" size="small" fullWidth
-              value={editSpec?.grade ?? ''} placeholder="E350 BO"
+              select label="Grade" size="small" fullWidth
+              value={editSpec?.grade ?? ''}
               onChange={(e) => setEditSpec((v) => (v ? { ...v, grade: e.target.value } : v))}
-            />
+            >
+              <MenuItem value="">—</MenuItem>
+              {gradesFor(editSpec?.material ?? '').map((g) => <MenuItem key={g} value={g}>{g}</MenuItem>)}
+            </TextField>
           </Box>
           <Typography sx={{ fontSize: 11.5, color: 'var(--c-text-3)', mt: 1.5 }}>
             Clearing a box removes it, and the parts stop inheriting that value.
