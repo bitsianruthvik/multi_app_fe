@@ -138,7 +138,14 @@ export default function StructureEditor({
         const cats = await fabQuery<{ data: { id: number; name: string }[] }>('fabErpItemCategory', {
           pagination: { limit: 200 },
         });
-        const wanted = (cats.data ?? []).filter((c) => c.name !== 'Raw Materials').map((c) => c.id);
+        /*
+         * WIDER THAN THE LINE PICKER, and deliberately so: a structure holds
+         * bought-in components as well as fabricated ones — a composite girder
+         * span carries 7,212 headed shear studs, which live under Fasteners &
+         * Hardware. What it never holds is a machine or a machine spare.
+         */
+        const ADDABLE = new Set(['Fabricated', 'Fasteners & Hardware', 'Consumables']);
+        const wanted = (cats.data ?? []).filter((c) => ADDABLE.has(c.name)).map((c) => c.id);
         const r = await fabQuery<{ data: CatalogOption[] }>('fabErpItemCatalog', {
           filters: wanted.length ? { categoryId: wanted } : {},
           orderBy: [{ field: 'name', direction: 'asc' }],

@@ -172,8 +172,15 @@ export default function OrderLinesPanel({ orderId, canManage, onChanged }: {
         const cats = await fabQuery<{ data: { id: number; name: string }[] }>('fabErpItemCategory', {
           pagination: { limit: 200 },
         });
+        /*
+         * FABRICATED ONLY. Excluding raw materials left machines, spares and
+         * consumables in the list, so the picker offered CNC Drilling, a Blast
+         * Nozzle and Zinc Wire as things to sell a customer. Naming what belongs
+         * rather than what does not also means a category added later has to be
+         * let in deliberately, instead of appearing in a picker by default.
+         */
         const wanted = (cats.data ?? [])
-          .filter((c) => c.name !== 'Raw Materials')
+          .filter((c) => c.name === 'Fabricated')
           .map((c) => c.id);
         const r = await fabQuery<{ data: CatalogOption[] }>('fabErpItemCatalog', {
           filters: wanted.length ? { categoryId: wanted } : {},
