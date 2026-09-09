@@ -62,12 +62,17 @@ interface Draft {
   sortOrder: number;
   /** '' means no flow — a valid answer for a level that only groups. */
   defaultFlowId: number | '';
+  /** Sizes the recipe states. '' means it does not state that one. */
+  lengthMm: string;
+  widthMm: string;
+  thicknessMm: string;
 }
 
 const blankDraft = (sortOrder: number): Draft => ({
   id: null, childItemId: '', qtyMode: 'fixed', qtyNum: '1', qtyParam: '',
   defaultQty: '', perInstanceQty: false, codeSegment: '', helpText: '', sortOrder,
   defaultFlowId: '',
+  lengthMm: '', widthMm: '', thicknessMm: '',
 });
 
 const draftFrom = (l: ItemBomLine): Draft => ({
@@ -82,6 +87,9 @@ const draftFrom = (l: ItemBomLine): Draft => ({
   helpText: l.helpText ?? '',
   sortOrder: l.sortOrder ?? 0,
   defaultFlowId: l.defaultFlowId ?? '',
+  lengthMm: l.defaults?.length_mm == null ? '' : String(l.defaults.length_mm),
+  widthMm: l.defaults?.width_mm == null ? '' : String(l.defaults.width_mm),
+  thicknessMm: l.defaults?.thickness_mm == null ? '' : String(l.defaults.thickness_mm),
 });
 
 export default function ItemBomDesigner({
@@ -230,6 +238,13 @@ export default function ItemBomDesigner({
         helpText: draft.helpText || null,
         sortOrder: draft.sortOrder,
         defaultFlowId: draft.defaultFlowId === '' ? null : Number(draft.defaultFlowId),
+        // Sent whatever their state: '' is the instruction to clear, which has
+        // to be expressible or a wrong default could never be withdrawn.
+        defaults: {
+          length_mm: draft.lengthMm.trim(),
+          width_mm: draft.widthMm.trim(),
+          thickness_mm: draft.thicknessMm.trim(),
+        },
       });
       setDraft(null);
       await load();
@@ -508,6 +523,45 @@ export default function ItemBomDesigner({
                 <MenuItem value="">No flow — this level only groups</MenuItem>
                 {flows.map((f) => <MenuItem key={f.id} value={f.id}>{f.name}</MenuItem>)}
               </TextField>
+
+              {/*
+                * THE SIZE, IF THE RECIPE KNOWS IT.
+                *
+                * "A Top Flange inside a Composite Girder Segment is
+                * 40 x 700 x 12000" is a fact about the design, and saying it
+                * here means nobody retypes it on the Parameters step of every
+                * order. It is copied onto the rows when the structure is built,
+                * so it stays visible and editable there rather than arriving
+                * from somewhere the reader cannot see.
+                *
+                * ENTIRELY OPTIONAL. Plenty of parts are sized per job, and a
+                * recipe that guesses would be worse than one that says nothing.
+                * Clearing a box withdraws the default.
+                */}
+              <Box>
+                <Typography sx={{ fontSize: 12.5, fontWeight: 600, mb: 0.75 }}>
+                  Size, if this design has a standard one
+                </Typography>
+                <Stack direction="row" spacing={1.5}>
+                  {([
+                    ['thicknessMm', 'Thickness'],
+                    ['widthMm', 'Width'],
+                    ['lengthMm', 'Length'],
+                  ] as const).map(([k, label]) => (
+                    <TextField
+                      key={k}
+                      size="small" type="number" label={`${label} (mm)`}
+                      value={draft[k]}
+                      onChange={(e) => setDraft({ ...draft, [k]: e.target.value })}
+                      sx={{ flex: 1 }}
+                    />
+                  ))}
+                </Stack>
+                <Typography sx={{ fontSize: 11.5, color: 'var(--c-text-3)', mt: 0.75 }}>
+                  Leave blank when it varies per job. Every order built from this line starts
+                  with whatever is filled in, and can change it.
+                </Typography>
+              </Box>
 
               <TextField
                 select

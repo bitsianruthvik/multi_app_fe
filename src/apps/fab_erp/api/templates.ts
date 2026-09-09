@@ -125,6 +125,13 @@ export interface ItemBomLine extends TemplateBomLine {
   parentItemId: number;
   childUnit: string | null;
   /**
+   * Sizes the RECIPE states, if it states any — "a Top Flange inside a
+   * Composite Girder Segment is 40 x 700 x 12000". Copied onto every row built
+   * from this line, so nobody retypes them per order. Blank is equally valid:
+   * plenty of parts are sized per job.
+   */
+  defaults?: { length_mm?: number | null; width_mm?: number | null; thickness_mm?: number | null };
+  /**
    * How many lines the CHILD has under it.
    *
    * Sent with the list so the editor can mark which rows go deeper without a
@@ -154,6 +161,8 @@ export const getItemBom = (itemId: number) =>
  * explanation. The server refuses either way, and refuses a cycle.
  */
 export const saveItemBomLine = (line: {
+  /** Recipe sizes. A key present and blank CLEARS that default. */
+  defaults?: Record<string, number | string | null>;
   id?: number | null;
   parentItemId: number;
   childItemId: number;
