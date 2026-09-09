@@ -66,7 +66,6 @@ export default function OrderLinesPanel({ orderId, canManage, onChanged }: {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  const [code, setCode] = useState('');
   const [description, setDescription] = useState('');
   const [qty, setQty] = useState('1');
   const [lineType, setLineType] = useState('');
@@ -186,44 +185,23 @@ export default function OrderLinesPanel({ orderId, canManage, onChanged }: {
     })();
   }, []);
 
-  /**
-   * A code the person does not have to invent.
-   *
-   * It cannot come from the BOM — two spans built from one template need two
-   * codes, and the template has no notion of "which one". So it is the item's
-   * name plus this line's ordinal: Span, Span -> SPAN1, SPAN2. Editable,
-   * because a customer's own mark for a span beats anything generated.
-   */
-  const suggestCode = useCallback((picked: CatalogOption | null) => {
-    if (!picked) return '';
-    const stem = String(picked.name).replace(/[^A-Za-z0-9]+/g, '').toUpperCase().slice(0, 12);
-    const used = new Set(lines.map((l) => (l.code ?? '').toUpperCase()));
-    for (let n = lines.length + 1; n < lines.length + 50; n += 1) {
-      if (!used.has(`${stem}${n}`)) return `${stem}${n}`;
-    }
-    return stem;
-  }, [lines]);
-
   const pickItem = (picked: CatalogOption | null) => {
     setItem(picked);
     if (!picked) return;
     // Only fill what is still blank — retyping over somebody's edit because
     // they changed their mind about the item is worse than leaving it stale.
-    setCode((c) => (c.trim() ? c : suggestCode(picked)));
     setDescription((d) => (d.trim() ? d : picked.name));
   };
 
-  const trimmed = code.trim().toUpperCase();
-  const duplicate = trimmed !== '' && lines.some((l) => (l.code ?? '').toUpperCase() === trimmed);
+  const lineNo = lines.length + 1;
 
   async function add() {
-    if (!trimmed || !qty || duplicate) return;
+    if (!item || !qty) return;
     setAdding(true); setError('');
     try {
       await fabMutate('fabErpOrderLine', 'insert', {
         order_id: orderId,
-        line_no: lines.length + 1,
-        code: trimmed,
+        line_no: lineNo,
         description: description.trim() || null,
         qty: Number(qty),
         /**
@@ -245,17 +223,19 @@ export default function OrderLinesPanel({ orderId, canManage, onChanged }: {
        */
       if (material.trim() || grade.trim()) {
         /**
-         * Found by CODE, not by "newest id". The mutate API does not hand back
-         * the row it inserted, and ordering by id descending quietly returned
-         * nothing here — so the steel typed into the form was silently dropped
-         * and the line came out saying "not set". The code is unique within an
-         * order (`duplicate` above enforces it), which makes it the reliable
-         * way to find the row that was just written.
+         * Found by LINE NUMBER, not by "newest id". The mutate API does not hand
+         * back the row it inserted, and ordering by id descending quietly
+         * returned nothing here — so the steel typed into the form was silently
+         * dropped and the line came out saying "not set".
+         *
+         * This used to key on the code, which is gone. `line_no` is written on
+         * the same insert and is one per line within an order, so it identifies
+         * the row just as reliably.
          */
         const fresh = await fabQuery<{ data: FabOrderLine[] }>('fabErpOrderLine', {
           filters: { orderId },
           pagination: { limit: 500 },
-        }).then((r) => (r.data ?? []).find((l) => (l.code ?? '').toUpperCase() === trimmed));
+        }).then((r) => (r.data ?? []).find((l) => Number(l.lineNo) === lineNo));
         if (fresh) {
           await api.post(`${specBase()}/spec/lines/${fresh.id}`, {
             material: material.trim(), grade: grade.trim(),
@@ -265,7 +245,7 @@ export default function OrderLinesPanel({ orderId, canManage, onChanged }: {
       // The item clears with the rest, or the next pick finds code and
       // description already filled and leaves the previous line's values in place.
       setItem(null);
-      setCode(''); setDescription(''); setQty('1'); setLineType(''); setUnitPrice('');
+      setDescription(''); setQty('1'); setLineType(''); setUnitPrice('');
       setMaterial(''); setGrade('');
       await load();
       onChanged?.();
@@ -354,30 +334,16 @@ export default function OrderLinesPanel({ orderId, canManage, onChanged }: {
               )}
             />
             {/*
-              CODE AND DESCRIPTION ARE NOT ASKED FOR when the item answers them.
-              Both are derived the moment one is picked — SPAN1 from the name
-              and this line's ordinal, the description from the name itself — so
-              two boxes that fill themselves are two boxes in the way. They are
-              in the table below and editable there, which is where somebody
-              looks when they want to change one.
+              NO CODE HERE ANY MORE.
 
-              The code box survives with no item, because a free-text line has
-              nothing to derive from and the code is what the BOM sheet keys on.
+              A line's code was the top level of every item code beneath it, and
+              the BOQ sheet keyed its rows on it. Neither exists now: the BOM
+              step mints no codes, and the sheet is retired. What was left was a
+              required box that invented SPAN1 so it could be carried nowhere.
+
+              A line is identified by its number and what it is selling. Codes
+              come back at production-order time, on the pieces that need them.
             */}
-            {!item && (
-              <TextField
-                label="Code" size="small" required value={code} sx={{ flex: '0 1 150px' }}
-                onChange={(e) => setCode(e.target.value)}
-                error={duplicate}
-                helperText={duplicate ? 'Already used on this order' : 'Top level of the BOM'}
-                slotProps={{ htmlInput: { style: { textTransform: 'uppercase' }, maxLength: 60 } }}
-              />
-            )}
-            {item && duplicate && (
-              <Alert severity="warning" sx={{ flex: '1 1 220px', py: 0 }}>
-                {`${trimmed} is already on this order — rename it in the table below after adding.`}
-              </Alert>
-            )}
             <TextField
               label="Qty" size="small" type="number" value={qty} sx={{ flex: '0 1 90px' }}
               onChange={(e) => setQty(e.target.value)}
@@ -402,7 +368,7 @@ export default function OrderLinesPanel({ orderId, canManage, onChanged }: {
             <Button
               variant="contained" sx={{ mt: 0.25 }}
               startIcon={adding ? <CircularProgress size={14} color="inherit" /> : <AddIcon />}
-              disabled={adding || !trimmed || !qty || duplicate}
+              disabled={adding || !item || !qty}
               onClick={add}
             >
               Add
@@ -423,10 +389,10 @@ export default function OrderLinesPanel({ orderId, canManage, onChanged }: {
           getRowId={(l) => l.id}
           storageKey="order-lines"
           exportName="order-lines"
-          defaultSortKey="code"
+          defaultSortKey="lineNo"
           columns={[
-            { key: 'code', header: 'Code', width: 160, render: (l) => (l.code ? <Mono chip>{l.code}</Mono> : '—'), sortValue: (l) => l.code ?? '' },
-            { key: 'description', header: 'Description', render: (l) => l.description ?? '—', sortValue: (l) => l.description ?? '' },
+            { key: 'lineNo', header: '#', width: 60, render: (l) => <Mono chip>{l.lineNo}</Mono>, sortValue: (l) => l.lineNo },
+            { key: 'description', header: 'Item', render: (l) => l.description ?? '—', sortValue: (l) => l.description ?? '' },
             { key: 'lineType', header: 'Structure', width: 160, render: (l) => l.lineType ?? '—', sortValue: (l) => l.lineType ?? '' },
             {
               key: 'steel',
@@ -452,13 +418,13 @@ export default function OrderLinesPanel({ orderId, canManage, onChanged }: {
                   material: spec[line.id]?.material ?? '',
                   grade: spec[line.id]?.grade ?? '',
                 })}
-                aria-label={`Steel for ${line.code ?? 'line'}`}
+                aria-label={`Steel for ${line.description ?? `line ${line.lineNo}`}`}
               >
                 <LayersRounded fontSize="small" />
               </IconButton>
             </Tooltip>
             <Tooltip title="Remove">
-              <IconButton size="small" color="error" onClick={() => setDelLine(line)} aria-label={`Remove ${line.code ?? 'line'}`}>
+              <IconButton size="small" color="error" onClick={() => setDelLine(line)} aria-label={`Remove ${line.description ?? `line ${line.lineNo}`}`}>
                 <DeleteOutlineRounded fontSize="small" />
               </IconButton>
             </Tooltip>
@@ -472,8 +438,9 @@ export default function OrderLinesPanel({ orderId, canManage, onChanged }: {
         <DialogTitle sx={{ fontWeight: 600 }}>Remove line item</DialogTitle>
         <DialogContent>
           <Typography sx={{ fontSize: 13.5 }}>
-            Remove <strong>{delLine?.code}</strong> from this order? Any BOM rows under
-            that code stay where they are — they simply stop belonging to a line.
+            Remove <strong>{delLine?.description ?? `line ${delLine?.lineNo}`}</strong> from this
+            order? Any structure rows under it stay where they are — they simply stop
+            belonging to a line.
           </Typography>
         </DialogContent>
         <DialogActions>

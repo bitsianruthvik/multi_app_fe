@@ -8,6 +8,7 @@ import AddIcon from '@mui/icons-material/Add';
 import BuildCircleRounded from '@mui/icons-material/BuildCircleRounded';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import CloseRounded from '@mui/icons-material/CloseRounded';
+import ContentCopyRounded from '@mui/icons-material/ContentCopyRounded';
 import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
 import AccountTreeRounded from '@mui/icons-material/AccountTreeRounded';
 import DescriptionRounded from '@mui/icons-material/DescriptionRounded';
@@ -274,6 +275,7 @@ function ItemNode({ item, depth, canManage, onDeleted, onItemAdded, onTreeChange
   const [rowError, setRowError] = useState('');
   const [savingRow, setSavingRow] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [duplicating, setDuplicating] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   const [showDrawings, setShowDrawings] = useState(false);
@@ -398,6 +400,27 @@ function ItemNode({ item, depth, canManage, onDeleted, onItemAdded, onTreeChange
     } finally {
       setSavingRow(false);
     }
+  }
+
+  /**
+   * Copy this row and everything under it, as a sibling.
+   *
+   * The server does the walk: a segment with eight parts is nine inserts and a
+   * batch of field values, and doing that from here would be nine round trips
+   * with no transaction around them.
+   */
+  async function handleDuplicate() {
+    setDuplicating(true); setRowError('');
+    try {
+      await api.post<{ created: number }>(
+        `${API_HOST}/api/${localStorage.getItem('companySlug')}/fab_erp/orders/${item.orderId}/items/${item.id}/duplicate`,
+        {},
+      );
+      onItemAdded();
+      onTreeChanged();
+    } catch (e) {
+      setRowError(errMsg(e, 'Could not copy that row'));
+    } finally { setDuplicating(false); }
   }
 
   async function handleDelete() {
@@ -557,6 +580,15 @@ function ItemNode({ item, depth, canManage, onDeleted, onItemAdded, onTreeChange
             <Tooltip title="Add child">
               <IconButton size="small" onClick={() => { if (!expanded) { setExpanded(true); if (!childrenLoaded) loadChildren(); } setAddingChild(true); }} sx={{ p: 0.25 }}>
                 <AddIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          )}
+          {canManage && (
+            <Tooltip title="Copy this row and everything under it">
+              <IconButton size="small" onClick={handleDuplicate} sx={{ p: 0.25 }} disabled={duplicating}>
+                {duplicating
+                  ? <CircularProgress size={13} />
+                  : <ContentCopyRounded sx={{ fontSize: 15 }} />}
               </IconButton>
             </Tooltip>
           )}
