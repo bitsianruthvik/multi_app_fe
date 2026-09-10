@@ -228,6 +228,16 @@ export interface DraftNode {
   bomLineId: number | null;
   /** What the BOM called this quantity, if it asked for one. Shown as a hint. */
   qtyParam: string | null;
+  /**
+   * The rectangle, on the leaf that has one. Values are held as TYPED STRINGS
+   * while somebody is editing so a half-entered "12." survives the next
+   * keystroke and a cleared box stays cleared; they arrive from the server as
+   * numbers and are parsed once, on save. A key present and blank CLEARS.
+   *
+   * Assemblies carry {} — a Segment has no shape of its own, its weight and area
+   * are its parts summed.
+   */
+  dims?: Record<string, number | string | null>;
   children: DraftNode[];
 }
 

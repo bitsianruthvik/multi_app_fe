@@ -185,6 +185,19 @@ export default function StructureEditor({
     setTree((t) => (t ? mapNode(t, key, (n) => ({ ...n, qty: raw === '' ? 0 : Number(raw) })) : t));
   }, []);
 
+  /**
+   * A size, on the row it belongs to.
+   *
+   * Kept as the STRING that was typed rather than a number, so a half-entered
+   * "12." survives the next keystroke and a cleared box stays cleared instead of
+   * springing back to 0. It is parsed once, on save.
+   */
+  const setDim = useCallback((key: string, field: string, raw: string) => {
+    setTree((t) => (t ? mapNode(t, key, (n) => ({
+      ...n, dims: { ...(n.dims ?? {}), [field]: raw },
+    })) : t));
+  }, []);
+
   const remove = useCallback((key: string) => {
     setTree((t) => (t ? dropNode(t, key) : t));
   }, []);
@@ -210,6 +223,7 @@ export default function StructureEditor({
         defaultFlowId: null,
         bomLineId: null,
         qtyParam: null,
+        dims: {},
         children: [],
       }],
     })) : t));
@@ -278,9 +292,40 @@ export default function StructureEditor({
             <TextField
               size="small" type="number" value={node.qty}
               onChange={(e) => setQty(node.key, e.target.value)}
-              sx={{ width: 88 }}
+              sx={{ width: 76 }}
               inputProps={{ min: 0, step: 1, style: { fontSize: 12, textAlign: 'right' } }}
             />
+          )}
+
+          {/*
+            THE SIZE, ON THE LEAF ONLY.
+
+            An assembly has no rectangle — a Segment's weight and area are its
+            parts summed, not a shape of its own — so three empty boxes beside it
+            would be three questions with no answer, and somebody would
+            eventually fill them in.
+
+            Here rather than only on the Dimensions step because this is where a
+            person is looking at the part. The grid is still better for typing
+            three hundred in a row; this is better for the one in front of you.
+            They are the same values either way.
+          */}
+          {hasKids ? (
+            <Box sx={{ width: 234, flexShrink: 0 }} />
+          ) : (
+            <Box sx={{ display: 'flex', gap: 0.5, flexShrink: 0 }}>
+              {(['thickness_mm', 'width_mm', 'length_mm'] as const).map((f) => (
+                <TextField
+                  key={f}
+                  size="small" type="number"
+                  placeholder={f === 'thickness_mm' ? 'thk' : f === 'width_mm' ? 'wid' : 'len'}
+                  value={node.dims?.[f] ?? ''}
+                  onChange={(e) => setDim(node.key, f, e.target.value)}
+                  sx={{ width: 74 }}
+                  inputProps={{ min: 0, style: { fontSize: 11.5, textAlign: 'right' } }}
+                />
+              ))}
+            </Box>
           )}
 
           {/* A fixed slot, so the quantity column does not shift as rows differ. */}
