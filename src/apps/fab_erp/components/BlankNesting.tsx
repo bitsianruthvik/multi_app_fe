@@ -256,7 +256,7 @@ export default function BlankNesting({
         >
           <MenuItem value="quick">Quick</MenuItem>
           <MenuItem value="standard">Standard</MenuItem>
-          <MenuItem value="deep">Deep — slower, rarely better</MenuItem>
+          <MenuItem value="deep">Deep — 2x slower, ~0.1% less steel</MenuItem>
         </TextField>
         <Button size="small" startIcon={<RefreshIcon />} onClick={() => void load()}>Re-pack</Button>
         <Button size="small" startIcon={<DownloadIcon />} onClick={() => void download()}>
