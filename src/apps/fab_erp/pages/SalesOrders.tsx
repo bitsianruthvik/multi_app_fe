@@ -30,6 +30,7 @@ import { DialogCloseButton } from '../components/FormDialog';
 interface FabOrder {
   id: number; companyId: number; orderNumber: string; orderType: string; type: string; status: string;
   customerId?: number; customerName?: string; customerPoRef?: string;
+  customerLinkedName?: string;
   plantId?: number; plantName?: string;
   requiredDate?: string; confirmedDate?: string; scheduledShipDate?: string;
   priority?: string; mrpController?: string; notes?: string;
@@ -91,7 +92,8 @@ function stageOf(status: string): string {
 }
 
 function orderSummary(o: FabOrder): string {
-  if (o.orderType === 'sales') return o.customerName || 'No customer';
+  // The linked customer record beats the free-text field — see SalesOrderDetail.
+  if (o.orderType === 'sales') return o.customerLinkedName || o.customerName || 'No customer';
   return `${typeLabel(o.orderType)} order`;
 }
 

@@ -34,6 +34,8 @@ import { fetchOrderReadiness, type OrderReadiness, type ReadinessStage } from '.
 interface FabOrder {
   id: number; companyId: number; orderNumber: string; orderType: string; type: string; status: string;
   customerId?: number; customerName?: string; customerPoRef?: string; plantId?: number; plantName?: string;
+  /** The name of the LINKED customer record, if the order names one. */
+  customerLinkedName?: string;
   requiredDate?: string; confirmedDate?: string; scheduledShipDate?: string;
   priority?: string; mrpController?: string; notes?: string; currency?: string; paymentTerms?: string;
   createdAt: string; updatedAt: string; deletedAt: string | null;
@@ -218,7 +220,15 @@ export default function SalesOrderDetail() {
           </Box>
           <Typography sx={{ fontSize: 14, color: 'var(--c-text-2)' }}>
             {isSales
-              ? (so.customerName || 'No customer')
+              /*
+               * THE LINKED CUSTOMER WINS over the free-text field.
+               *
+               * customer_id is the real relationship; customer_name is a
+               * loose string for an order with no customer record. This read
+               * only the string, so an order properly linked to Kalpataru
+               * displayed "No customer".
+               */
+              ? (so.customerLinkedName || so.customerName || 'No customer')
               : `${orderTypeLabel(so.orderType)} order`}
           </Typography>
         </Box>
