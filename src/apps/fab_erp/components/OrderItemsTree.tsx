@@ -942,6 +942,13 @@ export default function OrderItemsTree({ orderId, canManage, readiness, onStageC
   // Only prompt when there is genuinely something to build: rows exist, and
   // either the order has no tasks at all or rows were added since the last run.
   // An order whose tasks are already current shows nothing.
+  /**
+   * Lines this step can build something from — ones that name a catalog item,
+   * because that item's BOM is the structure. A free-text line names nothing and
+   * has nothing to expand.
+   */
+  const buildable = lines.filter((l) => (l.templateItemId ?? l.catalogItemId) != null);
+
   const blockersHere = (readiness?.blockers ?? []).filter((b) => b.stage !== 'nesting');
 
   const showBuildPrompt = canManage
@@ -1136,8 +1143,54 @@ export default function OrderItemsTree({ orderId, canManage, readiness, onStageC
         </Box>
       )}
 
+      {/*
+        THE EMPTY STATE CARRIES THE LINE THROUGH.
+
+        It used to read "No items yet — add a top-level item", which is what you
+        would say if nothing were known. Something is: the line items step has
+        already been told this order sells a Span, and a Span has a BOM. Making
+        somebody start from "add a top-level item" throws that away and asks the
+        same question twice.
+
+        The structure is still not written until Create — the editor opens on the
+        BOM and nothing lands until it is accepted — but the step now says what
+        it is about to build and gets there in one press.
+      */}
       {topItems.length === 0 ? (
-        <EmptyState icon={<AddIcon />} title="No items yet" hint="Add a top-level item to start building this order's item tree." />
+        buildable.length > 0 ? (
+          <Surface e={1} sx={{ p: 3, textAlign: 'center' }}>
+            <Typography sx={{ fontSize: 15, fontWeight: 600, mb: 0.5 }}>
+              {buildable.length === 1
+                ? `This order sells ${buildable[0].description ?? 'one item'}`
+                : `This order sells ${buildable.length} things`}
+            </Typography>
+            <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)', maxWidth: 460, mx: 'auto', mb: 2 }}>
+              {buildable.length === 1
+                ? 'Its bill of materials is the structure. Open it, change what this job needs, and create it — nothing is written until you do.'
+                : 'Each one has a bill of materials. Build them one at a time — nothing is written until you accept it.'}
+            </Typography>
+            <Button
+              variant="contained" startIcon={<AccountTreeRounded />}
+              onClick={() => {
+                if (buildable.length === 1) { setEditorLine(buildable[0]); setEditorOpen(true); }
+                else setLinePickerOpen(true);
+              }}
+            >
+              {buildable.length === 1
+                ? `Build from ${buildable[0].description ?? 'the line'}`
+                : 'Build a structure'}
+            </Button>
+            <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)', mt: 2 }}>
+              or add rows by hand with <b>Add top-level item</b> above
+            </Typography>
+          </Surface>
+        ) : (
+          <EmptyState
+            icon={<AddIcon />}
+            title="Nothing to build from yet"
+            hint="Add a line item first — what this order sells is what the structure is built from."
+          />
+        )
       ) : (
         <Surface e={1} sx={{ overflow: 'hidden' }}>
           {topItems.map((row) => (

@@ -6,7 +6,7 @@ import {
 import AddIcon from '@mui/icons-material/Add';
 import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
 import Inventory2Rounded from '@mui/icons-material/Inventory2Rounded';
-import LayersRounded from '@mui/icons-material/LayersRounded';
+import EditRounded from '@mui/icons-material/EditRounded';
 
 import api, { API_HOST } from '@core/utils/axiosConfig';
 import { fabQuery, fabMutate } from '../api/client';
@@ -53,6 +53,8 @@ export interface FabOrderLine {
   code?: string | null; description?: string | null; lineType?: string | null;
   qty: number; unit?: string | null; unitPrice?: number | null;
   qtyCompleted?: number | null;
+  /** What it was sold AS — needed to re-open the picker on the right item. */
+  templateItemId?: number | null; catalogItemId?: number | null;
 }
 
 export default function OrderLinesPanel({ orderId, canManage, onChanged }: {
@@ -111,8 +113,20 @@ export default function OrderLinesPanel({ orderId, canManage, onChanged }: {
     [steel],
   );
   const [spec, setSpec] = useState<Record<number, LineSpec>>({});
-  const [editSpec, setEditSpec] = useState<
-    { line: FabOrderLine; material: string; grade: string } | null>(null);
+  /**
+   * EDITING A LINE, not just its steel.
+   *
+   * There was no way to change a line once added — only to set its material and
+   * grade, or delete it and start again. Deleting is not equivalent: the
+   * structure built under a line is attached to it, so "change the quantity from
+   * 1 to 2" meant losing 32 rows and rebuilding them.
+   */
+  const [editLine, setEditLine] = useState<{
+    line: FabOrderLine; item: CatalogOption | null;
+    description: string; qty: string; unitPrice: string; material: string; grade: string;
+  } | null>(null);
+  /** How many structure rows hang off each line — a warning before changing the item. */
+  const [builtRows, setBuiltRows] = useState<Record<number, number>>({});
   const [savingSpec, setSavingSpec] = useState(false);
   const [adding, setAdding] = useState(false);
   const [delLine, setDelLine] = useState<FabOrderLine | null>(null);
@@ -126,6 +140,12 @@ export default function OrderLinesPanel({ orderId, canManage, onChanged }: {
       });
       const rows = res.data ?? [];
       setLines(rows);
+      // What is already built under each line, so changing the item can say what
+      // it would strand rather than doing it silently.
+      Promise.all(rows.map((l) => fabQuery<{ total?: number | null }>('fabErpItem', {
+        fields: ['id'], filters: { orderLineId: l.id }, pagination: { limit: 1 }, includeTotal: true,
+      }).then((r) => [l.id, r.total ?? 0] as const).catch(() => [l.id, 0] as const)))
+        .then((pairs) => setBuiltRows(Object.fromEntries(pairs)));
       // One call per line, but there are a handful of lines on an order — and
       // each asks what that LINE states, which no list endpoint answers.
       const specs = await Promise.all(rows.map((l) => api
@@ -144,20 +164,36 @@ export default function OrderLinesPanel({ orderId, canManage, onChanged }: {
    * The spec routes hang off the APP root, not off `/orders/:orderId` — they
    * identify a line by its id alone, the same way the flow route does.
    */
-  async function saveLineSpec() {
-    if (!editSpec) return;
+  async function saveLine() {
+    if (!editLine) return;
     setSavingSpec(true); setError('');
     try {
-      await api.post(`${specBase()}/spec/lines/${editSpec.line.id}`, {
-        material: editSpec.material.trim(),
-        grade: editSpec.grade.trim(),
+      const e = editLine;
+      await fabMutate('fabErpOrderLine', 'update', {
+        id: e.line.id,
+        description: e.description.trim() || null,
+        qty: Number(e.qty) || 1,
+        unit_price: e.unitPrice ? Number(e.unitPrice) : null,
+        /*
+         * All three move together or none does — they were always one fact.
+         * Sent even when unchanged so a line that predates the picker acquires
+         * them the first time somebody edits it.
+         */
+        catalog_item_id: e.item?.id ?? null,
+        template_item_id: e.item?.id ?? null,
+        line_type: e.item?.groupName ?? e.line.lineType ?? null,
       });
-      setEditSpec(null);
+      // The steel is its own route: it is a field value on the line, not a
+      // column, so the generic update cannot carry it.
+      await api.post(`${specBase()}/spec/lines/${e.line.id}`, {
+        material: e.material.trim(), grade: e.grade.trim(),
+      });
+      setEditLine(null);
       await load();
       onChanged?.();
-      toast('Steel set for the line');
+      toast('Line updated');
     } catch (e) {
-      setError(backendMessage(e, 'Could not set the steel.'));
+      setError(backendMessage(e, 'Could not update the line.'));
     } finally { setSavingSpec(false); }
   }
 
@@ -455,17 +491,23 @@ export default function OrderLinesPanel({ orderId, canManage, onChanged }: {
           ]}
           rowActions={canManage ? (line) => (
             <>
-            <Tooltip title="Set what this line is made of">
+            <Tooltip title="Edit this line">
               <IconButton
                 size="small"
-                onClick={() => setEditSpec({
+                onClick={() => setEditLine({
                   line,
+                  item: catalog.find((c) => c.id === (line.templateItemId ?? line.catalogItemId)) ?? null,
+                  description: line.description ?? '',
+                  // Number() first: the API returns DECIMAL as "1.0000", and a box
+                  // that opens reading 1.0000 invites somebody to "fix" it.
+                  qty: String(Number(line.qty ?? 1)),
+                  unitPrice: line.unitPrice == null ? '' : String(line.unitPrice),
                   material: spec[line.id]?.material ?? '',
                   grade: spec[line.id]?.grade ?? '',
                 })}
-                aria-label={`Steel for ${line.description ?? `line ${line.lineNo}`}`}
+                aria-label={`Edit ${line.description ?? `line ${line.lineNo}`}`}
               >
-                <LayersRounded fontSize="small" />
+                <EditRounded fontSize="small" />
               </IconButton>
             </Tooltip>
             <Tooltip title="Remove">
@@ -502,50 +544,108 @@ export default function OrderLinesPanel({ orderId, canManage, onChanged }: {
         differs — a stainless insert in a mild-steel span — overrides it on
         itself, and nesting refuses any plate that disagrees with either.
       */}
-      <Dialog open={!!editSpec} onClose={() => setEditSpec(null)} maxWidth="xs" fullWidth>
-        <DialogCloseButton absolute onClose={() => setEditSpec(null)} />
+      {/*
+        ONE DIALOG FOR THE WHOLE LINE.
+        It used to set only material and grade, so a line's item, quantity and
+        price were fixed the moment it was added — and deleting to re-add is not
+        equivalent, because the structure built under a line belongs to it.
+      */}
+      <Dialog open={!!editLine} onClose={() => setEditLine(null)} maxWidth="sm" fullWidth>
+        <DialogCloseButton absolute onClose={() => setEditLine(null)} />
         <DialogTitle sx={{ fontWeight: 600 }}>
-          Steel for {editSpec?.line.code}
+          Line {editLine?.line.lineNo}
         </DialogTitle>
         <DialogContent>
-          <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)', mb: 2 }}>
-            Every part under this line is made of this, unless the part says
-            otherwise. Together with each part&apos;s thickness, this is what nesting
-            matches against when it picks a plate.
-          </Typography>
-          <Box sx={{ display: 'flex', gap: 2, mt: 1 }}>
-            <TextField
-              select label="Material" size="small" fullWidth autoFocus
-              value={editSpec?.material ?? ''}
-              onChange={(e) => setEditSpec((v) => {
-                if (!v) return v;
-                const next = e.target.value;
-                const keepGrade = !next || !v.grade || gradesFor(next).includes(v.grade);
-                return { ...v, material: next, grade: keepGrade ? v.grade : '' };
-              })}
-            >
-              <MenuItem value="">—</MenuItem>
-              {steel.materials.map((m) => <MenuItem key={m} value={m}>{m}</MenuItem>)}
-            </TextField>
-            <TextField
-              select label="Grade" size="small" fullWidth
-              value={editSpec?.grade ?? ''}
-              onChange={(e) => setEditSpec((v) => (v ? { ...v, grade: e.target.value } : v))}
-            >
-              <MenuItem value="">—</MenuItem>
-              {gradesFor(editSpec?.material ?? '').map((g) => <MenuItem key={g} value={g}>{g}</MenuItem>)}
-            </TextField>
-          </Box>
-          <Typography sx={{ fontSize: 11.5, color: 'var(--c-text-3)', mt: 1.5 }}>
-            Clearing a box removes it, and the parts stop inheriting that value.
-          </Typography>
+          {editLine && (
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 0.5 }}>
+              <Autocomplete
+                options={catalog}
+                value={editLine.item}
+                getOptionLabel={(o) => o.name}
+                isOptionEqualToValue={(a, b) => a.id === b.id}
+                onChange={(_, v) => setEditLine((e) => (e ? {
+                  ...e, item: v, description: v ? v.name : e.description,
+                } : e))}
+                filterOptions={(opts, { inputValue }) => {
+                  const q = inputValue.trim().toLowerCase();
+                  if (!q) return opts.slice(0, 50);
+                  return opts.filter((o) => [o.name, o.code, o.categoryName, o.groupName, o.subgroupName]
+                    .filter(Boolean).join(' ').toLowerCase().includes(q));
+                }}
+                renderOption={(props, o) => (
+                  <li {...props} key={o.id}>
+                    <Box>
+                      <Typography sx={{ fontSize: 13 }}>{o.name}</Typography>
+                      <Typography sx={{ fontSize: 11, color: 'var(--c-text-3)' }}>
+                        {[o.categoryName, o.groupName, o.subgroupName].filter(Boolean).join(' › ')}
+                      </Typography>
+                    </Box>
+                  </li>
+                )}
+                renderInput={(p) => <TextField {...p} size="small" label="Item" />}
+              />
+
+              {/*
+                CHANGING THE ITEM IS NOT A SMALL EDIT once a structure exists:
+                those rows came from the old item's BOM and would stay exactly as
+                they are. Said out loud, with the count, rather than discovered.
+              */}
+              {(builtRows[editLine.line.id] ?? 0) > 0
+                && editLine.item?.id !== (editLine.line.templateItemId ?? editLine.line.catalogItemId) && (
+                <Alert severity="warning" sx={{ py: 0.5 }}>
+                  This line already has <b>{builtRows[editLine.line.id]}</b> structure row(s), built
+                  from the item it was. They stay as they are — rebuild the structure if they should
+                  follow the change.
+                </Alert>
+              )}
+
+              <Box sx={{ display: 'flex', gap: 2 }}>
+                <TextField
+                  label="Qty" size="small" type="number" sx={{ flex: '0 1 110px' }}
+                  value={editLine.qty}
+                  onChange={(e) => setEditLine((v) => (v ? { ...v, qty: e.target.value } : v))}
+                />
+                <TextField
+                  label="Unit price" size="small" type="number" sx={{ flex: '0 1 150px' }}
+                  value={editLine.unitPrice}
+                  onChange={(e) => setEditLine((v) => (v ? { ...v, unitPrice: e.target.value } : v))}
+                />
+              </Box>
+
+              <Box sx={{ display: 'flex', gap: 2 }}>
+                <TextField
+                  select label="Material" size="small" sx={{ flex: 1 }}
+                  value={editLine.material}
+                  onChange={(e) => setEditLine((v) => {
+                    if (!v) return v;
+                    const next = e.target.value;
+                    const keep = !next || !v.grade || gradesFor(next).includes(v.grade);
+                    return { ...v, material: next, grade: keep ? v.grade : '' };
+                  })}
+                >
+                  <MenuItem value="">—</MenuItem>
+                  {steel.materials.map((m) => <MenuItem key={m} value={m}>{m}</MenuItem>)}
+                </TextField>
+                <TextField
+                  select label="Grade" size="small" sx={{ flex: 1 }}
+                  value={editLine.grade}
+                  onChange={(e) => setEditLine((v) => (v ? { ...v, grade: e.target.value } : v))}
+                >
+                  <MenuItem value="">—</MenuItem>
+                  {gradesFor(editLine.material).map((g) => <MenuItem key={g} value={g}>{g}</MenuItem>)}
+                </TextField>
+              </Box>
+              <Typography sx={{ fontSize: 11.5, color: 'var(--c-text-3)' }}>
+                Clearing the steel removes it, and the parts stop inheriting that value.
+              </Typography>
+            </Box>
+          )}
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setEditSpec(null)}>Cancel</Button>
+          <Button onClick={() => setEditLine(null)} disabled={savingSpec}>Cancel</Button>
           <Button
-            variant="contained" disabled={savingSpec}
+            variant="contained" onClick={saveLine} disabled={savingSpec || !editLine?.item}
             startIcon={savingSpec ? <CircularProgress size={14} color="inherit" /> : undefined}
-            onClick={saveLineSpec}
           >
             Save
           </Button>
