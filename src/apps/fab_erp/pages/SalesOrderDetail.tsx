@@ -22,7 +22,7 @@ import SalesOrderWizard from '../components/SalesOrderWizard';
 import { statusFamily } from '../statusMap';
 import OrderItemsTree from '../components/OrderItemsTree';
 import OrderFlowAllocation from '../components/OrderFlowAllocation';
-import OrderNesting from '../components/OrderNesting';
+import BlankNesting from '../components/BlankNesting';
 import OrderParameters from '../components/OrderParameters';
 import OrderProcurement from '../components/OrderProcurement';
 import OrderProduction from '../components/OrderProduction';
@@ -387,7 +387,7 @@ export default function SalesOrderDetail() {
         ) : tab === 'params' ? (
           <OrderParameters orderId={id} canManage={canManage} onStageChanged={refreshReadiness} only="rest" />
         ) : tab === 'nesting' ? (
-          <OrderNesting orderId={id} canManage={canManage} onStageChanged={refreshReadiness} />
+          <BlankNesting orderId={id} canManage={canManage} onStageChanged={refreshReadiness} />
         ) : tab === 'procurement' ? (
           <OrderProcurement orderId={id} canManage={canManage} onChanged={refreshReadiness} />
         ) : tab === 'production' ? (

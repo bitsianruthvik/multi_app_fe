@@ -16,7 +16,7 @@ import { fabMutate } from '../api/client';
 import { useToast, backendMessage } from '../components';
 import { fetchOrderReadiness, type OrderReadiness, type ReadinessStage, type StageState } from '../api/readiness';
 import OrderItemsTree from './OrderItemsTree';
-import OrderNesting from './OrderNesting';
+import BlankNesting from './BlankNesting';
 import OrderParameters from './OrderParameters';
 import SimilarGroupsPanel from './SimilarGroupsPanel';
 import OrderFlowAllocation from './OrderFlowAllocation';
@@ -274,7 +274,7 @@ export default function SalesOrderWizard({
               step reports what is still unsized and is where it gets fixed.
             */}
             {step === 'nesting' && (
-              <OrderNesting orderId={orderId} canManage={canManage} onStageChanged={refresh} />
+              <BlankNesting orderId={orderId} canManage={canManage} onStageChanged={refresh} />
             )}
             {step === 'params' && (
               <OrderParameters orderId={orderId} canManage={canManage} onStageChanged={refresh} only="rest" />
