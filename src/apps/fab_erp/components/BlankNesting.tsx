@@ -27,7 +27,7 @@
  * and fabrication waits on shop capacity.
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert, Box, Button, Chip, CircularProgress, Collapse, IconButton, LinearProgress,
   MenuItem, Stack, Tab, Tabs, TextField, Tooltip, Typography,
@@ -35,42 +35,15 @@ import {
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import RefreshIcon from '@mui/icons-material/Refresh';
+import DownloadIcon from '@mui/icons-material/Download';
+import UploadFileIcon from '@mui/icons-material/UploadFile';
 
-import { fabGet, fabPost, fabQuery } from '../api/client';
+import { fabQuery } from '../api/client';
+import {
+  getBlankPlan, acceptBlankPlan, downloadPlanSheet, uploadPlanSheet,
+  type Blank, type Nest, type BlankSummary, type Effort,
+} from '../api/blanks';
 import { backendMessage } from '../components';
-
-interface NestItem { key: string; name: string; rect: string; qty: number }
-
-interface Nest {
-  nestNo: string;
-  plateCatalogItemId: number;
-  plateCode: string | null;
-  plateName: string | null;
-  thickness: number;
-  width: number;
-  length: number;
-  isDrop: boolean;
-  plateKg: number;
-  usedPct: number;
-  items: NestItem[];
-}
-
-interface Blank {
-  key: string; code: string; name: string;
-  material: string | null; grade: string | null;
-  thickness: number; width: number; length: number;
-  qty: number; unitWeightKg: number; totalWeightKg: number;
-  partNames: string[]; partCount: number;
-  nests: { nestNo: string; qty: number; plate: string; isDrop: boolean; sharedWith: number }[];
-  plateSizes: string[]; plateCount: number; sharesPlates: number;
-  placed: number; short: number; reason: string | null;
-}
-
-interface Summary {
-  blanks: number; pieces: number; plates: number; mixedPlates: number;
-  boughtKg: number; grossKg: number; usedKg: number; dropKg: number;
-  yield: number; short: number;
-}
 
 const t = (kg: number) => `${(kg / 1000).toFixed(1)} t`;
 const rect = (o: { thickness: number; width: number; length: number }) =>
@@ -89,7 +62,7 @@ export default function BlankNesting({
 }) {
   const [blanks, setBlanks] = useState<Blank[]>([]);
   const [nests, setNests] = useState<Nest[]>([]);
-  const [summary, setSummary] = useState<Summary | null>(null);
+  const [summary, setSummary] = useState<BlankSummary | null>(null);
   const [skipped, setSkipped] = useState<{ name: string; reason: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -97,7 +70,7 @@ export default function BlankNesting({
   const [result, setResult] = useState<string | null>(null);
   const [tab, setTab] = useState(0);
   const [open, setOpen] = useState<Set<string>>(new Set());
-  const [effort, setEffort] = useState<'quick' | 'standard' | 'deep'>('standard');
+  const [effort, setEffort] = useState<Effort>('standard');
   const [flowOverride, setFlowOverride] = useState<Record<string, number>>({});
 
   const [flows, setFlows] = useState<{ id: number; name: string }[]>([]);
@@ -109,13 +82,11 @@ export default function BlankNesting({
     }).then((r) => setFlows(r.data ?? [])).catch(() => setFlows([]));
   }, []);
 
-  const load = useCallback(async (how: string = effort) => {
+  const load = useCallback(async (how: Effort = effort) => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fabGet<{
-        blanks: Blank[]; nests: Nest[]; summary: Summary; skipped: typeof skipped;
-      }>(`orders/${orderId}/blanks?effort=${how}`);
+      const res = await getBlankPlan(orderId, how);
       setBlanks(res.blanks ?? []);
       setNests(res.nests ?? []);
       setSummary(res.summary ?? null);
@@ -139,10 +110,7 @@ export default function BlankNesting({
     setError(null);
     setResult(null);
     try {
-      const res = await fabPost<{
-        cuttingOrderNumber: string; blanks: number; sheets: number;
-        platesLinked: number; tasks: number; partsRepointed: number;
-      }>(`orders/${orderId}/blanks/accept`, { plan: { nests, flows: flowOverride } });
+      const res = await acceptBlankPlan(orderId, { nests, flows: flowOverride });
       setResult(
         `${res.blanks} blanks across ${res.sheets} sheets on ${res.cuttingOrderNumber}. `
         + `${res.partsRepointed} part rows now come off a blank.`,
@@ -155,6 +123,54 @@ export default function BlankNesting({
       setAccepting(false);
     }
   }, [nests, flowOverride, orderId, load, onStageChanged]);
+
+  /**
+   * THE SECOND WAY IN.
+   *
+   * The packer does not know that the 40 mm is stacked behind the 25 mm, or that
+   * the cutter wants every diaphragm plate in one setup. A planner who cannot
+   * say so keeps the real plan in a spreadsheet beside the software — and then
+   * the software is describing a job nobody is doing.
+   *
+   * So the suggestion is a STARTING POINT that can be taken away, edited and
+   * brought back, rather than the only thing the screen will accept.
+   */
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+
+  const download = useCallback(async () => {
+    try {
+      await downloadPlanSheet(orderId, effort);
+    } catch (err) {
+      setError(backendMessage(err, 'Could not produce the sheet.'));
+    }
+  }, [orderId, effort]);
+
+  const upload = useCallback(async (file: File) => {
+    setUploading(true);
+    setError(null);
+    setResult(null);
+    try {
+      const res = await uploadPlanSheet(orderId, file);
+      const short = res.fromSheet?.short ?? [];
+      setResult(
+        `Your plan applied: ${res.fromSheet?.sheets ?? res.sheets} sheets from ${res.fromSheet?.rows ?? 0} rows, `
+        + `on ${res.cuttingOrderNumber}.`
+        + (short.length
+          ? ` ${short.length} blank${short.length === 1 ? '' : 's'} not fully covered — `
+            + short.slice(0, 3).map((x) => `${x.rect} (${x.planned} of ${x.needed})`).join(', ')
+            + (short.length > 3 ? ', and more' : '') + '.'
+          : ''),
+      );
+      await load();
+      onStageChanged?.();
+    } catch (err) {
+      setError(backendMessage(err, 'That sheet could not be read.'));
+    } finally {
+      setUploading(false);
+      if (fileRef.current) fileRef.current.value = '';
+    }
+  }, [orderId, load, onStageChanged]);
 
   const shortBlanks = useMemo(() => blanks.filter((b) => b.short > 0), [blanks]);
 
@@ -241,7 +257,31 @@ export default function BlankNesting({
           <MenuItem value="deep">Deep</MenuItem>
         </TextField>
         <Button size="small" startIcon={<RefreshIcon />} onClick={() => void load()}>Re-pack</Button>
+        <Button size="small" startIcon={<DownloadIcon />} onClick={() => void download()}>
+          Download plan
+        </Button>
+        {canManage && (
+          <Button
+            size="small" startIcon={<UploadFileIcon />} disabled={uploading}
+            onClick={() => fileRef.current?.click()}
+          >
+            {uploading ? 'Reading…' : 'Upload my plan'}
+          </Button>
+        )}
+        <input
+          ref={fileRef} type="file" accept=".xlsx" hidden
+          onChange={(e) => { const f = e.target.files?.[0]; if (f) void upload(f); }}
+        />
       </Stack>
+
+      {/*
+        * Said out loud, because a screen that opens on a suggestion looks like a
+        * screen that only accepts one.
+        */}
+      <Alert severity="info" variant="outlined" sx={{ mb: 1.5, py: 0.5 }}>
+        This is a <b>suggestion</b>. Accept it, or download it, rearrange it in Excel and
+        upload your own — the plan that gets built is whichever you accept last.
+      </Alert>
 
       <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 1, minHeight: 36 }}>
         <Tab label={`What has to be cut (${blanks.length})`} sx={{ minHeight: 36, fontSize: 13 }} />
@@ -250,9 +290,12 @@ export default function BlankNesting({
 
       {/* ── the blanks ───────────────────────────────────────────────────── */}
       {tab === 0 && (
-        <Box sx={{ border: '1px solid var(--c-border)', borderRadius: '10px', overflow: 'hidden' }}>
+        <Box sx={{
+          border: '1px solid var(--c-border)', borderRadius: '10px',
+          overflowX: 'auto', overflowY: 'hidden',
+        }}>
           <Stack direction="row" spacing={1} sx={{
-            px: 1.5, py: 0.75, background: 'var(--c-surface-2)',
+            px: 1.5, py: 0.75, background: 'var(--c-surface-2)', minWidth: 760,
             borderBottom: '1px solid var(--c-border)',
           }}>
             <Box sx={{ width: 26, flexShrink: 0 }} />
@@ -268,7 +311,7 @@ export default function BlankNesting({
             return (
               <Box key={b.key} sx={{ borderBottom: '1px solid var(--c-divider)' }}>
                 <Stack direction="row" spacing={1} alignItems="center" sx={{
-                  px: 1.5, py: 0.85,
+                  px: 1.5, py: 0.85, minWidth: 760,
                   background: b.short > 0 ? 'var(--c-danger-50, #FCE9EC)' : undefined,
                   '&:hover': { background: 'var(--c-surface-2)' },
                 }}>
@@ -277,11 +320,22 @@ export default function BlankNesting({
                   </IconButton>
 
                   <Box sx={{ flex: 1, minWidth: 0 }}>
-                    <Typography sx={{
+                    {/*
+                      * nowrap: "28 × 2995 × 12000" is ONE value and was breaking
+                      * after every ×, turning a row into four lines of digits.
+                      */}
+                    <Typography noWrap sx={{
                       fontFamily: 'var(--font-mono, monospace)', fontSize: 13.5, fontWeight: 600,
+                      whiteSpace: 'nowrap',
                     }}>{rect(b)}</Typography>
+                    {/*
+                      * A BLANK IS A SIZE, NOT A PART. Listing the part names here
+                      * read as "this blank belongs to these parts" — it does not;
+                      * this one serves eight part rows. The count says the
+                      * relationship correctly and the names are one click away.
+                      */}
                     <Typography noWrap sx={{ fontSize: 12, color: 'var(--c-text-2)' }}>
-                      {b.partNames.join(' · ')}
+                      {b.material} {b.grade} · serves {b.partCount} part row{b.partCount === 1 ? '' : 's'}
                     </Typography>
                   </Box>
 
@@ -350,6 +404,14 @@ export default function BlankNesting({
                       <Kv k="Used by" v={`${b.partCount} part row${b.partCount === 1 ? '' : 's'}`} />
                       <Kv k="Steel in parts" v={t(b.totalWeightKg)} />
                       <Kv k="Each" v={`${b.unitWeightKg.toFixed(1)} kg`} />
+                    </Stack>
+                    <Typography sx={{ fontSize: 12, color: 'var(--c-text-2)', mb: 0.5 }}>
+                      Parts cut from this rectangle:
+                    </Typography>
+                    <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap sx={{ mb: 1.5 }}>
+                      {b.partNames.map((nm) => (
+                        <Chip key={nm} size="small" variant="outlined" label={nm} />
+                      ))}
                     </Stack>
                     <Typography sx={{ fontSize: 12, color: 'var(--c-text-2)', mb: 0.75 }}>
                       Cut across {b.nests.length} sheet{b.nests.length === 1 ? '' : 's'}:
