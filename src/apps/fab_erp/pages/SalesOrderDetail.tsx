@@ -21,7 +21,6 @@ import OrderLinesPanel, { type FabOrderLine } from '../components/OrderLinesPane
 import SalesOrderWizard from '../components/SalesOrderWizard';
 import { statusFamily } from '../statusMap';
 import OrderItemsTree from '../components/OrderItemsTree';
-import OrderFlowAllocation from '../components/OrderFlowAllocation';
 import BlankNesting from '../components/BlankNesting';
 import OrderParameters from '../components/OrderParameters';
 import OrderProcurement from '../components/OrderProcurement';
@@ -295,7 +294,6 @@ export default function SalesOrderDetail() {
             // behind hole counts and weld runs — and it is the step with the
             // lead time, since nothing can be ordered until it is done.
             { value: 'items', label: 'Structure', dot: stageDot('boq') },
-            { value: 'flows', label: 'Flows', dot: stageDot('flows') },
             { value: 'nesting', label: 'Nesting', dot: stageDot('nesting') },
             { value: 'params', label: 'Other params', dot: stageDot('params') },
             { value: 'dag', label: 'Project tree', dot: stageDot('tasks') },
@@ -392,8 +390,6 @@ export default function SalesOrderDetail() {
             readiness={readiness}
             onStageChanged={refreshReadiness}
           />
-        ) : tab === 'flows' ? (
-          <OrderFlowAllocation orderId={id} canManage={canManage} onStageChanged={refreshReadiness} />
         ) : tab === 'params' ? (
           <OrderParameters orderId={id} canManage={canManage} onStageChanged={refreshReadiness} only="rest" />
         ) : tab === 'nesting' ? (

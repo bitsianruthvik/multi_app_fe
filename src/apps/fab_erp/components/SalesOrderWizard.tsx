@@ -18,8 +18,6 @@ import { fetchOrderReadiness, type OrderReadiness, type ReadinessStage, type Sta
 import OrderItemsTree from './OrderItemsTree';
 import BlankNesting from './BlankNesting';
 import OrderParameters from './OrderParameters';
-import SimilarGroupsPanel from './SimilarGroupsPanel';
-import OrderFlowAllocation from './OrderFlowAllocation';
 import OrderTaskDag from './OrderTaskDag';
 import OrderProcurement from './OrderProcurement';
 import OrderProduction from './OrderProduction';
@@ -255,7 +253,6 @@ export default function SalesOrderWizard({
                 {/* Marking copies belongs with the structure, because that is
                     where the copies are visible. What it saves shows up two
                     steps later, on Parameters. */}
-                <SimilarGroupsPanel orderId={orderId} canManage={canManage} onChanged={refresh} />
               <OrderItemsTree
                 orderId={orderId} canManage={canManage}
                 readiness={readiness} onStageChanged={refresh}
@@ -264,9 +261,6 @@ export default function SalesOrderWizard({
             )}
             {/* Flows BEFORE parameters: which fields a part needs is derived from
                 its flow's formulas, so the flow has to be known first. */}
-            {step === 'flows' && (
-              <OrderFlowAllocation orderId={orderId} canManage={canManage} onStageChanged={refresh} />
-            )}
             {/*
               THERE IS NO DIMENSIONS STEP. The sizes are on the structure tree,
               beside the row they belong to, so a step of its own was a second

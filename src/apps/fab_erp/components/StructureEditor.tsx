@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert, Autocomplete, Box, Button, CircularProgress, Dialog, DialogActions,
-  DialogContent, DialogTitle, IconButton, TextField, Tooltip, Typography,
+  DialogContent, DialogTitle, IconButton, MenuItem, TextField, Tooltip, Typography,
 } from '@mui/material';
 import AddRounded from '@mui/icons-material/AddRounded';
 import CheckRoundedIcon from '@mui/icons-material/CheckRounded';
@@ -87,6 +87,31 @@ function dropNode(node: DraftNode, key: string): DraftNode {
 }
 
 /** Insert a copy of a node, with its subtree, directly after it among its siblings. */
+/**
+ * Move `dragKey` so it sits where `overKey` is, AMONG THE SAME SIBLINGS.
+ *
+ * Reordering only — a row cannot be dropped into a different parent this way.
+ * Dragging a Top Flange out of a Segment and into a Diaphragm is a different
+ * operation with different consequences (its quantity is per-parent, its flow
+ * came from a BOM line that no longer applies), and doing it by accident while
+ * aiming two rows further down is exactly how that would happen. Add and remove
+ * already exist for a genuine move.
+ */
+function moveWithinSiblings(node: DraftNode, dragKey: string, overKey: string): DraftNode {
+  const kids = node.children;
+  const from = kids.findIndex((c) => c.key === dragKey);
+  const to = kids.findIndex((c) => c.key === overKey);
+
+  if (from >= 0 && to >= 0 && from !== to) {
+    const next = [...kids];
+    const [moved] = next.splice(from, 1);
+    next.splice(to, 0, moved);
+    return { ...node, children: next };
+  }
+  // Not this level's business — ask the children.
+  return { ...node, children: kids.map((c) => moveWithinSiblings(c, dragKey, overKey)) };
+}
+
 function duplicateNode(node: DraftNode, key: string): DraftNode {
   const children: DraftNode[] = [];
   for (const c of node.children) {
@@ -210,6 +235,37 @@ export default function StructureEditor({
    * "12." survives the next keystroke and a cleared box stays cleared instead of
    * springing back to 0. It is parsed once, on save.
    */
+  /** The flow on one row. Null is a real answer, not a missing one. */
+  const [flows, setFlows] = useState<{ id: number; name: string }[]>([]);
+  useEffect(() => {
+    fabQuery<{ data: { id: number; name: string }[] }>('fabErpOperationFlow', {
+      filters: { active: 1 },
+      orderBy: [{ field: 'name', direction: 'asc' }],
+      pagination: { limit: 200 },
+    }).then((r) => setFlows(r.data ?? [])).catch(() => setFlows([]));
+  }, []);
+
+  /**
+   * WHAT IS BEING DRAGGED, and what it is currently over.
+   *
+   * `overKey` is held so the drop target can show a line where the row would
+   * land. Without it a drag is a guess: you let go and find out.
+   */
+  const [dragKey, setDragKey] = useState<string | null>(null);
+  const [overKey, setOverKey] = useState<string | null>(null);
+
+  const dropOn = useCallback((targetKey: string) => {
+    setTree((t) => (t && dragKey && dragKey !== targetKey
+      ? moveWithinSiblings(t, dragKey, targetKey)
+      : t));
+    setDragKey(null);
+    setOverKey(null);
+  }, [dragKey]);
+
+  const setFlow = useCallback((key: string, flowId: number | null) => {
+    setTree((t) => (t ? mapNode(t, key, (n) => ({ ...n, defaultFlowId: flowId })) : t));
+  }, []);
+
   const setDim = useCallback((key: string, field: string, raw: string) => {
     setTree((t) => (t ? mapNode(t, key, (n) => ({
       ...n, dims: { ...(n.dims ?? {}), [field]: raw },
@@ -283,12 +339,48 @@ export default function StructureEditor({
     const hasKids = node.children.length > 0;
     return (
       <Box key={node.key}>
-        <Box sx={{
-          display: 'flex', alignItems: 'center', gap: 1,
-          pl: `${depth * 20}px`, py: 0.4,
-          borderBottom: '1px solid var(--c-divider)',
-          '&:hover .rowActions': { opacity: 1 },
-        }}>
+        <Box
+          draggable={depth > 0}
+          onDragStart={(e) => { setDragKey(node.key); e.dataTransfer.effectAllowed = 'move'; }}
+          onDragEnd={() => { setDragKey(null); setOverKey(null); }}
+          onDragOver={(e) => {
+            // Only a sibling can land here, so only a sibling gets a drop cue.
+            if (!dragKey || dragKey === node.key) return;
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+            if (overKey !== node.key) setOverKey(node.key);
+          }}
+          onDragLeave={() => setOverKey((k) => (k === node.key ? null : k))}
+          onDrop={(e) => { e.preventDefault(); dropOn(node.key); }}
+          sx={{
+            display: 'flex', alignItems: 'center', gap: 1,
+            pl: `${depth * 20}px`, py: 0.4,
+            borderBottom: '1px solid var(--c-divider)',
+            '&:hover .rowActions': { opacity: 1 },
+            '&:hover .dragHandle': { opacity: depth > 0 ? 0.55 : 0 },
+            cursor: depth > 0 && dragKey === node.key ? 'grabbing' : undefined,
+            opacity: dragKey === node.key ? 0.4 : 1,
+            // Where it would land, shown before you let go.
+            boxShadow: overKey === node.key && dragKey && dragKey !== node.key
+              ? 'inset 0 2px 0 0 var(--c-primary-500)' : undefined,
+          }}
+        >
+          {/*
+            The handle is a grip, not a button. The whole row is draggable — the
+            handle exists so it is DISCOVERABLE, since nothing else on the row
+            says it can be moved.
+          */}
+          <Box
+            className="dragHandle"
+            aria-hidden
+            sx={{
+              width: 10, flexShrink: 0, opacity: 0, transition: 'opacity .12s',
+              cursor: depth > 0 ? 'grab' : 'default', color: 'var(--c-text-3)',
+              fontSize: 13, lineHeight: 1, userSelect: 'none',
+            }}
+          >
+            {depth > 0 ? '⣿' : ''}
+          </Box>
           <IconButton
             size="small"
             sx={{ p: 0.25, visibility: hasKids ? 'visible' : 'hidden' }}
@@ -349,6 +441,32 @@ export default function StructureEditor({
               ))}
             </Box>
           )}
+
+          {/*
+            HOW IT IS MADE, on the row.
+
+            This had a step of its own — a per-depth summary you could not edit
+            and a list of rows whose flow was missing, one screen after the
+            screen where you could actually say so. The BOM line is where the
+            answer comes from, so the BOM row is where it belongs.
+
+            NOT leaf-only: an assembly is welded and carries a flow like anything
+            else. Blank is a real answer for a level that only groups its
+            children — a Span is not made, it is what the made things add up to.
+          */}
+          <TextField
+            select size="small"
+            value={node.defaultFlowId ?? ''}
+            onChange={(e) => setFlow(node.key, e.target.value === '' ? null : Number(e.target.value))}
+            sx={{ width: 150, flexShrink: 0 }}
+            SelectProps={{ displayEmpty: true }}
+            inputProps={{ style: { fontSize: 11.5 } }}
+          >
+            <MenuItem value=""><em>No flow</em></MenuItem>
+            {flows.map((f) => (
+              <MenuItem key={f.id} value={f.id} sx={{ fontSize: 12.5 }}>{f.name}</MenuItem>
+            ))}
+          </TextField>
 
           {/* A fixed slot, so the quantity column does not shift as rows differ. */}
           <Box className="rowActions" sx={{
