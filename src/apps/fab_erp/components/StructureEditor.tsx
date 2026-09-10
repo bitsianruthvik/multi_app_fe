@@ -13,7 +13,9 @@ import ChevronRightRounded from '@mui/icons-material/ChevronRightRounded';
 import { fabQuery } from '../api/client';
 import { backendMessage, Surface } from '../components';
 import { DialogCloseButton } from './FormDialog';
-import { getDraftTree, buildStructure, type DraftNode } from '../api/templates';
+import {
+  getDraftTree, getCurrentTree, buildStructure, applyStructure, type DraftNode,
+} from '../api/templates';
 
 /**
  * The structure, edited directly.
@@ -103,12 +105,17 @@ function countRows(node: DraftNode): number {
 }
 
 export default function StructureEditor({
-  open, orderId, orderLine, onClose, onDone, variant = 'dialog',
+  open, orderId, orderLine, onClose, onDone, variant = 'dialog', source = 'bom',
 }: {
   open: boolean;
   orderId: number;
   /** `inline` renders it as the step itself; `dialog` for rebuilding over one. */
   variant?: 'inline' | 'dialog';
+  /**
+   * Where the tree comes from. 'bom' takes the catalogue's recipe — a rebuild.
+   * 'current' takes what this order settled on — an edit, saved as a diff.
+   */
+  source?: 'bom' | 'current';
   orderLine: StructureEditorLine | null;
   onClose: () => void;
   onDone: () => void;
@@ -123,15 +130,29 @@ export default function StructureEditor({
 
   const [catalog, setCatalog] = useState<CatalogOption[]>([]);
 
-  // ── open on the line's own item ───────────────────────────────────────────
+  /**
+   * TWO SOURCES, AND THEY ARE DIFFERENT QUESTIONS.
+   *
+   *   'bom'      what does the catalogue say this is made of
+   *   'current'  what did we settle on
+   *
+   * They stop being the same answer the moment somebody changes a quantity, and
+   * offering only the first meant the only way to alter one row was to throw
+   * away all of them and take the recipe again.
+   */
   useEffect(() => {
-    if (!open || orderLine?.itemId == null) { setTree(null); return; }
+    if (!open) { setTree(null); return; }
     setLoading(true); setError(''); setExisting(null);
-    getDraftTree(Number(orderLine.itemId))
-      .then((r) => setTree(r.tree))
+    const read = source === 'current'
+      ? getCurrentTree(orderId, orderLine?.id ?? null).then((r) => r.tree)
+      : (orderLine?.itemId == null
+        ? Promise.resolve(null)
+        : getDraftTree(Number(orderLine.itemId)).then((r) => r.tree));
+    read
+      .then(setTree)
       .catch((e) => setError(backendMessage(e, 'Could not read that structure.')))
       .finally(() => setLoading(false));
-  }, [open, orderLine?.itemId]);
+  }, [open, source, orderId, orderLine?.id, orderLine?.itemId]);
 
   // Anything addable, for the "add a row" picker. Raw materials excluded for
   // the same reason as the line picker: they are stock, not structure.
@@ -199,11 +220,17 @@ export default function StructureEditor({
     if (!tree) return;
     setBusy(true); setError(''); setExisting(null);
     try {
-      await buildStructure(orderId, {
-        tree,
-        orderLineId: orderLine?.id ?? null,
-        ...(replace ? { replace: true } : {}),
-      });
+      if (source === 'current') {
+        // A DIFF: rows that survived keep their ids, and with them the
+        // dimensions typed on them and the plate they were nested onto.
+        await applyStructure(orderId, { tree, orderLineId: orderLine?.id ?? null });
+      } else {
+        await buildStructure(orderId, {
+          tree,
+          orderLineId: orderLine?.id ?? null,
+          ...(replace ? { replace: true } : {}),
+        });
+      }
       onDone();
       onClose();
     } catch (e) {
@@ -372,7 +399,17 @@ export default function StructureEditor({
     </>
   );
 
-  const createButton = existing != null ? (
+  const isEdit = source === 'current';
+
+  const createButton = isEdit ? (
+    <Button
+      variant="contained" disabled={!tree || busy}
+      startIcon={busy ? <CircularProgress size={14} color="inherit" /> : <CheckRoundedIcon />}
+      onClick={() => void create(false)}
+    >
+      Save changes
+    </Button>
+  ) : existing != null ? (
     <Button
       variant="contained" color="warning" disabled={busy}
       startIcon={busy ? <CircularProgress size={14} color="inherit" /> : <CheckRoundedIcon />}
@@ -428,10 +465,11 @@ export default function StructureEditor({
     >
       <DialogCloseButton absolute onClose={onClose} disabled={busy} />
       <DialogTitle sx={{ fontWeight: 600 }}>
-        Structure
+        {isEdit ? 'Edit the structure' : 'Rebuild from the bill of materials'}
         <Typography variant="body2" color="text.secondary">
-          This is the bill of materials. Change the numbers, remove what this job does not have,
-          add what it does. Nothing is saved until you press Create.
+          {isEdit
+            ? 'This is what this order settled on. Change the numbers, remove what it does not have, add what it does. Rows you keep stay the same rows — their sizes and their plate come with them.'
+            : 'This takes the catalogue’s recipe again and REPLACES what is here. Anything typed on the current rows goes with them.'}
         </Typography>
       </DialogTitle>
 

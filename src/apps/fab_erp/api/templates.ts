@@ -204,6 +204,14 @@ export const previewTemplate = (
  */
 export interface DraftNode {
   key: string;
+  /**
+   * The row this node ALREADY is, when the tree came from the order rather than
+   * the catalogue. It is what lets a save be a diff: a row that survives an edit
+   * keeps its id, and with it the dimensions typed on it and the plate it was
+   * nested onto. Absent on a node somebody just added, and on every node of a
+   * tree read from a BOM.
+   */
+  itemId?: number | null;
   catalogItemId: number;
   name: string;
   unit: string | null;
@@ -226,6 +234,26 @@ export interface DraftNode {
 /** GET the BOM as a tree to edit. Writes nothing. */
 export const getDraftTree = (itemId: number) =>
   fabGet<{ tree: DraftNode }>(`templates/${itemId}/draft`);
+
+/**
+ * GET what this order actually DECIDED, in the same shape.
+ *
+ * `getDraftTree` answers "what does the catalogue say this is made of".
+ * This answers "what did we settle on", which stops being the same thing the
+ * moment somebody changes a quantity. Editing needs the second.
+ */
+export const getCurrentTree = (orderId: number, orderLineId?: number | null) =>
+  fabGet<{ tree: DraftNode | null }>(
+    `orders/${orderId}/structure/tree${orderLineId ? `?orderLineId=${orderLineId}` : ''}`,
+  );
+
+/** Save an edited structure. A DIFF — surviving rows keep their ids. */
+export const applyStructure = (
+  orderId: number,
+  body: { tree: DraftNode; orderLineId?: number | null },
+) => fabPost<{ ok: boolean; created: number; updated: number; removed: number }>(
+  `orders/${orderId}/structure/apply`, { ...body },
+);
 
 /**
  * Build exactly this tree on the line.

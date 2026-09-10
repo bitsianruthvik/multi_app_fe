@@ -743,7 +743,11 @@ export default function OrderItemsTree({ orderId, canManage, readiness, onStageC
   const [editorLine, setEditorLine] = useState<OrderLineRef | null>(null);
   const [linePickerOpen, setLinePickerOpen] = useState(false);
 
-  const openStructureEditor = useCallback(() => {
+  /** Which question the editor opens on — see the buttons for the difference. */
+  const [editorSource, setEditorSource] = useState<'bom' | 'current'>('bom');
+
+  const openStructureEditor = useCallback((src: 'bom' | 'current' = 'bom') => {
+    setEditorSource(src);
     if (lines.length === 1) { setEditorLine(lines[0]); setEditorOpen(true); return; }
     if (lines.length === 0) { setError('Add an order line first — the structure hangs off one.'); return; }
     setLinePickerOpen(true);
@@ -1057,12 +1061,31 @@ export default function OrderItemsTree({ orderId, canManage, readiness, onStageC
             a second door to the room you are standing in. What it is for is the
             other case: throwing away what was built and taking the recipe again.
           */}
+          {/*
+            EDIT AND REBUILD ARE DIFFERENT ACTS, so they are different buttons.
+
+            Edit opens what this order SETTLED ON and saves a diff: a row you
+            keep is the same row, so the dimensions typed on it and the plate it
+            was nested onto come with it. Rebuild takes the catalogue's recipe
+            again and replaces everything, which loses all of that — right when
+            the recipe has changed, wrong for changing one quantity.
+          */}
           {topItems.length > 0 && (
-            <Tooltip title="Take the bill of materials again and replace what is here. Refused once any of this work has started.">
-              <Button variant="outlined" size="small" startIcon={<AccountTreeRounded />} onClick={openStructureEditor}>
-                Rebuild from the BOM
-              </Button>
-            </Tooltip>
+            <>
+              <Tooltip title="Open the whole structure and change it. Rows you keep stay the same rows.">
+                <Button
+                  variant="contained" size="small" startIcon={<AccountTreeRounded />}
+                  onClick={() => openStructureEditor('current')}
+                >
+                  Edit the structure
+                </Button>
+              </Tooltip>
+              <Tooltip title="Take the bill of materials again and REPLACE what is here. Anything typed on the current rows goes with them.">
+                <Button variant="outlined" size="small" onClick={() => openStructureEditor('bom')}>
+                  Rebuild from the BOM
+                </Button>
+              </Tooltip>
+            </>
           )}
 
           {/*
@@ -1143,6 +1166,7 @@ export default function OrderItemsTree({ orderId, canManage, readiness, onStageC
 
       <StructureEditor
         open={editorOpen}
+        source={editorSource}
         orderId={orderId}
         orderLine={editorLine ? {
           id: editorLine.id,
