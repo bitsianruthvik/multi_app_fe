@@ -15,7 +15,6 @@ import api, { API_HOST } from '@core/utils/axiosConfig';
 import { fabMutate } from '../api/client';
 import { useToast, backendMessage } from '../components';
 import { fetchOrderReadiness, type OrderReadiness, type ReadinessStage, type StageState } from '../api/readiness';
-import OrderItemsTree from './OrderItemsTree';
 import BlankNesting from './BlankNesting';
 import OrderParameters from './OrderParameters';
 import OrderTaskDag from './OrderTaskDag';
@@ -247,17 +246,6 @@ export default function SalesOrderWizard({
           <>
             {step === 'lines' && (
               <OrderLinesPanel orderId={orderId} canManage={canManage} onChanged={() => refresh()} />
-            )}
-            {step === 'boq' && (
-              <>
-                {/* Marking copies belongs with the structure, because that is
-                    where the copies are visible. What it saves shows up two
-                    steps later, on Parameters. */}
-              <OrderItemsTree
-                orderId={orderId} canManage={canManage}
-                readiness={readiness} onStageChanged={refresh}
-              />
-              </>
             )}
             {/* Flows BEFORE parameters: which fields a part needs is derived from
                 its flow's formulas, so the flow has to be known first. */}

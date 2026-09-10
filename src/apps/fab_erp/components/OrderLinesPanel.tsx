@@ -7,10 +7,13 @@ import AddIcon from '@mui/icons-material/Add';
 import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
 import Inventory2Rounded from '@mui/icons-material/Inventory2Rounded';
 import EditRounded from '@mui/icons-material/EditRounded';
+import ExpandMoreRounded from '@mui/icons-material/ExpandMoreRounded';
+import ChevronRightRounded from '@mui/icons-material/ChevronRightRounded';
 
 import api, { API_HOST } from '@core/utils/axiosConfig';
 import { fabQuery, fabMutate } from '../api/client';
-import { Surface, EmptyState, useToast, DataTable, QtyCell, NumberCell, Mono, backendMessage } from '../components';
+import { Surface, EmptyState, useToast, Mono, backendMessage } from '../components';
+import StructureEditor from './StructureEditor';
 import { DialogCloseButton } from './FormDialog';
 
 /**
@@ -27,7 +30,24 @@ interface CatalogOption {
 }
 
 /**
- * Step 1: what this order is selling.
+ * Step 1: what this order is selling, AND what each of those is made of.
+ *
+ * ── WHY THESE ARE ONE SCREEN ─────────────────────────────────────────────────
+ *
+ * They were two, and the second one was quietly wrong: it rendered the BOM for
+ * `buildable[0]` — the FIRST line, hardcoded. An order with two lines showed two
+ * line items and one structure, and the second line's BOM could not be reached
+ * at all once built. `currentTree` has the same shape of assumption in it: given
+ * several roots it returns the first, because a caller that did not say which
+ * line it meant had to be answered somehow.
+ *
+ * Splitting them was the mistake. A line and its BOM are one thought — "we are
+ * selling two spans, here is what a span is made of" — and asking on one screen
+ * then answering on another is what let the answer go missing for the second
+ * line without anyone noticing.
+ *
+ * So a line is a card, and its BOM is inside the card. Two lines, two BOMs, each
+ * expandable, each editable where it sits.
  *
  * A line used to be a catalog item. It cannot be — the item catalog holds raw
  * materials and consumables, and nobody is going to add "42m span composite
@@ -67,6 +87,10 @@ export default function OrderLinesPanel({ orderId, canManage, onChanged }: {
   const [lines, setLines] = useState<FabOrderLine[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+
+  /** Which line cards are open. A line you just added opens itself. */
+  const [openLines, setOpenLines] = useState<Record<number, boolean>>({});
+  const [treeVersion, setTreeVersion] = useState(0);
 
   const [description, setDescription] = useState('');
   const [qty, setQty] = useState('1');
@@ -465,59 +489,115 @@ export default function OrderLinesPanel({ orderId, canManage, onChanged }: {
           hint="Add what this order is selling — a code, a description and a quantity. The code becomes the top of its BOM."
         />
       ) : (
-        <DataTable
-          rows={lines}
-          getRowId={(l) => l.id}
-          storageKey="order-lines"
-          exportName="order-lines"
-          defaultSortKey="lineNo"
-          columns={[
-            { key: 'lineNo', header: '#', width: 60, render: (l) => <Mono chip>{l.lineNo}</Mono>, sortValue: (l) => l.lineNo },
-            { key: 'description', header: 'Item', render: (l) => l.description ?? '—', sortValue: (l) => l.description ?? '' },
-            { key: 'lineType', header: 'Structure', width: 160, render: (l) => l.lineType ?? '—', sortValue: (l) => l.lineType ?? '' },
-            {
-              key: 'steel',
-              header: 'Steel',
-              width: 170,
-              render: (l) => {
-                const sp = spec[l.id];
-                const txt = [sp?.material, sp?.grade].filter(Boolean).join(' · ');
-                return txt ? <Mono>{txt}</Mono> : <span style={{ color: 'var(--c-text-3)' }}>not set</span>;
-              },
-              sortValue: (l) => [spec[l.id]?.material, spec[l.id]?.grade].filter(Boolean).join(' '),
-            },
-            { key: 'qty', header: 'Qty', width: 100, numeric: true, render: (l) => <QtyCell value={l.qty} />, sortValue: (l) => l.qty },
-            { key: 'unitPrice', header: 'Unit price', width: 130, numeric: true, render: (l) => <NumberCell value={l.unitPrice ?? null} />, sortValue: (l) => l.unitPrice ?? null },
-          ]}
-          rowActions={canManage ? (line) => (
-            <>
-            <Tooltip title="Edit this line">
-              <IconButton
-                size="small"
-                onClick={() => setEditLine({
-                  line,
-                  item: catalog.find((c) => c.id === (line.templateItemId ?? line.catalogItemId)) ?? null,
-                  description: line.description ?? '',
-                  // Number() first: the API returns DECIMAL as "1.0000", and a box
-                  // that opens reading 1.0000 invites somebody to "fix" it.
-                  qty: String(Number(line.qty ?? 1)),
-                  unitPrice: line.unitPrice == null ? '' : String(line.unitPrice),
-                  material: spec[line.id]?.material ?? '',
-                  grade: spec[line.id]?.grade ?? '',
-                })}
-                aria-label={`Edit ${line.description ?? `line ${line.lineNo}`}`}
-              >
-                <EditRounded fontSize="small" />
-              </IconButton>
-            </Tooltip>
-            <Tooltip title="Remove">
-              <IconButton size="small" color="error" onClick={() => setDelLine(line)} aria-label={`Remove ${line.description ?? `line ${line.lineNo}`}`}>
-                <DeleteOutlineRounded fontSize="small" />
-              </IconButton>
-            </Tooltip>
-            </>
-          ) : undefined}
-        />
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+          {lines.map((line) => {
+            const isOpen = openLines[line.id] !== false;   // open unless collapsed
+            const rows = builtRows[line.id] ?? 0;
+            const sp = spec[line.id];
+            const steel = [sp?.material, sp?.grade].filter(Boolean).join(' · ');
+            return (
+              <Surface key={line.id} e={1} sx={{ overflow: 'hidden' }}>
+                {/* ── the line itself ─────────────────────────────────── */}
+                <Box sx={{
+                  display: 'flex', alignItems: 'center', gap: 1.5, p: 1.5,
+                  borderBottom: isOpen ? '1px solid var(--c-divider)' : undefined,
+                  background: 'var(--c-surface-2)',
+                }}>
+                  <IconButton
+                    size="small" sx={{ p: 0.25 }}
+                    onClick={() => setOpenLines((o) => ({ ...o, [line.id]: !isOpen }))}
+                    aria-label={isOpen ? 'Collapse this line' : 'Expand this line'}
+                  >
+                    {isOpen ? <ExpandMoreRounded fontSize="small" /> : <ChevronRightRounded fontSize="small" />}
+                  </IconButton>
+
+                  <Mono chip>{line.lineNo}</Mono>
+
+                  <Box sx={{ flex: 1, minWidth: 0 }}>
+                    <Typography noWrap sx={{ fontSize: 14, fontWeight: 600 }}>
+                      {line.description ?? '—'}
+                    </Typography>
+                    <Typography noWrap sx={{ fontSize: 12, color: 'var(--c-text-2)' }}>
+                      {[line.lineType, steel || null,
+                        rows > 0 ? `${rows} row${rows === 1 ? '' : 's'}` : 'nothing built yet',
+                      ].filter(Boolean).join(' · ')}
+                    </Typography>
+                  </Box>
+
+                  <Box sx={{ textAlign: 'right', flexShrink: 0 }}>
+                    <Typography sx={{
+                      fontFamily: 'var(--font-mono, monospace)', fontSize: 14, fontWeight: 600,
+                    }}>{Number(line.qty ?? 1)}</Typography>
+                    {line.unitPrice != null && (
+                      <Typography sx={{ fontSize: 11, color: 'var(--c-text-3)' }}>
+                        {Number(line.unitPrice).toLocaleString()}
+                      </Typography>
+                    )}
+                  </Box>
+
+                  {canManage && (
+                    <Box sx={{ display: 'flex', flexShrink: 0 }}>
+                      <Tooltip title="Edit this line">
+                        <IconButton
+                          size="small"
+                          onClick={() => setEditLine({
+                            line,
+                            item: catalog.find((c) => c.id === (line.templateItemId ?? line.catalogItemId)) ?? null,
+                            description: line.description ?? '',
+                            // Number() first: the API returns DECIMAL as "1.0000",
+                            // and a box that opens reading 1.0000 invites somebody
+                            // to "fix" it.
+                            qty: String(Number(line.qty ?? 1)),
+                            unitPrice: line.unitPrice == null ? '' : String(line.unitPrice),
+                            material: spec[line.id]?.material ?? '',
+                            grade: spec[line.id]?.grade ?? '',
+                          })}
+                          aria-label={`Edit ${line.description ?? `line ${line.lineNo}`}`}
+                        >
+                          <EditRounded fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                      <Tooltip title="Remove">
+                        <IconButton
+                          size="small" color="error" onClick={() => setDelLine(line)}
+                          aria-label={`Remove ${line.description ?? `line ${line.lineNo}`}`}
+                        >
+                          <DeleteOutlineRounded fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    </Box>
+                  )}
+                </Box>
+
+                {/*
+                  ── AND WHAT IT IS MADE OF, in the same card ──────────────
+
+                  `source` is per line: a line with nothing built opens on the
+                  CATALOGUE's recipe, one that has opens on what this order
+                  settled on. On a two-line order those can differ, which is the
+                  case the old single-structure screen could not express at all.
+                */}
+                {isOpen && (
+                  <StructureEditor
+                    key={`line-${line.id}-${rows > 0 ? 'built' : 'new'}-${treeVersion}`}
+                    variant="inline"
+                    source={rows > 0 ? 'current' : 'bom'}
+                    open
+                    orderId={orderId}
+                    orderLine={{
+                      id: line.id,
+                      code: line.code ?? null,
+                      description: line.description ?? null,
+                      itemId: line.templateItemId ?? line.catalogItemId ?? null,
+                    }}
+                    onClose={() => {}}
+                    onDone={() => { setTreeVersion((v) => v + 1); void load(); onChanged?.(); }}
+                  />
+                )}
+              </Surface>
+            );
+          })}
+        </Box>
       )}
 
       <Dialog open={!!delLine} onClose={() => setDelLine(null)} maxWidth="xs" fullWidth>
