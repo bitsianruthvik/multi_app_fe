@@ -215,7 +215,13 @@ export interface DraftNode {
   catalogItemId: number;
   name: string;
   unit: string | null;
-  qty: number;
+  /**
+   * null means NOBODY HAS SAID YET — a line the recipe marks as varying per job
+   * and no longer guesses at. It is not 0 and it must not become 1: the writers
+   * refuse it, because one splice on a bridge that needs sixteen reads as a
+   * decision in a way an empty box never does.
+   */
+  qty: number | null;
   /**
    * The BOM's own abbreviation for this rung, and how it joins to its parent's.
    * NOT used to name anything here — the BOM step writes no codes. They are

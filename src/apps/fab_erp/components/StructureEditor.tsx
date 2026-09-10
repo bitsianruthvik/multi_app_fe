@@ -100,6 +100,13 @@ function countPieces(node: DraftNode, carried = 1): number {
   return node.children.reduce((sum, c) => sum + countPieces(c, here), here);
 }
 
+/** Rows still waiting for a number. The recipe no longer guesses on their behalf. */
+function unanswered(node: DraftNode, out: string[] = []): string[] {
+  if (node.qty == null) out.push(node.name);
+  node.children.forEach((c) => unanswered(c, out));
+  return out;
+}
+
 function countRows(node: DraftNode): number {
   return 1 + node.children.reduce((s, c) => s + countRows(c), 0);
 }
@@ -181,8 +188,16 @@ export default function StructureEditor({
     })();
   }, [open]);
 
+  /**
+   * A CLEARED QUANTITY IS null, NOT ZERO.
+   *
+   * It used to become 0, and the writers turned 0 into 1 — so emptying the box
+   * on "16 splices" silently built one. A blank has to survive as a blank all
+   * the way to the server, which refuses it, because 1 reads as a decision in a
+   * way that an empty box never does.
+   */
   const setQty = useCallback((key: string, raw: string) => {
-    setTree((t) => (t ? mapNode(t, key, (n) => ({ ...n, qty: raw === '' ? 0 : Number(raw) })) : t));
+    setTree((t) => (t ? mapNode(t, key, (n) => ({ ...n, qty: raw === '' ? null : Number(raw) })) : t));
   }, []);
 
   /**
@@ -258,6 +273,7 @@ export default function StructureEditor({
 
   const rows = useMemo(() => (tree ? countRows(tree) : 0), [tree]);
   const pieces = useMemo(() => (tree ? countPieces(tree) : 0), [tree]);
+  const missing = useMemo(() => (tree ? unanswered(tree) : []), [tree]);
 
   const renderNode = (node: DraftNode, depth: number) => {
     const isCollapsed = !!collapsed[node.key];
@@ -290,8 +306,11 @@ export default function StructureEditor({
           {/* The root is the line itself and there is exactly one of it. */}
           {depth > 0 && (
             <TextField
-              size="small" type="number" value={node.qty}
+              size="small" type="number"
+              value={node.qty ?? ''}
               onChange={(e) => setQty(node.key, e.target.value)}
+              placeholder={node.qtyParam ?? 'how many'}
+              error={node.qty == null}
               sx={{ width: 76 }}
               inputProps={{ min: 0, step: 1, style: { fontSize: 12, textAlign: 'right' } }}
             />
@@ -417,6 +436,16 @@ export default function StructureEditor({
         </Box>
       )}
 
+      {missing.length > 0 && !loading && (
+        <Alert severity="info" sx={{ mb: 2 }}>
+          {missing.length === 1
+            ? <><b>{missing[0]}</b> needs a quantity.</>
+            : <><b>{missing.length} rows</b> need a quantity: {missing.slice(0, 4).join(', ')}
+              {missing.length > 4 ? `, and ${missing.length - 4} more` : ''}.</>}
+          {' '}These change from job to job, so the recipe does not guess.
+        </Alert>
+      )}
+
       {tree && !loading && (
         <>
           {/* The only thing on this screen that scrolls. */}
@@ -448,7 +477,7 @@ export default function StructureEditor({
 
   const createButton = isEdit ? (
     <Button
-      variant="contained" disabled={!tree || busy}
+      variant="contained" disabled={!tree || busy || missing.length > 0}
       startIcon={busy ? <CircularProgress size={14} color="inherit" /> : <CheckRoundedIcon />}
       onClick={() => void create(false)}
     >
@@ -464,7 +493,7 @@ export default function StructureEditor({
     </Button>
   ) : (
     <Button
-      variant="contained" disabled={!tree || busy}
+      variant="contained" disabled={!tree || busy || missing.length > 0}
       startIcon={busy ? <CircularProgress size={14} color="inherit" /> : <CheckRoundedIcon />}
       onClick={() => void create(false)}
     >
