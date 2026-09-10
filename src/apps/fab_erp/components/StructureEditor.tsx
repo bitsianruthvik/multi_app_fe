@@ -598,7 +598,19 @@ export default function StructureEditor({
             e={1}
             sx={{ p: 0, overflowY: 'auto', flex: 1, minHeight: 0, maxHeight: variant === 'inline' ? '58vh' : undefined, mb: 2 }}
           >
-            {renderNode(tree, 0)}
+            {/*
+              THE ROOT IS NOT DRAWN.
+
+              It is the line, and the line is already the card this sits in — so
+              drawing it here said "Span" a third time, under a heading that had
+              just said "Span — bill of materials", inside a card headed "Span".
+
+              Its children start at depth 0 instead. Everything the root itself
+              carries — the quantity, the flow — belongs to the line and is
+              edited on the line's own row, which is where somebody looking for
+              it would go first.
+            */}
+            {tree.children.map((c) => renderNode(c, 0))}
           </Surface>
           <Box sx={{ display: 'flex', gap: 3 }}>
             <Box>
@@ -662,15 +674,13 @@ export default function StructureEditor({
     if (!open) return null;
     return (
       <Surface e={1} sx={{ p: 2, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-        <Box sx={{ mb: 1.5 }}>
-          <Typography sx={{ fontSize: 15, fontWeight: 600 }}>
-            {orderLine?.description ? `${orderLine.description} — bill of materials` : 'Bill of materials'}
-          </Typography>
-          <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)' }}>
-            This is what the catalogue says this is made of. Change the numbers, remove what this
-            job does not have, add what it does. Nothing is saved until you press Create.
-          </Typography>
-        </Box>
+        {/*
+          NO HEADING. The card this renders into is already titled with the line,
+          and a second title repeating it was the middle of three "Span"s on one
+          screen. What the heading's caption said — change the numbers, nothing
+          is saved until you press Create — is said by the Create button being
+          there and nothing having moved.
+        */}
         {body}
         <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 2 }}>{createButton}</Box>
       </Surface>

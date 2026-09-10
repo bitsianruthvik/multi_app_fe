@@ -52,6 +52,8 @@ export interface BlankSummary {
 }
 
 export interface BlankPlanResponse {
+  /** True when this is the plan the order accepted, not a fresh proposal. */
+  fromSaved?: boolean;
   orderNumber: string;
   /** Which effort level produced this. */
   effort?: Effort;
@@ -65,8 +67,15 @@ export interface BlankPlanResponse {
   summary: BlankSummary;
 }
 
-export const getBlankPlan = (orderId: number | string, effort: Effort = 'standard') =>
-  fabGet<BlankPlanResponse>(`orders/${orderId}/blanks?effort=${effort}`);
+/**
+ * The plan. Reads back what the order ALREADY accepted unless repack is set —
+ * re-packing is 36 seconds at 500 restarts, and being shown the plan you
+ * already have should not cost that.
+ */
+export const getBlankPlan = (orderId: number | string, effort: Effort = 'standard', repack = false) =>
+  fabGet<BlankPlanResponse>(
+    `orders/${orderId}/blanks?effort=${effort}${repack ? '&repack=1' : ''}`,
+  );
 
 export interface AcceptResponse {
   cuttingOrderNumber: string;

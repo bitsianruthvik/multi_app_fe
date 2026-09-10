@@ -188,6 +188,28 @@ export default function OrderLinesPanel({ orderId, canManage, onChanged }: {
    * The spec routes hang off the APP root, not off `/orders/:orderId` — they
    * identify a line by its id alone, the same way the flow route does.
    */
+  /**
+   * HOW MANY OF THIS LINE, typed where it is read.
+   *
+   * The BOM rows beneath take their quantity in a box on the row; the line took
+   * its own behind a pencil and a dialog. Same question, two different gestures,
+   * on one screen — and the line's quantity is the one that multiplies
+   * everything under it, so it is the last one that should be hard to reach.
+   *
+   * Saved on blur and only when it actually changed, matching the rows.
+   */
+  const saveQty = useCallback(async (lineId: number, raw: string) => {
+    const n = Number(raw);
+    if (!Number.isFinite(n) || n <= 0) return;
+    try {
+      await fabMutate('fabErpOrderLine', 'update', { id: lineId, qty: n });
+      await load();
+      onChanged?.();
+    } catch (e) {
+      setError(backendMessage(e, 'Could not change that quantity.'));
+    }
+  }, [load, onChanged]);
+
   async function saveLine() {
     if (!editLine) return;
     setSavingSpec(true); setError('');
@@ -524,12 +546,19 @@ export default function OrderLinesPanel({ orderId, canManage, onChanged }: {
                     </Typography>
                   </Box>
 
-                  <Box sx={{ textAlign: 'right', flexShrink: 0 }}>
-                    <Typography sx={{
-                      fontFamily: 'var(--font-mono, monospace)', fontSize: 14, fontWeight: 600,
-                    }}>{Number(line.qty ?? 1)}</Typography>
+                  <Box sx={{ flexShrink: 0, textAlign: 'right' }}>
+                    <TextField
+                      size="small" type="number" disabled={!canManage}
+                      defaultValue={Number(line.qty ?? 1)}
+                      onBlur={(e) => {
+                        if (Number(e.target.value) === Number(line.qty ?? 1)) return;
+                        void saveQty(line.id, e.target.value);
+                      }}
+                      sx={{ width: 76 }}
+                      inputProps={{ min: 1, style: { fontSize: 13, textAlign: 'right', padding: '5px 8px' } }}
+                    />
                     {line.unitPrice != null && (
-                      <Typography sx={{ fontSize: 11, color: 'var(--c-text-3)' }}>
+                      <Typography sx={{ fontSize: 11, color: 'var(--c-text-3)', mt: 0.25 }}>
                         {Number(line.unitPrice).toLocaleString()}
                       </Typography>
                     )}

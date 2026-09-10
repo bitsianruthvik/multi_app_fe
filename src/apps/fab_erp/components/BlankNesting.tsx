@@ -64,6 +64,8 @@ export default function BlankNesting({
   const [nests, setNests] = useState<Nest[]>([]);
   const [summary, setSummary] = useState<BlankSummary | null>(null);
   const [repeatable, setRepeatable] = useState(true);
+  /** True when we are showing the plan the order accepted, not a fresh one. */
+  const [fromSaved, setFromSaved] = useState(false);
   const [skipped, setSkipped] = useState<{ name: string; reason: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -83,16 +85,17 @@ export default function BlankNesting({
     }).then((r) => setFlows(r.data ?? [])).catch(() => setFlows([]));
   }, []);
 
-  const load = useCallback(async (how: Effort = effort) => {
+  const load = useCallback(async (how: Effort = effort, repack = false) => {
     setLoading(true);
     setError(null);
     try {
-      const res = await getBlankPlan(orderId, how);
+      const res = await getBlankPlan(orderId, how, repack);
       setBlanks(res.blanks ?? []);
       setNests(res.nests ?? []);
       setSummary(res.summary ?? null);
       setSkipped(res.skipped ?? []);
       setRepeatable(res.reproducible !== false);
+      setFromSaved(res.fromSaved === true);
     } catch (err) {
       setError(backendMessage(err, 'Could not work out what this order needs cutting.'));
       setBlanks([]); setNests([]); setSummary(null);
@@ -181,7 +184,7 @@ export default function BlankNesting({
       <Box sx={{ p: 4, textAlign: 'center' }}>
         <CircularProgress size={24} />
         <Typography sx={{ mt: 1.5, fontSize: 13, color: 'var(--c-text-2)' }}>
-          Working out which sheets waste least…
+          {fromSaved ? 'Reading the accepted plan…' : 'Working out which sheets waste least…'}
         </Typography>
       </Box>
     );
@@ -258,7 +261,7 @@ export default function BlankNesting({
           <MenuItem value="standard">Standard</MenuItem>
           <MenuItem value="deep">Deep — 2x slower, ~0.1% less steel</MenuItem>
         </TextField>
-        <Button size="small" startIcon={<RefreshIcon />} onClick={() => void load()}>Re-pack</Button>
+        <Button size="small" startIcon={<RefreshIcon />} onClick={() => void load(effort, true)}>Re-pack</Button>
         <Button size="small" startIcon={<DownloadIcon />} onClick={() => void download()}>
           Download plan
         </Button>
