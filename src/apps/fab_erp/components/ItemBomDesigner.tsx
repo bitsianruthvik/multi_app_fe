@@ -1,44 +1,51 @@
 /**
- * ItemBomDesigner — what a catalog item is made of, and how many.
+ * ItemBomDesigner — what a catalog item is made of, as one tree.
  *
- * WHY THIS REPLACED WHAT WAS ON THIS TAB. The "Bill of Materials" tab rendered
- * `BomDesigner`, which reads `fab_material_boms` — a table holding zero rows in
- * this company. Meanwhile `fab_item_bom` held the real structure: Span contains
- * Girder contains Segment contains seven parts, for all six girder types. So a
- * Span with a perfectly good BOM read as having none, and the only way to see it
- * was to query the database.
+ * ── WHY IT IS A TREE NOW ─────────────────────────────────────────────────────
  *
- * WHAT MAKES THIS BOM DIFFERENT from a flat parts list is the QUANTITY. A line
- * either has a fixed number — a Segment always has one Web Plate — or it names a
- * PARAMETER the order will be asked for, like "how many girders". The set of
- * parameters is not declared anywhere; it is derived from the tree, so deleting
- * the last line that asks a question removes the question.
+ * It used to show ONE LEVEL with a breadcrumb to walk down. The reasoning was
+ * that a Composite Girder is 247 nodes and nobody reads that — but the cost was
+ * worse than the noise: to change a stiffener count you walked Span > Line >
+ * Segment, could never see two levels at once, and every step threw away where
+ * you had been. The order's Structure step had already settled this question by
+ * showing the whole thing and letting rows collapse.
  *
- * ONE LEVEL AT A TIME, with the child's own line count shown beside it. The
- * whole tree of a Composite Girder is 247 nodes and nobody reads that; what an
- * author needs is "this level has these children" and a way to walk down. The
- * breadcrumb is the walk.
+ * So this is the same tree, from the same builder on the server
+ * (`/item-bom/:id/tree` -> `draftTree`). The recipe and the order that takes it
+ * now look alike on purpose: one thing, rendered one way.
  *
- * The expansion preview is the existing `/templates/:itemId/preview`, not a
- * second implementation — two answers to "what would this build" is exactly the
- * duplication that let a Span look like it had no BOM in the first place.
+ * ── WHAT ADDING A LINE ASKS ──────────────────────────────────────────────────
+ *
+ * Two things: which item, and how many. That is the whole dialog.
+ *
+ * It used to ask for eight — flow, three dimensions, code segment, help text,
+ * a per-parent switch — which turned "this segment also has a top flange" into
+ * a form. Everything else about a line is now edited ON THE ROW, where you can
+ * see it next to its siblings and fill it in when you actually know it. A
+ * dimension typed in a modal you had to open is a dimension nobody types.
+ *
+ * ── WHAT A LINE STILL CARRIES ────────────────────────────────────────────────
+ *
+ * The quantity is either a fixed number or a NAMED PARAMETER the order answers.
+ * That distinction is the reason this is a recipe rather than a parts list, and
+ * it is the one thing the add dialog still asks about.
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  Alert, Box, Breadcrumbs, Button, Chip, CircularProgress, Dialog, DialogActions,
-  DialogContent, DialogTitle, Divider, FormControlLabel, IconButton, Link, MenuItem,
-  Stack, Switch, TextField, Tooltip, Typography,
+  Alert, Box, Button, Chip, CircularProgress, Dialog, DialogActions,
+  DialogContent, DialogTitle, Divider, IconButton, MenuItem, Stack,
+  TextField, Tooltip, Typography,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
-import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
+import ContentCopyIcon from '@mui/icons-material/ContentCopy';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
-import PlayArrowRounded from '@mui/icons-material/PlayArrowRounded';
 
 import {
-  getItemBom, saveItemBomLine, deleteItemBomLine, previewTemplate,
-  type ItemBomLine, type TemplateParameter, type TemplatePreview,
+  getItemBomTree, saveItemBomLine, deleteItemBomLine,
+  type ItemBomNode,
 } from '../api/templates';
 import { fabQuery, fabPost, fabMutate } from '../api/client';
 import { backendMessage } from '../components';
@@ -48,49 +55,28 @@ const NEW_ITEM = '__new__';
 
 interface CatalogOption { id: number; name: string; code: string | null }
 
-/** A line being edited. `qtyMode` is UI-only — the wire has one or the other. */
+/** The three sizes a recipe may state, in the order a fabricator says them. */
+const DIMS = [
+  { key: 'thickness_mm', label: 'thk' },
+  { key: 'width_mm', label: 'wid' },
+  { key: 'length_mm', label: 'len' },
+] as const;
+
+/** A line being added. Deliberately two questions, not eight. */
 interface Draft {
-  id: number | null;
+  parentItemId: number;
+  parentName: string;
   childItemId: number | '';
   qtyMode: 'fixed' | 'parameter';
   qtyNum: string;
   qtyParam: string;
-  defaultQty: string;
-  perInstanceQty: boolean;
-  codeSegment: string;
-  helpText: string;
   sortOrder: number;
-  /** '' means no flow — a valid answer for a level that only groups. */
-  defaultFlowId: number | '';
-  /** Sizes the recipe states. '' means it does not state that one. */
-  lengthMm: string;
-  widthMm: string;
-  thicknessMm: string;
 }
 
-const blankDraft = (sortOrder: number): Draft => ({
-  id: null, childItemId: '', qtyMode: 'fixed', qtyNum: '1', qtyParam: '',
-  defaultQty: '', perInstanceQty: false, codeSegment: '', helpText: '', sortOrder,
-  defaultFlowId: '',
-  lengthMm: '', widthMm: '', thicknessMm: '',
-});
-
-const draftFrom = (l: ItemBomLine): Draft => ({
-  id: l.id,
-  childItemId: l.childItemId,
-  qtyMode: l.qtyParam ? 'parameter' : 'fixed',
-  qtyNum: l.qtyNum == null ? '' : String(Number(l.qtyNum)),
-  qtyParam: l.qtyParam ?? '',
-  defaultQty: l.defaultQty == null ? '' : String(Number(l.defaultQty)),
-  perInstanceQty: !!l.perInstanceQty,
-  codeSegment: l.codeSegment ?? '',
-  helpText: l.helpText ?? '',
-  sortOrder: l.sortOrder ?? 0,
-  defaultFlowId: l.defaultFlowId ?? '',
-  lengthMm: l.defaults?.length_mm == null ? '' : String(l.defaults.length_mm),
-  widthMm: l.defaults?.width_mm == null ? '' : String(l.defaults.width_mm),
-  thicknessMm: l.defaults?.thickness_mm == null ? '' : String(l.defaults.thickness_mm),
-});
+const dimOf = (n: ItemBomNode, k: string) => {
+  const v = n.dims?.[k];
+  return v == null ? '' : String(v);
+};
 
 export default function ItemBomDesigner({
   catalogItemId, catalogItemName, mode = 'edit',
@@ -101,39 +87,39 @@ export default function ItemBomDesigner({
 }) {
   const canEdit = mode === 'edit';
 
-  /** The walk down. Index 0 is always the item whose page this is. */
-  const [trail, setTrail] = useState<{ id: number; name: string }[]>(
-    [{ id: catalogItemId, name: catalogItemName }],
-  );
-  const here = trail[trail.length - 1];
-
-  const [lines, setLines] = useState<ItemBomLine[]>([]);
-  const [parameters, setParameters] = useState<TemplateParameter[]>([]);
+  const [tree, setTree] = useState<ItemBomNode | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  /*
+   * COLLAPSED, NOT EXPANDED, is the state worth holding: a freshly loaded tree
+   * is open, and a reload must not silently fold up everything somebody opened.
+   */
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const toggle = useCallback((key: string) => {
+    setCollapsed((c) => {
+      const next = new Set(c);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await getItemBom(here.id);
-      setLines(res.lines);
-      setParameters(res.parameters ?? []);
+      const res = await getItemBomTree(catalogItemId);
+      setTree(res.tree ?? null);
     } catch (err) {
       setError(backendMessage(err, 'Could not read this item’s BOM.'));
-      setLines([]);
-      setParameters([]);
+      setTree(null);
     } finally {
       setLoading(false);
     }
-  }, [here.id]);
+  }, [catalogItemId]);
 
   useEffect(() => { void load(); }, [load]);
-
-  // Reset the walk when the page moves to a different item.
-  useEffect(() => {
-    setTrail([{ id: catalogItemId, name: catalogItemName }]);
-  }, [catalogItemId, catalogItemName]);
 
   // ── the pick list ────────────────────────────────────────────────────────
   const [options, setOptions] = useState<CatalogOption[]>([]);
@@ -148,19 +134,28 @@ export default function ItemBomDesigner({
   );
   useEffect(() => { void loadOptions(); }, [loadOptions]);
 
+  /** The flows a line can default to. Same list the order's Flows tab offers. */
+  const [flows, setFlows] = useState<{ id: number; name: string }[]>([]);
+  useEffect(() => {
+    fabQuery<{ data: { id: number; name: string }[] }>('fabErpOperationFlow', {
+      filters: { active: 1 },
+      orderBy: [{ field: 'name', direction: 'asc' }],
+      pagination: { limit: 200 },
+    })
+      .then((r) => setFlows(r.data ?? []))
+      .catch(() => setFlows([]));
+  }, []);
+
   /**
    * CREATING THE CHILD FROM HERE, because the moment you need it is here.
    *
    * Authoring a BOM is where you discover the catalogue is missing a part — an
-   * End Stiffener that nobody had entered, say. Sending someone to the Items
-   * page to create it loses the line they were half way through writing, and
-   * they come back to an empty dialog.
+   * End Stiffener nobody had entered. Sending someone to the Items page loses
+   * the line they were half way through writing.
    *
-   * Deliberately the SMALLEST item that is still valid: name, category, unit.
-   * Category because the whole field-inheritance ladder hangs off it and an item
-   * without one inherits nothing; the code comes from the generator, exactly as
-   * the Items page does it, so the two cannot drift into different formats.
-   * Everything else is editable on the item's own page afterwards.
+   * Deliberately the smallest item that is still valid: name, category, unit.
+   * Category because the field-inheritance ladder hangs off it; the code comes
+   * from the generator so the two screens cannot drift into different formats.
    */
   const [categories, setCategories] = useState<{ id: number; name: string }[]>([]);
   useEffect(() => {
@@ -174,6 +169,9 @@ export default function ItemBomDesigner({
   const [newItem, setNewItem] = useState<{ name: string; categoryId: number | ''; unit: string } | null>(null);
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
+  const [draft, setDraft] = useState<Draft | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const createItem = useCallback(async () => {
     if (!newItem || !newItem.name.trim() || newItem.categoryId === '') return;
@@ -192,7 +190,6 @@ export default function ItemBomDesigner({
         mrp_policy: 'manual',
       });
       await loadOptions();
-      // Drop it straight into the line being written, which is the whole point.
       setDraft((d) => (d ? { ...d, childItemId: res.id } : d));
       setNewItem(null);
     } catch (err) {
@@ -202,49 +199,54 @@ export default function ItemBomDesigner({
     }
   }, [newItem, loadOptions]);
 
-  /** The flows a line can default to. Same list the order's Flows tab offers. */
-  const [flows, setFlows] = useState<{ id: number; name: string }[]>([]);
-  useEffect(() => {
-    fabQuery<{ data: { id: number; name: string }[] }>('fabErpOperationFlow', {
-      filters: { active: 1 },
-      orderBy: [{ field: 'name', direction: 'asc' }],
-      pagination: { limit: 200 },
-    })
-      .then((r) => setFlows(r.data ?? []))
-      .catch(() => setFlows([]));
-  }, []);
+  // ── writing one line ─────────────────────────────────────────────────────
 
-  // ── editing one line ─────────────────────────────────────────────────────
-  const [draft, setDraft] = useState<Draft | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
+  /**
+   * Save a change made ON a row. Everything the tree edits inline goes through
+   * here, so one edit is one request and the tree is reloaded from the server
+   * rather than patched locally — the server is the thing that knows whether a
+   * change made a cycle.
+   */
+  const patchLine = useCallback(async (
+    node: ItemBomNode, parentItemId: number, patch: Record<string, unknown>,
+  ) => {
+    if (!node.bomLineId) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await saveItemBomLine({
+        id: node.bomLineId,
+        parentItemId,
+        childItemId: node.catalogItemId,
+        qtyNum: node.qtyParam ? null : node.qty,
+        qtyParam: node.qtyParam,
+        codeSegment: node.codeSegment,
+        defaultFlowId: node.defaultFlowId,
+        ...patch,
+      });
+      await load();
+    } catch (err) {
+      setError(backendMessage(err, 'That change could not be saved.'));
+      await load();
+    } finally {
+      setBusy(false);
+    }
+  }, [load]);
 
-  const save = useCallback(async () => {
+  const addLine = useCallback(async () => {
     if (!draft || draft.childItemId === '') return;
     setSaving(true);
     setSaveError(null);
     try {
       await saveItemBomLine({
-        id: draft.id,
-        parentItemId: here.id,
+        id: null,
+        parentItemId: draft.parentItemId,
         childItemId: Number(draft.childItemId),
-        // Exactly one of these reaches the server. The other is sent as null so
-        // switching a line from fixed to parameter actually clears the old one.
+        // Exactly one of these reaches the server; the other is nulled so
+        // switching a line actually clears the old answer.
         qtyNum: draft.qtyMode === 'fixed' ? draft.qtyNum : null,
         qtyParam: draft.qtyMode === 'parameter' ? draft.qtyParam : null,
-        defaultQty: draft.qtyMode === 'parameter' ? draft.defaultQty : null,
-        perInstanceQty: draft.qtyMode === 'parameter' && draft.perInstanceQty,
-        codeSegment: draft.codeSegment || null,
-        helpText: draft.helpText || null,
         sortOrder: draft.sortOrder,
-        defaultFlowId: draft.defaultFlowId === '' ? null : Number(draft.defaultFlowId),
-        // Sent whatever their state: '' is the instruction to clear, which has
-        // to be expressible or a wrong default could never be withdrawn.
-        defaults: {
-          length_mm: draft.lengthMm.trim(),
-          width_mm: draft.widthMm.trim(),
-          thickness_mm: draft.thicknessMm.trim(),
-        },
       });
       setDraft(null);
       await load();
@@ -253,231 +255,286 @@ export default function ItemBomDesigner({
     } finally {
       setSaving(false);
     }
-  }, [draft, here.id, load]);
+  }, [draft, load]);
 
-  const remove = useCallback(async (line: ItemBomLine) => {
+  /**
+   * COPY A ROW. The same item under the same parent, a second time.
+   *
+   * The case this exists for is real and common: a Line holds three Segments at
+   * 12,000 and two at 11,650. One row cannot say that, so you copy the row and
+   * change the copy. The children come along on the server's side because the
+   * copy names the same catalog item, and what is inside a Segment is a property
+   * of Segment, not of the line pointing at it.
+   */
+  const duplicate = useCallback(async (node: ItemBomNode, parentItemId: number, at: number) => {
+    setBusy(true);
+    setError(null);
     try {
-      await deleteItemBomLine(line.id);
+      await saveItemBomLine({
+        id: null,
+        parentItemId,
+        childItemId: node.catalogItemId,
+        qtyNum: node.qtyParam ? null : node.qty,
+        qtyParam: node.qtyParam,
+        codeSegment: node.codeSegment,
+        defaultFlowId: node.defaultFlowId,
+        sortOrder: at + 1,
+      });
       await load();
     } catch (err) {
-      setError(backendMessage(err, 'That line could not be removed.'));
+      setError(backendMessage(err, 'That line could not be copied.'));
+    } finally {
+      setBusy(false);
     }
   }, [load]);
 
-  // ── "what would this build" ──────────────────────────────────────────────
-  const [preview, setPreview] = useState<TemplatePreview | null>(null);
-  const [previewing, setPreviewing] = useState(false);
-  const [answers, setAnswers] = useState<Record<string, string>>({});
-
-  useEffect(() => {
-    // Seed each question with the BOM's own default — the numbers that used to
-    // be typed into React state and are now data.
-    setAnswers(Object.fromEntries(parameters.map((p) => [p.param, String(p.defaultQty ?? 1)])));
-    setPreview(null);
-  }, [parameters]);
-
-  const runPreview = useCallback(async () => {
-    setPreviewing(true);
+  const remove = useCallback(async (node: ItemBomNode) => {
+    if (!node.bomLineId) return;
+    setBusy(true);
     try {
-      const params: Record<string, number> = {};
-      for (const p of parameters) params[p.param] = Number(answers[p.param]) || 0;
-      setPreview(await previewTemplate(here.id, params));
+      await deleteItemBomLine(node.bomLineId);
+      await load();
     } catch (err) {
-      setError(backendMessage(err, 'Could not work out what this would build.'));
+      setError(backendMessage(err, 'That line could not be removed.'));
     } finally {
-      setPreviewing(false);
+      setBusy(false);
     }
-  }, [parameters, answers, here.id]);
+  }, [load]);
+
+  const counts = useMemo(() => {
+    let rows = 0;
+    let asks = 0;
+    const walk = (n: ItemBomNode) => {
+      for (const c of n.children) { rows += 1; if (c.qtyParam) asks += 1; walk(c); }
+    };
+    if (tree) walk(tree);
+    return { rows, asks };
+  }, [tree]);
+
+  // ── one row ──────────────────────────────────────────────────────────────
+  const renderNode = (node: ItemBomNode, parentItemId: number, depth: number, index: number) => {
+    const hasKids = node.children.length > 0;
+    const isCollapsed = collapsed.has(node.key);
+    const isRoot = depth === 0;
+    const isLeaf = !hasKids;
+
+    return (
+      <Box key={node.key}>
+        <Stack
+          direction="row"
+          alignItems="center"
+          spacing={1}
+          sx={{
+            py: 0.6,
+            pl: `${depth * 20}px`,
+            borderBottom: '1px solid var(--c-divider)',
+            '&:hover .row-actions': { opacity: 1 },
+            bgcolor: isRoot ? 'var(--c-surface-2)' : undefined,
+          }}
+        >
+          {hasKids ? (
+            <IconButton size="small" onClick={() => toggle(node.key)} sx={{ p: 0.25 }}
+              aria-label={isCollapsed ? 'Expand' : 'Collapse'}>
+              {isCollapsed ? <ChevronRightIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
+            </IconButton>
+          ) : <Box sx={{ width: 26, flexShrink: 0 }} />}
+
+          <Box sx={{ minWidth: 0, flex: 1 }}>
+            <Stack direction="row" spacing={1} alignItems="center">
+              <Typography noWrap sx={{ fontSize: 13.5, fontWeight: isRoot ? 600 : 500 }}>
+                {node.name}
+              </Typography>
+              {hasKids && (
+                <Typography sx={{ fontSize: 11, color: 'var(--c-text-3)' }}>
+                  {node.children.length}
+                </Typography>
+              )}
+            </Stack>
+          </Box>
+
+          {/* HOW MANY — a number, or the question the order will be asked. */}
+          <Box sx={{ width: 132, flexShrink: 0 }}>
+            {isRoot ? null : node.qtyParam ? (
+              <Tooltip title={`The order answers “${node.qtyParam}”`}>
+                <Chip size="small" color="primary" variant="outlined"
+                  label={`asks ${node.qtyParam}`} sx={{ maxWidth: '100%' }} />
+              </Tooltip>
+            ) : (
+              <TextField
+                size="small" type="number" disabled={!canEdit || busy}
+                defaultValue={node.qty ?? ''}
+                onBlur={(e) => {
+                  const v = e.target.value;
+                  if (String(node.qty ?? '') === v) return;
+                  void patchLine(node, parentItemId, { qtyNum: v === '' ? null : Number(v), qtyParam: null });
+                }}
+                slotProps={{ htmlInput: { style: { padding: '4px 8px', fontSize: 13, width: 56 } } }}
+              />
+            )}
+          </Box>
+
+          {/*
+            * THE CODE SEGMENT, out here on the row.
+            *
+            * It used to be the ninth question of the add dialog, which is why
+            * almost nothing had one. It is an abbreviation — "TF", "WEB" — that
+            * only makes sense beside its siblings, so beside its siblings is
+            * where it is typed.
+            */}
+          <Box sx={{ width: 92, flexShrink: 0 }}>
+            {isRoot ? null : (
+              <TextField
+                size="small" placeholder="code" disabled={!canEdit || busy}
+                defaultValue={node.codeSegment ?? ''}
+                onBlur={(e) => {
+                  const v = e.target.value.trim();
+                  if ((node.codeSegment ?? '') === v) return;
+                  void patchLine(node, parentItemId, { codeSegment: v || null });
+                }}
+                slotProps={{ htmlInput: { style: { padding: '4px 8px', fontSize: 12.5, width: 68 } } }}
+              />
+            )}
+          </Box>
+
+          {/*
+            * THE SIZE, on leaves only. An assembly is welded from its parts and
+            * has no rectangle of its own; a box there would invite a number that
+            * means nothing. Optional throughout — plenty of parts are sized per
+            * job, and a recipe that guesses is worse than one that says nothing.
+            */}
+          <Stack direction="row" spacing={0.5} sx={{ width: 186, flexShrink: 0 }}>
+            {isRoot ? null : isLeaf ? DIMS.map((d) => (
+              <TextField
+                key={d.key} size="small" placeholder={d.label} disabled={!canEdit || busy}
+                defaultValue={dimOf(node, d.key)}
+                onBlur={(e) => {
+                  const v = e.target.value.trim();
+                  if (dimOf(node, d.key) === v) return;
+                  void patchLine(node, parentItemId, {
+                    defaults: {
+                      thickness_mm: d.key === 'thickness_mm' ? v : dimOf(node, 'thickness_mm'),
+                      width_mm: d.key === 'width_mm' ? v : dimOf(node, 'width_mm'),
+                      length_mm: d.key === 'length_mm' ? v : dimOf(node, 'length_mm'),
+                    },
+                  });
+                }}
+                slotProps={{ htmlInput: { style: { padding: '4px 6px', fontSize: 12, width: 44 } } }}
+              />
+            )) : <Box sx={{ width: 186 }} />}
+          </Stack>
+
+          {/* WHAT MAKES IT. Blank is a real answer for a level that only groups. */}
+          <Box sx={{ width: 156, flexShrink: 0 }}>
+            {isRoot ? null : (
+              <TextField
+                select size="small" fullWidth disabled={!canEdit || busy}
+                value={node.defaultFlowId ?? ''}
+                onChange={(e) => void patchLine(node, parentItemId, {
+                  defaultFlowId: e.target.value === '' ? null : Number(e.target.value),
+                })}
+                slotProps={{ htmlInput: { style: { padding: '4px 8px', fontSize: 12.5 } } }}
+              >
+                <MenuItem value=""><em>No flow</em></MenuItem>
+                {flows.map((f) => <MenuItem key={f.id} value={f.id}>{f.name}</MenuItem>)}
+              </TextField>
+            )}
+          </Box>
+
+          {canEdit && (
+            <Stack direction="row" spacing={0} className="row-actions"
+              sx={{ opacity: 0, transition: 'opacity .12s', flexShrink: 0, width: 104 }}>
+              <Tooltip title={`Add something inside ${node.name}`}>
+                <IconButton size="small" disabled={busy} onClick={() => setDraft({
+                  parentItemId: node.catalogItemId,
+                  parentName: node.name,
+                  childItemId: '',
+                  qtyMode: 'fixed',
+                  qtyNum: '1',
+                  qtyParam: '',
+                  sortOrder: node.children.length,
+                })}>
+                  <AddIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+              {!isRoot && (
+                <>
+                  <Tooltip title="Copy this line">
+                    <IconButton size="small" disabled={busy}
+                      onClick={() => void duplicate(node, parentItemId, index)}>
+                      <ContentCopyIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                  <Tooltip title="Remove this line">
+                    <IconButton size="small" disabled={busy} onClick={() => void remove(node)}>
+                      <DeleteIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                </>
+              )}
+            </Stack>
+          )}
+        </Stack>
+
+        {!isCollapsed && node.children.map((c, i) => renderNode(c, node.catalogItemId, depth + 1, i))}
+      </Box>
+    );
+  };
+
+  if (loading) {
+    return <Box sx={{ p: 3, textAlign: 'center' }}><CircularProgress size={22} /></Box>;
+  }
 
   return (
     <Box sx={{ p: 2, overflowY: 'auto' }}>
-      <Breadcrumbs separator={<ChevronRightIcon fontSize="small" />} sx={{ mb: 1 }}>
-        {trail.map((t, i) => (i === trail.length - 1 ? (
-          <Typography key={t.id} variant="body2" sx={{ fontWeight: 600 }}>{t.name}</Typography>
-        ) : (
-          <Link
-            key={t.id}
-            component="button"
-            variant="body2"
-            underline="hover"
-            onClick={() => setTrail((cur) => cur.slice(0, i + 1))}
-          >
-            {t.name}
-          </Link>
-        )))}
-      </Breadcrumbs>
-
       {error && <Alert severity="warning" sx={{ mb: 2 }} onClose={() => setError(null)}>{error}</Alert>}
 
-      {loading ? (
-        <Box sx={{ p: 3, textAlign: 'center' }}><CircularProgress size={22} /></Box>
-      ) : (
-        <>
-          {lines.length === 0 ? (
-            <Alert severity="info" variant="outlined" sx={{ mb: 2 }}>
-              <b>{here.name}</b> contains nothing yet. Add what it is made of — a fixed
-              quantity for something there is always one of, or a parameter for something
-              the order should be asked about.
-            </Alert>
-          ) : (
-            <Box sx={{ mb: 2 }}>
-              {lines.map((l) => {
-                const goesDeeper = l.childLineCount > 0;
-                return (
-                  <Stack
-                    key={l.id}
-                    direction="row"
-                    alignItems="center"
-                    spacing={1}
-                    sx={{ py: 0.75, borderBottom: 1, borderColor: 'divider' }}
-                  >
-                    <Box sx={{ minWidth: 0, flex: 1 }}>
-                      <Stack direction="row" spacing={1} alignItems="center">
-                        <Typography variant="body2" noWrap sx={{ fontWeight: 500 }}>
-                          {l.childName}
-                        </Typography>
-                        {l.childCode && (
-                          <Typography variant="caption" color="text.secondary" noWrap>
-                            {l.childCode}
-                          </Typography>
-                        )}
-                        {l.codeSegment && (
-                          <Chip size="small" variant="outlined" label={`code ${l.codeSegment}`} />
-                        )}
-                        {l.defaultFlowName && (
-                          <Tooltip title="Every item built from this line starts with this flow">
-                            <Chip size="small" color="primary" variant="outlined" label={l.defaultFlowName} />
-                          </Tooltip>
-                        )}
-                      </Stack>
-                      {l.helpText && (
-                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                          {l.helpText}
-                        </Typography>
-                      )}
-                    </Box>
+      <Stack direction="row" alignItems="baseline" spacing={1.5} sx={{ mb: 1.5 }}>
+        <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>
+          {counts.rows === 0
+            ? `${catalogItemName} contains nothing yet.`
+            : `${counts.rows} row${counts.rows === 1 ? '' : 's'}`}
+        </Typography>
+        {counts.asks > 0 && (
+          <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-3)' }}>
+            {counts.asks} of them ask the order a question
+          </Typography>
+        )}
+      </Stack>
 
-                    <Box sx={{ width: 210, flexShrink: 0 }}>
-                      {l.qtyParam ? (
-                        <Tooltip title="The order is asked this. The number beside it is what the question starts at.">
-                          <Chip
-                            size="small"
-                            color="primary"
-                            variant="outlined"
-                            label={`asks “${l.qtyParam}”${l.defaultQty != null ? ` · default ${Number(l.defaultQty)}` : ''}${l.perInstanceQty ? ' · per parent' : ''}`}
-                          />
-                        </Tooltip>
-                      ) : (
-                        <Typography variant="body2">× {Number(l.qtyNum)}</Typography>
-                      )}
-                    </Box>
-
-                    {goesDeeper ? (
-                      <Button
-                        size="small"
-                        endIcon={<ChevronRightIcon />}
-                        onClick={() => setTrail((cur) => [...cur, { id: l.childItemId, name: l.childName ?? '' }])}
-                      >
-                        {l.childLineCount} inside
-                      </Button>
-                    ) : (
-                      <Box sx={{ width: 96, flexShrink: 0 }} />
-                    )}
-
-                    {canEdit && (
-                      <>
-                        <IconButton size="small" onClick={() => setDraft(draftFrom(l))} title="Edit this line">
-                          <EditIcon fontSize="small" />
-                        </IconButton>
-                        <IconButton size="small" onClick={() => void remove(l)} title="Remove this line">
-                          <DeleteIcon fontSize="small" />
-                        </IconButton>
-                      </>
-                    )}
-                  </Stack>
-                );
-              })}
-            </Box>
-          )}
-
-          {canEdit && (
-            <Button
-              startIcon={<AddIcon />}
-              onClick={() => setDraft(blankDraft(lines.length))}
-              size="small"
-            >
-              Add what {here.name} contains
-            </Button>
-          )}
-
-          {/*
-            * The questions, and what the answers would build.
-            *
-            * Shown on the item whose page this is rather than at every level,
-            * because "what does this template ask an order" is a property of the
-            * whole tree beneath it, not of one rung.
-            */}
-          {trail.length === 1 && parameters.length > 0 && (
-            <>
-              <Divider sx={{ my: 2 }} />
-              <Typography variant="subtitle2" sx={{ mb: 0.5 }}>
-                What an order is asked when it builds a {catalogItemName}
-              </Typography>
-              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
-                Derived from the lines above — no separate list to keep in step. Remove the last
-                line that asks a question and the question goes with it.
-              </Typography>
-              <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mb: 1.5 }}>
-                {parameters.map((p) => (
-                  <TextField
-                    key={p.param}
-                    size="small"
-                    label={p.askedBy ? `How many ${p.askedBy}?` : p.param}
-                    helperText={p.helpText ?? p.param}
-                    value={answers[p.param] ?? ''}
-                    onChange={(e) => setAnswers((a) => ({ ...a, [p.param]: e.target.value }))}
-                    sx={{ width: 240 }}
-                  />
-                ))}
-                <Button
-                  size="small"
-                  variant="outlined"
-                  startIcon={<PlayArrowRounded />}
-                  disabled={previewing}
-                  onClick={() => void runPreview()}
-                  sx={{ alignSelf: 'flex-start', mt: 0.5 }}
-                >
-                  {previewing ? 'Working…' : 'What would this build?'}
-                </Button>
-              </Stack>
-
-              {preview && (
-                <Alert severity="success" variant="outlined">
-                  <b>{preview.nodes}</b> items in total —{' '}
-                  {Object.entries(preview.byName).map(([n, c]) => `${c} × ${n}`).join(', ')}.
-                  {preview.sample.length > 0 && (
-                    <Typography variant="caption" sx={{ display: 'block', mt: 0.5 }}>
-                      Codes read like {preview.sample.slice(0, 4).map((s) => s.code).join(', ')}
-                    </Typography>
-                  )}
-                </Alert>
-              )}
-            </>
-          )}
-        </>
+      {/* Column headings, so the boxes on each row are not a guess. */}
+      {counts.rows > 0 && (
+        <Stack direction="row" spacing={1} sx={{ pb: 0.5, borderBottom: '1px solid var(--c-border)' }}>
+          <Box sx={{ width: 26, flexShrink: 0 }} />
+          <Box sx={{ flex: 1 }} />
+          {[['How many', 132], ['Code', 92], ['Size (mm)', 186], ['Made by', 156]].map(([label, w]) => (
+            <Typography key={String(label)} sx={{
+              width: w as number, flexShrink: 0, fontSize: 10.5, fontWeight: 600,
+              letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--c-text-3)',
+            }}>{label}</Typography>
+          ))}
+          {canEdit && <Box sx={{ width: 104, flexShrink: 0 }} />}
+        </Stack>
       )}
 
-      <Dialog open={!!draft} onClose={() => setDraft(null)} maxWidth="sm" fullWidth>
-        <DialogTitle>{draft?.id ? 'Edit line' : `What does ${here.name} contain?`}</DialogTitle>
+      {tree ? renderNode(tree, 0, 0, 0) : (
+        <Alert severity="info" variant="outlined">
+          <b>{catalogItemName}</b> contains nothing yet. Add what it is made of — a fixed
+          quantity for something there is always one of, or a parameter for something the
+          order should be asked about.
+        </Alert>
+      )}
+
+      {/* ── add a line ──────────────────────────────────────────────────── */}
+      <Dialog open={!!draft} onClose={() => setDraft(null)} maxWidth="xs" fullWidth>
+        <DialogTitle sx={{ fontSize: 16 }}>
+          What does {draft?.parentName} contain?
+        </DialogTitle>
         <DialogContent>
           {saveError && <Alert severity="warning" sx={{ mb: 2 }}>{saveError}</Alert>}
           {draft && (
             <Stack spacing={2} sx={{ mt: 0.5 }}>
               <TextField
-                select
-                size="small"
-                label="Item"
-                value={draft.childItemId}
+                select size="small" label="Item" value={draft.childItemId}
                 onChange={(e) => {
                   if (e.target.value === NEW_ITEM) {
                     setNewItem({ name: '', categoryId: '', unit: 'nos' });
@@ -486,9 +543,7 @@ export default function ItemBomDesigner({
                   setDraft({ ...draft, childItemId: Number(e.target.value) });
                 }}
               >
-                <MenuItem value={NEW_ITEM} sx={{ fontWeight: 600 }}>
-                  ＋ Create a new item…
-                </MenuItem>
+                <MenuItem value={NEW_ITEM} sx={{ fontWeight: 600 }}>＋ Create a new item…</MenuItem>
                 <Divider />
                 {options.map((o) => (
                   <MenuItem key={o.id} value={o.id}>
@@ -497,133 +552,31 @@ export default function ItemBomDesigner({
                 ))}
               </TextField>
 
-              {/*
-                * THE DEFAULT FLOW, and the reason it lives on the LINE.
-                *
-                * A Top Flange inside a Girder Segment can be made differently
-                * from a Top Flange inside a PEB member — same catalog item,
-                * different context — and the line is the only place that
-                * distinction exists. This replaced `fab_flow_rules`, which
-                * matched (line type, level, code suffix) and so could only ever
-                * see the type.
-                *
-                * Blank is a real answer, not a missing one.
-                */}
               <TextField
-                select
-                size="small"
-                label="Default flow"
-                value={draft.defaultFlowId}
-                onChange={(e) => setDraft({
-                  ...draft,
-                  defaultFlowId: e.target.value === '' ? '' : Number(e.target.value),
-                })}
-                helperText="How every one of these gets made. Leave blank for a level that only groups its children."
-              >
-                <MenuItem value="">No flow — this level only groups</MenuItem>
-                {flows.map((f) => <MenuItem key={f.id} value={f.id}>{f.name}</MenuItem>)}
-              </TextField>
-
-              {/*
-                * THE SIZE, IF THE RECIPE KNOWS IT.
-                *
-                * "A Top Flange inside a Composite Girder Segment is
-                * 40 x 700 x 12000" is a fact about the design, and saying it
-                * here means nobody retypes it on the Parameters step of every
-                * order. It is copied onto the rows when the structure is built,
-                * so it stays visible and editable there rather than arriving
-                * from somewhere the reader cannot see.
-                *
-                * ENTIRELY OPTIONAL. Plenty of parts are sized per job, and a
-                * recipe that guesses would be worse than one that says nothing.
-                * Clearing a box withdraws the default.
-                */}
-              <Box>
-                <Typography sx={{ fontSize: 12.5, fontWeight: 600, mb: 0.75 }}>
-                  Size, if this design has a standard one
-                </Typography>
-                <Stack direction="row" spacing={1.5}>
-                  {([
-                    ['thicknessMm', 'Thickness'],
-                    ['widthMm', 'Width'],
-                    ['lengthMm', 'Length'],
-                  ] as const).map(([k, label]) => (
-                    <TextField
-                      key={k}
-                      size="small" type="number" label={`${label} (mm)`}
-                      value={draft[k]}
-                      onChange={(e) => setDraft({ ...draft, [k]: e.target.value })}
-                      sx={{ flex: 1 }}
-                    />
-                  ))}
-                </Stack>
-                <Typography sx={{ fontSize: 11.5, color: 'var(--c-text-3)', mt: 0.75 }}>
-                  Leave blank when it varies per job. Every order built from this line starts
-                  with whatever is filled in, and can change it.
-                </Typography>
-              </Box>
-
-              <TextField
-                select
-                size="small"
-                label="How many"
-                value={draft.qtyMode}
+                select size="small" label="How many" value={draft.qtyMode}
                 onChange={(e) => setDraft({ ...draft, qtyMode: e.target.value as Draft['qtyMode'] })}
-                helperText="A fixed number, or a question the order answers."
               >
-                <MenuItem value="fixed">A fixed quantity</MenuItem>
+                <MenuItem value="fixed">A fixed number</MenuItem>
                 <MenuItem value="parameter">Ask the order</MenuItem>
               </TextField>
 
               {draft.qtyMode === 'fixed' ? (
                 <TextField
-                  size="small"
-                  label="Quantity"
-                  value={draft.qtyNum}
+                  size="small" type="number" label="Quantity" value={draft.qtyNum}
                   onChange={(e) => setDraft({ ...draft, qtyNum: e.target.value })}
                 />
               ) : (
-                <>
-                  <TextField
-                    size="small"
-                    label="Parameter name"
-                    value={draft.qtyParam}
-                    onChange={(e) => setDraft({ ...draft, qtyParam: e.target.value })}
-                    helperText="Lines sharing a name ask one question — e.g. segmentsPerGirder."
-                  />
-                  <TextField
-                    size="small"
-                    label="Default"
-                    value={draft.defaultQty}
-                    onChange={(e) => setDraft({ ...draft, defaultQty: e.target.value })}
-                    helperText="What the question starts at."
-                  />
-                  <FormControlLabel
-                    control={(
-                      <Switch
-                        checked={draft.perInstanceQty}
-                        onChange={(e) => setDraft({ ...draft, perInstanceQty: e.target.checked })}
-                      />
-                    )}
-                    label="Each parent may have a different count"
-                  />
-                </>
+                <TextField
+                  size="small" label="What to call the question" value={draft.qtyParam}
+                  placeholder="lines"
+                  helperText="No default. The order states the number; a guessed one gets taken by mistake."
+                  onChange={(e) => setDraft({ ...draft, qtyParam: e.target.value })}
+                />
               )}
 
-              <TextField
-                size="small"
-                label="Code segment"
-                value={draft.codeSegment}
-                onChange={(e) => setDraft({ ...draft, codeSegment: e.target.value })}
-                helperText="How this level reads in a code — “G” gives G1, G2. Blank gives a bare number."
-              />
-              <TextField
-                size="small"
-                label="Help text"
-                value={draft.helpText}
-                onChange={(e) => setDraft({ ...draft, helpText: e.target.value })}
-                helperText="Shown beside the question when an order is built."
-              />
+              <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>
+                Code, size and flow are set on the row afterwards.
+              </Typography>
             </Stack>
           )}
         </DialogContent>
@@ -631,52 +584,40 @@ export default function ItemBomDesigner({
           <Button onClick={() => setDraft(null)}>Cancel</Button>
           <Button
             variant="contained"
-            disabled={saving || !draft || draft.childItemId === ''}
-            onClick={() => void save()}
+            disabled={saving || !draft || draft.childItemId === ''
+              || (draft.qtyMode === 'parameter' && !draft.qtyParam.trim())}
+            onClick={() => void addLine()}
           >
-            {saving ? 'Saving…' : 'Save'}
+            {saving ? 'Saving…' : 'Add'}
           </Button>
         </DialogActions>
       </Dialog>
 
-      {/*
-        * Creating the missing part without leaving the line you are writing.
-        * Stacks over the line dialog rather than replacing it, so cancelling
-        * puts you back exactly where you were.
-        */}
+      {/* ── the smallest new item that is still valid ───────────────────── */}
       <Dialog open={!!newItem} onClose={() => setNewItem(null)} maxWidth="xs" fullWidth>
-        <DialogTitle>New item</DialogTitle>
+        <DialogTitle sx={{ fontSize: 16 }}>New item</DialogTitle>
         <DialogContent>
           {createError && <Alert severity="warning" sx={{ mb: 2 }}>{createError}</Alert>}
           {newItem && (
             <Stack spacing={2} sx={{ mt: 0.5 }}>
               <TextField
-                autoFocus
-                size="small"
-                label="Name"
-                value={newItem.name}
+                size="small" label="Name" value={newItem.name} autoFocus
                 onChange={(e) => setNewItem({ ...newItem, name: e.target.value })}
               />
               <TextField
-                select
-                size="small"
-                label="Category"
-                value={newItem.categoryId}
-                onChange={(e) => setNewItem({ ...newItem, categoryId: Number(e.target.value) })}
-                helperText="Decides which field defaults the item inherits."
+                select size="small" label="Category" value={newItem.categoryId}
+                helperText="Everything this item inherits hangs off its category."
+                onChange={(e) => setNewItem({
+                  ...newItem,
+                  categoryId: e.target.value === '' ? '' : Number(e.target.value),
+                })}
               >
                 {categories.map((c) => <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>)}
               </TextField>
               <TextField
-                size="small"
-                label="Unit"
-                value={newItem.unit}
+                size="small" label="Unit" value={newItem.unit}
                 onChange={(e) => setNewItem({ ...newItem, unit: e.target.value })}
               />
-              <Typography variant="caption" color="text.secondary">
-                The code is generated. Everything else — description, taxonomy, custom fields —
-                is editable on the item’s own page.
-              </Typography>
             </Stack>
           )}
         </DialogContent>

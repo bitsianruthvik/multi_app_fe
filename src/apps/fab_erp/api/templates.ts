@@ -154,6 +154,33 @@ export const getItemBom = (itemId: number) =>
   fabGet<ItemBomResponse>(`item-bom/${itemId}`);
 
 /**
+ * One node of the recipe, nested — the same shape the order's Structure step
+ * edits, because it comes from the same builder on the server.
+ */
+export interface ItemBomNode {
+  key: string;
+  catalogItemId: number;
+  name: string;
+  unit: string;
+  /** null when the line asks a question and states no default. */
+  qty: number | null;
+  codeSegment: string | null;
+  codeJoin: string;
+  defaultFlowId: number | null;
+  /** Which line this row came from. Null on the root, which is not a line. */
+  bomLineId: number | null;
+  /** What the recipe calls this quantity, when it asks for one. */
+  qtyParam: string | null;
+  /** Sizes the recipe states. Absent keys mean it states none. */
+  dims?: Record<string, number | string | null>;
+  children: ItemBomNode[];
+}
+
+/** GET /item-bom/:itemId/tree — the whole recipe under one item, nested. */
+export const getItemBomTree = (itemId: number) =>
+  fabGet<{ ok: boolean; tree: ItemBomNode | null }>(`item-bom/${itemId}/tree`);
+
+/**
  * POST /item-bom — add or edit one line.
  *
  * Exactly one of `qtyNum` or `qtyParam`. Both would be two answers to "how
