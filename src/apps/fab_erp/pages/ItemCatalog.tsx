@@ -626,7 +626,11 @@ function AddTaxonomyDialog({ open, level, categories, groups, onClose, onCreated
               <Select fullWidth size="small" displayEmpty value={categoryId}
                 onChange={(e) => { setCategoryId(e.target.value as number | ''); setGroupId(''); }}>
                 <MenuItem value=""><em>All categories</em></MenuItem>
-                {categories.map((c) => <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>)}
+                {categories.map((c) => (
+                  <MenuItem key={c.id} value={c.id}>
+                    {c.name}<Count n={taxonomyCounts.cat.get(c.id) ?? 0} />
+                  </MenuItem>
+                ))}
               </Select>
             </Box>
             <Box>
@@ -1994,6 +1998,21 @@ type TaxonomyDeleteState = {
   entity: FabItemCategory | FabItemGroup | FabItemSubgroup;
 } | null;
 
+/** How many items sit under a taxonomy option. Greyed, and dimmer still at zero. */
+function Count({ n }: { n: number }) {
+  return (
+    <Typography
+      component="span"
+      sx={{
+        ml: 'auto', pl: 1.5, fontSize: 11, fontVariantNumeric: 'tabular-nums',
+        color: n ? 'var(--c-text-3)' : 'var(--c-text-3)', opacity: n ? 1 : 0.55,
+      }}
+    >
+      {n}
+    </Typography>
+  );
+}
+
 export default function ItemCatalog() {
   // Admins bypass these tags on the BACKEND, so without OR-ing the role in here
   // an admin whose JWT predates the grant (uiPermissions is baked at login and
@@ -2138,8 +2157,42 @@ export default function ItemCatalog() {
 
   const { sortedRows, sortKey, sortDirection, requestSort } = useSortableData(filtered, 'name');
 
-  const filterGroupOptions    = groups.filter((g) => !filterCategoryId || g.categoryId === filterCategoryId);
-  const filterSubgroupOptions = subgroups.filter((s) => !filterGroupId || s.groupId === filterGroupId);
+  /**
+   * HOW MANY ITEMS EACH OPTION WOULD ACTUALLY SHOW.
+   *
+   * Picking "Composite Girder" used to give an empty screen, and that reads as
+   * a broken filter rather than as an empty category — which is what it was.
+   * The taxonomy moved: structure types are GROUPS under Fabricated now, and
+   * the old top-level categories were left behind holding nothing.
+   *
+   * Retiring those five is a separate, one-off fix. Showing the count is the
+   * permanent one: an option that says "0" cannot be mistaken for a filter
+   * that failed, whatever the taxonomy does next.
+   */
+  const taxonomyCounts = useMemo(() => {
+    const cat = new Map<number, number>();
+    const grp = new Map<number, number>();
+    const sub = new Map<number, number>();
+    for (const it of items) {
+      if (it.categoryId) cat.set(it.categoryId, (cat.get(it.categoryId) ?? 0) + 1);
+      if (it.groupId) grp.set(it.groupId, (grp.get(it.groupId) ?? 0) + 1);
+      if (it.subgroupId) sub.set(it.subgroupId, (sub.get(it.subgroupId) ?? 0) + 1);
+    }
+    return { cat, grp, sub };
+  }, [items]);
+
+  const filterGroupOptions = groups.filter((g) => !filterCategoryId || g.categoryId === filterCategoryId);
+  /*
+   * NARROWED BY CATEGORY TOO, not only by group. It keyed off the group alone,
+   * so choosing a category and leaving the group on "All" listed every
+   * sub-group in the company — including ones that could not possibly appear.
+   */
+  const filterSubgroupOptions = subgroups.filter((sg) => {
+    if (filterGroupId) return sg.groupId === filterGroupId;
+    if (!filterCategoryId) return true;
+    const parent = groups.find((g) => g.id === sg.groupId);
+    return parent?.categoryId === filterCategoryId;
+  });
 
   // ── Import / Export ──────────────────────────────────────────────────────
   const importFileRef = useRef<HTMLInputElement>(null);
@@ -2332,7 +2385,11 @@ export default function ItemCatalog() {
               <Select fullWidth size="small" displayEmpty value={filterGroupId}
                 onChange={(e) => onFilterGroupChange(String(e.target.value))}>
                 <MenuItem value="">All</MenuItem>
-                {filterGroupOptions.map((g) => <MenuItem key={g.id} value={g.id}>{g.name}</MenuItem>)}
+                {filterGroupOptions.map((g) => (
+                  <MenuItem key={g.id} value={g.id}>
+                    {g.name}<Count n={taxonomyCounts.grp.get(g.id) ?? 0} />
+                  </MenuItem>
+                ))}
               </Select>
             </Box>
             <Box sx={{ width: 180 }}>
@@ -2340,7 +2397,11 @@ export default function ItemCatalog() {
               <Select<number | ''> fullWidth size="small" displayEmpty value={filterSubgroupId}
                 onChange={(e) => setFilterSubgroupId(e.target.value === '' ? '' : Number(e.target.value))}>
                 <MenuItem value="">All</MenuItem>
-                {filterSubgroupOptions.map((s) => <MenuItem key={s.id} value={s.id}>{s.name}</MenuItem>)}
+                {filterSubgroupOptions.map((sg) => (
+                  <MenuItem key={sg.id} value={sg.id}>
+                    {sg.name}<Count n={taxonomyCounts.sub.get(sg.id) ?? 0} />
+                  </MenuItem>
+                ))}
               </Select>
             </Box>
           </Box>

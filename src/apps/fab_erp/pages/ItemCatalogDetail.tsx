@@ -62,6 +62,62 @@ const SOURCE_LABEL: Record<string, string> = {
 const th = { fontFamily: 'var(--font-ui)', fontWeight: 600, fontSize: 12, color: 'var(--c-text-2)', textTransform: 'uppercase', letterSpacing: '.05em', borderColor: 'var(--c-divider)' } as const;
 const td = { borderColor: 'var(--c-divider)', fontSize: 13, color: 'var(--c-text)' } as const;
 
+/**
+ * One editable cell of the item record.
+ *
+ * DEFINED HERE, NOT INSIDE THE PAGE. It used to be declared in the component
+ * body, which makes it a NEW component type on every render — so React threw
+ * the old <TextField> away and mounted a fresh one after each keystroke, and
+ * the caret went with it. Typing a name meant clicking back into the box for
+ * every letter.
+ *
+ * The cost of hoisting is that draft/set/canManage have to be passed in. That
+ * is the correct trade: they are what the field actually depends on, and saying
+ * so out loud is what keeps the component stable between renders.
+ */
+function Field({
+  label, k, type = 'text', suffix, readOnly = false, help,
+  draft, set, canManage,
+}: {
+  label: string;
+  k: keyof FabItemCatalog;
+  type?: string;
+  suffix?: string;
+  readOnly?: boolean;
+  help?: string;
+  draft: Partial<FabItemCatalog>;
+  set: <K extends keyof FabItemCatalog>(k: K, v: FabItemCatalog[K]) => void;
+  canManage: boolean;
+}) {
+  const endAdornment = suffix
+    ? <Typography variant="caption" sx={{ color: 'var(--c-text-3)' }}>{suffix}</Typography>
+    : undefined;
+  return (
+    <TextField
+      label={label}
+      size="small"
+      type={type}
+      fullWidth
+      disabled={!canManage && !readOnly}
+      helperText={help}
+      value={(draft[k] as string | number | undefined) ?? ''}
+      onChange={readOnly ? undefined : (e) => set(
+        k,
+        (type === 'number'
+          ? (e.target.value === '' ? null : Number(e.target.value))
+          : e.target.value) as FabItemCatalog[typeof k],
+      )}
+      slotProps={{
+        input: {
+          readOnly,
+          ...(endAdornment ? { endAdornment } : {}),
+          ...(readOnly ? { sx: { fontFamily: 'var(--font-mono, monospace)', color: 'var(--c-text-2)' } } : {}),
+        },
+      }}
+    />
+  );
+}
+
 export default function ItemCatalogDetail() {
   const { company, itemId } = useParams<{ company: string; itemId: string }>();
   const navigate = useNavigate();
@@ -251,7 +307,12 @@ export default function ItemCatalogDetail() {
     try {
       await fabMutate('fabErpItemCatalog', 'update', {
         id,
-        name: draft.name ?? item.name, code: draft.code ?? item.code, unit: draft.unit ?? null, description: draft.description ?? null,
+        // `code` is deliberately absent. It is generated, and every nest, task,
+        // mark and stock row that names this item names it by code — none of
+        // which would follow a rename.
+        name: draft.name ?? item.name,
+        unit: draft.unit ?? null,
+        description: draft.description ?? null,
         procurement_type: draft.procurementType ?? 'buy', lead_time_days: draft.leadTimeDays ?? null, mrp_policy: mrpPolicy,
         category_id: draft.categoryId ?? null, group_id: draft.groupId ?? null, subgroup_id: draft.subgroupId ?? null,
         hsn_code: draft.hsnCode ?? null,
@@ -351,7 +412,6 @@ export default function ItemCatalogDetail() {
     const norm = (v: unknown) => (v === null || v === undefined || v === '' ? '' : String(v));
     const pairs: [unknown, unknown][] = [
       [draft.name, item.name],
-      [draft.code, item.code],
       [draft.unit, item.unit],
       [draft.description, item.description],
       [draft.procurementType ?? 'buy', item.procurementType ?? 'buy'],
@@ -373,16 +433,6 @@ export default function ItemCatalogDetail() {
     });
   }, [configs, configDraft]);
 
-  function Field({ label, k, type = 'text', suffix }: { label: string; k: keyof FabItemCatalog; type?: string; suffix?: string }) {
-    return (
-      <TextField
-        label={label} size="small" type={type} fullWidth disabled={!canManage}
-        value={(draft[k] as string | number | undefined) ?? ''}
-        onChange={(e) => set(k, (type === 'number' ? (e.target.value === '' ? null : Number(e.target.value)) : e.target.value) as FabItemCatalog[typeof k])}
-        slotProps={suffix ? { input: { endAdornment: <Typography variant="caption" sx={{ color: 'var(--c-text-3)' }}>{suffix}</Typography> } } : undefined}
-      />
-    );
-  }
 
   if (loading) return <DetailSkeleton />;
   if (!item) return <Box><Alert severity="error">Item not found.</Alert></Box>;
@@ -436,13 +486,13 @@ export default function ItemCatalogDetail() {
         >
           <Typography sx={{ fontSize: 11, fontWeight: 600, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--c-text-3)', mb: 1.5 }}>General</Typography>
           <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2, mb: 3 }}>
-            <Field label="Name" k="name" />
-            <Field label="Code" k="code" />
+            <Field label="Name" k="name" draft={draft} set={set} canManage={canManage} />
+            <Field label="Code" k="code" readOnly help="Generated — cannot be edited" draft={draft} set={set} canManage={canManage} />
             <Autocomplete freeSolo fullWidth options={STANDARD_UOMS.map((u) => u.value)} disabled={!canManage}
               value={(draft.unit as string | undefined) ?? ''}
               onInputChange={(_, value) => set('unit', value as FabItemCatalog['unit'])}
               renderInput={(params) => <TextField {...params} label="Unit" size="small" />} />
-            <Field label="Description" k="description" />
+            <Field label="Description" k="description" draft={draft} set={set} canManage={canManage} />
           </Box>
           <Divider sx={{ my: 2, borderColor: 'var(--c-divider)' }} />
           <Typography sx={{ fontSize: 11, fontWeight: 600, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--c-text-3)', mb: 1.5 }}>MRP / Planning</Typography>
@@ -488,7 +538,7 @@ export default function ItemCatalogDetail() {
             </Box>
           </Box>
           <Box sx={{ display: 'grid', gridTemplateColumns: '1fr', gap: 2 }}>
-            <Field label="HSN code" k="hsnCode" />
+            <Field label="HSN code" k="hsnCode" draft={draft} set={set} canManage={canManage} />
           </Box>
         </SectionCard>
 
