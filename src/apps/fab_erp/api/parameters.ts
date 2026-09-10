@@ -43,8 +43,16 @@ export interface ParameterGrid {
   groupedAway: number;
 }
 
-export const getParameterGrid = (orderId: number): Promise<ParameterGrid> =>
-  fabGet<ParameterGrid>(`orders/${orderId}/parameters`);
+/**
+ * `only` splits one grid between two steps: 'dims' is the rectangle, asked
+ * before nesting because nesting needs nothing else; 'rest' is what a flow
+ * demands beyond it — hole counts, weld runs — asked after.
+ *
+ * The server filters, not the browser, so the "N of N missing" under each step
+ * counts the same set its columns show.
+ */
+export const getParameterGrid = (orderId: number, only?: 'dims' | 'rest'): Promise<ParameterGrid> =>
+  fabGet<ParameterGrid>(`orders/${orderId}/parameters${only ? `?only=${only}` : ''}`);
 
 export interface ParameterEdit { itemId: number; fieldKey: string; value: string | null }
 

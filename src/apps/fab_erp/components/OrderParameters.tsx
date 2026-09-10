@@ -271,10 +271,16 @@ function DirtyBar({ store, saving, onDiscard, onSave }: {
 
 // ── the step ────────────────────────────────────────────────────────────────
 
-export default function OrderParameters({ orderId, canManage, onStageChanged }: {
+export default function OrderParameters({ orderId, canManage, onStageChanged, only }: {
   orderId: number;
   canManage: boolean;
   onStageChanged?: () => void;
+  /**
+   * Which half of the grid this is. 'dims' is the rectangle, on its own step
+   * before nesting; 'rest' is everything else a flow asks for, after it.
+   * Undefined shows both, which is what the standalone tab does.
+   */
+  only?: 'dims' | 'rest';
 }) {
   const { toast } = useToast();
   const [grid, setGrid] = useState<ParameterGrid | null>(null);
@@ -292,7 +298,7 @@ export default function OrderParameters({ orderId, canManage, onStageChanged }: 
     setLoading(true); setError('');
     try {
       const [g, r] = await Promise.all([
-        getParameterGrid(orderId),
+        getParameterGrid(orderId, only),
         getFieldReadiness(orderId).catch(() => null),
       ]);
       setGrid(g);
@@ -301,7 +307,7 @@ export default function OrderParameters({ orderId, canManage, onStageChanged }: 
     } catch (e) {
       setError(backendMessage(e, 'Could not load the order’s parameters.'));
     } finally { setLoading(false); }
-  }, [orderId, store]);
+  }, [orderId, store, only]);
 
   useEffect(() => { void load(); }, [load]);
 

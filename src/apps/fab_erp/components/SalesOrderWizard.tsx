@@ -267,11 +267,19 @@ export default function SalesOrderWizard({
             {step === 'flows' && (
               <OrderFlowAllocation orderId={orderId} canManage={canManage} onStageChanged={refresh} />
             )}
-            {step === 'params' && (
-              <OrderParameters orderId={orderId} canManage={canManage} onStageChanged={refresh} />
+            {/* The rectangle, then nesting, then everything else a flow asks
+                for. Nesting reads the size and the steel and never touches a
+                flow, so it has no reason to wait behind hole counts and weld
+                runs — and it is the step with a lead time: nothing can be
+                ordered until it is done. */}
+            {step === 'dims' && (
+              <OrderParameters orderId={orderId} canManage={canManage} onStageChanged={refresh} only="dims" />
             )}
             {step === 'nesting' && (
               <OrderNesting orderId={orderId} canManage={canManage} onStageChanged={refresh} />
+            )}
+            {step === 'params' && (
+              <OrderParameters orderId={orderId} canManage={canManage} onStageChanged={refresh} only="rest" />
             )}
             {step === 'tasks' && (
               <OrderTaskDag orderId={orderId} canManage={canManage} />

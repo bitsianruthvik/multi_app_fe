@@ -279,12 +279,16 @@ export default function SalesOrderDetail() {
           // the sequence is legible from the tab bar alone.
           { value: 'lines', label: 'Line items', count: items.length, dot: isSales ? stageDot('lines') : undefined },
           ...(isSales ? [
-            // Resequenced 2026-08-15: flows before parameters (the flow decides
-            // which values a part needs), nesting after (it needs the dimensions).
+            // Resequenced 2026-09-10: the rectangle on its own step, then
+            // nesting, then everything else. Nesting reads the size and the
+            // steel and never touches a flow, so it has no reason to wait
+            // behind hole counts and weld runs — and it is the step with the
+            // lead time, since nothing can be ordered until it is done.
             { value: 'items', label: 'Structure', dot: stageDot('boq') },
             { value: 'flows', label: 'Flows', dot: stageDot('flows') },
-            { value: 'params', label: 'Parameters', dot: stageDot('params') },
+            { value: 'dims', label: 'Dimensions', dot: stageDot('dims') },
             { value: 'nesting', label: 'Nesting', dot: stageDot('nesting') },
+            { value: 'params', label: 'Other params', dot: stageDot('params') },
             { value: 'dag', label: 'Project tree', dot: stageDot('tasks') },
             // The two documents the finished tree leads to. Reachable here as
             // well as in the wizard, because receiving a delivery happens long
@@ -381,8 +385,10 @@ export default function SalesOrderDetail() {
           />
         ) : tab === 'flows' ? (
           <OrderFlowAllocation orderId={id} canManage={canManage} onStageChanged={refreshReadiness} />
+        ) : tab === 'dims' ? (
+          <OrderParameters orderId={id} canManage={canManage} onStageChanged={refreshReadiness} only="dims" />
         ) : tab === 'params' ? (
-          <OrderParameters orderId={id} canManage={canManage} onStageChanged={refreshReadiness} />
+          <OrderParameters orderId={id} canManage={canManage} onStageChanged={refreshReadiness} only="rest" />
         ) : tab === 'nesting' ? (
           <OrderNesting orderId={id} canManage={canManage} onStageChanged={refreshReadiness} />
         ) : tab === 'procurement' ? (
