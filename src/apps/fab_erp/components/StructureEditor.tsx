@@ -56,6 +56,8 @@ export interface StructureEditorLine {
   code: string | null;
   /** The catalog item this line was sold as — its BOM opens here. */
   itemId?: number | null;
+  /** What it is called, for the heading. */
+  description?: string | null;
 }
 
 let localSeq = 0;
@@ -101,10 +103,12 @@ function countRows(node: DraftNode): number {
 }
 
 export default function StructureEditor({
-  open, orderId, orderLine, onClose, onDone,
+  open, orderId, orderLine, onClose, onDone, variant = 'dialog',
 }: {
   open: boolean;
   orderId: number;
+  /** `inline` renders it as the step itself; `dialog` for rebuilding over one. */
+  variant?: 'inline' | 'dialog';
   orderLine: StructureEditorLine | null;
   onClose: () => void;
   onDone: () => void;
@@ -314,6 +318,109 @@ export default function StructureEditor({
     );
   };
 
+  const noItem = orderLine?.itemId == null;
+
+  const body = (
+    <>
+      {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
+
+      {existing != null && (
+        <Alert severity="warning" sx={{ mb: 2 }}>
+          This line already has <b>{existing}</b> row(s). Building again would add a second copy of
+          everything. Replace what is there, or leave it as it is.
+        </Alert>
+      )}
+
+      {noItem && (
+        <Alert severity="info">
+          This line does not say what it is. Set its item on the Line items step and its bill of
+          materials will open here.
+        </Alert>
+      )}
+
+      {loading && (
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, py: 3 }}>
+          <CircularProgress size={16} />
+          <Typography sx={{ fontSize: 13, color: 'var(--c-text-3)' }}>Reading the bill of materials…</Typography>
+        </Box>
+      )}
+
+      {tree && !loading && (
+        <>
+          {/* The only thing on this screen that scrolls. */}
+          <Surface
+            e={1}
+            sx={{ p: 0, overflowY: 'auto', flex: 1, minHeight: 0, maxHeight: variant === 'inline' ? '58vh' : undefined, mb: 2 }}
+          >
+            {renderNode(tree, 0)}
+          </Surface>
+          <Box sx={{ display: 'flex', gap: 3 }}>
+            <Box>
+              <Typography sx={{ fontSize: 11, color: 'var(--c-text-3)', textTransform: 'uppercase', letterSpacing: '.06em' }}>Rows</Typography>
+              <Typography sx={{ fontSize: 18, fontWeight: 700 }}>{rows}</Typography>
+            </Box>
+            <Box>
+              <Typography sx={{ fontSize: 11, color: 'var(--c-text-3)', textTransform: 'uppercase', letterSpacing: '.06em' }}>Pieces</Typography>
+              <Typography sx={{ fontSize: 18, fontWeight: 700 }}>{pieces.toLocaleString('en-IN')}</Typography>
+            </Box>
+            <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)', alignSelf: 'flex-end', pb: 0.5 }}>
+              One row per design, its quantity says how many exist.
+            </Typography>
+          </Box>
+        </>
+      )}
+    </>
+  );
+
+  const createButton = existing != null ? (
+    <Button
+      variant="contained" color="warning" disabled={busy}
+      startIcon={busy ? <CircularProgress size={14} color="inherit" /> : <CheckRoundedIcon />}
+      onClick={() => void create(true)}
+    >
+      Replace the {existing} row(s)
+    </Button>
+  ) : (
+    <Button
+      variant="contained" disabled={!tree || busy}
+      startIcon={busy ? <CircularProgress size={14} color="inherit" /> : <CheckRoundedIcon />}
+      onClick={() => void create(false)}
+    >
+      {tree ? `Create ${rows} row(s)` : 'Create'}
+    </Button>
+  );
+
+  /**
+   * INLINE IS THE REAL HOME OF THIS SCREEN.
+   *
+   * It began as a dialog opened from a button, which meant the Structure step
+   * itself showed an empty box and an invitation to open something else. The
+   * bill of materials IS the structure — putting it behind one more click made
+   * the step look like it had nothing to say.
+   *
+   * The dialog shape is kept for the one case that still needs it: rebuilding a
+   * line that already has rows, where the screen behind is showing the thing
+   * being replaced.
+   */
+  if (variant === 'inline') {
+    if (!open) return null;
+    return (
+      <Surface e={1} sx={{ p: 2, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+        <Box sx={{ mb: 1.5 }}>
+          <Typography sx={{ fontSize: 15, fontWeight: 600 }}>
+            {orderLine?.description ? `${orderLine.description} — bill of materials` : 'Bill of materials'}
+          </Typography>
+          <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)' }}>
+            This is what the catalogue says this is made of. Change the numbers, remove what this
+            job does not have, add what it does. Nothing is saved until you press Create.
+          </Typography>
+        </Box>
+        {body}
+        <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 2 }}>{createButton}</Box>
+      </Surface>
+    );
+  }
+
   return (
     <Dialog
       open={open} onClose={busy ? undefined : onClose} maxWidth="md" fullWidth
@@ -323,78 +430,19 @@ export default function StructureEditor({
       <DialogTitle sx={{ fontWeight: 600 }}>
         Structure
         <Typography variant="body2" color="text.secondary">
-          This is the BOM. Change the numbers, remove what this job does not have, add what it
-          does. Nothing is saved until you press Create.
+          This is the bill of materials. Change the numbers, remove what this job does not have,
+          add what it does. Nothing is saved until you press Create.
         </Typography>
       </DialogTitle>
 
       <DialogContent dividers sx={{ display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-        {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
-
-        {existing != null && (
-          <Alert severity="warning" sx={{ mb: 2 }}>
-            This line already has <b>{existing}</b> item(s). Building again would add a second copy
-            of everything. Replace what is there, or close and pick a different line.
-          </Alert>
-        )}
-
-        {orderLine?.itemId == null && (
-          <Alert severity="info">
-            This line does not say what it is. Set its item on the Line items step and the BOM
-            will open here.
-          </Alert>
-        )}
-
-        {loading && (
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, py: 3 }}>
-            <CircularProgress size={16} />
-            <Typography sx={{ fontSize: 13, color: 'var(--c-text-3)' }}>Reading the BOM…</Typography>
-          </Box>
-        )}
-
-        {tree && !loading && (
-          <>
-            {/* The only thing on this screen that scrolls. */}
-            <Surface e={1} sx={{ p: 0, overflowY: 'auto', flex: 1, minHeight: 0, mb: 2 }}>
-              {renderNode(tree, 0)}
-            </Surface>
-            <Box sx={{ display: 'flex', gap: 3 }}>
-              <Box>
-                <Typography sx={{ fontSize: 11, color: 'var(--c-text-3)', textTransform: 'uppercase', letterSpacing: '.06em' }}>Rows</Typography>
-                <Typography sx={{ fontSize: 18, fontWeight: 700 }}>{rows}</Typography>
-              </Box>
-              <Box>
-                <Typography sx={{ fontSize: 11, color: 'var(--c-text-3)', textTransform: 'uppercase', letterSpacing: '.06em' }}>Pieces</Typography>
-                <Typography sx={{ fontSize: 18, fontWeight: 700 }}>{pieces.toLocaleString('en-IN')}</Typography>
-              </Box>
-              <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)', alignSelf: 'flex-end', pb: 0.5 }}>
-                One row per design, its quantity says how many exist.
-              </Typography>
-            </Box>
-          </>
-        )}
+        {body}
       </DialogContent>
 
       <DialogActions>
         <Button onClick={onClose} disabled={busy}>Cancel</Button>
         <Box sx={{ flex: 1 }} />
-        {existing != null ? (
-          <Button
-            variant="contained" color="warning" disabled={busy}
-            startIcon={busy ? <CircularProgress size={14} color="inherit" /> : <CheckRoundedIcon />}
-            onClick={() => void create(true)}
-          >
-            Replace the {existing} item(s)
-          </Button>
-        ) : (
-          <Button
-            variant="contained" disabled={!tree || busy}
-            startIcon={busy ? <CircularProgress size={14} color="inherit" /> : <CheckRoundedIcon />}
-            onClick={() => void create(false)}
-          >
-            {tree ? `Create ${rows} row(s)` : 'Create'}
-          </Button>
-        )}
+        {createButton}
       </DialogActions>
     </Dialog>
   );

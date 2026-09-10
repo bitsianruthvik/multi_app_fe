@@ -11,6 +11,8 @@ import CloseRounded from '@mui/icons-material/CloseRounded';
 import ContentCopyRounded from '@mui/icons-material/ContentCopyRounded';
 import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
 import AccountTreeRounded from '@mui/icons-material/AccountTreeRounded';
+import DownloadRounded from '@mui/icons-material/DownloadRounded';
+import UploadFileRounded from '@mui/icons-material/UploadFileRounded';
 import DescriptionRounded from '@mui/icons-material/DescriptionRounded';
 
 import { fabQuery, fabMutate } from '../api/client';
@@ -725,7 +727,8 @@ export default function OrderItemsTree({ orderId, canManage, readiness, onStageC
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(false);
   const [error, setError] = useState('');
-  const [addingRoot, setAddingRoot] = useState(false);
+  const [sheetBusy, setSheetBusy] = useState(false);
+  const sheetFileRef = useRef<HTMLInputElement>(null);
 
   const [lines, setLines] = useState<OrderLineRef[]>([]);
   const [editorOpen, setEditorOpen] = useState(false);
@@ -951,6 +954,51 @@ export default function OrderItemsTree({ orderId, canManage, readiness, onStageC
 
   const blockersHere = (readiness?.blockers ?? []).filter((b) => b.stage !== 'nesting');
 
+  async function downloadStructureSheet() {
+    setSheetBusy(true); setError('');
+    try {
+      const res = await api.get(
+        `${API_HOST}/api/${localStorage.getItem('companySlug')}/fab_erp/orders/${orderId}/structure/export`,
+        { responseType: 'blob' },
+      );
+      const url = URL.createObjectURL(res.data as Blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'Structure.xlsx'; a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setError(errMsg(e, 'Could not download the sheet'));
+    } finally { setSheetBusy(false); }
+  }
+
+  /**
+   * A sheet REPLACES the structure when one is already there.
+   *
+   * Adding to it would be the other reading, and it is the wrong one: the sheet
+   * is the whole structure, exported and edited, so importing it as an addition
+   * would double every row somebody did not delete. The server refuses without
+   * `replace`, so a first import into an empty order is unaffected.
+   */
+  async function uploadStructureSheet(file: File) {
+    setSheetBusy(true); setError('');
+    try {
+      const form = new FormData();
+      form.append('excel_file', file);
+      if (topItems.length > 0) form.append('replace', 'true');
+      const line = lines.find((l) => (l.templateItemId ?? l.catalogItemId) != null) ?? lines[0];
+      if (line) form.append('orderLineId', String(line.id));
+      await api.post(
+        `${API_HOST}/api/${localStorage.getItem('companySlug')}/fab_erp/orders/${orderId}/structure/import`,
+        form, { headers: { 'Content-Type': 'multipart/form-data' } },
+      );
+      markItemsChanged();
+      setTreeVersion((v) => v + 1);
+      await Promise.all([loadSummary(), loadProcurementCounts()]);
+      setTopItems(await loadTop());
+    } catch (e) {
+      setError(errMsg(e, 'That sheet could not be imported'));
+    } finally { setSheetBusy(false); }
+  }
+
   const showBuildPrompt = canManage
     && topItems.length > 0
     && !ctaDismissed
@@ -1003,11 +1051,53 @@ export default function OrderItemsTree({ orderId, canManage, readiness, onStageC
 
       {canManage && (
         <Box sx={{ display: 'flex', gap: 1, mb: 1.5, flexWrap: 'wrap' }}>
-          <Tooltip title="Open this line's BOM and edit it — change quantities, remove what this job does not have, copy a branch. Nothing is written until you press Create.">
-            <Button variant="outlined" size="small" startIcon={<AccountTreeRounded />} onClick={openStructureEditor}>
-              Edit structure
+          {/*
+            ONLY ONCE SOMETHING IS BUILT. With no structure the bill of materials
+            is already on the page, editable, so a button offering to open it is
+            a second door to the room you are standing in. What it is for is the
+            other case: throwing away what was built and taking the recipe again.
+          */}
+          {topItems.length > 0 && (
+            <Tooltip title="Take the bill of materials again and replace what is here. Refused once any of this work has started.">
+              <Button variant="outlined" size="small" startIcon={<AccountTreeRounded />} onClick={openStructureEditor}>
+                Rebuild from the BOM
+              </Button>
+            </Tooltip>
+          )}
+
+          {/*
+            THE SHEET, for the times a keyboard beats three hundred clicks.
+            Not the old BOQ sheet — that one's four code columns WERE the
+            structure, and neither codes nor one-row-per-piece survive. A level
+            column carries the shape now, and the dimensions ride along because
+            this is the one place somebody can fill in three hundred of them.
+          */}
+          <Tooltip title="The structure as a spreadsheet — levels, quantities and sizes.">
+            <Button
+              variant="outlined" size="small" disabled={sheetBusy}
+              startIcon={sheetBusy ? <CircularProgress size={14} color="inherit" /> : <DownloadRounded />}
+              onClick={downloadStructureSheet}
+            >
+              Download Excel
             </Button>
           </Tooltip>
+          <Tooltip title="Read a filled sheet back. Nothing is written unless the whole sheet parses.">
+            <Button
+              variant="outlined" size="small" disabled={sheetBusy}
+              startIcon={sheetBusy ? <CircularProgress size={14} color="inherit" /> : <UploadFileRounded />}
+              onClick={() => sheetFileRef.current?.click()}
+            >
+              Upload Excel
+            </Button>
+          </Tooltip>
+          <input
+            ref={sheetFileRef} type="file" accept=".xlsx" hidden
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) void uploadStructureSheet(f);
+              e.target.value = '';
+            }}
+          />
           {/*
             THE EXCEL IS GONE FROM THIS STEP, and so is code generation.
 
@@ -1121,68 +1211,55 @@ export default function OrderItemsTree({ orderId, canManage, readiness, onStageC
         <MaterializeOutcome result={materializeResult} onClose={() => setMaterializeResult(null)} />
       )}
 
-      {canManage && (
-        <Box sx={{ mb: 2 }}>
-          {addingRoot ? (
-            <AddItemRow
-              orderId={orderId}
-              parentItemId={null}
-              onCreated={(row) => {
-                setTopItems((prev) => [...prev, row]);
-                setAddingRoot(false);
-                handleItemAdded();
-                toast('Item added');
-              }}
-              onCancel={() => setAddingRoot(false)}
-            />
-          ) : (
-            <Button size="small" startIcon={<AddIcon />} variant="outlined" onClick={() => setAddingRoot(true)}>
-              Add top-level item
-            </Button>
-          )}
-        </Box>
-      )}
-
       {/*
-        THE EMPTY STATE CARRIES THE LINE THROUGH.
+        THE BILL OF MATERIALS IS THE STEP, not something a button opens.
 
-        It used to read "No items yet — add a top-level item", which is what you
-        would say if nothing were known. Something is: the line items step has
-        already been told this order sells a Span, and a Span has a BOM. Making
-        somebody start from "add a top-level item" throws that away and asks the
-        same question twice.
+        This used to be an empty box with "Add top-level item" and a button that
+        opened the BOM in a dialog — so the step that is ABOUT the structure
+        showed none of it, and the one thing worth looking at was one click away
+        behind a modal.
 
-        The structure is still not written until Create — the editor opens on the
-        BOM and nothing lands until it is accepted — but the step now says what
-        it is about to build and gets there in one press.
+        Now: nothing built yet and a line that names an item, and the BOM is
+        simply here, editable, with Create at the bottom. Nothing is written
+        until that is pressed, which is what makes it safe to be the page.
+
+        "Add top-level item" is gone. A structure is what the order SELLS, taken
+        apart — hand-typing a root beside it produced a branch belonging to no
+        line, which nesting, procurement and the production order all then had
+        to have an opinion about. Rows are still added, copied and removed
+        inside the tree, where they hang off something.
       */}
       {topItems.length === 0 ? (
-        buildable.length > 0 ? (
+        buildable.length === 1 ? (
+          <StructureEditor
+            variant="inline"
+            open
+            orderId={orderId}
+            orderLine={{
+              id: buildable[0].id,
+              code: buildable[0].code ?? null,
+              description: buildable[0].description ?? null,
+              itemId: buildable[0].templateItemId ?? buildable[0].catalogItemId ?? null,
+            }}
+            onClose={() => {}}
+            onDone={() => {
+              markItemsChanged(); loadSummary(); loadProcurementCounts();
+              setTreeVersion((v) => v + 1);
+              loadTop().then(setTopItems).catch(() => {});
+            }}
+          />
+        ) : buildable.length > 1 ? (
           <Surface e={1} sx={{ p: 3, textAlign: 'center' }}>
             <Typography sx={{ fontSize: 15, fontWeight: 600, mb: 0.5 }}>
-              {buildable.length === 1
-                ? `This order sells ${buildable[0].description ?? 'one item'}`
-                : `This order sells ${buildable.length} things`}
+              This order sells {buildable.length} things
             </Typography>
             <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)', maxWidth: 460, mx: 'auto', mb: 2 }}>
-              {buildable.length === 1
-                ? 'Its bill of materials is the structure. Open it, change what this job needs, and create it — nothing is written until you do.'
-                : 'Each one has a bill of materials. Build them one at a time — nothing is written until you accept it.'}
+              Each has its own bill of materials. Build them one at a time — nothing is written
+              until you accept it.
             </Typography>
-            <Button
-              variant="contained" startIcon={<AccountTreeRounded />}
-              onClick={() => {
-                if (buildable.length === 1) { setEditorLine(buildable[0]); setEditorOpen(true); }
-                else setLinePickerOpen(true);
-              }}
-            >
-              {buildable.length === 1
-                ? `Build from ${buildable[0].description ?? 'the line'}`
-                : 'Build a structure'}
+            <Button variant="contained" startIcon={<AccountTreeRounded />} onClick={() => setLinePickerOpen(true)}>
+              Build a structure
             </Button>
-            <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)', mt: 2 }}>
-              or add rows by hand with <b>Add top-level item</b> above
-            </Typography>
           </Surface>
         ) : (
           <EmptyState
