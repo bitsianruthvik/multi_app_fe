@@ -63,6 +63,7 @@ export default function BlankNesting({
   const [blanks, setBlanks] = useState<Blank[]>([]);
   const [nests, setNests] = useState<Nest[]>([]);
   const [summary, setSummary] = useState<BlankSummary | null>(null);
+  const [repeatable, setRepeatable] = useState(true);
   const [skipped, setSkipped] = useState<{ name: string; reason: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -91,6 +92,7 @@ export default function BlankNesting({
       setNests(res.nests ?? []);
       setSummary(res.summary ?? null);
       setSkipped(res.skipped ?? []);
+      setRepeatable(res.reproducible !== false);
     } catch (err) {
       setError(backendMessage(err, 'Could not work out what this order needs cutting.'));
       setBlanks([]); setNests([]); setSummary(null);
@@ -254,7 +256,7 @@ export default function BlankNesting({
         >
           <MenuItem value="quick">Quick</MenuItem>
           <MenuItem value="standard">Standard</MenuItem>
-          <MenuItem value="deep">Deep</MenuItem>
+          <MenuItem value="deep">Deep — slower, rarely better</MenuItem>
         </TextField>
         <Button size="small" startIcon={<RefreshIcon />} onClick={() => void load()}>Re-pack</Button>
         <Button size="small" startIcon={<DownloadIcon />} onClick={() => void download()}>
@@ -279,6 +281,9 @@ export default function BlankNesting({
         * screen that only accepts one.
         */}
       <Alert severity="info" variant="outlined" sx={{ mb: 1.5, py: 0.5 }}>
+        {repeatable
+          ? 'The same order always packs the same way — re-packing will not move this plan under you. '
+          : 'This run hit the safety time limit, so re-packing may give a different plan. '}
         This is a <b>suggestion</b>. Accept it, or download it, rearrange it in Excel and
         upload your own — the plan that gets built is whichever you accept last.
       </Alert>

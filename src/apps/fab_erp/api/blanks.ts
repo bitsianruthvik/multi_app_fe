@@ -53,6 +53,12 @@ export interface BlankSummary {
 
 export interface BlankPlanResponse {
   orderNumber: string;
+  /** Which effort level produced this. */
+  effort?: Effort;
+  /** The packer seed — the order id, so one order always packs the same way. */
+  seed?: number;
+  /** False only if the safety stop fired, in which case the plan may move. */
+  reproducible?: boolean;
   blanks: Blank[];
   nests: Nest[];
   skipped: { name: string; reason: string }[];
