@@ -1,25 +1,20 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  Alert, AlertTitle, Autocomplete, Box, Button, CircularProgress, Dialog, DialogActions,
+  Alert, AlertTitle, Box, Button, CircularProgress, Dialog, DialogActions,
   DialogContent, DialogTitle, IconButton, List, ListItemButton,
-  ListItemText, TextField, Tooltip, Typography,
+  ListItemText, Tooltip, Typography,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import BuildCircleRounded from '@mui/icons-material/BuildCircleRounded';
-import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import CloseRounded from '@mui/icons-material/CloseRounded';
-import ContentCopyRounded from '@mui/icons-material/ContentCopyRounded';
-import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
 import AccountTreeRounded from '@mui/icons-material/AccountTreeRounded';
 import DownloadRounded from '@mui/icons-material/DownloadRounded';
 import UploadFileRounded from '@mui/icons-material/UploadFileRounded';
-import DescriptionRounded from '@mui/icons-material/DescriptionRounded';
 
-import { fabQuery, fabMutate } from '../api/client';
+import { fabQuery } from '../api/client';
 import type { FilterValue } from '../api/client';
-import { Surface, EmptyState, useToast } from '../components';
+import { Surface, EmptyState } from '../components';
 import { MaterializeOutcome, type MaterializeResponse } from './OrderTaskDag';
-import DrawingsPanel from './DrawingsPanel';
 import type { OrderReadiness } from '../api/readiness';
 import StructureEditor from './StructureEditor';
 
@@ -38,16 +33,11 @@ interface OrderLineRef {
   templateItemId?: number | null;
   catalogItemId?: number | null;
 }
-import { procurementOf } from '../api/procurement';
 import api, { API_HOST } from '@core/utils/axiosConfig';
 
 // Tree can be 1000+ rows across hundreds of top-level branches — everything
 // here is lazy: top-level items load one page at a time, and a node's
-// children are only fetched the first time it's expanded (then cached in
-// that node's own local state so collapse/re-expand doesn't re-fetch).
-const MAX_ITEM_TREE_DEPTH = 12;
 const TOP_LEVEL_PAGE_SIZE = 200;
-const CHILD_PAGE_SIZE = 200;
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -85,11 +75,6 @@ interface FabItemRow {
   procurementType?: string | null;
 }
 
-interface CatalogOption {
-  id: number; name: string; code: string; unit: string | null;
-  /** Whether the shop buys this or makes it — carried onto the row it creates. */
-  procurementType?: string | null;
-}
 interface ItemsSummary {
   totalWeight: number | null;
   itemCount: number;
@@ -107,604 +92,16 @@ function errMsg(e: unknown, fallback = 'Something went wrong'): string {
   return ax.response?.data?.message ?? ax.response?.data?.error ?? ax.message ?? fallback;
 }
 
-// ─── Inline "add item" row — used for both top-level items and children ────
 
-function AddItemRow({ orderId, parentItemId, onCreated, onCancel }: {
-  orderId: number;
-  parentItemId: number | null;
-  onCreated: (row: FabItemRow) => void;
-  onCancel: () => void;
-}) {
-  const [inputValue, setInputValue] = useState('');
-  const [selected, setSelected] = useState<CatalogOption | null>(null);
-  const [opts, setOpts] = useState<CatalogOption[]>([]);
-  const [qty, setQty] = useState('1');
-  const [unit, setUnit] = useState('');
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState('');
-  const debRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+/*
+ * ItemNode and AddItemRow lived here — a second tree for a structure that had
+ * already been built, showing name and unit with the sizes a click away behind
+ * a dialog. Two views of one thing that disagreed about what a row is, and one
+ * of them saved on blur while the other batched.
+ *
+ * StructureEditor is both cases now. See the render below.
+ */
 
-  const search = useCallback((q: string) => {
-    if (debRef.current) clearTimeout(debRef.current);
-    debRef.current = setTimeout(async () => {
-      try {
-        // Genuine substring search needs the dotted-operator form with
-        // wildcards supplied by us — a plain { name: q } filter is silently
-        // exact-match in this codebase's query builder.
-        const res = await fabQuery<{ data: CatalogOption[] }>('fabErpItemCatalog', {
-          filters: q ? { 'name.LIKE': `%${q}%` } : undefined,
-          orderBy: [{ field: 'name', direction: 'asc' }],
-          pagination: { limit: 50 },
-        });
-        setOpts(res.data ?? []);
-      } catch { /* ignore */ }
-    }, 200);
-  }, []);
-
-  async function create() {
-    // BUG-08: freeSolo confirm-by-Enter leaves `selected` null even when the
-    // typed text names a real catalog item, silently saving it as uncatalogued
-    // (catalog_item_id NULL → no inventory/costing/planning link). If the input
-    // exactly matches a loaded option's name, bind to it. Genuine free text
-    // (e.g. an RM cut with no catalog row) still saves unlinked, as intended.
-    const typed = inputValue.trim();
-    const match = selected ?? opts.find((o) => o.name.trim().toLowerCase() === typed.toLowerCase()) ?? null;
-    const name = (match?.name ?? inputValue).trim();
-    if (!name) { setError('Name is required'); return; }
-    setSaving(true); setError('');
-    try {
-      const res = await fabMutate<{ id: number }>('fabErpItem', 'insert', {
-        order_id: orderId,
-        parent_item_id: parentItemId,
-        catalog_item_id: match?.id ?? null,
-        name,
-        unit: unit.trim() || null,
-        qty: parseFloat(qty) || 1,
-        // Every new item starts with no flow assignment, independent of its
-        // parent — flow_id is never inherited/pre-filled from the parent.
-        flow_id: null,
-        // Make or buy, decided the same way the server decides it on import:
-        // the catalog answers for anything bound to it, and anything else is
-        // made here. Set at insert because a row added by hand never passes
-        // through an import sweep, and an unclassified row reads as 'make' —
-        // which would quietly mislabel a bought-in part as something to build.
-        procurement_type: match?.procurementType === 'buy' ? 'buy' : 'make',
-      });
-      onCreated({
-        id: res.id,
-        orderId,
-        flowId: null,
-        parentItemId,
-        catalogItemId: match?.id ?? null,
-        name,
-        unit: unit.trim() || null,
-        qty: parseFloat(qty) || 1,
-        catalogItemCode: match?.code ?? null,
-        catalogItemUnit: match?.unit ?? null,
-        procurementType: match?.procurementType === 'buy' ? 'buy' : 'make',
-      });
-    } catch (e) {
-      setError(errMsg(e, 'Create failed'));
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <Box sx={{
-      display: 'flex', alignItems: 'flex-start', gap: 1, flexWrap: 'wrap',
-      py: 1, px: 1.5, bgcolor: 'var(--c-surface-2)', borderRadius: 1,
-    }}>
-      <Autocomplete
-        freeSolo
-        size="small"
-        sx={{ flex: '2 1 220px' }}
-        options={opts}
-        getOptionLabel={(o) => (typeof o === 'string' ? o : `${o.name}${o.code ? ` (${o.code})` : ''}`)}
-        filterOptions={(x) => x}
-        inputValue={inputValue}
-        onOpen={() => search(inputValue)}
-        onInputChange={(_, v, reason) => {
-          if (reason === 'reset') return;
-          setInputValue(v);
-          if (selected) setSelected(null);
-          search(v);
-        }}
-        onChange={(_, v) => {
-          if (v && typeof v !== 'string') {
-            setSelected(v);
-            setInputValue(v.name);
-            if (v.unit) setUnit(v.unit);
-          } else {
-            setSelected(null);
-          }
-        }}
-        renderOption={(props, o) => (
-          <li {...props} key={o.id}>
-            <Box>
-              <Typography variant="body2">{o.name}</Typography>
-              {o.code && <Typography variant="caption" color="text.disabled">{o.code}</Typography>}
-            </Box>
-          </li>
-        )}
-        renderInput={(params) => (
-          <TextField {...params} label="Item name (pick catalog item, or type free text for an RM cut)" size="small" autoFocus />
-        )}
-      />
-      <TextField label="Qty" type="number" size="small" sx={{ flex: '0 1 80px' }} value={qty} onChange={(e) => setQty(e.target.value)} />
-      <TextField label="Unit" size="small" sx={{ flex: '0 1 80px' }} value={unit} onChange={(e) => setUnit(e.target.value)} />
-      <Button size="small" variant="contained" disabled={saving} onClick={create}
-        startIcon={saving ? <CircularProgress size={12} color="inherit" /> : <AddIcon fontSize="small" />}>
-        Add
-      </Button>
-      <Button size="small" onClick={onCancel} disabled={saving}>Cancel</Button>
-      {error && <Alert severity="error" sx={{ width: '100%' }}>{error}</Alert>}
-    </Box>
-  );
-}
-
-// ─── One tree node (recursive) ─────────────────────────────────────────────
-
-function ItemNode({ item, depth, canManage, onDeleted, onItemAdded, onTreeChanged, treeVersion, codePrefix }: {
-  item: FabItemRow;
-  depth: number;
-  canManage: boolean;
-  onDeleted: (id: number) => void;
-  /** Bubbles a new child up to the root so it can re-offer "build tasks". */
-  onItemAdded: () => void;
-  /** Editing a weight or qty changes every ancestor's total — tells the root to recompute. */
-  onTreeChanged: () => void;
-  /** Bumped after a recompute or code run; nodes re-read themselves and their loaded children. */
-  treeVersion: number;
-  /** Shared head of every code in this order, stripped from the row display. */
-  codePrefix: string | null;
-}) {
-  const [expanded, setExpanded] = useState(false);
-  const [childrenLoaded, setChildrenLoaded] = useState(false);
-  const [children, setChildren] = useState<FabItemRow[]>([]);
-  const [loadingChildren, setLoadingChildren] = useState(false);
-  const [loadingMoreChildren, setLoadingMoreChildren] = useState(false);
-  const [hasMoreChildren, setHasMoreChildren] = useState(false);
-  const [childrenError, setChildrenError] = useState('');
-  /** Parts this assembly needs but does not contain — see loadChildren. */
-  const [addingChild, setAddingChild] = useState(false);
-
-  const [name, setName] = useState(item.name ?? '');
-  const [qty, setQty] = useState(String(item.qty ?? ''));
-  const [unit, setUnit] = useState(item.unit ?? '');
-  const savedRef = useRef({ name: item.name ?? '', qty: item.qty, unit: item.unit ?? '' });
-
-  const [rowError, setRowError] = useState('');
-  const [savingRow, setSavingRow] = useState(false);
-  const [deleting, setDeleting] = useState(false);
-  const [duplicating, setDuplicating] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState(false);
-
-  const [showDrawings, setShowDrawings] = useState(false);
-  // Server-owned figures. Kept in state (not read straight off `item`) so a
-  // recompute can refresh them in place without remounting the tree.
-  // Also server-owned: issued by itemCodeService, frozen once set, never edited here.
-  const [code, setCode] = useState<string | null>(item.code ?? null);
-
-  const atMaxDepth = depth >= MAX_ITEM_TREE_DEPTH;
-  // A typed weight on an assembly is legitimate — welds, bolts and paint make it
-  // heavier than the sum of its parts — so it wins, but the gap is surfaced
-  // rather than hidden, because the same symptom also means "a child is missing".
-
-  async function loadChildren(afterId?: number) {
-    setLoadingChildren(afterId ? loadingChildren : true);
-    if (afterId) setLoadingMoreChildren(true);
-    setChildrenError('');
-    try {
-      /*
-       * STRUCTURE ONLY, NOT MATERIAL.
-       *
-       * Accepting a nest hangs a row under every part naming the plate it was
-       * cut from — `node_kind = 'material'`. Those are links, not structure, and
-       * showing them here turned a clean BOM into a tree with a plate dangling
-       * off every leaf. The nesting board is where a part meets its plate.
-       */
-      const filters: Record<string, FilterValue> = {
-        parentItemId: item.id,
-        'nodeKind.NEQ': 'material',
-      };
-      if (afterId) filters['id.GT'] = afterId;
-      const res = await fabQuery<{ data: FabItemRow[] }>('fabErpItem', {
-        filters,
-        orderBy: [{ field: 'id', direction: 'asc' }],
-        pagination: { limit: CHILD_PAGE_SIZE },
-      });
-      const rows = res.data ?? [];
-      setChildren((prev) => (afterId ? [...prev, ...rows] : rows));
-      setHasMoreChildren(rows.length === CHILD_PAGE_SIZE);
-      setChildrenLoaded(true);
-    } catch (e) {
-      setChildrenError(errMsg(e, 'Failed to load children'));
-    } finally {
-      setLoadingChildren(false);
-      setLoadingMoreChildren(false);
-    }
-  }
-
-  /**
-   * Re-read this row's server-owned fields (weights, code) after a recompute or
-   * code run elsewhere in the tree, and refresh any children already on screen.
-   * Without this, editing a plate's weight would leave every assembly above it
-   * showing a stale total until the page was reloaded.
-   */
-  const refreshServerFields = useCallback(async () => {
-    try {
-      const res = await fabQuery<{ data: FabItemRow[] }>('fabErpItem', {
-        filters: { id: item.id },
-        pagination: { limit: 1 },
-      });
-      const row = res.data?.[0];
-      if (row) {
-        setCode(row.code ?? null);
-      }
-    } catch { /* a stale total is not worth an error banner */ }
-  }, [item.id]);
-
-  useEffect(() => {
-    if (treeVersion === 0) return;
-    refreshServerFields();
-    if (childrenLoaded) loadChildren();
-    // loadChildren is stable enough for this purpose and adding it would loop.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [treeVersion, refreshServerFields]);
-
-  function toggleExpand() {
-    if (atMaxDepth) return;
-    const next = !expanded;
-    setExpanded(next);
-    if (next && !childrenLoaded) loadChildren();
-  }
-
-  async function saveRow(patch: Partial<{ name: string; qty: string; unit: string }>) {
-    const nextName = patch.name ?? name;
-    const nextQty = patch.qty ?? qty;
-    const nextUnit = patch.unit ?? unit;
-
-    const parsedQty = parseFloat(nextQty) || 0;
-    const unchanged = nextName === savedRef.current.name
-      && parsedQty === savedRef.current.qty
-      && (nextUnit || '') === (savedRef.current.unit || '');
-    if (unchanged) return;
-
-    const qtyChanged = parsedQty !== savedRef.current.qty;
-
-    setSavingRow(true); setRowError('');
-    try {
-      await fabMutate('fabErpItem', 'update', {
-        id: item.id,
-        order_id: item.orderId,
-        parent_item_id: item.parentItemId,
-        catalog_item_id: item.catalogItemId,
-        name: nextName,
-        unit: nextUnit.trim() || null,
-        qty: parsedQty,
-        /*
-         * flow_id IS DELIBERATELY ABSENT, and that is load-bearing.
-         *
-         * The generic update is a partial SET, so a column not named here keeps
-         * its value. Sending `flow_id` from a row that no longer has a flow
-         * picker would null it on every rename — the Flows step owns that
-         * column now. Same reasoning for dimensions and weight, which this step
-         * no longer collects at all.
-         */
-      });
-      savedRef.current = { name: nextName, qty: parsedQty, unit: nextUnit };
-      // Quantity is a multiplier in every ancestor's roll-up, so changing it
-      // moves totals all the way to the top of the order.
-      if (qtyChanged) onTreeChanged();
-    } catch (e) {
-      setRowError(errMsg(e, 'Save failed'));
-    } finally {
-      setSavingRow(false);
-    }
-  }
-
-  /**
-   * Copy this row and everything under it, as a sibling.
-   *
-   * The server does the walk: a segment with eight parts is nine inserts and a
-   * batch of field values, and doing that from here would be nine round trips
-   * with no transaction around them.
-   */
-  async function handleDuplicate() {
-    setDuplicating(true); setRowError('');
-    try {
-      await api.post<{ created: number }>(
-        `${API_HOST}/api/${localStorage.getItem('companySlug')}/fab_erp/orders/${item.orderId}/items/${item.id}/duplicate`,
-        {},
-      );
-      onItemAdded();
-      onTreeChanged();
-    } catch (e) {
-      setRowError(errMsg(e, 'Could not copy that row'));
-    } finally { setDuplicating(false); }
-  }
-
-  async function handleDelete() {
-    setDeleting(true); setRowError('');
-    try {
-      await fabMutate('fabErpItem', 'delete', { id: item.id });
-      onDeleted(item.id);
-    } catch (e) {
-      setRowError(errMsg(e, 'Delete failed'));
-      setDeleting(false);
-      setConfirmDelete(false);
-    }
-  }
-
-
-  function handleChildDeleted(id: number) {
-    setChildren((prev) => prev.filter((r) => r.id !== id));
-    // A deleted branch stops contributing its weight upward.
-    onTreeChanged();
-  }
-
-  const th = { fontSize: 13, color: 'var(--c-text)' } as const;
-
-  return (
-    <Box sx={{ borderBottom: '0.5px solid var(--c-divider)', '&:last-child': { borderBottom: 'none' } }}>
-      <Box sx={{
-        display: 'flex', alignItems: 'center', gap: 1,
-        pl: `${6 + depth * 24}px`, pr: 1.5, py: 0.75,
-        '&:hover': { bgcolor: 'var(--c-surface-2)' },
-        '&:hover .item-actions': { opacity: 1 },
-      }}
-      >
-        <IconButton size="small" onClick={toggleExpand} disabled={atMaxDepth} sx={{ p: 0.25 }}>
-          <ChevronRightIcon sx={{
-            fontSize: 16,
-            color: atMaxDepth ? 'transparent' : 'text.secondary',
-            transform: expanded ? 'rotate(90deg)' : 'none',
-            transition: 'transform 0.15s',
-          }} />
-        </IconButton>
-
-        <TextField
-          variant="standard"
-          size="small"
-          value={name}
-          disabled={!canManage || savingRow}
-          onChange={(e) => setName(e.target.value)}
-          onBlur={() => saveRow({ name })}
-          sx={{ flex: '2 1 200px', ...th }}
-          placeholder="Item name"
-        />
-
-        <TextField
-          variant="standard"
-          size="small"
-          type="number"
-          value={qty}
-          disabled={!canManage || savingRow}
-          onChange={(e) => setQty(e.target.value)}
-          onBlur={() => saveRow({ qty })}
-          sx={{ flex: '0 1 70px', ...th }}
-          slotProps={{ input: { style: { textAlign: 'right' } } }}
-        />
-
-        <TextField
-          variant="standard"
-          size="small"
-          value={unit}
-          disabled={!canManage || savingRow}
-          onChange={(e) => setUnit(e.target.value)}
-          onBlur={() => saveRow({ unit })}
-          sx={{ flex: '0 1 60px', ...th }}
-          placeholder="unit"
-        />
-
-        {/*
-          NO FLOW PICKER HERE. Flows are their own step, and that step is a
-          review screen: a flow arrives with the structure from the BOM line it
-          came from, and the job there is to check it and make the odd
-          exception. A second dropdown on every structure row was the same
-          decision offered in two places, which is how the two come to disagree.
-        */}
-
-        {/* The customer + order-number head is identical on every row, so only
-            the chain that identifies THIS piece is shown. Full code on hover. */}
-        {code && (
-          <Tooltip title={`${code} — click to copy`}>
-            <Typography
-              variant="caption" fontFamily="monospace"
-              onClick={() => navigator.clipboard?.writeText(code)}
-              sx={{
-                flexShrink: 0, maxWidth: 190, overflow: 'hidden', textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap', cursor: 'copy', color: 'var(--c-text-3)',
-              }}
-            >
-              {codePrefix && code.startsWith(`${codePrefix}-`) ? code.slice(codePrefix.length + 1) : code}
-            </Typography>
-          </Tooltip>
-        )}
-
-        {item.catalogItemCode && (
-          <Typography variant="caption" color="text.disabled" fontFamily="monospace" sx={{ flexShrink: 0 }}>
-            {item.catalogItemCode}
-          </Typography>
-        )}
-
-        {/* Make or buy, on EVERY row.
-            An earlier pass drew only 'buy', on the reasoning that a fabrication
-            BOM is nearly all made-here and badging all of it is noise. That is
-            true of the ink and false of the question: reading no badge cannot
-            distinguish "this one is made here" from "this row predates the
-            column" or "I am looking at the wrong column", and the whole point
-            of the field is that somebody can answer it per row without going
-            and asking. 'buy' still carries the colour, so the exceptions stay
-            scannable; 'make' recedes into the row without disappearing. */}
-        <Tooltip title={
-          procurementOf(item) === 'buy'
-            ? (item.catalogItemCode
-              ? `Bought in — ${item.catalogItemCode} is a 'buy' item in the catalog`
-              : 'Bought in — set on this row rather than by its catalog item')
-            : (item.catalogItemCode
-              ? `Made here — ${item.catalogItemCode} is a 'make' item in the catalog`
-              : 'Made here — nothing in the catalog says otherwise')
-        }>
-          <Box
-            component="span"
-            sx={{
-              flexShrink: 0, fontSize: 10, fontWeight: 600, letterSpacing: '.05em',
-              textTransform: 'uppercase', px: 0.75, py: 0.125, borderRadius: 0.75,
-              ...(procurementOf(item) === 'buy'
-                ? {
-                  color: 'var(--c-warn-fg, #8a5a00)',
-                  bgcolor: 'var(--c-warn-bg, rgba(255,176,32,.14))',
-                  border: '1px solid var(--c-warn-border, rgba(255,176,32,.35))',
-                }
-                : {
-                  color: 'var(--c-text-3)',
-                  bgcolor: 'transparent',
-                  border: '1px solid var(--c-border)',
-                }),
-            }}
-          >
-            {procurementOf(item)}
-          </Box>
-        </Tooltip>
-
-        {/*
-          The weight column has gone with the dimensions that fed it. It
-          could only ever read "—" now, and a column of em dashes is not
-          information.
-        */}
-
-        {savingRow && <CircularProgress size={12} />}
-
-        <Box className="item-actions" sx={{ display: 'flex', gap: 0.25, flexShrink: 0, opacity: 0, transition: 'opacity 0.1s', ml: 'auto' }}>
-          {canManage && !atMaxDepth && (
-            <Tooltip title="Add child">
-              <IconButton size="small" onClick={() => { if (!expanded) { setExpanded(true); if (!childrenLoaded) loadChildren(); } setAddingChild(true); }} sx={{ p: 0.25 }}>
-                <AddIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
-          )}
-          {canManage && (
-            <Tooltip title="Copy this row and everything under it">
-              <IconButton size="small" onClick={handleDuplicate} sx={{ p: 0.25 }} disabled={duplicating}>
-                {duplicating
-                  ? <CircularProgress size={13} />
-                  : <ContentCopyRounded sx={{ fontSize: 15 }} />}
-              </IconButton>
-            </Tooltip>
-          )}
-          <Tooltip title="Drawings">
-            <IconButton size="small" onClick={() => setShowDrawings((v) => !v)} sx={{ p: 0.25 }}>
-              <DescriptionRounded fontSize="small" />
-            </IconButton>
-          </Tooltip>
-          {canManage && (
-            <Tooltip title="Remove">
-              <IconButton size="small" color="error" onClick={() => setConfirmDelete(true)} sx={{ p: 0.25 }} disabled={deleting}>
-                <DeleteOutlineRounded fontSize="small" />
-              </IconButton>
-            </Tooltip>
-          )}
-        </Box>
-      </Box>
-
-      {rowError && (
-        <Alert severity="error" sx={{ mx: `${6 + depth * 24}px`, mb: 0.5 }} onClose={() => setRowError('')}>
-          {rowError}
-        </Alert>
-      )}
-
-      {confirmDelete && (
-        <Box sx={{ ml: `${6 + depth * 24}px`, mr: 1.5, mb: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
-          <Typography variant="caption" color="error">
-            Delete "{name}"{children.length ? ' — this does not cascade-delete its children automatically.' : '?'}
-          </Typography>
-          <Button size="small" color="error" variant="contained" onClick={handleDelete} disabled={deleting}>
-            {deleting ? <CircularProgress size={12} color="inherit" /> : 'Confirm'}
-          </Button>
-          <Button size="small" onClick={() => setConfirmDelete(false)} disabled={deleting}>Cancel</Button>
-        </Box>
-      )}
-
-      {showDrawings && (
-        <Box sx={{ ml: `${6 + depth * 24 + 24}px`, mr: 1.5, mb: 1 }}>
-          {/* Attached here, read at the machine. A drawing put on the girder is
-              inherited by every part beneath it, which is why the general
-              arrangement never has to be attached two hundred times. */}
-          <DrawingsPanel itemId={item.id} canManage={canManage} dense />
-        </Box>
-      )}
-
-      {/*,        DIMENSIONS AND WEIGHT ARE NOT ENTERED HERE ANY MORE.,,        Length, width, thickness and weight-each were typed onto the order row.,        They describe a piece of steel, and a BOM row is not a piece of steel —,        it is "six of this design". The size belongs to the blank the row draws,        from, which is a catalog item, and that is also where nesting can filter,        on it and where a weight can be worked out once for everybody.,,        Coming back on the catalog item, not on this row.,      */}
-
-      {atMaxDepth && expanded === false && depth === MAX_ITEM_TREE_DEPTH && (
-        <Typography variant="caption" color="text.disabled" sx={{ display: 'block', ml: `${6 + depth * 24 + 24}px`, mb: 1 }}>
-          Max tree depth reached — further nesting is hidden.
-        </Typography>
-      )}
-
-      {expanded && (
-        <Box sx={{ ml: `${6 + depth * 24 + 12}px`, borderLeft: '2px solid var(--c-divider)' }}>
-          {loadingChildren ? (
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, pl: 2, py: 1 }}>
-              <CircularProgress size={14} />
-              <Typography variant="caption" color="text.disabled">Loading children…</Typography>
-            </Box>
-          ) : childrenError ? (
-            <Alert severity="error" sx={{ mx: 2, my: 1 }}>{childrenError}</Alert>
-          ) : (
-            <>
-              {/*,                THE "NEEDS" BLOCK HAS GONE, with the consolidation that made it,                necessary. Parts were moved out from under their assemblies onto,                the order line, so a diaphragm listed no children and this block,                stood in for them. Parts are children again; when they become,                stock lots they will be an input on the task, not a row here.,              */}
-
-              {children.length === 0 && !addingChild && (
-                <Typography variant="caption" color="text.disabled" sx={{ display: 'block', pl: 3, py: 1 }}>
-                  No children
-                </Typography>
-              )}
-              {children.map((child) => (
-                <ItemNode
-                  key={child.id}
-                  item={child}
-                  depth={depth + 1}
-                  canManage={canManage}
-                  onDeleted={handleChildDeleted}
-                  onItemAdded={onItemAdded}
-                  onTreeChanged={onTreeChanged}
-                  treeVersion={treeVersion}
-                  codePrefix={codePrefix}
-                />
-              ))}
-              {hasMoreChildren && (
-                <Box sx={{ pl: 3, py: 0.5 }}>
-                  <Button size="small" onClick={() => loadChildren(children[children.length - 1]?.id)} disabled={loadingMoreChildren}>
-                    {loadingMoreChildren ? <CircularProgress size={12} /> : 'Load more'}
-                  </Button>
-                </Box>
-              )}
-              {addingChild && (
-                <Box sx={{ pl: 1.5, pr: 1, py: 0.5 }}>
-                  <AddItemRow
-                    orderId={item.orderId}
-                    parentItemId={item.id}
-                    onCreated={(row) => {
-                      setChildren((prev) => [...prev, row]);
-                      setAddingChild(false);
-                      // onItemAdded re-rolls the weights and issues the new
-                      // row's code — no separate onTreeChanged needed here.
-                      onItemAdded();
-                    }}
-                    onCancel={() => setAddingChild(false)}
-                  />
-                </Box>
-              )}
-            </>
-          )}
-        </Box>
-      )}
-    </Box>
-  );
-}
 
 // ─── Root component ─────────────────────────────────────────────────────────
 
@@ -721,7 +118,6 @@ export interface OrderItemsTreeProps {
 }
 
 export default function OrderItemsTree({ orderId, canManage, readiness, onStageChanged }: OrderItemsTreeProps) {
-  const { toast } = useToast();
   const [topItems, setTopItems] = useState<FabItemRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -862,18 +258,6 @@ export default function OrderItemsTree({ orderId, canManage, readiness, onStageC
       .catch(() => setLines([]));
   }, [orderId]);
 
-  /**
-   * A quantity changed, or a row went away. There is no weight to roll up any
-   * more — the dimensions it was computed from are not entered here — but the
-   * counts above the tree still move, so they are re-read.
-   */
-  const handleTreeChanged = useCallback(async () => {
-    try {
-      setTreeVersion((v) => v + 1);
-      await Promise.all([loadSummary(), loadProcurementCounts()]);
-    } catch { /* leave the last good totals on screen rather than blanking them */ }
-  }, [loadSummary, loadProcurementCounts]);
-
 
   async function loadMore() {
     if (topItems.length === 0) return;
@@ -890,13 +274,6 @@ export default function OrderItemsTree({ orderId, canManage, readiness, onStageC
     }
   }
 
-  function handleDeleted(id: number) {
-    setTopItems((prev) => prev.filter((r) => r.id !== id));
-    toast('Item removed');
-    // Re-reads the split too — a removed branch takes its bought-in rows with it.
-    handleTreeChanged();
-  }
-
   // New rows always arrive with flow_id NULL and no tasks behind them, so any
   // add re-opens the prompt — including one the user dismissed earlier, and
   // including an order that already had tasks (the new rows still have none).
@@ -910,23 +287,6 @@ export default function OrderItemsTree({ orderId, canManage, readiness, onStageC
     // that already computed readiness hand it over rather than making the page
     // ask for it again.
     onStageChanged?.(next);
-  }
-
-  /**
-   * A row was added.
-   *
-   * This used to recompute weights AND issue codes for the whole order. Both
-   * are gone: there are no dimensions to roll up, and a code minted here would
-   * be exactly the positional code the BOM step stopped writing — added one
-   * hand-typed row at a time instead of all at once, which is worse, not
-   * better. Only the counts above the tree need re-reading.
-   */
-  async function handleItemAdded() {
-    markItemsChanged();
-    try {
-      setTreeVersion((v) => v + 1);
-      await loadSummary(); await loadProcurementCounts();
-    } catch { /* the row is saved; the counts catch up on the next action */ }
   }
 
   // Same endpoint the Task DAG tab's "Materialize tasks" button calls — the
@@ -1072,14 +432,6 @@ export default function OrderItemsTree({ orderId, canManage, readiness, onStageC
           */}
           {topItems.length > 0 && (
             <>
-              <Tooltip title="Open the whole structure and change it. Rows you keep stay the same rows.">
-                <Button
-                  variant="contained" size="small" startIcon={<AccountTreeRounded />}
-                  onClick={() => openStructureEditor('current')}
-                >
-                  Edit the structure
-                </Button>
-              </Tooltip>
               <Tooltip title="Take the bill of materials again and REPLACE what is here. Anything typed on the current rows goes with them.">
                 <Button variant="outlined" size="small" onClick={() => openStructureEditor('bom')}>
                   Rebuild from the BOM
@@ -1293,21 +645,38 @@ export default function OrderItemsTree({ orderId, canManage, readiness, onStageC
           />
         )
       ) : (
-        <Surface e={1} sx={{ overflow: 'hidden' }}>
-          {topItems.map((row) => (
-            <ItemNode
-              key={row.id}
-              item={row}
-              depth={0}
-              canManage={canManage}
-              onDeleted={handleDeleted}
-              onItemAdded={handleItemAdded}
-              onTreeChanged={handleTreeChanged}
-              treeVersion={treeVersion}
-              codePrefix={summary?.codePrefix ?? null}
-            />
-          ))}
-        </Surface>
+        /*
+         * BUILT OR NOT, THE STRUCTURE IS THE SAME SCREEN.
+         *
+         * A built order used to fall back to a different tree — one that showed
+         * name and unit and nothing else, with the sizes a click away behind
+         * "Edit the structure". So the step that owns the dimensions did not
+         * show them, and two views of one thing disagreed about what a row is.
+         *
+         * The editor is now both cases. It batches: nothing is written until
+         * Save, which is the same promise it makes on an empty order, rather
+         * than the old tree's save-on-blur — one mental model instead of two on
+         * one screen.
+         */
+        <StructureEditor
+          key={`built-${treeVersion}`}
+          variant="inline"
+          source="current"
+          open
+          orderId={orderId}
+          orderLine={buildable[0] ? {
+            id: buildable[0].id,
+            code: buildable[0].code ?? null,
+            description: buildable[0].description ?? null,
+            itemId: buildable[0].templateItemId ?? buildable[0].catalogItemId ?? null,
+          } : null}
+          onClose={() => {}}
+          onDone={() => {
+            markItemsChanged(); loadSummary(); loadProcurementCounts();
+            setTreeVersion((v) => v + 1);
+            loadTop().then(setTopItems).catch(() => {});
+          }}
+        />
       )}
 
       {hasMore && (

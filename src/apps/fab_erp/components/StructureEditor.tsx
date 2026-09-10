@@ -7,12 +7,14 @@ import AddRounded from '@mui/icons-material/AddRounded';
 import CheckRoundedIcon from '@mui/icons-material/CheckRounded';
 import ContentCopyRounded from '@mui/icons-material/ContentCopyRounded';
 import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
+import DescriptionRounded from '@mui/icons-material/DescriptionRounded';
 import ExpandMoreRounded from '@mui/icons-material/ExpandMoreRounded';
 import ChevronRightRounded from '@mui/icons-material/ChevronRightRounded';
 
 import { fabQuery } from '../api/client';
 import { backendMessage, Surface } from '../components';
 import { DialogCloseButton } from './FormDialog';
+import DrawingsPanel from './DrawingsPanel';
 import {
   getDraftTree, getCurrentTree, buildStructure, applyStructure, type DraftNode,
 } from '../api/templates';
@@ -134,6 +136,7 @@ export default function StructureEditor({
   const [existing, setExisting] = useState<number | null>(null);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [addUnder, setAddUnder] = useState<string | null>(null);
+  const [showDrawings, setShowDrawings] = useState<string | null>(null);
 
   const [catalog, setCatalog] = useState<CatalogOption[]>([]);
 
@@ -352,6 +355,24 @@ export default function StructureEditor({
             display: 'flex', width: 76, flexShrink: 0, justifyContent: 'flex-end',
             opacity: 0, transition: 'opacity .12s',
           }}>
+            {/*
+              DRAWINGS, but only on a row that EXISTS.
+              A drawing is a file attached to an item id; a row somebody just
+              added has none until Save, so offering it there would be a button
+              that could only fail. Attached to a girder it is inherited by every
+              part beneath it, which is why the general arrangement is not
+              attached two hundred times.
+            */}
+            {node.itemId != null && (
+              <Tooltip title="Drawings">
+                <IconButton
+                  size="small" sx={{ p: 0.25 }}
+                  onClick={() => setShowDrawings((d) => (d === node.key ? null : node.key))}
+                >
+                  <DescriptionRounded sx={{ fontSize: 16 }} />
+                </IconButton>
+              </Tooltip>
+            )}
             <Tooltip title="Add something under this">
               <IconButton size="small" sx={{ p: 0.25 }} onClick={() => setAddUnder(node.key)}>
                 <AddRounded sx={{ fontSize: 16 }} />
@@ -401,6 +422,12 @@ export default function StructureEditor({
               renderInput={(p) => <TextField {...p} size="small" label={`Add under ${node.name}`} autoFocus />}
             />
             <Button size="small" onClick={() => setAddUnder(null)}>Cancel</Button>
+          </Box>
+        )}
+
+        {showDrawings === node.key && node.itemId != null && (
+          <Box sx={{ pl: `${(depth + 1) * 20}px`, pr: 1.5, py: 1 }}>
+            <DrawingsPanel itemId={node.itemId} canManage dense />
           </Box>
         )}
 
