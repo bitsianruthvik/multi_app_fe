@@ -74,7 +74,17 @@ export default function BlankNesting({
   const [tab, setTab] = useState(0);
   const [open, setOpen] = useState<Set<string>>(new Set());
   const [effort, setEffort] = useState<Effort>('standard');
-  const [flowOverride, setFlowOverride] = useState<Record<string, number>>({});
+  /**
+   * ONE FLOW FOR THE WHOLE ORDER, chosen once at the top.
+   *
+   * It was a dropdown on all twenty-four rows, and on every order so far the
+   * answer is the same on all of them — twenty-four chances to make them differ
+   * by accident, for a case nobody has had yet. When one genuinely needs its own
+   * flow, that belongs on the blank, and this is the wrong screen to guess it on.
+   */
+  const [flowId, setFlowId] = useState<number | ''>('');
+  const [provenance, setProvenance] = useState<string | null>(null);
+  const [accepted, setAccepted] = useState(false);
 
   const [flows, setFlows] = useState<{ id: number; name: string }[]>([]);
   useEffect(() => {
@@ -96,6 +106,8 @@ export default function BlankNesting({
       setSkipped(res.skipped ?? []);
       setRepeatable(res.reproducible !== false);
       setFromSaved(res.fromSaved === true);
+      setProvenance(res.provenance ?? null);
+      setAccepted(res.accepted === true);
     } catch (err) {
       setError(backendMessage(err, 'Could not work out what this order needs cutting.'));
       setBlanks([]); setNests([]); setSummary(null);
@@ -115,7 +127,14 @@ export default function BlankNesting({
     setError(null);
     setResult(null);
     try {
-      const res = await acceptBlankPlan(orderId, { nests, flows: flowOverride });
+      const res = await acceptBlankPlan(orderId, {
+        nests,
+        // Every blank gets the same flow; blank means "the cutting default".
+        flows: flowId === ''
+          ? {}
+          : Object.fromEntries(blanks.map((b) => [b.key, Number(flowId)])),
+        provenance: provenance ?? undefined,
+      });
       setResult(
         `${res.blanks} blanks across ${res.sheets} sheets on ${res.cuttingOrderNumber}. `
         + `${res.partsRepointed} part rows now come off a blank.`,
@@ -127,7 +146,7 @@ export default function BlankNesting({
     } finally {
       setAccepting(false);
     }
-  }, [nests, flowOverride, orderId, load, onStageChanged]);
+  }, [nests, blanks, flowId, provenance, orderId, load, onStageChanged]);
 
   /**
    * THE SECOND WAY IN.
@@ -219,13 +238,13 @@ export default function BlankNesting({
         overflow: 'hidden', background: 'var(--c-surface-2)', flexWrap: 'wrap',
       }}>
         {([
+          // Four, not seven. Pieces, mixed sheets and drop were all derivable
+          // from what is left and none of them changed a decision — they were
+          // there because they were interesting, which is not the same thing.
           ['Blanks', String(summary?.blanks ?? 0), null],
-          ['Pieces', (summary?.pieces ?? 0).toLocaleString(), null],
           ['Sheets', String(summary?.plates ?? 0), null],
-          ['Mixed sheets', String(summary?.mixedPlates ?? 0), 'var(--c-primary-600)'],
           ['Steel bought', t(summary?.boughtKg ?? 0), null],
           ['Yield', `${((summary?.yield ?? 0) * 100).toFixed(1)}%`, yieldColour(summary?.yield ?? 0)],
-          ['Drop', t(summary?.dropKg ?? 0), null],
         ] as [string, string, string | null][]).map(([k, v, colour]) => (
           <Box key={k} sx={{ px: 2, py: 1.25, borderRight: '1px solid var(--c-divider)', minWidth: 112 }}>
             <Typography sx={{
@@ -240,28 +259,57 @@ export default function BlankNesting({
         ))}
       </Stack>
 
+      {/*
+        WHAT THIS PLAN IS, in one line: accepted or not, and how it was arrived
+        at. "Deep — 2000 restarts in 41s" or "Uploaded from a spreadsheet". The
+        first question anybody asks about a plan is why it looks like that, and
+        the screen could not answer it at all.
+      */}
       <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mb: 1.5, flexWrap: 'wrap' }}>
-        {shortBlanks.length > 0 && (
-          <Chip size="small" color="error" variant="outlined"
-            label={`${shortBlanks.length} blank${shortBlanks.length === 1 ? '' : 's'} not fully placed`} />
+        <Chip
+          size="small"
+          color={accepted ? 'success' : 'warning'}
+          variant={accepted ? 'filled' : 'outlined'}
+          label={accepted ? 'Accepted' : 'Not accepted'}
+        />
+        {provenance && (
+          <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)' }}>{provenance}</Typography>
         )}
-        {(summary?.mixedPlates ?? 0) > 0 && (
-          <Tooltip title="A sheet carrying more than one rectangle. This is where the steel is saved.">
-            <Chip size="small" color="primary" variant="outlined"
-              label={`${summary?.mixedPlates} sheets carry a mix`} />
+        {!repeatable && (
+          <Tooltip title="This run hit the safety time limit, so re-nesting may give a different plan.">
+            <Chip size="small" color="warning" variant="outlined" label="may not repeat" />
           </Tooltip>
         )}
+        {shortBlanks.length > 0 && (
+          <Chip size="small" color="error" variant="outlined"
+            label={`${shortBlanks.length} not fully placed`} />
+        )}
+
         <Box sx={{ flex: 1 }} />
+
+        <TextField
+          select size="small" label="Cut by" value={flowId}
+          onChange={(e) => setFlowId(e.target.value === '' ? '' : Number(e.target.value))}
+          sx={{ width: 190 }}
+          disabled={!canManage}
+        >
+          <MenuItem value=""><em>Cutting (default)</em></MenuItem>
+          {flows.map((f) => <MenuItem key={f.id} value={f.id}>{f.name}</MenuItem>)}
+        </TextField>
+
         <TextField
           select size="small" label="How hard to look" value={effort}
-          onChange={(e) => { const v = e.target.value as typeof effort; setEffort(v); void load(v); }}
-          sx={{ width: 168 }}
+          onChange={(e) => { const v = e.target.value as Effort; setEffort(v); void load(v, true); }}
+          sx={{ width: 150 }}
         >
           <MenuItem value="quick">Quick</MenuItem>
           <MenuItem value="standard">Standard</MenuItem>
-          <MenuItem value="deep">Deep — 2x slower, ~0.1% less steel</MenuItem>
+          <MenuItem value="deep">Deep</MenuItem>
         </TextField>
-        <Button size="small" startIcon={<RefreshIcon />} onClick={() => void load(effort, true)}>Re-pack</Button>
+
+        <Button size="small" startIcon={<RefreshIcon />} onClick={() => void load(effort, true)}>
+          Re-nest
+        </Button>
         <Button size="small" startIcon={<DownloadIcon />} onClick={() => void download()}>
           Download plan
         </Button>
@@ -270,7 +318,7 @@ export default function BlankNesting({
             size="small" startIcon={<UploadFileIcon />} disabled={uploading}
             onClick={() => fileRef.current?.click()}
           >
-            {uploading ? 'Reading…' : 'Upload my plan'}
+            {uploading ? 'Reading…' : 'Upload plan'}
           </Button>
         )}
         <input
@@ -280,16 +328,16 @@ export default function BlankNesting({
       </Stack>
 
       {/*
-        * Said out loud, because a screen that opens on a suggestion looks like a
-        * screen that only accepts one.
-        */}
-      <Alert severity="info" variant="outlined" sx={{ mb: 1.5, py: 0.5 }}>
-        {repeatable
-          ? 'The same order always packs the same way — re-packing will not move this plan under you. '
-          : 'This run hit the safety time limit, so re-packing may give a different plan. '}
-        This is a <b>suggestion</b>. Accept it, or download it, rearrange it in Excel and
-        upload your own — the plan that gets built is whichever you accept last.
-      </Alert>
+        Only when it is NOT accepted. Once it is, the status chip says so and a
+        paragraph explaining that this is a suggestion is describing something
+        that already stopped being one.
+      */}
+      {!accepted && (
+        <Alert severity="info" variant="outlined" sx={{ mb: 1.5, py: 0.5 }}>
+          This is a <b>suggestion</b>. Accept it, or download it, rearrange it in Excel and
+          upload your own — the plan that gets built is whichever you accept last.
+        </Alert>
+      )}
 
       <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 1, minHeight: 36 }}>
         <Tab label={`What has to be cut (${blanks.length})`} sx={{ minHeight: 36, fontSize: 13 }} />
@@ -311,7 +359,6 @@ export default function BlankNesting({
             <Box sx={{ width: 70, flexShrink: 0, textAlign: 'right' }}><Hd>Need</Hd></Box>
             <Box sx={{ width: 210, flexShrink: 0 }}><Hd>Cut from</Hd></Box>
             <Box sx={{ width: 80, flexShrink: 0, textAlign: 'right' }}><Hd>Sheets</Hd></Box>
-            <Box sx={{ width: 160, flexShrink: 0 }}><Hd>Cut by</Hd></Box>
           </Stack>
 
           {blanks.map((b) => {
@@ -386,23 +433,6 @@ export default function BlankNesting({
                     )}
                   </Box>
 
-                  {/*
-                    * THE FLOW, per blank. Almost everything is cut and nothing
-                    * else — but a rectangle that also gets drilled while it is
-                    * flat belongs on a different flow, and that is a fact about
-                    * the rectangle rather than about the sheet it came off.
-                    */}
-                  <Box sx={{ width: 160, flexShrink: 0 }}>
-                    <TextField
-                      select size="small" fullWidth disabled={!canManage}
-                      value={flowOverride[b.key] ?? ''}
-                      onChange={(e) => setFlowOverride((f) => ({ ...f, [b.key]: Number(e.target.value) }))}
-                      slotProps={{ htmlInput: { style: { padding: '4px 8px', fontSize: 12.5 } } }}
-                    >
-                      <MenuItem value=""><em>Cutting (default)</em></MenuItem>
-                      {flows.map((f) => <MenuItem key={f.id} value={f.id}>{f.name}</MenuItem>)}
-                    </TextField>
-                  </Box>
                 </Stack>
 
                 <Collapse in={isOpen} unmountOnExit>

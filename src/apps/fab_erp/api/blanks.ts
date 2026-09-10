@@ -54,6 +54,10 @@ export interface BlankSummary {
 export interface BlankPlanResponse {
   /** True when this is the plan the order accepted, not a fresh proposal. */
   fromSaved?: boolean;
+  /** True once the plan has been accepted onto a cutting order. */
+  accepted?: boolean;
+  /** How this plan was arrived at, for the reader. */
+  provenance?: string | null;
   orderNumber: string;
   /** Which effort level produced this. */
   effort?: Effort;
@@ -93,7 +97,7 @@ export interface AcceptResponse {
 
 export const acceptBlankPlan = (
   orderId: number | string,
-  plan: { nests: Nest[]; flows?: Record<string, number> },
+  plan: { nests: Nest[]; flows?: Record<string, number>; provenance?: string },
 ) => fabPost<AcceptResponse>(`orders/${orderId}/blanks/accept`, { plan });
 
 /**

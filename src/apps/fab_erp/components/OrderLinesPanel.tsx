@@ -520,8 +520,19 @@ export default function OrderLinesPanel({ orderId, canManage, onChanged }: {
             return (
               <Surface key={line.id} e={1} sx={{ overflow: 'hidden' }}>
                 {/* ── the line itself ─────────────────────────────────── */}
+                {/*
+                  THE LINE IS THE TOP ROW OF ITS OWN TREE, so it is shaped like
+                  one: same height, same type size, quantity in the same column
+                  as every quantity beneath it.
+
+                  It used to be a card header — bigger text, a subtitle, its own
+                  padding — which made the first row of the structure look like a
+                  different kind of thing from the rows under it, when it is
+                  simply the one they hang off.
+                */}
                 <Box sx={{
-                  display: 'flex', alignItems: 'center', gap: 1.5, p: 1.5,
+                  display: 'flex', alignItems: 'center', gap: 1,
+                  px: 1.5, py: 0.4, minHeight: 40,
                   borderBottom: isOpen ? '1px solid var(--c-divider)' : undefined,
                   background: 'var(--c-surface-2)',
                 }}>
@@ -535,16 +546,14 @@ export default function OrderLinesPanel({ orderId, canManage, onChanged }: {
 
                   <Mono chip>{line.lineNo}</Mono>
 
-                  <Box sx={{ flex: 1, minWidth: 0 }}>
-                    <Typography noWrap sx={{ fontSize: 14, fontWeight: 600 }}>
-                      {line.description ?? '—'}
-                    </Typography>
-                    <Typography noWrap sx={{ fontSize: 12, color: 'var(--c-text-2)' }}>
-                      {[line.lineType, steel || null,
-                        rows > 0 ? `${rows} row${rows === 1 ? '' : 's'}` : 'nothing built yet',
-                      ].filter(Boolean).join(' · ')}
-                    </Typography>
-                  </Box>
+                  <Typography noWrap sx={{ fontSize: 13.5, fontWeight: 600, flexShrink: 0 }}>
+                    {line.description ?? '—'}
+                  </Typography>
+                  <Typography noWrap sx={{ fontSize: 12, color: 'var(--c-text-3)', flex: 1, minWidth: 0 }}>
+                    {[line.lineType, steel || null,
+                      rows > 0 ? `${rows} rows` : 'nothing built yet',
+                    ].filter(Boolean).join(' · ')}
+                  </Typography>
 
                   <Box sx={{ flexShrink: 0, textAlign: 'right' }}>
                     <TextField
@@ -555,13 +564,9 @@ export default function OrderLinesPanel({ orderId, canManage, onChanged }: {
                         void saveQty(line.id, e.target.value);
                       }}
                       sx={{ width: 76 }}
-                      inputProps={{ min: 1, style: { fontSize: 13, textAlign: 'right', padding: '5px 8px' } }}
+                      inputProps={{ min: 1, style: { fontSize: 11.5, textAlign: 'right' } }}
                     />
-                    {line.unitPrice != null && (
-                      <Typography sx={{ fontSize: 11, color: 'var(--c-text-3)', mt: 0.25 }}>
-                        {Number(line.unitPrice).toLocaleString()}
-                      </Typography>
-                    )}
+
                   </Box>
 
                   {canManage && (
