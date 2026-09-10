@@ -317,6 +317,15 @@ export default function ItemBomDesigner({
     const isCollapsed = collapsed.has(node.key);
     const isRoot = depth === 0;
     const isLeaf = !hasKids;
+    /*
+     * A BOUGHT ITEM IS NOT ASKED ITS SIZE.
+     *
+     * "Shear Stud 25 dia x 175 (headed)" states its own dimensions — they are
+     * why you picked that stud and not another. Offering three empty boxes
+     * beside it invites a second copy of the same fact, and the copy that gets
+     * read is the catalogue's, so the typed one is wrong the moment they differ.
+     */
+    const isBought = (node.procurementType ?? 'make') !== 'make';
 
     return (
       <Box key={node.key}>
@@ -403,7 +412,7 @@ export default function ItemBomDesigner({
             * job, and a recipe that guesses is worse than one that says nothing.
             */}
           <Stack direction="row" spacing={0.5} sx={{ width: 186, flexShrink: 0 }}>
-            {isRoot ? null : isLeaf ? DIMS.map((d) => (
+            {isRoot || isBought ? null : isLeaf ? DIMS.map((d) => (
               <TextField
                 key={d.key} size="small" placeholder={d.label} disabled={!canEdit || busy}
                 defaultValue={dimOf(node, d.key)}
@@ -421,6 +430,13 @@ export default function ItemBomDesigner({
                 slotProps={{ htmlInput: { style: { padding: '4px 6px', fontSize: 12, width: 44 } } }}
               />
             )) : <Box sx={{ width: 186 }} />}
+            {isBought && !isRoot && (
+              <Tooltip title="A bought item states its own size — that is what you chose it by.">
+                <Typography sx={{ fontSize: 11.5, color: 'var(--c-text-3)', alignSelf: 'center' }}>
+                  bought in
+                </Typography>
+              </Tooltip>
+            )}
           </Stack>
 
           {/* WHAT MAKES IT. Blank is a real answer for a level that only groups. */}

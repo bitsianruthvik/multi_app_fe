@@ -1,34 +1,36 @@
 /**
- * BlankNesting — nesting as one table of BLANKS.
+ * BlankNesting — nesting as blanks, and the sheets they come off.
  *
  * ── WHY THIS REPLACES THE BOARD AND THE SUGGESTOR ────────────────────────────
  *
- * Both of those link a plate straight to a finished part. So an order needing
- * 960 identical stiffeners holds 960 separate claims on steel, and the fact that
- * they are ONE rectangle cut 960 times is nowhere on screen — you had to read it
- * off a drag-and-drop board 960 cards long.
+ * Both of those linked a plate straight to a finished part. So an order needing
+ * 960 identical stiffeners was 960 cards on a board, and the fact that they are
+ * ONE rectangle cut 960 times appeared nowhere. Here a row is that rectangle:
+ * 25 part names on the KEPL order become 24 rows.
  *
- * A row here is a BLANK: material, grade and a rectangle, with a count. On the
- * KEPL order that turns 25 part names into 24 rows.
+ * ── TWO VIEWS, BECAUSE THERE ARE TWO QUESTIONS ───────────────────────────────
+ *
+ *   What has to be cut   the blanks, with the parts that draw on each
+ *   How it gets cut      the sheets, each carrying a MIX of rectangles
+ *
+ * They are not the same list and neither substitutes for the other. A sheet
+ * holding a web plate and forty stiffeners is where the steel is saved — on
+ * this order 43 of 130 sheets carry more than one rectangle, and packing them
+ * separately costs 49 tonnes — so the sheet view has to exist. But "how many
+ * stiffeners does this job need" is answered only by the blank view.
  *
  * ── WHAT ACCEPTING DOES ──────────────────────────────────────────────────────
  *
- * Creates the blanks as real items, records which plate each is cut from, points
- * every part at its blank, and raises the cutting work on the order's own
- * production order. Not a separate document — cutting is ordinary work.
- *
- * ── YIELD IS THE NUMBER TO ARGUE WITH ────────────────────────────────────────
- *
- * Green is fine, amber is worth a look, red says the plate is wrong. It is the
- * one column that turns "the computer chose a plate" into a decision somebody
- * can overrule, which is why the alternatives sit one click away on every row
- * rather than behind a separate "suggest" flow.
+ * Creates the blanks as real items, records every (blank, sheet) pair, points
+ * each part at its blank, and raises the cutting work on a production order of
+ * its own — separate from fabrication, because cutting waits on plate arriving
+ * and fabrication waits on shop capacity.
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert, Box, Button, Chip, CircularProgress, Collapse, IconButton, LinearProgress,
-  MenuItem, Stack, TextField, Tooltip, Typography,
+  MenuItem, Stack, Tab, Tabs, TextField, Tooltip, Typography,
 } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
@@ -37,48 +39,37 @@ import RefreshIcon from '@mui/icons-material/Refresh';
 import { fabGet, fabPost, fabQuery } from '../api/client';
 import { backendMessage } from '../components';
 
-interface Candidate {
+interface NestItem { key: string; name: string; rect: string; qty: number }
+
+interface Nest {
+  nestNo: string;
   plateCatalogItemId: number;
-  code: string | null;
-  name: string;
+  plateCode: string | null;
+  plateName: string | null;
   thickness: number;
   width: number;
   length: number;
   isDrop: boolean;
-  perPlate: number;
-  plates: number;
-  coversAll: boolean;
-  buyKg: number;
-  grossKg: number;
-  yield: number;
+  plateKg: number;
+  usedPct: number;
+  items: NestItem[];
 }
 
 interface Blank {
-  key: string;
-  code: string;
-  name: string;
-  material: string | null;
-  grade: string | null;
-  thickness: number;
-  width: number;
-  length: number;
-  qty: number;
-  unitWeightKg: number;
-  totalWeightKg: number;
-  partNames: string[];
-  partCount: number;
-  catalogItemId: number | null;
-  nestNo: string | null;
-  flowId: number | null;
-  chosen: Candidate | null;
-  chosenIsSaved: boolean;
-  alternatives: Candidate[];
-  candidateCount: number;
+  key: string; code: string; name: string;
+  material: string | null; grade: string | null;
+  thickness: number; width: number; length: number;
+  qty: number; unitWeightKg: number; totalWeightKg: number;
+  partNames: string[]; partCount: number;
+  nests: { nestNo: string; qty: number; plate: string; isDrop: boolean; sharedWith: number }[];
+  plateSizes: string[]; plateCount: number; sharesPlates: number;
+  placed: number; short: number; reason: string | null;
 }
 
 interface Summary {
-  blanks: number; pieces: number; plates: number;
-  boughtKg: number; usedKg: number; dropKg: number; yield: number; unplaced: number;
+  blanks: number; pieces: number; plates: number; mixedPlates: number;
+  boughtKg: number; grossKg: number; usedKg: number; dropKg: number;
+  yield: number; short: number;
 }
 
 const t = (kg: number) => `${(kg / 1000).toFixed(1)} t`;
@@ -97,17 +88,16 @@ export default function BlankNesting({
   onStageChanged?: () => void;
 }) {
   const [blanks, setBlanks] = useState<Blank[]>([]);
+  const [nests, setNests] = useState<Nest[]>([]);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [skipped, setSkipped] = useState<{ name: string; reason: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [accepting, setAccepting] = useState(false);
   const [result, setResult] = useState<string | null>(null);
+  const [tab, setTab] = useState(0);
   const [open, setOpen] = useState<Set<string>>(new Set());
-
-  /** Plate overrides made on screen, not yet saved. */
-  const [override, setOverride] = useState<Record<string, number>>({});
-  /** Flow overrides, same. */
+  const [effort, setEffort] = useState<'quick' | 'standard' | 'deep'>('standard');
   const [flowOverride, setFlowOverride] = useState<Record<string, number>>({});
 
   const [flows, setFlows] = useState<{ id: number; name: string }[]>([]);
@@ -119,83 +109,42 @@ export default function BlankNesting({
     }).then((r) => setFlows(r.data ?? [])).catch(() => setFlows([]));
   }, []);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (how: string = effort) => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fabGet<{ blanks: Blank[]; summary: Summary; skipped: typeof skipped }>(
-        `orders/${orderId}/blanks`,
-      );
+      const res = await fabGet<{
+        blanks: Blank[]; nests: Nest[]; summary: Summary; skipped: typeof skipped;
+      }>(`orders/${orderId}/blanks?effort=${how}`);
       setBlanks(res.blanks ?? []);
+      setNests(res.nests ?? []);
       setSummary(res.summary ?? null);
       setSkipped(res.skipped ?? []);
-      setOverride({});
-      setFlowOverride({});
     } catch (err) {
       setError(backendMessage(err, 'Could not work out what this order needs cutting.'));
-      setBlanks([]);
-      setSummary(null);
+      setBlanks([]); setNests([]); setSummary(null);
     } finally {
       setLoading(false);
     }
-  }, [orderId]);
+  }, [orderId, effort]);
 
   useEffect(() => { void load(); }, [load]);
 
-  const plateFor = useCallback((b: Blank): Candidate | null => {
-    const id = override[b.key];
-    if (id != null) return b.alternatives.find((c) => c.plateCatalogItemId === id) ?? b.chosen;
-    return b.chosen;
-  }, [override]);
-
-  /**
-   * The totals as they stand ON SCREEN, including unsaved overrides — otherwise
-   * changing a plate would show its effect on one row and not on the figure the
-   * decision is actually made against.
-   */
-  const live = useMemo(() => {
-    let plates = 0; let boughtKg = 0; let usedKg = 0; let unplaced = 0;
-    for (const b of blanks) {
-      usedKg += b.totalWeightKg;
-      const c = plateFor(b);
-      if (!c) { unplaced += 1; continue; }
-      plates += c.plates;
-      boughtKg += c.grossKg;
-    }
-    return {
-      plates, boughtKg, usedKg, unplaced,
-      dropKg: Math.max(0, boughtKg - usedKg),
-      yield: boughtKg > 0 ? usedKg / boughtKg : 0,
-    };
-  }, [blanks, plateFor]);
-
-  const dirty = Object.keys(override).length > 0 || Object.keys(flowOverride).length > 0;
-  const anySaved = blanks.some((b) => b.chosenIsSaved);
+  const toggle = useCallback((k: string) => setOpen((o) => {
+    const n = new Set(o); if (n.has(k)) n.delete(k); else n.add(k); return n;
+  }), []);
 
   const accept = useCallback(async () => {
     setAccepting(true);
     setError(null);
     setResult(null);
     try {
-      const plan: Record<string, unknown> = {};
-      for (const b of blanks) {
-        const c = plateFor(b);
-        if (!c) continue;
-        plan[b.key] = {
-          plateCatalogItemId: c.plateCatalogItemId,
-          plates: c.plates,
-          perPlate: c.perPlate,
-          plateWidth: c.width,
-          plateLength: c.length,
-          flowId: flowOverride[b.key] ?? b.flowId ?? undefined,
-        };
-      }
       const res = await fabPost<{
-        productionOrderNumber: string; blanks: number; tasks: number; partsRepointed: number;
-      }>(`orders/${orderId}/blanks/accept`, { plan });
+        cuttingOrderNumber: string; blanks: number; sheets: number;
+        platesLinked: number; tasks: number; partsRepointed: number;
+      }>(`orders/${orderId}/blanks/accept`, { plan: { nests, flows: flowOverride } });
       setResult(
-        `${res.blanks} blanks on ${res.productionOrderNumber} — `
-        + `${res.tasks} task${res.tasks === 1 ? '' : 's'} raised, `
+        `${res.blanks} blanks across ${res.sheets} sheets on ${res.cuttingOrderNumber}. `
         + `${res.partsRepointed} part rows now come off a blank.`,
       );
       await load();
@@ -205,10 +154,19 @@ export default function BlankNesting({
     } finally {
       setAccepting(false);
     }
-  }, [blanks, plateFor, flowOverride, orderId, load, onStageChanged]);
+  }, [nests, flowOverride, orderId, load, onStageChanged]);
+
+  const shortBlanks = useMemo(() => blanks.filter((b) => b.short > 0), [blanks]);
 
   if (loading) {
-    return <Box sx={{ p: 4, textAlign: 'center' }}><CircularProgress size={24} /></Box>;
+    return (
+      <Box sx={{ p: 4, textAlign: 'center' }}>
+        <CircularProgress size={24} />
+        <Typography sx={{ mt: 1.5, fontSize: 13, color: 'var(--c-text-2)' }}>
+          Working out which sheets waste least…
+        </Typography>
+      </Box>
+    );
   }
 
   if (!blanks.length) {
@@ -216,13 +174,11 @@ export default function BlankNesting({
       <Box sx={{ p: 2 }}>
         {error && <Alert severity="warning" sx={{ mb: 2 }}>{error}</Alert>}
         <Alert severity="info" variant="outlined">
-          Nothing to nest yet. Nesting groups the order&rsquo;s parts into rectangles, and a part
+          Nothing to nest yet. Nesting groups this order&rsquo;s parts into rectangles, and a part
           needs a size before it can be one. Fill the sizes in on the Structure step.
           {skipped.length > 0 && (
             <Box component="ul" sx={{ mt: 1, mb: 0, pl: 2.5 }}>
-              {skipped.slice(0, 6).map((s, i) => (
-                <li key={i}><b>{s.name}</b> — {s.reason}</li>
-              ))}
+              {skipped.slice(0, 6).map((s, i) => <li key={i}><b>{s.name}</b> — {s.reason}</li>)}
               {skipped.length > 6 && <li>…and {skipped.length - 6} more</li>}
             </Box>
           )}
@@ -241,222 +197,236 @@ export default function BlankNesting({
         mb: 2, border: '1px solid var(--c-border)', borderRadius: '10px',
         overflow: 'hidden', background: 'var(--c-surface-2)', flexWrap: 'wrap',
       }}>
-        {[
-          ['Blanks', String(summary?.blanks ?? blanks.length), null],
-          ['Pieces to cut', (live.usedKg > 0 ? blanks.reduce((a, b) => a + b.qty, 0) : 0).toLocaleString(), null],
-          ['Plates', String(live.plates), null],
-          ['Steel bought', t(live.boughtKg), null],
-          ['Yield', `${(live.yield * 100).toFixed(1)}%`, yieldColour(live.yield)],
-          ['Drop', t(live.dropKg), null],
-        ].map(([k, v, colour]) => (
-          <Box key={String(k)} sx={{
-            px: 2, py: 1.25, borderRight: '1px solid var(--c-divider)', minWidth: 118,
-          }}>
+        {([
+          ['Blanks', String(summary?.blanks ?? 0), null],
+          ['Pieces', (summary?.pieces ?? 0).toLocaleString(), null],
+          ['Sheets', String(summary?.plates ?? 0), null],
+          ['Mixed sheets', String(summary?.mixedPlates ?? 0), 'var(--c-primary-600)'],
+          ['Steel bought', t(summary?.boughtKg ?? 0), null],
+          ['Yield', `${((summary?.yield ?? 0) * 100).toFixed(1)}%`, yieldColour(summary?.yield ?? 0)],
+          ['Drop', t(summary?.dropKg ?? 0), null],
+        ] as [string, string, string | null][]).map(([k, v, colour]) => (
+          <Box key={k} sx={{ px: 2, py: 1.25, borderRight: '1px solid var(--c-divider)', minWidth: 112 }}>
             <Typography sx={{
               fontSize: 10.5, fontWeight: 600, letterSpacing: '.075em',
               textTransform: 'uppercase', color: 'var(--c-text-3)',
             }}>{k}</Typography>
             <Typography sx={{
               fontFamily: 'var(--font-mono, monospace)', fontSize: 20, fontWeight: 600,
-              fontVariantNumeric: 'tabular-nums', color: (colour as string) ?? 'var(--c-text)',
+              fontVariantNumeric: 'tabular-nums', color: colour ?? 'var(--c-text)',
             }}>{v}</Typography>
           </Box>
         ))}
       </Stack>
 
-      <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.5, flexWrap: 'wrap' }}>
-        <Chip
-          size="small"
-          color={anySaved && !dirty ? 'success' : 'warning'}
-          variant="outlined"
-          label={dirty ? 'Changed — not saved' : anySaved ? 'Plan accepted' : 'Plan not accepted'}
-        />
-        {live.unplaced > 0 && (
+      <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mb: 1.5, flexWrap: 'wrap' }}>
+        {shortBlanks.length > 0 && (
           <Chip size="small" color="error" variant="outlined"
-            label={`${live.unplaced} with no plate that fits`} />
+            label={`${shortBlanks.length} blank${shortBlanks.length === 1 ? '' : 's'} not fully placed`} />
+        )}
+        {(summary?.mixedPlates ?? 0) > 0 && (
+          <Tooltip title="A sheet carrying more than one rectangle. This is where the steel is saved.">
+            <Chip size="small" color="primary" variant="outlined"
+              label={`${summary?.mixedPlates} sheets carry a mix`} />
+          </Tooltip>
         )}
         <Box sx={{ flex: 1 }} />
-        <Button size="small" startIcon={<RefreshIcon />} onClick={() => void load()}>Recalculate</Button>
+        <TextField
+          select size="small" label="How hard to look" value={effort}
+          onChange={(e) => { const v = e.target.value as typeof effort; setEffort(v); void load(v); }}
+          sx={{ width: 168 }}
+        >
+          <MenuItem value="quick">Quick</MenuItem>
+          <MenuItem value="standard">Standard</MenuItem>
+          <MenuItem value="deep">Deep</MenuItem>
+        </TextField>
+        <Button size="small" startIcon={<RefreshIcon />} onClick={() => void load()}>Re-pack</Button>
       </Stack>
 
-      {/* ── one row per blank ────────────────────────────────────────────── */}
-      <Box sx={{ border: '1px solid var(--c-border)', borderRadius: '10px', overflow: 'hidden' }}>
-        <Stack direction="row" spacing={1} sx={{
-          px: 1.5, py: 0.75, background: 'var(--c-surface-2)',
-          borderBottom: '1px solid var(--c-border)',
-        }}>
-          <Box sx={{ width: 26, flexShrink: 0 }} />
-          <Box sx={{ flex: 1, minWidth: 0 }}><Hd>Blank</Hd></Box>
-          <Box sx={{ width: 70, flexShrink: 0, textAlign: 'right' }}><Hd>Need</Hd></Box>
-          <Box sx={{ width: 190, flexShrink: 0 }}><Hd>Cut from</Hd></Box>
-          <Box sx={{ width: 62, flexShrink: 0, textAlign: 'right' }}><Hd>Per</Hd></Box>
-          <Box sx={{ width: 62, flexShrink: 0, textAlign: 'right' }}><Hd>Plates</Hd></Box>
-          <Box sx={{ width: 96, flexShrink: 0, textAlign: 'right' }}><Hd>Yield</Hd></Box>
-          <Box sx={{ width: 150, flexShrink: 0 }}><Hd>Cut by</Hd></Box>
-        </Stack>
+      <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 1, minHeight: 36 }}>
+        <Tab label={`What has to be cut (${blanks.length})`} sx={{ minHeight: 36, fontSize: 13 }} />
+        <Tab label={`How it gets cut (${nests.length} sheets)`} sx={{ minHeight: 36, fontSize: 13 }} />
+      </Tabs>
 
-        {blanks.map((b) => {
-          const c = plateFor(b);
-          const isOpen = open.has(b.key);
-          const changed = override[b.key] != null || flowOverride[b.key] != null;
-          return (
-            <Box key={b.key} sx={{ borderBottom: '1px solid var(--c-divider)' }}>
-              <Stack direction="row" spacing={1} alignItems="center" sx={{
-                px: 1.5, py: 0.85,
-                background: changed ? 'var(--c-primary-50)' : undefined,
-                '&:hover': { background: changed ? 'var(--c-primary-50)' : 'var(--c-surface-2)' },
-              }}>
-                <IconButton size="small" sx={{ p: 0.25 }} onClick={() => setOpen((o) => {
-                  const n = new Set(o); if (n.has(b.key)) n.delete(b.key); else n.add(b.key); return n;
-                })}>
-                  {isOpen ? <ExpandMoreIcon fontSize="small" /> : <ChevronRightIcon fontSize="small" />}
-                </IconButton>
+      {/* ── the blanks ───────────────────────────────────────────────────── */}
+      {tab === 0 && (
+        <Box sx={{ border: '1px solid var(--c-border)', borderRadius: '10px', overflow: 'hidden' }}>
+          <Stack direction="row" spacing={1} sx={{
+            px: 1.5, py: 0.75, background: 'var(--c-surface-2)',
+            borderBottom: '1px solid var(--c-border)',
+          }}>
+            <Box sx={{ width: 26, flexShrink: 0 }} />
+            <Box sx={{ flex: 1, minWidth: 0 }}><Hd>Blank</Hd></Box>
+            <Box sx={{ width: 70, flexShrink: 0, textAlign: 'right' }}><Hd>Need</Hd></Box>
+            <Box sx={{ width: 210, flexShrink: 0 }}><Hd>Cut from</Hd></Box>
+            <Box sx={{ width: 80, flexShrink: 0, textAlign: 'right' }}><Hd>Sheets</Hd></Box>
+            <Box sx={{ width: 160, flexShrink: 0 }}><Hd>Cut by</Hd></Box>
+          </Stack>
 
-                <Box sx={{ flex: 1, minWidth: 0 }}>
-                  <Typography sx={{
-                    fontFamily: 'var(--font-mono, monospace)', fontSize: 13.5, fontWeight: 600,
-                  }}>{rect(b)}</Typography>
-                  <Typography noWrap sx={{ fontSize: 12, color: 'var(--c-text-2)' }}>
-                    {b.partNames.join(' · ')}
-                  </Typography>
-                </Box>
+          {blanks.map((b) => {
+            const isOpen = open.has(b.key);
+            return (
+              <Box key={b.key} sx={{ borderBottom: '1px solid var(--c-divider)' }}>
+                <Stack direction="row" spacing={1} alignItems="center" sx={{
+                  px: 1.5, py: 0.85,
+                  background: b.short > 0 ? 'var(--c-danger-50, #FCE9EC)' : undefined,
+                  '&:hover': { background: 'var(--c-surface-2)' },
+                }}>
+                  <IconButton size="small" sx={{ p: 0.25 }} onClick={() => toggle(b.key)}>
+                    {isOpen ? <ExpandMoreIcon fontSize="small" /> : <ChevronRightIcon fontSize="small" />}
+                  </IconButton>
 
-                <Box sx={{ width: 70, flexShrink: 0, textAlign: 'right' }}>
-                  <Typography sx={{
-                    fontFamily: 'var(--font-mono, monospace)', fontSize: 14, fontWeight: 600,
-                    fontVariantNumeric: 'tabular-nums',
-                  }}>{b.qty}</Typography>
-                </Box>
+                  <Box sx={{ flex: 1, minWidth: 0 }}>
+                    <Typography sx={{
+                      fontFamily: 'var(--font-mono, monospace)', fontSize: 13.5, fontWeight: 600,
+                    }}>{rect(b)}</Typography>
+                    <Typography noWrap sx={{ fontSize: 12, color: 'var(--c-text-2)' }}>
+                      {b.partNames.join(' · ')}
+                    </Typography>
+                  </Box>
 
-                <Box sx={{ width: 190, flexShrink: 0 }}>
-                  {c ? (
-                    <>
-                      <Typography noWrap sx={{
-                        fontFamily: 'var(--font-mono, monospace)', fontSize: 12.5,
-                      }}>{rect(c)}</Typography>
-                      <Typography noWrap sx={{ fontSize: 11, color: 'var(--c-text-3)' }}>
-                        {c.isDrop ? 'from an offcut' : `${b.material ?? ''} ${b.grade ?? ''}`.trim()}
+                  <Box sx={{ width: 70, flexShrink: 0, textAlign: 'right' }}>
+                    <Mono bold>{b.qty}</Mono>
+                    {b.short > 0 && (
+                      <Typography sx={{ fontSize: 11, color: 'var(--c-danger-600)' }}>
+                        {b.short} short
                       </Typography>
-                    </>
-                  ) : (
-                    <Chip size="small" color="error" variant="outlined" label="nothing fits" />
-                  )}
-                </Box>
+                    )}
+                  </Box>
 
-                <Box sx={{ width: 62, flexShrink: 0, textAlign: 'right' }}>
-                  <Mono>{c?.perPlate ?? '—'}</Mono>
-                </Box>
-                <Box sx={{ width: 62, flexShrink: 0, textAlign: 'right' }}>
-                  <Mono>{c?.plates ?? '—'}</Mono>
-                </Box>
+                  <Box sx={{ width: 210, flexShrink: 0 }}>
+                    {b.plateSizes.length === 0 ? (
+                      <Tooltip title={b.reason ?? 'No sheet could hold it'}>
+                        <Chip size="small" color="error" variant="outlined" label="nothing fits" />
+                      </Tooltip>
+                    ) : (
+                      <>
+                        <Typography noWrap sx={{
+                          fontFamily: 'var(--font-mono, monospace)', fontSize: 12.5,
+                        }}>{b.plateSizes[0]}</Typography>
+                        <Typography noWrap sx={{ fontSize: 11, color: 'var(--c-text-3)' }}>
+                          {b.plateSizes.length > 1
+                            ? `and ${b.plateSizes.length - 1} other size${b.plateSizes.length > 2 ? 's' : ''}`
+                            : `${b.material ?? ''} ${b.grade ?? ''}`.trim()}
+                        </Typography>
+                      </>
+                    )}
+                  </Box>
 
-                <Box sx={{ width: 96, flexShrink: 0 }}>
-                  {c && (
-                    <Stack direction="row" spacing={1} alignItems="center" justifyContent="flex-end">
-                      <Box sx={{
-                        width: 40, height: 6, borderRadius: 3, flexShrink: 0,
-                        background: 'var(--c-surface-3, #EFF1F8)', overflow: 'hidden',
-                      }}>
-                        <Box sx={{
-                          width: `${Math.round(c.yield * 100)}%`, height: '100%',
-                          background: yieldColour(c.yield),
-                        }} />
-                      </Box>
-                      <Typography sx={{
-                        fontFamily: 'var(--font-mono, monospace)', fontSize: 12.5, fontWeight: 600,
-                        width: 34, textAlign: 'right', fontVariantNumeric: 'tabular-nums',
-                      }}>{(c.yield * 100).toFixed(0)}%</Typography>
+                  <Box sx={{ width: 80, flexShrink: 0, textAlign: 'right' }}>
+                    <Mono>{b.plateCount || '—'}</Mono>
+                    {b.sharesPlates > 0 && (
+                      <Tooltip title={`${b.sharesPlates} of them also carry another rectangle`}>
+                        <Typography sx={{ fontSize: 11, color: 'var(--c-primary-600)' }}>
+                          {b.sharesPlates} shared
+                        </Typography>
+                      </Tooltip>
+                    )}
+                  </Box>
+
+                  {/*
+                    * THE FLOW, per blank. Almost everything is cut and nothing
+                    * else — but a rectangle that also gets drilled while it is
+                    * flat belongs on a different flow, and that is a fact about
+                    * the rectangle rather than about the sheet it came off.
+                    */}
+                  <Box sx={{ width: 160, flexShrink: 0 }}>
+                    <TextField
+                      select size="small" fullWidth disabled={!canManage}
+                      value={flowOverride[b.key] ?? ''}
+                      onChange={(e) => setFlowOverride((f) => ({ ...f, [b.key]: Number(e.target.value) }))}
+                      slotProps={{ htmlInput: { style: { padding: '4px 8px', fontSize: 12.5 } } }}
+                    >
+                      <MenuItem value=""><em>Cutting (default)</em></MenuItem>
+                      {flows.map((f) => <MenuItem key={f.id} value={f.id}>{f.name}</MenuItem>)}
+                    </TextField>
+                  </Box>
+                </Stack>
+
+                <Collapse in={isOpen} unmountOnExit>
+                  <Box sx={{ px: 5, py: 1.5, background: 'var(--c-surface-2)' }}>
+                    <Stack direction="row" spacing={3} sx={{ mb: 1.5, flexWrap: 'wrap' }}>
+                      <Kv k="Blank code" v={b.code} />
+                      <Kv k="Used by" v={`${b.partCount} part row${b.partCount === 1 ? '' : 's'}`} />
+                      <Kv k="Steel in parts" v={t(b.totalWeightKg)} />
+                      <Kv k="Each" v={`${b.unitWeightKg.toFixed(1)} kg`} />
                     </Stack>
-                  )}
-                </Box>
+                    <Typography sx={{ fontSize: 12, color: 'var(--c-text-2)', mb: 0.75 }}>
+                      Cut across {b.nests.length} sheet{b.nests.length === 1 ? '' : 's'}:
+                    </Typography>
+                    <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
+                      {b.nests.slice(0, 24).map((n) => (
+                        <Chip
+                          key={n.nestNo} size="small"
+                          variant={n.sharedWith > 0 ? 'filled' : 'outlined'}
+                          color={n.isDrop ? 'success' : n.sharedWith > 0 ? 'primary' : 'default'}
+                          label={`${n.nestNo} · ${n.qty}${n.sharedWith > 0 ? ` +${n.sharedWith}` : ''}`}
+                        />
+                      ))}
+                      {b.nests.length > 24 && (
+                        <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)', alignSelf: 'center' }}>
+                          …and {b.nests.length - 24} more
+                        </Typography>
+                      )}
+                    </Stack>
+                  </Box>
+                </Collapse>
+              </Box>
+            );
+          })}
+        </Box>
+      )}
 
-                {/*
-                  * THE FLOW, per blank. Almost everything is cut and nothing
-                  * else, which is why the default is one step — but a rectangle
-                  * that also gets drilled while it is flat belongs on a
-                  * different flow, and that is a per-blank fact.
-                  */}
-                <Box sx={{ width: 150, flexShrink: 0 }}>
-                  <TextField
-                    select size="small" fullWidth disabled={!canManage}
-                    value={flowOverride[b.key] ?? b.flowId ?? ''}
-                    onChange={(e) => setFlowOverride((f) => ({
-                      ...f, [b.key]: Number(e.target.value),
-                    }))}
-                    slotProps={{ htmlInput: { style: { padding: '4px 8px', fontSize: 12.5 } } }}
-                  >
-                    <MenuItem value=""><em>Cutting (default)</em></MenuItem>
-                    {flows.map((f) => <MenuItem key={f.id} value={f.id}>{f.name}</MenuItem>)}
-                  </TextField>
+      {/* ── the sheets ───────────────────────────────────────────────────── */}
+      {tab === 1 && (
+        <Box sx={{ border: '1px solid var(--c-border)', borderRadius: '10px', overflow: 'hidden' }}>
+          {nests.map((n) => (
+            <Stack key={n.nestNo} direction="row" spacing={1.5} alignItems="center" sx={{
+              px: 1.5, py: 0.85, borderBottom: '1px solid var(--c-divider)',
+              '&:hover': { background: 'var(--c-surface-2)' },
+            }}>
+              <Typography sx={{
+                fontFamily: 'var(--font-mono, monospace)', fontSize: 12.5, width: 62, flexShrink: 0,
+                color: 'var(--c-text-2)',
+              }}>{n.nestNo}</Typography>
+
+              <Box sx={{ width: 176, flexShrink: 0 }}>
+                <Typography noWrap sx={{
+                  fontFamily: 'var(--font-mono, monospace)', fontSize: 12.5, fontWeight: 600,
+                }}>{rect(n)}</Typography>
+                <Typography noWrap sx={{ fontSize: 11, color: 'var(--c-text-3)' }}>
+                  {n.plateKg.toFixed(0)} kg{n.isDrop ? ' · offcut' : ''}
+                </Typography>
+              </Box>
+
+              <Box sx={{ flex: 1, minWidth: 0 }}>
+                <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
+                  {n.items.map((it) => (
+                    <Chip key={it.key} size="small" variant="outlined"
+                      label={`${it.qty} × ${it.rect}`} sx={{ fontFamily: 'var(--font-mono, monospace)' }} />
+                  ))}
+                </Stack>
+              </Box>
+
+              <Stack direction="row" spacing={1} alignItems="center" sx={{ width: 96, flexShrink: 0 }}>
+                <Box sx={{
+                  width: 40, height: 6, borderRadius: 3, flexShrink: 0,
+                  background: 'var(--c-surface-3, #EFF1F8)', overflow: 'hidden',
+                }}>
+                  <Box sx={{
+                    width: `${Math.round(n.usedPct * 100)}%`, height: '100%',
+                    background: yieldColour(n.usedPct),
+                  }} />
                 </Box>
+                <Typography sx={{
+                  fontFamily: 'var(--font-mono, monospace)', fontSize: 12.5, fontWeight: 600,
+                  width: 34, textAlign: 'right',
+                }}>{(n.usedPct * 100).toFixed(0)}%</Typography>
               </Stack>
-
-              {/* ── the alternatives ───────────────────────────────────── */}
-              <Collapse in={isOpen} unmountOnExit>
-                <Box sx={{ px: 5, py: 1.5, background: 'var(--c-surface-2)' }}>
-                  <Typography sx={{ fontSize: 12, color: 'var(--c-text-2)', mb: 1 }}>
-                    {b.candidateCount} plate size{b.candidateCount === 1 ? '' : 's'} could hold this
-                    rectangle. Cheapest steel first; an offcut costs nothing because it is already
-                    paid for.
-                  </Typography>
-                  <Stack spacing={0.75}>
-                    {b.alternatives.map((a) => {
-                      const on = (override[b.key] ?? c?.plateCatalogItemId) === a.plateCatalogItemId;
-                      return (
-                        <Stack
-                          key={a.plateCatalogItemId}
-                          direction="row" spacing={1.5} alignItems="center"
-                          onClick={canManage ? () => setOverride((o) => ({
-                            ...o, [b.key]: a.plateCatalogItemId,
-                          })) : undefined}
-                          sx={{
-                            px: 1.25, py: 0.75, borderRadius: '8px', cursor: canManage ? 'pointer' : 'default',
-                            border: `1px solid ${on ? 'var(--c-primary-500)' : 'var(--c-border)'}`,
-                            background: on ? 'var(--c-primary-50)' : 'var(--c-surface)',
-                          }}
-                        >
-                          <Box sx={{
-                            width: 13, height: 13, borderRadius: '50%', flexShrink: 0,
-                            border: `1.5px solid ${on ? 'var(--c-primary-600)' : 'var(--c-text-3)'}`,
-                            display: 'grid', placeItems: 'center',
-                          }}>
-                            {on && <Box sx={{
-                              width: 7, height: 7, borderRadius: '50%', background: 'var(--c-primary-600)',
-                            }} />}
-                          </Box>
-                          <Typography sx={{
-                            fontFamily: 'var(--font-mono, monospace)', fontSize: 12.5, flex: 1, minWidth: 0,
-                          }} noWrap>{rect(a)}</Typography>
-                          {a.isDrop && <Chip size="small" color="success" variant="outlined" label="offcut" />}
-                          {!a.coversAll && (
-                            <Tooltip title="This size cannot hold the whole quantity on its own.">
-                              <Chip size="small" color="warning" variant="outlined" label="partial" />
-                            </Tooltip>
-                          )}
-                          <Typography sx={{ fontSize: 12, color: 'var(--c-text-2)', width: 190, textAlign: 'right' }}>
-                            {a.perPlate}/plate · {a.plates} plate{a.plates === 1 ? '' : 's'} · {t(a.grossKg)}
-                          </Typography>
-                          <Typography sx={{
-                            fontFamily: 'var(--font-mono, monospace)', fontSize: 12.5, fontWeight: 600,
-                            width: 42, textAlign: 'right', color: yieldColour(a.yield),
-                          }}>{(a.yield * 100).toFixed(0)}%</Typography>
-                        </Stack>
-                      );
-                    })}
-                  </Stack>
-
-                  <Stack direction="row" spacing={3} sx={{ mt: 1.5 }}>
-                    <Kv k="Blank code" v={b.code} />
-                    <Kv k="Used by" v={`${b.partCount} part row${b.partCount === 1 ? '' : 's'}`} />
-                    <Kv k="Steel in parts" v={t(b.totalWeightKg)} />
-                    {b.nestNo && <Kv k="Nest" v={b.nestNo} />}
-                  </Stack>
-                </Box>
-              </Collapse>
-            </Box>
-          );
-        })}
-      </Box>
+            </Stack>
+          ))}
+        </Box>
+      )}
 
       {skipped.length > 0 && (
         <Alert severity="warning" variant="outlined" sx={{ mt: 2 }}>
@@ -473,16 +443,12 @@ export default function BlankNesting({
           border: '1px solid var(--c-border)', flexWrap: 'wrap',
         }}>
           <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)', flex: '1 1 320px', minWidth: 0 }}>
-            Accepting creates <b>{blanks.length} blanks</b>, records which plate each is cut from,
-            points every part at its blank, and raises the cutting work on this order&rsquo;s
-            production order.
+            Accepting creates <b>{blanks.length} blanks</b> across <b>{nests.length} sheets</b>,
+            points every part at its blank, and raises the cutting work on its own production
+            order — separate from fabrication, because it waits on plate rather than on the shop.
           </Typography>
-          <Button
-            variant="contained"
-            disabled={accepting || live.unplaced === blanks.length}
-            onClick={() => void accept()}
-          >
-            {accepting ? 'Working…' : anySaved && !dirty ? 'Re-accept plan' : 'Accept plan'}
+          <Button variant="contained" disabled={accepting || !nests.length} onClick={() => void accept()}>
+            {accepting ? 'Working…' : 'Accept plan'}
           </Button>
         </Stack>
       )}
@@ -500,11 +466,11 @@ function Hd({ children }: { children: React.ReactNode }) {
   );
 }
 
-function Mono({ children }: { children: React.ReactNode }) {
+function Mono({ children, bold }: { children: React.ReactNode; bold?: boolean }) {
   return (
     <Typography sx={{
-      fontFamily: 'var(--font-mono, monospace)', fontSize: 13,
-      fontVariantNumeric: 'tabular-nums',
+      fontFamily: 'var(--font-mono, monospace)', fontSize: bold ? 14 : 13,
+      fontWeight: bold ? 600 : 400, fontVariantNumeric: 'tabular-nums',
     }}>{children}</Typography>
   );
 }

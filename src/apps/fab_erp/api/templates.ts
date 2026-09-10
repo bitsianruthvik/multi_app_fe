@@ -171,6 +171,8 @@ export interface ItemBomNode {
   bomLineId: number | null;
   /** What the recipe calls this quantity, when it asks for one. */
   qtyParam: string | null;
+  /** 'make' or 'buy'. A bought item is not asked its size — you picked it. */
+  procurementType?: string;
   /** Sizes the recipe states. Absent keys mean it states none. */
   dims?: Record<string, number | string | null>;
   children: ItemBomNode[];
