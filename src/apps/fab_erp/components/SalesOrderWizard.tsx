@@ -267,14 +267,12 @@ export default function SalesOrderWizard({
             {step === 'flows' && (
               <OrderFlowAllocation orderId={orderId} canManage={canManage} onStageChanged={refresh} />
             )}
-            {/* The rectangle, then nesting, then everything else a flow asks
-                for. Nesting reads the size and the steel and never touches a
-                flow, so it has no reason to wait behind hole counts and weld
-                runs — and it is the step with a lead time: nothing can be
-                ordered until it is done. */}
-            {step === 'dims' && (
-              <OrderParameters orderId={orderId} canManage={canManage} onStageChanged={refresh} only="dims" />
-            )}
+            {/*
+              THERE IS NO DIMENSIONS STEP. The sizes are on the structure tree,
+              beside the row they belong to, so a step of its own was a second
+              screen asking about the screen you had just left. The Structure
+              step reports what is still unsized and is where it gets fixed.
+            */}
             {step === 'nesting' && (
               <OrderNesting orderId={orderId} canManage={canManage} onStageChanged={refresh} />
             )}

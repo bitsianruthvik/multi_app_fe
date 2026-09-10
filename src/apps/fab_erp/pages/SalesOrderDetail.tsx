@@ -286,7 +286,6 @@ export default function SalesOrderDetail() {
             // lead time, since nothing can be ordered until it is done.
             { value: 'items', label: 'Structure', dot: stageDot('boq') },
             { value: 'flows', label: 'Flows', dot: stageDot('flows') },
-            { value: 'dims', label: 'Dimensions', dot: stageDot('dims') },
             { value: 'nesting', label: 'Nesting', dot: stageDot('nesting') },
             { value: 'params', label: 'Other params', dot: stageDot('params') },
             { value: 'dag', label: 'Project tree', dot: stageDot('tasks') },
@@ -385,8 +384,6 @@ export default function SalesOrderDetail() {
           />
         ) : tab === 'flows' ? (
           <OrderFlowAllocation orderId={id} canManage={canManage} onStageChanged={refreshReadiness} />
-        ) : tab === 'dims' ? (
-          <OrderParameters orderId={id} canManage={canManage} onStageChanged={refreshReadiness} only="dims" />
         ) : tab === 'params' ? (
           <OrderParameters orderId={id} canManage={canManage} onStageChanged={refreshReadiness} only="rest" />
         ) : tab === 'nesting' ? (
