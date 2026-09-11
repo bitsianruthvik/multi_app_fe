@@ -22,9 +22,7 @@ import SalesOrderWizard from '../components/SalesOrderWizard';
 import { statusFamily } from '../statusMap';
 import BlankNesting from '../components/BlankNesting';
 import OrderParameters from '../components/OrderParameters';
-import OrderProcurement from '../components/OrderProcurement';
-import OrderProduction from '../components/OrderProduction';
-import OrderTaskDag from '../components/OrderTaskDag';
+import OrderProductionPlan from '../components/OrderProductionPlan';
 import OrderStageStrip from '../components/OrderStageStrip';
 import { hasSetupWizard, orderTypeLabel, showsField } from '../constants/orderTypes';
 import { fetchOrderReadiness, type OrderReadiness, type ReadinessStage } from '../api/readiness';
@@ -294,11 +292,8 @@ export default function SalesOrderDetail() {
             // lead time, since nothing can be ordered until it is done.
             { value: 'nesting', label: 'Nesting', dot: stageDot('nesting') },
             { value: 'params', label: 'Other params', dot: stageDot('params') },
-            { value: 'dag', label: 'Project tree', dot: stageDot('tasks') },
-            // The two documents the finished tree leads to. Reachable here as
-            // well as in the wizard, because receiving a delivery happens long
-            // after the order was confirmed and the wizard closed.
-            { value: 'procurement', label: 'Procurement', dot: stageDot('procurement') },
+            // Buy, cut and make on one tab. Reachable here as well as in the
+            // wizard, because deploying and buying happen after the wizard closes.
             { value: 'production', label: 'Production', dot: stageDot('production') },
           ] : []),
         ]}
@@ -385,13 +380,9 @@ export default function SalesOrderDetail() {
           <OrderParameters orderId={id} canManage={canManage} onStageChanged={refreshReadiness} only="rest" />
         ) : tab === 'nesting' ? (
           <BlankNesting orderId={id} canManage={canManage} onStageChanged={refreshReadiness} />
-        ) : tab === 'procurement' ? (
-          <OrderProcurement orderId={id} canManage={canManage} onChanged={refreshReadiness} />
         ) : tab === 'production' ? (
-          <OrderProduction orderId={id} canManage={canManage} onChanged={refreshReadiness} />
-        ) : (
-          <OrderTaskDag orderId={id} canManage={canManage} />
-        )}
+          <OrderProductionPlan orderId={id} canManage={canManage} onChanged={refreshReadiness} />
+        ) : null}
       </DetailLayout>
 
     </Box>

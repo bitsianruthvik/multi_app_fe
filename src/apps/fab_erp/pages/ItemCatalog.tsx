@@ -626,11 +626,7 @@ function AddTaxonomyDialog({ open, level, categories, groups, onClose, onCreated
               <Select fullWidth size="small" displayEmpty value={categoryId}
                 onChange={(e) => { setCategoryId(e.target.value as number | ''); setGroupId(''); }}>
                 <MenuItem value=""><em>All categories</em></MenuItem>
-                {categories.map((c) => (
-                  <MenuItem key={c.id} value={c.id}>
-                    {c.name}<Count n={taxonomyCounts.cat.get(c.id) ?? 0} />
-                  </MenuItem>
-                ))}
+                {categories.map((c) => <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>)}
               </Select>
             </Box>
             <Box>
@@ -2377,7 +2373,11 @@ export default function ItemCatalog() {
               <Select fullWidth size="small" displayEmpty value={filterCategoryId}
                 onChange={(e) => onFilterCategoryChange(String(e.target.value))}>
                 <MenuItem value="">All</MenuItem>
-                {categories.map((c) => <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>)}
+                {categories.map((c) => (
+                  <MenuItem key={c.id} value={c.id}>
+                    {c.name}<Count n={taxonomyCounts.cat.get(c.id) ?? 0} />
+                  </MenuItem>
+                ))}
               </Select>
             </Box>
             <Box sx={{ width: 180 }}>

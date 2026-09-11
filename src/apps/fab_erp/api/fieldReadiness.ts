@@ -44,24 +44,3 @@ export interface FieldReadiness {
 export function getFieldReadiness(orderId: number): Promise<FieldReadiness> {
   return fabGet<FieldReadiness>(`orders/${orderId}/field-readiness`);
 }
-
-/** The refusal shape `POST /production/raise` returns as a 409. */
-export type FieldGap = { message: string; detail: FieldReadiness };
-
-/**
- * Pull a FIELDS_MISSING refusal out of an axios error, or null if it is
- * something else.
- *
- * A 409 here is an ANSWER, not a failure — the order can be raised, it just
- * should not be yet. Callers show the detail and offer to proceed; falling
- * through to a generic error string would discard the only part that makes it
- * actionable.
- */
-export function fieldGapOf(err: unknown): FieldGap | null {
-  const res = (err as { response?: { status?: number; data?: Record<string, unknown> } })?.response;
-  if (res?.status !== 409 || res?.data?.code !== 'FIELDS_MISSING') return null;
-  return {
-    message: String(res.data.message ?? 'Some parts are missing values their operations need.'),
-    detail: (res.data.detail ?? {}) as FieldReadiness,
-  };
-}

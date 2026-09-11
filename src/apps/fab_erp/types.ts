@@ -620,7 +620,14 @@ export type CodegenSegment =
   | { type: 'category_shortform'; length: number }
   | { type: 'group_shortform'; length: number }
   | { type: 'subgroup_shortform'; length: number }
-  | { type: 'sequence'; digits: number; resetPeriod: 'never' | 'yearly' | 'monthly' };
+  | { type: 'sequence'; digits: number; resetPeriod: 'never' | 'yearly' | 'monthly' }
+  | { type: 'attribute'; field: string; length?: number; pad?: number; fallback?: string }
+  | { type: 'order_prefix' }
+  | { type: 'parent_code'; separator: string; topLevel: 'order_prefix' | 'none' }
+  | { type: 'bom_code'; length?: number }
+  | { type: 'position'; digits: number; restart: 'parent' | 'above' }
+  | { type: 'step_no'; digits: number }
+  | { type: 'operation_code' };
 
 export interface FabCodegenRule {
   segments: CodegenSegment[];

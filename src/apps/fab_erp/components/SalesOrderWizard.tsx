@@ -17,9 +17,7 @@ import { useToast, backendMessage } from '../components';
 import { fetchOrderReadiness, type OrderReadiness, type ReadinessStage, type StageState } from '../api/readiness';
 import BlankNesting from './BlankNesting';
 import OrderParameters from './OrderParameters';
-import OrderTaskDag from './OrderTaskDag';
-import OrderProcurement from './OrderProcurement';
-import OrderProduction from './OrderProduction';
+import OrderProductionPlan from './OrderProductionPlan';
 import OrderLinesPanel from './OrderLinesPanel';
 
 /**
@@ -27,7 +25,7 @@ import OrderLinesPanel from './OrderLinesPanel';
  *
  * Everything a new order needs happens here, in the order it actually happens:
  *
- *   line items → BOM → nesting → flow attribution → project tree → confirm
+ *   line items (with their BOMs) → nesting → other params → production → confirm
  *
  * IT IS CLOSABLE AT EVERY POINT, and that is the main design constraint rather
  * than a convenience. A real order is not entered in one sitting: the BOM comes
@@ -101,7 +99,11 @@ export default function SalesOrderWizard({
     try {
       const r = await fetchOrderReadiness(orderId);
       setReadiness(r);
-      if (jump) setStep((r.wizardStep as ReadinessStage['key']) ?? r.nextStage ?? 'lines');
+      // A step saved before the steps were merged ('tasks', 'procurement') lands on
+      // the step that replaced them.
+      const saved = r.wizardStep as ReadinessStage['key'] | null;
+      const known = saved && r.stages.some((s) => s.key === saved) ? saved : saved ? 'production' : null;
+      if (jump) setStep(known ?? r.nextStage ?? 'lines');
     } catch (e) {
       setError(backendMessage(e, 'Could not read this order.'));
     } finally { setLoading(false); }
@@ -261,14 +263,9 @@ export default function SalesOrderWizard({
             {step === 'params' && (
               <OrderParameters orderId={orderId} canManage={canManage} onStageChanged={refresh} only="rest" />
             )}
-            {step === 'tasks' && (
-              <OrderTaskDag orderId={orderId} canManage={canManage} />
-            )}
-            {step === 'procurement' && (
-              <OrderProcurement orderId={orderId} canManage={canManage} onChanged={refresh} />
-            )}
+            {/* Buy, cut and make — one step. */}
             {step === 'production' && (
-              <OrderProduction orderId={orderId} canManage={canManage} onChanged={refresh} />
+              <OrderProductionPlan orderId={orderId} canManage={canManage} onChanged={() => refresh()} />
             )}
           </>
         )}

@@ -26,20 +26,57 @@ const ENTITY_TYPES = [
   { value: 'operation', label: 'Operations' },
   { value: 'stock_piece', label: 'Stock pieces' },
   { value: 'sales_order', label: 'Sales orders' },
+  { value: 'manufacturing_order', label: 'Production orders' },
+  { value: 'purchase_order', label: 'Purchase orders' },
+  { value: 'order_item', label: 'BOM rows on an order' },
+  { value: 'blank', label: 'Blanks' },
+  { value: 'task', label: 'Tasks' },
 ];
 
-const SEGMENT_TYPES_BASE: { value: CodegenSegment['type']; label: string; entityOnly?: string[] }[] = [
+/**
+ * Kinds whose code is READ OFF the thing — its place in the BOM, its size, its
+ * step — rather than counted. They never burn a number, so a running sequence
+ * has no meaning for them and is not offered.
+ */
+const DERIVED = ['order_item', 'blank', 'task'];
+
+/** What each kind's example preview is built from, said plainly under the preview. */
+const SAMPLE_NOTE: Record<string, string> = {
+  order_item: 'Example: the 2nd Segment row under Line 1 (BOM code blank), the 6th Segment row in the whole order.',
+  blank: 'Example: a 28 × 2995 × 12000 MS E350BO blank on SO-20260910-0066.',
+  task: 'Example: step 5, operation SAW, on row …-SPAN1-L1-2.',
+};
+
+const BLANK_FIELDS = [
+  { value: 'orderRef', label: 'Order number (digits)' },
+  { value: 'material', label: 'Material' },
+  { value: 'grade', label: 'Grade' },
+  { value: 'thickness', label: 'Thickness' },
+  { value: 'width', label: 'Width' },
+  { value: 'length', label: 'Length' },
+];
+
+const SEGMENT_TYPES_BASE: {
+  value: CodegenSegment['type']; label: string; entityOnly?: string[]; notFor?: string[];
+}[] = [
   { value: 'fixed', label: 'Fixed text' },
   { value: 'date', label: 'Date' },
-  { value: 'sequence', label: 'Running sequence' },
+  { value: 'sequence', label: 'Running sequence', notFor: DERIVED },
   { value: 'category_shortform', label: 'Category shortform', entityOnly: ['item'] },
   { value: 'group_shortform', label: 'Group shortform', entityOnly: ['item'] },
   { value: 'subgroup_shortform', label: 'Subgroup shortform', entityOnly: ['item'] },
+  { value: 'order_prefix', label: 'Customer + order number', entityOnly: ['order_item', 'blank'] },
+  { value: 'parent_code', label: "Parent's code", entityOnly: ['order_item', 'task'] },
+  { value: 'bom_code', label: 'Code from the BOM', entityOnly: ['order_item'] },
+  { value: 'position', label: 'Position in the BOM', entityOnly: ['order_item'] },
+  { value: 'attribute', label: 'Size / material', entityOnly: ['blank'] },
+  { value: 'step_no', label: 'Step number', entityOnly: ['task'] },
+  { value: 'operation_code', label: 'Operation code', entityOnly: ['task'] },
 ];
 
 function segmentTypesFor(entityType: string) {
   return SEGMENT_TYPES_BASE.filter(
-    (t) => !t.entityOnly || t.entityOnly.includes(entityType),
+    (t) => (!t.entityOnly || t.entityOnly.includes(entityType)) && !t.notFor?.includes(entityType),
   );
 }
 
@@ -59,6 +96,13 @@ function blankSegment(type: CodegenSegment['type']): CodegenSegment {
     case 'group_shortform': return { type: 'group_shortform', length: 3 };
     case 'subgroup_shortform': return { type: 'subgroup_shortform', length: 3 };
     case 'sequence': return { type: 'sequence', digits: 4, resetPeriod: 'never' };
+    case 'attribute': return { type: 'attribute', field: 'thickness' };
+    case 'order_prefix': return { type: 'order_prefix' };
+    case 'parent_code': return { type: 'parent_code', separator: '-', topLevel: 'order_prefix' };
+    case 'bom_code': return { type: 'bom_code' };
+    case 'position': return { type: 'position', digits: 1, restart: 'parent' };
+    case 'step_no': return { type: 'step_no', digits: 2 };
+    case 'operation_code': return { type: 'operation_code' };
   }
 }
 
@@ -101,6 +145,34 @@ function SegmentRow({ segment, entityType, onChange, onRemove, onMove, isFirst, 
           {RESET_PERIODS.map((r) => <MenuItem key={r.value} value={r.value}>{r.label}</MenuItem>)}
         </TextField>
       </>)}
+      {segment.type === 'parent_code' && (<>
+        <TextField size="small" label="Then" value={segment.separator} sx={{ width: 80 }}
+          onChange={(e) => onChange({ ...segment, separator: e.target.value })} />
+        <TextField select size="small" label="Top row has no parent — use" value={segment.topLevel} sx={{ minWidth: 230 }}
+          onChange={(e) => onChange({ ...segment, topLevel: e.target.value as 'order_prefix' | 'none' })}>
+          <MenuItem value="order_prefix">Customer + order number</MenuItem>
+          <MenuItem value="none">Nothing</MenuItem>
+        </TextField>
+      </>)}
+      {segment.type === 'position' && (<>
+        <TextField select size="small" label="Numbering" value={segment.restart} sx={{ minWidth: 250 }}
+          onChange={(e) => onChange({ ...segment, restart: e.target.value as 'parent' | 'above' })}>
+          <MenuItem value="parent">Starts at 1 under each parent</MenuItem>
+          <MenuItem value="above">Carries on from the rows above</MenuItem>
+        </TextField>
+        <TextField size="small" type="number" label="Digits" value={segment.digits} sx={{ width: 90 }}
+          onChange={(e) => onChange({ ...segment, digits: Math.max(1, Number(e.target.value) || 1) })} />
+      </>)}
+      {segment.type === 'step_no' && (
+        <TextField size="small" type="number" label="Digits" value={segment.digits} sx={{ width: 90 }}
+          onChange={(e) => onChange({ ...segment, digits: Math.max(1, Number(e.target.value) || 1) })} />
+      )}
+      {segment.type === 'attribute' && (
+        <TextField select size="small" label="Value" value={segment.field} sx={{ minWidth: 200 }}
+          onChange={(e) => onChange({ ...segment, field: e.target.value })}>
+          {BLANK_FIELDS.map((f) => <MenuItem key={f.value} value={f.value}>{f.label}</MenuItem>)}
+        </TextField>
+      )}
 
       <Box sx={{ flex: 1 }} />
       <Tooltip title="Move up"><span><IconButton size="small" disabled={isFirst} onClick={() => onMove(-1)}><ArrowUpwardRounded fontSize="small" /></IconButton></span></Tooltip>
@@ -180,7 +252,7 @@ export default function CodegenSettings() {
 
   return (
     <Box sx={{ maxWidth: 900, mx: 'auto' }}>
-      <PageHeader title="Code Generation" subtitle="Per-entity rules for auto-generating human-readable codes (items, resources, plants, stock locations, BOMs, routes)" />
+      <PageHeader title="Code Generation" subtitle="One rule for every code in the system — items, orders, BOM rows, blanks and tasks" />
 
       <TextField select size="small" label="Entity" value={entityType} sx={{ minWidth: 220, mb: 2 }}
         onChange={(e) => setEntityType(e.target.value)}>
@@ -215,6 +287,9 @@ export default function CodegenSettings() {
             <Typography variant="body2" color="text.secondary">Preview:</Typography>
             {previewError ? <Alert severity="warning" sx={{ flex: 1 }}>{previewError}</Alert> : <Mono chip>{preview || '—'}</Mono>}
           </Box>
+          {SAMPLE_NOTE[entityType] && (
+            <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)', mt: 0.75 }}>{SAMPLE_NOTE[entityType]}</Typography>
+          )}
 
           {canManage && (
             <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 2 }}>
