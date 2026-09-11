@@ -167,7 +167,7 @@ export default function OrderLinesPanel({ orderId, canManage, onChanged }: {
       // What is already built under each line, so changing the item can say what
       // it would strand rather than doing it silently.
       Promise.all(rows.map((l) => fabQuery<{ total?: number | null }>('fabErpItem', {
-        fields: ['id'], filters: { orderLineId: l.id }, pagination: { limit: 1 }, includeTotal: true,
+        fields: ['id'], filters: { orderLineId: l.id, nodeKind: 'structure' }, pagination: { limit: 1 }, includeTotal: true,
       }).then((r) => [l.id, r.total ?? 0] as const).catch(() => [l.id, 0] as const)))
         .then((pairs) => setBuiltRows(Object.fromEntries(pairs)));
       // One call per line, but there are a handful of lines on an order — and

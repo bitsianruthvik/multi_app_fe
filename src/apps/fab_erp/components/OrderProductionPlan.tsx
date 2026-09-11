@@ -62,6 +62,19 @@ const shortTime = (m: number | null) => {
   const r = whole - h * 60;
   return r ? `${h}h ${r}m` : `${h}h`;
 };
+/**
+ * What every code in a section starts with, cut at a dash — shown once in the
+ * header instead of on every row. `KLPT-SO-20260910-0066-` on 82 rows was most
+ * of what the column said.
+ */
+const commonPrefix = (codes: (string | null)[]) => {
+  const list = codes.filter((c): c is string => !!c);
+  if (list.length < 2) return '';
+  let pre = list[0];
+  for (const c of list) { while (!c.startsWith(pre)) pre = pre.slice(0, -1); }
+  const cut = pre.lastIndexOf('-');
+  return cut > 0 ? pre.slice(0, cut + 1) : '';
+};
 const hours = (m: number) => `${Math.round(m / 60).toLocaleString()} h`;
 const qty = (n: number) => Number(n).toLocaleString(undefined, { maximumFractionDigits: 2 });
 
@@ -137,14 +150,14 @@ export default function OrderProductionPlan({
       <BuySection orderId={orderId} plan={plan} canManage={canManage} onDone={reload} onError={setError} />
 
       <ProductionSection
-        title="Cutting" hint="Plate into blanks"
+        title="Cutting" hint="Plate into blanks" orderNumber={plan.orderNumber}
         purpose="cutting" orderId={orderId} section={plan.cutting} canManage={canManage}
         onReload={reload} onError={setError}
         onStep={(rowId, stepId, m) => patchStep('cutting', rowId, stepId, m)}
       />
 
       <ProductionSection
-        title="Fabrication" hint="Parts, assemblies and finishing"
+        title="Fabrication" hint="Parts, assemblies and finishing" orderNumber={plan.orderNumber}
         purpose="fabrication" orderId={orderId} section={plan.fabrication} canManage={canManage}
         onReload={reload} onError={setError}
         onStep={(rowId, stepId, m) => patchStep('fabrication', rowId, stepId, m)}
@@ -340,9 +353,9 @@ const CAR = 70;
 const LINK = 6;
 
 function ProductionSection({
-  title, hint, purpose, orderId, section, canManage, onReload, onError, onStep,
+  title, hint, purpose, orderId, section, canManage, onReload, onError, onStep, orderNumber,
 }: {
-  title: string; hint: string; purpose: 'cutting' | 'fabrication';
+  title: string; hint: string; purpose: 'cutting' | 'fabrication'; orderNumber: string;
   orderId: number | string; section: PlanSection; canManage: boolean;
   onReload: () => Promise<void>; onError: (m: string) => void;
   onStep: (rowId: number, stepId: number, minutes: number | null) => void;
@@ -385,6 +398,7 @@ function ProductionSection({
   }
 
   const rowsWithSteps = section.rows.filter((r) => r.steps.length > 0).length;
+  const prefix = useMemo(() => commonPrefix(section.rows.map((r) => r.code)), [section.rows]);
 
   return (
     <Box sx={frame}>
@@ -418,6 +432,11 @@ function ProductionSection({
         <Typography sx={{ fontSize: 12, color: 'var(--c-text-2)' }}>
           {rowsWithSteps} row{rowsWithSteps === 1 ? '' : 's'} · {section.stepCount} steps · {hours(section.totalMinutes)}
         </Typography>
+        {prefix && (
+          <Typography sx={{ fontSize: 11.5, color: 'var(--c-text-3)' }}>
+            Codes start <Box component="span" sx={{ fontFamily: 'monospace' }}>{prefix}</Box>
+          </Typography>
+        )}
       </SectionHead>
 
       {section.rows.length === 0 ? (
@@ -439,7 +458,7 @@ function ProductionSection({
 
             {visible.map((r) => (
               <PlanRowView
-                key={r.id} row={r} editable={editable}
+                key={r.id} row={r} editable={editable} codePrefix={prefix} orderNumber={orderNumber}
                 open={!closed.has(r.id)} canOpen={hasKids.has(r.id)} onToggle={() => toggle(r.id)}
                 onSave={async (s, m) => {
                   try {
@@ -482,11 +501,16 @@ function HeadCell({ children, sx }: { children: React.ReactNode; sx?: object }) 
 }
 
 /** One BOM row: the row on the left, its flow as a train of steps on the right. */
-function PlanRowView({ row, editable, open, canOpen, onToggle, onSave }: {
+function PlanRowView({ row, editable, open, canOpen, onToggle, onSave, codePrefix, orderNumber }: {
   row: PlanRow; editable: boolean; open: boolean; canOpen: boolean; onToggle: () => void;
+  codePrefix: string; orderNumber: string;
   onSave: (s: PlanStep, minutes: number | null) => Promise<void>;
 }) {
   const bought = row.procurement === 'buy';
+  // Inside the order, the order number on a blank's name says nothing.
+  const tail = ` — ${orderNumber}`;
+  const name = row.name.endsWith(tail) ? row.name.slice(0, -tail.length) : row.name;
+  const code = row.code && codePrefix && row.code.startsWith(codePrefix) ? row.code.slice(codePrefix.length) : row.code;
   return (
     <Box sx={{
       display: 'flex', alignItems: 'stretch', borderBottom: '1px solid var(--c-divider)',
@@ -506,15 +530,15 @@ function PlanRowView({ row, editable, open, canOpen, onToggle, onSave }: {
         </Box>
         <Box sx={{ minWidth: 0, flex: 1 }}>
           <Typography noWrap sx={{ fontSize: 12.5, fontWeight: row.depth === 0 ? 600 : 500, color: bought ? 'var(--c-text-2)' : 'inherit' }}>
-            {row.name}
+            {name}
           </Typography>
-          <Tooltip title={row.codeSaved ? 'Code' : 'Code it will get when the order is deployed'}>
+          <Tooltip title={`${row.code ?? 'No code — bought in'}${row.code && !row.codeSaved ? ' (written when the order is deployed)' : ''}`}>
             <Typography noWrap sx={{
               fontSize: 10.5, fontFamily: 'monospace',
               color: row.codeSaved ? 'var(--c-text-2)' : 'var(--c-text-3)',
               fontStyle: row.codeSaved ? 'normal' : 'italic',
             }}>
-              {row.code ?? '—'}
+              {code ?? '—'}
             </Typography>
           </Tooltip>
         </Box>

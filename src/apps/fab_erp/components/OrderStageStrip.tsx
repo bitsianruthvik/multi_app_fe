@@ -60,7 +60,7 @@ export default function OrderStageStrip({ readiness, onGoToTab, activeTab }: {
         {stages.map((s, i) => {
           const isNext = s.key === nextStage;
           const isActive = STAGE_TAB[s.key] === activeTab;
-          const count = stageCount(s);
+          const count = s.summary ?? stageCount(s);
           return (
             <Box key={s.key} sx={{ display: 'flex', alignItems: 'center' }}>
               {i > 0 && (

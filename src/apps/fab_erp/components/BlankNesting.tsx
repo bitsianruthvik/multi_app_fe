@@ -46,6 +46,25 @@ import {
 import { backendMessage } from '../components';
 
 const t = (kg: number) => `${(kg / 1000).toFixed(1)} t`;
+
+/**
+ * How a plan was made, said plainly. The server records it as
+ * "Deep — 2000 restarts in 300.8s"; nobody reading it needs "restarts".
+ */
+const plainProvenance = (p: string | null) => {
+  if (!p) return p;
+  const m = /^(Quick|Standard|Deep)\s*—\s*\d+\s*restarts in\s*([\d.]+)s/i.exec(p);
+  if (!m) return p;
+  const secs = Number(m[2]);
+  const took = secs < 90 ? `${Math.round(secs)} s` : `${Math.round(secs / 60)} min`;
+  return `${m[1]} search · took ${took}`;
+};
+
+/** The effort a saved plan was made with, read back off its provenance. */
+const effortOf = (p: string | null): Effort | null => {
+  const m = /^(quick|standard|deep)\b/i.exec(p ?? '');
+  return m ? (m[1].toLowerCase() as Effort) : null;
+};
 const rect = (o: { thickness: number; width: number; length: number }) =>
   `${o.thickness} × ${o.width} × ${o.length}`;
 
@@ -95,7 +114,7 @@ export default function BlankNesting({
     }).then((r) => setFlows(r.data ?? [])).catch(() => setFlows([]));
   }, []);
 
-  const load = useCallback(async (how: Effort = effort, repack = false) => {
+  const load = useCallback(async (how: Effort, repack = false) => {
     setLoading(true);
     setError(null);
     try {
@@ -108,15 +127,18 @@ export default function BlankNesting({
       setFromSaved(res.fromSaved === true);
       setProvenance(res.provenance ?? null);
       setAccepted(res.accepted === true);
+      // Show the effort the ACCEPTED plan was made with, not the default —
+      // "How hard to look: Standard" beside a Deep plan read as a contradiction.
+      if (!repack) { const e = effortOf(res.provenance ?? null); if (e) setEffort(e); }
     } catch (err) {
       setError(backendMessage(err, 'Could not work out what this order needs cutting.'));
       setBlanks([]); setNests([]); setSummary(null);
     } finally {
       setLoading(false);
     }
-  }, [orderId, effort]);
+  }, [orderId]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => { void load('standard'); }, [load]);
 
   const toggle = useCallback((k: string) => setOpen((o) => {
     const n = new Set(o); if (n.has(k)) n.delete(k); else n.add(k); return n;
@@ -139,14 +161,14 @@ export default function BlankNesting({
         `${res.blanks} blanks across ${res.sheets} sheets on ${res.cuttingOrderNumber}. `
         + `${res.partsRepointed} part rows now come off a blank.`,
       );
-      await load();
+      await load(effort);
       onStageChanged?.();
     } catch (err) {
       setError(backendMessage(err, 'That plan could not be accepted.'));
     } finally {
       setAccepting(false);
     }
-  }, [nests, blanks, flowId, provenance, orderId, load, onStageChanged]);
+  }, [nests, blanks, flowId, provenance, orderId, load, onStageChanged, effort]);
 
   /**
    * THE SECOND WAY IN.
@@ -186,7 +208,7 @@ export default function BlankNesting({
             + (short.length > 3 ? ', and more' : '') + '.'
           : ''),
       );
-      await load();
+      await load(effort);
       onStageChanged?.();
     } catch (err) {
       setError(backendMessage(err, 'That sheet could not be read.'));
@@ -194,7 +216,7 @@ export default function BlankNesting({
       setUploading(false);
       if (fileRef.current) fileRef.current.value = '';
     }
-  }, [orderId, load, onStageChanged]);
+  }, [orderId, load, onStageChanged, effort]);
 
   const shortBlanks = useMemo(() => blanks.filter((b) => b.short > 0), [blanks]);
 
@@ -243,7 +265,7 @@ export default function BlankNesting({
           // there because they were interesting, which is not the same thing.
           ['Blanks', String(summary?.blanks ?? 0), null],
           ['Sheets', String(summary?.plates ?? 0), null],
-          ['Steel bought', t(summary?.boughtKg ?? 0), null],
+          ['Steel to buy', t(summary?.boughtKg ?? 0), null],
           ['Yield', `${((summary?.yield ?? 0) * 100).toFixed(1)}%`, yieldColour(summary?.yield ?? 0)],
         ] as [string, string, string | null][]).map(([k, v, colour]) => (
           <Box key={k} sx={{ px: 2, py: 1.25, borderRight: '1px solid var(--c-divider)', minWidth: 112 }}>
@@ -273,7 +295,7 @@ export default function BlankNesting({
           label={accepted ? 'Accepted' : 'Not accepted'}
         />
         {provenance && (
-          <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)' }}>{provenance}</Typography>
+          <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)' }}>{plainProvenance(provenance)}</Typography>
         )}
         {!repeatable && (
           <Tooltip title="This run hit the safety time limit, so re-nesting may give a different plan.">
@@ -292,8 +314,11 @@ export default function BlankNesting({
           onChange={(e) => setFlowId(e.target.value === '' ? '' : Number(e.target.value))}
           sx={{ width: 190 }}
           disabled={!canManage}
+          // An empty value is a real choice — the cutting default — so say it,
+          // rather than showing an empty box that reads as "not set".
+          slotProps={{ select: { displayEmpty: true }, inputLabel: { shrink: true } }}
         >
-          <MenuItem value=""><em>Cutting (default)</em></MenuItem>
+          <MenuItem value="">Cutting (default)</MenuItem>
           {flows.map((f) => <MenuItem key={f.id} value={f.id}>{f.name}</MenuItem>)}
         </TextField>
 
@@ -307,7 +332,12 @@ export default function BlankNesting({
           <MenuItem value="deep">Deep</MenuItem>
         </TextField>
 
-        <Button size="small" startIcon={<RefreshIcon />} onClick={() => void load(effort, true)}>
+        <Button size="small" startIcon={<RefreshIcon />} onClick={() => {
+          // Re-nesting only proposes — nothing changes until a plan is accepted —
+          // but beside an ACCEPTED plan the button reads as "redo it", so say so.
+          if (accepted && !window.confirm('This works out a new plan to look at. The accepted plan stays until you accept a different one. Continue?')) return;
+          void load(effort, true);
+        }}>
           Re-nest
         </Button>
         <Button size="small" startIcon={<DownloadIcon />} onClick={() => void download()}>
@@ -390,7 +420,7 @@ export default function BlankNesting({
                       * relationship correctly and the names are one click away.
                       */}
                     <Typography noWrap sx={{ fontSize: 12, color: 'var(--c-text-2)' }}>
-                      {b.material} {b.grade} · serves {b.partCount} part row{b.partCount === 1 ? '' : 's'}
+                      {b.material} {b.grade} · used by {b.partCount} part{b.partCount === 1 ? '' : 's'}
                     </Typography>
                   </Box>
 
@@ -425,9 +455,9 @@ export default function BlankNesting({
                   <Box sx={{ width: 80, flexShrink: 0, textAlign: 'right' }}>
                     <Mono>{b.plateCount || '—'}</Mono>
                     {b.sharesPlates > 0 && (
-                      <Tooltip title={`${b.sharesPlates} of them also carry another rectangle`}>
+                      <Tooltip title={`${b.sharesPlates} of these sheets also carry other blanks`}>
                         <Typography sx={{ fontSize: 11, color: 'var(--c-primary-600)' }}>
-                          {b.sharesPlates} shared
+                          {b.sharesPlates} mixed
                         </Typography>
                       </Tooltip>
                     )}

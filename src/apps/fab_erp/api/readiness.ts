@@ -18,6 +18,8 @@ export interface ReadinessStage {
   count: number;
   total: number;
   detail: string;
+  /** One short figure for the step strip, the same everywhere: "82 rows", "24 blanks · 129 sheets". */
+  summary?: string | null;
 }
 
 export interface ReadinessBlocker {
