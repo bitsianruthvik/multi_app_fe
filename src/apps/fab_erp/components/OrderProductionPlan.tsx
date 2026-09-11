@@ -53,6 +53,15 @@ const perPiece = (m: number | null) => {
   const r = whole - h * 60;
   return r ? `${h} h ${r} m` : `${h} h`;
 };
+/** The same, compact enough for a step box: 12m, 1h 45m. The tooltip keeps the long form. */
+const shortTime = (m: number | null) => {
+  if (m == null) return '—';
+  if (m < 59.5) return `${m < 10 ? m.toFixed(1) : Math.round(m)}m`;
+  const whole = Math.round(m);
+  const h = Math.floor(whole / 60);
+  const r = whole - h * 60;
+  return r ? `${h}h ${r}m` : `${h}h`;
+};
 const hours = (m: number) => `${Math.round(m / 60).toLocaleString()} h`;
 const qty = (n: number) => Number(n).toLocaleString(undefined, { maximumFractionDigits: 2 });
 
@@ -322,7 +331,13 @@ const Unit = ({ u }: { u: string | null }) =>
 
 // ── A PRODUCTION ORDER ──────────────────────────────────────────────────────
 
-const LEFT = 360;
+/**
+ * Sized so the longest chain — 17 steps on a Segment — fits a 1920 px screen:
+ * 320 + 17 × (70 + 6) ≈ 1,640 px plus the row total.
+ */
+const LEFT = 320;
+const CAR = 70;
+const LINK = 6;
 
 function ProductionSection({
   title, hint, purpose, orderId, section, canManage, onReload, onError, onStep,
@@ -521,7 +536,7 @@ function PlanRowView({ row, editable, open, canOpen, onToggle, onSave }: {
         ) : (<>
           {row.steps.map((s, i) => (
             <Box key={s.stepId} sx={{ display: 'flex', alignItems: 'center' }}>
-              {i > 0 && <Box sx={{ width: 10, height: 2, background: 'var(--c-border)', flexShrink: 0 }} />}
+              {i > 0 && <Box sx={{ width: LINK, height: 2, background: 'var(--c-border)', flexShrink: 0 }} />}
               <StepCar step={s} pieces={row.totalQty} editable={editable} onSave={(m) => onSave(s, m)} />
             </Box>
           ))}
@@ -571,7 +586,7 @@ function StepCar({ step, pieces, editable, onSave }: {
   return (
     <Tooltip title={tip} placement="top" disableHoverListener={editing}>
       <Box sx={{
-        width: 84, flexShrink: 0, borderRadius: '6px', px: 0.75, py: 0.4,
+        width: CAR, flexShrink: 0, borderRadius: '6px', px: 0.6, py: 0.35,
         border: '1px solid', borderColor: changed ? 'var(--c-primary-400, #8b7cf6)' : 'var(--c-border)',
         background: changed ? 'var(--c-primary-50)' : 'var(--c-surface)',
       }}>
@@ -597,12 +612,12 @@ function StepCar({ step, pieces, editable, onSave }: {
               component={editable ? 'button' : 'span'}
               onClick={editable ? () => { setValue(step.minutes != null ? String(step.minutes) : ''); setEditing(true); } : undefined}
               sx={{
-                all: 'unset', cursor: editable ? 'text' : 'default', fontSize: 12, fontWeight: 600,
+                all: 'unset', cursor: editable ? 'text' : 'default', fontSize: 11.5, fontWeight: 600, whiteSpace: 'nowrap',
                 fontVariantNumeric: 'tabular-nums', color: changed ? 'var(--c-primary-700)' : 'var(--c-text)',
                 '&:focus-visible': { outline: '2px solid var(--c-primary-400, #8b7cf6)', borderRadius: '3px' },
               }}
             >
-              {saving ? '…' : perPiece(step.minutes)}
+              {saving ? '…' : shortTime(step.minutes)}
             </Box>
             {changed && editable && (
               <Tooltip title={`Back to the worked-out ${perPiece(step.formulaMinutes)}`}>
