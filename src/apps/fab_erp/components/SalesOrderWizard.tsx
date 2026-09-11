@@ -159,7 +159,8 @@ export default function SalesOrderWizard({
       open={open}
       onClose={onClose}
       fullWidth
-      maxWidth="xl"
+      // Full width on the Production step: its table runs sideways.
+      maxWidth={step === 'production' ? false : 'xl'}
       slotProps={{ paper: { sx: { height: 'calc(100vh - 64px)', bgcolor: 'var(--c-bg)' } } }}
     >
       {/* Header — the close button is deliberately prominent and unqualified.

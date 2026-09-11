@@ -258,6 +258,11 @@ export default function SalesOrderDetail() {
     </>
   );
 
+  // The Production tab is a wide table — the BOM on the left and a chain of up
+  // to 17 steps beside each row — so it gets the whole screen. Everything else
+  // keeps the readable 1100.
+  const pageWidth = tab === 'production' ? undefined : 1100;
+
   return (
     <Box>
       {isSales && (
@@ -269,14 +274,14 @@ export default function SalesOrderDetail() {
           onClose={() => { setWizardOpen(false); fetchAll(); }}
         />
       )}
-      {error && <Alert severity="error" sx={{ mb: 2, maxWidth: 1100, mx: 'auto' }} onClose={() => setError('')}>{error}</Alert>}
+      {error && <Alert severity="error" sx={{ mb: 2, maxWidth: pageWidth, mx: 'auto' }} onClose={() => setError('')}>{error}</Alert>}
       {isSales && readiness && (
-        <Box sx={{ maxWidth: 1100, mx: 'auto' }}>
+        <Box sx={{ maxWidth: pageWidth, mx: 'auto' }}>
           <OrderStageStrip readiness={readiness} activeTab={tab} onGoToTab={setTab} />
         </Box>
       )}
       <DetailLayout
-        maxWidth={1100}
+        maxWidth={pageWidth}
         header={header}
         crossLinks={crossLinks}
         tabs={[
