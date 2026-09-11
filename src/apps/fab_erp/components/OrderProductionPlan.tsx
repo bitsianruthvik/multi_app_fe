@@ -46,9 +46,11 @@ import { backendMessage, ConfirmDialog, Mono, useToast } from '../components';
 /** Per-piece times read best in minutes; anything over an hour in h + m. */
 const perPiece = (m: number | null) => {
   if (m == null) return '—';
-  if (m < 60) return `${m < 10 ? m.toFixed(1) : Math.round(m)} min`;
-  const h = Math.floor(m / 60);
-  const r = Math.round(m - h * 60);
+  if (m < 59.5) return `${m < 10 ? m.toFixed(1) : Math.round(m)} min`;
+  // Round the whole first, or 119.7 min reads "1 h 60 m".
+  const whole = Math.round(m);
+  const h = Math.floor(whole / 60);
+  const r = whole - h * 60;
   return r ? `${h} h ${r} m` : `${h} h`;
 };
 const hours = (m: number) => `${Math.round(m / 60).toLocaleString()} h`;
