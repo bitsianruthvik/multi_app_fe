@@ -28,6 +28,7 @@ import {
   Tooltip, Typography,
 } from '@mui/material';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
+import ExpandLessRounded from '@mui/icons-material/ExpandLessRounded';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import RocketLaunchRounded from '@mui/icons-material/RocketLaunchRounded';
 import NoteAddRounded from '@mui/icons-material/NoteAddRounded';
@@ -168,15 +169,34 @@ export default function OrderProductionPlan({
 
 // ── shared section frame ────────────────────────────────────────────────────
 
-function SectionHead({ title, hint, children, right }: {
+/**
+ * Each section folds away, because the three answer different questions and
+ * you are usually working on one: the fabrication table alone is 82 rows, and
+ * scrolling past it to reach the buying half is the whole navigation problem.
+ *
+ * What it is folded or open is remembered per order, so coming back lands
+ * where you left it.
+ */
+function SectionHead({ title, hint, children, right, open, onToggle }: {
   title: string; hint: string; children?: React.ReactNode; right?: React.ReactNode;
+  open: boolean; onToggle: () => void;
 }) {
   return (
     <Box sx={{
       display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap',
-      px: 2, py: 1.25, borderBottom: '1px solid var(--c-divider)', background: 'var(--c-surface-2)',
+      px: 1.25, py: 1.25, borderBottom: open ? '1px solid var(--c-divider)' : undefined,
+      background: 'var(--c-surface-2)',
     }}>
-      <Box sx={{ minWidth: 0 }}>
+      <Tooltip title={open ? 'Fold this away' : 'Open this'}>
+        <IconButton size="small" onClick={onToggle} aria-label={open ? `Collapse ${title}` : `Expand ${title}`}>
+          {open ? <ExpandLessRounded sx={{ fontSize: 18 }} /> : <ChevronRightIcon sx={{ fontSize: 18 }} />}
+        </IconButton>
+      </Tooltip>
+      <Box
+        role="button" tabIndex={0} onClick={onToggle}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onToggle(); }}
+        sx={{ minWidth: 0, cursor: 'pointer' }}
+      >
         <Typography sx={{ fontSize: 14, fontWeight: 600 }}>{title}</Typography>
         <Typography sx={{ fontSize: 11.5, color: 'var(--c-text-3)' }}>{hint}</Typography>
       </Box>
@@ -185,6 +205,19 @@ function SectionHead({ title, hint, children, right }: {
       {right}
     </Box>
   );
+}
+
+/** Folded or open, per order, kept across visits. */
+function useFolded(orderId: number | string, key: string) {
+  const store = `fab_erp_prod_section_${orderId}_${key}`;
+  const [open, setOpen] = useState(() => {
+    try { return localStorage.getItem(store) !== 'closed'; } catch { return true; }
+  });
+  const toggle = useCallback(() => setOpen((v) => {
+    try { localStorage.setItem(store, v ? 'closed' : 'open'); } catch { /* private window */ }
+    return !v;
+  }), [store]);
+  return [open, toggle] as const;
 }
 
 const frame = {
@@ -236,6 +269,7 @@ function BuySection({ orderId, plan, canManage, onDone, onError }: {
     } catch (e) { onError(backendMessage(e, 'Could not send the request.')); }
   }
 
+  const [open, toggleOpen] = useFolded(orderId, 'buy');
   const cell = { fontSize: 12.5, px: 1.25, py: 0.75, borderBottom: '1px solid var(--c-divider)', whiteSpace: 'nowrap' } as const;
   const num = { ...cell, textAlign: 'right', fontVariantNumeric: 'tabular-nums' } as const;
   const head = { ...cell, fontSize: 11, fontWeight: 600, color: 'var(--c-text-3)', textTransform: 'uppercase', letterSpacing: '.04em' } as const;
@@ -244,7 +278,8 @@ function BuySection({ orderId, plan, canManage, onDone, onError }: {
     <Box sx={frame}>
       <SectionHead
         title="Buy" hint="Take from stock for this order, request the rest"
-        right={canManage && lines.length > 0 && (
+        open={open} onToggle={toggleOpen}
+        right={canManage && open && lines.length > 0 && (
           <Button size="small" variant="contained" disabled={busy} onClick={() => void submit()}
             startIcon={busy ? <CircularProgress size={14} color="inherit" /> : undefined}>
             {anythingToBuy ? (openRequest ? 'Hold stock and update the request' : 'Hold stock and request the rest') : 'Hold stock'}
@@ -257,7 +292,7 @@ function BuySection({ orderId, plan, canManage, onDone, onError }: {
         </Typography>
       </SectionHead>
 
-      {lines.length === 0 ? (
+      {!open ? null : lines.length === 0 ? (
         <Typography sx={{ p: 2, fontSize: 13, color: 'var(--c-text-2)' }}>Nothing on this order is bought in.</Typography>
       ) : (
         <Box sx={{ overflowX: 'auto', maxHeight: 360, overflowY: 'auto' }}>
@@ -299,14 +334,14 @@ function BuySection({ orderId, plan, canManage, onDone, onError }: {
         </Box>
       )}
 
-      {unmatched.length > 0 && (
+      {open && unmatched.length > 0 && (
         <Alert severity="warning" sx={{ m: 1.5 }}>
           {unmatched.length} bought-in row(s) name no catalog item, so they cannot be checked against stock or requested:
           {' '}{unmatched.map((u) => u.name).filter(Boolean).join(', ')}
         </Alert>
       )}
 
-      {purchases.length > 0 && (
+      {open && purchases.length > 0 && (
         <Box sx={{ borderTop: '1px solid var(--c-divider)', p: 1.5 }}>
           <Typography sx={{ fontSize: 11, fontWeight: 600, color: 'var(--c-text-3)', textTransform: 'uppercase', letterSpacing: '.04em', mb: 1 }}>
             Purchase requests and orders
@@ -398,13 +433,15 @@ function ProductionSection({
   }
 
   const rowsWithSteps = section.rows.filter((r) => r.steps.length > 0).length;
+  const [open, toggleOpen] = useFolded(orderId, purpose);
   const prefix = useMemo(() => commonPrefix(section.rows.map((r) => r.code)), [section.rows]);
 
   return (
     <Box sx={frame}>
       <SectionHead
         title={title} hint={hint}
-        right={canManage && (
+        open={open} onToggle={toggleOpen}
+        right={canManage && open && (
           <Stack direction="row" spacing={1}>
             {(!mo || mo.status === 'draft') && section.stepCount > 0 && (
               <Button size="small" disabled={!!busy} onClick={() => void draft()}
@@ -439,7 +476,7 @@ function ProductionSection({
         )}
       </SectionHead>
 
-      {section.rows.length === 0 ? (
+      {!open ? null : section.rows.length === 0 ? (
         <Typography sx={{ p: 2, fontSize: 13, color: 'var(--c-text-2)' }}>
           {purpose === 'cutting' ? 'Nothing to cut yet — accept a nesting plan first.' : 'Nothing to make yet.'}
         </Typography>
@@ -618,18 +655,38 @@ function StepCar({ step, pieces, editable, onSave }: {
           {String(step.stepNo).padStart(2, '0')} {step.operationCode ?? '?'}
         </Typography>
         {editing ? (
-          <TextField
-            autoFocus size="small" type="number" value={value}
-            onChange={(e) => setValue(e.target.value)}
-            onBlur={() => void commit()}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
-              if (e.key === 'Escape') setEditing(false);
-            }}
-            placeholder={step.formulaMinutes != null ? String(step.formulaMinutes) : ''}
-            inputProps={{ min: 0, step: 0.5, style: { fontSize: 11.5, padding: '1px 4px' } }}
-            sx={{ width: '100%' }}
-          />
+          /*
+           * A TIME IS FOR ONE PIECE. The box reads "11h 55m" and the editor
+           * opened on "715.48", which is the same number in minutes and looks
+           * like a total — so while typing it says whose time it is and what
+           * it comes to across the row.
+           */
+          <Box sx={{ position: 'relative' }}>
+            <TextField
+              autoFocus size="small" type="number" value={value}
+              onChange={(e) => setValue(e.target.value)}
+              onBlur={() => void commit()}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+                if (e.key === 'Escape') setEditing(false);
+              }}
+              placeholder={step.formulaMinutes != null ? String(step.formulaMinutes) : ''}
+              inputProps={{ min: 0, step: 0.5, style: { fontSize: 11.5, padding: '1px 4px' } }}
+              sx={{ width: '100%' }}
+            />
+            <Box sx={{
+              position: 'absolute', top: '100%', left: 0, zIndex: 5, mt: 0.5, px: 1, py: 0.5,
+              whiteSpace: 'nowrap', borderRadius: '6px', border: '1px solid var(--c-border)',
+              background: 'var(--c-surface)', boxShadow: 'var(--shadow-2, 0 4px 12px rgba(0,0,0,.12))',
+            }}>
+              <Typography sx={{ fontSize: 10.5, color: 'var(--c-text-2)' }}>
+                minutes <b>per piece</b>
+              </Typography>
+              <Typography sx={{ fontSize: 10.5, color: 'var(--c-text-3)' }}>
+                × {qty(pieces)} = {hours((step.setupMinutes ?? 0) + (Number(value) || 0) * pieces)}
+              </Typography>
+            </Box>
+          </Box>
         ) : (
           <Stack direction="row" alignItems="center" spacing={0.25}>
             <Box
