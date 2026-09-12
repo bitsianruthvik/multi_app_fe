@@ -75,6 +75,7 @@ import { useAuth } from '@core/contexts/AuthContext';
 import { isAdminRole } from '@core/utils/roles';
 import InfoTooltip, { type InfoContent } from '@shared/components/InfoTooltip';
 import api, { API_HOST } from '@core/utils/axiosConfig';
+import { getCatalogSizes, type CatalogSize } from '../api/templates';
 import { Surface, PageHeader, Mono, StatusBadge, EmptyState, ListSkeleton, EntityList, EntityRow, useToast, StatStrip, DataTable, FormDialog, ConfirmDialog, backendMessage, type Stat, type SortableColumn, type DataColumn } from '../components';
 import { useSortableData } from '../hooks/useSortableData';
 import { STANDARD_UOMS } from '../constants/uom';
@@ -87,6 +88,9 @@ const ITEM_COLUMNS: SortableColumn<FabItemCatalog>[] = [
   { key: 'name',           label: 'Name',        sx: { ...TH, minWidth: 200 } },
   { key: 'code',           label: 'Code',         sx: { ...TH, width: 110 } },
   { key: 'unit',           label: 'Unit',         sx: { ...TH, width: 70 } },
+  // Thickness × width × length, where the item states one. A plate is found by
+  // its size far more often than by its name.
+  { key: 'size',           label: 'Size',         sx: { ...TH, width: 150 } },
   { key: 'description',    label: 'Description',  sx: { ...TH, minWidth: 180 } },
   { key: 'categoryName',   label: 'Category',     sx: { ...TH, width: 130 } },
   { key: 'groupName',      label: 'Group',        sx: { ...TH, width: 130 } },
@@ -98,7 +102,9 @@ const ITEM_COLUMNS: SortableColumn<FabItemCatalog>[] = [
 // row virtualization needs deterministic widths (unlike a normal flexible <table>).
 // User-adjusted widths (via the drag handle in each header cell) are persisted
 // to localStorage under COL_WIDTH_STORAGE_KEY and override these on load.
+const SIZE_COL_WIDTH = 150;
 const DEFAULT_ITEM_COL_WIDTH: Record<string, number> = {
+  size: SIZE_COL_WIDTH,
   name: 220, code: 110, unit: 70, description: 220, categoryName: 130, groupName: 130,
   subgroupName: 130, hsnCode: 100,
 };
@@ -2135,10 +2141,34 @@ export default function ItemCatalog() {
 
   useEffect(() => { fetchAll(); refetchTaxonomy(); }, [fetchAll, refetchTaxonomy]);
 
-  const filtered = useMemo(() => items.filter((it) => {
-    const matchSearch = !search
-      || it.name.toLowerCase().includes(search.toLowerCase())
-      || it.code.toLowerCase().includes(search.toLowerCase());
+  /**
+   * Sizes and material, from the field registry — they are values, not columns,
+   * so they arrive in one call and are joined here. Searching "28 x 3100" or
+   * "E350" is how a person looks for a plate they can picture.
+   */
+  const [sizes, setSizes] = useState<Record<string, CatalogSize>>({});
+  useEffect(() => { getCatalogSizes().then(setSizes).catch(() => setSizes({})); }, []);
+  const sizeText = useCallback((id: number) => {
+    const v = sizes[String(id)];
+    if (!v) return '';
+    return [v.thickness_mm, v.width_mm, v.length_mm].filter((x) => x != null && x !== '').join(' × ');
+  }, [sizes]);
+  const sizeHay = useCallback((id: number) => {
+    const v = sizes[String(id)];
+    if (!v) return '';
+    return [v.thickness_mm, v.width_mm, v.length_mm].filter((x) => x != null && x !== '').join(' x ')
+      + ' ' + [v.material, v.grade].filter(Boolean).join(' ');
+  }, [sizes]);
+
+  // The size rides along on the row, so the column can sort and the search can read it.
+  const itemsSized = useMemo(() => items.map((it) => ({ ...it, size: sizeText(it.id) })), [items, sizeText]);
+
+  const filtered = useMemo(() => itemsSized.filter((it) => {
+    const q = search.trim().toLowerCase().replace(/[×*]/g, 'x');
+    const matchSearch = !q
+      || it.name.toLowerCase().includes(q)
+      || it.code.toLowerCase().includes(q)
+      || sizeHay(it.id).toLowerCase().includes(q);
     const matchColFilters = ITEM_COLUMNS.every((col) => {
       const needle = colFilters[col.key as string]?.trim().toLowerCase();
       if (!needle) return true;
@@ -2149,7 +2179,7 @@ export default function ItemCatalog() {
       && (!filterCategoryId || it.categoryId === filterCategoryId)
       && (!filterGroupId    || it.groupId    === filterGroupId)
       && (!filterSubgroupId || it.subgroupId === filterSubgroupId);
-  }), [items, search, colFilters, filterCategoryId, filterGroupId, filterSubgroupId]);
+  }), [itemsSized, search, colFilters, filterCategoryId, filterGroupId, filterSubgroupId, sizeHay]);
 
   const { sortedRows, sortKey, sortDirection, requestSort } = useSortableData(filtered, 'name');
 
@@ -2272,6 +2302,7 @@ export default function ItemCatalog() {
         <Box sx={{ ...TD, width: colWidths.name, minWidth: colWidths.name, flex: '0 0 auto', boxSizing: 'border-box', px: 2, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{it.name}</Box>
         <Box sx={{ ...TD, width: colWidths.code, minWidth: colWidths.code, flex: '0 0 auto', boxSizing: 'border-box', px: 2 }}><Mono chip>{it.code}</Mono></Box>
         <Box sx={{ ...TD, width: colWidths.unit, minWidth: colWidths.unit, flex: '0 0 auto', boxSizing: 'border-box', px: 2 }}>{it.unit ?? 'pcs'}</Box>
+        <Box sx={{ ...TD, width: colWidths.size, minWidth: colWidths.size, flex: '0 0 auto', boxSizing: 'border-box', px: 2, fontFamily: 'var(--font-mono, monospace)', fontSize: 12.5, color: 'var(--c-text-2)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{it.size || '—'}</Box>
         <Box sx={{ ...TD, width: colWidths.description, minWidth: colWidths.description, flex: '0 0 auto', boxSizing: 'border-box', px: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--c-text-2)' }}>{it.description ?? '—'}</Box>
         <Box sx={{ ...TD, width: colWidths.categoryName, minWidth: colWidths.categoryName, flex: '0 0 auto', boxSizing: 'border-box', px: 2 }}>{it.categoryName ?? '—'}</Box>
         <Box sx={{ ...TD, width: colWidths.groupName, minWidth: colWidths.groupName, flex: '0 0 auto', boxSizing: 'border-box', px: 2 }}>{it.groupName ?? '—'}</Box>
@@ -2364,7 +2395,7 @@ export default function ItemCatalog() {
         <>
           <Box sx={{ display: 'flex', gap: 2, mb: 2, flexWrap: 'wrap', alignItems: 'flex-end' }}>
             <TextField
-              placeholder="Search by name or code…" value={search} size="small" sx={{ width: 300 }}
+              placeholder="Search by name, code or size…" value={search} size="small" sx={{ width: 300 }}
               onChange={(e) => setSearch(e.target.value)}
               slotProps={{ input: { startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" /></InputAdornment> } }}
             />

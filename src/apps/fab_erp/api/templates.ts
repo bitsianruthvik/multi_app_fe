@@ -318,3 +318,37 @@ export const buildStructure = (
     replace?: boolean;
   },
 ) => fabPost<InstantiateResult>(`orders/${orderId}/build`, { ...body });
+
+/**
+ * An item the order's add-a-row picker may offer, with what it takes to tell
+ * two similar names apart.
+ */
+export interface PickableItem {
+  id: number;
+  name: string;
+  code: string | null;
+  unit: string | null;
+  categoryName: string | null;
+  groupName: string | null;
+  subgroupName: string | null;
+  procurement: 'make' | 'buy';
+  /** "32 × 90 × 1700", where the item states a size. Parts take theirs from the order. */
+  size: string | null;
+  material: string | null;
+  /** What its BOM lines usually have it made by. */
+  flowName: string | null;
+  bomCount: number;
+  orderCount: number;
+  lastUsedAt: string | null;
+  /** Already somewhere on this order — the next row is usually one of these. */
+  onThisOrder: boolean;
+}
+
+export const getPickableItems = (orderId?: number | string | null) =>
+  fabGet<{ items: PickableItem[] }>('catalog/pickable', orderId ? { orderId } : {})
+    .then((r) => r.items ?? []);
+
+export type CatalogSize = Partial<Record<'thickness_mm' | 'width_mm' | 'length_mm' | 'material' | 'grade', number | string>>;
+
+export const getCatalogSizes = () =>
+  fabGet<{ sizes: Record<string, CatalogSize> }>('catalog/sizes').then((r) => r.sizes ?? {});

@@ -466,6 +466,8 @@ export interface FabMaterialBom extends FabBase {
  * fab_item_catalog: Company-level parts library — reusable items across projects
  */
 export interface FabItemCatalog extends FabBase {
+  /** Thickness × width × length, joined from the field registry for display and search. */
+  size?: string | null;
   name:          string;
   code:          string;
   unit:          string | null;

@@ -4,6 +4,7 @@ import {
   DialogContent, DialogTitle, IconButton, MenuItem, TextField, Tooltip, Typography,
 } from '@mui/material';
 import AddRounded from '@mui/icons-material/AddRounded';
+import RefreshRounded from '@mui/icons-material/RefreshRounded';
 import CheckRoundedIcon from '@mui/icons-material/CheckRounded';
 import ContentCopyRounded from '@mui/icons-material/ContentCopyRounded';
 import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
@@ -11,12 +12,13 @@ import DescriptionRounded from '@mui/icons-material/DescriptionRounded';
 import ExpandMoreRounded from '@mui/icons-material/ExpandMoreRounded';
 import ChevronRightRounded from '@mui/icons-material/ChevronRightRounded';
 
-import { fabQuery } from '../api/client';
+import { fabQuery, fabMutate } from '../api/client';
 import { backendMessage, Surface } from '../components';
 import { DialogCloseButton } from './FormDialog';
 import DrawingsPanel from './DrawingsPanel';
 import {
-  getDraftTree, getCurrentTree, buildStructure, applyStructure, type DraftNode,
+  getDraftTree, getCurrentTree, buildStructure, applyStructure, getPickableItems,
+  type DraftNode, type PickableItem,
 } from '../api/templates';
 
 /**
@@ -46,14 +48,11 @@ import {
  * turn costs an undo rather than a half-built order.
  */
 
-interface CatalogOption {
-  id: number;
-  name: string;
-  code: string | null;
-  categoryName?: string | null;
-  groupName?: string | null;
-  subgroupName?: string | null;
-}
+type CatalogOption = PickableItem;
+
+/** Three buckets, in the order somebody reaches for them. */
+const bucketOf = (o: CatalogOption) => (o.onThisOrder ? 0 : o.lastUsedAt ? 1 : 2);
+const BUCKET = ['On this order', 'Used before', 'Everything else'];
 
 export interface StructureEditorLine {
   id: number;
@@ -164,6 +163,13 @@ export default function StructureEditor({
   const [showDrawings, setShowDrawings] = useState<string | null>(null);
 
   const [catalog, setCatalog] = useState<CatalogOption[]>([]);
+  const [catalogLoading, setCatalogLoading] = useState(false);
+  const [newItem, setNewItem] = useState<{ parentKey: string; name: string; groupId: number | ''; subgroupId: number | ''; unit: string; procurement: 'make' | 'buy' } | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [taxonomy, setTaxonomy] = useState<{
+    groups: { id: number; name: string; categoryId: number }[];
+    subgroups: { id: number; name: string; groupId: number }[];
+  }>({ groups: [], subgroups: [] });
 
   /**
    * TWO SOURCES, AND THEY ARE DIFFERENT QUESTIONS.
@@ -189,32 +195,35 @@ export default function StructureEditor({
       .finally(() => setLoading(false));
   }, [open, source, orderId, orderLine?.id, orderLine?.itemId]);
 
-  // Anything addable, for the "add a row" picker. Raw materials excluded for
-  // the same reason as the line picker: they are stock, not structure.
+  /*
+   * Anything addable, and enough about each to choose it: size, material, make
+   * or bought, the flow its BOM gives it, and how used it is. The server
+   * decides what is addable — a structure holds bought-in components as well as
+   * fabricated ones (7,212 shear studs live under Fasteners & Hardware), but
+   * never raw material, which arrives through nesting.
+   */
+  const loadCatalog = useCallback(async () => {
+    setCatalogLoading(true);
+    try { setCatalog(await getPickableItems(orderId)); } catch { setCatalog([]); }
+    finally { setCatalogLoading(false); }
+  }, [orderId]);
+  useEffect(() => { if (open) void loadCatalog(); }, [open, loadCatalog]);
+
+  // Where a new item can be filed, for the "New item" dialog.
   useEffect(() => {
     if (!open) return;
-    (async () => {
-      try {
-        const cats = await fabQuery<{ data: { id: number; name: string }[] }>('fabErpItemCategory', {
-          pagination: { limit: 200 },
-        });
-        /*
-         * WIDER THAN THE LINE PICKER, and deliberately so: a structure holds
-         * bought-in components as well as fabricated ones — a composite girder
-         * span carries 7,212 headed shear studs, which live under Fasteners &
-         * Hardware. What it never holds is a machine or a machine spare.
-         */
-        const ADDABLE = new Set(['Fabricated', 'Fasteners & Hardware', 'Consumables']);
-        const wanted = (cats.data ?? []).filter((c) => ADDABLE.has(c.name)).map((c) => c.id);
-        const r = await fabQuery<{ data: CatalogOption[] }>('fabErpItemCatalog', {
-          filters: wanted.length ? { categoryId: wanted } : {},
-          orderBy: [{ field: 'name', direction: 'asc' }],
-          pagination: { limit: 1000 },
-        });
-        setCatalog(r.data ?? []);
-      } catch { setCatalog([]); }
-    })();
+    Promise.all([
+      fabQuery<{ data: { id: number; name: string; categoryId: number }[] }>('fabErpItemGroup', { pagination: { limit: 500 } }),
+      fabQuery<{ data: { id: number; name: string; groupId: number }[] }>('fabErpItemSubgroup', { pagination: { limit: 1000 } }),
+    ]).then(([g, sg]) => setTaxonomy({ groups: g.data ?? [], subgroups: sg.data ?? [] })).catch(() => {});
   }, [open]);
+
+
+  /** Buckets first, then name — Autocomplete groups on the order it is given. */
+  const options = useMemo(
+    () => [...catalog].sort((a, b) => bucketOf(a) - bucketOf(b) || a.name.localeCompare(b.name)),
+    [catalog],
+  );
 
   /**
    * A CLEARED QUANTITY IS null, NOT ZERO.
@@ -303,6 +312,39 @@ export default function StructureEditor({
     })) : t));
     setAddUnder(null);
   }, []);
+
+  /**
+   * A PART NOBODY CATALOGUED YET, created without leaving the order.
+   *
+   * The item is the KIND of thing — its size belongs to the row, the way Top
+   * Flange's does. The code comes from the code generator, so there is nothing
+   * to type but a name and where it is filed.
+   */
+  const createItem = useCallback(async () => {
+    if (!newItem?.name.trim() || !newItem.subgroupId) return;
+    setCreating(true);
+    try {
+      const group = taxonomy.groups.find((g) => g.id === newItem.groupId);
+      const res = await fabMutate<{ ok: boolean; id: number }>('fabErpItemCatalog', 'insert', {
+        name: newItem.name.trim(),
+        unit: newItem.unit || 'nos',
+        categoryId: group?.categoryId ?? null,
+        groupId: newItem.groupId,
+        subgroupId: newItem.subgroupId,
+        procurementType: newItem.procurement,
+      });
+      await loadCatalog();
+      addChild(newItem.parentKey, {
+        id: res.id, name: newItem.name.trim(), code: null, unit: newItem.unit || 'nos',
+        categoryName: null, groupName: group?.name ?? null, subgroupName: null,
+        procurement: newItem.procurement, size: null, material: null, flowName: null,
+        bomCount: 0, orderCount: 0, lastUsedAt: null, onThisOrder: true,
+      });
+      setNewItem(null);
+    } catch (e) {
+      setError(backendMessage(e, 'Could not create that item.'));
+    } finally { setCreating(false); }
+  }, [newItem, taxonomy.groups, loadCatalog, addChild]);
 
   async function create(replace = false) {
     if (!tree) return;
@@ -516,29 +558,65 @@ export default function StructureEditor({
         {addUnder === node.key && (
           <Box sx={{ pl: `${(depth + 1) * 20}px`, py: 1, display: 'flex', gap: 1, alignItems: 'center' }}>
             <Autocomplete
-              options={catalog}
-              sx={{ flex: '1 1 300px' }}
+              options={options}
+              loading={catalogLoading}
+              sx={{ flex: '1 1 380px' }}
               getOptionLabel={(o) => o.name}
               isOptionEqualToValue={(a, b) => a.id === b.id}
               onChange={(_, v) => { if (v) addChild(node.key, v); }}
+              groupBy={(o) => BUCKET[bucketOf(o)]}
               filterOptions={(opts, { inputValue }) => {
                 const q = inputValue.trim().toLowerCase();
-                if (!q) return opts.slice(0, 50);
-                return opts.filter((o) => [o.name, o.code, o.categoryName, o.groupName, o.subgroupName]
-                  .filter(Boolean).join(' ').toLowerCase().includes(q));
+                // Size and material are searchable too: "32 x 90" and "E350"
+                // are how a person looks for a plate they can picture.
+                const hay = (o: CatalogOption) => [o.name, o.code, o.size?.replace(/ × /g, ' x '),
+                  o.material, o.categoryName, o.groupName, o.subgroupName]
+                  .filter(Boolean).join(' ').toLowerCase();
+                if (!q) return opts.slice(0, 60);
+                const norm = q.replace(/[×*]/g, 'x');
+                return opts.filter((o) => hay(o).includes(norm));
               }}
               renderOption={(props, o) => (
                 <li {...props} key={o.id}>
-                  <Box>
-                    <Typography sx={{ fontSize: 13 }}>{o.name}</Typography>
+                  <Box sx={{ minWidth: 0 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1, flexWrap: 'wrap' }}>
+                      <Typography sx={{ fontSize: 13 }}>{o.name}</Typography>
+                      {o.size && (
+                        <Typography sx={{ fontSize: 11.5, fontFamily: 'monospace', color: 'var(--c-text-2)' }}>
+                          {o.size}
+                        </Typography>
+                      )}
+                      {o.material && (
+                        <Typography sx={{ fontSize: 11.5, color: 'var(--c-text-2)' }}>{o.material}</Typography>
+                      )}
+                      {o.procurement === 'buy' && (
+                        <Typography sx={{ fontSize: 10.5, color: 'var(--c-warning-600)' }}>bought in</Typography>
+                      )}
+                    </Box>
                     <Typography sx={{ fontSize: 11, color: 'var(--c-text-3)' }}>
-                      {[o.categoryName, o.groupName, o.subgroupName].filter(Boolean).join(' › ')}
+                      {[
+                        [o.categoryName, o.groupName, o.subgroupName].filter(Boolean).join(' › '),
+                        o.flowName,
+                        o.bomCount || o.orderCount
+                          ? `in ${o.bomCount} BOM${o.bomCount === 1 ? '' : 's'} · ${o.orderCount} order${o.orderCount === 1 ? '' : 's'}`
+                          : 'never used yet',
+                      ].filter(Boolean).join(' · ')}
                     </Typography>
                   </Box>
                 </li>
               )}
               renderInput={(p) => <TextField {...p} size="small" label={`Add under ${node.name}`} autoFocus />}
             />
+            <Tooltip title="Reload the item list">
+              <span>
+                <IconButton size="small" disabled={catalogLoading} onClick={() => void loadCatalog()}>
+                  <RefreshRounded sx={{ fontSize: 18 }} />
+                </IconButton>
+              </span>
+            </Tooltip>
+            <Button size="small" startIcon={<AddRounded />} onClick={() => setNewItem({ parentKey: node.key, name: '', groupId: '', subgroupId: '', unit: 'nos', procurement: 'make' })}>
+              New item
+            </Button>
             <Button size="small" onClick={() => setAddUnder(null)}>Cancel</Button>
           </Box>
         )}
@@ -705,6 +783,54 @@ export default function StructureEditor({
       <DialogContent dividers sx={{ display: 'flex', flexDirection: 'column', minHeight: 0 }}>
         {body}
       </DialogContent>
+
+      {newItem && (
+        <Dialog open onClose={() => setNewItem(null)} maxWidth="xs" fullWidth>
+          <DialogTitle>New item</DialogTitle>
+          <DialogCloseButton absolute onClose={() => setNewItem(null)} />
+          <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
+            <TextField
+              size="small" label="Name" autoFocus value={newItem.name}
+              onChange={(e) => setNewItem({ ...newItem, name: e.target.value })}
+              helperText="What kind of part it is. Its size goes on the row, not here."
+            />
+            <TextField
+              select size="small" label="Group" value={newItem.groupId}
+              onChange={(e) => setNewItem({ ...newItem, groupId: Number(e.target.value), subgroupId: '' })}
+            >
+              {taxonomy.groups.map((g) => <MenuItem key={g.id} value={g.id}>{g.name}</MenuItem>)}
+            </TextField>
+            <TextField
+              select size="small" label="Sub-group" value={newItem.subgroupId}
+              disabled={!newItem.groupId}
+              onChange={(e) => setNewItem({ ...newItem, subgroupId: Number(e.target.value) })}
+            >
+              {taxonomy.subgroups.filter((sg) => sg.groupId === newItem.groupId)
+                .map((sg) => <MenuItem key={sg.id} value={sg.id}>{sg.name}</MenuItem>)}
+            </TextField>
+            <TextField
+              select size="small" label="Made or bought" value={newItem.procurement}
+              onChange={(e) => setNewItem({ ...newItem, procurement: e.target.value as 'make' | 'buy' })}
+            >
+              <MenuItem value="make">Made here</MenuItem>
+              <MenuItem value="buy">Bought in</MenuItem>
+            </TextField>
+            <TextField
+              size="small" label="Unit" value={newItem.unit}
+              onChange={(e) => setNewItem({ ...newItem, unit: e.target.value })}
+            />
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setNewItem(null)}>Cancel</Button>
+            <Button
+              variant="contained" disabled={creating || !newItem.name.trim() || !newItem.subgroupId}
+              onClick={() => void createItem()}
+            >
+              {creating ? <CircularProgress size={16} color="inherit" /> : 'Create and add'}
+            </Button>
+          </DialogActions>
+        </Dialog>
+      )}
 
       <DialogActions>
         <Button onClick={onClose} disabled={busy}>Cancel</Button>
