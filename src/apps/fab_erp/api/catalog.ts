@@ -145,7 +145,11 @@ export interface OrderLineRow {
   catalogItemId: number | null;
   templateItemId: number | null;
   lineType: string | null;
-  catalogItem: { id: number; name: string; code: string } | null;
+  /** The catalog item the line sells — its code and where it sits in the taxonomy (the server sends both). */
+  catalogItem: {
+    id: number; name: string; code: string | null;
+    categoryName?: string | null; groupName?: string | null; subgroupName?: string | null;
+  } | null;
   builtCount: number;
   material: string | null;
   grade: string | null;

@@ -288,6 +288,10 @@ export interface DraftNodeData {
    * stud) has no rectangle to size, so the editor asks it for none.
    */
   procurementType?: string;
+  /** The row's own code — written when the production order is deployed, absent before. */
+  code?: string | null;
+  /** The catalog item's code (COMPOS-SPAN), always known once the row points at an item. */
+  catalogCode?: string | null;
   /**
    * The BOM's own abbreviation for this rung, and how it joins to its parent's.
    * NOT used to name anything here — the BOM step writes no codes. They are

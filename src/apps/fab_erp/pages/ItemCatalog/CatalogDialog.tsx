@@ -167,10 +167,24 @@ export function CatalogDialog({ open, initial, categories, groups, subgroups, ca
         <Box sx={{ display: 'flex', gap: 2 }}>
           <TextField label="Item Name" value={draft.name} size="small" required autoFocus sx={{ flex: 3 }}
             onChange={(e) => set('name', e.target.value)} />
-          {!isNew && (
-            <TextField label="Code" value={draft.code} size="small" sx={{ flex: 1 }}
-              slotProps={{ input: { readOnly: true } }} />
-          )}
+          {/*
+            THE CODE CAN BE TYPED. A new item's code field did not exist at
+            all — the dialog only ever showed one, read-only, on an existing
+            item — so a shop with its own numbering had no way to enter it and
+            every new item got the generated one. The server has always
+            accepted a typed code and generated only for a blank one; now the
+            screen offers the choice.
+          */}
+          <TextField
+            label="Code" value={draft.code} size="small" sx={{ flex: 1.2 }}
+            placeholder={isNew ? 'Blank = generated' : undefined}
+            slotProps={{
+              input: { readOnly: !isNew, style: { fontFamily: 'var(--font-mono)' } },
+              inputLabel: { shrink: true },
+              htmlInput: { title: isNew ? 'Type your own code, or leave it blank to use the Items rule under Setup → Code rules' : undefined },
+            }}
+            onChange={(e) => set('code', e.target.value.toUpperCase())}
+          />
           <Autocomplete freeSolo options={STANDARD_UOMS.map((u) => u.value)} sx={{ flex: 1 }}
             value={draft.unit}
             onInputChange={(_, value) => set('unit', value)}

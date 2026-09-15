@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert, Autocomplete, Box, Button, CircularProgress, Dialog, DialogActions,
-  DialogContent, DialogTitle, IconButton, MenuItem, TextField, Tooltip, Typography,
+  DialogContent, DialogTitle, IconButton, Link as MuiLink, MenuItem, TextField, Tooltip, Typography,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
@@ -520,6 +520,35 @@ export default function OrderLinesPanel({
             </Button>
           </Box>
 
+          {/*
+            WHAT THE PICKER SEARCHES, SAID ON THE SCREEN. The list is not the
+            whole catalog and nothing told anyone so: it is what this shop
+            SELLS — anything under Fabricated, or any item that heads a bill of
+            materials. Once something is picked the same line shows its code
+            and where it sits in the taxonomy, because five items are called
+            "Span" and the name alone says nothing.
+          */}
+          <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)', mt: 0.75, display: 'flex', alignItems: 'baseline', gap: 0.75, flexWrap: 'wrap' }}>
+            {item ? (
+              <>
+                {item.code && <Mono sx={{ fontSize: 11.5, color: 'var(--c-text-2)' }}>{item.code}</Mono>}
+                <span>{[item.categoryName, item.groupName, item.subgroupName].filter(Boolean).join(' › ') || 'no category'}</span>
+              </>
+            ) : (
+              <span>
+                Type a name or code. The list is what this shop sells: anything under <b>Fabricated</b>, or any
+                item that has a bill of materials — a whole span or a single girder alike. Not here?{' '}
+                <MuiLink
+                  href={`/${localStorage.getItem('companySlug')}/fab_erp/item-catalog`}
+                  target="_blank" rel="noopener"
+                >
+                  Add it in the Item catalog
+                </MuiLink>
+                , then pick it here.
+              </span>
+            )}
+          </Typography>
+
           {/* The steel, stated once for everything under this line. Blank is
               fine — a part can state its own, and nesting will ask for one
               before it can choose a plate. */}
@@ -567,7 +596,7 @@ export default function OrderLinesPanel({
             const steelStated = [line.material, line.grade].filter(Boolean).join(' · ');
             const qtyError = qtyErrors[line.id];
             return (
-              <Surface key={line.id} id={`order-line-${line.id}`} e={1} sx={{ overflow: 'hidden' }}>
+              <Surface key={line.id} id={`order-line-${line.id}`} e={1} sx={{ overflowX: 'auto', overflowY: 'hidden' }}>
                 {/*
                   ── the line IS the top row of its own table ──────────────
                   Same columns as every row beneath it (gutter · name · qty ·
@@ -594,14 +623,24 @@ export default function OrderLinesPanel({
                     <Mono chip>{line.lineNo}</Mono>
                   </Box>
 
-                  <Box sx={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'baseline', gap: 1 }}>
-                    <Typography noWrap sx={{ fontSize: 13.5, fontWeight: 600, flexShrink: 0 }}>
+                  <Box sx={{ flex: '1 1 160px', minWidth: 150, display: 'flex', flexDirection: 'column', lineHeight: 1.2 }}>
+                    <Typography noWrap sx={{ fontSize: 13.5, fontWeight: 600, minWidth: 0 }}>
                       {line.description ?? '—'}
                     </Typography>
-                    <Typography noWrap sx={{ fontSize: 12, color: 'var(--c-text-3)', minWidth: 0 }}>
-                      {[steelStated || null, dirtyByLine[line.id] ? 'unsaved edits' : null]
-                        .filter(Boolean).join(' · ')}
-                    </Typography>
+                    {/* The catalog item's CODE under the name, in mono like every code in
+                        the app — a line that only said "Span" could be any of five items
+                        called Span. Stacked, not beside, so no width can squeeze it out. */}
+                    <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 0.75, minWidth: 0 }}>
+                      {line.catalogItem?.code && (
+                        <Tooltip title={[line.catalogItem.categoryName, line.catalogItem.groupName, line.catalogItem.subgroupName].filter(Boolean).join(' › ') || 'Catalog item code'}>
+                          <Mono sx={{ fontSize: 10.5, color: 'var(--c-text-2)', whiteSpace: 'nowrap', flexShrink: 0 }}>{line.catalogItem.code}</Mono>
+                        </Tooltip>
+                      )}
+                      <Typography noWrap sx={{ fontSize: 11.5, color: 'var(--c-text-3)', minWidth: 0 }}>
+                        {[steelStated || null, dirtyByLine[line.id] ? 'unsaved edits' : null]
+                          .filter(Boolean).join(' · ')}
+                      </Typography>
+                    </Box>
                   </Box>
 
                   {/* the LINE's quantity, in the Qty column — everything beneath is per one of these */}

@@ -686,7 +686,34 @@ export default function StructureEditor({
           inputProps={{ 'aria-label': `Select ${node.name}` }}
         />
 
-        <Typography sx={{ fontSize: 13, flex: 1, minWidth: 0 }}>{node.name}</Typography>
+        {/* A floor on the name column: with every other column fixed, a narrow
+            window used to crush this one to nothing. Now the row overflows
+            sideways instead and the name (and its code) always show. */}
+        <Box sx={{ flex: '1 1 160px', minWidth: 150, display: 'flex', flexDirection: 'column', lineHeight: 1.2 }}>
+          <Typography noWrap sx={{ fontSize: 13, minWidth: 0 }}>{node.name}</Typography>
+          {/*
+            THE CODE ON EVERY ROW. Before deploy that is the catalog item's
+            code — what the row IS; after deploy the row also has its own
+            order code (SPAN1-L1-2), and that one wins because it names THIS
+            girder and not the type. Either way a row is never just a name.
+          */}
+          {(() => {
+            // An existing order row (`itemId`) may carry its deployed code; a
+            // row still being drafted from the catalogue only has the item's.
+            const rowCode = node.itemId != null ? node.code ?? null : null;
+            const shown = rowCode ?? node.catalogCode ?? null;
+            if (!shown) return null;
+            return (
+              <Tooltip title={rowCode
+                ? `This row's code · catalog item ${node.catalogCode ?? '—'}`
+                : 'Catalog item code — the row gets its own code when the production order is deployed'}>
+                <Typography noWrap sx={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, color: 'var(--c-text-3)', minWidth: 0, lineHeight: 1.3 }}>
+                  {shown}
+                </Typography>
+              </Tooltip>
+            );
+          })()}
+        </Box>
 
         {/* The row a server-side QTY_REQUIRED refusal named is outlined, not
             just focused — a scrolled-past focus ring is easy to miss. */}
