@@ -851,7 +851,13 @@ function PlanRowView({ row, editable, open, canOpen, onToggle, onSave, codePrefi
       <Box sx={{ display: 'flex', alignItems: 'center', px: 1.25, py: 0.6, gap: 0 }}>
         {row.steps.length === 0 ? (
           <Typography sx={{ fontSize: 11.5, color: 'var(--c-text-3)' }}>
-            {bought ? 'Bought in' : 'No steps — groups the rows under it'}
+            {bought
+              ? 'Bought in'
+              : canOpen
+                ? 'No steps — groups the rows under it'
+                // A LEAF with no steps is a part nobody gave a flow — it will
+                // never reach the shop. Say so, and say where the fix is.
+                : 'No flow yet — choose one on the Line items step (Set flow on all leaves)'}
           </Typography>
         ) : (<>
           {row.steps.map((s, i) => (

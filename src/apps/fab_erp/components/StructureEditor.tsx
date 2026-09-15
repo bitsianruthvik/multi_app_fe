@@ -13,7 +13,7 @@ import UndoRounded from '@mui/icons-material/UndoRounded';
 import RedoRounded from '@mui/icons-material/RedoRounded';
 import SyncRounded from '@mui/icons-material/SyncRounded';
 
-import { fabMutate, fabQuery } from '../api/client';
+import { fabQuery } from '../api/client';
 import { backendMessage, ConfirmDialog, Surface, useToast } from '../components';
 import { DialogCloseButton } from './FormDialog';
 import DrawingsPanel from './DrawingsPanel';
@@ -26,6 +26,29 @@ import {
   type DraftNode, type DraftNodeData, type PickableItem, type QtyRequiredRow,
 } from '../api/templates';
 import type { OrderReadiness } from '../api/readiness';
+import { createCatalogItem } from '../api/catalog';
+
+/**
+ * A catalog size string ("12 × 150", "32 × 90 × 1700") as row dims. Two
+ * numbers are thickness × width (length is the order's to say); three add the
+ * length. Anything else — no size, or a section like "ISA 100x100x10" whose
+ * numbers are not plate dims — leaves the row blank.
+ */
+const dimsFromSize = (size: string | null | undefined): Record<string, number> => {
+  if (!size || /[A-Za-z]/.test(size)) return {};
+  const nums = size.split(/[×x*]/i).map((s) => Number(s.trim())).filter((n) => Number.isFinite(n) && n > 0);
+  if (nums.length === 2) return { thickness_mm: nums[0], width_mm: nums[1] };
+  if (nums.length === 3) return { thickness_mm: nums[0], width_mm: nums[1], length_mm: nums[2] };
+  return {};
+};
+
+/** What the code generator will use as this item's segment if Short code is left blank. */
+const initialsOf = (name: string): string => {
+  const words = name.trim().split(/[\s\-_/]+/).filter(Boolean);
+  if (!words.length) return '';
+  if (words.length === 1) return words[0].toUpperCase().slice(0, 4);
+  return words.map((w) => w[0]).join('').toUpperCase().slice(0, 6);
+};
 
 /**
  * The structure, edited directly.
@@ -192,6 +215,9 @@ function InlineNumber({
       autoFocus size="small" type="number"
       value={value ?? ''}
       onChange={(e) => onChange(e.target.value)}
+      // Opening the cell SELECTS what is there: the common edit is "replace
+      // the 1 with a 2", and typing into an unselected "1" made "12".
+      onFocus={(e) => e.target.select()}
       onBlur={() => setEditing(false)}
       onKeyDown={(e) => {
         if (e.key !== 'Enter' && e.key !== 'Escape') return;
@@ -273,7 +299,9 @@ export default function StructureEditor({
 
   const [catalog, setCatalog] = useState<CatalogOption[]>([]);
   const [catalogLoading, setCatalogLoading] = useState(false);
-  const [newItem, setNewItem] = useState<{ parentKey: string; name: string; groupId: number | ''; subgroupId: number | ''; unit: string; procurement: 'make' | 'buy' } | null>(null);
+  const [newItem, setNewItem] = useState<{ parentKey: string; name: string; code: string; shortCode: string; groupId: number | ''; subgroupId: number | ''; unit: string; procurement: 'make' | 'buy' } | null>(null);
+  /** Bumped after every add so the picker remounts empty — see `addChild`. */
+  const [addSeq, setAddSeq] = useState(0);
   const [creating, setCreating] = useState(false);
   const [taxonomy, setTaxonomy] = useState<{
     groups: { id: number; name: string; categoryId: number }[];
@@ -410,6 +438,10 @@ export default function StructureEditor({
       name: picked.name,
       unit: null,
       qty: 1,
+      // Made or bought travels with the row from the moment it is picked, so
+      // a shear stud does not grow thickness/width/length editors it can never
+      // use. The save path reads the catalog anyway; this is for the screen.
+      procurementType: picked.procurement ?? 'make',
       // The BOM's own abbreviation for this rung. A hand-added row has none,
       // and nothing here needs one: the BOM step writes no codes at all.
       // These ride along for the code pass at production-order time.
@@ -418,10 +450,17 @@ export default function StructureEditor({
       defaultFlowId: null,
       bomLineId: null,
       qtyParam: null,
-      dims: {},
+      // An item that STATES a size (a 12 × 150 stiffener plate) hands it to
+      // the row, so the row is not "a part without a size" until somebody
+      // retypes what the catalog already knows. Length still comes from the
+      // order where the item leaves it open.
+      dims: dimsFromSize(picked.size),
       children: [],
     });
-    setAddUnder(null);
+    // The panel STAYS OPEN: a segment is eight parts, and closing after each
+    // one made building a recipe a click-hunt. Remounting the picker clears it
+    // and puts the cursor back for the next part; "Done" closes.
+    setAddSeq((n) => n + 1);
   }, [t]);
 
   /**
@@ -436,17 +475,24 @@ export default function StructureEditor({
     setCreating(true);
     try {
       const group = taxonomy.groups.find((g) => g.id === newItem.groupId);
-      const res = await fabMutate<{ ok: boolean; id: number }>('fabErpItemCatalog', 'insert', {
+      if (!group) throw new Error('Pick a group first.');
+      // The same route the Item Catalog uses, so the code generator mints the
+      // item code and the short code lands on the item — the generic insert
+      // wrote neither, and a row with no short code derives its segment from
+      // the name's initials forever.
+      const res = await createCatalogItem({
         name: newItem.name.trim(),
+        code: newItem.code.trim() || null,
+        shortCode: newItem.shortCode.trim() || null,
         unit: newItem.unit || 'nos',
-        categoryId: group?.categoryId ?? null,
-        groupId: newItem.groupId,
+        categoryId: group.categoryId,
+        groupId: newItem.groupId || null,
         subgroupId: newItem.subgroupId,
         procurementType: newItem.procurement,
       });
       await loadCatalog();
       addChild(newItem.parentKey, {
-        id: res.id, name: newItem.name.trim(), code: null, unit: newItem.unit || 'nos',
+        id: res.id, name: newItem.name.trim(), code: res.code ?? null, unit: newItem.unit || 'nos',
         categoryName: null, groupName: group?.name ?? null, subgroupName: null,
         procurement: newItem.procurement, size: null, material: null, flowName: null,
         bomCount: 0, orderCount: 0, lastUsedAt: null, onThisOrder: true,
@@ -609,7 +655,11 @@ export default function StructureEditor({
 
   const setFlowOnAllLeaves = useCallback(() => {
     if (!t.tree || bulkFlow === '') return;
-    const keys = t.tree.children.flatMap((c) => leaves(c)).map((n) => n.key);
+    // Leaves that are MADE. A bought stud is a leaf too, and a fabrication
+    // flow on it would raise cut/weld tasks for something that arrives in a box.
+    const keys = t.tree.children.flatMap((c) => leaves(c))
+      .filter((n) => n.procurementType !== 'buy' && n.procurementType !== 'free_issue')
+      .map((n) => n.key);
     void applyFlowToKeys(keys, Number(bulkFlow));
   }, [t.tree, bulkFlow, applyFlowToKeys]);
 
@@ -831,11 +881,16 @@ export default function StructureEditor({
     );
   }, [copy, remove, selected, setDim, setFlow, setQty, toggleSelect, flows, codePrefix]);
 
-  const renderBelow = useCallback(({ node, depth }: RowMeta<DraftNodeData, Ctx>) => (
-    <>
-      {addUnder === node.key && (
-        <Box sx={{ pl: `${(depth + 1) * 20}px`, py: 1, display: 'flex', gap: 1, alignItems: 'center' }}>
+  /**
+   * THE "ADD UNDER" PANEL, one for any node INCLUDING THE ROOT. The root is
+   * not drawn as a tree row (it is the line), so `renderBelow` never fires for
+   * it — and a sellable item with an empty recipe had no way to get its first
+   * row from the order at all. The body renders this for the root itself.
+   */
+  const renderAddPanel = useCallback((node: { key: string; name: string }, depth: number) => (
+        <Box sx={{ pl: `${(depth + 1) * 20}px`, py: 1, display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
           <Autocomplete
+            key={addSeq}
             options={options}
             loading={catalogLoading}
             sx={{ flex: '1 1 380px' }}
@@ -890,12 +945,16 @@ export default function StructureEditor({
               </IconButton>
             </span>
           </Tooltip>
-          <Button size="small" startIcon={<AddRounded />} onClick={() => setNewItem({ parentKey: node.key, name: '', groupId: '', subgroupId: '', unit: 'nos', procurement: 'make' })}>
+          <Button size="small" startIcon={<AddRounded />} onClick={() => setNewItem({ parentKey: node.key, name: '', code: '', shortCode: '', groupId: '', subgroupId: '', unit: 'nos', procurement: 'make' })}>
             New item
           </Button>
-          <Button size="small" onClick={() => setAddUnder(null)}>Cancel</Button>
+          <Button size="small" onClick={() => setAddUnder(null)}>Done</Button>
         </Box>
-      )}
+  ), [options, catalogLoading, addChild, loadCatalog, addSeq]);
+
+  const renderBelow = useCallback(({ node, depth }: RowMeta<DraftNodeData, Ctx>) => (
+    <>
+      {addUnder === node.key && renderAddPanel(node, depth)}
 
       {showDrawings === node.key && node.itemId != null && (
         <Box sx={{ pl: `${(depth + 1) * 20}px`, pr: 1.5, py: 1 }}>
@@ -903,7 +962,7 @@ export default function StructureEditor({
         </Box>
       )}
     </>
-  ), [addUnder, showDrawings, options, catalogLoading, addChild, loadCatalog]);
+  ), [addUnder, showDrawings, renderAddPanel]);
 
   const noItem = orderLine?.itemId == null;
 
@@ -1002,6 +1061,15 @@ export default function StructureEditor({
               </span>
             </Tooltip>
 
+            <Tooltip title={`Add a top-level row under ${t.tree.name} — an assembly or a part straight from the catalog`}>
+              <Button
+                size="small" startIcon={<AddRounded />}
+                onClick={() => setAddUnder((k) => (k === t.tree!.key ? null : t.tree!.key))}
+              >
+                Add under {t.tree.name}
+              </Button>
+            </Tooltip>
+
             <Box sx={{ width: '1px', alignSelf: 'stretch', bgcolor: 'var(--c-divider)', mx: 0.5 }} />
 
             <TextField
@@ -1049,6 +1117,19 @@ export default function StructureEditor({
             : { border: '1px solid var(--c-border)', borderRadius: 'var(--r-sm)', overflow: 'hidden', mb: 2 }}
           >
             {!flat && <StructureColumnHeader />}
+            {/* The root's own add panel — see `renderAddPanel`. */}
+            {addUnder === t.tree.key && renderAddPanel(t.tree, 0)}
+            {t.tree.children.length === 0 && addUnder !== t.tree.key && (
+              <Box sx={{ px: 2, py: 2, display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap' }}>
+                <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-3)' }}>
+                  Nothing under <b>{t.tree.name}</b> yet. Its recipe is empty, so build it here: add the
+                  assemblies and parts it is made of, from the catalog or as new items.
+                </Typography>
+                <Button size="small" variant="outlined" startIcon={<AddRounded />} onClick={() => setAddUnder(t.tree!.key)}>
+                  Add the first row
+                </Button>
+              </Box>
+            )}
             <TreeEditor<DraftNodeData, Ctx>
               roots={t.tree.children}
               renderRow={renderRow}
@@ -1130,6 +1211,23 @@ export default function StructureEditor({
               onChange={(e) => setNewItem({ ...newItem, name: e.target.value })}
               helperText="What kind of part it is. Its size goes on the row, not here."
             />
+            <Box sx={{ display: 'flex', gap: 1.5 }}>
+              <TextField
+                size="small" label="Code" value={newItem.code} placeholder="Blank = generated"
+                onChange={(e) => setNewItem({ ...newItem, code: e.target.value.toUpperCase() })}
+                slotProps={{ input: { sx: { fontFamily: 'monospace' } }, inputLabel: { shrink: true } }}
+                helperText="The item's own identity."
+                sx={{ flex: 1 }}
+              />
+              <TextField
+                size="small" label="Short code" value={newItem.shortCode}
+                placeholder={initialsOf(newItem.name) || 'TF'}
+                onChange={(e) => setNewItem({ ...newItem, shortCode: e.target.value.toUpperCase().replace(/[^A-Z0-9/#]/g, '').slice(0, 12) })}
+                slotProps={{ input: { sx: { fontFamily: 'monospace' } }, inputLabel: { shrink: true } }}
+                helperText="Its rung in every order row code. # = number only."
+                sx={{ flex: 1 }}
+              />
+            </Box>
             <TextField
               select size="small" label="Group" value={newItem.groupId}
               onChange={(e) => setNewItem({ ...newItem, groupId: Number(e.target.value), subgroupId: '' })}
