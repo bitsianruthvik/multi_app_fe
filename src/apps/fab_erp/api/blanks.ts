@@ -17,6 +17,29 @@ export type Effort = 'quick' | 'standard' | 'deep';
 
 export interface NestItem { key: string; name: string; rect: string; qty: number }
 
+/**
+ * One real placed piece on a sheet — {x,y,l,w,rotated}, the packer's own
+ * shape, inflated by the cutting gap. Sent with every packed sheet, sent BACK
+ * on accept (so the server verifies the layout exactly rather than re-solving
+ * it), and kept with the accepted plan so the sheet drawn later is the sheet
+ * that was accepted.
+ */
+export interface NestPiece {
+  key: string; x: number; y: number; l: number; w: number; rotated: boolean;
+}
+
+/** A sheet size that would have cut waste — a purchasing answer, not a packing one. */
+export interface SizeAdvice {
+  thickness: number;
+  grade: string | null;
+  material: string | null;
+  plates: number;
+  from: { length: number; width: number };
+  to: { length: number; width: number };
+  savingPct: number;
+  savingKg: number;
+}
+
 /** One SHEET, carrying several rectangles. */
 export interface Nest {
   nestNo: string;
@@ -28,8 +51,16 @@ export interface Nest {
   length: number;
   isDrop: boolean;
   plateKg: number;
+  /** 0-100, uncapped above 100 (see `overfilled`) — EU-10. */
+  utilisationPct?: number;
+  overfilled?: boolean;
+  /** @deprecated alias of `utilisationPct`, same 0-100 scale — EU-21 removes it. */
   usedPct: number;
   items: NestItem[];
+  /** Real per-piece geometry (see `NestPiece`). */
+  pieces?: NestPiece[];
+  /** True when `pieces` is a re-pack for display rather than the layout that was accepted. */
+  piecesDerived?: boolean;
 }
 
 export interface Blank {
@@ -51,6 +82,13 @@ export interface BlankSummary {
   yield: number; short: number;
 }
 
+export interface SkippedPart {
+  name: string;
+  reason: string;
+  /** Lets the screen link straight back to the Structure row — not always present. */
+  itemId?: number;
+}
+
 export interface BlankPlanResponse {
   /** True when this is the plan the order accepted, not a fresh proposal. */
   fromSaved?: boolean;
@@ -67,8 +105,12 @@ export interface BlankPlanResponse {
   reproducible?: boolean;
   blanks: Blank[];
   nests: Nest[];
-  skipped: { name: string; reason: string }[];
+  skipped: SkippedPart[];
   summary: BlankSummary;
+  /** Yield bands, when the backend states them — not sent today; FE falls back to 90/75. */
+  thresholds?: { good: number; warn: number };
+  /** Sheet sizes that would have cut waste, most steel first. Fresh packs only. */
+  advice?: SizeAdvice[];
 }
 
 /**
@@ -80,6 +122,10 @@ export const getBlankPlan = (orderId: number | string, effort: Effort = 'standar
   fabGet<BlankPlanResponse>(
     `orders/${orderId}/blanks?effort=${effort}${repack ? '&repack=1' : ''}`,
   );
+
+/** The accepted plan if there is one, else an empty answer — never a fresh pack. */
+export const getSavedBlankPlan = (orderId: number | string) =>
+  fabGet<BlankPlanResponse>(`orders/${orderId}/blanks?saved=1`);
 
 export interface AcceptResponse {
   cuttingOrderNumber: string;
@@ -125,3 +171,36 @@ export async function uploadPlanSheet(orderId: number | string, file: File) {
   const res = await api.post(`${base()}/orders/${orderId}/blanks/sheet`, form);
   return res.data as AcceptResponse;
 }
+
+/**
+ * A blank-plan pack as a background run (EU-11's `fab_nesting_runs`).
+ *
+ * `startRun` returns before the pack necessarily even starts; `getRun` is what
+ * a poller reads back. Its `result` is the same shape `getBlankPlan` returns —
+ * one code path renders either source.
+ */
+export interface NestingRun {
+  id: number;
+  status: 'queued' | 'running' | 'done' | 'error' | 'cancelled';
+  progress: number;
+  kind: string;
+  effort: Effort | null;
+  result: BlankPlanResponse | null;
+  error: string | null;
+  startedAt: string | null;
+  finishedAt: string | null;
+  createdAt: string;
+}
+
+export const startNestingRun = (orderId: number | string, effort: Effort) =>
+  fabPost<{ ok: boolean; runId: number }>(`orders/${orderId}/nesting/runs`, { effort });
+
+export const getNestingRun = (orderId: number | string, runId: number) =>
+  fabGet<{ ok: boolean } & NestingRun>(`orders/${orderId}/nesting/runs/${runId}`);
+
+/** The newest run to finish `done` for this order — what EU-18 shows on mount instead of packing. */
+export const getLatestNestingRun = (orderId: number | string) =>
+  fabGet<{ ok: boolean; run: NestingRun | null }>(`orders/${orderId}/nesting/runs`, { latest: 1 });
+
+export const cancelNestingRun = (orderId: number | string, runId: number) =>
+  fabPost<{ ok: boolean; cancelled: boolean }>(`orders/${orderId}/nesting/runs/${runId}/cancel`, {});

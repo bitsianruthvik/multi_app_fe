@@ -34,13 +34,21 @@ import RocketLaunchRounded from '@mui/icons-material/RocketLaunchRounded';
 import NoteAddRounded from '@mui/icons-material/NoteAddRounded';
 import RefreshRounded from '@mui/icons-material/RefreshRounded';
 import UndoRounded from '@mui/icons-material/UndoRounded';
+import UnfoldMoreRounded from '@mui/icons-material/UnfoldMoreRounded';
+import UnfoldLessRounded from '@mui/icons-material/UnfoldLessRounded';
+import EditRounded from '@mui/icons-material/EditRounded';
+import LocalShippingRounded from '@mui/icons-material/LocalShippingRounded';
+import ErrorOutlineRounded from '@mui/icons-material/ErrorOutlineRounded';
 
 import {
   getProductionPlan, setStepTime, raiseDraft, deployProductionOrder,
-  requestProcurement, sendPurchaseRequest,
+  requestProcurement, sendPurchaseRequest, requestSubcontract,
   type ProductionPlan, type PlanSection, type PlanRow, type PlanStep, type BuyLine,
+  type FieldsMissingDetail, type SubcontractGroup,
 } from '../api/productionPlan';
-import { backendMessage, ConfirmDialog, Mono, useToast } from '../components';
+import type { OrderReadiness } from '../api/readiness';
+import { backendMessage, ConfirmDialog, Mono, useToast, ListSkeleton } from '../components';
+import { statusLabel, chipColorForStatus } from '../statusMap';
 
 // ── formatting ──────────────────────────────────────────────────────────────
 
@@ -79,22 +87,21 @@ const commonPrefix = (codes: (string | null)[]) => {
 const hours = (m: number) => `${Math.round(m / 60).toLocaleString()} h`;
 const qty = (n: number) => Number(n).toLocaleString(undefined, { maximumFractionDigits: 2 });
 
-const STATUS_LABEL: Record<string, string> = {
-  draft: 'Draft', waiting: 'Deployed · waiting for material', in_production: 'In production',
-  completed: 'Completed', requested: 'Requested', ordered: 'Ordered',
-  partially_received: 'Partly received', received: 'Received', cancelled: 'Cancelled',
-};
-const statusColor = (s: string): 'default' | 'warning' | 'info' | 'success' =>
-  (s === 'draft' || s === 'requested' ? 'warning' : s === 'completed' || s === 'received' ? 'success' : 'info');
-
 // ── the screen ──────────────────────────────────────────────────────────────
 
 export default function OrderProductionPlan({
-  orderId, canManage, onChanged,
+  orderId, canManage, onChanged, isEstimate, orderStatus, onGoToParams,
 }: {
   orderId: number | string;
   canManage: boolean;
-  onChanged?: () => void;
+  /** Fired after any write, with the readiness the write returned when the endpoint sends one. */
+  onChanged?: (readiness?: OrderReadiness) => void;
+  /** A quote's Production step (EU-13): the figures are real, but nothing here can be raised or bought. */
+  isEstimate?: boolean;
+  /** The SALES order's own status (not a production order's) — gates the "Re-deploy after revision" action. */
+  orderStatus?: string;
+  /** Jump the wizard to the Parameters step — used by the raise-draft FIELDS_MISSING error. */
+  onGoToParams?: () => void;
 }) {
   const [plan, setPlan] = useState<ProductionPlan | null>(null);
   const [loading, setLoading] = useState(true);
@@ -111,7 +118,9 @@ export default function OrderProductionPlan({
 
   useEffect(() => { setLoading(true); void load(); }, [load]);
 
-  const reload = useCallback(async () => { await load(); onChanged?.(); }, [load, onChanged]);
+  // Every write below returns the wizard's own readiness now (REPAIR-E) —
+  // passed straight through so `onChanged` can skip its own re-fetch.
+  const reload = useCallback(async (readiness?: OrderReadiness) => { await load(); onChanged?.(readiness); }, [load, onChanged]);
 
   /** A time changed: update in place rather than re-reading the whole order. */
   const patchStep = useCallback((key: 'cutting' | 'fabrication', rowId: number, stepId: number, min: number | null) => {
@@ -135,32 +144,53 @@ export default function OrderProductionPlan({
   }, []);
 
   if (loading) {
+    // §5.7-5: the shape of the three sections to come, not a spinner.
     return (
-      <Stack alignItems="center" spacing={1} sx={{ p: 6 }}>
-        <CircularProgress size={22} />
+      <Stack spacing={2}>
         <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)' }}>Working out every step…</Typography>
+        <ListSkeleton rows={3} />
+        <ListSkeleton rows={5} />
       </Stack>
     );
   }
   if (!plan) return <Alert severity="error">{error || 'Nothing to show.'}</Alert>;
 
+  const canAct = canManage && !isEstimate;
+  // Nesting readiness isn't visible here (it lives on a different wizard step)
+  // — the plan itself already says which it is: zero rows because nothing on
+  // the order is a blank at all, or zero rows despite blanks existing because
+  // none of them have a plate yet.
+  const hasBlanks = plan.buy.lines.some((l) => l.procurementType === 'make')
+    || plan.cutting.rows.length > 0;
+
   return (
     <Stack spacing={2.5}>
       {error && <Alert severity="error" onClose={() => setError('')}>{error}</Alert>}
 
-      <BuySection orderId={orderId} plan={plan} canManage={canManage} onDone={reload} onError={setError} />
+      {isEstimate && (
+        <Alert severity="info">
+          This is a quote — these figures are an estimate. Nothing can be raised, bought or
+          deployed until it is converted to a sales order.
+        </Alert>
+      )}
+
+      <BuySection orderId={orderId} plan={plan} canManage={canAct} onDone={reload} onError={setError} />
+
+      <SubcontractSection orderId={orderId} groups={plan.subcontract.groups} suppliers={plan.buy.suppliers} canManage={canAct} onDone={reload} onError={setError} />
 
       <ProductionSection
         title="Cutting" hint="Plate into blanks" orderNumber={plan.orderNumber}
-        purpose="cutting" orderId={orderId} section={plan.cutting} canManage={canManage}
-        onReload={reload} onError={setError}
+        purpose="cutting" orderId={orderId} section={plan.cutting} canManage={canAct}
+        onReload={reload} onChanged={onChanged} onError={setError} hasBlanks={hasBlanks} orderStatus={orderStatus}
+        onGoToParams={onGoToParams}
         onStep={(rowId, stepId, m) => patchStep('cutting', rowId, stepId, m)}
       />
 
       <ProductionSection
         title="Fabrication" hint="Parts, assemblies and finishing" orderNumber={plan.orderNumber}
-        purpose="fabrication" orderId={orderId} section={plan.fabrication} canManage={canManage}
-        onReload={reload} onError={setError}
+        purpose="fabrication" orderId={orderId} section={plan.fabrication} canManage={canAct}
+        onReload={reload} onChanged={onChanged} onError={setError} hasBlanks orderStatus={orderStatus}
+        onGoToParams={onGoToParams}
         onStep={(rowId, stepId, m) => patchStep('fabrication', rowId, stepId, m)}
       />
     </Stack>
@@ -229,18 +259,28 @@ const frame = {
 
 function BuySection({ orderId, plan, canManage, onDone, onError }: {
   orderId: number | string; plan: ProductionPlan; canManage: boolean;
-  onDone: () => Promise<void>; onError: (m: string) => void;
+  onDone: (readiness?: OrderReadiness) => Promise<void>; onError: (m: string) => void;
 }) {
   const { toast } = useToast();
-  const { lines, purchases, suppliers, unmatched } = plan.buy;
+  const { purchases, suppliers, unmatched } = plan.buy;
+  // Free-issue material is supplied BY the customer — this order never buys
+  // it, whatever the shelf holds (EU-14). Rendered as its own read-only list
+  // rather than mixed into the interactive table with a Take box that would
+  // do nothing (its `inStock` is null and `stillNeeded`/`suggestedTake` are
+  // always 0).
+  const lines = useMemo(() => plan.buy.lines.filter((l) => l.procurementType !== 'free_issue'), [plan.buy.lines]);
+  const freeIssueLines = useMemo(() => plan.buy.lines.filter((l) => l.procurementType === 'free_issue'), [plan.buy.lines]);
 
-  /** How much to take off the shelf, per item. Starts at what is held, else all that is free. */
-  const initialTake = useCallback((l: BuyLine) => (l.held > 0 ? l.held : Math.min(l.required, l.inStock)), []);
+  /**
+   * How much to take off the shelf, per item — the server's own suggestion
+   * (EU-9's `suggestedTake`: what this order already holds, else all that is
+   * free), not re-derived here.
+   */
   const [take, setTake] = useState<Record<number, string>>({});
   useEffect(() => {
-    setTake(Object.fromEntries(lines.map((l) => [l.catalogItemId, String(initialTake(l))])));
-  }, [lines, initialTake]);
-  const takeOf = (l: BuyLine) => Math.min(Math.max(0, Number(take[l.catalogItemId]) || 0), l.inStock, l.required);
+    setTake(Object.fromEntries(lines.map((l) => [l.catalogItemId, String(l.suggestedTake)])));
+  }, [lines]);
+  const takeOf = (l: BuyLine) => Math.min(Math.max(0, Number(take[l.catalogItemId]) || 0), l.inStock ?? 0, l.required);
   const toBuy = (l: BuyLine) => Math.max(0, l.required - takeOf(l) - l.onOrder);
 
   const [busy, setBusy] = useState(false);
@@ -251,9 +291,9 @@ function BuySection({ orderId, plan, canManage, onDone, onError }: {
   async function submit() {
     setBusy(true);
     try {
-      await requestProcurement(orderId, lines.map((l) => ({ catalogItemId: l.catalogItemId, take: takeOf(l) })));
+      const res = await requestProcurement(orderId, lines.map((l) => ({ catalogItemId: l.catalogItemId, take: takeOf(l) })));
       toast(anythingToBuy ? 'Stock held and the rest requested' : 'Stock held for this order', 'success');
-      await onDone();
+      await onDone(res.readiness);
     } catch (e) {
       onError(backendMessage(e, 'Could not request the material.'));
     } finally { setBusy(false); }
@@ -263,9 +303,9 @@ function BuySection({ orderId, plan, canManage, onDone, onError }: {
     const sup = sendTo[poId];
     if (!sup) return;
     try {
-      await sendPurchaseRequest(poId, Number(sup));
+      const res = await sendPurchaseRequest(poId, Number(sup));
       toast('Sent to the supplier', 'success');
-      await onDone();
+      await onDone(res.readiness);
     } catch (e) { onError(backendMessage(e, 'Could not send the request.')); }
   }
 
@@ -313,13 +353,13 @@ function BuySection({ orderId, plan, canManage, onDone, onError }: {
                     <Typography sx={{ fontSize: 11, color: 'var(--c-text-3)', fontFamily: 'monospace' }}>{l.code}</Typography>
                   </Box>
                   <Box component="td" sx={num}>{qty(l.required)} <Unit u={l.unit} /></Box>
-                  <Box component="td" sx={{ ...num, color: l.inStock > 0 ? 'inherit' : 'var(--c-text-3)' }}>{qty(l.inStock)}</Box>
+                  <Box component="td" sx={{ ...num, color: (l.inStock ?? 0) > 0 ? 'inherit' : 'var(--c-text-3)' }}>{qty(l.inStock ?? 0)}</Box>
                   <Box component="td" sx={num}>
                     <TextField
                       size="small" type="number" value={take[l.catalogItemId] ?? ''}
-                      disabled={!canManage || l.inStock <= 0}
+                      disabled={!canManage || (l.inStock ?? 0) <= 0}
                       onChange={(e) => setTake((t) => ({ ...t, [l.catalogItemId]: e.target.value }))}
-                      inputProps={{ min: 0, max: Math.min(l.inStock, l.required), style: { textAlign: 'right', fontSize: 12.5, padding: '4px 8px' } }}
+                      inputProps={{ min: 0, max: Math.min(l.inStock ?? 0, l.required), style: { textAlign: 'right', fontSize: 12.5, padding: '4px 8px' } }}
                       sx={{ width: 110 }}
                     />
                   </Box>
@@ -331,6 +371,24 @@ function BuySection({ orderId, plan, canManage, onDone, onError }: {
               ))}
             </tbody>
           </Box>
+        </Box>
+      )}
+
+      {open && freeIssueLines.length > 0 && (
+        <Box sx={{ borderTop: '1px solid var(--c-divider)', p: 1.5 }}>
+          <Typography sx={{ fontSize: 11, fontWeight: 600, color: 'var(--c-text-3)', textTransform: 'uppercase', letterSpacing: '.04em', mb: 1 }}>
+            Supplied by customer
+          </Typography>
+          <Stack spacing={0.5}>
+            {freeIssueLines.map((l) => (
+              <Stack key={l.catalogItemId} direction="row" spacing={1} alignItems="baseline">
+                <Typography sx={{ fontSize: 12.5 }}>{l.name ?? l.code ?? '—'}</Typography>
+                <Typography sx={{ fontSize: 11.5, color: 'var(--c-text-3)' }}>
+                  {qty(l.required)} <Unit u={l.unit} /> — free issue, not on this order's buy list
+                </Typography>
+              </Stack>
+            ))}
+          </Stack>
         </Box>
       )}
 
@@ -350,7 +408,7 @@ function BuySection({ orderId, plan, canManage, onDone, onError }: {
             {purchases.map((po) => (
               <Stack key={po.id} direction="row" spacing={1.25} alignItems="center" sx={{ flexWrap: 'wrap' }}>
                 <Mono>{po.orderNumber}</Mono>
-                <Chip size="small" label={STATUS_LABEL[po.status] ?? po.status} color={statusColor(po.status)} variant="outlined" />
+                <Chip size="small" label={statusLabel(po.status)} color={chipColorForStatus(po.status)} variant="outlined" />
                 <Typography sx={{ fontSize: 12, color: 'var(--c-text-2)' }}>
                   {po.lineCount} line{po.lineCount === 1 ? '' : 's'}
                   {po.supplierName ? ` · ${po.supplierName}` : ''}
@@ -377,6 +435,104 @@ function BuySection({ orderId, plan, canManage, onDone, onError }: {
 const Unit = ({ u }: { u: string | null }) =>
   (u ? <Box component="span" sx={{ color: 'var(--c-text-3)', fontSize: 11 }}>{u}</Box> : null);
 
+// ── SUBCONTRACT (EU-14 / X2) ─────────────────────────────────────────────────
+
+/**
+ * Steps sent, or sendable, to an outside supplier — welding, galvanising,
+ * whatever this shop names `is_subcontract` on the operation. Grouped by
+ * supplier because that is the unit a real send happens in: one delivery
+ * note, one supplier, whatever tasks are ready to go with it.
+ */
+function SubcontractSection({ orderId, groups, suppliers, canManage, onDone, onError }: {
+  orderId: number | string; groups: SubcontractGroup[]; suppliers: { id: number; name: string }[];
+  canManage: boolean; onDone: () => Promise<void>; onError: (m: string) => void;
+}) {
+  const { toast } = useToast();
+  const [open, toggleOpen] = useFolded(orderId, 'subcontract');
+  const [supplierPick, setSupplierPick] = useState<Record<string, number | ''>>({});
+  const [sending, setSending] = useState<string | null>(null);
+  const totalSteps = groups.reduce((n, g) => n + g.steps.length, 0);
+  if (totalSteps === 0) return null;
+
+  async function send(group: SubcontractGroup, key: string) {
+    const supplierId = group.supplierId ?? supplierPick[key];
+    if (!supplierId) return;
+    const taskIds = group.steps.filter((s) => !s.requested && !s.sentOutAt).map((s) => s.taskId).filter((id): id is number => id != null);
+    if (!taskIds.length) return;
+    setSending(key);
+    try {
+      const res = await requestSubcontract(orderId, Number(supplierId), taskIds);
+      toast(`${res.order.lineCount} step(s) sent to ${res.order.supplierName ?? 'the supplier'}`, 'success');
+      await onDone();
+    } catch (e) {
+      onError(backendMessage(e, 'Could not send those steps to the supplier.'));
+    } finally { setSending(null); }
+  }
+
+  return (
+    <Box sx={frame}>
+      <SectionHead
+        title="Subcontract" hint="Steps sent out to a supplier"
+        open={open} onToggle={toggleOpen}
+      >
+        <Typography sx={{ fontSize: 12, color: 'var(--c-text-2)' }}>
+          {totalSteps} step{totalSteps === 1 ? '' : 's'} · {groups.length} supplier{groups.length === 1 ? '' : 's'}
+        </Typography>
+      </SectionHead>
+      {open && (
+        <Stack spacing={1.5} sx={{ p: 1.5 }}>
+          {groups.map((g, i) => {
+            const key = String(g.supplierId ?? `none-${i}`);
+            const unsent = g.steps.filter((s) => !s.requested && !s.sentOutAt);
+            return (
+              <Box key={key} sx={{ border: '1px solid var(--c-divider)', borderRadius: 'var(--r-sm)', p: 1.25 }}>
+                <Stack direction="row" spacing={1.25} alignItems="center" sx={{ flexWrap: 'wrap', mb: 0.75 }}>
+                  <Typography sx={{ fontSize: 13, fontWeight: 600 }}>
+                    {g.supplierName ?? 'No default supplier'}
+                  </Typography>
+                  <Typography sx={{ fontSize: 12, color: 'var(--c-text-2)' }}>
+                    {g.steps.length} step{g.steps.length === 1 ? '' : 's'}
+                    {unsent.length !== g.steps.length ? ` · ${g.steps.length - unsent.length} already sent` : ''}
+                  </Typography>
+                  {canManage && unsent.length > 0 && (<>
+                    <Box sx={{ flex: 1 }} />
+                    {!g.supplierId && (
+                      <TextField select size="small" label="Supplier" value={supplierPick[key] ?? ''} sx={{ minWidth: 180 }}
+                        onChange={(e) => setSupplierPick((s) => ({ ...s, [key]: e.target.value === '' ? '' : Number(e.target.value) }))}>
+                        <MenuItem value="">— choose —</MenuItem>
+                        {suppliers.map((s) => <MenuItem key={s.id} value={s.id}>{s.name}</MenuItem>)}
+                      </TextField>
+                    )}
+                    <Button
+                      size="small" variant="contained" startIcon={<LocalShippingRounded />}
+                      disabled={sending === key || (!g.supplierId && !supplierPick[key])}
+                      onClick={() => void send(g, key)}
+                    >
+                      Send to supplier
+                    </Button>
+                  </>)}
+                </Stack>
+                <Stack spacing={0.5}>
+                  {g.steps.map((s) => (
+                    <Stack key={`${s.itemId}-${s.taskId ?? s.operationName}`} direction="row" spacing={1} sx={{ fontSize: 12 }}>
+                      <Mono sx={{ fontSize: 11 }}>{s.itemCode ?? '—'}</Mono>
+                      <Typography sx={{ fontSize: 12 }}>{s.itemName}</Typography>
+                      <Typography sx={{ fontSize: 11.5, color: 'var(--c-text-3)' }}>
+                        {s.operationName} · ×{qty(s.qty)}
+                        {s.sentOutAt ? ` · sent ${s.sentOutAt.slice(0, 10)}` : s.returnedAt ? ` · returned ${s.returnedAt.slice(0, 10)}` : s.requested ? ' · requested' : ''}
+                      </Typography>
+                    </Stack>
+                  ))}
+                </Stack>
+              </Box>
+            );
+          })}
+        </Stack>
+      )}
+    </Box>
+  );
+}
+
 // ── A PRODUCTION ORDER ──────────────────────────────────────────────────────
 
 /**
@@ -388,18 +544,32 @@ const CAR = 70;
 const LINK = 6;
 
 function ProductionSection({
-  title, hint, purpose, orderId, section, canManage, onReload, onError, onStep, orderNumber,
+  title, hint, purpose, orderId, section, canManage, onReload, onChanged, onError, onStep, orderNumber,
+  hasBlanks, orderStatus, onGoToParams,
 }: {
   title: string; hint: string; purpose: 'cutting' | 'fabrication'; orderNumber: string;
   orderId: number | string; section: PlanSection; canManage: boolean;
-  onReload: () => Promise<void>; onError: (m: string) => void;
+  onReload: (readiness?: OrderReadiness) => Promise<void>; onError: (m: string) => void;
+  /** Fired after a step time change — narrower than `onReload`, no local re-fetch. */
+  onChanged?: (readiness?: OrderReadiness) => void;
   onStep: (rowId: number, stepId: number, minutes: number | null) => void;
+  /** Cutting only: is there any blank on this order at all, distinct from "not nested yet". */
+  hasBlanks?: boolean;
+  /** The sales order's own status — gates "Re-deploy after revision". */
+  orderStatus?: string;
+  onGoToParams?: () => void;
 }) {
   const { toast } = useToast();
   const mo = section.productionOrder;
   const editable = canManage && section.editable;
   const [busy, setBusy] = useState<'draft' | 'deploy' | null>(null);
   const [confirmDeploy, setConfirmDeploy] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const [confirmForce, setConfirmForce] = useState(false);
+  /** X2: raiseDraft's structured 409s, rendered instead of a plain message. */
+  const [raiseError, setRaiseError] = useState<{
+    message: string; missingValues?: FieldsMissingDetail['missingValues']; blocking?: { message: string }[];
+  } | null>(null);
 
   // Collapsing a row hides everything under it.
   const [closed, setClosed] = useState<Set<number>>(new Set());
@@ -413,23 +583,53 @@ function ProductionSection({
   }, [section.rows, closed]);
   const toggle = (id: number) => setClosed((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
 
-  async function draft() {
-    setBusy('draft');
+  async function draft(force = false) {
+    setBusy('draft'); setRaiseError(null);
     try {
-      await raiseDraft(orderId, purpose);
+      const res = await raiseDraft(orderId, purpose, force);
       toast(mo ? 'Draft brought up to date' : 'Draft production order created', 'success');
-      await onReload();
-    } catch (e) { onError(backendMessage(e, 'Could not create the draft.')); } finally { setBusy(null); }
+      await onReload(res.readiness);
+    } catch (e) {
+      const ax = e as { response?: { data?: {
+        code?: string; message?: string;
+        detail?: FieldsMissingDetail | { blocking?: { message: string }[] };
+      } } };
+      const data = ax.response?.data;
+      if (data?.code === 'FIELDS_MISSING') {
+        setRaiseError({
+          message: data.message ?? 'Some parts are missing values.',
+          missingValues: (data.detail as FieldsMissingDetail | undefined)?.missingValues,
+        });
+      } else if (data?.code === 'NESTING_INVALID') {
+        setRaiseError({
+          message: data.message ?? 'This nesting has problems.',
+          blocking: (data.detail as { blocking?: { message: string }[] } | undefined)?.blocking,
+        });
+      } else {
+        onError(backendMessage(e, 'Could not create the draft.'));
+      }
+    } finally { setBusy(null); }
   }
 
   async function deploy() {
     if (!mo) return;
     setBusy('deploy');
     try {
-      await deployProductionOrder(mo.id);
+      const res = await deployProductionOrder(mo.id);
       toast(`${mo.orderNumber} deployed to production`, 'success');
-      await onReload();
+      await onReload(res.readiness);
     } catch (e) { onError(backendMessage(e, 'Could not deploy.')); } finally { setBusy(null); }
+  }
+
+  /** X2: re-plan a NON-draft production order after a revision, without regressing its status (EU-12). */
+  async function redeploy() {
+    if (!mo) return;
+    setBusy('deploy');
+    try {
+      const res = await deployProductionOrder(mo.id, { redeploy: true });
+      toast(`${mo.orderNumber} re-deployed`, 'success');
+      await onReload(res.readiness);
+    } catch (e) { onError(backendMessage(e, 'Could not re-deploy.')); } finally { setBusy(null); }
   }
 
   const rowsWithSteps = section.rows.filter((r) => r.steps.length > 0).length;
@@ -441,18 +641,34 @@ function ProductionSection({
       <SectionHead
         title={title} hint={hint}
         open={open} onToggle={toggleOpen}
-        right={canManage && open && (
-          <Stack direction="row" spacing={1}>
-            {(!mo || mo.status === 'draft') && section.stepCount > 0 && (
+        right={open && (
+          <Stack direction="row" spacing={1} alignItems="center">
+            {section.rows.length > 0 && (
+              <Tooltip title={expanded ? 'Show step codes' : 'Show full step names'}>
+                <IconButton size="small" onClick={() => setExpanded((v) => !v)} aria-label={expanded ? 'Show step codes' : 'Show full step names'}>
+                  {expanded ? <UnfoldLessRounded sx={{ fontSize: 16 }} /> : <UnfoldMoreRounded sx={{ fontSize: 16 }} />}
+                </IconButton>
+              </Tooltip>
+            )}
+            {canManage && (!mo || mo.status === 'draft') && section.stepCount > 0 && (
               <Button size="small" disabled={!!busy} onClick={() => void draft()}
                 startIcon={busy === 'draft' ? <CircularProgress size={14} color="inherit" /> : mo ? <RefreshRounded /> : <NoteAddRounded />}>
                 {mo ? 'Update draft' : 'Create draft production order'}
               </Button>
             )}
-            {mo?.status === 'draft' && (
+            {canManage && mo?.status === 'draft' && (
               <Button size="small" variant="contained" disabled={!!busy} onClick={() => setConfirmDeploy(true)}
                 startIcon={busy === 'deploy' ? <CircularProgress size={14} color="inherit" /> : <RocketLaunchRounded />}>
                 Deploy to production
+              </Button>
+            )}
+            {/* P2/X2: a revision's structure edits reach a deployed production
+                order without regressing its status — this is how the shop
+                picks up the change. */}
+            {canManage && mo && mo.status !== 'draft' && orderStatus && orderStatus !== 'draft' && (
+              <Button size="small" disabled={!!busy} onClick={() => void redeploy()}
+                startIcon={busy === 'deploy' ? <CircularProgress size={14} color="inherit" /> : <RefreshRounded />}>
+                Re-deploy after revision
               </Button>
             )}
           </Stack>
@@ -461,7 +677,7 @@ function ProductionSection({
         {mo ? (
           <Stack direction="row" spacing={1} alignItems="center">
             <Mono>{mo.orderNumber}</Mono>
-            <Chip size="small" label={STATUS_LABEL[mo.status] ?? mo.status} color={statusColor(mo.status)} variant="outlined" />
+            <Chip size="small" label={statusLabel(mo.status)} color={chipColorForStatus(mo.status)} variant="outlined" />
           </Stack>
         ) : (
           <Chip size="small" label="No production order yet" variant="outlined" />
@@ -476,9 +692,40 @@ function ProductionSection({
         )}
       </SectionHead>
 
+      {open && raiseError && (
+        <Alert severity="warning" sx={{ m: 1.5 }} onClose={() => setRaiseError(null)}>
+          <Typography sx={{ fontSize: 13, mb: 0.5 }}>{raiseError.message}</Typography>
+          {raiseError.missingValues && raiseError.missingValues.length > 0 && (
+            <Box component="ul" sx={{ m: 0, mb: 1, pl: 2.5, fontSize: 12.5 }}>
+              {raiseError.missingValues.slice(0, 8).map((m) => (
+                <li key={m.itemId}>{m.itemName ?? m.itemCode ?? m.itemId} — {m.missing.join(', ')}</li>
+              ))}
+              {raiseError.missingValues.length > 8 && <li>…and {raiseError.missingValues.length - 8} more</li>}
+            </Box>
+          )}
+          {raiseError.blocking && raiseError.blocking.length > 0 && (
+            <Box component="ul" sx={{ m: 0, mb: 1, pl: 2.5, fontSize: 12.5 }}>
+              {raiseError.blocking.slice(0, 8).map((b, i) => <li key={i}>{b.message}</li>)}
+            </Box>
+          )}
+          <Stack direction="row" spacing={1}>
+            {raiseError.missingValues && onGoToParams && (
+              <Button size="small" onClick={onGoToParams}>Go to Parameters</Button>
+            )}
+            {canManage && (
+              <Button size="small" color="warning" onClick={() => setConfirmForce(true)}>
+                Build the tasks anyway
+              </Button>
+            )}
+          </Stack>
+        </Alert>
+      )}
+
       {!open ? null : section.rows.length === 0 ? (
         <Typography sx={{ p: 2, fontSize: 13, color: 'var(--c-text-2)' }}>
-          {purpose === 'cutting' ? 'Nothing to cut yet — accept a nesting plan first.' : 'Nothing to make yet.'}
+          {purpose === 'cutting'
+            ? (hasBlanks ? 'Nothing to cut yet — accept a nesting plan first.' : 'No blanks on this order — nothing needs cutting.')
+            : 'Nothing to make yet.'}
         </Typography>
       ) : (
         <Box sx={{ overflow: 'auto', maxHeight: purpose === 'cutting' ? 420 : 640 }}>
@@ -496,11 +743,13 @@ function ProductionSection({
             {visible.map((r) => (
               <PlanRowView
                 key={r.id} row={r} editable={editable} codePrefix={prefix} orderNumber={orderNumber}
+                expanded={expanded}
                 open={!closed.has(r.id)} canOpen={hasKids.has(r.id)} onToggle={() => toggle(r.id)}
                 onSave={async (s, m) => {
                   try {
-                    await setStepTime(orderId, r.id, s.stepId, m);
+                    const res = await setStepTime(orderId, r.id, s.stepId, m);
                     onStep(r.id, s.stepId, m);
+                    onChanged?.(res.readiness);
                   } catch (e) { onError(backendMessage(e, 'Could not change that time.')); }
                 }}
               />
@@ -522,6 +771,16 @@ function ProductionSection({
         onClose={() => setConfirmDeploy(false)}
         onConfirm={async () => { setConfirmDeploy(false); await deploy(); }}
       />
+
+      {/* The `force` escape `raiseDraft` already accepted but this screen never sent. */}
+      <ConfirmDialog
+        open={confirmForce}
+        title="Build the tasks anyway?"
+        body="Parts short a value will be estimated as taking no time for that step. You can fix the value and rebuild later — this does not lock anything in."
+        confirmLabel="Build anyway"
+        onClose={() => setConfirmForce(false)}
+        onConfirm={async () => { setConfirmForce(false); await draft(true); }}
+      />
     </Box>
   );
 }
@@ -538,9 +797,9 @@ function HeadCell({ children, sx }: { children: React.ReactNode; sx?: object }) 
 }
 
 /** One BOM row: the row on the left, its flow as a train of steps on the right. */
-function PlanRowView({ row, editable, open, canOpen, onToggle, onSave, codePrefix, orderNumber }: {
+function PlanRowView({ row, editable, open, canOpen, onToggle, onSave, codePrefix, orderNumber, expanded }: {
   row: PlanRow; editable: boolean; open: boolean; canOpen: boolean; onToggle: () => void;
-  codePrefix: string; orderNumber: string;
+  codePrefix: string; orderNumber: string; expanded: boolean;
   onSave: (s: PlanStep, minutes: number | null) => Promise<void>;
 }) {
   const bought = row.procurement === 'buy';
@@ -598,7 +857,7 @@ function PlanRowView({ row, editable, open, canOpen, onToggle, onSave, codePrefi
           {row.steps.map((s, i) => (
             <Box key={s.stepId} sx={{ display: 'flex', alignItems: 'center' }}>
               {i > 0 && <Box sx={{ width: LINK, height: 2, background: 'var(--c-border)', flexShrink: 0 }} />}
-              <StepCar step={s} pieces={row.totalQty} editable={editable} onSave={(m) => onSave(s, m)} />
+              <StepCar step={s} pieces={row.totalQty} editable={editable} expanded={expanded} onSave={(m) => onSave(s, m)} />
             </Box>
           ))}
           <Tooltip title="All steps, all pieces on this row">
@@ -613,20 +872,27 @@ function PlanRowView({ row, editable, open, canOpen, onToggle, onSave, codePrefi
 }
 
 /** One step: the operation, and one piece's time — which can be typed over. */
-function StepCar({ step, pieces, editable, onSave }: {
-  step: PlanStep; pieces: number; editable: boolean; onSave: (minutes: number | null) => Promise<void>;
+function StepCar({ step, pieces, editable, expanded, onSave }: {
+  step: PlanStep; pieces: number; editable: boolean; expanded: boolean;
+  onSave: (minutes: number | null) => Promise<void>;
 }) {
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState('');
   const [saving, setSaving] = useState(false);
-  const changed = step.overrideMinutes != null;
+  // EU-9: the server's own answer, not a locally re-derived 0.005-minute
+  // tolerance compare — typing the formula's own number back is the same as
+  // never having typed over it at all, and the server already knows that.
+  const changed = step.overrideMinutes != null && !step.overrideIsFormula;
+  const hasError = !!step.formulaError;
 
   async function commit() {
     const raw = value.trim();
     setEditing(false);
     const n = raw === '' ? null : Number(raw);
     if (n != null && !(Number.isFinite(n) && n >= 0)) return;
-    // Typing the formula's own number back is the same as clearing it.
+    // Typing the formula's own number back is the same as clearing it — a
+    // save-time simplification, distinct from `overrideIsFormula` (which is
+    // about how an EXISTING override displays, not what gets sent here).
     const next = n != null && step.formulaMinutes != null && Math.abs(n - step.formulaMinutes) < 0.005 ? null : n;
     if (next === step.overrideMinutes) return;
     setSaving(true);
@@ -641,19 +907,52 @@ function StepCar({ step, pieces, editable, onSave }: {
       {(step.setupMinutes ?? 0) > 0 && <div>Setup: {perPiece(step.setupMinutes)} once</div>}
       <div>× {qty(pieces)} pieces = {hours(step.totalMinutes)}</div>
       {step.taskCode && <div style={{ fontFamily: 'monospace', marginTop: 4 }}>{step.taskCode}{step.taskCodeSaved ? '' : ' (on deploy)'}</div>}
+      {/* EU-8: "—" used to be the whole story. A formula error means this task
+          is estimated at zero time until it's fixed — worth saying, not just
+          showing as a dash. */}
+      {hasError && (
+        <div style={{ color: 'var(--c-danger-400, #f88)', marginTop: 4 }}>
+          {step.formulaError!.message ?? `Formula problem: ${step.formulaError!.code}`}
+        </div>
+      )}
+      {step.warnings.length > 0 && (
+        <div style={{ color: 'var(--c-warning-400, #fc6)', marginTop: 4 }}>
+          {step.warnings.map((w) => w.code).join(', ')}
+        </div>
+      )}
     </Box>
   );
 
   return (
     <Tooltip title={tip} placement="top" disableHoverListener={editing}>
       <Box sx={{
-        width: CAR, flexShrink: 0, borderRadius: '6px', px: 0.6, py: 0.35,
-        border: '1px solid', borderColor: changed ? 'var(--c-primary-400, #8b7cf6)' : 'var(--c-border)',
+        width: CAR, flexShrink: 0, borderRadius: 'var(--r-sm)', px: 0.6, py: 0.35,
+        // One property, not `border` + `borderColor` (React warns on the mix).
+        border: `1px solid ${hasError ? 'var(--c-danger-600)' : changed ? 'var(--c-primary-200)' : 'var(--c-border)'}`,
         background: changed ? 'var(--c-primary-50)' : 'var(--c-surface)',
+        boxShadow: 'var(--e-1)',
+        transition: 'box-shadow var(--t-fast) var(--ease)',
+        '&:hover': { boxShadow: 'var(--e-2)' },
       }}>
-        <Typography noWrap sx={{ fontSize: 10, color: 'var(--c-text-3)', fontFamily: 'monospace', lineHeight: 1.3 }}>
-          {String(step.stepNo).padStart(2, '0')} {step.operationCode ?? '?'}
-        </Typography>
+        {/*
+          The step's number is the same small circled numeral the wizard rail
+          draws for the order's steps, so "step 3 of this row" and "step 3 of
+          the order" read as the same kind of thing.
+        */}
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, minWidth: 0 }}>
+          <Box aria-hidden sx={{
+            width: 15, height: 15, borderRadius: '50%', flexShrink: 0, display: 'grid', placeItems: 'center',
+            fontFamily: 'var(--font-mono)', fontSize: 9, lineHeight: 1,
+            color: hasError ? 'var(--c-danger-600)' : 'var(--c-text-3)',
+            border: `1px solid ${hasError ? 'var(--c-danger-600)' : 'var(--c-border)'}`,
+          }}>
+            {step.stepNo}
+          </Box>
+          <Typography noWrap sx={{ fontSize: 10, color: 'var(--c-text-3)', fontFamily: 'var(--font-mono)', lineHeight: 1.3, minWidth: 0 }}>
+            {expanded ? (step.operationName ?? step.operationCode ?? '?') : (step.operationCode ?? '?')}
+          </Typography>
+          {hasError && <ErrorOutlineRounded sx={{ fontSize: 11, color: 'var(--c-danger-600)', flexShrink: 0 }} />}
+        </Box>
         {editing ? (
           /*
            * A TIME IS FOR ONE PIECE. The box reads "11h 55m" and the editor
@@ -668,7 +967,13 @@ function StepCar({ step, pieces, editable, onSave }: {
               onBlur={() => void commit()}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
-                if (e.key === 'Escape') setEditing(false);
+                if (e.key === 'Escape') {
+                  // Leaves the cell, not the wizard (the dialog closes on an
+                  // unhandled Escape).
+                  e.stopPropagation();
+                  e.preventDefault();
+                  setEditing(false);
+                }
               }}
               placeholder={step.formulaMinutes != null ? String(step.formulaMinutes) : ''}
               inputProps={{ min: 0, step: 0.5, style: { fontSize: 11.5, padding: '1px 4px' } }}
@@ -676,8 +981,8 @@ function StepCar({ step, pieces, editable, onSave }: {
             />
             <Box sx={{
               position: 'absolute', top: '100%', left: 0, zIndex: 5, mt: 0.5, px: 1, py: 0.5,
-              whiteSpace: 'nowrap', borderRadius: '6px', border: '1px solid var(--c-border)',
-              background: 'var(--c-surface)', boxShadow: 'var(--shadow-2, 0 4px 12px rgba(0,0,0,.12))',
+              whiteSpace: 'nowrap', borderRadius: 'var(--r-sm)', border: '1px solid var(--c-border)',
+              background: 'var(--c-surface)', boxShadow: 'var(--e-3)',
             }}>
               <Typography sx={{ fontSize: 10.5, color: 'var(--c-text-2)' }}>
                 minutes <b>per piece</b>
@@ -688,18 +993,33 @@ function StepCar({ step, pieces, editable, onSave }: {
             </Box>
           </Box>
         ) : (
-          <Stack direction="row" alignItems="center" spacing={0.25}>
+          <Stack direction="row" alignItems="center" spacing={0.25} className="pp-stepval" sx={{ position: 'relative' }}>
             <Box
               component={editable ? 'button' : 'span'}
               onClick={editable ? () => { setValue(step.minutes != null ? String(step.minutes) : ''); setEditing(true); } : undefined}
               sx={{
                 all: 'unset', cursor: editable ? 'text' : 'default', fontSize: 11.5, fontWeight: 600, whiteSpace: 'nowrap',
                 fontVariantNumeric: 'tabular-nums', color: changed ? 'var(--c-primary-700)' : 'var(--c-text)',
+                // A per-piece override used to look exactly like a disabled
+                // button — `all: 'unset'` erases every native affordance a
+                // clickable thing has. The dotted underline is the one that
+                // survives a value NOT being changed, so an editable cell
+                // reads as editable even before you touch it; a genuinely
+                // disabled one (deployed, or a quote) drops it and dims.
+                borderBottom: editable ? '1px dotted var(--c-border)' : 'none',
+                opacity: editable ? 1 : 0.55,
+                '&:hover': editable ? { borderBottomColor: 'var(--c-primary-400, #8b7cf6)' } : undefined,
                 '&:focus-visible': { outline: '2px solid var(--c-primary-400, #8b7cf6)', borderRadius: '3px' },
               }}
             >
               {saving ? '…' : shortTime(step.minutes)}
             </Box>
+            {editable && !saving && (
+              <EditRounded className="pp-pencil" sx={{
+                fontSize: 11, color: 'var(--c-text-3)', opacity: 0, transition: 'opacity var(--t-fast, .12s)',
+                '.pp-stepval:hover &': { opacity: 1 },
+              }} />
+            )}
             {changed && editable && (
               <Tooltip title={`Back to the worked-out ${perPiece(step.formulaMinutes)}`}>
                 <IconButton size="small" sx={{ p: 0, ml: 'auto' }} onClick={() => void onSave(null)} aria-label="Undo change">

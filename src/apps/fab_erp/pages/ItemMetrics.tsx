@@ -8,8 +8,9 @@ import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
 import EditRounded from '@mui/icons-material/EditRounded';
 import AutoGraphRounded from '@mui/icons-material/AutoGraphRounded';
 
-import { fabQuery, fabMutate, fabGet } from '../api/client';
-import type { FabBase } from '../types';
+import { fabQuery, fabMutate } from '../api/client';
+import type { FabFieldDef } from '../types';
+import { unitsByDimension, useFieldVocabulary } from '../api/fields';
 import { usePermission } from '@core/hooks/usePermission';
 import {
   PageHeader, Mono, EmptyState, useToast, DataTable, FormDialog, ConfirmDialog,
@@ -44,91 +45,35 @@ import {
  * mode a registry cannot have.
  */
 
-const DATA_TYPES = ['number', 'integer', 'text', 'date', 'bool'] as const;
-type DataType = (typeof DATA_TYPES)[number];
-
 /**
  * The row this page authors — `fab_fields` via the `fabErpField` resource.
- * Declared here rather than in types.ts because `FabFieldDef` still describes
- * the retired `fab_field_defs` shape that other readers have not moved off yet.
+ * `FabFieldDef` (types.ts) now describes this exact shape — it used to
+ * describe the retired `fab_field_defs` table, which is why this file used
+ * to keep its own copy rather than trust the shared one.
  */
-interface FabField extends FabBase {
-  fieldKey: string;
-  label: string;
-  /** number | integer | text | date | bool. Text can never be formulaUsable. */
-  dataType: string;
-  defaultUnit: string | null;
-  formulaUsable: number;
-  /** The NARROWEST rung a value may be set on — see APPLIES_AT. */
-  appliesAt: string | null;
-  /** Present ⇒ this field is a picker restricted to these values. */
-  allowedValues?: string[] | string | null;
-  defaultNum: number | string | null;
-  /** Seeded, and referenced by feature code under this exact key. */
-  isStandard: number;
-  sortOrder: number;
-  active: number;
-  notes: string | null;
-}
 
 /**
- * Where a value may be authored, phrased as the question people actually ask.
- *
- * The stored value is the narrowest rung on the resolver's ladder that this
- * field is allowed to reach, so `order_item` is precisely "a piece cannot
- * disagree with its item" — a thickness is a property of the part, whereas a
- * length on "MS Plate 20mm" is meaningless because that item covers every
- * length ever bought.
- *
- * Not taken from /fields/vocabulary any more: that endpoint still serves the
- * item|piece|both trio of the retired table, none of which `fab_fields.applies_at`
- * accepts.
+ * Data types and "where is this set?" both come from `GET /fields/vocabulary`
+ * now (`useFieldVocabulary`, api/fields.ts) instead of being hardcoded here —
+ * that endpoint serves `dataTypes` and `levels` for exactly this table today,
+ * not the item|piece|both trio of the retired one this file's old comment
+ * warned about. `enum` is filtered out of `dataTypes`: it isn't a type this
+ * screen offers directly — "Allowed values" below turns any type into a
+ * picker, so a separate "enum" choice would be a second, redundant way to
+ * say the same thing.
  */
-const APPLIES_AT = [
-  { value: 'order_item',  label: 'Same for every piece', hint: 'Thickness, grade, model' },
-  { value: 'stock_piece', label: 'Differs per piece',    hint: 'Length, heat number, serial' },
-] as const;
+const FALLBACK_DATA_TYPES = ['number', 'integer', 'text', 'date', 'bool'];
 
-interface Vocabulary {
-  dataTypes: { value: string; label: string }[];
-  /**
-   * GROUPED units, which the endpoint serves as `unitGroups` — NOT as `units`.
-   *
-   * `/fields/vocabulary` returns both: `units` is a FLAT array of unit records
-   * (code, dimension, factor), and `unitGroups` is that same list bucketed by
-   * dimension. This screen read `units` and then called `g.values.map(...)` on
-   * each entry, which is a TypeError the moment a real response replaces the
-   * fallback — i.e. the unit dropdown threw as soon as it was opened, while
-   * looking fine in any test that never fetched.
-   */
-  unitGroups: { group: string; values: string[] }[];
-}
-
-/**
- * The unit vocabulary, served rather than duplicated here.
- *
- * Falls back to a minimal set if the fetch fails, for the same reason
- * `useFormulaVariables` does: a definition editor that renders empty dropdowns
- * because one request failed looks exactly like a system with no units, and
- * somebody will "fix" it by adding them again by hand.
- */
-const FALLBACK_VOCAB: Vocabulary = {
-  dataTypes: DATA_TYPES.map((v) => ({ value: v, label: v })),
-  unitGroups: [{ group: 'Common', values: ['mm', 'm', 'm2', 'kg', 'hrs', 'nos', '%'] }],
-};
-
-function useVocabulary(): Vocabulary {
-  const [vocab, setVocab] = useState<Vocabulary>(FALLBACK_VOCAB);
-  useEffect(() => {
-    fabGet<Vocabulary>('fields/vocabulary')
-      .then((v) => { if (v?.unitGroups?.length) setVocab(v); })
-      .catch(() => { /* keep the fallback */ });
-  }, []);
-  return vocab;
+/** `vocab.levels`, with the same two rungs as a fallback if the fetch hasn't landed yet. */
+function levelsOf(vocab: ReturnType<typeof useFieldVocabulary>) {
+  return vocab.levels.length ? vocab.levels : [
+    { value: 'order_item' as const, label: 'Same for every piece', hint: 'Thickness, grade, model' },
+    { value: 'stock_piece' as const, label: 'Differs per piece', hint: 'Length, heat number, serial' },
+  ];
 }
 
 interface Draft {
-  fieldKey: string; label: string; dataType: DataType; defaultUnit: string;
+  fieldKey: string; label: string; dataType: string; defaultUnit: string;
   formulaUsable: boolean; defaultNum: string;
   appliesAt: string; allowedValues: string;
 }
@@ -139,11 +84,17 @@ const BLANK = (): Draft => ({
 });
 
 function FieldDialog({ open, initial, onClose, onSaved }: {
-  open: boolean; initial: FabField | null; onClose: () => void; onSaved: () => void;
+  open: boolean; initial: FabFieldDef | null; onClose: () => void; onSaved: () => void;
 }) {
   const [draft, setDraft] = useState<Draft>(BLANK());
   const isNew = !initial;
-  const vocab = useVocabulary();
+  const vocab = useFieldVocabulary();
+  const unitGroups = useMemo(() => unitsByDimension(vocab), [vocab]);
+  const dataTypes = useMemo(
+    () => (vocab.dataTypes.length ? vocab.dataTypes.filter((t) => t.value !== 'enum') : FALLBACK_DATA_TYPES.map((v) => ({ value: v, label: v }))),
+    [vocab],
+  );
+  const levels = levelsOf(vocab);
 
   useEffect(() => {
     if (!open) return;
@@ -151,7 +102,7 @@ function FieldDialog({ open, initial, onClose, onSaved }: {
       ? {
           fieldKey: initial.fieldKey,
           label: initial.label,
-          dataType: (initial.dataType as DataType) ?? 'number',
+          dataType: initial.dataType ?? 'number',
           defaultUnit: initial.defaultUnit ?? '',
           formulaUsable: Number(initial.formulaUsable) === 1,
           // Anything broader than order_item (a seeded catalog_item field, say)
@@ -219,22 +170,22 @@ function FieldDialog({ open, initial, onClose, onSaved }: {
       />
       <TextField label="Label" value={draft.label} onChange={(e) => set('label', e.target.value)} size="small" fullWidth required helperText="Human-readable name shown in the UI" />
       <Box sx={{ display: 'flex', gap: 2 }}>
-        <TextField select label="Data type" value={draft.dataType} onChange={(e) => set('dataType', e.target.value as DataType)} size="small" sx={{ flex: 1 }}>
-          {DATA_TYPES.map((t) => <MenuItem key={t} value={t}>{t}</MenuItem>)}
+        <TextField select label="Data type" value={draft.dataType} onChange={(e) => set('dataType', e.target.value)} size="small" sx={{ flex: 1 }}>
+          {dataTypes.map((t) => <MenuItem key={t.value} value={t.value}>{t.label}</MenuItem>)}
         </TextField>
         {/* A picked unit, not typed. Two people typing "m2" and "m²" produce
             two units for one thing, which is how this registry already grew a
             free-text `Thickness (mm)` beside the numeric `thickness_mm`. */}
         <TextField
-          select label="Unit" value={vocab.unitGroups.flatMap((g) => g.values).includes(draft.defaultUnit) ? draft.defaultUnit : ''}
+          select label="Unit" value={unitGroups.flatMap((g) => g.units).some((u) => u.code === draft.defaultUnit) ? draft.defaultUnit : ''}
           onChange={(e) => set('defaultUnit', e.target.value)}
           size="small" sx={{ flex: 1 }} disabled={isText}
-          helperText="Declared, not converted — see below"
+          helperText={vocab.unitsAreConverted ? 'A value stated in a different unit is converted on save.' : 'Declared, not converted.'}
         >
           <MenuItem value="">— none —</MenuItem>
-          {vocab.unitGroups.flatMap((g) => [
+          {unitGroups.flatMap((g) => [
             <ListSubheader key={`h-${g.group}`} sx={{ fontSize: 11, lineHeight: '26px' }}>{g.group}</ListSubheader>,
-            ...g.values.map((u) => <MenuItem key={u} value={u}>{u}</MenuItem>),
+            ...g.units.map((u) => <MenuItem key={u.code} value={u.code}>{u.code}</MenuItem>),
           ])}
         </TextField>
       </Box>
@@ -245,9 +196,9 @@ function FieldDialog({ open, initial, onClose, onSaved }: {
       <TextField
         select label="Where is this set?" value={draft.appliesAt} size="small" fullWidth
         onChange={(e) => set('appliesAt', e.target.value)}
-        helperText={APPLIES_AT.find((l) => l.value === draft.appliesAt)?.hint ?? ' '}
+        helperText={levels.find((l) => l.value === draft.appliesAt)?.hint ?? ' '}
       >
-        {APPLIES_AT.map((l) => <MenuItem key={l.value} value={l.value}>{l.label}</MenuItem>)}
+        {levels.map((l) => <MenuItem key={l.value} value={l.value}>{l.label}</MenuItem>)}
       </TextField>
 
       {/* Allowed values turn any type into a picker. Deliberately not a
@@ -274,10 +225,17 @@ function FieldDialog({ open, initial, onClose, onSaved }: {
             A text field can’t be — it would evaluate to nothing and plan the task as instant.
           </Typography>
         )}
-        <Typography sx={{ fontSize: 11.5, color: 'var(--c-text-3)', mt: 1 }}>
-          A unit is documentation — nothing converts between them. Define a length in metres
-          against a formula written for millimetres and the answer is plausible and wrong by 1000×.
-        </Typography>
+        {vocab.unitsAreConverted ? (
+          <Typography sx={{ fontSize: 11.5, color: 'var(--c-text-3)', mt: 1 }}>
+            Units convert automatically now — a value entered in metres against a field
+            declared in millimetres is stored as 1000× correctly, not taken literally.
+          </Typography>
+        ) : (
+          <Typography sx={{ fontSize: 11.5, color: 'var(--c-text-3)', mt: 1 }}>
+            A unit is documentation — nothing converts between them. Define a length in metres
+            against a formula written for millimetres and the answer is plausible and wrong by 1000×.
+          </Typography>
+        )}
       </Box>
     </FormDialog>
   );
@@ -286,18 +244,20 @@ function FieldDialog({ open, initial, onClose, onSaved }: {
 export default function ItemFields() {
   const canManage = usePermission('fab_erp_items_meta_manage');
   const { toast } = useToast();
+  const vocab = useFieldVocabulary();
+  const levels = useMemo(() => levelsOf(vocab), [vocab]);
 
-  const [rows, setRows] = useState<FabField[]>([]);
+  const [rows, setRows] = useState<FabFieldDef[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
-  const [editDialog, setEditDialog] = useState<{ open: boolean; item: FabField | null }>({ open: false, item: null });
-  const [delItem, setDelItem] = useState<FabField | null>(null);
+  const [editDialog, setEditDialog] = useState<{ open: boolean; item: FabFieldDef | null }>({ open: false, item: null });
+  const [delItem, setDelItem] = useState<FabFieldDef | null>(null);
 
   const fetchRows = useCallback(async () => {
     setLoading(true); setError('');
     try {
-      const res = await fabQuery<{ data: FabField[] }>('fabErpField', {
+      const res = await fabQuery<{ data: FabFieldDef[] }>('fabErpField', {
         orderBy: [{ field: 'sortOrder', direction: 'asc' }, { field: 'fieldKey', direction: 'asc' }],
         pagination: { limit: 500 },
       });
@@ -316,7 +276,7 @@ export default function ItemFields() {
       r.fieldKey.toLowerCase().includes(q) || (r.label ?? '').toLowerCase().includes(q));
   }, [rows, search]);
 
-  const columns: DataColumn<FabField>[] = [
+  const columns: DataColumn<FabFieldDef>[] = [
     {
       key: 'fieldKey', header: 'Field key', sortValue: (r) => r.fieldKey,
       render: (r) => (Number(r.isStandard) === 1
@@ -341,7 +301,7 @@ export default function ItemFields() {
       key: 'appliesAt', header: 'Set on', width: 170,
       // The human phrasing, not the stored rung: this column exists to be
       // scanned, and "order_item" reads as a table name rather than an answer.
-      render: (r) => (APPLIES_AT.find((l) => l.value === r.appliesAt)?.label ?? APPLIES_AT[0].label),
+      render: (r) => (levels.find((l) => l.value === r.appliesAt)?.label ?? levels[0].label),
       sortValue: (r) => String(r.appliesAt ?? ''),
     },
     {

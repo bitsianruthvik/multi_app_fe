@@ -18,6 +18,7 @@
 
 import { fabGet, fabPost, fabDel } from './client';
 import type { OrderReadiness } from './readiness';
+import type { TreeNode } from '../hooks/useTree';
 
 /**
  * Quantities are DECIMAL(18,6) columns and mysql2 hands those back as strings.
@@ -156,9 +157,15 @@ export const getItemBom = (itemId: number) =>
 /**
  * One node of the recipe, nested — the same shape the order's Structure step
  * edits, because it comes from the same builder on the server.
+ *
+ * A `TreeNode<T>` (hooks/useTree.ts) with the recipe's own payload as `T` —
+ * `DraftNode` below is `useTree`'s other instance of the same generic, one
+ * per tree shape rather than two near-identical hand-written interfaces.
+ * `ItemBomNodeData` is exported on its own so `ItemBomDesigner.tsx` can hand
+ * it to `useTree<ItemBomNodeData>()` — `useTree<ItemBomNode>()` would wrap an
+ * already-wrapped type.
  */
-export interface ItemBomNode {
-  key: string;
+export interface ItemBomNodeData {
   catalogItemId: number;
   name: string;
   unit: string;
@@ -166,17 +173,35 @@ export interface ItemBomNode {
   qty: number | null;
   codeSegment: string | null;
   codeJoin: string;
+  /**
+   * Whether this line explodes into one row per instance when an order is
+   * built from it (REPAIR-B). Assemblies explode (four girders are four
+   * rows, each with its own mark and tasks); parts do not (twenty-one
+   * identical stiffeners are one row with qty=21 — see `bomService.expand`'s
+   * "DOES A QUANTITY MEAN MANY THINGS, OR ONE THING MANY TIMES?" comment).
+   * The root is not a line and always reports `true`.
+   */
+  explode: boolean;
   defaultFlowId: number | null;
   /** Which line this row came from. Null on the root, which is not a line. */
   bomLineId: number | null;
-  /** What the recipe calls this quantity, when it asks for one. */
-  qtyParam: string | null;
+  /**
+   * Whether this line's quantity is a per-job answer rather than a fixed
+   * number (EU-6). NOT the parameter's name — `draftTree` (bomService.js,
+   * shared by this endpoint and the order structure editor) stopped
+   * returning that string when it added this flag, so a line that varies
+   * per job cannot have its existing question name re-displayed or
+   * silently re-sent on an unrelated field edit here. See
+   * `ItemBomDesigner.tsx`'s own comment where this matters.
+   */
+  variesPerJob: boolean;
   /** 'make' or 'buy'. A bought item is not asked its size — you picked it. */
   procurementType?: string;
   /** Sizes the recipe states. Absent keys mean it states none. */
   dims?: Record<string, number | string | null>;
-  children: ItemBomNode[];
 }
+
+export type ItemBomNode = TreeNode<ItemBomNodeData>;
 
 /** GET /item-bom/:itemId/tree — the whole recipe under one item, nested. */
 export const getItemBomTree = (itemId: number) =>
@@ -204,6 +229,9 @@ export const saveItemBomLine = (line: {
   sortOrder?: number;
   /** Null clears it, which is a valid answer for a grouping level. */
   defaultFlowId?: number | null;
+  /** Omitted means "leave it as it is" — `setBomLine` reads the prior value back itself. */
+  explode?: boolean;
+  codeJoin?: 'dash' | 'absorb' | null;
 }) => fabPost<{ ok: boolean }>('item-bom', line as unknown as Record<string, unknown>);
 
 /** DELETE /item-bom/:id — remove a line. The child item itself is untouched. */
@@ -231,8 +259,12 @@ export const previewTemplate = (
  * reading ×6, which is what you edit and what gets built. `key` is a local id
  * so the editor can address a node that does not exist anywhere yet.
  */
-export interface DraftNode {
-  key: string;
+/**
+ * A `TreeNode<T>` (hooks/useTree.ts) — see the note on `ItemBomNodeData`
+ * above. `DraftNodeData` is exported so `StructureEditor.tsx` can hand it to
+ * `useTree<DraftNodeData>()`.
+ */
+export interface DraftNodeData {
   /**
    * The row this node ALREADY is, when the tree came from the order rather than
    * the catalogue. It is what lets a save be a diff: a row that survives an edit
@@ -251,6 +283,11 @@ export interface DraftNode {
    * decision in a way an empty box never does.
    */
   qty: number | null;
+  /**
+   * Made here or bought in, from the catalog item. A bought row (a shear
+   * stud) has no rectangle to size, so the editor asks it for none.
+   */
+  procurementType?: string;
   /**
    * The BOM's own abbreviation for this rung, and how it joins to its parent's.
    * NOT used to name anything here — the BOM step writes no codes. They are
@@ -273,8 +310,9 @@ export interface DraftNode {
    * are its parts summed.
    */
   dims?: Record<string, number | string | null>;
-  children: DraftNode[];
 }
+
+export type DraftNode = TreeNode<DraftNodeData>;
 
 /** GET the BOM as a tree to edit. Writes nothing. */
 export const getDraftTree = (itemId: number) =>
@@ -292,13 +330,70 @@ export const getCurrentTree = (orderId: number, orderLineId?: number | null) =>
     `orders/${orderId}/structure/tree${orderLineId ? `?orderLineId=${orderLineId}` : ''}`,
   );
 
-/** Save an edited structure. A DIFF — surviving rows keep their ids. */
+/**
+ * One row `requireAllQty` (bomService.js) refused for having no quantity —
+ * the shape of `detail.unanswered[]` on a 400 `QTY_REQUIRED` from
+ * `/structure/apply` or `/build`. `itemId`/`code` are null for a row that
+ * does not exist on the order yet (a hand-added or not-yet-saved node);
+ * `path` is the ancestry's own names joined by ` / `, ending in `name` —
+ * computed the same way client-side so a row can be matched back to its
+ * tree node without a second round trip.
+ */
+export interface QtyRequiredRow {
+  itemId: number | null;
+  code: string | null;
+  name: string;
+  depth: number;
+  path: string;
+}
+
+/** What EU-12's revision guard needs, and what a save actually did (EU-17 item 3). */
+export interface ApplyStructureResult {
+  ok: boolean;
+  created: number;
+  updated: number;
+  removed: number;
+  /** Rows whose dimensions were written this save — not a row count, a resize count. */
+  sized: number;
+  /** Recomputed by the server so the wizard rail cannot go stale (EU-7). */
+  readiness: OrderReadiness;
+}
+
+/**
+ * Save an edited structure. A DIFF — surviving rows keep their ids.
+ *
+ * `revisionReason` is required by the server (400 `REVISION_REASON_REQUIRED`)
+ * once the order is no longer a draft (EU-12, decision 4) — every existing
+ * caller here is draft-only, so it stays optional and unset.
+ */
 export const applyStructure = (
   orderId: number,
-  body: { tree: DraftNode; orderLineId?: number | null },
-) => fabPost<{ ok: boolean; created: number; updated: number; removed: number }>(
-  `orders/${orderId}/structure/apply`, { ...body },
-);
+  body: { tree: DraftNode; orderLineId?: number | null; revisionReason?: string },
+) => fabPost<ApplyStructureResult>(`orders/${orderId}/structure/apply`, { ...body });
+
+/**
+ * EU-9's flow routes (`routes/orderItems.js`) — mounted since EU-9 but never
+ * called from anywhere until now (EU-17 item 6 / X3).
+ *
+ * `syncOrderFlows` re-pulls each item's BOM-line default flow — touching only
+ * items that still have none unless `reassign` is true, so re-running never
+ * undoes an exception somebody set by hand (§13 "a default flow belongs to the
+ * BOM LINE"). It does not say WHICH flow each item landed on, so the caller
+ * re-reads the tree afterward rather than guessing.
+ */
+export interface SyncFlowsResult { ok: boolean; assigned: number; readiness: OrderReadiness }
+export const syncOrderFlows = (orderId: number, reassign = false) =>
+  fabPost<SyncFlowsResult>(`orders/${orderId}/flows/sync`, { reassign });
+
+/**
+ * `setOrderFlows` overrides one or more items' flow at once — the server
+ * round trip a bulk "set flow" action goes through, since it already knows
+ * the flow it is setting and the readiness this returns means no follow-up
+ * GET is needed to reflect the change.
+ */
+export interface SetFlowsResult { ok: boolean; updated: number; readiness: OrderReadiness }
+export const setOrderFlows = (orderId: number, itemIds: number[], flowId: number | null) =>
+  fabPost<SetFlowsResult>(`orders/${orderId}/flows/set`, { itemIds, flowId });
 
 /**
  * Build exactly this tree on the line.

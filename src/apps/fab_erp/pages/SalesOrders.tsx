@@ -137,7 +137,7 @@ const BLANK = (orderType = 'sales'): OrderDraft => ({
 
 function OrderDialog({ open, initial, defaultOrderType, onClose, onSaved }: {
   open: boolean; initial: FabOrder | null; defaultOrderType?: string;
-  onClose: () => void; onSaved: (orderNumber?: string, newId?: number) => void;
+  onClose: () => void; onSaved: (orderNumber?: string, newId?: number, orderType?: string) => void;
 }) {
   const isNew = !initial;
   const [draft, setDraft] = useState<OrderDraft>(BLANK());
@@ -219,7 +219,7 @@ function OrderDialog({ open, initial, defaultOrderType, onClose, onSaved }: {
         // The id goes back so the caller can open the wizard on the order that
         // was just created — creating an order and then setting it up are one
         // action to the person doing it, not two.
-        onSaved(orderNumber, res?.id);
+        onSaved(orderNumber, res?.id, draft.orderType);
       } else {
         await fabMutate('fabErpOrder', 'update', { id: initial!.id, ...payload });
         onSaved();
@@ -502,7 +502,7 @@ export default function Orders() {
   const [dlg, setDlg] = useState<{ open: boolean; order: FabOrder | null }>({ open: false, order: null });
   const [delOrder, setDelOrder] = useState<FabOrder | null>(null);
   /** The order whose setup wizard is open, if any. */
-  const [wizard, setWizard] = useState<{ id: number; number?: string } | null>(null);
+  const [wizard, setWizard] = useState<{ id: number; number?: string; orderType?: string } | null>(null);
 
   const fetchAll = useCallback(async () => {
     setLoading(true); setError('');
@@ -594,7 +594,7 @@ export default function Orders() {
               size="small" variant="outlined" fullWidth
               sx={{ mt: 1, fontSize: 11.5, py: 0.25 }}
               startIcon={<PlayArrowRounded sx={{ fontSize: 14 }} />}
-              onClick={(e) => { e.stopPropagation(); setWizard({ id: o.id, number: o.orderNumber }); }}
+              onClick={(e) => { e.stopPropagation(); setWizard({ id: o.id, number: o.orderNumber, orderType: o.orderType }); }}
             >
               Continue setup
             </Button>
@@ -686,20 +686,21 @@ export default function Orders() {
         // but neither is a thing this dialog can create (see ORDER_TYPE_CONFIG).
         defaultOrderType="sales"
         onClose={() => setDlg({ open: false, order: null })}
-        onSaved={(orderNumber, newId) => {
+        onSaved={(orderNumber, newId, orderType) => {
           setDlg({ open: false, order: null });
           toast(orderNumber ? `Order created — ${orderNumber}` : 'Order saved');
           fetchAll();
           // Straight into the wizard. Creating the order is step zero of setting
           // it up, and making someone find the order again to carry on would be
           // an odd place to stop.
-          if (newId) setWizard({ id: newId, number: orderNumber });
+          if (newId) setWizard({ id: newId, number: orderNumber, orderType });
         }}
       />
       {wizard && (
         <SalesOrderWizard
           orderId={wizard.id}
           orderNumber={wizard.number}
+          orderType={wizard.orderType}
           open
           canManage={canManage}
           onClose={() => { setWizard(null); fetchAll(); }}

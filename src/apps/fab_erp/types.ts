@@ -125,41 +125,33 @@ export interface FabResourceCustomField extends FabBase {
 }
 
 /**
- * fab_field_defs: THE field registry (2026-08-15) — one definition of every
- * value an item can carry.
+ * fab_fields: THE field registry — one definition of every value an item (or
+ * a taxonomy node, or a stock piece) can carry.
  *
- * It superseded `FabItemMetricDef` / `fab_item_metric_defs`, which was dropped
- * on 2026-08-17 once a divergence report confirmed nothing read it and all
- * eight of its keys had landed here. Note that `fab_item_metric_VALUES` still
- * exists — same era, near-identical name, still written on every weight
- * roll-up.
- *
- * A field with `formulaUsable` is `item.<fieldKey>` in a formula the moment it
- * is saved; `/formula/variables` reads this table, so the editor autocompletes
- * and lints against it. `pieceVarying` is opt-in and decides whether the issued
- * stock piece's own value overrides the item's — which changes a task's
- * estimate at issue time, so it is never assumed.
+ * This type used to describe `fab_field_defs`, a table retired on 2026-08-17
+ * once `fab_fields` absorbed it — `/formula/variables` and every catalog
+ * screen read `fab_fields` now, under the `fabErpField` resource. Kept in
+ * sync with `FieldDefRow` (`api/fields.ts`), which is the same row shape read
+ * through a slightly different lens (a form draft rather than a plain record);
+ * they are not merged into one type because one lives beside the field-editing
+ * helpers and the other beside every other shared entity type.
  */
 export interface FabFieldDef extends FabBase {
   fieldKey: string;
   label: string;
-  /** number | integer | text. Text can never be formulaUsable. */
+  /** number | integer | text | date | bool | enum. Text can never be formulaUsable. */
   dataType: string;
-  unit: string | null;
-  formulaUsable: number;
-  /** @deprecated superseded by `level`; kept for definitions predating it. */
-  pieceVarying: number;
-  /**
-   * Where the value is authored: item | piece | both.
-   *
-   * A boolean could say "may differ per piece" but not "meaningless on the
-   * item" — and a length on "MS Plate 20mm" is meaningless, since that item
-   * covers every length ever bought.
-   */
-  level?: string | null;
+  dimension: string | null;
+  defaultUnit: string | null;
   /** Present ⇒ this field is a picker restricted to these values. */
   allowedValues?: string[] | string | null;
-  defaultValue: number | string | null;
+  /** The NARROWEST rung a value may be set on: order_item | stock_piece (broader ones may still read it). */
+  appliesAt: string | null;
+  formulaUsable: number;
+  defaultNum: number | string | null;
+  defaultText: string | null;
+  /** Seeded, and referenced by feature code under this exact key — its key and type cannot be edited. */
+  isStandard: number;
   categoryId: number | null;
   groupId: number | null;
   subgroupId: number | null;
@@ -275,6 +267,10 @@ export interface FabOperation {
    */
   setupMinutes: number | null;
   active: number;
+  /** 1 when this operation's steps are farmed out to a supplier rather than run in-house. */
+  isSubcontract: number;
+  /** Supplier a subcontract step defaults to when raising a subcontract order. */
+  defaultSupplierId: number | null;
   createdAt: string;
   updatedAt: string;
   defaultResourceTypeName?: string;

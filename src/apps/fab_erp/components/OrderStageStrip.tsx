@@ -1,12 +1,10 @@
 import { Box, Chip, Tooltip, Typography } from '@mui/material';
-import CheckCircleRounded from '@mui/icons-material/CheckCircleRounded';
-import RadioButtonUncheckedRounded from '@mui/icons-material/RadioButtonUncheckedRounded';
-import ChangeHistoryRounded from '@mui/icons-material/ChangeHistoryRounded';
 import ChevronRightRounded from '@mui/icons-material/ChevronRightRounded';
 
 import { Surface } from '../components';
-import type { OrderReadiness, ReadinessStage, StageState } from '../api/readiness';
+import type { OrderReadiness, ReadinessStage } from '../api/readiness';
 import { STAGE_TAB } from '../api/readiness';
+import StageIcon from './StageIcon';
 
 /**
  * The order's preparation, made visible.
@@ -26,22 +24,9 @@ import { STAGE_TAB } from '../api/readiness';
  * that says otherwise.
  */
 
-const STATE_COLOR: Record<StageState, string> = {
-  done: 'var(--c-success-600)',
-  partial: 'var(--c-warning-600)',
-  todo: 'var(--c-text-3)',
-};
-
-function StageIcon({ state }: { state: StageState }) {
-  const sx = { fontSize: 15, color: STATE_COLOR[state] };
-  if (state === 'done') return <CheckCircleRounded sx={sx} />;
-  if (state === 'partial') return <ChangeHistoryRounded sx={sx} />;
-  return <RadioButtonUncheckedRounded sx={sx} />;
-}
-
 /** "3 / 417" reads as progress; a bare "3" reads as a total. */
 function stageCount(s: ReadinessStage): string | null {
-  if (s.total === 0) return null;
+  if (s.state === 'not_applicable' || s.total === 0) return null;
   if (s.state === 'partial' && s.total !== s.count) return `${s.count} / ${s.total}`;
   return String(s.total);
 }
@@ -87,7 +72,7 @@ export default function OrderStageStrip({ readiness, onGoToTab, activeTab }: {
                   <Typography sx={{
                     fontSize: 12.5,
                     fontWeight: isNext ? 600 : 500,
-                    color: s.state === 'todo' ? 'var(--c-text-3)' : 'var(--c-text)',
+                    color: s.state === 'todo' || s.state === 'not_applicable' || s.state === 'pending' ? 'var(--c-text-3)' : 'var(--c-text)',
                     whiteSpace: 'nowrap',
                   }}>
                     {s.label}

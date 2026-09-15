@@ -7,6 +7,7 @@
  */
 
 import { fabGet, fabPost, fabPut } from './client';
+import type { OrderReadiness } from './readiness';
 
 export interface PlanStep {
   stepId: number;
@@ -29,6 +30,23 @@ export interface PlanStep {
   taskCode: string | null;
   /** False while the code is only a preview — it is written on deploy. */
   taskCodeSaved: boolean;
+  /**
+   * Why `minutes` is null, when it is (EU-8). `null` here with `minutes` also
+   * null means the operation has no formula at all — not an error, just
+   * unconfigured; a non-null value here is a real problem with the formula
+   * itself (a bad parse, an unknown machine/item/op/input symbol, divide by
+   * zero) and the task is estimated as taking no time until it is fixed.
+   */
+  formulaError: { code: string; message?: string; symbol?: string } | null;
+  /** Non-fatal: e.g. a `step.*` variable defaulted to 0, or an input/value was unavailable. */
+  warnings: { code: string; symbols?: string[] }[];
+  /**
+   * True when the override on record is only the formula's own number typed
+   * back — the server's own tolerance (EU-9), replacing the 0.005-minute
+   * compare this screen used to redo itself. A row reading this true has no
+   * REAL override even though `overrideMinutes` is non-null.
+   */
+  overrideIsFormula: boolean;
 }
 
 export interface PlanRow {
@@ -69,13 +87,17 @@ export interface BuyLine {
   code: string | null;
   name: string | null;
   unit: string | null;
+  /** `'free_issue'` rows are supplied by the customer — never bought, whatever the shelf holds (EU-14). */
+  procurementType: 'make' | 'buy' | 'free_issue';
   required: number;
-  /** What the shelf can give this order, its own holding included. */
-  inStock: number;
+  /** What the shelf can give this order, its own holding included. Null for a free-issue row. */
+  inStock: number | null;
   /** Held off the shelf for this order now. */
   held: number;
   onOrder: number;
   stillNeeded: number;
+  /** What this order already holds, else all that is free — the server's own suggestion (EU-9). */
+  suggestedTake: number;
 }
 
 export interface PurchaseRef {
@@ -86,6 +108,35 @@ export interface PurchaseRef {
   lineCount: number;
   qtyOrdered: number;
   qtyReceived: number;
+}
+
+/** One step sent, or sendable, to a supplier (EU-14) — the Subcontract section. */
+export interface SubcontractStep {
+  supplierId: number | null;
+  taskId: number | null;
+  itemId: number;
+  itemCode: string | null;
+  itemName: string;
+  operationName: string | null;
+  qty: number;
+  status: string | null;
+  sentOutAt: string | null;
+  returnedAt: string | null;
+  /** Already on a subcontract order — before the task is physically sent out (`sentOutAt`). */
+  requested: boolean;
+}
+
+export interface SubcontractGroup {
+  supplierId: number | null;
+  supplierName: string | null;
+  steps: SubcontractStep[];
+}
+
+export interface SubcontractOrderRef {
+  id: number;
+  orderNumber: string;
+  supplierId: number | null;
+  status: string;
 }
 
 export interface ProductionPlan {
@@ -99,6 +150,10 @@ export interface ProductionPlan {
   };
   cutting: PlanSection;
   fabrication: PlanSection;
+  subcontract: {
+    groups: SubcontractGroup[];
+    orders: SubcontractOrderRef[];
+  };
 }
 
 export const getProductionPlan = (orderId: number | string) =>
@@ -106,16 +161,42 @@ export const getProductionPlan = (orderId: number | string) =>
 
 /** Minutes per piece; null goes back to the formula. */
 export const setStepTime = (orderId: number | string, itemId: number, stepId: number, minutes: number | null) =>
-  fabPut(`orders/${orderId}/production-plan/time`, { itemId, stepId, minutes });
+  fabPut<{ readiness?: OrderReadiness }>(`orders/${orderId}/production-plan/time`, { itemId, stepId, minutes });
 
 export const raiseDraft = (orderId: number | string, purpose: 'cutting' | 'fabrication', force = false) =>
-  fabPost<ProductionOrderRef>(`orders/${orderId}/production/draft`, { purpose, force });
+  fabPost<ProductionOrderRef & { readiness?: OrderReadiness }>(`orders/${orderId}/production/draft`, { purpose, force });
 
-export const deployProductionOrder = (moId: number) =>
-  fabPost(`production-orders/${moId}/deploy`);
+/**
+ * The shape of the 409 `raiseDraft` refuses with when a part is missing a
+ * value its own operations need (`routes/procurement.js` FIELDS_MISSING).
+ * `force: true` on `raiseDraft` proceeds anyway — the honest escape for a shop
+ * that knows its estimate is rough and wants the tasks regardless.
+ */
+export interface FieldsMissingDetail {
+  itemsChecked: number;
+  itemsShort: number;
+  missingValues: { itemId: number; itemCode: string | null; itemName: string | null; missing: string[] }[];
+  unknownFields: { operationName: string; keys: string[] }[];
+}
+
+/** `POST /production-orders/:moId/deploy`. `redeploy: true` (EU-12) re-plans a NON-draft MO after a revision, without regressing its status. */
+export const deployProductionOrder = (moId: number, opts?: { redeploy?: boolean }) =>
+  fabPost<{ readiness?: OrderReadiness }>(`production-orders/${moId}/deploy`, opts?.redeploy ? { redeploy: true } : {});
 
 export const requestProcurement = (orderId: number | string, lines: { catalogItemId: number; take: number }[]) =>
-  fabPost(`orders/${orderId}/procurement/request`, { lines });
+  fabPost<{ readiness?: OrderReadiness }>(`orders/${orderId}/procurement/request`, { lines });
 
 export const sendPurchaseRequest = (poId: number, supplierId: number) =>
-  fabPost(`purchase-orders/${poId}/send`, { supplierId });
+  fabPost<{ readiness?: OrderReadiness }>(`purchase-orders/${poId}/send`, { supplierId });
+
+/**
+ * `POST /orders/:id/subcontract/request` (EU-14) — send named steps out to a
+ * supplier. Raises a NEW `fab_orders` row every call; several subcontract
+ * orders against one sales order (one per supplier, or a second batch to the
+ * same one) are legitimate, so there is nothing to rewrite in place the way
+ * `requestProcurement` rewrites its one open purchase request.
+ */
+export const requestSubcontract = (orderId: number | string, supplierId: number, taskIds: number[]) =>
+  fabPost<{ ok: boolean; order: { id: number; orderNumber: string; supplierId: number; supplierName: string | null; lineCount: number }; readiness: OrderReadiness }>(
+    `orders/${orderId}/subcontract/request`, { supplierId, taskIds },
+  );

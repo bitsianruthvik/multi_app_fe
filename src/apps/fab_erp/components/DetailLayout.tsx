@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Box, Typography } from '@mui/material';
 import { Surface } from './Surface';
+import StageIcon from './StageIcon';
 
 /** A clickable cross-link chip (DESIGN_SYSTEM.md §2.2 relationship web). */
 export function CrossLink({
@@ -62,14 +63,13 @@ export interface DetailTab {
    * flows → tasks — this makes the state of each step legible without opening
    * it. Left undefined, a tab looks exactly as it did before.
    */
-  dot?: 'done' | 'partial' | 'todo';
+  /**
+   * Drawn with the SAME glyph the wizard rail and the stage strip use
+   * (`StageIcon`) — a 6 px coloured dot was too small to read and disagreed
+   * with the icons the same states carry everywhere else on the order.
+   */
+  dot?: 'done' | 'partial' | 'todo' | 'not_applicable' | 'pending';
 }
-
-const DOT_COLOR: Record<NonNullable<DetailTab['dot']>, string> = {
-  done: 'var(--c-success-600)',
-  partial: 'var(--c-warning-600)',
-  todo: 'var(--c-text-3)',
-};
 
 /**
  * Record/Detail scaffold (DESIGN_SYSTEM.md §4.3/§7.5): solid e2 header → cross-link
@@ -150,11 +150,9 @@ export function DetailLayout({
                 }}
               >
                 {t.dot && (
-                  <Box
-                    component="span"
-                    aria-hidden
-                    sx={{ width: 6, height: 6, borderRadius: '50%', bgcolor: DOT_COLOR[t.dot], flexShrink: 0 }}
-                  />
+                  <Box component="span" aria-hidden sx={{ display: 'inline-flex', flexShrink: 0 }}>
+                    <StageIcon state={t.dot} size={14} />
+                  </Box>
                 )}
                 {t.label}
                 {t.count !== undefined && (

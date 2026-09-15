@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  Alert, Autocomplete, Box, Button, CircularProgress, Dialog, DialogActions,
+  Alert, Autocomplete, Box, Button, Checkbox, CircularProgress, Dialog, DialogActions,
   DialogContent, DialogTitle, IconButton, MenuItem, TextField, Tooltip, Typography,
 } from '@mui/material';
 import AddRounded from '@mui/icons-material/AddRounded';
@@ -9,17 +9,23 @@ import CheckRoundedIcon from '@mui/icons-material/CheckRounded';
 import ContentCopyRounded from '@mui/icons-material/ContentCopyRounded';
 import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
 import DescriptionRounded from '@mui/icons-material/DescriptionRounded';
-import ExpandMoreRounded from '@mui/icons-material/ExpandMoreRounded';
-import ChevronRightRounded from '@mui/icons-material/ChevronRightRounded';
+import UndoRounded from '@mui/icons-material/UndoRounded';
+import RedoRounded from '@mui/icons-material/RedoRounded';
+import SyncRounded from '@mui/icons-material/SyncRounded';
 
-import { fabQuery, fabMutate } from '../api/client';
-import { backendMessage, Surface } from '../components';
+import { fabMutate, fabQuery } from '../api/client';
+import { backendMessage, ConfirmDialog, Surface, useToast } from '../components';
 import { DialogCloseButton } from './FormDialog';
 import DrawingsPanel from './DrawingsPanel';
+import TreeEditor from './TreeEditor/TreeEditor';
+import type { RowMeta } from './TreeEditor/TreeNode';
+import { countPieces, countRows, leaves, newTreeKey, unanswered, useTree } from '../hooks/useTree';
 import {
   getDraftTree, getCurrentTree, buildStructure, applyStructure, getPickableItems,
-  type DraftNode, type PickableItem,
+  syncOrderFlows, setOrderFlows,
+  type DraftNode, type DraftNodeData, type PickableItem, type QtyRequiredRow,
 } from '../api/templates';
+import type { OrderReadiness } from '../api/readiness';
 
 /**
  * The structure, edited directly.
@@ -44,8 +50,11 @@ import {
  * the rest of the system already assumes: weights multiply unit by quantity, a
  * task covers `task_qty` pieces, and a mark names a design rather than a piece.
  *
- * NOTHING IS WRITTEN UNTIL CREATE. The tree lives here until then, so a wrong
- * turn costs an undo rather than a half-built order.
+ * NOTHING IS WRITTEN UNTIL SAVE (EU-17 item 4). Every edit lives only in
+ * `useTree`'s history until then — which is also what makes undo/redo, and a
+ * dirty check that actually means something, possible: `dirty` is "has the
+ * tree moved away from what Save last wrote or Load last read", not "have any
+ * keys been pressed".
  */
 
 type CatalogOption = PickableItem;
@@ -61,89 +70,162 @@ export interface StructureEditorLine {
   itemId?: number | null;
   /** What it is called, for the heading. */
   description?: string | null;
+  /**
+   * How many of this line — edited in the line card's own qty box, which is
+   * the row directly above this tree. The root's OWN quantity is pinned at 1
+   * and everything below it multiplies by this instead (decision 3).
+   */
+  qty?: number | null;
 }
 
-let localSeq = 0;
-const localKey = () => `local${++localSeq}`;
-
-/** Deep copy with fresh keys, so a copied subtree is addressable on its own. */
-function cloneSubtree(node: DraftNode): DraftNode {
-  return { ...node, key: localKey(), children: node.children.map(cloneSubtree) };
+/** What Save actually did, and the readiness it recomputed. */
+export interface StructureSaveResult {
+  created: number;
+  updated: number;
+  removed: number;
+  sized?: number;
+  readiness?: OrderReadiness;
 }
 
-/** Replace one node anywhere in the tree, returning a new tree. */
-function mapNode(node: DraftNode, key: string, fn: (n: DraftNode) => DraftNode): DraftNode {
-  if (node.key === key) return fn(node);
-  return { ...node, children: node.children.map((c) => mapNode(c, key, fn)) };
-}
-
-/** Remove one node, and its subtree, from anywhere below the root. */
-function dropNode(node: DraftNode, key: string): DraftNode {
-  return {
-    ...node,
-    children: node.children.filter((c) => c.key !== key).map((c) => dropNode(c, key)),
-  };
-}
-
-/** Insert a copy of a node, with its subtree, directly after it among its siblings. */
 /**
- * Move `dragKey` so it sits where `overKey` is, AMONG THE SAME SIBLINGS.
- *
- * Reordering only — a row cannot be dropped into a different parent this way.
- * Dragging a Top Flange out of a Segment and into a Diaphragm is a different
- * operation with different consequences (its quantity is per-parent, its flow
- * came from a BOM line that no longer applies), and doing it by accident while
- * aiming two rows further down is exactly how that would happen. Add and remove
- * already exist for a genuine move.
+ * Match a server-refused `QTY_REQUIRED` row back to the tree node it names —
+ * by `itemId` when the row has one (an existing order row), else by `path`
+ * (built the identical way `collectUnanswered`, bomService.js, does: the
+ * ancestry's names joined by ` / `, ending in the node's own name). Returns
+ * null rather than guessing when nothing matches, which a stale tree (edited
+ * since the save that got refused) can legitimately produce.
  */
-function moveWithinSiblings(node: DraftNode, dragKey: string, overKey: string): DraftNode {
-  const kids = node.children;
-  const from = kids.findIndex((c) => c.key === dragKey);
-  const to = kids.findIndex((c) => c.key === overKey);
+function findUnansweredKey(root: DraftNode, row: QtyRequiredRow): string | null {
+  let found: string | null = null;
+  const walk = (n: DraftNode, ancestry: string[]) => {
+    if (found) return;
+    const path = [...ancestry, n.name].join(' / ');
+    const isMatch = row.itemId != null ? n.itemId === row.itemId : path === row.path;
+    if (isMatch) { found = n.key; return; }
+    n.children.forEach((c) => walk(c, [...ancestry, n.name]));
+  };
+  walk(root, []);
+  return found;
+}
 
-  if (from >= 0 && to >= 0 && from !== to) {
-    const next = [...kids];
-    const [moved] = next.splice(from, 1);
-    next.splice(to, 0, moved);
-    return { ...node, children: next };
+/**
+ * The column header of the structure table. Exported so the line card can put
+ * it ABOVE the line's own row: the line is the top row of its tree, and its
+ * quantity sits in the same Qty column as every quantity beneath it.
+ */
+export function StructureColumnHeader() {
+  const th = { fontSize: 10.5, fontWeight: 600, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--c-text-3)' } as const;
+  return (
+    <Box sx={{
+      position: 'sticky', top: 0, zIndex: 2, display: 'flex', alignItems: 'center', gap: 1,
+      pl: '92px', pr: 1.5, py: 0.6, bgcolor: 'var(--c-surface-2)',
+      borderBottom: '1px solid var(--c-border)',
+    }}>
+      <Typography sx={{ flex: 1, ...th }}>Name</Typography>
+      <Typography sx={{ width: 76, textAlign: 'right', ...th }}>Qty</Typography>
+      <Typography sx={{ width: 234, ...th }}>Size (mm) — thk / wid / len</Typography>
+      <Typography sx={{ width: 150, ...th }}>Made by</Typography>
+      <Box sx={{ width: 96, flexShrink: 0 }} />
+    </Box>
+  );
+}
+
+/**
+ * A NUMBER THAT READS AS TEXT UNTIL YOU CLICK IT.
+ *
+ * Sixty-nine rows of five bordered inputs each is three hundred boxes, and a
+ * table of boxes cannot be scanned — the eye has nothing to rest on. So a
+ * value is drawn as plain mono text (tabular, right-aligned, like every
+ * quantity column in the app) and becomes an input only on click or keyboard
+ * focus; blur, Enter or Escape put the text back. What is MISSING still shows:
+ * an empty value is its placeholder in italics, and a required one that is
+ * empty carries the danger tint so it cannot hide among the filled ones.
+ *
+ * The button keeps the `id` a QTY_REQUIRED refusal focuses by name; focusing
+ * it opens the editor, so "jump to the row that needs a quantity" still lands
+ * in a live input.
+ */
+function InlineNumber({
+  id, value, placeholder, onChange, width, ariaLabel, missing = false, refused = false,
+}: {
+  id?: string;
+  value: number | string | null | undefined;
+  placeholder: string;
+  onChange: (raw: string) => void;
+  width: number;
+  ariaLabel: string;
+  /** A value the row needs and does not have — drawn in the danger family. */
+  missing?: boolean;
+  /** The row a server refusal named — outlined, not just tinted. */
+  refused?: boolean;
+}) {
+  const [editing, setEditing] = useState(false);
+  const empty = value == null || value === '';
+  if (!editing) {
+    return (
+      <Box
+        component="button" type="button" id={id}
+        onClick={() => setEditing(true)}
+        onFocus={() => setEditing(true)}
+        aria-label={ariaLabel}
+        sx={{
+          width, height: 28, px: 1, flexShrink: 0, textAlign: 'right',
+          fontFamily: 'var(--font-mono)', fontSize: 12, fontVariantNumeric: 'tabular-nums', lineHeight: 1,
+          borderRadius: 'var(--r-sm)', cursor: 'text',
+          border: `1px solid ${refused ? 'var(--c-danger-600)' : 'transparent'}`,
+          background: missing ? 'var(--c-danger-50)' : 'transparent',
+          color: empty ? (missing ? 'var(--c-danger-800)' : 'var(--c-text-3)') : 'var(--c-text)',
+          fontStyle: empty ? 'italic' : 'normal',
+          transition: 'border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease)',
+          '&:hover': { borderColor: 'var(--c-border)', background: missing ? 'var(--c-danger-50)' : 'var(--c-surface)' },
+          '&:focus-visible': { outline: '2px solid var(--c-primary-500)', outlineOffset: 1 },
+          ...(refused ? { boxShadow: '0 0 0 2px var(--c-danger-500)' } : {}),
+        }}
+      >
+        {empty ? placeholder : String(value)}
+      </Box>
+    );
   }
-  // Not this level's business — ask the children.
-  return { ...node, children: kids.map((c) => moveWithinSiblings(c, dragKey, overKey)) };
-}
-
-function duplicateNode(node: DraftNode, key: string): DraftNode {
-  const children: DraftNode[] = [];
-  for (const c of node.children) {
-    if (c.key === key) children.push(c, cloneSubtree(c));
-    else children.push(duplicateNode(c, key));
-  }
-  return { ...node, children };
-}
-
-/** Every piece this tree would produce, quantities multiplied down. */
-function countPieces(node: DraftNode, carried = 1): number {
-  const here = carried * (Number(node.qty) || 0);
-  return node.children.reduce((sum, c) => sum + countPieces(c, here), here);
-}
-
-/** Rows still waiting for a number. The recipe no longer guesses on their behalf. */
-function unanswered(node: DraftNode, out: string[] = []): string[] {
-  if (node.qty == null) out.push(node.name);
-  node.children.forEach((c) => unanswered(c, out));
-  return out;
-}
-
-function countRows(node: DraftNode): number {
-  return 1 + node.children.reduce((s, c) => s + countRows(c), 0);
+  return (
+    <TextField
+      id={id}
+      autoFocus size="small" type="number"
+      value={value ?? ''}
+      onChange={(e) => onChange(e.target.value)}
+      onBlur={() => setEditing(false)}
+      onKeyDown={(e) => {
+        if (e.key !== 'Enter' && e.key !== 'Escape') return;
+        // Escape leaves the CELL, not the wizard — the dialog treats an
+        // unhandled Escape as "close", which is not what somebody backing out
+        // of a number meant. Stop it here.
+        e.stopPropagation();
+        e.preventDefault();
+        (e.target as HTMLInputElement).blur();
+      }}
+      placeholder={placeholder}
+      error={missing}
+      sx={{ width, flexShrink: 0, '& .MuiOutlinedInput-root': { height: 28 } }}
+      inputProps={{
+        min: 0, step: 1,
+        style: { fontSize: 12, textAlign: 'right', padding: '4px 8px', fontFamily: 'var(--font-mono)' },
+        'aria-label': ariaLabel,
+      }}
+    />
+  );
 }
 
 export default function StructureEditor({
-  open, orderId, orderLine, onClose, onDone, variant = 'dialog', source = 'bom',
+  open, orderId, orderLine, onClose, onDone, onReadinessChanged, source = 'bom', onDirtyChange,
+  revisionReason, chrome = 'card',
 }: {
+  /**
+   * 'card' draws its own bordered table with a header; 'flat' draws rows only,
+   * for a container that already IS the table — the line card, which renders
+   * the header and the line's row itself so line and structure read as one.
+   */
+  chrome?: 'card' | 'flat';
   open: boolean;
   orderId: number;
-  /** `inline` renders it as the step itself; `dialog` for rebuilding over one. */
-  variant?: 'inline' | 'dialog';
   /**
    * Where the tree comes from. 'bom' takes the catalogue's recipe — a rebuild.
    * 'current' takes what this order settled on — an edit, saved as a diff.
@@ -151,14 +233,39 @@ export default function StructureEditor({
   source?: 'bom' | 'current';
   orderLine: StructureEditorLine | null;
   onClose: () => void;
-  onDone: () => void;
+  /**
+   * Set while the wizard is reopened in revision mode (P4/decision-4): a
+   * structure apply on a non-draft order requires a reason, and the server
+   * records it as one `fab_order_structure_revisions` row. Undefined on a
+   * draft order — nothing is recorded while the order is still being set up.
+   */
+  revisionReason?: string;
+  /** A REAL save (Create/Save changes) — worth reloading the line's own row and its built-count. */
+  onDone: (result?: StructureSaveResult) => void;
+  /**
+   * Readiness moved for a reason OTHER than a save — a bulk flow action
+   * (item 6), which already re-fetches its OWN tree state when it needs to
+   * (`pullBomDefaults`) and must not also make the caller remount this whole
+   * editor: that would fire a second `GET .../structure/tree`, which is
+   * exactly the extra round trip decision-6's verification checks for.
+   */
+  onReadinessChanged?: (readiness?: OrderReadiness) => void;
+  /**
+   * Reports whenever this editor's own dirty state changes, so a container
+   * that can open several of these at once (`OrderLinesPanel`) can refuse to
+   * collapse or replace one that has unsaved edits — see X4.
+   */
+  onDirtyChange?: (dirty: boolean) => void;
 }) {
-  const [tree, setTree] = useState<DraftNode | null>(null);
+  const flat = chrome === 'flat';
+  const { toast } = useToast();
+  const t = useTree<DraftNodeData>(null);
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [existing, setExisting] = useState<number | null>(null);
-  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  /** A 400 `QTY_REQUIRED` refusal — the rows it named, and the first one's key to focus. */
+  const [qtyRequired, setQtyRequired] = useState<{ rows: QtyRequiredRow[]; focusKey: string | null } | null>(null);
   const [addUnder, setAddUnder] = useState<string | null>(null);
   const [showDrawings, setShowDrawings] = useState<string | null>(null);
 
@@ -171,6 +278,29 @@ export default function StructureEditor({
     subgroups: { id: number; name: string; groupId: number }[];
   }>({ groups: [], subgroups: [] });
 
+  /** Rows about to be removed by Save — surfaced BEFORE the write happens (item 3). */
+  const removedItemIds = useMemo(() => {
+    if (!t.baseline || !t.tree) return [] as number[];
+    const collect = (n: DraftNode, out: Set<number>) => {
+      if (n.itemId != null) out.add(n.itemId);
+      n.children.forEach((c) => collect(c, out));
+    };
+    const before = new Set<number>(); collect(t.baseline, before);
+    const after = new Set<number>(); collect(t.tree, after);
+    return [...before].filter((id) => !after.has(id));
+  }, [t.baseline, t.tree]);
+  const [confirmRemove, setConfirmRemove] = useState(false);
+
+  useEffect(() => { onDirtyChange?.(t.dirty); }, [t.dirty, onDirtyChange]);
+
+  // Focus the first unanswered row's qty box once the refusal alert renders it.
+  useEffect(() => {
+    if (!qtyRequired?.focusKey) return;
+    const el = document.getElementById(`qty-input-${qtyRequired.focusKey}`);
+    (el as HTMLInputElement | null)?.focus();
+    el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, [qtyRequired]);
+
   /**
    * TWO SOURCES, AND THEY ARE DIFFERENT QUESTIONS.
    *
@@ -181,18 +311,24 @@ export default function StructureEditor({
    * offering only the first meant the only way to alter one row was to throw
    * away all of them and take the recipe again.
    */
-  useEffect(() => {
-    if (!open) { setTree(null); return; }
+  const loadTree = useCallback(() => {
     setLoading(true); setError(''); setExisting(null);
     const read = source === 'current'
       ? getCurrentTree(orderId, orderLine?.id ?? null).then((r) => r.tree)
       : (orderLine?.itemId == null
         ? Promise.resolve(null)
         : getDraftTree(Number(orderLine.itemId)).then((r) => r.tree));
-    read
-      .then(setTree)
+    return read
+      .then((tree) => t.set(tree))
       .catch((e) => setError(backendMessage(e, 'Could not read that structure.')))
       .finally(() => setLoading(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [source, orderId, orderLine?.id, orderLine?.itemId]);
+
+  useEffect(() => {
+    if (!open) { t.set(null); return; }
+    void loadTree();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, source, orderId, orderLine?.id, orderLine?.itemId]);
 
   /*
@@ -218,32 +354,12 @@ export default function StructureEditor({
     ]).then(([g, sg]) => setTaxonomy({ groups: g.data ?? [], subgroups: sg.data ?? [] })).catch(() => {});
   }, [open]);
 
-
   /** Buckets first, then name — Autocomplete groups on the order it is given. */
   const options = useMemo(
     () => [...catalog].sort((a, b) => bucketOf(a) - bucketOf(b) || a.name.localeCompare(b.name)),
     [catalog],
   );
 
-  /**
-   * A CLEARED QUANTITY IS null, NOT ZERO.
-   *
-   * It used to become 0, and the writers turned 0 into 1 — so emptying the box
-   * on "16 splices" silently built one. A blank has to survive as a blank all
-   * the way to the server, which refuses it, because 1 reads as a decision in a
-   * way that an empty box never does.
-   */
-  const setQty = useCallback((key: string, raw: string) => {
-    setTree((t) => (t ? mapNode(t, key, (n) => ({ ...n, qty: raw === '' ? null : Number(raw) })) : t));
-  }, []);
-
-  /**
-   * A size, on the row it belongs to.
-   *
-   * Kept as the STRING that was typed rather than a number, so a half-entered
-   * "12." survives the next keystroke and a cleared box stays cleared instead of
-   * springing back to 0. It is parsed once, on save.
-   */
   /** The flow on one row. Null is a real answer, not a missing one. */
   const [flows, setFlows] = useState<{ id: number; name: string }[]>([]);
   useEffect(() => {
@@ -255,63 +371,56 @@ export default function StructureEditor({
   }, []);
 
   /**
-   * WHAT IS BEING DRAGGED, and what it is currently over.
+   * A CLEARED QUANTITY IS null, NOT ZERO.
    *
-   * `overKey` is held so the drop target can show a line where the row would
-   * land. Without it a drag is a guess: you let go and find out.
+   * It used to become 0, and the writers turned 0 into 1 — so emptying the box
+   * on "16 splices" silently built one. A blank has to survive as a blank all
+   * the way to the server, which refuses it, because 1 reads as a decision in a
+   * way that an empty box never does.
    */
-  const [dragKey, setDragKey] = useState<string | null>(null);
-  const [overKey, setOverKey] = useState<string | null>(null);
+  const setQty = useCallback((key: string, raw: string) => {
+    t.update(key, { qty: raw === '' ? null : Number(raw) });
+    // Typing an answer into the row a refusal named clears that refusal's
+    // highlight — it does not clear the OTHER rows still listed above, which
+    // stay named until the next Save either fixes or re-refuses them.
+    setQtyRequired((qr) => (qr && qr.focusKey === key ? { ...qr, focusKey: null } : qr));
+  }, [t]);
 
-  const dropOn = useCallback((targetKey: string) => {
-    setTree((t) => (t && dragKey && dragKey !== targetKey
-      ? moveWithinSiblings(t, dragKey, targetKey)
-      : t));
-    setDragKey(null);
-    setOverKey(null);
-  }, [dragKey]);
-
+  /**
+   * THE ROOT'S QTY IS THE LINE'S QTY and it is edited on the line's own row,
+   * which the line card draws directly above these rows — not here.
+   */
   const setFlow = useCallback((key: string, flowId: number | null) => {
-    setTree((t) => (t ? mapNode(t, key, (n) => ({ ...n, defaultFlowId: flowId })) : t));
-  }, []);
+    t.update(key, { defaultFlowId: flowId });
+  }, [t]);
 
   const setDim = useCallback((key: string, field: string, raw: string) => {
-    setTree((t) => (t ? mapNode(t, key, (n) => ({
-      ...n, dims: { ...(n.dims ?? {}), [field]: raw },
-    })) : t));
-  }, []);
+    t.update(key, (n) => ({ ...n, dims: { ...(n.dims ?? {}), [field]: raw } }));
+  }, [t]);
 
-  const remove = useCallback((key: string) => {
-    setTree((t) => (t ? dropNode(t, key) : t));
-  }, []);
-
-  const copy = useCallback((key: string) => {
-    setTree((t) => (t ? duplicateNode(t, key) : t));
-  }, []);
+  const remove = useCallback((key: string) => t.remove(key), [t]);
+  const copy = useCallback((key: string) => t.duplicate(key), [t]);
 
   const addChild = useCallback((parentKey: string, picked: CatalogOption) => {
-    setTree((t) => (t ? mapNode(t, parentKey, (n) => ({
-      ...n,
-      children: [...n.children, {
-        key: localKey(),
-        catalogItemId: picked.id,
-        name: picked.name,
-        unit: null,
-        qty: 1,
-        // The BOM's own abbreviation for this rung. A hand-added row has none,
-        // and nothing here needs one: the BOM step writes no codes at all.
-        // These ride along for the code pass at production-order time.
-        codeSegment: null,
-        codeJoin: 'dash',
-        defaultFlowId: null,
-        bomLineId: null,
-        qtyParam: null,
-        dims: {},
-        children: [],
-      }],
-    })) : t));
+    t.insert(parentKey, {
+      key: newTreeKey(),
+      catalogItemId: picked.id,
+      name: picked.name,
+      unit: null,
+      qty: 1,
+      // The BOM's own abbreviation for this rung. A hand-added row has none,
+      // and nothing here needs one: the BOM step writes no codes at all.
+      // These ride along for the code pass at production-order time.
+      codeSegment: null,
+      codeJoin: 'dash',
+      defaultFlowId: null,
+      bomLineId: null,
+      qtyParam: null,
+      dims: {},
+      children: [],
+    });
     setAddUnder(null);
-  }, []);
+  }, [t]);
 
   /**
    * A PART NOBODY CATALOGUED YET, created without leaving the order.
@@ -346,296 +455,432 @@ export default function StructureEditor({
     } finally { setCreating(false); }
   }, [newItem, taxonomy.groups, loadCatalog, addChild]);
 
-  async function create(replace = false) {
-    if (!tree) return;
-    setBusy(true); setError(''); setExisting(null);
+  // ── save ─────────────────────────────────────────────────────────────────
+
+  const doCreate = useCallback(async (replace = false) => {
+    if (!t.tree) return;
+    setBusy(true); setError(''); setExisting(null); setQtyRequired(null);
     try {
       if (source === 'current') {
         // A DIFF: rows that survived keep their ids, and with them the
         // dimensions typed on them and the plate they were nested onto.
-        await applyStructure(orderId, { tree, orderLineId: orderLine?.id ?? null });
+        const res = await applyStructure(orderId, {
+          tree: t.tree, orderLineId: orderLine?.id ?? null, revisionReason,
+        });
+        toast(`${res.created} created, ${res.updated} updated, ${res.removed} removed`);
+        t.set(t.tree); // Save is the new baseline — dirty clears without a reload.
+        onDone({ created: res.created, updated: res.updated, removed: res.removed, sized: res.sized, readiness: res.readiness });
       } else {
-        await buildStructure(orderId, {
-          tree,
+        const res = await buildStructure(orderId, {
+          tree: t.tree,
           orderLineId: orderLine?.id ?? null,
           ...(replace ? { replace: true } : {}),
         });
+        toast(`${res.created} row(s) created`);
+        onDone({ created: res.created, updated: 0, removed: 0, readiness: res.readiness });
       }
-      onDone();
       onClose();
     } catch (e) {
-      const res = (e as { response?: { status?: number; data?: { code?: string; existing?: number } } }).response;
-      if (res?.status === 409 && res.data?.code === 'ALREADY_BUILT') setExisting(res.data.existing ?? 0);
-      // Stay open on any other failure. The edits took effort and losing them
-      // is the fastest way to make somebody stop using this.
-      else setError(backendMessage(e, 'Could not create that structure.'));
+      const res = (e as {
+        response?: { status?: number; data?: { code?: string; existing?: number; detail?: { unanswered?: QtyRequiredRow[] } } };
+      }).response;
+      if (res?.status === 409 && res.data?.code === 'ALREADY_BUILT') {
+        setExisting(res.data.existing ?? 0);
+      } else if (res?.data?.code === 'QTY_REQUIRED' && res.data.detail) {
+        // A row with no quantity — named specifically, not the generic
+        // message, and the first one is focused so fixing it does not start
+        // with a search.
+        const rows = res.data.detail.unanswered ?? [];
+        const focusKey = t.tree && rows[0] ? findUnansweredKey(t.tree, rows[0]) : null;
+        setQtyRequired({ rows, focusKey });
+      } else {
+        // Stay open on any other failure. The edits took effort and losing them
+        // is the fastest way to make somebody stop using this.
+        setError(backendMessage(e, 'Could not create that structure.'));
+      }
     } finally { setBusy(false); }
+  }, [t, source, orderId, orderLine?.id, revisionReason, onDone, onClose, toast]);
+
+  /**
+   * Save, but ask first when the diff would remove rows (item 3). The backend
+   * still refuses outright — with no override — removing a row that has
+   * STARTED work; this is about the ordinary case of a row with unstarted
+   * tasks, which the server drops silently once told to remove the row.
+   */
+  const create = useCallback((replace = false) => {
+    if (source === 'current' && !replace && removedItemIds.length > 0) {
+      setConfirmRemove(true);
+      return;
+    }
+    void doCreate(replace);
+  }, [source, removedItemIds.length, doCreate]);
+
+  const rows = useMemo(() => (t.tree ? countRows(t.tree) : 0), [t.tree]);
+  const pieces = useMemo(() => (t.tree ? countPieces(t.tree) : 0), [t.tree]);
+  const missing = useMemo(() => (t.tree ? unanswered(t.tree) : []), [t.tree]);
+
+  // ── multi-select + bulk flow actions (X3 / item 6) ─────────────────────
+
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [lastClicked, setLastClicked] = useState<string | null>(null);
+  const visibleOrder = useMemo(() => {
+    const out: string[] = [];
+    const walk = (n: DraftNode) => { out.push(n.key); n.children.forEach(walk); };
+    t.tree?.children.forEach(walk);
+    return out;
+  }, [t.tree]);
+
+  const toggleSelect = useCallback((key: string, shift: boolean) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (shift && lastClicked) {
+        const a = visibleOrder.indexOf(lastClicked);
+        const b = visibleOrder.indexOf(key);
+        if (a >= 0 && b >= 0) {
+          const [lo, hi] = a < b ? [a, b] : [b, a];
+          for (let i = lo; i <= hi; i += 1) next.add(visibleOrder[i]);
+          return next;
+        }
+      }
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+    setLastClicked(key);
+  }, [lastClicked, visibleOrder]);
+
+  const [bulkFlow, setBulkFlow] = useState<'' | number>('');
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [syncBusy, setSyncBusy] = useState(false);
+  const [confirmPull, setConfirmPull] = useState(false);
+
+  /**
+   * Set a flow on a set of keys. Only keys that are REAL rows (`itemId` set)
+   * go to the server — a row somebody just added in this session does not
+   * exist there yet, so its flow is simply written into the tree the way the
+   * single-row selector always has been, and travels to the server on Save.
+   */
+  const applyFlowToKeys = useCallback(async (keys: string[], flowId: number | null) => {
+    const treeAtStart = t.tree;
+    if (!treeAtStart) return;
+    const nodesByKey = new Map<string, DraftNode>();
+    const walk = (n: DraftNode) => { nodesByKey.set(n.key, n); n.children.forEach(walk); };
+    treeAtStart.children.forEach(walk);
+    const withItemId = keys.map((k) => nodesByKey.get(k)).filter((n): n is DraftNode => !!n && n.itemId != null);
+    const withoutItemId = keys.filter((k) => nodesByKey.get(k)?.itemId == null);
+
+    // Unsaved rows: the tree IS the record — just set it locally.
+    withoutItemId.forEach((k) => setFlow(k, flowId));
+
+    if (!withItemId.length) return;
+    setBulkBusy(true);
+    try {
+      const res = await setOrderFlows(orderId, withItemId.map((n) => n.itemId as number), flowId);
+      if (withoutItemId.length) {
+        // A mix of persisted and local-only rows: keep using the per-key
+        // updater so the local-only rows' edits still show as dirty (they
+        // have not been saved anywhere).
+        withItemId.forEach((n) => setFlow(n.key, flowId));
+      } else {
+        // Every affected row is now persisted server-side. Patching via
+        // `setFlow`/`t.update` here would leave `t.dirty` true forever
+        // (tree !== baseline) — `t.update` only touches `tree`, not
+        // `baseline` — wrongly blocking wizard Next and showing "unsaved
+        // edits" after a save that already happened. Build the patched tree
+        // directly and hand it to `t.set`, the same "save is the new
+        // baseline" convention doCreate uses (~line 351), instead of relying
+        // on `t.tree` right after scheduling async `setFlow` updates — those
+        // updates would not have landed yet, so `t.tree` here would still be
+        // the PRE-patch tree.
+        const idSet = new Set(withItemId.map((n) => n.key));
+        const patch = (n: DraftNode): DraftNode => ({
+          ...n,
+          defaultFlowId: idSet.has(n.key) ? flowId : n.defaultFlowId,
+          children: n.children.map(patch),
+        });
+        t.set({ ...treeAtStart, children: treeAtStart.children.map(patch) });
+      }
+      onReadinessChanged?.(res.readiness);
+    } catch (e) {
+      setError(backendMessage(e, 'Could not set that flow.'));
+    } finally { setBulkBusy(false); }
+  }, [t, orderId, setFlow, onReadinessChanged]);
+
+  const setFlowOnAllLeaves = useCallback(() => {
+    if (!t.tree || bulkFlow === '') return;
+    const keys = t.tree.children.flatMap((c) => leaves(c)).map((n) => n.key);
+    void applyFlowToKeys(keys, Number(bulkFlow));
+  }, [t.tree, bulkFlow, applyFlowToKeys]);
+
+  const applyFlowToSelection = useCallback(() => {
+    if (bulkFlow === '' || !selected.size) return;
+    void applyFlowToKeys([...selected], Number(bulkFlow));
+    setSelected(new Set());
+  }, [bulkFlow, selected, applyFlowToKeys]);
+
+  /**
+   * PULL BOM DEFAULTS (§13 "a default flow belongs to the BOM LINE, not the
+   * item"): re-reads each item's BOM-line default flow, touching only items
+   * that still have none. It does not say which flow each item landed on, so
+   * — unlike the bulk-set actions above — this re-reads the tree afterward.
+   * Guarded behind a confirm when there are unsaved edits, since the reload
+   * replaces them with the server's current state.
+   */
+  const pullBomDefaults = useCallback(async () => {
+    setSyncBusy(true); setError('');
+    try {
+      const res = await syncOrderFlows(orderId, false);
+      await loadTree();
+      onReadinessChanged?.(res.readiness);
+      toast(`${res.assigned} item(s) picked up their BOM line's flow`);
+    } catch (e) {
+      setError(backendMessage(e, 'Could not pull the BOM defaults.'));
+    } finally { setSyncBusy(false); }
+  }, [orderId, loadTree, onReadinessChanged, toast]);
+
+  const clickPullDefaults = useCallback(() => {
+    if (t.dirty) { setConfirmPull(true); return; }
+    void pullBomDefaults();
+  }, [t.dirty, pullBomDefaults]);
+
+  // ── keyboard shortcuts: Ctrl+Z / Ctrl+Shift+Z (item 4) ──────────────────
+  const onKeyDownShortcuts = useCallback((e: React.KeyboardEvent) => {
+    if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== 'z') return;
+    e.preventDefault();
+    if (e.shiftKey) t.redo(); else t.undo();
+  }, [t]);
+
+  // ── one row ──────────────────────────────────────────────────────────────
+
+  interface Ctx {
+    flows: { id: number; name: string }[];
+    selected: Set<string>;
+    addUnder: string | null;
+    showDrawings: string | null;
+    catalogLoading: boolean;
+    options: CatalogOption[];
+    /** The row a `QTY_REQUIRED` refusal is naming — highlighted, not just focused. */
+    qtyRequiredKey: string | null;
   }
+  const ctx: Ctx = {
+    flows, selected, addUnder, showDrawings, catalogLoading, options,
+    qtyRequiredKey: qtyRequired?.focusKey ?? null,
+  };
 
-  const rows = useMemo(() => (tree ? countRows(tree) : 0), [tree]);
-  const pieces = useMemo(() => (tree ? countPieces(tree) : 0), [tree]);
-  const missing = useMemo(() => (tree ? unanswered(tree) : []), [tree]);
-
-  const renderNode = (node: DraftNode, depth: number) => {
-    const isCollapsed = !!collapsed[node.key];
+  const renderRow = useCallback(({ node, ctx: rowCtx }: RowMeta<DraftNodeData, Ctx>) => {
     const hasKids = node.children.length > 0;
+    const qtyRefused = rowCtx.qtyRequiredKey === node.key;
     return (
-      <Box key={node.key}>
-        <Box
-          draggable={depth > 0}
-          onDragStart={(e) => { setDragKey(node.key); e.dataTransfer.effectAllowed = 'move'; }}
-          onDragEnd={() => { setDragKey(null); setOverKey(null); }}
-          onDragOver={(e) => {
-            // Only a sibling can land here, so only a sibling gets a drop cue.
-            if (!dragKey || dragKey === node.key) return;
-            e.preventDefault();
-            e.dataTransfer.dropEffect = 'move';
-            if (overKey !== node.key) setOverKey(node.key);
-          }}
-          onDragLeave={() => setOverKey((k) => (k === node.key ? null : k))}
-          onDrop={(e) => { e.preventDefault(); dropOn(node.key); }}
-          sx={{
-            display: 'flex', alignItems: 'center', gap: 1,
-            pl: `${depth * 20}px`, py: 0.4,
-            borderBottom: '1px solid var(--c-divider)',
-            '&:hover .rowActions': { opacity: 1 },
-            '&:hover .dragHandle': { opacity: depth > 0 ? 0.55 : 0 },
-            cursor: depth > 0 && dragKey === node.key ? 'grabbing' : undefined,
-            opacity: dragKey === node.key ? 0.4 : 1,
-            // Where it would land, shown before you let go.
-            boxShadow: overKey === node.key && dragKey && dragKey !== node.key
-              ? 'inset 0 2px 0 0 var(--c-primary-500)' : undefined,
-          }}
-        >
-          {/*
-            The handle is a grip, not a button. The whole row is draggable — the
-            handle exists so it is DISCOVERABLE, since nothing else on the row
-            says it can be moved.
-          */}
-          <Box
-            className="dragHandle"
-            aria-hidden
-            sx={{
-              width: 10, flexShrink: 0, opacity: 0, transition: 'opacity .12s',
-              cursor: depth > 0 ? 'grab' : 'default', color: 'var(--c-text-3)',
-              fontSize: 13, lineHeight: 1, userSelect: 'none',
-            }}
-          >
-            {depth > 0 ? '⣿' : ''}
+      <>
+        {/*
+          EVERY ROW HERE IS BELOW THE LINE. `roots` is the line's children, so
+          depth 0 is a girder, not the line itself — it gets a checkbox, a qty
+          and copy/remove like any other row. (The line's own row, pinned at
+          qty 1, is drawn by the line card above this table.)
+        */}
+        <Checkbox
+          size="small"
+          checked={selected.has(node.key)}
+          onClick={(e) => { e.stopPropagation(); toggleSelect(node.key, e.shiftKey); }}
+          onChange={() => {}}
+          sx={{ p: 0.25 }}
+          inputProps={{ 'aria-label': `Select ${node.name}` }}
+        />
+
+        <Typography sx={{ fontSize: 13, flex: 1, minWidth: 0 }}>{node.name}</Typography>
+
+        {/* The row a server-side QTY_REQUIRED refusal named is outlined, not
+            just focused — a scrolled-past focus ring is easy to miss. */}
+        <InlineNumber
+          id={`qty-input-${node.key}`}
+          value={node.qty}
+          placeholder={node.qtyParam ?? 'how many'}
+          onChange={(raw) => setQty(node.key, raw)}
+          width={76}
+          ariaLabel={`Quantity for ${node.name}`}
+          missing={node.qty == null}
+          refused={qtyRefused}
+        />
+
+        {/*
+          THE SIZE, ON THE LEAF ONLY.
+
+          An assembly has no rectangle — a Segment's weight and area are its
+          parts summed, not a shape of its own — so three empty boxes beside it
+          would be three questions with no answer, and somebody would
+          eventually fill them in.
+        */}
+        {hasKids ? (
+          <Box sx={{ width: 234, flexShrink: 0 }} />
+        ) : node.procurementType === 'buy' || node.procurementType === 'free_issue' ? (
+          // BOUGHT IN, NOT CUT: a stud or a bolt has a catalogue size and no
+          // rectangle to nest — three size boxes here would be three questions
+          // with no answer, and somebody would eventually fill them in.
+          <Box sx={{ width: 234, flexShrink: 0, display: 'flex', alignItems: 'center' }}>
+            <Typography sx={{ fontSize: 11, color: 'var(--c-text-3)', fontStyle: 'italic' }}>
+              {node.procurementType === 'free_issue' ? 'supplied by customer — no size to cut' : 'bought in — no size to cut'}
+            </Typography>
           </Box>
-          <IconButton
-            size="small"
-            sx={{ p: 0.25, visibility: hasKids ? 'visible' : 'hidden' }}
-            onClick={() => setCollapsed((c) => ({ ...c, [node.key]: !c[node.key] }))}
-            aria-label={isCollapsed ? 'Expand' : 'Collapse'}
-          >
-            {isCollapsed ? <ChevronRightRounded fontSize="small" /> : <ExpandMoreRounded fontSize="small" />}
-          </IconButton>
-
-          {/*
-            The BOM's own parameter name for this quantity — `segmentsPerLine` —
-            used to sit here. It is the name of a variable, and the number it
-            drives is now in the box to the right where anyone can change it, so
-            it was jargon standing next to its own answer.
-          */}
-          <Typography sx={{ fontSize: 13, flex: 1, minWidth: 0 }}>{node.name}</Typography>
-
-          {/* The root is the line itself and there is exactly one of it. */}
-          {depth > 0 && (
-            <TextField
-              size="small" type="number"
-              value={node.qty ?? ''}
-              onChange={(e) => setQty(node.key, e.target.value)}
-              placeholder={node.qtyParam ?? 'how many'}
-              error={node.qty == null}
-              sx={{ width: 76 }}
-              inputProps={{ min: 0, step: 1, style: { fontSize: 12, textAlign: 'right' } }}
-            />
-          )}
-
-          {/*
-            THE SIZE, ON THE LEAF ONLY.
-
-            An assembly has no rectangle — a Segment's weight and area are its
-            parts summed, not a shape of its own — so three empty boxes beside it
-            would be three questions with no answer, and somebody would
-            eventually fill them in.
-
-            Here rather than only on the Dimensions step because this is where a
-            person is looking at the part. The grid is still better for typing
-            three hundred in a row; this is better for the one in front of you.
-            They are the same values either way.
-          */}
-          {hasKids ? (
-            <Box sx={{ width: 234, flexShrink: 0 }} />
-          ) : (
-            <Box sx={{ display: 'flex', gap: 0.5, flexShrink: 0 }}>
-              {(['thickness_mm', 'width_mm', 'length_mm'] as const).map((f) => (
-                <TextField
-                  key={f}
-                  size="small" type="number"
-                  placeholder={f === 'thickness_mm' ? 'thk' : f === 'width_mm' ? 'wid' : 'len'}
-                  value={node.dims?.[f] ?? ''}
-                  onChange={(e) => setDim(node.key, f, e.target.value)}
-                  sx={{ width: 74 }}
-                  inputProps={{ min: 0, style: { fontSize: 11.5, textAlign: 'right' } }}
-                />
-              ))}
-            </Box>
-          )}
-
-          {/*
-            HOW IT IS MADE, on the row.
-
-            This had a step of its own — a per-depth summary you could not edit
-            and a list of rows whose flow was missing, one screen after the
-            screen where you could actually say so. The BOM line is where the
-            answer comes from, so the BOM row is where it belongs.
-
-            NOT leaf-only: an assembly is welded and carries a flow like anything
-            else. Blank is a real answer for a level that only groups its
-            children — a Span is not made, it is what the made things add up to.
-          */}
-          <TextField
-            select size="small"
-            value={node.defaultFlowId ?? ''}
-            onChange={(e) => setFlow(node.key, e.target.value === '' ? null : Number(e.target.value))}
-            sx={{ width: 150, flexShrink: 0 }}
-            SelectProps={{ displayEmpty: true }}
-            inputProps={{ style: { fontSize: 11.5 } }}
-          >
-            <MenuItem value=""><em>No flow</em></MenuItem>
-            {flows.map((f) => (
-              <MenuItem key={f.id} value={f.id} sx={{ fontSize: 12.5 }}>{f.name}</MenuItem>
+        ) : (
+          <Box sx={{ display: 'flex', gap: 0.5, flexShrink: 0, width: 234 }}>
+            {(['thickness_mm', 'width_mm', 'length_mm'] as const).map((f) => (
+              <InlineNumber
+                key={f}
+                value={node.dims?.[f]}
+                placeholder={f === 'thickness_mm' ? 'thk' : f === 'width_mm' ? 'wid' : 'len'}
+                onChange={(raw) => setDim(node.key, f, raw)}
+                width={74}
+                ariaLabel={`${f === 'thickness_mm' ? 'Thickness' : f === 'width_mm' ? 'Width' : 'Length'} (mm) for ${node.name}`}
+              />
             ))}
-          </TextField>
+          </Box>
+        )}
 
-          {/* A fixed slot, so the quantity column does not shift as rows differ. */}
-          <Box className="rowActions" sx={{
-            display: 'flex', width: 76, flexShrink: 0, justifyContent: 'flex-end',
-            opacity: 0, transition: 'opacity .12s',
-          }}>
-            {/*
-              DRAWINGS, but only on a row that EXISTS.
-              A drawing is a file attached to an item id; a row somebody just
-              added has none until Save, so offering it there would be a button
-              that could only fail. Attached to a girder it is inherited by every
-              part beneath it, which is why the general arrangement is not
-              attached two hundred times.
-            */}
-            {node.itemId != null && (
-              <Tooltip title="Drawings">
-                <IconButton
-                  size="small" sx={{ p: 0.25 }}
-                  onClick={() => setShowDrawings((d) => (d === node.key ? null : node.key))}
-                >
-                  <DescriptionRounded sx={{ fontSize: 16 }} />
-                </IconButton>
-              </Tooltip>
-            )}
-            <Tooltip title="Add something under this">
-              <IconButton size="small" sx={{ p: 0.25 }} onClick={() => setAddUnder(node.key)}>
-                <AddRounded sx={{ fontSize: 16 }} />
+        {/*
+          HOW IT IS MADE, on the row. NOT leaf-only: an assembly is welded and
+          carries a flow like anything else. Blank is a real answer for a level
+          that only groups its children — a Span is not made, it is what the
+          made things add up to.
+        */}
+        {/* Quiet until hovered: the flow reads as text with a chevron, and the
+            input chrome appears only when the pointer is on it — the same
+            click-to-edit calm as the numbers beside it. */}
+        <TextField
+          select size="small" variant="standard"
+          value={node.defaultFlowId ?? ''}
+          onChange={(e) => setFlow(node.key, e.target.value === '' ? null : Number(e.target.value))}
+          sx={{
+            width: 150, flexShrink: 0,
+            '& .MuiInputBase-root': {
+              fontSize: 11.5, height: 28, px: 1, borderRadius: 'var(--r-sm)',
+              border: '1px solid transparent', transition: 'border-color var(--t-fast) var(--ease)',
+              color: node.defaultFlowId == null ? 'var(--c-text-3)' : 'var(--c-text)',
+            },
+            '& .MuiInputBase-root:hover, & .MuiInputBase-root.Mui-focused': { borderColor: 'var(--c-border)', background: 'var(--c-surface)' },
+            '& .MuiSelect-select': { py: 0, display: 'flex', alignItems: 'center', minHeight: 'unset !important' },
+          }}
+          slotProps={{ input: { disableUnderline: true } }}
+          SelectProps={{ displayEmpty: true }}
+          inputProps={{ 'aria-label': `Flow for ${node.name}` }}
+        >
+          <MenuItem value=""><em>No flow</em></MenuItem>
+          {flows.map((f) => (
+            <MenuItem key={f.id} value={f.id} sx={{ fontSize: 12.5 }}>{f.name}</MenuItem>
+          ))}
+        </TextField>
+
+        {/* ALWAYS VISIBLE now (U4) — a hover affordance told nobody these existed. */}
+        <Box sx={{ display: 'flex', width: 96, flexShrink: 0, justifyContent: 'flex-end' }}>
+          {node.itemId != null && (
+            <Tooltip title="Drawings">
+              <IconButton
+                size="small" sx={{ p: 0.25 }}
+                onClick={() => setShowDrawings((d) => (d === node.key ? null : node.key))}
+              >
+                <DescriptionRounded sx={{ fontSize: 16 }} />
               </IconButton>
             </Tooltip>
-            {depth > 0 && (
-              <>
-                <Tooltip title="Copy this and everything under it">
-                  <IconButton size="small" sx={{ p: 0.25 }} onClick={() => copy(node.key)}>
-                    <ContentCopyRounded sx={{ fontSize: 15 }} />
-                  </IconButton>
-                </Tooltip>
-                <Tooltip title="Remove this and everything under it">
-                  <IconButton size="small" sx={{ p: 0.25 }} onClick={() => remove(node.key)}>
-                    <DeleteOutlineRounded sx={{ fontSize: 16 }} />
-                  </IconButton>
-                </Tooltip>
-              </>
-            )}
-          </Box>
+          )}
+          <Tooltip title="Add something under this">
+            <IconButton size="small" sx={{ p: 0.25 }} onClick={() => setAddUnder(node.key)}>
+              <AddRounded sx={{ fontSize: 16 }} />
+            </IconButton>
+          </Tooltip>
+          <Tooltip title="Copy this and everything under it">
+            <IconButton size="small" sx={{ p: 0.25 }} onClick={() => copy(node.key)}>
+              <ContentCopyRounded sx={{ fontSize: 15 }} />
+            </IconButton>
+          </Tooltip>
+          <Tooltip title="Remove this and everything under it">
+            <IconButton size="small" sx={{ p: 0.25 }} onClick={() => remove(node.key)}>
+              <DeleteOutlineRounded sx={{ fontSize: 16 }} />
+            </IconButton>
+          </Tooltip>
         </Box>
-
-        {addUnder === node.key && (
-          <Box sx={{ pl: `${(depth + 1) * 20}px`, py: 1, display: 'flex', gap: 1, alignItems: 'center' }}>
-            <Autocomplete
-              options={options}
-              loading={catalogLoading}
-              sx={{ flex: '1 1 380px' }}
-              getOptionLabel={(o) => o.name}
-              isOptionEqualToValue={(a, b) => a.id === b.id}
-              onChange={(_, v) => { if (v) addChild(node.key, v); }}
-              groupBy={(o) => BUCKET[bucketOf(o)]}
-              filterOptions={(opts, { inputValue }) => {
-                const q = inputValue.trim().toLowerCase();
-                // Size and material are searchable too: "32 x 90" and "E350"
-                // are how a person looks for a plate they can picture.
-                const hay = (o: CatalogOption) => [o.name, o.code, o.size?.replace(/ × /g, ' x '),
-                  o.material, o.categoryName, o.groupName, o.subgroupName]
-                  .filter(Boolean).join(' ').toLowerCase();
-                if (!q) return opts.slice(0, 60);
-                const norm = q.replace(/[×*]/g, 'x');
-                return opts.filter((o) => hay(o).includes(norm));
-              }}
-              renderOption={(props, o) => (
-                <li {...props} key={o.id}>
-                  <Box sx={{ minWidth: 0 }}>
-                    <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1, flexWrap: 'wrap' }}>
-                      <Typography sx={{ fontSize: 13 }}>{o.name}</Typography>
-                      {o.size && (
-                        <Typography sx={{ fontSize: 11.5, fontFamily: 'monospace', color: 'var(--c-text-2)' }}>
-                          {o.size}
-                        </Typography>
-                      )}
-                      {o.material && (
-                        <Typography sx={{ fontSize: 11.5, color: 'var(--c-text-2)' }}>{o.material}</Typography>
-                      )}
-                      {o.procurement === 'buy' && (
-                        <Typography sx={{ fontSize: 10.5, color: 'var(--c-warning-600)' }}>bought in</Typography>
-                      )}
-                    </Box>
-                    <Typography sx={{ fontSize: 11, color: 'var(--c-text-3)' }}>
-                      {[
-                        [o.categoryName, o.groupName, o.subgroupName].filter(Boolean).join(' › '),
-                        o.flowName,
-                        o.bomCount || o.orderCount
-                          ? `in ${o.bomCount} BOM${o.bomCount === 1 ? '' : 's'} · ${o.orderCount} order${o.orderCount === 1 ? '' : 's'}`
-                          : 'never used yet',
-                      ].filter(Boolean).join(' · ')}
-                    </Typography>
-                  </Box>
-                </li>
-              )}
-              renderInput={(p) => <TextField {...p} size="small" label={`Add under ${node.name}`} autoFocus />}
-            />
-            <Tooltip title="Reload the item list">
-              <span>
-                <IconButton size="small" disabled={catalogLoading} onClick={() => void loadCatalog()}>
-                  <RefreshRounded sx={{ fontSize: 18 }} />
-                </IconButton>
-              </span>
-            </Tooltip>
-            <Button size="small" startIcon={<AddRounded />} onClick={() => setNewItem({ parentKey: node.key, name: '', groupId: '', subgroupId: '', unit: 'nos', procurement: 'make' })}>
-              New item
-            </Button>
-            <Button size="small" onClick={() => setAddUnder(null)}>Cancel</Button>
-          </Box>
-        )}
-
-        {showDrawings === node.key && node.itemId != null && (
-          <Box sx={{ pl: `${(depth + 1) * 20}px`, pr: 1.5, py: 1 }}>
-            <DrawingsPanel itemId={node.itemId} canManage dense />
-          </Box>
-        )}
-
-        {!isCollapsed && node.children.map((c) => renderNode(c, depth + 1))}
-      </Box>
+      </>
     );
-  };
+  }, [copy, remove, selected, setDim, setFlow, setQty, toggleSelect, flows]);
+
+  const renderBelow = useCallback(({ node, depth }: RowMeta<DraftNodeData, Ctx>) => (
+    <>
+      {addUnder === node.key && (
+        <Box sx={{ pl: `${(depth + 1) * 20}px`, py: 1, display: 'flex', gap: 1, alignItems: 'center' }}>
+          <Autocomplete
+            options={options}
+            loading={catalogLoading}
+            sx={{ flex: '1 1 380px' }}
+            getOptionLabel={(o) => o.name}
+            isOptionEqualToValue={(a, b) => a.id === b.id}
+            onChange={(_, v) => { if (v) addChild(node.key, v); }}
+            groupBy={(o) => BUCKET[bucketOf(o)]}
+            filterOptions={(opts, { inputValue }) => {
+              const q = inputValue.trim().toLowerCase();
+              const hay = (o: CatalogOption) => [o.name, o.code, o.size?.replace(/ × /g, ' x '),
+                o.material, o.categoryName, o.groupName, o.subgroupName]
+                .filter(Boolean).join(' ').toLowerCase();
+              if (!q) return opts.slice(0, 60);
+              const norm = q.replace(/[×*]/g, 'x');
+              return opts.filter((o) => hay(o).includes(norm));
+            }}
+            renderOption={(props, o) => (
+              <li {...props} key={o.id}>
+                <Box sx={{ minWidth: 0 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1, flexWrap: 'wrap' }}>
+                    <Typography sx={{ fontSize: 13 }}>{o.name}</Typography>
+                    {o.size && (
+                      <Typography sx={{ fontSize: 11.5, fontFamily: 'monospace', color: 'var(--c-text-2)' }}>
+                        {o.size}
+                      </Typography>
+                    )}
+                    {o.material && (
+                      <Typography sx={{ fontSize: 11.5, color: 'var(--c-text-2)' }}>{o.material}</Typography>
+                    )}
+                    {o.procurement === 'buy' && (
+                      <Typography sx={{ fontSize: 10.5, color: 'var(--c-warning-600)' }}>bought in</Typography>
+                    )}
+                  </Box>
+                  <Typography sx={{ fontSize: 11, color: 'var(--c-text-3)' }}>
+                    {[
+                      [o.categoryName, o.groupName, o.subgroupName].filter(Boolean).join(' › '),
+                      o.flowName,
+                      o.bomCount || o.orderCount
+                        ? `in ${o.bomCount} BOM${o.bomCount === 1 ? '' : 's'} · ${o.orderCount} order${o.orderCount === 1 ? '' : 's'}`
+                        : 'never used yet',
+                    ].filter(Boolean).join(' · ')}
+                  </Typography>
+                </Box>
+              </li>
+            )}
+            renderInput={(p) => <TextField {...p} size="small" label={`Add under ${node.name}`} autoFocus />}
+          />
+          <Tooltip title="Reload the item list">
+            <span>
+              <IconButton size="small" disabled={catalogLoading} onClick={() => void loadCatalog()}>
+                <RefreshRounded sx={{ fontSize: 18 }} />
+              </IconButton>
+            </span>
+          </Tooltip>
+          <Button size="small" startIcon={<AddRounded />} onClick={() => setNewItem({ parentKey: node.key, name: '', groupId: '', subgroupId: '', unit: 'nos', procurement: 'make' })}>
+            New item
+          </Button>
+          <Button size="small" onClick={() => setAddUnder(null)}>Cancel</Button>
+        </Box>
+      )}
+
+      {showDrawings === node.key && node.itemId != null && (
+        <Box sx={{ pl: `${(depth + 1) * 20}px`, pr: 1.5, py: 1 }}>
+          <DrawingsPanel itemId={node.itemId} canManage dense />
+        </Box>
+      )}
+    </>
+  ), [addUnder, showDrawings, options, catalogLoading, addChild, loadCatalog]);
 
   const noItem = orderLine?.itemId == null;
 
   const body = (
-    <>
+    // A column flex so 'flat' can put the toolbar UNDER the rows (order 2)
+    // without moving JSX: in the card the toolbar sits above the table; in the
+    // line card the rows must follow the line's own row immediately.
+    <Box onKeyDown={onKeyDownShortcuts} sx={{ display: 'flex', flexDirection: 'column' }}>
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
 
       {existing != null && (
@@ -659,6 +904,39 @@ export default function StructureEditor({
         </Box>
       )}
 
+      {!loading && !t.tree && !noItem && (
+        <Alert severity="info" sx={{ mb: 2 }}>
+          {source === 'current'
+            ? 'Nothing is built on this line yet. Use "Rebuild from the bill of materials" to take the catalogue’s recipe.'
+            : 'This item’s recipe is empty — add lines to its bill of materials first (Item Catalog › this item › BOM).'}
+        </Alert>
+      )}
+
+      {/*
+        THE SERVER REFUSED, NAMED. `missing` below is this editor's own guess,
+        computed from the tree in front of you; this is what `requireAllQty`
+        (bomService.js) actually found when Save was attempted — the two
+        usually agree, but this one is authoritative, so it gets the harder
+        colour and lists every row by its full path rather than just a name.
+      */}
+      {qtyRequired && qtyRequired.rows.length > 0 && (
+        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setQtyRequired(null)}>
+          <Typography sx={{ fontSize: 13, fontWeight: 600, mb: 0.5 }}>
+            {qtyRequired.rows.length === 1
+              ? 'This row has no quantity:'
+              : `${qtyRequired.rows.length} rows have no quantity:`}
+          </Typography>
+          <Box component="ul" sx={{ m: 0, pl: 2.5 }}>
+            {qtyRequired.rows.slice(0, 20).map((r, i) => (
+              <li key={r.itemId ?? `${r.path}-${i}`}>
+                <span style={{ fontFamily: 'monospace', fontSize: 12 }}>{r.path || r.name}</span>
+              </li>
+            ))}
+            {qtyRequired.rows.length > 20 && <li>and {qtyRequired.rows.length - 20} more…</li>}
+          </Box>
+        </Alert>
+      )}
+
       {missing.length > 0 && !loading && (
         <Alert severity="info" sx={{ mb: 2 }}>
           {missing.length === 1
@@ -669,52 +947,113 @@ export default function StructureEditor({
         </Alert>
       )}
 
-      {tree && !loading && (
+      {t.tree && !loading && (
         <>
-          {/* The only thing on this screen that scrolls. */}
-          <Surface
-            e={1}
-            sx={{ p: 0, overflowY: 'auto', flex: 1, minHeight: 0, maxHeight: variant === 'inline' ? '58vh' : undefined, mb: 2 }}
+          {/* Undo/redo + bulk flow toolbar (X3 / X4). */}
+          <Box sx={{
+            display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap',
+            ...(flat
+              ? { order: 2, px: 1.5, py: 0.75, borderTop: '1px solid var(--c-divider)', bgcolor: 'var(--c-surface-2)' }
+              : { mb: 1 }),
+          }}>
+            <Tooltip title="Undo (Ctrl+Z)">
+              <span>
+                <IconButton size="small" disabled={!t.canUndo} onClick={() => t.undo()} aria-label="Undo">
+                  <UndoRounded fontSize="small" />
+                </IconButton>
+              </span>
+            </Tooltip>
+            <Tooltip title="Redo (Ctrl+Shift+Z)">
+              <span>
+                <IconButton size="small" disabled={!t.canRedo} onClick={() => t.redo()} aria-label="Redo">
+                  <RedoRounded fontSize="small" />
+                </IconButton>
+              </span>
+            </Tooltip>
+
+            <Box sx={{ width: '1px', alignSelf: 'stretch', bgcolor: 'var(--c-divider)', mx: 0.5 }} />
+
+            <TextField
+              select size="small" value={bulkFlow}
+              onChange={(e) => setBulkFlow(e.target.value === '' ? '' : Number(e.target.value))}
+              sx={{ width: 160 }}
+              SelectProps={{ displayEmpty: true }}
+              inputProps={{ 'aria-label': 'Flow to apply' }}
+            >
+              <MenuItem value=""><em>Choose a flow…</em></MenuItem>
+              {flows.map((f) => <MenuItem key={f.id} value={f.id}>{f.name}</MenuItem>)}
+            </TextField>
+            <Button size="small" disabled={bulkFlow === '' || bulkBusy} onClick={setFlowOnAllLeaves}>
+              Set flow on all leaves
+            </Button>
+            <Button
+              size="small" disabled={bulkFlow === '' || !selected.size || bulkBusy}
+              onClick={applyFlowToSelection}
+            >
+              Apply to {selected.size || ''} selected
+            </Button>
+            {source === 'current' && (
+              <Tooltip title="A default flow belongs to the BOM LINE, not the item — this re-pulls each part's line default, touching only parts that still have none.">
+                <span>
+                  <Button
+                    size="small" startIcon={syncBusy ? <CircularProgress size={12} /> : <SyncRounded fontSize="small" />}
+                    disabled={syncBusy} onClick={clickPullDefaults}
+                  >
+                    Pull BOM defaults
+                  </Button>
+                </span>
+              </Tooltip>
+            )}
+          </Box>
+
+          {/*
+            THE ROOT ITSELF IS NOT DRAWN AS A TREE ROW — it is the line, and the
+            line card draws that row (with the line's qty) directly above these.
+            `roots` is the root's CHILDREN, which is how `TreeEditor` learns not
+            to draw it. In 'card' chrome the header is ours; in 'flat' chrome the
+            container renders `StructureColumnHeader` above the line's row.
+          */}
+          <Box sx={flat
+            ? { order: 1 }
+            : { border: '1px solid var(--c-border)', borderRadius: 'var(--r-sm)', overflow: 'hidden', mb: 2 }}
           >
-            {/*
-              THE ROOT IS NOT DRAWN.
-
-              It is the line, and the line is already the card this sits in — so
-              drawing it here said "Span" a third time, under a heading that had
-              just said "Span — bill of materials", inside a card headed "Span".
-
-              Its children start at depth 0 instead. Everything the root itself
-              carries — the quantity, the flow — belongs to the line and is
-              edited on the line's own row, which is where somebody looking for
-              it would go first.
-            */}
-            {tree.children.map((c) => renderNode(c, 0))}
-          </Surface>
-          <Box sx={{ display: 'flex', gap: 3 }}>
+            {!flat && <StructureColumnHeader />}
+            <TreeEditor<DraftNodeData, Ctx>
+              roots={t.tree.children}
+              renderRow={renderRow}
+              renderBelow={renderBelow}
+              ctx={ctx}
+              onMove={(dragKey, overKey) => t.move(dragKey, overKey)}
+              onIndent={(key) => t.indent(key)}
+              onOutdent={(key) => t.outdent(key)}
+            />
+          </Box>
+          <Box sx={{ display: 'flex', gap: 3, ...(flat ? { order: 3, px: 1.5, py: 1 } : {}) }}>
             <Box>
               <Typography sx={{ fontSize: 11, color: 'var(--c-text-3)', textTransform: 'uppercase', letterSpacing: '.06em' }}>Rows</Typography>
-              <Typography sx={{ fontSize: 18, fontWeight: 700 }}>{rows}</Typography>
+              <Typography sx={{ fontSize: 18, fontWeight: 600 }}>{rows}</Typography>
             </Box>
             <Box>
               <Typography sx={{ fontSize: 11, color: 'var(--c-text-3)', textTransform: 'uppercase', letterSpacing: '.06em' }}>Pieces</Typography>
-              <Typography sx={{ fontSize: 18, fontWeight: 700 }}>{pieces.toLocaleString('en-IN')}</Typography>
+              <Typography sx={{ fontSize: 18, fontWeight: 600 }}>{pieces.toLocaleString('en-IN')}</Typography>
             </Box>
             <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)', alignSelf: 'flex-end', pb: 0.5 }}>
-              One row per design, its quantity says how many exist.
+              One row per design, its quantity says how many exist. Alt+↑/↓ reorders a row among its
+              siblings, Alt+←/→ changes its level.
             </Typography>
           </Box>
         </>
       )}
-    </>
+    </Box>
   );
 
   const isEdit = source === 'current';
 
   const createButton = isEdit ? (
     <Button
-      variant="contained" disabled={!tree || busy || missing.length > 0}
+      variant="contained" disabled={!t.tree || busy || missing.length > 0}
       startIcon={busy ? <CircularProgress size={14} color="inherit" /> : <CheckRoundedIcon />}
-      onClick={() => void create(false)}
+      onClick={() => create(false)}
     >
       Save changes
     </Button>
@@ -722,17 +1061,17 @@ export default function StructureEditor({
     <Button
       variant="contained" color="warning" disabled={busy}
       startIcon={busy ? <CircularProgress size={14} color="inherit" /> : <CheckRoundedIcon />}
-      onClick={() => void create(true)}
+      onClick={() => void doCreate(true)}
     >
       Replace the {existing} row(s)
     </Button>
   ) : (
     <Button
-      variant="contained" disabled={!tree || busy || missing.length > 0}
+      variant="contained" disabled={!t.tree || busy || missing.length > 0}
       startIcon={busy ? <CircularProgress size={14} color="inherit" /> : <CheckRoundedIcon />}
-      onClick={() => void create(false)}
+      onClick={() => create(false)}
     >
-      {tree ? `Create ${rows} row(s)` : 'Create'}
+      {t.tree ? `Create ${rows} row(s)` : 'Create'}
     </Button>
   );
 
@@ -748,42 +1087,8 @@ export default function StructureEditor({
    * line that already has rows, where the screen behind is showing the thing
    * being replaced.
    */
-  if (variant === 'inline') {
-    if (!open) return null;
-    return (
-      <Surface e={1} sx={{ p: 2, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-        {/*
-          NO HEADING. The card this renders into is already titled with the line,
-          and a second title repeating it was the middle of three "Span"s on one
-          screen. What the heading's caption said — change the numbers, nothing
-          is saved until you press Create — is said by the Create button being
-          there and nothing having moved.
-        */}
-        {body}
-        <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 2 }}>{createButton}</Box>
-      </Surface>
-    );
-  }
-
-  return (
-    <Dialog
-      open={open} onClose={busy ? undefined : onClose} maxWidth="md" fullWidth
-      PaperProps={{ sx: { height: '84vh' } }}
-    >
-      <DialogCloseButton absolute onClose={onClose} disabled={busy} />
-      <DialogTitle sx={{ fontWeight: 600 }}>
-        {isEdit ? 'Edit the structure' : 'Rebuild from the bill of materials'}
-        <Typography variant="body2" color="text.secondary">
-          {isEdit
-            ? 'This is what this order settled on. Change the numbers, remove what it does not have, add what it does. Rows you keep stay the same rows — their sizes and their plate come with them.'
-            : 'This takes the catalogue’s recipe again and REPLACES what is here. Anything typed on the current rows goes with them.'}
-        </Typography>
-      </DialogTitle>
-
-      <DialogContent dividers sx={{ display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-        {body}
-      </DialogContent>
-
+  const dialogs = (
+    <>
       {newItem && (
         <Dialog open onClose={() => setNewItem(null)} maxWidth="xs" fullWidth>
           <DialogTitle>New item</DialogTitle>
@@ -832,11 +1137,64 @@ export default function StructureEditor({
         </Dialog>
       )}
 
-      <DialogActions>
-        <Button onClick={onClose} disabled={busy}>Cancel</Button>
-        <Box sx={{ flex: 1 }} />
-        {createButton}
-      </DialogActions>
-    </Dialog>
+      <ConfirmDialog
+        open={confirmRemove}
+        title="Remove these rows?"
+        confirmLabel="Save anyway"
+        body={(
+          <Typography sx={{ fontSize: 13.5 }}>
+            Saving will remove <b>{removedItemIds.length}</b> row{removedItemIds.length === 1 ? '' : 's'} that
+            {' '}exist on this order. Any tasks generated for them that have not started yet are dropped along
+            with them — a row with tasks already IN PROGRESS is refused instead, and this save would fail.
+          </Typography>
+        )}
+        onClose={() => setConfirmRemove(false)}
+        onConfirm={() => doCreate(false)}
+      />
+
+      <ConfirmDialog
+        open={confirmPull}
+        title="Pull BOM defaults?"
+        confirmLabel="Discard edits and pull"
+        body={(
+          <Typography sx={{ fontSize: 13.5 }}>
+            This structure has unsaved edits. Pulling the BOM's default flows re-reads the structure from
+            the server, which would discard them. Save first if you want to keep them.
+          </Typography>
+        )}
+        onClose={() => setConfirmPull(false)}
+        onConfirm={() => pullBomDefaults()}
+      />
+
+    </>
+  );
+
+  if (!open) return null;
+  if (flat) {
+    // The line card is the surface; this is its body. Rows first, then the
+    // toolbar and totals, then the one button that writes anything.
+    return (
+      <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+        {body}
+        <Box sx={{ display: 'flex', justifyContent: 'flex-end', px: 1.5, py: 1, borderTop: '1px solid var(--c-divider)' }}>
+          {createButton}
+        </Box>
+        {dialogs}
+      </Box>
+    );
+  }
+  return (
+    <Surface e={1} sx={{ p: 2, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+      {/*
+        NO HEADING. The card this renders into is already titled with the line,
+        and a second title repeating it was the middle of three "Span"s on one
+        screen. What the heading's caption said — change the numbers, nothing
+        is saved until you press Create — is said by the Create button being
+        there and nothing having moved.
+      */}
+      {body}
+      <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 2 }}>{createButton}</Box>
+      {dialogs}
+    </Surface>
   );
 }

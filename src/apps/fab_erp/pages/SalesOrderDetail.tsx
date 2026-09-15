@@ -9,6 +9,8 @@ import SaveIcon from '@mui/icons-material/SaveRounded';
 import FactoryRounded from '@mui/icons-material/FactoryRounded';
 import Inventory2Rounded from '@mui/icons-material/Inventory2Rounded';
 import PlayArrowRounded from '@mui/icons-material/PlayArrowRounded';
+import HistoryRounded from '@mui/icons-material/HistoryRounded';
+import SwapHorizRounded from '@mui/icons-material/SwapHorizRounded';
 
 import { fabQuery, fabMutate } from '../api/client';
 import { useDetailTitle } from '../components/nav/detailTitleContext';
@@ -16,16 +18,20 @@ import { type FabPlant } from '../types';
 import { usePermission } from '@core/hooks/usePermission';
 import {
   Surface, DetailLayout, CrossLink, FactItem, StatusBadge, Mono, useToast,
+  backendMessage, ConfirmDialog,
 } from '../components';
 import OrderLinesPanel, { type FabOrderLine } from '../components/OrderLinesPanel';
 import SalesOrderWizard from '../components/SalesOrderWizard';
-import { statusFamily } from '../statusMap';
+import { statusFamily, MANUAL_ORDER_STATUSES } from '../statusMap';
 import BlankNesting from '../components/BlankNesting';
 import OrderParameters from '../components/OrderParameters';
 import OrderProductionPlan from '../components/OrderProductionPlan';
 import OrderStageStrip from '../components/OrderStageStrip';
 import { hasSetupWizard, orderTypeLabel, showsField } from '../constants/orderTypes';
-import { fetchOrderReadiness, type OrderReadiness, type ReadinessStage } from '../api/readiness';
+import {
+  fetchOrderReadiness, reviseOrder, fetchOrderRevisions, convertQuote,
+  type OrderReadiness, type ReadinessStage, type OrderRevision,
+} from '../api/readiness';
 
 interface FabOrder {
   id: number; companyId: number; orderNumber: string; orderType: string; type: string; status: string;
@@ -38,18 +44,6 @@ interface FabOrder {
 }
 
 const SO_TYPES = ['standard', 'rush', 'blanket', 'internal'];
-/**
- * The statuses a person sets by hand. The rest — scheduled, in_production,
- * ready_to_ship — are consequences the system works out from task progress,
- * and offering them here would invite someone to declare an order in
- * production that has not started.
- *
- * `confirmed` is absent too, and deliberately: an order leaves draft by being
- * confirmed at the END OF THE WIZARD, once its lines, BOM, nesting, flows and
- * project tree are all done. A dropdown that let anyone skip all of that
- * would make the wizard advisory.
- */
-const SO_STATUSES = ['draft', 'shipped', 'closed', 'cancelled'];
 const SO_PRIORITIES = ['critical', 'high', 'medium', 'low'];
 
 /**
@@ -58,9 +52,24 @@ const SO_PRIORITIES = ['critical', 'high', 'medium', 'low'];
  * Without this an automatic status renders as an EMPTY select — the field just
  * looks blank, which reads as data loss on a screen whose whole job is to show
  * the record faithfully.
+ *
+ * Item 9: `draft` drops out of the list once the order has LEFT draft —
+ * `MANUAL_ORDER_STATUSES` (statusMap.ts, the one status vocabulary now — this
+ * screen no longer keeps its own `SO_STATUSES` copy) still includes it,
+ * because a genuinely draft order needs it to show its own current value.
+ * Offering it on a confirmed order would make reverting a confirmation a
+ * one-click dropdown choice through this screen, when `/mutate` already
+ * allows an admin to do it deliberately through the API.
  */
 function statusOptions(current?: string): string[] {
-  return current && !SO_STATUSES.includes(current) ? [current, ...SO_STATUSES] : SO_STATUSES;
+  const manual = current === 'draft' ? MANUAL_ORDER_STATUSES : MANUAL_ORDER_STATUSES.filter((s) => s !== 'draft');
+  return current && !manual.includes(current) ? [current, ...manual] : manual;
+}
+
+/** `OrderRevision.summary` is applyTree's counts object, not a string — interpolating it
+ * directly renders "[object Object]" (caught live on a real Revise + save round trip). */
+function revisionSummaryText(summary: NonNullable<OrderRevision['summary']>): string {
+  return `${summary.created} created, ${summary.updated} updated, ${summary.removed} removed`;
 }
 
 export default function SalesOrderDetail() {
@@ -87,6 +96,14 @@ export default function SalesOrderDetail() {
   // tab — the point of it is that you can see the whole sequence while working
   // on one part of it.
   const [readiness, setReadiness] = useState<OrderReadiness | null>(null);
+  // P2/decision 4: reopening the wizard on a CONFIRMED order via "Revise".
+  // Set only while that reason is live — the wizard reads it to know it is in
+  // revision mode (its last step becomes "Finish revision", not "Confirm").
+  const [reviseReason, setReviseReason] = useState<string | null>(null);
+  const [reviseDialogOpen, setReviseDialogOpen] = useState(false);
+  const [reviseInput, setReviseInput] = useState('');
+  const [revisions, setRevisions] = useState<OrderRevision[]>([]);
+  const [converting, setConverting] = useState(false);
 
   const set = <K extends keyof FabOrder>(k: K, v: FabOrder[K]) => setDraft((d) => ({ ...d, [k]: v }));
 
@@ -134,6 +151,33 @@ export default function SalesOrderDetail() {
       }
     } catch { /* leave the last known state on screen */ }
   }, [id, soStatus]);
+
+  // Revisions list (P2/decision 6): read-only, so a failure here shouldn't
+  // block the rest of the page — it just leaves the list empty.
+  useEffect(() => {
+    if (!so || !hasSetupWizard(so.orderType)) return;
+    fetchOrderRevisions(id).then(setRevisions).catch(() => setRevisions([]));
+  }, [id, so, reviseReason]);
+
+  /** Thrown errors surface inside `ConfirmDialog` itself — it renders them and stays open. */
+  async function submitRevise() {
+    if (reviseInput.trim().length < 10) throw new Error('At least 10 characters — say what changed and why.');
+    const res = await reviseOrder(id, reviseInput.trim());
+    setReadiness(res.readiness);
+    setReviseReason(reviseInput.trim());
+    setWizardOpen(true);
+  }
+
+  async function doConvert() {
+    setConverting(true); setError('');
+    try {
+      const res = await convertQuote(id);
+      toast(`Converted to ${res.order.orderNumber}`, 'success');
+      await fetchAll();
+    } catch (e) {
+      setError(backendMessage(e, 'Could not convert this quote.'));
+    } finally { setConverting(false); }
+  }
 
   async function saveSo() {
     if (!so) return;
@@ -237,6 +281,26 @@ export default function SalesOrderDetail() {
             Continue setup
           </Button>
         )}
+        {/* item 10: once an order leaves draft, "Continue setup" no longer
+            applies — it is not being set up any more, it is committed. Revise
+            replaces it: same wizard, reopened with a reason on record. */}
+        {so.status !== 'draft' && isSales && so.orderType !== 'quote' && canManage && (
+          <Button
+            variant="outlined" startIcon={<HistoryRounded />}
+            onClick={() => { setReviseInput(''); setReviseDialogOpen(true); }}
+          >
+            Revise
+          </Button>
+        )}
+        {so.orderType === 'quote' && canManage && (
+          <Button
+            variant="contained" startIcon={converting ? <CircularProgress size={14} color="inherit" /> : <SwapHorizRounded />}
+            disabled={converting}
+            onClick={() => void doConvert()}
+          >
+            Convert to order
+          </Button>
+        )}
       </Box>
       <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 2 }}>
         <FactItem label="Type" value={so.type?.replace(/_/g, ' ') ?? '—'} />
@@ -269,11 +333,34 @@ export default function SalesOrderDetail() {
         <SalesOrderWizard
           orderId={id}
           orderNumber={so.orderNumber}
+          customerName={so.customerLinkedName ?? so.customerName ?? null}
+          requiredDate={so.requiredDate ?? null}
           open={wizardOpen}
           canManage={canManage}
-          onClose={() => { setWizardOpen(false); fetchAll(); }}
+          orderType={so.orderType}
+          revisionReason={reviseReason ?? undefined}
+          onClose={() => { setWizardOpen(false); setReviseReason(null); fetchAll(); }}
         />
       )}
+      <ConfirmDialog
+        open={reviseDialogOpen}
+        title="Revise this order"
+        confirmLabel="Start revision"
+        onClose={() => setReviseDialogOpen(false)}
+        onConfirm={submitRevise}
+        body={(
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+            <Typography sx={{ fontSize: 13.5 }}>
+              Reopens the wizard on this confirmed order. Every structure change made from here on
+              is recorded — say what changed and why (at least 10 characters).
+            </Typography>
+            <TextField
+              autoFocus multiline minRows={2} size="small" label="Reason"
+              value={reviseInput} onChange={(e) => setReviseInput(e.target.value)}
+            />
+          </Box>
+        )}
+      />
       {error && <Alert severity="error" sx={{ mb: 2, maxWidth: pageWidth, mx: 'auto' }} onClose={() => setError('')}>{error}</Alert>}
       {isSales && readiness && (
         <Box sx={{ maxWidth: pageWidth, mx: 'auto' }}>
@@ -378,15 +465,53 @@ export default function SalesOrderDetail() {
                 </Button>
               </Box>
             )}
+
+            {/* item 10: the paper trail for every revision made on this order
+                after it was confirmed — each one a reason someone was asked
+                to give before the structure could change under a promised date. */}
+            {revisions.length > 0 && (
+              <>
+                <Divider sx={{ my: 2.5, borderColor: 'var(--c-divider)' }} />
+                <SectionLabel>Revisions</SectionLabel>
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                  {revisions.map((r) => (
+                    <Box key={r.id} sx={{ fontSize: 12.5 }}>
+                      <Typography component="span" sx={{ fontWeight: 600 }}>Rev {r.rev}</Typography>
+                      {' — '}{r.reason}
+                      <Typography component="span" sx={{ color: 'var(--c-text-3)', ml: 1 }}>
+                        {r.createdAt?.slice(0, 10)}{r.summary ? ` · ${revisionSummaryText(r.summary)}` : ''}
+                      </Typography>
+                    </Box>
+                  ))}
+                </Box>
+              </>
+            )}
           </Surface>
         ) : tab === 'lines' ? (
-          <OrderLinesPanel orderId={id} canManage={canManage} onChanged={fetchAll} />
+          <>
+            {/* item 9: structure edits from this tab go through applyStructure with
+                no revisionReason, which 400s REVISION_REASON_REQUIRED on a confirmed
+                order — there is nowhere here to type one. Read-only + a pointer at
+                Revise (which reopens the wizard WITH a reason) instead of threading
+                one through this tab. */}
+            {so.status !== 'draft' && (
+              <Alert severity="info" variant="outlined" sx={{ mb: 1.5 }}>
+                This order is {so.status} — lines are read-only here.
+                {isSales && so.orderType !== 'quote' && <> Use <b>Revise</b> above to change them.</>}
+              </Alert>
+            )}
+            <OrderLinesPanel orderId={id} canManage={canManage && so.status === 'draft'} onChanged={fetchAll} />
+          </>
         ) : !isSales ? null : tab === 'params' ? (
           <OrderParameters orderId={id} canManage={canManage} onStageChanged={refreshReadiness} only="rest" />
         ) : tab === 'nesting' ? (
           <BlankNesting orderId={id} canManage={canManage} onStageChanged={refreshReadiness} />
         ) : tab === 'production' ? (
-          <OrderProductionPlan orderId={id} canManage={canManage} onChanged={refreshReadiness} />
+          <OrderProductionPlan
+            orderId={id} canManage={canManage} onChanged={refreshReadiness}
+            isEstimate={so.orderType === 'quote'} orderStatus={so.status}
+            onGoToParams={() => setTab('params')}
+          />
         ) : null}
       </DetailLayout>
 

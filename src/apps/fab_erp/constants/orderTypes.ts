@@ -1,8 +1,11 @@
 /**
- * What the three order types are, and which of them owns the setup wizard.
+ * What the order types are, and which of them own the setup wizard.
  *
- * `fab_orders` is one table holding three quite different documents:
+ * `fab_orders` is one table holding several quite different documents:
  *
+ *   quote         — what a customer asked about, before they have committed.
+ *                   Created by hand; walks the same wizard as sales, minus a
+ *                   real Production step, until POST /orders/:id/convert.
  *   sales         — what a customer asked for. Created by hand.
  *   purchase      — steel ordered from a supplier. RAISED from a sales order's
  *                   Procurement tab; never typed in directly.
@@ -16,6 +19,7 @@
 
 /** How each type reads on screen. Display only — not the creatable set. */
 export const ORDER_TYPE_LABELS: Record<string, string> = {
+  quote: 'Quote',
   sales: 'Sales',
   purchase: 'Purchase',
   manufacturing: 'Production',
@@ -24,35 +28,45 @@ export const ORDER_TYPE_LABELS: Record<string, string> = {
 export const orderTypeLabel = (t: string) => ORDER_TYPE_LABELS[t] ?? t.replace(/_/g, ' ');
 
 /**
- * The setup wizard belongs to SALES orders and nothing else.
+ * The setup wizard belongs to QUOTE and SALES orders and nothing else.
  *
  * It walks lines → BOM → nesting → flow allocation → project tree, every step of
- * which is a question about a thing being built for a customer. A purchase order
+ * which is a question about a thing being built for a customer — and a quote is
+ * that same question asked before the customer has committed. A purchase order
  * is a list of steel bought from a supplier, and a manufacturing order is the DAG
  * the sales order's wizard already produced — offering either of them "Continue
  * setup" invites someone to nest plate for a document that has no geometry.
  *
- * This gate exists because both are raised as `draft`, and the wizard's entry
- * points keyed on status alone, so both showed the button.
+ * A quote's wizard differs only in its Production step, which stays a read-only
+ * estimate (no manufacturing or purchase order is ever raised from one) until
+ * `POST /orders/:id/convert` turns it into a sales order.
+ *
+ * This gate exists because both purchase and manufacturing are raised as
+ * `draft` too, and the wizard's entry points keyed on status alone, so both
+ * showed the button.
  */
-export const hasSetupWizard = (orderType: string) => orderType === 'sales';
+export const hasSetupWizard = (orderType: string) => orderType === 'quote' || orderType === 'sales';
 
 /**
  * Which types a person can create by hand, and how the others come into being.
  *
- * Only `sales` is creatable. The other two are RAISED — a purchase order from a
- * sales order's Procurement tab or from the Buy-machine / spares flows, a
- * production order from the Production tab. Both already carry the context that
- * makes them meaningful (what shortfall, which resource, which task DAG), and a
- * hand-typed one would start with none of it.
+ * `quote` and `sales` are creatable. The other two are RAISED — a purchase
+ * order from a sales order's Procurement tab or from the Buy-machine / spares
+ * flows, a production order from the Production tab. Both already carry the
+ * context that makes them meaningful (what shortfall, which resource, which
+ * task DAG), and a hand-typed one would start with none of it. A quote is not
+ * raised from anything either — it is typed by hand exactly like a sales
+ * order, just without a customer commitment yet — which is why it sits beside
+ * `sales` here rather than beside the raised two.
  *
  * The copy is here rather than inline in the picker because the picker's job is
  * to answer "why can't I create one of those?" — a type screen that simply
- * omits two of the three types reads like a bug.
+ * omits some of the four types reads like a bug.
  */
-export const CREATABLE_ORDER_TYPES = ['sales'] as const;
+export const CREATABLE_ORDER_TYPES = ['quote', 'sales'] as const;
 
 export const ORDER_TYPE_ORIGIN: Record<string, string> = {
+  quote: 'Created here. Convert it to a sales order once the customer commits.',
   sales: 'Created here.',
   purchase: 'Raised from a sales order’s Procurement tab, or from Buy machine / Order spares on a resource.',
   manufacturing: 'Raised from a sales order’s Production tab once its setup is complete.',
@@ -83,6 +97,18 @@ export interface OrderFieldSet {
 }
 
 export const ORDER_FIELDS: Record<string, OrderFieldSet> = {
+  // Same as sales minus confirmedDate — a quote is never confirmed (that is
+  // what Convert is for), so the field the server stamps only on confirmation
+  // has nothing to show here.
+  quote: {
+    create: ['type', 'customerId', 'priority', 'requiredDate'],
+    detail: [
+      'orderNumber', 'type', 'status', 'priority',
+      'customerName', 'customerPoRef',
+      'requiredDate', 'scheduledShipDate',
+      'plantId', 'currency', 'paymentTerms', 'notes',
+    ],
+  },
   sales: {
     create: ['type', 'customerId', 'priority', 'requiredDate'],
     detail: [

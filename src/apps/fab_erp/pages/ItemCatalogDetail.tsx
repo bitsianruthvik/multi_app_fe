@@ -1,12 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
-  Alert, Autocomplete, Box, Button, CircularProgress, Divider, IconButton, ListSubheader, MenuItem, Select, Table,
-  TableBody, TableCell, TableHead, TableRow, TextField, Tooltip, Typography,
+  Alert, Autocomplete, Box, Button, CircularProgress, Divider, MenuItem, Table, TableBody, TableRow,
+  TextField, Typography,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
-import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
 import SaveIcon from '@mui/icons-material/Save';
 
 import { fabQuery, fabMutate } from '../api/client';
@@ -16,26 +15,17 @@ import { usePermission } from '@core/hooks/usePermission';
 import { useAuth } from '@core/contexts/AuthContext';
 import { isAdminRole } from '@core/utils/roles';
 import ItemBomDesigner from '../components/ItemBomDesigner';
-import { SectionCard, StickyActionBar, Surface, DetailLayout, Mono, StatusBadge, useToast, DetailSkeleton } from '../components';
-import { STANDARD_UOMS } from '../constants/uom';
 import {
-  blankRow, boolValue, BOOL_OPTIONS, commitFieldRows, displayValue, fieldValueError, getFieldValues,
-  listFieldDefs, parseAllowed, rowFromDef, rowsDiffer, uiTypeOf,
-  UI_FIELD_TYPES, unitsByDimension, useFieldVocabulary, valuePlaceholder,
-  type FieldDefRow, type FieldRowDraft, type FieldScope, type ResolvedValue, type UiFieldType,
+  SectionCard, StickyActionBar, Surface, DetailLayout, Mono, useToast, DetailSkeleton,
+  FieldRowCells, FieldTableHead, InheritedFieldsTable, TaxonomyPicker, type InheritedFieldRow,
+} from '../components';
+import { STANDARD_UOMS } from '../constants/uom';
+import { PROCUREMENT_TYPES, MRP_POLICIES } from './ItemCatalog/shared';
+import {
+  blankRow, commitFieldRows, getFieldValues,
+  listFieldDefs, rowFromDef, rowsDiffer, unitsByDimension, useFieldVocabulary,
+  type FieldDefRow, type FieldRowDraft, type FieldScope, type ResolvedValue,
 } from '../api/fields';
-
-const PROCUREMENT_TYPES = [
-  { value: 'buy', label: 'Buy (external procurement)' },
-  { value: 'make', label: 'Make (in-house production)' },
-  { value: 'both', label: 'Both (make or buy)' },
-];
-
-const MRP_POLICIES = [
-  { value: 'manual', label: 'Manual' },
-  { value: 'reorder_point', label: 'Reorder Point' },
-  { value: 'lot_for_lot', label: 'Lot-for-Lot' },
-];
 
 /**
  * The narrowest taxonomy node above an item — where its inherited values come
@@ -53,14 +43,6 @@ function ancestorScopeOf(it: FabItemCatalog | null): { scope: FieldScope; scopeI
   if (it.categoryId) return { scope: 'category', scopeId: Number(it.categoryId) };
   return null;
 }
-
-/** Where an inherited value came from, as the badge reads. */
-const SOURCE_LABEL: Record<string, string> = {
-  category: 'Category', group: 'Group', subgroup: 'Sub-group', default: 'Field default',
-};
-
-const th = { fontFamily: 'var(--font-ui)', fontWeight: 600, fontSize: 12, color: 'var(--c-text-2)', textTransform: 'uppercase', letterSpacing: '.05em', borderColor: 'var(--c-divider)' } as const;
-const td = { borderColor: 'var(--c-divider)', fontSize: 13, color: 'var(--c-text)' } as const;
 
 /**
  * One editable cell of the item record.
@@ -161,10 +143,6 @@ export default function ItemCatalogDetail() {
   function set<K extends keyof FabItemCatalog>(k: K, v: FabItemCatalog[K]) {
     setDraft((d) => ({ ...d, [k]: v }));
   }
-  // mrp_policy replaced the old mrp_active boolean; not yet reflected in the
-  // shared FabItemCatalog type, so it's tracked separately rather than on draft.
-  const [mrpPolicy, setMrpPolicy] = useState<string>('manual');
-
   /**
    * FIELDS COME FROM THE REGISTRY NOW, NOT `fab_custom_fields`.
    *
@@ -194,32 +172,9 @@ export default function ItemCatalogDetail() {
   const [subgroups, setSubgroups] = useState<FabItemSubgroup[]>([]);
   const [categoryError, setCategoryError] = useState('');
 
-  const availableGroups = useMemo(
-    () => groups.filter((g) => !draft.categoryId || g.categoryId === draft.categoryId),
-    [groups, draft.categoryId],
-  );
-  const availableSubgroups = useMemo(
-    () => subgroups.filter((s) => !draft.groupId || s.groupId === draft.groupId),
-    [subgroups, draft.groupId],
-  );
-
-  function onCategoryChange(value: string) {
-    const categoryId = value === '' ? null : Number(value);
+  function onTaxonomyChange(next: { categoryId: number | null; groupId: number | null; subgroupId: number | null }) {
     setCategoryError('');
-    setDraft((d) => {
-      const groupOk = d.groupId != null && groups.some((g) => g.id === d.groupId && g.categoryId === categoryId);
-      return { ...d, categoryId, groupId: groupOk ? d.groupId : null, subgroupId: groupOk ? d.subgroupId : null };
-    });
-  }
-  function onGroupChange(value: string) {
-    const groupId = value === '' ? null : Number(value);
-    setDraft((d) => {
-      const sgOk = d.subgroupId != null && subgroups.some((s) => s.id === d.subgroupId && s.groupId === groupId);
-      return { ...d, groupId, subgroupId: sgOk ? d.subgroupId : null };
-    });
-  }
-  function onSubgroupChange(value: string) {
-    setDraft((d) => ({ ...d, subgroupId: value === '' ? null : Number(value) }));
+    setDraft((d) => ({ ...d, ...next }));
   }
 
   const fetchAll = useCallback(async () => {
@@ -230,7 +185,6 @@ export default function ItemCatalogDetail() {
       setItem(it);
       if (it) {
         setDraft({ ...it });
-        setMrpPolicy(it.mrpPolicy ?? 'manual');
       }
 
       const [catRes, grpRes, subRes] = await Promise.all([
@@ -313,7 +267,7 @@ export default function ItemCatalogDetail() {
         name: draft.name ?? item.name,
         unit: draft.unit ?? null,
         description: draft.description ?? null,
-        procurement_type: draft.procurementType ?? 'buy', lead_time_days: draft.leadTimeDays ?? null, mrp_policy: mrpPolicy,
+        procurement_type: draft.procurementType ?? 'buy', lead_time_days: draft.leadTimeDays ?? null, mrp_policy: draft.mrpPolicy ?? 'manual',
         category_id: draft.categoryId ?? null, group_id: draft.groupId ?? null, subgroup_id: draft.subgroupId ?? null,
         hsn_code: draft.hsnCode ?? null,
       });
@@ -377,13 +331,13 @@ export default function ItemCatalogDetail() {
    * not taxonomy, so calling them inherited would be a third meaning for the
    * word on one screen.
    */
-  const mergedInherited = useMemo(() => {
+  const mergedInherited: InheritedFieldRow[] = useMemo(() => {
     return Object.entries(ancestorValues)
       .filter(([, v]) => v.from?.scope === 'category' || v.from?.scope === 'group' || v.from?.scope === 'subgroup')
       .map(([key, v]) => ({
         key,
         def: defsByKey.get(key),
-        taxonomy: v,
+        inherited: v,
         effective: itemValues[key],
         source: String(v.from.scope),
       }))
@@ -396,11 +350,11 @@ export default function ItemCatalogDetail() {
   }
 
   /** Start an item-level override of an inherited field, seeded with its current value. */
-  function overrideInherited(key: string, def: FieldDefRow | undefined, current: ResolvedValue) {
-    if (configDraft.some((d) => d.fieldKey === key)) return;
-    const row = def
-      ? rowFromDef(def, current, configDraft.length)
-      : { ...blankRow(configDraft.length), fieldKey: key, label: key, value: current.value == null ? '' : String(current.value) };
+  function overrideInherited(f: InheritedFieldRow) {
+    if (configDraft.some((d) => d.fieldKey === f.key)) return;
+    const row = f.def
+      ? rowFromDef(f.def, f.inherited, configDraft.length)
+      : { ...blankRow(configDraft.length), fieldKey: f.key, label: f.key, value: f.inherited.value == null ? '' : String(f.inherited.value) };
     setConfigDraft((d) => [...d, row]);
   }
 
@@ -416,14 +370,14 @@ export default function ItemCatalogDetail() {
       [draft.description, item.description],
       [draft.procurementType ?? 'buy', item.procurementType ?? 'buy'],
       [draft.leadTimeDays, item.leadTimeDays],
-      [mrpPolicy, item.mrpPolicy ?? 'manual'],
+      [draft.mrpPolicy ?? 'manual', item.mrpPolicy ?? 'manual'],
       [draft.categoryId, item.categoryId],
       [draft.groupId, item.groupId],
       [draft.subgroupId, item.subgroupId],
       [draft.hsnCode, item.hsnCode],
     ];
     return pairs.some(([a, b]) => norm(a) !== norm(b));
-  }, [draft, item, mrpPolicy]);
+  }, [draft, item]);
 
   const fieldsDirty = useMemo(() => {
     if (configDraft.length !== configs.length) return true;
@@ -504,38 +458,20 @@ export default function ItemCatalogDetail() {
               value={(draft.leadTimeDays as number | undefined) ?? ''}
               onChange={(e) => set('leadTimeDays', (e.target.value === '' ? null : Number(e.target.value)) as FabItemCatalog['leadTimeDays'])}
               slotProps={{ input: { endAdornment: <Typography variant="caption" sx={{ color: 'var(--c-text-3)' }}>days</Typography> } }} />
-            <TextField select label="MRP policy" size="small" fullWidth disabled={!canManage} value={mrpPolicy} onChange={(e) => setMrpPolicy(e.target.value)}>
+            <TextField select label="MRP policy" size="small" fullWidth disabled={!canManage} value={draft.mrpPolicy ?? 'manual'} onChange={(e) => set('mrpPolicy', e.target.value as FabItemCatalog['mrpPolicy'])}>
               {MRP_POLICIES.map((mp) => <MenuItem key={mp.value} value={mp.value}>{mp.label}</MenuItem>)}
             </TextField>
           </Box>
           <Divider sx={{ my: 2, borderColor: 'var(--c-divider)' }} />
           <Typography sx={{ fontSize: 11, fontWeight: 600, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--c-text-3)', mb: 1.5 }}>Classification</Typography>
-          <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 2, mb: 3 }}>
-            <Box>
-              <Typography variant="caption" color="text.secondary">Category *</Typography>
-              <Select fullWidth size="small" displayEmpty disabled={!canManage} value={draft.categoryId ?? ''}
-                onChange={(e) => onCategoryChange(String(e.target.value))} error={!!categoryError}>
-                <MenuItem value=""><em>None</em></MenuItem>
-                {categories.map((c) => <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>)}
-              </Select>
-              {categoryError && <Typography variant="caption" sx={{ color: 'error.main', display: 'block', mt: 0.5 }}>{categoryError}</Typography>}
-            </Box>
-            <Box>
-              <Typography variant="caption" color="text.secondary">Group</Typography>
-              <Select fullWidth size="small" displayEmpty disabled={!canManage} value={draft.groupId ?? ''}
-                onChange={(e) => onGroupChange(String(e.target.value))}>
-                <MenuItem value=""><em>None</em></MenuItem>
-                {availableGroups.map((g) => <MenuItem key={g.id} value={g.id}>{g.name}</MenuItem>)}
-              </Select>
-            </Box>
-            <Box>
-              <Typography variant="caption" color="text.secondary">Sub-group</Typography>
-              <Select fullWidth size="small" displayEmpty disabled={!canManage} value={draft.subgroupId ?? ''}
-                onChange={(e) => onSubgroupChange(String(e.target.value))}>
-                <MenuItem value=""><em>None</em></MenuItem>
-                {availableSubgroups.map((s) => <MenuItem key={s.id} value={s.id}>{s.name}</MenuItem>)}
-              </Select>
-            </Box>
+          <Box sx={{ mb: 3 }}>
+            <TaxonomyPicker
+              categories={categories} groups={groups} subgroups={subgroups}
+              value={{ categoryId: draft.categoryId ?? null, groupId: draft.groupId ?? null, subgroupId: draft.subgroupId ?? null }}
+              onChange={onTaxonomyChange}
+              disabled={!canManage} required categoryError={categoryError}
+              labels={{ category: 'Category', group: 'Group', subgroup: 'Sub-group' }}
+            />
           </Box>
           <Box sx={{ display: 'grid', gridTemplateColumns: '1fr', gap: 2 }}>
             <Field label="HSN code" k="hsnCode" draft={draft} set={set} canManage={canManage} />
@@ -555,85 +491,15 @@ export default function ItemCatalogDetail() {
           ) : undefined}
         >
           {mergedInherited.length > 0 && (
-            <>
-              <Typography sx={{ fontSize: 11, fontWeight: 600, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--c-text-3)', mb: 0.5 }}>Inherited from taxonomy ({mergedInherited.length})</Typography>
-              <Typography variant="caption" sx={{ display: 'block', mb: 1, color: 'var(--c-text-3)' }}>
-                Taxonomy default is what this item inherits; Effective is what the system will actually use.
-              </Typography>
-              <Table size="small" sx={{ mb: 3 }}>
-                <TableHead><TableRow sx={{ background: 'var(--c-surface-2)' }}>
-                  <TableCell sx={th}>Field name</TableCell><TableCell sx={{ ...th, width: 100 }}>Type</TableCell>
-                  {/* Two columns, because they are two different numbers. The
-                      single column that used to sit here was headed "effective
-                      default" and showed the taxonomy figure — so after an
-                      override it stated a value the system would not use. */}
-                  <TableCell sx={th}>Taxonomy default</TableCell><TableCell sx={{ ...th, width: 110 }}>From</TableCell>
-                  <TableCell sx={th}>Effective</TableCell>
-                  <TableCell sx={{ ...th, width: 180 }}>Override at item level</TableCell>
-                </TableRow></TableHead>
-                <TableBody>
-                  {mergedInherited.map(({ key, def, taxonomy, effective, source }) => {
-                    const overrideIdx = configDraft.findIndex((d) => d.fieldKey === key);
-                    const isOverridden = overrideIdx >= 0;
-                    const row = isOverridden ? configDraft[overrideIdx] : null;
-                    const type: UiFieldType = def ? uiTypeOf(def) : 'text';
-                    const allowed = parseAllowed(def?.allowedValues);
-                    const valueErr = row ? fieldValueError(type, row.value, allowed) : null;
-                    return (
-                      <TableRow key={key}>
-                        <TableCell sx={td}>
-                          <Typography sx={{ fontSize: 13 }}>{def?.label ?? key}</Typography>
-                          <Mono sx={{ fontSize: 11, color: 'var(--c-text-3)' }}>{key}</Mono>
-                        </TableCell>
-                        <TableCell sx={td}>
-                          <Mono chip>{type}</Mono>
-                          {def?.defaultUnit && <Mono sx={{ ml: 0.5, fontSize: 11, color: 'var(--c-text-3)' }}>{def.defaultUnit}</Mono>}
-                        </TableCell>
-                        <TableCell sx={td}>
-                          <Typography sx={isOverridden ? { textDecoration: 'line-through', color: 'var(--c-text-3)', fontSize: 13 } : { fontSize: 13, color: 'var(--c-text-2)' }}>{displayValue(taxonomy)}</Typography>
-                        </TableCell>
-                        <TableCell sx={td}><StatusBadge status={SOURCE_LABEL[source] ?? source} family="info" /></TableCell>
-                        <TableCell sx={td}>
-                          {/* The saved effective value. While an override is
-                              being typed it has not been resolved yet, so the
-                              pending figure is shown and marked as such rather
-                              than pretending the server has agreed to it. */}
-                          <Typography sx={{ fontSize: 13, fontWeight: 600, color: 'var(--c-text)' }}>
-                            {isOverridden && row && row.value.trim() !== '' && String(effective?.value ?? '') !== row.value.trim()
-                              ? `${row.value.trim()}${def?.defaultUnit ? ` ${def.defaultUnit}` : ''} (unsaved)`
-                              : displayValue(effective ?? taxonomy)}
-                          </Typography>
-                        </TableCell>
-                        <TableCell sx={td}>
-                          {isOverridden && row ? (
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                              <TextField size="small"
-                                select={type === 'bool' || (type === 'dropdown' && allowed.length > 0)}
-                                value={type === 'bool' ? boolValue(row.value) : row.value}
-                                disabled={!canManageFields} sx={{ flex: 1, minWidth: 80 }}
-                                placeholder={valuePlaceholder(type, def?.defaultUnit)}
-                                error={!!valueErr} helperText={valueErr ?? undefined}
-                                onChange={(e) => setConfigDraft((d) => d.map((r) => (r.rowId === row.rowId ? { ...r, value: e.target.value } : r)))}>
-                                {type === 'bool'
-                                  ? [<MenuItem key="" value="">— none —</MenuItem>,
-                                     ...BOOL_OPTIONS.map((o) => <MenuItem key={o.value} value={o.value}>{o.label}</MenuItem>)]
-                                  : allowed.map((a) => <MenuItem key={a} value={a}>{a}</MenuItem>)}
-                              </TextField>
-                              {canManageFields && <IconButton size="small" color="error" onClick={() => setConfigDraft((d) => d.filter((r) => r.rowId !== row.rowId))}><DeleteOutlineRounded fontSize="small" /></IconButton>}
-                            </Box>
-                          ) : canManageFields ? (
-                            <Button size="small" variant="outlined" onClick={() => overrideInherited(key, def, taxonomy)}>Override</Button>
-                          ) : (
-                            <Typography sx={{ color: 'var(--c-text-3)' }}>—</Typography>
-                          )}
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
-              <Divider sx={{ mb: 2, borderColor: 'var(--c-divider)' }} />
-            </>
+            <Box sx={{ mb: 3 }}>
+              <InheritedFieldsTable
+                rows={mergedInherited} overrides={configDraft} canEdit={canManageFields} levelLabel="Item"
+                onOverride={overrideInherited}
+                onPatch={(rowId, patch) => setConfigDraft((d) => d.map((r) => (r.rowId === rowId ? { ...r, ...patch } : r)))}
+                onRemove={(rowId) => setConfigDraft((d) => d.filter((r) => r.rowId !== rowId))}
+              />
+              <Divider sx={{ mt: 2, borderColor: 'var(--c-divider)' }} />
+            </Box>
           )}
 
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1.5 }}>
@@ -649,76 +515,17 @@ export default function ItemCatalogDetail() {
             <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>No item-specific fields yet. Add up to 10.</Typography>
           ) : (
             <Table size="small">
-              <TableHead><TableRow sx={{ background: 'var(--c-surface-2)' }}>
-                <TableCell sx={th}>Field name</TableCell><TableCell sx={{ ...th, width: 120 }}>Type</TableCell>
-                {/* One column for the two things that qualify a value: a unit
-                    for a number, the option list for a dropdown. A number with
-                    no unit is why stock ended up holding the string "2000 mm". */}
-                <TableCell sx={{ ...th, width: 150 }}>Unit / options</TableCell>
-                <TableCell sx={th}>Value</TableCell>{canManageFields && <TableCell sx={{ ...th, width: 48 }} />}
-              </TableRow></TableHead>
+              <FieldTableHead valueLabel="Value" canEdit={canManageFields} />
               <TableBody>
-                {configDraft.map((cfg) => {
-                  const allowed = cfg.options.split(',').map((s) => s.trim()).filter(Boolean);
-                  const valueErr = fieldValueError(cfg.type, cfg.value, allowed);
-                  const patch = (p: Partial<FieldRowDraft>) =>
-                    setConfigDraft((d) => d.map((r) => (r.rowId === cfg.rowId ? { ...r, ...p } : r)));
-                  return (
-                    <TableRow key={cfg.rowId}>
-                      <TableCell sx={{ ...td, py: 0.5 }}>
-                        <TextField size="small" fullWidth value={cfg.label} disabled={!canManageFields || cfg.isStandard} placeholder="e.g. Material Grade"
-                          helperText={cfg.fieldKey ? cfg.fieldKey : undefined}
-                          onChange={(e) => patch({ label: e.target.value })} />
-                      </TableCell>
-                      <TableCell sx={{ ...td, py: 0.5 }}>
-                        <Tooltip title={cfg.isStandard ? 'Standard field — features are written against its type' : ''}>
-                          <TextField select size="small" fullWidth value={cfg.type} disabled={!canManageFields || cfg.isStandard}
-                            onChange={(e) => patch({ type: e.target.value as UiFieldType })}>
-                            {UI_FIELD_TYPES.map((t) => <MenuItem key={t.value} value={t.value}>{t.label}</MenuItem>)}
-                          </TextField>
-                        </Tooltip>
-                      </TableCell>
-                      <TableCell sx={{ ...td, py: 0.5 }}>
-                        {cfg.type === 'number' ? (
-                          <TextField select size="small" fullWidth value={cfg.unit} disabled={!canManageFields || cfg.isStandard}
-                            onChange={(e) => patch({ unit: e.target.value })}>
-                            <MenuItem value="">— no unit —</MenuItem>
-                            {unitGroups.flatMap((g) => [
-                              <ListSubheader key={`h-${g.group}`} sx={{ fontSize: 11, lineHeight: '26px' }}>{g.group}</ListSubheader>,
-                              ...g.units.map((u) => <MenuItem key={u.code} value={u.code}>{u.code}</MenuItem>),
-                            ])}
-                          </TextField>
-                        ) : cfg.type === 'dropdown' ? (
-                          <TextField size="small" fullWidth value={cfg.options} disabled={!canManageFields || cfg.isStandard}
-                            placeholder="Option1, Option2, …" onChange={(e) => patch({ options: e.target.value })} />
-                        ) : (
-                          <Typography sx={{ fontSize: 13, color: 'var(--c-text-3)' }}>—</Typography>
-                        )}
-                      </TableCell>
-                      <TableCell sx={{ ...td, py: 0.5 }}>
-                        {cfg.type === 'bool' ? (
-                          <TextField select size="small" fullWidth value={boolValue(cfg.value)} disabled={!canManageFields}
-                            onChange={(e) => patch({ value: e.target.value })}>
-                            <MenuItem value="">— none —</MenuItem>
-                            {BOOL_OPTIONS.map((o) => <MenuItem key={o.value} value={o.value}>{o.label}</MenuItem>)}
-                          </TextField>
-                        ) : cfg.type === 'dropdown' && allowed.length ? (
-                          <TextField select size="small" fullWidth value={allowed.includes(cfg.value) ? cfg.value : ''} disabled={!canManageFields}
-                            onChange={(e) => patch({ value: e.target.value })}>
-                            <MenuItem value="">— none —</MenuItem>
-                            {allowed.map((a) => <MenuItem key={a} value={a}>{a}</MenuItem>)}
-                          </TextField>
-                        ) : (
-                          <TextField size="small" fullWidth value={cfg.value} disabled={!canManageFields}
-                            placeholder={valuePlaceholder(cfg.type, cfg.unit)}
-                            error={!!valueErr} helperText={valueErr ?? undefined}
-                            onChange={(e) => patch({ value: e.target.value })} />
-                        )}
-                      </TableCell>
-                      {canManageFields && <TableCell sx={{ ...td, py: 0.5 }}><IconButton size="small" color="error" onClick={() => setConfigDraft((d) => d.filter((r) => r.rowId !== cfg.rowId))}><DeleteOutlineRounded fontSize="small" /></IconButton></TableCell>}
-                    </TableRow>
-                  );
-                })}
+                {configDraft.map((cfg) => (
+                  <TableRow key={cfg.rowId}>
+                    <FieldRowCells
+                      row={cfg} canEdit={canManageFields} unitGroups={unitGroups}
+                      onPatch={(p) => setConfigDraft((d) => d.map((r) => (r.rowId === cfg.rowId ? { ...r, ...p } : r)))}
+                      onRemove={() => setConfigDraft((d) => d.filter((r) => r.rowId !== cfg.rowId))}
+                    />
+                  </TableRow>
+                ))}
               </TableBody>
             </Table>
           )}

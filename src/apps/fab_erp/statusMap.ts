@@ -61,3 +61,72 @@ const STATUS_FAMILY: Record<string, StatusFamily> = {
 export function statusFamily(status: string): StatusFamily {
   return STATUS_FAMILY[status] ?? 'neutral';
 }
+
+/**
+ * ONE STATUS VOCABULARY (U4/EU-19 item 9).
+ *
+ * `OrderProductionPlan.tsx` kept its own `STATUS_LABEL` for purchase- and
+ * manufacturing-order statuses, and `SalesOrderDetail.tsx` kept its own
+ * `SO_STATUSES` list for the sales-order status picker — three places a status
+ * string could be spelled out, this file included, and nothing stopped them
+ * drifting (a status added to one map and not the others silently fell back to
+ * the raw snake_case string on whichever screen was missed).
+ *
+ * Every label any screen has ever needed lives here now; a status with no
+ * entry still renders — `statusLabel` falls back to the same
+ * underscore-to-space substitution every screen already did on a miss.
+ */
+export const STATUS_LABEL: Record<string, string> = {
+  draft: 'Draft',
+  pending: 'Pending',
+  sent: 'Sent',
+  released: 'Released',
+  in_progress: 'In progress',
+  in_production: 'In production',
+  in_transit: 'In transit',
+  scheduled: 'Scheduled',
+  ready_to_ship: 'Ready to ship',
+  confirmed: 'Confirmed',
+  approved: 'Approved',
+  shipped: 'Shipped',
+  received: 'Received',
+  completed: 'Completed',
+  converted: 'Converted',
+  cancelled: 'Cancelled',
+  closed: 'Closed',
+  archived: 'Archived',
+  superseded: 'Superseded',
+  eligible: 'Eligible',
+  blocked: 'Blocked',
+  paused: 'Paused',
+  done: 'Done',
+  // Production/purchase-order statuses that had no counterpart above.
+  waiting: 'Deployed · waiting for material',
+  requested: 'Requested',
+  ordered: 'Ordered',
+  partially_received: 'Partly received',
+  waiting_material: 'Waiting for material',
+};
+
+export function statusLabel(status: string): string {
+  return STATUS_LABEL[status] ?? status.replace(/_/g, ' ');
+}
+
+/** A status family, as a MUI `Chip`/`Button` `color`. */
+export function chipColorForStatus(status: string): 'default' | 'warning' | 'info' | 'success' | 'error' {
+  const family = statusFamily(status);
+  if (family === 'success') return 'success';
+  if (family === 'warning') return 'warning';
+  if (family === 'danger') return 'error';
+  if (family === 'info') return 'info';
+  return 'default';
+}
+
+/**
+ * The statuses a person sets BY HAND on a sales order's Overview tab
+ * (formerly `SalesOrderDetail.tsx`'s own `SO_STATUSES`). The rest —
+ * `scheduled`, `in_production`, `ready_to_ship` — are consequences the system
+ * works out from task progress, and `confirmed` is reached only by finishing
+ * the wizard, never picked from a dropdown.
+ */
+export const MANUAL_ORDER_STATUSES = ['draft', 'shipped', 'closed', 'cancelled'];

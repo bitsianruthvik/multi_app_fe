@@ -44,12 +44,14 @@ import {
   memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore,
 } from 'react';
 import {
-  Alert, Box, Button, Chip, CircularProgress, TextField, Tooltip, Typography,
+  Alert, Box, Button, Chip, CircularProgress, IconButton, TextField, Tooltip, Typography,
 } from '@mui/material';
 import type { SxProps, Theme } from '@mui/material/styles';
 import CheckCircleRounded from '@mui/icons-material/CheckCircleRounded';
 import DownloadIcon from '@mui/icons-material/Download';
 import UploadFileIcon from '@mui/icons-material/UploadFile';
+import FiberManualRecordRounded from '@mui/icons-material/FiberManualRecordRounded';
+import RestartAltRounded from '@mui/icons-material/RestartAltRounded';
 
 import api from '@core/utils/axiosConfig';
 import {
@@ -57,6 +59,7 @@ import {
   type ParameterGrid, type ParameterColumn, type ParameterRow, type ParameterEdit,
 } from '../api/parameters';
 import { getFieldReadiness, type FieldReadiness } from '../api/fieldReadiness';
+import type { OrderReadiness } from '../api/readiness';
 import {
   EmptyState, ListSkeleton, useToast, backendMessage, Mono, StickyActionBar,
 } from '../components';
@@ -75,8 +78,19 @@ const cellKey = (itemId: number, fieldKey: string): CellKey => `${itemId}:${fiel
  */
 type Listener = () => void;
 
+/**
+ * `null` is a distinct, deliberate entry — "revert to inherited", the small
+ * icon next to an overridden cell — from a plain empty string, which is what
+ * typing-then-backspacing to nothing leaves behind. That distinction is what
+ * makes "a blank cell means no change" (the copy above the grid) actually
+ * true: only the explicit revert clears a value, so `set` below drops a
+ * blanked-by-typing cell from the store entirely rather than keeping it as a
+ * pending `''` that `save()` would otherwise send as a clear (item 13).
+ */
+type EditValue = string | null;
+
 function createEditStore() {
-  const values = new Map<CellKey, string>();
+  const values = new Map<CellKey, EditValue>();
   const cellSubs = new Map<CellKey, Set<Listener>>();
   const countSubs = new Set<Listener>();
 
@@ -114,13 +128,32 @@ function createEditStore() {
     getCount() { return values.size; },
     /** Insertion-ordered, matching the old `Object.entries(edits)`. */
     entries() { return [...values.entries()]; },
+    /** Typing. Blank means "leave it" (item 13) — untouch rather than record a clear. */
     set(key: CellKey, raw: string) {
+      if (raw.trim() === '') {
+        this.unset(key);
+        return;
+      }
       const isNew = !values.has(key);
       values.set(key, raw);
       cellSubs.get(key)?.forEach((fn) => fn());
       // The count only moves the first time a cell is touched, so typing four
       // digits wakes the action bar once rather than four times.
       if (isNew) notifyCount();
+    },
+    /** The revert icon: an explicit, deliberate clear-to-inherited (item 13) — see `EditValue`. */
+    revert(key: CellKey) {
+      const isNew = !values.has(key);
+      values.set(key, null);
+      cellSubs.get(key)?.forEach((fn) => fn());
+      if (isNew) notifyCount();
+    },
+    /** Drop a cell back out of the store — same "untouched" state as before its first edit. */
+    unset(key: CellKey) {
+      if (!values.has(key)) return;
+      values.delete(key);
+      cellSubs.get(key)?.forEach((fn) => fn());
+      notifyCount();
     },
     clear() {
       if (values.size === 0) return;
@@ -153,28 +186,70 @@ const SX_TD_NAME: SxProps<Theme> = { p: 1, position: 'sticky', left: 0, bgcolor:
 
 // ── one cell ────────────────────────────────────────────────────────────────
 
-const ParameterCell = memo(function ParameterCell({ store, ck, base, disabled }: {
+const ParameterCell = memo(function ParameterCell({
+  store, ck, base, inherited, disabled, label, isOverride, onFillDown, onRevert,
+}: {
   store: EditStore;
   ck: CellKey;
   /** The saved value behind this cell — shown until it is edited. */
   base: string;
+  /** What this cell resolves to with its own override cleared — shown while a revert is pending, unsaved (item 13). */
+  inherited: string;
   disabled: boolean;
+  /** "<part name> — <field label>", read by a screen reader; the grid has no visible column-per-cell label otherwise. */
+  label: string;
+  /** True when this value was typed on THIS part (`from === 'order_item'`) — the only case there's an inherited value to revert to. */
+  isOverride: boolean;
+  /** Ctrl+D: copy this cell's current value into every row below it, in this same column, that asks for it. */
+  onFillDown: (value: string) => void;
+  onRevert: () => void;
 }) {
   const subscribe = useCallback((fn: Listener) => store.subscribeCell(ck, fn), [store, ck]);
   const getSnapshot = useCallback(() => store.getCell(ck), [store, ck]);
   const edited = useSyncExternalStore(subscribe, getSnapshot);
 
-  const v = edited ?? base;
+  // `edited === null` is a pending revert (item 13) — the cell will send an
+  // explicit clear on save, but until then it shows what that clear would
+  // actually resolve to, not a blank indistinguishable from a really-missing
+  // value.
+  const reverted = edited === null;
+  const v = reverted ? inherited : (edited ?? base);
   const missing = v.trim() === '';
 
   return (
-    <TextField
-      size="small" variant="standard" type="number"
-      value={v}
-      disabled={disabled}
-      onChange={(e) => store.set(ck, e.target.value)}
-      sx={missing ? SX_CELL_MISSING : SX_CELL}
-    />
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25 }}>
+      {/* A missing value used to be border-color only — invisible to anyone
+          who can't tell a warning underline from a plain one at a glance. */}
+      {missing && (
+        <Tooltip title="No value">
+          <FiberManualRecordRounded sx={{ fontSize: 7, color: 'var(--c-warning-600)', flexShrink: 0 }} />
+        </Tooltip>
+      )}
+      <TextField
+        size="small" variant="standard" type="number"
+        value={v}
+        disabled={disabled}
+        // `aria-label` as a bare prop lands on the TextField's root, not its
+        // <input> — `slotProps.htmlInput` is what actually reaches the
+        // element a screen reader announces as the textbox.
+        slotProps={{ htmlInput: { 'aria-label': label } }}
+        onChange={(e) => store.set(ck, e.target.value)}
+        onKeyDown={(e) => {
+          if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd') {
+            e.preventDefault();
+            onFillDown(v);
+          }
+        }}
+        sx={missing ? SX_CELL_MISSING : SX_CELL}
+      />
+      {isOverride && !disabled && !reverted && (
+        <Tooltip title="Revert to the inherited value">
+          <IconButton size="small" onClick={onRevert} aria-label={`Revert ${label} to inherited`} sx={{ p: 0.25 }}>
+            <RestartAltRounded sx={{ fontSize: 12 }} />
+          </IconButton>
+        </Tooltip>
+      )}
+    </Box>
   );
 });
 
@@ -192,11 +267,14 @@ const DashCell = memo(function DashCell() {
 
 // ── one row ─────────────────────────────────────────────────────────────────
 
-const ParameterGridRow = memo(function ParameterGridRow({ store, row, columns, disabled }: {
+const ParameterGridRow = memo(function ParameterGridRow({ store, row, rowIndex, columns, disabled, onFillDown }: {
   store: EditStore;
   row: ParameterRow;
+  /** This row's position in `grid.rows` — fill-down copies into every row AFTER this one. */
+  rowIndex: number;
   columns: ParameterColumn[];
   disabled: boolean;
+  onFillDown: (fieldKey: string, fromIndex: number, value: string) => void;
 }) {
   // `required` is a short array but it was scanned once per cell per render;
   // a Set built once per row keeps the row's own render linear in its columns.
@@ -227,7 +305,12 @@ const ParameterGridRow = memo(function ParameterGridRow({ store, row, columns, d
               store={store}
               ck={cellKey(row.itemId, c.fieldKey)}
               base={String(row.values[c.fieldKey] ?? '')}
+              inherited={String(row.inherited?.[c.fieldKey] ?? '')}
               disabled={disabled}
+              label={`${row.name ?? row.code ?? 'Row'} — ${c.label}`}
+              isOverride={row.from?.[c.fieldKey] === 'order_item'}
+              onFillDown={(value) => onFillDown(c.fieldKey, rowIndex, value)}
+              onRevert={() => store.revert(cellKey(row.itemId, c.fieldKey))}
             />
           </Box>
         ) : (
@@ -274,7 +357,8 @@ function DirtyBar({ store, saving, onDiscard, onSave }: {
 export default function OrderParameters({ orderId, canManage, onStageChanged, only }: {
   orderId: number;
   canManage: boolean;
-  onStageChanged?: () => void;
+  /** Fired after a save/import, with the readiness the write returned when it has one (S3). */
+  onStageChanged?: (readiness?: OrderReadiness) => void;
   /**
    * Which half of the grid this is. 'dims' is the rectangle, on its own step
    * before nesting; 'rest' is everything else a flow asks for, after it.
@@ -313,10 +397,30 @@ export default function OrderParameters({ orderId, canManage, onStageChanged, on
 
   const discard = useCallback(() => { store.clear(); }, [store]);
 
+  /**
+   * Ctrl+D (item 7): copy a cell's current value into every row below it, in
+   * the same column, that this grid actually asks the value of. Walks
+   * `grid.rows` in the order the table renders them — the same order a person
+   * fills a spreadsheet column down in — not the order-line or similarity
+   * scope specifically, since a girder run is normally one contiguous block
+   * of rows in that order already.
+   */
+  const fillDown = useCallback((fieldKey: string, fromIndex: number, value: string) => {
+    if (!grid) return;
+    for (let i = fromIndex + 1; i < grid.rows.length; i += 1) {
+      const r = grid.rows[i];
+      if (!r.required.includes(fieldKey)) continue;
+      store.set(cellKey(r.itemId, fieldKey), value);
+    }
+  }, [grid, store]);
+
   const save = useCallback(async () => {
+    // `v === null` is an explicit revert (item 13); every other stored value
+    // is a non-blank typed string (`store.set` never keeps a blanked cell —
+    // see `EditValue`), so no separate blank check is needed here.
     const list: ParameterEdit[] = store.entries().map(([k, v]) => {
       const [idStr, fieldKey] = k.split(':');
-      return { itemId: Number(idStr), fieldKey, value: v.trim() === '' ? null : v.trim() };
+      return { itemId: Number(idStr), fieldKey, value: v === null ? null : v.trim() };
     });
     if (!list.length) return;
     setSaving(true); setError('');
@@ -331,7 +435,7 @@ export default function OrderParameters({ orderId, canManage, onStageChanged, on
         'success',
       );
       await load();
-      onStageChanged?.();
+      onStageChanged?.(res.readiness);
     } catch (e) {
       setError(backendMessage(e, 'Could not save the parameters.'));
     } finally { setSaving(false); }
@@ -360,7 +464,7 @@ export default function OrderParameters({ orderId, canManage, onStageChanged, on
         setError(`${res.warnings.length} row(s) skipped: ${res.warnings.slice(0, 3).map((w) => w.message).join(' ')}`);
       }
       await load();
-      onStageChanged?.();
+      onStageChanged?.(res.readiness);
     } catch (e) {
       setError(backendMessage(e, 'Could not import that sheet.'));
     } finally {
@@ -454,28 +558,50 @@ export default function OrderParameters({ orderId, canManage, onStageChanged, on
         )}
       </Box>
 
+      {/*
+        * Blank-cell semantics, stated once rather than left to guesswork
+        * (item 7 — must match EU-9's decision, and the sheet). A blank cell
+        * here, and a blank cell in the exported sheet, both mean "leave this
+        * value as it is" — not "clear it to nothing". Clearing a value for
+        * real is what the small revert icon next to an overridden cell does.
+        */}
+      <Typography sx={{ fontSize: 11.5, color: 'var(--c-text-3)', mb: 1.5 }}>
+        A blank cell — here or in the exported sheet — means no change, not a cleared value.
+        Select a cell and press Ctrl+D to fill its value into the rows below it.
+      </Typography>
+
       <Box sx={{ overflowX: 'auto', border: '1px solid var(--c-border)', borderRadius: 'var(--r-md)' }}>
         <Box component="table" sx={{ borderCollapse: 'collapse', width: '100%', fontSize: 13 }}>
           <Box component="thead">
-            <Box component="tr" sx={{ bgcolor: 'var(--c-surface-2)' }}>
-              <Box component="th" sx={{ textAlign: 'left', p: 1, position: 'sticky', left: 0, bgcolor: 'var(--c-surface-2)', minWidth: 260 }}>
+            {/* The same caps-label header the structure table draws (StructureColumnHeader),
+                so the two grids a person fills in read as one family. */}
+            <Box component="tr" sx={{ bgcolor: 'var(--c-surface-2)', borderBottom: '1px solid var(--c-border)' }}>
+              <Box component="th" sx={{
+                textAlign: 'left', px: 1.5, py: 0.75, position: 'sticky', left: 0, bgcolor: 'var(--c-surface-2)', minWidth: 260,
+                fontSize: 10.5, fontWeight: 600, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--c-text-3)',
+              }}>
                 Part
               </Box>
               {grid.columns.map((c) => (
-                <Box component="th" key={c.fieldKey} sx={{ textAlign: 'left', p: 1, whiteSpace: 'nowrap' }}>
-                  {c.label}{c.unit ? <Typography component="span" sx={{ fontSize: 11, color: 'var(--c-text-3)' }}> ({c.unit})</Typography> : null}
+                <Box component="th" key={c.fieldKey} sx={{
+                  textAlign: 'right', px: 1.5, py: 0.75, whiteSpace: 'nowrap',
+                  fontSize: 10.5, fontWeight: 600, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--c-text-3)',
+                }}>
+                  {c.label}{c.unit ? <Typography component="span" sx={{ fontSize: 10.5, color: 'var(--c-text-3)', textTransform: 'none', letterSpacing: 0 }}> ({c.unit})</Typography> : null}
                 </Box>
               ))}
             </Box>
           </Box>
           <Box component="tbody">
-            {grid.rows.map((r) => (
+            {grid.rows.map((r, i) => (
               <ParameterGridRow
                 key={r.itemId}
                 store={store}
                 row={r}
+                rowIndex={i}
                 columns={grid.columns}
                 disabled={!canManage}
+                onFillDown={fillDown}
               />
             ))}
           </Box>

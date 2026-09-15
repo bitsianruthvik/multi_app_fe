@@ -86,6 +86,8 @@ export interface FieldVocabulary {
   units: Array<{ code: string; dimension: string; baseCode: string; factorToBase: string; label: string }>;
   unitGroups: Array<{ group: string; values: FieldVocabulary['units'] }>;
   rungs: FieldScope[];
+  /** The rungs a `fab_fields` row's own `applies_at` column may hold — a strict subset of `rungs`. */
+  appliesAt: Array<{ value: FieldScope; label: string; hint: string }>;
   levels: Array<{ value: FieldScope; label: string; hint: string }>;
   unitsAreConverted: boolean;
 }
@@ -325,21 +327,11 @@ export async function ensureFieldDef(
   await fabMutate('fabErpField', 'insert', {
     field_key: key,
     ...payload,
-    // Text can never reach a formula — the engine coerces with Number(), so it
-    // yields NaN and the whole duration silently becomes null.
-    formula_usable: input.type === 'number' ? 1 : 0,
-    /**
-     * The loosest rung, on purpose.
-     *
-     * `applies_at` names the NARROWEST rung a value may be set on, and it is
-     * enforced on write — a field declared `order_item` cannot ever take a
-     * value on a stock piece. The catalog editor has no honest way to ask that
-     * question about a field somebody is inventing right now, and a write
-     * refused for a reason the screen never mentioned is worse than a value
-     * recorded one rung lower than ideal. Tighten it on Item fields, where the
-     * question is asked properly.
-     */
-    applies_at: 'stock_piece',
+    // `formula_usable` and `applies_at` are deliberately absent: `fab_fields`
+    // defaults them itself (1, and the loosest rung 'catalog_item') and the
+    // catalog editor has no honest way to pick either for a field somebody is
+    // inventing right now. Tighten both on Item fields (ItemMetrics.tsx),
+    // where the question is asked properly.
     active: 1,
     category_id: opts.scope?.categoryId ?? null,
     group_id: opts.scope?.groupId ?? null,
@@ -356,7 +348,13 @@ export async function ensureFieldDef(
  * with no units, and the next person "fixes" it by typing them in by hand.
  */
 const FALLBACK_VOCABULARY: FieldVocabulary = {
-  dataTypes: [],
+  dataTypes: [
+    { value: 'number', label: 'Number' },
+    { value: 'integer', label: 'Integer' },
+    { value: 'text', label: 'Text' },
+    { value: 'date', label: 'Date' },
+    { value: 'bool', label: 'Yes / No' },
+  ],
   units: [
     { code: 'mm', dimension: 'length', baseCode: 'm', factorToBase: '0.001', label: 'Millimetre' },
     { code: 'm', dimension: 'length', baseCode: 'm', factorToBase: '1', label: 'Metre' },
@@ -365,7 +363,14 @@ const FALLBACK_VOCABULARY: FieldVocabulary = {
   ],
   unitGroups: [],
   rungs: ['category', 'group', 'subgroup', 'catalog_item', 'order_item', 'stock_piece'],
-  levels: [],
+  appliesAt: [
+    { value: 'order_item', label: 'Same for every piece', hint: 'thickness, grade, model' },
+    { value: 'stock_piece', label: 'Differs per piece', hint: 'length, heat number, serial' },
+  ],
+  levels: [
+    { value: 'order_item', label: 'Same for every piece', hint: 'Thickness, grade, model' },
+    { value: 'stock_piece', label: 'Differs per piece', hint: 'Length, heat number, serial' },
+  ],
   unitsAreConverted: true,
 };
 

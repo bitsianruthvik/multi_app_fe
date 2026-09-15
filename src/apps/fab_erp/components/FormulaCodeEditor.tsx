@@ -72,6 +72,60 @@ function findUnknownVars(text: string, known: Set<string>, lintable: Set<string>
   return out;
 }
 
+// ── input.*/inputs.* — what a task CONSUMES (formulaEngine.js) ──────────────
+/**
+ * `input.<role>.<field>` and `inputs.<fn>(<field>)` were entirely invisible to
+ * this editor — no autocomplete, no red underline for a typo'd field — because
+ * `identRe` only ever knew about `machine|item|step|op`. The ROLES here mirror
+ * `formulaEngine.js`'s own `KNOWN_INPUT_ROLES` — that file's own comment
+ * admits there is no registry table for it either, so this is kept in sync by
+ * hand on both sides, the same way. The FIELD half is not a second hardcoded
+ * list: it is validated against the very same `variables.item` keys the
+ * server already sends, since `input.<role>.<field>` addresses the identical
+ * formula-usable field registry `item.<field>` does.
+ */
+const INPUT_ROLES = ['raw_material', 'child_parts'];
+const INPUT_AGG_FNS = ['sum', 'avg', 'max', 'min'];
+
+interface InputProblem { from: number; to: number; token: string; message: string }
+
+function scanInputProblems(text: string, knownFieldKeys: Set<string>): InputProblem[] {
+  const out: InputProblem[] = [];
+  const chain = /\binput\.([a-zA-Z_]\w*)\.([a-zA-Z_]\w*)\b/g;
+  let m: RegExpExecArray | null;
+  while ((m = chain.exec(text)) !== null) {
+    const [full, role, field] = m;
+    if (!INPUT_ROLES.includes(role)) {
+      out.push({
+        from: m.index, to: m.index + full.length, token: full,
+        message: `Unknown input role "input.${role}" — expected one of: ${INPUT_ROLES.join(', ')}.`,
+      });
+    } else if (!knownFieldKeys.has(field)) {
+      out.push({
+        from: m.index, to: m.index + full.length, token: full,
+        message: `input.${role}.${field} — "${field}" is not a known, formula-usable field.`,
+      });
+    }
+  }
+  const agg = /\binputs\.([a-zA-Z_]\w*)(?:\(([a-zA-Z_]\w*)\))?/g;
+  while ((m = agg.exec(text)) !== null) {
+    const [full, fn, field] = m;
+    if (fn === 'count') continue; // no field — always structurally valid
+    if (!INPUT_AGG_FNS.includes(fn)) {
+      out.push({
+        from: m.index, to: m.index + full.length, token: full,
+        message: `Unknown aggregate "inputs.${fn}" — expected one of: ${INPUT_AGG_FNS.join(', ')}, count.`,
+      });
+    } else if (field && !knownFieldKeys.has(field)) {
+      out.push({
+        from: m.index, to: m.index + full.length, token: full,
+        message: `inputs.${fn}(${field}) — "${field}" is not a known, formula-usable field.`,
+      });
+    }
+  }
+  return out;
+}
+
 // ── Props ─────────────────────────────────────────────────────────────────────
 
 interface Props {
@@ -119,6 +173,16 @@ export default function FormulaCodeEditor({
     return keys;
   }, [variables, stepVars, opVars]);
 
+  /**
+   * `input.<role>.<field>`'s field half, taken from the SAME server-sourced
+   * `variables.item` list rather than a second local copy — this is what makes
+   * "the server's variable list" the source of truth for input.* too.
+   */
+  const knownFieldKeys = useMemo(
+    () => new Set(variables.item.map((v) => v.key.replace(/^item\./, ''))),
+    [variables.item],
+  );
+
   // Namespaces we hold a catalogue for, and may therefore judge. A caller that
   // passes no `stepVars` is saying "no step context here", not "this step has no
   // variables" — underlining step.* on that basis would flag names the server's
@@ -134,6 +198,7 @@ export default function FormulaCodeEditor({
   // Keep latest refs so the CodeMirror extensions (created once on mount) can
   // always access the current values without re-creating the editor.
   const knownKeysRef  = useRef(knownKeys);
+  const knownFieldKeysRef = useRef(knownFieldKeys);
   const lintableRef   = useRef(lintable);
   const variablesRef  = useRef(variables);
   const stepVarsRef   = useRef(stepVars);
@@ -141,6 +206,7 @@ export default function FormulaCodeEditor({
   const onChangeRef   = useRef(onChange);
 
   useEffect(() => { knownKeysRef.current  = knownKeys;   }, [knownKeys]);
+  useEffect(() => { knownFieldKeysRef.current = knownFieldKeys; }, [knownFieldKeys]);
   useEffect(() => { lintableRef.current   = lintable;    }, [lintable]);
   useEffect(() => { variablesRef.current  = variables;   }, [variables]);
   useEffect(() => { stepVarsRef.current   = stepVars;    }, [stepVars]);
@@ -149,10 +215,10 @@ export default function FormulaCodeEditor({
 
   // Report the same set the linter paints. Memoised, so the effect below fires
   // only when the set actually changes rather than on every keystroke.
-  const unknownList = useMemo(
-    () => findUnknownVars(value, knownKeys, lintable),
-    [value, knownKeys, lintable],
-  );
+  const unknownList = useMemo(() => {
+    const inputTokens = scanInputProblems(value, knownFieldKeys).map((p) => p.token);
+    return [...findUnknownVars(value, knownKeys, lintable), ...new Set(inputTokens)];
+  }, [value, knownKeys, lintable, knownFieldKeys]);
   const onUnknownVarsRef = useRef(onUnknownVars);
   useEffect(() => { onUnknownVarsRef.current = onUnknownVars; }, [onUnknownVars]);
   useEffect(() => { onUnknownVarsRef.current?.(unknownList); }, [unknownList]);
@@ -191,6 +257,20 @@ export default function FormulaCodeEditor({
           detail: 'operation variable',
           type:   'variable' as const,
         })),
+        // input.<role>.<field> — what this task consumes, by role. The field
+        // half is the SAME registry `item.*` already came from above, not a
+        // separate list, so a field renamed there is renamed here too.
+        ...INPUT_ROLES.flatMap((role) => vars.item.map((v) => ({
+          label:  `input.${role}.${v.key.replace(/^item\./, '')}`,
+          detail: v.unit ? `${v.label} (${v.unit})` : v.label,
+          type:   'variable' as const,
+        }))),
+        { label: 'inputs.count', detail: 'number of inputs', type: 'function' as const },
+        ...INPUT_AGG_FNS.map((fn) => ({
+          label:  `inputs.${fn}(`,
+          detail: `${fn} of a field across every input`,
+          type:   'function' as const,
+        })),
         {
           label:  'IF(condition, true_val, false_val)',
           detail: 'conditional expression',
@@ -221,6 +301,12 @@ export default function FormulaCodeEditor({
           severity: 'error',
           message:  `Unknown variable: ${token}`,
         });
+      }
+      // input.*/inputs.* — always checked, unlike step./op. above, since a
+      // role and an aggregate function are facts about the engine itself, not
+      // about the step or operation being edited.
+      for (const p of scanInputProblems(text, knownFieldKeysRef.current)) {
+        diagnostics.push({ from: p.from, to: p.to, severity: 'error', message: p.message });
       }
       return diagnostics;
     });

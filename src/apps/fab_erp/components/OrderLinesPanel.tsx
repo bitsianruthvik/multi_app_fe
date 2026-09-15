@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert, Autocomplete, Box, Button, CircularProgress, Dialog, DialogActions,
   DialogContent, DialogTitle, IconButton, MenuItem, TextField, Tooltip, Typography,
@@ -11,23 +11,12 @@ import ExpandMoreRounded from '@mui/icons-material/ExpandMoreRounded';
 import ChevronRightRounded from '@mui/icons-material/ChevronRightRounded';
 
 import api, { API_HOST } from '@core/utils/axiosConfig';
-import { fabQuery, fabMutate } from '../api/client';
-import { Surface, EmptyState, useToast, Mono, backendMessage } from '../components';
-import StructureEditor from './StructureEditor';
+import { fabMutate } from '../api/client';
+import { getOrderLines, getSellableItems, type OrderLineRow, type SellableItem } from '../api/catalog';
+import { Surface, EmptyState, useToast, Mono, backendMessage, ConfirmDialog } from '../components';
+import StructureEditor, { StructureColumnHeader, type StructureSaveResult } from './StructureEditor';
 import { DialogCloseButton } from './FormDialog';
-
-/**
- * A catalog item as the line picker needs it: what it is, and enough taxonomy
- * to tell two similarly-named things apart in a list.
- */
-interface CatalogOption {
-  id: number;
-  name: string;
-  code: string | null;
-  categoryName?: string | null;
-  groupName?: string | null;
-  subgroupName?: string | null;
-}
+import type { OrderReadiness } from '../api/readiness';
 
 /**
  * Step 1: what this order is selling, AND what each of those is made of.
@@ -46,55 +35,74 @@ interface CatalogOption {
  * then answering on another is what let the answer go missing for the second
  * line without anyone noticing.
  *
- * So a line is a card, and its BOM is inside the card. Two lines, two BOMs, each
- * expandable, each editable where it sits.
+ * So a line is a card, and its BOM is inside the card. ONE LINE OPEN AT A TIME
+ * (EU-17 item 7) — a card that opens with the whole recipe under it is long
+ * enough that two open together meant scrolling past one to see the other.
  *
  * A line used to be a catalog item. It cannot be — the item catalog holds raw
  * materials and consumables, and nobody is going to add "42m span composite
  * girder" to it, because every job is one-off and the catalog would be a
- * catalog of one. So a line is free text: a code the user types, a description,
- * a structure type and a quantity.
- *
- * THE CODE IS LOAD-BEARING. It becomes the top level of the BOM sheet, and is
- * how each row of that sheet finds the line it belongs to — which is in turn
- * how a line can report its own progress. Hence required, uppercased, and
- * checked for duplicates before the write rather than after.
+ * catalog of one. So a line is free text: a description the user types, a
+ * structure type derived from the item, and a quantity.
  *
  * No date and no plant here. Both belong to the order: two places to answer one
  * question is two chances to disagree, and it is the order's answer that anyone
  * downstream acts on.
  */
 
-/** What a line SAYS its steel is — its own stated values, not resolved ones. */
-interface LineSpec { material: string | null; grade: string | null }
-
+/** Kept for callers outside this file that only ever read `.length` off it (SalesOrderDetail.tsx). */
 export interface FabOrderLine {
   id: number; orderId: number; lineNo: number;
   code?: string | null; description?: string | null; lineType?: string | null;
   qty: number; unit?: string | null; unitPrice?: number | null;
   qtyCompleted?: number | null;
-  /** What it was sold AS — needed to re-open the picker on the right item. */
   templateItemId?: number | null; catalogItemId?: number | null;
 }
 
-export default function OrderLinesPanel({ orderId, canManage, onChanged }: {
+export default function OrderLinesPanel({
+  orderId, canManage, onChanged, onDirtyChange, revisionReason, expandLineId,
+}: {
   orderId: number;
   canManage: boolean;
-  /** Fired after any write, so a wizard rail or order page can catch up. */
-  onChanged?: () => void;
+  /** Fired after any write, with the readiness the write returned when it has one. */
+  onChanged?: (readiness?: OrderReadiness) => void;
+  /**
+   * Fired whenever ANY open line's structure has unsaved edits. `SalesOrderWizard`
+   * does not consume this yet (EU-17 cannot edit that file — flagged for EU-19);
+   * it exists so closing the wizard or switching steps can eventually ask first.
+   * This panel already guards its OWN actions that would discard those edits
+   * (switching which line is open, and the browser tab closing).
+   */
+  onDirtyChange?: (dirty: boolean) => void;
+  /**
+   * Set while the wizard is reopened in revision mode (P4/decision-4): every
+   * `StructureEditor` this panel mounts must carry it, so a structure apply on
+   * a non-draft order records it against `fab_order_structure_revisions`
+   * instead of 400ing with `REVISION_REASON_REQUIRED`. Undefined on a draft
+   * order.
+   */
+  revisionReason?: string;
+  /**
+   * "Where is this part" (X1) — set to a line id to open that line's card and
+   * scroll it into view, collapsing whichever other line was open (EU-17's
+   * one-open-at-a-time rule). `SalesOrderWizard`'s `BlankNesting.onGoToStructure`
+   * resolves the item's line and hands it here.
+   */
+  expandLineId?: number | null;
 }) {
   const { toast } = useToast();
-  const [lines, setLines] = useState<FabOrderLine[]>([]);
+  const [lines, setLines] = useState<OrderLineRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  /** Which line cards are open. A line you just added opens itself. */
-  const [openLines, setOpenLines] = useState<Record<number, boolean>>({});
-  const [treeVersion, setTreeVersion] = useState(0);
+  /** Which line's card is open — ONE AT A TIME (item 7). Null until the first load picks one. */
+  const [openLineId, setOpenLineId] = useState<number | null>(null);
+  /** Unsaved-edit state per line, reported by that line's own `StructureEditor`. */
+  const [dirtyByLine, setDirtyByLine] = useState<Record<number, boolean>>({});
+  const [discardPrompt, setDiscardPrompt] = useState<{ from: number; to: number | null } | null>(null);
 
   const [description, setDescription] = useState('');
   const [qty, setQty] = useState('1');
-  const [lineType, setLineType] = useState('');
   const [unitPrice, setUnitPrice] = useState('');
   /**
    * WHAT THE STEEL IS, stated once for the whole line.
@@ -136,7 +144,6 @@ export default function OrderLinesPanel({ orderId, canManage, onChanged }: {
       : [...new Set(Object.values(steel.byMaterial).flat())].sort(),
     [steel],
   );
-  const [spec, setSpec] = useState<Record<number, LineSpec>>({});
   /**
    * EDITING A LINE, not just its steel.
    *
@@ -146,67 +153,132 @@ export default function OrderLinesPanel({ orderId, canManage, onChanged }: {
    * 1 to 2" meant losing 32 rows and rebuilding them.
    */
   const [editLine, setEditLine] = useState<{
-    line: FabOrderLine; item: CatalogOption | null;
+    line: OrderLineRow; item: SellableItem | null;
     description: string; qty: string; unitPrice: string; material: string; grade: string;
   } | null>(null);
-  /** How many structure rows hang off each line — a warning before changing the item. */
-  const [builtRows, setBuiltRows] = useState<Record<number, number>>({});
   const [savingSpec, setSavingSpec] = useState(false);
   const [adding, setAdding] = useState(false);
-  const [delLine, setDelLine] = useState<FabOrderLine | null>(null);
+  const [delLine, setDelLine] = useState<OrderLineRow | null>(null);
+  /** A delete refused with 409 LINE_HAS_STRUCTURE — the count it carried. */
+  const [cascadeConfirm, setCascadeConfirm] = useState<{ line: OrderLineRow; count: number } | null>(null);
 
+  /**
+   * ONE ROUND TRIP (EU-17 item — was 2N+2: one query for the lines, N for
+   * "how many rows are built under it", N for "what steel did this line
+   * state"). `GET /orders/:id/lines` (EU-15) batches all three per line
+   * server-side.
+   */
   const load = useCallback(async () => {
     try {
-      const res = await fabQuery<{ data: FabOrderLine[] }>('fabErpOrderLine', {
-        filters: { orderId },
-        orderBy: [{ field: 'lineNo', direction: 'asc' }],
-        pagination: { limit: 500 },
-      });
-      const rows = res.data ?? [];
+      const rows = await getOrderLines(orderId);
       setLines(rows);
-      // What is already built under each line, so changing the item can say what
-      // it would strand rather than doing it silently.
-      Promise.all(rows.map((l) => fabQuery<{ total?: number | null }>('fabErpItem', {
-        fields: ['id'], filters: { orderLineId: l.id, nodeKind: 'structure' }, pagination: { limit: 1 }, includeTotal: true,
-      }).then((r) => [l.id, r.total ?? 0] as const).catch(() => [l.id, 0] as const)))
-        .then((pairs) => setBuiltRows(Object.fromEntries(pairs)));
-      // One call per line, but there are a handful of lines on an order — and
-      // each asks what that LINE states, which no list endpoint answers.
-      const specs = await Promise.all(rows.map((l) => api
-        .get<LineSpec>(`${specBase()}/spec/lines/${l.id}`)
-        .then((r) => [l.id, { material: r.data.material, grade: r.data.grade }] as const)
-        .catch(() => [l.id, { material: null, grade: null }] as const)));
-      setSpec(Object.fromEntries(specs));
+      setOpenLineId((cur) => (cur != null && rows.some((r) => r.id === cur) ? cur : rows[0]?.id ?? null));
     } catch (e) {
       setError(backendMessage(e, 'Could not load line items.'));
     } finally { setLoading(false); }
   }, [orderId]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { void load(); }, [load]);
+
+  const anyDirty = useMemo(() => Object.values(dirtyByLine).some(Boolean), [dirtyByLine]);
+  useEffect(() => { onDirtyChange?.(anyDirty); }, [anyDirty, onDirtyChange]);
+  /** The one guard EU-17 CAN wire without touching `SalesOrderWizard.tsx` — a real tab close/refresh. */
+  useEffect(() => {
+    if (!anyDirty) return;
+    const handler = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ''; };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, [anyDirty]);
 
   /**
-   * The spec routes hang off the APP root, not off `/orders/:orderId` — they
-   * identify a line by its id alone, the same way the flow route does.
+   * Switch which line's card is open. Guarded: leaving a dirty line behind —
+   * by opening a different one, or by collapsing it — would silently discard
+   * whatever it holds, since its `StructureEditor` unmounts (X4).
    */
+  const requestOpen = useCallback((lineId: number) => {
+    const next = openLineId === lineId ? null : lineId;
+    if (openLineId != null && dirtyByLine[openLineId]) {
+      setDiscardPrompt({ from: openLineId, to: next });
+      return;
+    }
+    setOpenLineId(next);
+  }, [openLineId, dirtyByLine]);
+
+  const confirmDiscardAndSwitch = useCallback(() => {
+    if (!discardPrompt) return;
+    setDirtyByLine((d) => ({ ...d, [discardPrompt.from]: false }));
+    setOpenLineId(discardPrompt.to);
+    setDiscardPrompt(null);
+  }, [discardPrompt]);
+
+  /**
+   * JUMP TO A LINE (X1's "where is this part", the other half of
+   * `BlankNesting.onGoToStructure`). This is a navigation the caller asked
+   * for, not an edit the user is choosing to abandon, so — unlike
+   * `requestOpen` — it does not go through the discard prompt; it simply
+   * opens the target line (collapsing whatever else was open, per the
+   * one-open-at-a-time rule) and scrolls its card into view once the DOM has
+   * it, which is why the scroll waits a frame.
+   */
+  const appliedExpandLineIdRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (expandLineId == null) return;
+    if (appliedExpandLineIdRef.current === expandLineId) return; // already applied — a later reload() must not reopen/rescroll
+    if (!lines.some((l) => l.id === expandLineId)) return; // not loaded yet
+    appliedExpandLineIdRef.current = expandLineId;
+    setOpenLineId(expandLineId);
+    const id = window.requestAnimationFrame(() => {
+      document.getElementById(`order-line-${expandLineId}`)
+        ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+    return () => window.cancelAnimationFrame(id);
+  }, [expandLineId, lines]);
+
   /**
    * HOW MANY OF THIS LINE, typed where it is read.
    *
-   * The BOM rows beneath take their quantity in a box on the row; the line took
-   * its own behind a pencil and a dialog. Same question, two different gestures,
-   * on one screen — and the line's quantity is the one that multiplies
-   * everything under it, so it is the last one that should be hard to reach.
-   *
-   * Saved on blur and only when it actually changed, matching the rows.
+   * CONTROLLED, not the box's own DOM value (item 8) — the box used to be
+   * uncontrolled and `saveQty` returned early on a rejected number, so a typed
+   * "0" or a typed "-3" stayed on screen looking accepted while the server had
+   * refused it. This is also the value decision 3 now multiplies everything
+   * under the line by, so it must never show one the server did not agree to.
    */
-  const saveQty = useCallback(async (lineId: number, raw: string) => {
+  const [qtyDrafts, setQtyDrafts] = useState<Record<number, string>>({});
+  const [qtyErrors, setQtyErrors] = useState<Record<number, string>>({});
+  const qtyValueFor = (line: OrderLineRow) => qtyDrafts[line.id] ?? String(Number(line.qty ?? 1));
+
+  /**
+   * Returns whether the qty landed (write succeeded, or the typed number
+   * already matched — a no-op). `StructureEditor`'s root-row qty box calls
+   * this SAME function (via `onSaveLineQty` below) so the tree's "quantity
+   * of this line" editing and the line card's own box share one write path,
+   * one validation, and one readiness refresh.
+   */
+  const saveQty = useCallback(async (line: OrderLineRow, raw: string): Promise<boolean> => {
     const n = Number(raw);
-    if (!Number.isFinite(n) || n <= 0) return;
+    if (!Number.isFinite(n) || n <= 0) {
+      setQtyErrors((e) => ({ ...e, [line.id]: 'Must be a positive number' }));
+      setQtyDrafts((d) => ({ ...d, [line.id]: raw })); // keep what was typed, marked invalid
+      return false;
+    }
+    if (n === Number(line.qty ?? 1)) {
+      setQtyDrafts((d) => omitKey(d, line.id));
+      setQtyErrors((e) => omitKey(e, line.id));
+      return true;
+    }
     try {
-      await fabMutate('fabErpOrderLine', 'update', { id: lineId, qty: n });
+      await fabMutate('fabErpOrderLine', 'update', { id: line.id, qty: n });
+      setQtyErrors((e) => omitKey(e, line.id));
+      setQtyDrafts((d) => omitKey(d, line.id));
       await load();
       onChanged?.();
+      return true;
     } catch (e) {
-      setError(backendMessage(e, 'Could not change that quantity.'));
+      // REJECTED — revert to the server's own value rather than leaving the
+      // typed one on screen looking accepted.
+      setQtyDrafts((d) => omitKey(d, line.id));
+      setQtyErrors((er) => ({ ...er, [line.id]: backendMessage(e, 'Could not change that quantity.') }));
+      return false;
     }
   }, [load, onChanged]);
 
@@ -221,13 +293,14 @@ export default function OrderLinesPanel({ orderId, canManage, onChanged }: {
         qty: Number(e.qty) || 1,
         unit_price: e.unitPrice ? Number(e.unitPrice) : null,
         /*
-         * All three move together or none does — they were always one fact.
          * Sent even when unchanged so a line that predates the picker acquires
-         * them the first time somebody edits it.
+         * it the first time somebody edits it. `line_type` is NOT sent — the
+         * server derives it from the item's own group the moment
+         * `catalog_item_id` is part of the write (`deriveOrderLineType`,
+         * EU-15), so a client-typed value could only ever disagree with it.
          */
         catalog_item_id: e.item?.id ?? null,
         template_item_id: e.item?.id ?? null,
-        line_type: e.item?.groupName ?? e.line.lineType ?? null,
       });
       // The steel is its own route: it is a field value on the line, not a
       // column, so the generic update cannot carry it.
@@ -246,61 +319,22 @@ export default function OrderLinesPanel({ orderId, canManage, onChanged }: {
   /**
    * WHAT IS BEING SOLD, picked from the catalog rather than typed twice.
    *
-   * This replaced a "Structure type" dropdown reading a hardcoded list, which
-   * was the third place one fact was recorded: a line already carried
-   * `catalog_item_id` and `template_item_id` holding the SAME number, beside a
-   * `line_type` string holding that item's category. The picker sets the item;
-   * the other two are derived from it.
-   *
-   * Raw materials are excluded. A plate is stock you consume, not a line you
-   * sell, and 1,426 of the 1,536 catalog items are plates and angles — leaving
-   * them in makes the search a raw-material search with a few girders lost in
-   * it. Anything else is offered, so selling a single fabricated part still
-   * works.
+   * `getSellableItems` (EU-15) is the server's own rule for "what may a line
+   * sell" — Fabricated-category items only — replacing a client-side
+   * `categoryId` filter that silently returned the WRONG set once the
+   * category list ran past its own page limit. On THIS company it currently
+   * returns nothing (no category is named "Fabricated" locally, see below);
+   * that is a data-setup gap, not a bug in the picker, so the empty state
+   * says so rather than the Autocomplete just looking broken.
    */
-  const [catalog, setCatalog] = useState<CatalogOption[]>([]);
-  const [item, setItem] = useState<CatalogOption | null>(null);
+  const [sellable, setSellable] = useState<SellableItem[]>([]);
+  const [sellableLoaded, setSellableLoaded] = useState(false);
   useEffect(() => {
-    /**
-     * THE EXCLUSION IS THE SERVER'S JOB, and doing it here cost the screen its
-     * answer. Filtering after a `limit: 1000` filters what the limit LEFT: the
-     * first thousand names run out inside the angle sections, at
-     * "ISA 75 x 75 x 10 x 9000", so 42 of the 104 fabricated items ever reached
-     * the browser and searching "Span" found only BowString Span — everything
-     * from S onwards had been cut before the filter ran.
-     */
-    /*
-     * Filtered on category_id, a column on the row itself, rather than on the
-     * joined category NAME — a filter-only column depends on the join being
-     * present, and a picker that silently returns the wrong set is the failure
-     * being fixed here, not one to risk again.
-     */
-    (async () => {
-      try {
-        const cats = await fabQuery<{ data: { id: number; name: string }[] }>('fabErpItemCategory', {
-          pagination: { limit: 200 },
-        });
-        /*
-         * FABRICATED ONLY. Excluding raw materials left machines, spares and
-         * consumables in the list, so the picker offered CNC Drilling, a Blast
-         * Nozzle and Zinc Wire as things to sell a customer. Naming what belongs
-         * rather than what does not also means a category added later has to be
-         * let in deliberately, instead of appearing in a picker by default.
-         */
-        const wanted = (cats.data ?? [])
-          .filter((c) => c.name === 'Fabricated')
-          .map((c) => c.id);
-        const r = await fabQuery<{ data: CatalogOption[] }>('fabErpItemCatalog', {
-          filters: wanted.length ? { categoryId: wanted } : {},
-          orderBy: [{ field: 'name', direction: 'asc' }],
-          pagination: { limit: 1000 },
-        });
-        setCatalog(r.data ?? []);
-      } catch { setCatalog([]); }
-    })();
+    getSellableItems().then(setSellable).catch(() => setSellable([])).finally(() => setSellableLoaded(true));
   }, []);
 
-  const pickItem = (picked: CatalogOption | null) => {
+  const [item, setItem] = useState<SellableItem | null>(null);
+  const pickItem = (picked: SellableItem | null) => {
     setItem(picked);
     if (!picked) return;
     // Only fill what is still blank — retyping over somebody's edit because
@@ -308,61 +342,48 @@ export default function OrderLinesPanel({ orderId, canManage, onChanged }: {
     setDescription((d) => (d.trim() ? d : picked.name));
   };
 
-  const lineNo = lines.length + 1;
+  // Not `lines.length + 1` (item 15): 1,2,3 minus a deleted 2 is length 2,
+  // which would reissue line 3 a second time. The highest number actually in
+  // use is what must never repeat.
+  const lineNo = lines.reduce((max, l) => Math.max(max, l.lineNo), 0) + 1;
 
   async function add() {
     if (!item || !qty) return;
     setAdding(true); setError('');
     try {
-      await fabMutate('fabErpOrderLine', 'insert', {
+      const res = await fabMutate<{ ok: boolean; id: number }>('fabErpOrderLine', 'insert', {
         order_id: orderId,
         line_no: lineNo,
         description: description.trim() || null,
         qty: Number(qty),
         /**
-         * ONE PICK, THREE COLUMNS — because all three were always the same
-         * fact. `catalog_item_id` is what was chosen, `template_item_id` is the
-         * BOM to expand and is the same item, and `line_type` is that item's
-         * group. Written together from one answer instead of asked three times
-         * and left to disagree.
+         * ONE PICK, TWO COLUMNS — `catalog_item_id` is what was chosen,
+         * `template_item_id` is the BOM to expand and is the same item.
+         * `line_type` is derived server-side from `catalog_item_id` the
+         * moment it is part of the write (EU-15 `deriveOrderLineType`).
          */
         catalog_item_id: item?.id ?? null,
         template_item_id: item?.id ?? null,
-        line_type: item?.groupName ?? lineType ?? null,
         unit_price: unitPrice ? Number(unitPrice) : null,
       });
       /**
        * The steel is a SECOND call, because a line has to exist before a field
-       * value can hang off it. Re-read to find the row just written rather than
-       * trusting an insertId the mutate API does not return.
+       * value can hang off it. `/mutate` insert returns `{ok, id}` (§13) —
+       * read the new row's id straight off the response rather than
+       * re-querying by line number.
        */
       if (material.trim() || grade.trim()) {
-        /**
-         * Found by LINE NUMBER, not by "newest id". The mutate API does not hand
-         * back the row it inserted, and ordering by id descending quietly
-         * returned nothing here — so the steel typed into the form was silently
-         * dropped and the line came out saying "not set".
-         *
-         * This used to key on the code, which is gone. `line_no` is written on
-         * the same insert and is one per line within an order, so it identifies
-         * the row just as reliably.
-         */
-        const fresh = await fabQuery<{ data: FabOrderLine[] }>('fabErpOrderLine', {
-          filters: { orderId },
-          pagination: { limit: 500 },
-        }).then((r) => (r.data ?? []).find((l) => Number(l.lineNo) === lineNo));
-        if (fresh) {
-          await api.post(`${specBase()}/spec/lines/${fresh.id}`, {
-            material: material.trim(), grade: grade.trim(),
-          });
-        }
+        await api.post(`${specBase()}/spec/lines/${res.id}`, {
+          material: material.trim(), grade: grade.trim(),
+        });
       }
-      // The item clears with the rest, or the next pick finds code and
-      // description already filled and leaves the previous line's values in place.
+      // The item clears with the rest, or the next pick finds the description
+      // already filled and leaves the previous line's values in place.
       setItem(null);
-      setDescription(''); setQty('1'); setLineType(''); setUnitPrice('');
+      setDescription(''); setQty('1'); setUnitPrice('');
       setMaterial(''); setGrade('');
       await load();
+      setOpenLineId(res.id); // a line you just added opens itself
       onChanged?.();
       toast('Line item added');
     } catch (e) {
@@ -370,17 +391,33 @@ export default function OrderLinesPanel({ orderId, canManage, onChanged }: {
     } finally { setAdding(false); }
   }
 
-  async function remove(line: FabOrderLine) {
+  async function remove(line: OrderLineRow, cascade = false) {
     try {
-      await fabMutate('fabErpOrderLine', 'delete', { id: line.id });
-      setDelLine(null);
+      await fabMutate('fabErpOrderLine', 'delete', { id: line.id, ...(cascade ? { cascade: true } : {}) });
+      setDelLine(null); setCascadeConfirm(null);
       await load();
       onChanged?.();
       toast('Line item removed');
     } catch (e) {
+      const res = (e as { response?: { status?: number; data?: { code?: string; detail?: { count?: number } } } }).response;
+      if (!cascade && res?.status === 409 && res.data?.code === 'LINE_HAS_STRUCTURE') {
+        setDelLine(null);
+        setCascadeConfirm({ line, count: res.data?.detail?.count ?? 0 });
+        return;
+      }
       setError(backendMessage(e, 'Could not remove the line.'));
     }
   }
+
+  const onStructureDone = useCallback((result?: StructureSaveResult) => {
+    // No treeVersion bump (item 12): `StructureEditor.doCreate` already
+    // re-baselines its own tree via `t.set(t.tree)` on a save, so forcing a
+    // remount here only bought a wasted `GET .../structure/tree`. The key
+    // below still remounts on the ACTUAL 'new'→'built' transition, via
+    // `rowsBuilt` changing once `load()` refreshes it.
+    void load();
+    onChanged?.(result?.readiness);
+  }, [load, onChanged]);
 
   if (loading) {
     return <Surface e={1} sx={{ p: 4, display: 'flex', justifyContent: 'center' }}><CircularProgress /></Surface>;
@@ -398,53 +435,58 @@ export default function OrderLinesPanel({ orderId, canManage, onChanged }: {
           }}>
             Add line item
           </Typography>
-          <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+
+          {sellableLoaded && sellable.length === 0 && (
+            <Alert severity="warning" sx={{ mb: 1.5 }}>
+              Nothing is set up to sell yet. A line is picked from the catalog's finished structures —
+              an item under a "Fabricated" category, or any item that heads a bill of materials. Add one
+              in the Item Catalog first.
+            </Alert>
+          )}
+
+          {/*
+            ONE BAR, NOT A FORM. What has to be chosen (the item) is wide and
+            first; the two numbers are narrow beside it; Add closes the row.
+            The steel — material and grade — is a second, quieter row that
+            appears once an item is picked, with ONE hint for the pair rather
+            than a helper line under every box (three helper lines made a
+            one-line bar a three-line block).
+          */}
+          <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', alignItems: 'center' }}>
             {/*
               THE ONE THING THAT HAS TO BE CHOSEN. It decides the structure, so
               it comes first and everything after it is a detail of this line.
             */}
             <Autocomplete
-              options={catalog}
+              options={sellable}
               value={item}
               onChange={(_, v) => pickItem(v)}
               getOptionLabel={(o) => o.name}
               isOptionEqualToValue={(a, b) => a.id === b.id}
-              sx={{ flex: '2 1 260px' }}
-              /**
-               * THE NAME LEADS, THE TAXONOMY DISAMBIGUATES.
-               *
-               * Five items are called some kind of "Span" and one of them is
-               * called just "Span" — the name alone cannot tell you which
-               * structure you are about to build. Category, group and subgroup
-               * underneath answer that without competing with the name for
-               * attention.
-               */
+              sx={{ flex: '2 1 280px' }}
+              disabled={sellable.length === 0}
               renderOption={(props, o) => (
                 <li {...props} key={o.id}>
                   <Box sx={{ py: 0.25 }}>
                     <Typography sx={{ fontSize: 13.5, fontWeight: 600 }}>{o.name}</Typography>
+                    {/* Several catalog items share a name (e.g. "Span") — the
+                        taxonomy is what actually tells them apart here. */}
                     <Typography sx={{ fontSize: 11, color: 'var(--c-text-3)' }}>
                       {[o.categoryName, o.groupName, o.subgroupName].filter(Boolean).join(' › ')}
-                      {o.code ? `  ·  ${o.code}` : ''}
+                      {o.code ? ` · ${o.code}` : ''}
                     </Typography>
                   </Box>
                 </li>
               )}
-              /**
-               * Typing matches the taxonomy too, so "composite" finds the Span
-               * that is only distinguishable by its group.
-               */
               filterOptions={(opts, { inputValue }) => {
                 const q = inputValue.trim().toLowerCase();
                 if (!q) return opts;
-                return opts.filter((o) => [
-                  o.name, o.code, o.categoryName, o.groupName, o.subgroupName,
-                ].filter(Boolean).join(' ').toLowerCase().includes(q));
+                return opts.filter((o) => [o.name, o.code].filter(Boolean).join(' ').toLowerCase().includes(q));
               }}
               renderInput={(params) => (
                 <TextField
-                  {...params} label="Item" size="small" required
-                  helperText="What you are selling — its BOM becomes the structure"
+                  {...params} label="Item to sell" size="small" required
+                  placeholder="Its BOM becomes the structure"
                 />
               )}
             />
@@ -453,54 +495,61 @@ export default function OrderLinesPanel({ orderId, canManage, onChanged }: {
 
               A line's code was the top level of every item code beneath it, and
               the BOQ sheet keyed its rows on it. Neither exists now: the BOM
-              step mints no codes, and the sheet is retired. What was left was a
-              required box that invented SPAN1 so it could be carried nowhere.
-
-              A line is identified by its number and what it is selling. Codes
-              come back at production-order time, on the pieces that need them.
+              step mints no codes, and the sheet is retired. A line is
+              identified by its number and what it is selling; codes come back
+              at production-order time, on the pieces that need them.
             */}
             <TextField
-              label="Qty" size="small" type="number" value={qty} sx={{ flex: '0 1 90px' }}
+              label="Qty" size="small" type="number" value={qty} sx={{ flex: '0 0 84px' }}
               onChange={(e) => setQty(e.target.value)}
+              slotProps={{ htmlInput: { min: 1, style: { fontFamily: 'var(--font-mono)', textAlign: 'right' } } }}
             />
             <TextField
-              label="Unit price" size="small" type="number" value={unitPrice} sx={{ flex: '0 1 120px' }}
+              label="Unit price" size="small" type="number" value={unitPrice} sx={{ flex: '0 0 128px' }}
               onChange={(e) => setUnitPrice(e.target.value)}
+              slotProps={{ htmlInput: { min: 0, style: { fontFamily: 'var(--font-mono)', textAlign: 'right' } } }}
             />
-            {/* The steel, stated once for everything under this line. Blank is
-                fine — a part can state its own, and nesting will ask for one
-                before it can choose a plate. */}
-            <TextField
-              select label="Material" size="small" value={material} sx={{ flex: '0 1 130px' }}
-              onChange={(e) => {
-                const next = e.target.value;
-                setMaterial(next);
-                // A grade that does not exist for the new material is not a
-                // choice somebody made — it is one they made about the old one.
-                if (next && grade && !gradesFor(next).includes(grade)) setGrade('');
-              }}
-              helperText="Applies to every part"
-            >
-              <MenuItem value="">—</MenuItem>
-              {steel.materials.map((m) => <MenuItem key={m} value={m}>{m}</MenuItem>)}
-            </TextField>
-            <TextField
-              select label="Grade" size="small" value={grade} sx={{ flex: '0 1 150px' }}
-              onChange={(e) => setGrade(e.target.value)}
-              helperText="Unless a part differs"
-            >
-              <MenuItem value="">—</MenuItem>
-              {gradesFor(material).map((g) => <MenuItem key={g} value={g}>{g}</MenuItem>)}
-            </TextField>
             <Button
-              variant="contained" sx={{ mt: 0.25 }}
+              variant="contained"
               startIcon={adding ? <CircularProgress size={14} color="inherit" /> : <AddIcon />}
               disabled={adding || !item || !qty}
               onClick={add}
+              sx={{ flexShrink: 0 }}
             >
-              Add
+              Add line
             </Button>
           </Box>
+
+          {/* The steel, stated once for everything under this line. Blank is
+              fine — a part can state its own, and nesting will ask for one
+              before it can choose a plate. */}
+          {item && (
+            <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', alignItems: 'center', mt: 1.5 }}>
+              <TextField
+                select label="Material" size="small" value={material} sx={{ flex: '0 0 150px' }}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  setMaterial(next);
+                  // A grade that does not exist for the new material is not a
+                  // choice somebody made — it is one they made about the old one.
+                  if (next && grade && !gradesFor(next).includes(grade)) setGrade('');
+                }}
+              >
+                <MenuItem value="">—</MenuItem>
+                {steel.materials.map((m) => <MenuItem key={m} value={m}>{m}</MenuItem>)}
+              </TextField>
+              <TextField
+                select label="Grade" size="small" value={grade} sx={{ flex: '0 0 150px' }}
+                onChange={(e) => setGrade(e.target.value)}
+              >
+                <MenuItem value="">—</MenuItem>
+                {gradesFor(material).map((g) => <MenuItem key={g} value={g}>{g}</MenuItem>)}
+              </TextField>
+              <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)', flex: '1 1 220px', minWidth: 0 }}>
+                Steel for every part under this line. Optional — a part can state its own, and nesting asks before it picks a plate.
+              </Typography>
+            </Box>
+          )}
         </Surface>
       )}
 
@@ -508,83 +557,91 @@ export default function OrderLinesPanel({ orderId, canManage, onChanged }: {
         <EmptyState
           icon={<Inventory2Rounded />}
           title="No line items yet"
-          hint="Add what this order is selling — a code, a description and a quantity. The code becomes the top of its BOM."
+          hint="Add what this order is selling — an item, a description and a quantity. Its bill of materials becomes this line's structure."
         />
       ) : (
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
           {lines.map((line) => {
-            const isOpen = openLines[line.id] !== false;   // open unless collapsed
-            const rows = builtRows[line.id] ?? 0;
-            const sp = spec[line.id];
-            const steel = [sp?.material, sp?.grade].filter(Boolean).join(' · ');
+            const isOpen = openLineId === line.id;
+            const rowsBuilt = line.builtCount ?? 0;
+            const steelStated = [line.material, line.grade].filter(Boolean).join(' · ');
+            const qtyError = qtyErrors[line.id];
             return (
-              <Surface key={line.id} e={1} sx={{ overflow: 'hidden' }}>
-                {/* ── the line itself ─────────────────────────────────── */}
+              <Surface key={line.id} id={`order-line-${line.id}`} e={1} sx={{ overflow: 'hidden' }}>
                 {/*
-                  THE LINE IS THE TOP ROW OF ITS OWN TREE, so it is shaped like
-                  one: same height, same type size, quantity in the same column
-                  as every quantity beneath it.
-
-                  It used to be a card header — bigger text, a subtitle, its own
-                  padding — which made the first row of the structure look like a
-                  different kind of thing from the rows under it, when it is
-                  simply the one they hang off.
+                  ── the line IS the top row of its own table ──────────────
+                  Same columns as every row beneath it (gutter · name · qty ·
+                  size · made-by · actions), the column header ABOVE it when it
+                  is open, and the structure rows straight after — so line and
+                  bill of materials read as one piece, not a card in a card.
                 */}
+                {isOpen && <StructureColumnHeader />}
                 <Box sx={{
                   display: 'flex', alignItems: 'center', gap: 1,
-                  px: 1.5, py: 0.4, minHeight: 40,
+                  pl: 1, pr: 1.5, py: 0.4, minHeight: 40,
                   borderBottom: isOpen ? '1px solid var(--c-divider)' : undefined,
-                  background: 'var(--c-surface-2)',
+                  background: isOpen ? 'var(--c-primary-50)' : 'var(--c-surface-2)',
                 }}>
-                  <IconButton
-                    size="small" sx={{ p: 0.25 }}
-                    onClick={() => setOpenLines((o) => ({ ...o, [line.id]: !isOpen }))}
-                    aria-label={isOpen ? 'Collapse this line' : 'Expand this line'}
-                  >
-                    {isOpen ? <ExpandMoreRounded fontSize="small" /> : <ChevronRightRounded fontSize="small" />}
-                  </IconButton>
+                  {/* gutter — same 92px the tree rows indent by */}
+                  <Box sx={{ width: 84, flexShrink: 0, display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                    <IconButton
+                      size="small" sx={{ p: 0.25 }}
+                      onClick={() => requestOpen(line.id)}
+                      aria-label={isOpen ? 'Collapse this line' : 'Expand this line'}
+                    >
+                      {isOpen ? <ExpandMoreRounded fontSize="small" /> : <ChevronRightRounded fontSize="small" />}
+                    </IconButton>
+                    <Mono chip>{line.lineNo}</Mono>
+                  </Box>
 
-                  <Mono chip>{line.lineNo}</Mono>
+                  <Box sx={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'baseline', gap: 1 }}>
+                    <Typography noWrap sx={{ fontSize: 13.5, fontWeight: 600, flexShrink: 0 }}>
+                      {line.description ?? '—'}
+                    </Typography>
+                    <Typography noWrap sx={{ fontSize: 12, color: 'var(--c-text-3)', minWidth: 0 }}>
+                      {[steelStated || null, dirtyByLine[line.id] ? 'unsaved edits' : null]
+                        .filter(Boolean).join(' · ')}
+                    </Typography>
+                  </Box>
 
-                  <Typography noWrap sx={{ fontSize: 13.5, fontWeight: 600, flexShrink: 0 }}>
-                    {line.description ?? '—'}
-                  </Typography>
-                  <Typography noWrap sx={{ fontSize: 12, color: 'var(--c-text-3)', flex: 1, minWidth: 0 }}>
-                    {[line.lineType, steel || null,
-                      rows > 0 ? `${rows} rows` : 'nothing built yet',
-                    ].filter(Boolean).join(' · ')}
-                  </Typography>
-
-                  <Box sx={{ flexShrink: 0, textAlign: 'right' }}>
+                  {/* the LINE's quantity, in the Qty column — everything beneath is per one of these */}
+                  <Tooltip title={`How many of this line. Every row beneath is per one ${line.description ?? 'unit'}.`}>
                     <TextField
                       size="small" type="number" disabled={!canManage}
-                      defaultValue={Number(line.qty ?? 1)}
-                      onBlur={(e) => {
-                        if (Number(e.target.value) === Number(line.qty ?? 1)) return;
-                        void saveQty(line.id, e.target.value);
-                      }}
-                      sx={{ width: 76 }}
-                      inputProps={{ min: 1, style: { fontSize: 11.5, textAlign: 'right' } }}
+                      value={qtyValueFor(line)}
+                      error={!!qtyError}
+                      onChange={(e) => setQtyDrafts((d) => ({ ...d, [line.id]: e.target.value }))}
+                      onBlur={(e) => void saveQty(line, e.target.value)}
+                      sx={{ width: 76, flexShrink: 0 }}
+                      inputProps={{ min: 1, style: { fontSize: 12, textAlign: 'right', fontWeight: 600 }, 'aria-label': `Quantity for line ${line.lineNo}` }}
                     />
+                  </Tooltip>
 
+                  <Box sx={{ width: 234, flexShrink: 0 }}>
+                    <Typography sx={{ fontSize: 11.5, color: 'var(--c-text-3)' }}>
+                      {rowsBuilt > 0 ? `${rowsBuilt} rows below` : 'nothing built yet'}
+                    </Typography>
+                  </Box>
+                  <Box sx={{ width: 150, flexShrink: 0 }}>
+                    <Typography noWrap sx={{ fontSize: 11.5, color: 'var(--c-text-3)' }}>{line.lineType ?? ''}</Typography>
                   </Box>
 
                   {canManage && (
-                    <Box sx={{ display: 'flex', flexShrink: 0 }}>
+                    <Box sx={{ display: 'flex', flexShrink: 0, width: 96, justifyContent: 'flex-end' }}>
                       <Tooltip title="Edit this line">
                         <IconButton
                           size="small"
                           onClick={() => setEditLine({
                             line,
-                            item: catalog.find((c) => c.id === (line.templateItemId ?? line.catalogItemId)) ?? null,
+                            item: sellable.find((c) => c.id === (line.templateItemId ?? line.catalogItemId)) ?? null,
                             description: line.description ?? '',
                             // Number() first: the API returns DECIMAL as "1.0000",
                             // and a box that opens reading 1.0000 invites somebody
                             // to "fix" it.
                             qty: String(Number(line.qty ?? 1)),
                             unitPrice: line.unitPrice == null ? '' : String(line.unitPrice),
-                            material: spec[line.id]?.material ?? '',
-                            grade: spec[line.id]?.grade ?? '',
+                            material: line.material ?? '',
+                            grade: line.grade ?? '',
                           })}
                           aria-label={`Edit ${line.description ?? `line ${line.lineNo}`}`}
                         >
@@ -602,6 +659,9 @@ export default function OrderLinesPanel({ orderId, canManage, onChanged }: {
                     </Box>
                   )}
                 </Box>
+                {qtyError && (
+                  <Typography sx={{ fontSize: 11, color: 'var(--c-danger-600)', px: 1.5, pt: 0.5 }}>{qtyError}</Typography>
+                )}
 
                 {/*
                   ── AND WHAT IT IS MADE OF, in the same card ──────────────
@@ -613,9 +673,8 @@ export default function OrderLinesPanel({ orderId, canManage, onChanged }: {
                 */}
                 {isOpen && (
                   <StructureEditor
-                    key={`line-${line.id}-${rows > 0 ? 'built' : 'new'}-${treeVersion}`}
-                    variant="inline"
-                    source={rows > 0 ? 'current' : 'bom'}
+                    key={`line-${line.id}-${rowsBuilt > 0 ? 'built' : 'new'}`}
+                    source={rowsBuilt > 0 ? 'current' : 'bom'}
                     open
                     orderId={orderId}
                     orderLine={{
@@ -623,9 +682,38 @@ export default function OrderLinesPanel({ orderId, canManage, onChanged }: {
                       code: line.code ?? null,
                       description: line.description ?? null,
                       itemId: line.templateItemId ?? line.catalogItemId ?? null,
+                      qty: Number(line.qty ?? 1),
                     }}
+                    revisionReason={revisionReason}
+                    chrome="flat"
+                    // `inline` fires `onClose` after every successful save too (it is
+                    // also what the old dialog variant's Cancel/X meant) — a no-op
+                    // here, same as before EU-17, so saving does not collapse the
+                    // card. Collapsing is the chevron's job (`requestOpen`), which
+                    // already guards against discarding unsaved edits.
                     onClose={() => {}}
-                    onDone={() => { setTreeVersion((v) => v + 1); void load(); onChanged?.(); }}
+                    onDone={onStructureDone}
+                    // A bulk flow action (item 6) — readiness moved, but nothing
+                    // this panel shows (row count, built count) did, so this
+                    // must NOT reload/remount the editor: that would be the
+                    // exact extra `GET .../structure/tree` decision 6's
+                    // verification checks for.
+                    onReadinessChanged={(readiness) => onChanged?.(readiness)}
+                    /*
+                     * BAIL OUT WHEN UNCHANGED — returning the SAME object
+                     * reference makes React skip the re-render entirely.
+                     * Without this, StructureEditor's own `useEffect(() =>
+                     * onDirtyChange?.(t.dirty), [t.dirty, onDirtyChange])`
+                     * sees a fresh `onDirtyChange` closure every time this
+                     * panel re-renders (an inline arrow is a new reference
+                     * every render), re-fires, calls back in, and re-renders
+                     * this panel again — forever ("Maximum update depth
+                     * exceeded"). A functional update that returns `d`
+                     * unchanged stops the cycle at the first no-op tick.
+                     */
+                    onDirtyChange={(dirty) => setDirtyByLine((d) => (
+                      d[line.id] === dirty ? d : { ...d, [line.id]: dirty }
+                    ))}
                   />
                 )}
               </Surface>
@@ -634,14 +722,27 @@ export default function OrderLinesPanel({ orderId, canManage, onChanged }: {
         </Box>
       )}
 
+      <ConfirmDialog
+        open={!!discardPrompt}
+        title="Discard unsaved edits?"
+        confirmLabel="Discard and switch"
+        body={(
+          <Typography sx={{ fontSize: 13.5 }}>
+            This line's structure has changes that have not been saved. Opening a different line —
+            or collapsing this one — discards them.
+          </Typography>
+        )}
+        onClose={() => setDiscardPrompt(null)}
+        onConfirm={() => confirmDiscardAndSwitch()}
+      />
+
       <Dialog open={!!delLine} onClose={() => setDelLine(null)} maxWidth="xs" fullWidth>
       <DialogCloseButton absolute onClose={() => (() => setDelLine(null))()} />
         <DialogTitle sx={{ fontWeight: 600 }}>Remove line item</DialogTitle>
         <DialogContent>
           <Typography sx={{ fontSize: 13.5 }}>
             Remove <strong>{delLine?.description ?? `line ${delLine?.lineNo}`}</strong> from this
-            order? Any structure rows under it stay where they are — they simply stop
-            belonging to a line.
+            order?
           </Typography>
         </DialogContent>
         <DialogActions>
@@ -649,6 +750,23 @@ export default function OrderLinesPanel({ orderId, canManage, onChanged }: {
           <Button color="error" variant="contained" onClick={() => delLine && remove(delLine)}>Remove</Button>
         </DialogActions>
       </Dialog>
+
+      {/* The delete above was refused: this line still has structure under it. */}
+      <ConfirmDialog
+        open={!!cascadeConfirm}
+        title="This line has structure under it"
+        confirmLabel={`Remove line and ${cascadeConfirm?.count ?? 0} row(s)`}
+        body={(
+          <Typography sx={{ fontSize: 13.5 }}>
+            <strong>{cascadeConfirm?.line.description ?? `Line ${cascadeConfirm?.line.lineNo}`}</strong> has{' '}
+            <b>{cascadeConfirm?.count ?? 0}</b> structure row{cascadeConfirm?.count === 1 ? '' : 's'} built under it.
+            Removing the line removes those rows too, along with any of their tasks that have not started.
+            A row with tasks already in progress is refused instead.
+          </Typography>
+        )}
+        onClose={() => setCascadeConfirm(null)}
+        onConfirm={() => { if (cascadeConfirm) return remove(cascadeConfirm.line, true); }}
+      />
 
       {/*
         WHAT THIS LINE IS MADE OF.
@@ -673,7 +791,7 @@ export default function OrderLinesPanel({ orderId, canManage, onChanged }: {
           {editLine && (
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 0.5 }}>
               <Autocomplete
-                options={catalog}
+                options={sellable}
                 value={editLine.item}
                 getOptionLabel={(o) => o.name}
                 isOptionEqualToValue={(a, b) => a.id === b.id}
@@ -683,8 +801,7 @@ export default function OrderLinesPanel({ orderId, canManage, onChanged }: {
                 filterOptions={(opts, { inputValue }) => {
                   const q = inputValue.trim().toLowerCase();
                   if (!q) return opts.slice(0, 50);
-                  return opts.filter((o) => [o.name, o.code, o.categoryName, o.groupName, o.subgroupName]
-                    .filter(Boolean).join(' ').toLowerCase().includes(q));
+                  return opts.filter((o) => [o.name, o.code].filter(Boolean).join(' ').toLowerCase().includes(q));
                 }}
                 renderOption={(props, o) => (
                   <li {...props} key={o.id}>
@@ -692,6 +809,7 @@ export default function OrderLinesPanel({ orderId, canManage, onChanged }: {
                       <Typography sx={{ fontSize: 13 }}>{o.name}</Typography>
                       <Typography sx={{ fontSize: 11, color: 'var(--c-text-3)' }}>
                         {[o.categoryName, o.groupName, o.subgroupName].filter(Boolean).join(' › ')}
+                        {o.code ? ` · ${o.code}` : ''}
                       </Typography>
                     </Box>
                   </li>
@@ -704,10 +822,10 @@ export default function OrderLinesPanel({ orderId, canManage, onChanged }: {
                 those rows came from the old item's BOM and would stay exactly as
                 they are. Said out loud, with the count, rather than discovered.
               */}
-              {(builtRows[editLine.line.id] ?? 0) > 0
+              {(editLine.line.builtCount ?? 0) > 0
                 && editLine.item?.id !== (editLine.line.templateItemId ?? editLine.line.catalogItemId) && (
                 <Alert severity="warning" sx={{ py: 0.5 }}>
-                  This line already has <b>{builtRows[editLine.line.id]}</b> structure row(s), built
+                  This line already has <b>{editLine.line.builtCount}</b> structure row(s), built
                   from the item it was. They stay as they are — rebuild the structure if they should
                   follow the change.
                 </Alert>
@@ -772,4 +890,11 @@ export default function OrderLinesPanel({ orderId, canManage, onChanged }: {
 /** The fab_erp app root, which the spec routes hang off. */
 function specBase() {
   return `${API_HOST}/api/${localStorage.getItem('companySlug')}/fab_erp`;
+}
+
+/** A copy of `obj` without `key` — `delete` would mutate state in place. */
+function omitKey<T>(obj: Record<number, T>, key: number): Record<number, T> {
+  const next = { ...obj };
+  delete next[key];
+  return next;
 }

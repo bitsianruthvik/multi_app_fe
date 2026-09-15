@@ -10,6 +10,7 @@
 
 import api, { API_HOST } from '@core/utils/axiosConfig';
 import { fabGet } from './client';
+import type { OrderReadiness } from './readiness';
 
 const base = () =>
   `${API_HOST}/api/${localStorage.getItem('companySlug')}/fab_erp`;
@@ -34,6 +35,17 @@ export interface ParameterRow {
   /** Only these fields are asked of this part. Anything else is not its question. */
   required: string[];
   values: Record<string, string | null>;
+  /**
+   * Where each value came from, keyed by field. `'order_item'` means it was
+   * typed on this part; any other scope name means it is inherited (from the
+   * catalog item or the taxonomy above it) and the cell should say so rather
+   * than presenting it as this row's own — that is also what makes a value
+   * revertible: clearing an `'order_item'` edit falls back to whatever this
+   * map already shows. A key absent here has no resolved value at all.
+   */
+  from?: Record<string, string | null>;
+  /** What each field would resolve to with this row's own value cleared — what "revert to inherited" shows before it is saved. */
+  inherited?: Record<string, string | null>;
 }
 
 export interface ParameterGrid {
@@ -58,7 +70,7 @@ export interface ParameterEdit { itemId: number; fieldKey: string; value: string
 
 export async function saveParameters(orderId: number, edits: ParameterEdit[]) {
   const res = await api.post(`${base()}/orders/${orderId}/parameters`, { edits });
-  return res.data as { written: number; itemsTouched: number };
+  return res.data as { written: number; itemsTouched: number; readiness?: OrderReadiness };
 }
 
 /** Download the sheet. Browser-driven so the file lands in Downloads as usual. */
@@ -73,6 +85,7 @@ export async function importParameters(orderId: number, file: File) {
   return res.data as {
     written: number; itemsTouched: number; edits: number; rowsRead: number;
     warnings: Array<{ row: number; message: string }>;
+    readiness?: OrderReadiness;
   };
 }
 

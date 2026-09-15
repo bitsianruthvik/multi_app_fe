@@ -223,6 +223,11 @@ export default function StockIn() {
   const [receivedDate, setReceivedDate] = useState(todayISO());
   const [unitCost, setUnitCost] = useState('');
   const [notes, setNotes] = useState('');
+  // EU-14: who this material really belongs to. '' (the default) is an
+  // ordinary purchase receipt — nothing is sent for `source` at all, so an
+  // existing receipt's behaviour is unchanged.
+  const [source, setSource] = useState<'' | 'free_issue'>('');
+  const [customerRef, setCustomerRef] = useState('');
   const [pieces, setPieces] = useState<PieceDraft[]>([blankPiece(1)]);
   const [splitOpen, setSplitOpen] = useState(false);
   const [splitQty, setSplitQty] = useState('');
@@ -519,6 +524,8 @@ export default function StockIn() {
           uom: item!.unit ?? null,
           unitCost: unitCost === '' ? null : Number(unitCost),
           notes: notes.trim() || null,
+          source: source || null,
+          customerRef: source === 'free_issue' ? (customerRef.trim() || null) : null,
           pieces: sent.map((p) => ({
             qty: Number(p.qty),
             batchNo: p.batchNo.trim() || null,
@@ -564,6 +571,8 @@ export default function StockIn() {
         setPieces([blankPiece(1)]);
         setUnitCost('');
         setNotes('');
+        setSource('');
+        setCustomerRef('');
         setFieldDraft({});
       } else {
         navigate(`/${company}/fab_erp/item-batches?itemId=${item!.id}`);
@@ -680,6 +689,29 @@ export default function StockIn() {
                 label="Notes" size="small" sx={{ flex: 1, minWidth: 240 }}
                 value={notes} onChange={(e) => setNotes(e.target.value)}
               />
+            </Box>
+
+            <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+              <TextField
+                select label="Source" size="small" sx={{ width: 200 }}
+                value={source}
+                onChange={(e) => {
+                  const v = e.target.value as '' | 'free_issue';
+                  setSource(v);
+                  if (v !== 'free_issue') setCustomerRef('');
+                }}
+                helperText="Who this material belongs to"
+              >
+                <MenuItem value="">Purchased</MenuItem>
+                <MenuItem value="free_issue">Free issue (customer supplied)</MenuItem>
+              </TextField>
+              {source === 'free_issue' && (
+                <TextField
+                  label="Customer reference" size="small" sx={{ flex: 1, minWidth: 240 }}
+                  value={customerRef} onChange={(e) => setCustomerRef(e.target.value)}
+                  helperText="Their DC / challan number"
+                />
+              )}
             </Box>
 
             {/* ── pieces ───────────────────────────────────────────────────── */}

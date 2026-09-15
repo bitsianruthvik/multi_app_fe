@@ -44,6 +44,9 @@ import { DialogCloseButton } from '../components/FormDialog';
 
 interface QueryResult<T> { data: T[]; total?: number }
 
+/** Just enough of `fab_suppliers` to populate the default-supplier picker below. */
+interface SupplierOption { id: number; code: string; name: string; active: number }
+
 interface ImportOperationsResult {
   operationsCreated: number;
   operationsSkipped: number;
@@ -179,6 +182,8 @@ interface DetailsDraft {
   timeUnit: (typeof TIME_UNITS)[number]['value'];
   setupMinutes: string;
   active: boolean;
+  isSubcontract: boolean;
+  defaultSupplierId: number | null;
 }
 
 function fromOp(op: FabOperation): DetailsDraft {
@@ -189,11 +194,13 @@ function fromOp(op: FabOperation): DetailsDraft {
     // a meaningful value here (no setup) and 0 is not the same as "unset".
     setupMinutes: op.setupMinutes == null ? '' : String(op.setupMinutes),
     active: op.active === 1,
+    isSubcontract: op.isSubcontract === 1,
+    defaultSupplierId: op.defaultSupplierId,
   };
 }
 
-function DetailsPanel({ operation, resourceTypes, variableKeys, canManage, onSaved }: {
-  operation: FabOperation; resourceTypes: FabResourceType[]; variableKeys: string[]; canManage: boolean;
+function DetailsPanel({ operation, resourceTypes, suppliers, variableKeys, canManage, onSaved }: {
+  operation: FabOperation; resourceTypes: FabResourceType[]; suppliers: SupplierOption[]; variableKeys: string[]; canManage: boolean;
   onSaved: () => void;
 }) {
   const [draft, setDraft] = useState<DetailsDraft>(fromOp(operation));
@@ -292,6 +299,9 @@ function DetailsPanel({ operation, resourceTypes, variableKeys, canManage, onSav
         time_unit: draft.timeUnit,
         setup_minutes: draft.setupMinutes.trim() === '' ? null : Number(draft.setupMinutes),
         active: draft.active ? 1 : 0,
+        is_subcontract: draft.isSubcontract ? 1 : 0,
+        // A step is never sent out with no supplier to send it to.
+        default_supplier_id: draft.isSubcontract ? draft.defaultSupplierId : null,
       });
       onSaved();
     } catch (e) { setErr(backendMessage(e, 'Could not save this operation.')); } finally { setSaving(false); }
@@ -347,6 +357,31 @@ function DetailsPanel({ operation, resourceTypes, variableKeys, canManage, onSav
         <Switch checked={draft.active} onChange={(e) => setDraft((d) => ({ ...d, active: e.target.checked }))} disabled={!canManage} />
         <Typography sx={{ fontSize: 13 }}>{draft.active ? 'Active' : 'Inactive'}</Typography>
       </Box>
+
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <Switch
+            checked={draft.isSubcontract}
+            onChange={(e) => setDraft((d) => ({ ...d, isSubcontract: e.target.checked, defaultSupplierId: e.target.checked ? d.defaultSupplierId : null }))}
+            disabled={!canManage}
+          />
+          <Typography sx={{ fontSize: 13 }}>Subcontract</Typography>
+        </Box>
+        {draft.isSubcontract && (
+          <TextField select label="Default supplier" size="small" sx={{ minWidth: 260 }}
+            value={draft.defaultSupplierId ?? ''}
+            onChange={(e) => setDraft((d) => ({ ...d, defaultSupplierId: e.target.value === '' ? null : Number(e.target.value) }))}
+            disabled={!canManage} helperText="Pre-filled on the sales order's Send to supplier step">
+            <MenuItem value="">— None —</MenuItem>
+            {suppliers.map((s) => <MenuItem key={s.id} value={s.id}>{s.code} — {s.name}</MenuItem>)}
+          </TextField>
+        )}
+      </Box>
+      {draft.isSubcontract && (
+        <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)', mt: -1 }}>
+          A subcontract operation's steps are grouped by supplier in the sales order's Production step and sent out as a subcontract order instead of run on the shop floor.
+        </Typography>
+      )}
 
       {canManage && (
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap' }}>
@@ -681,8 +716,8 @@ function ResourceTypesPanel({ operation, resourceTypes, canManage, onOperationSa
  * and a resource type are the same kind of record and should not be edited two
  * different ways.
  */
-function OperationDetailDialog({ operation, resourceTypes, canManage, onClose, onSaved }: {
-  operation: FabOperation | null; resourceTypes: FabResourceType[]; canManage: boolean;
+function OperationDetailDialog({ operation, resourceTypes, suppliers, canManage, onClose, onSaved }: {
+  operation: FabOperation | null; resourceTypes: FabResourceType[]; suppliers: SupplierOption[]; canManage: boolean;
   onClose: () => void; onSaved: () => void;
 }) {
   return (
@@ -693,6 +728,7 @@ function OperationDetailDialog({ operation, resourceTypes, canManage, onClose, o
           key={operation.id}
           operation={operation}
           resourceTypes={resourceTypes}
+          suppliers={suppliers}
           canManage={canManage}
           onClose={onClose}
           onSaved={onSaved}
@@ -702,8 +738,8 @@ function OperationDetailDialog({ operation, resourceTypes, canManage, onClose, o
   );
 }
 
-function OperationDetailBody({ operation, resourceTypes, canManage, onClose, onSaved }: {
-  operation: FabOperation; resourceTypes: FabResourceType[]; canManage: boolean;
+function OperationDetailBody({ operation, resourceTypes, suppliers, canManage, onClose, onSaved }: {
+  operation: FabOperation; resourceTypes: FabResourceType[]; suppliers: SupplierOption[]; canManage: boolean;
   onClose: () => void; onSaved: () => void;
 }) {
   const [subTab, setSubTab] = useState(0);
@@ -744,7 +780,7 @@ function OperationDetailBody({ operation, resourceTypes, canManage, onClose, onS
       </Box>
       <DialogContent dividers sx={{ minHeight: 420 }}>
         {subTab === 0 && (
-          <DetailsPanel operation={operation} resourceTypes={resourceTypes} variableKeys={variableKeys} canManage={canManage} onSaved={onSaved} />
+          <DetailsPanel operation={operation} resourceTypes={resourceTypes} suppliers={suppliers} variableKeys={variableKeys} canManage={canManage} onSaved={onSaved} />
         )}
         {subTab === 1 && (
           <VariablesPanel operationId={operation.id} canManage={canManage} onVarsChanged={setVariableKeys} />
@@ -784,6 +820,7 @@ export default function Operations() {
     ];
   }, [operations]);
   const [resourceTypes, setResourceTypes] = useState<FabResourceType[]>([]);
+  const [suppliers, setSuppliers] = useState<SupplierOption[]>([]);
   const [selected, setSelected] = useState<FabOperation | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -806,13 +843,15 @@ export default function Operations() {
   const fetchAll = useCallback(async (): Promise<FabOperation[]> => {
     setLoading(true); setError('');
     try {
-      const [opsRes, rtRes] = await Promise.all([
+      const [opsRes, rtRes, supRes] = await Promise.all([
         fabQuery<QueryResult<FabOperation>>('fabErpOperation', { orderBy: [{ field: 'name', direction: 'asc' }], pagination: { limit: 500 } }),
         fabQuery<QueryResult<FabResourceType>>('fabErpResourceType', { orderBy: [{ field: 'name', direction: 'asc' }], pagination: { limit: 500 } }),
+        fabQuery<QueryResult<SupplierOption>>('fabErpSupplier', { filters: { active: 1 }, orderBy: [{ field: 'name', direction: 'asc' }], pagination: { limit: 500 } }),
       ]);
       const list = opsRes.data ?? [];
       setOperations(list);
       setResourceTypes(rtRes.data ?? []);
+      setSuppliers(supRes.data ?? []);
       setSelected((prev) => (prev ? list.find((o) => o.id === prev.id) ?? null : null));
       return list;
     } catch (e) { setError(errMsg(e)); return []; } finally { setLoading(false); }
@@ -1020,6 +1059,7 @@ export default function Operations() {
       <OperationDetailDialog
         operation={selected}
         resourceTypes={resourceTypes}
+        suppliers={suppliers}
         canManage={canManage}
         onClose={() => setSelected(null)}
         onSaved={fetchAll}
