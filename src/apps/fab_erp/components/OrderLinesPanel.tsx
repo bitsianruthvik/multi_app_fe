@@ -12,7 +12,7 @@ import ChevronRightRounded from '@mui/icons-material/ChevronRightRounded';
 
 import api, { API_HOST } from '@core/utils/axiosConfig';
 import { fabMutate } from '../api/client';
-import { getOrderLines, getSellableItems, type OrderLineRow, type SellableItem } from '../api/catalog';
+import { getOrderLinesWithPrefix, getSellableItems, type OrderLineRow, type SellableItem } from '../api/catalog';
 import { Surface, EmptyState, useToast, Mono, backendMessage, ConfirmDialog } from '../components';
 import StructureEditor, { StructureColumnHeader, type StructureSaveResult } from './StructureEditor';
 import { DialogCloseButton } from './FormDialog';
@@ -92,6 +92,8 @@ export default function OrderLinesPanel({
 }) {
   const { toast } = useToast();
   const [lines, setLines] = useState<OrderLineRow[]>([]);
+  /** The order prefix every row code starts with — hidden on screen. */
+  const [codePrefix, setCodePrefix] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -170,7 +172,8 @@ export default function OrderLinesPanel({
    */
   const load = useCallback(async () => {
     try {
-      const rows = await getOrderLines(orderId);
+      const { rows, codePrefix: prefix } = await getOrderLinesWithPrefix(orderId);
+      setCodePrefix(prefix);
       setLines(rows);
       setOpenLineId((cur) => (cur != null && rows.some((r) => r.id === cur) ? cur : rows[0]?.id ?? null));
     } catch (e) {
@@ -631,9 +634,18 @@ export default function OrderLinesPanel({
                         the app — a line that only said "Span" could be any of five items
                         called Span. Stacked, not beside, so no width can squeeze it out. */}
                     <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 0.75, minWidth: 0 }}>
-                      {line.catalogItem?.code && (
-                        <Tooltip title={[line.catalogItem.categoryName, line.catalogItem.groupName, line.catalogItem.subgroupName].filter(Boolean).join(' › ') || 'Catalog item code'}>
-                          <Mono sx={{ fontSize: 10.5, color: 'var(--c-text-2)', whiteSpace: 'nowrap', flexShrink: 0 }}>{line.catalogItem.code}</Mono>
+                      {/* The line's ROW code (SPAN1) — written at deploy, previewed before; the
+                          catalog item and its taxonomy sit in the tooltip. */}
+                      {(line.rootCode || line.catalogItem?.code) && (
+                        <Tooltip title={[
+                          line.rootCode ? `${line.rootCode}` : null,
+                          line.catalogItem ? `catalog ${line.catalogItem.code ?? '—'} · ${[line.catalogItem.categoryName, line.catalogItem.groupName, line.catalogItem.subgroupName].filter(Boolean).join(' › ')}` : null,
+                        ].filter(Boolean).join(' · ')}>
+                          <Mono sx={{ fontSize: 10.5, color: 'var(--c-text-2)', whiteSpace: 'nowrap', flexShrink: 0 }}>
+                            {line.rootCode
+                              ? (codePrefix && line.rootCode.startsWith(codePrefix) ? line.rootCode.slice(codePrefix.length) : line.rootCode)
+                              : line.catalogItem?.code}
+                          </Mono>
                         </Tooltip>
                       )}
                       <Typography noWrap sx={{ fontSize: 11.5, color: 'var(--c-text-3)', minWidth: 0 }}>

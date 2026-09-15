@@ -68,6 +68,8 @@ export interface NewCatalogItem {
   name: string;
   /** Blank generates one from the category — see `codegenService.generateCode`. */
   code?: string | null;
+  /** The segment an order row of this item carries (TF); blank = initials of the name. */
+  shortCode?: string | null;
   unit?: string | null;
   description?: string | null;
   categoryId: number;
@@ -151,6 +153,8 @@ export interface OrderLineRow {
     categoryName?: string | null; groupName?: string | null; subgroupName?: string | null;
   } | null;
   builtCount: number;
+  /** The line's top structure row's code (SPAN1) — written at deploy, previewed before. */
+  rootCode?: string | null;
   material: string | null;
   grade: string | null;
   thicknessMm: number | null;
@@ -159,6 +163,11 @@ export interface OrderLineRow {
 /** GET /orders/:id/lines — a line's row, built-count and spec, batched for every line. */
 export const getOrderLines = (orderId: number) =>
   fabGet<{ rows: OrderLineRow[] }>(`orders/${orderId}/lines`).then((r) => r.rows ?? []);
+
+/** The same read, with the order prefix every row code starts with (hidden on screen). */
+export const getOrderLinesWithPrefix = (orderId: number) =>
+  fabGet<{ rows: OrderLineRow[]; codePrefix?: string | null }>(`orders/${orderId}/lines`)
+    .then((r) => ({ rows: r.rows ?? [], codePrefix: r.codePrefix ?? null }));
 
 /** One row the import will not insert cleanly — dry-run's real output, and also carried on a live run. */
 export interface ImportProblem { row: number; code: string; reason: string }

@@ -39,7 +39,7 @@ export function useFieldDefs(active: boolean): FieldDefRow[] {
 }
 
 export interface ItemDraft {
-  name: string; code: string; unit: string; description: string;
+  name: string; code: string; shortCode: string; unit: string; description: string;
   categoryId: number | null; groupId: number | null; subgroupId: number | null;
   hsnCode: string;
   // BUG-05: make-vs-buy (and MRP policy) must be settable at creation. Left
@@ -49,7 +49,7 @@ export interface ItemDraft {
 }
 
 export const BLANK_ITEM = (): ItemDraft => ({
-  name: '', code: '', unit: 'PC', description: '',
+  name: '', code: '', shortCode: '', unit: 'PC', description: '',
   categoryId: null, groupId: null, subgroupId: null,
   hsnCode: '',
   procurementType: 'buy', mrpPolicy: 'manual',

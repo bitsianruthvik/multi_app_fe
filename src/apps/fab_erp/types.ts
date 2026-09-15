@@ -466,6 +466,8 @@ export interface FabItemCatalog extends FabBase {
   size?: string | null;
   name:          string;
   code:          string;
+  /** Segment an order row of this item carries in its code; blank = initials of the name. */
+  shortCode?:    string | null;
   unit:          string | null;
   description:   string | null;
   categoryId?:   number | null;

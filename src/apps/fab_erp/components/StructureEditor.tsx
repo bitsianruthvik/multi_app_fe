@@ -264,6 +264,8 @@ export default function StructureEditor({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [existing, setExisting] = useState<number | null>(null);
+  /** The order prefix every row code starts with — hidden on screen, kept in the stored code. */
+  const [codePrefix, setCodePrefix] = useState<string | null>(null);
   /** A 400 `QTY_REQUIRED` refusal — the rows it named, and the first one's key to focus. */
   const [qtyRequired, setQtyRequired] = useState<{ rows: QtyRequiredRow[]; focusKey: string | null } | null>(null);
   const [addUnder, setAddUnder] = useState<string | null>(null);
@@ -314,10 +316,10 @@ export default function StructureEditor({
   const loadTree = useCallback(() => {
     setLoading(true); setError(''); setExisting(null);
     const read = source === 'current'
-      ? getCurrentTree(orderId, orderLine?.id ?? null).then((r) => r.tree)
+      ? getCurrentTree(orderId, orderLine?.id ?? null).then((r) => { setCodePrefix(r.codePrefix ?? null); return r.tree; })
       : (orderLine?.itemId == null
         ? Promise.resolve(null)
-        : getDraftTree(Number(orderLine.itemId)).then((r) => r.tree));
+        : getDraftTree(Number(orderLine.itemId)).then((r) => { setCodePrefix(null); return r.tree; }));
     return read
       .then((tree) => t.set(tree))
       .catch((e) => setError(backendMessage(e, 'Could not read that structure.')))
@@ -698,16 +700,18 @@ export default function StructureEditor({
             girder and not the type. Either way a row is never just a name.
           */}
           {(() => {
-            // An existing order row (`itemId`) may carry its deployed code; a
-            // row still being drafted from the catalogue only has the item's.
-            const rowCode = node.itemId != null ? node.code ?? null : null;
-            const shown = rowCode ?? node.catalogCode ?? null;
-            if (!shown) return null;
+            /*
+             * THE ROW'S ORDER CODE, on every row: written at deploy, previewed
+             * before by the same rule. The order prefix (same on every row) is
+             * hidden; the full code and the catalog item are one hover away.
+             */
+            const full = node.code ?? null;
+            if (!full) return null;
+            const shown = codePrefix && full.startsWith(codePrefix) ? full.slice(codePrefix.length) : full;
+            const pieces = (node.qty ?? 0) > 1 ? ` · pieces ${shown}-1 … ${shown}-${node.qty}` : '';
             return (
-              <Tooltip title={rowCode
-                ? `This row's code · catalog item ${node.catalogCode ?? '—'}`
-                : 'Catalog item code — the row gets its own code when the production order is deployed'}>
-                <Typography noWrap sx={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, color: 'var(--c-text-3)', minWidth: 0, lineHeight: 1.3 }}>
+              <Tooltip title={`${full}${node.codeWritten ? '' : ' (written when the production order is deployed)'} · catalog ${node.catalogCode ?? '—'}${pieces}`}>
+                <Typography noWrap sx={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, color: node.codeWritten ? 'var(--c-text-2)' : 'var(--c-text-3)', fontStyle: node.codeWritten ? 'normal' : 'italic', minWidth: 0, lineHeight: 1.3 }}>
                   {shown}
                 </Typography>
               </Tooltip>
@@ -825,7 +829,7 @@ export default function StructureEditor({
         </Box>
       </>
     );
-  }, [copy, remove, selected, setDim, setFlow, setQty, toggleSelect, flows]);
+  }, [copy, remove, selected, setDim, setFlow, setQty, toggleSelect, flows, codePrefix]);
 
   const renderBelow = useCallback(({ node, depth }: RowMeta<DraftNodeData, Ctx>) => (
     <>

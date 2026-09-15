@@ -32,6 +32,15 @@ import { STANDARD_UOMS } from '../../constants/uom';
 import { TaxonomyAddForm } from './TaxonomyTab';
 import { useFieldDefs, BLANK_ITEM, PROCUREMENT_TYPES, MRP_POLICIES, type ItemDraft } from './shared';
 
+/** The initials the generator falls back to (codegenService.shortName) — shown as the placeholder. */
+const initialsOf = (name: string): string => {
+  const m = /^(.*?)\s*\(([^)]+)\)\s*$/.exec(name);
+  const base = (m ? m[1] : name).trim();
+  const words = base.split(/[^A-Za-z0-9]+/).filter(Boolean);
+  const head = words.length > 1 ? words.map((w) => w[0]).join('').toUpperCase() : base.slice(0, 3).toUpperCase();
+  return m ? `${head}/${m[2].trim()[0]?.toUpperCase() ?? ''}` : head;
+};
+
 export function CatalogDialog({ open, initial, categories, groups, subgroups, canManageTaxonomy, onClose, onSaved, refetchTaxonomy }: {
   open: boolean; initial: FabItemCatalog | null;
   categories: FabItemCategory[]; groups: FabItemGroup[]; subgroups: FabItemSubgroup[];
@@ -52,7 +61,7 @@ export function CatalogDialog({ open, initial, categories, groups, subgroups, ca
     if (!open) return;
     setCustomFields([]);
     setDraft(initial ? {
-      name: initial.name, code: initial.code, unit: initial.unit ?? 'PC',
+      name: initial.name, code: initial.code, shortCode: initial.shortCode ?? '', unit: initial.unit ?? 'PC',
       description: initial.description ?? '', categoryId: initial.categoryId ?? null,
       groupId: initial.groupId ?? null, subgroupId: initial.subgroupId ?? null,
       hsnCode: initial.hsnCode ?? '',
@@ -116,6 +125,7 @@ export function CatalogDialog({ open, initial, categories, groups, subgroups, ca
         const res = await createCatalogItem({
           name: draft.name.trim(),
           code: draft.code.trim() || undefined,
+          shortCode: draft.shortCode.trim() || null,
           unit: draft.unit.trim() || 'PC',
           description: draft.description.trim() || null,
           categoryId: draft.categoryId, groupId, subgroupId,
@@ -139,6 +149,7 @@ export function CatalogDialog({ open, initial, categories, groups, subgroups, ca
       await fabMutate('fabErpItemCatalog', 'update', {
         id: initial!.id,
         name: draft.name.trim(), code: draft.code.trim().toUpperCase(),
+        short_code: draft.shortCode.trim().toUpperCase() || null,
         unit: draft.unit.trim() || 'PC', description: draft.description.trim() || null,
         category_id: draft.categoryId, group_id: groupId, subgroup_id: subgroupId,
         hsn_code: draft.hsnCode.trim() || null,
@@ -184,6 +195,21 @@ export function CatalogDialog({ open, initial, categories, groups, subgroups, ca
               htmlInput: { title: isNew ? 'Type your own code, or leave it blank to use the Items rule under Setup → Code rules' : undefined },
             }}
             onChange={(e) => set('code', e.target.value.toUpperCase())}
+          />
+          {/*
+            THE SHORT CODE is what an ORDER ROW of this item carries in its code
+            (SPAN1-L1-2-TF1: "TF" is this). Blank = the initials of the name,
+            worked out at code time, so most items never need one typed.
+          */}
+          <TextField
+            label="Short" value={draft.shortCode} size="small" sx={{ flex: 0.8 }}
+            placeholder={initialsOf(draft.name) || 'TF'}
+            slotProps={{
+              input: { style: { fontFamily: 'var(--font-mono)' } },
+              inputLabel: { shrink: true },
+              htmlInput: { maxLength: 12, title: 'The segment this item contributes to an order row code, e.g. TF in SPAN1-L1-2-TF1. Blank = initials of the name. # = number only (L1-1, L1-2).' },
+            }}
+            onChange={(e) => set('shortCode', e.target.value.toUpperCase().replace(/[^A-Z0-9/#]/g, ''))}
           />
           <Autocomplete freeSolo options={STANDARD_UOMS.map((u) => u.value)} sx={{ flex: 1 }}
             value={draft.unit}

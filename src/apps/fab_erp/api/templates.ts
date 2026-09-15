@@ -288,8 +288,13 @@ export interface DraftNodeData {
    * stud) has no rectangle to size, so the editor asks it for none.
    */
   procurementType?: string;
-  /** The row's own code — written when the production order is deployed, absent before. */
+  /**
+   * The row's order code — parent code + the item's short code + position.
+   * Written to the row when the production order is deployed; before that
+   * the server previews it from the same rule (`codeWritten` says which).
+   */
   code?: string | null;
+  codeWritten?: boolean;
   /** The catalog item's code (COMPOS-SPAN), always known once the row points at an item. */
   catalogCode?: string | null;
   /**
@@ -330,7 +335,7 @@ export const getDraftTree = (itemId: number) =>
  * moment somebody changes a quantity. Editing needs the second.
  */
 export const getCurrentTree = (orderId: number, orderLineId?: number | null) =>
-  fabGet<{ tree: DraftNode | null }>(
+  fabGet<{ tree: DraftNode | null; codePrefix?: string | null }>(
     `orders/${orderId}/structure/tree${orderLineId ? `?orderLineId=${orderLineId}` : ''}`,
   );
 
