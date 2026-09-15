@@ -100,6 +100,13 @@ const effortOf = (p: string | null): Effort | null => {
 const rect = (o: { thickness: number; width: number; length: number }) =>
   `${o.thickness} × ${o.width} × ${o.length}`;
 
+/**
+ * The blank's handle on the cutting-plan sheet: its code after the order's
+ * own prefix. The server sends it as `ref`; a plan saved before it existed
+ * gets the same answer derived here.
+ */
+const handleOf = (b: { ref?: string; code: string }) => b.ref ?? b.code.replace(/^BLK-\d+-/, '');
+
 const DEFAULT_THRESHOLDS = { good: 90, warn: 75 };
 
 /** Green above `good`, amber above `warn`, red below. Both on a 0-100 scale. */
@@ -614,7 +621,7 @@ export default function BlankNesting({
       )}
       {uploadProblems && (
         <Alert severity="error" sx={{ mb: 2 }} onClose={() => setUploadProblems(null)}>
-          <Typography sx={{ fontSize: 13, fontWeight: 600, mb: 0.5 }}>That sheet could not be read:</Typography>
+          <Typography sx={{ fontSize: 13, fontWeight: 600, mb: 0.5 }}>That plan could not be read:</Typography>
           <Box component="ul" sx={{ m: 0, pl: 2.5 }}>
             {uploadProblems.map((line, i) => (
               <li key={i} style={{ fontSize: 12.5 }}>{line}</li>
@@ -768,8 +775,8 @@ export default function BlankNesting({
       */}
       {!accepted && (
         <Alert severity="info" variant="outlined" sx={{ mb: 1.5, py: 0.5 }}>
-          This is a <b>suggestion</b>. Accept it, or download it, rearrange it in Excel and
-          upload your own — the plan that gets built is whichever you accept last.
+          This is a <b>suggestion</b>. Accept it, or download it, rearrange it in Excel or your nesting program (the Blank column is the code after the order number), and
+          upload it back — the plan that gets built is whichever you accept last.
         </Alert>
       )}
 
@@ -879,10 +886,18 @@ const BlankRow = memo(function BlankRow({
             * nowrap: "28 × 2995 × 12000" is ONE value and was breaking
             * after every ×, turning a row into four lines of digits.
             */}
-          <Typography noWrap sx={{
-            fontFamily: 'var(--font-mono, monospace)', fontSize: 13.5, fontWeight: 600,
-            whiteSpace: 'nowrap',
-          }}>{rect(b)}</Typography>
+          <Stack direction="row" spacing={1} alignItems="baseline">
+            {/* The short handle the cutting-plan sheet uses for this blank. */}
+            {handleOf(b) && (
+              <Typography sx={{ fontFamily: 'var(--font-mono, monospace)', fontSize: 11.5, fontWeight: 600, color: 'var(--c-primary-600)' }}>
+                {handleOf(b)}
+              </Typography>
+            )}
+            <Typography noWrap sx={{
+              fontFamily: 'var(--font-mono, monospace)', fontSize: 13.5, fontWeight: 600,
+              whiteSpace: 'nowrap',
+            }}>{rect(b)}</Typography>
+          </Stack>
           {/*
             * A BLANK IS A SIZE, NOT A PART. Listing the part names here
             * read as "this blank belongs to these parts" — it does not;
@@ -938,6 +953,7 @@ const BlankRow = memo(function BlankRow({
       <Collapse in={isOpen} unmountOnExit>
         <Box sx={{ px: 5, py: 1.5, background: 'var(--c-surface-2)' }}>
           <Stack direction="row" spacing={3} sx={{ mb: 1.5, flexWrap: 'wrap' }}>
+            <Kv k="On the sheet as" v={handleOf(b)} />
             <Kv k="Blank code" v={b.code} />
             <Kv k="Used by" v={`${b.partCount} part row${b.partCount === 1 ? '' : 's'}`} />
             <Kv k="Steel in parts" v={t(b.totalWeightKg)} />

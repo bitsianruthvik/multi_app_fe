@@ -78,6 +78,13 @@ const DIMS = [
 /** Every row is this tall — `react-window` needs one fixed number. */
 const ROW_HEIGHT = 40;
 
+/**
+ * What the add-line picker needs to know about an item: enough to label it.
+ * Held on its own rather than as a full `CatalogItemRow` so a just-created
+ * item (id + name + code, nothing else yet) can be the picked value too.
+ */
+type PickOption = Pick<CatalogItemRow, 'id' | 'name' | 'code'>;
+
 /** A line being added. Deliberately two questions, not eight. */
 interface Draft {
   parentItemId: number;
@@ -168,6 +175,26 @@ export default function ItemBomDesigner({
     return () => clearTimeout(t);
   }, [pickerSearch, loadOptions]);
 
+  /**
+   * THE PICKED ITEM LIVES HERE, NOT IN `options`.
+   *
+   * It used to be re-derived as `options.find(id)` on every render, and
+   * `options` is one page of a SERVER search driven by whatever the input
+   * box says. Choosing an item rewrites the box to its label
+   * ("Box Girder — BOXGIR-GDR"), that label matched nothing, the page came
+   * back empty, the value collapsed to null, MUI reset the box to "", the
+   * empty search brought the item back, the box became the label again…
+   * The field flickered or blanked and a line could never be added for an
+   * item that was not on the first page. So: the choice is its own state,
+   * the search term only follows what is TYPED (`reason === 'input'`), and
+   * the choice is merged into the options so MUI always finds it.
+   */
+  const [picked, setPicked] = useState<PickOption | null>(null);
+  const pickerOptions = useMemo<PickOption[]>(
+    () => (picked && !options.some((o) => o.id === picked.id) ? [picked, ...options] : options),
+    [options, picked],
+  );
+
   /** The flows a line can default to. Same list the order's Flows tab offers. */
   const [flows, setFlows] = useState<{ id: number; name: string }[]>([]);
   useEffect(() => {
@@ -222,6 +249,7 @@ export default function ItemBomDesigner({
         procurementType: newItem.procurementType as 'make' | 'buy',
       });
       await loadOptions(pickerSearch);
+      setPicked({ id: res.id, name: newItem.name.trim(), code: res.code });
       setDraft((d) => (d ? { ...d, childItemId: res.id } : d));
       setNewItem(null);
     } catch (err) {
@@ -584,16 +612,21 @@ export default function ItemBomDesigner({
         {canEdit && (
           <Stack direction="row" spacing={0} sx={{ flexShrink: 0, width: 104 }}>
             <Tooltip title={`Add something inside ${node.name}`}>
-              <IconButton size="small" disabled={busy} aria-label={`Add something inside ${node.name}`} onClick={() => setDraft({
-                parentItemId: node.catalogItemId,
-                parentName: node.name,
-                childItemId: '',
-                variesPerJob: false,
-                qtyNum: '1',
-                qtyParam: '',
-                defaultQty: '',
-                sortOrder: node.children.length,
-              })}>
+              <IconButton size="small" disabled={busy} aria-label={`Add something inside ${node.name}`} onClick={() => {
+                setPicked(null);
+                setPickerSearch('');
+                setSaveError(null);
+                setDraft({
+                  parentItemId: node.catalogItemId,
+                  parentName: node.name,
+                  childItemId: '',
+                  variesPerJob: false,
+                  qtyNum: '1',
+                  qtyParam: '',
+                  defaultQty: '',
+                  sortOrder: node.children.length,
+                });
+              }}>
                 <AddIcon fontSize="small" />
               </IconButton>
             </Tooltip>
@@ -681,14 +714,18 @@ export default function ItemBomDesigner({
           {draft && (
             <Stack spacing={2} sx={{ mt: 0.5 }}>
               <Autocomplete
-                options={options}
+                options={pickerOptions}
                 loading={optionsLoading}
                 filterOptions={(x) => x}
                 getOptionLabel={(o) => `${o.name}${o.code ? ` — ${o.code}` : ''}`}
                 isOptionEqualToValue={(o, v) => o.id === v.id}
-                value={options.find((o) => o.id === draft.childItemId) ?? null}
-                onInputChange={(_, value) => setPickerSearch(value)}
+                value={picked}
+                // Only a keystroke is a search. A selection or a reset also
+                // changes the input text, and searching by that label is what
+                // used to empty the page and lose the pick — see `picked`.
+                onInputChange={(_, value, reason) => { if (reason === 'input') setPickerSearch(value); }}
                 onChange={(_, value) => {
+                  setPicked(value);
                   setDraft({ ...draft, childItemId: value ? value.id : '' });
                 }}
                 renderInput={(params) => <TextField {...params} label="Item" size="small" placeholder="Search by name or code…" />}

@@ -59,6 +59,8 @@ export interface PlanRow {
   /** Pieces across the whole order. */
   totalQty: number;
   code: string | null;
+  /** The row's last piece under one parent (SPAN1-L1-4 on a qty-4 row); null when one piece. */
+  codeLast?: string | null;
   codeSaved: boolean;
   procurement: 'make' | 'buy';
   flowName: string | null;

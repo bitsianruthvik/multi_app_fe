@@ -49,6 +49,7 @@ import {
 import type { OrderReadiness } from '../api/readiness';
 import { backendMessage, ConfirmDialog, Mono, useToast, ListSkeleton } from '../components';
 import { statusLabel, chipColorForStatus } from '../statusMap';
+import { codeRangeLabel } from '../utils/codeRange';
 
 // ── formatting ──────────────────────────────────────────────────────────────
 
@@ -806,7 +807,8 @@ function PlanRowView({ row, editable, open, canOpen, onToggle, onSave, codePrefi
   // Inside the order, the order number on a blank's name says nothing.
   const tail = ` — ${orderNumber}`;
   const name = row.name.endsWith(tail) ? row.name.slice(0, -tail.length) : row.name;
-  const code = row.code && codePrefix && row.code.startsWith(codePrefix) ? row.code.slice(codePrefix.length) : row.code;
+  // A qty-4 row is pieces 1…4 under each parent: SPAN1-L1-1…4.
+  const code = codeRangeLabel(row.code, row.codeLast, codePrefix);
   return (
     <Box sx={{
       display: 'flex', alignItems: 'stretch', borderBottom: '1px solid var(--c-divider)',

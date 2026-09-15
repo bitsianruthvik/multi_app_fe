@@ -65,6 +65,8 @@ export interface Nest {
 
 export interface Blank {
   key: string; code: string; name: string;
+  /** The short handle the cutting-plan sheet uses for this blank — B1, B2 … in list order. */
+  ref?: string;
   material: string | null; grade: string | null;
   thickness: number; width: number; length: number;
   qty: number; unitWeightKg: number; totalWeightKg: number;

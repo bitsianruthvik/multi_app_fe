@@ -13,7 +13,7 @@ import UndoRounded from '@mui/icons-material/UndoRounded';
 import RedoRounded from '@mui/icons-material/RedoRounded';
 import SyncRounded from '@mui/icons-material/SyncRounded';
 
-import { fabQuery } from '../api/client';
+import { fabGet, fabQuery } from '../api/client';
 import { backendMessage, ConfirmDialog, Surface, useToast } from '../components';
 import { DialogCloseButton } from './FormDialog';
 import DrawingsPanel from './DrawingsPanel';
@@ -27,6 +27,7 @@ import {
 } from '../api/templates';
 import type { OrderReadiness } from '../api/readiness';
 import { createCatalogItem } from '../api/catalog';
+import { codeRangeLabel } from '../utils/codeRange';
 
 /**
  * A catalog size string ("12 × 150", "32 × 90 × 1700") as row dims. Two
@@ -99,6 +100,58 @@ export interface StructureEditorLine {
    * and everything below it multiplies by this instead (decision 3).
    */
   qty?: number | null;
+  /** The line's steel, which every row inherits unless it states its own. */
+  material?: string | null;
+  grade?: string | null;
+}
+
+/**
+ * THE ROW'S OWN STEEL — material or grade, picked not typed (the same lists the
+ * line uses). Blank means "the line's", shown in italics so a row that differs
+ * stands out from six hundred that do not.
+ */
+function SteelSelect({ material, grade, inherited, options, onChange, name }: {
+  material: number | string | null | undefined;
+  grade: number | string | null | undefined;
+  /** The line's steel, "MS E350 BO", or null when the line states none. */
+  inherited: string | null;
+  options: { materials: string[]; byMaterial: Record<string, string[]> };
+  onChange: (material: string, grade: string) => void;
+  name: string;
+}) {
+  // ONE pick, "MS E350 BO", not two boxes: the pair is what a blank is keyed
+  // on, and a row that is a different steel differs in the pair.
+  const m = material == null ? '' : String(material);
+  const g = grade == null ? '' : String(grade);
+  const own = m && g ? `${m}|${g}` : '';
+  const pairs = options.materials.flatMap((mat) => (options.byMaterial[mat] ?? []).map((gr) => `${mat}|${gr}`));
+  const label = (v: string) => v.replace('|', ' ');
+  return (
+    <TextField
+      select size="small" variant="standard"
+      value={own}
+      onChange={(e) => { const [nm, ng] = String(e.target.value).split('|'); onChange(nm ?? '', ng ?? ''); }}
+      sx={{
+        width: 120, flexShrink: 0,
+        '& .MuiInputBase-root': {
+          fontSize: 11.5, height: 28, px: 1, borderRadius: 'var(--r-sm)',
+          border: '1px solid transparent', transition: 'border-color var(--t-fast) var(--ease)',
+          color: own ? 'var(--c-text)' : 'var(--c-text-3)',
+        },
+        '& .MuiInputBase-root:hover, & .MuiInputBase-root.Mui-focused': { borderColor: 'var(--c-border)', background: 'var(--c-surface)' },
+        '& .MuiSelect-select': { py: 0, display: 'flex', alignItems: 'center', minHeight: 'unset !important' },
+      }}
+      slotProps={{ input: { disableUnderline: true } }}
+      SelectProps={{
+        displayEmpty: true,
+        renderValue: (v) => (v ? label(String(v)) : <em>{inherited || 'steel'}</em>),
+      }}
+      inputProps={{ 'aria-label': `Steel for ${name}` }}
+    >
+      <MenuItem value=""><em>{inherited ? `${inherited} — the line's` : 'as the line'}</em></MenuItem>
+      {pairs.map((p) => <MenuItem key={p} value={p} sx={{ fontSize: 12.5 }}>{label(p)}</MenuItem>)}
+    </TextField>
+  );
 }
 
 /** What Save actually did, and the readiness it recomputed. */
@@ -146,8 +199,9 @@ export function StructureColumnHeader() {
     }}>
       <Typography sx={{ flex: 1, ...th }}>Name</Typography>
       <Typography sx={{ width: 76, textAlign: 'right', ...th }}>Qty</Typography>
-      <Typography sx={{ width: 234, ...th }}>Size (mm) — thk / wid / len</Typography>
-      <Typography sx={{ width: 150, ...th }}>Made by</Typography>
+      <Typography sx={{ width: 204, ...th }}>Size (mm) — thk / wid / len</Typography>
+      <Typography sx={{ width: 120, ...th }}>Steel</Typography>
+      <Typography sx={{ width: 132, ...th }}>Made by</Typography>
       <Box sx={{ width: 96, flexShrink: 0 }} />
     </Box>
   );
@@ -292,6 +346,18 @@ export default function StructureEditor({
   const [existing, setExisting] = useState<number | null>(null);
   /** The order prefix every row code starts with — hidden on screen, kept in the stored code. */
   const [codePrefix, setCodePrefix] = useState<string | null>(null);
+  /** The steel lists the line picks from — a row that differs picks from the same. */
+  const [steel, setSteel] = useState<{ materials: string[]; byMaterial: Record<string, string[]> }>({ materials: [], byMaterial: {} });
+  useEffect(() => {
+    if (!open) return;
+    fabGet<{ materials: string[]; byMaterial: Record<string, string[]> }>('steel-options')
+      .then((r) => setSteel({ materials: r.materials ?? [], byMaterial: r.byMaterial ?? {} }))
+      .catch(() => {});
+  }, [open]);
+  const lineSteel = useMemo(
+    () => ({ material: orderLine?.material ?? null, grade: orderLine?.grade ?? null }),
+    [orderLine?.material, orderLine?.grade],
+  );
   /** A 400 `QTY_REQUIRED` refusal — the rows it named, and the first one's key to focus. */
   const [qtyRequired, setQtyRequired] = useState<{ rows: QtyRequiredRow[]; focusKey: string | null } | null>(null);
   const [addUnder, setAddUnder] = useState<string | null>(null);
@@ -757,8 +823,9 @@ export default function StructureEditor({
              */
             const full = node.code ?? null;
             if (!full) return null;
-            const shown = codePrefix && full.startsWith(codePrefix) ? full.slice(codePrefix.length) : full;
-            const pieces = (node.qty ?? 0) > 1 ? ` · pieces ${shown}-1 … ${shown}-${node.qty}` : '';
+            // A qty-4 row is pieces 1…4 under each parent: SPAN1-L1-1…4.
+            const shown = codeRangeLabel(full, node.codeLast, codePrefix);
+            const pieces = node.codeLast ? ` · ${node.qty} pieces under each parent, ${full} to ${node.codeLast}` : '';
             return (
               <Tooltip title={`${full}${node.codeWritten ? '' : ' (written when the production order is deployed)'} · catalog ${node.catalogCode ?? '—'}${pieces}`}>
                 <Typography noWrap sx={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, color: node.codeWritten ? 'var(--c-text-2)' : 'var(--c-text-3)', fontStyle: node.codeWritten ? 'normal' : 'italic', minWidth: 0, lineHeight: 1.3 }}>
@@ -791,29 +858,42 @@ export default function StructureEditor({
           eventually fill them in.
         */}
         {hasKids ? (
-          <Box sx={{ width: 234, flexShrink: 0 }} />
+          <Box sx={{ width: 204, flexShrink: 0 }} />
         ) : node.procurementType === 'buy' || node.procurementType === 'free_issue' ? (
           // BOUGHT IN, NOT CUT: a stud or a bolt has a catalogue size and no
           // rectangle to nest — three size boxes here would be three questions
           // with no answer, and somebody would eventually fill them in.
-          <Box sx={{ width: 234, flexShrink: 0, display: 'flex', alignItems: 'center' }}>
+          <Box sx={{ width: 204, flexShrink: 0, display: 'flex', alignItems: 'center' }}>
             <Typography sx={{ fontSize: 11, color: 'var(--c-text-3)', fontStyle: 'italic' }}>
               {node.procurementType === 'free_issue' ? 'supplied by customer — no size to cut' : 'bought in — no size to cut'}
             </Typography>
           </Box>
         ) : (
-          <Box sx={{ display: 'flex', gap: 0.5, flexShrink: 0, width: 234 }}>
+          <Box sx={{ display: 'flex', gap: 0.5, flexShrink: 0, width: 204 }}>
             {(['thickness_mm', 'width_mm', 'length_mm'] as const).map((f) => (
               <InlineNumber
                 key={f}
                 value={node.dims?.[f]}
                 placeholder={f === 'thickness_mm' ? 'thk' : f === 'width_mm' ? 'wid' : 'len'}
                 onChange={(raw) => setDim(node.key, f, raw)}
-                width={74}
+                width={64}
                 ariaLabel={`${f === 'thickness_mm' ? 'Thickness' : f === 'width_mm' ? 'Width' : 'Length'} (mm) for ${node.name}`}
               />
             ))}
           </Box>
+        )}
+
+        {/* THE STEEL, on a made leaf. Blank = the line's (shown in italics). */}
+        {hasKids || node.procurementType === 'buy' || node.procurementType === 'free_issue' ? (
+          <Box sx={{ width: 120, flexShrink: 0 }} />
+        ) : (
+          <SteelSelect
+            material={node.dims?.material} grade={node.dims?.grade}
+            inherited={[lineSteel.material, lineSteel.grade].filter(Boolean).join(' ') || null}
+            options={steel}
+            onChange={(m, g) => { setDim(node.key, 'material', m); setDim(node.key, 'grade', g); }}
+            name={node.name}
+          />
         )}
 
         {/*
@@ -830,7 +910,7 @@ export default function StructureEditor({
           value={node.defaultFlowId ?? ''}
           onChange={(e) => setFlow(node.key, e.target.value === '' ? null : Number(e.target.value))}
           sx={{
-            width: 150, flexShrink: 0,
+            width: 132, flexShrink: 0,
             '& .MuiInputBase-root': {
               fontSize: 11.5, height: 28, px: 1, borderRadius: 'var(--r-sm)',
               border: '1px solid transparent', transition: 'border-color var(--t-fast) var(--ease)',
@@ -879,7 +959,7 @@ export default function StructureEditor({
         </Box>
       </>
     );
-  }, [copy, remove, selected, setDim, setFlow, setQty, toggleSelect, flows, codePrefix]);
+  }, [copy, remove, selected, setDim, setFlow, setQty, toggleSelect, flows, codePrefix, steel, lineSteel]);
 
   /**
    * THE "ADD UNDER" PANEL, one for any node INCLUDING THE ROOT. The root is

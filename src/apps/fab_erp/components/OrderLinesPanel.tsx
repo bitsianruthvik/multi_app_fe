@@ -17,6 +17,7 @@ import { Surface, EmptyState, useToast, Mono, backendMessage, ConfirmDialog } fr
 import StructureEditor, { StructureColumnHeader, type StructureSaveResult } from './StructureEditor';
 import { DialogCloseButton } from './FormDialog';
 import type { OrderReadiness } from '../api/readiness';
+import { codeRangeLabel } from '../utils/codeRange';
 
 /**
  * Step 1: what this order is selling, AND what each of those is made of.
@@ -642,8 +643,9 @@ export default function OrderLinesPanel({
                           line.catalogItem ? `catalog ${line.catalogItem.code ?? '—'} · ${[line.catalogItem.categoryName, line.catalogItem.groupName, line.catalogItem.subgroupName].filter(Boolean).join(' › ')}` : null,
                         ].filter(Boolean).join(' · ')}>
                           <Mono sx={{ fontSize: 10.5, color: 'var(--c-text-2)', whiteSpace: 'nowrap', flexShrink: 0 }}>
+                            {/* A qty-5 line is spans 1…5: SPAN1…5. */}
                             {line.rootCode
-                              ? (codePrefix && line.rootCode.startsWith(codePrefix) ? line.rootCode.slice(codePrefix.length) : line.rootCode)
+                              ? codeRangeLabel(line.rootCode, line.rootCodeLast, codePrefix)
                               : line.catalogItem?.code}
                           </Mono>
                         </Tooltip>
@@ -732,6 +734,8 @@ export default function OrderLinesPanel({
                       id: line.id,
                       code: line.code ?? null,
                       description: line.description ?? null,
+                      material: line.material ?? null,
+                      grade: line.grade ?? null,
                       itemId: line.templateItemId ?? line.catalogItemId ?? null,
                       qty: Number(line.qty ?? 1),
                     }}

@@ -155,6 +155,8 @@ export interface OrderLineRow {
   builtCount: number;
   /** The line's top structure row's code (SPAN1) — written at deploy, previewed before. */
   rootCode?: string | null;
+  /** The last span of the line (SPAN5 on a qty-5 line); null when the line is one. */
+  rootCodeLast?: string | null;
   material: string | null;
   grade: string | null;
   thicknessMm: number | null;

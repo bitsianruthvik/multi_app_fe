@@ -294,6 +294,8 @@ export interface DraftNodeData {
    * the server previews it from the same rule (`codeWritten` says which).
    */
   code?: string | null;
+  /** The row's LAST piece under one parent (SPAN1-L1-4 on a qty-4 row); null when it is one piece. */
+  codeLast?: string | null;
   codeWritten?: boolean;
   /** The catalog item's code (COMPOS-SPAN), always known once the row points at an item. */
   catalogCode?: string | null;
