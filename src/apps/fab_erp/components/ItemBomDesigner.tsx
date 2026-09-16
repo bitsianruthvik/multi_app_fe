@@ -224,7 +224,26 @@ export default function ItemBomDesigner({
       .catch(() => setCategories([]));
   }, []);
 
-  const [newItem, setNewItem] = useState<{ name: string; categoryId: number | ''; unit: string; procurementType: string } | null>(null);
+  /*
+   * UAT 2: the same fields the order's structure editor asks for. Group and
+   * sub-group place the item in the catalogue (an ungrouped item is invisible
+   * on the catalogue screens), Code is its identity (blank = generated), and
+   * Short code is its rung in every order row code (blank = initials).
+   */
+  const [newItem, setNewItem] = useState<{
+    name: string; code: string; shortCode: string; categoryId: number | '';
+    groupId: number | ''; subgroupId: number | ''; unit: string; procurementType: string;
+  } | null>(null);
+  const [taxonomy, setTaxonomy] = useState<{
+    groups: { id: number; name: string; categoryId: number }[];
+    subgroups: { id: number; name: string; groupId: number }[];
+  }>({ groups: [], subgroups: [] });
+  useEffect(() => {
+    Promise.all([
+      fabQuery<{ data: { id: number; name: string; categoryId: number }[] }>('fabErpItemGroup', { pagination: { limit: 500 } }),
+      fabQuery<{ data: { id: number; name: string; groupId: number }[] }>('fabErpItemSubgroup', { pagination: { limit: 1000 } }),
+    ]).then(([g, sg]) => setTaxonomy({ groups: g.data ?? [], subgroups: sg.data ?? [] })).catch(() => {});
+  }, []);
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
@@ -244,8 +263,12 @@ export default function ItemBomDesigner({
       // creates the item and hands back the id/code it actually got.
       const res = await createCatalogItem({
         name: newItem.name.trim(),
+        code: newItem.code.trim() || null,
+        shortCode: newItem.shortCode.trim() || null,
         unit: newItem.unit.trim() || 'PC',
         categoryId: newItem.categoryId,
+        groupId: newItem.groupId === '' ? null : newItem.groupId,
+        subgroupId: newItem.subgroupId === '' ? null : newItem.subgroupId,
         procurementType: newItem.procurementType as 'make' | 'buy',
       });
       await loadOptions(pickerSearch);
@@ -576,7 +599,10 @@ export default function ItemBomDesigner({
           * QUANTITY MEAN MANY THINGS, OR ONE THING MANY TIMES?" comment.
           */}
         <Box sx={{ width: 76, flexShrink: 0, display: 'flex', justifyContent: 'center' }}>
-          {isRoot ? null : (
+          {/* UAT 4: a bought item or a rung with nothing under it has nothing
+              to explode into — an ON switch there was a question with no
+              answer. Only an assembly (a made rung with its own lines) shows one. */}
+          {isRoot || isBought || node.children.length === 0 ? null : (
             <Tooltip title={rowLocked
               ? "Varies-per-job rows can't set this here — their quantity is resolved per order, not fixed on the BOM."
               : 'Assemblies explode into their own parts when the order is built; parts do not.'}>
@@ -730,7 +756,7 @@ export default function ItemBomDesigner({
                 }}
                 renderInput={(params) => <TextField {...params} label="Item" size="small" placeholder="Search by name or code…" />}
               />
-              <Button size="small" onClick={() => setNewItem({ name: pickerSearch, categoryId: '', unit: 'PC', procurementType: 'make' })} sx={{ alignSelf: 'flex-start' }}>
+              <Button size="small" onClick={() => setNewItem({ name: pickerSearch, code: '', shortCode: '', categoryId: '', groupId: '', subgroupId: '', unit: 'PC', procurementType: 'make' })} sx={{ alignSelf: 'flex-start' }}>
                 ＋ Create a new item{pickerSearch ? ` named "${pickerSearch}"` : ''} instead
               </Button>
 
@@ -853,6 +879,45 @@ export default function ItemBomDesigner({
               >
                 {categories.map((c) => <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>)}
               </TextField>
+              <Stack direction="row" spacing={1.5}>
+                <TextField
+                  select size="small" fullWidth label="Group" value={newItem.groupId}
+                  helperText="Where it sits in the catalogue."
+                  onChange={(e) => {
+                    const groupId = e.target.value === '' ? '' : Number(e.target.value);
+                    const group = taxonomy.groups.find((g) => g.id === groupId);
+                    // Group and category must agree — the group knows its category.
+                    setNewItem({ ...newItem, groupId, subgroupId: '', categoryId: group ? group.categoryId : newItem.categoryId });
+                  }}
+                >
+                  <MenuItem value="">—</MenuItem>
+                  {taxonomy.groups
+                    .filter((g) => newItem.categoryId === '' || g.categoryId === newItem.categoryId)
+                    .map((g) => <MenuItem key={g.id} value={g.id}>{g.name}</MenuItem>)}
+                </TextField>
+                <TextField
+                  select size="small" fullWidth label="Sub-group" value={newItem.subgroupId}
+                  disabled={newItem.groupId === ''}
+                  onChange={(e) => setNewItem({ ...newItem, subgroupId: e.target.value === '' ? '' : Number(e.target.value) })}
+                >
+                  <MenuItem value="">—</MenuItem>
+                  {taxonomy.subgroups
+                    .filter((sg) => sg.groupId === newItem.groupId)
+                    .map((sg) => <MenuItem key={sg.id} value={sg.id}>{sg.name}</MenuItem>)}
+                </TextField>
+              </Stack>
+              <Stack direction="row" spacing={1.5}>
+                <TextField
+                  size="small" fullWidth label="Code" value={newItem.code} placeholder="Blank = generated"
+                  helperText="The item's own identity."
+                  onChange={(e) => setNewItem({ ...newItem, code: e.target.value })}
+                />
+                <TextField
+                  size="small" fullWidth label="Short code" value={newItem.shortCode} placeholder="e.g. TF"
+                  helperText="Its rung in every order row code."
+                  onChange={(e) => setNewItem({ ...newItem, shortCode: e.target.value })}
+                />
+              </Stack>
               <TextField
                 select size="small" label="Procurement" value={newItem.procurementType}
                 helperText="'Make' plans this in-house; 'Buy' plans it as a purchase."

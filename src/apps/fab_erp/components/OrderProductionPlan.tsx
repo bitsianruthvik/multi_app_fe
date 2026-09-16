@@ -696,6 +696,12 @@ function ProductionSection({
         <Typography sx={{ fontSize: 12, color: 'var(--c-text-2)' }}>
           {rowsWithSteps} row{rowsWithSteps === 1 ? '' : 's'} · {section.stepCount} steps · {hours(section.totalMinutes)}
         </Typography>
+        {/* UAT 21: every time "—" and "0 h" read as broken. Say where a time comes from. */}
+        {section.stepCount > 0 && section.totalMinutes === 0 && (
+          <Tooltip title="A step's time comes from its operation's formula or standard time (Setup › Operations). Until one is set, you can click any time here and type it for this order.">
+            <Chip size="small" variant="outlined" label="No times yet — set them on the operations, or click a time" />
+          </Tooltip>
+        )}
         {prefix && (
           <Typography sx={{ fontSize: 11.5, color: 'var(--c-text-3)' }}>
             Codes start <Box component="span" sx={{ fontFamily: 'monospace' }}>{prefix}</Box>

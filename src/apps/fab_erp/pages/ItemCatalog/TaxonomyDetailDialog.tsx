@@ -222,7 +222,9 @@ export function TaxonomyDetailDialog({ level, entity, categories, groups, canEdi
         <TextField label="Description" value={description} size="small" fullWidth multiline minRows={2}
           disabled={!canEdit} onChange={(e) => setDescription(e.target.value)} />
         <TextField label="Shortform" value={shortform} size="small" fullWidth
-          disabled={!canEdit} onChange={(e) => setShortform(e.target.value)} />
+          disabled={!canEdit} onChange={(e) => setShortform(e.target.value.slice(0, 20))}
+          slotProps={{ htmlInput: { maxLength: 20 } }}
+          helperText={`${shortform.length}/20 — the handle codes are built from`} />
 
         {!loadingFields && inherited.length > 0 && (
           <>

@@ -845,17 +845,33 @@ export default function BlankNesting({
           mt: 2, p: 1.75, borderRadius: 'var(--r-md)', background: 'var(--c-surface-2)',
           border: '1px solid var(--c-border)', flexWrap: 'wrap',
         }}>
+          {/* UAT 14: an uploaded plan is ALREADY accepted (the upload raised
+              the cutting order), so the box must not read as a step still to
+              take — it says so, and the button becomes the way to re-accept
+              after changing which sheets are ticked. */}
           <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)', flex: '1 1 320px', minWidth: 0 }}>
-            Accepting creates <b>{blanks.length} blanks</b> across{' '}
-            <b>{checkedNests.size} of {nests.length} sheets</b>,
-            points every part at its blank, and raises the cutting work on its own production
-            order — separate from fabrication, because it waits on plate rather than on the shop.
+            {accepted ? (
+              <>
+                This plan is <b>accepted</b>: <b>{blanks.length} blanks</b> across{' '}
+                <b>{checkedNests.size} of {nests.length} sheets</b> are on the cutting order.
+                Untick or tick sheets and accept again, upload a corrected sheet, or re-nest for a
+                new suggestion — nothing changes on the cutting order until you accept it.
+              </>
+            ) : (
+              <>
+                Accepting creates <b>{blanks.length} blanks</b> across{' '}
+                <b>{checkedNests.size} of {nests.length} sheets</b>,
+                points every part at its blank, and raises the cutting work on its own production
+                order — separate from fabrication, because it waits on plate rather than on the shop.
+              </>
+            )}
           </Typography>
           <Button
-            variant="contained" disabled={accepting || !nests.length || !checkedNests.size}
+            variant={accepted ? 'outlined' : 'contained'}
+            disabled={accepting || !nests.length || !checkedNests.size}
             onClick={() => void accept()}
           >
-            {accepting ? 'Working…' : 'Accept plan'}
+            {accepting ? 'Working…' : accepted ? 'Accept again' : 'Accept plan'}
           </Button>
         </Stack>
       )}

@@ -123,13 +123,20 @@ export default function SalesOrderWizard({
     try {
       const r = await fetchOrderReadiness(orderId);
       setReadiness(r);
+      // A read that worked clears an error from one that did not (UAT 8: the
+      // header kept saying "Something went wrong" after readiness recovered).
+      setError((prev) => (prev === 'Could not read this order.' || /went wrong/i.test(prev) ? '' : prev));
       // A step saved before the steps were merged ('tasks', 'procurement'), or
       // any other name the server no longer recognises, lands on the server's
       // own idea of what's next — never a step name hardcoded here.
       const saved = r.wizardStep as ReadinessStage['key'] | null;
       // A remembered step that is no longer reachable (an earlier stage went
       // back to unfinished) lands on the first stage that needs work instead.
-      const known = saved && r.stages.some((s) => s.key === saved && s.state !== 'pending') ? saved : null;
+      const savedStage = saved ? r.stages.find((s) => s.key === saved && s.state !== 'pending') : undefined;
+      // A remembered step that is FINISHED is not where the work is (UAT 20:
+      // "Continue setup" opened on Nesting while the strip said "Next:
+      // Production"); one still unfinished is exactly where it stopped.
+      const known = savedStage ? (savedStage.satisfied ? (r.nextStage ?? saved) : saved) : null;
       if (jump) setStep(known ?? r.nextStage ?? 'lines');
     } catch (e) {
       setError(backendMessage(e, 'Could not read this order.'));
@@ -177,9 +184,27 @@ export default function SalesOrderWizard({
     const target = readiness?.stages.find((s) => s.key === next);
     if (target?.state === 'pending') return;
     setStep(next);
-    if (readiness?.status !== 'draft') return;
+    // A non-draft order records no step; re-read readiness anyway so a change
+    // made outside the wizard (an upload from the order's tab) shows (UAT 19).
+    if (readiness?.status !== 'draft') { refresh(); return; }
     setWizardStep(orderId, next).then((res) => refresh(res.readiness)).catch(() => {});
   }, [orderId, readiness, refresh]);
+
+  /**
+   * Coming back to the tab re-reads readiness (UAT 19): a plan uploaded from
+   * the order's own Nesting tab, or a deploy from another window, left the
+   * wizard insisting "1 part not on a sheet yet" until a full reload.
+   */
+  useEffect(() => {
+    if (!open) return undefined;
+    const onVisible = () => { if (document.visibilityState === 'visible') load(false); };
+    window.addEventListener('focus', onVisible);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      window.removeEventListener('focus', onVisible);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [open, load]);
 
   // ── X4: don't lose unsaved structure edits by closing over them ──────────
   const [linesDirty, setLinesDirty] = useState(false);
@@ -458,9 +483,17 @@ export default function SalesOrderWizard({
               </Box>
             )}
           >
-            <b>Order confirmed.</b> Nothing has been bought or deployed yet: the cutting and
-            fabrication orders stay draft until you deploy them, and purchase requests wait
-            until you send them — both from the Production step.
+            {/* UAT 25: say what is actually the case, not the generic story —
+                both production orders were already deployed when this said
+                "stay draft until you deploy them". */}
+            <b>Order confirmed.</b>{' '}
+            {(summary?.draftMOs ?? 0) > 0
+              ? `${summary?.draftMOs} production order${summary?.draftMOs === 1 ? ' stays' : 's stay'} draft until you deploy ${summary?.draftMOs === 1 ? 'it' : 'them'}`
+              : 'Its production orders are already deployed'}
+            {(summary?.unsentPOs ?? 0) > 0
+              ? `; ${summary?.unsentPOs} purchase request${summary?.unsentPOs === 1 ? ' waits' : 's wait'} until you send ${summary?.unsentPOs === 1 ? 'it' : 'them'}`
+              : ''}
+            {' '}— all from the Production step.
           </Alert>
         )}
 
