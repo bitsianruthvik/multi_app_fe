@@ -296,8 +296,17 @@ function InlineNumber({
 
 export default function StructureEditor({
   open, orderId, orderLine, onClose, onDone, onReadinessChanged, source = 'bom', onDirtyChange,
-  revisionReason, chrome = 'card',
+  revisionReason, chrome = 'card', deployedProductionOrders = 0,
 }: {
+  /**
+   * Production orders already on the floor for this sales order. A structure
+   * save under one is allowed — that is how a late size or an extra row gets
+   * in — but it is asked about first, and told that Re-deploy on the
+   * Production step is what carries the change to the shop. Silently saving
+   * left two deployed orders quietly out of step with the BOM (prod UAT
+   * 2026-09-15, finding 17).
+   */
+  deployedProductionOrders?: number;
   /**
    * 'card' draws its own bordered table with a header; 'flat' draws rows only,
    * for a container that already IS the table — the line card, which renders
@@ -621,13 +630,24 @@ export default function StructureEditor({
    * STARTED work; this is about the ordinary case of a row with unstarted
    * tasks, which the server drops silently once told to remove the row.
    */
-  const create = useCallback((replace = false) => {
+  /**
+   * Editing under a deployed production order asks first (see the prop). It
+   * is asked BEFORE the remove-rows question so the bigger fact comes first;
+   * confirming it falls through to the ordinary path, remove-check included.
+   */
+  const [confirmDeployed, setConfirmDeployed] = useState(false);
+
+  const create = useCallback((replace = false, pastDeployed = false) => {
+    if (source === 'current' && !replace && !pastDeployed && deployedProductionOrders > 0) {
+      setConfirmDeployed(true);
+      return;
+    }
     if (source === 'current' && !replace && removedItemIds.length > 0) {
       setConfirmRemove(true);
       return;
     }
     void doCreate(replace);
-  }, [source, removedItemIds.length, doCreate]);
+  }, [source, removedItemIds.length, doCreate, deployedProductionOrders]);
 
   const rows = useMemo(() => (t.tree ? countRows(t.tree) : 0), [t.tree]);
   const pieces = useMemo(() => (t.tree ? countPieces(t.tree) : 0), [t.tree]);
@@ -1345,6 +1365,22 @@ export default function StructureEditor({
           </DialogActions>
         </Dialog>
       )}
+
+      <ConfirmDialog
+        open={confirmDeployed}
+        title="This order is already on the floor"
+        confirmLabel="Save anyway"
+        body={(
+          <Typography sx={{ fontSize: 13.5 }}>
+            <b>{deployedProductionOrders}</b> production order{deployedProductionOrders === 1 ? ' is' : 's are'} deployed
+            {' '}for this sales order. Saving changes the BOM underneath {deployedProductionOrders === 1 ? 'it' : 'them'}:
+            {' '}the shop keeps working to the old plan until you press <b>Re-deploy</b> on the Production step,
+            {' '}which the step will flag as “changed since deploy”.
+          </Typography>
+        )}
+        onClose={() => setConfirmDeployed(false)}
+        onConfirm={() => { setConfirmDeployed(false); create(false, true); }}
+      />
 
       <ConfirmDialog
         open={confirmRemove}

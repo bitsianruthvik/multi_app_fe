@@ -509,6 +509,7 @@ export default function SalesOrderWizard({
                 orderId={orderId} canManage={canManage}
                 onChanged={refresh} onDirtyChange={setLinesDirty}
                 revisionReason={revisionReason} expandLineId={expandLineId}
+                deployedProductionOrders={readiness?.stages.find((s) => s.key === 'production')?.deployed ?? 0}
               />
             )}
             {/* Flows BEFORE parameters: which fields a part needs is derived from
@@ -619,39 +620,54 @@ export default function SalesOrderWizard({
           </Tooltip>
         ) : (
           /**
-           * NEXT IS BLOCKED WHEN THE CURRENT STEP IS NOT SATISFIED.
+           * NEXT IS A RECOMMENDATION, NEVER A DEAD END.
            *
-           * The rail above stays clickable, deliberately. Nothing is gated on
-           * anything else in this wizard — somebody will want to nest a few
-           * plates before the BOM is finished and there is no good reason to
-           * stop them. But NEXT is a recommendation, and recommending the next
-           * step while this one is unfinished is how an order reached nesting
-           * with no parameters entered: every duration downstream is then
-           * computed from a missing value defaulted to zero, which does not
-           * error, it just quietly produces fiction.
+           * While the current step is unfinished, Next is still there — drawn
+           * as the secondary, warning-coloured "Skip for now" — because the
+           * alternative was a trap: a disabled Next whose tooltip said "use the
+           * steps above if you mean to skip it" while the steps above were
+           * locked (`pending`). Someone with one part missing a length could
+           * neither go forward nor be told what to do (prod UAT 2026-09-15).
+           *
+           * The recommendation still stands: the primary, violet Next appears
+           * only once the step is satisfied, the skip variant names what is
+           * unfinished, and Confirm keeps waiting for every step regardless —
+           * skipping changes where you are looking, not what is required.
+           * The one time Next is truly disabled is when the following step is
+           * `pending`: nothing on it has been started, so there is nothing to
+           * look at yet, and the server would refuse the move (409) anyway.
            *
            * `satisfied` (not a bare `state === 'done'` check) is the server's
            * own answer — it already treats `not_applicable` and an optional
            * stage as done, so this can never disagree with `canConfirm`.
            */
-          <Tooltip title={
-            current && !current.satisfied
-              ? `${current.label} is not finished — ${current.detail}. Use the steps above if you mean to skip it.`
-              : `Go to ${steps[idx + 1].label}`
-          }>
-            <span>
-              <Button
-                variant="contained"
-                endIcon={<ArrowForwardRounded />}
-                disabled={!!current && !current.satisfied}
-                onClick={() => goTo(steps[idx + 1].key)}
-              >
-                {/* Named, so the button says where it goes — "Next" alone made
-                    people check the rail before pressing it. */}
-                Next: {steps[idx + 1].label}
-              </Button>
-            </span>
-          </Tooltip>
+          (() => {
+            const next = steps[idx + 1];
+            const unfinished = !!current && !current.satisfied;
+            const nextLocked = next.state === 'pending';
+            const title = !unfinished
+              ? `Go to ${next.label}`
+              : nextLocked
+                ? `${current!.label} is not finished — ${current!.detail}. ${next.label} has nothing on it yet, so finish this step first.`
+                : `${current!.label} is not finished — ${current!.detail}. You can carry on; Confirm waits until it is done.`;
+            return (
+              <Tooltip title={title}>
+                <span>
+                  <Button
+                    variant={unfinished ? 'outlined' : 'contained'}
+                    color={unfinished ? 'warning' : 'primary'}
+                    endIcon={<ArrowForwardRounded />}
+                    disabled={unfinished && nextLocked}
+                    onClick={() => goTo(next.key)}
+                  >
+                    {/* Named, so the button says where it goes — "Next" alone made
+                        people check the rail before pressing it. */}
+                    {unfinished ? 'Skip for now' : 'Next'}: {next.label}
+                  </Button>
+                </span>
+              </Tooltip>
+            );
+          })()
         )}
       </Box>
 

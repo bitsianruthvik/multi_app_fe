@@ -74,6 +74,8 @@ export interface ProductionOrderRef {
   status: string;
   purpose: 'cutting' | null;
   progressPct: number | null;
+  /** Deployed, and the BOM under it has changed since (deploy signature mismatch). Re-deploy clears it. */
+  stale?: boolean;
 }
 
 export interface PlanSection {

@@ -61,10 +61,17 @@ export interface FabOrderLine {
 }
 
 export default function OrderLinesPanel({
-  orderId, canManage, onChanged, onDirtyChange, revisionReason, expandLineId,
+  orderId, canManage, onChanged, onDirtyChange, revisionReason, expandLineId, deployedProductionOrders = 0,
 }: {
   orderId: number;
   canManage: boolean;
+  /**
+   * How many of this order's production orders are already on the floor
+   * (readiness' production stage). Every `StructureEditor` below asks before
+   * saving a structure edit under them — the shop would otherwise be working
+   * to a BOM that quietly stopped matching the order.
+   */
+  deployedProductionOrders?: number;
   /** Fired after any write, with the readiness the write returned when it has one. */
   onChanged?: (readiness?: OrderReadiness) => void;
   /**
@@ -730,6 +737,7 @@ export default function OrderLinesPanel({
                     source={rowsBuilt > 0 ? 'current' : 'bom'}
                     open
                     orderId={orderId}
+                    deployedProductionOrders={deployedProductionOrders}
                     orderLine={{
                       id: line.id,
                       code: line.code ?? null,

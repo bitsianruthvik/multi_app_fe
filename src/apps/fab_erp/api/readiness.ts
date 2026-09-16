@@ -38,6 +38,10 @@ export interface ReadinessStage {
    * the server's own `preparationComplete`/`canConfirm`.
    */
   satisfied: boolean;
+  /** Production only: how many production orders are on the floor. The structure editor warns before editing under them. */
+  deployed?: number;
+  /** Production only: deployed orders whose BOM changed since deploy (order numbers) — Re-deploy clears it. */
+  stale?: string[];
 }
 
 export interface ReadinessBlocker {

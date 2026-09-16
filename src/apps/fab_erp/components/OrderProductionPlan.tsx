@@ -665,11 +665,16 @@ function ProductionSection({
             )}
             {/* P2/X2: a revision's structure edits reach a deployed production
                 order without regressing its status — this is how the shop
-                picks up the change. */}
-            {canManage && mo && mo.status !== 'draft' && orderStatus && orderStatus !== 'draft' && (
-              <Button size="small" disabled={!!busy} onClick={() => void redeploy()}
+                picks up the change. Also offered, as the primary action, the
+                moment the server says the BOM moved under a deployed order
+                (`stale`, from its deploy signature) — a length typed on a
+                draft order's Line items step after deploying is the same
+                situation as a revision, and used to have no button at all. */}
+            {canManage && mo && mo.status !== 'draft' && (mo.stale || (orderStatus && orderStatus !== 'draft')) && (
+              <Button size="small" variant={mo.stale ? 'contained' : 'text'} color={mo.stale ? 'warning' : 'primary'}
+                disabled={!!busy} onClick={() => void redeploy()}
                 startIcon={busy === 'deploy' ? <CircularProgress size={14} color="inherit" /> : <RefreshRounded />}>
-                Re-deploy after revision
+                {mo.stale ? 'Re-deploy — BOM changed' : 'Re-deploy after revision'}
               </Button>
             )}
           </Stack>
@@ -679,6 +684,11 @@ function ProductionSection({
           <Stack direction="row" spacing={1} alignItems="center">
             <Mono>{mo.orderNumber}</Mono>
             <Chip size="small" label={statusLabel(mo.status)} color={chipColorForStatus(mo.status)} variant="outlined" />
+            {mo.stale && (
+              <Tooltip title="The BOM changed after this order was deployed — the shop is still working to the old plan until it is re-deployed.">
+                <Chip size="small" label="Changed since deploy" color="warning" variant="outlined" />
+              </Tooltip>
+            )}
           </Stack>
         ) : (
           <Chip size="small" label="No production order yet" variant="outlined" />
