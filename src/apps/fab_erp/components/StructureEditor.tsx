@@ -382,6 +382,15 @@ export default function StructureEditor({
     groups: { id: number; name: string; categoryId: number }[];
     subgroups: { id: number; name: string; groupId: number }[];
   }>({ groups: [], subgroups: [] });
+  /** UAT round 3, item 2: the New item dialog asks the CATEGORY too, not only group and sub-group. */
+  const [categories, setCategories] = useState<{ id: number; name: string }[]>([]);
+  useEffect(() => {
+    fabQuery<{ data: { id: number; name: string }[] }>('fabErpItemCategory', {
+      orderBy: [{ field: 'name', direction: 'asc' }], pagination: { limit: 200 },
+    }).then((r) => setCategories(r.data ?? [])).catch(() => setCategories([]));
+  }, []);
+  /** The category the picked group belongs to, or the one chosen directly before a group is. */
+  const [newItemCategoryId, setNewItemCategoryId] = useState<number | ''>('');
 
   /** Rows about to be removed by Save — surfaced BEFORE the write happens (item 3). */
   const removedItemIds = useMemo(() => {
@@ -755,6 +764,40 @@ export default function StructureEditor({
     setSelected(new Set());
   }, [bulkFlow, selected, applyFlowToKeys]);
 
+  /*
+   * THE SELECTION IS A TOOL, NOT A TICK LIST (UAT round 3, item 1). The tick
+   * boxes existed only to feed a flow selector at the bottom of the table, off
+   * screen on any real order. Now whatever is ticked can be given a flow, a
+   * steel, copied or removed from a bar that appears at the TOP the moment
+   * something is selected — and "Select all leaves" picks every made part so
+   * a whole order's steel or flow is two clicks.
+   */
+  const [bulkMaterial, setBulkMaterial] = useState('');
+  const [bulkGrade, setBulkGrade] = useState('');
+  const applySteelToSelection = useCallback(() => {
+    if (!selected.size) return;
+    for (const key of selected) { setDim(key, 'material', bulkMaterial); setDim(key, 'grade', bulkGrade); }
+  }, [selected, bulkMaterial, bulkGrade, setDim]);
+  const copySelected = useCallback(() => {
+    // Top-down order, so a copy of a parent is not followed by a second copy of its child.
+    for (const key of visibleOrder.filter((k) => selected.has(k))) t.duplicate(key);
+    setSelected(new Set());
+  }, [selected, visibleOrder, t]);
+  const removeSelected = useCallback(() => {
+    for (const key of selected) t.remove(key);
+    setSelected(new Set());
+  }, [selected, t]);
+  const selectAllLeaves = useCallback(() => {
+    if (!t.tree) return;
+    const out = new Set<string>();
+    const walk = (n: DraftNode) => {
+      if (!n.children.length && (n.procurementType ?? 'make') === 'make') out.add(n.key);
+      n.children.forEach(walk);
+    };
+    t.tree.children.forEach(walk);
+    setSelected(out);
+  }, [t.tree]);
+
   /**
    * PULL BOM DEFAULTS (§13 "a default flow belongs to the BOM LINE, not the
    * item"): re-reads each item's BOM-line default flow, touching only items
@@ -896,6 +939,9 @@ export default function StructureEditor({
                 value={node.dims?.[f]}
                 placeholder={f === 'thickness_mm' ? 'thk' : f === 'width_mm' ? 'wid' : 'len'}
                 onChange={(raw) => setDim(node.key, f, raw)}
+                // A made leaf with no rectangle cannot be nested — outlined, so
+                // "1 part without a size" (the step's own detail) is findable.
+                missing={node.dims?.[f] == null || node.dims?.[f] === ''}
                 width={64}
                 ariaLabel={`${f === 'thickness_mm' ? 'Thickness' : f === 'width_mm' ? 'Width' : 'Length'} (mm) for ${node.name}`}
               />
@@ -933,7 +979,11 @@ export default function StructureEditor({
             width: 132, flexShrink: 0,
             '& .MuiInputBase-root': {
               fontSize: 11.5, height: 28, px: 1, borderRadius: 'var(--r-sm)',
-              border: '1px solid transparent', transition: 'border-color var(--t-fast) var(--ease)',
+              // A made LEAF with no flow has no work — outlined like a missing size.
+              // An assembly with none is a real answer (it only groups its rows).
+              border: `1px solid ${!hasKids && node.defaultFlowId == null && node.procurementType !== 'buy' && node.procurementType !== 'free_issue' ? 'var(--c-danger-300, #e8a0a0)' : 'transparent'}`,
+              background: !hasKids && node.defaultFlowId == null && node.procurementType !== 'buy' && node.procurementType !== 'free_issue' ? 'var(--c-danger-50)' : undefined,
+              transition: 'border-color var(--t-fast) var(--ease)',
               color: node.defaultFlowId == null ? 'var(--c-text-3)' : 'var(--c-text)',
             },
             '& .MuiInputBase-root:hover, & .MuiInputBase-root.Mui-focused': { borderColor: 'var(--c-border)', background: 'var(--c-surface)' },
@@ -1142,9 +1192,11 @@ export default function StructureEditor({
           {/* Undo/redo + bulk flow toolbar (X3 / X4). */}
           <Box sx={{
             display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap',
+            // AT THE TOP, and it stays there while the rows scroll (UAT round 3,
+            // item 1): as `order: 2` it sat under 80 rows where nobody found it.
             ...(flat
-              ? { order: 2, px: 1.5, py: 0.75, borderTop: '1px solid var(--c-divider)', bgcolor: 'var(--c-surface-2)' }
-              : { mb: 1 }),
+              ? { px: 1.5, py: 0.75, borderBottom: '1px solid var(--c-divider)', bgcolor: 'var(--c-surface-2)', position: 'sticky', top: 0, zIndex: 2 }
+              : { mb: 1, position: 'sticky', top: 0, zIndex: 2, bgcolor: 'var(--c-surface)' }),
           }}>
             <Tooltip title="Undo (Ctrl+Z)">
               <span>
@@ -1185,12 +1237,9 @@ export default function StructureEditor({
             <Button size="small" disabled={bulkFlow === '' || bulkBusy} onClick={setFlowOnAllLeaves}>
               Set flow on all leaves
             </Button>
-            <Button
-              size="small" disabled={bulkFlow === '' || !selected.size || bulkBusy}
-              onClick={applyFlowToSelection}
-            >
-              Apply to {selected.size || ''} selected
-            </Button>
+            <Tooltip title="Tick every made part — then give them all a flow or a steel from the bar that appears">
+              <Button size="small" onClick={selectAllLeaves}>Select all leaves</Button>
+            </Tooltip>
             {source === 'current' && (
               <Tooltip title="A default flow belongs to the BOM LINE, not the item — this re-pulls each part's line default, touching only parts that still have none.">
                 <span>
@@ -1204,6 +1253,39 @@ export default function StructureEditor({
               </Tooltip>
             )}
           </Box>
+
+          {/* THE SELECTION BAR — appears the moment a row is ticked, at the top. */}
+          {selected.size > 0 && (
+            <Box sx={{
+              display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap',
+              px: 1.5, py: 0.75, position: 'sticky', top: 44, zIndex: 2,
+              bgcolor: 'var(--c-primary-50)', borderBottom: '1px solid var(--c-primary-200)',
+              ...(flat ? {} : { mb: 1, borderRadius: 'var(--r-sm)' }),
+            }}>
+              <Typography sx={{ fontSize: 12.5, fontWeight: 600, color: 'var(--c-primary-700)', mr: 0.5 }}>
+                {selected.size} selected
+              </Typography>
+              <Button size="small" disabled={bulkFlow === '' || bulkBusy} onClick={applyFlowToSelection}>
+                {bulkFlow === '' ? 'Choose a flow above, then apply' : 'Apply that flow'}
+              </Button>
+              <Box sx={{ width: '1px', alignSelf: 'stretch', bgcolor: 'var(--c-primary-200)', mx: 0.5 }} />
+              <SteelSelect
+                material={bulkMaterial || undefined} grade={bulkGrade || undefined}
+                inherited={[lineSteel.material, lineSteel.grade].filter(Boolean).join(' ') || null}
+                options={steel}
+                onChange={(m, g) => { setBulkMaterial(m); setBulkGrade(g); }}
+                name="the selected rows"
+              />
+              <Button size="small" onClick={applySteelToSelection}>
+                {bulkMaterial ? 'Apply that steel' : 'Clear steel (use the line’s)'}
+              </Button>
+              <Box sx={{ width: '1px', alignSelf: 'stretch', bgcolor: 'var(--c-primary-200)', mx: 0.5 }} />
+              <Button size="small" startIcon={<ContentCopyRounded sx={{ fontSize: 15 }} />} onClick={copySelected}>Copy</Button>
+              <Button size="small" color="error" startIcon={<DeleteOutlineRounded sx={{ fontSize: 16 }} />} onClick={removeSelected}>Remove</Button>
+              <Box sx={{ flex: 1 }} />
+              <Button size="small" onClick={() => setSelected(new Set())}>Clear selection</Button>
+            </Box>
+          )}
 
           {/*
             THE ROOT ITSELF IS NOT DRAWN AS A TREE ROW — it is the line, and the
@@ -1329,10 +1411,27 @@ export default function StructureEditor({
               />
             </Box>
             <TextField
-              select size="small" label="Group" value={newItem.groupId}
-              onChange={(e) => setNewItem({ ...newItem, groupId: Number(e.target.value), subgroupId: '' })}
+              select size="small" label="Category" value={newItemCategoryId}
+              helperText="Everything this item inherits hangs off its category; it narrows the groups below."
+              onChange={(e) => {
+                setNewItemCategoryId(e.target.value === '' ? '' : Number(e.target.value));
+                setNewItem({ ...newItem, groupId: '', subgroupId: '' });
+              }}
             >
-              {taxonomy.groups.map((g) => <MenuItem key={g.id} value={g.id}>{g.name}</MenuItem>)}
+              {categories.map((c) => <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>)}
+            </TextField>
+            <TextField
+              select size="small" label="Group" value={newItem.groupId}
+              onChange={(e) => {
+                const groupId = Number(e.target.value);
+                const group = taxonomy.groups.find((g) => g.id === groupId);
+                if (group) setNewItemCategoryId(group.categoryId);
+                setNewItem({ ...newItem, groupId, subgroupId: '' });
+              }}
+            >
+              {taxonomy.groups
+                .filter((g) => newItemCategoryId === '' || g.categoryId === newItemCategoryId)
+                .map((g) => <MenuItem key={g.id} value={g.id}>{g.name}</MenuItem>)}
             </TextField>
             <TextField
               select size="small" label="Sub-group" value={newItem.subgroupId}

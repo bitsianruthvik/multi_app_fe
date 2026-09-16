@@ -44,8 +44,9 @@ import {
   getProductionPlan, setStepTime, raiseDraft, deployProductionOrder,
   requestProcurement, sendPurchaseRequest, requestSubcontract,
   type ProductionPlan, type PlanSection, type PlanRow, type PlanStep, type BuyLine,
-  type FieldsMissingDetail, type SubcontractGroup,
+  type FieldsMissingDetail, type SubcontractGroup, type ProductionOrderRef, type PurchaseRef,
 } from '../api/productionPlan';
+import TaskAltRounded from '@mui/icons-material/TaskAltRounded';
 import type { OrderReadiness } from '../api/readiness';
 import { backendMessage, ConfirmDialog, Mono, useToast, ListSkeleton } from '../components';
 import { statusLabel, chipColorForStatus } from '../statusMap';
@@ -92,9 +93,21 @@ const qty = (n: number) => Number(n).toLocaleString(undefined, { maximumFraction
 
 export default function OrderProductionPlan({
   orderId, canManage, onChanged, isEstimate, orderStatus, onGoToParams,
+  canConfirmSales, confirmBlockedBy, onConfirmSales,
 }: {
   orderId: number | string;
   canManage: boolean;
+  /**
+   * The "Orders on this job" panel (UAT round 3, item 8): the sales order, the
+   * cutting order, the fabrication order and the purchase order are FOUR
+   * documents, each confirmed on its own. The wizard owns the sales order's
+   * confirm (its summary dialog), so it lends these three; when absent — the
+   * order's own Production tab — the panel shows the sales order's state only.
+   */
+  canConfirmSales?: boolean;
+  /** Why the sales order cannot be confirmed yet ("Still to finish: Nesting"). */
+  confirmBlockedBy?: string | null;
+  onConfirmSales?: () => void;
   /** Fired after any write, with the readiness the write returned when the endpoint sends one. */
   onChanged?: (readiness?: OrderReadiness) => void;
   /** A quote's Production step (EU-13): the figures are real, but nothing here can be raised or bought. */
@@ -174,6 +187,12 @@ export default function OrderProductionPlan({
           deployed until it is converted to a sales order.
         </Alert>
       )}
+
+      <OrdersOnThisJob
+        plan={plan} canManage={canAct} orderStatus={orderStatus}
+        canConfirmSales={canConfirmSales} confirmBlockedBy={confirmBlockedBy} onConfirmSales={onConfirmSales}
+        onReload={reload} onError={setError}
+      />
 
       <BuySection orderId={orderId} plan={plan} canManage={canAct} onDone={reload} onError={setError} />
 
@@ -323,7 +342,7 @@ function BuySection({ orderId, plan, canManage, onDone, onError }: {
         right={canManage && open && lines.length > 0 && (
           <Button size="small" variant="contained" disabled={busy} onClick={() => void submit()}
             startIcon={busy ? <CircularProgress size={14} color="inherit" /> : undefined}>
-            {anythingToBuy ? (openRequest ? 'Hold stock and update the request' : 'Hold stock and request the rest') : 'Hold stock'}
+            {anythingToBuy ? (openRequest ? 'Hold stock and update the purchase order' : 'Hold stock and create the purchase order') : 'Hold stock'}
           </Button>
         )}
       >
@@ -429,6 +448,151 @@ function BuySection({ orderId, plan, canManage, onDone, onError }: {
           </Stack>
         </Box>
       )}
+    </Box>
+  );
+}
+
+// ── ORDERS ON THIS JOB (UAT round 3, item 8) ─────────────────────────────────
+
+/**
+ * Four documents, four confirmations. "Confirm order" at the foot of the wizard
+ * confirms the SALES order and nothing else; the cutting and fabrication orders
+ * go to the floor when each is deployed, and the purchase order goes out when it
+ * is sent to a supplier. Those four actions were spread over three sections and
+ * a footer, and read as one step called Confirm. This panel lines them up:
+ * one row per document, its state, and its own button.
+ */
+function OrdersOnThisJob({
+  plan, canManage, orderStatus, canConfirmSales, confirmBlockedBy, onConfirmSales, onReload, onError,
+}: {
+  plan: ProductionPlan; canManage: boolean; orderStatus?: string;
+  canConfirmSales?: boolean; confirmBlockedBy?: string | null; onConfirmSales?: () => void;
+  onReload: (readiness?: OrderReadiness) => Promise<void>; onError: (m: string) => void;
+}) {
+  const { toast } = useToast();
+  const [busy, setBusy] = useState<number | null>(null);
+  const [confirmMo, setConfirmMo] = useState<ProductionOrderRef | null>(null);
+  const [sendTo, setSendTo] = useState<Record<number, number | ''>>({});
+
+  async function deploy(mo: ProductionOrderRef) {
+    setBusy(mo.id);
+    try {
+      const res = await deployProductionOrder(mo.id, mo.status === 'draft' ? undefined : { redeploy: true });
+      toast(`${mo.orderNumber} ${mo.status === 'draft' ? 'deployed' : 're-deployed'}`, 'success');
+      await onReload(res.readiness);
+    } catch (e) { onError(backendMessage(e, 'Could not deploy.')); } finally { setBusy(null); }
+  }
+  async function send(po: PurchaseRef) {
+    const sup = sendTo[po.id];
+    if (!sup) return;
+    setBusy(po.id);
+    try {
+      const res = await sendPurchaseRequest(po.id, Number(sup));
+      toast(`${po.orderNumber} sent to the supplier`, 'success');
+      await onReload(res.readiness);
+    } catch (e) { onError(backendMessage(e, 'Could not send the purchase order.')); } finally { setBusy(null); }
+  }
+
+  const salesDraft = !orderStatus || orderStatus === 'draft';
+  const row = { display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap', px: 1.5, py: 1, borderBottom: '1px solid var(--c-divider)' } as const;
+  const kind = { fontSize: 11, fontWeight: 600, color: 'var(--c-text-3)', textTransform: 'uppercase', letterSpacing: '.04em', width: 120, flexShrink: 0 } as const;
+
+  const moRow = (label: string, mo: ProductionOrderRef | null, hint: string) => (
+    <Box sx={row}>
+      <Typography sx={kind}>{label}</Typography>
+      {mo ? (<>
+        <Mono>{mo.orderNumber}</Mono>
+        <Chip size="small" label={statusLabel(mo.status)} color={chipColorForStatus(mo.status)} variant="outlined" />
+        {mo.stale && <Chip size="small" label="Changed since deploy" color="warning" variant="outlined" />}
+      </>) : (
+        <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-3)' }}>{hint}</Typography>
+      )}
+      <Box sx={{ flex: 1 }} />
+      {canManage && mo && (mo.status === 'draft' || mo.stale) && (
+        <Button size="small" variant={mo.status === 'draft' ? 'contained' : 'outlined'} color={mo.stale ? 'warning' : 'primary'}
+          disabled={busy === mo.id} onClick={() => setConfirmMo(mo)}
+          startIcon={busy === mo.id ? <CircularProgress size={14} color="inherit" /> : <RocketLaunchRounded />}>
+          {mo.status === 'draft' ? 'Confirm & deploy' : 'Re-deploy'}
+        </Button>
+      )}
+      {mo && mo.status !== 'draft' && !mo.stale && (
+        <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>on the floor</Typography>
+      )}
+    </Box>
+  );
+
+  return (
+    <Box sx={frame}>
+      <Box sx={{ px: 1.5, py: 1.25, background: 'var(--c-surface-2)', borderBottom: '1px solid var(--c-divider)' }}>
+        <Typography sx={{ fontSize: 14, fontWeight: 600 }}>Orders on this job</Typography>
+        <Typography sx={{ fontSize: 11.5, color: 'var(--c-text-3)' }}>
+          Four documents, each confirmed on its own — the sales order, the two production orders, and the purchase order.
+        </Typography>
+      </Box>
+
+      <Box sx={row}>
+        <Typography sx={kind}>Sales order</Typography>
+        <Mono>{plan.orderNumber}</Mono>
+        <Chip size="small" label={statusLabel(orderStatus ?? 'draft')} color={chipColorForStatus(orderStatus ?? 'draft')} variant="outlined" />
+        <Box sx={{ flex: 1 }} />
+        {salesDraft && onConfirmSales && (
+          <Tooltip title={canConfirmSales ? 'Marks the sales order as committed' : (confirmBlockedBy || 'Finish every step first')}>
+            <span>
+              <Button size="small" variant="contained" disabled={!canManage || !canConfirmSales} onClick={onConfirmSales}
+                startIcon={<TaskAltRounded />}>
+                Confirm sales order
+              </Button>
+            </span>
+          </Tooltip>
+        )}
+        {!salesDraft && <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>confirmed</Typography>}
+      </Box>
+
+      {moRow('Cutting order', plan.cutting.productionOrder, 'raised when a nesting plan is accepted')}
+      {moRow('Fabrication order', plan.fabrication.productionOrder, 'create the draft in the Fabrication section below')}
+
+      {plan.buy.purchases.length === 0 ? (
+        <Box sx={{ ...row, borderBottom: 'none' }}>
+          <Typography sx={kind}>Purchase order</Typography>
+          <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-3)' }}>
+            {plan.buy.lines.some((l) => l.procurementType !== 'free_issue')
+              ? 'none yet — in Buy below, press "Hold stock and create the purchase order"'
+              : 'nothing on this order is bought in'}
+          </Typography>
+        </Box>
+      ) : plan.buy.purchases.map((po, i) => (
+        <Box key={po.id} sx={{ ...row, ...(i === plan.buy.purchases.length - 1 ? { borderBottom: 'none' } : {}) }}>
+          <Typography sx={kind}>Purchase order</Typography>
+          <Mono>{po.orderNumber}</Mono>
+          <Chip size="small" label={statusLabel(po.status)} color={chipColorForStatus(po.status)} variant="outlined" />
+          <Typography sx={{ fontSize: 12, color: 'var(--c-text-2)' }}>
+            {po.lineCount} line{po.lineCount === 1 ? '' : 's'}{po.supplierName ? ` · ${po.supplierName}` : ''}
+          </Typography>
+          <Box sx={{ flex: 1 }} />
+          {po.status === 'requested' && canManage && (<>
+            <TextField select size="small" label="Supplier" value={sendTo[po.id] ?? ''} sx={{ minWidth: 200 }}
+              onChange={(e) => setSendTo((s) => ({ ...s, [po.id]: e.target.value === '' ? '' : Number(e.target.value) }))}>
+              <MenuItem value="">— choose —</MenuItem>
+              {plan.buy.suppliers.map((s) => <MenuItem key={s.id} value={s.id}>{s.name}</MenuItem>)}
+            </TextField>
+            <Button size="small" variant="contained" disabled={!sendTo[po.id] || busy === po.id} onClick={() => void send(po)}
+              startIcon={busy === po.id ? <CircularProgress size={14} color="inherit" /> : <LocalShippingRounded />}>
+              Confirm & send
+            </Button>
+          </>)}
+        </Box>
+      ))}
+
+      <ConfirmDialog
+        open={!!confirmMo}
+        title={confirmMo ? `${confirmMo.status === 'draft' ? 'Deploy' : 'Re-deploy'} ${confirmMo.orderNumber}?` : ''}
+        confirmLabel={confirmMo?.status === 'draft' ? 'Deploy' : 'Re-deploy'}
+        body={confirmMo?.status === 'draft'
+          ? 'This writes the codes — every BOM row and every task — and sends the order to the shop floor. Times can\'t be changed after this.'
+          : 'This re-plans the order against the BOM as it stands now and carries the change to the shop floor.'}
+        onClose={() => setConfirmMo(null)}
+        onConfirm={() => { const mo = confirmMo; setConfirmMo(null); if (mo) void deploy(mo); }}
+      />
     </Box>
   );
 }

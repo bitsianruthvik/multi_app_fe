@@ -532,6 +532,32 @@ export default function SalesOrderWizard({
           </Alert>
         )}
 
+        {/*
+          WHAT STANDS BETWEEN YOU AND THE NEXT STEP, said in the body — not only
+          in a footer tooltip nobody hovers (UAT round 3, item 3). The server's
+          own `detail` for this stage, plus every blocker it filed against it.
+        */}
+        {!loading && current && !current.satisfied && current.state !== 'not_applicable' && (
+          <Alert severity="warning" sx={{ mb: 2 }} icon={<StageIcon state={current.state} size={18} />}>
+            <Typography sx={{ fontSize: 13, fontWeight: 600 }}>
+              To finish {current.label}: {current.detail}
+            </Typography>
+            {(readiness?.blockers ?? []).filter((b) => b.stage === current.key).length > 0 && (
+              <Box component="ul" sx={{ m: 0, mt: 0.5, pl: 2.5, fontSize: 12.5 }}>
+                {(readiness?.blockers ?? []).filter((b) => b.stage === current.key).map((b, i) => (
+                  <li key={i}>{b.message}</li>
+                ))}
+              </Box>
+            )}
+            {current.key === 'lines' && (
+              <Typography sx={{ fontSize: 12.5, mt: 0.5, color: 'var(--c-text-2)' }}>
+                A made part needs its thickness, width and length, and any row that is worked on needs a flow.
+                Empty size boxes and flow-less parts are outlined below.
+              </Typography>
+            )}
+          </Alert>
+        )}
+
         {loading ? (
           // §5.7-5: a body shows the shape of what is coming, never a centred spinner.
           <DetailSkeleton />
@@ -569,6 +595,9 @@ export default function SalesOrderWizard({
                 orderId={orderId} canManage={canManage && !isQuote} onChanged={refresh}
                 isEstimate={isQuote} orderStatus={readiness?.status}
                 onGoToParams={() => goTo('params')}
+                canConfirmSales={canConfirm && !confirmed}
+                confirmBlockedBy={canConfirm ? null : `Still to finish: ${steps.filter((s) => !s.satisfied).map((s) => s.label).join(', ') || '—'}`}
+                onConfirmSales={isQuote || revisionMode ? undefined : () => void openConfirmSummary()}
               />
             )}
           </>
@@ -647,7 +676,7 @@ export default function SalesOrderWizard({
                 onClick={() => void openConfirmSummary()}
                 startIcon={confirming ? <CircularProgress size={14} color="inherit" /> : <TaskAltRounded />}
               >
-                {confirmed ? 'Confirmed' : 'Confirm order'}
+                {confirmed ? 'Confirmed' : 'Confirm sales order'}
               </Button>
             </span>
           </Tooltip>

@@ -166,6 +166,24 @@ export async function downloadPlanSheet(orderId: number | string, effort: Effort
   URL.revokeObjectURL(url);
 }
 
+/**
+ * The blank list with NO sheets — every blank this order needs, one row each,
+ * Nest and Plate code left empty — for a planner who nests by hand from the
+ * start and never runs the packer. Same file shape as the plan, so the same
+ * upload reads it back.
+ */
+export async function downloadBlankListSheet(orderId: number | string) {
+  const res = await api.get(`${base()}/orders/${orderId}/blanks/sheet?effort=template`, {
+    responseType: 'blob',
+  });
+  const url = URL.createObjectURL(res.data as Blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'Blank_list_to_nest.xlsx';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 /** Upload a hand-made plan. It APPLIES, exactly as accepting a suggestion does. */
 export async function uploadPlanSheet(orderId: number | string, file: File) {
   const form = new FormData();

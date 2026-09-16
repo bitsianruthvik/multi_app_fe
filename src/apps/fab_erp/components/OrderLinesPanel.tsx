@@ -9,9 +9,12 @@ import Inventory2Rounded from '@mui/icons-material/Inventory2Rounded';
 import EditRounded from '@mui/icons-material/EditRounded';
 import ExpandMoreRounded from '@mui/icons-material/ExpandMoreRounded';
 import ChevronRightRounded from '@mui/icons-material/ChevronRightRounded';
+import DownloadIcon from '@mui/icons-material/Download';
+import UploadFileIcon from '@mui/icons-material/UploadFile';
 
 import api, { API_HOST } from '@core/utils/axiosConfig';
 import { fabMutate } from '../api/client';
+import { downloadStructureSheet, uploadStructureSheet } from '../api/templates';
 import { getOrderLinesWithPrefix, getSellableItems, type OrderLineRow, type SellableItem } from '../api/catalog';
 import { Surface, EmptyState, useToast, Mono, backendMessage, ConfirmDialog } from '../components';
 import StructureEditor, { StructureColumnHeader, type StructureSaveResult } from './StructureEditor';
@@ -110,6 +113,20 @@ export default function OrderLinesPanel({
   /** Unsaved-edit state per line, reported by that line's own `StructureEditor`. */
   const [dirtyByLine, setDirtyByLine] = useState<Record<number, boolean>>({});
   const [discardPrompt, setDiscardPrompt] = useState<{ from: number; to: number | null } | null>(null);
+
+  /*
+   * THE EXCEL ROUND TRIP for one line's structure. Download the tree as a
+   * sheet, edit it, upload it back; the server applies it as the same diff
+   * Save changes makes. `sheetVersion` is bumped after an upload so the
+   * mounted `StructureEditor` (which holds its own tree) remounts and reads
+   * what the sheet wrote — the one case where a remount IS the point.
+   */
+  const [sheetBusy, setSheetBusy] = useState<number | null>(null);
+  const [sheetProblems, setSheetProblems] = useState<{ lineId: number; message: string; problems: string[] } | null>(null);
+  const [sheetVersion, setSheetVersion] = useState<Record<number, number>>({});
+  const sheetFileRef = useRef<HTMLInputElement>(null);
+  /** Which line the hidden file input is currently picking for. */
+  const sheetTargetRef = useRef<OrderLineRow | null>(null);
 
   const [description, setDescription] = useState('');
   const [qty, setQty] = useState('1');
@@ -430,6 +447,43 @@ export default function OrderLinesPanel({
     onChanged?.(result?.readiness);
   }, [load, onChanged]);
 
+  const downloadSheet = useCallback(async (line: OrderLineRow) => {
+    setSheetBusy(line.id);
+    setSheetProblems(null);
+    try {
+      const blob = await downloadStructureSheet(orderId, line.id);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `Structure_line${line.lineNo}.xlsx`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      toast(backendMessage(e, 'Could not produce the sheet.'), 'error');
+    } finally { setSheetBusy(null); }
+  }, [orderId, toast]);
+
+  const uploadSheet = useCallback(async (line: OrderLineRow, file: File) => {
+    setSheetBusy(line.id);
+    setSheetProblems(null);
+    try {
+      const res = await uploadStructureSheet(orderId, line.id, file, revisionReason);
+      toast(`${res.created} created, ${res.updated} updated, ${res.removed} removed`, 'success');
+      setSheetVersion((v) => ({ ...v, [line.id]: (v[line.id] ?? 0) + 1 }));
+      onStructureDone(res);
+    } catch (e) {
+      const data = (e as { response?: { data?: { detail?: { problems?: string[] } } } })?.response?.data;
+      setSheetProblems({
+        lineId: line.id,
+        message: backendMessage(e, 'That sheet could not be applied.'),
+        problems: data?.detail?.problems ?? [],
+      });
+    } finally {
+      setSheetBusy(null);
+      if (sheetFileRef.current) sheetFileRef.current.value = '';
+    }
+  }, [orderId, revisionReason, toast, onStructureDone]);
+
   if (loading) {
     return <Surface e={1} sx={{ p: 4, display: 'flex', justifyContent: 'center' }}><CircularProgress /></Surface>;
   }
@@ -723,6 +777,48 @@ export default function OrderLinesPanel({
                   <Typography sx={{ fontSize: 11, color: 'var(--c-danger-600)', px: 1.5, pt: 0.5 }}>{qtyError}</Typography>
                 )}
 
+                {/* ── the structure as Excel: download, edit, upload back as a diff ── */}
+                {isOpen && rowsBuilt > 0 && (
+                  <Box sx={{ px: 1.5, py: 0.5, borderBottom: '1px solid var(--c-divider)' }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+                      <Typography sx={{ fontSize: 11.5, color: 'var(--c-text-3)' }}>Structure as Excel</Typography>
+                      <Button
+                        size="small" variant="outlined" startIcon={<DownloadIcon />}
+                        disabled={sheetBusy === line.id}
+                        onClick={() => void downloadSheet(line)}
+                        sx={{ fontSize: 11.5, py: 0.1 }}
+                      >
+                        Download Excel
+                      </Button>
+                      {canManage && (
+                        <Button
+                          size="small" variant="outlined" startIcon={<UploadFileIcon />}
+                          disabled={sheetBusy === line.id || dirtyByLine[line.id]}
+                          onClick={() => { sheetTargetRef.current = line; sheetFileRef.current?.click(); }}
+                          sx={{ fontSize: 11.5, py: 0.1 }}
+                        >
+                          {sheetBusy === line.id ? 'Applying…' : 'Upload Excel'}
+                        </Button>
+                      )}
+                      {dirtyByLine[line.id] && canManage && (
+                        <Typography sx={{ fontSize: 11, color: 'var(--c-text-3)' }}>
+                          Save or discard the edits below before uploading a sheet.
+                        </Typography>
+                      )}
+                    </Box>
+                    {sheetProblems?.lineId === line.id && (
+                      <Alert severity="error" onClose={() => setSheetProblems(null)} sx={{ mt: 0.75, fontSize: 12.5 }}>
+                        {sheetProblems.message}
+                        {sheetProblems.problems.length > 0 && (
+                          <Box component="ul" sx={{ m: 0, mt: 0.5, pl: 2.5 }}>
+                            {sheetProblems.problems.map((p) => <li key={p}>{p}</li>)}
+                          </Box>
+                        )}
+                      </Alert>
+                    )}
+                  </Box>
+                )}
+
                 {/*
                   ── AND WHAT IT IS MADE OF, in the same card ──────────────
 
@@ -733,7 +829,7 @@ export default function OrderLinesPanel({
                 */}
                 {isOpen && (
                   <StructureEditor
-                    key={`line-${line.id}-${rowsBuilt > 0 ? 'built' : 'new'}`}
+                    key={`line-${line.id}-${rowsBuilt > 0 ? 'built' : 'new'}-${sheetVersion[line.id] ?? 0}`}
                     source={rowsBuilt > 0 ? 'current' : 'bom'}
                     open
                     orderId={orderId}
@@ -784,6 +880,16 @@ export default function OrderLinesPanel({
           })}
         </Box>
       )}
+
+      {/* One hidden picker for every line — `sheetTargetRef` says which line asked. */}
+      <input
+        ref={sheetFileRef} type="file" accept=".xlsx" hidden
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          const target = sheetTargetRef.current;
+          if (f && target) void uploadSheet(target, f);
+        }}
+      />
 
       <ConfirmDialog
         open={!!discardPrompt}

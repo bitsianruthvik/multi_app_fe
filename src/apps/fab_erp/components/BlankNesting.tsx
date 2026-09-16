@@ -54,7 +54,7 @@ import { StatusBadge, EmptyState, StatSkeleton, ListSkeleton } from '../componen
 
 import { fabQuery } from '../api/client';
 import {
-  getBlankPlan, getSavedBlankPlan, acceptBlankPlan, downloadPlanSheet, uploadPlanSheet,
+  getBlankPlan, getSavedBlankPlan, acceptBlankPlan, downloadPlanSheet, uploadPlanSheet, downloadBlankListSheet,
   startNestingRun, getNestingRun, getLatestNestingRun, cancelNestingRun,
   type Blank, type Nest, type BlankSummary, type BlankPlanResponse, type Effort, type SkippedPart,
   type SizeAdvice,
@@ -64,6 +64,8 @@ import { formatElapsed } from '../utils/formatElapsed';
 import { ConfirmDialog } from './FormDialog';
 import { useNowTick } from '../hooks/useLiveRefresh';
 import NestSheetSvg from './NestSheetSvg';
+import NestSheetDialog from './NestSheetDialog';
+import OpenInFullRounded from '@mui/icons-material/OpenInFullRounded';
 
 const t = (kg: number) => `${(kg / 1000).toFixed(1)} t`;
 
@@ -154,6 +156,8 @@ export default function BlankNesting({
   const [skipped, setSkipped] = useState<SkippedPart[]>([]);
   /** Have we ever loaded a real plan (from a run, or by re-reading after accept)? */
   const [hasPlan, setHasPlan] = useState(false);
+  /** The sheet opened large — "exactly how it gets cut" (NestSheetDialog). */
+  const [viewNest, setViewNest] = useState<string | null>(null);
   const [initializing, setInitializing] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [accepting, setAccepting] = useState(false);
@@ -482,7 +486,7 @@ export default function BlankNesting({
   // (react-window compares itemData by reference), so it's memoised same as
   // any other prop passed down.
   const nestRowData = useMemo<NestRowData>(() => ({
-    nests, checkedNests, onToggleCheck: toggleChecked, canManage, thresholds: th,
+    nests, checkedNests, onToggleCheck: toggleChecked, onView: setViewNest, canManage, thresholds: th,
   }), [nests, checkedNests, toggleChecked, canManage, th]);
 
   /*
@@ -548,13 +552,30 @@ export default function BlankNesting({
         <EmptyState
           icon={<GridViewRounded />}
           title="Work out which sheets to cut this order from"
-          hint="Every part with a size becomes a rectangle to cut. The packer lays those onto plate from the catalogue and looks for the arrangement that buys the least steel. Nothing is ordered or cut until you accept a plan."
+          hint="Every part with a size becomes a rectangle to cut. Either let the packer lay those onto plate from the catalogue and look for the arrangement that buys the least steel, or download the blank list, set each blank's sheet and plate in Excel, and upload it. Nothing is ordered or cut until a plan is accepted — an upload IS acceptance."
           action={(
-            <Stack direction="row" spacing={1.5} justifyContent="center" alignItems="center">
-              {effortPicker}
-              <Button variant="contained" startIcon={<PlayArrowIcon />} onClick={() => void startRun()}>
-                Run nesting
-              </Button>
+            <Stack spacing={1.5} alignItems="center">
+              <Stack direction="row" spacing={1.5} justifyContent="center" alignItems="center">
+                {effortPicker}
+                <Button variant="contained" startIcon={<PlayArrowIcon />} onClick={() => void startRun()}>
+                  Run nesting
+                </Button>
+              </Stack>
+              <Stack direction="row" spacing={1.5} justifyContent="center" alignItems="center">
+                <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-3)' }}>or nest by hand:</Typography>
+                <Button size="small" startIcon={<DownloadIcon />} onClick={() => void downloadBlankListSheet(orderId)}>
+                  Download blank list
+                </Button>
+                {canManage && (
+                  <Button size="small" startIcon={<UploadFileIcon />} disabled={uploading} onClick={() => fileRef.current?.click()}>
+                    {uploading ? 'Reading…' : 'Upload plan'}
+                  </Button>
+                )}
+                <input
+                  ref={fileRef} type="file" accept=".xlsx" hidden
+                  onChange={(e) => { const f = e.target.files?.[0]; if (f) void upload(f); }}
+                />
+              </Stack>
             </Stack>
           )}
         />
@@ -839,6 +860,12 @@ export default function BlankNesting({
         </Alert>
       )}
 
+      <NestSheetDialog
+        nest={viewNest ? (nests.find((n) => n.nestNo === viewNest) ?? null) : null}
+        blanks={blanks}
+        onClose={() => setViewNest(null)}
+      />
+
       {/* ── accept ───────────────────────────────────────────────────────── */}
       {canManage && (
         <Stack direction="row" spacing={2} alignItems="center" sx={{
@@ -1011,6 +1038,8 @@ interface NestRowData {
   nests: Nest[];
   checkedNests: Set<string>;
   onToggleCheck: (nestNo: string) => void;
+  /** Open this sheet large, with every piece numbered and placed. */
+  onView: (nestNo: string) => void;
   canManage: boolean;
   thresholds: { good: number; warn: number };
 }
@@ -1018,7 +1047,7 @@ interface NestRowData {
 /** One sheet: tick box, the drawing, its size, what's on it, and the fill. */
 const NestRow = memo(function NestRow({ index, style, data }: ListChildComponentProps<NestRowData>) {
   const {
-    nests, checkedNests, onToggleCheck, canManage, thresholds,
+    nests, checkedNests, onToggleCheck, onView, canManage, thresholds,
   } = data;
   const n = nests[index];
   const checked = checkedNests.has(n.nestNo);
@@ -1040,6 +1069,11 @@ const NestRow = memo(function NestRow({ index, style, data }: ListChildComponent
           fontFamily: 'var(--font-mono, monospace)', fontSize: 12.5, width: 58, flexShrink: 0,
           color: 'var(--c-text-2)',
         }}>{n.nestNo}</Typography>
+        <Tooltip title="Open this sheet large — every piece numbered, sized and placed">
+          <IconButton size="small" onClick={() => onView(n.nestNo)} aria-label={`View sheet ${n.nestNo}`}>
+            <OpenInFullRounded sx={{ fontSize: 15 }} />
+          </IconButton>
+        </Tooltip>
 
         {/* The real cut when the server sent one; a synthesised shelf layout only for a sheet with no geometry. */}
         <Tooltip title={n.piecesDerived ? 'Drawn from a re-pack — the accepted plan kept no layout for this sheet' : ''}>

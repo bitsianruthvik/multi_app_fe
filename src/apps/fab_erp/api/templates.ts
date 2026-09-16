@@ -16,6 +16,7 @@
  * re-run rather than a half-built order.
  */
 
+import api, { API_HOST } from '@core/utils/axiosConfig';
 import { fabGet, fabPost, fabDel } from './client';
 import type { OrderReadiness } from './readiness';
 import type { TreeNode } from '../hooks/useTree';
@@ -458,3 +459,50 @@ export type CatalogSize = Partial<Record<'thickness_mm' | 'width_mm' | 'length_m
 
 export const getCatalogSizes = () =>
   fabGet<{ sizes: Record<string, CatalogSize> }>('catalog/sizes').then((r) => r.sizes ?? {});
+
+
+/* ───────────────── one line's structure as a sheet, and back ───────────────── */
+
+/**
+ * GET /orders/:orderId/structure/sheet?orderLineId= — one line's tree as an
+ * .xlsx the person edits in Excel. Returns the Blob; the caller saves it.
+ *
+ * Not the whole-order Level sheet (`/structure/export`, unused): this one
+ * carries Row ids, so the upload below is a DIFF through `applyTree` — rows
+ * keep their ids, and with them their sizes, their plate and their tasks.
+ */
+export async function downloadStructureSheet(orderId: number | string, orderLineId: number | string): Promise<Blob> {
+  const companySlug = localStorage.getItem('companySlug');
+  const res = await api.get(
+    `${API_HOST}/api/${companySlug}/fab_erp/orders/${orderId}/structure/sheet`,
+    { params: { orderLineId }, responseType: 'blob' },
+  );
+  return res.data as Blob;
+}
+
+/** What an upload did — `applyStructure`'s result plus the rows the sheet held. */
+export interface StructureSheetResult extends ApplyStructureResult {
+  rows: number;
+}
+
+/**
+ * POST /orders/:orderId/structure/sheet — apply an edited sheet as a diff.
+ *
+ * A 422 means nothing was written: `response.data.detail.problems` names
+ * every bad row ("Row 9: …"). `revisionReason` is required by the server once
+ * the order is no longer a draft, exactly as for `applyStructure`.
+ */
+export async function uploadStructureSheet(
+  orderId: number | string,
+  orderLineId: number | string,
+  file: File,
+  revisionReason?: string,
+): Promise<StructureSheetResult> {
+  const companySlug = localStorage.getItem('companySlug');
+  const form = new FormData();
+  form.append('excel_file', file);
+  form.append('orderLineId', String(orderLineId));
+  if (revisionReason) form.append('revisionReason', revisionReason);
+  const res = await api.post(`${API_HOST}/api/${companySlug}/fab_erp/orders/${orderId}/structure/sheet`, form);
+  return res.data as StructureSheetResult;
+}

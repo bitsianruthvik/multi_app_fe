@@ -107,7 +107,7 @@ function shelfPack(
 }
 
 export default function NestSheetSvg({
-  plate, items, pieces: suppliedPieces, scale, height = 130, maxWidth,
+  plate, items, pieces: suppliedPieces, scale, height = 130, maxWidth, labels = false, rulers = false,
 }: {
   plate: { length: number; width: number };
   items: NestItem[];
@@ -118,6 +118,14 @@ export default function NestSheetSvg({
   /** Rendered pixel height when `scale` is not given; width follows the plate's aspect ratio. */
   height?: number;
   maxWidth?: number;
+  /**
+   * Write each piece's number and size inside it, and its offset from the
+   * plate's corner — the large "how it gets cut" view. Off for the thumbnail,
+   * where the text would be smaller than the stroke.
+   */
+  labels?: boolean;
+  /** Draw the plate's own length and width along two edges. */
+  rulers?: boolean;
 }) {
   const computed = useMemo(
     () => shelfPack(plate.length, plate.width, items),
@@ -208,6 +216,35 @@ export default function NestSheetSvg({
           height={Math.max(0, plate.width - strokeW * 2)}
           fill="none" stroke="var(--c-text-3)" strokeWidth={strokeW * 1.5}
         />
+        {/* Piece labels: number, size, and where its corner sits — the cut list drawn on the cut. */}
+        {labels && pieces.map((p, i) => {
+          const fs = Math.max(plate.length, plate.width) / 70; // ≈ readable at the dialog's scale
+          if (p.l < fs * 3 || p.w < fs * 1.4) return null;
+          const two = p.w >= fs * 2.8;
+          return (
+            <g key={`lbl-${p.key}-${i}`} pointerEvents="none">
+              <text x={p.x + p.l / 2} y={p.y + p.w / 2 + (two ? -fs * 0.15 : fs * 0.35)} textAnchor="middle"
+                fontSize={fs} fontWeight={600} fill="var(--c-text)" fontFamily="var(--font-mono, monospace)">
+                {`#${p.index}`}{two ? '' : ` ${Math.round(p.l)}×${Math.round(p.w)}`}
+              </text>
+              {two && (
+                <text x={p.x + p.l / 2} y={p.y + p.w / 2 + fs * 1.05} textAnchor="middle"
+                  fontSize={fs * 0.85} fill="var(--c-text-2)" fontFamily="var(--font-mono, monospace)">
+                  {`${Math.round(p.l)}×${Math.round(p.w)} @ ${Math.round(p.x)},${Math.round(p.y)}${p.rotated ? ' ↻' : ''}`}
+                </text>
+              )}
+            </g>
+          );
+        })}
+        {rulers && (() => {
+          const fs = Math.max(plate.length, plate.width) / 60;
+          return (
+            <g pointerEvents="none" fontFamily="var(--font-mono, monospace)" fill="var(--c-text-2)">
+              <text x={plate.length / 2} y={plate.width - fs * 0.4} textAnchor="middle" fontSize={fs}>{`${plate.length} mm →`}</text>
+              <text x={fs * 0.5} y={plate.width / 2} fontSize={fs} transform={`rotate(-90 ${fs * 0.5} ${plate.width / 2})`} textAnchor="middle">{`${plate.width} mm`}</text>
+            </g>
+          );
+        })()}
       </svg>
     </Box>
   );
