@@ -19,7 +19,7 @@ import { useRef, useState } from 'react';
 import {
   Alert, Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, List,
   ListItem, ListItemText, MenuItem, Table, TableBody, TableCell, TableHead, TableRow, TextField,
-  Tooltip, Typography,
+  Typography,
 } from '@mui/material';
 import DownloadIcon from '@mui/icons-material/Download';
 import UploadFileIcon from '@mui/icons-material/UploadFile';
@@ -168,16 +168,19 @@ export function ImporterControls({ onImported }: { onImported: () => void | Prom
         >
           Export template
         </Button>
-        <Tooltip title="Upsert updates existing codes — use it to re-import an exported catalog">
-          <TextField
-            select size="small" value={mode} disabled={dryRunning || dryRun !== null}
-            onChange={(e) => setMode(e.target.value as 'append' | 'upsert')}
-            sx={{ minWidth: 110 }}
-          >
-            <MenuItem value="append">Append</MenuItem>
-            <MenuItem value="upsert">Upsert</MenuItem>
-          </TextField>
-        </Tooltip>
+        {/* No Tooltip around a Select: its popover kept the tooltip "hovered" so
+            the explanation sat over the options and never cleared. The same
+            words live in helperText, where they cannot get in the way. */}
+        <TextField
+          select size="small" value={mode} disabled={dryRunning || dryRun !== null}
+          onChange={(e) => setMode(e.target.value as 'append' | 'upsert')}
+          sx={{ minWidth: 120 }}
+          helperText={mode === 'upsert' ? 'Updates existing codes' : 'Adds new items only'}
+          FormHelperTextProps={{ sx: { m: 0, mt: 0.25, fontSize: 10.5, whiteSpace: 'nowrap' } }}
+        >
+          <MenuItem value="append">Append</MenuItem>
+          <MenuItem value="upsert">Upsert</MenuItem>
+        </TextField>
         <Button
           variant="outlined" size="small" startIcon={dryRunning ? <CircularProgress size={14} color="inherit" /> : <UploadFileIcon />}
           onClick={() => importFileRef.current?.click()} disabled={dryRunning}

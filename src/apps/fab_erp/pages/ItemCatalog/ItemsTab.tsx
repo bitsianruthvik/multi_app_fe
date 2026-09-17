@@ -48,7 +48,12 @@ const TH = { fontFamily: 'var(--font-ui)', fontWeight: 600, fontSize: 12, color:
 const TD = { borderColor: 'var(--c-divider)', fontSize: 13, color: 'var(--c-text)' } as const;
 
 /** A catalog row with its display-only `size`/`material` strings joined in for the grid. */
-type ItemRow = CatalogItemRow & { size: string; material: string };
+type ItemRow = CatalogItemRow & { size: string; material: string; thicknessMm: string; widthMm: string; lengthMm: string };
+
+/** One dimension as the grid shows it: the number, or '' when the item states none. */
+function dim(v: number | string | null | undefined): string {
+  return v == null || v === '' ? '' : String(v);
+}
 
 // Item 6: procurement type, material form, material/grade and thickness join
 // Description/HSN as default columns — they are what a fabricator actually
@@ -57,7 +62,12 @@ const ITEM_COLUMNS: SortableColumn<ItemRow>[] = [
   { key: 'name',            label: 'Name',            sx: { ...TH, minWidth: 200 } },
   { key: 'code',            label: 'Code',            sx: { ...TH, width: 110 } },
   { key: 'unit',            label: 'Unit',            sx: { ...TH, width: 70 } },
-  { key: 'size',            label: 'Size',            sx: { ...TH, width: 150 } },
+  // One column per dimension, so a plate catalog filters the way a planner
+  // asks for it — "25 thick", "1500 wide" — instead of substring-matching a
+  // "25 × 1500 × 9000" string.
+  { key: 'thicknessMm',     label: 'Thk (mm)',        sx: { ...TH, width: 84 }, align: 'right' },
+  { key: 'widthMm',         label: 'Width (mm)',      sx: { ...TH, width: 96 }, align: 'right' },
+  { key: 'lengthMm',        label: 'Length (mm)',     sx: { ...TH, width: 100 }, align: 'right' },
   { key: 'procurementType', label: 'Procurement',     sx: { ...TH, width: 100 } },
   { key: 'materialForm',    label: 'Material form',   sx: { ...TH, width: 110 } },
   { key: 'material',        label: 'Material / grade', sx: { ...TH, width: 140 } },
@@ -69,9 +79,8 @@ const ITEM_COLUMNS: SortableColumn<ItemRow>[] = [
   { key: 'hsnCode',         label: 'HSN',             sx: { ...TH, width: 100 } },
 ];
 
-const SIZE_COL_WIDTH = 150;
 const DEFAULT_ITEM_COL_WIDTH: Record<string, number> = {
-  name: 220, code: 110, unit: 70, size: SIZE_COL_WIDTH, procurementType: 100, materialForm: 110,
+  name: 220, code: 110, unit: 70, thicknessMm: 84, widthMm: 96, lengthMm: 100, procurementType: 100, materialForm: 110,
   material: 140, unitWeightKg: 100, description: 220, categoryName: 130, groupName: 130,
   subgroupName: 130, hsnCode: 100,
 };
@@ -240,7 +249,10 @@ export const ItemsTab = forwardRef<ItemsTabHandle, {
 
   useImperativeHandle(ref, () => ({ refresh: fetchPage }), [fetchPage]);
 
-  const itemsSized = useMemo(() => rows.map((it) => ({ ...it, size: rowSize(it), material: rowMaterial(it) })), [rows]);
+  const itemsSized = useMemo(() => rows.map((it) => ({
+    ...it, size: rowSize(it), material: rowMaterial(it),
+    thicknessMm: dim(it.sizes?.thicknessMm), widthMm: dim(it.sizes?.widthMm), lengthMm: dim(it.sizes?.lengthMm),
+  })), [rows]);
 
   const filtered = useMemo(() => itemsSized.filter((it) => ITEM_COLUMNS.every((col) => {
     const needle = colFilters[col.key as string]?.trim().toLowerCase();
@@ -256,8 +268,10 @@ export const ItemsTab = forwardRef<ItemsTabHandle, {
   const { sortedRows, sortKey, sortDirection, requestSort } = useSortableData(filtered, 'name');
 
   function onHeaderSort(key: keyof ItemRow) {
-    if (key === 'size' || key === 'unitWeightKg') {
-      const sortCol = key === 'size' ? 'thicknessMm' : 'unitWeightKg';
+    // Thickness is a real indexed column, so it sorts server-side across pages;
+    // width and length live in field values and sort the loaded page locally.
+    if (key === 'thicknessMm' || key === 'unitWeightKg') {
+      const sortCol = key === 'thicknessMm' ? 'thicknessMm' : 'unitWeightKg';
       setServerSort((s) => (s?.key === sortCol ? { key: sortCol, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key: sortCol, dir: 'asc' }));
       return;
     }
@@ -349,7 +363,9 @@ export const ItemsTab = forwardRef<ItemsTabHandle, {
           <Box sx={cellSx('name', { fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' })}>{it.name}</Box>
           <Box sx={cellSx('code')}><Box component="span" sx={{ fontFamily: 'var(--font-mono, monospace)' }}>{it.code}</Box></Box>
           <Box sx={cellSx('unit')}>{displayUom(it.unit) || 'PC'}</Box>
-          <Box sx={cellSx('size', { fontFamily: 'var(--font-mono, monospace)', fontSize: 12.5, color: 'var(--c-text-2)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' })}>{it.size || '—'}</Box>
+          {(['thicknessMm', 'widthMm', 'lengthMm'] as const).map((k) => (
+            <Box key={k} sx={cellSx(k, { fontFamily: 'var(--font-mono, monospace)', fontSize: 12.5, color: 'var(--c-text-2)', whiteSpace: 'nowrap', textAlign: 'right', fontVariantNumeric: 'tabular-nums' })}>{it[k] || '—'}</Box>
+          ))}
           <Box sx={cellSx('procurementType')}>{it.procurementType ?? '—'}</Box>
           <Box sx={cellSx('materialForm')}>{it.materialForm ?? '—'}</Box>
           <Box sx={cellSx('material', { color: 'var(--c-text-2)' })}>{it.material || '—'}</Box>
@@ -447,8 +463,8 @@ export const ItemsTab = forwardRef<ItemsTabHandle, {
                     justifyContent: col.align === 'right' ? 'flex-end' : 'flex-start', px: 2, py: 1,
                   }}>
                     <TableSortLabel
-                      active={col.key === 'size' ? serverSort?.key === 'thicknessMm' : (col.key === 'unitWeightKg' ? serverSort?.key === 'unitWeightKg' : sortKey === col.key)}
-                      direction={col.key === 'size' || col.key === 'unitWeightKg' ? (serverSort?.dir ?? 'asc') : sortDirection}
+                      active={col.key === 'thicknessMm' ? serverSort?.key === 'thicknessMm' : (col.key === 'unitWeightKg' ? serverSort?.key === 'unitWeightKg' : sortKey === col.key)}
+                      direction={col.key === 'thicknessMm' || col.key === 'unitWeightKg' ? (serverSort?.dir ?? 'asc') : sortDirection}
                       onClick={() => onHeaderSort(col.key as keyof ItemRow)}
                     >
                       {col.label}
