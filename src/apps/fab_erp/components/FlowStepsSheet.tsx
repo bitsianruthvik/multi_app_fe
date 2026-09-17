@@ -67,11 +67,19 @@ function fromStep(s: FabOperationFlowStep): RowDraft {
   return { seqNo: s.seqNo, operationId: s.operationId, dependsOn: parseDependsOn(s.dependsOn), resourceTypeId: s.resourceTypeId, notes: s.notes ?? '', paramsJson: s.paramsJson ?? null };
 }
 
-function StepRow({ step, allSteps, flowId, operations, resourceTypes, canManage, isFirst, isLast, onChanged, onDeleted, onMove }: {
+/**
+ * Picker label. An inactive operation stays pickable for the step that already
+ * uses it — hiding it made the cell look empty, as if the step had no operation.
+ */
+function opLabel(o: FabOperation): string {
+  return `${o.code} — ${o.name}${o.active ? '' : ' (inactive)'}`;
+}
+
+function StepRow({ step, allSteps, flowId, operations, resourceTypes, canManage, isFirst, isLast, onChanged, onDeleted, onMove, onError }: {
   step: FabOperationFlowStep; allSteps: FabOperationFlowStep[]; flowId: number;
   operations: FabOperation[]; resourceTypes: FabResourceType[]; canManage: boolean;
   isFirst: boolean; isLast: boolean;
-  onChanged: () => void; onDeleted: () => void; onMove: (dir: -1 | 1) => void;
+  onChanged: () => void; onDeleted: () => void; onMove: (dir: -1 | 1) => void; onError: (msg: string) => void;
 }) {
   const [draft, setDraft] = useState<RowDraft>(fromStep(step));
   const [notesDraft, setNotesDraft] = useState(step.notes ?? '');
@@ -114,12 +122,20 @@ function StepRow({ step, allSteps, flowId, operations, resourceTypes, canManage,
         params_json: merged.paramsJson,
       });
       onChanged();
+    } catch (e) {
+      setDraft(fromStep(step));
+      onError(errMsg(e));
     } finally { setSaving(false); }
   }
 
-  const operationOptions = operations.map((o) => ({ id: o.id, label: `${o.code} — ${o.name}` }));
+  const operationOptions = operations
+    .filter((o) => o.active || o.id === draft.operationId)
+    .map((o) => ({ id: o.id, label: opLabel(o) }));
   const resourceTypeOptions = resourceTypes.map((rt) => ({ id: rt.id, label: `${rt.code} — ${rt.name}` }));
   const op = operations.find((o) => o.id === draft.operationId);
+  // The step still points at an operation that was deleted before deletes were
+  // guarded. Its tasks get no formula, so no duration — say so on the row.
+  const deletedOp = !op && !!step.operationDeletedAt && draft.operationId === step.operationId;
   const defaultRt = op?.defaultResourceTypeId != null ? resourceTypes.find((rt) => rt.id === op.defaultResourceTypeId) : undefined;
 
   return (
@@ -135,14 +151,26 @@ function StepRow({ step, allSteps, flowId, operations, resourceTypes, canManage,
       </Box>
       <Box component="td" sx={{ ...gridCell, minWidth: 220 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+          {deletedOp && (
+            <Tooltip title="This operation was deleted. Tasks from this step get no time estimate. Pick a replacement or delete the step.">
+              <Chip
+                size="small" color="error" variant="outlined"
+                label={`Deleted: ${step.operationCode ?? `#${step.operationId}`}`}
+                sx={{ flexShrink: 0, textDecoration: 'line-through' }}
+              />
+            </Tooltip>
+          )}
           <Autocomplete
-            size="small" disabled={!canManage} fullWidth sx={{ flex: 1 }}
+            size="small" disabled={!canManage} fullWidth sx={{ flex: 1 }} disableClearable
             options={operationOptions}
-            value={operationOptions.find((o) => o.id === draft.operationId) ?? null}
+            value={operationOptions.find((o) => o.id === draft.operationId) ?? (null as unknown as { id: number; label: string })}
             getOptionLabel={(o) => o.label}
             isOptionEqualToValue={(a, b) => a.id === b.id}
-            onChange={(_, value) => commit({ operationId: value ? value.id : null })}
-            renderInput={(params) => <TextField {...params} variant="standard" slotProps={{ input: { ...params.InputProps, disableUnderline: true } }} />}
+            onChange={(_, value) => { if (value) commit({ operationId: value.id }); }}
+            renderInput={(params) => (
+              <TextField {...params} variant="standard" placeholder={deletedOp ? 'Pick a replacement…' : ''}
+                slotProps={{ input: { ...params.InputProps, disableUnderline: true } }} />
+            )}
           />
           {/* FEAT-09: flag operations with no time formula — their tasks get no duration/ETA. */}
           {op && !op.timeFormula?.trim() && (
@@ -319,11 +347,11 @@ function StepParamsDialog({ open, onClose, params, operationName, onSave }: {
   );
 }
 
-function AddRow({ flowId, nextSeq, operations, onAdded }: {
-  flowId: number; nextSeq: number; operations: FabOperation[]; onAdded: () => void;
+function AddRow({ flowId, nextSeq, operations, onAdded, onError }: {
+  flowId: number; nextSeq: number; operations: FabOperation[]; onAdded: () => void; onError: (msg: string) => void;
 }) {
   const [adding, setAdding] = useState(false);
-  const operationOptions = operations.map((o) => ({ id: o.id, label: `${o.code} — ${o.name}` }));
+  const operationOptions = operations.filter((o) => o.active).map((o) => ({ id: o.id, label: opLabel(o) }));
 
   async function add(operationId: number) {
     setAdding(true);
@@ -332,6 +360,8 @@ function AddRow({ flowId, nextSeq, operations, onAdded }: {
         flow_id: flowId, operation_id: operationId, seq_no: nextSeq, depends_on: null, resource_type_id: null, notes: null,
       });
       onAdded();
+    } catch (e) {
+      onError(errMsg(e));
     } finally { setAdding(false); }
   }
 
@@ -450,6 +480,7 @@ export default function FlowStepsSheet({ flow, canManage, operations, resourceTy
   // materialized tasks get NULL computed_hours (no duration), which silently
   // breaks scheduling/ETA — so warn before the flow is used.
   const opById = new Map(operations.map((o) => [o.id, o]));
+  const deletedOpSteps = sortedSteps.filter((s) => !!s.operationDeletedAt && !opById.has(s.operationId));
   const formulalessOps = [...new Map(
     sortedSteps
       .map((s) => (s.operationId != null ? opById.get(s.operationId) : undefined))
@@ -461,6 +492,16 @@ export default function FlowStepsSheet({ flow, canManage, operations, resourceTy
     <Box>
       {err && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setErr('')}>{err}</Alert>}
       {importErr && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setImportErr('')}>{importErr}</Alert>}
+
+      {deletedOpSteps.length > 0 && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {deletedOpSteps.length === 1 ? 'Step' : 'Steps'}{' '}
+          {deletedOpSteps.map((s) => `${s.seqNo} (${s.operationCode ?? `#${s.operationId}`})`).join(', ')}{' '}
+          {deletedOpSteps.length === 1 ? 'uses an operation that was' : 'use operations that were'} deleted.
+          Tasks from {deletedOpSteps.length === 1 ? 'it' : 'them'} get no time estimate. Pick a replacement
+          operation or delete the step.
+        </Alert>
+      )}
 
       {formulalessOps.length > 0 && (
         <Alert severity="warning" icon={<WarningAmberRounded fontSize="inherit" />} sx={{ mb: 2 }}>
@@ -523,9 +564,10 @@ export default function FlowStepsSheet({ flow, canManage, operations, resourceTy
                   onChanged={load}
                   onDeleted={() => handleDelete(s)}
                   onMove={(dir) => handleMove(s, dir)}
+                  onError={setErr}
                 />
               ))}
-              {canManage && <AddRow flowId={flow.id} nextSeq={nextSeq} operations={operations} onAdded={load} />}
+              {canManage && <AddRow flowId={flow.id} nextSeq={nextSeq} operations={operations} onAdded={load} onError={setErr} />}
             </Box>
           </Box>
         </Box>

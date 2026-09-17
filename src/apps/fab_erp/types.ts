@@ -343,6 +343,8 @@ export interface FabOperationFlowStep {
   dependsOn: string | null;
   resourceTypeId: number | null;
   notes: string | null;
+  /** Joined from the operation. Set when the step still points at a deleted operation. */
+  operationDeletedAt?: string | null;
   /**
    * `step.*` parameters as stored JSON — this step's own values, read by the
    * operation's time formula. Lets one "Cut Plate" run along the length on one

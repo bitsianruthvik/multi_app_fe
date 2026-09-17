@@ -178,9 +178,11 @@ function DuplicateFlowDialog({ open, source, onClose, onDuplicated }: {
       const stepsRes = await fabQuery<QueryResult<FabOperationFlowStep>>('fabErpOperationFlowStep', {
         filters: { flowId: source.id }, orderBy: [{ field: 'seqNo', direction: 'asc' }], pagination: { limit: 500 },
       });
-      const steps = stepsRes.data ?? [];
+      // A step on a deleted operation can't be copied — the server refuses it.
+      const steps = (stepsRes.data ?? []).filter((s) => !s.operationDeletedAt);
       await Promise.all(steps.map((s) => fabMutate('fabErpOperationFlowStep', 'insert', {
         flow_id: res.id, operation_id: s.operationId, seq_no: s.seqNo, depends_on: s.dependsOn, resource_type_id: s.resourceTypeId, notes: s.notes,
+        params_json: s.paramsJson,
       })));
       onDuplicated({
         id: res.id, companyId: source.companyId, name: name.trim(), code: code.trim().toUpperCase(),
@@ -270,8 +272,10 @@ export default function OperationFlows() {
   const fetchLookups = useCallback(async () => {
     try {
       const [opsRes, rtRes] = await Promise.all([
+        // All operations, not just active ones: a step on an inactive operation
+        // must still show it. The step pickers offer only active ones.
         fabQuery<QueryResult<FabOperation>>('fabErpOperation', {
-          filters: { active: 1 }, orderBy: [{ field: 'name', direction: 'asc' }], pagination: { limit: 500 },
+          orderBy: [{ field: 'name', direction: 'asc' }], pagination: { limit: 500 },
         }),
         fabQuery<QueryResult<FabResourceType>>('fabErpResourceType', {
           orderBy: [{ field: 'name', direction: 'asc' }], pagination: { limit: 500 },
