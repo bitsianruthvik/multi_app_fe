@@ -139,7 +139,7 @@ export interface AcceptResponse {
   fromSheet?: {
     rows: number;
     sheets: number;
-    short: { code: string; rect: string; needed: number; planned: number }[];
+    short: { code: string; ref?: string; rect: string; needed: number; planned: number }[];
   };
 }
 
@@ -183,6 +183,27 @@ export async function downloadBlankListSheet(orderId: number | string) {
   a.click();
   URL.revokeObjectURL(url);
 }
+
+/** Fetch an authenticated download and hand it to the browser as a file. */
+async function saveDownload(url: string, fallbackName: string) {
+  const res = await api.get(url, { responseType: 'blob' });
+  const disposition = String((res.headers as Record<string, unknown>)?.['content-disposition'] ?? '');
+  const named = /filename="([^"]+)"/.exec(disposition)?.[1];
+  const href = URL.createObjectURL(res.data as Blob);
+  const a = document.createElement('a');
+  a.href = href;
+  a.download = named ?? fallbackName;
+  a.click();
+  URL.revokeObjectURL(href);
+}
+
+/** One accepted sheet as a DXF the CNC opens — plate outline, every piece, a label per piece. */
+export const downloadNestDxf = (orderId: number | string, nestNo: string) =>
+  saveDownload(`${base()}/orders/${orderId}/nests/${encodeURIComponent(nestNo)}/dxf`, `Nest_${nestNo}.dxf`);
+
+/** Every accepted sheet's DXF in one zip. */
+export const downloadAllNestDxf = (orderId: number | string) =>
+  saveDownload(`${base()}/orders/${orderId}/nests/dxf.zip`, 'Nests_dxf.zip');
 
 /** Upload a hand-made plan. It APPLIES, exactly as accepting a suggestion does. */
 export async function uploadPlanSheet(orderId: number | string, file: File) {

@@ -10,7 +10,7 @@
  * longer burn a code sequence on an item that never saved.
  */
 
-import { fabGet, fabPost, fabDel } from './client';
+import { fabGet, fabPost, fabPatch, fabDel } from './client';
 import type { FabItemCatalog } from '../types';
 
 /** One row of `GET /catalog/items` — every `fabErpItemCatalog` column plus joined taxonomy names, sizes and weight. */
@@ -36,7 +36,16 @@ export interface CatalogItemRow extends FabItemCatalog {
 }
 
 export interface CatalogItemsQuery {
+  /**
+   * Size-aware on the server (`catalogItemsService.parseCatalogSearch`):
+   * "25x1500" / "25 x 1500 x 9000" are thickness(+width(+length)), "12mm" is
+   * a thickness, "E350" / "E250BO" is a grade, and whatever is left matches
+   * name/code. Every caller gets the grammar for free.
+   */
   q?: string;
+  /** Exact match on the item's `material` / `grade` field value — pick from `getCatalogFacets`. */
+  material?: string;
+  grade?: string;
   page?: number;
   pageSize?: number;
   procurementType?: string;
@@ -63,6 +72,65 @@ export interface CatalogItemsResponse {
 
 export const listCatalogItems = (query: CatalogItemsQuery = {}) =>
   fabGet<CatalogItemsResponse>('catalog/items', query as unknown as Record<string, unknown>);
+
+/** One filter option and how many live items sit under it. */
+export interface FacetCount { value: string; n: number }
+
+/**
+ * Counts over the WHOLE live catalog (not the current result) — what the
+ * filter dropdowns print beside each option. Taxonomy facets are keyed by id.
+ */
+export interface CatalogFacets {
+  category: Record<string, number>;
+  group: Record<string, number>;
+  subgroup: Record<string, number>;
+  materialForm: FacetCount[];
+  material: FacetCount[];
+  grade: FacetCount[];
+}
+
+export const getCatalogFacets = () => fabGet<CatalogFacets>('catalog/items/facets');
+
+/**
+ * One patch over many items. Only the keys present are applied: taxonomy and
+ * procurement update columns, material/grade write field values. The server
+ * validates the sub-group → group → category chain.
+ */
+export interface CatalogBulkPatch {
+  categoryId?: number | null;
+  groupId?: number | null;
+  subgroupId?: number | null;
+  procurementType?: string;
+  material?: string | null;
+  grade?: string | null;
+}
+
+export interface CatalogBulkResult {
+  ok: boolean;
+  updated: number;
+  rejected: Array<{ scopeId: number; fieldKey: string; why: string }>;
+}
+
+export const bulkUpdateCatalogItems = (ids: number[], patch: CatalogBulkPatch) =>
+  fabPost<CatalogBulkResult>('catalog/items/bulk', { ids, patch });
+
+/** Inline size edit from the grid — `null` clears a dimension. */
+export interface CatalogSizePatch {
+  thickness_mm?: number | null;
+  width_mm?: number | null;
+  length_mm?: number | null;
+}
+
+export interface CatalogSizePatchResult {
+  ok: boolean;
+  /** What is stored NOW (a rejected value leaves the old one in place). */
+  sizes: CatalogItemRow['sizes'];
+  unitWeightKg: number | null;
+  rejected: Array<{ fieldKey: string; why: string }>;
+}
+
+export const patchCatalogItemFields = (id: number, patch: CatalogSizePatch) =>
+  fabPatch<CatalogSizePatchResult>(`catalog/items/${id}/fields`, patch as unknown as Record<string, unknown>);
 
 export interface NewCatalogItem {
   name: string;
@@ -102,9 +170,15 @@ export const createCatalogItem = (
   fields?: Record<string, string | number | { value: string | number | null; unit?: string }>,
 ) => fabPost<CreateCatalogItemResult>('catalog/items', { item, fields: fields ?? {} });
 
-export interface CatalogItemUsage { bomCount: number; orderCount: number }
+export interface CatalogItemUsage {
+  bomCount: number;
+  orderCount: number;
+  /** Up to 10 of each, by name — enough for a where-used popover; the counts say if there are more. */
+  boms: Array<{ itemId: number; name: string; code: string | null }>;
+  orders: Array<{ orderId: number; orderNumber: string }>;
+}
 
-/** How many BOM lines and orders reference this item — shown before a delete. */
+/** How many BOM lines and orders reference this item (and which) — shown before a delete and in where-used. */
 export const getCatalogItemUsage = (id: number) =>
   fabGet<CatalogItemUsage>(`catalog/items/${id}/usage`);
 

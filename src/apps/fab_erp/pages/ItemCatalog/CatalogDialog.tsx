@@ -22,11 +22,13 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 
 import { fabMutate } from '../../api/client';
 import { createCatalogItem, getCatalogItemUsage, type CatalogItemUsage } from '../../api/catalog';
+import { getItemCodeRule, previewItemCode } from '../../api/catalogDetail';
+import type { CodegenSegment } from '../../types';
 import {
   blankRow, commitFieldRows, ensureFieldDef, useFieldVocabulary, unitsByDimension, type FieldRowDraft,
 } from '../../api/fields';
 import type { FabItemCatalog, FabItemCategory, FabItemGroup, FabItemSubgroup } from '../../types';
-import { FieldRowCells, FieldTableHead, TaxonomyPicker, backendMessage } from '../../components';
+import { FieldRowCells, FieldTableHead, Mono, TaxonomyPicker, backendMessage } from '../../components';
 import { DialogCloseButton } from '../../components/FormDialog';
 import { STANDARD_UOMS } from '../../constants/uom';
 import { TaxonomyAddForm } from './TaxonomyTab';
@@ -72,6 +74,46 @@ export function CatalogDialog({ open, initial, categories, groups, subgroups, ca
 
   const set = (k: keyof ItemDraft, v: string) => setDraft((d) => ({ ...d, [k]: v }));
   const advancedFieldCount = ([draft.hsnCode] as string[]).filter((v) => v.trim() !== '').length;
+
+  /**
+   * "Will be coded …" — the company's item rule applied to the taxonomy just
+   * chosen, so the person sees the code before they save rather than in the
+   * toast afterwards. The rule is fetched once per open; the preview call is
+   * debounced 300 ms and never consumes the sequence (`codegen/preview`).
+   */
+  const [ruleSegments, setRuleSegments] = useState<CodegenSegment[] | null>(null);
+  const [codePreview, setCodePreview] = useState<{ code: string } | { error: string } | null>(null);
+  useEffect(() => {
+    if (!open || !isNew) { setRuleSegments(null); setCodePreview(null); return; }
+    let alive = true;
+    getItemCodeRule()
+      .then((r) => { if (alive) setRuleSegments(r.segments ?? []); })
+      .catch(() => { if (alive) setRuleSegments([]); });
+    return () => { alive = false; };
+  }, [open, isNew]);
+  useEffect(() => {
+    if (!open || !isNew || !ruleSegments || !draft.categoryId || !draft.name.trim() || draft.code.trim()) {
+      setCodePreview(null);
+      return;
+    }
+    let alive = true;
+    const handle = setTimeout(() => {
+      previewItemCode(ruleSegments, {
+        categoryId: draft.categoryId, groupId: draft.groupId, subgroupId: draft.subgroupId,
+        attributes: { name: draft.name.trim() },
+      })
+        .then((r) => { if (alive) setCodePreview({ code: r.code }); })
+        .catch(() => { if (alive) setCodePreview({ error: 'Could not preview the code.' }); });
+    }, 300);
+    return () => { alive = false; clearTimeout(handle); };
+  }, [open, isNew, ruleSegments, draft.categoryId, draft.groupId, draft.subgroupId, draft.name, draft.code]);
+
+  const codeHint = !isNew ? null
+    : draft.code.trim() ? 'Uses the code you typed.'
+    : !draft.categoryId || !draft.name.trim() ? 'Pick a category and type a name to preview the code.'
+    : codePreview == null ? 'Working out the code…'
+    : 'error' in codePreview ? codePreview.error
+    : null;
 
   function onTaxonomyChange(next: { categoryId: number | null; groupId: number | null; subgroupId: number | null }) {
     setCategoryError('');
@@ -216,6 +258,13 @@ export function CatalogDialog({ open, initial, categories, groups, subgroups, ca
             onInputChange={(_, value) => set('unit', value)}
             renderInput={(params) => <TextField {...params} label="Unit" size="small" placeholder="PC" />} />
         </Box>
+        {isNew && (
+          <Typography sx={{ fontSize: 12, color: 'var(--c-text-2)', mt: -1 }}>
+            {codePreview != null && 'code' in codePreview && !draft.code.trim()
+              ? <>Will be coded <Mono chip>{codePreview.code}</Mono> — the next free number under the Items rule.</>
+              : codeHint}
+          </Typography>
+        )}
         <TextField label="Description (optional)" value={draft.description} size="small" fullWidth multiline minRows={2}
           onChange={(e) => set('description', e.target.value)} />
 

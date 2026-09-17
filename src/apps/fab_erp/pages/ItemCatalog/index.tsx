@@ -6,7 +6,9 @@
  * all live in one component. Each tab and dialog has its own file in this
  * folder; `shared.ts` holds the handful of things more than one of them need.
  *
- * Page tabs: Items | Category | Group | Sub-group | Marks.
+ * Page tabs: Items | Taxonomy. The taxonomy is one tree (Category → Group →
+ * Sub-group) rather than three flat tabs, and the Marks tab is gone — the
+ * mark-scheme panel that consumed it is no longer mounted anywhere.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, Box, Button, Tab, Tabs } from '@mui/material';
@@ -14,6 +16,7 @@ import AddIcon from '@mui/icons-material/Add';
 
 import { fabQuery } from '../../api/client';
 import type { CatalogItemRow } from '../../api/catalog';
+import { getTaxonomyCounts, type TaxonomyCounts } from '../../api/catalogDetail';
 import type { FabItemCategory, FabItemGroup, FabItemSubgroup } from '../../types';
 import { usePermission } from '@core/hooks/usePermission';
 import { useAuth } from '@core/contexts/AuthContext';
@@ -22,76 +25,31 @@ import InfoTooltip, { type InfoContent } from '@shared/components/InfoTooltip';
 import { PageHeader, useToast } from '../../components';
 
 import { ItemsTab, type ItemsTabHandle } from './ItemsTab';
-import { TaxonomyTab, AddTaxonomyDialog, TaxonomyDeleteDialog } from './TaxonomyTab';
+import { AddTaxonomyDialog, TaxonomyDeleteDialog } from './TaxonomyTab';
+import { TaxonomyTree, type TaxonomyAddTarget, type TaxonomyEntity, type TaxonomyLevel } from './TaxonomyTree';
 import { CatalogDialog, DeleteDialog } from './CatalogDialog';
 import { TaxonomyDetailDialog } from './TaxonomyDetailDialog';
-import { MarkSchemesTab } from './FieldsTab';
 import { ImporterControls } from './importer';
 
 // ─── INFO TOOLTIP CONTENT ─────────────────────────────────────────────────────
 
 const INFO_ITEMS: InfoContent = [
-  { heading: 'What it is', items: ['Company-wide parts & materials library — every item that can appear in a BOM or order lives here.'] },
-  {
-    heading: 'How to use',
-    items: [
-      'Add Item — click the button, fill in Name, Code (auto-generated), and Unit of measure.',
-      'Code is unique per company; it is auto-derived from the name but you can override it.',
-      'Assign a Category / Group / Sub-group to keep items organised — you can create new taxonomy entries inline.',
-      'Click any row to open the full detail view: BOM, stock levels, and custom fields.',
-      'Export Template — downloads a fill-in Excel sheet with dropdown-validated Category/Group/Sub-group columns plus a reference of existing taxonomy names.',
-      'Import Items — upload the filled template; any Category/Group/Sub-group name that does not exist yet is created automatically, preserving the parent relationship from the row.',
-      'After import, download the import log — an Excel sheet listing every row, whether it was created or skipped, and why.',
-    ],
-  },
-];
-const INFO_CATEGORY: InfoContent = [
-  { heading: 'What it is', items: ['Top-level classification for items (e.g. Raw Material, Assembly, Packing Material).'] },
-  { heading: 'How to use', items: [
-    'Create a category, then assign items to it from the Items tab or the item form.',
-    'Custom fields defined on a category are inherited by all items in that category.',
-    'Click a row to edit the description and manage inherited custom fields.',
+  { heading: 'Items', items: [
+    'Every part and material the company uses lives here. A BOM or an order picks from this list.',
+    'Add an item with a name and a category; the code is worked out from the Items rule unless you type one.',
+    'Click a row to see where it is used, what is in stock, and what has been bought.',
   ] },
 ];
-const INFO_GROUP: InfoContent = [
-  { heading: 'What it is', items: ['Sub-division within a Category (e.g. Structural Steel inside Raw Material).'] },
-  { heading: 'How to use', items: [
-    'A Group must belong to one Category.',
-    'Custom fields on a Group override the Category\'s fields for items in this Group.',
-    'Click a row to edit and manage its custom fields.',
-  ] },
-];
-const INFO_SUBGROUP: InfoContent = [
-  { heading: 'What it is', items: ['Finest level of item taxonomy — sits inside a Group.'] },
-  { heading: 'How to use', items: [
-    'A Sub-group belongs to one Group.',
-    'Custom fields are inherited from both Group and Category; you can override at any level.',
-    'Items assigned to a Sub-group automatically inherit all ancestor custom fields.',
-  ] },
-];
-const INFO_MARKS: InfoContent = [
-  { heading: 'What it is', items: [
-    'The prefix each category gets when piece marks are generated for an order — Beam → B gives top-level beams B1, B2, B3, and their children B1-a, B1-b.',
-    'One row per category, plus at most one fallback row for everything else.',
-  ] },
-  { heading: 'How to use', items: [
-    'Add a row, pick the category, and type the prefix that goes on the steel — a letter or two is what a paint pen can carry.',
-    'A category can hold only one prefix; categories that already have one are greyed out in the dialog.',
-    'Prefixes are matched on the item\'s catalog category, so an item with no category always takes the fallback prefix.',
-    'With no scheme configured at all, every mark falls back to the built-in prefix "P".',
-    'Editing a prefix does not renumber marks that are already assigned — generation only fills in blanks.',
+const INFO_TAXONOMY: InfoContent = [
+  { heading: 'Taxonomy', items: [
+    'A category is the top level. Everything in it inherits the category\'s fields.',
+    'A group sits inside a category and a sub-group inside a group. Each can add or override fields for what is below it.',
+    'Click a node to edit it. A node with items on it cannot be deleted until they are moved.',
   ] },
 ];
 
-type TaxonomyDetailState = {
-  level: 'category' | 'group' | 'subgroup';
-  entity: FabItemCategory | FabItemGroup | FabItemSubgroup;
-} | null;
-
-type TaxonomyDeleteState = {
-  type: 'category' | 'group' | 'subgroup';
-  entity: FabItemCategory | FabItemGroup | FabItemSubgroup;
-} | null;
+type TaxonomyDetailState = { level: TaxonomyLevel; entity: TaxonomyEntity } | null;
+type TaxonomyDeleteState = { type: TaxonomyLevel; entity: TaxonomyEntity } | null;
 
 export default function ItemCatalog() {
   // Admins bypass these tags on the BACKEND, so without OR-ing the role in
@@ -111,26 +69,17 @@ export default function ItemCatalog() {
   const [dlg,     setDlg]    = useState<{ open: boolean; item: CatalogItemRow | null }>({ open: false, item: null });
   const [delItem, setDelItem] = useState<CatalogItemRow | null>(null);
   const [taxonomyDetail, setTaxonomyDetail] = useState<TaxonomyDetailState>(null);
-  const [addTaxonomyLevel, setAddTaxonomyLevel] = useState<'category' | 'group' | 'subgroup' | null>(null);
+  const [addTaxonomy, setAddTaxonomy] = useState<TaxonomyAddTarget | null>(null);
   const [taxonomyDelete, setTaxonomyDelete] = useState<TaxonomyDeleteState>(null);
 
   const [categories, setCategories] = useState<FabItemCategory[]>([]);
   const [groups,     setGroups]     = useState<FabItemGroup[]>([]);
   const [subgroups,  setSubgroups]  = useState<FabItemSubgroup[]>([]);
+  /** Items per node, for the tree's "N items". Null until the first fetch lands. */
+  const [counts, setCounts] = useState<TaxonomyCounts | null>(null);
 
-  /**
-   * Just the count, not the rows — the Marks tab's warning needs how many
-   * catalog items have no category, and that no longer requires loading the
-   * whole catalog (`ItemsTab` now pages `GET /catalog/items` instead).
-   */
-  const [uncategorizedCount, setUncategorizedCount] = useState(0);
-  const fetchUncategorizedCount = useCallback(async () => {
-    try {
-      const res = await fabQuery<{ total?: number; data: unknown[] }>('fabErpItemCatalog', {
-        filters: { categoryId: null }, pagination: { limit: 1 }, includeTotal: true,
-      });
-      setUncategorizedCount(res.total ?? 0);
-    } catch { /* the Marks tab's banner just shows 0 until this succeeds */ }
+  const refetchCounts = useCallback(async () => {
+    try { setCounts(await getTaxonomyCounts()); } catch { /* the tree shows 0s until this succeeds */ }
   }, []);
 
   const refetchTaxonomy = useCallback(async () => {
@@ -146,11 +95,11 @@ export default function ItemCatalog() {
     } catch { /* supplementary — ignore */ }
   }, []);
 
-  useEffect(() => { refetchTaxonomy(); fetchUncategorizedCount(); }, [refetchTaxonomy, fetchUncategorizedCount]);
+  useEffect(() => { refetchTaxonomy(); refetchCounts(); }, [refetchTaxonomy, refetchCounts]);
 
   function refreshItems() {
     itemsTabRef.current?.refresh();
-    fetchUncategorizedCount();
+    refetchCounts();
   }
 
   function onSaved(code?: string) {
@@ -159,11 +108,6 @@ export default function ItemCatalog() {
     refreshItems();
   }
   function onDeleted() { setDelItem(null); toast('Removed.'); refreshItems(); }
-
-  const handleTaxonomyRowClick = (
-    level: 'category' | 'group' | 'subgroup',
-    entity: FabItemCategory | FabItemGroup | FabItemSubgroup,
-  ) => setTaxonomyDetail({ level, entity });
 
   return (
     <Box>
@@ -182,12 +126,7 @@ export default function ItemCatalog() {
 
       <Tabs value={pageTab} onChange={(_, v) => setPageTab(v)} sx={{ mb: 3, borderBottom: '1px solid var(--c-divider)' }}>
         <Tab label={<Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>Items<InfoTooltip content={INFO_ITEMS} placement="bottom" /></Box>} />
-        <Tab label={<Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>Category<InfoTooltip content={INFO_CATEGORY} placement="bottom" /></Box>} />
-        <Tab label={<Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>Group<InfoTooltip content={INFO_GROUP} placement="bottom" /></Box>} />
-        <Tab label={<Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>Sub-group<InfoTooltip content={INFO_SUBGROUP} placement="bottom" /></Box>} />
-        {canManageTaxonomy && (
-          <Tab label={<Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>Marks<InfoTooltip content={INFO_MARKS} placement="bottom" /></Box>} />
-        )}
+        <Tab label={<Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>Taxonomy<InfoTooltip content={INFO_TAXONOMY} placement="bottom" /></Box>} />
       </Tabs>
 
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
@@ -204,34 +143,14 @@ export default function ItemCatalog() {
       )}
 
       {pageTab === 1 && (
-        <TaxonomyTab
-          level="category" categories={categories} groups={groups} subgroups={subgroups}
+        <TaxonomyTree
+          categories={categories} groups={groups} subgroups={subgroups}
+          counts={counts}
           canEdit={canManageTaxonomy}
-          onRowClick={(c) => handleTaxonomyRowClick('category', c)}
-          onAddClick={() => setAddTaxonomyLevel('category')}
-          onDeleteClick={(c) => setTaxonomyDelete({ type: 'category', entity: c })}
+          onNodeClick={(level, entity) => setTaxonomyDetail({ level, entity })}
+          onAddClick={(target) => setAddTaxonomy(target)}
+          onDeleteClick={(type, entity) => setTaxonomyDelete({ type, entity })}
         />
-      )}
-      {pageTab === 2 && (
-        <TaxonomyTab
-          level="group" categories={categories} groups={groups} subgroups={subgroups}
-          canEdit={canManageTaxonomy}
-          onRowClick={(g) => handleTaxonomyRowClick('group', g)}
-          onAddClick={() => setAddTaxonomyLevel('group')}
-          onDeleteClick={(g) => setTaxonomyDelete({ type: 'group', entity: g })}
-        />
-      )}
-      {pageTab === 3 && (
-        <TaxonomyTab
-          level="subgroup" categories={categories} groups={groups} subgroups={subgroups}
-          canEdit={canManageTaxonomy}
-          onRowClick={(s) => handleTaxonomyRowClick('subgroup', s)}
-          onAddClick={() => setAddTaxonomyLevel('subgroup')}
-          onDeleteClick={(s) => setTaxonomyDelete({ type: 'subgroup', entity: s })}
-        />
-      )}
-      {pageTab === 4 && canManageTaxonomy && (
-        <MarkSchemesTab categories={categories} uncategorizedCount={uncategorizedCount} canEdit={canManageTaxonomy} />
       )}
 
       {/* ── Dialogs ── */}
@@ -264,12 +183,14 @@ export default function ItemCatalog() {
       )}
 
       <AddTaxonomyDialog
-        open={addTaxonomyLevel !== null}
-        level={addTaxonomyLevel ?? 'category'}
+        open={addTaxonomy !== null}
+        level={addTaxonomy?.level ?? 'category'}
         categories={categories}
         groups={groups}
-        onClose={() => setAddTaxonomyLevel(null)}
-        onCreated={async () => { await refetchTaxonomy(); setAddTaxonomyLevel(null); toast('Added.'); }}
+        defaultCategoryId={addTaxonomy?.categoryId ?? null}
+        defaultGroupId={addTaxonomy?.groupId ?? null}
+        onClose={() => setAddTaxonomy(null)}
+        onCreated={async () => { await refetchTaxonomy(); setAddTaxonomy(null); toast('Added.'); }}
       />
 
       <TaxonomyDeleteDialog

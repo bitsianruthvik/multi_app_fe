@@ -55,7 +55,7 @@ import { StatusBadge, EmptyState, StatSkeleton, ListSkeleton } from '../componen
 import { fabQuery } from '../api/client';
 import {
   getBlankPlan, getSavedBlankPlan, acceptBlankPlan, downloadPlanSheet, uploadPlanSheet, downloadBlankListSheet,
-  startNestingRun, getNestingRun, getLatestNestingRun, cancelNestingRun,
+  downloadAllNestDxf, startNestingRun, getNestingRun, getLatestNestingRun, cancelNestingRun,
   type Blank, type Nest, type BlankSummary, type BlankPlanResponse, type Effort, type SkippedPart,
   type SizeAdvice,
 } from '../api/blanks';
@@ -451,6 +451,19 @@ export default function BlankNesting({
     }
   }, [orderId, effort]);
 
+  /** Every accepted sheet as a DXF, zipped — the files the CNC opens. */
+  const [dxfBusy, setDxfBusy] = useState(false);
+  const downloadDxfZip = useCallback(async () => {
+    setDxfBusy(true);
+    try {
+      await downloadAllNestDxf(orderId);
+    } catch (err) {
+      setError(backendMessage(err, 'Could not produce the DXF files.'));
+    } finally {
+      setDxfBusy(false);
+    }
+  }, [orderId]);
+
   const upload = useCallback(async (file: File) => {
     setUploading(true);
     setError(null);
@@ -766,6 +779,11 @@ export default function BlankNesting({
         <Button size="small" startIcon={<DownloadIcon />} onClick={() => void download()}>
           Download plan
         </Button>
+        {accepted && (
+          <Button size="small" startIcon={<DownloadIcon />} disabled={dxfBusy} onClick={() => void downloadDxfZip()}>
+            {dxfBusy ? 'Preparing…' : 'Download all DXF (zip)'}
+          </Button>
+        )}
         {canManage && (
           <Button
             size="small" startIcon={<UploadFileIcon />} disabled={uploading}
@@ -863,6 +881,8 @@ export default function BlankNesting({
       <NestSheetDialog
         nest={viewNest ? (nests.find((n) => n.nestNo === viewNest) ?? null) : null}
         blanks={blanks}
+        orderId={orderId}
+        accepted={accepted}
         onClose={() => setViewNest(null)}
       />
 

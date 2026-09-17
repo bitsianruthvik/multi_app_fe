@@ -8,19 +8,38 @@
  * dialog and with labels and rulers switched on, so the picture here and the
  * thumbnail there can never disagree.
  */
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import {
-  Box, Chip, Dialog, DialogContent, DialogTitle, Stack, Typography,
+  Box, Button, Chip, Dialog, DialogContent, DialogTitle, Stack, Typography,
 } from '@mui/material';
+import DownloadIcon from '@mui/icons-material/Download';
 import { DialogCloseButton } from './FormDialog';
 import NestSheetSvg, { type PlacedPiece } from './NestSheetSvg';
-import type { Blank, Nest } from '../api/blanks';
+import { downloadNestDxf, type Blank, type Nest } from '../api/blanks';
+import { backendMessage } from '../utils/backendMessage';
 
-export default function NestSheetDialog({ nest, blanks, onClose }: {
+export default function NestSheetDialog({ nest, blanks, onClose, orderId, accepted }: {
   nest: Nest | null;
   blanks: Blank[];
   onClose: () => void;
+  /** With `accepted`, offers the sheet as a DXF — the server only draws accepted sheets. */
+  orderId?: number | string;
+  accepted?: boolean;
 }) {
+  const [dxfBusy, setDxfBusy] = useState(false);
+  const [dxfError, setDxfError] = useState<string | null>(null);
+  const downloadDxf = async () => {
+    if (!nest || orderId == null) return;
+    setDxfBusy(true);
+    setDxfError(null);
+    try {
+      await downloadNestDxf(orderId, nest.nestNo);
+    } catch (err) {
+      setDxfError(backendMessage(err, 'Could not produce the DXF.'));
+    } finally {
+      setDxfBusy(false);
+    }
+  };
   const handleOf = useMemo(() => {
     const m = new Map<string, string>();
     for (const b of blanks) m.set(b.key, b.ref ?? b.code.replace(/^BLK-\d+-/, ''));
@@ -57,9 +76,20 @@ export default function NestSheetDialog({ nest, blanks, onClose }: {
         {nest.piecesDerived && (
           <Chip size="small" variant="outlined" color="warning" label="layout re-packed for display — the accepted plan kept none" />
         )}
+        {accepted && orderId != null && (
+          <Button
+            size="small" variant="outlined" startIcon={<DownloadIcon />} disabled={dxfBusy}
+            onClick={() => void downloadDxf()} sx={{ ml: 'auto' }}
+          >
+            {dxfBusy ? 'Preparing…' : 'Download DXF'}
+          </Button>
+        )}
       </DialogTitle>
       <DialogCloseButton absolute onClose={onClose} />
       <DialogContent>
+        {dxfError && (
+          <Typography sx={{ fontSize: 12.5, color: 'var(--c-danger, #b00020)', mb: 1 }}>{dxfError}</Typography>
+        )}
         <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)', mb: 1.5 }}>
           Origin is the plate's top-left corner; every piece is numbered on the drawing and listed below with
           its size and the offset of its own top-left corner. ↻ means the piece is turned through 90°.

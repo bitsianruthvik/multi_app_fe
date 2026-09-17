@@ -14,30 +14,43 @@
  * not just the loaded page, so they compose correctly with paging. The
  * per-column text filters further down still narrow what's on the current
  * page only.
+ *
+ * Catalog pass (2026-09-17): every filter option carries its item count
+ * (`GET /catalog/items/facets`), Material form / Material / Grade filter on
+ * what the data actually holds instead of free text, ticked rows get a bulk
+ * bar (`POST /catalog/items/bulk`), each row has hover actions (open,
+ * duplicate, stock, where-used), Thk/Width/Length are click-to-edit
+ * (`PATCH /catalog/items/:id/fields`), and the search box understands sizes
+ * and grades — parsed on the server so every caller benefits.
  */
 import {
   forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState,
 } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
-  Alert, Box, Button, Checkbox, CircularProgress, FormControlLabel, IconButton, InputAdornment,
-  MenuItem, Select, Switch, TableSortLabel, TextField, Tooltip, Typography,
+  Alert, Autocomplete, Box, Button, Checkbox, CircularProgress, FormControlLabel, IconButton, InputAdornment,
+  MenuItem, Popover, Select, Switch, TableSortLabel, TextField, Tooltip, Typography,
 } from '@mui/material';
 import { FixedSizeList, type ListChildComponentProps } from 'react-window';
 import SearchIcon from '@mui/icons-material/Search';
 import Inventory2Icon from '@mui/icons-material/Inventory2';
-import ListAltIcon from '@mui/icons-material/ListAlt';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import AddIcon from '@mui/icons-material/Add';
+import OpenInNewIcon from '@mui/icons-material/OpenInNew';
+import ContentCopyIcon from '@mui/icons-material/ContentCopy';
+import AccountTreeIcon from '@mui/icons-material/AccountTree';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 
-import { fabMutate } from '../../api/client';
-import { listCatalogItems, type CatalogItemRow, type CatalogItemsQuery } from '../../api/catalog';
+import {
+  listCatalogItems, getCatalogFacets, bulkUpdateCatalogItems, patchCatalogItemFields, createCatalogItem,
+  getCatalogItemUsage,
+  type CatalogItemRow, type CatalogItemsQuery, type CatalogFacets, type CatalogBulkPatch, type CatalogItemUsage,
+} from '../../api/catalog';
 import type { FabItemCategory, FabItemGroup, FabItemSubgroup } from '../../types';
 import {
-  Surface, EmptyState, ListSkeleton, useToast, FormDialog, TaxonomyPicker, backendMessage,
+  Surface, EmptyState, ListSkeleton, useToast, FormDialog, TaxonomyPicker, FacetChip, backendMessage,
   type SortableColumn, type TaxonomyValue,
 } from '../../components';
 import { useSortableData } from '../../hooks/useSortableData';
@@ -87,10 +100,17 @@ const DEFAULT_ITEM_COL_WIDTH: Record<string, number> = {
 const COL_WIDTH_STORAGE_KEY = 'fab_erp_item_catalog_col_widths';
 const MIN_COL_WIDTH = 60;
 const SELECT_COL_WIDTH = 36;
-const BATCHES_COL_WIDTH = 64;
-const ACTIONS_COL_WIDTH = 84;
+/** One 28px icon button per action, plus a little breathing room. */
+const ACTION_BUTTON_WIDTH = 28;
 const ROW_HEIGHT = 38;
 const PAGE_SIZE_OPTIONS = [50, 100, 200, 500];
+
+const SIZE_KEYS = ['thicknessMm', 'widthMm', 'lengthMm'] as const;
+type SizeKey = typeof SIZE_KEYS[number];
+/** Grid column → the field key `PATCH /catalog/items/:id/fields` takes. */
+const SIZE_FIELD: Record<SizeKey, 'thickness_mm' | 'width_mm' | 'length_mm'> = {
+  thicknessMm: 'thickness_mm', widthMm: 'width_mm', lengthMm: 'length_mm',
+};
 
 function rowSize(it: CatalogItemRow): string {
   const s = it.sizes;
@@ -111,6 +131,89 @@ function rowMaterial(it: CatalogItemRow): string {
   if (!s) return '';
   return [s.material, s.grade].filter(Boolean).join(' ');
 }
+
+const MONO_CELL = { fontFamily: 'var(--font-mono, monospace)', fontSize: 12.5, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' } as const;
+
+/**
+ * A size cell that turns into a number box on click, saves on blur/Enter and
+ * backs out on Escape. Same shape as the structure editor's InlineNumber,
+ * kept local rather than imported: that one is wired to a wizard's draft
+ * state, this one talks to the server per cell.
+ *
+ * Every event stops at this cell — the row underneath opens the item on click
+ * and on Enter, and moves focus on the arrow keys, none of which somebody
+ * typing a width meant.
+ */
+function InlineSizeCell({ value, ariaLabel, onSave }: {
+  value: string;
+  ariaLabel: string;
+  onSave: (raw: string) => Promise<void>;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value);
+  const [busy, setBusy] = useState(false);
+
+  async function commit() {
+    setEditing(false);
+    if (draft.trim() === value) return;
+    setBusy(true);
+    try { await onSave(draft.trim()); } finally { setBusy(false); }
+  }
+
+  if (!editing) {
+    return (
+      <Box
+        component="button" type="button" aria-label={ariaLabel} disabled={busy}
+        onClick={(e) => { e.stopPropagation(); setDraft(value); setEditing(true); }}
+        onKeyDown={(e) => e.stopPropagation()}
+        sx={{
+          ...MONO_CELL, width: '100%', height: 26, px: 0.75, textAlign: 'right', lineHeight: 1,
+          color: value ? 'var(--c-text)' : 'var(--c-text-3)', background: 'transparent',
+          border: '1px solid transparent', borderRadius: 'var(--r-sm)', cursor: 'text',
+          opacity: busy ? 0.5 : 1,
+          '&:hover': { borderColor: 'var(--c-border)', background: 'var(--c-surface)' },
+          '&:focus-visible': { outline: '2px solid var(--c-primary-500)', outlineOffset: 1 },
+        }}
+      >
+        {value || '—'}
+      </Box>
+    );
+  }
+  return (
+    <TextField
+      autoFocus size="small" type="number" value={draft}
+      onClick={(e) => e.stopPropagation()}
+      onChange={(e) => setDraft(e.target.value)}
+      onFocus={(e) => e.target.select()}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        e.stopPropagation();
+        if (e.key === 'Enter') { e.preventDefault(); (e.target as HTMLInputElement).blur(); }
+        if (e.key === 'Escape') { e.preventDefault(); setDraft(value); setEditing(false); }
+      }}
+      sx={{ width: '100%', '& .MuiOutlinedInput-root': { height: 26 } }}
+      slotProps={{ htmlInput: { min: 0, step: 'any', 'aria-label': ariaLabel, style: { fontSize: 12.5, textAlign: 'right', padding: '2px 6px', fontFamily: 'var(--font-mono, monospace)' } } }}
+    />
+  );
+}
+
+/** Right-aligned count beside a dropdown option — the taxonomy picker's own style. */
+function OptionCount({ n }: { n: number }) {
+  return (
+    <Typography component="span" sx={{ ml: 'auto', pl: 1.5, fontSize: 11, fontVariantNumeric: 'tabular-nums', color: 'var(--c-text-3)' }}>
+      {n}
+    </Typography>
+  );
+}
+
+/** What the duplicate dialog edits — the source row's facts, with a blank code so the generator mints one. */
+interface DuplicateDraft {
+  name: string; unit: string; description: string; hsnCode: string;
+  taxonomy: TaxonomyValue; procurementType: string; materialForm: string;
+  material: string; grade: string; thicknessMm: string; widthMm: string; lengthMm: string;
+}
+
+type BulkSection = 'taxonomy' | 'steel' | 'procurement';
 
 export interface ItemsTabHandle {
   refresh: () => void;
@@ -147,6 +250,8 @@ export const ItemsTab = forwardRef<ItemsTabHandle, {
   }, [search]);
   const [procurementType, setProcurementType] = useState('');
   const [materialForm, setMaterialForm] = useState('');
+  const [material, setMaterial] = useState('');
+  const [grade, setGrade] = useState('');
   const [thicknessMin, setThicknessMin] = useState('');
   const [thicknessMax, setThicknessMax] = useState('');
   // Taxonomy and "Uncategorised" are mutually exclusive server filters (both
@@ -157,6 +262,21 @@ export const ItemsTab = forwardRef<ItemsTabHandle, {
   // Server-driven sort — needed for a numeric size sort to be correct across
   // pages rather than just within whatever page happened to load.
   const [serverSort, setServerSort] = useState<{ key: string; dir: 'asc' | 'desc' } | null>(null);
+
+  // Counts behind every filter option. Loaded once and again after anything
+  // that moves items between buckets (bulk edit, duplicate, the parent's own
+  // add/edit/delete via `refresh`) — not per keystroke, since they describe
+  // the whole catalog rather than the current result.
+  const [facets, setFacets] = useState<CatalogFacets | null>(null);
+  const loadFacets = useCallback(() => {
+    getCatalogFacets().then(setFacets).catch(() => { /* the dropdowns just show no counts */ });
+  }, []);
+  useEffect(() => { loadFacets(); }, [loadFacets]);
+  const taxonomyCounts = useMemo(() => {
+    if (!facets) return undefined;
+    const toMap = (o: Record<string, number>) => new Map(Object.entries(o).map(([k, v]) => [Number(k), v]));
+    return { category: toMap(facets.category), group: toMap(facets.group), subgroup: toMap(facets.subgroup) };
+  }, [facets]);
 
   const [colFilters, setColFilters] = useState<Record<string, string>>({});
   const [colWidths, setColWidths] = useState<Record<string, number>>(() => {
@@ -207,6 +327,8 @@ export const ItemsTab = forwardRef<ItemsTabHandle, {
         q: debouncedSearch || undefined,
         procurementType: procurementType || undefined,
         materialForm: materialForm || undefined,
+        material: material || undefined,
+        grade: grade || undefined,
         thicknessMin: thicknessMin || undefined,
         thicknessMax: thicknessMax || undefined,
         categoryId: !uncategorized && taxonomy.categoryId != null ? taxonomy.categoryId : undefined,
@@ -226,7 +348,7 @@ export const ItemsTab = forwardRef<ItemsTabHandle, {
     } finally {
       if (myReq === reqRef.current) setLoading(false);
     }
-  }, [debouncedSearch, procurementType, materialForm, thicknessMin, thicknessMax, taxonomy, uncategorized, page, pageSize, serverSort]);
+  }, [debouncedSearch, procurementType, materialForm, material, grade, thicknessMin, thicknessMax, taxonomy, uncategorized, page, pageSize, serverSort]);
 
   // Single effect: a filter change should land back on page 1 — otherwise
   // "page 4 of a now-3-page result" quietly shows nothing and looks like a
@@ -237,7 +359,7 @@ export const ItemsTab = forwardRef<ItemsTabHandle, {
   // changed but page was already 1" / "only the page or sort changed" (fetch
   // directly) — the old two-effect version fired for both on every filter
   // change: once with the stale page, once more after page reset to 1.
-  const filterSig = JSON.stringify([debouncedSearch, procurementType, materialForm, thicknessMin, thicknessMax, taxonomy, uncategorized]);
+  const filterSig = JSON.stringify([debouncedSearch, procurementType, materialForm, material, grade, thicknessMin, thicknessMax, taxonomy, uncategorized]);
   const prevFilterSigRef = useRef(filterSig);
   useEffect(() => {
     const filtersChanged = prevFilterSigRef.current !== filterSig;
@@ -247,7 +369,7 @@ export const ItemsTab = forwardRef<ItemsTabHandle, {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filterSig, page, pageSize, serverSort]);
 
-  useImperativeHandle(ref, () => ({ refresh: fetchPage }), [fetchPage]);
+  useImperativeHandle(ref, () => ({ refresh: () => { fetchPage(); loadFacets(); } }), [fetchPage, loadFacets]);
 
   const itemsSized = useMemo(() => rows.map((it) => ({
     ...it, size: rowSize(it), material: rowMaterial(it),
@@ -278,7 +400,20 @@ export const ItemsTab = forwardRef<ItemsTabHandle, {
     requestSort(key);
   }
 
-  // ── multi-select + bulk set (item 11) ───────────────────────────────────
+  // ── inline size edit (item 10) ──────────────────────────────────────────
+  // The response carries what is stored NOW, so the row is patched from it
+  // rather than from what was typed — a refused value leaves the old one.
+  const saveSize = useCallback(async (id: number, key: SizeKey, raw: string) => {
+    try {
+      const res = await patchCatalogItemFields(id, { [SIZE_FIELD[key]]: raw === '' ? null : Number(raw) });
+      setRows((rs) => rs.map((r) => (r.id === id ? { ...r, sizes: res.sizes, thicknessMm: res.sizes.thicknessMm, unitWeightKg: res.unitWeightKg } : r)));
+      if (res.rejected.length) toast(res.rejected.map((x) => `${x.fieldKey}: ${x.why}`).join('; '), 'error');
+    } catch (e) {
+      toast(backendMessage(e, 'Could not save the size'), 'error');
+    }
+  }, [toast]);
+
+  // ── multi-select + bulk edit (item 11 → item 6) ─────────────────────────
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const allOnPageSelected = sortedRows.length > 0 && sortedRows.every((r) => selected.has(r.id));
   function toggleAll() {
@@ -291,31 +426,94 @@ export const ItemsTab = forwardRef<ItemsTabHandle, {
       return next;
     });
   }
-  const [bulkOpen, setBulkOpen] = useState(false);
+  // One dialog, opened on the section the bar button named — the other two
+  // stay hidden so "Set procurement" is one dropdown, not a form.
+  const [bulkSection, setBulkSection] = useState<BulkSection | null>(null);
   const [bulkProcurementType, setBulkProcurementType] = useState('');
-  const [bulkTaxonomy, setBulkTaxonomy] = useState<{ categoryId: number | null; groupId: number | null; subgroupId: number | null }>({ categoryId: null, groupId: null, subgroupId: null });
+  const [bulkTaxonomy, setBulkTaxonomy] = useState<TaxonomyValue>({ categoryId: null, groupId: null, subgroupId: null });
+  const [bulkMaterial, setBulkMaterial] = useState('');
+  const [bulkGrade, setBulkGrade] = useState('');
 
   async function applyBulkEdit() {
     const ids = [...selected];
-    const payload: Record<string, unknown> = {};
-    if (bulkProcurementType) payload.procurement_type = bulkProcurementType;
-    if (bulkTaxonomy.categoryId != null) {
-      payload.category_id = bulkTaxonomy.categoryId;
-      payload.group_id = bulkTaxonomy.groupId;
-      payload.subgroup_id = bulkTaxonomy.subgroupId;
+    const patch: CatalogBulkPatch = {};
+    if (bulkSection === 'procurement' && bulkProcurementType) patch.procurementType = bulkProcurementType;
+    if (bulkSection === 'taxonomy' && bulkTaxonomy.categoryId != null) {
+      patch.categoryId = bulkTaxonomy.categoryId;
+      patch.groupId = bulkTaxonomy.groupId;
+      patch.subgroupId = bulkTaxonomy.subgroupId;
     }
-    if (!Object.keys(payload).length) throw new Error('Choose a procurement type or a category to apply.');
-    const results = await Promise.allSettled(ids.map((id) => fabMutate('fabErpItemCatalog', 'update', { id, ...payload })));
-    const failed = results.filter((r) => r.status === 'rejected').length;
+    if (bulkSection === 'steel') {
+      if (bulkMaterial.trim()) patch.material = bulkMaterial.trim();
+      if (bulkGrade.trim()) patch.grade = bulkGrade.trim();
+    }
+    if (!Object.keys(patch).length) throw new Error('Choose something to apply, or cancel.');
+    const res = await bulkUpdateCatalogItems(ids, patch);
     setSelected(new Set());
     setBulkProcurementType(''); setBulkTaxonomy({ categoryId: null, groupId: null, subgroupId: null });
+    setBulkMaterial(''); setBulkGrade('');
     await fetchPage();
-    if (failed) throw new Error(`${ids.length - failed} of ${ids.length} updated — ${failed} failed.`);
-    toast(`${ids.length} item${ids.length === 1 ? '' : 's'} updated.`);
+    loadFacets();
+    if (res.rejected?.length) throw new Error(`Applied to ${res.updated}, but ${res.rejected.length} value${res.rejected.length === 1 ? '' : 's'} refused: ${res.rejected[0].why}`);
+    toast(`${res.updated} item${res.updated === 1 ? '' : 's'} updated.`);
   }
 
+  // ── where used (item 7) ─────────────────────────────────────────────────
+  const [usageAnchor, setUsageAnchor] = useState<{ el: HTMLElement; item: CatalogItemRow } | null>(null);
+  const [usage, setUsage] = useState<CatalogItemUsage | null>(null);
+  const openWhereUsed = useCallback((el: HTMLElement, item: CatalogItemRow) => {
+    setUsage(null);
+    setUsageAnchor({ el, item });
+    getCatalogItemUsage(item.id).then(setUsage).catch((e) => toast(backendMessage(e, 'Could not load usage'), 'error'));
+  }, [toast]);
+
+  // ── duplicate (item 9) ──────────────────────────────────────────────────
+  const [dup, setDup] = useState<DuplicateDraft | null>(null);
+  const openDuplicate = useCallback((it: CatalogItemRow) => {
+    setDup({
+      name: it.name, unit: it.unit ?? 'PC', description: it.description ?? '', hsnCode: it.hsnCode ?? '',
+      taxonomy: { categoryId: it.categoryId ?? null, groupId: it.groupId ?? null, subgroupId: it.subgroupId ?? null },
+      procurementType: it.procurementType ?? 'buy', materialForm: it.materialForm ?? '',
+      material: it.sizes?.material ?? '', grade: it.sizes?.grade ?? '',
+      thicknessMm: dim(it.sizes?.thicknessMm), widthMm: dim(it.sizes?.widthMm), lengthMm: dim(it.sizes?.lengthMm),
+    });
+  }, []);
+  async function saveDuplicate() {
+    if (!dup) return;
+    if (!dup.name.trim()) throw new Error('Name is required.');
+    if (dup.taxonomy.categoryId == null) throw new Error('Category is required.');
+    // Sizes and steel travel as field values — the same keys the create route
+    // already writes for the Add dialog; thickness is also handed over as the
+    // column so the list can sort on it straight away.
+    const fields: Record<string, string | number> = {};
+    if (dup.thicknessMm !== '') fields.thickness_mm = Number(dup.thicknessMm);
+    if (dup.widthMm !== '') fields.width_mm = Number(dup.widthMm);
+    if (dup.lengthMm !== '') fields.length_mm = Number(dup.lengthMm);
+    if (dup.material.trim()) fields.material = dup.material.trim();
+    if (dup.grade.trim()) fields.grade = dup.grade.trim();
+    const res = await createCatalogItem({
+      name: dup.name.trim(),
+      unit: dup.unit.trim() || 'PC',
+      description: dup.description.trim() || null,
+      categoryId: dup.taxonomy.categoryId,
+      groupId: dup.taxonomy.groupId, subgroupId: dup.taxonomy.subgroupId,
+      hsnCode: dup.hsnCode.trim() || null,
+      procurementType: dup.procurementType as 'make' | 'buy',
+      thicknessMm: dup.thicknessMm !== '' ? Number(dup.thicknessMm) : null,
+      materialForm: dup.materialForm || null,
+    }, fields);
+    setDup(null);
+    await fetchPage();
+    loadFacets();
+    if (res.rejected?.length) toast(`Created ${res.code}, but not saved: ${res.rejected.map((r) => `${r.fieldKey} — ${r.why}`).join('; ')}`, 'error');
+    else toast(`Created ${res.code}.`);
+  }
+
+  // Open · Duplicate* · Stock · Where used · Edit* · Remove*  (* = manage only)
+  const actionCount = canManage ? 6 : 3;
+  const actionsColWidth = actionCount * ACTION_BUTTON_WIDTH + 12;
   const itemsTotalWidth = ITEM_COLUMNS.reduce((sum, col) => sum + colWidths[col.key as string], 0)
-    + SELECT_COL_WIDTH + BATCHES_COL_WIDTH + (canManage ? ACTIONS_COL_WIDTH : 0);
+    + SELECT_COL_WIDTH + actionsColWidth;
 
   // Row keyboard nav (item 1: "arrow keys/Enter open a row"): react-window only
   // mounts visible rows, so moving focus past the viewport needs a scroll first
@@ -345,6 +543,14 @@ export const ItemsTab = forwardRef<ItemsTabHandle, {
       ...TD, width: colWidths[key], minWidth: colWidths[key], flex: '0 0 auto', boxSizing: 'border-box', px: 2, ...extra,
     });
     const openRow = () => navigate(`/${company}/fab_erp/item-catalog/${it.id}`);
+    const action = (title: string, icon: React.ReactNode, onClick: (e: React.MouseEvent<HTMLButtonElement>) => void, color?: 'error') => (
+      <Tooltip title={title}>
+        <IconButton size="small" color={color} aria-label={`${title}: ${it.name}`} sx={{ width: ACTION_BUTTON_WIDTH, height: ACTION_BUTTON_WIDTH }}
+          onClick={(e) => { e.stopPropagation(); onClick(e); }}>
+          {icon}
+        </IconButton>
+      </Tooltip>
+    );
     return (
       <Box
         ref={(el: HTMLDivElement | null) => { if (el) rowElRef.current.set(index, el); else rowElRef.current.delete(index); }}
@@ -354,7 +560,15 @@ export const ItemsTab = forwardRef<ItemsTabHandle, {
           else if (e.key === 'ArrowUp') { e.preventDefault(); focusRow(index - 1); }
           else if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openRow(); }
         }}
-        sx={{ display: 'flex', alignItems: 'center', cursor: 'pointer', borderBottom: '1px solid var(--c-divider)', '&:hover': { bgcolor: 'action.hover' }, '&:focus-visible': { outline: '2px solid var(--c-focus, #1976d2)', outlineOffset: '-2px' } }}
+        sx={{
+          display: 'flex', alignItems: 'center', cursor: 'pointer', borderBottom: '1px solid var(--c-divider)',
+          '&:hover': { bgcolor: 'action.hover' }, '&:focus-visible': { outline: '2px solid var(--c-focus, #1976d2)', outlineOffset: '-2px' },
+          // Quick actions surface on hover or when anything in the row has
+          // focus (keyboard users reach them with Tab), and stay out of the
+          // way otherwise so 200 rows do not read as 1,200 buttons.
+          '& .row-actions': { opacity: 0, transition: 'opacity var(--t-fast, 120ms) var(--ease, ease)' },
+          '&:hover .row-actions, &:focus-within .row-actions': { opacity: 1 },
+        }}
       >
         <Box sx={{ width: SELECT_COL_WIDTH, minWidth: SELECT_COL_WIDTH, flex: '0 0 auto', display: 'flex', justifyContent: 'center' }}>
           <Checkbox size="small" checked={selected.has(it.id)} onClick={(e) => e.stopPropagation()} onChange={() => toggleOne(it.id)} />
@@ -363,8 +577,12 @@ export const ItemsTab = forwardRef<ItemsTabHandle, {
           <Box sx={cellSx('name', { fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' })}>{it.name}</Box>
           <Box sx={cellSx('code')}><Box component="span" sx={{ fontFamily: 'var(--font-mono, monospace)' }}>{it.code}</Box></Box>
           <Box sx={cellSx('unit')}>{displayUom(it.unit) || 'PC'}</Box>
-          {(['thicknessMm', 'widthMm', 'lengthMm'] as const).map((k) => (
-            <Box key={k} sx={cellSx(k, { fontFamily: 'var(--font-mono, monospace)', fontSize: 12.5, color: 'var(--c-text-2)', whiteSpace: 'nowrap', textAlign: 'right', fontVariantNumeric: 'tabular-nums' })}>{it[k] || '—'}</Box>
+          {SIZE_KEYS.map((k) => (
+            <Box key={k} sx={cellSx(k, { ...MONO_CELL, color: 'var(--c-text-2)', textAlign: 'right', px: canManage ? 1 : 2 })}>
+              {canManage
+                ? <InlineSizeCell value={it[k]} ariaLabel={`${ITEM_COLUMNS.find((c) => c.key === k)?.label ?? k} for ${it.name}`} onSave={(raw) => saveSize(it.id, k, raw)} />
+                : (it[k] || '—')}
+            </Box>
           ))}
           <Box sx={cellSx('procurementType')}>{it.procurementType ?? '—'}</Box>
           <Box sx={cellSx('materialForm')}>{it.materialForm ?? '—'}</Box>
@@ -376,22 +594,19 @@ export const ItemsTab = forwardRef<ItemsTabHandle, {
           <Box sx={cellSx('subgroupName')}>{it.subgroupName ?? '—'}</Box>
           <Box sx={cellSx('hsnCode')}>{it.hsnCode ?? '—'}</Box>
         </Box>
-        <Box sx={{ width: BATCHES_COL_WIDTH, minWidth: BATCHES_COL_WIDTH, flex: '0 0 auto', display: 'flex', justifyContent: 'center' }}>
-          <Tooltip title="View batches">
-            <IconButton size="small" onClick={(e) => { e.stopPropagation(); navigate(`/${company}/fab_erp/item-batches?itemId=${it.id}`); }}>
-              <ListAltIcon fontSize="small" />
-            </IconButton>
-          </Tooltip>
+        <Box className="row-actions" sx={{ width: actionsColWidth, minWidth: actionsColWidth, flex: '0 0 auto', display: 'flex', justifyContent: 'flex-end', alignItems: 'center', pr: 0.5 }}>
+          {action('Open', <OpenInNewIcon fontSize="small" />, openRow)}
+          {canManage && action('Duplicate', <ContentCopyIcon fontSize="small" />, () => openDuplicate(it))}
+          {action('Stock', <Inventory2Icon fontSize="small" />, () => navigate(`/${company}/fab_erp/item-batches?itemId=${it.id}`))}
+          {action('Where used', <AccountTreeIcon fontSize="small" />, (e) => openWhereUsed(e.currentTarget, it))}
+          {canManage && action('Edit', <EditIcon fontSize="small" />, () => onEdit(it))}
+          {canManage && action('Remove', <DeleteIcon fontSize="small" />, () => onDelete(it), 'error')}
         </Box>
-        {canManage && (
-          <Box sx={{ width: ACTIONS_COL_WIDTH, minWidth: ACTIONS_COL_WIDTH, flex: '0 0 auto', display: 'flex', justifyContent: 'flex-end', px: 1 }}>
-            <Tooltip title="Edit"><IconButton size="small" onClick={(e) => { e.stopPropagation(); onEdit(it); }}><EditIcon fontSize="small" /></IconButton></Tooltip>
-            <Tooltip title="Remove"><IconButton size="small" color="error" onClick={(e) => { e.stopPropagation(); onDelete(it); }}><DeleteIcon fontSize="small" /></IconButton></Tooltip>
-          </Box>
-        )}
       </Box>
     );
-  }, [sortedRows, canManage, navigate, company, colWidths, selected, onEdit, onDelete, focusRow]);
+  }, [sortedRows, canManage, navigate, company, colWidths, selected, onEdit, onDelete, focusRow, saveSize, openDuplicate, openWhereUsed, actionsColWidth]);
+
+  const bulkTitle = bulkSection === 'taxonomy' ? 'Set group / sub-group' : bulkSection === 'steel' ? 'Set material / grade' : 'Set procurement';
 
   return (
     <Box>
@@ -399,9 +614,13 @@ export const ItemsTab = forwardRef<ItemsTabHandle, {
 
       <Box sx={{ display: 'flex', gap: 2, mb: 2, flexWrap: 'wrap', alignItems: 'flex-end' }}>
         <TextField
-          placeholder="Search by name or code…" value={search} size="small" sx={{ width: 260 }}
+          placeholder="Search name, code, size or grade…" value={search} size="small" sx={{ width: 280 }}
           onChange={(e) => setSearch(e.target.value)}
-          slotProps={{ input: { startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" /></InputAdornment> } }}
+          helperText="try 25x1500, E350 12mm"
+          slotProps={{
+            input: { startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" /></InputAdornment> },
+            formHelperText: { sx: { mx: 0.5, mt: 0.25, fontSize: 11, color: 'var(--c-text-3)' } },
+          }}
         />
         <Box sx={{ width: 160 }}>
           <Typography variant="caption" color="text.secondary">Procurement</Typography>
@@ -410,14 +629,27 @@ export const ItemsTab = forwardRef<ItemsTabHandle, {
             {PROCUREMENT_TYPES.map((p) => <MenuItem key={p.value} value={p.value}>{p.label}</MenuItem>)}
           </Select>
         </Box>
-        <TextField label="Material form" value={materialForm} size="small" sx={{ width: 140 }} onChange={(e) => setMaterialForm(e.target.value)} placeholder="plate, section…" />
+        <Box sx={{ width: 150 }}>
+          <Typography variant="caption" color="text.secondary">Material</Typography>
+          <Select fullWidth size="small" displayEmpty value={material} onChange={(e) => setMaterial(e.target.value)} renderValue={(v) => v || 'All'}>
+            <MenuItem value="">All</MenuItem>
+            {(facets?.material ?? []).map((f) => <MenuItem key={f.value} value={f.value}>{f.value}<OptionCount n={f.n} /></MenuItem>)}
+          </Select>
+        </Box>
+        <Box sx={{ width: 150 }}>
+          <Typography variant="caption" color="text.secondary">Grade</Typography>
+          <Select fullWidth size="small" displayEmpty value={grade} onChange={(e) => setGrade(e.target.value)} renderValue={(v) => v || 'All'}>
+            <MenuItem value="">All</MenuItem>
+            {(facets?.grade ?? []).map((f) => <MenuItem key={f.value} value={f.value}>{f.value}<OptionCount n={f.n} /></MenuItem>)}
+          </Select>
+        </Box>
         <TextField label="Thickness ≥ (mm)" type="number" value={thicknessMin} size="small" sx={{ width: 130 }} onChange={(e) => setThicknessMin(e.target.value)} />
         <TextField label="Thickness ≤ (mm)" type="number" value={thicknessMax} size="small" sx={{ width: 130 }} onChange={(e) => setThicknessMax(e.target.value)} />
         <Box sx={{ width: 420 }}>
           <TaxonomyPicker
             categories={categories} groups={groups} subgroups={subgroups}
             value={taxonomy} onChange={(next) => { setUncategorized(false); setTaxonomy(next); }}
-            disabled={uncategorized} emptyLabel="All"
+            disabled={uncategorized} emptyLabel="All" counts={taxonomyCounts}
             labels={{ category: 'Category', group: 'Group', subgroup: 'Sub-group' }}
           />
         </Box>
@@ -435,10 +667,39 @@ export const ItemsTab = forwardRef<ItemsTabHandle, {
           )}
           label={<Typography variant="caption">Uncategorised</Typography>}
         />
-        {selected.size > 0 && (
-          <Button variant="outlined" onClick={() => setBulkOpen(true)}>Bulk edit ({selected.size})</Button>
-        )}
       </Box>
+
+      {/* Material form as chips: the values the catalog actually holds (plate / section / blank…), each with its count. */}
+      {!!facets?.materialForm.length && (
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2, flexWrap: 'wrap' }}>
+          <Typography variant="caption" color="text.secondary" sx={{ mr: 0.5 }}>Material form</Typography>
+          <FacetChip label="All" active={materialForm === ''} onClick={() => setMaterialForm('')} />
+          {facets.materialForm.map((f) => (
+            <FacetChip key={f.value} label={f.value} count={f.n} active={materialForm === f.value}
+              onClick={() => setMaterialForm(materialForm === f.value ? '' : f.value)} />
+          ))}
+        </Box>
+      )}
+
+      {/* Bulk bar — only exists while something is ticked. */}
+      {selected.size > 0 && (
+        <Surface e={1} sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', px: 1.5, py: 1, mb: 2, bgcolor: 'var(--c-primary-50)', borderColor: 'var(--c-primary-200)' }}>
+          <Typography sx={{ fontSize: 13, fontWeight: 600, color: 'var(--c-primary-700)', mr: 1 }}>
+            {selected.size} selected
+          </Typography>
+          {canManage ? (
+            <>
+              <Button size="small" variant="outlined" onClick={() => setBulkSection('taxonomy')}>Set group / sub-group</Button>
+              <Button size="small" variant="outlined" onClick={() => setBulkSection('steel')}>Set material / grade</Button>
+              <Button size="small" variant="outlined" onClick={() => setBulkSection('procurement')}>Set procurement</Button>
+            </>
+          ) : (
+            <Typography variant="caption" color="text.secondary">You can tick rows, but editing needs the catalog-manage permission.</Typography>
+          )}
+          <Box sx={{ flex: 1 }} />
+          <Button size="small" onClick={() => setSelected(new Set())}>Clear selection</Button>
+        </Surface>
+      )}
 
       {loading && rows.length === 0 ? (
         <ListSkeleton rows={6} />
@@ -472,8 +733,7 @@ export const ItemsTab = forwardRef<ItemsTabHandle, {
                     <Box onMouseDown={(e) => handleResizeStart(col.key as string, e)} sx={{ position: 'absolute', right: -3, top: 0, bottom: 0, width: 6, cursor: 'col-resize', zIndex: 1, '&:hover': { bgcolor: 'primary.main', opacity: 0.5 } }} />
                   </Box>
                 ))}
-                <Box sx={{ ...TH, width: BATCHES_COL_WIDTH, minWidth: BATCHES_COL_WIDTH, flex: '0 0 auto', display: 'flex', alignItems: 'center', justifyContent: 'center', px: 1, py: 1 }}>Batches</Box>
-                {canManage && <Box sx={{ width: ACTIONS_COL_WIDTH, minWidth: ACTIONS_COL_WIDTH, flex: '0 0 auto' }} />}
+                <Box sx={{ width: actionsColWidth, minWidth: actionsColWidth, flex: '0 0 auto' }} />
               </Box>
 
               <Box sx={{ display: 'flex', borderBottom: '1px solid var(--c-divider)', bgcolor: 'var(--c-surface-1)', alignItems: 'center' }}>
@@ -487,8 +747,7 @@ export const ItemsTab = forwardRef<ItemsTabHandle, {
                     />
                   </Box>
                 ))}
-                <Box sx={{ width: BATCHES_COL_WIDTH, minWidth: BATCHES_COL_WIDTH, flex: '0 0 auto' }} />
-                {canManage && <Box sx={{ width: ACTIONS_COL_WIDTH, minWidth: ACTIONS_COL_WIDTH, flex: '0 0 auto' }} />}
+                <Box sx={{ width: actionsColWidth, minWidth: actionsColWidth, flex: '0 0 auto' }} />
               </Box>
 
               {sortedRows.length === 0 ? (
@@ -535,23 +794,136 @@ export const ItemsTab = forwardRef<ItemsTabHandle, {
         </>
       )}
 
+      {/* Where used — the BOMs and orders behind the counts, each a link. */}
+      <Popover
+        open={!!usageAnchor} anchorEl={usageAnchor?.el ?? null} onClose={() => setUsageAnchor(null)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }} transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+      >
+        <Box sx={{ p: 1.5, width: 300 }}>
+          <Typography sx={{ fontSize: 13, fontWeight: 600, mb: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            Where used — {usageAnchor?.item.name}
+          </Typography>
+          {!usage ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}><CircularProgress size={18} /></Box>
+          ) : (
+            <>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+                In {usage.bomCount} BOM{usage.bomCount === 1 ? '' : 's'}{usage.bomCount > usage.boms.length ? ` (showing ${usage.boms.length})` : ''}
+              </Typography>
+              {usage.boms.length === 0 && <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)', mb: 1 }}>Not a part of any BOM.</Typography>}
+              {usage.boms.map((b) => (
+                <Button key={b.itemId} size="small" fullWidth onClick={() => { setUsageAnchor(null); navigate(`/${company}/fab_erp/item-catalog/${b.itemId}`); }}
+                  sx={{ justifyContent: 'flex-start', textTransform: 'none', fontSize: 12.5, px: 1 }}>
+                  <Box component="span" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{b.name}</Box>
+                  {b.code && <Box component="span" sx={{ ml: 'auto', pl: 1, fontFamily: 'var(--font-mono, monospace)', fontSize: 11, color: 'var(--c-text-3)' }}>{b.code}</Box>}
+                </Button>
+              ))}
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1, mb: 0.5 }}>
+                On {usage.orderCount} order{usage.orderCount === 1 ? '' : 's'}{usage.orderCount > usage.orders.length ? ` (showing ${usage.orders.length})` : ''}
+              </Typography>
+              {usage.orders.length === 0 && <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>Not on any order.</Typography>}
+              {usage.orders.map((o) => (
+                <Button key={o.orderId} size="small" fullWidth onClick={() => { setUsageAnchor(null); navigate(`/${company}/fab_erp/orders/${o.orderId}`); }}
+                  sx={{ justifyContent: 'flex-start', textTransform: 'none', fontSize: 12.5, px: 1, fontFamily: 'var(--font-mono, monospace)' }}>
+                  {o.orderNumber}
+                </Button>
+              ))}
+            </>
+          )}
+        </Box>
+      </Popover>
+
       <FormDialog
-        open={bulkOpen}
-        title={`Bulk edit ${selected.size} item${selected.size === 1 ? '' : 's'}`}
-        subtitle="Only the fields you set below are changed — leave a field blank to leave it alone."
-        onClose={() => setBulkOpen(false)}
-        onSubmit={applyBulkEdit}
+        open={bulkSection != null}
+        title={`${bulkTitle} on ${selected.size} item${selected.size === 1 ? '' : 's'}`}
+        subtitle="Only what you set here changes — a blank field leaves the items as they are."
+        onClose={() => setBulkSection(null)}
+        onSubmit={async () => { await applyBulkEdit(); setBulkSection(null); }}
         submitLabel="Apply"
       >
-        <TextField select label="Procurement type" size="small" fullWidth value={bulkProcurementType} onChange={(e) => setBulkProcurementType(e.target.value)}>
-          <MenuItem value="">— leave unchanged —</MenuItem>
-          {PROCUREMENT_TYPES.map((p) => <MenuItem key={p.value} value={p.value}>{p.label}</MenuItem>)}
-        </TextField>
-        <Typography variant="caption" color="text.secondary">Category (choosing one also sets Group/Sub-group below)</Typography>
-        <TaxonomyPicker
-          categories={categories} groups={groups} subgroups={subgroups}
-          value={bulkTaxonomy} onChange={setBulkTaxonomy} emptyLabel="— leave unchanged —"
-        />
+        {bulkSection === 'procurement' && (
+          <TextField select label="Procurement type" size="small" fullWidth value={bulkProcurementType} onChange={(e) => setBulkProcurementType(e.target.value)}>
+            <MenuItem value="">— leave unchanged —</MenuItem>
+            {PROCUREMENT_TYPES.map((p) => <MenuItem key={p.value} value={p.value}>{p.label}</MenuItem>)}
+          </TextField>
+        )}
+        {bulkSection === 'taxonomy' && (
+          <>
+            <Typography variant="caption" color="text.secondary">Category (choosing one also sets Group/Sub-group below)</Typography>
+            <TaxonomyPicker
+              categories={categories} groups={groups} subgroups={subgroups}
+              value={bulkTaxonomy} onChange={setBulkTaxonomy} emptyLabel="— leave unchanged —"
+            />
+          </>
+        )}
+        {bulkSection === 'steel' && (
+          <Box sx={{ display: 'flex', gap: 2 }}>
+            <Autocomplete
+              freeSolo fullWidth options={(facets?.material ?? []).map((f) => f.value)}
+              value={bulkMaterial} onInputChange={(_, v) => setBulkMaterial(v)}
+              renderInput={(params) => <TextField {...params} label="Material" size="small" placeholder="leave unchanged" />}
+            />
+            <Autocomplete
+              freeSolo fullWidth options={(facets?.grade ?? []).map((f) => f.value)}
+              value={bulkGrade} onInputChange={(_, v) => setBulkGrade(v)}
+              renderInput={(params) => <TextField {...params} label="Grade" size="small" placeholder="leave unchanged" />}
+            />
+          </Box>
+        )}
+      </FormDialog>
+
+      <FormDialog
+        open={dup != null}
+        title="Duplicate item"
+        subtitle="Prefilled from the source row — change what differs (usually a size). The code is minted on save."
+        onClose={() => setDup(null)}
+        onSubmit={saveDuplicate}
+        submitLabel="Create"
+      >
+        {dup && (
+          <>
+            <TextField label="Name" size="small" fullWidth required value={dup.name} onChange={(e) => setDup({ ...dup, name: e.target.value })} />
+            <Box sx={{ display: 'flex', gap: 2 }}>
+              <TextField label="Unit" size="small" sx={{ width: 120 }} value={dup.unit} onChange={(e) => setDup({ ...dup, unit: e.target.value })} />
+              <TextField select label="Procurement" size="small" sx={{ flex: 1 }} value={dup.procurementType} onChange={(e) => setDup({ ...dup, procurementType: e.target.value })}>
+                {PROCUREMENT_TYPES.map((p) => <MenuItem key={p.value} value={p.value}>{p.label}</MenuItem>)}
+              </TextField>
+              <TextField label="HSN" size="small" sx={{ width: 120 }} value={dup.hsnCode} onChange={(e) => setDup({ ...dup, hsnCode: e.target.value })} />
+            </Box>
+            <TaxonomyPicker
+              categories={categories} groups={groups} subgroups={subgroups} required
+              value={dup.taxonomy} onChange={(taxonomy) => setDup({ ...dup, taxonomy })}
+              labels={{ category: 'Category', group: 'Group', subgroup: 'Sub-group' }}
+            />
+            <Box sx={{ display: 'flex', gap: 2 }}>
+              {SIZE_KEYS.map((k) => (
+                <TextField key={k} type="number" size="small" fullWidth
+                  label={ITEM_COLUMNS.find((c) => c.key === k)?.label}
+                  value={dup[k]} onChange={(e) => setDup({ ...dup, [k]: e.target.value })}
+                  slotProps={{ htmlInput: { min: 0, step: 'any' } }}
+                />
+              ))}
+            </Box>
+            <Box sx={{ display: 'flex', gap: 2 }}>
+              <Autocomplete
+                freeSolo fullWidth options={(facets?.materialForm ?? []).map((f) => f.value)}
+                value={dup.materialForm} onInputChange={(_, v) => setDup({ ...dup, materialForm: v })}
+                renderInput={(params) => <TextField {...params} label="Material form" size="small" />}
+              />
+              <Autocomplete
+                freeSolo fullWidth options={(facets?.material ?? []).map((f) => f.value)}
+                value={dup.material} onInputChange={(_, v) => setDup({ ...dup, material: v })}
+                renderInput={(params) => <TextField {...params} label="Material" size="small" />}
+              />
+              <Autocomplete
+                freeSolo fullWidth options={(facets?.grade ?? []).map((f) => f.value)}
+                value={dup.grade} onInputChange={(_, v) => setDup({ ...dup, grade: v })}
+                renderInput={(params) => <TextField {...params} label="Grade" size="small" />}
+              />
+            </Box>
+            <TextField label="Description" size="small" fullWidth multiline minRows={2} value={dup.description} onChange={(e) => setDup({ ...dup, description: e.target.value })} />
+          </>
+        )}
       </FormDialog>
     </Box>
   );

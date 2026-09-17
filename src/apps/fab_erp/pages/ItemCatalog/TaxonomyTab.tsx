@@ -1,24 +1,22 @@
 /**
- * TaxonomyTab — the Category / Group / Sub-group list tabs, one generic
- * component instead of three near-identical ones (`CategoriesTab`,
- * `GroupsTab`, `SubgroupsTab` in the old `ItemCatalog.tsx`). Also holds the
- * taxonomy CRUD dialogs: `TaxonomyAddForm` (the inline add-panel used from
- * inside `CatalogDialog`), `AddTaxonomyDialog` (the standalone modal the tab's
- * own "Add" button opens) and `TaxonomyDeleteDialog` (cascade delete).
+ * TaxonomyTab — the taxonomy CRUD dialogs: `TaxonomyAddForm` (the inline
+ * add-panel used from inside `CatalogDialog`), `AddTaxonomyDialog` (the
+ * standalone modal the tree's "Add" buttons open) and `TaxonomyDeleteDialog`
+ * (cascade delete with the server's in-use check). The tree itself lives in
+ * `TaxonomyTree.tsx`; the old per-level list component is gone.
  */
 import { useEffect, useMemo, useState } from 'react';
 import {
   Alert, Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle,
-  Divider, IconButton, MenuItem, Select, Table, TableBody, TableRow, TextField, Tooltip, Typography,
+  Divider, MenuItem, Select, Table, TableBody, TableRow, TextField, Typography,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
-import DeleteIcon from '@mui/icons-material/Delete';
 
 import { fabMutate } from '../../api/client';
 import { blankRow, commitFieldRows, useFieldVocabulary, unitsByDimension, type FieldRowDraft } from '../../api/fields';
 import { deleteTaxonomy } from '../../api/catalog';
 import type { FabItemCategory, FabItemGroup, FabItemSubgroup } from '../../types';
-import { EmptyState, EntityList, EntityRow, Mono, StatusBadge, FieldRowCells, FieldTableHead } from '../../components';
+import { FieldRowCells, FieldTableHead } from '../../components';
 import { DialogCloseButton } from '../../components/FormDialog';
 import { errMsg, useFieldDefs } from './shared';
 
@@ -118,11 +116,14 @@ function autoCodeLocal(name: string): string {
 
 // ── AddTaxonomyDialog (standalone modal for tab Add buttons) ──────────────────
 
-export function AddTaxonomyDialog({ open, level, categories, groups, onClose, onCreated }: {
+export function AddTaxonomyDialog({ open, level, categories, groups, defaultCategoryId, defaultGroupId, onClose, onCreated }: {
   open: boolean;
   level: TaxonomyLevel;
   categories: FabItemCategory[];
   groups: FabItemGroup[];
+  /** Pre-selected parents when opened from a "+ group" / "+ sub-group" on the tree. */
+  defaultCategoryId?: number | null;
+  defaultGroupId?: number | null;
   onClose: () => void;
   onCreated: () => Promise<void>;
 }) {
@@ -142,9 +143,9 @@ export function AddTaxonomyDialog({ open, level, categories, groups, onClose, on
   useEffect(() => {
     if (!open) return;
     setName(''); setCode(''); setDescription(''); setShortform('');
-    setCategoryId(''); setGroupId('');
+    setCategoryId(defaultCategoryId ?? ''); setGroupId(defaultGroupId ?? '');
     setCustomFields([]); setErr('');
-  }, [open]);
+  }, [open, defaultCategoryId, defaultGroupId]);
 
   useEffect(() => { setCode(autoCodeLocal(name)); }, [name]);
 
@@ -381,109 +382,3 @@ function taxonomyInUseMessage(e: unknown): string {
   return errMsg(e);
 }
 
-// ── TaxonomyTab (the Category / Group / Sub-group list, one component) ───────
-
-export function TaxonomyTab({
-  level, categories, groups, subgroups, onRowClick, onAddClick, onDeleteClick, canEdit,
-}: {
-  level: TaxonomyLevel;
-  categories: FabItemCategory[];
-  groups: FabItemGroup[];
-  subgroups: FabItemSubgroup[];
-  onRowClick: (entity: TaxonomyEntity) => void;
-  onAddClick: () => void;
-  onDeleteClick: (entity: TaxonomyEntity) => void;
-  canEdit: boolean;
-}) {
-  const [filterCatId, setFilterCatId] = useState<number | ''>('');
-  const [filterGrpId, setFilterGrpId] = useState<number | ''>('');
-
-  const visibleGroups = useMemo(
-    () => groups.filter((g) => !filterCatId || g.categoryId === filterCatId),
-    [groups, filterCatId],
-  );
-
-  const rows: TaxonomyEntity[] = useMemo(() => {
-    if (level === 'category') return categories;
-    if (level === 'group') return groups.filter((g) => !filterCatId || g.categoryId === filterCatId);
-    return subgroups.filter((s) => {
-      if (filterGrpId) return s.groupId === filterGrpId;
-      if (!filterCatId) return true;
-      const parent = groups.find((g) => g.id === s.groupId);
-      return parent?.categoryId === filterCatId;
-    });
-  }, [level, categories, groups, subgroups, filterCatId, filterGrpId]);
-
-  const addLabel = level === 'category' ? 'Add category' : level === 'group' ? 'Add group' : 'Add sub-group';
-  const emptyLabel = level === 'category' ? 'No categories yet' : level === 'group' ? 'No groups found' : 'No sub-groups found';
-
-  function rowMeta(e: TaxonomyEntity) {
-    if (level === 'category') {
-      const c = e as FabItemCategory;
-      return { secondary: [c.description, c.shortform ? `Shortform: ${c.shortform}` : undefined] };
-    }
-    if (level === 'group') {
-      const g = e as FabItemGroup;
-      return { secondary: [g.categoryName, g.description, g.shortform ? `Shortform: ${g.shortform}` : undefined] };
-    }
-    const s = e as FabItemSubgroup;
-    const grp = groups.find((g) => g.id === s.groupId);
-    const cat = grp ? categories.find((c) => c.id === grp.categoryId) : undefined;
-    return { secondary: [cat?.name, s.groupName ?? grp?.name, s.description, s.shortform ? `Shortform: ${s.shortform}` : undefined] };
-  }
-
-  return (
-    <Box>
-      {level !== 'category' && (
-        <Box sx={{ display: 'flex', gap: 2, mb: 2, alignItems: 'flex-end', justifyContent: 'space-between', flexWrap: 'wrap' }}>
-          <Box sx={{ display: 'flex', gap: 2 }}>
-            <Box sx={{ width: 220 }}>
-              <Typography variant="caption" sx={{ color: 'var(--c-text-3)' }}>Filter by category</Typography>
-              <Select fullWidth size="small" displayEmpty value={filterCatId}
-                onChange={(e) => { setFilterCatId(e.target.value as number | ''); setFilterGrpId(''); }}>
-                <MenuItem value="">All categories</MenuItem>
-                {categories.map((c) => <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>)}
-              </Select>
-            </Box>
-            {level === 'subgroup' && (
-              <Box sx={{ width: 220 }}>
-                <Typography variant="caption" sx={{ color: 'var(--c-text-3)' }}>Filter by group</Typography>
-                <Select fullWidth size="small" displayEmpty value={filterGrpId}
-                  onChange={(e) => setFilterGrpId(e.target.value as number | '')}>
-                  <MenuItem value="">All groups</MenuItem>
-                  {visibleGroups.map((g) => <MenuItem key={g.id} value={g.id}>{g.name}</MenuItem>)}
-                </Select>
-              </Box>
-            )}
-          </Box>
-          {canEdit && <Button variant="outlined" startIcon={<AddIcon />} onClick={onAddClick}>{addLabel}</Button>}
-        </Box>
-      )}
-      {level === 'category' && canEdit && (
-        <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 2 }}>
-          <Button variant="outlined" startIcon={<AddIcon />} onClick={onAddClick}>{addLabel}</Button>
-        </Box>
-      )}
-
-      {rows.length === 0 ? (
-        <EmptyState title={emptyLabel} />
-      ) : (
-        <EntityList>
-          {rows.map((e) => (
-            <EntityRow
-              key={e.id}
-              code={<Mono chip>{e.code}</Mono>}
-              primary={e.name}
-              secondary={rowMeta(e).secondary.filter(Boolean).join(' · ') || undefined}
-              trailing={e.isSystem === 1 ? <StatusBadge status="System" family="info" /> : undefined}
-              onClick={() => onRowClick(e)}
-              actions={canEdit && e.isSystem === 0 ? (
-                <Tooltip title="Delete"><IconButton size="small" color="error" onClick={() => onDeleteClick(e)}><DeleteIcon fontSize="small" /></IconButton></Tooltip>
-              ) : undefined}
-            />
-          ))}
-        </EntityList>
-      )}
-    </Box>
-  );
-}

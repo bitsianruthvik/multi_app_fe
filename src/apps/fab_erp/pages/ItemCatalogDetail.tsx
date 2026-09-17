@@ -1,14 +1,34 @@
+/**
+ * ItemCatalogDetail — one catalog item, laid out around what people ask
+ * about it, top to bottom:
+ *
+ *   header      name · code · category › group › sub-group · make/buy ·
+ *               "25 × 1500 × 9000 · MS E350 BO · 2,650 kg"
+ *   Item        the editable record (behind an "Edit" toggle)
+ *   Where used  BOMs it appears in, orders whose structure references it
+ *   Stock       on hand / reserved / available + the pieces themselves
+ *   Buying      lead time, MRP policy, procurement type + recent PO lines
+ *   Fields      inherited + item-level custom fields
+ *
+ * The three read sections come from `routes/catalogDetail.js`. Saving is
+ * still ONE button for the whole page (item record + custom fields).
+ */
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { Link as RouterLink, useNavigate, useParams } from 'react-router-dom';
 import {
-  Alert, Autocomplete, Box, Button, CircularProgress, Divider, MenuItem, Table, TableBody, TableRow,
-  TextField, Typography,
+  Alert, Autocomplete, Box, Button, CircularProgress, Divider, Link, MenuItem, Table, TableBody,
+  TableCell, TableHead, TableRow, TextField, Typography,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
+import EditIcon from '@mui/icons-material/Edit';
 import SaveIcon from '@mui/icons-material/Save';
 
 import { fabQuery, fabMutate } from '../api/client';
+import {
+  getItemPurchases, getItemStock, getItemWhereUsed,
+  type ItemPurchasesResponse, type ItemStockResponse, type WhereUsedResponse,
+} from '../api/catalogDetail';
 import { useDetailTitle } from '../components/nav/detailTitleContext';
 import type { FabItemCatalog, FabItemCategory, FabItemGroup, FabItemSubgroup } from '../types';
 import { usePermission } from '@core/hooks/usePermission';
@@ -16,11 +36,12 @@ import { useAuth } from '@core/contexts/AuthContext';
 import { isAdminRole } from '@core/utils/roles';
 import ItemBomDesigner from '../components/ItemBomDesigner';
 import {
-  SectionCard, StickyActionBar, Surface, DetailLayout, Mono, useToast, DetailSkeleton,
-  FieldRowCells, FieldTableHead, InheritedFieldsTable, TaxonomyPicker, type InheritedFieldRow,
+  SectionCard, StickyActionBar, Surface, DetailLayout, Mono, StatusBadge, EmptyState, DateCell, QtyCell,
+  useToast, DetailSkeleton, FieldRowCells, FieldTableHead, InheritedFieldsTable, TaxonomyPicker,
+  type InheritedFieldRow,
 } from '../components';
 import { STANDARD_UOMS } from '../constants/uom';
-import { PROCUREMENT_TYPES, MRP_POLICIES } from './ItemCatalog/shared';
+import { PROCUREMENT_TYPES, MRP_POLICIES, TH, TD } from './ItemCatalog/shared';
 import {
   blankRow, commitFieldRows, getFieldValues,
   listFieldDefs, rowFromDef, rowsDiffer, unitsByDimension, useFieldVocabulary,
@@ -52,10 +73,6 @@ function ancestorScopeOf(it: FabItemCatalog | null): { scope: FieldScope; scopeI
  * the old <TextField> away and mounted a fresh one after each keystroke, and
  * the caret went with it. Typing a name meant clicking back into the box for
  * every letter.
- *
- * The cost of hoisting is that draft/set/canManage have to be passed in. That
- * is the correct trade: they are what the field actually depends on, and saying
- * so out loud is what keeps the component stable between renders.
  */
 function Field({
   label, k, type = 'text', suffix, readOnly = false, help,
@@ -100,31 +117,75 @@ function Field({
   );
 }
 
+/** "25 × 1500 × 9000 · MS E350 BO · 2,650 kg" from the resolved field values; "—" for what the item does not state. */
+function identityLine(values: Record<string, ResolvedValue>): { dims: string; material: string; weight: string } {
+  const num = (k: string) => {
+    const v = values[k]?.value;
+    if (v == null || v === '') return null;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  };
+  const text = (k: string) => {
+    const v = values[k]?.value;
+    return v == null || v === '' ? null : String(v);
+  };
+  const fmt = (n: number | null) => (n == null ? '—' : n.toLocaleString(undefined, { maximumFractionDigits: 3 }));
+  const dims = [num('thickness_mm'), num('width_mm'), num('length_mm')].map(fmt).join(' × ');
+  const material = [text('material'), text('grade')].filter(Boolean).join(' ') || '—';
+  const w = num('unit_weight_kg');
+  const weight = w == null ? '—' : `${w.toLocaleString(undefined, { maximumFractionDigits: w < 10 ? 2 : 0 })} kg`;
+  return { dims, material, weight };
+}
+
+const SUBHEAD = { fontSize: 11, fontWeight: 600, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--c-text-3)', mb: 1.5 } as const;
+
+function DirtyMarker({ saving, label = 'Unsaved changes' }: { saving?: boolean; label?: string }) {
+  return (
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, color: 'var(--c-warning-600)' }}>
+      {saving
+        ? <CircularProgress size={13} color="inherit" />
+        : <Box aria-hidden sx={{ width: 7, height: 7, borderRadius: '50%', bgcolor: 'var(--c-warning-600)' }} />}
+      <Typography sx={{ fontSize: 12, fontWeight: 600 }}>{saving ? 'Saving…' : label}</Typography>
+    </Box>
+  );
+}
+
+/** A section's loading / error / content switch, so each read section reads the same. */
+function Loaded<T>({ state, children }: { state: { loading: boolean; error: string; data: T | null }; children: (d: T) => React.ReactNode }) {
+  if (state.loading) return <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}><CircularProgress size={20} /></Box>;
+  if (state.error) return <Alert severity="warning">{state.error}</Alert>;
+  if (!state.data) return null;
+  return <>{children(state.data)}</>;
+}
+
+type Fetch<T> = { loading: boolean; error: string; data: T | null };
+function useFetch<T>(fn: (id: number) => Promise<T>, id: number): Fetch<T> {
+  const [state, setState] = useState<Fetch<T>>({ loading: true, error: '', data: null });
+  useEffect(() => {
+    let alive = true;
+    setState({ loading: true, error: '', data: null });
+    fn(id)
+      .then((data) => { if (alive) setState({ loading: false, error: '', data }); })
+      .catch((e: { response?: { data?: { message?: string } }; message?: string }) => {
+        if (alive) setState({ loading: false, error: e.response?.data?.message ?? e.message ?? 'Could not load.', data: null });
+      });
+    return () => { alive = false; };
+  }, [fn, id]);
+  return state;
+}
+
+const PROCUREMENT_LABEL: Record<string, string> = { buy: 'Buy', make: 'Make', free_issue: 'Free issue' };
+const PROCUREMENT_FAMILY: Record<string, 'info' | 'success' | 'neutral'> = { buy: 'info', make: 'success', free_issue: 'neutral' };
+
 export default function ItemCatalogDetail() {
   const { company, itemId } = useParams<{ company: string; itemId: string }>();
   const navigate = useNavigate();
   const { user } = useAuth();
   /**
-   * ONE TAG FOR THE WHOLE PAGE, and it is the one the server enforces.
-   *
-   * This used to gate editing on `fab_erp_items_meta_VIEW` while every write it
-   * makes needs `..._MANAGE`, so the three things on this screen answered to
-   * three different permissions:
-   *
-   *   the item record   fabErpItemCatalog -> fab_erp_items_meta_manage
-   *   its custom fields POST /fields/values -> fab_erp_items_meta_manage
-   *   its BOM           POST /item-bom -> fab_erp_PROJECTS_manage (!)
-   *
-   * The results were role-dependent and equally confusing either way. An
-   * `engineer` (view + manage, no projects) got an editable BOM designer that
-   * 403'd on save; a `pm` (projects only) could not rename an item at all;
-   * `stores` (view only) got editable fields that would not save.
-   *
-   * Now the page, the field section and the BOM route all require
-   * `fab_erp_items_meta_manage`, with the same admin bypass the rest of fab_erp
-   * has. Editing an item's BOM is editing the item — it is not order work, and
-   * gating it on a projects tag was the mismatch that made the tab read-only
-   * for the people whose job it is.
+   * ONE TAG FOR THE WHOLE PAGE, and it is the one the server enforces: the
+   * item record, its custom fields and its BOM all require
+   * `fab_erp_items_meta_manage`, with the same admin bypass the rest of
+   * fab_erp has.
    */
   const canManage = usePermission('fab_erp_items_meta_manage') || isAdminRole(user?.role);
   const canManageFields = canManage;
@@ -138,21 +199,18 @@ export default function ItemCatalogDetail() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [tab, setTab] = useState(0);
+  const [editing, setEditing] = useState(false);
 
   const [draft, setDraft] = useState<Partial<FabItemCatalog>>({});
   function set<K extends keyof FabItemCatalog>(k: K, v: FabItemCatalog[K]) {
     setDraft((d) => ({ ...d, [k]: v }));
   }
   /**
-   * FIELDS COME FROM THE REGISTRY NOW, NOT `fab_custom_fields`.
-   *
-   * `defs` is `fab_fields` (the definitions — type, unit, options, and the id a
-   * write needs). `itemValues` is what `GET /fields/values` resolves for THIS
-   * item, walking sub-group → group → category, so an item-level override is
-   * already applied. `ancestorValues` is the same call against the item's
-   * narrowest taxonomy node — i.e. the inherited value BEFORE this item has its
-   * say — which is what lets the inherited table show the taxonomy default and
-   * the effective value side by side instead of labelling one as the other.
+   * `defs` is `fab_fields` (the definitions). `itemValues` is what
+   * `GET /fields/values` resolves for THIS item, walking sub-group → group →
+   * category, so an item-level override is already applied. `ancestorValues`
+   * is the same call against the item's narrowest taxonomy node — the
+   * inherited value BEFORE this item has its say.
    */
   const [defs, setDefs] = useState<FieldDefRow[]>([]);
   const [itemValues, setItemValues] = useState<Record<string, ResolvedValue>>({});
@@ -172,6 +230,10 @@ export default function ItemCatalogDetail() {
   const [subgroups, setSubgroups] = useState<FabItemSubgroup[]>([]);
   const [categoryError, setCategoryError] = useState('');
 
+  const whereUsed = useFetch<WhereUsedResponse>(getItemWhereUsed, id);
+  const stock = useFetch<ItemStockResponse>(getItemStock, id);
+  const purchases = useFetch<ItemPurchasesResponse>(getItemPurchases, id);
+
   function onTaxonomyChange(next: { categoryId: number | null; groupId: number | null; subgroupId: number | null }) {
     setCategoryError('');
     setDraft((d) => ({ ...d, ...next }));
@@ -183,9 +245,7 @@ export default function ItemCatalogDetail() {
       const itemRes = await fabQuery<{ data: FabItemCatalog[] }>('fabErpItemCatalog', { filters: { id }, pagination: { limit: 1 } });
       const it = itemRes.data?.[0] ?? null;
       setItem(it);
-      if (it) {
-        setDraft({ ...it });
-      }
+      if (it) setDraft({ ...it });
 
       const [catRes, grpRes, subRes] = await Promise.all([
         fabQuery<{ data: FabItemCategory[] }>('fabErpItemCategory', { orderBy: [{ field: 'name', direction: 'asc' }], pagination: { limit: 1000 } }),
@@ -196,16 +256,8 @@ export default function ItemCatalogDetail() {
       setGroups(grpRes.data ?? []);
       setSubgroups(subRes.data ?? []);
 
-      /**
-       * ONE resolve for the item, ONE for its taxonomy.
-       *
-       * The old code fired a query per ancestor level against
-       * `fab_custom_fields` and merged them here — reimplementing the ladder in
-       * the browser, where it could (and did) disagree with the server's. The
-       * server walks the same chain for both calls, so the two agree by
-       * construction, and a NULL group or sub-group is simply a shorter walk
-       * rather than a case this code has to know about.
-       */
+      // ONE resolve for the item, ONE for its taxonomy — the server walks the
+      // same ladder for both, so the two agree by construction.
       const defRes = await listFieldDefs();
       const allDefs = defRes.data ?? [];
       setDefs(allDefs);
@@ -236,23 +288,14 @@ export default function ItemCatalogDetail() {
   useEffect(() => { fetchAll(); }, [fetchAll]);
 
   /**
-   * ONE honest save for the whole Item Details tab.
-   *
-   * The tab writes to two different places — the item record and its custom
-   * fields — and used to expose a button for each ("Save item" in the card
-   * header, "Save fields" buried further down). Overriding an inherited field
-   * and then pressing the visually-primary "Save item" fired exactly one
-   * request, toasted success, and silently dropped the field edit on the next
-   * reload. Splitting one mental action ("save this item") across two buttons
-   * IS the bug; no amount of relabelling fixes it. So there is now a single
-   * save that awaits both writes and only reports success once both landed.
+   * ONE honest save for the whole page: the item record and its custom
+   * fields, awaited together, success reported only once both landed.
    */
   async function saveAll() {
     if (!item) return;
     if (!draft.categoryId) {
       setCategoryError('Category is required.');
-      // Loud, never silent: nothing was written and nothing was discarded —
-      // configDraft still holds the pending field edits.
+      setEditing(true);
       setError('Nothing was saved — Category is required. Your changes are still on screen.');
       return;
     }
@@ -272,21 +315,9 @@ export default function ItemCatalogDetail() {
         hsn_code: draft.hsnCode ?? null,
       });
 
-      /**
-       * Field flush — definitions first, then ONE validated value write.
-       *
-       * Both halves are new. The old flush wrote `fab_custom_fields` rows
-       * through the generic /mutate path, which stored a key and a string and
-       * validated neither, so `VERIFY-Z600` sat happily in a "number" field.
-       * Now each row's DEFINITION is created or updated in `fab_fields` (type,
-       * unit, options), and the values go through `POST /fields/values`, which
-       * refuses a non-number in a number field and an out-of-list option — and
-       * says which key it refused and why, below.
-       *
-       * Run unconditionally rather than behind a dirty check, because a false
-       * negative in change detection would reintroduce precisely the silent
-       * data loss this function exists to remove.
-       */
+      // Field flush — definitions first, then ONE validated value write. Run
+      // unconditionally rather than behind a dirty check: a false negative in
+      // change detection would be silent data loss.
       setConfigSaving(true);
       const { wrote: wroteFields, rejection } = await commitFieldRows({
         scope: 'catalog_item', scopeId: id,
@@ -294,17 +325,12 @@ export default function ItemCatalogDetail() {
         defs, units: vocab.units, defScope: defScopeForItem(),
       });
 
-      // One toast and one refetch for the whole operation, never two. A
-      // rejection is NOT a success — it is shown instead of the toast, because
-      // a refused value that toasts "saved" is the bug that started all this.
-      // Set after the refetch, which clears `error` on the way in.
       if (!rejection) toast(wroteFields ? 'Item and custom fields saved' : 'Item saved');
       await fetchAll();
       setRejected(rejection ?? '');
     } catch (e) {
-      // Deliberately no fetchAll() here: on a mid-sequence failure the draft
-      // keeps the user's edits rather than being overwritten by a
-      // partially-written server state, and no success is reported.
+      // No fetchAll() here: on a mid-sequence failure the draft keeps the
+      // user's edits rather than being overwritten by partial server state.
       const ax = e as { response?: { data?: { error?: string } }; message?: string };
       setError(ax.response?.data?.error ?? ax.message ?? 'Save failed');
     } finally { setSaving(false); setConfigSaving(false); }
@@ -318,18 +344,9 @@ export default function ItemCatalogDetail() {
   }), [draft.categoryId, draft.groupId, draft.subgroupId, item]);
 
   /**
-   * What this item inherits, and what it will actually use.
-   *
-   * `taxonomy` is the value resolved at the item's narrowest taxonomy node —
-   * the number the item gets if it says nothing. `effective` is the value
-   * resolved AT THE ITEM, so an override is already applied. Keeping both is
-   * the whole fix for the column that was headed "effective default" and showed
-   * the pre-override figure: 350 is the taxonomy default, 410 is what the
-   * system will use, and the table now says which is which.
-   *
-   * Registry-wide defaults (`from.scope === 'default'`) are excluded: they are
-   * not taxonomy, so calling them inherited would be a third meaning for the
-   * word on one screen.
+   * What this item inherits (`taxonomy` = resolved at its narrowest node) and
+   * what it will actually use (`effective` = resolved AT the item). Registry
+   * -wide defaults are excluded: they are not taxonomy.
    */
   const mergedInherited: InheritedFieldRow[] = useMemo(() => {
     return Object.entries(ancestorValues)
@@ -358,27 +375,27 @@ export default function ItemCatalogDetail() {
     setConfigDraft((d) => [...d, row]);
   }
 
-  // Which half of the tab has unsaved edits. Used ONLY to render the
-  // "unsaved changes" markers — saveAll never consults these, so a wrong
-  // answer here can mislabel a badge but can never skip a write.
+  // Which parts of the page have unsaved edits. Used ONLY for the markers —
+  // saveAll never consults these, so a wrong answer can never skip a write.
+  const norm = (v: unknown) => (v === null || v === undefined || v === '' ? '' : String(v));
   const itemDirty = useMemo(() => {
     if (!item) return false;
-    const norm = (v: unknown) => (v === null || v === undefined || v === '' ? '' : String(v));
     const pairs: [unknown, unknown][] = [
-      [draft.name, item.name],
-      [draft.unit, item.unit],
-      [draft.description, item.description],
-      [draft.procurementType ?? 'buy', item.procurementType ?? 'buy'],
-      [draft.leadTimeDays, item.leadTimeDays],
-      [draft.mrpPolicy ?? 'manual', item.mrpPolicy ?? 'manual'],
-      [draft.categoryId, item.categoryId],
-      [draft.groupId, item.groupId],
-      [draft.subgroupId, item.subgroupId],
+      [draft.name, item.name], [draft.unit, item.unit], [draft.description, item.description],
+      [draft.categoryId, item.categoryId], [draft.groupId, item.groupId], [draft.subgroupId, item.subgroupId],
       [draft.hsnCode, item.hsnCode],
     ];
     return pairs.some(([a, b]) => norm(a) !== norm(b));
   }, [draft, item]);
-
+  const buyingDirty = useMemo(() => {
+    if (!item) return false;
+    const pairs: [unknown, unknown][] = [
+      [draft.procurementType ?? 'buy', item.procurementType ?? 'buy'],
+      [draft.leadTimeDays, item.leadTimeDays],
+      [draft.mrpPolicy ?? 'manual', item.mrpPolicy ?? 'manual'],
+    ];
+    return pairs.some(([a, b]) => norm(a) !== norm(b));
+  }, [draft, item]);
   const fieldsDirty = useMemo(() => {
     if (configDraft.length !== configs.length) return true;
     return configDraft.some((d) => {
@@ -387,179 +404,359 @@ export default function ItemCatalogDetail() {
     });
   }, [configs, configDraft]);
 
+  const identity = useMemo(() => identityLine(itemValues), [itemValues]);
 
   if (loading) return <DetailSkeleton />;
   if (!item) return <Box><Alert severity="error">Item not found.</Alert></Box>;
 
-  const dirtyMessage = itemDirty && fieldsDirty ? 'Unsaved changes in Item and Custom fields'
-    : itemDirty ? 'Unsaved changes in Item'
-    : fieldsDirty ? 'Unsaved changes in Custom fields'
-    : 'No unsaved changes';
+  const dirtyParts = [itemDirty && 'Item', buyingDirty && 'Buying', fieldsDirty && 'Fields'].filter(Boolean) as string[];
+  const dirtyMessage = dirtyParts.length ? `Unsaved changes in ${dirtyParts.join(', ')}` : 'No unsaved changes';
+  const anyDirty = dirtyParts.length > 0;
+
+  const procurement = item.procurementType ?? 'buy';
+  const crumbs = [item.categoryName, item.groupName, item.subgroupName].filter(Boolean) as string[];
+  const itemLink = (itemId2: number) => `/${company}/fab_erp/item-catalog/${itemId2}`;
+  const orderLink = (orderId: number) => `/${company}/fab_erp/orders/${orderId}`;
 
   return (
     <DetailLayout
       header={
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-          <Button startIcon={<ArrowBackIcon />} onClick={() => navigate(`/${company}/fab_erp/item-catalog`)}>Item Catalog</Button>
-          <Box sx={{ flex: 1 }}>
-            <Typography sx={{ fontSize: 17, fontWeight: 600, color: 'var(--c-text)' }}>
-              {item.name} <Mono chip sx={{ ml: 0.5 }}>{item.code}</Mono>
+        <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.5 }}>
+          <Button startIcon={<ArrowBackIcon />} onClick={() => navigate(`/${company}/fab_erp/item-catalog`)} sx={{ mt: 0.25 }}>Items</Button>
+          <Box sx={{ flex: 1, minWidth: 0 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+              <Typography sx={{ fontSize: 18, fontWeight: 600, color: 'var(--c-text)' }}>{item.name}</Typography>
+              <Mono chip>{item.code}</Mono>
+              <StatusBadge status={PROCUREMENT_LABEL[procurement] ?? procurement} family={PROCUREMENT_FAMILY[procurement] ?? 'neutral'} />
+            </Box>
+            <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)', mt: 0.5 }}>
+              {crumbs.length ? crumbs.join(' › ') : 'No category'}
             </Typography>
+            {/* The identity line: what it is, in one glance, without scrolling. */}
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 1, flexWrap: 'wrap' }}>
+              <Mono sx={{ fontSize: 14, color: 'var(--c-text)' }}>{identity.dims}</Mono>
+              <Typography component="span" sx={{ color: 'var(--c-text-3)' }}>·</Typography>
+              <Typography component="span" sx={{ fontSize: 14, color: 'var(--c-text)' }}>{identity.material}</Typography>
+              <Typography component="span" sx={{ color: 'var(--c-text-3)' }}>·</Typography>
+              <Mono sx={{ fontSize: 14, color: 'var(--c-text)' }}>{identity.weight}</Mono>
+              {item.unit && <Typography component="span" sx={{ fontSize: 12, color: 'var(--c-text-3)', ml: 0.5 }}>per {item.unit}</Typography>}
+            </Box>
+            {item.description && (
+              <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)', mt: 0.75 }}>{item.description}</Typography>
+            )}
           </Box>
+          {canManage && tab === 0 && (
+            <Button
+              variant={editing ? 'contained' : 'outlined'} size="small" startIcon={<EditIcon />}
+              onClick={() => setEditing((v) => !v)}
+            >
+              {editing ? 'Editing' : 'Edit'}
+            </Button>
+          )}
         </Box>
       }
-      tabs={[{ value: '0', label: 'Item Details' }, { value: '1', label: 'Bill of Materials' }]}
+      tabs={[{ value: '0', label: 'Overview' }, { value: '1', label: 'Bill of Materials' }]}
       active={String(tab)}
       onTab={(v) => setTab(Number(v))}
       maxWidth={1100}
     >
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
-      {/* Refusals from the field write. A warning, not an error: the item and
-          every other field did save — these specific values did not, and the
-          server says why for each one. */}
       {rejected && <Alert severity="warning" sx={{ mb: 2 }} onClose={() => setRejected('')}>{rejected}</Alert>}
 
-      {/* One card per concern, but only ONE save. This tab writes to two
-          endpoints (the item record and its custom fields) and previously put
-          a save button in each card header — which reads as "this button
-          saves this card" and so invited the user to press one and lose the
-          other card's work. Both writes now hang off the single button in the
-          StickyActionBar below, which stays in the viewport from either
-          section; the cards themselves only report whether they are dirty. */}
       {tab === 0 && (
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-        <SectionCard
-          title="Item"
-          subtitle="Identity, planning defaults and where it sits in the taxonomy"
-          action={canManage && itemDirty ? (
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, color: 'var(--c-warning-600)' }}>
-              <Box aria-hidden sx={{ width: 7, height: 7, borderRadius: '50%', bgcolor: 'var(--c-warning-600)' }} />
-              <Typography sx={{ fontSize: 12, fontWeight: 600 }}>Unsaved changes</Typography>
-            </Box>
-          ) : undefined}
-        >
-          <Typography sx={{ fontSize: 11, fontWeight: 600, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--c-text-3)', mb: 1.5 }}>General</Typography>
-          <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2, mb: 3 }}>
-            <Field label="Name" k="name" draft={draft} set={set} canManage={canManage} />
-            <Field label="Code" k="code" readOnly help="Generated — cannot be edited" draft={draft} set={set} canManage={canManage} />
-            <Autocomplete freeSolo fullWidth options={STANDARD_UOMS.map((u) => u.value)} disabled={!canManage}
-              value={(draft.unit as string | undefined) ?? ''}
-              onInputChange={(_, value) => set('unit', value as FabItemCatalog['unit'])}
-              renderInput={(params) => <TextField {...params} label="Unit" size="small" />} />
-            <Field label="Description" k="description" draft={draft} set={set} canManage={canManage} />
-          </Box>
-          <Divider sx={{ my: 2, borderColor: 'var(--c-divider)' }} />
-          <Typography sx={{ fontSize: 11, fontWeight: 600, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--c-text-3)', mb: 1.5 }}>MRP / Planning</Typography>
-          <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 2, mb: 3 }}>
-            <TextField select label="Procurement type" size="small" fullWidth disabled={!canManage} value={draft.procurementType ?? 'buy'} onChange={(e) => set('procurementType', e.target.value as FabItemCatalog['procurementType'])}>
-              {PROCUREMENT_TYPES.map((pt) => <MenuItem key={pt.value} value={pt.value}>{pt.label}</MenuItem>)}
-            </TextField>
-            <TextField label="Default lead time" size="small" fullWidth type="number" disabled={!canManage}
-              value={(draft.leadTimeDays as number | undefined) ?? ''}
-              onChange={(e) => set('leadTimeDays', (e.target.value === '' ? null : Number(e.target.value)) as FabItemCatalog['leadTimeDays'])}
-              slotProps={{ input: { endAdornment: <Typography variant="caption" sx={{ color: 'var(--c-text-3)' }}>days</Typography> } }} />
-            <TextField select label="MRP policy" size="small" fullWidth disabled={!canManage} value={draft.mrpPolicy ?? 'manual'} onChange={(e) => set('mrpPolicy', e.target.value as FabItemCatalog['mrpPolicy'])}>
-              {MRP_POLICIES.map((mp) => <MenuItem key={mp.value} value={mp.value}>{mp.label}</MenuItem>)}
-            </TextField>
-          </Box>
-          <Divider sx={{ my: 2, borderColor: 'var(--c-divider)' }} />
-          <Typography sx={{ fontSize: 11, fontWeight: 600, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--c-text-3)', mb: 1.5 }}>Classification</Typography>
-          <Box sx={{ mb: 3 }}>
-            <TaxonomyPicker
-              categories={categories} groups={groups} subgroups={subgroups}
-              value={{ categoryId: draft.categoryId ?? null, groupId: draft.groupId ?? null, subgroupId: draft.subgroupId ?? null }}
-              onChange={onTaxonomyChange}
-              disabled={!canManage} required categoryError={categoryError}
-              labels={{ category: 'Category', group: 'Group', subgroup: 'Sub-group' }}
-            />
-          </Box>
-          <Box sx={{ display: 'grid', gridTemplateColumns: '1fr', gap: 2 }}>
-            <Field label="HSN code" k="hsnCode" draft={draft} set={set} canManage={canManage} />
-          </Box>
-        </SectionCard>
 
-        <SectionCard
-          title="Custom fields"
-          subtitle="Item specs like weight, dimensions, barcode or material grade live here rather than as built-in columns"
-          action={canManageFields && (configSaving || fieldsDirty) ? (
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, color: 'var(--c-warning-600)' }}>
-              {configSaving
-                ? <CircularProgress size={13} color="inherit" />
-                : <Box aria-hidden sx={{ width: 7, height: 7, borderRadius: '50%', bgcolor: 'var(--c-warning-600)' }} />}
-              <Typography sx={{ fontSize: 12, fontWeight: 600 }}>{configSaving ? 'Saving…' : 'Unsaved changes'}</Typography>
-            </Box>
-          ) : undefined}
-        >
-          {mergedInherited.length > 0 && (
-            <Box sx={{ mb: 3 }}>
-              <InheritedFieldsTable
-                rows={mergedInherited} overrides={configDraft} canEdit={canManageFields} levelLabel="Item"
-                onOverride={overrideInherited}
-                onPatch={(rowId, patch) => setConfigDraft((d) => d.map((r) => (r.rowId === rowId ? { ...r, ...patch } : r)))}
-                onRemove={(rowId) => setConfigDraft((d) => d.filter((r) => r.rowId !== rowId))}
-              />
-              <Divider sx={{ mt: 2, borderColor: 'var(--c-divider)' }} />
-            </Box>
-          )}
-
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1.5 }}>
-            <Typography sx={{ fontSize: 11, fontWeight: 600, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--c-text-3)' }}>Item fields ({configDraft.length}/10)</Typography>
-            {canManageFields && <Button size="small" startIcon={<AddIcon />} disabled={configDraft.length >= 10} onClick={addConfigRow}>Add field</Button>}
-          </Box>
-          {!canManageFields && (
-            <Alert severity="info" sx={{ mb: 1.5 }}>
-              Fields are read-only for you — editing them needs the “Manage item fields” permission.
-            </Alert>
-          )}
-          {configDraft.length === 0 ? (
-            <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>No item-specific fields yet. Add up to 10.</Typography>
-          ) : (
-            <Table size="small">
-              <FieldTableHead valueLabel="Value" canEdit={canManageFields} />
-              <TableBody>
-                {configDraft.map((cfg) => (
-                  <TableRow key={cfg.rowId}>
-                    <FieldRowCells
-                      row={cfg} canEdit={canManageFields} unitGroups={unitGroups}
-                      onPatch={(p) => setConfigDraft((d) => d.map((r) => (r.rowId === cfg.rowId ? { ...r, ...p } : r)))}
-                      onRemove={() => setConfigDraft((d) => d.filter((r) => r.rowId !== cfg.rowId))}
-                    />
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        </SectionCard>
-
-        {/* The one and only save on this tab. Sticky so it is reachable from
-            the fields section without scrolling back up, and its message line
-            names which sections are pending before you click. */}
-        {canManage && (
-          <StickyActionBar message={dirtyMessage}>
-            <Button
-              variant="contained" size="small"
-              startIcon={saving ? <CircularProgress size={14} color="inherit" /> : <SaveIcon />}
-              disabled={saving} onClick={saveAll}
+          {/* ── Item (edit) ─────────────────────────────────────────────── */}
+          {(editing || itemDirty) && (
+            <SectionCard
+              title="Item"
+              subtitle="Name, unit, description and where it sits in the taxonomy"
+              action={canManage && itemDirty ? <DirtyMarker /> : undefined}
             >
-              {saving ? 'Saving…' : 'Save changes'}
-            </Button>
-          </StickyActionBar>
-        )}
+              <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2, mb: 3 }}>
+                <Field label="Name" k="name" draft={draft} set={set} canManage={canManage} />
+                <Field label="Code" k="code" readOnly help="Generated — cannot be edited" draft={draft} set={set} canManage={canManage} />
+                <Autocomplete freeSolo fullWidth options={STANDARD_UOMS.map((u) => u.value)} disabled={!canManage}
+                  value={(draft.unit as string | undefined) ?? ''}
+                  onInputChange={(_, value) => set('unit', value as FabItemCatalog['unit'])}
+                  renderInput={(params) => <TextField {...params} label="Unit" size="small" />} />
+                <Field label="Description" k="description" draft={draft} set={set} canManage={canManage} />
+              </Box>
+              <Divider sx={{ my: 2, borderColor: 'var(--c-divider)' }} />
+              <Typography sx={SUBHEAD}>Classification</Typography>
+              <Box sx={{ mb: 3 }}>
+                <TaxonomyPicker
+                  categories={categories} groups={groups} subgroups={subgroups}
+                  value={{ categoryId: draft.categoryId ?? null, groupId: draft.groupId ?? null, subgroupId: draft.subgroupId ?? null }}
+                  onChange={onTaxonomyChange}
+                  disabled={!canManage} required categoryError={categoryError}
+                  labels={{ category: 'Category', group: 'Group', subgroup: 'Sub-group' }}
+                />
+              </Box>
+              <Box sx={{ display: 'grid', gridTemplateColumns: '1fr', gap: 2 }}>
+                <Field label="HSN code" k="hsnCode" draft={draft} set={set} canManage={canManage} />
+              </Box>
+            </SectionCard>
+          )}
+
+          {/* ── Where it is used ────────────────────────────────────────── */}
+          <SectionCard title="Where it is used" subtitle="The BOMs this item is a part of, and the orders whose structure names it">
+            <Loaded state={whereUsed}>
+              {(d) => (
+                <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 3 }}>
+                  <Box>
+                    <Typography sx={SUBHEAD}>BOMs ({d.bomTotal})</Typography>
+                    {d.boms.length === 0 ? (
+                      <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>Not on any BOM yet.</Typography>
+                    ) : (
+                      <Table size="small">
+                        <TableHead><TableRow>
+                          <TableCell sx={TH}>Parent item</TableCell>
+                          <TableCell sx={TH} align="right">Qty</TableCell>
+                        </TableRow></TableHead>
+                        <TableBody>
+                          {d.boms.map((b) => (
+                            <TableRow key={b.bomId} hover>
+                              <TableCell sx={TD}>
+                                <Link component={RouterLink} to={itemLink(b.parentItemId)} underline="hover" sx={{ color: 'var(--c-text)', fontWeight: 500 }}>
+                                  {b.parentName}
+                                </Link>
+                                <Mono chip sx={{ ml: 1 }}>{b.parentCode}</Mono>
+                              </TableCell>
+                              <TableCell sx={TD} align="right">
+                                {b.qtyParam
+                                  ? <Mono>{b.qtyParam}{b.defaultQty != null ? ` (default ${b.defaultQty})` : ''}</Mono>
+                                  : <QtyCell value={b.qtyNum} />}
+                                {b.perInstanceQty && <Typography component="span" sx={{ fontSize: 11, color: 'var(--c-text-3)', ml: 0.5 }}>per instance</Typography>}
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    )}
+                    {d.bomTotal > d.boms.length && (
+                      <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)', mt: 1 }}>Showing the first {d.boms.length} of {d.bomTotal}.</Typography>
+                    )}
+                  </Box>
+                  <Box>
+                    <Typography sx={SUBHEAD}>Orders ({d.orderTotal})</Typography>
+                    {d.orders.length === 0 ? (
+                      <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>No order structure references it yet.</Typography>
+                    ) : (
+                      <Table size="small">
+                        <TableHead><TableRow>
+                          <TableCell sx={TH}>Order</TableCell>
+                          <TableCell sx={TH}>Status</TableCell>
+                          <TableCell sx={TH} align="right">Rows</TableCell>
+                        </TableRow></TableHead>
+                        <TableBody>
+                          {d.orders.map((o) => (
+                            <TableRow key={o.orderId} hover>
+                              <TableCell sx={TD}>
+                                <Link component={RouterLink} to={orderLink(o.orderId)} underline="hover" sx={{ color: 'var(--c-text)' }}>
+                                  <Mono>{o.orderNumber}</Mono>
+                                </Link>
+                                {o.customerName && <Typography component="span" sx={{ fontSize: 12, color: 'var(--c-text-3)', ml: 1 }}>{o.customerName}</Typography>}
+                                {o.orderType !== 'sales' && <Typography component="span" sx={{ fontSize: 11, color: 'var(--c-text-3)', ml: 1 }}>{o.orderType}</Typography>}
+                              </TableCell>
+                              <TableCell sx={TD}><StatusBadge status={o.status} /></TableCell>
+                              <TableCell sx={TD} align="right"><Mono tabular>{o.rowCount}</Mono></TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    )}
+                    {d.orderTotal > d.orders.length && (
+                      <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)', mt: 1 }}>Showing the first {d.orders.length} of {d.orderTotal}.</Typography>
+                    )}
+                  </Box>
+                </Box>
+              )}
+            </Loaded>
+          </SectionCard>
+
+          {/* ── Stock ───────────────────────────────────────────────────── */}
+          <SectionCard title="Stock" subtitle="Pieces on hand for this item — the same numbers the Buy step sees">
+            <Loaded state={stock}>
+              {(d) => (
+                <>
+                  <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 1.5, mb: 2 }}>
+                    {([
+                      ['On hand', d.onHand, 'var(--c-text)'],
+                      ['Reserved', d.reserved, d.reserved > 0 ? 'var(--c-warning-600)' : 'var(--c-text-3)'],
+                      ['Available', d.available, d.available > 0 ? 'var(--c-success-600)' : 'var(--c-text-3)'],
+                    ] as [string, number, string][]).map(([label, value, color]) => (
+                      <Surface key={label} e={0} sx={{ p: 1.5 }}>
+                        <Typography sx={{ ...SUBHEAD, mb: 0.5 }}>{label}</Typography>
+                        <Mono sx={{ fontSize: 20, fontWeight: 600, color }} tabular>
+                          {value.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                        </Mono>
+                        {item.unit && <Typography component="span" sx={{ fontSize: 12, color: 'var(--c-text-3)', ml: 0.5 }}>{item.unit}</Typography>}
+                      </Surface>
+                    ))}
+                  </Box>
+                  {d.pieces.length === 0 ? (
+                    <EmptyState title="Nothing in stock" hint="No pieces of this item are on hand. Received stock and offcuts will show here." />
+                  ) : (
+                    <Table size="small">
+                      <TableHead><TableRow>
+                        <TableCell sx={TH}>Piece</TableCell>
+                        <TableCell sx={TH} align="right">Qty</TableCell>
+                        <TableCell sx={TH}>Size</TableCell>
+                        <TableCell sx={TH}>Location</TableCell>
+                        <TableCell sx={TH}>Heat / batch</TableCell>
+                        <TableCell sx={TH}>Received</TableCell>
+                      </TableRow></TableHead>
+                      <TableBody>
+                        {d.pieces.map((p) => (
+                          <TableRow key={p.id} hover>
+                            <TableCell sx={TD}>
+                              <Mono chip>{p.code ?? p.serialNo ?? `#${p.id}`}</Mono>
+                              {p.isOffcut && <StatusBadge status="Offcut" family="warning" />}
+                            </TableCell>
+                            <TableCell sx={TD} align="right"><QtyCell value={p.qty} uom={p.uom} /></TableCell>
+                            <TableCell sx={TD}>
+                              {p.lengthMm != null || p.widthMm != null
+                                ? <Mono>{p.widthMm ?? '—'} × {p.lengthMm ?? '—'}</Mono>
+                                : <Typography component="span" sx={{ color: 'var(--c-text-3)' }}>—</Typography>}
+                            </TableCell>
+                            <TableCell sx={TD}>{[p.plantName, p.locationName].filter(Boolean).join(' / ') || '—'}</TableCell>
+                            <TableCell sx={TD}>{[p.heatNo && `Heat ${p.heatNo}`, p.batchNo && `Batch ${p.batchNo}`].filter(Boolean).join(' · ') || '—'}</TableCell>
+                            <TableCell sx={TD}><DateCell value={p.receivedDate} /></TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  )}
+                  {d.pieces.some((p) => p.isOffcut) && (
+                    <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)', mt: 1 }}>
+                      Offcuts are listed but not counted in the totals — they are matched by size when nesting, not as whole units.
+                    </Typography>
+                  )}
+                </>
+              )}
+            </Loaded>
+          </SectionCard>
+
+          {/* ── Buying ──────────────────────────────────────────────────── */}
+          <SectionCard
+            title="Buying"
+            subtitle="How this item is sourced and planned, and what has been ordered recently"
+            action={canManage && buyingDirty ? <DirtyMarker /> : undefined}
+          >
+            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr 1fr' }, gap: 2, mb: 3 }}>
+              <TextField select label="Procurement type" size="small" fullWidth disabled={!canManage} value={draft.procurementType ?? 'buy'} onChange={(e) => set('procurementType', e.target.value as FabItemCatalog['procurementType'])}>
+                {PROCUREMENT_TYPES.map((pt) => <MenuItem key={pt.value} value={pt.value}>{pt.label}</MenuItem>)}
+              </TextField>
+              <TextField label="Default lead time" size="small" fullWidth type="number" disabled={!canManage}
+                value={(draft.leadTimeDays as number | undefined) ?? ''}
+                onChange={(e) => set('leadTimeDays', (e.target.value === '' ? null : Number(e.target.value)) as FabItemCatalog['leadTimeDays'])}
+                slotProps={{ input: { endAdornment: <Typography variant="caption" sx={{ color: 'var(--c-text-3)' }}>days</Typography> } }} />
+              <TextField select label="MRP policy" size="small" fullWidth disabled={!canManage} value={draft.mrpPolicy ?? 'manual'} onChange={(e) => set('mrpPolicy', e.target.value as FabItemCatalog['mrpPolicy'])}>
+                {MRP_POLICIES.map((mp) => <MenuItem key={mp.value} value={mp.value}>{mp.label}</MenuItem>)}
+              </TextField>
+            </Box>
+            <Typography sx={SUBHEAD}>Recent purchase orders</Typography>
+            <Loaded state={purchases}>
+              {(d) => d.lines.length === 0 ? (
+                <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>Never bought yet.</Typography>
+              ) : (
+                <Table size="small">
+                  <TableHead><TableRow>
+                    <TableCell sx={TH}>PO</TableCell>
+                    <TableCell sx={TH}>Supplier</TableCell>
+                    <TableCell sx={TH}>Status</TableCell>
+                    <TableCell sx={TH} align="right">Ordered</TableCell>
+                    <TableCell sx={TH} align="right">Received</TableCell>
+                    <TableCell sx={TH}>Date</TableCell>
+                  </TableRow></TableHead>
+                  <TableBody>
+                    {d.lines.map((l) => (
+                      <TableRow key={l.lineId} hover>
+                        <TableCell sx={TD}>
+                          <Link component={RouterLink} to={orderLink(l.orderId)} underline="hover" sx={{ color: 'var(--c-text)' }}>
+                            <Mono>{l.orderNumber}</Mono>
+                          </Link>
+                        </TableCell>
+                        <TableCell sx={TD}>{l.supplierName ?? <Typography component="span" sx={{ color: 'var(--c-text-3)' }}>No supplier yet</Typography>}</TableCell>
+                        <TableCell sx={TD}><StatusBadge status={l.status} /></TableCell>
+                        <TableCell sx={TD} align="right"><QtyCell value={l.qty} uom={l.unit} /></TableCell>
+                        <TableCell sx={TD} align="right"><QtyCell value={l.qtyReceived} uom={l.unit} /></TableCell>
+                        <TableCell sx={TD}><DateCell value={l.expectedDate ?? l.orderedAt} /></TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </Loaded>
+          </SectionCard>
+
+          {/* ── Fields ──────────────────────────────────────────────────── */}
+          <SectionCard
+            title="Fields"
+            subtitle="Specs like size, grade or barcode — inherited from the taxonomy, overridable here"
+            action={canManageFields && (configSaving || fieldsDirty) ? <DirtyMarker saving={configSaving} /> : undefined}
+          >
+            {mergedInherited.length > 0 && (
+              <Box sx={{ mb: 3 }}>
+                <InheritedFieldsTable
+                  rows={mergedInherited} overrides={configDraft} canEdit={canManageFields} levelLabel="Item"
+                  onOverride={overrideInherited}
+                  onPatch={(rowId, patch) => setConfigDraft((d) => d.map((r) => (r.rowId === rowId ? { ...r, ...patch } : r)))}
+                  onRemove={(rowId) => setConfigDraft((d) => d.filter((r) => r.rowId !== rowId))}
+                />
+                <Divider sx={{ mt: 2, borderColor: 'var(--c-divider)' }} />
+              </Box>
+            )}
+
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1.5 }}>
+              <Typography sx={{ ...SUBHEAD, mb: 0 }}>Item fields ({configDraft.length}/10)</Typography>
+              {canManageFields && <Button size="small" startIcon={<AddIcon />} disabled={configDraft.length >= 10} onClick={addConfigRow}>Add field</Button>}
+            </Box>
+            {!canManageFields && (
+              <Alert severity="info" sx={{ mb: 1.5 }}>
+                Fields are read-only for you — editing them needs the “Manage item fields” permission.
+              </Alert>
+            )}
+            {configDraft.length === 0 ? (
+              <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>No item-specific fields yet. Add up to 10.</Typography>
+            ) : (
+              <Table size="small">
+                <FieldTableHead valueLabel="Value" canEdit={canManageFields} />
+                <TableBody>
+                  {configDraft.map((cfg) => (
+                    <TableRow key={cfg.rowId}>
+                      <FieldRowCells
+                        row={cfg} canEdit={canManageFields} unitGroups={unitGroups}
+                        onPatch={(p) => setConfigDraft((d) => d.map((r) => (r.rowId === cfg.rowId ? { ...r, ...p } : r)))}
+                        onRemove={() => setConfigDraft((d) => d.filter((r) => r.rowId !== cfg.rowId))}
+                      />
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </SectionCard>
+
+          {/* The one and only save on this page. Sticky, so it is reachable
+              from any section, and it names which sections are pending. */}
+          {canManage && (
+            <StickyActionBar message={dirtyMessage}>
+              <Button
+                variant="contained" size="small"
+                startIcon={saving ? <CircularProgress size={14} color="inherit" /> : <SaveIcon />}
+                disabled={saving || !anyDirty} onClick={saveAll}
+              >
+                {saving ? 'Saving…' : 'Save changes'}
+              </Button>
+            </StickyActionBar>
+          )}
         </Box>
       )}
 
       {tab === 1 && (
         <Surface e={1} sx={{ height: 600, display: 'flex', flexDirection: 'column', overflow: 'hidden', p: 0 }}>
-          {/*
-            * Repointed at fab_item_bom (2026-08-29).
-            *
-            * This rendered a designer over fab_material_boms — a table with zero
-            * rows in this company — while the real structure sat in fab_item_bom
-            * all along: Span contains Girder contains Segment contains seven
-            * parts, for all six girder types. So opening a Span and clicking
-            * Bill of Materials showed nothing, and the only way to see the BOM
-            * was to query the database. That designer has since been deleted.
-            */}
+          {/* fab_item_bom is the real structure (Span → Girder → Segment → parts). */}
           <ItemBomDesigner
             catalogItemId={id}
             catalogItemName={item.name}
