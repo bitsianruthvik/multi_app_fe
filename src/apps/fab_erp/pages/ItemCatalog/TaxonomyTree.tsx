@@ -5,8 +5,9 @@
  * "+ group" / "+ sub-group" add a child under that node; delete goes through
  * the existing confirm + in-use check.
  */
-import { useMemo, useState, type Dispatch, type SetStateAction } from 'react';
-import { Box, Button, IconButton, TextField, Tooltip, Typography } from '@mui/material';
+import { useEffect, useMemo, useState, type Dispatch, type SetStateAction } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
+import { Box, Button, CircularProgress, IconButton, TextField, Tooltip, Typography } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
@@ -14,6 +15,7 @@ import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 
 import type { FabItemCategory, FabItemGroup, FabItemSubgroup } from '../../types';
 import type { TaxonomyCounts } from '../../api/catalogDetail';
+import { listCatalogItems, type CatalogItemRow } from '../../api/catalog';
 import { EmptyState, Mono, StatusBadge } from '../../components';
 
 export type TaxonomyLevel = 'category' | 'group' | 'subgroup';
@@ -106,6 +108,90 @@ function TreeRow({
   );
 }
 
+const ITEMS_PAGE = 50;
+
+/** "25 × 1500 × 9000" from whichever dimensions the item has. */
+function sizeText(it: CatalogItemRow): string {
+  const dims = [it.sizes?.thicknessMm, it.sizes?.widthMm, it.sizes?.lengthMm]
+    .filter((v) => v !== null && v !== undefined && v !== '')
+    .map((v) => String(Number(v)));
+  return dims.join(' × ');
+}
+
+/**
+ * The items filed on one sub-group, fetched when the sub-group is opened —
+ * the tree holds only counts, and a raw-material sub-group can hold hundreds
+ * of plates, so nothing is loaded until someone asks. Pages of 50.
+ */
+function SubgroupItems({ subgroupId, depth }: { subgroupId: number; depth: number }) {
+  const navigate = useNavigate();
+  const { company } = useParams();
+  const [rows, setRows] = useState<CatalogItemRow[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState('');
+
+  useEffect(() => {
+    let live = true;
+    setLoading(true); setErr('');
+    listCatalogItems({ subgroupId, page, pageSize: ITEMS_PAGE, sort: 'name', dir: 'asc' })
+      .then((res) => {
+        if (!live) return;
+        setRows((prev) => (page === 1 ? res.rows : [...prev, ...res.rows]));
+        setTotal(res.total);
+      })
+      .catch(() => { if (live) setErr('Could not load the items.'); })
+      .finally(() => { if (live) setLoading(false); });
+    return () => { live = false; };
+  }, [subgroupId, page]);
+
+  const pl = 1 + depth * 3 + 4.5;
+  return (
+    <Box sx={{ background: 'var(--c-surface-2)' }}>
+      {rows.map((it) => {
+        const size = sizeText(it);
+        const spec = [it.sizes?.material, it.sizes?.grade].filter(Boolean).join(' ');
+        return (
+          <Box
+            key={it.id} role="button" tabIndex={0}
+            onClick={() => navigate(`/${company}/fab_erp/item-catalog/${it.id}`)}
+            onKeyDown={(e) => { if (e.key === 'Enter') navigate(`/${company}/fab_erp/item-catalog/${it.id}`); }}
+            sx={{
+              display: 'flex', alignItems: 'center', gap: 1, pl, pr: 1, py: 0.5, cursor: 'pointer',
+              borderBottom: '1px solid var(--c-divider)', '&:hover': { background: 'var(--c-surface-3, var(--c-divider))' },
+            }}
+          >
+            <Mono chip>{it.code}</Mono>
+            <Typography sx={{ fontSize: 13, color: 'var(--c-text)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {it.name}
+            </Typography>
+            <Box sx={{ flex: 1 }} />
+            {spec && <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)', whiteSpace: 'nowrap' }}>{spec}</Typography>}
+            {size && <Typography sx={{ fontSize: 12, color: 'var(--c-text-2)', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>{size}</Typography>}
+          </Box>
+        );
+      })}
+      {loading && (
+        <Box sx={{ pl, py: 0.75, borderBottom: '1px solid var(--c-divider)' }}><CircularProgress size={14} /></Box>
+      )}
+      {err && <Typography sx={{ pl, py: 0.75, fontSize: 12, color: 'var(--c-error-600, #c62828)' }}>{err}</Typography>}
+      {!loading && !err && rows.length === 0 && (
+        <Typography sx={{ pl, py: 0.75, fontSize: 12, color: 'var(--c-text-3)', borderBottom: '1px solid var(--c-divider)' }}>
+          No items in this sub-group.
+        </Typography>
+      )}
+      {!loading && rows.length < total && (
+        <Box sx={{ pl, py: 0.25, borderBottom: '1px solid var(--c-divider)' }}>
+          <Button size="small" onClick={() => setPage((p) => p + 1)} sx={{ fontSize: 12 }}>
+            Show {Math.min(ITEMS_PAGE, total - rows.length)} more ({total - rows.length} not shown)
+          </Button>
+        </Box>
+      )}
+    </Box>
+  );
+}
+
 type GroupRow = { grp: FabItemGroup; subs: FabItemSubgroup[] };
 type CatRow = { cat: FabItemCategory; groups: GroupRow[] };
 
@@ -124,6 +210,9 @@ export function TaxonomyTree({
   const [search, setSearch] = useState('');
   const [openCats, setOpenCats] = useState<Set<number>>(() => new Set());
   const [openGroups, setOpenGroups] = useState<Set<number>>(() => new Set());
+  // Not opened by "Expand all" or a search: each one is a fetch, and a raw
+  // material sub-group can hold hundreds of items.
+  const [openSubs, setOpenSubs] = useState<Set<number>>(() => new Set());
 
   const groupsByCat = useMemo(() => {
     const m = new Map<number, FabItemGroup[]>();
@@ -169,7 +258,7 @@ export function TaxonomyTree({
     setOpenCats(new Set(categories.map((c) => c.id)));
     setOpenGroups(new Set(groups.map((g) => g.id)));
   }
-  function collapseAll() { setOpenCats(new Set()); setOpenGroups(new Set()); }
+  function collapseAll() { setOpenCats(new Set()); setOpenGroups(new Set()); setOpenSubs(new Set()); }
 
   if (categories.length === 0) {
     return (
@@ -235,17 +324,20 @@ export function TaxonomyTree({
                   secondary={grp.description ?? undefined}
                 />
                 {isGrpOpen(grp.id) && subs.map((sub) => (
-                  <TreeRow
-                    key={sub.id}
-                    level="subgroup" entity={sub} depth={2}
-                    count={counts?.subgroups[String(sub.id)]}
-                    expandable={false} expanded={false}
-                    onToggle={() => undefined}
-                    onOpen={() => onNodeClick('subgroup', sub)}
-                    onDelete={() => onDeleteClick('subgroup', sub)}
-                    canEdit={canEdit}
-                    secondary={sub.description ?? undefined}
-                  />
+                  <Box key={sub.id}>
+                    <TreeRow
+                      level="subgroup" entity={sub} depth={2}
+                      count={counts?.subgroups[String(sub.id)]}
+                      expandable={(counts?.subgroups[String(sub.id)] ?? 0) > 0}
+                      expanded={openSubs.has(sub.id)}
+                      onToggle={() => toggle(setOpenSubs, sub.id)}
+                      onOpen={() => onNodeClick('subgroup', sub)}
+                      onDelete={() => onDeleteClick('subgroup', sub)}
+                      canEdit={canEdit}
+                      secondary={sub.description ?? undefined}
+                    />
+                    {openSubs.has(sub.id) && <SubgroupItems subgroupId={sub.id} depth={3} />}
+                  </Box>
                 ))}
                 {isGrpOpen(grp.id) && subs.length === 0 && !q && emptyLine(2, 'No sub-groups in this group.')}
               </Box>
