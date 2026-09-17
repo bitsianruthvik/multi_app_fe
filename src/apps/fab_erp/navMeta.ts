@@ -69,6 +69,9 @@ export const NAV_SECTIONS: NavSection[] = [
       // work on next is worse than either alone. Its keywords are inherited so
       // the palette still finds this by the old name.
       { slug: 'plan-board', label: 'Board', permission: 'fab_erp_planner_view', keywords: ['board', 'plan', 'planner', 'planning', 'schedule', 'gantt', 'dispatch', 'month', 'week', 'day', 'zoom', 'load', 'gaps', 'girder', 'group', 'timeline', 'utilisation', 'utilization', 'canvas', 'capacity', 'suggest', 'replan', 're-plan'] },
+      // Before the Board, not after it: what fits in the month and what limits
+      // it. Shares the planner permissions — it is the same job, one zoom out.
+      { slug: 'month', label: 'Month', permission: 'fab_erp_planner_view', keywords: ['month', 'monthly', 'output', 'tonnes', 'tonnage', 'capacity', 'fit', 'bottleneck', 'constraint', 'shift', 'machines', 'what if', 'this month', 'later', 'cutting', 'fabrication', 'commit', 'committed', 'promise'] },
       // The Board's mirror image: same window, same ladder, drawn from what
       // HAPPENED. Sits next to it deliberately — the pair is "what we intend"
       // and "what we did", and separating them across sections would hide that.

@@ -22,6 +22,7 @@ const Suppliers          = lazy(() => import('./pages/Suppliers'));
 const ProgressTemplates  = lazy(() => import('./pages/ProgressTemplates'));
 const TaskQueue          = lazy(() => import('./pages/TaskQueue'));
 const PlanBoard          = lazy(() => import('./pages/PlanBoard'));
+const MonthFit           = lazy(() => import('./pages/MonthFit'));
 const ActualsBoard       = lazy(() => import('./pages/ActualsBoard'));
 const ActualsReport      = lazy(() => import('./pages/ActualsReport'));
 const TaskEngine         = lazy(() => import('./pages/TaskEngine'));
@@ -71,6 +72,10 @@ export function getFabErpRoutes(
     // rather than quietly rendering something else that is not what the
     // bookmark meant.
     { path: '/:company/fab_erp/plan-board',                  element: wrap(<PlanBoard />) },
+    // The question BEFORE the Board's: not when each operation runs, but which
+    // orders — and which pieces of them — belong in the month at all, and which
+    // station is deciding that. One bucket per station, no sequencing.
+    { path: '/:company/fab_erp/month',                       element: wrap(<MonthFit />) },
     // The same window, drawn from what HAPPENED. Deliberately its own route
     // rather than a tab on the Plan Board: one is a proposal you can change and
     // the other is a record you cannot, and a tab strip implies they are the
