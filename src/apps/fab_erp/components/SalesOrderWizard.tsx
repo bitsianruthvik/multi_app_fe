@@ -263,7 +263,7 @@ export default function SalesOrderWizard({
       const plan = await getProductionPlan(orderId);
       const draftMOs = [plan.cutting.productionOrder, plan.fabrication.productionOrder]
         .filter((mo): mo is ProductionOrderRef => !!mo && mo.status === 'draft').length;
-      const unsentPOs = plan.buy.purchases.filter((p) => p.status === 'requested').length;
+      const unsentPOs = plan.buy.purchases.filter((p) => p.status === 'draft' || p.status === 'requested').length;
       /*
        * THE STEEL IS THE NESTED PLATE. Plate is bought by the SHEET ("12 nos of
        * 28 x 3100 x 12050"), so summing buy lines in kg found nothing and the
@@ -491,7 +491,7 @@ export default function SalesOrderWizard({
               ? `${summary?.draftMOs} production order${summary?.draftMOs === 1 ? ' stays' : 's stay'} draft until you deploy ${summary?.draftMOs === 1 ? 'it' : 'them'}`
               : 'Its production orders are already deployed'}
             {(summary?.unsentPOs ?? 0) > 0
-              ? `; ${summary?.unsentPOs} purchase request${summary?.unsentPOs === 1 ? ' waits' : 's wait'} until you send ${summary?.unsentPOs === 1 ? 'it' : 'them'}`
+              ? `; ${summary?.unsentPOs} draft purchase order${summary?.unsentPOs === 1 ? '' : 's'} — tender, quotations and supplier follow in procurement`
               : ''}
             {' '}— all from the Production step.
           </Alert>
@@ -749,7 +749,7 @@ export default function SalesOrderWizard({
             </Typography>
             <Box component="ul" sx={{ m: 0, pl: 2.5 }}>
               <li>{summary?.draftMOs ?? 0} production order(s) will stay draft until you deploy them.</li>
-              <li>{summary?.unsentPOs ?? 0} purchase request(s) are not yet sent to a supplier.</li>
+              <li>{summary?.unsentPOs ?? 0} purchase order(s) stay draft — tender, quotations and the supplier are chosen in procurement.</li>
               <li>~{((summary?.steelKg ?? 0) / 1000).toFixed(1)} t of steel is on this order's buy list.</li>
               <li>Confirmed date: {todayDMY} (the plant's own date, stamped by the server).</li>
             </Box>

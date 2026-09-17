@@ -24,7 +24,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  Alert, Box, Button, Chip, CircularProgress, IconButton, MenuItem, Stack, TextField,
+  Alert, Box, Button, Chip, CircularProgress, IconButton, InputAdornment, MenuItem, Stack, TextField,
   Tooltip, Typography,
 } from '@mui/material';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
@@ -42,9 +42,9 @@ import ErrorOutlineRounded from '@mui/icons-material/ErrorOutlineRounded';
 
 import {
   getProductionPlan, setStepTime, raiseDraft, deployProductionOrder,
-  requestProcurement, sendPurchaseRequest, requestSubcontract,
+  requestProcurement, requestSubcontract,
   type ProductionPlan, type PlanSection, type PlanRow, type PlanStep, type BuyLine,
-  type FieldsMissingDetail, type SubcontractGroup, type ProductionOrderRef, type PurchaseRef,
+  type FieldsMissingDetail, type SubcontractGroup, type ProductionOrderRef,
 } from '../api/productionPlan';
 import TaskAltRounded from '@mui/icons-material/TaskAltRounded';
 import type { OrderReadiness } from '../api/readiness';
@@ -282,7 +282,7 @@ function BuySection({ orderId, plan, canManage, onDone, onError }: {
   onDone: (readiness?: OrderReadiness) => Promise<void>; onError: (m: string) => void;
 }) {
   const { toast } = useToast();
-  const { purchases, suppliers, unmatched } = plan.buy;
+  const { purchases, unmatched } = plan.buy;
   // Free-issue material is supplied BY the customer — this order never buys
   // it, whatever the shelf holds (EU-14). Rendered as its own read-only list
   // rather than mixed into the interactive table with a Take box that would
@@ -304,8 +304,9 @@ function BuySection({ orderId, plan, canManage, onDone, onError }: {
   const toBuy = (l: BuyLine) => Math.max(0, l.required - takeOf(l) - l.onOrder);
 
   const [busy, setBusy] = useState(false);
-  const [sendTo, setSendTo] = useState<Record<number, number | ''>>({});
-  const openRequest = purchases.find((p) => p.status === 'requested');
+  // The order raises a DRAFT purchase order now; an older `requested` one is
+  // still the open request to rewrite (procurementOrderService.requestProcurement).
+  const openRequest = purchases.find((p) => p.status === 'draft' || p.status === 'requested');
   const anythingToBuy = lines.some((l) => toBuy(l) > 0);
 
   async function submit() {
@@ -317,16 +318,6 @@ function BuySection({ orderId, plan, canManage, onDone, onError }: {
     } catch (e) {
       onError(backendMessage(e, 'Could not request the material.'));
     } finally { setBusy(false); }
-  }
-
-  async function send(poId: number) {
-    const sup = sendTo[poId];
-    if (!sup) return;
-    try {
-      const res = await sendPurchaseRequest(poId, Number(sup));
-      toast('Sent to the supplier', 'success');
-      await onDone(res.readiness);
-    } catch (e) { onError(backendMessage(e, 'Could not send the request.')); }
   }
 
   const [open, toggleOpen] = useFolded(orderId, 'buy');
@@ -434,15 +425,14 @@ function BuySection({ orderId, plan, canManage, onDone, onError }: {
                   {po.supplierName ? ` · ${po.supplierName}` : ''}
                   {po.qtyReceived > 0 ? ` · ${qty(po.qtyReceived)} of ${qty(po.qtyOrdered)} received` : ''}
                 </Typography>
-                {po.status === 'requested' && canManage && (<>
-                  <Box sx={{ flex: 1 }} />
-                  <TextField select size="small" label="Supplier" value={sendTo[po.id] ?? ''} sx={{ minWidth: 200 }}
-                    onChange={(e) => setSendTo((s) => ({ ...s, [po.id]: e.target.value === '' ? '' : Number(e.target.value) }))}>
-                    <MenuItem value="">— choose —</MenuItem>
-                    {suppliers.map((s) => <MenuItem key={s.id} value={s.id}>{s.name}</MenuItem>)}
-                  </TextField>
-                  <Button size="small" disabled={!sendTo[po.id]} onClick={() => void send(po.id)}>Send to supplier</Button>
-                </>)}
+                {/* The supplier is NOT chosen here (2026-09-17): tender, quotations
+                    and the award are procurement's own flow, with its own roles.
+                    The order only raises the draft. */}
+                {(po.status === 'draft' || po.status === 'requested') && (
+                  <Typography sx={{ fontSize: 11.5, color: 'var(--c-text-3)' }}>
+                    supplier is chosen later, in procurement
+                  </Typography>
+                )}
               </Stack>
             ))}
           </Stack>
@@ -472,7 +462,6 @@ function OrdersOnThisJob({
   const { toast } = useToast();
   const [busy, setBusy] = useState<number | null>(null);
   const [confirmMo, setConfirmMo] = useState<ProductionOrderRef | null>(null);
-  const [sendTo, setSendTo] = useState<Record<number, number | ''>>({});
 
   async function deploy(mo: ProductionOrderRef) {
     setBusy(mo.id);
@@ -482,17 +471,6 @@ function OrdersOnThisJob({
       await onReload(res.readiness);
     } catch (e) { onError(backendMessage(e, 'Could not deploy.')); } finally { setBusy(null); }
   }
-  async function send(po: PurchaseRef) {
-    const sup = sendTo[po.id];
-    if (!sup) return;
-    setBusy(po.id);
-    try {
-      const res = await sendPurchaseRequest(po.id, Number(sup));
-      toast(`${po.orderNumber} sent to the supplier`, 'success');
-      await onReload(res.readiness);
-    } catch (e) { onError(backendMessage(e, 'Could not send the purchase order.')); } finally { setBusy(null); }
-  }
-
   const salesDraft = !orderStatus || orderStatus === 'draft';
   const row = { display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap', px: 1.5, py: 1, borderBottom: '1px solid var(--c-divider)' } as const;
   const kind = { fontSize: 11, fontWeight: 600, color: 'var(--c-text-3)', textTransform: 'uppercase', letterSpacing: '.04em', width: 120, flexShrink: 0 } as const;
@@ -569,17 +547,11 @@ function OrdersOnThisJob({
             {po.lineCount} line{po.lineCount === 1 ? '' : 's'}{po.supplierName ? ` · ${po.supplierName}` : ''}
           </Typography>
           <Box sx={{ flex: 1 }} />
-          {po.status === 'requested' && canManage && (<>
-            <TextField select size="small" label="Supplier" value={sendTo[po.id] ?? ''} sx={{ minWidth: 200 }}
-              onChange={(e) => setSendTo((s) => ({ ...s, [po.id]: e.target.value === '' ? '' : Number(e.target.value) }))}>
-              <MenuItem value="">— choose —</MenuItem>
-              {plan.buy.suppliers.map((s) => <MenuItem key={s.id} value={s.id}>{s.name}</MenuItem>)}
-            </TextField>
-            <Button size="small" variant="contained" disabled={!sendTo[po.id] || busy === po.id} onClick={() => void send(po)}
-              startIcon={busy === po.id ? <CircularProgress size={14} color="inherit" /> : <LocalShippingRounded />}>
-              Confirm & send
-            </Button>
-          </>)}
+          {(po.status === 'draft' || po.status === 'requested') && (
+            <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>
+              draft — tender, quotations and supplier are chosen in procurement
+            </Typography>
+          )}
         </Box>
       ))}
 
@@ -917,7 +889,7 @@ function ProductionSection({
                 {purpose === 'cutting' ? 'Blank' : 'BOM'}
               </HeadCell>
               <HeadCell sx={{ px: 1.5 }}>
-                Steps — time per piece{editable ? ' · click a time to change it' : ''}
+                Steps — minutes per piece{editable ? ' · click a time to change it' : ''}
               </HeadCell>
             </Box>
 
@@ -1163,8 +1135,11 @@ function StepCar({ step, pieces, editable, expanded, onSave }: {
                   setEditing(false);
                 }
               }}
-              placeholder={step.formulaMinutes != null ? String(step.formulaMinutes) : ''}
-              inputProps={{ min: 0, step: 0.5, style: { fontSize: 11.5, padding: '1px 4px' } }}
+              placeholder={step.formulaMinutes != null ? String(step.formulaMinutes) : 'minutes'}
+              inputProps={{ min: 0, step: 0.5, style: { fontSize: 11.5, padding: '1px 4px' }, 'aria-label': 'Minutes per piece' }}
+              // The unit is on the box itself, before anything is typed —
+              // "minutes" only appearing after a save read as a surprise.
+              slotProps={{ input: { endAdornment: <InputAdornment position="end" sx={{ '& p': { fontSize: 10.5 } }}>min</InputAdornment> } }}
               sx={{ width: '100%' }}
             />
             <Box sx={{
