@@ -123,11 +123,13 @@ const dimOf = (n: ItemBomNode, k: string) => {
 };
 
 export default function ItemBomDesigner({
-  catalogItemId, catalogItemName, mode = 'edit',
+  catalogItemId, catalogItemName, mode = 'edit', onLoaded,
 }: {
   catalogItemId: number;
   catalogItemName: string;
   mode?: 'edit' | 'readonly';
+  /** Called after every (re)load — i.e. after every saved edit — so a revision bar can say "unreleased changes". */
+  onLoaded?: () => void;
 }) {
   const canEdit = mode === 'edit';
 
@@ -147,8 +149,9 @@ export default function ItemBomDesigner({
       setTree(null);
     } finally {
       setLoading(false);
+      onLoaded?.();
     }
-  }, [catalogItemId]);
+  }, [catalogItemId, onLoaded]);
 
   useEffect(() => { void load(); }, [load]);
 

@@ -385,8 +385,41 @@ export interface DraftNodeData {
 export type DraftNode = TreeNode<DraftNodeData>;
 
 /** GET the BOM as a tree to edit. Writes nothing. */
+/**
+ * The tree a new order starts from — the template's LATEST RELEASED revision
+ * (never its unreleased working copy); the root's `revision` says which. A
+ * template never released answers 409 NOT_RELEASED.
+ */
 export const getDraftTree = (itemId: number) =>
-  fabGet<{ tree: DraftNode }>(`templates/${itemId}/draft`);
+  fabGet<{ tree: DraftNode & { revision?: number | null } }>(`templates/${itemId}/draft`);
+
+/* ─────────────────────────── template revisions ─────────────────────────── */
+
+export interface TemplateRevisionStatus {
+  templateItemId: number;
+  latestRev: number | null;
+  releasedAt: string | null;
+  note: string | null;
+  hasBom: boolean;
+  /** The working copy differs from the latest revision — there is something to release. */
+  unreleasedChanges: boolean;
+}
+export interface TemplateRevision {
+  rev: number;
+  note: string | null;
+  releasedAt: string;
+  releasedBy: string | null;
+  /** Order lines built from this revision. */
+  orderLines: number;
+}
+
+/** GET /templates/:id/revisions — where the template stands, and its history. */
+export const getTemplateRevisions = (itemId: number) =>
+  fabGet<{ status: TemplateRevisionStatus; revisions: TemplateRevision[]; builtBeforeRevisions: number }>(`templates/${itemId}/revisions`);
+
+/** POST /templates/:id/revisions — release the working copy as the next revision. */
+export const releaseTemplateRevision = (itemId: number, note: string | null) =>
+  fabPost<{ ok: boolean; rev: number }>(`templates/${itemId}/revisions`, { note });
 
 /**
  * GET what this order actually DECIDED, in the same shape.

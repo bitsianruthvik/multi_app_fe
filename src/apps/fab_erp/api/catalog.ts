@@ -234,6 +234,12 @@ export interface OrderLineRow {
   catalogItemId: number | null;
   templateItemId: number | null;
   lineType: string | null;
+  /** The released template revision this line was BUILT from; null = not built yet, or built before revisions. */
+  templateRevision?: number | null;
+  /** 1 once the line's structure has been built. */
+  built?: number | boolean;
+  /** The template's newest released revision — "Rev 3 · latest is Rev 5". */
+  latestRevision?: number | null;
   /** The catalog item the line sells — its code and where it sits in the taxonomy (the server sends both). */
   catalogItem: {
     id: number; name: string; code: string | null;

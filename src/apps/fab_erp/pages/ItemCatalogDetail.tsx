@@ -36,6 +36,7 @@ import { usePermission } from '@core/hooks/usePermission';
 import { useAuth } from '@core/contexts/AuthContext';
 import { isAdminRole } from '@core/utils/roles';
 import ItemBomDesigner from '../components/ItemBomDesigner';
+import TemplateRevisionBar from '../components/TemplateRevisionBar';
 import {
   SectionCard, StickyActionBar, Surface, DetailLayout, Mono, StatusBadge, EmptyState, DateCell, QtyCell,
   useToast, DetailSkeleton, FieldRowCells, FieldTableHead, InheritedFieldsTable, TaxonomyPicker,
@@ -194,6 +195,9 @@ export default function ItemCatalogDetail() {
   const { toast } = useToast();
 
   const [item, setItem] = useState<FabItemCatalog | null>(null);
+  /** Bumped each time the BOM designer reloads (after every saved edit), so the revision bar re-reads. */
+  const [bomVersion, setBomVersion] = useState(0);
+  const bumpBomVersion = useCallback(() => setBomVersion((v) => v + 1), []);
   // Breadcrumb reads "Items / FG-GIRDER-PG1500", not "Items / 42".
   useDetailTitle(item?.code);
   const [loading, setLoading] = useState(true);
@@ -779,11 +783,15 @@ export default function ItemCatalogDetail() {
 
       {tab === 1 && (
         <Surface e={1} sx={{ height: 600, display: 'flex', flexDirection: 'column', overflow: 'hidden', p: 0 }}>
+          {/* The BOM is the template's WORKING COPY; the bar says which released
+              revision new orders get, and releases the next one. */}
+          <TemplateRevisionBar templateItemId={id} canRelease={canManage} refreshKey={bomVersion} />
           {/* fab_item_bom is the real structure (Span → Girder → Segment → parts). */}
           <ItemBomDesigner
             catalogItemId={id}
             catalogItemName={item.name}
             mode={canManage ? 'edit' : 'readonly'}
+            onLoaded={bumpBomVersion}
           />
         </Surface>
       )}

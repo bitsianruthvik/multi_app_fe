@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Alert, Autocomplete, Box, Button, CircularProgress, Dialog, DialogActions,
+  Alert, Autocomplete, Box, Button, Chip, CircularProgress, Dialog, DialogActions,
   DialogContent, DialogTitle, IconButton, Link as MuiLink, MenuItem, TextField, Tooltip, Typography,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
@@ -731,10 +731,35 @@ export default function OrderLinesPanel({
                     />
                   </Tooltip>
 
-                  <Box sx={{ width: 234, flexShrink: 0 }}>
+                  <Box sx={{ width: 234, flexShrink: 0, display: 'flex', alignItems: 'center', gap: 0.75 }}>
                     <Typography sx={{ fontSize: 11.5, color: 'var(--c-text-3)' }}>
                       {rowsBuilt > 0 ? `${rowsBuilt} rows below` : 'nothing built yet'}
                     </Typography>
+                    {/*
+                      WHICH REVISION OF THE TEMPLATE this line was built to. An
+                      older one is not wrong — the order keeps what it was built
+                      from — but it is worth seeing, and Replace on the Structure
+                      step rebuilds it from the latest.
+                    */}
+                    {rowsBuilt > 0 && (() => {
+                      const built = line.templateRevision ?? null;
+                      const latest = line.latestRevision ?? null;
+                      if (built == null) {
+                        return latest != null
+                          ? <Tooltip title="Built before template revisions existed."><Typography sx={{ fontSize: 11, color: 'var(--c-text-3)' }}>· before revisions</Typography></Tooltip>
+                          : null;
+                      }
+                      const behind = latest != null && latest > built;
+                      return (
+                        <Tooltip title={behind
+                          ? `Built from Rev ${built}; the template is now at Rev ${latest}. The order keeps Rev ${built} unless its structure is replaced.`
+                          : `Built from the template's latest revision, Rev ${built}.`}>
+                          <Chip size="small" variant="outlined" color={behind ? 'warning' : 'default'}
+                            label={behind ? `Rev ${built} · latest ${latest}` : `Rev ${built}`}
+                            sx={{ height: 20, fontSize: 11 }} />
+                        </Tooltip>
+                      );
+                    })()}
                   </Box>
                   <Box sx={{ width: 150, flexShrink: 0 }}>
                     <Typography noWrap sx={{ fontSize: 11.5, color: 'var(--c-text-3)' }}>{line.lineType ?? ''}</Typography>

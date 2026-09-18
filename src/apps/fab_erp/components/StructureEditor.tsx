@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Alert, Autocomplete, Box, Button, Checkbox, CircularProgress, Dialog, DialogActions,
+  Alert, Autocomplete, Box, Button, Checkbox, Chip, CircularProgress, Dialog, DialogActions,
   DialogContent, DialogTitle, IconButton, MenuItem, TextField, Tooltip, Typography,
 } from '@mui/material';
 import AddRounded from '@mui/icons-material/AddRounded';
@@ -1331,6 +1331,13 @@ export default function StructureEditor({
                 Add under {t.tree.name}
               </Button>
             </Tooltip>
+
+            {/* A new build starts from the template's latest RELEASED revision. */}
+            {source !== 'current' && (t.tree as DraftNode & { revision?: number | null }).revision != null && (
+              <Tooltip title="New orders are built from the template's latest released revision; unreleased edits to the template are not included.">
+                <Chip size="small" variant="outlined" label={`From Rev ${(t.tree as DraftNode & { revision?: number | null }).revision}`} />
+              </Tooltip>
+            )}
 
             <Box sx={{ width: '1px', alignSelf: 'stretch', bgcolor: 'var(--c-divider)', mx: 0.5 }} />
 
