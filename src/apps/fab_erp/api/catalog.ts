@@ -35,7 +35,18 @@ export interface CatalogItemRow extends FabItemCatalog {
   unitWeightKg: number | null;
 }
 
+/**
+ * Which list the Item Catalog page is showing. `catalog` = things you buy,
+ * receive and stock; `template` = template parts (sized on an order);
+ * `cutplate` = per-order cut plates. Omitted = everything (the pickers).
+ */
+export type ItemKind = 'catalog' | 'template' | 'cutplate';
+
+/** True for a template part or cut plate — never bought, received or stocked by hand. */
+export const isNonCatalog = (it: { isCataloged?: number | null }) => Number(it.isCataloged ?? 1) === 0;
+
 export interface CatalogItemsQuery {
+  kind?: ItemKind;
   /**
    * Size-aware on the server (`catalogItemsService.parseCatalogSearch`):
    * "25x1500" / "25 x 1500 x 9000" are thickness(+width(+length)), "12mm" is
@@ -89,7 +100,9 @@ export interface CatalogFacets {
   grade: FacetCount[];
 }
 
-export const getCatalogFacets = () => fabGet<CatalogFacets>('catalog/items/facets');
+/** Counted within one list (tab) when `kind` is given, so a chip never promises rows the tab cannot show. */
+export const getCatalogFacets = (kind?: ItemKind) =>
+  fabGet<CatalogFacets>('catalog/items/facets', kind ? { kind } : undefined);
 
 /**
  * One patch over many items. Only the keys present are applied: taxonomy and

@@ -31,6 +31,7 @@ import {
 } from '../api/catalogDetail';
 import { useDetailTitle } from '../components/nav/detailTitleContext';
 import type { FabItemCatalog, FabItemCategory, FabItemGroup, FabItemSubgroup } from '../types';
+import { isNonCatalog } from '../api/catalog';
 import { usePermission } from '@core/hooks/usePermission';
 import { useAuth } from '@core/contexts/AuthContext';
 import { isAdminRole } from '@core/utils/roles';
@@ -418,16 +419,30 @@ export default function ItemCatalogDetail() {
   const itemLink = (itemId2: number) => `/${company}/fab_erp/item-catalog/${itemId2}`;
   const orderLink = (orderId: number) => `/${company}/fab_erp/orders/${orderId}`;
 
+  // Which list this item belongs to decides what the page shows and where
+  // Back goes. A cut plate is non-catalog but IS stock; a template part is
+  // neither stock nor bought.
+  const nonCatalog = isNonCatalog(item);
+  const isCutPlate = (item as FabItemCatalog & { materialForm?: string | null }).materialForm === 'blank';
+  const isTemplatePart = nonCatalog && !isCutPlate;
+  const backTo = nonCatalog
+    ? `/${company}/fab_erp/item-catalog?tab=non-catalog${isCutPlate ? '&list=cutplate' : ''}`
+    : `/${company}/fab_erp/item-catalog`;
+
   return (
     <DetailLayout
       header={
         <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.5 }}>
-          <Button startIcon={<ArrowBackIcon />} onClick={() => navigate(`/${company}/fab_erp/item-catalog`)} sx={{ mt: 0.25 }}>Items</Button>
+          <Button startIcon={<ArrowBackIcon />} onClick={() => navigate(backTo)} sx={{ mt: 0.25 }}>
+            {isTemplatePart ? 'Templates' : isCutPlate ? 'Cut plates' : 'Catalog'}
+          </Button>
           <Box sx={{ flex: 1, minWidth: 0 }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
               <Typography sx={{ fontSize: 18, fontWeight: 600, color: 'var(--c-text)' }}>{item.name}</Typography>
               <Mono chip>{item.code}</Mono>
-              <StatusBadge status={PROCUREMENT_LABEL[procurement] ?? procurement} family={PROCUREMENT_FAMILY[procurement] ?? 'neutral'} />
+              {nonCatalog
+                ? <StatusBadge status={isCutPlate ? 'Cut plate' : 'Template part'} family="neutral" />
+                : <StatusBadge status={PROCUREMENT_LABEL[procurement] ?? procurement} family={PROCUREMENT_FAMILY[procurement] ?? 'neutral'} />}
             </Box>
             <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)', mt: 0.5 }}>
               {crumbs.length ? crumbs.join(' › ') : 'No category'}
@@ -575,6 +590,8 @@ export default function ItemCatalogDetail() {
             </Loaded>
           </SectionCard>
 
+          {/* A template part is never stock (the physical thing is the order's piece); a cut plate is. */}
+          {!isTemplatePart && (<>
           {/* ── Stock ───────────────────────────────────────────────────── */}
           <SectionCard title="Stock" subtitle="Pieces on hand for this item — the same numbers the Buy step sees">
             <Loaded state={stock}>
@@ -638,6 +655,10 @@ export default function ItemCatalogDetail() {
             </Loaded>
           </SectionCard>
 
+          </>)}
+
+          {/* Nothing non-catalog is bought — lead time, MRP policy and PO lines do not apply. */}
+          {!nonCatalog && (<>
           {/* ── Buying ──────────────────────────────────────────────────── */}
           <SectionCard
             title="Buying"
@@ -690,6 +711,8 @@ export default function ItemCatalogDetail() {
               )}
             </Loaded>
           </SectionCard>
+
+          </>)}
 
           {/* ── Fields ──────────────────────────────────────────────────── */}
           <SectionCard

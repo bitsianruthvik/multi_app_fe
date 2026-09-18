@@ -11,18 +11,19 @@
  * mark-scheme panel that consumed it is no longer mounted anywhere.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Alert, Box, Button, Tab, Tabs } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 
 import { fabQuery } from '../../api/client';
-import type { CatalogItemRow } from '../../api/catalog';
+import type { CatalogItemRow, ItemKind } from '../../api/catalog';
 import { getTaxonomyCounts, type TaxonomyCounts } from '../../api/catalogDetail';
 import type { FabItemCategory, FabItemGroup, FabItemSubgroup } from '../../types';
 import { usePermission } from '@core/hooks/usePermission';
 import { useAuth } from '@core/contexts/AuthContext';
 import { isAdminRole } from '@core/utils/roles';
 import InfoTooltip, { type InfoContent } from '@shared/components/InfoTooltip';
-import { PageHeader, useToast } from '../../components';
+import { FacetChip, PageHeader, useToast } from '../../components';
 
 import { ItemsTab, type ItemsTabHandle } from './ItemsTab';
 import { AddTaxonomyDialog, TaxonomyDeleteDialog } from './TaxonomyTab';
@@ -33,13 +34,26 @@ import { ImporterControls } from './importer';
 
 // ─── INFO TOOLTIP CONTENT ─────────────────────────────────────────────────────
 
-const INFO_ITEMS: InfoContent = [
-  { heading: 'Items', items: [
-    'Every part and material the company uses lives here. A BOM or an order picks from this list.',
+const INFO_CATALOG: InfoContent = [
+  { heading: 'Catalog', items: [
+    'Things with a size of their own that you buy, receive and keep in stock: plates, sections, studs, standard stiffeners, machines, spares, consumables.',
     'Add an item with a name and a category; the code is worked out from the Items rule unless you type one.',
     'Click a row to see where it is used, what is in stock, and what has been bought.',
   ] },
 ];
+const INFO_NON_CATALOG: InfoContent = [
+  { heading: 'Non-catalog', items: [
+    'Templates: the spans, girders, segments and parts an order is built from. They get their sizes on the order, and are never bought or received.',
+    'Cut plates: the rectangles cut from plate for one order. Nesting makes them; they are never bought.',
+    'Neither can be received into stock or put on a purchase order — the shop makes them.',
+  ] },
+];
+
+/** The page's tabs, as they appear in the URL (`?tab=`), so a link or the Back button lands on the right one. */
+const TABS = ['catalog', 'non-catalog', 'taxonomy'] as const;
+type PageTab = typeof TABS[number];
+/** The Non-catalog tab's two lists (`?list=`). */
+type NonCatalogList = 'template' | 'cutplate';
 const INFO_TAXONOMY: InfoContent = [
   { heading: 'Taxonomy', items: [
     'A category is the top level. Everything in it inherits the category\'s fields.',
@@ -61,7 +75,16 @@ export default function ItemCatalog() {
   const canManage         = usePermission('fab_erp_items_meta_manage') || admin;
   const canManageTaxonomy = usePermission('fab_erp_taxonomy_manage') || admin;
   const { toast } = useToast();
-  const [pageTab, setPageTab] = useState(0);
+  const [params, setParams] = useSearchParams();
+  const pageTab: PageTab = (TABS as readonly string[]).includes(params.get('tab') ?? '') ? params.get('tab') as PageTab : 'catalog';
+  const ncList: NonCatalogList = params.get('list') === 'cutplate' ? 'cutplate' : 'template';
+  const listKind: ItemKind = pageTab === 'non-catalog' ? ncList : 'catalog';
+  const go = (tab: PageTab, list?: NonCatalogList) => {
+    const next = new URLSearchParams();
+    if (tab !== 'catalog') next.set('tab', tab);
+    if (tab === 'non-catalog' && list === 'cutplate') next.set('list', 'cutplate');
+    setParams(next, { replace: true });
+  };
   const [error, setError] = useState('');
 
   const itemsTabRef = useRef<ItemsTabHandle>(null);
@@ -104,45 +127,64 @@ export default function ItemCatalog() {
 
   function onSaved(code?: string) {
     setDlg({ open: false, item: null });
-    toast(code ? `Item created — code: ${code}` : 'Saved.');
+    toast(code ? `Created — code: ${code}` : 'Saved.');
     refreshItems();
   }
   function onDeleted() { setDelItem(null); toast('Removed.'); refreshItems(); }
+
+  // Cut plates are made by nesting an order, never typed in — no Add there.
+  const addLabel = listKind === 'catalog' ? 'Add item' : listKind === 'template' ? 'Add template part' : null;
+  const tabLabel = (text: string, info: InfoContent) => (
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>{text}<InfoTooltip content={info} placement="bottom" /></Box>
+  );
 
   return (
     <Box>
       <PageHeader
         title="Item Catalog"
-        subtitle="Reusable parts and materials — pick from here when building a project BOM"
-        actions={pageTab === 0 && canManage ? (
+        subtitle="Catalog items are bought and stocked. Non-catalog items are templates and cut plates, made on an order."
+        actions={pageTab !== 'taxonomy' && canManage && addLabel ? (
           <Box sx={{ display: 'flex', gap: 1 }}>
-            <ImporterControls onImported={refreshItems} />
+            {/* The import sheet is for catalog items; the server skips any code that belongs to a template or cut plate. */}
+            {listKind === 'catalog' && <ImporterControls onImported={refreshItems} />}
             <Button variant="contained" startIcon={<AddIcon />} onClick={() => setDlg({ open: true, item: null })}>
-              Add item
+              {addLabel}
             </Button>
           </Box>
         ) : undefined}
       />
 
-      <Tabs value={pageTab} onChange={(_, v) => setPageTab(v)} sx={{ mb: 3, borderBottom: '1px solid var(--c-divider)' }}>
-        <Tab label={<Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>Items<InfoTooltip content={INFO_ITEMS} placement="bottom" /></Box>} />
-        <Tab label={<Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>Taxonomy<InfoTooltip content={INFO_TAXONOMY} placement="bottom" /></Box>} />
+      <Tabs value={pageTab} onChange={(_, v: PageTab) => go(v)} sx={{ mb: 3, borderBottom: '1px solid var(--c-divider)' }}>
+        <Tab value="catalog" label={tabLabel('Catalog', INFO_CATALOG)} />
+        <Tab value="non-catalog" label={tabLabel('Non-catalog', INFO_NON_CATALOG)} />
+        <Tab value="taxonomy" label={tabLabel('Taxonomy', INFO_TAXONOMY)} />
       </Tabs>
 
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
-      {pageTab === 0 && (
+      {pageTab === 'non-catalog' && (
+        <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
+          <FacetChip label="Templates" active={ncList === 'template'} onClick={() => go('non-catalog', 'template')} />
+          <FacetChip label="Cut plates" active={ncList === 'cutplate'} onClick={() => go('non-catalog', 'cutplate')} />
+        </Box>
+      )}
+
+      {pageTab !== 'taxonomy' && (
         <ItemsTab
+          // A fresh grid per list: filters that make sense on one (grade, a
+          // thickness range) would silently empty another.
+          key={listKind}
           ref={itemsTabRef}
+          kind={listKind}
           canManage={canManage}
           categories={categories} groups={groups} subgroups={subgroups}
-          onAdd={() => setDlg({ open: true, item: null })}
+          onAdd={addLabel ? () => setDlg({ open: true, item: null }) : undefined}
           onEdit={(item) => setDlg({ open: true, item })}
           onDelete={(item) => setDelItem(item)}
         />
       )}
 
-      {pageTab === 1 && (
+      {pageTab === 'taxonomy' && (
         <TaxonomyTree
           categories={categories} groups={groups} subgroups={subgroups}
           counts={counts}
@@ -155,7 +197,7 @@ export default function ItemCatalog() {
 
       {/* ── Dialogs ── */}
       <CatalogDialog
-        open={dlg.open} initial={dlg.item}
+        open={dlg.open} initial={dlg.item} kind={listKind}
         categories={categories} groups={groups} subgroups={subgroups}
         canManageTaxonomy={canManageTaxonomy}
         onClose={() => setDlg({ open: false, item: null })}

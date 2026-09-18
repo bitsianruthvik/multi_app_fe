@@ -277,7 +277,10 @@ export default function StockIn() {
       setLoadingRefs(true);
       try {
         const [cat, pl, loc] = await Promise.all([
-          fabQuery<QueryResult<CatalogOption>>('fabErpItemCatalog', { pagination: { limit: 1000 } }),
+          // Catalog items only: a template part or cut plate is made by the shop,
+          // never received — the server refuses it (NOT_CATALOGED), so it is
+          // not offered here either.
+          fabQuery<QueryResult<CatalogOption>>('fabErpItemCatalog', { filters: { isCataloged: 1 }, pagination: { limit: 2000 } }),
           fabQuery<QueryResult<PlantRow>>('fabErpPlant', { pagination: { limit: 200 } }),
           fabQuery<QueryResult<LocationRow>>('fabErpStockLocation', { pagination: { limit: 500 } }),
         ]);

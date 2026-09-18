@@ -47,6 +47,7 @@ import {
   listCatalogItems, getCatalogFacets, bulkUpdateCatalogItems, patchCatalogItemFields, createCatalogItem,
   getCatalogItemUsage,
   type CatalogItemRow, type CatalogItemsQuery, type CatalogFacets, type CatalogBulkPatch, type CatalogItemUsage,
+  type ItemKind,
 } from '../../api/catalog';
 import type { FabItemCategory, FabItemGroup, FabItemSubgroup } from '../../types';
 import {
@@ -91,6 +92,25 @@ const ITEM_COLUMNS: SortableColumn<ItemRow>[] = [
   { key: 'subgroupName',    label: 'Sub-group',       sx: { ...TH, width: 130 } },
   { key: 'hsnCode',         label: 'HSN',             sx: { ...TH, width: 100 } },
 ];
+
+/**
+ * Columns that mean nothing for a list, hidden rather than shown as a wall of
+ * dashes. A TEMPLATE part has no size, steel or weight of its own (it gets
+ * them on an order) and is never bought, so procurement and HSN go too. A CUT
+ * PLATE is sized but is made, never bought.
+ */
+const HIDDEN_COLUMNS: Record<ItemKind, ReadonlySet<string>> = {
+  catalog: new Set(),
+  template: new Set(['thicknessMm', 'widthMm', 'lengthMm', 'procurementType', 'materialForm', 'material', 'unitWeightKg', 'hsnCode']),
+  cutplate: new Set(['procurementType', 'materialForm', 'hsnCode']),
+};
+
+/** What an empty list says, per tab. */
+const EMPTY_TITLE: Record<ItemKind, string> = {
+  catalog: 'Catalog is empty',
+  template: 'No template parts yet',
+  cutplate: 'No cut plates yet — nesting an order creates them',
+};
 
 const DEFAULT_ITEM_COL_WIDTH: Record<string, number> = {
   name: 220, code: 110, unit: 70, thicknessMm: 84, widthMm: 96, lengthMm: 100, procurementType: 100, materialForm: 110,
@@ -220,17 +240,26 @@ export interface ItemsTabHandle {
 }
 
 export const ItemsTab = forwardRef<ItemsTabHandle, {
+  /** Which list this grid is: the catalog, template parts, or cut plates. */
+  kind: ItemKind;
   canManage: boolean;
   categories: FabItemCategory[];
   groups: FabItemGroup[];
   subgroups: FabItemSubgroup[];
-  onAdd: () => void;
+  /** Absent = this list has no "add" (cut plates are made by nesting, not typed in). */
+  onAdd?: () => void;
   onEdit: (item: CatalogItemRow) => void;
   onDelete: (item: CatalogItemRow) => void;
-}>(function ItemsTab({ canManage, categories, groups, subgroups, onAdd, onEdit, onDelete }, ref) {
+}>(function ItemsTab({ kind, canManage, categories, groups, subgroups, onAdd, onEdit, onDelete }, ref) {
   const navigate = useNavigate();
   const { company } = useParams<{ company: string }>();
   const { toast } = useToast();
+
+  const columns = useMemo(() => ITEM_COLUMNS.filter((c) => !HIDDEN_COLUMNS[kind].has(c.key as string)), [kind]);
+  const shows = useCallback((key: string) => !HIDDEN_COLUMNS[kind].has(key), [kind]);
+  // A catalog item's size is typed in; a cut plate's size IS its identity
+  // (its code is derived from it), so it is never edited here.
+  const sizesEditable = canManage && kind === 'catalog';
 
   const [rows, setRows] = useState<CatalogItemRow[]>([]);
   const [total, setTotal] = useState(0);
@@ -269,8 +298,8 @@ export const ItemsTab = forwardRef<ItemsTabHandle, {
   // the whole catalog rather than the current result.
   const [facets, setFacets] = useState<CatalogFacets | null>(null);
   const loadFacets = useCallback(() => {
-    getCatalogFacets().then(setFacets).catch(() => { /* the dropdowns just show no counts */ });
-  }, []);
+    getCatalogFacets(kind).then(setFacets).catch(() => { /* the dropdowns just show no counts */ });
+  }, [kind]);
   useEffect(() => { loadFacets(); }, [loadFacets]);
   const taxonomyCounts = useMemo(() => {
     if (!facets) return undefined;
@@ -324,6 +353,7 @@ export const ItemsTab = forwardRef<ItemsTabHandle, {
     setLoading(true); setError('');
     try {
       const query: CatalogItemsQuery = {
+        kind,
         q: debouncedSearch || undefined,
         procurementType: procurementType || undefined,
         materialForm: materialForm || undefined,
@@ -348,7 +378,7 @@ export const ItemsTab = forwardRef<ItemsTabHandle, {
     } finally {
       if (myReq === reqRef.current) setLoading(false);
     }
-  }, [debouncedSearch, procurementType, materialForm, material, grade, thicknessMin, thicknessMax, taxonomy, uncategorized, page, pageSize, serverSort]);
+  }, [kind, debouncedSearch, procurementType, materialForm, material, grade, thicknessMin, thicknessMax, taxonomy, uncategorized, page, pageSize, serverSort]);
 
   // Single effect: a filter change should land back on page 1 — otherwise
   // "page 4 of a now-3-page result" quietly shows nothing and looks like a
@@ -376,12 +406,12 @@ export const ItemsTab = forwardRef<ItemsTabHandle, {
     thicknessMm: dim(it.sizes?.thicknessMm), widthMm: dim(it.sizes?.widthMm), lengthMm: dim(it.sizes?.lengthMm),
   })), [rows]);
 
-  const filtered = useMemo(() => itemsSized.filter((it) => ITEM_COLUMNS.every((col) => {
+  const filtered = useMemo(() => itemsSized.filter((it) => columns.every((col) => {
     const needle = colFilters[col.key as string]?.trim().toLowerCase();
     if (!needle) return true;
     const raw = (it as unknown as Record<string, unknown>)[col.key as string];
     return String(raw ?? '').toLowerCase().includes(needle);
-  })), [itemsSized, colFilters]);
+  })), [itemsSized, colFilters, columns]);
 
   // Size sorts server-side (numeric, correct across pages); every other
   // column still sorts the loaded page locally — the per-column filters are
@@ -509,10 +539,12 @@ export const ItemsTab = forwardRef<ItemsTabHandle, {
     else toast(`Created ${res.code}.`);
   }
 
-  // Open · Duplicate* · Stock · Where used · Edit* · Remove*  (* = manage only)
-  const actionCount = canManage ? 6 : 3;
+  // Open · Duplicate* · Stock† · Where used · Edit* · Remove*
+  // (* = manage only; † = not on template parts, which are never stock)
+  const hasStock = kind !== 'template';
+  const actionCount = (canManage ? 6 : 3) - (hasStock ? 0 : 1);
   const actionsColWidth = actionCount * ACTION_BUTTON_WIDTH + 12;
-  const itemsTotalWidth = ITEM_COLUMNS.reduce((sum, col) => sum + colWidths[col.key as string], 0)
+  const itemsTotalWidth = columns.reduce((sum, col) => sum + colWidths[col.key as string], 0)
     + SELECT_COL_WIDTH + actionsColWidth;
 
   // Row keyboard nav (item 1: "arrow keys/Enter open a row"): react-window only
@@ -577,34 +609,34 @@ export const ItemsTab = forwardRef<ItemsTabHandle, {
           <Box sx={cellSx('name', { fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' })}>{it.name}</Box>
           <Box sx={cellSx('code')}><Box component="span" sx={{ fontFamily: 'var(--font-mono, monospace)' }}>{it.code}</Box></Box>
           <Box sx={cellSx('unit')}>{displayUom(it.unit) || 'PC'}</Box>
-          {SIZE_KEYS.map((k) => (
-            <Box key={k} sx={cellSx(k, { ...MONO_CELL, color: 'var(--c-text-2)', textAlign: 'right', px: canManage ? 1 : 2 })}>
-              {canManage
+          {SIZE_KEYS.filter(shows).map((k) => (
+            <Box key={k} sx={cellSx(k, { ...MONO_CELL, color: 'var(--c-text-2)', textAlign: 'right', px: sizesEditable ? 1 : 2 })}>
+              {sizesEditable
                 ? <InlineSizeCell value={it[k]} ariaLabel={`${ITEM_COLUMNS.find((c) => c.key === k)?.label ?? k} for ${it.name}`} onSave={(raw) => saveSize(it.id, k, raw)} />
                 : (it[k] || '—')}
             </Box>
           ))}
-          <Box sx={cellSx('procurementType')}>{it.procurementType ?? '—'}</Box>
-          <Box sx={cellSx('materialForm')}>{it.materialForm ?? '—'}</Box>
-          <Box sx={cellSx('material', { color: 'var(--c-text-2)' })}>{it.material || '—'}</Box>
-          <Box sx={cellSx('unitWeightKg', { textAlign: 'right' })}>{it.unitWeightKg != null ? Number(it.unitWeightKg).toFixed(2) : '—'}</Box>
+          {shows('procurementType') && <Box sx={cellSx('procurementType')}>{it.procurementType ?? '—'}</Box>}
+          {shows('materialForm') && <Box sx={cellSx('materialForm')}>{it.materialForm ?? '—'}</Box>}
+          {shows('material') && <Box sx={cellSx('material', { color: 'var(--c-text-2)' })}>{it.material || '—'}</Box>}
+          {shows('unitWeightKg') && <Box sx={cellSx('unitWeightKg', { textAlign: 'right' })}>{it.unitWeightKg != null ? Number(it.unitWeightKg).toFixed(2) : '—'}</Box>}
           <Box sx={cellSx('description', { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--c-text-2)' })}>{it.description ?? '—'}</Box>
           <Box sx={cellSx('categoryName')}>{it.categoryName ?? '—'}</Box>
           <Box sx={cellSx('groupName')}>{it.groupName ?? '—'}</Box>
           <Box sx={cellSx('subgroupName')}>{it.subgroupName ?? '—'}</Box>
-          <Box sx={cellSx('hsnCode')}>{it.hsnCode ?? '—'}</Box>
+          {shows('hsnCode') && <Box sx={cellSx('hsnCode')}>{it.hsnCode ?? '—'}</Box>}
         </Box>
         <Box className="row-actions" sx={{ width: actionsColWidth, minWidth: actionsColWidth, flex: '0 0 auto', display: 'flex', justifyContent: 'flex-end', alignItems: 'center', pr: 0.5 }}>
           {action('Open', <OpenInNewIcon fontSize="small" />, openRow)}
           {canManage && action('Duplicate', <ContentCopyIcon fontSize="small" />, () => openDuplicate(it))}
-          {action('Stock', <Inventory2Icon fontSize="small" />, () => navigate(`/${company}/fab_erp/item-batches?itemId=${it.id}`))}
+          {hasStock && action('Stock', <Inventory2Icon fontSize="small" />, () => navigate(`/${company}/fab_erp/item-batches?itemId=${it.id}`))}
           {action('Where used', <AccountTreeIcon fontSize="small" />, (e) => openWhereUsed(e.currentTarget, it))}
           {canManage && action('Edit', <EditIcon fontSize="small" />, () => onEdit(it))}
           {canManage && action('Remove', <DeleteIcon fontSize="small" />, () => onDelete(it), 'error')}
         </Box>
       </Box>
     );
-  }, [sortedRows, canManage, navigate, company, colWidths, selected, onEdit, onDelete, focusRow, saveSize, openDuplicate, openWhereUsed, actionsColWidth]);
+  }, [sortedRows, canManage, navigate, company, colWidths, selected, onEdit, onDelete, focusRow, saveSize, openDuplicate, openWhereUsed, actionsColWidth, shows, sizesEditable, hasStock]);
 
   const bulkTitle = bulkSection === 'taxonomy' ? 'Set group / sub-group' : bulkSection === 'steel' ? 'Set material / grade' : 'Set procurement';
 
@@ -622,6 +654,7 @@ export const ItemsTab = forwardRef<ItemsTabHandle, {
             formHelperText: { sx: { mx: 0.5, mt: 0.25, fontSize: 11, color: 'var(--c-text-3)' } },
           }}
         />
+        {shows('procurementType') && (
         <Box sx={{ width: 160 }}>
           <Typography variant="caption" color="text.secondary">Procurement</Typography>
           <Select fullWidth size="small" displayEmpty value={procurementType} onChange={(e) => setProcurementType(e.target.value)}>
@@ -629,6 +662,8 @@ export const ItemsTab = forwardRef<ItemsTabHandle, {
             {PROCUREMENT_TYPES.map((p) => <MenuItem key={p.value} value={p.value}>{p.label}</MenuItem>)}
           </Select>
         </Box>
+        )}
+        {shows('material') && (<>
         <Box sx={{ width: 150 }}>
           <Typography variant="caption" color="text.secondary">Material</Typography>
           <Select fullWidth size="small" displayEmpty value={material} onChange={(e) => setMaterial(e.target.value)} renderValue={(v) => v || 'All'}>
@@ -645,6 +680,7 @@ export const ItemsTab = forwardRef<ItemsTabHandle, {
         </Box>
         <TextField label="Thickness ≥ (mm)" type="number" value={thicknessMin} size="small" sx={{ width: 130 }} onChange={(e) => setThicknessMin(e.target.value)} />
         <TextField label="Thickness ≤ (mm)" type="number" value={thicknessMax} size="small" sx={{ width: 130 }} onChange={(e) => setThicknessMax(e.target.value)} />
+        </>)}
         <Box sx={{ width: 420 }}>
           <TaxonomyPicker
             categories={categories} groups={groups} subgroups={subgroups}
@@ -670,7 +706,7 @@ export const ItemsTab = forwardRef<ItemsTabHandle, {
       </Box>
 
       {/* Material form as chips: the values the catalog actually holds (plate / section / blank…), each with its count. */}
-      {!!facets?.materialForm.length && (
+      {shows('materialForm') && !!facets?.materialForm.length && (
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2, flexWrap: 'wrap' }}>
           <Typography variant="caption" color="text.secondary" sx={{ mr: 0.5 }}>Material form</Typography>
           <FacetChip label="All" active={materialForm === ''} onClick={() => setMaterialForm('')} />
@@ -690,8 +726,9 @@ export const ItemsTab = forwardRef<ItemsTabHandle, {
           {canManage ? (
             <>
               <Button size="small" variant="outlined" onClick={() => setBulkSection('taxonomy')}>Set group / sub-group</Button>
-              <Button size="small" variant="outlined" onClick={() => setBulkSection('steel')}>Set material / grade</Button>
-              <Button size="small" variant="outlined" onClick={() => setBulkSection('procurement')}>Set procurement</Button>
+              {kind === 'catalog' && <Button size="small" variant="outlined" onClick={() => setBulkSection('steel')}>Set material / grade</Button>}
+              {/* Non-catalog items are always made — the server refuses anything else. */}
+              {kind === 'catalog' && <Button size="small" variant="outlined" onClick={() => setBulkSection('procurement')}>Set procurement</Button>}
             </>
           ) : (
             <Typography variant="caption" color="text.secondary">You can tick rows, but editing needs the catalog-manage permission.</Typography>
@@ -706,8 +743,8 @@ export const ItemsTab = forwardRef<ItemsTabHandle, {
       ) : rows.length === 0 ? (
         <EmptyState
           icon={<Inventory2Icon />}
-          title={search ? 'No items match your search' : 'Catalog is empty'}
-          action={!search && canManage ? <Button variant="contained" startIcon={<AddIcon />} onClick={onAdd}>Add first item</Button> : undefined}
+          title={search ? 'Nothing matches your search' : EMPTY_TITLE[kind]}
+          action={!search && canManage && onAdd ? <Button variant="contained" startIcon={<AddIcon />} onClick={onAdd}>{kind === 'template' ? 'Add first template part' : 'Add first item'}</Button> : undefined}
         />
       ) : (
         <>
@@ -717,7 +754,7 @@ export const ItemsTab = forwardRef<ItemsTabHandle, {
                 <Box sx={{ width: SELECT_COL_WIDTH, minWidth: SELECT_COL_WIDTH, flex: '0 0 auto', display: 'flex', justifyContent: 'center' }}>
                   <Checkbox size="small" checked={allOnPageSelected} onChange={toggleAll} aria-label="Select all rows on this page" />
                 </Box>
-                {ITEM_COLUMNS.map((col) => (
+                {columns.map((col) => (
                   <Box key={String(col.key)} role="columnheader" sx={{
                     ...col.sx, width: colWidths[col.key as string], minWidth: colWidths[col.key as string],
                     flex: '0 0 auto', boxSizing: 'border-box', display: 'flex', alignItems: 'center', position: 'relative',
@@ -738,7 +775,7 @@ export const ItemsTab = forwardRef<ItemsTabHandle, {
 
               <Box sx={{ display: 'flex', borderBottom: '1px solid var(--c-divider)', bgcolor: 'var(--c-surface-1)', alignItems: 'center' }}>
                 <Box sx={{ width: SELECT_COL_WIDTH, minWidth: SELECT_COL_WIDTH, flex: '0 0 auto' }} />
-                {ITEM_COLUMNS.map((col) => (
+                {columns.map((col) => (
                   <Box key={String(col.key)} sx={{ width: colWidths[col.key as string], minWidth: colWidths[col.key as string], flex: '0 0 auto', boxSizing: 'border-box', px: 1, py: 0.5 }}>
                     <TextField
                       placeholder="Filter…" value={colFilters[col.key as string] ?? ''} size="small" fullWidth variant="standard"

@@ -470,6 +470,12 @@ export interface FabItemCatalog extends FabBase {
   code:          string;
   /** Segment an order row of this item carries in its code; blank = initials of the name. */
   shortCode?:    string | null;
+  /**
+   * 1 = a catalog item (bought, received, stocked across orders). 0 = non-catalog:
+   * a template part (sized only on an order) or a cut plate (`materialForm`
+   * 'blank'). Server-stamped at create — see backend catalogKind.js.
+   */
+  isCataloged?:  number;
   unit:          string | null;
   description:   string | null;
   categoryId?:   number | null;
@@ -556,6 +562,8 @@ export interface FabItemCategory extends FabBase {
   description: string | null;
   shortform: string | null;
   isSystem: number; // 0 | 1
+  /** 0 = items created here start non-catalog (e.g. Fabricated). 1 / unset = catalog. */
+  defaultCataloged?: number;
   // Traceability requirements ("Item Type" level) — items inherit these,
   // overridable per item. 0 | 1.
   batchRequired: number;

@@ -21,7 +21,7 @@ import AddIcon from '@mui/icons-material/Add';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 
 import { fabMutate } from '../../api/client';
-import { createCatalogItem, getCatalogItemUsage, type CatalogItemUsage } from '../../api/catalog';
+import { createCatalogItem, getCatalogItemUsage, isNonCatalog, type CatalogItemUsage, type ItemKind } from '../../api/catalog';
 import { getItemCodeRule, previewItemCode } from '../../api/catalogDetail';
 import type { CodegenSegment } from '../../types';
 import {
@@ -43,13 +43,25 @@ const initialsOf = (name: string): string => {
   return m ? `${head}/${m[2].trim()[0]?.toUpperCase() ?? ''}` : head;
 };
 
-export function CatalogDialog({ open, initial, categories, groups, subgroups, canManageTaxonomy, onClose, onSaved, refetchTaxonomy }: {
+export function CatalogDialog({ open, initial, kind = 'catalog', categories: allCategories, groups, subgroups, canManageTaxonomy, onClose, onSaved, refetchTaxonomy }: {
   open: boolean; initial: FabItemCatalog | null;
+  /** Which tab asked for a NEW item. An existing item keeps its own kind. */
+  kind?: ItemKind;
   categories: FabItemCategory[]; groups: FabItemGroup[]; subgroups: FabItemSubgroup[];
   canManageTaxonomy: boolean; onClose: () => void; onSaved: (code?: string) => void;
   refetchTaxonomy: () => Promise<void>;
 }) {
   const isNew = !initial;
+  // A template part is filed only under a category whose items start
+  // non-catalog (Fabricated), and a catalog item never is — so this dialog
+  // cannot quietly file steel under Fabricated or a girder part under Raw
+  // Materials. The server stamps the flag from the category it lands in.
+  const isTemplate = initial ? isNonCatalog(initial) : kind === 'template';
+  const categories = useMemo(
+    () => allCategories.filter((c) => (Number(c.defaultCataloged ?? 1) === 0) === isTemplate
+      || (initial != null && c.id === initial.categoryId)),
+    [allCategories, isTemplate, initial],
+  );
   const [draft,  setDraft]  = useState<ItemDraft>(BLANK_ITEM());
   const [saving, setSaving] = useState(false);
   const [err,    setErr]    = useState('');
@@ -214,7 +226,7 @@ export function CatalogDialog({ open, initial, categories, groups, subgroups, ca
   return (
     <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
       <DialogCloseButton absolute onClose={() => onClose()} />
-      <DialogTitle>{isNew ? 'Add Catalog Item' : `Edit — ${initial?.name}`}</DialogTitle>
+      <DialogTitle>{isNew ? (isTemplate ? 'Add template part' : 'Add catalog item') : `Edit — ${initial?.name}`}</DialogTitle>
       <DialogContent dividers sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
         {err && <Alert severity="error">{err}</Alert>}
         <Box sx={{ display: 'flex', gap: 2 }}>
@@ -277,7 +289,9 @@ export function CatalogDialog({ open, initial, categories, groups, subgroups, ca
           onAddNew={canManageTaxonomy ? (level) => setAddingLevel(level) : undefined}
         />
 
-        {/* BUG-05: make-vs-buy + MRP policy, so a manufactured item isn't silently stored as 'buy'. */}
+        {/* BUG-05: make-vs-buy + MRP policy, so a manufactured item isn't silently stored as 'buy'.
+            Not shown for a template part: it is always made (the server forces it). */}
+        {!isTemplate && (
         <Box sx={{ display: 'flex', gap: 2 }}>
           <TextField select label="Procurement type" size="small" sx={{ flex: 1 }}
             value={draft.procurementType} onChange={(e) => set('procurementType', e.target.value)}
@@ -289,6 +303,7 @@ export function CatalogDialog({ open, initial, categories, groups, subgroups, ca
             {MRP_POLICIES.map((mp) => <MenuItem key={mp.value} value={mp.value}>{mp.label}</MenuItem>)}
           </TextField>
         </Box>
+        )}
         {addingLevel === 'category' && (
           <TaxonomyAddForm level="category" categories={categories} groups={groups}
             onCancel={() => setAddingLevel(null)} onCreated={(id) => handleTaxonomyCreated('category', id)} />
