@@ -10,9 +10,9 @@
  * Sub-group) rather than three flat tabs, and the Marks tab is gone — the
  * mark-scheme panel that consumed it is no longer mounted anywhere.
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Alert, Box, Button, Tab, Tabs } from '@mui/material';
+import { Alert, Box, Button, Tab, Tabs, Typography } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 
 import { fabQuery } from '../../api/client';
@@ -79,10 +79,13 @@ export default function ItemCatalog() {
   const pageTab: PageTab = (TABS as readonly string[]).includes(params.get('tab') ?? '') ? params.get('tab') as PageTab : 'catalog';
   const ncList: NonCatalogList = params.get('list') === 'cutplate' ? 'cutplate' : 'template';
   const listKind: ItemKind = pageTab === 'non-catalog' ? ncList : 'catalog';
-  const go = (tab: PageTab, list?: NonCatalogList) => {
+  /** Which half of the taxonomy the Taxonomy tab shows (`?kind=non-catalog`). */
+  const taxKind: 'catalog' | 'non-catalog' = params.get('kind') === 'non-catalog' ? 'non-catalog' : 'catalog';
+  const go = (tab: PageTab, list?: NonCatalogList, kind?: 'catalog' | 'non-catalog') => {
     const next = new URLSearchParams();
     if (tab !== 'catalog') next.set('tab', tab);
     if (tab === 'non-catalog' && list === 'cutplate') next.set('list', 'cutplate');
+    if (tab === 'taxonomy' && kind === 'non-catalog') next.set('kind', 'non-catalog');
     setParams(next, { replace: true });
   };
   const [error, setError] = useState('');
@@ -98,6 +101,11 @@ export default function ItemCatalog() {
   const [categories, setCategories] = useState<FabItemCategory[]>([]);
   const [groups,     setGroups]     = useState<FabItemGroup[]>([]);
   const [subgroups,  setSubgroups]  = useState<FabItemSubgroup[]>([]);
+  /** The Taxonomy tab's half: categories whose new items start catalog, or non-catalog. */
+  const taxCategories = useMemo(
+    () => categories.filter((c) => (Number(c.defaultCataloged ?? 1) === 0) === (taxKind === 'non-catalog')),
+    [categories, taxKind],
+  );
   /** Items per node, for the tree's "N items". Null until the first fetch lands. */
   const [counts, setCounts] = useState<TaxonomyCounts | null>(null);
 
@@ -141,20 +149,11 @@ export default function ItemCatalog() {
   return (
     <Box>
       <PageHeader
-        title="Item Catalog"
+        title="Items"
         subtitle="Catalog items are bought and stocked. Non-catalog items are templates and cut plates, made on an order."
-        actions={pageTab !== 'taxonomy' && canManage && addLabel ? (
-          <Box sx={{ display: 'flex', gap: 1 }}>
-            {/* The import sheet is for catalog items; the server skips any code that belongs to a template or cut plate. */}
-            {listKind === 'catalog' && <ImporterControls onImported={refreshItems} />}
-            <Button variant="contained" startIcon={<AddIcon />} onClick={() => setDlg({ open: true, item: null })}>
-              {addLabel}
-            </Button>
-          </Box>
-        ) : undefined}
       />
 
-      <Tabs value={pageTab} onChange={(_, v: PageTab) => go(v)} sx={{ mb: 3, borderBottom: '1px solid var(--c-divider)' }}>
+      <Tabs value={pageTab} onChange={(_, v: PageTab) => go(v)} sx={{ mb: 2, borderBottom: '1px solid var(--c-divider)' }}>
         <Tab value="catalog" label={tabLabel('Catalog', INFO_CATALOG)} />
         <Tab value="non-catalog" label={tabLabel('Non-catalog', INFO_NON_CATALOG)} />
         <Tab value="taxonomy" label={tabLabel('Taxonomy', INFO_TAXONOMY)} />
@@ -162,10 +161,38 @@ export default function ItemCatalog() {
 
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
-      {pageTab === 'non-catalog' && (
+      {/*
+        THE TAB'S OWN BAR, under the tab row: what this list is (Non-catalog's
+        Templates / Cut plates), and what you can add to IT. The Add button used
+        to sit in the page header, where it read as belonging to the page rather
+        than to the list you were looking at.
+      */}
+      {pageTab !== 'taxonomy' && (
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2, flexWrap: 'wrap' }}>
+          {pageTab === 'non-catalog' && (
+            <>
+              <FacetChip label="Templates" active={ncList === 'template'} onClick={() => go('non-catalog', 'template')} />
+              <FacetChip label="Cut plates" active={ncList === 'cutplate'} onClick={() => go('non-catalog', 'cutplate')} />
+            </>
+          )}
+          <Box sx={{ flex: 1 }} />
+          {canManage && listKind === 'catalog' && <ImporterControls onImported={refreshItems} />}
+          {canManage && addLabel && (
+            <Button variant="contained" startIcon={<AddIcon />} onClick={() => setDlg({ open: true, item: null })}>
+              {addLabel}
+            </Button>
+          )}
+          {listKind === 'cutplate' && (
+            <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-3)' }}>Cut plates are made by nesting an order — nothing to add here.</Typography>
+          )}
+        </Box>
+      )}
+
+      {/* The taxonomy, split the same way: catalog categories, or the non-catalog ones (Fabricated, Cut Plates). */}
+      {pageTab === 'taxonomy' && (
         <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
-          <FacetChip label="Templates" active={ncList === 'template'} onClick={() => go('non-catalog', 'template')} />
-          <FacetChip label="Cut plates" active={ncList === 'cutplate'} onClick={() => go('non-catalog', 'cutplate')} />
+          <FacetChip label="Catalog categories" active={taxKind === 'catalog'} onClick={() => go('taxonomy', undefined, 'catalog')} />
+          <FacetChip label="Non-catalog categories" active={taxKind === 'non-catalog'} onClick={() => go('taxonomy', undefined, 'non-catalog')} />
         </Box>
       )}
 
@@ -186,7 +213,7 @@ export default function ItemCatalog() {
 
       {pageTab === 'taxonomy' && (
         <TaxonomyTree
-          categories={categories} groups={groups} subgroups={subgroups}
+          categories={taxCategories} groups={groups} subgroups={subgroups}
           counts={counts}
           canEdit={canManageTaxonomy}
           onNodeClick={(level, entity) => setTaxonomyDetail({ level, entity })}
@@ -227,7 +254,8 @@ export default function ItemCatalog() {
       <AddTaxonomyDialog
         open={addTaxonomy !== null}
         level={addTaxonomy?.level ?? 'category'}
-        categories={categories}
+        categories={taxCategories}
+        nonCatalog={taxKind === 'non-catalog'}
         groups={groups}
         defaultCategoryId={addTaxonomy?.categoryId ?? null}
         defaultGroupId={addTaxonomy?.groupId ?? null}

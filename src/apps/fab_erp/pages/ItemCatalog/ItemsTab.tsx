@@ -301,6 +301,21 @@ export const ItemsTab = forwardRef<ItemsTabHandle, {
     getCatalogFacets(kind).then(setFacets).catch(() => { /* the dropdowns just show no counts */ });
   }, [kind]);
   useEffect(() => { loadFacets(); }, [loadFacets]);
+  /*
+   * THIS TAB'S TAXONOMY ONLY. The Catalog and Non-catalog lists each offer the
+   * categories, groups and sub-groups that actually hold items of their kind
+   * (from this list's own facet counts), not the whole tree — a girder family
+   * in the Catalog filter would lead to an empty list.
+   */
+  const kindTaxonomy = useMemo(() => {
+    if (!facets) return { categories, groups, subgroups };
+    const has = (o: Record<string, number>, id: number) => (o[String(id)] ?? 0) > 0;
+    return {
+      categories: categories.filter((c) => has(facets.category, c.id)),
+      groups: groups.filter((g) => has(facets.group, g.id)),
+      subgroups: subgroups.filter((sg) => has(facets.subgroup, sg.id)),
+    };
+  }, [facets, categories, groups, subgroups]);
   const taxonomyCounts = useMemo(() => {
     if (!facets) return undefined;
     const toMap = (o: Record<string, number>) => new Map(Object.entries(o).map(([k, v]) => [Number(k), v]));
@@ -683,7 +698,7 @@ export const ItemsTab = forwardRef<ItemsTabHandle, {
         </>)}
         <Box sx={{ width: 420 }}>
           <TaxonomyPicker
-            categories={categories} groups={groups} subgroups={subgroups}
+            categories={kindTaxonomy.categories} groups={kindTaxonomy.groups} subgroups={kindTaxonomy.subgroups}
             value={taxonomy} onChange={(next) => { setUncategorized(false); setTaxonomy(next); }}
             disabled={uncategorized} emptyLabel="All" counts={taxonomyCounts}
             labels={{ category: 'Category', group: 'Group', subgroup: 'Sub-group' }}

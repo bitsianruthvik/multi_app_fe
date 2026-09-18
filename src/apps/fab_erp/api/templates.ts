@@ -283,6 +283,15 @@ export const saveItemBomLine = (line: {
   pick?: PickFilterInput | null;
 }) => fabPost<{ ok: boolean }>('item-bom', line as unknown as Record<string, unknown>);
 
+/**
+ * POST /item-bom/:id/copy — copy a line as a NEW part right below it
+ * ("Top Flange (copy)", with the same flow, code segment, sizes and — for an
+ * assembly — the same lines under it). A catalog child copies as a second
+ * line of the same item (`newPart: false`).
+ */
+export const copyItemBomLine = (lineId: number) =>
+  fabPost<{ ok: boolean; lineId: number; itemId: number; name: string; newPart: boolean }>(`item-bom/${lineId}/copy`, {});
+
 /** DELETE /item-bom/:id — remove a line. The child item itself is untouched. */
 export const deleteItemBomLine = (id: number) =>
   fabDel<{ ok: boolean }>(`item-bom/${id}`);

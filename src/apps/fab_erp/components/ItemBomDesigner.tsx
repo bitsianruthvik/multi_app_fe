@@ -55,13 +55,13 @@ import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import EditIcon from '@mui/icons-material/Edit';
 
 import {
-  getItemBomTree, saveItemBomLine, deleteItemBomLine, pickLabel,
+  getItemBomTree, saveItemBomLine, deleteItemBomLine, copyItemBomLine, pickLabel,
   type ItemBomNode, type PickFilterInput,
 } from '../api/templates';
 import { PickFilterFields, PickFilterDialog } from './PickFilterFields';
 import { EMPTY_PICK, pickInputOf, type PickDraft } from './pickFilter';
 import { listCatalogItems, createCatalogItem, type CatalogItemRow } from '../api/catalog';
-import { fabQuery } from '../api/client';
+import { fabQuery, fabMutate } from '../api/client';
 import { backendMessage } from '../components';
 import { PROCUREMENT_TYPES } from '../pages/ItemCatalog/shared';
 import TreeEditor from './TreeEditor/TreeEditor';
@@ -266,6 +266,10 @@ export default function ItemBomDesigner({
   const [qtySaving, setQtySaving] = useState(false);
   const [qtyError, setQtyError] = useState<string | null>(null);
   /** The row whose pick filter is being set or changed. */
+  /** A part Copy just made — named straight away ("(copy)" is never the name). */
+  const [renameCopy, setRenameCopy] = useState<{ itemId: number; name: string } | null>(null);
+  const [renameBusy, setRenameBusy] = useState(false);
+  const [renameErr, setRenameErr] = useState<string | null>(null);
   const [pickEdit, setPickEdit] = useState<{ node: ItemBomNode; parentItemId: number } | null>(null);
   const pickTaxonomy = useMemo(() => ({ categories, groups: taxonomy.groups, subgroups: taxonomy.subgroups }), [categories, taxonomy]);
 
@@ -394,23 +398,21 @@ export default function ItemBomDesigner({
    * default — the backend gap this file works around (see header) means its
    * question name cannot be read back to give the copy the same one.
    */
-  const duplicate = useCallback(async (node: ItemBomNode, parentItemId: number, at: number) => {
+  /**
+   * COPY A LINE → A NEW PART, right below it (templateCopyService): "Top
+   * Flange (copy)" with the same flow, code segment, sizes and, for an
+   * assembly, the same lines under it. It used to add a second line naming
+   * the SAME part — identical on screen, so Copy looked like it did nothing.
+   * The new part is named straight away, because "(copy)" is never the name.
+   */
+  const duplicate = useCallback(async (node: ItemBomNode) => {
+    if (!node.bomLineId) return;
     setBusy(true);
     setError(null);
     try {
-      await saveItemBomLine({
-        id: null,
-        parentItemId,
-        childItemId: node.catalogItemId,
-        qtyNum: node.qty,
-        qtyParam: null,
-        codeSegment: node.codeSegment,
-        defaultFlowId: node.defaultFlowId,
-        sortOrder: at + 1,
-        // A copied pick line is still a pick line, with the same filter.
-        ...(node.pick ? { pick: pickInputOfNode(node) } : {}),
-      });
+      const res = await copyItemBomLine(node.bomLineId);
       await load();
+      if (res.newPart) setRenameCopy({ itemId: res.itemId, name: res.name });
     } catch (err) {
       setError(backendMessage(err, 'That line could not be copied.'));
     } finally {
@@ -457,7 +459,7 @@ export default function ItemBomDesigner({
   interface Ctx { flows: { id: number; name: string }[]; busy: boolean; canEdit: boolean }
   const ctx: Ctx = { flows, busy, canEdit };
 
-  const renderRow = useCallback(({ node, depth, hasKids, index }: RowMeta<ItemBomNode, Ctx>) => {
+  const renderRow = useCallback(({ node, depth, hasKids }: RowMeta<ItemBomNode, Ctx>) => {
     const parentItemId = parentOf.get(node.key) ?? 0;
     const isRoot = depth === 0;
     const isLeaf = !hasKids;
@@ -717,7 +719,7 @@ export default function ItemBomDesigner({
               <>
                 <Tooltip title="Copy this line">
                   <IconButton size="small" disabled={busy} aria-label={`Copy ${node.name}`}
-                    onClick={() => void duplicate(node, parentItemId, index)}>
+                    onClick={() => void duplicate(node)}>
                     <ContentCopyIcon fontSize="small" />
                   </IconButton>
                 </Tooltip>
@@ -786,6 +788,33 @@ export default function ItemBomDesigner({
           something the order should confirm.
         </Alert>
       )}
+
+      {/* ── name the part Copy just made ─────────────────────────────────── */}
+      <Dialog open={!!renameCopy} onClose={() => setRenameCopy(null)} maxWidth="xs" fullWidth>
+        <DialogTitle sx={{ fontSize: 16 }}>Name the copy</DialogTitle>
+        <DialogContent>
+          {renameErr && <Alert severity="warning" sx={{ mb: 2 }}>{renameErr}</Alert>}
+          <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)', mb: 1.5 }}>
+            A new part was added right below the original, with the same flow, code and sizes. Give it its own name, then change what differs on its row.
+          </Typography>
+          <TextField autoFocus fullWidth size="small" label="Part name" value={renameCopy?.name ?? ''}
+            onChange={(e) => setRenameCopy((r) => (r ? { ...r, name: e.target.value } : r))} />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setRenameCopy(null)}>Keep this name</Button>
+          <Button variant="contained" disabled={renameBusy || !renameCopy?.name.trim()} onClick={async () => {
+            if (!renameCopy) return;
+            setRenameBusy(true); setRenameErr(null);
+            try {
+              await fabMutate('fabErpItemCatalog', 'update', { id: renameCopy.itemId, name: renameCopy.name.trim() });
+              setRenameCopy(null);
+              await load();
+            } catch (err) {
+              setRenameErr(backendMessage(err, 'That name could not be saved.'));
+            } finally { setRenameBusy(false); }
+          }}>{renameBusy ? 'Saving…' : 'Save name'}</Button>
+        </DialogActions>
+      </Dialog>
 
       {/* ── what a row lets the order pick ─────────────────────────────────── */}
       <PickFilterDialog

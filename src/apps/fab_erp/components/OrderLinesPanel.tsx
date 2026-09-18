@@ -503,9 +503,8 @@ export default function OrderLinesPanel({
 
           {sellableLoaded && sellable.length === 0 && (
             <Alert severity="warning" sx={{ mb: 1.5 }}>
-              Nothing is set up to sell yet. A line is picked from the catalog's finished structures —
-              an item under a "Fabricated" category, or any item that heads a bill of materials. Add one
-              in the Item Catalog first.
+              Nothing is set up to sell yet. A line starts from a template — a non-catalog item with a
+              bill of materials (Items › Non-catalog › Templates), released at least once. Add one there first.
             </Alert>
           )}
 
@@ -604,10 +603,10 @@ export default function OrderLinesPanel({
                 Type a name or code. The list is what this shop sells: anything under <b>Fabricated</b>, or any
                 item that has a bill of materials — a whole span or a single girder alike. Not here?{' '}
                 <MuiLink
-                  href={`/${localStorage.getItem('companySlug')}/fab_erp/item-catalog`}
+                  href={`/${localStorage.getItem('companySlug')}/fab_erp/item-catalog?tab=non-catalog`}
                   target="_blank" rel="noopener"
                 >
-                  Add it in the Item catalog
+                  Add it under Items › Non-catalog
                 </MuiLink>
                 , then pick it here.
               </span>

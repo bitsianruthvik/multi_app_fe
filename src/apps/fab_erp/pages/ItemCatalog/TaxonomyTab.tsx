@@ -116,9 +116,11 @@ function autoCodeLocal(name: string): string {
 
 // ── AddTaxonomyDialog (standalone modal for tab Add buttons) ──────────────────
 
-export function AddTaxonomyDialog({ open, level, categories, groups, defaultCategoryId, defaultGroupId, onClose, onCreated }: {
+export function AddTaxonomyDialog({ open, level, categories, groups, defaultCategoryId, defaultGroupId, nonCatalog = false, onClose, onCreated }: {
   open: boolean;
   level: TaxonomyLevel;
+  /** A CATEGORY added from the Non-catalog view starts non-catalog: items created in it are templates. */
+  nonCatalog?: boolean;
   categories: FabItemCategory[];
   groups: FabItemGroup[];
   /** Pre-selected parents when opened from a "+ group" / "+ sub-group" on the tree. */
@@ -173,6 +175,7 @@ export function AddTaxonomyDialog({ open, level, categories, groups, defaultCate
         shortform: shortform.trim() || null,
       };
       let resource = 'fabErpItemCategory';
+      if (level === 'category') payload.default_cataloged = nonCatalog ? 0 : 1;
       if (level === 'group')    { resource = 'fabErpItemGroup';    payload.category_id = categoryId; }
       if (level === 'subgroup') { resource = 'fabErpItemSubgroup'; payload.group_id    = groupId; }
 

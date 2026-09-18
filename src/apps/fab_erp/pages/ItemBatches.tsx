@@ -842,7 +842,7 @@ export default function ItemBatches() {
           </Link>
           {' · '}
           <Link component={RouterLink} to={`/${company}/fab_erp/item-catalog`} sx={{ color: 'var(--c-primary-700)' }}>
-            Back to Item Catalog
+            Back to Items
           </Link>
         </Box>
       )}

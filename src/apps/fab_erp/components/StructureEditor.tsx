@@ -1258,7 +1258,7 @@ export default function StructureEditor({
         <Alert severity="info" sx={{ mb: 2 }}>
           {source === 'current'
             ? 'Nothing is built on this line yet. Use "Rebuild from the bill of materials" to take the catalogue’s recipe.'
-            : 'This item’s recipe is empty — add lines to its bill of materials first (Item Catalog › this item › BOM).'}
+            : 'This item’s recipe is empty — add lines to its bill of materials first (Items › this template › Bill of Materials).'}
         </Alert>
       )}
 

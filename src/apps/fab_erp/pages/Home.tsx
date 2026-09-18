@@ -198,7 +198,7 @@ export default function Home() {
       <WorkQueueCard
         key="items"
         icon={<Inventory2Rounded />}
-        title="Item catalog"
+        title="Items"
         count={k.items ?? 0}
         unit={k.items === 1 ? "part defined" : "parts defined"}
         description="Maintain items, BOMs and flows — the model scheduling burns."
