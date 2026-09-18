@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert, Autocomplete, Box, Button, Checkbox, CircularProgress, Dialog, DialogActions,
   DialogContent, DialogTitle, IconButton, MenuItem, TextField, Tooltip, Typography,
@@ -22,9 +22,11 @@ import type { RowMeta } from './TreeEditor/TreeNode';
 import { countPieces, countRows, leaves, newTreeKey, unanswered, useTree } from '../hooks/useTree';
 import {
   getDraftTree, getCurrentTree, buildStructure, applyStructure, getPickableItems,
-  syncOrderFlows, setOrderFlows,
+  syncOrderFlows, setOrderFlows, getPickCandidates, pickLabel,
   type DraftNode, type DraftNodeData, type PickableItem, type QtyRequiredRow,
+  type PickCandidate, type PickFilter,
 } from '../api/templates';
+import { pickFilterKey } from './pickFilter';
 import type { OrderReadiness } from '../api/readiness';
 import { createCatalogItem } from '../api/catalog';
 import { codeRangeLabel } from '../utils/codeRange';
@@ -508,6 +510,22 @@ export default function StructureEditor({
     t.update(key, { defaultFlowId: flowId });
   }, [t]);
 
+  /**
+   * CHOOSE THE ITEM ON A PICK ROW ("which stiffener"). The row keeps its name,
+   * code and flow — it is the role — and becomes the chosen catalog item. Its
+   * make/buy follows the item (a picked stud is bought, a stiffener made), and
+   * its thickness and width are the item's: the server writes those on save.
+   */
+  const setPick = useCallback((key: string, item: PickCandidate | null) => {
+    t.update(key, (n) => ({
+      ...n,
+      catalogItemId: item ? item.id : null,
+      pickedName: item?.name ?? null,
+      catalogCode: item?.code ?? null,
+      procurementType: item?.procurementType ?? 'make',
+    }));
+  }, [t]);
+
   const setDim = useCallback((key: string, field: string, raw: string) => {
     t.update(key, (n) => ({ ...n, dims: { ...(n.dims ?? {}), [field]: raw } }));
   }, [t]);
@@ -690,6 +708,49 @@ export default function StructureEditor({
     });
     setLastClicked(key);
   }, [lastClicked, visibleOrder]);
+
+  // ── pick rows: what each may be filled with, and "fill all of this role" ──
+  /** Each pick filter's candidates, loaded once per filter (the server's own list). */
+  const [pickOptions, setPickOptions] = useState<Record<string, PickCandidate[]>>({});
+  const requestedFilters = useRef<Set<string>>(new Set());
+  const pickRoles = useMemo(() => {
+    const byRole = new Map<number, { roleItemId: number; name: string; pick: PickFilter; keys: string[]; open: number }>();
+    const walk = (n: DraftNode) => {
+      if (n.pick && n.roleItemId != null) {
+        const e = byRole.get(n.roleItemId) ?? { roleItemId: n.roleItemId, name: n.name, pick: n.pick, keys: [], open: 0 };
+        e.keys.push(n.key);
+        if (n.catalogItemId == null) e.open += 1;
+        byRole.set(n.roleItemId, e);
+      }
+      n.children.forEach(walk);
+    };
+    t.tree?.children.forEach(walk);
+    return [...byRole.values()];
+  }, [t.tree]);
+  useEffect(() => {
+    for (const r of pickRoles) {
+      const k = pickFilterKey(r.pick);
+      if (requestedFilters.current.has(k)) continue;
+      requestedFilters.current.add(k);
+      getPickCandidates(r.pick)
+        .then((res) => setPickOptions((o) => ({ ...o, [k]: res.items ?? [] })))
+        .catch(() => { requestedFilters.current.delete(k); });
+    }
+  }, [pickRoles]);
+  const [bulkRole, setBulkRole] = useState<'' | number>('');
+  const [bulkPickItem, setBulkPickItem] = useState<'' | number>('');
+  const bulkRoleEntry = useMemo(() => pickRoles.find((r) => r.roleItemId === bulkRole) ?? null, [pickRoles, bulkRole]);
+  const bulkRoleOptions = useMemo(
+    () => (bulkRoleEntry ? (pickOptions[pickFilterKey(bulkRoleEntry.pick)] ?? []) : []),
+    [bulkRoleEntry, pickOptions],
+  );
+  const fillRole = useCallback(() => {
+    if (!bulkRoleEntry || bulkPickItem === '') return;
+    const item = bulkRoleOptions.find((o) => o.id === bulkPickItem) ?? null;
+    if (!item) return;
+    for (const key of bulkRoleEntry.keys) setPick(key, item);
+    toast(`${bulkRoleEntry.keys.length} × ${bulkRoleEntry.name} set to ${item.name}`);
+  }, [bulkRoleEntry, bulkPickItem, bulkRoleOptions, setPick, toast]);
 
   const [bulkFlow, setBulkFlow] = useState<'' | number>('');
   const [bulkBusy, setBulkBusy] = useState(false);
@@ -922,6 +983,55 @@ export default function StructureEditor({
         */}
         {hasKids ? (
           <Box sx={{ width: 204, flexShrink: 0 }} />
+        ) : node.pick ? (
+          /*
+            A PICK ROW: the item is chosen here, where thickness and width would
+            be — those ARE the item's (a "Stiffener Plate 12 × 170"). Only the
+            length is the design's, and only for something made. Empty is
+            outlined like a missing size: readiness will not confirm without it.
+          */
+          (() => {
+            const opts = pickOptions[pickFilterKey(node.pick)] ?? [];
+            const unchosen = node.catalogItemId == null;
+            const made = (node.procurementType ?? 'make') === 'make';
+            return (
+              <Box sx={{ display: 'flex', gap: 0.5, flexShrink: 0, width: 204, alignItems: 'center' }}>
+                <TextField
+                  select size="small" variant="standard"
+                  value={node.catalogItemId ?? ''}
+                  onChange={(e) => setPick(node.key, opts.find((o) => o.id === Number(e.target.value)) ?? null)}
+                  sx={{
+                    width: made ? 136 : 204, flexShrink: 0,
+                    '& .MuiInputBase-root': {
+                      fontSize: 11.5, height: 28, px: 0.75, borderRadius: 'var(--r-sm)',
+                      border: `1px solid ${unchosen ? 'var(--c-danger-300, #e8a0a0)' : 'var(--c-border)'}`,
+                      background: unchosen ? 'var(--c-danger-50)' : undefined,
+                    },
+                    '& .MuiSelect-select': { py: 0, display: 'flex', alignItems: 'center', minHeight: 'unset !important' },
+                  }}
+                  slotProps={{ input: { disableUnderline: true } }}
+                  SelectProps={{ displayEmpty: true }}
+                  inputProps={{ 'aria-label': `Choose the item for ${node.name}` }}
+                >
+                  <MenuItem value=""><em>Choose from {pickLabel(node.pick)}…</em></MenuItem>
+                  {node.catalogItemId != null && !opts.some((o) => o.id === node.catalogItemId) && (
+                    <MenuItem value={node.catalogItemId}>{node.pickedName ?? node.catalogCode ?? `#${node.catalogItemId}`}</MenuItem>
+                  )}
+                  {opts.map((o) => <MenuItem key={o.id} value={o.id} sx={{ fontSize: 12.5 }}>{o.name}</MenuItem>)}
+                </TextField>
+                {made && (
+                  <InlineNumber
+                    value={node.dims?.length_mm}
+                    placeholder="len"
+                    onChange={(raw) => setDim(node.key, 'length_mm', raw)}
+                    missing={!unchosen && (node.dims?.length_mm == null || node.dims?.length_mm === '')}
+                    width={64}
+                    ariaLabel={`Length (mm) for ${node.name}`}
+                  />
+                )}
+              </Box>
+            );
+          })()
         ) : node.procurementType === 'buy' || node.procurementType === 'free_issue' ? (
           // BOUGHT IN, NOT CUT: a stud or a bolt has a catalogue size and no
           // rectangle to nest — three size boxes here would be three questions
@@ -1029,7 +1139,7 @@ export default function StructureEditor({
         </Box>
       </>
     );
-  }, [copy, remove, selected, setDim, setFlow, setQty, toggleSelect, flows, codePrefix, steel, lineSteel]);
+  }, [copy, remove, selected, setDim, setFlow, setQty, toggleSelect, flows, codePrefix, steel, lineSteel, pickOptions, setPick]);
 
   /**
    * THE "ADD UNDER" PANEL, one for any node INCLUDING THE ROOT. The root is
@@ -1240,6 +1350,41 @@ export default function StructureEditor({
             <Tooltip title="Tick every made part — then give them all a flow or a steel from the bar that appears">
               <Button size="small" onClick={selectAllLeaves}>Select all leaves</Button>
             </Tooltip>
+            {/*
+              FILL EVERY ROW OF ONE ROLE AT ONCE — "every Intermediate Stiffener
+              on this order is 12 × 170". Picks on a big order are dozens of the
+              same answer; this is one.
+            */}
+            {pickRoles.length > 0 && (
+              <>
+                <Box sx={{ width: '1px', alignSelf: 'stretch', bgcolor: 'var(--c-divider)', mx: 0.5 }} />
+                <TextField
+                  select size="small" value={bulkRole}
+                  onChange={(e) => { setBulkRole(e.target.value === '' ? '' : Number(e.target.value)); setBulkPickItem(''); }}
+                  sx={{ width: 190 }}
+                  SelectProps={{ displayEmpty: true }}
+                  inputProps={{ 'aria-label': 'Rows to fill' }}
+                >
+                  <MenuItem value=""><em>Fill every…</em></MenuItem>
+                  {pickRoles.map((r) => (
+                    <MenuItem key={r.roleItemId} value={r.roleItemId}>
+                      {r.name} ({r.keys.length}{r.open ? `, ${r.open} to choose` : ''})
+                    </MenuItem>
+                  ))}
+                </TextField>
+                <TextField
+                  select size="small" value={bulkPickItem} disabled={!bulkRoleEntry}
+                  onChange={(e) => setBulkPickItem(e.target.value === '' ? '' : Number(e.target.value))}
+                  sx={{ width: 190 }}
+                  SelectProps={{ displayEmpty: true }}
+                  inputProps={{ 'aria-label': 'Item to fill them with' }}
+                >
+                  <MenuItem value=""><em>{bulkRoleEntry ? `with ${pickLabel(bulkRoleEntry.pick)}…` : 'with…'}</em></MenuItem>
+                  {bulkRoleOptions.map((o) => <MenuItem key={o.id} value={o.id}>{o.name}</MenuItem>)}
+                </TextField>
+                <Button size="small" disabled={!bulkRoleEntry || bulkPickItem === ''} onClick={fillRole}>Fill</Button>
+              </>
+            )}
             {source === 'current' && (
               <Tooltip title="A default flow belongs to the BOM LINE, not the item — this re-pulls each part's line default, touching only parts that still have none.">
                 <span>

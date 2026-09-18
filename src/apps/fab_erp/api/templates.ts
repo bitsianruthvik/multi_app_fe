@@ -200,7 +200,53 @@ export interface ItemBomNodeData {
   procurementType?: string;
   /** Sizes the recipe states. Absent keys mean it states none. */
   dims?: Record<string, number | string | null>;
+  /**
+   * Set on a PICK line: the order chooses one catalog item inside this filter
+   * ("any Plate Stiffener"). `catalogItemId` stays the line's own child — the
+   * ROLE (its name, code segment and flow). Null on an ordinary line.
+   */
+  pick?: PickFilter | null;
 }
+
+/**
+ * A pick line's filter: the catalog items an order may fill the line with.
+ * Names ride along from the server so a chip can read "Plate Stiffeners"
+ * without a lookup.
+ */
+export interface PickFilter {
+  categoryId: number;
+  groupId: number | null;
+  subgroupId: number | null;
+  defaultItemId: number | null;
+  categoryName?: string | null;
+  groupName?: string | null;
+  subgroupName?: string | null;
+  defaultItemName?: string | null;
+}
+
+/** The part of a filter that is written — names are the server's to fill. */
+export type PickFilterInput = Pick<PickFilter, 'categoryId' | 'groupId' | 'subgroupId' | 'defaultItemId'>;
+
+export interface PickCandidate {
+  id: number;
+  code: string;
+  name: string;
+  unit: string | null;
+  thicknessMm: number | string | null;
+  procurementType: string | null;
+}
+
+/** GET /catalog/pick-candidates — the catalog items a filter allows (what the server will accept). */
+export const getPickCandidates = (filter: { categoryId: number; groupId?: number | null; subgroupId?: number | null }, q?: string) =>
+  fabGet<{ items: PickCandidate[] }>('catalog/pick-candidates', {
+    categoryId: filter.categoryId,
+    ...(filter.groupId != null ? { groupId: filter.groupId } : {}),
+    ...(filter.subgroupId != null ? { subgroupId: filter.subgroupId } : {}),
+    ...(q ? { q } : {}),
+  });
+
+/** "Plate Stiffeners" — the narrowest name a filter has. */
+export const pickLabel = (p: PickFilter) => p.subgroupName ?? p.groupName ?? p.categoryName ?? 'catalog items';
 
 export type ItemBomNode = TreeNode<ItemBomNodeData>;
 
@@ -233,6 +279,8 @@ export const saveItemBomLine = (line: {
   /** Omitted means "leave it as it is" — `setBomLine` reads the prior value back itself. */
   explode?: boolean;
   codeJoin?: 'dash' | 'absorb' | null;
+  /** A pick line's filter. Omitted = leave as it is; null = an ordinary line again. */
+  pick?: PickFilterInput | null;
 }) => fabPost<{ ok: boolean }>('item-bom', line as unknown as Record<string, unknown>);
 
 /** DELETE /item-bom/:id — remove a line. The child item itself is untouched. */
@@ -274,7 +322,17 @@ export interface DraftNodeData {
    * tree read from a BOM.
    */
   itemId?: number | null;
-  catalogItemId: number;
+  /**
+   * The catalog item this row IS. Null only on a pick row nobody has chosen an
+   * item for yet — readiness refuses Confirm until somebody does.
+   */
+  catalogItemId: number | null;
+  /** On a pick row: the template part it fills (name, code segment, flow). */
+  roleItemId?: number | null;
+  /** On a pick row: which catalog items may fill it. */
+  pick?: PickFilter | null;
+  /** On a pick row the draft filled in: the chosen item's name. */
+  pickedName?: string | null;
   name: string;
   unit: string | null;
   /**

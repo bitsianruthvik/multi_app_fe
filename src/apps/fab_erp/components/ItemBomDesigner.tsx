@@ -55,9 +55,11 @@ import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import EditIcon from '@mui/icons-material/Edit';
 
 import {
-  getItemBomTree, saveItemBomLine, deleteItemBomLine,
-  type ItemBomNode,
+  getItemBomTree, saveItemBomLine, deleteItemBomLine, pickLabel,
+  type ItemBomNode, type PickFilterInput,
 } from '../api/templates';
+import { PickFilterFields, PickFilterDialog } from './PickFilterFields';
+import { EMPTY_PICK, pickInputOf, type PickDraft } from './pickFilter';
 import { listCatalogItems, createCatalogItem, type CatalogItemRow } from '../api/catalog';
 import { fabQuery } from '../api/client';
 import { backendMessage } from '../components';
@@ -95,7 +97,15 @@ interface Draft {
   qtyParam: string;
   defaultQty: string;
   sortOrder: number;
+  /** A pick line: the child is the role, and each order chooses the item from `pick`. */
+  isPick: boolean;
+  pick: PickDraft;
 }
+
+/** A line's pick filter as the server takes it (names dropped). */
+const pickInputOfNode = (n: ItemBomNode): PickFilterInput | null => (n.pick
+  ? { categoryId: n.pick.categoryId, groupId: n.pick.groupId, subgroupId: n.pick.subgroupId, defaultItemId: n.pick.defaultItemId }
+  : null);
 
 /** Re-asking the quantity on an EXISTING row — see the file header for why this is its own dialog. */
 interface QtyEdit {
@@ -252,6 +262,9 @@ export default function ItemBomDesigner({
   const [qtyEdit, setQtyEdit] = useState<QtyEdit | null>(null);
   const [qtySaving, setQtySaving] = useState(false);
   const [qtyError, setQtyError] = useState<string | null>(null);
+  /** The row whose pick filter is being set or changed. */
+  const [pickEdit, setPickEdit] = useState<{ node: ItemBomNode; parentItemId: number } | null>(null);
+  const pickTaxonomy = useMemo(() => ({ categories, groups: taxonomy.groups, subgroups: taxonomy.subgroups }), [categories, taxonomy]);
 
   const createItem = useCallback(async () => {
     if (!newItem || !newItem.name.trim() || newItem.categoryId === '') return;
@@ -334,6 +347,7 @@ export default function ItemBomDesigner({
         qtyParam: draft.variesPerJob ? draft.qtyParam : null,
         defaultQty: draft.variesPerJob ? draft.defaultQty : null,
         sortOrder: draft.sortOrder,
+        ...(draft.isPick ? { pick: pickInputOf(draft.pick) } : {}),
       });
       setDraft(null);
       await load();
@@ -390,6 +404,8 @@ export default function ItemBomDesigner({
         codeSegment: node.codeSegment,
         defaultFlowId: node.defaultFlowId,
         sortOrder: at + 1,
+        // A copied pick line is still a pick line, with the same filter.
+        ...(node.pick ? { pick: pickInputOfNode(node) } : {}),
       });
       await load();
     } catch (err) {
@@ -464,6 +480,8 @@ export default function ItemBomDesigner({
           height: ROW_HEIGHT, boxSizing: 'border-box', pr: 1,
           borderBottom: '1px solid var(--c-divider)',
           bgcolor: isRoot ? 'var(--c-surface-2)' : undefined,
+          '& .pick-hint': { opacity: 0, transition: 'opacity 120ms' },
+          '&:hover .pick-hint, &:focus-within .pick-hint': { opacity: 1 },
         }}
       >
         <Box sx={{ minWidth: 0, flex: 1 }}>
@@ -475,6 +493,28 @@ export default function ItemBomDesigner({
               <Typography sx={{ fontSize: 11, color: 'var(--c-text-3)' }}>
                 {node.children.length}
               </Typography>
+            )}
+            {/*
+              * A PICK LINE says what the order will choose from. The row is the
+              * role; the chip is the filter — click it to change either.
+              */}
+            {node.pick ? (
+              <Tooltip title={rowLocked
+                ? 'This line varies per job — change its quantity to a fixed number to edit what it picks from.'
+                : 'Each order chooses one catalog item from here for this row.'}>
+                <Chip
+                  size="small" variant="outlined" color="secondary"
+                  label={`Order picks: ${pickLabel(node.pick)}${node.pick.defaultItemName ? ` · ${node.pick.defaultItemName}` : ''}`}
+                  onClick={canEdit && !rowLocked && !busy ? () => setPickEdit({ node, parentItemId }) : undefined}
+                  sx={{ maxWidth: 300, fontSize: 11.5 }}
+                />
+              </Tooltip>
+            ) : canEdit && !isRoot && !hasKids && !rowLocked && (
+              <Chip
+                className="pick-hint" size="small" variant="outlined" label="Let the order pick…"
+                onClick={busy ? undefined : () => setPickEdit({ node, parentItemId })}
+                sx={{ fontSize: 11.5 }}
+              />
             )}
           </Stack>
         </Box>
@@ -550,6 +590,15 @@ export default function ItemBomDesigner({
           */}
         <Stack direction="row" spacing={0.5} sx={{ width: 186, flexShrink: 0 }}>
           {isRoot || isBought ? null : isLeaf ? DIMS.map((d) => (
+            // A pick line's thickness and width are the picked item's own
+            // (a "Stiffener Plate 12 × 170"); only its length is the design's.
+            node.pick && d.key !== 'length_mm' ? (
+              <Tooltip key={d.key} title="From the item the order picks">
+                <Typography sx={{ width: 56, fontSize: 11.5, color: 'var(--c-text-3)', alignSelf: 'center', textAlign: 'center' }}>
+                  item
+                </Typography>
+              </Tooltip>
+            ) : (
             <TextField
               key={d.key} size="small" placeholder={d.label} disabled={!canEdit || busy || rowLocked}
               defaultValue={dimOf(node, d.key)}
@@ -557,15 +606,18 @@ export default function ItemBomDesigner({
                 const v = e.target.value.trim();
                 if (dimOf(node, d.key) === v) return;
                 void patchLine(node, parentItemId, {
-                  defaults: {
-                    thickness_mm: d.key === 'thickness_mm' ? v : dimOf(node, 'thickness_mm'),
-                    width_mm: d.key === 'width_mm' ? v : dimOf(node, 'width_mm'),
-                    length_mm: d.key === 'length_mm' ? v : dimOf(node, 'length_mm'),
-                  },
+                  defaults: node.pick
+                    ? { length_mm: v }
+                    : {
+                      thickness_mm: d.key === 'thickness_mm' ? v : dimOf(node, 'thickness_mm'),
+                      width_mm: d.key === 'width_mm' ? v : dimOf(node, 'width_mm'),
+                      length_mm: d.key === 'length_mm' ? v : dimOf(node, 'length_mm'),
+                    },
                 });
               }}
               slotProps={{ htmlInput: { style: { padding: '4px 6px', fontSize: 12, width: 44 }, 'aria-label': `${d.label} for ${node.name}` } }}
             />
+            )
           )) : <Box sx={{ width: 186 }} />}
           {isBought && !isRoot && (
             <Tooltip title="A bought item states its own size — that is what you chose it by.">
@@ -651,6 +703,8 @@ export default function ItemBomDesigner({
                   qtyParam: '',
                   defaultQty: '',
                   sortOrder: node.children.length,
+                  isPick: false,
+                  pick: EMPTY_PICK,
                 });
               }}>
                 <AddIcon fontSize="small" />
@@ -730,6 +784,36 @@ export default function ItemBomDesigner({
         </Alert>
       )}
 
+      {/* ── what a row lets the order pick ─────────────────────────────────── */}
+      <PickFilterDialog
+        open={!!pickEdit}
+        title={pickEdit?.node.pick ? `What the order picks for ${pickEdit.node.name}` : `Let the order pick ${pickEdit?.node.name ?? ''}`}
+        initial={pickEdit ? pickInputOfNode(pickEdit.node) : null}
+        taxonomy={pickTaxonomy}
+        onClose={() => setPickEdit(null)}
+        onSave={async (pick) => {
+          if (!pickEdit || !pickEdit.node.bomLineId) return;
+          const { node, parentItemId } = pickEdit;
+          // Sent whole, like patchLine: this dialog is only offered on a
+          // fixed-quantity row (a varies-per-job row cannot resend its question).
+          await saveItemBomLine({
+            id: node.bomLineId,
+            parentItemId,
+            childItemId: node.catalogItemId,
+            qtyNum: node.qty,
+            qtyParam: null,
+            codeSegment: node.codeSegment,
+            defaultFlowId: node.defaultFlowId,
+            pick,
+            // Becoming a pick line drops a stated thickness and width: the
+            // picked item carries its own.
+            ...(pick && !node.pick ? { defaults: { thickness_mm: '', width_mm: '' } } : {}),
+          });
+          setPickEdit(null);
+          await load();
+        }}
+      />
+
       {/* ── add a line ──────────────────────────────────────────────────── */}
       <Dialog open={!!draft} onClose={() => setDraft(null)} maxWidth="xs" fullWidth>
         <DialogTitle sx={{ fontSize: 16 }}>
@@ -789,6 +873,21 @@ export default function ItemBomDesigner({
                 </>
               )}
 
+              {/*
+                * A PICK LINE: the item above is the ROLE (e.g. a template part
+                * "Intermediate Stiffener"); each order chooses the actual
+                * catalog item from the filter below.
+                */}
+              <Stack direction="row" alignItems="center" spacing={1}>
+                <Switch size="small" checked={draft.isPick}
+                  onChange={(e) => setDraft({ ...draft, isPick: e.target.checked })}
+                  inputProps={{ 'aria-label': 'The order chooses the item' }} />
+                <Typography sx={{ fontSize: 13 }}>The order chooses the item from the catalog</Typography>
+              </Stack>
+              {draft.isPick && (
+                <PickFilterFields value={draft.pick} onChange={(pick) => setDraft({ ...draft, pick })} taxonomy={pickTaxonomy} />
+              )}
+
               <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>
                 Code, size and flow are set on the row afterwards.
               </Typography>
@@ -800,6 +899,7 @@ export default function ItemBomDesigner({
           <Button
             variant="contained"
             disabled={saving || !draft || draft.childItemId === ''
+              || (draft.isPick && draft.pick.categoryId === '')
               || (draft.variesPerJob && (!draft.qtyParam.trim() || !draft.defaultQty.trim() || Number(draft.defaultQty) <= 0))}
             onClick={() => void addLine()}
           >
