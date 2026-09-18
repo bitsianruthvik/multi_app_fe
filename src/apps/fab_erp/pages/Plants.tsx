@@ -336,7 +336,9 @@ export default function Plants() {
     setStockLevelsLoading(true); setError('');
 
     Promise.all([
-      fabGet<StockSummaryResponse>('stock/summary', summaryParams),
+      // Catalog stock only: reorder levels are about what you buy, and a
+      // machine's work in progress is not a stock level to top up.
+      fabGet<StockSummaryResponse>('stock/summary', { ...summaryParams, kind: 'catalog' }),
       fabQuery<QueryResult<FabStockPolicy>>('fabErpStockPolicy', { filters: policyFilters, pagination: { limit: 1000 } }),
     ]).then(([summaryRes, policiesRes]) => {
       const locationById = new Map(stockLocationsAll.map((l) => [l.id, l]));

@@ -35,8 +35,8 @@ import { Fragment, useCallback, useEffect, useMemo, useState, type MouseEvent } 
 import { Link as RouterLink, useParams, useSearchParams } from 'react-router-dom';
 import {
   Alert, Box, Button, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle,
-  FormControlLabel, IconButton, Link, Menu, MenuItem, Select, Switch, Table, TableBody, TableCell,
-  TableHead, TableRow, TextField, Tooltip, Typography,
+  FormControlLabel, IconButton, Link, Menu, MenuItem, Select, Switch, Tab, Table, TableBody, TableCell,
+  TableHead, TableRow, Tabs, TextField, Tooltip, Typography,
 } from '@mui/material';
 import ReceiptLongRounded from '@mui/icons-material/ReceiptLongRounded';
 import Inventory2Rounded from '@mui/icons-material/Inventory2Rounded';
@@ -53,7 +53,7 @@ import type { FabPlant, FabStockLedger, FabStockLocation } from '../types';
 import { usePermission } from '@core/hooks/usePermission';
 import { useAuth } from '@core/contexts/AuthContext';
 import { isAdminRole } from '@core/utils/roles';
-import { Surface, PageHeader, Mono, EmptyState, ListSkeleton, FilterBar, useToast, backendMessage } from '../components';
+import { Surface, PageHeader, Mono, EmptyState, ListSkeleton, FilterBar, FacetChip, useToast, backendMessage } from '../components';
 import { DialogCloseButton } from '../components/FormDialog';
 
 const th = { fontFamily: 'var(--font-ui)', fontWeight: 600, fontSize: 12, color: 'var(--c-text-2)', textTransform: 'uppercase', letterSpacing: '.05em', borderColor: 'var(--c-divider)' } as const;
@@ -643,9 +643,27 @@ export default function ItemBatches() {
   const { user } = useAuth();
   const canEdit = canEditFields || isAdminRole(user?.role);
   const { company } = useParams<{ company: string }>();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const itemIdParam = searchParams.get('itemId');
   const focusedItemId = itemIdParam ? Number(itemIdParam) : null;
+
+  /*
+   * CATALOG | NON-CATALOG, like the Item Catalog (2026-09-18). Catalog stock is
+   * what was bought and received — the number purchasing trusts. Non-catalog
+   * is what the shop made for an order: cut plates waiting to be used, and
+   * template parts in production. Mixed into one list, a half-welded segment
+   * read as a stock level. In the URL so a link lands on the right one; a
+   * link to ONE item shows that item whichever list it is in.
+   */
+  const tab: 'catalog' | 'non-catalog' = searchParams.get('tab') === 'non-catalog' ? 'non-catalog' : 'catalog';
+  const ncList: 'cutplate' | 'inproduction' = searchParams.get('list') === 'inproduction' ? 'inproduction' : 'cutplate';
+  const kind: string | undefined = focusedItemId != null ? undefined : (tab === 'catalog' ? 'catalog' : ncList);
+  const goTab = (next: 'catalog' | 'non-catalog', list?: 'cutplate' | 'inproduction') => {
+    const p = new URLSearchParams(searchParams);
+    if (next === 'catalog') p.delete('tab'); else p.set('tab', next);
+    if (next === 'non-catalog' && list === 'inproduction') p.set('list', 'inproduction'); else p.delete('list');
+    setSearchParams(p, { replace: true });
+  };
 
   const [items, setItems] = useState<StockSummaryItem[]>([]);
   const [plants, setPlants] = useState<FabPlant[]>([]);
@@ -700,13 +718,14 @@ export default function ItemBatches() {
       const params: Record<string, unknown> = {};
       if (plantId !== '') params.plantId = plantId;
       if (locationId !== '') params.stockLocationId = locationId;
+      if (kind) params.kind = kind;
       const res = await fabGet<StockSummaryResponse>('stock/summary', params);
       let rows = res.data?.items ?? [];
       if (focusedItemId != null) rows = rows.filter((r) => r.catalogItemId === focusedItemId);
       setItems(rows);
     } catch (e) { setError((e as Error).message); }
     finally { setLoading(false); }
-  }, [plantId, locationId, focusedItemId]);
+  }, [plantId, locationId, focusedItemId, kind]);
 
   useEffect(() => { fetchItems(); setExpanded({}); setPieceValues({}); }, [fetchItems]);
 
@@ -750,6 +769,7 @@ export default function ItemBatches() {
       const params: Record<string, unknown> = { groupBy: groupByKey, catalogItemId };
       if (plantId !== '') params.plantId = plantId;
       if (locationId !== '') params.stockLocationId = locationId;
+      if (kind) params.kind = kind;
       const res = await fabGet<StockSummaryResponse>('stock/summary', params);
       // The backend's catalogItemId scoping is best-effort; filter client-side
       // to the item we asked about regardless of what came back.
@@ -793,7 +813,27 @@ export default function ItemBatches() {
 
   return (
     <Box sx={{ maxWidth: 1100, mx: 'auto' }}>
-      <PageHeader title="Item Batches" subtitle="Live stock on hand by item, segmentable by batch, heat, or individual stock piece" />
+      <PageHeader title="Stock" subtitle="Live stock on hand by item, segmentable by batch, heat, or individual stock piece" />
+
+      {focusedItemId == null && (
+        <>
+          <Tabs value={tab} onChange={(_, v: 'catalog' | 'non-catalog') => goTab(v)} sx={{ mb: 2, borderBottom: '1px solid var(--c-divider)' }}>
+            <Tab value="catalog" label="Catalog" />
+            <Tab value="non-catalog" label="Non-catalog" />
+          </Tabs>
+          {tab === 'non-catalog' && (
+            <Box sx={{ display: 'flex', gap: 1, mb: 2, alignItems: 'center', flexWrap: 'wrap' }}>
+              <FacetChip label="Cut plates" active={ncList === 'cutplate'} onClick={() => goTab('non-catalog', 'cutplate')} />
+              <FacetChip label="In production" active={ncList === 'inproduction'} onClick={() => goTab('non-catalog', 'inproduction')} />
+              <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-3)', ml: 1 }}>
+                {ncList === 'cutplate'
+                  ? 'Plates cut for an order and not yet used. Made by the shop — never bought or received.'
+                  : 'Parts the shop is making or has made for an order, not yet built into their assembly. Segment by piece to see which order.'}
+              </Typography>
+            </Box>
+          )}
+        </>
+      )}
 
       {focusedItemId != null && (
         <Box sx={{ mb: 2 }}>
