@@ -107,7 +107,8 @@ const rect = (o: { thickness: number; width: number; length: number }) =>
  * own prefix. The server sends it as `ref`; a plan saved before it existed
  * gets the same answer derived here.
  */
-const handleOf = (b: { ref?: string; code: string }) => b.ref ?? b.code.replace(/^BLK-\d+-/, '');
+// Cut plate codes begin CP- since 2026-09-18 and BLK- before.
+const handleOf = (b: { ref?: string; code: string }) => b.ref ?? b.code.replace(/^(?:CP|BLK)-\d+-/, '');
 
 const DEFAULT_THRESHOLDS = { good: 90, warn: 75 };
 
@@ -412,8 +413,8 @@ export default function BlankNesting({
         provenance: provenance ?? undefined,
       });
       setResult(
-        `${res.blanks} blanks across ${res.sheets} sheets on ${res.cuttingOrderNumber}. `
-        + `${res.partsRepointed} part rows now come off a blank.`,
+        `${res.blanks} cut plates across ${res.sheets} sheets on ${res.cuttingOrderNumber}. `
+        + `${res.partsRepointed} part rows now come off a cut plate.`,
       );
       await refreshAccepted();
       onStageChanged?.();
@@ -476,7 +477,7 @@ export default function BlankNesting({
         `Your plan applied: ${res.fromSheet?.sheets ?? res.sheets} sheets from ${res.fromSheet?.rows ?? 0} rows, `
         + `on ${res.cuttingOrderNumber}.`
         + (short.length
-          ? ` ${short.length} blank${short.length === 1 ? '' : 's'} not fully covered — `
+          ? ` ${short.length} cut plate${short.length === 1 ? '' : 's'} not fully covered — `
             + short.slice(0, 3).map((x) => `${x.rect} (${x.planned} of ${x.needed})`).join(', ')
             + (short.length > 3 ? ', and more' : '') + '.'
           : ''),
@@ -565,7 +566,7 @@ export default function BlankNesting({
         <EmptyState
           icon={<GridViewRounded />}
           title="Work out which sheets to cut this order from"
-          hint="Every part with a size becomes a rectangle to cut. Either let the packer lay those onto plate from the catalogue and look for the arrangement that buys the least steel, or download the blank list, set each blank's sheet and plate in Excel, and upload it. Nothing is ordered or cut until a plan is accepted — an upload IS acceptance."
+          hint="Every part with a size becomes a rectangle to cut. Either let the packer lay those onto plate from the catalogue and look for the arrangement that buys the least steel, or download the cut-plate list, set each cut plate's sheet and plate in Excel, and upload it. Nothing is ordered or cut until a plan is accepted — an upload IS acceptance."
           action={(
             <Stack spacing={1.5} alignItems="center">
               <Stack direction="row" spacing={1.5} justifyContent="center" alignItems="center">
@@ -577,7 +578,7 @@ export default function BlankNesting({
               <Stack direction="row" spacing={1.5} justifyContent="center" alignItems="center">
                 <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-3)' }}>or nest by hand:</Typography>
                 <Button size="small" startIcon={<DownloadIcon />} onClick={() => void downloadBlankListSheet(orderId)}>
-                  Download blank list
+                  Download cut-plate list
                 </Button>
                 {canManage && (
                   <Button size="small" startIcon={<UploadFileIcon />} disabled={uploading} onClick={() => fileRef.current?.click()}>
@@ -814,7 +815,7 @@ export default function BlankNesting({
       */}
       {!accepted && (
         <Alert severity="info" variant="outlined" sx={{ mb: 1.5, py: 0.5 }}>
-          This is a <b>suggestion</b>. Accept it, or download it, rearrange it in Excel or your nesting program (the Blank column is the code after the order number), and
+          This is a <b>suggestion</b>. Accept it, or download it, rearrange it in Excel or your nesting program (the Cut plate column is the code after the order number), and
           upload it back — the plan that gets built is whichever you accept last.
         </Alert>
       )}
@@ -835,7 +836,7 @@ export default function BlankNesting({
             borderBottom: '1px solid var(--c-border)',
           }}>
             <Box sx={{ width: 26, flexShrink: 0 }} />
-            <Box sx={{ flex: 1, minWidth: 0 }}><Hd>Blank</Hd></Box>
+            <Box sx={{ flex: 1, minWidth: 0 }}><Hd>Cut plate</Hd></Box>
             <Box sx={{ width: 70, flexShrink: 0, textAlign: 'right' }}><Hd>Need</Hd></Box>
             <Box sx={{ width: 210, flexShrink: 0 }}><Hd>Cut from</Hd></Box>
             <Box sx={{ width: 80, flexShrink: 0, textAlign: 'right' }}><Hd>Sheets</Hd></Box>
@@ -865,7 +866,7 @@ export default function BlankNesting({
       {skipped.length > 0 && (
         <Alert severity="warning" variant="outlined" sx={{ mt: 2 }}>
           {skipped.length} part row{skipped.length === 1 ? '' : 's'} could not be turned into a
-          blank:{' '}
+          cut plate:{' '}
           {skipped.slice(0, 3).map((s, i) => (
             <span key={i}>
               {i > 0 && ', '}
@@ -899,16 +900,16 @@ export default function BlankNesting({
           <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)', flex: '1 1 320px', minWidth: 0 }}>
             {accepted ? (
               <>
-                This plan is <b>accepted</b>: <b>{blanks.length} blanks</b> across{' '}
+                This plan is <b>accepted</b>: <b>{blanks.length} cut plates</b> across{' '}
                 <b>{checkedNests.size} of {nests.length} sheets</b> are on the cutting order.
                 Untick or tick sheets and accept again, upload a corrected sheet, or re-nest for a
                 new suggestion — nothing changes on the cutting order until you accept it.
               </>
             ) : (
               <>
-                Accepting creates <b>{blanks.length} blanks</b> across{' '}
+                Accepting creates <b>{blanks.length} cut plates</b> across{' '}
                 <b>{checkedNests.size} of {nests.length} sheets</b>,
-                points every part at its blank, and raises the cutting work on its own production
+                points every part at its cut plate, and raises the cutting work on its own production
                 order — separate from fabrication, because it waits on plate rather than on the shop.
               </>
             )}
@@ -1003,7 +1004,7 @@ const BlankRow = memo(function BlankRow({
         <Box sx={{ width: 80, flexShrink: 0, textAlign: 'right' }}>
           <Mono>{b.plateCount || '—'}</Mono>
           {b.sharesPlates > 0 && (
-            <Tooltip title={`${b.sharesPlates} of these sheets also carry other blanks`}>
+            <Tooltip title={`${b.sharesPlates} of these sheets also carry other cut plates`}>
               <Typography sx={{ fontSize: 11, color: 'var(--c-primary-600)' }}>
                 {b.sharesPlates} mixed
               </Typography>
@@ -1017,7 +1018,7 @@ const BlankRow = memo(function BlankRow({
         <Box sx={{ px: 5, py: 1.5, background: 'var(--c-surface-2)' }}>
           <Stack direction="row" spacing={3} sx={{ mb: 1.5, flexWrap: 'wrap' }}>
             <Kv k="On the sheet as" v={handleOf(b)} />
-            <Kv k="Blank code" v={b.code} />
+            <Kv k="Cut plate code" v={b.code} />
             <Kv k="Used by" v={`${b.partCount} part row${b.partCount === 1 ? '' : 's'}`} />
             <Kv k="Steel in parts" v={t(b.totalWeightKg)} />
             <Kv k="Each" v={`${b.unitWeightKg.toFixed(1)} kg`} />

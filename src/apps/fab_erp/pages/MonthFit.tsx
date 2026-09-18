@@ -434,7 +434,7 @@ export default function MonthFit() {
                   <Chip size="small" label={`${hours(os.noRoomMin)} promised, no room`} sx={{ background: 'var(--c-danger-50)', color: 'var(--c-danger-800)', fontWeight: 500 }} />
                 )}
                 {side === 'in' && fit.aheadOfCutting.has(o.src.id) && (
-                  <Tooltip title="More of the fabrication fits this month than of the cutting it depends on. Check the blanks will be ready.">
+                  <Tooltip title="More of the fabrication fits this month than of the cutting it depends on. Check the cut plates will be ready.">
                     <Chip size="small" label="Ahead of its cutting" sx={{ background: 'var(--c-warning-50)', color: 'var(--c-warning-800)', fontWeight: 500 }} />
                   </Tooltip>
                 )}
@@ -528,7 +528,7 @@ export default function MonthFit() {
         <>
           <Stack direction="row" spacing={1.5} sx={{ flexWrap: 'wrap', rowGap: 1.5 }}>
             <Tile label="Output this month" value={tonnes(fit.outputTonnes)} hint="Pieces whose remaining work all fits" />
-            <Tile label="Cut this month" value={tonnes(fit.cutTonnes)} hint="Blanks on the cutting orders" />
+            <Tile label="Cut this month" value={tonnes(fit.cutTonnes)} hint="Cut plates on the cutting orders" />
             <Tile
               label="Promised this month"
               value={fit.missedMin > 0 ? hours(fit.missedMin) : 'All fits'}

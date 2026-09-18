@@ -29,7 +29,7 @@ const ENTITY_TYPES = [
   { value: 'manufacturing_order', label: 'Production orders' },
   { value: 'purchase_order', label: 'Purchase orders' },
   { value: 'order_item', label: 'BOM rows on an order' },
-  { value: 'blank', label: 'Blanks' },
+  { value: 'blank', label: 'Cut plates' },
   { value: 'task', label: 'Tasks' },
 ];
 
@@ -43,7 +43,7 @@ const DERIVED = ['order_item', 'blank', 'task'];
 /** What each kind's example preview is built from, said plainly under the preview. */
 const SAMPLE_NOTE: Record<string, string> = {
   order_item: 'Example: the 2nd Segment row under Line 1 (BOM code blank), the 6th Segment row in the whole order.',
-  blank: 'Example: a 28 × 2995 × 12000 MS E350BO blank on SO-20260910-0066.',
+  blank: 'Example: a 28 × 2995 × 12000 MS E350BO cut plate on SO-20260910-0066.',
   task: 'Example: step 5, operation SAW, on row …-SPAN1-L1-2.',
 };
 
@@ -252,7 +252,7 @@ export default function CodegenSettings() {
 
   return (
     <Box sx={{ maxWidth: 900, mx: 'auto' }}>
-      <PageHeader title="Code Generation" subtitle="One rule for every code in the system — items, orders, BOM rows, blanks and tasks" />
+      <PageHeader title="Code Generation" subtitle="One rule for every code in the system — items, orders, BOM rows, cut plates and tasks" />
 
       <TextField select size="small" label="Entity" value={entityType} sx={{ minWidth: 220, mb: 2 }}
         onChange={(e) => setEntityType(e.target.value)}>

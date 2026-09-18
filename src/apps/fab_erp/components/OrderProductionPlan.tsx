@@ -199,7 +199,7 @@ export default function OrderProductionPlan({
       <SubcontractSection orderId={orderId} groups={plan.subcontract.groups} suppliers={plan.buy.suppliers} canManage={canAct} onDone={reload} onError={setError} />
 
       <ProductionSection
-        title="Cutting" hint="Plate into blanks" orderNumber={plan.orderNumber}
+        title="Cutting" hint="Plate into cut plates" orderNumber={plan.orderNumber}
         purpose="cutting" orderId={orderId} section={plan.cutting} canManage={canAct}
         onReload={reload} onChanged={onChanged} onError={setError} hasBlanks={hasBlanks} orderStatus={orderStatus}
         onGoToParams={onGoToParams}
@@ -877,7 +877,7 @@ function ProductionSection({
       {!open ? null : section.rows.length === 0 ? (
         <Typography sx={{ p: 2, fontSize: 13, color: 'var(--c-text-2)' }}>
           {purpose === 'cutting'
-            ? (hasBlanks ? 'Nothing to cut yet — accept a nesting plan first.' : 'No blanks on this order — nothing needs cutting.')
+            ? (hasBlanks ? 'Nothing to cut yet — accept a nesting plan first.' : 'No cut plates on this order — nothing needs cutting.')
             : 'Nothing to make yet.'}
         </Typography>
       ) : (
@@ -886,7 +886,7 @@ function ProductionSection({
             {/* column heads */}
             <Box sx={{ display: 'flex', position: 'sticky', top: 0, zIndex: 3, background: 'var(--c-surface)', borderBottom: '1px solid var(--c-divider)' }}>
               <HeadCell sx={{ width: LEFT, position: 'sticky', left: 0, zIndex: 4, background: 'var(--c-surface)', borderRight: '1px solid var(--c-divider)' }}>
-                {purpose === 'cutting' ? 'Blank' : 'BOM'}
+                {purpose === 'cutting' ? 'Cut plate' : 'BOM'}
               </HeadCell>
               <HeadCell sx={{ px: 1.5 }}>
                 Steps — minutes per piece{editable ? ' · click a time to change it' : ''}

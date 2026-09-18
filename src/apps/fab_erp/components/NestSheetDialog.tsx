@@ -42,7 +42,7 @@ export default function NestSheetDialog({ nest, blanks, onClose, orderId, accept
   };
   const handleOf = useMemo(() => {
     const m = new Map<string, string>();
-    for (const b of blanks) m.set(b.key, b.ref ?? b.code.replace(/^BLK-\d+-/, ''));
+    for (const b of blanks) m.set(b.key, b.ref ?? b.code.replace(/^(?:CP|BLK)-\d+-/, ''));
     return m;
   }, [blanks]);
 
@@ -102,9 +102,9 @@ export default function NestSheetDialog({ nest, blanks, onClose, orderId, accept
         <Box component="table" sx={{ mt: 2, borderCollapse: 'collapse', width: '100%', fontSize: 12.5 }}>
           <thead>
             <tr>
-              {['#', 'Blank', 'Size (L × W)', 'X', 'Y', 'Turned'].map((h) => (
+              {['#', 'Cut plate', 'Size (L × W)', 'X', 'Y', 'Turned'].map((h) => (
                 <Box component="th" key={h} sx={{
-                  textAlign: h === '#' || h === 'Blank' ? 'left' : 'right', fontSize: 11, fontWeight: 600,
+                  textAlign: h === '#' || h === 'Cut plate' ? 'left' : 'right', fontSize: 11, fontWeight: 600,
                   color: 'var(--c-text-3)', textTransform: 'uppercase', letterSpacing: '.04em',
                   px: 1, py: 0.5, borderBottom: '1px solid var(--c-divider)',
                 }}>{h}</Box>
