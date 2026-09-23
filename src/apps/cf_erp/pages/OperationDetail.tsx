@@ -108,10 +108,12 @@ export default function OperationDetail() {
 
   const ruleColumns: DataColumn<TimingRule>[] = [
     {
-      key: 'for', header: 'For', alwaysVisible: true,
+      key: 'for', header: 'For', alwaysVisible: true, sortValue: (r) => subjectText(r.subject),
       render: (r) => (
         <Box sx={{ py: 0.5 }}>
-          <Box>{r.subject.type === 'machine' ? <Box component={Link} to={to(`machines/${r.subject.id}`)} sx={linkSx}><Mono>{r.subject.code}</Mono></Box> : r.subject.name}</Box>
+          <Box>{r.subject.type === 'machine'
+            ? <Box component={Link} to={to(`machines/${r.subject.id}`)} sx={linkSx}><Mono>{r.subject.code ?? r.subject.name ?? '—'}</Mono></Box>
+            : r.subject.name ?? r.subject.code ?? '—'}</Box>
           <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)', whiteSpace: 'normal' }}>{r.subject.level}{r.notes ? ` · ${r.notes}` : ''}</Typography>
         </Box>
       ),

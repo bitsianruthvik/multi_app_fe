@@ -29,7 +29,7 @@ import { SpecsTable } from '../components/SpecsTable';
 import { RuleDialog } from '../components/RuleDialog';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { SelectionPanel } from '../components/SelectionPanel';
-import { BomPanel } from '../components/BomPanel';
+import { BomPanel } from '../components/Bom/BomPanel';
 import { ClassificationPicker } from '../components/ClassificationPicker';
 import { FlowPicker } from '../components/FlowPicker';
 import { FlowTag } from '../components/FlowTag';
@@ -52,7 +52,7 @@ function RevisionDialog({ open, record, onClose, onDone }: { open: boolean; reco
   );
 }
 
-function DetailsForm({ record, tree, onSaved }: { record: MasterRecord; tree: Tree | null; onSaved: (r: MasterRecord) => void }) {
+function DetailsForm({ record, tree, canEdit, onSaved }: { record: MasterRecord; tree: Tree | null; canEdit: boolean; onSaved: (r: MasterRecord) => void }) {
   const [form, setForm] = useState({
     name: record.name, description: record.description ?? '', code: record.code ?? '', shortName: record.shortName ?? '', classificationId: record.classificationId,
     uom: record.item?.uom ?? '', trackedBy: record.item?.trackedBy ?? 'quantity', sourcing: record.item?.sourcing ?? 'stock',
@@ -78,7 +78,8 @@ function DetailsForm({ record, tree, onSaved }: { record: MasterRecord; tree: Tr
     <SectionCard title="Details" sx={{ maxWidth: 880 }}>
       <ErrorNotice error={error} />
       <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', md: 'repeat(2, minmax(0, 1fr))' }, gap: 2 }}>
-        <TextField label="Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} sx={{ gridColumn: '1 / -1' }} />
+        <TextField label="Name" required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} sx={{ gridColumn: '1 / -1' }}
+          error={!form.name.trim()} helperText={!form.name.trim() ? 'A name is required.' : ' '} />
         <TextField label="Code" value={form.code} disabled={record.status !== 'draft'} onChange={(e) => setForm({ ...form, code: e.target.value })}
           helperText={record.status === 'draft' ? 'Editable while draft' : 'Fixed once active — documents may carry it'} inputProps={{ style: { fontFamily: 'var(--font-mono)' } }} />
         <TextField label="Short name" value={form.shortName} onChange={(e) => setForm({ ...form, shortName: e.target.value })}
@@ -120,10 +121,12 @@ function DetailsForm({ record, tree, onSaved }: { record: MasterRecord; tree: Tr
           </>
         )}
       </Box>
-      {!record.frozen && (
+      {record.frozen ? null : canEdit ? (
         <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 2 }}>
-          <Button variant="contained" onClick={save} disabled={busy} startIcon={busy ? <CircularProgress size={14} color="inherit" /> : undefined}>{busy ? 'Saving…' : 'Save details'}</Button>
+          <Button variant="contained" onClick={save} disabled={busy || !form.name.trim()} startIcon={busy ? <CircularProgress size={14} color="inherit" /> : undefined}>{busy ? 'Saving…' : 'Save details'}</Button>
         </Box>
+      ) : (
+        <Typography sx={{ mt: 2, fontSize: 13, color: 'var(--c-text-2)' }}>You can read these details but not change them.</Typography>
       )}
     </SectionCard>
   );
@@ -137,7 +140,11 @@ export default function RecordDetail({ recordKind }: { recordKind: 'item' | 'def
   const company = useCompanySlug();
   const navigate = useNavigate();
   const toast = useToast();
-  const canManage = useIsPermitted()('cf_erp_catalog_manage');
+  const isPermitted = useIsPermitted();
+  const canManage = isPermitted('cf_erp_catalog_manage');
+  // Spec rules live under Setup, whatever they are attached to: the backend
+  // guards /rules with setup_manage, not catalog_manage.
+  const canSetup = isPermitted('cf_erp_setup_manage');
   const rec = useLoad(() => cfApi.get<MasterRecord>(`/records/${id}`), [id]);
   const specs = useLoad(() => cfApi.get<Resolution>(`/records/${id}/specs`), [id]);
   const rules = useLoad(() => cfApi.get<Rule[]>(`/rules${qs({ subjectType: 'master', subjectId: id })}`), [id]);
@@ -155,7 +162,11 @@ export default function RecordDetail({ recordKind }: { recordKind: 'item' | 'def
   useDetailTitle(r ? (r.code ?? r.name) : null);
   const refreshAll = () => { rec.reload(); specs.reload(); rules.reload(); setVersion((v) => v + 1); };
 
-  const setStatus = async (status: 'active' | 'obsolete') => {
+  /**
+   * `rethrow` is for the confirm dialog: it must stay open and show the refusal
+   * itself, instead of closing as though the change went through.
+   */
+  const setStatus = async (status: 'active' | 'obsolete', rethrow = false) => {
     setBusyAction(status);
     setActionError(null);
     try {
@@ -164,6 +175,7 @@ export default function RecordDetail({ recordKind }: { recordKind: 'item' | 'def
       toast.success(status === 'active' ? 'Activated.' : 'Marked obsolete.');
       specs.reload();
     } catch (e) {
+      if (rethrow) throw e;
       setActionError(e as CfApiError);
     } finally {
       setBusyAction(null);
@@ -179,6 +191,7 @@ export default function RecordDetail({ recordKind }: { recordKind: 'item' | 'def
   const isSelection = r.definition?.definitionType === 'selection';
   const listPath = recordKind === 'item' ? 'items' : 'definitions';
   const ruleCount = rules.data?.length ?? 0;
+  const rulesEditable = canSetup && !frozen;
 
   const header = (
     <DetailHeader code={r.code ?? undefined} title={r.name} subtitle={r.description ?? undefined}
@@ -268,15 +281,21 @@ export default function RecordDetail({ recordKind }: { recordKind: 'item' | 'def
             subtitle={isDefinition
               ? 'What every item created from it must capture, on top of its classification. These override the classification’s rules for the same specification.'
               : 'Rarely needed — rules usually belong on the classification so every similar item shares them.'}
-            actions={editable && <Button startIcon={<AddRounded />} onClick={() => setRuleDialog({ open: true, rule: null })}>Add rule</Button>}>
+            actions={rulesEditable && <Button startIcon={<AddRounded />} onClick={() => setRuleDialog({ open: true, rule: null })}>Add rule</Button>}>
             <ErrorNotice error={rules.error} onRetry={rules.reload} />
-            {ruleCount === 0 ? <Typography sx={{ color: 'var(--c-text-3)', fontSize: 13 }}>None.</Typography> : (
+            {ruleCount === 0 ? (
+              <Typography sx={{ color: 'var(--c-text-2)', fontSize: 13 }}>
+                {isDefinition
+                  ? 'None yet — every rule its items carry comes from the classification above.'
+                  : 'None — this item follows its classification, which is usually what you want.'}
+              </Typography>
+            ) : (
               <EntityList>
                 {(rules.data ?? []).map((rule) => (
                   <EntityRow key={rule.id} primary={<>{rule.specName} <Mono muted>{rule.specCode}</Mono></>}
                     secondary={rule.isApplicable ? `${rule.isRequired ? 'Required · ' : ''}${rule.captureAt}${rule.optionValues.length ? ` · only ${rule.optionValues.join(', ')}` : ''}` : 'Switched off'}
                     trailing={rule.isApplicable ? <RuleBadge rule={rule.valueRule} /> : undefined}
-                    actions={editable && (
+                    actions={rulesEditable && (
                       <>
                         <Tooltip title="Edit"><IconButton size="small" aria-label={`Edit rule ${rule.specCode}`} onClick={() => setRuleDialog({ open: true, rule })}><EditRounded fontSize="small" /></IconButton></Tooltip>
                         <Tooltip title="Delete"><IconButton size="small" aria-label={`Delete rule ${rule.specCode}`} onClick={() => setDeleteRule(rule)}><DeleteOutlineRounded fontSize="small" /></IconButton></Tooltip>
@@ -288,16 +307,16 @@ export default function RecordDetail({ recordKind }: { recordKind: 'item' | 'def
           </SectionCard>
         </Box>
       )}
-      {tab === 'selection' && isSelection && <SelectionPanel record={r} onChanged={rec.reload} />}
-      {tab === 'bom' && <BomPanel recordId={id} recordLabel={r.code ?? r.name} onChanged={() => { rec.reload(); specs.reload(); }} />}
+      {tab === 'selection' && isSelection && <SelectionPanel record={r} canManage={editable} onChanged={rec.reload} />}
+      {tab === 'bom' && <BomPanel source={{ kind: 'record', recordId: id }} ownsBom showWhereUsed onChanged={() => { rec.reload(); specs.reload(); }} />}
       {tab === 'stock' && r.recordKind === 'item' && <ItemStockPanel record={r} />}
       {tab === 'history' && <ValueHistory path={`/records/${id}/history`} version={version} subtitle="Every change to a value on this record — who, when, from what to what. Calculated changes appear too." />}
-      {tab === 'details' && <DetailsForm key={r.updatedAt} record={r} tree={tree.data} onSaved={(saved) => { rec.setData(saved); toast.success('Details saved.'); specs.reload(); }} />}
+      {tab === 'details' && <DetailsForm key={r.updatedAt} record={r} tree={tree.data} canEdit={canManage} onSaved={(saved) => { rec.setData(saved); toast.success('Details saved.'); specs.reload(); }} />}
 
       <RevisionDialog open={revising} record={r} onClose={() => setRevising(false)} onDone={(saved) => { rec.setData(saved); toast.success(`Now at revision ${saved.revision}.`); }} />
       <ConfirmDialog open={confirm === 'obsolete'} title="Mark this obsolete?" entityName={`${r.code ?? '—'} · ${r.name}`} confirmLabel="Mark obsolete"
         body="It stays on existing documents but is no longer offered for new use. It can be reactivated later."
-        onClose={() => setConfirm(null)} onConfirm={() => setStatus('obsolete')} />
+        onClose={() => setConfirm(null)} onConfirm={() => setStatus('obsolete', true)} />
       <ConfirmDialog open={confirm === 'delete'} title={`Delete this ${isDefinition ? 'definition' : 'item'}?`} entityName={`${r.code ?? '—'} · ${r.name}`} danger confirmLabel="Delete"
         body="Its values and rules go with it. Refused while anything uses it — e.g. an allowed list, or items created from a definition."
         onClose={() => setConfirm(null)}

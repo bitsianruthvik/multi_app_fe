@@ -5,7 +5,7 @@ import EditRounded from '@mui/icons-material/EditRounded';
 import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
 import ContentCopyRounded from '@mui/icons-material/ContentCopyRounded';
 import EventBusyRounded from '@mui/icons-material/EventBusyRounded';
-import { cfApi, qs } from '../api/client';
+import { cfApi, CfApiError, qs } from '../api/client';
 import type { CalendarDay, CalendarException, Machine, MachineCalendar, MachineShift } from '../api/types';
 import { useLoad } from '../hooks/useLoad';
 import { useIsPermitted } from '../hooks/useIsPermitted';
@@ -72,6 +72,10 @@ export function MachineShifts({ machine }: { machine: Machine }) {
   const [adding, setAdding] = useState(false);
   const canManage = useIsPermitted()('cf_erp_production_manage');
   const refresh = () => { shifts.reload(); cal.reload(); exc.reload(); invalidateNavCounts(); };
+  // A refused delete used to fail silently — the row simply stayed where it was.
+  const removeException = async (id: number) => {
+    try { await cfApi.del(`/machine-exceptions/${id}`); toast.success('Removed.'); refresh(); } catch (e) { toast.error(e instanceof CfApiError ? e.message : 'Could not remove it.'); }
+  };
   const list = shifts.data ?? [];
   const columns: DataColumn<MachineShift>[] = [
     { key: 'name', header: 'Shift', alwaysVisible: true, render: (s) => <Box sx={{ fontWeight: 500 }}>{s.name}</Box> },
@@ -108,10 +112,10 @@ export function MachineShifts({ machine }: { machine: Machine }) {
         {cal.loading && !cal.data ? <SkeletonRows rows={4} height={24} /> : (cal.data?.days ?? []).map((d) => <DayTrack key={d.date} day={d} />)}
       </SectionCard>
 
-      <SectionCard title="Day exceptions" subtitle="Holidays, breakdowns, a shift off, overtime — each changes one day."
+      <SectionCard title="Day exceptions" subtitle="Holidays, breakdowns, a shift off, overtime — each changes one day. From the last 30 days onward."
         actions={canManage && <Button startIcon={<EventBusyRounded />} onClick={() => setAdding(true)}>Change a day</Button>}>
         <ErrorNotice error={exc.error} onRetry={exc.reload} />
-        {(exc.data ?? []).length === 0 ? <Typography sx={{ color: 'var(--c-text-3)', fontSize: 13 }}>None.</Typography> : (
+        {(exc.data ?? []).length === 0 ? <Typography sx={{ color: 'var(--c-text-3)', fontSize: 13 }}>None — this machine keeps to its shifts.</Typography> : (
           <EntityList>
             {(exc.data ?? []).map((e) => (
               <EntityRow key={e.id} code={<Mono chip>{e.date}</Mono>}
@@ -120,7 +124,7 @@ export function MachineShifts({ machine }: { machine: Machine }) {
                 actions={canManage && (
                   <Tooltip title="Remove">
                     <IconButton size="small" aria-label={`Remove the exception on ${e.date}`}
-                      onClick={async () => { await cfApi.del(`/machine-exceptions/${e.id}`); toast.success('Removed.'); refresh(); }}><DeleteOutlineRounded fontSize="small" /></IconButton>
+                      onClick={() => { void removeException(e.id); }}><DeleteOutlineRounded fontSize="small" /></IconButton>
                   </Tooltip>
                 )} />
             ))}

@@ -60,7 +60,7 @@ export default function Operations() {
       <PageHeader title="Operations" subtitle="The kinds of work — cut, drill, fit up, weld. Each says which machines can do it and how long it takes; flows put them in order."
         actions={canManage && <Button variant="contained" startIcon={<AddRounded />} onClick={() => setCreating(true)}>New operation</Button>} />
       <StatStrip stats={stats} />
-      <FilterBar search={search} onSearch={setSearch} placeholder="Search code or name">
+      <FilterBar search={search} onSearch={setSearch} placeholder="Search code, name or description">
         {CHIPS.map((c) => <FacetChip key={c.value || 'all'} label={c.label} active={filter === c.value} count={base.filter(c.test).length} onClick={() => setFilter(c.value)} />)}
       </FilterBar>
       <ErrorNotice error={list.error} onRetry={list.reload} />

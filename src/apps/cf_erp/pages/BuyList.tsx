@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Box, Button, Typography } from '@mui/material';
+import { Box, Button, Tooltip, Typography } from '@mui/material';
 import { Link } from 'react-router-dom';
 import ShoppingCartRounded from '@mui/icons-material/ShoppingCartRounded';
 import PlaylistAddCheckRounded from '@mui/icons-material/PlaylistAddCheckRounded';
@@ -30,18 +30,23 @@ export default function BuyList() {
   const [show, setShow] = useUrlParam('show', 'short');
   const [search, setSearch] = useState('');
   const [busy, setBusy] = useState(false);
-  const list = useLoad(() => cfApi.get<BuyRow[]>(`/buy-list${qs({ show })}`), [show]);
+  // Everything wanted is fetched once and the two views are filtered here, so
+  // the chip counts and the figures above them are true in both.
+  const list = useLoad(() => cfApi.get<BuyRow[]>(`/buy-list${qs({ show: 'all' })}`), []);
   const all = useMemo(() => list.data ?? [], [list.data]);
+  const short = useMemo(() => all.filter((r) => r.toBuy > 0), [all]);
   const term = search.trim().toLowerCase();
-  const rows = useMemo(() => (term
-    ? all.filter((r) => [r.item.code, r.item.name, ...r.orders.map((o) => o.code)].some((t) => t && String(t).toLowerCase().includes(term)))
-    : all), [all, term]);
+  const rows = useMemo(() => {
+    const base = show === 'short' ? short : all;
+    return term
+      ? base.filter((r) => [r.item.code, r.item.name, ...r.orders.map((o) => o.code)].some((t) => t && String(t).toLowerCase().includes(term)))
+      : base;
+  }, [all, short, show, term]);
 
-  const short = all.filter((r) => r.toBuy > 0);
   const stats = [
-    { label: 'Items short', value: short.length, tone: short.length ? ('danger' as const) : ('success' as const) },
-    { label: 'On order', value: all.filter((r) => r.onOrder > 0).length, hint: 'Items with steel already coming' },
-    { label: 'Covered', value: all.filter((r) => r.toBuy === 0).length, tone: 'success' as const, hint: 'Held or free in stock' },
+    { label: 'Items short', value: short.length, tone: short.length ? ('danger' as const) : ('success' as const), hint: 'Wanted by released work and nobody has it', onClick: () => setShow('short') },
+    { label: 'On order', value: all.filter((r) => r.onOrder > 0).length, tone: 'info' as const, hint: 'Items with steel already coming' },
+    { label: 'Covered', value: all.length - short.length, tone: 'success' as const, hint: 'Held for the job, free in stock, or on order' },
   ];
 
   const suggest = async () => {
@@ -97,17 +102,30 @@ export default function BuyList() {
     <Box>
       <PageHeader title="To buy"
         subtitle="What the released jobs need that nobody has: wanted, less what is held for them, free on the shelf and already on order. Suggesting writes one draft purchase order and rewrites it each time — it never buys twice."
-        actions={canManage && <Button variant="contained" startIcon={<PlaylistAddCheckRounded />} onClick={suggest} disabled={busy || !short.length}>
-          {busy ? 'Working…' : 'Suggest a purchase order'}</Button>} />
+        actions={canManage && (
+          <Tooltip title={short.length ? 'Writes one draft purchase order for everything short' : 'Nothing is short, so there is nothing to raise'}>
+            <span>
+              <Button variant="contained" startIcon={<PlaylistAddCheckRounded />} onClick={suggest} disabled={busy || !short.length}>
+                {busy ? 'Working…' : 'Suggest a purchase order'}
+              </Button>
+            </span>
+          </Tooltip>
+        )} />
       <StatStrip stats={stats} />
       <FilterBar search={search} onSearch={setSearch} placeholder="Search item or order">
         <FacetChip label="Short" active={show === 'short'} count={short.length} onClick={() => setShow('short')} />
-        <FacetChip label="Everything wanted" active={show === 'all'} onClick={() => setShow('all')} />
+        <FacetChip label="Everything wanted" active={show === 'all'} count={all.length} onClick={() => setShow('all')} />
       </FilterBar>
       <ErrorNotice error={list.error} onRetry={list.reload} />
       <DataTable rows={rows} columns={columns} getRowId={(r) => r.item.id} loading={list.loading && !list.data} storageKey="buy-list" exportName="to-buy"
-        empty={<EmptyState icon={<ShoppingCartRounded />} title={show === 'short' ? 'Nothing is short' : 'Nothing is wanted yet'}
-          hint={show === 'short' ? 'Every released job has its material held, free in stock, or on order.' : 'Release a line to production and its material appears here.'} />} />
+        defaultSortKey="toBuy" defaultSortDir="desc"
+        empty={<EmptyState icon={<ShoppingCartRounded />}
+          title={term ? 'Nothing matches' : show === 'short' ? 'Nothing is short' : 'Nothing is wanted yet'}
+          hint={term ? 'Clear the search, or look at everything wanted.'
+            : show === 'short' ? 'Every released job has its material held, free in stock, or on order.'
+              : 'Release a line to production and its material appears here.'}
+          action={term ? <Button onClick={() => setSearch('')}>Clear search</Button>
+            : show === 'short' && all.length ? <Button onClick={() => setShow('all')}>See everything wanted</Button> : undefined} />} />
     </Box>
   );
 }

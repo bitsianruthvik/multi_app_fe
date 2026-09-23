@@ -681,7 +681,8 @@ export interface ItemReservation {
   order: { id: number; code: string };
   lineNo: number;
   /** Material set aside for the work, or finished pieces earmarked for the line they sell. */
-  kind?: 'material' | 'order';
+  /** What the reservation claims for: material a step needs, or work made for a sales line. */
+  kind?: 'material' | 'finished';
 }
 
 export interface ItemStock {

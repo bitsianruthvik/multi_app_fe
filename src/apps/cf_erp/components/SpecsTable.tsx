@@ -123,7 +123,11 @@ export function SpecsTable({
               <Button variant="contained" onClick={save} disabled={busy} startIcon={busy ? <CircularProgress size={14} color="inherit" /> : undefined}>Save values</Button>
             </>
           ) : (
-            <Button startIcon={<EditRounded />} onClick={start} disabled={!editable.length}>Edit values</Button>
+            <Tooltip title={editable.length ? '' : 'Nothing here can be typed in — every rule that applies is fixed, calculated, rolled up, inherited, or captured on a batch or unit.'}>
+              <Box component="span" sx={{ display: 'inline-flex' }}>
+                <Button startIcon={<EditRounded />} onClick={start} disabled={!editable.length}>Edit values</Button>
+              </Box>
+            </Tooltip>
           )}
         </Box>
       )}

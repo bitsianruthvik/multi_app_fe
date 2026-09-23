@@ -9,19 +9,25 @@ import { Mono, StatStrip } from './ui';
 import { DataTable, type DataColumn } from './DataTable';
 import { BatchStatusBadge, CategoryBadge, MovementTypeChip } from './inventoryUi';
 
-/** Totals by what the stock counts as — only the ones that hold something, after "On hand". */
+/**
+ * Totals by what the stock counts as — only the ones that hold something, after
+ * "On hand". Each figure is shown exactly: half a tonne must not read as "0".
+ */
 export function TotalsStrip({ totals, uom }: { totals: StockTotals & { reserved?: number; free?: number }; uom?: string }) {
   const unit = uom ? ` ${uom}` : '';
+  const fig = (label: string, value: number, extra: { tone?: 'success' | 'info' | 'warning' | 'danger'; hint?: string } = {}) => ({
+    label, value, display: `${qtyText(value)}${unit}`, ...extra,
+  });
   const stats = [
-    { label: 'On hand', value: Math.round(totals.onHand), hint: `${qtyText(totals.onHand)}${unit} in all` },
-    { label: 'Available', value: Math.round(totals.available), tone: 'success' as const, hint: 'In storage, not held' },
-    ...(totals.in_process ? [{ label: 'In process', value: Math.round(totals.in_process), tone: 'info' as const, hint: 'In WIP areas' }] : []),
-    ...(totals.held ? [{ label: 'Held', value: Math.round(totals.held), tone: 'warning' as const, hint: 'Quarantine or on hold' }] : []),
-    ...(totals.rejected ? [{ label: 'Rejected', value: Math.round(totals.rejected), tone: 'danger' as const }] : []),
-    ...(totals.dispatch ? [{ label: 'Dispatch', value: Math.round(totals.dispatch), hint: 'Waiting to leave' }] : []),
+    fig('On hand', totals.onHand, { hint: 'Everywhere, whatever it counts as' }),
+    fig('Available', totals.available, { tone: 'success', hint: 'In storage, not held' }),
+    ...(totals.in_process ? [fig('In process', totals.in_process, { tone: 'info', hint: 'In WIP areas beside a machine' })] : []),
+    ...(totals.held ? [fig('Held', totals.held, { tone: 'warning', hint: 'In quarantine or on hold — not issued' })] : []),
+    ...(totals.rejected ? [fig('Rejected', totals.rejected, { tone: 'danger', hint: 'Never issued — move or scrap it' })] : []),
+    ...(totals.dispatch ? [fig('Dispatch', totals.dispatch, { hint: 'Finished and waiting to leave' })] : []),
     ...(totals.reserved ? [
-      { label: 'Reserved', value: Math.round(totals.reserved), tone: 'info' as const, hint: `${qtyText(totals.reserved)}${unit} set aside for released orders` },
-      { label: 'Free', value: Math.round(totals.free ?? 0), hint: 'Usable and not reserved' },
+      fig('Reserved', totals.reserved, { tone: 'info', hint: 'Set aside for released orders' }),
+      fig('Free', totals.free ?? 0, { hint: 'Usable and not reserved' }),
     ] : []),
   ];
   return <StatStrip stats={stats} />;

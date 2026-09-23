@@ -36,11 +36,12 @@ export default function Stock() {
   const list = useLoad(() => cfApi.get<StockRow[]>(`/stock${qs({ search: debounced, areaId })}`), [debounced, areaId]);
   const all = useMemo(() => list.data ?? [], [list.data]);
   const rows = useMemo(() => (category ? all.filter((r) => r.category === category) : all), [all, category]);
+  // Counted over the rows shown, so the figures always agree with the table.
   const stats = [
-    { label: 'Items in stock', value: new Set(all.map((r) => r.item.id)).size },
-    { label: 'Stock lines', value: all.length, hint: 'One line per item × area × batch' },
-    { label: 'Areas holding', value: new Set(all.map((r) => r.area.id)).size },
-    { label: 'Held', value: all.filter((r) => r.category === 'held' || r.category === 'rejected').length, tone: 'warning' as const, hint: 'Quarantine, on hold or rejected', onClick: () => setCategory('held') },
+    { label: 'Items', value: new Set(rows.map((r) => r.item.id)).size, hint: 'Different items in the list below' },
+    { label: 'Stock lines', value: rows.length, hint: 'One line per item × area × batch' },
+    { label: 'Areas holding', value: new Set(rows.map((r) => r.area.id)).size },
+    { label: 'Cannot be used', value: rows.filter((r) => r.category === 'held' || r.category === 'rejected').length, tone: 'warning' as const, hint: 'In quarantine, on hold or rejected', onClick: () => setCategory('held') },
   ];
   const areaOptions = areas.data ?? [];
   const handled = useCallback(() => setRequested(null), []);

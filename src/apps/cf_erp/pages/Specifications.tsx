@@ -20,8 +20,8 @@ import { DialogHeader } from '../components/FormDialog';
 
 interface OptionDraft { id?: number; value: string; label: string; status?: 'active' | 'inactive' }
 
-function SpecDialog({ open, onClose, onSaved, existing, meta }: {
-  open: boolean; onClose: () => void; onSaved: () => void; existing: Specification | null; meta: Meta | null;
+function SpecDialog({ open, onClose, onSaved, existing, meta, canManage }: {
+  open: boolean; onClose: () => void; onSaved: () => void; existing: Specification | null; meta: Meta | null; canManage: boolean;
 }) {
   const [code, setCode] = useState('');
   const [name, setName] = useState('');
@@ -64,7 +64,9 @@ function SpecDialog({ open, onClose, onSaved, existing, meta }: {
     try {
       const common = { name, measurementType: measurementType || null, defaultUom: defaultUom || null, decimals: decimals === '' ? null : Number(decimals), description: description || null };
       if (existing) {
-        await cfApi.put(`/specifications/${existing.id}`, { ...common, status });
+        // dataType goes with it: the field is editable until the spec has values,
+        // and leaving it out made changing it silently do nothing.
+        await cfApi.put(`/specifications/${existing.id}`, { ...common, dataType, status });
         // Options are edited one by one on an existing spec: stored values keep their option ids.
         for (const o of options.filter((x) => !x.id)) await cfApi.post(`/specifications/${existing.id}/options`, { value: o.value, label: o.label || null });
         for (const o of options.filter((x) => x.id)) {
@@ -94,10 +96,10 @@ function SpecDialog({ open, onClose, onSaved, existing, meta }: {
         </Typography>
         <ErrorNotice error={error} />
         <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', sm: 'repeat(2, minmax(0, 1fr))' }, gap: 2 }}>
-          <TextField label="Code" value={code} disabled={!!existing} onChange={(e) => setCode(e.target.value.toUpperCase())} autoFocus={!existing}
+          <TextField label="Code" required={!existing} value={code} disabled={!!existing} onChange={(e) => setCode(e.target.value.toUpperCase())} autoFocus={!existing}
             helperText={existing ? 'Permanent — formulas and coding rules refer to it' : 'Capital letters, digits, _ — e.g. THICKNESS'}
             inputProps={{ style: { fontFamily: 'var(--font-mono)' } }} />
-          <TextField label="Name" value={name} onChange={(e) => setName(e.target.value)} autoFocus={!!existing} />
+          <TextField label="Name" required value={name} onChange={(e) => setName(e.target.value)} autoFocus={!!existing} />
           <TextField select label="Data type" value={dataType} disabled={!!existing && existing.valueCount > 0}
             helperText={existing && existing.valueCount > 0 ? 'Fixed once values exist' : ' '} onChange={(e) => setDataType(e.target.value as DataType)}>
             {(meta?.dataTypes ?? ['number', 'text', 'boolean', 'date', 'option']).map((d) => <MenuItem key={d} value={d}>{d === 'option' ? 'Pick-list' : d[0].toUpperCase() + d.slice(1)}</MenuItem>)}
@@ -149,8 +151,10 @@ function SpecDialog({ open, onClose, onSaved, existing, meta }: {
         )}
       </DialogContent>
       <DialogActions>
-        <Button onClick={onClose} disabled={busy}>Cancel</Button>
-        <Button variant="contained" onClick={save} disabled={busy} startIcon={busy ? <CircularProgress size={14} color="inherit" /> : undefined}>{busy ? 'Saving…' : existing ? 'Save' : 'Create'}</Button>
+        <Button onClick={onClose} disabled={busy}>{canManage ? 'Cancel' : 'Close'}</Button>
+        {canManage && (
+          <Button variant="contained" onClick={save} disabled={busy || !name.trim() || (!existing && !code.trim())} startIcon={busy ? <CircularProgress size={14} color="inherit" /> : undefined}>{busy ? 'Saving…' : existing ? 'Save' : 'Create'}</Button>
+        )}
       </DialogActions>
     </Dialog>
   );
@@ -198,7 +202,7 @@ export default function Specifications() {
       <PageHeader title="Specifications" subtitle="The library of characteristics — thickness, grade, weight. Each is defined once and attached by rules to classification nodes, definitions and items."
         actions={canManage && <Button variant="contained" startIcon={<AddRounded />} onClick={() => setDialog({ open: true, spec: null })}>New specification</Button>} />
       <StatStrip stats={[
-        { label: 'In the library', value: rows.length },
+        { label: 'Shown', value: rows.length },
         { label: 'Unused', value: rows.filter((s) => s.ruleCount === 0).length, tone: 'warning', hint: 'No rule attaches them yet' },
         { label: 'Pick-lists', value: rows.filter((s) => s.dataType === 'option').length },
       ]} />
@@ -214,7 +218,7 @@ export default function Specifications() {
         empty={<EmptyState icon={<TuneRounded />} title={term || type ? 'Nothing matches' : 'No specifications yet'}
           hint={term || type ? 'Try another code, name or type.' : 'Add the characteristics your items and definitions are described by.'}
           action={!term && !type && canManage && <Button variant="contained" onClick={() => setDialog({ open: true, spec: null })}>New specification</Button>} />} />
-      <SpecDialog open={dialog.open} existing={dialog.spec} meta={meta.data} onClose={() => setDialog({ open: false, spec: null })} onSaved={() => { toast.success('Specification saved.'); reload(); }} />
+      <SpecDialog open={dialog.open} existing={dialog.spec} meta={meta.data} canManage={canManage} onClose={() => setDialog({ open: false, spec: null })} onSaved={() => { toast.success('Specification saved.'); reload(); }} />
       <ConfirmDialog open={!!toDelete} title="Delete this specification?" entityName={toDelete ? `${toDelete.code} · ${toDelete.name}` : undefined} danger confirmLabel="Delete"
         body="Only a specification nothing uses can be deleted. One in use can be retired instead (status inactive)."
         onClose={() => setToDelete(null)} onConfirm={async () => { await cfApi.del(`/specifications/${toDelete?.id}`); toast.success('Deleted.'); reload(); }} />

@@ -18,7 +18,8 @@ export function timeText(t: TimeView | null | undefined): string {
 }
 
 export function subjectText(s: TimingSubject): string {
-  return s.type === 'machine' ? `machine ${s.code ?? s.name}` : `${s.level.toLowerCase()} ${s.name ?? s.code}`;
+  const named = s.code ?? s.name ?? '—';
+  return s.type === 'machine' ? `machine ${named}` : `${(s.level ?? '').toLowerCase()} ${s.name ?? s.code ?? '—'}`.trim();
 }
 
 export const RELATION_LABEL: Record<WaitRelation, string> = {

@@ -43,7 +43,7 @@ export function MachineDialog({ open, existing, tree, onClose, onSaved }: {
   const noTypes = tree && !JSON.stringify(tree.roots).includes('"scope":"machine"');
   return (
     <FormDialog open={open} title={existing ? `Edit ${existing.code}` : 'New machine'} onClose={onClose} onSubmit={save}
-      submitLabel={existing ? 'Save' : 'Create'} busyLabel={existing ? 'Saving…' : 'Creating…'} submitDisabled={!form.classificationId}>
+      submitLabel={existing ? 'Save' : 'Create'} busyLabel={existing ? 'Saving…' : 'Creating…'} submitDisabled={!form.classificationId || !form.name.trim()}>
         {noTypes && (
           <Typography sx={{ fontSize: 13, color: 'var(--c-warning-800)', background: 'var(--c-warning-50)', border: '1px solid var(--c-warning-200)', borderRadius: 'var(--r-sm)', p: 1.25 }}>
             There are no machine types yet. Under Setup › Classification, add a Family with scope Machine (e.g. Machines › Cutting › CNC plasma).

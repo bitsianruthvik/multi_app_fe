@@ -45,10 +45,11 @@ export default function StockingAreas() {
   const term = search.trim().toLowerCase();
   const base = useMemo(() => (list.data ?? []).filter((a) => matches(a, term)), [list.data, term]);
   const rows = useMemo(() => base.filter((a) => !purpose || a.purpose === purpose), [base, purpose]);
+  // Counted over the rows shown, so the figures always agree with the table.
   const stats = [
-    { label: 'Areas', value: base.length },
-    { label: 'Holding stock', value: base.filter((a) => a.lineCount).length, tone: 'info' as const },
-    { label: 'Quarantine', value: base.filter((a) => a.purpose === 'quarantine').length, hint: 'Stock there is held', onClick: () => setPurpose('quarantine') },
+    { label: 'Areas', value: rows.length },
+    { label: 'Holding stock', value: rows.filter((a) => a.lineCount).length, tone: 'info' as const, hint: 'The rest are empty' },
+    { label: 'Quarantine', value: rows.filter((a) => a.purpose === 'quarantine').length, hint: 'Stock there is held, not issued', onClick: () => setPurpose('quarantine') },
   ];
   const open = (a: StockingArea) => navigate(appPath(company, `stocking-areas/${a.id}`));
 

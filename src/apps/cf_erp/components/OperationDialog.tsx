@@ -25,7 +25,7 @@ export function OperationDialog({ open, existing, onClose, onSaved }: {
   };
   return (
     <FormDialog open={open} title={existing ? `Edit ${existing.code}` : 'New operation'} onClose={onClose} onSubmit={save}
-      submitLabel={existing ? 'Save' : 'Create'} busyLabel={existing ? 'Saving…' : 'Creating…'}
+      submitLabel={existing ? 'Save' : 'Create'} busyLabel={existing ? 'Saving…' : 'Creating…'} submitDisabled={!form.code.trim() || !form.name.trim()}
       subtitle={existing ? undefined : 'Which machines do it, and how fast, is set on its page.'}>
       <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', sm: '160px minmax(0, 1fr)' }, gap: 2 }}>
         <TextField label="Code" value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value.toUpperCase() })} autoFocus={!existing}

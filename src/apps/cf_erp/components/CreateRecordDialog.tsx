@@ -41,6 +41,7 @@ export function CreateRecordDialog({ open, onClose, onCreated, recordKind, tree,
   const [candidateClassificationId, setCandidateClassificationId] = useState<number | null>(null);
   const [values, setValues] = useState<Record<number, string>>({});
   const [preview, setPreview] = useState<DraftPreview | null>(null);
+  const [previewError, setPreviewError] = useState<CfApiError | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<CfApiError | null>(null);
 
@@ -48,6 +49,7 @@ export function CreateRecordDialog({ open, onClose, onCreated, recordKind, tree,
     if (!open) return;
     setError(null);
     setPreview(null);
+    setPreviewError(null);
     setDefinitionType('template');
     setClassificationId(initialClassificationId ?? null);
     setName(''); setCode(''); setShortName(''); setUom('nos'); setTrackedBy('quantity'); setSourcing('stock');
@@ -60,9 +62,13 @@ export function CreateRecordDialog({ open, onClose, onCreated, recordKind, tree,
   }), [recordKind, definitionType, classificationId, trackedBy, name, code, valueList]);
 
   useEffect(() => {
-    if (!open || !classificationId) { setPreview(null); return undefined; }
+    if (!open || !classificationId) { setPreview(null); setPreviewError(null); return undefined; }
     const t = window.setTimeout(() => {
-      cfApi.post<DraftPreview>('/records/preview', draft).then(setPreview).catch(() => setPreview(null));
+      // A failed preview used to leave "Working out which specifications
+      // apply…" on screen for good, with no way to tell why.
+      cfApi.post<DraftPreview>('/records/preview', draft)
+        .then((p) => { setPreview(p); setPreviewError(null); })
+        .catch((e) => { setPreview(null); setPreviewError(e as CfApiError); });
     }, 300);
     return () => window.clearTimeout(t);
   }, [draft, open, classificationId]);
@@ -118,8 +124,9 @@ export function CreateRecordDialog({ open, onClose, onCreated, recordKind, tree,
         )}
         <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', md: 'minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr)' }, gap: 2, pt: 0.5 }}>
           <ClassificationPicker tree={tree} value={classificationId} onChange={setClassificationId} scope={isItem ? 'item' : 'definition'}
+            required autoFocus={!initialClassificationId}
             helperText="Rules set on this Variant and above decide which specifications apply" />
-          <TextField label="Name" value={name} onChange={(e) => setName(e.target.value)} placeholder={preview?.name?.text ?? ''} helperText="Leave empty to use the naming rule" />
+          <TextField label="Name" value={name} autoFocus={!!initialClassificationId} onChange={(e) => setName(e.target.value)} placeholder={preview?.name?.text ?? ''} helperText="Leave empty to use the naming rule" />
           <TextField label="Code" value={code} onChange={(e) => setCode(e.target.value)} placeholder={preview?.code?.text ?? ''} helperText="Leave empty to use the coding rule"
             inputProps={{ style: { fontFamily: 'var(--font-mono)' } }} />
           <TextField label="Short name" value={shortName} onChange={(e) => setShortName(e.target.value)} placeholder="WEB" helperText="The stock and WIP codes are built from this"
@@ -154,14 +161,19 @@ export function CreateRecordDialog({ open, onClose, onCreated, recordKind, tree,
 
         {classificationId && (
           <Surface sx={{ mt: 2.5, p: 2 }}>
-            <Box sx={{ display: 'flex', gap: 3, flexWrap: 'wrap', mb: 1.5 }}>
-              {genLine('Code it will get', preview?.code ?? null, code)}
-              {genLine('Name it will get', preview?.name ?? null, name)}
-            </Box>
+            <ErrorNotice error={previewError} />
+            {!previewError && (
+              <Box sx={{ display: 'flex', gap: 3, flexWrap: 'wrap', mb: 1.5 }}>
+                {genLine('Code it will get', preview?.code ?? null, code)}
+                {genLine('Name it will get', preview?.name ?? null, name)}
+              </Box>
+            )}
             {isItem ? (
               preview?.resolution ? (
                 <SpecsTable resolution={preview.resolution} draftValues={values} onDraftChange={(id, v) => setValues((m) => ({ ...m, [id]: v }))}
                   emptyHint="No specification rules reach this Variant yet — add them under Setup › Classification." />
+              ) : previewError ? (
+                <Typography sx={{ color: 'var(--c-text-3)' }}>Which specifications apply could not be worked out — you can still create this as a draft and fill them in on the item.</Typography>
               ) : <Typography sx={{ color: 'var(--c-text-3)' }}>Working out which specifications apply…</Typography>
             ) : (
               <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>

@@ -1,6 +1,7 @@
 import React from 'react';
-import { Box, InputBase } from '@mui/material';
+import { Box, IconButton, InputBase } from '@mui/material';
 import SearchRounded from '@mui/icons-material/SearchRounded';
+import CloseRounded from '@mui/icons-material/CloseRounded';
 import { Surface } from './ui';
 
 /** A single facet chip used in FilterBar. */
@@ -107,10 +108,17 @@ export function FilterBar({
           <InputBase
             value={search ?? ''}
             onChange={(e) => onSearch(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Escape' && search) { e.stopPropagation(); onSearch(''); } }}
             placeholder={placeholder}
             inputProps={{ 'aria-label': placeholder }}
             sx={{ flex: 1, fontFamily: 'var(--font-ui)', fontSize: 13, color: 'var(--c-text)' }}
           />
+          {/* Clearing a search should not mean select-all-and-delete. */}
+          {!!search && (
+            <IconButton size="small" aria-label="Clear search" onClick={() => onSearch('')} sx={{ p: 0.25, color: 'var(--c-text-3)' }}>
+              <CloseRounded sx={{ fontSize: 16 }} />
+            </IconButton>
+          )}
         </Box>
       )}
       {children}

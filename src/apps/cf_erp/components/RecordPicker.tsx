@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Autocomplete, Box, TextField, Typography } from '@mui/material';
-import { cfApi, qs } from '../api/client';
+import { cfApi, CfApiError, qs } from '../api/client';
 import type { Kind, MasterRecord, RecordList } from '../api/types';
 import { KindChip, Mono, StatusBadge } from './ui';
 
@@ -25,6 +25,7 @@ export function RecordPicker({
   const [input, setInput] = useState('');
   const [options, setOptions] = useState<MasterRecord[]>([]);
   const [loading, setLoading] = useState(false);
+  const [failed, setFailed] = useState<string | null>(null);
   const kindKey = kinds.join(',');
 
   useEffect(() => {
@@ -32,8 +33,10 @@ export function RecordPicker({
     setLoading(true);
     const t = window.setTimeout(() => {
       cfApi.get<RecordList>(`/records${qs({ kinds: kindKey, search: input, limit: 30, usable: 1, status: activeOnly ? 'active' : undefined })}`)
-        .then((r) => { if (alive) setOptions(r.rows); })
-        .catch(() => { if (alive) setOptions([]); })
+        .then((r) => { if (alive) { setOptions(r.rows); setFailed(null); } })
+        // A 403 here (no catalog view) used to read as "nothing matches", which
+        // sends people looking for an item that is right there.
+        .catch((e) => { if (alive) { setOptions([]); setFailed(e instanceof CfApiError ? e.message : 'The item list could not be loaded.'); } })
         .finally(() => { if (alive) setLoading(false); });
     }, 200);
     return () => { alive = false; window.clearTimeout(t); };
@@ -60,7 +63,7 @@ export function RecordPicker({
           {o.status !== 'active' && <StatusBadge status={o.status} />}
         </Box>
       )}
-      renderInput={(params) => <TextField {...params} label={label} autoFocus={autoFocus} helperText={helperText} />}
+      renderInput={(params) => <TextField {...params} label={label} autoFocus={autoFocus} error={!!failed} helperText={failed ?? helperText} />}
     />
   );
 }

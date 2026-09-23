@@ -25,7 +25,7 @@ const KIND_HELP: Record<FormulaKind, string> = {
   timing: 'Reads the item being worked on and the machine doing it — for operation times.',
 };
 
-function FormulaDialog({ open, onClose, onSaved, existing }: { open: boolean; onClose: () => void; onSaved: () => void; existing: Formula | null }) {
+function FormulaDialog({ open, onClose, onSaved, existing, canManage }: { open: boolean; onClose: () => void; onSaved: () => void; existing: Formula | null; canManage: boolean }) {
   const [code, setCode] = useState('');
   const [name, setName] = useState('');
   const [expression, setExpression] = useState('');
@@ -73,16 +73,22 @@ function FormulaDialog({ open, onClose, onSaved, existing }: { open: boolean; on
   };
 
   const result = check?.result;
+  // The backend refuses an expression with problems, so do not offer to save one.
+  // An untouched expression on an existing formula is never re-checked there,
+  // so a name-only edit still goes through.
+  const expressionChanged = !existing || expression.trim() !== existing.expression;
+  const blocked = expressionChanged && !!check && check.problems.length > 0;
+  const incomplete = !name.trim() || !expression.trim() || (!existing && !code.trim());
   return (
     <Dialog open={open} onClose={() => !busy && onClose()} maxWidth="md" fullWidth>
       <DialogHeader title={<>{existing ? `Edit ${existing.code}` : 'New formula'}</>} onClose={onClose} busy={busy} />
       <DialogContent>
         <ErrorNotice error={error} />
         <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', sm: 'minmax(0, 1fr) minmax(0, 2fr)' }, gap: 2, mt: 1 }}>
-          <TextField label="Code" value={code} disabled={!!existing} onChange={(e) => setCode(e.target.value.toUpperCase())} inputProps={{ style: { fontFamily: 'var(--font-mono)' } }}
+          <TextField label="Code" required={!existing} value={code} disabled={!!existing} autoFocus={!existing} onChange={(e) => setCode(e.target.value.toUpperCase())} inputProps={{ style: { fontFamily: 'var(--font-mono)' } }}
             helperText={existing ? `Version ${existing.version} — changing the expression makes version ${existing.version + 1}` : 'e.g. PLATE_WEIGHT'} />
-          <TextField label="Name" value={name} onChange={(e) => setName(e.target.value)} />
-          <TextField label="Expression" value={expression} onChange={(e) => setExpression(e.target.value)} multiline minRows={2} sx={{ gridColumn: '1 / -1' }}
+          <TextField label="Name" required value={name} autoFocus={!!existing} onChange={(e) => setName(e.target.value)} />
+          <TextField label="Expression" required value={expression} onChange={(e) => setExpression(e.target.value)} multiline minRows={2} sx={{ gridColumn: '1 / -1' }}
             inputProps={{ style: { fontFamily: 'var(--font-mono)', fontSize: 14 } }}
             helperText="Specification codes, numbers, + − × ÷ % ^, MIN, MAX, ROUND(x, n), ABS, SQRT, CEIL, FLOOR, IF(a > b, x, y). Roll-ups: SUM(children.WEIGHT). Operation times: item.CUT_LENGTH / machine.CUTTING_SPEED." />
           <TextField label="Description" value={description} onChange={(e) => setDescription(e.target.value)} sx={{ gridColumn: '1 / -1' }} />
@@ -118,8 +124,10 @@ function FormulaDialog({ open, onClose, onSaved, existing }: { open: boolean; on
         )}
       </DialogContent>
       <DialogActions>
-        <Button onClick={onClose} disabled={busy}>Cancel</Button>
-        <Button variant="contained" onClick={save} disabled={busy} startIcon={busy ? <CircularProgress size={14} color="inherit" /> : undefined}>{busy ? 'Saving…' : existing ? 'Save' : 'Create'}</Button>
+        <Button onClick={onClose} disabled={busy}>{canManage ? 'Cancel' : 'Close'}</Button>
+        {canManage && (
+          <Button variant="contained" onClick={save} disabled={busy || incomplete || blocked} startIcon={busy ? <CircularProgress size={14} color="inherit" /> : undefined}>{busy ? 'Saving…' : existing ? 'Save' : 'Create'}</Button>
+        )}
       </DialogActions>
     </Dialog>
   );
@@ -151,10 +159,11 @@ export default function Formulas() {
   const term = search.trim().toLowerCase();
   const base = (data ?? []).filter((f) => matches(f, term));
   const rows = base.filter((f) => !kind || f.kind === kind);
+  // The figures describe the rows in the table beneath them, kind chip included.
   const stats = [
-    { label: 'Formulas', value: base.length },
-    { label: 'In use', value: base.filter((f) => (f.ruleCount ?? 0) + (f.timingRuleCount ?? 0) > 0).length, tone: 'success' as const },
-    { label: 'Unused', value: base.filter((f) => !f.ruleCount && !f.timingRuleCount).length, hint: 'No rule uses it yet' },
+    { label: 'Shown', value: rows.length },
+    { label: 'In use', value: rows.filter((f) => (f.ruleCount ?? 0) + (f.timingRuleCount ?? 0) > 0).length, tone: 'success' as const },
+    { label: 'Unused', value: rows.filter((f) => !f.ruleCount && !f.timingRuleCount).length, hint: 'No rule uses it yet' },
   ];
 
   return (
@@ -176,7 +185,7 @@ export default function Formulas() {
         empty={<EmptyState icon={<FunctionsRounded />} title={term || kind ? 'No formula matches' : 'No formulas yet'}
           hint={term || kind ? 'Clear the search or pick another kind.' : 'Add one, then use it in a Calculated rule on a classification node or definition.'}
           action={!term && !kind && canManage && <Button variant="contained" onClick={() => setDialog({ open: true, formula: null })}>New formula</Button>} />} />
-      <FormulaDialog open={dialog.open} existing={dialog.formula} onClose={() => setDialog({ open: false, formula: null })} onSaved={() => { toast.success('Formula saved.'); reload(); }} />
+      <FormulaDialog open={dialog.open} existing={dialog.formula} canManage={canManage} onClose={() => setDialog({ open: false, formula: null })} onSaved={() => { toast.success('Formula saved.'); reload(); }} />
       <ConfirmDialog open={!!toDelete} title="Delete this formula?" entityName={toDelete ? `${toDelete.code} · ${toDelete.name}` : undefined} danger confirmLabel="Delete"
         body="Refused while a rule uses it — retire it instead." onClose={() => setToDelete(null)}
         onConfirm={async () => { await cfApi.del(`/formulas/${toDelete?.id}`); toast.success('Deleted.'); reload(); }} />

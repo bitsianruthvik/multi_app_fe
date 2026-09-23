@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Button, IconButton, Tooltip, Typography } from '@mui/material';
+import { Box, Button, IconButton, Tooltip, Typography } from '@mui/material';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import EditRounded from '@mui/icons-material/EditRounded';
 import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
@@ -14,7 +14,7 @@ import { invalidateNavCounts } from '../hooks/useNavCounts';
 import { useUrlParam } from '../hooks/useUrlState';
 import { appPath } from '../navMeta';
 import { PURPOSE_HELP } from '../lib/inventory';
-import { DetailSkeleton, ErrorNotice, Fact, Mono, SectionCard, StatusBadge } from '../components/ui';
+import { DetailSkeleton, EmptyState, ErrorNotice, Fact, Mono, SectionCard, StatusBadge } from '../components/ui';
 import { CrossLink, DetailHeader, DetailLayout } from '../components/DetailLayout';
 import { PurposeChip } from '../components/inventoryUi';
 import { MovementsTable, StockTable, TotalsStrip } from '../components/StockTables';
@@ -23,6 +23,8 @@ import { AreaDialog } from '../components/AreaDialog';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { useDetailTitle } from '../components/shell/detailTitle';
 import { useToast } from '../components/toastContext';
+
+const linkSx = { color: 'inherit', textDecoration: 'none', '&:hover': { color: 'var(--c-primary-700)', textDecoration: 'underline' } };
 
 /** Record / Detail (§4.3) for a stocking area: its inventory and what moved through it. */
 export default function StockingAreaDetail() {
@@ -57,7 +59,7 @@ export default function StockingAreaDetail() {
         <>
           <Fact label="Items held"><Mono>{new Set(d.rows.map((r) => r.item.id)).size}</Mono></Fact>
           <Fact label="Stock lines"><Mono>{d.rows.length}</Mono></Fact>
-          {a.machine && <Fact label="Beside machine"><Mono><Link to={to(`machines/${a.machine.id}`)}>{a.machine.code}</Link></Mono> {a.machine.name}</Fact>}
+          {a.machine && <Fact label="Beside machine"><Mono><Box component={Link} to={to(`machines/${a.machine.id}`)} sx={linkSx}>{a.machine.code}</Box></Mono> {a.machine.name}</Fact>}
         </>
       )}>
       {a.notes && <Typography sx={{ mt: 2, color: 'var(--c-text-2)', fontSize: 13 }}>{a.notes}</Typography>}
@@ -78,12 +80,14 @@ export default function StockingAreaDetail() {
         <>
           <TotalsStrip totals={d.totals} />
           <SectionCard flush title="Its inventory" subtitle="What this area holds now, by item and batch.">
-            <StockTable bare rows={d.rows} hide={['area']} empty={<Typography sx={{ color: 'var(--c-text-3)', p: 2 }}>Nothing here now.</Typography>} />
+            <StockTable bare rows={d.rows} hide={['area']}
+              empty={<EmptyState icon={<Inventory2Rounded />} title="Nothing here now"
+                hint={canManage ? 'Use Receive at the top of this page to book material into it.' : 'Nothing has been booked into this area.'} />} />
           </SectionCard>
         </>
       )}
       {tab === 'movements' && (
-        <SectionCard flush title="Latest movements" subtitle="Everything that came in, went out or was counted here, newest first.">
+        <SectionCard flush title="Latest movements" subtitle={`The last ${d.movements.length} that came in, went out or were counted here, newest first.`}>
           <MovementsTable bare rows={d.movements} empty="Nothing has moved through it yet." />
         </SectionCard>
       )}

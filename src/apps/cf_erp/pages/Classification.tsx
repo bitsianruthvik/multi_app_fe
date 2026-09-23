@@ -11,6 +11,7 @@ import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
 import { cfApi, CfApiError, qs } from '../api/client';
 import type { NodeScope, Resolution, Rule, Tree, TreeNode } from '../api/types';
 import { useCompanySlug, useLoad } from '../hooks/useLoad';
+import { useIsPermitted } from '../hooks/useIsPermitted';
 import { appPath } from '../navMeta';
 import { CapsLabel, EmptyState, ErrorNotice, Mono, PageHeader, RuleBadge, SectionCard, SkeletonRows, StatusBadge, Surface } from '../components/ui';
 import { RuleDialog } from '../components/RuleDialog';
@@ -43,12 +44,23 @@ function NodeRow({ node, depth, selectedId, expanded, toggle, select }: {
   const open = expanded.has(node.id);
   const selected = node.id === selectedId;
   return (
-    <Box component="li" role="treeitem" aria-expanded={node.children.length ? open : undefined} aria-selected={selected} sx={{ listStyle: 'none' }}>
-      <Box sx={{
-        display: 'flex', alignItems: 'center', gap: 0.5, pl: 0.5 + depth * 2, pr: 1, py: 0.5, borderRadius: 'var(--r-sm)', cursor: 'pointer',
-        background: selected ? 'var(--c-primary-50)' : 'transparent', color: selected ? 'var(--c-primary-900)' : 'var(--c-text)',
-        '&:hover': { background: selected ? 'var(--c-primary-50)' : 'var(--c-surface-2)' },
-      }} onClick={() => select(node.id)}>
+    // The row was mouse-only: the tree item now takes focus, Enter/Space selects
+    // it and the arrow keys open and close it, as an ARIA tree should.
+    <Box component="li" role="treeitem" tabIndex={0} aria-label={`${node.level}: ${node.name}`}
+      aria-expanded={node.children.length ? open : undefined} aria-selected={selected}
+      onKeyDown={(e) => {
+        if (e.target !== e.currentTarget) return;
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); select(node.id); }
+        if (e.key === 'ArrowRight' && node.children.length && !open) toggle(node.id);
+        if (e.key === 'ArrowLeft' && node.children.length && open) toggle(node.id);
+      }}
+      sx={{ listStyle: 'none', outline: 'none', '&:focus-visible > .tree-row': { outline: '2px solid var(--c-primary-500)', outlineOffset: '-2px' } }}>
+      <Box className="tree-row"
+        sx={{
+          display: 'flex', alignItems: 'center', gap: 0.5, pl: 0.5 + depth * 2, pr: 1, py: 0.5, borderRadius: 'var(--r-sm)', cursor: 'pointer',
+          background: selected ? 'var(--c-primary-50)' : 'transparent', color: selected ? 'var(--c-primary-900)' : 'var(--c-text)',
+          '&:hover': { background: selected ? 'var(--c-primary-50)' : 'var(--c-surface-2)' },
+        }} onClick={() => select(node.id)}>
         <IconButton size="small" aria-label={open ? 'Collapse' : 'Expand'} disabled={!node.children.length}
           onClick={(e) => { e.stopPropagation(); toggle(node.id); }} sx={{ visibility: node.children.length ? 'visible' : 'hidden' }}>
           <ChevronRightRounded sx={{ fontSize: 18, transition: 'transform var(--t-mid) var(--ease)', transform: open ? 'rotate(90deg)' : 'none' }} />
@@ -112,8 +124,8 @@ function NodeDialog({ open, onClose, onSaved, parent, existing, levels }: {
         {parent && !existing && <Typography sx={{ color: 'var(--c-text-2)', fontSize: 13, mb: 2 }}>Under {parent.name}</Typography>}
         <ErrorNotice error={error} />
         <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 2, mt: 1 }}>
-          <TextField label="Code" value={form.code} onChange={set('code')} autoFocus inputProps={{ style: { fontFamily: 'var(--font-mono)' } }} helperText="Used in generated codes" />
-          <TextField label="Name" value={form.name} onChange={set('name')} />
+          <TextField label="Code" required value={form.code} onChange={set('code')} autoFocus inputProps={{ style: { fontFamily: 'var(--font-mono)' } }} helperText="Used in generated codes" />
+          <TextField label="Name" required value={form.name} onChange={set('name')} />
           <TextField select label="Holds" value={form.scope} onChange={set('scope')} disabled={underMachines}
             helperText={underMachines ? 'Every level of a machine family is for machines' : form.scope === 'machine' ? 'Machine types — the deepest level holds machines' : 'Items and definitions: a picker filter only'}>
             <MenuItem value="both">Items and definitions</MenuItem>
@@ -133,14 +145,14 @@ function NodeDialog({ open, onClose, onSaved, parent, existing, levels }: {
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose} disabled={busy}>Cancel</Button>
-        <Button variant="contained" onClick={save} disabled={busy} startIcon={busy ? <CircularProgress size={14} color="inherit" /> : undefined}>{busy ? 'Saving…' : existing ? 'Save' : 'Create'}</Button>
+        <Button variant="contained" onClick={save} disabled={busy || !form.code.trim() || !form.name.trim()} startIcon={busy ? <CircularProgress size={14} color="inherit" /> : undefined}>{busy ? 'Saving…' : existing ? 'Save' : 'Create'}</Button>
       </DialogActions>
     </Dialog>
   );
 }
 
-function NodePanel({ node, path, levels, leafDepth, onEdit, onAddChild, onDelete, onChanged }: {
-  node: TreeNode; path: TreeNode[]; levels: string[]; leafDepth: number; onEdit: () => void; onAddChild: () => void; onDelete: () => void; onChanged: () => void;
+function NodePanel({ node, path, levels, leafDepth, canManage, onEdit, onAddChild, onDelete, onChanged }: {
+  node: TreeNode; path: TreeNode[]; levels: string[]; leafDepth: number; canManage: boolean; onEdit: () => void; onAddChild: () => void; onDelete: () => void; onChanged: () => void;
 }) {
   const company = useCompanySlug();
   const toast = useToast();
@@ -170,11 +182,13 @@ function NodePanel({ node, path, levels, leafDepth, onEdit, onAddChild, onDelete
             </Box>
             {node.description && <Typography sx={{ mt: 1, color: 'var(--c-text-2)' }}>{node.description}</Typography>}
           </Box>
-          <Box sx={{ display: 'flex', gap: 1 }}>
-            {node.depth < leafDepth && <Button startIcon={<AddRounded />} onClick={onAddChild}>Add {levels[node.depth + 1].toLowerCase()}</Button>}
-            <Button startIcon={<EditRounded />} onClick={onEdit}>Edit</Button>
-            <Tooltip title="Delete — refused while anything lives under it"><IconButton aria-label="Delete node" onClick={onDelete}><DeleteOutlineRounded /></IconButton></Tooltip>
-          </Box>
+          {canManage && (
+            <Box sx={{ display: 'flex', gap: 1 }}>
+              {node.depth < leafDepth && <Button startIcon={<AddRounded />} onClick={onAddChild}>Add {levels[node.depth + 1].toLowerCase()}</Button>}
+              <Button startIcon={<EditRounded />} onClick={onEdit}>Edit</Button>
+              <Tooltip title="Delete — refused while anything lives under it"><IconButton aria-label="Delete node" onClick={onDelete}><DeleteOutlineRounded /></IconButton></Tooltip>
+            </Box>
+          )}
         </Box>
         {node.depth === leafDepth && node.scope === 'machine' && (
           <Box sx={{ display: 'flex', gap: 3, mt: 2 }}>
@@ -191,7 +205,7 @@ function NodePanel({ node, path, levels, leafDepth, onEdit, onAddChild, onDelete
 
       <SectionCard title="Specification rules set here"
         subtitle="Rules apply to every item and definition below this node. A more specific level can override a rule or switch it off."
-        actions={<Button variant="contained" startIcon={<AddRounded />} onClick={() => setRuleDialog({ open: true, rule: null })}>Add rule</Button>}>
+        actions={canManage && <Button variant="contained" startIcon={<AddRounded />} onClick={() => setRuleDialog({ open: true, rule: null })}>Add rule</Button>}>
         <ErrorNotice error={rules.error} onRetry={rules.reload} />
         {rules.loading && !rules.data ? <SkeletonRows rows={3} /> : (rules.data ?? []).length === 0 ? (
           <Typography sx={{ color: 'var(--c-text-2)' }}>No rules at this level{node.depth > 0 ? ' — rules from above still apply (see below).' : '.'}</Typography>
@@ -208,10 +222,12 @@ function NodePanel({ node, path, levels, leafDepth, onEdit, onAddChild, onDelete
                   </Typography>
                 </Box>
                 {r.isApplicable && <RuleBadge rule={r.valueRule} />}
-                <Box className="row-actions" sx={{ opacity: 0, transition: 'opacity 140ms', display: 'flex' }}>
-                  <IconButton size="small" aria-label={`Edit rule ${r.specCode}`} onClick={() => setRuleDialog({ open: true, rule: r })}><EditRounded fontSize="small" /></IconButton>
-                  <IconButton size="small" aria-label={`Delete rule ${r.specCode}`} onClick={() => setDeleteRule(r)}><DeleteOutlineRounded fontSize="small" /></IconButton>
-                </Box>
+                {canManage && (
+                  <Box className="row-actions" sx={{ opacity: 0, transition: 'opacity 140ms', display: 'flex' }}>
+                    <IconButton size="small" aria-label={`Edit rule ${r.specCode}`} onClick={() => setRuleDialog({ open: true, rule: r })}><EditRounded fontSize="small" /></IconButton>
+                    <IconButton size="small" aria-label={`Delete rule ${r.specCode}`} onClick={() => setDeleteRule(r)}><DeleteOutlineRounded fontSize="small" /></IconButton>
+                  </Box>
+                )}
               </Box>
             ))}
           </Box>
@@ -223,11 +239,11 @@ function NodePanel({ node, path, levels, leafDepth, onEdit, onAddChild, onDelete
         <ErrorNotice error={resolved.error} onRetry={resolved.reload} />
         {resolved.loading && !resolved.data ? <SkeletonRows rows={4} /> : resolved.data && (
           <SpecsTable resolution={resolved.data} emptyHint="No rules reach this node yet. Add one above."
-            onSave={async (values) => {
+            onSave={canManage ? async (values) => {
               await cfApi.put(`/classification/${node.id}/values`, { values });
               toast.success('Defaults saved — items below were updated.');
               refresh();
-            }} />
+            } : undefined} />
         )}
       </SectionCard>
 
@@ -244,6 +260,9 @@ function NodePanel({ node, path, levels, leafDepth, onEdit, onAddChild, onDelete
 /** Hierarchy / Tree (DESIGN_SYSTEM.md §4.7) with the selected node's rules beside it. */
 export default function Classification() {
   const toast = useToast();
+  // The screen is reachable with catalog_view alone, but every write below
+  // needs setup_manage — without this gate the buttons are all 403s.
+  const canManage = useIsPermitted()('cf_erp_setup_manage');
   const { data: tree, error, loading, reload } = useLoad(() => cfApi.get<Tree>('/classification'), []);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
@@ -269,11 +288,11 @@ export default function Classification() {
   return (
     <Box>
       <PageHeader title="Classification" subtitle="One Family › Subfamily › Variant tree for items and definitions. Items and definitions sit on a Variant; specification rules set on any node reach everything below it."
-        actions={<Button variant="contained" startIcon={<AddRounded />} onClick={() => setDialog({ open: true, parent: null, existing: null })}>New family</Button>} />
+        actions={canManage && <Button variant="contained" startIcon={<AddRounded />} onClick={() => setDialog({ open: true, parent: null, existing: null })}>New family</Button>} />
       <ErrorNotice error={error} onRetry={reload} />
       {loading && !tree ? <SkeletonRows rows={8} /> : tree && (tree.roots.length === 0 ? (
         <Surface><EmptyState title="No classification yet" body="Start with a family, e.g. Steel, then add subfamilies and variants under it."
-          action={<Button variant="contained" onClick={() => setDialog({ open: true, parent: null, existing: null })}>New family</Button>} /></Surface>
+          action={canManage && <Button variant="contained" onClick={() => setDialog({ open: true, parent: null, existing: null })}>New family</Button>} /></Surface>
       ) : (
         <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '320px 1fr' }, gap: 2, alignItems: 'start' }}>
           <Surface sx={{ p: 1, position: { md: 'sticky' }, top: 0 }}>
@@ -282,7 +301,7 @@ export default function Classification() {
             </Box>
           </Surface>
           {selected && (
-            <NodePanel key={selected.id} node={selected} path={path} levels={tree.levels} leafDepth={tree.leafDepth} onChanged={reload}
+            <NodePanel key={selected.id} node={selected} path={path} levels={tree.levels} leafDepth={tree.leafDepth} canManage={canManage} onChanged={reload}
               onEdit={() => setDialog({ open: true, parent: null, existing: selected })}
               onAddChild={() => setDialog({ open: true, parent: selected, existing: null })}
               onDelete={() => setConfirmDelete(selected)} />

@@ -36,11 +36,13 @@ export default function PurchaseOrders() {
     ? all.filter((p) => [p.code, p.supplier?.name, p.supplier?.code].some((t) => t && String(t).toLowerCase().includes(term)))
     : all), [all, term]);
 
+  // Every figure describes the orders in the table below, so the two agree.
+  const outstanding = rows.reduce((t, p) => t + p.totals.outstanding, 0);
   const stats = [
     { label: 'Orders', value: rows.length },
-    { label: 'Draft', value: all.filter((p) => p.status === 'draft').length, tone: 'warning' as const, hint: 'Not sent to a supplier yet' },
-    { label: 'Awaiting delivery', value: all.filter((p) => p.status === 'ordered' || p.status === 'partially_received').length, tone: 'info' as const },
-    { label: 'Outstanding', value: all.reduce((t, p) => t + p.totals.outstanding, 0), display: qtyText(all.reduce((t, p) => t + p.totals.outstanding, 0)), hint: 'Quantity ordered and not yet received' },
+    { label: 'Draft', value: rows.filter((p) => p.status === 'draft').length, tone: 'warning' as const, hint: 'Not sent to a supplier yet' },
+    { label: 'Awaiting delivery', value: rows.filter((p) => p.status === 'ordered' || p.status === 'partially_received').length, tone: 'info' as const, hint: 'Sent, still waiting on the supplier' },
+    { label: 'Outstanding', value: outstanding, display: qtyText(outstanding), hint: 'Quantity ordered and not yet received' },
   ];
 
   const columns: DataColumn<PurchaseOrderRow>[] = [
@@ -58,7 +60,7 @@ export default function PurchaseOrders() {
       key: 'supplier', header: 'Supplier', sortValue: (p) => p.supplier?.name ?? '',
       render: (p) => (p.supplier ? <>{p.supplier.name}</> : <Typography component="span" sx={{ fontSize: 12.5, color: 'var(--c-text-3)' }}>Nobody yet</Typography>),
     },
-    { key: 'lines', header: 'Lines', numeric: true, sortValue: (p) => p.totals.lines, render: (p) => <Mono muted>{p.totals.lines}</Mono> },
+    { key: 'lines', header: 'Lines', numeric: true, defaultHidden: true, sortValue: (p) => p.totals.lines, render: (p) => <Mono muted>{p.totals.lines}</Mono> },
     { key: 'ordered', header: 'Ordered', numeric: true, sortValue: (p) => p.totals.ordered, render: (p) => <Mono>{qtyText(p.totals.ordered)}</Mono> },
     { key: 'received', header: 'Received', numeric: true, sortValue: (p) => p.totals.received, render: (p) => <Mono muted={!p.totals.received}>{qtyText(p.totals.received)}</Mono> },
     { key: 'outstanding', header: 'Outstanding', numeric: true, sortValue: (p) => p.totals.outstanding, render: (p) => <Mono muted={!p.totals.outstanding}>{qtyText(p.totals.outstanding)}</Mono> },
@@ -76,8 +78,14 @@ export default function PurchaseOrders() {
       <ErrorNotice error={list.error} onRetry={list.reload} />
       <DataTable rows={rows} columns={columns} getRowId={(p) => p.id} loading={list.loading && !list.data} storageKey="purchase-orders" exportName="purchase-orders"
         onRowClick={(p) => navigate(appPath(company, `purchase-orders/${p.id}`))}
-        empty={<EmptyState icon={<LocalShippingRounded />} title={status === 'open' ? 'No open purchase orders' : 'No purchase orders'}
-          hint="The buy list suggests one from what the released jobs are short of." />} />
+        empty={<EmptyState icon={<LocalShippingRounded />}
+          title={term ? 'No order matches' : status === 'open' ? 'Nothing on order' : 'No purchase orders here'}
+          hint={term ? 'Clear the search, or look under All.'
+            : status === 'open' ? 'The buy list suggests one from what the released jobs are short of, or raise one by hand.'
+              : 'Nothing has this status. Look under All.'}
+          action={term ? <Button onClick={() => setSearch('')}>Clear search</Button>
+            : status !== 'all' ? <Button onClick={() => setStatus('all')}>Show all orders</Button>
+              : canManage ? <Button variant="contained" startIcon={<AddRounded />} onClick={() => setCreating(true)}>New purchase order</Button> : undefined} />} />
       <NewPurchaseDialog open={creating} onClose={() => setCreating(false)}
         onCreated={(p: PurchaseOrder) => { setCreating(false); invalidateNavCounts(); navigate(appPath(company, `purchase-orders/${p.id}`)); }} />
     </Box>

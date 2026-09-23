@@ -536,8 +536,11 @@ export function DataTable<T>({
                               className="dt-actions"
                               sx={{
                                 display: 'flex', gap: 0.25, justifyContent: 'flex-end',
-                                opacity: 0, pointerEvents: 'none',
                                 transition: 'opacity 140ms var(--ease)',
+                                // Hidden until the row is hovered — but ONLY where there is a
+                                // pointer to hover with. On a tablet at a machine there is no
+                                // hover, and a button nobody can see is a button nobody has.
+                                '@media (hover: hover) and (pointer: fine)': { opacity: 0, pointerEvents: 'none' },
                               }}
                             >
                               {rowActions(row)}

@@ -49,11 +49,14 @@ export default function BatchDetail() {
   if (bt.error) return <ErrorNotice error={bt.error} onRetry={bt.reload} />;
   if (!b) return <DetailSkeleton />;
   const to = (path: string) => appPath(company, path);
+  // Throws on purpose: the hold/reject prompt keeps itself open and shows why.
   const setTo = async (s: BatchStatus, note = '') => {
     bt.setData(await cfApi.post<BatchDetailT>(`/batches/${id}/status`, { status: s, note }));
     invalidateNavCounts();
-    toast.success(s === 'available' ? 'Released.' : s === 'on_hold' ? 'On hold.' : 'Rejected.');
+    toast.success(s === 'available' ? 'Released — it can be issued again.' : s === 'on_hold' ? 'On hold.' : 'Rejected.');
   };
+  // Release has no prompt of its own, so it has to report its own refusal.
+  const release = () => { void setTo('available').catch((e) => toast.error((e as Error).message)); };
   const locColumns: DataColumn<Location>[] = [
     { key: 'area', header: 'Area', alwaysVisible: true, sortValue: (l) => l.area.code, render: (l) => <><Mono><Box component={Link} to={to(`stocking-areas/${l.area.id}`)} sx={linkSx}>{l.area.code}</Box></Mono> {l.area.name}</> },
     { key: 'purpose', header: 'Counts as', alwaysVisible: true, render: (l) => <PurposeChip purpose={l.area.purpose} /> },
@@ -66,7 +69,7 @@ export default function BatchDetail() {
       subtitle={b.statusNote && b.status !== 'available' ? <Box component="span" sx={{ color: 'var(--c-warning-800)' }}>{b.statusNote}</Box> : undefined}
       actions={canManage && (
         <>
-          {b.status !== 'available' && <Button variant="contained" startIcon={<CheckCircleRounded />} onClick={() => setTo('available')}>Release</Button>}
+          {b.status !== 'available' && <Button variant="contained" startIcon={<CheckCircleRounded />} onClick={release}>Release</Button>}
           {b.status !== 'on_hold' && <Button variant="outlined" startIcon={<PauseCircleRounded />} onClick={() => setStatus('on_hold')}>Put on hold</Button>}
           {b.status !== 'rejected' && <Button variant="outlined" color="error" startIcon={<CancelRounded />} onClick={() => setStatus('rejected')}>Reject</Button>}
           <Button startIcon={<EditRounded />} onClick={() => setEditing(true)} sx={{ color: 'var(--c-text-2)' }}>Edit</Button>

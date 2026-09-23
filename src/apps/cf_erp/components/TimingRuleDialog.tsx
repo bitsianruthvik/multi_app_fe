@@ -106,6 +106,9 @@ export function TimingRuleDialog({ open, operationId, existing, tree, onClose, o
         <Typography sx={{ color: 'var(--c-text-2)', fontSize: 13, mb: 2 }}>
           The most specific rule wins: a machine’s own rule beats its type, which beats the level above it.
         </Typography>
+        {/* Why the pickers below are empty, when they are — a silent 403 on the
+            formula or machine list used to read as "there are none yet". */}
+        <ErrorNotice error={formulas.error ?? machines.error} />
         <ErrorNotice error={error} />
         <Box sx={{ display: 'grid', gap: 2 }}>
           <ToggleButtonGroup exclusive size="small" value={subjectType} disabled={!!existing} onChange={(_, v) => v && setSubjectType(v)} aria-label="Rule for">
@@ -116,9 +119,12 @@ export function TimingRuleDialog({ open, operationId, existing, tree, onClose, o
             <ClassificationPicker tree={tree} scope="machine" leafOnly={false} value={nodeId} onChange={setNodeId} disabled={!!existing}
               label="Machine type or group" helperText="A group (e.g. Cutting) covers every type under it" />
           ) : (
-            <Autocomplete size="small" options={machineOptions} value={chosenMachine} disabled={!!existing}
-              getOptionLabel={(m) => `${m.code} · ${m.name}`} isOptionEqualToValue={(a, b) => a.id === b.id}
-              onChange={(_, m) => setMachineId(m?.id ?? null)} renderInput={(p) => <TextField {...p} label="Machine" />} />
+            <Autocomplete size="small" options={machineOptions} value={chosenMachine} disabled={!!existing} loading={machines.loading}
+              getOptionLabel={(m) => `${m.code} · ${m.name}${m.status === 'inactive' ? ' · inactive' : ''}`} isOptionEqualToValue={(a, b) => a.id === b.id}
+              noOptionsText="No machines yet — add one under Production › Machines"
+              onChange={(_, m) => setMachineId(m?.id ?? null)}
+              renderInput={(p) => <TextField {...p} label="Machine"
+                helperText={chosenMachine?.status === 'inactive' ? 'This machine is inactive, so the rule has no effect until it is active again' : ' '} />} />
           )}
           <FormControlLabel control={<Switch checked={eligible} onChange={(e) => setEligible(e.target.checked)} />}
             label={eligible ? 'Can do this operation' : 'Kept out of this operation — e.g. a light-duty set that must not weld girders'} />

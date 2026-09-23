@@ -35,12 +35,13 @@ export function PartyDialog({ open, existing, defaultRole = 'customer', onClose,
   };
 
   return (
-    <FormDialog open={open} title={existing ? `Edit ${existing.name}` : 'New customer or supplier'} onClose={onClose} onSubmit={save}
+    <FormDialog open={open} title={existing ? `Edit ${existing.name}` : `New ${ROLE_LABEL[defaultRole].toLowerCase()}`} onClose={onClose} onSubmit={save}
       submitLabel={existing ? 'Save' : 'Create'} busyLabel={existing ? 'Saving…' : 'Creating…'}
+      submitDisabled={!form.code.trim() || !form.name.trim() || form.roles.length === 0}
       subtitle={existing ? undefined : 'One record can be a customer, a supplier and a subcontractor at once.'}>
       <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', sm: '160px minmax(0, 1fr)' }, gap: 2 }}>
-        <TextField label="Code" value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} autoFocus={!existing} inputProps={{ style: { fontFamily: 'var(--font-mono)' } }} />
-        <TextField label="Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+        <TextField label="Code" required value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} autoFocus={!existing} inputProps={{ style: { fontFamily: 'var(--font-mono)' } }} />
+        <TextField label="Name" required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
         <Box sx={{ gridColumn: '1 / -1' }}>
           <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>Roles</Typography>
           <FormGroup row>
@@ -48,6 +49,7 @@ export function PartyDialog({ open, existing, defaultRole = 'customer', onClose,
               <FormControlLabel key={r} control={<Checkbox size="small" checked={form.roles.includes(r)} onChange={() => toggleRole(r)} />} label={ROLE_LABEL[r]} />
             ))}
           </FormGroup>
+          {form.roles.length === 0 && <Typography sx={{ fontSize: 12, color: 'var(--c-danger-700)' }}>Tick at least one role.</Typography>}
         </Box>
         <TextField label="Contact" value={form.contactName} onChange={(e) => setForm({ ...form, contactName: e.target.value })} />
         <TextField label="Email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />

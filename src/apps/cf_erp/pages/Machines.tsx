@@ -56,9 +56,11 @@ export default function Machines() {
     { key: 'bought', header: 'Bought as', render: (m) => <Mono muted>{m.catalogItem?.code ?? '—'}</Mono>, sortValue: (m) => m.catalogItem?.code, defaultHidden: true },
     { key: 'status', header: 'Status', render: (m) => <StatusBadge status={m.status} />, sortValue: (m) => m.status },
   ];
+  // Counted before the status chip, like the chips themselves and like
+  // Operations and Flows — so the figures hold still as you toggle Active.
   const stats = [
-    { label: 'Machines', value: rows.length },
-    { label: 'Active', value: rows.filter((m) => m.status === 'active').length, tone: 'success' as const },
+    { label: 'Machines', value: all.length },
+    { label: 'Active', value: all.filter((m) => m.status === 'active').length, tone: 'success' as const, onClick: () => setStatus('active') },
     { label: 'Machine types', value: types.length, hint: 'The deepest level of a machine family' },
   ];
   const open = (m: Machine) => navigate(appPath(company, `machines/${m.id}`));

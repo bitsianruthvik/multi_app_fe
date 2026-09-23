@@ -39,7 +39,9 @@ const COLUMNS: DataColumn<SalesOrder>[] = [
       </Box>
     ),
   },
-  { key: 'type', header: 'Type', render: (o) => <OrderTypeChip type={o.orderType} />, sortValue: (o) => o.orderType },
+  // Off by default: the Customer / Stock chips filter by it and the project cell
+  // already says "For stock". Still one click away in the column menu.
+  { key: 'type', header: 'Type', render: (o) => <OrderTypeChip type={o.orderType} />, sortValue: (o) => o.orderType, defaultHidden: true },
   { key: 'lines', header: 'Lines', numeric: true, render: (o) => <Mono>{o.lineCount ?? 0}</Mono>, sortValue: (o) => o.lineCount ?? 0 },
   {
     key: 'committed', header: 'Committed', sortValue: (o) => o.committedDate,
@@ -82,6 +84,9 @@ export default function Orders() {
   ];
   const filtered = !!term || !!type || status !== 'open';
   const clear = () => { setSearch(''); setType(''); setStatus('open'); };
+  // The list asks for the 500 newest and filters in the browser, so beyond that
+  // the search quietly stops reaching older orders. Say so rather than lie.
+  const capped = all.length >= 500;
 
   return (
     <Box>
@@ -94,6 +99,11 @@ export default function Orders() {
         <FacetChip label="Customer" active={type === 'customer'} onClick={() => setType(type === 'customer' ? '' : 'customer')} />
         <FacetChip label="Stock" active={type === 'stock'} onClick={() => setType(type === 'stock' ? '' : 'stock')} />
       </FilterBar>
+      {capped && (
+        <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)', mb: 1.5 }}>
+          The 500 most recent orders are shown, and the search only looks through those.
+        </Typography>
+      )}
       <ErrorNotice error={list.error} onRetry={list.reload} />
       <DataTable rows={rows} columns={COLUMNS} getRowId={(o) => o.id} onRowClick={open} loading={list.loading && !list.data}
         storageKey="orders" exportName="orders" defaultSortKey="code" defaultSortDir="desc"

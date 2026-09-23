@@ -15,6 +15,7 @@ import { useCompanySlug } from '../hooks/useLoad';
 import { invalidateNavCounts } from '../hooks/useNavCounts';
 import { appPath } from '../navMeta';
 import { qtyText } from '../lib/inventory';
+import { ORDER_STATUS_LABEL } from '../lib/orders';
 import { progressText } from '../lib/tracker';
 import { Badge, Fact, Mono, SectionCard } from './ui';
 import { DataTable, type DataColumn } from './DataTable';
@@ -202,14 +203,40 @@ export function ReleaseView({ release, canProduce, canStock, onChange, onTakenBa
     } catch (e) { toast.error((e as Error).message); }
   };
   const pct = p.steps ? Math.round((p.done / p.steps) * 100) : 0;
+  // Taking a release back is the only way to unfreeze the line's structure, so
+  // when it is not on offer the screen has to say why (releaseService.unrelease).
+  const orderOpen = !['closed', 'lost', 'cancelled'].includes(r.order.status);
+  const takeBackWhy = !orderOpen
+    ? `Order ${r.order.code} is ${ORDER_STATUS_LABEL[r.order.status].toLowerCase()}, so its releases stay as they are.`
+    : !r.canUnrelease
+      ? 'Work has started or material was issued, so this release can no longer be taken back.'
+      : 'Undo the release: its reservations are let go and the line’s structure can change again.';
   return (
     <SectionCard title={`Line ${r.line.lineNo} · ${r.item.code} ×${qtyText(r.quantity)}`}
       subtitle={`Released ${new Date(r.releasedAt).toLocaleDateString()}${r.releasedBy ? ` by ${r.releasedBy}` : ''} · ${p.steps ? `${p.done} of ${p.steps} steps done · ` : ''}${p.materialsCovered} of ${p.materials} material line${p.materials === 1 ? '' : 's'} covered`}
       actions={(
         <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
           {canStock && p.materialsCovered < p.materials && <Button variant="outlined" startIcon={<LockRounded />} onClick={reserveAll}>Reserve material</Button>}
-          {canStock && <Button variant="contained" startIcon={<LocalShippingRounded />} disabled={f.readyToShip <= 0} onClick={() => setShipping(true)}>Ship</Button>}
-          {canProduce && r.canUnrelease && <Button startIcon={<UndoRounded />} onClick={() => setTakingBack(true)} sx={{ color: 'var(--c-text-2)' }}>Take back</Button>}
+          {canStock && (
+            // A disabled button with no reason is the commonest "is it broken?" —
+            // the tooltip needs a wrapper because MUI cannot hear a disabled button.
+            <Tooltip title={f.readyToShip > 0
+              ? `Ship the ${qtyText(f.readyToShip)} finished and waiting for this line`
+              : r.finishedArea
+                ? 'Nothing is ready to ship yet — finished pieces appear here as their last step is recorded.'
+                : 'No area is set for finished work on this line, so nothing can be received for it yet.'}>
+              <span>
+                <Button variant="contained" startIcon={<LocalShippingRounded />} disabled={f.readyToShip <= 0} onClick={() => setShipping(true)}>Ship</Button>
+              </span>
+            </Tooltip>
+          )}
+          {canProduce && (
+            <Tooltip title={takeBackWhy}>
+              <span>
+                <Button startIcon={<UndoRounded />} disabled={!orderOpen || !r.canUnrelease} onClick={() => setTakingBack(true)} sx={{ color: 'var(--c-text-2)' }}>Take back</Button>
+              </span>
+            </Tooltip>
+          )}
         </Box>
       )}>
       <Box sx={{ display: p.steps ? 'flex' : 'none', alignItems: 'center', gap: 1.5, mb: 2, flexWrap: 'wrap' }}>

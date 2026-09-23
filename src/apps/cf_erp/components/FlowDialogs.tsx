@@ -42,9 +42,10 @@ export function FlowDialog({ open, existing, onClose, onSaved }: { open: boolean
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, existing]);
   const body = { ...form, description: form.description || null };
+  const blocked = !form.code.trim() || !form.name.trim();
   const save = () => s.run(() => (existing ? cfApi.put<FlowDetail>(`/flows/${existing.id}`, body) : cfApi.post<FlowDetail>('/flows', body)));
   return (
-    <Dialog open={open} onClose={() => !s.busy && onClose()} maxWidth="sm" fullWidth onKeyDown={enterSubmits(save, s.busy)}>
+    <Dialog open={open} onClose={() => !s.busy && onClose()} maxWidth="sm" fullWidth onKeyDown={enterSubmits(save, s.busy || blocked)}>
       <DialogHeader title={existing ? `Edit ${existing.code}` : 'New flow'} onClose={onClose} busy={s.busy}
         subtitle={existing ? undefined : 'Operations in order. It starts as a draft; activate it once its steps are right.'} />
       <DialogContent>
@@ -56,7 +57,7 @@ export function FlowDialog({ open, existing, onClose, onSaved }: { open: boolean
           <TextField label="Description" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} multiline sx={{ gridColumn: '1 / -1' }} />
         </Box>
       </DialogContent>
-      <Actions busy={s.busy} onClose={onClose} label={existing ? 'Save' : 'Create'} onSave={save} />
+      <Actions busy={s.busy} onClose={onClose} label={existing ? 'Save' : 'Create'} disabled={blocked} onSave={save} />
     </Dialog>
   );
 }

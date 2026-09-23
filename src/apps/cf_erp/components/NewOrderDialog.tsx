@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Autocomplete, Box, Button, TextField, ToggleButton, ToggleButtonGroup, Typography } from '@mui/material';
+import { Autocomplete, Box, Button, TextField, ToggleButton, ToggleButtonGroup } from '@mui/material';
 import { cfApi, qs } from '../api/client';
 import type { OrderType, Party, SalesOrder } from '../api/types';
 import { useLoad } from '../hooks/useLoad';
@@ -40,7 +40,7 @@ export function NewOrderDialog({ open, onClose, onCreated }: { open: boolean; on
           <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-start', flexWrap: 'wrap' }}>
             <Autocomplete sx={{ flex: '1 1 240px' }} options={customers.data ?? []} value={customer} onChange={(_, v) => setCustomer(v)}
               getOptionLabel={(p) => `${p.code} · ${p.name}`} isOptionEqualToValue={(a, b) => a.id === b.id} loading={customers.loading}
-              renderInput={(p) => <TextField {...p} label="Customer" autoFocus />} />
+              renderInput={(p) => <TextField {...p} label="Customer" required autoFocus />} />
             <Button onClick={() => setCreatingParty(true)} sx={{ mt: 0.25, whiteSpace: 'nowrap' }}>New customer</Button>
           </Box>
         )}
@@ -50,9 +50,9 @@ export function NewOrderDialog({ open, onClose, onCreated }: { open: boolean; on
           {orderType === 'customer' && <TextField label="Customer's reference" value={form.customerReference} onChange={(e) => setForm({ ...form, customerReference: e.target.value })} />}
           <TextField label="Committed date" type="date" value={form.committedDate} onChange={(e) => setForm({ ...form, committedDate: e.target.value })} InputLabelProps={{ shrink: true }} helperText="Needed before confirming" />
         </Box>
-        <TextField label="Order number (optional)" value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} helperText="Leave empty to take the next number from the coding rule"
+        <TextField label="Order number (optional)" value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })}
+          helperText="Left empty, it takes the next number from the coding rule. It can still be changed until the first line."
           inputProps={{ style: { fontFamily: 'var(--font-mono)' } }} />
-        <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>The number is fixed once the order has lines — the codes of everything made for it are built from it.</Typography>
       </FormDialog>
       <PartyDialog open={creatingParty} existing={null} onClose={() => setCreatingParty(false)} onSaved={(p) => { customers.reload(); setCustomer(p); }} />
     </>

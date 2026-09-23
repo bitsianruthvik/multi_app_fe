@@ -6,6 +6,8 @@ import SendRounded from '@mui/icons-material/SendRounded';
 import Inventory2Rounded from '@mui/icons-material/Inventory2Rounded';
 import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
 import BlockRounded from '@mui/icons-material/BlockRounded';
+import PeopleRounded from '@mui/icons-material/PeopleRounded';
+import ShoppingCartRounded from '@mui/icons-material/ShoppingCartRounded';
 import { cfApi } from '../api/client';
 import type { PurchaseLine, PurchaseOrder } from '../api/types';
 import { useCompanySlug, useLoad } from '../hooks/useLoad';
@@ -13,11 +15,12 @@ import { useIsPermitted } from '../hooks/useIsPermitted';
 import { invalidateNavCounts } from '../hooks/useNavCounts';
 import { appPath } from '../navMeta';
 import { qtyText } from '../lib/inventory';
-import { DetailSkeleton, ErrorNotice, Fact, Mono, SectionCard } from '../components/ui';
-import { DetailHeader, DetailLayout } from '../components/DetailLayout';
+import { DetailSkeleton, EmptyState, ErrorNotice, Fact, Mono, SectionCard } from '../components/ui';
+import { CrossLink, DetailHeader, DetailLayout } from '../components/DetailLayout';
 import { DataTable, type DataColumn } from '../components/DataTable';
 import { PurchaseStatusBadge } from '../components/purchaseUi';
 import { AddPurchaseLineDialog, ReceiveLineDialog, SendPurchaseDialog } from '../components/PurchaseDialogs';
+import { ConfirmDialog } from '../components/ConfirmDialog';
 import { PromptDialog } from '../components/PromptDialog';
 import { useDetailTitle } from '../components/shell/detailTitle';
 import { useToast } from '../components/toastContext';
@@ -35,6 +38,7 @@ export default function PurchaseOrderDetail() {
   const [adding, setAdding] = useState(false);
   const [sending, setSending] = useState(false);
   const [receiving, setReceiving] = useState<PurchaseLine | null>(null);
+  const [removing, setRemoving] = useState<PurchaseLine | null>(null);
   const [cancelling, setCancelling] = useState(false);
   const p = po.data;
   useDetailTitle(p?.code ?? null);
@@ -42,10 +46,6 @@ export default function PurchaseOrderDetail() {
   if (!p) return <DetailSkeleton />;
 
   const done = (next: PurchaseOrder, message: string) => { po.setData(next); invalidateNavCounts(); toast.success(message); };
-  const removeLine = async (l: PurchaseLine) => {
-    try { done(await cfApi.del<PurchaseOrder>(`/purchase-lines/${l.id}`), `${l.item.code ?? l.item.name} removed.`); }
-    catch (e) { toast.error((e as Error).message); }
-  };
   const open = p.status === 'draft' || p.status === 'ordered' || p.status === 'partially_received';
   const editable = canManage && open;
 
@@ -90,7 +90,7 @@ export default function PurchaseOrderDetail() {
           )}
           {!l.received && (
             <Tooltip title="Remove the line">
-              <IconButton size="small" aria-label={`Remove ${l.item.code ?? l.item.name}`} onClick={() => removeLine(l)}><DeleteOutlineRounded fontSize="small" /></IconButton>
+              <IconButton size="small" aria-label={`Remove ${l.item.code ?? l.item.name}`} onClick={() => setRemoving(l)}><DeleteOutlineRounded fontSize="small" /></IconButton>
             </Tooltip>
           )}
         </Box>
@@ -98,8 +98,16 @@ export default function PurchaseOrderDetail() {
     });
   }
 
+  const crossLinks = (
+    <>
+      {p.supplier && <CrossLink icon={<PeopleRounded />} label={p.supplier.name} to={appPath(company, 'customers?role=supplier')} />}
+      {p.suggested && <CrossLink icon={<ShoppingCartRounded />} label="What is short" to={appPath(company, 'buy-list')} />}
+    </>
+  );
+
   return (
     <DetailLayout
+      crossLinks={p.supplier || p.suggested ? crossLinks : undefined}
       header={
         <DetailHeader
           code={p.code}
@@ -124,12 +132,22 @@ export default function PurchaseOrderDetail() {
     >
       <SectionCard title="Lines" subtitle="Each line is one item. A delivery is booked against its line and posts an ordinary stock receipt.">
         <DataTable rows={p.lines} columns={columns} getRowId={(l) => l.id} bare storageKey="purchase-lines" exportName={`${p.code}-lines`}
-          empty={<Typography sx={{ fontSize: 13.5, color: 'var(--c-text-3)', py: 2 }}>No lines yet — add what is being bought.</Typography>} />
+          empty={<EmptyState icon={<AddRounded />} title="No lines yet" hint="Add what is being bought, then send the order to the supplier."
+            action={editable ? <Button variant="contained" startIcon={<AddRounded />} onClick={() => setAdding(true)}>Add a line</Button> : undefined} />} />
       </SectionCard>
       {p.notes && <SectionCard title="Notes"><Typography sx={{ fontSize: 13.5, whiteSpace: 'pre-wrap' }}>{p.notes}</Typography></SectionCard>}
       <AddPurchaseLineDialog orderId={adding ? p.id : null} onClose={() => setAdding(false)} onAdded={(n) => { setAdding(false); done(n, 'Line added.'); }} />
       <SendPurchaseDialog order={sending ? p : null} onClose={() => setSending(false)} onSent={(n) => { setSending(false); done(n, `${n.code} sent to ${n.supplier?.name ?? 'the supplier'}.`); }} />
       <ReceiveLineDialog line={receiving} orderCode={p.code} onClose={() => setReceiving(null)} onReceived={(n) => { setReceiving(null); done(n, 'Delivery booked into stock.'); }} />
+      <ConfirmDialog open={!!removing} danger confirmLabel="Remove" title="Remove this line?"
+        entityName={removing ? `${removing.item.code ?? removing.item.name} — ${qtyText(removing.quantity)} ${removing.item.uom}` : ''}
+        body="Nothing has been received against it, so it can go. It is not ordered from the supplier any more."
+        onClose={() => setRemoving(null)}
+        onConfirm={async () => {
+          if (!removing) return;
+          done(await cfApi.del<PurchaseOrder>(`/purchase-lines/${removing.id}`), `${removing.item.code ?? removing.item.name} removed.`);
+          setRemoving(null);
+        }} />
       <PromptDialog open={cancelling} title={`Cancel ${p.code}?`} label="Why" confirmLabel="Cancel the order" danger
         body="Nothing has been received against it. It stays on the list under All."
         onClose={() => setCancelling(false)}

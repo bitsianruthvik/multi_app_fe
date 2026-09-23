@@ -61,18 +61,28 @@ function ReceiptLine({ line, onChange }: { line: LineState; onChange: (l: LineSt
             <ToggleButton value="existing" disabled={!usable.length}>Add to a batch</ToggleButton>
           </ToggleButtonGroup>
           {line.batchMode === 'existing' ? (
-            <TextField select label="Batch" value={line.batchId ?? ''} onChange={(e) => onChange({ ...line, batchId: Number(e.target.value) || null })}>
+            <TextField select label="Batch" value={line.batchId ?? ''} onChange={(e) => onChange({ ...line, batchId: Number(e.target.value) || null })}
+              helperText="The batch this delivery joins">
               {usable.map((b) => <MenuItem key={b.id} value={b.id}>{b.code}{b.supplierRef ? ` · ${b.supplierRef}` : ''} · {qtyText(b.onHand)} on hand</MenuItem>)}
             </TextField>
           ) : (
-            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 1.5 }}>
-              <TextField label="Batch code (optional)" value={line.batchCode} onChange={(e) => onChange({ ...line, batchCode: e.target.value })} helperText="Empty: numbered by the coding rule" inputProps={{ style: { fontFamily: 'var(--font-mono)' } }} />
-              <TextField label="Supplier’s lot number" value={line.supplierRef} onChange={(e) => onChange({ ...line, supplierRef: e.target.value })} />
-              {fields.map((s) => (
-                <SpecValueInput key={s.spec.id} dataType={s.spec.dataType} unit={s.spec.unit} options={s.options} label={`${s.spec.name}${s.rule.isRequired ? ' *' : ''}`}
-                  value={line.values[s.spec.id] ?? ''} onChange={(v) => onChange({ ...line, values: { ...line.values, [s.spec.id]: v } })} />
-              ))}
-            </Box>
+            <>
+              {/* Without this the required field simply never appears and the
+                  receipt is refused for a value there is nowhere to type. */}
+              <ErrorNotice error={template.error} onRetry={template.reload} sx={{ mb: 0 }} />
+              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 1.5 }}>
+                <TextField label="Batch code (optional)" value={line.batchCode} onChange={(e) => onChange({ ...line, batchCode: e.target.value })} helperText="Empty: numbered by the coding rule" inputProps={{ style: { fontFamily: 'var(--font-mono)' } }} />
+                <TextField label="Supplier’s lot number" value={line.supplierRef} onChange={(e) => onChange({ ...line, supplierRef: e.target.value })} />
+                {template.loading && !template.data && <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-3)', alignSelf: 'center' }}>Loading what this batch must record…</Typography>}
+                {fields.map((s) => (
+                  <SpecValueInput key={s.spec.id} dataType={s.spec.dataType} unit={s.spec.unit} options={s.options} label={`${s.spec.name}${s.rule.isRequired ? ' *' : ''}`}
+                    value={line.values[s.spec.id] ?? ''} onChange={(v) => onChange({ ...line, values: { ...line.values, [s.spec.id]: v } })} />
+                ))}
+              </Box>
+              {fields.some((s) => s.rule.isRequired) && (
+                <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>Fields marked * must be filled in before the batch can be received.</Typography>
+              )}
+            </>
           )}
         </Box>
       )}
@@ -188,15 +198,29 @@ export function MovementDialog({ open, type, preset = {}, onClose, onPosted }: {
       isOptionEqualToValue={(a, b) => a.id === b.id} onChange={(_, a) => onChange(a?.id ?? null)} renderInput={(p) => <TextField {...p} label={label} />} />
   );
   const needsReason = type === 'scrap' || type === 'adjustment';
+
+  // Reading suppliers and sales orders needs the sales permission, so a
+  // stores-only account gets nothing back — an empty list has to say why.
+  const listHelp = (err: unknown, empty: string, what: string) =>
+    (err ? `${what} could not be loaded — you may not have permission to see them.` : empty);
+  // What the server would refuse anyway, said before the press.
+  const named = (l: LineState) => (type === 'receipt' ? !!l.item : l.other ? !!l.item : !!l.stockKey);
+  const blocked = !h.areaId ? (type === 'receipt' ? 'Choose the area it goes into.' : type === 'adjustment' ? 'Choose the area being counted.' : 'Choose the area it comes from.')
+    : type === 'transfer' && !h.toAreaId ? 'Choose the area it goes into.'
+      : needsReason && !h.reason.trim() ? 'Say why.'
+        : !lines.some(named) ? 'Add at least one item.'
+          : null;
   return (
     <Dialog open={open} onClose={() => !busy && onClose()} maxWidth="md" fullWidth>
       <DialogHeader title={TITLE[type]} subtitle={HELP[type]} onClose={onClose} busy={busy} />
       <DialogContent>
         <ErrorNotice error={error} />
+        <ErrorNotice error={areas.error} onRetry={areas.reload} />
         <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', md: 'repeat(2, minmax(0, 1fr))' }, gap: 2, pt: 0.5 }}>
           {type === 'receipt' && (
             <Autocomplete size="small" options={suppliers.data ?? []} value={(suppliers.data ?? []).find((p) => p.id === h.partyId) ?? null} getOptionLabel={(p) => `${p.code} · ${p.name}`}
-              isOptionEqualToValue={(a, b) => a.id === b.id} onChange={(_, p) => setH({ ...h, partyId: p?.id ?? null })} renderInput={(p) => <TextField {...p} label="Supplier" />} />
+              isOptionEqualToValue={(a, b) => a.id === b.id} onChange={(_, p) => setH({ ...h, partyId: p?.id ?? null })}
+              renderInput={(p) => <TextField {...p} label="Supplier" helperText={listHelp(suppliers.error, 'Who it came from (optional)', 'The supplier list')} />} />
           )}
           {type === 'receipt' && areaPicker('Into', h.areaId, (id) => setH({ ...h, areaId: id }), active)}
           {out && areaPicker(type === 'adjustment' ? 'Area counted' : 'From', h.areaId, (id) => { setH({ ...h, areaId: id }); setLines([blankLine()]); }, type === 'adjustment' ? areas.data ?? [] : fromAreas)}
@@ -204,7 +228,8 @@ export function MovementDialog({ open, type, preset = {}, onClose, onPosted }: {
           {type === 'issue' && (
             <Autocomplete size="small" options={orders.data ?? []} value={(orders.data ?? []).find((o) => o.id === h.orderId) ?? null}
               getOptionLabel={(o) => `${o.code}${o.title ? ` · ${o.title}` : ''}`} isOptionEqualToValue={(a, b) => a.id === b.id}
-              onChange={(_, o) => setH({ ...h, orderId: o?.id ?? null })} renderInput={(p) => <TextField {...p} label="For sales order (optional)" />} />
+              onChange={(_, o) => setH({ ...h, orderId: o?.id ?? null })}
+              renderInput={(p) => <TextField {...p} label="For sales order (optional)" helperText={listHelp(orders.error, 'Which job it is for', 'The order list')} />} />
           )}
           <TextField type="date" label="Date" value={h.date} onChange={(e) => setH({ ...h, date: e.target.value })} InputLabelProps={{ shrink: true }} inputProps={{ max: today() }} />
           {(type === 'receipt' || type === 'issue' || type === 'transfer') && (
@@ -230,8 +255,9 @@ export function MovementDialog({ open, type, preset = {}, onClose, onPosted }: {
         </Box>
       </DialogContent>
       <DialogActions>
+        {blocked && <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)', mr: 'auto', pl: 1 }}>{blocked}</Typography>}
         <Button onClick={onClose} disabled={busy}>Cancel</Button>
-        <Button variant="contained" onClick={post} disabled={busy} startIcon={busy ? <CircularProgress size={14} color="inherit" /> : undefined}>{busy ? 'Posting…' : 'Post'}</Button>
+        <Button variant="contained" onClick={post} disabled={busy || !!blocked} startIcon={busy ? <CircularProgress size={14} color="inherit" /> : undefined}>{busy ? 'Posting…' : 'Post'}</Button>
       </DialogActions>
     </Dialog>
   );

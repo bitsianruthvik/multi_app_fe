@@ -103,9 +103,14 @@ export default function FlowDetail() {
     <DetailHeader code={f.code} title={f.name} subtitle={f.description ?? undefined} badges={<StatusBadge status={f.status} />}
       actions={canManage && (
         <>
+          {/* A flow with no steps is always refused, so say why here rather than after a round trip. */}
           {f.status !== 'active' && (
-            <Button variant="contained" disabled={!!busy} onClick={() => setStatus('active')}
-              startIcon={busy === 'active' ? <CircularProgress size={14} color="inherit" /> : <CheckCircleRounded />}>{f.status === 'draft' ? 'Activate' : 'Reactivate'}</Button>
+            <Tooltip title={f.steps.length ? '' : 'Add at least one step first'}>
+              <span>
+                <Button variant="contained" disabled={!!busy || f.steps.length === 0} onClick={() => setStatus('active')}
+                  startIcon={busy === 'active' ? <CircularProgress size={14} color="inherit" /> : <CheckCircleRounded />}>{f.status === 'draft' ? 'Activate' : 'Reactivate'}</Button>
+              </span>
+            </Tooltip>
           )}
           {f.status === 'active' && <Button variant="outlined" startIcon={<ArchiveRounded />} onClick={() => setConfirm('obsolete')}>Mark obsolete</Button>}
           {editable && <Button variant="outlined" startIcon={<HistoryRounded />} onClick={() => setConfirm('revise')}>New revision</Button>}

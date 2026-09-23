@@ -4,7 +4,7 @@ import AddRounded from '@mui/icons-material/AddRounded';
 import EditRounded from '@mui/icons-material/EditRounded';
 import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
 import PeopleRounded from '@mui/icons-material/PeopleRounded';
-import { cfApi } from '../api/client';
+import { cfApi, qs } from '../api/client';
 import type { Party, PartyRole } from '../api/types';
 import { useLoad } from '../hooks/useLoad';
 import { useIsPermitted } from '../hooks/useIsPermitted';
@@ -37,16 +37,18 @@ export default function Customers() {
   const [editing, setEditing] = useState<{ open: boolean; party: Party | null }>({ open: false, party: null });
   const [deleting, setDeleting] = useState<Party | null>(null);
   useNewParam(() => { if (canManage) setEditing({ open: true, party: null }); });
-  const list = useLoad(() => cfApi.get<Party[]>('/parties'), []);
+  const list = useLoad(() => cfApi.get<Party[]>(`/parties${qs({ limit: 500 })}`), []);
 
   const term = search.trim().toLowerCase();
   const base = useMemo(() => (list.data ?? []).filter((p) => matches(p, term)), [list.data, term]);
   const rows = useMemo(() => base.filter((p) => inRole(p, role)), [base, role]);
+  // Figures that name something to act on, not a restatement of the row count.
   const stats = [
-    { label: 'Shown', value: rows.length },
     { label: 'Active', value: rows.filter((p) => p.status === 'active').length, tone: 'success' as const },
+    { label: 'Inactive', value: rows.filter((p) => p.status !== 'active').length, tone: 'neutral' as const, hint: 'Not offered on new orders' },
     { label: 'No contact', value: rows.filter((p) => !p.email && !p.phone).length, tone: 'warning' as const, hint: 'No email or phone on record' },
   ];
+  const newLabel = `New ${(ROLE_WORD[role as PartyRole] ?? 'Customer').toLowerCase()}`;
 
   const columns: DataColumn<Party>[] = [
     { key: 'code', header: 'Code', render: (p) => <Mono chip>{p.code}</Mono>, sortValue: (p) => p.code, alwaysVisible: true },
@@ -68,11 +70,16 @@ export default function Customers() {
   return (
     <Box>
       <PageHeader title="Customers" subtitle="Who orders from you — and who supplies you. One record can be both."
-        actions={canManage && <Button variant="contained" startIcon={<AddRounded />} onClick={() => setEditing({ open: true, party: null })}>New customer</Button>} />
+        actions={canManage && <Button variant="contained" startIcon={<AddRounded />} onClick={() => setEditing({ open: true, party: null })}>{newLabel}</Button>} />
       <StatStrip stats={stats} />
       <FilterBar search={search} onSearch={setSearch} placeholder="Search code, name or contact">
         {ROLE_CHIPS.map((c) => <FacetChip key={c.value} label={c.label} active={role === c.value} count={base.filter((p) => inRole(p, c.value)).length} onClick={() => setRole(c.value)} />)}
       </FilterBar>
+      {(list.data ?? []).length >= 500 && (
+        <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)', mb: 1.5 }}>
+          The first 500 by name are shown, and the search only looks through those.
+        </Typography>
+      )}
       <ErrorNotice error={list.error} onRetry={list.reload} />
       <DataTable rows={rows} columns={columns} getRowId={(p) => p.id} loading={list.loading && !list.data} storageKey="parties" exportName="parties" defaultSortKey="name"
         onRowClick={canManage ? (p) => setEditing({ open: true, party: p }) : undefined}
@@ -84,7 +91,7 @@ export default function Customers() {
         ) : undefined}
         empty={<EmptyState icon={<PeopleRounded />} title={term ? 'Nobody matches' : 'Nobody here yet'}
           hint={term ? 'Try a code, a name or a contact.' : 'Add the first customer — orders need one.'}
-          action={!term && canManage && <Button variant="contained" onClick={() => setEditing({ open: true, party: null })}>New customer</Button>} />} />
+          action={!term && canManage && <Button variant="contained" onClick={() => setEditing({ open: true, party: null })}>{newLabel}</Button>} />} />
       <PartyDialog open={editing.open} existing={editing.party} defaultRole={role === 'all' ? 'customer' : (role as PartyRole)} onClose={() => setEditing({ open: false, party: null })}
         onSaved={(p) => { toast.success(`${p.name} saved.`); invalidateNavCounts(); list.reload(); }} />
       <ConfirmDialog open={!!deleting} danger confirmLabel="Delete" title="Delete this party?" entityName={deleting ? `${deleting.code} · ${deleting.name}` : undefined}

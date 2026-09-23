@@ -5,7 +5,7 @@ import AddRounded from '@mui/icons-material/AddRounded';
 import SearchRounded from '@mui/icons-material/SearchRounded';
 import LightModeRounded from '@mui/icons-material/LightModeRounded';
 import DarkModeRounded from '@mui/icons-material/DarkModeRounded';
-import NotificationsNoneRounded from '@mui/icons-material/NotificationsNoneRounded';
+
 import MenuRounded from '@mui/icons-material/MenuRounded';
 import { useAuth } from '@core/contexts/AuthContext';
 import { useThemePreference } from '@core/contexts/ThemeContext';
@@ -17,13 +17,16 @@ import { useCommandPalette } from '../commandPaletteContext';
 /**
  * Row 1 of the top navigation — fab_erp's FabErpTopNav for cf_erp: the primary
  * sections with an underline on the active one, a visible search field that
- * opens the ⌘K palette, Create, theme, what-needs-you, and the account menu.
+ * opens the ⌘K palette, Create, theme and the account menu. There is no bell:
+ * the app has no notifications, and a bell that never lights up is furniture —
+ * "what needs you" is Home, which the logo and the first section both reach.
  * The one glass surface on the page (§5.3).
  */
 const QUICK_CREATE: { label: string; permission: string; slug: string }[] = [
   { label: 'New order', permission: 'cf_erp_orders_manage', slug: 'orders?new=1' },
   { label: 'New item', permission: 'cf_erp_catalog_manage', slug: 'items?new=1' },
   { label: 'Receive stock', permission: 'cf_erp_inventory_manage', slug: 'stock?new=receipt' },
+  { label: 'New purchase order', permission: 'cf_erp_inventory_manage', slug: 'purchase-orders?new=1' },
   { label: 'New machine', permission: 'cf_erp_production_manage', slug: 'machines?new=1' },
   { label: 'New customer', permission: 'cf_erp_parties_manage', slug: 'customers?new=1' },
 ];
@@ -116,13 +119,6 @@ export function TopNav({ activeSection, onOpenMobileNav, isMobile }: { activeSec
         </IconButton>
       </Tooltip>
 
-      {!isMobile && (
-        <Tooltip title="What needs you">
-          <IconButton size="small" onClick={() => go('home')} aria-label="What needs you" sx={{ color: 'var(--c-text-2)', flexShrink: 0 }}>
-            <NotificationsNoneRounded fontSize="small" />
-          </IconButton>
-        </Tooltip>
-      )}
 
       <Box component="button" type="button" onClick={(e) => setAvatarAnchor(e.currentTarget)} aria-label="Account menu" sx={{
         display: 'inline-flex', alignItems: 'center', border: 'none', background: 'transparent', cursor: 'pointer', p: 0, ml: 0.25, borderRadius: '50%', flexShrink: 0,

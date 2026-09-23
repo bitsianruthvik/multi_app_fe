@@ -5,8 +5,11 @@ import { useLoad } from '../hooks/useLoad';
 import { ErrorNotice, Mono, SectionCard, SourceBadge } from './ui';
 import { DataTable, type DataColumn } from './DataTable';
 
+/** A missing side of a change reads as "(empty)", never as the word "null". */
+const shown = (v: string | null) => (v === null || v === undefined || v === '' ? '(empty)' : v);
+
 const changeText = (h: HistoryEntry) =>
-  `${h.change === 'create' ? `set ${h.to}` : h.change === 'delete' ? `cleared (was ${h.from})` : `${h.from} → ${h.to}`}${h.unit && h.change !== 'delete' ? ` ${h.unit}` : ''}`;
+  `${h.change === 'create' ? `set ${shown(h.to)}` : h.change === 'delete' ? `cleared (was ${shown(h.from)})` : `${shown(h.from)} → ${shown(h.to)}`}${h.unit && h.change !== 'delete' ? ` ${h.unit}` : ''}`;
 
 const COLUMNS: DataColumn<HistoryEntry>[] = [
   { key: 'when', header: 'When', render: (h) => <Mono muted>{new Date(h.changedAt).toLocaleString()}</Mono>, sortValue: (h) => h.changedAt },

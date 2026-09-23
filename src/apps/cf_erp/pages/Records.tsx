@@ -49,8 +49,10 @@ function columnsFor(recordKind: 'item' | 'definition'): DataColumn<MasterRecord>
       render: (r) => (
         <Box sx={{ py: 0.5 }}>
           <Box sx={{ fontWeight: 500, whiteSpace: 'normal' }}>{r.name}</Box>
-          {r.item?.itemType === 'temporary' && (
-            <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>from {r.sourceDefinitionCode}{r.owner ? ` · ${r.owner.orderCode} line ${r.owner.lineNo}` : ''}</Typography>
+          {r.item?.itemType === 'temporary' && (r.sourceDefinitionCode || r.owner) && (
+            <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>
+              {r.sourceDefinitionCode ? `from ${r.sourceDefinitionCode}` : ''}{r.sourceDefinitionCode && r.owner ? ' · ' : ''}{r.owner ? `${r.owner.orderCode} line ${r.owner.lineNo}` : ''}
+            </Typography>
           )}
         </Box>
       ),
@@ -59,14 +61,16 @@ function columnsFor(recordKind: 'item' | 'definition'): DataColumn<MasterRecord>
     { key: 'kind', header: 'Kind', render: (r) => <KindChip kind={r.kind} />, sortValue: (r) => r.kind },
     { key: 'classification', header: 'Classification', render: (r) => r.classificationName, sortValue: (r) => r.classificationName },
     recordKind === 'item'
-      ? { key: 'tracked', header: 'Tracked by', render: (r) => <>{r.item?.trackedBy} <Mono muted>· {r.item?.uom}</Mono></>, sortValue: (r) => r.item?.trackedBy, exportValue: (r) => `${r.item?.trackedBy} · ${r.item?.uom}` }
-      : { key: 'chooses', header: 'Chooses from', render: (r) => (r.definition?.selectionMode ? SELECTION_MODE[r.definition.selectionMode] : '—'), sortValue: (r) => r.definition?.selectionMode ?? null },
+      ? { key: 'tracked', header: 'Tracked by', render: (r) => <>{r.item?.trackedBy} <Mono muted>· {r.item?.uom}</Mono></>, sortValue: (r) => r.item?.trackedBy, exportValue: (r) => (r.item ? `${r.item.trackedBy} · ${r.item.uom}` : '') }
+      // Sorted by the words the column shows, not by the raw enum behind them.
+      : { key: 'chooses', header: 'Chooses from', render: (r) => (r.definition?.selectionMode ? SELECTION_MODE[r.definition.selectionMode] : '—'), sortValue: (r) => (r.definition?.selectionMode ? SELECTION_MODE[r.definition.selectionMode] : null) },
     ...(recordKind === 'item' ? [{
       key: 'sourcing', header: 'Comes from', defaultHidden: true,
       render: (r: MasterRecord) => (r.item && r.item.itemType === 'catalog' ? SOURCING_LABEL[r.item.sourcing] : 'Made on the order'),
-      sortValue: (r: MasterRecord) => r.item?.sourcing ?? null,
+      sortValue: (r: MasterRecord) => (r.item && r.item.itemType === 'catalog' ? SOURCING_LABEL[r.item.sourcing] : 'Made on the order'),
     } as DataColumn<MasterRecord>] : []),
-    { key: 'rev', header: 'Rev', render: (r) => <Mono muted>{r.revision ?? '—'}</Mono>, sortValue: (r) => r.revision },
+    // Most records are at no revision at all — one click away in the column menu.
+    { key: 'rev', header: 'Rev', defaultHidden: true, render: (r) => <Mono muted>{r.revision ?? '—'}</Mono>, sortValue: (r) => r.revision },
     { key: 'status', header: 'Status', render: (r) => <StatusBadge status={r.status} />, sortValue: (r) => r.status },
   ];
 }
@@ -116,6 +120,9 @@ export default function Records({ recordKind }: { recordKind: 'item' | 'definiti
   const open = (r: MasterRecord) => navigate(appPath(company, `${copy.path}/${r.id}`));
   const filtered = !!debounced || !!kind || !!status || !!classificationId;
   const clear = () => { setSearch(''); setKind(''); setStatus(''); setClassification(null); };
+  // The request asks for 500 rows, which is also the server's ceiling. Say so
+  // rather than let the table and the figures above it quietly under-report.
+  const hiddenByLimit = Math.max((list.data?.total ?? 0) - all.length, 0);
 
   return (
     <Box>
@@ -131,6 +138,11 @@ export default function Records({ recordKind }: { recordKind: 'item' | 'definiti
         </Box>
       </FilterBar>
       <ErrorNotice error={list.error} onRetry={list.reload} />
+      {hiddenByLimit > 0 && (
+        <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)', mb: 1 }}>
+          Showing the first {all.length} of {list.data?.total} — search, or pick a classification, to see the rest.
+        </Typography>
+      )}
       <DataTable key={recordKind} rows={rows} columns={columns} getRowId={(r) => r.id} onRowClick={open} loading={list.loading && !list.data}
         storageKey={copy.path} exportName={copy.path} defaultSortKey="code"
         empty={<EmptyState icon={copy.icon} title={filtered ? 'Nothing matches these filters' : 'Nothing here yet'}

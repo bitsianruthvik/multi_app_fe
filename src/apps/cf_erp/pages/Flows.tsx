@@ -57,7 +57,7 @@ export default function Flows() {
       <PageHeader title="Flows" subtitle="The usual way to make something: operations in order, with what each step waits for. Items and templates name their flow; a BOM line can name another for one parent."
         actions={canManage && <Button variant="contained" startIcon={<AddRounded />} onClick={() => setCreating(true)}>New flow</Button>} />
       <StatStrip stats={stats} />
-      <FilterBar search={search} onSearch={setSearch} placeholder="Search code or name">
+      <FilterBar search={search} onSearch={setSearch} placeholder="Search code, name or description">
         {STATUS_CHIPS.map(([v, label]) => <FacetChip key={v || 'all'} label={label} active={status === v} count={base.filter((f) => !v || f.status === v).length} onClick={() => setStatus(v)} />)}
       </FilterBar>
       <ErrorNotice error={list.error} onRetry={list.reload} />

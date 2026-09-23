@@ -26,7 +26,7 @@ const OP_TEXT: Record<string, string> = { eq: '=', neq: '≠', gt: '>', gte: '�
  * change is visible immediately. Criteria on the same specification are OR'ed;
  * on different specifications, AND'ed.
  */
-export function SelectionPanel({ record, onChanged }: { record: MasterRecord; onChanged: () => void }) {
+export function SelectionPanel({ record, canManage, onChanged }: { record: MasterRecord; canManage: boolean; onChanged: () => void }) {
   const toast = useToast();
   const mode = record.definition?.selectionMode ?? 'allowed_list';
   const sel = useLoad(() => cfApi.get<Selection>(`/definitions/${record.id}/selection`), [record.id]);
@@ -54,28 +54,41 @@ export function SelectionPanel({ record, onChanged }: { record: MasterRecord; on
   return (
     <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 2 }}>
       <ErrorNotice error={error} />
+      {/* Without this the whole panel simply vanished when the selection failed to load. */}
+      <ErrorNotice error={sel.error} onRetry={sel.reload} />
       {sel.loading && !sel.data ? <SkeletonRows rows={3} /> : sel.data && (
         <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', lg: 'repeat(2, minmax(0, 1fr))' }, gap: 2 }}>
           <SectionCard title="Allowed list" subtitle={usesList ? 'Only these catalog items may be chosen.' : 'Not used in this mode — switch the mode under Details to use it.'}>
-            <Box sx={{ display: 'flex', gap: 1, mb: 1.5 }}>
-              <Autocomplete sx={{ flex: 1 }} size="small" value={pick} onChange={(_, v) => setPick(v)}
-                options={(catalog.data?.rows ?? []).filter((r) => !onList.has(r.id) && r.status !== 'obsolete')}
-                getOptionLabel={(r) => `${r.code ?? '—'} · ${r.name}`} renderInput={(p) => <TextField {...p} label="Add a catalog item" />} />
-              <Button startIcon={<AddRounded />} disabled={!pick}
-                onClick={() => pick && act(() => cfApi.post(`/definitions/${record.id}/allowed-items`, { itemId: pick.id, isDefault: onList.size === 0 }), `${pick.code} added.`).then((ok) => { if (ok) setPick(null); })}>Add</Button>
-            </Box>
-            {sel.data.allowedItems.length === 0 ? <Typography sx={{ color: 'var(--c-text-3)', fontSize: 13 }}>No items yet.</Typography> : (
+            {canManage && (
+              <Box sx={{ display: 'flex', gap: 1, mb: 1.5 }}>
+                <Autocomplete sx={{ flex: 1 }} size="small" value={pick} onChange={(_, v) => setPick(v)}
+                  options={(catalog.data?.rows ?? []).filter((r) => !onList.has(r.id) && r.status !== 'obsolete')}
+                  getOptionLabel={(r) => `${r.code ?? '—'} · ${r.name}`}
+                  noOptionsText={catalog.error ? 'Could not load the catalog' : 'No catalog item left to add'}
+                  renderInput={(p) => <TextField {...p} label="Add a catalog item" error={!!catalog.error} helperText={catalog.error?.message} />} />
+                <Button startIcon={<AddRounded />} disabled={!pick}
+                  onClick={() => pick && act(() => cfApi.post(`/definitions/${record.id}/allowed-items`, { itemId: pick.id, isDefault: onList.size === 0 }), `${pick.code} added.`).then((ok) => { if (ok) setPick(null); })}>Add</Button>
+              </Box>
+            )}
+            {sel.data.allowedItems.length === 0 ? (
+              <Typography sx={{ color: 'var(--c-text-2)', fontSize: 13 }}>
+                {usesList ? (canManage ? 'Nothing on the list yet — add the catalog items this may resolve to. The first one added becomes the default.' : 'Nothing on the list yet.') : 'Nothing on the list.'}
+              </Typography>
+            ) : (
               <Box sx={{ display: 'grid', gap: 0.5 }}>
                 {sel.data.allowedItems.map((a) => (
                   <Box key={a.id} sx={{ display: 'flex', alignItems: 'center', gap: 1, p: 0.75, borderRadius: 'var(--r-sm)', '&:hover': { background: 'var(--c-surface-2)' } }}>
-                    <Tooltip title={a.isDefault ? 'The default choice' : 'Make this the default'}>
-                      <IconButton size="small" aria-label={a.isDefault ? 'Default' : `Make ${a.code} the default`} onClick={() => !a.isDefault && act(() => cfApi.post(`/allowed-items/${a.id}/default`), `${a.code} is now the default.`)}>
-                        {a.isDefault ? <StarRounded sx={{ color: 'var(--c-warning-600)' }} fontSize="small" /> : <StarBorderRounded fontSize="small" />}
-                      </IconButton>
+                    <Tooltip title={a.isDefault ? 'The default choice' : canManage ? 'Make this the default' : 'Not the default'}>
+                      <Box component="span" sx={{ display: 'inline-flex' }}>
+                        <IconButton size="small" disabled={!canManage || a.isDefault} aria-label={a.isDefault ? 'Default' : `Make ${a.code} the default`}
+                          onClick={() => act(() => cfApi.post(`/allowed-items/${a.id}/default`), `${a.code} is now the default.`)}>
+                          {a.isDefault ? <StarRounded sx={{ color: 'var(--c-warning-600)' }} fontSize="small" /> : <StarBorderRounded fontSize="small" />}
+                        </IconButton>
+                      </Box>
                     </Tooltip>
                     <Mono sx={{ minWidth: 150 }}>{a.code}</Mono>
                     <Box sx={{ flex: 1 }}>{a.name}</Box>
-                    <IconButton size="small" aria-label={`Remove ${a.code}`} onClick={() => act(() => cfApi.del(`/allowed-items/${a.id}`), `${a.code} removed.`)}><DeleteOutlineRounded fontSize="small" /></IconButton>
+                    {canManage && <IconButton size="small" aria-label={`Remove ${a.code}`} onClick={() => act(() => cfApi.del(`/allowed-items/${a.id}`), `${a.code} removed.`)}><DeleteOutlineRounded fontSize="small" /></IconButton>}
                   </Box>
                 ))}
               </Box>
@@ -83,28 +96,38 @@ export function SelectionPanel({ record, onChanged }: { record: MasterRecord; on
           </SectionCard>
 
           <SectionCard title="Matching criteria" subtitle={usesCriteria ? 'Criteria on one specification are OR’ed; different specifications must all match.' : 'Not used in this mode — switch the mode under Details to use it.'}>
-            <Box sx={{ display: 'grid', gridTemplateColumns: '1.4fr .8fr 1fr', gap: 1, mb: 1 }}>
-              <Autocomplete size="small" options={(specs.data ?? []).filter((s) => s.status === 'active')} value={spec}
-                getOptionLabel={(s) => `${s.name} (${s.code})`} onChange={(_, s) => { setSpecId(s?.id ?? null); setOperator('eq'); setValue(''); setValueTo(''); }}
-                renderInput={(p) => <TextField {...p} label="Specification" />} />
-              <TextField select size="small" label="Test" value={operator} onChange={(e) => setOperator(e.target.value)} disabled={!spec}>
-                {(OPERATORS[spec?.dataType ?? 'number'] ?? []).map((o) => <MenuItem key={o.value} value={o.value}>{o.label}</MenuItem>)}
-              </TextField>
-              {spec ? <SpecValueInput dataType={spec.dataType} unit={spec.defaultUom} options={spec.options} value={value} onChange={setValue} label="Value" /> : <TextField size="small" label="Value" disabled />}
-              {operator === 'between' && <Box sx={{ gridColumn: '3' }}><SpecValueInput dataType="number" unit={spec?.defaultUom} value={valueTo} onChange={setValueTo} label="and" /></Box>}
-            </Box>
-            <Button startIcon={<AddRounded />} disabled={!spec || value === ''} sx={{ mb: 1.5 }}
-              onClick={() => act(() => cfApi.post(`/definitions/${record.id}/criteria`, { specificationId: specId, operator, value, valueTo: operator === 'between' ? valueTo : undefined }), 'Criterion added.').then((ok) => { if (ok) { setValue(''); setValueTo(''); } })}>
-              Add criterion
-            </Button>
-            {sel.data.criteria.length === 0 ? <Typography sx={{ color: 'var(--c-text-3)', fontSize: 13 }}>No criteria yet.</Typography> : (
+            {canManage && (
+              <>
+                <Box sx={{ display: 'grid', gridTemplateColumns: '1.4fr .8fr 1fr', gap: 1, mb: 1 }}>
+                  <Autocomplete size="small" options={(specs.data ?? []).filter((s) => s.status === 'active')} value={spec}
+                    getOptionLabel={(s) => `${s.name} (${s.code})`} onChange={(_, s) => { setSpecId(s?.id ?? null); setOperator('eq'); setValue(''); setValueTo(''); }}
+                    noOptionsText={specs.error ? 'Could not load specifications' : 'No specification'}
+                    renderInput={(p) => <TextField {...p} label="Specification" error={!!specs.error} helperText={specs.error?.message} />} />
+                  <TextField select size="small" label="Test" value={operator} onChange={(e) => setOperator(e.target.value)} disabled={!spec}>
+                    {(OPERATORS[spec?.dataType ?? 'number'] ?? []).map((o) => <MenuItem key={o.value} value={o.value}>{o.label}</MenuItem>)}
+                  </TextField>
+                  {spec ? <SpecValueInput dataType={spec.dataType} unit={spec.defaultUom} options={spec.options} value={value} onChange={setValue} label="Value" /> : <TextField size="small" label="Value" disabled />}
+                  {operator === 'between' && <Box sx={{ gridColumn: '3' }}><SpecValueInput dataType="number" unit={spec?.defaultUom} value={valueTo} onChange={setValueTo} label="and" /></Box>}
+                </Box>
+                {/* "between" needs both ends: without valueTo the criterion is half-written. */}
+                <Button startIcon={<AddRounded />} disabled={!spec || value === '' || (operator === 'between' && valueTo === '')} sx={{ mb: 1.5 }}
+                  onClick={() => act(() => cfApi.post(`/definitions/${record.id}/criteria`, { specificationId: specId, operator, value, valueTo: operator === 'between' ? valueTo : undefined }), 'Criterion added.').then((ok) => { if (ok) { setValue(''); setValueTo(''); } })}>
+                  Add criterion
+                </Button>
+              </>
+            )}
+            {sel.data.criteria.length === 0 ? (
+              <Typography sx={{ color: 'var(--c-text-2)', fontSize: 13 }}>
+                {usesCriteria ? (canManage ? 'No criteria yet — add one, e.g. THICKNESS ≥ 10, and the matching items appear below.' : 'No criteria yet.') : 'No criteria.'}
+              </Typography>
+            ) : (
               <Box sx={{ display: 'grid', gap: 0.5 }}>
                 {sel.data.criteria.map((c) => (
                   <Box key={c.id} sx={{ display: 'flex', alignItems: 'center', gap: 1, p: 0.75, borderRadius: 'var(--r-sm)', '&:hover': { background: 'var(--c-surface-2)' } }}>
                     <Box sx={{ flex: 1 }}>
                       {c.specName} <Mono muted>{c.specCode}</Mono> {OP_TEXT[c.operator]} <Mono>{String(c.value)}{c.operator === 'between' ? ` – ${c.valueTo}` : ''}{c.unit ? ` ${c.unit}` : ''}</Mono>
                     </Box>
-                    <IconButton size="small" aria-label="Remove criterion" onClick={() => act(() => cfApi.del(`/criteria/${c.id}`), 'Criterion removed.')}><DeleteOutlineRounded fontSize="small" /></IconButton>
+                    {canManage && <IconButton size="small" aria-label="Remove criterion" onClick={() => act(() => cfApi.del(`/criteria/${c.id}`), 'Criterion removed.')}><DeleteOutlineRounded fontSize="small" /></IconButton>}
                   </Box>
                 ))}
               </Box>

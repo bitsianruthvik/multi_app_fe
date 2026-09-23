@@ -28,17 +28,19 @@ const OPERATOR_LABEL: Record<string, string> = { eq: 'is', in: 'is one of', unde
 function patternText(segments: Segment[]) {
   return segments.map((s) => {
     if (s.segmentType === 'literal') return s.literalText ?? '';
-    if (s.segmentType === 'token') return `{${s.tokenKey}${s.format ? `:${s.format}` : ''}}`;
+    if (s.segmentType === 'token') return `{${s.tokenKey ?? 'not chosen'}${s.format ? `:${s.format}` : ''}}`;
     if (s.segmentType === 'sequence') return `{${(s.format || '0').replace(/0/g, '#')}}`;
     return `{${s.format || 'YYYYMMDD'}}`;
   }).join('');
 }
 
-function conditionText(c: Condition, flat: ReturnType<typeof flattenTree>, defs: RecordList | null) {
+function conditionText(c: Condition, flat: ReturnType<typeof flattenTree>, defs: RecordList | null, entity?: CodegenEntity) {
   let v = c.value;
   if (c.tokenKey === 'classification') v = flat.find((n) => String(n.id) === c.value)?.path ?? c.value;
   if (c.tokenKey === 'definition') v = c.value.split(',').map((id) => defs?.rows.find((d) => String(d.id) === id.trim())?.code ?? id).join(', ');
-  return `${c.tokenKey} ${OPERATOR_LABEL[c.operator] ?? c.operator} ${v}`;
+  // The token's own words, not its key — the editor's dropdown shows the label too.
+  const label = entity?.conditionTokens.find((t) => t.key === c.tokenKey)?.label ?? c.tokenKey;
+  return `${label} ${OPERATOR_LABEL[c.operator] ?? c.operator} ${v}`;
 }
 
 interface Draft {
@@ -46,8 +48,8 @@ interface Draft {
   conditions: Condition[]; segments: Segment[];
 }
 
-function SchemeEditor({ open, onClose, onSaved, existing, entities, specs, tree, templates }: {
-  open: boolean; onClose: () => void; onSaved: () => void; existing: CodeScheme | null; entities: CodegenEntity[]; specs: Specification[]; tree: Tree | null; templates: RecordList | null;
+function SchemeEditor({ open, onClose, onSaved, existing, entities, specs, tree, templates, canManage }: {
+  open: boolean; onClose: () => void; onSaved: () => void; existing: CodeScheme | null; entities: CodegenEntity[]; specs: Specification[]; tree: Tree | null; templates: RecordList | null; canManage: boolean;
 }) {
   const blank: Draft = { code: '', name: '', entityType: 'item', targetField: 'code', seqScope: 'prefix', priority: '0', status: 'active', conditions: [], segments: [{ segmentType: 'literal', literalText: '' }] };
   const [d, setD] = useState<Draft>(blank);
@@ -135,8 +137,8 @@ function SchemeEditor({ open, onClose, onSaved, existing, entities, specs, tree,
       <DialogContent>
         <ErrorNotice error={error} />
         <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 2fr 1fr 1fr' }, gap: 2, mt: 1 }}>
-          <TextField label="Code" value={d.code} onChange={(e) => set({ code: e.target.value.toUpperCase() })} inputProps={{ style: { fontFamily: 'var(--font-mono)' } }} />
-          <TextField label="Name" value={d.name} onChange={(e) => set({ name: e.target.value })} />
+          <TextField label="Code" required value={d.code} autoFocus onChange={(e) => set({ code: e.target.value.toUpperCase() })} inputProps={{ style: { fontFamily: 'var(--font-mono)' } }} />
+          <TextField label="Name" required value={d.name} onChange={(e) => set({ name: e.target.value })} />
           <TextField select label="Codes" value={d.entityType} onChange={(e) => set({ entityType: e.target.value, conditions: [], ...(NAMED.has(e.target.value) ? {} : { targetField: 'code' as const }) })}>
             {entities.map((e) => <MenuItem key={e.entityType} value={e.entityType}>{e.label}</MenuItem>)}
           </TextField>
@@ -259,7 +261,9 @@ function SchemeEditor({ open, onClose, onSaved, existing, entities, specs, tree,
           <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 2, alignItems: 'center' }}>
             <Autocomplete size="small" options={samples.data?.rows ?? []} getOptionLabel={(o) => `${o.code ?? '—'} · ${o.name}`}
               value={(samples.data?.rows ?? []).find((o) => o.id === sampleId) ?? null} onChange={(_, o) => setSampleId(o?.id ?? null)}
-              renderInput={(p) => <TextField {...p} label="Preview against a record" />} />
+              noOptionsText={samples.error ? 'Could not load records to preview against' : 'Nothing to preview against yet'}
+              renderInput={(p) => <TextField {...p} label="Preview against a record"
+                helperText={samples.error ? samples.error.message : undefined} error={!!samples.error} />} />
             <Box>
               <CapsLabel>Would produce</CapsLabel>
               <Box sx={{ mt: 0.5 }}>
@@ -274,8 +278,11 @@ function SchemeEditor({ open, onClose, onSaved, existing, entities, specs, tree,
         </Surface>
       </DialogContent>
       <DialogActions>
-        <Button onClick={onClose} disabled={busy}>Cancel</Button>
-        <Button variant="contained" onClick={save} disabled={busy} startIcon={busy ? <CircularProgress size={14} color="inherit" /> : undefined}>{busy ? 'Saving…' : existing ? 'Save rule' : 'Create rule'}</Button>
+        <Button onClick={onClose} disabled={busy}>{canManage ? 'Cancel' : 'Close'}</Button>
+        {canManage && (
+          <Button variant="contained" onClick={save} disabled={busy || !d.code.trim() || !d.name.trim() || !d.segments.length}
+            startIcon={busy ? <CircularProgress size={14} color="inherit" /> : undefined}>{busy ? 'Saving…' : existing ? 'Save rule' : 'Create rule'}</Button>
+        )}
       </DialogActions>
     </Dialog>
   );
@@ -299,11 +306,11 @@ export default function CodingRules() {
   const flat = useMemo(() => flattenTree(tree.data), [tree.data]);
 
   const groups = useMemo(() => {
-    const out: { key: string; title: string; rows: CodeScheme[] }[] = [];
+    const out: { key: string; title: string; rows: CodeScheme[]; entity: CodegenEntity }[] = [];
     for (const e of entities.data ?? []) {
       for (const target of (NAMED.has(e.entityType) ? ['code', 'name'] : ['code']) as ('code' | 'name')[]) {
         const rows = (schemes.data ?? []).filter((s) => s.entityType === e.entityType && s.targetField === target);
-        out.push({ key: `${e.entityType}-${target}`, title: `${e.label} — ${target === 'code' ? 'codes' : 'names'}`, rows });
+        out.push({ key: `${e.entityType}-${target}`, title: `${e.label} — ${target === 'code' ? 'codes' : 'names'}`, rows, entity: e });
       }
     }
     return out;
@@ -314,7 +321,10 @@ export default function CodingRules() {
       <PageHeader title="Coding rules" subtitle="How items, definitions, orders, machines, batches and stock documents get their codes (and items and definitions their names). A rule applies when its conditions hold and builds text from its pattern; running numbers never repeat."
         actions={canManage && <Button variant="contained" startIcon={<AddRounded />} onClick={() => setEditor({ open: true, scheme: null })}>New rule</Button>} />
       <ErrorNotice error={schemes.error} onRetry={schemes.reload} />
-      {schemes.loading && !schemes.data ? <SkeletonRows rows={5} height={64} /> : (
+      {/* Without this, a failed /codegen/entities leaves no groups and the page
+          claims nothing uses the code generator. */}
+      <ErrorNotice error={entities.error} onRetry={entities.reload} />
+      {(schemes.loading && !schemes.data) || (entities.loading && !entities.data) ? <SkeletonRows rows={5} height={64} /> : (
         <Box sx={{ display: 'grid', gap: 2 }}>
           {groups.map((g) => (
             <SectionCard key={g.key} title={g.title}>
@@ -323,7 +333,8 @@ export default function CodingRules() {
               ) : (
                 <Box sx={{ display: 'grid', gap: 0.75 }}>
                   {g.rows.map((s) => (
-                    <Box key={s.id} role="button" tabIndex={0} onClick={() => setEditor({ open: true, scheme: s })} onKeyDown={(e) => { if (e.key === 'Enter') setEditor({ open: true, scheme: s }); }}
+                    <Box key={s.id} role="button" tabIndex={0} aria-label={`${s.code} — ${s.name}`} onClick={() => setEditor({ open: true, scheme: s })}
+                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setEditor({ open: true, scheme: s }); } }}
                       sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '200px 1fr 1fr auto auto' }, gap: 2, alignItems: 'center', p: 1.25, borderRadius: 'var(--r-sm)', cursor: 'pointer', border: '1px solid var(--c-divider)', '&:hover, &:focus-visible': { background: 'var(--c-surface-2)' } }}>
                       <Box>
                         <Mono>{s.code}</Mono>
@@ -335,7 +346,7 @@ export default function CodingRules() {
                       </Box>
                       <Box>
                         <CapsLabel>Applies when</CapsLabel>
-                        <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>{s.conditions.length ? s.conditions.map((c) => conditionText(c, flat, templates.data)).join(' · ') : 'Always'}</Typography>
+                        <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>{s.conditions.length ? s.conditions.map((c) => conditionText(c, flat, templates.data, g.entity)).join(' · ') : 'Always'}</Typography>
                       </Box>
                       <Tooltip title={s.counters.length ? s.counters.map((c) => `${c.prefix || '(whole rule)'} → next ${c.nextValue}`).join('\n') : 'No number handed out yet'}>
                         <Box><CapsLabel>Counters</CapsLabel><Mono>{s.counters.length}</Mono></Box>
@@ -350,10 +361,11 @@ export default function CodingRules() {
               )}
             </SectionCard>
           ))}
-          {!groups.length && <Surface><EmptyState title="Nothing uses the code generator yet" /></Surface>}
+          {!groups.length && <Surface><EmptyState title="Nothing can be coded yet"
+            body="Nothing in this company registers with the code generator, so there is nothing to write rules for. Reload the page; if it stays empty, tell an administrator." /></Surface>}
         </Box>
       )}
-      <SchemeEditor open={editor.open} existing={editor.scheme} onClose={() => setEditor({ open: false, scheme: null })}
+      <SchemeEditor open={editor.open} existing={editor.scheme} canManage={canManage} onClose={() => setEditor({ open: false, scheme: null })}
         onSaved={() => { toast.success('Coding rule saved.'); schemes.reload(); }}
         entities={entities.data ?? []} specs={specs.data ?? []} tree={tree.data} templates={templates.data} />
       <ConfirmDialog open={!!toDelete} title={`Delete ${toDelete?.code}?`} danger confirmLabel="Delete"

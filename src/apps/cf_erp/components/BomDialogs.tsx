@@ -1,13 +1,20 @@
 import { useEffect, useState } from 'react';
-import { Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, TextField, Typography } from '@mui/material';
+import { Alert, Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, TextField, Typography } from '@mui/material';
 import { cfApi, CfApiError } from '../api/client';
 import type { Kind, MasterRecord } from '../api/types';
+import { useIsPermitted } from '../hooks/useIsPermitted';
+import { bomPermission } from '../lib/orders';
 import { ErrorNotice, Mono } from './ui';
 import { RecordPicker } from './RecordPicker';
 import { FlowPicker } from './FlowPicker';
 import { DialogHeader } from './FormDialog';
 
 const KIND_WORD: Record<Kind, string> = { catalog: 'catalog item', temporary: 'temporary item', template: 'template', selection: 'selection' };
+
+/** Says so, rather than letting the save come back as a bare 403. */
+function NoPermissionNotice({ what }: { what: string }) {
+  return <Alert severity="info" sx={{ mb: 2 }}>You can see this, but your role cannot {what}. Ask an administrator for the matching permission.</Alert>;
+}
 
 /**
  * Adds a child to a record's BOM. On a Custom BOM, a template becomes a new
@@ -25,6 +32,7 @@ export function AddChildDialog({
   onClose: () => void;
   onDone: () => void;
 }) {
+  const allowed = useIsPermitted()(bomPermission(custom));
   const [child, setChild] = useState<MasterRecord | null>(null);
   const [quantity, setQuantity] = useState('1');
   const [role, setRole] = useState('');
@@ -49,6 +57,7 @@ export function AddChildDialog({
     <Dialog open={open} onClose={() => !busy && onClose()} maxWidth="sm" fullWidth>
       <DialogHeader title={<>Add to <Mono sx={{ fontSize: 'inherit' }}>{parentLabel}</Mono></>} onClose={onClose} busy={busy} />
       <DialogContent>
+        {!allowed && <NoPermissionNotice what={custom ? 'change an order’s structure' : 'change a catalog BOM'} />}
         <ErrorNotice error={error} />
         <Box sx={{ display: 'grid', gap: 2, pt: 1 }}>
           <RecordPicker kinds={allowedKinds} value={child} onChange={setChild} label="What to add" excludeIds={[parentId]} autoFocus helperText={hint} />
@@ -64,7 +73,7 @@ export function AddChildDialog({
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose} disabled={busy}>Cancel</Button>
-        <Button variant="contained" onClick={save} disabled={busy || !child} startIcon={busy ? <CircularProgress size={14} color="inherit" /> : undefined}>{busy ? 'Saving…' : 'Add'}</Button>
+        <Button variant="contained" onClick={save} disabled={busy || !child || !allowed} startIcon={busy ? <CircularProgress size={14} color="inherit" /> : undefined}>{busy ? 'Saving…' : 'Add'}</Button>
       </DialogActions>
     </Dialog>
   );
@@ -75,7 +84,7 @@ export function AddChildDialog({
  * its child is made by in this parent. What a line holds cannot change.
  */
 export function EditLineDialog({
-  open, lineId, label, quantity, role, flowId = null, canHaveFlow = false, onClose, onDone,
+  open, lineId, label, quantity, role, flowId = null, canHaveFlow = false, custom = false, onClose, onDone,
 }: {
   open: boolean;
   lineId: number | null;
@@ -84,9 +93,12 @@ export function EditLineDialog({
   role: string | null;
   flowId?: number | null;
   canHaveFlow?: boolean;
+  /** Whose BOM this line belongs to — it decides which grant the save needs. */
+  custom?: boolean;
   onClose: () => void;
   onDone: () => void;
 }) {
+  const allowed = useIsPermitted()(bomPermission(custom));
   const [q, setQ] = useState('');
   const [r, setR] = useState('');
   const [f, setF] = useState<number | null>(null);
@@ -104,6 +116,7 @@ export function EditLineDialog({
     <Dialog open={open} onClose={() => !busy && onClose()} maxWidth="xs" fullWidth>
       <DialogHeader title={<>Change <Mono sx={{ fontSize: 'inherit' }}>{label}</Mono></>} onClose={onClose} busy={busy} />
       <DialogContent>
+        {!allowed && <NoPermissionNotice what={custom ? 'change an order’s structure' : 'change a catalog BOM'} />}
         <ErrorNotice error={error} />
         <Box sx={{ display: 'grid', gap: 2, pt: 1 }}>
           <TextField label="Quantity per parent" value={q} onChange={(e) => setQ(e.target.value)} autoFocus inputProps={{ inputMode: 'decimal', style: { fontFamily: 'var(--font-mono)' } }} />
@@ -114,7 +127,7 @@ export function EditLineDialog({
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose} disabled={busy}>Cancel</Button>
-        <Button variant="contained" onClick={save} disabled={busy} startIcon={busy ? <CircularProgress size={14} color="inherit" /> : undefined}>{busy ? 'Saving…' : 'Save'}</Button>
+        <Button variant="contained" onClick={save} disabled={busy || !allowed} startIcon={busy ? <CircularProgress size={14} color="inherit" /> : undefined}>{busy ? 'Saving…' : 'Save'}</Button>
       </DialogActions>
     </Dialog>
   );

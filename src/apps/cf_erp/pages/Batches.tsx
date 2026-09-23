@@ -43,10 +43,11 @@ export default function Batches() {
   const list = useLoad(() => cfApi.get<Batch[]>(`/batches${qs({ search: debounced, inStock: inStock ? 1 : undefined })}`), [debounced, inStock]);
   const all = useMemo(() => list.data ?? [], [list.data]);
   const rows = useMemo(() => all.filter((b) => !status || b.status === status), [all, status]);
+  // Counted over the rows shown, so the figures always agree with the table.
   const stats = [
-    { label: 'Batches', value: rows.length },
-    { label: 'On hold', value: all.filter((b) => b.status === 'on_hold').length, tone: 'warning' as const, onClick: () => setStatus('on_hold') },
-    { label: 'Rejected', value: all.filter((b) => b.status === 'rejected').length, tone: 'danger' as const, onClick: () => setStatus('rejected') },
+    { label: 'Batches', value: rows.length, hint: inStock ? 'In stock now' : 'Including batches used up' },
+    { label: 'On hold', value: rows.filter((b) => b.status === 'on_hold').length, tone: 'warning' as const, hint: 'Not issued until released', onClick: () => setStatus('on_hold') },
+    { label: 'Rejected', value: rows.filter((b) => b.status === 'rejected').length, tone: 'danger' as const, hint: 'Never issued — move or scrap them', onClick: () => setStatus('rejected') },
   ];
   const open = (b: Batch) => navigate(appPath(company, `batches/${b.id}`));
 
@@ -63,9 +64,12 @@ export default function Batches() {
       <ErrorNotice error={list.error} onRetry={list.reload} />
       <DataTable rows={rows} columns={COLUMNS} getRowId={(b) => b.id} onRowClick={open} loading={list.loading && !list.data}
         storageKey="batches" exportName="batches" defaultSortKey="received" defaultSortDir="desc"
-        empty={<EmptyState icon={<LayersRounded />} title="No batches"
-          hint={inStock ? 'None in stock — include used-up batches to see the rest.' : 'Batches start when an item kept by batch is received.'}
-          action={inStock ? <Button onClick={() => setScope('all')}>Include used-up batches</Button> : undefined} />} />
+        empty={<EmptyState icon={<LayersRounded />} title={debounced || status ? 'No batch matches' : 'No batches'}
+          hint={debounced || status ? 'Clear the search or pick another status.'
+            : inStock ? 'None in stock — include used-up batches to see the rest.'
+              : 'Batches start when an item kept by batch is received.'}
+          action={debounced || status ? <Button onClick={() => { setSearch(''); setStatus(''); }}>Clear filters</Button>
+            : inStock ? <Button onClick={() => setScope('all')}>Include used-up batches</Button> : undefined} />} />
     </Box>
   );
 }

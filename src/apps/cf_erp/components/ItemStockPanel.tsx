@@ -7,7 +7,8 @@ import { useIsPermitted } from '../hooks/useIsPermitted';
 import { useCompanySlug } from '../hooks/useLoad';
 import { appPath } from '../navMeta';
 import { qtyText } from '../lib/inventory';
-import { ErrorNotice, Mono, SectionCard, SkeletonRows } from './ui';
+import Inventory2Rounded from '@mui/icons-material/Inventory2Rounded';
+import { EmptyState, ErrorNotice, Mono, SectionCard, SkeletonRows } from './ui';
 import { EntityList, EntityRow } from './EntityList';
 import { MovementsTable, StockTable, TotalsStrip } from './StockTables';
 import { MovementButtons } from './MovementButtons';
@@ -30,10 +31,12 @@ export function ItemStockPanel({ record }: { record: MasterRecord }) {
       <TotalsStrip totals={s.totals} uom={s.item.uom} />
       <SectionCard flush title="Where it is" subtitle={s.item.trackedBy === 'batch' ? 'Kept by batch — each row is one batch in one area.' : 'Counted by quantity — one row per area.'}
         actions={canManage && <MovementButtons types={receivable ? ['receipt', 'transfer', 'adjustment'] : ['transfer', 'adjustment']} preset={{ item: record }} onPosted={st.reload} />}>
-        <StockTable bare rows={s.rows} hide={['item']} />
+        <StockTable bare rows={s.rows} hide={['item']}
+          empty={<EmptyState icon={<Inventory2Rounded />} title="None in stock"
+            hint={canManage && receivable ? 'Use Receive above to book some in.' : 'Nothing has been booked in anywhere.'} />} />
       </SectionCard>
       {(s.reservations ?? []).length > 0 && (
-        <SectionCard title="Reserved for" subtitle="Stock set aside for released work. It moves freely between usable areas; nothing else may take it.">
+        <SectionCard title="Claimed by a job" subtitle="Set aside for released work, or finished and earmarked for the line that sells it. Nothing else may take it.">
           <EntityList>
             {(s.reservations ?? []).map((v) => (
               <EntityRow key={v.id} onClick={() => navigate(appPath(company, `orders/${v.order.id}?tab=production`))} code={<Mono chip>{v.order.code}</Mono>}

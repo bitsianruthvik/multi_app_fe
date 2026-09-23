@@ -12,7 +12,7 @@ import { useIsPermitted } from '../hooks/useIsPermitted';
 import { invalidateNavCounts } from '../hooks/useNavCounts';
 import { appPath } from '../navMeta';
 import { qtyText } from '../lib/inventory';
-import { DetailSkeleton, ErrorNotice, Fact, Mono, SectionCard } from '../components/ui';
+import { Badge, DetailSkeleton, ErrorNotice, Fact, Mono, SectionCard } from '../components/ui';
 import { CrossLink, DetailHeader, DetailLayout } from '../components/DetailLayout';
 import { DataTable, type DataColumn } from '../components/DataTable';
 import { BatchStatusBadge, MovementTypeChip } from '../components/inventoryUi';
@@ -61,7 +61,12 @@ export default function MovementDetail() {
 
   const header = (
     <DetailHeader code={m.code} subtitle={m.reason ?? undefined}
-      badges={<MovementTypeChip type={m.movementType} reversal={!!m.reversalOf} />}
+      badges={(
+        <>
+          <MovementTypeChip type={m.movementType} reversal={!!m.reversalOf} />
+          {m.reversedBy && <Badge family="warning" label="Undone" title={`Reversed by ${m.reversedBy.code}`} />}
+        </>
+      )}
       actions={canReverse && <Button variant="outlined" startIcon={<UndoRounded />} onClick={() => setReversing(true)}>Reverse</Button>}
       facts={(
         <>

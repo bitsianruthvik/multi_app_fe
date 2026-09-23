@@ -1,11 +1,14 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Autocomplete, Box, MenuItem, TextField, Typography } from '@mui/material';
 import { cfApi } from '../api/client';
 import type { OperationDetail, ProductionStep, Release, ReleaseCheck, Shipment } from '../api/types';
 import { useLoad } from '../hooks/useLoad';
 import { PURPOSE_LABEL, qtyText } from '../lib/inventory';
 import { FormDialog } from './FormDialog';
-import { Fact, Mono, SkeletonRows } from './ui';
+import { ErrorNotice, Fact, Mono, SkeletonRows } from './ui';
+
+/** A typed quantity: empty counts as none, anything unreadable as NaN so the form can refuse it. */
+const amount = (v: string) => (v.trim() === '' ? 0 : Number(v));
 
 /**
  * Releases a whole sales line (decision E1). Opens on the release check — what
@@ -27,6 +30,9 @@ export function ReleaseDialog({ line, onClose, onReleased }: {
     <FormDialog open={!!line} title={`Release line ${line?.lineNo ?? ''} to production`} onClose={onClose} onSubmit={save}
       submitLabel="Release" busyLabel="Releasing…" submitDisabled={!c?.ok || !areaId} maxWidth="md"
       subtitle={<>The whole line is released at once: <Mono>{line?.label ?? ''}</Mono>. Its structure is frozen from then on.</>}>
+      {/* Without this the dialog renders an empty body and a dead Release button
+          when the check itself fails — nothing on screen says why. */}
+      <ErrorNotice error={check.error} onRetry={check.reload} />
       {check.loading && !c ? <SkeletonRows rows={3} /> : c && (
         <>
           <TextField select label="Finished work goes to" value={areaId} onChange={(e) => setAreaId(e.target.value)}
@@ -83,8 +89,11 @@ export function ReleaseDialog({ line, onClose, onReleased }: {
 export function StartStepDialog({ step, onClose, onDone }: { step: ProductionStep | null; onClose: () => void; onDone: (r: Release) => void }) {
   const op = useLoad(() => (step ? cfApi.get<OperationDetail>(`/operations/${step.operation.id}`) : Promise.resolve(null)), [step?.operation.id]);
   const [machineId, setMachineId] = useState<number | null>(null);
-  useEffect(() => { setMachineId(null); }, [step?.id]);
-  const options = (op.data?.machines ?? []).filter((m) => m.eligible).map((m) => m.machine);
+  const options = useMemo(() => (op.data?.machines ?? []).filter((m) => m.eligible).map((m) => m.machine), [op.data]);
+  // A different step starts blank — but where only one machine can do the work
+  // the answer is already known, so fill it in rather than making someone at
+  // the machine pick it every single time.
+  useEffect(() => { setMachineId(options.length === 1 ? options[0].id : null); }, [step?.id, options]);
   const save = async () => { if (step) onDone(await cfApi.post<Release>(`/production-steps/${step.id}/start`, { machineId })); };
   return (
     <FormDialog open={!!step} title="Start this step" onClose={onClose} onSubmit={save} submitLabel="Start" busyLabel="Starting…" maxWidth="xs"
@@ -92,7 +101,9 @@ export function StartStepDialog({ step, onClose, onDone }: { step: ProductionSte
       <Autocomplete options={options} value={options.find((m) => m.id === machineId) ?? null} loading={op.loading}
         getOptionLabel={(m) => `${m.code} · ${m.name}`} isOptionEqualToValue={(a, b) => a.id === b.id} onChange={(_, m) => setMachineId(m?.id ?? null)}
         noOptionsText="No machine is set up for this operation"
-        renderInput={(p) => <TextField {...p} label="On machine (optional)" helperText="Only machines whose rules allow this operation" autoFocus />} />
+        renderInput={(p) => <TextField {...p} label="On machine (optional)"
+          helperText={op.error ? op.error.message : options.length === 1 ? 'The only machine set up for this operation' : 'Only machines whose rules allow this operation'}
+          error={!!op.error} autoFocus />} />
     </FormDialog>
   );
 }
@@ -104,14 +115,21 @@ export function ProgressDialog({ step, onClose, onDone }: { step: ProductionStep
   const [scrap, setScrap] = useState('');
   const [note, setNote] = useState('');
   useEffect(() => { if (step) { setGood(String(left)); setScrap(''); setNote(''); } }, [step?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  // The two rules the backend enforces, checked here so a refusal never costs a
+  // round trip at the machine: record something, and no more good than are left.
+  const g = amount(good);
+  const s = amount(scrap);
+  const tooMany = Number.isFinite(g) && g > left + 1e-6;
+  const nothing = !Number.isFinite(g) || !Number.isFinite(s) || g < 0 || s < 0 || g + s <= 0;
   const save = async () => { if (step) onDone(await cfApi.post<Release>(`/production-steps/${step.id}/progress`, { good: good || 0, scrap: scrap || 0, note: note || null })); };
   return (
-    <FormDialog open={!!step} title="Record work" onClose={onClose} onSubmit={save} maxWidth="xs"
+    <FormDialog open={!!step} title="Record work" onClose={onClose} onSubmit={save} maxWidth="xs" submitLabel="Record" busyLabel="Recording…" submitDisabled={nothing || tooMany}
       subtitle={step ? `${step.label} — ${qtyText(step.qtyGood)} of ${qtyText(step.quantity)} good so far. Scrapped pieces are made again.` : undefined}>
       <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 2 }}>
-        <TextField label="Good" value={good} onChange={(e) => setGood(e.target.value)} autoFocus inputProps={{ inputMode: 'decimal', style: { fontFamily: 'var(--font-mono)' } }}
-          helperText={`${qtyText(left)} still needed`} />
-        <TextField label="Scrapped" value={scrap} onChange={(e) => setScrap(e.target.value)} inputProps={{ inputMode: 'decimal', style: { fontFamily: 'var(--font-mono)' } }} />
+        <TextField label="Good" value={good} onChange={(e) => setGood(e.target.value)} autoFocus error={tooMany} inputProps={{ inputMode: 'decimal', style: { fontFamily: 'var(--font-mono)' } }}
+          helperText={tooMany ? `Only ${qtyText(left)} more needed here` : `${qtyText(left)} still needed`} />
+        <TextField label="Scrapped" value={scrap} onChange={(e) => setScrap(e.target.value)} inputProps={{ inputMode: 'decimal', style: { fontFamily: 'var(--font-mono)' } }}
+          helperText="Leave empty if none" />
       </Box>
       <TextField label="Note (optional)" value={note} onChange={(e) => setNote(e.target.value)} />
     </FormDialog>

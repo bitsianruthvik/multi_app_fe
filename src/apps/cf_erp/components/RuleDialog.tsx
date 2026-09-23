@@ -73,7 +73,9 @@ export function RuleDialog({
   const ruleChoices: ValueRule[] = forMachines ? ['entered', 'fixed', 'defaulted', 'calculated']
     : captureAt === 'item' ? ['entered', 'fixed', 'defaulted', 'calculated', 'rollup', 'inherited'] : ['entered', 'calculated'];
   // A calculated rule takes a formula of plain codes, a roll-up one reading children.X; timing formulas belong to operations.
-  const formulaChoices = formulas.filter((f) => f.status === 'active' && (f.kind ?? 'value') === (valueRule === 'rollup' ? 'rollup' : 'value'));
+  // The rule's own formula stays on the list even if it has since been retired,
+  // so editing the rule does not quietly blank it.
+  const formulaChoices = formulas.filter((f) => (f.status === 'active' && (f.kind ?? 'value') === (valueRule === 'rollup' ? 'rollup' : 'value')) || f.id === formulaId);
 
   const save = async () => {
     setBusy(true);
@@ -115,7 +117,7 @@ export function RuleDialog({
               </li>
             )}
             onChange={(_, s) => { setSpecId(s?.id ?? null); setOptionIds([]); }}
-            renderInput={(p) => <TextField {...p} label="Specification" />}
+            renderInput={(p) => <TextField {...p} label="Specification" required={!existing} autoFocus={!existing} />}
           />
           <TextField select label="Captured at" value={captureAt} disabled={!!existing || forMachines}
             helperText={forMachines ? 'A machine keeps its values on itself.' : CAPTURE_HELP[captureAt]}
@@ -132,8 +134,9 @@ export function RuleDialog({
                 {ruleChoices.map((r) => <MenuItem key={r} value={r}>{({ entered: 'Entered', fixed: 'Fixed', defaulted: 'Defaulted', calculated: 'Calculated', rollup: 'Roll-up', inherited: 'Inherited' } as const)[r]}</MenuItem>)}
               </TextField>
               {needsFormula && (
-                <TextField select label="Formula" value={formulaId ?? ''} onChange={(e) => setFormulaId(Number(e.target.value) || null)}
-                  helperText={formulas.find((f) => f.id === formulaId)?.expression ?? 'Formulas are managed under Setup › Formulas.'}>
+                <TextField select label="Formula" required value={formulaId ?? ''} error={!formulaId} onChange={(e) => setFormulaId(Number(e.target.value) || null)}
+                  helperText={formulas.find((f) => f.id === formulaId)?.expression
+                    ?? (formulaChoices.length ? 'Pick the formula that works this value out.' : `No ${valueRule === 'rollup' ? 'roll-up' : 'value'} formula exists yet — add one under Setup › Formulas.`)}>
                   {formulaChoices.map((f) => <MenuItem key={f.id} value={f.id}>{f.name} ({f.code})</MenuItem>)}
                 </TextField>
               )}
@@ -156,7 +159,7 @@ export function RuleDialog({
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose} disabled={busy}>Cancel</Button>
-        <Button variant="contained" onClick={save} disabled={busy || !specId} startIcon={busy ? <CircularProgress size={14} color="inherit" /> : undefined}>
+        <Button variant="contained" onClick={save} disabled={busy || !specId || (needsFormula && !switchedOff && !formulaId)} startIcon={busy ? <CircularProgress size={14} color="inherit" /> : undefined}>
           {busy ? 'Saving…' : existing ? 'Save rule' : 'Add rule'}
         </Button>
       </DialogActions>

@@ -38,7 +38,10 @@ export function AreaDialog({ open, existing, onClose, onSaved }: { open: boolean
           <Box sx={{ gridColumn: '1 / -1' }}>
             <Autocomplete size="small" options={options} value={options.find((m) => m.id === f.machineId) ?? null} getOptionLabel={(m) => `${m.code} · ${m.name}`}
               isOptionEqualToValue={(a, b) => a.id === b.id} onChange={(_, m) => setF({ ...f, machineId: m?.id ?? null })}
-              renderInput={(p) => <TextField {...p} label="Beside machine (optional)" helperText="A WIP area usually belongs to the machine that works its stock" />} />
+              renderInput={(p) => <TextField {...p} label="Beside machine (optional)"
+                helperText={machines.error
+                  ? 'The machine list could not be loaded — you may not have permission to see machines.'
+                  : 'A WIP area usually belongs to the machine that works its stock'} />} />
           </Box>
           {existing && (
             <TextField select label="Status" value={f.status} onChange={(e) => setF({ ...f, status: e.target.value as StockingArea['status'] })} helperText="Nothing goes into an inactive area; stock can still leave it">

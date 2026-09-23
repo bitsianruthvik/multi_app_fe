@@ -1,3 +1,4 @@
+import type React from 'react';
 import { InputAdornment, MenuItem, TextField } from '@mui/material';
 import type { DataType, SpecOption } from '../api/types';
 
@@ -25,7 +26,13 @@ export function SpecValueInput({
         <TextField
           {...common}
           type="number"
-          inputProps={{ step: 'any', style: { fontFamily: 'var(--font-mono)', fontVariantNumeric: 'tabular-nums' } }}
+          // Scrolling the page over a focused number field used to change the
+          // value silently; dropping focus first leaves the value alone.
+          inputProps={{
+            step: 'any',
+            onWheel: (e: React.WheelEvent<HTMLInputElement>) => e.currentTarget.blur(),
+            style: { fontFamily: 'var(--font-mono)', fontVariantNumeric: 'tabular-nums' },
+          }}
           InputProps={unit ? { endAdornment: <InputAdornment position="end">{unit}</InputAdornment> } : undefined}
         />
       );

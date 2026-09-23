@@ -38,7 +38,12 @@ export default function MachineDetail() {
   const company = useCompanySlug();
   const navigate = useNavigate();
   const toast = useToast();
-  const canManage = useIsPermitted()('cf_erp_production_manage');
+  const isPermitted = useIsPermitted();
+  const canManage = isPermitted('cf_erp_production_manage');
+  // Specification rules are setup, not production: /rules is guarded by
+  // cf_erp_setup_manage, so gating them on production_manage put buttons in
+  // front of people the backend then refused with a 403.
+  const canSetup = isPermitted('cf_erp_setup_manage');
   const mc = useLoad(() => cfApi.get<MachineDetailT>(`/machines/${id}`), [id]);
   const specs = useLoad(() => cfApi.get<Resolution>(`/machines/${id}/specs`), [id]);
   const rules = useLoad(() => cfApi.get<Rule[]>(`/rules${qs({ subjectType: 'machine', subjectId: id })}`), [id]);
@@ -114,7 +119,7 @@ export default function MachineDetail() {
             )}
           </SectionCard>
           <SectionCard title="Rules on this machine only" subtitle="Rarely needed — rules usually belong on the machine type so every similar machine shares them."
-            actions={canManage && <Button startIcon={<AddRounded />} onClick={() => setRuleDialog({ open: true, rule: null })}>Add rule</Button>}>
+            actions={canSetup && <Button startIcon={<AddRounded />} onClick={() => setRuleDialog({ open: true, rule: null })}>Add rule</Button>}>
             <ErrorNotice error={rules.error} onRetry={rules.reload} />
             {(rules.data ?? []).length === 0 ? <Typography sx={{ color: 'var(--c-text-3)', fontSize: 13 }}>None.</Typography> : (
               <EntityList>
@@ -122,7 +127,7 @@ export default function MachineDetail() {
                   <EntityRow key={rule.id} primary={<>{rule.specName} <Mono muted>{rule.specCode}</Mono></>}
                     secondary={rule.isApplicable ? (rule.isRequired ? 'Required' : 'Optional') : 'Switched off'}
                     trailing={rule.isApplicable ? <RuleBadge rule={rule.valueRule} /> : undefined}
-                    actions={canManage && (
+                    actions={canSetup && (
                       <>
                         <Tooltip title="Edit"><IconButton size="small" aria-label={`Edit rule ${rule.specCode}`} onClick={() => setRuleDialog({ open: true, rule })}><EditRounded fontSize="small" /></IconButton></Tooltip>
                         <Tooltip title="Delete"><IconButton size="small" aria-label={`Delete rule ${rule.specCode}`} onClick={() => setDeleteRule(rule)}><DeleteOutlineRounded fontSize="small" /></IconButton></Tooltip>

@@ -17,7 +17,7 @@ import { invalidateNavCounts } from '../hooks/useNavCounts';
 import { useUrlParam } from '../hooks/useUrlState';
 import { appPath } from '../navMeta';
 import { recordPath } from '../lib/paths';
-import { CONFIRM_MOVE, ORDER_STATUS_LABEL, transitionLabel } from '../lib/orders';
+import { CONFIRM_MOVE, NEXT_STAGE, ORDER_STATUS_LABEL, transitionLabel } from '../lib/orders';
 import {
   Badge, DangerBadge, DetailSkeleton, EmptyState, ErrorNotice, Fact, KindChip, Mono, OrderStatusBadge, OrderTypeChip, SectionCard, SkeletonRows, StatusBadge, WarnBadge,
 } from '../components/ui';
@@ -25,7 +25,7 @@ import { CrossLink, DetailHeader, DetailLayout } from '../components/DetailLayou
 import { DataTable, type DataColumn } from '../components/DataTable';
 import { FormDialog } from '../components/FormDialog';
 import { RecordPicker } from '../components/RecordPicker';
-import { StructureTree } from '../components/StructureTree';
+import { BomPanel } from '../components/Bom/BomPanel';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { MovementsTable } from '../components/StockTables';
 import { MovementButtons } from '../components/MovementButtons';
@@ -172,7 +172,10 @@ export default function OrderDetail() {
   const o = order.data;
   useDetailTitle(o ? o.code : null);
   const lines = useMemo(() => o?.lines ?? [], [o]);
-  const shownLine = structureLine ?? lines.find((l) => l.lineType === 'custom')?.id ?? lines[0]?.id ?? null;
+  // Falls back when the chosen line has gone (removed, or another order loaded),
+  // so the Line picker never sits on a value that is not in its list.
+  const shownLine = (structureLine != null && lines.some((l) => l.id === structureLine) ? structureLine : null)
+    ?? lines.find((l) => l.lineType === 'custom')?.id ?? lines[0]?.id ?? null;
 
   const move = async (next: OrderStatus) => {
     setBusy(next); setActionError(null);
@@ -203,7 +206,7 @@ export default function OrderDetail() {
         </Box>
       ),
     },
-    { key: 'qty', header: 'Qty', numeric: true, alwaysVisible: true, render: (l) => <>{l.quantity}{l.item?.uom && <Mono muted> {l.item.uom}</Mono>}</> },
+    { key: 'qty', header: 'Qty', numeric: true, alwaysVisible: true, render: (l) => <><Mono>{l.quantity}</Mono>{l.item?.uom && <Mono muted> {l.item.uom}</Mono>}</> },
     { key: 'committed', header: 'Committed', alwaysVisible: true, render: (l) => <Mono muted={!l.committedDate}>{l.committedDate ?? o.committedDate ?? '—'}</Mono> },
     { key: 'structure', header: 'Structure', alwaysVisible: true, render: (l) => structureText(l) },
     ...(o.status === 'confirmed' || lines.some((l) => l.release) ? [{
@@ -220,7 +223,7 @@ export default function OrderDetail() {
       actions={canManage && (
         <>
           {o.allowedTransitions.map((next) => (
-            <Button key={next} variant={next === 'confirmed' || next === 'quoted' ? 'contained' : 'outlined'} color={next === 'cancelled' ? 'error' : 'primary'} disabled={!!busy}
+            <Button key={next} variant={next === NEXT_STAGE[o.status] ? 'contained' : 'outlined'} color={next === 'cancelled' ? 'error' : 'primary'} disabled={!!busy}
               startIcon={busy === next ? <CircularProgress size={14} color="inherit" /> : undefined}
               onClick={() => (CONFIRM_MOVE[next] ? setMoving(next) : move(next))}>
               {transitionLabel(o.status, next)}
@@ -287,13 +290,14 @@ export default function OrderDetail() {
             <TextField select size="small" label="Line" value={shownLine} onChange={(e) => setStructureLine(Number(e.target.value))} sx={{ minWidth: { xs: '100%', sm: 280 }, maxWidth: '100%' }}>
               {lines.map((l) => <MenuItem key={l.id} value={l.id}>{`${l.lineNo} · ${l.item?.code ?? '—'} · ${l.item?.name ?? ''} ×${l.quantity}`}</MenuItem>)}
             </TextField>
-            <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)', flex: 1, minWidth: 220 }}>
-              {lines.find((l) => l.id === shownLine)?.lineType === 'custom'
-                ? 'Temporary items are made for this order. Their codes are built from the order number and their place in the structure.'
-                : 'A catalog item’s Standard BOM, shown for reference — change it on the item itself.'}
-            </Typography>
+            {/* A standard line's tree explains itself, with a link to the item. */}
+            {lines.find((l) => l.id === shownLine)?.lineType === 'custom' && (
+              <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)', flex: 1, minWidth: 220 }}>
+                Temporary items are made for this order. Their codes are built from the order number and their place in the structure.
+              </Typography>
+            )}
           </Box>
-          <StructureTree key={shownLine} lineId={shownLine} onChanged={order.reload} />
+          <BomPanel key={shownLine} source={{ kind: 'orderLine', lineId: shownLine }} onChanged={order.reload} />
         </Box>
       )}
 
@@ -335,7 +339,7 @@ export default function OrderDetail() {
 
       {tab === 'details' && <DetailsForm key={o.updatedAt} order={o} onSaved={(saved) => { order.setData(saved); toast.success('Details saved.'); }} />}
 
-      <ReleaseDialog line={releasing ? { id: releasing.id, lineNo: releasing.lineNo, label: `${releasing.item?.code ?? ''} ×${releasing.quantity}` } : null}
+      <ReleaseDialog line={releasing ? { id: releasing.id, lineNo: releasing.lineNo, label: `${releasing.item?.code ?? releasing.item?.name ?? 'This line'} ×${releasing.quantity}` } : null}
         onClose={() => setReleasing(null)}
         onReleased={() => { invalidateNavCounts(); toast.success(`Line ${releasing?.lineNo} released to production.`); reloadAll(); setTab('production'); }} />
       <AddLineDialog order={o} open={adding} onClose={() => setAdding(false)} onDone={(saved) => { order.setData(saved); toast.success('Line added.'); }} />

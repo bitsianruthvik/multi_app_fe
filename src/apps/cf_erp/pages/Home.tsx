@@ -22,6 +22,9 @@ import PlayCircleRounded from '@mui/icons-material/PlayCircleRounded';
 import LockRounded from '@mui/icons-material/LockRounded';
 import RocketLaunchRounded from '@mui/icons-material/RocketLaunchRounded';
 import SyncRounded from '@mui/icons-material/SyncRounded';
+import ShoppingCartRounded from '@mui/icons-material/ShoppingCartRounded';
+import LocalShippingRounded from '@mui/icons-material/LocalShippingRounded';
+import DoneAllRounded from '@mui/icons-material/DoneAllRounded';
 import { useAuth } from '@core/contexts/AuthContext';
 import { cfApi, qs } from '../api/client';
 import type { CodeScheme, Formula, RecordList, SalesOrder, Specification, Tree } from '../api/types';
@@ -36,7 +39,7 @@ import { flattenTree } from '../lib/tree';
 type QueueTone = 'primary' | 'warning' | 'danger' | 'info' | 'success';
 interface Queue { key: string; title: string; count: number; unit: string; tone: QueueTone; description: string; actionLabel: string; path: string }
 interface Cockpit { stats: { key: string; label: string; value: number }[]; queues: Queue[] }
-interface Setup { tree: Tree; specs: Specification[]; formulas: Formula[]; schemes: CodeScheme[]; items: RecordList; definitions: RecordList }
+interface Setup { tree: Tree; specs: Specification[]; formulas: Formula[]; schemes: CodeScheme[]; items: RecordList; activeItems: RecordList; definitions: RecordList }
 
 const STAT_META: Record<string, { icon: ReactNode; path: string; tone?: Stat['tone'] }> = {
   openOrders: { icon: <ReceiptLongRounded />, path: 'orders' },
@@ -50,6 +53,7 @@ const QUEUE_ICON: Record<string, ReactNode> = {
   overdue: <WarningAmberRounded />, inquiries: <MarkEmailUnreadRounded />, quoted: <RequestQuoteRounded />, selections: <ChecklistRounded />,
   drafts: <EditNoteRounded />, flows: <RouteRounded />, shifts: <ScheduleRounded />, untimed: <TimerRounded />, held: <PauseCircleRounded />,
   ready: <PlayCircleRounded />, material: <LockRounded />, onhold: <PauseCircleRounded />, release: <RocketLaunchRounded />,
+  buy: <ShoppingCartRounded />, deliveries: <LocalShippingRounded />, delivered: <DoneAllRounded />,
 };
 
 /** Any one panel failing (a missing permission, say) must not blank the cockpit. */
@@ -70,17 +74,20 @@ export default function Home() {
   const go = (path: string) => navigate(appPath(company, path));
 
   const { data, error, loading, reload } = useLoad(async () => {
-    const [cockpit, tree, specs, formulas, schemes, items, definitions, orders] = await Promise.all([
+    const [cockpit, tree, specs, formulas, schemes, items, activeItems, definitions, orders] = await Promise.all([
       cfApi.get<Cockpit>('/cockpit'),
       soft(cfApi.get<Tree>('/classification')),
       soft(cfApi.get<Specification[]>('/specifications')),
       soft(cfApi.get<Formula[]>('/formulas')),
       soft(cfApi.get<CodeScheme[]>('/codegen/schemes')),
-      soft(cfApi.get<RecordList>(`/records${qs({ recordKind: 'item', limit: 500 })}`)),
+      // Counts only: the setup card wants two numbers, not five hundred rows.
+      soft(cfApi.get<RecordList>(`/records${qs({ recordKind: 'item', limit: 1 })}`)),
+      soft(cfApi.get<RecordList>(`/records${qs({ recordKind: 'item', status: 'active', limit: 1 })}`)),
       soft(cfApi.get<RecordList>(`/records${qs({ recordKind: 'definition', limit: 1 })}`)),
       isPermitted('cf_erp_orders_view') ? soft(cfApi.get<SalesOrder[]>(`/orders${qs({ open: 1, limit: 6 })}`)) : Promise.resolve(null),
     ]);
-    const setup: Setup | null = tree && specs && formulas && schemes && items && definitions ? { tree, specs, formulas, schemes, items, definitions } : null;
+    const setup: Setup | null = tree && specs && formulas && schemes && items && activeItems && definitions
+      ? { tree, specs, formulas, schemes, items, activeItems, definitions } : null;
     return { cockpit, setup, orders };
   }, []);
 
@@ -94,7 +101,7 @@ export default function Home() {
   const setup = data?.setup ?? null;
   const flat = flattenTree(setup?.tree ?? null);
   const variants = flat.filter((n) => n.isLeaf).length;
-  const activeItems = setup?.items.rows.filter((r) => r.status === 'active').length ?? 0;
+  const activeItems = setup?.activeItems.total ?? 0;
   const steps = setup ? [
     { done: variants > 0, label: 'Classification', detail: `${flat.filter((n) => n.depth === 0).length} families · ${variants} variants`, path: 'classification' },
     { done: setup.specs.length > 0, label: 'Specifications', detail: `${setup.specs.length} in the library`, path: 'specifications' },
