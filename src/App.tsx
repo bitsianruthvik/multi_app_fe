@@ -19,6 +19,7 @@ import { getAudioRoutes } from "@apps/audio_intelligence/routes";
 import { getSalesControlRoutes } from "@apps/sales_control/routes";
 import { getFabFlowRoutes } from "@apps/fab_flow/routes";
 import { getFabErpRoutes } from "@apps/fab_erp/routes";
+import { getCfErpRoutes } from "@apps/cf_erp/routes";
 import AppShell from "@core/components/AppShell";
 import { RequireAppAccess } from "@core/components/RequireAppAccess";
 import { ErrorBoundary } from "@core/components/ErrorBoundary";
@@ -198,6 +199,11 @@ function App() {
 
                 {/* fab_erp routes */}
                 {getFabErpRoutes(ProtectedRoute).map(r => (
+                  <Route key={r.path as string} path={r.path as string} element={r.element as React.ReactElement} />
+                ))}
+
+                {/* cf_erp routes */}
+                {getCfErpRoutes(ProtectedRoute).map(r => (
                   <Route key={r.path as string} path={r.path as string} element={r.element as React.ReactElement} />
                 ))}
 

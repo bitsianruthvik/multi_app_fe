@@ -1,18 +1,20 @@
 /*
- * fab_erp design tokens (DESIGN_SYSTEM.md section 5).
+ * Design tokens for fab_erp and cf_erp (DESIGN_SYSTEM.md section 5).
  *
- * Everything color and sidebar related here is scoped under the
- * [data-app="fab_erp"] attribute selector, so audio_intelligence and
- * sales_control (which read the same shared "color" and "sidebar" CSS
- * variable names from src/styles/theme.css) are completely unaffected.
- * The data-app attribute is set by AppShell.tsx only while rendering
- * fab_erp routes.
+ * Both apps follow the same UI rules, so they share this one token source.
+ * Everything here is scoped under a data-app attribute selector —
+ * :is(html[data-app='fab_erp'], html[data-app='cf_erp']) — so
+ * audio_intelligence and sales_control (which read the same shared "color"
+ * and "sidebar" CSS variable names from src/styles/theme.css) are completely
+ * unaffected. :is() takes the specificity of its argument, so each rule
+ * weighs exactly what the single-app selector did.
+ * The data-app attribute is set by AppShell.tsx only while rendering those
+ * apps' routes.
  *
- * The reduced-motion/focus-visible rules below are scoped to fab_erp too,
- * per the "fab_erp only" decision for this redesign.
+ * The reduced-motion/focus-visible rules below are scoped the same way.
  */
 
-html[data-app='fab_erp'] {
+:is(html[data-app='fab_erp'], html[data-app='cf_erp']) {
   /* ── Accent — violet ── */
   --c-primary-50: #F5F1FE;
   --c-primary-100: #EADDFD;
@@ -179,19 +181,19 @@ html[data-app='fab_erp'] {
 }
 
 /* ── Density variants (see --row-h above) ── */
-html[data-app='fab_erp'][data-density='compact'] {
+:is(html[data-app='fab_erp'], html[data-app='cf_erp'])[data-density='compact'] {
   --row-h: 32px;
   --row-px: 8px;
   --row-fs: 12.5px;
 }
-html[data-app='fab_erp'][data-density='comfy'] {
+:is(html[data-app='fab_erp'], html[data-app='cf_erp'])[data-density='comfy'] {
   --row-h: 48px;
   --row-px: 16px;
   --row-fs: 14px;
 }
 
-html[data-app='fab_erp'][data-theme='dark'],
-html[data-app='fab_erp'] [data-theme='dark'] {
+:is(html[data-app='fab_erp'], html[data-app='cf_erp'])[data-theme='dark'],
+:is(html[data-app='fab_erp'], html[data-app='cf_erp']) [data-theme='dark'] {
   --c-canvas: #0C0E17;
   --c-surface: #161826;
   --c-surface-2: #1C1F2E;
@@ -259,16 +261,16 @@ html[data-app='fab_erp'] [data-theme='dark'] {
 }
 
 /* ── Glass fallbacks — degrade to solid when unsupported or undesired ── */
-html[data-app='fab_erp'] .glass {
+:is(html[data-app='fab_erp'], html[data-app='cf_erp']) .glass {
   background: var(--glass-bg);
   backdrop-filter: var(--glass-blur);
   -webkit-backdrop-filter: var(--glass-blur);
 }
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-  html[data-app='fab_erp'] .glass { background: var(--c-surface); }
+  :is(html[data-app='fab_erp'], html[data-app='cf_erp']) .glass { background: var(--c-surface); }
 }
 @media (prefers-reduced-transparency: reduce) {
-  html[data-app='fab_erp'] .glass {
+  :is(html[data-app='fab_erp'], html[data-app='cf_erp']) .glass {
     background: var(--c-surface);
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
@@ -279,9 +281,9 @@ html[data-app='fab_erp'] .glass {
    this redesign (this would be a reasonable platform-wide default too, but
    that's a separate call from this task) ── */
 @media (prefers-reduced-motion: reduce) {
-  html[data-app='fab_erp'] *,
-  html[data-app='fab_erp'] *::before,
-  html[data-app='fab_erp'] *::after {
+  :is(html[data-app='fab_erp'], html[data-app='cf_erp']) *,
+  :is(html[data-app='fab_erp'], html[data-app='cf_erp']) *::before,
+  :is(html[data-app='fab_erp'], html[data-app='cf_erp']) *::after {
     animation-duration: 0.001ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;
@@ -290,7 +292,7 @@ html[data-app='fab_erp'] .glass {
 }
 
 /* ── Focus visibility — scoped to fab_erp, matching its violet accent ── */
-html[data-app='fab_erp'] :focus-visible {
+:is(html[data-app='fab_erp'], html[data-app='cf_erp']) :focus-visible {
   outline: 2px solid var(--c-focus);
   outline-offset: 2px;
 }

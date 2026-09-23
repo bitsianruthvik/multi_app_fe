@@ -7,6 +7,8 @@ import { createFabErpTheme } from '@apps/fab_erp/theme';
 import { ToastProvider } from '@apps/fab_erp/components/Toast';
 import { CommandPaletteProvider } from '@apps/fab_erp/components/CommandPalette';
 import { FabErpShell } from '@apps/fab_erp/components/nav/FabErpShell';
+import { CfErpThemeScope } from '@apps/cf_erp/components/shell/CfErpThemeScope';
+import { CfErpShell } from '@apps/cf_erp/components/shell/CfErpShell';
 
 /**
  * Scopes the fab_erp redesign (violet accent, Geist, solid-elevation surfaces)
@@ -55,14 +57,29 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const onAudioFlow        = !!useMatch('/:company/audio_intelligence/flow/*');
   const onSalesFlow        = !!useMatch('/:company/sales_control/flow/*');
   const onFabErp           = !!useMatch('/:company/fab_erp/*');
+  const onCfErp            = !!useMatch('/:company/cf_erp/*');
 
   const isGlassPage = onCompanyLanding || onAppSelector || onLoginPage;
 
   if (isGlassPage || onAudioFlow || onSalesFlow) return <>{children}</>;
 
   // Admin routes (AdminLayout) render their own shell — they don't get UserLayout —
-  // but fab_erp's admin pages should still pick up the violet theme/tokens.
-  if (isAdminRoute) return onFabErp ? <FabErpThemeScope>{children}</FabErpThemeScope> : <>{children}</>;
+  // but fab_erp's and cf_erp's admin pages should still pick up the violet theme/tokens.
+  if (isAdminRoute) {
+    if (onFabErp) return <FabErpThemeScope>{children}</FabErpThemeScope>;
+    if (onCfErp) return <CfErpThemeScope>{children}</CfErpThemeScope>;
+    return <>{children}</>;
+  }
+
+  // cf_erp follows the same design rules with its own shell and theme scope
+  // (apps/cf_erp/components/shell); the tokens in src/theme/tokens.css are shared.
+  if (onCfErp) {
+    return (
+      <CfErpThemeScope>
+        <CfErpShell>{children}</CfErpShell>
+      </CfErpThemeScope>
+    );
+  }
 
   // fab_erp uses its own two-row top-nav shell instead of UserLayout's sidebar
   // rail (FAB_ERP_UX_ELEVATION_PLAN.md §2.1). UserLayout and Sidebar.tsx are
