@@ -20,6 +20,7 @@ import { getSalesControlRoutes } from "@apps/sales_control/routes";
 import { getFabFlowRoutes } from "@apps/fab_flow/routes";
 import { getFabErpRoutes } from "@apps/fab_erp/routes";
 import { getCfErpRoutes } from "@apps/cf_erp/routes";
+import { getCfHrmsRoutes } from "@apps/cf_hrms/routes";
 import AppShell from "@core/components/AppShell";
 import { RequireAppAccess } from "@core/components/RequireAppAccess";
 import { ErrorBoundary } from "@core/components/ErrorBoundary";
@@ -204,6 +205,11 @@ function App() {
 
                 {/* cf_erp routes */}
                 {getCfErpRoutes(ProtectedRoute).map(r => (
+                  <Route key={r.path as string} path={r.path as string} element={r.element as React.ReactElement} />
+                ))}
+
+                {/* cf_hrms routes */}
+                {getCfHrmsRoutes(ProtectedRoute).map(r => (
                   <Route key={r.path as string} path={r.path as string} element={r.element as React.ReactElement} />
                 ))}
 

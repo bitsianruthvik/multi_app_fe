@@ -1,0 +1,254 @@
+/*
+ * Platform design tokens — the implementation of DESIGN_SYSTEM.md §5.
+ *
+ * Everything is scoped under html[data-ui='platform'], which ThemeScope sets
+ * while an app built on this kit is rendering. Apps that predate the kit
+ * (audio_intelligence, sales_control) read a different variable set from
+ * src/styles/theme.css and are untouched; fab_erp and cf_erp keep their own
+ * copy in src/theme/tokens.css (scoped under data-app) until they migrate.
+ *
+ * Nothing in @shared/ui hardcodes a colour, a shadow or a font — every
+ * component reads var(--…) from here, so a value changes in one place.
+ */
+
+html[data-ui='platform'] {
+  /* ── Accent — violet ── */
+  --c-primary-50: #F5F1FE;
+  --c-primary-100: #EADDFD;
+  --c-primary-200: #D9C2FB;
+  --c-primary-400: #A570EF;
+  --c-primary-500: #7C3AED;
+  --c-primary-600: #6D28D9;
+  --c-primary-700: #5B21B6;
+  --c-primary-900: #4C1D95;
+
+  /* ── Semantics — five families, meaning-bearing, never decorative ── */
+  --c-success-50: #E7F6EF;  --c-success-600: #0E9F6E;  --c-success-800: #075E45;
+  --c-warning-50: #FBF0DD;  --c-warning-600: #D97706;  --c-warning-800: #7A3E06;
+  --c-danger-50: #FCE9EC;   --c-danger-600: #E11D48;   --c-danger-800: #8A1230;
+  --c-info-50: #E2F1FB;     --c-info-600: #0284C7;     --c-info-800: #0A4A75;
+  --c-neutral-50: #F1F2F7;  --c-neutral-600: #5A5E78;  --c-neutral-800: #2C2E40;
+
+  /* Tint borders — for a bordered panel on a -50 fill, so it can match its
+     family instead of falling back to the neutral --c-border. */
+  --c-success-200: #B7E4CE;
+  --c-warning-200: #F2D9A8;
+  --c-danger-200: #F5C2CC;
+  --c-info-200: #B8DCF3;
+  --c-neutral-200: #D8DAE6;
+
+  /* ── Lifecycle stage accents (categorical, NOT status — §4.4 board columns).
+     Generic names: an app maps its own stages onto this ramp, cool → warm →
+     resolved, and adds its own only if five is genuinely not enough. ── */
+  --c-stage-1: #D97706;
+  --c-stage-2: #0284C7;
+  --c-stage-3: #4F46E5;
+  --c-stage-4: #7C3AED;
+  --c-stage-5: #DB5A2C;
+  --c-stage-6: #0E9F6E;
+
+  /* ── Run states — a fixed small state scale for live/operational screens,
+     kept apart from the open-ended status families. ── */
+  --c-state-running: #0E9F6E;
+  --c-state-idle: #8A8EA8;
+  --c-state-down: #E11D48;
+  --c-state-off: #4B5169;
+  --c-state-wait: #D97706;
+
+  /* ── Chart palette — categorical, hue- and lightness-spaced, deliberately
+     distinct from the status families so a series never reads as a status.
+     Series 1 is the brand violet. Use in order; do not reorder per chart. ── */
+  --c-chart-1: #6D28D9;
+  --c-chart-2: #0891B2;
+  --c-chart-3: #DB2777;
+  --c-chart-4: #CA8A04;
+  --c-chart-5: #4338CA;
+  --c-chart-6: #0F766E;
+  --c-chart-7: #C2410C;
+  --c-chart-8: #64748B;
+  --c-chart-grid: #ECEDF5;
+  --c-chart-axis: #8A8EA8;
+  --c-chart-tooltip-bg: #1A1C2E;
+  --c-chart-tooltip-text: #FFFFFF;
+
+  /* ── Neutrals (cool slate) — light ── */
+  --c-canvas: #F6F7FB;
+  --c-surface: #FFFFFF;
+  --c-surface-2: #F7F8FD;
+  --c-surface-3: #EFF1F8;
+  --c-text: #1A1C2E;
+  --c-text-2: #5A5E78;
+  --c-text-3: #8A8EA8;
+  --c-border: #E4E6F0;
+  --c-divider: #ECEDF5;
+  --c-focus: #7C3AED;
+
+  /* ── Elevation — the depth mechanism that replaced glass (§5.2) ── */
+  --e-0: none;
+  --e-1: 0 1px 2px rgba(16,24,40,.04), 0 1px 3px rgba(16,24,40,.06);
+  --e-2: 0 2px 4px rgba(16,24,40,.04), 0 6px 16px rgba(16,24,40,.08);
+  --e-3: 0 8px 24px rgba(16,24,40,.12), 0 2px 6px rgba(16,24,40,.06);
+  --e-hover: 0 2px 4px rgba(16,24,40,.05), 0 8px 20px rgba(16,24,40,.10);
+
+  /* ── Stacking order — every overlay reads from here instead of guessing ── */
+  --z-sticky: 5;
+  --z-topnav: 20;
+  --z-sheet: 1200;
+  --z-palette: 1400;
+  --z-toast: 1600;
+
+  /* ── Glass — ONLY the top bar and modal/palette panels & scrims (§5.3) ── */
+  --glass-bg: rgba(255,255,255,.72);
+  --glass-border: rgba(255,255,255,.60);
+  --glass-blur: blur(16px) saturate(150%);
+
+  /* ── Typography ── */
+  --font-ui: 'Geist', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', monospace;
+
+  /* ── Shape & motion ── */
+  --r-sm: 8px;
+  --r-md: 12px;
+  --r-lg: 16px;
+  --t-fast: 120ms;
+  --t-mid: 200ms;
+  --t-slow: 320ms;
+  --ease: cubic-bezier(.2,.8,.2,1);
+
+  /* ── Density — DataTable and EntityRow read --row-h / --row-px / --row-fs,
+     so one data-density attribute on <html> retunes every list at once.
+     Default is cosy; the table's density control writes compact | comfy. ── */
+  --row-h: 40px;
+  --row-px: 12px;
+  --row-fs: 13px;
+}
+
+html[data-ui='platform'][data-density='compact'] {
+  --row-h: 32px;
+  --row-px: 8px;
+  --row-fs: 12.5px;
+}
+html[data-ui='platform'][data-density='comfy'] {
+  --row-h: 48px;
+  --row-px: 16px;
+  --row-fs: 14px;
+}
+
+/* ── Dark theme ───────────────────────────────────────────────────────────
+   Both selectors matter: the attribute normally sits on <html>, but a scoped
+   preview (a print sheet, a wall display) can set it on a wrapper instead. */
+html[data-ui='platform'][data-theme='dark'],
+html[data-ui='platform'] [data-theme='dark'] {
+  --c-canvas: #0C0E17;
+  --c-surface: #161826;
+  --c-surface-2: #1C1F2E;
+  --c-surface-3: #232637;
+  --c-text: #EAECF8;
+  --c-text-2: #A7ABC6;
+  --c-text-3: #6E7290;
+  --c-border: rgba(255,255,255,.09);
+  --c-divider: rgba(255,255,255,.06);
+  --glass-bg: rgba(22,24,36,.72);
+  --glass-border: rgba(255,255,255,.10);
+
+  /* Same offsets, deeper alpha (§5.2). */
+  --e-1: 0 1px 2px rgba(0,0,0,.40), 0 1px 3px rgba(0,0,0,.45);
+  --e-2: 0 2px 4px rgba(0,0,0,.40), 0 6px 16px rgba(0,0,0,.50);
+  --e-3: 0 8px 24px rgba(0,0,0,.55), 0 2px 6px rgba(0,0,0,.45);
+  --e-hover: 0 2px 4px rgba(0,0,0,.42), 0 8px 20px rgba(0,0,0,.52);
+
+  /* ── Tint fills and their text ──────────────────────────────────────────
+     These MUST be re-toned. A `-50` fill is near-white by design, and every
+     tinted surface in the kit pairs it with `-800` text: StatusBadge is
+     literally `background: var(--c-{tone}-50); color: var(--c-{tone}-800)`.
+     Leaving the light values in place makes every status pill, nav count badge
+     and tinted panel a glaring white block at night — the most visible thing
+     in a dark UI, on the component used most often.
+
+     So in dark mode the pair inverts: the fill becomes a deep wash of the
+     family's hue over the canvas, and the text becomes a light tint of it.
+     Each pair below clears 8:1 against its own fill, well past the 4.5:1 the
+     accessibility checklist (§6) asks for, because these sit at small sizes. */
+  --c-success-50: #0F2A20;  --c-success-800: #6EE7B7;
+  --c-warning-50: #2C1D07;  --c-warning-800: #FCD34D;
+  --c-danger-50:  #2D1219;  --c-danger-800:  #FDA4AF;
+  --c-info-50:    #0C2436;  --c-info-800:    #7DD3FC;
+  --c-neutral-50: #23263A;  --c-neutral-800: #C7CBE0;
+
+  /* Tint borders lift off the dark fills rather than darkening into them. */
+  --c-success-200: #1C6A52;
+  --c-warning-200: #7A5312;
+  --c-danger-200: #7C2438;
+  --c-info-200: #1B4E72;
+  --c-neutral-200: #3A3E55;
+
+  /* ── Violet tints ───────────────────────────────────────────────────────
+     Same inversion. 50/100/200 are backgrounds (hover, selected row, command
+     palette highlight, active filter chip); 700/900 are text ON those
+     backgrounds, so in dark mode they have to become the light end of the
+     ramp, not stay the dark end. 400/500/600 are mid-tones that already read
+     correctly on both canvases and are deliberately left alone — 600 in
+     particular carries white text on solid buttons in both themes. */
+  --c-primary-50: #1E1633;
+  --c-primary-100: #2A1E48;
+  --c-primary-200: #3B2A63;
+  --c-primary-700: #C4B5FD;
+  --c-primary-900: #DDD6FE;
+
+  /* Chart series lightened for contrast against the dark canvas. */
+  --c-chart-1: #A78BFA;
+  --c-chart-2: #22D3EE;
+  --c-chart-3: #F472B6;
+  --c-chart-4: #FACC15;
+  --c-chart-5: #818CF8;
+  --c-chart-6: #2DD4BF;
+  --c-chart-7: #FB923C;
+  --c-chart-8: #94A3B8;
+  --c-chart-grid: rgba(255,255,255,.08);
+  --c-chart-axis: #6E7290;
+  --c-chart-tooltip-bg: #2C2E40;
+  --c-chart-tooltip-text: #EAECF8;
+
+  /* Run states brightened for a shop-floor / wall display. */
+  --c-state-running: #34D399;
+  --c-state-idle: #6E7290;
+  --c-state-down: #FB7185;
+  --c-state-off: #3A3E55;
+  --c-state-wait: #FBBF24;
+}
+
+/* ── Glass fallbacks — degrade to solid when unsupported or unwanted (§5.3) ── */
+html[data-ui='platform'] .glass {
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+}
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  html[data-ui='platform'] .glass { background: var(--c-surface); }
+}
+@media (prefers-reduced-transparency: reduce) {
+  html[data-ui='platform'] .glass {
+    background: var(--c-surface);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}
+
+/* ── Reduced motion (§5.6). Count-ups jump to their final value, skeletons
+   still show, pulses are skipped — no information lives in an animation. ── */
+@media (prefers-reduced-motion: reduce) {
+  html[data-ui='platform'] *,
+  html[data-ui='platform'] *::before,
+  html[data-ui='platform'] *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ── Focus visibility (§6.3) — never stripped without a replacement ── */
+html[data-ui='platform'] :focus-visible {
+  outline: 2px solid var(--c-focus);
+  outline-offset: 2px;
+}

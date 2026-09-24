@@ -58,6 +58,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const onSalesFlow        = !!useMatch('/:company/sales_control/flow/*');
   const onFabErp           = !!useMatch('/:company/fab_erp/*');
   const onCfErp            = !!useMatch('/:company/cf_erp/*');
+  const onCfHrms           = !!useMatch('/:company/cf_hrms/*');
 
   const isGlassPage = onCompanyLanding || onAppSelector || onLoginPage;
 
@@ -80,6 +81,13 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       </CfErpThemeScope>
     );
   }
+
+  // cf_hrms renders its own shell from @shared/ui (the platform kit), which
+  // carries its own ThemeScope. Without this branch it falls through to
+  // UserLayout and gets TWO shells: a 240px sidebar rail with nothing in it
+  // (cf_hrms/index.ts returns an empty nav by design) sitting beside its real
+  // top nav. Every app with its own shell needs an entry here.
+  if (onCfHrms) return <>{children}</>;
 
   // fab_erp uses its own two-row top-nav shell instead of UserLayout's sidebar
   // rail (FAB_ERP_UX_ELEVATION_PLAN.md §2.1). UserLayout and Sidebar.tsx are
