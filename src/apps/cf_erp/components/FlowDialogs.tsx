@@ -116,12 +116,30 @@ export function StepDialog({ open, flow, existing, onClose, onSaved }: { open: b
 
 const WHO: Record<Exclude<WaitRelation, 'ancestor'>, string> = { parent: 'its parent', children: 'its children', siblings: 'its siblings' };
 
-/** The rule in one sentence, as the backend words it. */
+/**
+ * The rule in one sentence, as the backend words it — and that "as" is a
+ * standing liability: this is a hand copy of waitText() in flowService.js, and
+ * it has already drifted once. When repeated operations landed, the backend
+ * gained the pass clause and this did not, so a rule read one way while you
+ * were composing it and another once it was saved.
+ *
+ * It exists because the preview is shown BEFORE the rule is saved, so there is
+ * no server-rendered text to show yet. The real fix is a preview endpoint —
+ * the app already has that convention (/records/preview, /codegen/preview,
+ * /operations/:id/timing) — after which this function should be deleted rather
+ * than maintained.
+ */
 function sentence(relation: WaitRelation, def: MasterRecord | null, op: Operation | null, status: 'started' | 'done') {
   const madeFrom = def?.code ?? def?.name;
   const who = relation === 'ancestor' ? `the nearest ${madeFrom ?? '…'} above it` : `${WHO[relation]}${madeFrom && relation !== 'parent' ? ` made from ${madeFrom}` : ''}`;
   const plural = relation === 'children' || relation === 'siblings';
-  if (op) return `Waits until ${who} ${plural ? 'have' : 'has'} ${status === 'started' ? 'started' : 'finished'} ${op.name} (${op.code}).`;
+  if (op) {
+    // Kept word for word in step with waitText() in flowService.js.
+    const pass = status === 'started'
+      ? ' Where a flow does it more than once, that means the first pass.'
+      : ' Where a flow does it more than once, that means the last pass.';
+    return `Waits until ${who} ${plural ? 'have' : 'has'} ${status === 'started' ? 'started' : 'finished'} ${op.name} (${op.code}).${pass}`;
+  }
   return `Waits until ${who} ${plural ? 'are' : 'is'} ${status === 'started' ? 'started' : 'complete'}.`;
 }
 
