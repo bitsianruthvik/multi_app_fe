@@ -79,8 +79,13 @@ export function StepDialog({ open, flow, existing, onClose, onSaved }: { open: b
     setNotes(existing?.notes ?? '');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, existing]);
-  const taken = new Set(flow.steps.map((st) => st.operation.id));
-  const options = (ops.data ?? []).filter((o) => !taken.has(o.id) || o.id === existing?.operation.id);
+  // Every operation stays on offer: a girder is welded, crane-turned and welded
+  // again, which is two passes of ONE operation. What may not repeat is an
+  // operation at the same SEQUENCE, because steps sharing a number run
+  // alongside each other and "the first pass" would stop meaning anything —
+  // that is uq_cofs_operation_seq, and the server says so if you try.
+  const passes = (id: number | null) => (id == null ? 0 : flow.steps.filter((st) => st.operation.id === id).length);
+  const options = ops.data ?? [];
   const next = (flow.steps.reduce((m, st) => Math.max(m, st.sequence), 0) || 0) + 10;
   const body = { sequence: sequence === '' ? null : Number(sequence), stepName: stepName || null, notes: notes || null };
   const blocked = !existing && !operationId;
@@ -94,7 +99,10 @@ export function StepDialog({ open, flow, existing, onClose, onSaved }: { open: b
         <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', sm: 'minmax(0, 1fr) 140px' }, gap: 2, pt: 0.5 }}>
           <Autocomplete size="small" options={options} value={options.find((o) => o.id === operationId) ?? null} disabled={!!existing}
             getOptionLabel={(o) => `${o.code} · ${o.name}`} isOptionEqualToValue={(a, b) => a.id === b.id} onChange={(_, o) => setOperationId(o?.id ?? null)}
-            renderInput={(p) => <TextField {...p} label="Operation" autoFocus={!existing} helperText={existing ? 'A step keeps its operation' : 'Each operation appears once per flow'} />} />
+            renderInput={(p) => <TextField {...p} label="Operation" autoFocus={!existing} helperText={existing ? 'A step keeps its operation'
+                : passes(operationId) > 0
+                  ? `Already in this flow ${passes(operationId)}x — this adds another pass`
+                  : 'An operation may appear more than once — give each pass its own sequence'} />} />
           <TextField label="Sequence" type="number" value={sequence} onChange={(e) => setSequence(e.target.value)} placeholder={String(next)}
             helperText={existing ? 'Same number as another step = alongside it' : `Empty: ${next}`} />
           <TextField label="Step name (optional)" value={stepName} onChange={(e) => setStepName(e.target.value)} sx={{ gridColumn: '1 / -1' }} helperText="e.g. Drill splice holes" />
