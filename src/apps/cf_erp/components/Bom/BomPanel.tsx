@@ -1,10 +1,11 @@
-import { useMemo, useState, type ReactNode } from 'react';
-import { Alert, Box, Button, Typography } from '@mui/material';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Alert, Box, Button, Tooltip, Typography } from '@mui/material';
 import { Link } from 'react-router-dom';
 import AddRounded from '@mui/icons-material/AddRounded';
 import ArchiveRounded from '@mui/icons-material/ArchiveRounded';
 import CheckCircleRounded from '@mui/icons-material/CheckCircleRounded';
 import HistoryRounded from '@mui/icons-material/HistoryRounded';
+import PlaylistAddCheckRounded from '@mui/icons-material/PlaylistAddCheckRounded';
 import UnfoldLessRounded from '@mui/icons-material/UnfoldLessRounded';
 import UnfoldMoreRounded from '@mui/icons-material/UnfoldMoreRounded';
 import type { BomType, StructureNode } from '../../api/types';
@@ -13,13 +14,18 @@ import { useIsPermitted } from '../../hooks/useIsPermitted';
 import { appPath } from '../../navMeta';
 import { recordPath } from '../../lib/paths';
 import { ORDER_STATUS_LABEL, bomPermission } from '../../lib/orders';
-import { EmptyState, ErrorNotice, Fact, Mono, SectionCard, SkeletonRows, StatusBadge, WarnBadge } from '../ui';
+import { DangerBadge, EmptyState, ErrorNotice, Fact, Mono, SectionCard, SkeletonRows, StatusBadge, WarnBadge } from '../ui';
 import { AddChildDialog, EditLineDialog } from '../BomDialogs';
 import { ChooseItemDialog } from '../ChooseItemDialog';
 import { ConfirmDialog } from '../ConfirmDialog';
 import { useToast } from '../toastContext';
-import { allowedChildren, bomTypeOfKind, flattenBom, openableKeys, type BomRow } from './bomModel';
+import {
+  allowedChildren, ancestorKeys, bomTypeOfKind, flattenBom, openableKeys, walkNodes,
+  VALUES_PERMISSION, type BomRow,
+} from './bomModel';
 import { BomTree, type BomAction } from './BomTree';
+import { BomValuesEditor } from './BomValuesEditor';
+import { useSpecValues } from './useSpecValues';
 import { LOCKED_ORDER, useBom, type BomSource } from './useBom';
 
 const TYPE_TEXT: Record<BomType, { title: string; body: string; empty: string }> = {
@@ -71,6 +77,30 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
   const expanded = useMemo(() => open ?? new Set(state ? openableKeys(state.root) : []), [open, state]);
   const rows = useMemo(() => (state ? flattenBom(state.root, expanded) : []), [state, expanded]);
 
+  // Every node of the structure, open or shut — what the values sweep reads and
+  // what "the next gap" walks, so a jump can reach into a folded branch.
+  const flat = useMemo(() => (state ? walkNodes(state.root) : []), [state]);
+  const ids = useMemo(() => flat.map((f) => f.node.id), [flat]);
+  const values = useSpecValues(ids, !!state);
+  /**
+   * The node whose values are open, whether the cursor belongs in them, and a
+   * counter that only a deliberate jump moves — a jump that lands back on the
+   * node it came from (the last gap in the tree) has to put the cursor in the
+   * field that is still empty, and that means opening the panel again.
+   */
+  const [picked, setPicked] = useState<{ key: string; autoFocus: boolean; jump: number } | null>(null);
+  // A value save moves roll-ups and the order's own counts, but reloading the
+  // whole structure after each of 120 saves would make the job unusable — so
+  // the screen around catches up once, when the panel is closed.
+  const saved = useRef(false);
+
+  const pickedNode = useMemo(() => flat.find((f) => f.node.key === picked?.key)?.node ?? null, [flat, picked]);
+  const staleId = pickedNode && values.get(pickedNode.id)?.stale ? pickedNode.id : null;
+  const { refresh: refreshValues } = values;
+  // Its own typed values are still true, but what it rolls up may have moved
+  // under it since the sweep read it — so it is read again as it is opened.
+  useEffect(() => { if (staleId != null) void refreshValues(staleId); }, [staleId, refreshValues]);
+
   const usedCard = (
     <SectionCard title="Where it is used" subtitle="BOMs that hold it — directly, or as the item chosen for a selection.">
       <ErrorNotice error={bom.whereUsedError} onRetry={bom.reloadWhereUsed} />
@@ -110,14 +140,25 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
   const custom = state.bomType === 'custom';
 
   /**
-   * Whether the lines of one record's BOM may be changed from this screen: the
-   * BOM this screen is about, and an order's own temporary items. A line inside
-   * some other record's catalog BOM is changed on that record — the backend
-   * wants the catalog grant there, so offering it here would only fail.
+   * What this screen is about at all: the BOM it was opened for, and an order's
+   * own temporary items. Anything else in the tree belongs to another record and
+   * is changed there — the backend wants that record's grant, so offering it
+   * here would only fail.
    */
-  const mayEdit = (holder: StructureNode | null, bomType: BomType | null) => !state.frozen
-    && !!holder && (holder.kind === 'temporary' || (holder.depth === 0 && ownsBom))
+  const mine = (node: StructureNode | null) => !state.frozen
+    && !!node && (node.kind === 'temporary' || (node.depth === 0 && ownsBom));
+  /**
+   * Whether the lines of one record's BOM may be changed from this screen.
+   */
+  const mayEdit = (holder: StructureNode | null, bomType: BomType | null) => mine(holder)
     && bomType != null && isPermitted(bomPermission(bomType === 'custom'));
+  /**
+   * Whether a node's specification values may be typed here. The same reach as
+   * the line actions — frozen, released and closed-order cases included, because
+   * `mine` carries them — but a different grant: `PUT /records/:id/values` is
+   * `PERM.catalog` whatever the node belongs to (see `VALUES_PERMISSION`).
+   */
+  const mayEditValues = (node: StructureNode) => mine(node) && isPermitted(VALUES_PERMISSION);
   /**
    * What a node may be given. The server answered for the root of a record's
    * own BOM; deeper nodes of an order's structure were never asked about, so
@@ -162,6 +203,66 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
           ? `You can see this ${type.title}, but your role cannot change ${custom ? 'an order’s structure' : 'the catalog'}.`
           : null;
 
+  // ── the values on the tree ────────────────────────────────────────────────
+  // A node whose required values are still empty is what stops it being
+  // activated, and a draft temporary item is what stops the line being
+  // released — so the count is a column of its own rather than something you
+  // find by opening each node.
+  const order = flat.map((f) => f.node);
+  const gapsAt = (node: StructureNode) => (mayEditValues(node) ? values.get(node.id)?.missing.length ?? 0 : 0);
+  const gapNodes = order.filter((n) => gapsAt(n) > 0);
+  const gapIds = new Set(gapNodes.map((n) => n.id));
+  const gapCount = [...gapIds].reduce((n, id) => n + (values.get(id)?.missing.length ?? 0), 0);
+
+  /** The next node still short of a value, after `afterKey` — wrapping, so the run finishes what it started. */
+  const nextGap = (afterKey: string | null): StructureNode | null => {
+    const start = afterKey ? order.findIndex((n) => n.key === afterKey) + 1 : 0;
+    for (let i = start; i < order.length; i += 1) if (gapsAt(order[i]) > 0) return order[i];
+    for (let i = 0; i < start; i += 1) if (gapsAt(order[i]) > 0) return order[i];
+    return null;
+  };
+  const closeValues = () => {
+    setPicked(null);
+    if (saved.current) { saved.current = false; onChanged?.(); }
+  };
+  const goTo = (node: StructureNode | null) => {
+    if (!node) { closeValues(); return; }
+    // It may be inside a folded branch; nothing is worse than a jump to a row that is not there.
+    setOpen(new Set([...expanded, ...ancestorKeys(flat, node.key)]));
+    setPicked((p) => ({ key: node.key, autoFocus: true, jump: (p?.jump ?? 0) + 1 }));
+  };
+
+  const valueCell = (row: BomRow) => {
+    const entry = values.get(row.node.id);
+    if (!entry) return <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>{values.scanning ? '…' : ''}</Typography>;
+    if (entry.error) return <Tooltip title={entry.error.message}><Typography sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>unread</Typography></Tooltip>;
+    if (entry.missing.length > 0) {
+      return <DangerBadge label={`${entry.missing.length} missing`} title={`Still empty: ${entry.missing.join(', ')}`} />;
+    }
+    if (entry.fillable > 0) return <Typography sx={{ fontSize: 12, color: 'var(--c-success-800)' }}>All set</Typography>;
+    return <Tooltip title="Nothing here is typed in — every value it needs is fixed, worked out, or captured later."><Typography sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>—</Typography></Tooltip>;
+  };
+
+  const whyNotValues = (node: StructureNode): string | null => {
+    if (mayEditValues(node)) return null;
+    if (!mine(node)) {
+      return state.frozen
+        ? 'These values are kept as they were — see the note above the tree.'
+        : `${node.code ?? node.name} is not this order’s own work, so its values belong to the record itself.`;
+    }
+    return 'You can see these values, but your role cannot change them. Ask an administrator for the catalog permission.';
+  };
+
+  const editorFor = (row: BomRow) => (
+    <BomValuesEditor key={`${row.node.key}:${picked?.jump ?? 0}`} node={row.node} entry={values.get(row.node.id)}
+      canEdit={mayEditValues(row.node)} whyNot={whyNotValues(row.node)}
+      autoFocus={picked?.autoFocus ?? false} hasNext={nextGap(row.node.key) != null}
+      onSaved={(fresh) => { values.applySaved(row.node.id, fresh); saved.current = true; toast.success('Values saved.'); }}
+      onNext={() => goTo(nextGap(row.node.key))}
+      onReread={() => void values.refresh(row.node.id)}
+      onClose={closeValues} />
+  );
+
   const addingBomType = adding ? bomTypeOfKind(adding.kind) : null;
   const addingKinds = adding ? allowedUnder(adding) : [];
   const removingNode = removing?.node;
@@ -180,6 +281,12 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
           <>
             {deep && <Button size="small" startIcon={<UnfoldMoreRounded />} onClick={() => setOpen(new Set(openableKeys(root)))}>Expand all</Button>}
             {deep && <Button size="small" startIcon={<UnfoldLessRounded />} onClick={() => setOpen(new Set([root.key]))}>Collapse all</Button>}
+            {values.tooMany && <Button size="small" startIcon={<PlaylistAddCheckRounded />} onClick={values.start}>Check values</Button>}
+            {gapNodes.length > 0 && (
+              <Button size="small" variant="contained" startIcon={<PlaylistAddCheckRounded />} onClick={() => goTo(nextGap(picked?.key ?? null))}>
+                Fill {gapCount} value{gapCount > 1 ? 's' : ''}
+              </Button>
+            )}
             {canAddToRoot && addButton()}
           </>
         )}>
@@ -191,6 +298,12 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
           {state.stats.temporary > 0 && <Fact label="Temporary items"><Mono>{state.stats.temporary}</Mono></Fact>}
           {state.stats.drafts > 0 && <Fact label="Still draft"><WarnBadge label={`${state.stats.drafts} draft`} title="Release will need every one of them active." /></Fact>}
           {state.stats.unresolved > 0 && <Fact label="To choose"><WarnBadge label={`${state.stats.unresolved} selection${state.stats.unresolved > 1 ? 's' : ''}`} title="Choose a catalog item for each of them before release." /></Fact>}
+          {gapNodes.length > 0 && (
+            <Fact label="Values missing">
+              <DangerBadge label={`${gapCount} in ${gapIds.size} item${gapIds.size > 1 ? 's' : ''}`}
+                title="Required values that are still empty. An item cannot be activated until they are filled, and a draft item stops release." />
+            </Fact>
+          )}
           {/* Worth naming only when the person did not arrive from the order itself. */}
           {state.order && !state.line && <Fact label="Order"><Mono><Link to={appPath(company, `orders/${state.order.id}`)}>{state.order.code}</Link></Mono></Fact>}
           <Box sx={{ flex: 1 }} />
@@ -206,8 +319,26 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
           )}
         </Box>
         {state.truncated && <Box sx={{ mb: 1 }}><WarnBadge label="Deeper levels not shown" title="The structure is deeper than this view goes." /></Box>}
+        <Box sx={{ display: 'flex', gap: 2, alignItems: 'baseline', mb: 1, minHeight: 18 }}>
+          {/* A count that moves every few frames is not worth announcing; the
+              tree carries aria-busy instead (§6.8). */}
+          <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>
+            {values.scanning ? `Checking values… ${values.done} of ${values.total}`
+              : values.tooMany ? `${values.total} nodes — values are read on request.`
+                : ''}
+          </Typography>
+          <Box sx={{ flex: 1 }} />
+          <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>
+            Select a row to fill its values · ↑ ↓ move · Enter opens and saves
+          </Typography>
+        </Box>
         <BomTree rows={rows} label={`What ${label} is made of`} actionsFor={actionsFor} onAction={onAction}
           onToggle={(key) => { const next = new Set(expanded); if (next.has(key)) next.delete(key); else next.add(key); setOpen(next); }}
+          busy={values.scanning} selectedKey={picked?.key ?? null}
+          onSelect={(row, opts) => (row
+            ? setPicked((p) => ({ key: row.node.key, autoFocus: !opts?.keepFocus, jump: p?.jump ?? 0 }))
+            : closeValues())}
+          valueCell={valueCell} editorFor={editorFor}
           footer={root.children.length === 0 && (
             <EmptyState title="Nothing below it yet" body={canAddToRoot ? type.empty : undefined} action={canAddToRoot && addButton('contained')} />
           )} />

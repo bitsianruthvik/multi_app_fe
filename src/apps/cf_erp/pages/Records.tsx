@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Box, Button, Tooltip, Typography } from '@mui/material';
+import { Box, Button, IconButton, Tooltip, Typography } from '@mui/material';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import AddRounded from '@mui/icons-material/AddRounded';
+import ContentCopyRounded from '@mui/icons-material/ContentCopyRounded';
 import Inventory2Rounded from '@mui/icons-material/Inventory2Rounded';
 import AccountTreeRounded from '@mui/icons-material/AccountTreeRounded';
 import { cfApi, qs } from '../api/client';
@@ -15,7 +16,7 @@ import { appPath } from '../navMeta';
 import { EmptyState, ErrorNotice, KindChip, Mono, PageHeader, StatStrip, StatusBadge } from '../components/ui';
 import { DataTable, type DataColumn } from '../components/DataTable';
 import { FacetChip, FilterBar } from '../components/FilterBar';
-import { ClassificationPicker } from '../components/ClassificationPicker';
+import { ClassificationLevelFilter } from '../components/ClassificationLevelFilter';
 import { CreateRecordDialog } from '../components/CreateRecordDialog';
 import { useToast } from '../components/toastContext';
 
@@ -127,6 +128,8 @@ export default function Records({ recordKind }: { recordKind: 'item' | 'definiti
   const [search, setSearch] = useState('');
   const [debounced, setDebounced] = useState('');
   const [creating, setCreating] = useState(false);
+  /** The record "make a similar one" started from — the create form, pre-filled. */
+  const [copying, setCopying] = useState<MasterRecord | null>(null);
   const classificationId = params.get('classificationId') ? Number(params.get('classificationId')) : null;
   useNewParam(() => { if (canManage) setCreating(true); });
   useEffect(() => { const t = window.setTimeout(() => setDebounced(search), 250); return () => window.clearTimeout(t); }, [search]);
@@ -167,9 +170,10 @@ export default function Records({ recordKind }: { recordKind: 'item' | 'definiti
         {copy.kinds.map(([v, label]) => <FacetChip key={v || 'all'} label={label} active={kind === v} count={all.filter((r) => !v || r.kind === v).length} onClick={() => setKind(v)} />)}
         <Box sx={{ width: '1px', height: 20, background: 'var(--c-border)', mx: 0.5 }} aria-hidden />
         {STATUS_CHIPS.map(([v, label]) => <FacetChip key={v || 'any'} label={label} active={status === v} count={byKind.filter((r) => !v || r.status === v).length} onClick={() => setStatus(v)} />)}
-        <Box sx={{ flex: '1 1 260px', maxWidth: 380, minWidth: 0 }}>
-          <ClassificationPicker tree={tree.data} value={classificationId} onChange={setClassification} leafOnly={false} label="Within classification" />
-        </Box>
+        {/* One filter per level, each narrowing the others. They stand for a
+            single id — the deepest one chosen — which is what the list asks the
+            server for, and the server filters on that node's whole subtree. */}
+        <ClassificationLevelFilter tree={tree.data} value={classificationId} onChange={setClassification} />
       </FilterBar>
       <ErrorNotice error={list.error} onRetry={list.reload} />
       {hiddenByLimit > 0 && (
@@ -179,10 +183,20 @@ export default function Records({ recordKind }: { recordKind: 'item' | 'definiti
       )}
       <DataTable key={recordKind} rows={rows} columns={columns} getRowId={(r) => r.id} onRowClick={open} loading={list.loading && !list.data}
         storageKey={copy.path} exportName={copy.path} defaultSortKey="code"
+        // A temporary item is never offered: it is born from a sales order line
+        // and the backend refuses to create one from here (ORDER_ONLY).
+        rowActions={canManage ? (r) => (r.kind === 'temporary' ? null : (
+          <Tooltip title="Make a similar one">
+            <IconButton size="small" aria-label={`Make one similar to ${r.code ?? r.name}`} onClick={() => setCopying(r)}>
+              <ContentCopyRounded fontSize="small" />
+            </IconButton>
+          </Tooltip>
+        )) : undefined}
         empty={<EmptyState icon={copy.icon} title={filtered ? 'Nothing matches these filters' : 'Nothing here yet'}
           hint={filtered ? 'Clear the filters, or look in another classification.' : `Create the first ${recordKind}.`}
           action={filtered ? <Button onClick={clear}>Clear filters</Button> : canManage && <Button variant="contained" onClick={() => setCreating(true)}>{copy.create}</Button>} />} />
-      <CreateRecordDialog open={creating} onClose={() => setCreating(false)} recordKind={recordKind} tree={tree.data} initialClassificationId={classificationId}
+      <CreateRecordDialog open={creating || !!copying} onClose={() => { setCreating(false); setCopying(null); }} recordKind={recordKind} tree={tree.data}
+        copyFrom={copying} initialClassificationId={copying ? null : classificationId}
         onTreeChanged={tree.reload}
         onCreated={(r) => {
           invalidateNavCounts();

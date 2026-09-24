@@ -29,6 +29,9 @@
   --c-success-50: #E7F6EF;  --c-success-600: #0E9F6E;  --c-success-800: #075E45;
   --c-warning-50: #FBF0DD;  --c-warning-600: #D97706;  --c-warning-800: #7A3E06;
   --c-danger-50: #FCE9EC;   --c-danger-600: #E11D48;   --c-danger-800: #8A1230;
+  /* -700 was referenced by three cf_erp files before it existed, so those rules
+     were silently dropped and the text fell back to whatever it inherited. */
+  --c-danger-700: #BE123C;
   --c-info-50: #E2F1FB;     --c-info-600: #0284C7;     --c-info-800: #0A4A75;
   --c-neutral-50: #F1F2F7;  --c-neutral-600: #5A5E78;  --c-neutral-800: #2C2E40;
 

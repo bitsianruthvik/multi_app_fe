@@ -1,4 +1,5 @@
-import type { BomType, BomView, Explosion, Kind, StructureNode } from '../../api/types';
+import type { BomType, BomView, Explosion, Kind, Resolution, ResolvedSpec, StructureNode } from '../../api/types';
+import { toInputString } from '../../lib/tree';
 
 /**
  * One shape for every BOM on screen. A record's BOM tab reads its own lines and
@@ -139,4 +140,90 @@ export function bomAsTree(b: BomView): Explosion {
     },
     truncated: false,
   };
+}
+
+// ── Specification values on the tree ──────────────────────────────────────────
+
+/**
+ * The grant `PUT /records/:id/values` asks for: `PERM.catalog`
+ * (`routes/records.js`). Setting a value is a catalog-side write even on an
+ * order's own temporary item, so the tree has to ask *this* question as well as
+ * the BOM-line one — asking only `bomPermission('custom')` would offer inputs
+ * whose save comes back 403.
+ */
+export const VALUES_PERMISSION = 'cf_erp_catalog_manage';
+
+/** What `PUT /records/:id/values` answers with — the fresh resolution comes back with it. */
+export interface SaveValuesResult {
+  changes: unknown[];
+  materialized: unknown;
+  specs: Resolution;
+}
+
+/** One entry of `PUT /records/:id/values`. `null` clears the value. */
+export interface ValueWrite { specCode: string; value: string | null }
+
+/**
+ * Can a person type this value here? The same rule as `SpecsTable.editableHere`,
+ * which is itself the frontend's copy of what `valueService.setValues` refuses:
+ * on an item, only `entered` and `defaulted` may be typed — `fixed` belongs to
+ * the level that fixed it, and `calculated` / `rollup` / `inherited` are worked
+ * out. A definition is in `setup` mode, where a Fixed value *is* set by hand
+ * (that is what makes it fixed for the items below), so only the computed three
+ * are closed there. Anything captured on a batch or a unit is not typed here at
+ * all.
+ */
+export function valueEditable(s: ResolvedSpec, mode: Resolution['mode']): boolean {
+  if (!s.applicable || s.captureAt !== 'item') return false;
+  if (mode === 'item') return s.rule.valueRule === 'entered' || s.rule.valueRule === 'defaulted';
+  return !['calculated', 'rollup', 'inherited'].includes(s.rule.valueRule);
+}
+
+/** The specs a person may fill in on this record, in the order the rules give. */
+export function specsToFill(r: Resolution): ResolvedSpec[] {
+  return r.specs.filter((s) => valueEditable(s, r.mode));
+}
+
+/** The applicable specs that are shown but cannot be typed — the answer is already decided. */
+export function specsToShow(r: Resolution): ResolvedSpec[] {
+  return r.specs.filter((s) => s.applicable && !valueEditable(s, r.mode));
+}
+
+/**
+ * The value this record itself holds, as input text — `SpecsTable.ownInput`.
+ * A default shown from above is not the record's own, so its input starts empty
+ * (the default is offered as the field's label) and leaving it empty keeps
+ * following that default.
+ */
+export function ownInput(s: ResolvedSpec, mode: Resolution['mode']): string {
+  const own = s.value && (mode === 'setup' ? s.value.from === 'here' : s.value.source === 'entered' || s.rule.valueRule === 'entered');
+  return own ? toInputString(s.value?.raw) : '';
+}
+
+/** Every editable spec of a record with the text its input starts at. */
+export function baseInputs(r: Resolution): Record<string, string> {
+  return Object.fromEntries(specsToFill(r).map((s) => [s.spec.code, ownInput(s, r.mode)]));
+}
+
+/** A node with the key of the node above it, so a path back to the root can be walked. */
+export interface FlatNode { node: StructureNode; parentKey: string | null }
+
+/** Every node of the tree in tree order, open or not — what a jump-to-the-next-gap walks. */
+export function walkNodes(root: StructureNode): FlatNode[] {
+  const out: FlatNode[] = [];
+  const walk = (n: StructureNode, parentKey: string | null) => {
+    out.push({ node: n, parentKey });
+    n.children.forEach((c) => walk(c, n.key));
+  };
+  walk(root, null);
+  return out;
+}
+
+/** The keys between a node and the root — what has to be open for it to be on screen. */
+export function ancestorKeys(flat: FlatNode[], key: string): string[] {
+  const byKey = new Map(flat.map((f) => [f.node.key, f]));
+  const keys: string[] = [];
+  let cur = byKey.get(key)?.parentKey ?? null;
+  while (cur) { keys.push(cur); cur = byKey.get(cur)?.parentKey ?? null; }
+  return keys;
 }

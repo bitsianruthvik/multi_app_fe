@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Box, Button, CircularProgress, IconButton, MenuItem, TextField, Tooltip, Typography } from '@mui/material';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import AddRounded from '@mui/icons-material/AddRounded';
+import ContentCopyRounded from '@mui/icons-material/ContentCopyRounded';
 import EditRounded from '@mui/icons-material/EditRounded';
 import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
 import CheckCircleRounded from '@mui/icons-material/CheckCircleRounded';
@@ -31,6 +32,7 @@ import { ConfirmDialog } from '../components/ConfirmDialog';
 import { SelectionPanel } from '../components/SelectionPanel';
 import { BomPanel } from '../components/Bom/BomPanel';
 import { ClassificationPicker } from '../components/ClassificationPicker';
+import { CreateRecordDialog } from '../components/CreateRecordDialog';
 import { FlowPicker } from '../components/FlowPicker';
 import { FlowTag } from '../components/FlowTag';
 import { ItemStockPanel } from '../components/ItemStockPanel';
@@ -156,6 +158,8 @@ export default function RecordDetail({ recordKind }: { recordKind: 'item' | 'def
   const [actionError, setActionError] = useState<CfApiError | null>(null);
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [revising, setRevising] = useState(false);
+  /** "Make a similar one" — the create form, pre-filled from this record. */
+  const [copying, setCopying] = useState(false);
   const [confirm, setConfirm] = useState<'delete' | 'obsolete' | null>(null);
   const [ruleDialog, setRuleDialog] = useState<{ open: boolean; rule: Rule | null }>({ open: false, rule: null });
   const [deleteRule, setDeleteRule] = useState<Rule | null>(null);
@@ -195,6 +199,9 @@ export default function RecordDetail({ recordKind }: { recordKind: 'item' | 'def
   const listPath = recordKind === 'item' ? 'items' : 'definitions';
   const ruleCount = rules.data?.length ?? 0;
   const rulesEditable = canSetup && !frozen;
+  // Copying makes a new record, so a frozen one may still be copied — but a
+  // temporary item may not: it is born from a sales order line (ORDER_ONLY).
+  const canCopy = canManage && r.kind !== 'temporary';
 
   const header = (
     <DetailHeader code={r.code ?? undefined} title={r.name} subtitle={r.description ?? undefined}
@@ -208,14 +215,23 @@ export default function RecordDetail({ recordKind }: { recordKind: 'item' | 'def
             title={frozen.reason === 'released' ? 'Released to production: its structure and values are frozen.' : undefined} />}
         </>
       )}
-      actions={editable && (
+      actions={(editable || canCopy) && (
         <>
-          {r.status === 'draft' && <Button variant="contained" startIcon={busyAction === 'active' ? <CircularProgress size={14} color="inherit" /> : <CheckCircleRounded />} disabled={!!busyAction} onClick={() => setStatus('active')}>Activate</Button>}
-          {r.status === 'obsolete' && <Button variant="contained" startIcon={<CheckCircleRounded />} disabled={!!busyAction} onClick={() => setStatus('active')}>Reactivate</Button>}
-          {r.status === 'active' && <Button variant="outlined" startIcon={<ArchiveRounded />} onClick={() => setConfirm('obsolete')}>Mark obsolete</Button>}
-          {r.status !== 'obsolete' && <Button variant="outlined" startIcon={<HistoryRounded />} onClick={() => setRevising(true)}>New revision</Button>}
-          <Button startIcon={<EditRounded />} onClick={() => setTab('details')} sx={{ color: 'var(--c-text-2)' }}>Edit</Button>
-          <Tooltip title="Delete — refused while anything uses it"><IconButton aria-label="Delete" onClick={() => setConfirm('delete')}><DeleteOutlineRounded /></IconButton></Tooltip>
+          {editable && (
+            <>
+              {r.status === 'draft' && <Button variant="contained" startIcon={busyAction === 'active' ? <CircularProgress size={14} color="inherit" /> : <CheckCircleRounded />} disabled={!!busyAction} onClick={() => setStatus('active')}>Activate</Button>}
+              {r.status === 'obsolete' && <Button variant="contained" startIcon={<CheckCircleRounded />} disabled={!!busyAction} onClick={() => setStatus('active')}>Reactivate</Button>}
+              {r.status === 'active' && <Button variant="outlined" startIcon={<ArchiveRounded />} onClick={() => setConfirm('obsolete')}>Mark obsolete</Button>}
+              {r.status !== 'obsolete' && <Button variant="outlined" startIcon={<HistoryRounded />} onClick={() => setRevising(true)}>New revision</Button>}
+            </>
+          )}
+          {canCopy && <Button variant="outlined" startIcon={<ContentCopyRounded />} onClick={() => setCopying(true)}>Make a similar one</Button>}
+          {editable && (
+            <>
+              <Button startIcon={<EditRounded />} onClick={() => setTab('details')} sx={{ color: 'var(--c-text-2)' }}>Edit</Button>
+              <Tooltip title="Delete — refused while anything uses it"><IconButton aria-label="Delete" onClick={() => setConfirm('delete')}><DeleteOutlineRounded /></IconButton></Tooltip>
+            </>
+          )}
         </>
       )}
       facts={(
@@ -318,6 +334,14 @@ export default function RecordDetail({ recordKind }: { recordKind: 'item' | 'def
         onSaved={(saved) => { rec.setData(saved); toast.success('Details saved.'); specs.reload(); }} />}
 
       <RevisionDialog open={revising} record={r} onClose={() => setRevising(false)} onDone={(saved) => { rec.setData(saved); toast.success(`Now at revision ${saved.revision}.`); }} />
+      <CreateRecordDialog open={copying} copyFrom={r} recordKind={recordKind} tree={tree.data} onTreeChanged={tree.reload}
+        onClose={() => setCopying(false)}
+        onCreated={(made) => {
+          invalidateNavCounts();
+          toast.success(`${made.code ?? made.name} created${made.status === 'active' ? ' and activated' : ' as a draft'}.`);
+          (made.warnings ?? []).forEach((w) => toast.error(w));
+          navigate(to(`${listPath}/${made.id}`));
+        }} />
       <ConfirmDialog open={confirm === 'obsolete'} title="Mark this obsolete?" entityName={`${r.code ?? '—'} · ${r.name}`} confirmLabel="Mark obsolete"
         body="It stays on existing documents but is no longer offered for new use. It can be reactivated later."
         onClose={() => setConfirm(null)} onConfirm={() => setStatus('obsolete', true)} />
