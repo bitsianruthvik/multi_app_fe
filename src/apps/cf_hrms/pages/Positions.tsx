@@ -104,8 +104,11 @@ export default function Positions() {
     { key: 'shift', header: 'Shift', width: 110, defaultHidden: true, render: (p) => p.shiftCode ?? '—', sortValue: (p) => p.shiftCode ?? '' },
     {
       key: 'sanctioned', header: 'Sanctioned', numeric: true, align: 'right', width: 110,
-      render: (p) => <Mono sx={{ fontSize: 13 }}>{p.sanctionedHeadcount}</Mono>,
-      sortValue: (p) => p.sanctionedHeadcount,
+      // The EFFECTIVE seats for the date, not the raw column: a day+night position
+      // sanctions one seat and needs two people. Showing the raw 1 beside a
+      // vacancy of 2 is the contradiction this screen already had once.
+      render: (p) => <Mono sx={{ fontSize: 13 }}>{p.seats}</Mono>,
+      sortValue: (p) => p.seats,
     },
     {
       key: 'filled', header: 'Filled', numeric: true, align: 'right', width: 90,
@@ -116,7 +119,7 @@ export default function Positions() {
       key: 'vacant', header: 'Vacant', numeric: true, align: 'right', width: 90,
       render: (p) => (
         <Mono sx={{ fontSize: 13, color: p.overFilled ? 'var(--c-warning-700)' : 'var(--c-text-1)' }}>
-          {p.overFilled ? `+${p.filledCount - p.sanctionedHeadcount} over` : p.vacancyCount}
+          {p.overFilled ? `+${p.filledCount - p.seats} over` : p.vacancyCount}
         </Mono>
       ),
       sortValue: (p) => p.vacancyCount,

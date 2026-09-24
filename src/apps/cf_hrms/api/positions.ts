@@ -23,6 +23,8 @@ export interface PositionRow {
   locationId: number | null;
   locationName: string | null;
   sanctionedHeadcount: number;
+  /** Effective seats on the date: sanctioned, or the day+night total. See backend services/seatCount.js. */
+  seats: number;
   filledCount: number;
   /** sanctioned − filled. A FACT, not a failure — never coloured as an error. */
   vacancyCount: number;

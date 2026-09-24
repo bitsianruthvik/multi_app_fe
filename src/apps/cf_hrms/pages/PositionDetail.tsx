@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { Button, IconButton, Stack, Tooltip, Typography } from '@mui/material';
+import { Box, Button, IconButton, Stack, Tooltip, Typography } from '@mui/material';
 import AddRounded from '@mui/icons-material/AddRounded';
 import EditRounded from '@mui/icons-material/EditRounded';
 import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
@@ -116,8 +116,8 @@ export default function PositionDetail() {
               <Stack direction="row" spacing={0.75} alignItems="center">
                 <StatusBadge status={position.status} map={STATUS_TONES} />
                 {position.overFilled
-                  ? <ToneBadge tone="warning" label={`${position.filledCount - position.sanctionedHeadcount} over sanctioned`} />
-                  : <ToneBadge tone="neutral" noIcon label={`${position.vacancyCount} vacant of ${position.sanctionedHeadcount}`} />}
+                  ? <ToneBadge tone="warning" label={`${position.filledCount - position.seats} over sanctioned`} />
+                  : <ToneBadge tone="neutral" noIcon label={`${position.vacancyCount} vacant of ${position.seats}`} />}
               </Stack>
             }
             subtitle={position.roleTitle ? `Sanctions the role ${position.roleTitle}` : undefined}
@@ -130,7 +130,7 @@ export default function PositionDetail() {
             }
             facts={
               <>
-                <FactItem label="Sanctioned" value={<Mono>{position.sanctionedHeadcount}</Mono>} />
+                <FactItem label="Seats" value={<Mono>{position.seats}</Mono>} />
                 <FactItem label="Filled" value={<Mono>{position.filledCount}</Mono>} />
                 <FactItem label="Vacant" value={<Mono>{position.vacancyCount}</Mono>} />
                 <FactItem label="Default shift" value={position.shiftCode ? `${position.shiftCode} · ${position.shiftName}` : '—'} />
@@ -161,7 +161,19 @@ export default function PositionDetail() {
               <FactItem label="Role" value={<CrossLink label={position.roleTitle ?? '—'} to={`/${company}/cf_hrms/roles/${position.roleId}`} />} />
               <FactItem label="Department" value={position.departmentName ?? 'Not set'} />
               <FactItem label="Location" value={position.locationName ?? 'Not set'} />
-              <FactItem label="Sanctioned headcount" value={<Mono>{position.sanctionedHeadcount}</Mono>} />
+              <FactItem
+                label="Sanctioned headcount"
+                value={
+                  <>
+                    <Mono>{position.sanctionedHeadcount}</Mono>
+                    {position.seats !== position.sanctionedHeadcount && (
+                      <Box component="span" sx={{ ml: 0.75, color: 'var(--c-text-2)', fontSize: 13, whiteSpace: 'nowrap' }}>
+                        · per shift ({position.seats} across day and night)
+                      </Box>
+                    )}
+                  </>
+                }
+              />
               <FactItem label="Default shift" value={position.shiftCode ? `${position.shiftCode} · ${position.shiftName}` : 'Not set'} />
               <FactItem label="Status" value={<StatusBadge status={position.status} map={STATUS_TONES} />} />
               <FactItem label="Effective" value={<Mono>{position.effectiveFrom ?? '—'}{position.effectiveTo ? ` → ${position.effectiveTo}` : ''}</Mono>} />
@@ -260,7 +272,7 @@ export default function PositionDetail() {
         {tab === 'occupants' && (
           <SectionCard
             title="Occupants"
-            subtitle={`${occupants.filter((o) => o.liveOnDate).length} of ${position.sanctionedHeadcount} sanctioned seats filled.`}
+            subtitle={`${occupants.filter((o) => o.liveOnDate).length} of ${position.seats} sanctioned seats filled.`}
           >
             {occupants.length === 0 ? (
               <EmptyState
