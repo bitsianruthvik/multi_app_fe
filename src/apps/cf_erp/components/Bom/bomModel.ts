@@ -7,12 +7,30 @@ import type { BomType, BomView, Explosion, Kind, StructureNode } from '../../api
  * draws both.
  */
 
-/** What each kind of BOM may hold — the backend's ALLOWED_CHILDREN (bomService.js). */
+/**
+ * What each kind of BOM may hold — a copy of the backend's ALLOWED_CHILDREN
+ * (bomService.js), and only a fallback. `GET /records/:id/bom` answers the same
+ * question for the BOM on screen, and that answer wins: this table is what the
+ * add row offers for a node the server has not answered for (a node deeper in
+ * an order's structure, or before the first read lands). Two copies of a rule
+ * agree until one of them changes, so the copy is never asked first.
+ */
 export const ALLOWED_CHILDREN: Record<BomType, Kind[]> = {
   standard: ['catalog'],
   template: ['catalog', 'template', 'selection'],
   custom: ['catalog', 'template', 'selection'],
 };
+
+/**
+ * What may be added under a node: the server's answer when there is one, the
+ * local table otherwise — and nothing at all when the node holds no BOM, which
+ * is the one case the table cannot answer (a selection definition chooses a
+ * catalog item; it is made of nothing).
+ */
+export function allowedChildren(bomType: BomType | null, fromServer?: Kind[] | null): Kind[] {
+  if (fromServer) return fromServer;
+  return bomType ? ALLOWED_CHILDREN[bomType] : [];
+}
 
 /** The BOM a record owns, from its kind — the backend's BOM_TYPE_BY_KIND. A selection holds nothing. */
 export function bomTypeOfKind(kind: Kind): BomType | null {

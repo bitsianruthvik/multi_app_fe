@@ -52,7 +52,9 @@ function RevisionDialog({ open, record, onClose, onDone }: { open: boolean; reco
   );
 }
 
-function DetailsForm({ record, tree, canEdit, onSaved }: { record: MasterRecord; tree: Tree | null; canEdit: boolean; onSaved: (r: MasterRecord) => void }) {
+function DetailsForm({ record, tree, canEdit, onSaved, onTreeChanged }: {
+  record: MasterRecord; tree: Tree | null; canEdit: boolean; onSaved: (r: MasterRecord) => void; onTreeChanged: () => void;
+}) {
   const [form, setForm] = useState({
     name: record.name, description: record.description ?? '', code: record.code ?? '', shortName: record.shortName ?? '', classificationId: record.classificationId,
     uom: record.item?.uom ?? '', trackedBy: record.item?.trackedBy ?? 'quantity', sourcing: record.item?.sourcing ?? 'stock',
@@ -87,7 +89,8 @@ function DetailsForm({ record, tree, canEdit, onSaved }: { record: MasterRecord;
         <TextField label="Description" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} multiline sx={{ gridColumn: '1 / -1' }} />
         <Box sx={{ gridColumn: '1 / -1' }}>
           <ClassificationPicker tree={tree} value={form.classificationId} onChange={(id) => id && setForm({ ...form, classificationId: id })} disabled={isTemp}
-            scope={record.recordKind} helperText={isTemp ? 'A temporary item sits where its definition sits' : 'Moving it changes which rules and defaults reach it'} />
+            scope={record.recordKind} allowCreate={canEdit} onTreeChanged={onTreeChanged}
+            helperText={isTemp ? 'A temporary item sits where its definition sits' : 'Moving it changes which rules and defaults reach it'} />
         </Box>
         {record.item && (
           <>
@@ -311,7 +314,8 @@ export default function RecordDetail({ recordKind }: { recordKind: 'item' | 'def
       {tab === 'bom' && <BomPanel source={{ kind: 'record', recordId: id }} ownsBom showWhereUsed onChanged={() => { rec.reload(); specs.reload(); }} />}
       {tab === 'stock' && r.recordKind === 'item' && <ItemStockPanel record={r} />}
       {tab === 'history' && <ValueHistory path={`/records/${id}/history`} version={version} subtitle="Every change to a value on this record — who, when, from what to what. Calculated changes appear too." />}
-      {tab === 'details' && <DetailsForm key={r.updatedAt} record={r} tree={tree.data} canEdit={canManage} onSaved={(saved) => { rec.setData(saved); toast.success('Details saved.'); specs.reload(); }} />}
+      {tab === 'details' && <DetailsForm key={r.updatedAt} record={r} tree={tree.data} canEdit={canManage} onTreeChanged={tree.reload}
+        onSaved={(saved) => { rec.setData(saved); toast.success('Details saved.'); specs.reload(); }} />}
 
       <RevisionDialog open={revising} record={r} onClose={() => setRevising(false)} onDone={(saved) => { rec.setData(saved); toast.success(`Now at revision ${saved.revision}.`); }} />
       <ConfirmDialog open={confirm === 'obsolete'} title="Mark this obsolete?" entityName={`${r.code ?? '—'} · ${r.name}`} confirmLabel="Mark obsolete"

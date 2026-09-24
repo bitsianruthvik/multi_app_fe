@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { cfApi, CfApiError } from '../../api/client';
-import type { BomType, BomView, Explosion, LineStructure, OrderStatus, RecordStatus, StructureNode, WhereUsedRow } from '../../api/types';
+import type { BomType, BomView, Explosion, Kind, LineStructure, OrderStatus, RecordStatus, StructureNode, WhereUsedRow } from '../../api/types';
 import { useLoad } from '../../hooks/useLoad';
 import { bomAsTree, bomTypeOfKind } from './bomModel';
 
@@ -16,6 +16,9 @@ export interface BomState {
   truncated: boolean;
   /** Null when this record holds nothing — a selection chooses an item instead. */
   bomType: BomType | null;
+  /** The server's own answer for the root, so the rules are not kept in two places. Null when it was not asked (an order's structure). */
+  canHaveBom: boolean | null;
+  allowedChildKinds: Kind[] | null;
   /** A standard or template BOM has a status and a revision; a custom one has neither. */
   bom: { status: RecordStatus; revision: string | null } | null;
   /** The order a temporary item belongs to, or the order the line is on. */
@@ -54,6 +57,10 @@ export function useBom(source: BomSource, { whereUsed = false, onChanged }: { wh
         stats: s.stats,
         truncated: s.truncated,
         bomType: s.root.bom?.bomType ?? bomTypeOfKind(s.root.kind),
+        // The structure endpoint answers about a whole tree, not about one
+        // record's BOM, so there is nothing to take from it here.
+        canHaveBom: null,
+        allowedChildKinds: null,
         bom: s.root.bom,
         order: { id: s.order.id, code: s.order.code, status: s.order.status },
         // The backend calls a line uneditable once it is released or its order closed.
@@ -61,7 +68,16 @@ export function useBom(source: BomSource, { whereUsed = false, onChanged }: { wh
         line: { lineNo: s.line.lineNo, lineType: s.line.lineType },
       }
       : v
-        ? { ...bomAsTree(v), bomType: v.bomType, bom: v.bom, order: v.order, released: !!v.order?.released, line: null }
+        ? {
+          ...bomAsTree(v),
+          bomType: v.bomType,
+          canHaveBom: v.canHaveBom,
+          allowedChildKinds: v.allowedChildKinds,
+          bom: v.bom,
+          order: v.order,
+          released: !!v.order?.released,
+          line: null,
+        }
         : null;
     if (!common) return null;
     return {

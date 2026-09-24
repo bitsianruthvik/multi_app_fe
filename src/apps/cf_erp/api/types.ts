@@ -48,6 +48,12 @@ export type NodeScope = 'item' | 'definition' | 'both' | 'machine';
 
 export interface Tree { levels: string[]; leafDepth: number; roots: TreeNode[] }
 
+/**
+ * What POST /catalog/classification hands back — one node, made from wherever
+ * items are. It refuses machine scope and machine families with NOT_ALLOWED.
+ */
+export interface CreatedClassification { id: number; code: string; name: string; depth: number; scope: NodeScope }
+
 export interface PathStep { id: number; code: string; name: string; level: string }
 
 export interface SpecOption { id: number; value: string; label: string | null; sortOrder?: number; status?: 'active' | 'inactive' }
@@ -201,8 +207,11 @@ export interface MasterRecord {
   classificationName?: string;
   sourceDefinitionCode?: string | null;
   warnings?: string[];
+  /** The record itself carries its whole BOM header; a list row carries the two flat fields below instead. */
   bom?: { id: number; bomType: BomType; status: RecordStatus; revision: string | null; lineCount: number } | null;
   bomStatus?: RecordStatus | null;
+  /** How many lines that BOM has, on a list row. Null when the record has no BOM at all. */
+  bomLineCount?: number | null;
   frozen?: Frozen | null;
   owner?: { orderId: number; orderCode: string; orderStatus?: OrderStatus; lineId?: number; lineNo: number; isLineItem?: boolean } | null;
   placement?: { parentId: number; parentCode: string | null; parentName: string; bomLineId: number; position: number; quantity: number; role: string | null } | null;
@@ -862,4 +871,125 @@ export interface SuggestResult {
   order: PurchaseOrder | null;
   lines: number;
   message: string | null;
+}
+
+// ---- Processes (how an order is worked through the office) ---------------------
+
+/**
+ * A kind of stage the catalogue offers. The kinds are fixed in code, because
+ * each one is a screen somebody wrote; which of them a process uses, in what
+ * order, is data. A process is NOT a flow: a flow is how a girder is made.
+ */
+export interface StageKind { key: string; label: string; description: string }
+
+export type StageRequirement = 'required' | 'optional';
+
+export interface ProcessStage {
+  id: number;
+  stageKey: string;
+  /** The stage's own name; null means the kind's name is used. */
+  label: string | null;
+  sequence: number;
+  requirement: StageRequirement;
+  /** Set: a line whose item says no to this specification skips the stage. */
+  overrideSpec: { id: number; code: string; name: string } | null;
+  /** Whatever the stage's screen is configured with — passed back untouched. */
+  settings: Record<string, unknown> | null;
+}
+
+/** One stage as PUT /processes/:id/stages wants it; the list is sent whole, in order. */
+export interface ProcessStageInput {
+  stageKey: string;
+  label?: string | null;
+  requirement: StageRequirement;
+  overrideSpecId?: number | null;
+  settings?: Record<string, unknown> | null;
+}
+
+/** When a process applies. Both empty = the house default; the most specific rule wins. */
+export interface ProcessRule {
+  id: number;
+  customer: { id: number; name: string } | null;
+  orderType: OrderType | null;
+}
+
+export interface Process {
+  id: number;
+  code: string;
+  name: string;
+  status: RecordStatus;
+  stageCount?: number;
+  rules: ProcessRule[];
+}
+
+export interface ProcessDetail extends Process {
+  description: string | null;
+  stages: ProcessStage[];
+}
+
+// ---- Where an order has got to (GET /orders/:id/process) -----------------------
+
+/** How far a stage has got. `not_applicable`: this line never needed it. */
+export type StageState = 'todo' | 'partial' | 'done' | 'not_applicable';
+
+/**
+ * Who decided whether a stage applies: the order's own data, a specification
+ * declared against the line's item, or the kind itself (it always applies).
+ */
+export type StageDecidedBy = 'data' | 'declared' | 'always';
+
+/**
+ * Something worth knowing before pressing Confirm. Never a reason a screen may
+ * refuse anything else — only confirmation is gated.
+ */
+export interface StageBlocker {
+  stageKey: string;
+  /** Absent on an order that has no lines at all. */
+  lineId?: number;
+  lineNo?: number;
+  /** How many things of this kind; 0 when the message is about the line itself. */
+  count: number;
+  message: string;
+}
+
+/** One stage, for one line — or rolled up for the whole order. */
+export interface OrderStage {
+  stageKey: string;
+  label: string;
+  sequence: number;
+  requirement: StageRequirement;
+  applies: boolean;
+  decidedBy: StageDecidedBy;
+  state: StageState;
+  /** One line of plain English: where this stage has got to. */
+  detail: string;
+  blockers: StageBlocker[];
+}
+
+export interface OrderProcessLine {
+  lineId: number;
+  lineNo: number;
+  item: { id: number; code: string | null; name: string | null; status: RecordStatus } | null;
+  quantity: number;
+  stages: OrderStage[];
+}
+
+/**
+ * The one object the process pop-up and the order's stage strip both render,
+ * so the two cannot contradict each other (processService.orderProcess).
+ * `process: null` means no process was resolved — `reason` says why, in words,
+ * and nothing else is worth drawing.
+ */
+export interface OrderProcessView {
+  order: { id: number; code: string; status: OrderStatus; orderType?: OrderType };
+  process: { id: number; code: string; name: string; status: RecordStatus } | null;
+  reason: string | null;
+  lines: OrderProcessLine[];
+  /** The order's roll-up of each stage — pessimistic: done only when every line is. */
+  stages: OrderStage[];
+  /** The first stage still to be worked, or null when nothing is outstanding. */
+  nextStage: string | null;
+  canConfirm: boolean;
+  /** Absent when there is no process. */
+  blockers?: StageBlocker[];
 }

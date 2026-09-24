@@ -19,6 +19,7 @@ import { cfApi, qs } from '../api/client';
 import { allScreens } from '../navMeta';
 import { useIsPermitted } from '../hooks/useIsPermitted';
 import { useCompanySlug } from '../hooks/useLoad';
+import { CreateClassificationDialog } from './ClassificationPicker';
 import { PaletteContext } from './commandPaletteContext';
 
 /**
@@ -34,11 +35,16 @@ const TYPE_ICON: Record<string, ReactNode> = {
 };
 
 interface SearchResult { type: string; id: number; code: string | null; name: string; detail: string | null; route: string }
-interface PaletteAction { id: string; label: string; hint?: string; permission?: string; slug: string }
+/** An action either goes somewhere (`slug`) or opens a dialog here (`dialog`). */
+interface PaletteAction { id: string; label: string; hint?: string; permission?: string; slug: string; dialog?: PaletteDialog }
+export type PaletteDialog = 'classification';
 
 const ACTIONS: PaletteAction[] = [
   { id: 'new-order', label: 'New order', hint: 'An inquiry, or a stock order', permission: 'cf_erp_orders_manage', slug: 'orders?new=1' },
   { id: 'new-item', label: 'New item', hint: 'Add an item to the catalog', permission: 'cf_erp_catalog_manage', slug: 'items?new=1' },
+  // The Classification screen manages the tree; this makes one node from
+  // anywhere, the way the item form does, so nothing has to be abandoned.
+  { id: 'new-classification', label: 'New classification', hint: 'A family, subfamily or variant for items', permission: 'cf_erp_catalog_manage', slug: '', dialog: 'classification' },
   { id: 'receive', label: 'Receive stock', hint: 'Post a receipt into a stocking area', permission: 'cf_erp_inventory_manage', slug: 'stock?new=receipt' },
   { id: 'new-machine', label: 'New machine', hint: 'Add a machine on its machine type', permission: 'cf_erp_production_manage', slug: 'machines?new=1' },
   { id: 'new-flow', label: 'New flow', hint: 'Put operations in order', permission: 'cf_erp_production_manage', slug: 'flows?new=1' },
@@ -55,7 +61,7 @@ function pushRecent(entry: Recent) {
 }
 
 type Item =
-  | { kind: 'action' | 'nav'; id: string; label: string; hint?: string; slug: string }
+  | { kind: 'action' | 'nav'; id: string; label: string; hint?: string; slug: string; dialog?: PaletteDialog }
   | { kind: 'recent'; id: string; label: string; slug: string }
   | { kind: 'record'; id: string; label: string; hint?: string; slug: string; type: string };
 
@@ -74,6 +80,7 @@ function score(label: string, extra: string, needle: string): number {
 
 export function CommandPaletteProvider({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState(false);
+  const [dialog, setDialog] = useState<PaletteDialog | null>(null);
   const openPalette = useCallback(() => setOpen(true), []);
   useEffect(() => {
     const onKey = (e: globalThis.KeyboardEvent) => {
@@ -86,12 +93,15 @@ export function CommandPaletteProvider({ children }: { children: ReactNode }) {
   return (
     <PaletteContext.Provider value={ctx}>
       {children}
-      <Palette open={open} onClose={() => setOpen(false)} />
+      <Palette open={open} onClose={() => setOpen(false)} onDialog={setDialog} />
+      {/* It reads its own tree and says what it made; nothing here holds a
+          screen that needs refreshing. */}
+      <CreateClassificationDialog open={dialog === 'classification'} onClose={() => setDialog(null)} />
     </PaletteContext.Provider>
   );
 }
 
-function Palette({ open, onClose }: { open: boolean; onClose: () => void }) {
+function Palette({ open, onClose, onDialog }: { open: boolean; onClose: () => void; onDialog: (dialog: PaletteDialog) => void }) {
   const [q, setQ] = useState('');
   const [records, setRecords] = useState<SearchResult[]>([]);
   const [searching, setSearching] = useState(false);
@@ -125,7 +135,7 @@ function Palette({ open, onClose }: { open: boolean; onClose: () => void }) {
     const term = q.trim();
     const actions: Item[] = ACTIONS.filter((a) => isPermitted(a.permission))
       .map((a) => ({ a, s: score(a.label, a.hint ?? '', term) })).filter(({ s }) => s > 0).sort((x, y) => y.s - x.s)
-      .map(({ a }) => ({ kind: 'action' as const, id: a.id, label: a.label, hint: a.hint, slug: a.slug }));
+      .map(({ a }) => ({ kind: 'action' as const, id: a.id, label: a.label, hint: a.hint, slug: a.slug, dialog: a.dialog }));
     const navs: Item[] = allScreens().filter(({ screen }) => isPermitted(screen.permission))
       .map((e) => ({ e, s: score(e.screen.label, `${e.section.label} ${(e.screen.keywords ?? []).join(' ')}`, term) }))
       .filter(({ s }) => s > 0).sort((x, y) => y.s - x.s)
@@ -147,10 +157,13 @@ function Palette({ open, onClose }: { open: boolean; onClose: () => void }) {
   useEffect(() => { setCursor((c) => (flat.length === 0 ? 0 : Math.min(c, flat.length - 1))); }, [flat.length]);
 
   const run = useCallback((item: Item) => {
+    // An action that opens a dialog goes nowhere, so it is no one's "recent
+    // screen" either — the palette steps out of the way and the dialog opens.
+    if (item.kind === 'action' && item.dialog) { onClose(); onDialog(item.dialog); return; }
     if (item.kind !== 'record') pushRecent({ slug: item.slug, label: item.label });
     navigate(`/${company}/cf_erp/${item.slug}`);
     onClose();
-  }, [company, navigate, onClose]);
+  }, [company, navigate, onClose, onDialog]);
 
   const onKeyDown = (e: KeyboardEvent) => {
     if (e.key === 'ArrowDown') { e.preventDefault(); setCursor((c) => Math.min(c + 1, flat.length - 1)); }

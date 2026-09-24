@@ -10,6 +10,9 @@ const Formulas = lazy(() => import('./pages/Formulas'));
 const Records = lazy(() => import('./pages/Records'));
 const RecordDetail = lazy(() => import('./pages/RecordDetail'));
 const CodingRules = lazy(() => import('./pages/CodingRules'));
+const Processes = lazy(() => import('./pages/Processes'));
+// The list and the one-process screen share a file, so they share their words.
+const ProcessDetail = lazy(() => import('./pages/Processes').then((m) => ({ default: m.ProcessDetail })));
 const Orders = lazy(() => import('./pages/Orders'));
 const OrderDetail = lazy(() => import('./pages/OrderDetail'));
 const Customers = lazy(() => import('./pages/Customers'));
@@ -76,5 +79,7 @@ export function getCfErpRoutes(
     { path: '/:company/cf_erp/specifications', element: wrap(<Specifications />) },
     { path: '/:company/cf_erp/formulas', element: wrap(<Formulas />) },
     { path: '/:company/cf_erp/coding-rules', element: wrap(<CodingRules />) },
+    { path: '/:company/cf_erp/processes', element: wrap(<Processes />) },
+    { path: '/:company/cf_erp/processes/:id', element: wrap(<ProcessDetail />) },
   ];
 }

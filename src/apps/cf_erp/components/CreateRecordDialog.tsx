@@ -20,13 +20,15 @@ import { DialogHeader } from './FormDialog';
  * Temporary items are not created here: they belong to a sales order line and
  * will be created by the order and BOM screens.
  */
-export function CreateRecordDialog({ open, onClose, onCreated, recordKind, tree, initialClassificationId }: {
+export function CreateRecordDialog({ open, onClose, onCreated, recordKind, tree, initialClassificationId, onTreeChanged }: {
   open: boolean;
   onClose: () => void;
   onCreated: (r: MasterRecord) => void;
   recordKind: 'item' | 'definition';
   tree: Tree | null;
   initialClassificationId?: number | null;
+  /** A Variant was created from the picker — the screen that owns the tree reads it again. */
+  onTreeChanged?: () => void;
 }) {
   const isItem = recordKind === 'item';
   const [definitionType, setDefinitionType] = useState<'template' | 'selection'>('template');
@@ -123,9 +125,11 @@ export function CreateRecordDialog({ open, onClose, onCreated, recordKind, tree,
           </ToggleButtonGroup>
         )}
         <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', md: 'minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr)' }, gap: 2, pt: 0.5 }}>
+          {/* The Variant that is missing is made from the list itself — this
+              form keeps everything typed into it while that happens. */}
           <ClassificationPicker tree={tree} value={classificationId} onChange={setClassificationId} scope={isItem ? 'item' : 'definition'}
-            required autoFocus={!initialClassificationId}
-            helperText="Rules set on this Variant and above decide which specifications apply" />
+            required autoFocus={!initialClassificationId} allowCreate onTreeChanged={onTreeChanged}
+            helperText="Rules set on this Variant and above decide which specifications apply. Not there? Create it from the list." />
           <TextField label="Name" value={name} autoFocus={!!initialClassificationId} onChange={(e) => setName(e.target.value)} placeholder={preview?.name?.text ?? ''} helperText="Leave empty to use the naming rule" />
           <TextField label="Code" value={code} onChange={(e) => setCode(e.target.value)} placeholder={preview?.code?.text ?? ''} helperText="Leave empty to use the coding rule"
             inputProps={{ style: { fontFamily: 'var(--font-mono)' } }} />
@@ -170,8 +174,11 @@ export function CreateRecordDialog({ open, onClose, onCreated, recordKind, tree,
             )}
             {isItem ? (
               preview?.resolution ? (
+                /* Nobody is sent to another screen from here any more: the
+                   Variant itself is made from the picker above, and its
+                   specification rules can follow at any time. */
                 <SpecsTable resolution={preview.resolution} draftValues={values} onDraftChange={(id, v) => setValues((m) => ({ ...m, [id]: v }))}
-                  emptyHint="No specification rules reach this Variant yet — add them under Setup › Classification." />
+                  emptyHint="No specification rules reach this Variant yet, so there is nothing to fill in — create the item now; rules added to the Variant later reach it." />
               ) : previewError ? (
                 <Typography sx={{ color: 'var(--c-text-3)' }}>Which specifications apply could not be worked out — you can still create this as a draft and fill them in on the item.</Typography>
               ) : <Typography sx={{ color: 'var(--c-text-3)' }}>Working out which specifications apply…</Typography>

@@ -18,7 +18,7 @@ import { AddChildDialog, EditLineDialog } from '../BomDialogs';
 import { ChooseItemDialog } from '../ChooseItemDialog';
 import { ConfirmDialog } from '../ConfirmDialog';
 import { useToast } from '../toastContext';
-import { ALLOWED_CHILDREN, bomTypeOfKind, flattenBom, openableKeys, type BomRow } from './bomModel';
+import { allowedChildren, bomTypeOfKind, flattenBom, openableKeys, type BomRow } from './bomModel';
 import { BomTree, type BomAction } from './BomTree';
 import { LOCKED_ORDER, useBom, type BomSource } from './useBom';
 
@@ -95,7 +95,10 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
 
   const root = state.root;
   const label = root.code ?? root.name;
-  const type = state.bomType ? TYPE_TEXT[state.bomType] : null;
+  // Whether this record holds a BOM at all is the server's call (`canHaveBom`);
+  // its kind only names the BOM when there is one.
+  const holdsBom = state.canHaveBom ?? state.bomType != null;
+  const type = holdsBom && state.bomType ? TYPE_TEXT[state.bomType] : null;
   if (!type) {
     return (
       <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 2 }}>
@@ -115,10 +118,20 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
   const mayEdit = (holder: StructureNode | null, bomType: BomType | null) => !state.frozen
     && !!holder && (holder.kind === 'temporary' || (holder.depth === 0 && ownsBom))
     && bomType != null && isPermitted(bomPermission(bomType === 'custom'));
-  const canAddToRoot = mayEdit(root, state.bomType);
+  /**
+   * What a node may be given. The server answered for the root of a record's
+   * own BOM; deeper nodes of an order's structure were never asked about, so
+   * those fall back to the local table — and a node that holds no BOM offers
+   * nothing rather than somebody else's list.
+   */
+  const allowedUnder = (node: StructureNode) => allowedChildren(
+    bomTypeOfKind(node.kind),
+    node.key === root.key ? state.allowedChildKinds : null,
+  );
+  const canAddToRoot = mayEdit(root, state.bomType) && allowedUnder(root).length > 0;
   const actionsFor = (row: BomRow): BomAction[] => {
     const list: BomAction[] = [];
-    if (mayEdit(row.node, bomTypeOfKind(row.node.kind))) list.push('add');
+    if (mayEdit(row.node, bomTypeOfKind(row.node.kind)) && allowedUnder(row.node).length > 0) list.push('add');
     if (mayEdit(row.parent, row.bomType)) {
       if (row.node.selection) list.push('choose');
       list.push('change', 'remove');
@@ -150,6 +163,7 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
           : null;
 
   const addingBomType = adding ? bomTypeOfKind(adding.kind) : null;
+  const addingKinds = adding ? allowedUnder(adding) : [];
   const removingNode = removing?.node;
   const run = async (done: string, change: Promise<boolean>) => { if (await change) toast.success(done); };
   const addButton = (variant?: 'contained') => (
@@ -200,8 +214,8 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
       </SectionCard>
       {showWhereUsed && usedCard}
 
-      <AddChildDialog open={!!adding} parentId={adding?.id ?? 0} parentLabel={adding?.code ?? adding?.name ?? ''}
-        allowedKinds={ALLOWED_CHILDREN[addingBomType ?? 'standard']} custom={addingBomType === 'custom'}
+      <AddChildDialog open={!!adding && addingKinds.length > 0} parentId={adding?.id ?? 0} parentLabel={adding?.code ?? adding?.name ?? ''}
+        allowedKinds={addingKinds} custom={addingBomType === 'custom'}
         onClose={() => setAdding(null)}
         onDone={() => {
           // Open what was just added to, or the new line lands out of sight.

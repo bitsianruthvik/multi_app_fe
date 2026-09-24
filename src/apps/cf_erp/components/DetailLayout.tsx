@@ -64,9 +64,11 @@ export function DetailTabs({ tabs, active, onTab }: { tabs: DetailTab[]; active:
   );
 }
 
-export function DetailLayout({ header, crossLinks, tabs, active, onTab, children, maxWidth = 1280 }: {
+export function DetailLayout({ header, crossLinks, beforeTabs, tabs, active, onTab, children, maxWidth = 1280 }: {
   header: ReactNode;
   crossLinks?: ReactNode;
+  /** A band between the cross-links and the tabs — the order's stage strip lives here. */
+  beforeTabs?: ReactNode;
   tabs?: DetailTab[];
   active?: string;
   onTab?: (v: string) => void;
@@ -80,6 +82,7 @@ export function DetailLayout({ header, crossLinks, tabs, active, onTab, children
     <Box sx={{ maxWidth }}>
       <Surface e={2} sx={{ p: 2.5, mb: crossLinks ? 1.5 : 2.5 }}>{header}</Surface>
       {crossLinks && <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 2.5 }}>{crossLinks}</Box>}
+      {beforeTabs}
       {tabs && tabs.length > 0 && <DetailTabs tabs={tabs} active={cur} onTab={setCur} />}
       <Box key={cur} sx={{ animation: 'cf-tab-in 160ms var(--ease)', '@keyframes cf-tab-in': { from: { opacity: 0, transform: 'translateY(4px)' }, to: { opacity: 1, transform: 'translateY(0)' } } }}>
         {children}

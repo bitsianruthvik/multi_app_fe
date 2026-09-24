@@ -84,6 +84,9 @@ export const SECTIONS: NavSection[] = [
       { key: 'specifications', label: 'Specifications', path: 'specifications', permission: VIEW, keywords: ['attributes', 'fields'] },
       { key: 'formulas', label: 'Formulas', path: 'formulas', permission: VIEW, keywords: ['calculation', 'roll-up', 'timing'] },
       { key: 'coding-rules', label: 'Coding rules', path: 'coding-rules', permission: VIEW, keywords: ['codes', 'numbering', 'names'] },
+      // A process is how an order is worked through the office — never a flow,
+      // which is how a girder is made and lives under Production.
+      { key: 'processes', label: 'Processes', path: 'processes', hasDetail: true, permission: ORDERS, keywords: ['stages', 'order process', 'applies to', 'house default', 'workflow'] },
     ],
   },
 ];

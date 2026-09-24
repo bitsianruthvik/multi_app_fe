@@ -56,3 +56,9 @@ export const OPEN_STATUSES: OrderStatus[] = ['draft', 'inquiry', 'quoted', 'conf
  * design. The screens must ask the same question, or a button 403s.
  */
 export const bomPermission = (custom: boolean) => (custom ? 'cf_erp_orders_manage' : 'cf_erp_catalog_manage');
+
+/**
+ * The stages at which an order stops changing. Everything made for it is
+ * frozen from here — lines, structures and details alike.
+ */
+export const LOCKED_STATUSES: OrderStatus[] = ['closed', 'lost', 'cancelled'];

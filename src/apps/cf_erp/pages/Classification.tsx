@@ -8,6 +8,7 @@ import AddRounded from '@mui/icons-material/AddRounded';
 import ChevronRightRounded from '@mui/icons-material/ChevronRightRounded';
 import EditRounded from '@mui/icons-material/EditRounded';
 import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
+import PrecisionManufacturingRounded from '@mui/icons-material/PrecisionManufacturingRounded';
 import { cfApi, CfApiError, qs } from '../api/client';
 import type { NodeScope, Resolution, Rule, Tree, TreeNode } from '../api/types';
 import { useCompanySlug, useLoad } from '../hooks/useLoad';
@@ -84,7 +85,7 @@ function NodeRow({ node, depth, selectedId, expanded, toggle, select }: {
 interface NodeForm { code: string; name: string; scope: NodeScope; description: string; sortOrder: string; status: 'active' | 'inactive' }
 
 function NodeDialog({ open, onClose, onSaved, parent, existing, levels }: {
-  open: boolean; onClose: () => void; onSaved: (id: number) => void; parent: TreeNode | null; existing: TreeNode | null; levels: string[];
+  open: boolean; onClose: () => void; onSaved: (id: number, scope: NodeScope) => void; parent: TreeNode | null; existing: TreeNode | null; levels: string[];
 }) {
   const [form, setForm] = useState<NodeForm>({ code: '', name: '', scope: 'both', description: '', sortOrder: '0', status: 'active' });
   const [busy, setBusy] = useState(false);
@@ -110,7 +111,7 @@ function NodeDialog({ open, onClose, onSaved, parent, existing, levels }: {
         ? await cfApi.put<{ id: number }>(`/classification/${existing.id}`, body)
         : await cfApi.post<{ id: number }>('/classification', { ...body, parentId: parent?.id ?? null });
       setBusy(false);
-      onSaved(saved.id);
+      onSaved(saved.id, form.scope);
       onClose();
     } catch (e) {
       setBusy(false);
@@ -127,7 +128,9 @@ function NodeDialog({ open, onClose, onSaved, parent, existing, levels }: {
           <TextField label="Code" required value={form.code} onChange={set('code')} autoFocus inputProps={{ style: { fontFamily: 'var(--font-mono)' } }} helperText="Used in generated codes" />
           <TextField label="Name" required value={form.name} onChange={set('name')} />
           <TextField select label="Holds" value={form.scope} onChange={set('scope')} disabled={underMachines}
-            helperText={underMachines ? 'Every level of a machine family is for machines' : form.scope === 'machine' ? 'Machine types — the deepest level holds machines' : 'Items and definitions: a picker filter only'}>
+            helperText={underMachines ? 'Every level of a machine family is for machines'
+              : form.scope === 'machine' ? 'Machine types — usually added from Production › Machines'
+              : 'Items and definitions: a picker filter only'}>
             <MenuItem value="both">Items and definitions</MenuItem>
             <MenuItem value="item">Items</MenuItem>
             <MenuItem value="definition">Definitions</MenuItem>
@@ -260,6 +263,7 @@ function NodePanel({ node, path, levels, leafDepth, canManage, onEdit, onAddChil
 /** Hierarchy / Tree (DESIGN_SYSTEM.md §4.7) with the selected node's rules beside it. */
 export default function Classification() {
   const toast = useToast();
+  const company = useCompanySlug();
   // The screen is reachable with catalog_view alone, but every write below
   // needs setup_manage — without this gate the buttons are all 403s.
   const canManage = useIsPermitted()('cf_erp_setup_manage');
@@ -268,18 +272,38 @@ export default function Classification() {
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
   const [dialog, setDialog] = useState<{ open: boolean; parent: TreeNode | null; existing: TreeNode | null }>({ open: false, parent: null, existing: null });
   const [confirmDelete, setConfirmDelete] = useState<TreeNode | null>(null);
+  // Machine families are managed from Production › Machines now, so this tree
+  // is about items and definitions again. They are filtered out, never hidden:
+  // the note below says how many there are and shows them on demand.
+  const [showMachines, setShowMachines] = useState(false);
+
+  const machineFamilies = useMemo(() => (tree?.roots ?? []).filter((r) => r.scope === 'machine'), [tree]);
+  const roots = useMemo(() => (tree?.roots ?? []).filter((r) => showMachines || r.scope !== 'machine'), [tree, showMachines]);
 
   // Open every family on first load so the structure is visible at a glance.
   useEffect(() => {
     if (tree && expanded.size === 0) setExpanded(new Set(tree.roots.map((r) => r.id)));
-    if (tree && selectedId === null && tree.roots[0]) setSelectedId(tree.roots[0].id);
+    if (tree && selectedId === null && tree.roots[0]) {
+      const first = tree.roots.find((r) => r.scope !== 'machine');
+      // Nothing but machine families: show them rather than an empty tree.
+      if (!first) setShowMachines(true);
+      setSelectedId((first ?? tree.roots[0]).id);
+    }
   }, [tree]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const selected = useMemo(() => (tree ? findNode(tree.roots, selectedId) : null), [tree, selectedId]);
   const path = useMemo(() => (tree && selected ? pathTo(tree.roots, selected.id) ?? [] : []), [tree, selected]);
   const toggle = (id: number) => setExpanded((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
-  const afterSave = (id: number) => {
+  const toggleMachines = () => {
+    const next = !showMachines;
+    setShowMachines(next);
+    // Hiding them must not leave the panel showing a family the tree no longer lists.
+    if (!next && path[0]?.scope === 'machine') setSelectedId(tree?.roots.find((r) => r.scope !== 'machine')?.id ?? null);
+  };
+  const afterSave = (id: number, scope: NodeScope) => {
     reload();
+    // A machine family made from here would otherwise vanish the moment it saved.
+    if (scope === 'machine') setShowMachines(true);
     setSelectedId(id);
     if (dialog.parent) setExpanded((s) => new Set(s).add(dialog.parent!.id));
     toast.success('Saved.');
@@ -287,9 +311,28 @@ export default function Classification() {
 
   return (
     <Box>
-      <PageHeader title="Classification" subtitle="One Family › Subfamily › Variant tree for items and definitions. Items and definitions sit on a Variant; specification rules set on any node reach everything below it."
-        actions={canManage && <Button variant="contained" startIcon={<AddRounded />} onClick={() => setDialog({ open: true, parent: null, existing: null })}>New family</Button>} />
+      <PageHeader title="Classification" subtitle="One Family › Subfamily › Variant tree for items and definitions. Items and definitions sit on a Variant; specification rules set on any node reach everything below it. Machine families are managed on Production › Machines."
+        actions={(canManage || machineFamilies.length > 0) && (
+          <>
+            {machineFamilies.length > 0 && (
+              <Button startIcon={<PrecisionManufacturingRounded />} onClick={toggleMachines}>
+                {showMachines ? 'Hide machine families' : 'Show machine families'}
+              </Button>
+            )}
+            {canManage && <Button variant="contained" startIcon={<AddRounded />} onClick={() => setDialog({ open: true, parent: null, existing: null })}>New family</Button>}
+          </>
+        )} />
       <ErrorNotice error={error} onRetry={reload} />
+      {machineFamilies.length > 0 && !showMachines && (
+        <Surface e={0} sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap', px: 2, py: 1.25, mb: 2, background: 'var(--c-surface-2)', borderStyle: 'dashed' }}>
+          <PrecisionManufacturingRounded sx={{ fontSize: 18, color: 'var(--c-text-3)' }} aria-hidden />
+          <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)', flex: '1 1 260px', minWidth: 0 }}>
+            {machineFamilies.length} machine famil{machineFamilies.length === 1 ? 'y is' : 'ies are'} left out of this tree — machine types are added and renamed on Machines now.
+          </Typography>
+          <Button size="small" onClick={toggleMachines}>Show them here</Button>
+          <Button size="small" component={Link} to={appPath(company, 'machines')}>Go to Machines</Button>
+        </Surface>
+      )}
       {loading && !tree ? <SkeletonRows rows={8} /> : tree && (tree.roots.length === 0 ? (
         <Surface><EmptyState title="No classification yet" body="Start with a family, e.g. Steel, then add subfamilies and variants under it."
           action={canManage && <Button variant="contained" onClick={() => setDialog({ open: true, parent: null, existing: null })}>New family</Button>} /></Surface>
@@ -297,8 +340,9 @@ export default function Classification() {
         <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '320px 1fr' }, gap: 2, alignItems: 'start' }}>
           <Surface sx={{ p: 1, position: { md: 'sticky' }, top: 0 }}>
             <Box component="ul" role="tree" aria-label="Classification" sx={{ m: 0, p: 0 }}>
-              {tree.roots.map((r) => <NodeRow key={r.id} node={r} depth={0} selectedId={selectedId} expanded={expanded} toggle={toggle} select={setSelectedId} />)}
+              {roots.map((r) => <NodeRow key={r.id} node={r} depth={0} selectedId={selectedId} expanded={expanded} toggle={toggle} select={setSelectedId} />)}
             </Box>
+            {roots.length === 0 && <Typography sx={{ fontSize: 13, color: 'var(--c-text-3)', p: 1.5 }}>Only machine families here — show them above, or add an item family.</Typography>}
           </Surface>
           {selected && (
             <NodePanel key={selected.id} node={selected} path={path} levels={tree.levels} leafDepth={tree.leafDepth} canManage={canManage} onChanged={reload}
