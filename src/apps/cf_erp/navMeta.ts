@@ -59,7 +59,7 @@ export const SECTIONS: NavSection[] = [
     label: 'Production',
     screens: [
       { key: 'tracker', label: 'Tracker', path: 'tracker', permission: PRODUCTION, countKey: 'readySteps', keywords: ['work queue', 'shop floor', 'steps', 'release', 'reserve', 'material'] },
-      { key: 'machines', label: 'Machines', path: 'machines', hasDetail: true, permission: PRODUCTION, countKey: 'machines', keywords: ['shifts', 'calendar', 'equipment'] },
+      { key: 'machines', label: 'Machines', path: 'machines', hasDetail: true, permission: PRODUCTION, countKey: 'machines', keywords: ['shifts', 'calendar', 'equipment', 'machine types'] },
       { key: 'operations', label: 'Operations', path: 'operations', hasDetail: true, permission: PRODUCTION, countKey: 'operations', keywords: ['timing', 'cut', 'weld'] },
       { key: 'flows', label: 'Flows', path: 'flows', hasDetail: true, permission: PRODUCTION, countKey: 'draftFlows', keywords: ['routing', 'steps', 'wait for'] },
     ],
@@ -80,7 +80,7 @@ export const SECTIONS: NavSection[] = [
     key: 'setup',
     label: 'Setup',
     screens: [
-      { key: 'classification', label: 'Classification', path: 'classification', permission: VIEW, keywords: ['family', 'variant', 'tree', 'machine types'] },
+      { key: 'classification', label: 'Classification', path: 'classification', permission: VIEW, keywords: ['family', 'subfamily', 'variant', 'tree'] },
       { key: 'specifications', label: 'Specifications', path: 'specifications', permission: VIEW, keywords: ['attributes', 'fields'] },
       { key: 'formulas', label: 'Formulas', path: 'formulas', permission: VIEW, keywords: ['calculation', 'roll-up', 'timing'] },
       { key: 'coding-rules', label: 'Coding rules', path: 'coding-rules', permission: VIEW, keywords: ['codes', 'numbering', 'names'] },
