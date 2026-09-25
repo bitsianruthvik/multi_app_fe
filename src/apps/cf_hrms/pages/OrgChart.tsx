@@ -104,6 +104,17 @@ export default function OrgChart() {
   const [collapsed, setCollapsed] = useState<Set<number>>(
     () => new Set(readPref<number[]>(key('collapsed'), [])),
   );
+  // Whether this viewer has ever folded anything here. Until they have, the
+  // chart picks its own opening fold (see `useEffect` below); once they touch
+  // it, their choice is theirs and nothing re-folds behind them.
+  // Set once the opening fold has been decided. The opening ZOOM must not be
+  // measured before it: the unfolded scene is 8,374px wide, so a zoom computed
+  // against it floors at 55% and then never recomputes, leaving four boxes on a
+  // 1,680px screen at half size.
+  const [foldSettled, setFoldSettled] = useState(false);
+  const [foldTouched, setFoldTouched] = useState<boolean>(
+    () => readPref<boolean>(key('foldTouched'), false),
+  );
   const [arrange, setArrange] = useState<Record<number, Arrange>>(() =>
     readPref<Record<number, Arrange>>(key('arrange'), {}),
   );
@@ -161,6 +172,7 @@ export default function OrgChart() {
   useEffect(() => writePref(prefKey(company, 'view'), view), [view, company]);
   useEffect(() => writePref(prefKey(company, 'panel'), panelOpen), [panelOpen, company]);
   useEffect(() => writePref(prefKey(company, 'collapsed'), [...collapsed]), [collapsed, company]);
+  useEffect(() => writePref(prefKey(company, 'foldTouched'), foldTouched), [foldTouched, company]);
   useEffect(() => writePref(prefKey(company, 'arrange'), arrange), [arrange, company]);
   useEffect(() => {
     if (zoom != null) writePref(prefKey(company, 'zoom'), zoom);
@@ -235,21 +247,57 @@ export default function OrgChart() {
   }, [scene, stageWidth]);
 
   /**
-   * The first view is NOT fit-to-width. Karni draws 8,300px wide, and fitting
-   * that into a pane opens the screen at 10% — a grey mosaic nobody can read.
-   * The source tool floors the opening zoom at 40% and lets you pan, which is
-   * the right trade: legible and partial beats complete and illegible.
+   * THE CHART OPENS FOLDED, NOT FITTED.
+   *
+   * Measured on Karni's real chart, in a 1100px pane:
+   *
+   *   folded to depth 3    11 boxes     574 x  864   fits at 100%
+   *   folded to depth 4    24 boxes    1822 x 1186   fits at  59%
+   *   nothing folded      114 boxes    8374 x 1750   fits at  13%
+   *
+   * The first cut opened everything and floored the zoom at 40%, reasoning that
+   * legible-and-partial beats complete-and-illegible. That was the right idea
+   * and the wrong lever: 48% of a 214px box is 6px text, so it was neither
+   * legible nor complete, and the only way to read anything was to zoom the
+   * BROWSER — which also scales every dialog, because a dialog portals to the
+   * body and knows nothing about the canvas.
+   *
+   * Folding is the lever that actually works. Three levels is the leadership
+   * structure — the thing you want on opening — at full size, and every folded
+   * box says how many people are underneath it. Expanding is one click, "Expand
+   * all" is still there, and the moment the viewer folds anything themselves
+   * this stops second-guessing them.
+   */
+  const OPENING_FOLD_DEPTH = 3;
+
+  useEffect(() => {
+    if (foldSettled) return;
+    if (foldTouched || collapsed.size > 0) { setFoldSettled(true); return; }
+    if (!model) return;
+    const fold = new Set<number>();
+    for (const [id, d] of model.depth) {
+      if (d >= OPENING_FOLD_DEPTH && (model.children.get(id)?.length ?? 0) > 0) fold.add(id);
+    }
+    if (fold.size) setCollapsed(fold);
+    setFoldSettled(true);
+  }, [foldSettled, foldTouched, model, collapsed.size]);
+
+  /**
+   * Zoom follows the fold: fit what is showing, but never shrink below 55% —
+   * past that the occupant rows stop being readable and the chart is decoration.
+   * Panning a slightly-too-wide chart is a better trade than squinting at all of it.
    */
   useEffect(() => {
-    if (zoom == null && scene && stageWidth) {
-      setZoom(Math.min(1, Math.max(0.4, (stageWidth - 28) / scene.width)));
+    if (zoom == null && foldSettled && scene && stageWidth) {
+      setZoom(Math.min(1, Math.max(0.55, (stageWidth - 28) / scene.width)));
     }
-  }, [zoom, scene, stageWidth]);
+  }, [zoom, foldSettled, scene, stageWidth]);
 
   const setZoomClamped = (z: number) => setZoom(Math.min(2.5, Math.max(0.15, z)));
 
   // ── Interactions ────────────────────────────────────────────────────────
   const toggleCollapse = useCallback((id: number) => {
+    setFoldTouched(true);
     setCollapsed((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
@@ -420,7 +468,7 @@ export default function OrgChart() {
           onZoom={setZoomClamped}
           onFit={() => setZoom(fitZoom())}
           collapsedCount={[...collapsed].filter((id) => visibleIds.includes(id)).length}
-          onExpandAll={() => setCollapsed(new Set())}
+          onExpandAll={() => { setFoldTouched(true); setCollapsed(new Set()); }}
           panelOpen={panelOpen}
           onPanel={setPanelOpen}
           asOf={asOf}

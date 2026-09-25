@@ -156,6 +156,11 @@ export function OrgChartCanvas({
     if (target.closest('[data-orgnode]') || target.closest('[data-orgtoggle]')) return;
     pan.current = { x: e.clientX, y: e.clientY, left: wrap.scrollLeft, top: wrap.scrollTop };
     wrap.setPointerCapture(e.pointerId);
+    // Belt and braces with the `userSelect: none` above: a pointerdown that is
+    // starting a pan must not also start a text selection. CSS alone leaves the
+    // browser's own drag-select armed in some engines, and the symptom — half
+    // the chart highlighted after a pan — looks like a bug in the app.
+    e.preventDefault();
   };
 
   const onPointerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
@@ -189,6 +194,13 @@ export function OrgChartCanvas({
         cursor: 'grab',
         '&:active': { cursor: 'grabbing' },
         touchAction: 'pan-x pan-y',
+        // Dragging to pan must not sweep a selection across every label it
+        // crosses. The chart is SVG text, so a drag across it selects half the
+        // organisation and leaves it highlighted — which reads as the app
+        // having done something, when all that happened was a pan.
+        userSelect: 'none',
+        WebkitUserSelect: 'none',
+        '& text, & tspan': { userSelect: 'none', WebkitUserSelect: 'none' },
       }}
     >
       <svg

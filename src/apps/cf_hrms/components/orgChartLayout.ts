@@ -39,6 +39,16 @@ export const ROWG = 2;
 export const HG = 26;
 export const VG = 52;
 export const IND = 24;
+
+/**
+ * More children than this and `auto` stacks them instead of laying a row.
+ * Five keeps the common shapes — a manager with two to five reports — as the
+ * familiar horizontal tree, and folds the outliers into a list rather than
+ * letting one of them set the width of the whole chart. Karni's Plant Head has
+ * nine reports, and that single row was most of the old 8,374px.
+ */
+export const WIDE_ROW = 5;
+
 export const SV = 14;
 export const SG = 10;
 export const M = 36;
@@ -562,16 +572,28 @@ export function layoutChart(model: ChartModel, opts: LayoutOptions): LayoutResul
     if (!kids.length) return W;
 
     // ── THE `auto` RULE ──────────────────────────────────────────────────
-    // A parent whose children are all leaves renders as an indented list.
-    // Anything else goes side by side. Without this Karni is thousands of
-    // pixels wide; with it, it fits on a printable sheet.
+    // Two reasons to render children as an indented list rather than a row:
+    //
+    //   1. They are all leaves. A row of fourteen boxes with nothing under
+    //      them is a list that happens to be horizontal.
+    //   2. There are MORE THAN `WIDE_ROW` of them. A wide row does not just
+    //      take its own width — every ancestor above it inherits that width,
+    //      so one nine-report manager stretches the whole chart.
+    //
+    // Measured on Karni, fully expanded, in a 1,650px pane:
+    //   side by side          8,374 x 1,750   fits at 19%
+    //   stacking rows over 5  1,678 x 6,522   fits at 97%
+    //
+    // Same 114 boxes. The second is tall and scrolls; the first is wide and
+    // cannot be read at any zoom. A chart people scroll vertically is a chart
+    // they can use — and it is the shape that prints.
     const pref = arrange[id] ?? 'auto';
     p.mode =
       pref === 'side'
         ? 'side'
         : pref === 'stack'
           ? 'stack'
-          : kids.every((k) => realKids(k).length === 0)
+          : kids.every((k) => realKids(k).length === 0) || kids.length > WIDE_ROW
             ? 'stack'
             : 'side';
 
