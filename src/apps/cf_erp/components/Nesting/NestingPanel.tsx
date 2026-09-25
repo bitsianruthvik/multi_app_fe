@@ -107,7 +107,7 @@ function PlateCard({ nest, group, colourOf }: {
         <Cell label="Needs" title="What the layout takes up, with one kerf cut off each rim.">
           <Mono>{mmPair(nest.requiredLength, nest.requiredWidth)}</Mono>
         </Cell>
-        <Cell label="Ordered" title="The catalog plate procurement buys. Larger on purpose — mill edges are not straight.">
+        <Cell label="Plate bought" title="The stocked plate this lot is cut from. The shop always buys a stocked size, so this IS what is purchased — the spare over what the layout needs is deliberate, because mill edges are not straight.">
           <Mono>{mmPair(nest.length, nest.width)}</Mono>
         </Cell>
         <Cell label="Margin" title={marginSentence(margin)}>
