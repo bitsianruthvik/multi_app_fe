@@ -98,17 +98,15 @@ export const ALREADY_ADDED = 'Already in this process — a stage happens once.'
 /**
  * Kinds of stage the app cannot work yet.
  *
- * `nesting` exists so a process can declare the step, but nothing in the app
- * records a nesting plan, so the stage reports "to do" for ever. While it is
- * required that is a gate nobody can pass: an order with a material whose
- * NESTING specification says yes can never be confirmed. Marking the stage
- * optional (or answering NESTING with no) is the way out.
+ * A stage listed here has a real kind on the backend and a real state, but no
+ * screen, so it reports "to do" for ever. While it is required that is a gate
+ * nobody can pass, and marking the stage optional is the way out — which is
+ * why the warning below says so rather than leaving people to find out.
  *
- * Delete this the day the nesting screen ships.
+ * `nesting` was here until its screen shipped (2026-09-25). Delete an entry the
+ * day its screen ships; the map is allowed to be empty.
  */
-const NO_SCREEN_YET: Record<string, string> = {
-  nesting: 'There is no nesting screen yet, so this stage never reports as done.',
-};
+const NO_SCREEN_YET: Record<string, string> = {};
 
 export const noScreenYet = (stageKey: string): string | null => NO_SCREEN_YET[stageKey] ?? null;
 
@@ -273,11 +271,6 @@ export const UNBUILT_STAGE: Record<string, { what: string; today: string; soon: 
     what: 'Values are the specification figures the setup asks an item for — thickness, grade, length.',
     today: 'They are filled in on each item, under Specifications.',
     soon: 'A screen that gathers every missing value for a whole order into one list is still to come.',
-  },
-  nesting: {
-    what: 'Nesting is laying the parts out on the plates they are cut from.',
-    today: 'Nothing in the app records a nesting plan yet, so this stage never reports as done.',
-    soon: 'The nesting screen is still to come. Until it ships, mark the stage optional on the process, or answer NESTING with no on the material.',
   },
   buying: {
     what: 'Buying is getting in the material the order consumes but does not make.',

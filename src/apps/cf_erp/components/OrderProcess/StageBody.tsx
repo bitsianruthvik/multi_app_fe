@@ -6,6 +6,7 @@ import LaunchRounded from '@mui/icons-material/LaunchRounded';
 import RocketLaunchRounded from '@mui/icons-material/RocketLaunchRounded';
 import AccountTreeRounded from '@mui/icons-material/AccountTreeRounded';
 import PrecisionManufacturingRounded from '@mui/icons-material/PrecisionManufacturingRounded';
+import GridViewRounded from '@mui/icons-material/GridViewRounded';
 import type { CfApiError } from '../../api/client';
 import type { OrderProcessLine, OrderProcessView, OrderProduction, OrderStage, Release, SalesOrder, SalesOrderLine } from '../../api/types';
 import { useCompanySlug } from '../../hooks/useLoad';
@@ -20,6 +21,7 @@ import {
 } from '../../lib/process';
 import { EmptyState, ErrorNotice, Mono, SectionCard, StatusBadge } from '../ui';
 import { BomPanel } from '../Bom/BomPanel';
+import { NestingPanel } from '../Nesting/NestingPanel';
 import { ReleaseView } from '../ReleaseView';
 import { ReleaseDialog } from '../TrackerDialogs';
 import { OrderLinesPanel } from '../OrderLinesPanel';
@@ -97,14 +99,6 @@ function UnbuiltStagePanel({ view, stage, line, order, onGoStage }: {
       <Button key="buy" size="small" variant="outlined" endIcon={<LaunchRounded />} component={Link} to={to('buy-list')}>Open the buy list</Button>,
     );
   }
-  if (stage.stageKey === 'nesting' && view.process) {
-    links.push(
-      <Button key="process" size="small" variant="outlined" endIcon={<LaunchRounded />} component={Link} to={to(`processes/${view.process.id}`)}>
-        Open {view.process.code} · this stage
-      </Button>,
-    );
-  }
-
   return (
     <SectionCard title={stage.label} subtitle={words?.what}>
       <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 2 }}>
@@ -293,6 +287,18 @@ export function StageBody({
       : (
         <SectionCard title="Structure">
           <EmptyState icon={<AccountTreeRounded />} title="No lines yet" hint="A structure hangs under a line, so add one first."
+            action={<Button variant="contained" onClick={() => onGoStage('lines')}>Go to the lines</Button>} />
+        </SectionCard>
+      );
+  } else if (stage.stageKey === 'nesting') {
+    // The layout belongs to ONE line — a cut plate is a temporary item of that
+    // line — so without a line there is nothing to nest, and the panel is given
+    // the line it is looking at rather than working one out for itself.
+    body = line
+      ? <NestingPanel key={line.lineId} orderId={order.id} lineId={line.lineId} canManage={isPermitted('cf_erp_orders_manage')} onChanged={onReloadAll} />
+      : (
+        <SectionCard title="Nesting">
+          <EmptyState icon={<GridViewRounded />} title="No lines yet" hint="Rectangles are cut for a line, so add one first."
             action={<Button variant="contained" onClick={() => onGoStage('lines')}>Go to the lines</Button>} />
         </SectionCard>
       );

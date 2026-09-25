@@ -993,3 +993,191 @@ export interface OrderProcessView {
   /** Absent when there is no process. */
   blockers?: StageBlocker[];
 }
+
+// ── Nesting ──────────────────────────────────────────────────────────────────
+
+/**
+ * Laying a line's cut plates out on real raw plates
+ * (CF_ERP_NESTING_PLAN.md; backend `nestingService`).
+ *
+ * Two words that are easy to confuse and must not be:
+ *   · a LOT is one physical plate. The plate count of a nest is always 1.
+ *   · a PLACEMENT is one PIECE on that plate. Count lots for plates, sum
+ *     placements for pieces.
+ *
+ * And two sizes that are different numbers on purpose:
+ *   · `requiredLength` / `requiredWidth` — what the layout needs, kerf at the
+ *     rim included;
+ *   · `length` / `width` — the plate that is actually bought, which is larger
+ *     because plate edges are not straight and mills sell standard sizes.
+ */
+export interface NestPiece {
+  /** Present only on a saved plan — a proposal has no rows yet. */
+  id?: number;
+  cutPlateId: number;
+  cutPlateCode: string;
+  /** Cut order: sequence first, then row, then position along the row. */
+  seqNo: number;
+  rowNo: number;
+  posNo: number;
+  /** The true corner of the piece on the plate, from the plate's own corner. */
+  x: number;
+  y: number;
+  /** The footprint AS PLACED — already swapped when `rotated`. */
+  length: number;
+  width: number;
+  rotated: boolean;
+}
+
+/** What one sequence holds, and how many rows its part size allows it. */
+export interface NestSequence {
+  seqNo: number;
+  rows: number;
+  rowsAllowed: number;
+  pieces: number;
+  size: 'small' | 'big';
+}
+
+/** One plate, drawn. */
+export interface Nest {
+  /** The lot row's id — a saved plan only. */
+  id?: number;
+  lotNo: string | null;
+  plateItemId: number | null;
+  plateCode: string | null;
+  plateName: string | null;
+  source: 'catalog' | 'offcut';
+  isManual?: boolean;
+  thickness: number;
+  grade: string | null;
+  material: string | null;
+  /** kg/m3, so wastage can be quoted in kilograms. Null when the catalog omits it. */
+  density: number | null;
+  /** The plate as bought. */
+  length: number;
+  width: number;
+  /** What the layout needs. Null on a saved plan written before it was recorded. */
+  requiredLength: number | null;
+  requiredWidth: number | null;
+  sheetArea: number;
+  usedArea: number;
+  wasteArea: number;
+  wastePct: number;
+  weightKg: number;
+  wasteKg: number;
+  sequences: NestSequence[];
+  pieces: NestPiece[];
+}
+
+export interface NestMetrics {
+  lots: number;
+  plates: number;
+  pieces: number;
+  areaBought: number;
+  usedArea: number;
+  wasteArea: number;
+  wastePct: number;
+  weightKg: number;
+  wasteKg: number;
+  thickness: number | null;
+}
+
+/** A rectangle the line needs, as the plan describes it. */
+export interface NestCutPlate {
+  id: number;
+  code: string | null;
+  name: string | null;
+  pieces: number;
+  length: number | null;
+  width: number | null;
+  thickness: number | null;
+  grade: string | null;
+  material: string | null;
+  /** Only on the `manual` list: why the packer left it alone. */
+  reason?: string;
+}
+
+/** One steel — thickness, grade and material together. Never thickness alone. */
+export interface NestGroup {
+  key: string;
+  thickness: number;
+  grade: string | null;
+  material: string | null;
+  kerfMm: number;
+  seqGapMinMm: number;
+  seqGapMaxMm: number;
+  /** Null on a saved plan: the margin belongs to the run, not to the lot row. */
+  orderMarginLengthMm: number | null;
+  orderMarginWidthMm: number | null;
+  guillotine: boolean;
+  settingsBasis: string;
+  cutPlates: NestCutPlate[];
+  candidates: { plateItemId: number; code: string | null; name: string | null; length: number; width: number }[];
+  nests: Nest[];
+  unplaced: { cutPlateId: number | null; cutPlateCode: string; qty: number; reason: string }[];
+  metrics: NestMetrics;
+  deterministic: boolean | null;
+  elapsedMs: number | null;
+}
+
+/**
+ * Waste that belongs to the CATALOGUE rather than to the layout: either a plate
+ * size nobody stocks that would have fitted (no `kind`), or a stocked plate that
+ * cannot carry the ordering margin (`kind: 'ordering margin'`).
+ */
+export interface NestSizeAdvice {
+  thickness: number;
+  grade: string | null;
+  material: string | null;
+  kind?: string;
+  /** The catalogue form. */
+  sheetKey?: string;
+  sheetLength?: number;
+  sheetWidth?: number;
+  nests?: number;
+  needLength?: number;
+  needWidth?: number;
+  orderLength?: number;
+  orderWidth?: number;
+  savingArea?: number;
+  savingPct?: number;
+  /** The ordering-margin form. */
+  lotNo?: string | null;
+  plateCode?: string | null;
+  detail?: string;
+}
+
+/** A rectangle whose count has moved since the plan was saved. */
+export interface NestDrift {
+  cutPlateId: number;
+  code: string | null;
+  needs: number;
+  placed: number;
+}
+
+export interface NestingPlan {
+  line: { id: number; lineNo: number; orderId: number; orderCode: string; quantity: number; orderStatus: OrderStatus };
+  /** True once lots exist in the database. A proposal is never saved. */
+  saved: boolean;
+  /** 'saved plan' · 'nothing saved yet' · 'proposal'. */
+  basis: string;
+  settingsNote?: string;
+  groups: NestGroup[];
+  manual: NestCutPlate[];
+  sizeAdvice: NestSizeAdvice[];
+  problems: string[];
+  /** Only on the saved plan. */
+  drift?: NestDrift[];
+  totals: NestMetrics & { groups: number; unplaced: number };
+}
+
+/** What `POST …/nesting/accept` reports back. */
+export interface NestingAccepted {
+  line: NestingPlan['line'];
+  replacedLots: number;
+  lots: number;
+  plates: number;
+  pieces: number;
+  quantities: unknown;
+  caveatCleared: string;
+}
