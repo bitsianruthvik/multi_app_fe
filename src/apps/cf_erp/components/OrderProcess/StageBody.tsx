@@ -22,6 +22,7 @@ import {
 import { EmptyState, ErrorNotice, Mono, SectionCard, StatusBadge } from '../ui';
 import { BomPanel } from '../Bom/BomPanel';
 import { NestingPanel } from '../Nesting/NestingPanel';
+import { BlanksPanel } from '../Nesting/BlanksPanel';
 import { ReleaseView } from '../ReleaseView';
 import { ReleaseDialog } from '../TrackerDialogs';
 import { OrderLinesPanel } from '../OrderLinesPanel';
@@ -287,6 +288,16 @@ export function StageBody({
       : (
         <SectionCard title="Structure">
           <EmptyState icon={<AccountTreeRounded />} title="No lines yet" hint="A structure hangs under a line, so add one first."
+            action={<Button variant="contained" onClick={() => onGoStage('lines')}>Go to the lines</Button>} />
+        </SectionCard>
+      );
+  } else if (stage.stageKey === 'blanks') {
+    // Blanks belong to ONE line, like the layout that follows them.
+    body = line
+      ? <BlanksPanel key={line.lineId} lineId={line.lineId} canManage={isPermitted('cf_erp_orders_manage')} onChanged={onReloadAll} />
+      : (
+        <SectionCard title="Cut plates">
+          <EmptyState icon={<GridViewRounded />} title="No lines yet" hint="Parts are pooled into blanks for a line, so add one first."
             action={<Button variant="contained" onClick={() => onGoStage('lines')}>Go to the lines</Button>} />
         </SectionCard>
       );
