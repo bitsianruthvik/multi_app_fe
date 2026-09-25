@@ -47,6 +47,12 @@ const Contractors = lazy(() => import('./pages/Contractors'));
 const OpenPoints = lazy(() => import('./pages/OpenPoints'));
 const ImportOrgChart = lazy(() => import('./pages/ImportOrgChart'));
 
+// Setup › Access — the platform's own admin screens, rebuilt for this app
+const AccessPeople = lazy(() => import('./pages/access/AccessPeople'));
+const AccessRoles = lazy(() => import('./pages/access/AccessRoles'));
+const AccessCapabilities = lazy(() => import('./pages/access/AccessCapabilities'));
+const AccessLogs = lazy(() => import('./pages/access/AccessLogs'));
+
 /**
  * cf_hrms routes. **Paths must match navMeta.ts** — it is what the shell, the
  * breadcrumb, the ⌘K palette and the mobile sheet all read. Adding a screen
@@ -70,6 +76,20 @@ export function getCfHrmsRoutes(
   function ToHome() {
     const { company } = useParams<{ company: string }>();
     return <Navigate to={`/${company}/cf_hrms/home`} replace />;
+  }
+
+  /**
+   * Sends one of the platform's old admin URLs to its cf_hrms replacement.
+   *
+   * These paths still exist in App.tsx for every other app, where they render
+   * `AdminLayout` — the dark sidebar that predates the design system. They are
+   * shadowed here rather than edited there, because fab_erp, cf_erp,
+   * audio_intelligence and sales_control still use those screens exactly as
+   * they are, and this work is cf_hrms only.
+   */
+  function ToScreen({ path }: { path: string }) {
+    const { company } = useParams<{ company: string }>();
+    return <Navigate to={`/${company}/cf_hrms/${path}`} replace />;
   }
 
   return [
@@ -119,5 +139,36 @@ export function getCfHrmsRoutes(
     { path: '/:company/cf_hrms/contractors', element: wrap(<Contractors />) },
     { path: '/:company/cf_hrms/open-points', element: wrap(<OpenPoints />) },
     { path: '/:company/cf_hrms/import', element: wrap(<ImportOrgChart />) },
+
+    // Setup › Access — logins, what a role may do, the vocabulary behind it,
+    // and the error log. Inside CfHrmsShell like every other route, so they get
+    // the two-row nav, the palette, the theme and the tokens.
+    { path: '/:company/cf_hrms/access-users', element: wrap(<AccessPeople />) },
+    { path: '/:company/cf_hrms/access-roles', element: wrap(<AccessRoles />) },
+    { path: '/:company/cf_hrms/access-capabilities', element: wrap(<AccessCapabilities />) },
+    { path: '/:company/cf_hrms/access-logs', element: wrap(<AccessLogs />) },
+
+    // ── The old shared admin URLs, shadowed ──────────────────────────────
+    //
+    // App.tsx routes `/:company/:app/admin/dashboard/*` to AdminLayout wrapping
+    // audio_intelligence's admin pages. React Router v6 ranks by specificity,
+    // and a literal `cf_hrms` segment outranks the `:app` parameter, so these
+    // win for this app alone and App.tsx needs no edit. Verified in the browser
+    // before the screens were built, because the whole approach rests on it.
+    //
+    // Actions, Company documents and Team documents have no replacement on
+    // purpose: the first is audio_intelligence's concept, and cf_hrms already
+    // has a Documents screen that means something else entirely (generated JDs
+    // and responsibility profiles). A second Documents under a second meaning
+    // is worse than none, so those land on Home.
+    { path: '/:company/cf_hrms/admin/dashboard', element: <ToHome /> },
+    { path: '/:company/cf_hrms/admin/dashboard/add-user', element: <ToScreen path="access-users" /> },
+    { path: '/:company/cf_hrms/admin/dashboard/roles-mapping', element: <ToScreen path="access-roles" /> },
+    { path: '/:company/cf_hrms/admin/dashboard/capabilities-add', element: <ToScreen path="access-capabilities" /> },
+    { path: '/:company/cf_hrms/admin/dashboard/add-feature', element: <ToScreen path="access-capabilities" /> },
+    { path: '/:company/cf_hrms/admin/dashboard/error-logs', element: <ToScreen path="access-logs" /> },
+    { path: '/:company/cf_hrms/admin/dashboard/actions', element: <ToHome /> },
+    { path: '/:company/cf_hrms/admin/dashboard/company-documents', element: <ToHome /> },
+    { path: '/:company/cf_hrms/admin/dashboard/team-documents', element: <ToHome /> },
   ];
 }

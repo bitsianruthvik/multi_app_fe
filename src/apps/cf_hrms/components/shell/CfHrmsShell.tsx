@@ -3,11 +3,12 @@ import PersonRounded from '@mui/icons-material/PersonRounded';
 import WorkOutlineRounded from '@mui/icons-material/WorkOutlineRounded';
 import AccountTreeRounded from '@mui/icons-material/AccountTreeRounded';
 import {
-  AppShell, ThemeScope, ToastProvider, CommandPaletteProvider,
-  type PaletteAction, type PaletteRecord,
+  AppShell, ThemeScope, ToastProvider, CommandPaletteProvider, useIsPermitted,
+  type Can, type PaletteAction, type PaletteRecord,
 } from '@shared/ui';
-import { SECTIONS, COUNT_META } from '../../navMeta';
+import { SECTIONS, COUNT_META, PLATFORM_ADMIN } from '../../navMeta';
 import { fetchNavCounts } from '../../api/client';
+import { useIsPlatformAdmin } from '../../api/access';
 import { peopleApi } from '../../api/people';
 import { orgChartApi } from '../../api/orgchart';
 // Side effect: registers every cf_hrms status with its tone and label, so a
@@ -65,6 +66,28 @@ const RECORD_ICON = (type: string) => {
 
 export function CfHrmsShell({ children }: { children: ReactNode }) {
   const [counts, setCounts] = useState<Record<string, number>>({});
+
+  /**
+   * The nav's permission predicate.
+   *
+   * Every cf_hrms screen is gated by a feature tag, which `useIsPermitted`
+   * answers on its own — so this exists for exactly one case: the four Access
+   * screens under Setup, which administer the PLATFORM's accounts and
+   * permissions rather than anything in HR. There is no feature tag for that
+   * (see api/access.ts), and the platform's existing answer to "may this person
+   * administer the tenant" is the admin role name, which is what App.tsx
+   * already uses to route an admin after login.
+   *
+   * Passing it to both the palette and the shell is the point: navMeta stays
+   * the single nav source, and the top nav, the section row, the mobile sheet
+   * and ⌘K all hide the same four entries from the same person.
+   */
+  const permitted = useIsPermitted();
+  const isPlatformAdmin = useIsPlatformAdmin();
+  const can = useCallback<Can>(
+    (tag?: string) => (tag === PLATFORM_ADMIN ? isPlatformAdmin : permitted(tag)),
+    [permitted, isPlatformAdmin],
+  );
 
   // Advisory by contract: fetchNavCounts swallows its own failures and returns
   // {}, so a slow or broken count never blocks navigation or shows an error.
@@ -138,6 +161,7 @@ export function CfHrmsShell({ children }: { children: ReactNode }) {
           searchRecords={searchRecords}
           recordIcon={RECORD_ICON}
           placeholder="Search people and responsibilities — or jump to a screen"
+          can={can}
         >
           <AppShell
             appSlug="cf_hrms"
@@ -146,6 +170,7 @@ export function CfHrmsShell({ children }: { children: ReactNode }) {
             counts={counts}
             countMeta={COUNT_META}
             quickCreate={QUICK_CREATE}
+            can={can}
           >
             {children}
           </AppShell>

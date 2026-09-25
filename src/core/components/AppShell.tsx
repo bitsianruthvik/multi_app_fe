@@ -9,6 +9,7 @@ import { CommandPaletteProvider } from '@apps/fab_erp/components/CommandPalette'
 import { FabErpShell } from '@apps/fab_erp/components/nav/FabErpShell';
 import { CfErpThemeScope } from '@apps/cf_erp/components/shell/CfErpThemeScope';
 import { CfErpShell } from '@apps/cf_erp/components/shell/CfErpShell';
+import { ThemeScope } from '@shared/ui';
 
 /**
  * Scopes the fab_erp redesign (violet accent, Geist, solid-elevation surfaces)
@@ -65,10 +66,15 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   if (isGlassPage || onAudioFlow || onSalesFlow) return <>{children}</>;
 
   // Admin routes (AdminLayout) render their own shell — they don't get UserLayout —
-  // but fab_erp's and cf_erp's admin pages should still pick up the violet theme/tokens.
+  // but an app's admin pages should still pick up that app's theme and tokens.
+  // An app missing from this list does not fall back to something reasonable: it
+  // renders on raw MUI defaults, which is a different product sitting under the
+  // same company's name. cf_hrms shipped that way and it was the first thing the
+  // client noticed.
   if (isAdminRoute) {
     if (onFabErp) return <FabErpThemeScope>{children}</FabErpThemeScope>;
     if (onCfErp) return <CfErpThemeScope>{children}</CfErpThemeScope>;
+    if (onCfHrms) return <ThemeScope appSlug="cf_hrms">{children}</ThemeScope>;
     return <>{children}</>;
   }
 

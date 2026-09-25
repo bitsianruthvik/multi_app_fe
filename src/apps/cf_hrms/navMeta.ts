@@ -38,6 +38,26 @@ const LEAVE = 'cf_hrms_leave_view';
 const DOCS = 'cf_hrms_documents_generate';
 const IMPORT = 'cf_hrms_import_manage';
 
+/**
+ * The gate on the Access screens — and the one entry here that is NOT a
+ * feature tag.
+ *
+ * All thirteen cf_hrms tags describe HR work: employees, leave, the org chart.
+ * None of them means "administer this tenant's accounts and permissions", and
+ * a fourteenth would need a backend seed — where a tag nobody has been granted
+ * resolves to false and hides the area from the very person who needs it. The
+ * platform's existing answer to that question is the admin role name, which is
+ * what App.tsx already uses to route an admin after login.
+ *
+ * So this is a sentinel: `CfHrmsShell` gives the shell a `can` predicate that
+ * answers it from the role, and passes everything else through to the normal
+ * feature-tag check. navMeta stays the single nav source, and the top nav, the
+ * section row, the mobile sheet and ⌘K all hide the same four entries from the
+ * same person. It is declared here, with no imports, so this file stays a plain
+ * data module.
+ */
+export const PLATFORM_ADMIN = 'platform_admin';
+
 export const SECTIONS: NavSection[] = [
   {
     key: 'home',
@@ -103,6 +123,20 @@ export const SECTIONS: NavSection[] = [
       { key: 'contractors', label: 'Contractors', path: 'contractors', permission: PEOPLE, keywords: ['contract labour', 'manpower supplier', 'agency'] },
       { key: 'open-points', label: 'Open points', path: 'open-points', permission: ORG, countKey: 'openPoints', keywords: ['doubt', 'question', 'unresolved', 'decision'] },
       { key: 'import', label: 'Import', path: 'import', permission: IMPORT, keywords: ['org chart', 'migration', 'excel', 'html', 'upload'] },
+
+      // ── ACCESS — who can sign in, and what their role may do ─────────────
+      // Setup, not a world of its own: an HR administrator visits these four a
+      // handful of times a year, when somebody joins who needs a login or a
+      // role's reach changes. They were the platform's shared admin area until
+      // 2026-09-25, on a hardcoded dark sidebar that predates the design system
+      // — which is why cf_hrms "looked nothing like cf_erp" to the client.
+      //
+      // PLATFORM_ADMIN is not a feature tag; see api/access.ts. CfHrmsShell
+      // resolves it through the `can` predicate it hands the shell.
+      { key: 'access-users', label: 'People with logins', path: 'access-users', permission: PLATFORM_ADMIN, keywords: ['user', 'account', 'login', 'sign in', 'invite', 'password', 'access'] },
+      { key: 'access-roles', label: 'Roles and access', path: 'access-roles', permission: PLATFORM_ADMIN, keywords: ['permission', 'capability', 'grant', 'role mapping', 'what can they do', 'access'] },
+      { key: 'access-capabilities', label: 'Capabilities and features', path: 'access-capabilities', permission: PLATFORM_ADMIN, keywords: ['feature', 'feature tag', 'capability', 'permission group', 'vocabulary'] },
+      { key: 'access-logs', label: 'Error logs', path: 'access-logs', permission: PLATFORM_ADMIN, keywords: ['diagnostic', 'exception', 'failure', 'system log', 'trace'] },
     ],
   },
 ];
