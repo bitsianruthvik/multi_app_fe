@@ -291,13 +291,13 @@ export function StageBody({
             action={<Button variant="contained" onClick={() => onGoStage('lines')}>Go to the lines</Button>} />
         </SectionCard>
       );
-  } else if (stage.stageKey === 'blanks') {
-    // Blanks belong to ONE line, like the layout that follows them.
+  } else if (stage.stageKey === 'cut_pieces') {
+    // Cut pieces belong to ONE line, like the layout that follows them.
     body = line
       ? <BlanksPanel key={line.lineId} lineId={line.lineId} canManage={isPermitted('cf_erp_orders_manage')} onChanged={onReloadAll} />
       : (
-        <SectionCard title="Cut plates">
-          <EmptyState icon={<GridViewRounded />} title="No lines yet" hint="Parts are pooled into blanks for a line, so add one first."
+        <SectionCard title="Cut pieces">
+          <EmptyState icon={<GridViewRounded />} title="No lines yet" hint="Parts are pooled into cut pieces for a line, so add one first."
             action={<Button variant="contained" onClick={() => onGoStage('lines')}>Go to the lines</Button>} />
         </SectionCard>
       );

@@ -6,8 +6,8 @@ import { Badge, EmptyState, ErrorNotice, Mono, SectionCard } from '../ui';
 import { useToast } from '../toastContext';
 
 /**
- * The Cut plates stage: pooling a line's plate parts into the blanks they are
- * cut from.
+ * The Cut pieces stage: pooling a line's plate parts into the rectangles they
+ * are cut from.
  *
  * WHY THIS IS A SCREEN OF ITS OWN AND NOT A CORNER OF NESTING.
  *
@@ -64,7 +64,7 @@ export function BlanksPanel({ lineId, canManage, onChanged }: {
     try {
       const out = await cfApi.post<{ cutPlates?: Blank[]; created?: number }>(`/order-lines/${lineId}/cut-plates`, {});
       setBlanks(out.cutPlates ?? []);
-      toast.success(`${(out.cutPlates ?? []).length} cut plates pooled from this line's parts.`);
+      toast.success(`${(out.cutPlates ?? []).length} cut pieces pooled from this line's parts.`);
       onChanged?.();
     } catch (e) {
       // CfApiError carries the backend's whole problems list, which is how every
@@ -79,10 +79,10 @@ export function BlanksPanel({ lineId, canManage, onChanged }: {
 
   return (
     <SectionCard
-      title="Cut plates"
+      title="Cut pieces"
       action={canManage ? (
         <Button variant="contained" startIcon={<ContentCutRounded />} disabled={busy} onClick={() => void derive()}>
-          {blanks && blanks.length ? 'Derive again' : 'Derive cut plates'}
+          {blanks && blanks.length ? 'Derive again' : 'Derive cut pieces'}
         </Button>
       ) : undefined}
     >
@@ -91,7 +91,7 @@ export function BlanksPanel({ lineId, canManage, onChanged }: {
       {blanks && blanks.length === 0 && !error ? (
         <EmptyState
           icon={<ContentCutRounded />}
-          title="No blanks yet"
+          title="No cut pieces yet"
           hint="Parts of the same thickness, length, width and grade are cut as one batch off one plate. Deriving pools them into those rectangles, which is what nesting lays out."
         />
       ) : null}
