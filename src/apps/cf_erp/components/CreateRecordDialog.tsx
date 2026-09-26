@@ -10,6 +10,8 @@ import { toInputString } from '../lib/tree';
 import { ClassificationPicker } from './ClassificationPicker';
 import { SpecsTable } from './SpecsTable';
 import { CapsLabel, ErrorNotice, Mono, Surface } from './ui';
+import { ShortNameField } from './ShortNameField';
+import { shortNameBody } from '../lib/shortName';
 import { DialogHeader } from './FormDialog';
 
 /**
@@ -81,6 +83,7 @@ export function CreateRecordDialog({ open, onClose, onCreated, recordKind, tree,
   const [name, setName] = useState('');
   const [code, setCode] = useState('');
   const [shortName, setShortName] = useState('');
+  const [noShortName, setNoShortName] = useState(false);
   const [description, setDescription] = useState('');
   const [revision, setRevision] = useState('');
   const [uom, setUom] = useState('nos');
@@ -116,6 +119,7 @@ export function CreateRecordDialog({ open, onClose, onCreated, recordKind, tree,
     setDefinitionType(copyFrom?.definition?.definitionType ?? 'template');
     setClassificationId(copyFrom?.classificationId ?? initialClassificationId ?? null);
     setShortName(copyFrom?.shortName ?? '');
+    setNoShortName(copyFrom?.shortName === '');
     setDescription(copyFrom?.description ?? '');
     setRevision(copyFrom?.revision ?? '');
     setUom(copyFrom?.item?.uom ?? 'nos');
@@ -178,7 +182,7 @@ export function CreateRecordDialog({ open, onClose, onCreated, recordKind, tree,
     const accepted = res ? new Set(res.specs.filter((s) => typeable(s, res.mode)).map((s) => s.spec.id)) : null;
     const sending = accepted ? valueList.filter((v) => accepted.has(v.specificationId)) : valueList;
     const common = {
-      classificationId, name: name || null, code: code || null, shortName: shortName || null,
+      classificationId, name: name || null, code: code || null, ...shortNameBody(shortName, noShortName),
       description: description || null, revision: revision || null, status, values: sending,
     };
     try {
@@ -270,8 +274,8 @@ export function CreateRecordDialog({ open, onClose, onCreated, recordKind, tree,
           <TextField label="Code" value={code} onChange={(e) => setCode(e.target.value)} placeholder={preview?.code?.text ?? ''}
             helperText={copyFrom ? 'Generated — a code is unique per record' : 'Leave empty to use the coding rule'}
             inputProps={{ style: { fontFamily: 'var(--font-mono)' } }} />
-          <TextField label="Short name" value={shortName} onChange={(e) => setShortName(e.target.value)} placeholder="WEB" helperText="The stock and WIP codes are built from this"
-            inputProps={{ style: { fontFamily: 'var(--font-mono)', textTransform: 'uppercase' } }} />
+          <ShortNameField value={shortName} none={noShortName} onChange={(n) => { setShortName(n.value); setNoShortName(n.none); }}
+            helperText="Codes are built from this — empty falls back to the template’s, then the first word of the name" />
           {isItem && (
             <>
               <TextField select label="Tracked by" value={trackedBy} onChange={(e) => setTrackedBy(e.target.value as typeof trackedBy)}

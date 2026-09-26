@@ -23,6 +23,8 @@ import { invalidateNavCounts } from '../hooks/useNavCounts';
 import { useUrlParam } from '../hooks/useUrlState';
 import { appPath } from '../navMeta';
 import { Badge, DetailSkeleton, ErrorNotice, Fact, KindChip, Mono, RuleBadge, SectionCard, SkeletonRows, StatusBadge } from '../components/ui';
+import { ShortNameField } from '../components/ShortNameField';
+import { shortNameBody, shortNameText } from '../lib/shortName';
 import { CrossLink, DetailHeader, DetailLayout } from '../components/DetailLayout';
 import { EntityList, EntityRow } from '../components/EntityList';
 import { FormDialog } from '../components/FormDialog';
@@ -58,7 +60,7 @@ function DetailsForm({ record, tree, canEdit, onSaved, onTreeChanged }: {
   record: MasterRecord; tree: Tree | null; canEdit: boolean; onSaved: (r: MasterRecord) => void; onTreeChanged: () => void;
 }) {
   const [form, setForm] = useState({
-    name: record.name, description: record.description ?? '', code: record.code ?? '', shortName: record.shortName ?? '', classificationId: record.classificationId,
+    name: record.name, description: record.description ?? '', code: record.code ?? '', shortName: record.shortName ?? '', noShortName: record.shortName === '', classificationId: record.classificationId,
     uom: record.item?.uom ?? '', trackedBy: record.item?.trackedBy ?? 'quantity', sourcing: record.item?.sourcing ?? 'stock',
     selectionMode: record.definition?.selectionMode ?? 'allowed_list', candidateClassificationId: record.definition?.candidateClassificationId ?? null,
     defaultFlowId: record.defaultFlowId ?? null,
@@ -70,7 +72,7 @@ function DetailsForm({ record, tree, canEdit, onSaved, onTreeChanged }: {
   const save = async () => {
     setBusy(true);
     setError(null);
-    const body: Record<string, unknown> = { name: form.name, description: form.description || null, shortName: form.shortName || null };
+    const body: Record<string, unknown> = { name: form.name, description: form.description || null, ...shortNameBody(form.shortName, form.noShortName) };
     if (record.status === 'draft') body.code = form.code || null;
     if (!isTemp) body.classificationId = form.classificationId;
     if (record.item) { body.uom = form.uom; body.trackedBy = form.trackedBy; if (!isTemp) body.sourcing = form.sourcing; }
@@ -86,8 +88,8 @@ function DetailsForm({ record, tree, canEdit, onSaved, onTreeChanged }: {
           error={!form.name.trim()} helperText={!form.name.trim() ? 'A name is required.' : ' '} />
         <TextField label="Code" value={form.code} disabled={record.status !== 'draft'} onChange={(e) => setForm({ ...form, code: e.target.value })}
           helperText={record.status === 'draft' ? 'Editable while draft' : 'Fixed once active — documents may carry it'} inputProps={{ style: { fontFamily: 'var(--font-mono)' } }} />
-        <TextField label="Short name" value={form.shortName} onChange={(e) => setForm({ ...form, shortName: e.target.value })}
-          helperText="The stock and WIP codes are built from this. Editable at any status." inputProps={{ style: { fontFamily: 'var(--font-mono)', textTransform: 'uppercase' } }} />
+        <ShortNameField value={form.shortName} none={form.noShortName} onChange={(n) => setForm({ ...form, shortName: n.value, noShortName: n.none })}
+          helperText="Codes are built from this. Editable at any status — codes already made keep theirs." />
         <TextField label="Description" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} multiline sx={{ gridColumn: '1 / -1' }} />
         <Box sx={{ gridColumn: '1 / -1' }}>
           <ClassificationPicker tree={tree} value={form.classificationId} onChange={(id) => id && setForm({ ...form, classificationId: id })} disabled={isTemp}
@@ -236,7 +238,7 @@ export default function RecordDetail({ recordKind }: { recordKind: 'item' | 'def
       )}
       facts={(
         <>
-          <Fact label="Short name"><Mono>{r.shortName ?? '—'}</Mono></Fact>
+          <Fact label="Short name"><Mono>{shortNameText(r.shortName)}</Mono></Fact>
           <Fact label="Revision"><Mono>{r.revision ?? '—'}</Mono></Fact>
           {r.item && <Fact label="Tracked by">{r.item.trackedBy} <Mono muted>· {r.item.uom}</Mono></Fact>}
           {r.item && r.item.itemType === 'catalog' && <Fact label="Comes from">{SOURCING_LABEL[r.item.sourcing]}</Fact>}

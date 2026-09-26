@@ -14,6 +14,7 @@ import { invalidateNavCounts } from '../hooks/useNavCounts';
 import { SOURCING_LABEL } from '../lib/records';
 import { appPath } from '../navMeta';
 import { EmptyState, ErrorNotice, KindChip, Mono, PageHeader, StatStrip, StatusBadge } from '../components/ui';
+import { shortNameText } from '../lib/shortName';
 import { DataTable, type DataColumn } from '../components/DataTable';
 import { FacetChip, FilterBar } from '../components/FilterBar';
 import { ClassificationLevelFilter } from '../components/ClassificationLevelFilter';
@@ -82,7 +83,7 @@ function columnsFor(recordKind: 'item' | 'definition'): DataColumn<MasterRecord>
         </Box>
       ),
     },
-    { key: 'shortName', header: 'Short name', defaultHidden: true, render: (r) => r.shortName ? <Mono>{r.shortName}</Mono> : <Mono muted>—</Mono>, sortValue: (r) => r.shortName },
+    { key: 'shortName', header: 'Short name', defaultHidden: true, render: (r) => (r.shortName != null ? <Mono>{shortNameText(r.shortName)}</Mono> : <Mono muted>—</Mono>), sortValue: (r) => r.shortName },
     { key: 'kind', header: 'Kind', render: (r) => <KindChip kind={r.kind} />, sortValue: (r) => r.kind },
     { key: 'classification', header: 'Classification', render: (r) => r.classificationName, sortValue: (r) => r.classificationName },
     recordKind === 'item'
