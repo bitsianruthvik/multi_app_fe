@@ -26,6 +26,7 @@ import { ValuesPanel } from '../Values/ValuesPanel';
 import { VALUES_WRITE_PERMISSIONS } from '../Values/valuesModel';
 import { ReleaseView } from '../ReleaseView';
 import { ReleaseDialog } from '../TrackerDialogs';
+import { PieceCodesCard } from '../Production/PieceCodesCard';
 import { OrderLinesPanel } from '../OrderLinesPanel';
 import { useToast } from '../toastContext';
 import { BlockerList, StageStateBadge } from './stageUi';
@@ -219,6 +220,8 @@ function ProductionPanel({ stage, line, order, production, productionError, onRe
               : <EmptyState icon={<PrecisionManufacturingRounded />} title="No lines yet" hint="Add a line before anything can be made." />}
           </SectionCard>
         )}
+      {/* Until the line is released, the codes release will give its pieces — read-only, loaded on request. */}
+      {!release && line?.item && <PieceCodesCard key={line.lineId} lineId={line.lineId} lineNo={line.lineNo} />}
       <ReleaseDialog
         line={releasing ? { id: releasing.id, lineNo: releasing.lineNo, label: `${releasing.item?.code ?? releasing.item?.name ?? 'This line'} ×${releasing.quantity}` } : null}
         onClose={() => setReleasing(null)}
