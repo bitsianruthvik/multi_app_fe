@@ -22,15 +22,22 @@ import { useToast } from '../toastContext';
  * blanks and the packer would find nothing to lay out.
  */
 
+/**
+ * One cut piece as `GET /order-lines/:id/cut-plates` returns it — the shape of
+ * cutPlateService.describe(). The sizes are NESTED under `size`; an earlier
+ * version of this panel read them flat and every column came out as a dash.
+ */
 type Blank = {
   id: number;
   code: string | null;
   name: string | null;
-  thickness: number | null;
-  length: number | null;
-  width: number | null;
-  grade: string | null;
-  pieces: number | null;
+  size: { thickness: number | null; length: number | null; width: number | null; grade: string | null };
+  partCount: number;
+  plate: { id: number; code: string | null; name: string | null } | null;
+  plateQuantity: number | null;
+  /** 'nesting' once an accepted layout owns the quantity; otherwise how the placeholder was worked out. */
+  plateQuantityBasis: string | null;
+  note: string | null;
 };
 
 const mm = (v: number | null | undefined) => (v == null ? '—' : String(Math.round(Number(v))));
@@ -75,7 +82,9 @@ export function BlanksPanel({ lineId, canManage, onChanged }: {
     }
   };
 
-  const total = (blanks ?? []).reduce((a, b) => a + (Number(b.pieces) || 0), 0);
+  const parts = (blanks ?? []).reduce((a, b) => a + (Number(b.partCount) || 0), 0);
+  const nested = (blanks ?? []).length > 0 && (blanks ?? []).every((b) => b.plateQuantityBasis === 'nesting');
+  const qty = (v: number | null) => (v == null ? '—' : Number(v).toFixed(4));
 
   return (
     <SectionCard
@@ -100,11 +109,16 @@ export function BlanksPanel({ lineId, canManage, onChanged }: {
         <>
           <Stack direction="row" spacing={3} sx={{ mb: 2, flexWrap: 'wrap' }}>
             <Typography variant="body2" color="text.secondary">
-              <Mono>{blanks.length}</Mono> rectangles · <Mono>{total}</Mono> pieces
+              <Mono>{blanks.length}</Mono> rectangles pooled from <Mono>{parts}</Mono> parts
             </Typography>
-            <Badge family="info" label="Quantities are an area fraction until nesting replaces them" />
+            {nested
+              ? <Badge family="success" label="Plate quantities come from the accepted nesting" />
+              : <Badge family="info" label="Plate quantities are an area fraction until nesting replaces them" />}
           </Stack>
-          <Box component="table" sx={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
+          {/* The table scrolls inside its card, never the page: CF screens are held to no
+              sideways overflow at 1024 and 390 px, and eight columns do not fit a phone. */}
+          <Box sx={{ overflowX: 'auto', maxWidth: '100%' }}>
+          <Box component="table" sx={{ width: '100%', minWidth: 720, borderCollapse: 'collapse', fontSize: 14, whiteSpace: 'nowrap' }}>
             <Box component="thead">
               <Box component="tr" sx={{ textAlign: 'left', color: 'text.secondary' }}>
                 <Box component="th" sx={{ py: 0.5 }}>Code</Box>
@@ -112,21 +126,26 @@ export function BlanksPanel({ lineId, canManage, onChanged }: {
                 <Box component="th">Length</Box>
                 <Box component="th">Width</Box>
                 <Box component="th">Grade</Box>
-                <Box component="th" sx={{ textAlign: 'right' }}>Pieces</Box>
+                <Box component="th" sx={{ textAlign: 'right' }} title="How many different parts are cut to this rectangle">Parts</Box>
+                <Box component="th" sx={{ pl: 2 }}>Cut from</Box>
+                <Box component="th" sx={{ textAlign: 'right' }} title="Plates per rectangle">Plate qty</Box>
               </Box>
             </Box>
             <Box component="tbody">
               {blanks.map((b) => (
                 <Box component="tr" key={b.id} sx={{ borderTop: '1px solid', borderColor: 'divider' }}>
                   <Box component="td" sx={{ py: 0.5 }}><Mono>{b.code ?? '—'}</Mono></Box>
-                  <Box component="td"><Mono>{mm(b.thickness)}</Mono></Box>
-                  <Box component="td"><Mono>{mm(b.length)}</Mono></Box>
-                  <Box component="td"><Mono>{mm(b.width)}</Mono></Box>
-                  <Box component="td">{b.grade ?? '—'}</Box>
-                  <Box component="td" sx={{ textAlign: 'right' }}><Mono>{b.pieces ?? '—'}</Mono></Box>
+                  <Box component="td"><Mono>{mm(b.size?.thickness)}</Mono></Box>
+                  <Box component="td"><Mono>{mm(b.size?.length)}</Mono></Box>
+                  <Box component="td"><Mono>{mm(b.size?.width)}</Mono></Box>
+                  <Box component="td">{b.size?.grade ?? '—'}</Box>
+                  <Box component="td" sx={{ textAlign: 'right' }}><Mono>{b.partCount}</Mono></Box>
+                  <Box component="td" sx={{ pl: 2 }}><Mono>{b.plate?.code ?? '—'}</Mono></Box>
+                  <Box component="td" sx={{ textAlign: 'right' }} title={b.note ?? undefined}><Mono>{qty(b.plateQuantity)}</Mono></Box>
                 </Box>
               ))}
             </Box>
+          </Box>
           </Box>
         </>
       ) : null}
