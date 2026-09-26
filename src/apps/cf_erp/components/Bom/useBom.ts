@@ -42,6 +42,22 @@ export function useBom(source: BomSource, { whereUsed = false, onChanged }: { wh
   const recordId = source.kind === 'record' ? source.recordId : null;
   const lineId = source.kind === 'orderLine' ? source.lineId : null;
   const view = useLoad(() => (recordId == null ? Promise.resolve(null) : cfApi.get<BomView>(`/records/${recordId}/bom`)), [recordId]);
+  /*
+   * THE WHOLE TREE, NOT JUST THE FIRST LEVEL.
+   *
+   * `/bom` answers for the record's OWN lines — the ones this tab can change —
+   * and carries the facts about that BOM (its type, status, revision, what it
+   * may hold). It does not say what the children are made of, so a catalog item
+   * built from other catalog items showed its inputs as dead ends.
+   *
+   * `/bom/tree` is the same explosion an order's Structure tab draws, down to
+   * the leaves, in the same node shape. So the tree comes from there and the
+   * facts about the root BOM still come from `/bom`. Nothing about editing
+   * changes: BomPanel only offers changes on the root and on an order's own
+   * temporary items, so a sub-BOM that belongs to another record is drawn but
+   * stays read-only here — it is changed on that record, with that record's grant.
+   */
+  const tree = useLoad(() => (recordId == null ? Promise.resolve(null) : cfApi.get<Explosion>(`/records/${recordId}/bom/tree`)), [recordId]);
   const structure = useLoad(() => (lineId == null ? Promise.resolve(null) : cfApi.get<LineStructure>(`/order-lines/${lineId}/structure`)), [lineId]);
   // Only the record's own tab asks the question, so nothing else pays for it.
   const used = useLoad(() => (recordId == null || !whereUsed ? Promise.resolve(null) : cfApi.get<WhereUsedRow[]>(`/records/${recordId}/where-used`)), [recordId, whereUsed]);
@@ -69,7 +85,9 @@ export function useBom(source: BomSource, { whereUsed = false, onChanged }: { wh
       }
       : v
         ? {
-          ...bomAsTree(v),
+          // The full explosion once it has landed; until then the first level from
+          // `/bom`, so the tab never opens empty.
+          ...(tree.data ?? bomAsTree(v)),
           bomType: v.bomType,
           canHaveBom: v.canHaveBom,
           allowedChildKinds: v.allowedChildKinds,
@@ -84,9 +102,9 @@ export function useBom(source: BomSource, { whereUsed = false, onChanged }: { wh
       ...common,
       frozen: common.root.status === 'obsolete' || !!(common.order && LOCKED_ORDER.includes(common.order.status)) || common.released,
     };
-  }, [v, s]);
+  }, [v, s, tree.data]);
 
-  const reload = () => { view.reload(); structure.reload(); used.reload(); onChanged?.(); };
+  const reload = () => { view.reload(); tree.reload(); structure.reload(); used.reload(); onChanged?.(); };
 
   /**
    * A change to the BOM itself — its status or its revision. The answer is the
@@ -98,6 +116,8 @@ export function useBom(source: BomSource, { whereUsed = false, onChanged }: { wh
     try {
       const fresh = await cfApi.post<BomView>(`/records/${state.root.id}/bom/${path}`, body);
       view.setData(fresh);
+      // A new revision can change the lines, and the tree is drawn from `/bom/tree`.
+      tree.reload();
       structure.reload();
       onChanged?.();
       return true;
@@ -112,7 +132,7 @@ export function useBom(source: BomSource, { whereUsed = false, onChanged }: { wh
     whereUsed: used.data ?? [],
     whereUsedError: used.error,
     reloadWhereUsed: used.reload,
-    error: view.error ?? structure.error,
+    error: view.error ?? structure.error ?? tree.error,
     loading: view.loading || structure.loading,
     actionError,
     reload,

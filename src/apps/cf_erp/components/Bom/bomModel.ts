@@ -103,7 +103,9 @@ export function bomAsTree(b: BomView): Explosion {
     selection: l.selection,
     resolved: l.resolved,
     flow: l.effectiveFlow,
-    // Whether the child has a BOM of its own is known, but not its lines — and
+    // Only the FIRST level is known from `/bom`. This shape is now the fallback
+    // that fills the tab while `/bom/tree` is on its way — useBom swaps in the
+    // full explosion as soon as it lands. Until then no chevron is drawn, because
     // a chevron that opens nothing is worse than none.
     bom: null,
     children: [],
