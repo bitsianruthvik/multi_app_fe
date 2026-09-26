@@ -21,10 +21,23 @@ export class CfApiError extends Error {
   }
 }
 
-function toCfError(err: unknown): CfApiError {
+/*
+ * A WRITE THAT TIMES OUT MAY STILL FINISH. The browser gives up; the server does
+ * not — the request runs on in its transaction and commits. "The server took too
+ * long" read as "nothing happened", so people pressed the button again and got
+ * two of everything (2026-09-26: an order line added twice, 62 temporary items
+ * each). A timed-out write says so, and says to reload first.
+ */
+const TIMED_OUT_READ = 'The server took too long to answer.';
+const TIMED_OUT_WRITE = 'The server took too long to answer. It may still finish — reload before trying again.';
+
+function toCfError(err: unknown, method: Method = 'GET'): CfApiError {
   const text = err instanceof Error ? err.message : String(err);
   const m = /^API request failed: (\d{3})[^-]*- ([\s\S]*)$/.exec(text);
-  if (!m) return new CfApiError(0, text.includes('timed out') ? 'The server took too long to answer.' : 'Could not reach the server.');
+  if (!m) {
+    if (!text.includes('timed out')) return new CfApiError(0, 'Could not reach the server.');
+    return new CfApiError(0, method === 'GET' ? TIMED_OUT_READ : TIMED_OUT_WRITE, 'TIMED_OUT');
+  }
   const status = Number(m[1]);
   try {
     const body = JSON.parse(m[2]);
@@ -40,19 +53,35 @@ function base(): string {
   return `/api/${company}/cf_erp`;
 }
 
-async function call<T>(method: 'GET' | 'POST' | 'PUT' | 'DELETE', path: string, body?: unknown): Promise<T> {
+type Method = 'GET' | 'POST' | 'PUT' | 'DELETE';
+
+/**
+ * How long a write that builds a whole structure may take: putting a template on
+ * an order copies its Template BOM beneath it, and edit mode can paste a girder
+ * line. On production every database round trip is ~49 ms away, so these can
+ * run past the platform's 30 s default — and a request abandoned there still
+ * commits. Pass it as `{ timeoutMs: LONG_WRITE_MS }`.
+ */
+export const LONG_WRITE_MS = 5 * 60 * 1000;
+
+export interface CallOptions {
+  /** Wait this long before giving up; the platform default is 30 s. */
+  timeoutMs?: number;
+}
+
+async function call<T>(method: Method, path: string, body?: unknown, opts: CallOptions = {}): Promise<T> {
   try {
-    return await apiFetch<T>(`${base()}${path}`, { method, body });
+    return await apiFetch<T>(`${base()}${path}`, { method, body, ...(opts.timeoutMs ? { timeout: opts.timeoutMs } : {}) });
   } catch (err) {
-    throw toCfError(err);
+    throw toCfError(err, method);
   }
 }
 
 export const cfApi = {
-  get: <T>(path: string) => call<T>('GET', path),
-  post: <T>(path: string, body?: unknown) => call<T>('POST', path, body ?? {}),
-  put: <T>(path: string, body?: unknown) => call<T>('PUT', path, body ?? {}),
-  del: <T>(path: string) => call<T>('DELETE', path),
+  get: <T>(path: string, opts?: CallOptions) => call<T>('GET', path, undefined, opts),
+  post: <T>(path: string, body?: unknown, opts?: CallOptions) => call<T>('POST', path, body ?? {}, opts),
+  put: <T>(path: string, body?: unknown, opts?: CallOptions) => call<T>('PUT', path, body ?? {}, opts),
+  del: <T>(path: string, opts?: CallOptions) => call<T>('DELETE', path, undefined, opts),
 };
 
 /** Query string from an object, skipping empty values. */

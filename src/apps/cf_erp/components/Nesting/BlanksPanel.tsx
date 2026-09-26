@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Box, Button, Stack, Typography } from '@mui/material';
 import ContentCutRounded from '@mui/icons-material/ContentCutRounded';
-import { cfApi, CfApiError } from '../../api/client';
+import { cfApi, CfApiError, LONG_WRITE_MS } from '../../api/client';
 import { Badge, EmptyState, ErrorNotice, Mono, SectionCard } from '../ui';
 import { useToast } from '../toastContext';
 
@@ -69,7 +69,7 @@ export function BlanksPanel({ lineId, canManage, onChanged }: {
     setBusy(true);
     setError(null);
     try {
-      const out = await cfApi.post<{ cutPlates?: Blank[]; created?: number }>(`/order-lines/${lineId}/cut-plates`, {});
+      const out = await cfApi.post<{ cutPlates?: Blank[]; created?: number }>(`/order-lines/${lineId}/cut-plates`, {}, { timeoutMs: LONG_WRITE_MS });
       setBlanks(out.cutPlates ?? []);
       toast.success(`${(out.cutPlates ?? []).length} cut pieces pooled from this line's parts.`);
       onChanged?.();

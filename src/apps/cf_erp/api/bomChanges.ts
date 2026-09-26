@@ -1,5 +1,4 @@
-import { apiFetch } from '@core/api/client';
-import { CfApiError } from './client';
+import { cfApi, LONG_WRITE_MS } from './client';
 
 /**
  * Edit mode's one request: many changes to the structure on one BOM screen,
@@ -76,32 +75,6 @@ export interface BomChangesResponse {
  * platform's default 30 s timeout would give up on a save that then commits,
  * and a person who saves again gets two copies. So this call waits longer.
  */
-const TIMEOUT_MS = 5 * 60 * 1000;
-
-/**
- * The same error shape cfApi gives (api/client.ts `toCfError`, which is not
- * exported): apiFetch reports a failure as text, and the `problems` list in it
- * is the whole point of a refusal.
- */
-function toCfError(err: unknown): CfApiError {
-  const text = err instanceof Error ? err.message : String(err);
-  const m = /^API request failed: (\d{3})[^-]*- ([\s\S]*)$/.exec(text);
-  if (!m) return new CfApiError(0, text.includes('timed out') ? 'The server took too long to answer. The save may still finish — reload before trying again.' : 'Could not reach the server.');
-  const status = Number(m[1]);
-  try {
-    const body = JSON.parse(m[2]);
-    return new CfApiError(status, body.message ?? 'Something went wrong.', body.code, Array.isArray(body.problems) ? body.problems : []);
-  } catch {
-    return new CfApiError(status, status === 403 ? 'You do not have permission for this.' : 'Something went wrong.');
-  }
-}
-
-export async function postBomChanges(body: BomChangesRequest): Promise<BomChangesResponse> {
-  // The company slug from the URL, as cfApi does; the backend takes the company from the token.
-  const company = window.location.pathname.split('/').filter(Boolean)[0] ?? '';
-  try {
-    return await apiFetch<BomChangesResponse>(`/api/${company}/cf_erp/bom-changes`, { method: 'POST', body, timeout: TIMEOUT_MS });
-  } catch (err) {
-    throw toCfError(err);
-  }
+export function postBomChanges(body: BomChangesRequest): Promise<BomChangesResponse> {
+  return cfApi.post<BomChangesResponse>('/bom-changes', body, { timeoutMs: LONG_WRITE_MS });
 }

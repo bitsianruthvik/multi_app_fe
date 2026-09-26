@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Autocomplete, Box, MenuItem, TextField, Typography } from '@mui/material';
-import { cfApi } from '../api/client';
+import { cfApi, LONG_WRITE_MS } from '../api/client';
 import type { OperationDetail, ProductionStep, Release, ReleaseCheck, Shipment } from '../api/types';
 import { useLoad } from '../hooks/useLoad';
 import { PURPOSE_LABEL, qtyText } from '../lib/inventory';
@@ -25,7 +25,7 @@ export function ReleaseDialog({ line, onClose, onReleased }: {
   // A different line starts from its own check, so drop the old answer first.
   useEffect(() => { setAreaId(''); }, [line?.id]);
   useEffect(() => { if (c?.finishedArea) setAreaId(String(c.finishedArea.id)); }, [c]);
-  const save = async () => { if (line) onReleased(await cfApi.post<Release>(`/order-lines/${line.id}/release`, { finishedAreaId: Number(areaId) || null })); };
+  const save = async () => { if (line) onReleased(await cfApi.post<Release>(`/order-lines/${line.id}/release`, { finishedAreaId: Number(areaId) || null }, { timeoutMs: LONG_WRITE_MS })); };
   return (
     <FormDialog open={!!line} title={`Release line ${line?.lineNo ?? ''} to production`} onClose={onClose} onSubmit={save}
       submitLabel="Release" busyLabel="Releasing…" submitDisabled={!c?.ok || !areaId} maxWidth="md"

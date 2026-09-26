@@ -13,7 +13,7 @@ import ScaleRounded from '@mui/icons-material/ScaleRounded';
 import DeleteSweepRounded from '@mui/icons-material/DeleteSweepRounded';
 import PanToolRounded from '@mui/icons-material/PanToolRounded';
 import LightbulbOutlined from '@mui/icons-material/LightbulbOutlined';
-import { cfApi, type CfApiError } from '../../api/client';
+import { cfApi, LONG_WRITE_MS, type CfApiError } from '../../api/client';
 import type {
   Nest, NestCutPlate, NestGroup, NestingAccepted, NestingPlan,
 } from '../../api/types';
@@ -54,6 +54,14 @@ import { PlateDrawing } from './PlateDrawing';
  * Counting, in the words the API uses: COUNT LOTS FOR PLATES, SUM PLACEMENTS
  * FOR PIECES. One lot is one physical plate; one placement is one piece on it.
  */
+
+/**
+ * How long a proposal may take. The packer stops by iteration count, and each
+ * steel group may run up to its effort's cap (Standard 5 min, Deep 10 —
+ * nestingPacker EFFORT); production has one CPU, so groups can queue. A
+ * proposal writes nothing, but one abandoned at 30 s is a screen that never answers.
+ */
+const NESTING_PLAN_MS = 11 * 60 * 1000;
 
 /** How many plates a steel group draws before it asks. A line can hold a hundred. */
 const FIRST_PLATES = 4;
@@ -247,7 +255,7 @@ export function NestingPanel({ orderId, lineId, canManage, onChanged }: {
   const propose = async () => {
     setBusy('plan'); setActionError(null);
     try {
-      const out = await cfApi.post<NestingPlan>(`${path}/plan`, { effort });
+      const out = await cfApi.post<NestingPlan>(`${path}/plan`, { effort }, { timeoutMs: NESTING_PLAN_MS });
       setProposal(out);
       setOpenGroup(out.groups.find((g) => g.nests.length)?.key ?? null);
       toast.success(`${out.totals.plates} plates, ${out.totals.pieces} pieces. Nothing is written until you accept it.`);
@@ -258,7 +266,7 @@ export function NestingPanel({ orderId, lineId, canManage, onChanged }: {
     if (!proposal) return;
     setBusy('accept'); setActionError(null);
     try {
-      const out = await cfApi.post<NestingAccepted>(`${path}/accept`, acceptBody(proposal));
+      const out = await cfApi.post<NestingAccepted>(`${path}/accept`, acceptBody(proposal), { timeoutMs: LONG_WRITE_MS });
       setProposal(null);
       saved.reload();
       onChanged?.();

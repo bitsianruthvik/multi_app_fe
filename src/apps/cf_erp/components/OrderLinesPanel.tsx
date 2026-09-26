@@ -6,7 +6,7 @@ import EditRounded from '@mui/icons-material/EditRounded';
 import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
 import AccountTreeRounded from '@mui/icons-material/AccountTreeRounded';
 import RocketLaunchRounded from '@mui/icons-material/RocketLaunchRounded';
-import { cfApi } from '../api/client';
+import { cfApi, LONG_WRITE_MS } from '../api/client';
 import type { MasterRecord, SalesOrder, SalesOrderLine } from '../api/types';
 import { useCompanySlug } from '../hooks/useLoad';
 import { useIsPermitted } from '../hooks/useIsPermitted';
@@ -28,7 +28,8 @@ function AddLineDialog({ order, open, onClose, onDone }: { order: SalesOrder; op
   const [form, setForm] = useState({ quantity: '1', committedDate: '', description: '' });
   useEffect(() => { if (open) { setRec(null); setForm({ quantity: '1', committedDate: '', description: '' }); } }, [open]);
   const stock = order.orderType === 'stock';
-  const save = async () => onDone(await cfApi.post<SalesOrder>(`/orders/${order.id}/lines`, { recordId: rec?.id ?? null, quantity: form.quantity, committedDate: form.committedDate || null, description: form.description || null }));
+  // A template line copies its whole Template BOM beneath it — long on production, so wait for it.
+  const save = async () => onDone(await cfApi.post<SalesOrder>(`/orders/${order.id}/lines`, { recordId: rec?.id ?? null, quantity: form.quantity, committedDate: form.committedDate || null, description: form.description || null }, { timeoutMs: LONG_WRITE_MS }));
   const hint = rec?.kind === 'template'
     ? `Creates the temporary item this line sells from ${rec.code ?? rec.name}, with its whole Template BOM copied beneath it — as drafts.`
     : rec?.kind === 'catalog' ? 'A standard line: the catalog item as it is, with its Standard BOM if it has one.'

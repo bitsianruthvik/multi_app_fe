@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Alert, Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, TextField, Typography } from '@mui/material';
-import { cfApi, CfApiError } from '../api/client';
+import { cfApi, CfApiError, LONG_WRITE_MS } from '../api/client';
 import type { Kind, MasterRecord } from '../api/types';
 import { useIsPermitted } from '../hooks/useIsPermitted';
 import { bomPermission } from '../lib/orders';
@@ -44,7 +44,7 @@ export function AddChildDialog({
   const save = async () => {
     setBusy(true); setError(null);
     try {
-      await cfApi.post(`/records/${parentId}/bom/lines`, { childId: child?.id ?? null, quantity, role: role || null, operationFlowId: child?.kind === 'selection' ? null : flowId });
+      await cfApi.post(`/records/${parentId}/bom/lines`, { childId: child?.id ?? null, quantity, role: role || null, operationFlowId: child?.kind === 'selection' ? null : flowId }, { timeoutMs: LONG_WRITE_MS });
       setBusy(false); onDone(); onClose();
     } catch (e) { setBusy(false); setError(e as CfApiError); }
   };
