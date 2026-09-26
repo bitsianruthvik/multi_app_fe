@@ -975,8 +975,8 @@ export interface OrderProcessLine {
 }
 
 /**
- * The one object the process pop-up and the order's stage strip both render,
- * so the two cannot contradict each other (processService.orderProcess).
+ * The one object the order's stage tabs, their marks and each stage's screen
+ * all render, so they cannot contradict each other (processService.orderProcess).
  * `process: null` means no process was resolved — `reason` says why, in words,
  * and nothing else is worth drawing.
  */
@@ -1180,4 +1180,21 @@ export interface NestingAccepted {
   pieces: number;
   quantities: unknown;
   caveatCleared: string;
+}
+
+/**
+ * What POST /catalog/specifications/:id/options hands back — a value added to
+ * an option list from the item form, for the whole company. `narrowedOut`: the
+ * rule where the record sits narrows the list and does not include it, so it
+ * cannot be chosen there until Setup allows it; `message` says so in words.
+ * A duplicate is a 409 DUPLICATE_OPTION whose message names the value already
+ * there (the body's `existing` does not survive CfApiError).
+ */
+export interface AddedSpecOption {
+  specification: { id: number; code: string; name: string };
+  option: SpecOption;
+  narrowedOut: boolean;
+  /** Only when narrowed out: the values an item there may take. */
+  allowedHere?: string[];
+  message: string;
 }

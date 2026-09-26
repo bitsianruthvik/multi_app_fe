@@ -159,6 +159,7 @@ export function SpecsTable({
                         dataType={s.spec.dataType}
                         unit={s.spec.unit}
                         options={s.options}
+                        spec={s.spec} chain={resolution.chain}
                         value={drafting ? (draftValues?.[s.spec.id] ?? '') : (edits[s.spec.id] ?? '')}
                         onChange={(v) => (drafting ? onDraftChange?.(s.spec.id, v) : setEdits((m) => ({ ...m, [s.spec.id]: v })))}
                         label={s.rule.valueRule === 'defaulted' && s.value && s.value.source !== 'entered' ? `Default: ${s.value.display}` : undefined}
