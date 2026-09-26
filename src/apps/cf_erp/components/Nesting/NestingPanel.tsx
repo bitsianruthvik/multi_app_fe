@@ -20,7 +20,7 @@ import type {
 import { useLoad } from '../../hooks/useLoad';
 import {
   ACCEPT_AGAIN, ACCEPT_WHAT_HAPPENS, EFFORTS, LOOK_IS_A_LOOK, MANUAL_HELP, NO_MANAGE,
-  acceptBody, adviceSentence, adviceTitle, basisWord, colourIndex, cutOrderSentence, dedupeAdvice, kg, marginOf,
+  acceptBody, adviceSentence, adviceTitle, basisWord, colourIndex, cutOrderSentence, dedupeAdvice, driftWords, kg, marginOf,
   marginSentence, mm, mmPair, pct, pieceColour, platePieceKinds, sequenceOver, steelWord, tonnes,
   type Effort,
 } from '../../lib/nesting';
@@ -395,12 +395,12 @@ export function NestingPanel({ orderId, lineId, canManage, onChanged }: {
       )}
 
       {drift.length > 0 && (
-        <SectionCard title="The structure has moved since this plan was saved"
-          subtitle="The plan is still exactly what was agreed. These rectangles are no longer what the line needs, so somebody has to look.">
+        <SectionCard title="This layout is out of date"
+          subtitle="The structure changed after this layout was accepted, so these rectangles no longer match it. The layout is still exactly what was agreed — nest the line again so the plates it buys match what it cuts.">
           <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 0.5, minWidth: 0 }}>
             {drift.map((d) => (
               <Box key={d.cutPlateId} sx={{ fontSize: 13, overflowWrap: 'anywhere' }}>
-                <Mono>{d.code}</Mono>{` — the line needs ${d.needs}, the saved plan places ${d.placed}.`}
+                <Mono>{d.code ?? 'A cut piece'}</Mono>{driftWords(d)}
               </Box>
             ))}
           </Box>

@@ -1148,11 +1148,17 @@ export interface NestSizeAdvice {
 }
 
 /** A rectangle whose count has moved since the plan was saved. */
+/**
+ * One rectangle a saved layout no longer matches — nestingService.layoutDrift,
+ * the same rule the Nesting stage reads, so the screen and the stage agree.
+ */
 export interface NestDrift {
   cutPlateId: number;
   code: string | null;
   needs: number;
   placed: number;
+  /** count: a different number of pieces · unplaced: none laid out · gone: laid out, no longer in the structure */
+  why: 'count' | 'unplaced' | 'gone';
 }
 
 export interface NestingPlan {

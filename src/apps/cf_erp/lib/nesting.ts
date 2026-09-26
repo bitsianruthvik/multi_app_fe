@@ -1,4 +1,4 @@
-import type { Nest, NestGroup, NestPiece, NestSizeAdvice, NestingPlan } from '../api/types';
+import type { Nest, NestDrift, NestGroup, NestPiece, NestSizeAdvice, NestingPlan } from '../api/types';
 
 /**
  * Words and arithmetic for the nesting screen.
@@ -266,6 +266,16 @@ export const ACCEPT_WHAT_HAPPENS = [
   'Every piece is written down where it sits, in cut order, so the floor cuts what is on screen.',
   'The plate quantity on each cut plate stops being an area fraction and becomes this plan.',
 ];
+
+/**
+ * One out-of-date rectangle in words, after its code — the three ways a saved
+ * layout stops matching the structure (nestingService.layoutDrift).
+ */
+export function driftWords(d: NestDrift): string {
+  if (d.why === 'gone') return ` — no longer in the structure; the layout still places ${d.placed}.`;
+  if (d.why === 'unplaced') return ` — the line needs ${d.needs}, and the layout places none.`;
+  return ` — the line needs ${d.needs}, the layout places ${d.placed}.`;
+}
 
 export const ACCEPT_AGAIN = 'Accepting again replaces the whole layout — the old lots are removed, not added to.';
 
