@@ -1,4 +1,5 @@
 import type { BomType, BomView, Explosion, Kind, Resolution, ResolvedSpec, StructureNode } from '../../api/types';
+import type { BomChange } from '../../api/bomChanges';
 import { toInputString } from '../../lib/tree';
 
 /**
@@ -50,6 +51,8 @@ export interface BomRow {
   open: boolean;
   /** The BOM this line sits in — it decides which grant may change the line. */
   bomType: BomType | null;
+  /** Edit mode: a copy waiting to be saved, drawn where it will go. It has no line yet. */
+  paste?: PendingPaste;
 }
 
 /** The tree as rows, in tree order, with everything under a closed node left out. */
@@ -228,4 +231,160 @@ export function ancestorKeys(flat: FlatNode[], key: string): string[] {
   let cur = byKey.get(key)?.parentKey ?? null;
   while (cur) { keys.push(cur); cur = byKey.get(cur)?.parentKey ?? null; }
   return keys;
+}
+
+// ── Edit mode ─────────────────────────────────────────────────────────────────
+//
+// Changes pile up here and nothing reaches the server until Save sends them
+// all at once (POST /bom-changes). The rules the server applies are its own;
+// what is mirrored below is only what lets the screen say "not here" before
+// it is asked, never what decides.
+
+/** A paste waiting to be saved: a copy of one line, going under one node. */
+export interface PendingPaste {
+  /** The row's key while it is pending. */
+  key: string;
+  sourceLineId: number;
+  /** The node that was copied, as it was when Copy was pressed. */
+  source: StructureNode;
+  /** The record it goes under, and that record's node in the tree. */
+  parentId: number;
+  parentKey: string;
+  /** The text in its quantity field. */
+  quantity: string;
+}
+
+/** Everything edit mode holds, keyed by BOM line id. */
+export interface Pending {
+  /** The text typed in a line's quantity field. */
+  quantity: Record<number, string>;
+  /** The flow chosen for a line; null goes back to the way the child is usually made. */
+  flow: Record<number, number | null>;
+  remove: Record<number, true>;
+  pastes: PendingPaste[];
+}
+
+export const NO_PENDING: Pending = { quantity: {}, flow: {}, remove: {}, pastes: [] };
+
+/** A quantity as typed, or null when it is not one — the server's rule: above zero, below a billion. */
+export function parseQuantity(text: string): number | null {
+  const t = text.trim();
+  if (!t) return null;
+  const q = Number(t);
+  if (!Number.isFinite(q) || q <= 0 || q >= 1e9) return null;
+  return Number(q.toFixed(6));
+}
+
+/** The flow a line names for its child — not the one it falls back to when it names none. */
+export const lineFlowId = (node: StructureNode): number | null => (node.flow?.from === 'line' ? node.flow.id : null);
+
+const sameNumber = (a: number, b: number) => Math.abs(a - b) < 1e-9;
+
+/** Every node of the tree by its BOM line id. */
+export function nodesByLine(root: StructureNode): Map<number, StructureNode> {
+  const out = new Map<number, StructureNode>();
+  const walk = (n: StructureNode) => { if (n.lineId != null && !out.has(n.lineId)) out.set(n.lineId, n); n.children.forEach(walk); };
+  walk(root);
+  return out;
+}
+
+/**
+ * What Save sends: only what differs from what is saved. `invalid` holds the
+ * row keys whose quantity field does not hold a quantity — those cannot be
+ * sent, and Save waits for them.
+ */
+export function pendingChanges(p: Pending, byLine: Map<number, StructureNode>): { changes: BomChange[]; invalid: string[] } {
+  const changes: BomChange[] = [];
+  const invalid: string[] = [];
+  for (const pasted of p.pastes) {
+    const q = parseQuantity(pasted.quantity);
+    if (q == null) { invalid.push(pasted.key); continue; }
+    changes.push({ op: 'paste', sourceLineId: pasted.sourceLineId, parentId: pasted.parentId, ...(sameNumber(q, pasted.source.quantity) ? {} : { quantity: q }) });
+  }
+  for (const [id, text] of Object.entries(p.quantity)) {
+    const node = byLine.get(Number(id));
+    if (!node) continue;
+    const q = parseQuantity(text);
+    if (q == null) { invalid.push(node.key); continue; }
+    if (!sameNumber(q, node.quantity)) changes.push({ op: 'quantity', lineId: Number(id), quantity: q });
+  }
+  for (const [id, flowId] of Object.entries(p.flow)) {
+    const node = byLine.get(Number(id));
+    if (node && (flowId ?? null) !== lineFlowId(node)) changes.push({ op: 'flow', lineId: Number(id), flowId: flowId ?? null });
+  }
+  for (const id of Object.keys(p.remove)) if (byLine.has(Number(id))) changes.push({ op: 'remove', lineId: Number(id) });
+  return { changes, invalid };
+}
+
+/** Every key below a node (not the node itself). */
+export function keysBelow(node: StructureNode, into = new Set<string>()): Set<string> {
+  node.children.forEach((k) => { into.add(k.key); keysBelow(k, into); });
+  return into;
+}
+
+/** Temporary items under (and including) a node — what a removal deletes with it. */
+export function temporaryCount(node: StructureNode): number {
+  return (node.kind === 'temporary' ? 1 : 0) + node.children.reduce((n, k) => n + temporaryCount(k), 0);
+}
+
+/**
+ * The tree as rows in edit mode: `flattenBom`, with each pending paste drawn
+ * as the last child of the node it goes into, and every total worked out
+ * again from the quantities being typed — so "in total" answers the question
+ * while it is still being asked.
+ */
+export function flattenForEdit(root: StructureNode, open: Set<string>, pastes: PendingPaste[], qtyOf: (node: StructureNode) => number): BomRow[] {
+  const rows: BomRow[] = [];
+  const byParent = new Map<string, PendingPaste[]>();
+  for (const p of pastes) {
+    if (!byParent.has(p.parentKey)) byParent.set(p.parentKey, []);
+    byParent.get(p.parentKey)?.push(p);
+  }
+  const round = (n: number) => Number(n.toFixed(6));
+  const walk = (node: StructureNode, parent: StructureNode | null, total: number) => {
+    const own = byParent.get(node.key) ?? [];
+    const isOpen = open.has(node.key);
+    rows.push({
+      node: { ...node, total: round(total) },
+      parent,
+      hasChildren: node.children.length > 0 || own.length > 0,
+      open: isOpen,
+      bomType: parent ? bomTypeOfKind(parent.kind) : null,
+    });
+    if (!isOpen) return;
+    node.children.forEach((child) => walk(child, node, total * qtyOf(child)));
+    for (const p of own) {
+      const q = parseQuantity(p.quantity) ?? p.source.quantity;
+      rows.push({
+        node: { ...p.source, key: p.key, depth: node.depth + 1, lineId: null, lineNo: null, position: null, quantity: q, total: round(total * q), children: [] },
+        parent: node,
+        hasChildren: false,
+        open: false,
+        bomType: bomTypeOfKind(node.kind),
+        paste: p,
+      });
+    }
+  };
+  walk(root, null, root.total);
+  return rows;
+}
+
+/**
+ * Why a copied line may not go under a node, or null when it may — the
+ * server's rules (bomChangeService), asked here only so the Paste button
+ * appears where a paste can work. A Custom BOM takes a copy of anything but a
+ * template line; a Template or Standard BOM takes what it may hold; nothing
+ * goes under itself.
+ */
+export function pasteRefusal(source: StructureNode, sourceKey: string, target: StructureNode, flat: FlatNode[]): string | null {
+  const targetType = bomTypeOfKind(target.kind);
+  if (!targetType) return `${target.code ?? target.name} holds no BOM.`;
+  if (targetType === 'custom' ? source.kind === 'template' : !ALLOWED_CHILDREN[targetType].includes(source.kind)) {
+    return targetType === 'standard' ? 'A Standard BOM holds catalog items only.'
+      : targetType === 'template' ? 'A Template BOM holds catalog items and definitions — temporary items belong to one order.'
+        : 'A template becomes a temporary item when it is added — use Add line.';
+  }
+  if (target.id === source.id || target.key === sourceKey) return 'A thing cannot go under itself.';
+  if (ancestorKeys(flat, target.key).includes(sourceKey)) return `${target.code ?? target.name} is inside what was copied — a thing cannot go under itself.`;
+  return null;
 }

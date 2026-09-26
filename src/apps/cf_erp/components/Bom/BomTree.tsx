@@ -7,7 +7,7 @@ import MoreVertRounded from '@mui/icons-material/MoreVertRounded';
 import { useCompanySlug } from '../../hooks/useLoad';
 import { appPath } from '../../navMeta';
 import { recordPath } from '../../lib/paths';
-import { KindChip, Mono, StatusBadge, WarnBadge } from '../ui';
+import { Badge, KindChip, Mono, StatusBadge, WarnBadge, type Family } from '../ui';
 import { FlowTag } from '../FlowTag';
 import type { BomRow } from './bomModel';
 
@@ -21,13 +21,32 @@ const ACTION_LABEL: Record<BomAction, string> = {
   remove: 'Remove…',
 };
 
+/**
+ * How a row waiting in edit mode is marked: a stripe, a tint and a word — the
+ * word is what carries it (§6.2, never colour alone). `gone` is a row that goes
+ * because a line above it is being removed.
+ */
+export interface RowMark { tone: 'changed' | 'invalid' | 'removed' | 'gone' | 'pasted'; label: string; title?: string }
+
+const STRUCK = { textDecoration: 'line-through', color: 'var(--c-text-3)' } as const;
+const MARK: Record<RowMark['tone'], { family: Family; stripe: string | null; bg: string | null; strike: boolean }> = {
+  changed: { family: 'warning', stripe: 'var(--c-warning-600)', bg: 'var(--c-warning-50)', strike: false },
+  invalid: { family: 'danger', stripe: 'var(--c-danger-600)', bg: 'var(--c-danger-50)', strike: false },
+  removed: { family: 'danger', stripe: 'var(--c-danger-600)', bg: 'var(--c-danger-50)', strike: true },
+  gone: { family: 'neutral', stripe: null, bg: null, strike: true },
+  pasted: { family: 'info', stripe: 'var(--c-info-600)', bg: 'var(--c-info-50)', strike: false },
+};
+
 // Item · per parent · in total · values · status · the row's menu. The values
 // column is only there when the caller has values to put in it, so a tree that
-// does not read them keeps its old width.
-const COLUMNS = (values: boolean) => (values
-  ? 'minmax(0, 1fr) 84px 84px 116px 104px 44px'
-  : 'minmax(0, 1fr) 90px 90px 110px 44px');
-const rowSx = (values: boolean) => ({ display: 'grid', gridTemplateColumns: COLUMNS(values), gap: 1, px: 1.5 } as const);
+// does not read them keeps its old width. Edit mode swaps the values column
+// out and widens the last one for the row's own edit controls.
+const COLUMNS = (values: boolean, editing: boolean) => (editing
+  ? 'minmax(0, 1fr) 112px 84px 104px 132px'
+  : values
+    ? 'minmax(0, 1fr) 84px 84px 116px 104px 44px'
+    : 'minmax(0, 1fr) 90px 90px 110px 44px');
+const rowSx = (values: boolean, editing: boolean) => ({ display: 'grid', gridTemplateColumns: COLUMNS(values, editing), gap: 1, px: 1.5 } as const);
 
 /** One step of indentation, with the hairline that shows which parent a row belongs to (§4.7). */
 function Guides({ depth }: { depth: number }) {
@@ -51,9 +70,13 @@ function Guides({ depth }: { depth: number }) {
  * (its specification values) opens inside it. Selection moves on ↑ / ↓ and the
  * branch opens and closes on → / ←, because the job this tree exists for is
  * filling in a hundred nodes without reaching for the mouse.
+ *
+ * In edit mode the caller draws the quantity, the flow and the row's own
+ * controls, and marks what is waiting to be saved; the tree only lays it out.
  */
 export function BomTree({
   rows, label, actionsFor, onToggle, onAction, footer, busy = false, selectedKey = null, onSelect, valueCell, editorFor,
+  editing = false, quantityCell, flowCell, trailingCell, markOf,
 }: {
   rows: BomRow[];
   /** Something is still being read into the rows — announced rather than narrated. */
@@ -76,6 +99,16 @@ export function BomTree({
   valueCell?: (row: BomRow) => ReactNode;
   /** Opened inside the selected row, under it. */
   editorFor?: (row: BomRow) => ReactNode;
+  /** Edit mode: the columns become quantity, total, status and the row's own controls. */
+  editing?: boolean;
+  /** Edit mode: what stands in the "Per parent" column. */
+  quantityCell?: (row: BomRow) => ReactNode;
+  /** Edit mode: what stands where the flow tag is. */
+  flowCell?: (row: BomRow) => ReactNode;
+  /** Edit mode: the last column, in place of the row's menu. */
+  trailingCell?: (row: BomRow) => ReactNode;
+  /** Edit mode: how a row waiting to be saved is marked, or null. */
+  markOf?: (row: BomRow) => RowMark | null;
 }) {
   const company = useCompanySlug();
   const [menu, setMenu] = useState<{ anchor: HTMLElement; row: BomRow } | null>(null);
@@ -84,8 +117,8 @@ export function BomTree({
   // Focus follows selection only when the keys moved it, so clicking a row (or
   // jumping to the next gap, which focuses a field) does not steal it back.
   const navigating = useRef(false);
-  const withValues = !!valueCell;
-  const SX = rowSx(withValues);
+  const withValues = !!valueCell && !editing;
+  const SX = rowSx(withValues, editing);
   // A selected row can fold away under a collapsed parent, or go with a reload.
   // Without this the roving tabindex would leave no row reachable by Tab at all.
   const onScreen = rows.some((r) => r.node.key === selectedKey);
@@ -138,20 +171,22 @@ export function BomTree({
 
   return (
     <Box role="tree" aria-label={label} aria-busy={busy || undefined} sx={{ border: '1px solid var(--c-border)', borderRadius: 'var(--r-md)', background: 'var(--c-surface)', overflowX: 'auto' }}>
-      <Box sx={{ minWidth: withValues ? 820 : 720 }}>
+      <Box sx={{ minWidth: editing ? 780 : withValues ? 820 : 720 }}>
         <Box sx={{ ...SX, py: 1, borderBottom: '1px solid var(--c-divider)', color: 'var(--c-text-3)', fontSize: 12, fontWeight: 600 }}>
           <span>Item</span>
           <Box sx={{ textAlign: 'right' }}>Per parent</Box>
           <Box sx={{ textAlign: 'right' }} title="Quantity per parent, multiplied by everything above it.">In total</Box>
           {withValues && <Box title="Required specification values that are still empty. They stop the item being activated, and a draft item stops release.">Values</Box>}
           <span>Status</span>
-          <span />
+          {editing ? <Box sx={{ textAlign: 'right', pr: 0.5 }}>Edit</Box> : <span />}
         </Box>
         {rows.map((row, i) => {
           const n = row.node;
-          const actions = actionsFor(row);
+          const actions = editing ? [] : actionsFor(row);
           const selected = selectedKey === n.key;
           const editor = selected ? editorFor?.(row) : null;
+          const mark = markOf?.(row) ?? null;
+          const look = mark ? MARK[mark.tone] : null;
           return (
             <Box key={n.key} role="treeitem" aria-level={n.depth + 1} aria-expanded={row.hasChildren ? row.open : undefined}
               aria-selected={onSelect ? selected : undefined}
@@ -172,9 +207,9 @@ export function BomTree({
                 }}
                 sx={{
                   ...SX, py: 0.75, alignItems: 'center',
-                  background: selected ? 'var(--c-primary-50)' : undefined,
-                  boxShadow: selected ? 'inset 3px 0 0 var(--c-primary-600)' : undefined,
-                  '&:hover': { background: selected ? 'var(--c-primary-50)' : 'var(--c-surface-2)' },
+                  background: selected ? 'var(--c-primary-50)' : look?.bg ?? undefined,
+                  boxShadow: selected ? 'inset 3px 0 0 var(--c-primary-600)' : look?.stripe ? `inset 3px 0 0 ${look.stripe}` : undefined,
+                  '&:hover': { background: selected ? 'var(--c-primary-50)' : look?.bg ?? 'var(--c-surface-2)' },
                   ...(onSelect && { cursor: 'pointer' }),
                 }}>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, minWidth: 0 }}>
@@ -187,22 +222,26 @@ export function BomTree({
                   <Box sx={{ minWidth: 0 }}>
                     <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
                       {n.lineNo != null && <Mono muted>{n.lineNo}</Mono>}
-                      <Mono><Link to={appPath(company, recordPath(n.kind, n.id))}>{n.code ?? '—'}</Link></Mono>
+                      {/* A copy that is not saved yet has no record to link to — and will not carry this code. */}
+                      {row.paste
+                        ? <Typography component="span" sx={{ fontSize: 12, color: 'var(--c-text-2)' }}>Copy of <Mono>{n.code ?? n.name}</Mono></Typography>
+                        : <Mono sx={look?.strike ? STRUCK : undefined}><Link to={appPath(company, recordPath(n.kind, n.id))}>{n.code ?? '—'}</Link></Mono>}
                       <KindChip kind={n.kind} />
-                      <FlowTag flow={n.flow} />
+                      {flowCell ? flowCell(row) : <FlowTag flow={n.flow} />}
+                      {mark && <Badge family={look?.family ?? 'neutral'} label={mark.label} title={mark.title} noIcon={mark.tone === 'gone'} />}
                       {n.selection && !n.resolved && <WarnBadge label="Choose item" title={`Choose a catalog item for ${n.selection.code ?? n.selection.name}.`} />}
                     </Box>
-                    <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', ...(look?.strike && STRUCK) }}>
                       {n.name}{n.role ? ` · ${n.role}` : ''}{n.selection && n.resolved ? ` · for ${n.selection.code ?? n.selection.name}` : ''}
                     </Typography>
                   </Box>
                 </Box>
-                <Box sx={{ textAlign: 'right' }}><Mono>×{n.quantity}</Mono></Box>
+                <Box sx={{ textAlign: 'right', minWidth: 0 }}>{quantityCell ? quantityCell(row) : <Mono>×{n.quantity}</Mono>}</Box>
                 <Box sx={{ textAlign: 'right' }}><Mono>{n.total}</Mono>{n.uom && <Mono muted> {n.uom}</Mono>}</Box>
                 {withValues && <Box sx={{ minWidth: 0 }}>{valueCell?.(row)}</Box>}
                 <Box sx={{ minWidth: 0 }}><StatusBadge status={n.status} /></Box>
-                <Box>
-                  {actions.length > 0 && (
+                <Box sx={editing ? { display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 0.25, minWidth: 0 } : undefined}>
+                  {editing ? trailingCell?.(row) : actions.length > 0 && (
                     <Tooltip title="Actions">
                       <IconButton size="small" aria-label={`Actions for ${n.code ?? n.name}`} onClick={(e) => setMenu({ anchor: e.currentTarget, row })}><MoreVertRounded fontSize="small" /></IconButton>
                     </Tooltip>

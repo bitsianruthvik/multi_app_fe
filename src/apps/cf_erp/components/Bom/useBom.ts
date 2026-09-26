@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { cfApi, CfApiError } from '../../api/client';
+import { postBomChanges, type BomChange, type BomChangesResponse } from '../../api/bomChanges';
 import type { BomType, BomView, Explosion, Kind, LineStructure, OrderStatus, RecordStatus, StructureNode, WhereUsedRow } from '../../api/types';
 import { useLoad } from '../../hooks/useLoad';
 import { bomAsTree, bomTypeOfKind } from './bomModel';
@@ -127,6 +128,27 @@ export function useBom(source: BomSource, { whereUsed = false, onChanged }: { wh
     }
   };
 
+  /**
+   * Edit mode's save: every pending change in one request, all or nothing.
+   * A refusal lands in `actionError` — every problem at once, in the same
+   * notice every other BOM action uses. A dry run changes nothing and reloads
+   * nothing; a save reloads the tree and the screen around it. A 409 means the
+   * structure froze while it was being edited, so the screen reloads to say why.
+   */
+  const saveChanges = async (changes: BomChange[], { dryRun = false } = {}): Promise<BomChangesResponse | null> => {
+    setActionError(null);
+    try {
+      const out = await postBomChanges({ scope: recordId != null ? { recordId } : { orderLineId: lineId as number }, dryRun, changes });
+      if (!dryRun) reload();
+      return out;
+    } catch (e) {
+      const err = e instanceof CfApiError ? e : new CfApiError(0, String(e));
+      setActionError(err);
+      if (err.status === 409) reload();
+      return null;
+    }
+  };
+
   return {
     state,
     whereUsed: used.data ?? [],
@@ -135,9 +157,11 @@ export function useBom(source: BomSource, { whereUsed = false, onChanged }: { wh
     error: view.error ?? structure.error ?? tree.error,
     loading: view.loading || structure.loading,
     actionError,
+    clearActionError: () => setActionError(null),
     reload,
     setStatus: (status: RecordStatus) => act('status', { status }),
     revise: () => act('revision', {}),
     removeLine: async (id: number) => { await cfApi.del(`/bom-lines/${id}`); reload(); },
+    saveChanges,
   };
 }
