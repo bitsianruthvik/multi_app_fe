@@ -254,16 +254,55 @@ export interface Candidates {
   candidates: { id: number; code: string; name: string; revision: string | null; classificationName: string; isDefault: boolean; matchedValues: { specCode: string; value: unknown; unit: string | null; source: string }[] }[];
 }
 
+/*
+ * phrase / help / example are the provider's own guide (codegenProvider.js) —
+ * how a token reads in a sentence, what it is, a short example — and the rules
+ * screen shows them as written, so a new token brings its guide with it.
+ */
+export interface CodegenToken { key: string; label: string; available: boolean; note?: string; phrase?: string; help?: string; example?: string }
+/** A family of tokens such as spec:<CODE>; `<name>` in the phrase stands for the specification's name. */
+export interface CodegenTokenPattern { pattern: string; label: string; phrase?: string; help?: string; example?: string }
+export interface CodegenConditionToken { key: string; label: string; operators: string[]; valueKind: string; values?: string[]; phrase?: string; help?: string }
+
 export interface CodegenEntity {
   entityType: string;
   label: string;
-  tokens: { key: string; label: string; available: boolean; note?: string }[];
-  tokenPatterns: { pattern: string; label: string }[];
-  conditionTokens: { key: string; label: string; operators: string[]; valueKind: string; values?: string[] }[];
+  tokens: CodegenToken[];
+  tokenPatterns: CodegenTokenPattern[];
+  conditionTokens: CodegenConditionToken[];
 }
 
 export interface Segment { segmentType: 'literal' | 'token' | 'sequence' | 'date'; literalText?: string | null; tokenKey?: string | null; format?: string | null; transform?: 'none' | 'upper' | 'lower'; maxLength?: number | null; isRequired?: boolean }
 export interface Condition { tokenKey: string; operator: string; value: string }
+
+/** What one part of a pattern prints for a record (POST /codegen/explain → parts). */
+export interface CodegenPart { state: 'value' | 'blank' | 'empty' | 'missing' | 'unfinished' | 'waiting'; text: string | null }
+/** What one token holds on a record, unformatted (→ values). */
+export interface CodegenValue { state: 'value' | 'blank' | 'missing'; text: string | null }
+/** One rule judged for a record: each condition held or not, and its points (the engine's weights). */
+export interface RuleVerdict {
+  id: number | null;
+  code: string;
+  name: string;
+  priority: number;
+  /** The rule open in the editor, judged as it will be once saved. */
+  draft: boolean;
+  conditions: (Condition & { ok: boolean; weight: number })[];
+  applies: boolean;
+  weight: number | null;
+  place: number | null;
+  verdict: 'wins' | 'tied' | 'beaten' | 'no' | 'off' | 'unfinished';
+  problems?: string[];
+}
+/** Which rule a record gets and why — decided by the same code that makes the codes. */
+export interface RuleSelection {
+  rules: RuleVerdict[];
+  winner: { id: number | null; code: string; draft: boolean } | null;
+  decidedBy: 'only' | 'weight' | 'priority' | 'tie' | 'none';
+  runnerUp: { id: number | null; code: string; draft: boolean; weight: number; priority: number } | null;
+  tied: string[] | null;
+}
+export interface CodegenExplain { selection: RuleSelection; parts: CodegenPart[] | null; values: Record<string, CodegenValue> | null }
 
 export interface CodeScheme {
   id: number;
