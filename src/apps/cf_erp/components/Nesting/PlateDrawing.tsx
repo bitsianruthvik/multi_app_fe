@@ -64,8 +64,8 @@ export function PlateDrawing({ nest, colourOf, title }: {
   const [avail, setAvail] = useState(0);
   const [zoom, setZoom] = useState(1);
 
-  // The card's width decides the scale, and it changes with the window, the
-  // pop-up and the phone. Measured rather than assumed.
+  // The card's width decides the scale, and it changes with the window and
+  // the phone. Measured rather than assumed.
   useEffect(() => {
     const el = box.current;
     if (!el) return undefined;

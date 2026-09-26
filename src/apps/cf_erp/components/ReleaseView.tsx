@@ -87,9 +87,12 @@ function PieceBlock({ piece, canProduce, onAct }: { piece: ProductionPiece; canP
   );
 }
 
-/** Material rows with their reservations and the actions on them — shared by the order's Production tab and the Tracker. */
+/** A requirement row; the Tracker's rows also say whose order and line they are for. */
+type RequirementRow = Requirement & { order?: Release['order']; line?: Release['line'] };
+
+/** Material rows with their reservations and the actions on them — shared by the order's Production screens and the Tracker. */
 export function RequirementsTable({ rows, canStock, onChange, showOrder = false }: {
-  rows: (Requirement & { order?: Release['order'] })[];
+  rows: RequirementRow[];
   canStock: boolean;
   onChange: (r: Release) => void;
   showOrder?: boolean;
@@ -101,7 +104,7 @@ export function RequirementsTable({ rows, canStock, onChange, showOrder = false 
   const reserve = async (q: Requirement) => {
     try { onChange(await cfApi.post<Release>(`/requirements/${q.id}/reserve`, {})); invalidateNavCounts(); toast.success(`${q.item.code} reserved.`); } catch (e) { toast.error((e as Error).message); }
   };
-  const columns: DataColumn<Requirement & { order?: Release['order'] }>[] = [
+  const columns: DataColumn<RequirementRow>[] = [
     {
       key: 'item', header: 'Material', alwaysVisible: true,
       render: (q) => (
@@ -111,7 +114,8 @@ export function RequirementsTable({ rows, canStock, onChange, showOrder = false 
         </Box>
       ),
     },
-    ...(showOrder ? [{ key: 'order', header: 'Order', alwaysVisible: true, render: (q: Requirement & { order?: Release['order'] }) => (q.order ? <Mono><Box component={Link} to={appPath(company, `orders/${q.order.id}?tab=production`)} sx={linkSx}>{q.order.code}</Box></Mono> : null) }] : []),
+    // Production is a per-line stage on the order, so the link names the line when the row knows it.
+    ...(showOrder ? [{ key: 'order', header: 'Order', alwaysVisible: true, render: (q: RequirementRow) => (q.order ? <Mono><Box component={Link} to={appPath(company, `orders/${q.order.id}?tab=production${q.line ? `&line=${q.line.id}` : ''}`)} sx={linkSx}>{q.order.code}</Box></Mono> : null) }] : []),
     { key: 'for', header: 'For', alwaysVisible: true, render: (q) => <Box sx={{ fontSize: 12.5, color: 'var(--c-text-2)', whiteSpace: 'normal', minWidth: 140 }}>{q.step?.label ?? 'Delivery — bought in'}</Box> },
     { key: 'need', header: 'Needed', numeric: true, alwaysVisible: true, render: (q) => <>{qtyText(q.quantity)} <Mono muted>{q.item.uom}</Mono></> },
     { key: 'issued', header: 'Issued', numeric: true, alwaysVisible: true, render: (q) => <Mono muted={!q.issued}>{qtyText(q.issued)}</Mono> },

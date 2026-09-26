@@ -82,9 +82,10 @@ function structureText(l: SalesOrderLine) {
  * The order's lines, with everything that changes them: add, change, remove,
  * and the way into a line's structure.
  *
- * One panel, two homes — the order's Lines tab and the process pop-up's Lines
- * stage. Keeping it in one place is the point: a pop-up that offered less than
- * the tab behind it is the exact failure this screen was built to avoid.
+ * One panel, two homes — the order's Lines stage and, on an order with no
+ * process, its plain Lines tab. Keeping it in one place is the point: a stage
+ * that offered less than the tab it replaced is the exact failure this screen
+ * was built to avoid.
  */
 export function OrderLinesPanel({ order, onSaved, onOpenStructure, onRelease, onRowClick, subtitle, title = 'Lines' }: {
   order: SalesOrder;
@@ -93,7 +94,7 @@ export function OrderLinesPanel({ order, onSaved, onOpenStructure, onRelease, on
   onOpenStructure: (line: SalesOrderLine) => void;
   /** Given when this screen may release a line; the button still obeys permission and status. */
   onRelease?: (line: SalesOrderLine) => void;
-  /** Clicking a row. The pop-up uses it to switch the line being worked on. */
+  /** Clicking a row. The Lines stage uses it to switch the line being worked on. */
   onRowClick?: (line: SalesOrderLine) => void;
   subtitle?: ReactNode;
   title?: string;

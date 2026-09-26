@@ -82,7 +82,8 @@ export default function Tracker() {
         </Box>
       ),
     },
-    { key: 'order', header: 'Order', sortValue: (s) => s.order.code, render: (s) => <Mono><Box component={Link} to={appPath(company, `orders/${s.order.id}?tab=production`)} sx={linkSx}>{s.order.code}</Box></Mono> },
+    // Production is a per-line stage on the order, so the link names the step's line.
+    { key: 'order', header: 'Order', sortValue: (s) => s.order.code, render: (s) => <Mono><Box component={Link} to={appPath(company, `orders/${s.order.id}?tab=production&line=${s.line.id}`)} sx={linkSx}>{s.order.code}</Box></Mono> },
     // Sorted by what can be worked on, not by the alphabet: "done, in progress,
     // not ready, on hold, ready" is no order at all to someone at a machine.
     { key: 'status', header: 'Status', sortValue: (s) => PRIORITY[s.status], exportValue: (s) => STEP_STATUS_LABEL[s.status], render: (s) => <StepStatusBadge status={s.status} /> },

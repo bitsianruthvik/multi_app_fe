@@ -1,13 +1,17 @@
 import type { ReactNode } from 'react';
 import { Box, Tooltip } from '@mui/material';
+import CheckCircleRounded from '@mui/icons-material/CheckCircleRounded';
+import HourglassEmptyRounded from '@mui/icons-material/HourglassEmptyRounded';
+import SyncRounded from '@mui/icons-material/SyncRounded';
+import RemoveCircleOutlineRounded from '@mui/icons-material/RemoveCircleOutlineRounded';
 import type { OrderStage, StageBlocker, StageState } from '../../api/types';
 import { DECIDED_BY_HELP, STATE_HELP, STATE_WORD, blockerWho, requirementHelp, requirementWord } from '../../lib/process';
 import { Badge, Mono, type Family } from '../ui';
 
 /**
- * The small pieces the process pop-up and the order's stage strip share, so a
- * stage looks the same wherever it is drawn. Both read one object — the state
- * here is never worked out locally, only coloured.
+ * The small pieces the order's stage tabs, their foot and the stage screens
+ * share, so a stage looks the same wherever it is drawn. They all read one
+ * object — the state here is never worked out locally, only coloured.
  */
 
 /** A state's colour family. Never colour alone: the badge carries an icon and the word too. */
@@ -18,9 +22,39 @@ const STATE_FAMILY: Record<StageState, Family> = {
   not_applicable: 'neutral',
 };
 
+/**
+ * The glyph each state wears — the same one the badge draws for its family
+ * (ui.tsx `Badge`), so the mark on a tab and the badge on a screen are
+ * recognisably one thing. Keep the two in step.
+ */
+const STATE_ICON: Record<StageState, typeof CheckCircleRounded> = {
+  todo: HourglassEmptyRounded,
+  partial: SyncRounded,
+  done: CheckCircleRounded,
+  not_applicable: RemoveCircleOutlineRounded,
+};
+
+/** Bare on the surface the -600 tone holds its contrast; "not needed" is muted on purpose. */
+const MARK_COLOUR: Record<StageState, string> = {
+  todo: 'var(--c-warning-600)',
+  partial: 'var(--c-info-600)',
+  done: 'var(--c-success-600)',
+  not_applicable: 'var(--c-text-3)',
+};
+
 /** How far a stage has got, in a word, with the sentence on hover. */
 export function StageStateBadge({ stage }: { stage: OrderStage }) {
   return <Badge family={STATE_FAMILY[stage.state]} label={STATE_WORD[stage.state]} title={`${STATE_HELP[stage.state]} ${DECIDED_BY_HELP[stage.decidedBy]}`} />;
+}
+
+/**
+ * The same state as a mark alone, for a tab. It is decoration to assistive
+ * technology — the tab carries the word in its name — and it is never colour
+ * alone: each state has its own glyph.
+ */
+export function StageStateMark({ state, size = 16 }: { state: StageState; size?: number }) {
+  const Icon = STATE_ICON[state];
+  return <Icon aria-hidden sx={{ fontSize: size, flexShrink: 0, color: MARK_COLOUR[state] }} />;
 }
 
 /** Shown beside a stage the order can move past without finishing. */
@@ -29,26 +63,11 @@ export function OptionalBadge({ stage }: { stage: OrderStage }) {
   return <Badge family="neutral" noIcon label={requirementWord(stage.requirement)} title={requirementHelp(stage.requirement)} />;
 }
 
-/** The stage's place in the process — the same number the setup screen shows. */
-export function StageNumber({ n, on = false }: { n: number; on?: boolean }) {
-  return (
-    <Box aria-hidden sx={{
-      width: 26, height: 26, flexShrink: 0, borderRadius: 'var(--r-sm)', display: 'grid', placeItems: 'center',
-      fontFamily: 'var(--font-mono)', fontSize: 12.5, fontVariantNumeric: 'tabular-nums',
-      background: on ? 'var(--c-primary-600)' : 'var(--c-primary-50)',
-      color: on ? '#fff' : 'var(--c-primary-900)',
-      border: `1px solid ${on ? 'var(--c-primary-600)' : 'var(--c-primary-200)'}`,
-    }}>
-      {n}
-    </Box>
-  );
-}
-
 /** Marks the stage that needs work next. Derived from the API's states, never enforced. */
 export function NextMark({ title = 'The next stage that needs work' }: { title?: string }) {
   return (
     <Box component="span" title={title} sx={{
-      flexShrink: 0, px: 0.75, py: '1px', borderRadius: 'var(--r-sm)', fontSize: 11, fontWeight: 600,
+      flexShrink: 0, px: 0.75, py: '1px', borderRadius: 'var(--r-sm)', fontSize: 11, fontWeight: 600, lineHeight: 1.5,
       letterSpacing: '.06em', textTransform: 'uppercase',
       background: 'var(--c-primary-50)', color: 'var(--c-primary-700)', border: '1px solid var(--c-primary-200)',
     }}>

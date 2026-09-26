@@ -13,7 +13,6 @@ import { useCompanySlug } from '../../hooks/useLoad';
 import { useIsPermitted } from '../../hooks/useIsPermitted';
 import { invalidateNavCounts } from '../../hooks/useNavCounts';
 import { appPath } from '../../navMeta';
-import { recordPath } from '../../lib/paths';
 import { ORDER_STATUS_LABEL } from '../../lib/orders';
 import {
   CONFIRM_STILL_ON_THE_PAGE, CONFIRM_WHAT_DOES_NOT, CONFIRM_WHAT_HAPPENS, DECIDED_BY_HELP, UNBUILT_STAGE,
@@ -23,6 +22,8 @@ import { EmptyState, ErrorNotice, Mono, SectionCard, StatusBadge } from '../ui';
 import { BomPanel } from '../Bom/BomPanel';
 import { NestingPanel } from '../Nesting/NestingPanel';
 import { BlanksPanel } from '../Nesting/BlanksPanel';
+import { ValuesPanel } from '../Values/ValuesPanel';
+import { VALUES_WRITE_PERMISSIONS } from '../Values/valuesModel';
 import { ReleaseView } from '../ReleaseView';
 import { ReleaseDialog } from '../TrackerDialogs';
 import { OrderLinesPanel } from '../OrderLinesPanel';
@@ -30,19 +31,20 @@ import { useToast } from '../toastContext';
 import { BlockerList, StageStateBadge } from './stageUi';
 
 /**
- * What each stage shows in the pop-up's body.
+ * What each stage tab shows, above its Back / Next foot.
  *
  * Three rules hold this together:
  *   1. The screens that already exist are REUSED, not re-drawn — the Lines
- *      panel, the BOM panel and the release view are the same components the
- *      order's tabs render, so the two can never offer different things.
+ *      panel, the BOM panel and the release view are the same components an
+ *      order without a process shows on its plain tabs, so the two can never
+ *      offer different things.
  *   2. A stage the app cannot work yet says so in plain words and points at
  *      where that work is done today. It does not pretend to be a screen.
  *   3. A stage that does not apply to the chosen line still shows its body.
- *      The notice explains; it never removes anything the tabs would allow.
+ *      The notice explains; it never takes anything away.
  */
 
-/** A tinted note — the pop-up's way of explaining without taking anything away. */
+/** A tinted note — a stage's way of explaining without taking anything away. */
 function Note({ tone = 'info', children }: { tone?: 'info' | 'warning'; children: ReactNode }) {
   return (
     <Box sx={{
@@ -75,26 +77,13 @@ function NotForThisLine({ view, stage, line, onPickLine }: {
 }
 
 /** A stage whose own screen has not been built. Honest about it, and about where the work happens meanwhile. */
-function UnbuiltStagePanel({ view, stage, line, order, onGoStage }: {
-  view: OrderProcessView; stage: OrderStage; line: OrderProcessLine | null; order: SalesOrder; onGoStage: (key: string) => void;
-}) {
+function UnbuiltStagePanel({ stage }: { stage: OrderStage }) {
   const company = useCompanySlug();
   const isPermitted = useIsPermitted();
   const words = UNBUILT_STAGE[stage.stageKey];
   const to = (path: string) => appPath(company, path);
-  const orderLine: SalesOrderLine | undefined = (order.lines ?? []).find((l) => l.id === line?.lineId);
-  const hasStructure = view.stages.some((s) => s.stageKey === 'structure');
 
   const links: ReactNode[] = [];
-  if (stage.stageKey === 'values' && orderLine?.item) {
-    links.push(
-      <Button key="item" size="small" variant="outlined" endIcon={<LaunchRounded />} component={Link}
-        to={to(`${recordPath(orderLine.item.kind, orderLine.item.id)}?tab=specs`)}>
-        Open {orderLine.item.code ?? orderLine.item.name} · Specifications
-      </Button>,
-    );
-    if (hasStructure) links.push(<Button key="structure" size="small" startIcon={<AccountTreeRounded />} onClick={() => onGoStage('structure')}>Go to the structure</Button>);
-  }
   if (stage.stageKey === 'buying' && isPermitted('cf_erp_inventory_view')) {
     links.push(
       <Button key="buy" size="small" variant="outlined" endIcon={<LaunchRounded />} component={Link} to={to('buy-list')}>Open the buy list</Button>,
@@ -183,7 +172,7 @@ function ConfirmPanel({ view, order }: { view: OrderProcessView; order: SalesOrd
   );
 }
 
-/** The line's release, exactly as the order's Production tab shows it. */
+/** The line's release, exactly as the order-wide Production view shows it. */
 function ProductionPanel({ stage, line, order, production, productionError, onReleaseChanged, onReloadAll }: {
   stage: OrderStage;
   line: OrderProcessLine | null;
@@ -260,12 +249,14 @@ export function StageBody({
   const isPermitted = useIsPermitted();
   const toast = useToast();
   const [releasing, setReleasing] = useState<SalesOrderLine | null>(null);
-  const hasStructure = view.stages.some((s) => s.stageKey === 'structure');
   const canProduce = isPermitted('cf_erp_production_manage');
 
+  // The order page always has a Structure tab while it has a line — the stage
+  // when the process has one, otherwise beside Stock and Details — so the way
+  // into a line's structure never goes dead.
   const openStructure = (l: SalesOrderLine) => {
     onPickLine(l.id);
-    if (hasStructure) onGoStage('structure');
+    onGoStage('structure');
   };
 
   let body: ReactNode;
@@ -288,6 +279,19 @@ export function StageBody({
       : (
         <SectionCard title="Structure">
           <EmptyState icon={<AccountTreeRounded />} title="No lines yet" hint="A structure hangs under a line, so add one first."
+            action={<Button variant="contained" onClick={() => onGoStage('lines')}>Go to the lines</Button>} />
+        </SectionCard>
+      );
+  } else if (stage.stageKey === 'values') {
+    // Every specification value of the line's structure — all that apply, not
+    // only the missing ones — typed like a sheet and saved once. Typing left
+    // unsaved survives a switch of tab or line (the panel keeps it per viewer),
+    // so switching needs no guard here.
+    body = line
+      ? <ValuesPanel key={line.lineId} lineId={line.lineId} canEdit={VALUES_WRITE_PERMISSIONS.some((p) => isPermitted(p))} onChanged={onReloadAll} />
+      : (
+        <SectionCard title="Values">
+          <EmptyState icon={<AccountTreeRounded />} title="No lines yet" hint="Values belong to the items of a line's structure, so add a line first."
             action={<Button variant="contained" onClick={() => onGoStage('lines')}>Go to the lines</Button>} />
         </SectionCard>
       );
@@ -319,7 +323,7 @@ export function StageBody({
   } else if (stage.stageKey === 'confirm') {
     body = <ConfirmPanel view={view} order={order} />;
   } else if (isUnbuilt(stage.stageKey)) {
-    body = <UnbuiltStagePanel view={view} stage={stage} line={line} order={order} onGoStage={onGoStage} />;
+    body = <UnbuiltStagePanel stage={stage} />;
   } else {
     // A stage key this build has never heard of. The API already says so in
     // words; repeating its sentence beats inventing a screen for it.
@@ -339,7 +343,7 @@ export function StageBody({
 
   return (
     <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 2, minWidth: 0 }}>
-      {/* The notice explains; the body below it still does everything the tab would. */}
+      {/* The notice explains; the body below it still does everything it would for a line that needs it. */}
       {line && !stage.applies && <NotForThisLine view={view} stage={stage} line={line} onPickLine={onPickLine} />}
       {line?.item && line.item.status !== 'active' && stage.stageKey === 'lines' && (
         <Note tone="warning">

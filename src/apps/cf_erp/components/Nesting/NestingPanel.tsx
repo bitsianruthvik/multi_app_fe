@@ -59,7 +59,7 @@ import { PlateDrawing } from './PlateDrawing';
 const FIRST_PLATES = 4;
 const MORE_PLATES = 12;
 
-/** A tinted note — the same one the process pop-up uses, so the app has one voice. */
+/** A tinted note — the same one the order's stage screens use, so the app has one voice. */
 function Note({ tone = 'info', children }: { tone?: 'info' | 'warning'; children: ReactNode }) {
   return (
     <Box sx={{
@@ -352,7 +352,7 @@ export function NestingPanel({ orderId, lineId, canManage, onChanged }: {
           {/*
             The commitment is laid out BEFORE the button that makes it, not
             after — and the button sits here rather than in the card's header so
-            it wraps with the words instead of running off a narrow pop-up.
+            it wraps with the words instead of running off a narrow screen.
           */}
           {proposal && (
             <>

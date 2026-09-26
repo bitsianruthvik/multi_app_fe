@@ -175,14 +175,15 @@ export function toStageInput(stage: ProcessStage): ProcessStageInput {
 // ── Walking an order through its process ─────────────────────────────────────
 
 /**
- * Everything below builds the words the process pop-up and the order's stage
- * strip say. Both render one object — GET /orders/:id/process — and neither
- * decides anything for itself: the state, the detail and the blockers are the
- * API's, and these functions only choose the English around them.
+ * Everything below builds the words the order's stage tabs say. The tabs ARE
+ * the process: one per stage, in the process's own sequence, each marked with
+ * the chosen line's state. They render one object — GET /orders/:id/process —
+ * and decide nothing for themselves: the state, the detail and the blockers are
+ * the API's, and these functions only choose the English around them.
  *
- * The one rule the pop-up lives by: it never blocks what the tabs allow. Every
- * stage is reachable at any time, a stage that is unfinished offers to be
- * skipped rather than going dead, and Confirm is the single hard gate.
+ * The one rule the tabs live by: nothing is ever locked. Every stage is one
+ * click away at any time, a stage that is unfinished offers to be skipped
+ * rather than going dead, and Confirm is the single hard gate.
  */
 
 /** A state in one or two words. */
@@ -209,6 +210,22 @@ export const STATE_HELP: Record<StageState, string> = {
 export const stageSatisfied = (s: Pick<OrderStage, 'state' | 'requirement'>) =>
   s.state === 'done' || s.state === 'not_applicable' || s.requirement === 'optional';
 
+/** The first stage that still holds this list up — where the work is. Null when nothing does. */
+export const firstOpenStage = (stages: OrderStage[]): string | null =>
+  stages.find((s) => !stageSatisfied(s))?.stageKey ?? null;
+
+/**
+ * Where an order opens when a link names no tab: on the stage that needs work,
+ * not wherever somebody stopped last time — the point of a process the API
+ * works out. Failing that, the first stage with anything still outstanding
+ * (an optional one), and failing that, the start of the road.
+ */
+export const landingStage = (stages: OrderStage[]): string | null =>
+  firstOpenStage(stages)
+  ?? stages.find((s) => s.state === 'todo' || s.state === 'partial')?.stageKey
+  ?? stages[0]?.stageKey
+  ?? null;
+
 /**
  * The forward button. Never dead: a stage that is not finished offers to be
  * left for later, by name, rather than refusing to move.
@@ -219,10 +236,27 @@ export const forwardLabel = (next: OrderStage, satisfied: boolean) =>
 export const forwardHelp = (next: OrderStage, satisfied: boolean) =>
   satisfied
     ? `Move on to ${next.label}.`
-    : `Leave this for later and move on to ${next.label}. Nothing is lost, and you can come back from the list on the left at any time.`;
+    : `Leave this for later and move on to ${next.label}. Nothing is lost, and its tab stays one click away.`;
 
-/** Said on the close button: closing this costs nothing. */
-export const CLOSE_HINT = 'Close it whenever you like. Everything here is saved as you go, and the tabs behind show the same work.';
+/**
+ * A stage tab read aloud: its name, where it sits in the sequence, how far this
+ * line has got, and whether it is the next one that needs work. The tab itself
+ * shows only a mark, so the words live here.
+ */
+export function stageTabName(stage: OrderStage, position: number, of: number, next: boolean): string {
+  const optional = stage.requirement === 'optional' ? ', optional' : '';
+  return `${stage.label}, stage ${position} of ${of}${optional}: ${STATE_WORD[stage.state].toLowerCase()}${next ? ' — the next stage that needs work' : ''}`;
+}
+
+/** Beside the line switcher: the marks on the tabs are this line's, not the order's. */
+export const WORKING_ON_HELP = 'The stages show this line’s own state.';
+
+/** In place of the line switcher, while there is nothing to switch between. */
+export const NO_LINES_YET = 'No lines yet, so the stages show the order’s own state.';
+
+/** A process was found but it has no stages — an empty row of tabs would say nothing at all. */
+export const noStagesReason = (p: { code: string; name: string }) =>
+  `This order follows ${p.name} (${p.code}), which has no stages yet — so there is nothing to walk through. Add stages to the process and they appear here as tabs.`;
 
 /** Who decided a stage applies — worth naming, because the two look identical. */
 export const DECIDED_BY_HELP: Record<StageDecidedBy, string> = {
@@ -267,11 +301,6 @@ export const blockerWho = (b: StageBlocker) => (b.lineNo != null ? `Line ${b.lin
  * screen ships.
  */
 export const UNBUILT_STAGE: Record<string, { what: string; today: string; soon: string }> = {
-  values: {
-    what: 'Values are the specification figures the setup asks an item for — thickness, grade, length.',
-    today: 'They are filled in on each item, under Specifications.',
-    soon: 'A screen that gathers every missing value for a whole order into one list is still to come.',
-  },
   buying: {
     what: 'Buying is getting in the material the order consumes but does not make.',
     today: 'Shortages are raised from the buy list under Inventory, which turns them into purchase orders.',
@@ -295,8 +324,8 @@ export const CONFIRM_WHAT_DOES_NOT = [
 ];
 
 /**
- * Confirming is the pop-up's one hard gate — and the order page behind it has
- * a Confirm button of its own that the gate does not touch. Saying so is the
+ * Confirming is the process's one hard gate — and the order's header has a
+ * Confirm button of its own that the gate does not touch. Saying so is the
  * difference between a screen that explains itself and one that looks broken.
  */
-export const CONFIRM_STILL_ON_THE_PAGE = 'The order’s own Confirm button behind this still works; the process is asking for these to be settled first.';
+export const CONFIRM_STILL_ON_THE_PAGE = 'The order’s own Confirm button, at the top of the page, still works; the process is asking for these to be settled first.';

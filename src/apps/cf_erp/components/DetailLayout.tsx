@@ -67,7 +67,7 @@ export function DetailTabs({ tabs, active, onTab }: { tabs: DetailTab[]; active:
 export function DetailLayout({ header, crossLinks, beforeTabs, tabs, active, onTab, children, maxWidth = 1280 }: {
   header: ReactNode;
   crossLinks?: ReactNode;
-  /** A band between the cross-links and the tabs — the order's stage strip lives here. */
+  /** A band between the cross-links and the tabs — the order's stage tabs live here. */
   beforeTabs?: ReactNode;
   tabs?: DetailTab[];
   active?: string;

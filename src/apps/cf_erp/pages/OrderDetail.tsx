@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Autocomplete, Box, Button, CircularProgress, IconButton, MenuItem, TextField, Tooltip, Typography } from '@mui/material';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import EditRounded from '@mui/icons-material/EditRounded';
 import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
 import AccountTreeRounded from '@mui/icons-material/AccountTreeRounded';
@@ -13,14 +13,14 @@ import type { Movement, OrderProcessView, OrderProduction, OrderStatus, Party, R
 import { useCompanySlug, useLoad } from '../hooks/useLoad';
 import { useIsPermitted } from '../hooks/useIsPermitted';
 import { invalidateNavCounts } from '../hooks/useNavCounts';
-import { useUrlParam } from '../hooks/useUrlState';
 import { appPath } from '../navMeta';
 import { recordPath } from '../lib/paths';
 import { CONFIRM_MOVE, LOCKED_STATUSES, NEXT_STAGE, ORDER_STATUS_LABEL, transitionLabel } from '../lib/orders';
+import { firstOpenStage, landingStage, stageSatisfied } from '../lib/process';
 import {
   DangerBadge, DetailSkeleton, EmptyState, ErrorNotice, Fact, Mono, OrderStatusBadge, OrderTypeChip, SectionCard, SkeletonRows,
 } from '../components/ui';
-import { CrossLink, DetailHeader, DetailLayout } from '../components/DetailLayout';
+import { CrossLink, DetailHeader, DetailLayout, type DetailTab } from '../components/DetailLayout';
 import { BomPanel } from '../components/Bom/BomPanel';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { MovementsTable } from '../components/StockTables';
@@ -28,12 +28,79 @@ import { MovementButtons } from '../components/MovementButtons';
 import { ReleaseDialog } from '../components/TrackerDialogs';
 import { ReleaseView } from '../components/ReleaseView';
 import { OrderLinesPanel } from '../components/OrderLinesPanel';
-import { OrderStageStrip } from '../components/OrderProcess/StageStrip';
-import { OrderProcessDialog } from '../components/OrderProcess/OrderProcessDialog';
+import { OrderStageTabs, ProcessAbsentNote, StageTabsSkeleton } from '../components/OrderProcess/StageTabs';
+import { StageBody } from '../components/OrderProcess/StageBody';
+import { StageFoot } from '../components/OrderProcess/StageFoot';
+import { useWorkingLine } from '../components/OrderProcess/workingLine';
 import { useDetailTitle } from '../components/shell/detailTitle';
 import { useToast } from '../components/toastContext';
 
 const DELETABLE: OrderStatus[] = ['draft', 'inquiry', 'lost', 'cancelled'];
+
+/** Tabs that are the same whether or not the order follows a process — drawn before the process has been read. */
+const PROCESS_FREE_TABS = ['stock', 'details'];
+
+/**
+ * The order's process, as the tabs need it: the line being worked on (the one
+ * remembered, else the first line the order's next stage still needs), that
+ * line's own stages, and where a link that names no tab should land. Null when
+ * there is nothing to draw as stages — no process, or a process with none.
+ */
+function processModel(view: OrderProcessView | null, pickedLine: number | null) {
+  if (!view?.process || view.stages.length === 0) return null;
+  const fallback = view.lines.find((l) => {
+    const s = l.stages.find((x) => x.stageKey === view.nextStage);
+    return s ? !stageSatisfied(s) : false;
+  }) ?? view.lines[0] ?? null;
+  const line = view.lines.find((l) => l.lineId === pickedLine) ?? fallback;
+  // Every state on the tabs is this line's own; with no lines, the order's roll-up is all there is.
+  const stages = line ? line.stages : view.stages;
+  const keys = stages.map((s) => s.stageKey);
+  return { view, process: view.process, line, stages, keys, landing: landingStage(stages) ?? keys[0] };
+}
+
+/** Every line's release on one screen — the Production tab of an order whose process has no Production stage, or no process at all. */
+function ProductionOverview({ order, lines, production, productionError, loading, canProduce, canReserve, onRelease, onReleaseChanged, onReloadAll, onRetry }: {
+  order: SalesOrder;
+  lines: SalesOrderLine[];
+  production: OrderProduction | null;
+  productionError: CfApiError | null;
+  loading: boolean;
+  canProduce: boolean;
+  canReserve: boolean;
+  onRelease: (l: SalesOrderLine) => void;
+  onReleaseChanged: (r: Release) => void;
+  onReloadAll: () => void;
+  onRetry: () => void;
+}) {
+  return (
+    <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 2 }}>
+      {productionError && <ErrorNotice error={productionError} onRetry={onRetry} />}
+      {(production?.unreleased ?? []).length > 0 && (
+        <SectionCard title="Not released yet" subtitle={order.status === 'confirmed' ? 'A line is released whole: its structure becomes the tracker below, and it is frozen from then on.' : `Lines are released once the order is confirmed — it is ${order.status} now.`}>
+          <Box sx={{ display: 'grid', gap: 1 }}>
+            {(production?.unreleased ?? []).map((u) => {
+              const l = lines.find((x) => x.id === u.id);
+              return (
+                <Box key={u.id} sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap' }}>
+                  <Mono muted>{u.lineNo}</Mono>
+                  <Mono>{u.item.code}</Mono>
+                  <Box sx={{ flex: '1 1 160px', minWidth: 0, color: 'var(--c-text-2)', fontSize: 13.5 }}>{u.item.name} ×{u.quantity}</Box>
+                  {canProduce && order.status === 'confirmed' && l && <Button size="small" variant="contained" startIcon={<RocketLaunchRounded />} onClick={() => onRelease(l)}>Release</Button>}
+                </Box>
+              );
+            })}
+          </Box>
+        </SectionCard>
+      )}
+      {loading && !production ? <SkeletonRows rows={3} height={80} /> : (production?.releases ?? []).length === 0 ? (
+        <EmptyState icon={<PrecisionManufacturingRounded />} title="Nothing released yet" hint="Release a line to see its pieces, their steps and what each waits for." />
+      ) : (production?.releases ?? []).map((r) => (
+        <ReleaseView key={r.id} release={r} canProduce={canProduce} canStock={canReserve} onChange={onReleaseChanged} onTakenBack={onReloadAll} onShipped={onReloadAll} />
+      ))}
+    </Box>
+  );
+}
 
 function DetailsForm({ order, onSaved }: { order: SalesOrder; onSaved: (o: SalesOrder) => void }) {
   const [form, setForm] = useState({
@@ -84,7 +151,24 @@ function DetailsForm({ order, onSaved }: { order: SalesOrder; onSaved: (o: Sales
   );
 }
 
-/** Record / Detail (DESIGN_SYSTEM.md §4.3) for a sales order — the project. */
+/**
+ * Record / Detail (DESIGN_SYSTEM.md §4.3) for a sales order — the project.
+ *
+ * THE TABS ARE THE PROCESS. When the order follows one, its tabs are the
+ * process's stages in sequence — each marked with the chosen line's state,
+ * joined by chevrons — then Stock and Details, which are not stages. A stage
+ * tab is that stage's own screen with Back / Next at its foot. There is no
+ * second way round the order — no strip above the tabs, no pop-up beside them —
+ * so what the tabs say is the only thing on screen to disagree with.
+ *
+ * An order with no process gets plain tabs and the API's own sentence saying why.
+ *
+ * `?tab=` names a stage key or a plain tab. `lines`, `structure` and
+ * `production` are stage keys as well as the old tab names, so every link
+ * written before still lands: on the stage when the process has it, otherwise
+ * on the plain tab kept beside Stock and Details for exactly that case.
+ * `?line=` picks the line to work on, then drops out of the address.
+ */
 export default function OrderDetail() {
   const { id: idParam } = useParams();
   const id = Number(idParam);
@@ -99,27 +183,90 @@ export default function OrderDetail() {
   const canReserve = isPermitted('cf_erp_inventory_manage');
   const order = useLoad(() => cfApi.get<SalesOrder>(`/orders/${id}`), [id]);
   const production = useLoad(() => (canTrack ? cfApi.get<OrderProduction>(`/orders/${id}/production`) : Promise.resolve(null)), [id, canTrack]);
-  // Where this order has got to. Loaded ONCE here and handed to both the strip
-  // and the pop-up, so the two cannot show different answers.
+  // Where this order has got to, line by line. Loaded ONCE here: the marks on
+  // the tabs, each stage's screen and its foot all read this one answer.
   const processView = useLoad(() => cfApi.get<OrderProcessView>(`/orders/${id}/process`), [id]);
-  const [releasing, setReleasing] = useState<SalesOrderLine | null>(null);
   const moves = useLoad(() => (canStock ? cfApi.get<Movement[]>(`/movements${qs({ orderId: id })}`) : Promise.resolve([] as Movement[])), [id, canStock]);
-  const [tab, setTab] = useUrlParam('tab', 'lines');
-  const [structureLine, setStructureLine] = useState<number | null>(null);
+  const [params, setParams] = useSearchParams();
+  const tabParam = params.get('tab');
+  const lineParam = params.get('line');
+  const [pickedLine, pickLine] = useWorkingLine(id);
+  const [releasing, setReleasing] = useState<SalesOrderLine | null>(null);
   const [moving, setMoving] = useState<OrderStatus | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [actionError, setActionError] = useState<CfApiError | null>(null);
   const [busy, setBusy] = useState<OrderStatus | null>(null);
-  const [processOpen, setProcessOpen] = useState(false);
-  const [processStage, setProcessStage] = useState<string | null>(null);
+  const tabsRef = useRef<HTMLDivElement>(null);
 
-  const o = order.data;
+  // Only THIS order's answers. A link from one order to another reuses the
+  // page, and the last order's answers are still in hand for a moment.
+  const o = order.data && order.data.id === id ? order.data : null;
+  const view = processView.data && processView.data.order.id === id ? processView.data : null;
   useDetailTitle(o ? o.code : null);
   const lines = useMemo(() => o?.lines ?? [], [o]);
-  // Falls back when the chosen line has gone (removed, or another order loaded),
-  // so the Line picker never sits on a value that is not in its list.
-  const shownLine = (structureLine != null && lines.some((l) => l.id === structureLine) ? structureLine : null)
-    ?? lines.find((l) => l.lineType === 'custom')?.id ?? lines[0]?.id ?? null;
+
+  const model = processModel(view, pickedLine);
+  // Without stages, the plain Structure tab picks its own line: the remembered
+  // one, else the first custom line — it has a tree worth seeing — else the first.
+  const plainLine = lines.find((l) => l.id === pickedLine)?.id ?? lines.find((l) => l.lineType === 'custom')?.id ?? lines[0]?.id ?? null;
+
+  // ── the tabs ──
+  const releases = production.data?.releases.length;
+  const stockTab: DetailTab[] = canStock ? [{ value: 'stock', label: 'Stock', count: moves.data?.length }] : [];
+  const tabs: DetailTab[] = model
+    ? [
+      // Not stages. The three before Stock appear only when the process leaves
+      // their stage out, so every screen the order has stays one click away.
+      ...(model.keys.includes('lines') ? [] : [{ value: 'lines', label: 'Lines', count: lines.length }]),
+      ...(model.keys.includes('structure') || !lines.length ? [] : [{ value: 'structure', label: 'Structure' }]),
+      ...(model.keys.includes('production') || !canTrack ? [] : [{ value: 'production', label: 'Production', count: releases }]),
+      ...stockTab,
+      { value: 'details', label: 'Details' },
+    ]
+    : [
+      { value: 'lines', label: 'Lines', count: lines.length },
+      ...(lines.length ? [{ value: 'structure', label: 'Structure' }] : []),
+      ...(canTrack ? [{ value: 'production', label: 'Production', count: releases }] : []),
+      ...stockTab,
+      { value: 'details', label: 'Details' },
+    ];
+  // Settled once the process question has an answer: stages, none, or an error.
+  const settled = !!o && (!!view || !!processView.error);
+  const valid = [...(model?.keys ?? []), ...tabs.map((t) => t.value)];
+  const tab = settled
+    ? (tabParam && valid.includes(tabParam) ? tabParam : model?.landing ?? 'lines')
+    : (tabParam ?? '');
+
+  const setTab = useCallback((next: string) => {
+    setParams((prev) => { const p = new URLSearchParams(prev); p.set('tab', next); return p; }, { replace: true });
+  }, [setParams]);
+
+  /*
+   * The address always says where you are. A link naming a line picks it, then
+   * drops out so the switcher stays in charge. A missing, unknown or retired
+   * tab is replaced by where it landed — once, so a stage finishing under
+   * somebody never carries them on to the next one. Only on a real answer,
+   * though: while the process could not be read, a link to a stage is kept, so
+   * Retry can still honour it.
+   */
+  const answered = !!o && !!view;
+  useEffect(() => {
+    if (lineParam != null) {
+      const n = Number(lineParam);
+      if (Number.isInteger(n) && n > 0) pickLine(n);
+      setParams((prev) => { const p = new URLSearchParams(prev); p.delete('line'); return p; }, { replace: true });
+      return;
+    }
+    if (answered && tab && tabParam !== tab) setTab(tab);
+  }, [lineParam, answered, tab, tabParam, pickLine, setParams, setTab]);
+
+  // Walking on from the foot of a long screen brings the tabs back into view,
+  // so the next stage starts at its top. Wherever the tabs can be seen already,
+  // nothing moves.
+  const goStage = useCallback((key: string) => {
+    setTab(key);
+    tabsRef.current?.scrollIntoView({ block: 'nearest' });
+  }, [setTab]);
 
   // Anything that changes the order moves its stages too, so the two reload together.
   const orderSaved = (saved: SalesOrder) => { order.setData(saved); processView.reload(); };
@@ -127,8 +274,7 @@ export default function OrderDetail() {
     setBusy(next); setActionError(null);
     try { orderSaved(await cfApi.post<SalesOrder>(`/orders/${id}/status`, { status: next })); invalidateNavCounts(); toast.success(`${o?.code} is now ${ORDER_STATUS_LABEL[next].toLowerCase()}.`); } catch (e) { setActionError(e as CfApiError); } finally { setBusy(null); }
   };
-  const openStructure = (l: SalesOrderLine) => { setStructureLine(l.id); setTab('structure'); };
-  const openProcess = (stageKey?: string) => { setProcessStage(stageKey ?? null); setProcessOpen(true); };
+  const openStructure = (l: SalesOrderLine) => { pickLine(l.id); setTab('structure'); };
 
   if (order.error) return <ErrorNotice error={order.error} onRetry={order.reload} />;
   if (!o) return <DetailSkeleton />;
@@ -174,91 +320,102 @@ export default function OrderDetail() {
       {lines.filter((l) => l.item).map((l) => (
         <CrossLink key={l.id} icon={<AccountTreeRounded />} label={l.item?.code ?? l.item?.name ?? ''} to={to(recordPath(l.item!.kind, l.item!.id))} />
       ))}
-      {canTrack && <CrossLink icon={<PrecisionManufacturingRounded />} label="Production" count={production.data?.releases.length} onClick={() => setTab('production')} />}
+      {canTrack && <CrossLink icon={<PrecisionManufacturingRounded />} label="Production" count={releases} onClick={() => setTab('production')} />}
       {canStock && <CrossLink icon={<SwapHorizRounded />} label="Stock movements" count={moves.data?.length} onClick={() => setTab('stock')} />}
     </>
   );
-  const tabs = [
-    { value: 'lines', label: 'Lines', count: lines.length },
-    ...(lines.length ? [{ value: 'structure', label: 'Structure' }] : []),
-    ...(canTrack ? [{ value: 'production', label: 'Production', count: production.data?.releases.length }] : []),
-    ...(canStock ? [{ value: 'stock', label: 'Stock', count: moves.data?.length }] : []),
-    { value: 'details', label: 'Details' },
-  ];
 
-  return (
-    <DetailLayout header={header} crossLinks={crossLinks} tabs={tabs} active={tab} onTab={setTab}
-      beforeTabs={(
-        <OrderStageStrip view={processView.data} loading={processView.loading} error={processView.error}
-          onReload={processView.reload} onOpen={openProcess} />
-      )}>
-      {tab === 'lines' && (
-        <OrderLinesPanel order={o} onSaved={orderSaved} onOpenStructure={openStructure} onRelease={canProduce ? setReleasing : undefined} />
-      )}
+  // ── above the body: the stage tabs, or why there are none ──
+  let band: ReactNode;
+  if (model) {
+    band = (
+      <Box ref={tabsRef} sx={{ scrollMarginTop: 16 }}>
+        {/* A reload that failed: the tabs keep the last answer, and say so. */}
+        <ErrorNotice error={processView.error} onRetry={processView.reload} />
+        <OrderStageTabs process={model.process} lines={model.view.lines} stages={model.stages} line={model.line}
+          nextKey={firstOpenStage(model.stages)} active={tab} onTab={setTab} onPickLine={pickLine} reference={tabs} />
+      </Box>
+    );
+  } else if (settled) {
+    band = <ProcessAbsentNote view={view} error={processView.error} onRetry={processView.reload} />;
+  } else {
+    band = <StageTabsSkeleton />;
+  }
 
-      {tab === 'structure' && shownLine != null && (
-        <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 1.5 }}>
+  // ── the body ──
+  const stage = model?.stages.find((s) => s.stageKey === tab) ?? null;
+  let body: ReactNode = null;
+  if (!settled && !PROCESS_FREE_TABS.includes(tab)) {
+    body = <SkeletonRows rows={4} height={72} />;
+  } else if (model && stage) {
+    body = (
+      <>
+        <StageBody key={`${stage.stageKey}:${model.line?.lineId ?? 'order'}`}
+          view={model.view} stage={stage} line={model.line} order={o} production={production.data} productionError={production.error}
+          onPickLine={pickLine} onOrderSaved={orderSaved} onReleaseChanged={updateRelease} onReloadAll={reloadAll} onGoStage={goStage} />
+        <StageFoot key={`foot:${stage.stageKey}`} view={model.view} stages={model.stages} current={stage} order={o}
+          onGo={goStage} onOrderSaved={orderSaved} onReloadAll={reloadAll} />
+      </>
+    );
+  } else if (tab === 'lines') {
+    body = <OrderLinesPanel order={o} onSaved={orderSaved} onOpenStructure={openStructure} onRelease={canProduce ? setReleasing : undefined} />;
+  } else if (tab === 'structure') {
+    // With stages the switcher above the tabs already names the line; without, this tab has its own picker.
+    const lineId = model ? model.line?.lineId ?? null : plainLine;
+    body = lineId != null && (
+      <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 1.5 }}>
+        {!model && (
           <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'center', flexWrap: 'wrap' }}>
-            <TextField select size="small" label="Line" value={shownLine} onChange={(e) => setStructureLine(Number(e.target.value))} sx={{ minWidth: { xs: '100%', sm: 280 }, maxWidth: '100%' }}>
+            <TextField select size="small" label="Line" value={lineId} onChange={(e) => pickLine(Number(e.target.value))} sx={{ minWidth: { xs: '100%', sm: 280 }, maxWidth: '100%' }}>
               {lines.map((l) => <MenuItem key={l.id} value={l.id}>{`${l.lineNo} · ${l.item?.code ?? '—'} · ${l.item?.name ?? ''} ×${l.quantity}`}</MenuItem>)}
             </TextField>
             {/* A standard line's tree explains itself, with a link to the item. */}
-            {lines.find((l) => l.id === shownLine)?.lineType === 'custom' && (
+            {lines.find((l) => l.id === lineId)?.lineType === 'custom' && (
               <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)', flex: 1, minWidth: 220 }}>
                 Temporary items are made for this order. Their codes are built from the order number and their place in the structure.
               </Typography>
             )}
           </Box>
-          <BomPanel key={shownLine} source={{ kind: 'orderLine', lineId: shownLine }} onChanged={() => { order.reload(); processView.reload(); }} />
-        </Box>
-      )}
+        )}
+        <BomPanel key={lineId} source={{ kind: 'orderLine', lineId }} onChanged={() => { order.reload(); processView.reload(); }} />
+      </Box>
+    );
+  } else if (tab === 'production' && canTrack) {
+    body = (
+      <ProductionOverview order={o} lines={lines} production={production.data} productionError={production.error} loading={production.loading}
+        canProduce={canProduce} canReserve={canReserve} onRelease={setReleasing} onReleaseChanged={updateRelease} onReloadAll={reloadAll} onRetry={production.reload} />
+    );
+  } else if (tab === 'stock' && canStock) {
+    body = (
+      <SectionCard flush title="Stock for this order" subtitle="Issues made against this order — what has gone to it from stock. Receipts and transfers do not name an order."
+        actions={canReserve && !locked && <MovementButtons types={['issue']} preset={{ orderId: o.id }} onPosted={moves.reload} />}>
+        {moves.error && <Box sx={{ p: 2 }}><ErrorNotice error={moves.error} onRetry={moves.reload} /></Box>}
+        <MovementsTable bare rows={moves.data ?? []} loading={moves.loading && !moves.data} empty="Nothing has been issued to this order yet." />
+      </SectionCard>
+    );
+  } else if (tab === 'details') {
+    body = <DetailsForm key={o.updatedAt} order={o} onSaved={(saved) => { orderSaved(saved); toast.success('Details saved.'); }} />;
+  }
 
-      {tab === 'production' && canTrack && (
-        <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 2 }}>
-          {production.error && <ErrorNotice error={production.error} onRetry={production.reload} />}
-          {(production.data?.unreleased ?? []).length > 0 && (
-            <SectionCard title="Not released yet" subtitle={o.status === 'confirmed' ? 'A line is released whole: its structure becomes the tracker below, and it is frozen from then on.' : `Lines are released once the order is confirmed — it is ${o.status} now.`}>
-              <Box sx={{ display: 'grid', gap: 1 }}>
-                {(production.data?.unreleased ?? []).map((u) => {
-                  const l = lines.find((x) => x.id === u.id);
-                  return (
-                    <Box key={u.id} sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap' }}>
-                      <Mono muted>{u.lineNo}</Mono>
-                      <Mono>{u.item.code}</Mono>
-                      <Box sx={{ flex: '1 1 160px', minWidth: 0, color: 'var(--c-text-2)', fontSize: 13.5 }}>{u.item.name} ×{u.quantity}</Box>
-                      {canProduce && o.status === 'confirmed' && l && <Button size="small" variant="contained" startIcon={<RocketLaunchRounded />} onClick={() => setReleasing(l)}>Release</Button>}
-                    </Box>
-                  );
-                })}
-              </Box>
-            </SectionCard>
-          )}
-          {production.loading && !production.data ? <SkeletonRows rows={3} height={80} /> : (production.data?.releases ?? []).length === 0 ? (
-            <EmptyState icon={<PrecisionManufacturingRounded />} title="Nothing released yet" hint="Release a line to see its pieces, their steps and what each waits for." />
-          ) : (production.data?.releases ?? []).map((r) => (
-            <ReleaseView key={r.id} release={r} canProduce={canProduce} canStock={canReserve} onChange={updateRelease} onTakenBack={reloadAll} onShipped={reloadAll} />
-          ))}
-        </Box>
-      )}
-
-      {tab === 'stock' && canStock && (
-        <SectionCard flush title="Stock for this order" subtitle="Issues made against this order — what has gone to it from stock. Receipts and transfers do not name an order."
-          actions={isPermitted('cf_erp_inventory_manage') && !locked && <MovementButtons types={['issue']} preset={{ orderId: o.id }} onPosted={moves.reload} />}>
-          {moves.error && <Box sx={{ p: 2 }}><ErrorNotice error={moves.error} onRetry={moves.reload} /></Box>}
-          <MovementsTable bare rows={moves.data ?? []} loading={moves.loading && !moves.data} empty="Nothing has been issued to this order yet." />
-        </SectionCard>
-      )}
-
-      {tab === 'details' && <DetailsForm key={o.updatedAt} order={o} onSaved={(saved) => { orderSaved(saved); toast.success('Details saved.'); }} />}
-
-      <OrderProcessDialog open={processOpen} onClose={() => setProcessOpen(false)} startAt={processStage}
-        view={processView.data} loading={processView.loading} error={processView.error}
-        order={o} production={production.data} productionError={production.error}
-        onOrderSaved={orderSaved} onReleaseChanged={updateRelease} onReloadAll={reloadAll} />
+  return (
+    <DetailLayout header={header} crossLinks={crossLinks} beforeTabs={band}
+      // With stages the tab row above is the tabs; without, the plain ones draw here.
+      tabs={model || !settled ? undefined : tabs}
+      // A new line is a new screen too, so switching it cross-fades like a tab.
+      active={model && stage ? `${tab}:${model.line?.lineId ?? 'order'}` : tab || 'loading'}
+      onTab={setTab}>
+      {body}
 
       <ReleaseDialog line={releasing ? { id: releasing.id, lineNo: releasing.lineNo, label: `${releasing.item?.code ?? releasing.item?.name ?? 'This line'} ×${releasing.quantity}` } : null}
         onClose={() => setReleasing(null)}
-        onReleased={() => { invalidateNavCounts(); toast.success(`Line ${releasing?.lineNo} released to production.`); reloadAll(); setTab('production'); }} />
+        onReleased={() => {
+          invalidateNavCounts();
+          toast.success(`Line ${releasing?.lineNo} released to production.`);
+          // Production is per line when it is a stage: open the line just released.
+          if (releasing) pickLine(releasing.id);
+          reloadAll();
+          setTab('production');
+        }} />
       <ConfirmDialog open={!!moving} title={moving ? `${transitionLabel(o.status, moving)}?` : ''} confirmLabel={moving ? transitionLabel(o.status, moving) : 'Confirm'} danger={moving === 'cancelled'}
         entityName={`${o.code}${o.title ? ` · ${o.title}` : ''}`} body={moving ? CONFIRM_MOVE[moving] ?? '' : ''}
         onClose={() => setMoving(null)}
