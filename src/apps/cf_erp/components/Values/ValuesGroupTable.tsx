@@ -13,7 +13,7 @@ import {
 } from './valuesModel';
 
 /** Width of a value column, by what goes in it. */
-const COL_WIDTH: Record<ValuesColumn['dataType'], number> = { number: 112, option: 140, text: 168, date: 150, boolean: 96 };
+const COL_WIDTH: Record<ValuesColumn['dataType'], number> = { number: 112, option: 140, text: 168, date: 150, boolean: 96, table: 150 };
 
 /**
  * One kind of thing's grid: its own columns, one row per record.

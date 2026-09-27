@@ -1,6 +1,16 @@
 /** Shapes returned by the cf_erp backend (apps/cf_erp/services). */
 
-export type DataType = 'number' | 'text' | 'boolean' | 'date' | 'option';
+export type DataType = 'number' | 'text' | 'boolean' | 'date' | 'option' | 'table';
+/** step_up: the next row up. linear: a straight line between rows. */
+export type TableMode = 'step_up' | 'linear';
+export interface TableAxis { label: string; unit: string | null }
+/** A table specification's shape — one or two axes, and how a value between rows is read. */
+export interface TableConfig { axes: TableAxis[]; mode: TableMode }
+/** A table's own chart: 1-D { x, v } or 2-D { x, y, v } with v[yIndex][xIndex]. `null` in v = the machine cannot. */
+export interface TableValue1D { x: number[]; v: (number | null)[] }
+export interface TableValue2D { x: number[]; y: number[]; v: (number | null)[][] }
+export type TableValue = TableValue1D | TableValue2D;
+export const isTable2D = (t: TableValue | null | undefined): t is TableValue2D => !!t && Array.isArray((t as TableValue2D).y);
 export type ValueRule = 'entered' | 'fixed' | 'defaulted' | 'calculated' | 'rollup' | 'inherited';
 export type CaptureAt = 'item' | 'batch' | 'individual';
 export type RecordStatus = 'draft' | 'active' | 'obsolete';
@@ -69,6 +79,8 @@ export interface Specification {
   description: string | null;
   status: 'active' | 'inactive';
   options?: SpecOption[];
+  /** dataType 'table' only. */
+  tableConfig?: TableConfig | null;
   ruleCount: number;
   valueCount: number;
 }
@@ -98,6 +110,8 @@ export interface FormulaCheck {
   kind?: FormulaKind;
   itemRefs?: string[];
   machineRefs?: string[];
+  /** LOOKUP(t, x[, y]) — the tables it reads, one entry per LOOKUP call. */
+  lookupRefs?: { role: 'plain' | 'item' | 'machine'; code: string; arity: number }[];
   result: { value: number | null; missing?: string[]; error?: string } | null;
 }
 
@@ -122,7 +136,7 @@ export interface Rule {
 }
 
 export interface ValueView {
-  raw: number | string | boolean | null;
+  raw: number | string | boolean | TableValue | null;
   display: string | null;
   source: ValueRule;
   from: string;
@@ -138,7 +152,7 @@ export type SpecStatus =
 export interface Frozen { orderId: number; orderCode: string; orderStatus: OrderStatus; reason?: 'closed' | 'released' | 'locked'; lineNo?: number | null; releaseId?: number; lockedAt?: string }
 
 export interface ResolvedSpec {
-  spec: { id: number; code: string; name: string; dataType: DataType; unit: string | null; decimals: number | null };
+  spec: { id: number; code: string; name: string; dataType: DataType; unit: string | null; decimals: number | null; tableConfig?: TableConfig | null };
   captureAt: CaptureAt;
   applicable: boolean;
   capturable: boolean;

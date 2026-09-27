@@ -136,7 +136,9 @@ const pick = <K extends keyof ValuesCell & keyof ValuesColumn>(cell: ValuesCell,
 export function effectiveCell(view: ValuesView, col: ValuesColumn, row: ValuesRow, cell: ValuesCell, canEdit: boolean): EffectiveCell {
   const rule = pick(cell, col, 'rule') as ValueRule;
   const optionsKey = pick(cell, col, 'options');
-  const typeable = rule === 'entered' || rule === 'defaulted';
+  // A table is never typed into a grid cell here, whatever its rule — it opens
+  // its own dialog (orderValuesService refuses a write of one from this stage).
+  const typeable = col.dataType !== 'table' && (rule === 'entered' || rule === 'defaulted');
   return {
     rule,
     required: !!pick(cell, col, 'required'),
@@ -173,6 +175,9 @@ export function formatInput(col: ValuesColumn, input: string, options: SpecOptio
     }
     case 'boolean': return input === 'true' ? 'Yes' : input === 'false' ? 'No' : input;
     case 'number': return col.unit ? `${input} ${col.unit}` : input;
+    // A table never carries its raw JSON here — a cell shows `display` (the
+    // backend's own summary) instead, so this case should not be reached.
+    case 'table': return 'a table';
     default: return input;
   }
 }

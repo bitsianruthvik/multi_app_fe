@@ -159,11 +159,15 @@ export function SpecsTable({
                         dataType={s.spec.dataType}
                         unit={s.spec.unit}
                         options={s.options}
+                        tableConfig={s.spec.tableConfig}
                         spec={s.spec} chain={resolution.chain}
                         value={drafting ? (draftValues?.[s.spec.id] ?? '') : (edits[s.spec.id] ?? '')}
                         onChange={(v) => (drafting ? onDraftChange?.(s.spec.id, v) : setEdits((m) => ({ ...m, [s.spec.id]: v })))}
                         label={s.rule.valueRule === 'defaulted' && s.value && s.value.source !== 'entered' ? `Default: ${s.value.display}` : undefined}
                       />
+                    ) : s.value && s.spec.dataType === 'table' ? (
+                      <SpecValueInput dataType="table" tableConfig={s.spec.tableConfig} spec={s.spec}
+                        value={toInputString(s.value.raw)} onChange={() => {}} disabled />
                     ) : s.value ? (
                       <Mono sx={{ fontSize: 13, color: 'var(--c-text)' }}>{s.value.display}</Mono>
                     ) : (

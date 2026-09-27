@@ -33,5 +33,6 @@ export function flattenTree(tree: Tree | null): FlatNode[] {
 export function toInputString(raw: unknown): string {
   if (raw === null || raw === undefined) return '';
   if (typeof raw === 'boolean') return raw ? 'true' : 'false';
+  if (typeof raw === 'object') return JSON.stringify(raw);
   return String(raw);
 }

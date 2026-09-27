@@ -3,13 +3,16 @@ import { useMemo, useState } from 'react';
 import {
   Alert, Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, InputAdornment, MenuItem, TextField,
 } from '@mui/material';
+import TableChartOutlined from '@mui/icons-material/TableChartOutlined';
 import { cfApi, CfApiError } from '../api/client';
-import type { AddedSpecOption, DataType, Resolution, SpecOption } from '../api/types';
+import type { AddedSpecOption, DataType, Resolution, SpecOption, TableConfig } from '../api/types';
 import { useIsPermitted } from '../hooks/useIsPermitted';
 import { enterSubmits } from '../lib/dialog';
 import { DialogHeader } from './FormDialog';
 import { ErrorNotice } from './ui';
 import { useToast } from './toastContext';
+import { TableValueDialog } from './TableValue/TableValueDialog';
+import { parseTableValue, summaryOf } from './TableValue/tableValueModel';
 
 /** The specification a value is for — enough to add to its list and to say so. */
 interface SpecRef { id: number; code: string; name: string }
@@ -24,11 +27,13 @@ interface SpecRef { id: number; code: string; name: string }
  * ClassificationPicker's allowCreate — a filter or a receipt offers nothing to add.
  */
 export function SpecValueInput({
-  dataType, unit, options, value, onChange, label, disabled, size = 'small', autoFocus, spec, chain,
+  dataType, unit, options, tableConfig, value, onChange, label, disabled, size = 'small', autoFocus, spec, chain,
 }: {
   dataType: DataType;
   unit?: string | null;
   options?: SpecOption[];
+  /** dataType 'table' only — its axes and lookup mode. */
+  tableConfig?: TableConfig | null;
   value: string;
   onChange: (v: string) => void;
   label?: string;
@@ -73,9 +78,41 @@ export function SpecValueInput({
       return <TextField {...common} type="date" InputLabelProps={{ shrink: true }} />;
     case 'option':
       return <OptionInput options={options} value={value} onChange={onChange} label={label} disabled={disabled} size={size} autoFocus={autoFocus} spec={spec} chain={chain} />;
+    case 'table':
+      return <TableTrigger specName={spec?.name ?? label ?? 'Table'} tableConfig={tableConfig} value={value} onChange={onChange} disabled={disabled} />;
     default:
       return <TextField {...common} inputProps={{ maxLength: 500 }} />;
   }
+}
+
+/**
+ * A table has no single cell to type into — the trigger is a small button
+ * showing the chart's own summary ("15 rows, 6-50 mm") that opens the grid
+ * dialog. `onChange` gets the same JSON string back every table value is
+ * carried as, so whatever saves a plain value saves this one too.
+ */
+function TableTrigger({ specName, tableConfig, value, onChange, disabled }: {
+  specName: string;
+  tableConfig?: TableConfig | null;
+  value: string;
+  onChange: (v: string) => void;
+  disabled?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const summary = summaryOf(tableConfig, parseTableValue(value));
+  return (
+    <>
+      <Button
+        variant="outlined" size="small" fullWidth onClick={() => setOpen(true)}
+        startIcon={<TableChartOutlined fontSize="small" />}
+        sx={{ justifyContent: 'flex-start', textTransform: 'none', fontFamily: 'var(--font-mono)', fontSize: 12.5 }}
+      >
+        {summary}
+      </Button>
+      {open && <TableValueDialog open onClose={() => setOpen(false)} specName={specName} tableConfig={tableConfig}
+        value={value} onSave={onChange} disabled={disabled} />}
+    </>
+  );
 }
 
 /** The synthetic last choice that opens the dialog. It is never a value. */

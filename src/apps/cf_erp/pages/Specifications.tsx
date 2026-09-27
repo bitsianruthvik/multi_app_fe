@@ -7,7 +7,7 @@ import AddRounded from '@mui/icons-material/AddRounded';
 import TuneRounded from '@mui/icons-material/TuneRounded';
 import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
 import { cfApi, CfApiError } from '../api/client';
-import type { DataType, Meta, Specification } from '../api/types';
+import type { DataType, Meta, Specification, TableMode } from '../api/types';
 import { useLoad } from '../hooks/useLoad';
 import { EmptyState, ErrorNotice, Mono, PageHeader, StatStrip, StatusBadge } from '../components/ui';
 import { DataTable, type DataColumn } from '../components/DataTable';
@@ -19,6 +19,9 @@ import { useToast } from '../components/toastContext';
 import { DialogHeader } from '../components/FormDialog';
 
 interface OptionDraft { id?: number; value: string; label: string; status?: 'active' | 'inactive' }
+interface AxisDraft { label: string; unit: string }
+
+const TYPE_LABEL: Record<DataType, string> = { number: 'Number', text: 'Text', boolean: 'Yes / no', date: 'Date', option: 'Pick-list', table: 'Table' };
 
 function SpecDialog({ open, onClose, onSaved, existing, meta, canManage }: {
   open: boolean; onClose: () => void; onSaved: () => void; existing: Specification | null; meta: Meta | null; canManage: boolean;
@@ -33,6 +36,8 @@ function SpecDialog({ open, onClose, onSaved, existing, meta, canManage }: {
   const [status, setStatus] = useState<'active' | 'inactive'>('active');
   const [options, setOptions] = useState<OptionDraft[]>([]);
   const [newOption, setNewOption] = useState('');
+  const [tableAxes, setTableAxes] = useState<AxisDraft[]>([{ label: '', unit: '' }]);
+  const [tableMode, setTableMode] = useState<TableMode>('step_up');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<CfApiError | null>(null);
 
@@ -49,6 +54,9 @@ function SpecDialog({ open, onClose, onSaved, existing, meta, canManage }: {
     setDescription(existing?.description ?? '');
     setStatus(existing?.status ?? 'active');
     setOptions((existing?.options ?? []).map((o) => ({ id: o.id, value: o.value, label: o.label ?? '', status: o.status })));
+    const axes = existing?.tableConfig?.axes;
+    setTableAxes(axes?.length ? axes.map((a) => ({ label: a.label, unit: a.unit ?? '' })) : [{ label: '', unit: '' }]);
+    setTableMode(existing?.tableConfig?.mode ?? 'step_up');
   }, [open, existing]);
 
   const addOption = () => {
@@ -58,6 +66,14 @@ function SpecDialog({ open, onClose, onSaved, existing, meta, canManage }: {
     setNewOption('');
   };
 
+  const tableConfig = dataType === 'table'
+    ? { axes: tableAxes.map((a) => ({ label: a.label.trim(), unit: a.unit.trim() || null })), mode: tableMode }
+    : undefined;
+  // Once a table has values, its axis COUNT is fixed (the shape of every stored
+  // chart depends on it) — a relabel or a change of mode is still free.
+  const axisCountLocked = dataType === 'table' && !!existing && existing.valueCount > 0;
+  const tableIncomplete = dataType === 'table' && (!tableAxes.length || tableAxes.some((a) => !a.label.trim()));
+
   const save = async () => {
     setBusy(true);
     setError(null);
@@ -66,7 +82,7 @@ function SpecDialog({ open, onClose, onSaved, existing, meta, canManage }: {
       if (existing) {
         // dataType goes with it: the field is editable until the spec has values,
         // and leaving it out made changing it silently do nothing.
-        await cfApi.put(`/specifications/${existing.id}`, { ...common, dataType, status });
+        await cfApi.put(`/specifications/${existing.id}`, { ...common, dataType, status, tableConfig });
         // Options are edited one by one on an existing spec: stored values keep their option ids.
         for (const o of options.filter((x) => !x.id)) await cfApi.post(`/specifications/${existing.id}/options`, { value: o.value, label: o.label || null });
         for (const o of options.filter((x) => x.id)) {
@@ -76,7 +92,11 @@ function SpecDialog({ open, onClose, onSaved, existing, meta, canManage }: {
           }
         }
       } else {
-        await cfApi.post('/specifications', { ...common, code, dataType, options: dataType === 'option' ? options.map((o) => ({ value: o.value, label: o.label || null })) : undefined });
+        await cfApi.post('/specifications', {
+          ...common, code, dataType,
+          options: dataType === 'option' ? options.map((o) => ({ value: o.value, label: o.label || null })) : undefined,
+          tableConfig,
+        });
       }
       setBusy(false);
       onSaved();
@@ -102,17 +122,18 @@ function SpecDialog({ open, onClose, onSaved, existing, meta, canManage }: {
           <TextField label="Name" required value={name} onChange={(e) => setName(e.target.value)} autoFocus={!!existing} />
           <TextField select label="Data type" value={dataType} disabled={!!existing && existing.valueCount > 0}
             helperText={existing && existing.valueCount > 0 ? 'Fixed once values exist' : ' '} onChange={(e) => setDataType(e.target.value as DataType)}>
-            {(meta?.dataTypes ?? ['number', 'text', 'boolean', 'date', 'option']).map((d) => <MenuItem key={d} value={d}>{d === 'option' ? 'Pick-list' : d[0].toUpperCase() + d.slice(1)}</MenuItem>)}
+            {(meta?.dataTypes ?? ['number', 'text', 'boolean', 'date', 'option', 'table']).map((d) => <MenuItem key={d} value={d}>{TYPE_LABEL[d] ?? d}</MenuItem>)}
           </TextField>
           <TextField select label="Measures" value={measurementType} onChange={(e) => setMeasurementType(e.target.value)} helperText=" ">
             <MenuItem value="">—</MenuItem>
             {(meta?.measurementTypes ?? []).map((m) => <MenuItem key={m} value={m}>{m[0] + m.slice(1).toLowerCase()}</MenuItem>)}
           </TextField>
+          {(dataType === 'number' || dataType === 'table') && (
+            <TextField label="Unit" value={defaultUom} onChange={(e) => setDefaultUom(e.target.value)}
+              helperText={dataType === 'table' ? "The chart's own output unit, e.g. mm/min" : 'Every value is stored in this unit'} />
+          )}
           {dataType === 'number' && (
-            <>
-              <TextField label="Unit" value={defaultUom} onChange={(e) => setDefaultUom(e.target.value)} helperText="Every value is stored in this unit" />
-              <TextField label="Decimals shown" type="number" value={decimals} onChange={(e) => setDecimals(e.target.value)} inputProps={{ min: 0, max: 6 }} />
-            </>
+            <TextField label="Decimals shown" type="number" value={decimals} onChange={(e) => setDecimals(e.target.value)} inputProps={{ min: 0, max: 6 }} />
           )}
           <TextField label="Description" value={description} onChange={(e) => setDescription(e.target.value)} sx={{ gridColumn: '1 / -1' }} />
           {existing && (
@@ -149,11 +170,49 @@ function SpecDialog({ open, onClose, onSaved, existing, meta, canManage }: {
             </Box>
           </Box>
         )}
+        {dataType === 'table' && (
+          <Box sx={{ mt: 2.5 }}>
+            <Typography sx={{ fontWeight: 500, mb: 0.5 }}>Chart axes</Typography>
+            <Typography sx={{ fontSize: 12, color: 'var(--c-text-2)', mb: 1 }}>
+              One axis for a chart with a single input, such as thickness. Two for one with two, such as thickness and hole diameter.
+            </Typography>
+            <Box sx={{ display: 'grid', gap: 1 }}>
+              {tableAxes.map((a, i) => (
+                <Box key={i} sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 2fr) minmax(0, 1fr) auto', gap: 1, alignItems: 'center' }}>
+                  <TextField size="small" label={`Axis ${i + 1} label`} value={a.label} placeholder={i === 0 ? 'Thickness' : 'Hole diameter'}
+                    onChange={(e) => setTableAxes((all) => all.map((x, j) => (j === i ? { ...x, label: e.target.value } : x)))} />
+                  <TextField size="small" label="Unit" value={a.unit} placeholder="mm"
+                    onChange={(e) => setTableAxes((all) => all.map((x, j) => (j === i ? { ...x, unit: e.target.value } : x)))} />
+                  {tableAxes.length > 1 && (
+                    <IconButton aria-label={`Remove axis ${i + 1}`} disabled={axisCountLocked}
+                      onClick={() => setTableAxes((all) => all.filter((_, j) => j !== i))}><DeleteOutlineRounded /></IconButton>
+                  )}
+                </Box>
+              ))}
+              {tableAxes.length < 2 && (
+                <Button size="small" onClick={() => setTableAxes((all) => [...all, { label: '', unit: '' }])} startIcon={<AddRounded />}
+                  disabled={axisCountLocked} sx={{ justifySelf: 'start' }}>
+                  Add a second axis
+                </Button>
+              )}
+              {axisCountLocked && (
+                <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>
+                  This chart already has values, so the number of axes is fixed — relabelling an axis or changing how it reads between rows is still free.
+                </Typography>
+              )}
+            </Box>
+            <TextField select label="Reading between rows" value={tableMode} sx={{ mt: 2 }} fullWidth helperText=" "
+              onChange={(e) => setTableMode(e.target.value as TableMode)}>
+              <MenuItem value="step_up">The next row up — never a faster or larger reading than the chart gives</MenuItem>
+              <MenuItem value="linear">A straight line between the two rows around it</MenuItem>
+            </TextField>
+          </Box>
+        )}
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose} disabled={busy}>{canManage ? 'Cancel' : 'Close'}</Button>
         {canManage && (
-          <Button variant="contained" onClick={save} disabled={busy || !name.trim() || (!existing && !code.trim())} startIcon={busy ? <CircularProgress size={14} color="inherit" /> : undefined}>{busy ? 'Saving…' : existing ? 'Save' : 'Create'}</Button>
+          <Button variant="contained" onClick={save} disabled={busy || !name.trim() || (!existing && !code.trim()) || tableIncomplete} startIcon={busy ? <CircularProgress size={14} color="inherit" /> : undefined}>{busy ? 'Saving…' : existing ? 'Save' : 'Create'}</Button>
         )}
       </DialogActions>
     </Dialog>
@@ -161,7 +220,7 @@ function SpecDialog({ open, onClose, onSaved, existing, meta, canManage }: {
 }
 
 const matches = (s: Specification, term: string) => !term || s.code.toLowerCase().includes(term) || s.name.toLowerCase().includes(term);
-const TYPE_CHIPS: [string, string][] = [['', 'All'], ['number', 'Number'], ['text', 'Text'], ['option', 'Pick-list'], ['boolean', 'Yes / no'], ['date', 'Date']];
+const TYPE_CHIPS: [string, string][] = [['', 'All'], ['number', 'Number'], ['text', 'Text'], ['option', 'Pick-list'], ['boolean', 'Yes / no'], ['date', 'Date'], ['table', 'Table']];
 
 const COLUMNS: DataColumn<Specification>[] = [
   { key: 'code', header: 'Code', render: (s) => <Mono chip>{s.code}</Mono>, sortValue: (s) => s.code, alwaysVisible: true },
@@ -171,10 +230,11 @@ const COLUMNS: DataColumn<Specification>[] = [
       <Box sx={{ py: 0.5 }}>
         <Box sx={{ fontWeight: 500 }}>{s.name}</Box>
         {s.dataType === 'option' && <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)', whiteSpace: 'normal' }}>{(s.options ?? []).map((o) => o.value).join(' · ')}</Typography>}
+        {s.dataType === 'table' && <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)', whiteSpace: 'normal' }}>{(s.tableConfig?.axes ?? []).map((a) => a.label).join(' × ')}</Typography>}
       </Box>
     ),
   },
-  { key: 'type', header: 'Type', render: (s) => (s.dataType === 'option' ? 'Pick-list' : s.dataType), sortValue: (s) => s.dataType },
+  { key: 'type', header: 'Type', render: (s) => (TYPE_LABEL[s.dataType] ?? s.dataType), sortValue: (s) => s.dataType },
   { key: 'unit', header: 'Unit', render: (s) => <Mono muted>{s.defaultUom ?? '—'}</Mono>, sortValue: (s) => s.defaultUom },
   { key: 'rules', header: 'Rules', numeric: true, render: (s) => s.ruleCount, sortValue: (s) => s.ruleCount },
   { key: 'values', header: 'Values', numeric: true, render: (s) => s.valueCount, sortValue: (s) => s.valueCount },

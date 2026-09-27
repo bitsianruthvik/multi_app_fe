@@ -139,6 +139,7 @@ export function BomValuesEditor({
                       dataType={s.spec.dataType}
                       unit={s.spec.unit}
                       options={s.options}
+                      tableConfig={s.spec.tableConfig}
                       value={at(s)}
                       disabled={!canEdit || busy}
                       autoFocus={autoFocus && s.spec.code === focusCode}
