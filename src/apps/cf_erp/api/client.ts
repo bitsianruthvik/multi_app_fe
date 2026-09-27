@@ -67,11 +67,17 @@ export const LONG_WRITE_MS = 5 * 60 * 1000;
 export interface CallOptions {
   /** Wait this long before giving up; the platform default is 30 s. */
   timeoutMs?: number;
+  responseType?: 'json' | 'blob';
 }
 
 async function call<T>(method: Method, path: string, body?: unknown, opts: CallOptions = {}): Promise<T> {
   try {
-    return await apiFetch<T>(`${base()}${path}`, { method, body, ...(opts.timeoutMs ? { timeout: opts.timeoutMs } : {}) });
+    return await apiFetch<T>(`${base()}${path}`, {
+      method,
+      body,
+      ...(opts.timeoutMs ? { timeout: opts.timeoutMs } : {}),
+      ...(opts.responseType ? { responseType: opts.responseType } : {}),
+    });
   } catch (err) {
     throw toCfError(err, method);
   }
@@ -79,6 +85,7 @@ async function call<T>(method: Method, path: string, body?: unknown, opts: CallO
 
 export const cfApi = {
   get: <T>(path: string, opts?: CallOptions) => call<T>('GET', path, undefined, opts),
+  getBlob: (path: string, opts?: CallOptions) => call<Blob>('GET', path, undefined, { ...opts, responseType: 'blob' }),
   post: <T>(path: string, body?: unknown, opts?: CallOptions) => call<T>('POST', path, body ?? {}, opts),
   put: <T>(path: string, body?: unknown, opts?: CallOptions) => call<T>('PUT', path, body ?? {}, opts),
   del: <T>(path: string, opts?: CallOptions) => call<T>('DELETE', path, undefined, opts),

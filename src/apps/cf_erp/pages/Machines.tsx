@@ -40,7 +40,16 @@ export default function Machines() {
   useNewParam(() => { if (canManage) setCreating(true); });
   useEffect(() => { const t = window.setTimeout(() => setDebounced(search), 250); return () => window.clearTimeout(t); }, [search]);
   const tree = useLoad(() => cfApi.get<Tree>('/classification'), []);
-  const list = useLoad(() => cfApi.get<Machine[]>(`/machines${qs({ search: debounced, classificationId: typeId })}`), [debounced, typeId]);
+  // Load every page: the full asset register can exceed the API's 500-row page.
+  // DataTable handles display paging, sorting and exports over this collection.
+  const list = useLoad(async () => {
+    const machines: Machine[] = [];
+    for (let offset = 0; ; offset += 500) {
+      const page = await cfApi.get<Machine[]>(`/machines${qs({ search: debounced, classificationId: typeId, offset })}`);
+      machines.push(...page);
+      if (page.length < 500) return machines;
+    }
+  }, [debounced, typeId]);
   const all = useMemo(() => list.data ?? [], [list.data]);
   const rows = useMemo(() => all.filter((m) => !status || m.status === status), [all, status]);
   const types = useMemo(() => flattenTree(tree.data).filter((n) => n.scope === 'machine' && n.isLeaf), [tree.data]);

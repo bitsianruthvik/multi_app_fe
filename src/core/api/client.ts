@@ -19,6 +19,7 @@ export interface ApiFetchOptions {
   body?: any;
   headers?: Record<string, string>;
   timeout?: number;
+  responseType?: "json" | "blob";
 }
 
 /**
@@ -39,6 +40,7 @@ export async function apiFetch<T = any>(
     body,
     headers: customHeaders = {},
     timeout = 30000,
+    responseType = "json",
   } = options;
 
   // Normalize endpoint to ensure it starts with /
@@ -82,8 +84,8 @@ export async function apiFetch<T = any>(
       );
     }
 
-    // Parse JSON response
-    const data = await response.json();
+    // Most requests are JSON; downloads opt into the raw workbook bytes.
+    const data = responseType === "blob" ? await response.blob() : await response.json();
     return data as T;
   } catch (error: any) {
     clearTimeout(timeoutId);

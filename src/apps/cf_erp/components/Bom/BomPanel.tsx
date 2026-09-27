@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from 'react';
 import { Alert, Box, Button, CircularProgress, FormControlLabel, IconButton, InputBase, Popover, Switch, Tooltip, Typography } from '@mui/material';
 import { Link } from 'react-router-dom';
 import AddRounded from '@mui/icons-material/AddRounded';
@@ -7,11 +7,13 @@ import CheckCircleRounded from '@mui/icons-material/CheckCircleRounded';
 import ContentCopyRounded from '@mui/icons-material/ContentCopyRounded';
 import ContentPasteGoRounded from '@mui/icons-material/ContentPasteGoRounded';
 import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
+import DownloadRounded from '@mui/icons-material/DownloadRounded';
 import HistoryRounded from '@mui/icons-material/HistoryRounded';
 import LockOutlined from '@mui/icons-material/LockOutlined';
 import PlaylistAddCheckRounded from '@mui/icons-material/PlaylistAddCheckRounded';
 import RestoreFromTrashRounded from '@mui/icons-material/RestoreFromTrashRounded';
 import RouteRounded from '@mui/icons-material/RouteRounded';
+import UploadFileRounded from '@mui/icons-material/UploadFileRounded';
 import UndoRounded from '@mui/icons-material/UndoRounded';
 import UnfoldLessRounded from '@mui/icons-material/UnfoldLessRounded';
 import UnfoldMoreRounded from '@mui/icons-material/UnfoldMoreRounded';
@@ -19,7 +21,8 @@ import type { BomType, Flow, StructureNode } from '../../api/types';
 import type { BomChangesResponse } from '../../api/bomChanges';
 import { placeholderTitle } from '../../api/placeholders';
 import { cutPiecesNote } from '../../api/cutPieces';
-import { cfApi } from '../../api/client';
+import { cfApi, CfApiError } from '../../api/client';
+import { applyBomSheet, downloadBomSheet, fileToBase64, previewBomSheet, type BomSheetResult } from '../../api/bomSheet';
 import { useCompanySlug, useLoad } from '../../hooks/useLoad';
 import { useIsPermitted } from '../../hooks/useIsPermitted';
 import { appPath } from '../../navMeta';
@@ -39,6 +42,7 @@ import {
 } from './bomModel';
 import { BomTree, type BomAction, type RowMark } from './BomTree';
 import { BomValuesEditor } from './BomValuesEditor';
+import { BomSheetDialog } from './BomSheetDialog';
 import { useSpecValues } from './useSpecValues';
 import { LOCKED_ORDER, useBom, type BomSource } from './useBom';
 
@@ -185,6 +189,9 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
   const [editing, setEditing] = useState<BomRow | null>(null);
   const [choosing, setChoosing] = useState<number | null>(null);
   const [removing, setRemoving] = useState<BomRow | null>(null);
+  const [sheet, setSheet] = useState<{ file: File; base64: string; result: BomSheetResult } | null>(null);
+  const [sheetBusy, setSheetBusy] = useState<'download' | 'preview' | 'apply' | null>(null);
+  const sheetInput = useRef<HTMLInputElement>(null);
 
   // ── edit mode's own state ─────────────────────────────────────────────────
   const [editMode, setEditMode] = useState(false);
@@ -249,6 +256,9 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
     && bomType != null && isPermitted(bomPermission(bomType === 'custom'));
   /** Edit mode is offered when there is anything at all this person may change here. */
   const canEditHere = !!state && (mayEdit(state.root, state.bomType) || flat.some(({ node }) => node.kind === 'temporary' && mayEdit(node, 'custom')));
+  const canSheetEdit = !!state && !frozen && (source.kind === 'record'
+    ? ownsBom && isPermitted(bomPermission(state.bomType === 'custom'))
+    : isPermitted(bomPermission(true)));
   const editOn = editMode && canEditHere;
 
   // What is waiting, as Save would send it.
@@ -678,6 +688,44 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
   const clipBelow = clip ? keysBelow(clip.node).size : 0;
   const firstNewCode = checkedNow?.results.flatMap((r) => (r?.op === 'paste' ? r.items : []))[0]?.code ?? null;
 
+  const doDownloadSheet = async () => {
+    setSheetBusy('download');
+    try {
+      await downloadBomSheet(source);
+      toast.success('Excel workbook downloaded.');
+    } catch (e) {
+      toast.error(e instanceof CfApiError ? e.message : 'Could not download the workbook.');
+    } finally { setSheetBusy(null); }
+  };
+  const chooseSheet = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    setSheetBusy('preview');
+    try {
+      const base64 = await fileToBase64(file);
+      const result = await previewBomSheet(source, base64);
+      setSheet({ file, base64, result });
+    } catch (e) {
+      toast.error(e instanceof CfApiError ? e.message : 'Could not read that workbook.');
+    } finally { setSheetBusy(null); }
+  };
+  const applySheet = async () => {
+    if (!sheet) return;
+    setSheetBusy('apply');
+    try {
+      const result = await applyBomSheet(source, sheet.base64);
+      setSheet(null);
+      toast.success(`Excel changes applied: ${result.summary.sentence}.`);
+      bom.reload();
+    } catch (e) {
+      if (e instanceof CfApiError && e.problems.length) {
+        setSheet({ ...sheet, result: { ...sheet.result, ok: false, problems: e.problems } });
+      }
+      toast.error(e instanceof CfApiError ? e.message : 'Could not apply the workbook.');
+    } finally { setSheetBusy(null); }
+  };
+
   return (
     <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 2 }}>
       {bom.actionError && <Box ref={errorAt} sx={{ scrollMarginTop: 96 }}><ErrorNotice error={bom.actionError} sx={{ mb: 0 }} /></Box>}
@@ -686,6 +734,17 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
           // The card's action box never shrinks, so on a phone these would run
           // off the card; at min-content they stack instead.
           <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', width: { xs: 'min-content', sm: 'auto' }, '& > *': { whiteSpace: 'nowrap' } }}>
+            <Button size="small" startIcon={sheetBusy === 'download' ? <CircularProgress size={14} color="inherit" /> : <DownloadRounded />}
+              onClick={doDownloadSheet} disabled={sheetBusy != null || editOn}>
+              Download Excel
+            </Button>
+            {canSheetEdit && <>
+              <Button size="small" startIcon={sheetBusy === 'preview' ? <CircularProgress size={14} color="inherit" /> : <UploadFileRounded />}
+                onClick={() => sheetInput.current?.click()} disabled={sheetBusy != null || editOn}>
+                Upload Excel
+              </Button>
+              <input ref={sheetInput} type="file" accept=".xlsx,.csv" hidden onChange={chooseSheet} />
+            </>}
             {deep && <Button size="small" startIcon={<UnfoldMoreRounded />} onClick={() => setOpen(new Set(openableKeys(root)))}>Expand all</Button>}
             {deep && <Button size="small" startIcon={<UnfoldLessRounded />} onClick={() => setOpen(new Set([root.key]))}>Collapse all</Button>}
             {!editOn && values.tooMany && <Button size="small" startIcon={<PlaylistAddCheckRounded />} onClick={values.start}>Check values</Button>}
@@ -768,6 +827,9 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
             )} />
         )}
       </SectionCard>
+
+      <BomSheetDialog open={!!sheet} fileName={sheet?.file.name ?? ''} result={sheet?.result ?? null}
+        busy={sheetBusy === 'apply'} onClose={() => setSheet(null)} onApply={applySheet} />
 
       {/* What is waiting, and the one way to save it. Sticky, so it is at hand
           wherever in a long tree the last change was made. */}
