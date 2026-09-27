@@ -135,7 +135,7 @@ export type SpecStatus =
   | 'not_capturable' | 'set_here' | 'default_from_above' | 'computed_on_items' | 'rollup' | 'inherited';
 
 /** What freezes a record: its order is closed, lost or cancelled, or its line was released to production. */
-export interface Frozen { orderId: number; orderCode: string; orderStatus: OrderStatus; reason?: 'closed' | 'released'; lineNo?: number | null; releaseId?: number }
+export interface Frozen { orderId: number; orderCode: string; orderStatus: OrderStatus; reason?: 'closed' | 'released' | 'locked'; lineNo?: number | null; releaseId?: number; lockedAt?: string }
 
 export interface ResolvedSpec {
   spec: { id: number; code: string; name: string; dataType: DataType; unit: string | null; decimals: number | null };
@@ -405,7 +405,10 @@ export interface LineCandidates extends Candidates {
 // ---- Sales orders -------------------------------------------------------------
 
 export type OrderType = 'customer' | 'stock';
-export type OrderStatus = 'draft' | 'inquiry' | 'quoted' | 'confirmed' | 'closed' | 'lost' | 'cancelled';
+export type OrderStatus = 'draft' | 'inquiry' | 'quoted' | 'confirmed' | 'closed' | 'lost' | 'cancelled' | 'revised';
+
+/** One revision of an order, as GET /orders/:id lists them. */
+export interface OrderRevision { id: number; revision: number; status: OrderStatus; revisedAt: string | null }
 
 export interface SalesOrderLine {
   id: number;
@@ -420,9 +423,12 @@ export interface SalesOrderLine {
   design: { id: number; code: string | null; name: string };
   bomRevision: string | null;
   bom: { status: RecordStatus; currentRevision: string | null } | null;
-  structure: { temporaryItems: number; drafts: number; unresolvedSelections: number } | null;
+  /** temporaryItems: the rows of its structure (cut plates included). */
+  structure: { temporaryItems: number; unresolvedSelections: number } | null;
   /** Set once the line is released to production (the whole line, decision E1). */
   release?: { id: number; releasedAt: string } | null;
+  /** The line of the previous revision this one was copied from. */
+  revisesLineId: number | null;
 }
 
 export interface SalesOrder {
@@ -444,6 +450,16 @@ export interface SalesOrder {
   createdAt: string;
   updatedAt: string;
   lines?: SalesOrderLine[];
+  /** 1, 2, 3 — every revision of an order keeps its code. */
+  revision: number;
+  /** The revision this one replaced. */
+  revisionOfId: number | null;
+  /** When a later revision replaced this one (set while status is 'revised'). */
+  revisedAt: string | null;
+  /** The status it had when it was revised. */
+  statusBeforeRevised: OrderStatus | null;
+  /** GET /orders/:id only: every revision of this order, oldest first, this one included. */
+  revisions?: OrderRevision[];
 }
 
 export type PartyRole = 'customer' | 'supplier' | 'subcontractor';

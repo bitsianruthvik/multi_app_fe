@@ -1,4 +1,5 @@
 import type { DataType, Kind, OrderStatus, RecordStatus, SpecOption, ValueRule } from '../../api/types';
+import type { CutPiecesFollowUp } from '../../api/cutPieces';
 
 /**
  * The Values stage's data: `GET /order-lines/:id/values` and what
@@ -98,6 +99,8 @@ export interface SaveValuesResult {
   summary: { sentence: string; given: number; changed: number; derived: number; records: number; rowsWritten: number; historyRows: number };
   changes: { recordId: number; code: string | null; specCode: string; change: 'set' | 'changed' | 'cleared' }[];
   view: ValuesView;
+  /** What the line's cut pieces did after the save — made once the required values are complete. */
+  cutPieces?: CutPiecesFollowUp | null;
 }
 
 /**

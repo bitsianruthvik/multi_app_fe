@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { cfApi, CfApiError } from '../../api/client';
 import { postBomChanges, type BomChange, type BomChangesResponse } from '../../api/bomChanges';
+import { getLinePlaceholders, placeholderKey, type PlaceholderRow } from '../../api/placeholders';
 import type { BomType, BomView, Explosion, Kind, LineStructure, OrderStatus, RecordStatus, StructureNode, WhereUsedRow } from '../../api/types';
 import { useLoad } from '../../hooks/useLoad';
 import { bomAsTree, bomTypeOfKind } from './bomModel';
@@ -31,8 +32,12 @@ export interface BomState {
   frozen: boolean;
 }
 
-/** Stages in which an order's work stops changing (salesOrderService LOCKED). */
-export const LOCKED_ORDER: OrderStatus[] = ['closed', 'lost', 'cancelled'];
+/**
+ * Stages in which an order's work stops changing (salesOrderService LOCKED).
+ * 'revised' belongs here too: otherwise an earlier revision's uneditable line
+ * would read as released to production.
+ */
+export const LOCKED_ORDER: OrderStatus[] = ['closed', 'lost', 'cancelled', 'revised'];
 
 /**
  * The one way in and out of a BOM. Both screens read a different endpoint —
@@ -60,6 +65,10 @@ export function useBom(source: BomSource, { whereUsed = false, onChanged }: { wh
    */
   const tree = useLoad(() => (recordId == null ? Promise.resolve(null) : cfApi.get<Explosion>(`/records/${recordId}/bom/tree`)), [recordId]);
   const structure = useLoad(() => (lineId == null ? Promise.resolve(null) : cfApi.get<LineStructure>(`/order-lines/${lineId}/structure`)), [lineId]);
+  // A row has no code until its line is LOCKED; until then it shows the code its
+  // pieces will get, with # where each piece's own number goes. Only a line's
+  // structure has a line to roll out, and the tree never waits for it.
+  const placeholders = useLoad(() => (lineId == null ? Promise.resolve(null) : getLinePlaceholders(lineId).catch(() => null)), [lineId]);
   // Only the record's own tab asks the question, so nothing else pays for it.
   const used = useLoad(() => (recordId == null || !whereUsed ? Promise.resolve(null) : cfApi.get<WhereUsedRow[]>(`/records/${recordId}/where-used`)), [recordId, whereUsed]);
   const [actionError, setActionError] = useState<CfApiError | null>(null);
@@ -105,7 +114,7 @@ export function useBom(source: BomSource, { whereUsed = false, onChanged }: { wh
     };
   }, [v, s, tree.data]);
 
-  const reload = () => { view.reload(); tree.reload(); structure.reload(); used.reload(); onChanged?.(); };
+  const reload = () => { view.reload(); tree.reload(); structure.reload(); placeholders.reload(); used.reload(); onChanged?.(); };
 
   /**
    * A change to the BOM itself — its status or its revision. The answer is the
@@ -120,6 +129,7 @@ export function useBom(source: BomSource, { whereUsed = false, onChanged }: { wh
       // A new revision can change the lines, and the tree is drawn from `/bom/tree`.
       tree.reload();
       structure.reload();
+      placeholders.reload();
       onChanged?.();
       return true;
     } catch (e) {
@@ -149,8 +159,15 @@ export function useBom(source: BomSource, { whereUsed = false, onChanged }: { wh
     }
   };
 
+  const placeholderRows = useMemo(
+    () => new Map<string, PlaceholderRow>((placeholders.data?.rows ?? []).map((r) => [placeholderKey(r.bomLineId, r.itemId), r])),
+    [placeholders.data],
+  );
+
   return {
     state,
+    /** A row's placeholder, by its BOM line (or by item for what the line sells). */
+    placeholderOf: (node: StructureNode) => placeholderRows.get(placeholderKey(node.lineId, node.id)) ?? null,
     whereUsed: used.data ?? [],
     whereUsedError: used.error,
     reloadWhereUsed: used.reload,

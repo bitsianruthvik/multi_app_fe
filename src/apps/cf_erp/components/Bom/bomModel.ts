@@ -1,6 +1,7 @@
 import type { BomType, BomView, Explosion, Kind, Resolution, ResolvedSpec, StructureNode } from '../../api/types';
 import type { BomChange } from '../../api/bomChanges';
 import { toInputString } from '../../lib/tree';
+import type { CutPiecesFollowUp } from '../../api/cutPieces';
 
 /**
  * One shape for every BOM on screen. A record's BOM tab reads its own lines and
@@ -139,7 +140,8 @@ export function bomAsTree(b: BomView): Explosion {
     stats: {
       nodes: children.length + 1,
       temporary: children.filter((c) => c.kind === 'temporary').length,
-      drafts: children.filter((c) => c.status === 'draft').length,
+      // An order's rows have no draft life of their own — locking the line activates them.
+      drafts: children.filter((c) => c.status === 'draft' && c.kind !== 'temporary').length,
       unresolved: b.unresolvedSelections,
       maxDepth: children.length ? 1 : 0,
     },
@@ -163,6 +165,8 @@ export interface SaveValuesResult {
   changes: unknown[];
   materialized: unknown;
   specs: Resolution;
+  /** A row of an order: what its line's cut pieces did after the save. */
+  cutPieces?: CutPiecesFollowUp | null;
 }
 
 /** One entry of `PUT /records/:id/values`. `null` clears the value. */
@@ -381,8 +385,8 @@ export function pasteRefusal(source: StructureNode, sourceKey: string, target: S
   if (!targetType) return `${target.code ?? target.name} holds no BOM.`;
   if (targetType === 'custom' ? source.kind === 'template' : !ALLOWED_CHILDREN[targetType].includes(source.kind)) {
     return targetType === 'standard' ? 'A Standard BOM holds catalog items only.'
-      : targetType === 'template' ? 'A Template BOM holds catalog items and definitions — temporary items belong to one order.'
-        : 'A template becomes a temporary item when it is added — use Add line.';
+      : targetType === 'template' ? 'A Template BOM holds catalog items and definitions — an order’s rows belong to that order.'
+        : 'A template is laid out as rows when it is added — use Add line.';
   }
   if (target.id === source.id || target.key === sourceKey) return 'A thing cannot go under itself.';
   if (ancestorKeys(flat, target.key).includes(sourceKey)) return `${target.code ?? target.name} is inside what was copied — a thing cannot go under itself.`;

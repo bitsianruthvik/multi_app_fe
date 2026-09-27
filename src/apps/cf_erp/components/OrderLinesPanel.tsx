@@ -31,7 +31,7 @@ function AddLineDialog({ order, open, onClose, onDone }: { order: SalesOrder; op
   // A template line copies its whole Template BOM beneath it — long on production, so wait for it.
   const save = async () => onDone(await cfApi.post<SalesOrder>(`/orders/${order.id}/lines`, { recordId: rec?.id ?? null, quantity: form.quantity, committedDate: form.committedDate || null, description: form.description || null }, { timeoutMs: LONG_WRITE_MS }));
   const hint = rec?.kind === 'template'
-    ? `Creates the temporary item this line sells from ${rec.code ?? rec.name}, with its whole Template BOM copied beneath it — as drafts.`
+    ? `Lays ${rec.code ?? rec.name} out as this line’s structure, its whole Template BOM beneath it. Nothing is coded until the line is locked.`
     : rec?.kind === 'catalog' ? 'A standard line: the catalog item as it is, with its Standard BOM if it has one.'
       : stock ? 'Stock orders make catalog items only.' : 'A catalog item for a standard line, or a template definition for a custom one.';
   return (
@@ -69,8 +69,7 @@ function structureText(l: SalesOrderLine) {
     const s = l.structure;
     return (
       <Box sx={{ display: 'flex', gap: 0.75, alignItems: 'center', flexWrap: 'wrap' }}>
-        <Typography sx={{ fontSize: 13 }}>{s.temporaryItems} item{s.temporaryItems === 1 ? '' : 's'}</Typography>
-        {s.drafts > 0 && <WarnBadge label={`${s.drafts} draft`} title="Release will need every temporary item active." />}
+        <Typography sx={{ fontSize: 13 }}>{s.temporaryItems} row{s.temporaryItems === 1 ? '' : 's'}</Typography>
         {s.unresolvedSelections > 0 && <WarnBadge label={`${s.unresolvedSelections} to choose`} title="Selections still without a catalog item." />}
       </Box>
     );
@@ -162,7 +161,7 @@ export function OrderLinesPanel({ order, onSaved, onOpenStructure, onRelease, on
       <ConfirmDialog open={!!removing} danger confirmLabel="Remove line" title="Remove this line?"
         entityName={removing ? `${order.code} · line ${removing.lineNo} · ${removing.item?.code ?? removing.item?.name ?? ''}` : undefined}
         body={removing?.lineType === 'custom'
-          ? `${removing.item?.code ?? 'Its temporary item'} and everything below it exist only for this order, so they are deleted with the line. Their codes are not given out again.`
+          ? `${removing.item?.code ?? removing.item?.name ?? 'Its structure'} and every row below it exist only for this order, so they are deleted with the line.`
           : 'The line goes; the catalog item stays.'}
         onClose={() => setRemoving(null)}
         onConfirm={async () => { onSaved(await cfApi.del<SalesOrder>(`/order-lines/${removing?.id}`)); toast.success('Line removed.'); }} />

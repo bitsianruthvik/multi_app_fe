@@ -320,7 +320,7 @@ export const CONFIRM_WHAT_HAPPENS = [
 export const CONFIRM_WHAT_DOES_NOT = [
   'Nothing is released to the shop floor, and no material is reserved or issued.',
   'Nothing is bought: shortages still go through the buy list.',
-  'A structure that is still being drawn stays editable until its line is released.',
+  'A structure that is still being drawn stays editable until its line is locked.',
 ];
 
 /**

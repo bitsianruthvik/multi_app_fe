@@ -7,13 +7,15 @@ import RocketLaunchRounded from '@mui/icons-material/RocketLaunchRounded';
 import AccountTreeRounded from '@mui/icons-material/AccountTreeRounded';
 import PrecisionManufacturingRounded from '@mui/icons-material/PrecisionManufacturingRounded';
 import GridViewRounded from '@mui/icons-material/GridViewRounded';
+import LockRounded from '@mui/icons-material/LockRounded';
 import type { CfApiError } from '../../api/client';
+import { lineLock } from '../../api/lock';
 import type { OrderProcessLine, OrderProcessView, OrderProduction, OrderStage, Release, SalesOrder, SalesOrderLine } from '../../api/types';
 import { useCompanySlug } from '../../hooks/useLoad';
 import { useIsPermitted } from '../../hooks/useIsPermitted';
 import { invalidateNavCounts } from '../../hooks/useNavCounts';
 import { appPath } from '../../navMeta';
-import { ORDER_STATUS_LABEL } from '../../lib/orders';
+import { LOCKED_STATUSES, ORDER_STATUS_LABEL, REVISED_NOT_RELEASED } from '../../lib/orders';
 import {
   CONFIRM_STILL_ON_THE_PAGE, CONFIRM_WHAT_DOES_NOT, CONFIRM_WHAT_HAPPENS, DECIDED_BY_HELP, UNBUILT_STAGE,
   isUnbuilt, nextLineFor, notForThisLine,
@@ -27,6 +29,7 @@ import { VALUES_WRITE_PERMISSIONS } from '../Values/valuesModel';
 import { ReleaseView } from '../ReleaseView';
 import { ReleaseDialog } from '../TrackerDialogs';
 import { PieceCodesCard } from '../Production/PieceCodesCard';
+import { LockPanel } from '../Lock/LockPanel';
 import { OrderLinesPanel } from '../OrderLinesPanel';
 import { useToast } from '../toastContext';
 import { BlockerList, StageStateBadge } from './stageUi';
@@ -112,7 +115,7 @@ function UnbuiltStagePanel({ stage }: { stage: OrderStage }) {
 function ConfirmPanel({ view, order }: { view: OrderProcessView; order: SalesOrder }) {
   const blockers = view.blockers ?? [];
   const settled = ['confirmed', 'closed'].includes(view.order.status);
-  const stopped = ['lost', 'cancelled'].includes(view.order.status);
+  const stopped = ['lost', 'cancelled', 'revised'].includes(view.order.status);
   return (
     <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 2 }}>
       <SectionCard title="Confirming this order" subtitle={`${view.order.code} is ${ORDER_STATUS_LABEL[view.order.status].toLowerCase()}.`}>
@@ -173,15 +176,36 @@ function ConfirmPanel({ view, order }: { view: OrderProcessView; order: SalesOrd
   );
 }
 
+/**
+ * A line built from a template is LOCKED before it is released: lock writes
+ * every piece's code, and release takes them from there. Until then the panel
+ * says so and points at the Lock stage, rather than offering a Release button
+ * that can only come back with a refusal.
+ */
+function LockFirst({ lineNo, hasLockStage, onGoLock }: { lineNo: number; hasLockStage: boolean; onGoLock: () => void }) {
+  return (
+    <Note tone="warning">
+      <Box><strong>Lock the line first.</strong> Line {lineNo} is not locked yet. Locking comes after the values and cut pieces: it gives every piece its code, and release takes the codes from there.</Box>
+      <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
+        {hasLockStage
+          ? <Button size="small" variant="outlined" color="inherit" startIcon={<LockRounded />} onClick={onGoLock}>Go to Lock</Button>
+          : <Box>This order&rsquo;s process has no Lock stage yet — add it under Setup › Processes.</Box>}
+      </Box>
+    </Note>
+  );
+}
+
 /** The line's release, exactly as the order-wide Production view shows it. */
-function ProductionPanel({ stage, line, order, production, productionError, onReleaseChanged, onReloadAll }: {
+function ProductionPanel({ stage, line, order, production, productionError, hasLockStage, onReleaseChanged, onReloadAll, onGoStage }: {
   stage: OrderStage;
   line: OrderProcessLine | null;
   order: SalesOrder;
   production: OrderProduction | null;
   productionError: CfApiError | null;
+  hasLockStage: boolean;
   onReleaseChanged: (r: Release) => void;
   onReloadAll: () => void;
+  onGoStage: (stageKey: string) => void;
 }) {
   const isPermitted = useIsPermitted();
   const toast = useToast();
@@ -191,6 +215,9 @@ function ProductionPanel({ stage, line, order, production, productionError, onRe
   const canStock = isPermitted('cf_erp_inventory_manage');
   const orderLine = (order.lines ?? []).find((l) => l.id === line?.lineId) ?? null;
   const release = production?.releases.find((r) => r.line.id === line?.lineId) ?? null;
+  // A line sold as it is (a catalog item) has nothing to lock; one built from a template does.
+  // An order that has stopped changing (closed, revised…) locks nothing more, so it is not asked to.
+  const mustLock = orderLine?.lineType === 'custom' && !lineLock(orderLine) && !release && !LOCKED_STATUSES.includes(order.status);
 
   if (!canTrack) {
     return (
@@ -210,13 +237,19 @@ function ProductionPanel({ stage, line, order, production, productionError, onRe
         : (
           <SectionCard title={line ? `Line ${line.lineNo} is not released yet` : 'Nothing to release yet'}
             subtitle={order.status === 'confirmed'
-              ? 'A line is released whole: its structure becomes the tracker, and it is frozen from then on.'
-              : `Lines are released once the order is confirmed — it is ${ORDER_STATUS_LABEL[order.status].toLowerCase()} now.`}
-            actions={canProduce && order.status === 'confirmed' && orderLine && !orderLine.release
+              ? 'A line is released whole: its locked pieces become the tracker, with the codes the lock gave them.'
+              : order.status === 'revised' ? REVISED_NOT_RELEASED
+                : `Lines are released once the order is confirmed — it is ${ORDER_STATUS_LABEL[order.status].toLowerCase()} now.`}
+            actions={canProduce && order.status === 'confirmed' && orderLine && !orderLine.release && !mustLock
               ? <Button variant="contained" startIcon={<RocketLaunchRounded />} onClick={() => setReleasing(orderLine)}>Release this line</Button>
               : undefined}>
             {line
-              ? <Typography sx={{ fontSize: 13.5, color: 'var(--c-text-2)' }}>{stage.detail}.</Typography>
+              ? (
+                <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 1.25 }}>
+                  {mustLock && <LockFirst lineNo={line.lineNo} hasLockStage={hasLockStage} onGoLock={() => onGoStage('lock')} />}
+                  <Typography sx={{ fontSize: 13.5, color: 'var(--c-text-2)' }}>{stage.detail}.</Typography>
+                </Box>
+              )
               : <EmptyState icon={<PrecisionManufacturingRounded />} title="No lines yet" hint="Add a line before anything can be made." />}
           </SectionCard>
         )}
@@ -301,10 +334,21 @@ export function StageBody({
   } else if (stage.stageKey === 'cut_pieces') {
     // Cut pieces belong to ONE line, like the layout that follows them.
     body = line
-      ? <BlanksPanel key={line.lineId} lineId={line.lineId} canManage={isPermitted('cf_erp_orders_manage')} onChanged={onReloadAll} />
+      ? <BlanksPanel key={line.lineId} lineId={line.lineId} canManage={isPermitted('cf_erp_orders_manage')} onChanged={onReloadAll} onGoValues={() => onGoStage('values')} />
       : (
         <SectionCard title="Cut pieces">
           <EmptyState icon={<GridViewRounded />} title="No lines yet" hint="Parts are pooled into cut pieces for a line, so add one first."
+            action={<Button variant="contained" onClick={() => onGoStage('lines')}>Go to the lines</Button>} />
+        </SectionCard>
+      );
+  } else if (stage.stageKey === 'lock') {
+    // Lock belongs to ONE line: it rolls that line's structure out into pieces.
+    body = line
+      ? <LockPanel key={line.lineId} lineId={line.lineId} lineNo={line.lineNo} canManage={isPermitted('cf_erp_orders_manage')}
+          stages={view.stages} onGoStage={onGoStage} onChanged={onReloadAll} />
+      : (
+        <SectionCard title="Lock">
+          <EmptyState icon={<LockRounded />} title="No lines yet" hint="A line is locked once its structure, values and cut pieces are settled, so add one first."
             action={<Button variant="contained" onClick={() => onGoStage('lines')}>Go to the lines</Button>} />
         </SectionCard>
       );
@@ -322,7 +366,7 @@ export function StageBody({
       );
   } else if (stage.stageKey === 'production') {
     body = <ProductionPanel stage={stage} line={line} order={order} production={production} productionError={productionError}
-      onReleaseChanged={onReleaseChanged} onReloadAll={onReloadAll} />;
+      hasLockStage={view.stages.some((s) => s.stageKey === 'lock')} onReleaseChanged={onReleaseChanged} onReloadAll={onReloadAll} onGoStage={onGoStage} />;
   } else if (stage.stageKey === 'confirm') {
     body = <ConfirmPanel view={view} order={order} />;
   } else if (isUnbuilt(stage.stageKey)) {

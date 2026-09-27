@@ -17,6 +17,8 @@ import UnfoldLessRounded from '@mui/icons-material/UnfoldLessRounded';
 import UnfoldMoreRounded from '@mui/icons-material/UnfoldMoreRounded';
 import type { BomType, Flow, StructureNode } from '../../api/types';
 import type { BomChangesResponse } from '../../api/bomChanges';
+import { placeholderTitle } from '../../api/placeholders';
+import { cutPiecesNote } from '../../api/cutPieces';
 import { cfApi } from '../../api/client';
 import { useCompanySlug, useLoad } from '../../hooks/useLoad';
 import { useIsPermitted } from '../../hooks/useIsPermitted';
@@ -48,13 +50,13 @@ const TYPE_TEXT: Record<BomType, { title: string; body: string; empty: string }>
   },
   template: {
     title: 'Template BOM',
-    body: 'The usual structure of this blueprint. An order copies it — each template line becomes a temporary item there, and can then be changed freely.',
+    body: 'The usual structure of this blueprint. An order lays it out as its own rows, which can then be changed freely.',
     empty: 'Add the first item or definition it is made of.',
   },
   custom: {
     title: 'Custom BOM',
-    body: 'This order’s own structure. Adding a template creates a new temporary item here.',
-    empty: 'Add catalog items, templates (each becomes a temporary item) or selections.',
+    body: 'This order’s own structure. Its rows are designs: their pieces get codes when the line is locked.',
+    empty: 'Add catalog items, templates (each is laid out as rows) or selections.',
   },
 };
 
@@ -368,10 +370,9 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
           : null;
 
   // ── the values on the tree ────────────────────────────────────────────────
-  // A node whose required values are still empty is what stops it being
-  // activated, and a draft temporary item is what stops the line being
-  // released — so the count is a column of its own rather than something you
-  // find by opening each node.
+  // A node whose required values are still empty is what stops its line being
+  // locked (and a catalog item being activated) — so the count is a column of
+  // its own rather than something you find by opening each node.
   const order = flat.map((f) => f.node);
   const gapsAt = (node: StructureNode) => (mayEditValues(node) ? values.get(node.id)?.missing.length ?? 0 : 0);
   const gapNodes = order.filter((n) => gapsAt(n) > 0);
@@ -521,7 +522,7 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
     counts.remove && plural(counts.remove, 'removal', 'removals'),
     counts.paste && plural(counts.paste, 'paste', 'pastes'),
   ].filter(Boolean).join(' · ');
-  // What a removal deletes for good: its temporary items, whose codes are not given out again.
+  // What a removal deletes: its rows, everything below included.
   const removals = changes.flatMap((ch) => (ch.op === 'remove' ? [byLine.get(ch.lineId)].filter((n): n is StructureNode => !!n) : []));
   const doomedTemporary = removals.reduce((n, node) => n + temporaryCount(node), 0);
   const checkedNow = checked && checked.for === pending ? checked.out : null;
@@ -539,6 +540,8 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
     const notes = out.results.flatMap((r) => (r?.op === 'paste' ? r.notes : []));
     toast.success(`Saved — ${out.summary.sentence}.`);
     if (notes.length) toast.info(notes[0]);
+    const cut = cutPiecesNote(out.cutPieces);
+    if (cut) toast[cut.tone](cut.text);
   };
   const onSave = () => { if (doomedTemporary > 0) setConfirming('save'); else void save(); };
   const check = async () => {
@@ -557,16 +560,22 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
     bom.clearActionError();
   };
 
+  // A row has no code until its line is locked: the code its pieces will get stands in.
+  const placeholderOf = (row: BomRow) => {
+    const p = bom.placeholderOf(row.node);
+    return p?.code ? { code: p.code, title: placeholderTitle(p) } : null;
+  };
+
   const markOf = (row: BomRow): RowMark | null => {
     if (row.paste) {
       if (invalidKeys.has(row.paste.key)) return { tone: 'invalid', label: 'Fix quantity', title: 'A quantity is a number above zero.' };
       const deep = bomTypeOfKind(row.parent?.kind ?? 'catalog') === 'custom' && row.paste.source.kind === 'temporary';
-      return { tone: 'pasted', label: 'New copy', title: deep ? 'Saved as new temporary items — it and everything below it, as they are saved now.' : 'Saved as another line to the same item.' };
+      return { tone: 'pasted', label: 'New copy', title: deep ? 'Saved as new rows — it and everything below it, as they are saved now.' : 'Saved as another line to the same item.' };
     }
     const k = row.node.key;
     if (removedKeys.has(k)) {
       const t = temporaryCount(row.node);
-      return { tone: 'removed', label: 'Removing', title: t ? `Deletes ${plural(t, 'temporary item', 'temporary items')} with it when saved.` : 'The line goes; the item itself stays.' };
+      return { tone: 'removed', label: 'Removing', title: t ? `Deletes ${plural(t, 'row', 'rows')} with it when saved.` : 'The line goes; the item itself stays.' };
     }
     if (goneKeys.has(k)) return { tone: 'gone', label: 'Goes with it', title: 'A line above it is being removed.' };
     if (invalidKeys.has(k)) return { tone: 'invalid', label: 'Fix quantity', title: 'A quantity is a number above zero.' };
@@ -693,13 +702,12 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
           {state.bom && !custom && <Fact label="Status"><StatusBadge status={state.bom.status} /></Fact>}
           {state.bom && !custom && <Fact label="Revision"><Mono>{state.bom.revision ?? '—'}</Mono></Fact>}
           <Fact label="In the structure"><Mono>{state.stats.nodes - 1}</Mono></Fact>
-          {state.stats.temporary > 0 && <Fact label="Temporary items"><Mono>{state.stats.temporary}</Mono></Fact>}
-          {state.stats.drafts > 0 && <Fact label="Still draft"><WarnBadge label={`${state.stats.drafts} draft`} title="Release will need every one of them active." /></Fact>}
+          {state.stats.drafts > 0 && <Fact label="Still draft"><WarnBadge label={`${state.stats.drafts} draft`} title="Catalog items in the structure that are not active yet — release needs every one of them active." /></Fact>}
           {state.stats.unresolved > 0 && <Fact label="To choose"><WarnBadge label={`${state.stats.unresolved} selection${state.stats.unresolved > 1 ? 's' : ''}`} title="Choose a catalog item for each of them before release." /></Fact>}
           {gapNodes.length > 0 && (
             <Fact label="Values missing">
               <DangerBadge label={`${gapCount} in ${gapIds.size} item${gapIds.size > 1 ? 's' : ''}`}
-                title="Required values that are still empty. An item cannot be activated until they are filled, and a draft item stops release." />
+                title="Required values that are still empty. The line cannot be locked until they are filled." />
             </Fact>
           )}
           {/* Worth naming only when the person did not arrive from the order itself. */}
@@ -743,7 +751,7 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
         {editOn ? (
           <BomTree rows={rows} label={`What ${label} is made of — edit mode`} actionsFor={actionsFor} onAction={onAction}
             onToggle={(key) => { const next = new Set(expanded); if (next.has(key)) next.delete(key); else next.add(key); setOpen(next); }}
-            editing quantityCell={quantityCell} flowCell={flowCell} trailingCell={trailingCell} markOf={markOf}
+            editing quantityCell={quantityCell} flowCell={flowCell} trailingCell={trailingCell} markOf={markOf} placeholderOf={placeholderOf}
             footer={root.children.length === 0 && pending.pastes.length === 0 && (
               <EmptyState title="Nothing below it yet" body="Leave edit mode to add the first line." />
             )} />
@@ -754,7 +762,7 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
             onSelect={(row, opts) => (row
               ? setPicked((p) => ({ key: row.node.key, autoFocus: !opts?.keepFocus, jump: p?.jump ?? 0 }))
               : closeValues())}
-            valueCell={valueCell} editorFor={editorFor}
+            valueCell={valueCell} editorFor={editorFor} placeholderOf={placeholderOf}
             footer={root.children.length === 0 && (
               <EmptyState title="Nothing below it yet" body={canAddToRoot ? type.empty : undefined} action={canAddToRoot && addButton('contained')} />
             )} />
@@ -825,7 +833,7 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
 
       <ConfirmDialog open={confirming === 'save'} danger confirmLabel={`Save ${plural(changes.length, 'change', 'changes')}`}
         title={`Save and remove ${plural(removals.length, 'line', 'lines')}?`}
-        body={`${plural(doomedTemporary, 'temporary item', 'temporary items')} ${doomedTemporary === 1 ? 'is' : 'are'} deleted with ${removals.length === 1 ? 'it' : 'them'}, everything below included, and ${doomedTemporary === 1 ? 'its code is' : 'their codes are'} not given out again. Everything else in this save happens with it, or nothing does.`}
+        body={`${plural(doomedTemporary, 'row', 'rows')} ${doomedTemporary === 1 ? 'is' : 'are'} deleted with ${removals.length === 1 ? 'it' : 'them'}, everything below included. Everything else in this save happens with it, or nothing does.`}
         onClose={() => setConfirming(null)}
         onConfirm={async () => { setConfirming(null); await save(); }} />
       <ConfirmDialog open={confirming === 'discard'} danger confirmLabel="Discard them"
@@ -851,7 +859,7 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
       <ChooseItemDialog open={choosing != null} lineId={choosing} onClose={() => setChoosing(null)} onDone={() => { toast.success('Item chosen.'); bom.reload(); }} />
       <ConfirmDialog open={!!removing} danger confirmLabel="Remove line" title={`Remove ${removingNode?.code ?? removingNode?.name}?`}
         body={removingNode?.kind === 'temporary'
-          ? `${removingNode.code ?? removingNode.name} exists only for this place, so it is deleted with everything below it. Its code is not given out again.`
+          ? `${removingNode.code ?? removingNode.name} exists only for this order, so it is deleted with everything below it.`
           : 'The line goes; the item itself stays in the catalog.'}
         onClose={() => setRemoving(null)}
         onConfirm={async () => { if (removingNode?.lineId != null) { await bom.removeLine(removingNode.lineId); toast.success('Line removed.'); } }} />

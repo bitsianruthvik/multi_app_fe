@@ -17,9 +17,10 @@ function NoPermissionNotice({ what }: { what: string }) {
 }
 
 /**
- * Adds a child to a record's BOM. On a Custom BOM, a template becomes a new
- * temporary item the moment it is added (with its own Template BOM copied under
- * it), and a selection starts with its default catalog item.
+ * Adds a child to a record's BOM. On a Custom BOM, a template is laid out as
+ * rows the moment it is added (its own Template BOM beneath it) — designs with
+ * no code until the line is locked — and a selection starts with its default
+ * catalog item.
  */
 export function AddChildDialog({
   open, parentId, parentLabel, allowedKinds, custom, onClose, onDone,
@@ -49,7 +50,7 @@ export function AddChildDialog({
     } catch (e) { setBusy(false); setError(e as CfApiError); }
   };
   const hint = !child ? `A ${allowedKinds.map((k) => KIND_WORD[k]).join(', ')}.`
-    : custom && child.kind === 'template' ? `Creates a new temporary item from ${child.code ?? child.name}, with its Template BOM copied beneath it.`
+    : custom && child.kind === 'template' ? `Lays ${child.code ?? child.name} out as rows here, its Template BOM beneath it. Nothing is coded until the line is locked.`
       : custom && child.kind === 'selection' ? 'Starts with the selection’s default catalog item, if it has one — you can change it after.'
         : undefined;
 

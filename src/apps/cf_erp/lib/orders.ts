@@ -1,4 +1,4 @@
-import type { OrderStatus } from '../api/types';
+import type { OrderStatus, SalesOrder } from '../api/types';
 
 /** A sales order's stages, in words. */
 export const ORDER_STATUS_LABEL: Record<OrderStatus, string> = {
@@ -9,6 +9,7 @@ export const ORDER_STATUS_LABEL: Record<OrderStatus, string> = {
   closed: 'Closed',
   lost: 'Lost',
   cancelled: 'Cancelled',
+  revised: 'Revised',
 };
 
 /**
@@ -24,6 +25,8 @@ export function transitionLabel(from: OrderStatus, to: OrderStatus): string {
     closed: 'Close',
     lost: 'Mark lost',
     cancelled: 'Cancel order',
+    // Never a move anyone makes: an order becomes revised when a later revision replaces it.
+    revised: 'Revised',
   }[to];
 }
 
@@ -59,6 +62,19 @@ export const bomPermission = (custom: boolean) => (custom ? 'cf_erp_orders_manag
 
 /**
  * The stages at which an order stops changing. Everything made for it is
- * frozen from here — lines, structures and details alike.
+ * frozen from here — lines, structures and details alike. A revised order is
+ * one a later revision replaced: it is kept exactly as it was.
  */
-export const LOCKED_STATUSES: OrderStatus[] = ['closed', 'lost', 'cancelled'];
+export const LOCKED_STATUSES: OrderStatus[] = ['closed', 'lost', 'cancelled', 'revised'];
+
+/** An order's revision beside its code: "rev 2". */
+export const revisionLabel = (revision: number) => `rev ${revision}`;
+
+/**
+ * Whether an order's code needs its revision beside it. Only once there is
+ * more than one: "rev 1" on every order nobody has revised would be noise.
+ */
+export const showRevision = (o: Pick<SalesOrder, 'revision' | 'status'>) => o.revision > 1 || o.status === 'revised';
+
+/** Why an earlier revision's lines are not released here. */
+export const REVISED_NOT_RELEASED = 'A later revision replaced this one. Lines are released from the latest revision.';

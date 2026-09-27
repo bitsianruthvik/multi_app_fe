@@ -14,8 +14,8 @@ import { ErrorNotice } from '../ui';
 import { useToast } from '../toastContext';
 import { BlockerList, DetailLine, OptionalBadge, StageStateBadge } from './stageUi';
 
-/** An order that has stopped moving: confirming is behind it, one way or the other. */
-const SETTLED = ['confirmed', 'closed', 'lost', 'cancelled'];
+/** An order that has stopped moving: confirming is behind it, one way or the other. A revised one was replaced by a later revision. */
+const SETTLED = ['confirmed', 'closed', 'lost', 'cancelled', 'revised'];
 
 /**
  * The foot of a stage tab: Back, where this stage stands for the line, and the

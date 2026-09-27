@@ -7,6 +7,8 @@ import SearchRounded from '@mui/icons-material/SearchRounded';
 import UnfoldLessRounded from '@mui/icons-material/UnfoldLessRounded';
 import UnfoldMoreRounded from '@mui/icons-material/UnfoldMoreRounded';
 import { cfApi, CfApiError } from '../../api/client';
+import { getLinePlaceholders, type PlaceholderRow } from '../../api/placeholders';
+import { cutPiecesNote } from '../../api/cutPieces';
 import { useCompanySlug } from '../../hooks/useLoad';
 import { DangerBadge, EmptyState, ErrorNotice, Fact, SectionCard, SkeletonRows, WarnBadge } from '../ui';
 import { ConfirmDialog } from '../ConfirmDialog';
@@ -85,6 +87,23 @@ export function ValuesPanel({ lineId, canEdit, onChanged, onPendingChange }: {
     return () => { alive = false; };
   }, [lineId, tick, canEdit]);
 
+  // A row has no code until its line is locked; the grid shows the code its
+  // pieces will get instead. Read beside the values and never waited for.
+  const [placed, setPlaced] = useState<{ lineId: number; byItem: Map<number, PlaceholderRow> } | null>(null);
+  useEffect(() => {
+    let alive = true;
+    getLinePlaceholders(lineId)
+      .then((ph) => {
+        if (!alive) return;
+        const byItem = new Map<number, PlaceholderRow>();
+        for (const r of ph.rows) if (r.code && !byItem.has(r.itemId)) byItem.set(r.itemId, r);
+        setPlaced({ lineId, byItem });
+      })
+      .catch(() => { if (alive) setPlaced(null); });
+    return () => { alive = false; };
+  }, [lineId, tick]);
+  const placeholders = placed?.lineId === lineId ? placed.byItem : null;
+
   const view = loaded?.lineId === lineId ? loaded.view : null;
   const loadError = loaded?.lineId === lineId ? loaded.error : null;
   const edits = pending.lineId === lineId ? pending.edits : NO_EDITS;
@@ -155,8 +174,9 @@ export function ValuesPanel({ lineId, canEdit, onChanged, onPendingChange }: {
   const shown = useMemo(() => (view ? view.groups.map((g) => ({
     g,
     rows: g.rows.filter((r) => (!onlyMissing || r.missing > 0)
-      && (!q || (r.code ?? '').toLowerCase().includes(q) || r.name.toLowerCase().includes(q) || (r.parent?.code ?? '').toLowerCase().includes(q))),
-  })) : []), [view, onlyMissing, q]);
+      && (!q || (r.code ?? placeholders?.get(r.id)?.code ?? '').toLowerCase().includes(q) || r.name.toLowerCase().includes(q)
+        || (r.parent ? (r.parent.code ?? placeholders?.get(r.parent.id)?.code ?? '') : '').toLowerCase().includes(q))),
+  })) : []), [view, onlyMissing, q, placeholders]);
 
   const onEdit = useCallback((recordId: number, code: string, value: string, saved: string) => {
     setPending((p) => {
@@ -216,6 +236,9 @@ export function ValuesPanel({ lineId, canEdit, onChanged, onPendingChange }: {
       setPending({ lineId, edits: NO_EDITS, hydrated: true });
       setRestored(0);
       toast.success(out.summary.sentence);
+      // The last value filled in is what makes the cut pieces — say so.
+      const cut = cutPiecesNote(out.cutPieces);
+      if (cut) toast[cut.tone](cut.text);
       onChanged?.();
     } catch (e) {
       const error = e instanceof CfApiError ? e : new CfApiError(0, String(e));
@@ -275,7 +298,7 @@ export function ValuesPanel({ lineId, canEdit, onChanged, onPendingChange }: {
           ) : visibleGroups.map(({ g, rows }) => (
             <ValuesGroupTable key={g.key} view={view} group={g} rows={rows} edits={groupEdits.get(g.key) ?? NO_EDITS} problems={problem?.placed ?? null}
               canEdit={canEdit} busy={saving} collapsed={collapsed.has(g.key)} missingNow={gaps.byGroup.get(g.key) ?? 0}
-              onToggle={onToggle} onEdit={onEdit} company={company} />
+              onToggle={onToggle} onEdit={onEdit} company={company} placeholders={placeholders} />
           ))}
         </Box>
       </SectionCard>

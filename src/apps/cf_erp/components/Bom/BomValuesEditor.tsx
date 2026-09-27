@@ -4,6 +4,8 @@ import CloseRounded from '@mui/icons-material/CloseRounded';
 import SaveRounded from '@mui/icons-material/SaveRounded';
 import SkipNextRounded from '@mui/icons-material/SkipNextRounded';
 import { cfApi, CfApiError } from '../../api/client';
+import { cutPiecesNote } from '../../api/cutPieces';
+import { useToast } from '../toastContext';
 import type { Resolution, ResolvedSpec, StructureNode } from '../../api/types';
 import { DangerBadge, ErrorNotice, Mono, RuleBadge, SkeletonRows } from '../ui';
 import { SpecValueInput } from '../SpecValueInput';
@@ -63,6 +65,7 @@ export function BomValuesEditor({
   // field when there is none, so a correction starts where the eye already is.
   const focusCode = (fill.find((s) => at(s) === '') ?? fill[0])?.spec.code ?? null;
 
+  const toast = useToast();
   const save = async (then: 'next' | 'stay') => {
     // Nothing to send is not a reason to stop: Enter on a node that is already
     // filled is how someone skips past it to the one that is not.
@@ -74,6 +77,8 @@ export function BomValuesEditor({
       const out = await cfApi.put<SaveValuesResult>(`/records/${node.id}/values`, { values: changed });
       setEdits({});
       onSaved(out.specs);
+      const cut = cutPiecesNote(out.cutPieces);
+      if (cut) toast[cut.tone](cut.text);
       onward();
     } catch (e) {
       setError(e as CfApiError);

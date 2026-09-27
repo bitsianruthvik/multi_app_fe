@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Autocomplete, Box, Button, CircularProgress, IconButton, MenuItem, TextField, Tooltip, Typography } from '@mui/material';
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import EditRounded from '@mui/icons-material/EditRounded';
 import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
 import AccountTreeRounded from '@mui/icons-material/AccountTreeRounded';
@@ -8,17 +8,21 @@ import PersonRounded from '@mui/icons-material/PersonRounded';
 import SwapHorizRounded from '@mui/icons-material/SwapHorizRounded';
 import PrecisionManufacturingRounded from '@mui/icons-material/PrecisionManufacturingRounded';
 import RocketLaunchRounded from '@mui/icons-material/RocketLaunchRounded';
-import { cfApi, CfApiError, qs } from '../api/client';
-import type { Movement, OrderProcessView, OrderProduction, OrderStatus, Party, Release, SalesOrder, SalesOrderLine } from '../api/types';
+import HistoryRounded from '@mui/icons-material/HistoryRounded';
+import { cfApi, CfApiError, LONG_WRITE_MS, qs } from '../api/client';
+import { lineLock } from '../api/lock';
+import type { Movement, OrderProcessView, OrderProduction, OrderRevision, OrderStatus, Party, Release, SalesOrder, SalesOrderLine } from '../api/types';
 import { useCompanySlug, useLoad } from '../hooks/useLoad';
 import { useIsPermitted } from '../hooks/useIsPermitted';
 import { invalidateNavCounts } from '../hooks/useNavCounts';
 import { appPath } from '../navMeta';
 import { recordPath } from '../lib/paths';
-import { CONFIRM_MOVE, LOCKED_STATUSES, NEXT_STAGE, ORDER_STATUS_LABEL, transitionLabel } from '../lib/orders';
+import {
+  CONFIRM_MOVE, LOCKED_STATUSES, NEXT_STAGE, ORDER_STATUS_LABEL, REVISED_NOT_RELEASED, revisionLabel, showRevision, transitionLabel,
+} from '../lib/orders';
 import { firstOpenStage, landingStage, stageSatisfied } from '../lib/process';
 import {
-  DangerBadge, DetailSkeleton, EmptyState, ErrorNotice, Fact, Mono, OrderStatusBadge, OrderTypeChip, SectionCard, SkeletonRows,
+  DangerBadge, DetailSkeleton, EmptyState, ErrorNotice, Fact, Mono, OrderStatusBadge, OrderTypeChip, RevisionBadge, SectionCard, SkeletonRows,
 } from '../components/ui';
 import { CrossLink, DetailHeader, DetailLayout, type DetailTab } from '../components/DetailLayout';
 import { BomPanel } from '../components/Bom/BomPanel';
@@ -28,7 +32,7 @@ import { MovementButtons } from '../components/MovementButtons';
 import { ReleaseDialog } from '../components/TrackerDialogs';
 import { ReleaseView } from '../components/ReleaseView';
 import { OrderLinesPanel } from '../components/OrderLinesPanel';
-import { OrderStageTabs, ProcessAbsentNote, StageTabsSkeleton } from '../components/OrderProcess/StageTabs';
+import { Explain, OrderStageTabs, ProcessAbsentNote, StageTabsSkeleton } from '../components/OrderProcess/StageTabs';
 import { StageBody } from '../components/OrderProcess/StageBody';
 import { StageFoot } from '../components/OrderProcess/StageFoot';
 import { useWorkingLine } from '../components/OrderProcess/workingLine';
@@ -36,6 +40,13 @@ import { useDetailTitle } from '../components/shell/detailTitle';
 import { useToast } from '../components/toastContext';
 
 const DELETABLE: OrderStatus[] = ['draft', 'inquiry', 'lost', 'cancelled'];
+
+/**
+ * Where a customer order can be revised from. Only the latest revision is ever
+ * in one of these; the one it replaced is 'revised'. A closed, lost or
+ * cancelled order has stopped, so there is nothing to revise.
+ */
+const REVISABLE: OrderStatus[] = ['inquiry', 'quoted', 'confirmed'];
 
 /** Tabs that are the same whether or not the order follows a process — drawn before the process has been read. */
 const PROCESS_FREE_TABS = ['stock', 'details'];
@@ -77,7 +88,8 @@ function ProductionOverview({ order, lines, production, productionError, loading
     <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 2 }}>
       {productionError && <ErrorNotice error={productionError} onRetry={onRetry} />}
       {(production?.unreleased ?? []).length > 0 && (
-        <SectionCard title="Not released yet" subtitle={order.status === 'confirmed' ? 'A line is released whole: its structure becomes the tracker below, and it is frozen from then on.' : `Lines are released once the order is confirmed — it is ${order.status} now.`}>
+        <SectionCard title="Not released yet" subtitle={order.status === 'confirmed' ? 'A line is released whole: its structure becomes the tracker below, and it is frozen from then on.'
+          : order.status === 'revised' ? REVISED_NOT_RELEASED : `Lines are released once the order is confirmed — it is ${order.status} now.`}>
           <Box sx={{ display: 'grid', gap: 1 }}>
             {(production?.unreleased ?? []).map((u) => {
               const l = lines.find((x) => x.id === u.id);
@@ -125,7 +137,8 @@ function DetailsForm({ order, onSaved }: { order: SalesOrder; onSaved: (o: Sales
     try { onSaved(await cfApi.put<SalesOrder>(`/orders/${order.id}`, body)); } catch (e) { setError(e as CfApiError); } finally { setBusy(false); }
   };
   return (
-    <SectionCard title="Details" sx={{ maxWidth: 880 }} subtitle={locked ? `A ${ORDER_STATUS_LABEL[order.status].toLowerCase()} order does not change.` : undefined}>
+    <SectionCard title="Details" sx={{ maxWidth: 880 }} subtitle={order.status === 'revised' ? `Rev ${order.revision} was revised — it is kept as it was.`
+      : locked ? `A ${ORDER_STATUS_LABEL[order.status].toLowerCase()} order does not change.` : undefined}>
       <ErrorNotice error={error} />
       <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', md: 'repeat(2, minmax(0, 1fr))' }, gap: 2 }}>
         <TextField label="Order number" value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} disabled={hasLines || locked}
@@ -194,6 +207,8 @@ export default function OrderDetail() {
   const [releasing, setReleasing] = useState<SalesOrderLine | null>(null);
   const [moving, setMoving] = useState<OrderStatus | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [revising, setRevising] = useState(false);
+  const [discarding, setDiscarding] = useState(false);
   const [actionError, setActionError] = useState<CfApiError | null>(null);
   const [busy, setBusy] = useState<OrderStatus | null>(null);
   const tabsRef = useRef<HTMLDivElement>(null);
@@ -202,7 +217,8 @@ export default function OrderDetail() {
   // page, and the last order's answers are still in hand for a moment.
   const o = order.data && order.data.id === id ? order.data : null;
   const view = processView.data && processView.data.order.id === id ? processView.data : null;
-  useDetailTitle(o ? o.code : null);
+  // The breadcrumb names the revision too, once there is more than one.
+  useDetailTitle(o ? (showRevision(o) ? `${o.code} ${revisionLabel(o.revision)}` : o.code) : null);
   const lines = useMemo(() => o?.lines ?? [], [o]);
 
   const model = processModel(view, pickedLine);
@@ -281,12 +297,24 @@ export default function OrderDetail() {
   const to = (path: string) => appPath(company, path);
   const locked = LOCKED_STATUSES.includes(o.status);
 
+  // ── revisions ──
+  // A locked line no longer changes, so changing one means a new revision.
+  // While nothing is locked yet, the order itself is still open to change.
+  const anyLocked = lines.some((l) => lineLock(l) != null);
+  const canRevise = o.orderType === 'customer' && REVISABLE.includes(o.status) && anyLocked;
+  // Taking a revision back makes the one before it current again. Once one of
+  // its lines is locked its pieces have codes, so it stays.
+  const canDiscard = o.revision > 1 && o.status !== 'revised' && !anyLocked;
+  const otherRevisions = (o.revisions ?? []).filter((r) => r.id !== o.id);
+  const newest = otherRevisions.reduce<OrderRevision | null>((best, r) => (!best || r.revision > best.revision ? r : best), null);
+  const entityName = `${o.code} ${revisionLabel(o.revision)}${o.title ? ` · ${o.title}` : ''}`;
+
   const updateRelease = (next: Release) => production.setData((cur) => (cur ? { ...cur, releases: cur.releases.map((x) => (x.id === next.id ? next : x)) } : cur));
   const reloadAll = () => { order.reload(); production.reload(); moves.reload(); processView.reload(); };
 
   const header = (
     <DetailHeader code={o.code} title={o.title ?? 'Untitled'} subtitle={o.customer ? `${o.customer.name}${o.customerReference ? ` · their reference ${o.customerReference}` : ''}` : 'Made for stock'}
-      badges={<><OrderTypeChip type={o.orderType} /><OrderStatusBadge status={o.status} />{o.overdue && <DangerBadge label="Past committed date" />}</>}
+      badges={<>{showRevision(o) && <RevisionBadge revision={o.revision} />}<OrderTypeChip type={o.orderType} /><OrderStatusBadge status={o.status} />{o.overdue && <DangerBadge label="Past committed date" />}</>}
       actions={canManage && (
         <>
           {o.allowedTransitions.map((next) => (
@@ -296,10 +324,14 @@ export default function OrderDetail() {
               {transitionLabel(o.status, next)}
             </Button>
           ))}
+          {canRevise && <Button variant="outlined" disabled={!!busy} onClick={() => setRevising(true)}>Revise</Button>}
           {!locked && <Button startIcon={<EditRounded />} onClick={() => setTab('details')} sx={{ color: 'var(--c-text-2)' }}>Edit</Button>}
-          {DELETABLE.includes(o.status) && (
-            <Tooltip title="Delete — only drafts, inquiries, lost and cancelled orders"><IconButton aria-label="Delete order" onClick={() => setDeleting(true)}><DeleteOutlineRounded /></IconButton></Tooltip>
-          )}
+          {/* A later revision is taken back by discarding it, never deleted: the revision before it becomes current again. */}
+          {o.revision > 1
+            ? canDiscard && <Button color="error" startIcon={<DeleteOutlineRounded />} onClick={() => setDiscarding(true)}>Discard revision</Button>
+            : DELETABLE.includes(o.status) && (
+              <Tooltip title="Delete — only drafts, inquiries, lost and cancelled orders"><IconButton aria-label="Delete order" onClick={() => setDeleting(true)}><DeleteOutlineRounded /></IconButton></Tooltip>
+            )}
         </>
       )}
       facts={(
@@ -316,6 +348,8 @@ export default function OrderDetail() {
   );
   const crossLinks = (
     <>
+      {/* Every other revision of this order is one click away, not only through the list. */}
+      {otherRevisions.map((r) => <CrossLink key={`rev:${r.id}`} icon={<HistoryRounded />} label={revisionLabel(r.revision)} to={to(`orders/${r.id}`)} />)}
       {o.customer && <CrossLink icon={<PersonRounded />} label={o.customer.name ?? o.customer.code ?? 'Customer'} to={to('customers?role=all')} />}
       {lines.filter((l) => l.item).map((l) => (
         <CrossLink key={l.id} icon={<AccountTreeRounded />} label={l.item?.code ?? l.item?.name ?? ''} to={to(recordPath(l.item!.kind, l.item!.id))} />
@@ -341,6 +375,15 @@ export default function OrderDetail() {
   } else {
     band = <StageTabsSkeleton />;
   }
+  // An earlier revision is kept exactly as it was. Say so before anything else,
+  // and point at the revision that replaced it — that is where work goes on.
+  const revisedNote = o.status === 'revised' && (
+    <Explain action={newest && (
+      <Box component={Link} to={to(`orders/${newest.id}`)} sx={{ fontSize: 13, color: 'var(--c-primary-700)', flexShrink: 0 }}>Open {revisionLabel(newest.revision)}</Box>
+    )}>
+      {o.revisedAt ? `Revised on ${new Date(o.revisedAt).toLocaleDateString()} — kept as it was.` : 'Revised — kept as it was.'}
+    </Explain>
+  );
 
   // ── the body ──
   const stage = model?.stages.find((s) => s.stageKey === tab) ?? null;
@@ -398,7 +441,7 @@ export default function OrderDetail() {
   }
 
   return (
-    <DetailLayout header={header} crossLinks={crossLinks} beforeTabs={band}
+    <DetailLayout header={header} crossLinks={crossLinks} beforeTabs={<>{revisedNote}{band}</>}
       // With stages the tab row above is the tabs; without, the plain ones draw here.
       tabs={model || !settled ? undefined : tabs}
       // A new line is a new screen too, so switching it cross-fades like a tab.
@@ -421,9 +464,34 @@ export default function OrderDetail() {
         onClose={() => setMoving(null)}
         onConfirm={async () => { const next = moving!; orderSaved(await cfApi.post<SalesOrder>(`/orders/${id}/status`, { status: next })); invalidateNavCounts(); toast.success(`${o.code} is now ${ORDER_STATUS_LABEL[next].toLowerCase()}.`); }} />
       <ConfirmDialog open={deleting} danger confirmLabel="Delete order" title="Delete this order?" entityName={`${o.code}${o.title ? ` · ${o.title}` : ''}`}
-        body="The order, its lines and every temporary item made for it are deleted. Its number is not given out again."
+        body="The order, its lines and their structures are deleted. Its number is not given out again."
         onClose={() => setDeleting(false)}
         onConfirm={async () => { await cfApi.del(`/orders/${id}`); invalidateNavCounts(); toast.success(`${o.code} deleted.`); navigate(to('orders')); }} />
+      {/* Both copy or remove a whole revision — every line, structure and value — so both get the long wait. */}
+      <ConfirmDialog open={revising} confirmLabel="Revise" title={`Revise ${o.code}?`} entityName={entityName}
+        body={(
+          <>
+            <Box component="p" sx={{ m: 0 }}>Rev {o.revision + 1} starts as a copy of rev {o.revision} — every line, with its structure and values. Cut pieces are made again from the values.</Box>
+            <Box component="p" sx={{ mt: 1, mb: 0 }}>Rev {o.revision} is kept exactly as it is and becomes read-only.</Box>
+            <Box component="p" sx={{ mt: 1, mb: 0 }}>Nothing in rev {o.revision + 1} is locked yet. Lock its lines when they are right, and their pieces get their codes again — the same codes wherever nothing changed.</Box>
+          </>
+        )}
+        onClose={() => setRevising(false)}
+        onConfirm={async () => {
+          const next = await cfApi.post<SalesOrder>(`/orders/${id}/revise`, {}, { timeoutMs: LONG_WRITE_MS });
+          invalidateNavCounts();
+          toast.success(`${o.code} rev ${next.revision} created — rev ${o.revision} is kept as it was.`);
+          navigate(to(`orders/${next.id}`));
+        }} />
+      <ConfirmDialog open={discarding} danger confirmLabel="Discard revision" title={`Discard rev ${o.revision}?`} entityName={entityName}
+        body={`Rev ${o.revision} and everything in it — its lines, structure, values and cut pieces — are removed. Rev ${o.revision - 1} becomes the current revision again, exactly as it was.`}
+        onClose={() => setDiscarding(false)}
+        onConfirm={async () => {
+          const prev = await cfApi.del<SalesOrder>(`/orders/${id}/revision`, { timeoutMs: LONG_WRITE_MS });
+          invalidateNavCounts();
+          toast.success(`Rev ${o.revision} discarded — ${o.code} rev ${prev.revision} is current again.`);
+          navigate(to(`orders/${prev.id}`));
+        }} />
     </DetailLayout>
   );
 }

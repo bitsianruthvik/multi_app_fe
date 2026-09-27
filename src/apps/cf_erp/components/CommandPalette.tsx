@@ -19,6 +19,7 @@ import { cfApi, qs } from '../api/client';
 import { allScreens } from '../navMeta';
 import { useIsPermitted } from '../hooks/useIsPermitted';
 import { useCompanySlug } from '../hooks/useLoad';
+import { revisionLabel } from '../lib/orders';
 import { CreateClassificationDialog } from './ClassificationPicker';
 import { PaletteContext } from './commandPaletteContext';
 
@@ -34,7 +35,8 @@ const TYPE_ICON: Record<string, ReactNode> = {
   operation: <TimerRounded />, flow: <RouteRounded />, batch: <LayersRounded />, movement: <SwapHorizRounded />, area: <WarehouseRounded />, party: <PeopleRounded />,
 };
 
-interface SearchResult { type: string; id: number; code: string | null; name: string; detail: string | null; route: string }
+/** `revision` comes on orders only; search returns the latest revision of each. */
+interface SearchResult { type: string; id: number; code: string | null; name: string; detail: string | null; route: string; revision?: number }
 /** An action either goes somewhere (`slug`) or opens a dialog here (`dialog`). */
 interface PaletteAction { id: string; label: string; hint?: string; permission?: string; slug: string; dialog?: PaletteDialog }
 export type PaletteDialog = 'classification';
@@ -140,10 +142,14 @@ function Palette({ open, onClose, onDialog }: { open: boolean; onClose: () => vo
       .map((e) => ({ e, s: score(e.screen.label, `${e.section.label} ${(e.screen.keywords ?? []).join(' ')}`, term) }))
       .filter(({ s }) => s > 0).sort((x, y) => y.s - x.s)
       .map(({ e: { section, screen } }) => ({ kind: 'nav' as const, id: `nav:${screen.path}`, label: screen.label, hint: section.label === screen.label ? undefined : section.label, slug: screen.path }));
-    const recs: Item[] = records.map((r) => ({
-      kind: 'record' as const, id: `rec:${r.type}:${r.id}`, label: r.name || r.code || '—',
-      hint: [r.code !== r.name ? r.code : null, r.detail].filter(Boolean).join(' · '), slug: r.route, type: r.type,
-    }));
+    const recs: Item[] = records.map((r) => {
+      // A revised order keeps its code, so "rev 2" goes with the code in the hint — even when the name is the code itself.
+      const rev = r.revision && r.revision > 1 ? revisionLabel(r.revision) : null;
+      return {
+        kind: 'record' as const, id: `rec:${r.type}:${r.id}`, label: r.name || r.code || '—',
+        hint: [r.code !== r.name ? [r.code, rev].filter(Boolean).join(' ') : rev, r.detail].filter(Boolean).join(' · '), slug: r.route, type: r.type,
+      };
+    });
     const recents: Item[] = term ? [] : readRecents().map((r) => ({ kind: 'recent' as const, id: `rct:${r.slug}`, label: r.label, slug: r.slug }));
     return [
       { title: 'Recent', icon: <HistoryRounded />, items: recents },

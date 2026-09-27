@@ -76,7 +76,7 @@ function Guides({ depth }: { depth: number }) {
  */
 export function BomTree({
   rows, label, actionsFor, onToggle, onAction, footer, busy = false, selectedKey = null, onSelect, valueCell, editorFor,
-  editing = false, quantityCell, flowCell, trailingCell, markOf,
+  editing = false, quantityCell, flowCell, trailingCell, markOf, placeholderOf,
 }: {
   rows: BomRow[];
   /** Something is still being read into the rows — announced rather than narrated. */
@@ -109,6 +109,11 @@ export function BomTree({
   trailingCell?: (row: BomRow) => ReactNode;
   /** Edit mode: how a row waiting to be saved is marked, or null. */
   markOf?: (row: BomRow) => RowMark | null;
+  /**
+   * The code a row with no code of its own will give its pieces when its line is
+   * locked, # where each piece's number goes — an order's rows are designs.
+   */
+  placeholderOf?: (row: BomRow) => { code: string; title: string } | null;
 }) {
   const company = useCompanySlug();
   const [menu, setMenu] = useState<{ anchor: HTMLElement; row: BomRow } | null>(null);
@@ -187,6 +192,7 @@ export function BomTree({
           const editor = selected ? editorFor?.(row) : null;
           const mark = markOf?.(row) ?? null;
           const look = mark ? MARK[mark.tone] : null;
+          const placeholder = placeholderOf?.(row) ?? null;
           return (
             <Box key={n.key} role="treeitem" aria-level={n.depth + 1} aria-expanded={row.hasChildren ? row.open : undefined}
               aria-selected={onSelect ? selected : undefined}
@@ -225,7 +231,13 @@ export function BomTree({
                       {/* A copy that is not saved yet has no record to link to — and will not carry this code. */}
                       {row.paste
                         ? <Typography component="span" sx={{ fontSize: 12, color: 'var(--c-text-2)' }}>Copy of <Mono>{n.code ?? n.name}</Mono></Typography>
-                        : <Mono sx={look?.strike ? STRUCK : undefined}><Link to={appPath(company, recordPath(n.kind, n.id))}>{n.code ?? '—'}</Link></Mono>}
+                        : n.code == null && placeholder
+                          ? (
+                            <Tooltip title={placeholder.title}>
+                              <Mono muted sx={look?.strike ? STRUCK : undefined}><Link to={appPath(company, recordPath(n.kind, n.id))}>{placeholder.code}</Link></Mono>
+                            </Tooltip>
+                          )
+                          : <Mono sx={look?.strike ? STRUCK : undefined}><Link to={appPath(company, recordPath(n.kind, n.id))}>{n.code ?? '—'}</Link></Mono>}
                       <KindChip kind={n.kind} />
                       {flowCell ? flowCell(row) : <FlowTag flow={n.flow} />}
                       {mark && <Badge family={look?.family ?? 'neutral'} label={mark.label} title={mark.title} noIcon={mark.tone === 'gone'} />}
@@ -239,7 +251,8 @@ export function BomTree({
                 <Box sx={{ textAlign: 'right', minWidth: 0 }}>{quantityCell ? quantityCell(row) : <Mono>×{n.quantity}</Mono>}</Box>
                 <Box sx={{ textAlign: 'right' }}><Mono>{n.total}</Mono>{n.uom && <Mono muted> {n.uom}</Mono>}</Box>
                 {withValues && <Box sx={{ minWidth: 0 }}>{valueCell?.(row)}</Box>}
-                <Box sx={{ minWidth: 0 }}><StatusBadge status={n.status} /></Box>
+                {/* An order's row has no draft life of its own — locking its line activates it. */}
+                <Box sx={{ minWidth: 0 }}>{n.kind !== 'temporary' && <StatusBadge status={n.status} />}</Box>
                 <Box sx={editing ? { display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 0.25, minWidth: 0 } : undefined}>
                   {editing ? trailingCell?.(row) : actions.length > 0 && (
                     <Tooltip title="Actions">

@@ -19,6 +19,7 @@ import HandshakeRounded from '@mui/icons-material/HandshakeRounded';
 import type { CfApiError } from '../api/client';
 import type { Kind, OrderStatus, OrderType, RecordStatus, ValueRule } from '../api/types';
 import { useCountUp } from '../hooks/useCountUp';
+import { revisionLabel } from '../lib/orders';
 
 export type Family = 'success' | 'warning' | 'danger' | 'info' | 'neutral';
 
@@ -133,17 +134,24 @@ const ORDER_STATUS: Record<OrderStatus, { family: Family; label: string; help: s
   closed: { family: 'neutral', label: 'Closed', help: 'Delivered and done — nothing on it changes any more.' },
   lost: { family: 'neutral', label: 'Lost', help: 'The customer went elsewhere. Can be reopened as an inquiry.' },
   cancelled: { family: 'danger', label: 'Cancelled', help: 'Stopped. Kept for history.' },
+  revised: { family: 'neutral', label: 'Revised', help: 'A later revision replaced it. It is kept exactly as it was and no longer changes.' },
 };
 export function OrderStatusBadge({ status }: { status: OrderStatus }) {
   const s = ORDER_STATUS[status] ?? ORDER_STATUS.inquiry;
   return <Badge family={s.family} label={s.label} title={s.help} />;
 }
 
+/** An order's revision beside its code, drawn the same wherever the code appears. Show it by `showRevision`. */
+export function RevisionBadge({ revision }: { revision: number }) {
+  return <Badge family="neutral" noIcon label={revisionLabel(revision)} title={`Revision ${revision} of this order`} />;
+}
+
 export function OrderTypeChip({ type }: { type: OrderType }) {
   return <Badge family="neutral" icon={type === 'stock' ? <WarehouseRounded /> : <HandshakeRounded />} label={type === 'stock' ? 'Stock order' : 'Customer order'} />;
 }
 
-const KIND_LABEL: Record<Kind, string> = { catalog: 'Catalog item', temporary: 'Temporary item', template: 'Template', selection: 'Selection' };
+// A temporary item is one of an order's rows: a design made for that order only.
+const KIND_LABEL: Record<Kind, string> = { catalog: 'Catalog item', temporary: 'One-off', template: 'Template', selection: 'Selection' };
 export function KindChip({ kind }: { kind: Kind }) {
   return <Badge family={kind === 'temporary' ? 'info' : 'neutral'} label={KIND_LABEL[kind]} noIcon />;
 }

@@ -27,8 +27,8 @@ const STATUS_CHIPS = [['', 'Any status'], ['draft', 'Draft'], ['active', 'Active
 const COPY = {
   item: {
     title: 'Items',
-    subtitle: 'Real things that transact — bought, made, stored, issued. Catalog items are reusable; temporary items are made for one sales order, from its structure.',
-    kinds: [['', 'All'], ['catalog', 'Catalog'], ['temporary', 'Temporary']] as const,
+    subtitle: 'Real things that transact — bought, made, stored, issued. What an order makes for itself lives on the order, in its structure.',
+    kinds: [] as const,
     create: 'New item',
     path: 'items',
     icon: <Inventory2Rounded />,

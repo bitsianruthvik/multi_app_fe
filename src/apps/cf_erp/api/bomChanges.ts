@@ -1,4 +1,5 @@
 import { cfApi, LONG_WRITE_MS } from './client';
+import type { CutPiecesFollowUp } from './cutPieces';
 
 /**
  * Edit mode's one request: many changes to the structure on one BOM screen,
@@ -67,6 +68,8 @@ export interface BomChangesResponse {
   summary: { sentence: string; counts: BomChangeCounts };
   /** One per change, in the order they were sent. */
   results: (BomChangeResult | null)[];
+  /** What the line's cut pieces did after a save on an order's structure (absent on a dry run). */
+  cutPieces?: CutPiecesFollowUp | null;
 }
 
 /**

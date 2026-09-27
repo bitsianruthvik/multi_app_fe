@@ -15,6 +15,7 @@ import CallSplitRounded from '@mui/icons-material/CallSplitRounded';
 import SearchRounded from '@mui/icons-material/SearchRounded';
 import WarehouseRounded from '@mui/icons-material/WarehouseRounded';
 import { cfApi, CfApiError, qs } from '../api/client';
+import { getLinePlaceholders, placeholderTitle } from '../api/placeholders';
 import type { Sourcing, MasterRecord, Resolution, Rule, Tree } from '../api/types';
 import { SOURCING_HELP, SOURCING_LABEL, SOURCING_OPTIONS } from '../lib/records';
 import { useCompanySlug, useLoad } from '../hooks/useLoad';
@@ -168,6 +169,11 @@ export default function RecordDetail({ recordKind }: { recordKind: 'item' | 'def
   const [version, setVersion] = useState(0);
 
   const r = rec.data;
+  // An order's row has no code until its line is locked; its page shows the code
+  // its pieces will get instead, read from the line it belongs to.
+  const ownerLineId = r?.kind === 'temporary' && !r.code ? r.item?.ownerOrderLineId ?? null : null;
+  const placed = useLoad(() => (ownerLineId == null ? Promise.resolve(null) : getLinePlaceholders(ownerLineId).catch(() => null)), [ownerLineId]);
+  const placeholder = placed.data?.rows.find((row) => row.itemId === id && row.code) ?? null;
   useDetailTitle(r ? (r.code ?? r.name) : null);
   const refreshAll = () => { rec.reload(); specs.reload(); rules.reload(); setVersion((v) => v + 1); };
 
@@ -204,27 +210,38 @@ export default function RecordDetail({ recordKind }: { recordKind: 'item' | 'def
   // Copying makes a new record, so a frozen one may still be copied — but a
   // temporary item may not: it is born from a sales order line (ORDER_ONLY).
   const canCopy = canManage && r.kind !== 'temporary';
+  // A row of an order has no status of its own to manage: locking its line
+  // activates it, and a change after that is a new revision of the order.
+  const isRow = r.kind === 'temporary';
+  const frozenLabel = !frozen ? null
+    : frozen.reason === 'released' ? `Released — ${frozen.orderCode} line ${frozen.lineNo}`
+      : frozen.reason === 'locked' ? `Locked — ${frozen.orderCode} line ${frozen.lineNo}`
+        : `Frozen — order ${frozen.orderCode} is ${frozen.orderStatus}`;
+  const frozenTitle = !frozen ? undefined
+    : frozen.reason === 'released' ? 'Released to production: its structure and values are frozen.'
+      : frozen.reason === 'locked' ? 'Its line is locked: the structure, values and cut pieces are fixed, and its pieces have their codes. A change is a new revision of the order.'
+        : undefined;
 
   const header = (
-    <DetailHeader code={r.code ?? undefined} title={r.name} subtitle={r.description ?? undefined}
+    <DetailHeader code={r.code ?? placeholder?.code ?? undefined} title={r.name} subtitle={r.description ?? undefined}
       badges={(
         <>
           <KindChip kind={r.kind} />
-          <StatusBadge status={r.status} />
-          {!r.code && <Badge family="warning" label="No code yet" />}
-          {frozen && <Badge family={frozen.reason === 'released' ? 'info' : 'neutral'} icon={<LockRounded />}
-            label={frozen.reason === 'released' ? `Released — ${frozen.orderCode} line ${frozen.lineNo}` : `Frozen — order ${frozen.orderCode} is ${frozen.orderStatus}`}
-            title={frozen.reason === 'released' ? 'Released to production: its structure and values are frozen.' : undefined} />}
+          {!isRow && <StatusBadge status={r.status} />}
+          {!r.code && (isRow
+            ? <Badge family="neutral" label="Coded when its line is locked" title={placeholder ? placeholderTitle(placeholder) : 'Its pieces get their codes when the line is locked.'} />
+            : <Badge family="warning" label="No code yet" />)}
+          {frozen && <Badge family={frozen.reason === 'closed' ? 'neutral' : 'info'} icon={<LockRounded />} label={frozenLabel ?? ''} title={frozenTitle} />}
         </>
       )}
       actions={(editable || canCopy) && (
         <>
           {editable && (
             <>
-              {r.status === 'draft' && <Button variant="contained" startIcon={busyAction === 'active' ? <CircularProgress size={14} color="inherit" /> : <CheckCircleRounded />} disabled={!!busyAction} onClick={() => setStatus('active')}>Activate</Button>}
-              {r.status === 'obsolete' && <Button variant="contained" startIcon={<CheckCircleRounded />} disabled={!!busyAction} onClick={() => setStatus('active')}>Reactivate</Button>}
-              {r.status === 'active' && <Button variant="outlined" startIcon={<ArchiveRounded />} onClick={() => setConfirm('obsolete')}>Mark obsolete</Button>}
-              {r.status !== 'obsolete' && <Button variant="outlined" startIcon={<HistoryRounded />} onClick={() => setRevising(true)}>New revision</Button>}
+              {!isRow && r.status === 'draft' && <Button variant="contained" startIcon={busyAction === 'active' ? <CircularProgress size={14} color="inherit" /> : <CheckCircleRounded />} disabled={!!busyAction} onClick={() => setStatus('active')}>Activate</Button>}
+              {!isRow && r.status === 'obsolete' && <Button variant="contained" startIcon={<CheckCircleRounded />} disabled={!!busyAction} onClick={() => setStatus('active')}>Reactivate</Button>}
+              {!isRow && r.status === 'active' && <Button variant="outlined" startIcon={<ArchiveRounded />} onClick={() => setConfirm('obsolete')}>Mark obsolete</Button>}
+              {!isRow && r.status !== 'obsolete' && <Button variant="outlined" startIcon={<HistoryRounded />} onClick={() => setRevising(true)}>New revision</Button>}
             </>
           )}
           {canCopy && <Button variant="outlined" startIcon={<ContentCopyRounded />} onClick={() => setCopying(true)}>Make a similar one</Button>}

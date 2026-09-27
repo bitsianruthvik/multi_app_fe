@@ -238,7 +238,8 @@ export function StageTabsSkeleton() {
   );
 }
 
-function Explain({ children, action }: { children: ReactNode; action?: ReactNode }) {
+/** A neutral note above the tabs, with an optional link on its right — the order page's way of saying how this order stands. */
+export function Explain({ children, action }: { children: ReactNode; action?: ReactNode }) {
   return (
     <Box sx={{
       mb: 2, px: 1.5, py: 1.25, display: 'flex', gap: 1, alignItems: 'flex-start', flexWrap: 'wrap',

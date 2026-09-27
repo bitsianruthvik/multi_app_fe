@@ -6,6 +6,7 @@ import ChevronRightRounded from '@mui/icons-material/ChevronRightRounded';
 import ExpandMoreRounded from '@mui/icons-material/ExpandMoreRounded';
 import { appPath } from '../../navMeta';
 import { recordPath } from '../../lib/paths';
+import { placeholderTitle, type PlaceholderRow } from '../../api/placeholders';
 import {
   RULE_LABEL, effectiveCell, formatInput, stillMissing,
   type EffectiveCell, type Edits, type PlacedProblems, type ValuesColumn, type ValuesGroup, type ValuesRow, type ValuesView,
@@ -30,7 +31,7 @@ const COL_WIDTH: Record<ValuesColumn['dataType'], number> = { number: 112, optio
  * number cell, Esc puts a changed cell back to what is saved.
  */
 export const ValuesGroupTable = memo(function ValuesGroupTable({
-  view, group, rows, edits, problems, canEdit, busy, collapsed, missingNow, onToggle, onEdit, company,
+  view, group, rows, edits, problems, canEdit, busy, collapsed, missingNow, onToggle, onEdit, company, placeholders = null,
 }: {
   view: ValuesView;
   group: ValuesGroup;
@@ -47,6 +48,8 @@ export const ValuesGroupTable = memo(function ValuesGroupTable({
   onToggle: (key: string) => void;
   onEdit: (recordId: number, code: string, value: string, saved: string) => void;
   company: string;
+  /** Record id -> the code its pieces get when the line is locked, for rows with no code of their own. */
+  placeholders?: Map<number, PlaceholderRow> | null;
 }) {
   const tableRef = useRef<HTMLTableElement | null>(null);
   const cls = group.classification;
@@ -152,7 +155,7 @@ export const ValuesGroupTable = memo(function ValuesGroupTable({
                 {rows.map((row, i) => (
                   <ValuesRowView key={row.id} index={i} view={view} columns={group.columns} row={row}
                     rowEdits={edits[row.id]} rowProblems={problems?.cells[row.id]} rowProblem={problems?.rows[row.id]}
-                    canEdit={canEdit} busy={busy} onEdit={onEdit} company={company} />
+                    canEdit={canEdit} busy={busy} onEdit={onEdit} company={company} placeholders={placeholders} />
                 ))}
               </tbody>
             </GridTable>
@@ -164,7 +167,7 @@ export const ValuesGroupTable = memo(function ValuesGroupTable({
 });
 
 const ValuesRowView = memo(function ValuesRowView({
-  index, view, columns, row, rowEdits, rowProblems, rowProblem, canEdit, busy, onEdit, company,
+  index, view, columns, row, rowEdits, rowProblems, rowProblem, canEdit, busy, onEdit, company, placeholders = null,
 }: {
   index: number;
   view: ValuesView;
@@ -177,8 +180,11 @@ const ValuesRowView = memo(function ValuesRowView({
   busy: boolean;
   onEdit: (recordId: number, code: string, value: string, saved: string) => void;
   company: string;
+  placeholders?: Map<number, PlaceholderRow> | null;
 }) {
-  const label = row.code ?? row.name;
+  // A row of the order has no code until its line is locked — its placeholder stands in.
+  const ph = row.code == null ? placeholders?.get(row.id) ?? null : null;
+  const label = row.code ?? ph?.code ?? row.name;
   let gaps = 0;
   const cells = columns.map((col) => {
     const raw = row.cells[col.code];
@@ -192,12 +198,14 @@ const ValuesRowView = memo(function ValuesRowView({
         problem={rowProblems?.[col.code]} busy={busy} onEdit={onEdit} />
     );
   });
-  const where = row.parent ? `in ${row.parent.code ?? row.parent.name}` : 'what the line sells';
+  const where = row.parent ? `in ${row.parent.code ?? placeholders?.get(row.parent.id)?.code ?? row.parent.name}` : 'what the line sells';
   return (
     <tr className={rowProblem ? 'cfv-row-problem' : undefined} title={rowProblem}>
       <th scope="row" className="cfv-head">
         <span className="cfv-code">
-          <Link to={appPath(company, recordPath(row.kind, row.id))} tabIndex={-1}>{row.code ?? '—'}</Link>
+          {ph
+            ? <Link to={appPath(company, recordPath(row.kind, row.id))} tabIndex={-1} className="cfv-placeholder" title={placeholderTitle(ph)}>{ph.code}</Link>
+            : <Link to={appPath(company, recordPath(row.kind, row.id))} tabIndex={-1}>{row.code ?? '—'}</Link>}
         </span>
         <span className="cfv-sub" title={`${row.name} · ${where}${row.places > 1 ? ` and ${row.places - 1} other place${row.places > 2 ? 's' : ''}` : ''}`}>
           {row.name} · {where}{row.places > 1 && ` +${row.places - 1}`}
@@ -315,6 +323,8 @@ const GridTable = styled('table')({
   '& .cfv-code': { display: 'block', fontFamily: 'var(--font-mono)', fontSize: 12, overflowWrap: 'anywhere', lineHeight: 1.35 },
   '& .cfv-code a': { color: 'inherit', textDecoration: 'none' },
   '& .cfv-code a:hover': { color: 'var(--c-primary-700)', textDecoration: 'underline' },
+  // A placeholder is not a code yet — it reads quieter than one.
+  '& .cfv-code a.cfv-placeholder': { color: 'var(--c-text-3)' },
   '& .cfv-sub': { display: 'block', fontSize: 12, color: 'var(--c-text-2)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
   '& .cfv-flags': { display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: 2 },
   '& .cfv-flag-gap': { fontSize: 11, fontWeight: 500, color: 'var(--c-danger-800)' },

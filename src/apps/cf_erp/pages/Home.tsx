@@ -31,10 +31,11 @@ import type { CodeScheme, Formula, RecordList, SalesOrder, Specification, Tree }
 import { useCompanySlug, useLoad } from '../hooks/useLoad';
 import { useIsPermitted } from '../hooks/useIsPermitted';
 import { appPath } from '../navMeta';
-import { DangerBadge, EmptyState, ErrorNotice, Mono, OrderStatusBadge, PageHeader, SectionCard, SkeletonRows, StatSkeleton, StatStrip, type Stat } from '../components/ui';
+import { DangerBadge, EmptyState, ErrorNotice, Mono, OrderStatusBadge, PageHeader, RevisionBadge, SectionCard, SkeletonRows, StatSkeleton, StatStrip, type Stat } from '../components/ui';
 import { WorkQueueCard } from '../components/WorkQueueCard';
 import { EntityList, EntityRow } from '../components/EntityList';
 import { flattenTree } from '../lib/tree';
+import { showRevision } from '../lib/orders';
 
 type QueueTone = 'primary' | 'warning' | 'danger' | 'info' | 'success';
 interface Queue { key: string; title: string; count: number; unit: string; tone: QueueTone; description: string; actionLabel: string; path: string }
@@ -151,7 +152,8 @@ export default function Home() {
                 ) : (
                   <EntityList>
                     {data.orders.map((o) => (
-                      <EntityRow key={o.id} onClick={() => go(`orders/${o.id}`)} code={<Mono chip>{o.code}</Mono>}
+                      <EntityRow key={o.id} onClick={() => go(`orders/${o.id}`)}
+                        code={<Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.75 }}><Mono chip>{o.code}</Mono>{showRevision(o) && <RevisionBadge revision={o.revision} />}</Box>}
                         primary={o.title ?? o.customer?.name ?? 'Stock order'} secondary={o.title ? o.customer?.name : undefined}
                         trailing={<>{o.overdue && <DangerBadge label="Past date" />}<OrderStatusBadge status={o.status} /></>} />
                     ))}

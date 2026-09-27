@@ -10,8 +10,8 @@ import { useIsPermitted } from '../hooks/useIsPermitted';
 import { useNewParam, useUrlParam } from '../hooks/useUrlState';
 import { invalidateNavCounts } from '../hooks/useNavCounts';
 import { appPath } from '../navMeta';
-import { ORDER_STATUS_LABEL, OPEN_STATUSES } from '../lib/orders';
-import { DangerBadge, EmptyState, ErrorNotice, Mono, OrderStatusBadge, OrderTypeChip, PageHeader, StatStrip } from '../components/ui';
+import { ORDER_STATUS_LABEL, OPEN_STATUSES, revisionLabel, showRevision } from '../lib/orders';
+import { DangerBadge, EmptyState, ErrorNotice, Mono, OrderStatusBadge, OrderTypeChip, PageHeader, RevisionBadge, StatStrip } from '../components/ui';
 import { DataTable, type DataColumn } from '../components/DataTable';
 import { FacetChip, FilterBar } from '../components/FilterBar';
 import { NewOrderDialog } from '../components/NewOrderDialog';
@@ -28,8 +28,24 @@ const STATUS_CHIPS: { value: string; label: string; test: (o: SalesOrder) => boo
 const matches = (o: SalesOrder, term: string) => !term
   || [o.code, o.title, o.customer?.name, o.customer?.code, o.customerReference].some((v) => v?.toLowerCase().includes(term));
 
+/**
+ * The order a status chip judges a row by. An earlier revision is judged as the
+ * revision that replaced it, so the two sit together under the same chip. If
+ * that one is not in the list, it is judged by the status it had when revised.
+ */
+function filedAs(o: SalesOrder, current: Map<string, SalesOrder>): SalesOrder {
+  if (o.status !== 'revised') return o;
+  return current.get(o.code) ?? { ...o, status: o.statusBeforeRevised ?? o.status };
+}
+
 const COLUMNS: DataColumn<SalesOrder>[] = [
-  { key: 'code', header: 'Order', render: (o) => <Mono chip>{o.code}</Mono>, sortValue: (o) => o.code, alwaysVisible: true },
+  {
+    key: 'code', header: 'Order', alwaysVisible: true,
+    render: (o) => <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.75 }}><Mono chip>{o.code}</Mono>{showRevision(o) && <RevisionBadge revision={o.revision} />}</Box>,
+    // Revisions share a code, so the revision breaks the tie: rev 2 sits next to rev 1, in order.
+    sortValue: (o) => `${o.code} ${String(o.revision).padStart(4, '0')}`,
+    exportValue: (o) => (showRevision(o) ? `${o.code} ${revisionLabel(o.revision)}` : o.code),
+  },
   {
     key: 'project', header: 'Project', sortValue: (o) => o.title ?? o.customer?.name ?? '',
     render: (o) => (
@@ -64,23 +80,29 @@ export default function Orders() {
   const canManage = useIsPermitted()('cf_erp_orders_manage');
   const [status, setStatus] = useUrlParam('status', 'open');
   const [type, setType] = useUrlParam('type', '');
+  // Earlier revisions are kept but hidden by default: the list is of orders, and an order is its latest revision.
+  const [revisions, setRevisions] = useUrlParam('revisions', '');
+  const withEarlier = revisions === 'all';
   const [search, setSearch] = useState('');
   const [creating, setCreating] = useState(false);
   useNewParam(() => { if (canManage) setCreating(true); });
-  const list = useLoad(() => cfApi.get<SalesOrder[]>(`/orders${qs({ limit: 500 })}`), []);
+  const list = useLoad(() => cfApi.get<SalesOrder[]>(`/orders${qs({ limit: 500, revisions: withEarlier ? 'all' : undefined })}`), [withEarlier]);
 
   const all = useMemo(() => list.data ?? [], [list.data]);
   const term = search.trim().toLowerCase();
   const base = useMemo(() => all.filter((o) => (!type || o.orderType === type) && matches(o, term)), [all, type, term]);
+  // Every figure counts an order once, at the revision it is at now.
+  const latest = useMemo(() => base.filter((o) => o.status !== 'revised'), [base]);
+  const current = useMemo(() => new Map(all.filter((o) => o.status !== 'revised').map((o) => [o.code, o] as const)), [all]);
   const chip = STATUS_CHIPS.find((c) => c.value === status) ?? STATUS_CHIPS[0];
-  const rows = useMemo(() => base.filter(chip.test), [base, chip]);
+  const rows = useMemo(() => base.filter((o) => chip.test(filedAs(o, current))), [base, chip, current]);
   const open = (o: SalesOrder) => navigate(appPath(company, `orders/${o.id}`));
 
   const stats = [
-    { label: 'Inquiries', value: base.filter((o) => o.status === 'inquiry').length, hint: 'Being designed', onClick: () => setStatus('inquiry') },
-    { label: 'Quoted', value: base.filter((o) => o.status === 'quoted').length, hint: 'Waiting for the customer', onClick: () => setStatus('quoted') },
-    { label: 'Confirmed', value: base.filter((o) => o.status === 'confirmed').length, tone: 'info' as const, onClick: () => setStatus('confirmed') },
-    { label: 'Past committed date', value: base.filter((o) => o.overdue).length, tone: 'danger' as const, hint: 'Still open', onClick: () => setStatus('overdue') },
+    { label: 'Inquiries', value: latest.filter((o) => o.status === 'inquiry').length, hint: 'Being designed', onClick: () => setStatus('inquiry') },
+    { label: 'Quoted', value: latest.filter((o) => o.status === 'quoted').length, hint: 'Waiting for the customer', onClick: () => setStatus('quoted') },
+    { label: 'Confirmed', value: latest.filter((o) => o.status === 'confirmed').length, tone: 'info' as const, onClick: () => setStatus('confirmed') },
+    { label: 'Past committed date', value: latest.filter((o) => o.overdue).length, tone: 'danger' as const, hint: 'Still open', onClick: () => setStatus('overdue') },
   ];
   const filtered = !!term || !!type || status !== 'open';
   const clear = () => { setSearch(''); setType(''); setStatus('open'); };
@@ -94,10 +116,12 @@ export default function Orders() {
         actions={canManage && <Button variant="contained" startIcon={<AddRounded />} onClick={() => setCreating(true)}>New order</Button>} />
       <StatStrip stats={stats} />
       <FilterBar search={search} onSearch={setSearch} placeholder="Search number, title, customer">
-        {STATUS_CHIPS.map((c) => <FacetChip key={c.value} label={c.label} active={status === c.value} count={base.filter(c.test).length} onClick={() => setStatus(c.value)} />)}
+        {STATUS_CHIPS.map((c) => <FacetChip key={c.value} label={c.label} active={status === c.value} count={latest.filter(c.test).length} onClick={() => setStatus(c.value)} />)}
         <Box sx={{ width: '1px', height: 20, background: 'var(--c-border)', mx: 0.5 }} aria-hidden />
         <FacetChip label="Customer" active={type === 'customer'} onClick={() => setType(type === 'customer' ? '' : 'customer')} />
         <FacetChip label="Stock" active={type === 'stock'} onClick={() => setType(type === 'stock' ? '' : 'stock')} />
+        <Box sx={{ width: '1px', height: 20, background: 'var(--c-border)', mx: 0.5 }} aria-hidden />
+        <FacetChip label="Show earlier revisions" active={withEarlier} onClick={() => setRevisions(withEarlier ? '' : 'all')} />
       </FilterBar>
       {capped && (
         <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)', mb: 1.5 }}>
