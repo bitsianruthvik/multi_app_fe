@@ -1,0 +1,128 @@
+// Run from multi_app_fe: node scripts/cf_erp_bom_grid_test.mjs
+// DOM-level interaction tests. These do not replace a visual browser review.
+import assert from 'node:assert/strict';
+import { mkdir, writeFile, unlink } from 'node:fs/promises';
+import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { build } from 'esbuild';
+import { JSDOM } from 'jsdom';
+
+const dom = new JSDOM('<html><body><div id="app"></div></body></html>', { url: 'http://localhost/', pretendToBeVisual: true });
+for (const key of ['window', 'document', 'navigator', 'HTMLElement', 'Element', 'Node', 'DocumentFragment', 'MouseEvent', 'KeyboardEvent', 'Event']) {
+  Object.defineProperty(globalThis, key, { value: dom.window[key], configurable: true });
+}
+globalThis.getComputedStyle = dom.window.getComputedStyle.bind(dom.window);
+globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+const React = await import('react');
+const { createRoot } = await import('react-dom/client');
+const built = await build({ stdin: { contents: `export * from './src/apps/cf_erp/components/Bom/BomGrid'; export * from './src/apps/cf_erp/components/Bom/bomArrangement'; export * from './src/apps/cf_erp/components/Bom/bomModel';`, resolveDir: process.cwd(), loader: 'tsx' }, bundle: true, write: false, format: 'esm', platform: 'node', packages: 'external', jsx: 'automatic' });
+const cache = resolve('node_modules/.cache');
+await mkdir(cache, { recursive: true });
+const artifact = resolve(cache, `bom-grid-test-${process.pid}.mjs`);
+await writeFile(artifact, built.outputFiles[0].text);
+const m = await import(pathToFileURL(artifact));
+await unlink(artifact);
+let passed = 0, failed = 0;
+const check = async (label, fn) => { try { await fn(); passed++; console.log(`PASS ${label}`); } catch (e) { failed++; console.log(`FAIL ${label}: ${e.stack}`); } };
+const node = (id, children = [], more = {}) => ({ id, key: `k${id}`, name: `Row ${id}`, code: null, kind: 'temporary', status: 'draft', depth: 1, quantity: 1, total: 1, lineId: id * 10, lineNo: id * 10, position: 1, role: null, selection: null, resolved: true, flow: null, bom: null, uom: 'nos', children, ...more });
+const tree = node(1, [node(2, [node(4), node(5)]), node(3)], { lineId: null, depth: 0, quantity: 2, total: 2 });
+const expanded = new Set(['k1', 'k2', 'k3', 'k4', 'k5']);
+const project = (p) => m.arrangedRows(tree, expanded, p);
+const saved = JSON.stringify(tree);
+let p = m.NO_PENDING, rs = project(p);
+const row = (id) => rs.find((r) => r.node.id === id && !r.paste);
+await check('Copy inserts directly below source and preserves siblings', () => {
+  p = m.duplicateBelow(p, row(4), { key: 'copy-1', source: row(4).node, sourceLineId: 40, parentId: 2, parentKey: 'k2', quantity: '1' });
+  rs = project(p);
+  assert.deepEqual(rs.map((r) => r.node.key), ['k1', 'k2', 'k4', 'copy-1', 'k5', 'k3']);
+});
+await check('Unsaved copy can move into another assembly', () => {
+  p = m.moveRow(p, rs.find((r) => r.paste), row(3), 'inside'); rs = project(p);
+  assert.equal(rs.find((r) => r.paste).parent.id, 3);
+  assert.equal(rs.filter((r) => r.paste).length, 1);
+});
+await check('Moving an assembly carries children and updates totals', () => {
+  p = m.moveRow(p, row(2), row(3), 'inside'); p = { ...p, quantity: { 30: '3' } }; rs = project(p);
+  assert.equal(row(2).parent.id, 3); assert.equal(row(4).node.depth, 3); assert.equal(row(4).node.total, 6);
+});
+await check('Save resolves new-copy keys without losing IDs of moved rows', () => {
+  const changes = m.pendingChanges(p, m.nodesByLine(tree)).changes;
+  assert.equal(changes.find((ch) => ch.op === 'paste').key, 'copy-1');
+  assert.deepEqual(changes.find((ch) => ch.op === 'arrange').groups.find((g) => g.parentId === 3).lineIds, ['copy-1', 20]);
+});
+await check('Undo copy removes it from all destination lists', () => { p = m.undoCopy(p, 'copy-1'); rs = project(p); assert.ok(!rs.some((r) => r.paste)); assert.ok(!Object.values(p.arrangement).flat().includes('copy-1')); });
+await check('Draft moves never mutate the original tree', () => assert.equal(JSON.stringify(tree), saved));
+await check('Copy then undo leaves no unsaved change', () => {
+  const source = project(m.NO_PENDING).find((r) => r.node.id === 4);
+  const draft = m.duplicateBelow(m.NO_PENDING, source, { key: 'copy-undo', source: source.node, sourceLineId: 40, parentId: 2, parentKey: 'k2', quantity: '1' });
+  assert.equal(m.pendingChanges(m.pruneArrangement(m.undoCopy(draft, 'copy-undo'), tree), m.nodesByLine(tree)).changes.length, 0);
+});
+await check('Copy sends the quantity currently typed, even before source save', () => {
+  const edit = { ...m.NO_PENDING, quantity: { 40: '7' } };
+  const current = project(edit).find((r) => r.node.id === 4);
+  const draft = m.duplicateBelow(edit, current, { key: 'copy-quantity', source: current.node, sourceLineId: 40, parentId: 2, parentKey: 'k2', quantity: '7' });
+  assert.equal(m.pendingChanges(draft, m.nodesByLine(tree)).changes.find((ch) => ch.op === 'paste').quantity, 7);
+});
+await check('Shared subassemblies retain unique occurrence keys', () => {
+  const a = node(9, [node(8, [], { key: 'left-child' })], { key: 'left' });
+  const b = node(9, [node(8, [], { key: 'right-child' })], { key: 'right', lineId: 91 });
+  const r = node(1, [a, b], { lineId: null });
+  const rows = m.arrangedRows(r, new Set(['k1', 'left', 'right']), m.NO_PENDING);
+  assert.deepEqual(rows.map((x) => x.node.key), ['k1', 'left', 'left-child', 'right', 'right-child']);
+});
+
+rs = project(m.NO_PENDING);
+const view = { editable: true, optionLists: {}, groups: [{ columns: [
+  { code: 'LENGTH', name: 'Length', dataType: 'number', rule: 'entered', editable: true },
+  { code: 'WEIGHT', name: 'Weight', dataType: 'number', rule: 'calculated', editable: false },
+], rows: rs.map((r) => ({ id: r.node.id, readOnly: r.node.id === 5 ? 'Shared item' : undefined, cells: { LENGTH: { input: String(r.node.id * 100) }, WEIGHT: { display: '50' } } })) }] };
+let writes = [];
+const props = { rows: rs, view, pending: m.NO_PENDING, busy: false, canEdit: () => true, canEditValues: () => true,
+  onWrites: (w) => { writes = w; }, onMove: () => {}, dropRefusal: () => null, onToggle: () => {}, trailingCell: () => null, flowCell: () => null, markOf: () => null, placeholderOf: () => null };
+const root = createRoot(document.getElementById('app'));
+const render = (p = props) => React.act(() => root.render(React.createElement(m.BomGrid, p)));
+const cell = (r, c) => document.querySelector(`[data-cell="${r}:${c}"]`);
+const fire = async (el, type, init = {}) => React.act(() => el.dispatchEvent(type.startsWith('key') ? new KeyboardEvent(type, { bubbles: true, ...init }) : new MouseEvent(type, { bubbles: true, ...init })));
+const clipboard = async (el, type, text = '') => {
+  let copied;
+  const event = new Event(type, { bubbles: true, cancelable: true });
+  Object.defineProperty(event, 'clipboardData', { value: { getData: () => text, setData: (_, value) => { copied = value; } } });
+  await React.act(() => el.dispatchEvent(event)); return copied;
+};
+await render();
+await check('Single click selects a cell without opening an editor', async () => { await fire(cell(2, 3), 'click'); assert.equal(cell(2, 3).getAttribute('aria-selected'), 'true'); assert.equal(document.querySelectorAll('input').length, 0); });
+await check('Selected cell copies its displayed value', async () => assert.equal(await clipboard(cell(2, 3), 'copy'), '400'));
+await check('Single-cell paste writes the destination only', async () => { await clipboard(cell(2, 3), 'paste', '1250'); assert.equal(writes.length, 1); assert.equal(writes[0].row.node.id, 4); assert.equal(writes[0].text, '1250'); });
+await check('Shift-click selects a range for Excel copy', async () => { await fire(cell(1, 3), 'click'); await fire(cell(2, 3), 'click', { shiftKey: true }); assert.equal(await clipboard(cell(2, 3), 'copy'), '200\n400'); });
+await check('Paste one value fills an editable selection', async () => { await clipboard(cell(2, 3), 'paste', '999'); assert.equal(writes.length, 2); assert.ok(writes.every((w) => w.text === '999')); });
+await check('Block paste refuses everything when it crosses a locked cell', async () => { writes = []; await fire(cell(2, 3), 'click'); await clipboard(cell(2, 3), 'paste', '900\n800'); assert.equal(writes.length, 0); assert.match(document.body.textContent, /Nothing pasted/); });
+await check('Calculated cells remain read-only', async () => { await fire(cell(2, 4), 'dblclick'); assert.equal(document.querySelectorAll('input').length, 0); assert.equal(cell(2, 4).getAttribute('aria-readonly'), 'true'); });
+await check('Double click opens the cell editor', async () => { await fire(cell(2, 3), 'dblclick'); assert.equal(document.querySelector('input[aria-label="Length"]').value, '400'); });
+await check('Escape cancels the editor without writing', async () => { writes = []; await fire(document.querySelector('input'), 'keydown', { key: 'Escape' }); assert.equal(document.querySelectorAll('input').length, 0); assert.equal(writes.length, 0); });
+await check('Typing begins replacement; Enter commits and moves down', async () => { await fire(cell(2, 3), 'keydown', { key: '7' }); assert.equal(document.querySelector('input').value, '7'); await fire(document.querySelector('input'), 'keydown', { key: 'Enter' }); assert.equal(writes[0].text, '7'); assert.equal(cell(3, 3).getAttribute('aria-selected'), 'true'); });
+await check('Tab navigates without opening a value panel', async () => { await fire(cell(1, 3), 'click'); await fire(cell(1, 3), 'keydown', { key: 'Tab' }); assert.equal(cell(1, 4).getAttribute('aria-selected'), 'true'); });
+await check('Root quantity is read-only', () => assert.equal(cell(0, 1).getAttribute('aria-readonly'), 'true'));
+await check('Dragging the handle advertises before/inside/after and moves the row', async () => {
+  let moved;
+  await render({ ...props, onMove: (...args) => { moved = args; } });
+  const handle = document.querySelector('[aria-label="Move Row 4"]');
+  const target = cell(4, 0).closest('tr');
+  target.getBoundingClientRect = () => ({ top: 100, height: 100 });
+  const dt = { setData: () => {}, effectAllowed: '', dropEffect: '' };
+  const dragEvent = async (el, type, y) => { const e = new MouseEvent(type, { bubbles: true, cancelable: true, clientY: y }); Object.defineProperty(e, 'dataTransfer', { value: dt }); await React.act(() => el.dispatchEvent(e)); };
+  await dragEvent(handle, 'dragstart', 0);
+  await dragEvent(target, 'dragover', 110); assert.match(target.textContent, /Before this row/);
+  await dragEvent(target, 'dragover', 150); assert.match(target.textContent, /Into Row 3/);
+  await dragEvent(target, 'dragover', 195); assert.match(target.textContent, /After this row/);
+  await dragEvent(target, 'drop', 195); assert.equal(moved[0].node.id, 4); assert.equal(moved[1].node.id, 3); assert.equal(moved[2], 'after');
+});
+await check('Saving disables cell writes and dragging', async () => { writes = []; await render({ ...props, busy: true }); await fire(cell(2, 3), 'click'); await clipboard(cell(2, 3), 'paste', '500'); assert.equal(writes.length, 0); assert.ok([...document.querySelectorAll('[draggable]')].every((el) => el.getAttribute('draggable') === 'false')); });
+const resolution = { mode: 'setup', specs: [{ spec: { code: 'WIDTH', name: 'Width', dataType: 'number' }, captureAt: 'item', applicable: true, rule: { valueRule: 'fixed', isRequired: false }, value: { raw: 150, display: '150', from: 'here', source: 'entered' } }] };
+await render({ ...props, view: null, records: { get: () => ({ resolution }) }, canEditValues: (r) => r.node.depth === 0 });
+await check('Definition root keeps editable setup values', async () => { assert.equal(cell(0, 3).getAttribute('aria-readonly'), 'false'); await fire(cell(0, 3), 'dblclick'); assert.equal(document.querySelector('input').value, '150'); await fire(document.querySelector('input'), 'keydown', { key: 'Escape' }); });
+await check('Definition children keep specifications locked but quantities editable', () => { assert.equal(cell(1, 3).getAttribute('aria-readonly'), 'true'); assert.equal(cell(1, 1).getAttribute('aria-readonly'), 'false'); });
+await check('Locked child cell can still be copied', async () => { await fire(cell(1, 3), 'click'); assert.equal(await clipboard(cell(1, 3), 'copy'), '150'); });
+await React.act(() => root.unmount());
+dom.window.close();
+console.log(`\n${passed} passed, ${failed} failed`);
+process.exitCode = failed ? 1 : 0;

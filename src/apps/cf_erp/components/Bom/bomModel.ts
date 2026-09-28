@@ -260,6 +260,9 @@ export interface PendingPaste {
 
 /** Everything edit mode holds, keyed by BOM line id. */
 export interface Pending {
+  /** Sales-order grid: complete sibling orders, including unsaved copy keys. */
+  arrangement?: Record<number, string[]>;
+  values?: Record<number, Record<string, string>>;
   /** The text typed in a line's quantity field. */
   quantity: Record<number, string>;
   /** The flow chosen for a line; null goes back to the way the child is usually made. */
@@ -303,7 +306,9 @@ export function pendingChanges(p: Pending, byLine: Map<number, StructureNode>): 
   for (const pasted of p.pastes) {
     const q = parseQuantity(pasted.quantity);
     if (q == null) { invalid.push(pasted.key); continue; }
-    changes.push({ op: 'paste', sourceLineId: pasted.sourceLineId, parentId: pasted.parentId, ...(sameNumber(q, pasted.source.quantity) ? {} : { quantity: q }) });
+    // The projected source may already contain an unsaved quantity. Always
+    // send the copy's quantity so it cannot fall back to the older DB value.
+    changes.push({ op: 'paste', ...(pasted.key.startsWith('copy-') ? { key: pasted.key } : {}), sourceLineId: pasted.sourceLineId, parentId: pasted.parentId, quantity: q });
   }
   for (const [id, text] of Object.entries(p.quantity)) {
     const node = byLine.get(Number(id));
@@ -317,6 +322,10 @@ export function pendingChanges(p: Pending, byLine: Map<number, StructureNode>): 
     if (node && (flowId ?? null) !== lineFlowId(node)) changes.push({ op: 'flow', lineId: Number(id), flowId: flowId ?? null });
   }
   for (const id of Object.keys(p.remove)) if (byLine.has(Number(id))) changes.push({ op: 'remove', lineId: Number(id) });
+  const groups = Object.entries(p.arrangement ?? {}).map(([parentId, refs]) => ({ parentId: Number(parentId), lineIds: refs.filter((ref) => !p.remove[Number(ref)]).map((ref) => ref.startsWith('copy-') ? ref : Number(ref)) }));
+  if (groups.length) changes.push({ op: 'arrange', groups });
+  const writes = Object.entries(p.values ?? {}).flatMap(([id, cells]) => Object.entries(cells).map(([specCode, value]) => ({ recordId: Number(id), specCode, value: value.trim() || null })));
+  if (writes.length) changes.push({ op: 'values', writes });
   return { changes, invalid };
 }
 

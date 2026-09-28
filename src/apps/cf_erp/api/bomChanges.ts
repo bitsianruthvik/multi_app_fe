@@ -19,13 +19,15 @@ export type BomChange =
   /** null goes back to the way the child is usually made. */
   | { op: 'flow'; lineId: number; flowId: number | null }
   | { op: 'remove'; lineId: number }
+  | { op: 'arrange'; groups: { parentId: number; lineIds: (number | string)[] }[] }
+  | { op: 'values'; writes: { recordId: number; specCode: string; value: string | null }[] }
   /**
    * Into a Custom BOM (an order's temporary items) a deep copy: new temporary
    * items with their values, lines and flows; catalog items, templates,
    * selections and cut plates referenced. Into a Template or Standard BOM,
    * another line to the same child. `quantity` defaults to the source line's.
    */
-  | { op: 'paste'; sourceLineId: number; parentId: number; afterLineId?: number | null; quantity?: number };
+  | { op: 'paste'; key?: string; sourceLineId: number; parentId: number; afterLineId?: number | null; quantity?: number };
 
 export interface BomChangesRequest {
   scope: BomChangeScope;
@@ -44,6 +46,9 @@ export interface BomChangeCounts {
   removedBeneath: number;
   unchanged: number;
   changes: number;
+  rearranged?: number;
+  moved?: number;
+  values?: number;
 }
 
 export interface BomChangeCopy { id: number | null; code: string | null; name: string; depth: number }
@@ -52,6 +57,8 @@ export type BomChangeResult =
   | { op: 'quantity'; lineId: number; from: number; to: number; changed: boolean }
   | { op: 'flow'; lineId: number; from: number | null; to: number | null; changed: boolean }
   | { op: 'remove'; lineId: number; beneath: number; withParent: boolean }
+  | { op: 'arrange'; moved: number; reordered: number }
+  | { op: 'values'; changed: number; records: number }
   | {
     op: 'paste'; sourceLineId: number; parentId: number; mode: 'copy' | 'line' | 'reference';
     /** Null on a dry run — the row was never kept. */

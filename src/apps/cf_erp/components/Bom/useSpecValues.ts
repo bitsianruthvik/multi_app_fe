@@ -67,6 +67,7 @@ export interface SpecValues {
   applySaved: (recordId: number, r: Resolution) => void;
   /** Read one record again — after a save elsewhere moved what it rolls up. */
   refresh: (recordId: number) => Promise<void>;
+  refreshAll: () => Promise<void>;
 }
 
 export function useSpecValues(recordIds: number[], enabled = true): SpecValues {
@@ -144,5 +145,12 @@ export function useSpecValues(recordIds: number[], enabled = true): SpecValues {
     start: () => setAsked(true),
     applySaved,
     refresh,
+    refreshAll: async () => {
+      setScanning(true);
+      let next = 0;
+      const lane = async () => { for (let i = next++; i < wanted.length; i = next++) await read(wanted[i]); };
+      try { await Promise.all(Array.from({ length: Math.min(LANES, wanted.length) }, lane)); }
+      finally { setScanning(false); }
+    },
   };
 }

@@ -346,7 +346,7 @@ export default function RecordDetail({ recordKind }: { recordKind: 'item' | 'def
         </Box>
       )}
       {tab === 'selection' && isSelection && <SelectionPanel record={r} canManage={editable} onChanged={rec.reload} />}
-      {tab === 'bom' && <BomPanel source={{ kind: 'record', recordId: id }} ownsBom showWhereUsed onChanged={() => { rec.reload(); specs.reload(); }} />}
+      {tab === 'bom' && <BomPanel key={id} source={{ kind: 'record', recordId: id }} ownsBom showWhereUsed onChanged={() => { rec.reload(); specs.reload(); }} />}
       {tab === 'stock' && r.recordKind === 'item' && <ItemStockPanel record={r} />}
       {tab === 'history' && <ValueHistory path={`/records/${id}/history`} version={version} subtitle="Every change to a value on this record — who, when, from what to what. Calculated changes appear too." />}
       {tab === 'details' && <DetailsForm key={r.updatedAt} record={r} tree={tree.data} canEdit={canManage} onTreeChanged={tree.reload}
