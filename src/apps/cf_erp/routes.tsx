@@ -16,6 +16,7 @@ const ProcessDetail = lazy(() => import('./pages/Processes').then((m) => ({ defa
 const Orders = lazy(() => import('./pages/Orders'));
 const OrderDetail = lazy(() => import('./pages/OrderDetail'));
 const Customers = lazy(() => import('./pages/Customers'));
+const Plan = lazy(() => import('./pages/Plan'));
 const Tracker = lazy(() => import('./pages/Tracker'));
 const Machines = lazy(() => import('./pages/Machines'));
 const MachineDetail = lazy(() => import('./pages/MachineDetail'));
@@ -60,6 +61,7 @@ export function getCfErpRoutes(
     { path: '/:company/cf_erp/items/:id', element: wrap(<RecordDetail recordKind="item" />) },
     { path: '/:company/cf_erp/definitions', element: wrap(<Records recordKind="definition" />) },
     { path: '/:company/cf_erp/definitions/:id', element: wrap(<RecordDetail recordKind="definition" />) },
+    { path: '/:company/cf_erp/plan', element: wrap(<Plan />) },
     { path: '/:company/cf_erp/tracker', element: wrap(<Tracker />) },
     { path: '/:company/cf_erp/machines', element: wrap(<Machines />) },
     { path: '/:company/cf_erp/machines/:id', element: wrap(<MachineDetail />) },
