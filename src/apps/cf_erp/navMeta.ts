@@ -35,6 +35,8 @@ const VIEW = 'cf_erp_catalog_view';
 const ORDERS = 'cf_erp_orders_view';
 const PRODUCTION = 'cf_erp_production_view';
 const INVENTORY = 'cf_erp_inventory_view';
+const FLOOR = 'cf_erp_floor';
+const PRODUCTION_MANAGE = 'cf_erp_production_manage';
 
 export const SECTIONS: NavSection[] = [
   { key: 'home', label: 'Home', screens: [{ key: 'home', label: 'Home', path: 'home', keywords: ['cockpit', 'today', 'dashboard'] }] },
@@ -60,6 +62,7 @@ export const SECTIONS: NavSection[] = [
     screens: [
       { key: 'plan', label: 'Plan', path: 'plan', permission: PRODUCTION, keywords: ['planner', 'schedule', 'capacity', 'ship', 'month', 'goal', 'priority', 'auto-plan'] },
       { key: 'tracker', label: 'Tracker', path: 'tracker', permission: PRODUCTION, countKey: 'readySteps', keywords: ['work queue', 'shop floor', 'steps', 'release', 'reserve', 'material'] },
+      { key: 'floor', label: 'Machine log', path: 'floor', permission: FLOOR, keywords: ['shop floor', 'operator', 'start', 'pause', 'stop', 'my day', 'shift log', 'tablet'] },
       { key: 'machines', label: 'Machines', path: 'machines', hasDetail: true, permission: PRODUCTION, countKey: 'machines', keywords: ['shifts', 'calendar', 'equipment', 'machine types'] },
       { key: 'operations', label: 'Operations', path: 'operations', hasDetail: true, permission: PRODUCTION, countKey: 'operations', keywords: ['timing', 'cut', 'weld'] },
       { key: 'work-orders', label: 'Work orders', path: 'work-orders', hasDetail: true, permission: PRODUCTION, keywords: ['contractor', 'subcontract', 'job work', 'outsource', 'vendor'] },
@@ -86,6 +89,8 @@ export const SECTIONS: NavSection[] = [
       { key: 'specifications', label: 'Specifications', path: 'specifications', permission: VIEW, keywords: ['attributes', 'fields'] },
       { key: 'formulas', label: 'Formulas', path: 'formulas', permission: VIEW, keywords: ['calculation', 'roll-up', 'timing'] },
       { key: 'coding-rules', label: 'Coding rules', path: 'coding-rules', permission: VIEW, keywords: ['codes', 'numbering', 'names'] },
+      { key: 'operators', label: 'Operators', path: 'operators', permission: PRODUCTION_MANAGE, keywords: ['people', 'workers', 'machine log', 'names'] },
+      { key: 'stop-reasons', label: 'Stop reasons', path: 'stop-reasons', permission: PRODUCTION_MANAGE, keywords: ['downtime', 'breakdown', 'idle', 'machine log'] },
       // A process is how an order is worked through the office — never a flow,
       // which is how a girder is made and lives under Production.
       { key: 'processes', label: 'Processes', path: 'processes', hasDetail: true, permission: ORDERS, keywords: ['stages', 'order process', 'applies to', 'house default', 'workflow'] },

@@ -18,6 +18,9 @@ const OrderDetail = lazy(() => import('./pages/OrderDetail'));
 const Customers = lazy(() => import('./pages/Customers'));
 const Plan = lazy(() => import('./pages/Plan'));
 const Tracker = lazy(() => import('./pages/Tracker'));
+const Floor = lazy(() => import('./pages/Floor'));
+const Operators = lazy(() => import('./pages/Operators'));
+const StopReasons = lazy(() => import('./pages/StopReasons'));
 const Machines = lazy(() => import('./pages/Machines'));
 const MachineDetail = lazy(() => import('./pages/MachineDetail'));
 const Operations = lazy(() => import('./pages/Operations'));
@@ -63,6 +66,9 @@ export function getCfErpRoutes(
     { path: '/:company/cf_erp/definitions/:id', element: wrap(<RecordDetail recordKind="definition" />) },
     { path: '/:company/cf_erp/plan', element: wrap(<Plan />) },
     { path: '/:company/cf_erp/tracker', element: wrap(<Tracker />) },
+    { path: '/:company/cf_erp/floor', element: wrap(<Floor />) },
+    { path: '/:company/cf_erp/operators', element: wrap(<Operators />) },
+    { path: '/:company/cf_erp/stop-reasons', element: wrap(<StopReasons />) },
     { path: '/:company/cf_erp/machines', element: wrap(<Machines />) },
     { path: '/:company/cf_erp/machines/:id', element: wrap(<MachineDetail />) },
     { path: '/:company/cf_erp/operations', element: wrap(<Operations />) },

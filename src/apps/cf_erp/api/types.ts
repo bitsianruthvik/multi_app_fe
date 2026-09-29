@@ -1472,3 +1472,96 @@ export interface WorkOrderDetail extends WorkOrderRow {
   notes: string | null;
   scope: { pieceCode: string; operations: string[] }[];
 }
+
+/* ── Machine log (the floor screens; CF_ERP_FLOOR_LOG_PLAN.md §2) ── */
+
+export interface FloorMachine {
+  id: number;
+  code: string;
+  name: string;
+  type: string | null;
+  running: number;
+  stopped: boolean;
+  /** The open stop's reason, when the server says it. */
+  stopReason: string | null;
+  lastActivityAt: string | null;
+}
+
+export interface FloorOperator { id: number; code: string | null; name: string }
+
+export interface FloorReason { id: number; code: string; label: string; needsNote: boolean }
+
+/** One step of work a person can pick — the same shape in the queue and in the day. */
+export interface FloorStep {
+  id: number;
+  pieceCode: string;
+  pieceName: string;
+  operation: string;
+  qtyLeft: number;
+  qtyTotal: number;
+  orderCode: string | null;
+  state: string | null;
+  ready: boolean;
+  /** Plain words for why it is not ready. */
+  why: string | null;
+  /** A paused session of this step on this machine, when there is one (Start resumes it). */
+  pausedSessionId: number | null;
+}
+
+/** A job running on the machine right now. */
+export interface FloorRunning extends FloorStep {
+  sessionId: number;
+  stepId: number;
+  startedAt: string;
+}
+
+export interface FloorStop {
+  id: number;
+  reasonId: number | null;
+  reason: string;
+  note: string | null;
+  start: string;
+  /** null = still stopped. */
+  end: string | null;
+}
+
+export interface FloorQueue { running: FloorRunning[]; next: FloorStep[]; stop: FloorStop | null }
+
+export interface FloorSession {
+  id: number;
+  stepId: number;
+  pieceCode: string;
+  pieceName: string;
+  operation: string;
+  start: string;
+  /** null = still running. */
+  end: string | null;
+  good: number | null;
+  scrap: number | null;
+  endKind: 'pause' | 'done' | 'stop' | null;
+}
+
+export interface FloorGap { start: string; end: string; minutes: number }
+
+export interface FloorDay {
+  date: string;
+  shifts: { start: string; end: string; label: string }[];
+  sessions: FloorSession[];
+  stops: FloorStop[];
+  notRecorded: FloorGap[];
+  totals: { work: number; stopped: number; notRecorded: number; shift: number };
+  /** Steps a save put back in progress (a deleted or lowered count on a done step). */
+  reopened?: FloorReopened[];
+}
+
+/** A done step a correction reopened: how many are left to make now. */
+export interface FloorReopened { stepId: number; label: string; qtyLeft: number }
+
+export type FloorRow =
+  | { kind: 'work'; id?: number; stepId: number; start: string; end: string; good: number; scrap: number }
+  | { kind: 'stop'; id?: number; reasonId: number; note: string; start: string; end: string };
+
+/** A manager's row in Setup > Operators. */
+export interface OperatorRow { id: number; code: string | null; name: string; status: 'active' | 'inactive'; machineIds: number[] }
+
+export interface StopReasonRow { id: number; code: string; label: string; sortOrder: number; needsNote: boolean; status: 'active' | 'inactive' }

@@ -37,6 +37,9 @@ export function CfErpShell({ children }: { children: ReactNode }) {
   const [detailTitle, setDetailTitle] = useState<string | null>(null);
   const publishTitle = useCallback((t: string | null) => setDetailTitle(t), []);
 
+  // The machine log is used at a machine on a tablet: no top navigation, just the page.
+  if (resolved?.screen.key === 'floor') return <ErrorBoundary level="page">{children}</ErrorBoundary>;
+
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden', background: 'var(--c-canvas)' }}>
       <TopNav activeSection={resolved?.section.key ?? null} onOpenMobileNav={() => setMobileNavOpen(true)} isMobile={isMobile} />
