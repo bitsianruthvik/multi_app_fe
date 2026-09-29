@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Box, Button } from '@mui/material';
 import ZoomInRounded from '@mui/icons-material/ZoomInRounded';
 import ZoomOutMapRounded from '@mui/icons-material/ZoomOutMapRounded';
 import type { Nest } from '../../api/types';
-import { bandsOf, mm } from '../../lib/nesting';
+import { bandsOf, kg, mm, placedPieces } from '../../lib/nesting';
 
 /**
  * ONE PLATE, DRAWN.
@@ -35,6 +35,14 @@ import { bandsOf, mm } from '../../lib/nesting';
  * rows a few pixels high whatever the type does, so the drawing zooms and
  * scrolls sideways inside its own card. It never widens the page: the scroll is
  * the card's, and `Fit` is always one click away.
+ *
+ * ORIGIN BOTTOM-LEFT. Plate coordinates put (0, 0) at the plate's bottom-left
+ * corner, as the CNC file (DXF) does, so the drawing flips y once — `fy` —
+ * for pieces, bands, the required box and the offcut outlines alike. What is
+ * on screen is what the cutting software opens.
+ *
+ * OFFCUTS are drawn hatched over the free plate, from their outline polygons,
+ * and lettered with their number.
  */
 
 /** On-screen sizes, in CSS pixels. Everything else is derived from the plate. */
@@ -60,6 +68,8 @@ export function PlateDrawing({ nest, colourOf, title }: {
   title?: string;
 }) {
   const bands = useMemo(() => bandsOf(nest), [nest]);
+  const placed = useMemo(() => placedPieces(nest), [nest]);
+  const hatchId = `offcut-hatch-${useId().replace(/[^w-]/g, '')}`;
   const box = useRef<HTMLDivElement | null>(null);
   const [avail, setAvail] = useState(0);
   const [zoom, setZoom] = useState(1);
@@ -91,6 +101,10 @@ export function PlateDrawing({ nest, colourOf, title }: {
   const padBottom = u(PX.padBottom);
   const drawH = (padTop + W + padBottom) * scale;
 
+  /** Plate y (up from the bottom edge) to drawing y (down from the top). `h` is the thing's height. */
+  const fy = (y: number, h = 0) => W - y - h;
+  const offcuts = nest.offcuts ?? [];
+
   const reqL = nest.requiredLength ?? null;
   const reqW = nest.requiredWidth ?? null;
 
@@ -114,13 +128,20 @@ export function PlateDrawing({ nest, colourOf, title }: {
         <Box
           component="svg"
           role="img"
-          aria-label={title ?? `${nest.lotNo ?? 'Plate'}: ${nest.pieces.length} pieces in ${bands.length} sequences`}
+          aria-label={title ?? `${nest.lotNo ?? 'Plate'}: ${placed.length} pieces in ${bands.length} sequences${offcuts.length ? `, ${offcuts.length} offcuts` : ''}`}
           viewBox={`${-gutter} ${-padTop} ${gutter + L + padRight} ${padTop + W + padBottom}`}
           width={drawW}
           height={drawH}
           preserveAspectRatio="xMidYMid meet"
           sx={{ display: 'block', overflow: 'visible' }}
         >
+          <defs>
+            <pattern id={hatchId} patternUnits="userSpaceOnUse" width={u(7)} height={u(7)} patternTransform="rotate(45)">
+              <rect width={u(7)} height={u(7)} fill="var(--c-success-50)" />
+              <line x1={0} y1={0} x2={0} y2={u(7)} stroke="var(--c-success-600)" strokeWidth={u(1.6)} />
+            </pattern>
+          </defs>
+
           {/* The plate as bought. */}
           <rect
             x={0} y={0} width={L} height={W}
@@ -132,12 +153,12 @@ export function PlateDrawing({ nest, colourOf, title }: {
           {bands.map((b, i) => (
             <g key={b.seqNo}>
               <rect
-                x={0} y={b.y0 - u(1)} width={L} height={Math.max(b.y1 - b.y0 + u(2), u(2))}
+                x={0} y={fy(b.y1) - u(1)} width={L} height={Math.max(b.y1 - b.y0 + u(2), u(2))}
                 fill={i % 2 === 0 ? 'var(--c-primary-50)' : 'var(--c-surface-3)'}
               />
               {/* The cut order, in the gutter: sequence 1 is pierced in full, then 2. */}
               <text
-                x={-gutter + u(2)} y={(b.y0 + b.y1) / 2} fontSize={u(PX.seq)} fontWeight={700}
+                x={-gutter + u(2)} y={fy((b.y0 + b.y1) / 2)} fontSize={u(PX.seq)} fontWeight={700}
                 dominantBaseline="central" fill="var(--c-primary-600)" style={{ fontVariantNumeric: 'tabular-nums' }}
               >
                 {b.seqNo}
@@ -146,7 +167,7 @@ export function PlateDrawing({ nest, colourOf, title }: {
               {b.rows.map((r) => ((r.y1 - r.y0) * scale >= PX.row
                 ? (
                   <text
-                    key={r.rowNo} x={-u(3)} y={(r.y0 + r.y1) / 2} fontSize={u(PX.row)} textAnchor="end"
+                    key={r.rowNo} x={-u(3)} y={fy((r.y0 + r.y1) / 2)} fontSize={u(PX.row)} textAnchor="end"
                     dominantBaseline="central" fill="var(--c-text-3)" style={{ fontVariantNumeric: 'tabular-nums' }}
                   >
                     {`r${r.rowNo}`}
@@ -163,7 +184,7 @@ export function PlateDrawing({ nest, colourOf, title }: {
             return (
               <g key={`${p.seqNo}-${p.rowNo}-${p.posNo}-${p.cutPlateId}-${p.x}-${p.y}`}>
                 <rect
-                  x={p.x} y={p.y} width={p.length} height={p.width}
+                  x={p.x} y={fy(p.y, p.width)} width={p.length} height={p.width}
                   fill={colourOf(p.cutPlateId)} fillOpacity={0.82}
                   stroke="var(--c-surface)" strokeWidth={0.8} vectorEffect="non-scaling-stroke"
                 >
@@ -174,7 +195,7 @@ export function PlateDrawing({ nest, colourOf, title }: {
                 </rect>
                 {fits && (
                   <text
-                    x={p.x + p.length / 2} y={p.y + p.width / 2} fontSize={u(PX.piece)} textAnchor="middle"
+                    x={p.x + p.length / 2} y={fy(p.y + p.width / 2)} fontSize={u(PX.piece)} textAnchor="middle"
                     dominantBaseline="central" fill="#fff" fontWeight={600} pointerEvents="none"
                     style={{ fontVariantNumeric: 'tabular-nums' }}
                   >
@@ -185,6 +206,33 @@ export function PlateDrawing({ nest, colourOf, title }: {
             );
           })))}
 
+          {/* Offcuts: kept plate, hatched, each with its number at its reusable rectangle. */}
+          {offcuts.map((o) => {
+            const d = (o.outline ?? [])
+              .filter((poly) => poly.length >= 3)
+              .map((poly) => `M${poly.map(([x, y]) => `${x},${fy(y)}`).join('L')}Z`).join(' ');
+            // Label at the reusable rectangle; its position is optional, so fall back to the box.
+            const at = [o.rect, o.bbox].find((r) => r?.x != null && r?.y != null);
+            return (
+              <g key={o.offcutNo}>
+                {d && (
+                  <path d={d} fill={`url(#${hatchId})`} fillRule="evenodd" stroke="var(--c-success-600)" strokeWidth={1}
+                    vectorEffect="non-scaling-stroke">
+                    <title>
+                      {`Offcut ${o.offcutNo} — ${kg(o.weightKg)} kg${o.rect ? `\nusable ${mm(o.rect.length)} × ${mm(o.rect.width)} mm` : ''}`}
+                    </title>
+                  </path>
+                )}
+                {at && at.width * scale >= PX.minPieceH && (
+                  <text x={(at.x ?? 0) + at.length / 2} y={fy((at.y ?? 0) + at.width / 2)} fontSize={u(PX.piece)} textAnchor="middle"
+                    dominantBaseline="central" fill="var(--c-success-800)" fontWeight={700} pointerEvents="none">
+                    {o.offcutNo}
+                  </text>
+                )}
+              </g>
+            );
+          })}
+
           {/*
             What the layout NEEDS, against what is bought. The two are different
             numbers on purpose, so both are on the picture rather than only in a
@@ -193,7 +241,7 @@ export function PlateDrawing({ nest, colourOf, title }: {
           {reqL != null && reqW != null && (
             <>
               <rect
-                x={0} y={0} width={Math.min(reqL, L)} height={Math.min(reqW, W)}
+                x={0} y={fy(0, Math.min(reqW, W))} width={Math.min(reqL, L)} height={Math.min(reqW, W)}
                 fill="none" stroke="var(--c-primary-600)" strokeWidth={1.4} strokeDasharray="6 4"
                 vectorEffect="non-scaling-stroke"
               />
@@ -213,7 +261,7 @@ export function PlateDrawing({ nest, colourOf, title }: {
             SEQ
           </text>
           <text x={0} y={W + u(11)} fontSize={u(PX.row)} fill="var(--c-text-3)">
-            {`${bands.length} ${bands.length === 1 ? 'sequence' : 'sequences'}, cut in the order numbered on the left · ${nest.pieces.length} pieces`}
+            {`${bands.length} ${bands.length === 1 ? 'sequence' : 'sequences'}, cut in the order numbered on the left · ${placed.length} pieces${offcuts.length ? ` · ${offcuts.length} ${offcuts.length === 1 ? 'offcut' : 'offcuts'} hatched` : ''}`}
           </text>
         </Box>
       </Box>

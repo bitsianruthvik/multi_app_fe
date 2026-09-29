@@ -53,7 +53,7 @@ function base(): string {
   return `/api/${company}/cf_erp`;
 }
 
-type Method = 'GET' | 'POST' | 'PUT' | 'DELETE';
+type Method = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 
 /**
  * How long a write that builds a whole structure may take: putting a template on
@@ -88,6 +88,7 @@ export const cfApi = {
   getBlob: (path: string, opts?: CallOptions) => call<Blob>('GET', path, undefined, { ...opts, responseType: 'blob' }),
   post: <T>(path: string, body?: unknown, opts?: CallOptions) => call<T>('POST', path, body ?? {}, opts),
   put: <T>(path: string, body?: unknown, opts?: CallOptions) => call<T>('PUT', path, body ?? {}, opts),
+  patch: <T>(path: string, body?: unknown, opts?: CallOptions) => call<T>('PATCH', path, body ?? {}, opts),
   del: <T>(path: string, opts?: CallOptions) => call<T>('DELETE', path, undefined, opts),
 };
 

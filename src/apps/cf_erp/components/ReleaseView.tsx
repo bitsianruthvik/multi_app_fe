@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Box, Button, IconButton, LinearProgress, Tooltip, Typography } from '@mui/material';
+import { Box, Button, FormControlLabel, IconButton, LinearProgress, Switch, Tooltip, Typography } from '@mui/material';
 import { Link } from 'react-router-dom';
 import PlayArrowRounded from '@mui/icons-material/PlayArrowRounded';
 import EditNoteRounded from '@mui/icons-material/EditNoteRounded';
@@ -45,7 +45,9 @@ export function StepActions({ step, onStart, onRecord, onHold, onResume }: {
 
 /** One step as a row under its piece: sequence, operation, status, progress, what it waits for, and its actions. */
 function StepRow({ step, canProduce, onAct }: { step: ProductionStep; canProduce: boolean; onAct: (kind: 'start' | 'record' | 'hold' | 'resume', step: ProductionStep) => void }) {
-  const why = step.status === 'not_ready' ? step.blockers.map((b) => b.text).join(' ') : step.status === 'in_progress' && step.machine ? `On ${step.machine.code}` : '';
+  // A step a contractor owns names the work order instead of a machine.
+  const workOrder = step.workOrderId ? [step.workOrderCode ?? 'Work order', step.contractorName].filter(Boolean).join(' · ') : '';
+  const why = step.status === 'not_ready' ? step.blockers.map((b) => b.text).join(' ') : workOrder || (step.status === 'in_progress' && step.machine ? `On ${step.machine.code}` : '');
   return (
     <Box sx={{
       display: 'grid', alignItems: 'center', columnGap: 1.5, rowGap: 0.5, py: 0.75, px: 1,
@@ -186,6 +188,7 @@ export function ReleaseView({ release, canProduce, canStock, onChange, onTakenBa
   const [holding, setHolding] = useState<ProductionStep | null>(null);
   const [takingBack, setTakingBack] = useState(false);
   const [shipping, setShipping] = useState(false);
+  const [inHouseOnly, setInHouseOnly] = useState(false);
   const r = release;
   const p = r.progress;
   const f = r.finished;
@@ -267,7 +270,16 @@ export function ReleaseView({ release, canProduce, canStock, onChange, onTakenBa
       </Box>
       {r.items.length === 0 ? (
         <Typography sx={{ color: 'var(--c-text-2)', mb: 2 }}>Nothing is made for this line — it is bought in, so only its material is tracked below.</Typography>
-      ) : r.items.map((piece) => <PieceBlock key={piece.id} piece={piece} canProduce={canProduce && r.order.status === 'confirmed'} onAct={act} />)}
+      ) : <>
+        {r.items.some((i) => i.steps.some((st) => st.workOrderId)) && (
+          <FormControlLabel sx={{ mb: 1 }} control={<Switch size="small" checked={inHouseOnly} onChange={(e) => setInHouseOnly(e.target.checked)} />}
+            label={<Typography sx={{ fontSize: 13 }}>In-house only</Typography>} />
+        )}
+        {r.items.map((piece) => {
+          const shown = inHouseOnly ? { ...piece, steps: piece.steps.filter((st) => !st.workOrderId) } : piece;
+          return inHouseOnly && shown.steps.length === 0 ? null : <PieceBlock key={piece.id} piece={shown} canProduce={canProduce && r.order.status === 'confirmed'} onAct={act} />;
+        })}
+      </>}
       <Typography component="h3" sx={{ fontSize: 13, fontWeight: 600, mt: 2.5, mb: 1 }}>Material</Typography>
       <Box sx={{ border: '1px solid var(--c-border)', borderRadius: 'var(--r-md)', overflow: 'hidden' }}>
         <RequirementsTable rows={r.requirements} canStock={canStock && r.order.status === 'confirmed'} onChange={(next) => changed(next)} />

@@ -52,7 +52,7 @@ import { PageHeader, FilterBar, DataTable, EmptyState, StatusBadge } from '@shar
 | Group | Components |
 |---|---|
 | **Primitives** | `Surface` · `GlassBar` · `Mono` · `CapsLabel` · `PageHeader` · `SectionCard` · `StickyActionBar` · `StatusBadge` · `ToneBadge` · `StatStrip` · `EmptyState` · `Callout` · `StageIcon` · skeletons |
-| **Collections** | `EntityList` / `EntityRow` · `DataTable` · `FilterBar` / `FacetChip` · `SortableTableHead` · `NumberCell` / `QtyCell` / `DateCell` |
+| **Collections** | `EntityList` / `EntityRow` · `DataTable` · `SheetGrid` · `FilterBar` / `FacetChip` · `SortableTableHead` · `NumberCell` / `QtyCell` / `DateCell` |
 | **Records** | `DetailLayout` · `DetailHeader` · `DetailTabs` · `CrossLink` · `FactItem` · `RunPanel` · `PipelineBoard` |
 | **Overlays** | `FormDialog` · `ConfirmDialog` · `PromptDialog` · `ErrorNotice` · `SideSheet` · `ToastProvider` / `useToast` · `ShortcutsHelp` · `CommandPaletteProvider` |
 | **Shell** | `ThemeScope` · `AppShell` · `TopNav` · `SectionNav` · `MobileNavSheet` · `useDetailTitle` |
@@ -101,3 +101,14 @@ to watch for: a grey chip where a green one belonged.
 
 Add it to `tokens.css` in both the light block and the dark block. A token that only exists in
 light mode is a bug waiting for someone to switch themes at 6pm.
+
+## SheetGrid
+
+The Excel-like grid: click / Shift-click / drag selects, column and row headers select a whole
+column or row (`rowSelect` widens a row header to a subtree), Ctrl+C copies TSV, Ctrl+V pastes TSV
+(refused whole if any target is read-only), double-click / Enter / F2 / typing edits, Escape
+cancels, Delete clears, arrows and Tab move. The screen supplies `cellAt(rowKey, colKey)` (text,
+`editable`, `tone`, `kind`, `mark`) and receives `onWrites`; the grid never writes anything itself.
+`tone`: `muted` computed, `strong` typed over, `warning`, `blank` (no box, never written).
+Extras: `lead` / `trail` row slots, `rowProps` / `rowSx` per row, `onProblem`, and a ref with
+`clearSelection()`. **Undo / redo:** every `onWrites` call (edit, paste, Delete) is one history entry (50 max); Ctrl/Cmd+Z undoes, Ctrl+Y / Ctrl+Shift+Z redoes, never while an editor is open, a new write clears redo, cells that became read-only are skipped with an `onProblem` message. The restore text is `cell.restore ?? cell.text` read before the write — set `restore` where `text` would not put the cell back (a formula cell: `restore: ''`). `historyKey` resets history when it changes; the ref also has `undo()`, `redo()`, `canUndo`, `canRedo`, and `onHistoryChange` reports them. Tests: `node scripts/sheet_grid_test.mjs`.

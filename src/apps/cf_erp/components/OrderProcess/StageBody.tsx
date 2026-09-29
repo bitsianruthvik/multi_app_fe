@@ -29,6 +29,7 @@ import { VALUES_WRITE_PERMISSIONS } from '../Values/valuesModel';
 import { ReleaseView } from '../ReleaseView';
 import { ReleaseDialog } from '../TrackerDialogs';
 import { PieceCodesCard } from '../Production/PieceCodesCard';
+import { ProductionTabs } from '../Production/ProductionTabs';
 import { LockPanel } from '../Lock/LockPanel';
 import { OrderLinesPanel } from '../OrderLinesPanel';
 import { useToast } from '../toastContext';
@@ -229,7 +230,7 @@ function ProductionPanel({ stage, line, order, production, productionError, hasL
     );
   }
 
-  return (
+  const tracker = (
     <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 2 }}>
       <ErrorNotice error={productionError} onRetry={onReloadAll} sx={{ mb: 0 }} />
       {release
@@ -261,6 +262,9 @@ function ProductionPanel({ stage, line, order, production, productionError, hasL
         onReleased={() => { invalidateNavCounts(); toast.success(`Line ${releasing?.lineNo} released to production.`); onReloadAll(); }} />
     </Box>
   );
+  // Times and Contractors sit beside the tracker; the tracker itself is untouched.
+  if (!line) return tracker;
+  return <ProductionTabs orderId={order.id} lineId={line.lineId} lines={[{ id: line.lineId, lineNo: line.lineNo, label: '' }]} released={!!release} tracker={tracker} />;
 }
 
 export function StageBody({

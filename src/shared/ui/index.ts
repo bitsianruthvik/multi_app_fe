@@ -66,6 +66,18 @@ export { DataTable, type DataColumn } from './DataTable';
 export { FilterBar, FacetChip } from './FilterBar';
 export { SortableTableHead, type SortableColumn } from './SortableTableHead';
 export { NumberCell, QtyCell, DateCell } from './Cells';
+export {
+  SheetGrid,
+  SHEET_GRID_HINT,
+  type SheetGridProps,
+  type SheetGridHandle,
+  type SheetCell,
+  type SheetWrite,
+  type SheetRange,
+  type SheetRow,
+  type SheetColumn,
+  type SheetOption,
+} from './SheetGrid';
 
 // ── Records ─────────────────────────────────────────────────────────────────
 export {

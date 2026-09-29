@@ -1,4 +1,6 @@
-import type { Nest, NestDrift, NestGroup, NestPiece, NestSizeAdvice, NestingPlan } from '../api/types';
+import type {
+  Nest, NestDrift, NestGroup, NestMetrics, NestPiece, NestSizeAdvice, NestVerdict, NestWaste, NestingPlan,
+} from '../api/types';
 
 /**
  * Words and arithmetic for the nesting screen.
@@ -165,21 +167,27 @@ export interface SeqBand {
   seqNo: number;
   y0: number;
   y1: number;
-  rows: { rowNo: number; y0: number; y1: number; pieces: NestPiece[] }[];
+  rows: { rowNo: number; y0: number; y1: number; pieces: PlacedPiece[] }[];
   size: 'small' | 'big';
   rowsAllowed: number;
 }
 
+/** A piece we have a place for. An imported nest we could not fit has pieces with no x/y. */
+export type PlacedPiece = NestPiece & { x: number; y: number };
+
+export const placedPieces = (nest: Nest): PlacedPiece[] =>
+  nest.pieces.filter((p): p is PlacedPiece => p.x != null && p.y != null);
+
 export function bandsOf(nest: Nest): SeqBand[] {
-  const bySeq = new Map<number, NestPiece[]>();
-  for (const p of nest.pieces) {
+  const bySeq = new Map<number, PlacedPiece[]>();
+  for (const p of placedPieces(nest)) {
     const list = bySeq.get(p.seqNo);
     if (list) list.push(p);
     else bySeq.set(p.seqNo, [p]);
   }
   const summary = new Map(nest.sequences.map((s) => [s.seqNo, s]));
   return [...bySeq.entries()].sort((a, b) => a[0] - b[0]).map(([seqNo, pieces]) => {
-    const byRow = new Map<number, NestPiece[]>();
+    const byRow = new Map<number, PlacedPiece[]>();
     for (const p of pieces) {
       const list = byRow.get(p.rowNo);
       if (list) list.push(p);
@@ -238,10 +246,14 @@ export const adviceTitle = (a: NestSizeAdvice): string =>
     ? `${a.lotNo ?? a.plateCode ?? 'A plate'} — the ordering margin does not fit`
     : `${steelWord(a as never)} — a size nobody stocks`);
 
-/** The slim body `POST …/nesting/accept` reads. Everything else it takes from the database. */
+/**
+ * The slim body `POST …/nesting/accept` reads. Everything else it takes from the database.
+ * Imported plates are left out: accepting keeps them as they are and only
+ * replaces the automatic ones.
+ */
 export function acceptBody(plan: NestingPlan) {
   return {
-    nests: plan.groups.flatMap((g) => g.nests.map((n) => ({
+    nests: plan.groups.flatMap((g) => g.nests.filter((n) => !isImported(n)).map((n) => ({
       lotNo: n.lotNo,
       plateItemId: n.plateItemId,
       source: n.source,
@@ -277,11 +289,109 @@ export function driftWords(d: NestDrift): string {
   return ` — the line needs ${d.needs}, the layout places ${d.placed}.`;
 }
 
-export const ACCEPT_AGAIN = 'Accepting again replaces the whole layout — the old lots are removed, not added to.';
+export const ACCEPT_AGAIN = 'Accepting again replaces the automatic plates — the old ones are removed, not added to. Imported plates stay as they are.';
 
 /** Said in place of hiding the buttons, so a read-only role learns why it cannot act. */
 export const NO_MANAGE = 'You can see this layout, but your role cannot change the order. Ask an administrator for the sales-order permission.';
 
-export const MANUAL_HELP = 'A cut plate marked by hand is left out of the pack, so somebody can place it themselves — on a plate of its own, or in the Excel sheet. Everything else on the line is packed around it.';
+export const MANUAL_HELP = 'Bring these in with the Excel sheet.';
 
 export const LOOK_IS_A_LOOK = 'Opening this reads the saved plan. It never re-packs, so what you see is what was agreed.';
+
+// ── Imported nests, the rule check, waste by cause, offcuts ──────────────────
+
+export const isImported = (n: Pick<Nest, 'origin'>) => n.origin === 'imported';
+
+/** Absent on the old API, which only ever sent plates it had laid out itself. */
+export const hasLayout = (n: Pick<Nest, 'hasLayout'>) => n.hasLayout !== false;
+
+export const NO_LAYOUT = 'No layout from us — cut it with the program it came from.';
+
+/** The check's answer in words. The API's codes never reach the screen. */
+export const VERDICT: Record<NestVerdict, { label: string; family: 'success' | 'warning' | 'danger'; help: string }> = {
+  fits: { label: 'Fits', family: 'success', help: 'We laid it out on this plate with our rules.' },
+  tight: { label: 'Tight', family: 'warning', help: "Area is enough but our layout couldn't fit it — their program may." },
+  wont_fit: { label: "Won't fit", family: 'danger', help: 'Not enough plate, or the wrong steel.' },
+};
+
+export const verdictOf = (v: string | null | undefined) => (v && v in VERDICT ? VERDICT[v as NestVerdict] : null);
+
+/** The six parts of a plate, in the order they are drawn and listed. */
+export const WASTE_KEYS = ['parts', 'kerf', 'sequenceGaps', 'rim', 'offcut', 'wastage', 'noLayout'] as const;
+export type WasteKey = typeof WASTE_KEYS[number];
+
+export const WASTE_LABEL: Record<WasteKey, string> = {
+  parts: 'Parts', kerf: 'Kerf', sequenceGaps: 'Sequence gaps', rim: 'Rim', offcut: 'Offcut', wastage: 'Wastage', noLayout: 'No layout',
+};
+
+export const WASTE_HELP: Record<WasteKey, string> = {
+  parts: 'The cut plates themselves.',
+  kerf: 'Steel the cut burns away around each part.',
+  sequenceGaps: 'The gaps left between sequences.',
+  rim: 'The strip along the plate edge.',
+  offcut: 'Pieces big enough to keep and use again.',
+  wastage: 'What is left — scrap.',
+  noLayout: 'Plates we have no layout for, so we cannot split them.',
+};
+
+export const WASTE_COLOUR: Record<WasteKey, string> = {
+  parts: 'var(--c-primary-500)',
+  kerf: 'var(--c-neutral-600)',
+  sequenceGaps: 'var(--c-info-600)',
+  rim: 'var(--c-primary-200)',
+  offcut: 'var(--c-success-600)',
+  wastage: 'var(--c-danger-600)',
+  noLayout: 'var(--c-neutral-200)',
+};
+
+const isWaste = (v: unknown): v is NestWaste => !!v && typeof v === 'object' && 'wastage' in (v as object);
+
+/** Everything the parts do not cover, in kg, whichever shape the API sent. */
+export function wasteTotalKg(x: Pick<Nest | NestMetrics, 'wasteKg' | 'wasteTotalKg'>): number {
+  if (typeof x.wasteTotalKg === 'number') return x.wasteTotalKg;
+  const w = x.wasteKg;
+  if (typeof w === 'number') return w;
+  if (isWaste(w)) return w.kerf + w.sequenceGaps + w.rim + w.offcut + w.wastage;
+  return 0;
+}
+
+export interface WastePart { key: WasteKey; label: string; kg: number; pct: number }
+
+/**
+ * The plate split by cause, in kg and % of the plate. Null when the API sent no
+ * breakdown (the old API, or a plan saved before it existed). Kilograms come
+ * straight from the API when it sends them, else from the mm² in proportion to
+ * the plate's weight — the same steel, so the same kg per mm².
+ */
+export function wasteBreakdown(
+  x: { weightKg: number; wasteKg: number | NestWaste; waste?: NestWaste | null; partsKg?: number },
+  plateArea: number,
+): WastePart[] | null {
+  let kgs: NestWaste | null = null;
+  if (isWaste(x.wasteKg)) kgs = x.wasteKg;
+  else if (isWaste(x.waste) && plateArea > 0 && x.weightKg > 0) {
+    const r = x.weightKg / plateArea;
+    const w = x.waste;
+    kgs = { kerf: w.kerf * r, sequenceGaps: w.sequenceGaps * r, rim: w.rim * r, offcut: w.offcut * r, wastage: w.wastage * r };
+  }
+  if (!kgs) return null;
+  const total = x.weightKg || 0;
+  const wasteSum = kgs.kerf + kgs.sequenceGaps + kgs.rim + kgs.offcut + kgs.wastage;
+  // Parts from the API when it says; a plate with no layout has parts and waste of
+  // zero, and what is left of its weight is shown as No layout, not as parts.
+  const parts = typeof x.partsKg === 'number' ? x.partsKg : Math.max(total - wasteSum, 0);
+  const rest = Math.max(total - parts - wasteSum, 0);
+  const values: Record<WasteKey, number> = { parts, ...kgs, noLayout: rest > total * 0.001 ? rest : 0 };
+  return WASTE_KEYS.filter((key) => key !== 'noLayout' || values.noLayout > 0).map((key) => ({
+    key, label: WASTE_LABEL[key], kg: values[key], pct: total > 0 ? (values[key] / total) * 100 : 0,
+  }));
+}
+
+/** The line's offcuts, counted from its plates. */
+export function lineOffcuts(plan: NestingPlan): { count: number; kg: number } {
+  const all = plan.groups.flatMap((g) => g.nests.flatMap((n) => n.offcuts ?? []));
+  return { count: plan.totals.offcuts ?? all.length, kg: all.reduce((a, o) => a + (o.weightKg || 0), 0) };
+}
+
+/** True once any plate on the line came in from the sheet. */
+export const anyImported = (plan: NestingPlan) => plan.groups.some((g) => g.nests.some(isImported));

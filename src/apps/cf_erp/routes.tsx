@@ -23,6 +23,8 @@ const Operations = lazy(() => import('./pages/Operations'));
 const OperationDetail = lazy(() => import('./pages/OperationDetail'));
 const Flows = lazy(() => import('./pages/Flows'));
 const FlowDetail = lazy(() => import('./pages/FlowDetail'));
+const WorkOrders = lazy(() => import('./pages/WorkOrders'));
+const WorkOrderDetail = lazy(() => import('./pages/WorkOrderDetail'));
 const Stock = lazy(() => import('./pages/Stock'));
 const BuyList = lazy(() => import('./pages/BuyList'));
 const PurchaseOrders = lazy(() => import('./pages/PurchaseOrders'));
@@ -65,6 +67,8 @@ export function getCfErpRoutes(
     { path: '/:company/cf_erp/operations/:id', element: wrap(<OperationDetail />) },
     { path: '/:company/cf_erp/flows', element: wrap(<Flows />) },
     { path: '/:company/cf_erp/flows/:id', element: wrap(<FlowDetail />) },
+    { path: '/:company/cf_erp/work-orders', element: wrap(<WorkOrders />) },
+    { path: '/:company/cf_erp/work-orders/:id', element: wrap(<WorkOrderDetail />) },
     { path: '/:company/cf_erp/stock', element: wrap(<Stock />) },
     { path: '/:company/cf_erp/buy-list', element: wrap(<BuyList />) },
     { path: '/:company/cf_erp/purchase-orders', element: wrap(<PurchaseOrders />) },

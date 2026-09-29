@@ -799,6 +799,10 @@ export interface ProductionStep {
   waits: StepWait[];
   blockers: StepBlocker[];
   requirementIds: number[];
+  /** Set when a contractor's work order owns this step (optional: older servers omit it). */
+  workOrderId?: number | null;
+  workOrderCode?: string | null;
+  contractorName?: string | null;
 }
 
 export interface ProductionPiece {
@@ -1089,9 +1093,13 @@ export interface NestPiece {
   seqNo: number;
   rowNo: number;
   posNo: number;
-  /** The true corner of the piece on the plate, from the plate's own corner. */
-  x: number;
-  y: number;
+  /**
+   * The true corner of the piece on the plate, from the plate's own corner.
+   * NULL on an imported nest we could not lay out: the piece is on that plate,
+   * but we have no place for it.
+   */
+  x: number | null;
+  y: number | null;
   /** The footprint AS PLACED — already swapped when `rotated`. */
   length: number;
   width: number;
@@ -1133,9 +1141,63 @@ export interface Nest {
   wasteArea: number;
   wastePct: number;
   weightKg: number;
-  wasteKg: number;
+  /**
+   * The old API sends one number (everything the parts do not cover); the
+   * 2026-09-29 contract sends the breakdown by cause under the same name. Read
+   * it through `lib/nesting` (`wasteTotalKg`, `wasteBreakdown`), never directly.
+   */
+  wasteKg: number | NestWaste;
   sequences: NestSequence[];
   pieces: NestPiece[];
+  /** Absent on the old API — read as 'auto'. */
+  origin?: NestOrigin;
+  /** Our rule check on the plate. Null on a plate the packer laid out itself. */
+  verdict?: NestVerdict | null;
+  /** Saved although the check did not say it fits. */
+  forced?: boolean;
+  /** Plain sentences from the check. */
+  reasons?: string[];
+  /** False when we found no layout for an imported nest. Absent means true. */
+  hasLayout?: boolean;
+  /** The waste by cause, in mm². */
+  waste?: NestWaste | null;
+  /** The old single figure (plate less parts), once wasteKg became the breakdown. */
+  wasteTotalKg?: number;
+  /** The parts themselves, kg. Zero on a plate with no layout. */
+  partsKg?: number;
+  offcuts?: NestOffcut[];
+}
+
+export type NestOrigin = 'auto' | 'imported';
+export type NestVerdict = 'fits' | 'tight' | 'wont_fit';
+
+/**
+ * Waste by cause (nestGeometry.analyseNest). Parts + all of these = the plate.
+ * Only `wastage` is really wasted — the rest is what cutting costs, or a piece
+ * of plate kept for later.
+ */
+export interface NestWaste {
+  kerf: number;
+  sequenceGaps: number;
+  rim: number;
+  offcut: number;
+  wastage: number;
+}
+
+/** x / y (bottom-left corner, plate coords) are treated as optional for safety. */
+export interface NestRect { x?: number | null; y?: number | null; length: number; width: number }
+
+/** A reusable piece of plate left after cutting. Plate coordinates, mm, origin bottom-left. */
+export interface NestOffcut {
+  offcutNo: string;
+  area: number;
+  weightKg: number;
+  /** The largest rectangle inside it — the size it can be reused at. */
+  rect: NestRect | null;
+  bbox: NestRect | null;
+  /** Polygons, each a list of [x, y]. */
+  outline: [number, number][][];
+  status?: string;
 }
 
 export interface NestMetrics {
@@ -1147,7 +1209,14 @@ export interface NestMetrics {
   wasteArea: number;
   wastePct: number;
   weightKg: number;
-  wasteKg: number;
+  /** A number on the old API, the breakdown by cause on the new one — see Nest.wasteKg. */
+  wasteKg: number | NestWaste;
+  /** Summed waste by cause, mm². */
+  waste?: NestWaste | null;
+  wasteTotalKg?: number;
+  partsKg?: number;
+  /** How many offcuts. */
+  offcuts?: number;
   thickness: number | null;
 }
 
@@ -1257,6 +1326,37 @@ export interface NestingAccepted {
   caveatCleared: string;
 }
 
+/** One nest as read from the uploaded sheet (POST …/nesting/sheet). */
+export interface NestSheetNest {
+  nestNo: string | number;
+  plateCode: string | null;
+  plateLabel: string | null;
+  items: { cutPlateCode: string; qty: number }[];
+  verdict: NestVerdict;
+  reasons: string[];
+  waste: NestWaste | null;
+  hasLayout: boolean;
+}
+
+/** How many of a cut plate the line needs against how many the sheet nests. diff = nested − needed. */
+export interface NestCoverage {
+  cutPlateCode: string;
+  needed: number;
+  nested: number;
+  diff: number;
+}
+
+/** What POST …/nesting/sheet answers, for a preview and for a save. */
+export interface NestSheetResult {
+  applied: boolean;
+  canSave: boolean;
+  needsForce: boolean;
+  /** Cell problems. Any of these blocks saving. */
+  problems: string[];
+  nests: NestSheetNest[];
+  coverage: NestCoverage[];
+}
+
 /**
  * What POST /catalog/specifications/:id/options hands back — a value added to
  * an option list from the item form, for the whole company. `narrowedOut`: the
@@ -1272,4 +1372,103 @@ export interface AddedSpecOption {
   /** Only when narrowed out: the values an item there may take. */
   allowedHere?: string[];
   message: string;
+}
+
+// ---- Production: times and contractor work orders (CF_ERP_TIMES_WORKORDERS_PLAN.md §C) ----
+
+export interface OpRef { id: number; code: string; name: string }
+
+/** One box of the Times grid: minutes for one operation on one BOM row. No cell = the operation is not in that row's flow. */
+export interface TimeCell {
+  work: number | null;
+  setup: number | null;
+  formulaWork: number | null;
+  formulaSetup: number | null;
+  overridden: boolean;
+  setupOverridden: boolean;
+  machine: string | null;
+  /** Plain reason the formula gave no number. */
+  missing: string | null;
+  /** How many times the operation runs (default 1). */
+  passes?: number;
+}
+
+export interface TimeRow {
+  key: string;
+  bomLineId: number | null;
+  /** The item this row is; rows sharing it are the same thing. */
+  itemId?: number | null;
+  parentKey: string | null;
+  depth: number;
+  name: string;
+  code: string | null;
+  qtyPerParent: number;
+  totalQty: number;
+  flowName: string | null;
+  cells: Record<string, TimeCell>;
+}
+
+export interface TimesView {
+  line: { id: number; lineNo: number; released: boolean; editable: boolean; why?: string | null };
+  operations: OpRef[];
+  rows: TimeRow[];
+  totals: { byOperation: Record<string, number>; all: number };
+}
+
+export interface TimeWrite { bomLineId: number | null; operationId: number; work?: number | null; setup?: number | null; note?: string }
+
+export interface AssignCell {
+  workOrderId: number | null;
+  workOrderCode?: string | null;
+  contractorId: number | null;
+  contractorName: string | null;
+  started: boolean;
+  editable: boolean;
+  why: string | null;
+}
+
+export interface AssignRow {
+  key: string;
+  /** The BOM line this piece was made from (null for the line's own item) — what pieces of two assemblies are matched by. */
+  bomLineId?: number | null;
+  parentKey: string | null;
+  depth: number;
+  code: string | null;
+  name: string;
+  quantity: number;
+  cells: Record<string, AssignCell>;
+}
+
+export type WorkOrderStatus = 'draft' | 'issued' | 'in_progress' | 'done' | 'cancelled';
+
+export interface Contractor { id: number; code: string; name: string }
+
+export interface AssignmentView {
+  line: { id: number; lineNo: number; locked: boolean; why?: string | null };
+  operations: OpRef[];
+  rows: AssignRow[];
+  contractors: Contractor[];
+  workOrders: { id: number; code: string; contractorId: number | null; contractorName: string | null; status: WorkOrderStatus; cellCount: number }[];
+}
+
+export interface WorkOrderRow {
+  id: number;
+  code: string;
+  status: WorkOrderStatus;
+  contractorId: number | null;
+  contractorName: string | null;
+  orderId: number | null;
+  orderCode: string | null;
+  lineId: number | null;
+  lineNo: number | null;
+  cellCount: number;
+  /** Steps done / total once the line is released; null before. */
+  progress: { done: number; total: number } | null;
+}
+
+export interface WorkOrderDetail extends WorkOrderRow {
+  startDate: string | null;
+  dueDate: string | null;
+  notes: string | null;
+  scope: { pieceCode: string; operations: string[] }[];
 }

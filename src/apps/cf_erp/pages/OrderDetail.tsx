@@ -26,6 +26,7 @@ import {
 } from '../components/ui';
 import { CrossLink, DetailHeader, DetailLayout, type DetailTab } from '../components/DetailLayout';
 import { BomPanel } from '../components/Bom/BomPanel';
+import { ProductionTabs } from '../components/Production/ProductionTabs';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { MovementsTable } from '../components/StockTables';
 import { MovementButtons } from '../components/MovementButtons';
@@ -424,9 +425,14 @@ export default function OrderDetail() {
       </Box>
     );
   } else if (tab === 'production' && canTrack) {
-    body = (
+    const overview = (
       <ProductionOverview order={o} lines={lines} production={production.data} productionError={production.error} loading={production.loading}
         canProduce={canProduce} canReserve={canReserve} onRelease={setReleasing} onReleaseChanged={updateRelease} onReloadAll={reloadAll} onRetry={production.reload} />
+    );
+    // Times and Contractors sit beside the release view, which is untouched.
+    body = lines.length === 0 ? overview : (
+      <ProductionTabs orderId={o.id} released={(production.data?.releases ?? []).length > 0} tracker={overview}
+        lines={lines.map((l) => ({ id: l.id, lineNo: l.lineNo, label: l.item?.name ?? l.item?.code ?? 'Line' }))} />
     );
   } else if (tab === 'stock' && canStock) {
     body = (
