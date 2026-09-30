@@ -210,10 +210,17 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
   /** Edit mode is offered when there is anything at all this person may change here. */
   const canEditHere = !!state && (mayEdit(state.root, state.bomType) || flat.some(({ node }) => node.kind === 'temporary' && mayEdit(node, 'custom'))
     || !orderGrid && ownsBom && !frozen && isPermitted(VALUES_PERMISSION));
+  /**
+   * A LOCKED line, not yet released: only how each of the order's own rows is
+   * made (its flow) may change (user, 2026-09-30). Edit mode opens for that
+   * alone — every other cell, copy, move and removal stays read-only.
+   */
+  const flowsOnly = !!state?.flowsOnly;
+  const canChangeFlowsHere = flowsOnly && isPermitted(bomPermission(true)) && flat.some(({ node }) => node.kind === 'temporary');
   const canSheetEdit = !!state && !frozen && (source.kind === 'record'
     ? ownsBom && isPermitted(bomPermission(state.bomType === 'custom'))
     : isPermitted(bomPermission(true)));
-  const editOn = canEditHere;
+  const editOn = canEditHere || canChangeFlowsHere;
 
   // What is waiting, as Save would send it.
   const byLine = useMemo(() => (state ? nodesByLine(state.root) : new Map<number, StructureNode>()), [state]);
@@ -319,6 +326,8 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
     ? `${label} is obsolete, so its lines cannot change. Reactivate the record to edit them.`
     : state.order && LOCKED_ORDER.includes(state.order.status)
       ? `Order ${state.order.code} is ${ORDER_STATUS_LABEL[state.order.status].toLowerCase()}, so everything made for it is frozen.`
+      : state.flowsOnly
+        ? `${state.line ? `Line ${state.line.lineNo}` : 'Its line'} is locked, so its structure, quantities and values no longer change.${canChangeFlowsHere ? ' How each row is made can still change until the line is released: click the flow under a row’s name, then Save.' : ''}`
       : state.released
         ? `Released to production${state.order ? ` on order ${state.order.code}` : ''}${state.line ? `, line ${state.line.lineNo}` : ''}, so its structure is frozen. Take the release back — while nothing has started — to change it.`
         : !isPermitted(bomPermission(custom))
@@ -339,6 +348,9 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
   /** A line this screen may change, and that is not going with a removal above it. */
   const lineEditable = (row: BomRow) => !row.paste && row.node.lineId != null
     && mayEdit(row.parent, row.bomType) && !goneKeys.has(row.node.key);
+  /** A line whose flow may change: any line this screen may change, and on a locked line an order row's line. */
+  const flowEditable = (row: BomRow) => lineEditable(row)
+    || (canChangeFlowsHere && !row.paste && row.node.lineId != null && row.parent?.kind === 'temporary' && !goneKeys.has(row.node.key));
   /** A flow is how a thing is made in its parent; a selection takes its chosen item's (EditLineDialog's rule). */
   const canHaveFlow = (node: StructureNode) => !node.selection && node.kind !== 'selection';
   /** Why a line cannot change from here — the words the per-line menus would use. */
@@ -347,6 +359,7 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
     const pl = p ? p.code ?? p.name : '';
     if (!p) return '';
     if (goneKeys.has(row.node.key)) return 'It goes with the line above it that is being removed.';
+    if (flowsOnly && p.kind === 'temporary') return 'The line is locked. Only how it is made can change, until the line is released.';
     if (p.kind === 'catalog') return `${pl}’s Standard BOM is shared by everything that uses it — change it on ${pl} itself.`;
     if (p.kind === 'template') return `${pl}’s Template BOM is changed on the template itself.`;
     return `${pl} is not this screen’s to change.`;
@@ -517,7 +530,7 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
 
   const flowCell = (row: BomRow) => {
     const n = row.node;
-    if (row.paste || !lineEditable(row) || removedKeys.has(n.key) || !canHaveFlow(n)) return <FlowTag flow={n.flow} />;
+    if (row.paste || !flowEditable(row) || removedKeys.has(n.key) || !canHaveFlow(n)) return <FlowTag flow={n.flow} />;
     const id = n.lineId as number;
     const has = id in pending.flow;
     const chosen = has ? pending.flow[id] : undefined;
@@ -691,7 +704,7 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
           </Typography>
           <Box sx={{ flex: 1 }} />
           <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>
-            Copy inserts a row below · drag to rearrange · changes wait for Save
+            {flowsOnly ? 'Only flows can change · changes wait for Save' : 'Copy inserts a row below · drag to rearrange · changes wait for Save'}
           </Typography>
         </Box>
         <>

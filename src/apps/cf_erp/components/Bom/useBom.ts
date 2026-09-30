@@ -26,10 +26,17 @@ export interface BomState {
   /** The order a temporary item belongs to, or the order the line is on. */
   order: { id: number; code: string; status: OrderStatus } | null;
   released: boolean;
+  /** Its line is locked: codes, structure and values are fixed. */
+  locked: boolean;
   /** The sales line this was read through, when it was read through one. */
   line: { lineNo: number; lineType: 'standard' | 'custom' } | null;
   /** Nothing here can change, whatever the person's role — the backend refuses it too. */
   frozen: boolean;
+  /**
+   * Frozen by the LOCK alone: how each row is made (its flow) still changes
+   * until the line is released (user, 2026-09-30) — and nothing else does.
+   */
+  flowsOnly: boolean;
 }
 
 /**
@@ -89,8 +96,9 @@ export function useBom(source: BomSource, { whereUsed = false, onChanged }: { wh
         allowedChildKinds: null,
         bom: s.root.bom,
         order: { id: s.order.id, code: s.order.code, status: s.order.status },
-        // The backend calls a line uneditable once it is released or its order closed.
-        released: !s.order.editable && !LOCKED_ORDER.includes(s.order.status),
+        // Older answers had no `released`: uneditable and the order still open meant released.
+        released: s.order.released ?? (!s.order.editable && !LOCKED_ORDER.includes(s.order.status)),
+        locked: !!s.order.locked,
         line: { lineNo: s.line.lineNo, lineType: s.line.lineType },
       }
       : v
@@ -104,13 +112,16 @@ export function useBom(source: BomSource, { whereUsed = false, onChanged }: { wh
           bom: v.bom,
           order: v.order,
           released: !!v.order?.released,
+          locked: !!v.order?.locked,
           line: null,
         }
         : null;
     if (!common) return null;
+    const closed = common.root.status === 'obsolete' || !!(common.order && LOCKED_ORDER.includes(common.order.status)) || common.released;
     return {
       ...common,
-      frozen: common.root.status === 'obsolete' || !!(common.order && LOCKED_ORDER.includes(common.order.status)) || common.released,
+      frozen: closed || common.locked,
+      flowsOnly: !closed && common.locked,
     };
   }, [v, s, tree.data]);
 

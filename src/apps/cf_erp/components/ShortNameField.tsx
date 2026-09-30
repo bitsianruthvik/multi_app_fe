@@ -10,20 +10,21 @@ import { Box, Checkbox, FormControlLabel, TextField } from '@mui/material';
  *               rule, with no coding rule of its own (user, 2026-09-26).
  * "None" is a switch, never an empty box: a box left empty means "not set".
  */
-export function ShortNameField({ value, none, onChange, helperText }: {
+export function ShortNameField({ value, none, onChange, helperText, disabled = false }: {
   value: string;
   none: boolean;
+  disabled?: boolean;
   onChange: (next: { value: string; none: boolean }) => void;
   helperText: string;
 }) {
   return (
     <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 0.25, minWidth: 0 }}>
-      <TextField label="Short name" value={none ? '' : value} disabled={none} placeholder={none ? 'none' : 'WEB'}
+      <TextField label="Short name" value={none ? '' : value} disabled={disabled || none} placeholder={none ? 'none' : 'WEB'}
         onChange={(e) => onChange({ value: e.target.value, none: false })}
         helperText={none ? 'None: codes print nothing where the short name goes — a segment reads …-G1-1.' : helperText}
         inputProps={{ style: { fontFamily: 'var(--font-mono)', textTransform: 'uppercase' } }} />
       <FormControlLabel sx={{ ml: 0, '& .MuiFormControlLabel-label': { fontSize: 13, color: 'var(--c-text-2)' } }}
-        control={<Checkbox size="small" checked={none} onChange={(e) => onChange({ value: e.target.checked ? '' : value, none: e.target.checked })} />}
+        control={<Checkbox size="small" checked={none} disabled={disabled} onChange={(e) => onChange({ value: e.target.checked ? '' : value, none: e.target.checked })} />}
         label="None — print nothing in codes" />
     </Box>
   );

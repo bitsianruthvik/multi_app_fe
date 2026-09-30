@@ -70,9 +70,17 @@ function DetailsForm({ record, tree, canEdit, onSaved, onTreeChanged }: {
   const [error, setError] = useState<CfApiError | null>(null);
   const isTemp = record.item?.itemType === 'temporary';
   const isSelection = record.definition?.definitionType === 'selection';
+  // Frozen records keep every field read-only. A LOCKED line (not released)
+  // still takes a new "Usually made by" — and only that (user, 2026-09-30).
+  const readOnly = !!record.frozen;
+  const flowOnly = record.frozen?.reason === 'locked';
   const save = async () => {
     setBusy(true);
     setError(null);
+    if (flowOnly) {
+      try { onSaved(await cfApi.put<MasterRecord>(`/records/${record.id}`, { defaultFlowId: form.defaultFlowId })); } catch (e) { setError(e as CfApiError); } finally { setBusy(false); }
+      return;
+    }
     const body: Record<string, unknown> = { name: form.name, description: form.description || null, ...shortNameBody(form.shortName, form.noShortName) };
     if (record.status === 'draft') body.code = form.code || null;
     if (!isTemp) body.classificationId = form.classificationId;
@@ -85,26 +93,26 @@ function DetailsForm({ record, tree, canEdit, onSaved, onTreeChanged }: {
     <SectionCard title="Details" sx={{ maxWidth: 880 }}>
       <ErrorNotice error={error} />
       <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', md: 'repeat(2, minmax(0, 1fr))' }, gap: 2 }}>
-        <TextField label="Name" required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} sx={{ gridColumn: '1 / -1' }}
+        <TextField label="Name" required disabled={readOnly} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} sx={{ gridColumn: '1 / -1' }}
           error={!form.name.trim()} helperText={!form.name.trim() ? 'A name is required.' : ' '} />
-        <TextField label="Code" value={form.code} disabled={record.status !== 'draft'} onChange={(e) => setForm({ ...form, code: e.target.value })}
+        <TextField label="Code" value={form.code} disabled={readOnly || record.status !== 'draft'} onChange={(e) => setForm({ ...form, code: e.target.value })}
           helperText={record.status === 'draft' ? 'Editable while draft' : 'Fixed once active — documents may carry it'} inputProps={{ style: { fontFamily: 'var(--font-mono)' } }} />
-        <ShortNameField value={form.shortName} none={form.noShortName} onChange={(n) => setForm({ ...form, shortName: n.value, noShortName: n.none })}
+        <ShortNameField disabled={readOnly} value={form.shortName} none={form.noShortName} onChange={(n) => setForm({ ...form, shortName: n.value, noShortName: n.none })}
           helperText="Codes are built from this. Editable at any status — codes already made keep theirs." />
-        <TextField label="Description" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} multiline sx={{ gridColumn: '1 / -1' }} />
+        <TextField label="Description" disabled={readOnly} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} multiline sx={{ gridColumn: '1 / -1' }} />
         <Box sx={{ gridColumn: '1 / -1' }}>
-          <ClassificationPicker tree={tree} value={form.classificationId} onChange={(id) => id && setForm({ ...form, classificationId: id })} disabled={isTemp}
+          <ClassificationPicker tree={tree} value={form.classificationId} onChange={(id) => id && setForm({ ...form, classificationId: id })} disabled={isTemp || readOnly}
             scope={record.recordKind} allowCreate={canEdit} onTreeChanged={onTreeChanged}
             helperText={isTemp ? 'A temporary item sits where its definition sits' : 'Moving it changes which rules and defaults reach it'} />
         </Box>
         {record.item && (
           <>
-            <TextField select label="Tracked by" value={form.trackedBy} onChange={(e) => setForm({ ...form, trackedBy: e.target.value as typeof form.trackedBy })}>
+            <TextField select label="Tracked by" disabled={readOnly} value={form.trackedBy} onChange={(e) => setForm({ ...form, trackedBy: e.target.value as typeof form.trackedBy })}>
               <MenuItem value="quantity">Quantity</MenuItem><MenuItem value="batch">Batch</MenuItem><MenuItem value="individual">Individual unit</MenuItem>
             </TextField>
-            <TextField label="Unit of measure" value={form.uom} onChange={(e) => setForm({ ...form, uom: e.target.value })} />
+            <TextField label="Unit of measure" disabled={readOnly} value={form.uom} onChange={(e) => setForm({ ...form, uom: e.target.value })} />
             {!isTemp && (
-              <TextField select label="Comes from" value={form.sourcing} sx={{ gridColumn: '1 / -1' }}
+              <TextField select label="Comes from" disabled={readOnly} value={form.sourcing} sx={{ gridColumn: '1 / -1' }}
                 onChange={(e) => setForm({ ...form, sourcing: e.target.value as Sourcing })}
                 helperText={SOURCING_HELP[form.sourcing]}>
                 {SOURCING_OPTIONS.map((o) => <MenuItem key={o.value} value={o.value}>{o.label}</MenuItem>)}
@@ -115,23 +123,30 @@ function DetailsForm({ record, tree, canEdit, onSaved, onTreeChanged }: {
         {!isSelection && (
           <Box sx={{ gridColumn: '1 / -1' }}>
             <FlowPicker value={form.defaultFlowId} onChange={(id) => setForm({ ...form, defaultFlowId: id })} label="Usually made by"
-              helperText={isTemp && record.definitionFlow && !form.defaultFlowId
+              disabled={readOnly && !flowOnly}
+              helperText={flowOnly
+                ? 'Its line is locked, so only this can change — until the line is released.'
+                : isTemp && record.definitionFlow && !form.defaultFlowId
                 ? `Empty: its template's flow, ${record.definitionFlow.code}`
                 : 'The flow it is made by unless a BOM line says otherwise. Empty for things bought in.'} />
           </Box>
         )}
         {isSelection && (
           <>
-            <TextField select label="Chooses from" value={form.selectionMode} onChange={(e) => setForm({ ...form, selectionMode: e.target.value as typeof form.selectionMode })}>
+            <TextField select label="Chooses from" disabled={readOnly} value={form.selectionMode} onChange={(e) => setForm({ ...form, selectionMode: e.target.value as typeof form.selectionMode })}>
               <MenuItem value="allowed_list">An allowed list</MenuItem><MenuItem value="spec_match">Matching specifications</MenuItem><MenuItem value="both">Both</MenuItem>
             </TextField>
-            <ClassificationPicker tree={tree} value={form.candidateClassificationId} onChange={(id) => setForm({ ...form, candidateClassificationId: id })} leafOnly={false} label="Search within (optional)" />
+            <ClassificationPicker tree={tree} value={form.candidateClassificationId} onChange={(id) => setForm({ ...form, candidateClassificationId: id })} leafOnly={false} label="Search within (optional)" disabled={readOnly} />
           </>
         )}
       </Box>
-      {record.frozen ? null : canEdit ? (
+      {readOnly && !flowOnly ? null : canEdit ? (
         <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 2 }}>
-          <Button variant="contained" onClick={save} disabled={busy || !form.name.trim()} startIcon={busy ? <CircularProgress size={14} color="inherit" /> : undefined}>{busy ? 'Saving…' : 'Save details'}</Button>
+          <Button variant="contained" onClick={save}
+            disabled={busy || !form.name.trim() || (flowOnly && (form.defaultFlowId ?? null) === (record.defaultFlowId ?? null))}
+            startIcon={busy ? <CircularProgress size={14} color="inherit" /> : undefined}>
+            {busy ? 'Saving…' : flowOnly ? 'Save how it is made' : 'Save details'}
+          </Button>
         </Box>
       ) : (
         <Typography sx={{ mt: 2, fontSize: 13, color: 'var(--c-text-2)' }}>You can read these details but not change them.</Typography>

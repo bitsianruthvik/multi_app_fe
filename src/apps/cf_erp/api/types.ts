@@ -359,7 +359,7 @@ export interface BomView {
   bomType: BomType | null;
   canHaveBom: boolean;
   allowedChildKinds: Kind[];
-  order: { id: number; code: string; status: OrderStatus; released?: boolean } | null;
+  order: { id: number; code: string; status: OrderStatus; released?: boolean; locked?: boolean } | null;
   bom: { id: number; bomType: BomType; status: RecordStatus; revision: string | null; sourceBomId: number | null; notes: string | null; updatedAt: string } | null;
   lines: BomLine[];
   unresolvedSelections: number;
@@ -395,7 +395,12 @@ export interface Explosion {
 
 export interface LineStructure extends Explosion {
   line: { id: number; lineNo: number; lineType: 'standard' | 'custom'; quantity: number };
-  order: { id: number; code: string; status: OrderStatus; editable: boolean };
+  order: {
+    id: number; code: string; status: OrderStatus; editable: boolean;
+    locked?: boolean; released?: boolean;
+    /** How each row is made still changes: open, or locked but not released (2026-09-30). */
+    flowsEditable?: boolean;
+  };
 }
 
 export interface WhereUsedRow {
