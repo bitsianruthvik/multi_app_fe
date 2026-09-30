@@ -32,7 +32,7 @@ export const getLinePlaceholders = (lineId: number) => cfApi.get<LinePlaceholder
 /** The words beside a placeholder: what it is, and what its # runs over. */
 export function placeholderTitle(row: PlaceholderRow): string {
   const range = row.seqRange ? ` Its own number runs ${row.seqRange[0]}–${row.seqRange[1]} under each parent.` : '';
-  return `The code its pieces get when the line is locked — # is where each piece’s own number goes.${range}`;
+  return `The code its pieces get when the design is frozen — # is where each piece’s own number goes.${range}`;
 }
 
 /** How a structure node finds its row: by its BOM line, or by item for what the line sells. */

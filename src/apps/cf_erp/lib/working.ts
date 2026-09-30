@@ -42,14 +42,14 @@ export const TIMER_AFTER_SECONDS = 5;
 
 const BIG = '(a big line takes up to a minute)';
 
-/** The Lock stage's first read: values, cut pieces, structure, and every piece's code. */
+/** The Freeze design stage's first read: values, cut pieces, structure, and every piece's code. */
 export function lockCheckingText(size: LineSize, quantity?: number): string {
   if (size.pieces) return `Checking values, cut pieces and working out ${n(size.pieces)} codes… ${BIG}`;
   if (size.rows) return `Checking values, cut pieces and working out the codes for ${n(size.rows)} rows of structure${quantity && quantity > 1 ? ` × ${n(quantity)}` : ''}… ${BIG}`;
   return `Checking values, cut pieces and working out every piece's code${quantity && quantity > 1 ? ` (line quantity ${n(quantity)})` : ''}… ${BIG}`;
 }
 
-/** Lock's "Check again" after something changed. */
+/** Freeze design's "Check again" after something changed. */
 export function lockRecheckText(pieces?: number): string {
   return `Checking again${pieces ? ` — working out ${n(pieces)} codes` : ''}… (a big line takes up to a minute)`;
 }

@@ -410,8 +410,7 @@ export default function OrderDetail() {
         <StageBody key={`${stage.stageKey}:${model.line?.lineId ?? 'order'}`}
           view={model.view} stage={stage} line={model.line} order={o} production={production.data} productionError={production.error}
           onPickLine={pickLine} onOrderSaved={orderSaved} onReleaseChanged={updateRelease} onReloadAll={reloadAll} onGoStage={goStage} />
-        <StageFoot key={`foot:${stage.stageKey}`} view={model.view} stages={model.stages} current={stage} order={o}
-          onGo={goStage} onOrderSaved={orderSaved} onReloadAll={reloadAll} />
+        <StageFoot key={`foot:${stage.stageKey}`} stages={model.stages} current={stage} onGo={goStage} />
       </>
     );
   } else if (tab === 'lines') {
@@ -502,7 +501,7 @@ export default function OrderDetail() {
           <>
             <Box component="p" sx={{ m: 0 }}>Rev {o.revision + 1} starts as a copy of rev {o.revision} — every line, with its structure and values. Cut pieces are made again from the values.</Box>
             <Box component="p" sx={{ mt: 1, mb: 0 }}>Rev {o.revision} is kept exactly as it is and becomes read-only.</Box>
-            <Box component="p" sx={{ mt: 1, mb: 0 }}>Nothing in rev {o.revision + 1} is locked yet. Lock its lines when they are right, and their pieces get their codes again — the same codes wherever nothing changed.</Box>
+            <Box component="p" sx={{ mt: 1, mb: 0 }}>Nothing in rev {o.revision + 1} is frozen yet. Freeze the design of its lines when they are right, and their pieces get their codes again — the same codes wherever nothing changed.</Box>
           </>
         )}
         onClose={() => setRevising(false)}

@@ -76,6 +76,8 @@ export interface SheetColumn {
 
 export interface SheetGridHandle {
   clearSelection: () => void;
+  /** Select one cell and scroll it into view. Returns false when the row or column is not on screen. */
+  selectCell: (rowKey: string, colKey: string) => boolean;
   /** Undo / redo the last write batch (same as Ctrl+Z / Ctrl+Y). Return whether anything was applied. */
   undo: () => boolean;
   redo: () => boolean;
@@ -198,8 +200,17 @@ export function SheetGrid({
     seenKey.current = historyKey; undoStack.current = []; redoStack.current = []; notifyHistory();
   });
   const live = useRef({ undo: (): boolean => false, redo: (): boolean => false });
+  const goTo = useRef<(rowKey: string, colKey: string) => boolean>(() => false);
+  goTo.current = (rowKey, colKey) => {
+    const r = rowIndex.get(rowKey), c = columns.findIndex((x) => x.key === colKey);
+    if (r === undefined || c < 0) return false;
+    setAnchor({ row: r, col: c }); setExtent({ row: r, col: c });
+    setTimeout(() => focus({ row: r, col: c }), 0);
+    return true;
+  };
   useImperativeHandle(ref, () => ({
     clearSelection: () => { setAnchor(null); setExtent(null); },
+    selectCell: (rowKey, colKey) => goTo.current(rowKey, colKey),
     undo: () => live.current.undo(), redo: () => live.current.redo(),
     get canUndo() { return undoStack.current.length > 0; }, get canRedo() { return redoStack.current.length > 0; },
   }), []);

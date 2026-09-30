@@ -24,8 +24,6 @@ import { EmptyState, ErrorNotice, Mono, SectionCard, StatusBadge } from '../ui';
 import { BomPanel } from '../Bom/BomPanel';
 import { NestingPanel } from '../Nesting/NestingPanel';
 import { BlanksPanel } from '../Nesting/BlanksPanel';
-import { ValuesPanel } from '../Values/ValuesPanel';
-import { VALUES_WRITE_PERMISSIONS } from '../Values/valuesModel';
 import { ReleaseView } from '../ReleaseView';
 import { ReleaseDialog } from '../TrackerDialogs';
 import { PieceCodesCard } from '../Production/PieceCodesCard';
@@ -34,6 +32,7 @@ import { LockPanel } from '../Lock/LockPanel';
 import { OrderLinesPanel } from '../OrderLinesPanel';
 import { useToast } from '../toastContext';
 import { BlockerList, StageStateBadge } from './stageUi';
+import { ConfirmOrderDialog } from './ConfirmOrderDialog';
 
 /**
  * What each stage tab shows, above its Back / Next foot.
@@ -66,14 +65,30 @@ function Note({ tone = 'info', children }: { tone?: 'info' | 'warning'; children
  * A stage that cannot go ahead because an earlier one is not done: one line
  * saying so, and a button that jumps there.
  */
-function WaitingOn({ stage, label, onGo }: { stage: OrderStage; label: string | null; onGo: (stageKey: string) => void }) {
+export function WaitingOn({ stage, label, order, onGo, onOrderSaved, onReloadAll }: {
+  stage: OrderStage; label: string | null; order: SalesOrder;
+  onGo: (stageKey: string) => void; onOrderSaved: (o: SalesOrder) => void; onReloadAll: () => void;
+}) {
+  const isPermitted = useIsPermitted();
+  const toast = useToast();
+  const [asking, setAsking] = useState(false);
   const w = stage.waitingOn;
   if (!w || stage.state === 'done' || stage.state === 'not_applicable') return null;
+  const confirmIt = w.action === 'confirm' && !w.stageKey;
   return (
     <Note tone="warning">
       <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'space-between' }}>
         <Box sx={{ flex: '1 1 240px', minWidth: 0 }}><strong>{w.message}</strong></Box>
-        <Button size="small" variant="outlined" color="inherit" onClick={() => onGo(w.stageKey)}>Go to {label ?? w.stageKey}</Button>
+        {confirmIt ? (
+          <>
+            <Button size="small" variant="outlined" color="inherit" disabled={!isPermitted('cf_erp_orders_manage') || !order.allowedTransitions.includes('confirmed')}
+              onClick={() => setAsking(true)}>Confirm the order</Button>
+            <ConfirmOrderDialog open={asking} order={order} onClose={() => setAsking(false)}
+              onConfirmed={(saved) => { onOrderSaved(saved); invalidateNavCounts(); toast.success(`${saved.code} is now confirmed.`); onReloadAll(); }} />
+          </>
+        ) : w.stageKey ? (
+          <Button size="small" variant="outlined" color="inherit" onClick={() => onGo(w.stageKey as string)}>Go to {label ?? w.stageKey}</Button>
+        ) : null}
       </Box>
     </Note>
   );
@@ -195,19 +210,19 @@ function ConfirmPanel({ view, order }: { view: OrderProcessView; order: SalesOrd
 }
 
 /**
- * A line built from a template is LOCKED before it is released: lock writes
+ * A line built from a template is FROZEN before it is released: lock writes
  * every piece's code, and release takes them from there. Until then the panel
- * says so and points at the Lock stage, rather than offering a Release button
+ * says so and points at the Freeze design stage, rather than offering a Release button
  * that can only come back with a refusal.
  */
 function LockFirst({ lineNo, hasLockStage, onGoLock }: { lineNo: number; hasLockStage: boolean; onGoLock: () => void }) {
   return (
     <Note tone="warning">
-      <Box><strong>Lock the line first.</strong> Line {lineNo} is not locked yet. Locking comes after the values, the cut pieces and the nesting: it gives every piece its code, and release takes the codes from there.</Box>
+      <Box><strong>Freeze the design first.</strong> Line {lineNo} is not frozen yet. Freezing comes after the values and the cut pieces: it gives every piece its code, and release takes the codes from there.</Box>
       <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
         {hasLockStage
-          ? <Button size="small" variant="outlined" color="inherit" startIcon={<LockRounded />} onClick={onGoLock}>Go to Lock</Button>
-          : <Box>This order&rsquo;s process has no Lock stage yet — add it under Setup › Processes.</Box>}
+          ? <Button size="small" variant="outlined" color="inherit" startIcon={<LockRounded />} onClick={onGoLock}>Go to Freeze design</Button>
+          : <Box>This order&rsquo;s process has no Freeze design stage yet — add it under Setup › Processes.</Box>}
       </Box>
     </Note>
   );
@@ -255,7 +270,7 @@ function ProductionPanel({ stage, line, order, production, productionError, hasL
         : (
           <SectionCard title={line ? `Line ${line.lineNo} is not released yet` : 'Nothing to release yet'}
             subtitle={order.status === 'confirmed'
-              ? 'A line is released whole: its locked pieces become the tracker, with the codes the lock gave them.'
+              ? 'A line is released whole: its frozen pieces become the tracker, with the codes freezing gave them.'
               : order.status === 'revised' ? REVISED_NOT_RELEASED
                 : `Lines are released once the order is confirmed — it is ${ORDER_STATUS_LABEL[order.status].toLowerCase()} now.`}
             actions={canProduce && order.status === 'confirmed' && orderLine && !orderLine.release && !mustLock
@@ -332,7 +347,7 @@ export function StageBody({
     );
   } else if (stage.stageKey === 'structure') {
     body = line
-      ? <BomPanel key={line.lineId} source={{ kind: 'orderLine', lineId: line.lineId }} onChanged={onReloadAll} />
+      ? <BomPanel key={line.lineId} source={{ kind: 'orderLine', lineId: line.lineId }} onChanged={onReloadAll} onGoCutPieces={() => onGoStage('cut_pieces')} />
       : (
         <SectionCard title="Structure">
           <EmptyState icon={<AccountTreeRounded />} title="No lines yet" hint="A structure hangs under a line, so add one first."
@@ -345,7 +360,7 @@ export function StageBody({
     // unsaved survives a switch of tab or line (the panel keeps it per viewer),
     // so switching needs no guard here.
     body = line
-      ? <ValuesPanel key={line.lineId} lineId={line.lineId} canEdit={VALUES_WRITE_PERMISSIONS.some((p) => isPermitted(p))} onChanged={onReloadAll} />
+      ? <BomPanel key={line.lineId} mode="values" source={{ kind: 'orderLine', lineId: line.lineId }} onChanged={onReloadAll} />
       : (
         <SectionCard title="Values">
           <EmptyState icon={<AccountTreeRounded />} title="No lines yet" hint="Values belong to the items of a line's structure, so add a line first."
@@ -368,8 +383,8 @@ export function StageBody({
       ? <LockPanel key={line.lineId} lineId={line.lineId} lineNo={line.lineNo} quantity={line.quantity} canManage={isPermitted('cf_erp_orders_manage')}
           stages={view.stages} onGoStage={onGoStage} onChanged={onReloadAll} />
       : (
-        <SectionCard title="Lock">
-          <EmptyState icon={<LockRounded />} title="No lines yet" hint="A line is locked once its structure, values and cut pieces are settled, so add one first."
+        <SectionCard title="Freeze design">
+          <EmptyState icon={<LockRounded />} title="No lines yet" hint="A line is frozen once its structure, values and cut pieces are settled, so add one first."
             action={<Button variant="contained" onClick={() => onGoStage('lines')}>Go to the lines</Button>} />
         </SectionCard>
       );
@@ -377,7 +392,17 @@ export function StageBody({
     // The layout belongs to ONE line — a cut plate is a temporary item of that
     // line — so without a line there is nothing to nest, and the panel is given
     // the line it is looking at rather than working one out for itself.
-    body = line
+    const orderLine = order.lines?.find((l) => l.id === line?.lineId) ?? null;
+    const notFrozen = !!orderLine && orderLine.lineType === 'custom' && !lineLock(orderLine) && !LOCKED_STATUSES.includes(order.status);
+    body = line && notFrozen
+      ? (
+        <SectionCard title="Nesting">
+          <EmptyState icon={<LockRounded />} title="Freeze the design first"
+            hint={`Nesting lays out the frozen pieces, and line ${line.lineNo} is not frozen yet.`}
+            action={view.stages.some((x) => x.stageKey === 'lock') ? <Button variant="contained" onClick={() => onGoStage('lock')}>Go to Freeze design</Button> : undefined} />
+        </SectionCard>
+      )
+      : line
       ? <NestingPanel key={line.lineId} orderId={order.id} lineId={line.lineId} canManage={isPermitted('cf_erp_orders_manage')} onChanged={onReloadAll} />
       : (
         <SectionCard title="Nesting">
@@ -418,7 +443,8 @@ export function StageBody({
           <Box>Line {line.lineNo} sells <Mono>{line.item.code ?? line.item.name}</Mono>, which is <StatusBadge status={line.item.status} />.</Box>
         </Note>
       )}
-      {line && <WaitingOn stage={stage} label={view.stages.find((x) => x.stageKey === stage.waitingOn?.stageKey)?.label ?? null} onGo={onGoStage} />}
+      {line && <WaitingOn stage={stage} label={view.stages.find((x) => x.stageKey === stage.waitingOn?.stageKey)?.label ?? null} order={order}
+        onGo={onGoStage} onOrderSaved={onOrderSaved} onReloadAll={onReloadAll} />}
       {body}
     </Box>
   );

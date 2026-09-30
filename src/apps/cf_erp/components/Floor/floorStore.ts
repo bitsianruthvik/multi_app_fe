@@ -29,3 +29,13 @@ export function loadOperator(company: string, now = Date.now()): { id: number; n
 }
 export const saveOperator = (company: string, o: { id: number; name: string } | null, now = Date.now()) =>
   write(key(company, 'operator'), o ? JSON.stringify({ ...o, at: now }) : null);
+
+/** The machine picker's type filter (one node id or null per tree level), remembered on the device. */
+export function loadMachineFilter(company: string): (number | null)[] {
+  try {
+    const v = JSON.parse(read(key(company, 'machineFilter')) ?? '[]') as unknown;
+    return Array.isArray(v) ? v.map((x) => (typeof x === 'number' && x > 0 ? x : null)) : [];
+  } catch { return []; }
+}
+export const saveMachineFilter = (company: string, chosen: (number | null)[]) =>
+  write(key(company, 'machineFilter'), chosen.some((x) => x != null) ? JSON.stringify(chosen) : null);

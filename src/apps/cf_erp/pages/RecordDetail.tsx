@@ -195,7 +195,7 @@ function DetailsForm({ record, tree, canEdit, onSaved, onTreeChanged }: {
             <FlowPicker value={form.defaultFlowId} onChange={(id) => setForm({ ...form, defaultFlowId: id })} label="Usually made by"
               disabled={readOnly && !flowOnly}
               helperText={flowOnly
-                ? 'Its line is locked, so only this can change — until the line is released.'
+                ? 'Its line’s design is frozen, so only this can change — until the line is released.'
                 : isTemp && record.definitionFlow && !form.defaultFlowId
                 ? `Empty: its template's flow, ${record.definitionFlow.code}`
                 : 'The flow it is made by unless a BOM line says otherwise. Empty for things bought in.'} />
@@ -304,11 +304,11 @@ export default function RecordDetail({ recordKind }: { recordKind: 'item' | 'def
   const isRow = r.kind === 'temporary';
   const frozenLabel = !frozen ? null
     : frozen.reason === 'released' ? `Released — ${frozen.orderCode} line ${frozen.lineNo}`
-      : frozen.reason === 'locked' ? `Locked — ${frozen.orderCode} line ${frozen.lineNo}`
+      : frozen.reason === 'locked' ? `Frozen — ${frozen.orderCode} line ${frozen.lineNo}`
         : `Frozen — order ${frozen.orderCode} is ${frozen.orderStatus}`;
   const frozenTitle = !frozen ? undefined
     : frozen.reason === 'released' ? 'Released to production: its structure and values are frozen.'
-      : frozen.reason === 'locked' ? 'Its line is locked: the structure, values and cut pieces are fixed, and its pieces have their codes. A change is a new revision of the order.'
+      : frozen.reason === 'locked' ? 'Its line’s design is frozen: the structure, values and cut pieces are fixed, and its pieces have their codes. A change is a new revision of the order.'
         : undefined;
 
   const renameTo = async (name: string) => {
@@ -342,7 +342,7 @@ export default function RecordDetail({ recordKind }: { recordKind: 'item' | 'def
           {!isRow && <HsnChip hsn={recordTax(r).hsn} rate={recordTax(r).rate} isService={recordTax(r).isService} />}
           {!isRow && <StatusBadge status={r.status} />}
           {!r.code && (isRow
-            ? <Badge family="neutral" label="Coded when its line is locked" title={placeholder ? placeholderTitle(placeholder) : 'Its pieces get their codes when the line is locked.'} />
+            ? <Badge family="neutral" label="Coded when its design is frozen" title={placeholder ? placeholderTitle(placeholder) : 'Its pieces get their codes when its design is frozen.'} />
             : <Badge family="warning" label="No code yet" />)}
           {frozen && <Badge family={frozen.reason === 'closed' ? 'neutral' : 'info'} icon={<LockRounded />} label={frozenLabel ?? ''} title={frozenTitle} />}
         </>

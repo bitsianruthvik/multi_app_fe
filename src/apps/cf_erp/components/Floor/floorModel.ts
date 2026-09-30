@@ -1,4 +1,4 @@
-import type { FloorDay, FloorReopened, FloorRunning, FloorStep } from '../../api/types';
+import type { FloorDay, FloorMachine, FloorReopened, FloorRunning, FloorStep } from '../../api/types';
 
 /** "Cut plate 25 x 500 · SPAN-01-…" — what the job is done to. */
 export const pieceLine = (s: FloorStep) => [s.pieceName || s.pieceCode, s.pieceCode && s.pieceCode !== s.pieceName ? s.pieceCode : null].filter(Boolean).join(' · ');
@@ -74,9 +74,14 @@ export function assignLanes(spans: { start: number; end: number }[]): { lanes: n
   return { lanes, count: Math.max(1, laneEnds.length) };
 }
 
-/** The stretch of time the shift bar draws: the shifts, widened to cover anything outside them. */
+/**
+ * The stretch of time the day bar draws: the machine's whole working day (24 h,
+ * from the server), widened to cover anything recorded outside it. Without a
+ * window (an older server) it is the shifts, widened the same way.
+ */
 export function barWindow(day: FloorDay, now: Date): { from: number; to: number } {
   const points: number[] = [];
+  if (day.window) points.push(at(day.window.start).getTime(), at(day.window.end).getTime());
   day.shifts.forEach((s) => points.push(at(s.start).getTime(), at(s.end).getTime()));
   day.sessions.forEach((s) => points.push(at(s.start).getTime(), (s.end ? at(s.end) : now).getTime()));
   day.stops.forEach((s) => points.push(at(s.start).getTime(), (s.end ? at(s.end) : now).getTime()));
@@ -135,8 +140,14 @@ export function resolveClock(value: string, windowStart: Date): Date | null {
   return d;
 }
 
-/** The first moment a typed clock time may mean: two hours before the earliest shift (early starters), else midnight of the day. */
+/**
+ * The first moment a typed clock time may mean: the start of the machine's
+ * working day, so any of its 24 hours can be typed (a night-shift machine's day
+ * starts before its shift, and 02:00 lands after midnight). Older servers: two
+ * hours before the earliest shift, else midnight of the day.
+ */
 export function dayStart(day: FloorDay | null, dateStr: string): Date {
+  if (day?.window) return at(day.window.start);
   const starts = (day?.shifts ?? []).map((s) => at(s.start).getTime());
   return starts.length ? new Date(Math.min(...starts) - 120 * MIN) : new Date(`${dateStr}T00:00:00`);
 }
@@ -160,4 +171,53 @@ export function reopenNote(reopened: FloorReopened[] | undefined): string | null
   if (reopened.length > 1) return `${reopened.length} jobs reopened`;
   const left = Number(reopened[0].qtyLeft.toFixed(3));
   return `Job reopened — ${left} left`;
+}
+
+/** The parts of [start, end) outside every shift window of the day — overtime when it is work. */
+export function outsideShifts(day: FloorDay | null, start: number, end: number): { start: number; end: number }[] {
+  let parts = [{ start, end }];
+  for (const s of day?.shifts ?? []) {
+    const a = at(s.start).getTime(); const b = at(s.end).getTime();
+    parts = parts.flatMap((p) => (b <= p.start || a >= p.end ? [p] : [
+      ...(a > p.start ? [{ start: p.start, end: a }] : []),
+      ...(b < p.end ? [{ start: b, end: p.end }] : []),
+    ]));
+  }
+  return parts.filter((p) => p.end > p.start);
+}
+
+/**
+ * The machine picker's type filter: one row per level of the classification
+ * tree (typically Family › Subfamily › Variant). A row is shown when it offers a
+ * real choice (two or more) or has a choice made; a level with a single option
+ * narrows nothing and is skipped, so the rows adapt to however deep the tree is.
+ * The next level appears once a choice is made. chosen[i] is the node picked
+ * at path position i (null = All); a choice that no longer matches is ignored.
+ * The machines passed in are already narrowed by the search, so counts agree with it.
+ */
+export interface FilterOption { id: number; name: string; count: number }
+export interface FilterLevel { index: number; level: string; options: FilterOption[]; chosen: number | null; total: number }
+export function machineFilter(machines: FloorMachine[], chosen: (number | null)[]): { levels: FilterLevel[]; shown: FloorMachine[] } {
+  let pool = machines;
+  const levels: FilterLevel[] = [];
+  const depth = Math.max(0, ...machines.map((m) => m.typePath?.length ?? 0));
+  for (let i = 0; i < depth; i++) {
+    const byId = new Map<number, FilterOption>();
+    let level = '';
+    for (const m of pool) {
+      const n = m.typePath?.[i];
+      if (!n) continue;
+      level = level || n.level || '';
+      const o = byId.get(n.id) ?? { id: n.id, name: n.name, count: 0 };
+      o.count++; byId.set(n.id, o);
+    }
+    const options = [...byId.values()].sort((a, b) => a.name.localeCompare(b.name));
+    if (!options.length) break;
+    const pick = chosen[i] != null && byId.has(chosen[i] as number) ? (chosen[i] as number) : null;
+    if (options.length < 2 && pick == null) continue;
+    levels.push({ index: i, level, options, chosen: pick, total: pool.length });
+    if (pick == null) break;
+    pool = pool.filter((m) => m.typePath?.[i]?.id === pick);
+  }
+  return { levels, shown: pool };
 }

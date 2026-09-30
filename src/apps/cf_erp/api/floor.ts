@@ -19,6 +19,7 @@ const list = (v: unknown): Loose[] => (Array.isArray(v) ? (v as Loose[]) : []);
 
 export const toMachine = (r: Loose): FloorMachine => ({
   id: r.id, code: String(r.code ?? ''), name: String(r.name ?? r.code ?? `#${r.id}`), type: str(r.type),
+  typePath: list(r.typePath).map((n) => ({ id: num(n.id), name: String(n.name ?? ''), depth: num(n.depth), level: str(n.level) ?? undefined })),
   running: num(r.running), stopped: !!r.stopped, stopReason: str(r.stopReason ?? r.stoppedReason), lastActivityAt: str(r.lastActivityAt),
 });
 export const toReason = (r: Loose): FloorReason => ({
@@ -52,9 +53,10 @@ const toGap = (r: Loose): FloorGap => ({ start: String(r.start), end: String(r.e
 export const toDay = (r: Loose, date = ''): FloorDay => ({
   date: str(r.date) ?? date,
   shifts: list(r.shifts).map((s) => ({ start: String(s.start), end: String(s.end), label: String(s.label ?? '') })),
+  window: r.window?.start && r.window?.end ? { start: String(r.window.start), end: String(r.window.end), offsetMinutes: num(r.window.offsetMinutes) } : undefined,
   sessions: list(r.sessions).map(toSession), stops: list(r.stops).map(toStop), // Slivers under a minute (one job ending as the next begins) are not a gap anybody can explain.
   notRecorded: list(r.notRecorded).map(toGap).filter((g) => g.minutes >= 1),
-  totals: { work: num(r.totals?.work), stopped: num(r.totals?.stopped), notRecorded: num(r.totals?.notRecorded), shift: num(r.totals?.shift) },
+  totals: { work: num(r.totals?.work), stopped: num(r.totals?.stopped), notRecorded: num(r.totals?.notRecorded), shift: num(r.totals?.shift), overtimeMinutes: num(r.totals?.overtimeMinutes) },
   reopened: list(r.reopened).map((x) => ({ stepId: num(x.stepId), label: String(x.label ?? ''), qtyLeft: num(x.qtyLeft) })),
 });
 

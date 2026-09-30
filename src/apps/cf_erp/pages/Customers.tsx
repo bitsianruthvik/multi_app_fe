@@ -17,10 +17,11 @@ import { PartyDialog } from '../components/PartyDialog';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { useToast } from '../components/toastContext';
 
-const ROLE_WORD: Record<PartyRole, string> = { customer: 'Customer', supplier: 'Supplier', subcontractor: 'Subcontractor' };
+const ROLE_WORD: Record<PartyRole, string> = { customer: 'Customer', supplier: 'Supplier', subcontractor: 'Contractor' };
 const ROLE_CHIPS: { value: string; label: string }[] = [
-  { value: 'customer', label: 'Customers' }, { value: 'supplier', label: 'Suppliers' }, { value: 'subcontractor', label: 'Subcontractors' }, { value: 'all', label: 'All' },
+  { value: 'customer', label: 'Customers' }, { value: 'supplier', label: 'Suppliers' }, { value: 'subcontractor', label: 'Contractors' }, { value: 'all', label: 'All' },
 ];
+const PAGE_TITLE: Record<string, string> = { customer: 'Customers', supplier: 'Suppliers', subcontractor: 'Contractors', all: 'Customers & suppliers' };
 const inRole = (p: Party, r: string) => r === 'all' || p.roles.includes(r as PartyRole);
 const matches = (p: Party, term: string) => !term || [p.code, p.name, p.contactName, p.email, p.phone].some((v) => v?.toLowerCase().includes(term));
 
@@ -29,10 +30,12 @@ const matches = (p: Party, term: string) => !term || [p.code, p.name, p.contactN
  * module, shared by whatever app needs customers and suppliers; this screen
  * starts on customers because sales orders are what use them today.
  */
-export default function Customers() {
+/** `fixedRole` pins the screen to one kind of party (Production › Contractors). */
+export default function Customers({ fixedRole }: { fixedRole?: PartyRole } = {}) {
   const toast = useToast();
   const canManage = useIsPermitted()('cf_erp_parties_manage');
-  const [role, setRole] = useUrlParam('role', 'customer');
+  const [urlRole, setRole] = useUrlParam('role', 'customer');
+  const role = fixedRole ?? urlRole;
   const [search, setSearch] = useState('');
   const [editing, setEditing] = useState<{ open: boolean; party: Party | null }>({ open: false, party: null });
   const [deleting, setDeleting] = useState<Party | null>(null);
@@ -69,11 +72,11 @@ export default function Customers() {
 
   return (
     <Box>
-      <PageHeader title="Customers" subtitle="Who orders from you — and who supplies you. One record can be both."
+      <PageHeader title={PAGE_TITLE[role] ?? 'Customers'} subtitle={fixedRole === 'subcontractor' ? 'Who does work for you outside the shop — they get work orders from an order’s Contractors tab.' : 'Who orders from you — and who supplies you. One record can be both.'}
         actions={canManage && <Button variant="contained" startIcon={<AddRounded />} onClick={() => setEditing({ open: true, party: null })}>{newLabel}</Button>} />
       <StatStrip stats={stats} />
       <FilterBar search={search} onSearch={setSearch} placeholder="Search code, name or contact">
-        {ROLE_CHIPS.map((c) => <FacetChip key={c.value} label={c.label} active={role === c.value} count={base.filter((p) => inRole(p, c.value)).length} onClick={() => setRole(c.value)} />)}
+        {!fixedRole && ROLE_CHIPS.map((c) => <FacetChip key={c.value} label={c.label} active={role === c.value} count={base.filter((p) => inRole(p, c.value)).length} onClick={() => setRole(c.value)} />)}
       </FilterBar>
       {(list.data ?? []).length >= 500 && (
         <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)', mb: 1.5 }}>
@@ -90,7 +93,7 @@ export default function Customers() {
           </>
         ) : undefined}
         empty={<EmptyState icon={<PeopleRounded />} title={term ? 'Nobody matches' : 'Nobody here yet'}
-          hint={term ? 'Try a code, a name or a contact.' : 'Add the first customer — orders need one.'}
+          hint={term ? 'Try a code, a name or a contact.' : role === 'subcontractor' ? 'Add a contractor — then assign them work on an order’s Contractors tab.' : role === 'supplier' ? 'Add a supplier — purchase orders need one.' : 'Add the first customer — orders need one.'}
           action={!term && canManage && <Button variant="contained" onClick={() => setEditing({ open: true, party: null })}>{newLabel}</Button>} />} />
       <PartyDialog open={editing.open} existing={editing.party} defaultRole={role === 'all' ? 'customer' : (role as PartyRole)} onClose={() => setEditing({ open: false, party: null })}
         onSaved={(p) => { toast.success(`${p.name} saved.`); invalidateNavCounts(); list.reload(); }} />

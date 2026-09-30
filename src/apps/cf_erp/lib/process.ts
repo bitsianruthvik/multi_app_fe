@@ -181,7 +181,7 @@ export function toStageInput(stage: ProcessStage): ProcessStageInput {
  * and decide nothing for themselves: the state, the detail and the blockers are
  * the API's, and these functions only choose the English around them.
  *
- * The one rule the tabs live by: nothing is ever locked. Every stage is one
+ * The one rule the tabs live by: nothing is ever shut. Every stage is one
  * click away at any time, a stage that is unfinished offers to be skipped
  * rather than going dead, and Confirm is the single hard gate.
  */
@@ -320,7 +320,7 @@ export const CONFIRM_WHAT_HAPPENS = [
 export const CONFIRM_WHAT_DOES_NOT = [
   'Nothing is released to the shop floor, and no material is reserved or issued.',
   'Nothing is bought: shortages still go through the buy list.',
-  'A structure that is still being drawn stays editable until its line is locked.',
+  'A structure that is still being drawn stays editable until its design is frozen.',
 ];
 
 /**

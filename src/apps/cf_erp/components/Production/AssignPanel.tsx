@@ -88,8 +88,8 @@ export function AssignPanel({ orderId, lineId }: { orderId: number; lineId: numb
   if (!view.line.locked) {
     return (
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap' }}>
-        <Typography sx={{ fontSize: 13.5, color: 'var(--c-text-2)' }}>Lock the line first — contractors are assigned to pieces.</Typography>
-        <Button variant="contained" size="small" onClick={() => setParams((prev) => { const p = new URLSearchParams(prev); p.set('tab', 'lock'); return p; }, { replace: true })}>Go to Lock</Button>
+        <Typography sx={{ fontSize: 13.5, color: 'var(--c-text-2)' }}>Freeze the design first — contractors are assigned to pieces.</Typography>
+        <Button variant="contained" size="small" onClick={() => setParams((prev) => { const p = new URLSearchParams(prev); p.set('tab', 'lock'); return p; }, { replace: true })}>Go to Freeze design</Button>
       </Box>
     );
   }
@@ -186,8 +186,13 @@ export function AssignPanel({ orderId, lineId }: { orderId: number; lineId: numb
     <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 1.25 }}>
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap', minHeight: 36 }}>
         <Typography sx={{ fontSize: 13.5, color: 'var(--c-text-2)', flex: '1 1 260px' }}>
-          Blank means we do it here. Select boxes, then assign them to a contractor. A started operation cannot change hands.
+          {contractors.length === 0
+            ? 'No contractors yet. Add one here (or in Production › Contractors), then select boxes and assign them.'
+            : 'Blank means we do it here. Select boxes (drag, or click a piece name for its whole subtree), then Assign. A started operation cannot change hands.'}
         </Typography>
+        {assignable.length === 0 && (
+          <Button size="small" variant={contractors.length === 0 ? 'contained' : 'text'} startIcon={<AddRounded />} onClick={() => setCreating(true)}>New contractor</Button>
+        )}
         {assignable.length > 0 && <>
           <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-3)' }}>{assignable.length} {assignable.length === 1 ? 'box' : 'boxes'} selected</Typography>
           <Button variant="contained" onClick={openDialog}>Assign…</Button>

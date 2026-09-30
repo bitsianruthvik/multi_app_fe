@@ -75,6 +75,15 @@ const stepDefs = [
   [4, 'Stiffener S2', 'G1-S2', 'Drill', 10], [5, 'Bracket B1', 'G1-B1', 'Bend', 6], [6, 'Bracket B2', 'G1-B2', 'Bend', 6], [7, 'Plate P7', 'G1-P7', 'Cut', 1],
 ];
 let S;
+// Machine types, root first: one Family (Machines) that narrows nothing, then Cutting/Forming, then the Variant.
+const node = (id, name, depth) => ({ id, name, depth, level: ['Family', 'Subfamily', 'Variant'][depth] });
+const MACH = node(10, 'Machines', 0); const CUT = node(11, 'Cutting', 1); const FORM = node(13, 'Forming', 1);
+const MACHINES = [
+  { id: 1, code: 'SAW1', name: 'Saw 1', type: 'Saw', typePath: [MACH, CUT, node(12, 'Saw', 2)], running: 0, stopped: false, lastActivityAt: null },
+  { id: 2, code: 'PRS2', name: 'Press 2', type: 'Press', typePath: [MACH, FORM, node(14, 'Press', 2)], running: 1, stopped: false, lastActivityAt: null },
+  { id: 3, code: 'PLS3', name: 'Plasma 3', type: 'Plasma', typePath: [MACH, CUT, node(15, 'Plasma', 2)], running: 0, stopped: false, lastActivityAt: null },
+  { id: 4, code: 'PLS4', name: 'Plasma 4', type: 'Plasma', typePath: [MACH, CUT, node(15, 'Plasma', 2)], running: 0, stopped: false, lastActivityAt: null },
+];
 const USED_BY_NEXT = 'This job is already used by the next step — ask a supervisor to correct it.';
 const IN_STOCK = 'This piece is already in finished stock — ask a supervisor to correct it.';
 const resetServer = () => {
@@ -94,11 +103,14 @@ function dayOut() {
   if (cursor < limit) gaps.push({ start: cursor, end: limit });
   const mins = (a, b) => Math.round((b - a) / 60000);
   const sum = (arr) => arr.reduce((t, x) => t + mins(x.start, endOf(x)), 0);
+  // Work outside the shift = overtime (the server's totals.overtimeMinutes).
+  const outside = (x) => { const a = x.start; const b = endOf(x); return Math.max(0, mins(a, b) - Math.max(0, mins(new Date(Math.max(a, SHIFT.start)), new Date(Math.min(b, SHIFT.end))))); };
   return {
     date: '2026-09-30', shifts: [{ start: iso(SHIFT.start), end: iso(SHIFT.end), label: SHIFT.label }],
+    window: { start: iso(at(0)), end: iso(new Date(2026, 9, 1, 0, 0)), offsetMinutes: 0 },
     sessions: S.sessions.map(sessionOut), stops: S.stops.map(stopOut),
     notRecorded: gaps.map((g) => ({ start: iso(g.start), end: iso(g.end), minutes: mins(g.start, g.end) })),
-    totals: { work: sum(S.sessions), stopped: sum(S.stops), notRecorded: gaps.reduce((t, g) => t + mins(g.start, g.end), 0), shift: 480 },
+    totals: { work: sum(S.sessions), stopped: sum(S.stops), notRecorded: gaps.reduce((t, g) => t + mins(g.start, g.end), 0), shift: 480, overtimeMinutes: S.sessions.reduce((t, x) => t + outside(x), 0) },
   };
 }
 function route(method, path, body) {
@@ -107,7 +119,7 @@ function route(method, path, body) {
   const p = pathname.replace('/api/testco/cf_erp', '');
   S.log.push({ method, p, body });
   let m;
-  if (method === 'GET' && p === '/floor/machines') return [{ id: 1, code: 'SAW1', name: 'Saw 1', type: 'Saw', running: 0, stopped: false, lastActivityAt: null }, { id: 2, code: 'PRS2', name: 'Press 2', type: 'Press', running: 1, stopped: false, lastActivityAt: null }];
+  if (method === 'GET' && p === '/floor/machines') return MACHINES;
   if (method === 'GET' && p === '/floor/operators') return [{ id: 2, code: 'A', name: 'Asha' }, { id: 1, code: 'R', name: 'Ravi' }];
   if (method === 'GET' && p === '/floor/reasons') return REASONS;
   if (method === 'GET' && (m = /^\/floor\/machines\/(\d+)\/queue$/.exec(p))) {
@@ -210,6 +222,35 @@ await mount();
 await check('Machine picker shows big tiles with what is happening', async () => {
   await waitFor(() => text().includes('Which machine?') && text().includes('Saw 1'), 'machine tiles');
   assert.ok(text().includes('1 running') && text().includes('Free'));
+});
+await check('The type filter: a level with one option is skipped; each choice narrows and shows the next level; remembered', async () => {
+  const rows = () => [...document.querySelectorAll('[data-testid=machine-filter-row]')];
+  const tiles = () => ['Saw 1', 'Press 2', 'Plasma 3', 'Plasma 4'].filter((n) => buttons().some((b) => b.textContent.startsWith(n)));
+  const chip = (row, name) => buttons(row).find((b) => b.textContent.replace(/\d+$/, '').trim() === name);
+  assert.equal(rows().length, 1, 'Machines (the only Family) is not a row; the Subfamilies are');
+  assert.equal(rows()[0].getAttribute('data-level'), '1');
+  assert.match(chip(rows()[0], 'All').textContent, /All\s*4/);
+  assert.match(chip(rows()[0], 'Cutting').textContent, /Cutting\s*3/);
+  assert.match(chip(rows()[0], 'Forming').textContent, /Forming\s*1/);
+  await click(chip(rows()[0], 'Cutting'), 'Cutting');
+  assert.equal(rows().length, 2, 'the Variant row appears');
+  assert.deepEqual(tiles(), ['Saw 1', 'Plasma 3', 'Plasma 4']);
+  assert.match(chip(rows()[1], 'Plasma').textContent, /Plasma\s*2/);
+  await click(chip(rows()[1], 'Plasma'), 'Plasma');
+  assert.deepEqual(tiles(), ['Plasma 3', 'Plasma 4']);
+  assert.equal(chip(rows()[1], 'Plasma').getAttribute('aria-pressed'), 'true');
+  assert.deepEqual(JSON.parse(window.localStorage.getItem('cf_floor:testco:machineFilter')), [null, 11, 15]);
+  // Remembered on the device.
+  await unmount(); await mount();
+  await waitFor(() => text().includes('Plasma 3'), 'picker again');
+  assert.deepEqual(tiles(), ['Plasma 3', 'Plasma 4'], 'the filter came back');
+  // A new level-1 choice clears the level below.
+  await click(chip(rows()[0], 'Forming'), 'Forming');
+  assert.deepEqual(tiles(), ['Press 2']);
+  assert.deepEqual(JSON.parse(window.localStorage.getItem('cf_floor:testco:machineFilter')), [null, 13]);
+  await clickText('Show all machines');
+  assert.equal(tiles().length, 4);
+  assert.equal(window.localStorage.getItem('cf_floor:testco:machineFilter'), null);
 });
 await check('Picking a machine asks who you are, usual people first, and remembers the machine', async () => {
   await clickText('Saw 1');
@@ -320,6 +361,38 @@ await check('My day shows the shift bar, totals and unrecorded time', async () =
 await check('Jobs together are stacked lanes on the bar', () => {
   const lanes = new Set([...document.querySelectorAll('[data-seg=work]')].map((e) => e.getAttribute('data-lane')));
   assert.ok(lanes.size >= 1);
+});
+await check('The day bar spans the whole 24 hours with the shift shaded and labelled', () => {
+  const bar = document.querySelector('[data-testid=shift-bar]');
+  assert.match(bar.getAttribute('aria-label'), /The day 00:00 to 00:00: shift shaded \(06:00–14:00\)/);
+  const band = bar.querySelector('[data-seg=shift]');
+  assert.ok(band, 'a shift band');
+  const left = parseFloat(getComputedStyle(band).left);
+  assert.ok(Math.abs(left - 25) < 0.5, `the band starts at 06:00 = 25% of the day (got ${getComputedStyle(band).left})`);
+  assert.match(document.querySelector('[data-testid=shift-label]').textContent, /Day 06:00–14:00/);
+  assert.equal(bar.querySelectorAll('[data-seg=overtime]').length, 0, 'no overtime yet');
+});
+await check('Work before the shift can be entered (04:00–05:30) and shows as overtime', async () => {
+  await clickText('Add work');
+  await waitFor(() => dialog() && text().includes('Add work'), 'work sheet');
+  await clickText('Pick Cut Plate P7', dialog());
+  await setValue(input('How many finished?', dialog()), '0');
+  await setValue(input('From', dialog()), '04:00');
+  await setValue(input('To', dialog()), '05:30');
+  await waitFor(() => dialog().querySelector('[data-testid=outside-shift-note]'), 'outside-shift note');
+  assert.match(dialog().querySelector('[data-testid=outside-shift-note]').textContent, /1 h 30 m of this is outside the shift \(06:00–14:00\) — it counts as overtime/);
+  await click(buttons(dialog()).find((b) => b.textContent.trim() === 'Save'), 'Save');
+  await waitFor(() => !dialog(), 'sheet closed');
+  const row = put().at(-1).body.rows[0];
+  assert.deepEqual([new Date(row.start).getDate(), new Date(row.start).getHours(), new Date(row.end).getHours()], [30, 4, 5], 'today 04:00, not tomorrow');
+  await waitFor(() => document.querySelector('[data-testid=shift-bar] [data-seg=overtime]'), 'overtime segment');
+  assert.ok(text().includes('Overtime (outside the shift)') && text().includes('1 h 30 m'));
+  assert.match(document.querySelector('[data-testid=overtime-tag]').textContent, /Overtime 1 h 30 m/);
+  // Tidy up so the checks below see the day they expect.
+  const id = S.sessions.find((x) => x.stepId === 7).id;
+  S.sessions = S.sessions.filter((x) => x.id !== id);
+  await clickText('Day before'); await waitFor(() => text().includes('Yesterday'), 'yesterday');
+  await clickText('Day after'); await waitFor(() => text().includes('Today') && !document.querySelector('[data-seg=overtime]'), 'today again');
 });
 await check('Add work from paper notes: pick job, From/To, count (starts empty, must be answered), Save', async () => {
   await clickText('Add work');

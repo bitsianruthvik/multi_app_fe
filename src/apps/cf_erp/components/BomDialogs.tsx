@@ -50,7 +50,7 @@ export function AddChildDialog({
     } catch (e) { setBusy(false); setError(e as CfApiError); }
   };
   const hint = !child ? `A ${allowedKinds.map((k) => KIND_WORD[k]).join(', ')}.`
-    : custom && child.kind === 'template' ? `Lays ${child.code ?? child.name} out as rows here, its Template BOM beneath it. Nothing is coded until the line is locked.`
+    : custom && child.kind === 'template' ? `Lays ${child.code ?? child.name} out as rows here, its Template BOM beneath it. Nothing is coded until the design is frozen.`
       : custom && child.kind === 'selection' ? 'Starts with the selection’s default catalog item, if it has one — you can change it after.'
         : undefined;
 

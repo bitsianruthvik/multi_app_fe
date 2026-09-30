@@ -979,6 +979,10 @@ export interface BuyRow {
   estCost?: number | null;
   orders: { id: number; code: string }[];
   purchaseOrders: { id: number; code: string; status: PurchaseStatus; outstanding: number }[];
+  /** true: this is PLANNED material of a confirmed, frozen line that is not released yet — bought first, used later. */
+  planned?: boolean;
+  /** The line a planned row comes from. */
+  source?: { orderId: number; orderCode: string; lineId: number; lineNo: number } | null;
 }
 
 export interface PurchaseLine extends Partial<PurchaseTax> {
@@ -1114,7 +1118,7 @@ export interface OrderStage {
   detail: string;
   blockers: StageBlocker[];
   /** When an earlier stage has to come first: one line, and the stage to jump to. */
-  waitingOn?: { stageKey: string; message: string } | null;
+  waitingOn?: { stageKey: string | null; message: string; action?: 'confirm' | null } | null;
 }
 
 export interface OrderProcessLine {
@@ -1558,12 +1562,16 @@ export interface FloorMachine {
   code: string;
   name: string;
   type: string | null;
+  /** The machine type's place in the classification tree, root first (Family › Subfamily › Variant); the picker filters by it. */
+  typePath?: FloorTypeNode[];
   running: number;
   stopped: boolean;
   /** The open stop's reason, when the server says it. */
   stopReason: string | null;
   lastActivityAt: string | null;
 }
+
+export interface FloorTypeNode { id: number; name: string; depth: number; level?: string }
 
 export interface FloorOperator { id: number; code: string | null; name: string }
 
@@ -1624,10 +1632,13 @@ export interface FloorGap { start: string; end: string; minutes: number }
 export interface FloorDay {
   date: string;
   shifts: { start: string; end: string; label: string }[];
+  /** The machine's working day (24 h; a night-shift machine's day starts before its shift), widened to any shift sticking out. */
+  window?: { start: string; end: string; offsetMinutes: number };
   sessions: FloorSession[];
   stops: FloorStop[];
   notRecorded: FloorGap[];
-  totals: { work: number; stopped: number; notRecorded: number; shift: number };
+  /** overtimeMinutes = work outside every shift window of the day; shift stays the base for utilisation. */
+  totals: { work: number; stopped: number; notRecorded: number; shift: number; overtimeMinutes?: number };
   /** Steps a save put back in progress (a deleted or lowered count on a done step). */
   reopened?: FloorReopened[];
 }

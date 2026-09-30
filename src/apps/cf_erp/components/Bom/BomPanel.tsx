@@ -39,7 +39,7 @@ import { useToast } from '../toastContext';
 import {
   allowedChildren, bomTypeOfKind, keysBelow, lineFlowId, nodesByLine, openableKeys,
   parseQuantity, pasteRefusal, pendingChanges, temporaryCount, walkNodes,
-  NO_PENDING, VALUES_PERMISSION, cutChip, isCutPiece, withoutCutPieces, type BomRow, type Pending,
+  NO_PENDING, VALUES_PERMISSION, isCutPiece, withoutCutPieces, type BomRow, type Pending,
 } from './bomModel';
 import type { BomAction, RowMark } from './BomTree';
 import { BomSheetDialog } from './BomSheetDialog';
@@ -47,7 +47,8 @@ import { useSpecValues } from './useSpecValues';
 import { LOCKED_ORDER, useBom, type BomSource } from './useBom';
 import { BomGrid, type GridWrite } from './BomGrid';
 import { arrangedRows, duplicateBelow, moveRow, pruneArrangement, undoCopy, type DropPosition } from './bomArrangement';
-import type { ValuesView } from '../Values/valuesModel';
+import { computeGaps, gapSentence, keepGapRows, type ValuesView } from '../Values/valuesModel';
+import type { SheetGridHandle } from '@shared/ui';
 
 const TYPE_TEXT: Record<BomType, { title: string; body: string; empty: string }> = {
   standard: {
@@ -62,7 +63,7 @@ const TYPE_TEXT: Record<BomType, { title: string; body: string; empty: string }>
   },
   custom: {
     title: 'Custom BOM',
-    body: 'This order’s own structure. Its rows are designs: their pieces get codes when the line is locked.',
+    body: 'This order’s own structure. Its rows are designs: their pieces get codes when the design is frozen.',
     empty: 'Add catalog items, templates (each is laid out as rows) or selections.',
   },
 };
@@ -144,7 +145,9 @@ function RowButton({ label, onClick, children, pressed, danger, disabled }: {
  * rows, and sent together by Save (POST /bom-changes, all or nothing). It reaches
  * exactly the rows the per-line menus reach, by the same `mine` rule.
  */
-export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onChanged }: {
+export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onChanged, onGoCutPieces, mode = 'structure' }: {
+  /** `values`: the Values stage — the same tree, about the values: gaps amber, only the rows that miss something shown, structure read-only. */
+  mode?: 'structure' | 'values';
   source: BomSource;
   /** This screen is the BOM's home: its own lines are changed here, and its status and revision are managed here. */
   ownsBom?: boolean;
@@ -152,6 +155,8 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
   showWhereUsed?: boolean;
   /** Reloads the screen around it — a change moves roll-ups and counts above. */
   onChanged?: () => void;
+  /** On an order line: jumps to the Cut pieces stage. Without it the quiet line under the grid names the stage but has no link. */
+  onGoCutPieces?: () => void;
 }) {
   const company = useCompanySlug();
   const isPermitted = useIsPermitted();
@@ -180,9 +185,12 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
   const [rowMenu, setRowMenu] = useState<{ anchor: HTMLElement; row: BomRow } | null>(null);
   const pasteNo = useRef(0);
   // Quiet switches for the order's grid: the automatic cut pieces are out of sight, and so are the columns no row uses.
-  const [showCut, setShowCut] = useState(false);
   const [onlyUsed, setOnlyUsed] = useState(true);
   const errorAt = useRef<HTMLDivElement>(null);
+  const valuesMode = mode === 'values' && orderGrid;
+  const [onlyMissing, setOnlyMissing] = useState(true);
+  const gridHandle = useRef<SheetGridHandle>(null);
+  const jumpAt = useRef(-1);
   // A refusal lands at the top of the panel while the person is at the bar
   // below a long tree — so it is brought into view, once it has rendered. A
   // jump, not an animation: it is the answer to what they just pressed.
@@ -229,7 +237,7 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
   const canSheetEdit = !!state && !frozen && (source.kind === 'record'
     ? ownsBom && isPermitted(bomPermission(state.bomType === 'custom'))
     : isPermitted(bomPermission(true)));
-  const editOn = canEditHere || canChangeFlowsHere;
+  const editOn = canEditHere || (canChangeFlowsHere && !valuesMode);
 
   // What is waiting, as Save would send it.
   const byLine = useMemo(() => (state ? nodesByLine(state.root) : new Map<number, StructureNode>()), [state]);
@@ -246,12 +254,18 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
     return out;
   }, [pending.remove, byLine]);
 
-  const allRows = useMemo(() => state ? arrangedRows(state.root, expanded, pending) : [], [state, expanded, pending]);
-  // Cut pieces are made by the system after every save; hidden, the grid shows the designs the person drew.
-  const cutCount = orderGrid ? flat.filter((f) => f.node.role === 'Cut from').length : 0;
-  const hideCut = orderGrid && !showCut;
-  const rows = useMemo(() => (hideCut ? withoutCutPieces(allRows) : allRows), [allRows, hideCut]);
-  const cutChipOf = (row: BomRow): string | null => (hideCut ? cutChip(row.node) : null);
+  // Only-what's-missing opens every branch, so a gap in a folded one is still found.
+  const shownKeys = useMemo(() => (valuesMode && onlyMissing && state ? new Set(openableKeys(state.root)) : expanded), [valuesMode, onlyMissing, state, expanded]);
+  const allRows = useMemo(() => state ? arrangedRows(state.root, shownKeys, pending) : [], [state, shownKeys, pending]);
+  // Cut pieces are made by the system after every save; the grid shows only the designs the person drew.
+  // They are worked out from the parts and live on the Cut pieces stage.
+  const treeRows = useMemo(() => (orderGrid ? withoutCutPieces(allRows) : allRows), [allRows, orderGrid]);
+  // Gaps are read on the rows the person can see (cut pieces are worked out, not typed). The live map lays unsaved typing over the
+  // server's answer; the filter reads what is SAVED, so a row does not vanish under the cursor as its last gap is typed.
+  const gapScope = useMemo(() => new Set(flat.filter((f) => !isCutPiece(f.node)).map((f) => f.node.id)), [flat]);
+  const liveGaps = useMemo(() => (valuesMode ? computeGaps(gridValues.data ?? null, pending.values, gapScope) : null), [valuesMode, gridValues.data, pending.values, gapScope]);
+  const savedGapIds = useMemo(() => (valuesMode ? new Set(computeGaps(gridValues.data ?? null, undefined, gapScope).keys()) : null), [valuesMode, gridValues.data, gapScope]);
+  const rows = useMemo(() => (valuesMode && onlyMissing && savedGapIds && gridValues.data ? keepGapRows(treeRows, savedGapIds) : treeRows), [valuesMode, onlyMissing, savedGapIds, gridValues.data, treeRows]);
 
   // A flow's code for a chosen id — read once, only while editing.
   const flows = useLoad(() => (editOn ? cfApi.get<Flow[]>('/flows') : Promise.resolve(null)), [editOn]);
@@ -341,7 +355,7 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
     : state.order && LOCKED_ORDER.includes(state.order.status)
       ? `Order ${state.order.code} is ${ORDER_STATUS_LABEL[state.order.status].toLowerCase()}, so everything made for it is frozen.`
       : state.flowsOnly
-        ? `${state.line ? `Line ${state.line.lineNo}` : 'Its line'} is locked, so its structure, quantities and values no longer change.${canChangeFlowsHere ? ' How each row is made can still change until the line is released: click the flow under a row’s name, then Save.' : ''}`
+        ? `${state.line ? `Line ${state.line.lineNo}` : 'Its line'} is frozen, so its structure, quantities and values no longer change.${canChangeFlowsHere ? ' How each row is made can still change until the line is released: click the flow under a row’s name, then Save.' : ''}`
       : state.released
         ? `Released to production${state.order ? ` on order ${state.order.code}` : ''}${state.line ? `, line ${state.line.lineNo}` : ''}, so its structure is frozen. Take the release back — while nothing has started — to change it.`
         : !isPermitted(bomPermission(custom))
@@ -362,7 +376,7 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
   /** A line this screen may change, and that is not going with a removal above it. */
   const lineEditable = (row: BomRow) => !row.paste && row.node.lineId != null
     && mayEdit(row.parent, row.bomType) && !goneKeys.has(row.node.key);
-  /** A line whose flow may change: any line this screen may change, and on a locked line an order row's line. */
+  /** A line whose flow may change: any line this screen may change, and on a frozen line an order row's line. */
   const flowEditable = (row: BomRow) => lineEditable(row)
     || (canChangeFlowsHere && !row.paste && row.node.lineId != null && row.parent?.kind === 'temporary' && !goneKeys.has(row.node.key));
   /** A flow is how a thing is made in its parent; a selection takes its chosen item's (EditLineDialog's rule). */
@@ -373,7 +387,7 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
     const pl = p ? p.code ?? p.name : '';
     if (!p) return '';
     if (goneKeys.has(row.node.key)) return 'It goes with the line above it that is being removed.';
-    if (flowsOnly && p.kind === 'temporary') return 'The line is locked. Only how it is made can change, until the line is released.';
+    if (flowsOnly && p.kind === 'temporary') return 'The design is frozen. Only how it is made can change, until the line is released.';
     if (p.kind === 'catalog') return `${pl}’s Standard BOM is shared by everything that uses it — change it on ${pl} itself.`;
     if (p.kind === 'template') return `${pl}’s Template BOM is changed on the template itself.`;
     return `${pl} is not this screen’s to change.`;
@@ -537,7 +551,7 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
   // A row has no code until its line is locked: the code its pieces will get stands in.
   const placeholderOf = (row: BomRow) => {
     const p = bom.placeholderOf(row.node);
-    return p?.code ? { code: p.code, title: `${placeholderTitle(p)} # = numbered when the line is locked; a row with quantity 3 covers 2–4, so its code changes with the quantity (L1-1 becomes L1-#).` } : null;
+    return p?.code ? { code: p.code, title: `${placeholderTitle(p)} # = numbered when the design is frozen; a row with quantity 3 covers 2–4, so its code changes with the quantity (L1-1 becomes L1-#).` } : null;
   };
 
   const markOf = (row: BomRow): RowMark | null => {
@@ -635,6 +649,17 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
   // items referenced) is the server's answer, and Check gives it exactly.
   const firstNewCode = checkedNow?.results.flatMap((r) => (r?.op === 'paste' ? r.items : []))[0]?.code ?? null;
 
+  /** Next cell still missing a value, after the last one jumped to, in the order the rows are drawn; wraps round. */
+  const jumpToGap = () => {
+    if (!liveGaps) return;
+    const seq = rows.flatMap((r) => (liveGaps.get(r.node.id) ?? []).map((code) => ({ key: r.node.key, code })));
+    if (!seq.length) return;
+    jumpAt.current = (jumpAt.current + 1) % seq.length;
+    const at = seq[jumpAt.current];
+    gridHandle.current?.selectCell(at.key, at.code);
+  };
+  const gapTotal = liveGaps ? [...liveGaps.values()].reduce((n, l) => n + l.length, 0) : 0;
+
   const doDownloadSheet = async () => {
     setSheetBusy('download');
     try {
@@ -676,7 +701,8 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
   return (
     <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 2 }}>
       {bom.actionError && <Box ref={errorAt} sx={{ scrollMarginTop: 96 }}><ErrorNotice error={bom.actionError} sx={{ mb: 0 }} /></Box>}
-      <SectionCard title={type.title} subtitle={type.body}
+      <SectionCard title={valuesMode ? 'Values' : type.title}
+        subtitle={valuesMode ? 'The same tree as Structure, with each row’s values in place. Amber cells are required and still empty.' : type.body}
         actions={(
           // The card's action box never shrinks, so on a phone these would run
           // off the card; at min-content they stack instead.
@@ -685,30 +711,39 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
               onClick={doDownloadSheet} disabled={sheetBusy != null || dirty}>
               Download Excel
             </Button>
-            {canSheetEdit && <>
+            {canSheetEdit && !valuesMode && <>
               <Button size="small" startIcon={sheetBusy === 'preview' ? <CircularProgress size={14} color="inherit" /> : <UploadFileRounded />}
                 onClick={() => sheetInput.current?.click()} disabled={sheetBusy != null || dirty}>
                 Upload Excel
               </Button>
               <input ref={sheetInput} type="file" accept=".xlsx,.csv" hidden onChange={chooseSheet} />
             </>}
-            {deep && <Button size="small" startIcon={<UnfoldMoreRounded />} onClick={() => setOpen(new Set(openableKeys(root)))}>Expand all</Button>}
-            {deep && <Button size="small" startIcon={<UnfoldLessRounded />} onClick={() => setOpen(new Set([root.key]))}>Collapse all</Button>}
+            {deep && !(valuesMode && onlyMissing) && <Button size="small" startIcon={<UnfoldMoreRounded />} onClick={() => setOpen(new Set(openableKeys(root)))}>Expand all</Button>}
+            {deep && !(valuesMode && onlyMissing) && <Button size="small" startIcon={<UnfoldLessRounded />} onClick={() => setOpen(new Set([root.key]))}>Collapse all</Button>}
             {!orderGrid && <Button size="small" disabled={values.scanning || dirty || !!busy} startIcon={<PlaylistAddCheckRounded />} onClick={values.tooMany ? values.start : () => void values.refreshAll()}>{values.tooMany ? 'Read values' : 'Refresh values'}</Button>}
-            {!dirty && !busy && canAddToRoot && addButton()}
+            {!dirty && !busy && canAddToRoot && !valuesMode && addButton()}
           </Box>
         )}>
         {why && <Alert severity="info" sx={{ mb: 2 }}>{why}</Alert>}
+        {valuesMode && !why && gridValues.data?.lock && <Alert severity="info" sx={{ mb: 2 }}>{gridValues.data.lock.message}</Alert>}
+        {valuesMode && gridValues.data && (
+          <Box data-testid="values-summary" sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap', mb: 1.5 }}>
+            {gapTotal > 0
+              ? <DangerBadge label={gapSentence(liveGaps!)} title="Required values that are still empty. The line cannot be frozen until they are filled." />
+              : <Typography data-testid="values-allclear" sx={{ fontSize: 13, color: 'var(--c-success-800)' }}>{gapSentence(liveGaps!)}</Typography>}
+            {gapTotal > 0 && <Button size="small" data-testid="next-missing" startIcon={<PlaylistAddCheckRounded />} onClick={jumpToGap}>Next missing</Button>}
+          </Box>
+        )}
         <Box sx={{ display: 'flex', gap: 3, flexWrap: 'wrap', alignItems: 'center', mb: 2 }}>
           {state.bom && !custom && <Fact label="Status"><StatusBadge status={state.bom.status} /></Fact>}
           {state.bom && !custom && <Fact label="Revision"><Mono>{state.bom.revision ?? '—'}</Mono></Fact>}
           <Fact label="In the structure"><Mono>{state.stats.nodes - 1}</Mono></Fact>
           {state.stats.drafts > 0 && <Fact label="Still draft"><WarnBadge label={`${state.stats.drafts} draft`} title="Catalog items in the structure that are not active yet — release needs every one of them active." /></Fact>}
           {state.stats.unresolved > 0 && <Fact label="To choose"><WarnBadge label={`${state.stats.unresolved} selection${state.stats.unresolved > 1 ? 's' : ''}`} title="Choose a catalog item for each of them before release." /></Fact>}
-          {gapCount > 0 && (
+          {gapCount > 0 && !valuesMode && (
             <Fact label="Values missing">
               <DangerBadge label={`${gapCount} missing`}
-                title="Required values that are still empty. The line cannot be locked until they are filled." />
+                title="Required values that are still empty. The line cannot be frozen until they are filled." />
             </Fact>
           )}
           {/* Worth naming only when the person did not arrive from the order itself. */}
@@ -738,10 +773,10 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
                   : ''}
           </Typography>
           <Box sx={{ flex: 1 }} />
-          {orderGrid && cutCount > 0 && (
+          {valuesMode && (
             <FormControlLabel sx={{ m: 0, '& .MuiFormControlLabel-label': { fontSize: 12, color: 'var(--c-text-3)' } }}
-              control={<Switch size="small" checked={showCut} onChange={(e) => setShowCut(e.target.checked)} />}
-              label={`Show cut pieces (${cutCount})`} />
+              control={<Switch size="small" checked={onlyMissing} onChange={(e) => { setOnlyMissing(e.target.checked); jumpAt.current = -1; }} />}
+              label="Show only what’s missing" />
           )}
           {orderGrid && (
             <FormControlLabel sx={{ m: 0, '& .MuiFormControlLabel-label': { fontSize: 12, color: 'var(--c-text-3)' } }}
@@ -749,18 +784,28 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
               label="Only columns these rows use" />
           )}
           <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>
-            {flowsOnly ? 'Only flows can change · changes wait for Save' : 'Copy inserts a row below · drag to rearrange · changes wait for Save'}
+            {valuesMode ? 'Type in a cell · Enter edits · changes wait for Save' : flowsOnly ? 'Only flows can change · changes wait for Save' : 'Copy inserts a row below · drag to rearrange · changes wait for Save'}
           </Typography>
         </Box>
         <>
             <ErrorNotice error={gridValues.error} onRetry={gridValues.reload} />
             <BomGrid key={rows.map((r) => r.node.key).join('|')} rows={rows} view={gridValues.data ?? null} records={orderGrid ? undefined : values} recordIds={ids} pending={pending} busy={!!busy || !!sheetBusy || (orderGrid ? gridValues.loading : values.scanning)}
-              canEdit={(row) => editOn && !removedKeys.has(row.node.key) && !goneKeys.has(row.node.key) && (!!row.paste || lineEditable(row) || row.node.depth === 0 && mine(row.node))}
+              canEdit={(row) => !valuesMode && editOn && !removedKeys.has(row.node.key) && !goneKeys.has(row.node.key) && (!!row.paste || lineEditable(row) || row.node.depth === 0 && mine(row.node))}
               canEditValues={(row) => !removedKeys.has(row.node.key) && !goneKeys.has(row.node.key) && (orderGrid ? editOn && mine(row.node) : mayEditValues(row.node))}
               onToggle={(key) => { const next = new Set(expanded); if (next.has(key)) next.delete(key); else next.add(key); setOpen(next); }}
-              onlyUsedColumns={orderGrid && onlyUsed} roleOf={roleOf} canEditRole={canEditRole} onRole={onRole} cutChipOf={cutChipOf}
-              onWrites={onGridWrites} onMove={onGridMove} dropRefusal={dropRefusal} trailingCell={trailingCell} flowCell={flowCell} markOf={markOf} placeholderOf={placeholderOf}
-              footer={root.children.length === 0 && pending.pastes.length === 0 && <EmptyState title="Nothing below it yet" action={canAddToRoot && addButton('contained')} />} />
+              onlyUsedColumns={orderGrid && onlyUsed} roleOf={roleOf} canEditRole={valuesMode ? () => false : canEditRole} onRole={onRole}
+              gaps={liveGaps ?? undefined} handleRef={gridHandle}
+              onWrites={onGridWrites} onMove={onGridMove} dropRefusal={dropRefusal} trailingCell={valuesMode ? () => null : trailingCell} flowCell={valuesMode ? (row) => <FlowTag flow={row.node.flow} /> : flowCell} markOf={markOf} placeholderOf={placeholderOf}
+              footer={valuesMode
+                ? rows.length === 0 && !!gridValues.data && <EmptyState title={onlyMissing ? 'Nothing is missing' : 'Nothing below it yet'} hint={onlyMissing ? 'Every required value on this line is filled.' : undefined} />
+                : root.children.length === 0 && pending.pastes.length === 0 && <EmptyState title="Nothing below it yet" action={canAddToRoot && addButton('contained')} />} />
+          {orderGrid && !valuesMode && (
+            <Typography data-testid="cut-pieces-note" sx={{ mt: 1, fontSize: 12.5, color: 'var(--c-text-3)' }}>
+              Cut pieces are worked out from the parts — {onGoCutPieces
+                ? <Box component="button" type="button" onClick={onGoCutPieces} sx={{ all: 'unset', cursor: 'pointer', color: 'var(--c-primary-700)', textDecoration: 'underline' }}>see Cut pieces</Box>
+                : 'see Cut pieces'}.
+            </Typography>
+          )}
         </>
       </SectionCard>
 

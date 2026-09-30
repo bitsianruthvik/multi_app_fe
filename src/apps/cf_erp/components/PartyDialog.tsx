@@ -13,7 +13,7 @@ const REGISTRATION: { value: GstRegistration; label: string }[] = [
   { value: 'sez', label: 'SEZ' }, { value: 'overseas', label: 'Overseas' },
 ];
 
-const ROLE_LABEL: Record<PartyRole, string> = { customer: 'Customer', supplier: 'Supplier', subcontractor: 'Subcontractor' };
+const ROLE_LABEL: Record<PartyRole, string> = { customer: 'Customer', supplier: 'Supplier', subcontractor: 'Contractor (job work)' };
 
 /**
  * Creates or edits a party. One party can hold several roles — a stockist who

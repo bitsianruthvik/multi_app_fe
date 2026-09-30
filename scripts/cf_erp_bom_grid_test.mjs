@@ -124,7 +124,7 @@ await check('Definition children keep specifications locked but quantities edita
 await check('Locked child cell can still be copied', async () => { await fire(cell(1, 3), 'click'); assert.equal(await clipboard(cell(1, 3), 'copy'), '150'); });
 
 // ── cut pieces, descriptions, columns the rows use ───────────────────────────
-await check('Cut pieces are hidden by default; the part keeps a chip, and its chevron goes', () => {
+await check('Cut pieces are left out of the drawn rows, and its part loses the chevron goes', () => {
   const cutPlate = node(7, [node(8, [], { role: 'Raw plate', name: 'Plate (cut to size)' })], { role: 'Cut from', name: 'Cut plate 25 × 500 × 11650 E350' });
   const part = node(6, [cutPlate], { name: 'Flange plate' });
   const t2 = node(1, [part, node(9)], { lineId: null, depth: 0 });
@@ -133,8 +133,6 @@ await check('Cut pieces are hidden by default; the part keeps a chip, and its ch
   const hidden = m.withoutCutPieces(all);
   assert.deepEqual(hidden.map((r) => r.node.id), [1, 6, 9]);
   assert.equal(hidden.find((r) => r.node.id === 6).hasChildren, false);
-  assert.equal(m.cutChip(part), 'cut from 25 × 500 × 11650 E350');
-  assert.equal(m.cutChip(node(9)), null);
   assert.equal(m.isCutPiece(cutPlate) && m.isCutPiece(cutPlate.children[0]) && !m.isCutPiece(part), true);
 });
 await check('A part with other children keeps its chevron when only the cut plate is hidden', () => {

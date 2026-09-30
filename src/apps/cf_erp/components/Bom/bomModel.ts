@@ -417,9 +417,3 @@ export const isCutPiece = (n: StructureNode): boolean => n.role === 'Cut from' |
 export function withoutCutPieces(rows: BomRow[]): BomRow[] {
   return rows.filter((r) => !isCutPiece(r.node)).map((r) => (r.hasChildren && r.node.children.every(isCutPiece) ? { ...r, hasChildren: false } : r));
 }
-
-/** "cut from 25 × 500 × 11650" — what stands in for a part's hidden cut plate. */
-export function cutChip(node: StructureNode): string | null {
-  const cut = node.children.find((c) => c.role === 'Cut from');
-  return cut ? `cut from ${cut.name.replace(/^Cut plate\s+/i, '')}` : null;
-}

@@ -1,22 +1,19 @@
-import { useEffect, useState } from 'react';
-import {
-  Alert, Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, IconButton,
-  MenuItem, TextField, Tooltip, Typography,
-} from '@mui/material';
+import { useState } from 'react';
+import { Box, Button, IconButton, Tooltip } from '@mui/material';
 import AddRounded from '@mui/icons-material/AddRounded';
 import FunctionsRounded from '@mui/icons-material/FunctionsRounded';
 import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
-import { cfApi, CfApiError } from '../api/client';
-import type { Formula, FormulaCheck, FormulaKind } from '../api/types';
+import { cfApi } from '../api/client';
+import type { Formula, FormulaKind } from '../api/types';
 import { useLoad } from '../hooks/useLoad';
-import { EmptyState, ErrorNotice, Mono, PageHeader, StatStrip, StatusBadge, Surface } from '../components/ui';
+import { EmptyState, ErrorNotice, Mono, PageHeader, StatStrip, StatusBadge } from '../components/ui';
 import { DataTable, type DataColumn } from '../components/DataTable';
 import { FacetChip, FilterBar } from '../components/FilterBar';
 import { useIsPermitted } from '../hooks/useIsPermitted';
 import { useNewParam, useUrlParam } from '../hooks/useUrlState';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { useToast } from '../components/toastContext';
-import { DialogHeader } from '../components/FormDialog';
+import { FormulaDialog } from '../components/FormulaDialog';
 
 const KIND_LABEL: Record<FormulaKind, string> = { value: 'Value', rollup: 'Roll-up', timing: 'Timing' };
 const KIND_HELP: Record<FormulaKind, string> = {
@@ -24,114 +21,6 @@ const KIND_HELP: Record<FormulaKind, string> = {
   rollup: 'Adds up BOM children — for roll-up rules.',
   timing: 'Reads the item being worked on and the machine doing it — for operation times.',
 };
-
-function FormulaDialog({ open, onClose, onSaved, existing, canManage }: { open: boolean; onClose: () => void; onSaved: () => void; existing: Formula | null; canManage: boolean }) {
-  const [code, setCode] = useState('');
-  const [name, setName] = useState('');
-  const [expression, setExpression] = useState('');
-  const [description, setDescription] = useState('');
-  const [status, setStatus] = useState<'active' | 'inactive'>('active');
-  const [sample, setSample] = useState<Record<string, string>>({});
-  const [check, setCheck] = useState<FormulaCheck | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<CfApiError | null>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    setError(null);
-    setCheck(null);
-    setSample({});
-    setCode(existing?.code ?? '');
-    setName(existing?.name ?? '');
-    setExpression(existing?.expression ?? '');
-    setDescription(existing?.description ?? '');
-    setStatus(existing?.status ?? 'active');
-  }, [open, existing]);
-
-  // Checked as you type (debounced): parse errors, unknown names, and a sample result.
-  useEffect(() => {
-    if (!open || !expression.trim()) { setCheck(null); return undefined; }
-    const t = window.setTimeout(() => {
-      cfApi.post<FormulaCheck>('/formulas/check', { expression, sample }).then(setCheck).catch(() => setCheck(null));
-    }, 300);
-    return () => window.clearTimeout(t);
-  }, [expression, sample, open]);
-
-  const save = async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      if (existing) await cfApi.put(`/formulas/${existing.id}`, { name, expression, description: description || null, status });
-      else await cfApi.post('/formulas', { code, name, expression, description: description || null });
-      setBusy(false);
-      onSaved();
-      onClose();
-    } catch (e) {
-      setBusy(false);
-      setError(e as CfApiError);
-    }
-  };
-
-  const result = check?.result;
-  // The backend refuses an expression with problems, so do not offer to save one.
-  // An untouched expression on an existing formula is never re-checked there,
-  // so a name-only edit still goes through.
-  const expressionChanged = !existing || expression.trim() !== existing.expression;
-  const blocked = expressionChanged && !!check && check.problems.length > 0;
-  const incomplete = !name.trim() || !expression.trim() || (!existing && !code.trim());
-  return (
-    <Dialog open={open} onClose={() => !busy && onClose()} maxWidth="md" fullWidth>
-      <DialogHeader title={<>{existing ? `Edit ${existing.code}` : 'New formula'}</>} onClose={onClose} busy={busy} />
-      <DialogContent>
-        <ErrorNotice error={error} />
-        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', sm: 'minmax(0, 1fr) minmax(0, 2fr)' }, gap: 2, mt: 1 }}>
-          <TextField label="Code" required={!existing} value={code} disabled={!!existing} autoFocus={!existing} onChange={(e) => setCode(e.target.value.toUpperCase())} inputProps={{ style: { fontFamily: 'var(--font-mono)' } }}
-            helperText={existing ? `Version ${existing.version} — changing the expression makes version ${existing.version + 1}` : 'e.g. PLATE_WEIGHT'} />
-          <TextField label="Name" required value={name} autoFocus={!!existing} onChange={(e) => setName(e.target.value)} />
-          <TextField label="Expression" required value={expression} onChange={(e) => setExpression(e.target.value)} multiline minRows={2} sx={{ gridColumn: '1 / -1' }}
-            inputProps={{ style: { fontFamily: 'var(--font-mono)', fontSize: 14 } }}
-            helperText="Specification codes, numbers, + − × ÷ % ^, MIN, MAX, ROUND(x, n), ABS, SQRT, CEIL, FLOOR, IF(a > b, x, y). Roll-ups: SUM(children.WEIGHT). Operation times: item.CUT_LENGTH / machine.CUTTING_SPEED." />
-          <TextField label="Description" value={description} onChange={(e) => setDescription(e.target.value)} sx={{ gridColumn: '1 / -1' }} />
-          {existing && (
-            <TextField select label="Status" value={status} onChange={(e) => setStatus(e.target.value as 'active' | 'inactive')}>
-              <MenuItem value="active">Active</MenuItem>
-              <MenuItem value="inactive">Inactive</MenuItem>
-            </TextField>
-          )}
-        </Box>
-        {check && (
-          <Box sx={{ mt: 2 }}>
-            {check.problems.length > 0 ? (
-              <Alert severity="warning" sx={{ borderRadius: 'var(--r-sm)' }}>{check.problems.map((p) => <Box key={p}>{p}</Box>)}</Alert>
-            ) : check.usesRollup ? (
-              <Alert severity="info" sx={{ borderRadius: 'var(--r-sm)' }}>A roll-up — it reads {check.rollupTerms?.join(', ')} from BOM children and is evaluated once BOMs exist.</Alert>
-            ) : (
-              <Surface sx={{ p: 2, background: 'var(--c-surface-2)' }}>
-                <Typography sx={{ fontWeight: 500, mb: 1 }}>Try it{check.kind === 'timing' ? ' — minutes, from a sample item and machine' : ''}</Typography>
-                <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', alignItems: 'center' }}>
-                  {[...check.references, ...(check.itemRefs ?? []).map((c) => `item.${c}`), ...(check.machineRefs ?? []).map((c) => `machine.${c}`)].map((r) => (
-                    <TextField key={r} size="small" label={r} type="number" value={sample[r] ?? ''} sx={{ width: 150 }}
-                      onChange={(e) => setSample((s) => ({ ...s, [r]: e.target.value }))} inputProps={{ step: 'any', style: { fontFamily: 'var(--font-mono)' } }} />
-                  ))}
-                  <Typography sx={{ ml: 1 }}>=</Typography>
-                  <Mono sx={{ fontSize: 16, color: 'var(--c-text)' }}>
-                    {result?.value != null ? result.value : result?.missing ? `needs ${result.missing.join(', ')}` : result?.error ?? '—'}
-                  </Mono>
-                </Box>
-              </Surface>
-            )}
-          </Box>
-        )}
-      </DialogContent>
-      <DialogActions>
-        <Button onClick={onClose} disabled={busy}>{canManage ? 'Cancel' : 'Close'}</Button>
-        {canManage && (
-          <Button variant="contained" onClick={save} disabled={busy || incomplete || blocked} startIcon={busy ? <CircularProgress size={14} color="inherit" /> : undefined}>{busy ? 'Saving…' : existing ? 'Save' : 'Create'}</Button>
-        )}
-      </DialogActions>
-    </Dialog>
-  );
-}
 
 const usedByText = (f: Formula) => [f.ruleCount ? `${f.ruleCount} spec` : null, f.timingRuleCount ? `${f.timingRuleCount} timing` : null].filter(Boolean).join(' · ') || '—';
 const matches = (f: Formula, term: string) => !term || [f.code, f.name, f.expression].some((v) => v?.toLowerCase().includes(term));

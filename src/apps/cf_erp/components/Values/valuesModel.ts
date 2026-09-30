@@ -1,6 +1,4 @@
 import type { DataType, Kind, OrderStatus, RecordStatus, SpecOption, ValueRule } from '../../api/types';
-import type { CutPiecesFollowUp } from '../../api/cutPieces';
-
 /**
  * The Values stage's data: `GET /order-lines/:id/values` and what
  * `PUT /order-lines/:id/values` answers (apps/cf_erp/services/orderValuesService.js).
@@ -90,29 +88,6 @@ export interface ValuesView {
   groups: ValuesGroup[];
 }
 
-/** One entry of the PUT. `null` clears the value. */
-export interface ValueWrite { recordId: number; specCode: string; value: string | null }
-
-export interface SaveValuesResult {
-  applied: boolean;
-  dryRun: boolean;
-  summary: { sentence: string; given: number; changed: number; derived: number; records: number; rowsWritten: number; historyRows: number };
-  changes: { recordId: number; code: string | null; specCode: string; change: 'set' | 'changed' | 'cleared' }[];
-  view: ValuesView;
-  /** What the line's cut pieces did after the save — made once the required values are complete. */
-  cutPieces?: CutPiecesFollowUp | null;
-}
-
-/**
- * The grants the PUT accepts — either one (routes/orderValues.js). The order's
- * own people hold the orders grant; the catalog grant is what the structure
- * tree's value editor asks today.
- */
-export const VALUES_WRITE_PERMISSIONS = ['cf_erp_orders_manage', 'cf_erp_catalog_manage'] as const;
-
-/** Pending edits: record id -> spec code -> the text typed. One object per row, so an untouched row keeps its identity. */
-export type Edits = Record<number, Record<string, string>>;
-
 /** A cell with its column's shared fields put back, and whether it can be typed right now. */
 export interface EffectiveCell {
   rule: ValueRule;
@@ -165,130 +140,52 @@ export function stillMissing(c: EffectiveCell, pending: string | undefined): boo
   return c.required && c.typeable && pending.trim() === '' && !c.defaultDisplay;
 }
 
-/** A typed value as words, where it is shown rather than edited (a shared record, a locked line). */
-export function formatInput(col: ValuesColumn, input: string, options: SpecOption[] | undefined): string {
-  if (input === '') return '';
-  switch (col.dataType) {
-    case 'option': {
-      const o = options?.find((x) => String(x.id) === input);
-      return o ? (o.label || o.value) : input;
-    }
-    case 'boolean': return input === 'true' ? 'Yes' : input === 'false' ? 'No' : input;
-    case 'number': return col.unit ? `${input} ${col.unit}` : input;
-    // A table never carries its raw JSON here — a cell shows `display` (the
-    // backend's own summary) instead, so this case should not be reached.
-    case 'table': return 'a table';
-    default: return input;
-  }
-}
 
-/** How the backend names a record in a sentence (orderValuesService.labelOf). */
-export const labelOfRow = (row: ValuesRow) => row.code ?? `${row.name} (#${row.id})`;
+// ── the gaps, for the Values stage's view of the Structure tree ──
 
-/** The rule, in the words a column header can carry. */
-export const RULE_LABEL: Record<ValueRule, string> = {
-  entered: 'Typed',
-  defaulted: 'Default',
-  fixed: 'Fixed',
-  calculated: 'Calculated',
-  rollup: 'Roll-up',
-  inherited: 'Inherited',
-};
-
-export function countEdits(edits: Edits): number {
-  let n = 0;
-  for (const row of Object.values(edits)) n += Object.keys(row).length;
-  return n;
-}
-
-export function writesOf(edits: Edits): ValueWrite[] {
-  const out: ValueWrite[] = [];
-  for (const [recordId, row] of Object.entries(edits)) {
-    for (const [specCode, text] of Object.entries(row)) {
-      const value = text.trim();
-      out.push({ recordId: Number(recordId), specCode, value: value === '' ? null : value });
-    }
-  }
-  return out;
-}
-
-/** Problems from a refused save, placed on the cells and rows they name. */
-export interface PlacedProblems {
-  cells: Record<number, Record<string, string>>;
-  rows: Record<number, string>;
-  /** Named nothing on screen — shown only in the list. */
-  loose: number;
-}
-
-/**
- * The backend writes every problem as "LABEL · SPEC: why" (a cell) or
- * "LABEL: why" (a row) — orderValuesService.writeLineValues — so a problem is
- * placed by matching those heads against the rows that were sent. The full
- * list is always shown as well; this only decides which cells turn red.
- */
-export function placeProblems(problems: string[], edits: Edits, rowsById: Map<number, ValuesRow>): PlacedProblems {
-  const out: PlacedProblems = { cells: {}, rows: {}, loose: 0 };
-  const heads: { head: string; recordId: number; code: string | null }[] = [];
-  for (const [id, row] of Object.entries(edits)) {
-    const r = rowsById.get(Number(id));
-    if (!r) continue;
-    const label = labelOfRow(r);
-    for (const code of Object.keys(row)) heads.push({ head: `${label} · ${code}:`, recordId: r.id, code });
-    heads.push({ head: `${label}:`, recordId: r.id, code: null });
-    heads.push({ head: `Record #${r.id} `, recordId: r.id, code: null });
-  }
-  for (const p of problems) {
-    const hit = heads.find((h) => p.startsWith(h.head));
-    if (!hit) { out.loose += 1; continue; }
-    if (hit.code) (out.cells[hit.recordId] ??= {})[hit.code] = p;
-    else out.rows[hit.recordId] = p;
-  }
-  return out;
-}
-
-// ── the unsaved draft, per viewer, so a switch of tab does not lose typing ──
-
-const draftKey = (lineId: number) => `cf_erp.values.draft.${lineId}`;
-
-export function readDraft(lineId: number): Edits | null {
-  try {
-    const raw = window.sessionStorage.getItem(draftKey(lineId));
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as unknown;
-    return parsed && typeof parsed === 'object' ? parsed as Edits : null;
-  } catch {
-    return null;
-  }
-}
-
-export function writeDraft(lineId: number, edits: Edits) {
-  try {
-    if (countEdits(edits)) window.sessionStorage.setItem(draftKey(lineId), JSON.stringify(edits));
-    else window.sessionStorage.removeItem(draftKey(lineId));
-  } catch {
-    /* storage can be off (private window, blocked site data); the draft is a convenience */
-  }
-}
-
-/**
- * A stored draft, kept only where it still means something: a cell that is
- * still typed here, and a value that still differs from what is saved.
- */
-export function usableDraft(view: ValuesView, draft: Edits, canEdit: boolean): Edits {
-  const out: Edits = {};
+/** Spec codes still missing on each of the order's own records: the server's answer, with what is typed but unsaved laid over it. */
+export function computeGaps(
+  view: ValuesView | null, typed: Record<number, Record<string, string>> | undefined, only?: ReadonlySet<number>,
+): Map<number, string[]> {
+  const out = new Map<number, string[]>();
+  if (!view) return out;
   for (const g of view.groups) {
+    if (!g.own) continue;
     for (const row of g.rows) {
-      const typed = draft[row.id];
-      if (!typed) continue;
+      if (only && !only.has(row.id)) continue;
       for (const col of g.columns) {
-        const text = typed[col.code];
         const cell = row.cells[col.code];
-        if (text === undefined || !cell) continue;
-        const c = effectiveCell(view, col, row, cell, canEdit);
-        if (!c.editable || text === c.input) continue;
-        (out[row.id] ??= {})[col.code] = text;
+        if (!cell) continue;
+        if (stillMissing(effectiveCell(view, col, row, cell, true), typed?.[row.id]?.[col.code])) {
+          const list = out.get(row.id);
+          if (list) list.push(col.code); else out.set(row.id, [col.code]);
+        }
       }
     }
   }
   return out;
+}
+
+/** "N values missing · M rows", or the all-clear. */
+export function gapSentence(gaps: ReadonlyMap<number, string[]>): string {
+  let n = 0;
+  for (const list of gaps.values()) n += list.length;
+  if (n === 0) return 'Every required value is filled';
+  return `${n} ${n === 1 ? 'value' : 'values'} missing · ${gaps.size} ${gaps.size === 1 ? 'row' : 'rows'}`;
+}
+
+/**
+ * The rows that hold a gap, and every row above them — so the tree still reads.
+ * `rows` are in tree order; a row's parent is found by key.
+ */
+export function keepGapRows<R extends { node: { id: number; key: string }; parent: { key: string } | null }>(
+  rows: R[], gapIds: ReadonlySet<number>,
+): R[] {
+  const parentOf = new Map(rows.map((r) => [r.node.key, r.parent?.key ?? null]));
+  const keep = new Set<string>();
+  for (const r of rows) {
+    if (!gapIds.has(r.node.id)) continue;
+    for (let k: string | null = r.node.key; k && !keep.has(k); k = parentOf.get(k) ?? null) keep.add(k);
+  }
+  return rows.filter((r) => keep.has(r.node.key));
 }

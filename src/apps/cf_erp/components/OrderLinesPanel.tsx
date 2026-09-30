@@ -40,7 +40,7 @@ function AddLineDialog({ order, open, onClose, onDone }: { order: SalesOrder; op
     ...(form.rate.trim() ? { rate: form.rate.trim() } : {}), ...(form.basis ? { rateBasis: form.basis } : {}),
   }, { timeoutMs: LONG_WRITE_MS }));
   const hint = rec?.kind === 'template'
-    ? `Lays ${rec.code ?? rec.name} out as this line’s structure, its whole Template BOM beneath it. Nothing is coded until the line is locked.`
+    ? `Lays ${rec.code ?? rec.name} out as this line’s structure, its whole Template BOM beneath it. Nothing is coded until the design is frozen.`
     : rec?.kind === 'catalog' ? 'A standard line: the catalog item as it is, with its Standard BOM if it has one.'
       : stock ? 'Stock orders make catalog items only.' : 'A catalog item for a standard line, or a template definition for a custom one.';
   return (

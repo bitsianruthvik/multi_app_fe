@@ -20,6 +20,7 @@ const InvoiceDetail = lazy(() => import('./pages/InvoiceDetail'));
 const CompanyTax = lazy(() => import('./pages/CompanyTax'));
 const Customers = lazy(() => import('./pages/Customers'));
 const Plan = lazy(() => import('./pages/Plan'));
+const Dashboard = lazy(() => import('./pages/Dashboard'));
 const Tracker = lazy(() => import('./pages/Tracker'));
 const Floor = lazy(() => import('./pages/Floor'));
 const Operators = lazy(() => import('./pages/Operators'));
@@ -66,10 +67,12 @@ export function getCfErpRoutes(
     { path: '/:company/cf_erp/invoices/:id', element: wrap(<InvoiceDetail />) },
     { path: '/:company/cf_erp/company-tax', element: wrap(<CompanyTax />) },
     { path: '/:company/cf_erp/customers', element: wrap(<Customers />) },
+    { path: '/:company/cf_erp/contractors', element: wrap(<Customers fixedRole="subcontractor" />) },
     { path: '/:company/cf_erp/items', element: wrap(<Records recordKind="item" />) },
     { path: '/:company/cf_erp/items/:id', element: wrap(<RecordDetail recordKind="item" />) },
     { path: '/:company/cf_erp/definitions', element: wrap(<Records recordKind="definition" />) },
     { path: '/:company/cf_erp/definitions/:id', element: wrap(<RecordDetail recordKind="definition" />) },
+    { path: '/:company/cf_erp/management', element: wrap(<Dashboard />) },
     { path: '/:company/cf_erp/plan', element: wrap(<Plan />) },
     { path: '/:company/cf_erp/tracker', element: wrap(<Tracker />) },
     { path: '/:company/cf_erp/floor', element: wrap(<Floor />) },

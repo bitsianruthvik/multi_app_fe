@@ -4,6 +4,7 @@ import { useSearchParams } from 'react-router-dom';
 import ContentCutRounded from '@mui/icons-material/ContentCutRounded';
 import InfoOutlined from '@mui/icons-material/InfoOutlined';
 import { cfApi, CfApiError, LONG_WRITE_MS } from '../../api/client';
+import { plateText } from '../../lib/cutPieces';
 import { Badge, EmptyState, ErrorNotice, Mono, SectionCard } from '../ui';
 import { useToast } from '../toastContext';
 
@@ -36,7 +37,10 @@ type Blank = {
   name: string | null;
   size: { thickness: number | null; length: number | null; width: number | null; grade: string | null };
   partCount: number;
-  plate: { id: number; code: string | null; name: string | null } | null;
+  /** The cut piece's raw-plate line. `isSelection` (when the API says so) means it only holds the plate CHOICE — nesting picks the plate. */
+  plate: { id: number; code: string | null; name: string | null; isSelection?: boolean } | null;
+  /** Once nested: the nest lot (the sheet this piece is cut from), e.g. "N-012". */
+  nest?: { nestNo?: string | null; code?: string | null } | null;
   plateQuantity: number | null;
   /** 'nesting' once an accepted layout owns the quantity; otherwise how the placeholder was worked out. */
   plateQuantityBasis: string | null;
@@ -158,7 +162,7 @@ export function BlanksPanel({ lineId, canManage, onChanged, onGoValues }: {
   return (
     <SectionCard
       title="Cut pieces"
-      subtitle="Made automatically as soon as the line's values are complete, and again whenever a value or the structure changes — until the line is locked."
+      subtitle="Made automatically as soon as the line's values are complete, and again whenever a value or the structure changes — until the design is frozen."
       action={canManage && !lock && !noParts ? (
         <Button size="small" variant="outlined" startIcon={<ContentCutRounded />} disabled={busy} onClick={() => void makeNow()}>
           {busy ? 'Making…' : 'Make them now'}
@@ -241,7 +245,7 @@ export function BlanksPanel({ lineId, canManage, onChanged, onGoValues }: {
                   <Box component="td"><Mono>{mm(b.size?.width)}</Mono></Box>
                   <Box component="td">{b.size?.grade ?? '—'}</Box>
                   <Box component="td" sx={{ textAlign: 'right' }}><Mono>{b.partCount}</Mono></Box>
-                  <Box component="td" sx={{ pl: 2 }}><Mono>{b.plate?.code ?? '—'}</Mono></Box>
+                  <Box component="td" sx={{ pl: 2 }}><Mono>{plateText(b)}</Mono></Box>
                   <Box component="td" sx={{ textAlign: 'right' }} title={b.note ?? undefined}><Mono>{qty(b.plateQuantity)}</Mono></Box>
                 </Box>
               ))}

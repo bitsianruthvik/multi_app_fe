@@ -1,0 +1,317 @@
+// Run from multi_app_fe: node scripts/cf_erp_dashboard_test.mjs
+// Production › Dashboard (pages/Dashboard.tsx, components/Dashboard/*, lib/dashboard.ts) rendered in jsdom
+// from fixture replies of GET /dashboard/machines and GET /dashboard/orders. The clock is fixed at
+// 13:00 on Wed 2026-09-30 so "this week" is Mon 28 Sep – Wed 30 Sep.
+import assert from 'node:assert/strict';
+import { mkdir, writeFile, unlink } from 'node:fs/promises';
+import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { build } from 'esbuild';
+import { JSDOM } from 'jsdom';
+
+const RealDate = Date;
+const skew = new RealDate(2026, 8, 30, 13, 0, 0).getTime() - RealDate.now();
+class FakeDate extends RealDate {
+  constructor(...a) { if (a.length === 0) super(RealDate.now() + skew); else super(...a); }
+  static now() { return RealDate.now() + skew; }
+}
+globalThis.Date = FakeDate;
+
+const dom = new JSDOM('<html><body><div id="app"></div></body></html>', { url: 'http://localhost/testco/cf_erp/management', pretendToBeVisual: true });
+for (const key of Object.getOwnPropertyNames(dom.window)) {
+  if (key in globalThis) continue;
+  try { Object.defineProperty(globalThis, key, { value: dom.window[key], configurable: true, writable: true }); } catch { /* skip */ }
+}
+globalThis.window = dom.window;
+globalThis.document = dom.window.document;
+globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+
+// The platform's apiFetch → plain fetch; the auth context → a user with the grants the test sets.
+const apiStub = `export async function apiFetch(url, o = {}) {
+  const res = await globalThis.fetch(url, { method: o.method || 'GET' });
+  const text = await res.text();
+  if (!res.ok) throw new Error('API request failed: ' + res.status + ' x - ' + text);
+  return JSON.parse(text);
+}`;
+const authStub = `export function useAuth() { return { user: globalThis.__user ?? null }; }`;
+const built = await build({
+  stdin: {
+    contents: `import * as React from 'react'; import { createRoot } from 'react-dom/client'; import { MemoryRouter } from 'react-router-dom';
+      export { React, createRoot, MemoryRouter };
+      export { default as Dashboard } from './src/apps/cf_erp/pages/Dashboard';
+      export * as L from './src/apps/cf_erp/lib/dashboard';`,
+    resolveDir: process.cwd(), loader: 'tsx',
+  },
+  plugins: [{ name: 'stubs', setup(b) {
+    b.onResolve({ filter: /^@core\/api\/client$/ }, () => ({ path: 'api', namespace: 'stub' }));
+    b.onResolve({ filter: /^@core\/contexts\/AuthContext$/ }, () => ({ path: 'auth', namespace: 'stub' }));
+    b.onLoad({ filter: /^api$/, namespace: 'stub' }, () => ({ contents: apiStub, loader: 'js' }));
+    b.onLoad({ filter: /^auth$/, namespace: 'stub' }, () => ({ contents: authStub, loader: 'js' }));
+  } }],
+  bundle: true, write: false, format: 'esm', platform: 'browser', jsx: 'automatic', logLevel: 'error',
+  define: { 'process.env.NODE_ENV': '"development"' },
+});
+const cache = resolve('node_modules/.cache');
+await mkdir(cache, { recursive: true });
+const artifact = resolve(cache, `dashboard-test-${process.pid}.mjs`);
+await writeFile(artifact, built.outputFiles[0].text);
+const { React, createRoot, MemoryRouter, Dashboard, L } = await import(pathToFileURL(artifact));
+await unlink(artifact);
+
+let passed = 0, failed = 0;
+const check = async (label, fn) => { try { await fn(); passed++; console.log(`PASS ${label}`); } catch (e) { failed++; console.log(`FAIL ${label}: ${e.stack}`); } };
+
+// ── fixtures ─────────────────────────────────────────────────────────────
+const period = { from: '2026-09-28', to: '2026-09-30', days: 3, today: '2026-09-30', now: '2026-09-30T13:00:00', timezone: 'Asia/Kolkata' };
+const day = (date, shift, runIn, stop, overtime = 0, tonnes = 0) => ({ date, shift, run: runIn + overtime, runIn, stop, overtime, tonnes });
+const machine = (over) => ({
+  id: 1, code: 'CNC-01', name: 'CNC plasma', type: { id: 10, name: 'CNC cutting' }, hasShifts: true,
+  now: { state: 'running', inShift: true, running: [{ operation: 'Cutting', pieceCode: 'S1-G2-TF1', orderCode: 'SO-1', since: '2026-09-30T10:40:00' }], stop: null, lastActivityAt: '2026-09-30T10:40:00' },
+  shiftMin: 1260, runMin: 900, runInShiftMin: 840, overtimeMin: 60, stopMin: 120, stopInShiftMin: 120, notRecordedMin: 240, utilisationPct: 66.7,
+  output: { operationsDone: 42, stepsWorked: 45, piecesGood: 130, piecesScrap: 2, tonnes: 18.4, unweighedSessions: 0 },
+  standard: { earnedMin: 810, coveragePct: 100, performancePct: 90 },
+  reasons: [{ id: 4, code: 'BREAKDOWN', label: 'Breakdown', minutes: 90, count: 2 }, { id: 5, code: 'POWER', label: 'Power cut', minutes: 30, count: 1 }],
+  operators: [{ id: 7, name: 'Ravi', minutes: 700 }],
+  days: [day('2026-09-28', 420, 300, 60), day('2026-09-29', 420, 360, 60, 60), day('2026-09-30', 420, 180, 0)],
+  ...over,
+});
+const machines = {
+  period,
+  plant: {
+    machines: 3, runningNow: 1, stoppedNow: 1, idleInShiftNow: 0, offShiftNow: 1, withoutShifts: 1,
+    shiftMin: 2520, runMin: 1300, runInShiftMin: 1100, overtimeMin: 60, stopMin: 300, notRecordedMin: 900,
+    utilisationPct: 43.7, recordedPct: 64.3, operationsDone: 60, piecesGood: 170,
+    tonnesHandled: 30.2, tonnesFinished: 12.5, tonnesDispatched: 6.4, unweighedMovements: 0, earnedMin: 1000, performancePct: 76.9,
+    topReasons: [{ id: 4, code: 'BREAKDOWN', label: 'Breakdown', minutes: 210, count: 3, machines: 2 }, { id: 6, code: 'CRANE', label: 'Waiting for crane', minutes: 90, count: 2, machines: 1 }],
+    days: [day('2026-09-28', 840, 500, 120), day('2026-09-29', 840, 400, 120, 60), day('2026-09-30', 840, 200, 60)],
+  },
+  types: [{ id: 10, name: 'CNC cutting' }, { id: 11, name: 'Welding' }],
+  machines: [
+    machine({}),
+    machine({ id: 2, code: 'SAW-01', name: 'SAW welder', type: { id: 11, name: 'Welding' }, utilisationPct: 20.6, runInShiftMin: 260, runMin: 400, stopMin: 180, stopInShiftMin: 180, notRecordedMin: 660,
+      now: { state: 'stopped', inShift: true, running: [], stop: { reason: 'Waiting for crane', since: '2026-09-30T11:15:00' }, lastActivityAt: '2026-09-30T11:15:00' },
+      output: { operationsDone: 18, stepsWorked: 18, piecesGood: 40, piecesScrap: 0, tonnes: null, unweighedSessions: 4 },
+      reasons: [{ id: 6, code: 'CRANE', label: 'Waiting for crane', minutes: 90, count: 2 }] }),
+    machine({ id: 3, code: 'PAINT-01', name: 'Paint booth', type: { id: 12, name: 'Painting' }, hasShifts: false, shiftMin: 0, runInShiftMin: 0, runMin: 0, overtimeMin: null, stopMin: 0, stopInShiftMin: 0, notRecordedMin: 0, utilisationPct: null,
+      now: { state: 'off_shift', inShift: false, running: [], stop: null, lastActivityAt: null }, reasons: [], days: [day('2026-09-28', 0, 0, 0), day('2026-09-29', 0, 0, 0), day('2026-09-30', 0, 0, 0)],
+      output: { operationsDone: 0, stepsWorked: 0, piecesGood: 0, piecesScrap: 0, tonnes: 0, unweighedSessions: 0 } }),
+  ],
+  meta: { queries: 9, stages: 2, ms: 40 },
+};
+const stage = (operationId, code, name, steps, done, workMinLeft, extra = {}) => ({ operationId, code, name, steps, done, inProgress: 0, onHold: 0, contracted: 0, pctDone: Math.round((done / steps) * 1000) / 10, workMinLeft, ...extra });
+const order = (over) => ({
+  id: 100, code: 'SO-20260930-0001', revision: 1, title: 'ROB 59.3 m', orderType: 'customer', planPriority: 1,
+  customer: { id: 9, name: 'KEPL Infrastructure' }, committedDate: '2026-10-10',
+  progress: { pct: 34.2, basis: 'tonnes', lineBasis: 'work', stepsTotal: 16972, workMinLeft: 90000 },
+  tonnes: { total: 669.29, made: 120.5, dispatched: 60.1, unweighedLines: [] },
+  lines: { total: 2, released: 2, made: 0, dispatched: 0 },
+  period: { workMin: 3000, pctGained: 4.1, tonnesMade: 12, tonnesDispatched: 6 },
+  forecast: { date: '2026-12-20', pace: '2026-12-20', pacePctPerWeek: 5.2, plan: null, planComplete: false, planned: 1, estimate: true },
+  risk: { status: 'at_risk', daysLeft: 10, slipDays: 71, why: 'Forecast 2026-12-20 is 71 days after the committed 2026-10-10.' },
+  stages: [stage(1, 'CUT', 'Cutting', 6000, 6000, 0), stage(2, 'DRILL', 'Drilling', 3000, 2400, 3000), stage(3, 'FITUP', 'Fit-up', 2000, 400, 40000, { onHold: 2 }), stage(4, 'WELD', 'Welding', 2000, 100, 45000, { inProgress: 5 }), stage(5, 'PAINT', 'Painting', 400, 0, 2000)],
+  bottleneck: { operationId: 4, code: 'WELD', name: 'Welding', basis: 'work', workMinLeft: 45000, stepsLeft: 1900, sharePct: 50 },
+  blocked: { onHold: 2, holdReasons: [{ reason: 'Crane broken', count: 2 }], materialSteps: 14 },
+  material: { requirements: 128, items: 12, fullyIssued: 40, covered: 9, inStock: 1, onOrder: 1, toBuy: 1, short: [
+    { itemId: 55, code: 'PL-12X2500X12100', name: 'Plate 12 mm', uom: 'nos', needed: 14, issued: 0, reserved: 5, short: 9, shortSteps: 9, freeNow: 0, onOrder: 4, expected: '2026-10-05', status: 'to_buy' },
+  ] },
+  money: { value: 56889502.06, valueComplete: true, unpricedLines: [], invoiced: 5100000, invoicedCount: 1, draftInvoices: 1, materialCost: 2300000, materialUncostedRows: 0 },
+  lineRows: [
+    { id: 1, lineNo: 10, item: { id: 5, code: 'SPAN1', name: 'Composite girder span 1', uom: 'nos' }, quantity: 1, made: 0, delivered: 0, released: true, releaseId: 3, noSteps: false, committedDate: null,
+      progressPct: 40, basis: 'work', estCoveragePct: 100, stepsTotal: 9000, tonnes: 334.6, tonnesMade: 0, tonnesDispatched: 0,
+      period: { workMin: 2000, pctGained: 5, made: 0, dispatched: 0, tonnesMade: 0, tonnesDispatched: 0 }, plan: { last: '2026-11-02', first: '2026-10-05', entries: 12 }, amount: 28444751.03 },
+    { id: 2, lineNo: 20, item: { id: 6, code: 'SPAN2', name: 'Composite girder span 2', uom: 'nos' }, quantity: 1, made: 0, delivered: 0, released: false, releaseId: null, noSteps: false, committedDate: null,
+      progressPct: 0, basis: null, estCoveragePct: null, stepsTotal: 0, tonnes: 334.6, tonnesMade: 0, tonnesDispatched: 0,
+      period: { workMin: 0, pctGained: 0, made: 0, dispatched: 0, tonnesMade: 0, tonnesDispatched: 0 }, plan: null, amount: 28444751.03 },
+  ],
+  ...over,
+});
+const ordersReply = (withMoney) => {
+  const late = order({ id: 101, code: 'SO-20260801-0003', title: 'FOB girders', committedDate: '2026-09-25', risk: { status: 'late', daysLeft: -5, slipDays: 5, why: 'Committed for 2026-09-25; 5 days past it.' },
+    blocked: { onHold: 0, holdReasons: [], materialSteps: 0 }, material: { requirements: 0, items: 0, fullyIssued: 0, covered: 0, inStock: 0, onOrder: 0, toBuy: 0, short: [] } });
+  const ok = order({ id: 102, code: 'SO-20260901-0007', title: 'Foot bridge', committedDate: '2027-03-01', risk: { status: 'on_track', daysLeft: 152, slipDays: -40, why: 'ok' }, stages: [], bottleneck: null,
+    blocked: { onHold: 0, holdReasons: [], materialSteps: 0 }, material: { requirements: 0, items: 0, fullyIssued: 0, covered: 0, inStock: 0, onOrder: 0, toBuy: 0, short: [] } });
+  const os = [late, order({}), ok].map((o) => (withMoney ? o : { ...o, money: null, lineRows: o.lineRows.map(({ amount, ...l }) => l) }));
+  return {
+    period, withMoney, orders: os, meta: { queries: 14, stages: 3, ms: 300 },
+    totals: { orders: 3, lines: 6, late: 1, atRisk: 1, onTrack: 1, noForecast: 0, noDate: 0, done: 0, tonnes: 2007.87, tonnesMade: 361.5, tonnesDispatched: 180.3, tonnesComplete: true,
+      periodTonnesMade: 36, periodTonnesDispatched: 18, onHold: 2, materialSteps: 14, value: withMoney ? 170668506 : null, valueComplete: withMoney ? true : null, invoiced: withMoney ? 15300000 : null, materialCost: withMoney ? 6900000 : null },
+  };
+};
+
+let withMoney = true;
+const requests = [];
+globalThis.fetch = async (url) => {
+  requests.push(String(url));
+  const u = new URL(String(url), 'http://localhost');
+  const body = u.pathname.endsWith('/dashboard/machines') ? machines : u.pathname.endsWith('/dashboard/orders') ? ordersReply(withMoney) : null;
+  return { ok: !!body, status: body ? 200 : 404, text: async () => JSON.stringify(body ?? { message: 'not found' }) };
+};
+
+const app = () => document.getElementById('app');
+const text = () => app().textContent;
+const settle = async () => { for (let i = 0; i < 6; i++) await React.act(async () => { await new Promise((r) => setTimeout(r, 0)); }); };
+const show = async (url) => {
+  const root = createRoot(app());
+  await React.act(() => root.render(React.createElement(MemoryRouter, { initialEntries: [url] }, React.createElement(Dashboard))));
+  await settle();
+  return root;
+};
+const click = async (el) => { await React.act(async () => { el.dispatchEvent(new window.MouseEvent('click', { bubbles: true })); }); await settle(); };
+const byTestId = (id) => [...document.querySelectorAll(`[data-testid="${id}"]`)];
+
+// ── lib ──────────────────────────────────────────────────────────────────
+await check('periods: this week starts Monday; this month on the 1st; custom is capped at 92 days', () => {
+  assert.deepEqual(L.periodRange('week', '2026-09-30'), { from: '2026-09-28', to: '2026-09-30' });
+  assert.deepEqual(L.periodRange('week', '2026-09-28'), { from: '2026-09-28', to: '2026-09-28' });
+  assert.deepEqual(L.periodRange('month', '2026-09-30'), { from: '2026-09-01', to: '2026-09-30' });
+  assert.deepEqual(L.periodRange('today', '2026-09-30'), { from: '2026-09-30', to: '2026-09-30' });
+  assert.deepEqual(L.periodRange('last30', '2026-09-30'), { from: '2026-09-01', to: '2026-09-30' });
+  assert.deepEqual(L.periodRange('custom', '2026-09-30', { from: '2026-01-01', to: '2026-12-31' }), { from: '2026-01-01', to: '2026-04-02' });
+});
+await check('numbers read plainly; a missing weight is "not weighed", never 0 t', () => {
+  assert.equal(L.hoursText(0), '0 h'); assert.equal(L.hoursText(45), '45 min'); assert.equal(L.hoursText(450), '7.5 h'); assert.equal(L.hoursText(74400), '1,240 h');
+  assert.equal(L.tonnesText(null), 'not weighed'); assert.equal(L.tonnesText(0.354), '0.35 t'); assert.equal(L.tonnesText(669.29), '669 t'); assert.equal(L.tonnesText(12.44), '12.4 t');
+  assert.equal(L.pctText(null), '—'); assert.equal(L.pctText(66.7), '67%');
+  assert.equal(L.daysLeftText(-5), '5 days late'); assert.equal(L.daysLeftText(1), 'in 1 day'); assert.equal(L.daysLeftText(0), 'due today');
+});
+await check('shift bar shares add up to 100; a machine with no shifts has none', () => {
+  const s = L.shiftShares({ shiftMin: 840, runInShiftMin: 180, stopInShiftMin: 120, notRecordedMin: 540 });
+  assert.ok(Math.abs(s.run + s.stop + s.gap + s.other - 100) < 1e-9);
+  assert.equal(Math.round(s.run * 10) / 10, 21.4);
+  assert.equal(L.shiftShares({ shiftMin: 0, runInShiftMin: 0, stopInShiftMin: 0, notRecordedMin: 0 }), null);
+});
+await check('sort: lowest utilisation first, a machine with no shifts last; most stops first', () => {
+  assert.deepEqual(L.sortMachines(machines.machines, 'utilisation').map((m) => m.code), ['SAW-01', 'CNC-01', 'PAINT-01']);
+  assert.deepEqual(L.sortMachines(machines.machines, 'stops').map((m) => m.code), ['SAW-01', 'CNC-01', 'PAINT-01']);
+  assert.deepEqual(L.sortMachines(machines.machines, 'tonnes').map((m) => m.code)[0], 'CNC-01');
+});
+
+// ── the page ─────────────────────────────────────────────────────────────
+await check('opens on By machine for this week, asking both tabs for Mon 28 – Wed 30 Sep', async () => {
+  requests.length = 0;
+  const root = await show('/testco/cf_erp/management');
+  assert.ok(requests.some((r) => r.includes('/api/testco/cf_erp/dashboard/machines?from=2026-09-28&to=2026-09-30')), requests.join('\n'));
+  assert.ok(requests.some((r) => r.includes('/dashboard/orders?from=2026-09-28&to=2026-09-30')));
+  assert.ok(byTestId('machines-tab').length === 1);
+  assert.match(text(), /28 Sep – 30 Sep/);
+  assert.match(text(), /as of 13:00/);
+  await React.act(() => root.unmount());
+});
+await check('the plant strip: utilisation, overtime, stops by reason, not recorded, tonnes, now — and late orders', async () => {
+  const root = await show('/testco/cf_erp/management');
+  assert.match(byTestId('tile-utilisation')[0].textContent, /44%.*18 h run of 42 h shift/);
+  assert.match(byTestId('tile-run')[0].textContent, /1 h overtime/);
+  assert.match(byTestId('tile-stops')[0].textContent, /5 h.*Breakdown 3\.5 h · Waiting for crane 1\.5 h/);
+  assert.match(byTestId('tile-recorded')[0].textContent, /15 h.*64% of shift time is logged/);
+  assert.match(byTestId('tile-output')[0].textContent, /12\.5 t.*6\.4 t dispatched.*30\.2 t through machines/);
+  assert.match(byTestId('tile-now')[0].textContent, /1 \/ 3.*1 stopped.*2 orders late or at risk/);
+  assert.equal(byTestId('daily-bars').length, 1);
+  await React.act(() => root.unmount());
+});
+await check('machine cards: worst utilisation first; status in words; no shifts reads "—"; no weight is not weighed', async () => {
+  const root = await show('/testco/cf_erp/management');
+  const cards = byTestId('machine-card');
+  assert.deepEqual(cards.map((c) => c.getAttribute('data-machine')), ['SAW-01', 'CNC-01', 'PAINT-01']);
+  assert.match(cards[0].textContent, /Stopped · Waiting for crane since 11:15/);
+  assert.match(cards[0].textContent, /21%/);
+  assert.match(cards[0].textContent, /4 jobs not weighed/);
+  assert.ok(!/0 t/.test(cards[0].textContent), 'never 0 t for a missing weight');
+  assert.match(cards[1].textContent, /Running · Cutting on S1-G2-TF1 since 10:40/);
+  assert.match(cards[1].textContent, /1 h OT/);
+  assert.match(cards[2].textContent, /no shifts/);
+  assert.ok(cards[1].querySelector('[data-testid="sparkline"]'), 'a daily sparkline');
+  assert.ok(cards[1].querySelector('[data-seg="run"]') && cards[1].querySelector('[data-seg="gap"]'), 'run and not-recorded segments');
+  await React.act(() => root.unmount());
+});
+await check('the type filter narrows the cards', async () => {
+  const root = await show('/testco/cf_erp/management');
+  const chip = [...document.querySelectorAll('.MuiChip-root')].find((c) => c.textContent === 'Welding');
+  await click(chip);
+  assert.deepEqual(byTestId('machine-card').map((c) => c.getAttribute('data-machine')), ['SAW-01']);
+  await React.act(() => root.unmount());
+});
+await check('a card opens the machine sheet: pace vs standard is an estimate, stop reasons, who ran it', async () => {
+  const root = await show('/testco/cf_erp/management');
+  await click(byTestId('machine-card').find((c) => c.getAttribute('data-machine') === 'CNC-01'));
+  const sheet = document.querySelector('[data-testid="machine-sheet"]');
+  assert.ok(sheet, 'sheet open');
+  assert.match(sheet.textContent, /Pace vs standard.*90%/);
+  assert.ok(sheet.querySelector('[data-testid="estimate-tag"]'));
+  assert.match(sheet.textContent, /Breakdown.*1\.5 h · 2×/);
+  assert.match(sheet.textContent, /Ravi/);
+  await React.act(() => root.unmount());
+});
+await check('By order: late first, then at risk; forecast labelled an estimate; stages, bottleneck, holds, material, money', async () => {
+  const root = await show('/testco/cf_erp/management?tab=orders');
+  assert.equal(byTestId('orders-tab').length, 1);
+  const cards = byTestId('order-card');
+  assert.deepEqual(cards.map((c) => c.getAttribute('data-order')), ['SO-20260801-0003', 'SO-20260930-0001', 'SO-20260901-0007']);
+  assert.match(cards[0].textContent, /Late/); assert.match(cards[0].textContent, /5 days late/);
+  const risky = cards[1];
+  assert.match(risky.textContent, /At risk/);
+  assert.match(risky.querySelector('[data-testid="order-forecast"]').textContent, /20 Dec · 71 d after/);
+  assert.ok(risky.querySelector('[data-testid="order-forecast"] [data-testid="estimate-tag"]'));
+  assert.equal(risky.querySelector('[data-testid="order-pct"]').textContent, '34%');
+  assert.deepEqual([...risky.querySelectorAll('[data-stage]')].map((s) => s.getAttribute('data-stage')), ['CUT', 'DRILL', 'FITUP', 'WELD', 'PAINT']);
+  assert.match(risky.querySelector('[data-testid="order-bottleneck"]').textContent, /Welding — 750 h \(50% of what is left\)/);
+  assert.match(risky.querySelector('[data-testid="order-holds"]').textContent, /2 on hold — Crane broken ×2/);
+  assert.match(risky.querySelector('[data-testid="order-material"]').textContent, /1 in stock to reserve · 1 on order · 1 to buy \(14 steps wait\)/);
+  assert.match(risky.textContent, /₹5,68,89,502/);
+  assert.match(byTestId('tile-risk')[0].textContent, /2.*1 late · 1 at risk · 1 on track/);
+  assert.match(byTestId("tile-money")[0].textContent, /₹17.1 Cr.*₹1.53 Cr invoiced.*₹69 L material issued/);
+  assert.equal(L.croreText(56889502.06), "₹5.69 Cr"); assert.equal(L.croreText(510000), "₹5.1 L"); assert.equal(L.croreText(99999), "₹99,999"); assert.equal(L.croreText(null), "—");
+  assert.match(cards[2].textContent, /Not released to production yet/);
+  await React.act(() => root.unmount());
+});
+await check('expanding an order shows its lines and the short material', async () => {
+  const root = await show('/testco/cf_erp/management?tab=orders');
+  const card = byTestId('order-card').find((c) => c.getAttribute('data-order') === 'SO-20260930-0001');
+  await click(card.querySelector('[aria-expanded]'));
+  const lines = card.querySelector('[data-testid="order-lines"]');
+  assert.ok(lines, 'lines shown');
+  assert.match(lines.textContent, /SPAN1.*40%.*335 t/);
+  assert.match(lines.textContent, /week of 2 Nov/);
+  assert.match(lines.textContent, /not released yet/);
+  assert.match(lines.textContent, /PL-12X2500X12100.*9 nos.*To buy/);
+  await React.act(() => root.unmount());
+});
+await check('the risk filter shows only late orders', async () => {
+  const root = await show('/testco/cf_erp/management?tab=orders');
+  const chip = [...document.querySelectorAll('.MuiChip-root')].find((c) => /^Late 1$/.test(c.textContent));
+  await click(chip);
+  assert.deepEqual(byTestId('order-card').map((c) => c.getAttribute('data-order')), ['SO-20260801-0003']);
+  await React.act(() => root.unmount());
+});
+await check('without orders view the backend sends no money, and the screen shows none', async () => {
+  withMoney = false;
+  const root = await show('/testco/cf_erp/management?tab=orders');
+  assert.equal(byTestId('tile-money').length, 0);
+  assert.ok(!/₹/.test(text()), 'no rupee anywhere');
+  withMoney = true;
+  await React.act(() => root.unmount());
+});
+await check('a custom period sends its own dates', async () => {
+  requests.length = 0;
+  const root = await show('/testco/cf_erp/management?period=custom&from=2026-08-01&to=2026-08-31');
+  assert.ok(requests.some((r) => r.includes('/dashboard/machines?from=2026-08-01&to=2026-08-31')), requests.join('\n'));
+  assert.match(text(), /1 Aug – 31 Aug/);
+  await React.act(() => root.unmount());
+});
+await check('a user with only production view sees both tabs; orders view alone opens on By order', async () => {
+  globalThis.__user = { uiPermissions: ['cf_erp_orders_view'] };
+  requests.length = 0;
+  const root = await show('/testco/cf_erp/management');
+  assert.ok(!requests.some((r) => r.includes('/dashboard/machines')), 'no machines request');
+  assert.equal(byTestId('tab-machines').length, 0);
+  assert.equal(byTestId('orders-tab').length, 1);
+  await React.act(() => root.unmount());
+  globalThis.__user = { uiPermissions: ['cf_erp_production_view'] };
+  const root2 = await show('/testco/cf_erp/management');
+  assert.equal(byTestId('tab-machines').length, 1); assert.equal(byTestId('tab-orders').length, 1);
+  await React.act(() => root2.unmount());
+  globalThis.__user = null;
+});
+
+console.log(`\n${passed} passed, ${failed} failed`);
+process.exitCode = failed ? 1 : 0;
+setTimeout(() => process.exit(process.exitCode), 50);

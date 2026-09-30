@@ -14,10 +14,12 @@ import { useUrlParam } from '../hooks/useUrlState';
 import { invalidateNavCounts } from '../hooks/useNavCounts';
 import { appPath } from '../navMeta';
 import { qtyText } from '../lib/inventory';
+import { buyRowId, byKind, isPlanned, type BuyKind } from '../lib/buyList';
 import { EmptyState, ErrorNotice, Mono, PageHeader, StatStrip } from '../components/ui';
 import { FacetChip, FilterBar } from '../components/FilterBar';
 import { DataTable, type DataColumn } from '../components/DataTable';
 import { useToast } from '../components/toastContext';
+import { PlannedChip } from '../components/PlannedChip';
 
 const linkSx = { color: 'inherit', textDecoration: 'none', '&:hover': { color: 'var(--c-primary-700)', textDecoration: 'underline' } };
 
@@ -31,6 +33,8 @@ export default function BuyList() {
   const toast = useToast();
   const canManage = useIsPermitted()('cf_erp_inventory_manage');
   const [show, setShow] = useUrlParam('show', 'short');
+  const [kindParam, setKind] = useUrlParam('kind', 'all');
+  const kind: BuyKind = kindParam === 'released' || kindParam === 'planned' ? kindParam : 'all';
   const [search, setSearch] = useState('');
   const [busy, setBusy] = useState(false);
   // Everything wanted is fetched once and the two views are filtered here, so
@@ -40,18 +44,18 @@ export default function BuyList() {
   const short = useMemo(() => all.filter((r) => r.toBuy > 0), [all]);
   const term = search.trim().toLowerCase();
   const rows = useMemo(() => {
-    const base = show === 'short' ? short : all;
+    const base = byKind(show === 'short' ? short : all, kind);
     return term
       ? base.filter((r) => [r.item.code, r.item.name, ...r.orders.map((o) => o.code)].some((t) => t && String(t).toLowerCase().includes(term)))
       : base;
-  }, [all, short, show, term]);
+  }, [all, short, show, term, kind]);
 
   // The footer adds what is shown: the server's total when nothing is searched away, else the visible rows.
   const total = useMemo(() => {
-    if (!term && show === 'short' && list.data) return list.data.total;
+    if (!term && show === 'short' && kind === 'all' && list.data) return list.data.total;
     const shown = rows.filter((r) => r.toBuy > 0);
     return { estCost: Math.round(shown.reduce((t, r) => t + (r.estCost ?? 0), 0) * 100) / 100, items: shown.length, unpricedItems: shown.filter((r) => r.estCost == null).length };
-  }, [list.data, rows, show, term]);
+  }, [list.data, rows, show, term, kind]);
   const stats = [
     { label: 'Items short', value: short.length, tone: short.length ? ('danger' as const) : ('success' as const), hint: 'Wanted by released work and nobody has it', onClick: () => setShow('short') },
     ...(list.data ? [{ label: 'Est. cost to buy', value: list.data.total.estCost, display: rupeeText(list.data.total.estCost), hint: list.data.total.unpricedItems ? `${list.data.total.unpricedItems} item${list.data.total.unpricedItems === 1 ? ' has' : 's have'} no price and ${list.data.total.unpricedItems === 1 ? 'is' : 'are'} left out` : 'At the last price paid, else the list price' }] : []),
@@ -79,6 +83,7 @@ export default function BuyList() {
         <Box sx={{ py: 0.5 }}>
           <Mono><Box component={Link} to={appPath(company, `items/${r.item.id}`)} sx={linkSx}>{r.item.code ?? '—'}</Box></Mono>
           <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)', whiteSpace: 'normal' }}>{r.item.name}</Typography>
+          {isPlanned(r) && <PlannedChip row={r} />}
         </Box>
       ),
     },
@@ -124,7 +129,7 @@ export default function BuyList() {
   return (
     <Box>
       <PageHeader title="To buy"
-        subtitle="What the released jobs need that nobody has: wanted, less what is held for them, free on the shelf and already on order. Suggesting writes one draft purchase order and rewrites it each time — it never buys twice."
+        subtitle="What released jobs need — and, marked planned, what confirmed, frozen lines will need — that nobody has: wanted, less what is held for them, free on the shelf and already on order. Suggesting writes one draft purchase order and rewrites it each time — it never buys twice."
         actions={canManage && (
           <Tooltip title={short.length ? 'Writes one draft purchase order for everything short' : 'Nothing is short, so there is nothing to raise'}>
             <span>
@@ -138,9 +143,12 @@ export default function BuyList() {
       <FilterBar search={search} onSearch={setSearch} placeholder="Search item or order">
         <FacetChip label="Short" active={show === 'short'} count={short.length} onClick={() => setShow('short')} />
         <FacetChip label="Everything wanted" active={show === 'all'} count={all.length} onClick={() => setShow('all')} />
+        <FacetChip label="All" active={kind === 'all'} count={(show === 'short' ? short : all).length} onClick={() => setKind('all')} />
+        <FacetChip label="Released" active={kind === 'released'} count={byKind(show === 'short' ? short : all, 'released').length} onClick={() => setKind('released')} />
+        <FacetChip label="Planned" active={kind === 'planned'} count={byKind(show === 'short' ? short : all, 'planned').length} onClick={() => setKind('planned')} />
       </FilterBar>
       <ErrorNotice error={list.error} onRetry={list.reload} />
-      <DataTable rows={rows} columns={columns} getRowId={(r) => r.item.id} loading={list.loading && !list.data} storageKey="buy-list" exportName="to-buy"
+      <DataTable rows={rows} columns={columns} getRowId={buyRowId} loading={list.loading && !list.data} storageKey="buy-list" exportName="to-buy"
         defaultSortKey="toBuy" defaultSortDir="desc"
         empty={<EmptyState icon={<ShoppingCartRounded />}
           title={term ? 'Nothing matches' : show === 'short' ? 'Nothing is short' : 'Nothing is wanted yet'}

@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type ChangeEvent, type ClipboardEvent, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react';
+import { useMemo, useRef, useState, type RefObject, type ChangeEvent, type ClipboardEvent, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react';
 import { Alert, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, MenuItem, TextField, Tooltip, Typography } from '@mui/material';
 import DragIndicatorRounded from '@mui/icons-material/DragIndicatorRounded';
 import CloseRounded from '@mui/icons-material/CloseRounded';
@@ -15,7 +15,7 @@ type Cell = { text: string; input: string; saved: string; editable: boolean; why
 
 /** The BOM around the shared SheetGrid: SheetGrid owns selection, clipboard and
  * the editor; this owns what a BOM cell means, plus row drag/drop and moving. */
-export function BomGrid({ rows, view, records: recordValues, recordIds, pending, busy, canEdit, canEditValues, onToggle, onWrites, onMove, dropRefusal, trailingCell, flowCell, markOf, placeholderOf, roleOf, canEditRole, onRole, cutChipOf, onlyUsedColumns, footer }: {
+export function BomGrid({ rows, view, records: recordValues, recordIds, pending, busy, canEdit, canEditValues, onToggle, onWrites, onMove, dropRefusal, trailingCell, flowCell, markOf, placeholderOf, roleOf, canEditRole, onRole, onlyUsedColumns, footer, gaps, handleRef }: {
   rows: BomRow[]; view: ValuesView | null; pending: Pending; busy: boolean; canEdit: (row: BomRow) => boolean;
   records?: SpecValues; recordIds?: number[]; canEditValues: (row: BomRow) => boolean;
   onToggle: (key: string) => void; onWrites: (writes: GridWrite[]) => void;
@@ -30,12 +30,16 @@ export function BomGrid({ rows, view, records: recordValues, recordIds, pending,
   canEditRole?: (row: BomRow) => boolean;
   onRole?: (row: BomRow, text: string) => void;
   /** "cut from 25 × 500 × 11650" for a part whose automatic cut pieces are hidden. */
-  cutChipOf?: (row: BomRow) => string | null;
   /** Show a column only if some row on screen can use it. */
   onlyUsedColumns?: boolean;
   footer?: ReactNode;
+  /** Values stage: the spec codes still missing on each record (by record id). Those cells turn amber and the row says how many. */
+  gaps?: ReadonlyMap<number, string[]>;
+  /** The grid's handle, for a screen that jumps to a cell. */
+  handleRef?: RefObject<SheetGridHandle | null>;
 }) {
-  const grid = useRef<SheetGridHandle>(null);
+  const ownHandle = useRef<SheetGridHandle>(null);
+  const grid = handleRef ?? ownHandle;
   const [drag, setDrag] = useState<BomRow | null>(null);
   const [drop, setDrop] = useState<{ key: string; position: DropPosition; refusal: string | null } | null>(null);
   const [roleEdit, setRoleEdit] = useState<{ key: string; text: string } | null>(null);
@@ -106,9 +110,10 @@ export function BomGrid({ rows, view, records: recordValues, recordIds, pending,
   const sheetCell = (row: BomRow, col: { code: string }): SheetCell => {
     const c = cellAt(row, col), n = row.node;
     const changed = col.code === '$quantity' ? !!row.paste || (n.lineId != null && n.lineId in pending.quantity) : col.code in (pending.values?.[n.id] ?? {});
-    return { text: c.text, input: c.input, editable: c.editable, why: c.why, tone: changed ? 'warning' : 'normal',
+    const gap = !!gaps?.get(n.id)?.includes(col.code);
+    return { text: c.text, input: c.input, editable: c.editable, why: gap ? (c.why ?? 'Required value is missing.') : c.why, tone: changed ? 'warning' : 'normal', tint: gap && !changed ? 'var(--c-warning-200)' : undefined,
       kind: c.type === 'number' ? 'number' : c.type === 'option' ? 'option' : c.type === 'boolean' ? 'bool' : c.type === 'date' ? 'date' : 'text',
-      options: c.options?.map((o) => ({ value: String(o.id), label: o.label || o.value })), title: c.why ?? c.text };
+      options: c.options?.map((o) => ({ value: String(o.id), label: o.label || o.value })), title: gap ? `Missing — ${c.why ?? 'a required value'}` : c.why ?? c.text };
   };
   const onSheetWrites = (writes: SheetWrite[]) => onWrites(writes.flatMap((w) => {
     const row = rowByKey.get(w.rowKey), col = colByKey.get(w.colKey);
@@ -131,7 +136,7 @@ export function BomGrid({ rows, view, records: recordValues, recordIds, pending,
       </> }))}
       rows={rows.map((row) => {
         const n = row.node, mark = markOf(row), marker = drop?.key === n.key ? drop : null;
-        const roleText = roleOf ? roleOf(row) : n.role, roleEditable = !!canEditRole?.(row) && !!onRole, chip = cutChipOf?.(row) ?? null;
+        const roleText = roleOf ? roleOf(row) : n.role, roleEditable = !!canEditRole?.(row) && !!onRole;
         return { key: n.key, label: n.name, depth: n.depth, collapsible: row.hasChildren, collapsed: !row.open,
           lead: canEdit(row) && row.parent ? <Tooltip title="Drag to move · click for move options"><IconButton size="small" draggable={!busy} disabled={busy}
             aria-label={`Move ${n.name}`} onClick={() => { setMoveDialog(row); setMoveTarget(''); setMovePosition('before'); }}
@@ -156,7 +161,8 @@ export function BomGrid({ rows, view, records: recordValues, recordIds, pending,
             <Box sx={{ fontSize: 10, color: 'var(--c-text-3)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={placeholderOf(row)?.title}>{row.paste ? `New copy${row.paste.source.children.length ? ' with children' : ''} · Save to edit this copy` : placeholderOf(row)?.code ?? (n.kind === 'temporary' ? '' : n.code ?? '')}{mark && !row.paste ? ` · ${mark.label}` : ''}</Box>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, minWidth: 0 }}>
               {flowCell(row)}
-              {chip && <Box component="span" title="Its cut plate is made automatically. Turn on Show cut pieces to see it." sx={{ fontSize: 10.5, px: 0.75, borderRadius: 'var(--r-sm)', background: 'var(--c-surface-2)', color: 'var(--c-text-3)', border: '1px solid var(--c-border)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{chip}</Box>}
+              {(gaps?.get(n.id)?.length ?? 0) > 0 && <Box component="span" data-testid="row-gaps" title={`Required values still empty: ${gaps?.get(n.id)?.join(', ')}`}
+                sx={{ fontSize: 10.5, fontWeight: 600, px: 0.75, borderRadius: 'var(--r-sm)', background: 'var(--c-warning-200)', color: 'var(--c-warning-800)', whiteSpace: 'nowrap' }}>{gaps?.get(n.id)?.length} missing</Box>}
             </Box>
           </>,
           trail: <>

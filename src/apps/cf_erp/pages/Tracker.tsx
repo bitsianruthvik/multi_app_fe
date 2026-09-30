@@ -20,6 +20,7 @@ import { RequirementsTable, StepActions } from '../components/ReleaseView';
 import { ProgressDialog, StartStepDialog } from '../components/TrackerDialogs';
 import { PromptDialog } from '../components/PromptDialog';
 import { useToast } from '../components/toastContext';
+import { TrackerTree } from '../components/Tracker/TrackerTree';
 
 const linkSx = { color: 'inherit', textDecoration: 'none', '&:hover': { color: 'var(--c-primary-700)', textDecoration: 'underline' } };
 const matches = (s: TrackerStepRow, term: string) => !term || [s.piece.label, s.order.code, s.operation.code, s.operation.name, s.stepName, s.machine?.code].some((v) => v?.toLowerCase().includes(term));
@@ -39,9 +40,11 @@ const refusal = (e: unknown) => (e instanceof CfApiError ? [e.message, ...e.prob
 const machineText = (s: TrackerStepRow) => (!s.machine ? '—' : s.status === 'done' ? `Made on ${s.machine.code}` : `On ${s.machine.code}`);
 
 /**
- * The production tracker (Phase 5): every step of every released line, what
- * it waits for, and the material it needs. Ready means everything it waits
- * for is done and its material is reserved — the shop floor's work queue.
+ * The production tracker. Progress (the default, 2026-09-30): every released
+ * piece as a tree of its frozen codes, its operations on the right and how much
+ * is done higher up. Steps: every step of every released line, what it waits
+ * for — the shop floor's work queue. Material: what the steps need. Steps and
+ * Material are read only when their tab is open (all 17k steps of a big line).
  */
 export default function Tracker() {
   const company = useCompanySlug();
@@ -49,15 +52,16 @@ export default function Tracker() {
   const isPermitted = useIsPermitted();
   const canProduce = isPermitted('cf_erp_production_manage');
   const canStock = isPermitted('cf_erp_inventory_manage');
-  const [view, setView] = useUrlParam('view', 'steps');
+  const [view, setView] = useUrlParam('view', 'tree');
+  const flat = view !== 'tree';
   const [status, setStatus] = useUrlParam('status', 'open');
   const [showAll, setShowAll] = useUrlParam('show', 'short');
   const [search, setSearch] = useState('');
   const [starting, setStarting] = useState<ProductionStep | null>(null);
   const [recording, setRecording] = useState<ProductionStep | null>(null);
   const [holding, setHolding] = useState<ProductionStep | null>(null);
-  const steps = useLoad(() => cfApi.get<TrackerStepRow[]>('/tracker/steps?status=all'), []);
-  const mats = useLoad(() => cfApi.get<TrackerMaterialRow[]>('/tracker/materials?show=all'), []);
+  const steps = useLoad(() => (flat ? cfApi.get<TrackerStepRow[]>('/tracker/steps?status=all') : Promise.resolve(null)), [flat]);
+  const mats = useLoad(() => (flat ? cfApi.get<TrackerMaterialRow[]>('/tracker/materials?show=all') : Promise.resolve(null)), [flat]);
   const term = search.trim().toLowerCase();
   const base = useMemo(() => (steps.data ?? []).filter((s) => matches(s, term)).map((s, i) => ({ s, i }))
     .sort((a, b) => PRIORITY[a.s.status] - PRIORITY[b.s.status] || a.i - b.i).map(({ s }) => s), [steps.data, term]);
@@ -124,11 +128,17 @@ export default function Tracker() {
 
   return (
     <Box>
-      <PageHeader title="Tracker" subtitle="Every released step, what it waits for, and the material it needs. Ready means everything it waits for is done and its material is reserved." />
-      <StatStrip stats={stats} />
+      <PageHeader title="Tracker" subtitle={view === 'tree'
+        ? 'Every released piece by its code: what is done, what is not, and what is blocked.'
+        : 'Every released step, what it waits for, and the material it needs. Ready means everything it waits for is done and its material is reserved.'} />
+      {flat && <StatStrip stats={stats} />}
       <DetailTabs active={view} onTab={setView}
-        tabs={[{ value: 'steps', label: 'Steps', count: count('open') }, { value: 'material', label: 'Material', count: shortCount }]} />
-      {view === 'steps' ? (
+        tabs={[
+          { value: 'tree', label: 'Progress' },
+          { value: 'steps', label: 'Steps', ...(steps.data ? { count: count('open') } : {}) },
+          { value: 'material', label: 'Material', ...(mats.data ? { count: shortCount } : {}) },
+        ]} />
+      {view === 'tree' ? <TrackerTree /> : view === 'steps' ? (
         <>
           <FilterBar search={search} onSearch={setSearch} placeholder="Search step, piece, order or machine">
             {STEP_FILTERS.map((f) => <FacetChip key={f.value} label={f.label} active={status === f.value} count={count(f.value)} onClick={() => setStatus(f.value)} />)}

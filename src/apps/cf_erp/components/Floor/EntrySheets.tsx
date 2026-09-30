@@ -3,7 +3,7 @@ import { Box, TextField, Typography } from '@mui/material';
 import { getQueue } from '../../api/floor';
 import type { FloorDay, FloorReason, FloorRow, FloorSession, FloorStep, FloorStop } from '../../api/types';
 import { BigButton, Calm, Choice, ChoiceRow, Sheet, Stepper, TapCard, TimeField } from './floorUi';
-import { addMin, at, pieceLine, dayStart, duration, errText, hhmm, lastEnd, MIN } from './floorModel';
+import { addMin, at, pieceLine, dayStart, duration, errText, hhmm, lastEnd, MIN, outsideShifts } from './floorModel';
 
 export interface Prefill { start: Date; end: Date }
 
@@ -33,11 +33,17 @@ function defaultSpan(day: FloorDay | null, now: Date): Prefill {
   return { start: from, end: to };
 }
 
-/** From / To with −15 / +15, and one tap to start where the last entry ended. */
-function TimeRange({ start, end, setStart, setEnd, day, dateStr, now, existing }: {
-  start: Date; end: Date; setStart: (d: Date) => void; setEnd: (d: Date) => void; day: FloorDay | null; dateStr: string; now: Date; existing: boolean;
+/**
+ * From / To with −15 / +15, and one tap to start where the last entry ended.
+ * Any time of the machine's working day may be entered (24 h — people often
+ * work past the shift); time outside the shift is said plainly, never refused.
+ */
+function TimeRange({ start, end, setStart, setEnd, day, dateStr, now, existing, kind }: {
+  start: Date; end: Date; setStart: (d: Date) => void; setEnd: (d: Date) => void; day: FloorDay | null; dateStr: string; now: Date; existing: boolean; kind: 'work' | 'stop';
 }) {
   const windowStart = dayStart(day, dateStr);
+  const outside = end.getTime() > start.getTime() ? outsideShifts(day, start.getTime(), end.getTime()).reduce((t, p) => t + (p.end - p.start), 0) / MIN : 0;
+  const shiftText = (day?.shifts ?? []).map((s) => `${hhmm(at(s.start))}–${hhmm(at(s.end))}`).join(', ');
   const last = lastEnd(day, now);
   const showLast = !!last && !existing && last.getTime() !== start.getTime();
   const bad = end.getTime() <= start.getTime() ? 'The end must be after the start.' : end.getTime() > now.getTime() + MIN ? 'That time has not happened yet.' : null;
@@ -47,6 +53,11 @@ function TimeRange({ start, end, setStart, setEnd, day, dateStr, now, existing }
         extra={showLast && last ? <BigButton variant="outlined" onClick={() => setStart(last)} sx={{ fontSize: 15, px: 2 }}>From the last end ({hhmm(last)})</BigButton> : undefined} />
       <TimeField label="To" value={end} onChange={setEnd} windowStart={windowStart} />
       {bad ? <Calm tone="warning">{bad}</Calm> : <Typography sx={{ fontSize: 16, color: 'var(--c-text-2)' }}>{duration((end.getTime() - start.getTime()) / MIN)}</Typography>}
+      {!bad && outside >= 1 && (
+        <Box data-testid="outside-shift-note" sx={{ fontSize: 16, color: 'var(--c-info-800)' }}>
+          {shiftText ? `${duration(outside)} of this is outside the shift (${shiftText})` : 'There is no shift this day'}{kind === 'work' ? ' — it counts as overtime.' : '.'}
+        </Box>
+      )}
     </Box>
   );
 }
@@ -164,7 +175,7 @@ export function WorkSheet({ target, day, dateStr, now, machineId, onClose, onSav
           </>
         )}
       </Box>
-      <TimeRange start={start} end={end} setStart={setStart} setEnd={setEnd} day={day} dateStr={dateStr} now={now} existing={!!existing} />
+      <TimeRange start={start} end={end} setStart={setStart} setEnd={setEnd} day={day} dateStr={dateStr} now={now} existing={!!existing} kind="work" />
       <Stepper label="How many finished?" value={good} onChange={setGood} placeholder="?" />
       {good === null && !!step && <Typography sx={{ fontSize: 16, color: 'var(--c-text-2)', textAlign: 'center', mt: -1.5 }}>Tap + or type a number. 0 is fine.</Typography>}
       {showScrap ? <Stepper label="Scrapped" value={scrap} onChange={setScrap} />
@@ -219,7 +230,7 @@ export function StopSheet({ target, day, dateStr, now, reasons, onClose, onSave,
         </ChoiceRow>
         {reason?.needsNote && <TextField multiline minRows={2} label="What happened?" value={note} onChange={(e) => setNote(e.target.value)} inputProps={{ style: { fontSize: 18 } }} />}
       </Box>
-      <TimeRange start={start} end={end} setStart={setStart} setEnd={setEnd} day={day} dateStr={dateStr} now={now} existing={!!existing} />
+      <TimeRange start={start} end={end} setStart={setStart} setEnd={setEnd} day={day} dateStr={dateStr} now={now} existing={!!existing} kind="stop" />
     </Sheet>
   );
 }

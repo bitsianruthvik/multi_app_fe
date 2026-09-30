@@ -137,8 +137,8 @@ function PiecesCard({ lineId, locked, summary }: { lineId: number; locked: boole
   const loading = load.status === 'loading';
 
   return (
-    <SectionCard title={locked ? 'The locked pieces' : 'The pieces lock will write'}
-      subtitle={locked ? 'Every piece as it was written, with the code it carries.' : 'Every piece, with the code it gets when the line is locked. Nothing is written by looking.'}
+    <SectionCard title={locked ? 'The frozen pieces' : 'The pieces freezing will write'}
+      subtitle={locked ? 'Every piece as it was written, with the code it carries.' : 'Every piece, with the code it gets when the line is frozen. Nothing is written by looking.'}
       actions={!preview
         ? <Button variant="outlined" startIcon={<AccountTreeRounded />} onClick={run} disabled={loading || summary.nodes === 0}>{loading ? 'Working out…' : 'Show the pieces'}</Button>
         : undefined}>
@@ -182,7 +182,7 @@ export function LockPanel({ lineId, lineNo, quantity, canManage, stages, onGoSta
   if (error && !view) return <ErrorNotice error={error} onRetry={reload} />;
   if (!view) {
     return (
-      <SectionCard title={`Lock line ${lineNo}`} subtitle="Checking the values, the cut pieces and the structure, and working out every piece's code.">
+      <SectionCard title={`Freeze the design of line ${lineNo}`} subtitle="Checking the values, the cut pieces and the structure, and working out every piece's code.">
         <Box sx={{ display: 'grid', gap: 1.5 }}>
           <Working active>{lockCheckingText(knownLineSize(lineId), quantity)}</Working>
           <SkeletonRows rows={5} height={44} />
@@ -202,7 +202,7 @@ export function LockPanel({ lineId, lineNo, quantity, canManage, stages, onGoSta
 
   const lock = async () => {
     const out = await lockLine(lineId);
-    toast.success(`Line ${lineNo} is locked — ${plural(out.locked?.pieces ?? s.nodes, 'piece')} carry their codes.`);
+    toast.success(`Line ${lineNo} is frozen — ${plural(out.locked?.pieces ?? s.nodes, 'piece')} carry their codes.`);
     reload();
     setRound((r) => r + 1);
     onChanged();
@@ -214,7 +214,7 @@ export function LockPanel({ lineId, lineNo, quantity, canManage, stages, onGoSta
       <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 1.5 }}>
         <Callout tone="success" icon={<LockRounded />}>
           <Box>
-            <strong>Locked on {when(view.locked.at)}</strong>{view.locked.by?.name ? ` by ${view.locked.by.name}` : ''}.{' '}
+            <strong>Frozen on {when(view.locked.at)}</strong>{view.locked.by?.name ? ` by ${view.locked.by.name}` : ''}.{' '}
             {plural(view.locked.pieces, 'piece')} carry their codes{pos ? `, at line position ${pos.text}` : ''}.
           </Box>
           <Box>Its structure, values and cut pieces stay as they are now. Nesting, buying and production carry on from these pieces. A change from here on is a new revision of the order.</Box>
@@ -226,7 +226,7 @@ export function LockPanel({ lineId, lineNo, quantity, canManage, stages, onGoSta
       <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 1.5 }}>
         {view.released && (
           <Callout tone="warning" icon={<ErrorOutlineRounded />}>
-            <Box>Line {lineNo} was released to production before it was locked. Take the release back first, so the tracker and the locked pieces carry the same codes.</Box>
+            <Box>Line {lineNo} was released to production before its design was frozen. Take the release back first, so the tracker and the frozen pieces carry the same codes.</Box>
           </Callout>
         )}
         <Box sx={{ display: 'flex', gap: 1, alignItems: 'baseline', flexWrap: 'wrap' }}>
@@ -237,7 +237,7 @@ export function LockPanel({ lineId, lineNo, quantity, canManage, stages, onGoSta
           </Typography>
           {positionWords && <Typography component="span" sx={{ fontSize: 12.5, color: 'var(--c-text-2)' }}>{positionWords}</Typography>}
         </Box>
-        <Box component="ul" aria-label="What lock checks" sx={{ listStyle: 'none', m: 0, p: 0, borderTop: '1px solid var(--c-divider)' }}>
+        <Box component="ul" aria-label="What freezing checks" sx={{ listStyle: 'none', m: 0, p: 0, borderTop: '1px solid var(--c-divider)' }}>
           {view.checks.map((ch) => {
             const label = stageLabel(ch.stageKey);
             return <CheckRow key={ch.key} check={ch} stageLabel={label} onGo={label && ch.stageKey ? () => onGoStage(ch.stageKey as string) : null} />;
@@ -245,11 +245,11 @@ export function LockPanel({ lineId, lineNo, quantity, canManage, stages, onGoSta
         </Box>
         {failing > 0 && (
           <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>
-            {plural(failing, 'thing is', 'things are')} in the way. The line can be locked once {failing === 1 ? 'it is' : 'they are'} settled.
+            {plural(failing, 'thing is', 'things are')} in the way. The design can be frozen once {failing === 1 ? 'it is' : 'they are'} settled.
           </Typography>
         )}
         {!canManage && (
-          <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>You can see this line, but your role cannot lock it. Ask for the orders permission.</Typography>
+          <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>You can see this line, but your role cannot freeze it. Ask for the orders permission.</Typography>
         )}
       </Box>
     );
@@ -257,12 +257,12 @@ export function LockPanel({ lineId, lineNo, quantity, canManage, stages, onGoSta
 
   return (
     <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 2, minWidth: 0 }}>
-      <SectionCard title={view.locked ? `Line ${lineNo} is locked` : `Lock line ${lineNo}`}
+      <SectionCard title={view.locked ? `Line ${lineNo} is frozen` : `Freeze the design of line ${lineNo}`}
         subtitle={view.locked
           ? `${view.line.item?.name ?? 'Its structure'} ×${view.line.quantity}, rolled out into its pieces.`
-          : 'Locking rolls the structure out into pieces, each with its own code. After that its structure, values and cut pieces no longer change — a change means a new revision of the order.'}
+          : 'Freezing the design rolls the structure out into pieces, each with its own code. After that its structure, values and cut pieces no longer change — a change means a new revision of the order.'}
         actions={!view.locked && canManage
-          ? <Button variant="contained" startIcon={<LockRounded />} disabled={!view.canLock || loading} onClick={() => setConfirming(true)}>Lock the line</Button>
+          ? <Button variant="contained" startIcon={<LockRounded />} disabled={!view.canLock || loading} onClick={() => setConfirming(true)}>Freeze the design</Button>
           : undefined}>
         <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 1.5 }}>
           {loading && <LinearProgress aria-label="Checking again" sx={{ borderRadius: 2 }} />}
@@ -272,13 +272,13 @@ export function LockPanel({ lineId, lineNo, quantity, canManage, stages, onGoSta
         </Box>
       </SectionCard>
       <PiecesCard key={`${lineId}:${round}:${view.locked ? 'locked' : 'plan'}`} lineId={lineId} locked={!!view.locked} summary={s} />
-      <ConfirmDialog open={confirming} title={`Lock line ${lineNo}?`} confirmLabel="Lock the line"
+      <ConfirmDialog open={confirming} title={`Freeze the design of line ${lineNo}?`} confirmLabel="Freeze the design"
         onClose={() => setConfirming(false)} onConfirm={lock}
         body={(
           <Box component="ul" sx={{ m: 0, pl: 2.25, display: 'grid', gap: 0.75 }}>
             <li>Each of the {plural(s.nodes, 'piece')} gets its code, written now{pos ? ` — at line position ${pos.text}` : ''}.</li>
             <li>The structure, the values and the cut pieces stop changing.</li>
-            <li>Nesting, buying and production carry on from these pieces.</li>
+            <li>Nesting picks the plates for these pieces; buying and production carry on from there.</li>
             <li>A change after this means a new revision of the order.</li>
           </Box>
         )} />
