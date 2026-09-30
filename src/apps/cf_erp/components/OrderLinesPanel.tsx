@@ -12,6 +12,7 @@ import type { PriceBasis } from '../api/money';
 import { BASIS_LABEL, BASIS_OPTIONS, billedText, rateText } from '../lib/money';
 import { Money } from './Money';
 import { OrderTotalBar } from './OrderTotalBar';
+import { LineTaxNote } from './GstUi';
 import { useCompanySlug } from '../hooks/useLoad';
 import { useIsPermitted } from '../hooks/useIsPermitted';
 import { appPath } from '../navMeta';
@@ -174,9 +175,14 @@ export function OrderLinesPanel({ order, onSaved, onOpenStructure, onRelease, on
     },
     {
       key: 'amount', header: 'Amount', numeric: true, alwaysVisible: true, sortValue: (l) => l.amount, exportValue: (l) => l.amount ?? '',
-      render: (l) => (l.amount != null ? <Money value={l.amount} /> : l.amountNote && l.rate != null
-        ? <Tooltip title={l.amountNote}><Box component="span" sx={{ color: 'var(--c-text-3)', fontSize: 12, whiteSpace: 'normal', display: 'inline-block', maxWidth: 220 }}>{l.amountNote}</Box></Tooltip>
-        : <Mono muted>—</Mono>),
+      render: (l) => (
+        <Box sx={{ textAlign: 'right' }}>
+          {l.amount != null ? <Money value={l.amount} /> : l.amountNote && l.rate != null
+            ? <Tooltip title={l.amountNote}><Box component="span" sx={{ color: 'var(--c-text-3)', fontSize: 12, whiteSpace: 'normal', display: 'inline-block', maxWidth: 220 }}>{l.amountNote}</Box></Tooltip>
+            : <Mono muted>—</Mono>}
+          {l.amount != null && <LineTaxNote tax={l.tax} />}
+        </Box>
+      ),
     },
     { key: 'committed', header: 'Committed', alwaysVisible: true, render: (l) => <Mono muted={!l.committedDate}>{l.committedDate ?? order.committedDate ?? '—'}</Mono> },
     { key: 'structure', header: 'Structure', alwaysVisible: true, render: (l) => structureText(l) },

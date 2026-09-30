@@ -45,6 +45,7 @@ export const SECTIONS: NavSection[] = [
     label: 'Sales',
     screens: [
       { key: 'orders', label: 'Orders', path: 'orders', hasDetail: true, permission: ORDERS, countKey: 'openOrders', keywords: ['sales order', 'inquiry', 'quote', 'project'] },
+      { key: 'invoices', label: 'Invoices', path: 'invoices', hasDetail: true, permission: ORDERS, keywords: ['tax invoice', 'gst', 'e-way', 'einvoice', 'irn', 'bill', 'dispatch'] },
       { key: 'customers', label: 'Customers', path: 'customers', permission: ORDERS, countKey: 'customers', keywords: ['suppliers', 'parties', 'vendors'] },
     ],
   },
@@ -89,6 +90,7 @@ export const SECTIONS: NavSection[] = [
       { key: 'specifications', label: 'Specifications', path: 'specifications', permission: VIEW, keywords: ['attributes', 'fields'] },
       { key: 'formulas', label: 'Formulas', path: 'formulas', permission: VIEW, keywords: ['calculation', 'roll-up', 'timing'] },
       { key: 'coding-rules', label: 'Coding rules', path: 'coding-rules', permission: VIEW, keywords: ['codes', 'numbering', 'names'] },
+      { key: 'company-tax', label: 'Company tax details', path: 'company-tax', permission: ORDERS, keywords: ['gst', 'gstin', 'tax', 'hsn', 'invoice prefix', 'lut', 'rates'] },
       { key: 'operators', label: 'Operators', path: 'operators', permission: PRODUCTION_MANAGE, keywords: ['people', 'workers', 'machine log', 'names'] },
       { key: 'stop-reasons', label: 'Stop reasons', path: 'stop-reasons', permission: PRODUCTION_MANAGE, keywords: ['downtime', 'breakdown', 'idle', 'machine log'] },
       // A process is how an order is worked through the office — never a flow,

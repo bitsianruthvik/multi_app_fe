@@ -15,6 +15,9 @@ const Processes = lazy(() => import('./pages/Processes'));
 const ProcessDetail = lazy(() => import('./pages/Processes').then((m) => ({ default: m.ProcessDetail })));
 const Orders = lazy(() => import('./pages/Orders'));
 const OrderDetail = lazy(() => import('./pages/OrderDetail'));
+const Invoices = lazy(() => import('./pages/Invoices'));
+const InvoiceDetail = lazy(() => import('./pages/InvoiceDetail'));
+const CompanyTax = lazy(() => import('./pages/CompanyTax'));
 const Customers = lazy(() => import('./pages/Customers'));
 const Plan = lazy(() => import('./pages/Plan'));
 const Tracker = lazy(() => import('./pages/Tracker'));
@@ -59,6 +62,9 @@ export function getCfErpRoutes(
     { path: '/:company/cf_erp/home', element: wrap(<Home />) },
     { path: '/:company/cf_erp/orders', element: wrap(<Orders />) },
     { path: '/:company/cf_erp/orders/:id', element: wrap(<OrderDetail />) },
+    { path: '/:company/cf_erp/invoices', element: wrap(<Invoices />) },
+    { path: '/:company/cf_erp/invoices/:id', element: wrap(<InvoiceDetail />) },
+    { path: '/:company/cf_erp/company-tax', element: wrap(<CompanyTax />) },
     { path: '/:company/cf_erp/customers', element: wrap(<Customers />) },
     { path: '/:company/cf_erp/items', element: wrap(<Records recordKind="item" />) },
     { path: '/:company/cf_erp/items/:id', element: wrap(<RecordDetail recordKind="item" />) },

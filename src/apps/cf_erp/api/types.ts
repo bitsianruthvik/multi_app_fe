@@ -1,4 +1,5 @@
 import type { PriceBasis, StockOwner } from './money';
+import type { GstRegistration, LineTax, OrderTax, PurchaseTax } from './gst';
 /** Shapes returned by the cf_erp backend (apps/cf_erp/services). */
 
 export type DataType = 'number' | 'text' | 'boolean' | 'date' | 'option' | 'table';
@@ -211,6 +212,9 @@ export interface MasterRecord {
     /** What it sells for, net of tax, on its price basis (per piece, kg, tonne or metre). */
     listPrice?: number | null;
     priceBasis?: PriceBasis;
+    hsnCode?: string | null;
+    gstRate?: number | null;
+    isService?: boolean;
   } | null;
   definition: {
     definitionType: 'template' | 'selection';
@@ -218,6 +222,10 @@ export interface MasterRecord {
     candidateClassificationId: number | null;
     candidateClassification?: PathStep | null;
   } | null;
+  /** HSN / SAC, GST rate and the service tick — on an item and on a template definition alike. */
+  hsnCode?: string | null;
+  gstRate?: number | null;
+  isService?: boolean;
   classificationPath?: PathStep[];
   sourceDefinition?: { id: number; code: string | null; name: string; status: RecordStatus } | null;
   counts?: { temporaryItems: number; allowedItems: number; criteria: number };
@@ -449,6 +457,8 @@ export interface SalesOrderLine {
   billedUom?: string | null;
   amount?: number | null;
   amountNote?: string | null;
+  /** The GST on this line, worked out on top of amount (CF_ERP_GST_PLAN §2). */
+  tax?: LineTax | null;
   item: { id: number; code: string | null; name: string; status: RecordStatus; kind: 'catalog' | 'temporary'; uom: string; revision: string | null } | null;
   design: { id: number; code: string | null; name: string };
   bomRevision: string | null;
@@ -461,7 +471,7 @@ export interface SalesOrderLine {
   revisesLineId: number | null;
 }
 
-export interface OrderTotal { amount: number; complete: boolean; unpricedLines: number[]; unmeasuredLines: number[] }
+export interface OrderTotal extends Partial<OrderTax> { amount: number; complete: boolean; unpricedLines: number[]; unmeasuredLines: number[] }
 
 export interface SalesOrder {
   id: number;
@@ -503,7 +513,12 @@ export interface Party {
   code: string;
   name: string;
   roles: PartyRole[];
+  /** The GSTIN (validated when given). */
   taxNumber: string | null;
+  gstRegistration?: GstRegistration | null;
+  stateCode?: string | null;
+  city?: string | null;
+  pincode?: string | null;
   contactName: string | null;
   email: string | null;
   phone: string | null;
@@ -921,7 +936,8 @@ export interface ReleaseCheck {
 }
 
 /** A delivery against a sales order line: an ordinary stock issue, plus the line as it now stands. */
-export interface Shipment { movement: Movement; release: Release }
+/** invoice: the tax-invoice draft the shipment went onto (null when the box was unticked). */
+export interface Shipment { movement: Movement; release: Release; invoice?: { id: number; status: string; invoiceNo: string | null } | null }
 
 export interface OrderProduction {
   releases: Release[];
@@ -965,7 +981,7 @@ export interface BuyRow {
   purchaseOrders: { id: number; code: string; status: PurchaseStatus; outstanding: number }[];
 }
 
-export interface PurchaseLine {
+export interface PurchaseLine extends Partial<PurchaseTax> {
   id: number;
   lineNo: number;
   item: { id: number; code: string | null; name: string; uom: string; trackedBy: 'quantity' | 'batch' | 'individual' };
@@ -990,10 +1006,12 @@ export interface PurchaseOrderRow {
   expectedDate: string | null;
   orderedAt: string | null;
   createdAt: string;
-  totals: { lines: number; ordered: number; received: number; outstanding: number; amount?: number; amountReceived?: number; unpricedLines?: number };
+  totals: { lines: number; ordered: number; received: number; outstanding: number; amount?: number; amountReceived?: number; unpricedLines?: number; tax?: number | null; gross?: number | null };
 }
 
 export interface PurchaseOrder extends PurchaseOrderRow {
+  /** Tax is payable by us, not part of the supplier's total. */
+  reverseCharge?: boolean;
   notes: string | null;
   lines: PurchaseLine[];
 }

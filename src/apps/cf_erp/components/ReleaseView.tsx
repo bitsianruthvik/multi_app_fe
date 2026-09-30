@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Box, Button, FormControlLabel, IconButton, LinearProgress, Switch, Tooltip, Typography } from '@mui/material';
+import { Alert, Box, Button, FormControlLabel, IconButton, LinearProgress, Switch, Tooltip, Typography } from '@mui/material';
 import { Link } from 'react-router-dom';
 import PlayArrowRounded from '@mui/icons-material/PlayArrowRounded';
 import EditNoteRounded from '@mui/icons-material/EditNoteRounded';
@@ -188,6 +188,9 @@ export function ReleaseView({ release, canProduce, canStock, onChange, onTakenBa
   const [holding, setHolding] = useState<ProductionStep | null>(null);
   const [takingBack, setTakingBack] = useState(false);
   const [shipping, setShipping] = useState(false);
+  // The tax-invoice draft the last shipment went onto, offered as a link.
+  const [madeInvoice, setMadeInvoice] = useState<NonNullable<Shipment['invoice']> | null>(null);
+  const company = useCompanySlug();
   const [inHouseOnly, setInHouseOnly] = useState(false);
   const r = release;
   const p = r.progress;
@@ -246,6 +249,12 @@ export function ReleaseView({ release, canProduce, canStock, onChange, onTakenBa
           )}
         </Box>
       )}>
+      {madeInvoice && (
+        <Alert severity="success" sx={{ mb: 2 }} onClose={() => setMadeInvoice(null)} data-testid="invoice-made">
+          Invoice draft{madeInvoice.invoiceNo ? ` ${madeInvoice.invoiceNo}` : ''} for {r.order.code} —{' '}
+          <Box component={Link} to={appPath(company, `invoices/${madeInvoice.id}`)} sx={{ color: 'inherit', fontWeight: 600 }}>review and issue</Box>.
+        </Alert>
+      )}
       <Box sx={{ display: p.steps ? 'flex' : 'none', alignItems: 'center', gap: 1.5, mb: 2, flexWrap: 'wrap' }}>
         <LinearProgress variant="determinate" value={pct} aria-label={`${pct}% of steps done`} sx={{ flex: '1 1 200px', height: 8, borderRadius: 4, background: 'var(--c-surface-2)', '& .MuiLinearProgress-bar': { background: 'var(--c-primary-500)', borderRadius: 4 } }} />
         <Mono muted>{pct}%</Mono>
@@ -289,6 +298,7 @@ export function ReleaseView({ release, canProduce, canStock, onChange, onTakenBa
         onShipped={(s: Shipment) => {
           const gone = Number((s.release.finished.delivered - f.delivered).toFixed(6));
           changed(s.release, `${qtyText(gone)} of ${r.item.code ?? r.item.name} shipped — ${s.movement.code}.`);
+          setMadeInvoice(s.invoice ?? null);
           onShipped?.();
         }} />
       <StartStepDialog step={starting} onClose={() => setStarting(null)} onDone={(next) => changed(next, 'Started.')} />

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Box, Button, IconButton, Tooltip, Typography } from '@mui/material';
+import { Box, Button, FormControlLabel, IconButton, Switch, Tooltip, Typography } from '@mui/material';
 import { Link, useParams } from 'react-router-dom';
 import AddRounded from '@mui/icons-material/AddRounded';
 import SendRounded from '@mui/icons-material/SendRounded';
@@ -16,6 +16,7 @@ import { invalidateNavCounts } from '../hooks/useNavCounts';
 import { appPath } from '../navMeta';
 import { qtyText } from '../lib/inventory';
 import { rupeeText } from '../lib/money';
+import { gstRateText, NO_GST_RATE } from '../lib/gst';
 import { Money } from '../components/Money';
 import { PriceCell, LastPaidHint } from '../components/PurchaseMoney';
 import { DetailSkeleton, EmptyState, ErrorNotice, Fact, Mono, SectionCard } from '../components/ui';
@@ -51,6 +52,7 @@ export default function PurchaseOrderDetail() {
   const done = (next: PurchaseOrder, message: string) => { po.setData(next); invalidateNavCounts(); toast.success(message); };
   const open = p.status === 'draft' || p.status === 'ordered' || p.status === 'partially_received';
   const editable = canManage && open;
+  const setReverse = async (on: boolean) => { try { done(await cfApi.put<PurchaseOrder>(`/purchase-orders/${p.id}`, { reverseCharge: on }), on ? 'Reverse charge on.' : 'Reverse charge off.'); } catch (e) { toast.error((e as Error).message); } };
 
   const columns: DataColumn<PurchaseLine>[] = [
     { key: 'no', header: '#', alwaysVisible: true, render: (l) => <Mono muted>{l.lineNo}</Mono> },
@@ -76,6 +78,12 @@ export default function PurchaseOrderDetail() {
         : <Box sx={{ textAlign: 'right' }}><Money value={l.unitPrice} digits={2} missing="no price" /><Box><LastPaidHint lastPaid={l.lastPaid} current={l.unitPrice} /></Box></Box>),
     },
     { key: 'amount', header: 'Amount', numeric: true, alwaysVisible: true, sortValue: (l) => l.amount, exportValue: (l) => l.amount ?? '', render: (l) => <Money value={l.amount} digits={2} missing="no price" /> },
+    {
+      key: 'gst', header: 'GST', numeric: true, sortValue: (l) => l.taxTotal, exportValue: (l) => l.taxTotal ?? '',
+      render: (l) => (l.amount == null ? <Mono muted>—</Mono>
+        : l.gstRate == null || l.taxTotal == null ? <Box component="span" data-testid="po-line-gst" sx={{ color: 'var(--c-text-3)', fontSize: 12 }}>{NO_GST_RATE}</Box>
+          : <Box data-testid="po-line-gst" sx={{ textAlign: 'right' }}><Mono>{rupeeText(l.taxTotal, 2)}</Mono><Box sx={{ fontSize: 11.5, color: 'var(--c-text-3)' }}>{gstRateText(l.gstRate)}{l.gross != null ? ` · ${rupeeText(l.gross, 2)} with GST` : ''}</Box></Box>),
+    },
     { key: 'expected', header: 'Expected', sortValue: (l) => l.expectedDate, render: (l) => <Mono muted>{l.expectedDate ?? '—'}</Mono> },
     {
       key: 'receipts', header: 'Deliveries', exportValue: (l) => l.receipts.map((r) => r.code).join(' '),
@@ -136,11 +144,24 @@ export default function PurchaseOrderDetail() {
             <Fact label="Received"><Mono>{qtyText(p.totals.received)}</Mono></Fact>
             <Fact label="Outstanding"><Mono>{qtyText(p.totals.outstanding)}</Mono></Fact>
             <Fact label="Amount">{p.totals.lines > 0 && p.totals.unpricedLines === p.totals.lines ? <Money value={null} missing="no prices yet" /> : <><Mono>{rupeeText(p.totals.amount ?? 0, 2)}</Mono>{(p.totals.unpricedLines ?? 0) > 0 && <Mono muted> + {p.totals.unpricedLines} unpriced</Mono>}</>}</Fact>
+            {p.totals.tax != null && (
+              <Fact label={p.reverseCharge ? 'GST (we pay)' : 'GST (input credit)'}>
+                <span data-testid="po-gst"><Mono>{rupeeText(p.totals.tax, 2)}</Mono></span>
+                {p.reverseCharge && <Typography sx={{ fontSize: 11.5, color: 'var(--c-text-3)' }}>reverse charge — not in the supplier's total</Typography>}
+              </Fact>
+            )}
+            {p.totals.gross != null && <Fact label={p.reverseCharge ? 'Supplier total' : 'Total incl. GST'}><Mono>{rupeeText(p.totals.gross, 2)}</Mono></Fact>}
             <Fact label="Expected"><Mono muted>{p.expectedDate ?? '—'}</Mono></Fact>
           </>}
         />
       }
     >
+      {(editable || p.reverseCharge) && (
+        <Box sx={{ mb: 1.5 }}>
+          <FormControlLabel control={<Switch size="small" checked={!!p.reverseCharge} disabled={!editable} onChange={(e) => void setReverse(e.target.checked)} inputProps={{ 'aria-label': 'Reverse charge' }} />}
+            label={<Typography sx={{ fontSize: 13 }}>Reverse charge — we pay the GST, not the supplier</Typography>} />
+        </Box>
+      )}
       <SectionCard title="Lines" subtitle="Each line is one item. A delivery is booked against its line and posts an ordinary stock receipt.">
         <DataTable rows={p.lines} columns={columns} getRowId={(l) => l.id} bare storageKey="purchase-lines" exportName={`${p.code}-lines`}
           empty={<EmptyState icon={<AddRounded />} title="No lines yet" hint="Add what is being bought, then send the order to the supplier."

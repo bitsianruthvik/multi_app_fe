@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Autocomplete, Box, Button, MenuItem, TextField, Typography } from '@mui/material';
+import { Autocomplete, Box, Button, Checkbox, FormControlLabel, MenuItem, TextField, Typography } from '@mui/material';
 import { Link } from 'react-router-dom';
 import { cfApi, LONG_WRITE_MS, type CfApiError } from '../api/client';
 import type { OperationDetail, ProductionStep, Release, ReleaseCheck, Shipment, StockingArea } from '../api/types';
@@ -213,14 +213,18 @@ export function ShipDialog({ release, onClose, onShipped }: {
   const [reference, setReference] = useState('');
   const [date, setDate] = useState('');
   const [note, setNote] = useState('');
+  // A tax invoice rides with every dispatch. Only someone who may write orders can make one.
+  const canInvoice = useIsPermitted()('cf_erp_orders_manage');
+  const [invoice, setInvoice] = useState(true);
   useEffect(() => {
-    if (release) { setQuantity(String(release.finished.readyToShip)); setReference(''); setDate(''); setNote(''); }
+    if (release) { setQuantity(String(release.finished.readyToShip)); setReference(''); setDate(''); setNote(''); setInvoice(true); }
   }, [release?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const toMake = f ? Math.max(0, Number((f.quantity - f.made).toFixed(6))) : 0;
   const save = async () => {
     if (release) {
       onShipped(await cfApi.post<Shipment>(`/order-lines/${release.line.id}/ship`, {
         quantity: quantity || null, reference: reference || null, movementDate: date || null, notes: note || null,
+        invoice: canInvoice && invoice,
       }));
     }
   };
@@ -236,6 +240,10 @@ export function ShipDialog({ release, onClose, onShipped }: {
       </Box>
       <TextField label="Delivery note" value={reference} onChange={(e) => setReference(e.target.value)} helperText="Your dispatch or delivery note number" />
       <TextField label="Note (optional)" value={note} onChange={(e) => setNote(e.target.value)} />
+      {canInvoice && (
+        <FormControlLabel control={<Checkbox size="small" checked={invoice} onChange={(e) => setInvoice(e.target.checked)} inputProps={{ 'aria-label': 'Make the tax invoice' }} />}
+          label={<Typography sx={{ fontSize: 13.5 }}>Make the tax invoice<Box component="span" sx={{ display: 'block', fontSize: 12, color: 'var(--c-text-3)' }}>A draft you review and issue — several lines on one truck share one.</Box></Typography>} />
+      )}
     </FormDialog>
   );
 }

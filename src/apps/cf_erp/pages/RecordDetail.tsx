@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Box, Button, CircularProgress, IconButton, MenuItem, TextField, Tooltip, Typography } from '@mui/material';
+import { Box, Button, Checkbox, CircularProgress, FormControlLabel, IconButton, MenuItem, TextField, Tooltip, Typography } from '@mui/material';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import AddRounded from '@mui/icons-material/AddRounded';
 import ContentCopyRounded from '@mui/icons-material/ContentCopyRounded';
@@ -43,10 +43,18 @@ import { ItemStockPanel } from '../components/ItemStockPanel';
 import { ItemMoneyFacts } from '../components/ItemMoneyFacts';
 import { useItemMoney } from '../hooks/useItemMoney';
 import { BASIS_OPTIONS } from '../lib/money';
+import { getTaxSettings } from '../api/gst';
+import { gstRateText } from '../lib/gst';
+import { HsnChip } from '../components/GstUi';
 import type { PriceBasis } from '../api/money';
 import { ValueHistory } from '../components/ValueHistory';
 import { useDetailTitle } from '../components/shell/detailTitle';
 import { useToast } from '../components/toastContext';
+
+/** HSN, GST rate and service tick, wherever the server puts them (on the record, or on its item). */
+function recordTax(r: MasterRecord): { hsn: string | null; rate: number | null; isService: boolean } {
+  return { hsn: r.hsnCode ?? r.item?.hsnCode ?? null, rate: r.gstRate ?? r.item?.gstRate ?? null, isService: !!(r.isService ?? r.item?.isService) };
+}
 
 const SELECTION_MODE: Record<string, string> = { allowed_list: 'An allowed list', spec_match: 'Matching specifications', both: 'List + matching' };
 
@@ -98,11 +106,15 @@ function DetailsForm({ record, tree, canEdit, onSaved, onTreeChanged }: {
     selectionMode: record.definition?.selectionMode ?? 'allowed_list', candidateClassificationId: record.definition?.candidateClassificationId ?? null,
     defaultFlowId: record.defaultFlowId ?? null,
     listPrice: record.item?.listPrice == null ? '' : String(record.item.listPrice), priceBasis: (record.item?.priceBasis ?? 'unit') as PriceBasis,
+    hsnCode: recordTax(record).hsn ?? '', gstRate: recordTax(record).rate == null ? '' : String(recordTax(record).rate), isService: recordTax(record).isService,
   });
+  const rates = useLoad(() => getTaxSettings().then((t) => t.gstRates), []);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<CfApiError | null>(null);
   const isTemp = record.item?.itemType === 'temporary';
   const isSelection = record.definition?.definitionType === 'selection';
+  // HSN / SAC and the GST rate live on a catalog item and on a template — what an order line is priced from.
+  const taxable = !isTemp && !isSelection;
   // Frozen records keep every field read-only. A LOCKED line (not released)
   // still takes a new "Usually made by" — and only that (user, 2026-09-30).
   const readOnly = !!record.frozen;
@@ -118,6 +130,7 @@ function DetailsForm({ record, tree, canEdit, onSaved, onTreeChanged }: {
     if (record.status === 'draft') body.code = form.code || null;
     if (!isTemp) body.classificationId = form.classificationId;
     if (record.item) { body.uom = form.uom; body.trackedBy = form.trackedBy; if (!isTemp) body.sourcing = form.sourcing; if (!isTemp) { body.listPrice = form.listPrice.trim() === '' ? null : form.listPrice; body.priceBasis = form.priceBasis; } }
+    if (taxable) { body.hsnCode = form.hsnCode.trim() || null; body.gstRate = form.gstRate === '' ? null : Number(form.gstRate); body.isService = form.isService; }
     if (isSelection) { body.selectionMode = form.selectionMode; body.candidateClassificationId = form.candidateClassificationId; }
     else body.defaultFlowId = form.defaultFlowId;
     try { onSaved(await cfApi.put<MasterRecord>(`/records/${record.id}`, body)); } catch (e) { setError(e as CfApiError); } finally { setBusy(false); }
@@ -161,6 +174,20 @@ function DetailsForm({ record, tree, canEdit, onSaved, onTreeChanged }: {
                 </TextField>
               </>
             )}
+          </>
+        )}
+        {taxable && (
+          <>
+            <TextField label="HSN / SAC" disabled={readOnly} value={form.hsnCode} onChange={(e) => setForm({ ...form, hsnCode: e.target.value.replace(/s+/g, '') })}
+              inputProps={{ inputMode: 'numeric', maxLength: 8, style: { fontFamily: 'var(--font-mono)' } }}
+              helperText={form.isService ? 'SAC: 6 digits, starting 99' : 'HSN: 4, 6 or 8 digits. Steel girders: 7308.'} />
+            <TextField select label="GST rate" disabled={readOnly} value={form.gstRate} onChange={(e) => setForm({ ...form, gstRate: e.target.value })}
+              helperText="From your rate list in Setup › Company tax details. An invoice cannot be issued without one.">
+              <MenuItem value="">no GST rate</MenuItem>
+              {[...new Set([...(rates.data ?? []), ...(form.gstRate === '' ? [] : [Number(form.gstRate)])])].sort((a, b) => a - b).map((r) => <MenuItem key={r} value={String(r)}>{gstRateText(r)}</MenuItem>)}
+            </TextField>
+            <FormControlLabel sx={{ gridColumn: '1 / -1', mt: -1 }} disabled={readOnly}
+              control={<Checkbox size="small" checked={form.isService} onChange={(e) => setForm({ ...form, isService: e.target.checked })} />} label="This is a service (SAC, not HSN)" />
           </>
         )}
         {!isSelection && (
@@ -312,6 +339,7 @@ export default function RecordDetail({ recordKind }: { recordKind: 'item' | 'def
       badges={(
         <>
           <KindChip kind={r.kind} />
+          {!isRow && <HsnChip hsn={recordTax(r).hsn} rate={recordTax(r).rate} isService={recordTax(r).isService} />}
           {!isRow && <StatusBadge status={r.status} />}
           {!r.code && (isRow
             ? <Badge family="neutral" label="Coded when its line is locked" title={placeholder ? placeholderTitle(placeholder) : 'Its pieces get their codes when the line is locked.'} />

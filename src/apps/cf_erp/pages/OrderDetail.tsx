@@ -25,6 +25,7 @@ import {
   DangerBadge, DetailSkeleton, EmptyState, ErrorNotice, Fact, Mono, OrderStatusBadge, OrderTypeChip, RevisionBadge, SectionCard, SkeletonRows,
 } from '../components/ui';
 import { CrossLink, DetailHeader, DetailLayout, type DetailTab } from '../components/DetailLayout';
+import { OrderInvoicesCard } from '../components/OrderInvoicesCard';
 import { BomPanel } from '../components/Bom/BomPanel';
 import { ProductionTabs } from '../components/Production/ProductionTabs';
 import { ConfirmDialog } from '../components/ConfirmDialog';
@@ -199,6 +200,7 @@ export default function OrderDetail() {
   const canTrack = isPermitted('cf_erp_production_view');
   const canProduce = isPermitted('cf_erp_production_manage');
   const canReserve = isPermitted('cf_erp_inventory_manage');
+  const canInvoices = isPermitted('cf_erp_orders_view');
   const order = useLoad(() => cfApi.get<SalesOrder>(`/orders/${id}`), [id]);
   const production = useLoad(() => (canTrack ? cfApi.get<OrderProduction>(`/orders/${id}/production`) : Promise.resolve(null)), [id, canTrack]);
   // Where this order has got to, line by line. Loaded ONCE here: the marks on
@@ -460,6 +462,7 @@ export default function OrderDetail() {
       <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 2 }}>
         <DetailsForm key={o.updatedAt} order={o} onSaved={(saved) => { orderSaved(saved); toast.success('Details saved.'); }} />
         {canStock && o.orderType === 'customer' && <OrderCostsCard order={o} />}
+        {canInvoices && o.orderType === 'customer' && o.status !== 'draft' && <OrderInvoicesCard orderId={o.id} />}
       </Box>
     );
   }
