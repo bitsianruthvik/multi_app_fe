@@ -23,7 +23,7 @@ import { useToast } from '../components/toastContext';
 
 const linkSx = { color: 'inherit', textDecoration: 'none', '&:hover': { color: 'var(--c-primary-700)', textDecoration: 'underline' } };
 const matches = (s: TrackerStepRow, term: string) => !term || [s.piece.label, s.order.code, s.operation.code, s.operation.name, s.stepName, s.machine?.code].some((v) => v?.toLowerCase().includes(term));
-const matMatches = (m: TrackerMaterialRow, term: string) => !term || [m.item.code, m.item.name, m.order.code, m.step?.label].some((v) => v?.toLowerCase().includes(term));
+const matMatches = (m: TrackerMaterialRow, term: string) => !term || [m.item.code, m.item.name, m.lot?.lotNo, m.order.code, m.step?.label].some((v) => v?.toLowerCase().includes(term));
 /**
  * Material still to reserve: not covered, and wanted by work that has not run
  * yet. Material on a step already finished is history — counting it would make

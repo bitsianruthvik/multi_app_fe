@@ -104,14 +104,14 @@ export function RequirementsTable({ rows, canStock, onChange, showOrder = false 
   const [issuing, setIssuing] = useState<Requirement | null>(null);
   const [letGo, setLetGo] = useState<{ req: Requirement; id: number; label: string } | null>(null);
   const reserve = async (q: Requirement) => {
-    try { onChange(await cfApi.post<Release>(`/requirements/${q.id}/reserve`, {})); invalidateNavCounts(); toast.success(`${q.item.code} reserved.`); } catch (e) { toast.error((e as Error).message); }
+    try { onChange(await cfApi.post<Release>(`/requirements/${q.id}/reserve`, {})); invalidateNavCounts(); toast.success(`${q.lot ? `${q.lot.lotNo} · ` : ''}${q.item.code ?? q.item.name} reserved.`); } catch (e) { toast.error((e as Error).message); }
   };
   const columns: DataColumn<RequirementRow>[] = [
     {
       key: 'item', header: 'Material', alwaysVisible: true,
       render: (q) => (
         <Box sx={{ py: 0.5 }}>
-          <Mono><Box component={Link} to={appPath(company, `items/${q.item.id}`)} sx={linkSx}>{q.item.code}</Box></Mono>
+          <Mono>{q.lot ? <Box component="span" title="Plate lot on the saved nest — one whole plate" sx={{ color: 'var(--c-text-2)' }}>{q.lot.lotNo} · </Box> : null}<Box component={Link} to={appPath(company, `items/${q.item.id}`)} sx={linkSx}>{q.item.code ?? q.item.name}</Box></Mono>
           <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)', whiteSpace: 'normal' }}>{q.item.name}</Typography>
         </Box>
       ),
@@ -219,7 +219,7 @@ export function ReleaseView({ release, canProduce, canStock, onChange, onTakenBa
       ? 'Work has started or material was issued, so this release can no longer be taken back.'
       : 'Undo the release: its reservations are let go and the line’s structure can change again.';
   return (
-    <SectionCard title={`Line ${r.line.lineNo} · ${r.item.code} ×${qtyText(r.quantity)}`}
+    <SectionCard title={`Line ${r.line.lineNo} · ${r.item.code ?? r.item.name} ×${qtyText(r.quantity)}`}
       subtitle={`Released ${new Date(r.releasedAt).toLocaleDateString()}${r.releasedBy ? ` by ${r.releasedBy}` : ''} · ${p.steps ? `${p.done} of ${p.steps} steps done · ` : ''}${p.materialsCovered} of ${p.materials} material line${p.materials === 1 ? '' : 's'} covered`}
       actions={(
         <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
@@ -296,7 +296,7 @@ export function ReleaseView({ release, canProduce, canStock, onChange, onTakenBa
       <PromptDialog open={!!holding} title="Put this step on hold?" label="Why" confirmLabel="Hold" body={holding?.label}
         onClose={() => setHolding(null)}
         onConfirm={async (note) => changed(await cfApi.post<Release>(`/production-steps/${holding?.id}/hold`, { note }), 'On hold.')} />
-      <ConfirmDialog open={takingBack} danger title="Take this release back?" confirmLabel="Take back" entityName={`${r.order.code} line ${r.line.lineNo} · ${r.item.code}`}
+      <ConfirmDialog open={takingBack} danger title="Take this release back?" confirmLabel="Take back" entityName={`${r.order.code} line ${r.line.lineNo} · ${r.item.code ?? r.item.name}`}
         body="Only while nothing has started and nothing was issued. Its reservations are let go, and the line's structure can change again."
         onClose={() => setTakingBack(false)}
         onConfirm={async () => { await cfApi.del(`/releases/${r.id}`); invalidateNavCounts(); toast.success('Release taken back.'); onTakenBack(); }} />

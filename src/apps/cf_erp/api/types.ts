@@ -784,7 +784,7 @@ export interface AreaInventory { area: StockingArea; totals: StockTotals; rows: 
 export type StepStatus = 'not_ready' | 'ready' | 'in_progress' | 'on_hold' | 'done';
 export type PieceStatus = 'not_ready' | 'ready' | 'in_progress' | 'on_hold' | 'complete';
 
-export interface StepWait { origin: 'flow' | 'rule' | 'default'; met: boolean; text: string }
+export interface StepWait { origin: 'flow' | 'rule' | 'default' | 'nest'; met: boolean; text: string }
 export interface StepBlocker { kind: 'wait' | 'material'; text: string }
 
 export interface ProductionStep {
@@ -827,6 +827,8 @@ export interface ProductionPiece {
 export interface Requirement {
   id: number;
   item: { id: number; code: string | null; name: string; uom: string; trackedBy: 'quantity' | 'batch' | 'individual' };
+  /** A nested line's raw plate: one whole plate per plate lot (the nest), named by its lot. Null for any other requirement. */
+  lot: { id: number; lotNo: string } | null;
   quantity: number;
   issued: number;
   reserved: number;
