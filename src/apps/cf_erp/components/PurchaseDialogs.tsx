@@ -4,6 +4,8 @@ import { cfApi, qs } from '../api/client';
 import type { Batch, MasterRecord, Party, PurchaseLine, PurchaseOrder, Resolution, StockingArea } from '../api/types';
 import { useLoad } from '../hooks/useLoad';
 import { qtyText } from '../lib/inventory';
+import type { ItemPrices } from '../api/money';
+import { dayText, priceText } from '../lib/money';
 import { FormDialog } from './FormDialog';
 import { RecordPicker } from './RecordPicker';
 import { SpecValueInput } from './SpecValueInput';
@@ -81,11 +83,18 @@ export function AddPurchaseLineDialog({ orderId, onClose, onAdded }: { orderId: 
   const [quantity, setQuantity] = useState('');
   const [expectedDate, setExpectedDate] = useState('');
   const [note, setNote] = useState('');
-  useEffect(() => { if (orderId) { setItem(null); setQuantity(''); setExpectedDate(''); setNote(''); } }, [orderId]);
+  const [price, setPrice] = useState('');
+  useEffect(() => { if (orderId) { setItem(null); setQuantity(''); setExpectedDate(''); setNote(''); setPrice(''); } }, [orderId]);
+  // What we last paid for this item, as a yardstick beside the price.
+  const itemId = item?.id ?? null;
+  const paid = useLoad(() => (itemId ? cfApi.get<ItemPrices>(`/records/${itemId}/prices`).catch(() => null) : Promise.resolve(null)), [itemId]);
+  const last = paid.data?.lastPurchasePrice != null ? paid.data : null;
   const save = async () => {
     if (!orderId) return;
     onAdded(await cfApi.post<PurchaseOrder>(`/purchase-orders/${orderId}/lines`, {
       itemId: item?.id, quantity, expectedDate: expectedDate || null, note: note || null,
+      // Empty = the last price paid, which the backend fills in.
+      ...(price.trim() ? { unitPrice: price.trim() } : {}),
     }));
   };
   return (
@@ -96,6 +105,11 @@ export function AddPurchaseLineDialog({ orderId, onClose, onAdded }: { orderId: 
           helperText={item?.item?.uom ? `In ${item.item.uom}` : ' '} inputProps={{ inputMode: 'decimal', style: { fontFamily: 'var(--font-mono)' } }} />
         <TextField label="Expected" type="date" value={expectedDate} onChange={(e) => setExpectedDate(e.target.value)} InputLabelProps={{ shrink: true }} />
       </Box>
+      <TextField label="Price per unit (₹, before tax)" value={price} onChange={(e) => setPrice(e.target.value)} inputProps={{ inputMode: 'decimal', style: { fontFamily: 'var(--font-mono)' } }}
+        helperText={last
+          ? <>Empty = the last price paid: {priceText(last.lastPurchasePrice)} ({[last.lastPurchaseSupplier?.name, dayText(last.lastPurchaseDate)].filter(Boolean).join(', ')}).{' '}
+            <Box component="a" role="button" tabIndex={0} onClick={() => setPrice(String(last.lastPurchasePrice))} sx={{ cursor: 'pointer', color: 'var(--c-primary-700)' }}>Use it</Box></>
+          : item ? 'Never bought before — no last price. Leave empty to price it later.' : ' '} />
       <TextField label="Note (optional)" value={note} onChange={(e) => setNote(e.target.value)} />
     </FormDialog>
   );
@@ -113,6 +127,7 @@ export function ReceiveLineDialog({ line, orderCode, onClose, onReceived }: {
   const [areaId, setAreaId] = useState('');
   const [supplierRef, setSupplierRef] = useState('');
   const [reference, setReference] = useState('');
+  const [unitCost, setUnitCost] = useState('');
   const [mode, setMode] = useState<'new' | 'existing'>('new');
   const [batchId, setBatchId] = useState('');
   const [values, setValues] = useState<Record<number, string>>({});
@@ -130,6 +145,7 @@ export function ReceiveLineDialog({ line, orderCode, onClose, onReceived }: {
   useEffect(() => {
     if (!line) return;
     setQuantity(String(line.outstanding)); setSupplierRef(''); setReference('');
+    setUnitCost(line.unitPrice == null ? '' : String(line.unitPrice));
     setMode('new'); setBatchId(''); setValues({});
   }, [line?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { setAreaId((a) => a || String(usable[0]?.id ?? '')); }, [usable]);
@@ -161,6 +177,8 @@ export function ReceiveLineDialog({ line, orderCode, onClose, onReceived }: {
       : { supplierRef: supplierRef || null, values: Object.entries(values).filter(([, v]) => v !== '').map(([id, v]) => ({ specificationId: Number(id), value: v })) };
     const r = await cfApi.post<{ order: PurchaseOrder }>(`/purchase-lines/${line.id}/receive`, {
       quantity, stockingAreaId: areaId, reference: reference || null,
+      // Prefilled from the line's price; typed over if the invoice says otherwise. Empty = the line's price, or not costed.
+      ...(unitCost.trim() ? { unitCost: unitCost.trim() } : {}),
       batchId: byBatch && mode === 'existing' ? Number(batchId) : undefined,
       batch: byBatch && mode === 'new' ? batch : undefined,
     });
@@ -178,6 +196,8 @@ export function ReceiveLineDialog({ line, orderCode, onClose, onReceived }: {
           {usable.map((a) => <MenuItem key={a.id} value={String(a.id)}>{a.code} · {a.name}</MenuItem>)}
         </TextField>
         <TextField label="Delivery note" value={reference} onChange={(e) => setReference(e.target.value)} helperText="The supplier document number" />
+        <TextField label="Unit cost (₹)" value={unitCost} onChange={(e) => setUnitCost(e.target.value)} inputProps={{ inputMode: 'decimal', style: { fontFamily: 'var(--font-mono)' } }}
+          helperText={line?.unitPrice != null ? `The line's price is ${priceText(line.unitPrice)}. Change it if the invoice differs.` : 'The line has no price — empty books it as not costed.'} />
       </Box>
       {byBatch && (
         <Box sx={{ pl: 1.5, borderLeft: '2px solid var(--c-primary-200)', display: 'grid', gap: 1.5 }}>

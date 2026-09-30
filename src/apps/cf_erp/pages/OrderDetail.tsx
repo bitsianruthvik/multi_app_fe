@@ -33,6 +33,9 @@ import { MovementButtons } from '../components/MovementButtons';
 import { ReleaseDialog } from '../components/TrackerDialogs';
 import { ReleaseView } from '../components/ReleaseView';
 import { OrderLinesPanel } from '../components/OrderLinesPanel';
+import { OrderCostsCard } from '../components/OrderCostsCard';
+import { CustomerMaterialPanel } from '../components/CustomerMaterialPanel';
+import { rupeeText } from '../lib/money';
 import { Explain, OrderStageTabs, ProcessAbsentNote, StageTabsSkeleton } from '../components/OrderProcess/StageTabs';
 import { StageBody } from '../components/OrderProcess/StageBody';
 import { StageFoot } from '../components/OrderProcess/StageFoot';
@@ -51,7 +54,7 @@ const DELETABLE: OrderStatus[] = ['draft', 'inquiry', 'lost', 'cancelled'];
 const REVISABLE: OrderStatus[] = ['inquiry', 'quoted', 'confirmed'];
 
 /** Tabs that are the same whether or not the order follows a process — drawn before the process has been read. */
-const PROCESS_FREE_TABS = ['stock', 'details'];
+const PROCESS_FREE_TABS = ['stock', 'details', 'material'];
 
 /**
  * The order's process, as the tabs need it: the line being worked on (the one
@@ -231,6 +234,8 @@ export default function OrderDetail() {
   // ── the tabs ──
   const releases = production.data?.releases.length;
   const stockTab: DetailTab[] = canStock ? [{ value: 'stock', label: 'Stock', count: moves.data?.length }] : [];
+  // Only a customer's order can have customer material.
+  const materialTab: DetailTab[] = canStock && order.data?.customer ? [{ value: 'material', label: 'Customer material' }] : [];
   const tabs: DetailTab[] = model
     ? [
       // Not stages. The three before Stock appear only when the process leaves
@@ -239,6 +244,7 @@ export default function OrderDetail() {
       ...(model.keys.includes('structure') || !lines.length ? [] : [{ value: 'structure', label: 'Structure' }]),
       ...(model.keys.includes('production') || !canTrack ? [] : [{ value: 'production', label: 'Production', count: releases }]),
       ...stockTab,
+      ...materialTab,
       { value: 'details', label: 'Details' },
     ]
     : [
@@ -246,6 +252,7 @@ export default function OrderDetail() {
       ...(lines.length ? [{ value: 'structure', label: 'Structure' }] : []),
       ...(canTrack ? [{ value: 'production', label: 'Production', count: releases }] : []),
       ...stockTab,
+      ...materialTab,
       { value: 'details', label: 'Details' },
     ];
   // Settled once the process question has an answer: stages, none, or an error.
@@ -343,6 +350,9 @@ export default function OrderDetail() {
           <Fact label="Committed"><Mono muted={!o.committedDate}>{o.committedDate ?? '—'}</Mono></Fact>
           {o.confirmedAt && <Fact label="Confirmed"><Mono muted>{new Date(o.confirmedAt).toLocaleDateString()}</Mono></Fact>}
           <Fact label="Lines"><Mono>{lines.length}</Mono></Fact>
+          {o.total && lines.length > 0 && (
+            <Fact label="Order value">{o.total.unpricedLines.length >= lines.length ? <Mono muted>not priced</Mono> : <><Mono>{rupeeText(o.total.amount)}</Mono>{!o.total.complete && <Mono muted> · not complete</Mono>}</>}</Fact>
+          )}
         </>
       )}>
       <ErrorNotice error={actionError} sx={{ mt: 2, mb: 0 }} />
@@ -443,8 +453,15 @@ export default function OrderDetail() {
         <MovementsTable bare rows={moves.data ?? []} loading={moves.loading && !moves.data} empty="Nothing has been issued to this order yet." />
       </SectionCard>
     );
+  } else if (tab === 'material' && canStock && o.customer) {
+    body = <CustomerMaterialPanel order={o} />;
   } else if (tab === 'details') {
-    body = <DetailsForm key={o.updatedAt} order={o} onSaved={(saved) => { orderSaved(saved); toast.success('Details saved.'); }} />;
+    body = (
+      <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 2 }}>
+        <DetailsForm key={o.updatedAt} order={o} onSaved={(saved) => { orderSaved(saved); toast.success('Details saved.'); }} />
+        {canStock && o.orderType === 'customer' && <OrderCostsCard order={o} />}
+      </Box>
+    );
   }
 
   return (

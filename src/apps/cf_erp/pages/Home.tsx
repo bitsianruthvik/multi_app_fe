@@ -27,7 +27,10 @@ import LocalShippingRounded from '@mui/icons-material/LocalShippingRounded';
 import DoneAllRounded from '@mui/icons-material/DoneAllRounded';
 import { useAuth } from '@core/contexts/AuthContext';
 import { cfApi, qs } from '../api/client';
-import type { CodeScheme, Formula, RecordList, SalesOrder, Specification, Tree } from '../api/types';
+import type { CodeScheme, Formula, PurchaseOrderRow, RecordList, SalesOrder, Specification, Tree } from '../api/types';
+import type { Valuation } from '../api/money';
+import type { MoneyTiles } from '../lib/homeMoney';
+import { moneyStats } from '../lib/homeMoney';
 import { useCompanySlug, useLoad } from '../hooks/useLoad';
 import { useIsPermitted } from '../hooks/useIsPermitted';
 import { appPath } from '../navMeta';
@@ -75,7 +78,7 @@ export default function Home() {
   const go = (path: string) => navigate(appPath(company, path));
 
   const { data, error, loading, reload } = useLoad(async () => {
-    const [cockpit, tree, specs, formulas, schemes, items, activeItems, definitions, orders] = await Promise.all([
+    const [cockpit, tree, specs, formulas, schemes, items, activeItems, definitions, orders, stockValue, openPurchases, orderBook] = await Promise.all([
       cfApi.get<Cockpit>('/cockpit'),
       soft(cfApi.get<Tree>('/classification')),
       soft(cfApi.get<Specification[]>('/specifications')),
@@ -86,10 +89,14 @@ export default function Home() {
       soft(cfApi.get<RecordList>(`/records${qs({ recordKind: 'item', status: 'active', limit: 1 })}`)),
       soft(cfApi.get<RecordList>(`/records${qs({ recordKind: 'definition', limit: 1 })}`)),
       isPermitted('cf_erp_orders_view') ? soft(cfApi.get<SalesOrder[]>(`/orders${qs({ open: 1, limit: 6 })}`)) : Promise.resolve(null),
+      // Money: three cheap reads (stock valuation, open purchase orders, confirmed orders' totals).
+      isPermitted('cf_erp_inventory_view') ? soft(cfApi.get<Valuation>('/stock/valuation?groupBy=owner')) : Promise.resolve(null),
+      isPermitted('cf_erp_inventory_view') ? soft(cfApi.get<PurchaseOrderRow[]>('/purchase-orders?status=open')) : Promise.resolve(null),
+      isPermitted('cf_erp_orders_view') ? soft(cfApi.get<SalesOrder[]>(`/orders${qs({ status: 'confirmed', limit: 500 })}`)) : Promise.resolve(null),
     ]);
     const setup: Setup | null = tree && specs && formulas && schemes && items && activeItems && definitions
       ? { tree, specs, formulas, schemes, items, activeItems, definitions } : null;
-    return { cockpit, setup, orders };
+    return { cockpit, setup, orders, money: { stockValue, openPurchases, orderBook } as MoneyTiles };
   }, []);
 
   const firstName = user?.name?.split(' ')[0] || 'there';
@@ -97,6 +104,7 @@ export default function Home() {
     const meta = STAT_META[s.key];
     return { label: s.label, value: s.value, icon: meta?.icon, tone: meta?.tone, onClick: meta ? () => go(meta.path) : undefined };
   });
+  const money = data ? moneyStats(data.money, go) : [];
   const queues = (data?.cockpit.queues ?? []).filter((q) => q.count > 0);
 
   const setup = data?.setup ?? null;
@@ -127,6 +135,7 @@ export default function Home() {
       ) : data && (
         <>
           {stats.length > 0 && <StatStrip stats={stats} />}
+          {money.length > 0 && <StatStrip stats={money} />}
 
           <Typography component="h2" sx={{ fontSize: 11, fontWeight: 600, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--c-text-3)', mb: 1.5 }}>
             Waiting on you

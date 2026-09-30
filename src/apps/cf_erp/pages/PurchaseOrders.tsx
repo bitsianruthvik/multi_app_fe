@@ -12,6 +12,8 @@ import { invalidateNavCounts } from '../hooks/useNavCounts';
 import { appPath } from '../navMeta';
 import { qtyText } from '../lib/inventory';
 import { PURCHASE_FILTERS } from '../lib/purchase';
+import { rupeeText } from '../lib/money';
+import { Money } from '../components/Money';
 import { Badge, EmptyState, ErrorNotice, Mono, PageHeader, StatStrip } from '../components/ui';
 import { FacetChip, FilterBar } from '../components/FilterBar';
 import { DataTable, type DataColumn } from '../components/DataTable';
@@ -38,10 +40,13 @@ export default function PurchaseOrders() {
 
   // Every figure describes the orders in the table below, so the two agree.
   const outstanding = rows.reduce((t, p) => t + p.totals.outstanding, 0);
+  const amount = rows.reduce((t, p) => t + (p.totals.amount ?? 0), 0);
+  const unpriced = rows.reduce((t, p) => t + (p.totals.unpricedLines ?? 0), 0);
   const stats = [
     { label: 'Orders', value: rows.length },
     { label: 'Draft', value: rows.filter((p) => p.status === 'draft').length, tone: 'warning' as const, hint: 'Not sent to a supplier yet' },
     { label: 'Awaiting delivery', value: rows.filter((p) => p.status === 'ordered' || p.status === 'partially_received').length, tone: 'info' as const, hint: 'Sent, still waiting on the supplier' },
+    { label: 'Order value', value: amount, display: amount === 0 && unpriced > 0 ? 'not priced' : rupeeText(amount), hint: unpriced ? `${unpriced} line${unpriced === 1 ? ' has' : 's have'} no price and ${unpriced === 1 ? 'is' : 'are'} left out` : 'Before tax' },
     { label: 'Outstanding', value: outstanding, display: qtyText(outstanding), hint: 'Quantity ordered and not yet received' },
   ];
 
@@ -64,6 +69,10 @@ export default function PurchaseOrders() {
     { key: 'ordered', header: 'Ordered', numeric: true, sortValue: (p) => p.totals.ordered, render: (p) => <Mono>{qtyText(p.totals.ordered)}</Mono> },
     { key: 'received', header: 'Received', numeric: true, sortValue: (p) => p.totals.received, render: (p) => <Mono muted={!p.totals.received}>{qtyText(p.totals.received)}</Mono> },
     { key: 'outstanding', header: 'Outstanding', numeric: true, sortValue: (p) => p.totals.outstanding, render: (p) => <Mono muted={!p.totals.outstanding}>{qtyText(p.totals.outstanding)}</Mono> },
+    {
+      key: 'amount', header: 'Amount', numeric: true, sortValue: (p) => p.totals.amount, exportValue: (p) => p.totals.amount ?? '',
+      render: (p) => (p.totals.lines > 0 && p.totals.unpricedLines === p.totals.lines ? <Money value={null} missing="no prices" /> : <><Money value={p.totals.amount} />{(p.totals.unpricedLines ?? 0) > 0 && <Box component="span" sx={{ color: 'var(--c-text-3)', fontSize: 11.5 }}> + {p.totals.unpricedLines} unpriced</Box>}</>),
+    },
     { key: 'expected', header: 'Expected', defaultHidden: true, sortValue: (p) => p.expectedDate, render: (p) => <Mono muted>{p.expectedDate ?? '—'}</Mono> },
   ];
 

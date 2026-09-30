@@ -37,6 +37,7 @@ import { useToast } from '../toastContext';
 import { PlateDrawing } from './PlateDrawing';
 import { WasteBar } from './WasteBar';
 import { NestSheetDialog } from './NestSheetDialog';
+import { NestMoney } from './NestMoney';
 
 /**
  * THE NESTING SCREEN — a sales order line's rectangles laid out on real plates.
@@ -659,6 +660,7 @@ export function NestingPanel({ orderId, lineId, canManage, onChanged }: {
           {summary}
           {t.unplaced > 0 && <Box component="span" sx={{ color: 'var(--c-warning-800)' }}>{` · ${t.unplaced} not placed`}</Box>}
         </Box>
+        {plan.saved && !proposal && <NestMoney key={`${t.plates}-${t.weightKg}`} orderId={orderId} lineId={lineId} />}
         {breakdown && <WasteBar parts={breakdown} />}
         {allOffcuts.length > 0 && (
           <Box sx={{ minWidth: 0 }}>

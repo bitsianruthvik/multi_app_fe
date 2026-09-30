@@ -1,7 +1,7 @@
 import CheckCircleRounded from '@mui/icons-material/CheckCircleRounded';
 import PauseCircleRounded from '@mui/icons-material/PauseCircleRounded';
 import CancelRounded from '@mui/icons-material/CancelRounded';
-import type { AreaPurpose, BatchStatus, MovementType, StockCategory } from '../api/types';
+import type { AreaPurpose, BatchStatus, LedgerMovementType, StockCategory } from '../api/types';
 import { BATCH_STATUS_LABEL, CATEGORY_LABEL, MOVEMENT_LABEL, PURPOSE_HELP, PURPOSE_LABEL } from '../lib/inventory';
 import { Badge, type Family } from './ui';
 
@@ -20,7 +20,7 @@ export function BatchStatusBadge({ status, note }: { status: BatchStatus; note?:
   return <Badge family={family} icon={BATCH_ICON[status]} label={BATCH_STATUS_LABEL[status]} title={note ?? undefined} />;
 }
 
-export function MovementTypeChip({ type, reversal = false }: { type: MovementType; reversal?: boolean }) {
-  const family: Family = type === 'receipt' ? 'success' : type === 'scrap' ? 'danger' : type === 'adjustment' ? 'warning' : 'neutral';
+export function MovementTypeChip({ type, reversal = false }: { type: LedgerMovementType; reversal?: boolean }) {
+  const family: Family = type === 'receipt' ? 'success' : type === 'scrap' || type === 'return' ? 'danger' : type === 'adjustment' ? 'warning' : 'neutral';
   return <Badge family={family} label={`${reversal ? 'Reversal · ' : ''}${MOVEMENT_LABEL[type]}`} />;
 }

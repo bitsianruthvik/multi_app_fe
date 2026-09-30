@@ -1,3 +1,4 @@
+import type { PriceBasis, StockOwner } from './money';
 /** Shapes returned by the cf_erp backend (apps/cf_erp/services). */
 
 export type DataType = 'number' | 'text' | 'boolean' | 'date' | 'option' | 'table';
@@ -207,6 +208,9 @@ export interface MasterRecord {
     sourcing: Sourcing;
     sourceDefinitionId: number | null;
     ownerOrderLineId: number | null;
+    /** What it sells for, net of tax, on its price basis (per piece, kg, tonne or metre). */
+    listPrice?: number | null;
+    priceBasis?: PriceBasis;
   } | null;
   definition: {
     definitionType: 'template' | 'selection';
@@ -438,6 +442,13 @@ export interface SalesOrderLine {
   committedDate: string | null;
   description: string | null;
   notes: string | null;
+  /** Price, net of tax. billed = what the rate multiplies (the quantity, or the line's weight in t / kg, or length in m). */
+  rate?: number | null;
+  rateBasis?: PriceBasis;
+  billed?: number | null;
+  billedUom?: string | null;
+  amount?: number | null;
+  amountNote?: string | null;
   item: { id: number; code: string | null; name: string; status: RecordStatus; kind: 'catalog' | 'temporary'; uom: string; revision: string | null } | null;
   design: { id: number; code: string | null; name: string };
   bomRevision: string | null;
@@ -449,6 +460,8 @@ export interface SalesOrderLine {
   /** The line of the previous revision this one was copied from. */
   revisesLineId: number | null;
 }
+
+export interface OrderTotal { amount: number; complete: boolean; unpricedLines: number[]; unmeasuredLines: number[] }
 
 export interface SalesOrder {
   id: number;
@@ -464,6 +477,8 @@ export interface SalesOrder {
   deliveryAddress: string | null;
   notes: string | null;
   lineCount?: number;
+  /** The order's total so far: what is priced, and which lines are not (yet). */
+  total?: OrderTotal;
   overdue: boolean;
   allowedTransitions: OrderStatus[];
   createdAt: string;
@@ -680,6 +695,8 @@ export interface MachineCalendar { machine: { id: number; code: string; name: st
 export type AreaPurpose = 'storage' | 'wip' | 'quarantine' | 'dispatch';
 export type BatchStatus = 'available' | 'on_hold' | 'rejected';
 export type MovementType = 'receipt' | 'issue' | 'transfer' | 'adjustment' | 'scrap';
+/** A posted movement can also be a return to a customer (customer material), which is not keyed in on the stock screens. */
+export type LedgerMovementType = MovementType | 'return';
 /** What a stock row counts as: its batch's quality state first, then its area's purpose. */
 export type StockCategory = 'available' | 'in_process' | 'held' | 'rejected' | 'dispatch';
 
@@ -703,6 +720,10 @@ export interface Batch {
   item: { id: number; code: string | null; name: string; uom: string };
   status: BatchStatus;
   statusNote: string | null;
+  /** null = ours; a customer's lot names the customer. */
+  owner?: StockOwner | null;
+  /** null = not costed. */
+  unitCost?: number | null;
   receivedOn: string | null;
   supplier: { id: number; code: string; name: string } | null;
   supplierRef: string | null;
@@ -720,8 +741,14 @@ export interface StockRow {
   area: { id: number; code: string; name: string; purpose: AreaPurpose };
   item: { id: number; code: string | null; name: string; uom: string; trackedBy: 'quantity' | 'batch' | 'individual' };
   batch: { id: number; code: string; status: BatchStatus } | null;
+  /** null = ours; a customer's lot names the customer. */
+  owner?: StockOwner | null;
   quantity: number;
   category: StockCategory;
+  /** The cost of one, its value, and how much of the quantity has no cost (null = not costed). */
+  unitCost?: number | null;
+  value?: number | null;
+  uncostedQty?: number;
   updatedAt: string;
 }
 
@@ -730,7 +757,7 @@ export interface StockTotals { onHand: number; available: number; in_process: nu
 export interface Movement {
   id: number;
   code: string;
-  movementType: MovementType;
+  movementType: LedgerMovementType;
   movementDate: string;
   party: { id: number; code: string; name: string } | null;
   order: { id: number; code: string } | null;
@@ -742,6 +769,11 @@ export interface Movement {
   lineCount: number;
   areaCodes: string;
   itemCodes: string;
+  /** What it moved, at cost. null = nothing in it is costed. */
+  value?: number | null;
+  uncostedRows?: number;
+  /** A return: scrap handed back by weight. */
+  returnKg?: number | null;
   createdAt: string;
 }
 
@@ -755,6 +787,9 @@ export interface MovementLine {
   /** Net change across its areas: + received, − issued or scrapped, 0 for a transfer. */
   change: number;
   notes: string | null;
+  owner?: StockOwner | null;
+  unitCost?: number | null;
+  value?: number | null;
 }
 
 export interface MovementDetail extends Movement { lines: MovementLine[] }
@@ -772,7 +807,7 @@ export interface ItemReservation {
 
 export interface ItemStock {
   item: { id: number; code: string | null; name: string; uom: string; trackedBy: 'quantity' | 'batch' | 'individual'; stockable: boolean };
-  totals: StockTotals & { reserved?: number; free?: number };
+  totals: StockTotals & { reserved?: number; free?: number; value?: number; uncostedQty?: number; customers?: StockTotals & { value: number; uncostedQty: number } };
   rows: StockRow[];
   reservations?: ItemReservation[];
   movements: Movement[];
@@ -921,6 +956,11 @@ export interface BuyRow {
   free: number;
   onOrder: number;
   toBuy: number;
+  /** The estimate: last price paid, else the list price per unit. null = no price known. */
+  estUnitPrice?: number | null;
+  estSource?: 'last_paid' | 'list' | null;
+  estFrom?: { id: number; code: string; date: string | null } | null;
+  estCost?: number | null;
   orders: { id: number; code: string }[];
   purchaseOrders: { id: number; code: string; status: PurchaseStatus; outstanding: number }[];
 }
@@ -932,6 +972,10 @@ export interface PurchaseLine {
   quantity: number;
   received: number;
   outstanding: number;
+  /** Net of tax; null = not priced. */
+  unitPrice?: number | null;
+  amount?: number | null;
+  lastPaid?: { unitPrice: number; orderId: number; orderCode: string; date: string | null; supplierName: string | null } | null;
   expectedDate: string | null;
   note: string | null;
   receipts: { id: number; code: string; date: string; quantity: number }[];
@@ -946,7 +990,7 @@ export interface PurchaseOrderRow {
   expectedDate: string | null;
   orderedAt: string | null;
   createdAt: string;
-  totals: { lines: number; ordered: number; received: number; outstanding: number };
+  totals: { lines: number; ordered: number; received: number; outstanding: number; amount?: number; amountReceived?: number; unpricedLines?: number };
 }
 
 export interface PurchaseOrder extends PurchaseOrderRow {

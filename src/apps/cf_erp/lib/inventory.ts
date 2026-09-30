@@ -1,4 +1,4 @@
-import type { AreaPurpose, BatchStatus, MovementType, StockCategory, Weekday } from '../api/types';
+import type { AreaPurpose, BatchStatus, LedgerMovementType, StockCategory, Weekday } from '../api/types';
 
 export const PURPOSE_LABEL: Record<AreaPurpose, string> = { storage: 'Storage', wip: 'Work in process', quarantine: 'Quarantine', dispatch: 'Dispatch' };
 export const PURPOSE_HELP: Record<AreaPurpose, string> = {
@@ -8,7 +8,7 @@ export const PURPOSE_HELP: Record<AreaPurpose, string> = {
   dispatch: 'Finished and waiting to leave.',
 };
 export const CATEGORY_LABEL: Record<StockCategory, string> = { available: 'Available', in_process: 'In process', held: 'Held', rejected: 'Rejected', dispatch: 'Dispatch' };
-export const MOVEMENT_LABEL: Record<MovementType, string> = { receipt: 'Receipt', issue: 'Issue', transfer: 'Transfer', adjustment: 'Count', scrap: 'Scrap' };
+export const MOVEMENT_LABEL: Record<LedgerMovementType, string> = { receipt: 'Receipt', issue: 'Issue', transfer: 'Transfer', adjustment: 'Count', scrap: 'Scrap', return: 'Returned to customer' };
 export const BATCH_STATUS_LABEL: Record<BatchStatus, string> = { available: 'Available', on_hold: 'On hold', rejected: 'Rejected' };
 export const WEEKDAY_SHORT: Record<Weekday, string> = { mon: 'Mon', tue: 'Tue', wed: 'Wed', thu: 'Thu', fri: 'Fri', sat: 'Sat', sun: 'Sun' };
 export const WEEKDAYS: Weekday[] = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];

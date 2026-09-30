@@ -15,6 +15,9 @@ import { useIsPermitted } from '../hooks/useIsPermitted';
 import { invalidateNavCounts } from '../hooks/useNavCounts';
 import { appPath } from '../navMeta';
 import { qtyText } from '../lib/inventory';
+import { rupeeText } from '../lib/money';
+import { Money } from '../components/Money';
+import { PriceCell, LastPaidHint } from '../components/PurchaseMoney';
 import { DetailSkeleton, EmptyState, ErrorNotice, Fact, Mono, SectionCard } from '../components/ui';
 import { CrossLink, DetailHeader, DetailLayout } from '../components/DetailLayout';
 import { DataTable, type DataColumn } from '../components/DataTable';
@@ -66,6 +69,13 @@ export default function PurchaseOrderDetail() {
       key: 'outstanding', header: 'Outstanding', numeric: true, alwaysVisible: true, sortValue: (l) => l.outstanding,
       render: (l) => (l.outstanding > 0 ? <Mono>{qtyText(l.outstanding)}</Mono> : <Mono muted>—</Mono>),
     },
+    {
+      key: 'price', header: 'Price (₹)', numeric: true, alwaysVisible: true, sortValue: (l) => l.unitPrice, exportValue: (l) => l.unitPrice ?? '',
+      render: (l) => (editable
+        ? <PriceCell line={l} onSave={async (price) => { done(await cfApi.put<PurchaseOrder>(`/purchase-lines/${l.id}`, { unitPrice: price }), 'Price saved.'); }} />
+        : <Box sx={{ textAlign: 'right' }}><Money value={l.unitPrice} digits={2} missing="no price" /><Box><LastPaidHint lastPaid={l.lastPaid} current={l.unitPrice} /></Box></Box>),
+    },
+    { key: 'amount', header: 'Amount', numeric: true, alwaysVisible: true, sortValue: (l) => l.amount, exportValue: (l) => l.amount ?? '', render: (l) => <Money value={l.amount} digits={2} missing="no price" /> },
     { key: 'expected', header: 'Expected', sortValue: (l) => l.expectedDate, render: (l) => <Mono muted>{l.expectedDate ?? '—'}</Mono> },
     {
       key: 'receipts', header: 'Deliveries', exportValue: (l) => l.receipts.map((r) => r.code).join(' '),
@@ -125,6 +135,7 @@ export default function PurchaseOrderDetail() {
             <Fact label="Ordered"><Mono>{qtyText(p.totals.ordered)}</Mono></Fact>
             <Fact label="Received"><Mono>{qtyText(p.totals.received)}</Mono></Fact>
             <Fact label="Outstanding"><Mono>{qtyText(p.totals.outstanding)}</Mono></Fact>
+            <Fact label="Amount">{p.totals.lines > 0 && p.totals.unpricedLines === p.totals.lines ? <Money value={null} missing="no prices yet" /> : <><Mono>{rupeeText(p.totals.amount ?? 0, 2)}</Mono>{(p.totals.unpricedLines ?? 0) > 0 && <Mono muted> + {p.totals.unpricedLines} unpriced</Mono>}</>}</Fact>
             <Fact label="Expected"><Mono muted>{p.expectedDate ?? '—'}</Mono></Fact>
           </>}
         />

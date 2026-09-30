@@ -16,6 +16,8 @@ import { invalidateNavCounts } from '../hooks/useNavCounts';
 import { useUrlParam } from '../hooks/useUrlState';
 import { appPath } from '../navMeta';
 import { qtyText } from '../lib/inventory';
+import { ownerLabel } from '../lib/money';
+import { Money, OwnerTag } from '../components/Money';
 import { DetailSkeleton, ErrorNotice, Fact, Mono, SectionCard } from '../components/ui';
 import { CrossLink, DetailHeader, DetailLayout } from '../components/DetailLayout';
 import { DataTable, type DataColumn } from '../components/DataTable';
@@ -78,6 +80,8 @@ export default function BatchDetail() {
       facts={(
         <>
           <Fact label="On hand"><Mono>{qtyText(b.onHand)} {b.item.uom}</Mono></Fact>
+          {b.owner && <Fact label="Owner"><OwnerTag name={ownerLabel(b.owner)} />{b.owner.order && <Mono muted> · for {b.owner.order.code}</Mono>}</Fact>}
+          {!b.owner && <Fact label="Unit cost"><Money value={b.unitCost} digits={2} /></Fact>}
           <Fact label="Received"><Mono>{b.receivedOn ?? '—'}</Mono></Fact>
           <Fact label="Supplier">{b.supplier?.name ?? '—'}</Fact>
           <Fact label="Supplier’s lot"><Mono muted={!b.supplierRef}>{b.supplierRef ?? '—'}</Mono></Fact>

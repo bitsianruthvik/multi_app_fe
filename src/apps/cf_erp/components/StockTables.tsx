@@ -5,6 +5,8 @@ import type { Movement, StockRow, StockTotals } from '../api/types';
 import { useCompanySlug } from '../hooks/useLoad';
 import { appPath } from '../navMeta';
 import { CATEGORY_LABEL, MOVEMENT_LABEL, qtyText } from '../lib/inventory';
+import { kgText, ownerLabel, rupeeText } from '../lib/money';
+import { Money, OwnerTag, StockValue } from './Money';
 import { Mono, StatStrip } from './ui';
 import { DataTable, type DataColumn } from './DataTable';
 import { BatchStatusBadge, CategoryBadge, MovementTypeChip } from './inventoryUi';
@@ -13,7 +15,7 @@ import { BatchStatusBadge, CategoryBadge, MovementTypeChip } from './inventoryUi
  * Totals by what the stock counts as — only the ones that hold something, after
  * "On hand". Each figure is shown exactly: half a tonne must not read as "0".
  */
-export function TotalsStrip({ totals, uom }: { totals: StockTotals & { reserved?: number; free?: number }; uom?: string }) {
+export function TotalsStrip({ totals, uom }: { totals: StockTotals & { reserved?: number; free?: number; value?: number; uncostedQty?: number; customers?: StockTotals & { value: number; uncostedQty: number } }; uom?: string }) {
   const unit = uom ? ` ${uom}` : '';
   const fig = (label: string, value: number, extra: { tone?: 'success' | 'info' | 'warning' | 'danger'; hint?: string } = {}) => ({
     label, value, display: `${qtyText(value)}${unit}`, ...extra,
@@ -29,6 +31,11 @@ export function TotalsStrip({ totals, uom }: { totals: StockTotals & { reserved?
       fig('Reserved', totals.reserved, { tone: 'info', hint: 'Set aside for released orders' }),
       fig('Free', totals.free ?? 0, { hint: 'Usable and not reserved' }),
     ] : []),
+    ...(totals.value != null ? [{
+      label: 'Value (ours)', value: totals.value, display: totals.value === 0 && (totals.uncostedQty ?? 0) > 0 ? 'not costed' : rupeeText(totals.value),
+      hint: (totals.uncostedQty ?? 0) > 0 ? `${qtyText(totals.uncostedQty)}${unit} of ours has no cost and is left out` : 'Our stock at cost',
+    }] : []),
+    ...(totals.customers && totals.customers.onHand > 0 ? [fig("Customer's", totals.customers.onHand, { hint: 'Material customers sent — never counted as ours' })] : []),
   ];
   return <StatStrip stats={stats} />;
 }
@@ -66,7 +73,19 @@ export function StockTable({ rows, hide = [], bare = false, storageKey, empty, l
         </Box>
       ) : <Box component="span" sx={{ color: 'var(--c-text-3)' }}>—</Box>),
     },
+    ...(rows.some((r) => r.owner) ? [{
+      key: 'owner', header: 'Owner', sortValue: (r: StockRow) => ownerLabel(r.owner), exportValue: (r: StockRow) => ownerLabel(r.owner),
+      render: (r: StockRow) => <OwnerTag name={r.owner ? ownerLabel(r.owner) : null} />,
+    }] : []),
     { key: 'qty', header: 'Quantity', numeric: true, sortValue: (r) => r.quantity, render: (r) => <>{qtyText(r.quantity)} <Mono muted>{r.item.uom}</Mono></> },
+    {
+      key: 'unitCost', header: 'Unit cost', numeric: true, defaultHidden: true, sortValue: (r) => (r.owner ? null : r.unitCost), exportValue: (r) => (r.owner ? '' : r.unitCost ?? ''),
+      render: (r) => (r.owner ? <Mono muted>—</Mono> : <Money value={r.unitCost} digits={2} />),
+    },
+    {
+      key: 'value', header: 'Value', numeric: true, sortValue: (r) => (r.owner ? null : r.value), exportValue: (r) => (r.owner ? '' : r.value ?? ''),
+      render: (r) => (r.owner ? <Box component="span" sx={{ color: 'var(--c-text-3)', fontSize: 12.5 }} title="A customer's material costs us nothing">theirs</Box> : <StockValue value={r.value} uncostedQty={r.uncostedQty} />),
+    },
     { key: 'category', header: 'Counts as', sortValue: (r) => r.category, exportValue: (r) => CATEGORY_LABEL[r.category], render: (r) => <CategoryBadge category={r.category} /> },
     { key: 'updated', header: 'Last moved', sortValue: (r) => r.updatedAt, render: (r) => <Mono muted>{String(r.updatedAt).slice(0, 10)}</Mono>, defaultHidden: true },
   ];
@@ -99,6 +118,14 @@ export function MovementsTable({ rows, empty = 'No movements yet.', bare = false
     {
       key: 'for', header: 'For / from', sortValue: (m) => m.party?.name ?? m.order?.code ?? m.reason ?? m.reference,
       render: (m) => <Box sx={{ color: 'var(--c-text-2)' }}>{m.party?.name ?? (m.order ? `Order ${m.order.code}` : null) ?? m.reason ?? m.reference ?? '—'}</Box>,
+    },
+    {
+      key: 'value', header: 'Value', numeric: true, sortValue: (m) => m.value,
+      exportValue: (m) => m.value ?? (m.returnKg != null ? `${m.returnKg} kg` : ''),
+      render: (m) => (m.movementType === 'return' && m.returnKg != null && m.value == null ? <Mono muted>{kgText(m.returnKg)} scrap</Mono> : (
+        <><Money value={m.value} />{m.value != null && (m.uncostedRows ?? 0) > 0 && <Box component="span" sx={{ color: 'var(--c-text-3)', fontSize: 11.5 }}> + not costed</Box>}
+          {m.movementType === 'return' && m.returnKg != null && <Mono muted> · {kgText(m.returnKg)} scrap</Mono>}</>
+      )),
     },
     { key: 'reference', header: 'Reference', sortValue: (m) => m.reference, render: (m) => <Mono muted>{m.reference ?? '—'}</Mono>, defaultHidden: true },
   ];

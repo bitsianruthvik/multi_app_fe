@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { Box, Button, IconButton, TextField, Tooltip, Typography } from '@mui/material';
+import { Box, Button, IconButton, MenuItem, TextField, Tooltip, Typography } from '@mui/material';
 import { Link } from 'react-router-dom';
 import AddRounded from '@mui/icons-material/AddRounded';
 import EditRounded from '@mui/icons-material/EditRounded';
@@ -8,6 +8,10 @@ import AccountTreeRounded from '@mui/icons-material/AccountTreeRounded';
 import RocketLaunchRounded from '@mui/icons-material/RocketLaunchRounded';
 import { cfApi, LONG_WRITE_MS } from '../api/client';
 import type { MasterRecord, SalesOrder, SalesOrderLine } from '../api/types';
+import type { PriceBasis } from '../api/money';
+import { BASIS_LABEL, BASIS_OPTIONS, billedText, rateText } from '../lib/money';
+import { Money } from './Money';
+import { OrderTotalBar } from './OrderTotalBar';
 import { useCompanySlug } from '../hooks/useLoad';
 import { useIsPermitted } from '../hooks/useIsPermitted';
 import { appPath } from '../navMeta';
@@ -25,11 +29,15 @@ const linkSx = { color: 'inherit', textDecoration: 'none', '&:hover': { color: '
 /** A new line: a catalog item (standard) or a template definition (custom — its structure is created at once). */
 function AddLineDialog({ order, open, onClose, onDone }: { order: SalesOrder; open: boolean; onClose: () => void; onDone: (o: SalesOrder) => void }) {
   const [rec, setRec] = useState<MasterRecord | null>(null);
-  const [form, setForm] = useState({ quantity: '1', committedDate: '', description: '' });
-  useEffect(() => { if (open) { setRec(null); setForm({ quantity: '1', committedDate: '', description: '' }); } }, [open]);
+  const [form, setForm] = useState({ quantity: '1', committedDate: '', description: '', rate: '', basis: '' as PriceBasis | '' });
+  useEffect(() => { if (open) { setRec(null); setForm({ quantity: '1', committedDate: '', description: '', rate: '', basis: '' }); } }, [open]);
   const stock = order.orderType === 'stock';
   // A template line copies its whole Template BOM beneath it — long on production, so wait for it.
-  const save = async () => onDone(await cfApi.post<SalesOrder>(`/orders/${order.id}/lines`, { recordId: rec?.id ?? null, quantity: form.quantity, committedDate: form.committedDate || null, description: form.description || null }, { timeoutMs: LONG_WRITE_MS }));
+  const save = async () => onDone(await cfApi.post<SalesOrder>(`/orders/${order.id}/lines`, {
+    recordId: rec?.id ?? null, quantity: form.quantity, committedDate: form.committedDate || null, description: form.description || null,
+    // Empty rate = the item's list price (a catalog line). Empty basis = the item's own, or per tonne for a custom line.
+    ...(form.rate.trim() ? { rate: form.rate.trim() } : {}), ...(form.basis ? { rateBasis: form.basis } : {}),
+  }, { timeoutMs: LONG_WRITE_MS }));
   const hint = rec?.kind === 'template'
     ? `Lays ${rec.code ?? rec.name} out as this line’s structure, its whole Template BOM beneath it. Nothing is coded until the line is locked.`
     : rec?.kind === 'catalog' ? 'A standard line: the catalog item as it is, with its Standard BOM if it has one.'
@@ -43,6 +51,15 @@ function AddLineDialog({ order, open, onClose, onDone }: { order: SalesOrder; op
           helperText={rec?.kind === 'template' ? 'Identical copies' : undefined} />
         <TextField label="Committed date" type="date" value={form.committedDate} onChange={(e) => setForm({ ...form, committedDate: e.target.value })} InputLabelProps={{ shrink: true }} helperText="Empty = the order's date" />
       </Box>
+      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', sm: 'repeat(2, minmax(0, 1fr))' }, gap: 2 }}>
+        <TextField label="Rate (₹, before tax)" value={form.rate} onChange={(e) => setForm({ ...form, rate: e.target.value })} inputProps={{ inputMode: 'decimal', style: { fontFamily: 'var(--font-mono)' } }}
+          helperText={rec?.kind === 'catalog' ? "Empty = the item's list price" : 'Optional — it can be set later'} />
+        <TextField select label="Priced" value={form.basis} onChange={(e) => setForm({ ...form, basis: e.target.value as PriceBasis | '' })}
+          helperText={rec?.kind === 'template' ? 'A custom line is priced per tonne unless you change it' : undefined}>
+          <MenuItem value="">{rec?.kind === 'template' ? 'Per tonne (usual)' : "The item's own"}</MenuItem>
+          {BASIS_OPTIONS.map((o) => <MenuItem key={o.value} value={o.value}>{o.label}</MenuItem>)}
+        </TextField>
+      </Box>
       <TextField label="Description (optional)" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="The customer's wording" />
     </FormDialog>
   );
@@ -50,15 +67,31 @@ function AddLineDialog({ order, open, onClose, onDone }: { order: SalesOrder; op
 
 /** Changes a line's quantity, date and wording. What it sells cannot change — remove it and add another. */
 function EditOrderLineDialog({ line, onClose, onDone }: { line: SalesOrderLine | null; onClose: () => void; onDone: (o: SalesOrder) => void }) {
-  const [form, setForm] = useState({ quantity: '', committedDate: '', description: '' });
-  useEffect(() => { if (line) setForm({ quantity: String(line.quantity), committedDate: line.committedDate ?? '', description: line.description ?? '' }); }, [line]);
-  const save = async () => onDone(await cfApi.put<SalesOrder>(`/order-lines/${line?.id}`, { quantity: form.quantity, committedDate: form.committedDate || null, description: form.description || null }));
+  const [form, setForm] = useState({ quantity: '', committedDate: '', description: '', rate: '', basis: 'unit' as PriceBasis });
+  useEffect(() => {
+    if (line) setForm({ quantity: String(line.quantity), committedDate: line.committedDate ?? '', description: line.description ?? '', rate: line.rate == null ? '' : String(line.rate),
+      // An unpriced custom line is priced by tonnage unless someone says otherwise.
+      basis: line.rate == null && line.lineType === 'custom' ? 'tonne' : (line.rateBasis ?? 'unit') });
+  }, [line]);
+  // A released line keeps its quantity, but what it sells for is commercial and can still change.
+  const priceOnly = !!line?.release;
+  const save = async () => onDone(await cfApi.put<SalesOrder>(`/order-lines/${line?.id}`, {
+    ...(priceOnly ? {} : { quantity: form.quantity, committedDate: form.committedDate || null, description: form.description || null }),
+    rate: form.rate.trim(), rateBasis: form.basis,
+  }));
   return (
-    <FormDialog open={!!line} title={`Change line ${line?.lineNo ?? ''}`} onClose={onClose} onSubmit={save} maxWidth="xs"
-      subtitle="What it sells cannot change — remove the line and add another.">
-      <TextField label="Quantity" value={form.quantity} onChange={(e) => setForm({ ...form, quantity: e.target.value })} autoFocus inputProps={{ inputMode: 'decimal', style: { fontFamily: 'var(--font-mono)' } }} />
-      <TextField label="Committed date" type="date" value={form.committedDate} onChange={(e) => setForm({ ...form, committedDate: e.target.value })} InputLabelProps={{ shrink: true }} />
-      <TextField label="Description" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
+    <FormDialog open={!!line} title={`${priceOnly ? 'Price' : 'Change'} line ${line?.lineNo ?? ''}`} onClose={onClose} onSubmit={save} maxWidth="xs"
+      subtitle={priceOnly ? 'Released to production — only its price can change.' : 'What it sells cannot change — remove the line and add another.'}>
+      {!priceOnly && <TextField label="Quantity" value={form.quantity} onChange={(e) => setForm({ ...form, quantity: e.target.value })} autoFocus inputProps={{ inputMode: 'decimal', style: { fontFamily: 'var(--font-mono)' } }} />}
+      <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 2 }}>
+        <TextField label="Rate (₹)" value={form.rate} onChange={(e) => setForm({ ...form, rate: e.target.value })} autoFocus={priceOnly} inputProps={{ inputMode: 'decimal', style: { fontFamily: 'var(--font-mono)' } }}
+          helperText={line?.billed != null && form.basis !== 'unit' ? `× ${Number(Number(line.billed).toFixed(3))} ${line.billedUom ?? ''} on this line` : 'Before tax. Empty = not priced.'} />
+        <TextField select label="Priced" value={form.basis} onChange={(e) => setForm({ ...form, basis: e.target.value as PriceBasis })}>
+          {BASIS_OPTIONS.map((o) => <MenuItem key={o.value} value={o.value}>{o.label}</MenuItem>)}
+        </TextField>
+      </Box>
+      {!priceOnly && <TextField label="Committed date" type="date" value={form.committedDate} onChange={(e) => setForm({ ...form, committedDate: e.target.value })} InputLabelProps={{ shrink: true }} />}
+      {!priceOnly && <TextField label="Description" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />}
     </FormDialog>
   );
 }
@@ -130,6 +163,21 @@ export function OrderLinesPanel({ order, onSaved, onOpenStructure, onRelease, on
       ),
     },
     { key: 'qty', header: 'Qty', numeric: true, alwaysVisible: true, render: (l) => <><Mono>{l.quantity}</Mono>{l.item?.uom && <Mono muted> {l.item.uom}</Mono>}</> },
+    {
+      key: 'rate', header: 'Rate', numeric: true, alwaysVisible: true, sortValue: (l) => l.rate, exportValue: (l) => (l.rate == null ? '' : `${l.rate} ${BASIS_LABEL[l.rateBasis ?? 'unit']}`),
+      render: (l) => (l.rate == null ? <Money value={null} missing="no rate" /> : (
+        <Box sx={{ textAlign: 'right' }}>
+          <Mono>{rateText(l.rate, l.rateBasis)}</Mono>
+          {l.rateBasis && l.rateBasis !== 'unit' && billedText(l.billed, l.billedUom) && <Box sx={{ fontSize: 11.5, color: 'var(--c-text-3)' }}><Mono muted>{billedText(l.billed, l.billedUom)}</Mono></Box>}
+        </Box>
+      )),
+    },
+    {
+      key: 'amount', header: 'Amount', numeric: true, alwaysVisible: true, sortValue: (l) => l.amount, exportValue: (l) => l.amount ?? '',
+      render: (l) => (l.amount != null ? <Money value={l.amount} /> : l.amountNote && l.rate != null
+        ? <Tooltip title={l.amountNote}><Box component="span" sx={{ color: 'var(--c-text-3)', fontSize: 12, whiteSpace: 'normal', display: 'inline-block', maxWidth: 220 }}>{l.amountNote}</Box></Tooltip>
+        : <Mono muted>—</Mono>),
+    },
     { key: 'committed', header: 'Committed', alwaysVisible: true, render: (l) => <Mono muted={!l.committedDate}>{l.committedDate ?? order.committedDate ?? '—'}</Mono> },
     { key: 'structure', header: 'Structure', alwaysVisible: true, render: (l) => structureText(l) },
     ...(order.status === 'confirmed' || lines.some((l) => l.release) ? [{
@@ -150,10 +198,11 @@ export function OrderLinesPanel({ order, onSaved, onOpenStructure, onRelease, on
             <>
               <Tooltip title="Open its structure"><IconButton size="small" aria-label={`Structure of line ${l.lineNo}`} onClick={() => onOpenStructure(l)}><AccountTreeRounded fontSize="small" /></IconButton></Tooltip>
               {onRelease && canProduce && order.status === 'confirmed' && !l.release && <Button size="small" variant="outlined" startIcon={<RocketLaunchRounded />} onClick={() => onRelease(l)}>Release</Button>}
-              {editable && !l.release && <Tooltip title="Change"><IconButton size="small" aria-label={`Change line ${l.lineNo}`} onClick={() => setEditing(l)}><EditRounded fontSize="small" /></IconButton></Tooltip>}
+              {editable && <Tooltip title={l.release ? 'Change the price' : 'Change'}><IconButton size="small" aria-label={`Change line ${l.lineNo}`} onClick={() => setEditing(l)}><EditRounded fontSize="small" /></IconButton></Tooltip>}
               {editable && !l.release && <Tooltip title="Remove"><IconButton size="small" aria-label={`Remove line ${l.lineNo}`} onClick={() => setRemoving(l)}><DeleteOutlineRounded fontSize="small" /></IconButton></Tooltip>}
             </>
           )} />
+        {order.total && lines.length > 0 && <OrderTotalBar total={order.total} lineCount={lines.length} />}
       </SectionCard>
 
       <AddLineDialog order={order} open={adding} onClose={() => setAdding(false)} onDone={(saved) => { onSaved(saved); toast.success('Line added.'); }} />

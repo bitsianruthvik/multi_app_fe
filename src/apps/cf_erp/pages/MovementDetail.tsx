@@ -12,6 +12,8 @@ import { useIsPermitted } from '../hooks/useIsPermitted';
 import { invalidateNavCounts } from '../hooks/useNavCounts';
 import { appPath } from '../navMeta';
 import { qtyText } from '../lib/inventory';
+import { kgText, ownerLabel, rupeeText } from '../lib/money';
+import { Money, OwnerTag } from '../components/Money';
 import { Badge, DetailSkeleton, ErrorNotice, Fact, Mono, SectionCard } from '../components/ui';
 import { CrossLink, DetailHeader, DetailLayout } from '../components/DetailLayout';
 import { DataTable, type DataColumn } from '../components/DataTable';
@@ -57,7 +59,13 @@ export default function MovementDetail() {
       key: 'qty', header: isCount ? 'Change' : 'Quantity', numeric: true, alwaysVisible: true,
       render: (l) => <>{isCount ? `${l.change > 0 ? '+' : ''}${qtyText(l.change)}` : qtyText(l.quantity)} <Mono muted>{l.item.uom}</Mono></>,
     },
+    ...(m.lines.some((l) => l.owner) ? [{ key: 'owner', header: 'Owner', render: (l: MovementLine) => <OwnerTag name={l.owner ? ownerLabel(l.owner) : null} /> }] : []),
+    // A customer's material costs us nothing: its cost, if one was typed, is a reference only.
+    { key: 'unitCost', header: 'Unit cost', numeric: true, alwaysVisible: true, render: (l: MovementLine) => (l.owner ? <Mono muted>—</Mono> : <Money value={l.unitCost} digits={2} />) },
+    { key: 'value', header: 'Value', numeric: true, alwaysVisible: true, render: (l: MovementLine) => (l.owner ? <Box component="span" sx={{ color: 'var(--c-text-3)', fontSize: 12.5 }}>theirs</Box> : <Money value={l.value} digits={2} />) },
   ];
+  const ourValue = m.lines.filter((l) => !l.owner).reduce((t, l) => t + (l.value ?? 0), 0);
+  const uncosted = m.lines.filter((l) => !l.owner && l.value == null).length;
 
   const header = (
     <DetailHeader code={m.code} subtitle={m.reason ?? undefined}
@@ -75,6 +83,10 @@ export default function MovementDetail() {
           {m.order && <Fact label="For order"><Mono><Box component={Link} to={to(`orders/${m.order.id}`)} sx={linkSx}>{m.order.code}</Box></Mono></Fact>}
           {m.reference && <Fact label="Reference"><Mono>{m.reference}</Mono></Fact>}
           <Fact label="Lines"><Mono>{m.lines.length}</Mono></Fact>
+          {m.lines.some((l) => !l.owner) && (
+            <Fact label="Value">{uncosted === m.lines.filter((l) => !l.owner).length ? <Money value={null} /> : <><Mono>{rupeeText(ourValue, 2)}</Mono>{uncosted > 0 && <Mono muted> + {uncosted} not costed</Mono>}</>}</Fact>
+          )}
+          {m.returnKg != null && <Fact label="Scrap handed back"><Mono>{kgText(m.returnKg)}</Mono></Fact>}
           <Fact label="Posted"><Mono muted>{new Date(m.createdAt).toLocaleString()}</Mono></Fact>
         </>
       )}>

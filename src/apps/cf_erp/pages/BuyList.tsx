@@ -5,6 +5,9 @@ import ShoppingCartRounded from '@mui/icons-material/ShoppingCartRounded';
 import PlaylistAddCheckRounded from '@mui/icons-material/PlaylistAddCheckRounded';
 import { cfApi, qs } from '../api/client';
 import type { BuyRow, SuggestResult } from '../api/types';
+import type { BuyListTotal } from '../api/money';
+import { dayText, priceText, rupeeText } from '../lib/money';
+import { Money } from '../components/Money';
 import { useCompanySlug, useLoad } from '../hooks/useLoad';
 import { useIsPermitted } from '../hooks/useIsPermitted';
 import { useUrlParam } from '../hooks/useUrlState';
@@ -32,8 +35,8 @@ export default function BuyList() {
   const [busy, setBusy] = useState(false);
   // Everything wanted is fetched once and the two views are filtered here, so
   // the chip counts and the figures above them are true in both.
-  const list = useLoad(() => cfApi.get<BuyRow[]>(`/buy-list${qs({ show: 'all' })}`), []);
-  const all = useMemo(() => list.data ?? [], [list.data]);
+  const list = useLoad(() => cfApi.get<{ rows: BuyRow[]; total: BuyListTotal }>(`/buy-list${qs({ show: 'all', summary: 1 })}`), []);
+  const all = useMemo(() => list.data?.rows ?? [], [list.data]);
   const short = useMemo(() => all.filter((r) => r.toBuy > 0), [all]);
   const term = search.trim().toLowerCase();
   const rows = useMemo(() => {
@@ -43,8 +46,15 @@ export default function BuyList() {
       : base;
   }, [all, short, show, term]);
 
+  // The footer adds what is shown: the server's total when nothing is searched away, else the visible rows.
+  const total = useMemo(() => {
+    if (!term && show === 'short' && list.data) return list.data.total;
+    const shown = rows.filter((r) => r.toBuy > 0);
+    return { estCost: Math.round(shown.reduce((t, r) => t + (r.estCost ?? 0), 0) * 100) / 100, items: shown.length, unpricedItems: shown.filter((r) => r.estCost == null).length };
+  }, [list.data, rows, show, term]);
   const stats = [
     { label: 'Items short', value: short.length, tone: short.length ? ('danger' as const) : ('success' as const), hint: 'Wanted by released work and nobody has it', onClick: () => setShow('short') },
+    ...(list.data ? [{ label: 'Est. cost to buy', value: list.data.total.estCost, display: rupeeText(list.data.total.estCost), hint: list.data.total.unpricedItems ? `${list.data.total.unpricedItems} item${list.data.total.unpricedItems === 1 ? ' has' : 's have'} no price and ${list.data.total.unpricedItems === 1 ? 'is' : 'are'} left out` : 'At the last price paid, else the list price' }] : []),
     { label: 'On order', value: all.filter((r) => r.onOrder > 0).length, tone: 'info' as const, hint: 'Items with steel already coming' },
     { label: 'Covered', value: all.length - short.length, tone: 'success' as const, hint: 'Held for the job, free in stock, or on order' },
   ];
@@ -89,6 +99,19 @@ export default function BuyList() {
         : <Mono muted>—</Mono>),
     },
     {
+      key: 'estPrice', header: 'Est. price', numeric: true, sortValue: (r) => r.estUnitPrice, exportValue: (r) => r.estUnitPrice ?? '',
+      render: (r) => (r.estUnitPrice == null ? <Money value={null} missing="no price" /> : (
+        <Tooltip title={r.estSource === 'last_paid' ? `Last paid${r.estFrom ? ` on ${r.estFrom.code}${r.estFrom.date ? `, ${dayText(r.estFrom.date)}` : ''}` : ''}` : 'From the list price'}>
+          <Box sx={{ textAlign: 'right' }}><Mono>{priceText(r.estUnitPrice)}</Mono>
+            <Typography sx={{ fontSize: 11.5, color: 'var(--c-text-3)' }}>{r.estSource === 'last_paid' ? 'last paid' : 'list price'}</Typography></Box>
+        </Tooltip>
+      )),
+    },
+    {
+      key: 'estCost', header: 'Est. cost', numeric: true, alwaysVisible: true, sortValue: (r) => (r.toBuy > 0 ? r.estCost : null), exportValue: (r) => r.estCost ?? '',
+      render: (r) => (r.toBuy > 0 ? <Money value={r.estCost} missing="no price" /> : <Mono muted>—</Mono>),
+    },
+    {
       key: 'orders', header: 'Wanted by', sortValue: (r) => r.orders.length, exportValue: (r) => r.orders.map((o) => o.code).join(' '),
       render: (r) => (
         <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap' }}>
@@ -126,6 +149,13 @@ export default function BuyList() {
               : 'Release a line to production and its material appears here.'}
           action={term ? <Button onClick={() => setSearch('')}>Clear search</Button>
             : show === 'short' && all.length ? <Button onClick={() => setShow('all')}>See everything wanted</Button> : undefined} />} />
+      {rows.length > 0 && (
+        <Box data-testid="buy-total" sx={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'baseline', gap: 1.5, flexWrap: 'wrap', mt: 1.5, px: 1 }}>
+          {total.unpricedItems > 0 && <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-3)' }}>{total.unpricedItems} item{total.unpricedItems === 1 ? '' : 's'} with no price left out</Typography>}
+          <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>Estimated total to buy</Typography>
+          <Money value={total.estCost} strong />
+        </Box>
+      )}
     </Box>
   );
 }

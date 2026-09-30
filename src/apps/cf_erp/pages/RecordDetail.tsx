@@ -40,6 +40,10 @@ import { CreateRecordDialog } from '../components/CreateRecordDialog';
 import { FlowPicker } from '../components/FlowPicker';
 import { FlowTag } from '../components/FlowTag';
 import { ItemStockPanel } from '../components/ItemStockPanel';
+import { ItemMoneyFacts } from '../components/ItemMoneyFacts';
+import { useItemMoney } from '../hooks/useItemMoney';
+import { BASIS_OPTIONS } from '../lib/money';
+import type { PriceBasis } from '../api/money';
 import { ValueHistory } from '../components/ValueHistory';
 import { useDetailTitle } from '../components/shell/detailTitle';
 import { useToast } from '../components/toastContext';
@@ -93,6 +97,7 @@ function DetailsForm({ record, tree, canEdit, onSaved, onTreeChanged }: {
     uom: record.item?.uom ?? '', trackedBy: record.item?.trackedBy ?? 'quantity', sourcing: record.item?.sourcing ?? 'stock',
     selectionMode: record.definition?.selectionMode ?? 'allowed_list', candidateClassificationId: record.definition?.candidateClassificationId ?? null,
     defaultFlowId: record.defaultFlowId ?? null,
+    listPrice: record.item?.listPrice == null ? '' : String(record.item.listPrice), priceBasis: (record.item?.priceBasis ?? 'unit') as PriceBasis,
   });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<CfApiError | null>(null);
@@ -112,7 +117,7 @@ function DetailsForm({ record, tree, canEdit, onSaved, onTreeChanged }: {
     const body: Record<string, unknown> = { name: form.name, description: form.description || null, ...shortNameBody(form.shortName, form.noShortName) };
     if (record.status === 'draft') body.code = form.code || null;
     if (!isTemp) body.classificationId = form.classificationId;
-    if (record.item) { body.uom = form.uom; body.trackedBy = form.trackedBy; if (!isTemp) body.sourcing = form.sourcing; }
+    if (record.item) { body.uom = form.uom; body.trackedBy = form.trackedBy; if (!isTemp) body.sourcing = form.sourcing; if (!isTemp) { body.listPrice = form.listPrice.trim() === '' ? null : form.listPrice; body.priceBasis = form.priceBasis; } }
     if (isSelection) { body.selectionMode = form.selectionMode; body.candidateClassificationId = form.candidateClassificationId; }
     else body.defaultFlowId = form.defaultFlowId;
     try { onSaved(await cfApi.put<MasterRecord>(`/records/${record.id}`, body)); } catch (e) { setError(e as CfApiError); } finally { setBusy(false); }
@@ -145,6 +150,16 @@ function DetailsForm({ record, tree, canEdit, onSaved, onTreeChanged }: {
                 helperText={SOURCING_HELP[form.sourcing]}>
                 {SOURCING_OPTIONS.map((o) => <MenuItem key={o.value} value={o.value}>{o.label}</MenuItem>)}
               </TextField>
+            )}
+            {!isTemp && (
+              <>
+                <TextField label="List price (₹)" disabled={readOnly} value={form.listPrice} onChange={(e) => setForm({ ...form, listPrice: e.target.value })}
+                  inputProps={{ inputMode: 'decimal' }} helperText="What it sells for, before tax. Empty = no list price." />
+                <TextField select label="Priced" disabled={readOnly} value={form.priceBasis} onChange={(e) => setForm({ ...form, priceBasis: e.target.value as PriceBasis })}
+                  helperText="A sales line picks this up as its rate.">
+                  {BASIS_OPTIONS.map((o) => <MenuItem key={o.value} value={o.value}>{o.label}</MenuItem>)}
+                </TextField>
+              </>
             )}
           </>
         )}
@@ -200,6 +215,7 @@ export default function RecordDetail({ recordKind }: { recordKind: 'item' | 'def
   const specs = useLoad(() => cfApi.get<Resolution>(`/records/${id}/specs`), [id]);
   const rules = useLoad(() => cfApi.get<Rule[]>(`/rules${qs({ subjectType: 'master', subjectId: id })}`), [id]);
   const tree = useLoad(() => cfApi.get<Tree>('/classification'), []);
+  const money = useItemMoney(id, recordKind === 'item' && rec.data?.item?.itemType === 'catalog', rec.data?.updatedAt ?? '');
   const [tab, setTab] = useUrlParam('tab', 'specs');
   const [actionError, setActionError] = useState<CfApiError | null>(null);
   const [busyAction, setBusyAction] = useState<string | null>(null);
@@ -330,6 +346,7 @@ export default function RecordDetail({ recordKind }: { recordKind: 'item' | 'def
           {r.item && r.item.itemType === 'catalog' && <Fact label="Comes from">{SOURCING_LABEL[r.item.sourcing]}</Fact>}
           {r.owner && <Fact label="Order"><Mono><Link to={to(`orders/${r.owner.orderId}`)}>{r.owner.orderCode}</Link></Mono> <Mono muted>· line {r.owner.lineNo}</Mono></Fact>}
           {r.placement && <Fact label="Sits in"><Mono><Link to={to(`items/${r.placement.parentId}`)}>{r.placement.parentCode ?? r.placement.parentName}</Link></Mono> <Mono muted>· ×{r.placement.quantity}{r.placement.role ? ` · ${r.placement.role}` : ''}</Mono></Fact>}
+          {r.item?.itemType === 'catalog' && money.data && <ItemMoneyFacts prices={money.data.prices} cost={money.data.cost} />}
           {r.bom && <Fact label="BOM"><Mono>{r.bom.lineCount} line{r.bom.lineCount === 1 ? '' : 's'}</Mono>{r.bom.bomType !== 'custom' && <Mono muted> · {r.bom.status}{r.bom.revision ? ` · rev ${r.bom.revision}` : ''}</Mono>}</Fact>}
           {(r.defaultFlow || r.definitionFlow) && (
             <Fact label="Made by"><FlowTag flow={r.defaultFlow ? { ...r.defaultFlow, from: 'item' } : { ...r.definitionFlow!, from: 'template' }} /></Fact>
