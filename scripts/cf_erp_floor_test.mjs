@@ -462,7 +462,7 @@ await check('The tablet remembers machine and person; Not you? asks again', asyn
 });
 await check('A person picked more than 8 hours ago is forgotten', async () => {
   window.localStorage.setItem('cf_floor:testco:machine', '1');
-  window.localStorage.setItem('cf_floor:testco:operator', JSON.stringify({ id: 2, name: 'Asha', at: RealDate.now() - 9 * 3600_000 }));
+  window.localStorage.setItem('cf_floor:testco:operator', JSON.stringify({ id: 2, name: 'Asha', at: Date.now() - 9 * 3600_000 }));
   await unmount(); await mount();
   await waitFor(() => text().includes('Who are you?'), 'asks again');
 });

@@ -283,6 +283,76 @@ await check('History is capped at 50; the handle exposes undo / redo / canUndo /
   assert.equal(undone, 50); assert.equal(ref.current.canRedo, true); assert.equal(hist.qty.a, '104');
   await React.act(() => { ref.current.redo(); }); assert.equal(hist.qty.a, '105');
 });
+// ── Fill down / right, forgiving options ──
+const gradeOpts = ['E350', { value: 'BO', label: 'BO — no impact test' }, { value: 'BR', label: 'BR — impact tested' }, { value: 'CT', label: 'Charpy test plate' }, { value: 'CS', label: 'Charpy sheet' }];
+await check('matchOption: exact, prefix, unique whole word, ambiguous, none', async () => {
+  const v = (t) => { const r = m.matchOption(gradeOpts, t); return r && ('option' in r ? r.option.value ?? r.option : r.ambiguous); };
+  assert.equal(v('e350'), 'E350'); assert.equal(v('BO'), 'BO'); assert.equal(v('bo no'), null);
+  assert.equal(v('BO — no impact test'), 'BO'); assert.equal(v('no'), 'BO');           // whole word, unique
+  assert.deepEqual(v('impact'), ['BO — no impact test', 'BR — impact tested']);
+  assert.deepEqual(v('charpy'), ['Charpy test plate', 'Charpy sheet']);                 // prefix, ambiguous
+  assert.equal(v('xyz'), null); assert.equal(v('ba'), null);                            // "ba" is not a whole word
+});
+const fx = { qty: { a: '1', b: '2', c: '3', d: '4' }, note: { a: 'N', b: '', c: '', d: '' }, log: [], problem: null };
+const fCell = (r, c) => {
+  if (c === 'qty') return { text: fx.qty[r], editable: r !== 'c', kind: 'number' };
+  if (c === 'note') return { text: fx.note[r], editable: true };
+  if (c === 'flag') return { text: '', editable: true, tone: r === 'b' ? 'blank' : undefined };
+  if (c === 'kind') return { text: '', input: '', editable: true, kind: 'option', options: gradeOpts };
+  return { text: 'calc', editable: false };
+};
+const fWrite = (w) => { fx.log.push(w); for (const x of w) if (fx[x.colKey]) fx[x.colKey][x.rowKey] = x.text; };
+const fProps = (k) => ({ rows, columns, cellAt: fCell, onWrites: fWrite, historyKey: k, onProblem: (mm) => { fx.problem = mm; } });
+await check('Ctrl+D fills the top row down per column, skips read-only, one undo entry', async () => {
+  fx.log = []; Object.assign(fx.qty, { a: '1', b: '2', c: '3', d: '4' }); Object.assign(fx.note, { a: 'N', b: '', c: '', d: '' });
+  await render(fProps('f1'));
+  await fire(cell(0, 1), 'click'); await fire(cell(3, 2), 'click', { shiftKey: true });   // a..d × qty,note
+  await ctrl(cell(3, 2), 'd');
+  assert.deepEqual([fx.qty.b, fx.qty.c, fx.qty.d], ['1', '3', '1']);      // c is locked: skipped
+  assert.deepEqual([fx.note.b, fx.note.c, fx.note.d], ['N', 'N', 'N']);
+  assert.equal(fx.log.length, 1); assert.equal(fx.log[0].length, 5); assert.match(fx.problem, /1 cell skipped/);
+  await ctrl(cell(3, 2), 'z');
+  assert.deepEqual([fx.qty.b, fx.qty.c, fx.qty.d], ['2', '3', '4']); assert.deepEqual([fx.note.b, fx.note.c, fx.note.d], ['', '', '']);
+  await fire(cell(0, 1), 'keydown', { key: 'd', metaKey: true }); assert.equal(fx.qty.b, '1');   // Cmd+D
+});
+await check('Ctrl+D with one row copies from the row above; blank / computed cells are skipped', async () => {
+  fx.log = []; Object.assign(fx.qty, { a: '1', b: '2', c: '3', d: '4' }); fx.problem = null;
+  await render(fProps('f2'));
+  await fire(cell(3, 1), 'click'); await ctrl(cell(3, 1), 'd'); assert.equal(fx.qty.d, '3');
+  fx.log = []; await fire(cell(1, 3), 'click'); await fire(cell(2, 3), 'click', { shiftKey: true });   // flag col: b is blank tone
+  await ctrl(cell(2, 3), 'd'); assert.equal(fx.log.length, 0);
+  await fire(cell(0, 1), 'click'); await ctrl(cell(0, 1), 'd'); assert.match(fx.problem, /Nothing to fill/);
+});
+await check('Ctrl+R fills the left column right, per row', async () => {
+  fx.log = []; Object.assign(fx.qty, { a: '1', b: '2', c: '3', d: '4' }); Object.assign(fx.note, { a: 'N', b: '', c: '', d: '' });
+  await render(fProps('f3'));
+  await fire(cell(0, 1), 'click'); await fire(cell(1, 2), 'click', { shiftKey: true });
+  await ctrl(cell(1, 2), 'r');
+  assert.equal(fx.note.a, '1'); assert.equal(fx.note.b, '2'); assert.equal(fx.log.length, 1);
+  await ctrl(cell(1, 2), 'z'); assert.equal(fx.note.a, 'N');
+});
+await check('Fill down of an option cell copies its value', async () => {
+  fx.log = []; const k = { a: 'BO', b: '', c: '', d: '' };
+  const p = { ...fProps('f4'), cellAt: (r, c) => (c === 'kind' ? { text: k[r], input: k[r], editable: true, kind: 'option', options: gradeOpts } : fCell(r, c)), onWrites: (w) => { for (const x of w) k[x.rowKey] = x.text; } };
+  await render(p); await fire(cell(0, 4), 'click'); await fire(cell(3, 4), 'click', { shiftKey: true }); await ctrl(cell(3, 4), 'd');
+  assert.deepEqual(Object.values(k), ['BO', 'BO', 'BO', 'BO']);
+});
+await check('Option paste is forgiving: prefix and whole word pass, ambiguous names candidates', async () => {
+  fx.log = []; fx.problem = null; await render({ ...fProps('f5') });
+  await fire(cell(0, 4), 'click'); await clipboard(cell(0, 4), 'paste', 'BO');
+  assert.deepEqual(fx.log.at(-1), [{ rowKey: 'a', colKey: 'kind', text: 'BO' }]);
+  await clipboard(cell(0, 4), 'paste', 'no'); assert.equal(fx.log.at(-1)[0].text, 'BO');
+  fx.log = []; await clipboard(cell(0, 4), 'paste', 'charpy');
+  assert.equal(fx.log.length, 0); assert.match(fx.problem, /“Charpy test plate” or “Charpy sheet”/);
+});
+await check('Typing in an option editor matches forgivingly; Enter commits the value', async () => {
+  fx.log = []; fx.problem = null; await render({ ...fProps('f6') });
+  await fire(cell(0, 4), 'click'); await fire(cell(0, 4), 'keydown', { key: 'B' });
+  await fire(document.querySelector('select'), 'keydown', { key: 'O' });
+  assert.equal(document.querySelector('select').value, 'BO');
+  await fire(document.querySelector('select'), 'keydown', { key: 'Enter' });
+  assert.deepEqual(fx.log.at(-1), [{ rowKey: 'a', colKey: 'kind', text: 'BO' }]);
+});
 await React.act(() => root.unmount());
 dom.window.close();
 console.log(`\n${passed} passed, ${failed} failed`);

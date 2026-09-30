@@ -63,12 +63,30 @@ export function basisWord(plan: NestingPlan): { label: string; family: 'success'
 
 /** How hard the packer may look. The floor is deterministic, so more is never worse. */
 export const EFFORTS = [
-  { value: 'quick', label: 'Quick', help: 'One pass, no repairs. Seconds.' },
-  { value: 'standard', label: 'Standard', help: 'Sixty repairs. The usual answer.' },
-  { value: 'deep', label: 'Deep', help: 'Four hundred repairs. Minutes, and never a worse answer than Standard.' },
+  { value: 'quick', label: 'Quick', help: 'Seconds, a good first layout.', bound: 'a few seconds' },
+  { value: 'standard', label: 'Standard', help: '~5 min, usually the best value.', bound: 'about 5 minutes' },
+  { value: 'deep', label: 'Deep', help: '~10 min, squeezes the last kilos.', bound: 'about 10 minutes' },
 ] as const;
 
 export type Effort = typeof EFFORTS[number]['value'];
+
+/** The plan response's `budget` — only what the screen reads. */
+export interface NestingBudget { effort?: string; capped?: boolean }
+
+/** 130 seconds as "2:10". */
+export function clock(seconds: number): string {
+  const s = Math.max(0, Math.floor(seconds));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+}
+
+/** The quiet line shown while a proposal runs. */
+export function progressLine(pieces: number | null, seconds: number, effort: Effort): string {
+  const e = EFFORTS.find((x) => x.value === effort) ?? EFFORTS[1];
+  const what = pieces ? `Packing ${pieces.toLocaleString('en-US')} pieces…` : 'Packing…';
+  return `${what} ${clock(seconds)} — ${e.label} takes up to ${e.bound}`;
+}
+
+export const CAPPED_LINE = 'Stopped at the time limit — a Deep run may find a little less waste.';
 
 /**
  * THE MARGIN, AS IT ACTUALLY CAME OUT. The shop asks for +100 mm of length and

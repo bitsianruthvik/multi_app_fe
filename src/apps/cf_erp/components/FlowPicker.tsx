@@ -8,15 +8,19 @@ import { Mono, StatusBadge } from './ui';
  * Picks an operation flow. Obsolete flows are never offered; drafts are, so a
  * flow can be named while it is still being written. Empty means "none".
  */
-export function FlowPicker({ value, onChange, label = 'Flow', helperText, disabled }: {
+export function FlowPicker({ value, onChange, label = 'Flow', helperText, disabled, flows: known, autoFocus }: {
   value: number | null;
   onChange: (id: number | null) => void;
   label?: string;
   helperText?: string;
   disabled?: boolean;
+  /** Flows the screen has already read: listed at once, no second request (a slow list looked like "nothing to choose"). */
+  flows?: Flow[] | null;
+  /** Opens the list as soon as the field is shown. */
+  autoFocus?: boolean;
 }) {
-  const flows = useLoad(() => cfApi.get<Flow[]>('/flows'), []);
-  const options = (flows.data ?? []).filter((f) => f.status !== 'obsolete' || f.id === value);
+  const flows = useLoad(() => (known ? Promise.resolve(known) : cfApi.get<Flow[]>('/flows')), [!!known]);
+  const options = (known ?? flows.data ?? []).filter((f) => f.status !== 'obsolete' || f.id === value);
   const selected = options.find((f) => f.id === value) ?? null;
   return (
     <Autocomplete
@@ -25,7 +29,9 @@ export function FlowPicker({ value, onChange, label = 'Flow', helperText, disabl
       options={options}
       value={selected}
       disabled={disabled}
-      loading={flows.loading}
+      loading={!known && flows.loading}
+      openOnFocus
+      noOptionsText={flows.error ? 'The flows could not be read — close this and try again.' : 'No flow matches'}
       getOptionLabel={(f) => `${f.code} · ${f.name}`}
       isOptionEqualToValue={(a, b) => a.id === b.id}
       onChange={(_, f) => onChange(f?.id ?? null)}
@@ -36,7 +42,7 @@ export function FlowPicker({ value, onChange, label = 'Flow', helperText, disabl
           {f.status !== 'active' && <StatusBadge status={f.status} />}
         </Box>
       )}
-      renderInput={(params) => <TextField {...params} label={label} helperText={helperText} placeholder="None" />}
+      renderInput={(params) => <TextField {...params} autoFocus={autoFocus} label={label} helperText={helperText} placeholder="None" />}
     />
   );
 }

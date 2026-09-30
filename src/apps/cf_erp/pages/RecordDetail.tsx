@@ -57,6 +57,33 @@ function RevisionDialog({ open, record, onClose, onDone }: { open: boolean; reco
   );
 }
 
+/** The title as text that turns into a box on click: Enter saves, Escape cancels. */
+function InlineName({ value, editable, onSave }: { value: string; editable: boolean; onSave: (name: string) => Promise<void> }) {
+  const [editing, setEditing] = useState(false);
+  const [text, setText] = useState(value);
+  const [busy, setBusy] = useState(false);
+  const done = async () => {
+    const next = text.trim();
+    if (!next || next === value) { setEditing(false); setText(value); return; }
+    setBusy(true);
+    try { await onSave(next); setEditing(false); } catch { setText(value); setEditing(false); } finally { setBusy(false); }
+  };
+  if (!editable) return <>{value}</>;
+  if (editing) {
+    return (
+      <TextField size="small" autoFocus fullWidth value={text} disabled={busy} onChange={(e) => setText(e.target.value)} onBlur={done}
+        inputProps={{ 'aria-label': 'Name' }} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void done(); } else if (e.key === 'Escape') { setText(value); setEditing(false); } }} />
+    );
+  }
+  return (
+    <Tooltip title="Click to rename">
+      <Box component="span" role="button" tabIndex={0} onClick={() => { setText(value); setEditing(true); }}
+        onKeyDown={(e) => { if (e.key === 'Enter') { setText(value); setEditing(true); } }}
+        sx={{ cursor: 'text', borderRadius: 'var(--r-sm)', '&:hover': { background: 'var(--c-primary-50)' } }}>{value}</Box>
+    </Tooltip>
+  );
+}
+
 function DetailsForm({ record, tree, canEdit, onSaved, onTreeChanged }: {
   record: MasterRecord; tree: Tree | null; canEdit: boolean; onSaved: (r: MasterRecord) => void; onTreeChanged: () => void;
 }) {
@@ -182,6 +209,9 @@ export default function RecordDetail({ recordKind }: { recordKind: 'item' | 'def
   const [ruleDialog, setRuleDialog] = useState<{ open: boolean; rule: Rule | null }>({ open: false, rule: null });
   const [deleteRule, setDeleteRule] = useState<Rule | null>(null);
   const [version, setVersion] = useState(0);
+  /** After a definition is renamed: its own folder may still carry the old name. */
+  const [folderOffer, setFolderOffer] = useState<{ nodeId: number; oldName: string } | null>(null);
+  const [folderBusy, setFolderBusy] = useState(false);
 
   const r = rec.data;
   // An order's row has no code until its line is locked; its page shows the code
@@ -237,8 +267,28 @@ export default function RecordDetail({ recordKind }: { recordKind: 'item' | 'def
       : frozen.reason === 'locked' ? 'Its line is locked: the structure, values and cut pieces are fixed, and its pieces have their codes. A change is a new revision of the order.'
         : undefined;
 
+  const renameTo = async (name: string) => {
+    const oldName = r.name;
+    const folder = (r.classificationPath ?? []).at(-1);
+    try {
+      rec.setData(await cfApi.put<MasterRecord>(`/records/${id}`, { name }));
+      toast.success('Renamed.');
+      setFolderOffer(isDefinition && canSetup && folder && folder.name === oldName ? { nodeId: folder.id, oldName } : null);
+    } catch (e) { setActionError(e as CfApiError); throw e; }
+  };
+  const renameFolder = async () => {
+    if (!folderOffer) return;
+    setFolderBusy(true);
+    try {
+      await cfApi.put(`/classification/${folderOffer.nodeId}`, { name: r.name });
+      setFolderOffer(null);
+      toast.success('Folder renamed.');
+      rec.reload(); tree.reload();
+    } catch (e) { setActionError(e as CfApiError); } finally { setFolderBusy(false); }
+  };
+
   const header = (
-    <DetailHeader code={r.code ?? placeholder?.code ?? undefined} title={r.name} subtitle={r.description ?? undefined}
+    <DetailHeader code={r.code ?? placeholder?.code ?? undefined} title={<InlineName value={r.name} editable={editable} onSave={renameTo} />} subtitle={r.description ?? undefined}
       badges={(
         <>
           <KindChip kind={r.kind} />
@@ -286,6 +336,13 @@ export default function RecordDetail({ recordKind }: { recordKind: 'item' | 'def
         </>
       )}>
       <ErrorNotice error={actionError} sx={{ mt: 2, mb: 0 }} />
+      {folderOffer && (
+        <Box sx={{ mt: 2, display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap', fontSize: 13.5 }}>
+          <span>Rename the folder &lsquo;{folderOffer.oldName}&rsquo; too?</span>
+          <Button size="small" variant="outlined" disabled={folderBusy} onClick={renameFolder}>Rename</Button>
+          <Button size="small" disabled={folderBusy} onClick={() => setFolderOffer(null)} sx={{ color: 'var(--c-text-2)' }}>Keep it</Button>
+        </Box>
+      )}
     </DetailHeader>
   );
   const crossLinks = (

@@ -89,7 +89,7 @@ export function StepDialog({ open, flow, existing, onClose, onSaved }: { open: b
   const next = (flow.steps.reduce((m, st) => Math.max(m, st.sequence), 0) || 0) + 10;
   const body = { sequence: sequence === '' ? null : Number(sequence), stepName: stepName || null, notes: notes || null };
   const blocked = !existing && !operationId;
-  const save = () => s.run(() => (existing ? cfApi.put<FlowDetail>(`/flow-steps/${existing.id}`, body) : cfApi.post<FlowDetail>(`/flows/${flow.id}/steps`, { ...body, operationId })));
+  const save = () => s.run(() => (existing ? cfApi.put<FlowDetail>(`/flow-steps/${existing.id}`, operationId !== existing.operation.id ? { ...body, operationId } : body) : cfApi.post<FlowDetail>(`/flows/${flow.id}/steps`, { ...body, operationId })));
   return (
     <Dialog open={open} onClose={() => !s.busy && onClose()} maxWidth="sm" fullWidth onKeyDown={enterSubmits(save, s.busy || blocked)}>
       <DialogHeader title={existing ? `Step ${existing.sequence}: ${existing.operation.name}` : 'Add a step'} onClose={onClose} busy={s.busy}
@@ -97,9 +97,9 @@ export function StepDialog({ open, flow, existing, onClose, onSaved }: { open: b
       <DialogContent>
         <ErrorNotice error={s.error} />
         <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', sm: 'minmax(0, 1fr) 140px' }, gap: 2, pt: 0.5 }}>
-          <Autocomplete size="small" options={options} value={options.find((o) => o.id === operationId) ?? null} disabled={!!existing}
+          <Autocomplete size="small" options={options} value={options.find((o) => o.id === operationId) ?? null}
             getOptionLabel={(o) => `${o.code} · ${o.name}`} isOptionEqualToValue={(a, b) => a.id === b.id} onChange={(_, o) => setOperationId(o?.id ?? null)}
-            renderInput={(p) => <TextField {...p} label="Operation" autoFocus={!existing} helperText={existing ? 'A step keeps its operation'
+            renderInput={(p) => <TextField {...p} label="Operation" autoFocus={!existing} helperText={existing ? (operationId !== existing.operation.id ? 'Changed here only if nothing released to production uses this step — otherwise add a new step instead' : 'Pick another operation to change it')
                 : passes(operationId) > 0
                   ? `Already in this flow ${passes(operationId)}x — this adds another pass`
                   : 'An operation may appear more than once — give each pass its own sequence'} />} />

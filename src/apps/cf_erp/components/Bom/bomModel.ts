@@ -267,6 +267,8 @@ export interface Pending {
   quantity: Record<number, string>;
   /** The flow chosen for a line; null goes back to the way the child is usually made. */
   flow: Record<number, number | null>;
+  /** The description typed for a line (the text after the dot in its label). */
+  role?: Record<number, string>;
   remove: Record<number, true>;
   pastes: PendingPaste[];
 }
@@ -308,7 +310,7 @@ export function pendingChanges(p: Pending, byLine: Map<number, StructureNode>): 
     if (q == null) { invalid.push(pasted.key); continue; }
     // The projected source may already contain an unsaved quantity. Always
     // send the copy's quantity so it cannot fall back to the older DB value.
-    changes.push({ op: 'paste', ...(pasted.key.startsWith('copy-') ? { key: pasted.key } : {}), sourceLineId: pasted.sourceLineId, parentId: pasted.parentId, quantity: q });
+    changes.push({ op: 'paste', ...(pasted.key.startsWith('copy-') ? { key: pasted.key } : {}), sourceLineId: pasted.sourceLineId, parentId: pasted.parentId, quantity: q, role: pasted.source.role ?? null });
   }
   for (const [id, text] of Object.entries(p.quantity)) {
     const node = byLine.get(Number(id));
@@ -320,6 +322,10 @@ export function pendingChanges(p: Pending, byLine: Map<number, StructureNode>): 
   for (const [id, flowId] of Object.entries(p.flow)) {
     const node = byLine.get(Number(id));
     if (node && (flowId ?? null) !== lineFlowId(node)) changes.push({ op: 'flow', lineId: Number(id), flowId: flowId ?? null });
+  }
+  for (const [id, text] of Object.entries(p.role ?? {})) {
+    const node = byLine.get(Number(id));
+    if (node && text.trim() !== (node.role ?? '')) changes.push({ op: 'role', lineId: Number(id), role: text.trim() || null });
   }
   for (const id of Object.keys(p.remove)) if (byLine.has(Number(id))) changes.push({ op: 'remove', lineId: Number(id) });
   const groups = Object.entries(p.arrangement ?? {}).map(([parentId, refs]) => ({ parentId: Number(parentId), lineIds: refs.filter((ref) => !p.remove[Number(ref)]).map((ref) => ref.startsWith('copy-') ? ref : Number(ref)) }));
@@ -400,4 +406,20 @@ export function pasteRefusal(source: StructureNode, sourceKey: string, target: S
   if (target.id === source.id || target.key === sourceKey) return 'A thing cannot go under itself.';
   if (ancestorKeys(flat, target.key).includes(sourceKey)) return `${target.code ?? target.name} is inside what was copied — a thing cannot go under itself.`;
   return null;
+}
+
+// ── Automatic cut pieces ─────────────────────────────────────────────────────
+
+/** Rows the system makes by itself under every plate part: the cut plate it is cut from, and that cut plate's raw-plate line (cutPlateService roles). */
+export const isCutPiece = (n: StructureNode): boolean => n.role === 'Cut from' || n.role === 'Raw plate';
+
+/** The rows to draw: with cut pieces hidden they (and the chevron that only opened them) are left out. */
+export function withoutCutPieces(rows: BomRow[]): BomRow[] {
+  return rows.filter((r) => !isCutPiece(r.node)).map((r) => (r.hasChildren && r.node.children.every(isCutPiece) ? { ...r, hasChildren: false } : r));
+}
+
+/** "cut from 25 × 500 × 11650" — what stands in for a part's hidden cut plate. */
+export function cutChip(node: StructureNode): string | null {
+  const cut = node.children.find((c) => c.role === 'Cut from');
+  return cut ? `cut from ${cut.name.replace(/^Cut plate\s+/i, '')}` : null;
 }

@@ -1,10 +1,10 @@
 import { useMemo, useState } from 'react';
-import { Box, Button, CircularProgress, Typography } from '@mui/material';
+import { Autocomplete, Box, Button, CircularProgress, TextField, Typography } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
 import AddRounded from '@mui/icons-material/AddRounded';
 import RouteRounded from '@mui/icons-material/RouteRounded';
 import { cfApi, CfApiError } from '../api/client';
-import type { Flow } from '../api/types';
+import type { Flow, Operation } from '../api/types';
 import { useCompanySlug, useLoad } from '../hooks/useLoad';
 import { useIsPermitted } from '../hooks/useIsPermitted';
 import { useNewParam, useUrlParam } from '../hooks/useUrlState';
@@ -20,9 +20,16 @@ import { useToast } from '../components/toastContext';
 const STATUS_CHIPS = [['', 'All'], ['active', 'Active'], ['draft', 'Drafts'], ['obsolete', 'Obsolete']] as const;
 const matches = (f: Flow, term: string) => !term || [f.code, f.name, f.description].some((v) => v?.toLowerCase().includes(term));
 
+/** "CNC Cutting > Manual Drilling" — steps at one number run alongside, shown with "+". */
+function stepsLine(f: Flow): string {
+  const seqs = [...new Set((f.steps ?? []).map((s) => s.sequence))];
+  return seqs.map((q) => (f.steps ?? []).filter((s) => s.sequence === q).map((s) => s.operation.name).join(' + ')).join(' > ');
+}
+
 const COLUMNS: DataColumn<Flow>[] = [
   { key: 'code', header: 'Code', render: (f) => <Mono chip>{f.code}</Mono>, sortValue: (f) => f.code, alwaysVisible: true },
   { key: 'name', header: 'Name', render: (f) => <Box sx={{ fontWeight: 500 }}>{f.name}</Box>, sortValue: (f) => f.name },
+  { key: 'flow', header: 'Steps in order', render: (f) => <Box sx={{ color: 'var(--c-text-2)', whiteSpace: 'normal', fontSize: 13 }}>{stepsLine(f) || '—'}</Box>, sortValue: (f) => stepsLine(f) },
   { key: 'revision', header: 'Revision', render: (f) => <Mono muted>{f.revision ?? '—'}</Mono>, sortValue: (f) => f.revision },
   { key: 'steps', header: 'Steps', numeric: true, render: (f) => <Mono>{f.stepCount ?? 0}</Mono>, sortValue: (f) => f.stepCount ?? 0 },
   { key: 'used', header: 'Used by', numeric: true, render: (f) => <Mono muted={!f.usedBy}>{f.usedBy ?? 0}</Mono>, sortValue: (f) => f.usedBy ?? 0 },
@@ -83,11 +90,13 @@ export default function Flows() {
   const canManage = useIsPermitted()('cf_erp_production_manage');
   const [status, setStatus] = useUrlParam('status', '');
   const [search, setSearch] = useState('');
+  const [operationId, setOperationId] = useUrlParam('operation', '');
+  const ops = useLoad(() => cfApi.get<Operation[]>('/operations'), []);
   const [creating, setCreating] = useState(false);
   useNewParam(() => { if (canManage) setCreating(true); });
   const list = useLoad(() => cfApi.get<Flow[]>('/flows'), []);
   const term = search.trim().toLowerCase();
-  const base = useMemo(() => (list.data ?? []).filter((f) => matches(f, term)), [list.data, term]);
+  const base = useMemo(() => (list.data ?? []).filter((f) => matches(f, term) && (!operationId || (f.steps ?? []).some((s) => String(s.operation.id) === operationId))), [list.data, term, operationId]);
   const rows = useMemo(() => base.filter((f) => !status || f.status === status), [base, status]);
   const stats = [
     { label: 'Flows', value: base.length },
@@ -96,7 +105,8 @@ export default function Flows() {
     { label: 'Unused', value: base.filter((f) => !f.usedBy).length, hint: 'No item, template or BOM line names it' },
   ];
   const open = (f: Flow) => navigate(appPath(company, `flows/${f.id}`));
-  const filtered = !!term || !!status;
+  const filtered = !!term || !!status || !!operationId;
+  const pickedOp = (ops.data ?? []).find((o) => String(o.id) === operationId) ?? null;
 
   return (
     <Box>
@@ -105,6 +115,10 @@ export default function Flows() {
       <StatStrip stats={stats} />
       <CutPlateFlowCard canManage={canManage} />
       <FilterBar search={search} onSearch={setSearch} placeholder="Search code, name or description">
+        <Autocomplete size="small" options={ops.data ?? []} value={pickedOp} sx={{ minWidth: 240 }}
+          getOptionLabel={(o) => `${o.code} · ${o.name}`} isOptionEqualToValue={(a, b) => a.id === b.id}
+          onChange={(_, o) => setOperationId(o ? String(o.id) : '')}
+          renderInput={(p) => <TextField {...p} placeholder="Contains operation…" aria-label="Contains operation" />} />
         {STATUS_CHIPS.map(([v, label]) => <FacetChip key={v || 'all'} label={label} active={status === v} count={base.filter((f) => !v || f.status === v).length} onClick={() => setStatus(v)} />)}
       </FilterBar>
       <ErrorNotice error={list.error} onRetry={list.reload} />

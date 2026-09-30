@@ -1,8 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Autocomplete, Box, MenuItem, TextField, Typography } from '@mui/material';
-import { cfApi, LONG_WRITE_MS } from '../api/client';
-import type { OperationDetail, ProductionStep, Release, ReleaseCheck, Shipment } from '../api/types';
-import { useLoad } from '../hooks/useLoad';
+import { Autocomplete, Box, Button, MenuItem, TextField, Typography } from '@mui/material';
+import { Link } from 'react-router-dom';
+import { cfApi, LONG_WRITE_MS, type CfApiError } from '../api/client';
+import type { OperationDetail, ProductionStep, Release, ReleaseCheck, Shipment, StockingArea } from '../api/types';
+import { useCompanySlug, useLoad } from '../hooks/useLoad';
+import { useIsPermitted } from '../hooks/useIsPermitted';
+import { appPath } from '../navMeta';
 import { PURPOSE_LABEL, qtyText } from '../lib/inventory';
 import { FormDialog } from './FormDialog';
 import { ErrorNotice, Fact, Mono, SkeletonRows } from './ui';
@@ -21,9 +24,33 @@ export function ReleaseDialog({ line, onClose, onReleased }: {
 }) {
   const check = useLoad(() => (line ? cfApi.get<ReleaseCheck>(`/order-lines/${line.id}/release-check`) : Promise.resolve(null)), [line?.id]);
   const c = check.data;
+  const company = useCompanySlug();
+  const isPermitted = useIsPermitted();
   const [areaId, setAreaId] = useState('');
+  const [fixing, setFixing] = useState(false);
+  const [fixError, setFixError] = useState<CfApiError | null>(null);
+  // The two fixes the dialog can make itself, so nobody has to open 25 item pages or go looking for a yard.
+  const giveFlow = async () => {
+    if (!line) return;
+    setFixing(true); setFixError(null);
+    try { await cfApi.post(`/order-lines/${line.id}/cut-plates/flow`, {}); check.reload(); } catch (e) { setFixError(e as CfApiError); } finally { setFixing(false); }
+  };
+  const createYard = async () => {
+    setFixing(true); setFixError(null);
+    try {
+      // The code is DISPATCH-YARD when it is free; otherwise the next free number.
+      let made: StockingArea | null = null;
+      let last: unknown = null;
+      for (let i = 1; i <= 5 && !made; i += 1) {
+        try { made = await cfApi.post<StockingArea>('/stocking-areas', { code: i === 1 ? 'DISPATCH-YARD' : `DISPATCH-YARD-${i}`, name: i === 1 ? 'Dispatch yard' : `Dispatch yard ${i}`, purpose: 'dispatch' }); } catch (e) { last = e; }
+      }
+      if (!made) throw last;
+      setAreaId(String(made.id));
+      check.reload();
+    } catch (e) { setFixError(e as CfApiError); } finally { setFixing(false); }
+  };
   // A different line starts from its own check, so drop the old answer first.
-  useEffect(() => { setAreaId(''); }, [line?.id]);
+  useEffect(() => { setAreaId(''); setFixError(null); }, [line?.id]);
   useEffect(() => { if (c?.finishedArea) setAreaId(String(c.finishedArea.id)); }, [c]);
   const save = async () => { if (line) onReleased(await cfApi.post<Release>(`/order-lines/${line.id}/release`, { finishedAreaId: Number(areaId) || null }, { timeoutMs: LONG_WRITE_MS })); };
   return (
@@ -33,6 +60,7 @@ export function ReleaseDialog({ line, onClose, onReleased }: {
       {/* Without this the dialog renders an empty body and a dead Release button
           when the check itself fails — nothing on screen says why. */}
       <ErrorNotice error={check.error} onRetry={check.reload} />
+      <ErrorNotice error={fixError} />
       {check.loading && !c ? <SkeletonRows rows={3} /> : c && (
         <>
           <TextField select label="Finished work goes to" value={areaId} onChange={(e) => setAreaId(e.target.value)}
@@ -41,6 +69,12 @@ export function ReleaseDialog({ line, onClose, onReleased }: {
               : 'Finished pieces are received there and earmarked for this line until they ship.'}>
             {c.areas.map((a) => <MenuItem key={a.id} value={String(a.id)}>{a.code} · {a.name} · {PURPOSE_LABEL[a.purpose]}</MenuItem>)}
           </TextField>
+          {c.noFittingArea && c.finishedAreaPurpose === 'dispatch' && isPermitted('cf_erp_inventory_manage') && (
+            <Box>
+              <Button size="small" variant="outlined" onClick={createYard} disabled={fixing}>Create a dispatch yard</Button>
+              <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-3)', mt: 0.5 }}>There is no dispatch area yet. This makes one called &ldquo;Dispatch yard&rdquo; and picks it.</Typography>
+            </Box>
+          )}
           {c.ok ? (
             <>
               <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 2 }}>
@@ -77,6 +111,26 @@ export function ReleaseDialog({ line, onClose, onReleased }: {
               <Box component="ul" sx={{ m: 0, pl: 2.5, display: 'grid', gap: 0.5, fontSize: 13.5, color: 'var(--c-text)' }}>
                 {c.problems.map((p) => <li key={p}>{p}</li>)}
               </Box>
+              {!!c.cutPlatesNoFlow?.missing && isPermitted('cf_erp_orders_manage') && (
+                <Box sx={{ mt: 1.25 }}>
+                  {c.cutPlatesNoFlow.flow
+                    ? (
+                      <Button size="small" variant="contained" onClick={giveFlow} disabled={fixing}>
+                        Give all cut plates the cutting flow
+                      </Button>
+                    )
+                    : (
+                      <Button size="small" variant="outlined" component={Link} to={appPath(company, 'flows')}>
+                        Set a cut-plate flow first
+                      </Button>
+                    )}
+                  <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)', mt: 0.5 }}>
+                    {c.cutPlatesNoFlow.flow
+                      ? `Uses ${c.cutPlatesNoFlow.flow.code} — only the cut plates with no flow get it.`
+                      : 'No cut-plate flow is set for the company. Set it under Production › Flows, then come back.'}
+                  </Typography>
+                </Box>
+              )}
             </Box>
           )}
         </>

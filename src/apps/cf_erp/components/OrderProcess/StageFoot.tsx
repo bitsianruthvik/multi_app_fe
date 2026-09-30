@@ -1,17 +1,16 @@
 import { useState } from 'react';
-import { Box, Button, CircularProgress, Tooltip } from '@mui/material';
+import { Box, Button, Tooltip } from '@mui/material';
 import ArrowBackRounded from '@mui/icons-material/ArrowBackRounded';
 import ArrowForwardRounded from '@mui/icons-material/ArrowForwardRounded';
 import SkipNextRounded from '@mui/icons-material/SkipNextRounded';
 import TaskAltRounded from '@mui/icons-material/TaskAltRounded';
-import { cfApi, type CfApiError } from '../../api/client';
 import type { OrderProcessView, OrderStage, SalesOrder } from '../../api/types';
 import { useIsPermitted } from '../../hooks/useIsPermitted';
 import { invalidateNavCounts } from '../../hooks/useNavCounts';
 import { ORDER_STATUS_LABEL } from '../../lib/orders';
 import { CONFIRM_STILL_ON_THE_PAGE, forwardHelp, forwardLabel, stageSatisfied } from '../../lib/process';
-import { ErrorNotice } from '../ui';
 import { useToast } from '../toastContext';
+import { ConfirmOrderDialog } from './ConfirmOrderDialog';
 import { BlockerList, DetailLine, OptionalBadge, StageStateBadge } from './stageUi';
 
 /** An order that has stopped moving: confirming is behind it, one way or the other. A revised one was replaced by a later revision. */
@@ -40,8 +39,6 @@ export function StageFoot({ view, stages, current, order, onGo, onOrderSaved, on
 }) {
   const isPermitted = useIsPermitted();
   const toast = useToast();
-  const [busy, setBusy] = useState(false);
-  const [actionError, setActionError] = useState<CfApiError | null>(null);
 
   const idx = Math.max(0, stages.findIndex((s) => s.stageKey === current.stageKey));
   const prev = idx > 0 ? stages[idx - 1] : null;
@@ -53,16 +50,7 @@ export function StageFoot({ view, stages, current, order, onGo, onOrderSaved, on
   const canManage = isPermitted('cf_erp_orders_manage');
   const showConfirm = (next === null || current.stageKey === 'confirm') && !settled;
 
-  const confirmOrder = async () => {
-    setBusy(true); setActionError(null);
-    try {
-      const saved = await cfApi.post<SalesOrder>(`/orders/${order.id}/status`, { status: 'confirmed' });
-      onOrderSaved(saved);
-      invalidateNavCounts();
-      toast.success(`${saved.code} is now confirmed.`);
-      onReloadAll();
-    } catch (e) { setActionError(e as CfApiError); } finally { setBusy(false); }
-  };
+  const [asking, setAsking] = useState(false);
 
   // The header has a Confirm button of its own that this gate does not touch.
   // When the two disagree, say which is which rather than looking broken.
@@ -83,7 +71,8 @@ export function StageFoot({ view, stages, current, order, onGo, onOrderSaved, on
       mt: 2, pt: 1.75, borderTop: '1px solid var(--c-divider)', minWidth: 0,
       display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 1.25,
     }}>
-      <ErrorNotice error={actionError} sx={{ mb: 0 }} />
+      <ConfirmOrderDialog open={asking} order={order} onClose={() => setAsking(false)}
+        onConfirmed={(saved) => { onOrderSaved(saved); invalidateNavCounts(); toast.success(`${saved.code} is now confirmed.`); onReloadAll(); }} />
       {/* Refused: every blocker on its own line, named by its line number. On
           the Confirm stage the same list is already in the screen above. */}
       {showConfirm && !view.canConfirm && current.stageKey !== 'confirm' && blockers.length > 0 && (
@@ -97,7 +86,7 @@ export function StageFoot({ view, stages, current, order, onGo, onOrderSaved, on
         <Box sx={{ gridArea: 'back' }}>
           <Tooltip title={prev ? `Back to ${prev.label}` : 'This is the first stage.'}>
             <span>
-              <Button startIcon={<ArrowBackRounded />} disabled={!prev || busy} onClick={() => prev && onGo(prev.stageKey)}>Back</Button>
+              <Button startIcon={<ArrowBackRounded />} disabled={!prev} onClick={() => prev && onGo(prev.stageKey)}>Back</Button>
             </span>
           </Tooltip>
         </Box>
@@ -110,16 +99,16 @@ export function StageFoot({ view, stages, current, order, onGo, onOrderSaved, on
           {showConfirm ? (
             <Tooltip title={confirmWhy}>
               <span>
-                <Button variant="contained" startIcon={busy ? <CircularProgress size={14} color="inherit" /> : <TaskAltRounded />}
-                  disabled={!view.canConfirm || !canManage || busy} onClick={confirmOrder}>
-                  {busy ? 'Confirming…' : 'Confirm order'}
+                <Button variant="contained" startIcon={<TaskAltRounded />}
+                  disabled={!view.canConfirm || !canManage} onClick={() => setAsking(true)}>
+                  Confirm order
                 </Button>
               </span>
             </Tooltip>
           ) : next ? (
             <Tooltip title={forwardHelp(next, satisfied)}>
               <span>
-                <Button variant="contained" disabled={busy} endIcon={satisfied ? <ArrowForwardRounded /> : <SkipNextRounded />}
+                <Button variant="contained" endIcon={satisfied ? <ArrowForwardRounded /> : <SkipNextRounded />}
                   onClick={() => onGo(next.stageKey)} sx={{ maxWidth: '100%', '& .MuiButton-endIcon': { flexShrink: 0 } }}>
                   <Box component="span" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{forwardLabel(next, satisfied)}</Box>
                 </Button>

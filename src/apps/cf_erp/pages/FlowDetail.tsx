@@ -9,6 +9,8 @@ import ArchiveRounded from '@mui/icons-material/ArchiveRounded';
 import HistoryRounded from '@mui/icons-material/HistoryRounded';
 import RouteRounded from '@mui/icons-material/RouteRounded';
 import HourglassTopRounded from '@mui/icons-material/HourglassTopRounded';
+import ArrowUpwardRounded from '@mui/icons-material/ArrowUpwardRounded';
+import ArrowDownwardRounded from '@mui/icons-material/ArrowDownwardRounded';
 import CloseRounded from '@mui/icons-material/CloseRounded';
 import Inventory2Rounded from '@mui/icons-material/Inventory2Rounded';
 import { cfApi, CfApiError } from '../api/client';
@@ -26,8 +28,8 @@ import { ConfirmDialog } from '../components/ConfirmDialog';
 import { useDetailTitle } from '../components/shell/detailTitle';
 import { useToast } from '../components/toastContext';
 
-function StepCard({ step, editable, onEdit, onRemove, onAddWait, onRemoveWait }: {
-  step: FlowStep; editable: boolean; onEdit: () => void; onRemove: () => void; onAddWait: () => void; onRemoveWait: (id: number) => void;
+function StepCard({ step, editable, onMove, onEdit, onRemove, onAddWait, onRemoveWait }: {
+  step: FlowStep; editable: boolean; onMove: (dir: 'up' | 'down') => void; onEdit: () => void; onRemove: () => void; onAddWait: () => void; onRemoveWait: (id: number) => void;
 }) {
   const company = useCompanySlug();
   return (
@@ -42,6 +44,8 @@ function StepCard({ step, editable, onEdit, onRemove, onAddWait, onRemoveWait }:
         </Box>
         {editable && (
           <Box sx={{ display: 'flex', flexShrink: 0 }}>
+            <IconButton size="small" aria-label={`Move step ${step.operation.code} up`} onClick={() => onMove('up')}><ArrowUpwardRounded fontSize="small" /></IconButton>
+            <IconButton size="small" aria-label={`Move step ${step.operation.code} down`} onClick={() => onMove('down')}><ArrowDownwardRounded fontSize="small" /></IconButton>
             <IconButton size="small" aria-label={`Edit step ${step.operation.code}`} onClick={onEdit}><EditRounded fontSize="small" /></IconButton>
             <IconButton size="small" aria-label={`Remove step ${step.operation.code}`} onClick={onRemove}><DeleteOutlineRounded fontSize="small" /></IconButton>
           </Box>
@@ -97,6 +101,7 @@ export default function FlowDetail() {
     try { fl.setData(await fn()); invalidateNavCounts(); toast.success(done); } catch (e) { setActionError(e as CfApiError); } finally { setBusy(null); }
   };
   const setStatus = (status: 'active' | 'obsolete') => act(status, () => cfApi.post<FlowDetailT>(`/flows/${id}/status`, { status }), status === 'active' ? 'Activated.' : 'Marked obsolete.');
+  const moveStep = (stepId: number, direction: 'up' | 'down') => act(`m${stepId}`, () => cfApi.post<FlowDetailT>(`/flow-steps/${stepId}/move`, { direction }), 'Steps renumbered.');
   const removeWait = (waitId: number) => act(`w${waitId}`, () => cfApi.del<FlowDetailT>(`/flow-waits/${waitId}`), 'Wait removed.');
 
   const header = (
@@ -158,7 +163,7 @@ export default function FlowDetail() {
                     {g.steps.length > 1 && <CapsLabel>{g.steps.length} steps alongside</CapsLabel>}
                     <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', mt: g.steps.length > 1 ? 0.5 : 0 }}>
                       {g.steps.map((s) => (
-                        <StepCard key={s.id} step={s} editable={editable} onEdit={() => setStep({ open: true, step: s })} onRemove={() => setRemoving(s)}
+                        <StepCard key={s.id} step={s} editable={editable} onMove={(d) => moveStep(s.id, d)} onEdit={() => setStep({ open: true, step: s })} onRemove={() => setRemoving(s)}
                           onAddWait={() => setWaitFor(s)} onRemoveWait={removeWait} />
                       ))}
                     </Box>

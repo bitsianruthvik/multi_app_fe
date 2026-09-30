@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from 'react';
-import { Alert, Box, Button, CircularProgress, IconButton, Menu, MenuItem, Popover, Tooltip, Typography } from '@mui/material';
+import { Alert, Box, Button, CircularProgress, FormControlLabel, IconButton, Menu, MenuItem, Popover, Switch, Tooltip, Typography } from '@mui/material';
 import { Link } from 'react-router-dom';
 import AddRounded from '@mui/icons-material/AddRounded';
 import ArchiveRounded from '@mui/icons-material/ArchiveRounded';
@@ -38,7 +38,7 @@ import { useToast } from '../toastContext';
 import {
   allowedChildren, bomTypeOfKind, keysBelow, lineFlowId, nodesByLine, openableKeys,
   parseQuantity, pasteRefusal, pendingChanges, temporaryCount, walkNodes,
-  NO_PENDING, VALUES_PERMISSION, type BomRow, type Pending,
+  NO_PENDING, VALUES_PERMISSION, cutChip, isCutPiece, withoutCutPieces, type BomRow, type Pending,
 } from './bomModel';
 import type { BomAction, RowMark } from './BomTree';
 import { BomSheetDialog } from './BomSheetDialog';
@@ -68,6 +68,8 @@ const TYPE_TEXT: Record<BomType, { title: string; body: string; empty: string }>
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 const sameNumber = (a: number, b: number) => Math.abs(a - b) < 1e-9;
+
+const copyText = (role: string | null) => (role ? (role.endsWith('(copy)') ? role : role + ' (copy)') : null);
 
 /**
  * Warns before pending edits are lost by leaving: closing or reloading the tab,
@@ -176,6 +178,9 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
   const [flowPick, setFlowPick] = useState<{ anchor: HTMLElement; row: BomRow } | null>(null);
   const [rowMenu, setRowMenu] = useState<{ anchor: HTMLElement; row: BomRow } | null>(null);
   const pasteNo = useRef(0);
+  // Quiet switches for the order's grid: the automatic cut pieces are out of sight, and so are the columns no row uses.
+  const [showCut, setShowCut] = useState(false);
+  const [onlyUsed, setOnlyUsed] = useState(true);
   const errorAt = useRef<HTMLDivElement>(null);
   // A refusal lands at the top of the panel while the person is at the bar
   // below a long tree — so it is brought into view, once it has rendered. A
@@ -237,7 +242,12 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
     return out;
   }, [pending.remove, byLine]);
 
-  const rows = useMemo(() => state ? arrangedRows(state.root, expanded, pending) : [], [state, expanded, pending]);
+  const allRows = useMemo(() => state ? arrangedRows(state.root, expanded, pending) : [], [state, expanded, pending]);
+  // Cut pieces are made by the system after every save; hidden, the grid shows the designs the person drew.
+  const cutCount = orderGrid ? flat.filter((f) => f.node.role === 'Cut from').length : 0;
+  const hideCut = orderGrid && !showCut;
+  const rows = useMemo(() => (hideCut ? withoutCutPieces(allRows) : allRows), [allRows, hideCut]);
+  const cutChipOf = (row: BomRow): string | null => (hideCut ? cutChip(row.node) : null);
 
   // A flow's code for a chosen id — read once, only while editing.
   const flows = useLoad(() => (editOn ? cfApi.get<Flow[]>('/flows') : Promise.resolve(null)), [editOn]);
@@ -387,7 +397,8 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
     if (Object.keys(pending.remove).length) { toast.info('Save or discard removals before copying rows.'); return; }
     if (!row.parent || row.node.lineId == null) return;
     const key = `copy-${++pasteNo.current}`;
-    setPending((p) => duplicateBelow(p, row, { key, sourceLineId: row.node.lineId as number, source: row.node, parentId: row.parent!.id,
+    const source = { ...row.node, role: copyText(roleOf(row)) };
+    setPending((p) => duplicateBelow(p, row, { key, sourceLineId: row.node.lineId as number, source, parentId: row.parent!.id,
       parentKey: row.parent!.key, quantity: p.quantity[row.node.lineId as number] ?? String(row.node.quantity) }));
     setOpen(new Set([...expanded, row.parent.key]));
   };
@@ -419,6 +430,22 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
       return { ...p, flow };
     });
   };
+  /** The description as it will be: what was typed, else what is saved. */
+  const roleOf = (row: BomRow): string | null => {
+    const id = row.node.lineId;
+    const typed = !row.paste && id != null ? pending.role?.[id] : undefined;
+    return (typed ?? row.node.role)?.trim() || null;
+  };
+  const canEditRole = (row: BomRow) => !busy && !row.paste && !isCutPiece(row.node) && lineEditable(row);
+  const onRole = (row: BomRow, text: string) => {
+    const id = row.node.lineId;
+    if (id == null) return;
+    setPending((p) => {
+      const role = { ...p.role };
+      if (text.trim() === (byLine.get(id)?.role ?? '')) delete role[id]; else role[id] = text;
+      return { ...p, role };
+    });
+  };
   const toggleRemove = (row: BomRow) => {
     if (busy) return;
     if (changes.some((ch) => ch.op === 'arrange' || ch.op === 'paste')) { toast.info('Save or discard row moves and copies before removing rows.'); return; }
@@ -432,7 +459,7 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
     const inside = keysBelow(row.node);
     const insideRecords = new Set(walkNodes(row.node).map((f) => f.node.id));
     const within = (lineId: string) => { const k = byLine.get(Number(lineId))?.key; return !!k && (k === row.node.key || inside.has(k)); };
-    const dropped = Object.keys(pending.quantity).filter(within).length + Object.keys(pending.flow).filter(within).length
+    const dropped = Object.keys(pending.quantity).filter(within).length + Object.keys(pending.role ?? {}).filter(within).length + Object.keys(pending.flow).filter(within).length
       + Object.keys(pending.remove).filter((l) => byLine.get(Number(l))?.key !== row.node.key && within(l)).length
       + pending.pastes.filter((x) => x.parentKey === row.node.key || inside.has(x.parentKey)).length
       + Object.entries(pending.values ?? {}).filter(([id]) => insideRecords.has(Number(id))).reduce((n, [, cells]) => n + Object.keys(cells).length, 0);
@@ -442,6 +469,7 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
         ...p,
         quantity: keep(p.quantity),
         flow: keep(p.flow),
+        role: p.role ? keep(p.role) : undefined,
         remove: { ...keep(p.remove), [id]: true },
         pastes: p.pastes.filter((x) => x.parentKey !== row.node.key && !inside.has(x.parentKey)),
         values: Object.fromEntries(Object.entries(p.values ?? {}).filter(([recordId]) => !insideRecords.has(Number(recordId)))),
@@ -455,6 +483,7 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
   const counts = {
     quantity: changes.filter((ch) => ch.op === 'quantity').length,
     flow: changes.filter((ch) => ch.op === 'flow').length,
+    role: changes.filter((ch) => ch.op === 'role').length,
     remove: changes.filter((ch) => ch.op === 'remove').length,
     paste: changes.filter((ch) => ch.op === 'paste').length,
     arranged: changes.filter((ch) => ch.op === 'arrange').length,
@@ -463,6 +492,7 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
   const breakdown = [
     counts.quantity && plural(counts.quantity, 'quantity', 'quantities'),
     counts.flow && plural(counts.flow, 'flow', 'flows'),
+    counts.role && plural(counts.role, 'description', 'descriptions'),
     counts.remove && plural(counts.remove, 'removal', 'removals'),
     counts.paste && plural(counts.paste, 'copy', 'copies'),
     counts.arranged && 'row order',
@@ -503,7 +533,7 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
   // A row has no code until its line is locked: the code its pieces will get stands in.
   const placeholderOf = (row: BomRow) => {
     const p = bom.placeholderOf(row.node);
-    return p?.code ? { code: p.code, title: placeholderTitle(p) } : null;
+    return p?.code ? { code: p.code, title: `${placeholderTitle(p)} # = numbered when the line is locked; a row with quantity 3 covers 2–4, so its code changes with the quantity (L1-1 becomes L1-#).` } : null;
   };
 
   const markOf = (row: BomRow): RowMark | null => {
@@ -524,7 +554,8 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
     const text = pending.quantity[id];
     const q = text != null ? parseQuantity(text) : null;
     const flowChanged = id in pending.flow && (pending.flow[id] ?? null) !== lineFlowId(row.node);
-    if ((q != null && !sameNumber(q, byLine.get(id)?.quantity ?? q)) || flowChanged) return { tone: 'changed', label: 'Changed' };
+    const roleChanged = pending.role != null && id in pending.role && pending.role[id].trim() !== (row.node.role ?? '');
+    if ((q != null && !sameNumber(q, byLine.get(id)?.quantity ?? q)) || flowChanged || roleChanged) return { tone: 'changed', label: 'Changed' };
     return null;
   };
 
@@ -703,6 +734,16 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
                   : ''}
           </Typography>
           <Box sx={{ flex: 1 }} />
+          {orderGrid && cutCount > 0 && (
+            <FormControlLabel sx={{ m: 0, '& .MuiFormControlLabel-label': { fontSize: 12, color: 'var(--c-text-3)' } }}
+              control={<Switch size="small" checked={showCut} onChange={(e) => setShowCut(e.target.checked)} />}
+              label={`Show cut pieces (${cutCount})`} />
+          )}
+          {orderGrid && (
+            <FormControlLabel sx={{ m: 0, '& .MuiFormControlLabel-label': { fontSize: 12, color: 'var(--c-text-3)' } }}
+              control={<Switch size="small" checked={onlyUsed} onChange={(e) => setOnlyUsed(e.target.checked)} />}
+              label="Only columns these rows use" />
+          )}
           <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>
             {flowsOnly ? 'Only flows can change · changes wait for Save' : 'Copy inserts a row below · drag to rearrange · changes wait for Save'}
           </Typography>
@@ -713,6 +754,7 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
               canEdit={(row) => editOn && !removedKeys.has(row.node.key) && !goneKeys.has(row.node.key) && (!!row.paste || lineEditable(row) || row.node.depth === 0 && mine(row.node))}
               canEditValues={(row) => !removedKeys.has(row.node.key) && !goneKeys.has(row.node.key) && (orderGrid ? editOn && mine(row.node) : mayEditValues(row.node))}
               onToggle={(key) => { const next = new Set(expanded); if (next.has(key)) next.delete(key); else next.add(key); setOpen(next); }}
+              onlyUsedColumns={orderGrid && onlyUsed} roleOf={roleOf} canEditRole={canEditRole} onRole={onRole} cutChipOf={cutChipOf}
               onWrites={onGridWrites} onMove={onGridMove} dropRefusal={dropRefusal} trailingCell={trailingCell} flowCell={flowCell} markOf={markOf} placeholderOf={placeholderOf}
               footer={root.children.length === 0 && pending.pastes.length === 0 && <EmptyState title="Nothing below it yet" action={canAddToRoot && addButton('contained')} />} />
         </>
@@ -732,6 +774,16 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
                 {changes.length ? `${plural(changes.length, 'change', 'changes')} waiting` : 'No unsaved changes'}
                 {breakdown && <Box component="span" sx={{ fontWeight: 400, color: 'var(--c-text-2)' }}>{` · ${breakdown}`}</Box>}
               </Typography>
+              {Object.keys(pending.remove).length > 0 && (
+                <Typography sx={{ fontSize: 12, color: 'var(--c-text-2)', mt: 0.25 }}>
+                  Removals are saved on their own — Save removals first, then copy or move rows.
+                </Typography>
+              )}
+              {counts.paste > 0 && (
+                <Typography sx={{ fontSize: 12, color: 'var(--c-text-2)', mt: 0.25 }}>
+                  A copy can be edited once it is saved. Its description reads “… (copy)” until you change it.
+                </Typography>
+              )}
               {checkedNow && (
                 <Typography sx={{ fontSize: 12, color: 'var(--c-success-800)', mt: 0.25, overflowWrap: 'anywhere' }}>
                   Checked, nothing refused. Save would do this: {checkedNow.summary.sentence}.
@@ -774,7 +826,7 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
             How <Mono>{pickRow?.node.code ?? pickRow?.node.name}</Mono> is made in {pickRow?.parent?.code ?? pickRow?.parent?.name}
           </Typography>
           {pickRow && (
-            <FlowPicker value={pickValue} label="Made by, in this parent" helperText="Empty: the way it is usually made"
+            <FlowPicker value={pickValue} flows={flows.data} autoFocus label="Made by, in this parent" helperText="Empty: the way it is usually made"
               onChange={(id) => { setFlow(pickRow, id); setFlowPick(null); }} />
           )}
         </Box>

@@ -122,6 +122,88 @@ await render({ ...props, view: null, records: { get: () => ({ resolution }) }, c
 await check('Definition root keeps editable setup values', async () => { assert.equal(cell(0, 3).getAttribute('aria-readonly'), 'false'); await fire(cell(0, 3), 'dblclick'); assert.equal(document.querySelector('input').value, '150'); await fire(document.querySelector('input'), 'keydown', { key: 'Escape' }); });
 await check('Definition children keep specifications locked but quantities editable', () => { assert.equal(cell(1, 3).getAttribute('aria-readonly'), 'true'); assert.equal(cell(1, 1).getAttribute('aria-readonly'), 'false'); });
 await check('Locked child cell can still be copied', async () => { await fire(cell(1, 3), 'click'); assert.equal(await clipboard(cell(1, 3), 'copy'), '150'); });
+
+// ── cut pieces, descriptions, columns the rows use ───────────────────────────
+await check('Cut pieces are hidden by default; the part keeps a chip, and its chevron goes', () => {
+  const cutPlate = node(7, [node(8, [], { role: 'Raw plate', name: 'Plate (cut to size)' })], { role: 'Cut from', name: 'Cut plate 25 × 500 × 11650 E350' });
+  const part = node(6, [cutPlate], { name: 'Flange plate' });
+  const t2 = node(1, [part, node(9)], { lineId: null, depth: 0 });
+  const all = m.arrangedRows(t2, new Set(['k1', 'k6', 'k7']), m.NO_PENDING);
+  assert.equal(all.length, 5);
+  const hidden = m.withoutCutPieces(all);
+  assert.deepEqual(hidden.map((r) => r.node.id), [1, 6, 9]);
+  assert.equal(hidden.find((r) => r.node.id === 6).hasChildren, false);
+  assert.equal(m.cutChip(part), 'cut from 25 × 500 × 11650 E350');
+  assert.equal(m.cutChip(node(9)), null);
+  assert.equal(m.isCutPiece(cutPlate) && m.isCutPiece(cutPlate.children[0]) && !m.isCutPiece(part), true);
+});
+await check('A part with other children keeps its chevron when only the cut plate is hidden', () => {
+  const part = node(6, [node(7, [], { role: 'Cut from' }), node(8)], { name: 'Part' });
+  const hidden = m.withoutCutPieces(m.arrangedRows(node(1, [part], { lineId: null, depth: 0 }), new Set(['k1', 'k6']), m.NO_PENDING));
+  assert.deepEqual(hidden.map((r) => r.node.id), [1, 6, 8]);
+  assert.equal(hidden[1].hasChildren, true);
+});
+await check('A typed description is sent as a role change; unchanged text sends nothing', () => {
+  const byLine = m.nodesByLine(tree);
+  const one = m.pendingChanges({ ...m.NO_PENDING, role: { 40: ' Left end ' } }, byLine).changes;
+  assert.deepEqual(one, [{ op: 'role', lineId: 40, role: 'Left end' }]);
+  assert.equal(m.pendingChanges({ ...m.NO_PENDING, role: { 40: '' } }, byLine).changes.length, 0);
+  assert.deepEqual(m.pendingChanges({ ...m.NO_PENDING, role: { 40: '  ' }, quantity: {} }, m.nodesByLine(node(1, [node(4, [], { role: 'End' })], { lineId: null }))).changes, [{ op: 'role', lineId: 40, role: null }]);
+});
+await check('A copy is sent with its own description', () => {
+  const src = { ...row(4).node, role: 'Girder G1 (copy)' };
+  const draft = m.duplicateBelow(m.NO_PENDING, row(4), { key: 'copy-r', source: src, sourceLineId: 40, parentId: 2, parentKey: 'k2', quantity: '1' });
+  assert.equal(m.pendingChanges(draft, m.nodesByLine(tree)).changes.find((ch) => ch.op === 'paste').role, 'Girder G1 (copy)');
+});
+const roleProps = { ...props, view, pending: m.NO_PENDING, records: undefined, canEditValues: () => true, canEdit: () => true };
+let roleSaved = [];
+const roles = { 4: 'Girder G1' };
+const roleGrid = { ...roleProps, rows: rs, roleOf: (r) => roles[r.node.id] ?? r.node.role, canEditRole: (r) => r.node.id === 4, onRole: (r, t) => { roleSaved.push([r.node.id, t]); } };
+await render(roleGrid);
+await check('The description shows after the dot', () => assert.match(document.body.textContent, /Row 4 · Girder G1/));
+await check('Only rows that may be edited offer the description editor', () => {
+  assert.equal(document.querySelectorAll('[aria-label^="Edit description of"]').length, 1);
+  assert.ok(document.querySelector('[aria-label="Edit description of Row 4"]'));
+});
+await check('Edit icon opens an input; Enter saves the typed description', async () => {
+  await fire(document.querySelector('[aria-label="Edit description of Row 4"]'), 'click');
+  const input = document.querySelector('input[aria-label="Description of Row 4"]');
+  assert.equal(input.value, 'Girder G1');
+  const set = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value').set;
+  await React.act(async () => { set.call(input, 'Girder G2'); input.dispatchEvent(new Event('input', { bubbles: true })); });
+  await fire(document.querySelector('input[aria-label="Description of Row 4"]'), 'keydown', { key: 'Enter' });
+  assert.deepEqual(roleSaved, [[4, 'Girder G2']]);
+  assert.equal(document.querySelector('input[aria-label="Description of Row 4"]'), null);
+});
+await check('Double-clicking the label opens it too, and Escape changes nothing', async () => {
+  roleSaved = [];
+  const label = [...document.querySelectorAll('div')].find((d) => d.children.length === 0 && d.textContent === 'Row 4 · Girder G1');
+  await fire(label, 'dblclick');
+  assert.ok(document.querySelector('input[aria-label="Description of Row 4"]'));
+  await fire(document.querySelector('input[aria-label="Description of Row 4"]'), 'keydown', { key: 'Escape' });
+  assert.equal(document.querySelector('input[aria-label="Description of Row 4"]'), null);
+  assert.deepEqual(roleSaved, []);
+});
+await check('A draft copy says to save it first', async () => {
+  const c = m.duplicateBelow(m.NO_PENDING, row(4), { key: 'copy-h', source: row(4).node, sourceLineId: 40, parentId: 2, parentKey: 'k2', quantity: '1' });
+  await render({ ...roleGrid, rows: m.arrangedRows(tree, expanded, c), pending: c });
+  assert.match(document.body.textContent, /Save to edit this copy/);
+});
+const colView = { editable: true, optionLists: {}, groups: [{ columns: [
+  { code: 'LENGTH', name: 'Length', dataType: 'number', rule: 'entered', editable: true },
+  { code: 'HOLED', name: 'Holed', dataType: 'boolean', rule: 'entered', editable: true },
+], rows: rs.map((r) => ({ id: r.node.id, cells: r.node.id === 4 ? { LENGTH: { input: '1' } } : { LENGTH: { input: '2' } } })) }] };
+// HOLED is declared by the group but no row has a cell for it: nobody can use it.
+await check('Only columns some row uses: an unused column is hidden', async () => {
+  await render({ ...props, view: colView, onlyUsedColumns: true });
+  const heads = [...document.querySelectorAll('thead th')].map((t) => t.textContent);
+  assert.ok(heads.some((h) => h.startsWith('Length')));
+  assert.ok(!heads.some((h) => h.startsWith('Holed')), heads.join('|'));
+});
+await check('All columns shows it again', async () => {
+  await render({ ...props, view: colView, onlyUsedColumns: false });
+  assert.ok([...document.querySelectorAll('thead th')].some((t) => t.textContent.startsWith('Holed')));
+});
 await React.act(() => root.unmount());
 dom.window.close();
 console.log(`\n${passed} passed, ${failed} failed`);

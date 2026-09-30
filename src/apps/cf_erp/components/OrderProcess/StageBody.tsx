@@ -62,6 +62,23 @@ function Note({ tone = 'info', children }: { tone?: 'info' | 'warning'; children
   );
 }
 
+/**
+ * A stage that cannot go ahead because an earlier one is not done: one line
+ * saying so, and a button that jumps there.
+ */
+function WaitingOn({ stage, label, onGo }: { stage: OrderStage; label: string | null; onGo: (stageKey: string) => void }) {
+  const w = stage.waitingOn;
+  if (!w || stage.state === 'done' || stage.state === 'not_applicable') return null;
+  return (
+    <Note tone="warning">
+      <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'space-between' }}>
+        <Box sx={{ flex: '1 1 240px', minWidth: 0 }}><strong>{w.message}</strong></Box>
+        <Button size="small" variant="outlined" color="inherit" onClick={() => onGo(w.stageKey)}>Go to {label ?? w.stageKey}</Button>
+      </Box>
+    </Note>
+  );
+}
+
 /** A stage this line does not need: said out loud, with the line that does need it offered. */
 function NotForThisLine({ view, stage, line, onPickLine }: {
   view: OrderProcessView; stage: OrderStage; line: OrderProcessLine; onPickLine: (lineId: number) => void;
@@ -186,7 +203,7 @@ function ConfirmPanel({ view, order }: { view: OrderProcessView; order: SalesOrd
 function LockFirst({ lineNo, hasLockStage, onGoLock }: { lineNo: number; hasLockStage: boolean; onGoLock: () => void }) {
   return (
     <Note tone="warning">
-      <Box><strong>Lock the line first.</strong> Line {lineNo} is not locked yet. Locking comes after the values and cut pieces: it gives every piece its code, and release takes the codes from there.</Box>
+      <Box><strong>Lock the line first.</strong> Line {lineNo} is not locked yet. Locking comes after the values, the cut pieces and the nesting: it gives every piece its code, and release takes the codes from there.</Box>
       <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
         {hasLockStage
           ? <Button size="small" variant="outlined" color="inherit" startIcon={<LockRounded />} onClick={onGoLock}>Go to Lock</Button>
@@ -401,6 +418,7 @@ export function StageBody({
           <Box>Line {line.lineNo} sells <Mono>{line.item.code ?? line.item.name}</Mono>, which is <StatusBadge status={line.item.status} />.</Box>
         </Note>
       )}
+      {line && <WaitingOn stage={stage} label={view.stages.find((x) => x.stageKey === stage.waitingOn?.stageKey)?.label ?? null} onGo={onGoStage} />}
       {body}
     </Box>
   );

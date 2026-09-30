@@ -18,6 +18,8 @@ export type BomChange =
   | { op: 'quantity'; lineId: number; quantity: number }
   /** null goes back to the way the child is usually made. */
   | { op: 'flow'; lineId: number; flowId: number | null }
+  /** The row's description (the text after the dot). null / empty clears it. Only before the line is locked. */
+  | { op: 'role'; lineId: number; role: string | null }
   | { op: 'remove'; lineId: number }
   | { op: 'arrange'; groups: { parentId: number; lineIds: (number | string)[] }[] }
   | { op: 'values'; writes: { recordId: number; specCode: string; value: string | null }[] }
@@ -27,7 +29,7 @@ export type BomChange =
    * selections and cut plates referenced. Into a Template or Standard BOM,
    * another line to the same child. `quantity` defaults to the source line's.
    */
-  | { op: 'paste'; key?: string; sourceLineId: number; parentId: number; afterLineId?: number | null; quantity?: number };
+  | { op: 'paste'; key?: string; sourceLineId: number; parentId: number; afterLineId?: number | null; quantity?: number; role?: string | null };
 
 export interface BomChangesRequest {
   scope: BomChangeScope;
@@ -38,6 +40,7 @@ export interface BomChangesRequest {
 export interface BomChangeCounts {
   quantity: number;
   flow: number;
+  role?: number;
   pasted: number;
   /** New temporary items the pastes created. */
   copiedItems: number;
@@ -56,6 +59,7 @@ export interface BomChangeCopy { id: number | null; code: string | null; name: s
 export type BomChangeResult =
   | { op: 'quantity'; lineId: number; from: number; to: number; changed: boolean }
   | { op: 'flow'; lineId: number; from: number | null; to: number | null; changed: boolean }
+  | { op: 'role'; lineId: number; from: string | null; to: string | null; changed: boolean }
   | { op: 'remove'; lineId: number; beneath: number; withParent: boolean }
   | { op: 'arrange'; moved: number; reordered: number }
   | { op: 'values'; changed: number; records: number }

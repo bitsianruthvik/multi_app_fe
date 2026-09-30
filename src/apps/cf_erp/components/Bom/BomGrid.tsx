@@ -1,7 +1,8 @@
-import { useMemo, useRef, useState, type ReactNode } from 'react';
+import { useMemo, useRef, useState, type ChangeEvent, type ClipboardEvent, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react';
 import { Alert, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, MenuItem, TextField, Tooltip, Typography } from '@mui/material';
 import DragIndicatorRounded from '@mui/icons-material/DragIndicatorRounded';
 import CloseRounded from '@mui/icons-material/CloseRounded';
+import EditOutlined from '@mui/icons-material/EditOutlined';
 import { SheetGrid, type SheetCell, type SheetGridHandle, type SheetWrite } from '@shared/ui';
 import { effectiveCell, type ValuesColumn, type ValuesView } from '../Values/valuesModel';
 import { ownInput, valueEditable, type BomRow, type Pending } from './bomModel';
@@ -14,7 +15,7 @@ type Cell = { text: string; input: string; saved: string; editable: boolean; why
 
 /** The BOM around the shared SheetGrid: SheetGrid owns selection, clipboard and
  * the editor; this owns what a BOM cell means, plus row drag/drop and moving. */
-export function BomGrid({ rows, view, records: recordValues, recordIds, pending, busy, canEdit, canEditValues, onToggle, onWrites, onMove, dropRefusal, trailingCell, flowCell, markOf, placeholderOf, footer }: {
+export function BomGrid({ rows, view, records: recordValues, recordIds, pending, busy, canEdit, canEditValues, onToggle, onWrites, onMove, dropRefusal, trailingCell, flowCell, markOf, placeholderOf, roleOf, canEditRole, onRole, cutChipOf, onlyUsedColumns, footer }: {
   rows: BomRow[]; view: ValuesView | null; pending: Pending; busy: boolean; canEdit: (row: BomRow) => boolean;
   records?: SpecValues; recordIds?: number[]; canEditValues: (row: BomRow) => boolean;
   onToggle: (key: string) => void; onWrites: (writes: GridWrite[]) => void;
@@ -23,11 +24,21 @@ export function BomGrid({ rows, view, records: recordValues, recordIds, pending,
   trailingCell: (row: BomRow) => ReactNode; flowCell: (row: BomRow) => ReactNode;
   markOf: (row: BomRow) => RowMark | null;
   placeholderOf: (row: BomRow) => { code: string; title: string } | null;
+  /** The description shown after the dot: a typed one wins over the saved one. */
+  roleOf?: (row: BomRow) => string | null;
+  /** Whether the description may be edited on this row. */
+  canEditRole?: (row: BomRow) => boolean;
+  onRole?: (row: BomRow, text: string) => void;
+  /** "cut from 25 × 500 × 11650" for a part whose automatic cut pieces are hidden. */
+  cutChipOf?: (row: BomRow) => string | null;
+  /** Show a column only if some row on screen can use it. */
+  onlyUsedColumns?: boolean;
   footer?: ReactNode;
 }) {
   const grid = useRef<SheetGridHandle>(null);
   const [drag, setDrag] = useState<BomRow | null>(null);
   const [drop, setDrop] = useState<{ key: string; position: DropPosition; refusal: string | null } | null>(null);
+  const [roleEdit, setRoleEdit] = useState<{ key: string; text: string } | null>(null);
   const [moveDialog, setMoveDialog] = useState<BomRow | null>(null);
   const [moveTarget, setMoveTarget] = useState('');
   const [movePosition, setMovePosition] = useState<DropPosition>('before');
@@ -52,7 +63,15 @@ export function BomGrid({ rows, view, records: recordValues, recordIds, pending,
     }
     return { cols: [...cols.values()].sort((a, b) => Number(b.editable) - Number(a.editable)), records };
   }, [view, rows, recordValues, recordIds]);
-  const columns = [{ code: '$quantity', name: 'Quantity' }, { code: '$total', name: 'Total' }, ...catalog.cols];
+  /** Whether a row can hold this variable at all — the same lookups cellAt makes, without building the cell. */
+  const uses = (row: BomRow, code: string): boolean => {
+    if (recordValues) return !!recordValues.get(row.node.id)?.resolution?.specs.some((s) => s.applicable && s.spec.code === code);
+    const info = catalog.records.get(row.node.id);
+    return !!info?.columns.get(code) && !!info.row.cells[code];
+  };
+  const loaded = !!recordValues || !!view;
+  const shown = onlyUsedColumns && loaded ? catalog.cols.filter((c) => rows.some((r) => uses(r, c.code))) : catalog.cols;
+  const columns = [{ code: '$quantity', name: 'Quantity' }, { code: '$total', name: 'Total' }, ...shown];
   const rowByKey = useMemo(() => new Map(rows.map((r) => [r.node.key, r])), [rows]);
   const colByKey = new Map(columns.map((c) => [c.code, c]));
   const cellAt = (row: BomRow, col: { code: string }): Cell => {
@@ -95,6 +114,11 @@ export function BomGrid({ rows, view, records: recordValues, recordIds, pending,
     const row = rowByKey.get(w.rowKey), col = colByKey.get(w.colKey);
     return row && col ? [{ row, code: col.code, text: w.text, saved: cellAt(row, col).saved }] : [];
   }));
+  const startRole = (row: BomRow) => setRoleEdit({ key: row.node.key, text: roleOf?.(row) ?? row.node.role ?? '' });
+  const finishRole = (row: BomRow, save: boolean) => {
+    if (save && roleEdit && roleEdit.key === row.node.key) onRole?.(row, roleEdit.text);
+    setRoleEdit(null);
+  };
   const targetRow = rows.find((r) => r.node.key === moveTarget);
   const moveWhy = moveDialog && targetRow ? dropRefusal(moveDialog, targetRow, movePosition) : 'Choose a destination.';
 
@@ -107,15 +131,33 @@ export function BomGrid({ rows, view, records: recordValues, recordIds, pending,
       </> }))}
       rows={rows.map((row) => {
         const n = row.node, mark = markOf(row), marker = drop?.key === n.key ? drop : null;
+        const roleText = roleOf ? roleOf(row) : n.role, roleEditable = !!canEditRole?.(row) && !!onRole, chip = cutChipOf?.(row) ?? null;
         return { key: n.key, label: n.name, depth: n.depth, collapsible: row.hasChildren, collapsed: !row.open,
           lead: canEdit(row) && row.parent ? <Tooltip title="Drag to move · click for move options"><IconButton size="small" draggable={!busy} disabled={busy}
             aria-label={`Move ${n.name}`} onClick={() => { setMoveDialog(row); setMoveTarget(''); setMovePosition('before'); }}
             onDragStart={(e) => { setDrag(row); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', n.key); }}
             onDragEnd={() => { setDrag(null); setDrop(null); }} sx={{ cursor: 'grab', width: 32, height: 40 }}><DragIndicatorRounded fontSize="small" /></IconButton></Tooltip> : <Box sx={{ width: 32, flexShrink: 0 }} />,
           header: <>
-            <Box sx={{ fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{n.name}{n.role ? ` · ${n.role}` : ''}</Box>
-            <Box sx={{ fontSize: 10, color: 'var(--c-text-3)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={placeholderOf(row)?.title}>{row.paste ? `New copy${row.paste.source.children.length ? ' with children' : ''} · save to edit values` : placeholderOf(row)?.code ?? (n.kind === 'temporary' ? '' : n.code ?? '')}{mark && !row.paste ? ` · ${mark.label}` : ''}</Box>
-            {flowCell(row)}
+            {roleEdit?.key === n.key ? (
+              <Box component="input" autoFocus aria-label={`Description of ${n.name}`} value={roleEdit.text} maxLength={100} placeholder="Description, e.g. Girder G2"
+                onChange={(e: ChangeEvent<HTMLInputElement>) => setRoleEdit({ key: n.key, text: e.target.value })}
+                onKeyDown={(e: KeyboardEvent<HTMLInputElement>) => { e.stopPropagation(); if (e.key === 'Enter') finishRole(row, true); else if (e.key === 'Escape') finishRole(row, false); }}
+                onBlur={() => finishRole(row, true)}
+                onClick={(e: MouseEvent) => e.stopPropagation()} onDoubleClick={(e: MouseEvent) => e.stopPropagation()} onMouseDown={(e: MouseEvent) => e.stopPropagation()}
+                onCopy={(e: ClipboardEvent) => e.stopPropagation()} onPaste={(e: ClipboardEvent) => e.stopPropagation()}
+                sx={{ width: '100%', font: 'inherit', fontSize: 12, p: '1px 4px', border: '1px solid var(--c-primary-400)', borderRadius: 'var(--r-sm)', background: 'var(--c-surface)', color: 'var(--c-text)' }} />
+            ) : (
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25, minWidth: 0 }}>
+                <Box onDoubleClick={roleEditable ? () => startRole(row) : undefined} title={roleEditable ? 'Double-click to change the description' : undefined}
+                  sx={{ fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>{n.name}{roleText ? ` · ${roleText}` : ''}</Box>
+                {roleEditable && <Tooltip title="Change the description"><IconButton size="small" aria-label={`Edit description of ${n.name}`} onClick={() => startRole(row)} sx={{ p: 0.25, color: 'var(--c-text-3)' }}><EditOutlined sx={{ fontSize: 14 }} /></IconButton></Tooltip>}
+              </Box>
+            )}
+            <Box sx={{ fontSize: 10, color: 'var(--c-text-3)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={placeholderOf(row)?.title}>{row.paste ? `New copy${row.paste.source.children.length ? ' with children' : ''} · Save to edit this copy` : placeholderOf(row)?.code ?? (n.kind === 'temporary' ? '' : n.code ?? '')}{mark && !row.paste ? ` · ${mark.label}` : ''}</Box>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, minWidth: 0 }}>
+              {flowCell(row)}
+              {chip && <Box component="span" title="Its cut plate is made automatically. Turn on Show cut pieces to see it." sx={{ fontSize: 10.5, px: 0.75, borderRadius: 'var(--r-sm)', background: 'var(--c-surface-2)', color: 'var(--c-text-3)', border: '1px solid var(--c-border)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{chip}</Box>}
+            </Box>
           </>,
           trail: <>
             <Box sx={{ display: 'flex', flexShrink: 0 }}>{trailingCell(row)}</Box>

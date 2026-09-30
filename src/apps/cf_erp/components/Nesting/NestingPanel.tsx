@@ -1,6 +1,6 @@
-import { useCallback, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from 'react';
 import {
-  Alert, Box, Button, CircularProgress, Collapse, IconButton, Menu, MenuItem, Switch, TextField, Tooltip, Typography,
+  Alert, Box, Button, CircularProgress, Collapse, Menu, MenuItem, Switch, Tooltip, Typography,
 } from '@mui/material';
 import GridViewRounded from '@mui/icons-material/GridViewRounded';
 import AutoAwesomeRounded from '@mui/icons-material/AutoAwesomeRounded';
@@ -8,7 +8,6 @@ import TaskAltRounded from '@mui/icons-material/TaskAltRounded';
 import UndoRounded from '@mui/icons-material/UndoRounded';
 import ExpandMoreRounded from '@mui/icons-material/ExpandMoreRounded';
 import ExpandLessRounded from '@mui/icons-material/ExpandLessRounded';
-import MoreHorizRounded from '@mui/icons-material/MoreHorizRounded';
 import InfoOutlined from '@mui/icons-material/InfoOutlined';
 import PanToolRounded from '@mui/icons-material/PanToolRounded';
 import LightbulbOutlined from '@mui/icons-material/LightbulbOutlined';
@@ -25,11 +24,11 @@ import type {
 } from '../../api/types';
 import { useLoad } from '../../hooks/useLoad';
 import {
-  ACCEPT_AGAIN, ACCEPT_WHAT_HAPPENS, EFFORTS, LOOK_IS_A_LOOK, MANUAL_HELP, NO_MANAGE,
+  ACCEPT_AGAIN, ACCEPT_WHAT_HAPPENS, CAPPED_LINE, EFFORTS, progressLine, LOOK_IS_A_LOOK, MANUAL_HELP, NO_MANAGE,
   acceptBody, adviceSentence, adviceTitle, basisWord, colourIndex, cutOrderSentence, dedupeAdvice, driftWords, kg, marginOf,
   marginSentence, mm, mmPair, pct, pieceColour, platePieceKinds, sequenceOver, steelWord, tonnes,
   NO_LAYOUT, anyImported, hasLayout, isImported, lineOffcuts, verdictOf, wasteBreakdown, wasteTotalKg,
-  type Effort,
+  type Effort, type NestingBudget,
 } from '../../lib/nesting';
 import {
   Badge, CapsLabel, EmptyState, ErrorNotice, Mono, SectionCard, SkeletonRows, Surface,
@@ -72,7 +71,7 @@ import { NestSheetDialog } from './NestSheetDialog';
 const NESTING_PLAN_MS = 11 * 60 * 1000;
 
 /** How many plates a steel group draws before it asks. A line can hold a hundred. */
-const FIRST_PLATES = 4;
+const FIRST_PLATES = 8;
 const MORE_PLATES = 12;
 
 /** How many offcuts the line summary lists before it says "more". */
@@ -342,7 +341,19 @@ export function NestingPanel({ orderId, lineId, canManage, onChanged }: {
   const [sheet, setSheet] = useState<{ name: string; base64: string; result: NestSheetResult } | null>(null);
   const [fileBusy, setFileBusy] = useState<'download' | 'preview' | 'save' | 'cnc' | null>(null);
   const sheetInput = useRef<HTMLInputElement>(null);
-  const [moreAnchor, setMoreAnchor] = useState<HTMLElement | null>(null);
+  const [effortAnchor, setEffortAnchor] = useState<HTMLElement | null>(null);
+  // The run being waited for; Cancel bumps it so a late answer is ignored.
+  const runId = useRef(0);
+  const [waited, setWaited] = useState(0);
+  const [packing, setPacking] = useState<number | null>(null);
+  const [capped, setCapped] = useState(false);
+  useEffect(() => {
+    if (busy !== 'plan') return undefined;
+    setWaited(0);
+    const t0 = Date.now();
+    const timer = window.setInterval(() => setWaited(Math.round((Date.now() - t0) / 1000)), 1000);
+    return () => window.clearInterval(timer);
+  }, [busy]);
   const [leaveOpen, setLeaveOpen] = useState(false);
   const [offcutsOpen, setOffcutsOpen] = useState(false);
 
@@ -409,14 +420,24 @@ export function NestingPanel({ orderId, lineId, canManage, onChanged }: {
   const colourOf = useCallback((id: number) => pieceColour(colours.get(id) ?? id), [colours]);
 
   const propose = async (replaceImported = false) => {
-    setBusy('plan'); setActionError(null);
+    const mine = ++runId.current;
+    setBusy('plan'); setActionError(null); setCapped(false);
+    setPacking(plan ? (plan.groups.reduce((a, g) => a + g.cutPlates.reduce((b, c) => b + (c.pieces ?? 0), 0), 0) || null) : null);
     try {
       const out = await cfApi.post<NestingPlan>(`${path}/plan`, { effort, ...(replaceImported ? { replaceImported: true } : {}) }, { timeoutMs: NESTING_PLAN_MS });
+      if (mine !== runId.current) return;
+      setCapped(!!(out as NestingPlan & { budget?: NestingBudget }).budget?.capped);
       setProposal(out);
       setReplaceAll(replaceImported);
       setOpenGroup(out.groups.find((g) => g.nests.length)?.key ?? null);
       toast.success(`${out.totals.plates} plates, ${out.totals.pieces} pieces. Nothing is written until you accept it.`);
-    } catch (e) { setActionError(e as CfApiError); } finally { setBusy(null); }
+    } catch (e) { if (mine === runId.current) setActionError(e as CfApiError); } finally { if (mine === runId.current) setBusy(null); }
+  };
+
+  const cancelPlan = () => {
+    runId.current += 1;
+    setBusy(null);
+    toast.info('Stopped waiting. The server may still finish, but nothing is written.');
   };
 
   const accept = async () => {
@@ -502,21 +523,6 @@ export function NestingPanel({ orderId, lineId, canManage, onChanged }: {
         subtitle={`Line ${plan.line.lineNo} of ${plan.line.orderCode} · plate → sequence → row → part, and the floor cuts in that order.`}
         actions={(
           <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
-            <Tooltip title="More">
-              <span>
-                <IconButton size="small" aria-label="More" disabled={busy != null} onClick={(e) => setMoreAnchor(e.currentTarget)}>
-                  <MoreHorizRounded />
-                </IconButton>
-              </span>
-            </Tooltip>
-            <Menu anchorEl={moreAnchor} open={!!moreAnchor} onClose={() => setMoreAnchor(null)}>
-              <Box sx={{ px: 2, py: 1 }}>
-                <TextField select size="small" label="Effort" value={effort} onChange={(e) => { setEffort(e.target.value as Effort); setMoreAnchor(null); }}
-                  sx={{ minWidth: 160 }} disabled={busy != null}>
-                  {EFFORTS.map((e) => <MenuItem key={e.value} value={e.value}>{e.label}</MenuItem>)}
-                </TextField>
-              </Box>
-            </Menu>
             <Tooltip title="The nests as a sheet. Fill it from your nesting program and upload it back.">
               <span>
                 <Button variant="outlined" disabled={fileBusy != null || busy != null} onClick={downloadSheet}
@@ -545,6 +551,21 @@ export function NestingPanel({ orderId, lineId, canManage, onChanged }: {
                 </Button>
               </span>
             </Tooltip>
+            <Button size="small" variant="outlined" aria-label="Effort" disabled={busy != null || fileBusy != null}
+              onClick={(e) => setEffortAnchor(e.currentTarget)} endIcon={<ExpandMoreRounded />}
+              sx={{ borderRadius: 999, px: 1.25, py: 0.25, fontSize: 12.5 }}>
+              {EFFORTS.find((x) => x.value === effort)?.label}
+            </Button>
+            <Menu anchorEl={effortAnchor} open={!!effortAnchor} onClose={() => setEffortAnchor(null)}>
+              {EFFORTS.map((e) => (
+                <MenuItem key={e.value} selected={e.value === effort} onClick={() => { setEffort(e.value); setEffortAnchor(null); }}>
+                  <Box>
+                    <Box sx={{ fontSize: 13.5, fontWeight: 500 }}>{e.label}</Box>
+                    <Box sx={{ fontSize: 12, color: 'var(--c-text-2)' }}>{e.help}</Box>
+                  </Box>
+                </MenuItem>
+              ))}
+            </Menu>
             {imported && (
               <Tooltip title="Lays out the whole line again, automatically. Accepting it replaces the imported nests too.">
                 <span>
@@ -575,6 +596,14 @@ export function NestingPanel({ orderId, lineId, canManage, onChanged }: {
             </Typography>
           </Box>
           {plan.settingsNote && <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-3)' }}>{plan.settingsNote}</Typography>}
+          {busy === 'plan' && (
+            <Box role="status" sx={{ display: 'flex', gap: 1.5, alignItems: 'center', flexWrap: 'wrap', fontSize: 13, color: 'var(--c-text-2)' }}>
+              <span>{progressLine(packing, waited, effort)}</span>
+              <Button size="small" variant="text" onClick={cancelPlan}>Cancel</Button>
+              <span style={{ fontSize: 12, color: 'var(--c-text-3)' }}>Cancel only stops waiting; the server may finish anyway.</span>
+            </Box>
+          )}
+          {proposal && capped && <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)' }}>{CAPPED_LINE}</Typography>}
           <ErrorNotice error={actionError} sx={{ mb: 0 }} />
           {/*
             The commitment is laid out BEFORE the button that makes it, not

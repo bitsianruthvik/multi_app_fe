@@ -126,7 +126,30 @@ const INTERACTIVE = 'button, input, select, a, [draggable="true"]';
 const optionValue = (o: SheetOption) => (typeof o === 'string' ? o : o.value);
 const optionLabel = (o: SheetOption) => (typeof o === 'string' ? o : o.label || o.value);
 
-export const SHEET_GRID_HINT = 'Click a cell to select · Ctrl+C / Ctrl+V to copy and paste · Ctrl+Z to undo · Double-click or Enter to edit · Shift-click or drag selects a block · Click a header to select a whole column or row';
+type OptionMatch = { option: SheetOption } | { ambiguous: string[] } | null;
+/**
+ * Forgiving option matching: exact value or label (case-insensitive), else a label/value that STARTS WITH the
+ * text followed by a non-alphanumeric character or the end ("BO" → "BO — no impact test"), else a unique option
+ * that contains the text as a whole word. Several candidates at a step → ambiguous (the labels are returned).
+ */
+// eslint-disable-next-line react-refresh/only-export-components -- pure helper, exported for the tests and screens that validate options
+export function matchOption(options: SheetOption[] | undefined, raw: string): OptionMatch {
+  const text = raw.trim().toLowerCase();
+  if (!options || !text) return null;
+  const esc = text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const exact = options.find((o) => [optionValue(o), optionLabel(o)].some((x) => x.toLowerCase() === text));
+  if (exact) return { option: exact };
+  for (const re of [new RegExp(`^${esc}(?:[^a-z0-9]|$)`, 'i'), new RegExp(`(?:^|[^a-z0-9])${esc}(?:[^a-z0-9]|$)`, 'i')]) {
+    const hits = options.filter((o) => re.test(optionLabel(o)) || re.test(optionValue(o)));
+    if (hits.length === 1) return { option: hits[0] };
+    if (hits.length > 1) return { ambiguous: hits.map(optionLabel) };
+  }
+  return null;
+}
+const refusal = (text: string, colName: string, m: OptionMatch) =>
+  m && 'ambiguous' in m ? `“${text}” could be ${m.ambiguous.map((l) => `“${l}”`).join(' or ')} in ${colName}. Type more of it.` : `“${text}” is not an allowed ${colName}.`;
+
+export const SHEET_GRID_HINT = 'Click a cell to select · Ctrl+C / Ctrl+V to copy and paste · Ctrl+D / Ctrl+R to fill down / right · Ctrl+Z to undo · Double-click or Enter to edit · Shift-click or drag selects a block · Click a header to select a whole column or row';
 
 export function SheetGrid({
   rows, columns, cellAt, onWrites, onSelectionChange, onToggleRow, rowSelect, stickyHeader = true, frozenFirstColumn = true, footer,
@@ -135,6 +158,7 @@ export function SheetGrid({
   const table = useRef<HTMLTableElement>(null);
   const selecting = useRef(false);
   const endingEdit = useRef(false);
+  const typed = useRef(''), typedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastReported = useRef('');
   const [anchor, setAnchor] = useState<Point | null>(null), [extent, setExtent] = useState<Point | null>(null);
   const [editor, setEditor] = useState<{ at: Point; text: string } | null>(null);
@@ -230,7 +254,15 @@ export function SheetGrid({
     if (!editor || endingEdit.current) return;
     endingEdit.current = true;
     const c = cellOf(editor.at);
-    if (writable(c)) emit([{ rowKey: rows[editor.at.row].key, colKey: columns[editor.at.col].key, text: editor.text }]);
+    if (writable(c)) {
+      let text = editor.text;
+      if (c.kind === 'option' && text !== '') {
+        const m = matchOption(c.options, text);
+        if (m && 'option' in m) text = optionValue(m.option);
+        else { problem(refusal(text, columns[editor.at.col].label ?? columns[editor.at.col].key, m)); setEditor(null); if (returnFocus) focus(editor.at); return; }
+      }
+      emit([{ rowKey: rows[editor.at.row].key, colKey: columns[editor.at.col].key, text }]);
+    }
     setEditor(null);
     if (returnFocus) focus(editor.at);
   };
@@ -238,7 +270,10 @@ export function SheetGrid({
     const c = cellOf(at);
     if (!writable(c)) { if (c.why) problem(c.why); return; }
     endingEdit.current = false;
-    choose(at); problem(null); setEditor({ at, text: text ?? c.input ?? c.text });
+    choose(at); problem(null);
+    let start = text ?? c.input ?? c.text;
+    if (c.kind === 'option' && text !== undefined) { typed.current = text; const m = matchOption(c.options, text); if (m && 'option' in m) start = optionValue(m.option); }
+    setEditor({ at, text: start });
   };
   const copy = (e: ClipboardEvent) => {
     if (editor || !anchor) return;
@@ -266,9 +301,9 @@ export function SheetGrid({
       if (!writable(c)) { problem(`Nothing pasted: ${rows[at.row].label ?? rows[at.row].key} · ${colName} is read-only or does not apply.`); return; }
       let text = (single ? data[0][0] : data[r]?.[k] ?? '').trim();
       if (c.kind === 'option' && text !== '') {
-        const option = c.options?.find((o) => [optionValue(o), optionLabel(o)].some((s) => s.toLowerCase() === text.toLowerCase()));
-        if (!option) { problem(`Nothing pasted: “${text}” is not an allowed ${colName}.`); return; }
-        text = optionValue(option);
+        const m = matchOption(c.options, text);
+        if (!m || !('option' in m)) { problem(`Nothing pasted: ${refusal(text, colName, m)}`); return; }
+        text = optionValue(m.option);
       }
       if (c.kind === 'bool' && text !== '') {
         if (/^(yes|true|1)$/i.test(text)) text = 'true';
@@ -279,8 +314,32 @@ export function SheetGrid({
     }
     emit(writes); problem(null); setExtent({ row: b.top + height - 1, col: b.left + width - 1 });
   };
+  /** Ctrl+D / Ctrl+R: copy the first row (column) of the selection into the rest, as one history entry. */
+  const fill = (dir: 'down' | 'right') => {
+    const b = bounds(), down = dir === 'down';
+    const span = down ? b.bottom - b.top : b.right - b.left;
+    const srcLine = span === 0 ? (down ? b.top - 1 : b.left - 1) : (down ? b.top : b.left);
+    if (srcLine < 0) { problem(`Nothing to fill ${dir}: select the cells to fill and the one to copy from.`); return; }
+    const first = srcLine + 1, last = down ? b.bottom : b.right;
+    const lo = down ? b.left : b.top, hi = down ? b.right : b.bottom;
+    const writes: SheetWrite[] = []; let skipped = 0;
+    for (let k = lo; k <= hi; k++) {
+      const src = cellOf(down ? { row: srcLine, col: k } : { row: k, col: srcLine });
+      const value = isBlank(src) ? null : src.input ?? src.text;
+      for (let i = first; i <= last; i++) {
+        const at = down ? { row: i, col: k } : { row: k, col: i };
+        if (value === null || !writable(cellOf(at))) { skipped++; continue; }
+        writes.push({ rowKey: rows[at.row].key, colKey: columns[at.col].key, text: value });
+      }
+    }
+    emit(writes);
+    problem(skipped ? `${skipped} cell${skipped > 1 ? 's' : ''} skipped (read-only or not applicable).` : null);
+  };
   const onKey = (e: KeyboardEvent, at: Point) => {
     if (editor) return;
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && /^[dr]$/i.test(e.key)) {
+      e.preventDefault(); fill(e.key.toLowerCase() === 'd' ? 'down' : 'right'); return;
+    }
     const delta: Record<string, [number, number]> = { ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1], Tab: [0, e.shiftKey ? -1 : 1] };
     if (delta[e.key]) {
       e.preventDefault();
@@ -388,7 +447,16 @@ export function SheetGrid({
                     }
                   }}>
                   {cell.kind === 'option' || cell.kind === 'bool'
-                    ? <select autoFocus value={editor.text} aria-label={col.label ?? col.key} onChange={(e) => setEditor({ at, text: e.target.value })} style={{ width: '100%', minHeight: 32 }}>
+                    ? <select autoFocus value={editor.text} aria-label={col.label ?? col.key} onChange={(e) => setEditor({ at, text: e.target.value })} style={{ width: '100%', minHeight: 32 }}
+                      onKeyDown={cell.kind === 'option' ? (e) => {
+                        // Typing picks the forgiving match ("BO" → "BO — no impact test"); Enter then commits it.
+                        if (e.key.length !== 1 || e.ctrlKey || e.metaKey || e.altKey) { typed.current = ''; return; }
+                        e.preventDefault(); typed.current += e.key;
+                        if (typedTimer.current) clearTimeout(typedTimer.current);
+                        typedTimer.current = setTimeout(() => { typed.current = ''; }, 1200);
+                        const m = matchOption(cell.options, typed.current);
+                        if (m && 'option' in m) setEditor({ at, text: optionValue(m.option) });
+                      } : undefined}>
                       <option value="" />
                       {cell.kind === 'bool' ? <><option value="true">Yes</option><option value="false">No</option></>
                         : cell.options?.map((o) => <option key={optionValue(o)} value={optionValue(o)}>{optionLabel(o)}</option>)}

@@ -36,6 +36,7 @@ import { OrderLinesPanel } from '../components/OrderLinesPanel';
 import { Explain, OrderStageTabs, ProcessAbsentNote, StageTabsSkeleton } from '../components/OrderProcess/StageTabs';
 import { StageBody } from '../components/OrderProcess/StageBody';
 import { StageFoot } from '../components/OrderProcess/StageFoot';
+import { ConfirmOrderDialog } from '../components/OrderProcess/ConfirmOrderDialog';
 import { useWorkingLine } from '../components/OrderProcess/workingLine';
 import { useDetailTitle } from '../components/shell/detailTitle';
 import { useToast } from '../components/toastContext';
@@ -465,7 +466,9 @@ export default function OrderDetail() {
           reloadAll();
           setTab('production');
         }} />
-      <ConfirmDialog open={!!moving} title={moving ? `${transitionLabel(o.status, moving)}?` : ''} confirmLabel={moving ? transitionLabel(o.status, moving) : 'Confirm'} danger={moving === 'cancelled'}
+      <ConfirmOrderDialog open={moving === 'confirmed'} order={o} onClose={() => setMoving(null)}
+        onConfirmed={(saved) => { orderSaved(saved); invalidateNavCounts(); toast.success(`${o.code} is now confirmed.`); }} />
+      <ConfirmDialog open={!!moving && moving !== 'confirmed'} title={moving ? `${transitionLabel(o.status, moving)}?` : ''} confirmLabel={moving ? transitionLabel(o.status, moving) : 'Confirm'} danger={moving === 'cancelled'}
         entityName={`${o.code}${o.title ? ` · ${o.title}` : ''}`} body={moving ? CONFIRM_MOVE[moving] ?? '' : ''}
         onClose={() => setMoving(null)}
         onConfirm={async () => { const next = moving!; orderSaved(await cfApi.post<SalesOrder>(`/orders/${id}/status`, { status: next })); invalidateNavCounts(); toast.success(`${o.code} is now ${ORDER_STATUS_LABEL[next].toLowerCase()}.`); }} />

@@ -626,6 +626,8 @@ export interface Flow {
   status: RecordStatus;
   stepCount?: number;
   usedBy?: number;
+  /** The list carries each flow's steps in order, for the one-line summary and the operation filter. */
+  steps?: { sequence: number; operation: { id: number; code: string; name: string } }[];
   createdAt: string;
   updatedAt: string;
 }
@@ -874,6 +876,11 @@ export interface ReleaseCheck {
   /** It could not settle on one — the dialog asks instead of blocking the release. */
   needsFinishedArea: boolean;
   finishedAreaProblem: string | null;
+  /** Cut plates with no flow, and the house cut-plate flow that would be given to them (null: none set). */
+  cutPlatesNoFlow?: { missing: number; flow: { id: number; code: string; name: string } | null };
+  /** No active area of the fitting purpose exists at all — the dialog offers to create a dispatch yard. */
+  noFittingArea?: boolean;
+  finishedAreaPurpose?: AreaPurpose;
   /** What the picker offers, the fitting purpose first. */
   areas: { id: number; code: string; name: string; purpose: AreaPurpose }[];
 }
@@ -1044,6 +1051,8 @@ export interface OrderStage {
   /** One line of plain English: where this stage has got to. */
   detail: string;
   blockers: StageBlocker[];
+  /** When an earlier stage has to come first: one line, and the stage to jump to. */
+  waitingOn?: { stageKey: string; message: string } | null;
 }
 
 export interface OrderProcessLine {
