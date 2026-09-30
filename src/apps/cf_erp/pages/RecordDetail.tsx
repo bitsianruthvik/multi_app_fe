@@ -17,7 +17,8 @@ import WarehouseRounded from '@mui/icons-material/WarehouseRounded';
 import { cfApi, CfApiError, qs } from '../api/client';
 import { getLinePlaceholders, placeholderTitle } from '../api/placeholders';
 import type { Sourcing, MasterRecord, Resolution, Rule, Tree } from '../api/types';
-import { SOURCING_HELP, SOURCING_LABEL, SOURCING_OPTIONS } from '../lib/records';
+import { SOURCING_HELP, SOURCING_LABEL, SOURCING_OPTIONS, folderSharers, folderSharingNote } from '../lib/records';
+import { findNode } from '../lib/tree';
 import { useCompanySlug, useLoad } from '../hooks/useLoad';
 import { useIsPermitted } from '../hooks/useIsPermitted';
 import { invalidateNavCounts } from '../hooks/useNavCounts';
@@ -210,7 +211,7 @@ export default function RecordDetail({ recordKind }: { recordKind: 'item' | 'def
   const [deleteRule, setDeleteRule] = useState<Rule | null>(null);
   const [version, setVersion] = useState(0);
   /** After a definition is renamed: its own folder may still carry the old name. */
-  const [folderOffer, setFolderOffer] = useState<{ nodeId: number; oldName: string } | null>(null);
+  const [folderOffer, setFolderOffer] = useState<{ nodeId: number; oldName: string; note: string | null } | null>(null);
   const [folderBusy, setFolderBusy] = useState(false);
 
   const r = rec.data;
@@ -273,7 +274,10 @@ export default function RecordDetail({ recordKind }: { recordKind: 'item' | 'def
     try {
       rec.setData(await cfApi.put<MasterRecord>(`/records/${id}`, { name }));
       toast.success('Renamed.');
-      setFolderOffer(isDefinition && canSetup && folder && folder.name === oldName ? { nodeId: folder.id, oldName } : null);
+      // The tree was read with the page, so its counts still include this record; folderSharers takes it out.
+      const node = folder ? findNode(tree.data?.roots ?? [], folder.id) : null;
+      const note = folderSharingNote(folderSharers(node, isDefinition ? 'definition' : 'item'));
+      setFolderOffer(isDefinition && canSetup && folder && folder.name === oldName ? { nodeId: folder.id, oldName, note } : null);
     } catch (e) { setActionError(e as CfApiError); throw e; }
   };
   const renameFolder = async () => {
@@ -338,7 +342,7 @@ export default function RecordDetail({ recordKind }: { recordKind: 'item' | 'def
       <ErrorNotice error={actionError} sx={{ mt: 2, mb: 0 }} />
       {folderOffer && (
         <Box sx={{ mt: 2, display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap', fontSize: 13.5 }}>
-          <span>Rename the folder &lsquo;{folderOffer.oldName}&rsquo; too?</span>
+          <span>Rename the folder &lsquo;{folderOffer.oldName}&rsquo; too?{folderOffer.note && <> {folderOffer.note}</>}</span>
           <Button size="small" variant="outlined" disabled={folderBusy} onClick={renameFolder}>Rename</Button>
           <Button size="small" disabled={folderBusy} onClick={() => setFolderOffer(null)} sx={{ color: 'var(--c-text-2)' }}>Keep it</Button>
         </Box>

@@ -353,6 +353,20 @@ await check('Typing in an option editor matches forgivingly; Enter commits the v
   await fire(document.querySelector('select'), 'keydown', { key: 'Enter' });
   assert.deepEqual(fx.log.at(-1), [{ rowKey: 'a', colKey: 'kind', text: 'BO' }]);
 });
+await check('Below 600 px the grid is read-only with a one-line note; above it nothing changes', async () => {
+  const stub = (narrow) => { window.matchMedia = (q) => ({ matches: narrow && q === m.SHEET_GRID_NARROW_QUERY, media: q, addListener() {}, removeListener() {}, addEventListener() {}, removeEventListener() {} }); };
+  try {
+    stub(true); writes = []; await render({ ...props, historyKey: 'narrow' });
+    const note = document.querySelector('[data-testid="sheet-grid-narrow-note"]');
+    assert.ok(note, 'note shown'); assert.match(note.textContent, /Editing this is easier on a wider screen/);
+    await fire(cell(1, 1), 'click'); await fire(cell(1, 1), 'keydown', { key: '9' });
+    assert.equal(document.querySelector('input'), null, 'no editor opens'); assert.deepEqual(writes, []);
+    await render({ ...props, historyKey: 'narrow2', narrowReadOnly: false });
+    assert.equal(document.querySelector('[data-testid="sheet-grid-narrow-note"]'), null, 'opt-out keeps the editor');
+    stub(false); await render({ ...props, historyKey: 'wide' });
+    assert.equal(document.querySelector('[data-testid="sheet-grid-narrow-note"]'), null, 'no note on a wide window');
+  } finally { delete window.matchMedia; }
+});
 await React.act(() => root.unmount());
 dom.window.close();
 console.log(`\n${passed} passed, ${failed} failed`);

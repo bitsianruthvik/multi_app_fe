@@ -16,6 +16,8 @@ import { ErrorNotice, SectionCard, SkeletonRows } from '../ui';
 import { useToast } from '../toastContext';
 import { indexPieces } from '../Production/pieceCodeModel';
 import { PieceCodeTree } from '../Production/PieceCodeTree';
+import { Working } from '../WorkingNote';
+import { knownLineSize, lockCheckingText, lockRecheckText, pieceTreeText, rememberLineSize } from '../../lib/working';
 
 /**
  * The Lock stage (user, 2026-09-26): "Based on the BOM and the values, the
@@ -143,6 +145,7 @@ function PiecesCard({ lineId, locked, summary }: { lineId: number; locked: boole
       <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 1.5 }}>
         <ErrorNotice error={load.error} onRetry={run} sx={{ mb: 0 }} />
         {loading && <LinearProgress aria-label="Working out the pieces" sx={{ borderRadius: 2 }} />}
+        <Working active={loading}>{pieceTreeText(summary.nodes || knownLineSize(lineId).pieces, 'pieces')}</Working>
         {!preview && !loading && (
           <Typography sx={{ fontSize: 13.5, color: 'var(--c-text-2)' }}>
             {summary.nodes === 0
@@ -156,9 +159,11 @@ function PiecesCard({ lineId, locked, summary }: { lineId: number; locked: boole
   );
 }
 
-export function LockPanel({ lineId, lineNo, canManage, stages, onGoStage, onChanged }: {
+export function LockPanel({ lineId, lineNo, quantity, canManage, stages, onGoStage, onChanged }: {
   lineId: number;
   lineNo: number;
+  /** The line's quantity, known from the order before this screen has read anything — it sizes the wait. */
+  quantity?: number;
   canManage: boolean;
   /** The order's stages — which ones exist to send somebody to, and what each is called. */
   stages: OrderStage[];
@@ -171,12 +176,17 @@ export function LockPanel({ lineId, lineNo, canManage, stages, onGoStage, onChan
   const [confirming, setConfirming] = useState(false);
   const [round, setRound] = useState(0);
   const stageLabel = (key?: string) => (key ? stages.find((s) => s.stageKey === key)?.label ?? null : null);
+  // What this read learns about the line's size is what the next slow screen quotes.
+  useEffect(() => { if (view) rememberLineSize(lineId, { pieces: view.summary.nodes }); }, [lineId, view]);
 
   if (error && !view) return <ErrorNotice error={error} onRetry={reload} />;
   if (!view) {
     return (
       <SectionCard title={`Lock line ${lineNo}`} subtitle="Checking the values, the cut pieces and the structure, and working out every piece's code.">
-        <SkeletonRows rows={5} height={44} />
+        <Box sx={{ display: 'grid', gap: 1.5 }}>
+          <Working active>{lockCheckingText(knownLineSize(lineId), quantity)}</Working>
+          <SkeletonRows rows={5} height={44} />
+        </Box>
       </SectionCard>
     );
   }
@@ -256,6 +266,7 @@ export function LockPanel({ lineId, lineNo, canManage, stages, onGoStage, onChan
           : undefined}>
         <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 1.5 }}>
           {loading && <LinearProgress aria-label="Checking again" sx={{ borderRadius: 2 }} />}
+          <Working active={loading}>{lockRecheckText(s.nodes)}</Working>
           <ErrorNotice error={error} onRetry={reload} sx={{ mb: 0 }} />
           {body}
         </Box>

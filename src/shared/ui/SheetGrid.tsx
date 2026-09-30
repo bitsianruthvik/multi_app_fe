@@ -2,7 +2,7 @@ import {
   useEffect, useImperativeHandle, useMemo, useRef, useState,
   type ClipboardEvent, type HTMLAttributes, type KeyboardEvent, type ReactNode, type Ref,
 } from 'react';
-import { Alert, Box, IconButton, Typography } from '@mui/material';
+import { Alert, Box, IconButton, Typography, useMediaQuery } from '@mui/material';
 import type { SxProps, Theme } from '@mui/material/styles';
 import ChevronRightRounded from '@mui/icons-material/ChevronRightRounded';
 import ExpandMoreRounded from '@mui/icons-material/ExpandMoreRounded';
@@ -101,7 +101,13 @@ export interface SheetGridProps {
   onProblem?: (message: string | null) => void;
   /** Text in the top-left corner cell. */
   cornerHeader?: ReactNode;
+  /** Width of the frozen first column. On a narrow window it is capped at half the screen so the data columns stay reachable. */
   rowHeaderWidth?: number;
+  /**
+   * Default true. Below 600 px (a phone) the grid is shown read-only with a one-line note: typing, pasting and
+   * dragging in a tiny grid is a broken editor, and an honest "easier on a wider screen" is not.
+   */
+  narrowReadOnly?: boolean;
   rowHeight?: number;
   ariaLabel?: string;
   busy?: boolean;
@@ -149,12 +155,22 @@ export function matchOption(options: SheetOption[] | undefined, raw: string): Op
 const refusal = (text: string, colName: string, m: OptionMatch) =>
   m && 'ambiguous' in m ? `“${text}” could be ${m.ambiguous.map((l) => `“${l}”`).join(' or ')} in ${colName}. Type more of it.` : `“${text}” is not an allowed ${colName}.`;
 
+/** The note shown instead of an editor on a phone-width window. */
+export const SHEET_GRID_NARROW_NOTE = 'Editing this is easier on a wider screen';
+export const SHEET_GRID_NARROW_QUERY = '(max-width:599.95px)';
+
 export const SHEET_GRID_HINT = 'Click a cell to select · Ctrl+C / Ctrl+V to copy and paste · Ctrl+D / Ctrl+R to fill down / right · Ctrl+Z to undo · Double-click or Enter to edit · Shift-click or drag selects a block · Click a header to select a whole column or row';
 
 export function SheetGrid({
-  rows, columns, cellAt, onWrites, onSelectionChange, onToggleRow, rowSelect, stickyHeader = true, frozenFirstColumn = true, footer,
-  onProblem, cornerHeader, rowHeaderWidth = 220, rowHeight = 32, ariaLabel = 'Spreadsheet', busy, hint, rowProps, rowSx, historyKey, onHistoryChange, ref,
+  rows, columns, cellAt: cellAtRaw, onWrites, onSelectionChange, onToggleRow, rowSelect, stickyHeader = true, frozenFirstColumn = true, footer,
+  onProblem, cornerHeader, rowHeaderWidth = 220, rowHeight = 32, ariaLabel = 'Spreadsheet', busy, hint, rowProps, rowSx, historyKey, onHistoryChange, narrowReadOnly = true, ref,
 }: SheetGridProps) {
+  const narrow = useMediaQuery(SHEET_GRID_NARROW_QUERY, { noSsr: true });
+  const readOnly = narrowReadOnly && narrow;
+  const cellAt = (rowKey: string, colKey: string): SheetCell => {
+    const c = cellAtRaw(rowKey, colKey);
+    return readOnly && c.editable ? { ...c, editable: false, why: SHEET_GRID_NARROW_NOTE } : c;
+  };
   const table = useRef<HTMLTableElement>(null);
   const selecting = useRef(false);
   const endingEdit = useRef(false);
@@ -382,7 +398,10 @@ export function SheetGrid({
   const headSticky: Record<string, string | number> = stickyHeader ? { position: 'sticky', top: 0 } : {};
   const firstSticky: Record<string, string | number> = frozenFirstColumn ? { position: 'sticky', left: 0 } : {};
 
+  const capped = (w: number) => `min(${w}px, 50vw)`;
+
   return <>
+    {readOnly && rows.some((r) => columns.some((c) => cellAtRaw(r.key, c.key).editable)) && <Alert severity="info" role="note" data-testid="sheet-grid-narrow-note" sx={{ mb: 1 }}>{SHEET_GRID_NARROW_NOTE}</Alert>}
     {inline && <Alert severity="info" onClose={() => setInline(null)} sx={{ mb: 1 }}>{inline}</Alert>}
     <Box sx={{ overflow: 'auto', maxHeight: 'min(70vh, 720px)', border: '1px solid var(--c-border)', borderRadius: 'var(--r-sm)' }}>
       <Box component="table" ref={table} role="grid" aria-label={ariaLabel} aria-busy={busy}
@@ -391,8 +410,8 @@ export function SheetGrid({
           '& th, & td': { borderRight: '1px solid var(--c-divider)', borderBottom: '1px solid var(--c-divider)' },
           '& th': { ...headSticky, zIndex: 3, background: 'var(--c-surface-2)', textAlign: 'left', py: 1, px: 1, fontWeight: 600, cursor: 'pointer' },
           '& td': { height: rowHeight, px: 1, outlineOffset: '-2px', '&:focus-visible': { outline: '2px solid var(--c-focus)' } },
-          '& .sg-corner': { ...firstSticky, ...headSticky, zIndex: 4, width: rowHeaderWidth, minWidth: rowHeaderWidth, maxWidth: rowHeaderWidth, cursor: 'default' },
-          '& .sg-rowhead': { ...firstSticky, zIndex: 2, width: rowHeaderWidth, minWidth: rowHeaderWidth, maxWidth: rowHeaderWidth, background: 'var(--c-surface)', cursor: 'default' },
+          '& .sg-corner': { ...firstSticky, ...headSticky, zIndex: 4, width: capped(rowHeaderWidth), minWidth: capped(rowHeaderWidth), maxWidth: capped(rowHeaderWidth), cursor: 'default' },
+          '& .sg-rowhead': { ...firstSticky, zIndex: 2, width: capped(rowHeaderWidth), minWidth: capped(rowHeaderWidth), maxWidth: capped(rowHeaderWidth), background: 'var(--c-surface)', cursor: 'default' },
           '& .sg-data': { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFamily: 'var(--font-mono)', position: 'relative' },
         }}>
         <thead><tr>

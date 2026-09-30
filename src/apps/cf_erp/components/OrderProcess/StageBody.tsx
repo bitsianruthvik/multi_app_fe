@@ -365,7 +365,7 @@ export function StageBody({
   } else if (stage.stageKey === 'lock') {
     // Lock belongs to ONE line: it rolls that line's structure out into pieces.
     body = line
-      ? <LockPanel key={line.lineId} lineId={line.lineId} lineNo={line.lineNo} canManage={isPermitted('cf_erp_orders_manage')}
+      ? <LockPanel key={line.lineId} lineId={line.lineId} lineNo={line.lineNo} quantity={line.quantity} canManage={isPermitted('cf_erp_orders_manage')}
           stages={view.stages} onGoStage={onGoStage} onChanged={onReloadAll} />
       : (
         <SectionCard title="Lock">

@@ -9,6 +9,8 @@ import { appPath } from '../navMeta';
 import { PURPOSE_LABEL, qtyText } from '../lib/inventory';
 import { FormDialog } from './FormDialog';
 import { ErrorNotice, Fact, Mono, SkeletonRows } from './ui';
+import { Working } from './WorkingNote';
+import { knownLineSize, releaseCheckText, rememberLineSize } from '../lib/working';
 
 /** A typed quantity: empty counts as none, anything unreadable as NaN so the form can refuse it. */
 const amount = (v: string) => (v.trim() === '' ? 0 : Number(v));
@@ -52,6 +54,7 @@ export function ReleaseDialog({ line, onClose, onReleased }: {
   // A different line starts from its own check, so drop the old answer first.
   useEffect(() => { setAreaId(''); setFixError(null); }, [line?.id]);
   useEffect(() => { if (c?.finishedArea) setAreaId(String(c.finishedArea.id)); }, [c]);
+  useEffect(() => { if (line && c) rememberLineSize(line.id, { pieces: c.summary.pieces }); }, [line, c]);
   const save = async () => { if (line) onReleased(await cfApi.post<Release>(`/order-lines/${line.id}/release`, { finishedAreaId: Number(areaId) || null }, { timeoutMs: LONG_WRITE_MS })); };
   return (
     <FormDialog open={!!line} title={`Release line ${line?.lineNo ?? ''} to production`} onClose={onClose} onSubmit={save}
@@ -61,7 +64,12 @@ export function ReleaseDialog({ line, onClose, onReleased }: {
           when the check itself fails — nothing on screen says why. */}
       <ErrorNotice error={check.error} onRetry={check.reload} />
       <ErrorNotice error={fixError} />
-      {check.loading && !c ? <SkeletonRows rows={3} /> : c && (
+      {check.loading && !c ? (
+        <Box sx={{ display: 'grid', gap: 1.25 }}>
+          <Working active>{releaseCheckText(line ? knownLineSize(line.id) : {})}</Working>
+          <SkeletonRows rows={3} />
+        </Box>
+      ) : c && (
         <>
           <TextField select label="Finished work goes to" value={areaId} onChange={(e) => setAreaId(e.target.value)}
             helperText={c.needsFinishedArea && !areaId

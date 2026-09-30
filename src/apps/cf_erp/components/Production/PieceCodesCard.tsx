@@ -9,6 +9,8 @@ import { loadPieceCodes, type PieceCodesPreview } from '../../api/pieceCodes';
 import { ErrorNotice, SectionCard, SkeletonRows } from '../ui';
 import { indexPieces } from './pieceCodeModel';
 import { PieceCodeTree } from './PieceCodeTree';
+import { Working } from '../WorkingNote';
+import { knownLineSize, pieceTreeText, rememberLineSize } from '../../lib/working';
 
 const count = (n: number) => n.toLocaleString();
 const plural = (n: number, one: string, many: string) => `${count(n)} ${n === 1 ? one : many}`;
@@ -69,6 +71,7 @@ export function PieceCodesCard({ lineId, lineNo }: { lineId: number; lineNo: num
     setLoad((s) => ({ ...s, status: 'loading', error: null }));
     try {
       const data = await loadPieceCodes(lineId);
+      rememberLineSize(lineId, { pieces: data.summary.nodes });
       if (alive.current) setLoad((s) => ({ status: 'done', data, error: null, round: s.round + 1 }));
     } catch (e) {
       if (alive.current) setLoad((s) => ({ ...s, status: 'failed', error: e instanceof CfApiError ? e : new CfApiError(0, String(e)) }));
@@ -96,9 +99,7 @@ export function PieceCodesCard({ lineId, lineNo }: { lineId: number; lineNo: num
   if (!data && load.status !== 'failed') {
     body = loading ? (
       <Box sx={{ display: 'grid', gap: 1.25 }}>
-        <Typography role="status" aria-live="polite" sx={{ fontSize: 13.5, color: 'var(--c-text-2)' }}>
-          Working out every piece and its code. A big line takes a few seconds.
-        </Typography>
+        <Working active>{pieceTreeText(knownLineSize(lineId).pieces, 'codes')}</Working>
         <SkeletonRows rows={5} height={30} />
       </Box>
     ) : (
@@ -204,6 +205,7 @@ export function PieceCodesCard({ lineId, lineNo }: { lineId: number; lineNo: num
           : undefined}>
       <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 1.5 }}>
         {loading && data && <LinearProgress aria-label="Working out the codes again" sx={{ borderRadius: 2 }} />}
+        {data && <Working active={loading}>{pieceTreeText(data.summary.nodes, 'codes')}</Working>}
         <ErrorNotice error={load.error} onRetry={run} sx={{ mb: 0 }} />
         {body}
       </Box>

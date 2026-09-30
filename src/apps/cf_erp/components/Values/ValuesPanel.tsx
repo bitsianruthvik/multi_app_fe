@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
-import { Alert, Box, Button, CircularProgress, FormControlLabel, InputAdornment, Switch, TextField, Typography } from '@mui/material';
+import { Alert, Box, Button, CircularProgress, FormControlLabel, InputAdornment, Switch, TextField, Typography, useMediaQuery } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
 import RefreshRounded from '@mui/icons-material/RefreshRounded';
 import SaveRounded from '@mui/icons-material/SaveRounded';
@@ -11,6 +11,7 @@ import { getLinePlaceholders, type PlaceholderRow } from '../../api/placeholders
 import { cutPiecesNote } from '../../api/cutPieces';
 import { useCompanySlug } from '../../hooks/useLoad';
 import { DangerBadge, EmptyState, ErrorNotice, Fact, SectionCard, SkeletonRows, WarnBadge } from '../ui';
+import { SHEET_GRID_NARROW_NOTE, SHEET_GRID_NARROW_QUERY } from '@shared/ui';
 import { ConfirmDialog } from '../ConfirmDialog';
 import { useToast } from '../toastContext';
 import { ValuesGroupTable } from './ValuesGroupTable';
@@ -41,7 +42,7 @@ const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? o
  * comes back marked, with a way to discard it), and guarded: closing the tab
  * warns, and so does following a link while something is unsaved.
  */
-export function ValuesPanel({ lineId, canEdit, onChanged, onPendingChange }: {
+export function ValuesPanel({ lineId, canEdit: canEditAsked, onChanged, onPendingChange }: {
   lineId: number;
   /**
    * May this person write values here? The caller's answer — the PUT accepts
@@ -57,6 +58,9 @@ export function ValuesPanel({ lineId, canEdit, onChanged, onPendingChange }: {
   const toast = useToast();
   const navigate = useNavigate();
   const company = useCompanySlug();
+  // A phone-width window shows these values read-only: a typed sheet this wide is not an editor there.
+  const narrow = useMediaQuery(SHEET_GRID_NARROW_QUERY, { noSsr: true });
+  const canEdit = canEditAsked && !narrow;
   const [loaded, setLoaded] = useState<{ lineId: number; view: ValuesView | null; error: CfApiError | null } | null>(null);
   const [tick, setTick] = useState(0);
   // Kept with the line it belongs to, so a switch of line can never save — or
@@ -283,6 +287,7 @@ export function ValuesPanel({ lineId, canEdit, onChanged, onPendingChange }: {
           </>
         )}>
         <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 1.5, minWidth: 0 }}>
+          {canEditAsked && narrow && <Alert severity="info" role="note" data-testid="values-narrow-note">{SHEET_GRID_NARROW_NOTE}</Alert>}
           <ValuesSummary view={view} canEdit={canEdit} gapsOwn={gaps.own} gapsRows={gaps.rows}
             restored={dirty ? restored : 0} onDiscard={discard}
             search={search} onSearch={setSearch} onlyMissing={onlyMissing} onOnlyMissing={setOnlyMissing}

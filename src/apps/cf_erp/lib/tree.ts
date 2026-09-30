@@ -36,3 +36,13 @@ export function toInputString(raw: unknown): string {
   if (typeof raw === 'object') return JSON.stringify(raw);
   return String(raw);
 }
+
+/** One node of the classification tree by id, however deep. */
+export function findNode(roots: TreeNode[], id: number): TreeNode | null {
+  for (const r of roots) {
+    if (r.id === id) return r;
+    const hit = findNode(r.children, id);
+    if (hit) return hit;
+  }
+  return null;
+}

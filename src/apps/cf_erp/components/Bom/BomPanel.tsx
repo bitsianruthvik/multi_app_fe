@@ -28,6 +28,7 @@ import { useIsPermitted } from '../../hooks/useIsPermitted';
 import { appPath } from '../../navMeta';
 import { recordPath } from '../../lib/paths';
 import { ORDER_STATUS_LABEL, bomPermission } from '../../lib/orders';
+import { rememberLineSize } from '../../lib/working';
 import { DangerBadge, EmptyState, ErrorNotice, Fact, Mono, SectionCard, SkeletonRows, StatusBadge, Surface, WarnBadge } from '../ui';
 import { AddChildDialog, EditLineDialog } from '../BomDialogs';
 import { ChooseItemDialog } from '../ChooseItemDialog';
@@ -189,6 +190,9 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
   useEffect(() => {
     if (showRefusal) errorAt.current?.scrollIntoView({ block: 'start' });
   }, [showRefusal]);
+
+  // The slow screens after this one (Lock, release) quote how big the line is.
+  useEffect(() => { if (gridLineId != null && state) rememberLineSize(gridLineId, { rows: state.stats.nodes - 1 }); }, [gridLineId, state]);
 
   // Open everything the first time; after that the person's choice stands across reloads.
   const expanded = useMemo(() => open ?? new Set(state ? openableKeys(state.root) : []), [open, state]);

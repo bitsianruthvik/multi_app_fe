@@ -69,6 +69,8 @@ export { NumberCell, QtyCell, DateCell } from './Cells';
 export {
   SheetGrid,
   SHEET_GRID_HINT,
+  SHEET_GRID_NARROW_NOTE,
+  SHEET_GRID_NARROW_QUERY,
   type SheetGridProps,
   type SheetGridHandle,
   type SheetCell,
