@@ -62,6 +62,16 @@ export interface PlannerFunction {
   noShifts?: boolean;
   /** true for the `contractor` pseudo-function. */
   unlimited?: boolean;
+  /** The machine type's path in the classification tree, root first (Family › Subfamily › Variant). */
+  path?: TypePathNode[];
+}
+
+export interface TypePathNode {
+  id: Id;
+  name: string;
+  depth: number;
+  /** 'Family' | 'Subfamily' | 'Variant' */
+  level?: string;
 }
 
 export interface LevelOption {
@@ -153,6 +163,11 @@ export interface PlannerSnapshot {
   units: PlannerUnit[];
   supply: Record<string, SupplyItem>;
   entries: Record<string, PlanEntryRow>;
+  /**
+   * A line's units in the order dragged by hand (`{ [unitKey]: 1.. }`, per line; init.sql §38).
+   * Ranked units of a line come first, in rank order, then the rest in structure order.
+   */
+  ranks?: Record<string, number>;
 }
 
 // ── Plan ────────────────────────────────────────────────────────────────────────────────────────

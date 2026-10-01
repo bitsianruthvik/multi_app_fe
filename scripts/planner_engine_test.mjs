@@ -480,6 +480,97 @@ function synthetic(seed = 7) {
 }
 
 const timings = {};
+// ── 2026-10-01 rework: ranks, moves, machine areas ───────────────────────────────────────────────
+check('ranks: a line\'s hand-dragged order comes first in priority, and auto-plan follows it', () => {
+  const s0 = fixture({ settings: { minLinesPerMonth: 0, allowPartialLines: true } });
+  const p0 = E.unitPriority(s0);
+  assert.ok(p0.get('p2') < p0.get('p3'), 'structure order without ranks');
+  const s1 = fixture({ settings: { minLinesPerMonth: 0, allowPartialLines: true }, ranks: { p3: 1, p2: 2 } });
+  const p1 = E.unitPriority(s1);
+  assert.ok(p1.get('p3') < p1.get('p2'), 'G2 ranked first');
+  assert.ok(p1.get('l21') > p1.get('p2'), 'ranks never jump the order ranking (order B stays after order A)');
+  // scarce plate: only the first-ranked girder line gets the stock
+  const scarce = (ranks) => fixture({ ranks, supply: { PL: { name: 'P', code: 'PL20', uom: 'nos', lots: [{ date: '2026-10-01', qty: 2, source: 'stock', received: true }] } } });
+  const evA = E.evaluate(scarce({}), {});
+  const evB = E.evaluate(scarce({ p3: 1, p2: 2 }), {});
+  assert.equal(evA.units.p2.blocked, null); assert.ok(evA.units.p3.blocked);
+  assert.equal(evB.units.p3.blocked, null); assert.ok(evB.units.p2.blocked);
+  const r = E.autoPlan(scarce({ p3: 1, p2: 2 }), {});
+  assert.ok(r.plan.p3 && !r.plan.p2, `auto-plan places the ranked line: ${JSON.stringify(r.plan)}`);
+});
+check('moves: dragTo shifts planned units by the anchor\'s delta (clamped) and lands unplanned ones on the target; all pinned', () => {
+  const s = fixture();
+  const plan = { p2: { period: pk(1), pinned: false }, p3: { period: pk(periods.length - 2), pinned: false } };
+  const n = E.dragTo(s, plan, ['p2', 'p3', 'l21'], 'p2', pk(3));
+  assert.equal(n.p2.period, pk(3));
+  assert.equal(n.p3.period, pk(periods.length - 1), 'clamped to the last week');
+  assert.equal(n.l21.period, pk(3), 'the unplanned one lands on the target');
+  assert.ok(n.p2.pinned && n.p3.pinned && n.l21.pinned);
+  assert.deepEqual(Object.keys(E.dragTo(s, plan, ['p2'], 'p2', null)), ['p3'], 'null target = off the plan');
+  const n2 = E.dragTo(s, {}, ['p2', 'p3'], 'p2', pk(2));
+  assert.equal(n2.p2.period, pk(2)); assert.equal(n2.p3.period, pk(2));
+  assert.equal(plan.p2.period, pk(1), 'the input plan is not touched');
+});
+check('moves: shiftBy (arrow keys), unplan, reorderKeys', () => {
+  const s = fixture();
+  const plan = { p2: { period: pk(0), pinned: true } };
+  assert.equal(E.shiftBy(s, plan, ['p2'], -1), plan, 'nothing to do at the first week: same object');
+  assert.equal(E.shiftBy(s, plan, ['p2'], 2).p2.period, pk(2));
+  assert.equal(E.shiftBy(s, plan, ['p3'], 1, pk(0)).p3.period, pk(0), 'an unplanned unit is placed where told');
+  assert.deepEqual(E.unplan(plan, ['p2']), {});
+  assert.deepEqual(E.reorderKeys(['a', 'b', 'c', 'd'], ['c', 'a'], 'b'), ['a', 'c', 'b', 'd']);
+  assert.deepEqual(E.reorderKeys(['a', 'b', 'c'], ['a'], null), ['b', 'c', 'a']);
+  assert.deepEqual(E.reorderKeys(['a', 'b', 'c'], ['c'], 'a'), ['c', 'a', 'b']);
+});
+check('moves: rankLine replaces one line\'s order; rankChanges finds the lines that changed', () => {
+  const s = fixture();
+  const r1 = E.rankLine(s, { l21: 1 }, 11, ['p3', 'p2']);
+  assert.deepEqual(r1, { l21: 1, p3: 1, p2: 2 });
+  const r2 = E.rankLine(s, r1, 11, ['p2', 'p3']);
+  assert.deepEqual(E.rankChanges(s, r1, r2), [{ lineId: 11, unitKeys: ['p2', 'p3'] }]);
+  assert.deepEqual(E.rankChanges(s, r1, r1), []);
+  assert.deepEqual(E.rankChanges(s, r1, { l21: 1 }), [{ lineId: 11, unitKeys: [] }], 'cleared = an empty order');
+});
+check('machine areas: the level giving 4–10 areas, else nearest 7; no tree = one area per type; unlimited apart', () => {
+  const fn = (key, area, aid) => ({ key, name: key, machines: 1, capacity: {}, path: [{ id: 1, name: 'Machines', depth: 0, level: 'Family' }, { id: aid, name: area, depth: 1, level: 'Subfamily' }, { id: 100 + aid * 10 + key.length, name: key, depth: 2, level: 'Variant' }] });
+  const four = [fn('a', 'Cutting', 2), fn('b', 'Welding', 3), fn('bb', 'Welding', 3), fn('c', 'Drilling', 4), fn('d', 'Painting', 5), { key: 'contractor', name: 'Contractors', unlimited: true }];
+  const set = E.machineAreas(four);
+  assert.equal(set.depth, 1); assert.equal(set.level, 'Subfamily');
+  assert.deepEqual(set.areas.map((a) => a.name), ['Cutting', 'Drilling', 'Painting', 'Welding', 'Contractors']);
+  assert.equal(set.areas.find((a) => a.name === 'Welding').machines, 2);
+  const three = E.machineAreas(four.slice(0, 4));
+  assert.equal(three.depth, 2, '3 subfamilies is too few — the variant level (4 types) is in range');
+  const flat = E.machineAreas([{ key: 'x', name: 'X', capacity: {} }, { key: 'y', name: 'Y', capacity: {} }]);
+  assert.equal(flat.depth, null); assert.equal(flat.level, 'Machine type'); assert.equal(flat.areas.length, 2);
+});
+check('area usage = Σ of its functions\' minutes ÷ Σ capacity per week and over the horizon; bands 75 / 100', () => {
+  const capAll = (v) => Object.fromEntries(periods.map((p) => [p.key, v]));
+  const s = fixture({ functions: [
+    { key: 'cut', name: 'Cut', machines: 1, capacity: capAll(1000), path: [{ id: 1, name: 'M', depth: 0 }, { id: 2, name: 'Cutting', depth: 1, level: 'Subfamily' }] },
+    { key: 'weld', name: 'Weld', machines: 1, capacity: capAll(1000), path: [{ id: 1, name: 'M', depth: 0 }, { id: 3, name: 'Welding', depth: 1, level: 'Subfamily' }] },
+    { key: 'contractor', name: 'Contractors', unlimited: true },
+  ] });
+  const set = E.machineAreas(s.functions);
+  const ev = E.evaluate(s, { p2: { period: pk(0), pinned: true }, p3: { period: pk(0), pinned: true } });
+  const rows = E.areaUsage(s, ev, set);
+  const cut = rows.find((r) => r.name === 'Cutting');
+  assert.equal(cut.cells[pk(0)].minutes, 1200);
+  assert.equal(cut.cells[pk(0)].pct, 120);
+  assert.equal(E.usageBand(cut.cells[pk(0)]), 'over');
+  assert.equal(cut.total.minutes, 1200);
+  assert.ok(Math.abs(cut.total.pct - 120 / periods.length) < 1e-9);
+  assert.equal(E.usageBand({ minutes: 740, capacity: 1000, pct: 74 }), 'ok');
+  assert.equal(E.usageBand({ minutes: 750, capacity: 1000, pct: 75 }), 'warn');
+  assert.equal(E.usageBand({ minutes: 1000, capacity: 1000, pct: 100 }), 'warn');
+  assert.equal(E.usageBand({ minutes: 0, capacity: 1000, pct: 0 }), 'none');
+  const con = rows.find((r) => r.unlimited);
+  assert.equal(con.cells[pk(0)].capacity, null);
+  const d = E.cellDrivers(s, ev, ['cut'], pk(0));
+  assert.deepEqual(d.map((x) => x.unitKey).sort(), ['p2', 'p3']);
+  assert.equal(d[0].minutes, 600);
+  assert.deepEqual(E.cellDrivers(s, ev, ['cut'], pk(1)), [], 'nothing loads week 2');
+});
+
 check('performance: evaluate < 50 ms and autoPlan < 300 ms at 2,000 units × 15 periods × 40 functions', () => {
   const s = synthetic();
   assert.ok(s.units.length >= 2000, `${s.units.length} units`);

@@ -1,14 +1,21 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Box, Button, IconButton, Switch, Typography } from '@mui/material';
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { Box, Button, IconButton, Menu, MenuItem, Switch, Tooltip, Typography } from '@mui/material';
 import { Link } from 'react-router-dom';
 import AddRounded from '@mui/icons-material/AddRounded';
 import AutoAwesomeRounded from '@mui/icons-material/AutoAwesomeRounded';
 import CalendarMonthRounded from '@mui/icons-material/CalendarMonthRounded';
 import RemoveRounded from '@mui/icons-material/RemoveRounded';
-import { autoPlan, canPlace, evaluate, feedback } from '../lib/planner';
-import { periodContaining } from '../lib/planner/periods';
-import type { AutoPlanResult, Plan as PlanMap, PlannerSnapshot, PlannerUnit } from '../lib/planner/types';
-import { getPlanner, putEntries, putLevel, putPriorities, putSettings, putTargets, type EntryWrite } from '../api/planner';
+import UndoRounded from '@mui/icons-material/UndoRounded';
+import RedoRounded from '@mui/icons-material/RedoRounded';
+import UnfoldMoreRounded from '@mui/icons-material/UnfoldMoreRounded';
+import UnfoldLessRounded from '@mui/icons-material/UnfoldLessRounded';
+import CloseRounded from '@mui/icons-material/CloseRounded';
+import {
+  areaUsage, autoPlan, cellDrivers, entriesDiff, evaluate, feedback, functionUsage, machineAreas, planFromEntries,
+  rankChanges, rankLine, reorderKeys, shiftBy, unitPriority, unplan,
+} from '../lib/planner';
+import type { AutoPlanResult, Evaluation, Plan as PlanMap, PlannerSnapshot, PlannerUnit, UsageRow } from '../lib/planner';
+import { getPlanner, putChanges, putLevel, putPriorities, putSettings, putTargets } from '../api/planner';
 import { CfApiError } from '../api/client';
 import { useIsPermitted } from '../hooks/useIsPermitted';
 import { useCompanySlug, useLoad } from '../hooks/useLoad';
@@ -17,31 +24,42 @@ import { toastMessage } from '../components/Plan/toastMessage';
 import { useToast } from '../components/toastContext';
 import { EmptyState, ErrorNotice, PageHeader, SkeletonRows } from '../components/ui';
 import { AutoPlanBanner } from '../components/Plan/AutoPlanBanner';
-import { Board, type HoverInfo } from '../components/Plan/Board';
-import { OrdersRail } from '../components/Plan/OrdersRail';
 import { Scoreboard } from '../components/Plan/Scoreboard';
 import { UnitSheet } from '../components/Plan/UnitSheet';
-import { dropLine, unitMap } from '../components/Plan/model';
+import { PlanGrid, type DragInfo } from '../components/Plan/PlanGrid';
+import { UsagePanel, type CellRef } from '../components/Plan/UsagePanel';
+import { HEAD_H, ROW_H, useGeometry } from '../components/Plan/geometry';
+import { commit, redo, startHistory, undo, type History, type PlanDoc } from '../components/Plan/history';
+import { EXPAND_ALL, buildRows, childIndex, loadExpand, maxTreeDepth, saveExpand, toLevel, toggle, type ExpandState, type TreeRow } from '../components/Plan/tree';
+import { dropLine, hoursText, shortCode, unitMap } from '../components/Plan/model';
 
-const SAVE_DELAY = 700;
-const HOVER_EVERY = 100;
+const MAX_NOTES = 4;
 
-/** The snapshot's saved entries as a plan; entries outside the horizon are left alone. */
-function planFrom(s: PlannerSnapshot): PlanMap {
-  const out: PlanMap = {};
-  const periods = s.horizon.periods;
-  for (const [k, e] of Object.entries(s.entries ?? {})) {
-    const i = periodContaining(periods, e.shipDate);
-    if (i >= 0 && i < periods.length) out[k] = { period: periods[i].key, pinned: !!e.pinned };
-  }
-  return out;
+/** Is the key press meant for a text box (then the page's shortcuts stay out of it)? */
+const typing = (t: EventTarget | null) => {
+  const el = t as HTMLElement | null;
+  return !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable);
+};
+
+/** Height of the plan's body that is not under the sticky header or the usage panel. */
+const bodyHeight = (el: HTMLElement) => (el.clientHeight || 0) - HEAD_H - ((el.querySelector('[data-testid="usage-panel"]') as HTMLElement | null)?.offsetHeight ?? 0);
+
+/** Periods a unit's lead covers in an evaluation (start..ship), as keys. */
+function leadPeriods(s: PlannerSnapshot, ev: Evaluation, key: string): string[] {
+  const u = ev.units[key];
+  if (!u?.period || !u.leadStart) return [];
+  const ps = s.horizon.periods;
+  const a = ps.findIndex((p) => p.key === u.leadStart), b = ps.findIndex((p) => p.key === u.period);
+  return a < 0 || b < 0 ? [] : ps.slice(a, b + 1).map((p) => p.key);
 }
 
 /**
- * Production › Plan: what ships when, for this month and the next two. Orders are
- * ranked on the left, the board shows one card per thing to ship, the strip at the
- * bottom shows how busy each function is. Every move is checked and re-scored at
- * once, and saved by itself.
+ * Production › Plan: what ships when, this month and the next two. The plan is a tree —
+ * order › line › the units it schedules (girder lines, segments …) › what is inside them — with the
+ * weeks to the right. Drag a bar to another week, drag the grip to change a unit's place in its
+ * line, select several (Shift / Ctrl-click) and move them together, or use the arrow keys. Every
+ * move is scored at once (machine-area usage at the bottom, warnings beside the pointer) and
+ * kept on the page until Save; Ctrl+Z / Ctrl+Y undo and redo.
  */
 export default function Plan() {
   const company = useCompanySlug();
@@ -49,117 +67,253 @@ export default function Plan() {
   const canEdit = useIsPermitted()('cf_erp_production_manage');
   const load = useLoad(() => getPlanner(), []);
   const [snap, setSnap] = useState<PlannerSnapshot | null>(null);
-  const [plan, setPlan] = useState<PlanMap>({});
+  const [hist, setHist] = useState<History | null>(null);
+  const [saved, setSaved] = useState<PlanDoc | null>(null);
+  const [saving, setSaving] = useState(false);
   const [preview, setPreview] = useState<AutoPlanResult | null>(null);
   const [busy, setBusy] = useState(false);
   const [openKey, setOpenKey] = useState<string | null>(null);
-  const [dragKey, setDragKey] = useState<string | null>(null);
-  const [hover, setHover] = useState<HoverInfo | null>(null);
-  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved'>('idle');
-  const saved = useRef<PlanMap>({});
-  const latest = useRef({ snap, plan });
-  latest.current = { snap, plan };
-  const hoverTimer = useRef<number | undefined>(undefined);
-  const hoverLast = useRef(0);
-  const hoverAt = useRef<string | null>(null);
-  const saveTimer = useRef<number | undefined>(undefined);
+  const [drag, setDrag] = useState<{ trial: PlanMap; info: DragInfo } | null>(null);
+  const [selection, setSelection] = useState<string[]>([]);
+  const selAnchor = useRef<string | null>(null);
+  const [highlight, setHighlight] = useState<{ label: string; keys: Set<string>; cell: CellRef } | null>(null);
+  const storeKey = `cf_erp.plan.tree.${company}`;
+  const [expand, setExpand] = useState<ExpandState>(() => loadExpand(storeKey));
+  const [usageCollapsed, setUsageCollapsed] = useState(() => { try { return window.localStorage.getItem(`${storeKey}.usage`) === 'closed'; } catch { return false; } });
+  const [levelMenu, setLevelMenu] = useState<HTMLElement | null>(null);
+  const scrollerRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (!load.data) return;
+    const doc: PlanDoc = { plan: planFromEntries(load.data), ranks: { ...(load.data.ranks ?? {}) } };
     setSnap(load.data);
-    const p = planFrom(load.data);
-    setPlan(p);
-    saved.current = p;
+    setHist(startHistory(doc));
+    setSaved(doc);
+    setDrag(null);
+    setPreview(null);
   }, [load.data]);
-  useEffect(() => () => { window.clearTimeout(hoverTimer.current); window.clearTimeout(saveTimer.current); }, []);
+  useEffect(() => saveExpand(storeKey, expand), [storeKey, expand]);
+  useEffect(() => { try { window.localStorage.setItem(`${storeKey}.usage`, usageCollapsed ? 'closed' : 'open'); } catch { /* not remembered */ } }, [storeKey, usageCollapsed]);
 
+  const present = hist?.present ?? null;
+  /** the snapshot with the page's (unsaved) unit order — the engine reads ranks from it */
+  const view = useMemo(() => (snap && present ? { ...snap, ranks: present.ranks } : null), [snap, present?.ranks]); // eslint-disable-line react-hooks/exhaustive-deps
+  const plan = useMemo(() => present?.plan ?? {}, [present]);
   const units = useMemo(() => (snap ? unitMap(snap) : new Map<string, PlannerUnit>()), [snap]);
-  const unitLines = useMemo(() => new Map([...units].map(([k, u]) => [k, String(u.lineId)])), [units]);
-  const evaluation = useMemo(() => (snap ? evaluate(snap, plan) : null), [snap, plan]);
-  const previewEval = useMemo(() => (snap && preview ? evaluate(snap, preview.plan) : null), [snap, preview]);
-  const shown = previewEval ?? evaluation;
+  const children = useMemo(() => (snap ? childIndex(snap) : new Map<string, PlannerUnit[]>()), [snap]);
+  const prio = useMemo(() => (view ? unitPriority(view) : new Map<string, number>()), [view]);
+  const evaluation = useMemo(() => (view ? evaluate(view, plan) : null), [view, plan]);
+  const trialEval = useMemo(() => (view && drag ? evaluate(view, drag.trial) : null), [view, drag]);
+  const previewEval = useMemo(() => (view && preview ? evaluate(view, preview.plan) : null), [view, preview]);
+  const shown = trialEval ?? previewEval ?? evaluation;
   const months = useMemo(() => [...new Set((snap?.horizon.periods ?? []).map((p) => p.month))], [snap]);
   const periodLabels = useMemo(() => new Map((snap?.horizon.periods ?? []).map((p) => [p.key, p.label])), [snap]);
+  const orderCode = useMemo(() => new Map((snap?.orders ?? []).map((o) => [String(o.id), o.code])), [snap]);
+  const codeOf = useCallback((k: string) => { const u = units.get(k); return u ? shortCode(u, orderCode.get(String(u.orderId))) : k; }, [units, orderCode]);
 
-  // Autosave: the difference between what the server has and what is on the board.
+  const areaSet = useMemo(() => machineAreas(snap?.functions ?? []), [snap]);
+  const usage = useMemo(() => (view && shown ? areaUsage(view, shown, areaSet) : []), [view, shown, areaSet]);
+  const baseUsage = useMemo(() => (view && evaluation ? areaUsage(view, evaluation, areaSet) : []), [view, evaluation, areaSet]);
+  const rows = useMemo(() => (snap && shown ? buildRows(snap, shown, prio, children, expand) : []), [snap, shown, prio, children, expand]);
+  const maxDepth = useMemo(() => (shown ? maxTreeDepth(shown, children) : 3), [shown, children]);
+  const geometry = useGeometry(scrollerRef, snap?.horizon.periods.length ?? 0);
+
+  // ── changes since the last save ──
+  const changes = useMemo(() => {
+    if (!view || !saved || !present) return { entries: [], ranks: [], count: 0 };
+    const entries = entriesDiff(view, saved.plan, present.plan);
+    const ranks = rankChanges(view, saved.ranks, present.ranks);
+    return { entries, ranks, count: entries.length + ranks.length };
+  }, [view, saved, present]);
+  const dirty = changes.count > 0;
   useEffect(() => {
-    if (!snap || !canEdit) return;
-    const periods = new Map(snap.horizon.periods.map((p) => [p.key, p.start]));
-    const changes: EntryWrite[] = [];
-    for (const [k, e] of Object.entries(plan)) {
-      const was = saved.current[k];
-      if (!was || was.period !== e.period || was.pinned !== e.pinned) changes.push({ unitKey: k, shipDate: periods.get(e.period) ?? null, pinned: e.pinned });
+    if (!dirty) return;
+    const warn = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ''; };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [dirty]);
+
+  const fail = useCallback((e: unknown, fallback = 'Could not save that.') => toast.error(e instanceof CfApiError ? e.message : fallback), [toast]);
+  const put = useCallback((doc: PlanDoc) => setHist((h) => (h ? commit(h, doc) : h)), []);
+  const putPlan = useCallback((next: PlanMap) => { if (present && next !== present.plan) put({ plan: next, ranks: present.ranks }); }, [present, put]);
+
+  const save = useCallback(() => {
+    if (!present || !changes.count || saving) return;
+    setSaving(true);
+    const sent = present;
+    putChanges({ entries: changes.entries, ranks: changes.ranks })
+      .then(() => { setSaved(sent); toast.success(`Plan saved — ${changes.count} ${changes.count === 1 ? 'change' : 'changes'}`); })
+      .catch((e) => fail(e, 'Could not save the plan.'))
+      .finally(() => setSaving(false));
+  }, [present, changes, saving, toast, fail]);
+  const discard = useCallback(() => { if (saved) { setHist(startHistory(saved)); setDrag(null); } }, [saved]);
+  const doUndo = useCallback(() => setHist((h) => (h ? undo(h) : h)), []);
+  const doRedo = useCallback(() => setHist((h) => (h ? redo(h) : h)), []);
+
+  // Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z / Ctrl+S anywhere on the page (not inside a text box).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || typing(e.target)) return;
+      const k = e.key.toLowerCase();
+      if (k === 'z' && !e.shiftKey) { e.preventDefault(); doUndo(); } else if (k === 'y' || (k === 'z' && e.shiftKey)) { e.preventDefault(); doRedo(); } else if (k === 's') { e.preventDefault(); save(); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [doUndo, doRedo, save]);
+
+  // ── dragging: live trial, notes beside the pointer ──
+  const affected = useMemo(() => {
+    if (!view || !drag || !trialEval) return new Set<string>();
+    return new Set(drag.info.keys.flatMap((k) => leadPeriods(view, trialEval, k)));
+  }, [view, drag, trialEval]);
+  const dragNotes = useMemo(() => {
+    if (!drag || !trialEval) return [];
+    const notes: string[] = [];
+    for (const k of drag.info.keys) {
+      const ev = trialEval.units[k];
+      if (!ev?.period) continue;
+      if (ev.blocked) notes.push(`${codeOf(k)}: ${ev.blocked.replace(/ \(see the Buy list\)$/, '')}`);
+      if (ev.late) notes.push(`${codeOf(k)} ships after the promised date`);
     }
-    for (const k of Object.keys(saved.current)) if (!plan[k]) changes.push({ unitKey: k, shipDate: null, pinned: false });
-    if (!changes.length) return;
-    window.clearTimeout(saveTimer.current);
-    setSaveState('saving');
-    saveTimer.current = window.setTimeout(() => {
-      const sent = latest.current.plan;
-      putEntries(changes)
-        .then(() => { saved.current = sent; setSaveState('saved'); })
-        .catch((e) => { setSaveState('idle'); toast.error(e instanceof CfApiError ? e.message : 'Could not save the plan.'); });
-    }, SAVE_DELAY);
-  }, [plan, snap, canEdit, toast]);
+    usage.forEach((r, i) => {
+      if (r.unlimited) return;
+      for (const p of affected) {
+        const now = r.cells[p], was = baseUsage[i]?.cells[p];
+        if (now && now.pct > 100 + 1e-9 && now.minutes > (was?.minutes ?? 0) + 1e-6) notes.push(`${r.name} ${now.pct >= 999 ? 'has no shifts' : `${Math.round(now.pct)}%`} in ${periodLabels.get(p) ?? p}`);
+      }
+    });
+    return notes.length > MAX_NOTES ? [...notes.slice(0, MAX_NOTES), `and ${notes.length - MAX_NOTES} more`] : notes;
+  }, [drag, trialEval, usage, baseUsage, affected, codeOf, periodLabels]);
 
-  const fail = useCallback((e: unknown) => toast.error(e instanceof CfApiError ? e.message : 'Could not save that.'), [toast]);
+  const onPreview = useCallback((trial: PlanMap | null, info: DragInfo | null) => setDrag(trial && info ? { trial, info } : null), []);
+  const onDrop = useCallback((trial: PlanMap, info: DragInfo) => {
+    setDrag(null);
+    if (!view || !evaluation || !present) return;
+    if (trial === present.plan) return;
+    putPlan(trial);
+    const lines = feedback(evaluation, evaluate(view, trial));
+    toastMessage(toast, lines, info.target === 'backlog' ? 'Taken off the plan' : 'Moved');
+  }, [view, evaluation, present, putPlan, toast]);
 
-  // ── moves ──
-  const clearHover = useCallback(() => { window.clearTimeout(hoverTimer.current); hoverAt.current = null; setHover(null); setDragKey(null); }, []);
+  // ── selection and keys ──
+  const visibleUnits = useMemo(() => rows.filter((r) => r.kind === 'unit').map((r) => r.unitKey!), [rows]);
+  const onUnitClick = useCallback((key: string, mods: { shift: boolean; ctrl: boolean }) => {
+    if (mods.ctrl) {
+      setSelection((s) => (s.includes(key) ? s.filter((k) => k !== key) : [...s, key]));
+      selAnchor.current = key;
+    } else if (mods.shift && selAnchor.current) {
+      const a = visibleUnits.indexOf(selAnchor.current), b = visibleUnits.indexOf(key);
+      if (a >= 0 && b >= 0) setSelection(visibleUnits.slice(Math.min(a, b), Math.max(a, b) + 1));
+      else setSelection([key]);
+    } else {
+      setSelection([key]);
+      selAnchor.current = key;
+    }
+  }, [visibleUnits]);
+  // drop selected keys that are no longer on the plan (level change, reload)
+  useEffect(() => { if (shown) setSelection((s) => { const n = s.filter((k) => k in shown.units); return n.length === s.length ? s : n; }); }, [shown]);
 
-  const onHover = useCallback((key: string, period: string) => {
-    if (hoverAt.current === period) return;
-    hoverAt.current = period;
-    window.clearTimeout(hoverTimer.current);
-    const wait = Math.max(0, HOVER_EVERY - (Date.now() - hoverLast.current));
-    hoverTimer.current = window.setTimeout(() => {
-      const { snap: s, plan: p } = latest.current;
-      if (!s) return;
-      hoverLast.current = Date.now();
-      const check = canPlace(s, p, key, period);
-      const ev = evaluate(s, { ...p, [key]: { period, pinned: true } });
-      setHover({ key, period, ok: check.ok, reason: check.reason, load: ev.load });
-    }, wait);
-  }, []);
+  const lineOrder = useCallback((lineId: string) => {
+    if (!evaluation) return [];
+    return Object.keys(evaluation.units).filter((k) => String(units.get(k)?.lineId) === lineId).sort((a, b) => (prio.get(a) ?? 0) - (prio.get(b) ?? 0));
+  }, [evaluation, units, prio]);
+  const onRank = useCallback((lineId: string, keys: string[], before: string | null) => {
+    if (!view || !present) return;
+    const list = lineOrder(lineId);
+    const next = reorderKeys(list, keys, before);
+    if (next.join() === list.join()) return;
+    put({ plan: present.plan, ranks: rankLine(view, present.ranks, lineId, next) });
+  }, [view, present, lineOrder, put]);
 
-  const onDrop = useCallback((key: string, period: string | null) => {
-    const { snap: s, plan: p } = latest.current;
-    clearHover();
-    if (!s || !evaluation) return;
-    if (period == null) {
-      if (!p[key]) return;
-      const next = { ...p }; delete next[key];
-      setPlan(next);
-      toastMessage(toast, feedback(evaluation, evaluate(s, next)), 'Taken off the plan');
+  const onGridKey = useCallback((e: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (typing(e.target) || !view || !present) return;
+    const sel = selection.filter((k) => units.has(k));
+    if (e.key === 'Escape') { setSelection([]); setHighlight(null); return; }
+    if (!sel.length) {
+      if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && visibleUnits.length) { e.preventDefault(); setSelection([visibleUnits[0]]); selAnchor.current = visibleUnits[0]; }
       return;
     }
-    if (p[key]?.period === period) return;
-    const check = canPlace(s, p, key, period);
-    if (!check.ok) { toast.error(check.reason ?? 'It cannot go there.'); return; }
-    const next = { ...p, [key]: { period, pinned: true } };
-    setPlan(next);
-    toastMessage(toast, feedback(evaluation, evaluate(s, next)), 'Moved');
-  }, [clearHover, evaluation, toast]);
+    if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && canEdit && !preview) {
+      e.preventDefault();
+      const step = (e.key === 'ArrowRight' ? 1 : -1) * (e.shiftKey ? 4 : 1);
+      putPlan(shiftBy(view, present.plan, sel, step, e.key === 'ArrowRight' ? view.horizon.periods[0]?.key : undefined));
+    } else if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && e.altKey && canEdit && !preview) {
+      e.preventDefault();
+      const lineId = String(units.get(sel[0])?.lineId);
+      const mine = sel.filter((k) => String(units.get(k)?.lineId) === lineId);
+      const list = lineOrder(lineId);
+      const rest = list.filter((k) => !mine.includes(k));
+      const firstAt = list.indexOf(mine[0]);
+      const before = e.key === 'ArrowUp'
+        ? rest[Math.max(0, list.slice(0, firstAt).filter((k) => !mine.includes(k)).length - 1)] ?? null
+        : (() => { const lastAt = list.indexOf(mine[mine.length - 1]); const after = list.slice(lastAt + 1).filter((k) => !mine.includes(k)); return after[1] ?? null; })();
+      if (e.key === 'ArrowDown' && list.slice(list.indexOf(mine[mine.length - 1]) + 1).every((k) => mine.includes(k))) return;
+      onRank(lineId, mine, before);
+    } else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+      e.preventDefault();
+      const at = visibleUnits.indexOf(sel[sel.length - 1]);
+      const next = visibleUnits[Math.min(visibleUnits.length - 1, Math.max(0, at + (e.key === 'ArrowDown' ? 1 : -1)))];
+      if (next) { setSelection([next]); selAnchor.current = next; }
+    } else if ((e.key === 'Delete' || e.key === 'Backspace') && canEdit && !preview) {
+      e.preventDefault();
+      putPlan(unplan(present.plan, sel));
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      setOpenKey(sel[0]);
+    }
+  }, [view, present, selection, units, visibleUnits, canEdit, preview, putPlan, lineOrder, onRank]);
 
-  const onPin = useCallback((key: string, pinned: boolean) => setPlan((p) => (p[key] ? { ...p, [key]: { ...p[key], pinned } } : p)), []);
-  const onUnplan = useCallback((key: string) => setPlan((p) => { const n = { ...p }; delete n[key]; return n; }), []);
+  // keep the selected row on screen when it moves by keyboard
+  useEffect(() => {
+    const el = scrollerRef.current;
+    const k = selection[selection.length - 1];
+    if (!el || !k) return;
+    const i = rows.findIndex((r) => r.unitKey === k && r.kind === 'unit');
+    if (i < 0) return;
+    const top = i * ROW_H, h = bodyHeight(el);
+    if (h > 0 && (top < el.scrollTop || top + ROW_H > el.scrollTop + h)) el.scrollTop = Math.max(0, top - h / 3);
+  }, [selection]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── usage panel ──
+  const driversText = useCallback((row: UsageRow, period: string) => {
+    if (!view || !shown) return [];
+    return cellDrivers(view, shown, row.fnKeys, period).slice(0, 3).map((d) => `${codeOf(d.unitKey)} ${hoursText(d.minutes)}`);
+  }, [view, shown, codeOf]);
+  const onCellClick = useCallback((row: UsageRow, period: string | null) => {
+    if (!view || !shown || !period) return;
+    if (highlight?.cell.row === row.key && highlight.cell.period === period) { setHighlight(null); return; }
+    const keys = cellDrivers(view, shown, row.fnKeys, period).map((d) => d.unitKey);
+    setHighlight({ label: `${keys.length} ${keys.length === 1 ? 'unit loads' : 'units load'} ${row.name} in ${periodLabels.get(period) ?? period}`, keys: new Set(keys), cell: { row: row.key, period } });
+    // open the orders and lines that hold them
+    const ids = new Set<string>();
+    for (const k of keys) { const u = units.get(k); if (u) { ids.add(`o:${u.orderId}`); ids.add(`l:${u.lineId}`); } }
+    setExpand((x) => ({ ...x, open: [...new Set([...x.open, ...ids])], closed: x.closed.filter((c) => !ids.has(c)) }));
+  }, [view, shown, highlight, periodLabels, units]);
+  useEffect(() => {
+    const el = scrollerRef.current;
+    if (!el || !highlight || !highlight.keys.size) return;
+    const i = rows.findIndex((r) => r.kind === 'unit' && highlight.keys.has(r.unitKey!));
+    const h = bodyHeight(el);
+    if (i >= 0 && h > 0 && (i * ROW_H < el.scrollTop || (i + 1) * ROW_H > el.scrollTop + h)) el.scrollTop = Math.max(0, i * ROW_H - ROW_H * 2);
+  }, [highlight]); // eslint-disable-line react-hooks/exhaustive-deps
+  const fnRows = useCallback((areaKey: string) => {
+    const a = areaSet.areas.find((x) => x.key === areaKey);
+    return a && view && shown ? functionUsage(view, shown, a) : [];
+  }, [areaSet, view, shown]);
 
   // ── auto-plan ──
   function runAutoPlan() {
-    if (!snap || !evaluation) return;
+    if (!view || !present) return;
     setBusy(true);
     window.setTimeout(() => {
-      try {
-        const r = autoPlan(snap, plan, {});
-        setPreview(r);
-      } catch (e) { toast.error(e instanceof Error ? e.message : 'Could not make a plan.'); }
+      try { setPreview(autoPlan(view, present.plan, {})); } catch (e) { toast.error(e instanceof Error ? e.message : 'Could not make a plan.'); }
       setBusy(false);
     }, 20);
   }
   const previewLines = useMemo(() => (preview && evaluation && previewEval ? [...preview.notes, ...feedback(evaluation, previewEval)] : []), [preview, evaluation, previewEval]);
-  function applyPreview() { if (preview) { setPlan(preview.plan); setPreview(null); } }
+  function applyPreview() { if (preview) { putPlan(preview.plan); setPreview(null); } }
 
-  // ── writes that are not entries ──
+  // ── writes that are not plan entries (saved at once, as before) ──
   function setTarget(month: string, value: number) {
     setSnap((s) => (s ? { ...s, targets: { ...s.targets, [month]: value } } : s));
     putTargets({ [month]: value }).catch((e) => { fail(e); load.reload(); });
@@ -168,21 +322,23 @@ export default function Plan() {
     setSnap((s) => (s ? { ...s, settings: { ...s.settings, minLinesPerMonth: n } } : s));
     putSettings({ minLinesPerMonth: n }).catch((e) => { fail(e); load.reload(); });
   }
-  function reorder(ids: (number | string)[]) {
-    const rank = new Map(ids.map((id, i) => [String(id), i + 1]));
+  const onOrderRank = useCallback((ids: string[]) => {
+    const rank = new Map(ids.map((id, i) => [id, i + 1]));
     setSnap((s) => (s ? { ...s, orders: [...s.orders].sort((a, b) => rank.get(String(a.id))! - rank.get(String(b.id))!).map((o) => ({ ...o, priority: rank.get(String(o.id))! })) } : s));
-    putPriorities(ids).catch((e) => { fail(e); load.reload(); });
-  }
-  function setLevel(lineId: number | string, level: string) {
+    const byId = new Map((snap?.orders ?? []).map((o) => [String(o.id), o.id]));
+    putPriorities(ids.map((id) => byId.get(id) ?? id)).then(() => toast.info('Priority saved')).catch((e) => { fail(e); load.reload(); });
+  }, [snap, toast, fail, load]);
+  const onLevel = useCallback((lineId: string, level: string) => {
     setPreview(null);
-    setSnap((s) => (s ? { ...s, orders: s.orders.map((o) => ({ ...o, lines: o.lines.map((l) => (String(l.id) === String(lineId) ? { ...l, level } : l)) })) } : s));
-    setPlan((p) => dropLine(p, units, lineId));
+    setSnap((s) => (s ? { ...s, orders: s.orders.map((o) => ({ ...o, lines: o.lines.map((l) => (String(l.id) === lineId ? { ...l, level } : l)) })) } : s));
+    if (present) putPlan(dropLine(present.plan, units, lineId));
     putLevel(lineId, level).catch((e) => { fail(e); load.reload(); });
-  }
+  }, [present, putPlan, units, fail, load]);
+  const onToggle = useCallback((r: TreeRow) => setExpand((x) => toggle(x, r.id, r.depth)), []);
 
   // ── render ──
   if (load.error && !snap) return <Box><PageHeader title="Plan" /><ErrorNotice error={load.error} onRetry={load.reload} /></Box>;
-  if (!snap || !shown || !evaluation) return <Box><PageHeader title="Plan" /><SkeletonRows rows={5} height={56} /></Box>;
+  if (!snap || !view || !shown || !evaluation || !present || !hist) return <Box><PageHeader title="Plan" /><SkeletonRows rows={5} height={56} /></Box>;
 
   const editable = canEdit && !preview;
   const minLines = snap.settings.minLinesPerMonth;
@@ -198,14 +354,14 @@ export default function Plan() {
     );
   }
 
+  const levelLabels = ['Orders', 'Lines', 'Plan units', ...Array.from({ length: Math.max(0, maxDepth - 3) }, (_, i) => `${i + 1} ${i ? 'levels' : 'level'} inside`)];
+  const allOpen = expand.level >= maxDepth && !expand.closed.length;
+
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.25 }}>
       <PageHeader title="Plan" subtitle="What ships when, this month and the next two."
         actions={(
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
-            <Typography aria-live="polite" sx={{ fontSize: 12.5, color: 'var(--c-text-3)', minWidth: 48 }}>
-              {saveState === 'saving' ? 'Saving…' : saveState === 'saved' ? 'Saved' : ''}
-            </Typography>
             {canEdit && (
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, fontSize: 13 }}>
                 <Switch size="small" checked={minLines > 0} onChange={(_, on) => setMinLines(on ? 1 : 0)} inputProps={{ 'aria-label': 'Ship at least some lines every month' }} />
@@ -231,14 +387,66 @@ export default function Plan() {
 
       {preview && <AutoPlanBanner lines={previewLines} buyListPath={appPath(company, 'buy-list')} onApply={applyPreview} onDiscard={() => setPreview(null)} />}
 
-      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: '280px minmax(0, 1fr)' }, gap: 1.5, alignItems: 'start' }}>
-        <OrdersRail orders={snap.orders} evaluation={shown} unitLines={unitLines} canEdit={editable} onReorder={reorder} onLevel={setLevel} />
-        <Board snapshot={snap} evaluation={shown} units={units} canEdit={editable} dragKey={dragKey} hover={hover} selectedKey={openKey}
-          onOpen={setOpenKey} onDragStart={setDragKey} onDragEnd={clearHover} onHover={onHover} onDrop={onDrop} />
+      {/* toolbar: expand · selection · highlight · undo/redo · save */}
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', minHeight: 40 }}>
+        <Button size="small" variant="outlined" startIcon={<UnfoldMoreRounded />} onClick={(e) => setLevelMenu(e.currentTarget)} aria-haspopup="menu" data-testid="expand-menu">
+          Show: {expand.level >= EXPAND_ALL ? 'Everything' : levelLabels[Math.min(expand.level, levelLabels.length) - 1] ?? 'Everything'}
+        </Button>
+        <Menu anchorEl={levelMenu} open={!!levelMenu} onClose={() => setLevelMenu(null)}>
+          {levelLabels.map((label, i) => (
+            <MenuItem key={label} selected={expand.level === i + 1} onClick={() => { setExpand(toLevel(i + 1)); setLevelMenu(null); }} sx={{ fontSize: 13 }}>
+              {i + 1}. {label}
+            </MenuItem>
+          ))}
+          <MenuItem selected={expand.level >= EXPAND_ALL} onClick={() => { setExpand(toLevel(EXPAND_ALL)); setLevelMenu(null); }} sx={{ fontSize: 13 }}>Everything</MenuItem>
+        </Menu>
+        <Tooltip title={allOpen ? 'Collapse to orders' : 'Expand everything'}>
+          <IconButton size="small" aria-label={allOpen ? 'Collapse all' : 'Expand all'} data-testid="expand-all" onClick={() => setExpand(toLevel(allOpen ? 1 : EXPAND_ALL))}>
+            {allOpen ? <UnfoldLessRounded fontSize="small" /> : <UnfoldMoreRounded fontSize="small" />}
+          </IconButton>
+        </Tooltip>
+
+        <Typography component="div" sx={{ fontSize: 12.5, color: 'var(--c-text-3)', ml: 0.5 }} aria-live="polite">
+          {selection.length
+            ? <>{selection.length} selected{editable ? ' · ← → move a week (Shift: 4) · Alt+↑↓ reorder · Delete takes it off' : ''} · Esc clears</>
+            : editable ? 'Drag a bar to another week · Shift/Ctrl-click to pick several' : ''}
+        </Typography>
+
+        {highlight && (
+          <Box data-testid="highlight-chip" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5, pl: 1.25, pr: 0.25, py: 0.25, borderRadius: '999px', background: 'var(--c-info-50)', color: 'var(--c-info-800)', fontSize: 12.5 }}>
+            {highlight.label}
+            <IconButton size="small" aria-label="Stop highlighting" onClick={() => setHighlight(null)}><CloseRounded sx={{ fontSize: 15 }} /></IconButton>
+          </Box>
+        )}
+
+        <Box sx={{ flex: 1 }} />
+        {canEdit && (
+          <Box data-testid="save-bar" sx={{ display: 'flex', alignItems: 'center', gap: 0.75, pl: 1, pr: 0.5, py: 0.25, borderRadius: '10px', border: '1px solid', borderColor: dirty ? 'var(--c-primary-300, var(--c-border))' : 'var(--c-border)', background: dirty ? 'var(--c-primary-50, var(--c-surface))' : 'var(--c-surface)' }}>
+            <Tooltip title="Undo (Ctrl+Z)"><span><IconButton size="small" aria-label="Undo" disabled={!hist.past.length} onClick={doUndo}><UndoRounded fontSize="small" /></IconButton></span></Tooltip>
+            <Tooltip title="Redo (Ctrl+Y)"><span><IconButton size="small" aria-label="Redo" disabled={!hist.future.length} onClick={doRedo}><RedoRounded fontSize="small" /></IconButton></span></Tooltip>
+            <Typography data-testid="change-count" sx={{ fontSize: 13, minWidth: 92, color: dirty ? 'var(--c-text)' : 'var(--c-text-3)' }}>
+              {dirty ? `${changes.count} ${changes.count === 1 ? 'change' : 'changes'}` : 'All saved'}
+            </Typography>
+            <Button size="small" disabled={!dirty || saving} onClick={discard}>Discard</Button>
+            <Button size="small" variant="contained" disabled={!dirty || saving} onClick={save}>{saving ? 'Saving…' : 'Save'}</Button>
+          </Box>
+        )}
       </Box>
 
+      <PlanGrid snapshot={view} evaluation={shown} plan={present.plan} rows={rows} units={units} geometry={geometry} canEdit={editable}
+        selection={selection} highlight={highlight?.keys ?? null} dragTarget={drag?.info.target ?? null} dragNotes={dragNotes}
+        onToggle={onToggle} onUnitClick={onUnitClick} onOpen={setOpenKey} onPreview={onPreview} onDrop={onDrop}
+        onRank={onRank} onOrderRank={onOrderRank} onLevel={onLevel} onKeyDown={onGridKey} scrollerRef={scrollerRef}
+        footer={(
+          <UsagePanel rows={usage} level={areaSet.level} periods={snap.horizon.periods} geometry={geometry} fnRows={fnRows}
+            targetPeriods={affected} live={!!drag} selected={highlight?.cell ?? null} onCellClick={onCellClick} drivers={driversText}
+            collapsed={usageCollapsed} onCollapsed={setUsageCollapsed} />
+        )} />
+
       <UnitSheet unit={open} snapshot={snap} evaluation={shown} periodLabel={(k) => periodLabels.get(k) ?? k} canEdit={editable}
-        buyListPath={appPath(company, 'buy-list')} onClose={() => setOpenKey(null)} onUnplan={onUnplan} onPin={onPin} />
+        buyListPath={appPath(company, 'buy-list')} onClose={() => setOpenKey(null)}
+        onUnplan={(key) => putPlan(unplan(present.plan, [key]))}
+        onPin={(key, pinned) => { if (present.plan[key]) putPlan({ ...present.plan, [key]: { ...present.plan[key], pinned } }); }} />
     </Box>
   );
 }

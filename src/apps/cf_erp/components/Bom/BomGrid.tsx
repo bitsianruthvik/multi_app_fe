@@ -11,7 +11,7 @@ import type { RowMark } from './BomTree';
 import type { DropPosition } from './bomArrangement';
 
 export interface GridWrite { row: BomRow; code: string; text: string; saved: string }
-type Cell = { text: string; input: string; saved: string; editable: boolean; why?: string; type?: string; options?: { id: number; value: string; label?: string | null }[] };
+type Cell = { text: string; input: string; saved: string; editable: boolean; why?: string; applies?: boolean; type?: string; options?: { id: number; value: string; label?: string | null }[] };
 
 /** The BOM around the shared SheetGrid: SheetGrid owns selection, clipboard and
  * the editor; this owns what a BOM cell means, plus row drag/drop and moving. */
@@ -78,6 +78,8 @@ export function BomGrid({ rows, view, records: recordValues, recordIds, pending,
   const columns = [{ code: '$quantity', name: 'Quantity' }, { code: '$total', name: 'Total' }, ...shown];
   const rowByKey = useMemo(() => new Map(rows.map((r) => [r.node.key, r])), [rows]);
   const colByKey = new Map(columns.map((c) => [c.code, c]));
+  /** The tooltip of a cell whose variable the row's definition or item does not have. */
+  const notOf = (row: BomRow) => `Not a value of ${row.node.name}`;
   const cellAt = (row: BomRow, col: { code: string }): Cell => {
     if (col.code === '$total') return { text: String(row.node.total), input: String(row.node.total), saved: '', editable: false, why: 'Calculated from the quantities above this row.' };
     if (col.code === '$quantity') {
@@ -87,6 +89,7 @@ export function BomGrid({ rows, view, records: recordValues, recordIds, pending,
     if (recordValues) {
       const entry = recordValues.get(row.node.id), resolution = entry?.resolution;
       const s = resolution?.specs.find((spec) => spec.applicable && spec.spec.code === col.code);
+      if (resolution && !s) return { text: '', input: '', saved: '', editable: false, applies: false, why: notOf(row) };
       if (!s || !resolution) return { text: '', input: '', saved: '', editable: false, why: entry?.error?.message ?? (entry ? 'This variable does not apply to this row.' : 'Loading values…') };
       const saved = ownInput(s, resolution.mode), input = pending.values?.[row.node.id]?.[col.code] ?? saved;
       const editable = !busy && !row.paste && canEditValues(row) && !resolution.frozen && valueEditable(s, resolution.mode) && s.spec.dataType !== 'table';
@@ -98,6 +101,7 @@ export function BomGrid({ rows, view, records: recordValues, recordIds, pending,
     }
     const info = catalog.records.get(row.node.id), actual = info?.columns.get(col.code);
     const raw = info?.row.cells[col.code];
+    if (view && info && (!actual || !raw)) return { text: '', input: '', saved: '', editable: false, applies: false, why: notOf(row) };
     if (!view || !info || !actual || !raw) return { text: '', input: '', saved: '', editable: false, why: view ? 'This variable does not apply to this row.' : 'Loading values…' };
     const c = effectiveCell(view, actual, info.row, raw, !busy && !row.paste && canEditValues(row));
     const input = pending.values?.[row.node.id]?.[col.code] ?? c.input;
@@ -109,6 +113,8 @@ export function BomGrid({ rows, view, records: recordValues, recordIds, pending,
   };
   const sheetCell = (row: BomRow, col: { code: string }): SheetCell => {
     const c = cellAt(row, col), n = row.node;
+    // Does not apply: low-light, not editable, and never flagged missing — different from a required value that is empty.
+    if (c.applies === false) return { text: '', applies: false, editable: false, why: c.why, title: c.why };
     const changed = col.code === '$quantity' ? !!row.paste || (n.lineId != null && n.lineId in pending.quantity) : col.code in (pending.values?.[n.id] ?? {});
     const gap = !!gaps?.get(n.id)?.includes(col.code);
     return { text: c.text, input: c.input, editable: c.editable, why: gap ? (c.why ?? 'Required value is missing.') : c.why, tone: changed ? 'warning' : 'normal', tint: gap && !changed ? 'var(--c-warning-200)' : undefined,

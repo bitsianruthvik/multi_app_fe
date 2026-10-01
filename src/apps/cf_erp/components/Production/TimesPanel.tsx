@@ -86,7 +86,11 @@ export function TimesPanel({ orderId, lineId }: { orderId: number; lineId: numbe
     const row = rowByKey.get(rowKey);
     if (colKey === TOTAL) { const m = row ? rowMinutes(row) : 0; return { text: m ? hours(m) : '', tone: 'muted', editable: false, why: 'Setup plus work for every piece, added up.' }; }
     const c = row ? cellOf(row, colKey) : undefined;
-    if (!row || !c) return { text: '', tone: 'blank' };
+    if (!row) return { text: '', tone: 'blank' };
+    if (!c) {
+      const op = view.operations.find((o) => String(o.id) === colKey)?.name ?? 'This operation';
+      return { text: '', applies: false, why: row.flowName ? `${op} is not in this row's flow (${row.flowName})` : `${op} does not apply: this row has no flow` };
+    }
     const value = setup ? c.setup : c.work, formula = setup ? c.formulaSetup : c.formulaWork, over = setup ? c.setupOverridden : c.overridden;
     const why = !view.line.editable || view.line.released ? (view.line.why || 'Times are fixed at release.') : !canProduce ? 'Your role cannot change times.' : undefined;
     const lines = [c.machine ? `Machine: ${c.machine}` : null, over && formula != null ? `Formula says ${minutes(formula)}` : null, value == null ? c.missing || 'No time from the formula.' : null].filter(Boolean);

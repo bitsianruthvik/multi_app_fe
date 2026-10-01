@@ -15,3 +15,10 @@ export const putPriorities = (orderIds: (number | string)[]) => cfApi.put<unknow
 export const putLevel = (lineId: number | string, level: PlanLevel) => cfApi.put<unknown>(`/planner/lines/${lineId}/level`, { level });
 export const putTargets = (targets: Record<string, number>) => cfApi.put<unknown>('/planner/targets', targets);
 export const putSettings = (settings: Partial<PlannerSettings>) => cfApi.put<unknown>('/planner/settings', settings);
+
+/**
+ * The Save button: where units ship and each changed line's unit order (init.sql §38), in one
+ * transaction. `ranks[].unitKeys` is the WHOLE order of that line's units, first first.
+ */
+export interface RankWrite { lineId: number | string; unitKeys: string[] }
+export const putChanges = (body: { entries: EntryWrite[]; ranks: RankWrite[] }) => cfApi.put<unknown>('/planner/changes', body);

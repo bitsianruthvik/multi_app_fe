@@ -41,3 +41,20 @@ export const shortDate = (d: string) => `${Number(d.slice(8, 10))} ${MONTH_NAMES
 /** Period start dates by key, for saving. */
 export const TODAY = () => new Date().toISOString().slice(0, 10);
 export const FN_COLORS = ['var(--c-chart-1)', 'var(--c-chart-2)', 'var(--c-chart-3)', 'var(--c-chart-4)', 'var(--c-chart-5)', 'var(--c-chart-6)', 'var(--c-chart-7)', 'var(--c-chart-8)'];
+
+/** Minutes as hours: "0 h", "0.5 h", "7.5 h", "86 h", "1,240 h". */
+export function hoursText(min: number): string {
+  const h = (Number(min) || 0) / 60;
+  if (h <= 0) return '0 h';
+  if (h < 10) return `${Math.round(h * 10) / 10} h`;
+  return `${Math.round(h).toLocaleString()} h`;
+}
+
+/** A unit's code without its order's prefix ("SO-…-0001-SPAN-01-1" → "SPAN-01-1"); a lot reads "45 × Intermediate diaphragm". */
+export function shortCode(u: PlannerUnit, orderCode: string | undefined): string {
+  if ((u.quantity ?? 1) > 1) return `${u.quantity} × ${u.name}`;
+  if (u.pieceId == null) return u.name || u.code || u.key; // a whole order line
+  const c = u.code || u.name || u.key;
+  if (orderCode && c.startsWith(orderCode)) return c.slice(orderCode.length).replace(/^[-_/ .]+/, '') || c;
+  return c;
+}

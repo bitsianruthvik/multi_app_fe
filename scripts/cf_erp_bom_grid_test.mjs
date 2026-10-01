@@ -202,6 +202,42 @@ await check('All columns shows it again', async () => {
   await render({ ...props, view: colView, onlyUsedColumns: false });
   assert.ok([...document.querySelectorAll('thead th')].some((t) => t.textContent.startsWith('Holed')));
 });
+// ── not applicable vs missing ────────────────────────────────────────────────
+const naView = { editable: true, optionLists: {}, groups: [{ columns: [
+  { code: 'LENGTH', name: 'Length', dataType: 'number', rule: 'entered', editable: true },
+  { code: 'HOLED', name: 'Holed', dataType: 'boolean', rule: 'entered', editable: true },
+], rows: rs.map((r) => ({ id: r.node.id, cells: r.node.id === 4 ? { LENGTH: { input: '' }, HOLED: { input: 'true' } } : { LENGTH: { input: '2' } } })) }] };
+const naProps = { ...props, view: naView, gaps: new Map([[4, ['LENGTH']]]) };
+await render(naProps);
+// rs order: k1(row 0), k2, k4, k5, k3; data columns: 1 Quantity, 2 Total, then the value columns (editable first, in order).
+const colOf = (name) => [...document.querySelectorAll('thead th')].findIndex((t) => t.textContent.startsWith(name));
+await check('A variable the row does not have is not-applicable: hatched, no text, not editable, says why', () => {
+  const c = cell(1, colOf('Holed'));
+  assert.equal(c.getAttribute('data-na'), 'true'); assert.equal(c.getAttribute('aria-readonly'), 'true'); assert.equal(c.textContent, '');
+  assert.match(c.getAttribute('title'), /Not a value of Row 2/);
+});
+await check('A variable the row has stays a normal cell', () => {
+  const c = cell(2, colOf('Holed'));
+  assert.equal(c.getAttribute('data-na'), null); assert.equal(c.getAttribute('aria-readonly'), 'false');
+});
+await check('A required value that is empty is missing (amber), not not-applicable', () => {
+  const c = cell(2, colOf('Length'));
+  assert.equal(c.getAttribute('data-na'), null); assert.match(c.getAttribute('title'), /Missing/);
+});
+await check('Pasting over not-applicable cells skips them and says so', async () => {
+  writes = []; const h = colOf('Holed');
+  await fire(cell(1, h), 'click'); await fire(cell(2, h), 'click', { shiftKey: true });
+  await clipboard(cell(2, h), 'paste', 'Yes');
+  assert.equal(writes.length, 1); assert.equal(writes[0].row.node.id, 4);
+  assert.match(document.body.textContent, /1 cell doesn't apply to its row and was skipped/);
+});
+const resNa = { mode: 'setup', specs: [{ spec: { code: 'WIDTH', name: 'Width', dataType: 'number' }, applicable: true, rule: { valueRule: 'fixed', isRequired: false }, value: { raw: 150, display: '150' } }, { spec: { code: 'DEPTH', name: 'Depth', dataType: 'number' }, applicable: false, rule: { valueRule: 'fixed', isRequired: false } }] };
+await render({ ...props, view: null, records: { get: (id) => (id === 1 ? { resolution: { ...resNa, specs: [...resNa.specs, { ...resNa.specs[1], spec: { code: 'DEPTH', name: 'Depth', dataType: 'number' }, applicable: true }] } } : { resolution: resNa }) }, canEditValues: () => true });
+await check('Record BOMs: an inapplicable spec is not-applicable, an applicable one is not', () => {
+  assert.equal(cell(1, colOf('Depth')).getAttribute('data-na'), 'true');
+  assert.equal(cell(0, colOf('Depth')).getAttribute('data-na'), null);
+  assert.equal(cell(1, colOf('Width')).getAttribute('data-na'), null);
+});
 await React.act(() => root.unmount());
 dom.window.close();
 console.log(`\n${passed} passed, ${failed} failed`);

@@ -16,7 +16,17 @@ export { evaluate, canPlace } from './evaluate';
 export { autoPlan } from './autoPlan';
 export { feedback } from './feedback';
 export { buildPeriods, periodContaining, monthShort, monthLong } from './periods';
+export { machineAreas, areaUsage, functionUsage, usageBand, cellDrivers, AREA_MIN, AREA_MAX } from './areas';
+export type { MachineArea, AreaSet, UsageCell, UsageRow, Band } from './areas';
+export { dragTo, shiftBy, unplan, reorderKeys, rankLine, rankChanges } from './moves';
+export type { Ranks } from './moves';
 export type * from './types';
+
+/** Each unit's place in the planning order (0 = first): order rank, line, the line's hand-dragged ranks, committed date, structure. */
+export function unitPriority(snapshot: PlannerSnapshot): Map<string, number> {
+  const m = getModel(snapshot);
+  return new Map(m.units.map((u, i) => [u.key, m.prio[i]]));
+}
 
 /** The saved entries (`snapshot.entries`, ship dates) as a plan (period keys). Dates outside the horizon are dropped. */
 export function planFromEntries(snapshot: PlannerSnapshot): Plan {

@@ -100,7 +100,10 @@ export function AssignPanel({ orderId, lineId }: { orderId: number; lineId: numb
 
   const cellAt = (rowKey: string, colKey: string): SheetCell => {
     const c = cell(rowKey, colKey);
-    if (!c) return { text: '', tone: 'blank' };
+    if (!c) {
+      const op = view.operations.find((o) => String(o.id) === colKey)?.name ?? 'This operation';
+      return { text: '', applies: false, why: `${op} is not in this piece's flow` };
+    }
     const can = c.editable && !c.started && canProduce;
     const why = c.started ? c.why || 'Already started — it belongs to whoever started it.' : !canProduce ? 'Your role cannot assign work.' : c.why || undefined;
     return {

@@ -35,6 +35,13 @@ export type SheetCell = {
   /** Tiny corner marker (e.g. an override dot). */
   mark?: ReactNode;
   title?: string;
+  /**
+   * false = this cell does not APPLY to its row (a spec the row's item lacks, an operation not in its flow). Drawn
+   * low-light (hatched, no text), never editable, skipped by Tab / Enter-to-next, paste and fill (reported as "don't
+   * apply", not as read-only). Different from `editable: false` (applies, but cannot be typed) and from a missing
+   * value (applies, is empty). `why` is the tooltip ("Not a value of Web plate"). Default: applies.
+   */
+  applies?: boolean;
   /** A soft background for this cell (a CSS colour, ideally a token mix) — e.g. one tint per contractor. Selection still wins. */
   tint?: string;
   /** What the editor starts with when it differs from `text` (an option's value, say). Default: `text`. */
@@ -253,7 +260,21 @@ export function SheetGrid({
     return cellAt(row.key, col.key);
   };
   const isBlank = (c: SheetCell) => c.tone === 'blank';
-  const writable = (c: SheetCell) => !!c.editable && !isBlank(c);
+  const isNa = (c: SheetCell) => c.applies === false;
+  const writable = (c: SheetCell) => !!c.editable && !isBlank(c) && !isNa(c);
+  /** The next cell in reading order (Tab) or down the column (Enter) that applies; null when there is none. */
+  const nextApplying = (from: Point, step: (p: Point) => Point | null): Point | null => {
+    for (let p = step(from); p; p = step(p)) if (!isNa(cellOf(p))) return p;
+    return null;
+  };
+  const stepTab = (back: boolean) => (p: Point): Point | null => {
+    let row = p.row, col = p.col + (back ? -1 : 1);
+    if (col >= columns.length) { row++; col = 0; }
+    if (col < 0) { row--; col = columns.length - 1; }
+    return row < 0 || row >= rows.length ? null : { row, col };
+  };
+  const stepDown = (p: Point): Point | null => (p.row + 1 < rows.length ? { row: p.row + 1, col: p.col } : null);
+  const naText = (n: number) => `${n} cell${n > 1 ? 's' : ''} ${n > 1 ? "don't" : "doesn't"} apply to ${n > 1 ? 'their' : 'its'} row and ${n > 1 ? 'were' : 'was'} skipped`;
   const bounds = () => {
     const a = anchor ?? { row: 0, col: 0 }, b = extent ?? a;
     return { top: Math.min(a.row, b.row), bottom: Math.max(a.row, b.row), left: Math.min(a.col, b.col), right: Math.max(a.col, b.col) };
@@ -321,10 +342,11 @@ export function SheetGrid({
     if (height * width > 10000 || b.top + height > rows.length || b.left + width > columns.length) {
       problem('The pasted cells do not fit here. Select a smaller block or a different starting cell.'); return;
     }
-    const writes: SheetWrite[] = [];
+    const writes: SheetWrite[] = []; let naSkipped = 0;
     for (let r = 0; r < height; r++) for (let k = 0; k < width; k++) {
       const at = { row: b.top + r, col: b.left + k }, c = cellOf(at);
       const colName = columns[at.col].label ?? columns[at.col].key;
+      if (isNa(c)) { naSkipped++; continue; }
       if (!writable(c)) { problem(`Nothing pasted: ${rows[at.row].label ?? rows[at.row].key} · ${colName} is read-only or does not apply.`); return; }
       let text = (single ? data[0][0] : data[r]?.[k] ?? '').trim();
       if (c.kind === 'option' && text !== '') {
@@ -339,7 +361,8 @@ export function SheetGrid({
       }
       writes.push({ rowKey: rows[at.row].key, colKey: columns[at.col].key, text });
     }
-    emit(writes); problem(null); setExtent({ row: b.top + height - 1, col: b.left + width - 1 });
+    if (!writes.length && naSkipped) { problem(`Nothing pasted: ${naText(naSkipped)}.`); return; }
+    emit(writes); problem(naSkipped ? `${naText(naSkipped)}.` : null); setExtent({ row: b.top + height - 1, col: b.left + width - 1 });
   };
   /** Ctrl+D / Ctrl+R: copy the first row (column) of the selection into the rest, as one history entry. */
   const fill = (dir: 'down' | 'right') => {
@@ -349,18 +372,20 @@ export function SheetGrid({
     if (srcLine < 0) { problem(`Nothing to fill ${dir}: select the cells to fill and the one to copy from.`); return; }
     const first = srcLine + 1, last = down ? b.bottom : b.right;
     const lo = down ? b.left : b.top, hi = down ? b.right : b.bottom;
-    const writes: SheetWrite[] = []; let skipped = 0;
+    const writes: SheetWrite[] = []; let skipped = 0, naSkipped = 0;
     for (let k = lo; k <= hi; k++) {
       const src = cellOf(down ? { row: srcLine, col: k } : { row: k, col: srcLine });
       const value = isBlank(src) ? null : src.input ?? src.text;
       for (let i = first; i <= last; i++) {
         const at = down ? { row: i, col: k } : { row: k, col: i };
+        if (isNa(cellOf(at))) { naSkipped++; continue; }
         if (value === null || !writable(cellOf(at))) { skipped++; continue; }
         writes.push({ rowKey: rows[at.row].key, colKey: columns[at.col].key, text: value });
       }
     }
     emit(writes);
-    problem(skipped ? `${skipped} cell${skipped > 1 ? 's' : ''} skipped (read-only or not applicable).` : null);
+    const notes = [skipped ? `${skipped} cell${skipped > 1 ? 's' : ''} skipped (read-only)` : '', naSkipped ? naText(naSkipped) : ''].filter(Boolean);
+    problem(notes.length ? `${notes.join(' · ')}.` : null);
   };
   const onKey = (e: KeyboardEvent, at: Point) => {
     if (editor) return;
@@ -368,6 +393,11 @@ export function SheetGrid({
       e.preventDefault(); fill(e.key.toLowerCase() === 'd' ? 'down' : 'right'); return;
     }
     const delta: Record<string, [number, number]> = { ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1], Tab: [0, e.shiftKey ? -1 : 1] };
+    if (e.key === 'Tab') {
+      // Tab goes to the next cell that applies to its row; hatched cells are stepped over.
+      const next = nextApplying(at, stepTab(e.shiftKey));
+      e.preventDefault(); if (next) { choose(next); focus(next); } return;
+    }
     if (delta[e.key]) {
       e.preventDefault();
       const [dr, dc] = delta[e.key];
@@ -423,6 +453,8 @@ export function SheetGrid({
           '& td': { height: rowHeight, px: 1, outlineOffset: '-2px', '&:focus-visible': { outline: '2px solid var(--c-focus)' } },
           '& .sg-corner': { ...firstSticky, ...headSticky, zIndex: 4, width: capped(rowHeaderWidth), minWidth: capped(rowHeaderWidth), maxWidth: capped(rowHeaderWidth), cursor: 'default' },
           '& .sg-rowhead': { ...firstSticky, zIndex: 2, width: capped(rowHeaderWidth), minWidth: capped(rowHeaderWidth), maxWidth: capped(rowHeaderWidth), background: 'var(--c-surface)', cursor: 'default' },
+          // A faint row emphasis on hover, on the cells that apply only; the hatched ones stay low.
+          '& tbody tr:hover td.sg-data:not([data-na="true"])': { backgroundImage: 'linear-gradient(color-mix(in srgb, var(--c-primary-600) 6%, transparent), color-mix(in srgb, var(--c-primary-600) 6%, transparent))' },
           '& .sg-data': { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFamily: 'var(--font-mono)', position: 'relative' },
         }}>
         <thead><tr>
@@ -450,18 +482,19 @@ export function SheetGrid({
             </Box>
             {columns.map((col, c) => {
               const at = { row: r, col: c }, cell = cellOf(at), editing = same(editor?.at ?? null, at), active = selected(at);
-              const tone = cell.tone ?? 'normal', blank = tone === 'blank', can = writable(cell);
-              return <Box component="td" key={col.key} role="gridcell" data-cell={`${r}:${c + 1}`} className="sg-data" data-tone={tone}
-                tabIndex={same(anchor, at) || (!anchor && r === 0 && c === 0) ? 0 : -1} aria-selected={active} aria-readonly={!can}
-                title={cell.title ?? cell.why ?? cell.text} onClick={(e) => { if ((e.target as HTMLElement).closest('button, input, select, a')) return; choose(at, e.shiftKey); e.currentTarget.focus(); }}
+              const tone = cell.tone ?? 'normal', blank = tone === 'blank', can = writable(cell), na = isNa(cell);
+              return <Box component="td" key={col.key} role="gridcell" data-cell={`${r}:${c + 1}`} className="sg-data" data-tone={tone} data-na={na ? 'true' : undefined}
+                tabIndex={same(anchor, at) || (!anchor && r === 0 && c === 0) ? 0 : -1} aria-selected={active} aria-readonly={!can} aria-disabled={na || undefined}
+                title={na ? cell.why ?? cell.title ?? 'Does not apply to this row' : cell.title ?? cell.why ?? cell.text} onClick={(e) => { if ((e.target as HTMLElement).closest('button, input, select, a')) return; choose(at, e.shiftKey); e.currentTarget.focus(); }}
                 onPointerDown={(e) => { if (e.button !== 0 || (e.target as HTMLElement).closest('button, input, select, a')) return; selecting.current = true; choose(at, e.shiftKey); }}
                 onDoubleClick={(e) => { if (!(e.target as HTMLElement).closest('button, input, select, a')) begin(at); }}
                 onPointerEnter={(e) => { if (e.buttons === 1 && selecting.current && !editor && anchor) setExtent(at); }}
                 onKeyDown={(e) => { if (!(e.target as HTMLElement).closest('input, select, button')) onKey(e, at); }}
                 sx={{ cursor: 'cell', textAlign: col.align ?? 'left',
+                  ...(na ? { backgroundImage: 'repeating-linear-gradient(135deg, transparent 0 5px, color-mix(in srgb, var(--c-text-3) 16%, transparent) 5px 6px)' } : {}),
                   color: tone === 'muted' || (!can && tone !== 'strong') ? 'var(--c-text-3)' : 'var(--c-text)',
                   fontWeight: tone === 'strong' ? 600 : undefined,
-                  background: active ? 'var(--c-primary-50) !important' : cell.tint && !blank ? cell.tint : tone === 'warning' ? 'var(--c-warning-50)' : blank ? 'var(--c-surface)' : can || tone === 'muted' || tone === 'strong' ? 'var(--c-surface)' : 'var(--c-surface-2)',
+                  background: active ? 'var(--c-primary-50) !important' : na ? 'var(--c-surface-3)' : cell.tint && !blank ? cell.tint : tone === 'warning' ? 'var(--c-warning-50)' : blank ? 'var(--c-surface)' : can || tone === 'muted' || tone === 'strong' ? 'var(--c-surface)' : 'var(--c-surface-2)',
                   ...(blank ? { borderRightColor: 'transparent', borderBottomColor: 'transparent' } : {}),
                   outline: same(anchor, at) ? '2px solid var(--c-primary-600)' : undefined,
                 }}>
@@ -472,8 +505,8 @@ export function SheetGrid({
                     if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); endingEdit.current = true; setEditor(null); focus(at); }
                     if (e.key === 'Enter' || e.key === 'Tab') {
                       e.preventDefault(); e.stopPropagation(); commit();
-                      const next = { row: Math.min(rows.length - 1, at.row + (e.key === 'Enter' ? 1 : 0)), col: Math.min(columns.length - 1, Math.max(0, at.col + (e.key === 'Tab' ? e.shiftKey ? -1 : 1 : 0))) };
-                      choose(next); focus(next);
+                      const next = e.key === 'Enter' ? nextApplying(at, stepDown) : nextApplying(at, stepTab(e.shiftKey));
+                      if (next) { choose(next); focus(next); } else focus(at);
                     }
                   }}>
                   {cell.kind === 'option' || cell.kind === 'bool'
@@ -494,7 +527,7 @@ export function SheetGrid({
                     : <input autoFocus type={cell.kind === 'date' ? 'date' : 'text'} inputMode={cell.kind === 'number' ? 'decimal' : undefined} aria-label={col.label ?? col.key}
                       value={editor.text} onChange={(e) => setEditor({ at, text: e.target.value })}
                       style={{ width: '100%', minHeight: 32, boxSizing: 'border-box', font: 'inherit', color: 'var(--c-text)', background: 'var(--c-surface)', border: 0, outline: 0, textAlign: col.align ?? 'left' }} />}
-                </Box> : blank ? '' : cell.text || (can ? '' : '—')}
+                </Box> : blank || na ? '' : cell.text || (can ? '' : '—')}
               </Box>;
             })}
           </Box>;

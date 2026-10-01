@@ -94,6 +94,15 @@ await check('a typed value takes the gap and the chip away once live', async () 
   assert.deepEqual([...document.querySelectorAll('[data-testid="row-gaps"]')].map((c) => c.textContent), ['1 missing']);
   assert.equal([...document.querySelectorAll('td.sg-data')].filter((td) => td.getAttribute('title')?.startsWith('Missing')).length, 1);
 });
+await check('Values: a variable the row does not have is n/a (hatched), different from the amber missing cell', async () => {
+  await React.act(() => root.render(React.createElement(m.BomGrid, props(shown, m.computeGaps(view, undefined)))));
+  const tds = [...document.querySelectorAll('td.sg-data')];
+  const na = tds.filter((td) => td.getAttribute('data-na') === 'true');
+  assert.ok(na.length > 0, 'some cells are n/a');
+  assert.ok(na.every((td) => /^Not a value of Row [0-9]/.test(td.getAttribute('title')) && td.textContent === ''));
+  assert.ok(na.every((td) => !td.getAttribute('title').startsWith('Missing')), 'n/a is never flagged missing');
+  assert.equal(tds.filter((td) => td.getAttribute('title')?.startsWith('Missing')).length, 3);
+});
 await React.act(() => root.unmount());
 dom.window.close();
 console.log(`\n${passed} passed, ${failed} failed`);

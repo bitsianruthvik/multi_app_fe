@@ -2,7 +2,7 @@ import { Box, Button, Typography } from '@mui/material';
 import { Link } from 'react-router-dom';
 import { SideSheet } from '@shared/ui';
 import type { Evaluation, PlannerSnapshot, PlannerUnit } from '../../lib/planner/types';
-import { WorkBar } from './UnitCard';
+import { WorkBar } from './WorkBar';
 import { mins, shortDate, tonnes } from './model';
 
 const Row = ({ k, children }: { k: string; children: React.ReactNode }) => (

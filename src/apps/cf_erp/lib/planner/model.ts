@@ -169,6 +169,8 @@ function buildModel(snap: PlannerSnapshot): Model {
 
   // priority
   const committed = units.map((u) => u.committedDate ?? orderById.get(String(u.orderId))?.committedDate ?? null);
+  // Inside a line, units dragged into an order come first, in that order (snapshot.ranks, §38).
+  const ranks = snap.ranks ?? {};
   const pos = Array.from({ length: N }, (_, i) => i).sort((a, b) => {
     const ua = units[a], ub = units[b];
     const ra = orderRank.get(String(ua.orderId)) ?? 1e9, rb = orderRank.get(String(ub.orderId)) ?? 1e9;
@@ -176,6 +178,8 @@ function buildModel(snap: PlannerSnapshot): Model {
     const la = lines.get(String(ua.lineId))?.line.lineNo ?? 1e9, lb = lines.get(String(ub.lineId))?.line.lineNo ?? 1e9;
     if (la !== lb) return la - lb;
     if (String(ua.lineId) !== String(ub.lineId)) return String(ua.lineId) < String(ub.lineId) ? -1 : 1;
+    const ka = ranks[ua.key] ?? Infinity, kb = ranks[ub.key] ?? Infinity;
+    if (ka !== kb) return ka < kb ? -1 : 1;
     return cmpStr(committed[a], committed[b]) || a - b;
   });
   const prio = new Int32Array(N);

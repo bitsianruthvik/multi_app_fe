@@ -367,6 +367,64 @@ await check('Below 600 px the grid is read-only with a one-line note; above it n
     assert.equal(document.querySelector('[data-testid="sheet-grid-narrow-note"]'), null, 'no note on a wide window');
   } finally { delete window.matchMedia; }
 });
+// ── not applicable (applies: false) ──
+// Rows a..d, columns x y z. y does not apply to rows b and c.
+const naRows = ['a', 'b', 'c', 'd'].map((k) => ({ key: k, label: 'Row ' + k.toUpperCase(), header: k }));
+const naCols = ['x', 'y', 'z'].map((k) => ({ key: k, label: k.toUpperCase(), header: k }));
+const naApplies = (r, c) => !(c === 'y' && (r === 'b' || r === 'c'));
+let naWrites = [];
+const naProps = { rows: naRows, columns: naCols, historyKey: 'na', onWrites: (w) => { naWrites = w; },
+  cellAt: (r, c) => naApplies(r, c) ? { text: '', editable: true } : { text: 'hidden', applies: false, editable: true, why: 'Not a value of ' + r } };
+await render(naProps);
+await check('n/a cell: hatched marker, no text, read-only, tooltip says why', () => {
+  const c = cell(1, 2);
+  assert.equal(c.getAttribute('data-na'), 'true'); assert.equal(c.textContent, ''); assert.equal(c.getAttribute('aria-readonly'), 'true');
+  assert.equal(c.getAttribute('title'), 'Not a value of b'); assert.equal(cell(0, 2).getAttribute('data-na'), null);
+});
+await check('n/a cell: typing or double-click opens no editor', async () => {
+  await fire(cell(1, 2), 'click'); await fire(cell(1, 2), 'keydown', { key: '5' }); await fire(cell(1, 2), 'dblclick');
+  assert.equal(document.querySelector('input'), null); assert.deepEqual(naWrites, []);
+});
+await check('n/a cell is not copied as text', async () => { await fire(cell(1, 2), 'click'); assert.equal(await clipboard(cell(1, 2), 'copy'), 'hidden'); });
+await check('Paste over a block with n/a cells writes the rest and reports the skipped ones', async () => {
+  naWrites = []; await fire(cell(0, 2), 'click'); await fire(cell(3, 2), 'click', { shiftKey: true });
+  await clipboard(cell(3, 2), 'paste', '7');
+  assert.deepEqual(naWrites.map((w) => w.rowKey), ['a', 'd']);
+  assert.match(document.body.textContent, /2 cells don't apply to their row and were skipped/);
+});
+await check('Paste onto only n/a cells writes nothing and says none apply', async () => {
+  naWrites = []; await fire(cell(1, 2), 'click'); await fire(cell(2, 2), 'click', { shiftKey: true });
+  await clipboard(cell(2, 2), 'paste', '7');
+  assert.deepEqual(naWrites, []); assert.match(document.body.textContent, /Nothing pasted: 2 cells don't apply/);
+});
+await check('Ctrl+D fill leaves n/a cells alone and reports them', async () => {
+  naWrites = []; await fire(cell(0, 2), 'click'); await fire(cell(3, 2), 'click', { shiftKey: true });
+  await React.act(async () => { cell(3, 2).dispatchEvent(new Event('focus')); });
+  await fire(cell(3, 2), 'keydown', { key: 'd', ctrlKey: true });
+  assert.ok(naWrites.every((w) => w.rowKey !== 'b' && w.rowKey !== 'c'));
+  assert.match(document.body.textContent, /2 cells don't apply to their row and were skipped/);
+});
+await check('Delete over n/a cells clears only the ones that apply', async () => {
+  naWrites = []; await fire(cell(0, 2), 'click'); await fire(cell(3, 2), 'click', { shiftKey: true });
+  await fire(cell(3, 2), 'keydown', { key: 'Delete' });
+  assert.deepEqual(naWrites.map((w) => w.rowKey), ['a', 'd']);
+});
+await check('Tab steps over n/a cells, Shift+Tab too', async () => {
+  await fire(cell(1, 1), 'click'); await fire(cell(1, 1), 'keydown', { key: 'Tab' });
+  assert.equal(cell(1, 3).getAttribute('aria-selected'), 'true');
+  await fire(cell(1, 3), 'keydown', { key: 'Tab', shiftKey: true });
+  assert.equal(cell(1, 1).getAttribute('aria-selected'), 'true');
+});
+await check('Enter in an editor goes to the next row that applies, skipping n/a cells', async () => {
+  await fire(cell(0, 2), 'click'); await fire(cell(0, 2), 'keydown', { key: 'Enter' });
+  await fire(document.querySelector('input'), 'keydown', { key: 'Enter' });
+  assert.equal(cell(3, 2).getAttribute('aria-selected'), 'true');
+});
+await check('Tab inside an editor skips an n/a cell', async () => {
+  await fire(cell(1, 1), 'click'); await fire(cell(1, 1), 'keydown', { key: 'Enter' });
+  await fire(document.querySelector('input'), 'keydown', { key: 'Tab' });
+  assert.equal(cell(1, 3).getAttribute('aria-selected'), 'true');
+});
 await React.act(() => root.unmount());
 dom.window.close();
 console.log(`\n${passed} passed, ${failed} failed`);
