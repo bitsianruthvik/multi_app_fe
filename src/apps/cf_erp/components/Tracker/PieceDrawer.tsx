@@ -13,7 +13,7 @@ import { progressText } from '../../lib/tracker';
 import { pctText } from '../../lib/trackerTree';
 import { ErrorNotice, Mono, SkeletonRows } from '../ui';
 import { StepStatusBadge } from '../trackerUi';
-import { StepActions } from '../ReleaseView';
+import { StepActions } from './StepActions';
 import { ProgressDialog, StartStepDialog } from '../TrackerDialogs';
 import { PromptDialog } from '../PromptDialog';
 import { useToast } from '../toastContext';
@@ -23,14 +23,16 @@ const linkSx = { color: 'inherit', textDecoration: 'none', '&:hover': { color: '
 const refusal = (e: unknown) => (e instanceof CfApiError ? [e.message, ...e.problems].join(' ') : e instanceof Error ? e.message : String(e));
 
 /** One step, in full: what it is, where it stands, what it waits for, and what can be done. */
-function StepCard({ step, canProduce, onAct }: { step: ProductionStep; canProduce: boolean; onAct: (kind: 'start' | 'record' | 'hold' | 'resume', s: ProductionStep) => void }) {
+function StepCard({ step, canProduce, focused, onAct }: { step: ProductionStep; canProduce: boolean; focused?: boolean; onAct: (kind: 'start' | 'record' | 'hold' | 'resume', s: ProductionStep) => void }) {
   const lines = step.status === 'not_ready'
     ? step.blockers.map((b) => b.text)
     : step.status === 'in_progress' && step.machine ? [`On ${step.machine.code}.`]
       : step.status === 'done' && step.machine ? [`Made on ${step.machine.code}.`] : [];
   if (step.workOrderId) lines.unshift([step.workOrderCode ?? 'Work order', step.contractorName].filter(Boolean).join(' · '));
   return (
-    <Box sx={{ border: '1px solid var(--c-border)', borderRadius: 'var(--r-md)', p: 1.25, display: 'grid', gap: 0.75 }}>
+    <Box data-testid="step-card" data-step={step.id} data-focused={focused ? 'true' : undefined}
+      ref={focused ? (el: HTMLDivElement | null) => { el?.scrollIntoView?.({ block: 'nearest' }); } : undefined}
+      sx={{ border: '1px solid', borderColor: focused ? 'var(--c-primary-500)' : 'var(--c-border)', boxShadow: focused ? '0 0 0 1px var(--c-primary-500)' : 'none', borderRadius: 'var(--r-md)', p: 1.25, display: 'grid', gap: 0.75 }}>
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
         <Box sx={{ fontSize: 14, fontWeight: 500, flex: '1 1 auto', minWidth: 0 }}>
           {step.stepName || step.operation.name} <Mono muted>{step.operation.code}</Mono>
@@ -49,18 +51,23 @@ function StepCard({ step, canProduce, onAct }: { step: ProductionStep; canProduc
 /**
  * A piece of the progress tree opened on the right: its code and where it sits,
  * then each step with the tracker's own actions (start, record, hold, resume).
- * After any of them the tree is told, so its bars catch up.
+ * After any of them the tree is told, so its bars catch up. The order page's
+ * grid opens it on a cell: that cell's steps are outlined (focusStepIds), and
+ * readOnly hides the actions (no production permission, or an order that is
+ * not confirmed).
  */
-export function PieceDrawer({ nodeId, basisNote, onClose, onChanged }: {
+export function PieceDrawer({ nodeId, basisNote, onClose, onChanged, focusStepIds, readOnly = false }: {
   nodeId: string | null;
   basisNote: { piece: string; row: string } | null;
   onClose: () => void;
   onChanged: (node: TreeNode) => void;
+  focusStepIds?: number[];
+  readOnly?: boolean;
 }) {
   const company = useCompanySlug();
   const toast = useToast();
   const isPermitted = useIsPermitted();
-  const canProduce = isPermitted('cf_erp_production_manage');
+  const canProduce = isPermitted('cf_erp_production_manage') && !readOnly;
   const [starting, setStarting] = useState<ProductionStep | null>(null);
   const [recording, setRecording] = useState<ProductionStep | null>(null);
   const [holding, setHolding] = useState<ProductionStep | null>(null);
@@ -82,7 +89,7 @@ export function PieceDrawer({ nodeId, basisNote, onClose, onChanged }: {
     else if (kind === 'record') setRecording(s);
     else if (kind === 'hold') setHolding(s);
     else {
-      try { await cfApi.post(`/production-steps/${s.id}/resume`, {}); await after('Resumed.')(); } catch (e) { toast.error(refusal(e)); }
+      try { await cfApi.post(`/production-steps/${s.id}/resume?view=none`, {}); await after('Resumed.')(); } catch (e) { toast.error(refusal(e)); }
     }
   };
   const node = data?.node;
@@ -117,7 +124,7 @@ export function PieceDrawer({ nodeId, basisNote, onClose, onChanged }: {
               </Typography>
             )}
             {data.steps.length === 0 && <Typography sx={{ fontSize: 13, color: 'var(--c-text-3)' }}>This piece has no steps of its own.</Typography>}
-            {data.steps.map((s) => <StepCard key={s.id} step={s} canProduce={canProduce} onAct={act} />)}
+            {data.steps.map((s) => <StepCard key={s.id} step={s} canProduce={canProduce} focused={!!focusStepIds?.includes(s.id)} onAct={act} />)}
             {node.itemId && (
               <Typography sx={{ fontSize: 12.5 }}>
                 <Box component={Link} to={appPath(company, `items/${node.itemId}`)} sx={{ ...linkSx, color: 'var(--c-primary-700)' }}>Open the item</Box>
@@ -130,7 +137,7 @@ export function PieceDrawer({ nodeId, basisNote, onClose, onChanged }: {
       <ProgressDialog step={recording} onClose={() => setRecording(null)} onDone={() => { void after('Recorded.')(); }} />
       <PromptDialog open={!!holding} title="Put this step on hold?" label="Why" confirmLabel="Hold" body={holding?.label}
         onClose={() => setHolding(null)}
-        onConfirm={async (note) => { await cfApi.post(`/production-steps/${holding?.id}/hold`, { note }); await after('On hold.')(); }} />
+        onConfirm={async (note) => { await cfApi.post(`/production-steps/${holding?.id}/hold?view=none`, { note }); await after('On hold.')(); }} />
     </Drawer>
   );
 }

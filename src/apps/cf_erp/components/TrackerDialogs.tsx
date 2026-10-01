@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Autocomplete, Box, Button, Checkbox, FormControlLabel, MenuItem, TextField, Typography } from '@mui/material';
 import { Link } from 'react-router-dom';
 import { cfApi, LONG_WRITE_MS, type CfApiError } from '../api/client';
-import type { OperationDetail, ProductionStep, Release, ReleaseCheck, Shipment, StockingArea } from '../api/types';
+import type { OperationDetail, ProductionStep, Release, ReleaseCheck, ReleaseSummary, Shipment, StockingArea } from '../api/types';
 import { useCompanySlug, useLoad } from '../hooks/useLoad';
 import { useIsPermitted } from '../hooks/useIsPermitted';
 import { appPath } from '../navMeta';
@@ -22,7 +22,7 @@ const amount = (v: string) => (v.trim() === '' ? 0 : Number(v));
 export function ReleaseDialog({ line, onClose, onReleased }: {
   line: { id: number; lineNo: number; label: string } | null;
   onClose: () => void;
-  onReleased: (r: Release) => void;
+  onReleased: (r: ReleaseSummary) => void;
 }) {
   const check = useLoad(() => (line ? cfApi.get<ReleaseCheck>(`/order-lines/${line.id}/release-check`) : Promise.resolve(null)), [line?.id]);
   const c = check.data;
@@ -55,7 +55,7 @@ export function ReleaseDialog({ line, onClose, onReleased }: {
   useEffect(() => { setAreaId(''); setFixError(null); }, [line?.id]);
   useEffect(() => { if (c?.finishedArea) setAreaId(String(c.finishedArea.id)); }, [c]);
   useEffect(() => { if (line && c) rememberLineSize(line.id, { pieces: c.summary.pieces }); }, [line, c]);
-  const save = async () => { if (line) onReleased(await cfApi.post<Release>(`/order-lines/${line.id}/release`, { finishedAreaId: Number(areaId) || null }, { timeoutMs: LONG_WRITE_MS })); };
+  const save = async () => { if (line) onReleased(await cfApi.post<ReleaseSummary>(`/order-lines/${line.id}/release?view=summary`, { finishedAreaId: Number(areaId) || null }, { timeoutMs: LONG_WRITE_MS })); };
   return (
     <FormDialog open={!!line} title={`Release line ${line?.lineNo ?? ''} to production`} onClose={onClose} onSubmit={save}
       submitLabel="Release" busyLabel="Releasing…" submitDisabled={!c?.ok || !areaId} maxWidth="md"
@@ -148,7 +148,7 @@ export function ReleaseDialog({ line, onClose, onReleased }: {
 }
 
 /** Starts a ready step, optionally on a machine its operation's rules allow. */
-export function StartStepDialog({ step, onClose, onDone }: { step: ProductionStep | null; onClose: () => void; onDone: (r: Release) => void }) {
+export function StartStepDialog({ step, onClose, onDone }: { step: ProductionStep | null; onClose: () => void; onDone: (r: ReleaseSummary) => void }) {
   const op = useLoad(() => (step ? cfApi.get<OperationDetail>(`/operations/${step.operation.id}`) : Promise.resolve(null)), [step?.operation.id]);
   const [machineId, setMachineId] = useState<number | null>(null);
   const options = useMemo(() => (op.data?.machines ?? []).filter((m) => m.eligible).map((m) => m.machine), [op.data]);
@@ -156,7 +156,7 @@ export function StartStepDialog({ step, onClose, onDone }: { step: ProductionSte
   // the answer is already known, so fill it in rather than making someone at
   // the machine pick it every single time.
   useEffect(() => { setMachineId(options.length === 1 ? options[0].id : null); }, [step?.id, options]);
-  const save = async () => { if (step) onDone(await cfApi.post<Release>(`/production-steps/${step.id}/start`, { machineId })); };
+  const save = async () => { if (step) onDone(await cfApi.post<ReleaseSummary>(`/production-steps/${step.id}/start?view=summary`, { machineId })); };
   return (
     <FormDialog open={!!step} title="Start this step" onClose={onClose} onSubmit={save} submitLabel="Start" busyLabel="Starting…" maxWidth="xs"
       subtitle={step?.label}>
@@ -171,7 +171,7 @@ export function StartStepDialog({ step, onClose, onDone }: { step: ProductionSte
 }
 
 /** Records good and scrapped pieces on a started step; the step is done when the good ones reach its quantity. */
-export function ProgressDialog({ step, onClose, onDone }: { step: ProductionStep | null; onClose: () => void; onDone: (r: Release) => void }) {
+export function ProgressDialog({ step, onClose, onDone }: { step: ProductionStep | null; onClose: () => void; onDone: (r: ReleaseSummary) => void }) {
   const left = step ? Math.max(0, Number((step.quantity - step.qtyGood).toFixed(6))) : 0;
   const [good, setGood] = useState('');
   const [scrap, setScrap] = useState('');
@@ -183,7 +183,7 @@ export function ProgressDialog({ step, onClose, onDone }: { step: ProductionStep
   const s = amount(scrap);
   const tooMany = Number.isFinite(g) && g > left + 1e-6;
   const nothing = !Number.isFinite(g) || !Number.isFinite(s) || g < 0 || s < 0 || g + s <= 0;
-  const save = async () => { if (step) onDone(await cfApi.post<Release>(`/production-steps/${step.id}/progress`, { good: good || 0, scrap: scrap || 0, note: note || null })); };
+  const save = async () => { if (step) onDone(await cfApi.post<ReleaseSummary>(`/production-steps/${step.id}/progress?view=summary`, { good: good || 0, scrap: scrap || 0, note: note || null })); };
   return (
     <FormDialog open={!!step} title="Record work" onClose={onClose} onSubmit={save} maxWidth="xs" submitLabel="Record" busyLabel="Recording…" submitDisabled={nothing || tooMany}
       subtitle={step ? `${step.label} — ${qtyText(step.qtyGood)} of ${qtyText(step.quantity)} good so far. Scrapped pieces are made again.` : undefined}>
@@ -204,7 +204,7 @@ export function ProgressDialog({ step, onClose, onDone }: { step: ProductionStep
  * only what is really in the yard can leave.
  */
 export function ShipDialog({ release, onClose, onShipped }: {
-  release: Release | null;
+  release: Release | ReleaseSummary | null;
   onClose: () => void;
   onShipped: (s: Shipment) => void;
 }) {
@@ -224,7 +224,7 @@ export function ShipDialog({ release, onClose, onShipped }: {
     if (release) {
       onShipped(await cfApi.post<Shipment>(`/order-lines/${release.line.id}/ship`, {
         quantity: quantity || null, reference: reference || null, movementDate: date || null, notes: note || null,
-        invoice: canInvoice && invoice,
+        invoice: canInvoice && invoice, view: 'summary',
       }));
     }
   };

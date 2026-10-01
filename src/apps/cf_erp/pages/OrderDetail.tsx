@@ -11,7 +11,7 @@ import RocketLaunchRounded from '@mui/icons-material/RocketLaunchRounded';
 import HistoryRounded from '@mui/icons-material/HistoryRounded';
 import { cfApi, CfApiError, LONG_WRITE_MS, qs } from '../api/client';
 import { lineLock } from '../api/lock';
-import type { Movement, OrderProcessView, OrderProduction, OrderRevision, OrderStatus, Party, Release, SalesOrder, SalesOrderLine } from '../api/types';
+import type { Movement, OrderProcessView, OrderProduction, OrderRevision, OrderStatus, Party, ReleaseSummary, SalesOrder, SalesOrderLine } from '../api/types';
 import { useCompanySlug, useLoad } from '../hooks/useLoad';
 import { useIsPermitted } from '../hooks/useIsPermitted';
 import { invalidateNavCounts } from '../hooks/useNavCounts';
@@ -86,7 +86,7 @@ function ProductionOverview({ order, lines, production, productionError, loading
   canProduce: boolean;
   canReserve: boolean;
   onRelease: (l: SalesOrderLine) => void;
-  onReleaseChanged: (r: Release) => void;
+  onReleaseChanged: (r: ReleaseSummary) => void;
   onReloadAll: () => void;
   onRetry: () => void;
 }) {
@@ -320,7 +320,7 @@ export default function OrderDetail() {
   const newest = otherRevisions.reduce<OrderRevision | null>((best, r) => (!best || r.revision > best.revision ? r : best), null);
   const entityName = `${o.code} ${revisionLabel(o.revision)}${o.title ? ` · ${o.title}` : ''}`;
 
-  const updateRelease = (next: Release) => production.setData((cur) => (cur ? { ...cur, releases: cur.releases.map((x) => (x.id === next.id ? next : x)) } : cur));
+  const updateRelease = (next: ReleaseSummary) => production.setData((cur) => (cur ? { ...cur, releases: cur.releases.map((x) => (x.id === next.id ? next : x)) } : cur));
   const reloadAll = () => { order.reload(); production.reload(); moves.reload(); processView.reload(); };
 
   const header = (

@@ -44,6 +44,10 @@ export type SheetCell = {
   applies?: boolean;
   /** A soft background for this cell (a CSS colour, ideally a token mix) — e.g. one tint per contractor. Selection still wins. */
   tint?: string;
+  /** The text colour (a CSS colour / token) when the tone's grey or black is not what the cell means — a status grid. */
+  ink?: string;
+  /** A short state word put on the cell as data-state (tests, styling hooks). */
+  state?: string;
   /** What the editor starts with when it differs from `text` (an option's value, say). Default: `text`. */
   input?: string;
   /**
@@ -99,6 +103,11 @@ export interface SheetGridProps {
   onWrites?: (writes: SheetWrite[]) => void;
   onSelectionChange?: (sel: SheetRange) => void;
   onToggleRow?: (rowKey: string) => void;
+  /**
+   * A data cell was clicked (or Enter / F2 pressed on one that cannot be typed in). For a grid whose cells
+   * OPEN something — a drawer of actions — rather than edit in place. The click still selects the cell.
+   */
+  onCellClick?: (rowKey: string, colKey: string) => void;
   /** Clicking a ROW HEADER selects these rows (e.g. a whole subtree). Default: just that row. */
   rowSelect?: (rowKey: string) => string[];
   stickyHeader?: boolean;
@@ -171,7 +180,7 @@ export const SHEET_GRID_NARROW_QUERY = '(max-width:599.95px)';
 export const SHEET_GRID_HINT = 'Click a cell to select · Ctrl+C / Ctrl+V to copy and paste · Ctrl+D / Ctrl+R to fill down / right · Ctrl+Z to undo · Double-click or Enter to edit · Shift-click or drag selects a block · Click a header to select a whole column or row';
 
 export function SheetGrid({
-  rows, columns, cellAt: cellAtRaw, onWrites, onSelectionChange, onToggleRow, rowSelect, stickyHeader = true, frozenFirstColumn = true, footer,
+  rows, columns, cellAt: cellAtRaw, onWrites, onSelectionChange, onToggleRow, onCellClick, rowSelect, stickyHeader = true, frozenFirstColumn = true, footer,
   onProblem, cornerHeader, rowHeaderWidth = 220, rowHeight = 32, ariaLabel = 'Spreadsheet', busy, hint, rowProps, rowSx, historyKey, onHistoryChange, narrowReadOnly = true, ref,
 }: SheetGridProps) {
   const narrow = useMediaQuery(SHEET_GRID_NARROW_QUERY, { noSsr: true });
@@ -412,7 +421,11 @@ export function SheetGrid({
       if (e.key.toLowerCase() === 'y' || e.shiftKey) redo(); else undo();
       return;
     }
-    if (e.key === 'Enter' || e.key === 'F2') { e.preventDefault(); begin(at); }
+    if (e.key === 'Enter' || e.key === 'F2') {
+      e.preventDefault();
+      if (onCellClick && !writable(cellOf(at))) onCellClick(rows[at.row].key, columns[at.col].key);
+      else begin(at);
+    }
     else if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); begin(at, e.key); }
     else if (e.key === 'Delete' || e.key === 'Backspace') {
       e.preventDefault(); const b = bounds(), writes: SheetWrite[] = [];
@@ -483,16 +496,16 @@ export function SheetGrid({
             {columns.map((col, c) => {
               const at = { row: r, col: c }, cell = cellOf(at), editing = same(editor?.at ?? null, at), active = selected(at);
               const tone = cell.tone ?? 'normal', blank = tone === 'blank', can = writable(cell), na = isNa(cell);
-              return <Box component="td" key={col.key} role="gridcell" data-cell={`${r}:${c + 1}`} className="sg-data" data-tone={tone} data-na={na ? 'true' : undefined}
+              return <Box component="td" key={col.key} role="gridcell" data-cell={`${r}:${c + 1}`} className="sg-data" data-tone={tone} data-na={na ? 'true' : undefined} data-state={cell.state}
                 tabIndex={same(anchor, at) || (!anchor && r === 0 && c === 0) ? 0 : -1} aria-selected={active} aria-readonly={!can} aria-disabled={na || undefined}
-                title={na ? cell.why ?? cell.title ?? 'Does not apply to this row' : cell.title ?? cell.why ?? cell.text} onClick={(e) => { if ((e.target as HTMLElement).closest('button, input, select, a')) return; choose(at, e.shiftKey); e.currentTarget.focus(); }}
+                title={na ? cell.why ?? cell.title ?? 'Does not apply to this row' : cell.title ?? cell.why ?? cell.text} onClick={(e) => { if ((e.target as HTMLElement).closest('button, input, select, a')) return; choose(at, e.shiftKey); e.currentTarget.focus(); if (!e.shiftKey) onCellClick?.(row.key, col.key); }}
                 onPointerDown={(e) => { if (e.button !== 0 || (e.target as HTMLElement).closest('button, input, select, a')) return; selecting.current = true; choose(at, e.shiftKey); }}
                 onDoubleClick={(e) => { if (!(e.target as HTMLElement).closest('button, input, select, a')) begin(at); }}
                 onPointerEnter={(e) => { if (e.buttons === 1 && selecting.current && !editor && anchor) setExtent(at); }}
                 onKeyDown={(e) => { if (!(e.target as HTMLElement).closest('input, select, button')) onKey(e, at); }}
                 sx={{ cursor: 'cell', textAlign: col.align ?? 'left',
                   ...(na ? { backgroundImage: 'repeating-linear-gradient(135deg, transparent 0 5px, color-mix(in srgb, var(--c-text-3) 16%, transparent) 5px 6px)' } : {}),
-                  color: tone === 'muted' || (!can && tone !== 'strong') ? 'var(--c-text-3)' : 'var(--c-text)',
+                  color: cell.ink ?? (tone === 'muted' || (!can && tone !== 'strong') ? 'var(--c-text-3)' : 'var(--c-text)'),
                   fontWeight: tone === 'strong' ? 600 : undefined,
                   background: active ? 'var(--c-primary-50) !important' : na ? 'var(--c-surface-3)' : cell.tint && !blank ? cell.tint : tone === 'warning' ? 'var(--c-warning-50)' : blank ? 'var(--c-surface)' : can || tone === 'muted' || tone === 'strong' ? 'var(--c-surface)' : 'var(--c-surface-2)',
                   ...(blank ? { borderRightColor: 'transparent', borderBottomColor: 'transparent' } : {}),

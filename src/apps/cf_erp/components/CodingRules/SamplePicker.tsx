@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Autocomplete, Box, TextField } from '@mui/material';
 import { cfApi, qs } from '../../api/client';
-import type { Batch, Machine, Movement, OrderProduction, PurchaseOrderRow, RecordList, SalesOrder } from '../../api/types';
+import type { Batch, Machine, Movement, OrderProductionFull, PurchaseOrderRow, RecordList, SalesOrder } from '../../api/types';
 import { MOVEMENT_LABEL } from '../../lib/inventory';
 import { useLoad } from '../../hooks/useLoad';
 
@@ -46,7 +46,7 @@ async function loadSamples(entityType: string, search: string, orderId: number |
         .map((d) => ({ id: d.id, code: d.code, name: `${d.number} rev ${d.revision}${d.title ? ` · ${d.title}` : ''}` }));
     case 'production_piece': {
       if (!orderId) return [];
-      const prod = await cfApi.get<OrderProduction>(`/orders/${orderId}/production`);
+      const prod = await cfApi.get<OrderProductionFull>(`/orders/${orderId}/production?full=1`);
       return prod.releases.flatMap((r) => r.items.map((it) => ({ id: it.id, code: it.code, name: it.label || it.item.name })));
     }
     default:

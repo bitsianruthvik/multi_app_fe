@@ -937,12 +937,28 @@ export interface ReleaseCheck {
 
 /** A delivery against a sales order line: an ordinary stock issue, plus the line as it now stands. */
 /** invoice: the tax-invoice draft the shipment went onto (null when the box was unticked). */
-export interface Shipment { movement: Movement; release: Release; invoice?: { id: number; status: string; invoiceNo: string | null } | null }
+export interface Shipment { movement: Movement; release: Release | ReleaseSummary; invoice?: { id: number; status: string; invoiceNo: string | null } | null }
+
+/**
+ * A release's FIGURES without its tree (GET /orders/:id/production, releaseSummaries): what the
+ * order page's header needs. Readiness is not counted here (ready / notReady are null) — the
+ * Production grid (GET /tracker/grid) works that out. Writes asked ?view=summary answer with this.
+ */
+export interface ReleaseSummary extends Omit<Release, 'items' | 'requirements' | 'progress'> {
+  summary: true;
+  progress: Omit<Release['progress'], 'ready' | 'notReady'> & { ready: number | null; notReady: number | null };
+}
 
 export interface OrderProduction {
-  releases: Release[];
+  releases: ReleaseSummary[];
   unreleased: { id: number; lineNo: number; quantity: number; item: { code: string | null; name: string | null } }[];
 }
+
+/** GET /orders/:id/production?full=1 — every release in full (the coding-rule sample picker wants the pieces). */
+export interface OrderProductionFull extends Omit<OrderProduction, 'releases'> { releases: Release[] }
+
+/** GET /releases/:id/requirements — a release's material on its own. */
+export interface ReleaseRequirements { release: ReleaseSummary; requirements: Requirement[] }
 
 export interface TrackerStepRow extends ProductionStep {
   release: { id: number };

@@ -73,7 +73,7 @@ export default function Tracker() {
   const done = (msg: string) => () => { toast.success(msg); reload(); };
   const count = (st: string) => base.filter(statusTest(st)).length;
   const resume = async (s: TrackerStepRow) => {
-    try { await cfApi.post(`/production-steps/${s.id}/resume`, {}); done('Resumed.')(); } catch (e) { toast.error(refusal(e)); }
+    try { await cfApi.post(`/production-steps/${s.id}/resume?view=none`, {}); done('Resumed.')(); } catch (e) { toast.error(refusal(e)); }
   };
 
   const columns: DataColumn<TrackerStepRow>[] = [
@@ -172,7 +172,7 @@ export default function Tracker() {
       <ProgressDialog step={recording} onClose={() => setRecording(null)} onDone={done('Recorded.')} />
       <PromptDialog open={!!holding} title="Put this step on hold?" label="Why" confirmLabel="Hold" body={holding?.label}
         onClose={() => setHolding(null)}
-        onConfirm={async (note) => { await cfApi.post(`/production-steps/${holding?.id}/hold`, { note }); done('On hold.')(); }} />
+        onConfirm={async (note) => { await cfApi.post(`/production-steps/${holding?.id}/hold?view=none`, { note }); done('On hold.')(); }} />
     </Box>
   );
 }

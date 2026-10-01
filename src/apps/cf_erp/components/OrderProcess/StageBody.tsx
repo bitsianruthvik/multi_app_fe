@@ -10,7 +10,7 @@ import GridViewRounded from '@mui/icons-material/GridViewRounded';
 import LockRounded from '@mui/icons-material/LockRounded';
 import type { CfApiError } from '../../api/client';
 import { lineLock } from '../../api/lock';
-import type { OrderProcessLine, OrderProcessView, OrderProduction, OrderStage, Release, SalesOrder, SalesOrderLine } from '../../api/types';
+import type { OrderProcessLine, OrderProcessView, OrderProduction, OrderStage, ReleaseSummary, SalesOrder, SalesOrderLine } from '../../api/types';
 import { useCompanySlug } from '../../hooks/useLoad';
 import { useIsPermitted } from '../../hooks/useIsPermitted';
 import { invalidateNavCounts } from '../../hooks/useNavCounts';
@@ -236,7 +236,7 @@ function ProductionPanel({ stage, line, order, production, productionError, hasL
   production: OrderProduction | null;
   productionError: CfApiError | null;
   hasLockStage: boolean;
-  onReleaseChanged: (r: Release) => void;
+  onReleaseChanged: (r: ReleaseSummary) => void;
   onReloadAll: () => void;
   onGoStage: (stageKey: string) => void;
 }) {
@@ -313,7 +313,7 @@ export function StageBody({
   productionError: CfApiError | null;
   onPickLine: (lineId: number) => void;
   onOrderSaved: (o: SalesOrder) => void;
-  onReleaseChanged: (r: Release) => void;
+  onReleaseChanged: (r: ReleaseSummary) => void;
   /** Reloads the order, its production and the process together. */
   onReloadAll: () => void;
   onGoStage: (stageKey: string) => void;
