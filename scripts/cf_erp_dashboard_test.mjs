@@ -165,12 +165,43 @@ const ordersReply = (withMoney) => {
   };
 };
 
+// The tracker tree of line 1 (SPAN1): line (level 1) › spans › girder lines › parts. Ids and fields as GET /tracker/tree/children sends them.
+const op = (stepId, operationId, state, done = 0, total = 1) => ({ stepId, operationId, name: '', done, total, state });
+const tnode = (id, parentId, level, code, name, over = {}) => ({
+  id, parentId, kind: level === 1 ? 'line' : 'piece', level, code, name, qty: 1, ops: [], completion: 0.5, weight: 'minutes', blocked: false, blockedCount: 0, blockedReason: null, blockedAt: null,
+  running: 0, childCount: 0, childrenIncluded: false, steps: 0, stepsDone: 0, ...over,
+});
+const TREE = [
+  tnode('l1', 'o101', 1, 'SO-20260930-0001/10', 'Composite girder span 1', { childCount: 2, steps: 30, stepsDone: 12 }),
+  tnode('p10', 'l1', 2, 'SPAN1-S1', 'Span 1', { childCount: 2, completion: 0.4, blockedCount: 3, blockedReason: 'On hold: crane', blockedAt: 'SPAN1-S1-G1-W1', steps: 20, stepsDone: 8, running: 1 }),
+  tnode('p20', 'l1', 2, 'SPAN1-S2', 'Span 2', { childCount: 0, completion: 1, ops: [op(1, 1, 'done'), op(2, 2, 'done')], steps: 2, stepsDone: 2 }),
+  tnode('p11', 'p10', 3, 'SPAN1-S1-G1', 'Girder line 1', { childCount: 1, completion: 0.3, steps: 8, stepsDone: 2 }),
+  tnode('p13', 'p10', 3, 'SPAN1-S1-G2', 'Girder line 2', { childCount: 0, ops: [op(3, 1, 'done'), op(4, 2, 'partial', 2, 6), op(5, 3, 'todo')], steps: 3, stepsDone: 1 }),
+  tnode('p12', 'p11', 4, 'SPAN1-S1-G1-W1', 'Web 1', { childCount: 0, ops: [op(6, 1, 'blocked', 0, 1)], blockedCount: 1, blockedReason: 'On hold: crane', steps: 1, stepsDone: 0 }),
+];
+const OPS = { 1: { code: 'CUT', name: 'Cutting' }, 2: { code: 'FIT', name: 'Fit-up' }, 3: { code: 'WELD', name: 'Welding' } };
+function treeChildren(nodeId, depth) {
+  const node = TREE.find((n) => n.id === nodeId);
+  if (!node) return null;
+  const out = [];
+  const walk = (id) => { for (const n of TREE.filter((x) => x.parentId === id)) { out.push(n); if (n.level - node.level < depth) walk(n.id); } };
+  walk(nodeId);
+  const inc = (n) => ({ ...n, childrenIncluded: n.childCount > 0 && (n.id === nodeId || n.level - node.level < depth) });
+  return { node: inc(node), operations: OPS, nodes: out.map(inc) };
+}
+function treePiece(nodeId) {
+  const node = TREE.find((n) => n.id === nodeId);
+  return { node, operations: OPS, path: [], order: { id: 100, code: 'SO-20260930-0001' }, line: { id: 1, lineNo: 10 }, steps: [] };
+}
+
 let withMoney = true;
 const requests = [];
 globalThis.fetch = async (url) => {
   requests.push(String(url));
   const u = new URL(String(url), 'http://localhost');
-  const body = u.pathname.endsWith('/dashboard/machines') ? machines : u.pathname.endsWith('/dashboard/orders') ? ordersReply(withMoney) : null;
+  const body = u.pathname.endsWith('/dashboard/machines') ? machines : u.pathname.endsWith('/dashboard/orders') ? ordersReply(withMoney)
+    : u.pathname.endsWith('/tracker/tree/children') ? treeChildren(u.searchParams.get('nodeId'), Number(u.searchParams.get('depth') || 1))
+    : u.pathname.endsWith('/tracker/tree/node') ? treePiece(u.searchParams.get('nodeId')) : null;
   return { ok: !!body, status: body ? 200 : 404, text: async () => JSON.stringify(body ?? { message: 'not found' }) };
 };
 
@@ -429,6 +460,134 @@ await check('a user with only production view sees both tabs; orders view alone 
   assert.equal(byTestId('tab-machines').length, 1); assert.equal(byTestId('tab-orders').length, 1);
   await React.act(() => root2.unmount());
   globalThis.__user = null;
+});
+
+// ── By order › the piece-code tree ───────────────────────────────────────
+const treeCalls = () => requests.filter((r) => r.includes('/tracker/tree'));
+const searches = () => treeCalls().map((r) => new URL(r, 'http://x').search);
+const openRisky = async (url = '/testco/cf_erp/management?tab=orders') => {
+  const root = await show(url);
+  const card = byTestId('order-card').find((c) => c.getAttribute('data-order') === 'SO-20260930-0001');
+  await click(card.querySelector('[aria-expanded]'));
+  return { root, card };
+};
+const rowsOf = (card) => [...card.querySelectorAll('[data-testid="tree-row"]')].map((r) => r.getAttribute('data-node'));
+await check('tree: no request until an order card is opened; then the released line opens one level (spans)', async () => {
+  window.localStorage.clear(); requests.length = 0;
+  const root = await show('/testco/cf_erp/management?tab=orders');
+  assert.equal(treeCalls().length, 0, 'first load asks for no tree');
+  const card = byTestId('order-card').find((c) => c.getAttribute('data-order') === 'SO-20260930-0001');
+  await click(card.querySelector('[aria-expanded]'));
+  assert.deepEqual(searches(), ['?nodeId=l1&depth=1'], treeCalls().join('\n'));
+  assert.deepEqual(rowsOf(card), ['p10', 'p20']);
+  const span = card.querySelector('[data-node="p10"]');
+  assert.match(span.textContent, /SPAN1-S1/); assert.match(span.textContent, /Span 1/);
+  assert.match(span.querySelector('[data-testid="completion-pct"]').textContent, /40%/);
+  assert.match(span.querySelector('[data-testid="blocked-mark"]').textContent, /3 blocked/);
+  assert.match(span.textContent, /On hold: crane/);
+  assert.ok(span.querySelector('[role="img"][aria-label="1 running now"]'), 'running dot');
+  assert.match(span.textContent, /8 of 20 operations/, 'a parent with no strip of its own says n of m operations');
+  assert.equal(card.querySelector('[data-node="p20"]').querySelectorAll('[data-testid="op-pill"]').length, 2, 'a piece with steps shows its pills');
+  assert.match(card.querySelector('[data-testid="level-picker"] [aria-pressed="true"]').textContent, /Level 1/);
+  await React.act(() => root.unmount());
+});
+await check('tree: opening a row reads the next level only; the parent code is greyed in the child', async () => {
+  window.localStorage.clear();
+  const { root, card } = await openRisky();
+  requests.length = 0;
+  await click(card.querySelector('[data-node="p10"]'));
+  assert.deepEqual(searches(), ['?nodeId=p10&depth=1']);
+  assert.deepEqual(rowsOf(card), ['p10', 'p11', 'p13', 'p20']);
+  const code = card.querySelector('[data-node="p11"] [data-testid="tree-code"]');
+  assert.equal(code.children[0].textContent, 'SPAN1-S1'); assert.equal(code.children[1].textContent, '-G1');
+  requests.length = 0;
+  await click(card.querySelector('[data-node="p10"]')); await click(card.querySelector('[data-node="p10"]'));
+  assert.equal(treeCalls().length, 0, 'closing and opening again costs nothing');
+  assert.equal(card.querySelector('[data-node="p13"]').querySelectorAll('[data-testid="op-pill"]').length, 3);
+  await React.act(() => root.unmount());
+});
+await check('tree: "Open to" level 2 / 3 / All / Lines', async () => {
+  window.localStorage.clear();
+  const { root, card } = await openRisky();
+  const pick = async (lvl) => { requests.length = 0; await click(card.querySelector(`[data-testid="level-picker"] [data-level="${lvl}"]`)); };
+  await pick('2');
+  assert.deepEqual(searches(), ['?nodeId=l1&depth=2']);
+  assert.deepEqual(rowsOf(card), ['p10', 'p11', 'p13', 'p20']);
+  await pick('3');
+  assert.deepEqual(searches(), ['?nodeId=l1&depth=3']);
+  assert.deepEqual(rowsOf(card), ['p10', 'p11', 'p12', 'p13', 'p20']);
+  assert.equal(card.querySelector('[data-node="p12"]').getAttribute('data-depth'), '2');
+  await pick('all');
+  assert.deepEqual(searches(), ['?nodeId=l1&depth=99']);
+  assert.equal(rowsOf(card).length, 5);
+  await pick('0');
+  assert.equal(treeCalls().length, 0, 'closing to lines asks for nothing');
+  assert.deepEqual(rowsOf(card), []);
+  assert.equal(card.querySelectorAll('[data-testid="tree-line"]').length, 2, 'the lines stay');
+  await pick('1');
+  assert.deepEqual(rowsOf(card), ['p10', 'p20']);
+  await React.act(() => root.unmount());
+});
+await check('tree: an unreleased line says so and has nothing to open; Production links', async () => {
+  window.localStorage.clear();
+  const { root, card } = await openRisky();
+  const un = card.querySelector('[data-testid="tree-line"][data-released="false"]');
+  assert.match(un.querySelector('[data-testid="tree-unreleased"]').textContent, /Not released yet — nothing to track below the line/);
+  assert.equal(un.querySelector('[data-testid="tree-line-head"]').getAttribute('aria-expanded'), null);
+  requests.length = 0;
+  await click(un.querySelector('[data-testid="tree-line-head"]'));
+  assert.equal(treeCalls().length, 0);
+  const hrefs = [...card.querySelectorAll('a')].map((a) => a.getAttribute('href'));
+  assert.ok(hrefs.some((h) => /\/orders\/100\?tab=production$/.test(h)), 'order-level link');
+  assert.ok(hrefs.some((h) => /\/orders\/100\?tab=production&line=1$/.test(h)), 'line link');
+  await React.act(() => root.unmount());
+});
+await check('tree: a code opens the piece drawer; a line collapses and reopens', async () => {
+  window.localStorage.clear();
+  const { root, card } = await openRisky();
+  requests.length = 0;
+  await click(card.querySelector('[data-node="p20"] [data-testid="tree-code"]'));
+  assert.ok(requests.some((r) => r.includes('/tracker/tree/node?nodeId=p20')), requests.join('\n'));
+  assert.ok(document.querySelector('.MuiDrawer-root'), 'drawer open');
+  assert.match(document.querySelector('.MuiDrawer-root').textContent, /SPAN1-S2/);
+  await click(document.querySelector('.MuiDrawer-root [aria-label="Close"]'));
+  await click(card.querySelector('[data-testid="tree-line-head"]'));
+  assert.deepEqual(rowsOf(card), []);
+  await click(card.querySelector('[data-testid="tree-line-head"]'));
+  assert.deepEqual(rowsOf(card), ['p10', 'p20']);
+  await React.act(() => root.unmount());
+});
+await check('tree: what is open is remembered per order on the device', async () => {
+  window.localStorage.clear();
+  const first = await openRisky();
+  await click(first.card.querySelector('[data-node="p10"]'));
+  const saved = JSON.parse(window.localStorage.getItem('cf_erp.dash.tree.100'));
+  assert.ok(saved.open.includes('l1') && saved.open.includes('p10'), JSON.stringify(saved));
+  assert.equal(window.localStorage.getItem('cf_erp.dash.tree.102'), null);
+  await React.act(() => first.root.unmount());
+  const { root, card } = await openRisky();
+  assert.deepEqual(rowsOf(card), ['p10', 'p11', 'p13', 'p20'], 'comes back as it was');
+  await React.act(() => root.unmount());
+  window.localStorage.setItem('cf_erp.dash.tree.100', '{not json');
+  const bad = await openRisky();
+  assert.deepEqual(rowsOf(bad.card), ['p10', 'p20'], 'junk in storage falls back to the default');
+  await React.act(() => bad.root.unmount());
+  window.localStorage.clear();
+});
+await check('tree: a failed read says so on the line and can be tried again', async () => {
+  window.localStorage.clear();
+  const real = globalThis.fetch;
+  let fail = true;
+  globalThis.fetch = async (url) => (fail && String(url).includes('/tracker/tree/children') ? { ok: false, status: 500, text: async () => JSON.stringify({ message: 'boom' }) } : real(url));
+  const { root, card } = await openRisky();
+  assert.match(card.querySelector('[data-testid="tree-error"]').textContent, /Could not read this line/);
+  fail = false;
+  await click(card.querySelector('[data-testid="tree-error"] button'));
+  assert.equal(card.querySelectorAll('[data-testid="tree-error"]').length, 0);
+  assert.deepEqual(rowsOf(card), ['p10', 'p20']);
+  globalThis.fetch = real;
+  await React.act(() => root.unmount());
+  window.localStorage.clear();
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

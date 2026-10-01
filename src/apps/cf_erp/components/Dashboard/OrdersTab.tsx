@@ -2,7 +2,7 @@
  * Dashboard › By order. Every confirmed order, the ones in trouble first:
  * how far it is (%, tonnes made, dispatched), its date against a forecast,
  * where in the flow it is and which operation has the most work left, what is
- * blocked and why, material, and money. Expand a card for its lines and the
+ * blocked and why, material, and money. Expand a card for its lines, each line's piece-code tree (OrderTree) and the
  * material still short.
  *
  * A forecast is an estimate and says so: at the last 14 days' pace, or the
@@ -22,6 +22,7 @@ import { appPath } from '../../navMeta';
 import { Badge, EmptyState, Mono, Surface } from '../ui';
 import { ProgressBar, StageStrip } from './charts';
 import { EstimateTag, MiniHead, Tile, TileGrid } from './DashParts';
+import { OrderTree } from './OrderTree';
 
 export function OrdersTab({ data }: { data: OrdersDashboard }) {
   const [risk, setRisk] = useState<'all' | RiskStatus>('all');
@@ -195,6 +196,7 @@ function OrderCard({ o, year, withMoney, window }: { o: DashOrder; year: string;
               ))}
             </TableBody>
           </Table>
+          <OrderTree order={o} />
           {o.material.short.length > 0 && (
             <Box sx={{ mt: 2 }}>
               <MiniHead>Material not reserved yet</MiniHead>
