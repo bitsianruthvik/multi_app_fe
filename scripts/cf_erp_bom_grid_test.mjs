@@ -2,6 +2,7 @@
 // DOM-level interaction tests. These do not replace a visual browser review.
 import assert from 'node:assert/strict';
 import { mkdir, writeFile, unlink } from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { build } from 'esbuild';
@@ -176,11 +177,10 @@ await check('One name per row: a role that repeats the name is not shown twice',
   assert.match(document.body.textContent, /Row 4 · Girder G1/);
   await render(roleGrid);
 });
-await check('Adding the same item twice asks for a name that differs from the item’s own', () => {
-  assert.equal(m.nameProblem(7, [3, 4], '', 'Web'), null);
-  assert.match(m.nameProblem(4, [3, 4], '', 'Web'), /already in this BOM/);
-  assert.match(m.nameProblem(4, [3, 4], ' web ', 'Web'), /different/);
-  assert.equal(m.nameProblem(4, [3, 4], 'Web 2', 'Web'), null);
+await check('Adding the same item twice asks for no name — there is no repeat prompt any more', () => {
+  assert.equal(m.nameProblem, undefined);
+  const dialogs = readFileSync(resolve('src/apps/cf_erp/components/BomDialogs.tsx'), 'utf8');
+  assert.doesNotMatch(dialogs, /USE_NAME_REQUIRED|already in this BOM|siblingIds/);
 });
 await check('Edit icon opens an input; Enter saves the typed description', async () => {
   await fire(document.querySelector('[aria-label="Edit description of Row 4"]'), 'click');
@@ -256,6 +256,19 @@ await check('Record BOMs: an inapplicable spec is not-applicable, an applicable 
   assert.equal(cell(1, colOf('Depth')).getAttribute('data-na'), 'true');
   assert.equal(cell(0, colOf('Depth')).getAttribute('data-na'), null);
   assert.equal(cell(1, colOf('Width')).getAttribute('data-na'), null);
+});
+await check('Record BOM rows show their position code, the same child twice with two codes', async () => {
+  const twin = (id, more = {}) => node(id, [], { kind: 'template', code: 'SEG-002', name: 'Girder segment', ...more });
+  const kit = node(1, [twin(2), twin(3), node(4, [], { kind: 'catalog', code: 'BLT-9', name: 'Bolt', quantity: 4 })], { kind: 'template', code: 'GLINE-002', lineId: null, depth: 0 });
+  const codes = { k1: 'GLINE-002', k2: 'GLINE-002-SEG1', k3: 'GLINE-002-SEG2', k4: 'GLINE-002-BLT1-4' };
+  const recRows = m.arrangedRows(kit, new Set(['k1', 'k2', 'k3', 'k4']), m.NO_PENDING);
+  await render({ ...props, rows: recRows, placeholderOf: (r) => (codes[r.node.key] ? { code: codes[r.node.key], title: 'position', itemCode: r.node.code } : null) });
+  const shown = [...document.querySelectorAll('[data-testid="row-code"]')].map((e) => e.textContent);
+  assert.ok(shown.includes('GLINE-002-SEG1') && shown.includes('GLINE-002-SEG2'), shown.join(', '));
+  assert.ok(shown.includes('GLINE-002-BLT1-4'));
+  assert.match(document.body.textContent, /GLINE-002-SEG1 · SEG-002/);
+  assert.equal([...document.body.textContent.matchAll(/Girder segment/g)].length >= 2, true);
+  await render();
 });
 await React.act(() => root.unmount());
 dom.window.close();

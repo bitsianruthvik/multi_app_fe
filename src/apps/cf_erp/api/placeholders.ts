@@ -37,3 +37,33 @@ export function placeholderTitle(row: PlaceholderRow): string {
 
 /** How a structure node finds its row: by its BOM line, or by item for what the line sells. */
 export const placeholderKey = (bomLineId: number | null, itemId: number) => (bomLineId != null ? `l${bomLineId}` : `i${itemId}`);
+
+/**
+ * GET /records/:id/bom/codes — a catalog item's or definition's BOM coded the
+ * way an order codes its rows (placeholderService.recordBomCodes): the record's
+ * own code (or short name, while it has none) on top, then each row's position
+ * — short name, quantity range or # — by the same rules. A preview: nothing is
+ * stored. Rows are keyed by the tree node key, so the same child twice is two
+ * rows with two codes.
+ */
+export interface RecordBomCodeRow extends PlaceholderRow {
+  /** The explode() node key the row is drawn by. */
+  key: string;
+}
+
+export interface RecordBomCodes {
+  recordId: number;
+  rootCode: string | null;
+  rows: RecordBomCodeRow[];
+  missing: LinePlaceholders['missing'];
+  problems: string[];
+  truncated: boolean;
+}
+
+export const getRecordBomCodes = (recordId: number) => cfApi.get<RecordBomCodes>(`/records/${recordId}/bom/codes`);
+
+/** The words beside a catalog row's position code. */
+export function positionCodeTitle(row: PlaceholderRow, itemCode: string | null): string {
+  const range = row.seqRange ? ` # runs ${row.seqRange[0]}–${row.seqRange[1]} under each parent.` : '';
+  return `The code this row gets from where it sits — parent, short name, quantity — by the rules an order codes its rows with. Only shown; nothing is stored.${range}${itemCode ? ` The item’s own code is ${itemCode}.` : ''}`;
+}

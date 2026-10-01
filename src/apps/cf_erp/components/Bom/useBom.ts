@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { cfApi, CfApiError } from '../../api/client';
 import { postBomChanges, type BomChange, type BomChangesResponse } from '../../api/bomChanges';
-import { getLinePlaceholders, placeholderKey, type PlaceholderRow } from '../../api/placeholders';
+import { getLinePlaceholders, getRecordBomCodes, placeholderKey, type PlaceholderRow } from '../../api/placeholders';
 import type { BomType, BomView, Explosion, Kind, LineStructure, OrderStatus, RecordStatus, StructureNode, WhereUsedRow } from '../../api/types';
 import { useLoad } from '../../hooks/useLoad';
 import { bomAsTree, bomTypeOfKind } from './bomModel';
@@ -76,6 +76,9 @@ export function useBom(source: BomSource, { whereUsed = false, onChanged }: { wh
   // pieces will get, with # where each piece's own number goes. Only a line's
   // structure has a line to roll out, and the tree never waits for it.
   const placeholders = useLoad(() => (lineId == null ? Promise.resolve(null) : getLinePlaceholders(lineId).catch(() => null)), [lineId]);
+  // A catalog item's or definition's BOM: each row's code from where it sits,
+  // by the rules an order codes its rows with (a preview — nothing is stored).
+  const codes = useLoad(() => (recordId == null ? Promise.resolve(null) : getRecordBomCodes(recordId).catch(() => null)), [recordId]);
   // Only the record's own tab asks the question, so nothing else pays for it.
   const used = useLoad(() => (recordId == null || !whereUsed ? Promise.resolve(null) : cfApi.get<WhereUsedRow[]>(`/records/${recordId}/where-used`)), [recordId, whereUsed]);
   const [actionError, setActionError] = useState<CfApiError | null>(null);
@@ -125,7 +128,7 @@ export function useBom(source: BomSource, { whereUsed = false, onChanged }: { wh
     };
   }, [v, s, tree.data]);
 
-  const reload = () => { view.reload(); tree.reload(); structure.reload(); placeholders.reload(); used.reload(); onChanged?.(); };
+  const reload = () => { view.reload(); tree.reload(); structure.reload(); placeholders.reload(); codes.reload(); used.reload(); onChanged?.(); };
 
   /**
    * A change to the BOM itself — its status or its revision. The answer is the
@@ -141,6 +144,7 @@ export function useBom(source: BomSource, { whereUsed = false, onChanged }: { wh
       tree.reload();
       structure.reload();
       placeholders.reload();
+      codes.reload();
       onChanged?.();
       return true;
     } catch (e) {
@@ -174,11 +178,17 @@ export function useBom(source: BomSource, { whereUsed = false, onChanged }: { wh
     () => new Map<string, PlaceholderRow>((placeholders.data?.rows ?? []).map((r) => [placeholderKey(r.bomLineId, r.itemId), r])),
     [placeholders.data],
   );
+  const codeRows = useMemo(
+    () => new Map<string, PlaceholderRow>((codes.data?.rows ?? []).map((r) => [r.key, r])),
+    [codes.data],
+  );
 
   return {
     state,
     /** A row's placeholder, by its BOM line (or by item for what the line sells). */
     placeholderOf: (node: StructureNode) => placeholderRows.get(placeholderKey(node.lineId, node.id)) ?? null,
+    /** A record BOM row's position code, by its tree node key — null on an order line. */
+    positionCodeOf: (node: StructureNode) => codeRows.get(node.key) ?? null,
     whereUsed: used.data ?? [],
     whereUsedError: used.error,
     reloadWhereUsed: used.reload,

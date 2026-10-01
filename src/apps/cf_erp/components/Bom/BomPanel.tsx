@@ -19,7 +19,7 @@ import UnfoldLessRounded from '@mui/icons-material/UnfoldLessRounded';
 import UnfoldMoreRounded from '@mui/icons-material/UnfoldMoreRounded';
 import type { BomType, Flow, StructureNode } from '../../api/types';
 import type { BomChangesResponse } from '../../api/bomChanges';
-import { placeholderTitle } from '../../api/placeholders';
+import { placeholderTitle, positionCodeTitle } from '../../api/placeholders';
 import { cutPiecesNote } from '../../api/cutPieces';
 import { cfApi, CfApiError } from '../../api/client';
 import { applyBomSheet, downloadBomSheet, fileToBase64, previewBomSheet, type BomSheetResult } from '../../api/bomSheet';
@@ -549,7 +549,11 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
     else showError();
   };
   // A row has no code until its line is locked: the code its pieces will get stands in.
+  // A catalog item's or definition's row: the code its POSITION gives it, by the
+  // same rules — the same child twice is two rows with two codes.
   const placeholderOf = (row: BomRow) => {
+    const pos = source.kind === 'record' ? bom.positionCodeOf(row.node) : null;
+    if (pos?.code) return { code: pos.code, title: positionCodeTitle(pos, row.node.code), itemCode: row.node.code };
     const p = bom.placeholderOf(row.node);
     return p?.code ? { code: p.code, title: `${placeholderTitle(p)} # = numbered when the design is frozen; a row with quantity 3 covers 2–4, so its code changes with the quantity (L1-1 becomes L1-#).` } : null;
   };
@@ -888,7 +892,6 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
         onConfirm={async () => { setConfirming(null); await save(); }} />
       <AddChildDialog open={!!adding && addingKinds.length > 0} parentId={adding?.id ?? 0} parentLabel={adding?.code ?? adding?.name ?? ''}
         allowedKinds={addingKinds} custom={addingBomType === 'custom'}
-        siblingIds={(adding?.children ?? []).filter((n) => !isCutPiece(n)).map((n) => n.id)}
         onClose={() => setAdding(null)}
         onDone={() => {
           // Open what was just added to, or the new line lands out of sight.

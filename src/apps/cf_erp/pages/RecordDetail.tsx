@@ -263,6 +263,8 @@ export default function RecordDetail({ recordKind }: { recordKind: 'item' | 'def
   const ownerLineId = r?.kind === 'temporary' && !r.code ? r.item?.ownerOrderLineId ?? null : null;
   const placed = useLoad(() => (ownerLineId == null ? Promise.resolve(null) : getLinePlaceholders(ownerLineId).catch(() => null)), [ownerLineId]);
   const placeholder = placed.data?.rows.find((row) => row.itemId === id && row.code) ?? null;
+  // The row it sits in has no code of its own either: show that row's code too, from the same answer.
+  const parentPlaceholder = r?.placement ? placed.data?.rows.find((row) => row.itemId === r.placement?.parentId && row.code) ?? null : null;
   useDetailTitle(r ? (r.code ?? r.name) : null);
   const refreshAll = () => { rec.reload(); specs.reload(); rules.reload(); setVersion((v) => v + 1); };
 
@@ -373,7 +375,7 @@ export default function RecordDetail({ recordKind }: { recordKind: 'item' | 'def
           {r.item && <Fact label="Tracked by">{r.item.trackedBy} <Mono muted>· {r.item.uom}</Mono></Fact>}
           {r.item && r.item.itemType === 'catalog' && <Fact label="Comes from">{SOURCING_LABEL[r.item.sourcing]}</Fact>}
           {r.owner && <Fact label="Order"><Mono><Link to={to(`orders/${r.owner.orderId}`)}>{r.owner.orderCode}</Link></Mono> <Mono muted>· line {r.owner.lineNo}</Mono></Fact>}
-          {r.placement && <Fact label="Sits in"><Mono><Link to={to(`items/${r.placement.parentId}`)}>{r.placement.parentCode ?? r.placement.parentName}</Link></Mono> <Mono muted>· ×{r.placement.quantity}{r.placement.role && r.placement.role.trim().toLowerCase() !== r.name.trim().toLowerCase() ? ` · ${r.placement.role}` : ''}</Mono></Fact>}
+          {r.placement && <Fact label="Sits in"><Mono><Link to={to(`items/${r.placement.parentId}`)}>{r.placement.parentCode ?? parentPlaceholder?.code ?? r.placement.parentName}</Link></Mono> <Mono muted>· ×{r.placement.quantity}{r.placement.role && r.placement.role.trim().toLowerCase() !== r.name.trim().toLowerCase() ? ` · ${r.placement.role}` : ''}</Mono></Fact>}
           {r.item?.itemType === 'catalog' && money.data && <ItemMoneyFacts prices={money.data.prices} cost={money.data.cost} />}
           {r.bom && <Fact label="BOM"><Mono>{r.bom.lineCount} line{r.bom.lineCount === 1 ? '' : 's'}</Mono>{r.bom.bomType !== 'custom' && <Mono muted> · {r.bom.status}{r.bom.revision ? ` · rev ${r.bom.revision}` : ''}</Mono>}</Fact>}
           {(r.defaultFlow || r.definitionFlow) && (

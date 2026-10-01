@@ -15,6 +15,12 @@ type Cell = { text: string; input: string; saved: string; editable: boolean; why
 
 /** The BOM around the shared SheetGrid: SheetGrid owns selection, clipboard and
  * the editor; this owns what a BOM cell means, plus row drag/drop and moving. */
+/** A row's code in mono — a catalog row's position code with the item's own code beside it. */
+function CodeText({ code, itemCode }: { code: string; itemCode: string | null }) {
+  if (!code) return null;
+  return <><Box component="span" data-testid="row-code" sx={{ fontFamily: 'var(--font-mono)' }}>{code}</Box>{itemCode && itemCode !== code ? <Box component="span" sx={{ fontFamily: 'var(--font-mono)' }}> · {itemCode}</Box> : null}</>;
+}
+
 export function BomGrid({ rows, view, records: recordValues, recordIds, pending, busy, canEdit, canEditValues, onToggle, onWrites, onMove, dropRefusal, trailingCell, flowCell, markOf, placeholderOf, roleOf, canEditRole, onRole, onlyUsedColumns, footer, gaps, handleRef }: {
   rows: BomRow[]; view: ValuesView | null; pending: Pending; busy: boolean; canEdit: (row: BomRow) => boolean;
   records?: SpecValues; recordIds?: number[]; canEditValues: (row: BomRow) => boolean;
@@ -23,7 +29,8 @@ export function BomGrid({ rows, view, records: recordValues, recordIds, pending,
   dropRefusal: (row: BomRow, target: BomRow, position: DropPosition) => string | null;
   trailingCell: (row: BomRow) => ReactNode; flowCell: (row: BomRow) => ReactNode;
   markOf: (row: BomRow) => RowMark | null;
-  placeholderOf: (row: BomRow) => { code: string; title: string } | null;
+  /** The row's code as a design: an order row's placeholder, or a catalog row's position code (with the item's own code beside it). */
+  placeholderOf: (row: BomRow) => { code: string; title: string; itemCode?: string | null } | null;
   /** The description shown after the dot: a typed one wins over the saved one. */
   roleOf?: (row: BomRow) => string | null;
   /** Whether the description may be edited on this row. */
@@ -164,7 +171,7 @@ export function BomGrid({ rows, view, records: recordValues, recordIds, pending,
                 {roleEditable && <Tooltip title="Change the description"><IconButton size="small" aria-label={`Edit description of ${n.name}`} onClick={() => startRole(row)} sx={{ p: 0.25, color: 'var(--c-text-3)' }}><EditOutlined sx={{ fontSize: 14 }} /></IconButton></Tooltip>}
               </Box>
             )}
-            <Box sx={{ fontSize: 10, color: 'var(--c-text-3)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={placeholderOf(row)?.title}>{row.paste ? `New copy${row.paste.source.children.length ? ' with children' : ''} · Save to edit this copy` : placeholderOf(row)?.code ?? (n.kind === 'temporary' ? '' : n.code ?? '')}{mark && !row.paste ? ` · ${mark.label}` : ''}</Box>
+            <Box sx={{ fontSize: 10, color: 'var(--c-text-3)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={placeholderOf(row)?.title}>{row.paste ? `New copy${row.paste.source.children.length ? ' with children' : ''} · Save to edit this copy` : <CodeText code={placeholderOf(row)?.code ?? (n.kind === 'temporary' ? '' : n.code ?? '')} itemCode={placeholderOf(row)?.itemCode ?? null} />}{mark && !row.paste ? ` · ${mark.label}` : ''}</Box>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, minWidth: 0 }}>
               {flowCell(row)}
               {(gaps?.get(n.id)?.length ?? 0) > 0 && <Box component="span" data-testid="row-gaps" title={`Required values still empty: ${gaps?.get(n.id)?.join(', ')}`}

@@ -113,7 +113,7 @@ export function BomTree({
    * The code a row with no code of its own will give its pieces when its line is
    * locked, # where each piece's number goes — an order's rows are designs.
    */
-  placeholderOf?: (row: BomRow) => { code: string; title: string } | null;
+  placeholderOf?: (row: BomRow) => { code: string; title: string; itemCode?: string | null } | null;
 }) {
   const company = useCompanySlug();
   const [menu, setMenu] = useState<{ anchor: HTMLElement; row: BomRow } | null>(null);
@@ -231,10 +231,10 @@ export function BomTree({
                       {/* A copy that is not saved yet has no record to link to — and will not carry this code. */}
                       {row.paste
                         ? <Typography component="span" sx={{ fontSize: 12, color: 'var(--c-text-2)' }}>Copy of <Mono>{n.code ?? n.name}</Mono></Typography>
-                        : n.code == null && placeholder
+                        : placeholder && (n.code == null || placeholder.itemCode !== undefined)
                           ? (
                             <Tooltip title={placeholder.title}>
-                              <Mono muted sx={look?.strike ? STRUCK : undefined}><Link to={appPath(company, recordPath(n.kind, n.id))}>{placeholder.code}</Link></Mono>
+                              <Mono muted sx={look?.strike ? STRUCK : undefined}><Link to={appPath(company, recordPath(n.kind, n.id))}>{placeholder.code}</Link>{placeholder.itemCode ? ` · ${placeholder.itemCode}` : ''}</Mono>
                             </Tooltip>
                           )
                           : <Mono sx={look?.strike ? STRUCK : undefined}><Link to={appPath(company, recordPath(n.kind, n.id))}>{n.code ?? '—'}</Link></Mono>}

@@ -428,12 +428,9 @@ export const rowLabel = (name: string, role: string | null | undefined): string 
   return r ? `${name} · ${r}` : name;
 };
 
-/** Adding the same item to a parent twice: the second use needs its own name. Null when nothing is wrong. */
-export const nameProblem = (childId: number, siblingIds: number[], role: string, childName: string): string | null => {
-  if (!siblingIds.includes(childId)) return null;
-  if (!role.trim()) return 'This item is already in this BOM — give this use a name so the two can be told apart.';
-  return sameName(role, childName) ? 'Needs a name different from the item’s own.' : null;
-};
+// The same item twice in one parent needs no name (user, 2026-10-01): the two
+// rows reference one record and are told apart by the code each row's position
+// gives it (GET /records/:id/bom/codes, an order's placeholders).
 
 // ── Automatic cut pieces ─────────────────────────────────────────────────────
 
