@@ -39,7 +39,9 @@ const built = await build({
     contents: `import * as React from 'react'; import { createRoot } from 'react-dom/client'; import { MemoryRouter } from 'react-router-dom';
       export { React, createRoot, MemoryRouter };
       export { default as Dashboard } from './src/apps/cf_erp/pages/Dashboard';
-      export * as L from './src/apps/cf_erp/lib/dashboard';`,
+      export * as L from './src/apps/cf_erp/lib/dashboard';
+      export * as E from './src/apps/cf_erp/lib/dashboardExport';
+      export * as W from './src/apps/cf_erp/lib/dashboardWorkOrders';`,
     resolveDir: process.cwd(), loader: 'tsx',
   },
   plugins: [{ name: 'stubs', setup(b) {
@@ -55,7 +57,7 @@ const cache = resolve('node_modules/.cache');
 await mkdir(cache, { recursive: true });
 const artifact = resolve(cache, `dashboard-test-${process.pid}.mjs`);
 await writeFile(artifact, built.outputFiles[0].text);
-const { React, createRoot, MemoryRouter, Dashboard, L } = await import(pathToFileURL(artifact));
+const { React, createRoot, MemoryRouter, Dashboard, L, E, W } = await import(pathToFileURL(artifact));
 await unlink(artifact);
 
 let passed = 0, failed = 0;
@@ -194,12 +196,50 @@ function treePiece(nodeId) {
   return { node, operations: OPS, path: [], order: { id: 100, code: 'SO-20260930-0001' }, line: { id: 1, lineNo: 10 }, steps: [] };
 }
 
+// Work orders reply (GET /dashboard/work-orders): Alpha (7) has WO-1 in progress and overdue, 50 %, and WO-3 not released; Beta (8) has WO-2 issued, 0 %, and WO-4 done.
+const woOp = (operationId, code, name, assigned, steps, done, inProgress, pct, periodOps = 0) => ({ operationId, code, name, assigned, steps, done, inProgress, onHold: 0, pct, periodOps, periodSteps: periodOps ? 1 : 0 });
+const alpha = { id: 7, code: 'CT-A', name: 'Alpha Fab' }, beta = { id: 8, code: 'CT-B', name: 'Beta Welding' };
+const WOS = [
+  { id: 1, code: 'WO-000001', status: 'in_progress', open: true, contractor: alpha, order: { id: 100, code: 'SO-20260930-0001', revision: 1, title: 'ROB 59.3 m', status: 'confirmed' },
+    line: { id: 1, lineNo: 10, itemCode: 'SPAN1', itemName: 'Composite girder span 1' }, startDate: '2026-09-10', dueDate: '2026-09-27', notes: null, overdue: true, daysOverdue: 3,
+    pieces: 3, released: true, operations: { assigned: 3, steps: 3, done: 1, inProgress: 1, onHold: 0, pct: 50 }, firstStartedAt: '2026-09-28T08:00:00', lastActivityAt: '2026-09-30T10:00:00',
+    period: { opsDone: 1.5, stepsTouched: 2 }, byOperation: [woOp(1, 'CUT', 'Cutting', 1, 1, 1, 0, 100, 1), woOp(2, 'FIT', 'Fit-up', 2, 2, 0, 1, 25, 0.5)] },
+  { id: 2, code: 'WO-000002', status: 'issued', open: true, contractor: beta, order: { id: 100, code: 'SO-20260930-0001', revision: 1, title: 'ROB 59.3 m', status: 'confirmed' },
+    line: { id: 2, lineNo: 20, itemCode: 'SPAN2', itemName: 'Composite girder span 2' }, startDate: null, dueDate: '2026-10-10', notes: null, overdue: false, daysOverdue: 0,
+    pieces: 2, released: true, operations: { assigned: 2, steps: 2, done: 0, inProgress: 0, onHold: 0, pct: 0 }, firstStartedAt: null, lastActivityAt: null,
+    period: { opsDone: 0, stepsTouched: 0 }, byOperation: [woOp(3, 'WELD', 'Welding', 2, 2, 0, 0, 0)] },
+  { id: 3, code: 'WO-000003', status: 'draft', open: true, contractor: alpha, order: { id: 100, code: 'SO-20260930-0001', revision: 1, title: 'ROB 59.3 m', status: 'confirmed' },
+    line: { id: 2, lineNo: 20, itemCode: 'SPAN2', itemName: 'Composite girder span 2' }, startDate: null, dueDate: null, notes: null, overdue: false, daysOverdue: 0,
+    pieces: 3, released: false, operations: { assigned: 3, steps: 0, done: 0, inProgress: 0, onHold: 0, pct: null }, firstStartedAt: null, lastActivityAt: null,
+    period: { opsDone: 0, stepsTouched: 0 }, byOperation: [woOp(2, 'FIT', 'Fit-up', 3, 0, 0, 0, null)] },
+  { id: 4, code: 'WO-000004', status: 'done', open: false, contractor: beta, order: { id: 100, code: 'SO-20260930-0001', revision: 1, title: 'ROB 59.3 m', status: 'confirmed' },
+    line: { id: 1, lineNo: 10, itemCode: 'SPAN1', itemName: 'Composite girder span 1' }, startDate: '2026-08-01', dueDate: '2026-08-30', notes: null, overdue: false, daysOverdue: 0,
+    pieces: 1, released: true, operations: { assigned: 1, steps: 1, done: 1, inProgress: 0, onHold: 0, pct: 100 }, firstStartedAt: '2026-08-20T08:00:00', lastActivityAt: '2026-08-21T08:00:00',
+    period: { opsDone: 0, stepsTouched: 0 }, byOperation: [woOp(1, 'CUT', 'Cutting', 1, 1, 1, 0, 100)] },
+];
+const woReply = {
+  period, meta: { queries: 8, stages: 2, ms: 60 },
+  plant: { workOrders: 4, open: 3, contractors: 2, contractorsActive: 2, operationsAssigned: 9, operationsReleased: 6, operationsDone: 2, pct: 41.7, notReleased: 1, overdue: 1, periodOps: 1.5, value: null },
+  contractors: [
+    { ...alpha, workOrders: 2, open: 2, active: 1, assigned: 6, steps: 3, done: 1, pct: 50, overdue: 1, periodOps: 1.5 },
+    { ...beta, workOrders: 2, open: 1, active: 1, assigned: 3, steps: 3, done: 1, pct: 33.3, overdue: 0, periodOps: 0 },
+  ],
+  workOrders: WOS,
+};
+const treeRows = { meta: { queries: 2, stages: 2, ms: 300 }, rows: [
+  { orderId: 100, orderCode: 'SO-20260930-0001', lineId: 1, lineNo: 10, code: 'SPAN1', parentCode: null, level: 0, name: 'Composite girder span 1', itemCode: 'SPAN1', quantity: 1, pieceNo: null, steps: 0, stepsDone: 0, inProgress: 0, onHold: 0, contracted: 0, pct: null, blocked: false },
+  { orderId: 100, orderCode: 'SO-20260930-0001', lineId: 1, lineNo: 10, code: 'SPAN1-S1', parentCode: 'SPAN1', level: 1, name: 'Span 1', itemCode: 'S1', quantity: 1, pieceNo: 1, steps: 8, stepsDone: 3, inProgress: 1, onHold: 0, contracted: 2, pct: 40, blocked: false },
+  { orderId: 100, orderCode: 'SO-20260930-0001', lineId: 1, lineNo: 10, code: 'SPAN1-S1-G1-W1', parentCode: 'SPAN1-S1', level: 2, name: 'Web 1', itemCode: 'W1', quantity: 1, pieceNo: 2, steps: 1, stepsDone: 0, inProgress: 0, onHold: 1, contracted: 0, pct: 0, blocked: true },
+  { orderId: 101, orderCode: 'SO-20260801-0003', lineId: 5, lineNo: 10, code: 'FOB1', parentCode: null, level: 0, name: 'FOB girder', itemCode: 'FOB1', quantity: 1, pieceNo: null, steps: 4, stepsDone: 4, inProgress: 0, onHold: 0, contracted: 0, pct: 100, blocked: false },
+] };
+
 let withMoney = true;
 const requests = [];
 globalThis.fetch = async (url) => {
   requests.push(String(url));
   const u = new URL(String(url), 'http://localhost');
   const body = u.pathname.endsWith('/dashboard/machines') ? machines : u.pathname.endsWith('/dashboard/orders') ? ordersReply(withMoney)
+    : u.pathname.endsWith('/dashboard/work-orders') ? woReply : u.pathname.endsWith('/dashboard/orders/tree-rows') ? treeRows
     : u.pathname.endsWith('/tracker/tree/children') ? treeChildren(u.searchParams.get('nodeId'), Number(u.searchParams.get('depth') || 1))
     : u.pathname.endsWith('/tracker/tree/node') ? treePiece(u.searchParams.get('nodeId')) : null;
   return { ok: !!body, status: body ? 200 : 404, text: async () => JSON.stringify(body ?? { message: 'not found' }) };
@@ -588,6 +628,276 @@ await check('tree: a failed read says so on the line and can be tried again', as
   globalThis.fetch = real;
   await React.act(() => root.unmount());
   window.localStorage.clear();
+});
+
+
+// ── Work orders tab + downloads (2026-10-01) ─────────────────────────────
+const waitFor = async (fn, n = 20) => { for (let i = 0; i < n; i++) { const v = fn(); if (v) return v; await settle(); } return fn(); };
+await check('Work orders tab: asked with the period; tiles; overdue first; done hidden under Open; link to the work order', async () => {
+  requests.length = 0;
+  const root = await show('/testco/cf_erp/management?tab=work-orders');
+  assert.ok(requests.some((r) => r.includes('/dashboard/work-orders?from=2026-09-28&to=2026-09-30')), requests.join('\n'));
+  assert.equal(byTestId('work-orders-tab').length, 1);
+  assert.match(byTestId('tile-wo-open')[0].textContent, /3.*of 4.*1 not released/);
+  assert.match(byTestId('tile-wo-contractors')[0].textContent, /2.*of 2/);
+  assert.match(byTestId('tile-wo-ops')[0].textContent, /2.*of 6 released.*9 assigned/);
+  assert.match(byTestId('tile-wo-pct')[0].textContent, /42%/);
+  assert.match(byTestId('tile-wo-overdue')[0].textContent, /1.*open work orders past their due date/);
+  assert.match(byTestId('tile-wo-period')[0].textContent, /1\.5.*operations/);
+  const cards = byTestId('wo-card');
+  assert.deepEqual(cards.map((c) => c.getAttribute('data-wo')), ['WO-000001', 'WO-000002', 'WO-000003'], 'overdue first; the done one is under "Done", not "Open"');
+  assert.match(cards[0].textContent, /3 days overdue/);
+  assert.match(cards[0].textContent, /Alpha Fab/);
+  assert.match(cards[0].textContent, /SO-20260930-0001.*line 10/);
+  assert.match(cards[0].textContent, /50%/);
+  assert.match(cards[0].textContent, /1 of 3 operations done · 1 in progress/);
+  assert.match(cards[0].textContent, /1\.5.*operations done/);
+  assert.match(cards[2].textContent, /Not released yet/);
+  assert.ok(!/0%/.test(cards[2].textContent), 'a work order that is not released never reads 0 %');
+  assert.equal(cards[0].querySelector('[data-testid="wo-link"]').getAttribute('href'), '/testco/cf_erp/work-orders/1');
+  await React.act(() => root.unmount());
+});
+await check('Work orders tab: contractor chips and rows filter; status chips; sort by least complete; search', async () => {
+  const root = await show('/testco/cf_erp/management?tab=work-orders');
+  const codes = () => byTestId('wo-card').map((c) => c.getAttribute('data-wo'));
+  await click(byTestId('contractor-chip').find((c) => /Beta/.test(c.textContent)));
+  assert.deepEqual(codes(), ['WO-000002'], 'Beta, open');
+  await click(byTestId('wo-status-all')[0]);
+  assert.deepEqual(codes().sort(), ['WO-000002', 'WO-000004']);
+  await click(byTestId('contractor-chip-all')[0]);
+  await click(byTestId('wo-status-done')[0]);
+  assert.deepEqual(codes(), ['WO-000004']);
+  assert.match(byTestId('wo-card')[0].textContent, /100%/);
+  await click(byTestId('wo-status-overdue')[0]);
+  assert.deepEqual(codes(), ['WO-000001']);
+  await click(byTestId('wo-status-open')[0]);
+  await click(byTestId('contractor-row').find((r) => r.getAttribute('data-contractor') === 'Alpha Fab'));
+  assert.deepEqual(codes(), ['WO-000001', 'WO-000003'], 'a contractor row filters like its chip');
+  await click(byTestId('contractor-row').find((r) => r.getAttribute('data-contractor') === 'Alpha Fab'));
+  assert.equal(codes().length, 3, 'clicking it again clears');
+  assert.deepEqual(W.sortWorkOrders(woReply.workOrders.filter((w) => w.open), 'least').map((w) => w.code), ['WO-000002', 'WO-000001', 'WO-000003'], 'least complete first, not released last');
+  assert.deepEqual(W.sortWorkOrders(woReply.workOrders.filter((w) => w.open), 'due').map((w) => w.code), ['WO-000001', 'WO-000002', 'WO-000003'], 'due soonest first, no date last');
+  assert.deepEqual(W.filterWorkOrders(woReply.workOrders, null, 'all', 'beta').map((w) => w.code).sort(), ['WO-000002', 'WO-000004']);
+  const summary = byTestId('contractor-summary')[0].textContent;
+  assert.match(summary, /Alpha Fab/); assert.match(summary, /1 of 3/);
+  await React.act(() => root.unmount());
+});
+await check('Work orders tab: empty reply says how work orders are made; a user without orders / production view cannot ask', async () => {
+  const real = globalThis.fetch;
+  globalThis.fetch = async (url, o) => (String(url).includes('/dashboard/work-orders')
+    ? { ok: true, status: 200, text: async () => JSON.stringify({ ...woReply, workOrders: [], contractors: [], plant: { ...woReply.plant, workOrders: 0, open: 0 } }) } : real(url, o));
+  const root = await show('/testco/cf_erp/management?tab=work-orders');
+  assert.match(text(), /No work orders yet/); assert.match(text(), /Contractors tab/);
+  await React.act(() => root.unmount());
+  globalThis.fetch = real;
+  globalThis.__user = { uiPermissions: ['cf_erp_floor'] };
+  requests.length = 0;
+  const root2 = await show('/testco/cf_erp/management?tab=work-orders');
+  assert.ok(!requests.some((r) => r.includes('/dashboard/')), 'nothing requested without the permission');
+  await React.act(() => root2.unmount());
+  globalThis.__user = null;
+});
+
+// A tiny zip reader for the stored entries the workbook is made of.
+function unzip(bytes) {
+  const v = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  let end = bytes.length - 22;
+  while (v.getUint32(end, true) !== 0x06054b50) end--;
+  const count = v.getUint16(end + 10, true);
+  let at = v.getUint32(end + 16, true);
+  const out = {};
+  for (let i = 0; i < count; i++) {
+    assert.equal(v.getUint32(at, true), 0x02014b50);
+    const crc = v.getUint32(at + 16, true), size = v.getUint32(at + 20, true), nl = v.getUint16(at + 28, true), off = v.getUint32(at + 42, true);
+    const name = new TextDecoder().decode(bytes.subarray(at + 46, at + 46 + nl));
+    assert.equal(v.getUint32(off, true), 0x04034b50);
+    assert.equal(v.getUint16(off + 8, true), 0, 'stored');
+    const start = off + 30 + v.getUint16(off + 26, true) + v.getUint16(off + 28, true);
+    const data = bytes.subarray(start, start + size);
+    let c = 0xffffffff; for (const b of data) { c ^= b; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; }
+    assert.equal((c ^ 0xffffffff) >>> 0, crc, `crc of ${name}`);
+    out[name] = new TextDecoder().decode(data);
+    at += 46 + nl + v.getUint16(at + 30, true) + v.getUint16(at + 32, true);
+  }
+  return out;
+}
+const xml = (s) => { const d = new window.DOMParser().parseFromString(s, 'application/xml'); assert.equal(d.getElementsByTagName('parsererror').length, 0, 'well-formed XML'); return d; };
+const sheetRows = (files, i) => [...xml(files[`xl/worksheets/sheet${i}.xml`]).getElementsByTagName('row')].map((r) => [...r.getElementsByTagName('c')].map((c) => (c.getAttribute('t') === 'inlineStr' ? c.textContent : c.getAttribute('t') === 'b' ? c.textContent === '1' : Number(c.textContent))));
+
+const PATHS = { 10: path([1, 'Machines'], [2, 'Cutting'], [10, 'CNC cutting']), 11: path([1, 'Machines'], [4, 'Joining'], [11, 'Welding']), 12: path([1, 'Machines'], [3, 'Finishing'], [12, 'Painting']) };
+const withPaths = { ...machines, machines: machines.machines.map((m) => ({ ...m, type: m.type && { ...m.type, path: PATHS[m.type.id] } })) };
+await check('machines export: per machine per day rows, type levels as columns, one column per stop reason; summary has the buckets; long shift time', () => {
+  const [days, summary, long] = E.machinesTables(withPaths);
+  assert.deepEqual(days.columns.slice(0, 5), ['Machine code', 'Machine', 'Type Family', 'Type Subfamily', 'Type Variant']);
+  assert.equal(days.rows.length, 9, '3 machines × 3 days');
+  assert.ok(days.columns.includes('Stop: Breakdown (min)') && days.columns.includes('Stop: Power cut (min)') && days.columns.includes('Stop: Waiting for crane (min)'));
+  const col = (t, name) => t.columns.indexOf(name);
+  const cnc29 = days.rows.find((r) => r[0] === 'CNC-01' && r[col(days, 'Date')] === '2026-09-29');
+  assert.equal(cnc29[col(days, 'Shift min (net of break)')], 420); assert.equal(cnc29[col(days, 'Run in shift min')], 360); assert.equal(cnc29[col(days, 'Overtime min')], 60);
+  assert.equal(cnc29[col(days, 'Utilisation %')], 85.7);
+  assert.equal(cnc29[2], 'Machines'); assert.equal(cnc29[3], 'Cutting'); assert.equal(cnc29[4], 'CNC cutting');
+  const paint = days.rows.find((r) => r[0] === 'PAINT-01');
+  assert.equal(paint[col(days, 'Overtime min')], null, 'no shifts: overtime is blank, not 0'); assert.equal(paint[col(days, 'Utilisation %')], null);
+  assert.equal(cnc29[col(days, 'Stop: Breakdown (min)')], null, 'a reply from before per-day reasons leaves them blank, not 0');
+  assert.equal(summary.rows.length, 3);
+  const saw = summary.rows.find((r) => r[0] === 'SAW-01');
+  assert.equal(saw[col(summary, 'Tonnes')], null, 'not weighed stays blank'); assert.equal(saw[col(summary, 'Status now')], 'stopped');
+  assert.equal(saw[col(summary, 'Time: Running (min)')], 260); assert.equal(saw[col(summary, 'Time: Break (min)')], 180);
+  assert.equal(saw[col(summary, 'Time: Waiting for crane (min)')], 90); assert.equal(saw[col(summary, 'Time: Not recorded (min)')], 910);
+  assert.equal(saw[col(summary, 'Time: Breakdown (min)')], 0, 'a reason with no time on a machine with a shift is 0');
+  assert.equal(summary.rows.find((r) => r[0] === 'PAINT-01')[col(summary, 'Time: Running (min)')], null, 'no shift time at all: blank');
+  const sumBuckets = long.rows.filter((r) => r[0] === 'CNC-01').reduce((t, r) => t + r[long.columns.indexOf('Minutes')], 0);
+  assert.equal(sumBuckets, 1440, 'the buckets add up to the shift window');
+  assert.ok(!long.rows.some((r) => r[0] === 'PAINT-01'), 'no shift time → no buckets');
+  const withReasons = { ...withPaths, machines: withPaths.machines.map((m) => (m.code === 'CNC-01' ? { ...m, days: m.days.map((d, i) => (i === 0 ? { ...d, stopIn: 60, notRecorded: 60, ops: 4, pieces: 12.5, scrap: 1, reasons: { 4: 45, 5: 15 } } : d)) } : m)) };
+  const [d2] = E.machinesTables(withReasons);
+  const first = d2.rows.find((r) => r[0] === 'CNC-01' && r[col(d2, 'Date')] === '2026-09-28');
+  assert.deepEqual([first[col(d2, 'Stop: Breakdown (min)')], first[col(d2, 'Stop: Power cut (min)')], first[col(d2, 'Stop: Waiting for crane (min)')]], [45, 15, 0], 'each reason is its own column (0 when none that day)');
+  assert.deepEqual([first[col(d2, 'Operations done')], first[col(d2, 'Pieces good')], first[col(d2, 'Not recorded min')]], [4, 12.5, 60]);
+  const filtered = E.machinesTables(withPaths, withPaths.machines.filter((m) => m.type?.id === 11));
+  assert.deepEqual([...new Set(filtered[0].rows.map((r) => r[0]))], ['SAW-01'], 'the type filter applies to every table');
+  assert.equal(E.fileStem('machines', '2026-09-28', '2026-09-30'), 'dashboard-machines-2026-09-28_2026-09-30');
+  assert.equal(E.fileStem('machines', '2026-09-28', '2026-09-30', 'Machine days'), 'dashboard-machines-machine-days-2026-09-28_2026-09-30');
+});
+await check('orders export: orders, lines, stages, short material; money columns only when allowed; tree rows follow the orders shown', () => {
+  const withMoneyReply = ordersReply(true), noMoneyReply = ordersReply(false);
+  const [orders, lines, stages, short] = E.ordersTables(withMoneyReply.orders, true);
+  assert.equal(orders.rows.length, 3); assert.equal(lines.rows.length, 6);
+  assert.equal(stages.rows.length, 10, 'two orders have five stages each');
+  assert.equal(short.rows.length, 1);
+  const c = (name) => orders.columns.indexOf(name);
+  const risky = orders.rows.find((r) => r[0] === 'SO-20260930-0001');
+  assert.equal(risky[c('Risk')], 'at_risk'); assert.equal(risky[c('Committed date')], '2026-10-10'); assert.equal(risky[c('Forecast date')], '2026-12-20');
+  assert.equal(risky[c('% complete')], 34.2); assert.equal(risky[c('Tonnes made')], 120.5); assert.equal(risky[c('Order value (before tax)')], 56889502.06);
+  assert.equal(risky[c('Bottleneck operation')], 'Welding');
+  assert.ok(lines.columns.includes('Line amount (before tax)'));
+  const [orders2, lines2] = E.ordersTables(noMoneyReply.orders, false);
+  assert.ok(!orders2.columns.some((x) => /value|invoiced|cost/i.test(x)) && !lines2.columns.some((x) => /amount/i.test(x)), 'no money columns without orders view');
+  const t = E.treeTable(treeRows.rows, new Set(['SO-20260930-0001']));
+  assert.equal(t.rows.length, 3, 'only the orders shown');
+  assert.deepEqual(t.columns.slice(0, 5), ['Order', 'Line', 'Piece code', 'Parent code', 'Level']);
+  assert.equal(t.rows[1][3], 'SPAN1'); assert.equal(t.rows[2][t.columns.indexOf('Blocked')], true);
+  assert.equal(E.treeTable(treeRows.rows).rows.length, 4);
+});
+await check('work orders export: per work order, per work order × operation, contractors of the ones shown', () => {
+  const [wo, ops, con] = E.workOrdersTables(woReply.workOrders, woReply.contractors);
+  assert.equal(wo.rows.length, 4); assert.equal(ops.rows.length, 5); assert.equal(con.rows.length, 2);
+  const c = (name) => wo.columns.indexOf(name);
+  const w1 = wo.rows.find((r) => r[0] === 'WO-000001');
+  assert.equal(w1[c('Contractor')], 'Alpha Fab'); assert.equal(w1[c('% complete')], 50); assert.equal(w1[c('Overdue days')], 3); assert.equal(w1[c('Operations done')], 1);
+  const w3 = wo.rows.find((r) => r[0] === 'WO-000003');
+  assert.equal(w3[c('% complete')], null, 'not released: blank, not 0'); assert.equal(w3[c('Released')], false); assert.equal(w3[c('Overdue days')], null);
+  const o = (name) => ops.columns.indexOf(name);
+  assert.equal(ops.rows.filter((r) => r[0] === 'WO-000001').reduce((t, r) => t + r[o('Done')], 0), 1);
+  const one = E.workOrdersTables(woReply.workOrders.filter((w) => w.contractor.id === 8), woReply.contractors);
+  assert.deepEqual(one[2].rows.map((r) => r[1]), ['Beta Welding'], 'the contractor table follows the filter');
+});
+await check('CSV quotes commas, quotes and line breaks; booleans are TRUE / FALSE; blanks are empty', () => {
+  const csv = E.toCsv({ name: 't', columns: ['a', 'b,c', 'd'], rows: [['x"y', 'line\nbreak', null], [1.5, true, false]] });
+  assert.equal(csv, 'a,"b,c",d\r\n"x""y","line\nbreak",\r\n1.5,TRUE,FALSE');
+});
+await check('the xlsx is a valid package: stored zip with good CRCs, well-formed XML, one sheet per table, header row, numbers as numbers, escaped text', () => {
+  const tables = [
+    { name: 'Machine days', columns: ['Code', 'Min', 'Note'], rows: [['A & B <1>', 12.5, 'say "hi"'], ['C', null, true], ['D', 0, null]] },
+    { name: 'Machine days', columns: ['x'], rows: [] },
+    { name: 'Bad/Name:[1]*?', columns: ['x'], rows: [[Number.NaN]] },
+  ];
+  const files = unzip(E.buildXlsx(tables));
+  assert.deepEqual(Object.keys(files).sort(), ['[Content_Types].xml', '_rels/.rels', 'xl/_rels/workbook.xml.rels', 'xl/styles.xml', 'xl/workbook.xml', 'xl/worksheets/sheet1.xml', 'xl/worksheets/sheet2.xml', 'xl/worksheets/sheet3.xml']);
+  for (const f of Object.values(files)) xml(f);
+  const names = [...xml(files['xl/workbook.xml']).getElementsByTagName('sheet')].map((s) => s.getAttribute('name'));
+  assert.deepEqual(names, ['Machine days', 'Machine days 2', 'Bad Name 1']);
+  assert.deepEqual(sheetRows(files, 1), [['Code', 'Min', 'Note'], ['A & B <1>', 12.5, 'say "hi"'], ['C', true], ['D', 0]]);
+  assert.equal(xml(files['xl/worksheets/sheet1.xml']).getElementsByTagName('c')[3].getAttribute('t'), 'inlineStr');
+  assert.deepEqual(sheetRows(files, 3), [['x'], []], 'a NaN is left blank');
+  assert.equal(E.colName(0), 'A'); assert.equal(E.colName(25), 'Z'); assert.equal(E.colName(26), 'AA'); assert.equal(E.colName(701), 'ZZ'); assert.equal(E.colName(702), 'AAA');
+});
+
+// ── the Download menu ────────────────────────────────────────────────────
+const saved = [];
+for (const U of [window.URL, globalThis.URL]) { U.createObjectURL = (b) => { saved.push({ blob: b }); return `blob:${saved.length}`; }; U.revokeObjectURL = () => {}; }
+window.HTMLAnchorElement.prototype.click = function click() { saved[saved.length - 1].name = this.download; };
+const blobBytes = async (b) => new Uint8Array(await b.arrayBuffer());
+const blobText = async (b) => new TextDecoder('utf-8', { ignoreBOM: true }).decode(await blobBytes(b));
+// jsdom has no layout: give elements a box so MUI's Menu finds its anchor.
+window.HTMLElement.prototype.getBoundingClientRect = () => ({ x: 0, y: 0, top: 0, left: 0, right: 100, bottom: 30, width: 100, height: 30, toJSON() {} });
+const openMenu = async () => { await click(byTestId('download-button')[0]); await waitFor(() => document.querySelector('[data-testid="download-xlsx"]')); };
+
+await check('By machine › Download: Excel with the three sheets named like dashboard-machines-<from>_<to>.xlsx, honouring the type chip', async () => {
+  saved.length = 0;
+  const root = await show('/testco/cf_erp/management');
+  await click([...document.querySelectorAll('.MuiChip-root')].find((c) => c.textContent === 'Welding'));
+  await openMenu();
+  const items = [...document.querySelectorAll('[data-testid="download-csv"]')].map((i) => i.getAttribute('data-table'));
+  assert.deepEqual(items, ['Machine days', 'Machine summary', 'Shift time']);
+  await click(document.querySelector('[data-testid="download-xlsx"]'));
+  assert.equal(saved.length, 1);
+  assert.equal(saved[0].name, 'dashboard-machines-2026-09-28_2026-09-30.xlsx');
+  const files = unzip(await blobBytes(saved[0].blob));
+  const rows = sheetRows(files, 1);
+  assert.deepEqual([...new Set(rows.slice(1).map((r) => r[0]))], ['SAW-01'], 'only the Welding machine');
+  assert.equal(rows.length, 4, 'header + 3 days');
+  await React.act(() => root.unmount());
+});
+await check('By machine › Download: one CSV per table', async () => {
+  saved.length = 0;
+  const root = await show('/testco/cf_erp/management');
+  await openMenu();
+  await click(document.querySelector('[data-testid="download-csv"][data-table="Machine summary"]'));
+  assert.equal(saved[0].name, 'dashboard-machines-machine-summary-2026-09-28_2026-09-30.csv');
+  const csv = await blobText(saved[0].blob);
+  assert.match(csv, /^﻿Machine code,Machine,Type level 1,Status now/);
+  assert.equal(csv.split('\r\n').length, 4);
+  await React.act(() => root.unmount());
+});
+await check('By order › Download: tables follow the risk chip; "all levels" reads the piece tree and adds a sheet; money only when allowed', async () => {
+  saved.length = 0;
+  requests.length = 0;
+  const root = await show('/testco/cf_erp/management?tab=orders');
+  await click([...document.querySelectorAll('.MuiChip-root')].find((c) => /^Late/.test(c.textContent)));
+  await openMenu();
+  assert.ok(!requests.some((r) => r.includes('tree-rows')), 'nothing read until asked');
+  await click(document.querySelector('[data-testid="download-xlsx"]'));
+  assert.equal(saved[0].name, 'dashboard-orders-2026-09-28_2026-09-30.xlsx');
+  let files = unzip(await blobBytes(saved[0].blob));
+  const orderRows = sheetRows(files, 1);
+  assert.deepEqual(orderRows.slice(1).map((r) => r[0]), ['SO-20260801-0003'], 'only the late order');
+  assert.ok(orderRows[0].includes('Order value (before tax)'));
+  await openMenu();
+  await click(document.querySelector('[data-testid="download-tree-xlsx"]'));
+  await waitFor(() => saved.length === 2);
+  assert.ok(requests.some((r) => r.includes('/dashboard/orders/tree-rows')));
+  assert.equal(saved[1].name, 'dashboard-orders-2026-09-28_2026-09-30.xlsx');
+  files = unzip(await blobBytes(saved[1].blob));
+  const sheets = [...xml(files['xl/workbook.xml']).getElementsByTagName('sheet')].map((s) => s.getAttribute('name'));
+  assert.deepEqual(sheets, ['Orders', 'Lines', 'Stages', 'Short material', 'Piece tree']);
+  assert.equal(sheetRows(files, 5).length, 2, 'header + the late order one piece row');
+  await openMenu();
+  await click(document.querySelector('[data-testid="download-tree-csv"]'));
+  await waitFor(() => saved.length === 3);
+  assert.equal(saved[2].name, 'dashboard-orders-piece-tree-2026-09-28_2026-09-30.csv');
+  await React.act(() => root.unmount());
+  withMoney = false;
+  const root2 = await show('/testco/cf_erp/management?tab=orders');
+  await openMenu();
+  await click(document.querySelector('[data-testid="download-xlsx"]'));
+  const f2 = unzip(await blobBytes(saved[saved.length - 1].blob));
+  assert.ok(!sheetRows(f2, 1)[0].some((h) => /value|invoiced|cost/i.test(h)), 'no money columns for a reader without orders view');
+  await React.act(() => root2.unmount());
+  withMoney = true;
+});
+await check('Work orders › Download: workbook of the work orders shown (contractor chip applies)', async () => {
+  saved.length = 0;
+  const root = await show('/testco/cf_erp/management?tab=work-orders');
+  await click(byTestId('contractor-chip').find((c) => /Alpha/.test(c.textContent)));
+  await openMenu();
+  assert.deepEqual([...document.querySelectorAll('[data-testid="download-csv"]')].map((i) => i.getAttribute('data-table')), ['Work orders', 'Work order operations', 'Contractors']);
+  await click(document.querySelector('[data-testid="download-xlsx"]'));
+  assert.equal(saved[0].name, 'dashboard-work-orders-2026-09-28_2026-09-30.xlsx');
+  const files = unzip(await blobBytes(saved[0].blob));
+  assert.deepEqual(sheetRows(files, 1).slice(1).map((r) => r[0]), ['WO-000001', 'WO-000003'], 'Alpha\'s open work orders');
+  assert.deepEqual(sheetRows(files, 3).slice(1).map((r) => r[1]), ['Alpha Fab']);
+  await React.act(() => root.unmount());
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

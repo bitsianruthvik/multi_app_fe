@@ -14,7 +14,13 @@ export type MachineState = 'running' | 'stopped' | 'idle' | 'off_shift';
 
 export interface ReasonMinutes { id: number; code: string; label: string; minutes: number; count: number; machines?: number }
 
-export interface MachineDay { date: string; shift: number; run: number; runIn: number; stop: number; overtime: number; tonnes: number; utilisationPct?: number | null }
+export interface MachineDay {
+  date: string; shift: number; run: number; runIn: number; stop: number; overtime: number; tonnes: number; utilisationPct?: number | null;
+  /** the download's extras — absent in replies from before 2026-10-01 (plant days carry none) */
+  stopIn?: number; notRecorded?: number; ops?: number; pieces?: number; scrap?: number;
+  /** stop minutes by stop reason id */
+  reasons?: Record<string, number>;
+}
 
 /**
  * Where the shift time went (dashboardService.accountShiftTime). The buckets of a
@@ -152,3 +158,50 @@ export interface OrdersDashboard {
 
 export const getMachinesDashboard = (from: string, to: string) => cfApi.get<MachinesDashboard>(`/dashboard/machines${qs({ from, to })}`);
 export const getOrdersDashboard = (from: string, to: string) => cfApi.get<OrdersDashboard>(`/dashboard/orders${qs({ from, to })}`);
+
+/* ---- Work orders tab (2026-10-01) ---- */
+export type WorkOrderStatus = 'draft' | 'issued' | 'in_progress' | 'done' | 'cancelled';
+export interface DashWoOperation {
+  operationId: number; code: string | null; name: string; assigned: number; steps: number; done: number; inProgress: number; onHold: number;
+  /** null = not released: there are no steps to be done yet */
+  pct: number | null; periodOps: number; periodSteps: number;
+}
+export interface DashWorkOrder {
+  id: number; code: string; status: WorkOrderStatus; open: boolean;
+  contractor: { id: number; code: string | null; name: string };
+  order: { id: number; code: string; revision: number | null; title: string | null; status: string };
+  line: { id: number; lineNo: number; itemCode: string | null; itemName: string | null };
+  startDate: string | null; dueDate: string | null; notes: string | null;
+  overdue: boolean; daysOverdue: number;
+  pieces: number; released: boolean;
+  operations: { assigned: number; steps: number; done: number; inProgress: number; onHold: number; pct: number | null };
+  firstStartedAt: string | null; lastActivityAt: string | null;
+  period: { opsDone: number; stepsTouched: number };
+  byOperation: DashWoOperation[];
+}
+export interface DashContractor {
+  id: number; code: string | null; name: string; workOrders: number; open: number; active: number;
+  assigned: number; steps: number; done: number; pct: number | null; overdue: number; periodOps: number;
+}
+export interface WorkOrdersDashboard {
+  period: DashPeriod;
+  plant: {
+    workOrders: number; open: number; contractors: number; contractorsActive: number;
+    operationsAssigned: number; operationsReleased: number; operationsDone: number; pct: number | null;
+    notReleased: number; overdue: number; periodOps: number;
+    /** work orders carry no amount: always null */
+    value: number | null;
+  };
+  contractors: DashContractor[];
+  workOrders: DashWorkOrder[];
+  meta: DashMeta;
+}
+export const getWorkOrdersDashboard = (from: string, to: string) => cfApi.get<WorkOrdersDashboard>(`/dashboard/work-orders${qs({ from, to })}`);
+
+/** "Download full (all levels)": every production item of every released line of a confirmed order. */
+export interface TreeRow {
+  orderId: number; orderCode: string; lineId: number; lineNo: number;
+  code: string | null; parentCode: string | null; level: number; name: string | null; itemCode: string | null; quantity: number; pieceNo: number | null;
+  steps: number; stepsDone: number; inProgress: number; onHold: number; contracted: number; pct: number | null; blocked: boolean;
+}
+export const getOrderTreeRows = () => cfApi.get<{ rows: TreeRow[]; meta: DashMeta }>('/dashboard/orders/tree-rows');

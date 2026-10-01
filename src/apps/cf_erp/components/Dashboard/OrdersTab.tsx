@@ -20,7 +20,10 @@ import { rupeeText } from '../../lib/money';
 import { useCompanySlug } from '../../hooks/useLoad';
 import { appPath } from '../../navMeta';
 import { Badge, EmptyState, Mono, Surface } from '../ui';
+import { getOrderTreeRows } from '../../api/dashboard';
+import { ordersTables, treeTable } from '../../lib/dashboardExport';
 import { ProgressBar, StageStrip } from './charts';
+import { DownloadMenu, type ExtraDownload } from './DownloadMenu';
 import { EstimateTag, MiniHead, Tile, TileGrid } from './DashParts';
 import { OrderTree } from './OrderTree';
 
@@ -31,6 +34,13 @@ export function OrdersTab({ data }: { data: OrdersDashboard }) {
   const shown = useMemo(() => filterOrders(data.orders, risk, search), [data.orders, risk, search]);
   const window = periodLabel(data.period.from, data.period.to);
   const year = data.period.today.slice(0, 4);
+  // The tab holds orders, lines and stages; the piece tree below them is read only when asked for (a few thousand rows).
+  const allLevels: ExtraDownload[] = [
+    { key: 'tree-xlsx', as: 'xlsx', label: 'Excel with every piece (all levels)', hint: 'The tables above plus one row per piece and part of the orders shown',
+      build: async () => [...ordersTables(shown, data.withMoney), treeTable((await getOrderTreeRows()).rows, new Set(shown.map((o) => o.code)))] },
+    { key: 'tree-csv', as: 'csv-all', label: 'CSV — every piece (all levels)', hint: 'One row per piece and part of the orders shown',
+      build: async () => [treeTable((await getOrderTreeRows()).rows, new Set(shown.map((o) => o.code)))] },
+  ];
   const count: Record<string, number> = { all: t.orders, late: t.late, at_risk: t.atRisk, on_track: t.onTrack, no_forecast: t.noForecast, no_date: t.noDate };
 
   if (!data.orders.length) {
@@ -69,6 +79,7 @@ export function OrdersTab({ data }: { data: OrdersDashboard }) {
         ) : null)}
         <Box sx={{ flex: 1 }} />
         <TextField size="small" placeholder="Order, customer, title" value={search} onChange={(e) => setSearch(e.target.value)} sx={{ width: 220 }} inputProps={{ 'aria-label': 'Find an order' }} />
+        <DownloadMenu tab="orders" from={data.period.from} to={data.period.to} tables={() => ordersTables(shown, data.withMoney)} extra={allLevels} />
       </Box>
 
       {shown.length === 0

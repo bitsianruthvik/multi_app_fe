@@ -10,7 +10,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Box, Button, MenuItem, Tab, Tabs, TextField, ToggleButton, ToggleButtonGroup, Tooltip, Typography } from '@mui/material';
 import RefreshRounded from '@mui/icons-material/RefreshRounded';
-import { getMachinesDashboard, getOrdersDashboard, type MachinesDashboard, type OrdersDashboard } from '../api/dashboard';
+import { getMachinesDashboard, getOrdersDashboard, getWorkOrdersDashboard, type MachinesDashboard, type OrdersDashboard, type WorkOrdersDashboard } from '../api/dashboard';
 import { CfApiError } from '../api/client';
 import { PERIOD_OPTIONS, type PeriodKey, clockText, localToday, periodLabel, periodRange, MAX_PERIOD_DAYS } from '../lib/dashboard';
 import { useUrlParam } from '../hooks/useUrlState';
@@ -18,8 +18,9 @@ import { useIsPermitted } from '../hooks/useIsPermitted';
 import { ErrorNotice, PageHeader, SkeletonRows, StatSkeleton } from '../components/ui';
 import { MachinesTab } from '../components/Dashboard/MachinesTab';
 import { OrdersTab } from '../components/Dashboard/OrdersTab';
+import { WorkOrdersTab } from '../components/Dashboard/WorkOrdersTab';
 
-type TabKey = 'machines' | 'orders';
+type TabKey = 'machines' | 'orders' | 'work-orders';
 /** While the period reaches today, the numbers are live: read again every few minutes. */
 const REFRESH_MS = 3 * 60 * 1000;
 
@@ -31,7 +32,7 @@ export default function Dashboard() {
   const canMachines = isPermitted('cf_erp_production_view') || isPermitted('cf_erp_production_manage');
   const canOrders = canMachines || isPermitted('cf_erp_orders_view');
   const [tabParam, setTab] = useUrlParam('tab', canMachines ? 'machines' : 'orders');
-  const tab: TabKey = tabParam === 'orders' || !canMachines ? 'orders' : 'machines';
+  const tab: TabKey = tabParam === 'work-orders' && canOrders ? 'work-orders' : tabParam === 'orders' || !canMachines ? 'orders' : 'machines';
   const [periodParam, setPeriod] = useUrlParam('period', 'week');
   const period = (PERIOD_OPTIONS.some((o) => o.key === periodParam) ? periodParam : 'week') as PeriodKey;
   const [fromParam, setFrom] = useUrlParam('from', '');
@@ -42,6 +43,7 @@ export default function Dashboard() {
   const [tick, setTick] = useState(0);
   const [machines, setMachines] = useState<Loaded<MachinesDashboard>>(idle);
   const [orders, setOrders] = useState<Loaded<OrdersDashboard>>(idle);
+  const [workOrders, setWorkOrders] = useState<Loaded<WorkOrdersDashboard>>(idle);
 
   useEffect(() => {
     let alive = true;
@@ -54,6 +56,7 @@ export default function Dashboard() {
     };
     run(canMachines, () => getMachinesDashboard(from, to), setMachines, (d) => setServerToday(d.period.today));
     run(canOrders, () => getOrdersDashboard(from, to), setOrders, (d) => setServerToday(d.period.today));
+    run(canOrders, () => getWorkOrdersDashboard(from, to), setWorkOrders);
     return () => { alive = false; };
   }, [from, to, tick, canMachines, canOrders]);
 
@@ -64,7 +67,7 @@ export default function Dashboard() {
     return () => window.clearInterval(t);
   }, [live]);
 
-  const current = tab === 'machines' ? machines : orders;
+  const current = (tab === 'machines' ? machines : tab === 'orders' ? orders : workOrders) as Loaded<{ period: { now: string } }>;
   const asOf = current.data?.period.now;
   const pickPeriod = (key: PeriodKey | null) => {
     if (!key) return;
@@ -76,7 +79,7 @@ export default function Dashboard() {
     <Box>
       <PageHeader
         title="Dashboard"
-        subtitle={<>What the plant did and where every confirmed order stands · <b>{periodLabel(from, to)}</b>{asOf ? ` · as of ${clockText(asOf)}` : ''}</>}
+        subtitle={<>What the plant did, where every confirmed order stands and how far the contractors are · <b>{periodLabel(from, to)}</b>{asOf ? ` · as of ${clockText(asOf)}` : ''}</>}
         actions={(
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
             {/* A narrow screen gets a picker: five toggle buttons do not fit a phone. */}
@@ -102,6 +105,7 @@ export default function Dashboard() {
       <Tabs value={tab} onChange={(_, v: TabKey) => setTab(v)} sx={{ mb: 2, borderBottom: '1px solid var(--c-divider)' }}>
         {canMachines && <Tab value="machines" label="By machine" sx={{ textTransform: 'none' }} data-testid="tab-machines" />}
         {canOrders && <Tab value="orders" label="By order" sx={{ textTransform: 'none' }} data-testid="tab-orders" />}
+        {canOrders && <Tab value="work-orders" label="Work orders" sx={{ textTransform: 'none' }} data-testid="tab-work-orders" />}
       </Tabs>
       {!canOrders && <Typography sx={{ color: 'var(--c-text-2)' }}>You need production view or orders view to see the dashboard.</Typography>}
       <ErrorNotice error={current.error} onRetry={() => setTick((n) => n + 1)} />
@@ -110,6 +114,7 @@ export default function Dashboard() {
         <MachinesTab data={machines.data} atRisk={orders.data ? { late: orders.data.totals.late, atRisk: orders.data.totals.atRisk } : null} />
       )}
       {tab === 'orders' && orders.data && <OrdersTab data={orders.data} />}
+      {tab === 'work-orders' && workOrders.data && <WorkOrdersTab data={workOrders.data} />}
     </Box>
   );
 }

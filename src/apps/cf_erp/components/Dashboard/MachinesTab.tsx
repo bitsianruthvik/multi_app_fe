@@ -29,6 +29,8 @@ import { EmptyState, Mono, SectionCard, Surface } from '../ui';
 import { DailyBars, Legend, Pareto, ShareBar, Sparkline } from './charts';
 import { Dot, EstimateTag, Tile, TileGrid } from './DashParts';
 import { ShiftTimeTable, TimeBar } from './ShiftTime';
+import { DownloadMenu } from './DownloadMenu';
+import { machinesTables } from '../../lib/dashboardExport';
 
 const SEG = {
   run: { color: 'var(--c-state-running)', label: 'Running in shift' },
@@ -105,6 +107,7 @@ export function MachinesTab({ data, atRisk }: { data: MachinesDashboard; atRisk?
         <TextField select size="small" value={sort} onChange={(e) => setSort(e.target.value as MachineSort)} sx={{ width: 190 }} inputProps={{ 'aria-label': 'Sort machines' }}>
           {MACHINE_SORTS.map((s) => <MenuItem key={s.key} value={s.key}>{s.label}</MenuItem>)}
         </TextField>
+        <DownloadMenu tab="machines" from={data.period.from} to={data.period.to} tables={() => machinesTables(data, shown)} />
       </Box>
 
       {shown.length === 0
