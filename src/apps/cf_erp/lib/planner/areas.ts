@@ -38,9 +38,15 @@ export const AREA_MAX = 10;
 
 const isUnlimited = (f: PlannerFunction) => !!f.unlimited || f.key === 'contractor';
 
-/** Group the snapshot's functions into machine areas (see the header for how the level is chosen). */
-export function machineAreas(functions: PlannerFunction[]): AreaSet {
-  const limited = functions.filter((f) => !isUnlimited(f));
+/**
+ * Group the snapshot's functions into machine areas (see the header for how the level is chosen).
+ * `working` = the machine types some unit actually needs. A plant's asset register also files
+ * electricals, vehicles, cranes… as machine types; left in, they decide the level and crowd the
+ * panel with areas that never carry plan work. When given (and not empty), only those count.
+ */
+export function machineAreas(functions: PlannerFunction[], working?: Set<string>): AreaSet {
+  const useful = working && working.size > 0 ? functions.filter((f) => working.has(f.key)) : functions;
+  const limited = useful.filter((f) => !isUnlimited(f));
   const maxDepth = Math.max(-1, ...limited.map((f) => (f.path?.length ?? 0) - 1));
   const nodeAt = (f: PlannerFunction, d: number) => f.path?.find((n) => n.depth === d) ?? null;
 
@@ -55,9 +61,13 @@ export function machineAreas(functions: PlannerFunction[]): AreaSet {
     depth = inRange ? inRange.d : [...counts].sort((a, b) => Math.abs(a.n - 7) - Math.abs(b.n - 7) || a.d - b.d)[0].d;
   }
 
+  // The working types chose the level and which areas show; each shown area then counts every
+  // machine type under it, idle ones too, so its capacity is the whole area's.
+  const shownAreas = new Set(limited.map((f) => { const n = depth == null ? null : nodeAt(f, depth); return n ? `a${n.id}` : `f${f.key}`; }));
+  const members = functions.filter((f) => !isUnlimited(f) && shownAreas.has((() => { const n = depth == null ? null : nodeAt(f, depth); return n ? `a${n.id}` : `f${f.key}`; })()));
   const byKey = new Map<string, MachineArea>();
   let level = 'Machine type';
-  for (const f of limited) {
+  for (const f of members) {
     const n = depth == null ? null : nodeAt(f, depth);
     if (n?.level) level = n.level;
     const key = n ? `a${n.id}` : `f${f.key}`;
@@ -67,7 +77,7 @@ export function machineAreas(functions: PlannerFunction[]): AreaSet {
     a.machines += Number(f.machines) || 0;
   }
   const areas = [...byKey.values()].sort((a, b) => a.name.localeCompare(b.name));
-  for (const f of functions.filter(isUnlimited)) areas.push({ key: `f${f.key}`, name: f.name, fnKeys: [f.key], machines: 0, unlimited: true });
+  for (const f of useful.filter(isUnlimited)) areas.push({ key: `f${f.key}`, name: f.name, fnKeys: [f.key], machines: 0, unlimited: true });
   return { depth, level, areas };
 }
 
@@ -107,6 +117,13 @@ function sumCells(evaluation: Evaluation, fnKeys: string[], periodKeys: string[]
 }
 
 /** One row per area (planned minutes ÷ shift minutes per period, and over the whole horizon). */
+/** The machine types the snapshot's units need work from — the `working` set for machineAreas. */
+export function workingFunctions(snapshot: PlannerSnapshot): Set<string> {
+  const out = new Set<string>();
+  for (const u of snapshot.units) for (const [k, m] of Object.entries(u.work ?? {})) if (Number(m) > 0) out.add(k);
+  return out;
+}
+
 export function areaUsage(snapshot: PlannerSnapshot, evaluation: Evaluation, set: AreaSet): UsageRow[] {
   const periods = snapshot.horizon.periods.map((p) => p.key);
   return set.areas.map((a) => ({ key: a.key, name: a.name, machines: a.machines, unlimited: a.unlimited, fnKeys: a.fnKeys, ...sumCells(evaluation, a.fnKeys, periods, a.unlimited) }));

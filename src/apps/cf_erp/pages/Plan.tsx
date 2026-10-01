@@ -11,7 +11,7 @@ import UnfoldMoreRounded from '@mui/icons-material/UnfoldMoreRounded';
 import UnfoldLessRounded from '@mui/icons-material/UnfoldLessRounded';
 import CloseRounded from '@mui/icons-material/CloseRounded';
 import {
-  areaUsage, autoPlan, cellDrivers, entriesDiff, evaluate, feedback, functionUsage, machineAreas, planFromEntries,
+  areaUsage, autoPlan, cellDrivers, entriesDiff, evaluate, feedback, functionUsage, machineAreas, workingFunctions, planFromEntries,
   rankChanges, rankLine, reorderKeys, shiftBy, unitPriority, unplan,
 } from '../lib/planner';
 import type { AutoPlanResult, Evaluation, Plan as PlanMap, PlannerSnapshot, PlannerUnit, UsageRow } from '../lib/planner';
@@ -111,7 +111,7 @@ export default function Plan() {
   const orderCode = useMemo(() => new Map((snap?.orders ?? []).map((o) => [String(o.id), o.code])), [snap]);
   const codeOf = useCallback((k: string) => { const u = units.get(k); return u ? shortCode(u, orderCode.get(String(u.orderId))) : k; }, [units, orderCode]);
 
-  const areaSet = useMemo(() => machineAreas(snap?.functions ?? []), [snap]);
+  const areaSet = useMemo(() => machineAreas(snap?.functions ?? [], snap ? workingFunctions(snap) : undefined), [snap]);
   const usage = useMemo(() => (view && shown ? areaUsage(view, shown, areaSet) : []), [view, shown, areaSet]);
   const baseUsage = useMemo(() => (view && evaluation ? areaUsage(view, evaluation, areaSet) : []), [view, evaluation, areaSet]);
   const rows = useMemo(() => (snap && shown ? buildRows(snap, shown, prio, children, expand) : []), [snap, shown, prio, children, expand]);

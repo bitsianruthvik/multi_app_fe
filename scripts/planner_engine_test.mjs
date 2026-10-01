@@ -543,6 +543,20 @@ check('machine areas: the level giving 4–10 areas, else nearest 7; no tree = o
   const flat = E.machineAreas([{ key: 'x', name: 'X', capacity: {} }, { key: 'y', name: 'Y', capacity: {} }]);
   assert.equal(flat.depth, null); assert.equal(flat.level, 'Machine type'); assert.equal(flat.areas.length, 2);
 });
+check('machine areas from an asset register: only types with plan work choose the level; idle types keep their area\'s capacity', () => {
+  const at = (key, fam, fid, sub, sid) => ({ key, name: key, machines: 1, capacity: {}, path: [{ id: fid, name: fam, depth: 0, level: 'Family' }, { id: sid, name: sub, depth: 1, level: 'Subfamily' }] });
+  const fns = [
+    at('cnc', 'Machines', 1, 'Cutting', 11), at('drill', 'Machines', 1, 'Drilling', 12), at('saw', 'Machines', 1, 'Welding', 13),
+    at('mig', 'Machines', 1, 'Welding', 13), at('blast', 'Machines', 1, 'Finishing', 14),
+    at('panel', 'Electrical', 2, 'Panels', 21), at('truck', 'Vehicles', 3, 'Trucks', 31), at('crane', 'Material handling', 4, 'Cranes', 41),
+  ];
+  const working = new Set(['cnc', 'drill', 'saw', 'blast']);
+  const set = E.machineAreas(fns, working);
+  assert.equal(set.level, 'Subfamily', 'the families would be 4 areas of mostly idle assets');
+  assert.deepEqual(set.areas.map((a) => a.name), ['Cutting', 'Drilling', 'Finishing', 'Welding']);
+  assert.deepEqual(set.areas.find((a) => a.name === 'Welding').fnKeys.sort(), ['mig', 'saw'], 'idle MIG still counts in Welding\'s capacity');
+  assert.equal(E.workingFunctions({ units: [{ work: { cnc: 5, drill: 0 } }, { work: { saw: 2 } }] }).size, 2);
+});
 check('area usage = Σ of its functions\' minutes ÷ Σ capacity per week and over the horizon; bands 75 / 100', () => {
   const capAll = (v) => Object.fromEntries(periods.map((p) => [p.key, v]));
   const s = fixture({ functions: [

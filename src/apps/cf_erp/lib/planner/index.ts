@@ -16,7 +16,7 @@ export { evaluate, canPlace } from './evaluate';
 export { autoPlan } from './autoPlan';
 export { feedback } from './feedback';
 export { buildPeriods, periodContaining, monthShort, monthLong } from './periods';
-export { machineAreas, areaUsage, functionUsage, usageBand, cellDrivers, AREA_MIN, AREA_MAX } from './areas';
+export { machineAreas, workingFunctions, areaUsage, functionUsage, usageBand, cellDrivers, AREA_MIN, AREA_MAX } from './areas';
 export type { MachineArea, AreaSet, UsageCell, UsageRow, Band } from './areas';
 export { dragTo, shiftBy, unplan, reorderKeys, rankLine, rankChanges } from './moves';
 export type { Ranks } from './moves';
