@@ -546,6 +546,8 @@ export interface Machine {
   catalogItem: { id: number; code: string | null; name: string | null } | null;
   serialNumber: string | null;
   status: 'active' | 'inactive';
+  /** Some active operation can run on it — the asset register (vehicles, panels, tools) is not. */
+  isProduction?: boolean;
   notes: string | null;
   createdAt: string;
   updatedAt: string;

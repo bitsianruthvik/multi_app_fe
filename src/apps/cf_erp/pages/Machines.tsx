@@ -32,6 +32,8 @@ export default function Machines() {
   const canManage = useIsPermitted()('cf_erp_production_manage');
   const [params, setParams] = useSearchParams();
   const [status, setStatus] = useUrlParam('status', '');
+  // Default: the machines that do production work. The asset register (vehicles, panels, tools) is one click away.
+  const [scope, setScope] = useUrlParam('show', 'production');
   const [search, setSearch] = useState('');
   const [debounced, setDebounced] = useState('');
   const [creating, setCreating] = useState(false);
@@ -51,7 +53,9 @@ export default function Machines() {
     }
   }, [debounced, typeId]);
   const all = useMemo(() => list.data ?? [], [list.data]);
-  const rows = useMemo(() => all.filter((m) => !status || m.status === status), [all, status]);
+  const inScope = useMemo(() => (scope === 'all' ? all : all.filter((m) => m.isProduction !== false)), [all, scope]);
+  const productionCount = useMemo(() => all.filter((m) => m.isProduction !== false).length, [all]);
+  const rows = useMemo(() => inScope.filter((m) => !status || m.status === status), [inScope, status]);
   const types = useMemo(() => flattenTree(tree.data).filter((n) => n.scope === 'machine' && n.isLeaf), [tree.data]);
   const pathOf = useMemo(() => new Map(flattenTree(tree.data).map((n) => [n.id, n.path])), [tree.data]);
   const setType = (id: number | null) => {
@@ -76,17 +80,18 @@ export default function Machines() {
     { key: 'type', header: 'Machine type', render: (m) => <Box sx={{ color: 'var(--c-text-2)' }}>{pathOf.get(m.classificationId) ?? m.classificationName}</Box>, sortValue: (m) => pathOf.get(m.classificationId) ?? m.classificationName },
     { key: 'serial', header: 'Serial', render: (m) => <Mono muted>{m.serialNumber ?? '—'}</Mono>, sortValue: (m) => m.serialNumber },
     { key: 'bought', header: 'Bought as', render: (m) => <Mono muted>{m.catalogItem?.code ?? '—'}</Mono>, sortValue: (m) => m.catalogItem?.code, defaultHidden: true },
+    { key: 'production', header: 'Production', render: (m) => (m.isProduction === false ? <Box sx={{ color: 'var(--c-text-3)' }}>Asset</Box> : <Box>Yes</Box>), sortValue: (m) => (m.isProduction === false ? 0 : 1), exportValue: (m) => (m.isProduction === false ? 'No' : 'Yes'), defaultHidden: scope !== 'all' },
     { key: 'status', header: 'Status', render: (m) => <StatusBadge status={m.status} />, sortValue: (m) => m.status },
   ];
   // Counted before the status chip, like the chips themselves and like
   // Operations and Flows — so the figures hold still as you toggle Active.
   const stats = [
-    { label: 'Machines', value: all.length },
-    { label: 'Active', value: all.filter((m) => m.status === 'active').length, tone: 'success' as const, onClick: () => setStatus('active') },
+    { label: scope === 'all' ? 'All machines' : 'Production machines', value: inScope.length, hint: scope === 'all' ? 'Every machine in the register' : `${all.length} in the register, ${all.length - productionCount} with no operation to run` },
+    { label: 'Active', value: inScope.filter((m) => m.status === 'active').length, tone: 'success' as const, onClick: () => setStatus('active') },
     { label: 'Machine types', value: types.length, hint: 'The deepest level of a machine family — open to add, rename or retire one', onClick: () => setTypesOpen(true) },
   ];
   const open = (m: Machine) => navigate(appPath(company, `machines/${m.id}`));
-  const filtered = !!debounced || !!typeId || !!status;
+  const filtered = !!debounced || !!typeId || !!status || (scope !== 'all' && all.length > 0);
 
   return (
     <Box>
@@ -99,8 +104,10 @@ export default function Machines() {
         )} />
       <StatStrip stats={stats} />
       <FilterBar search={search} onSearch={setSearch} placeholder="Search code, name or serial">
-        {[['', 'All'], ['active', 'Active'], ['inactive', 'Inactive']].map(([v, label]) => (
-          <FacetChip key={v || 'all'} label={label} active={status === v} count={all.filter((m) => !v || m.status === v).length} onClick={() => setStatus(v)} />
+        <FacetChip label="Production machines" active={scope !== 'all'} count={productionCount} onClick={() => setScope('production')} />
+        <FacetChip label="All machines" active={scope === 'all'} count={all.length} onClick={() => setScope('all')} />
+        {[['', 'Any status'], ['active', 'Active'], ['inactive', 'Inactive']].map(([v, label]) => (
+          <FacetChip key={v || 'all'} label={label} active={status === v} count={inScope.filter((m) => !v || m.status === v).length} onClick={() => setStatus(v)} />
         ))}
         <Box sx={{ flex: '1 1 260px', maxWidth: 380, minWidth: 0 }}>
           <ClassificationPicker tree={tree.data} scope="machine" leafOnly={false} value={typeId} onChange={setType} label="Machine type or group" />
@@ -110,7 +117,7 @@ export default function Machines() {
       <DataTable rows={rows} columns={columns} getRowId={(m) => m.id} onRowClick={open} loading={list.loading && !list.data}
         storageKey="machines" exportName="machines" defaultSortKey="code"
         empty={<EmptyState icon={<PrecisionManufacturingRounded />} title={filtered ? 'No machine matches' : 'No machines yet'}
-          hint={filtered ? 'Try another search, type or status.'
+          hint={filtered ? (scope !== 'all' && all.length > 0 && !debounced && !typeId && !status ? 'No machine can run an operation yet — set one up on an operation’s machine rules, or show All machines.' : 'Try another search, type or status. The asset register is under All machines.')
             : types.length === 0 ? 'A machine sits on a machine type — what kind of machine it is. Add the first type, then the machines themselves.'
             : 'Add the machines you have, each on one of your machine types.'}
           action={!filtered && canManage && (
