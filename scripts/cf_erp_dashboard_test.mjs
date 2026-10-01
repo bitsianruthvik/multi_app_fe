@@ -73,10 +73,37 @@ const machine = (over) => ({
   reasons: [{ id: 4, code: 'BREAKDOWN', label: 'Breakdown', minutes: 90, count: 2 }, { id: 5, code: 'POWER', label: 'Power cut', minutes: 30, count: 1 }],
   operators: [{ id: 7, name: 'Ravi', minutes: 700 }],
   days: [day('2026-09-28', 420, 300, 60), day('2026-09-29', 420, 360, 60, 60), day('2026-09-30', 420, 180, 0)],
+  time: cncTime,
   ...over,
 });
+// Where the shift time went: buckets that add up to the shift exactly (as the backend sends them).
+const B = (key, label, kind, minutes, extra = {}) => ({ key, label, kind, minutes, ...extra });
+const R = (id, code, label, kind, sortOrder) => ({ key: `reason:${id}`, reasonId: id, code, label, kind, sortOrder });
+const SETUP = R(3, 'SETUP', 'Setup / changeover', 'planned', 70), BRK = R(4, 'BREAKDOWN', 'Breakdown', 'unplanned', 40), PWR = R(5, 'POWER', 'Power cut', 'unplanned', 50), CRN = R(6, 'CRANE', 'Waiting for crane', 'unplanned', 20), DRW = R(7, 'DRAWING', 'Waiting for drawing', 'unplanned', 100);
+const cncTime = { noShift: false, shiftMinutes: 1440, netShiftMinutes: 1260, overtimeMinutes: 60, stopOutsideShiftMinutes: 0, utilisationPct: 66.7, buckets: [
+  B('run', 'Running', 'run', 840), { ...SETUP, minutes: 60, stops: 1 }, B('break', 'Break (shift pattern)', 'break', 180), { ...BRK, minutes: 90, stops: 2 }, { ...PWR, minutes: 30, stops: 1 }, B('unrecorded', 'Not recorded', 'unrecorded', 240),
+] };
+const sawTime = { noShift: false, shiftMinutes: 1440, netShiftMinutes: 1260, overtimeMinutes: 140, stopOutsideShiftMinutes: 0, utilisationPct: 20.6, buckets: [
+  B('run', 'Running', 'run', 260), B('break', 'Break (shift pattern)', 'break', 180), { ...CRN, minutes: 90, stops: 2 }, B('unrecorded', 'Not recorded', 'unrecorded', 910),
+] };
+const paintTime = { noShift: true, shiftMinutes: 0, netShiftMinutes: 0, overtimeMinutes: 0, stopOutsideShiftMinutes: 0, utilisationPct: null, buckets: [B('run', 'Running', 'run', 0)] };
+const path = (...ns) => ns.map(([id, name], depth) => ({ id, name, depth, level: ['Family', 'Subfamily', 'Variant'][depth] }));
+const roll = (t, n, noShift = 0) => ({ machines: n, noShiftMachines: noShift, noShiftRunMinutes: 0, ...t });
+const time = {
+  plant: roll({ shiftMinutes: 2880, netShiftMinutes: 2520, overtimeMinutes: 200, stopOutsideShiftMinutes: 0, utilisationPct: 43.7, buckets: [
+    B('run', 'Running', 'run', 1100), { ...SETUP, minutes: 60, stops: 1 }, B('break', 'Break (shift pattern)', 'break', 360), { ...CRN, minutes: 90, stops: 2 }, { ...BRK, minutes: 90, stops: 2 }, { ...PWR, minutes: 30, stops: 1 }, B('unrecorded', 'Not recorded', 'unrecorded', 1150),
+  ] }, 3, 1),
+  types: [
+    { id: 10, name: 'CNC cutting', path: path([1, 'Machines'], [2, 'Cutting'], [10, 'CNC cutting']), machineIds: [1], ...roll(cncTime, 1) },
+    { id: 12, name: 'Painting', path: path([1, 'Machines'], [3, 'Finishing'], [12, 'Painting']), machineIds: [3], ...roll(paintTime, 1, 1) },
+    { id: 11, name: 'Welding', path: path([1, 'Machines'], [4, 'Joining'], [11, 'Welding']), machineIds: [2], ...roll(sawTime, 1) },
+  ],
+  reasons: [{ ...SETUP, minutes: 60, stops: 1, machines: 1 }, { ...CRN, minutes: 90, stops: 2, machines: 1 }, { ...BRK, minutes: 90, stops: 2, machines: 1 }, { ...PWR, minutes: 30, stops: 1, machines: 1 }, { ...DRW, minutes: 0, stops: 0, machines: 0 }],
+  noShift: [{ id: 3, code: 'PAINT-01', name: 'Paint booth', typeId: 12, runMinutes: 0, stopMinutes: 0 }],
+};
 const machines = {
   period,
+  time,
   plant: {
     machines: 3, runningNow: 1, stoppedNow: 1, idleInShiftNow: 0, offShiftNow: 1, withoutShifts: 1,
     shiftMin: 2520, runMin: 1300, runInShiftMin: 1100, overtimeMin: 60, stopMin: 300, notRecordedMin: 900,
@@ -91,10 +118,10 @@ const machines = {
     machine({ id: 2, code: 'SAW-01', name: 'SAW welder', type: { id: 11, name: 'Welding' }, utilisationPct: 20.6, runInShiftMin: 260, runMin: 400, stopMin: 180, stopInShiftMin: 180, notRecordedMin: 660,
       now: { state: 'stopped', inShift: true, running: [], stop: { reason: 'Waiting for crane', since: '2026-09-30T11:15:00' }, lastActivityAt: '2026-09-30T11:15:00' },
       output: { operationsDone: 18, stepsWorked: 18, piecesGood: 40, piecesScrap: 0, tonnes: null, unweighedSessions: 4 },
-      reasons: [{ id: 6, code: 'CRANE', label: 'Waiting for crane', minutes: 90, count: 2 }] }),
+      reasons: [{ id: 6, code: 'CRANE', label: 'Waiting for crane', minutes: 90, count: 2 }], time: sawTime }),
     machine({ id: 3, code: 'PAINT-01', name: 'Paint booth', type: { id: 12, name: 'Painting' }, hasShifts: false, shiftMin: 0, runInShiftMin: 0, runMin: 0, overtimeMin: null, stopMin: 0, stopInShiftMin: 0, notRecordedMin: 0, utilisationPct: null,
       now: { state: 'off_shift', inShift: false, running: [], stop: null, lastActivityAt: null }, reasons: [], days: [day('2026-09-28', 0, 0, 0), day('2026-09-29', 0, 0, 0), day('2026-09-30', 0, 0, 0)],
-      output: { operationsDone: 0, stepsWorked: 0, piecesGood: 0, piecesScrap: 0, tonnes: 0, unweighedSessions: 0 } }),
+      output: { operationsDone: 0, stepsWorked: 0, piecesGood: 0, piecesScrap: 0, tonnes: 0, unweighedSessions: 0 }, time: paintTime }),
   ],
   meta: { queries: 9, stages: 2, ms: 40 },
 };
@@ -220,7 +247,99 @@ await check('machine cards: worst utilisation first; status in words; no shifts 
   assert.match(cards[1].textContent, /1 h OT/);
   assert.match(cards[2].textContent, /no shifts/);
   assert.ok(cards[1].querySelector('[data-testid="sparkline"]'), 'a daily sparkline');
-  assert.ok(cards[1].querySelector('[data-seg="run"]') && cards[1].querySelector('[data-seg="gap"]'), 'run and not-recorded segments');
+  assert.ok(cards[1].querySelector('[data-seg="run"]') && cards[1].querySelector('[data-seg="unrecorded"]'), 'run and not-recorded segments');
+  await React.act(() => root.unmount());
+});
+const dbl = async (el) => { await React.act(async () => { el.dispatchEvent(new window.MouseEvent('dblclick', { bubbles: true })); }); await settle(); };
+const segPcts = (bar) => [...bar.querySelectorAll('[data-seg]')].map((x) => Number(x.getAttribute('data-pct')));
+await check('where the shift time went: lib — colours per bucket kind, areas as the planner groups them, top buckets', () => {
+  const st = L.bucketStyles(time.reasons);
+  assert.equal(st.run.color, 'var(--c-state-running)');
+  assert.ok(st.unrecorded.hatch);
+  assert.match(st['reason:3'].color, /info-600.*neutral-600/, 'planned = blue-grey');
+  assert.match(st['reason:4'].color, /danger-600.*warning-600/, 'unplanned = amber → red');
+  assert.notEqual(st['reason:4'].color, st['reason:5'].color, 'one shade per unplanned reason');
+  const areas = L.timeAreas(time.types);
+  assert.deepEqual(areas.map((a) => a.name), ['Cutting', 'Finishing', 'Joining']);
+  assert.equal(areas[0].shiftMinutes, 1440);
+  assert.equal(areas[0].buckets.reduce((s, b) => s + b.minutes, 0), 1440);
+  assert.equal(L.topBucketsText(cncTime), 'Running 58% · Not recorded 17% · Break (shift pattern) 13%');
+});
+await check('where the shift time went: one row per type under its area, each a 100 % bar; no shift reads so', async () => {
+  const root = await show('/testco/cf_erp/management');
+  assert.equal(byTestId('shift-time').length, 1);
+  assert.deepEqual(byTestId('time-area-row').map((r) => r.getAttribute('data-area')), ['Cutting', 'Finishing', 'Joining']);
+  const rows = byTestId('time-type-row');
+  assert.deepEqual(rows.map((r) => r.getAttribute('data-type')), ['CNC cutting', 'Painting', 'Welding']);
+  for (const r of [rows[0], rows[2]]) {
+    const bar = r.querySelector('[data-testid="time-bar"]');
+    assert.ok(bar, 'a bar');
+    assert.ok(Math.abs(segPcts(bar).reduce((a, b) => a + b, 0) - 100) < 0.05, `${r.getAttribute('data-type')} adds to 100: ${segPcts(bar)}`);
+  }
+  assert.match(rows[0].textContent, /Running 58% · Not recorded 17% · Break \(shift pattern\) 13%/);
+  assert.match(rows[0].textContent, /67%/); assert.match(rows[0].textContent, /1 h/);
+  assert.match(rows[2].textContent, /21%.*2\.3 h/);
+  assert.match(rows[1].textContent, /No shift in the period/);
+  assert.match(byTestId('time-no-shift')[0].textContent, /PAINT-01/);
+  assert.ok(rows[0].querySelector('[data-seg="reason:4"]') && rows[0].querySelector('[data-seg="unrecorded"]'), 'reason and not-recorded segments');
+  assert.match(rows[0].querySelector('[data-testid="time-bar"]').getAttribute('aria-label'), /CNC cutting: Running 58%/);
+  await React.act(() => root.unmount());
+});
+await check('double-click a type row opens its machines with a breadcrumb; Collapse closes; the chevron does the same', async () => {
+  const root = await show('/testco/cf_erp/management');
+  const cnc = byTestId('time-type-row').find((r) => r.getAttribute('data-type') === 'CNC cutting');
+  assert.equal(byTestId('time-machines').length, 0);
+  await dbl(cnc);
+  const block = byTestId('time-machines')[0];
+  assert.ok(block, 'machines shown');
+  assert.match(block.querySelector('[data-testid="time-breadcrumb"]').textContent, /All machines › Cutting › CNC cutting/);
+  assert.deepEqual(byTestId('time-machine-row').map((r) => r.getAttribute('data-machine')), ['CNC-01']);
+  const mbar = byTestId('time-machine-row')[0].querySelector('[data-testid="time-bar"]');
+  assert.ok(Math.abs(segPcts(mbar).reduce((a, b) => a + b, 0) - 100) < 0.05);
+  assert.equal(cnc.querySelector('[data-testid="time-expand"]').getAttribute('aria-expanded'), 'true');
+  await click(block.querySelector('[data-testid="time-collapse"]'));
+  assert.equal(byTestId('time-machines').length, 0);
+  const weld = byTestId('time-type-row').find((r) => r.getAttribute('data-type') === 'Welding');
+  await click(weld.querySelector('[data-testid="time-expand"]'));
+  assert.deepEqual(byTestId('time-machine-row').map((r) => r.getAttribute('data-machine')), ['SAW-01']);
+  await click(byTestId('time-collapse-all')[0]);
+  assert.equal(byTestId('time-machines').length, 0);
+  await React.act(() => root.unmount());
+});
+await check('double-click a machine row (or its open button) opens the machine sheet with its 100 % bar', async () => {
+  const root = await show('/testco/cf_erp/management');
+  await dbl(byTestId('time-type-row').find((r) => r.getAttribute('data-type') === 'CNC cutting'));
+  await dbl(byTestId('time-machine-row')[0]);
+  const sheet = document.querySelector('[data-testid="machine-sheet"]');
+  assert.ok(sheet, 'sheet open');
+  assert.match(sheet.textContent, /CNC-01/);
+  const st = sheet.querySelector('[data-testid="sheet-time"]');
+  assert.ok(st, 'its shift time');
+  assert.match(st.textContent, /Breakdown · 2×.*1\.5 h.*6%/);
+  await React.act(() => root.unmount());
+  const root2 = await show('/testco/cf_erp/management');
+  await click(byTestId('time-type-row').find((r) => r.getAttribute('data-type') === 'Welding').querySelector('[data-testid="time-expand"]'));
+  await click(byTestId('time-open-machine')[0]);
+  assert.match(document.querySelector('[data-testid="machine-sheet"]').textContent, /SAW-01/);
+  await React.act(() => root2.unmount());
+});
+await check('the legend lists every reason with hours and %; a click highlights it on every bar', async () => {
+  const root = await show('/testco/cf_erp/management');
+  const items = byTestId('time-legend-item');
+  assert.deepEqual(items.map((i) => i.getAttribute('data-key')), ['run', 'reason:3', 'break', 'reason:6', 'reason:4', 'reason:5', 'reason:7', 'unrecorded']);
+  const brk = items.find((i) => i.getAttribute('data-key') === 'reason:4');
+  assert.match(brk.textContent, /Breakdown.*1\.5 h · 3%/);
+  assert.match(items.find((i) => i.getAttribute('data-key') === 'reason:7').textContent, /Waiting for drawing.*0 h · 0%/);
+  assert.match(items.find((i) => i.getAttribute('data-key') === 'reason:3').textContent, /planned/);
+  await click(brk);
+  assert.equal(brk.getAttribute('aria-pressed'), 'true');
+  const cnc = byTestId('time-type-row').find((r) => r.getAttribute('data-type') === 'CNC cutting');
+  assert.equal(cnc.querySelector('[data-seg="reason:4"]').getAttribute('data-dim'), '0');
+  assert.equal(cnc.querySelector('[data-seg="run"]').getAttribute('data-dim'), '1');
+  assert.match(cnc.querySelector('[data-testid="time-caption"]').textContent, /Breakdown 6% · 1\.5 h · 2 stops/);
+  await click(brk);
+  assert.equal(brk.getAttribute('aria-pressed'), 'false');
+  assert.equal(cnc.querySelector('[data-seg="run"]').getAttribute('data-dim'), '0');
   await React.act(() => root.unmount());
 });
 await check('the type filter narrows the cards', async () => {

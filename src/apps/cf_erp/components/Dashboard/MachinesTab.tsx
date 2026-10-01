@@ -1,7 +1,13 @@
 /**
  * Dashboard › By machine. The plant first (utilisation, where the time went,
- * what came out), then one card per machine, worst first, and a side sheet with
- * a machine's days and its stop reasons.
+ * what came out), then "Where the shift time went" (ShiftTime.tsx: area › type ›
+ * machine, each a 100 % bar of its shift), then one card per machine, worst first,
+ * and a side sheet with a machine's days and its stop reasons.
+ *
+ * The cards stay (not folded into the drill-down): the table answers "where did the
+ * time go"; a card answers "what is this machine doing now and what did it make" —
+ * status, output, tonnes, pace — which a row of bars has no room for. Both use the
+ * same buckets and colours (TimeBar), so a card's bar is the row's bar.
  *
  * Utilisation = run time inside the shifts ÷ shift time so far (breaks of the
  * shift pattern already off it). It is the one number a plant owner asks for,
@@ -15,13 +21,14 @@ import OpenInNewRounded from '@mui/icons-material/OpenInNewRounded';
 import type { DashMachine, MachinesDashboard } from '../../api/dashboard';
 import {
   MACHINE_SORTS, MACHINE_STATE, type MachineSort, filterMachines, hoursText, machineNowText, pctText, periodLabel, shiftShares,
-  sortMachines, tonnesText, utilisationTone, dateLabel, nothingLogged,
+  sortMachines, tonnesText, utilisationTone, dateLabel, nothingLogged, bucketStyles, type BucketStyle,
 } from '../../lib/dashboard';
 import { useCompanySlug } from '../../hooks/useLoad';
 import { appPath } from '../../navMeta';
 import { EmptyState, Mono, SectionCard, Surface } from '../ui';
 import { DailyBars, Legend, Pareto, ShareBar, Sparkline } from './charts';
 import { Dot, EstimateTag, Tile, TileGrid } from './DashParts';
+import { ShiftTimeTable, TimeBar } from './ShiftTime';
 
 const SEG = {
   run: { color: 'var(--c-state-running)', label: 'Running in shift' },
@@ -40,6 +47,7 @@ export function MachinesTab({ data, atRisk }: { data: MachinesDashboard; atRisk?
   const plantShares = shiftShares({ shiftMin: p.shiftMin, runInShiftMin: p.runInShiftMin, stopInShiftMin: data.machines.reduce((t, m) => t + m.stopInShiftMin, 0), notRecordedMin: p.notRecordedMin });
   const window = periodLabel(data.period.from, data.period.to);
   const plantBlank = nothingLogged(p);
+  const styles = useMemo(() => bucketStyles(data.time?.reasons ?? []), [data.time]);
 
   if (!data.machines.length) {
     return <EmptyState title="No active machines" hint="Add machines and their shifts under Production › Machines; their work shows here once the machine log is used." />;
@@ -52,7 +60,8 @@ export function MachinesTab({ data, atRisk }: { data: MachinesDashboard; atRisk?
           value={plantBlank ? '—' : pctText(p.utilisationPct)}
           hint="Run time inside the shifts ÷ shift time so far, all machines. Breaks in the shift pattern are already taken off the shift time."
           sub={plantBlank ? 'Nothing in the machine log for this period yet' : <>{hoursText(p.runInShiftMin)} run of {hoursText(p.shiftMin)} shift</>}>
-          {plantShares && <Box sx={{ mt: 0.75 }}><ShareBar label="Plant shift time" segments={[
+          {data.time && data.time.plant.shiftMinutes > 0 && <Box sx={{ mt: 0.75 }}><TimeBar label="Plant shift time" shiftMinutes={data.time.plant.shiftMinutes} buckets={data.time.plant.buckets} styles={styles} height={10} /></Box>}
+          {!data.time && plantShares && <Box sx={{ mt: 0.75 }}><ShareBar label="Plant shift time" segments={[
             { key: 'run', value: plantShares.run, ...SEG.run }, { key: 'stop', value: plantShares.stop, ...SEG.stop },
             { key: 'gap', value: plantShares.gap, ...SEG.gap }, { key: 'other', value: plantShares.other, ...SEG.other },
           ]} /></Box>}
@@ -73,6 +82,8 @@ export function MachinesTab({ data, atRisk }: { data: MachinesDashboard; atRisk?
         <Tile testId="tile-now" label="Machines now" value={`${p.runningNow} / ${p.machines}`}
           sub={<>running · {p.stoppedNow > 0 ? <Box component="span" sx={{ color: 'var(--c-danger-800)' }}>{p.stoppedNow} stopped</Box> : '0 stopped'} · {p.idleInShiftNow > 0 ? <Box component="span" sx={{ color: 'var(--c-warning-800)' }}>{p.idleInShiftNow} idle in shift</Box> : '0 idle'}{atRisk && (atRisk.late + atRisk.atRisk) > 0 ? ` · ${atRisk.late + atRisk.atRisk} orders late or at risk` : ''}</>} />
       </TileGrid>
+
+      <ShiftTimeTable data={data} onOpenMachine={setOpen} />
 
       <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: '2fr 1fr' }, gap: 1.5, mb: 2.5 }}>
         <SectionCard title="Where the time went, day by day" subtitle={`All machines · ${window}`}
@@ -100,16 +111,16 @@ export function MachinesTab({ data, atRisk }: { data: MachinesDashboard; atRisk?
         ? <EmptyState title="No machine matches" hint="Clear the type filter or the search." />
         : (
           <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(290px, 1fr))', gap: 1.5 }}>
-            {shown.map((m) => <MachineCard key={m.id} m={m} now={data.period.now} onOpen={() => setOpen(m)} />)}
+            {shown.map((m) => <MachineCard key={m.id} m={m} now={data.period.now} styles={styles} onOpen={() => setOpen(m)} />)}
           </Box>
         )}
-      <Legend items={[{ ...SEG.run }, { ...SEG.stop }, { ...SEG.gap }, { color: 'var(--c-surface-3)', label: 'Break / not yet' }]} />
-      <MachineSheet m={open} period={window} now={data.period.now} onClose={() => setOpen(null)} />
+      {!data.time && <Legend items={[{ ...SEG.run }, { ...SEG.stop }, { ...SEG.gap }, { color: 'var(--c-surface-3)', label: 'Break / not yet' }]} />}
+      <MachineSheet m={open} period={window} now={data.period.now} styles={styles} onClose={() => setOpen(null)} />
     </Box>
   );
 }
 
-function MachineCard({ m, now, onOpen }: { m: DashMachine; now: string; onOpen: () => void }) {
+function MachineCard({ m, now, onOpen, styles }: { m: DashMachine; now: string; onOpen: () => void; styles: Record<string, BucketStyle> }) {
   const st = MACHINE_STATE[m.now.state];
   const shares = shiftShares(m);
   const blank = nothingLogged(m);
@@ -135,7 +146,9 @@ function MachineCard({ m, now, onOpen }: { m: DashMachine; now: string; onOpen: 
           <Typography sx={{ fontSize: 10, color: 'var(--c-text-3)' }}>{!m.hasShifts ? 'no shifts' : blank ? 'nothing logged' : 'utilisation'}</Typography>
         </Box>
       </Box>
-      {shares ? (
+      {m.time && !m.time.noShift ? (
+        <TimeBar label={`${m.code} shift time`} shiftMinutes={m.time.shiftMinutes} buckets={m.time.buckets} styles={styles} height={10} />
+      ) : shares ? (
         <ShareBar label={`${m.code} shift time`} segments={[
           { key: 'run', value: shares.run, ...SEG.run }, { key: 'stop', value: shares.stop, ...SEG.stop },
           { key: 'gap', value: shares.gap, ...SEG.gap }, { key: 'other', value: shares.other, ...SEG.other },
@@ -179,7 +192,7 @@ function Fig({ label, value, note, warn, danger }: { label: string; value: strin
 }
 
 /** One machine over the period: its days, why it stopped, who ran it. */
-function MachineSheet({ m, period, now, onClose }: { m: DashMachine | null; period: string; now: string; onClose: () => void }) {
+function MachineSheet({ m, period, now, onClose, styles }: { m: DashMachine | null; period: string; now: string; onClose: () => void; styles: Record<string, BucketStyle> }) {
   const company = useCompanySlug();
   return (
     <Drawer anchor="right" open={!!m} onClose={onClose} PaperProps={{ sx: { width: { xs: '100%', sm: 520 }, background: 'var(--c-canvas)' } }}>
@@ -203,6 +216,25 @@ function MachineSheet({ m, period, now, onClose }: { m: DashMachine | null; peri
               sub={<>{hoursText(m.standard.earnedMin)} standard in {hoursText(m.runMin)} run{m.standard.coveragePct != null && m.standard.coveragePct < 100 ? ` · ${pctText(m.standard.coveragePct)} of jobs have a time` : ''}</>}
               estimate />
           </Box>
+          {m.time && !m.time.noShift && (
+            <SectionCard title="Where its shift time went" subtitle={`100 % = ${hoursText(m.time.shiftMinutes)} of shift${m.time.overtimeMinutes ? ` · plus ${hoursText(m.time.overtimeMinutes)} overtime` : ''}`}>
+              <Box data-testid="sheet-time">
+                <TimeBar label={`${m.code} shift time`} shiftMinutes={m.time.shiftMinutes} buckets={m.time.buckets} styles={styles} />
+                <Box sx={{ display: 'grid', gridTemplateColumns: '1fr auto auto', columnGap: 1.5, rowGap: 0.4, mt: 1, fontSize: 12 }}>
+                  {m.time.buckets.filter((b) => b.minutes > 0).map((b) => (
+                    <Box key={b.key} sx={{ display: 'contents' }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, minWidth: 0 }}>
+                        <Box sx={{ width: 10, height: 10, borderRadius: '3px', flexShrink: 0, background: styles[b.key]?.hatch ? `repeating-linear-gradient(135deg, ${styles[b.key].color} 0 2px, transparent 2px 4px)` : (styles[b.key]?.color ?? 'var(--c-text-3)') }} />
+                        <Box sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{b.label}{b.stops ? ` · ${b.stops}×` : ''}</Box>
+                      </Box>
+                      <Box sx={{ fontFamily: 'var(--font-mono)', textAlign: 'right' }}>{hoursText(b.minutes)}</Box>
+                      <Box sx={{ fontFamily: 'var(--font-mono)', textAlign: 'right', color: 'var(--c-text-2)' }}>{pctText((b.minutes / m.time!.shiftMinutes) * 100)}</Box>
+                    </Box>
+                  ))}
+                </Box>
+              </Box>
+            </SectionCard>
+          )}
           <SectionCard title="Day by day" subtitle="Run in shift, overtime and stopped, against the shift">
             {m.days.length > 1 ? <DailyBars days={m.days} height={100} /> : (
               <Box sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>

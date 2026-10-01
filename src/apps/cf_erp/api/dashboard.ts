@@ -16,9 +16,35 @@ export interface ReasonMinutes { id: number; code: string; label: string; minute
 
 export interface MachineDay { date: string; shift: number; run: number; runIn: number; stop: number; overtime: number; tonnes: number; utilisationPct?: number | null }
 
+/**
+ * Where the shift time went (dashboardService.accountShiftTime). The buckets of a
+ * machine add up to its shiftMinutes EXACTLY (whole minutes): Running, each stop
+ * reason, the shift pattern's Break, and Not recorded. shiftMinutes is the shift
+ * WINDOW time so far (the break is a bucket, not taken off); overtime (work outside
+ * the shift) and stops outside the shift are reported beside it, never inside.
+ */
+export type TimeBucketKind = 'run' | 'planned' | 'unplanned' | 'break' | 'unrecorded';
+export interface TimeBucket {
+  /** 'run' | 'break' | 'unrecorded' | 'reason:<id>' */
+  key: string; label: string; kind: TimeBucketKind; minutes: number;
+  reasonId?: number; code?: string | null; stops?: number; sortOrder?: number;
+}
+export interface TimeAccount {
+  shiftMinutes: number; buckets: TimeBucket[]; overtimeMinutes: number; stopOutsideShiftMinutes: number;
+  /** Running ÷ (shift − the pattern's break) — the cards' utilisation */
+  utilisationPct: number | null;
+}
+export interface MachineTime extends TimeAccount { noShift: boolean; netShiftMinutes: number }
+export interface TimeRollup extends TimeAccount { machines: number; noShiftMachines: number; noShiftRunMinutes: number; netShiftMinutes: number }
+export interface TypeTime extends TimeRollup { id: number | null; name: string; path: TypePathNode[]; machineIds: number[] }
+export interface ReasonLegend { key: string; reasonId: number; code: string | null; label: string; kind: 'planned' | 'unplanned'; sortOrder: number; minutes: number; stops: number; machines: number }
+export interface TypePathNode { id: number; name: string; depth: number; level?: string }
+
 export interface DashMachine {
   id: number; code: string; name: string;
-  type: { id: number; name: string } | null;
+  type: { id: number; name: string; path?: TypePathNode[] } | null;
+  /** absent only in replies from before 2026-10-01 */
+  time?: MachineTime;
   hasShifts: boolean;
   now: {
     state: MachineState; inShift: boolean;
@@ -50,6 +76,13 @@ export interface MachinesDashboard {
   };
   types: { id: number; name: string }[];
   machines: DashMachine[];
+  time?: {
+    plant: TimeRollup;
+    types: TypeTime[];
+    /** every active reason (and any with time), planned first — the legend */
+    reasons: ReasonLegend[];
+    noShift: { id: number; code: string; name: string; typeId: number | null; runMinutes: number; stopMinutes: number }[];
+  };
   meta: DashMeta;
 }
 

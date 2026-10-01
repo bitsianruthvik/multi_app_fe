@@ -1,4 +1,6 @@
-import type { DashMachine, DashOrder, MachineState, MaterialStatus, RiskStatus } from '../api/dashboard';
+import type { DashMachine, DashOrder, MachineState, MaterialStatus, ReasonLegend, RiskStatus, TimeBucket, TimeBucketKind, TypeTime } from '../api/dashboard';
+import { machineAreas } from './planner/areas';
+import type { PlannerFunction } from './planner/types';
 
 /**
  * The management dashboard's pure helpers: periods, how numbers read, what a
@@ -206,4 +208,90 @@ export function croreText(n: number | null | undefined, missing = '—'): string
   if (a >= 1e7) return `${sign}₹${f(a / 1e7)} Cr`;
   if (a >= 1e5) return `${sign}₹${f(a / 1e5)} L`;
   return `${sign}₹${new Intl.NumberFormat('en-IN', { maximumFractionDigits: 0 }).format(a)}`;
+}
+
+/* ── Where the shift time went ───────────────────────────────────────────── */
+
+export interface BucketStyle { color: string; hatch?: boolean; label: string; kind: TimeBucketKind }
+
+/**
+ * One colour per bucket, the same on every bar of the page: Running green; planned stops
+ * blue-grey shades; the break light grey; unplanned stops amber → red, one shade per reason in
+ * the legend's order (so a reason keeps its colour across rows and periods); not recorded hatched
+ * grey. Shades are mixed from the design tokens so dark mode follows.
+ */
+export function bucketStyles(reasons: ReasonLegend[]): Record<string, BucketStyle> {
+  const out: Record<string, BucketStyle> = {
+    run: { color: 'var(--c-state-running)', label: 'Running', kind: 'run' },
+    break: { color: 'color-mix(in srgb, var(--c-text-3) 28%, var(--c-surface))', label: 'Break (shift pattern)', kind: 'break' },
+    unrecorded: { color: 'var(--c-text-3)', hatch: true, label: 'Not recorded', kind: 'unrecorded' },
+  };
+  const planned = reasons.filter((r) => r.kind === 'planned');
+  const unplanned = reasons.filter((r) => r.kind !== 'planned');
+  planned.forEach((r, i) => {
+    const p = planned.length > 1 ? Math.round(15 + (i / (planned.length - 1)) * 35) : 30;
+    out[r.key] = { color: `color-mix(in srgb, var(--c-info-600) ${p}%, var(--c-neutral-600))`, label: r.label, kind: 'planned' };
+  });
+  unplanned.forEach((r, i) => {
+    const p = unplanned.length > 1 ? Math.round((i / (unplanned.length - 1)) * 100) : 50;
+    out[r.key] = { color: `color-mix(in srgb, var(--c-danger-600) ${p}%, var(--c-warning-600))`, label: r.label, kind: 'unplanned' };
+  });
+  return out;
+}
+/** A bucket's style, with a fallback for a reason missing from the legend. */
+export function styleOf(styles: Record<string, BucketStyle>, b: TimeBucket): BucketStyle {
+  return styles[b.key] ?? { color: b.kind === 'planned' ? 'var(--c-neutral-600)' : 'var(--c-danger-600)', label: b.label, kind: b.kind };
+}
+
+/** The biggest buckets as "Running 52% · Not recorded 30% · Breakdown 8%". */
+export function topBucketsText(t: { shiftMinutes: number; buckets: TimeBucket[] }, n = 3): string {
+  if (!t.shiftMinutes) return '';
+  return [...t.buckets].filter((b) => b.minutes > 0).sort((a, b) => b.minutes - a.minutes).slice(0, n)
+    .map((b) => `${b.label} ${pctText((b.minutes / t.shiftMinutes) * 100)}`).join(' · ');
+}
+
+/** Σ of several accounts' buckets by key (whole minutes, so the sum still adds up). */
+export function sumBuckets(items: { buckets: TimeBucket[] }[]): TimeBucket[] {
+  const by = new Map<string, TimeBucket>();
+  for (const it of items) for (const b of it.buckets) {
+    const cur = by.get(b.key) ?? { ...b, minutes: 0, stops: b.stops == null ? undefined : 0 };
+    cur.minutes += b.minutes;
+    if (b.stops != null) cur.stops = (cur.stops ?? 0) + b.stops;
+    by.set(b.key, cur);
+  }
+  const rank: Record<TimeBucketKind, number> = { run: 0, planned: 1, break: 2, unplanned: 3, unrecorded: 4 };
+  return [...by.values()].sort((a, b) => rank[a.kind] - rank[b.kind] || (a.sortOrder ?? 0) - (b.sortOrder ?? 0) || a.label.localeCompare(b.label));
+}
+
+export interface TimeArea {
+  key: string; name: string; level: string;
+  types: TypeTime[];
+  shiftMinutes: number; buckets: TimeBucket[]; overtimeMinutes: number; machines: number; utilisationPct: number | null;
+}
+
+/**
+ * The machine types grouped into AREAS the way the planner groups them (lib/planner/areas.ts:
+ * the shallowest level of the type tree giving 4–10 areas). A type with no tree node at that level
+ * is an area of its own; "no machine type" goes last.
+ */
+export function timeAreas(types: TypeTime[]): TimeArea[] {
+  const typed = types.filter((t) => t.id != null);
+  const fns: PlannerFunction[] = typed.map((t) => ({ key: String(t.id), name: t.name, machines: t.machines, path: t.path }));
+  const set = machineAreas(fns);
+  const byKey = new Map(typed.map((t) => [String(t.id), t]));
+  const build = (key: string, name: string, ts: TypeTime[]): TimeArea => {
+    const shiftMinutes = ts.reduce((s, t) => s + t.shiftMinutes, 0);
+    const buckets = sumBuckets(ts);
+    const run = buckets.find((b) => b.key === 'run')?.minutes ?? 0;
+    const net = ts.reduce((s, t) => s + (t.netShiftMinutes ?? 0), 0);
+    return {
+      key, name, level: set.level, types: [...ts].sort((a, b) => a.name.localeCompare(b.name)),
+      shiftMinutes, buckets, overtimeMinutes: ts.reduce((s, t) => s + t.overtimeMinutes, 0), machines: ts.reduce((s, t) => s + t.machines, 0),
+      utilisationPct: net > 0 && shiftMinutes > 0 ? Math.round((run / net) * 1000) / 10 : null,
+    };
+  };
+  const out = set.areas.filter((a) => !a.unlimited).map((a) => build(a.key, a.name, a.fnKeys.map((k) => byKey.get(k)).filter((t): t is TypeTime => !!t)));
+  const none = types.filter((t) => t.id == null);
+  if (none.length) out.push(build('none', 'No machine type', none));
+  return out;
 }
