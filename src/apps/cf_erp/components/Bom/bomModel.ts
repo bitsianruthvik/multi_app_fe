@@ -408,6 +408,33 @@ export function pasteRefusal(source: StructureNode, sourceKey: string, target: S
   return null;
 }
 
+// ── One name per row ─────────────────────────────────────────────────────────
+
+const squash = (t: string | null | undefined) => (t ?? '').trim().replace(/\s+/g, ' ').toLowerCase();
+/** Same text apart from case and spacing. */
+export const sameName = (a: string | null | undefined, b: string | null | undefined): boolean => squash(a) === squash(b);
+/**
+ * A row is named by what it holds. Its role ("name in this parent") is shown
+ * only when it says something else — never the same text twice. The system's
+ * own roles (Raw plate, Cut from) differ from the part's name, so they stay.
+ */
+export const roleShown = (name: string, role: string | null | undefined): string | null => {
+  const r = (role ?? '').trim();
+  return r && !sameName(r, name) ? r : null;
+};
+/** The label of a row: the child's name, then its distinct role. */
+export const rowLabel = (name: string, role: string | null | undefined): string => {
+  const r = roleShown(name, role);
+  return r ? `${name} · ${r}` : name;
+};
+
+/** Adding the same item to a parent twice: the second use needs its own name. Null when nothing is wrong. */
+export const nameProblem = (childId: number, siblingIds: number[], role: string, childName: string): string | null => {
+  if (!siblingIds.includes(childId)) return null;
+  if (!role.trim()) return 'This item is already in this BOM — give this use a name so the two can be told apart.';
+  return sameName(role, childName) ? 'Needs a name different from the item’s own.' : null;
+};
+
 // ── Automatic cut pieces ─────────────────────────────────────────────────────
 
 /** Rows the system makes by itself under every plate part: the cut plate it is cut from, and that cut plate's raw-plate line (cutPlateService roles). */

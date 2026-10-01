@@ -9,7 +9,7 @@ import { appPath } from '../../navMeta';
 import { recordPath } from '../../lib/paths';
 import { Badge, KindChip, Mono, StatusBadge, WarnBadge, type Family } from '../ui';
 import { FlowTag } from '../FlowTag';
-import type { BomRow } from './bomModel';
+import { rowLabel, type BomRow } from './bomModel';
 
 /** What a row offers, in the order a menu shows it. */
 export type BomAction = 'add' | 'choose' | 'change' | 'remove';
@@ -244,7 +244,7 @@ export function BomTree({
                       {n.selection && !n.resolved && <WarnBadge label="Choose item" title={`Choose a catalog item for ${n.selection.code ?? n.selection.name}.`} />}
                     </Box>
                     <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', ...(look?.strike && STRUCK) }}>
-                      {n.name}{n.role ? ` · ${n.role}` : ''}{n.selection && n.resolved ? ` · for ${n.selection.code ?? n.selection.name}` : ''}
+                      {rowLabel(n.name, n.role)}{n.selection && n.resolved ? ` · for ${n.selection.code ?? n.selection.name}` : ''}
                     </Typography>
                   </Box>
                 </Box>

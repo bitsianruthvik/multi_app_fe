@@ -5,7 +5,7 @@ import CloseRounded from '@mui/icons-material/CloseRounded';
 import EditOutlined from '@mui/icons-material/EditOutlined';
 import { SheetGrid, type SheetCell, type SheetGridHandle, type SheetWrite } from '@shared/ui';
 import { effectiveCell, type ValuesColumn, type ValuesView } from '../Values/valuesModel';
-import { ownInput, valueEditable, type BomRow, type Pending } from './bomModel';
+import { ownInput, valueEditable, rowLabel, type BomRow, type Pending } from './bomModel';
 import type { SpecValues } from './useSpecValues';
 import type { RowMark } from './BomTree';
 import type { DropPosition } from './bomArrangement';
@@ -160,7 +160,7 @@ export function BomGrid({ rows, view, records: recordValues, recordIds, pending,
             ) : (
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25, minWidth: 0 }}>
                 <Box onDoubleClick={roleEditable ? () => startRole(row) : undefined} title={roleEditable ? 'Double-click to change the description' : undefined}
-                  sx={{ fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>{n.name}{roleText ? ` · ${roleText}` : ''}</Box>
+                  sx={{ fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>{rowLabel(n.name, roleText)}</Box>
                 {roleEditable && <Tooltip title="Change the description"><IconButton size="small" aria-label={`Edit description of ${n.name}`} onClick={() => startRole(row)} sx={{ p: 0.25, color: 'var(--c-text-3)' }}><EditOutlined sx={{ fontSize: 14 }} /></IconButton></Tooltip>}
               </Box>
             )}
@@ -202,7 +202,7 @@ export function BomGrid({ rows, view, records: recordValues, recordIds, pending,
       <DialogTitle>Move {moveDialog?.node.name}<IconButton aria-label="Close move options" onClick={() => setMoveDialog(null)} sx={{ position: 'absolute', right: 8, top: 8 }}><CloseRounded /></IconButton></DialogTitle>
       <DialogContent sx={{ display: 'grid', gap: 2, pt: '16px !important' }}>
         <TextField select label="Position" value={movePosition} onChange={(e) => setMovePosition(e.target.value as DropPosition)}><MenuItem value="before">Before</MenuItem><MenuItem value="after">After</MenuItem><MenuItem value="inside">Inside, as its last child</MenuItem></TextField>
-        <TextField select label="Row" value={moveTarget} onChange={(e) => setMoveTarget(e.target.value)}>{rows.map((r) => <MenuItem key={r.node.key} value={r.node.key}>{'— '.repeat(r.node.depth)}{r.node.name}{r.node.role ? ` · ${r.node.role}` : ''}</MenuItem>)}</TextField>
+        <TextField select label="Row" value={moveTarget} onChange={(e) => setMoveTarget(e.target.value)}>{rows.map((r) => <MenuItem key={r.node.key} value={r.node.key}>{'— '.repeat(r.node.depth)}{rowLabel(r.node.name, r.node.role)}</MenuItem>)}</TextField>
         {moveTarget && moveWhy && <Alert severity="info">{moveWhy}</Alert>}
       </DialogContent>
       <DialogActions><Button onClick={() => setMoveDialog(null)}>Cancel</Button><Button variant="contained" disabled={!!moveWhy || busy} onClick={() => { if (moveDialog && targetRow) onMove(moveDialog, targetRow, movePosition); setMoveDialog(null); }}>Move row</Button></DialogActions>

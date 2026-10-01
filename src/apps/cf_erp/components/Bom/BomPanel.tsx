@@ -888,6 +888,7 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
         onConfirm={async () => { setConfirming(null); await save(); }} />
       <AddChildDialog open={!!adding && addingKinds.length > 0} parentId={adding?.id ?? 0} parentLabel={adding?.code ?? adding?.name ?? ''}
         allowedKinds={addingKinds} custom={addingBomType === 'custom'}
+        siblingIds={(adding?.children ?? []).filter((n) => !isCutPiece(n)).map((n) => n.id)}
         onClose={() => setAdding(null)}
         onDone={() => {
           // Open what was just added to, or the new line lands out of sight.
@@ -896,6 +897,7 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
           bom.reload();
         }} />
       <EditLineDialog open={!!editing} lineId={editing?.node.lineId ?? null} label={editing ? (editing.node.code ?? editing.node.name) : ''}
+        childName={editing?.node.name ?? ''} repeats={!!editing?.parent && editing.parent.children.filter((n) => n.id === editing.node.id).length > 1}
         quantity={editing?.node.quantity ?? 1} role={editing?.node.role ?? null}
         flowId={editing?.node.flow?.from === 'line' ? editing.node.flow.id : null}
         canHaveFlow={!!editing && !editing.node.selection && editing.node.kind !== 'selection'} custom={editing?.bomType === 'custom'}

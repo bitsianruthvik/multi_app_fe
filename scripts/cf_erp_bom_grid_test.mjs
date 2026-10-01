@@ -163,6 +163,25 @@ await check('Only rows that may be edited offer the description editor', () => {
   assert.equal(document.querySelectorAll('[aria-label^="Edit description of"]').length, 1);
   assert.ok(document.querySelector('[aria-label="Edit description of Row 4"]'));
 });
+await check('One name per row: a role that repeats the name is not shown twice', async () => {
+  assert.equal(m.rowLabel('Web', 'web'), 'Web');
+  assert.equal(m.rowLabel('Web', '  WEB  '), 'Web');
+  assert.equal(m.rowLabel('Top  flange', 'top flange'), 'Top  flange');
+  assert.equal(m.rowLabel('Cover plate', 'Top flange outer'), 'Cover plate · Top flange outer');
+  assert.equal(m.rowLabel('Plate (cut to size)', 'Raw plate'), 'Plate (cut to size) · Raw plate');
+  assert.equal(m.rowLabel('Web', null), 'Web');
+  await render({ ...roleGrid, roleOf: (r) => (r.node.id === 5 ? 'row 5' : roles[r.node.id] ?? r.node.role) });
+  assert.doesNotMatch(document.body.textContent, /Row 5 · row 5/i);
+  assert.match(document.body.textContent, /Row 5/);
+  assert.match(document.body.textContent, /Row 4 · Girder G1/);
+  await render(roleGrid);
+});
+await check('Adding the same item twice asks for a name that differs from the item’s own', () => {
+  assert.equal(m.nameProblem(7, [3, 4], '', 'Web'), null);
+  assert.match(m.nameProblem(4, [3, 4], '', 'Web'), /already in this BOM/);
+  assert.match(m.nameProblem(4, [3, 4], ' web ', 'Web'), /different/);
+  assert.equal(m.nameProblem(4, [3, 4], 'Web 2', 'Web'), null);
+});
 await check('Edit icon opens an input; Enter saves the typed description', async () => {
   await fire(document.querySelector('[aria-label="Edit description of Row 4"]'), 'click');
   const input = document.querySelector('input[aria-label="Description of Row 4"]');
