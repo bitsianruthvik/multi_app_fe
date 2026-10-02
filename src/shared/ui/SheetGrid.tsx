@@ -645,12 +645,6 @@ export function SheetGrid({
     setAnchor({ row: 0, col: from }); setExtent({ row: rows.length - 1, col });
     focus({ row: 0, col });
   };
-  /** Strip: a label selects that cell down its group of identical rows. */
-  const selectSlot = (top: number, bottom: number, col: number, extend: boolean) => {
-    const from = extend && anchor ? anchor.col : col;
-    setAnchor({ row: top, col: from }); setExtent({ row: bottom, col });
-    focus({ row: top, col });
-  };
   const selectRow = (key: string) => {
     const idx = (rowSelect ? rowSelect(key) : [key]).map((k) => rowIndex.get(k)).filter((i): i is number => i != null);
     if (!idx.length) return;
@@ -667,16 +661,6 @@ export function SheetGrid({
   const widthOf = (key: string | undefined) => (key ? colByKey.get(key)?.stripWidth ?? STRIP_WIDTH : STRIP_WIDTH);
   /** Strip: each slot is as wide as the widest cell any row puts there. */
   const slotWidths = stripKeys ? Array.from({ length: slotCount }, (_, i) => Math.max(...stripKeys.map((ks) => (ks[i] ? widthOf(ks[i]) : 0)), 40)) : [];
-  /** Strip: where each run of identically-shaped rows ends (by its first row). */
-  const groupEnd = new Map<number, number>();
-  if (stripKeys) {
-    for (let r = 0; r < rows.length; r++) {
-      if (!keysOf(r).length || (r > 0 && keysOf(r - 1).length && sigOf(r - 1) === sigOf(r))) continue;
-      let end = r;
-      while (end + 1 < rows.length && sigOf(end + 1) === sigOf(r)) end++;
-      groupEnd.set(r, end);
-    }
-  }
   const hasEditable = () => rows.some((r) => (rowColumns ? rowColumns(r.key) : allKeys).some((k) => colByKey.has(k) && cellAtRaw(r.key, k).editable));
 
   const dataCell = (row: SheetRow, r: number, c: number) => {
@@ -685,7 +669,7 @@ export function SheetGrid({
     const tone = cell.tone ?? 'normal', blank = tone === 'blank', can = writable(cell), na = isNa(cell);
     const width = stripKeys ? slotWidths[c] : col.width ?? 145;
     const label = labelOf(key);
-    return <Box component="td" key={stripKeys ? `${c}:${key}` : key} role="gridcell" data-cell={`${r}:${c + 1}`} data-col-key={key} className="sg-data" data-tone={tone} data-na={na ? 'true' : undefined} data-state={cell.state}
+    return <Box component="td" key={stripKeys ? `${c}:${key}` : key} role="gridcell" data-cell={`${r}:${c + 1}`} data-col-key={key} data-name={stripKeys && !blank ? `${col.short ?? col.label ?? key}${col.unit ? ` ${col.unit}` : ''}` : undefined} className="sg-data" data-tone={tone} data-na={na ? 'true' : undefined} data-state={cell.state}
       data-dropdown={isDropdown(cell) && can ? 'true' : undefined}
       tabIndex={same(anchor, at) || (!anchor && r === 0 && c === 0) ? 0 : -1} aria-selected={active} aria-readonly={!can} aria-disabled={na || undefined}
       title={na ? cell.why ?? cell.title ?? 'Does not apply to this row' : cell.title ?? cell.why ?? cell.text}
@@ -704,6 +688,12 @@ export function SheetGrid({
         ...(blank ? { borderRightColor: 'transparent', borderBottomColor: 'transparent' } : {}),
         outline: same(anchor, at) ? '2px solid var(--c-primary-600)' : undefined,
         ...(isDropdown(cell) && can && !editing ? { pr: 2.25 } : {}),
+        ...(stripKeys && !blank ? {
+          pt: '13px', pb: '3px', verticalAlign: 'bottom',
+          // Strip: the cell names itself — a small muted label inside the box, the value below — so no row of column headings is needed.
+          // A pseudo-element, so the cell's own text stays just its value (copy, tests and readers see the value).
+          '&::before': { content: 'attr(data-name)', position: 'absolute', top: 2, left: 6, right: 14, fontSize: 9.5, lineHeight: 1.1, color: 'var(--c-text-3)', fontWeight: 400, fontFamily: 'var(--font-ui)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', pointerEvents: 'none', textAlign: 'left' },
+        } : {}),
       }}>
       {cell.mark != null && <Box component="span" data-mark="" sx={{ position: 'absolute', top: 2, right: 2, lineHeight: 0, fontSize: 8, pointerEvents: 'none' }}>{cell.mark}</Box>}
       {/* A dropdown says so before it is opened. */}
@@ -712,7 +702,7 @@ export function SheetGrid({
         onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) commit(); }}
         onKeyDown={(e) => onEditorKey(e, at, cell)}>
         {cell.kind === 'option' || cell.kind === 'bool'
-          ? <select autoFocus value={editor.text} aria-label={label} onChange={(e) => setEditor({ ...editor, text: e.target.value })} style={{ width: '100%', minHeight: 28 }}
+          ? <select autoFocus value={editor.text} aria-label={label} onChange={(e) => setEditor({ ...editor, text: e.target.value })} style={{ width: '100%', minHeight: stripKeys ? 20 : 28 }}
             ref={(el) => {
               if (!el || !wantPicker.current) return;
               wantPicker.current = false;
@@ -739,7 +729,7 @@ export function SheetGrid({
           </select>
           : <input autoFocus type={cell.kind === 'date' ? 'date' : 'text'} inputMode={cell.kind === 'number' ? 'decimal' : undefined} aria-label={label}
             value={editor.text} onChange={(e) => setEditor({ ...editor, text: e.target.value })}
-            style={{ width: '100%', minHeight: 28, boxSizing: 'border-box', font: 'inherit', color: 'var(--c-text)', background: 'var(--c-surface)', border: 0, outline: 0, textAlign: col.align ?? 'left' }} />}
+            style={{ width: '100%', minHeight: stripKeys ? 20 : 28, boxSizing: 'border-box', font: 'inherit', color: 'var(--c-text)', background: 'var(--c-surface)', border: 0, outline: 0, textAlign: col.align ?? 'left' }} />}
       </Box> : blank || na ? '' : cell.text || (can ? '' : '—')}
     </Box>;
   };
@@ -747,24 +737,6 @@ export function SheetGrid({
   const resizeHandle = resizableRowHeader ? <Box component="span" role="separator" aria-orientation="vertical" aria-label="Drag to resize the first column (double-click resets)" title="Drag to resize · double-click to reset" data-testid="sheet-grid-resize"
     onPointerDown={dragHead} onDoubleClick={resetHead} onClick={(e) => e.stopPropagation()}
     sx={{ position: 'absolute', top: 0, right: 0, bottom: 0, width: 6, cursor: 'col-resize', touchAction: 'none', zIndex: 5, '&:hover, &:active': { background: 'color-mix(in srgb, var(--c-primary-600) 35%, transparent)' } }} /> : null;
-  const stripHead = !!stripKeys && groupEnd.size > 0;
-
-  /** Strip: the short labels over a run of identically-shaped rows. */
-  const labelRow = (r: number) => {
-    const ks = keysOf(r), end = groupEnd.get(r) ?? r;
-    return <tr key={`labels:${rows[r].key}`} className="sg-labelrow" role="row" data-labels-for={rows[r].key}>
-      <td className="sg-rowhead sg-labelhead sg-corner" data-sticky={stickyHeader ? 'true' : undefined} style={{ textAlign: 'left', fontWeight: 600, zIndex: 4 }}>{cornerHeader}{resizeHandle}</td>
-      {ks.map((k, i) => {
-        const col = colByKey.get(k) as SheetColumn, first = cellOf({ row: r, col: i }), dd = isDropdown(first) && writable(first);
-        return <td key={k} role="columnheader" className="sg-label" data-label={k} title={`${col.label ?? k}${col.unit ? ` (${col.unit})` : ''} — click to select it down these rows`}
-          onClick={(e) => selectSlot(r, end, i, e.shiftKey)} style={{ width: slotWidths[i], minWidth: slotWidths[i], maxWidth: slotWidths[i], textAlign: col.align ?? 'left' }}>
-          {col.short ?? col.label ?? k}{col.unit && <Box component="span" sx={{ fontFamily: 'var(--font-mono)', ml: 0.5 }}>{col.unit}</Box>}{dd && <Box component="span" aria-label="drop-down" sx={{ ml: 0.25 }}>▾</Box>}
-        </td>;
-      })}
-      {ks.length < slotCount && <td className="sg-void" colSpan={slotCount - ks.length} />}
-    </tr>;
-  };
-
   const lineUpButton = (
     <Box sx={lineUpSlot ? undefined : { display: 'flex', justifyContent: 'flex-end', mb: 0.5 }}>
       {/* A button, not a checkbox input: screens find their cell editor as "the input". */}
@@ -797,25 +769,23 @@ export function SheetGrid({
           '& tbody tr:hover td.sg-data:not([data-na="true"])': { backgroundImage: 'linear-gradient(color-mix(in srgb, var(--c-primary-600) 6%, transparent), color-mix(in srgb, var(--c-primary-600) 6%, transparent))' },
           '& .sg-data': { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFamily: 'var(--font-mono)', position: 'relative' },
           // Strip: the labels are quiet — small, muted, no box of their own — and the space past a row's last cell is nothing.
-          '& .sg-labelrow td': { ...headSticky, zIndex: 3, boxShadow: stickyHeader ? '0 1px 0 var(--c-divider)' : undefined, height: 16, py: 0.125, pt: 0.25, fontSize: 10.5, lineHeight: 1.1, color: 'var(--c-text-3)', borderBottom: 0, borderRightColor: 'transparent', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', background: 'var(--c-surface)' },
-          '& .sg-labelrow td.sg-label': { cursor: 'pointer', '&:hover': { color: 'var(--c-primary-700)' } },
           '& td.sg-void': { borderRightColor: 'transparent', borderBottomColor: 'transparent', background: 'var(--c-surface)' },
         }}>
         {stripKeys && <colgroup>
           <col style={{ width: capped(headW) }} />
           {slotWidths.map((w, i) => <col key={i} style={{ width: w }} />)}
         </colgroup>}
-        {!stripHead && <thead><tr>
+        <thead><tr>
           <th scope="col" className="sg-corner" data-sticky={stickyHeader ? 'true' : undefined}>
             {cornerHeader}
             {resizeHandle}
           </th>
           {stripKeys
-            ? slotCount > 0 && <th scope="colgroup" colSpan={slotCount} style={{ cursor: 'default', fontWeight: 400, color: 'var(--c-text-3)', fontSize: 11 }}>Each row shows only its own cells</th>
+            ? slotCount > 0 && <th scope="colgroup" colSpan={slotCount} aria-label="Each cell carries its own name" style={{ cursor: 'default', padding: 0 }} />
             : columns.map((col, i) => <th key={col.key} scope="col" data-col={i} style={{ width: col.width ?? 145, minWidth: col.width ?? 145, maxWidth: col.width ?? 145, textAlign: col.align ?? 'left' }}
               onClick={(e) => { if ((e.target as HTMLElement).closest('button, input, select, a')) return; selectColumn(i, e.shiftKey); }}>{col.header}</th>)}
-        </tr></thead>}
-        <tbody>{rows.flatMap((row, r) => {
+        </tr></thead>
+        <tbody>{rows.map((row, r) => {
           const extra = rowProps?.(row.key);
           const len = keysOf(r).length;
           const tr = <Box component="tr" key={row.key} aria-level={(row.depth ?? 0) + 1} aria-expanded={row.collapsible ? !row.collapsed : undefined} {...extra}
@@ -837,7 +807,7 @@ export function SheetGrid({
             {Array.from({ length: len }, (_, c) => dataCell(row, r, c))}
             {len < slotCount && <td className="sg-void" colSpan={slotCount - len} />}
           </Box>;
-          return groupEnd.has(r) ? [labelRow(r), tr] : [tr];
+          return [tr];
         })}</tbody>
       </Box>
       {footer}

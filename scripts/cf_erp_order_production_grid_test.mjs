@@ -192,19 +192,19 @@ const heads = () => [...document.querySelectorAll('thead th')].map((th) => th.te
 /** The data cell of a row under a column: 0 = Done (%), 1.. = the operation with that id. Null when the row has no such cell (strip layout). */
 const cell = (id, col) => tr(id)?.querySelector(`td[role="gridcell"][data-col-key="${col === 0 ? 'pct' : col}"]`) ?? null;
 /** The short labels drawn over a row's run of identical rows (strip layout). */
-const labelsOver = (id) => [...(document.querySelector(`tr[data-labels-for="${id}"]`)?.querySelectorAll('td.sg-label') ?? [])].map((td) => td.textContent);
+const labelsOver = (id) => [...document.querySelectorAll(`tr[data-row="${id}"] td.sg-data`)].map((td) => td.getAttribute('data-name'));
 
 await check('the grid: codes down the left, Done then the operations across in flow order, opened to the level under the top pieces', async () => {
   const root = await render(grid());
   await waitFor(() => rowIds().length > 0, 'rows');
   assert.deepEqual(rowIds(), ['l1', 'p1', 'p2', 'p3']);
-  assert.equal(document.querySelector('.sg-labelrow td.sg-corner')?.textContent, 'Piece', 'the corner text rides on the sticky label line (no separate header row)');
+  assert.equal(document.querySelector('thead th.sg-corner')?.textContent, 'Piece', 'the corner text is the tree column header');
   // Each row shows only its own cells, a short label above: Done, then its operations in flow order.
   assert.equal(document.querySelector('table').dataset.layout, 'strip');
   assert.deepEqual(labelsOver('l1'), ['Done', 'Cutting', 'Fit-up', 'Welding']);
   assert.deepEqual(labelsOver('p2'), ['Done', 'Cutting', 'Welding'], 'G1 has no Fit-up, so no Fit-up cell');
   assert.deepEqual(labelsOver('p3'), ['Done', 'Cutting', 'Fit-up']);
-  assert.equal(document.querySelector('tr[data-labels-for="p1"]'), null, 'p1 is shaped like l1: one label line for both');
+  assert.equal(document.querySelectorAll('.sg-labelrow').length, 0, 'no label lines');
   assert.equal(calls.filter((c) => c.p === '/tracker/grid').length >= 1, true);
   await unmount(root);
 });

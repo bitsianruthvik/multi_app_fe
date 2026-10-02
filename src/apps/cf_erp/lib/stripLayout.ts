@@ -25,6 +25,32 @@ export function dimensionsFirst(codes: readonly string[]): string[] {
   return codes.some((c) => DIMS.has(c)) ? [...DIMENSION_CODES, ...rest] : rest;
 }
 
+/**
+ * Read-only roll-ups (a weight worked out from the rows below) are not something a person types, so they close the row
+ * rather than sit among the cells to fill in (user, 2026-10-02: "relevant ones only", roll-ups at the end).
+ */
+export const ROLLUP_CODES = ['WEIGHT'] as const;
+export function rollupsLast(codes: readonly string[]): string[] {
+  const roll = new Set<string>(ROLLUP_CODES);
+  return [...codes.filter((c) => !roll.has(c)), ...codes.filter((c) => roll.has(c))];
+}
+
+/**
+ * Whether a row's Total cell says anything: it is quantity × the quantities above, so on a row whose total equals its own
+ * quantity it only repeats it.
+ */
+export function totalAdds(quantity: number, total: number): boolean {
+  return Number(quantity) !== Number(total);
+}
+
+/**
+ * SHIP_UNIT ("Ships as one unit") is assigned on the whole Family, so every part carries the question although only an
+ * assembly (something with rows below it) or a row that already answered it is a shipping-mark candidate.
+ */
+export function shipUnitRelevant(hasChildren: boolean, ownValue: string, missing: boolean): boolean {
+  return hasChildren || ownValue !== '' || missing;
+}
+
 /** Well-known specs get a word a fitter would write on a drawing. */
 const SHORT: Record<string, string> = {
   THICKNESS: 'Thk', LENGTH: 'L', WIDTH: 'W', DEPTH: 'D', DIAMETER: 'Dia', SECTION_AREA: 'Area', WEIGHT: 'Wt',

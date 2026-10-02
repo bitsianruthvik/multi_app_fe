@@ -520,7 +520,7 @@ const sProps = () => ({ rows: sRows, columns: sCols, rowColumns: (k) => shape[k]
   onSelectionChange: (s) => { sSel = s; },
   // The screen stores what it is given, so a committed value persists in the cell.
   onWrites: (w) => { sWrites = w; for (const x of w) sData[x.rowKey][x.colKey] = x.text; root.render(React.createElement(m.SheetGrid, sProps())); } });
-const labelsOver = (k) => [...(document.querySelector(`tr[data-labels-for="${k}"]`)?.querySelectorAll('td.sg-label') ?? [])].map((td) => td.textContent);
+const labelsOver = (k) => [...document.querySelectorAll(`tr[data-row="${k}"] td.sg-data`)].map((td) => td.getAttribute('data-name'));
 const keyOf = (r, c) => cell(r, c)?.getAttribute('data-col-key');
 await blank();
 await render(sProps());
@@ -530,15 +530,15 @@ await check('Strip: each row draws only its own cells, in its own order', () => 
   assert.equal(cell(0, 2), null, 'the parent has one cell'); assert.equal(cell(3, 3), null, 'the bolt has two');
   assert.deepEqual([keyOf(3, 1), keyOf(3, 2)], ['qty', 'note']);
 });
-await check('Strip: short labels with mono units sit above the cells; a drop-down label says ▾', () => {
+await check('Strip: each cell carries its short label and unit inside the box', () => {
   assert.deepEqual(labelsOver('p1'), ['Qty']);
-  assert.deepEqual(labelsOver('r1'), ['Thkmm', 'Lmm', 'Wmm', 'Grade▾']);
+  assert.deepEqual(labelsOver('r1'), ['Thk mm', 'L mm', 'W mm', 'Grade']);
   assert.deepEqual(labelsOver('r3'), ['Qty', 'Note']);
 });
-await check('Strip: identical rows next to each other share ONE label line; a different row starts a new one', () => {
-  assert.equal(document.querySelector('tr[data-labels-for="r2"]'), null, 'r2 is shaped like r1');
-  assert.ok(document.querySelector('tr[data-labels-for="r3"]'));
-  assert.ok(document.querySelector('tr[data-labels-for="r4"]'), 'r4 follows a different row, so it gets its own line');
+await check('Strip: no label lines or group header rows at all — every cell names itself, n/a cells are simply absent', () => {
+  assert.equal(document.querySelectorAll('.sg-labelrow, tr[data-labels-for]').length, 0);
+  assert.equal(document.querySelectorAll('thead th').length, 2, 'only the corner and one empty filler cell');
+  assert.ok([...document.querySelectorAll('td.sg-data')].every((td) => td.getAttribute('data-name')), 'each data cell has its name');
   assert.equal(document.querySelectorAll('td[data-na="true"]').length, 0, 'nothing hatched: absent cells are simply absent');
 });
 await check('Strip: a drop-down cell shows ▾', () => {
@@ -620,11 +620,6 @@ await check('Strip fill-down from a single cell copies the nearest row above wit
   await fire(cell(4, 3), 'click'); await fire(cell(4, 3), 'keydown', { key: 'd', ctrlKey: true });
   assert.deepEqual(sWrites, [{ rowKey: 'r4', colKey: 'wid', text: '600' }]);
 });
-await check('Strip: clicking a label selects that cell down its run of identical rows', async () => {
-  await fire(document.querySelector('tr[data-labels-for="r1"] td[data-label="len"]'), 'click');
-  assert.deepEqual(sSel.cells, [{ rowKey: 'r1', colKey: 'len' }, { rowKey: 'r2', colKey: 'len' }]);
-  assert.deepEqual(sSel.cols, ['len']);
-});
 await check('Strip: a selection across differently-shaped rows names its cells exactly', async () => {
   await fire(cell(2, 1), 'click'); await fire(cell(3, 2), 'click', { shiftKey: true });
   assert.deepEqual(sSel.cells, [{ rowKey: 'r2', colKey: 'thk' }, { rowKey: 'r2', colKey: 'len' }, { rowKey: 'r3', colKey: 'qty' }, { rowKey: 'r3', colKey: 'note' }]);
@@ -677,12 +672,12 @@ await check('Sticky heading: the header cells are position: sticky and a fillVie
   assert.ok(/position: ?sticky/.test(css) && /top: ?0/.test(css), 'sticky header CSS present');
   void html;
 });
-await check('Strip: no separate top header row — each label line is the sticky heading and carries the corner and resize handle', async () => {
+await check('Strip: the only heading is the tree column header, with the corner text and the resize handle', async () => {
   await blank(); await render({ ...sProps(), cornerHeader: 'BOM line', stickyHeader: true });
-  assert.equal(document.querySelectorAll('thead').length, 0, 'the duplicate top header row is gone');
-  const first = document.querySelector('.sg-labelrow td.sg-corner');
-  assert.ok(first && first.textContent.includes('BOM line'), 'the label line carries the corner text');
-  assert.ok(document.querySelector('.sg-labelrow [data-testid="sheet-grid-resize"]'), 'and the resize handle');
+  assert.equal(document.querySelectorAll('.sg-labelrow').length, 0, 'no label lines');
+  const corner = document.querySelector('thead th.sg-corner');
+  assert.ok(corner && corner.textContent.includes('BOM line'), 'the corner text');
+  assert.ok(corner.querySelector('[data-testid="sheet-grid-resize"]'), 'and the resize handle');
   assert.ok(/position: ?sticky/.test(allCss()), 'sticky CSS');
 });
 

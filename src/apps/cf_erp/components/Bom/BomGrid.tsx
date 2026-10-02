@@ -9,7 +9,7 @@ import { ownInput, valueEditable, rowLabel, type BomRow, type Pending } from './
 import type { SpecValues } from './useSpecValues';
 import type { RowMark } from './BomTree';
 import type { DropPosition } from './bomArrangement';
-import { DIMENSION_CODES, dimensionsFirst, isDimension, shortLabel } from '../../lib/stripLayout';
+import { DIMENSION_CODES, dimensionsFirst, isDimension, rollupsLast, shipUnitRelevant, shortLabel, totalAdds } from '../../lib/stripLayout';
 
 export interface GridWrite { row: BomRow; code: string; text: string; saved: string }
 type Cell = { text: string; input: string; saved: string; editable: boolean; why?: string; applies?: boolean; type?: string; options?: { id: number; value: string; label?: string | null }[] };
@@ -93,7 +93,10 @@ export function BomGrid({ rows, view, records: recordValues, recordIds, pending,
   const shown = [...dims, ...used.filter((c) => !isDimension(c.code))];
   const columns: { code: string; name: string; unit?: string | null; dataType?: string }[] = [{ code: '$quantity', name: 'Quantity' }, { code: '$total', name: 'Total' }, ...shown];
   /** Strip layout: this row's own cells — quantity and total, then its values with the dimensions first. */
-  const rowColumns = (row: BomRow) => ['$quantity', '$total', ...dimensionsFirst(shown.filter((c) => uses(row, c.code)).map((c) => c.code))];
+  const rowColumns = (row: BomRow) => {
+    const own = shown.filter((c) => uses(row, c.code) && (c.code !== 'SHIP_UNIT' || shipUnitRelevant(row.hasChildren, cellAt(row, c).input, !!gaps?.get(row.node.id)?.includes(c.code)))).map((c) => c.code);
+    return ['$quantity', ...(totalAdds(row.node.quantity, row.node.total) ? ['$total'] : []), ...rollupsLast(dimensionsFirst(own))];
+  };
   const rowByKey = useMemo(() => new Map(rows.map((r) => [r.node.key, r])), [rows]);
   const colByKey = new Map(columns.map((c) => [c.code, c]));
   /** The tooltip of a cell whose variable the row's definition or item does not have. */

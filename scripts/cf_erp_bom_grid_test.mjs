@@ -288,6 +288,14 @@ await check('Record BOM rows show their position code, the same child twice with
   await render();
 });
 // ── strip layout: dimensions first (Thk · L · W), only a row's own cells ─────
+await check('Relevance: Total only when it differs from Qty; Ship unit only on assemblies / answered rows; roll-up weight last', () => {
+  assert.equal(m.totalAdds(1, 1), false); assert.equal(m.totalAdds(2, 4), true);
+  assert.equal(m.shipUnitRelevant(false, '', false), false, 'a part with no answer carries no ship-unit cell');
+  assert.equal(m.shipUnitRelevant(true, '', false), true, 'an assembly does');
+  assert.equal(m.shipUnitRelevant(false, 'true', false), true, 'a row that answered keeps it');
+  assert.equal(m.shipUnitRelevant(false, '', true), true, 'a required-but-missing value is never hidden');
+  assert.deepEqual(m.rollupsLast(['WEIGHT', 'GRADE', 'SHIP_UNIT']), ['GRADE', 'SHIP_UNIT', 'WEIGHT']);
+});
 await check('dimensionsFirst: one dimension → all three lead, in the order Thk, L, W', () => {
   assert.deepEqual(m.DIMENSION_CODES, ['THICKNESS', 'LENGTH', 'WIDTH']);
   assert.deepEqual(m.dimensionsFirst(['GRADE', 'WIDTH']), ['THICKNESS', 'LENGTH', 'WIDTH', 'GRADE']);
@@ -315,7 +323,7 @@ const dimView = { editable: true, optionLists: {}, groups: [{ columns: [
 await render({ ...props, view: dimView });
 const rowIdx = (id) => rs.findIndex((r) => r.node.id === id);
 const keysIn = (id) => [...document.querySelectorAll(`[data-cell^="${rowIdx(id)}:"][data-col-key]`)].map((td) => td.getAttribute('data-col-key'));
-const labelsAbove = (id) => [...(document.querySelector(`tr[data-labels-for="k${id}"]`)?.querySelectorAll('td.sg-label') ?? [])].map((td) => td.textContent);
+const labelsAbove = (id) => [...document.querySelectorAll(`[data-cell^="${rowIdx(id)}:"][data-col-key]`)].map((td) => td.getAttribute('data-name'));
 await check('Structure grid draws the strip layout by default', () => assert.equal(document.querySelector('table').getAttribute('data-layout'), 'strip'));
 await check('A row with ONE dimension shows all three first (Thk · L · W); the ones it lacks are n/a so rows line up', () => {
   assert.deepEqual(keysIn(4), ['$quantity', '$total', 'THICKNESS', 'LENGTH', 'WIDTH', 'GRADE']);
@@ -329,9 +337,10 @@ await check('A row with NO dimension skips them altogether', () => {
   assert.deepEqual(keysIn(5), ['$quantity', '$total', 'GRADE']);
   assert.deepEqual(keysIn(3), ['$quantity', '$total']);
 });
-await check('Short labels above each row\'s own cells, units in mono, ▾ on a drop-down', () => {
-  assert.deepEqual(labelsAbove(4), ['Qty', 'Total', 'Thkmm', 'Lmm', 'Wmm', 'Grade▾']);
-  assert.deepEqual(labelsAbove(5), ['Qty', 'Total', 'Grade▾']);
+await check('Each cell names itself inside the box (short label + unit); no label lines; a drop-down keeps its caret', () => {
+  assert.equal(document.querySelectorAll('.sg-labelrow').length, 0, 'no label lines');
+  assert.deepEqual(labelsAbove(4), ['Qty', 'Total', 'Thk mm', 'L mm', 'W mm', 'Grade']);
+  assert.deepEqual(labelsAbove(5), ['Qty', 'Total', 'Grade']);
   const grade = document.querySelector(`[data-cell^="${rowIdx(4)}:"][data-col-key="GRADE"]`);
   assert.equal(grade.getAttribute('data-dropdown'), 'true');
 });

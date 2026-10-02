@@ -143,10 +143,10 @@ await check('merged tab: the stage screens no longer draw a separate Values pane
 await React.act(() => root.render(React.createElement(m.BomGrid, props(rows, m.computeGaps(view, undefined)))));
 const keysOfRow = (id) => { const i = rows.findIndex((r) => r.node.id === id); return [...document.querySelectorAll(`[data-cell^="${i}:"][data-col-key]`)].map((td) => td.getAttribute('data-col-key')); };
 await check('values grid: one dimension (LENGTH on a shared row) → all three shown, Thk · L · W', () => {
-  assert.deepEqual(keysOfRow(3), ['$quantity', '$total', 'THICKNESS', 'LENGTH', 'WIDTH']);
+  assert.deepEqual(keysOfRow(3), ['$quantity', 'THICKNESS', 'LENGTH', 'WIDTH']);
 });
 await check('values grid: a row with no dimension skips them', () => {
-  assert.deepEqual(keysOfRow(7), ['$quantity', '$total']);
+  assert.deepEqual(keysOfRow(7), ['$quantity']);
 });
 await check('values grid: the missing ones stay amber in the strip', () => {
   const i = rows.findIndex((r) => r.node.id === 4);
