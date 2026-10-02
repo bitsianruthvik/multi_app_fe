@@ -4,7 +4,9 @@ import {
   TextField, ToggleButton, ToggleButtonGroup, Typography,
 } from '@mui/material';
 import { cfApi, CfApiError } from '../api/client';
-import type { Sourcing, DraftPreview, MasterRecord, Resolution, ResolvedSpec, Tree } from '../api/types';
+import type { Sourcing, DraftPreview, MasterRecord, Resolution, ResolvedSpec, ScreenTree, Tree } from '../api/types';
+import { useLoad } from '../hooks/useLoad';
+import { screenTreePath } from '../lib/classificationScreens';
 import { SOURCING_HELP, SOURCING_OPTIONS } from '../lib/records';
 import { toInputString } from '../lib/tree';
 import { ClassificationPicker } from './ClassificationPicker';
@@ -64,7 +66,7 @@ function skipWord(s: ResolvedSpec): string {
  * Temporary items are not created here: they belong to a sales order line and
  * will be created by the order and BOM screens.
  */
-export function CreateRecordDialog({ open, onClose, onCreated, recordKind, tree, initialClassificationId, copyFrom, onTreeChanged }: {
+export function CreateRecordDialog({ open, onClose, onCreated, recordKind, tree, initialClassificationId, copyFrom, onTreeChanged, screen }: {
   open: boolean;
   onClose: () => void;
   onCreated: (r: MasterRecord) => void;
@@ -75,8 +77,13 @@ export function CreateRecordDialog({ open, onClose, onCreated, recordKind, tree,
   copyFrom?: MasterRecord | null;
   /** A Variant was created from the picker — the screen that owns the tree reads it again. */
   onTreeChanged?: () => void;
+  /** The screen whose derived tree `tree` is: the picker's "Show all branches", and what a new Variant is stamped with. */
+  screen?: 'items' | 'definitions';
 }) {
   const isItem = recordKind === 'item';
+  // A selection searches CATALOG items, so its search area is picked from the
+  // Items screen's tree — read only when a definition form is open.
+  const itemsTree = useLoad(() => (open && !isItem ? cfApi.get<ScreenTree>(screenTreePath('items')) : Promise.resolve(null)), [open, isItem]);
   const copyId = copyFrom?.id ?? null;
   const [definitionType, setDefinitionType] = useState<'template' | 'selection'>('template');
   const [classificationId, setClassificationId] = useState<number | null>(null);
@@ -267,7 +274,7 @@ export function CreateRecordDialog({ open, onClose, onCreated, recordKind, tree,
           {/* The Variant that is missing is made from the list itself — this
               form keeps everything typed into it while that happens. */}
           <ClassificationPicker tree={tree} value={classificationId} onChange={setClassificationId} scope={isItem ? 'item' : 'definition'}
-            required autoFocus={!startFilled} allowCreate onTreeChanged={onTreeChanged}
+            required autoFocus={!startFilled} allowCreate onTreeChanged={onTreeChanged} screen={screen}
             helperText="Rules set on this Variant and above decide which specifications apply. Not there? Create it from the list." />
           <TextField label="Name" value={name} autoFocus={startFilled} onChange={(e) => setName(e.target.value)} placeholder={preview?.name?.text ?? ''}
             helperText={copyFrom ? 'Generated — the source’s name is not reused' : 'Leave empty to use the naming rule'} />
@@ -303,7 +310,7 @@ export function CreateRecordDialog({ open, onClose, onCreated, recordKind, tree,
                 <MenuItem value="spec_match">Matching specifications</MenuItem>
                 <MenuItem value="both">Both</MenuItem>
               </TextField>
-              <ClassificationPicker tree={tree} value={candidateClassificationId} onChange={setCandidateClassificationId} leafOnly={false} label="Search within (optional)" />
+              <ClassificationPicker tree={itemsTree.data ?? tree} value={candidateClassificationId} onChange={setCandidateClassificationId} leafOnly={false} label="Search within (optional)" screen="items" />
             </>
           )}
         </Box>

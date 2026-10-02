@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
-import { Autocomplete, Box, Button, TextField, ToggleButton, ToggleButtonGroup } from '@mui/material';
-import { cfApi, qs } from '../api/client';
+import { Box, Button, TextField, ToggleButton, ToggleButtonGroup } from '@mui/material';
+import { cfApi } from '../api/client';
 import type { OrderType, Party, SalesOrder } from '../api/types';
-import { useLoad } from '../hooks/useLoad';
 import { FormDialog } from './FormDialog';
 import { PartyDialog } from './PartyDialog';
+import { PartyPicker } from './ServerPicker';
 
 /**
  * A new order: a customer order starts as an inquiry, a stock order as a
@@ -16,7 +16,6 @@ export function NewOrderDialog({ open, onClose, onCreated }: { open: boolean; on
   const [customer, setCustomer] = useState<Party | null>(null);
   const [form, setForm] = useState({ title: '', customerReference: '', committedDate: '', code: '' });
   const [creatingParty, setCreatingParty] = useState(false);
-  const customers = useLoad(() => (open ? cfApi.get<Party[]>(`/parties${qs({ role: 'customer', status: 'active' })}`) : Promise.resolve([] as Party[])), [open]);
   useEffect(() => { if (open) { setOrderType('customer'); setCustomer(null); setForm({ title: '', customerReference: '', committedDate: '', code: '' }); } }, [open]);
 
   const save = async () => {
@@ -38,9 +37,7 @@ export function NewOrderDialog({ open, onClose, onCreated }: { open: boolean; on
         </ToggleButtonGroup>
         {orderType === 'customer' && (
           <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-start', flexWrap: 'wrap' }}>
-            <Autocomplete sx={{ flex: '1 1 240px' }} options={customers.data ?? []} value={customer} onChange={(_, v) => setCustomer(v)}
-              getOptionLabel={(p) => `${p.code} · ${p.name}`} isOptionEqualToValue={(a, b) => a.id === b.id} loading={customers.loading}
-              renderInput={(p) => <TextField {...p} label="Customer" required autoFocus />} />
+            <PartyPicker role="customer" sx={{ flex: '1 1 240px' }} value={customer} onChange={setCustomer} autoFocus />
             <Button onClick={() => setCreatingParty(true)} sx={{ mt: 0.25, whiteSpace: 'nowrap' }}>New customer</Button>
           </Box>
         )}
@@ -54,7 +51,7 @@ export function NewOrderDialog({ open, onClose, onCreated }: { open: boolean; on
           helperText="Left empty, it takes the next number from the coding rule. It can still be changed until the first line."
           inputProps={{ style: { fontFamily: 'var(--font-mono)' } }} />
       </FormDialog>
-      <PartyDialog open={creatingParty} existing={null} onClose={() => setCreatingParty(false)} onSaved={(p) => { customers.reload(); setCustomer(p); }} />
+      <PartyDialog open={creatingParty} existing={null} onClose={() => setCreatingParty(false)} onSaved={(p) => { setCustomer(p); }} />
     </>
   );
 }

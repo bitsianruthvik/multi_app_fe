@@ -4,12 +4,13 @@ import { cfApi, qs } from '../../api/client';
 import type { Batch, Machine, Movement, OrderProductionFull, PurchaseOrderRow, RecordList, SalesOrder } from '../../api/types';
 import { MOVEMENT_LABEL } from '../../lib/inventory';
 import { useLoad } from '../../hooks/useLoad';
+import { OrderPicker } from '../ServerPicker';
 
 /** A record to try a rule on. */
 export interface SampleRow { id: number; code: string | null; name: string }
 
 /** Entities whose list takes a `search` on the server; the rest are short lists filtered here. */
-const SEARCHED = new Set(['item', 'definition', 'machine', 'stock_batch', 'stock_lot', 'stock_movement', 'drawing']);
+const SEARCHED = new Set(['item', 'definition', 'sales_order', 'purchase_order', 'machine', 'stock_batch', 'stock_lot', 'stock_movement', 'drawing']);
 
 interface DrawingRow { id: number; code: string | null; number: string; revision: string; title: string | null }
 
@@ -27,7 +28,7 @@ async function loadSamples(entityType: string, search: string, orderId: number |
       return list.rows.map((r) => ({ id: r.id, code: r.code, name: r.name }));
     }
     case 'sales_order':
-      return (await cfApi.get<SalesOrder[]>(`/orders${qs({ limit: 200 })}`))
+      return (await cfApi.get<SalesOrder[]>(`/orders${qs({ search: q, limit: 50 })}`))
         .map((o) => ({ id: o.id, code: o.code, name: o.title ?? (o.orderType === 'stock' ? 'Stock order' : 'Customer order') }));
     case 'machine':
       return (await cfApi.get<Machine[]>(`/machines${qs({ search: q })}`)).map((m) => ({ id: m.id, code: m.code, name: m.name }));
@@ -39,7 +40,7 @@ async function loadSamples(entityType: string, search: string, orderId: number |
       return (await cfApi.get<Movement[]>(`/movements${qs({ search: q, limit: 200 })}`))
         .map((m) => ({ id: m.id, code: m.code, name: `${MOVEMENT_LABEL[m.movementType]} · ${m.movementDate}` }));
     case 'purchase_order':
-      return (await cfApi.get<PurchaseOrderRow[]>('/purchase-orders'))
+      return (await cfApi.get<{ rows: PurchaseOrderRow[] }>(`/purchase-orders${qs({ search: q, paged: 1, limit: 50 })}`)).rows
         .map((p) => ({ id: p.id, code: p.code, name: p.supplier?.name ?? (p.suggested ? 'Suggested by the buy list' : 'No supplier yet') }));
     case 'drawing':
       return (await cfApi.get<{ rows: DrawingRow[] }>(`/drawings${qs({ search: q, limit: 100 })}`)).rows
@@ -62,14 +63,14 @@ export function SamplePicker({ entityType, value, onChange }: { entityType: stri
   const [search, setSearch] = useState('');
   const [orderId, setOrderId] = useState<number | null>(null);
   const searched = SEARCHED.has(entityType);
-  useEffect(() => { setTyped(''); setSearch(''); setOrderId(null); }, [entityType]);
+  useEffect(() => { setTyped(''); setSearch(''); setOrderId(null); setOrder(null); }, [entityType]);
   useEffect(() => {
     if (!searched) return undefined;
     const t = window.setTimeout(() => setSearch(typed), 300);
     return () => window.clearTimeout(t);
   }, [typed, searched]);
 
-  const orders = useLoad(async () => (entityType === 'production_piece' ? cfApi.get<SalesOrder[]>(`/orders${qs({ limit: 200 })}`) : []), [entityType]);
+  const [order, setOrder] = useState<SalesOrder | null>(null);
   const rows = useLoad(() => loadSamples(entityType, searched ? search : '', orderId), [entityType, searched ? search : '', orderId]);
   const options = rows.data ?? [];
   // The chosen record stays an option while a new search runs, so the field keeps showing it.
@@ -81,10 +82,8 @@ export function SamplePicker({ entityType, value, onChange }: { entityType: stri
   return (
     <Box sx={{ display: 'grid', gap: 1, gridTemplateColumns: entityType === 'production_piece' ? { xs: '1fr', sm: '1fr 1fr' } : '1fr', minWidth: 0 }}>
       {entityType === 'production_piece' && (
-        <Autocomplete size="small" options={orders.data ?? []} getOptionLabel={(o) => `${o.code} · ${o.title ?? ''}`}
-          value={(orders.data ?? []).find((o) => o.id === orderId) ?? null}
-          onChange={(_, o) => { setOrderId(o?.id ?? null); onChange(null); }}
-          renderInput={(p) => <TextField {...p} label="Order" helperText="Pieces are listed per order" />} />
+        <OrderPicker openOnly={false} value={order} helperText="Pieces are listed per order"
+          onChange={(o) => { setOrder(o); setOrderId(o?.id ?? null); onChange(null); }} />
       )}
       {/* Only what the person types searches; picking an option fills the field and keeps the list. */}
       <Autocomplete key={entityType} size="small" options={withValue} getOptionLabel={label} value={value}

@@ -13,6 +13,7 @@ import { RecordPicker } from './RecordPicker';
 import { SpecValueInput } from './SpecValueInput';
 import { ErrorNotice, Mono } from './ui';
 import { DialogHeader } from './FormDialog';
+import { OrderPicker, PartyPicker } from './ServerPicker';
 
 interface LineState {
   key: number;
@@ -147,8 +148,9 @@ export function MovementDialog({ open, type, preset = {}, onClose, onPosted }: {
   onPosted: (m: MovementDetail) => void;
 }) {
   const areas = useLoad(() => cfApi.get<StockingArea[]>('/stocking-areas'), []);
-  const suppliers = useLoad(() => cfApi.get<Party[]>(`/parties${qs({ role: 'supplier', status: 'active' })}`), []);
-  const orders = useLoad(() => cfApi.get<SalesOrder[]>(`/orders${qs({ open: 1 })}`), []);
+  // Suppliers and orders are searched on the server as you type (ServerPicker), never loaded once and capped.
+  const [supplier, setSupplier] = useState<Party | null>(null);
+  const [orderPick, setOrderPick] = useState<SalesOrder | null>(null);
   const [h, setH] = useState({ partyId: null as number | null, areaId: null as number | null, toAreaId: null as number | null, orderId: null as number | null, date: today(), reference: '', reason: '', notes: '' });
   const [lines, setLines] = useState<LineState[]>([blankLine()]);
   const [busy, setBusy] = useState(false);
@@ -158,6 +160,8 @@ export function MovementDialog({ open, type, preset = {}, onClose, onPosted }: {
     setError(null);
     setH({ partyId: null, areaId: preset.areaId ?? null, toAreaId: null, orderId: preset.orderId ?? null, date: today(), reference: '', reason: '', notes: '' });
     setLines([{ ...blankLine(), item: preset.item ?? null }]);
+    setSupplier(null); setOrderPick(null);
+    if (preset.orderId) cfApi.get<SalesOrder>(`/orders/${preset.orderId}`).then(setOrderPick).catch(() => undefined);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, type]);
   const out = type !== 'receipt';
@@ -199,10 +203,6 @@ export function MovementDialog({ open, type, preset = {}, onClose, onPosted }: {
   );
   const needsReason = type === 'scrap' || type === 'adjustment';
 
-  // Reading suppliers and sales orders needs the sales permission, so a
-  // stores-only account gets nothing back — an empty list has to say why.
-  const listHelp = (err: unknown, empty: string, what: string) =>
-    (err ? `${what} could not be loaded — you may not have permission to see them.` : empty);
   // What the server would refuse anyway, said before the press.
   const named = (l: LineState) => (type === 'receipt' ? !!l.item : l.other ? !!l.item : !!l.stockKey);
   const blocked = !h.areaId ? (type === 'receipt' ? 'Choose the area it goes into.' : type === 'adjustment' ? 'Choose the area being counted.' : 'Choose the area it comes from.')
@@ -218,18 +218,15 @@ export function MovementDialog({ open, type, preset = {}, onClose, onPosted }: {
         <ErrorNotice error={areas.error} onRetry={areas.reload} />
         <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', md: 'repeat(2, minmax(0, 1fr))' }, gap: 2, pt: 0.5 }}>
           {type === 'receipt' && (
-            <Autocomplete size="small" options={suppliers.data ?? []} value={(suppliers.data ?? []).find((p) => p.id === h.partyId) ?? null} getOptionLabel={(p) => `${p.code} · ${p.name}`}
-              isOptionEqualToValue={(a, b) => a.id === b.id} onChange={(_, p) => setH({ ...h, partyId: p?.id ?? null })}
-              renderInput={(p) => <TextField {...p} label="Supplier" helperText={listHelp(suppliers.error, 'Who it came from (optional)', 'The supplier list')} />} />
+            <PartyPicker role="supplier" label="Supplier" value={supplier} onChange={(p) => { setSupplier(p); setH((x) => ({ ...x, partyId: p?.id ?? null })); }}
+              helperText="Who it came from (optional)" />
           )}
           {type === 'receipt' && areaPicker('Into', h.areaId, (id) => setH({ ...h, areaId: id }), active)}
           {out && areaPicker(type === 'adjustment' ? 'Area counted' : 'From', h.areaId, (id) => { setH({ ...h, areaId: id }); setLines([blankLine()]); }, type === 'adjustment' ? areas.data ?? [] : fromAreas)}
           {type === 'transfer' && areaPicker('To', h.toAreaId, (id) => setH({ ...h, toAreaId: id }), active.filter((a) => a.id !== h.areaId))}
           {type === 'issue' && (
-            <Autocomplete size="small" options={orders.data ?? []} value={(orders.data ?? []).find((o) => o.id === h.orderId) ?? null}
-              getOptionLabel={(o) => `${o.code}${o.title ? ` · ${o.title}` : ''}`} isOptionEqualToValue={(a, b) => a.id === b.id}
-              onChange={(_, o) => setH({ ...h, orderId: o?.id ?? null })}
-              renderInput={(p) => <TextField {...p} label="For sales order (optional)" helperText={listHelp(orders.error, 'Which job it is for', 'The order list')} />} />
+            <OrderPicker label="For sales order (optional)" value={orderPick} onChange={(o) => { setOrderPick(o); setH((x) => ({ ...x, orderId: o?.id ?? null })); }}
+              helperText="Which job it is for" />
           )}
           <TextField type="date" label="Date" value={h.date} onChange={(e) => setH({ ...h, date: e.target.value })} InputLabelProps={{ shrink: true }} inputProps={{ max: today() }} />
           {(type === 'receipt' || type === 'issue' || type === 'transfer') && (

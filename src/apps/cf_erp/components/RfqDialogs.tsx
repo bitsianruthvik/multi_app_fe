@@ -1,42 +1,28 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Box, MenuItem, TextField, Typography } from '@mui/material';
-import { cfApi, qs } from '../api/client';
+import { useEffect, useState } from 'react';
+import { Box, TextField } from '@mui/material';
 import type { MasterRecord, Party } from '../api/types';
 import { addRequestLine, addRfqSupplier, makeRfq, type RequestDetail, type RequestLine, type RfqDetail } from '../api/procurement';
-import { useLoad } from '../hooks/useLoad';
 import { qtyText } from '../lib/inventory';
 import { FormDialog } from './FormDialog';
+import { PartyPicker } from './ServerPicker';
 import { RecordPicker } from './RecordPicker';
-import { ErrorNotice, Mono } from './ui';
+import { Mono } from './ui';
 
 /**
  * Adding a supplier to an RFQ: only parties with the supplier role, with their email beside the name so the buyer
  * can see at once who has no address to send to. Reading parties needs the sales permission; a refusal is said.
  */
 export function AddSupplierDialog({ open, rfqId, taken, onClose, onAdded }: { open: boolean; rfqId: number; taken: number[]; onClose: () => void; onAdded: (r: RfqDetail) => void }) {
-  const suppliers = useLoad(() => (open ? cfApi.get<Party[]>(`/parties${qs({ role: 'supplier', status: 'active' })}`) : Promise.resolve([] as Party[])), [open]);
-  const [supplierId, setSupplierId] = useState('');
+  // Searched on the server as you type, so a supplier past the first 200 can still be found.
+  const [chosen, setChosen] = useState<Party | null>(null);
   const [email, setEmail] = useState('');
-  useEffect(() => { if (open) { setSupplierId(''); setEmail(''); } }, [open]);
-  const options = useMemo(() => (suppliers.data ?? []).filter((s) => !taken.includes(s.id)), [suppliers.data, taken]);
-  const chosen = options.find((s) => String(s.id) === supplierId);
-  const help = suppliers.error ? 'The supplier list could not be loaded — you may not have permission to see suppliers.'
-    : suppliers.loading && !suppliers.data ? 'Loading suppliers…'
-      : !options.length ? ((suppliers.data ?? []).length ? 'Every active supplier is already on this RFQ.' : 'No active suppliers are set up yet.') : 'Who should be asked to quote';
-  const save = async () => onAdded(await addRfqSupplier(rfqId, { supplierId: Number(supplierId), contactEmail: email.trim() || null }));
+  useEffect(() => { if (open) { setChosen(null); setEmail(''); } }, [open]);
+  const already = !!chosen && taken.includes(chosen.id);
+  const save = async () => { if (chosen) onAdded(await addRfqSupplier(rfqId, { supplierId: chosen.id, contactEmail: email.trim() || null })); };
   return (
-    <FormDialog open={open} title="Ask a supplier to quote" onClose={onClose} onSubmit={save} submitLabel="Add" maxWidth="xs" submitDisabled={!supplierId}>
-      <ErrorNotice error={suppliers.error} onRetry={suppliers.reload} />
-      <TextField select label="Supplier" value={supplierId} onChange={(e) => setSupplierId(e.target.value)} autoFocus helperText={help}>
-        {options.map((s) => (
-          <MenuItem key={s.id} value={String(s.id)}>
-            <Box sx={{ display: 'flex', flexDirection: 'column' }}>
-              <span>{s.name}</span>
-              <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>{s.email ?? 'no email on file'}</Typography>
-            </Box>
-          </MenuItem>
-        ))}
-      </TextField>
+    <FormDialog open={open} title="Ask a supplier to quote" onClose={onClose} onSubmit={save} submitLabel="Add" maxWidth="xs" submitDisabled={!chosen || already}>
+      <PartyPicker role="supplier" value={chosen} onChange={setChosen} autoFocus error={already}
+        helperText={already ? 'This supplier is already on this RFQ.' : 'Who should be asked to quote'} />
       {chosen && (
         <TextField label="Send to (optional)" value={email} onChange={(e) => setEmail(e.target.value)} sx={{ mt: 2 }} placeholder={chosen.email ?? 'an email address'}
           helperText={chosen.email ? `Empty = ${chosen.email}` : 'This supplier has no email on file — type one to use for this RFQ'} />

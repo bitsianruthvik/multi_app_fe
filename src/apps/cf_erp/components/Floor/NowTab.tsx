@@ -108,6 +108,7 @@ export function NowTab({ machine, operator, reasons, queue, day, refresh, say, s
 
   const running = queue?.running ?? [];
   const next = queue?.next ?? [];
+  const queueTotal = (queue as { total?: number } | null)?.total ?? next.length;
   const openStop = queue?.stop ?? day?.stops.find((s) => !s.end) ?? null;
   const idle = idleSince(day, running, !!openStop, clock);
 
@@ -175,6 +176,8 @@ export function NowTab({ machine, operator, reasons, queue, day, refresh, say, s
         })}
         {queue && next.length === 0 && <Calm>{search ? 'No job matches.' : 'Nothing waiting for this machine.'}</Calm>}
         {next.length > shown && <BigButton variant="outlined" onClick={() => setShown((n) => n + 10)}>Show more</BigButton>}
+        {/* The server sends the first 100 in planned order but searches them all. */}
+        {next.length <= shown && queueTotal > next.length && <Calm>{queueTotal - next.length} more waiting — search to find one.</Calm>}
       </Box>
 
       {selected.length > 0 && (

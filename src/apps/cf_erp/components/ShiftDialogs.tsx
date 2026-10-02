@@ -5,6 +5,7 @@ import {
 } from '@mui/material';
 import { cfApi, CfApiError } from '../api/client';
 import type { CalendarException, Machine, MachineShift, Weekday } from '../api/types';
+import { allMachines } from '../api/machines';
 import { useLoad } from '../hooks/useLoad';
 import { WEEKDAYS, WEEKDAY_SHORT } from '../lib/inventory';
 import { ErrorNotice } from './ui';
@@ -81,7 +82,7 @@ export function ShiftDialog({ open, machineId, existing, onClose, onSaved }: { o
 
 /** Replaces this machine's shifts with another machine's — for a second machine that works the same hours. */
 export function CopyShiftsDialog({ open, machine, current, onClose, onSaved }: { open: boolean; machine: Machine; current: number; onClose: () => void; onSaved: () => void }) {
-  const machines = useLoad(() => cfApi.get<Machine[]>('/machines'), []);
+  const machines = useLoad(() => allMachines(), []);
   const [fromId, setFromId] = useState<number | null>(null);
   const r = useRun(onSaved, onClose);
   useEffect(() => { if (open) { setFromId(null); r.setError(null); } }, [open]); // eslint-disable-line react-hooks/exhaustive-deps

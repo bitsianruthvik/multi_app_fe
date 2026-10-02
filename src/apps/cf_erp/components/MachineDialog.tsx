@@ -5,6 +5,7 @@ import { cfApi } from '../api/client';
 import type { Machine, MasterRecord, Tree } from '../api/types';
 import { useIsPermitted } from '../hooks/useIsPermitted';
 import { flattenTree } from '../lib/tree';
+import { screenTreePath } from '../lib/classificationScreens';
 import { ClassificationPicker } from './ClassificationPicker';
 import { RecordPicker } from './RecordPicker';
 import { FormDialog } from './FormDialog';
@@ -61,7 +62,7 @@ export function MachineDialog({ open, existing, tree, onClose, onSaved, onTypesC
   };
 
   const refreshTree = async () => {
-    try { setFreshTree(await cfApi.get<Tree>('/classification')); } catch { /* the picker keeps the tree it already has */ }
+    try { setFreshTree(await cfApi.get<Tree>(screenTreePath('machines'))); } catch { /* the picker keeps the tree it already has */ }
   };
   // The picker reads the tree, so the new node has to be in it before the form
   // points at it — otherwise the field reads empty for a beat.
@@ -86,14 +87,14 @@ export function MachineDialog({ open, existing, tree, onClose, onSaved, onTypesC
                 </Button>
               ) : (
                 <Typography sx={{ fontSize: 13, color: 'inherit', mt: 0.5 }}>
-                  Ask someone who can manage production to add one, or add a Family with scope Machine under Setup › Classification.
+                  Ask someone who can manage production to add one, or add one from Machines › Classification.
                 </Typography>
               )}
             </Box>
           )}
           <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', sm: 'repeat(2, minmax(0, 1fr))' }, gap: 2 }}>
             <Box sx={{ gridColumn: '1 / -1' }}>
-              <ClassificationPicker tree={activeTree} scope="machine" value={form.classificationId} onChange={(id) => setForm({ ...form, classificationId: id })}
+              <ClassificationPicker tree={activeTree} scope="machine" screen="machines" value={form.classificationId} onChange={(id) => setForm({ ...form, classificationId: id })}
                 label="Machine type" helperText={existing ? 'A new type brings its own specifications and operation rules' : 'Decides what it must carry and which operations reach it'} />
               {canManageTypes && !noTypes && (
                 <Button size="small" startIcon={<AddRounded />} onClick={() => setTypesOpen(true)} sx={{ mt: 0.25, ml: -0.5 }}>

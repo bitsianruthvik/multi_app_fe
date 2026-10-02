@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Autocomplete, Box, Button, CircularProgress, IconButton, MenuItem, TextField, Tooltip } from '@mui/material';
+import { Box, Button, CircularProgress, IconButton, MenuItem, TextField, Tooltip } from '@mui/material';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import EditRounded from '@mui/icons-material/EditRounded';
 import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
@@ -42,6 +42,7 @@ import { StageBody } from '../components/OrderProcess/StageBody';
 import { StageFoot } from '../components/OrderProcess/StageFoot';
 import { ConfirmOrderDialog } from '../components/OrderProcess/ConfirmOrderDialog';
 import { useWorkingLine } from '../components/OrderProcess/workingLine';
+import { PartyPicker } from '../components/ServerPicker';
 import { useDetailTitle } from '../components/shell/detailTitle';
 import { useToast } from '../components/toastContext';
 
@@ -133,9 +134,9 @@ function DetailsForm({ order, onSaved }: { order: SalesOrder; onSaved: (o: Sales
     title: order.title ?? '', customerReference: order.customerReference ?? '', receivedOn: order.receivedOn ?? '', committedDate: order.committedDate ?? '',
     deliveryAddress: order.deliveryAddress ?? '', notes: order.notes ?? '', code: order.code,
   });
-  const [customer, setCustomer] = useState<Party | null>(null);
-  const customers = useLoad(() => (order.orderType === 'customer' ? cfApi.get<Party[]>(`/parties${qs({ role: 'customer' })}`) : Promise.resolve([])), [order.orderType]);
-  useEffect(() => { setCustomer((customers.data ?? []).find((p) => p.id === order.customer?.id) ?? null); }, [customers.data, order.customer?.id]);
+  // The picker searches the server; the order's own customer is the starting value.
+  const [customer, setCustomer] = useState<Party | null>(order.customer ? ({ id: order.customer.id, code: order.customer.code ?? '', name: order.customer.name ?? '' } as Party) : null);
+  useEffect(() => { setCustomer(order.customer ? ({ id: order.customer.id, code: order.customer.code ?? '', name: order.customer.name ?? '' } as Party) : null); }, [order.customer?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<CfApiError | null>(null);
   const locked = LOCKED_STATUSES.includes(order.status);
@@ -159,9 +160,7 @@ function DetailsForm({ order, onSaved }: { order: SalesOrder; onSaved: (o: Sales
           helperText={hasLines ? 'Fixed once the order has lines — item codes are built from it' : 'Can change until the first line'} inputProps={{ style: { fontFamily: 'var(--font-mono)' } }} />
         <TextField label="Title" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} disabled={locked} />
         {order.orderType === 'customer' && (
-          <Autocomplete size="small" options={customers.data ?? []} value={customer} onChange={(_, v) => setCustomer(v)} disabled={locked}
-            getOptionLabel={(p) => `${p.code} · ${p.name}`} isOptionEqualToValue={(a, b) => a.id === b.id}
-            renderInput={(p) => <TextField {...p} label="Customer" />} />
+          <PartyPicker role="customer" activeOnly={false} value={customer} onChange={setCustomer} disabled={locked} />
         )}
         {order.orderType === 'customer' && <TextField label="Customer's reference" value={form.customerReference} onChange={(e) => setForm({ ...form, customerReference: e.target.value })} disabled={locked} />}
         <TextField label="Received on" type="date" value={form.receivedOn} onChange={(e) => setForm({ ...form, receivedOn: e.target.value })} InputLabelProps={{ shrink: true }} disabled={locked} />

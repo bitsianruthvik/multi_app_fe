@@ -16,7 +16,8 @@ import SearchRounded from '@mui/icons-material/SearchRounded';
 import WarehouseRounded from '@mui/icons-material/WarehouseRounded';
 import { cfApi, CfApiError, qs } from '../api/client';
 import { getLinePlaceholders, placeholderTitle } from '../api/placeholders';
-import type { Sourcing, MasterRecord, Resolution, Rule, Tree } from '../api/types';
+import type { Sourcing, MasterRecord, Resolution, Rule, ScreenTree, Tree } from '../api/types';
+import { screenTreePath } from '../lib/classificationScreens';
 import { SOURCING_HELP, SOURCING_LABEL, SOURCING_OPTIONS, folderSharers, folderSharingNote } from '../lib/records';
 import { findNode } from '../lib/tree';
 import { useCompanySlug, useLoad } from '../hooks/useLoad';
@@ -100,6 +101,10 @@ function InlineName({ value, editable, onSave }: { value: string; editable: bool
 function DetailsForm({ record, tree, canEdit, onSaved, onTreeChanged }: {
   record: MasterRecord; tree: Tree | null; canEdit: boolean; onSaved: (r: MasterRecord) => void; onTreeChanged: () => void;
 }) {
+  const screen = record.recordKind === 'item' ? 'items' : 'definitions';
+  // A selection's search area is an Items branch: read that tree only for a selection.
+  const searchesItems = record.definition?.definitionType === 'selection';
+  const itemsTree = useLoad(() => (searchesItems ? cfApi.get<ScreenTree>(screenTreePath('items')) : Promise.resolve(null)), [searchesItems]);
   const [form, setForm] = useState({
     name: record.name, description: record.description ?? '', code: record.code ?? '', shortName: record.shortName ?? '', noShortName: record.shortName === '', classificationId: record.classificationId,
     uom: record.item?.uom ?? '', trackedBy: record.item?.trackedBy ?? 'quantity', sourcing: record.item?.sourcing ?? 'stock',
@@ -148,7 +153,7 @@ function DetailsForm({ record, tree, canEdit, onSaved, onTreeChanged }: {
         <TextField label="Description" disabled={readOnly} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} multiline sx={{ gridColumn: '1 / -1' }} />
         <Box sx={{ gridColumn: '1 / -1' }}>
           <ClassificationPicker tree={tree} value={form.classificationId} onChange={(id) => id && setForm({ ...form, classificationId: id })} disabled={isTemp || readOnly}
-            scope={record.recordKind} allowCreate={canEdit} onTreeChanged={onTreeChanged}
+            scope={record.recordKind} allowCreate={canEdit} onTreeChanged={onTreeChanged} screen={screen}
             helperText={isTemp ? 'A temporary item sits where its definition sits' : 'Moving it changes which rules and defaults reach it'} />
         </Box>
         {record.item && (
@@ -206,7 +211,7 @@ function DetailsForm({ record, tree, canEdit, onSaved, onTreeChanged }: {
             <TextField select label="Chooses from" disabled={readOnly} value={form.selectionMode} onChange={(e) => setForm({ ...form, selectionMode: e.target.value as typeof form.selectionMode })}>
               <MenuItem value="allowed_list">An allowed list</MenuItem><MenuItem value="spec_match">Matching specifications</MenuItem><MenuItem value="both">Both</MenuItem>
             </TextField>
-            <ClassificationPicker tree={tree} value={form.candidateClassificationId} onChange={(id) => setForm({ ...form, candidateClassificationId: id })} leafOnly={false} label="Search within (optional)" disabled={readOnly} />
+            <ClassificationPicker tree={itemsTree.data ?? tree} value={form.candidateClassificationId} onChange={(id) => setForm({ ...form, candidateClassificationId: id })} leafOnly={false} label="Search within (optional)" disabled={readOnly} screen="items" />
           </>
         )}
       </Box>
@@ -241,7 +246,7 @@ export default function RecordDetail({ recordKind }: { recordKind: 'item' | 'def
   const rec = useLoad(() => cfApi.get<MasterRecord>(`/records/${id}`), [id]);
   const specs = useLoad(() => cfApi.get<Resolution>(`/records/${id}/specs`), [id]);
   const rules = useLoad(() => cfApi.get<Rule[]>(`/rules${qs({ subjectType: 'master', subjectId: id })}`), [id]);
-  const tree = useLoad(() => cfApi.get<Tree>('/classification'), []);
+  const tree = useLoad(() => cfApi.get<ScreenTree>(screenTreePath(recordKind === 'item' ? 'items' : 'definitions')), [recordKind]);
   const money = useItemMoney(id, recordKind === 'item' && rec.data?.item?.itemType === 'catalog', rec.data?.updatedAt ?? '');
   const [tab, setTab] = useUrlParam('tab', 'specs');
   const [actionError, setActionError] = useState<CfApiError | null>(null);
@@ -476,7 +481,7 @@ export default function RecordDetail({ recordKind }: { recordKind: 'item' | 'def
         onSaved={(saved) => { rec.setData(saved); toast.success('Details saved.'); specs.reload(); }} />}
 
       <RevisionDialog open={revising} record={r} onClose={() => setRevising(false)} onDone={(saved) => { rec.setData(saved); toast.success(`Now at revision ${saved.revision}.`); }} />
-      <CreateRecordDialog open={copying} copyFrom={r} recordKind={recordKind} tree={tree.data} onTreeChanged={tree.reload}
+      <CreateRecordDialog open={copying} copyFrom={r} recordKind={recordKind} tree={tree.data} onTreeChanged={tree.reload} screen={recordKind === 'item' ? 'items' : 'definitions'}
         onClose={() => setCopying(false)}
         onCreated={(made) => {
           invalidateNavCounts();

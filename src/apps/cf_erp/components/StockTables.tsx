@@ -8,7 +8,7 @@ import { CATEGORY_LABEL, MOVEMENT_LABEL, qtyText } from '../lib/inventory';
 import { kgText, ownerLabel, rupeeText } from '../lib/money';
 import { Money, OwnerTag, StockValue } from './Money';
 import { Mono, StatStrip } from './ui';
-import { DataTable, type DataColumn } from './DataTable';
+import { DataTable, type DataColumn, type ServerPaging } from './DataTable';
 import { BatchStatusBadge, CategoryBadge, MovementTypeChip } from './inventoryUi';
 
 /**
@@ -46,8 +46,12 @@ const cellLink = { color: 'inherit', textDecoration: 'none', '&:hover': { color:
  * What sits where. `hide` drops the column the page already names (the item on
  * an item page, the area on an area page); `bare` is for a table inside a card.
  */
-export function StockTable({ rows, hide = [], bare = false, storageKey, empty, loading }: {
+export function StockTable({ rows, hide = [], bare = false, storageKey, empty, loading, server, showOwner = false }: {
   rows: StockRow[]; hide?: ('item' | 'area')[]; bare?: boolean; storageKey?: string; empty?: ReactNode; loading?: boolean;
+  /** A server-paged list (usePagedList) — see DataTable. */
+  server?: ServerPaging<StockRow>;
+  /** Keep the Owner column even when the loaded page has no customer's stock. */
+  showOwner?: boolean;
 }) {
   const company = useCompanySlug();
   const columns: DataColumn<StockRow>[] = [
@@ -73,7 +77,7 @@ export function StockTable({ rows, hide = [], bare = false, storageKey, empty, l
         </Box>
       ) : <Box component="span" sx={{ color: 'var(--c-text-3)' }}>—</Box>),
     },
-    ...(rows.some((r) => r.owner) ? [{
+    ...(showOwner || rows.some((r) => r.owner) ? [{
       key: 'owner', header: 'Owner', sortValue: (r: StockRow) => ownerLabel(r.owner), exportValue: (r: StockRow) => ownerLabel(r.owner),
       render: (r: StockRow) => <OwnerTag name={r.owner ? ownerLabel(r.owner) : null} />,
     }] : []),
@@ -90,14 +94,16 @@ export function StockTable({ rows, hide = [], bare = false, storageKey, empty, l
     { key: 'updated', header: 'Last moved', sortValue: (r) => r.updatedAt, render: (r) => <Mono muted>{String(r.updatedAt).slice(0, 10)}</Mono>, defaultHidden: true },
   ];
   return (
-    <DataTable rows={rows} columns={columns} getRowId={(r) => `${r.area.id}-${r.item.id}-${r.batch?.id ?? 0}`} bare={bare} loading={loading}
+    <DataTable rows={rows} columns={columns} getRowId={(r) => `${r.area.id}-${r.item.id}-${r.batch?.id ?? 0}`} bare={bare} loading={loading} server={server}
       storageKey={storageKey} exportName={storageKey} empty={empty ?? <Typography sx={{ color: 'var(--c-text-3)', p: 2 }}>Nothing in stock.</Typography>} />
   );
 }
 
 /** Movements, newest first; each opens its document. */
-export function MovementsTable({ rows, empty = 'No movements yet.', bare = false, storageKey, emptyNode, loading }: {
+export function MovementsTable({ rows, empty = 'No movements yet.', bare = false, storageKey, emptyNode, loading, server }: {
   rows: Movement[]; empty?: string; bare?: boolean; storageKey?: string; emptyNode?: ReactNode; loading?: boolean;
+  /** A server-paged list (usePagedList) — see DataTable. */
+  server?: ServerPaging<Movement>;
 }) {
   const company = useCompanySlug();
   const navigate = useNavigate();
@@ -130,7 +136,7 @@ export function MovementsTable({ rows, empty = 'No movements yet.', bare = false
     { key: 'reference', header: 'Reference', sortValue: (m) => m.reference, render: (m) => <Mono muted>{m.reference ?? '—'}</Mono>, defaultHidden: true },
   ];
   return (
-    <DataTable rows={rows} columns={columns} getRowId={(m) => m.id} onRowClick={(m) => navigate(appPath(company, `movements/${m.id}`))} bare={bare} loading={loading}
+    <DataTable rows={rows} columns={columns} getRowId={(m) => m.id} onRowClick={(m) => navigate(appPath(company, `movements/${m.id}`))} bare={bare} loading={loading} server={server}
       storageKey={storageKey} exportName={storageKey} defaultSortKey="date" defaultSortDir="desc"
       empty={emptyNode ?? <Typography sx={{ color: 'var(--c-text-3)', p: 2 }}>{empty}</Typography>} />
   );

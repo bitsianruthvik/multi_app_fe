@@ -4,7 +4,8 @@ import {
   TextField, ToggleButton, ToggleButtonGroup, Typography,
 } from '@mui/material';
 import { cfApi, CfApiError } from '../api/client';
-import type { Formula, Machine, TimingRule, Tree } from '../api/types';
+import type { Formula, TimingRule, Tree } from '../api/types';
+import { allMachines } from '../api/machines';
 import { useLoad } from '../hooks/useLoad';
 import { ClassificationPicker } from './ClassificationPicker';
 import { ErrorNotice, Mono } from './ui';
@@ -63,7 +64,7 @@ export function TimingRuleDialog({ open, operationId, operation, existing, tree,
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const machines = useLoad(() => cfApi.get<Machine[]>('/machines'), []);
+  const machines = useLoad(() => allMachines(), []);
   const formulas = useLoad(() => cfApi.get<Formula[]>('/formulas'), []);
   const timing = (formulas.data ?? []).filter((f) => f.status === 'active' && f.kind === 'timing');
   const canMakeFormula = useIsPermitted()('cf_erp_setup_manage');

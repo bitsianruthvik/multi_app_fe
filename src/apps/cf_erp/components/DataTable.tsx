@@ -23,8 +23,9 @@ import { SkeletonBlock, Surface } from './ui';
  * the app read as "a violet theme over a spreadsheet". Everything that wants a
  * multi-column grid uses this.
  *
- * Deliberately NOT virtualized. fab_erp queries cap at 500–1000 rows (see
- * useSortableData), and windowing a semantic <table> costs correct sticky
+ * Deliberately NOT virtualized. A list bigger than one page is paged by the
+ * SERVER (the `server` prop + hooks/usePagedList — never a capped batch
+ * filtered here), and windowing a semantic <table> costs correct sticky
  * headers, correct column widths and keyboard row navigation. Client-side
  * pagination is both cheaper and what ERP users actually expect — they want to
  * know they're on page 3 of 7, not scroll a rope of unknown length.
@@ -57,6 +58,35 @@ export interface DataColumn<T> {
   defaultHidden?: boolean;
   /** Exclude from the column menu (e.g. an actions column). */
   alwaysVisible?: boolean;
+}
+
+/** A server-side sort: a column key the endpoint whitelists, and its direction. */
+export interface SortState { key: string; dir: 'asc' | 'desc' }
+
+/**
+ * SERVER PAGING (2026-10-02). A list that holds only the first page of what the
+ * server matched passes this (usePagedList builds it). Then the table:
+ *   - shows every loaded row (no client pages) and a "Load more" button while
+ *     the server has more — every match is reachable;
+ *   - says "100 of 1,234" — the total is the server's, not the loaded count;
+ *   - sorts on the SERVER for columns in `sortable` (a client sort of a partial
+ *     load would put the wrong rows first); other columns sort in the browser
+ *     only once everything is loaded;
+ *   - exports every match via `exportAll`, not just the loaded rows.
+ * Filtering a server-paged list in the browser is the bug this exists to stop —
+ * send the filter to the server (ARCHITECTURE.md §13).
+ */
+export interface ServerPaging<T> {
+  total: number;
+  hasMore: boolean;
+  loadingMore?: boolean;
+  onLoadMore: () => void;
+  /** Column keys the server can sort by. */
+  sortable?: string[];
+  sort?: SortState | null;
+  onSort?: (s: SortState) => void;
+  /** Every matching row from the server, for the CSV export. */
+  exportAll?: () => Promise<T[]>;
 }
 
 /**
@@ -153,6 +183,7 @@ export function DataTable<T>({
   defaultSortDir = 'asc',
   maxHeight,
   bare = false,
+  server,
 }: {
   rows: T[];
   columns: DataColumn<T>[];
@@ -176,6 +207,8 @@ export function DataTable<T>({
   maxHeight?: number | string;
   /** No card of its own and no toolbar unless asked for — for a table inside a card. */
   bare?: boolean;
+  /** The rows are one server page of more — see ServerPaging. */
+  server?: ServerPaging<T>;
 }) {
   const [sortKey, setSortKey] = useState<string | null>(defaultSortKey ?? null);
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>(defaultSortDir);
@@ -205,7 +238,15 @@ export function DataTable<T>({
     [columns, hidden],
   );
 
+  const serverSortable = useMemo(() => new Set(server?.sortable ?? []), [server?.sortable]);
+  // A column the server sorts shows the server's sort; the rows already come in that order.
+  const serverSortKey = server?.sort && serverSortable.has(server.sort.key) ? server.sort.key : null;
+  const activeKey = server ? (serverSortKey ?? (server.hasMore ? null : sortKey)) : sortKey;
+  const activeDir = serverSortKey && server?.sort ? server.sort.dir : sortDir;
+  const canSort = (c: DataColumn<T>) => !!c.sortValue && (!server || serverSortable.has(c.key) || !server.hasMore);
+
   const sorted = useMemo(() => {
+    if (server && (serverSortKey || server.hasMore)) return rows;
     const col = columns.find((c) => c.key === sortKey);
     if (!col?.sortValue) return rows;
     const dir = sortDir === 'asc' ? 1 : -1;
@@ -232,13 +273,15 @@ export function DataTable<T>({
         return cmp !== 0 ? cmp * dir : a.index - b.index;
       })
       .map((e) => e.row);
-  }, [rows, columns, sortKey, sortDir]);
+  }, [rows, columns, sortKey, sortDir, server, serverSortKey]);
 
-  const pageCount = Math.max(1, Math.ceil(sorted.length / pageSize));
+  // Server paging: every loaded row shows; "Load more" fetches the next page.
+  const pageCount = server ? 1 : Math.max(1, Math.ceil(sorted.length / pageSize));
   const pageRows = useMemo(
-    () => (pageSize >= sorted.length ? sorted : sorted.slice(page * pageSize, page * pageSize + pageSize)),
-    [sorted, page, pageSize],
+    () => (server || pageSize >= sorted.length ? sorted : sorted.slice(page * pageSize, page * pageSize + pageSize)),
+    [sorted, page, pageSize, server],
   );
+  const [exporting, setExporting] = useState(false);
 
   const selectedRows = useMemo(
     () => rows.filter((r) => selected.has(getRowId(r))),
@@ -246,7 +289,11 @@ export function DataTable<T>({
   );
 
   const toggleSort = (col: DataColumn<T>) => {
-    if (!col.sortValue) return;
+    if (!canSort(col)) return;
+    if (server?.onSort && serverSortable.has(col.key)) {
+      server.onSort({ key: col.key, dir: serverSortKey === col.key && server.sort?.dir === 'asc' ? 'desc' : 'asc' });
+      return;
+    }
     if (sortKey === col.key) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
     else { setSortKey(col.key); setSortDir('asc'); }
   };
@@ -263,10 +310,16 @@ export function DataTable<T>({
     });
   };
 
-  const exportCsv = () => {
+  const exportCsv = async () => {
     const cols = visibleColumns.filter((c) => c.exportValue || c.sortValue);
     const header = cols.map((c) => c.header);
-    const body = sorted.map((row) =>
+    // A server-paged list exports every match, not the loaded page.
+    let all = sorted;
+    if (server?.exportAll && server.hasMore) {
+      setExporting(true);
+      try { all = await server.exportAll(); } finally { setExporting(false); }
+    }
+    const body = all.map((row) =>
       cols.map((c) => {
         const v = (c.exportValue ?? c.sortValue)!(row);
         return v ?? '';
@@ -310,7 +363,9 @@ export function DataTable<T>({
       {hasToolbar && (
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 1, justifyContent: 'flex-end' }}>
           <Box sx={{ mr: 'auto', fontSize: 12, color: 'var(--c-text-3)', fontFamily: 'var(--font-mono)' }}>
-            {loading ? '' : `${sorted.length} ${sorted.length === 1 ? 'row' : 'rows'}`}
+            {loading ? '' : server && server.hasMore
+              ? `${sorted.length.toLocaleString()} of ${server.total.toLocaleString()} rows`
+              : `${(server ? server.total : sorted.length).toLocaleString()} ${(server ? server.total : sorted.length) === 1 ? 'row' : 'rows'}`}
           </Box>
           <Tooltip title="Columns">
             <IconButton size="small" onClick={(e) => setColMenu(e.currentTarget)} aria-label="Choose columns">
@@ -323,8 +378,8 @@ export function DataTable<T>({
             </IconButton>
           </Tooltip>
           {exportName && (
-            <Tooltip title="Export visible columns to CSV">
-              <IconButton size="small" onClick={exportCsv} aria-label="Export CSV">
+            <Tooltip title={server?.hasMore ? 'Export every matching row (visible columns) to CSV' : 'Export visible columns to CSV'}>
+              <IconButton size="small" onClick={() => { void exportCsv(); }} disabled={exporting} aria-label="Export CSV">
                 <FileDownloadRounded fontSize="small" />
               </IconButton>
             </Tooltip>
@@ -403,15 +458,15 @@ export function DataTable<T>({
                   </Box>
                 )}
                 {visibleColumns.map((c) => {
-                  const active = sortKey === c.key;
-                  const sortable = !!c.sortValue;
+                  const active = activeKey === c.key;
+                  const sortable = canSort(c);
                   const align = c.align ?? (c.numeric ? 'right' : 'left');
                   return (
                     <Box
                       component="th"
                       scope="col"
                       key={c.key}
-                      aria-sort={active ? (sortDir === 'asc' ? 'ascending' : 'descending') : undefined}
+                      aria-sort={active ? (activeDir === 'asc' ? 'ascending' : 'descending') : undefined}
                       sx={{
                         ...cellSx,
                         width: c.width,
@@ -444,7 +499,7 @@ export function DataTable<T>({
                       >
                         {c.header}
                         {sortable && active && (
-                          sortDir === 'asc'
+                          activeDir === 'asc'
                             ? <ArrowUpwardRounded sx={{ fontSize: 14 }} />
                             : <ArrowDownwardRounded sx={{ fontSize: 14 }} />
                         )}
@@ -555,6 +610,24 @@ export function DataTable<T>({
         </Box>
 
         {!loading && sorted.length === 0 && <Box sx={{ p: 0 }}>{empty}</Box>}
+
+        {/* ── Server paging: the next page, until every match is loaded ── */}
+        {!loading && server && server.hasMore && sorted.length > 0 && (
+          <Box
+            data-testid="dt-load-more"
+            sx={{
+              display: 'flex', alignItems: 'center', gap: 1, px: 2, py: 1,
+              borderTop: '1px solid var(--c-divider)', background: 'var(--c-surface-2)',
+            }}
+          >
+            <Box sx={{ fontSize: 12, color: 'var(--c-text-2)', fontFamily: 'var(--font-mono)' }}>
+              Showing {sorted.length.toLocaleString()} of {server.total.toLocaleString()}
+            </Box>
+            <Button size="small" sx={{ ml: 'auto' }} disabled={!!server.loadingMore} onClick={server.onLoadMore}>
+              {server.loadingMore ? 'Loading…' : 'Load more'}
+            </Button>
+          </Box>
+        )}
 
         {/* ── Pagination — only when it earns its space ── */}
         {!loading && pageCount > 1 && (

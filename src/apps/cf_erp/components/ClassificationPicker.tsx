@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { Autocomplete, Box, MenuItem, TextField, Typography, createFilterOptions } from '@mui/material';
+import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Autocomplete, Box, FormControlLabel, MenuItem, Paper, Switch, TextField, Typography, createFilterOptions, type PaperProps } from '@mui/material';
 import { cfApi, CfApiError } from '../api/client';
-import type { CreatedClassification, NodeScope, Tree, TreeNode } from '../api/types';
+import type { ClassificationScreen, CreatedClassification, NodeScope, ScreenTree, Tree, TreeNode } from '../api/types';
+import { screenTreePath } from '../lib/classificationScreens';
 import { useIsPermitted } from '../hooks/useIsPermitted';
 import { useLoad } from '../hooks/useLoad';
 import { flattenTree, type FlatNode } from '../lib/tree';
@@ -65,7 +66,7 @@ function allNodes(tree: Tree | null): PickNode[] {
  * from the Machines screen instead.
  */
 export function CreateClassificationDialog({
-  open, tree, initialName, fixedDepth = null, onClose, onCreated,
+  open, tree, initialName, fixedDepth = null, createdIn, onClose, onCreated,
 }: {
   open: boolean;
   /** The tree the caller already holds; with none the dialog reads its own. */
@@ -74,6 +75,8 @@ export function CreateClassificationDialog({
   initialName?: string;
   /** Create at this level only (a picker that wants a Variant); otherwise the level is chosen here. */
   fixedDepth?: number | null;
+  /** The screen the form sits on — stamped on every node made here, so an empty one shows there. */
+  createdIn?: ClassificationScreen;
   onClose: () => void;
   /** The new node, ready to be selected and to be shown in a picker that has not reloaded its tree. */
   onCreated?: (node: FlatNode) => void;
@@ -168,7 +171,7 @@ export function CreateClassificationDialog({
           trail.push([...nodes, ...made, ...madeNow].find((n) => n.id === id)?.name ?? '');
           continue;
         }
-        const node: CreatedClassification = await cfApi.post<CreatedClassification>(CREATE_PATH, { parentId, code: draft.code.trim(), name: draft.name.trim(), scope: 'both' });
+        const node: CreatedClassification = await cfApi.post<CreatedClassification>(CREATE_PATH, { parentId, code: draft.code.trim(), name: draft.name.trim(), scope: 'both', createdIn });
         rows[d] = { pick: String(node.id), code: '', name: '' };
         madeNow.push({ id: node.id, parentId, depth: node.depth, code: node.code, name: node.name, status: 'active', scope: node.scope });
         madeLabels.push(levels[d] ?? `level ${d + 1}`);
@@ -176,7 +179,7 @@ export function CreateClassificationDialog({
         parentId = node.id;
       }
       const leaf = await cfApi.post<CreatedClassification>(CREATE_PATH, {
-        parentId, code: form.code.trim(), name: form.name.trim(), description: form.description.trim() || undefined, scope: 'both',
+        parentId, code: form.code.trim(), name: form.name.trim(), description: form.description.trim() || undefined, scope: 'both', createdIn,
       });
       const also = madeLabels.map((l) => l.toLowerCase()).join(' and ');
       toast.success(`${leaf.code} created${also ? `, with its ${also}` : ''}.`);
@@ -257,6 +260,16 @@ const isCreate = (o: Option): o is CreateOption => 'create' in o;
 const filterNodes = createFilterOptions<Option>();
 
 /**
+ * The bottom of the open list. Passed through context so the paper component
+ * keeps one identity (a new component per render would remount the list).
+ */
+const PickerFooter = createContext<ReactNode>(null);
+function PaperWithFooter({ children, ...props }: PaperProps) {
+  const footer = useContext(PickerFooter);
+  return <Paper {...props}>{children}{footer}</Paper>;
+}
+
+/**
  * Picks a classification node. `leafOnly` limits it to Variants (where items
  * and definitions sit); `scope` hides nodes scoped to the other kind — a
  * picker filter only, never a rule (decision Q6). Machine families are a rule:
@@ -268,7 +281,7 @@ const filterNodes = createFilterOptions<Option>();
  */
 export function ClassificationPicker({
   tree, value, onChange, label = 'Variant', leafOnly = true, scope, disabled, helperText, error, required, autoFocus,
-  allowCreate = false, onTreeChanged,
+  allowCreate = false, onTreeChanged, screen,
 }: {
   tree: Tree | null;
   value: number | null;
@@ -285,6 +298,12 @@ export function ClassificationPicker({
   allowCreate?: boolean;
   /** A node was created here — the screen that owns the tree should read it again. */
   onTreeChanged?: () => void;
+  /**
+   * The screen whose derived tree `tree` is. Turns on "Show all branches" at
+   * the bottom of the list — the whole side of the tree, so a branch made on
+   * another screen is never a dead end — and stamps created nodes with it.
+   */
+  screen?: ClassificationScreen;
 }) {
   const isPermitted = useIsPermitted();
   // A machine family is not made here: that route refuses it, and the Machines
@@ -293,9 +312,12 @@ export function ClassificationPicker({
   const [made, setMade] = useState<FlatNode[]>([]);
   const [creating, setCreating] = useState<string | null>(null);
   const [input, setInput] = useState('');
+  const [showAll, setShowAll] = useState(false);
+  const full = useLoad(() => (screen && showAll ? cfApi.get<ScreenTree>(screenTreePath(screen, true)) : Promise.resolve(null)), [screen, showAll]);
+  const activeTree = showAll && full.data ? full.data : tree;
 
   const options = useMemo(() => {
-    const fromTree = flattenTree(tree);
+    const fromTree = flattenTree(activeTree);
     const known = new Set(fromTree.map((n) => n.id));
     const all = [...fromTree, ...made.filter((m) => !known.has(m.id))];
     const offered = all.filter((n) => {
@@ -314,12 +336,27 @@ export function ClassificationPicker({
     // and looks as if nothing is set.
     const current = value != null && !offered.some((o) => o.id === value) ? all.find((n) => n.id === value) : null;
     return current ? [current, ...offered] : offered;
-  }, [tree, made, leafOnly, scope, value]);
+  }, [activeTree, made, leafOnly, scope, value]);
   const selected = options.find((o) => o.id === value) ?? null;
+  const hiddenCount = tree && 'hiddenCount' in tree ? (tree as ScreenTree).hiddenCount : null;
+
+  const footer = screen ? (
+    // mousedown is swallowed so the input keeps focus and the list stays open.
+    <Box onMouseDown={(e) => e.preventDefault()} data-testid="picker-show-all"
+      sx={{ borderTop: '1px solid var(--c-border)', px: 1.5, py: 0.5, display: 'flex', alignItems: 'center', gap: 1 }}>
+      <FormControlLabel sx={{ flex: 1, m: 0 }}
+        control={<Switch size="small" checked={showAll} onChange={() => setShowAll((v) => !v)} inputProps={{ 'aria-label': 'Show all branches' }} />}
+        label={<Typography sx={{ fontSize: 13 }}>Show all branches</Typography>} />
+      <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>
+        {showAll ? (full.loading ? 'Loading…' : 'Every branch') : hiddenCount ? `${hiddenCount} more` : ''}
+      </Typography>
+    </Box>
+  ) : null;
 
   return (
-    <>
+    <PickerFooter.Provider value={footer}>
       <Autocomplete<Option>
+        slots={screen ? { paper: PaperWithFooter } : undefined}
         options={options}
         value={selected}
         disabled={disabled}
@@ -343,7 +380,8 @@ export function ClassificationPicker({
         fullWidth
       />
       {canCreate && (
-        <CreateClassificationDialog open={creating != null} tree={tree} initialName={creating ?? ''} fixedDepth={leafOnly ? (tree?.leafDepth ?? null) : null}
+        <CreateClassificationDialog open={creating != null} tree={activeTree} initialName={creating ?? ''} fixedDepth={leafOnly ? (activeTree?.leafDepth ?? null) : null}
+          createdIn={screen}
           onClose={() => setCreating(null)}
           onCreated={(node) => {
             // Selectable at once: the caller's tree has not been read again yet.
@@ -351,8 +389,9 @@ export function ClassificationPicker({
             setInput(node.path);
             onChange(node.id);
             onTreeChanged?.();
+            full.reload();
           }} />
       )}
-    </>
+    </PickerFooter.Provider>
   );
 }

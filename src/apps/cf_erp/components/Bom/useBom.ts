@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { cfApi, CfApiError } from '../../api/client';
+import { cfApi, CfApiError, qs } from '../../api/client';
 import { postBomChanges, type BomChange, type BomChangesResponse } from '../../api/bomChanges';
 import { getLinePlaceholders, getRecordBomCodes, placeholderKey, type PlaceholderRow } from '../../api/placeholders';
 import type { BomType, BomView, Explosion, Kind, LineStructure, OrderStatus, RecordStatus, StructureNode, WhereUsedRow } from '../../api/types';
@@ -80,7 +80,7 @@ export function useBom(source: BomSource, { whereUsed = false, onChanged }: { wh
   // by the rules an order codes its rows with (a preview — nothing is stored).
   const codes = useLoad(() => (recordId == null ? Promise.resolve(null) : getRecordBomCodes(recordId).catch(() => null)), [recordId]);
   // Only the record's own tab asks the question, so nothing else pays for it.
-  const used = useLoad(() => (recordId == null || !whereUsed ? Promise.resolve(null) : cfApi.get<WhereUsedRow[]>(`/records/${recordId}/where-used`)), [recordId, whereUsed]);
+  const used = useLoad(() => (recordId == null || !whereUsed ? Promise.resolve(null) : cfApi.get<{ rows: WhereUsedRow[]; total: number; truncated: boolean }>(`/records/${recordId}/where-used${qs({ withTotal: 1 })}`)), [recordId, whereUsed]);
   const [actionError, setActionError] = useState<CfApiError | null>(null);
 
   const v = view.data;
@@ -189,7 +189,9 @@ export function useBom(source: BomSource, { whereUsed = false, onChanged }: { wh
     placeholderOf: (node: StructureNode) => placeholderRows.get(placeholderKey(node.lineId, node.id)) ?? null,
     /** A record BOM row's position code, by its tree node key — null on an order line. */
     positionCodeOf: (node: StructureNode) => codeRows.get(node.key) ?? null,
-    whereUsed: used.data ?? [],
+    whereUsed: used.data?.rows ?? [],
+    /** Every place it is used — the list shows the first 300. */
+    whereUsedTotal: used.data?.total ?? 0,
     whereUsedError: used.error,
     reloadWhereUsed: used.reload,
     error: view.error ?? structure.error ?? tree.error,

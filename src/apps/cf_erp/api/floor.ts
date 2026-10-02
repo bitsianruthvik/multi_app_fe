@@ -64,9 +64,14 @@ export const getMachines = async () => list(await cfApi.get<unknown>('/floor/mac
 export const getOperators = async (machineId?: number) => list(await cfApi.get<unknown>(`/floor/operators${qs({ machineId })}`))
   .map((o): FloorOperator => ({ id: o.id, code: str(o.code), name: String(o.name) }));
 export const getReasons = async () => list(await cfApi.get<unknown>('/floor/reasons')).map(toReason);
-export const getQueue = async (machineId: number, search = ''): Promise<FloorQueue> => {
+/**
+ * `next` is the first 100 in planned order; `total` is how many match in all (the
+ * server searches every one), so a screen can say how many it is not showing.
+ */
+export const getQueue = async (machineId: number, search = ''): Promise<FloorQueue & { total: number }> => {
   const r = await cfApi.get<Loose>(`/floor/machines/${machineId}/queue${qs({ search })}`);
-  return { running: list(r.running).map(toRunning), next: list(r.next).map(toStep), stop: r.stop ? toStop(r.stop) : null };
+  const next = list(r.next).map(toStep);
+  return { running: list(r.running).map(toRunning), next, stop: r.stop ? toStop(r.stop) : null, total: Math.max(num(r.total), next.length) };
 };
 export const getDay = async (machineId: number, date: string) =>
   toDay(await cfApi.get<Loose>(`/floor/machines/${machineId}/day${qs({ date })}`), date);

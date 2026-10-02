@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Autocomplete, Box, MenuItem, TextField } from '@mui/material';
 import { cfApi } from '../api/client';
-import type { AreaPurpose, Machine, StockingArea } from '../api/types';
+import type { AreaPurpose, StockingArea } from '../api/types';
+import { allMachines } from '../api/machines';
 import { useLoad } from '../hooks/useLoad';
 import { PURPOSE_HELP, PURPOSE_LABEL } from '../lib/inventory';
 import { FormDialog } from './FormDialog';
@@ -10,7 +11,7 @@ const PURPOSES: AreaPurpose[] = ['storage', 'wip', 'quarantine', 'dispatch'];
 
 /** Creates or edits a stocking area — a place that holds an inventory. */
 export function AreaDialog({ open, existing, onClose, onSaved }: { open: boolean; existing: StockingArea | null; onClose: () => void; onSaved: (a: StockingArea) => void }) {
-  const machines = useLoad(() => cfApi.get<Machine[]>('/machines'), []);
+  const machines = useLoad(() => allMachines(), []);
   const blank = { code: '', name: '', purpose: 'storage' as AreaPurpose, machineId: null as number | null, status: 'active' as StockingArea['status'], notes: '' };
   const [f, setF] = useState(blank);
   useEffect(() => {

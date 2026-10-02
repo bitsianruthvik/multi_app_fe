@@ -1,12 +1,13 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Box, Button, TextField } from '@mui/material';
 import { Link, useNavigate } from 'react-router-dom';
 import AddRounded from '@mui/icons-material/AddRounded';
 import ChecklistRounded from '@mui/icons-material/ChecklistRounded';
-import { listRequests, type RequestDetail, type RequestRow } from '../api/procurement';
+import type { RequestDetail, RequestRow } from '../api/procurement';
 import { cfApi } from '../api/client';
 import type { MasterRecord } from '../api/types';
-import { useCompanySlug, useLoad } from '../hooks/useLoad';
+import { useCompanySlug } from '../hooks/useLoad';
+import { useDebounced, usePagedList } from '../hooks/usePagedList';
 import { useIsPermitted } from '../hooks/useIsPermitted';
 import { useNewParam, useUrlParam } from '../hooks/useUrlState';
 import { appPath } from '../navMeta';
@@ -45,6 +46,10 @@ function NewRequestDialog({ open, onClose, onCreated }: { open: boolean; onClose
 }
 
 /** Every purchase request: what is wanted, who asked, and whether it may go for quotes. */
+interface RequestCounts { status: Record<string, number>; open: number; all: number; estimated: number; lines: number; unpricedLines: number }
+/** Columns the server sorts (procurementService REQUEST_SORT). */
+const SERVER_SORT = ['code', 'status', 'lines', 'estTotal', 'neededBy', 'by'];
+
 export default function PurchaseRequests() {
   const company = useCompanySlug();
   const navigate = useNavigate();
@@ -53,15 +58,17 @@ export default function PurchaseRequests() {
   const [search, setSearch] = useState('');
   const [creating, setCreating] = useState(false);
   useNewParam(() => { if (canManage) setCreating(true); });
-  const list = useLoad(() => listRequests(status), [status]);
-  const all = useMemo(() => list.data?.rows ?? [], [list.data]);
-  const term = search.trim().toLowerCase();
-  const rows = useMemo(() => (term ? all.filter((r) => [r.code, r.requestedBy?.name].some((t) => t && String(t).toLowerCase().includes(term))) : all), [all, term]);
+  const term = useDebounced(search.trim());
+  // Search and the status chip filter on the server, a page at a time; every figure counts all matching requests.
+  const list = usePagedList<RequestRow, RequestCounts>('/purchase-requests', { status: status === 'all' ? undefined : status, q: term }, { defaultSort: { key: 'code', dir: 'desc' } });
+  const counts = list.counts;
+  const estimated = counts?.estimated ?? 0;
+  const chipCount = (v: string) => (!counts ? undefined : v === 'all' ? counts.all : v === 'open' ? counts.open : counts.status[v]);
   const stats = [
-    { label: 'Requests', value: rows.length },
-    { label: 'Waiting for approval', value: rows.filter((r) => r.status === 'submitted').length, tone: 'info' as const, hint: 'Submitted, no decision yet' },
-    { label: 'Approved', value: rows.filter((r) => r.status === 'approved').length, tone: 'success' as const, hint: 'Can go for quotes' },
-    { label: 'Estimated', value: rows.reduce((t, r) => t + (r.estTotal ?? 0), 0), display: rows.length && rows.every((r) => r.unpricedLines === r.lines) ? 'no prices' : rupeeText(rows.reduce((t, r) => t + (r.estTotal ?? 0), 0)), hint: 'Before tax, at the estimated prices; unpriced lines are left out' },
+    { label: 'Requests', value: list.total },
+    { label: 'Waiting for approval', value: counts?.status.submitted ?? 0, tone: 'info' as const, hint: 'Submitted, no decision yet' },
+    { label: 'Approved', value: counts?.status.approved ?? 0, tone: 'success' as const, hint: 'Can go for quotes' },
+    { label: 'Estimated', value: estimated, display: counts && counts.lines > 0 && counts.unpricedLines === counts.lines ? 'no prices' : rupeeText(estimated), hint: 'Before tax, at the estimated prices; unpriced lines are left out' },
   ];
   const columns: DataColumn<RequestRow>[] = [
     { key: 'code', header: 'Number', alwaysVisible: true, sortValue: (r) => r.code, render: (r) => <Mono chip><Box component={Link} to={appPath(company, `purchase-requests/${r.id}`)} sx={linkSx}>{r.code}</Box></Mono> },
@@ -78,10 +85,10 @@ export default function PurchaseRequests() {
         actions={canManage && <Button variant="contained" startIcon={<AddRounded />} onClick={() => setCreating(true)}>New purchase request</Button>} />
       <StatStrip stats={stats} />
       <FilterBar search={search} onSearch={setSearch} placeholder="Search number or person">
-        {REQUEST_FILTERS.map((f) => <FacetChip key={f.value} label={f.label} active={status === f.value} onClick={() => setStatus(f.value)} />)}
+        {REQUEST_FILTERS.map((f) => <FacetChip key={f.value} label={f.label} active={status === f.value} count={chipCount(f.value)} onClick={() => setStatus(f.value)} />)}
       </FilterBar>
       <ErrorNotice error={list.error} onRetry={list.reload} />
-      <DataTable rows={rows} columns={columns} getRowId={(r) => r.id} loading={list.loading && !list.data} storageKey="purchase-requests" exportName="purchase-requests"
+      <DataTable rows={list.rows} columns={columns} getRowId={(r) => r.id} loading={!list.loaded} server={{ ...list.server, sortable: SERVER_SORT }} defaultSortKey="code" defaultSortDir="desc" storageKey="purchase-requests" exportName="purchase-requests"
         onRowClick={(r) => navigate(appPath(company, `purchase-requests/${r.id}`))}
         empty={<EmptyState icon={<ChecklistRounded />} title={term ? 'No request matches' : 'No purchase requests here'}
           hint={term ? 'Clear the search.' : 'Raise one from the To buy list, or start one by hand.'}

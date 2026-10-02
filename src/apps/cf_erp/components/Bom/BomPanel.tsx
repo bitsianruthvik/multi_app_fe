@@ -278,7 +278,7 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
   const flowById = useMemo(() => new Map((flows.data ?? []).map((f) => [f.id, f])), [flows.data]);
 
   const usedCard = (
-    <SectionCard title="Where it is used" subtitle="BOMs that hold it — directly, or as the item chosen for a selection.">
+    <SectionCard title="Where it is used" subtitle={bom.whereUsedTotal > bom.whereUsed.length ? `BOMs that hold it — showing ${bom.whereUsed.length} of ${bom.whereUsedTotal}.` : 'BOMs that hold it — directly, or as the item chosen for a selection.'}>
       <ErrorNotice error={bom.whereUsedError} onRetry={bom.reloadWhereUsed} />
       {bom.whereUsed.length === 0 ? <Typography sx={{ color: 'var(--c-text-3)', fontSize: 13 }}>Not used in any BOM.</Typography> : (
         <Box sx={{ display: 'grid', gap: 0.5 }}>

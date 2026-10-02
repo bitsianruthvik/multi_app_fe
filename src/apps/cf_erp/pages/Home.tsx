@@ -92,7 +92,8 @@ export default function Home() {
       // Money: three cheap reads (stock valuation, open purchase orders, confirmed orders' totals).
       isPermitted('cf_erp_inventory_view') ? soft(cfApi.get<Valuation>('/stock/valuation?groupBy=owner')) : Promise.resolve(null),
       isPermitted('cf_erp_inventory_view') ? soft(cfApi.get<PurchaseOrderRow[]>('/purchase-orders?status=open')) : Promise.resolve(null),
-      isPermitted('cf_erp_orders_view') ? soft(cfApi.get<SalesOrder[]>(`/orders${qs({ status: 'confirmed', limit: 500 })}`)) : Promise.resolve(null),
+      // every confirmed order (all=1), never a capped batch — the tile is a sum of all of them
+      isPermitted('cf_erp_orders_view') ? soft(cfApi.get<{ rows: SalesOrder[] }>(`/orders${qs({ status: 'confirmed', all: 1 })}`, { timeoutMs: 120_000 })).then((a) => a?.rows ?? null) : Promise.resolve(null),
     ]);
     const setup: Setup | null = tree && specs && formulas && schemes && items && activeItems && definitions
       ? { tree, specs, formulas, schemes, items, activeItems, definitions } : null;
@@ -112,7 +113,7 @@ export default function Home() {
   const variants = flat.filter((n) => n.isLeaf).length;
   const activeItems = setup?.activeItems.total ?? 0;
   const steps = setup ? [
-    { done: variants > 0, label: 'Classification', detail: `${flat.filter((n) => n.depth === 0).length} families · ${variants} variants`, path: 'classification' },
+    { done: variants > 0, label: 'Classification', detail: `${flat.filter((n) => n.depth === 0).length} families · ${variants} variants`, path: 'items?classification=1' },
     { done: setup.specs.length > 0, label: 'Specifications', detail: `${setup.specs.length} in the library`, path: 'specifications' },
     { done: setup.formulas.length > 0, label: 'Formulas', detail: `${setup.formulas.length} reusable formulas`, path: 'formulas' },
     { done: setup.schemes.length > 0, label: 'Coding rules', detail: setup.schemes.length ? `${setup.schemes.length} rules` : 'None yet — codes will need typing in', path: 'coding-rules' },

@@ -18,6 +18,8 @@ import { FacetChip, FilterBar } from '../components/FilterBar';
 import { ClassificationPicker } from '../components/ClassificationPicker';
 import { MachineDialog } from '../components/MachineDialog';
 import { MachineTypeDialog } from '../components/MachineTypeDialog';
+import { ClassificationManager } from '../components/ClassificationManager';
+import { screenTreePath } from '../lib/classificationScreens';
 import { useToast } from '../components/toastContext';
 
 /**
@@ -38,10 +40,12 @@ export default function Machines() {
   const [debounced, setDebounced] = useState('');
   const [creating, setCreating] = useState(false);
   const [typesOpen, setTypesOpen] = useState(false);
+  const [managing, setManaging] = useState(false);
   const typeId = Number(params.get('classificationId')) || null;
   useNewParam(() => { if (canManage) setCreating(true); });
   useEffect(() => { const t = window.setTimeout(() => setDebounced(search), 250); return () => window.clearTimeout(t); }, [search]);
-  const tree = useLoad(() => cfApi.get<Tree>('/classification'), []);
+  // The Machines screen's part of the tree: the machine families (readable with the production grant).
+  const tree = useLoad(() => cfApi.get<Tree>(screenTreePath('machines')), []);
   // Load every page: the full asset register can exceed the API's 500-row page.
   // DataTable handles display paging, sorting and exports over this collection.
   const list = useLoad(async () => {
@@ -96,10 +100,11 @@ export default function Machines() {
   return (
     <Box>
       <PageHeader title="Machines" subtitle="What does the work. A machine’s type decides what it must carry — a plasma cutter its cutting speed — and operation rules turn those values into times."
-        actions={canManage && (
+        actions={(
           <>
-            <Button variant="outlined" startIcon={<AccountTreeRounded />} onClick={() => setTypesOpen(true)}>Machine types</Button>
-            <Button variant="contained" startIcon={<AddRounded />} onClick={() => setCreating(true)}>New machine</Button>
+            <Button variant="outlined" startIcon={<AccountTreeRounded />} onClick={() => setManaging(true)}>Classification</Button>
+            {canManage && <Button variant="outlined" onClick={() => setTypesOpen(true)}>Machine types</Button>}
+            {canManage && <Button variant="contained" startIcon={<AddRounded />} onClick={() => setCreating(true)}>New machine</Button>}
           </>
         )} />
       <StatStrip stats={stats} />
@@ -129,6 +134,7 @@ export default function Machines() {
       <MachineDialog open={creating} existing={null} tree={tree.data} onClose={() => setCreating(false)} onTypesChanged={tree.reload}
         onSaved={(m) => { invalidateNavCounts(); toast.success(`${m.code} created.`); open(m); }} />
       <MachineTypeDialog open={typesOpen} canManage={canManage} onClose={closeTypes} />
+      <ClassificationManager open={managing} screen="machines" onClose={() => { setManaging(false); list.reload(); }} onChanged={tree.reload} />
     </Box>
   );
 }

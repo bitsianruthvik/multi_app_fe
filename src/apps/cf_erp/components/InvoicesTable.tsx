@@ -7,14 +7,14 @@ import { INVOICE_STATUS_LABEL, invoiceNoText } from '../lib/gst';
 import { Money } from './Money';
 import { Mono } from './ui';
 import { InvoiceStatusBadge } from './InvoiceParts';
-import { DataTable, type DataColumn } from './DataTable';
+import { DataTable, type DataColumn, type ServerPaging } from './DataTable';
 
 const tick = (yes: boolean, label: string) => (yes
   ? <Box component="span" aria-label={label} title={label} sx={{ color: 'var(--c-success-700)', display: 'inline-flex' }}><CheckRounded fontSize="small" /></Box>
   : <Mono muted>—</Mono>);
 
 /** Invoices as a table: number, date, customer, order, taxable, GST, total, status, IRN and e-way marks. */
-export function InvoicesTable({ rows, loading, onOpen, empty, bare, storageKey = 'invoices', hideOrder = false }: {
+export function InvoicesTable({ rows, loading, onOpen, empty, bare, storageKey = 'invoices', hideOrder = false, server }: {
   rows: InvoiceSummary[];
   loading?: boolean;
   onOpen: (i: InvoiceSummary) => void;
@@ -22,6 +22,8 @@ export function InvoicesTable({ rows, loading, onOpen, empty, bare, storageKey =
   bare?: boolean;
   storageKey?: string;
   hideOrder?: boolean;
+  /** Set when the rows are one server page of more (Invoices screen). */
+  server?: ServerPaging<InvoiceSummary>;
 }) {
   const columns: DataColumn<InvoiceSummary>[] = [
     { key: 'no', header: 'Invoice', alwaysVisible: true, sortValue: (i) => i.invoiceNo ?? `~${i.id}`, exportValue: (i) => invoiceNoText(i), render: (i) => <Mono chip muted={!i.invoiceNo}>{invoiceNoText(i)}</Mono> },
@@ -35,6 +37,6 @@ export function InvoicesTable({ rows, loading, onOpen, empty, bare, storageKey =
     { key: 'irn', header: 'IRN', sortValue: (i) => (i.irn ? 1 : 0), exportValue: (i) => (i.irn ? 'yes' : 'no'), render: (i) => tick(!!i.irn, 'IRN entered') },
     { key: 'eway', header: 'E-way', sortValue: (i) => i.ewayBills, exportValue: (i) => i.ewayBills, render: (i) => tick(i.ewayBills > 0, `${i.ewayBills} e-way bill${i.ewayBills === 1 ? '' : 's'}`) },
   ];
-  return <DataTable rows={rows} columns={columns} getRowId={(i) => i.id} onRowClick={onOpen} loading={loading} bare={bare} storageKey={storageKey} exportName="invoices"
+  return <DataTable rows={rows} columns={columns} getRowId={(i) => i.id} onRowClick={onOpen} loading={loading} bare={bare} server={server} storageKey={storageKey} exportName="invoices"
     defaultSortKey="date" defaultSortDir="desc" empty={empty} />;
 }

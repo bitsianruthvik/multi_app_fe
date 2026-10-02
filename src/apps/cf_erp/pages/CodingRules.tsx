@@ -6,11 +6,13 @@ import {
 import AddRounded from '@mui/icons-material/AddRounded';
 import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
 import { cfApi, CfApiError, qs } from '../api/client';
-import type { CodeScheme, CodegenEntity, CodegenExplain, Condition, Generated, RecordList, RuleSelection, Segment, Specification, Tree } from '../api/types';
+import type { CodeScheme, CodegenEntity, CodegenExplain, Condition, Generated, MasterRecord, RecordList, RuleSelection, Segment, Specification, Tree } from '../api/types';
 import { useIsPermitted } from '../hooks/useIsPermitted';
 import { useLoad } from '../hooks/useLoad';
 import { CapsLabel, EmptyState, ErrorNotice, Mono, PageHeader, SectionCard, SkeletonRows, StatusBadge, Surface } from '../components/ui';
 import { ClassificationPicker } from '../components/ClassificationPicker';
+import { RecordPicker } from '../components/RecordPicker';
+import { ServerMultiPicker } from '../components/ServerMultiPicker';
 import { flattenTree } from '../lib/tree';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { useToast } from '../components/toastContext';
@@ -20,6 +22,9 @@ import { TokenPalette } from '../components/CodingRules/TokenPalette';
 import { PatternParts } from '../components/CodingRules/PatternParts';
 import { WhichRuleWins } from '../components/CodingRules/WhichRuleWins';
 import { OPERATOR_LABEL, cap, conditionSentence, entityWords, paletteEntries, patternSentence, patternText, tokenPhrase } from '../components/CodingRules/guide';
+
+/** Templates matching what is typed, from the server — used by the condition pickers. */
+const searchTemplates = async (term: string) => (await cfApi.get<RecordList>(`/records${qs({ kinds: 'template', search: term, limit: 30, usable: 1 })}`)).rows;
 
 /** Entities whose names a rule can make; orders and machines only take codes. */
 const NAMED = new Set(['item', 'definition']);
@@ -45,8 +50,8 @@ function takenNote(sel: RuleSelection | undefined, what: string): { ok: boolean;
   }
 }
 
-function SchemeEditor({ open, onClose, onSaved, existing, entities, specs, tree, templates, canManage }: {
-  open: boolean; onClose: () => void; onSaved: () => void; existing: CodeScheme | null; entities: CodegenEntity[]; specs: Specification[]; tree: Tree | null; templates: RecordList | null; canManage: boolean;
+function SchemeEditor({ open, onClose, onSaved, existing, entities, specs, tree, templates, onKnown, canManage }: {
+  open: boolean; onClose: () => void; onSaved: () => void; existing: CodeScheme | null; entities: CodegenEntity[]; specs: Specification[]; tree: Tree | null; templates: RecordList | null; onKnown: (rows: MasterRecord[]) => void; canManage: boolean;
 }) {
   const theme = useTheme();
   const phone = useMediaQuery(theme.breakpoints.down('sm'), { noSsr: true });
@@ -61,6 +66,7 @@ function SchemeEditor({ open, onClose, onSaved, existing, entities, specs, tree,
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<CfApiError | null>(null);
   const flat = useMemo(() => flattenTree(tree), [tree]);
+  const templateById = (id: string) => templates?.rows.find((o) => String(o.id) === id);
 
   useEffect(() => {
     if (!open) return;
@@ -226,15 +232,13 @@ function SchemeEditor({ open, onClose, onSaved, existing, entities, specs, tree,
                           label={d.entityType === 'machine' ? (c.operator === 'eq' ? 'Machine type' : 'Machine level') : c.operator === 'eq' ? 'Variant' : 'Node'}
                           onChange={(id) => setCond(i, { value: id ? String(id) : '' })} />
                       ) : c.operator === 'in' ? (
-                        <Autocomplete size="small" multiple options={templates?.rows ?? []} getOptionLabel={(o) => `${o.code ?? '—'} · ${o.name}`}
-                          value={(templates?.rows ?? []).filter((o) => c.value.split(',').includes(String(o.id)))}
-                          onChange={(_, v) => setCond(i, { value: v.map((o) => o.id).join(',') })}
-                          renderInput={(p) => <TextField {...p} placeholder="Template definitions" />} />
+                        <ServerMultiPicker<MasterRecord> noun="template" placeholder="Template definitions" search={searchTemplates}
+                          getId={(o) => o.id} getLabel={(o) => `${o.code ?? '—'} · ${o.name}`}
+                          value={c.value.split(',').map((x) => templateById(x.trim())).filter((o): o is MasterRecord => !!o)}
+                          onChange={(v) => { onKnown(v); setCond(i, { value: v.map((o) => o.id).join(',') }); }} />
                       ) : (
-                        <Autocomplete size="small" options={templates?.rows ?? []} getOptionLabel={(o) => `${o.code ?? '—'} · ${o.name}`}
-                          value={(templates?.rows ?? []).find((o) => String(o.id) === c.value) ?? null}
-                          onChange={(_, v) => setCond(i, { value: v ? String(v.id) : '' })}
-                          renderInput={(p) => <TextField {...p} placeholder="Template definition" />} />
+                        <RecordPicker kinds={['template']} label="Template definition" value={templateById(c.value) ?? null}
+                          onChange={(v) => { if (v) onKnown([v]); setCond(i, { value: v ? String(v.id) : '' }); }} />
                       )}
                     </Box>
                     <IconButton aria-label={`Remove condition ${i + 1}`} sx={{ gridArea: 'del' }} onClick={() => set({ conditions: d.conditions.filter((_, j) => j !== i) })}><DeleteOutlineRounded /></IconButton>
@@ -279,7 +283,22 @@ export default function CodingRules() {
   const entities = useLoad(() => cfApi.get<CodegenEntity[]>('/codegen/entities'), []);
   const specs = useLoad(() => cfApi.get<Specification[]>('/specifications'), []);
   const tree = useLoad(() => cfApi.get<Tree>('/classification'), []);
-  const templates = useLoad(() => cfApi.get<RecordList>(`/records${qs({ recordKind: 'definition', kind: 'template', limit: 500 })}`), []);
+  // Templates are never loaded as a list: pickers search the server, and the templates a rule's conditions
+  // name are fetched by id so the sentences can show their codes.
+  const [known, setKnown] = useState<MasterRecord[]>([]);
+  const templates = useMemo<RecordList>(() => ({ total: known.length, rows: known }), [known]);
+  const onKnown = (rows: MasterRecord[]) => setKnown((cur) => {
+    const add = rows.filter((r) => !cur.some((c) => c.id === r.id));
+    return add.length ? [...cur, ...add] : cur;
+  });
+  useEffect(() => {
+    const need = new Set<string>();
+    for (const sc of schemes.data ?? []) for (const c of sc.conditions) if (c.tokenKey === 'definition') for (const x of c.value.split(',')) if (x.trim()) need.add(x.trim());
+    const missing = [...need].filter((id) => !known.some((r) => String(r.id) === id));
+    if (!missing.length) return;
+    Promise.all(missing.map((id) => cfApi.get<MasterRecord>(`/records/${id}`).catch(() => null)))
+      .then((rows) => onKnown(rows.filter((r): r is MasterRecord => !!r)));
+  }, [schemes.data]); // eslint-disable-line react-hooks/exhaustive-deps
   const [editor, setEditor] = useState<{ open: boolean; scheme: CodeScheme | null }>({ open: false, scheme: null });
   const [toDelete, setToDelete] = useState<CodeScheme | null>(null);
   const flat = useMemo(() => flattenTree(tree.data), [tree.data]);
@@ -326,7 +345,7 @@ export default function CodingRules() {
                       </Box>
                       <Box sx={{ minWidth: 0 }}>
                         <CapsLabel>Applies when</CapsLabel>
-                        <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>{s.conditions.length ? s.conditions.map((c) => cap(conditionSentence(c, g.entity, flat, templates.data))).join(' · ') : 'Always'}</Typography>
+                        <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>{s.conditions.length ? s.conditions.map((c) => cap(conditionSentence(c, g.entity, flat, templates))).join(' · ') : 'Always'}</Typography>
                       </Box>
                       <Tooltip title={s.counters.length ? s.counters.map((c) => `${c.prefix || '(whole rule)'} → next ${c.nextValue}`).join('\n') : 'No number handed out yet'}>
                         <Box><CapsLabel>Counters</CapsLabel><Mono>{s.counters.length}</Mono></Box>
@@ -347,7 +366,7 @@ export default function CodingRules() {
       )}
       <SchemeEditor open={editor.open} existing={editor.scheme} canManage={canManage} onClose={() => setEditor({ open: false, scheme: null })}
         onSaved={() => { toast.success('Coding rule saved.'); schemes.reload(); }}
-        entities={entities.data ?? []} specs={specs.data ?? []} tree={tree.data} templates={templates.data} />
+        entities={entities.data ?? []} specs={specs.data ?? []} tree={tree.data} templates={templates} onKnown={onKnown} />
       <ConfirmDialog open={!!toDelete} title={`Delete ${toDelete?.code}?`} danger confirmLabel="Delete"
         body="Records keep the codes they already have. Its counters are kept, so no number is ever handed out twice."
         onClose={() => setToDelete(null)} onConfirm={async () => { await cfApi.del(`/codegen/schemes/${toDelete?.id}`); toast.success('Deleted.'); schemes.reload(); }} />

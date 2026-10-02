@@ -6,7 +6,7 @@ import ContentCopyRounded from '@mui/icons-material/ContentCopyRounded';
 import Inventory2Rounded from '@mui/icons-material/Inventory2Rounded';
 import AccountTreeRounded from '@mui/icons-material/AccountTreeRounded';
 import { cfApi, qs } from '../api/client';
-import type { MasterRecord, RecordList, Tree } from '../api/types';
+import type { MasterRecord, RecordList, ScreenTree } from '../api/types';
 import { useCompanySlug, useLoad } from '../hooks/useLoad';
 import { useIsPermitted } from '../hooks/useIsPermitted';
 import { useNewParam, useUrlParam } from '../hooks/useUrlState';
@@ -19,6 +19,9 @@ import { DataTable, type DataColumn } from '../components/DataTable';
 import { FacetChip, FilterBar } from '../components/FilterBar';
 import { ClassificationLevelFilter } from '../components/ClassificationLevelFilter';
 import { CreateRecordDialog } from '../components/CreateRecordDialog';
+import { ClassificationManager } from '../components/ClassificationManager';
+import { screenTreePath } from '../lib/classificationScreens';
+import { kindQuery, kindCount } from '../lib/records';
 import { useToast } from '../components/toastContext';
 
 const SELECTION_MODE: Record<string, string> = { allowed_list: 'Allowed list', spec_match: 'Matching', both: 'List + matching' };
@@ -136,12 +139,28 @@ export default function Records({ recordKind }: { recordKind: 'item' | 'definiti
   useNewParam(() => { if (canManage) setCreating(true); });
   useEffect(() => { const t = window.setTimeout(() => setDebounced(search), 250); return () => window.clearTimeout(t); }, [search]);
 
-  const tree = useLoad(() => cfApi.get<Tree>('/classification'), []);
-  const list = useLoad(() => cfApi.get<RecordList>(`/records${qs({ recordKind, classificationId, search: debounced, limit: 500 })}`),
-    [recordKind, classificationId, debounced]);
+  const screen = recordKind === 'item' ? 'items' : 'definitions';
+  // The screen's own part of the tree — derived on the server from what is
+  // filed where, so the filter and the pickers offer only branches that matter here.
+  const tree = useLoad(() => cfApi.get<ScreenTree>(screenTreePath(screen)), [screen]);
+  // ?classification=1 opens the pop-up (old Setup › Classification links land here).
+  const [managing, setManaging] = useState(() => params.get('classification') === '1');
+  useEffect(() => {
+    if (params.get('classification') !== '1') return;
+    const next = new URLSearchParams(params);
+    next.delete('classification');
+    setParams(next, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  // The kind chip is answered by the SERVER: the list is capped at 500 rows,
+  // and temporary items are only listed when asked for by kind — filtering the
+  // capped page here hid every one of them (prod: 199). The chip counts come
+  // back with the same request (kindCounts), so they hold whatever the cap.
+  const list = useLoad(() => cfApi.get<RecordList>(`/records${qs({ recordKind, classificationId, search: debounced, limit: 500, ...kindQuery(recordKind, kind) })}`),
+    [recordKind, classificationId, debounced, kind]);
 
   const all = useMemo(() => list.data?.rows ?? [], [list.data]);
-  const byKind = useMemo(() => all.filter((r) => !kind || r.kind === kind), [all, kind]);
+  const byKind = all;
   const rows = useMemo(() => byKind.filter((r) => !status || r.status === status), [byKind, status]);
   const columns = useMemo(() => columnsFor(recordKind), [recordKind]);
   const stats = [
@@ -166,10 +185,15 @@ export default function Records({ recordKind }: { recordKind: 'item' | 'definiti
   return (
     <Box>
       <PageHeader title={copy.title} subtitle={copy.subtitle}
-        actions={canManage && <Button variant="contained" startIcon={<AddRounded />} onClick={() => setCreating(true)}>{copy.create}</Button>} />
+        actions={(
+          <>
+            <Button variant="outlined" startIcon={<AccountTreeRounded />} onClick={() => setManaging(true)}>Classification</Button>
+            {canManage && <Button variant="contained" startIcon={<AddRounded />} onClick={() => setCreating(true)}>{copy.create}</Button>}
+          </>
+        )} />
       <StatStrip stats={stats} />
       <FilterBar search={search} onSearch={setSearch} placeholder="Search code or name">
-        {copy.kinds.map(([v, label]) => <FacetChip key={v || 'all'} label={label} active={kind === v} count={all.filter((r) => !v || r.kind === v).length} onClick={() => setKind(v)} />)}
+        {copy.kinds.map(([v, label]) => <FacetChip key={v || 'all'} label={label} active={kind === v} count={kindCount(recordKind, v, list.data?.kindCounts)} onClick={() => setKind(v)} />)}
         <Box sx={{ width: '1px', height: 20, background: 'var(--c-border)', mx: 0.5 }} aria-hidden />
         {STATUS_CHIPS.map(([v, label]) => <FacetChip key={v || 'any'} label={label} active={status === v} count={byKind.filter((r) => !v || r.status === v).length} onClick={() => setStatus(v)} />)}
         {/* One filter per level, each narrowing the others. They stand for a
@@ -180,7 +204,7 @@ export default function Records({ recordKind }: { recordKind: 'item' | 'definiti
       <ErrorNotice error={list.error} onRetry={list.reload} />
       {hiddenByLimit > 0 && (
         <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)', mb: 1 }}>
-          Showing the first {all.length} of {list.data?.total} — search, or pick a classification, to see the rest.
+          Showing the first {all.length} of {list.data?.total}{kind ? ` ${copy.kinds.find(([v]) => v === kind)?.[1].toLowerCase()}` : ''} (by code) — search, or pick a classification, to see the rest.
         </Typography>
       )}
       <DataTable key={recordKind} rows={rows} columns={columns} getRowId={(r) => r.id} onRowClick={open} loading={list.loading && !list.data}
@@ -199,13 +223,14 @@ export default function Records({ recordKind }: { recordKind: 'item' | 'definiti
           action={filtered ? <Button onClick={clear}>Clear filters</Button> : canManage && <Button variant="contained" onClick={() => setCreating(true)}>{copy.create}</Button>} />} />
       <CreateRecordDialog open={creating || !!copying} onClose={() => { setCreating(false); setCopying(null); }} recordKind={recordKind} tree={tree.data}
         copyFrom={copying} initialClassificationId={copying ? null : classificationId}
-        onTreeChanged={tree.reload}
+        onTreeChanged={tree.reload} screen={screen}
         onCreated={(r) => {
           invalidateNavCounts();
           toast.success(`${r.code ?? r.name} created${r.status === 'active' ? ' and activated' : ' as a draft'}.`);
           (r.warnings ?? []).forEach((w) => toast.error(w));
           open(r);
         }} />
+      <ClassificationManager open={managing} screen={screen} onClose={() => setManaging(false)} onChanged={tree.reload} />
     </Box>
   );
 }

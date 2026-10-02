@@ -40,3 +40,22 @@ export function folderSharingNote(others: { definitions: number; items: number }
   const who = others.definitions + others.items === 1 ? 'it' : 'they';
   return `It also holds ${parts.join(' and ')} — ${who} will show the new name too.`;
 }
+
+/** What a record list counts per kind (GET /records → kindCounts). */
+export interface KindCounts { catalog: number; temporary: number; template: number; selection: number }
+
+/**
+ * The query a list's kind chip sends. The server hides temporary items unless
+ * asked for them, so "All" items asks for both kinds by name.
+ */
+export function kindQuery(recordKind: 'item' | 'definition', kind: string): { kind?: string; kinds?: string } {
+  if (kind) return { kind };
+  return recordKind === 'item' ? { kinds: 'catalog,temporary' } : {};
+}
+
+/** A kind chip's figure, from the server's per-kind counts ('' = all of this screen's kinds). */
+export function kindCount(recordKind: 'item' | 'definition', kind: string, counts?: KindCounts | null): number | undefined {
+  if (!counts) return undefined;
+  if (kind) return counts[kind as keyof KindCounts] ?? 0;
+  return recordKind === 'item' ? counts.catalog + counts.temporary : counts.template + counts.selection;
+}

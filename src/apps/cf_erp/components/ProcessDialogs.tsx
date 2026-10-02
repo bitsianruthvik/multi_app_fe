@@ -1,6 +1,6 @@
 import { cloneElement, useEffect, useMemo, useState, type ReactElement, type ReactNode } from 'react';
 import { Alert, Autocomplete, Box, MenuItem, TextField, Tooltip, Typography } from '@mui/material';
-import { cfApi, qs } from '../api/client';
+import { cfApi } from '../api/client';
 import type {
   OrderType, Party, ProcessDetail, ProcessStage, Specification, StageKind, StageRequirement,
 } from '../api/types';
@@ -8,6 +8,7 @@ import { useLoad } from '../hooks/useLoad';
 import { NO_MANAGE, ORDER_TYPE_CHOICES, kindName, ruleSentence } from '../lib/process';
 import { ErrorNotice, Mono } from './ui';
 import { FormDialog } from './FormDialog';
+import { PartyPicker } from './ServerPicker';
 
 /**
  * The dialogs behind the Processes screen, plus the two small pieces that tell
@@ -178,16 +179,11 @@ export function StageDialog({ open, stage, kinds, onClose, onSave }: {
 export function ProcessRuleDialog({ open, processId, onClose, onSaved }: {
   open: boolean; processId: number; onClose: () => void; onSaved: () => void;
 }) {
-  const parties = useLoad(() => cfApi.get<Party[]>(`/parties${qs({ limit: 500 })}`), []);
   const [customer, setCustomer] = useState<Party | null>(null);
   const [orderType, setOrderType] = useState<'' | OrderType>('');
 
   useEffect(() => { if (open) { setCustomer(null); setOrderType(''); } }, [open]);
 
-  const customers = useMemo(
-    () => (parties.data ?? []).filter((p) => p.roles.includes('customer') && p.status === 'active'),
-    [parties.data],
-  );
   const rule = { customer: customer ? { id: customer.id, name: customer.name } : null, orderType: orderType || null };
 
   return (
@@ -202,24 +198,7 @@ export function ProcessRuleDialog({ open, processId, onClose, onSaved }: {
         onSaved();
       }}
     >
-      {/* Customers live in the shared parties module, which a setup-only role may
-          not be able to read — say that instead of showing an empty picker. */}
-      {parties.error && (
-        <Alert severity="info">
-          The customer list could not be loaded — you may not have permission to see customers. A rule for a kind of order, or the house default, can still be added.
-        </Alert>
-      )}
-      <Autocomplete
-        size="small"
-        options={customers}
-        value={customer}
-        onChange={(_, p) => setCustomer(p)}
-        getOptionLabel={(p) => `${p.code} · ${p.name}`}
-        isOptionEqualToValue={(a, b) => a.id === b.id}
-        loading={parties.loading}
-        noOptionsText={parties.error ? 'Could not load customers' : 'No customers yet'}
-        renderInput={(p) => <TextField {...p} label="Customer (optional)" autoFocus helperText="Leave it empty for any customer." />}
-      />
+      <PartyPicker role="customer" label="Customer (optional)" value={customer} onChange={setCustomer} autoFocus helperText="Leave it empty for any customer." />
       <TextField select label="Kind of order" value={orderType} onChange={(e) => setOrderType(e.target.value as '' | OrderType)}>
         {ORDER_TYPE_CHOICES.map((c) => <MenuItem key={c.value || 'any'} value={c.value}>{c.label}</MenuItem>)}
       </TextField>

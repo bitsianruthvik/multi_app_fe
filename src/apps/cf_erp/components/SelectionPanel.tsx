@@ -4,10 +4,11 @@ import AddRounded from '@mui/icons-material/AddRounded';
 import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
 import StarRounded from '@mui/icons-material/StarRounded';
 import StarBorderRounded from '@mui/icons-material/StarBorderRounded';
-import { cfApi, CfApiError, qs } from '../api/client';
-import type { Candidates, MasterRecord, RecordList, Selection, Specification } from '../api/types';
+import { cfApi, CfApiError } from '../api/client';
+import type { Candidates, MasterRecord, Selection, Specification } from '../api/types';
 import { useLoad } from '../hooks/useLoad';
 import { EmptyState, ErrorNotice, Mono, SectionCard, SkeletonRows } from './ui';
+import { RecordPicker } from './RecordPicker';
 import { SpecValueInput } from './SpecValueInput';
 import { useToast } from './toastContext';
 
@@ -31,7 +32,6 @@ export function SelectionPanel({ record, canManage, onChanged }: { record: Maste
   const mode = record.definition?.selectionMode ?? 'allowed_list';
   const sel = useLoad(() => cfApi.get<Selection>(`/definitions/${record.id}/selection`), [record.id]);
   const cand = useLoad(() => cfApi.get<Candidates>(`/definitions/${record.id}/candidates`), [record.id, sel.data]);
-  const catalog = useLoad(() => cfApi.get<RecordList>(`/records${qs({ recordKind: 'item', kind: 'catalog', limit: 500 })}`), []);
   const specs = useLoad(() => cfApi.get<Specification[]>('/specifications'), []);
   const [pick, setPick] = useState<MasterRecord | null>(null);
   const [specId, setSpecId] = useState<number | null>(null);
@@ -61,11 +61,7 @@ export function SelectionPanel({ record, canManage, onChanged }: { record: Maste
           <SectionCard title="Allowed list" subtitle={usesList ? 'Only these catalog items may be chosen.' : 'Not used in this mode — switch the mode under Details to use it.'}>
             {canManage && (
               <Box sx={{ display: 'flex', gap: 1, mb: 1.5 }}>
-                <Autocomplete sx={{ flex: 1 }} size="small" value={pick} onChange={(_, v) => setPick(v)}
-                  options={(catalog.data?.rows ?? []).filter((r) => !onList.has(r.id) && r.status !== 'obsolete')}
-                  getOptionLabel={(r) => `${r.code ?? '—'} · ${r.name}`}
-                  noOptionsText={catalog.error ? 'Could not load the catalog' : 'No catalog item left to add'}
-                  renderInput={(p) => <TextField {...p} label="Add a catalog item" error={!!catalog.error} helperText={catalog.error?.message} />} />
+                <Box sx={{ flex: 1 }}><RecordPicker kinds={['catalog']} value={pick} onChange={setPick} excludeIds={[...onList]} label="Add a catalog item" /></Box>
                 <Button startIcon={<AddRounded />} disabled={!pick}
                   onClick={() => pick && act(() => cfApi.post(`/definitions/${record.id}/allowed-items`, { itemId: pick.id, isDefault: onList.size === 0 }), `${pick.code} added.`).then((ok) => { if (ok) setPick(null); })}>Add</Button>
               </Box>
@@ -142,6 +138,7 @@ export function SelectionPanel({ record, canManage, onChanged }: { record: Maste
           <EmptyState title="No item qualifies yet" body={cand.data.note ?? 'Add items to the list or loosen the criteria.'} />
         ) : (
           <Box sx={{ display: 'grid', gap: 0.5 }}>
+            {cand.data.truncated && cand.data.total != null && <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)' }}>Showing {cand.data.candidates.length} of {cand.data.total} items that qualify.</Typography>}
             {cand.data.candidates.map((c) => (
               <Box key={c.id} sx={{ display: 'flex', alignItems: 'center', gap: 1.5, p: 1, borderRadius: 'var(--r-sm)', background: c.isDefault ? 'var(--c-surface-2)' : 'transparent' }}>
                 {c.isDefault ? <StarRounded sx={{ color: 'var(--c-warning-600)' }} fontSize="small" /> : <Box sx={{ width: 20 }} />}

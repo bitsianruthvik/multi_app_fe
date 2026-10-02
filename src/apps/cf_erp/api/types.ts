@@ -60,11 +60,29 @@ export type NodeScope = 'item' | 'definition' | 'both' | 'machine';
 
 export interface Tree { levels: string[]; leafDepth: number; roots: TreeNode[] }
 
+/** The screens that manage their own part of the classification tree (GET /classification?screen=). */
+export type ClassificationScreen = 'items' | 'definitions' | 'machines';
+/** Why a node is on a screen — derived by the backend, never tagged by hand. */
+export type VisibleBecause = 'holds_items' | 'holds_definitions' | 'holds_machines' | 'selection_source' | 'created_here' | 'legacy_empty' | 'machine_family' | 'ancestor';
+export interface ScreenTreeNode extends TreeNode {
+  /** Which screen's pop-up made it (stamped at creation); null = before that existed. */
+  createdIn: ClassificationScreen | 'setup' | null;
+  /** Selection definitions that pick from this branch. */
+  selectionSources: number;
+  /** What the whole branch holds, this node and everything below it. */
+  subtree: { items: number; definitions: number; machines: number };
+  visibleBecause: VisibleBecause[];
+  /** Only with ?all=1: not on this screen by itself. */
+  hidden?: boolean;
+  children: ScreenTreeNode[];
+}
+export interface ScreenTree extends Tree { screen: ClassificationScreen; all: boolean; hiddenCount: number; roots: ScreenTreeNode[] }
+
 /**
  * What POST /catalog/classification hands back — one node, made from wherever
  * items are. It refuses machine scope and machine families with NOT_ALLOWED.
  */
-export interface CreatedClassification { id: number; code: string; name: string; depth: number; scope: NodeScope }
+export interface CreatedClassification { id: number; code: string; name: string; depth: number; scope: NodeScope; createdIn?: string | null }
 
 export interface PathStep { id: number; code: string; name: string; level: string }
 
@@ -247,7 +265,7 @@ export interface MasterRecord {
   definitionFlow?: FlowRef | null;
 }
 
-export interface RecordList { total: number; rows: MasterRecord[] }
+export interface RecordList { total: number; rows: MasterRecord[]; kindCounts?: { catalog: number; temporary: number; template: number; selection: number } }
 
 export interface HistoryEntry {
   id: number;
@@ -277,6 +295,9 @@ export interface Selection {
 export interface Candidates {
   mode: string;
   note?: string;
+  /** Every candidate that qualifies (the list below stops at its limit); `truncated` when there are more. */
+  total?: number;
+  truncated?: boolean;
   candidates: { id: number; code: string; name: string; revision: string | null; classificationName: string; isDefault: boolean; matchedValues: { specCode: string; value: unknown; unit: string | null; source: string }[] }[];
 }
 
@@ -668,7 +689,7 @@ export interface Flow {
 
 export interface FlowDetail extends Flow {
   steps: FlowStep[];
-  uses: { records: { id: number; code: string | null; name: string; kind: Kind }[]; bomLines: number };
+  uses: { records: { id: number; code: string | null; name: string; kind: Kind }[]; bomLines: number; /** True count of records naming the flow; `records` stops at 100. */ recordCount?: number };
 }
 
 // ---- Shifts (per machine) ---------------------------------------------------------

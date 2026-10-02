@@ -93,7 +93,8 @@ export default function FlowDetail() {
   const editable = canManage && f.status !== 'obsolete';
   const groups = [...new Set(f.steps.map((s) => s.sequence))].map((seq) => ({ seq, steps: f.steps.filter((s) => s.sequence === seq) }));
   const waits = f.steps.reduce((n, s) => n + s.waits.length, 0);
-  const usedBy = f.uses.records.length + f.uses.bomLines;
+  const recordTotal = f.uses.recordCount ?? f.uses.records.length;
+  const usedBy = recordTotal + f.uses.bomLines;
   const recordPath = (r: FlowDetailT['uses']['records'][number]) => to(`${r.kind === 'template' || r.kind === 'selection' ? 'definitions' : 'items'}/${r.id}`);
 
   const act = async (key: string, fn: () => Promise<FlowDetailT>, done: string) => {
@@ -128,7 +129,7 @@ export default function FlowDetail() {
           <Fact label="Revision"><Mono>{f.revision ?? '—'}</Mono></Fact>
           <Fact label="Steps"><Mono>{f.steps.length}</Mono></Fact>
           <Fact label="Waits"><Mono>{waits}</Mono></Fact>
-          <Fact label="Made by it"><Mono>{f.uses.records.length} record{f.uses.records.length === 1 ? '' : 's'} · {f.uses.bomLines} BOM line{f.uses.bomLines === 1 ? '' : 's'}</Mono></Fact>
+          <Fact label="Made by it"><Mono>{recordTotal} record{recordTotal === 1 ? '' : 's'} · {f.uses.bomLines} BOM line{f.uses.bomLines === 1 ? '' : 's'}</Mono></Fact>
         </>
       )}>
       <ErrorNotice error={actionError} sx={{ mt: 2, mb: 0 }} />
@@ -182,6 +183,7 @@ export default function FlowDetail() {
               {f.uses.records.map((r) => (
                 <EntityRow key={r.id} onClick={() => navigate(recordPath(r))} code={<Mono chip>{r.code ?? '—'}</Mono>} primary={r.name} trailing={<KindChip kind={r.kind} />} />
               ))}
+              {recordTotal > f.uses.records.length && <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)', mt: 0.5 }}>Showing {f.uses.records.length} of {recordTotal} records.</Typography>}
               {f.uses.bomLines > 0 && <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)', mt: 0.5 }}>And {f.uses.bomLines} BOM line{f.uses.bomLines === 1 ? '' : 's'} name it for one parent.</Typography>}
             </EntityList>
           )}

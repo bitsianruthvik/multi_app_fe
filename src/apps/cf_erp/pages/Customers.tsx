@@ -1,12 +1,12 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { Box, Button, IconButton, Tooltip, Typography } from '@mui/material';
 import AddRounded from '@mui/icons-material/AddRounded';
 import EditRounded from '@mui/icons-material/EditRounded';
 import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
 import PeopleRounded from '@mui/icons-material/PeopleRounded';
-import { cfApi, qs } from '../api/client';
+import { cfApi } from '../api/client';
 import type { Party, PartyRole } from '../api/types';
-import { useLoad } from '../hooks/useLoad';
+import { useDebounced, usePagedList } from '../hooks/usePagedList';
 import { useIsPermitted } from '../hooks/useIsPermitted';
 import { useNewParam, useUrlParam } from '../hooks/useUrlState';
 import { invalidateNavCounts } from '../hooks/useNavCounts';
@@ -22,8 +22,8 @@ const ROLE_CHIPS: { value: string; label: string }[] = [
   { value: 'customer', label: 'Customers' }, { value: 'supplier', label: 'Suppliers' }, { value: 'subcontractor', label: 'Contractors' }, { value: 'all', label: 'All' },
 ];
 const PAGE_TITLE: Record<string, string> = { customer: 'Customers', supplier: 'Suppliers', subcontractor: 'Contractors', all: 'Customers & suppliers' };
-const inRole = (p: Party, r: string) => r === 'all' || p.roles.includes(r as PartyRole);
-const matches = (p: Party, term: string) => !term || [p.code, p.name, p.contactName, p.email, p.phone].some((v) => v?.toLowerCase().includes(term));
+/** What GET /parties?paged=1 counts over every match (not the loaded page). */
+interface PartyCounts { roles: Record<string, number>; active: number; inactive: number; noContact: number }
 
 /**
  * Collection / List (§4.2) of parties. They live in the separate parties
@@ -40,16 +40,16 @@ export default function Customers({ fixedRole }: { fixedRole?: PartyRole } = {})
   const [editing, setEditing] = useState<{ open: boolean; party: Party | null }>({ open: false, party: null });
   const [deleting, setDeleting] = useState<Party | null>(null);
   useNewParam(() => { if (canManage) setEditing({ open: true, party: null }); });
-  const list = useLoad(() => cfApi.get<Party[]>(`/parties${qs({ limit: 500 })}`), []);
-
-  const term = search.trim().toLowerCase();
-  const base = useMemo(() => (list.data ?? []).filter((p) => matches(p, term)), [list.data, term]);
-  const rows = useMemo(() => base.filter((p) => inRole(p, role)), [base, role]);
+  // Search and role filter on the server, a page at a time; the figures count every match.
+  const debounced = useDebounced(search.trim());
+  const list = usePagedList<Party, PartyCounts>('/parties', { search: debounced, role });
+  const term = debounced;
+  const pc = list.counts;
   // Figures that name something to act on, not a restatement of the row count.
   const stats = [
-    { label: 'Active', value: rows.filter((p) => p.status === 'active').length, tone: 'success' as const },
-    { label: 'Inactive', value: rows.filter((p) => p.status !== 'active').length, tone: 'neutral' as const, hint: 'Not offered on new orders' },
-    { label: 'No contact', value: rows.filter((p) => !p.email && !p.phone).length, tone: 'warning' as const, hint: 'No email or phone on record' },
+    { label: 'Active', value: pc?.active ?? 0, tone: 'success' as const },
+    { label: 'Inactive', value: pc?.inactive ?? 0, tone: 'neutral' as const, hint: 'Not offered on new orders' },
+    { label: 'No contact', value: pc?.noContact ?? 0, tone: 'warning' as const, hint: 'No email or phone on record' },
   ];
   const newLabel = `New ${(ROLE_WORD[role as PartyRole] ?? 'Customer').toLowerCase()}`;
 
@@ -76,15 +76,11 @@ export default function Customers({ fixedRole }: { fixedRole?: PartyRole } = {})
         actions={canManage && <Button variant="contained" startIcon={<AddRounded />} onClick={() => setEditing({ open: true, party: null })}>{newLabel}</Button>} />
       <StatStrip stats={stats} />
       <FilterBar search={search} onSearch={setSearch} placeholder="Search code, name or contact">
-        {!fixedRole && ROLE_CHIPS.map((c) => <FacetChip key={c.value} label={c.label} active={role === c.value} count={base.filter((p) => inRole(p, c.value)).length} onClick={() => setRole(c.value)} />)}
+        {!fixedRole && ROLE_CHIPS.map((c) => <FacetChip key={c.value} label={c.label} active={role === c.value} count={list.counts?.roles[c.value]} onClick={() => setRole(c.value)} />)}
       </FilterBar>
-      {(list.data ?? []).length >= 500 && (
-        <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)', mb: 1.5 }}>
-          The first 500 by name are shown, and the search only looks through those.
-        </Typography>
-      )}
       <ErrorNotice error={list.error} onRetry={list.reload} />
-      <DataTable rows={rows} columns={columns} getRowId={(p) => p.id} loading={list.loading && !list.data} storageKey="parties" exportName="parties" defaultSortKey="name"
+      <DataTable rows={list.rows} columns={columns} getRowId={(p) => p.id} loading={!list.loaded} storageKey="parties" exportName="parties" defaultSortKey="name"
+        server={{ ...list.server, sortable: ['code', 'name', 'roles', 'contact', 'tax', 'status'] }}
         onRowClick={canManage ? (p) => setEditing({ open: true, party: p }) : undefined}
         rowActions={canManage ? (p) => (
           <>

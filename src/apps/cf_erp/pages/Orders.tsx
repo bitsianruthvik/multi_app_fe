@@ -1,42 +1,37 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { Box, Button, Typography } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
 import AddRounded from '@mui/icons-material/AddRounded';
 import ReceiptLongRounded from '@mui/icons-material/ReceiptLongRounded';
-import { cfApi, qs } from '../api/client';
 import type { OrderStatus, SalesOrder } from '../api/types';
-import { useCompanySlug, useLoad } from '../hooks/useLoad';
+import { useCompanySlug } from '../hooks/useLoad';
+import { useDebounced, usePagedList } from '../hooks/usePagedList';
 import { useIsPermitted } from '../hooks/useIsPermitted';
 import { useNewParam, useUrlParam } from '../hooks/useUrlState';
 import { invalidateNavCounts } from '../hooks/useNavCounts';
 import { appPath } from '../navMeta';
-import { ORDER_STATUS_LABEL, OPEN_STATUSES, revisionLabel, showRevision } from '../lib/orders';
+import { ORDER_STATUS_LABEL, revisionLabel, showRevision } from '../lib/orders';
 import { DangerBadge, EmptyState, ErrorNotice, Mono, OrderStatusBadge, OrderTypeChip, PageHeader, RevisionBadge, StatStrip } from '../components/ui';
 import { DataTable, type DataColumn } from '../components/DataTable';
 import { FacetChip, FilterBar } from '../components/FilterBar';
 import { NewOrderDialog } from '../components/NewOrderDialog';
 import { useToast } from '../components/toastContext';
 
-const STATUS_CHIPS: { value: string; label: string; test: (o: SalesOrder) => boolean }[] = [
-  { value: 'open', label: 'Open', test: (o) => OPEN_STATUSES.includes(o.status) },
-  { value: 'overdue', label: 'Past date', test: (o) => o.overdue },
-  ...(['inquiry', 'quoted', 'confirmed', 'draft', 'closed', 'lost', 'cancelled'] as OrderStatus[])
-    .map((s) => ({ value: s, label: ORDER_STATUS_LABEL[s], test: (o: SalesOrder) => o.status === s })),
-  { value: 'all', label: 'All', test: () => true },
-];
-
-const matches = (o: SalesOrder, term: string) => !term
-  || [o.code, o.title, o.customer?.name, o.customer?.code, o.customerReference].some((v) => v?.toLowerCase().includes(term));
-
 /**
- * The order a status chip judges a row by. An earlier revision is judged as the
- * revision that replaced it, so the two sit together under the same chip. If
- * that one is not in the list, it is judged by the status it had when revised.
+ * The status chips. The SERVER filters by them (GET /orders?chip=…) and counts
+ * them over every order (`counts.chips`, each order once at its latest
+ * revision). An earlier revision is filed under the status of the revision that
+ * replaced it, so the two sit together under the same chip.
  */
-function filedAs(o: SalesOrder, current: Map<string, SalesOrder>): SalesOrder {
-  if (o.status !== 'revised') return o;
-  return current.get(o.code) ?? { ...o, status: o.statusBeforeRevised ?? o.status };
-}
+const STATUS_CHIPS: { value: string; label: string }[] = [
+  { value: 'open', label: 'Open' },
+  { value: 'overdue', label: 'Past date' },
+  ...(['inquiry', 'quoted', 'confirmed', 'draft', 'closed', 'lost', 'cancelled'] as OrderStatus[])
+    .map((st) => ({ value: st, label: ORDER_STATUS_LABEL[st] })),
+  { value: 'all', label: 'All' },
+];
+/** Columns the server can sort by (salesOrderService ORDER_SORT). */
+const SERVER_SORT = ['code', 'project', 'type', 'lines', 'committed', 'received', 'status'];
 
 const COLUMNS: DataColumn<SalesOrder>[] = [
   {
@@ -86,29 +81,23 @@ export default function Orders() {
   const [search, setSearch] = useState('');
   const [creating, setCreating] = useState(false);
   useNewParam(() => { if (canManage) setCreating(true); });
-  const list = useLoad(() => cfApi.get<SalesOrder[]>(`/orders${qs({ limit: 500, revisions: withEarlier ? 'all' : undefined })}`), [withEarlier]);
-
-  const all = useMemo(() => list.data ?? [], [list.data]);
-  const term = search.trim().toLowerCase();
-  const base = useMemo(() => all.filter((o) => (!type || o.orderType === type) && matches(o, term)), [all, type, term]);
-  // Every figure counts an order once, at the revision it is at now.
-  const latest = useMemo(() => base.filter((o) => o.status !== 'revised'), [base]);
-  const current = useMemo(() => new Map(all.filter((o) => o.status !== 'revised').map((o) => [o.code, o] as const)), [all]);
-  const chip = STATUS_CHIPS.find((c) => c.value === status) ?? STATUS_CHIPS[0];
-  const rows = useMemo(() => base.filter((o) => chip.test(filedAs(o, current))), [base, chip, current]);
+  const term = useDebounced(search.trim());
+  const chip = STATUS_CHIPS.some((c) => c.value === status) ? status : 'open';
+  // Search, type and status chip filter on the server, a page at a time; every figure counts all orders.
+  const list = usePagedList<SalesOrder, { chips: Record<string, number> }>('/orders', {
+    search: term, orderType: type || undefined, chip, revisions: withEarlier ? 'all' : undefined,
+  }, { defaultSort: { key: 'code', dir: 'desc' } });
+  const chips = list.counts?.chips;
   const open = (o: SalesOrder) => navigate(appPath(company, `orders/${o.id}`));
 
   const stats = [
-    { label: 'Inquiries', value: latest.filter((o) => o.status === 'inquiry').length, hint: 'Being designed', onClick: () => setStatus('inquiry') },
-    { label: 'Quoted', value: latest.filter((o) => o.status === 'quoted').length, hint: 'Waiting for the customer', onClick: () => setStatus('quoted') },
-    { label: 'Confirmed', value: latest.filter((o) => o.status === 'confirmed').length, tone: 'info' as const, onClick: () => setStatus('confirmed') },
-    { label: 'Past committed date', value: latest.filter((o) => o.overdue).length, tone: 'danger' as const, hint: 'Still open', onClick: () => setStatus('overdue') },
+    { label: 'Inquiries', value: chips?.inquiry ?? 0, hint: 'Being designed', onClick: () => setStatus('inquiry') },
+    { label: 'Quoted', value: chips?.quoted ?? 0, hint: 'Waiting for the customer', onClick: () => setStatus('quoted') },
+    { label: 'Confirmed', value: chips?.confirmed ?? 0, tone: 'info' as const, onClick: () => setStatus('confirmed') },
+    { label: 'Past committed date', value: chips?.overdue ?? 0, tone: 'danger' as const, hint: 'Still open', onClick: () => setStatus('overdue') },
   ];
   const filtered = !!term || !!type || status !== 'open';
   const clear = () => { setSearch(''); setType(''); setStatus('open'); };
-  // The list asks for the 500 newest and filters in the browser, so beyond that
-  // the search quietly stops reaching older orders. Say so rather than lie.
-  const capped = all.length >= 500;
 
   return (
     <Box>
@@ -116,20 +105,16 @@ export default function Orders() {
         actions={canManage && <Button variant="contained" startIcon={<AddRounded />} onClick={() => setCreating(true)}>New order</Button>} />
       <StatStrip stats={stats} />
       <FilterBar search={search} onSearch={setSearch} placeholder="Search number, title, customer">
-        {STATUS_CHIPS.map((c) => <FacetChip key={c.value} label={c.label} active={status === c.value} count={latest.filter(c.test).length} onClick={() => setStatus(c.value)} />)}
+        {STATUS_CHIPS.map((c) => <FacetChip key={c.value} label={c.label} active={status === c.value} count={chips?.[c.value]} onClick={() => setStatus(c.value)} />)}
         <Box sx={{ width: '1px', height: 20, background: 'var(--c-border)', mx: 0.5 }} aria-hidden />
         <FacetChip label="Customer" active={type === 'customer'} onClick={() => setType(type === 'customer' ? '' : 'customer')} />
         <FacetChip label="Stock" active={type === 'stock'} onClick={() => setType(type === 'stock' ? '' : 'stock')} />
         <Box sx={{ width: '1px', height: 20, background: 'var(--c-border)', mx: 0.5 }} aria-hidden />
         <FacetChip label="Show earlier revisions" active={withEarlier} onClick={() => setRevisions(withEarlier ? '' : 'all')} />
       </FilterBar>
-      {capped && (
-        <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)', mb: 1.5 }}>
-          The 500 most recent orders are shown, and the search only looks through those.
-        </Typography>
-      )}
       <ErrorNotice error={list.error} onRetry={list.reload} />
-      <DataTable rows={rows} columns={COLUMNS} getRowId={(o) => o.id} onRowClick={open} loading={list.loading && !list.data}
+      <DataTable rows={list.rows} columns={COLUMNS} getRowId={(o) => o.id} onRowClick={open} loading={!list.loaded}
+        server={{ ...list.server, sortable: SERVER_SORT }}
         storageKey="orders" exportName="orders" defaultSortKey="code" defaultSortDir="desc"
         empty={<EmptyState icon={<ReceiptLongRounded />} title={filtered ? 'No order matches these filters' : 'No orders yet'}
           hint={filtered ? 'Clear the search or pick another status.' : 'Start with an inquiry — its structure can be designed before anything is confirmed.'}

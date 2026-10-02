@@ -7,38 +7,20 @@ import { qtyText } from '../lib/inventory';
 import type { ItemPrices } from '../api/money';
 import { dayText, priceText } from '../lib/money';
 import { FormDialog } from './FormDialog';
+import { PartyPicker } from './ServerPicker';
 import { RecordPicker } from './RecordPicker';
 import { SpecValueInput } from './SpecValueInput';
 import { ErrorNotice, Mono } from './ui';
 
-/** Suppliers, fetched only while the dialog that needs them is open. */
-const useSuppliers = (enabled: boolean) => useLoad(
-  () => (enabled ? cfApi.get<Party[]>(`/parties${qs({ role: 'supplier', status: 'active' })}`) : Promise.resolve([] as Party[])),
-  [enabled],
-);
-
-/**
- * Why the supplier list is empty, in words. Reading suppliers needs the sales
- * permission, so a stores-only account gets nothing back and must be told —
- * an empty dropdown looks like "there are no suppliers".
- */
-function supplierHelp(s: ReturnType<typeof useSuppliers>, fallback: string): string {
-  if (s.error) return 'The supplier list could not be loaded — you may not have permission to see suppliers. Ask someone who has.';
-  if (s.loading && !s.data) return 'Loading suppliers…';
-  if (!(s.data ?? []).length) return 'No active suppliers are set up yet.';
-  return fallback;
-}
-
 /** Raising one by hand — the buy list raises its own. */
 export function NewPurchaseDialog({ open, onClose, onCreated }: { open: boolean; onClose: () => void; onCreated: (p: PurchaseOrder) => void }) {
-  const suppliers = useSuppliers(open);
   const [code, setCode] = useState('');
-  const [supplierId, setSupplierId] = useState('');
+  const [supplier, setSupplier] = useState<Party | null>(null);
   const [expectedDate, setExpectedDate] = useState('');
   const [notes, setNotes] = useState('');
-  useEffect(() => { if (open) { setCode(''); setSupplierId(''); setExpectedDate(''); setNotes(''); } }, [open]);
+  useEffect(() => { if (open) { setCode(''); setSupplier(null); setExpectedDate(''); setNotes(''); } }, [open]);
   const save = async () => onCreated(await cfApi.post<PurchaseOrder>('/purchase-orders', {
-    code: code || null, supplierId: supplierId || null, expectedDate: expectedDate || null, notes: notes || null,
+    code: code || null, supplierId: supplier?.id ?? null, expectedDate: expectedDate || null, notes: notes || null,
   }));
   return (
     <FormDialog open={open} title="New purchase order" onClose={onClose} onSubmit={save} submitLabel="Create" maxWidth="sm"
@@ -46,11 +28,7 @@ export function NewPurchaseDialog({ open, onClose, onCreated }: { open: boolean;
       <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', sm: 'repeat(2, minmax(0, 1fr))' }, gap: 2 }}>
         <TextField label="Number" value={code} onChange={(e) => setCode(e.target.value)} helperText="Leave empty for the next number"
           inputProps={{ style: { fontFamily: 'var(--font-mono)' } }} />
-        <TextField select label="Supplier" value={supplierId} onChange={(e) => setSupplierId(e.target.value)}
-          helperText={supplierHelp(suppliers, 'Can be named later, before it is sent')}>
-          <MenuItem value="">Nobody yet</MenuItem>
-          {(suppliers.data ?? []).map((s) => <MenuItem key={s.id} value={String(s.id)}>{s.name}</MenuItem>)}
-        </TextField>
+        <PartyPicker role="supplier" value={supplier} onChange={setSupplier} helperText="Can be named later, before it is sent" />
         <TextField label="Expected" type="date" value={expectedDate} onChange={(e) => setExpectedDate(e.target.value)} InputLabelProps={{ shrink: true }} />
         <TextField label="Notes" value={notes} onChange={(e) => setNotes(e.target.value)} />
       </Box>
@@ -60,19 +38,13 @@ export function NewPurchaseDialog({ open, onClose, onCreated }: { open: boolean;
 
 /** Naming the supplier and sending it: draft goes to ordered. */
 export function SendPurchaseDialog({ order, onClose, onSent }: { order: PurchaseOrder | null; onClose: () => void; onSent: (p: PurchaseOrder) => void }) {
-  const suppliers = useSuppliers(!!order);
-  const [supplierId, setSupplierId] = useState('');
-  useEffect(() => { if (order) setSupplierId(order.supplier ? String(order.supplier.id) : ''); }, [order?.id]); // eslint-disable-line react-hooks/exhaustive-deps
-  const save = async () => { if (order) onSent(await cfApi.post<PurchaseOrder>(`/purchase-orders/${order.id}/order`, { supplierId: supplierId || null })); };
+  const [supplier, setSupplier] = useState<Party | null>(null);
+  useEffect(() => { if (order) setSupplier(order.supplier ? ({ id: order.supplier.id, code: order.supplier.code ?? '', name: order.supplier.name } as Party) : null); }, [order?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  const save = async () => { if (order) onSent(await cfApi.post<PurchaseOrder>(`/purchase-orders/${order.id}/order`, { supplierId: supplier?.id ?? null })); };
   return (
-    <FormDialog open={!!order} title="Send to the supplier" onClose={onClose} onSubmit={save} submitLabel="Send" maxWidth="xs" submitDisabled={!supplierId}
+    <FormDialog open={!!order} title="Send to the supplier" onClose={onClose} onSubmit={save} submitLabel="Send" maxWidth="xs" submitDisabled={!supplier}
       subtitle={order ? `${order.code} — ${order.lines.length} ${order.lines.length === 1 ? 'line' : 'lines'}. Once sent, deliveries can be booked against it.` : undefined}>
-      <ErrorNotice error={suppliers.error} onRetry={suppliers.reload} />
-      <TextField select label="Supplier" value={supplierId} onChange={(e) => setSupplierId(e.target.value)} autoFocus
-        helperText={supplierHelp(suppliers, 'A purchase order addressed to nobody cannot be sent')}>
-        <MenuItem value="">Nobody yet</MenuItem>
-        {(suppliers.data ?? []).map((s) => <MenuItem key={s.id} value={String(s.id)}>{s.name}</MenuItem>)}
-      </TextField>
+      <PartyPicker role="supplier" value={supplier} onChange={setSupplier} autoFocus helperText="A purchase order addressed to nobody cannot be sent" />
     </FormDialog>
   );
 }

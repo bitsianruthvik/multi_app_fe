@@ -40,6 +40,7 @@ export function ChooseItemDialog({ lineId, open, onClose, onDone }: { lineId: nu
           <EmptyState title="No item qualifies" body={data.note ?? 'The selection allows no active catalog item yet — widen it under Definitions.'} />
         ) : (
           <Box role="radiogroup" aria-label="Candidate items" sx={{ display: 'grid', gap: 0.5 }}>
+            {data.truncated && data.total != null && <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)', mb: 0.5 }}>Showing {data.candidates.length} of {data.total} items that qualify.</Typography>}
             {data.candidates.map((c) => (
               <Box key={c.id} component="label" sx={{ display: 'flex', alignItems: 'center', gap: 1, p: 1, borderRadius: 'var(--r-sm)', cursor: 'pointer', flexWrap: 'wrap', background: pick === c.id ? 'var(--c-surface-2)' : 'transparent', '&:hover': { background: 'var(--c-surface-2)' } }}>
                 <Radio checked={pick === c.id} onChange={() => setPick(c.id)} size="small" inputProps={{ 'aria-label': c.code }} />

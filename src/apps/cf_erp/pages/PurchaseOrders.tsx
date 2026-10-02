@@ -1,11 +1,11 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { Box, Button, Typography } from '@mui/material';
 import { Link, useNavigate } from 'react-router-dom';
 import AddRounded from '@mui/icons-material/AddRounded';
 import LocalShippingRounded from '@mui/icons-material/LocalShippingRounded';
-import { cfApi, qs } from '../api/client';
 import type { PurchaseOrder, PurchaseOrderRow } from '../api/types';
-import { useCompanySlug, useLoad } from '../hooks/useLoad';
+import { useCompanySlug } from '../hooks/useLoad';
+import { useDebounced, usePagedList } from '../hooks/usePagedList';
 import { useIsPermitted } from '../hooks/useIsPermitted';
 import { useNewParam, useUrlParam } from '../hooks/useUrlState';
 import { invalidateNavCounts } from '../hooks/useNavCounts';
@@ -22,6 +22,10 @@ import { NewPurchaseDialog } from '../components/PurchaseDialogs';
 
 const linkSx = { color: 'inherit', textDecoration: 'none', '&:hover': { color: 'var(--c-primary-700)', textDecoration: 'underline' } };
 
+interface PoCounts { status: Record<string, number>; open: number; all: number; sum: { amount: number; outstanding: number; unpriced: number } }
+/** Columns the server sorts (purchaseService PO_SORT). */
+const SERVER_SORT = ['code', 'status', 'supplier', 'expected', 'lines', 'ordered', 'received', 'outstanding', 'amount'];
+
 /** Every purchase order: what was asked for, from whom, and what has arrived. */
 export default function PurchaseOrders() {
   const company = useCompanySlug();
@@ -31,21 +35,18 @@ export default function PurchaseOrders() {
   const [search, setSearch] = useState('');
   const [creating, setCreating] = useState(false);
   useNewParam(() => { if (canManage) setCreating(true); });
-  const list = useLoad(() => cfApi.get<PurchaseOrderRow[]>(`/purchase-orders${qs({ status })}`), [status]);
-  const all = useMemo(() => list.data ?? [], [list.data]);
-  const term = search.trim().toLowerCase();
-  const rows = useMemo(() => (term
-    ? all.filter((p) => [p.code, p.supplier?.name, p.supplier?.code].some((t) => t && String(t).toLowerCase().includes(term)))
-    : all), [all, term]);
-
-  // Every figure describes the orders in the table below, so the two agree.
-  const outstanding = rows.reduce((t, p) => t + p.totals.outstanding, 0);
-  const amount = rows.reduce((t, p) => t + (p.totals.amount ?? 0), 0);
-  const unpriced = rows.reduce((t, p) => t + (p.totals.unpricedLines ?? 0), 0);
+  const term = useDebounced(search.trim());
+  // Search and the status chip filter on the server, a page at a time; every figure counts all matching orders.
+  const list = usePagedList<PurchaseOrderRow, PoCounts>('/purchase-orders', { status, search: term }, { defaultSort: { key: 'code', dir: 'desc' } });
+  const counts = list.counts;
+  const unpriced = counts?.sum.unpriced ?? 0;
+  const amount = counts?.sum.amount ?? 0;
+  const outstanding = counts?.sum.outstanding ?? 0;
+  const chipCount = (v: string) => (!counts ? undefined : v === 'open' ? counts.open : v === 'all' ? counts.all : counts.status[v]);
   const stats = [
-    { label: 'Orders', value: rows.length },
-    { label: 'Draft', value: rows.filter((p) => p.status === 'draft').length, tone: 'warning' as const, hint: 'Not sent to a supplier yet' },
-    { label: 'Awaiting delivery', value: rows.filter((p) => p.status === 'ordered' || p.status === 'partially_received').length, tone: 'info' as const, hint: 'Sent, still waiting on the supplier' },
+    { label: 'Orders', value: list.total },
+    { label: 'Draft', value: counts?.status.draft ?? 0, tone: 'warning' as const, hint: 'Not sent to a supplier yet' },
+    { label: 'Awaiting delivery', value: (counts?.status.ordered ?? 0) + (counts?.status.partially_received ?? 0), tone: 'info' as const, hint: 'Sent, still waiting on the supplier' },
     { label: 'Order value', value: amount, display: amount === 0 && unpriced > 0 ? 'not priced' : rupeeText(amount), hint: unpriced ? `${unpriced} line${unpriced === 1 ? ' has' : 's have'} no price and ${unpriced === 1 ? 'is' : 'are'} left out` : 'Before tax' },
     { label: 'Outstanding', value: outstanding, display: qtyText(outstanding), hint: 'Quantity ordered and not yet received' },
   ];
@@ -82,10 +83,10 @@ export default function PurchaseOrders() {
         actions={canManage && <Button variant="contained" startIcon={<AddRounded />} onClick={() => setCreating(true)}>New purchase order</Button>} />
       <StatStrip stats={stats} />
       <FilterBar search={search} onSearch={setSearch} placeholder="Search number or supplier">
-        {PURCHASE_FILTERS.map((f) => <FacetChip key={f.value} label={f.label} active={status === f.value} onClick={() => setStatus(f.value)} />)}
+        {PURCHASE_FILTERS.map((f) => <FacetChip key={f.value} label={f.label} active={status === f.value} count={chipCount(f.value)} onClick={() => setStatus(f.value)} />)}
       </FilterBar>
       <ErrorNotice error={list.error} onRetry={list.reload} />
-      <DataTable rows={rows} columns={columns} getRowId={(p) => p.id} loading={list.loading && !list.data} storageKey="purchase-orders" exportName="purchase-orders"
+      <DataTable rows={list.rows} columns={columns} getRowId={(p) => p.id} loading={!list.loaded} server={{ ...list.server, sortable: SERVER_SORT }} defaultSortKey="code" defaultSortDir="desc" storageKey="purchase-orders" exportName="purchase-orders"
         onRowClick={(p) => navigate(appPath(company, `purchase-orders/${p.id}`))}
         empty={<EmptyState icon={<LocalShippingRounded />}
           title={term ? 'No order matches' : status === 'open' ? 'Nothing on order' : 'No purchase orders here'}
