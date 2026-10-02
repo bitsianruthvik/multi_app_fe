@@ -534,7 +534,9 @@ export interface Party {
 export interface FlowRef { id: number; code: string; name: string; status: RecordStatus }
 
 /** Where the flow that applies came from: the BOM line, the child's own default, or its template's. */
-export interface EffectiveFlow { id: number; code: string; name: string; from: 'line' | 'item' | 'template' }
+export interface EffectiveFlow { id: number; code: string; name: string; from: 'line' | 'item' | 'template';
+  /** Only when from is 'line': the flow that applies once this line's own choice is removed (null: none). */
+  usual?: { id: number; code: string; name: string; from: 'item' | 'template' } | null }
 
 export interface Machine {
   id: number;

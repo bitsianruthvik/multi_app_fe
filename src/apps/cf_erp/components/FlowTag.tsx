@@ -8,12 +8,12 @@ import { appPath } from '../navMeta';
 import { flowFromText } from '../lib/production';
 
 /** The flow a piece is made by, linked to it. "set on this line" shows in the colour of a choice made here. */
-export function FlowTag({ flow }: { flow: EffectiveFlow | null | undefined }) {
+export function FlowTag({ flow, note }: { flow: EffectiveFlow | null | undefined; note?: string }) {
   const company = useCompanySlug();
   if (!flow) return null;
   const here = flow.from === 'line';
   return (
-    <Tooltip title={`Made by ${flow.name} — ${flowFromText(flow)}`}>
+    <Tooltip title={`Made by ${flow.name} — ${flowFromText(flow)}${note ? `. ${note}` : ''}`}>
       <Box component={Link} to={appPath(company, `flows/${flow.id}`)} onClick={(e: MouseEvent) => e.stopPropagation()} sx={{
         display: 'inline-flex', alignItems: 'center', gap: 0.5, px: 0.75, py: 0.125, borderRadius: 'var(--r-sm)', textDecoration: 'none',
         fontFamily: 'var(--font-mono)', fontSize: 11.5, whiteSpace: 'nowrap',

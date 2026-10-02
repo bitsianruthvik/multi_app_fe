@@ -17,7 +17,7 @@ Object.defineProperty(globalThis, 'localStorage', { value: dom.window.localStora
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const React = await import('react');
 const { createRoot } = await import('react-dom/client');
-const built = await build({ alias: { '@shared/ui': resolve('src/shared/ui/SheetGrid.tsx') }, stdin: { contents: `export * from './src/apps/cf_erp/components/Bom/BomGrid'; export * from './src/apps/cf_erp/components/Bom/bomArrangement'; export * from './src/apps/cf_erp/components/Bom/bomModel'; export * from './src/apps/cf_erp/lib/stripLayout';`, resolveDir: process.cwd(), loader: 'tsx' }, bundle: true, write: false, format: 'esm', platform: 'node', packages: 'external', jsx: 'automatic' });
+const built = await build({ alias: { '@shared/ui': resolve('src/shared/ui/SheetGrid.tsx') }, stdin: { contents: `export * from './src/apps/cf_erp/components/Bom/BomGrid'; export * from './src/apps/cf_erp/components/Bom/bomArrangement'; export * from './src/apps/cf_erp/components/Bom/bomModel'; export * from './src/apps/cf_erp/lib/stripLayout'; export * from './src/apps/cf_erp/components/Bom/FlowChoice'; export * from './src/apps/cf_erp/components/Bom/flowShown';`, resolveDir: process.cwd(), loader: 'tsx' }, bundle: true, write: false, format: 'esm', platform: 'node', packages: 'external', jsx: 'automatic' });
 const cache = resolve('node_modules/.cache');
 await mkdir(cache, { recursive: true });
 const artifact = resolve(cache, `bom-grid-test-${process.pid}.mjs`);
@@ -333,6 +333,79 @@ await check('Typing a value then ArrowRight keeps it and moves to the next cell 
   assert.deepEqual(writes.map((w) => [w.row.node.id, w.code, w.text]), [[2, 'THICKNESS', '8']]);
   assert.equal(document.querySelector(`[data-cell^="${rowIdx(2)}:"][data-col-key="LENGTH"]`).getAttribute('aria-selected'), 'true');
 });
+
+// ── operation flow: default vs changed, reset, bulk ──────────────────────────
+const gs = { id: 7, code: 'GS-FLOW', name: 'Girder standard', from: 'template' };
+const flowRows = [
+  node(21, [], { name: 'Web', flow: { ...gs } }),
+  node(22, [], { name: 'Flange', flow: { id: 8, code: 'FL-CUSTOM', name: 'Flange special', from: 'line', usual: { id: 7, code: 'GS-FLOW', name: 'Girder standard', from: 'template' } } }),
+  node(23, [], { name: 'Stiffener', flow: null }),
+  node(24, [], { name: 'Bolt', kind: 'catalog', flow: null }),
+];
+const lookup = (id) => ({ 7: gs, 8: { id: 8, code: 'FL-CUSTOM', name: 'Flange special' }, 9: { id: 9, code: 'FL-NEW', name: 'New one' } })[id];
+const [web, flange, stiff, bolt] = flowRows;
+await check('A flow from the template shows as default; one set on the line shows as changed', () => {
+  assert.equal(m.flowShown(web, {}, lookup).tag, 'default');
+  assert.equal(m.flowShown(flange, {}, lookup).tag, 'changed');
+  assert.equal(m.flowShown(flange, {}, lookup).usual.code, 'GS-FLOW');
+  assert.equal(m.flowShown(stiff, {}, lookup).tag, null);
+  assert.match(m.flowTooltip(m.flowShown(web, {}, lookup), web, true), /default, from the template/);
+  assert.match(m.flowTooltip(m.flowShown(flange, {}, lookup), flange, true), /changed on this order.*default is GS-FLOW/);
+});
+await check('A waiting choice shows as changed + unsaved, and reset shows the default again', () => {
+  const picked = m.withFlow(m.NO_PENDING, web, 9);
+  const s1 = m.flowShown(web, picked.flow, lookup);
+  assert.equal(s1.tag, 'changed'); assert.equal(s1.flow.code, 'FL-NEW'); assert.equal(s1.unsaved, true);
+  const reset = m.withFlow(m.NO_PENDING, flange, null);
+  const s2 = m.flowShown(flange, reset.flow, lookup);
+  assert.equal(s2.tag, 'default'); assert.equal(s2.flow.code, 'GS-FLOW'); assert.equal(s2.unsaved, true);
+  assert.equal(Object.keys(m.withFlow(picked, web, null).flow).length, 0);
+});
+await check('No-flow chip is amber for a made row and plain for a bought one', async () => {
+  const chip = (n) => React.createElement(m.FlowChip, { shown: m.flowShown(n, {}, lookup), made: m.isMade(n), label: 'x', tooltip: 't', onClick: () => {} });
+  await React.act(() => root.render(React.createElement('div', null, chip(web), chip(stiff), chip(bolt))));
+  const chips = [...document.querySelectorAll('[data-testid="flow-chip"]')];
+  assert.deepEqual(chips.map((c) => c.getAttribute('data-flow-tag')), ['default', 'none', 'none']);
+  assert.match(chips[0].textContent, /GS-FLOW.*default/i);
+  assert.match(chips[1].textContent, /No flow/);
+  assert.notEqual(chips[1].getAttribute('class'), chips[2].getAttribute('class'));
+});
+const allFlows = [
+  { id: 7, code: 'GS-FLOW', name: 'Girder standard', status: 'active', steps: [{ sequence: 2, operation: { id: 2, code: 'WLD', name: 'Welding' } }, { sequence: 1, operation: { id: 1, code: 'CUT', name: 'Cutting' } }] },
+  { id: 9, code: 'FL-NEW', name: 'New one', status: 'draft', steps: [] },
+  { id: 10, code: 'OLD', name: 'Retired', status: 'obsolete', steps: [] },
+];
+await check('Picker lists the default first, steps in order, and hides obsolete flows', async () => {
+  let picked;
+  await React.act(() => root.render(React.createElement(m.FlowChoiceList, { flows: allFlows, chosen: null, usual: { id: 7, code: 'GS-FLOW', name: 'Girder standard', from: 'template' }, onPick: (id) => { picked = id; } })));
+  const opts = [...document.querySelectorAll('[role="option"]')];
+  assert.ok(opts[0].textContent.includes("Use the default (GS-FLOW)"));
+  assert.equal(opts.length, 3);
+  assert.match(opts[1].textContent, /Cutting › Welding/);
+  assert.ok(!/OLD/.test(document.body.textContent));
+  await fire(opts[2], 'click'); assert.equal(picked, 9);
+  await fire(document.querySelector('[data-testid="flow-use-default"]'), 'click'); assert.equal(picked, null);
+});
+await check('Bulk dialog applies one flow to every ticked row, warning about mixed kinds', async () => {
+  let applied;
+  const brows = flowRows.map((n) => ({ key: n.key, node: n, depth: 1, label: n.name }));
+  await React.act(() => root.render(React.createElement(m.BulkFlowDialog, { open: true, rows: brows, flows: allFlows, shownOf: (n) => m.flowShown(n, {}, lookup), onClose: () => {}, onApply: (keys, id) => { applied = [keys, id]; } })));
+  const apply = () => document.querySelector('[data-testid="bulk-apply"]');
+  assert.equal(apply().disabled, true);
+  for (const n of [web, stiff]) await fire(document.querySelector(`input[aria-label="Select ${n.name}"]`), 'click');
+  await fire([...document.querySelectorAll('[data-testid="flow-option"]')][1], 'click');
+  assert.equal(apply().disabled, false);
+  assert.ok(!/different kinds/.test(document.body.textContent));
+  await fire(document.querySelector('input[aria-label="Select Bolt"]'), 'click');
+  assert.match(document.body.textContent, /different kinds/);
+  await fire(apply(), 'click');
+  assert.deepEqual(applied, [[web.key, stiff.key, bolt.key], 9]);
+  // ...and those become pending 'flow' ops through the one Save path
+  const p = applied[0].reduce((acc, k) => m.withFlow(acc, flowRows.find((n) => n.key === k), applied[1]), m.NO_PENDING);
+  const byLine = m.nodesByLine(node(1, flowRows, { lineId: null, depth: 0 }));
+  assert.deepEqual(m.pendingChanges(p, byLine).changes.map((c) => [c.op, c.lineId, c.flowId]), [['flow', 210, 9], ['flow', 230, 9], ['flow', 240, 9]]);
+});
+await React.act(() => root.render(null));
 await React.act(() => root.unmount());
 dom.window.close();
 console.log(`\n${passed} passed, ${failed} failed`);

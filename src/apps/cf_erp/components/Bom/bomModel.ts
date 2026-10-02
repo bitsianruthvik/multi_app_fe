@@ -287,6 +287,16 @@ export function parseQuantity(text: string): number | null {
 /** The flow a line names for its child — not the one it falls back to when it names none. */
 export const lineFlowId = (node: StructureNode): number | null => (node.flow?.from === 'line' ? node.flow.id : null);
 
+/** Waiting flow choices with one more: a flow id, or null to follow the default. Choosing what is already saved takes the entry away. */
+export function withFlow(p: Pending, node: StructureNode, flowId: number | null): Pending {
+  const id = node.lineId;
+  if (id == null) return p;
+  const flow = { ...p.flow };
+  if ((flowId ?? null) === lineFlowId(node)) delete flow[id];
+  else flow[id] = flowId;
+  return { ...p, flow };
+}
+
 const sameNumber = (a: number, b: number) => Math.abs(a - b) < 1e-9;
 
 /** Every node of the tree by its BOM line id. */

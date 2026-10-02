@@ -33,12 +33,13 @@ import { DangerBadge, EmptyState, ErrorNotice, Fact, Mono, SectionCard, Skeleton
 import { AddChildDialog, EditLineDialog } from '../BomDialogs';
 import { ChooseItemDialog } from '../ChooseItemDialog';
 import { ConfirmDialog } from '../ConfirmDialog';
-import { FlowPicker } from '../FlowPicker';
+import { BulkFlowDialog, FlowChip, FlowChoiceList } from './FlowChoice';
+import { flowShown, flowTooltip, isMade } from './flowShown';
 import { FlowTag } from '../FlowTag';
 import { useToast } from '../toastContext';
 import {
   allowedChildren, bomTypeOfKind, keysBelow, lineFlowId, nodesByLine, openableKeys,
-  parseQuantity, pasteRefusal, pendingChanges, temporaryCount, walkNodes,
+  parseQuantity, pasteRefusal, pendingChanges, temporaryCount, walkNodes, withFlow,
   NO_PENDING, VALUES_PERMISSION, isCutPiece, withoutCutPieces, type BomRow, type Pending,
 } from './bomModel';
 import type { BomAction, RowMark } from './BomTree';
@@ -179,6 +180,7 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
   /** A dry run's answer, kept with the pending state it answered for — any edit makes it stale. */
   const [checked, setChecked] = useState<{ for: Pending; out: BomChangesResponse } | null>(null);
   const [confirming, setConfirming] = useState<'save' | null>(null);
+  const [bulkFlow, setBulkFlow] = useState(false);
   const [flowPick, setFlowPick] = useState<{ anchor: HTMLElement; row: BomRow } | null>(null);
   const [rowMenu, setRowMenu] = useState<{ anchor: HTMLElement; row: BomRow } | null>(null);
   const pasteNo = useRef(0);
@@ -440,15 +442,12 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
     setPending((p) => moveRow(p, from, to, position));
     if (position === 'inside') setOpen(new Set([...expanded, to.node.key]));
   };
-  const setFlow = (row: BomRow, flowId: number | null) => {
-    const id = row.node.lineId as number;
-    setPending((p) => {
-      const flow = { ...p.flow };
-      if ((flowId ?? null) === lineFlowId(row.node)) delete flow[id];
-      else flow[id] = flowId;
-      return { ...p, flow };
-    });
-  };
+  const setFlow = (row: BomRow, flowId: number | null) => setPending((p) => withFlow(p, row.node, flowId));
+  /** One flow (or each row's default) for every key in the list — the same pending path as one row. */
+  const setFlowMany = (keys: string[], flowId: number | null) => setPending((p) => {
+    const byKey = new Map(rows.map((r) => [r.node.key, r.node]));
+    return keys.reduce((acc, k) => { const n = byKey.get(k); return n ? withFlow(acc, n, flowId) : acc; }, p);
+  });
   /** The description as it will be: what was typed, else what is saved. */
   const roleOf = (row: BomRow): string | null => {
     const id = row.node.lineId;
@@ -584,29 +583,29 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
     return null;
   };
 
+  const flowLookup = (id: number) => flowById.get(id);
   const flowCell = (row: BomRow) => {
     const n = row.node;
-    if (row.paste || !flowEditable(row) || removedKeys.has(n.key) || !canHaveFlow(n)) return <FlowTag flow={n.flow} />;
-    const id = n.lineId as number;
-    const has = id in pending.flow;
-    const chosen = has ? pending.flow[id] : undefined;
-    const changed = has && (chosen ?? null) !== lineFlowId(n);
-    const text = changed ? (chosen == null ? 'usual flow' : flowById.get(chosen)?.code ?? `flow ${chosen}`) : n.flow?.code ?? 'flow';
+    if (row.paste || !flowEditable(row) || removedKeys.has(n.key) || !canHaveFlow(n)) {
+      const why = !row.paste && !removedKeys.has(n.key) && canHaveFlow(n) && n.flow && row.parent ? flowReadOnlyWhy(row) : undefined;
+      return <FlowTag flow={n.flow} note={why} />;
+    }
+    const shown = flowShown(n, pending.flow, flowLookup);
+    const made = isMade(n);
     return (
-      <Box component="button" type="button" disabled={!!busy} onClick={(e) => setFlowPick({ anchor: e.currentTarget as HTMLElement, row })}
-        aria-label={`How ${n.code ?? n.name} is made here: ${n.flow && !changed ? n.flow.code : text}${changed ? ' (changed)' : ''}. Choose another flow`}
-        sx={{
-          display: 'inline-flex', alignItems: 'center', gap: 0.5, px: 0.75, py: 0.125, borderRadius: 'var(--r-sm)', cursor: 'pointer',
-          fontFamily: 'var(--font-mono)', fontSize: 11.5, whiteSpace: 'nowrap', '& svg': { fontSize: 13 },
-          border: `1px ${n.flow || changed ? 'solid' : 'dashed'} ${changed ? 'var(--c-warning-600)' : 'var(--c-border)'}`,
-          background: changed ? 'var(--c-warning-50)' : 'var(--c-surface-2)',
-          color: changed ? 'var(--c-warning-800)' : n.flow ? 'var(--c-text-2)' : 'var(--c-text-3)',
-          '&:hover': { borderColor: 'var(--c-primary-400)' },
-        }}>
-        <RouteRounded />{text}
-      </Box>
+      <FlowChip shown={shown} made={made} disabled={!!busy} tooltip={flowTooltip(shown, n, made)}
+        label={`How ${n.code ?? n.name} is made here: ${shown.flow ? shown.flow.code : 'no flow'}${shown.tag ? ` (${shown.tag})` : ''}${shown.unsaved ? ', not saved' : ''}. Choose another flow`}
+        onClick={(e) => setFlowPick({ anchor: e.currentTarget as HTMLElement, row })} />
     );
   };
+  /** Why a row's flow cannot change from here. */
+  const flowReadOnlyWhy = (row: BomRow): string => {
+    if (state?.released) return 'The line is released, so how it is made no longer changes.';
+    if (state?.frozen && !flowsOnly) return 'This order is closed, so how it is made no longer changes.';
+    return whyNotLine(row);
+  };
+  /** Rows whose flow may change here — what the "several rows" dialog lists. */
+  const flowRows = rows.filter((r) => !r.paste && flowEditable(r) && !removedKeys.has(r.node.key) && canHaveFlow(r.node) && r.parent != null);
 
   const trailingCell = (row: BomRow) => {
     const n = row.node;
@@ -650,8 +649,6 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
   // Only worth offering once something below the first level can be folded away.
   const deep = state.stats.maxDepth > 1;
   const pickRow = flowPick?.row ?? null;
-  const pickId = pickRow?.node.lineId ?? null;
-  const pickValue = pickRow && pickId != null ? (pickId in pending.flow ? pending.flow[pickId] ?? null : lineFlowId(pickRow.node)) : null;
   // Rows, not items: what a copy makes afresh (cut plates are shared, catalog
   // items referenced) is the server's answer, and Check gives it exactly.
   const firstNewCode = checkedNow?.results.flatMap((r) => (r?.op === 'paste' ? r.items : []))[0]?.code ?? null;
@@ -790,6 +787,11 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
               control={<Switch size="small" checked={onlyUsed} onChange={(e) => setOnlyUsed(e.target.checked)} />}
               label="Only columns these rows use" />
           )}
+          {editOn && flowRows.length > 1 && (
+            <Button size="small" data-testid="bulk-flow-open" startIcon={<RouteRounded />} disabled={!!busy} onClick={() => setBulkFlow(true)}>
+              Change flow for several rows…
+            </Button>
+          )}
           <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>
             {flowsOnly ? 'Only flows can change · changes wait for Save' : 'Type in a cell · an arrow, Enter or Tab keeps it · copy inserts a row below · drag to rearrange · changes wait for Save'}
           </Typography>
@@ -875,16 +877,29 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
         </MenuItem>)}
       </Menu>
 
+      <BulkFlowDialog open={bulkFlow} rows={flowRows.map((r) => ({ key: r.node.key, node: r.node, depth: r.node.depth, label: r.node.code ?? r.node.name }))}
+        flows={flows.data} shownOf={(n) => flowShown(n, pending.flow, flowLookup)} onClose={() => setBulkFlow(false)} onApply={setFlowMany} />
+
       <Popover open={!!flowPick} anchorEl={flowPick?.anchor} onClose={() => setFlowPick(null)}
         anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }} transformOrigin={{ vertical: 'top', horizontal: 'left' }}>
-        <Box sx={{ p: 2, width: 340, maxWidth: 'calc(100vw - 32px)' }}>
+        <Box sx={{ p: 2, width: 400, maxWidth: 'calc(100vw - 32px)' }}>
           <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)', mb: 1.5 }}>
             How <Mono>{pickRow?.node.code ?? pickRow?.node.name}</Mono> is made in {pickRow?.parent?.code ?? pickRow?.parent?.name}
           </Typography>
-          {pickRow && (
-            <FlowPicker value={pickValue} flows={flows.data} autoFocus label="Made by, in this parent" helperText="Empty: the way it is usually made"
-              onChange={(id) => { setFlow(pickRow, id); setFlowPick(null); }} />
-          )}
+          {pickRow && (() => {
+            const shown = flowShown(pickRow.node, pending.flow, flowLookup);
+            return (
+              <>
+                <FlowChoiceList flows={flows.data} chosen={shown.chosen} usual={shown.usual}
+                  onPick={(id) => { setFlow(pickRow, id); setFlowPick(null); }} />
+                {shown.chosen != null && (
+                  <Button size="small" sx={{ mt: 1 }} onClick={() => { setFlow(pickRow, null); setFlowPick(null); }}>
+                    {shown.usual ? `Reset to default (${shown.usual.code})` : 'Reset to default'}
+                  </Button>
+                )}
+              </>
+            );
+          })()}
         </Box>
       </Popover>
 
