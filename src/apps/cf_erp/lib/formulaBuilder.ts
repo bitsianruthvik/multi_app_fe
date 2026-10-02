@@ -531,3 +531,14 @@ export function guessAxisField(axis: { label?: string; unit?: string | null }, i
 
 /** LOOKUP(machine.CHART, item.KEY[, item.KEY2]) — the text the helper inserts. */
 export const lookupText = (chart: string, keys: string[]) => `LOOKUP(machine.${chart}, ${keys.map((k) => `item.${k}`).join(', ')})`;
+
+/**
+ * A time as one short phrase for a list cell: "12 min", "2.8 min per m of weld length",
+ * "Cut length ÷ speed + pierces × 0.2". Null when nothing is set (the cell then asks for it).
+ * Setup and work read the same here — the column says which it is.
+ */
+export function timeShort(t: { minutes: number | null; formula: { code: string; expression: string } | null } | null | undefined, idx: FieldIndex | null = null): string | null {
+  if (!t || (t.minutes == null && !t.formula)) return null;
+  if (t.minutes != null) return `${numberText(t.minutes)} min`;
+  return timeInWords(t, 'work', idx);
+}

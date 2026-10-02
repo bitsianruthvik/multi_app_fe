@@ -106,6 +106,7 @@ export function bomAsTree(b: BomView): Explosion {
     role: l.role,
     selection: l.selection,
     resolved: l.resolved,
+    autoChosen: l.autoChosen,
     flow: l.effectiveFlow,
     // Only the FIRST level is known from `/bom`. This shape is now the fallback
     // that fills the tab while `/bom/tree` is on its way — useBom swaps in the

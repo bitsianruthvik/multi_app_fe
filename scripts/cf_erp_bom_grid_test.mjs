@@ -17,7 +17,7 @@ Object.defineProperty(globalThis, 'localStorage', { value: dom.window.localStora
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const React = await import('react');
 const { createRoot } = await import('react-dom/client');
-const built = await build({ alias: { '@shared/ui': resolve('src/shared/ui/SheetGrid.tsx') }, stdin: { contents: `export * from './src/apps/cf_erp/components/Bom/BomGrid'; export * from './src/apps/cf_erp/components/Bom/bomArrangement'; export * from './src/apps/cf_erp/components/Bom/bomModel'; export * from './src/apps/cf_erp/lib/stripLayout'; export * from './src/apps/cf_erp/components/Bom/FlowChoice'; export * from './src/apps/cf_erp/components/Bom/flowShown';`, resolveDir: process.cwd(), loader: 'tsx' }, bundle: true, write: false, format: 'esm', platform: 'node', packages: 'external', jsx: 'automatic' });
+const built = await build({ alias: { '@shared/ui': resolve('src/shared/ui/SheetGrid.tsx') }, stdin: { contents: `export * from './src/apps/cf_erp/components/Bom/BomGrid'; export * from './src/apps/cf_erp/components/Bom/bomArrangement'; export * from './src/apps/cf_erp/components/Bom/bomModel'; export * from './src/apps/cf_erp/lib/stripLayout'; export * from './src/apps/cf_erp/components/Bom/FlowChoice'; export * from './src/apps/cf_erp/components/Bom/flowShown'; export * from './src/apps/cf_erp/components/Bom/ChoiceCell'; export * from './src/apps/cf_erp/components/Bom/selectionChoice';`, resolveDir: process.cwd(), loader: 'tsx' }, bundle: true, write: false, format: 'esm', platform: 'node', packages: 'external', jsx: 'automatic' });
 const cache = resolve('node_modules/.cache');
 await mkdir(cache, { recursive: true });
 const artifact = resolve(cache, `bom-grid-test-${process.pid}.mjs`);
@@ -423,6 +423,70 @@ await check('Bulk dialog applies one flow to every ticked row, warning about mix
   const p = applied[0].reduce((acc, k) => m.withFlow(acc, flowRows.find((n) => n.key === k), applied[1]), m.NO_PENDING);
   const byLine = m.nodesByLine(node(1, flowRows, { lineId: null, depth: 0 }));
   assert.deepEqual(m.pendingChanges(p, byLine).changes.map((c) => [c.op, c.lineId, c.flowId]), [['flow', 210, 9], ['flow', 230, 9], ['flow', 240, 9]]);
+});
+// ---- A selection row's item, on the row itself (init.sql §42, 2026-10-02) ----
+const selOf = { id: 900, code: 'SELST', name: 'Shear stud' };
+const unchosen = node(61, [], { name: 'Shear stud', kind: 'selection', selection: selOf, resolved: false });
+const autoRow = node(62, [], { name: 'Stud 19x100', kind: 'catalog', selection: selOf, resolved: true, autoChosen: true });
+const chosenRow = node(63, [], { name: 'Stud 22x125', kind: 'catalog', selection: selOf, resolved: true, autoChosen: false });
+const plateRow = node(64, [], { name: 'Plate (cut to size)', kind: 'selection', selection: { id: 901, code: 'SELPL', name: 'Plate' }, resolved: false, underCutPlate: true });
+const plainRow = node(65, [], { name: 'Bolt', kind: 'catalog' });
+const selTree = node(1, [unchosen, autoRow, chosenRow, plateRow, plainRow], { lineId: null, depth: 0 });
+const selRows = m.arrangedRows(selTree, new Set(['k1']), m.NO_PENDING);
+let chosenLines = [];
+const choiceProps = (editable) => ({ ...props, rows: selRows, choiceCell: (r) => React.createElement(m.ChoiceCell, { node: r.node, editable, why: 'The design is frozen.', onChoose: (id) => chosenLines.push(id) }) });
+await check('An unchosen selection row shows an amber "Choose item" on the row; clicking opens its chooser', async () => {
+  chosenLines = [];
+  await render(choiceProps(true));
+  const buttons = [...document.querySelectorAll('[data-testid="choose-item"]')];
+  assert.equal(buttons.length, 1, 'only the person-chosen selection row, not the cut plate\'s raw plate');
+  assert.match(buttons[0].textContent, /Choose item/);
+  assert.equal(buttons[0].tagName, 'BUTTON');
+  await fire(buttons[0], 'click');
+  assert.deepEqual(chosenLines, [610]);
+});
+await check('A row the system chose says "default · change"; clicking opens the chooser', async () => {
+  chosenLines = [];
+  const tag = [...document.querySelectorAll('[data-testid="auto-chosen"]')];
+  assert.equal(tag.length, 1);
+  assert.equal(tag[0].textContent, 'default · change');
+  assert.match(tag[0].getAttribute('title'), /automatically/);
+  await fire(tag[0], 'click');
+  assert.deepEqual(chosenLines, [620]);
+});
+await check('A row a person chose shows a quiet "Change"; plain and plate rows show nothing', async () => {
+  chosenLines = [];
+  const change = [...document.querySelectorAll('[data-testid="change-item"]')];
+  assert.equal(change.length, 1);
+  await fire(change[0], 'click');
+  assert.deepEqual(chosenLines, [630]);
+  assert.equal(document.querySelectorAll('[data-testid="choose-item"], [data-testid="auto-chosen"], [data-testid="change-item"]').length, 3);
+});
+await check('Clicking the choice does not select the row\'s cells or start a drag', async () => {
+  const btn = document.querySelector('[data-testid="choose-item"]');
+  await fire(btn, 'mousedown');
+  assert.equal(document.querySelectorAll('[aria-selected="true"]').length, 0);
+});
+await check('Read-only: "Not chosen" stays visible (never hidden), "default" without a button, no Change', async () => {
+  chosenLines = [];
+  await render(choiceProps(false));
+  const nc = document.querySelector('[data-testid="choose-item"]');
+  assert.equal(nc.tagName, 'SPAN'); assert.equal(nc.textContent, 'Not chosen'); assert.equal(nc.getAttribute('title'), 'The design is frozen.');
+  assert.equal(document.querySelector('[data-testid="auto-chosen"]').textContent, 'default');
+  assert.equal(document.querySelectorAll('[data-testid="change-item"]').length, 0);
+  assert.equal(document.querySelectorAll('button[data-testid="choose-item"], button[data-testid="auto-chosen"], button[data-testid="change-item"]').length, 0);
+});
+await check('choiceState: choose / auto / chosen, and nothing for plain rows and a cut plate\'s raw plate', () => {
+  assert.deepEqual([unchosen, autoRow, chosenRow, plateRow, plainRow].map(m.choiceState), ['choose', 'auto', 'chosen', null, null]);
+});
+await check('"N to choose" walks the rows still to choose in tree order (folded branches included), wrapping', () => {
+  const deep = node(71, [], { name: 'Deep stud', kind: 'selection', selection: selOf, resolved: false });
+  const asm = node(70, [deep], { name: 'Assembly' });
+  const t = node(1, [unchosen, asm, autoRow, plateRow, node(72, [], { kind: 'selection', selection: selOf, resolved: false })], { lineId: null, depth: 0 });
+  const targets = m.unchosenTargets(t);
+  assert.deepEqual(targets.map((x) => x.key), ['k61', 'k71', 'k72'], 'the plate and the chosen rows are skipped');
+  assert.deepEqual(targets[1].ancestors, ['k1', 'k70'], 'a jump opens the branch above the row');
+  assert.deepEqual([m.nextTarget(3, -1), m.nextTarget(3, 0), m.nextTarget(3, 2), m.nextTarget(0, -1)], [0, 1, 0, -1]);
 });
 await React.act(() => root.render(null));
 await React.act(() => root.unmount());

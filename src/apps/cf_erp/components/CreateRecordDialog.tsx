@@ -10,6 +10,8 @@ import { screenTreePath } from '../lib/classificationScreens';
 import { SOURCING_HELP, SOURCING_OPTIONS } from '../lib/records';
 import { toInputString } from '../lib/tree';
 import { ClassificationPicker } from './ClassificationPicker';
+import { PicksFromBuilder } from './PicksFromBuilder';
+import { scopeBody, type PendingEntry } from '../lib/picksFrom';
 import { SpecsTable } from './SpecsTable';
 import { CapsLabel, ErrorNotice, Mono, Surface } from './ui';
 import { ShortNameField } from './ShortNameField';
@@ -96,8 +98,8 @@ export function CreateRecordDialog({ open, onClose, onCreated, recordKind, tree,
   const [uom, setUom] = useState('nos');
   const [trackedBy, setTrackedBy] = useState<'quantity' | 'batch' | 'individual'>('quantity');
   const [sourcing, setSourcing] = useState<Sourcing>('stock');
-  const [selectionMode, setSelectionMode] = useState<'allowed_list' | 'spec_match' | 'both'>('allowed_list');
-  const [candidateClassificationId, setCandidateClassificationId] = useState<number | null>(null);
+  /** What a selection picks from — branches and items — held here until Create. */
+  const [scope, setScope] = useState<PendingEntry[]>([]);
   const [values, setValues] = useState<Record<number, string>>({});
   const [preview, setPreview] = useState<DraftPreview | null>(null);
   const [previewError, setPreviewError] = useState<CfApiError | null>(null);
@@ -132,8 +134,9 @@ export function CreateRecordDialog({ open, onClose, onCreated, recordKind, tree,
     setUom(copyFrom?.item?.uom ?? 'nos');
     setTrackedBy(copyFrom?.item?.trackedBy ?? 'quantity');
     setSourcing(copyFrom?.item?.sourcing ?? 'stock');
-    setSelectionMode(copyFrom?.definition?.selectionMode ?? 'allowed_list');
-    setCandidateClassificationId(copyFrom?.definition?.candidateClassificationId ?? null);
+    // A copied selection brings its branch along (its items and spec filters are set up again on the new one).
+    const copiedNode = copyFrom?.definition?.candidateClassificationId;
+    setScope(copiedNode ? [{ kind: 'node', nodeId: copiedNode, label: copyFrom?.definition?.candidateClassification?.name ?? `Branch ${copiedNode}`, path: '' }] : []);
   }, [open, initialClassificationId, copyFrom]);
 
   // The source's values, read straight from the record rather than from the
@@ -197,7 +200,7 @@ export function CreateRecordDialog({ open, onClose, onCreated, recordKind, tree,
         ? await cfApi.post<MasterRecord>('/items', { ...common, itemType: 'catalog', uom, trackedBy, sourcing })
         : await cfApi.post<MasterRecord>('/definitions', {
           ...common, definitionType,
-          ...(definitionType === 'selection' ? { selectionMode, candidateClassificationId } : {}),
+          ...(definitionType === 'selection' ? { scope: scopeBody(scope) } : {}),
         });
       setBusy(false);
       onCreated(created);
@@ -230,7 +233,7 @@ export function CreateRecordDialog({ open, onClose, onCreated, recordKind, tree,
   // What is deliberately left behind, so nothing has to be discovered later on
   // an empty tab.
   const notCarried: string[] = [];
-  if (copyFrom?.definition?.definitionType === 'selection') notCarried.push('its allowed list and its matching criteria');
+  if (copyFrom?.definition?.definitionType === 'selection') notCarried.push('its items and spec filters');
   if (copyFrom?.bomStatus || copyFrom?.bom) notCarried.push('its BOM');
   return (
     <Dialog open={open} onClose={() => !busy && onClose()} maxWidth="lg" fullWidth>
@@ -303,15 +306,7 @@ export function CreateRecordDialog({ open, onClose, onCreated, recordKind, tree,
           <TextField label="Revision" value={revision} onChange={(e) => setRevision(e.target.value)} helperText="Usually empty until it is revised"
             sx={{ alignSelf: 'start' }} inputProps={{ style: { fontFamily: 'var(--font-mono)' } }} />
           {!isItem && definitionType === 'selection' && (
-            <>
-              <TextField select label="Chooses from" value={selectionMode} onChange={(e) => setSelectionMode(e.target.value as typeof selectionMode)}
-                helperText={{ allowed_list: 'Only items on its allowed list', spec_match: 'Any catalog item whose values match its criteria', both: 'Items on the list that also match' }[selectionMode]}>
-                <MenuItem value="allowed_list">An allowed list</MenuItem>
-                <MenuItem value="spec_match">Matching specifications</MenuItem>
-                <MenuItem value="both">Both</MenuItem>
-              </TextField>
-              <ClassificationPicker tree={itemsTree.data ?? tree} value={candidateClassificationId} onChange={setCandidateClassificationId} leafOnly={false} label="Search within (optional)" screen="items" />
-            </>
+            <PicksFromBuilder tree={itemsTree.data ?? tree} value={scope} onChange={setScope} />
           )}
         </Box>
 

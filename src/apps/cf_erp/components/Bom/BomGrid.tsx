@@ -22,13 +22,15 @@ function CodeText({ code, itemCode }: { code: string; itemCode: string | null })
   return <><Box component="span" data-testid="row-code" sx={{ fontFamily: 'var(--font-mono)' }}>{code}</Box>{itemCode && itemCode !== code ? <Box component="span" sx={{ fontFamily: 'var(--font-mono)' }}> · {itemCode}</Box> : null}</>;
 }
 
-export function BomGrid({ rows, view, records: recordValues, recordIds, pending, busy, canEdit, canEditValues, onToggle, onWrites, onMove, dropRefusal, trailingCell, flowCell, markOf, placeholderOf, roleOf, canEditRole, onRole, onlyUsedColumns, footer, gaps, handleRef, lineUpSlot }: {
+export function BomGrid({ rows, view, records: recordValues, recordIds, pending, busy, canEdit, canEditValues, onToggle, onWrites, onMove, dropRefusal, trailingCell, flowCell, choiceCell, markOf, placeholderOf, roleOf, canEditRole, onRole, onlyUsedColumns, footer, gaps, handleRef, lineUpSlot }: {
   rows: BomRow[]; view: ValuesView | null; pending: Pending; busy: boolean; canEdit: (row: BomRow) => boolean;
   records?: SpecValues; recordIds?: number[]; canEditValues: (row: BomRow) => boolean;
   onToggle: (key: string) => void; onWrites: (writes: GridWrite[]) => void;
   onMove: (row: BomRow, target: BomRow, position: DropPosition) => void;
   dropRefusal: (row: BomRow, target: BomRow, position: DropPosition) => string | null;
   trailingCell: (row: BomRow) => ReactNode; flowCell: (row: BomRow) => ReactNode;
+  /** A selection row's item, on the row itself: an amber "Choose item" while unchosen, "default · change" when the system chose it, "Change" otherwise. */
+  choiceCell?: (row: BomRow) => ReactNode;
   markOf: (row: BomRow) => RowMark | null;
   /** The row's code as a design: an order row's placeholder, or a catalog row's position code (with the item's own code beside it). */
   placeholderOf: (row: BomRow) => { code: string; title: string; itemCode?: string | null } | null;
@@ -191,6 +193,7 @@ export function BomGrid({ rows, view, records: recordValues, recordIds, pending,
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, minWidth: 0 }}>
             <Box sx={{ fontSize: 10, color: 'var(--c-text-3)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }} title={placeholderOf(row)?.title}>{row.paste ? `New copy${row.paste.source.children.length ? ' with children' : ''}` : <CodeText code={placeholderOf(row)?.code ?? (n.kind === 'temporary' ? '' : n.code ?? '')} itemCode={placeholderOf(row)?.itemCode ?? null} />}{mark && !row.paste ? ` · ${mark.label}` : ''}</Box>
               {flowCell(row)}
+              {choiceCell?.(row)}
               {(gaps?.get(n.id)?.length ?? 0) > 0 && <Box component="span" data-testid="row-gaps" title={`Required values still empty: ${gaps?.get(n.id)?.join(', ')}`}
                 sx={{ fontSize: 10.5, fontWeight: 600, px: 0.75, borderRadius: 'var(--r-sm)', background: 'var(--c-warning-200)', color: 'var(--c-warning-800)', whiteSpace: 'nowrap' }}>{gaps?.get(n.id)?.length} missing</Box>}
             </Box>

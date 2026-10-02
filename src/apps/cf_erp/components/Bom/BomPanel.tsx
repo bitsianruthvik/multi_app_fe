@@ -48,6 +48,8 @@ import { BomSheetDialog } from './BomSheetDialog';
 import { useSpecValues } from './useSpecValues';
 import { LOCKED_ORDER, useBom, type BomSource } from './useBom';
 import { BomGrid, type GridWrite } from './BomGrid';
+import { ChoiceCell } from './ChoiceCell';
+import { nextTarget, unchosenTargets } from './selectionChoice';
 import { arrangedRows, moveRow, pruneArrangement, undoCopy, type DropPosition } from './bomArrangement';
 import { computeGaps, gapSentence, keepGapRows, type ValuesView } from '../Values/valuesModel';
 import type { SheetGridHandle } from '@shared/ui';
@@ -197,6 +199,9 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
   const [onlyMissing, setOnlyMissing] = useState(false);
   const gridHandle = useRef<SheetGridHandle>(null);
   const jumpAt = useRef(-1);
+  /** "N to choose": the last row jumped to, and a jump waiting for its row to be drawn (a folded branch opens first). */
+  const chooseAt = useRef(-1);
+  const [pendingJump, setPendingJump] = useState<string | null>(null);
   // A refusal lands at the top of the panel while the person is at the bar
   // below a long tree — so it is brought into view, once it has rendered. A
   // jump, not an animation: it is the answer to what they just pressed.
@@ -272,6 +277,12 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
   const liveGaps = useMemo(() => (gapsOn ? computeGaps(gridValues.data ?? null, pending.values, gapScope) : null), [gapsOn, gridValues.data, pending.values, gapScope]);
   const savedGapIds = useMemo(() => (gapsOn ? new Set(computeGaps(gridValues.data ?? null, undefined, gapScope).keys()) : null), [gapsOn, gridValues.data, gapScope]);
   const rows = useMemo(() => (gapsOn && onlyMissing && savedGapIds && gridValues.data ? keepGapRows(treeRows, savedGapIds) : treeRows), [gapsOn, onlyMissing, savedGapIds, gridValues.data, treeRows]);
+  // A jump to a row still to choose lands once that row is drawn (its branch may have just been opened).
+  useEffect(() => {
+    if (!pendingJump || !rows.some((r) => r.node.key === pendingJump)) return;
+    gridHandle.current?.selectCell(pendingJump, '$quantity');
+    setPendingJump(null);
+  }, [pendingJump, rows]);
 
   // A flow's code for a chosen id — read once, only while editing.
   const flows = useLoad(() => (editOn ? cfApi.get<Flow[]>('/flows') : Promise.resolve(null)), [editOn]);
@@ -680,6 +691,29 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
   };
   const gapTotal = liveGaps ? [...liveGaps.values()].reduce((n, l) => n + l.length, 0) : 0;
 
+  /**
+   * "N to choose" → the next row whose selection still has no item, in the order
+   * the rows are drawn; wraps round (like Next missing). A folded branch is
+   * opened, and "only what's missing" is switched off when it would hide the row.
+   * A cut plate's raw plate is never one of them — nesting chooses it.
+   */
+  const chooseTargets = unchosenTargets(root);
+  const jumpToChoose = () => {
+    const i = nextTarget(chooseTargets.length, chooseAt.current);
+    if (i < 0) return;
+    chooseAt.current = i;
+    const t = chooseTargets[i];
+    if (t.ancestors.some((k) => !expanded.has(k))) setOpen(new Set([...expanded, ...t.ancestors]));
+    if (onlyMissing && !rows.some((r) => r.node.key === t.key)) setOnlyMissing(false);
+    setPendingJump(t.key);
+  };
+  /** A selection row's item, on the row: choose, "default · change", or Change (ChoiceCell). */
+  const choiceCell = (row: BomRow) => {
+    const editable = !row.paste && !dirty && !busy && !removedKeys.has(row.node.key) && !goneKeys.has(row.node.key) && mayEdit(row.parent, row.bomType);
+    const why = row.paste ? undefined : dirty ? 'Save or cancel the changes first, then choose.' : flowsOnly ? 'The design is frozen.' : whyNotLine(row) || undefined;
+    return <ChoiceCell node={row.node} editable={editable} why={why} onChoose={setChoosing} />;
+  };
+
   const doDownloadSheet = async () => {
     setSheetBusy('download');
     try {
@@ -769,7 +803,14 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
             ? null
             : <Fact label="In the structure"><Mono>{state.stats.nodes - 1}</Mono></Fact>}
           {state.stats.drafts > 0 && <Fact label="Still draft"><WarnBadge label={`${state.stats.drafts} draft`} title="Catalog items in the structure that are not active yet — release needs every one of them active." /></Fact>}
-          {state.stats.unresolved > 0 && <Fact label="To choose"><WarnBadge label={`${state.stats.unresolved} selection${state.stats.unresolved > 1 ? 's' : ''}`} title="Choose a catalog item for each of them before release." /></Fact>}
+          {state.stats.unresolved > 0 && (
+            <Tooltip title="Rows whose selection still has no catalog item — the design cannot be frozen until each is chosen. Click to go to the next one.">
+              <Button size="small" data-testid="to-choose" onClick={jumpToChoose} disabled={chooseTargets.length === 0}
+                sx={{ fontWeight: 600, color: 'var(--c-warning-800)', background: 'var(--c-warning-200)', '&:hover': { background: 'var(--c-warning-200)', filter: 'brightness(0.97)' } }}>
+                {state.stats.unresolved} to choose
+              </Button>
+            </Tooltip>
+          )}
           {gapCount > 0 && !gapsOn && (
             <Fact label="Values missing">
               <DangerBadge label={`${gapCount} missing`}
@@ -858,7 +899,7 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
               onToggle={(key) => { const next = new Set(expanded); if (next.has(key)) next.delete(key); else next.add(key); setOpen(next); }}
               onlyUsedColumns={orderGrid && onlyUsed} roleOf={roleOf} canEditRole={canEditRole} onRole={onRole}
               gaps={liveGaps ?? undefined} handleRef={gridHandle} lineUpSlot={orderGrid ? lineUpEl : undefined}
-              onWrites={onGridWrites} onMove={onGridMove} dropRefusal={dropRefusal} trailingCell={trailingCell} flowCell={flowCell} markOf={markOf} placeholderOf={placeholderOf}
+              onWrites={onGridWrites} onMove={onGridMove} dropRefusal={dropRefusal} trailingCell={trailingCell} flowCell={flowCell} choiceCell={choiceCell} markOf={markOf} placeholderOf={placeholderOf}
               footer={gapsOn && onlyMissing
                 ? rows.length === 0 && !!gridValues.data && <EmptyState title={onlyMissing ? 'Nothing is missing' : 'Nothing below it yet'} hint={onlyMissing ? 'Every required value on this line is filled.' : undefined} />
                 : root.children.length === 0 && pending.pastes.length === 0 && <EmptyState title="Nothing below it yet" action={canAddToRoot && addButton('contained')} />} />
@@ -972,7 +1013,8 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
         flowId={editing?.node.flow?.from === 'line' ? editing.node.flow.id : null}
         canHaveFlow={!!editing && !editing.node.selection && editing.node.kind !== 'selection'} custom={editing?.bomType === 'custom'}
         onClose={() => setEditing(null)} onDone={() => { toast.success('Line saved.'); bom.reload(); }} />
-      <ChooseItemDialog open={choosing != null} lineId={choosing} onClose={() => setChoosing(null)} onDone={() => { toast.success('Item chosen.'); bom.reload(); }} />
+      <ChooseItemDialog open={choosing != null} lineId={choosing} onClose={() => setChoosing(null)}
+        onDone={(cleared) => { toast.success(cleared ? 'Choice cleared.' : 'Item chosen.'); bom.reload(); if (orderGrid) gridValues.reload(); }} />
       <ConfirmDialog open={!!removing} danger confirmLabel="Remove line" title={`Remove ${removingNode?.code ?? removingNode?.name}?`}
         body={removingNode?.kind === 'temporary'
           ? `${removingNode.code ?? removingNode.name} exists only for this order, so it is deleted with everything below it.`

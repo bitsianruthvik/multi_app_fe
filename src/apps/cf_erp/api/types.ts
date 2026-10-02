@@ -246,7 +246,7 @@ export interface MasterRecord {
   isService?: boolean;
   classificationPath?: PathStep[];
   sourceDefinition?: { id: number; code: string | null; name: string; status: RecordStatus } | null;
-  counts?: { temporaryItems: number; allowedItems: number; criteria: number };
+  counts?: { temporaryItems: number; allowedItems: number; criteria: number; /** Classification branches a selection picks from. */ branches?: number };
   classificationCode?: string;
   classificationName?: string;
   sourceDefinitionCode?: string | null;
@@ -298,10 +298,30 @@ export interface Generated { schemeId: number | null; schemeCode: string | null;
 
 export interface DraftPreview { resolution: Resolution | null; code: Generated | null; name: Generated | null; note?: string }
 
+/** One thing a selection picks from: a classification branch (its whole subtree) or a single catalog item. */
+export interface SelectionEntry {
+  id: number;
+  kind: 'node' | 'item';
+  nodeId: number | null;
+  itemId: number | null;
+  code: string | null;
+  name: string | null;
+  /** Family / Subfamily / Variant, for a branch. */
+  level: string | null;
+  /** A branch: its path; an item: its classification. */
+  path: string | null;
+  status: string | null;
+  isDefault: boolean;
+  sortOrder: number;
+}
+
 export interface Selection {
   definitionId: number;
-  selectionMode: 'allowed_list' | 'spec_match' | 'both';
-  candidateClassificationId: number | null;
+  /** Derived by the backend; the UI no longer shows a mode. */
+  selectionMode?: 'allowed_list' | 'spec_match' | 'both';
+  candidateClassificationId?: number | null;
+  entries: SelectionEntry[];
+  /** Legacy — read entries instead. */
   allowedItems: { id: number; itemId: number; code: string; name: string; status: RecordStatus; isDefault: boolean; sortOrder: number }[];
   criteria: { id: number; specificationId: number; specCode: string; specName: string; dataType: DataType; unit: string | null; operator: string; value: unknown; valueTo: number | null; optionId: number | null }[];
 }
@@ -395,6 +415,8 @@ export interface BomLine {
   design: { id: number; code: string | null; name: string };
   selection: { id: number; code: string | null; name: string } | null;
   resolved: boolean;
+  /** The system chose its item (default, or only candidate); a person has not since. */
+  autoChosen?: boolean;
   sourceLineId: number | null;
   /** The flow this line names, and the one that applies. */
   flow: { id: number; code: string; name: string } | null;
@@ -429,6 +451,10 @@ export interface StructureNode {
   role: string | null;
   selection: { id: number; code: string | null; name: string } | null;
   resolved: boolean;
+  /** A selection row whose item the SYSTEM chose (its default, or its only candidate) and no person has since — "default · change" (init.sql §42). */
+  autoChosen?: boolean;
+  /** A selection under a cut plate: the raw plate NESTING chooses — never "to choose" on the structure. */
+  underCutPlate?: boolean;
   flow: EffectiveFlow | null;
   bom: { id: number; bomType: BomType; status: RecordStatus; revision: string | null } | null;
   children: StructureNode[];
@@ -466,6 +492,8 @@ export interface LineCandidates extends Candidates {
   lineId: number;
   selection: { id: number; code: string | null; name: string };
   chosenItemId: number | null;
+  /** The system chose it and no person has since ("default · change"). */
+  autoChosen?: boolean;
 }
 
 // ---- Sales orders -------------------------------------------------------------
@@ -616,6 +644,8 @@ export interface Operation {
   status: 'active' | 'inactive';
   flowCount?: number;
   ruleCount?: number;
+  /** The rule a list row shows (on a machine type before a single machine); null when there is none. List responses only. */
+  mainRule?: TimingRule | null;
   createdAt: string;
   updatedAt: string;
 }

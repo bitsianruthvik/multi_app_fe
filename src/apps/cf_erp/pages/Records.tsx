@@ -25,7 +25,7 @@ import { screenTreePath } from '../lib/classificationScreens';
 import { kindQuery, kindCount } from '../lib/records';
 import { useToast } from '../components/toastContext';
 
-const SELECTION_MODE: Record<string, string> = { allowed_list: 'Allowed list', spec_match: 'Matching', both: 'List + matching' };
+const SELECTION_MODE: Record<string, string> = { allowed_list: 'Items', spec_match: 'Branches', both: 'Branches + items' };
 const STATUS_CHIPS = [['', 'Any status'], ['draft', 'Draft'], ['active', 'Active'], ['obsolete', 'Obsolete']] as const;
 
 /** Columns the server sorts by (masterRecordService RECORD_SORT); BOM size sorts only once everything is loaded. */
@@ -100,7 +100,7 @@ function columnsFor(recordKind: 'item' | 'definition'): DataColumn<MasterRecord>
       // unit to qualify. One click in the column menu brings it back.
       ? { key: 'tracked', header: 'Tracked by', defaultHidden: true, render: (r) => <>{r.item?.trackedBy} <Mono muted>· {r.item?.uom}</Mono></>, sortValue: (r) => r.item?.trackedBy, exportValue: (r) => (r.item ? `${r.item.trackedBy} · ${r.item.uom}` : '') }
       // Sorted by the words the column shows, not by the raw enum behind them.
-      : { key: 'chooses', header: 'Chooses from', render: (r) => (r.definition?.selectionMode ? SELECTION_MODE[r.definition.selectionMode] : '—'), sortValue: (r) => (r.definition?.selectionMode ? SELECTION_MODE[r.definition.selectionMode] : null) },
+      : { key: 'chooses', header: 'Picks from', render: (r) => (r.definition?.selectionMode ? SELECTION_MODE[r.definition.selectionMode] : '—'), sortValue: (r) => (r.definition?.selectionMode ? SELECTION_MODE[r.definition.selectionMode] : null) },
     ...(recordKind === 'item' ? [{
       key: 'sourcing', header: 'Comes from', defaultHidden: true,
       render: (r: MasterRecord) => (r.item && r.item.itemType === 'catalog' ? SOURCING_LABEL[r.item.sourcing] : 'Made on the order'),

@@ -12,7 +12,6 @@ import AccountTreeRounded from '@mui/icons-material/AccountTreeRounded';
 import LockRounded from '@mui/icons-material/LockRounded';
 import ReceiptLongRounded from '@mui/icons-material/ReceiptLongRounded';
 import CallSplitRounded from '@mui/icons-material/CallSplitRounded';
-import SearchRounded from '@mui/icons-material/SearchRounded';
 import WarehouseRounded from '@mui/icons-material/WarehouseRounded';
 import { cfApi, CfApiError, qs } from '../api/client';
 import { getLinePlaceholders, placeholderTitle } from '../api/placeholders';
@@ -57,7 +56,6 @@ function recordTax(r: MasterRecord): { hsn: string | null; rate: number | null; 
   return { hsn: r.hsnCode ?? r.item?.hsnCode ?? null, rate: r.gstRate ?? r.item?.gstRate ?? null, isService: !!(r.isService ?? r.item?.isService) };
 }
 
-const SELECTION_MODE: Record<string, string> = { allowed_list: 'An allowed list', spec_match: 'Matching specifications', both: 'List + matching' };
 
 function RevisionDialog({ open, record, onClose, onDone }: { open: boolean; record: MasterRecord; onClose: () => void; onDone: (r: MasterRecord) => void }) {
   const [label, setLabel] = useState('');
@@ -102,13 +100,9 @@ function DetailsForm({ record, tree, canEdit, onSaved, onTreeChanged }: {
   record: MasterRecord; tree: Tree | null; canEdit: boolean; onSaved: (r: MasterRecord) => void; onTreeChanged: () => void;
 }) {
   const screen = record.recordKind === 'item' ? 'items' : 'definitions';
-  // A selection's search area is an Items branch: read that tree only for a selection.
-  const searchesItems = record.definition?.definitionType === 'selection';
-  const itemsTree = useLoad(() => (searchesItems ? cfApi.get<ScreenTree>(screenTreePath('items')) : Promise.resolve(null)), [searchesItems]);
   const [form, setForm] = useState({
     name: record.name, description: record.description ?? '', code: record.code ?? '', shortName: record.shortName ?? '', noShortName: record.shortName === '', classificationId: record.classificationId,
     uom: record.item?.uom ?? '', trackedBy: record.item?.trackedBy ?? 'quantity', sourcing: record.item?.sourcing ?? 'stock',
-    selectionMode: record.definition?.selectionMode ?? 'allowed_list', candidateClassificationId: record.definition?.candidateClassificationId ?? null,
     defaultFlowId: record.defaultFlowId ?? null,
     listPrice: record.item?.listPrice == null ? '' : String(record.item.listPrice), priceBasis: (record.item?.priceBasis ?? 'unit') as PriceBasis,
     hsnCode: recordTax(record).hsn ?? '', gstRate: recordTax(record).rate == null ? '' : String(recordTax(record).rate), isService: recordTax(record).isService,
@@ -136,8 +130,7 @@ function DetailsForm({ record, tree, canEdit, onSaved, onTreeChanged }: {
     if (!isTemp) body.classificationId = form.classificationId;
     if (record.item) { body.uom = form.uom; body.trackedBy = form.trackedBy; if (!isTemp) body.sourcing = form.sourcing; if (!isTemp) { body.listPrice = form.listPrice.trim() === '' ? null : form.listPrice; body.priceBasis = form.priceBasis; } }
     if (taxable) { body.hsnCode = form.hsnCode.trim() || null; body.gstRate = form.gstRate === '' ? null : Number(form.gstRate); body.isService = form.isService; }
-    if (isSelection) { body.selectionMode = form.selectionMode; body.candidateClassificationId = form.candidateClassificationId; }
-    else body.defaultFlowId = form.defaultFlowId;
+    if (!isSelection) body.defaultFlowId = form.defaultFlowId;
     try { onSaved(await cfApi.put<MasterRecord>(`/records/${record.id}`, body)); } catch (e) { setError(e as CfApiError); } finally { setBusy(false); }
   };
   return (
@@ -206,14 +199,6 @@ function DetailsForm({ record, tree, canEdit, onSaved, onTreeChanged }: {
                 : 'The flow it is made by unless a BOM line says otherwise. Empty for things bought in.'} />
           </Box>
         )}
-        {isSelection && (
-          <>
-            <TextField select label="Chooses from" disabled={readOnly} value={form.selectionMode} onChange={(e) => setForm({ ...form, selectionMode: e.target.value as typeof form.selectionMode })}>
-              <MenuItem value="allowed_list">An allowed list</MenuItem><MenuItem value="spec_match">Matching specifications</MenuItem><MenuItem value="both">Both</MenuItem>
-            </TextField>
-            <ClassificationPicker tree={itemsTree.data ?? tree} value={form.candidateClassificationId} onChange={(id) => setForm({ ...form, candidateClassificationId: id })} leafOnly={false} label="Search within (optional)" disabled={readOnly} screen="items" />
-          </>
-        )}
       </Box>
       {readOnly && !flowOnly ? null : canEdit ? (
         <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 2 }}>
@@ -232,6 +217,13 @@ function DetailsForm({ record, tree, canEdit, onSaved, onTreeChanged }: {
 
 
 /** Record / Detail (DESIGN_SYSTEM.md §4.3) for an item or a definition. */
+/** "2 branches · 1 item" — what a selection picks from, in counts. */
+function picksFrom(c?: MasterRecord['counts']) {
+  const b = c?.branches ?? 0, i = c?.allowedItems ?? 0;
+  if (!b && !i) return 'nothing yet';
+  return [b ? `${b} branch${b === 1 ? '' : 'es'}` : '', i ? `${i} item${i === 1 ? '' : 's'}` : ''].filter(Boolean).join(' · ');
+}
+
 export default function RecordDetail({ recordKind }: { recordKind: 'item' | 'definition' }) {
   const { id: idParam } = useParams();
   const id = Number(idParam);
@@ -386,7 +378,7 @@ export default function RecordDetail({ recordKind }: { recordKind: 'item' | 'def
           {(r.defaultFlow || r.definitionFlow) && (
             <Fact label="Made by"><FlowTag flow={r.defaultFlow ? { ...r.defaultFlow, from: 'item' } : { ...r.definitionFlow!, from: 'template' }} /></Fact>
           )}
-          {isSelection && <Fact label="Chooses from">{SELECTION_MODE[r.definition!.selectionMode ?? 'allowed_list']}</Fact>}
+          {isSelection && <Fact label="Picks from"><Mono>{picksFrom(r.counts)}</Mono></Fact>}
           {r.counts && r.definition?.definitionType === 'template' && <Fact label="Items created"><Mono>{r.counts.temporaryItems}</Mono></Fact>}
           <Fact label="Updated"><Mono muted>{new Date(r.updatedAt).toLocaleDateString()}</Mono></Fact>
         </>
@@ -409,7 +401,6 @@ export default function RecordDetail({ recordKind }: { recordKind: 'item' | 'def
       {r.owner && <CrossLink icon={<ReceiptLongRounded />} label={`Order ${r.owner.orderCode}`} to={to(`orders/${r.owner.orderId}`)} />}
       {r.placement && <CrossLink icon={<AccountTreeRounded />} label={`Part of ${r.placement.parentCode ?? r.placement.parentName}`} to={to(`items/${r.placement.parentId}`)} />}
       {r.sourceDefinition && <CrossLink icon={<CallSplitRounded />} label={`Created from ${r.sourceDefinition.code ?? r.sourceDefinition.name}`} to={to(`definitions/${r.sourceDefinition.id}`)} />}
-      {r.definition?.candidateClassification && <CrossLink icon={<SearchRounded />} label={`Searches ${r.definition.candidateClassification.name}`} />}
       {r.recordKind === 'item' && <CrossLink icon={<WarehouseRounded />} label="Stock" onClick={() => setTab('stock')} />}
     </>
   );
