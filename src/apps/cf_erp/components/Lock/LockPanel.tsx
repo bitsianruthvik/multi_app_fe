@@ -28,8 +28,8 @@ import { knownLineSize, lockCheckingText, lockRecheckText, pieceTreeText, rememb
  * Locking rolls the line's structure out into PIECES — one per physical piece,
  * identical parts grouped under their parent — and writes each one's real code.
  * From then on the line's structure, values and cut pieces stay as they are; a
- * change is a new revision of the order. It comes after Values and Cut pieces,
- * before nesting and buying.
+ * change is a new revision of the order. It comes right after Structure (with its values) —
+ * before nesting and buying; any missing cut piece is made by the freeze itself.
  *
  * The screen says what lock checks, each check in words with what to do about
  * it; what it will write — the number of pieces, the line's position, and on

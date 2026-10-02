@@ -23,7 +23,7 @@ import {
 import { EmptyState, ErrorNotice, Mono, SectionCard, StatusBadge } from '../ui';
 import { BomPanel } from '../Bom/BomPanel';
 import { NestingPanel } from '../Nesting/NestingPanel';
-import { BlanksPanel } from '../Nesting/BlanksPanel';
+import { CutPiecesButton } from '../Nesting/CutPiecesDialog';
 import { ReleaseView } from '../ReleaseView';
 import { ReleaseDialog } from '../TrackerDialogs';
 import { PieceCodesCard } from '../Production/PieceCodesCard';
@@ -357,16 +357,6 @@ export function StageBody({
             action={<Button variant="contained" onClick={() => onGoStage('lines')}>Go to the lines</Button>} />
         </SectionCard>
       );
-  } else if (stage.stageKey === 'cut_pieces') {
-    // Cut pieces belong to ONE line, like the layout that follows them.
-    body = line
-      ? <BlanksPanel key={line.lineId} lineId={line.lineId} canManage={isPermitted('cf_erp_orders_manage')} onChanged={onReloadAll} onGoValues={() => onGoStage('values')} />
-      : (
-        <SectionCard title="Cut pieces">
-          <EmptyState icon={<GridViewRounded />} title="No lines yet" hint="Parts are pooled into cut pieces for a line, so add one first."
-            action={<Button variant="contained" onClick={() => onGoStage('lines')}>Go to the lines</Button>} />
-        </SectionCard>
-      );
   } else if (stage.stageKey === 'lock') {
     // Lock belongs to ONE line: it rolls that line's structure out into pieces.
     body = line
@@ -374,7 +364,7 @@ export function StageBody({
           stages={view.stages} onGoStage={onGoStage} onChanged={onReloadAll} />
       : (
         <SectionCard title="Freeze design">
-          <EmptyState icon={<LockRounded />} title="No lines yet" hint="A line is frozen once its structure, values and cut pieces are settled, so add one first."
+          <EmptyState icon={<LockRounded />} title="No lines yet" hint="A line is frozen once its structure and values are settled, so add one first."
             action={<Button variant="contained" onClick={() => onGoStage('lines')}>Go to the lines</Button>} />
         </SectionCard>
       );
@@ -388,8 +378,14 @@ export function StageBody({
       ? (
         <SectionCard title="Nesting">
           <EmptyState icon={<LockRounded />} title="Freeze the design first"
-            hint={`Nesting lays out the frozen pieces, and line ${line.lineNo} is not frozen yet.`}
-            action={view.stages.some((x) => x.stageKey === 'lock') ? <Button variant="contained" onClick={() => onGoStage('lock')}>Go to Freeze design</Button> : undefined} />
+            hint={`Nesting lays out the frozen pieces, and line ${line.lineNo} is not frozen yet. The cut pieces are made automatically — look at them any time.`}
+            action={(
+              <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', justifyContent: 'center' }}>
+                {view.stages.some((x) => x.stageKey === 'lock') && <Button variant="contained" onClick={() => onGoStage('lock')}>Go to Freeze design</Button>}
+                <CutPiecesButton lineId={line.lineId} lineNo={line.lineNo} canManage={isPermitted('cf_erp_orders_manage')} onChanged={onReloadAll}
+                  onGoValues={() => onGoStage('structure')} />
+              </Box>
+            )} />
         </SectionCard>
       )
       : line

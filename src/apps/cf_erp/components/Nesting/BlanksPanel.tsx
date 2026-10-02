@@ -9,7 +9,12 @@ import { Badge, EmptyState, ErrorNotice, Mono, SectionCard } from '../ui';
 import { useToast } from '../toastContext';
 
 /**
- * The Cut pieces stage: the rectangles a line's plate parts are cut from.
+ * The cut pieces of a line: the rectangles its plate parts are cut from.
+ *
+ * NOT A STAGE ANY MORE (user, 2026-10-02). This list opens in a dialog from
+ * the Nesting stage (CutPiecesDialog, `embedded`); there is no Cut pieces tab.
+ * Freeze design makes any that are missing itself, so nothing here ever holds
+ * the order up.
  *
  * MADE AUTOMATICALLY (user, 2026-09-26): "Once the values screen is completed,
  * then cut pieces should get created." The server makes them as soon as the
@@ -21,9 +26,9 @@ import { useToast } from '../toastContext';
  * fallback, for when the automatic run could not (a setup gap it said out loud)
  * or somebody wants them before the last optional value is in.
  *
- * WHY THIS IS A SCREEN OF ITS OWN AND NOT A CORNER OF NESTING. Making them
- * WRITES — a temporary item per rectangle, an area-fraction quantity on each —
- * and the nesting screen's contract is that opening it changes nothing.
+ * Opening the dialog still changes nothing: the list is READ; only "Make them
+ * now" writes, and only when somebody presses it — so the nesting screen's
+ * contract (a look is a look) holds with the dialog open.
  */
 
 /**
@@ -91,12 +96,27 @@ function Note({ tone, children, action }: { tone: 'info' | 'warning'; children: 
   );
 }
 
-export function BlanksPanel({ lineId, canManage, onChanged, onGoValues }: {
+/** The dialog's body has its own title bar, so the card around the list goes; the subtitle and the action stay. */
+function Embedded({ subtitle, action, children }: { subtitle: string; action?: ReactNode; children: ReactNode }) {
+  return (
+    <Box sx={{ minWidth: 0 }}>
+      <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'center', flexWrap: 'wrap', mb: 1.5 }}>
+        <Typography sx={{ flex: '1 1 260px', minWidth: 0, fontSize: 13, color: 'var(--c-text-2)' }}>{subtitle}</Typography>
+        {action}
+      </Box>
+      {children}
+    </Box>
+  );
+}
+
+export function BlanksPanel({ lineId, canManage, onChanged, onGoValues, embedded = false }: {
   lineId: number;
   canManage: boolean;
   onChanged?: () => void;
-  /** Opens the Values stage. Without it the panel moves the order page's own `tab` to values. */
+  /** Opens the Structure tab (the values are drawn there). Without it the panel moves the order page's own `tab`. */
   onGoValues?: () => void;
+  /** Drawn inside CutPiecesDialog: no card of its own. */
+  embedded?: boolean;
 }) {
   const [view, setView] = useState<CutPieces | null>(null);
   const [error, setError] = useState<CfApiError | null>(null);
@@ -121,7 +141,7 @@ export function BlanksPanel({ lineId, canManage, onChanged, onGoValues }: {
   // handler from the page this is the same move its own tabs make.
   const goValues = () => {
     if (onGoValues) { onGoValues(); return; }
-    setParams((prev) => { const p = new URLSearchParams(prev); p.set('tab', 'values'); return p; }, { replace: true });
+    setParams((prev) => { const p = new URLSearchParams(prev); p.set('tab', 'structure'); p.delete('cutPieces'); return p; }, { replace: true });
   };
 
   const makeNow = async () => {
@@ -157,18 +177,16 @@ export function BlanksPanel({ lineId, canManage, onChanged, onGoValues }: {
   const parts = (blanks ?? []).reduce((a, b) => a + (Number(b.partCount) || 0), 0);
   const nested = (blanks ?? []).length > 0 && (blanks ?? []).every((b) => b.plateQuantityBasis === 'nesting');
   const qty = (v: number | null) => (v == null ? '—' : Number(v).toFixed(4));
-  const toValues = <Button size="small" variant="outlined" color="inherit" onClick={goValues}>Go to Values</Button>;
+  const toValues = <Button size="small" variant="outlined" color="inherit" onClick={goValues}>Go to the values</Button>;
 
-  return (
-    <SectionCard
-      title="Cut pieces"
-      subtitle="Made automatically as soon as the line's values are complete, and again whenever a value or the structure changes — until the design is frozen."
-      action={canManage && !lock && !noParts ? (
-        <Button size="small" variant="outlined" startIcon={<ContentCutRounded />} disabled={busy} onClick={() => void makeNow()}>
-          {busy ? 'Making…' : 'Make them now'}
-        </Button>
-      ) : undefined}
-    >
+  const subtitle = "Made automatically from the parts as soon as the line's values are complete, again whenever a value or the structure changes, and once more when the design is frozen. Which pieces and plates go into a nest is chosen in Nesting's “What to nest”.";
+  const makeAction = canManage && !lock && !noParts ? (
+    <Button size="small" variant="outlined" startIcon={<ContentCutRounded />} disabled={busy} onClick={() => void makeNow()}>
+      {busy ? 'Making…' : 'Make them now'}
+    </Button>
+  ) : undefined;
+  const body = (
+    <>
       {error ? <ErrorNotice error={error} sx={{ mb: 2 }} /> : null}
 
       {/* What happens next — one note, the most important first. */}
@@ -254,6 +272,9 @@ export function BlanksPanel({ lineId, canManage, onChanged, onGoValues }: {
           </Box>
         </>
       ) : null}
-    </SectionCard>
+    </>
   );
+  return embedded
+    ? <Embedded subtitle={subtitle} action={makeAction}>{body}</Embedded>
+    : <SectionCard title="Cut pieces" subtitle={subtitle} action={makeAction}>{body}</SectionCard>;
 }

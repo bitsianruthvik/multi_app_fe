@@ -7,8 +7,9 @@ import type { SalesOrderLine } from './types';
  *
  * Locking rolls a line's structure out into pieces, each with its real code,
  * and from then on the line's structure, values and cut pieces no longer
- * change: a change is a new revision of the order. It sits after the Values
- * and Cut pieces stages and before nesting and buying.
+ * change: a change is a new revision of the order. It sits right after the
+ * Structure stage (values included) and before nesting and buying; the cut
+ * pieces are made by the freeze itself (no stage of their own since 2026-10-02).
  *
  * The view has the Piece codes card's shape (PieceCodesPreview) so the same
  * tree draws it, plus what only the Lock stage says: the checks, the line's

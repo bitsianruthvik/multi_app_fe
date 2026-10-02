@@ -20,7 +20,7 @@ import { recordPath } from '../lib/paths';
 import {
   CONFIRM_MOVE, LOCKED_STATUSES, NEXT_STAGE, ORDER_STATUS_LABEL, REVISED_NOT_RELEASED, revisionLabel, showRevision, transitionLabel,
 } from '../lib/orders';
-import { checksOn, firstOpenStage, landingStage, stageSatisfied, tabFor, tabStages } from '../lib/process';
+import { checksOn, firstOpenStage, isCutPiecesKey, landingStage, stageSatisfied, tabFor, tabStages, withCutPiecesOpen } from '../lib/process';
 import {
   DangerBadge, DetailSkeleton, EmptyState, ErrorNotice, Fact, Mono, OrderStatusBadge, OrderTypeChip, RevisionBadge, SectionCard, SkeletonRows,
 } from '../components/ui';
@@ -288,6 +288,11 @@ export default function OrderDetail() {
    */
   const answered = !!o && !!view;
   useEffect(() => {
+    // An old link to the retired Cut pieces stage opens Nesting with the cut-pieces dialog (2026-10-02).
+    if (isCutPiecesKey(tabParam)) {
+      setParams(withCutPiecesOpen, { replace: true });
+      return;
+    }
     if (lineParam != null) {
       const n = Number(lineParam);
       if (Number.isInteger(n) && n > 0) pickLine(n);
@@ -303,9 +308,14 @@ export default function OrderDetail() {
   const allStagesRef = useRef<OrderStage[]>([]);
   allStagesRef.current = model?.allStages ?? [];
   const goStage = useCallback((key: string) => {
-    setTab(tabFor(key, allStagesRef.current));
+    if (isCutPiecesKey(key)) {
+      // Not a stage any more: the cut pieces open as a dialog over Nesting.
+      setParams(withCutPiecesOpen, { replace: true });
+    } else {
+      setTab(tabFor(key, allStagesRef.current));
+    }
     tabsRef.current?.scrollIntoView({ block: 'nearest' });
-  }, [setTab]);
+  }, [setTab, setParams]);
 
   // Anything that changes the order moves its stages too, so the two reload together.
   const orderSaved = (saved: SalesOrder) => { order.setData(saved); processView.reload(); };

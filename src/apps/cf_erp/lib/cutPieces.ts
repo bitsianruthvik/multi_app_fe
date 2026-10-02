@@ -18,3 +18,6 @@ export function plateText(b: PlateCell): string {
   if (!b.plate || b.plate.isSelection) return CHOSEN_AT_NESTING;
   return b.plate.code ?? b.plate.name ?? '—';
 }
+
+/** "Cut pieces (12)" — the Nesting button's words: the count when it is known, else just the name. */
+export const cutPiecesLabel = (count: number | null | undefined) => (count == null ? 'Cut pieces' : `Cut pieces (${count})`);

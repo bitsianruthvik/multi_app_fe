@@ -39,6 +39,7 @@ import { NestChoices } from './NestChoices';
 import { WasteBar } from './WasteBar';
 import { NestSheetDialog } from './NestSheetDialog';
 import { NestMoney } from './NestMoney';
+import { CutPiecesButton } from './CutPiecesDialog';
 
 /**
  * THE NESTING SCREEN — a sales order line's rectangles laid out on real plates.
@@ -535,6 +536,14 @@ export function NestingPanel({ orderId, lineId, canManage, onChanged }: {
   ].filter((cp, i, all) => all.findIndex((x) => x.id === cp.id) === i)
     .sort((a, b) => (a.code ?? '').localeCompare(b.code ?? ''));
   const manualIds = new Set(plan.manual.map((cp) => cp.id));
+  // How many cut pieces the line has, for the toolbar's "Cut pieces (N)": the saved plan only knows the
+  // ones it laid out, so the pieces "What to nest" lists (left out ones included) count too.
+  const cutPieceCount = new Set([
+    ...everyCutPlate.map((cp) => cp.id),
+    ...(choices?.groups.flatMap((g) => g.pieces.map((x) => x.cutPlateId)) ?? []),
+    ...(choices?.unusable.map((x) => x.cutPlateId) ?? []),
+    ...(choices?.manual.map((cp) => cp.id) ?? []),
+  ]).size;
   const unplaced = plan.groups.flatMap((g) => g.unplaced);
   const advice = dedupeAdvice(plan.sizeAdvice);
   // Drift only means something against a plan that EXISTS. The API answers it
@@ -571,6 +580,9 @@ export function NestingPanel({ orderId, lineId, canManage, onChanged }: {
         subtitle={`Line ${plan.line.lineNo} of ${plan.line.orderCode} · plate → sequence → row → part, and the floor cuts in that order.`}
         actions={(
           <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
+            {/* The cut pieces are not a stage (2026-10-02): their list opens here, over the layout. */}
+            <CutPiecesButton lineId={lineId} lineNo={plan.line.lineNo} count={cutPieceCount} canManage={canManage}
+              onChanged={() => { saved.reload(); onChanged?.(); }} />
             <Tooltip title="The nests as a sheet. Fill it from your nesting program and upload it back.">
               <span>
                 <Button variant="outlined" disabled={fileBusy != null || busy != null} onClick={downloadSheet}

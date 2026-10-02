@@ -154,7 +154,7 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
   showWhereUsed?: boolean;
   /** Reloads the screen around it — a change moves roll-ups and counts above. */
   onChanged?: () => void;
-  /** On an order line: jumps to the Cut pieces stage. Without it the quiet line under the grid names the stage but has no link. */
+  /** On an order line: opens the cut pieces (a dialog over Nesting since 2026-10-02). Without it the quiet line under the grid has no link. */
   onGoCutPieces?: () => void;
 }) {
   const company = useCompanySlug();
@@ -264,7 +264,7 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
   const shownKeys = useMemo(() => (gapsOn && onlyMissing && state ? new Set(openableKeys(state.root)) : expanded), [gapsOn, onlyMissing, state, expanded]);
   const allRows = useMemo(() => state ? arrangedRows(state.root, shownKeys, pending) : [], [state, shownKeys, pending]);
   // Cut pieces are made by the system after every save; the grid shows only the designs the person drew.
-  // They are worked out from the parts and live on the Cut pieces stage.
+  // They are worked out from the parts; their list opens from the Nesting stage (no stage of their own).
   const treeRows = useMemo(() => (orderGrid ? withoutCutPieces(allRows) : allRows), [allRows, orderGrid]);
   // Gaps are read on the rows the person can see (cut pieces are worked out, not typed). The live map lays unsaved typing over the
   // server's answer; the filter reads what is SAVED, so a row does not vanish under the cursor as its last gap is typed.
@@ -864,9 +864,9 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
                 : root.children.length === 0 && pending.pastes.length === 0 && <EmptyState title="Nothing below it yet" action={canAddToRoot && addButton('contained')} />} />
           {orderGrid && (
             <Typography data-testid="cut-pieces-note" sx={{ mt: 1, fontSize: 12.5, color: 'var(--c-text-3)' }}>
-              Cut pieces are worked out from the parts — {onGoCutPieces
-                ? <Box component="button" type="button" onClick={onGoCutPieces} sx={{ all: 'unset', cursor: 'pointer', color: 'var(--c-primary-700)', textDecoration: 'underline' }}>see Cut pieces</Box>
-                : 'see Cut pieces'}.
+              Cut pieces are worked out from the parts automatically — {onGoCutPieces
+                ? <Box component="button" type="button" onClick={onGoCutPieces} sx={{ all: 'unset', cursor: 'pointer', color: 'var(--c-primary-700)', textDecoration: 'underline' }}>see them in Nesting</Box>
+                : 'see them in Nesting'}.
             </Typography>
           )}
         </>

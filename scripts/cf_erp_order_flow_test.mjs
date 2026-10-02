@@ -1,6 +1,8 @@
 // Run from multi_app_fe: node scripts/cf_erp_order_flow_test.mjs
 // The reworked sales-order flow: no cut rows in Structure, "Freeze design" wording,
-// the confirm action button, the planned chip and filters on the buy list, the Plate column.
+// the confirm action button, the planned chip and filters on the buy list, the Plate column;
+// since 2026-10-02 no Cut pieces tab — a "Cut pieces (N)" button on Nesting opens them in a dialog,
+// and an old ?tab=cut-pieces link lands there.
 import assert from 'node:assert/strict';
 import { mkdir, writeFile, unlink, readFile, readdir } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
@@ -13,17 +15,34 @@ for (const key of ['window', 'document', 'navigator', 'HTMLElement', 'Element', 
   Object.defineProperty(globalThis, key, { value: dom.window[key], configurable: true });
 }
 globalThis.getComputedStyle = dom.window.getComputedStyle.bind(dom.window);
+Object.defineProperty(globalThis, 'localStorage', { value: dom.window.localStorage, configurable: true });
+// The cut-pieces list the dialog reads (GET /order-lines/:id/cut-plates) — every other request answers 404.
+const fetched = [];
+globalThis.fetch = async (url) => {
+  fetched.push(String(url));
+  const body = /\/order-lines\/7\/cut-plates/.test(String(url))
+    ? { parts: 3, values: { missing: 0, items: 0, complete: true }, upToDate: true, lock: null, cutPlates: [
+      { id: 1, code: 'CP-1', name: 'a', size: { thickness: 12, length: 900, width: 300, grade: 'E250' }, partCount: 2, plate: null, nest: null, plateQuantity: 0.1, plateQuantityBasis: 'area', note: null },
+      { id: 2, code: 'CP-2', name: 'b', size: { thickness: 16, length: 600, width: 200, grade: 'E250' }, partCount: 1, plate: { id: 9, code: 'PL-9', name: 'p' }, nest: { nestNo: 'N-012' }, plateQuantity: 1, plateQuantityBasis: 'nesting', note: null },
+    ] }
+    : null;
+  return body
+    ? new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } })
+    : new Response('{"error":"nope"}', { status: 404 });
+};
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const React = await import('react');
 const { createRoot } = await import('react-dom/client');
 const { act } = React;
-const { MemoryRouter } = await import('react-router-dom');
+const { MemoryRouter, useLocation } = await import('react-router-dom');
 
 const cache = resolve('node_modules/.cache');
 await mkdir(cache, { recursive: true });
 const authStub = resolve(cache, `order-flow-auth-${process.pid}.tsx`);
 await writeFile(authStub, 'export const useAuth = () => ({ user: null });');
 const entry = `export * from './src/apps/cf_erp/components/OrderProcess/StageBody';
+export * from './src/apps/cf_erp/components/Nesting/CutPiecesDialog';
+export { tabStages, tabFor, isCutPiecesKey, withCutPiecesOpen, CUT_PIECES_PARAM } from './src/apps/cf_erp/lib/process';
 export * from './src/apps/cf_erp/components/PlannedChip';
 export * from './src/apps/cf_erp/lib/buyList';
 export * from './src/apps/cf_erp/lib/cutPieces';
@@ -60,10 +79,11 @@ await check('Structure: cut rows are dropped and the part loses its chevron', ()
   assert.equal(m.cutChip, undefined);
 });
 
-await check('Structure source: no toggle, no chip, a quiet line naming Cut pieces', async () => {
+await check('Structure source: no toggle, no chip, a quiet line pointing at the cut pieces in Nesting', async () => {
   const panel = await readFile('src/apps/cf_erp/components/Bom/BomPanel.tsx', 'utf8');
   assert.ok(!/Show cut pieces|showCut|cutChip/.test(panel));
-  assert.match(panel, /Cut pieces are worked out from the parts — /);
+  assert.match(panel, /Cut pieces are worked out from the parts automatically — /);
+  assert.match(panel, /see them in Nesting/);
   const grid = await readFile('src/apps/cf_erp/components/Bom/BomGrid.tsx', 'utf8');
   assert.ok(!/cutChip|Show cut pieces/.test(grid));
 });
@@ -116,6 +136,74 @@ await check('Planned chip shows order/line, and the filters split released from 
   assert.equal(m.byKind(rows, 'released').length, 1);
   assert.equal(m.byKind(rows, 'planned').length, 2);
   assert.equal(new Set(rows.map(m.buyRowId)).size, 3);
+});
+
+// ── No Cut pieces stage (2026-10-02): the list is a dialog over Nesting ──
+const st = (stageKey, more = {}) => ({ stageKey, label: stageKey, state: 'todo', requirement: 'required', applies: true, ...more });
+await check('No Cut pieces tab: the train is lines, structure (values inside), freeze, nesting, buying, production', () => {
+  const train = [st('lines'), st('structure'), st('values', { shownIn: 'structure' }), st('lock'), st('nesting'), st('buying'), st('production')];
+  assert.deepEqual(m.tabStages(train).map((s) => s.stageKey), ['lines', 'structure', 'lock', 'nesting', 'buying', 'production']);
+  // An older API still sending the stage: no tab either; it folds into Nesting.
+  const old = [...train.slice(0, 3), st('cut_pieces'), ...train.slice(3)];
+  assert.deepEqual(m.tabStages(old).map((s) => s.stageKey), ['lines', 'structure', 'lock', 'nesting', 'buying', 'production']);
+  assert.equal(m.tabFor('cut_pieces', old), 'nesting');
+});
+await check('No Cut pieces tab: StageBody has no cut_pieces branch; Nesting has the button with the count', async () => {
+  const body = await readFile('src/apps/cf_erp/components/OrderProcess/StageBody.tsx', 'utf8');
+  assert.doesNotMatch(body, /stageKey === 'cut_pieces'/);
+  assert.doesNotMatch(body, /<BlanksPanel/);
+  assert.match(body, /<CutPiecesButton/);
+  assert.doesNotMatch(body, /values and cut pieces are settled/);
+  const nest = await readFile('src/apps/cf_erp/components/Nesting/NestingPanel.tsx', 'utf8');
+  assert.match(nest, /<CutPiecesButton[^>]*count=\{cutPieceCount\}/);
+});
+await check('Nesting button: "Cut pieces (2)" opens the cut-pieces list in a dialog, and the address remembers it', async () => {
+  await act(async () => { root.render(null); });
+  let loc = null;
+  const Spy = () => { loc = useLocation(); return null; };
+  fetched.length = 0;
+  await act(async () => {
+    root.render(React.createElement(MemoryRouter, { initialEntries: ['/orders/1?tab=nesting'] },
+      React.createElement(m.CutPiecesButton, { lineId: 7, lineNo: 10, count: 2, canManage: true }), React.createElement(Spy)));
+  });
+  const btn = document.querySelector('[data-testid="cut-pieces-button"]');
+  assert.equal(btn.textContent.trim(), 'Cut pieces (2)');
+  assert.equal(document.querySelector('[role="dialog"]'), null, 'shut until pressed');
+  assert.equal(fetched.length, 0, 'nothing is read until it opens');
+  await act(async () => { btn.click(); });
+  await act(async () => { await new Promise((r) => setTimeout(r, 30)); });
+  const dlg = document.querySelector('[role="dialog"]');
+  assert.ok(dlg, 'the dialog is open');
+  assert.match(dlg.textContent, /Cut pieces — line 10/);
+  assert.ok(fetched.some((u) => /\/order-lines\/7\/cut-plates/.test(u)), fetched.join(' | '));
+  assert.match(dlg.textContent, /CP-1/); assert.match(dlg.textContent, /CP-2/);
+  assert.match(dlg.textContent, /chosen at nesting/, 'plate state of a piece not nested yet');
+  assert.match(dlg.textContent, /N-012 · PL-9/, 'nest lot + plate of a nested piece');
+  assert.ok([...dlg.querySelectorAll('button')].some((b) => b.textContent.trim() === 'Make them now'), 'the fallback action is kept');
+  assert.match(loc.search, /cutPieces=1/);
+  assert.match(loc.search, /tab=nesting/);
+  await act(async () => { dlg.querySelector('[aria-label="Close"]').click(); });
+  assert.doesNotMatch(loc.search, /cutPieces/);
+});
+await check('Old link: ?tab=cut-pieces (and the old key) lands on Nesting with the cut-pieces dialog open', async () => {
+  assert.ok(m.isCutPiecesKey('cut-pieces') && m.isCutPiecesKey('cut_pieces') && !m.isCutPiecesKey('nesting'));
+  const next = m.withCutPiecesOpen(new URLSearchParams('tab=cut-pieces&line=5'));
+  assert.equal(next.get('tab'), 'nesting');
+  assert.equal(next.get(m.CUT_PIECES_PARAM), '1');
+  assert.equal(next.get('line'), '5', 'the rest of the address is kept');
+  const page = await readFile('src/apps/cf_erp/pages/OrderDetail.tsx', 'utf8');
+  assert.match(page, /if \(isCutPiecesKey\(tabParam\)\) \{\s*setParams\(withCutPiecesOpen/);
+  assert.match(page, /if \(isCutPiecesKey\(key\)\) \{[\s\S]{0,200}setParams\(withCutPiecesOpen/, 'a jump to the old key opens the dialog too');
+  // …and the dialog opens straight from such an address.
+  await act(async () => { root.render(null); });
+  await act(async () => {
+    root.render(React.createElement(MemoryRouter, { initialEntries: ['/orders/1?' + next.toString()] },
+      React.createElement(m.CutPiecesButton, { lineId: 7, lineNo: 10, count: 2, canManage: false })));
+  });
+  await act(async () => { await new Promise((r) => setTimeout(r, 30)); });
+  const dlg = document.querySelector('[role="dialog"]');
+  assert.ok(dlg && /Cut pieces — line 10/.test(dlg.textContent));
+  assert.ok(![...dlg.querySelectorAll('button')].some((b) => b.textContent.trim() === 'Make them now'), 'no write for a read-only role');
 });
 
 await act(async () => { root.unmount(); });

@@ -108,9 +108,10 @@ await check('Values: a variable the row does not have is n/a (hatched), differen
 });
 // ── ONE tab: Structure carries the values; Values is a check, not a tab (2026-10-02) ──
 const st = (stageKey, state = 'done', more = {}) => ({ stageKey, label: stageKey[0].toUpperCase() + stageKey.slice(1), state, requirement: 'required', applies: true, decidedBy: 'data', detail: '', blockers: [], ...more });
-const train = [st('lines'), st('structure'), st('values', 'partial', { shownIn: 'structure' }), st('cut_pieces', 'todo'), st('lock', 'todo')];
+// No Cut pieces stage since 2026-10-02 (processService RETIRED_STAGE_KEYS): Structure (values inside) → Freeze design → Nesting.
+const train = [st('lines'), st('structure'), st('values', 'partial', { shownIn: 'structure' }), st('lock', 'todo'), st('nesting', 'todo')];
 await check('merged tab: Values gets no tab of its own — it is a check on Structure', () => {
-  assert.deepEqual(m.tabStages(train).map((s) => s.stageKey), ['lines', 'structure', 'cut_pieces', 'lock']);
+  assert.deepEqual(m.tabStages(train).map((s) => s.stageKey), ['lines', 'structure', 'lock', 'nesting']);
   assert.deepEqual(m.checksOn('structure', train).map((s) => s.stageKey), ['values']);
   assert.deepEqual(m.checksOn('lines', train), []);
 });
@@ -120,8 +121,10 @@ await check('merged tab: a link or "Go to" for values lands on Structure', () =>
   assert.equal(m.tabFor('nope', train), 'nope');
 });
 await check('merged tab: an API without shownIn folds values the same way (the FE knows the rule too)', () => {
-  const old = train.map(({ shownIn, ...s }) => s);
-  assert.deepEqual(m.tabStages(old).map((s) => s.stageKey), ['lines', 'structure', 'cut_pieces', 'lock']);
+  // …and an API that still sends the retired cut_pieces stage gets no Cut pieces tab either: it folds into Nesting.
+  const old = [...train.map(({ shownIn, ...s }) => s), st('cut_pieces', 'todo')];
+  assert.deepEqual(m.tabStages(old).map((s) => s.stageKey), ['lines', 'structure', 'lock', 'nesting']);
+  assert.equal(m.tabFor('cut_pieces', old), 'nesting');
 });
 await check('merged tab: a process with Values but no Structure keeps Values as its own tab', () => {
   const noStructure = train.filter((s) => s.stageKey !== 'structure');

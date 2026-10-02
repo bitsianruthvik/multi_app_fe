@@ -217,7 +217,28 @@ export const stageSatisfied = (s: Pick<OrderStage, 'state' | 'requirement'>) =>
  * fact for an API that predates it. The stage still exists, still has its state
  * and still gates Freeze design — it is only drawn inside its host.
  */
-const SHOWN_IN: Record<string, string> = { values: 'structure' };
+const SHOWN_IN: Record<string, string> = { values: 'structure', cut_pieces: 'nesting' };
+
+/*
+ * CUT PIECES ARE NOT A STAGE (user, 2026-10-02: "right after structure is
+ * locked, we should auto generate cut pieces — no need to show that
+ * separately … show it as a pop up in nesting"). The backend retired the
+ * `cut_pieces` stage (processService RETIRED_STAGE_KEYS); the list opens as a
+ * dialog from the Nesting stage, and the order page keeps that dialog in its
+ * address (`?tab=nesting&cutPieces=1`) so a link, Back and a reload all land
+ * on it. An old link to the stage (`?tab=cut-pieces` / `?tab=cut_pieces`), and
+ * any jump to the old key, lands there too.
+ */
+export const CUT_PIECES_PARAM = 'cutPieces';
+/** Whether a tab name or stage key is the retired Cut pieces stage. */
+export const isCutPiecesKey = (key: string | null | undefined): boolean => key === 'cut_pieces' || key === 'cut-pieces';
+/** The address that opens the cut pieces: Nesting, with the dialog open; everything else in it kept. */
+export function withCutPiecesOpen(prev: URLSearchParams): URLSearchParams {
+  const p = new URLSearchParams(prev);
+  p.set('tab', 'nesting');
+  p.set(CUT_PIECES_PARAM, '1');
+  return p;
+}
 type Folded = Pick<OrderStage, 'stageKey'> & { shownIn?: string | null };
 /** The tab a stage is drawn in: its host when it is folded into one that this process has, else itself. */
 export function hostOf(stage: Folded, stages: readonly Pick<OrderStage, 'stageKey'>[]): string {

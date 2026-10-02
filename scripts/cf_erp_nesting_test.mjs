@@ -26,7 +26,7 @@ const stub = `export async function apiFetch(url, o = {}) {
 }`;
 const built = await build({
   stdin: {
-    contents: `import * as React from 'react'; import { createRoot } from 'react-dom/client'; export { React, createRoot };
+    contents: `import * as React from 'react'; import { createRoot } from 'react-dom/client'; export { React, createRoot }; export { MemoryRouter } from 'react-router-dom';
       export { NestingPanel } from './src/apps/cf_erp/components/Nesting/NestingPanel';
       export * as diagram from './src/apps/cf_erp/lib/nestDiagram';`,
     resolveDir: process.cwd(), loader: 'tsx',
@@ -42,7 +42,9 @@ const cache = resolve('node_modules/.cache');
 await mkdir(cache, { recursive: true });
 const artifact = resolve(cache, `nesting-test-${process.pid}.mjs`);
 await writeFile(artifact, built.outputFiles[0].text);
-const { React, createRoot, NestingPanel, diagram } = await import(pathToFileURL(artifact));
+const { React, createRoot, NestingPanel, diagram, MemoryRouter } = await import(pathToFileURL(artifact));
+// The panel's Cut pieces button keeps its dialog in the address, so it renders inside a router (as on the order page).
+const inRouter = (el) => React.createElement(MemoryRouter, null, el);
 await unlink(artifact);
 
 const metrics = { lots: 0, plates: 0, pieces: 0, areaBought: 0, usedArea: 0, wasteArea: 0, wastePct: 0, weightKg: 0, wasteKg: 0, thickness: null };
@@ -136,8 +138,14 @@ const find = (label) => [...document.querySelectorAll('button, [role=menuitem]')
 const click = async (el, what) => { assert.ok(el, `no ${what}`); await React.act(async () => { el.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })); await sleep(0); }); await settle(); };
 
 const root = createRoot(document.getElementById('app'));
-await React.act(async () => { root.render(React.createElement(NestingPanel, { orderId: 1, lineId: 1, canManage: true })); await sleep(0); });
+await React.act(async () => { root.render(inRouter(React.createElement(NestingPanel, { orderId: 1, lineId: 1, canManage: true }))); await sleep(0); });
 await waitFor(() => find('Nest everything'), 'the panel');
+
+await check('the toolbar has a "Cut pieces (N)" button (the cut pieces are not a stage any more)', async () => {
+  const b = find('Cut pieces (');
+  assert.ok(b, 'no Cut pieces button');
+  assert.match(b.textContent.trim(), /^Cut pieces \(\d+\)$/);
+});
 
 await check('the effort chip shows Standard and opens three one-line choices', async () => {
   const chip = find('Effort');
@@ -281,7 +289,7 @@ document.body.appendChild(root2Host);
 await React.act(async () => { root.unmount(); });
 planNow = savedPlan;
 const root2 = createRoot(root2Host);
-await React.act(async () => { root2.render(React.createElement(NestingPanel, { orderId: 1, lineId: 2, canManage: true })); await sleep(0); });
+await React.act(async () => { root2.render(inRouter(React.createElement(NestingPanel, { orderId: 1, lineId: 2, canManage: true }))); await sleep(0); });
 await waitFor(() => find('Draw the 1 plate'), 'the saved plan');
 
 await check('a saved plan says what its choices left out, and folds the steps away', async () => {

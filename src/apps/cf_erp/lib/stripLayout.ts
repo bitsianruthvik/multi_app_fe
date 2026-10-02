@@ -51,6 +51,13 @@ export function shipUnitRelevant(hasChildren: boolean, ownValue: string, missing
   return hasChildren || ownValue !== '' || missing;
 }
 
+/**
+ * Specs kept off the order grids (user 2026-10-02): PART_FUNCTION only repeats what the part's own definition
+ * already says, so it shows only if some rule still makes it required and it is missing.
+ */
+export const HIDDEN_ON_GRID = new Set(['PART_FUNCTION']);
+export const hiddenOnGrid = (code: string, missing: boolean) => HIDDEN_ON_GRID.has(code) && !missing;
+
 /** Well-known specs get a word a fitter would write on a drawing. */
 const SHORT: Record<string, string> = {
   THICKNESS: 'Thk', LENGTH: 'L', WIDTH: 'W', DEPTH: 'D', DIAMETER: 'Dia', SECTION_AREA: 'Area', WEIGHT: 'Wt',
