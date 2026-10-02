@@ -1,5 +1,5 @@
 import { cfApi, LONG_WRITE_MS } from './client';
-import type { NestSheetResult } from './types';
+import type { NestSheetResult, NestingChoices } from './types';
 
 /**
  * The nesting sheet and the CNC files (CF_ERP_NESTING_PLAN.md, "Decided
@@ -75,4 +75,17 @@ export async function saveNestingSheet(orderId: number, lineId: number, file: st
   const out = await cfApi.post<Partial<NestSheetResult>>(`${base(orderId, lineId)}/sheet`,
     { file, fileBase64: file, filename, dryRun: false, force }, { timeoutMs: LONG_WRITE_MS });
   return normalise(out);
+}
+
+/**
+ * THE NESTING CHOICES (init.sql §40): Step A — the cut pieces a run considers —
+ * and Step B — the raw plates it may draw on. Read with the line; saved whole
+ * (both lists, an empty pair resets). Every run applies them.
+ */
+export function getNestingChoices(orderId: number, lineId: number): Promise<NestingChoices> {
+  return cfApi.get<NestingChoices>(`${base(orderId, lineId)}/choices`);
+}
+
+export function saveNestingChoices(orderId: number, lineId: number, excludedCutPlateIds: number[], excludedPlateIds: number[]): Promise<NestingChoices> {
+  return cfApi.put<NestingChoices>(`${base(orderId, lineId)}/choices`, { excludedCutPlateIds, excludedPlateIds });
 }

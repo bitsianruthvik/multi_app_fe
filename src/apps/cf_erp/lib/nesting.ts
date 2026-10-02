@@ -413,3 +413,9 @@ export function lineOffcuts(plan: NestingPlan): { count: number; kg: number } {
 
 /** True once any plate on the line came in from the sheet. */
 export const anyImported = (plan: NestingPlan) => plan.groups.some((g) => g.nests.some(isImported));
+
+/** "3 pieces left out · 1 plate excluded" — the nesting choices (init.sql §40), said once for the stage and the steps. */
+export function choicesLine(c: { summary: { piecesLeftOut: number; platesExcluded: number } }): string {
+  const s = c.summary;
+  return `${s.piecesLeftOut} ${s.piecesLeftOut === 1 ? 'piece' : 'pieces'} left out · ${s.platesExcluded} ${s.platesExcluded === 1 ? 'plate' : 'plates'} excluded`;
+}

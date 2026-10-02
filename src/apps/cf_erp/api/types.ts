@@ -1275,6 +1275,117 @@ export interface Nest {
   /** The parts themselves, kg. Zero on a plate with no layout. */
   partsKg?: number;
   offcuts?: NestOffcut[];
+  /** The shop's rules asked of this plate (nestingService.nestRules) — the diagram's ✓ / ⚠ badge. */
+  rules?: NestRules;
+}
+
+/** One rule on one plate. ok null = could not be checked (no layout). */
+export interface NestRuleCheck {
+  key: 'kerf' | 'rim' | 'spacing' | 'rows' | 'sequenceGap' | 'order' | 'rotation' | 'fits' | 'layout' | string;
+  ok: boolean | null;
+  label: string;
+  detail: string;
+}
+
+export interface NestRules {
+  /** ok = every rule holds · warn = at least one does not · none = no layout to check. */
+  status: 'ok' | 'warn' | 'none';
+  /** Parts over the plate bought, %. */
+  utilisationPct: number | null;
+  /** Common boundaries cut once, and their length. */
+  sharedCuts: number;
+  sharedLengthMm: number;
+  checks: NestRuleCheck[];
+}
+
+/** What a run left out by the line's nesting choices (init.sql §40). */
+export interface NestChoiceSummary {
+  cutPlatesLeftOut: number;
+  piecesLeftOut: number;
+  kgLeftOut: number;
+  platesExcluded: number;
+  leftOut: NestCutPlate[];
+  excludedPlates: { plateItemId: number; code: string | null; name: string | null }[];
+}
+
+/** One cut piece in Step A (GET …/nesting/choices). */
+export interface NestChoicePiece {
+  cutPlateId: number;
+  code: string | null;
+  name: string | null;
+  thickness: number | null;
+  length: number | null;
+  width: number | null;
+  grade: string | null;
+  material: string | null;
+  /** What the whole line needs. */
+  pieces: number;
+  /** Already on imported nests. */
+  onImported: number;
+  /** What automatic nesting would lay out: pieces − onImported. */
+  toNest: number;
+  kgEach: number | null;
+  kg: number | null;
+  /** NEST_MANUAL is set on it: always left out of automatic nesting. */
+  manual: boolean;
+  /** Left out of this line's nesting by the choices. */
+  excluded: boolean;
+  note: string | null;
+  /** Only on `unusable`: what it does not say about its steel. */
+  missing?: string[];
+  reason?: string;
+}
+
+/** One candidate raw plate in Step B. */
+export interface NestChoicePlate {
+  plateItemId: number;
+  code: string | null;
+  name: string | null;
+  thickness: number;
+  length: number;
+  width: number;
+  grade: string | null;
+  material: string | null;
+  kgEach: number | null;
+  /** Free plates in stock: ours, and this order's customer's own. */
+  stock: { ours: number; theirs: number };
+  /** The customer's own plate: offered first, free. */
+  preferred: boolean;
+  lastPaid: { unitPrice: number; currency: string; orderCode: string | null; orderedAt: string | null } | null;
+  listPrice: { price: number; basis: string; currency: string; perPlate: number | null } | null;
+  excluded: boolean;
+}
+
+export interface NestChoiceGroup {
+  key: string;
+  thickness: number;
+  grade: string | null;
+  material: string | null;
+  kerfMm: number;
+  settingsBasis: string;
+  pieces: NestChoicePiece[];
+  plates: NestChoicePlate[];
+  offcutsInStock: { count: number; kg: number; biggestMm2: number | null; note: string };
+  summary: {
+    cutPlates: number; pieces: number; kg: number;
+    ticked: { cutPlates: number; pieces: number; kg: number };
+    platesOffered: number; platesTicked: number;
+  };
+  /** Every plate is unticked while pieces are ticked: Nest is blocked. */
+  blocked: string | null;
+  noCandidate: string | null;
+}
+
+export interface NestingChoices {
+  line: { id: number; lineNo: number; orderId: number; orderCode: string; quantity: number; frozen?: boolean; released?: boolean };
+  canSave: boolean;
+  readOnlyReason: string | null;
+  groups: NestChoiceGroup[];
+  unusable: NestChoicePiece[];
+  manual: NestCutPlate[];
+  excluded: { cutPlateIds: number[]; plateIds: number[] };
+  summary: NestChoiceSummary & { pieces: number; kg: number; ticked: { pieces: number; kg: number } };
+  blocked: string[];
 }
 
 export type NestOrigin = 'auto' | 'imported';
@@ -1421,6 +1532,8 @@ export interface NestingPlan {
   problems: string[];
   /** Only on the saved plan. */
   drift?: NestDrift[];
+  /** What the line's nesting choices leave out (§40). */
+  choices?: NestChoiceSummary;
   totals: NestMetrics & { groups: number; unplaced: number };
 }
 

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Autocomplete, Box, Button, CircularProgress, IconButton, TextField, Tooltip, Typography } from '@mui/material';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import AddRounded from '@mui/icons-material/AddRounded';
@@ -8,7 +8,7 @@ import TimerRounded from '@mui/icons-material/TimerRounded';
 import RouteRounded from '@mui/icons-material/RouteRounded';
 import PrecisionManufacturingRounded from '@mui/icons-material/PrecisionManufacturingRounded';
 import { cfApi, CfApiError } from '../api/client';
-import type { MasterRecord, OperationDetail as OperationDetailT, OperationMachine, TimingPreview, TimingRule, Tree } from '../api/types';
+import type { Formula, MasterRecord, OperationDetail as OperationDetailT, OperationMachine, Specification, TimingPreview, TimingRule, Tree } from '../api/types';
 import { useCompanySlug, useLoad } from '../hooks/useLoad';
 import { useIsPermitted } from '../hooks/useIsPermitted';
 import { invalidateNavCounts } from '../hooks/useNavCounts';
@@ -25,6 +25,8 @@ import { RecordPicker } from '../components/RecordPicker';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { useDetailTitle } from '../components/shell/detailTitle';
 import { useToast } from '../components/toastContext';
+import { TimeBuilder, type TimeAssignment } from '../components/FormulaBuilder/TimeBuilder';
+import { fieldIndex, timeInWords, type BuilderField, type FieldIndex } from '../lib/formulaBuilder';
 
 /** How long one machine takes on one item: the rule that applies, its formulas fed real values. */
 function TryIt({ op }: { op: OperationDetailT }) {
@@ -80,6 +82,31 @@ function TryIt({ op }: { op: OperationDetailT }) {
   );
 }
 
+/** A rule's time, plainly — "12 min per piece", or the formula in words — with the button that opens the time builder. */
+function TimeCell({ rule, which, idx, canManage, onEdit }: { rule: TimingRule; which: 'setup' | 'work'; idx: FieldIndex | null; canManage: boolean; onEdit: () => void }) {
+  if (!rule.eligible) return <Mono muted>—</Mono>;
+  const t = which === 'setup' ? rule.setup : rule.work;
+  const empty = !t || (t.minutes == null && !t.formula);
+  if (empty && which === 'work') {
+    return canManage
+      ? <Button size="small" variant="contained" startIcon={<TimerRounded />} onClick={onEdit} data-testid={`set-time-${rule.id}`}>Set time</Button>
+      : <Typography sx={{ color: 'var(--c-warning-800)', fontSize: 13 }}>No time yet</Typography>;
+  }
+  return (
+    <Box sx={{ py: 0.5, display: 'flex', alignItems: 'flex-start', gap: 1, minWidth: which === 'work' ? 260 : 140 }}>
+      <Box sx={{ flex: 1, minWidth: 0, whiteSpace: 'normal' }}>
+        <Box sx={{ fontSize: 14, color: empty ? 'var(--c-text-3)' : 'var(--c-text)' }} data-testid={`time-words-${rule.id}-${which}`}>{timeInWords(t, which, idx)}</Box>
+        {t?.formula && <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)', fontFamily: 'var(--font-mono)' }}>{t.formula.code}{which === 'work' ? ' · per piece' : ' · per run'}</Typography>}
+      </Box>
+      {canManage && (
+        which === 'work'
+          ? <Button size="small" variant="outlined" startIcon={<EditRounded />} onClick={onEdit} sx={{ flexShrink: 0 }} data-testid={`edit-time-${rule.id}`}>Edit time</Button>
+          : <Tooltip title={empty ? 'Set a setup time' : 'Edit the setup time'}><IconButton size="small" aria-label="Edit setup time" onClick={onEdit}><EditRounded fontSize="small" /></IconButton></Tooltip>
+      )}
+    </Box>
+  );
+}
+
 const linkSx = { color: 'inherit', textDecoration: 'none', '&:hover': { color: 'var(--c-primary-700)', textDecoration: 'underline' } };
 const valid = (r: TimingRule) => (r.effectiveFrom || r.effectiveTo ? `${r.effectiveFrom ?? '…'} → ${r.effectiveTo ?? '…'}` : 'always');
 
@@ -98,6 +125,15 @@ export default function OperationDetail() {
   const [deleting, setDeleting] = useState(false);
   const [ruleDialog, setRuleDialog] = useState<{ open: boolean; rule: TimingRule | null }>({ open: false, rule: null });
   const [deleteRule, setDeleteRule] = useState<TimingRule | null>(null);
+  const [builder, setBuilder] = useState<{ rule: TimingRule; which: 'setup' | 'work' } | null>(null);
+  const formulas = useLoad(() => cfApi.get<Formula[]>('/formulas'), []);
+  // Specification names, so a formula reads in words; codes are humanised when this is not allowed.
+  const specs = useLoad(() => cfApi.get<Specification[]>('/specifications'), []);
+  const canMakeFormula = useIsPermitted()('cf_erp_setup_manage');
+  const idx = useMemo(() => {
+    const fields: BuilderField[] = (specs.data ?? []).map((sp) => ({ code: sp.code, name: sp.name, dataType: sp.dataType, measurementType: sp.measurementType, unit: sp.defaultUom }));
+    return fieldIndex(fields, fields, fields);
+  }, [specs.data]);
   const o = op.data;
   useDetailTitle(o?.code ?? null);
   if (op.error) return <ErrorNotice error={op.error} onRetry={op.reload} />;
@@ -119,11 +155,8 @@ export default function OperationDetail() {
       ),
     },
     { key: 'can', header: 'Can do it', alwaysVisible: true, render: (r) => (r.eligible ? <StatusBadge status="active" /> : <DangerBadge label="Kept out" />) },
-    { key: 'setup', header: 'Setup per run', alwaysVisible: true, render: (r) => <Mono>{r.eligible ? timeText(r.setup) : '—'}</Mono> },
-    {
-      key: 'work', header: 'Work per piece', alwaysVisible: true,
-      render: (r) => <Box sx={{ py: 0.5 }}><Mono>{r.eligible ? timeText(r.work) : '—'}</Mono>{r.eligible && r.work?.formula && <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)', fontFamily: 'var(--font-mono)' }}>{r.work.formula.expression}</Typography>}</Box>,
-    },
+    { key: 'work', header: 'Time per piece', alwaysVisible: true, render: (r) => <TimeCell rule={r} which="work" idx={idx} canManage={canManage} onEdit={() => setBuilder({ rule: r, which: 'work' })} /> },
+    { key: 'setup', header: 'Setup per run', alwaysVisible: true, render: (r) => <TimeCell rule={r} which="setup" idx={idx} canManage={canManage} onEdit={() => setBuilder({ rule: r, which: 'setup' })} /> },
     { key: 'valid', header: 'Valid', alwaysVisible: true, render: (r) => <Mono muted>{valid(r)}</Mono> },
   ];
   const machineColumns: DataColumn<OperationMachine>[] = [
@@ -198,8 +231,22 @@ export default function OperationDetail() {
       )}
 
       <OperationDialog open={editing} existing={o} onClose={() => setEditing(false)} onSaved={(saved) => { toast.success(`${saved.code} saved.`); reload(); }} />
-      <TimingRuleDialog open={ruleDialog.open} operationId={id} existing={ruleDialog.rule} tree={tree.data}
+      <TimingRuleDialog open={ruleDialog.open} operationId={id} operation={{ id: o.id, code: o.code, name: o.name }} existing={ruleDialog.rule} tree={tree.data}
         onClose={() => setRuleDialog({ open: false, rule: null })} onSaved={() => { toast.success('Rule saved.'); reload(); }} />
+      {builder && (
+        <TimeBuilder open={!!builder} onClose={() => setBuilder(null)} operation={{ id: o.id, code: o.code, name: o.name }}
+          subject={{ type: builder.rule.subject.type, id: builder.rule.subject.id, label: subjectText(builder.rule.subject) }}
+          which={builder.which} current={builder.which === 'setup' ? builder.rule.setup : builder.rule.work} ruleSetup={builder.which === 'work' ? builder.rule.setup : null}
+          formulas={formulas.data ?? []} canMakeFormula={canMakeFormula} onFormulasChanged={formulas.reload}
+          onAssign={async (a: TimeAssignment) => {
+            const w = builder.which;
+            const body: Record<string, unknown> = { [`${w}Minutes`]: a.minutes, [`${w}FormulaId`]: a.formulaId };
+            if (w === 'work' && a.setupMinutes !== undefined) Object.assign(body, { setupMinutes: a.setupMinutes, setupFormulaId: null });
+            await cfApi.put(`/operation-rules/${builder.rule.id}`, body);
+            toast.success(a.formula ? `${a.formula.code} assigned to ${subjectText(builder.rule.subject)}.` : 'Time saved.');
+            reload();
+          }} />
+      )}
       <ConfirmDialog open={!!deleteRule} danger confirmLabel="Delete rule" title="Delete this timing rule?" entityName={deleteRule ? subjectText(deleteRule.subject) : undefined}
         body="Machines under it fall back to the next rule up, if any."
         onClose={() => setDeleteRule(null)} onConfirm={async () => { await cfApi.del(`/operation-rules/${deleteRule?.id}`); toast.success('Rule deleted.'); reload(); }} />

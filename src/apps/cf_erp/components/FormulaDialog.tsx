@@ -1,7 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Alert, Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, MenuItem, TextField, Typography } from '@mui/material';
 import { cfApi, CfApiError } from '../api/client';
-import type { Formula, FormulaCheck } from '../api/types';
+import type { Formula, FormulaCheck, Specification } from '../api/types';
+import { useLoad } from '../hooks/useLoad';
+import { FormulaEditor } from './FormulaBuilder/FormulaEditor';
+import { fieldIndex, formulaInWords, unitWarnings, type BuilderField } from '../lib/formulaBuilder';
 import { ErrorNotice, Mono, Surface } from './ui';
 import { DialogHeader } from './FormDialog';
 
@@ -20,6 +23,11 @@ export function FormulaDialog({ open, onClose, onSaved, existing, canManage, for
   const [check, setCheck] = useState<FormulaCheck | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<CfApiError | null>(null);
+  // Every number / table specification, for the editor's field picker and the formula in words.
+  const specs = useLoad(() => (open ? cfApi.get<Specification[]>('/specifications') : Promise.resolve(null)), [open]);
+  const fields = useMemo<BuilderField[]>(() => (specs.data ?? []).filter((sp) => sp.status === 'active' && (sp.dataType === 'number' || sp.dataType === 'table'))
+    .map((sp) => ({ code: sp.code, name: sp.name, dataType: sp.dataType, measurementType: sp.measurementType, unit: sp.defaultUom, tableConfig: sp.tableConfig ?? null })), [specs.data]);
+  const idx = useMemo(() => fieldIndex(fields, fields, fields), [fields]);
 
   useEffect(() => {
     if (!open) return;
@@ -74,9 +82,14 @@ export function FormulaDialog({ open, onClose, onSaved, existing, canManage, for
           <TextField label="Code" required={!existing} value={code} disabled={!!existing} autoFocus={!existing} onChange={(e) => setCode(e.target.value.toUpperCase())} inputProps={{ style: { fontFamily: 'var(--font-mono)' } }}
             helperText={existing ? `Version ${existing.version} — changing the expression makes version ${existing.version + 1}` : 'e.g. PLATE_WEIGHT'} />
           <TextField label="Name" required value={name} autoFocus={!!existing} onChange={(e) => setName(e.target.value)} />
-          <TextField label="Expression" required value={expression} placeholder={forTiming ? 'e.g. item.CUT_LENGTH / machine.CUTTING_SPEED' : undefined} onChange={(e) => setExpression(e.target.value)} multiline minRows={2} sx={{ gridColumn: '1 / -1' }}
-            inputProps={{ style: { fontFamily: 'var(--font-mono)', fontSize: 14 } }}
-            helperText="Specification codes, numbers, + − × ÷ % ^, MIN, MAX, ROUND(x, n), ABS, SQRT, CEIL, FLOOR, IF(a > b, x, y). Roll-ups: SUM(children.WEIGHT). Operation times: item.CUT_LENGTH / machine.CUTTING_SPEED." />
+          <Box sx={{ gridColumn: '1 / -1' }}>
+            <FormulaEditor value={expression} onChange={setExpression} idx={idx} itemFields={fields} machineFields={fields} plainFields={fields} timingOnly={forTiming} label="Expression" />
+            <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)', mt: 0.75 }}>
+              Specification codes, numbers, + − × ÷ % ^, MIN, MAX, ROUND(x, n), ABS, SQRT, CEIL, FLOOR, IF(a &gt; b, x, y). Roll-ups: SUM(children.WEIGHT). Operation times: item.CUT_LENGTH / LOOKUP(machine.CUT_SPEED, item.THICKNESS).
+            </Typography>
+            {expression.trim() && formulaInWords(expression, idx) && <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)', mt: 0.5 }} data-testid="formula-words">In words: {formulaInWords(expression, idx)}</Typography>}
+            {unitWarnings(expression, idx).map((w) => <Typography key={w} sx={{ fontSize: 12.5, color: 'var(--c-info-800)', mt: 0.5 }}>{w}</Typography>)}
+          </Box>
           <TextField label="Description" value={description} onChange={(e) => setDescription(e.target.value)} sx={{ gridColumn: '1 / -1' }} />
           {existing && (
             <TextField select label="Status" value={status} onChange={(e) => setStatus(e.target.value as 'active' | 'inactive')}>

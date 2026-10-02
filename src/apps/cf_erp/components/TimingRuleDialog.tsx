@@ -9,7 +9,8 @@ import { useLoad } from '../hooks/useLoad';
 import { ClassificationPicker } from './ClassificationPicker';
 import { ErrorNotice, Mono } from './ui';
 import { DialogHeader } from './FormDialog';
-import { FormulaDialog } from './FormulaDialog';
+import { TimeBuilder } from './FormulaBuilder/TimeBuilder';
+import { formulaInWords } from '../lib/formulaBuilder';
 import { useIsPermitted } from '../hooks/useIsPermitted';
 
 type TimeMode = 'minutes' | 'formula';
@@ -17,10 +18,10 @@ interface TimeForm { mode: TimeMode; minutes: string; formulaId: number | null }
 const timeForm = (minutes: number | null | undefined, formulaId: number | null | undefined): TimeForm =>
   ({ mode: formulaId ? 'formula' : 'minutes', minutes: minutes != null ? String(minutes) : '', formulaId: formulaId ?? null });
 
-function TimeInput({ label, help, value, onChange, formulas, onNewFormula }: {
+function TimeInput({ label, help, value, onChange, formulas, onBuild }: {
   label: string; help: string; value: TimeForm; onChange: (v: TimeForm) => void; formulas: Formula[];
-  /** Opens the formula editor in place; absent when the user may not create formulas. */
-  onNewFormula?: () => void;
+  /** Opens the time builder for this time (rate × quantity, templates, live preview). */
+  onBuild?: () => void;
 }) {
   return (
     <Box>
@@ -36,12 +37,12 @@ function TimeInput({ label, help, value, onChange, formulas, onNewFormula }: {
           InputProps={{ endAdornment: <Mono muted>min</Mono> }} inputProps={{ min: 0, step: 'any' }} />
       ) : (
         <TextField select fullWidth value={value.formulaId ?? ''} onChange={(e) => onChange({ ...value, formulaId: Number(e.target.value) || null })}
-          helperText={formulas.find((f) => f.id === value.formulaId)?.expression ?? (formulas.length ? help : 'No timing formula yet — create one here; it reads item.X and machine.X.')}>
+          helperText={(() => { const f = formulas.find((x) => x.id === value.formulaId); return f ? (formulaInWords(f.expression) ?? f.expression) : (formulas.length ? help : 'No timing formula yet — build one with the time builder.'); })()}>
           {formulas.map((f) => <MenuItem key={f.id} value={f.id}>{f.name} ({f.code})</MenuItem>)}
         </TextField>
       )}
-      {value.mode === 'formula' && onNewFormula && (
-        <Button size="small" onClick={onNewFormula} sx={{ mt: 0.5 }}>+ New formula</Button>
+      {onBuild && (
+        <Button size="small" onClick={onBuild} sx={{ mt: 0.5 }} data-testid={`build-${label}`}>Open the time builder…</Button>
       )}
     </Box>
   );
@@ -52,9 +53,11 @@ function TimeInput({ label, help, value, onChange, formulas, onNewFormula }: {
  * a machine family) or for one machine, whether it can do the operation, and
  * its setup (per run) and work (per piece) times. Who a rule is for is fixed.
  */
-export function TimingRuleDialog({ open, operationId, existing, tree, onClose, onSaved }: {
+export function TimingRuleDialog({ open, operationId, operation, existing, tree, onClose, onSaved }: {
   open: boolean;
   operationId: number;
+  /** For the time builder's suggested formula codes; without it the builder is not offered. */
+  operation?: { id: number; code: string; name: string };
   existing: TimingRule | null;
   tree: Tree | null;
   onClose: () => void;
@@ -64,9 +67,8 @@ export function TimingRuleDialog({ open, operationId, existing, tree, onClose, o
   const formulas = useLoad(() => cfApi.get<Formula[]>('/formulas'), []);
   const timing = (formulas.data ?? []).filter((f) => f.status === 'active' && f.kind === 'timing');
   const canMakeFormula = useIsPermitted()('cf_erp_setup_manage');
-  // Which time the formula editor was opened for, so the new formula lands in that field.
-  const [newFormulaFor, setNewFormulaFor] = useState<'setup' | 'work' | null>(null);
-  const [formulaNote, setFormulaNote] = useState<string | null>(null);
+  // Which time the builder was opened for, so its result lands in that field.
+  const [buildFor, setBuildFor] = useState<'setup' | 'work' | null>(null);
   const [subjectType, setSubjectType] = useState<'classification' | 'machine'>('classification');
   const [nodeId, setNodeId] = useState<number | null>(null);
   const [machineId, setMachineId] = useState<number | null>(null);
@@ -144,9 +146,8 @@ export function TimingRuleDialog({ open, operationId, existing, tree, onClose, o
             label={eligible ? 'Can do this operation' : 'Kept out of this operation — e.g. a light-duty set that must not weld girders'} />
           {eligible && (
             <>
-              <TimeInput label="Setup, per run" help="Once per batch of pieces; leave empty for none" value={setup} onChange={setSetup} formulas={timing} onNewFormula={canMakeFormula ? () => setNewFormulaFor('setup') : undefined} />
-              <TimeInput label="Work, per piece" help="Times the quantity" value={work} onChange={setWork} formulas={timing} onNewFormula={canMakeFormula ? () => setNewFormulaFor('work') : undefined} />
-              {formulaNote && <Typography sx={{ fontSize: 12.5, color: 'var(--c-warning-800)' }}>{formulaNote}</Typography>}
+              <TimeInput label="Setup, per run" help="Once per batch of pieces; leave empty for none" value={setup} onChange={setSetup} formulas={timing} onBuild={operation ? () => setBuildFor('setup') : undefined} />
+              <TimeInput label="Work, per piece" help="Times the quantity" value={work} onChange={setWork} formulas={timing} onBuild={operation ? () => setBuildFor('work') : undefined} />
             </>
           )}
           <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2 }}>
@@ -161,16 +162,19 @@ export function TimingRuleDialog({ open, operationId, existing, tree, onClose, o
         <Button variant="contained" onClick={save} disabled={busy || !ready} startIcon={busy ? <CircularProgress size={14} color="inherit" /> : undefined}>{busy ? 'Saving…' : existing ? 'Save rule' : 'Add rule'}</Button>
       </DialogActions>
     </Dialog>
-    <FormulaDialog open={newFormulaFor != null} existing={null} canManage forTiming onClose={() => setNewFormulaFor(null)}
-      onSaved={(f) => {
-        const target = newFormulaFor;
-        formulas.reload();
-        if (!f) return;
-        if (f.kind !== 'timing') { setFormulaNote(`${f.code} was saved, but it does not read item.X or machine.X, so it is not a timing formula and cannot be used here.`); return; }
-        setFormulaNote(null);
-        if (target === 'setup') setSetup((t) => ({ ...t, mode: 'formula', formulaId: f.id }));
-        if (target === 'work') setWork((t) => ({ ...t, mode: 'formula', formulaId: f.id }));
-      }} />
+    {operation && buildFor && (
+      <TimeBuilder open={!!buildFor} onClose={() => setBuildFor(null)} operation={operation} which={buildFor}
+        subject={subjectType === 'machine' ? (machineId ? { type: 'machine', id: machineId, label: chosenMachine?.code ?? null } : null) : (nodeId ? { type: 'classification', id: nodeId } : null)}
+        current={(() => { const t = buildFor === 'setup' ? setup : work; const f = formulas.data?.find((x) => x.id === t.formulaId); return t.mode === 'formula' ? (f ? { minutes: null, formula: { id: f.id, code: f.code, expression: f.expression } } : null) : t.minutes !== '' ? { minutes: Number(t.minutes), formula: null } : null; })()}
+        ruleSetup={buildFor === 'work' && setup.mode === 'minutes' ? { minutes: setup.minutes === '' ? null : Number(setup.minutes), formula: null } : null}
+        ruleUsesCurrent={!!existing}
+        formulas={formulas.data ?? []} canMakeFormula={canMakeFormula} onFormulasChanged={formulas.reload}
+        onAssign={(a) => {
+          const set = buildFor === 'setup' ? setSetup : setWork;
+          set(a.formulaId ? { mode: 'formula', minutes: '', formulaId: a.formulaId } : { mode: 'minutes', minutes: a.minutes == null ? '' : String(a.minutes), formulaId: null });
+          if (buildFor === 'work' && a.setupMinutes !== undefined) setSetup({ mode: 'minutes', minutes: a.setupMinutes == null ? '' : String(a.setupMinutes), formulaId: null });
+        }} />
+    )}
     </>
   );
 }
