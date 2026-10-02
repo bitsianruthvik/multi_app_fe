@@ -6,6 +6,7 @@ import SendRounded from '@mui/icons-material/SendRounded';
 import Inventory2Rounded from '@mui/icons-material/Inventory2Rounded';
 import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
 import BlockRounded from '@mui/icons-material/BlockRounded';
+import EditRounded from '@mui/icons-material/EditRounded';
 import PeopleRounded from '@mui/icons-material/PeopleRounded';
 import ShoppingCartRounded from '@mui/icons-material/ShoppingCartRounded';
 import { cfApi } from '../api/client';
@@ -23,7 +24,7 @@ import { DetailSkeleton, EmptyState, ErrorNotice, Fact, Mono, SectionCard } from
 import { CrossLink, DetailHeader, DetailLayout } from '../components/DetailLayout';
 import { DataTable, type DataColumn } from '../components/DataTable';
 import { PurchaseStatusBadge } from '../components/purchaseUi';
-import { AddPurchaseLineDialog, ReceiveLineDialog, SendPurchaseDialog } from '../components/PurchaseDialogs';
+import { AddPurchaseLineDialog, LineOrdersDialog, PurchaseForOrderDialog, ReceiveLineDialog, SendPurchaseDialog } from '../components/PurchaseDialogs';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { PromptDialog } from '../components/PromptDialog';
 import { useDetailTitle } from '../components/shell/detailTitle';
@@ -43,6 +44,8 @@ export default function PurchaseOrderDetail() {
   const [adding, setAdding] = useState(false);
   const [sending, setSending] = useState(false);
   const [receiving, setReceiving] = useState<PurchaseLine | null>(null);
+  const [forOrdering, setForOrdering] = useState(false);
+  const [linking, setLinking] = useState<PurchaseLine | null>(null);
   const [removing, setRemoving] = useState<PurchaseLine | null>(null);
   const [cancelling, setCancelling] = useState(false);
   const p = po.data;
@@ -84,6 +87,24 @@ export default function PurchaseOrderDetail() {
       render: (l) => (l.amount == null ? <Mono muted>—</Mono>
         : l.gstRate == null || l.taxTotal == null ? <Box component="span" data-testid="po-line-gst" sx={{ color: 'var(--c-text-3)', fontSize: 12 }}>{NO_GST_RATE}</Box>
           : <Box data-testid="po-line-gst" sx={{ textAlign: 'right' }}><Mono>{rupeeText(l.taxTotal, 2)}</Mono><Box sx={{ fontSize: 11.5, color: 'var(--c-text-3)' }}>{gstRateText(l.gstRate)}{l.gross != null ? ` · ${rupeeText(l.gross, 2)} with GST` : ''}</Box></Box>),
+    },
+    {
+      key: 'for', header: 'For', alwaysVisible: true, exportValue: (l) => (l.orders ?? []).map((o) => o.orderCode).join(' '),
+      render: (l) => (
+        <Box data-testid="po-line-for" sx={{ display: 'flex', gap: 0.5, alignItems: 'center', flexWrap: 'wrap' }}>
+          {(l.orders ?? []).map((o) => (
+            <Box key={o.id} title={`${o.orderCode}: ${qtyText(o.quantity)} ${l.item.uom} bought for it, ${qtyText(o.received)} arrived`}>
+              <Mono chip><Box component={Link} to={appPath(company, `orders/${o.orderId}`)} sx={linkSx}>{o.orderCode}</Box> · {qtyText(o.quantity)} {l.item.uom}</Mono>
+            </Box>
+          ))}
+          {(l.unlinked ?? 0) > 0 && <Typography component="span" sx={{ fontSize: 11.5, color: 'var(--c-text-3)' }}>unlinked {qtyText(l.unlinked)}</Typography>}
+          {editable && (
+            <Tooltip title="Change which sales orders this line is bought for">
+              <IconButton size="small" aria-label={`Bought for — ${l.item.code ?? l.item.name}`} onClick={() => setLinking(l)}><EditRounded sx={{ fontSize: 16 }} /></IconButton>
+            </Tooltip>
+          )}
+        </Box>
+      ),
     },
     { key: 'expected', header: 'Expected', sortValue: (l) => l.expectedDate, render: (l) => <Mono muted>{l.expectedDate ?? '—'}</Mono> },
     {
@@ -141,6 +162,10 @@ export default function PurchaseOrderDetail() {
           </>}
           facts={<>
             <Fact label="Supplier">{p.supplier ? p.supplier.name : <Typography component="span" sx={{ color: 'var(--c-text-3)' }}>Named when it is sent</Typography>}</Fact>
+            <Fact label="For sales order">
+              {p.forOrder ? <Mono chip><Box component={Link} to={appPath(company, `orders/${p.forOrder.id}`)} sx={linkSx}>{p.forOrder.code}</Box></Mono> : <Typography component="span" sx={{ color: 'var(--c-text-3)' }}>None</Typography>}
+              {editable && <Tooltip title="Change the order this is bought for (the default for new lines)"><IconButton size="small" aria-label="Change the sales order" onClick={() => setForOrdering(true)}><EditRounded sx={{ fontSize: 16 }} /></IconButton></Tooltip>}
+            </Fact>
             <Fact label="Lines"><Mono>{p.totals.lines}</Mono></Fact>
             <Fact label="Ordered"><Mono>{qtyText(p.totals.ordered)}</Mono></Fact>
             <Fact label="Received"><Mono>{qtyText(p.totals.received)}</Mono></Fact>
@@ -170,9 +195,14 @@ export default function PurchaseOrderDetail() {
             action={editable ? <Button variant="contained" startIcon={<AddRounded />} onClick={() => setAdding(true)}>Add a line</Button> : undefined} />} />
       </SectionCard>
       {p.notes && <SectionCard title="Notes"><Typography sx={{ fontSize: 13.5, whiteSpace: 'pre-wrap' }}>{p.notes}</Typography></SectionCard>}
-      <AddPurchaseLineDialog orderId={adding ? p.id : null} onClose={() => setAdding(false)} onAdded={(n) => { setAdding(false); done(n, 'Line added.'); }} />
+      <AddPurchaseLineDialog orderId={adding ? p.id : null} forOrder={p.forOrder} onClose={() => setAdding(false)} onAdded={(n) => { setAdding(false); done(n, 'Line added.'); }} />
+      <PurchaseForOrderDialog order={forOrdering ? p : null} onClose={() => setForOrdering(false)} onSaved={(n) => { setForOrdering(false); done(n, n.forOrder ? `Bought for ${n.forOrder.code}.` : 'No longer bought for an order.'); }} />
+      <LineOrdersDialog line={linking} onClose={() => setLinking(null)} onSaved={(n) => { setLinking(null); done(n, 'Saved who the line is bought for.'); }} />
       <SendPurchaseDialog order={sending ? p : null} onClose={() => setSending(false)} onSent={(n) => { setSending(false); done(n, `${n.code} sent to ${n.supplier?.name ?? 'the supplier'}.`); }} />
-      <ReceiveLineDialog line={receiving} orderCode={p.code} onClose={() => setReceiving(null)} onReceived={(n) => { setReceiving(null); done(n, 'Delivery booked into stock.'); }} />
+      <ReceiveLineDialog line={receiving} orderCode={p.code} onClose={() => setReceiving(null)} onReceived={(n, held) => {
+        setReceiving(null);
+        done(n, held.length ? `Delivery booked. ${held.map((h) => `Held ${qtyText(h.quantity)} for ${h.orderCode}`).join('; ')} — nobody else can use it.` : 'Delivery booked into stock.');
+      }} />
       <ConfirmDialog open={!!removing} danger confirmLabel="Remove" title="Remove this line?"
         entityName={removing ? `${removing.item.code ?? removing.item.name} — ${qtyText(removing.quantity)} ${removing.item.uom}` : ''}
         body="Nothing has been received against it, so it can go. It is not ordered from the supplier any more."

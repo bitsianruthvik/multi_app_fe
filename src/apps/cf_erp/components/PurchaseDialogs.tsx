@@ -1,16 +1,22 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Box, MenuItem, TextField, ToggleButton, ToggleButtonGroup, Typography } from '@mui/material';
+import { Box, Button, IconButton, MenuItem, TextField, ToggleButton, ToggleButtonGroup, Typography } from '@mui/material';
+import AddRounded from '@mui/icons-material/AddRounded';
+import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
 import { cfApi, qs } from '../api/client';
-import type { Batch, MasterRecord, Party, PurchaseLine, PurchaseOrder, Resolution, StockingArea } from '../api/types';
+import type { Batch, MasterRecord, Party, PurchaseLine, PurchaseOrder, Resolution, SalesOrder, StockingArea } from '../api/types';
+import { setLineOrders, type HeldReceipt } from '../api/procurement';
 import { useLoad } from '../hooks/useLoad';
 import { qtyText } from '../lib/inventory';
 import type { ItemPrices } from '../api/money';
 import { dayText, priceText } from '../lib/money';
 import { FormDialog } from './FormDialog';
-import { PartyPicker } from './ServerPicker';
+import { OrderPicker, PartyPicker } from './ServerPicker';
 import { RecordPicker } from './RecordPicker';
 import { SpecValueInput } from './SpecValueInput';
 import { ErrorNotice, Mono } from './ui';
+
+/** A sales order as the pickers hold it, built from the {id, code} a purchase order carries. */
+const asOrder = (o: { id: number; code: string } | null | undefined): SalesOrder | null => (o ? ({ id: o.id, code: o.code, title: null, customer: null } as unknown as SalesOrder) : null);
 
 /** Raising one by hand — the buy list raises its own. */
 export function NewPurchaseDialog({ open, onClose, onCreated }: { open: boolean; onClose: () => void; onCreated: (p: PurchaseOrder) => void }) {
@@ -18,9 +24,10 @@ export function NewPurchaseDialog({ open, onClose, onCreated }: { open: boolean;
   const [supplier, setSupplier] = useState<Party | null>(null);
   const [expectedDate, setExpectedDate] = useState('');
   const [notes, setNotes] = useState('');
-  useEffect(() => { if (open) { setCode(''); setSupplier(null); setExpectedDate(''); setNotes(''); } }, [open]);
+  const [forOrder, setForOrder] = useState<SalesOrder | null>(null);
+  useEffect(() => { if (open) { setCode(''); setSupplier(null); setExpectedDate(''); setNotes(''); setForOrder(null); } }, [open]);
   const save = async () => onCreated(await cfApi.post<PurchaseOrder>('/purchase-orders', {
-    code: code || null, supplierId: supplier?.id ?? null, expectedDate: expectedDate || null, notes: notes || null,
+    code: code || null, supplierId: supplier?.id ?? null, expectedDate: expectedDate || null, notes: notes || null, forOrderId: forOrder?.id ?? null,
   }));
   return (
     <FormDialog open={open} title="New purchase order" onClose={onClose} onSubmit={save} submitLabel="Create" maxWidth="sm"
@@ -30,8 +37,23 @@ export function NewPurchaseDialog({ open, onClose, onCreated }: { open: boolean;
           inputProps={{ style: { fontFamily: 'var(--font-mono)' } }} />
         <PartyPicker role="supplier" value={supplier} onChange={setSupplier} helperText="Can be named later, before it is sent" />
         <TextField label="Expected" type="date" value={expectedDate} onChange={(e) => setExpectedDate(e.target.value)} InputLabelProps={{ shrink: true }} />
+        <OrderPicker openOnly={false} label="For sales order (optional)" value={forOrder} onChange={setForOrder}
+          helperText="Material that arrives is held for this order. Each line can still name another." />
         <TextField label="Notes" value={notes} onChange={(e) => setNotes(e.target.value)} />
       </Box>
+    </FormDialog>
+  );
+}
+
+/** Changing the sales order a purchase order is bought for — only the default for lines added afterwards. */
+export function PurchaseForOrderDialog({ order, onClose, onSaved }: { order: PurchaseOrder | null; onClose: () => void; onSaved: (p: PurchaseOrder) => void }) {
+  const [forOrder, setForOrder] = useState<SalesOrder | null>(null);
+  useEffect(() => { if (order) setForOrder(asOrder(order.forOrder)); }, [order?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  const save = async () => { if (order) onSaved(await cfApi.put<PurchaseOrder>(`/purchase-orders/${order.id}`, { forOrderId: forOrder?.id ?? null })); };
+  return (
+    <FormDialog open={!!order} title="For sales order" onClose={onClose} onSubmit={save} submitLabel="Save" maxWidth="xs"
+      subtitle="Only the default for lines added from now on. Lines already on the order keep what they are bought for — change those on the line.">
+      <OrderPicker openOnly={false} label="For sales order" value={forOrder} onChange={setForOrder} helperText="Empty = not bought for any order" />
     </FormDialog>
   );
 }
@@ -50,13 +72,14 @@ export function SendPurchaseDialog({ order, onClose, onSent }: { order: Purchase
 }
 
 /** Adding a line by hand. Asking for an item already on the order adds to its line. */
-export function AddPurchaseLineDialog({ orderId, onClose, onAdded }: { orderId: number | null; onClose: () => void; onAdded: (p: PurchaseOrder) => void }) {
+export function AddPurchaseLineDialog({ orderId, forOrder, onClose, onAdded }: { orderId: number | null; forOrder?: { id: number; code: string } | null; onClose: () => void; onAdded: (p: PurchaseOrder) => void }) {
+  const [lineOrder, setLineOrder] = useState<SalesOrder | null>(null);
   const [item, setItem] = useState<MasterRecord | null>(null);
   const [quantity, setQuantity] = useState('');
   const [expectedDate, setExpectedDate] = useState('');
   const [note, setNote] = useState('');
   const [price, setPrice] = useState('');
-  useEffect(() => { if (orderId) { setItem(null); setQuantity(''); setExpectedDate(''); setNote(''); setPrice(''); } }, [orderId]);
+  useEffect(() => { if (orderId) { setItem(null); setQuantity(''); setExpectedDate(''); setNote(''); setPrice(''); setLineOrder(asOrder(forOrder)); } }, [orderId]); // eslint-disable-line react-hooks/exhaustive-deps
   // What we last paid for this item, as a yardstick beside the price.
   const itemId = item?.id ?? null;
   const paid = useLoad(() => (itemId ? cfApi.get<ItemPrices>(`/records/${itemId}/prices`).catch(() => null) : Promise.resolve(null)), [itemId]);
@@ -65,6 +88,8 @@ export function AddPurchaseLineDialog({ orderId, onClose, onAdded }: { orderId: 
     if (!orderId) return;
     onAdded(await cfApi.post<PurchaseOrder>(`/purchase-orders/${orderId}/lines`, {
       itemId: item?.id, quantity, expectedDate: expectedDate || null, note: note || null,
+      // Always sent: clearing the picker means this line is bought for no order.
+      orderId: lineOrder?.id ?? null,
       // Empty = the last price paid, which the backend fills in.
       ...(price.trim() ? { unitPrice: price.trim() } : {}),
     }));
@@ -82,6 +107,8 @@ export function AddPurchaseLineDialog({ orderId, onClose, onAdded }: { orderId: 
           ? <>Empty = the last price paid: {priceText(last.lastPurchasePrice)} ({[last.lastPurchaseSupplier?.name, dayText(last.lastPurchaseDate)].filter(Boolean).join(', ')}).{' '}
             <Box component="a" role="button" tabIndex={0} onClick={() => setPrice(String(last.lastPurchasePrice))} sx={{ cursor: 'pointer', color: 'var(--c-primary-700)' }}>Use it</Box></>
           : item ? 'Never bought before — no last price. Leave empty to price it later.' : ' '} />
+      <OrderPicker openOnly={false} label="Bought for sales order (optional)" value={lineOrder} onChange={setLineOrder}
+        helperText={forOrder ? `Starts as the order's ${forOrder.code}. Change or clear it for this line.` : 'What arrives is held for this order.'} />
       <TextField label="Note (optional)" value={note} onChange={(e) => setNote(e.target.value)} />
     </FormDialog>
   );
@@ -91,7 +118,7 @@ const EPS = 1e-6;
 
 /** Booking a delivery against one line — an ordinary stock receipt underneath. */
 export function ReceiveLineDialog({ line, orderCode, onClose, onReceived }: {
-  line: PurchaseLine | null; orderCode: string | null; onClose: () => void; onReceived: (p: PurchaseOrder) => void;
+  line: PurchaseLine | null; orderCode: string | null; onClose: () => void; onReceived: (p: PurchaseOrder, held: HeldReceipt[]) => void;
 }) {
   const areas = useLoad(() => cfApi.get<StockingArea[]>('/stocking-areas'), []);
   const usable = useMemo(() => (areas.data ?? []).filter((a) => a.status === 'active' && a.purpose !== 'quarantine'), [areas.data]);
@@ -147,14 +174,14 @@ export function ReceiveLineDialog({ line, orderCode, onClose, onReceived }: {
     const batch = mode === 'existing'
       ? undefined
       : { supplierRef: supplierRef || null, values: Object.entries(values).filter(([, v]) => v !== '').map(([id, v]) => ({ specificationId: Number(id), value: v })) };
-    const r = await cfApi.post<{ order: PurchaseOrder }>(`/purchase-lines/${line.id}/receive`, {
+    const r = await cfApi.post<{ order: PurchaseOrder; held?: HeldReceipt[] }>(`/purchase-lines/${line.id}/receive`, {
       quantity, stockingAreaId: areaId, reference: reference || null,
       // Prefilled from the line's price; typed over if the invoice says otherwise. Empty = the line's price, or not costed.
       ...(unitCost.trim() ? { unitCost: unitCost.trim() } : {}),
       batchId: byBatch && mode === 'existing' ? Number(batchId) : undefined,
       batch: byBatch && mode === 'new' ? batch : undefined,
     });
-    onReceived(r.order);
+    onReceived(r.order, r.held ?? []);
   };
   return (
     <FormDialog open={!!line} title="Book a delivery" onClose={onClose} onSubmit={save} submitLabel="Receive" maxWidth="sm" submitDisabled={!!blocked}
@@ -197,6 +224,51 @@ export function ReceiveLineDialog({ line, orderCode, onClose, onReceived }: {
         </Box>
       )}
       {blocked && line && <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)' }}>{blocked}</Typography>}
+    </FormDialog>
+  );
+}
+
+/** Who a purchase line is bought for: order + quantity rows that replace the line's allocations. */
+export function LineOrdersDialog({ line, onClose, onSaved }: { line: PurchaseLine | null; onClose: () => void; onSaved: (p: PurchaseOrder) => void }) {
+  type Row = { key: number; order: SalesOrder | null; quantity: string; received: number };
+  const [rows, setRows] = useState<Row[]>([]);
+  useEffect(() => {
+    if (line) setRows((line.orders ?? []).map((o, i) => ({ key: i, order: asOrder({ id: o.orderId, code: o.orderCode }), quantity: String(o.quantity), received: o.received })));
+  }, [line?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  const total = line?.quantity ?? 0;
+  const sum = rows.reduce((t, r) => t + (Number(r.quantity) || 0), 0);
+  const ids = rows.map((r) => r.order?.id).filter((x): x is number => x != null);
+  const blocked = !line ? 'Nothing to change.'
+    : rows.some((r) => !r.order) ? 'Choose the sales order on every row, or remove the row.'
+      : new Set(ids).size !== ids.length ? 'An order can appear only once.'
+        : rows.some((r) => !(Number(r.quantity) > 0)) ? 'Each row needs a quantity above zero.'
+          : rows.some((r) => Number(r.quantity) + EPS < r.received) ? 'A row cannot be less than what has already arrived against it.'
+            : sum > total + EPS ? `The rows add up to ${qtyText(sum)} — more than the line's ${qtyText(total)}.`
+              : null;
+  const set = (key: number, patch: Partial<Row>) => setRows((rs) => rs.map((r) => (r.key === key ? { ...r, ...patch } : r)));
+  const save = async () => {
+    if (!line) return;
+    onSaved(await setLineOrders(line.id, rows.map((r) => ({ orderId: r.order!.id, quantity: Number(r.quantity) }))));
+  };
+  const uom = line?.item.uom ?? '';
+  return (
+    <FormDialog open={!!line} title="Bought for" onClose={onClose} onSubmit={save} submitLabel="Save" maxWidth="sm" submitDisabled={!!blocked}
+      subtitle={line ? <>{line.item.code && <><Mono>{line.item.code}</Mono> </>}{line.item.name} — {qtyText(total)} {uom} on the line. What arrives against a row is held for that order.</> : undefined}>
+      {rows.map((r) => (
+        <Box key={r.key} data-testid="line-order-row" sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 120px auto', gap: 1, alignItems: 'start' }}>
+          <OrderPicker openOnly={false} label="Sales order" value={r.order} onChange={(o) => set(r.key, { order: o })} />
+          <TextField label={`Quantity (${uom})`} value={r.quantity} onChange={(e) => set(r.key, { quantity: e.target.value })}
+            helperText={r.received ? `${qtyText(r.received)} arrived` : ' '} inputProps={{ inputMode: 'decimal', style: { fontFamily: 'var(--font-mono)' } }} />
+          <Box sx={{ display: 'flex', mt: 0.5 }}>
+            <Button size="small" onClick={() => set(r.key, { quantity: String(Math.max(0, Math.round((total - (sum - (Number(r.quantity) || 0))) * 1e6) / 1e6)) })}>The rest</Button>
+            <IconButton size="small" aria-label="Remove this row" disabled={r.received > 0} onClick={() => setRows((rs) => rs.filter((x) => x.key !== r.key))}><DeleteOutlineRounded fontSize="small" /></IconButton>
+          </Box>
+        </Box>
+      ))}
+      <Box><Button size="small" startIcon={<AddRounded />} onClick={() => setRows((rs) => [...rs, { key: Math.max(-1, ...rs.map((x) => x.key)) + 1, order: null, quantity: '', received: 0 }])}>Add an order</Button></Box>
+      <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)' }}>
+        {blocked && rows.length ? blocked : `${qtyText(sum)} of ${qtyText(total)} ${uom} bought for orders; ${qtyText(Math.max(0, total - sum))} for none. A row cannot go below what has arrived against it.`}
+      </Typography>
     </FormDialog>
   );
 }

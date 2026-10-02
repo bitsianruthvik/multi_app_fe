@@ -1,4 +1,5 @@
 import { cfApi, qs } from './client';
+import type { PurchaseOrder } from './types';
 
 /**
  * Purchase request -> RFQ -> quotes -> comparison -> award -> purchase orders
@@ -221,3 +222,16 @@ export const closeRfq = (id: number) => cfApi.post<RfqDetail>(`/rfqs/${id}/close
 export const cancelRfq = (id: number) => cfApi.post<RfqDetail>(`/rfqs/${id}/cancel`);
 export const createPos = (id: number) => cfApi.post<CreatedPos>(`/rfqs/${id}/create-pos`);
 export const rfqPrintBlob = (id: number, supplierId: number) => cfApi.getBlob(`/rfqs/${id}/print${qs({ supplierId })}`);
+
+// ---- Purchase orders bought FOR a sales order ------------------------------------
+
+export interface LineOrderInput { orderId: number; quantity: number }
+
+/** What a receipt held for the orders it was bought for. */
+export interface HeldReceipt { orderId: number; orderCode: string; quantity: number }
+
+/** Replaces the line's allocations; answers with the whole purchase order. */
+export const setLineOrders = (lineId: number, orders: LineOrderInput[]) => cfApi.put<PurchaseOrder>(`/purchase-lines/${lineId}/orders`, { orders });
+
+/** Lets go of held stock: it becomes free for any job. */
+export const releaseHold = (id: number) => cfApi.post<{ ok: true }>(`/stock/holds/${id}/release`);

@@ -60,7 +60,7 @@ export default function Buying() {
         <Box sx={{ opacity: load.loading ? 0.6 : 1, transition: 'opacity var(--t-fast) var(--ease)' }} aria-busy={load.loading}>
           <Typography data-testid="board-summary" sx={{ fontSize: 12.5, color: 'var(--c-text-3)', mb: 1 }}>
             {docs} {docs === 1 ? 'document' : 'documents'}{filtered ? ' match' : ' in hand'}
-            {board.filters.order ? ` · linked to ${board.filters.order.code} through its purchase request lines (a PO raised by hand or by “Suggest what to buy” names no order, so it is not counted here)` : ''}
+            {board.filters.order ? ` · linked to ${board.filters.order.code} through its purchase request lines and the purchase orders bought for it` : ''}
             {board.filters.supplier ? ` · naming ${board.filters.supplier.name} (requests and the buy list have no supplier yet)` : ''}
           </Typography>
           <BuyingBoardView columns={board.columns} />

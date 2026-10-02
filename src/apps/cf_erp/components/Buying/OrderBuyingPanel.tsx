@@ -117,8 +117,27 @@ export function OrderBuyingPanel({ order, stage }: { order: SalesOrder; stage: O
                 ))}
               </Box>
             )}
+            {(board.held?.rows.length ?? 0) > 0 && (
+              <Box data-testid="order-held" sx={{ display: 'grid', gap: 0.5 }}>
+                <Typography sx={{ fontSize: 13.5, fontWeight: 600 }}>Held for this order</Typography>
+                <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>Arrived on a purchase order bought for this order. Release uses it first.</Typography>
+                <Box component="table" sx={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5, '& td, & th': { py: 0.5, px: 0.75, borderBottom: '1px solid var(--c-divider)', textAlign: 'left', verticalAlign: 'top' }, '& th': { color: 'var(--c-text-3)', fontWeight: 500 } }}>
+                  <thead><tr><th>Item</th><th style={{ textAlign: 'right' }}>Held</th><th>Batch</th><th>Purchase order</th></tr></thead>
+                  <tbody>
+                    {board.held!.rows.map((h) => (
+                      <tr key={h.id} data-testid="order-held-row">
+                        <td><Mono><Box component={Link} to={appPath(company, `items/${h.item.id}`)} sx={linkSx}>{h.item.code ?? h.item.name}</Box></Mono>{h.item.code && <Box sx={{ fontSize: 11, color: 'var(--c-text-3)' }}>{h.item.name}</Box>}</td>
+                        <td style={{ textAlign: 'right' }}><Mono>{qtyText(h.quantity)}</Mono> <Mono muted>{h.item.uom}</Mono></td>
+                        <td>{h.batch ? <Mono>{h.batch.code}</Mono> : <Box component="span" sx={{ color: 'var(--c-text-3)' }}>—</Box>}</td>
+                        <td>{h.purchaseOrder ? <Box component={Link} to={appPath(company, `purchase-orders/${h.purchaseOrder.id}`)} sx={{ ...linkSx, fontFamily: 'var(--font-mono)', fontSize: 11.5 }}>{h.purchaseOrder.code}</Box> : <Box component="span" sx={{ color: 'var(--c-text-3)' }}>—</Box>}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </Box>
+              </Box>
+            )}
             <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>
-              Documents are linked to this order through the buy list: a purchase request raised from it keeps the order on each line, and its RFQs and purchase orders follow. A purchase order raised by hand or by “Suggest what to buy” names no order, so it is not shown here.
+              Documents are linked to this order through the buy list: a purchase request raised from it keeps the order on each line, and its RFQs and purchase orders follow. A purchase order raised by hand, or by “Suggest a purchase order”, shows here once a line is bought for this order.
             </Typography>
           </>
         )}

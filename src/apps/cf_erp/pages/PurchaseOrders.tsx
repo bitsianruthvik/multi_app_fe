@@ -66,6 +66,12 @@ export default function PurchaseOrders() {
       key: 'supplier', header: 'Supplier', sortValue: (p) => p.supplier?.name ?? '',
       render: (p) => (p.supplier ? <>{p.supplier.name}</> : <Typography component="span" sx={{ fontSize: 12.5, color: 'var(--c-text-3)' }}>Nobody yet</Typography>),
     },
+    {
+      key: 'forOrder', header: 'For order', exportValue: (p) => (p.orderCodes ?? []).join(' '),
+      render: (p) => ((p.orderCodes?.length ?? 0) > 0
+        ? <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>{p.orderCodes!.map((c) => <Mono key={c} chip>{c}</Mono>)}</Box>
+        : p.forOrder ? <Mono chip>{p.forOrder.code}</Mono> : <Mono muted>—</Mono>),
+    },
     { key: 'lines', header: 'Lines', numeric: true, defaultHidden: true, sortValue: (p) => p.totals.lines, render: (p) => <Mono muted>{p.totals.lines}</Mono> },
     { key: 'ordered', header: 'Ordered', numeric: true, sortValue: (p) => p.totals.ordered, render: (p) => <Mono>{qtyText(p.totals.ordered)}</Mono> },
     { key: 'received', header: 'Received', numeric: true, sortValue: (p) => p.totals.received, render: (p) => <Mono muted={!p.totals.received}>{qtyText(p.totals.received)}</Mono> },

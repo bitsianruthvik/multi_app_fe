@@ -108,6 +108,7 @@ export default function BuyList() {
     },
     { key: 'wanted', header: 'Wanted', numeric: true, alwaysVisible: true, sortValue: (r) => r.wanted, render: (r) => <>{qtyText(r.wanted)} <Mono muted>{r.item.uom}</Mono></> },
     { key: 'reserved', header: 'Held', numeric: true, sortValue: (r) => r.reserved, render: (r) => <Mono muted={!r.reserved}>{qtyText(r.reserved)}</Mono> },
+    { key: 'heldForOrder', header: 'Held for order', numeric: true, sortValue: (r) => r.held ?? 0, render: (r) => <Mono muted={!r.held}>{r.held ? qtyText(r.held) : '—'}</Mono> },
     { key: 'free', header: 'Free stock', numeric: true, sortValue: (r) => r.free, render: (r) => <Mono muted={!r.free}>{qtyText(r.free)}</Mono> },
     {
       key: 'onOrder', header: 'On order', numeric: true, sortValue: (r) => r.onOrder,

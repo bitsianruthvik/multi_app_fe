@@ -78,6 +78,14 @@ export interface OrderBuyRow {
 
 export interface ReceiptRef { id: number; code: string; date: string; quantity: number; purchaseOrder: { id: number; code: string }; link: string }
 
+export interface HeldRow {
+  id: number;
+  item: { id: number; code: string | null; name: string; uom: string };
+  quantity: number;
+  batch: { id: number; code: string } | null;
+  purchaseOrder: { id: number; code: string } | null;
+}
+
 export interface BuyingBoard {
   stages: BuyingStage[];
   columns: BoardColumn[];
@@ -89,6 +97,8 @@ export interface BuyingBoard {
   };
   toBuy: { items: number; value: number | null; unpricedItems: number; currency: string; rows?: OrderBuyRow[] };
   receipts?: ReceiptRef[];
+  /** Stock held for the order (only when the board is read for one order). */
+  held?: { total: number; rows: HeldRow[] };
   links?: { requestLines: number };
   generatedAt: string;
 }

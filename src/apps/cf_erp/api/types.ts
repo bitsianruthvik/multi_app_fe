@@ -883,10 +883,12 @@ export interface ItemReservation {
   quantity: number;
   batch: { id: number; code: string; status: BatchStatus } | null;
   order: { id: number; code: string };
-  lineNo: number;
-  /** Material set aside for the work, or finished pieces earmarked for the line they sell. */
-  /** What the reservation claims for: material a step needs, or work made for a sales line. */
-  kind?: 'material' | 'finished';
+  /** null for held stock, which belongs to the order and not to a line. */
+  lineNo: number | null;
+  /** What the reservation claims for: material a step needs, work made for a sales line, or stock held for the order it was bought for. */
+  kind?: 'material' | 'finished' | 'held';
+  /** Held stock: the purchase order it arrived on. */
+  purchaseOrder?: { id: number; code: string } | null;
 }
 
 export interface ItemStock {
@@ -1066,6 +1068,8 @@ export interface BuyRow {
   purchaseOrders: { id: number; code: string; status: PurchaseStatus; outstanding: number }[];
   /** true: this is PLANNED material of a confirmed, frozen line that is not released yet — bought first, used later. */
   planned?: boolean;
+  /** What this row's order already has held (received on a purchase order bought for it). */
+  held?: number;
   /** Quantity already in a purchase request / an RFQ (not yet a purchase order), so it is not raised twice. */
   inRequest?: number;
   inRfq?: number;
@@ -1091,13 +1095,22 @@ export interface PurchaseLine extends Partial<PurchaseTax> {
   expectedDate: string | null;
   note: string | null;
   receipts: { id: number; code: string; date: string; quantity: number }[];
+  /** The sales orders this line is bought for; `unlinked` is the part of the quantity bought for none. */
+  orders?: PurchaseLineOrder[];
+  unlinked?: number;
 }
+
+export interface PurchaseLineOrder { id: number; orderId: number; orderCode: string; quantity: number; received: number }
 
 export interface PurchaseOrderRow {
   id: number;
   code: string;
   status: PurchaseStatus;
   suggested: boolean;
+  /** The sales order this purchase order is bought for — the default for lines added afterwards. */
+  forOrder?: { id: number; code: string } | null;
+  /** Distinct sales-order codes over all lines' allocations. */
+  orderCodes?: string[];
   supplier: { id: number; code: string | null; name: string } | null;
   expectedDate: string | null;
   orderedAt: string | null;
