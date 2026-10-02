@@ -999,6 +999,13 @@ export interface BuyRow {
   purchaseOrders: { id: number; code: string; status: PurchaseStatus; outstanding: number }[];
   /** true: this is PLANNED material of a confirmed, frozen line that is not released yet — bought first, used later. */
   planned?: boolean;
+  /** Quantity already in a purchase request / an RFQ (not yet a purchase order), so it is not raised twice. */
+  inRequest?: number;
+  inRfq?: number;
+  /** What may still be raised as a request: toBuy less what is already in a request or an RFQ. */
+  toRequest?: number;
+  purchaseRequests?: { id: number; code: string }[];
+  rfqs?: { id: number; code: string }[];
   /** The line a planned row comes from. */
   source?: { orderId: number; orderCode: string; lineId: number; lineNo: number } | null;
 }

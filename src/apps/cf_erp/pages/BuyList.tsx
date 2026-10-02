@@ -1,9 +1,10 @@
 import { useMemo, useState } from 'react';
 import { Box, Button, Tooltip, Typography } from '@mui/material';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import ShoppingCartRounded from '@mui/icons-material/ShoppingCartRounded';
 import PlaylistAddCheckRounded from '@mui/icons-material/PlaylistAddCheckRounded';
-import { cfApi, qs } from '../api/client';
+import { cfApi, qs, type CfApiError } from '../api/client';
+import { raiseFromBuyList, type BuyRequestRow } from '../api/procurement';
 import type { BuyRow, SuggestResult } from '../api/types';
 import type { BuyListTotal } from '../api/money';
 import { dayText, priceText, rupeeText } from '../lib/money';
@@ -31,6 +32,7 @@ const linkSx = { color: 'inherit', textDecoration: 'none', '&:hover': { color: '
 export default function BuyList() {
   const company = useCompanySlug();
   const toast = useToast();
+  const navigate = useNavigate();
   const canManage = useIsPermitted()('cf_erp_inventory_manage');
   const [show, setShow] = useUrlParam('show', 'short');
   const [kindParam, setKind] = useUrlParam('kind', 'all');
@@ -62,6 +64,23 @@ export default function BuyList() {
     { label: 'On order', value: all.filter((r) => r.onOrder > 0).length, tone: 'info' as const, hint: 'Items with steel already coming' },
     { label: 'Covered', value: all.length - short.length, tone: 'success' as const, hint: 'Held for the job, free in stock, or on order' },
   ];
+
+  // A draft purchase request from the chosen rows (or every short row). Rows of the same item are added up.
+  const raise = async (chosen: BuyRow[] | null) => {
+    setBusy(true);
+    try {
+      const wanted = new Map<number, number>();
+      for (const r of chosen ?? []) { const n = r.toRequest ?? r.toBuy; if (n > 0) wanted.set(r.item.id, (wanted.get(r.item.id) ?? 0) + n); }
+      if (chosen && !wanted.size) { toast.info('Everything chosen is already in a request or an RFQ.'); return; }
+      const body = chosen ? { rows: [...wanted].map(([itemId, quantity]): BuyRequestRow => ({ itemId, quantity: Math.round(quantity * 1e6) / 1e6 })) } : { all: true as const };
+      const made = await raiseFromBuyList(body);
+      invalidateNavCounts();
+      toast.success(`${made.code ?? 'A purchase request'} drafted. Check it, then submit it for approval.${made.skipped?.length ? ` ${made.skipped.length} ${made.skipped.length === 1 ? 'item was' : 'items were'} left out — already in a request or an RFQ.` : ''}`);
+      navigate(appPath(company, `purchase-requests/${made.id}`));
+    } catch (e) {
+      toast.error((e as CfApiError).code === 'NOTHING_TO_REQUEST' ? 'Everything short is already in a purchase request or an RFQ, so there is nothing new to raise.' : (e as Error).message ?? 'The request could not be raised.');
+    } finally { setBusy(false); }
+  };
 
   const suggest = async () => {
     setBusy(true);
@@ -98,6 +117,15 @@ export default function BuyList() {
         : <Mono muted>—</Mono>),
     },
     {
+      key: 'handled', header: 'In progress', sortValue: (r) => (r.inRequest ?? 0) + (r.inRfq ?? 0),
+      render: (r) => ((r.inRequest ?? 0) > 0 || (r.inRfq ?? 0) > 0
+        ? <Box data-testid="buy-handled" sx={{ fontSize: 12, color: 'var(--c-text-2)' }}>
+          {(r.inRequest ?? 0) > 0 && <Box>{qtyText(r.inRequest)} in {(r.purchaseRequests ?? []).map((p) => <Box key={p.id} component={Link} to={appPath(company, `purchase-requests/${p.id}`)} sx={linkSx}>{p.code} </Box>)}{!(r.purchaseRequests ?? []).length && 'a request'}</Box>}
+          {(r.inRfq ?? 0) > 0 && <Box>{qtyText(r.inRfq)} out for quotes in {(r.rfqs ?? []).map((p) => <Box key={p.id} component={Link} to={appPath(company, `rfqs/${p.id}`)} sx={linkSx}>{p.code} </Box>)}</Box>}
+        </Box>
+        : <Mono muted>—</Mono>),
+    },
+    {
       key: 'toBuy', header: 'To buy', numeric: true, alwaysVisible: true, sortValue: (r) => r.toBuy,
       render: (r) => (r.toBuy > 0
         ? <Box sx={{ fontWeight: 600, color: 'var(--c-danger-700)' }}>{qtyText(r.toBuy)} <Mono muted>{r.item.uom}</Mono></Box>
@@ -130,14 +158,19 @@ export default function BuyList() {
     <Box>
       <PageHeader title="To buy"
         subtitle="What released jobs need — and, marked planned, what confirmed, frozen lines will need — that nobody has: wanted, less what is held for them, free on the shelf and already on order. Suggesting writes one draft purchase order and rewrites it each time — it never buys twice."
-        actions={canManage && (
+        actions={canManage && (<>
+          <Tooltip title={short.length ? 'Drafts one purchase request for everything short; it is approved before anyone is asked for a price' : 'Nothing is short, so there is nothing to raise'}>
+            <span>
+              <Button variant="contained" startIcon={<ShoppingCartRounded />} onClick={() => void raise(null)} disabled={busy || !short.some((r) => (r.toRequest ?? r.toBuy) > 0)}>Raise purchase request</Button>
+            </span>
+          </Tooltip>
           <Tooltip title={short.length ? 'Writes one draft purchase order for everything short' : 'Nothing is short, so there is nothing to raise'}>
             <span>
-              <Button variant="contained" startIcon={<PlaylistAddCheckRounded />} onClick={suggest} disabled={busy || !short.length}>
+              <Button startIcon={<PlaylistAddCheckRounded />} onClick={suggest} disabled={busy || !short.length}>
                 {busy ? 'Working…' : 'Suggest a purchase order'}
               </Button>
             </span>
-          </Tooltip>
+          </Tooltip></>
         )} />
       <StatStrip stats={stats} />
       <FilterBar search={search} onSearch={setSearch} placeholder="Search item or order">
@@ -150,6 +183,10 @@ export default function BuyList() {
       <ErrorNotice error={list.error} onRetry={list.reload} />
       <DataTable rows={rows} columns={columns} getRowId={buyRowId} loading={list.loading && !list.data} storageKey="buy-list" exportName="to-buy"
         defaultSortKey="toBuy" defaultSortDir="desc"
+        selectable={canManage} bulkActions={(sel, clear) => {
+          const short = sel.filter((r) => (r.toRequest ?? r.toBuy) > 0);
+          return <Button size="small" variant="contained" disabled={busy || !short.length} onClick={() => { void raise(short).then(clear); }}>Raise purchase request ({short.length} {short.length === 1 ? 'item' : 'items'})</Button>;
+        }}
         empty={<EmptyState icon={<ShoppingCartRounded />}
           title={term ? 'Nothing matches' : show === 'short' ? 'Nothing is short' : 'Nothing is wanted yet'}
           hint={term ? 'Clear the search, or look at everything wanted.'

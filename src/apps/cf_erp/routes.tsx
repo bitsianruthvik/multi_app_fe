@@ -35,6 +35,10 @@ const WorkOrders = lazy(() => import('./pages/WorkOrders'));
 const WorkOrderDetail = lazy(() => import('./pages/WorkOrderDetail'));
 const Stock = lazy(() => import('./pages/Stock'));
 const BuyList = lazy(() => import('./pages/BuyList'));
+const PurchaseRequests = lazy(() => import('./pages/PurchaseRequests'));
+const PurchaseRequestDetail = lazy(() => import('./pages/PurchaseRequestDetail'));
+const Rfqs = lazy(() => import('./pages/Rfqs'));
+const RfqDetail = lazy(() => import('./pages/RfqDetail'));
 const PurchaseOrders = lazy(() => import('./pages/PurchaseOrders'));
 const PurchaseOrderDetail = lazy(() => import('./pages/PurchaseOrderDetail'));
 const Movements = lazy(() => import('./pages/Movements'));
@@ -88,6 +92,10 @@ export function getCfErpRoutes(
     { path: '/:company/cf_erp/work-orders/:id', element: wrap(<WorkOrderDetail />) },
     { path: '/:company/cf_erp/stock', element: wrap(<Stock />) },
     { path: '/:company/cf_erp/buy-list', element: wrap(<BuyList />) },
+    { path: '/:company/cf_erp/purchase-requests', element: wrap(<PurchaseRequests />) },
+    { path: '/:company/cf_erp/purchase-requests/:id', element: wrap(<PurchaseRequestDetail />) },
+    { path: '/:company/cf_erp/rfqs', element: wrap(<Rfqs />) },
+    { path: '/:company/cf_erp/rfqs/:id', element: wrap(<RfqDetail />) },
     { path: '/:company/cf_erp/purchase-orders', element: wrap(<PurchaseOrders />) },
     { path: '/:company/cf_erp/purchase-orders/:id', element: wrap(<PurchaseOrderDetail />) },
     { path: '/:company/cf_erp/movements', element: wrap(<Movements />) },

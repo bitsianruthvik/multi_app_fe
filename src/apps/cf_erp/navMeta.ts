@@ -79,6 +79,8 @@ export const SECTIONS: NavSection[] = [
     screens: [
       { key: 'stock', label: 'Stock', path: 'stock', permission: INVENTORY, countKey: 'stockLines', keywords: ['on hand', 'inventory', 'receive'] },
       { key: 'buy-list', label: 'To buy', path: 'buy-list', permission: INVENTORY, countKey: 'toBuy', keywords: ['shortage', 'short', 'procurement', 'buy', 'purchase', 'requisition'] },
+      { key: 'purchase-requests', label: 'Purchase requests', path: 'purchase-requests', hasDetail: true, permission: INVENTORY, keywords: ['pr', 'requisition', 'approve', 'approval', 'raise', 'procurement'] },
+      { key: 'rfqs', label: 'RFQs', path: 'rfqs', hasDetail: true, permission: INVENTORY, keywords: ['quote', 'quotation', 'compare', 'comparison', 'award', 'supplier', 'tender', 'procurement'] },
       { key: 'purchase-orders', label: 'Purchase orders', path: 'purchase-orders', hasDetail: true, permission: INVENTORY, countKey: 'openPurchases', keywords: ['po', 'supplier', 'delivery', 'goods receipt', 'grn', 'procurement'] },
       { key: 'movements', label: 'Movements', path: 'movements', hasDetail: true, permission: INVENTORY, keywords: ['receipt', 'issue', 'transfer', 'grn', 'count', 'scrap'] },
       { key: 'batches', label: 'Batches', path: 'batches', hasDetail: true, permission: INVENTORY, countKey: 'heldBatches', keywords: ['heat', 'lot'] },
