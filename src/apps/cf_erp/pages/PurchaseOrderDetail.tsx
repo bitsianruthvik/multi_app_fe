@@ -28,6 +28,7 @@ import { ConfirmDialog } from '../components/ConfirmDialog';
 import { PromptDialog } from '../components/PromptDialog';
 import { useDetailTitle } from '../components/shell/detailTitle';
 import { useToast } from '../components/toastContext';
+import { BuyingStageBar } from '../components/Buying/BuyingStageBar';
 
 const linkSx = { color: 'inherit', textDecoration: 'none', '&:hover': { color: 'var(--c-primary-700)', textDecoration: 'underline' } };
 
@@ -125,6 +126,7 @@ export default function PurchaseOrderDetail() {
 
   return (
     <DetailLayout
+      beforeTabs={<BuyingStageBar type="po" id={p.id} version={`${p.status}:${p.totals.received}:${p.totals.lines}`} />}
       crossLinks={p.supplier || p.suggested ? crossLinks : undefined}
       header={
         <DetailHeader

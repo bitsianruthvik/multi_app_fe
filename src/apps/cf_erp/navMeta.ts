@@ -77,6 +77,8 @@ export const SECTIONS: NavSection[] = [
     key: 'inventory',
     label: 'Inventory',
     screens: [
+      // The board first (user, 2026-10-02): every buying document by stage, To buy → Received.
+      { key: 'buying', label: 'Buying', path: 'buying', permission: INVENTORY, keywords: ['board', 'procurement', 'purchase', 'stages', 'kanban', 'pipeline', 'rfq', 'po', 'request', 'received'] },
       { key: 'stock', label: 'Stock', path: 'stock', permission: INVENTORY, countKey: 'stockLines', keywords: ['on hand', 'inventory', 'receive'] },
       { key: 'buy-list', label: 'To buy', path: 'buy-list', permission: INVENTORY, countKey: 'toBuy', keywords: ['shortage', 'short', 'procurement', 'buy', 'purchase', 'requisition'] },
       { key: 'purchase-requests', label: 'Purchase requests', path: 'purchase-requests', hasDetail: true, permission: INVENTORY, keywords: ['pr', 'requisition', 'approve', 'approval', 'raise', 'procurement'] },

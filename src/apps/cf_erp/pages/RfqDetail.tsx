@@ -22,6 +22,7 @@ import { AddSupplierDialog } from '../components/RfqDialogs';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { useDetailTitle } from '../components/shell/detailTitle';
 import { useToast } from '../components/toastContext';
+import { BuyingStageBar } from '../components/Buying/BuyingStageBar';
 
 const linkSx = { color: 'inherit', textDecoration: 'none', '&:hover': { color: 'var(--c-primary-700)', textDecoration: 'underline' } };
 
@@ -150,7 +151,7 @@ export default function RfqDetail() {
   );
 
   return (
-    <DetailLayout active={tab} onTab={setTab} tabs={[{ value: 'rfq', label: 'RFQ' }, { value: 'compare', label: 'Compare and award', count: rfq.suppliers.filter((s) => s.quote).length }]}
+    <DetailLayout beforeTabs={<BuyingStageBar type="rfq" id={rfq.id} version={`${rfq.status}:${rfq.quotes?.length ?? 0}:${rfq.lines.map((l) => l.awardedQuoteLineId ?? '').join()}:${rfq.purchaseOrders?.length ?? 0}`} />} active={tab} onTab={setTab} tabs={[{ value: 'rfq', label: 'RFQ' }, { value: 'compare', label: 'Compare and award', count: rfq.suppliers.filter((s) => s.quote).length }]}
       header={
         <DetailHeader code={rfq.code} title="Request for quotation" badges={<RfqStatusBadge status={rfq.status} />}
           actions={canManage && <>

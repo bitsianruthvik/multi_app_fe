@@ -17,6 +17,7 @@ import { PromptDialog } from '../components/PromptDialog';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { useDetailTitle } from '../components/shell/detailTitle';
 import { useToast } from '../components/toastContext';
+import { BuyingStageBar } from '../components/Buying/BuyingStageBar';
 
 
 /** One purchase request: the lines, where it stands, and the next step for whoever may take it. */
@@ -55,6 +56,7 @@ export default function PurchaseRequestDetail() {
 
   return (
     <DetailLayout
+      beforeTabs={<BuyingStageBar type="request" id={r.id} version={`${r.status}:${r.lines.map((l) => l.status).join()}`} />}
       header={
         <DetailHeader code={r.code} title="Purchase request" badges={<RequestStatusBadge status={r.status} />}
           subtitle={r.status === 'submitted' ? 'Waiting for one approver before anyone is asked for a price.' : r.status === 'approved' ? 'Approved. Choose the lines to ask suppliers about.' : r.decisionNote ? `“${r.decisionNote}”` : undefined}

@@ -346,13 +346,8 @@ export const blockerWho = (b: StageBlocker) => (b.lineNo != null ? `Line ${b.lin
  * that looks like a screen and does nothing. Delete an entry the day its
  * screen ships.
  */
-export const UNBUILT_STAGE: Record<string, { what: string; today: string; soon: string }> = {
-  buying: {
-    what: 'Buying is getting in the material the order consumes but does not make.',
-    today: 'Shortages are raised from the buy list under Inventory, which turns them into purchase orders.',
-    soon: 'A buying screen that works from this order alone is still to come.',
-  },
-};
+/** Stages whose own screen is not built yet (Buying got its screen 2026-10-02: the order's material through the Buying board's stages). */
+export const UNBUILT_STAGE: Record<string, { what: string; today: string; soon: string }> = {};
 
 export const isUnbuilt = (stageKey: string) => Object.prototype.hasOwnProperty.call(UNBUILT_STAGE, stageKey);
 

@@ -33,6 +33,7 @@ import { OrderLinesPanel } from '../OrderLinesPanel';
 import { useToast } from '../toastContext';
 import { BlockerList, StageStateBadge } from './stageUi';
 import { ConfirmOrderDialog } from './ConfirmOrderDialog';
+import { OrderBuyingPanel } from '../Buying/OrderBuyingPanel';
 
 /**
  * What each stage tab shows, above its Back / Next foot.
@@ -399,6 +400,9 @@ export function StageBody({
   } else if (stage.stageKey === 'production') {
     body = <ProductionPanel stage={stage} line={line} order={order} production={production} productionError={productionError}
       hasLockStage={view.stages.some((s) => s.stageKey === 'lock')} onReleaseChanged={onReleaseChanged} onReloadAll={onReloadAll} onGoStage={onGoStage} />;
+  } else if (stage.stageKey === 'buying') {
+    // The order's material through the Buying board's stages (user, 2026-10-02) — readiness stays the process's (WaitingOn above).
+    body = <OrderBuyingPanel order={order} stage={stage} />;
   } else if (stage.stageKey === 'confirm') {
     body = <ConfirmPanel view={view} order={order} />;
   } else if (isUnbuilt(stage.stageKey)) {
