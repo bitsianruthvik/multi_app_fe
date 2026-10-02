@@ -9,7 +9,7 @@ import { useCompanySlug } from '../../hooks/useLoad';
 import { appPath } from '../../navMeta';
 import { NO_LINES_YET, STATE_WORD, WORKING_ON_HELP, lineLabel, noStagesReason, stageTabName } from '../../lib/process';
 import type { DetailTab } from '../DetailLayout';
-import { ErrorNotice, Mono, SkeletonBlock } from '../ui';
+import { ErrorNotice, SkeletonBlock } from '../ui';
 import { NextMark, StageStateMark } from './stageUi';
 
 /**
@@ -33,7 +33,7 @@ import { NextMark, StageStateMark } from './stageUi';
 
 /** A tab, as the order's other tabs draw one (DetailLayout `DetailTabs`), as a real button. */
 const tabSx = (on: boolean, muted = false) => ({
-  display: 'inline-flex', alignItems: 'center', gap: 0.75, flexShrink: 0, minHeight: 40, px: 1, py: 0.75, m: 0,
+  display: 'inline-flex', alignItems: 'center', gap: 0.75, flexShrink: 0, minHeight: 30, px: 1, py: 0, m: 0,
   font: 'inherit', fontFamily: 'var(--font-ui)', fontSize: 13.5, fontWeight: 500, lineHeight: 1.4, whiteSpace: 'nowrap', cursor: 'pointer',
   background: 'transparent', border: 'none', borderRadius: 0,
   color: on ? 'var(--c-primary-700)' : muted ? 'var(--c-text-3)' : 'var(--c-text-2)',
@@ -189,32 +189,25 @@ export function OrderStageTabs({ process, lines, stages, line, nextKey, active, 
   ));
 
   return (
-    <Box sx={{ mb: 2, minWidth: 0 }}>
-      <Box sx={{ display: 'flex', alignItems: 'center', columnGap: 1.5, rowGap: 0.75, flexWrap: 'wrap', mb: 1.25, minWidth: 0 }}>
-        {lines.length > 0 ? (
-          <>
-            <TextField select size="small" label="Working on" value={line?.lineId ?? ''}
-              onChange={(e) => onPickLine(Number(e.target.value))}
-              sx={{ flex: { xs: '1 1 100%', sm: '0 1 340px' }, minWidth: 0 }}>
-              {lines.map((l) => <MenuItem key={l.lineId} value={l.lineId}>{lineLabel(l)}</MenuItem>)}
-            </TextField>
-            <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)', flex: '1 1 180px', minWidth: 0 }}>{WORKING_ON_HELP}</Typography>
-          </>
-        ) : (
-          <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)', flex: '1 1 220px', minWidth: 0 }}>{NO_LINES_YET}</Typography>
-        )}
-        <Box sx={{ ml: 'auto', display: 'flex', alignItems: 'baseline', gap: 0.75, flexWrap: 'wrap', minWidth: 0, fontSize: 12.5, color: 'var(--c-text-2)' }}>
-          Process
-          <Box component={Link} to={appPath(company, `processes/${process.id}`)}
-            sx={{ color: 'var(--c-primary-700)', fontWeight: 500, textDecoration: 'none', overflowWrap: 'anywhere', '&:hover': { textDecoration: 'underline' } }}>
-            {process.name}
-          </Box>
-          <Mono muted>{process.code}</Mono>
+    <Box sx={{ mb: 0.75, minWidth: 0, display: 'flex', flexWrap: 'wrap', alignItems: 'center', columnGap: 1.5, rowGap: 0.25 }}>
+      {/* The line switcher shares the row with the stage tabs; the process is named in the (i). */}
+      {lines.length > 0 ? (
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flex: { xs: '1 1 100%', sm: '0 1 240px' }, minWidth: 0 }}>
+          <TextField select size="small" label="Working on" value={line?.lineId ?? ''}
+            onChange={(e) => onPickLine(Number(e.target.value))}
+            sx={{ flex: 1, minWidth: 0, '& .MuiInputBase-root': { fontSize: 13 }, '& .MuiSelect-select': { py: '3px' } }}>
+            {lines.map((l) => <MenuItem key={l.lineId} value={l.lineId}>{lineLabel(l)}</MenuItem>)}
+          </TextField>
+          <Tooltip title={<>{WORKING_ON_HELP} Process: <Box component={Link} to={appPath(company, `processes/${process.id}`)} sx={{ color: 'var(--c-primary-200)', fontWeight: 600 }}>{process.name}</Box> ({process.code}).</>}>
+            <InfoOutlined aria-label={WORKING_ON_HELP} sx={{ fontSize: 16, color: 'var(--c-text-3)', flexShrink: 0 }} />
+          </Tooltip>
         </Box>
-      </Box>
+      ) : (
+        <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)', flex: '0 1 auto', minWidth: 0 }}>{NO_LINES_YET}</Typography>
+      )}
 
       <Box role="tablist" aria-label={`${process.name}: its stages in order, then the order's other tabs`} onKeyDown={walkTabs}
-        sx={{ display: 'flex', alignItems: 'stretch', minWidth: 0, boxShadow: 'inset 0 -1px 0 var(--c-border)' }}>
+        sx={{ display: 'flex', alignItems: 'stretch', minWidth: 0, flex: '1 1 560px', boxShadow: 'inset 0 -1px 0 var(--c-border)' }}>
         <Box ref={strip} role="presentation" onScroll={measure}
           sx={{ flex: '1 1 auto', minWidth: 0, overflowX: 'auto', overflowY: 'hidden', ...noScrollbar, maskImage: mask, WebkitMaskImage: mask }}>
           <Box ref={road} role="presentation" sx={{ position: 'relative', display: 'flex', alignItems: 'center', width: 'max-content' }}>
@@ -244,8 +237,8 @@ export function OrderStageTabs({ process, lines, stages, line, nextKey, active, 
 /** The tab row while the process is still being read: its shape, so nothing jumps when it lands. */
 export function StageTabsSkeleton() {
   return (
-    <Box sx={{ mb: 2 }} aria-busy="true" aria-label="Loading the stages">
-      <Box sx={{ mb: 1.25 }}><SkeletonBlock w={260} h={40} r={8} /></Box>
+    <Box sx={{ mb: 1.25 }} aria-busy="true" aria-label="Loading the stages">
+      <Box sx={{ mb: 0.5 }}><SkeletonBlock w={260} h={40} r={8} /></Box>
       <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'center', py: 1, overflow: 'hidden', boxShadow: 'inset 0 -1px 0 var(--c-border)' }}>
         {[88, 92, 70, 96, 80, 74].map((w, i) => <Box key={i} sx={{ flexShrink: 0 }}><SkeletonBlock w={w} h={22} r={6} /></Box>)}
       </Box>
@@ -257,13 +250,31 @@ export function StageTabsSkeleton() {
 export function Explain({ children, action }: { children: ReactNode; action?: ReactNode }) {
   return (
     <Box sx={{
-      mb: 2, px: 1.5, py: 1.25, display: 'flex', gap: 1, alignItems: 'flex-start', flexWrap: 'wrap',
+      mb: 1, px: 1.25, py: 0.75, display: 'flex', gap: 1, alignItems: 'flex-start', flexWrap: 'wrap',
       borderRadius: 'var(--r-md)', background: 'var(--c-surface-2)', border: '1px solid var(--c-border)', color: 'var(--c-text-2)', fontSize: 13,
     }}>
       <InfoOutlined sx={{ fontSize: 17, mt: '1px', flexShrink: 0 }} aria-hidden />
       <Box sx={{ flex: '1 1 260px', minWidth: 0 }}>{children}</Box>
       {action}
     </Box>
+  );
+}
+
+/**
+ * The order has no process (or one with no stages): a small amber chip for the header line, the reason and the way to fix it
+ * in its tooltip — a full-width banner for a fact that never changes cost a row of the screen on every visit.
+ */
+export function ProcessAbsentChip({ view }: { view: OrderProcessView }) {
+  const company = useCompanySlug();
+  const linkSx = { color: 'var(--c-primary-200)', fontWeight: 600 };
+  const why = view.process ? noStagesReason(view.process) : view.reason ?? 'This order follows no process.';
+  const to = view.process ? appPath(company, `processes/${view.process.id}`) : appPath(company, 'processes');
+  return (
+    <Tooltip placement="bottom-start" title={<Box>{why}{' '}<Box component={Link} to={to} sx={linkSx}>{view.process ? `Open ${view.process.code}` : 'Set up processes'}</Box></Box>}>
+      <Box component="span" data-testid="no-process-chip" tabIndex={0} sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5, background: 'var(--c-warning-50)', color: 'var(--c-warning-800)', borderRadius: 'var(--r-sm)', px: 1, py: '2px', fontSize: 12, fontWeight: 500, whiteSpace: 'nowrap' }}>
+        {view.process ? 'No stages' : 'No process'}<InfoOutlined sx={{ fontSize: 14 }} aria-hidden />
+      </Box>
+    </Tooltip>
   );
 }
 

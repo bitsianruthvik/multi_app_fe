@@ -65,15 +65,15 @@ export function SectionCard({ title, subtitle, actions, action, children, flush 
   return (
     <Surface e={e} sx={{ overflow: 'hidden', ...sx }}>
       {(title || act) && (
-        <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.5, px: 2.5, py: 1.75, borderBottom: '1px solid var(--c-divider)', flexWrap: 'wrap' }}>
+        <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.5, px: 2, py: 1, borderBottom: '1px solid var(--c-divider)', flexWrap: 'wrap' }}>
           <Box sx={{ flex: '1 1 240px', minWidth: 0 }}>
-            {title && <Box component="h2" sx={{ m: 0, fontSize: 15, fontWeight: 600, color: 'var(--c-text)' }}>{title}</Box>}
-            {subtitle && <Box sx={{ fontSize: 13, color: 'var(--c-text-2)', mt: 0.25 }}>{subtitle}</Box>}
+            {title && <Box component="h2" sx={{ m: 0, fontSize: 14, fontWeight: 600, color: 'var(--c-text)', display: 'flex', alignItems: 'center', gap: 0.5 }}>{title}</Box>}
+            {subtitle && <Box sx={{ fontSize: 12.5, color: 'var(--c-text-2)', mt: 0 }}>{subtitle}</Box>}
           </Box>
           {act && <Box sx={{ display: 'flex', gap: 1, flexShrink: 0, flexWrap: 'wrap' }}>{act}</Box>}
         </Box>
       )}
-      <Box sx={flush ? undefined : { px: 2.5, py: 2 }}>{children}</Box>
+      <Box sx={flush ? undefined : { px: 2, py: 1 }}>{children}</Box>
     </Surface>
   );
 }
@@ -238,11 +238,11 @@ export function StatStrip({ stats }: { stats: Stat[] }) {
 export function EmptyState({ icon, title, body, hint, action }: { icon?: ReactNode; title: ReactNode; body?: ReactNode; hint?: ReactNode; action?: ReactNode }) {
   const text = hint ?? body;
   return (
-    <Surface e={0} sx={{ py: 7, px: 3, display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: 1, background: 'var(--c-surface-2)', borderStyle: 'dashed' }}>
-      <Box sx={{ color: 'var(--c-text-3)', '& svg': { fontSize: 44 }, mb: 0.5 }}>{icon ?? <InboxRounded />}</Box>
-      <Typography sx={{ fontSize: 15, fontWeight: 500, color: 'var(--c-text)' }}>{title}</Typography>
+    <Surface e={0} sx={{ py: 2.5, px: 2, display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: 0.5, background: 'var(--c-surface-2)', borderStyle: 'dashed' }}>
+      <Box sx={{ color: 'var(--c-text-3)', '& svg': { fontSize: 26 }, mb: 0 }}>{icon ?? <InboxRounded />}</Box>
+      <Typography sx={{ fontSize: 14, fontWeight: 500, color: 'var(--c-text)' }}>{title}</Typography>
       {text && <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)', maxWidth: 420 }}>{text}</Typography>}
-      {action && <Box sx={{ mt: 1.5 }}>{action}</Box>}
+      {action && <Box sx={{ mt: 0.75 }}>{action}</Box>}
     </Surface>
   );
 }

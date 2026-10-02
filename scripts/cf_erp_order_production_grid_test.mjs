@@ -198,7 +198,7 @@ await check('the grid: codes down the left, Done then the operations across in f
   const root = await render(grid());
   await waitFor(() => rowIds().length > 0, 'rows');
   assert.deepEqual(rowIds(), ['l1', 'p1', 'p2', 'p3']);
-  assert.equal(heads()[0], 'Piece');
+  assert.equal(document.querySelector('.sg-labelrow td.sg-corner')?.textContent, 'Piece', 'the corner text rides on the sticky label line (no separate header row)');
   // Each row shows only its own cells, a short label above: Done, then its operations in flow order.
   assert.equal(document.querySelector('table').dataset.layout, 'strip');
   assert.deepEqual(labelsOver('l1'), ['Done', 'Cutting', 'Fit-up', 'Welding']);

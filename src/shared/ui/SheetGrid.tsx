@@ -1,6 +1,7 @@
+import { createPortal } from 'react-dom';
 import {
   useEffect, useImperativeHandle, useMemo, useRef, useState,
-  type ClipboardEvent, type HTMLAttributes, type KeyboardEvent, type ReactNode, type Ref,
+  type ClipboardEvent, type HTMLAttributes, type KeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type Ref,
 } from 'react';
 import { Alert, Box, IconButton, Typography, useMediaQuery } from '@mui/material';
 import type { SxProps, Theme } from '@mui/material/styles';
@@ -148,6 +149,15 @@ export interface SheetGridProps {
   cornerHeader?: ReactNode;
   /** Width of the frozen first column. On a narrow window it is capped at half the screen so the data columns stay reachable. */
   rowHeaderWidth?: number;
+  /** Where to draw the "Line up all columns" switch (a screen's own toolbar element); omitted = a line above the grid. */
+  lineUpSlot?: HTMLElement | null;
+  /** Default true: the frozen first column's right edge can be dragged (double-click resets); the width is remembered per `prefKey` on this device. */
+  resizableRowHeader?: boolean;
+  /**
+   * Make the grid as tall as the window (under whatever sits above it) instead of 70vh, so its own scroll is the page's scroll and the
+   * heading row (and, in strip layout, the label line of the rows in view) never leaves the screen.
+   */
+  fillViewport?: boolean;
   /**
    * Default true. Below 600 px (a phone) the grid is shown read-only with a one-line note: typing, pasting and
    * dragging in a tiny grid is a broken editor, and an honest "easier on a wider screen" is not.
@@ -223,10 +233,12 @@ export const SHEET_GRID_NARROW_QUERY = '(max-width:599.95px)';
 
 export const SHEET_GRID_HINT = 'Type to fill a cell · Enter, Tab or an arrow keeps it and moves on · F2 edits in place · Esc cancels · Ctrl+C / Ctrl+V copy and paste · Ctrl+D / Ctrl+R fill down / right · Ctrl+Z undo · Shift-click or drag selects a block';
 
+const HEAD_MIN = 160, HEAD_MAX = 900;
+
 export function SheetGrid({
   rows, columns, cellAt: cellAtRaw, onWrites, onSelectionChange, onToggleRow, onCellClick, rowSelect, stickyHeader = true, frozenFirstColumn = true, footer,
   onProblem, cornerHeader, rowHeaderWidth = 220, rowHeight = 32, ariaLabel = 'Spreadsheet', busy, hint, rowProps, rowSx, historyKey, onHistoryChange, narrowReadOnly = true,
-  rowColumns, lineUpToggle = true, prefKey, ref,
+  rowColumns, lineUpToggle = true, prefKey, ref, resizableRowHeader = true, fillViewport = false, lineUpSlot,
 }: SheetGridProps) {
   const narrow = useMediaQuery(SHEET_GRID_NARROW_QUERY, { noSsr: true });
   const readOnly = narrowReadOnly && narrow;
@@ -245,6 +257,46 @@ export function SheetGrid({
   const [editor, setEditor] = useState<{ at: Point; text: string; mode: 'enter' | 'edit' } | null>(null);
   const [inline, setInline] = useState<string | null>(null);
   const lineUpPref = `sheetgrid.lineUp.${prefKey ?? ariaLabel}`;
+  const headWPref = `sheetgrid.headW.${prefKey ?? ariaLabel}`;
+  const [headW, setHeadW] = useState<number>(() => {
+    const saved = readPref<number>(headWPref, 0);
+    return resizableRowHeader && Number.isFinite(saved) && saved >= HEAD_MIN && saved <= HEAD_MAX ? saved : rowHeaderWidth;
+  });
+  const scroller = useRef<HTMLDivElement>(null);
+  const dragHead = (e: ReactPointerEvent<HTMLElement>) => {
+    e.preventDefault(); e.stopPropagation();
+    const startX = e.clientX, startW = headW, el = e.currentTarget;
+    let last = startW;
+    el.setPointerCapture?.(e.pointerId);
+    const move = (ev: PointerEvent) => { last = Math.max(HEAD_MIN, Math.min(HEAD_MAX, Math.round(startW + ev.clientX - startX))); setHeadW(last); };
+    const up = () => { el.removeEventListener('pointermove', move); el.removeEventListener('pointerup', up); el.removeEventListener('pointercancel', up); writePref(headWPref, last); };
+    el.addEventListener('pointermove', move); el.addEventListener('pointerup', up); el.addEventListener('pointercancel', up);
+  };
+  const resetHead = () => { setHeadW(rowHeaderWidth); writePref(headWPref, rowHeaderWidth); };
+  /**
+   * fillViewport: the box ends at the bottom of the window wherever the page is scrolled to, so its own scroll (and
+   * with it the sticky heading) is always the one in use — a fixed 70vh box starting low on the page ran past the
+   * fold and the heading scrolled out of sight with the page. Re-measured on any scroll or resize.
+   */
+  const [fillH, setFillH] = useState<number | null>(null);
+  useEffect(() => {
+    if (!fillViewport) return undefined;
+    let raf = 0;
+    const measureFill = () => {
+      raf = 0;
+      const box = scroller.current;
+      if (!box) return;
+      const next = Math.max(260, Math.floor(window.innerHeight - box.getBoundingClientRect().top - 72));
+      setFillH((cur) => (cur != null && Math.abs(cur - next) < 2 ? cur : next));
+    };
+    const queue = () => { if (!raf) raf = requestAnimationFrame(measureFill); };
+    measureFill();
+    window.addEventListener('scroll', queue, true);
+    window.addEventListener('resize', queue);
+    const ro = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(queue);
+    if (ro && document.body) ro.observe(document.body);
+    return () => { if (raf) cancelAnimationFrame(raf); window.removeEventListener('scroll', queue, true); window.removeEventListener('resize', queue); ro?.disconnect(); };
+  }, [fillViewport]);
   const [lineUp, setLineUp] = useState<boolean>(() => readPref(lineUpPref, false));
   const problem = (message: string | null) => { if (onProblem) onProblem(message); else setInline(message); };
   const rowIndex = useMemo(() => new Map(rows.map((r, i) => [r.key, i])), [rows]);
@@ -692,11 +744,16 @@ export function SheetGrid({
     </Box>;
   };
 
+  const resizeHandle = resizableRowHeader ? <Box component="span" role="separator" aria-orientation="vertical" aria-label="Drag to resize the first column (double-click resets)" title="Drag to resize · double-click to reset" data-testid="sheet-grid-resize"
+    onPointerDown={dragHead} onDoubleClick={resetHead} onClick={(e) => e.stopPropagation()}
+    sx={{ position: 'absolute', top: 0, right: 0, bottom: 0, width: 6, cursor: 'col-resize', touchAction: 'none', zIndex: 5, '&:hover, &:active': { background: 'color-mix(in srgb, var(--c-primary-600) 35%, transparent)' } }} /> : null;
+  const stripHead = !!stripKeys && groupEnd.size > 0;
+
   /** Strip: the short labels over a run of identically-shaped rows. */
   const labelRow = (r: number) => {
     const ks = keysOf(r), end = groupEnd.get(r) ?? r;
     return <tr key={`labels:${rows[r].key}`} className="sg-labelrow" role="row" data-labels-for={rows[r].key}>
-      <td className="sg-rowhead sg-labelhead" />
+      <td className="sg-rowhead sg-labelhead sg-corner" data-sticky={stickyHeader ? 'true' : undefined} style={{ textAlign: 'left', fontWeight: 600, zIndex: 4 }}>{cornerHeader}{resizeHandle}</td>
       {ks.map((k, i) => {
         const col = colByKey.get(k) as SheetColumn, first = cellOf({ row: r, col: i }), dd = isDropdown(first) && writable(first);
         return <td key={k} role="columnheader" className="sg-label" data-label={k} title={`${col.label ?? k}${col.unit ? ` (${col.unit})` : ''} — click to select it down these rows`}
@@ -708,51 +765,56 @@ export function SheetGrid({
     </tr>;
   };
 
+  const lineUpButton = (
+    <Box sx={lineUpSlot ? undefined : { display: 'flex', justifyContent: 'flex-end', mb: 0.5 }}>
+      {/* A button, not a checkbox input: screens find their cell editor as "the input". */}
+      <Box component="button" type="button" role="switch" aria-checked={lineUp} data-testid="sheet-grid-line-up"
+        title={lineUp ? 'Every column for every row, hatched where a row has no such cell' : 'Each row shows only its own cells'}
+        onClick={() => { const next = !lineUp; setLineUp(next); writePref(lineUpPref, next); setAnchor(null); setExtent(null); setEditor(null); }}
+        sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.75, border: 0, background: 'transparent', cursor: 'pointer', font: 'inherit', fontSize: 12, color: 'var(--c-text-3)', p: 0.25, borderRadius: 'var(--r-sm)', whiteSpace: 'nowrap', '&:hover': { color: 'var(--c-text-2)' } }}>
+        <Box component="span" aria-hidden sx={{ position: 'relative', width: 26, height: 14, borderRadius: 7, background: lineUp ? 'var(--c-primary-600)' : 'var(--c-border)', transition: 'background var(--t-fast) var(--ease)' }}>
+          <Box component="span" sx={{ position: 'absolute', top: 2, left: lineUp ? 14 : 2, width: 10, height: 10, borderRadius: '50%', background: 'var(--c-surface)', transition: 'left var(--t-fast) var(--ease)' }} />
+        </Box>
+        {lineUpSlot ? 'Line up columns' : 'Line up all columns'}
+      </Box>
+    </Box>
+  );
+
   return <>
     {readOnly && hasEditable() && <Alert severity="info" role="note" data-testid="sheet-grid-narrow-note" sx={{ mb: 1 }}>{SHEET_GRID_NARROW_NOTE}</Alert>}
     {inline && <Alert severity="info" onClose={() => setInline(null)} sx={{ mb: 1 }}>{inline}</Alert>}
-    {rowColumns && lineUpToggle && (
-      <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 0.5 }}>
-        {/* A button, not a checkbox input: screens find their cell editor as "the input". */}
-        <Box component="button" type="button" role="switch" aria-checked={lineUp} data-testid="sheet-grid-line-up"
-          title={lineUp ? 'Every column for every row, hatched where a row has no such cell' : 'Each row shows only its own cells'}
-          onClick={() => { const next = !lineUp; setLineUp(next); writePref(lineUpPref, next); setAnchor(null); setExtent(null); setEditor(null); }}
-          sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.75, border: 0, background: 'transparent', cursor: 'pointer', font: 'inherit', fontSize: 12, color: 'var(--c-text-3)', p: 0.25, borderRadius: 'var(--r-sm)', '&:hover': { color: 'var(--c-text-2)' } }}>
-          <Box component="span" aria-hidden sx={{ position: 'relative', width: 26, height: 14, borderRadius: 7, background: lineUp ? 'var(--c-primary-600)' : 'var(--c-border)', transition: 'background var(--t-fast) var(--ease)' }}>
-            <Box component="span" sx={{ position: 'absolute', top: 2, left: lineUp ? 14 : 2, width: 10, height: 10, borderRadius: '50%', background: 'var(--c-surface)', transition: 'left var(--t-fast) var(--ease)' }} />
-          </Box>
-          Line up all columns
-        </Box>
-      </Box>
-    )}
-    <Box sx={{ overflow: 'auto', maxHeight: 'min(70vh, 720px)', border: '1px solid var(--c-border)', borderRadius: 'var(--r-sm)' }}>
+    {rowColumns && lineUpToggle && (lineUpSlot ? createPortal(lineUpButton, lineUpSlot) : lineUpButton)}
+    <Box ref={scroller} data-testid="sheet-grid-scroll" sx={{ overflow: 'auto', maxHeight: fillViewport ? (fillH ?? 'max(360px, calc(100vh - 128px))') : 'min(70vh, 720px)', border: '1px solid var(--c-border)', borderRadius: 'var(--r-sm)' }}>
       <Box component="table" ref={table} role="grid" aria-label={ariaLabel} aria-busy={busy} data-layout={stripKeys ? 'strip' : 'wide'}
         onCopy={copy} onPaste={paste} onPointerUp={() => { selecting.current = false; }}
         sx={{ borderCollapse: 'separate', borderSpacing: 0, width: 'max-content', minWidth: '100%', tableLayout: 'fixed', fontSize: 12,
           '& th, & td': { borderRight: '1px solid var(--c-divider)', borderBottom: '1px solid var(--c-divider)' },
-          '& th': { ...headSticky, zIndex: 3, background: 'var(--c-surface-2)', textAlign: 'left', py: 1, px: 1, fontWeight: 600, cursor: 'pointer' },
+          '& th': { ...headSticky, zIndex: 3, background: 'var(--c-surface-2)', textAlign: 'left', py: 0.5, px: 1, fontWeight: 600, cursor: 'pointer' },
           '& td': { height: rowHeight, px: 1, outlineOffset: '-2px', '&:focus-visible': { outline: '2px solid var(--c-focus)' } },
-          '& .sg-corner': { ...firstSticky, ...headSticky, zIndex: 4, width: capped(rowHeaderWidth), minWidth: capped(rowHeaderWidth), maxWidth: capped(rowHeaderWidth), cursor: 'default' },
-          '& .sg-rowhead': { ...firstSticky, zIndex: 2, width: capped(rowHeaderWidth), minWidth: capped(rowHeaderWidth), maxWidth: capped(rowHeaderWidth), background: 'var(--c-surface)', cursor: 'default' },
+          '& .sg-corner': { ...firstSticky, ...headSticky, zIndex: 4, width: capped(headW), minWidth: capped(headW), maxWidth: capped(headW), cursor: 'default' },
+          '& .sg-rowhead': { ...firstSticky, zIndex: 2, width: capped(headW), minWidth: capped(headW), maxWidth: capped(headW), background: 'var(--c-surface)', cursor: 'default' },
           // A faint row emphasis on hover, on the cells that apply only; the hatched ones stay low.
           '& tbody tr:hover td.sg-data:not([data-na="true"])': { backgroundImage: 'linear-gradient(color-mix(in srgb, var(--c-primary-600) 6%, transparent), color-mix(in srgb, var(--c-primary-600) 6%, transparent))' },
           '& .sg-data': { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFamily: 'var(--font-mono)', position: 'relative' },
           // Strip: the labels are quiet — small, muted, no box of their own — and the space past a row's last cell is nothing.
-          '& .sg-labelrow td': { height: 18, py: 0.25, pt: 0.75, fontSize: 10.5, lineHeight: 1.2, color: 'var(--c-text-3)', borderBottom: 0, borderRightColor: 'transparent', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', background: 'var(--c-surface)' },
+          '& .sg-labelrow td': { ...headSticky, zIndex: 3, boxShadow: stickyHeader ? '0 1px 0 var(--c-divider)' : undefined, height: 16, py: 0.125, pt: 0.25, fontSize: 10.5, lineHeight: 1.1, color: 'var(--c-text-3)', borderBottom: 0, borderRightColor: 'transparent', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', background: 'var(--c-surface)' },
           '& .sg-labelrow td.sg-label': { cursor: 'pointer', '&:hover': { color: 'var(--c-primary-700)' } },
           '& td.sg-void': { borderRightColor: 'transparent', borderBottomColor: 'transparent', background: 'var(--c-surface)' },
         }}>
         {stripKeys && <colgroup>
-          <col style={{ width: capped(rowHeaderWidth) }} />
+          <col style={{ width: capped(headW) }} />
           {slotWidths.map((w, i) => <col key={i} style={{ width: w }} />)}
         </colgroup>}
-        <thead><tr>
-          <th scope="col" className="sg-corner">{cornerHeader}</th>
+        {!stripHead && <thead><tr>
+          <th scope="col" className="sg-corner" data-sticky={stickyHeader ? 'true' : undefined}>
+            {cornerHeader}
+            {resizeHandle}
+          </th>
           {stripKeys
             ? slotCount > 0 && <th scope="colgroup" colSpan={slotCount} style={{ cursor: 'default', fontWeight: 400, color: 'var(--c-text-3)', fontSize: 11 }}>Each row shows only its own cells</th>
             : columns.map((col, i) => <th key={col.key} scope="col" data-col={i} style={{ width: col.width ?? 145, minWidth: col.width ?? 145, maxWidth: col.width ?? 145, textAlign: col.align ?? 'left' }}
               onClick={(e) => { if ((e.target as HTMLElement).closest('button, input, select, a')) return; selectColumn(i, e.shiftKey); }}>{col.header}</th>)}
-        </tr></thead>
+        </tr></thead>}
         <tbody>{rows.flatMap((row, r) => {
           const extra = rowProps?.(row.key);
           const len = keysOf(r).length;

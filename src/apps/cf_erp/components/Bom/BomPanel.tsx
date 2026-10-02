@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from 'react';
-import { Alert, Box, Button, CircularProgress, FormControlLabel, IconButton, Menu, MenuItem, Popover, Switch, Tooltip, Typography } from '@mui/material';
+import { Alert, Box, Button, CircularProgress, FormControlLabel, IconButton, Menu, MenuItem, Popover, Switch, Tooltip, Typography, useMediaQuery } from '@mui/material';
 import { Link } from 'react-router-dom';
 import AddRounded from '@mui/icons-material/AddRounded';
 import ArchiveRounded from '@mui/icons-material/ArchiveRounded';
 import CheckCircleRounded from '@mui/icons-material/CheckCircleRounded';
 import ContentCopyRounded from '@mui/icons-material/ContentCopyRounded';
+import InfoOutlined from '@mui/icons-material/InfoOutlined';
 import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
 import DownloadRounded from '@mui/icons-material/DownloadRounded';
 import HistoryRounded from '@mui/icons-material/HistoryRounded';
@@ -47,7 +48,7 @@ import { BomSheetDialog } from './BomSheetDialog';
 import { useSpecValues } from './useSpecValues';
 import { LOCKED_ORDER, useBom, type BomSource } from './useBom';
 import { BomGrid, type GridWrite } from './BomGrid';
-import { arrangedRows, duplicateBelow, moveRow, pruneArrangement, undoCopy, type DropPosition } from './bomArrangement';
+import { arrangedRows, moveRow, pruneArrangement, undoCopy, type DropPosition } from './bomArrangement';
 import { computeGaps, gapSentence, keepGapRows, type ValuesView } from '../Values/valuesModel';
 import type { SheetGridHandle } from '@shared/ui';
 
@@ -72,7 +73,6 @@ const TYPE_TEXT: Record<BomType, { title: string; body: string; empty: string }>
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 const sameNumber = (a: number, b: number) => Math.abs(a - b) < 1e-9;
 
-const copyText = (role: string | null) => (role ? (role.endsWith('(copy)') ? role : role + ' (copy)') : null);
 
 /**
  * Warns before pending edits are lost by leaving: closing or reloading the tab,
@@ -173,6 +173,10 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
   const [sheet, setSheet] = useState<{ file: File; base64: string; result: BomSheetResult } | null>(null);
   const [sheetBusy, setSheetBusy] = useState<'download' | 'preview' | 'apply' | null>(null);
   const sheetInput = useRef<HTMLInputElement>(null);
+  /** Where the grid draws its "Line up all columns" switch — in this panel's toolbar row, not a row of its own. */
+  const [lineUpEl, setLineUpEl] = useState<HTMLElement | null>(null);
+  const narrowBar = useMediaQuery('(max-width: 1500px)', { noSsr: true });
+  const [moreAnchor, setMoreAnchor] = useState<HTMLElement | null>(null);
 
   // ── edit mode's own state ─────────────────────────────────────────────────
   const [pending, setPending] = useState<Pending>(NO_PENDING);
@@ -183,7 +187,6 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
   const [bulkFlow, setBulkFlow] = useState(false);
   const [flowPick, setFlowPick] = useState<{ anchor: HTMLElement; row: BomRow } | null>(null);
   const [rowMenu, setRowMenu] = useState<{ anchor: HTMLElement; row: BomRow } | null>(null);
-  const pasteNo = useRef(0);
   // Quiet switches for the order's grid: the automatic cut pieces are out of sight, and so are the columns no row uses.
   const [onlyUsed, setOnlyUsed] = useState(true);
   const errorAt = useRef<HTMLDivElement>(null);
@@ -413,15 +416,28 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
     }
     return next;
   });
-  const duplicate = (row: BomRow) => {
+  /**
+   * A copy is made AT ONCE, server-side, as a normal row with the same description — never a pending "New copy" that
+   * cannot be edited until it is saved (user, 2026-10-02: "it is not immediately pasting… just add the row with the same
+   * name"). Undo is removing the row. Row moves still waiting would put the copy in the wrong place, so they go first.
+   */
+  const duplicate = async (row: BomRow) => {
     if (busy) return;
     if (Object.keys(pending.remove).length) { toast.info('Save or discard removals before copying rows.'); return; }
+    if (Object.keys(pending.arrangement ?? {}).length) { toast.info('Save or discard the row moves first, then copy.'); return; }
     if (!row.parent || row.node.lineId == null) return;
-    const key = `copy-${++pasteNo.current}`;
-    const source = { ...row.node, role: copyText(roleOf(row)) };
-    setPending((p) => duplicateBelow(p, row, { key, sourceLineId: row.node.lineId as number, source, parentId: row.parent!.id,
-      parentKey: row.parent!.key, quantity: p.quantity[row.node.lineId as number] ?? String(row.node.quantity) }));
+    setBusy('save');
+    const lineId = row.node.lineId as number;
+    const out = await bom.saveChanges([{ op: 'paste', sourceLineId: lineId, parentId: row.parent.id, afterLineId: lineId,
+      quantity: parseQuantity(pending.quantity[lineId] ?? String(row.node.quantity)) ?? row.node.quantity, role: roleOf(row) ?? null }]);
+    setBusy(null);
+    if (!out) { showError(); return; }
+    if (orderGrid) gridValues.reload();
+    if (!orderGrid) void values.refreshAll();
     setOpen(new Set([...expanded, row.parent.key]));
+    toast.success(`Copied ${row.node.code ?? row.node.name} — the new row is below it.`);
+    const cut = cutPiecesNote(out.cutPieces);
+    if (cut) toast[cut.tone](cut.text);
   };
   const dropRefusal = (from: BomRow, to: BomRow, position: DropPosition): string | null => {
     if (!editOn || busy) return 'This structure cannot be changed right now.';
@@ -628,7 +644,7 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
         {!removed && <Tooltip title={dirty ? 'Save changes before adding lines or editing details' : `More actions for ${name}`}><span><IconButton size="small" aria-label={`More actions for ${name}`} disabled={dirty || !!busy} onClick={(e) => setRowMenu({ anchor: e.currentTarget, row })}><MoreHorizRounded fontSize="small" /></IconButton></span></Tooltip>}
         {!removed && (
           <RowButton disabled={!!busy} label={`Copy ${name} below`}
-            onClick={() => duplicate(row)}>
+            onClick={() => void duplicate(row)}>
             <ContentCopyRounded fontSize="small" />
           </RowButton>
         )}
@@ -703,11 +719,12 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
   };
 
   return (
-    <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 2 }}>
+    <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 1 }}>
       {bom.actionError && <Box ref={errorAt} sx={{ scrollMarginTop: 96 }}><ErrorNotice error={bom.actionError} sx={{ mb: 0 }} /></Box>}
-      <SectionCard title={type.title}
-        subtitle={gapsOn ? `${type.body} Each row shows its own values beside it; amber cells are required and still empty.` : type.body}
-        actions={(
+      <SectionCard
+        title={orderGrid ? undefined : type.title}
+        subtitle={orderGrid ? undefined : type.body}
+        actions={orderGrid ? undefined : (
           // The card's action box never shrinks, so on a phone these would run
           // off the card; at min-content they stack instead.
           <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', width: { xs: 'min-content', sm: 'auto' }, '& > *': { whiteSpace: 'nowrap' } }}>
@@ -728,20 +745,29 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
             {!dirty && !busy && canAddToRoot && addButton()}
           </Box>
         )}>
-        {why && <Alert severity="info" sx={{ mb: 2 }}>{why}</Alert>}
-        {gapsOn && !why && gridValues.data?.lock && <Alert severity="info" sx={{ mb: 2 }}>{gridValues.data.lock.message}</Alert>}
+        {why && <Alert severity="info" sx={{ mb: 0.5, py: 0, fontSize: 12.5, '& .MuiAlert-icon': { py: '6px', fontSize: 18 }, '& .MuiAlert-message': { py: '6px' } }}>{why}</Alert>}
+        {gapsOn && !why && gridValues.data?.lock && <Alert severity="info" sx={{ mb: 0.5, py: 0, fontSize: 12.5, '& .MuiAlert-icon': { py: '6px', fontSize: 18 }, '& .MuiAlert-message': { py: '6px' } }}>{gridValues.data.lock.message}</Alert>}
+        <Box data-testid="grid-toolbar" sx={orderGrid ? { display: 'flex', columnGap: 0.75, rowGap: 0.25, alignItems: 'center', flexWrap: 'wrap', mb: 0.25, '& .MuiFormControlLabel-root': { height: 28 }, '& .MuiSwitch-root': { my: '-5px' }, '& .MuiButton-root': { minHeight: 28, py: 0.25 } } : { display: 'contents' }}>
+        {orderGrid && (
+          <Box component="h2" sx={{ m: 0, fontSize: 14, fontWeight: 600, color: 'var(--c-text)', display: 'flex', alignItems: 'center', gap: 0.5, whiteSpace: 'nowrap' }}>
+            {type.title}
+            <Tooltip title={`${type.body} Each row shows its own values beside it; amber cells are required and still empty. ${flowsOnly ? 'Only flows can change · changes wait for Save' : 'Type in a cell · an arrow, Enter or Tab keeps it · copy adds a row below at once · drag to rearrange · changes wait for Save'}`}><InfoOutlined aria-label="About this grid" sx={{ fontSize: 16, color: 'var(--c-text-3)' }} /></Tooltip>
+          </Box>
+        )}
         {gapsOn && gridValues.data && (
-          <Box data-testid="values-summary" sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap', mb: 1.5 }}>
+          <Box data-testid="values-summary" sx={orderGrid ? { display: 'contents' } : { display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap', mb: 1.5 }}>
             {gapTotal > 0
               ? <DangerBadge label={gapSentence(liveGaps!)} title="Required values that are still empty. The line cannot be frozen until they are filled." />
               : <Typography data-testid="values-allclear" sx={{ fontSize: 13, color: 'var(--c-success-800)' }}>{gapSentence(liveGaps!)}</Typography>}
             {gapTotal > 0 && <Button size="small" data-testid="next-missing" startIcon={<PlaylistAddCheckRounded />} onClick={jumpToGap}>Next missing</Button>}
           </Box>
         )}
-        <Box sx={{ display: 'flex', gap: 3, flexWrap: 'wrap', alignItems: 'center', mb: 2 }}>
+        <Box sx={orderGrid ? { display: 'contents' } : { display: 'flex', gap: 3, flexWrap: 'wrap', alignItems: 'center', mb: 2 }}>
           {state.bom && !custom && <Fact label="Status"><StatusBadge status={state.bom.status} /></Fact>}
           {state.bom && !custom && <Fact label="Revision"><Mono>{state.bom.revision ?? '—'}</Mono></Fact>}
-          <Fact label="In the structure"><Mono>{state.stats.nodes - 1}</Mono></Fact>
+          {orderGrid
+            ? null
+            : <Fact label="In the structure"><Mono>{state.stats.nodes - 1}</Mono></Fact>}
           {state.stats.drafts > 0 && <Fact label="Still draft"><WarnBadge label={`${state.stats.drafts} draft`} title="Catalog items in the structure that are not active yet — release needs every one of them active." /></Fact>}
           {state.stats.unresolved > 0 && <Fact label="To choose"><WarnBadge label={`${state.stats.unresolved} selection${state.stats.unresolved > 1 ? 's' : ''}`} title="Choose a catalog item for each of them before release." /></Fact>}
           {gapCount > 0 && !gapsOn && (
@@ -766,8 +792,8 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
             </Box>
           )}
         </Box>
-        {state.truncated && <Box sx={{ mb: 1 }}><WarnBadge label="Deeper levels not shown" title="The structure is deeper than this view goes." /></Box>}
-        <Box sx={{ display: 'flex', gap: 2, alignItems: 'baseline', mb: 1, minHeight: 18, flexWrap: 'wrap' }}>
+        {state.truncated && <Box sx={{ mb: 0.5 }}><WarnBadge label="Deeper levels not shown" title="The structure is deeper than this view goes." /></Box>}
+        <Box sx={orderGrid ? { display: 'contents' } : { display: 'flex', gap: 2, alignItems: 'baseline', mb: 1, minHeight: 18, flexWrap: 'wrap' }}>
           {/* A count that moves every few frames is not worth announcing; the
               tree carries aria-busy instead (§6.8). */}
           <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>
@@ -780,21 +806,49 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
           {gapsOn && (
             <FormControlLabel sx={{ m: 0, '& .MuiFormControlLabel-label': { fontSize: 12, color: 'var(--c-text-3)' } }}
               control={<Switch size="small" checked={onlyMissing} onChange={(e) => { setOnlyMissing(e.target.checked); jumpAt.current = -1; }} />}
-              label="Show only what’s missing" />
+              label="Only what’s missing" />
           )}
           {orderGrid && (
             <FormControlLabel sx={{ m: 0, '& .MuiFormControlLabel-label': { fontSize: 12, color: 'var(--c-text-3)' } }}
               control={<Switch size="small" checked={onlyUsed} onChange={(e) => setOnlyUsed(e.target.checked)} />}
-              label="Only columns these rows use" />
+              label="Used columns" />
           )}
           {editOn && flowRows.length > 1 && (
             <Button size="small" data-testid="bulk-flow-open" startIcon={<RouteRounded />} disabled={!!busy} onClick={() => setBulkFlow(true)}>
-              Change flow for several rows…
+              Change flow…
             </Button>
           )}
-          <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>
-            {flowsOnly ? 'Only flows can change · changes wait for Save' : 'Type in a cell · an arrow, Enter or Tab keeps it · copy inserts a row below · drag to rearrange · changes wait for Save'}
-          </Typography>
+          {orderGrid
+            ? null
+            : <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>
+              {flowsOnly ? 'Only flows can change · changes wait for Save' : 'Type in a cell · an arrow, Enter or Tab keeps it · copy adds a row below at once · drag to rearrange · changes wait for Save'}
+            </Typography>}
+        </Box>
+        {orderGrid && <Box component="span" ref={setLineUpEl} sx={{ display: 'inline-flex' }} />}
+        {orderGrid && (
+          <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center', '& > *': { whiteSpace: 'nowrap' } }}>
+            {narrowBar ? (
+              <>
+                <Tooltip title="More: download, upload, expand, collapse"><IconButton size="small" aria-label="More" aria-haspopup="menu" onClick={(e) => setMoreAnchor(e.currentTarget)}><MoreHorizRounded fontSize="small" /></IconButton></Tooltip>
+                <Menu anchorEl={moreAnchor} open={!!moreAnchor} onClose={() => setMoreAnchor(null)}>
+                  <MenuItem disabled={sheetBusy != null || dirty} onClick={() => { setMoreAnchor(null); void doDownloadSheet(); }}>Download Excel</MenuItem>
+                  {canSheetEdit && <MenuItem disabled={sheetBusy != null || dirty} onClick={() => { setMoreAnchor(null); sheetInput.current?.click(); }}>Upload Excel</MenuItem>}
+                  {deep && !onlyMissing && <MenuItem onClick={() => { setMoreAnchor(null); setOpen(new Set(openableKeys(root))); }}>Expand all</MenuItem>}
+                  {deep && !onlyMissing && <MenuItem onClick={() => { setMoreAnchor(null); setOpen(new Set([root.key])); }}>Collapse all</MenuItem>}
+                </Menu>
+              </>
+            ) : (
+              <>
+                <Button size="small" startIcon={sheetBusy === 'download' ? <CircularProgress size={14} color="inherit" /> : <DownloadRounded />} onClick={doDownloadSheet} disabled={sheetBusy != null || dirty}>Download</Button>
+                {canSheetEdit && <Button size="small" startIcon={sheetBusy === 'preview' ? <CircularProgress size={14} color="inherit" /> : <UploadFileRounded />} onClick={() => sheetInput.current?.click()} disabled={sheetBusy != null || dirty}>Upload</Button>}
+                {deep && !onlyMissing && <Button size="small" startIcon={<UnfoldMoreRounded />} onClick={() => setOpen(new Set(openableKeys(root)))}>Expand</Button>}
+                {deep && !onlyMissing && <Button size="small" startIcon={<UnfoldLessRounded />} onClick={() => setOpen(new Set([root.key]))}>Collapse</Button>}
+              </>
+            )}
+            {canSheetEdit && <input ref={sheetInput} type="file" accept=".xlsx,.csv" hidden onChange={chooseSheet} />}
+            {!dirty && !busy && canAddToRoot && <Button size="small" variant="contained" startIcon={<AddRounded />} onClick={() => setAdding(root)}>Add line</Button>}
+          </Box>
+        )}
         </Box>
         <>
             <ErrorNotice error={gridValues.error} onRetry={gridValues.reload} />
@@ -803,7 +857,7 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
               canEditValues={(row) => !removedKeys.has(row.node.key) && !goneKeys.has(row.node.key) && (orderGrid ? editOn && mine(row.node) : mayEditValues(row.node))}
               onToggle={(key) => { const next = new Set(expanded); if (next.has(key)) next.delete(key); else next.add(key); setOpen(next); }}
               onlyUsedColumns={orderGrid && onlyUsed} roleOf={roleOf} canEditRole={canEditRole} onRole={onRole}
-              gaps={liveGaps ?? undefined} handleRef={gridHandle}
+              gaps={liveGaps ?? undefined} handleRef={gridHandle} lineUpSlot={orderGrid ? lineUpEl : undefined}
               onWrites={onGridWrites} onMove={onGridMove} dropRefusal={dropRefusal} trailingCell={trailingCell} flowCell={flowCell} markOf={markOf} placeholderOf={placeholderOf}
               footer={gapsOn && onlyMissing
                 ? rows.length === 0 && !!gridValues.data && <EmptyState title={onlyMissing ? 'Nothing is missing' : 'Nothing below it yet'} hint={onlyMissing ? 'Every required value on this line is filled.' : undefined} />
@@ -835,11 +889,6 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
               {Object.keys(pending.remove).length > 0 && (
                 <Typography sx={{ fontSize: 12, color: 'var(--c-text-2)', mt: 0.25 }}>
                   Removals are saved on their own — Save removals first, then copy or move rows.
-                </Typography>
-              )}
-              {counts.paste > 0 && (
-                <Typography sx={{ fontSize: 12, color: 'var(--c-text-2)', mt: 0.25 }}>
-                  A copy can be edited once it is saved. Its description reads “… (copy)” until you change it.
                 </Typography>
               )}
               {checkedNow && (

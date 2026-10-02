@@ -230,7 +230,7 @@ export function BomTree({
                       {n.lineNo != null && <Mono muted>{n.lineNo}</Mono>}
                       {/* A copy that is not saved yet has no record to link to — and will not carry this code. */}
                       {row.paste
-                        ? <Typography component="span" sx={{ fontSize: 12, color: 'var(--c-text-2)' }}>Copy of <Mono>{n.code ?? n.name}</Mono></Typography>
+                        ? <Typography component="span" sx={{ fontSize: 12, color: 'var(--c-text-2)' }}><Mono>{n.code ?? n.name}</Mono></Typography>
                         : placeholder && (n.code == null || placeholder.itemCode !== undefined)
                           ? (
                             <Tooltip title={placeholder.title}>

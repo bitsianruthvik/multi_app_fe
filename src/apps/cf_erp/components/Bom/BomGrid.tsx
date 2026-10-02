@@ -22,7 +22,7 @@ function CodeText({ code, itemCode }: { code: string; itemCode: string | null })
   return <><Box component="span" data-testid="row-code" sx={{ fontFamily: 'var(--font-mono)' }}>{code}</Box>{itemCode && itemCode !== code ? <Box component="span" sx={{ fontFamily: 'var(--font-mono)' }}> · {itemCode}</Box> : null}</>;
 }
 
-export function BomGrid({ rows, view, records: recordValues, recordIds, pending, busy, canEdit, canEditValues, onToggle, onWrites, onMove, dropRefusal, trailingCell, flowCell, markOf, placeholderOf, roleOf, canEditRole, onRole, onlyUsedColumns, footer, gaps, handleRef }: {
+export function BomGrid({ rows, view, records: recordValues, recordIds, pending, busy, canEdit, canEditValues, onToggle, onWrites, onMove, dropRefusal, trailingCell, flowCell, markOf, placeholderOf, roleOf, canEditRole, onRole, onlyUsedColumns, footer, gaps, handleRef, lineUpSlot }: {
   rows: BomRow[]; view: ValuesView | null; pending: Pending; busy: boolean; canEdit: (row: BomRow) => boolean;
   records?: SpecValues; recordIds?: number[]; canEditValues: (row: BomRow) => boolean;
   onToggle: (key: string) => void; onWrites: (writes: GridWrite[]) => void;
@@ -45,6 +45,8 @@ export function BomGrid({ rows, view, records: recordValues, recordIds, pending,
   gaps?: ReadonlyMap<number, string[]>;
   /** The grid's handle, for a screen that jumps to a cell. */
   handleRef?: RefObject<SheetGridHandle | null>;
+  /** The toolbar element the "Line up all columns" switch is drawn into. */
+  lineUpSlot?: HTMLElement | null;
 }) {
   const ownHandle = useRef<SheetGridHandle>(null);
   const grid = handleRef ?? ownHandle;
@@ -151,7 +153,7 @@ export function BomGrid({ rows, view, records: recordValues, recordIds, pending,
 
   return <>
     <SheetGrid ref={grid} ariaLabel="BOM spreadsheet" busy={busy || (!view && !recordValues)} footer={footer}
-      cornerHeader="BOM line" rowHeaderWidth={400} rowHeight={46}
+      lineUpSlot={lineUpSlot} cornerHeader="BOM line" rowHeaderWidth={560} rowHeight={42} fillViewport
       hint="Type to fill a cell · Enter, Tab or an arrow keeps it and moves on · F2 edits in place · Ctrl+C / Ctrl+V copy and paste · Ctrl+D fills down · Shift-click selects a block · Drag the handle to move a row"
       rowColumns={(key) => { const row = rowByKey.get(key); return row ? rowColumns(row) : []; }} prefKey="bom-grid"
       columns={columns.map((col, i) => ({ key: col.code, label: col.name, width: i < 2 ? 88 : 145,
@@ -178,13 +180,13 @@ export function BomGrid({ rows, view, records: recordValues, recordIds, pending,
                 sx={{ width: '100%', font: 'inherit', fontSize: 12, p: '1px 4px', border: '1px solid var(--c-primary-400)', borderRadius: 'var(--r-sm)', background: 'var(--c-surface)', color: 'var(--c-text)' }} />
             ) : (
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25, minWidth: 0 }}>
-                <Box onDoubleClick={roleEditable ? () => startRole(row) : undefined} title={roleEditable ? 'Double-click to change the description' : undefined}
+                <Box onDoubleClick={roleEditable ? () => startRole(row) : undefined} title={`${rowLabel(n.name, roleText)}${roleEditable ? ' — double-click to change the description' : ''}`}
                   sx={{ fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>{rowLabel(n.name, roleText)}</Box>
                 {roleEditable && <Tooltip title="Change the description"><IconButton size="small" aria-label={`Edit description of ${n.name}`} onClick={() => startRole(row)} sx={{ p: 0.25, color: 'var(--c-text-3)' }}><EditOutlined sx={{ fontSize: 14 }} /></IconButton></Tooltip>}
               </Box>
             )}
-            <Box sx={{ fontSize: 10, color: 'var(--c-text-3)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={placeholderOf(row)?.title}>{row.paste ? `New copy${row.paste.source.children.length ? ' with children' : ''} · Save to edit this copy` : <CodeText code={placeholderOf(row)?.code ?? (n.kind === 'temporary' ? '' : n.code ?? '')} itemCode={placeholderOf(row)?.itemCode ?? null} />}{mark && !row.paste ? ` · ${mark.label}` : ''}</Box>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, minWidth: 0 }}>
+            <Box sx={{ fontSize: 10, color: 'var(--c-text-3)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }} title={placeholderOf(row)?.title}>{row.paste ? `New copy${row.paste.source.children.length ? ' with children' : ''}` : <CodeText code={placeholderOf(row)?.code ?? (n.kind === 'temporary' ? '' : n.code ?? '')} itemCode={placeholderOf(row)?.itemCode ?? null} />}{mark && !row.paste ? ` · ${mark.label}` : ''}</Box>
               {flowCell(row)}
               {(gaps?.get(n.id)?.length ?? 0) > 0 && <Box component="span" data-testid="row-gaps" title={`Required values still empty: ${gaps?.get(n.id)?.join(', ')}`}
                 sx={{ fontSize: 10.5, fontWeight: 600, px: 0.75, borderRadius: 'var(--r-sm)', background: 'var(--c-warning-200)', color: 'var(--c-warning-800)', whiteSpace: 'nowrap' }}>{gaps?.get(n.id)?.length} missing</Box>}

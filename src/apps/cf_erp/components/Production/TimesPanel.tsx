@@ -198,7 +198,7 @@ export function TimesPanel({ orderId, lineId }: { orderId: number; lineId: numbe
       <ErrorNotice error={load.error} onRetry={load.reload} />
       {view.operations.length === 0
         ? <Typography sx={{ fontSize: 13.5, color: 'var(--c-text-2)' }}>Nothing on this line has a flow yet, so there are no operations to time.</Typography>
-        : <SheetGrid ariaLabel="Times" cornerHeader="Piece" rowHeaderWidth={300} busy={load.loading} onProblem={setProblem} hint={null} historyKey={`${lineId}:${setup}`}
+        : <SheetGrid ariaLabel="Times" cornerHeader="Piece" rowHeaderWidth={360} fillViewport busy={load.loading} onProblem={setProblem} hint={null} historyKey={`${lineId}:${setup}`}
           // Each row shows only the operations in its own flow, in flow order, then its total.
           rowColumns={(key) => { const r = rowByKey.get(key); if (!r || !Object.keys(r.cells).length) return []; return [...operations.filter((o) => r.cells[o.id]).map((o) => String(o.id)), TOTAL]; }}
           prefKey="times"

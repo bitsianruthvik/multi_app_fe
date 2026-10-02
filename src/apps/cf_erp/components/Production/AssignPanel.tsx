@@ -216,7 +216,7 @@ export function AssignPanel({ orderId, lineId }: { orderId: number; lineId: numb
         </Box>
       )}
       <ErrorNotice error={load.error} onRetry={load.reload} />
-      <SheetGrid ariaLabel="Contractors" cornerHeader="Piece" rowHeaderWidth={300} busy={load.loading} onProblem={setProblem} hint={null}
+      <SheetGrid ariaLabel="Contractors" cornerHeader="Piece" rowHeaderWidth={360} fillViewport busy={load.loading} onProblem={setProblem} hint={null}
         onSelectionChange={setSel}
         rowColumns={(key) => { const r = rowByKey.get(key); return r ? view.operations.filter((o) => r.cells[o.id]).map((o) => String(o.id)) : []; }} prefKey="contractors"
         columns={view.operations.map((o) => ({ key: String(o.id), label: o.name, short: opShortLabel(o), stripWidth: 120, header: o.name, width: 130 }))}

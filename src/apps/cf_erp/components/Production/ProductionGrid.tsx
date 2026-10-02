@@ -198,7 +198,7 @@ export function ProductionGrid({ lineId, canAct, onChanged }: {
         ? <Typography sx={{ fontSize: 13.5, color: 'var(--c-text-2)' }}>Nothing on this line has a step — it is bought in, so only its material is tracked.</Typography>
         : (
           <Box sx={{ opacity: loading ? 0.6 : 1, transition: 'opacity var(--t-fast) var(--ease)' }}>
-            <SheetGrid ariaLabel="Production by piece and operation" cornerHeader="Piece" rowHeaderWidth={400} rowHeight={30} hint={null} narrowReadOnly={false}
+            <SheetGrid ariaLabel="Production by piece and operation" cornerHeader="Piece" rowHeaderWidth={440} fillViewport rowHeight={30} hint={null} narrowReadOnly={false}
               busy={loading || busy.size > 0} onProblem={setProblem} historyKey={String(lineId)}
               // Each piece shows its % done and only the operations in its own flow.
               rowColumns={(key) => { const r = tree.byId.get(key); return r ? [PCT, ...ops.filter((o) => r.cells[String(o.id)]).map((o) => String(o.id))] : []; }} prefKey="production-grid"

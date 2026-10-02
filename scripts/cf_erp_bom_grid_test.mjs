@@ -153,10 +153,20 @@ await check('A typed description is sent as a role change; unchanged text sends 
   assert.equal(m.pendingChanges({ ...m.NO_PENDING, role: { 40: '' } }, byLine).changes.length, 0);
   assert.deepEqual(m.pendingChanges({ ...m.NO_PENDING, role: { 40: '  ' }, quantity: {} }, m.nodesByLine(node(1, [node(4, [], { role: 'End' })], { lineId: null }))).changes, [{ op: 'role', lineId: 40, role: null }]);
 });
-await check('A copy is sent with its own description', () => {
-  const src = { ...row(4).node, role: 'Girder G1 (copy)' };
-  const draft = m.duplicateBelow(m.NO_PENDING, row(4), { key: 'copy-r', source: src, sourceLineId: 40, parentId: 2, parentKey: 'k2', quantity: '1' });
-  assert.equal(m.pendingChanges(draft, m.nodesByLine(tree)).changes.find((ch) => ch.op === 'paste').role, 'Girder G1 (copy)');
+await check('A copy keeps its source description and is made at once (no "(copy)", no "Copy of")', async () => {
+  const fsx = await import('node:fs');
+  const dir = new URL('../src/apps/cf_erp/components/Bom/', import.meta.url);
+  const panel = fsx.readFileSync(new URL('BomPanel.tsx', dir), 'utf8');
+  const tree = fsx.readFileSync(new URL('BomTree.tsx', dir), 'utf8');
+  const grid = fsx.readFileSync(new URL('BomGrid.tsx', dir), 'utf8');
+  for (const [name, text] of [['BomPanel', panel], ['BomTree', tree], ['BomGrid', grid]]) {
+    for (const bad of ['(copy)', 'Copy of ', 'Save to edit this copy']) assert.ok(!text.includes(bad), `${name} still words a copy as a copy: ${bad}`);
+  }
+  // The Copy button sends ONE paste change straight away, after the source, with the source's own description.
+  const dup = panel.slice(panel.indexOf('const duplicate = async'), panel.indexOf('const dropRefusal'));
+  assert.ok(dup.includes("bom.saveChanges([{ op: 'paste', sourceLineId: lineId, parentId: row.parent.id, afterLineId: lineId"), 'one paste, right after the source');
+  assert.ok(dup.includes('role: roleOf(row)'), "with the source's own description");
+  assert.ok(!/setPending/.test(dup), 'a copy must not wait in the pending state');
 });
 const roleProps = { ...props, view, pending: m.NO_PENDING, records: undefined, canEditValues: () => true, canEdit: () => true };
 let roleSaved = [];
@@ -205,10 +215,10 @@ await check('Double-clicking the label opens it too, and Escape changes nothing'
   assert.equal(document.querySelector('input[aria-label="Description of Row 4"]'), null);
   assert.deepEqual(roleSaved, []);
 });
-await check('A draft copy says to save it first', async () => {
+await check('A legacy pending copy is just marked new (no "Save to edit this copy")', async () => {
   const c = m.duplicateBelow(m.NO_PENDING, row(4), { key: 'copy-h', source: row(4).node, sourceLineId: 40, parentId: 2, parentKey: 'k2', quantity: '1' });
   await render({ ...roleGrid, rows: m.arrangedRows(tree, expanded, c), pending: c });
-  assert.match(document.body.textContent, /Save to edit this copy/);
+  assert.ok(document.body.textContent.includes('New copy') && !document.body.textContent.includes('Save to edit this copy'));
 });
 const colView = { editable: true, optionLists: {}, groups: [{ columns: [
   { code: 'LENGTH', name: 'Length', dataType: 'number', rule: 'entered', editable: true },

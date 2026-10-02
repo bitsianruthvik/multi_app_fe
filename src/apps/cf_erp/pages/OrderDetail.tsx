@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Autocomplete, Box, Button, CircularProgress, IconButton, MenuItem, TextField, Tooltip, Typography } from '@mui/material';
+import { Autocomplete, Box, Button, CircularProgress, IconButton, MenuItem, TextField, Tooltip } from '@mui/material';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import EditRounded from '@mui/icons-material/EditRounded';
 import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
@@ -37,7 +37,7 @@ import { OrderLinesPanel } from '../components/OrderLinesPanel';
 import { OrderCostsCard } from '../components/OrderCostsCard';
 import { CustomerMaterialPanel } from '../components/CustomerMaterialPanel';
 import { rupeeText } from '../lib/money';
-import { Explain, OrderStageTabs, ProcessAbsentNote, StageTabsSkeleton } from '../components/OrderProcess/StageTabs';
+import { Explain, OrderStageTabs, ProcessAbsentChip, ProcessAbsentNote, StageTabsSkeleton } from '../components/OrderProcess/StageTabs';
 import { StageBody } from '../components/OrderProcess/StageBody';
 import { StageFoot } from '../components/OrderProcess/StageFoot';
 import { ConfirmOrderDialog } from '../components/OrderProcess/ConfirmOrderDialog';
@@ -335,9 +335,10 @@ export default function OrderDetail() {
   const updateRelease = (next: ReleaseSummary) => production.setData((cur) => (cur ? { ...cur, releases: cur.releases.map((x) => (x.id === next.id ? next : x)) } : cur));
   const reloadAll = () => { order.reload(); production.reload(); moves.reload(); processView.reload(); };
 
+  const noProcessChip = settled && !model && view ? <ProcessAbsentChip view={view} /> : null;
   const header = (
     <DetailHeader code={o.code} title={o.title ?? 'Untitled'} subtitle={o.customer ? `${o.customer.name}${o.customerReference ? ` · their reference ${o.customerReference}` : ''}` : 'Made for stock'}
-      badges={<>{showRevision(o) && <RevisionBadge revision={o.revision} />}<OrderTypeChip type={o.orderType} /><OrderStatusBadge status={o.status} />{o.overdue && <DangerBadge label="Past committed date" />}</>}
+      badges={<>{showRevision(o) && <RevisionBadge revision={o.revision} />}<OrderTypeChip type={o.orderType} /><OrderStatusBadge status={o.status} />{o.overdue && <DangerBadge label="Past committed date" />}{noProcessChip}</>}
       actions={canManage && (
         <>
           {o.allowedTransitions.map((next) => (
@@ -359,7 +360,6 @@ export default function OrderDetail() {
       )}
       facts={(
         <>
-          <Fact label="Customer">{o.customer ? o.customer.name : 'For stock'}</Fact>
           <Fact label="Received"><Mono muted={!o.receivedOn}>{o.receivedOn ?? '—'}</Mono></Fact>
           <Fact label="Committed"><Mono muted={!o.committedDate}>{o.committedDate ?? '—'}</Mono></Fact>
           {o.confirmedAt && <Fact label="Confirmed"><Mono muted>{new Date(o.confirmedAt).toLocaleDateString()}</Mono></Fact>}
@@ -397,7 +397,8 @@ export default function OrderDetail() {
       </Box>
     );
   } else if (settled) {
-    band = <ProcessAbsentNote view={view} error={processView.error} onRetry={processView.reload} />;
+    // With a view the reason is a chip in the header line; only a failed read keeps a row.
+    band = view ? null : <ProcessAbsentNote view={view} error={processView.error} onRetry={processView.reload} />;
   } else {
     band = <StageTabsSkeleton />;
   }
@@ -431,18 +432,13 @@ export default function OrderDetail() {
     // With stages the switcher above the tabs already names the line; without, this tab has its own picker.
     const lineId = model ? model.line?.lineId ?? null : plainLine;
     body = lineId != null && (
-      <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 1.5 }}>
-        {!model && (
-          <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'center', flexWrap: 'wrap' }}>
-            <TextField select size="small" label="Line" value={lineId} onChange={(e) => pickLine(Number(e.target.value))} sx={{ minWidth: { xs: '100%', sm: 280 }, maxWidth: '100%' }}>
+      <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 1 }}>
+        {!model && lines.length > 1 && (
+          <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
+            <TextField select size="small" label="Line" value={lineId} onChange={(e) => pickLine(Number(e.target.value))}
+              sx={{ minWidth: { xs: '100%', sm: 280 }, maxWidth: '100%', '& .MuiInputBase-root': { fontSize: 13 }, '& .MuiSelect-select': { py: '5px' } }}>
               {lines.map((l) => <MenuItem key={l.id} value={l.id}>{`${l.lineNo} · ${l.item?.code ?? '—'} · ${l.item?.name ?? ''} ×${l.quantity}`}</MenuItem>)}
             </TextField>
-            {/* A standard line's tree explains itself, with a link to the item. */}
-            {lines.find((l) => l.id === lineId)?.lineType === 'custom' && (
-              <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)', flex: 1, minWidth: 220 }}>
-                Temporary items are made for this order. Their codes are built from the order number and their place in the structure.
-              </Typography>
-            )}
           </Box>
         )}
         <BomPanel key={lineId} source={{ kind: 'orderLine', lineId }} onChanged={() => { order.reload(); processView.reload(); }} />
@@ -479,7 +475,16 @@ export default function OrderDetail() {
   }
 
   return (
-    <DetailLayout header={header} crossLinks={crossLinks} beforeTabs={<>{revisedNote}{band}</>}
+    <DetailLayout header={header} crossLinks={crossLinks} beforeTabs={<>{revisedNote}{band}</>} maxWidth="none"
+      collapsible={{ id: 'order', summary: (
+        <>
+          <Mono sx={{ fontWeight: 500, color: 'var(--c-text)' }}>{o.code}</Mono>
+          <Box component="span" sx={{ color: 'var(--c-text-2)' }}>{o.customer ? o.customer.name : 'For stock'}</Box>
+          <OrderStatusBadge status={o.status} />
+          {noProcessChip}
+          {o.total && lines.length > 0 && o.total.unpricedLines.length < lines.length && <Mono>{rupeeText(o.total.amount)}</Mono>}
+        </>
+      ) }}
       // With stages the tab row above is the tabs; without, the plain ones draw here.
       tabs={model || !settled ? undefined : tabs}
       // A new line is a new screen too, so switching it cross-fades like a tab.

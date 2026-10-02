@@ -122,7 +122,7 @@ export function AppShell({
             display: 'flex',
             alignItems: 'center',
             gap: 0.5,
-            height: 40,
+            height: 34,
             px: { xs: 1, md: 2 },
             flexShrink: 0,
             minWidth: 0,
@@ -201,7 +201,8 @@ export function AppShell({
         <Box
           key={pathname}
           sx={{
-            p: { xs: 2, md: 3 },
+            // A detail route is a working screen: less air above it than a list gets.
+            p: { xs: 2, md: onDetail ? 1.5 : 3 },
             minHeight: '100%',
             // Route cross-fade (§5.7-7); reduced motion is guarded in tokens.css.
             animation: 'ui-route-in 200ms var(--ease)',

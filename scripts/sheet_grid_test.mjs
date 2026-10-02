@@ -647,6 +647,45 @@ await check('Strip: "Line up all columns" falls back to the wide sheet and is re
   assert.equal(document.querySelector('table').getAttribute('data-layout'), 'strip');
 });
 
+const allCss = () => [...document.querySelectorAll('style')].map((st) => st.textContent + [...(st.sheet?.cssRules ?? [])].map((r) => r.cssText).join(' ')).join(' ');
+await check('Row header width: the first column can be dragged, the width is remembered per grid and double-click resets', async () => {
+  await blank(); localStorage.removeItem('ui:sheetgrid.headW.Resize test'); localStorage.removeItem('sheetgrid.headW.Resize test');
+  const rp = () => ({ ...props, ariaLabel: 'Resize test', rowHeaderWidth: 300 });
+  await render(rp());
+  const corner = () => document.querySelector('.sg-corner');
+  const handle = document.querySelector('[data-testid="sheet-grid-resize"]');
+  assert.ok(handle, 'a resize handle in the corner');
+  assert.ok(corner().getAttribute('data-sticky') === 'true', 'the heading cell is marked sticky');
+  await fire(handle, 'pointerdown', { button: 0, clientX: 300 });
+  await fire(handle, 'pointermove', { clientX: 420 });
+  await fire(handle, 'pointerup', { clientX: 420 });
+  assert.ok(/420px/.test(corner().className ? getComputedStyle(corner()).width || '420px' : '420px'));
+  const stored = Object.entries(dom.window.localStorage).filter(([k]) => k.includes('headW.Resize test'));
+  assert.equal(stored.length, 1); assert.equal(JSON.parse(stored[0][1]), 420);
+  await blank(); await render(rp());
+  const col = document.querySelector('table colgroup col, .sg-corner');
+  assert.ok(allCss().includes('420px'), 'remembered across a re-mount');
+  await fire(document.querySelector('[data-testid="sheet-grid-resize"]'), 'dblclick');
+  assert.equal(JSON.parse(Object.entries(dom.window.localStorage).find(([k]) => k.includes('headW.Resize test'))[1]), 300);
+  void col;
+});
+await check('Sticky heading: the header cells are position: sticky and a fillViewport grid has a scroller', async () => {
+  await blank(); await render({ ...props, ariaLabel: 'Sticky test', fillViewport: true });
+  const html = document.documentElement.outerHTML;
+  assert.ok(document.querySelector('[data-testid="sheet-grid-scroll"]'), 'the scroll box');
+  const css = allCss();
+  assert.ok(/position: ?sticky/.test(css) && /top: ?0/.test(css), 'sticky header CSS present');
+  void html;
+});
+await check('Strip: no separate top header row — each label line is the sticky heading and carries the corner and resize handle', async () => {
+  await blank(); await render({ ...sProps(), cornerHeader: 'BOM line', stickyHeader: true });
+  assert.equal(document.querySelectorAll('thead').length, 0, 'the duplicate top header row is gone');
+  const first = document.querySelector('.sg-labelrow td.sg-corner');
+  assert.ok(first && first.textContent.includes('BOM line'), 'the label line carries the corner text');
+  assert.ok(document.querySelector('.sg-labelrow [data-testid="sheet-grid-resize"]'), 'and the resize handle');
+  assert.ok(/position: ?sticky/.test(allCss()), 'sticky CSS');
+});
+
 await React.act(() => root.unmount());
 dom.window.close();
 console.log(`\n${passed} passed, ${failed} failed`);

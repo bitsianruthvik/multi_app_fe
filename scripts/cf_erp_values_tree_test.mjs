@@ -137,7 +137,7 @@ await check('merged tab: the stage screens no longer draw a separate Values pane
   assert.doesNotMatch(body, /mode="values"/);
   const panel = await readFile('src/apps/cf_erp/components/Bom/BomPanel.tsx', 'utf8');
   assert.ok(!panel.includes("mode?: 'structure' | 'values'"), 'BomPanel has no values mode');
-  assert.match(panel, /Show only what’s missing/); assert.match(panel, /next-missing/);
+  assert.match(panel, /Only what’s missing/); assert.match(panel, /next-missing/);
 });
 // The dimensions rule on the values grid: the view above has LENGTH and WIDTH, so every row with either leads with Thk · L · W.
 await React.act(() => root.render(React.createElement(m.BomGrid, props(rows, m.computeGaps(view, undefined)))));
