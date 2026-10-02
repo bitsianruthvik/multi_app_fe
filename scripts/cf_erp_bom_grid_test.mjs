@@ -13,10 +13,11 @@ for (const key of ['window', 'document', 'navigator', 'HTMLElement', 'Element', 
   Object.defineProperty(globalThis, key, { value: dom.window[key], configurable: true });
 }
 globalThis.getComputedStyle = dom.window.getComputedStyle.bind(dom.window);
+Object.defineProperty(globalThis, 'localStorage', { value: dom.window.localStorage, configurable: true });
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const React = await import('react');
 const { createRoot } = await import('react-dom/client');
-const built = await build({ alias: { '@shared/ui': resolve('src/shared/ui/SheetGrid.tsx') }, stdin: { contents: `export * from './src/apps/cf_erp/components/Bom/BomGrid'; export * from './src/apps/cf_erp/components/Bom/bomArrangement'; export * from './src/apps/cf_erp/components/Bom/bomModel';`, resolveDir: process.cwd(), loader: 'tsx' }, bundle: true, write: false, format: 'esm', platform: 'node', packages: 'external', jsx: 'automatic' });
+const built = await build({ alias: { '@shared/ui': resolve('src/shared/ui/SheetGrid.tsx') }, stdin: { contents: `export * from './src/apps/cf_erp/components/Bom/BomGrid'; export * from './src/apps/cf_erp/components/Bom/bomArrangement'; export * from './src/apps/cf_erp/components/Bom/bomModel'; export * from './src/apps/cf_erp/lib/stripLayout';`, resolveDir: process.cwd(), loader: 'tsx' }, bundle: true, write: false, format: 'esm', platform: 'node', packages: 'external', jsx: 'automatic' });
 const cache = resolve('node_modules/.cache');
 await mkdir(cache, { recursive: true });
 const artifact = resolve(cache, `bom-grid-test-${process.pid}.mjs`);
@@ -73,16 +74,19 @@ await check('Shared subassemblies retain unique occurrence keys', () => {
 });
 
 rs = project(m.NO_PENDING);
+// (A plain value column, not a dimension — dimensions lead a row and are tested on their own below.)
 const view = { editable: true, optionLists: {}, groups: [{ columns: [
-  { code: 'LENGTH', name: 'Length', dataType: 'number', rule: 'entered', editable: true },
+  { code: 'LEN', name: 'Length', dataType: 'number', rule: 'entered', editable: true },
   { code: 'WEIGHT', name: 'Weight', dataType: 'number', rule: 'calculated', editable: false },
-], rows: rs.map((r) => ({ id: r.node.id, readOnly: r.node.id === 5 ? 'Shared item' : undefined, cells: { LENGTH: { input: String(r.node.id * 100) }, WEIGHT: { display: '50' } } })) }] };
+], rows: rs.map((r) => ({ id: r.node.id, readOnly: r.node.id === 5 ? 'Shared item' : undefined, cells: { LEN: { input: String(r.node.id * 100) }, WEIGHT: { display: '50' } } })) }] };
 let writes = [];
 const props = { rows: rs, view, pending: m.NO_PENDING, busy: false, canEdit: () => true, canEditValues: () => true,
   onWrites: (w) => { writes = w; }, onMove: () => {}, dropRefusal: () => null, onToggle: () => {}, trailingCell: () => null, flowCell: () => null, markOf: () => null, placeholderOf: () => null };
 const root = createRoot(document.getElementById('app'));
 const render = (p = props) => React.act(() => root.render(React.createElement(m.BomGrid, p)));
 const cell = (r, c) => document.querySelector(`[data-cell="${r}:${c}"]`);
+/** A data cell by its column key (strip layout puts a key in a different slot per row). */
+const cellKey = (r, key) => document.querySelector(`[data-cell^="${r}:"][data-col-key="${key}"]`);
 const fire = async (el, type, init = {}) => React.act(() => el.dispatchEvent(type.startsWith('key') ? new KeyboardEvent(type, { bubbles: true, ...init }) : new MouseEvent(type, { bubbles: true, ...init })));
 const clipboard = async (el, type, text = '') => {
   let copied;
@@ -120,9 +124,9 @@ await check('Dragging the handle advertises before/inside/after and moves the ro
 await check('Saving disables cell writes and dragging', async () => { writes = []; await render({ ...props, busy: true }); await fire(cell(2, 3), 'click'); await clipboard(cell(2, 3), 'paste', '500'); assert.equal(writes.length, 0); assert.ok([...document.querySelectorAll('[draggable]')].every((el) => el.getAttribute('draggable') === 'false')); });
 const resolution = { mode: 'setup', specs: [{ spec: { code: 'WIDTH', name: 'Width', dataType: 'number' }, captureAt: 'item', applicable: true, rule: { valueRule: 'fixed', isRequired: false }, value: { raw: 150, display: '150', from: 'here', source: 'entered' } }] };
 await render({ ...props, view: null, records: { get: () => ({ resolution }) }, canEditValues: (r) => r.node.depth === 0 });
-await check('Definition root keeps editable setup values', async () => { assert.equal(cell(0, 3).getAttribute('aria-readonly'), 'false'); await fire(cell(0, 3), 'dblclick'); assert.equal(document.querySelector('input').value, '150'); await fire(document.querySelector('input'), 'keydown', { key: 'Escape' }); });
-await check('Definition children keep specifications locked but quantities editable', () => { assert.equal(cell(1, 3).getAttribute('aria-readonly'), 'true'); assert.equal(cell(1, 1).getAttribute('aria-readonly'), 'false'); });
-await check('Locked child cell can still be copied', async () => { await fire(cell(1, 3), 'click'); assert.equal(await clipboard(cell(1, 3), 'copy'), '150'); });
+await check('Definition root keeps editable setup values', async () => { assert.equal(cellKey(0, 'WIDTH').getAttribute('aria-readonly'), 'false'); await fire(cellKey(0, 'WIDTH'), 'dblclick'); assert.equal(document.querySelector('input').value, '150'); await fire(document.querySelector('input'), 'keydown', { key: 'Escape' }); });
+await check('Definition children keep specifications locked but quantities editable', () => { assert.equal(cellKey(1, 'WIDTH').getAttribute('aria-readonly'), 'true'); assert.equal(cell(1, 1).getAttribute('aria-readonly'), 'false'); });
+await check('Locked child cell can still be copied', async () => { await fire(cellKey(1, 'WIDTH'), 'click'); assert.equal(await clipboard(cellKey(1, 'WIDTH'), 'copy'), '150'); });
 
 // ── cut pieces, descriptions, columns the rows use ───────────────────────────
 await check('Cut pieces are left out of the drawn rows, and its part loses the chevron goes', () => {
@@ -210,6 +214,9 @@ const colView = { editable: true, optionLists: {}, groups: [{ columns: [
   { code: 'LENGTH', name: 'Length', dataType: 'number', rule: 'entered', editable: true },
   { code: 'HOLED', name: 'Holed', dataType: 'boolean', rule: 'entered', editable: true },
 ], rows: rs.map((r) => ({ id: r.node.id, cells: r.node.id === 4 ? { LENGTH: { input: '1' } } : { LENGTH: { input: '2' } } })) }] };
+// The wide sheet ("Line up all columns"): one column per value, hatched where a row lacks it.
+await React.act(() => root.render(null));
+localStorage.setItem('ui:sheetgrid.lineUp.bom-grid', 'true');
 // HOLED is declared by the group but no row has a cell for it: nobody can use it.
 await check('Only columns some row uses: an unused column is hidden', async () => {
   await render({ ...props, view: colView, onlyUsedColumns: true });
@@ -269,6 +276,62 @@ await check('Record BOM rows show their position code, the same child twice with
   assert.match(document.body.textContent, /GLINE-002-SEG1 · SEG-002/);
   assert.equal([...document.body.textContent.matchAll(/Girder segment/g)].length >= 2, true);
   await render();
+});
+// ── strip layout: dimensions first (Thk · L · W), only a row's own cells ─────
+await check('dimensionsFirst: one dimension → all three lead, in the order Thk, L, W', () => {
+  assert.deepEqual(m.DIMENSION_CODES, ['THICKNESS', 'LENGTH', 'WIDTH']);
+  assert.deepEqual(m.dimensionsFirst(['GRADE', 'WIDTH']), ['THICKNESS', 'LENGTH', 'WIDTH', 'GRADE']);
+  assert.deepEqual(m.dimensionsFirst(['WIDTH', 'GRADE', 'LENGTH', 'THICKNESS', 'HOLED']), ['THICKNESS', 'LENGTH', 'WIDTH', 'GRADE', 'HOLED']);
+});
+await check('dimensionsFirst: none → skipped altogether, the rest keep their order', () => {
+  assert.deepEqual(m.dimensionsFirst(['GRADE', 'HOLED']), ['GRADE', 'HOLED']);
+  assert.deepEqual(m.dimensionsFirst([]), []);
+});
+await check('short labels: Thk / L / W for the dimensions, a cut name otherwise', () => {
+  assert.equal(m.shortLabel('THICKNESS', 'Thickness'), 'Thk'); assert.equal(m.shortLabel('LENGTH', 'Length'), 'L'); assert.equal(m.shortLabel('WIDTH', 'Width'), 'W');
+  assert.equal(m.shortLabel('ZZ', 'Coat'), 'Coat');
+  assert.equal(m.shortLabel('ZZ', 'A very long specification name'), 'A very long s…');
+  assert.equal(m.opShortLabel({ code: 'WLD', name: 'Welding' }), 'Welding');
+  assert.equal(m.opShortLabel({ code: 'SAW', name: 'Submerged arc welding' }), 'SAW');
+});
+await React.act(() => root.render(null));
+localStorage.removeItem('ui:sheetgrid.lineUp.bom-grid');
+const dimCol = (code, name, more = {}) => ({ code, name, dataType: 'number', rule: 'entered', editable: true, unit: 'mm', ...more });
+const dimView = { editable: true, optionLists: {}, groups: [{ columns: [
+  dimCol('GRADE', 'Grade', { dataType: 'option', unit: null }), dimCol('THICKNESS', 'Thickness'), dimCol('LENGTH', 'Length'), dimCol('WIDTH', 'Width'),
+], rows: rs.map((r) => ({ id: r.node.id, cells: r.node.id === 4 ? { THICKNESS: { input: '12' }, GRADE: { input: '' } }
+  : r.node.id === 5 ? { GRADE: { input: '' } }
+    : r.node.id === 2 ? { WIDTH: { input: '300' }, LENGTH: { input: '9000' }, THICKNESS: { input: '10' } } : {} })) }] };
+await render({ ...props, view: dimView });
+const rowIdx = (id) => rs.findIndex((r) => r.node.id === id);
+const keysIn = (id) => [...document.querySelectorAll(`[data-cell^="${rowIdx(id)}:"][data-col-key]`)].map((td) => td.getAttribute('data-col-key'));
+const labelsAbove = (id) => [...(document.querySelector(`tr[data-labels-for="k${id}"]`)?.querySelectorAll('td.sg-label') ?? [])].map((td) => td.textContent);
+await check('Structure grid draws the strip layout by default', () => assert.equal(document.querySelector('table').getAttribute('data-layout'), 'strip'));
+await check('A row with ONE dimension shows all three first (Thk · L · W); the ones it lacks are n/a so rows line up', () => {
+  assert.deepEqual(keysIn(4), ['$quantity', '$total', 'THICKNESS', 'LENGTH', 'WIDTH', 'GRADE']);
+  assert.equal(document.querySelector(`[data-cell^="${rowIdx(4)}:"][data-col-key="LENGTH"]`).getAttribute('data-na'), 'true');
+  assert.equal(document.querySelector(`[data-cell^="${rowIdx(4)}:"][data-col-key="THICKNESS"]`).textContent, '12');
+});
+await check('A row with all three dimensions shows them first too, in the same slots', () => {
+  assert.deepEqual(keysIn(2), ['$quantity', '$total', 'THICKNESS', 'LENGTH', 'WIDTH']);
+});
+await check('A row with NO dimension skips them altogether', () => {
+  assert.deepEqual(keysIn(5), ['$quantity', '$total', 'GRADE']);
+  assert.deepEqual(keysIn(3), ['$quantity', '$total']);
+});
+await check('Short labels above each row\'s own cells, units in mono, ▾ on a drop-down', () => {
+  assert.deepEqual(labelsAbove(4), ['Qty', 'Total', 'Thkmm', 'Lmm', 'Wmm', 'Grade▾']);
+  assert.deepEqual(labelsAbove(5), ['Qty', 'Total', 'Grade▾']);
+  const grade = document.querySelector(`[data-cell^="${rowIdx(4)}:"][data-col-key="GRADE"]`);
+  assert.equal(grade.getAttribute('data-dropdown'), 'true');
+});
+await check('Typing a value then ArrowRight keeps it and moves to the next cell of the row', async () => {
+  writes = [];
+  const thk = document.querySelector(`[data-cell^="${rowIdx(2)}:"][data-col-key="THICKNESS"]`);
+  await fire(thk, 'click'); await fire(thk, 'keydown', { key: '8' });
+  await fire(document.querySelector('input'), 'keydown', { key: 'ArrowRight' });
+  assert.deepEqual(writes.map((w) => [w.row.node.id, w.code, w.text]), [[2, 'THICKNESS', '8']]);
+  assert.equal(document.querySelector(`[data-cell^="${rowIdx(2)}:"][data-col-key="LENGTH"]`).getAttribute('aria-selected'), 'true');
 });
 await React.act(() => root.unmount());
 dom.window.close();

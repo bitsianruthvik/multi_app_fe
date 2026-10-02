@@ -14,6 +14,7 @@ import { FormDialog } from '../FormDialog';
 import { PartyDialog } from '../PartyDialog';
 import { InHouseChip, WorkOrderChip } from './workOrderUi';
 import { useTreeRows } from './treeRows';
+import { opShortLabel } from '../../lib/stripLayout';
 
 /** A soft tint per contractor, from the chart tokens so it follows light and dark. */
 const tintFor = (index: number) => `color-mix(in srgb, var(--c-chart-${(index % 8) + 1}) 20%, var(--c-surface))`;
@@ -107,15 +108,19 @@ export function AssignPanel({ orderId, lineId }: { orderId: number; lineId: numb
     const can = c.editable && !c.started && canProduce;
     const why = c.started ? c.why || 'Already started — it belongs to whoever started it.' : !canProduce ? 'Your role cannot assign work.' : c.why || undefined;
     return {
-      text: c.contractorName ?? '', restore: c.contractorName ?? '', editable: can, why: can ? undefined : why, kind: 'text',
+      // A drop-down of the contractors (blank = in-house); typing still finds one by the start of its name.
+      text: c.contractorName ?? '', input: c.contractorName ?? '', restore: c.contractorName ?? '', editable: can, why: can ? undefined : why, kind: 'option',
+      options: [{ value: IN_HOUSE.name, label: IN_HOUSE.name }, ...contractors.map((k) => ({ value: k.name, label: k.name }))],
       tint: c.contractorId != null ? tint.get(c.contractorId) : undefined,
       title: c.contractorName ? `${c.contractorName}${c.started ? ' — started' : ''}` : c.started ? why : 'In-house',
     };
   };
 
   /** The boxes in the selection that can change hands. */
-  const assignable = sel.rows.flatMap((r) => sel.cols.map((k) => ({ r, k, c: cell(r, k) }))).filter((x) => x.c && x.c.editable && !x.c.started && canProduce);
-  const skipped = sel.rows.length * sel.cols.length - assignable.length;
+  // In the strip layout each row has its own operations, so the selection names its cells exactly.
+  const picked = sel.cells ? sel.cells.map((x) => ({ r: x.rowKey, k: x.colKey })) : sel.rows.flatMap((r) => sel.cols.map((k) => ({ r, k })));
+  const assignable = picked.map((x) => ({ ...x, c: cell(x.r, x.k) })).filter((x) => x.c && x.c.editable && !x.c.started && canProduce);
+  const skipped = picked.length - assignable.length;
 
   const send = async (cells: { r: string; k: string }[], contractorId: number | null) => {
     setView(await postAssignment(orderId, lineId, cells.map((x) => ({ pieceId: Number(x.r), operationId: Number(x.k) })), contractorId));
@@ -213,7 +218,8 @@ export function AssignPanel({ orderId, lineId }: { orderId: number; lineId: numb
       <ErrorNotice error={load.error} onRetry={load.reload} />
       <SheetGrid ariaLabel="Contractors" cornerHeader="Piece" rowHeaderWidth={300} busy={load.loading} onProblem={setProblem} hint={null}
         onSelectionChange={setSel}
-        columns={view.operations.map((o) => ({ key: String(o.id), label: o.name, header: o.name, width: 130 }))}
+        rowColumns={(key) => { const r = rowByKey.get(key); return r ? view.operations.filter((o) => r.cells[o.id]).map((o) => String(o.id)) : []; }} prefKey="contractors"
+        columns={view.operations.map((o) => ({ key: String(o.id), label: o.name, short: opShortLabel(o), stripWidth: 120, header: o.name, width: 130 }))}
         rows={tree.visible.map((r) => ({
           key: r.key, label: r.code ?? r.name, depth: r.depth, collapsible: tree.hasChildren(r.key), collapsed: tree.isCollapsed(r.key),
           header: <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 0.75, minWidth: 0 }}>

@@ -11,6 +11,7 @@ import { loadLock, lockLine, type LockCheck, type LockView } from '../../api/loc
 import type { PieceCodesPreview } from '../../api/pieceCodes';
 import type { OrderStage } from '../../api/types';
 import { useLoad } from '../../hooks/useLoad';
+import { tabFor } from '../../lib/process';
 import { ConfirmDialog } from '../ConfirmDialog';
 import { ErrorNotice, SectionCard, SkeletonRows } from '../ui';
 import { useToast } from '../toastContext';
@@ -175,7 +176,8 @@ export function LockPanel({ lineId, lineNo, quantity, canManage, stages, onGoSta
   const { data: view, error, loading, reload } = useLoad(() => loadLock(lineId), [lineId]);
   const [confirming, setConfirming] = useState(false);
   const [round, setRound] = useState(0);
-  const stageLabel = (key?: string) => (key ? stages.find((s) => s.stageKey === key)?.label ?? null : null);
+  // A folded stage (Values) is checked on its host's tab (Structure), so that is where "Go to" goes and what it says.
+  const stageLabel = (key?: string) => (key ? stages.find((s) => s.stageKey === tabFor(key, stages))?.label ?? null : null);
   // What this read learns about the line's size is what the next slow screen quotes.
   useEffect(() => { if (view) rememberLineSize(lineId, { pieces: view.summary.nodes }); }, [lineId, view]);
 

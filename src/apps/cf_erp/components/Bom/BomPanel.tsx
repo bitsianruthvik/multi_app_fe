@@ -145,9 +145,7 @@ function RowButton({ label, onClick, children, pressed, danger, disabled }: {
  * rows, and sent together by Save (POST /bom-changes, all or nothing). It reaches
  * exactly the rows the per-line menus reach, by the same `mine` rule.
  */
-export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onChanged, onGoCutPieces, mode = 'structure' }: {
-  /** `values`: the Values stage — the same tree, about the values: gaps amber, only the rows that miss something shown, structure read-only. */
-  mode?: 'structure' | 'values';
+export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onChanged, onGoCutPieces }: {
   source: BomSource;
   /** This screen is the BOM's home: its own lines are changed here, and its status and revision are managed here. */
   ownsBom?: boolean;
@@ -187,8 +185,11 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
   // Quiet switches for the order's grid: the automatic cut pieces are out of sight, and so are the columns no row uses.
   const [onlyUsed, setOnlyUsed] = useState(true);
   const errorAt = useRef<HTMLDivElement>(null);
-  const valuesMode = mode === 'values' && orderGrid;
-  const [onlyMissing, setOnlyMissing] = useState(true);
+  // Structure and Values are ONE tab (user, 2026-10-02: "same things are there so no point having two tabs"):
+  // an order line's grid carries the values too — required ones still empty are amber, with a
+  // "show only what's missing" switch and a "next missing" button. The Values stage stays a check.
+  const gapsOn = orderGrid;
+  const [onlyMissing, setOnlyMissing] = useState(false);
   const gridHandle = useRef<SheetGridHandle>(null);
   const jumpAt = useRef(-1);
   // A refusal lands at the top of the panel while the person is at the bar
@@ -237,7 +238,7 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
   const canSheetEdit = !!state && !frozen && (source.kind === 'record'
     ? ownsBom && isPermitted(bomPermission(state.bomType === 'custom'))
     : isPermitted(bomPermission(true)));
-  const editOn = canEditHere || (canChangeFlowsHere && !valuesMode);
+  const editOn = canEditHere || canChangeFlowsHere;
 
   // What is waiting, as Save would send it.
   const byLine = useMemo(() => (state ? nodesByLine(state.root) : new Map<number, StructureNode>()), [state]);
@@ -255,7 +256,7 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
   }, [pending.remove, byLine]);
 
   // Only-what's-missing opens every branch, so a gap in a folded one is still found.
-  const shownKeys = useMemo(() => (valuesMode && onlyMissing && state ? new Set(openableKeys(state.root)) : expanded), [valuesMode, onlyMissing, state, expanded]);
+  const shownKeys = useMemo(() => (gapsOn && onlyMissing && state ? new Set(openableKeys(state.root)) : expanded), [gapsOn, onlyMissing, state, expanded]);
   const allRows = useMemo(() => state ? arrangedRows(state.root, shownKeys, pending) : [], [state, shownKeys, pending]);
   // Cut pieces are made by the system after every save; the grid shows only the designs the person drew.
   // They are worked out from the parts and live on the Cut pieces stage.
@@ -263,9 +264,9 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
   // Gaps are read on the rows the person can see (cut pieces are worked out, not typed). The live map lays unsaved typing over the
   // server's answer; the filter reads what is SAVED, so a row does not vanish under the cursor as its last gap is typed.
   const gapScope = useMemo(() => new Set(flat.filter((f) => !isCutPiece(f.node)).map((f) => f.node.id)), [flat]);
-  const liveGaps = useMemo(() => (valuesMode ? computeGaps(gridValues.data ?? null, pending.values, gapScope) : null), [valuesMode, gridValues.data, pending.values, gapScope]);
-  const savedGapIds = useMemo(() => (valuesMode ? new Set(computeGaps(gridValues.data ?? null, undefined, gapScope).keys()) : null), [valuesMode, gridValues.data, gapScope]);
-  const rows = useMemo(() => (valuesMode && onlyMissing && savedGapIds && gridValues.data ? keepGapRows(treeRows, savedGapIds) : treeRows), [valuesMode, onlyMissing, savedGapIds, gridValues.data, treeRows]);
+  const liveGaps = useMemo(() => (gapsOn ? computeGaps(gridValues.data ?? null, pending.values, gapScope) : null), [gapsOn, gridValues.data, pending.values, gapScope]);
+  const savedGapIds = useMemo(() => (gapsOn ? new Set(computeGaps(gridValues.data ?? null, undefined, gapScope).keys()) : null), [gapsOn, gridValues.data, gapScope]);
+  const rows = useMemo(() => (gapsOn && onlyMissing && savedGapIds && gridValues.data ? keepGapRows(treeRows, savedGapIds) : treeRows), [gapsOn, onlyMissing, savedGapIds, gridValues.data, treeRows]);
 
   // A flow's code for a chosen id — read once, only while editing.
   const flows = useLoad(() => (editOn ? cfApi.get<Flow[]>('/flows') : Promise.resolve(null)), [editOn]);
@@ -507,6 +508,8 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
     arranged: changes.filter((ch) => ch.op === 'arrange').length,
     values: Object.values(pending.values ?? {}).reduce((n, cells) => n + Object.keys(cells).length, 0),
   };
+  // Typed values travel as ONE 'values' change; people count the cells they typed, so the bar does too.
+  const shownChanges = changes.filter((ch) => ch.op !== 'values').length + counts.values;
   const breakdown = [
     counts.quantity && plural(counts.quantity, 'quantity', 'quantities'),
     counts.flow && plural(counts.flow, 'flow', 'flows'),
@@ -705,8 +708,8 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
   return (
     <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 2 }}>
       {bom.actionError && <Box ref={errorAt} sx={{ scrollMarginTop: 96 }}><ErrorNotice error={bom.actionError} sx={{ mb: 0 }} /></Box>}
-      <SectionCard title={valuesMode ? 'Values' : type.title}
-        subtitle={valuesMode ? 'The same tree as Structure, with each row’s values in place. Amber cells are required and still empty.' : type.body}
+      <SectionCard title={type.title}
+        subtitle={gapsOn ? `${type.body} Each row shows its own values beside it; amber cells are required and still empty.` : type.body}
         actions={(
           // The card's action box never shrinks, so on a phone these would run
           // off the card; at min-content they stack instead.
@@ -715,22 +718,22 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
               onClick={doDownloadSheet} disabled={sheetBusy != null || dirty}>
               Download Excel
             </Button>
-            {canSheetEdit && !valuesMode && <>
+            {canSheetEdit && <>
               <Button size="small" startIcon={sheetBusy === 'preview' ? <CircularProgress size={14} color="inherit" /> : <UploadFileRounded />}
                 onClick={() => sheetInput.current?.click()} disabled={sheetBusy != null || dirty}>
                 Upload Excel
               </Button>
               <input ref={sheetInput} type="file" accept=".xlsx,.csv" hidden onChange={chooseSheet} />
             </>}
-            {deep && !(valuesMode && onlyMissing) && <Button size="small" startIcon={<UnfoldMoreRounded />} onClick={() => setOpen(new Set(openableKeys(root)))}>Expand all</Button>}
-            {deep && !(valuesMode && onlyMissing) && <Button size="small" startIcon={<UnfoldLessRounded />} onClick={() => setOpen(new Set([root.key]))}>Collapse all</Button>}
+            {deep && !(gapsOn && onlyMissing) && <Button size="small" startIcon={<UnfoldMoreRounded />} onClick={() => setOpen(new Set(openableKeys(root)))}>Expand all</Button>}
+            {deep && !(gapsOn && onlyMissing) && <Button size="small" startIcon={<UnfoldLessRounded />} onClick={() => setOpen(new Set([root.key]))}>Collapse all</Button>}
             {!orderGrid && <Button size="small" disabled={values.scanning || dirty || !!busy} startIcon={<PlaylistAddCheckRounded />} onClick={values.tooMany ? values.start : () => void values.refreshAll()}>{values.tooMany ? 'Read values' : 'Refresh values'}</Button>}
-            {!dirty && !busy && canAddToRoot && !valuesMode && addButton()}
+            {!dirty && !busy && canAddToRoot && addButton()}
           </Box>
         )}>
         {why && <Alert severity="info" sx={{ mb: 2 }}>{why}</Alert>}
-        {valuesMode && !why && gridValues.data?.lock && <Alert severity="info" sx={{ mb: 2 }}>{gridValues.data.lock.message}</Alert>}
-        {valuesMode && gridValues.data && (
+        {gapsOn && !why && gridValues.data?.lock && <Alert severity="info" sx={{ mb: 2 }}>{gridValues.data.lock.message}</Alert>}
+        {gapsOn && gridValues.data && (
           <Box data-testid="values-summary" sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap', mb: 1.5 }}>
             {gapTotal > 0
               ? <DangerBadge label={gapSentence(liveGaps!)} title="Required values that are still empty. The line cannot be frozen until they are filled." />
@@ -744,7 +747,7 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
           <Fact label="In the structure"><Mono>{state.stats.nodes - 1}</Mono></Fact>
           {state.stats.drafts > 0 && <Fact label="Still draft"><WarnBadge label={`${state.stats.drafts} draft`} title="Catalog items in the structure that are not active yet — release needs every one of them active." /></Fact>}
           {state.stats.unresolved > 0 && <Fact label="To choose"><WarnBadge label={`${state.stats.unresolved} selection${state.stats.unresolved > 1 ? 's' : ''}`} title="Choose a catalog item for each of them before release." /></Fact>}
-          {gapCount > 0 && !valuesMode && (
+          {gapCount > 0 && !gapsOn && (
             <Fact label="Values missing">
               <DangerBadge label={`${gapCount} missing`}
                 title="Required values that are still empty. The line cannot be frozen until they are filled." />
@@ -777,7 +780,7 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
                   : ''}
           </Typography>
           <Box sx={{ flex: 1 }} />
-          {valuesMode && (
+          {gapsOn && (
             <FormControlLabel sx={{ m: 0, '& .MuiFormControlLabel-label': { fontSize: 12, color: 'var(--c-text-3)' } }}
               control={<Switch size="small" checked={onlyMissing} onChange={(e) => { setOnlyMissing(e.target.checked); jumpAt.current = -1; }} />}
               label="Show only what’s missing" />
@@ -788,22 +791,22 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
               label="Only columns these rows use" />
           )}
           <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>
-            {valuesMode ? 'Type in a cell · Enter edits · changes wait for Save' : flowsOnly ? 'Only flows can change · changes wait for Save' : 'Copy inserts a row below · drag to rearrange · changes wait for Save'}
+            {flowsOnly ? 'Only flows can change · changes wait for Save' : 'Type in a cell · an arrow, Enter or Tab keeps it · copy inserts a row below · drag to rearrange · changes wait for Save'}
           </Typography>
         </Box>
         <>
             <ErrorNotice error={gridValues.error} onRetry={gridValues.reload} />
             <BomGrid key={rows.map((r) => r.node.key).join('|')} rows={rows} view={gridValues.data ?? null} records={orderGrid ? undefined : values} recordIds={ids} pending={pending} busy={!!busy || !!sheetBusy || (orderGrid ? gridValues.loading : values.scanning)}
-              canEdit={(row) => !valuesMode && editOn && !removedKeys.has(row.node.key) && !goneKeys.has(row.node.key) && (!!row.paste || lineEditable(row) || row.node.depth === 0 && mine(row.node))}
+              canEdit={(row) => editOn && !removedKeys.has(row.node.key) && !goneKeys.has(row.node.key) && (!!row.paste || lineEditable(row) || row.node.depth === 0 && mine(row.node))}
               canEditValues={(row) => !removedKeys.has(row.node.key) && !goneKeys.has(row.node.key) && (orderGrid ? editOn && mine(row.node) : mayEditValues(row.node))}
               onToggle={(key) => { const next = new Set(expanded); if (next.has(key)) next.delete(key); else next.add(key); setOpen(next); }}
-              onlyUsedColumns={orderGrid && onlyUsed} roleOf={roleOf} canEditRole={valuesMode ? () => false : canEditRole} onRole={onRole}
+              onlyUsedColumns={orderGrid && onlyUsed} roleOf={roleOf} canEditRole={canEditRole} onRole={onRole}
               gaps={liveGaps ?? undefined} handleRef={gridHandle}
-              onWrites={onGridWrites} onMove={onGridMove} dropRefusal={dropRefusal} trailingCell={valuesMode ? () => null : trailingCell} flowCell={valuesMode ? (row) => <FlowTag flow={row.node.flow} /> : flowCell} markOf={markOf} placeholderOf={placeholderOf}
-              footer={valuesMode
+              onWrites={onGridWrites} onMove={onGridMove} dropRefusal={dropRefusal} trailingCell={trailingCell} flowCell={flowCell} markOf={markOf} placeholderOf={placeholderOf}
+              footer={gapsOn && onlyMissing
                 ? rows.length === 0 && !!gridValues.data && <EmptyState title={onlyMissing ? 'Nothing is missing' : 'Nothing below it yet'} hint={onlyMissing ? 'Every required value on this line is filled.' : undefined} />
                 : root.children.length === 0 && pending.pastes.length === 0 && <EmptyState title="Nothing below it yet" action={canAddToRoot && addButton('contained')} />} />
-          {orderGrid && !valuesMode && (
+          {orderGrid && (
             <Typography data-testid="cut-pieces-note" sx={{ mt: 1, fontSize: 12.5, color: 'var(--c-text-3)' }}>
               Cut pieces are worked out from the parts — {onGoCutPieces
                 ? <Box component="button" type="button" onClick={onGoCutPieces} sx={{ all: 'unset', cursor: 'pointer', color: 'var(--c-primary-700)', textDecoration: 'underline' }}>see Cut pieces</Box>
@@ -824,7 +827,7 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
             sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 1.5, px: 2, py: 1.25, borderColor: dirty ? 'var(--c-warning-200)' : 'var(--c-border)' }}>
             <Box sx={{ flex: '1 1 260px', minWidth: 0 }}>
               <Typography sx={{ fontSize: 13.5, fontWeight: 600, color: 'var(--c-text)' }} aria-live="polite">
-                {changes.length ? `${plural(changes.length, 'change', 'changes')} waiting` : 'No unsaved changes'}
+                {changes.length ? `${plural(shownChanges, 'change', 'changes')} waiting` : 'No unsaved changes'}
                 {breakdown && <Box component="span" sx={{ fontWeight: 400, color: 'var(--c-text-2)' }}>{` · ${breakdown}`}</Box>}
               </Typography>
               {Object.keys(pending.remove).length > 0 && (
@@ -857,7 +860,7 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
               </Tooltip>
               <Button variant="contained" onClick={onSave} disabled={!changes.length || invalid.length > 0 || !!busy}
                 startIcon={busy === 'save' ? <CircularProgress size={14} color="inherit" /> : undefined}>
-                {busy === 'save' ? 'Saving…' : changes.length ? `Save ${plural(changes.length, 'change', 'changes')}` : 'Save'}
+                {busy === 'save' ? 'Saving…' : changes.length ? `Save ${plural(shownChanges, 'change', 'changes')}` : 'Save'}
               </Button>
             </Box>
           </Surface>
@@ -885,7 +888,7 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
         </Box>
       </Popover>
 
-      <ConfirmDialog open={confirming === 'save'} danger confirmLabel={`Save ${plural(changes.length, 'change', 'changes')}`}
+      <ConfirmDialog open={confirming === 'save'} danger confirmLabel={`Save ${plural(shownChanges, 'change', 'changes')}`}
         title={`Save and remove ${plural(removals.length, 'line', 'lines')}?`}
         body={`${plural(doomedTemporary, 'row', 'rows')} ${doomedTemporary === 1 ? 'is' : 'are'} deleted with ${removals.length === 1 ? 'it' : 'them'}, everything below included. Everything else in this save happens with it, or nothing does.`}
         onClose={() => setConfirming(null)}

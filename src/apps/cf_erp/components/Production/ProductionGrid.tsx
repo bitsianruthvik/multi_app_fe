@@ -10,6 +10,7 @@ import {
 import { pctText } from '../../lib/trackerTree';
 import { ErrorNotice, Mono, SkeletonRows } from '../ui';
 import { CompletionBar, OpLegend } from '../Tracker/TreeParts';
+import { opShortLabel } from '../../lib/stripLayout';
 import { PieceDrawer } from '../Tracker/PieceDrawer';
 
 const PCT = 'pct';
@@ -199,10 +200,12 @@ export function ProductionGrid({ lineId, canAct, onChanged }: {
           <Box sx={{ opacity: loading ? 0.6 : 1, transition: 'opacity var(--t-fast) var(--ease)' }}>
             <SheetGrid ariaLabel="Production by piece and operation" cornerHeader="Piece" rowHeaderWidth={400} rowHeight={30} hint={null} narrowReadOnly={false}
               busy={loading || busy.size > 0} onProblem={setProblem} historyKey={String(lineId)}
+              // Each piece shows its % done and only the operations in its own flow.
+              rowColumns={(key) => { const r = tree.byId.get(key); return r ? [PCT, ...ops.filter((o) => r.cells[String(o.id)]).map((o) => String(o.id))] : []; }} prefKey="production-grid"
               columns={[
-                { key: PCT, label: 'Done', header: 'Done', width: 62, align: 'right' as const },
+                { key: PCT, label: 'Done', short: 'Done', stripWidth: 56, header: 'Done', width: 62, align: 'right' as const },
                 ...ops.map((o) => ({
-                  key: String(o.id), label: o.name, width: 92, align: 'left' as const,
+                  key: String(o.id), label: o.name, short: opShortLabel(o), stripWidth: 84, width: 92, align: 'left' as const,
                   header: (
                     <Box sx={{ lineHeight: 1.2 }} title={`${o.name}${o.code ? ` (${o.code})` : ''} — ${o.done} of ${o.total} done on this line`}>
                       <Box component="span" sx={{ display: 'block', whiteSpace: 'normal', fontSize: 11.5 }}>{o.name}</Box>

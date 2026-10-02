@@ -11,7 +11,7 @@ import RocketLaunchRounded from '@mui/icons-material/RocketLaunchRounded';
 import HistoryRounded from '@mui/icons-material/HistoryRounded';
 import { cfApi, CfApiError, LONG_WRITE_MS, qs } from '../api/client';
 import { lineLock } from '../api/lock';
-import type { Movement, OrderProcessView, OrderProduction, OrderRevision, OrderStatus, Party, ReleaseSummary, SalesOrder, SalesOrderLine } from '../api/types';
+import type { Movement, OrderProcessView, OrderProduction, OrderRevision, OrderStage, OrderStatus, Party, ReleaseSummary, SalesOrder, SalesOrderLine } from '../api/types';
 import { useCompanySlug, useLoad } from '../hooks/useLoad';
 import { useIsPermitted } from '../hooks/useIsPermitted';
 import { invalidateNavCounts } from '../hooks/useNavCounts';
@@ -20,7 +20,7 @@ import { recordPath } from '../lib/paths';
 import {
   CONFIRM_MOVE, LOCKED_STATUSES, NEXT_STAGE, ORDER_STATUS_LABEL, REVISED_NOT_RELEASED, revisionLabel, showRevision, transitionLabel,
 } from '../lib/orders';
-import { firstOpenStage, landingStage, stageSatisfied } from '../lib/process';
+import { checksOn, firstOpenStage, landingStage, stageSatisfied, tabFor, tabStages } from '../lib/process';
 import {
   DangerBadge, DetailSkeleton, EmptyState, ErrorNotice, Fact, Mono, OrderStatusBadge, OrderTypeChip, RevisionBadge, SectionCard, SkeletonRows,
 } from '../components/ui';
@@ -71,9 +71,17 @@ function processModel(view: OrderProcessView | null, pickedLine: number | null) 
   }) ?? view.lines[0] ?? null;
   const line = view.lines.find((l) => l.lineId === pickedLine) ?? fallback;
   // Every state on the tabs is this line's own; with no lines, the order's roll-up is all there is.
-  const stages = line ? line.stages : view.stages;
+  const allStages = line ? line.stages : view.stages;
+  // A stage folded into another (Values into Structure) is a check on its host's tab, not a tab.
+  const stages = tabStages(allStages);
   const keys = stages.map((s) => s.stageKey);
-  return { view, process: view.process, line, stages, keys, landing: landingStage(stages) ?? keys[0] };
+  const landing = landingStage(allStages);
+  const next = firstOpenStage(allStages);
+  return {
+    view, process: view.process, line, stages, allStages, keys,
+    landing: landing ? tabFor(landing, allStages) : keys[0],
+    nextKey: next ? tabFor(next, allStages) : null,
+  };
 }
 
 /** Every line's release on one screen — the Production tab of an order whose process has no Production stage, or no process at all. */
@@ -260,8 +268,10 @@ export default function OrderDetail() {
   // Settled once the process question has an answer: stages, none, or an error.
   const settled = !!o && (!!view || !!processView.error);
   const valid = [...(model?.keys ?? []), ...tabs.map((t) => t.value)];
+  // A link to a folded stage (?tab=values) lands on the tab that draws it.
+  const wanted = tabParam && model ? tabFor(tabParam, model.allStages) : tabParam;
   const tab = settled
-    ? (tabParam && valid.includes(tabParam) ? tabParam : model?.landing ?? 'lines')
+    ? (wanted && valid.includes(wanted) ? wanted : model?.landing ?? 'lines')
     : (tabParam ?? '');
 
   const setTab = useCallback((next: string) => {
@@ -290,8 +300,10 @@ export default function OrderDetail() {
   // Walking on from the foot of a long screen brings the tabs back into view,
   // so the next stage starts at its top. Wherever the tabs can be seen already,
   // nothing moves.
+  const allStagesRef = useRef<OrderStage[]>([]);
+  allStagesRef.current = model?.allStages ?? [];
   const goStage = useCallback((key: string) => {
-    setTab(key);
+    setTab(tabFor(key, allStagesRef.current));
     tabsRef.current?.scrollIntoView({ block: 'nearest' });
   }, [setTab]);
 
@@ -381,7 +393,7 @@ export default function OrderDetail() {
         {/* A reload that failed: the tabs keep the last answer, and say so. */}
         <ErrorNotice error={processView.error} onRetry={processView.reload} />
         <OrderStageTabs process={model.process} lines={model.view.lines} stages={model.stages} line={model.line}
-          nextKey={firstOpenStage(model.stages)} active={tab} onTab={setTab} onPickLine={pickLine} reference={tabs} />
+          nextKey={model.nextKey} checksFor={(key) => checksOn(key, model.allStages)} active={tab} onTab={setTab} onPickLine={pickLine} reference={tabs} />
       </Box>
     );
   } else if (settled) {
@@ -410,7 +422,7 @@ export default function OrderDetail() {
         <StageBody key={`${stage.stageKey}:${model.line?.lineId ?? 'order'}`}
           view={model.view} stage={stage} line={model.line} order={o} production={production.data} productionError={production.error}
           onPickLine={pickLine} onOrderSaved={orderSaved} onReleaseChanged={updateRelease} onReloadAll={reloadAll} onGoStage={goStage} />
-        <StageFoot key={`foot:${stage.stageKey}`} stages={model.stages} current={stage} onGo={goStage} />
+        <StageFoot key={`foot:${stage.stageKey}`} stages={model.stages} current={stage} checks={checksOn(stage.stageKey, model.allStages)} onGo={goStage} />
       </>
     );
   } else if (tab === 'lines') {

@@ -15,16 +15,18 @@ import { DetailLine, OptionalBadge, StageStateBadge } from './stageUi';
  * let anyone go anywhere, so a foot that refused would only be lying. Confirm is not here:
  * it lives in the order header.
  */
-export function StageFoot({ stages, current, onGo }: {
+export function StageFoot({ stages, current, checks = [], onGo }: {
   /** The stages the tabs show, in sequence — the line's own, or the order's roll-up. */
   stages: OrderStage[];
   current: OrderStage;
+  /** Stages checked on this tab (Values on Structure): the way on is "skip" until they are settled too. */
+  checks?: OrderStage[];
   onGo: (stageKey: string) => void;
 }) {
   const idx = Math.max(0, stages.findIndex((s) => s.stageKey === current.stageKey));
   const prev = idx > 0 ? stages[idx - 1] : null;
   const next = idx < stages.length - 1 ? stages[idx + 1] : null;
-  const satisfied = stageSatisfied(current);
+  const satisfied = stageSatisfied(current) && checks.every(stageSatisfied);
 
   return (
     <Box component="nav" aria-label="Walk the stages" sx={{

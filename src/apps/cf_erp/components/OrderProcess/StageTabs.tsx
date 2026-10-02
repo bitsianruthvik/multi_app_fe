@@ -66,17 +66,30 @@ function walkTabs(e: KeyboardEvent<HTMLElement>) {
   tabs[to].focus();
 }
 
-function StageTab({ stage, position, of, on, next, focusable, onPick }: {
+function StageTab({ stage, position, of, on, next, focusable, onPick, checks = [] }: {
   stage: OrderStage; position: number; of: number; on: boolean; next: boolean; focusable: boolean; onPick: () => void;
+  /** Stages drawn as a check on this tab (Values on Structure): still stages, still gating — just not a tab. */
+  checks?: OrderStage[];
 }) {
+  const live = checks.filter((c) => c.state !== 'not_applicable');
   return (
     <Tooltip describeChild placement="bottom-start" enterDelay={350}
-      title={<><Box component="span" sx={{ fontWeight: 600 }}>{STATE_WORD[stage.state]}</Box> — {stage.detail}</>}>
+      title={<>
+        <Box component="span" sx={{ fontWeight: 600 }}>{STATE_WORD[stage.state]}</Box> — {stage.detail}
+        {live.map((c) => <Box key={c.stageKey} sx={{ mt: 0.5 }}><Box component="span" sx={{ fontWeight: 600 }}>{c.label}: {STATE_WORD[c.state]}</Box> — {c.detail}</Box>)}
+      </>}>
       <Box component="button" type="button" role="tab" data-tab={stage.stageKey}
-        aria-selected={on} tabIndex={focusable ? 0 : -1} aria-label={stageTabName(stage, position, of, next)}
+        aria-selected={on} tabIndex={focusable ? 0 : -1}
+        aria-label={[stageTabName(stage, position, of, next), ...live.map((c) => `${c.label} ${STATE_WORD[c.state].toLowerCase()}`)].join(', ')}
         onClick={onPick} sx={tabSx(on, stage.state === 'not_applicable')}>
         <StageStateMark state={stage.state} />
         <span>{stage.label}</span>
+        {live.map((c) => (
+          <Box key={c.stageKey} component="span" data-check={c.stageKey} data-state={c.state}
+            sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.25, fontSize: 11.5, color: 'var(--c-text-3)', border: '1px solid var(--c-divider)', borderRadius: 'var(--r-sm)', px: 0.5, py: '1px' }}>
+            <StageStateMark state={c.state} size={13} />{c.label}
+          </Box>
+        ))}
         {next && <NextMark title="The next stage that needs work on this line" />}
       </Box>
     </Tooltip>
@@ -95,7 +108,7 @@ function ReferenceTab({ tab, on, focusable, onPick }: { tab: DetailTab; on: bool
   );
 }
 
-export function OrderStageTabs({ process, lines, stages, line, nextKey, active, onTab, onPickLine, reference }: {
+export function OrderStageTabs({ process, lines, stages, line, nextKey, active, onTab, onPickLine, reference, checksFor }: {
   process: NonNullable<OrderProcessView['process']>;
   /** Every line of the order, each with its own stages — what the switcher offers. */
   lines: OrderProcessLine[];
@@ -109,6 +122,8 @@ export function OrderStageTabs({ process, lines, stages, line, nextKey, active, 
   onPickLine: (lineId: number) => void;
   /** The tabs that are not stages, drawn after the divider. */
   reference: DetailTab[];
+  /** The stages drawn as checks on a stage's tab (lib/process checksOn). */
+  checksFor?: (stageKey: string) => OrderStage[];
 }) {
   const company = useCompanySlug();
   const theme = useTheme();
@@ -207,7 +222,7 @@ export function OrderStageTabs({ process, lines, stages, line, nextKey, active, 
               <Fragment key={s.stageKey}>
                 {i > 0 && <ChevronRightRounded aria-hidden sx={{ fontSize: 15, color: 'var(--c-text-3)', flexShrink: 0, mx: '-1px' }} />}
                 <StageTab stage={s} position={i + 1} of={stages.length} on={s.stageKey === active} next={s.stageKey === nextKey}
-                  focusable={s.stageKey === focusable} onPick={() => onTab(s.stageKey)} />
+                  focusable={s.stageKey === focusable} onPick={() => onTab(s.stageKey)} checks={checksFor?.(s.stageKey)} />
               </Fragment>
             ))}
             {phone && reference.length > 0 && <>{divider}{referenceTabs}</>}

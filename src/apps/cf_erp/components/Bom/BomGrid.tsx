@@ -9,6 +9,7 @@ import { ownInput, valueEditable, rowLabel, type BomRow, type Pending } from './
 import type { SpecValues } from './useSpecValues';
 import type { RowMark } from './BomTree';
 import type { DropPosition } from './bomArrangement';
+import { DIMENSION_CODES, dimensionsFirst, isDimension, shortLabel } from '../../lib/stripLayout';
 
 export interface GridWrite { row: BomRow; code: string; text: string; saved: string }
 type Cell = { text: string; input: string; saved: string; editable: boolean; why?: string; applies?: boolean; type?: string; options?: { id: number; value: string; label?: string | null }[] };
@@ -81,8 +82,16 @@ export function BomGrid({ rows, view, records: recordValues, recordIds, pending,
     return !!info?.columns.get(code) && !!info.row.cells[code];
   };
   const loaded = !!recordValues || !!view;
-  const shown = onlyUsedColumns && loaded ? catalog.cols.filter((c) => rows.some((r) => uses(r, c.code))) : catalog.cols;
-  const columns = [{ code: '$quantity', name: 'Quantity' }, { code: '$total', name: 'Total' }, ...shown];
+  const used = onlyUsedColumns && loaded ? catalog.cols.filter((c) => rows.some((r) => uses(r, c.code))) : catalog.cols;
+  // The dimensions lead (Thk · L · W) and come as a set: a row with one of them shows all three, so rows line up.
+  const byCode = new Map(catalog.cols.map((c) => [c.code, c]));
+  const dims: { code: string; name: string; unit?: string | null; dataType?: string }[] = used.some((c) => isDimension(c.code))
+    ? DIMENSION_CODES.map((code) => byCode.get(code) ?? { code, name: code.charAt(0) + code.slice(1).toLowerCase(), unit: 'mm', dataType: 'number' })
+    : [];
+  const shown = [...dims, ...used.filter((c) => !isDimension(c.code))];
+  const columns: { code: string; name: string; unit?: string | null; dataType?: string }[] = [{ code: '$quantity', name: 'Quantity' }, { code: '$total', name: 'Total' }, ...shown];
+  /** Strip layout: this row's own cells — quantity and total, then its values with the dimensions first. */
+  const rowColumns = (row: BomRow) => ['$quantity', '$total', ...dimensionsFirst(shown.filter((c) => uses(row, c.code)).map((c) => c.code))];
   const rowByKey = useMemo(() => new Map(rows.map((r) => [r.node.key, r])), [rows]);
   const colByKey = new Map(columns.map((c) => [c.code, c]));
   /** The tooltip of a cell whose variable the row's definition or item does not have. */
@@ -143,9 +152,12 @@ export function BomGrid({ rows, view, records: recordValues, recordIds, pending,
   return <>
     <SheetGrid ref={grid} ariaLabel="BOM spreadsheet" busy={busy || (!view && !recordValues)} footer={footer}
       cornerHeader="BOM line" rowHeaderWidth={400} rowHeight={46}
-      hint="Click a cell to select · Ctrl+C / Ctrl+V to copy and paste · Double-click or Enter to edit · Shift-click selects a block · Drag the handle to move a row"
-      columns={columns.map((col, i) => ({ key: col.code, label: col.name, width: i < 2 ? 88 : 145, header: <>
-        {col.name}{'unit' in col && col.unit && <Typography component="span" sx={{ display: 'block', fontSize: 10, color: 'var(--c-text-3)' }}>{col.unit}</Typography>}
+      hint="Type to fill a cell · Enter, Tab or an arrow keeps it and moves on · F2 edits in place · Ctrl+C / Ctrl+V copy and paste · Ctrl+D fills down · Shift-click selects a block · Drag the handle to move a row"
+      rowColumns={(key) => { const row = rowByKey.get(key); return row ? rowColumns(row) : []; }} prefKey="bom-grid"
+      columns={columns.map((col, i) => ({ key: col.code, label: col.name, width: i < 2 ? 88 : 145,
+        short: i === 0 ? 'Qty' : i === 1 ? 'Total' : shortLabel(col.code, col.name), unit: col.unit ?? undefined,
+        stripWidth: i < 2 ? 64 : isDimension(col.code) ? 84 : 112, align: i < 2 || col.dataType === 'number' ? 'right' as const : undefined, header: <>
+        {col.name}{col.unit && <Typography component="span" sx={{ display: 'block', fontSize: 10, color: 'var(--c-text-3)' }}>{col.unit}</Typography>}
       </> }))}
       rows={rows.map((row) => {
         const n = row.node, mark = markOf(row), marker = drop?.key === n.key ? drop : null;

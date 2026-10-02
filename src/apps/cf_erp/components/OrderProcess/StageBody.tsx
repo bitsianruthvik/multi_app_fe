@@ -18,7 +18,7 @@ import { appPath } from '../../navMeta';
 import { LOCKED_STATUSES, ORDER_STATUS_LABEL, REVISED_NOT_RELEASED } from '../../lib/orders';
 import {
   CONFIRM_STILL_ON_THE_PAGE, CONFIRM_WHAT_DOES_NOT, CONFIRM_WHAT_HAPPENS, DECIDED_BY_HELP, UNBUILT_STAGE,
-  isUnbuilt, nextLineFor, notForThisLine,
+  isUnbuilt, nextLineFor, notForThisLine, tabFor,
 } from '../../lib/process';
 import { EmptyState, ErrorNotice, Mono, SectionCard, StatusBadge } from '../ui';
 import { BomPanel } from '../Bom/BomPanel';
@@ -345,25 +345,15 @@ export function StageBody({
           onReleased={() => { invalidateNavCounts(); toast.success(`Line ${releasing?.lineNo} released to production.`); onReloadAll(); }} />
       </>
     );
-  } else if (stage.stageKey === 'structure') {
+  } else if (stage.stageKey === 'structure' || stage.stageKey === 'values') {
+    // ONE tab for the structure and its values (user, 2026-10-02): every row shows its own values beside it,
+    // required ones still empty in amber. Values is a check on this tab, not a tab — it reaches here only
+    // for a process that has a Values stage but no Structure stage to fold it into.
     body = line
       ? <BomPanel key={line.lineId} source={{ kind: 'orderLine', lineId: line.lineId }} onChanged={onReloadAll} onGoCutPieces={() => onGoStage('cut_pieces')} />
       : (
         <SectionCard title="Structure">
           <EmptyState icon={<AccountTreeRounded />} title="No lines yet" hint="A structure hangs under a line, so add one first."
-            action={<Button variant="contained" onClick={() => onGoStage('lines')}>Go to the lines</Button>} />
-        </SectionCard>
-      );
-  } else if (stage.stageKey === 'values') {
-    // Every specification value of the line's structure — all that apply, not
-    // only the missing ones — typed like a sheet and saved once. Typing left
-    // unsaved survives a switch of tab or line (the panel keeps it per viewer),
-    // so switching needs no guard here.
-    body = line
-      ? <BomPanel key={line.lineId} mode="values" source={{ kind: 'orderLine', lineId: line.lineId }} onChanged={onReloadAll} />
-      : (
-        <SectionCard title="Values">
-          <EmptyState icon={<AccountTreeRounded />} title="No lines yet" hint="Values belong to the items of a line's structure, so add a line first."
             action={<Button variant="contained" onClick={() => onGoStage('lines')}>Go to the lines</Button>} />
         </SectionCard>
       );
@@ -443,7 +433,7 @@ export function StageBody({
           <Box>Line {line.lineNo} sells <Mono>{line.item.code ?? line.item.name}</Mono>, which is <StatusBadge status={line.item.status} />.</Box>
         </Note>
       )}
-      {line && <WaitingOn stage={stage} label={view.stages.find((x) => x.stageKey === stage.waitingOn?.stageKey)?.label ?? null} order={order}
+      {line && <WaitingOn stage={stage} label={view.stages.find((x) => x.stageKey === tabFor(stage.waitingOn?.stageKey ?? '', view.stages))?.label ?? null} order={order}
         onGo={onGoStage} onOrderSaved={onOrderSaved} onReloadAll={onReloadAll} />}
       {body}
     </Box>

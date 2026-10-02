@@ -12,6 +12,7 @@ for (const key of ['window', 'document', 'navigator', 'HTMLElement', 'Element', 
   Object.defineProperty(globalThis, key, { value: dom.window[key], configurable: true });
 }
 globalThis.getComputedStyle = dom.window.getComputedStyle.bind(dom.window);
+Object.defineProperty(globalThis, 'localStorage', { value: dom.window.localStorage, configurable: true });
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const React = await import('react');
 const { createRoot } = await import('react-dom/client');
@@ -51,6 +52,7 @@ const props = { rows, columns, cellAt, onWrites: (w) => { writes = w; }, onSelec
   rowSelect: (k) => (k === 'a' ? ['a', 'b', 'c'] : [k]) };
 const root = createRoot(document.getElementById('app'));
 const render = (p = props) => React.act(() => root.render(React.createElement(m.SheetGrid, p)));
+const blank = () => React.act(() => root.render(null));
 // data-cell="row:col" where col 0 is the row header and data columns start at 1.
 const cell = (r, c) => document.querySelector(`[data-cell="${r}:${c}"]`);
 const fire = async (el, type, init = {}) => React.act(() => el.dispatchEvent(type.startsWith('key') ? new KeyboardEvent(type, { bubbles: true, ...init }) : new MouseEvent(type, { bubbles: true, ...init })));
@@ -425,6 +427,226 @@ await check('Tab inside an editor skips an n/a cell', async () => {
   await fire(document.querySelector('input'), 'keydown', { key: 'Tab' });
   assert.equal(cell(1, 3).getAttribute('aria-selected'), 'true');
 });
+// ── Excel entry (wide layout): an arrow keeps the typed value and moves ──
+await check('Excel entry: typing then ArrowRight commits the value and moves right', async () => {
+  let w = [];
+  await render({ ...naProps, historyKey: 'excel', onWrites: (x) => { w = x; } });
+  await fire(cell(0, 1), 'click'); await fire(cell(0, 1), 'keydown', { key: '4' });
+  await fire(document.querySelector('input'), 'keydown', { key: 'ArrowRight' });
+  assert.deepEqual(w, [{ rowKey: 'a', colKey: 'x', text: '4' }]);
+  assert.equal(document.querySelector('input'), null, 'the editor closed');
+  assert.equal(cell(0, 2).getAttribute('aria-selected'), 'true');
+});
+await check('Excel entry: ArrowDown commits and moves down (onto an n/a cell too, as arrows do)', async () => {
+  let w = [];
+  await render({ ...naProps, historyKey: 'excel2', onWrites: (x) => { w = x; } });
+  await fire(cell(0, 3), 'click'); await fire(cell(0, 3), 'keydown', { key: '8' });
+  await fire(document.querySelector('input'), 'keydown', { key: 'ArrowDown' });
+  assert.deepEqual(w, [{ rowKey: 'a', colKey: 'z', text: '8' }]); assert.equal(cell(1, 3).getAttribute('aria-selected'), 'true');
+  await fire(cell(1, 3), 'keydown', { key: '9' });
+  await fire(document.querySelector('input'), 'keydown', { key: 'ArrowUp' });
+  assert.deepEqual(w, [{ rowKey: 'b', colKey: 'z', text: '9' }]); assert.equal(cell(0, 3).getAttribute('aria-selected'), 'true');
+});
+await check('Excel entry: F2 edits in place — Left/Right move the caret, they do not commit', async () => {
+  let w = [];
+  await render({ ...naProps, historyKey: 'excel3', onWrites: (x) => { w = x; } });
+  await fire(cell(0, 1), 'click'); await fire(cell(0, 1), 'keydown', { key: 'F2' });
+  await fire(document.querySelector('input'), 'keydown', { key: 'ArrowLeft' });
+  assert.ok(document.querySelector('input'), 'still editing'); assert.deepEqual(w, []);
+  await fire(document.querySelector('input'), 'keydown', { key: 'Escape' });
+  assert.equal(document.querySelector('input'), null); assert.deepEqual(w, []);
+});
+await check('Excel entry: F2 inside a typed edit switches to in-place, so the arrows stop committing', async () => {
+  let w = [];
+  await render({ ...naProps, historyKey: 'excel4', onWrites: (x) => { w = x; } });
+  await fire(cell(0, 1), 'click'); await fire(cell(0, 1), 'keydown', { key: '5' });
+  await fire(document.querySelector('input'), 'keydown', { key: 'F2' });
+  await fire(document.querySelector('input'), 'keydown', { key: 'ArrowRight' });
+  assert.ok(document.querySelector('input')); assert.deepEqual(w, []);
+  await fire(document.querySelector('input'), 'keydown', { key: 'Tab' });
+  assert.deepEqual(w, [{ rowKey: 'a', colKey: 'x', text: '5' }]); assert.equal(cell(0, 2).getAttribute('aria-selected'), 'true');
+});
+await check('Dropdown cells carry a ▾ before they are opened; other cells do not', async () => {
+  await render({ ...props, historyKey: 'caret' });
+  assert.equal(cell(0, 4).getAttribute('data-dropdown'), 'true'); assert.ok(cell(0, 4).querySelector('[data-caret]'));
+  assert.equal(cell(0, 3).getAttribute('data-dropdown'), 'true', 'a Yes/No cell is a drop-down too');
+  assert.equal(cell(0, 1).getAttribute('data-dropdown'), null); assert.equal(cell(0, 1).querySelector('[data-caret]'), null);
+});
+await check('Excel entry on a drop-down: typing picks the forgiving match, an arrow commits it', async () => {
+  writes = [];
+  await fire(cell(0, 4), 'click'); await fire(cell(0, 4), 'keydown', { key: 'M' });
+  assert.equal(document.querySelector('select').value, 'Mega');
+  await fire(document.querySelector('select'), 'keydown', { key: 'ArrowDown' });
+  assert.deepEqual(writes, [{ rowKey: 'a', colKey: 'kind', text: 'Mega' }]); assert.equal(cell(1, 4).getAttribute('aria-selected'), 'true');
+});
+await check('Excel entry on a drop-down opened with Enter: the arrows choose, Enter commits and moves down', async () => {
+  writes = [];
+  await fire(cell(1, 4), 'click'); await fire(cell(1, 4), 'keydown', { key: 'Enter' });
+  assert.ok(document.querySelector('select'), 'opened');
+  await fire(document.querySelector('select'), 'keydown', { key: 'ArrowDown' });
+  assert.ok(document.querySelector('select'), 'still open: the arrow walks the options'); assert.deepEqual(writes, []);
+  await fire(document.querySelector('select'), 'keydown', { key: 'Escape' });
+  await fire(cell(1, 4), 'keydown', { key: 'ArrowDown', altKey: true });
+  assert.ok(document.querySelector('select'), 'Alt+↓ opens it too');
+  await fire(document.querySelector('select'), 'keydown', { key: 'Escape' });
+});
+
+// ── strip layout (rowColumns) ──
+// p1: [qty] · r1, r2: [thk, len, wid, grade] · r3: [qty, note] · r4: [thk, len, wid, grade]
+const sRows = [
+  { key: 'p1', label: 'Parent', header: 'Parent', depth: 0 },
+  { key: 'r1', label: 'Plate 1', header: 'Plate 1', depth: 1 },
+  { key: 'r2', label: 'Plate 2', header: 'Plate 2', depth: 1 },
+  { key: 'r3', label: 'Bolt', header: 'Bolt', depth: 1 },
+  { key: 'r4', label: 'Plate 4', header: 'Plate 4', depth: 1 },
+];
+const sCols = [
+  { key: 'qty', label: 'Quantity', short: 'Qty', header: 'Quantity' },
+  { key: 'thk', label: 'Thickness', short: 'Thk', unit: 'mm', header: 'Thickness' },
+  { key: 'len', label: 'Length', short: 'L', unit: 'mm', header: 'Length' },
+  { key: 'wid', label: 'Width', short: 'W', unit: 'mm', header: 'Width' },
+  { key: 'grade', label: 'Grade', short: 'Grade', header: 'Grade' },
+  { key: 'note', label: 'Note', short: 'Note', header: 'Note' },
+];
+const PLATE = ['thk', 'len', 'wid', 'grade'];
+const shape = { p1: ['qty'], r1: PLATE, r2: PLATE, r3: ['qty', 'note'], r4: PLATE };
+let sData, sWrites, sSel;
+const sReset = () => { sData = { p1: { qty: '1' }, r1: {}, r2: {}, r3: { qty: '4' }, r4: {} }; sWrites = []; sSel = null; };
+sReset();
+const sCell = (r, c) => c === 'grade'
+  ? { text: sData[r].grade ?? '', input: sData[r].grade ?? '', editable: true, kind: 'option', options: ['E250', 'E350'] }
+  : { text: sData[r][c] ?? '', editable: true, kind: c === 'note' ? 'text' : 'number' };
+const sProps = () => ({ rows: sRows, columns: sCols, rowColumns: (k) => shape[k], cellAt: sCell, historyKey: 'strip', ariaLabel: 'Strip test',
+  onSelectionChange: (s) => { sSel = s; },
+  // The screen stores what it is given, so a committed value persists in the cell.
+  onWrites: (w) => { sWrites = w; for (const x of w) sData[x.rowKey][x.colKey] = x.text; root.render(React.createElement(m.SheetGrid, sProps())); } });
+const labelsOver = (k) => [...(document.querySelector(`tr[data-labels-for="${k}"]`)?.querySelectorAll('td.sg-label') ?? [])].map((td) => td.textContent);
+const keyOf = (r, c) => cell(r, c)?.getAttribute('data-col-key');
+await blank();
+await render(sProps());
+await check('Strip: each row draws only its own cells, in its own order', () => {
+  assert.equal(document.querySelector('table').getAttribute('data-layout'), 'strip');
+  assert.deepEqual([1, 2, 3, 4].map((c) => keyOf(1, c)), PLATE);
+  assert.equal(cell(0, 2), null, 'the parent has one cell'); assert.equal(cell(3, 3), null, 'the bolt has two');
+  assert.deepEqual([keyOf(3, 1), keyOf(3, 2)], ['qty', 'note']);
+});
+await check('Strip: short labels with mono units sit above the cells; a drop-down label says ▾', () => {
+  assert.deepEqual(labelsOver('p1'), ['Qty']);
+  assert.deepEqual(labelsOver('r1'), ['Thkmm', 'Lmm', 'Wmm', 'Grade▾']);
+  assert.deepEqual(labelsOver('r3'), ['Qty', 'Note']);
+});
+await check('Strip: identical rows next to each other share ONE label line; a different row starts a new one', () => {
+  assert.equal(document.querySelector('tr[data-labels-for="r2"]'), null, 'r2 is shaped like r1');
+  assert.ok(document.querySelector('tr[data-labels-for="r3"]'));
+  assert.ok(document.querySelector('tr[data-labels-for="r4"]'), 'r4 follows a different row, so it gets its own line');
+  assert.equal(document.querySelectorAll('td[data-na="true"]').length, 0, 'nothing hatched: absent cells are simply absent');
+});
+await check('Strip: a drop-down cell shows ▾', () => {
+  assert.equal(cell(1, 4).getAttribute('data-dropdown'), 'true'); assert.ok(cell(1, 4).querySelector('[data-caret]'));
+  assert.equal(cell(1, 1).getAttribute('data-dropdown'), null);
+});
+await check('Strip Excel entry: type, ArrowRight → the value stays and the next cell of the row is selected', async () => {
+  await fire(cell(1, 1), 'click'); await fire(cell(1, 1), 'keydown', { key: '1' });
+  const input = document.querySelector('input');
+  const set = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value').set;
+  await React.act(async () => { set.call(input, '12'); input.dispatchEvent(new Event('input', { bubbles: true })); });
+  await fire(document.querySelector('input'), 'keydown', { key: 'ArrowRight' });
+  assert.deepEqual(sWrites, [{ rowKey: 'r1', colKey: 'thk', text: '12' }]);
+  assert.equal(cell(1, 1).textContent, '12', 'persisted in the cell');
+  assert.equal(cell(1, 2).getAttribute('aria-selected'), 'true');
+});
+await check('Strip Excel entry: ArrowDown goes to the same-labelled cell of the next row', async () => {
+  await fire(cell(1, 2), 'keydown', { key: '5' });
+  await fire(document.querySelector('input'), 'keydown', { key: 'ArrowDown' });
+  assert.deepEqual(sWrites, [{ rowKey: 'r1', colKey: 'len', text: '5' }]);
+  assert.equal(cell(2, 2).getAttribute('aria-selected'), 'true'); assert.equal(keyOf(2, 2), 'len');
+});
+await check('Strip: ArrowDown onto a row without that cell lands on the nearest cell under it', async () => {
+  await fire(cell(2, 3), 'click'); await fire(cell(2, 3), 'keydown', { key: 'ArrowDown' });
+  assert.equal(cell(3, 2).getAttribute('aria-selected'), 'true', 'W (slot 3) over a two-cell row → its last cell');
+  await fire(cell(3, 2), 'keydown', { key: 'ArrowDown' });
+  assert.equal(cell(4, 2).getAttribute('aria-selected'), 'true');
+});
+await check('Strip: ArrowRight stops at the row\'s last cell; Tab wraps to the next row', async () => {
+  await fire(cell(1, 4), 'click'); await fire(cell(1, 4), 'keydown', { key: 'ArrowRight' });
+  assert.equal(cell(1, 4).getAttribute('aria-selected'), 'true');
+  await fire(cell(1, 4), 'keydown', { key: 'Tab' });
+  assert.equal(cell(2, 1).getAttribute('aria-selected'), 'true');
+});
+await check('Strip Excel entry: Enter commits and moves down, Tab commits and moves right, Esc cancels', async () => {
+  await fire(cell(2, 1), 'click'); await fire(cell(2, 1), 'keydown', { key: '7' });
+  await fire(document.querySelector('input'), 'keydown', { key: 'Enter' });
+  assert.deepEqual(sWrites, [{ rowKey: 'r2', colKey: 'thk', text: '7' }]);
+  assert.equal(cell(4, 1).getAttribute('aria-selected'), 'true', 'down past the bolt to the next row with a Thk');
+  await fire(cell(4, 1), 'keydown', { key: '9' });
+  await fire(document.querySelector('input'), 'keydown', { key: 'Tab' });
+  assert.deepEqual(sWrites, [{ rowKey: 'r4', colKey: 'thk', text: '9' }]); assert.equal(cell(4, 2).getAttribute('aria-selected'), 'true');
+  sWrites = []; await fire(cell(4, 2), 'keydown', { key: '3' });
+  await fire(document.querySelector('input'), 'keydown', { key: 'Escape' });
+  assert.deepEqual(sWrites, []); assert.equal(document.querySelector('input'), null);
+});
+await check('Strip: typing on a drop-down picks the match; ArrowLeft commits it', async () => {
+  await fire(cell(1, 4), 'click'); await fire(cell(1, 4), 'keydown', { key: '3' });
+  assert.equal(document.querySelector('select').value, 'E350');
+  await fire(document.querySelector('select'), 'keydown', { key: 'ArrowLeft' });
+  assert.deepEqual(sWrites, [{ rowKey: 'r1', colKey: 'grade', text: 'E350' }]); assert.equal(cell(1, 3).getAttribute('aria-selected'), 'true');
+});
+await check('Strip paste: a block over identically-shaped rows fills them', async () => {
+  sReset(); await render(sProps());
+  await fire(cell(1, 1), 'click');
+  await clipboard(cell(1, 1), 'paste', '10\t2000\n12\t3000');
+  assert.deepEqual(sWrites.map((w) => `${w.rowKey}.${w.colKey}=${w.text}`), ['r1.thk=10', 'r1.len=2000', 'r2.thk=12', 'r2.len=3000']);
+});
+await check('Strip paste: a row with other cells is skipped, and said; the block keeps its rows', async () => {
+  await fire(cell(2, 1), 'click');
+  await clipboard(cell(2, 1), 'paste', '16\n99\n20');   // r2, r3 (bolt), r4
+  assert.deepEqual(sWrites.map((w) => `${w.rowKey}.${w.colKey}=${w.text}`), ['r2.thk=16', 'r4.thk=20']);
+  assert.match(document.body.textContent, /1 row has different cells and was skipped/);
+});
+await check('Strip paste: wider than the row is refused', async () => {
+  sWrites = []; await fire(cell(1, 3), 'click');
+  await clipboard(cell(1, 3), 'paste', '1\t2\t3');
+  assert.deepEqual(sWrites, []); assert.match(document.body.textContent, /do not fit/);
+});
+await check('Strip fill-down (Ctrl+D) goes by column: rows below with that cell get it, the rest are skipped', async () => {
+  sReset(); sData.r1.len = '2500'; await render(sProps());
+  await fire(cell(1, 2), 'click'); await fire(cell(4, 2), 'click', { shiftKey: true });
+  await fire(cell(4, 2), 'keydown', { key: 'd', ctrlKey: true });
+  assert.deepEqual(sWrites.map((w) => `${w.rowKey}.${w.colKey}=${w.text}`), ['r2.len=2500', 'r4.len=2500']);
+  assert.match(document.body.textContent, /1 cell doesn't apply to its row and was skipped/);
+});
+await check('Strip fill-down from a single cell copies the nearest row above with that cell', async () => {
+  sReset(); sData.r2.wid = '600'; await render(sProps());
+  await fire(cell(4, 3), 'click'); await fire(cell(4, 3), 'keydown', { key: 'd', ctrlKey: true });
+  assert.deepEqual(sWrites, [{ rowKey: 'r4', colKey: 'wid', text: '600' }]);
+});
+await check('Strip: clicking a label selects that cell down its run of identical rows', async () => {
+  await fire(document.querySelector('tr[data-labels-for="r1"] td[data-label="len"]'), 'click');
+  assert.deepEqual(sSel.cells, [{ rowKey: 'r1', colKey: 'len' }, { rowKey: 'r2', colKey: 'len' }]);
+  assert.deepEqual(sSel.cols, ['len']);
+});
+await check('Strip: a selection across differently-shaped rows names its cells exactly', async () => {
+  await fire(cell(2, 1), 'click'); await fire(cell(3, 2), 'click', { shiftKey: true });
+  assert.deepEqual(sSel.cells, [{ rowKey: 'r2', colKey: 'thk' }, { rowKey: 'r2', colKey: 'len' }, { rowKey: 'r3', colKey: 'qty' }, { rowKey: 'r3', colKey: 'note' }]);
+});
+await check('Strip: selectCell finds a cell by its column key; undo puts a write back', async () => {
+  sReset(); await render(sProps());
+  await fire(cell(4, 3), 'click'); await fire(cell(4, 3), 'keydown', { key: '4' });
+  await fire(document.querySelector('input'), 'keydown', { key: 'Enter' });
+  assert.equal(sData.r4.wid, '4');
+  await fire(cell(4, 3), 'keydown', { key: 'z', ctrlKey: true });
+  assert.equal(sData.r4.wid, '');
+});
+await check('Strip: "Line up all columns" falls back to the wide sheet and is remembered', async () => {
+  await fire(document.querySelector('[data-testid="sheet-grid-line-up"]'), 'click');
+  assert.equal(document.querySelector('table').getAttribute('data-layout'), 'wide');
+  assert.equal(document.querySelectorAll('thead th[data-col]').length, sCols.length);
+  await blank(); await render(sProps());
+  assert.equal(document.querySelector('table').getAttribute('data-layout'), 'wide', 'remembered');
+  await fire(document.querySelector('[data-testid="sheet-grid-line-up"]'), 'click');
+  assert.equal(document.querySelector('table').getAttribute('data-layout'), 'strip');
+});
+
 await React.act(() => root.unmount());
 dom.window.close();
 console.log(`\n${passed} passed, ${failed} failed`);

@@ -10,6 +10,7 @@ import { useCompanySlug, useLoad } from '../../hooks/useLoad';
 import { appPath } from '../../navMeta';
 import { ErrorNotice, SkeletonRows } from '../ui';
 import { useTreeRows } from './treeRows';
+import { opShortLabel } from '../../lib/stripLayout';
 
 const NONE: TimeRow[] = [];
 /** Minutes with one decimal at most, and no trailing ".0". */
@@ -198,9 +199,12 @@ export function TimesPanel({ orderId, lineId }: { orderId: number; lineId: numbe
       {view.operations.length === 0
         ? <Typography sx={{ fontSize: 13.5, color: 'var(--c-text-2)' }}>Nothing on this line has a flow yet, so there are no operations to time.</Typography>
         : <SheetGrid ariaLabel="Times" cornerHeader="Piece" rowHeaderWidth={300} busy={load.loading} onProblem={setProblem} hint={null} historyKey={`${lineId}:${setup}`}
+          // Each row shows only the operations in its own flow, in flow order, then its total.
+          rowColumns={(key) => { const r = rowByKey.get(key); if (!r || !Object.keys(r.cells).length) return []; return [...operations.filter((o) => r.cells[o.id]).map((o) => String(o.id)), TOTAL]; }}
+          prefKey="times"
           columns={[
-            ...operations.map((o) => ({ key: String(o.id), label: o.name, header: head(o.name, view.totals.byOperation[o.id]), width: 110, align: 'right' as const })),
-            { key: TOTAL, label: 'Total', header: head('Total', grand), width: 90, align: 'right' as const },
+            ...operations.map((o) => ({ key: String(o.id), label: o.name, short: opShortLabel(o), unit: 'min', stripWidth: 92, header: head(o.name, view.totals.byOperation[o.id]), width: 110, align: 'right' as const })),
+            { key: TOTAL, label: 'Total', short: 'Total', stripWidth: 76, header: head('Total', grand), width: 90, align: 'right' as const },
           ]}
           rows={tree.visible.map((r) => ({
             key: r.key, label: r.name, depth: r.depth, collapsible: tree.hasChildren(r.key), collapsed: tree.isCollapsed(r.key),

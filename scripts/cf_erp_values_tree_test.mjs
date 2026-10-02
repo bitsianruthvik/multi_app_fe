@@ -1,7 +1,7 @@
 // Run from multi_app_fe: node scripts/cf_erp_values_tree_test.mjs
 // The Values stage = the Structure tree grid with gaps in amber (jsdom, not a visual review).
 import assert from 'node:assert/strict';
-import { mkdir, writeFile, unlink } from 'node:fs/promises';
+import { mkdir, writeFile, unlink, readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { build } from 'esbuild';
@@ -12,6 +12,7 @@ for (const key of ['window', 'document', 'navigator', 'HTMLElement', 'Element', 
   Object.defineProperty(globalThis, key, { value: dom.window[key], configurable: true });
 }
 globalThis.getComputedStyle = dom.window.getComputedStyle.bind(dom.window);
+Object.defineProperty(globalThis, 'localStorage', { value: dom.window.localStorage, configurable: true });
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const React = await import('react');
 const { createRoot } = await import('react-dom/client');
@@ -20,6 +21,8 @@ const contents = [
   "export * from './src/apps/cf_erp/components/Bom/bomArrangement';",
   "export * from './src/apps/cf_erp/components/Bom/bomModel';",
   "export * from './src/apps/cf_erp/components/Values/valuesModel';",
+  "export * from './src/apps/cf_erp/lib/process';",
+  "export * from './src/apps/cf_erp/lib/stripLayout';",
 ].join('\n');
 const built = await build({ alias: { '@shared/ui': resolve('src/shared/ui/SheetGrid.tsx') }, stdin: { contents, resolveDir: process.cwd(), loader: 'tsx' }, bundle: true, write: false, format: 'esm', platform: 'node', packages: 'external', jsx: 'automatic' });
 const cache = resolve('node_modules/.cache');
@@ -102,6 +105,53 @@ await check('Values: a variable the row does not have is n/a (hatched), differen
   assert.ok(na.every((td) => /^Not a value of Row [0-9]/.test(td.getAttribute('title')) && td.textContent === ''));
   assert.ok(na.every((td) => !td.getAttribute('title').startsWith('Missing')), 'n/a is never flagged missing');
   assert.equal(tds.filter((td) => td.getAttribute('title')?.startsWith('Missing')).length, 3);
+});
+// ── ONE tab: Structure carries the values; Values is a check, not a tab (2026-10-02) ──
+const st = (stageKey, state = 'done', more = {}) => ({ stageKey, label: stageKey[0].toUpperCase() + stageKey.slice(1), state, requirement: 'required', applies: true, decidedBy: 'data', detail: '', blockers: [], ...more });
+const train = [st('lines'), st('structure'), st('values', 'partial', { shownIn: 'structure' }), st('cut_pieces', 'todo'), st('lock', 'todo')];
+await check('merged tab: Values gets no tab of its own — it is a check on Structure', () => {
+  assert.deepEqual(m.tabStages(train).map((s) => s.stageKey), ['lines', 'structure', 'cut_pieces', 'lock']);
+  assert.deepEqual(m.checksOn('structure', train).map((s) => s.stageKey), ['values']);
+  assert.deepEqual(m.checksOn('lines', train), []);
+});
+await check('merged tab: a link or "Go to" for values lands on Structure', () => {
+  assert.equal(m.tabFor('values', train), 'structure');
+  assert.equal(m.tabFor('lock', train), 'lock');
+  assert.equal(m.tabFor('nope', train), 'nope');
+});
+await check('merged tab: an API without shownIn folds values the same way (the FE knows the rule too)', () => {
+  const old = train.map(({ shownIn, ...s }) => s);
+  assert.deepEqual(m.tabStages(old).map((s) => s.stageKey), ['lines', 'structure', 'cut_pieces', 'lock']);
+});
+await check('merged tab: a process with Values but no Structure keeps Values as its own tab', () => {
+  const noStructure = train.filter((s) => s.stageKey !== 'structure');
+  assert.ok(m.tabStages(noStructure).some((s) => s.stageKey === 'values'));
+  assert.equal(m.tabFor('values', noStructure), 'values');
+});
+await check('merged tab: Values still gates — it is still the first open stage the road reports', () => {
+  assert.equal(m.firstOpenStage(train), 'values');
+  assert.equal(m.tabFor(m.firstOpenStage(train), train), 'structure', 'so Next marks Structure');
+});
+await check('merged tab: the stage screens no longer draw a separate Values panel', async () => {
+  const body = await readFile('src/apps/cf_erp/components/OrderProcess/StageBody.tsx', 'utf8');
+  assert.doesNotMatch(body, /mode="values"/);
+  const panel = await readFile('src/apps/cf_erp/components/Bom/BomPanel.tsx', 'utf8');
+  assert.ok(!panel.includes("mode?: 'structure' | 'values'"), 'BomPanel has no values mode');
+  assert.match(panel, /Show only what’s missing/); assert.match(panel, /next-missing/);
+});
+// The dimensions rule on the values grid: the view above has LENGTH and WIDTH, so every row with either leads with Thk · L · W.
+await React.act(() => root.render(React.createElement(m.BomGrid, props(rows, m.computeGaps(view, undefined)))));
+const keysOfRow = (id) => { const i = rows.findIndex((r) => r.node.id === id); return [...document.querySelectorAll(`[data-cell^="${i}:"][data-col-key]`)].map((td) => td.getAttribute('data-col-key')); };
+await check('values grid: one dimension (LENGTH on a shared row) → all three shown, Thk · L · W', () => {
+  assert.deepEqual(keysOfRow(3), ['$quantity', '$total', 'THICKNESS', 'LENGTH', 'WIDTH']);
+});
+await check('values grid: a row with no dimension skips them', () => {
+  assert.deepEqual(keysOfRow(7), ['$quantity', '$total']);
+});
+await check('values grid: the missing ones stay amber in the strip', () => {
+  const i = rows.findIndex((r) => r.node.id === 4);
+  const len = document.querySelector(`[data-cell^="${i}:"][data-col-key="LENGTH"]`);
+  assert.match(len.getAttribute('title'), /^Missing/);
 });
 await React.act(() => root.unmount());
 dom.window.close();

@@ -20,6 +20,8 @@ for (const key of Object.getOwnPropertyNames(dom.window)) {
 globalThis.window = dom.window;
 globalThis.document = dom.window.document;
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+Object.defineProperty(globalThis, 'localStorage', { value: dom.window.localStorage, configurable: true, writable: true });
+const LINE_UP = 'ui:sheetgrid.lineUp.production-grid';
 // A wide screen: the grid is interactive (below 600 px it would be read-only by design).
 dom.window.matchMedia = (q) => ({ matches: /min-width/.test(q), media: q, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, onchange: null, dispatchEvent: () => false });
 globalThis.matchMedia = dom.window.matchMedia;
@@ -187,18 +189,22 @@ const grid = (canAct = true) => React.createElement(MemoryRouter, { initialEntri
 const tr = (id) => document.querySelector(`tr[data-row="${id}"]`);
 const rowIds = () => [...document.querySelectorAll('tbody tr[data-row]')].map((x) => x.dataset.row);
 const heads = () => [...document.querySelectorAll('thead th')].map((th) => th.textContent);
-/** The data cell of a row under a column: 0 = Done (%), 1.. = the operations in order. */
-const cell = (id, col) => tr(id)?.querySelectorAll('td[role="gridcell"]')[col];
+/** The data cell of a row under a column: 0 = Done (%), 1.. = the operation with that id. Null when the row has no such cell (strip layout). */
+const cell = (id, col) => tr(id)?.querySelector(`td[role="gridcell"][data-col-key="${col === 0 ? 'pct' : col}"]`) ?? null;
+/** The short labels drawn over a row's run of identical rows (strip layout). */
+const labelsOver = (id) => [...(document.querySelector(`tr[data-labels-for="${id}"]`)?.querySelectorAll('td.sg-label') ?? [])].map((td) => td.textContent);
 
 await check('the grid: codes down the left, Done then the operations across in flow order, opened to the level under the top pieces', async () => {
   const root = await render(grid());
   await waitFor(() => rowIds().length > 0, 'rows');
   assert.deepEqual(rowIds(), ['l1', 'p1', 'p2', 'p3']);
-  const h = heads();
-  assert.equal(h[0], 'Piece');
-  assert.match(h[1], /^Done/);
-  assert.match(h[2], /^Cutting/); assert.match(h[3], /^Fit-up/); assert.match(h[4], /^Welding/);
-  assert.match(h[2], /33%/, 'the column says how much of the operation the line has done');
+  assert.equal(heads()[0], 'Piece');
+  // Each row shows only its own cells, a short label above: Done, then its operations in flow order.
+  assert.equal(document.querySelector('table').dataset.layout, 'strip');
+  assert.deepEqual(labelsOver('l1'), ['Done', 'Cutting', 'Fit-up', 'Welding']);
+  assert.deepEqual(labelsOver('p2'), ['Done', 'Cutting', 'Welding'], 'G1 has no Fit-up, so no Fit-up cell');
+  assert.deepEqual(labelsOver('p3'), ['Done', 'Cutting', 'Fit-up']);
+  assert.equal(document.querySelector('tr[data-labels-for="p1"]'), null, 'p1 is shaped like l1: one label line for both');
   assert.equal(calls.filter((c) => c.p === '/tracker/grid').length >= 1, true);
   await unmount(root);
 });
@@ -220,10 +226,8 @@ await check('the grid: done ✓, blocked ! with its reason, hatched where the op
   assert.equal(cut.dataset.state, 'done'); assert.equal(cut.textContent, '✓');
   assert.equal(weld.dataset.state, 'blocked'); assert.equal(weld.textContent, '!');
   assert.match(weld.getAttribute('title'), /Welding on SO-1-SPAN-01-1-G1 — blocked · On hold: crane/);
-  assert.equal(fit.dataset.na, 'true', 'Fit-up is not in G1\'s flow');
-  assert.equal(fit.textContent, '');
-  assert.match(fit.getAttribute('title'), /Fit-up is not in SO-1-SPAN-01-1-G1's flow/);
-  assert.equal(fit.getAttribute('aria-disabled'), 'true', 'a hatched cell is not a cell to work in');
+  assert.equal(fit, null, 'Fit-up is not in G1\'s flow: the cell is simply not there');
+  assert.equal(document.querySelectorAll('td[data-na="true"]').length, 0, 'no hatching in the strip layout');
   assert.equal(cell('p3', 2).textContent, '•', 'a ready step shows a dot');
   await unmount(root);
 });
@@ -277,6 +281,21 @@ await check('the grid: read-only — the drawer shows the steps but no actions',
   assert.match(document.body.textContent, /does not allow recording work here/);
   await unmount(root);
 });
+await check('Line up all columns: every operation for every row, hatched where it is not in the flow', async () => {
+  localStorage.setItem(LINE_UP, 'true');
+  const root = await render(grid());
+  await waitFor(() => tr('p2'), 'p2');
+  const h = heads();
+  assert.match(h[1], /^Done/);
+  assert.match(h[2], /^Cutting/); assert.match(h[3], /^Fit-up/); assert.match(h[4], /^Welding/);
+  assert.match(h[2], /33%/, 'the column says how much of the operation the line has done');
+  const fit = cell('p2', 2);
+  assert.equal(fit.dataset.na, 'true', 'Fit-up is not in G1\'s flow');
+  assert.equal(fit.textContent, '');
+  assert.match(fit.getAttribute('title'), /Fit-up is not in SO-1-SPAN-01-1-G1's flow/);
+  assert.equal(fit.getAttribute('aria-disabled'), 'true', 'a hatched cell is not a cell to work in');
+  await unmount(root);
+});
 await check('the grid: a hatched cell opens nothing', async () => {
   calls.length = 0;
   const root = await render(grid());
@@ -285,6 +304,7 @@ await check('the grid: a hatched cell opens nothing', async () => {
   await settle(60);
   assert.equal(calls.some((c) => c.p === '/tracker/tree/node'), false);
   await unmount(root);
+  localStorage.removeItem(LINE_UP);
 });
 
 dom.window.close();

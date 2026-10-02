@@ -210,6 +210,31 @@ export const STATE_HELP: Record<StageState, string> = {
 export const stageSatisfied = (s: Pick<OrderStage, 'state' | 'requirement'>) =>
   s.state === 'done' || s.state === 'not_applicable' || s.requirement === 'optional';
 
+/**
+ * Stages that are a CHECK on another stage's tab, not a tab of their own
+ * (user, 2026-10-02: Structure and Values are one tab). The backend says so on
+ * the stage (`shownIn`, processService STAGE_CATALOGUE); this map is the same
+ * fact for an API that predates it. The stage still exists, still has its state
+ * and still gates Freeze design — it is only drawn inside its host.
+ */
+const SHOWN_IN: Record<string, string> = { values: 'structure' };
+type Folded = Pick<OrderStage, 'stageKey'> & { shownIn?: string | null };
+/** The tab a stage is drawn in: its host when it is folded into one that this process has, else itself. */
+export function hostOf(stage: Folded, stages: readonly Pick<OrderStage, 'stageKey'>[]): string {
+  const host = stage.shownIn ?? SHOWN_IN[stage.stageKey];
+  return host && host !== stage.stageKey && stages.some((s) => s.stageKey === host) ? host : stage.stageKey;
+}
+/** The stages that get a tab, in order. */
+export const tabStages = <S extends Folded>(stages: S[]): S[] => stages.filter((s) => hostOf(s, stages) === s.stageKey);
+/** The checks drawn on a host's tab (Values on Structure). */
+export const checksOn = <S extends Folded>(hostKey: string, stages: S[]): S[] =>
+  stages.filter((s) => s.stageKey !== hostKey && hostOf(s, stages) === hostKey);
+/** Where a link to any stage key lands: the tab that draws it. */
+export const tabFor = (stageKey: string, stages: readonly Folded[]): string => {
+  const s = stages.find((x) => x.stageKey === stageKey);
+  return s ? hostOf(s, stages) : stageKey;
+};
+
 /** The first stage that still holds this list up — where the work is. Null when nothing does. */
 export const firstOpenStage = (stages: OrderStage[]): string | null =>
   stages.find((s) => !stageSatisfied(s))?.stageKey ?? null;
