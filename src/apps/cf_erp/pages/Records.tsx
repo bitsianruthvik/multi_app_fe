@@ -28,7 +28,8 @@ const COPY = {
   item: {
     title: 'Items',
     subtitle: 'Real things that transact — bought, made, stored, issued. What an order makes for itself lives on the order, in its structure.',
-    kinds: [] as const,
+    // Catalog items are the shop's standing list; temporary ones are made for one order line.
+    kinds: [['', 'All'], ['catalog', 'Catalog'], ['temporary', 'Temporary (one order)']] as const,
     create: 'New item',
     path: 'items',
     icon: <Inventory2Rounded />,
