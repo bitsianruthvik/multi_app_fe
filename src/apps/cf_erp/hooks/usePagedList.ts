@@ -110,15 +110,17 @@ export function usePagedList<T, C = unknown>(
   const reload = useCallback(() => setTick((t) => t + 1), []);
 
   const server: ServerPaging<T> = useMemo(() => ({
-    total, hasMore, loadingMore, onLoadMore: loadMore, sort, onSort: setSort, exportAll,
-  }), [total, hasMore, loadingMore, loadMore, sort, exportAll]);
+    total, hasMore, loadingMore, refreshing: loaded && loading, onLoadMore: loadMore, sort, onSort: setSort, exportAll,
+  }), [total, hasMore, loadingMore, loaded, loading, loadMore, sort, exportAll]);
 
   return {
     rows,
     total,
     counts,
-    /** True until the first answer for the current filters arrives. */
+    /** True while a request for the current filters is in flight (the old rows may still show — see `refreshing`). */
     loading,
+    /** A refetch is in flight over rows already loaded: dim them, show the bar (DataTable does, via `server`). */
+    refreshing: loaded && loading,
     /** False before the very first answer — a table shows skeleton rows then. */
     loaded,
     loadingMore,

@@ -265,6 +265,20 @@ export interface MasterRecord {
   definitionFlow?: FlowRef | null;
 }
 
+/** GET /records?paged=1 → counts: over EVERY match, never the loaded page (masterRecordService.listRecords). */
+export interface RecordCounts {
+  /** What the current filters match (= the list's total). */
+  total: number;
+  /** Each kind over every other filter (the status chip included). */
+  kind: { catalog: number; temporary: number; template: number; selection: number };
+  /** Each status over every other filter (the kind chip included); `all` = any status. */
+  status: { draft: number; active: number; obsolete: number; all: number } & Record<string, number>;
+  /** Matching records with no code yet. */
+  noCode: number;
+  /** Every record of this screen's kinds, whatever is filtered. */
+  overall: number;
+}
+
 export interface RecordList { total: number; rows: MasterRecord[]; kindCounts?: { catalog: number; temporary: number; template: number; selection: number } }
 
 export interface HistoryEntry {

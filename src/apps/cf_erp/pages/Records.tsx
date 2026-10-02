@@ -5,8 +5,9 @@ import AddRounded from '@mui/icons-material/AddRounded';
 import ContentCopyRounded from '@mui/icons-material/ContentCopyRounded';
 import Inventory2Rounded from '@mui/icons-material/Inventory2Rounded';
 import AccountTreeRounded from '@mui/icons-material/AccountTreeRounded';
-import { cfApi, qs } from '../api/client';
-import type { MasterRecord, RecordList, ScreenTree } from '../api/types';
+import { cfApi } from '../api/client';
+import type { MasterRecord, RecordCounts, ScreenTree } from '../api/types';
+import { useDebounced, usePagedList } from '../hooks/usePagedList';
 import { useCompanySlug, useLoad } from '../hooks/useLoad';
 import { useIsPermitted } from '../hooks/useIsPermitted';
 import { useNewParam, useUrlParam } from '../hooks/useUrlState';
@@ -26,6 +27,9 @@ import { useToast } from '../components/toastContext';
 
 const SELECTION_MODE: Record<string, string> = { allowed_list: 'Allowed list', spec_match: 'Matching', both: 'List + matching' };
 const STATUS_CHIPS = [['', 'Any status'], ['draft', 'Draft'], ['active', 'Active'], ['obsolete', 'Obsolete']] as const;
+
+/** Columns the server sorts by (masterRecordService RECORD_SORT); BOM size sorts only once everything is loaded. */
+const SORTABLE = ['code', 'name', 'shortName', 'kind', 'classification', 'status', 'rev', 'tracked', 'chooses', 'sourcing'];
 
 const COPY = {
   item: {
@@ -118,8 +122,9 @@ function columnsFor(recordKind: 'item' | 'definition'): DataColumn<MasterRecord>
 /**
  * Collection / List (§4.2) for items or definitions — the same screen, since
  * both live in one table. Kind and status sit in the URL (?status=draft), so
- * Home's "drafts to finish" lands here filtered; the figures describe the
- * filtered rows, so they always agree with the table beneath them.
+ * Home's "drafts to finish" lands here filtered; the chips and figures
+ * are the server's counts over every match, so they agree with the table
+ * beneath them however many rows have loaded.
  */
 export default function Records({ recordKind }: { recordKind: 'item' | 'definition' }) {
   const copy = COPY[recordKind];
@@ -131,13 +136,12 @@ export default function Records({ recordKind }: { recordKind: 'item' | 'definiti
   const [kind, setKind] = useUrlParam('kind', '');
   const [status, setStatus] = useUrlParam('status', '');
   const [search, setSearch] = useState('');
-  const [debounced, setDebounced] = useState('');
+  const debounced = useDebounced(search.trim());
   const [creating, setCreating] = useState(false);
   /** The record "make a similar one" started from — the create form, pre-filled. */
   const [copying, setCopying] = useState<MasterRecord | null>(null);
   const classificationId = params.get('classificationId') ? Number(params.get('classificationId')) : null;
   useNewParam(() => { if (canManage) setCreating(true); });
-  useEffect(() => { const t = window.setTimeout(() => setDebounced(search), 250); return () => window.clearTimeout(t); }, [search]);
 
   const screen = recordKind === 'item' ? 'items' : 'definitions';
   // The screen's own part of the tree — derived on the server from what is
@@ -152,22 +156,26 @@ export default function Records({ recordKind }: { recordKind: 'item' | 'definiti
     setParams(next, { replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  // The kind chip is answered by the SERVER: the list is capped at 500 rows,
-  // and temporary items are only listed when asked for by kind — filtering the
-  // capped page here hid every one of them (prod: 199). The chip counts come
-  // back with the same request (kindCounts), so they hold whatever the cap.
-  const list = useLoad(() => cfApi.get<RecordList>(`/records${qs({ recordKind, classificationId, search: debounced, limit: 500, ...kindQuery(recordKind, kind) })}`),
-    [recordKind, classificationId, debounced, kind]);
-
-  const all = useMemo(() => list.data?.rows ?? [], [list.data]);
-  const byKind = all;
-  const rows = useMemo(() => byKind.filter((r) => !status || r.status === status), [byKind, status]);
+  // EVERY filter is answered by the SERVER (kind chip, status chip, classification
+  // subtree, search) and the list pages (usePagedList + DataTable server): the
+  // old 500-row page hid everything past it and the figures above counted only
+  // what had loaded (2026-10-02). The chips and tiles read `counts`, which the
+  // server computes over all matches in the same request.
+  const list = usePagedList<MasterRecord, RecordCounts>('/records', {
+    recordKind, classificationId, search: debounced, status, ...kindQuery(recordKind, kind),
+  });
+  const rows = list.rows;
   const columns = useMemo(() => columnsFor(recordKind), [recordKind]);
+  const rc = list.counts;
+  const filtered = !!debounced || !!kind || !!status || !!classificationId;
+  // Tiles are the server's figures. Matching = what the filters match; Active /
+  // Draft count over every filter except the status chip (so they stay clickable
+  // choices, like the chips); "of N" = every record on this screen.
   const stats = [
-    { label: 'Shown', value: rows.length },
-    { label: 'Active', value: rows.filter((r) => r.status === 'active').length, tone: 'success' as const, onClick: () => setStatus('active') },
-    { label: 'Draft', value: rows.filter((r) => r.status === 'draft').length, tone: 'warning' as const, hint: 'Not usable yet', onClick: () => setStatus('draft') },
-    { label: 'Without a code', value: rows.filter((r) => !r.code).length, tone: 'danger' as const, hint: 'Cannot be activated' },
+    { label: filtered && rc ? `Matching (of ${rc.overall.toLocaleString()})` : 'Matching', value: rc?.total ?? list.total },
+    { label: 'Active', value: rc?.status.active ?? 0, tone: 'success' as const, onClick: () => setStatus('active') },
+    { label: 'Draft', value: rc?.status.draft ?? 0, tone: 'warning' as const, hint: 'Not usable yet', onClick: () => setStatus('draft') },
+    { label: 'Without a code', value: rc?.noCode ?? 0, tone: 'danger' as const, hint: 'Cannot be activated' },
   ];
 
   const setClassification = (id: number | null) => {
@@ -176,12 +184,7 @@ export default function Records({ recordKind }: { recordKind: 'item' | 'definiti
     setParams(next, { replace: true });
   };
   const open = (r: MasterRecord) => navigate(appPath(company, `${copy.path}/${r.id}`));
-  const filtered = !!debounced || !!kind || !!status || !!classificationId;
   const clear = () => { setSearch(''); setKind(''); setStatus(''); setClassification(null); };
-  // The request asks for 500 rows, which is also the server's ceiling. Say so
-  // rather than let the table and the figures above it quietly under-report.
-  const hiddenByLimit = Math.max((list.data?.total ?? 0) - all.length, 0);
-
   return (
     <Box>
       <PageHeader title={copy.title} subtitle={copy.subtitle}
@@ -193,21 +196,17 @@ export default function Records({ recordKind }: { recordKind: 'item' | 'definiti
         )} />
       <StatStrip stats={stats} />
       <FilterBar search={search} onSearch={setSearch} placeholder="Search code or name">
-        {copy.kinds.map(([v, label]) => <FacetChip key={v || 'all'} label={label} active={kind === v} count={kindCount(recordKind, v, list.data?.kindCounts)} onClick={() => setKind(v)} />)}
+        {copy.kinds.map(([v, label]) => <FacetChip key={v || 'all'} label={label} active={kind === v} count={kindCount(recordKind, v, rc?.kind)} onClick={() => setKind(v)} />)}
         <Box sx={{ width: '1px', height: 20, background: 'var(--c-border)', mx: 0.5 }} aria-hidden />
-        {STATUS_CHIPS.map(([v, label]) => <FacetChip key={v || 'any'} label={label} active={status === v} count={byKind.filter((r) => !v || r.status === v).length} onClick={() => setStatus(v)} />)}
+        {STATUS_CHIPS.map(([v, label]) => <FacetChip key={v || 'any'} label={label} active={status === v} count={v ? rc?.status[v] : rc?.status.all} onClick={() => setStatus(v)} />)}
         {/* One filter per level, each narrowing the others. They stand for a
             single id — the deepest one chosen — which is what the list asks the
             server for, and the server filters on that node's whole subtree. */}
         <ClassificationLevelFilter tree={tree.data} value={classificationId} onChange={setClassification} />
       </FilterBar>
       <ErrorNotice error={list.error} onRetry={list.reload} />
-      {hiddenByLimit > 0 && (
-        <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)', mb: 1 }}>
-          Showing the first {all.length} of {list.data?.total}{kind ? ` ${copy.kinds.find(([v]) => v === kind)?.[1].toLowerCase()}` : ''} (by code) — search, or pick a classification, to see the rest.
-        </Typography>
-      )}
-      <DataTable key={recordKind} rows={rows} columns={columns} getRowId={(r) => r.id} onRowClick={open} loading={list.loading && !list.data}
+      <DataTable key={recordKind} rows={rows} columns={columns} getRowId={(r) => r.id} onRowClick={open} loading={!list.loaded}
+        server={{ ...list.server, sortable: SORTABLE }}
         storageKey={copy.path} exportName={copy.path} defaultSortKey="code"
         // A temporary item is never offered: it is born from a sales order line
         // and the backend refuses to create one from here (ORDER_ONLY).

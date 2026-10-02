@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
-  Box, Checkbox, IconButton, Menu, MenuItem, ListItemText, Tooltip, Button,
+  Box, Checkbox, IconButton, LinearProgress, Menu, MenuItem, ListItemText, Tooltip, Button,
 } from '@mui/material';
 import ArrowUpwardRounded from '@mui/icons-material/ArrowUpwardRounded';
 import ArrowDownwardRounded from '@mui/icons-material/ArrowDownwardRounded';
@@ -80,6 +80,12 @@ export interface ServerPaging<T> {
   total: number;
   hasMore: boolean;
   loadingMore?: boolean;
+  /**
+   * A refetch for NEW filters / sort / reload is in flight while the old rows
+   * are still showing (usePagedList sets it). The table dims them and shows a
+   * thin progress bar, so a slow filter never looks like nothing happened.
+   */
+  refreshing?: boolean;
   onLoadMore: () => void;
   /** Column keys the server can sort by. */
   sortable?: string[];
@@ -355,6 +361,8 @@ export function DataTable<T>({
     whiteSpace: 'nowrap' as const,
   };
 
+  const refreshing = !!server?.refreshing && !loading;
+
   const hasToolbar = !!storageKey || !!exportName || (!bare && columns.some((c) => !c.alwaysVisible));
 
   return (
@@ -436,7 +444,15 @@ export function DataTable<T>({
       )}
 
       <Frame bare={bare}>
-        <Box sx={{ overflowX: 'auto', maxHeight, overflowY: maxHeight ? 'auto' : undefined }}>
+        {/* Server mode: a thin bar while a refetch is in flight; the rows below are dimmed. */}
+        <Box sx={{ position: 'relative', height: 0 }}>
+          {refreshing && (
+            <LinearProgress data-testid="dt-refreshing" aria-label="Updating the list"
+              sx={{ position: 'absolute', top: 0, left: 0, right: 0, height: 3, zIndex: 3, background: 'transparent' }} />
+          )}
+        </Box>
+        <Box data-busy={refreshing ? '1' : undefined} aria-busy={refreshing || undefined}
+          sx={{ overflowX: 'auto', maxHeight, overflowY: maxHeight ? 'auto' : undefined, transition: 'opacity 120ms var(--ease)', opacity: refreshing ? 0.45 : 1, pointerEvents: refreshing ? 'none' : undefined }}>
           <Box component="table" sx={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'auto' }}>
             <Box
               component="thead"
