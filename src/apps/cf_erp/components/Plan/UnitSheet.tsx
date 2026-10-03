@@ -41,7 +41,7 @@ export function UnitSheet({ unit, snapshot, evaluation, periodLabel, canEdit, bu
           {unit.committedDate && <Row k="Promised">{shortDate(unit.committedDate)}{ev?.late ? ' — after this date' : ''}</Row>}
           {unit.progress > 0 && <Row k="Done">{Math.round(unit.progress * 100)}%</Row>}
           {ev?.blocked && <Typography sx={{ mt: 1, fontSize: 13, color: 'var(--c-danger-800)' }}>
-            {ev.blocked}{ev.blockedKind === 'not_ordered' && <> — <Link to={buyListPath}>open the buy list</Link></>}
+            {ev.blocked}{ev.blockedKind === 'not_ordered' && <> — <Link to={buyListPath}>open Purchase</Link></>}
           </Typography>}
 
           <Typography sx={{ fontWeight: 600, fontSize: 13, mt: 2, mb: 0.5 }}>Time needed</Typography>

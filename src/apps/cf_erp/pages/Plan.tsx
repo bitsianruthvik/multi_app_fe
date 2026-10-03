@@ -385,7 +385,7 @@ export default function Plan() {
 
       <Scoreboard months={months} evaluation={shown} targets={snap.targets} canEdit={editable} onTarget={setTarget} />
 
-      {preview && <AutoPlanBanner lines={previewLines} buyListPath={appPath(company, 'buy-list')} onApply={applyPreview} onDiscard={() => setPreview(null)} />}
+      {preview && <AutoPlanBanner lines={previewLines} buyListPath={appPath(company, 'purchase')} onApply={applyPreview} onDiscard={() => setPreview(null)} />}
 
       {/* toolbar: expand · selection · highlight · undo/redo · save */}
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', minHeight: 40 }}>
@@ -444,7 +444,7 @@ export default function Plan() {
         )} />
 
       <UnitSheet unit={open} snapshot={snap} evaluation={shown} periodLabel={(k) => periodLabels.get(k) ?? k} canEdit={editable}
-        buyListPath={appPath(company, 'buy-list')} onClose={() => setOpenKey(null)}
+        buyListPath={appPath(company, 'purchase')} onClose={() => setOpenKey(null)}
         onUnplan={(key) => putPlan(unplan(present.plan, [key]))}
         onPin={(key, pinned) => { if (present.plan[key]) putPlan({ ...present.plan, [key]: { ...present.plan[key], pinned } }); }} />
     </Box>

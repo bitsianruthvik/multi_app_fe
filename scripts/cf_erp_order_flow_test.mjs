@@ -1,6 +1,6 @@
 // Run from multi_app_fe: node scripts/cf_erp_order_flow_test.mjs
 // The reworked sales-order flow: no cut rows in Structure, "Freeze design" wording,
-// the confirm action button, the planned chip and filters on the buy list, the Plate column;
+// the confirm action button, the Plate column;
 // since 2026-10-02 no Cut pieces tab — a "Cut pieces (N)" button on Nesting opens them in a dialog,
 // and an old ?tab=cut-pieces link lands there.
 import assert from 'node:assert/strict';
@@ -43,8 +43,6 @@ await writeFile(authStub, 'export const useAuth = () => ({ user: null });');
 const entry = `export * from './src/apps/cf_erp/components/OrderProcess/StageBody';
 export * from './src/apps/cf_erp/components/Nesting/CutPiecesDialog';
 export { tabStages, tabFor, isCutPiecesKey, withCutPiecesOpen, CUT_PIECES_PARAM } from './src/apps/cf_erp/lib/process';
-export * from './src/apps/cf_erp/components/PlannedChip';
-export * from './src/apps/cf_erp/lib/buyList';
 export * from './src/apps/cf_erp/lib/cutPieces';
 export * from './src/apps/cf_erp/components/Bom/bomArrangement';
 export * from './src/apps/cf_erp/components/Bom/bomModel';`;
@@ -125,17 +123,6 @@ await check('Plate column: chosen at nesting / nest lot / hand-chosen plate', ()
   assert.equal(m.plateText({ plate: { code: 'PL-1', name: 'x', isSelection: true } }), 'chosen at nesting');
   assert.equal(m.plateText({ plate: { code: 'PL-9', name: 'x' }, nest: { nestNo: 'N-012' } }), 'N-012 · PL-9');
   assert.equal(m.plateText({ plate: { code: 'PL-9', name: 'x' } }), 'PL-9');
-});
-
-await check('Planned chip shows order/line, and the filters split released from planned', async () => {
-  await act(async () => { root.render(null); });
-  await render(React.createElement(m.PlannedChip, { row: { source: { orderId: 1, orderCode: 'SO-20260930-0001', lineId: 5, lineNo: 10 } } }));
-  assert.equal(document.querySelector('[data-testid="planned-chip"]').textContent, 'planned · SO-20260930-0001/10 — not released yet');
-  const rows = [{ item: { id: 1 } }, { item: { id: 1 }, planned: true, source: { lineId: 5 } }, { item: { id: 2 }, planned: true, source: { lineId: 6 } }];
-  assert.equal(m.byKind(rows, 'all').length, 3);
-  assert.equal(m.byKind(rows, 'released').length, 1);
-  assert.equal(m.byKind(rows, 'planned').length, 2);
-  assert.equal(new Set(rows.map(m.buyRowId)).size, 3);
 });
 
 // ── No Cut pieces stage (2026-10-02): the list is a dialog over Nesting ──

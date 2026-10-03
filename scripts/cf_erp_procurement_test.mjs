@@ -1,5 +1,5 @@
 // Run from multi_app_fe: node scripts/cf_erp_procurement_test.mjs
-// Procurement screens: a purchase request's buttons follow `allowed` and the approve permission, the comparison marks
+// Procurement pieces kept inside the purchase order page: the comparison marks
 // cheapest / fastest / expired / not quoted and offers an award radio per line, the quote grid takes a paste from
 // Excel (and refuses text in a number cell), and a missing price reads "not quoted", never zero rupees.
 import assert from 'node:assert/strict';
@@ -30,7 +30,6 @@ const built = await build({
     contents: `import * as React from 'react'; import { createRoot } from 'react-dom/client'; import { MemoryRouter } from 'react-router-dom';
       export { React, createRoot, MemoryRouter };
       export * from './src/apps/cf_erp/lib/procurement';
-      export { RequestActionBar, RequestHistory } from './src/apps/cf_erp/components/RequestParts';
       export { RfqComparison } from './src/apps/cf_erp/components/RfqComparison';
       export { QuoteGrid } from './src/apps/cf_erp/components/QuoteDialog';`,
     resolveDir: process.cwd(), loader: 'tsx',
@@ -59,39 +58,6 @@ const render = async (el) => { app.replaceChildren(); const host = document.crea
 const click = async (el) => { assert.ok(el, 'nothing to click'); await React.act(async () => { el.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })); await sleep(0); }); };
 const buttons = () => [...document.querySelectorAll('button')].map((b) => b.textContent.trim());
 const q = (id) => document.querySelector(`[data-testid="${id}"]`);
-
-// ── purchase request buttons ──────────────────────────────────────────────
-const req = (allowed) => ({ id: 1, code: 'PR-000001', status: 'submitted', lines: [], allowed: { edit: false, submit: false, approve: false, reject: false, cancel: false, makeRfq: false, ...allowed } });
-const bar = (request, perms, count = 0, onAction = () => {}) => React.createElement(m.RequestActionBar, { request, canManage: true, canApprove: true, makeRfqCount: count, onAction, ...perms });
-
-await check('request buttons: only what `allowed` says', async () => {
-  await render(bar(req({ submit: true, cancel: true })));
-  assert.deepEqual(buttons(), ['Submit for approval', 'Cancel']);
-  await render(bar(req({ approve: true, reject: true, cancel: true })));
-  assert.deepEqual(buttons(), ['Approve', 'Reject', 'Cancel']);
-  await render(bar(req({ makeRfq: true }), {}, 3));
-  assert.deepEqual(buttons(), ['Make RFQ (3 lines)']);
-  await render(bar(req({ makeRfq: true }), {}, 0));
-  assert.deepEqual(buttons(), []);
-});
-await check('approve and reject need the approve permission even when allowed', async () => {
-  await render(bar(req({ approve: true, reject: true, cancel: true }), { canApprove: false }));
-  assert.deepEqual(buttons(), ['Cancel']);
-  await render(bar(req({ submit: true }), { canManage: false }));
-  assert.deepEqual(buttons(), []);
-});
-await check('a button reports its action', async () => {
-  const seen = [];
-  await render(bar(req({ approve: true, reject: true }), {}, 0, (a) => seen.push(a)));
-  await click([...document.querySelectorAll('button')].find((b) => b.textContent === 'Reject'));
-  await click([...document.querySelectorAll('button')].find((b) => b.textContent === 'Approve'));
-  assert.deepEqual(seen, ['reject', 'approve']);
-});
-await check('history lists who, what and the note', async () => {
-  await render(React.createElement(m.RequestHistory, { history: [{ at: '2026-10-01T09:00:00Z', action: 'rejected', by: { id: 1, name: 'Asha' }, note: 'Too early' }] }));
-  assert.match(q('request-history').textContent, /2026-10-01 Asha — rejected/);
-  assert.match(q('request-history').textContent, /Too early/);
-});
 
 // ── comparison ────────────────────────────────────────────────────────────
 const item = { id: 1, code: 'PL-10', name: 'Plate 10 mm', uom: 'kg' };

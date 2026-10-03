@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { Box, Button, Typography } from '@mui/material';
 
-const BUY_LIST = 'see the Buy list';
+const BUY_LIST = 'see the Buy list'; // the planner's own words; the link goes to the Purchase board
 
 /** A note that sends the reader to the Buy list gets the link in place of the words. */
 function noteText(line: string, buyListPath?: string): ReactNode {

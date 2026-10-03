@@ -3,16 +3,20 @@ import type { Family } from '../components/ui';
 
 /** A purchase order's state in words. */
 export const PURCHASE_STATUS_LABEL: Record<PurchaseStatus, string> = {
-  draft: 'Draft',
+  draft: 'Requested',
+  requested: 'Requested',
+  quoting: 'Quoting',
   ordered: 'Ordered',
   partially_received: 'Part received',
   received: 'Received',
   cancelled: 'Cancelled',
 };
 
-/** Draft is unsent, ordered is waiting on the supplier, received is done. */
+/** Requested and quoting are not placed yet, ordered is waiting on the supplier, received is done. */
 export const PURCHASE_STATUS_FAMILY: Record<PurchaseStatus, Family> = {
   draft: 'warning',
+  requested: 'warning',
+  quoting: 'info',
   ordered: 'info',
   partially_received: 'info',
   received: 'success',
@@ -21,7 +25,8 @@ export const PURCHASE_STATUS_FAMILY: Record<PurchaseStatus, Family> = {
 
 export const PURCHASE_FILTERS: { value: string; label: string }[] = [
   { value: 'open', label: 'Open' },
-  { value: 'draft', label: 'Draft' },
+  { value: 'requested', label: 'Requested' },
+  { value: 'quoting', label: 'Quoting' },
   { value: 'ordered', label: 'Ordered' },
   { value: 'partially_received', label: 'Part received' },
   { value: 'received', label: 'Received' },

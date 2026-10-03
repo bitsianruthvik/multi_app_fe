@@ -2,6 +2,7 @@ import EditNoteRounded from '@mui/icons-material/EditNoteRounded';
 import LocalShippingRounded from '@mui/icons-material/LocalShippingRounded';
 import Inventory2Rounded from '@mui/icons-material/Inventory2Rounded';
 import CheckCircleRounded from '@mui/icons-material/CheckCircleRounded';
+import RequestQuoteRounded from '@mui/icons-material/RequestQuoteRounded';
 import BlockRounded from '@mui/icons-material/BlockRounded';
 import type { ReactNode } from 'react';
 import type { PurchaseStatus } from '../api/types';
@@ -10,6 +11,8 @@ import { Badge } from './ui';
 
 const ICON: Record<PurchaseStatus, ReactNode> = {
   draft: <EditNoteRounded />,
+  requested: <EditNoteRounded />,
+  quoting: <RequestQuoteRounded />,
   ordered: <LocalShippingRounded />,
   partially_received: <Inventory2Rounded />,
   received: <CheckCircleRounded />,

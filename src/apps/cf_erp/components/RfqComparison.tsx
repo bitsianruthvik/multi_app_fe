@@ -60,13 +60,13 @@ function Cell({ line, cell, name, chosen, editable, onPick }: {
  * delivery is marked, an expired quote is greyed and cannot be awarded. Pick one supplier per line; a line can be
  * left unawarded.
  */
-export function RfqComparison({ comparison, choices, onChoose, editable, onCheapest, busy, dirty, onSave }: {
+export function RfqComparison({ comparison, choices, onChoose, editable, onCheapest, busy, dirty, onSave, cheapestLabel = 'Award cheapest on every line' }: {
   comparison: Comparison; choices: Choices; onChoose: (rfqLineId: number, supplierId: number | null) => void; editable: boolean;
-  onCheapest?: () => void; busy?: boolean; dirty?: boolean; onSave?: () => void;
+  onCheapest?: () => void; busy?: boolean; dirty?: boolean; onSave?: () => void; cheapestLabel?: string;
 }) {
   const { lines, suppliers } = comparison;
   if (!lines.length || !suppliers.length) {
-    return <Typography sx={{ fontSize: 13.5, color: 'var(--c-text-2)', py: 2 }}>{suppliers.length ? 'There are no lines to compare.' : 'No quotes are in yet. Enter a supplier\'s quote on the RFQ tab and it will appear here.'}</Typography>;
+    return <Typography sx={{ fontSize: 13.5, color: 'var(--c-text-2)', py: 2 }}>{suppliers.length ? 'There are no lines to compare.' : 'No quotes are in yet. Record a supplier’s quotation and it will appear here.'}</Typography>;
   }
   const totals = awardedTotals(comparison, choices);
   const awardedCount = lines.filter((l) => choices[l.rfqLine.id] != null).length;
@@ -76,8 +76,8 @@ export function RfqComparison({ comparison, choices, onChoose, editable, onCheap
         <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)', flex: '1 1 260px' }}>
           Landed = the price with freight shared in, before GST. {awardedCount} of {lines.length} {lines.length === 1 ? 'line' : 'lines'} awarded.
         </Typography>
-        {editable && <Button variant="outlined" onClick={onCheapest} disabled={busy}>Award cheapest on every line</Button>}
-        {editable && <Button variant="contained" onClick={onSave} disabled={busy || !dirty}>Save awards</Button>}
+        {editable && onCheapest && <Button variant="outlined" onClick={onCheapest} disabled={busy}>{cheapestLabel}</Button>}
+        {editable && onSave && <Button variant="contained" onClick={onSave} disabled={busy || !dirty}>Save awards</Button>}
       </Box>
       <Box sx={{ overflowX: 'auto', border: '1px solid var(--c-divider)', borderRadius: 'var(--r-md)' }}>
         <Box component="table" data-testid="cmp-table" sx={{ borderCollapse: 'collapse', width: '100%' }}>

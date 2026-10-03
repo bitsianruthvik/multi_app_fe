@@ -64,22 +64,22 @@ await check('Receiving reports what was held for which order', () => {
   const s = src('pages/PurchaseOrderDetail.tsx'); const d = src('components/PurchaseDialogs.tsx');
   assert.match(d, /held\?: HeldReceipt\[\]/); assert.match(s, /Held \$\{qtyText\(h\.quantity\)\} for \$\{h\.orderCode\}/); assert.match(s, /nobody else can use it/);
 });
-await check('OrderBuyingPanel renders the held section and the old "names no order" gap text is gone', () => {
-  const o = src('components/Buying/OrderBuyingPanel.tsx'); const b = src('pages/Buying.tsx');
-  assert.match(o, /Held for this order/); assert.match(o, /order-held-row/); assert.match(o, /Arrived on a purchase order bought for this order\. Release uses it first\./);
-  assert.doesNotMatch(o, /names no order/); assert.doesNotMatch(b, /names no order/);
+await check('OrderPurchasePanel renders the held section (fed by GET /orders/:id/purchase)', () => {
+  const o = src('components/Purchase/OrderPurchasePanel.tsx');
+  assert.match(o, /Held for this order/); assert.match(o, /order-held-row/); assert.match(o, /Release uses it first\./);
+  assert.match(o, /data\.held\?\.rows/); assert.doesNotMatch(o, /names no order/);
+  assert.match(src('api/purchase.ts'), /held\?: \{ total: number; rows: HeldRow\[\] \}/);
 });
 await check('Item stock renders held reservations with a Let go action behind canManage and a confirm', () => {
   const s = src('components/ItemStockPanel.tsx');
   assert.match(s, /Held — bought on/); assert.match(s, /Held for the order/); assert.match(s, /v\.kind === 'held' && canManage/);
   assert.match(s, /Let go of this hold\? The stock becomes free for any job\./); assert.match(s, /releaseHold\(letting\.id\)/);
 });
-await check('Buy list shows what the row\'s order already has held; types carry the new fields', () => {
-  assert.match(src('pages/BuyList.tsx'), /header: 'Held for order'/);
+await check('types carry the purchase fields', () => {
   const t = src('api/types.ts');
-  for (const k of ['held?: number', "kind?: 'material' | 'finished' | 'held'", 'orderCodes?: string[]', 'unlinked?: number']) assert.ok(t.includes(k), k);
-  assert.match(src('api/buying.ts'), /held\?: \{ total: number; rows: HeldRow\[\] \}/);
+  for (const k of ["kind?: 'material' | 'finished' | 'held'", 'orderCodes?: string[]', 'unlinked?: number']) assert.ok(t.includes(k), k);
 });
 
-console.log(`\n${passed} passed, ${failed} failed`);
+console.log(`
+${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

@@ -50,6 +50,15 @@ export const SECTIONS: NavSection[] = [
     ],
   },
   {
+    key: 'purchase',
+    label: 'Purchase',
+    screens: [
+      // One purchase order carried stage by stage (CF_ERP_PURCHASE_FLOW_PLAN): the lanes first, then every order as a list.
+      { key: 'purchase-board', label: 'Board', path: 'purchase', permission: INVENTORY, keywords: ['purchase', 'buying', 'procurement', 'lanes', 'stages', 'kanban', 'pipeline', 'request', 'rfq', 'quotation', 'quote', 'stock check', 'grn', 'timeline', 'supplier'] },
+      { key: 'purchase-orders', label: 'Purchase orders', path: 'purchase-orders', hasDetail: true, permission: INVENTORY, countKey: 'openPurchases', keywords: ['po', 'supplier', 'delivery', 'goods receipt', 'grn', 'procurement', 'order'] },
+    ],
+  },
+  {
     key: 'catalog',
     label: 'Catalog',
     screens: [
@@ -77,15 +86,9 @@ export const SECTIONS: NavSection[] = [
     key: 'inventory',
     label: 'Inventory',
     screens: [
-      // The board first (user, 2026-10-02): every buying document by stage, To buy → Received.
-      { key: 'buying', label: 'Buying', path: 'buying', permission: INVENTORY, keywords: ['board', 'procurement', 'purchase', 'stages', 'kanban', 'pipeline', 'rfq', 'po', 'request', 'received'] },
       { key: 'stock', label: 'Stock', path: 'stock', permission: INVENTORY, countKey: 'stockLines', keywords: ['on hand', 'inventory', 'receive'] },
       { key: 'wip', label: 'Work in progress', path: 'wip', permission: INVENTORY, keywords: ['production ledger', 'pieces', 'in process', 'making', 'containers', 'segments', 'parts'] },
       { key: 'offcuts', label: 'Offcuts', path: 'offcuts', permission: INVENTORY, keywords: ['remnant', 'leftover', 'scrap', 'nest', 'plate', 'drop'] },
-      { key: 'buy-list', label: 'To buy', path: 'buy-list', permission: INVENTORY, countKey: 'toBuy', keywords: ['shortage', 'short', 'procurement', 'buy', 'purchase', 'requisition'] },
-      { key: 'purchase-requests', label: 'Purchase requests', path: 'purchase-requests', hasDetail: true, permission: INVENTORY, keywords: ['pr', 'requisition', 'approve', 'approval', 'raise', 'procurement'] },
-      { key: 'rfqs', label: 'RFQs', path: 'rfqs', hasDetail: true, permission: INVENTORY, keywords: ['quote', 'quotation', 'compare', 'comparison', 'award', 'supplier', 'tender', 'procurement'] },
-      { key: 'purchase-orders', label: 'Purchase orders', path: 'purchase-orders', hasDetail: true, permission: INVENTORY, countKey: 'openPurchases', keywords: ['po', 'supplier', 'delivery', 'goods receipt', 'grn', 'procurement'] },
       { key: 'movements', label: 'Movements', path: 'movements', hasDetail: true, permission: INVENTORY, keywords: ['receipt', 'issue', 'transfer', 'grn', 'count', 'scrap'] },
       { key: 'batches', label: 'Batches', path: 'batches', hasDetail: true, permission: INVENTORY, countKey: 'heldBatches', keywords: ['heat', 'lot'] },
       { key: 'stocking-areas', label: 'Stocking areas', path: 'stocking-areas', hasDetail: true, permission: INVENTORY, countKey: 'areas', keywords: ['yard', 'store', 'location', 'wip'] },
@@ -114,7 +117,6 @@ export const COUNT_TONE: Record<string, { tone: BadgeTone; suffix?: string }> = 
   draftFlows: { tone: 'warning', suffix: 'draft' },
   heldBatches: { tone: 'warning', suffix: 'held' },
   readySteps: { tone: 'success', suffix: 'ready' },
-  toBuy: { tone: 'danger', suffix: 'short' },
   openPurchases: { tone: 'info', suffix: 'open' },
 };
 

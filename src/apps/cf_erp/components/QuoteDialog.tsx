@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Box, TextField, Typography } from '@mui/material';
 import { SheetGrid, type SheetCell, type SheetWrite } from '@shared/ui';
 import { CfApiError } from '../api/client';
-import { getQuote, saveQuote, type RfqDetail, type RfqLine, type RfqSupplier } from '../api/procurement';
+import { getQuote, type QuoteInput, type RfqDetail, type RfqLine, type RfqSupplier } from '../api/procurement';
 import { dayText } from '../lib/money';
 import { qtyText } from '../lib/inventory';
 import { emptyQuoteLine, pricedLines, quoteLineBody, readQuoteCell, type QuoteCol, type QuoteDraftLine } from '../lib/procurement';
@@ -71,8 +71,8 @@ export function QuoteGrid({ lines, draft, onDraft, historyKey }: { lines: RfqLin
 
 const today = () => new Date().toISOString().slice(0, 10);
 
-/** Entering (or correcting) one supplier's quote for an RFQ. */
-export function QuoteDialog({ rfq, entry, onClose, onSaved }: { rfq: RfqDetail; entry: RfqSupplier | null; onClose: () => void; onSaved: (r: RfqDetail) => void }) {
+/** Entering (or correcting) one supplier's quote for an RFQ. The caller says where it goes (the PO's POST /quotes). */
+export function QuoteDialog({ rfq, entry, onClose, onSave }: { rfq: RfqDetail; entry: RfqSupplier | null; onClose: () => void; onSave: (body: QuoteInput) => Promise<unknown> }) {
   const [quoteRef, setQuoteRef] = useState('');
   const [receivedOn, setReceivedOn] = useState(today());
   const [validUntil, setValidUntil] = useState('');
@@ -113,11 +113,11 @@ export function QuoteDialog({ rfq, entry, onClose, onSaved }: { rfq: RfqDetail; 
     if (!priced) throw new CfApiError(0, 'No line has a price yet. If the supplier is not quoting, use "Declined" instead.');
     const freightText = freight.replace(/[₹,\s]/g, '');
     if (freightText && !/^\d+(\.\d+)?$/.test(freightText)) throw new CfApiError(0, 'Freight must be a number, or empty.');
-    onSaved(await saveQuote(rfq.id, {
+    await onSave({
       supplierId: entry.supplier.id, quoteRef: quoteRef.trim() || null, receivedOn: receivedOn || null, validUntil: validUntil || null,
       paymentTerms: paymentTerms.trim() || null, freightAmount: freightText ? Number(freightText) : null, notes: notes.trim() || null,
       lines: rfq.lines.map((l) => quoteLineBody(l.id, draft[l.id] ?? emptyQuoteLine())),
-    }));
+    });
   };
 
   return (

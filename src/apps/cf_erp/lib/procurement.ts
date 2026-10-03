@@ -1,47 +1,11 @@
 import type { Family } from '../components/ui';
-import type { Comparison, ComparisonCell, ComparisonLine, HistoryEntry, RequestLineStatus, RequestStatus, RfqStatus, RfqSupplierStatus } from '../api/procurement';
+import type { Comparison, ComparisonCell, ComparisonLine, RfqSupplierStatus } from '../api/procurement';
 
 /** What a missing quote reads as. Never ₹0: zero is a price, this is "the supplier did not say". */
 export const NOT_QUOTED = 'not quoted';
 
-export const REQUEST_STATUS_LABEL: Record<RequestStatus, string> = {
-  draft: 'Draft', submitted: 'Waiting for approval', approved: 'Approved', rejected: 'Rejected', closed: 'Closed', cancelled: 'Cancelled',
-};
-export const REQUEST_STATUS_FAMILY: Record<RequestStatus, Family> = {
-  draft: 'warning', submitted: 'info', approved: 'success', rejected: 'danger', closed: 'neutral', cancelled: 'neutral',
-};
-export const REQUEST_FILTERS: { value: string; label: string }[] = [
-  { value: 'all', label: 'All' },
-  { value: 'draft', label: 'Draft' },
-  { value: 'submitted', label: 'Waiting for approval' },
-  { value: 'approved', label: 'Approved' },
-  { value: 'rejected', label: 'Rejected' },
-  { value: 'closed', label: 'Closed' },
-  { value: 'cancelled', label: 'Cancelled' },
-];
-
-export const REQUEST_LINE_LABEL: Record<RequestLineStatus, string> = { open: 'Open', in_rfq: 'In an RFQ', ordered: 'Ordered', cancelled: 'Cancelled' };
-
-export const RFQ_STATUS_LABEL: Record<RfqStatus, string> = { draft: 'Draft', sent: 'Out for quotes', closed: 'Quotes in', awarded: 'Awarded', cancelled: 'Cancelled' };
-export const RFQ_STATUS_FAMILY: Record<RfqStatus, Family> = { draft: 'warning', sent: 'info', closed: 'info', awarded: 'success', cancelled: 'neutral' };
-export const RFQ_FILTERS: { value: string; label: string }[] = [
-  { value: 'all', label: 'All' },
-  { value: 'draft', label: 'Draft' },
-  { value: 'sent', label: 'Out for quotes' },
-  { value: 'closed', label: 'Quotes in' },
-  { value: 'awarded', label: 'Awarded' },
-  { value: 'cancelled', label: 'Cancelled' },
-];
-
 export const SUPPLIER_STATUS_LABEL: Record<RfqSupplierStatus, string> = { invited: 'Not sent yet', sent: 'Sent, waiting', quoted: 'Quote in', declined: 'Declined' };
 export const SUPPLIER_STATUS_FAMILY: Record<RfqSupplierStatus, Family> = { invited: 'warning', sent: 'info', quoted: 'success', declined: 'neutral' };
-
-/** "Alok Mehta approved this on 2026-10-01 — note". The history list's one line. */
-export function historyText(h: HistoryEntry): string {
-  const by = typeof h.by === 'string' ? h.by : h.by?.name;
-  const what = (h.action ?? h.status ?? 'changed').replace(/_/g, ' ');
-  return `${by ? `${by} — ` : ''}${what}`;
-}
 
 // ---- Quote entry --------------------------------------------------------------------------------------------------
 

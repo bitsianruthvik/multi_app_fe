@@ -2,13 +2,10 @@ import { useState } from 'react';
 import { Box, Button, FormControlLabel, IconButton, Switch, Tooltip, Typography } from '@mui/material';
 import { Link, useParams } from 'react-router-dom';
 import AddRounded from '@mui/icons-material/AddRounded';
-import SendRounded from '@mui/icons-material/SendRounded';
-import Inventory2Rounded from '@mui/icons-material/Inventory2Rounded';
 import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
 import BlockRounded from '@mui/icons-material/BlockRounded';
 import EditRounded from '@mui/icons-material/EditRounded';
 import PeopleRounded from '@mui/icons-material/PeopleRounded';
-import ShoppingCartRounded from '@mui/icons-material/ShoppingCartRounded';
 import { cfApi } from '../api/client';
 import type { PurchaseLine, PurchaseOrder } from '../api/types';
 import { useCompanySlug, useLoad } from '../hooks/useLoad';
@@ -24,12 +21,12 @@ import { DetailSkeleton, EmptyState, ErrorNotice, Fact, Mono, SectionCard } from
 import { CrossLink, DetailHeader, DetailLayout } from '../components/DetailLayout';
 import { DataTable, type DataColumn } from '../components/DataTable';
 import { PurchaseStatusBadge } from '../components/purchaseUi';
-import { AddPurchaseLineDialog, LineOrdersDialog, PurchaseForOrderDialog, ReceiveLineDialog, SendPurchaseDialog } from '../components/PurchaseDialogs';
+import { AddPurchaseLineDialog, LineOrdersDialog, PurchaseForOrderDialog, ReceiveLineDialog } from '../components/PurchaseDialogs';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { PromptDialog } from '../components/PromptDialog';
 import { useDetailTitle } from '../components/shell/detailTitle';
 import { useToast } from '../components/toastContext';
-import { BuyingStageBar } from '../components/Buying/BuyingStageBar';
+import { PoStagePanel } from '../components/Purchase/PoStagePanel';
 
 const linkSx = { color: 'inherit', textDecoration: 'none', '&:hover': { color: 'var(--c-primary-700)', textDecoration: 'underline' } };
 
@@ -42,7 +39,6 @@ export default function PurchaseOrderDetail() {
   const canManage = useIsPermitted()('cf_erp_inventory_manage');
   const po = useLoad(() => cfApi.get<PurchaseOrder>(`/purchase-orders/${id}`), [id]);
   const [adding, setAdding] = useState(false);
-  const [sending, setSending] = useState(false);
   const [receiving, setReceiving] = useState<PurchaseLine | null>(null);
   const [forOrdering, setForOrdering] = useState(false);
   const [linking, setLinking] = useState<PurchaseLine | null>(null);
@@ -54,8 +50,9 @@ export default function PurchaseOrderDetail() {
   if (!p) return <DetailSkeleton />;
 
   const done = (next: PurchaseOrder, message: string) => { po.setData(next); invalidateNavCounts(); toast.success(message); };
-  const open = p.status === 'draft' || p.status === 'ordered' || p.status === 'partially_received';
+  const open = p.status === 'draft' || p.status === 'requested' || p.status === 'quoting' || p.status === 'ordered' || p.status === 'partially_received';
   const editable = canManage && open;
+  const changed = (message: string) => { po.reload(); invalidateNavCounts(); toast.success(message); };
   const setReverse = async (on: boolean) => { try { done(await cfApi.put<PurchaseOrder>(`/purchase-orders/${p.id}`, { reverseCharge: on }), on ? 'Reverse charge on.' : 'Reverse charge off.'); } catch (e) { toast.error((e as Error).message); } };
 
   const columns: DataColumn<PurchaseLine>[] = [
@@ -125,9 +122,6 @@ export default function PurchaseOrderDetail() {
       key: 'actions', header: '', alwaysVisible: true,
       render: (l) => (
         <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'flex-end' }}>
-          {p.status !== 'draft' && l.outstanding > 0 && (
-            <Button size="small" variant="outlined" startIcon={<Inventory2Rounded />} onClick={() => setReceiving(l)}>Receive</Button>
-          )}
           {!l.received && (
             <Tooltip title="Remove the line">
               <IconButton size="small" aria-label={`Remove ${l.item.code ?? l.item.name}`} onClick={() => setRemoving(l)}><DeleteOutlineRounded fontSize="small" /></IconButton>
@@ -141,27 +135,23 @@ export default function PurchaseOrderDetail() {
   const crossLinks = (
     <>
       {p.supplier && <CrossLink icon={<PeopleRounded />} label={p.supplier.name} to={appPath(company, 'customers?role=supplier')} />}
-      {p.suggested && <CrossLink icon={<ShoppingCartRounded />} label="What is short" to={appPath(company, 'buy-list')} />}
     </>
   );
 
   return (
     <DetailLayout
-      beforeTabs={<BuyingStageBar type="po" id={p.id} version={`${p.status}:${p.totals.received}:${p.totals.lines}`} />}
-      crossLinks={p.supplier || p.suggested ? crossLinks : undefined}
+      crossLinks={p.supplier ? crossLinks : undefined}
       header={
         <DetailHeader
           code={p.code}
           title={p.supplier?.name ?? 'No supplier yet'}
-          subtitle={p.suggested ? 'Suggested from the buy list — running it again rewrites this order.' : undefined}
           badges={<PurchaseStatusBadge status={p.status} />}
           actions={canManage && <>
-            {p.status === 'draft' && <Button variant="contained" startIcon={<SendRounded />} onClick={() => setSending(true)} disabled={!p.lines.length}>Send to supplier</Button>}
             {editable && <Button startIcon={<AddRounded />} onClick={() => setAdding(true)}>Add a line</Button>}
             {open && !p.totals.received && <Button color="error" startIcon={<BlockRounded />} onClick={() => setCancelling(true)}>Cancel</Button>}
           </>}
           facts={<>
-            <Fact label="Supplier">{p.supplier ? p.supplier.name : <Typography component="span" sx={{ color: 'var(--c-text-3)' }}>Named when it is sent</Typography>}</Fact>
+            <Fact label="Supplier">{p.supplier ? p.supplier.name : <Typography component="span" sx={{ color: 'var(--c-text-3)' }}>Chosen when the order is placed</Typography>}</Fact>
             <Fact label="For sales order">
               {p.forOrder ? <Mono chip><Box component={Link} to={appPath(company, `orders/${p.forOrder.id}`)} sx={linkSx}>{p.forOrder.code}</Box></Mono> : <Typography component="span" sx={{ color: 'var(--c-text-3)' }}>None</Typography>}
               {editable && <Tooltip title="Change the order this is bought for (the default for new lines)"><IconButton size="small" aria-label="Change the sales order" onClick={() => setForOrdering(true)}><EditRounded sx={{ fontSize: 16 }} /></IconButton></Tooltip>}
@@ -183,22 +173,24 @@ export default function PurchaseOrderDetail() {
         />
       }
     >
+      {p.status !== 'cancelled' && (
+        <PoStagePanel po={p} canManage={canManage} onPo={done} onChanged={changed} onReceive={setReceiving} />
+      )}
       {(editable || p.reverseCharge) && (
         <Box sx={{ mb: 1.5 }}>
           <FormControlLabel control={<Switch size="small" checked={!!p.reverseCharge} disabled={!editable} onChange={(e) => void setReverse(e.target.checked)} inputProps={{ 'aria-label': 'Reverse charge' }} />}
             label={<Typography sx={{ fontSize: 13 }}>Reverse charge — we pay the GST, not the supplier</Typography>} />
         </Box>
       )}
-      <SectionCard title="Lines" subtitle="Each line is one item. A delivery is booked against its line and posts an ordinary stock receipt.">
+      <SectionCard title="Lines" subtitle="Each line is one item. The stage above says what to do next; a delivery is booked against its line and posts an ordinary stock receipt.">
         <DataTable rows={p.lines} columns={columns} getRowId={(l) => l.id} bare storageKey="purchase-lines" exportName={`${p.code}-lines`}
-          empty={<EmptyState icon={<AddRounded />} title="No lines yet" hint="Add what is being bought, then send the order to the supplier."
+          empty={<EmptyState icon={<AddRounded />} title="No lines yet" hint="Add what is being bought, then check stock and ask suppliers to quote."
             action={editable ? <Button variant="contained" startIcon={<AddRounded />} onClick={() => setAdding(true)}>Add a line</Button> : undefined} />} />
       </SectionCard>
       {p.notes && <SectionCard title="Notes"><Typography sx={{ fontSize: 13.5, whiteSpace: 'pre-wrap' }}>{p.notes}</Typography></SectionCard>}
       <AddPurchaseLineDialog orderId={adding ? p.id : null} forOrder={p.forOrder} onClose={() => setAdding(false)} onAdded={(n) => { setAdding(false); done(n, 'Line added.'); }} />
       <PurchaseForOrderDialog order={forOrdering ? p : null} onClose={() => setForOrdering(false)} onSaved={(n) => { setForOrdering(false); done(n, n.forOrder ? `Bought for ${n.forOrder.code}.` : 'No longer bought for an order.'); }} />
       <LineOrdersDialog line={linking} onClose={() => setLinking(null)} onSaved={(n) => { setLinking(null); done(n, 'Saved who the line is bought for.'); }} />
-      <SendPurchaseDialog order={sending ? p : null} onClose={() => setSending(false)} onSent={(n) => { setSending(false); done(n, `${n.code} sent to ${n.supplier?.name ?? 'the supplier'}.`); }} />
       <ReceiveLineDialog line={receiving} orderCode={p.code} onClose={() => setReceiving(null)} onReceived={(n, held) => {
         setReceiving(null);
         done(n, held.length ? `Delivery booked. ${held.map((h) => `Held ${qtyText(h.quantity)} for ${h.orderCode}`).join('; ')} — nobody else can use it.` : 'Delivery booked into stock.');

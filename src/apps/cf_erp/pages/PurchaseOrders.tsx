@@ -14,7 +14,7 @@ import { qtyText } from '../lib/inventory';
 import { PURCHASE_FILTERS } from '../lib/purchase';
 import { rupeeText } from '../lib/money';
 import { Money } from '../components/Money';
-import { Badge, EmptyState, ErrorNotice, Mono, PageHeader, StatStrip } from '../components/ui';
+import { EmptyState, ErrorNotice, Mono, PageHeader, StatStrip } from '../components/ui';
 import { FacetChip, FilterBar } from '../components/FilterBar';
 import { DataTable, type DataColumn } from '../components/DataTable';
 import { PurchaseStatusBadge } from '../components/purchaseUi';
@@ -45,8 +45,8 @@ export default function PurchaseOrders() {
   const chipCount = (v: string) => (!counts ? undefined : v === 'open' ? counts.open : v === 'all' ? counts.all : counts.status[v]);
   const stats = [
     { label: 'Orders', value: list.total },
-    { label: 'Draft', value: counts?.status.draft ?? 0, tone: 'warning' as const, hint: 'Not sent to a supplier yet' },
-    { label: 'Awaiting delivery', value: (counts?.status.ordered ?? 0) + (counts?.status.partially_received ?? 0), tone: 'info' as const, hint: 'Sent, still waiting on the supplier' },
+    { label: 'Not placed yet', value: (counts?.status.requested ?? 0) + (counts?.status.draft ?? 0) + (counts?.status.quoting ?? 0), tone: 'warning' as const, hint: 'Requested or out for quotes — not placed with a supplier yet' },
+    { label: 'Awaiting delivery', value: (counts?.status.ordered ?? 0) + (counts?.status.partially_received ?? 0), tone: 'info' as const, hint: 'Placed, still waiting on the supplier' },
     { label: 'Order value', value: amount, display: amount === 0 && unpriced > 0 ? 'not priced' : rupeeText(amount), hint: unpriced ? `${unpriced} line${unpriced === 1 ? ' has' : 's have'} no price and ${unpriced === 1 ? 'is' : 'are'} left out` : 'Before tax' },
     { label: 'Outstanding', value: outstanding, display: qtyText(outstanding), hint: 'Quantity ordered and not yet received' },
   ];
@@ -57,7 +57,6 @@ export default function PurchaseOrders() {
       render: (p) => (
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, py: 0.5 }}>
           <Mono chip><Box component={Link} to={appPath(company, `purchase-orders/${p.id}`)} sx={linkSx}>{p.code}</Box></Mono>
-          {p.suggested && <Badge family="info" label="Suggested" noIcon title="Raised by the buy list — rewritten each time it runs" />}
         </Box>
       ),
     },
@@ -97,7 +96,7 @@ export default function PurchaseOrders() {
         empty={<EmptyState icon={<LocalShippingRounded />}
           title={term ? 'No order matches' : status === 'open' ? 'Nothing on order' : 'No purchase orders here'}
           hint={term ? 'Clear the search, or look under All.'
-            : status === 'open' ? 'The buy list suggests one from what the released jobs are short of, or raise one by hand.'
+            : status === 'open' ? 'Request items from a sales order’s Buying stage, or raise one by hand.'
               : 'Nothing has this status. Look under All.'}
           action={term ? <Button onClick={() => setSearch('')}>Clear search</Button>
             : status !== 'all' ? <Button onClick={() => setStatus('all')}>Show all orders</Button>

@@ -1046,40 +1046,10 @@ export interface TrackerMaterialRow extends Requirement {
 
 export interface StepEvent { id: number; event: 'start' | 'progress' | 'hold' | 'resume'; good: number; scrap: number; machine: { id: number; code: string } | null; note: string | null; at: string; by: string | null }
 
-// ── Buying (Phase 6) ────────────────────────────────────────────────────────
+// ── Purchase orders ────────────────────────────────────────────────────────
 
-export type PurchaseStatus = 'draft' | 'ordered' | 'partially_received' | 'received' | 'cancelled';
-
-/** One item the released jobs are short of. */
-export interface BuyRow {
-  item: { id: number; code: string | null; name: string; uom: string; trackedBy: 'quantity' | 'batch' | 'individual' };
-  /** Wanted by released work, less what has been issued to it. */
-  wanted: number;
-  reserved: number;
-  free: number;
-  onOrder: number;
-  toBuy: number;
-  /** The estimate: last price paid, else the list price per unit. null = no price known. */
-  estUnitPrice?: number | null;
-  estSource?: 'last_paid' | 'list' | null;
-  estFrom?: { id: number; code: string; date: string | null } | null;
-  estCost?: number | null;
-  orders: { id: number; code: string }[];
-  purchaseOrders: { id: number; code: string; status: PurchaseStatus; outstanding: number }[];
-  /** true: this is PLANNED material of a confirmed, frozen line that is not released yet — bought first, used later. */
-  planned?: boolean;
-  /** What this row's order already has held (received on a purchase order bought for it). */
-  held?: number;
-  /** Quantity already in a purchase request / an RFQ (not yet a purchase order), so it is not raised twice. */
-  inRequest?: number;
-  inRfq?: number;
-  /** What may still be raised as a request: toBuy less what is already in a request or an RFQ. */
-  toRequest?: number;
-  purchaseRequests?: { id: number; code: string }[];
-  rfqs?: { id: number; code: string }[];
-  /** The line a planned row comes from. */
-  source?: { orderId: number; orderCode: string; lineId: number; lineNo: number } | null;
-}
+/** `draft` is the old word for requested; the server may still send it. */
+export type PurchaseStatus = 'draft' | 'requested' | 'quoting' | 'ordered' | 'partially_received' | 'received' | 'cancelled';
 
 export interface PurchaseLine extends Partial<PurchaseTax> {
   id: number;
@@ -1123,12 +1093,6 @@ export interface PurchaseOrder extends PurchaseOrderRow {
   reverseCharge?: boolean;
   notes: string | null;
   lines: PurchaseLine[];
-}
-
-export interface SuggestResult {
-  order: PurchaseOrder | null;
-  lines: number;
-  message: string | null;
 }
 
 // ---- Processes (how an order is worked through the office) ---------------------
