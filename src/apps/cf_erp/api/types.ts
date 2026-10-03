@@ -1658,6 +1658,30 @@ export interface NestCoverage {
   diff: number;
 }
 
+/** One nesting run, owned by the server (one per order line). `plan` comes only with `?plan=1` once it is done. */
+export interface NestRunSnapshot {
+  runId: string;
+  lineId: number;
+  status: 'running' | 'done' | 'failed';
+  phase: 'reading' | 'grouping' | 'packing' | 'shaping' | 'done' | 'failed';
+  progress: { done: number; total: number; pct: number };
+  startedAt: string;
+  startedBy: string | number | null;
+  finishedAt: string | null;
+  elapsedMs: number;
+  budgetMs: number | null;
+  effort: string;
+  /** The run was a 'Redo all automatically': accepting it replaces the imported nests too. */
+  replaceImported?: boolean;
+  log: { at: string; text: string }[];
+  error: { code: string; message: string; problems: string[] | null } | null;
+  summary: { plates: number; pieces: number; wastePct: number | null; problems: number } | null;
+  plan?: NestingPlan;
+}
+
+/** GET …/nesting/runs/current when nothing has run (or the server restarted). */
+export type NestRunAnswer = NestRunSnapshot | { status: 'none' };
+
 /** What POST …/nesting/sheet answers, for a preview and for a save. */
 export interface NestSheetResult {
   applied: boolean;

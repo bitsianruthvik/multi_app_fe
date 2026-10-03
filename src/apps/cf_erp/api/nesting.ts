@@ -1,5 +1,5 @@
 import { cfApi, LONG_WRITE_MS } from './client';
-import type { NestSheetResult, NestingChoices, PlateChoice } from './types';
+import type { NestRunAnswer, NestRunSnapshot, NestSheetResult, NestingChoices, PlateChoice } from './types';
 
 /**
  * The nesting sheet and the CNC files (CF_ERP_NESTING_PLAN.md, "Decided
@@ -98,4 +98,22 @@ export function setNestPlates(orderId: number, lineId: number, plates: PlateChoi
 /** Flip a catalog plate between STANDARD and CUSTOM (the generic values save; needs the catalog grant). */
 export function setPlateKind(plateItemId: number, kind: 'STANDARD' | 'CUSTOM'): Promise<unknown> {
   return cfApi.put(`/records/${plateItemId}/values`, { values: [{ specCode: 'PLATE_KIND', value: kind }] });
+}
+
+/**
+ * NESTING RUNS. The server owns the run (one per order line), so leaving the
+ * page does not stop it. Start returns at once; poll `getNestRun` until done.
+ */
+export function startNestRun(orderId: number, lineId: number, options: Record<string, unknown> = {}): Promise<NestRunSnapshot> {
+  return cfApi.post<NestRunSnapshot>(`${base(orderId, lineId)}/runs`, options);
+}
+
+/** The line's current run, or `{ status: 'none' }`. With `plan`, a finished run carries its proposal. */
+export function getNestRun(orderId: number, lineId: number, opts: { plan?: boolean } = {}): Promise<NestRunAnswer> {
+  return cfApi.get<NestRunAnswer>(`${base(orderId, lineId)}/runs/current${opts.plan ? '?plan=1' : ''}`);
+}
+
+/** Forget a finished run ("Discard proposal"). */
+export function discardNestRun(orderId: number, lineId: number): Promise<{ ok: boolean; running: boolean }> {
+  return cfApi.del<{ ok: boolean; running: boolean }>(`${base(orderId, lineId)}/runs/current`);
 }

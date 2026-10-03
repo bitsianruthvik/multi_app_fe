@@ -98,7 +98,15 @@ let choicesNow = choicesFor();
 const puts = [];
 
 let posts = [];
-let release = null;
+let released = false;
+let runNow = null;               // the run the stub's server holds
+const release = () => { released = true; };
+const snap = (status, extra = {}) => ({
+  runId: 'r1', lineId: 1, status, phase: status === 'done' ? 'done' : 'packing', progress: { done: status === 'done' ? 10 : 3, total: 10, pct: status === 'done' ? 100 : 30 },
+  startedAt: '2026-10-03T10:00:00Z', startedBy: 'Asha', finishedAt: null, elapsedMs: 4000, budgetMs: 600000, effort: 'deep',
+  log: [{ at: '2026-10-03T10:00:01Z', text: 'Reading the order' }], error: null,
+  summary: status === 'done' ? { plates: 0, pieces: 0, wastePct: 0, problems: 0 } : null, ...extra,
+});
 let planNow = null;              // a saved plan to serve instead of the empty one
 globalThis.fetch = async (url, o = {}) => {
   const method = o.method || 'GET';
@@ -112,10 +120,14 @@ globalThis.fetch = async (url, o = {}) => {
     out = choicesNow;
   } else if (String(url).includes('/costs')) {
     out = { lines: [] };
-  } else if (method === 'POST' && String(url).endsWith('/plan')) {
+  } else if (method === 'POST' && String(url).endsWith('/nesting/runs')) {
     posts.push(JSON.parse(o.body));
-    const budget = { effort: 'standard', capped: true };
-    out = await new Promise((r) => { release = () => r(plan({ saved: false, basis: 'proposal', budget })); });
+    released = false; runNow = true;
+    out = snap('running');
+  } else if (String(url).includes('/nesting/runs/current')) {
+    if (!runNow) out = { status: 'none' };
+    else if (!released) out = snap('running');
+    else out = snap('done', String(url).includes('plan=1') ? { plan: plan({ saved: false, basis: 'proposal', budget: { effort: 'standard', capped: true } }) } : {});
   } else out = planNow ?? plan();
   return { ok: true, status: 200, text: async () => JSON.stringify(out) };
 };
@@ -158,29 +170,21 @@ await check('the effort chip shows Standard and opens three one-line choices', a
   assert.ok(find('Effort').textContent.includes('Deep'));
 });
 
-await check('a running proposal shows pieces, a timer, the bound and Cancel', async () => {
+await check('a run shows the running card, sends the effort, and locks the run buttons', async () => {
   await click(find('Nest everything'), 'nest');
-  await waitFor(() => text().includes('Packing 2,944 pieces… 0:0'), 'progress line');
-  assert.ok(text().includes('Deep takes up to about 10 minutes'));
+  await waitFor(() => document.querySelector('[data-testid=nest-run-card]'), 'running card');
   assert.deepEqual(posts[0].effort, 'deep');
-  await waitFor(() => text().includes('0:01'), 'the timer tick', 2500);
-  assert.ok(text().includes('server may finish anyway'));
+  assert.ok(text().includes('Packing plates (3/10 tries)') && text().includes('up to 10 min'));
+  assert.equal(find('Nest everything').disabled, true);
+  assert.ok(text().includes('you can leave this page'));
+  await waitFor(() => text().includes('0:05'), 'the timer tick', 2500);
 });
 
-await check('Cancel stops waiting, and a late answer is ignored', async () => {
-  await click(find('Cancel'), 'Cancel');
-  assert.ok(!text().includes('Packing 2,944'));
+await check('when the server finishes, the proposal appears once, with its capped note and Discard', async () => {
   release();
-  await settle(60);
-  assert.ok(!text().includes('Nothing here is written down yet'), 'the cancelled answer must not show');
-});
-
-await check('a capped result says so once', async () => {
-  await click(find('Nest everything'), 'nest again');
-  await waitFor(() => text().includes('Packing 2,944'), 'progress');
-  release();
-  await waitFor(() => text().includes('Nothing here is written down yet'), 'proposal');
+  await waitFor(() => text().includes('Nothing here is written down yet'), 'proposal', 5000);
   assert.equal(text().split('Stopped at the time limit').length - 1, 1);
+  assert.ok(find('Discard') && !find('Cancel'));
 });
 
 const boxes = (sel) => [...document.querySelectorAll(sel)];
@@ -287,7 +291,7 @@ await check('the diagram helpers find the shared cut and keep dimensions off bel
 const root2Host = document.createElement('div');
 document.body.appendChild(root2Host);
 await React.act(async () => { root.unmount(); });
-planNow = savedPlan;
+planNow = savedPlan; runNow = null;
 const root2 = createRoot(root2Host);
 await React.act(async () => { root2.render(inRouter(React.createElement(NestingPanel, { orderId: 1, lineId: 2, canManage: true }))); await sleep(0); });
 await waitFor(() => find('Draw the 1 plate'), 'the saved plan');

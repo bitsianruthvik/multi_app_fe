@@ -17,16 +17,17 @@ import PrecisionManufacturingRounded from '@mui/icons-material/PrecisionManufact
 import { cfApi, LONG_WRITE_MS, CfApiError } from '../../api/client';
 import { fileToBase64 } from '../../api/bomSheet';
 import {
-  downloadCncZip, downloadLotCnc, downloadNestingSheet, getNestingChoices, previewNestingSheet, saveNestingSheet, setNestPlates,
+  discardNestRun, downloadCncZip, downloadLotCnc, downloadNestingSheet, getNestRun, getNestingChoices, previewNestingSheet, saveNestingSheet,
+  setNestPlates, startNestRun,
 } from '../../api/nesting';
 import type {
-  Nest, NestCoverage, NestCutPlate, NestGroup, NestSheetResult, NestingAccepted, NestingChoices, NestingPlan, PlateChoice,
+  Nest, NestCoverage, NestCutPlate, NestGroup, NestRunSnapshot, NestSheetResult, NestingAccepted, NestingChoices, NestingPlan, PlateChoice,
 } from '../../api/types';
 import { useLoad } from '../../hooks/useLoad';
 import {
-  ACCEPT_AGAIN, ACCEPT_WHAT_HAPPENS, CAPPED_LINE, EFFORTS, progressLine, LOOK_IS_A_LOOK, MANUAL_HELP, NO_MANAGE,
+  ACCEPT_AGAIN, ACCEPT_WHAT_HAPPENS, CAPPED_LINE, EFFORTS, LOOK_IS_A_LOOK, MANUAL_HELP, NO_MANAGE,
   acceptBody, adviceSentence, choicesLine, adviceTitle, basisWord, colourIndex, cutOrderSentence, dedupeAdvice, driftWords, kg, marginOf,
-  marginSentence, mm, mmPair, pct, pieceColour, platePieceKinds, sequenceOver, steelWord, tonnes,
+  marginSentence, mm, mmPair, RUN_CARRIES_ON, RUN_INTERRUPTED, runSummary, pct, pieceColour, platePieceKinds, sequenceOver, steelWord, tonnes,
   NO_LAYOUT, anyImported, hasLayout, isImported, lineOffcuts, verdictOf, wasteBreakdown, wasteTotalKg,
   type Effort, type NestingBudget,
 } from '../../lib/nesting';
@@ -40,6 +41,7 @@ import { WasteBar } from './WasteBar';
 import { NestSheetDialog } from './NestSheetDialog';
 import { NestMoney } from './NestMoney';
 import { CutPiecesButton } from './CutPiecesDialog';
+import { NestRunCard, NestRunLog } from './NestRunCard';
 
 /**
  * THE NESTING SCREEN — a sales order line's rectangles laid out on real plates.
@@ -65,13 +67,21 @@ import { CutPiecesButton } from './CutPiecesDialog';
  * FOR PIECES. One lot is one physical plate; one placement is one piece on it.
  */
 
-/**
- * How long a proposal may take. The packer stops by iteration count, and each
- * steel group may run up to its effort's cap (Standard 5 min, Deep 10 —
- * nestingPacker EFFORT); production has one CPU, so groups can queue. A
- * proposal writes nothing, but one abandoned at 30 s is a screen that never answers.
- */
-const NESTING_PLAN_MS = 11 * 60 * 1000;
+/** How often the screen asks the server how the run is getting on. */
+const POLL_MS = 1500;
+
+/** Which run this browser last saw going on a line — so a restart that lost it can be told apart from "never ran". */
+const seenKey = (lineId: number) => `cf_erp_nest_run_seen_${lineId}`;
+const rememberRun = (lineId: number, runId: string | null) => {
+  try { if (runId) localStorage.setItem(seenKey(lineId), runId); else localStorage.removeItem(seenKey(lineId)); } catch { /* storage may be blocked */ }
+};
+const recallRun = (lineId: number): string | null => {
+  try { return localStorage.getItem(seenKey(lineId)); } catch { return null; }
+};
+const isRun = (a: unknown): a is NestRunSnapshot => {
+  const st = (a as { status?: string } | null)?.status;
+  return st === 'running' || st === 'done' || st === 'failed';
+};
 
 /**
  * How many plate THUMBNAILS a steel group shows before it asks. Only the open
@@ -411,6 +421,12 @@ export function NestingPanel({ orderId, lineId, canManage, canEditCatalog = fals
   const [replaceAll, setReplaceAll] = useState(false);
   const [effort, setEffort] = useState<Effort>('standard');
   const [busy, setBusy] = useState<'plan' | 'accept' | null>(null);
+  // THE SERVER'S RUN for this line (null = none). `runAt` is when the snapshot arrived, so the clock can tick between polls.
+  const [run, setRun] = useState<NestRunSnapshot | null>(null);
+  const [runAt, setRunAt] = useState(() => Date.now());
+  const [interrupted, setInterrupted] = useState(false);
+  const [logOpen, setLogOpen] = useState(false);
+  const running = run?.status === 'running';
   const [manualBusy, setManualBusy] = useState<number | null>(null);
   const [actionError, setActionError] = useState<CfApiError | null>(null);
   const [openGroup, setOpenGroup] = useState<string | null>(null);
@@ -419,22 +435,63 @@ export function NestingPanel({ orderId, lineId, canManage, canEditCatalog = fals
   const [fileBusy, setFileBusy] = useState<'download' | 'preview' | 'save' | 'cnc' | null>(null);
   const sheetInput = useRef<HTMLInputElement>(null);
   const [effortAnchor, setEffortAnchor] = useState<HTMLElement | null>(null);
-  // The run being waited for; Cancel bumps it so a late answer is ignored.
-  const runId = useRef(0);
-  const [waited, setWaited] = useState(0);
-  const [packing, setPacking] = useState<number | null>(null);
-  const [capped, setCapped] = useState(false);
+  /** Take a snapshot from the server: remember it, and act on how it ended. */
+  const adopt = useCallback((snap: NestRunSnapshot) => {
+    setRun(snap); setRunAt(Date.now());
+    if (snap.status === 'running') rememberRun(lineId, snap.runId); else rememberRun(lineId, null);
+  }, [lineId]);
+  /** A finished run's proposal is fetched whole, once. */
+  const takeProposal = useCallback(async () => {
+    const full = await getNestRun(orderId, lineId, { plan: true });
+    if (!isRun(full) || !full.plan) return;
+    setRun(full); setRunAt(Date.now());
+    setProposal(full.plan);
+    // A 'Redo all' run replaces the imported nests on accept too — the server says so, even after a reload.
+    if (full.replaceImported != null) setReplaceAll(full.replaceImported);
+    setOpenGroup(full.plan.groups.find((g) => g.nests.length)?.key ?? null);
+  }, [orderId, lineId]);
+  /** What a snapshot means for the screen. */
+  const settle = useCallback(async (snap: NestRunSnapshot) => {
+    adopt(snap);
+    if (snap.status === 'done') await takeProposal();
+    else if (snap.status === 'failed' && snap.error) {
+      setActionError(new CfApiError(422, snap.error.message, snap.error.code, snap.error.problems ?? []));
+      if (snap.error.code === 'PLATES_NOT_CHOSEN') getNestingChoices(orderId, lineId).then(setChoicesSaved).catch(() => undefined);
+    }
+  }, [adopt, takeProposal, orderId, lineId]);
+  // ON OPEN, ALWAYS ASK THE SERVER FIRST: a run may be going, or finished while this page was away.
   useEffect(() => {
-    if (busy !== 'plan') return undefined;
-    setWaited(0);
-    const t0 = Date.now();
-    const timer = window.setInterval(() => setWaited(Math.round((Date.now() - t0) / 1000)), 1000);
-    return () => window.clearInterval(timer);
-  }, [busy]);
+    let alive = true;
+    getNestRun(orderId, lineId).then(async (a) => {
+      if (!alive) return;
+      if (isRun(a)) { setInterrupted(false); await settle(a); }
+      else if (recallRun(lineId)) { setInterrupted(true); rememberRun(lineId, null); }
+    }).catch(() => undefined);
+    return () => { alive = false; };
+  }, [orderId, lineId, settle]);
+  // WHILE IT RUNS, ASK AGAIN. Stops on unmount, and starts again on mount through the effect above.
+  useEffect(() => {
+    if (!running) return undefined;
+    let alive = true;
+    let timer = 0;
+    const tick = async () => {
+      try {
+        const a = await getNestRun(orderId, lineId);
+        if (!alive) return;
+        if (isRun(a)) await settle(a);
+        else { setRun(null); setInterrupted(true); rememberRun(lineId, null); return; }
+      } catch { /* a missed poll is not a failed run */ }
+      if (alive) timer = window.setTimeout(tick, POLL_MS);
+    };
+    timer = window.setTimeout(tick, POLL_MS);
+    return () => { alive = false; window.clearTimeout(timer); };
+  }, [running, orderId, lineId, settle]);
   const [leaveOpen, setLeaveOpen] = useState(false);
   const [offcutsOpen, setOffcutsOpen] = useState(false);
 
   const plan = proposal ?? saved.data;
+  // While the server runs nesting nothing else on the screen may change what it is reading.
+  const locked = busy != null || running;
   // A steel with every plate unticked cannot be nested: Nest waits, and says why.
   const blocked = choices?.blocked ?? [];
   // The line's plate setting. null = never chosen, and no run may start (an older API sends nothing: no gate).
@@ -505,7 +562,7 @@ export function NestingPanel({ orderId, lineId, canManage, canEditCatalog = fals
   /** A saved change of choices: the proposal on screen was made without it, so it goes. */
   const choicesChanged = (next: NestingChoices) => {
     setChoicesSaved(next);
-    if (proposal) { setProposal(null); toast.info('Your choices changed, so the proposal was dropped. Nest again to use them.'); }
+    if (proposal) { setProposal(null); setRun(null); toast.info('Your choices changed, so the proposal was dropped. Nest again to use them.'); }
   };
 
   const pickPlates = async (next: PlateChoice) => {
@@ -518,30 +575,20 @@ export function NestingPanel({ orderId, lineId, canManage, canEditCatalog = fals
   };
 
   const propose = async (replaceImported = false) => {
-    const mine = ++runId.current;
-    setBusy('plan'); setActionError(null); setCapped(false);
-    setPacking(plan ? (plan.groups.reduce((a, g) => a + g.cutPlates.reduce((b, c) => b + (c.pieces ?? 0), 0), 0) || null) : null);
+    setBusy('plan'); setActionError(null); setInterrupted(false); setProposal(null); setLogOpen(false);
     try {
-      const out = await cfApi.post<NestingPlan>(`${path}/plan`, { effort, ...(replaceImported ? { replaceImported: true } : {}) }, { timeoutMs: NESTING_PLAN_MS });
-      if (mine !== runId.current) return;
-      setCapped(!!(out as NestingPlan & { budget?: NestingBudget }).budget?.capped);
-      setProposal(out);
+      const snap = await startNestRun(orderId, lineId, { effort, ...(replaceImported ? { replaceImported: true } : {}) });
       setReplaceAll(replaceImported);
-      setOpenGroup(out.groups.find((g) => g.nests.length)?.key ?? null);
-      toast.success(`${out.totals.plates} plates, ${out.totals.pieces} pieces. Nothing is written until you accept it.`);
-    } catch (e) {
-      if (mine === runId.current) {
-        setActionError(e as CfApiError);
-        // The line has no plate setting yet: re-read so the choice control shows it.
-        if ((e as CfApiError).code === 'PLATES_NOT_CHOSEN') getNestingChoices(orderId, lineId).then(setChoicesSaved).catch(() => undefined);
-      }
-    } finally { if (mine === runId.current) setBusy(null); }
+      await settle(snap);
+      if (snap.status === 'done') toast.success('Nesting finished. Nothing is written until you accept it.');
+    } catch (e) { setActionError(e as CfApiError); } finally { setBusy(null); }
   };
 
-  const cancelPlan = () => {
-    runId.current += 1;
-    setBusy(null);
-    toast.info('Stopped waiting. The server may still finish, but nothing is written.');
+  /** Forget the finished run on the server and go back to what is saved. */
+  const discard = async () => {
+    setActionError(null);
+    try { await discardNestRun(orderId, lineId); } catch (e) { setActionError(e as CfApiError); return; }
+    setProposal(null); setRun(null); rememberRun(lineId, null);
   };
 
   const accept = async () => {
@@ -549,7 +596,7 @@ export function NestingPanel({ orderId, lineId, canManage, canEditCatalog = fals
     setBusy('accept'); setActionError(null);
     try {
       const out = await cfApi.post<NestingAccepted>(`${path}/accept`, { ...acceptBody(proposal), ...(replaceAll ? { replaceImported: true } : {}) }, { timeoutMs: LONG_WRITE_MS });
-      setProposal(null);
+      setProposal(null); setRun(null); rememberRun(lineId, null);
       saved.reload();
       onChanged?.();
       toast.success(`${out.plates} plates and ${out.pieces} pieces written${out.replacedLots ? `, replacing ${out.replacedLots}` : ''}.`);
@@ -583,6 +630,7 @@ export function NestingPanel({ orderId, lineId, canManage, canEditCatalog = fals
     );
   }
 
+  const capped = !!(proposal as (NestingPlan & { budget?: NestingBudget }) | null)?.budget?.capped;
   const basis = basisWord(plan);
   const t = plan.totals;
   const everyCutPlate: NestCutPlate[] = [
@@ -630,8 +678,26 @@ export function NestingPanel({ orderId, lineId, canManage, canEditCatalog = fals
 
   return (
     <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 2, minWidth: 0 }}>
+      {running && run && <NestRunCard run={run} receivedAt={runAt} />}
+      {interrupted && !running && <Alert severity="warning" data-testid="nest-run-interrupted">{RUN_INTERRUPTED}</Alert>}
+      {run?.status === 'failed' && !running && (
+        <Alert severity="error" data-testid="nest-run-failed">
+          <Box sx={{ fontWeight: 600 }}>{run.error?.message ?? 'The nesting run failed.'}</Box>
+          {(run.error?.problems?.length ?? 0) > 0 && (
+            <Box component="ul" sx={{ m: 0, mt: 0.5, pl: 2.5, display: 'grid', gap: 0.4, overflowWrap: 'anywhere' }}>
+              {run.error?.problems?.map((x) => <li key={x}>{x}</li>)}
+            </Box>
+          )}
+          {run.log.length > 0 && (
+            <Box sx={{ mt: 0.5 }}>
+              <Button size="small" color="inherit" onClick={() => setLogOpen((o) => !o)}>{logOpen ? 'Hide run log' : 'Show run log'}</Button>
+              <Collapse in={logOpen} unmountOnExit><NestRunLog log={run.log} /></Collapse>
+            </Box>
+          )}
+        </Alert>
+      )}
       {plateChoice !== undefined && (
-        <PlatesToUse choice={plateChoice} kinds={choices?.plateKinds} editable={canManage && (choices?.canSave ?? true)} busy={platesBusy} onPick={pickPlates} />
+        <PlatesToUse choice={plateChoice} kinds={choices?.plateKinds} editable={canManage && (choices?.canSave ?? true) && !running} busy={platesBusy} onPick={pickPlates} />
       )}
       <SectionCard
         title="Nesting"
@@ -643,7 +709,7 @@ export function NestingPanel({ orderId, lineId, canManage, canEditCatalog = fals
               onChanged={() => { saved.reload(); onChanged?.(); }} />
             <Tooltip title="The nests as a sheet. Fill it from your nesting program and upload it back.">
               <span>
-                <Button variant="outlined" disabled={fileBusy != null || busy != null} onClick={downloadSheet}
+                <Button variant="outlined" disabled={fileBusy != null || locked} onClick={downloadSheet}
                   startIcon={fileBusy === 'download' ? <CircularProgress size={14} color="inherit" /> : <DownloadRounded />}>
                   Download Excel
                 </Button>
@@ -651,7 +717,7 @@ export function NestingPanel({ orderId, lineId, canManage, canEditCatalog = fals
             </Tooltip>
             <Tooltip title={canManage ? 'Bring in nests from your nesting program. You see a check before anything is saved.' : NO_MANAGE}>
               <span>
-                <Button variant="outlined" disabled={!canManage || fileBusy != null || busy != null} onClick={() => sheetInput.current?.click()}
+                <Button variant="outlined" disabled={!canManage || fileBusy != null || locked} onClick={() => sheetInput.current?.click()}
                   startIcon={fileBusy === 'preview' ? <CircularProgress size={14} color="inherit" /> : <UploadFileRounded />}>
                   Upload Excel
                 </Button>
@@ -662,14 +728,14 @@ export function NestingPanel({ orderId, lineId, canManage, canEditCatalog = fals
               ? 'Lays out what the imported nests do not cover. Imported plates stay. Nothing is written until you accept.'
               : 'Lays out every cut plate on the line. Nothing is written until you accept.'}>
               <span>
-                <Button variant={proposal ? 'outlined' : 'contained'} disabled={busy != null || fileBusy != null || blocked.length > 0 || platesUnset}
-                  startIcon={busy === 'plan' ? <CircularProgress size={14} color="inherit" /> : <AutoAwesomeRounded />}
+                <Button variant={proposal ? 'outlined' : 'contained'} disabled={locked || fileBusy != null || blocked.length > 0 || platesUnset}
+                  startIcon={locked ? <CircularProgress size={14} color="inherit" /> : <AutoAwesomeRounded />}
                   onClick={() => propose(false)}>
                   {nestLabel}
                 </Button>
               </span>
             </Tooltip>
-            <Button size="small" variant="outlined" aria-label="Effort" disabled={busy != null || fileBusy != null}
+            <Button size="small" variant="outlined" aria-label="Effort" disabled={locked || fileBusy != null}
               onClick={(e) => setEffortAnchor(e.currentTarget)} endIcon={<ExpandMoreRounded />}
               sx={{ borderRadius: 999, px: 1.25, py: 0.25, fontSize: 12.5 }}>
               {EFFORTS.find((x) => x.value === effort)?.label}
@@ -687,7 +753,7 @@ export function NestingPanel({ orderId, lineId, canManage, canEditCatalog = fals
             {imported && (
               <Tooltip title="Lays out the whole line again, automatically. Accepting it replaces the imported nests too.">
                 <span>
-                  <Button variant="text" disabled={busy != null || fileBusy != null || blocked.length > 0 || platesUnset} onClick={() => propose(true)}>
+                  <Button variant="text" disabled={locked || fileBusy != null || blocked.length > 0 || platesUnset} onClick={() => propose(true)}>
                     Redo all automatically
                   </Button>
                 </span>
@@ -696,7 +762,7 @@ export function NestingPanel({ orderId, lineId, canManage, canEditCatalog = fals
             {plan.saved && !proposal && t.plates > 0 && cncKnown && (
               <Tooltip title="One DXF per plate, for the CNC nesting software, in a zip.">
                 <span>
-                  <Button variant="outlined" disabled={fileBusy != null || busy != null} onClick={downloadCnc}
+                  <Button variant="outlined" disabled={fileBusy != null || locked} onClick={downloadCnc}
                     startIcon={fileBusy === 'cnc' ? <CircularProgress size={14} color="inherit" /> : <PrecisionManufacturingRounded />}>
                     Download CNC files
                   </Button>
@@ -714,13 +780,6 @@ export function NestingPanel({ orderId, lineId, canManage, canEditCatalog = fals
             </Typography>
           </Box>
           {plan.settingsNote && <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-3)' }}>{plan.settingsNote}</Typography>}
-          {busy === 'plan' && (
-            <Box role="status" sx={{ display: 'flex', gap: 1.5, alignItems: 'center', flexWrap: 'wrap', fontSize: 13, color: 'var(--c-text-2)' }}>
-              <span>{progressLine(packing, waited, effort)}</span>
-              <Button size="small" variant="text" onClick={cancelPlan}>Cancel</Button>
-              <span style={{ fontSize: 12, color: 'var(--c-text-3)' }}>Cancel only stops waiting; the server may finish anyway.</span>
-            </Box>
-          )}
           {proposal && capped && <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)' }}>{CAPPED_LINE}</Typography>}
           {actionError?.code === 'PLATES_NOT_CHOSEN'
             ? <Alert severity="warning" data-testid="plates-not-chosen-error">{actionError.message}</Alert>
@@ -732,6 +791,17 @@ export function NestingPanel({ orderId, lineId, canManage, canEditCatalog = fals
           */}
           {proposal && (
             <>
+              {run?.status === 'done' && run.summary && (
+                <Alert severity="success" data-testid="nest-run-done">{runSummary(run)}</Alert>
+              )}
+              {run?.status === 'done' && run.log.length > 0 && (
+                <Box>
+                  <Button size="small" onClick={() => setLogOpen((o) => !o)} endIcon={logOpen ? <ExpandLessRounded /> : <ExpandMoreRounded />}>
+                    {logOpen ? 'Hide run log' : 'Show run log'}
+                  </Button>
+                  <Collapse in={logOpen} unmountOnExit><NestRunLog log={run.log} /></Collapse>
+                </Box>
+              )}
               <Note>
                 <Box><strong>Accepting writes it down.</strong></Box>
                 <Box component="ul" sx={{ m: 0, pl: 2.5, display: 'grid', gap: 0.4 }}>
@@ -742,15 +812,15 @@ export function NestingPanel({ orderId, lineId, canManage, canEditCatalog = fals
               <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center', minWidth: 0 }}>
                 <Tooltip title={canManage ? 'Writes this layout down. It becomes what the shop cuts to and what the order buys.' : NO_MANAGE}>
                   <span>
-                    <Button variant="contained" color="primary" disabled={!canManage || busy != null || t.plates === 0}
+                    <Button variant="contained" color="primary" disabled={!canManage || locked || t.plates === 0}
                       startIcon={busy === 'accept' ? <CircularProgress size={14} color="inherit" /> : <TaskAltRounded />}
                       onClick={accept}>
                       Accept this layout
                     </Button>
                   </span>
                 </Tooltip>
-                <Button size="small" startIcon={<UndoRounded />} onClick={() => { setProposal(null); setActionError(null); }} disabled={busy != null}>
-                  Back to what is saved
+                <Button size="small" startIcon={<UndoRounded />} onClick={discard} disabled={locked}>
+                  Discard
                 </Button>
               </Box>
             </>
@@ -769,8 +839,11 @@ export function NestingPanel({ orderId, lineId, canManage, canEditCatalog = fals
       )}
 
       {choices && (
-        <NestChoices orderId={orderId} lineId={lineId} choices={choices} canManage={canManage} canEditCatalog={canEditCatalog} onChange={choicesChanged}
-          open={choicesOpen ?? (!plan.saved && !proposal)} onOpenChange={setChoicesOpen} />
+        <Box data-testid="nest-choices-wrap" aria-disabled={running} title={running ? RUN_CARRIES_ON : undefined}
+          sx={running ? { opacity: 0.5, pointerEvents: 'none', minWidth: 0 } : { minWidth: 0 }}>
+          <NestChoices orderId={orderId} lineId={lineId} choices={choices} canManage={canManage && !running} canEditCatalog={canEditCatalog && !running} onChange={choicesChanged}
+            open={choicesOpen ?? (!plan.saved && !proposal)} onOpenChange={setChoicesOpen} />
+        </Box>
       )}
 
       {showShort && (
@@ -779,8 +852,8 @@ export function NestingPanel({ orderId, lineId, canManage, canEditCatalog = fals
             <Box sx={{ flex: '1 1 240px', minWidth: 0 }}>
               <strong>{`${shortPieces} ${shortPieces === 1 ? 'piece is' : 'pieces are'} not nested yet.`}</strong>
             </Box>
-            <Button variant="contained" color="warning" disabled={!canManage || busy != null || fileBusy != null || blocked.length > 0 || platesUnset}
-              startIcon={busy === 'plan' ? <CircularProgress size={14} color="inherit" /> : <AutoAwesomeRounded />}
+            <Button variant="contained" color="warning" disabled={!canManage || locked || fileBusy != null || blocked.length > 0 || platesUnset}
+              startIcon={locked ? <CircularProgress size={14} color="inherit" /> : <AutoAwesomeRounded />}
               onClick={() => propose(false)}>
               {`Nest the ${shortPieces} short ${shortPieces === 1 ? 'piece' : 'pieces'} now`}
             </Button>
@@ -903,7 +976,7 @@ export function NestingPanel({ orderId, lineId, canManage, canEditCatalog = fals
                       : NO_MANAGE}>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, justifySelf: 'end' }}>
                         {manualBusy === cp.id && <CircularProgress size={14} />}
-                        <Switch size="small" checked={isManual} disabled={!canManage || manualBusy != null}
+                        <Switch size="small" checked={isManual} disabled={!canManage || manualBusy != null || running}
                           slotProps={{ input: { 'aria-label': `Leave ${cp.code ?? cp.name} out of automatic nesting` } }}
                           onChange={(e) => setManual(cp, e.target.checked)} />
                       </Box>

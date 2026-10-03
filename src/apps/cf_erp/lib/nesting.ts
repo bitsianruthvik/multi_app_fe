@@ -1,5 +1,5 @@
 import type {
-  Nest, NestDrift, NestGroup, NestMetrics, NestPiece, NestSizeAdvice, NestVerdict, NestWaste, NestingPlan,
+  Nest, NestDrift, NestGroup, NestMetrics, NestPiece, NestRunSnapshot, NestSizeAdvice, NestVerdict, NestWaste, NestingPlan,
 } from '../api/types';
 
 /**
@@ -418,4 +418,52 @@ export const anyImported = (plan: NestingPlan) => plan.groups.some((g) => g.nest
 export function choicesLine(c: { summary: { piecesLeftOut: number; platesExcluded: number } }): string {
   const s = c.summary;
   return `${s.piecesLeftOut} ${s.piecesLeftOut === 1 ? 'piece' : 'pieces'} left out · ${s.platesExcluded} ${s.platesExcluded === 1 ? 'plate' : 'plates'} excluded`;
+}
+
+// ── Background runs (the server owns the run; the screen only watches it) ──
+
+export const RUN_CARRIES_ON = 'Nesting is running in the background — you can leave this page; it carries on.';
+export const RUN_INTERRUPTED = 'The run was interrupted (the server restarted) — start it again.';
+
+/** What the run is doing, in the words the shop floor would use. */
+export function phaseWords(run: Pick<NestRunSnapshot, 'phase' | 'progress'>): string {
+  switch (run.phase) {
+    case 'reading': return 'Reading the order';
+    case 'grouping': return 'Grouping by steel';
+    case 'packing': return `Packing plates (${run.progress.done}/${run.progress.total} tries)`;
+    case 'shaping': return 'Choosing the best layouts';
+    case 'done': return 'Finished';
+    default: return 'Stopped';
+  }
+}
+
+const pad = (n: number) => String(n).padStart(2, '0');
+
+/** HH:MM:SS in the browser's own time. */
+export function logTime(at: string): string {
+  const d = new Date(at);
+  return Number.isNaN(d.getTime()) ? '' : `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+
+/** "Started by 4 at 14:02". The server may send a name or an id. */
+export function startedLine(run: Pick<NestRunSnapshot, 'startedAt' | 'startedBy'>): string {
+  const who = run.startedBy != null && run.startedBy !== '' ? ` by ${run.startedBy}` : '';
+  const d = new Date(run.startedAt);
+  const when = Number.isNaN(d.getTime()) ? '' : ` at ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return `Started${who}${when}`;
+}
+
+
+
+/** "125 plates · 2,944 pieces · 6.0% waste · 2 problems" */
+export function runSummary(run: Pick<NestRunSnapshot, 'summary'>): string {
+  const s = run.summary;
+  if (!s) return '';
+  const n = (x: number) => x.toLocaleString('en-US');
+  return [
+    `${n(s.plates)} ${s.plates === 1 ? 'plate' : 'plates'}`,
+    `${n(s.pieces)} ${s.pieces === 1 ? 'piece' : 'pieces'}`,
+    ...(s.wastePct != null ? [`${s.wastePct.toFixed(1)}% waste`] : []),
+    `${n(s.problems)} ${s.problems === 1 ? 'problem' : 'problems'}`,
+  ].join(' · ');
 }
