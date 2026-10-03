@@ -56,6 +56,8 @@ export const SECTIONS: NavSection[] = [
       // One purchase order carried stage by stage (CF_ERP_PURCHASE_FLOW_PLAN): the lanes first, then every order as a list.
       { key: 'purchase-board', label: 'Board', path: 'purchase', permission: INVENTORY, keywords: ['purchase', 'buying', 'procurement', 'lanes', 'stages', 'kanban', 'pipeline', 'request', 'rfq', 'quotation', 'quote', 'stock check', 'grn', 'timeline', 'supplier'] },
       { key: 'purchase-orders', label: 'Purchase orders', path: 'purchase-orders', hasDetail: true, permission: INVENTORY, countKey: 'openPurchases', keywords: ['po', 'supplier', 'delivery', 'goods receipt', 'grn', 'procurement', 'order'] },
+      // Who we buy from — the parties screen pinned to suppliers (RFQs and POs pick from them).
+      { key: 'suppliers', label: 'Suppliers', path: 'suppliers', permission: INVENTORY, keywords: ['supplier', 'vendor', 'party', 'mill', 'rfq'] },
     ],
   },
   {

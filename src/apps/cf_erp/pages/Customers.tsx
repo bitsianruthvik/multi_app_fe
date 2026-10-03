@@ -72,7 +72,7 @@ export default function Customers({ fixedRole }: { fixedRole?: PartyRole } = {})
 
   return (
     <Box>
-      <PageHeader title={PAGE_TITLE[role] ?? 'Customers'} subtitle={fixedRole === 'subcontractor' ? 'Who does work for you outside the shop — they get work orders from an order’s Contractors tab.' : 'Who orders from you — and who supplies you. One record can be both.'}
+      <PageHeader title={PAGE_TITLE[role] ?? 'Customers'} subtitle={fixedRole === 'subcontractor' ? 'Who does work for you outside the shop — they get work orders from an order’s Contractors tab.' : fixedRole === 'supplier' ? 'Who you buy from — asked for quotations on a purchase order, and the PO is placed with them.' : 'Who orders from you — and who supplies you. One record can be both.'}
         actions={canManage && <Button variant="contained" startIcon={<AddRounded />} onClick={() => setEditing({ open: true, party: null })}>{newLabel}</Button>} />
       <StatStrip stats={stats} />
       <FilterBar search={search} onSearch={setSearch} placeholder="Search code, name or contact">

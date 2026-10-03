@@ -70,6 +70,7 @@ export function getCfErpRoutes(
     { path: '/:company/cf_erp/company-tax', element: wrap(<CompanyTax />) },
     { path: '/:company/cf_erp/customers', element: wrap(<Customers />) },
     { path: '/:company/cf_erp/contractors', element: wrap(<Customers fixedRole="subcontractor" />) },
+    { path: '/:company/cf_erp/suppliers', element: wrap(<Customers fixedRole="supplier" />) },
     { path: '/:company/cf_erp/items', element: wrap(<Records recordKind="item" />) },
     { path: '/:company/cf_erp/items/:id', element: wrap(<RecordDetail recordKind="item" />) },
     { path: '/:company/cf_erp/definitions', element: wrap(<Records recordKind="definition" />) },
