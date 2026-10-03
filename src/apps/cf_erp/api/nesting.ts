@@ -1,5 +1,5 @@
 import { cfApi, LONG_WRITE_MS } from './client';
-import type { NestSheetResult, NestingChoices } from './types';
+import type { NestSheetResult, NestingChoices, PlateChoice } from './types';
 
 /**
  * The nesting sheet and the CNC files (CF_ERP_NESTING_PLAN.md, "Decided
@@ -88,4 +88,14 @@ export function getNestingChoices(orderId: number, lineId: number): Promise<Nest
 
 export function saveNestingChoices(orderId: number, lineId: number, excludedCutPlateIds: number[], excludedPlateIds: number[]): Promise<NestingChoices> {
   return cfApi.put<NestingChoices>(`${base(orderId, lineId)}/choices`, { excludedCutPlateIds, excludedPlateIds });
+}
+
+/** Which plates nesting may use on this line: standard only, or standard and custom. Needed before the first run. */
+export function setNestPlates(orderId: number, lineId: number, plates: PlateChoice): Promise<{ lineId: number; plateChoice: PlateChoice }> {
+  return cfApi.put<{ lineId: number; plateChoice: PlateChoice }>(`${base(orderId, lineId)}/plates`, { plates });
+}
+
+/** Flip a catalog plate between STANDARD and CUSTOM (the generic values save; needs the catalog grant). */
+export function setPlateKind(plateItemId: number, kind: 'STANDARD' | 'CUSTOM'): Promise<unknown> {
+  return cfApi.put(`/records/${plateItemId}/values`, { values: [{ specCode: 'PLATE_KIND', value: kind }] });
 }

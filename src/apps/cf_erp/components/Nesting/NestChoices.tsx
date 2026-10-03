@@ -1,7 +1,7 @@
 import { useRef, useState, type ReactNode } from 'react';
 import { Alert, Box, Button, Checkbox, CircularProgress, Tooltip, Typography } from '@mui/material';
 import { CfApiError } from '../../api/client';
-import { saveNestingChoices } from '../../api/nesting';
+import { getNestingChoices, saveNestingChoices, setPlateKind } from '../../api/nesting';
 import type { NestChoiceGroup, NestChoicePiece, NestChoicePlate, NestingChoices } from '../../api/types';
 import { choicesLine, kg, mm, steelWord } from '../../lib/nesting';
 import { priceText } from '../../lib/money';
@@ -72,7 +72,9 @@ function PieceRow({ p, disabled, onToggle }: { p: NestChoicePiece; disabled: boo
   );
 }
 
-function PlateRow({ p, disabled, onToggle }: { p: NestChoicePlate; disabled: boolean; onToggle: (next: boolean) => void }) {
+function PlateRow({ p, disabled, onToggle, onFlip }: { p: NestChoicePlate; disabled: boolean; onToggle: (next: boolean) => void; onFlip: ((to: 'STANDARD' | 'CUSTOM') => void) | null }) {
+  const standard = p.kind === 'STANDARD';
+  const notAllowed = p.allowed === false;
   const stock = [
     p.stock.theirs > 0 ? `${p.stock.theirs} customer's` : null,
     `${mm(p.stock.ours)} in stock`,
@@ -81,6 +83,7 @@ function PlateRow({ p, disabled, onToggle }: { p: NestChoicePlate; disabled: boo
     <Box data-testid="choice-plate" data-id={p.plateItemId} sx={{
       display: 'grid', gridTemplateColumns: { xs: 'auto minmax(0, 1fr)', sm: 'auto minmax(0, 1.3fr) minmax(0, 0.9fr) minmax(0, 0.9fr) minmax(0, 1fr)' },
       alignItems: 'center', columnGap: 1.25, rowGap: 0.25, py: 0.5, borderBottom: '1px solid var(--c-divider)', minWidth: 0,
+      opacity: notAllowed ? 0.55 : 1,
     }}>
       <Checkbox size="small" checked={!p.excluded} disabled={disabled} sx={{ p: 0.5 }}
         slotProps={{ input: { 'aria-label': `Use plate ${p.code ?? p.plateItemId}` } }}
@@ -90,6 +93,14 @@ function PlateRow({ p, disabled, onToggle }: { p: NestChoicePlate; disabled: boo
           <Mono sx={{ overflowWrap: 'anywhere' }}>{p.code ?? p.name ?? `#${p.plateItemId}`}</Mono>
           {p.preferred && <Badge family="success" label="Customer's — used first" noIcon title="The order's customer sent this plate: the packer offers it first, and it costs nothing." />}
           {p.excluded && <Badge family="neutral" label="Excluded" noIcon />}
+          <Tooltip title={onFlip ? (standard ? 'Mark as custom' : 'Mark as standard') : (p.kind == null ? 'Not marked — counted as custom' : '')}>
+            <Box component="span" data-testid="plate-kind" data-kind={standard ? 'STANDARD' : 'CUSTOM'}
+              onClick={onFlip ? () => onFlip(standard ? 'CUSTOM' : 'STANDARD') : undefined}
+              sx={{ display: 'inline-flex', cursor: onFlip ? 'pointer' : 'default' }}>
+              <Badge family={standard ? 'success' : 'neutral'} label={standard ? 'Standard' : 'Custom'} noIcon />
+            </Box>
+          </Tooltip>
+          {notAllowed && <Box component="span" data-testid="plate-not-used" sx={{ fontSize: 12, color: 'var(--c-warning-800)' }}>Not used — standard plates only</Box>}
         </Box>
         <Box sx={cell}>{`${mm(p.length)} × ${mm(p.width)} × ${mm(p.thickness)} mm${p.grade ? ` · ${p.grade}` : ''}${p.material ? ` ${p.material}` : ''}${p.kgEach != null ? ` · ${kg(p.kgEach)} kg` : ''}`}</Box>
       </Box>
@@ -121,11 +132,13 @@ function Step({ n, title, hint, children, actions }: { n: number; title: string;
   );
 }
 
-export function NestChoices({ orderId, lineId, choices, canManage, onChange, open, onOpenChange }: {
+export function NestChoices({ orderId, lineId, choices, canManage, canEditCatalog = false, onChange, open, onOpenChange }: {
   orderId: number;
   lineId: number;
   choices: NestingChoices;
   canManage: boolean;
+  /** The catalog grant: lets a plate's Standard / Custom chip be flipped. */
+  canEditCatalog?: boolean;
   /** The server's answer after a save — the panel above re-reads its block from it. */
   onChange: (next: NestingChoices) => void;
   open: boolean;
@@ -137,6 +150,7 @@ export function NestChoices({ orderId, lineId, choices, canManage, onChange, ope
   const seq = useRef(0);
   const editable = canManage && choices.canSave;
   const disabled = !editable || saving;
+  const mayFlip = canEditCatalog;
 
   // The whole selection, saved at once. A later save wins; an earlier answer is ignored.
   const save = async (cutIds: number[], plateIds: number[]) => {
@@ -162,6 +176,20 @@ export function NestChoices({ orderId, lineId, choices, canManage, onChange, ope
     void save(choices.excluded.cutPlateIds, [...out]);
   };
   const reset = () => void save([], []);
+  // Flip a catalog plate Standard <-> Custom, then re-read the choices so `allowed` follows.
+  const flip = async (plateItemId: number, to: 'STANDARD' | 'CUSTOM') => {
+    const mine = ++seq.current;
+    setSaving(true); setError(null);
+    try {
+      await setPlateKind(plateItemId, to);
+      const next = await getNestingChoices(orderId, lineId);
+      if (mine === seq.current) onChange(next);
+    } catch (e) {
+      if (mine === seq.current) setError(e as CfApiError);
+    } finally {
+      if (mine === seq.current) setSaving(false);
+    }
+  };
 
   const s = choices.summary;
   const anyOut = s.piecesLeftOut > 0 || s.platesExcluded > 0;
@@ -262,7 +290,8 @@ export function NestChoices({ orderId, lineId, choices, canManage, onChange, ope
                       </Box>
                     </Tooltip>
                   )}
-                  {g.plates.map((p) => <PlateRow key={p.plateItemId} p={p} disabled={disabled} onToggle={(next) => setPlates([p.plateItemId], next)} />)}
+                  {g.plates.map((p) => <PlateRow key={p.plateItemId} p={p} disabled={disabled} onToggle={(next) => setPlates([p.plateItemId], next)}
+                    onFlip={mayFlip && !saving ? (to) => void flip(p.plateItemId, to) : null} />)}
                 </Box>
               );
             })}

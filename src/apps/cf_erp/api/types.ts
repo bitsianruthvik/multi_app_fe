@@ -1432,7 +1432,15 @@ export interface NestChoicePlate {
   lastPaid: { unitPrice: number; currency: string; orderCode: string | null; orderedAt: string | null } | null;
   listPrice: { price: number; basis: string; currency: string; perPlate: number | null } | null;
   excluded: boolean;
+  /** Mill-standard size or a custom (about 10% dearer) one. null = not marked, counted as custom. */
+  kind?: PlateKind | null;
+  /** false when the line is standard-only and this plate is not STANDARD. */
+  allowed?: boolean;
 }
+
+export type PlateKind = 'STANDARD' | 'CUSTOM';
+/** Which plates nesting may use on a line; null = not chosen yet. */
+export type PlateChoice = 'standard' | 'any';
 
 export interface NestChoiceGroup {
   key: string;
@@ -1448,6 +1456,7 @@ export interface NestChoiceGroup {
     cutPlates: number; pieces: number; kg: number;
     ticked: { cutPlates: number; pieces: number; kg: number };
     platesOffered: number; platesTicked: number;
+    standardOffered?: number;
   };
   /** Every plate is unticked while pieces are ticked: Nest is blocked. */
   blocked: string | null;
@@ -1458,6 +1467,9 @@ export interface NestingChoices {
   line: { id: number; lineNo: number; orderId: number; orderCode: string; quantity: number; frozen?: boolean; released?: boolean };
   canSave: boolean;
   readOnlyReason: string | null;
+  /** The line's setting: null until the user chooses (no run before that). */
+  plateChoice?: PlateChoice | null;
+  plateKinds?: { standard: number; custom: number; unknown: number };
   groups: NestChoiceGroup[];
   unusable: NestChoicePiece[];
   manual: NestCutPlate[];
@@ -1598,7 +1610,7 @@ export interface NestDrift {
 }
 
 export interface NestingPlan {
-  line: { id: number; lineNo: number; orderId: number; orderCode: string; quantity: number; orderStatus: OrderStatus };
+  line: { id: number; lineNo: number; orderId: number; orderCode: string; quantity: number; orderStatus: OrderStatus; plateChoice?: PlateChoice | null };
   /** True once lots exist in the database. A proposal is never saved. */
   saved: boolean;
   /** 'saved plan' · 'nothing saved yet' · 'proposal'. */

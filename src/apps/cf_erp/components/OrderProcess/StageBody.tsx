@@ -390,7 +390,7 @@ export function StageBody({
         </SectionCard>
       )
       : line
-      ? <NestingPanel key={line.lineId} orderId={order.id} lineId={line.lineId} canManage={isPermitted('cf_erp_orders_manage')} onChanged={onReloadAll} />
+      ? <NestingPanel key={line.lineId} orderId={order.id} lineId={line.lineId} canManage={isPermitted('cf_erp_orders_manage')} canEditCatalog={isPermitted('cf_erp_catalog_manage')} onChanged={onReloadAll} />
       : (
         <SectionCard title="Nesting">
           <EmptyState icon={<GridViewRounded />} title="No lines yet" hint="Rectangles are cut for a line, so add one first."

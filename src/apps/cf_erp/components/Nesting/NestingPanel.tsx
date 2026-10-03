@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from 'react';
 import {
-  Alert, Box, Button, CircularProgress, Collapse, Menu, MenuItem, Switch, Tooltip, Typography,
+  Alert, Box, Button, CircularProgress, Collapse, Menu, MenuItem, Switch, ToggleButton, ToggleButtonGroup, Tooltip, Typography,
 } from '@mui/material';
 import GridViewRounded from '@mui/icons-material/GridViewRounded';
 import AutoAwesomeRounded from '@mui/icons-material/AutoAwesomeRounded';
@@ -17,10 +17,10 @@ import PrecisionManufacturingRounded from '@mui/icons-material/PrecisionManufact
 import { cfApi, LONG_WRITE_MS, CfApiError } from '../../api/client';
 import { fileToBase64 } from '../../api/bomSheet';
 import {
-  downloadCncZip, downloadLotCnc, downloadNestingSheet, getNestingChoices, previewNestingSheet, saveNestingSheet,
+  downloadCncZip, downloadLotCnc, downloadNestingSheet, getNestingChoices, previewNestingSheet, saveNestingSheet, setNestPlates,
 } from '../../api/nesting';
 import type {
-  Nest, NestCoverage, NestCutPlate, NestGroup, NestSheetResult, NestingAccepted, NestingChoices, NestingPlan,
+  Nest, NestCoverage, NestCutPlate, NestGroup, NestSheetResult, NestingAccepted, NestingChoices, NestingPlan, PlateChoice,
 } from '../../api/types';
 import { useLoad } from '../../hooks/useLoad';
 import {
@@ -351,11 +351,47 @@ function GroupCard({ group, open, onToggle, cncFor }: {
   );
 }
 
-export function NestingPanel({ orderId, lineId, canManage, onChanged }: {
+/**
+ * "PLATES TO USE" — chosen once per line before its first run (standard plates
+ * only, or standard and custom). The run waits for it; it can change any time
+ * and affects the NEXT run, not the saved layout.
+ */
+function PlatesToUse({ choice, kinds, editable, busy, onPick }: {
+  choice: PlateChoice | null;
+  kinds: { standard: number; custom: number; unknown: number } | undefined;
+  editable: boolean;
+  busy: boolean;
+  onPick: (next: PlateChoice) => void;
+}) {
+  const counts = kinds
+    ? `${kinds.standard} standard · ${kinds.custom + kinds.unknown} custom plates in the catalog${kinds.unknown > 0 ? ` (${kinds.unknown} not marked)` : ''}`
+    : null;
+  return (
+    <Box data-testid="plates-to-use" sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 0.75, minWidth: 0 }}>
+      <Box sx={{ display: 'flex', gap: 1.25, alignItems: 'center', flexWrap: 'wrap' }}>
+        <Box sx={{ fontSize: 14, fontWeight: 600 }}>Plates to use</Box>
+        <ToggleButtonGroup exclusive size="small" aria-label="Plates to use" value={choice}
+          disabled={!editable || busy} onChange={(_, v) => { if (v) onPick(v as PlateChoice); }}>
+          <ToggleButton value="standard">Standard plates only</ToggleButton>
+          <ToggleButton value="any">Standard and custom</ToggleButton>
+        </ToggleButtonGroup>
+        {busy && <CircularProgress size={13} aria-label="Saving" />}
+      </Box>
+      {counts && <Box sx={{ fontSize: 12.5, color: 'var(--c-text-2)' }}>{counts}</Box>}
+      {choice === null && (
+        <Note tone="warning"><Box data-testid="plates-not-chosen">Choose which plates to use before nesting.</Box></Note>
+      )}
+    </Box>
+  );
+}
+
+export function NestingPanel({ orderId, lineId, canManage, canEditCatalog = false, onChanged }: {
   orderId: number;
   lineId: number;
   /** The sales-order grant. Without it the screen is a look, and says so. */
   canManage: boolean;
+  /** The catalog grant: lets a plate be marked Standard / Custom from Step B. */
+  canEditCatalog?: boolean;
   /** Accepting rewrites what the order will buy, so the page around it reloads. */
   onChanged?: () => void;
 }) {
@@ -401,6 +437,10 @@ export function NestingPanel({ orderId, lineId, canManage, onChanged }: {
   const plan = proposal ?? saved.data;
   // A steel with every plate unticked cannot be nested: Nest waits, and says why.
   const blocked = choices?.blocked ?? [];
+  // The line's plate setting. null = never chosen, and no run may start (an older API sends nothing: no gate).
+  const plateChoice: PlateChoice | null | undefined = choices ? choices.plateChoice : saved.data?.line.plateChoice;
+  const platesUnset = plateChoice === null;
+  const [platesBusy, setPlatesBusy] = useState(false);
   const lineName = plan ? `${plan.line.orderCode}_line${plan.line.lineNo}` : `line${lineId}`;
 
   const downloadSheet = async () => {
@@ -468,6 +508,15 @@ export function NestingPanel({ orderId, lineId, canManage, onChanged }: {
     if (proposal) { setProposal(null); toast.info('Your choices changed, so the proposal was dropped. Nest again to use them.'); }
   };
 
+  const pickPlates = async (next: PlateChoice) => {
+    setPlatesBusy(true); setActionError(null);
+    try {
+      await setNestPlates(orderId, lineId, next);
+      const fresh = await getNestingChoices(orderId, lineId);
+      setChoicesSaved(fresh);
+    } catch (e) { setActionError(e as CfApiError); } finally { setPlatesBusy(false); }
+  };
+
   const propose = async (replaceImported = false) => {
     const mine = ++runId.current;
     setBusy('plan'); setActionError(null); setCapped(false);
@@ -480,7 +529,13 @@ export function NestingPanel({ orderId, lineId, canManage, onChanged }: {
       setReplaceAll(replaceImported);
       setOpenGroup(out.groups.find((g) => g.nests.length)?.key ?? null);
       toast.success(`${out.totals.plates} plates, ${out.totals.pieces} pieces. Nothing is written until you accept it.`);
-    } catch (e) { if (mine === runId.current) setActionError(e as CfApiError); } finally { if (mine === runId.current) setBusy(null); }
+    } catch (e) {
+      if (mine === runId.current) {
+        setActionError(e as CfApiError);
+        // The line has no plate setting yet: re-read so the choice control shows it.
+        if ((e as CfApiError).code === 'PLATES_NOT_CHOSEN') getNestingChoices(orderId, lineId).then(setChoicesSaved).catch(() => undefined);
+      }
+    } finally { if (mine === runId.current) setBusy(null); }
   };
 
   const cancelPlan = () => {
@@ -575,6 +630,9 @@ export function NestingPanel({ orderId, lineId, canManage, onChanged }: {
 
   return (
     <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 2, minWidth: 0 }}>
+      {plateChoice !== undefined && (
+        <PlatesToUse choice={plateChoice} kinds={choices?.plateKinds} editable={canManage && (choices?.canSave ?? true)} busy={platesBusy} onPick={pickPlates} />
+      )}
       <SectionCard
         title="Nesting"
         subtitle={`Line ${plan.line.lineNo} of ${plan.line.orderCode} · plate → sequence → row → part, and the floor cuts in that order.`}
@@ -604,7 +662,7 @@ export function NestingPanel({ orderId, lineId, canManage, onChanged }: {
               ? 'Lays out what the imported nests do not cover. Imported plates stay. Nothing is written until you accept.'
               : 'Lays out every cut plate on the line. Nothing is written until you accept.'}>
               <span>
-                <Button variant={proposal ? 'outlined' : 'contained'} disabled={busy != null || fileBusy != null || blocked.length > 0}
+                <Button variant={proposal ? 'outlined' : 'contained'} disabled={busy != null || fileBusy != null || blocked.length > 0 || platesUnset}
                   startIcon={busy === 'plan' ? <CircularProgress size={14} color="inherit" /> : <AutoAwesomeRounded />}
                   onClick={() => propose(false)}>
                   {nestLabel}
@@ -629,7 +687,7 @@ export function NestingPanel({ orderId, lineId, canManage, onChanged }: {
             {imported && (
               <Tooltip title="Lays out the whole line again, automatically. Accepting it replaces the imported nests too.">
                 <span>
-                  <Button variant="text" disabled={busy != null || fileBusy != null || blocked.length > 0} onClick={() => propose(true)}>
+                  <Button variant="text" disabled={busy != null || fileBusy != null || blocked.length > 0 || platesUnset} onClick={() => propose(true)}>
                     Redo all automatically
                   </Button>
                 </span>
@@ -664,7 +722,9 @@ export function NestingPanel({ orderId, lineId, canManage, onChanged }: {
             </Box>
           )}
           {proposal && capped && <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)' }}>{CAPPED_LINE}</Typography>}
-          <ErrorNotice error={actionError} sx={{ mb: 0 }} />
+          {actionError?.code === 'PLATES_NOT_CHOSEN'
+            ? <Alert severity="warning" data-testid="plates-not-chosen-error">{actionError.message}</Alert>
+            : <ErrorNotice error={actionError} sx={{ mb: 0 }} />}
           {/*
             The commitment is laid out BEFORE the button that makes it, not
             after — and the button sits here rather than in the card's header so
@@ -709,7 +769,7 @@ export function NestingPanel({ orderId, lineId, canManage, onChanged }: {
       )}
 
       {choices && (
-        <NestChoices orderId={orderId} lineId={lineId} choices={choices} canManage={canManage} onChange={choicesChanged}
+        <NestChoices orderId={orderId} lineId={lineId} choices={choices} canManage={canManage} canEditCatalog={canEditCatalog} onChange={choicesChanged}
           open={choicesOpen ?? (!plan.saved && !proposal)} onOpenChange={setChoicesOpen} />
       )}
 
@@ -719,7 +779,7 @@ export function NestingPanel({ orderId, lineId, canManage, onChanged }: {
             <Box sx={{ flex: '1 1 240px', minWidth: 0 }}>
               <strong>{`${shortPieces} ${shortPieces === 1 ? 'piece is' : 'pieces are'} not nested yet.`}</strong>
             </Box>
-            <Button variant="contained" color="warning" disabled={!canManage || busy != null || fileBusy != null || blocked.length > 0}
+            <Button variant="contained" color="warning" disabled={!canManage || busy != null || fileBusy != null || blocked.length > 0 || platesUnset}
               startIcon={busy === 'plan' ? <CircularProgress size={14} color="inherit" /> : <AutoAwesomeRounded />}
               onClick={() => propose(false)}>
               {`Nest the ${shortPieces} short ${shortPieces === 1 ? 'piece' : 'pieces'} now`}
