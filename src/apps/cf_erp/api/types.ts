@@ -1908,3 +1908,60 @@ export type FloorRow =
 export interface OperatorRow { id: number; code: string | null; name: string; status: 'active' | 'inactive'; machineIds: number[] }
 
 export interface StopReasonRow { id: number; code: string; label: string; sortOrder: number; needsNote: boolean; status: 'active' | 'inactive' }
+
+// ── Production ledger: work in progress and offcuts ─────────────────────────
+
+/** One thing inside a container lot right now: a child that joined it, or bought material. */
+export interface WipContained { code: string | null; item: { id: number; code: string | null; name: string }; quantity: number; value: number | null }
+
+/** One lot of production stock (GET /stock/wip). A container holds `contains`. */
+export interface WipLot {
+  batchId: number;
+  code: string;
+  item: { id: number; code: string | null; name: string };
+  productionItemId: number | null;
+  depth: number | null;
+  /** 'Line' | 'Segment' | 'Part' | 'Cut piece' … */
+  level: string;
+  quantity: number;
+  value: number | null;
+  unitCost: number | null;
+  contains: WipContained[];
+}
+
+export interface WipOrderGroup { orderId: number; orderCode: string; lineId: number; lineNo: number; releaseId: number; lots: WipLot[] }
+
+export interface WipLevel { depth: number; level: string; lots: number; pieces: number; value: number | null }
+
+export interface WipAnswer {
+  area: { id: number; code: string; name: string } | null;
+  totals: { lots: number; pieces: number; value: number | null; unpricedLots: number };
+  byLevel: WipLevel[];
+  orders: WipOrderGroup[];
+  offcuts: { count: number; kg: number; value: number | null };
+}
+
+export type OffcutStatus = 'planned' | 'available' | 'used' | 'scrapped' | 'returned';
+
+/** A closed ring of [x, y] points in millimetres, in the plate's coordinates. */
+export type OutlineRing = [number, number][];
+
+export interface Offcut {
+  id: number;
+  offcutNo: string;
+  status: OffcutStatus;
+  thickness: number | null;
+  grade: string | null;
+  material: string | null;
+  areaMm2: number;
+  weightKg: number | null;
+  value: number | null;
+  /** The biggest clean rectangle inside it. */
+  rect: { length: number; width: number } | null;
+  bbox: { x: number; y: number; length: number; width: number } | null;
+  outline: OutlineRing[];
+  origin: { orderId: number; orderCode: string; lineNo: number; lotNo: string; plate: { id: number; code: string | null } };
+  batch: { id: number; code: string } | null;
+  item: { id: number; code: string | null; name: string } | null;
+  createdAt: string;
+}

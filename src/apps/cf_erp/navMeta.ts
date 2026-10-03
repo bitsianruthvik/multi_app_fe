@@ -80,6 +80,8 @@ export const SECTIONS: NavSection[] = [
       // The board first (user, 2026-10-02): every buying document by stage, To buy → Received.
       { key: 'buying', label: 'Buying', path: 'buying', permission: INVENTORY, keywords: ['board', 'procurement', 'purchase', 'stages', 'kanban', 'pipeline', 'rfq', 'po', 'request', 'received'] },
       { key: 'stock', label: 'Stock', path: 'stock', permission: INVENTORY, countKey: 'stockLines', keywords: ['on hand', 'inventory', 'receive'] },
+      { key: 'wip', label: 'Work in progress', path: 'wip', permission: INVENTORY, keywords: ['production ledger', 'pieces', 'in process', 'making', 'containers', 'segments', 'parts'] },
+      { key: 'offcuts', label: 'Offcuts', path: 'offcuts', permission: INVENTORY, keywords: ['remnant', 'leftover', 'scrap', 'nest', 'plate', 'drop'] },
       { key: 'buy-list', label: 'To buy', path: 'buy-list', permission: INVENTORY, countKey: 'toBuy', keywords: ['shortage', 'short', 'procurement', 'buy', 'purchase', 'requisition'] },
       { key: 'purchase-requests', label: 'Purchase requests', path: 'purchase-requests', hasDetail: true, permission: INVENTORY, keywords: ['pr', 'requisition', 'approve', 'approval', 'raise', 'procurement'] },
       { key: 'rfqs', label: 'RFQs', path: 'rfqs', hasDetail: true, permission: INVENTORY, keywords: ['quote', 'quotation', 'compare', 'comparison', 'award', 'supplier', 'tender', 'procurement'] },

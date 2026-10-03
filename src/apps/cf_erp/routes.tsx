@@ -44,6 +44,8 @@ const PurchaseOrders = lazy(() => import('./pages/PurchaseOrders'));
 const PurchaseOrderDetail = lazy(() => import('./pages/PurchaseOrderDetail'));
 const Movements = lazy(() => import('./pages/Movements'));
 const MovementDetail = lazy(() => import('./pages/MovementDetail'));
+const WorkInProgress = lazy(() => import('./pages/WorkInProgress'));
+const Offcuts = lazy(() => import('./pages/Offcuts'));
 const Batches = lazy(() => import('./pages/Batches'));
 const BatchDetail = lazy(() => import('./pages/BatchDetail'));
 const StockingAreas = lazy(() => import('./pages/StockingAreas'));
@@ -102,6 +104,8 @@ export function getCfErpRoutes(
     { path: '/:company/cf_erp/purchase-orders/:id', element: wrap(<PurchaseOrderDetail />) },
     { path: '/:company/cf_erp/movements', element: wrap(<Movements />) },
     { path: '/:company/cf_erp/movements/:id', element: wrap(<MovementDetail />) },
+    { path: '/:company/cf_erp/wip', element: wrap(<WorkInProgress />) },
+    { path: '/:company/cf_erp/offcuts', element: wrap(<Offcuts />) },
     { path: '/:company/cf_erp/batches', element: wrap(<Batches />) },
     { path: '/:company/cf_erp/batches/:id', element: wrap(<BatchDetail />) },
     { path: '/:company/cf_erp/stocking-areas', element: wrap(<StockingAreas />) },
