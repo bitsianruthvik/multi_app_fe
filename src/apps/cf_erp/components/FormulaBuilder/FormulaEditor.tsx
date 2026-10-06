@@ -1,10 +1,11 @@
-import { useMemo, useRef, useState } from 'react';
+import { useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { Autocomplete, Box, Button, MenuItem, Popover, TextField, Tooltip, Typography } from '@mui/material';
 import TableChartRounded from '@mui/icons-material/TableChartRounded';
 import {
   fieldFor, guessAxisField, insertAt, lookupText, numberText, tokenize, unitText,
   type BuilderField, type FieldIndex, type FieldRole, type Tok,
 } from '../../lib/formulaBuilder';
+import { suggestAt, type Suggestion } from '../../lib/formulaSuggest';
 
 /** One field in the picker, with the namespace it is read through. */
 interface PickOption { role: FieldRole; field: BuilderField; group: string }
@@ -76,6 +77,14 @@ export function FormulaEditor({ value, onChange, idx, itemFields, machineFields,
   const under = useRef<HTMLDivElement | null>(null);
   const caret = useRef<{ start: number; end: number }>({ start: value.length, end: value.length });
   const [lookupAnchor, setLookupAnchor] = useState<HTMLElement | null>(null);
+  // Type-ahead: the caret as state (the list follows it), whether the text has focus,
+  // the highlighted offer, and the text Esc closed the list on (it reopens on the next key).
+  const [caretAt, setCaretAt] = useState(value.length);
+  const [focused, setFocused] = useState(false);
+  const [active, setActive] = useState(0);
+  const [dismissedAt, setDismissedAt] = useState<string | null>(null);
+  const mirrorMark = useRef<HTMLSpanElement | null>(null);
+  const [listPos, setListPos] = useState<{ left: number; top: number }>({ left: 12, top: 34 });
 
   const options = useMemo<PickOption[]>(() => {
     const out: PickOption[] = [];
@@ -88,7 +97,57 @@ export function FormulaEditor({ value, onChange, idx, itemFields, machineFields,
     return out;
   }, [itemFields, machineFields, plainFields, timingOnly]);
 
-  const remember = () => { const a = area.current; if (a) caret.current = { start: a.selectionStart ?? value.length, end: a.selectionEnd ?? value.length }; };
+  const remember = () => {
+    const a = area.current;
+    if (!a) return;
+    caret.current = { start: a.selectionStart ?? value.length, end: a.selectionEnd ?? value.length };
+    if (a.selectionStart !== caretAt) setActive(0);
+    setCaretAt(a.selectionStart ?? value.length);
+  };
+
+  const FN_HINTS: Record<string, [number, string]> = {
+    MIN: [2, 'The smaller of two values'], MAX: [2, 'The larger of two values'], ROUND: [2, 'ROUND(x, decimals)'], IF: [3, 'IF(condition, then, otherwise)'],
+    LOOKUP: [2, 'A rate from a machine chart — LOOKUP(machine.CHART, item.KEY)'], ABS: [1, 'Without its sign'], SQRT: [1, 'Square root'], CEIL: [1, 'Rounded up'], FLOOR: [1, 'Rounded down'],
+    SUM: [1, 'Sum over the BOM children'], COUNT: [1, 'How many BOM children'], AVG: [1, 'Average over the BOM children'],
+  };
+  const suggestCtx = useMemo(() => {
+    const num = (fs: BuilderField[]) => fs.filter((f) => f.dataType === 'number');
+    return {
+      fields: timingOnly ? { item: num(itemFields), machine: num(machineFields) } : { item: num(itemFields), machine: num(machineFields), plain: num(plainFields), children: num(plainFields) },
+      functions: Object.entries(FN_HINTS).filter(([n]) => !timingOnly || !['SUM', 'COUNT', 'AVG'].includes(n)).map(([name, [args, hint]]) => ({ name, args, hint })),
+    };
+    // FN_HINTS is a constant table.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [itemFields, machineFields, plainFields, timingOnly]);
+  const suggest = useMemo(() => (focused && dismissedAt !== value ? suggestAt(value, Math.min(caretAt, value.length), suggestCtx) : null), [focused, dismissedAt, value, caretAt, suggestCtx]);
+  const shown = suggest?.items ?? [];
+  const activeIdx = Math.min(active, Math.max(0, shown.length - 1));
+
+  // Put the list under the caret: a hidden copy of the text up to the caret ends in a marker.
+  useLayoutEffect(() => {
+    const mk = mirrorMark.current, a = area.current;
+    if (!suggest || !mk || !a) return;
+    const next = { left: Math.min(mk.offsetLeft, Math.max(12, a.clientWidth - 320)), top: mk.offsetTop - a.scrollTop + 26 };
+    setListPos((cur) => (cur.left === next.left && cur.top === next.top ? cur : next));
+  }, [suggest, value, caretAt]);
+
+  const accept = (sg: Suggestion) => {
+    if (!suggest) return;
+    const next = value.slice(0, suggest.from) + sg.insert + value.slice(suggest.to);
+    const pos = suggest.from + sg.insert.length - sg.caretBack;
+    onChange(next);
+    caret.current = { start: pos, end: pos };
+    setCaretAt(pos);
+    setActive(0);
+    requestAnimationFrame(() => { const a = area.current; if (a) { a.focus(); a.setSelectionRange(pos, pos); } });
+  };
+  const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (!shown.length) return;
+    if (e.key === 'ArrowDown') { e.preventDefault(); setActive((activeIdx + 1) % shown.length); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setActive((activeIdx - 1 + shown.length) % shown.length); }
+    else if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); accept(shown[activeIdx]); }
+    else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setDismissedAt(value); }
+  };
   const insert = (text: string, caretBack = 0) => {
     const { start, end } = caret.current;
     const s = Math.min(start, value.length);
@@ -161,14 +220,40 @@ export function FormulaEditor({ value, onChange, idx, itemFields, machineFields,
         </Box>
         <Box component="textarea" id="formula-text" ref={area} value={value} spellCheck={false} autoFocus={autoFocus} data-testid="formula-text"
           aria-label={`${label} — type it, or insert fields and functions above`}
-          onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => { onChange(e.target.value); caret.current = { start: e.target.selectionStart ?? 0, end: e.target.selectionEnd ?? 0 }; }}
-          onSelect={remember} onKeyUp={remember} onClick={remember}
+          role="combobox" aria-autocomplete="list" aria-expanded={shown.length > 0} aria-controls="formula-suggest"
+          aria-activedescendant={shown.length ? `formula-suggest-${activeIdx}` : undefined}
+          onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => { onChange(e.target.value); caret.current = { start: e.target.selectionStart ?? 0, end: e.target.selectionEnd ?? 0 }; setCaretAt(e.target.selectionStart ?? 0); setActive(0); }}
+          onSelect={remember} onKeyUp={(e: KeyboardEvent<HTMLTextAreaElement>) => { if (!['ArrowUp', 'ArrowDown'].includes(e.key) || !shown.length) remember(); }} onClick={remember}
+          onKeyDown={onKeyDown} onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}
           onScroll={(e: React.UIEvent<HTMLTextAreaElement>) => { if (under.current) under.current.scrollTop = e.currentTarget.scrollTop; }}
           sx={{
             ...editorFont, position: 'absolute', inset: 0, width: '100%', height: '100%', resize: 'none', border: 0, outline: 'none', m: 0,
             background: 'transparent', color: 'transparent', caretColor: 'var(--c-text)', overflow: 'auto', boxSizing: 'border-box',
             '&::selection': { background: 'var(--c-primary-100)', color: 'transparent' },
           }} />
+        {/* The same text up to the caret, invisible, so the list can sit under the caret. */}
+        <Box aria-hidden sx={{ ...editorFont, position: 'absolute', inset: 0, visibility: 'hidden', pointerEvents: 'none', overflow: 'hidden' }}>
+          {value.slice(0, Math.min(caretAt, value.length))}<span ref={mirrorMark}>{'​'}</span>
+        </Box>
+        {shown.length > 0 && (
+          <Box id="formula-suggest" role="listbox" aria-label="Suggestions" data-testid="formula-suggest"
+            sx={{ position: 'absolute', left: listPos.left, top: listPos.top, zIndex: 10, width: 320, maxWidth: 'calc(100% - 16px)', py: 0.5,
+              background: 'var(--c-surface)', border: '1px solid var(--c-border)', borderRadius: 'var(--r-sm)', boxShadow: 'var(--e-3, 0 6px 16px rgba(0,0,0,.18))' }}>
+            {shown.map((sg, i) => (
+              <Box key={`${sg.kind}:${sg.insert}`} id={`formula-suggest-${i}`} role="option" aria-selected={i === activeIdx}
+                onMouseDown={(e) => { e.preventDefault(); accept(sg); }} onMouseEnter={() => setActive(i)}
+                sx={{ display: 'flex', gap: 1, alignItems: 'baseline', px: 1.25, py: 0.5, cursor: 'pointer', background: i === activeIdx ? 'var(--c-primary-50)' : 'transparent' }}>
+                <Box sx={{ flex: 1, minWidth: 0 }}>
+                  <Box sx={{ fontSize: 13, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFamily: sg.kind === 'field' ? undefined : 'var(--font-mono)' }}>{sg.label}</Box>
+                  <Box sx={{ fontSize: 11.5, color: 'var(--c-text-3)', fontFamily: sg.kind === 'field' ? 'var(--font-mono)' : undefined, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sg.detail}</Box>
+                </Box>
+                {sg.field?.unit && <Box sx={{ fontSize: 11.5, color: 'var(--c-text-2)' }}>{unitText(sg.field.unit)}</Box>}
+                {sg.field?.example != null && <Box sx={{ fontSize: 11.5, color: 'var(--c-text-3)', fontFamily: 'var(--font-mono)' }}>e.g. {numberText(sg.field.example)}</Box>}
+              </Box>
+            ))}
+            <Box sx={{ px: 1.25, pt: 0.5, fontSize: 11, color: 'var(--c-text-3)', borderTop: '1px solid var(--c-border)', mt: 0.5 }}>↑↓ to move · Enter or Tab to insert · Esc to close</Box>
+          </Box>
+        )}
       </Box>
       <LookupHelper anchor={lookupAnchor} onClose={() => setLookupAnchor(null)} machineFields={machineFields} itemFields={itemFields}
         onInsert={(text) => { setLookupAnchor(null); insert(text); }} />

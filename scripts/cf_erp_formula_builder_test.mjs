@@ -42,6 +42,7 @@ const built = await build({
     contents: `import * as React from 'react'; import { createRoot } from 'react-dom/client'; import { MemoryRouter } from 'react-router-dom';
       export { React, createRoot, MemoryRouter };
       export * from './src/apps/cf_erp/lib/formulaBuilder';
+      export { suggestAt } from './src/apps/cf_erp/lib/formulaSuggest';
       export { FormulaEditor } from './src/apps/cf_erp/components/FormulaBuilder/FormulaEditor';
       export { TimeBuilder } from './src/apps/cf_erp/components/FormulaBuilder/TimeBuilder';`,
     resolveDir: process.cwd(), loader: 'tsx',
@@ -201,6 +202,49 @@ await check('operator and function buttons insert at the caret; text stays edita
   await click([...document.querySelectorAll('button')].find((b) => b.textContent === 'MAX'));
   await settle();
   assert.equal(value, 'MAX(item.HOLES * 0.35, )', 'MAX wraps the selection');
+});
+
+// ── type-ahead ─────────────────────────────────────────────────────────────
+await check('suggestAt: narrows with each character, by code or name, per namespace', () => {
+  const ctx = { fields: { item: itemFields, machine: machineFields }, functions: [{ name: 'MIN', args: 2, hint: '' }, { name: 'MAX', args: 2, hint: '' }] };
+  const at = (t) => m.suggestAt(t, t.length, ctx);
+  assert.deepEqual(at('item.th').items.map((x) => x.insert), ['item.THICKNESS'], 'two letters match starts only, not the middle of LENGTH');
+  assert.deepEqual(at('item.ngt').items.map((x) => x.insert), ['item.SAW_WELD_LENGTH', 'item.CUT_LENGTH'], 'three letters match inside too');
+  assert.equal(at('item.').items.length, 8, 'item. alone lists the piece fields (8 at most)');
+  assert.ok(at('item.').items.every((x) => x.insert.startsWith('item.')));
+  assert.deepEqual(at('item.skew'), null, 'nothing matches → no list');
+  assert.deepEqual(at('item.cut').items.map((x) => x.insert)[0], 'item.CUT_LENGTH');
+  assert.deepEqual(at('2 * leng').items.map((x) => x.insert).slice(0, 2), ['item.SAW_WELD_LENGTH', 'item.CUT_LENGTH'], 'a word of the name matches');
+  const m1 = at('m');
+  assert.deepEqual(m1.items.slice(0, 3).map((x) => x.insert), ['MIN(, )', 'MAX(, )', 'machine.'], 'functions and namespaces first');
+  assert.equal(m1.items[0].caretBack, 3, 'the caret lands inside MIN(');
+  assert.equal(at('2.5'), null, 'a number is not a name');
+  assert.equal(at('item.THICKNESS'), null, 'exactly what is typed → nothing to offer');
+  const mid = m.suggestAt('item.thx + 1', 7, ctx);
+  assert.deepEqual([mid.from, mid.to], [0, 8], 'the whole word is replaced, not just up to the caret');
+});
+await check('typing in the editor shows the list under the caret; Enter inserts the exact code', async () => {
+  let value = '';
+  const Host = () => { const [v, setV] = React.useState(value); value = v; return React.createElement(m.FormulaEditor, { value: v, onChange: setV, idx, itemFields, machineFields }); };
+  await render(React.createElement(Host));
+  const ta = q('formula-text');
+  await React.act(async () => { ta.focus(); await sleep(0); });
+  await setValue(ta, 'item.thi');
+  await settle();
+  assert.ok(q('formula-suggest'), 'the list opens');
+  assert.match(q('formula-suggest').textContent, /Thickness/);
+  await setValue(ta, 'item.thic');
+  await settle();
+  assert.equal(q('formula-suggest').querySelectorAll('[role=option]').length, 1, 'it narrows');
+  await React.act(async () => { ta.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); await sleep(0); });
+  await settle();
+  assert.equal(value, 'item.THICKNESS');
+  assert.equal(q('formula-suggest'), null, 'the list closes once the word is complete');
+  await setValue(ta, 'item.THICKNESS * ma');
+  await settle();
+  await React.act(async () => { ta.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); await sleep(0); });
+  await settle();
+  assert.equal(q('formula-suggest'), null, 'Esc closes it');
 });
 
 // ── the builder ────────────────────────────────────────────────────────────
