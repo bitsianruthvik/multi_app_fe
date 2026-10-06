@@ -36,7 +36,8 @@ const built = await build({
       export { default as Plan } from './src/apps/cf_erp/pages/Plan';
       export * as E from './src/apps/cf_erp/lib/planner';
       export * as T from './src/apps/cf_erp/components/Plan/tree';
-      export * as H from './src/apps/cf_erp/components/Plan/history';`,
+      export * as H from './src/apps/cf_erp/components/Plan/history';
+      export * as M from './src/apps/cf_erp/components/Plan/model';`,
     resolveDir: process.cwd(), loader: 'tsx',
   },
   plugins: [{ name: 'stubs', setup(b) {
@@ -53,7 +54,7 @@ const cache = resolve('node_modules/.cache');
 await mkdir(cache, { recursive: true });
 const artifact = resolve(cache, `plan-ui-test-${process.pid}.mjs`);
 await writeFile(artifact, built.outputFiles[0].text);
-const { React, createRoot, MemoryRouter, Plan, E, T, H } = await import(pathToFileURL(artifact));
+const { React, createRoot, MemoryRouter, Plan, E, T, H, M } = await import(pathToFileURL(artifact));
 await unlink(artifact);
 
 let passed = 0, failed = 0;
@@ -91,7 +92,7 @@ const snapshot = () => ({
   units: [
     agg('l11', null, 0, null, 'l11', 'SO-A/1', 'Bridge', 4),
     agg('p1', 1, 1, null, 'p1', 'SO-A-S1', 'Bridge span', 4),
-    agg('p2', 2, 2, 'p1', 'p2', 'SO-A-S1-G1', 'Girder line', 2),
+    { ...agg('p2', 2, 2, 'p1', 'p2', 'SO-A-S1-G1', 'Girder line', 2), splittable: true, bomLineId: 55 },
     agg('p3', 3, 2, 'p1', 'p3', 'SO-A-S1-G2', 'Girder line', 2),
     seg(4, 'p2', 'SO-A-S1-G1-1'), seg(5, 'p2', 'SO-A-S1-G1-2'), seg(6, 'p3', 'SO-A-S1-G2-1'), seg(7, 'p3', 'SO-A-S1-G2-2'),
     { key: 'l21', orderId: 2, lineId: 21, level: 'line', pieceId: null, code: 'SO-B/1', name: 'Stock', depth: 0, parentKey: null, groupKey: 'l21', isMark: false, marks: 0, tonnes: 5, work: { drill: 100, contractor: 600 }, noRate: 0, done: false, progress: 0, materials: [{ itemId: 'XX', qty: 3 }], committedDate: null },
@@ -161,6 +162,25 @@ await check('tree state: expand to a level, toggle against it, and survive a bad
   assert.deepEqual(e.open, []);
   window.localStorage.setItem('k', '{nope');
   assert.deepEqual(T.loadExpand('k'), T.DEFAULT_EXPAND);
+});
+
+await check('splitAction: a splittable row offers the split; a child of a split row offers the join; others nothing', () => {
+  const u = (o) => ({ key: 'x', code: 'SO-A-S1', name: 'Span', pieceId: 1, quantity: 1, ...o });
+  const parent = u({ key: 'p1', split: true, bomLineId: 9 });
+  const child = u({ key: 'p2', parentKey: 'p1' });
+  const all = [parent, child, u({ key: 'p3', splittable: true, bomLineId: 7 }), u({ key: 'p4' })];
+  const a = M.splitAction(all, all[2], 'SO-A');
+  assert.deepEqual([a.split, a.target.key, a.label], [true, 'p3', 'Plan its parts separately']);
+  const b = M.splitAction(all, child, 'SO-A');
+  assert.deepEqual([b.split, b.target.key, b.label], [false, 'p1', 'Plan S1 as one unit again']);
+  assert.equal(M.splitAction(all, all[3], 'SO-A'), null);
+  assert.equal(M.splitAction([u({ key: 'z', splittable: true })], u({ key: 'z', splittable: true }), 'SO-A'), null, 'no BOM row, no action');
+});
+await check('copyText: "3 of 6" for one of a row of units, nothing for a row of one or a line card', () => {
+  const six = [1, 2, 3, 4, 5, 6].map((i) => ({ key: 'p9#' + i, pieceId: 9, copy: i }));
+  assert.equal(M.copyText(six, six[2]), '3 of 6');
+  assert.equal(M.copyText([{ key: 'p8', pieceId: 8, copy: null }], { key: 'p8', pieceId: 8, copy: null }), null);
+  assert.equal(M.copyText([], { key: 'l1', pieceId: null }), null);
 });
 
 // ── the page ─────────────────────────────────────────────────────────────
@@ -240,6 +260,24 @@ await check('drag a planned bar sideways: it snaps to the week under the pointer
   await settle();
   assert.equal($('bar-p3').dataset.period, P3);
   assert.equal(cuttingCell(P0).dataset.band, 'ok');
+});
+await check('stretch grip: dragging the left edge of a bar to an earlier week stretches it; double-click on the grip puts it back', async () => {
+  const lead = periods.findIndex((p) => p.key === $('bar-p3').dataset.period); // one week of work: starts where it ships
+  const grip = $('stretch-p3');
+  assert.match(grip.getAttribute('aria-label'), /^Stretch: start SO-A-S1-G2 earlier$/);
+  await pointer(grip, 'pointerdown', xOfPeriod(lead), 120);
+  await pointer(window, 'pointermove', xOfPeriod(lead) - 10, 120);
+  await pointer(window, 'pointermove', xOfPeriod(1), 120);
+  await settle();
+  assert.match($('drag-hint').textContent, /starts wk/);
+  await pointer(window, 'pointerup', xOfPeriod(1), 120);
+  await settle();
+  assert.equal($('bar-p3').dataset.period, P3, 'the ship week did not move');
+  assert.match($('bar-p3').getAttribute('aria-label'), /Stretched from/);
+  await React.act(async () => { $('stretch-p3').dispatchEvent(new window.MouseEvent('dblclick', { bubbles: true })); });
+  await settle();
+  assert.doesNotMatch($('bar-p3').getAttribute('aria-label'), /Stretched from/);
+  assert.equal($('change-count').textContent, '1 change');
 });
 await check('a material gate or a promised date is a WARNING, never a block: SO-B lands without its material', async () => {
   const chip = $('chip-l21');
@@ -348,6 +386,22 @@ await check('Delete takes the selection off the plan', async () => {
   await key($('plan-grid'), 'Delete');
   assert.ok($('chip-p3'));
   assert.equal($('change-count').textContent, '1 change');
+});
+await check('row menu: a splittable row offers "Plan its parts separately"; with unsaved changes it refuses, then PUTs the split', async () => {
+  const menuItem = () => document.querySelector('[role="menuitem"]');
+  requests.length = 0;
+  await click($('menu-p2'));
+  assert.equal(menuItem().textContent, 'Plan its parts separately');
+  await click(menuItem());
+  assert.equal(requests.filter((r) => r.method === 'PUT').length, 0, 'unsaved changes: nothing is sent');
+  const discard = [...$('save-bar').querySelectorAll('button')].find((b) => b.textContent === 'Discard');
+  await click(discard);
+  await click($('menu-p2'));
+  await click(menuItem());
+  const put = requests.find((r) => r.method === 'PUT');
+  assert.ok(put.path.endsWith('/api/testco/cf_erp/planner/lines/11/splits'));
+  assert.deepEqual(put.body, { bomLineId: 55, split: true });
+  assert.ok(requests.some((r) => r.method === 'GET' && r.path.endsWith('/planner')), 'the board is read again');
   await React.act(() => root.unmount());
 });
 

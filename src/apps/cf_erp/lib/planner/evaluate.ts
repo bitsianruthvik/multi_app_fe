@@ -1,12 +1,12 @@
-import { addLoad, earliestForMaterial, leadStart, pctOf } from './load';
+import { bookBackward, bookForward, bookSpread, emptyShopEnd, forwardEnd, pctOf, type Cells } from './load';
 import { newSupply, takeMaterial, type MaterialResult } from './material';
 import { activeUnits, getModel, materialWords, type Model } from './model';
-import type { CanPlaceResult, EngineOptions, Evaluation, LineEval, LoadCell, MonthEval, Plan, PlannerSnapshot, UnitEval } from './types';
+import type { CanPlaceResult, CanStretchResult, EngineOptions, Evaluation, LineEval, LoadCell, MonthEval, Plan, PlannerSnapshot, UnitEval } from './types';
 
 export const fmtQty = (q: number) => (Math.abs(q) >= 10 ? String(Math.round(q)) : String(Number(q.toFixed(2))));
 
 /** Ship period position of each active unit (−1 unplanned). */
-function shipPeriods(m: Model, plan: Plan, act: number[]): Int32Array {
+export function shipPeriods(m: Model, plan: Plan, act: number[]): Int32Array {
   const ship = new Int32Array(m.N).fill(-1);
   for (const u of act) {
     const e = plan[m.units[u].key];
@@ -15,15 +15,79 @@ function shipPeriods(m: Model, plan: Plan, act: number[]): Int32Array {
   return ship;
 }
 
-/** Material in plan order: planned units by (ship period, priority), then unplanned by priority. */
-function allocate(m: Model, act: number[], ship: Int32Array): Map<number, MaterialResult> {
-  const planned = act.filter((u) => ship[u] >= 0).sort((a, b) => ship[a] - ship[b] || m.prio[a] - m.prio[b]);
+/**
+ * The order units claim material and machine hours in (planner v2): cards PINNED by hand first (a
+ * person put them there), then the rest — each group by priority, so the orders ahead come first.
+ */
+export const rankOf = (m: Model, plan: Plan, u: number) => (plan[m.units[u].key]?.pinned ? 0 : m.N) + m.prio[u];
+
+/** Material in claim order (rankOf) for the planned units, then the unplanned by priority. */
+export function allocate(m: Model, plan: Plan, act: number[], ship: Int32Array): Map<number, MaterialResult> {
+  const planned = act.filter((u) => ship[u] >= 0).sort((a, b) => rankOf(m, plan, a) - rankOf(m, plan, b));
   const unplanned = act.filter((u) => ship[u] < 0).sort((a, b) => m.prio[a] - m.prio[b]);
   const s = newSupply(m);
   const out = new Map<number, MaterialResult>();
   for (const u of planned) out.set(u, takeMaterial(m, s, u).res);
   for (const u of unplanned) out.set(u, takeMaterial(m, s, u).res);
   return out;
+}
+
+/** The week material lets u's work start (0 = no gate; P = after the plan). */
+export const floorOf = (m: Model, r: MaterialResult | undefined) => (!r || r.short ? 0 : Math.max(0, Math.min(r.period, m.P)));
+
+/** Stretched start position of a plan entry, or −1. */
+export function startOf(m: Model, plan: Plan, u: number, s: number): number {
+  const k = plan[m.units[u].key]?.start;
+  const a = k == null ? undefined : m.periodIdx.get(k);
+  return a === undefined || a >= s ? -1 : a;
+}
+
+/**
+ * Book one planned unit (see load.ts): a stretched entry spreads over start…ship; a card PINNED by
+ * hand books back from its ship week (as late as it can, not before its material); an auto-placed
+ * card books forward from its material (as early as it can — where auto-plan found it finishes).
+ */
+export function bookUnit(m: Model, rem: Float64Array, plan: Plan, u: number, s: number, floor: number, cells: Cells): { start: number; overflow: number } {
+  const a = startOf(m, plan, u, s);
+  if (a >= 0) { bookSpread(m, rem, u, a, s, cells); return { start: a, overflow: 0 }; }
+  if (plan[m.units[u].key]?.pinned) return bookBackward(m, rem, u, s, floor, cells);
+  return bookForward(m, rem, u, floor, s, cells);
+}
+
+export interface Booking {
+  start: Int32Array;
+  overflow: Float64Array;
+  cells: (Cells | undefined)[];
+  rem: Float64Array;
+}
+
+/** Every planned active unit booked in claim order (rankOf) — the units ahead keep their hours. `below`: only ranks under it. */
+export function bookAll(m: Model, plan: Plan, act: number[], ship: Int32Array, mat: Map<number, MaterialResult>, below = Infinity): Booking {
+  const rem = Float64Array.from(m.cap);
+  const start = new Int32Array(m.N).fill(-1);
+  const overflow = new Float64Array(m.N);
+  const cells: (Cells | undefined)[] = new Array(m.N);
+  const rank = (u: number) => rankOf(m, plan, u);
+  const order = act.filter((u) => ship[u] >= 0 && rank(u) < below).sort((a, b) => rank(a) - rank(b));
+  for (const u of order) {
+    const c: Cells = [];
+    const r = bookUnit(m, rem, plan, u, ship[u], floorOf(m, mat.get(u)), c);
+    start[u] = r.start;
+    overflow[u] = r.overflow;
+    cells[u] = c;
+  }
+  return { start, overflow, cells, rem };
+}
+
+const emptyEndCache = new WeakMap<Model, Map<number, number>>();
+/** Cached emptyShopEnd. */
+export function emptyEnd(m: Model, u: number, a: number): number {
+  let c = emptyEndCache.get(m);
+  if (!c) { c = new Map(); emptyEndCache.set(m, c); }
+  const key = u * (m.P + 1) + Math.max(0, a);
+  let v = c.get(key);
+  if (v === undefined) { v = emptyShopEnd(m, u, a); c.set(key, v); }
+  return v;
 }
 
 export function notOrderedReason(m: Model, r: MaterialResult): string {
@@ -33,15 +97,16 @@ export function notOrderedReason(m: Model, r: MaterialResult): string {
   return `Not ordered: ${name} is short by ${fmtQty(r.short!.qty)}${uom} (see the Buy list)`;
 }
 
-function materialLateReason(m: Model, u: number, r: MaterialResult, s: number): string {
+/** Why a unit cannot run where it is because of its material; null when it can. */
+function materialLate(m: Model, u: number, r: MaterialResult, s: number, a: number): { reason: string; earliest: number } | null {
+  if (r.short || r.period <= 0) return null;
   const words = materialWords(r.date!, r.source);
-  if (r.period >= m.P) return `Material arrives ${words}, after the last week of this plan`;
-  const earliest = earliestForMaterial(m, u, r.period);
-  const lead = m.lead[u];
-  const need = lead > 1 ? `its ${lead}-week lead` : 'its work';
-  if (earliest >= m.P) return `Material arrives ${words}; ${need} cannot finish inside this plan`;
-  const at = s >= 0 ? ` (work would start in ${m.periods[leadStart(m, u, s)].label})` : '';
-  return `Material arrives ${words}; ${need} must start in ${m.periods[r.period].label} or later${at}, so ship it in ${m.periods[earliest].label} or later`;
+  if (r.period >= m.P) return { reason: `Material arrives ${words}, after the last week of this plan`, earliest: m.P };
+  const end = emptyEnd(m, u, r.period);
+  if (end >= m.P) return { reason: `Material arrives ${words}; its work cannot finish inside this plan`, earliest: m.P };
+  if (s < end) return { reason: `Material arrives ${words}; its work takes until ${m.periods[end].label} at the earliest, so ship it in ${m.periods[end].label} or later`, earliest: end };
+  if (a >= 0 && a < r.period) return { reason: `Material arrives ${words}; the stretched bar starts in ${m.periods[a].label}, before it — start it in ${m.periods[r.period].label} or later`, earliest: end };
+  return null;
 }
 
 /** Evaluate a plan: month scoreboard, function load, per-card state, lines, score. */
@@ -49,11 +114,15 @@ export function evaluate(snapshot: PlannerSnapshot, plan: Plan, opts?: EngineOpt
   const m = getModel(snapshot);
   const act = activeUnits(m, plan, opts);
   const ship = shipPeriods(m, plan, act);
-  const mat = allocate(m, act, ship);
+  const mat = allocate(m, plan, act, ship);
   const { P, F, periods } = m;
+  const bk = bookAll(m, plan, act, ship, mat);
 
   const load = new Float64Array(F * P);
-  for (const u of act) if (ship[u] >= 0) addLoad(m, load, u, ship[u], 1);
+  for (const u of act) {
+    const c = bk.cells[u];
+    if (c) for (let i = 0; i < c.length; i += 3) load[c[i] * P + c[i + 1]] += c[i + 2];
+  }
 
   // load cells
   const loadOut: Record<string, Record<string, LoadCell>> = {};
@@ -65,7 +134,7 @@ export function evaluate(snapshot: PlannerSnapshot, plan: Plan, opts?: EngineOpt
       const c = m.cap[f * P + p];
       const minutes = load[f * P + p];
       const pct = pctOf(minutes, c);
-      if (pct > 100 + 1e-9) { over[f * P + p] = 1; overloadedCells++; }
+      if (pct > 100 + 1e-6) { over[f * P + p] = 1; overloadedCells++; }
       row[periods[p].key] = { minutes, capacity: Number.isFinite(c) ? c : null, pct };
     }
     loadOut[m.fnKeys[f]] = row;
@@ -120,18 +189,29 @@ export function evaluate(snapshot: PlannerSnapshot, plan: Plan, opts?: EngineOpt
     const unit = m.units[u];
     const s = ship[u];
     const r = mat.get(u)!;
-    const ls = s >= 0 ? leadStart(m, u, s) : -1;
+    const ls = s >= 0 ? bk.start[u] : -1;
+    const stretched = s >= 0 ? startOf(m, plan, u, s) : -1;
     let blocked: string | null = null;
     let blockedKind: UnitEval['blockedKind'] = null;
     if (r.short) { blocked = notOrderedReason(m, r); blockedKind = 'not_ordered'; }
-    else if (s >= 0 && r.period > ls) { blocked = materialLateReason(m, u, r, s); blockedKind = 'material_late'; }
+    else if (s >= 0) {
+      const ml = materialLate(m, u, r, s, stretched);
+      if (ml) { blocked = ml.reason; blockedKind = 'material_late'; }
+    }
     const committed = m.committed[u];
     const late = s >= 0 && !!committed && periods[s].end > committed;
     let overload = false;
-    if (s >= 0) {
-      const fs = m.workFn[u];
-      for (let k = 0; k < fs.length && !overload; k++) for (let p = ls; p <= s; p++) if (over[fs[k] * P + p]) { overload = true; break; }
+    const booked: Record<string, Record<string, number>> = {};
+    const c = bk.cells[u];
+    if (s >= 0 && c) for (let i = 0; i < c.length; i += 3) {
+      const f = c[i], p = c[i + 1];
+      if (over[f * P + p]) overload = true;
+      const pk = periods[p].key, fk = m.fnKeys[f];
+      const row = booked[pk] ?? (booked[pk] = {});
+      row[fk] = (row[fk] ?? 0) + c[i + 2];
     }
+    const from = r.short ? 0 : Math.max(0, r.period);
+    const end = from >= P ? P : emptyEnd(m, u, from);
     const completesLines: string[] = [];
     if (s >= 0) {
       for (const g of m.covers[u].keys()) if (lineShip.get(g) === s) completesLines.push(g);
@@ -146,7 +226,10 @@ export function evaluate(snapshot: PlannerSnapshot, plan: Plan, opts?: EngineOpt
       period: s >= 0 ? periods[s].key : null,
       pinned: s >= 0 ? !!plan[unit.key]?.pinned : false,
       leadStart: s >= 0 ? periods[ls].key : null,
-      lead: m.lead[u],
+      lead: s >= 0 ? s - ls + 1 : 0,
+      start: stretched >= 0 ? periods[stretched].key : null,
+      minWeeks: end < P ? end - from + 1 : null,
+      booked,
       materialDate: r.short ? null : r.date,
       materialSource: r.short ? null : r.source,
       blocked, blockedKind, late, overload, completesLines,
@@ -161,8 +244,9 @@ export function evaluate(snapshot: PlannerSnapshot, plan: Plan, opts?: EngineOpt
 }
 
 /**
- * Can this card ship in this period? Refuses material and lead violations with a plain reason;
- * overload is allowed (the board shows it red).
+ * Can this card ship in this period? Refuses what material makes impossible (not ordered, or its
+ * work could not finish between its material and that week even in an empty shop) with a plain
+ * reason; overload is allowed (the board shows it red).
  */
 export function canPlace(snapshot: PlannerSnapshot, plan: Plan, unitKey: string, period: string, opts?: EngineOptions): CanPlaceResult {
   const m = getModel(snapshot);
@@ -170,15 +254,61 @@ export function canPlace(snapshot: PlannerSnapshot, plan: Plan, unitKey: string,
   if (u === undefined) return { ok: false, reason: 'This card is not in the plan any more — reload.' };
   const s = m.periodIdx.get(period);
   if (s === undefined) return { ok: false, reason: 'That week is outside the plan.' };
-  const next: Plan = { ...plan, [unitKey]: { period, pinned: plan[unitKey]?.pinned ?? true } };
+  const cur = plan[unitKey];
+  // A stretched bar moves whole: its start shifts with it (moves.ts does the same).
+  let start: string | undefined;
+  if (cur?.start != null) {
+    const a = m.periodIdx.get(cur.start), was = m.periodIdx.get(cur.period);
+    if (a !== undefined && was !== undefined) start = m.periods[Math.max(0, a + s - was)].key;
+  }
+  const next: Plan = { ...plan, [unitKey]: { period, pinned: cur?.pinned ?? true, ...(start ? { start } : {}) } };
   const act = activeUnits(m, next, opts);
   if (!act.includes(u)) return { ok: false, reason: 'This card sits above the level the line is planned at — change the line’s level first.' };
   const ship = shipPeriods(m, next, act);
-  const r = allocate(m, act, ship).get(u)!;
+  const r = allocate(m, next, act, ship).get(u)!;
   if (r.short) return { ok: false, reason: notOrderedReason(m, r), earliest: null };
-  if (r.period > leadStart(m, u, s)) {
-    const e = r.period >= m.P ? m.P : earliestForMaterial(m, u, r.period);
-    return { ok: false, reason: materialLateReason(m, u, r, s), earliest: e < m.P ? m.periods[e].key : null };
-  }
+  const ml = materialLate(m, u, r, s, startOf(m, next, u, s));
+  if (ml) return { ok: false, reason: ml.reason, earliest: ml.earliest < m.P ? m.periods[ml.earliest].key : null };
   return { ok: true };
+}
+
+/** May this planned card's bar start in `startPeriod` (a stretch)? Not before its material. */
+export function canStretch(snapshot: PlannerSnapshot, plan: Plan, unitKey: string, startPeriod: string, opts?: EngineOptions): CanStretchResult {
+  const m = getModel(snapshot);
+  const u = m.unitIdx.get(unitKey);
+  const e = plan[unitKey];
+  if (u === undefined || !e) return { ok: false, reason: 'Plan the card first.' };
+  const a = m.periodIdx.get(startPeriod), s = m.periodIdx.get(e.period);
+  if (a === undefined || s === undefined) return { ok: false, reason: 'That week is outside the plan.' };
+  if (a > s) return { ok: false, reason: 'A bar cannot start after the week it ships.' };
+  const act = activeUnits(m, plan, opts);
+  const r = allocate(m, plan, act, shipPeriods(m, plan, act)).get(u);
+  if (!r || r.short) return { ok: true, earliestStart: null };
+  if (r.period > 0 && a < r.period) {
+    const at = Math.min(r.period, m.P - 1);
+    return { ok: false, reason: `Its material arrives ${materialWords(r.date!, r.source)} — the work cannot start before ${m.periods[at].label}.`, earliestStart: m.periods[at].key };
+  }
+  return { ok: true, earliestStart: r.period > 0 ? m.periods[Math.min(r.period, m.P - 1)].key : null };
+}
+
+/**
+ * The earliest week this card can ship: its chain booked as EARLY as its material and the hours
+ * left by the planned cards AHEAD of it allow (cards behind it make room). null = not inside the plan.
+ */
+export function fastest(snapshot: PlannerSnapshot, plan: Plan, unitKey: string, opts?: EngineOptions): string | null {
+  const m = getModel(snapshot);
+  const u = m.unitIdx.get(unitKey);
+  if (u === undefined) return null;
+  const rest: Plan = { ...plan };
+  delete rest[unitKey];
+  const act = activeUnits(m, rest, opts, unitKey);
+  const ship = shipPeriods(m, rest, act);
+  // Placed by hand it is pinned: it books after the pins ahead of it in priority, before the rest.
+  const trial: Plan = { ...rest, [unitKey]: { period: m.periods[0].key, pinned: true } };
+  const mat = allocate(m, trial, act, shipPeriods(m, trial, act));
+  const r = mat.get(u);
+  if (!r || r.short) return null;
+  const { rem } = bookAll(m, rest, act, ship, mat, m.prio[u]);
+  const end = forwardEnd(m, rem, u, floorOf(m, r));
+  return end < m.P ? m.periods[end].key : null;
 }

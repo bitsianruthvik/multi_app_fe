@@ -75,8 +75,11 @@ await check('only-missing with no gap shows nothing', () => assert.equal(m.keepG
 const props = (shown, gaps) => ({ rows: shown, view, pending: m.NO_PENDING, busy: false, canEdit: () => false, canEditValues: () => true, gaps,
   onWrites: () => {}, onMove: () => {}, dropRefusal: () => null, onToggle: () => {}, trailingCell: () => null, flowCell: () => null, markOf: () => null, placeholderOf: () => null });
 const root = createRoot(document.getElementById('app'));
+const { MemoryRouter } = await import('react-router-dom');
+// The grid links each row's name to its record, so it renders inside a router.
+const inRouter = (p) => React.createElement(MemoryRouter, { initialEntries: ['/acme/cf_erp/items/1?tab=bom'] }, React.createElement(m.BomGrid, p));
 const shown = m.keepGapRows(rows, new Set([4, 6]));
-await React.act(() => root.render(React.createElement(m.BomGrid, props(shown, m.computeGaps(view, undefined)))));
+await React.act(() => root.render(inRouter(props(shown, m.computeGaps(view, undefined)))));
 await check('the grid draws the same tree rows, ancestors kept, complete rows gone', () => {
   const names = [...document.querySelectorAll('[role="rowheader"]')].map((x) => x.textContent);
   assert.equal(names.filter((n) => /Row \d/.test(n)).length, 5);
@@ -93,12 +96,12 @@ await check('each row with gaps carries a count chip', () => {
 });
 await check('a typed value takes the gap and the chip away once live', async () => {
   const live = m.computeGaps(view, { 4: { LENGTH: '9', WIDTH: '9' } });
-  await React.act(() => root.render(React.createElement(m.BomGrid, props(shown, live))));
+  await React.act(() => root.render(inRouter(props(shown, live))));
   assert.deepEqual([...document.querySelectorAll('[data-testid="row-gaps"]')].map((c) => c.textContent), ['1 missing']);
   assert.equal([...document.querySelectorAll('td.sg-data')].filter((td) => td.getAttribute('title')?.startsWith('Missing')).length, 1);
 });
 await check('Values: a variable the row does not have is n/a (hatched), different from the amber missing cell', async () => {
-  await React.act(() => root.render(React.createElement(m.BomGrid, props(shown, m.computeGaps(view, undefined)))));
+  await React.act(() => root.render(inRouter(props(shown, m.computeGaps(view, undefined)))));
   const tds = [...document.querySelectorAll('td.sg-data')];
   const na = tds.filter((td) => td.getAttribute('data-na') === 'true');
   assert.ok(na.length > 0, 'some cells are n/a');
@@ -143,7 +146,7 @@ await check('merged tab: the stage screens no longer draw a separate Values pane
   assert.match(panel, /Only what’s missing/); assert.match(panel, /next-missing/);
 });
 // The dimensions rule on the values grid: the view above has LENGTH and WIDTH, so every row with either leads with Thk · L · W.
-await React.act(() => root.render(React.createElement(m.BomGrid, props(rows, m.computeGaps(view, undefined)))));
+await React.act(() => root.render(inRouter(props(rows, m.computeGaps(view, undefined)))));
 const keysOfRow = (id) => { const i = rows.findIndex((r) => r.node.id === id); return [...document.querySelectorAll(`[data-cell^="${i}:"][data-col-key]`)].map((td) => td.getAttribute('data-col-key')); };
 await check('values grid: one dimension (LENGTH on a shared row) → all three shown, Thk · L · W', () => {
   assert.deepEqual(keysOfRow(3), ['$quantity', 'THICKNESS', 'LENGTH', 'WIDTH']);

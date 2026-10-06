@@ -45,7 +45,18 @@ export interface Model {
   /** per unit: function positions and minutes (minutes > 0 only) */
   workFn: Int32Array[];
   workMin: Float64Array[];
-  lead: Int32Array;
+  /**
+   * Per unit: its work as a CHAIN of steps, in the order it is done (planner v2) — the snapshot's
+   * `stages`, deepest BOM level first, flow order inside a level. Falls back to `work` (one step
+   * per function) for a unit without stages.
+   */
+  stepFn: Int32Array[];
+  stepMin: Float64Array[];
+  /**
+   * A function with no shift time anywhere in the horizon. Booking treats it as never running out
+   * (otherwise nothing using it could ever be planned) — its minutes still show, at 999 %.
+   */
+  noCap: boolean[];
 
   /** supply */
   itemPos: Map<string, number>;
@@ -221,23 +232,34 @@ function buildModel(snap: PlannerSnapshot): Model {
   for (let fi = snap.functions.length; fi < F; fi++) for (let p = 0; p < P; p++) cap[fi * P + p] = Infinity;
   for (let fi = 0; fi < F; fi++) if (unlimited[fi]) for (let p = 0; p < P; p++) cap[fi * P + p] = Infinity;
 
+  const noCap: boolean[] = new Array(F).fill(false);
+  for (let fi = 0; fi < F; fi++) noCap[fi] = !unlimited[fi] && !(avg[fi] > 0);
   const workFn: Int32Array[] = new Array(N);
   const workMin: Float64Array[] = new Array(N);
-  const lead = new Int32Array(N);
+  const stepFn: Int32Array[] = new Array(N);
+  const stepMin: Float64Array[] = new Array(N);
   units.forEach((u, i) => {
     const fs: number[] = [], ms: number[] = [];
-    let ratio = 0;
     for (const [k, v] of Object.entries(u.work || {})) {
       const min = Number(v) || 0;
       if (min <= 0) continue;
-      const fi = fnPos.get(k)!;
-      fs.push(fi);
+      fs.push(fnPos.get(k)!);
       ms.push(min);
-      if (!unlimited[fi]) ratio = Math.max(ratio, avg[fi] > 0 ? min / (0.6 * avg[fi]) : Infinity);
     }
     workFn[i] = Int32Array.from(fs);
     workMin[i] = Float64Array.from(ms);
-    lead[i] = Math.min(4, Math.max(1, Math.ceil(ratio - 1e-9)));
+    const sf: number[] = [], sm: number[] = [];
+    for (const st of u.stages ?? []) for (const step of st.steps ?? []) {
+      const min = Number(step.minutes) || 0;
+      if (min <= 0) continue;
+      const fi = fnPos.get(String(step.fn));
+      if (fi === undefined) continue; // a function without work in `work` cannot happen; skip defensively
+      sf.push(fi);
+      sm.push(min);
+    }
+    // No stages (an older snapshot, or a test fixture): its work, one step per function.
+    stepFn[i] = sf.length ? Int32Array.from(sf) : workFn[i];
+    stepMin[i] = sf.length ? Float64Array.from(sm) : workMin[i];
   });
 
   // supply
@@ -304,7 +326,7 @@ function buildModel(snap: PlannerSnapshot): Model {
   return {
     snap, periods, P, periodIdx, months, periodMonth, monthRange,
     units, N, unitIdx, children, parent, depth, lineTops, lines, covers, groupTotal, groups, prio, committed,
-    F, fnKeys, fnNames, unlimited, cap, workFn, workMin, lead,
+    F, fnKeys, fnNames, unlimited, cap, workFn, workMin, stepFn, stepMin, noCap,
     itemPos, itemIds, itemLots, lotQty: Float64Array.from(qty), lotPeriod: Int32Array.from(lp), lotDate: ld, lotSource: ls, lotItem: Int32Array.from(li),
     matItem, matQty, matItemId, labels,
   };

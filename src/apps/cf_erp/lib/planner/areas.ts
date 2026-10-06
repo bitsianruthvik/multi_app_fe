@@ -151,24 +151,16 @@ export function usageBand(c: UsageCell | undefined, unlimited = false): Band {
 
 /**
  * The units loading some functions in one period, most minutes first — what the hover names and
- * what a click on a usage cell highlights. A unit's minutes spread evenly over its lead
- * (evaluate's rule), so its share of a period is its work on those functions ÷ its lead.
+ * what a click on a usage cell highlights: the minutes each unit has BOOKED there (evaluate).
  */
-export function cellDrivers(snapshot: PlannerSnapshot, evaluation: Evaluation, fnKeys: string[], periodKey: string): { unitKey: string; minutes: number }[] {
-  const idx = new Map(snapshot.horizon.periods.map((p, i) => [p.key, i]));
-  const at = idx.get(periodKey);
-  if (at === undefined) return [];
-  const units = new Map(snapshot.units.map((u) => [u.key, u]));
+export function cellDrivers(_snapshot: PlannerSnapshot, evaluation: Evaluation, fnKeys: string[], periodKey: string): { unitKey: string; minutes: number }[] {
   const out: { unitKey: string; minutes: number }[] = [];
   for (const [key, ev] of Object.entries(evaluation.units)) {
-    if (!ev.period || !ev.leadStart) continue;
-    const s = idx.get(ev.period), a = idx.get(ev.leadStart);
-    if (s === undefined || a === undefined || at < a || at > s) continue;
-    const u = units.get(key);
-    if (!u) continue;
+    const row = ev.period ? ev.booked?.[periodKey] : undefined;
+    if (!row) continue;
     let m = 0;
-    for (const f of fnKeys) m += Number(u.work?.[f]) || 0;
-    if (m > 0) out.push({ unitKey: key, minutes: m / (s - a + 1) });
+    for (const f of fnKeys) m += Number(row[f]) || 0;
+    if (m > 1e-6) out.push({ unitKey: key, minutes: m });
   }
   return out.sort((x, y) => y.minutes - x.minutes || x.unitKey.localeCompare(y.unitKey));
 }

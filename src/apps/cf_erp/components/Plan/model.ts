@@ -58,3 +58,22 @@ export function shortCode(u: PlannerUnit, orderCode: string | undefined): string
   if (orderCode && c.startsWith(orderCode)) return c.slice(orderCode.length).replace(/^[-_/ .]+/, '') || c;
   return c;
 }
+
+/**
+ * The "lower shipping mark" action offered on a unit's row, or null. A row with parts below
+ * ("splittable") can be planned as its parts; a unit whose parent row is already split can put
+ * that parent back as one unit. `target` is the row the server call is about.
+ */
+export function splitAction(units: PlannerUnit[], u: PlannerUnit, orderCode?: string): { split: boolean; target: PlannerUnit; label: string } | null {
+  if (u.splittable && u.bomLineId != null) return { split: true, target: u, label: 'Plan its parts separately' };
+  const parent = u.parentKey ? units.find((x) => x.key === u.parentKey) : undefined;
+  if (parent?.split && parent.bomLineId != null) return { split: false, target: parent, label: `Plan ${shortCode(parent, orderCode)} as one unit again` };
+  return null;
+}
+
+/** "3 of 6" for one of a row's N units; null for a row of one. */
+export function copyText(units: PlannerUnit[], u: PlannerUnit): string | null {
+  if (u.copy == null || u.pieceId == null) return null;
+  const n = units.filter((x) => x.pieceId === u.pieceId && x.copy != null).length;
+  return n > 1 ? `${u.copy} of ${n}` : null;
+}

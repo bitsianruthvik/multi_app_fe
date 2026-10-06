@@ -1,10 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
-import { Box, Button, IconButton, Menu, MenuItem, Switch, Tooltip, Typography } from '@mui/material';
+import { Box, Button, IconButton, Menu, MenuItem, Tooltip, Typography } from '@mui/material';
 import { Link } from 'react-router-dom';
-import AddRounded from '@mui/icons-material/AddRounded';
 import AutoAwesomeRounded from '@mui/icons-material/AutoAwesomeRounded';
 import CalendarMonthRounded from '@mui/icons-material/CalendarMonthRounded';
-import RemoveRounded from '@mui/icons-material/RemoveRounded';
 import UndoRounded from '@mui/icons-material/UndoRounded';
 import RedoRounded from '@mui/icons-material/RedoRounded';
 import UnfoldMoreRounded from '@mui/icons-material/UnfoldMoreRounded';
@@ -12,10 +10,10 @@ import UnfoldLessRounded from '@mui/icons-material/UnfoldLessRounded';
 import CloseRounded from '@mui/icons-material/CloseRounded';
 import {
   areaUsage, autoPlan, cellDrivers, entriesDiff, evaluate, feedback, functionUsage, machineAreas, workingFunctions, planFromEntries,
-  rankChanges, rankLine, reorderKeys, shiftBy, unitPriority, unplan,
+  dragTo, rankChanges, rankLine, reorderKeys, shiftBy, stretchTo, unitPriority, unplan,
 } from '../lib/planner';
 import type { AutoPlanResult, Evaluation, Plan as PlanMap, PlannerSnapshot, PlannerUnit, UsageRow } from '../lib/planner';
-import { getPlanner, putChanges, putLevel, putPriorities, putSettings, putTargets } from '../api/planner';
+import { getPlanner, putChanges, putLevel, putLineSplit, putPriorities, putTargets } from '../api/planner';
 import { CfApiError } from '../api/client';
 import { useIsPermitted } from '../hooks/useIsPermitted';
 import { useCompanySlug, useLoad } from '../hooks/useLoad';
@@ -72,6 +70,7 @@ export default function Plan() {
   const [saving, setSaving] = useState(false);
   const [preview, setPreview] = useState<AutoPlanResult | null>(null);
   const [busy, setBusy] = useState(false);
+  const [splitBusy, setSplitBusy] = useState(false);
   const [openKey, setOpenKey] = useState<string | null>(null);
   const [drag, setDrag] = useState<{ trial: PlanMap; info: DragInfo } | null>(null);
   const [selection, setSelection] = useState<string[]>([]);
@@ -194,6 +193,36 @@ export default function Plan() {
     const lines = feedback(evaluation, evaluate(view, trial));
     toastMessage(toast, lines, info.target === 'backlog' ? 'Taken off the plan' : 'Moved');
   }, [view, evaluation, present, putPlan, toast]);
+
+  /** The grip of a bar (or the sheet): start a unit's work in this week, or null for the shortest bar. */
+  const onStretch = useCallback((key: string, start: string | null) => {
+    setDrag(null);
+    if (!view || !evaluation || !present) return;
+    const next = stretchTo(view, present.plan, key, start);
+    if (next === present.plan) return;
+    putPlan(next);
+    toastMessage(toast, feedback(evaluation, evaluate(view, next)), start ? 'Stretched' : 'Back to the shortest bar');
+  }, [view, evaluation, present, putPlan, toast]);
+  /** "Plan as early as possible": put the unit in the first week it can ship (kept there). */
+  const onEarliest = useCallback((key: string, week: string) => {
+    if (!view || !evaluation || !present) return;
+    const next = dragTo(view, present.plan, [key], key, week);
+    if (next === present.plan) return;
+    putPlan(next);
+    toastMessage(toast, feedback(evaluation, evaluate(view, next)), 'Planned as early as possible');
+  }, [view, evaluation, present, putPlan, toast]);
+  /** "Plan its parts separately" / "Plan … as one unit again": saved at once, then the board is read again. */
+  const onSplit = useCallback((target: PlannerUnit, split: boolean) => {
+    if (splitBusy) return;
+    if (dirty) { toast.error('Save or discard your changes first.'); return; }
+    if (target.bomLineId == null) return;
+    const code = shortCode(target, orderCode.get(String(target.orderId)));
+    setSplitBusy(true);
+    putLineSplit(target.lineId, target.bomLineId, split)
+      .then(() => { setOpenKey(null); load.reload(); toast.success(split ? `${code}: its parts are planned separately now` : `${code} is planned as one unit again`); })
+      .catch((e) => fail(e, 'Could not change that.'))
+      .finally(() => setSplitBusy(false));
+  }, [splitBusy, dirty, toast, orderCode, load, fail]);
 
   // ── selection and keys ──
   const visibleUnits = useMemo(() => rows.filter((r) => r.kind === 'unit').map((r) => r.unitKey!), [rows]);
@@ -318,10 +347,6 @@ export default function Plan() {
     setSnap((s) => (s ? { ...s, targets: { ...s.targets, [month]: value } } : s));
     putTargets({ [month]: value }).catch((e) => { fail(e); load.reload(); });
   }
-  function setMinLines(n: number) {
-    setSnap((s) => (s ? { ...s, settings: { ...s.settings, minLinesPerMonth: n } } : s));
-    putSettings({ minLinesPerMonth: n }).catch((e) => { fail(e); load.reload(); });
-  }
   const onOrderRank = useCallback((ids: string[]) => {
     const rank = new Map(ids.map((id, i) => [id, i + 1]));
     setSnap((s) => (s ? { ...s, orders: [...s.orders].sort((a, b) => rank.get(String(a.id))! - rank.get(String(b.id))!).map((o) => ({ ...o, priority: rank.get(String(o.id))! })) } : s));
@@ -341,7 +366,6 @@ export default function Plan() {
   if (!snap || !view || !shown || !evaluation || !present || !hist) return <Box><PageHeader title="Plan" /><SkeletonRows rows={5} height={56} /></Box>;
 
   const editable = canEdit && !preview;
-  const minLines = snap.settings.minLinesPerMonth;
   const hasMarks = snap.units.some((u) => u.isMark);
   const open = openKey ? units.get(openKey) ?? null : null;
 
@@ -362,16 +386,6 @@ export default function Plan() {
       <PageHeader title="Plan" subtitle="What ships when, this month and the next two."
         actions={(
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
-            {canEdit && (
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, fontSize: 13 }}>
-                <Switch size="small" checked={minLines > 0} onChange={(_, on) => setMinLines(on ? 1 : 0)} inputProps={{ 'aria-label': 'Ship at least some lines every month' }} />
-                <span>Ship at least</span>
-                <IconButton size="small" aria-label="One less" disabled={minLines <= 1} onClick={() => setMinLines(minLines - 1)}><RemoveRounded sx={{ fontSize: 16 }} /></IconButton>
-                <b style={{ minWidth: 14, textAlign: 'center', opacity: minLines > 0 ? 1 : 0.4 }}>{Math.max(minLines, 1)}</b>
-                <IconButton size="small" aria-label="One more" disabled={minLines < 1} onClick={() => setMinLines(minLines + 1)}><AddRounded sx={{ fontSize: 16 }} /></IconButton>
-                <span>{minLines === 1 ? 'line' : 'lines'} a month</span>
-              </Box>
-            )}
             {canEdit && <Button variant="contained" startIcon={<AutoAwesomeRounded />} disabled={busy || !!preview} onClick={runAutoPlan}>{busy ? 'Planning…' : 'Auto-plan'}</Button>}
           </Box>
         )} />
@@ -409,7 +423,7 @@ export default function Plan() {
         <Typography component="div" sx={{ fontSize: 12.5, color: 'var(--c-text-3)', ml: 0.5 }} aria-live="polite">
           {selection.length
             ? <>{selection.length} selected{editable ? ' · ← → move a week (Shift: 4) · Alt+↑↓ reorder · Delete takes it off' : ''} · Esc clears</>
-            : editable ? 'Drag a bar to another week · Shift/Ctrl-click to pick several' : ''}
+            : editable ? 'Drag a bar to another week · drag its left edge to stretch · Shift/Ctrl-click to pick several' : ''}
         </Typography>
 
         {highlight && (
@@ -435,7 +449,7 @@ export default function Plan() {
 
       <PlanGrid snapshot={view} evaluation={shown} plan={present.plan} rows={rows} units={units} geometry={geometry} canEdit={editable}
         selection={selection} highlight={highlight?.keys ?? null} dragTarget={drag?.info.target ?? null} dragNotes={dragNotes}
-        onToggle={onToggle} onUnitClick={onUnitClick} onOpen={setOpenKey} onPreview={onPreview} onDrop={onDrop}
+        onToggle={onToggle} onUnitClick={onUnitClick} onOpen={setOpenKey} onPreview={onPreview} onDrop={onDrop} onStretch={onStretch} onSplit={onSplit} splitBusy={splitBusy}
         onRank={onRank} onOrderRank={onOrderRank} onLevel={onLevel} onKeyDown={onGridKey} scrollerRef={scrollerRef}
         footer={(
           <UsagePanel rows={usage} level={areaSet.level} periods={snap.horizon.periods} geometry={geometry} fnRows={fnRows}
@@ -443,7 +457,7 @@ export default function Plan() {
             collapsed={usageCollapsed} onCollapsed={setUsageCollapsed} />
         )} />
 
-      <UnitSheet unit={open} snapshot={snap} evaluation={shown} periodLabel={(k) => periodLabels.get(k) ?? k} canEdit={editable}
+      <UnitSheet unit={open} snapshot={view} evaluation={shown} plan={present.plan} busy={splitBusy} onStretch={onStretch} onEarliest={onEarliest} onSplit={onSplit} periodLabel={(k) => periodLabels.get(k) ?? k} canEdit={editable}
         buyListPath={appPath(company, 'purchase')} onClose={() => setOpenKey(null)}
         onUnplan={(key) => putPlan(unplan(present.plan, [key]))}
         onPin={(key, pinned) => { if (present.plan[key]) putPlan({ ...present.plan, [key]: { ...present.plan[key], pinned } }); }} />

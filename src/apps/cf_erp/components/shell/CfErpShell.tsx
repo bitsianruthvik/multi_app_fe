@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState, type ReactNode } from 'react';
 import { Box, useMediaQuery, useTheme } from '@mui/material';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import ChevronRightRounded from '@mui/icons-material/ChevronRightRounded';
 import ArrowBackRounded from '@mui/icons-material/ArrowBackRounded';
 import { ErrorBoundary } from '@core/components/ErrorBoundary';
@@ -12,6 +12,7 @@ import { ShortcutsHelp } from '../ShortcutsHelp';
 import { useShortcutsHelp } from '../../hooks/useShortcutsHelp';
 import { useCompanySlug } from '../../hooks/useLoad';
 import { DetailTitleContext } from './detailTitle';
+import { backOf } from './backState';
 
 /**
  * The cf_erp application shell — fab_erp's FabErpShell, same two thin rows:
@@ -24,7 +25,10 @@ import { DetailTitleContext } from './detailTitle';
 export function CfErpShell({ children }: { children: ReactNode }) {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
-  const { pathname } = useLocation();
+  const { pathname, state } = useLocation();
+  const navigate = useNavigate();
+  // Opened from another record (a BOM row): the way back is that record, not the collection.
+  const back = backOf(state);
   const company = useCompanySlug();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const shortcuts = useShortcutsHelp();
@@ -49,6 +53,17 @@ export function CfErpShell({ children }: { children: ReactNode }) {
           display: 'flex', alignItems: 'center', gap: 0.5, height: 40, px: { xs: 1, md: 2 }, flexShrink: 0, minWidth: 0,
           background: 'var(--c-surface)', borderBottom: '1px solid var(--c-border)',
         }}>
+          {back && (
+            <Box component="button" type="button" onClick={() => navigate(-1)} title={`Back to ${back.label}`} sx={{
+              display: 'inline-flex', alignItems: 'center', gap: 0.5, flexShrink: 0, border: 0, background: 'transparent', cursor: 'pointer', color: 'var(--c-primary-700)',
+              fontFamily: 'var(--font-ui)', fontSize: 13, fontWeight: 500, px: 0.75, py: 0.5, borderRadius: 'var(--r-sm)',
+              '&:hover': { background: 'var(--c-surface-2)' },
+            }}>
+              <ArrowBackRounded sx={{ fontSize: 15 }} aria-hidden />
+              {back.label}
+            </Box>
+          )}
+          {back && <Box aria-hidden sx={{ width: '1px', height: 18, background: 'var(--c-border)', mx: 0.5, flexShrink: 0 }} />}
           <Box component={Link} to={appPath(company, resolved.screen.path)} sx={{
             display: 'inline-flex', alignItems: 'center', gap: 0.5, flexShrink: 0, textDecoration: 'none', color: 'var(--c-text-2)',
             fontFamily: 'var(--font-ui)', fontSize: 13, fontWeight: 500, px: 0.75, py: 0.5, borderRadius: 'var(--r-sm)',

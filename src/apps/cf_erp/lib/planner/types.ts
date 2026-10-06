@@ -4,8 +4,16 @@
  * Words used below:
  * - period   — an ISO week cut at month ends. Identified by `Period.key` (opaque string).
  * - unit     — a card on the board: a whole order line (`'l<lineId>'`) or a piece (`'p<pieceId>'`)
- *              with its whole subtree, or a lot of loose pieces of one design row under one parent
- *              (`'g<parentPieceId>.<bomLineId>'`, `quantity` of them, one mark).
+ *              with its whole subtree. A row of N pieces is N units `'p<pieceId>#1'` … `'#N'`
+ *              (planner v2: each quantity ships on its own; the old lot cards `'g…'` are gone).
+ *
+ * ── Booking (planner v2, TM/CF_ERP_PLANNER_V2_PLAN.md) ─────────────────────────────────────────
+ * A unit's work is a chain of steps (`stages`: deepest BOM level first, flow order inside a
+ * level). Planned units are booked in PRIORITY order onto what each machine type has left in each
+ * week (finite capacity): a unit placed in a ship week books its chain BACKWARDS from that week,
+ * as late as possible but not before its material. What does not fit shows as overload. A plan
+ * entry with a `start` week (a stretched bar) instead spreads each machine type's minutes evenly
+ * over start…ship. Auto-plan books every unit as EARLY as material and the capacity left allow.
  * - mark     — a shipping mark (a unit with `isMark`). A LINE (shipping group, `groupKey`) ships in
  *              the period its last mark ships.
  * - function — a machine type; `'contractor'` (or any function flagged `unlimited`) never runs out.
@@ -104,6 +112,18 @@ export interface UnitMaterial {
   qty: number;
 }
 
+/** One step of a unit's chain: minutes on one machine type. */
+export interface StageStep {
+  fn: string;
+  minutes: number;
+}
+
+/** The steps of one BOM depth, in flow order. */
+export interface UnitStage {
+  depth: number;
+  steps: StageStep[];
+}
+
 export interface PlannerUnit {
   key: string;
   orderId: Id;
@@ -118,12 +138,22 @@ export interface PlannerUnit {
   groupKey: string;
   isMark: boolean;
   marks: number;
-  /** How many of it (a lot: how many loose pieces ship together — "45 ×"). */
+  /** How many of it (1 for each of a row's N units). */
   quantity?: number;
-  /** A lot of loose pieces (`'g<parent piece>.<bom line>'`): one design row under one parent, one mark. */
+  /** A lot of loose pieces (old snapshots only). */
   lot?: boolean;
   /** A lot's pieces (`pieceId` is its first). */
   pieceIds?: Id[];
+  /** Which of a row's N units this is (1…N); null/absent for a row of one. */
+  copy?: number | null;
+  /** The work in the order it is done (see "Booking" above). */
+  stages?: UnitStage[];
+  /** This row is planned "its parts separately" for this order (its children are the cards). */
+  split?: boolean;
+  /** "Plan its parts separately" is offered: a locked row with parts below. */
+  splittable?: boolean;
+  /** The BOM row, for PUT /planner/lines/:id/splits. */
+  bomLineId?: Id | null;
   tonnes: number;
   /** minutes per function key, for the whole subtree. */
   work: Record<string, number>;
@@ -151,6 +181,8 @@ export interface SupplyItem {
 
 export interface PlanEntryRow {
   shipDate: string;
+  /** A stretched bar's first week (its start); null = booked back from the ship week. */
+  startDate?: string | null;
   pinned: boolean;
 }
 
@@ -175,6 +207,8 @@ export interface PlannerSnapshot {
 export interface PlanEntry {
   /** Period key of the ship period. */
   period: string;
+  /** Period key of a stretched bar's first week (≤ period); absent = booked back from the ship week. */
+  start?: string;
   pinned: boolean;
 }
 
@@ -186,12 +220,8 @@ export interface EngineOptions {
   levels?: Record<string, PlanLevel>;
 }
 
-export interface AutoPlanOptions extends EngineOptions {
-  /** Default: `snapshot.settings.minLinesPerMonth`. */
-  minLinesPerMonth?: number;
-  /** Default: `snapshot.settings.allowPartialLines`. */
-  allowPartialLines?: boolean;
-}
+/** Auto-plan books every unpinned unit as early as it can, in priority order (planner v2). */
+export type AutoPlanOptions = EngineOptions;
 
 export interface AutoPlanResult {
   plan: Plan;
@@ -203,6 +233,14 @@ export interface CanPlaceResult {
   reason?: string;
   /** When refused for material: the earliest period key the unit could ship in (null if none). */
   earliest?: string | null;
+}
+
+/** canStretch: may this planned unit start in that week? */
+export interface CanStretchResult {
+  ok: boolean;
+  reason?: string;
+  /** The earliest start week its material allows (null = any). */
+  earliestStart?: string | null;
 }
 
 // ── Evaluation ──────────────────────────────────────────────────────────────────────────────────
@@ -231,10 +269,16 @@ export interface UnitEval {
   /** Ship period key, null = unplanned. */
   period: string | null;
   pinned: boolean;
-  /** First period key of the lead (work starts here); null when unplanned. */
+  /** First week its work is booked in (the bar's left edge); null when unplanned. */
   leadStart: string | null;
-  /** Lead in periods (1..4) — computed even when unplanned. */
+  /** The bar's width in weeks (leadStart…period); 0 when unplanned. */
   lead: number;
+  /** The stretched start week the plan holds for it, else null (booked back from the ship week). */
+  start: string | null;
+  /** Weeks its chain takes in an empty shop from its material (the shortest possible bar); null = it cannot finish inside the plan. */
+  minWeeks: number | null;
+  /** Minutes booked per week per machine type: `{ [periodKey]: { [fnKey]: minutes } }`. */
+  booked: Record<string, Record<string, number>>;
   /** Latest date among the supply lots covering this unit; null when it needs nothing (or blocked). */
   materialDate: string | null;
   /** Source of that latest lot (`'stock'` / `'PO-12'`). */

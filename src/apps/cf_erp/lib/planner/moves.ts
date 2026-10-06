@@ -5,6 +5,7 @@
  *   dragTo(snapshot, plan, keys, anchorKey, target)   the drop of a drag (target: period key, or null = off the plan)
  *   shiftBy(snapshot, plan, keys, delta)              arrow keys: every planned unit ±delta weeks (clamped)
  *   unplan(plan, keys)
+ *   stretchTo(snapshot, plan, key, start)             a bar's first week (null = back to its shortest, booked from the ship week)
  *   reorderKeys(list, moving, beforeKey)              the new order of a list after moving some keys before another
  *   rankLine(snapshot, ranks, lineId, orderedKeys)    a line's rank map after a reorder
  *   rankChanges(snapshot, saved, current)             lines whose unit order changed → { lineId, unitKeys }
@@ -13,6 +14,19 @@ import { getModel } from './model';
 import type { Plan, PlannerSnapshot } from './types';
 
 export type Ranks = Record<string, number>;
+
+/** The entry moved by `delta` periods to ship in `to` — a stretched bar keeps its width (clamped at the first week). */
+function moved(snapshot: PlannerSnapshot, e: Plan[string] | undefined, to: number, delta: number | null): Plan[string] {
+  const idx = periodIndex(snapshot);
+  const periods = snapshot.horizon.periods;
+  const out: Plan[string] = { period: periods[to].key, pinned: true };
+  const a = e?.start != null ? idx.get(e.start) : undefined;
+  if (a !== undefined && delta != null) {
+    const s = Math.max(0, Math.min(to, a + delta));
+    if (s < to) out.start = periods[s].key;
+  }
+  return out;
+}
 
 const periodIndex = (s: PlannerSnapshot) => getModel(s).periodIdx;
 
@@ -34,7 +48,7 @@ export function dragTo(snapshot: PlannerSnapshot, plan: Plan, keys: string[], an
   for (const k of keys) {
     const cur = plan[k] ? idx.get(plan[k].period) : undefined;
     const to = delta == null || cur === undefined ? t : Math.min(periods.length - 1, Math.max(0, cur + delta));
-    next[k] = { period: periods[to].key, pinned: true };
+    next[k] = moved(snapshot, plan[k], to, cur === undefined ? null : to - cur);
   }
   return next;
 }
@@ -52,9 +66,25 @@ export function shiftBy(snapshot: PlannerSnapshot, plan: Plan, keys: string[], d
       continue;
     }
     const to = Math.min(periods.length - 1, Math.max(0, cur + delta));
-    if (to !== cur || !plan[k].pinned) { next[k] = { period: periods[to].key, pinned: true }; changed = true; }
+    if (to !== cur || !plan[k].pinned) { next[k] = moved(snapshot, plan[k], to, to - cur); changed = true; }
   }
   return changed ? next : plan;
+}
+
+/**
+ * Stretch a planned bar: its work spreads evenly from `start` to its ship week (pinned). A start at
+ * or after the ship week, or null, drops the stretch — the bar is booked back from its ship week.
+ * Check the start first with `canStretch` (not before its material).
+ */
+export function stretchTo(snapshot: PlannerSnapshot, plan: Plan, key: string, start: string | null): Plan {
+  const e = plan[key];
+  if (!e) return plan;
+  const idx = periodIndex(snapshot);
+  const a = start == null ? undefined : idx.get(start), s = idx.get(e.period);
+  const next: Plan = { ...plan };
+  if (a === undefined || s === undefined || a >= s) next[key] = { period: e.period, pinned: true };
+  else next[key] = { period: e.period, start: start!, pinned: true };
+  return next;
 }
 
 export function unplan(plan: Plan, keys: string[]): Plan {

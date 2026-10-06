@@ -3,9 +3,13 @@ import { Alert, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, 
 import DragIndicatorRounded from '@mui/icons-material/DragIndicatorRounded';
 import CloseRounded from '@mui/icons-material/CloseRounded';
 import EditOutlined from '@mui/icons-material/EditOutlined';
+import { Link, useLocation } from 'react-router-dom';
 import { SheetGrid, type SheetCell, type SheetGridHandle, type SheetWrite } from '@shared/ui';
 import { effectiveCell, type ValuesColumn, type ValuesView } from '../Values/valuesModel';
-import { ownInput, valueEditable, rowLabel, type BomRow, type Pending } from './bomModel';
+import { ownInput, valueEditable, rowLabel, roleShown, type BomRow, type Pending } from './bomModel';
+import { appPath } from '../../navMeta';
+import { recordPath } from '../../lib/paths';
+import type { BackState } from '../shell/backState';
 import type { SpecValues } from './useSpecValues';
 import type { RowMark } from './BomTree';
 import type { DropPosition } from './bomArrangement';
@@ -102,6 +106,11 @@ export function BomGrid({ rows, view, records: recordValues, recordIds, pending,
   const rowByKey = useMemo(() => new Map(rows.map((r) => [r.node.key, r])), [rows]);
   const colByKey = new Map(columns.map((c) => [c.code, c]));
   /** The tooltip of a cell whose variable the row's definition or item does not have. */
+  // Opening a row's record carries the way back here (the shell shows "← <this record> BOM").
+  const location = useLocation();
+  const company = location.pathname.split('/').filter(Boolean)[0] ?? '';
+  const top = rows.find((r) => !r.parent)?.node;
+  const back: BackState = { backTo: { label: `${top?.code ?? top?.name ?? 'the'} BOM`, path: location.pathname + location.search } };
   const notOf = (row: BomRow) => `Not a value of ${row.node.name}`;
   const cellAt = (row: BomRow, col: { code: string }): Cell => {
     if (col.code === '$total') return { text: String(row.node.total), input: String(row.node.total), saved: '', editable: false, why: 'Calculated from the quantities above this row.' };
@@ -186,7 +195,14 @@ export function BomGrid({ rows, view, records: recordValues, recordIds, pending,
             ) : (
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25, minWidth: 0 }}>
                 <Box onDoubleClick={roleEditable ? () => startRole(row) : undefined} title={`${rowLabel(n.name, roleText)}${roleEditable ? ' — double-click to change the description' : ''}`}
-                  sx={{ fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>{rowLabel(n.name, roleText)}</Box>
+                  sx={{ fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>
+                  {/* The name opens that record; its page offers the way back to this BOM. */}
+                  {row.parent && n.id != null && !row.paste ? (
+                    <Link to={appPath(company, recordPath(n.kind, n.id))} state={back} onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}
+                      title={`Open ${n.code ?? n.name}`} style={{ color: 'inherit' }}>{n.name}</Link>
+                  ) : n.name}
+                  {roleShown(n.name, roleText) ? ` · ${roleShown(n.name, roleText)}` : ''}
+                </Box>
                 {roleEditable && <Tooltip title="Change the description"><IconButton size="small" aria-label={`Edit description of ${n.name}`} onClick={() => startRole(row)} sx={{ p: 0.25, color: 'var(--c-text-3)' }}><EditOutlined sx={{ fontSize: 14 }} /></IconButton></Tooltip>}
               </Box>
             )}

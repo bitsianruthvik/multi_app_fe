@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
-import { Box, MenuItem, Select } from '@mui/material';
+import { Box, IconButton, Menu, MenuItem, Select } from '@mui/material';
 import ChevronRightRounded from '@mui/icons-material/ChevronRightRounded';
 import ExpandMoreRounded from '@mui/icons-material/ExpandMoreRounded';
 import DragIndicatorRounded from '@mui/icons-material/DragIndicatorRounded';
@@ -7,10 +7,12 @@ import LockRounded from '@mui/icons-material/LockRounded';
 import CheckRounded from '@mui/icons-material/CheckRounded';
 import WarningAmberRounded from '@mui/icons-material/WarningAmberRounded';
 import ScheduleRounded from '@mui/icons-material/ScheduleRounded';
-import { dragTo } from '../../lib/planner/moves';
+import MoreHorizRounded from '@mui/icons-material/MoreHorizRounded';
+import { dragTo, stretchTo } from '../../lib/planner/moves';
+import { canStretch } from '../../lib/planner/evaluate';
 import type { Evaluation, Plan, PlannerOrder, PlannerSnapshot, PlannerUnit } from '../../lib/planner/types';
 import { HEAD_H, ROW_H, type Geometry } from './geometry';
-import { hoursText, monthName, shortCode, shortDate, tonnes } from './model';
+import { hoursText, monthName, shortCode, shortDate, splitAction, tonnes } from './model';
 
 /** Tonnes for a narrow cell: whole tonnes from 100 up. */
 const tonnesShort = (n: number) => (n >= 100 ? Math.round(n).toLocaleString() : tonnes(n));
@@ -19,7 +21,7 @@ import type { TreeRow } from './tree';
 type Target = string | 'backlog';
 
 interface DragState {
-  mode: 'move' | 'rank' | 'order';
+  mode: 'move' | 'rank' | 'order' | 'stretch';
   keys: string[];
   anchor: string;
   lineId?: string;
@@ -30,6 +32,10 @@ interface DragState {
   ctrl: boolean;
   target?: Target;
   before?: string | null;
+  /** stretch: the column last looked at, what dropping there does (a start key, null = clear, undefined = refused) and why not */
+  idx?: number;
+  stretch?: string | null;
+  refused?: string;
 }
 
 export interface DragInfo {
@@ -67,6 +73,11 @@ export function PlanGrid(props: {
   onOpen: (key: string) => void;
   onPreview: (trial: Plan | null, info: DragInfo | null) => void;
   onDrop: (trial: Plan, info: DragInfo) => void;
+  /** the left grip of a bar: start it in this week (null = back to the shortest bar) */
+  onStretch: (unitKey: string, startPeriodKey: string | null) => void;
+  /** "Plan its parts separately" (split) or "Plan … as one unit again" (!split) for this row */
+  onSplit: (target: PlannerUnit, split: boolean) => void;
+  splitBusy: boolean;
   onRank: (lineId: string, keys: string[], beforeKey: string | null) => void;
   onOrderRank: (orderIds: string[]) => void;
   onLevel: (lineId: string, level: string) => void;
@@ -79,7 +90,8 @@ export function PlanGrid(props: {
   const today = snapshot.horizon.from;
   const [scrollTop, setScrollTop] = useState(0);
   const [viewH, setViewH] = useState(800);
-  const [ui, setUi] = useState<{ mode: DragState['mode']; x: number; y: number; line: number | null; keys: string[]; anchor: string } | null>(null);
+  const [ui, setUi] = useState<{ mode: DragState['mode']; x: number; y: number; line: number | null; keys: string[]; anchor: string; start?: string | null; reason?: string } | null>(null);
+  const [menu, setMenu] = useState<{ el: HTMLElement; key: string } | null>(null);
   const drag = useRef<DragState | null>(null);
   const latest = useRef(props);
   latest.current = props;
@@ -144,6 +156,14 @@ export function PlanGrid(props: {
     if (i < 0 || i >= ps.length) return undefined;
     return ps[i].key;
   };
+  /** stretch mode: the week column under the pointer, clamped to the grid (left of it = the first week) */
+  const stretchIndex = (clientX: number): number => {
+    const el = scrollerRef.current;
+    const { geometry, snapshot: s } = latest.current;
+    if (!el) return 0;
+    const x = clientX - el.getBoundingClientRect().left + el.scrollLeft - geometry.treeW - geometry.backW;
+    return Math.min(s.horizon.periods.length - 1, Math.max(0, Math.floor(x / geometry.colW)));
+  };
   const rowAt = (clientY: number): { i: number; frac: number } => {
     const el = scrollerRef.current!;
     const rect = el.getBoundingClientRect();
@@ -193,7 +213,7 @@ export function PlanGrid(props: {
     const box = el?.getBoundingClientRect();
     if (el && box && box.width > 0) { // edge scrolling (only when laid out)
       const rect = box;
-      if (d.mode === 'move') {
+      if (d.mode === 'move' || d.mode === 'stretch') {
         if (e.clientX > rect.right - 36) el.scrollLeft += 18;
         else if (e.clientX < rect.left + latest.current.geometry.treeW + latest.current.geometry.backW + 16) el.scrollLeft -= 18;
       } else if (e.clientY > rect.bottom - 36) el.scrollTop += 18;
@@ -208,6 +228,26 @@ export function PlanGrid(props: {
         const trial = dragTo(p.snapshot, p.plan, d.keys, d.anchor, t === BACKLOG ? null : t);
         p.onPreview(trial, { target: t, keys: d.keys });
       }
+    } else if (d.mode === 'stretch') {
+      const i = stretchIndex(e.clientX);
+      if (i !== d.idx) {
+        d.idx = i;
+        const p = latest.current;
+        const ps = p.snapshot.horizon.periods;
+        const cur = p.plan[d.anchor];
+        const si = cur ? ps.findIndex((x) => x.key === cur.period) : -1;
+        const li = ps.findIndex((x) => x.key === p.evaluation.units[d.anchor]?.leadStart);
+        let trial: Plan | null = null;
+        d.refused = undefined;
+        if (!cur) d.stretch = undefined;
+        else if (i === li) d.stretch = cur.start ?? null; // where it already starts: nothing to change
+        else if (i >= si) { d.stretch = null; trial = stretchTo(p.snapshot, p.plan, d.anchor, null); } // at or past the ship week: back to the shortest
+        else {
+          const c = canStretch(p.snapshot, p.plan, d.anchor, ps[i].key);
+          if (c.ok) { d.stretch = ps[i].key; trial = stretchTo(p.snapshot, p.plan, d.anchor, ps[i].key); } else { d.stretch = undefined; d.refused = c.reason ?? 'It cannot start there.'; }
+        }
+        p.onPreview(trial, trial ? { target: ps[i].key, keys: d.keys } : null);
+      }
     } else if (d.mode === 'rank') {
       const s = rankSpot(d, e.clientY);
       if (s) { d.before = s.before; line = s.line; }
@@ -215,7 +255,7 @@ export function PlanGrid(props: {
       const s = orderSpot(e.clientY);
       d.before = s.before; line = s.line;
     }
-    setUi({ mode: d.mode, x: e.clientX, y: e.clientY, line, keys: d.keys, anchor: d.anchor });
+    setUi({ mode: d.mode, x: e.clientX, y: e.clientY, line, keys: d.keys, anchor: d.anchor, start: d.stretch, reason: d.refused });
   };
 
   const stop = () => {
@@ -230,7 +270,7 @@ export function PlanGrid(props: {
     e.preventDefault(); e.stopPropagation();
     const was = drag.current;
     stop();
-    if (was.started && was.mode === 'move') latest.current.onPreview(null, null);
+    if (was.started && (was.mode === 'move' || was.mode === 'stretch')) latest.current.onPreview(null, null);
   };
   const onUp = () => {
     const d = drag.current;
@@ -241,7 +281,11 @@ export function PlanGrid(props: {
       if (d.mode === 'move') p.onUnitClick(d.anchor, { shift: d.shift, ctrl: d.ctrl });
       return;
     }
-    if (d.mode === 'move') {
+    if (d.mode === 'stretch') {
+      const cur = p.plan[d.anchor]?.start ?? null;
+      if (d.stretch === undefined || d.stretch === cur) { p.onPreview(null, null); return; } // refused, or no change
+      p.onStretch(d.anchor, d.stretch);
+    } else if (d.mode === 'move') {
       if (d.target === undefined) { p.onPreview(null, null); return; }
       const trial = dragTo(p.snapshot, p.plan, d.keys, d.anchor, d.target === BACKLOG ? null : d.target);
       p.onDrop(trial, { target: d.target, keys: d.keys });
@@ -327,16 +371,20 @@ export function PlanGrid(props: {
     const late = ev.late;
     const lit = highlight?.has(u.key);
     const shipW = g.colW - 6;
-    const label = `${u.code}: ships ${periods[s].label}${a < s ? `, work from ${periods[a].label}` : ''}${ev.pinned ? ', kept here' : ''}${warn ? `. ${ev.blocked}` : ''}${late ? '. After the promised date' : ''}`;
+    const stretched = ev.start != null;
+    const startLabel = stretched ? periods[pIdx.get(ev.start!) ?? a]?.label ?? '' : '';
+    const label = `${u.code}: ships ${periods[s].label}${a < s ? `, work from ${periods[a].label}` : ''}${stretched ? `. Stretched from ${startLabel}` : ''}${ev.pinned ? ', kept here' : ''}${warn ? `. ${ev.blocked}` : ''}${late ? '. After the promised date' : ''}`;
     return (
       <Box role="button" aria-label={label} aria-pressed={sel} data-testid={`bar-${u.key}`} data-period={ev.period}
-        title={[`${u.code} — ${tonnes(u.tonnes)} t`, `Ships ${periods[s].label} (${shortDate(periods[s].start)}–${shortDate(periods[s].end)})`, a < s ? `Work from ${periods[a].label}` : '', ev.blocked ?? '', late ? 'After the promised date' : '', canEdit ? 'Drag to move · double-click for details' : 'Double-click for details'].filter(Boolean).join('\n')}
+        title={[`${u.code} — ${tonnes(u.tonnes)} t`, `Ships ${periods[s].label} (${shortDate(periods[s].start)}–${shortDate(periods[s].end)})`, a < s ? `Work from ${periods[a].label}` : '', stretched ? `Stretched from ${startLabel}` : '', ev.blocked ?? '', late ? 'After the promised date' : '', canEdit ? 'Drag to move · drag the left edge to stretch · double-click for details' : 'Double-click for details'].filter(Boolean).join('\n')}
         onPointerDown={(e) => begin(e, 'move', u.key, moveKeys(u.key))}
         onDoubleClick={() => props.onOpen(u.key)}
         sx={{
           position: 'absolute', left, width, top: 5, height: ROW_H - 10, borderRadius: '6px', display: 'flex', alignItems: 'stretch', overflow: 'hidden',
           cursor: canEdit ? 'grab' : 'pointer', touchAction: 'none', userSelect: 'none',
-          background: 'var(--c-primary-50, var(--c-surface-2))',
+          background: stretched
+            ? 'repeating-linear-gradient(135deg, var(--c-primary-50, var(--c-surface-2)) 0 6px, var(--c-surface) 6px 12px)'
+            : 'var(--c-primary-50, var(--c-surface-2))',
           border: `1px solid ${late ? 'var(--c-danger-600)' : warn ? 'var(--c-warning-600)' : 'var(--c-primary-300, var(--c-border))'}`,
           outline: sel ? '2px solid var(--c-primary-600)' : lit ? '2px solid var(--c-info-600, var(--c-primary-400))' : 'none', outlineOffset: 1,
           boxShadow: lifted ? 'var(--e-3, 0 6px 16px rgba(0,0,0,.18))' : 'none',
@@ -344,7 +392,14 @@ export function PlanGrid(props: {
           zIndex: lifted ? 2 : 1,
           '@media (prefers-reduced-motion: reduce)': { transition: 'none' },
         }}>
-        <Box sx={{ flex: 1 }} />
+        <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', pl: '10px', fontSize: 11, color: 'var(--c-primary-700)' }}>{stretched && width > shipW + 24 ? '↔' : ''}</Box>
+        {canEdit && (
+          <Box role="button" tabIndex={-1} aria-label={`Stretch: start ${u.code} earlier`} title={stretched ? 'Drag to change the start · double-click for the shortest bar' : 'Drag left to start earlier (spreads the work thinner)'}
+            data-testid={`stretch-${u.key}`}
+            onPointerDown={(e) => begin(e, 'stretch', u.key, [u.key])}
+            onDoubleClick={(e) => { e.stopPropagation(); if (stretched) props.onStretch(u.key, null); }}
+            sx={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 6, cursor: 'ew-resize', touchAction: 'none', zIndex: 1, background: stretched ? 'var(--c-primary-300, var(--c-border))' : 'transparent', '&:hover': { background: 'var(--c-primary-300, var(--c-border))' } }} />
+        )}
         <Box sx={{ width: Math.min(shipW, width), flex: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.25, px: 0.5,
           background: late ? 'var(--c-danger-600)' : 'var(--c-primary-600, var(--c-primary-500))', color: 'var(--c-on-primary, #fff)', fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
           {ev.pinned && <LockRounded sx={{ fontSize: 11, opacity: 0.85 }} />}
@@ -452,6 +507,13 @@ export function PlanGrid(props: {
           {!child && ev?.blocked && <WarningAmberRounded titleAccess={ev.blocked} sx={{ fontSize: 14, color: 'var(--c-warning-600)' }} />}
           {!child && ev?.late && <ScheduleRounded titleAccess="After the promised date" sx={{ fontSize: 14, color: 'var(--c-danger-600)' }} />}
           <Box component="span" sx={{ fontSize: 11.5, color: 'var(--c-text-2)', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{tonnes(u.tonnes)} t</Box>
+          {!child && canEdit && splitAction(snapshot.units, u, order?.code) && (
+            <IconButton size="small" aria-label={`More for ${u.code}`} data-testid={`menu-${u.key}`} sx={{ p: 0.25 }}
+              onClick={(e) => { e.stopPropagation(); setMenu({ el: e.currentTarget, key: u.key }); }}
+              onDoubleClick={(e) => e.stopPropagation()}>
+              <MoreHorizRounded sx={{ fontSize: 16 }} />
+            </IconButton>
+          )}
         </Box>
         <Box sx={{ ...stickyBack }}>{!child && unitChip(u)}</Box>
         {unitBar(u, child, child ? r.carrierKey : undefined)}
@@ -527,6 +589,16 @@ export function PlanGrid(props: {
         {props.footer}
       </Box>
 
+      {(() => {
+        const mu = menu ? units.get(menu.key) : undefined;
+        const act = mu ? splitAction(snapshot.units, mu, orders.get(String(mu.orderId))?.code) : null;
+        return (
+          <Menu anchorEl={menu?.el ?? null} open={!!menu && !!act} onClose={() => setMenu(null)}>
+            {act && <MenuItem disabled={props.splitBusy} sx={{ fontSize: 13 }} onClick={() => { setMenu(null); props.onSplit(act.target, act.split); }}>{act.label}</MenuItem>}
+          </Menu>
+        );
+      })()}
+
       {ui && (
         <Box role="status" aria-live="polite" data-testid="drag-hint"
           sx={{ position: 'fixed', left: ui.x + 16, top: ui.y + 16, zIndex: 1500, pointerEvents: 'none', maxWidth: 320, p: '6px 10px', borderRadius: '8px', background: 'var(--c-surface)', border: '1px solid var(--c-border)', boxShadow: 'var(--e-3, 0 6px 16px rgba(0,0,0,.18))', fontSize: 12, lineHeight: 1.45 }}>
@@ -535,6 +607,12 @@ export function PlanGrid(props: {
               <b>{ui.keys.length > 1 ? `${ui.keys.length} units` : (() => { const u = units.get(ui.anchor); return u ? shortCode(u, orders.get(String(u.orderId))?.code) : ''; })()}</b>
               {' → '}{dragTarget === BACKLOG ? 'not planned' : dragTarget ? `${periods[pIdx.get(dragTarget) ?? 0]?.label} (${shortDate(periods[pIdx.get(dragTarget) ?? 0]?.start ?? '')})` : '…'}
               {dragNotes.length ? dragNotes.map((n) => <Box key={n} sx={{ color: 'var(--c-warning-800)' }}>⚠ {n}</Box>) : dragTarget && dragTarget !== BACKLOG ? <Box sx={{ color: 'var(--c-success-800)' }}>Fits — no conflicts</Box> : null}
+            </>
+          ) : ui.mode === 'stretch' ? (
+            <>
+              <b>{(() => { const u = units.get(ui.anchor); return u ? shortCode(u, orders.get(String(u.orderId))?.code) : ''; })()}</b>
+              {ui.reason ? '' : ui.start ? ` starts ${periods[pIdx.get(ui.start) ?? 0]?.label}` : ' back to the shortest bar'}
+              {ui.reason ? <Box sx={{ color: 'var(--c-warning-800)' }}>⚠ {ui.reason}</Box> : dragNotes.map((n) => <Box key={n} sx={{ color: 'var(--c-warning-800)' }}>⚠ {n}</Box>)}
             </>
           ) : ui.mode === 'rank' ? 'Drop to set its place in the line' : 'Drop to set the order’s priority'}
         </Box>

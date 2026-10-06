@@ -83,7 +83,9 @@ let writes = [];
 const props = { rows: rs, view, pending: m.NO_PENDING, busy: false, canEdit: () => true, canEditValues: () => true,
   onWrites: (w) => { writes = w; }, onMove: () => {}, dropRefusal: () => null, onToggle: () => {}, trailingCell: () => null, flowCell: () => null, markOf: () => null, placeholderOf: () => null };
 const root = createRoot(document.getElementById('app'));
-const render = (p = props) => React.act(() => root.render(React.createElement(m.BomGrid, p)));
+const { MemoryRouter } = await import('react-router-dom');
+// The grid links each row's name to its record, so it renders inside a router.
+const render = (p = props) => React.act(() => root.render(React.createElement(MemoryRouter, { initialEntries: ['/acme/cf_erp/definitions/1?tab=bom'] }, React.createElement(m.BomGrid, p))));
 const cell = (r, c) => document.querySelector(`[data-cell="${r}:${c}"]`);
 /** A data cell by its column key (strip layout puts a key in a different slot per row). */
 const cellKey = (r, key) => document.querySelector(`[data-cell^="${r}:"][data-col-key="${key}"]`);
@@ -208,7 +210,8 @@ await check('Edit icon opens an input; Enter saves the typed description', async
 });
 await check('Double-clicking the label opens it too, and Escape changes nothing', async () => {
   roleSaved = [];
-  const label = [...document.querySelectorAll('div')].find((d) => d.children.length === 0 && d.textContent === 'Row 4 · Girder G1');
+  // The name inside it is a link to the record; the rest of the label still opens the description.
+  const label = [...document.querySelectorAll('div')].find((d) => d.textContent === 'Row 4 · Girder G1' && d.querySelector(':scope > a'));
   await fire(label, 'dblclick');
   assert.ok(document.querySelector('input[aria-label="Description of Row 4"]'));
   await fire(document.querySelector('input[aria-label="Description of Row 4"]'), 'keydown', { key: 'Escape' });
@@ -225,6 +228,13 @@ const colView = { editable: true, optionLists: {}, groups: [{ columns: [
   { code: 'HOLED', name: 'Holed', dataType: 'boolean', rule: 'entered', editable: true },
 ], rows: rs.map((r) => ({ id: r.node.id, cells: r.node.id === 4 ? { LENGTH: { input: '1' } } : { LENGTH: { input: '2' } } })) }] };
 // The wide sheet ("Line up all columns"): one column per value, hatched where a row lacks it.
+await check('A row name opens its record and carries the way back to this BOM', async () => {
+  await render();
+  const links = [...document.querySelectorAll('a')].filter((a) => a.textContent === 'Row 2');
+  assert.equal(links.length, 1, 'Row 2 is a link');
+  assert.equal(links[0].getAttribute('href'), '/acme/cf_erp/items/2');
+  assert.ok(![...document.querySelectorAll('a')].some((a) => a.textContent === 'Row 1'), 'the record itself is not a link');
+});
 await React.act(() => root.render(null));
 localStorage.setItem('ui:sheetgrid.lineUp.bom-grid', 'true');
 // HOLED is declared by the group but no row has a cell for it: nobody can use it.

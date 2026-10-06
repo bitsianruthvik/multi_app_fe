@@ -3,6 +3,8 @@
  *
  *   evaluate(snapshot, plan, opts?)                  → Evaluation
  *   canPlace(snapshot, plan, unitKey, period, opts?) → { ok, reason?, earliest? }
+ *   canStretch(snapshot, plan, unitKey, start, opts?) → { ok, reason?, earliestStart? }
+ *   fastest(snapshot, plan, unitKey, opts?)          → the earliest ship week (period key) or null
  *   autoPlan(snapshot, plan, options?)               → { plan, notes }
  *   feedback(before, after)                          → string[]
  *
@@ -12,13 +14,13 @@ import { activeUnits, getModel } from './model';
 import { periodContaining } from './periods';
 import type { EngineOptions, Plan, PlannerSnapshot } from './types';
 
-export { evaluate, canPlace } from './evaluate';
+export { evaluate, canPlace, canStretch, fastest } from './evaluate';
 export { autoPlan } from './autoPlan';
 export { feedback } from './feedback';
 export { buildPeriods, periodContaining, monthShort, monthLong } from './periods';
 export { machineAreas, workingFunctions, areaUsage, functionUsage, usageBand, cellDrivers, AREA_MIN, AREA_MAX } from './areas';
 export type { MachineArea, AreaSet, UsageCell, UsageRow, Band } from './areas';
-export { dragTo, shiftBy, unplan, reorderKeys, rankLine, rankChanges } from './moves';
+export { dragTo, shiftBy, unplan, stretchTo, reorderKeys, rankLine, rankChanges } from './moves';
 export type { Ranks } from './moves';
 export type * from './types';
 
@@ -35,23 +37,28 @@ export function planFromEntries(snapshot: PlannerSnapshot): Plan {
   for (const [key, e] of Object.entries(snapshot.entries || {})) {
     if (!e?.shipDate) continue;
     const i = periodContaining(periods, e.shipDate.slice(0, 10));
-    if (i >= 0 && i < periods.length) out[key] = { period: periods[i].key, pinned: !!e.pinned };
+    if (i < 0 || i >= periods.length) continue;
+    out[key] = { period: periods[i].key, pinned: !!e.pinned };
+    const a = e.startDate ? periodContaining(periods, e.startDate.slice(0, 10)) : -1;
+    if (a >= 0 && a < i) out[key].start = periods[a].key;
   }
   return out;
 }
 
 /**
  * What to send to `PUT /planner/entries` to turn plan `before` into plan `after`
- * (shipDate = period start; null = unplan). Only changed rows.
+ * (shipDate = period start, startDate = a stretched bar's first week start; null = unplan). Only changed rows.
  */
-export function entriesDiff(snapshot: PlannerSnapshot, before: Plan, after: Plan): { unitKey: string; shipDate: string | null; pinned: boolean }[] {
+export function entriesDiff(snapshot: PlannerSnapshot, before: Plan, after: Plan): { unitKey: string; shipDate: string | null; startDate: string | null; pinned: boolean }[] {
   const start = new Map(snapshot.horizon.periods.map((p) => [p.key, p.start]));
-  const out: { unitKey: string; shipDate: string | null; pinned: boolean }[] = [];
+  const out: { unitKey: string; shipDate: string | null; startDate: string | null; pinned: boolean }[] = [];
   for (const [k, e] of Object.entries(after)) {
     const b = before[k];
-    if (!b || b.period !== e.period || b.pinned !== e.pinned) out.push({ unitKey: k, shipDate: start.get(e.period) ?? null, pinned: e.pinned });
+    if (!b || b.period !== e.period || b.pinned !== e.pinned || (b.start ?? null) !== (e.start ?? null)) {
+      out.push({ unitKey: k, shipDate: start.get(e.period) ?? null, startDate: e.start ? start.get(e.start) ?? null : null, pinned: e.pinned });
+    }
   }
-  for (const k of Object.keys(before)) if (!(k in after)) out.push({ unitKey: k, shipDate: null, pinned: false });
+  for (const k of Object.keys(before)) if (!(k in after)) out.push({ unitKey: k, shipDate: null, startDate: null, pinned: false });
   return out;
 }
 
