@@ -26,6 +26,8 @@ import { useUrlParam } from '../hooks/useUrlState';
 import { appPath } from '../navMeta';
 import { Badge, DetailSkeleton, ErrorNotice, Fact, KindChip, Mono, RuleBadge, SectionCard, SkeletonRows, StatusBadge } from '../components/ui';
 import { ShortNameField } from '../components/ShortNameField';
+import { SectionPicker } from '../components/SectionPicker';
+import { CUT_FROM_LABEL, cutFromWords, sectionSizeText, type CutFrom, type CutRef, type SectionSteel } from '../api/cutting';
 import { shortNameBody, shortNameText } from '../lib/shortName';
 import { CrossLink, DetailHeader, DetailLayout } from '../components/DetailLayout';
 import { EntityList, EntityRow } from '../components/EntityList';
@@ -106,7 +108,11 @@ function DetailsForm({ record, tree, canEdit, onSaved, onTreeChanged }: {
     defaultFlowId: record.defaultFlowId ?? null,
     listPrice: record.item?.listPrice == null ? '' : String(record.item.listPrice), priceBasis: (record.item?.priceBasis ?? 'unit') as PriceBasis,
     hsnCode: recordTax(record).hsn ?? '', gstRate: recordTax(record).rate == null ? '' : String(recordTax(record).rate), isService: recordTax(record).isService,
+    cutFrom: (record.cutFrom?.source === 'own' && record.cutFrom.value ? record.cutFrom.value : 'inherit') as CutFrom | 'inherit',
   });
+  /** The section this record names itself (null = it follows its definition), and the row last picked, for the steel shown. */
+  const [ownStock, setOwnStock] = useState<CutRef | null>(record.cutStock?.own ?? null);
+  const [pickedSteel, setPickedSteel] = useState<{ id: number; steel: SectionSteel } | null>(null);
   const rates = useLoad(() => getTaxSettings().then((t) => t.gstRates), []);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<CfApiError | null>(null);
@@ -118,6 +124,18 @@ function DetailsForm({ record, tree, canEdit, onSaved, onTreeChanged }: {
   // still takes a new "Usually made by" — and only that (user, 2026-09-30).
   const readOnly = !!record.frozen;
   const flowOnly = record.frozen?.reason === 'locked';
+  // CUT FROM (CF_ERP_CUT_FROM_PLAN.md §3): how its pieces are cut. Any definition or item that is made or cut; a selection only picks.
+  const cutShown = !isSelection;
+  const cutLocked = readOnly || !canEdit;
+  const cutAnswer = record.cutFrom ?? null;
+  // What Inherit gives: the effective answer when it is inherited already, else the server's `inherited` (own answer set).
+  const inheritedAnswer = cutAnswer ? (cutAnswer.source === 'own' ? cutAnswer.inherited ?? null : cutAnswer) : null;
+  const inheritedValue = inheritedAnswer?.value ?? null;
+  const effectiveCut: CutFrom | null = form.cutFrom === 'inherit' ? inheritedValue : form.cutFrom;
+  const stockFromDefinition = record.cutStock?.from === 'definition' ? record.cutStock.effective : null;
+  const shownStock: CutRef | null = ownStock ?? (stockFromDefinition ? { id: stockFromDefinition.id, code: stockFromDefinition.code, name: stockFromDefinition.name } : null);
+  const shownSteel: SectionSteel | null = pickedSteel && pickedSteel.id === shownStock?.id ? pickedSteel.steel
+    : record.cutStock?.effective && record.cutStock.effective.id === shownStock?.id ? record.cutStock.effective.steel ?? null : null;
   const save = async () => {
     setBusy(true);
     setError(null);
@@ -131,6 +149,11 @@ function DetailsForm({ record, tree, canEdit, onSaved, onTreeChanged }: {
     if (record.item) { body.uom = form.uom; body.trackedBy = form.trackedBy; if (!isTemp) body.sourcing = form.sourcing; if (!isTemp) { body.listPrice = form.listPrice.trim() === '' ? null : form.listPrice; body.priceBasis = form.priceBasis; } }
     if (taxable) { body.hsnCode = form.hsnCode.trim() || null; body.gstRate = form.gstRate === '' ? null : Number(form.gstRate); body.isService = form.isService; }
     if (!isSelection) body.defaultFlowId = form.defaultFlowId;
+    if (cutShown) {
+      const wasCut = record.cutFrom?.source === 'own' && record.cutFrom.value ? record.cutFrom.value : 'inherit';
+      if (form.cutFrom !== wasCut) body.cutFrom = form.cutFrom === 'inherit' ? null : form.cutFrom;
+      if ((ownStock?.id ?? null) !== (record.cutStock?.own?.id ?? null)) body.cutStockId = ownStock?.id ?? null;
+    }
     try { onSaved(await cfApi.put<MasterRecord>(`/records/${record.id}`, body)); } catch (e) { setError(e as CfApiError); } finally { setBusy(false); }
   };
   return (
@@ -186,6 +209,41 @@ function DetailsForm({ record, tree, canEdit, onSaved, onTreeChanged }: {
             </TextField>
             <FormControlLabel sx={{ gridColumn: '1 / -1', mt: -1 }} disabled={readOnly}
               control={<Checkbox size="small" checked={form.isService} onChange={(e) => setForm({ ...form, isService: e.target.checked })} />} label="This is a service (SAC, not HSN)" />
+          </>
+        )}
+        {cutShown && (
+          <>
+            <TextField select label="Cut from" disabled={cutLocked} value={form.cutFrom} sx={{ gridColumn: { md: effectiveCut === 'SECTION' ? '1 / 2' : '1 / -1' } }}
+              inputProps={{ 'data-testid': 'cut-from' }}
+              onChange={(e) => setForm({ ...form, cutFrom: e.target.value as CutFrom | 'inherit' })}
+              helperText={form.cutFrom === 'inherit'
+                ? (inheritedAnswer?.value ? `Follows: ${cutFromWords(inheritedAnswer)}` : 'Follows its definition or its classification.')
+                : `${CUT_FROM_LABEL[form.cutFrom]} — set on this ${record.recordKind === 'item' ? 'item' : 'definition'}`}>
+              <MenuItem value="inherit">Inherit{inheritedValue ? ` (${CUT_FROM_LABEL[inheritedValue]})` : ''}</MenuItem>
+              <MenuItem value="PLATE">{CUT_FROM_LABEL.PLATE}</MenuItem>
+              <MenuItem value="SECTION">{CUT_FROM_LABEL.SECTION}</MenuItem>
+              <MenuItem value="NONE">{CUT_FROM_LABEL.NONE}</MenuItem>
+            </TextField>
+            {effectiveCut === 'SECTION' && (
+              <Box sx={{ minWidth: 0 }}>
+                <SectionPicker value={shownStock} disabled={cutLocked} label="Section"
+                  onPick={(row) => {
+                    setOwnStock(row ? { id: row.id, code: row.code, name: row.name } : null);
+                    setPickedSteel(row ? { id: row.id, steel: { thickness: row.thickness, width: row.width, depth: row.depth, lengthMm: row.lengthMm, sectionArea: row.sectionArea, grade: row.grade } } : null);
+                  }}
+                  helperText={ownStock
+                    ? (record.recordKind === 'item' && record.sourceDefinition ? 'Set on this item. Clear it to follow its definition.' : 'Set here. Clear it to leave the section open.')
+                    : stockFromDefinition ? 'From its definition. Choose another to change it on this item only.' : 'The stock bar its pieces are cut to length from.'} />
+                {shownStock && (
+                  <Box data-testid="section-steel" sx={{ mt: 0.75, fontSize: 12.5, color: 'var(--c-text-2)' }}>
+                    {shownSteel ? [
+                      sectionSizeText(shownSteel),
+                      shownSteel.sectionArea ? `area ${shownSteel.sectionArea} mm²` : null,
+                    ].filter(Boolean).join(' · ') : <Mono muted>{shownStock.code ?? shownStock.name}</Mono>}
+                  </Box>
+                )}
+              </Box>
+            )}
           </>
         )}
         {!isSelection && (
@@ -378,6 +436,7 @@ export default function RecordDetail({ recordKind }: { recordKind: 'item' | 'def
           {(r.defaultFlow || r.definitionFlow) && (
             <Fact label="Made by"><FlowTag flow={r.defaultFlow ? { ...r.defaultFlow, from: 'item' } : { ...r.definitionFlow!, from: 'template' }} /></Fact>
           )}
+          {r.cutFrom?.value && r.cutFrom.value !== 'NONE' && <Fact label="Cut from">{CUT_FROM_LABEL[r.cutFrom.value]}{r.cutFrom.value === 'SECTION' && r.cutStock?.effective && <Mono muted> · {r.cutStock.effective.code ?? r.cutStock.effective.name}</Mono>}</Fact>}
           {isSelection && <Fact label="Picks from"><Mono>{picksFrom(r.counts)}</Mono></Fact>}
           {r.counts && r.definition?.definitionType === 'template' && <Fact label="Items created"><Mono>{r.counts.temporaryItems}</Mono></Fact>}
           <Fact label="Updated"><Mono muted>{new Date(r.updatedAt).toLocaleDateString()}</Mono></Fact>

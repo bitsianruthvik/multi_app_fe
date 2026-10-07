@@ -104,6 +104,7 @@ export const SECTIONS: NavSection[] = [
       { key: 'formulas', label: 'Formulas', path: 'formulas', permission: VIEW, keywords: ['calculation', 'roll-up', 'timing'] },
       { key: 'coding-rules', label: 'Coding rules', path: 'coding-rules', permission: VIEW, keywords: ['codes', 'numbering', 'names'] },
       { key: 'company-tax', label: 'Company tax details', path: 'company-tax', permission: ORDERS, keywords: ['gst', 'gstin', 'tax', 'hsn', 'invoice prefix', 'lut', 'rates'] },
+      { key: 'cutting', label: 'Cutting', path: 'cutting', permission: VIEW, keywords: ['cut from', 'plate', 'section', 'angle', 'beam', 'channel', 'saw', 'kerf', 'offcut', 'cut pieces', 'raw stock'] },
       { key: 'operators', label: 'Operators', path: 'operators', permission: PRODUCTION_MANAGE, keywords: ['people', 'workers', 'machine log', 'names'] },
       { key: 'stop-reasons', label: 'Stop reasons', path: 'stop-reasons', permission: PRODUCTION_MANAGE, keywords: ['downtime', 'breakdown', 'idle', 'machine log'] },
       // A process is how an order is worked through the office — never a flow,

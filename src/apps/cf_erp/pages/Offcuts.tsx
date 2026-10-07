@@ -26,7 +26,10 @@ const STATUS_HELP: Record<OffcutStatus, string> = {
 const STATUS_FAMILY: Record<OffcutStatus, Family> = { planned: 'info', available: 'success', used: 'neutral', scrapped: 'danger', returned: 'neutral' };
 
 const steelText = (o: Pick<Offcut, 'thickness' | 'grade'>) => [o.thickness != null ? `${o.thickness} mm` : null, o.grade].filter(Boolean).join(' ') || '—';
-const rectText = (o: Pick<Offcut, 'rect'>) => (o.rect ? `${Math.round(o.rect.length)} × ${Math.round(o.rect.width)}` : '—');
+const rectText = (o: Pick<Offcut, 'rect'> & Partial<Pick<Offcut, 'kind' | 'lengthMm'>>) => (o.kind === 'bar' && o.lengthMm ? `${Math.round(o.lengthMm)} long` : o.rect ? `${Math.round(o.rect.length)} × ${Math.round(o.rect.width)}` : '—');
+const KIND_CHIPS: [string, string][] = [['all', 'All kinds'], ['plate', 'Plates'], ['bar', 'Bars']];
+const KIND_LABEL = { plate: 'Plate', bar: 'Bar' } as const;
+const kindOf = (o: Pick<Offcut, 'kind'>): 'plate' | 'bar' => (o.kind === 'bar' ? 'bar' : 'plate');
 
 /** What GET /offcuts?paged=1 counts over every matching offcut. */
 interface OffcutCounts { status: Record<string, number> }
@@ -55,11 +58,13 @@ function OffcutDialog({ offcut, onClose, company }: { offcut: Offcut | null; onC
                 <Fact label="Weight">{kgText(offcut.weightKg)}</Fact>
                 <Fact label="Value">{offcut.value == null ? '—' : rupeeText(offcut.value)}</Fact>
                 <Fact label="Area">{`${(offcut.areaMm2 / 1e6).toFixed(3)} m²`}</Fact>
-                <Fact label="Clean rectangle">{rectText(offcut)}{offcut.rect ? ' mm' : ''}</Fact>
-                <Fact label="Bounding box">{offcut.bbox ? `${Math.round(offcut.bbox.length)} × ${Math.round(offcut.bbox.width)} mm` : '—'}</Fact>
+                <Fact label="Kind">{KIND_LABEL[kindOf(offcut)]}</Fact>
+                {offcut.kind === 'bar' && <Fact label="Length">{offcut.lengthMm ? `${Math.round(offcut.lengthMm).toLocaleString('en-IN')} mm` : '—'}</Fact>}
+                {offcut.kind !== 'bar' && <Fact label="Clean rectangle">{rectText(offcut)}{offcut.rect ? ' mm' : ''}</Fact>}
+                {offcut.kind !== 'bar' && <Fact label="Bounding box">{offcut.bbox ? `${Math.round(offcut.bbox.length)} × ${Math.round(offcut.bbox.width)} mm` : '—'}</Fact>}
                 <Fact label="Item">{offcut.item ? <Mono>{offcut.item.code ?? offcut.item.name}</Mono> : '—'}</Fact>
                 <Fact label="Order"><Link to={appPath(company, `orders/${offcut.origin.orderId}`)}><Mono>{offcut.origin.orderCode}</Mono></Link> · line {offcut.origin.lineNo}</Fact>
-                <Fact label="Nest"><Mono>{offcut.origin.lotNo}</Mono>{offcut.origin.plate.code && <> · plate <Mono>{offcut.origin.plate.code}</Mono></>}</Fact>
+                <Fact label="Nest"><Mono>{offcut.origin.lotNo}</Mono>{offcut.origin.plate?.code && <> · {offcut.kind === 'bar' ? 'bar' : 'plate'} <Mono>{offcut.origin.plate.code}</Mono></>}</Fact>
                 <Fact label="Batch">{offcut.batch ? <Link to={appPath(company, `batches/${offcut.batch.id}`)}><Mono>{offcut.batch.code}</Mono></Link> : 'Not cut yet'}</Fact>
               </Box>
             </Box>
@@ -74,6 +79,7 @@ function OffcutDialog({ offcut, onClose, company }: { offcut: Offcut | null; onC
 export default function Offcuts() {
   const company = useCompanySlug();
   const [status, setStatus] = useUrlParam('status', 'available');
+  const [kind, setKind] = useUrlParam('kind', 'all');
   const [thickness, setThickness] = useUrlParam('thickness', '');
   const [grade, setGrade] = useUrlParam('grade', '');
   const [search, setSearch] = useState('');
@@ -81,17 +87,18 @@ export default function Offcuts() {
   const debounced = useDebounced(search.trim());
   const dThickness = useDebounced(thickness.trim());
   const dGrade = useDebounced(grade.trim());
-  const list = usePagedList<Offcut, OffcutCounts>('/offcuts', { status, thickness: dThickness || undefined, grade: dGrade || undefined, search: debounced }, { defaultSort: { key: 'created', dir: 'desc' } });
+  const list = usePagedList<Offcut, OffcutCounts>('/offcuts', { status, kind: kind === 'all' ? undefined : kind, thickness: dThickness || undefined, grade: dGrade || undefined, search: debounced }, { defaultSort: { key: 'created', dir: 'desc' } });
   const counts = list.counts?.status;
-  const filtered = !!debounced || !!dThickness || !!dGrade;
+  const filtered = !!debounced || !!dThickness || !!dGrade || kind !== 'all';
 
   const columns: DataColumn<Offcut>[] = [
     { key: 'shape', header: 'Shape', render: (o) => <Box sx={{ py: 0.5 }}><OffcutShape offcut={o} width={120} height={60} /></Box>, alwaysVisible: true },
     { key: 'offcutNo', header: 'Offcut', render: (o) => <Mono chip>{o.offcutNo}</Mono>, sortValue: (o) => o.offcutNo, exportValue: (o) => o.offcutNo },
+    { key: 'kind', header: 'Kind', render: (o) => <Badge family="neutral" label={KIND_LABEL[kindOf(o)]} noIcon />, sortValue: (o) => kindOf(o), exportValue: (o) => KIND_LABEL[kindOf(o)] },
     { key: 'steel', header: 'Steel', render: (o) => steelText(o), sortValue: (o) => o.thickness, exportValue: (o) => steelText(o) },
     { key: 'weight', header: 'Weight', numeric: true, render: (o) => <Mono>{kgText(o.weightKg)}</Mono>, sortValue: (o) => o.weightKg, exportValue: (o) => o.weightKg ?? '' },
     { key: 'value', header: 'Value', numeric: true, render: (o) => <Mono>{o.value == null ? '—' : rupeeText(o.value)}</Mono>, sortValue: (o) => o.value, exportValue: (o) => o.value ?? '' },
-    { key: 'rect', header: 'Clean rectangle', render: (o) => <Mono>{rectText(o)}</Mono>, exportValue: (o) => rectText(o) },
+    { key: 'rect', header: 'Size', render: (o) => <Mono>{rectText(o)}</Mono>, exportValue: (o) => rectText(o) },
     {
       key: 'origin', header: 'From', exportValue: (o) => `${o.origin.orderCode} ${o.origin.lotNo}`,
       render: (o) => (
@@ -106,9 +113,10 @@ export default function Offcuts() {
 
   return (
     <Box>
-      <PageHeader title="Offcuts" subtitle="What is left of a cut plate, kept as stock with the drawing of its shape — so the next nest can use it." />
+      <PageHeader title="Offcuts" subtitle="What is left of a cut plate or a cut bar, kept as stock — so the next nest can use it. A plate shows the drawing of its shape; a bar shows its length." />
       <FilterBar search={search} onSearch={setSearch} placeholder="Search offcut no, order or nest">
         {STATUS_CHIPS.map(([v, label]) => <FacetChip key={v} label={label} active={status === v} count={counts?.[v]} onClick={() => setStatus(v)} />)}
+        {KIND_CHIPS.map(([v, label]) => <FacetChip key={`kind-${v}`} label={label} active={kind === v} onClick={() => setKind(v)} />)}
         <Box component="input" aria-label="Thickness (mm)" placeholder="Thickness mm" value={thickness} onChange={(e: ChangeEvent<HTMLInputElement>) => setThickness(e.target.value)} inputMode="decimal" sx={{ ...inputSx, width: 120 }} />
         <Box component="input" aria-label="Grade" placeholder="Grade e.g. E350" value={grade} onChange={(e: ChangeEvent<HTMLInputElement>) => setGrade(e.target.value)} sx={{ ...inputSx, width: 140 }} />
       </FilterBar>
@@ -117,8 +125,8 @@ export default function Offcuts() {
         server={{ ...list.server, sortable: SERVER_SORT }}
         storageKey="offcuts" exportName="offcuts" defaultSortKey="created" defaultSortDir="desc"
         empty={<EmptyState icon={<ContentCutRounded />} title={filtered ? 'No offcut matches' : 'No offcuts here'}
-          hint={filtered ? 'Clear the search, thickness or grade.' : 'Offcuts appear when a nested plate is cut.'}
-          action={filtered ? <Button onClick={() => { setSearch(''); setThickness(''); setGrade(''); }}>Clear filters</Button> : status !== 'all' ? <Button onClick={() => setStatus('all')}>Show every status</Button> : undefined} />} />
+          hint={filtered ? 'Clear the search, kind, thickness or grade.' : 'Offcuts appear when a nested plate or bar is cut.'}
+          action={filtered ? <Button onClick={() => { setSearch(''); setThickness(''); setGrade(''); setKind('all'); }}>Clear filters</Button> : status !== 'all' ? <Button onClick={() => setStatus('all')}>Show every status</Button> : undefined} />} />
       <OffcutDialog offcut={open} onClose={() => setOpen(null)} company={company} />
     </Box>
   );

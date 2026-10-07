@@ -42,6 +42,7 @@ import { NestSheetDialog } from './NestSheetDialog';
 import { NestMoney } from './NestMoney';
 import { CutPiecesButton } from './CutPiecesDialog';
 import { NestRunCard, NestRunLog } from './NestRunCard';
+import { SectionNestingPanel } from './SectionNestingPanel';
 
 /**
  * THE NESTING SCREEN — a sales order line's rectangles laid out on real plates.
@@ -395,7 +396,7 @@ function PlatesToUse({ choice, kinds, editable, busy, onPick }: {
   );
 }
 
-export function NestingPanel({ orderId, lineId, canManage, canEditCatalog = false, onChanged }: {
+function PlateNestingPanel({ orderId, lineId, canManage, canEditCatalog = false, onChanged }: {
   orderId: number;
   lineId: number;
   /** The sales-order grant. Without it the screen is a look, and says so. */
@@ -1030,6 +1031,26 @@ export function NestingPanel({ orderId, lineId, canManage, canEditCatalog = fals
 
       <NestSheetDialog open={!!sheet} fileName={sheet?.name ?? ''} result={sheet?.result ?? null}
         busy={fileBusy === 'save'} onClose={() => setSheet(null)} onSave={saveSheet} />
+    </Box>
+  );
+}
+
+/**
+ * The Nesting stage: plates first, then the Sections part (parts cut to length
+ * from stock bars — CF_ERP_CUT_FROM_PLAN.md §4). The sections part reads its own
+ * answer and says so in one line when the line has no section parts.
+ */
+export function NestingPanel(props: {
+  orderId: number;
+  lineId: number;
+  canManage: boolean;
+  canEditCatalog?: boolean;
+  onChanged?: () => void;
+}) {
+  return (
+    <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 2, minWidth: 0 }}>
+      <PlateNestingPanel {...props} />
+      <SectionNestingPanel orderId={props.orderId} lineId={props.lineId} canManage={props.canManage} onChanged={props.onChanged} />
     </Box>
   );
 }

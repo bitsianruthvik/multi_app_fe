@@ -51,6 +51,8 @@ const ordinal = (n: number) => {
 const when = (iso: string) => new Date(iso).toLocaleString(undefined, { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 /** How many of a check's sentences show before "Show all". */
 const SHOWN = 4;
+/** The checks whose sentences are listed one by one (the others say their problem in the detail). The cut ones list the parts they found. */
+const LISTED_KEYS = new Set(['structure', 'codes', 'cut_method', 'section_parts', 'cut_places']);
 
 /** A tinted note, the stage screens' way of saying something without taking anything away. */
 function Callout({ tone, icon, children }: { tone: 'success' | 'info' | 'warning'; icon?: ReactNode; children: ReactNode }) {
@@ -68,13 +70,14 @@ function Callout({ tone, icon, children }: { tone: 'success' | 'info' | 'warning
 /** One check: a mark that is never colour alone, what it looked at, what it found, and what to do. */
 function CheckRow({ check, stageLabel, onGo }: { check: LockCheck; stageLabel: string | null; onGo: (() => void) | null }) {
   const [all, setAll] = useState(false);
-  const state = !check.applies ? 'na' : check.ok ? 'ok' : 'todo';
+  // A warning-only check never holds the freeze up: it is shown, in the same amber, as a heads-up.
+  const state = !check.applies ? 'na' : check.warning && (!check.ok || (check.problems?.length ?? 0) > 0) ? 'warn' : check.ok ? 'ok' : 'todo';
   const Icon = state === 'ok' ? CheckCircleRounded : state === 'na' ? RemoveCircleOutlineRounded : ErrorOutlineRounded;
   const colour = state === 'ok' ? 'var(--c-success-600)' : state === 'na' ? 'var(--c-text-3)' : 'var(--c-warning-600)';
-  const word = state === 'ok' ? 'Done' : state === 'na' ? 'Not needed' : 'To do';
+  const word = state === 'ok' ? 'Done' : state === 'na' ? 'Not needed' : state === 'warn' ? 'Heads up' : 'To do';
   // The values, cut-piece and line checks say their problem in the detail
   // itself; the structure and the codes list theirs, one sentence each.
-  const extra = check.key === 'structure' || check.key === 'codes' ? check.problems : [];
+  const extra = LISTED_KEYS.has(check.key) ? check.problems ?? [] : [];
   const listed = all ? extra : extra.slice(0, SHOWN);
   return (
     <Box component="li" sx={{
@@ -100,7 +103,7 @@ function CheckRow({ check, stageLabel, onGo }: { check: LockCheck; stageLabel: s
             </Button>
           </Box>
         )}
-        {state === 'todo' && (check.todo || onGo) && (
+        {(state === 'todo' || state === 'warn') && (check.todo || onGo) && (
           <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap', mt: 0.25 }}>
             {check.todo && <Typography sx={{ fontSize: 13, color: 'var(--c-text)', flex: '1 1 240px', minWidth: 0 }}>{check.todo}</Typography>}
             {onGo && stageLabel && (
@@ -239,7 +242,7 @@ export function LockPanel({ lineId, lineNo, quantity, canManage, stages, onGoSta
       ? `Line position ${pos.text} — the only line of this design on ${view.line.orderCode}.`
       : `Line position ${pos.text} — the ${ordinal(pos.value)} of the ${plural(pos.lines, 'line')} selling this design on ${view.line.orderCode}.`
     : null;
-  const failing = view.checks.filter((ch) => ch.applies && !ch.ok).length;
+  const failing = view.checks.filter((ch) => ch.applies && !ch.ok && !ch.warning).length;
 
   const lock = async () => {
     const out = await lockLine(lineId);

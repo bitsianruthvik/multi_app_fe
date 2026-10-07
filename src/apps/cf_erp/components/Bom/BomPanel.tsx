@@ -22,6 +22,8 @@ import type { BomType, Flow, StructureNode } from '../../api/types';
 import type { BomChangesResponse } from '../../api/bomChanges';
 import { placeholderTitle, positionCodeTitle } from '../../api/placeholders';
 import { cutPiecesNote } from '../../api/cutPieces';
+import { saveCutOnRecord } from '../../api/cutting';
+import { SectionCell } from '../SectionPicker';
 import { cfApi, CfApiError } from '../../api/client';
 import { applyBomSheet, downloadBomSheet, fileToBase64, previewBomSheet, type BomSheetResult } from '../../api/bomSheet';
 import { useCompanySlug, useLoad } from '../../hooks/useLoad';
@@ -711,7 +713,33 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
   const choiceCell = (row: BomRow) => {
     const editable = !row.paste && !dirty && !busy && !removedKeys.has(row.node.key) && !goneKeys.has(row.node.key) && mayEdit(row.parent, row.bomType);
     const why = row.paste ? undefined : dirty ? 'Save or cancel the changes first, then choose.' : flowsOnly ? 'The design is frozen.' : whyNotLine(row) || undefined;
-    return <ChoiceCell node={row.node} editable={editable} why={why} onChoose={setChoosing} />;
+    return <><ChoiceCell node={row.node} editable={editable} why={why} onChoose={setChoosing} />{cutCell(row)}</>;
+  };
+  /**
+   * HOW A PART IS CUT, on its row (CF_ERP_CUT_FROM_PLAN.md §7): a quiet "Plate" tag, or for a section part the
+   * section it is cut from — a picker that writes the row's item (PUT /records/:id { cutStockId }) and refreshes
+   * the grid like any other inline edit.
+   */
+  const cutCell = (row: BomRow) => {
+    const n = row.node;
+    if (row.paste || !n.cutFrom || n.cutFrom === 'NONE') return null;
+    if (n.cutFrom === 'PLATE') {
+      return <Box component="span" data-testid="cut-from-tag" title="Cut flat from a plate" sx={{ fontSize: 10.5, lineHeight: '16px', px: 0.75, borderRadius: 'var(--r-sm)', background: 'var(--c-surface-3)', color: 'var(--c-text-3)', whiteSpace: 'nowrap' }}>Plate</Box>;
+    }
+    const editable = !dirty && !busy && !removedKeys.has(n.key) && !goneKeys.has(n.key) && (orderGrid ? editOn && mine(n) : mayEditValues(n));
+    const why = dirty ? 'Save or cancel the changes first.' : flowsOnly ? 'The design is frozen.' : 'Open this item to change its section.';
+    return (
+      <SectionCell value={n.cutStock ?? null} editable={editable} why={why}
+        onPick={async (picked) => {
+          try {
+            await saveCutOnRecord(n.id, { cutStockId: picked?.id ?? null });
+            toast.success(picked ? `Section set to ${picked.code ?? picked.name}.` : 'Section cleared.');
+            bom.reload();
+            if (orderGrid) gridValues.reload(); else void values.refreshAll();
+            onChanged?.();
+          } catch (e) { toast.error(e instanceof CfApiError ? e.message : 'The section could not be saved.'); throw e; }
+        }} />
+    );
   };
 
   const doDownloadSheet = async () => {

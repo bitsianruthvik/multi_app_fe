@@ -2,7 +2,18 @@ import { Box } from '@mui/material';
 import type { Offcut } from '../api/types';
 import { outlinePath } from '../lib/offcutShape';
 
-export function OffcutShape({ offcut, width = 120, height = 60, title }: { offcut: Pick<Offcut, 'outline' | 'bbox' | 'rect'>; width?: number; height?: number; title?: string }) {
+/** What is left of a stock bar has no outline: it is a length, drawn as a bar. */
+function BarShape({ width, height, title, lengthMm }: { width: number; height: number; title?: string; lengthMm: number }) {
+  const h = Math.min(height, 14);
+  return (
+    <svg data-testid="offcut-bar" role="img" aria-label={title ?? `Bar offcut, ${Math.round(lengthMm)} mm`} width={width} height={height} viewBox={`0 0 ${width} ${height}`} style={{ display: 'block' }}>
+      <rect x={1} y={(height - h) / 2} width={width - 2} height={h} rx={2} fill="var(--c-primary-100)" stroke="var(--c-primary-600)" strokeWidth={1.5} />
+    </svg>
+  );
+}
+
+export function OffcutShape({ offcut, width = 120, height = 60, title }: { offcut: Pick<Offcut, 'outline' | 'bbox' | 'rect'> & Partial<Pick<Offcut, 'kind' | 'lengthMm'>>; width?: number; height?: number; title?: string }) {
+  if (offcut.kind === 'bar' && offcut.lengthMm && !(offcut.outline ?? []).length) return <BarShape width={width} height={height} title={title} lengthMm={offcut.lengthMm} />;
   const rings = (offcut.outline ?? []).filter((r) => Array.isArray(r) && r.length >= 3);
   const pts = rings.flat();
   const bbox = offcut.bbox ?? (pts.length

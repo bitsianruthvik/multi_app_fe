@@ -19,7 +19,7 @@ import type { SalesOrderLine } from './types';
 
 /** One thing lock checks, in words — what it found, and what to do about it. */
 export interface LockCheck {
-  key: 'line' | 'values' | 'structure' | 'cut_pieces' | 'codes' | string;
+  key: 'line' | 'values' | 'structure' | 'cut_pieces' | 'codes' | 'cut_method' | 'section_parts' | 'cut_places' | string;
   ok: boolean;
   /** False when there is nothing of this kind on the line — e.g. no plate parts to cut. */
   applies: boolean;
@@ -28,6 +28,8 @@ export interface LockCheck {
   todo?: string | null;
   /** The stage where it is put right. */
   stageKey?: string;
+  /** A heads-up that never stops the freeze (e.g. a line with parts where none makes a cut piece). Shown amber, not counted as in the way. */
+  warning?: boolean;
   /** Every sentence lock would refuse with for this check. */
   problems: string[];
 }

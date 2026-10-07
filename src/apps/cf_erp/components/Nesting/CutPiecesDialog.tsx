@@ -37,7 +37,7 @@ export function CutPiecesButton({ lineId, lineNo, count, canManage, onChanged, o
   const [open, setOpen] = useCutPiecesOpen();
   return (
     <>
-      <Tooltip title="The rectangles this line's plate parts are cut as — made automatically from the parts and their values.">
+      <Tooltip title="The rectangles and lengths this line's plate and section parts are cut as — made automatically from the parts and their values.">
         <Button variant={variant} startIcon={<ContentCutRounded />} onClick={() => setOpen(true)} data-testid="cut-pieces-button">
           {cutPiecesLabel(count)}
         </Button>

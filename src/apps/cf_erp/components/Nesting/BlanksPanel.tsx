@@ -38,6 +38,11 @@ import { useToast } from '../toastContext';
  */
 type Blank = {
   id: number;
+  /** 'plate' (a rectangle off a plate) or 'section' (a length off a stock bar). Older answers have none: a plate. */
+  kind?: 'plate' | 'section';
+  /** A section cut piece: the section it is cut from and its length. */
+  section?: { id: number; code: string | null; name: string | null } | null;
+  lengthMm?: number | null;
   code: string | null;
   name: string | null;
   size: { thickness: number | null; length: number | null; width: number | null; grade: string | null };
@@ -174,8 +179,12 @@ export function BlanksPanel({ lineId, canManage, onChanged, onGoValues, embedded
   const waiting = !!values && !values.complete;
   const unsized = (view?.partsWithoutBlank ?? []).filter((p) => p.missing.length > 0);
   const noParts = view?.parts === 0;
-  const parts = (blanks ?? []).reduce((a, b) => a + (Number(b.partCount) || 0), 0);
-  const nested = (blanks ?? []).length > 0 && (blanks ?? []).every((b) => b.plateQuantityBasis === 'nesting');
+  const plates = (blanks ?? []).filter((b) => b.kind !== 'section');
+  const sections = (blanks ?? []).filter((b) => b.kind === 'section');
+  const parts = plates.reduce((a, b) => a + (Number(b.partCount) || 0), 0);
+  const sectionParts = sections.reduce((a, b) => a + (Number(b.partCount) || 0), 0);
+  const nested = plates.length > 0 && plates.every((b) => b.plateQuantityBasis === 'nesting');
+  const sectionsNested = sections.length > 0 && sections.every((b) => b.plateQuantityBasis === 'nesting');
   const qty = (v: number | null) => (v == null ? '—' : Number(v).toFixed(4));
   const toValues = <Button size="small" variant="outlined" color="inherit" onClick={goValues}>Go to the values</Button>;
 
@@ -209,7 +218,7 @@ export function BlanksPanel({ lineId, canManage, onChanged, onGoValues, embedded
       ) : null}
 
       {noParts && !error ? (
-        <EmptyState icon={<ContentCutRounded />} title="Nothing to cut" hint="This line has no plate parts, so it has no cut pieces." />
+        <EmptyState icon={<ContentCutRounded />} title="Nothing to cut" hint="This line has no parts cut from a plate or from a section, so it has no cut pieces." />
       ) : null}
 
       {blanks && blanks.length === 0 && !noParts && !error ? (
@@ -222,11 +231,12 @@ export function BlanksPanel({ lineId, canManage, onChanged, onGoValues, embedded
         />
       ) : null}
 
-      {blanks && blanks.length > 0 ? (
+      {plates.length > 0 ? (
         <>
+          {sections.length > 0 && <Typography component="h3" sx={{ fontSize: 14, fontWeight: 600, mb: 1 }} data-testid="plate-blanks-title">Cut from plates</Typography>}
           <Stack direction="row" spacing={3} useFlexGap sx={{ mb: 2, flexWrap: 'wrap', rowGap: 1, alignItems: 'center' }}>
             <Typography variant="body2" color="text.secondary">
-              <Mono>{blanks.length}</Mono> rectangles pooled from <Mono>{parts}</Mono> parts
+              <Mono>{plates.length}</Mono> rectangles pooled from <Mono>{parts}</Mono> parts
             </Typography>
             {view?.lastMadeAt && (
               <Typography variant="body2" color="text.secondary" title={new Date(view.lastMadeAt).toLocaleString()}>
@@ -255,7 +265,7 @@ export function BlanksPanel({ lineId, canManage, onChanged, onGoValues, embedded
               </Box>
             </Box>
             <Box component="tbody">
-              {blanks.map((b) => (
+              {plates.map((b) => (
                 <Box component="tr" key={b.id} sx={{ borderTop: '1px solid', borderColor: 'divider' }}>
                   <Box component="td" sx={{ py: 0.5 }}><Mono>{b.code ?? '—'}</Mono></Box>
                   <Box component="td"><Mono>{mm(b.size?.thickness)}</Mono></Box>
@@ -271,6 +281,46 @@ export function BlanksPanel({ lineId, canManage, onChanged, onGoValues, embedded
           </Box>
           </Box>
         </>
+      ) : null}
+
+      {sections.length > 0 ? (
+        <Box data-testid="section-blanks" sx={{ mt: plates.length > 0 ? 3 : 0 }}>
+          <Typography component="h3" sx={{ fontSize: 14, fontWeight: 600, mb: 1 }}>Cut from sections</Typography>
+          <Stack direction="row" spacing={3} useFlexGap sx={{ mb: 2, flexWrap: 'wrap', rowGap: 1, alignItems: 'center' }}>
+            <Typography variant="body2" color="text.secondary">
+              <Mono>{sections.length}</Mono> lengths pooled from <Mono>{sectionParts}</Mono> parts
+            </Typography>
+            {sectionsNested
+              ? <Badge family="success" label="Bar quantities come from the accepted nesting" />
+              : <Badge family="info" label="Bar quantities are an estimate until nesting replaces them" />}
+          </Stack>
+          <Box sx={{ overflowX: 'auto', maxWidth: '100%' }}>
+            <Box component="table" sx={{ width: '100%', minWidth: 640, borderCollapse: 'collapse', fontSize: 14, whiteSpace: 'nowrap' }}>
+              <Box component="thead">
+                <Box component="tr" sx={{ textAlign: 'left', color: 'text.secondary' }}>
+                  <Box component="th" sx={{ py: 0.5 }}>Code</Box>
+                  <Box component="th">Section</Box>
+                  <Box component="th" sx={{ textAlign: 'right' }}>Length</Box>
+                  <Box component="th" sx={{ pl: 2 }}>Grade</Box>
+                  <Box component="th" sx={{ textAlign: 'right' }} title="How many different parts are cut to this length">Parts</Box>
+                  <Box component="th" sx={{ textAlign: 'right' }} title="Bars per length">Bar qty</Box>
+                </Box>
+              </Box>
+              <Box component="tbody">
+                {sections.map((b) => (
+                  <Box component="tr" key={b.id} sx={{ borderTop: '1px solid', borderColor: 'divider' }}>
+                    <Box component="td" sx={{ py: 0.5 }}><Mono>{b.code ?? '—'}</Mono></Box>
+                    <Box component="td" title={b.section?.name ?? undefined}><Mono>{b.section?.code ?? b.section?.name ?? '—'}</Mono></Box>
+                    <Box component="td" sx={{ textAlign: 'right' }}><Mono>{mm(b.lengthMm ?? b.size?.length)}</Mono></Box>
+                    <Box component="td" sx={{ pl: 2 }}>{b.size?.grade ?? '—'}</Box>
+                    <Box component="td" sx={{ textAlign: 'right' }}><Mono>{b.partCount}</Mono></Box>
+                    <Box component="td" sx={{ textAlign: 'right' }} title={b.note ?? undefined}><Mono>{qty(b.plateQuantity)}</Mono></Box>
+                  </Box>
+                ))}
+              </Box>
+            </Box>
+          </Box>
+        </Box>
       ) : null}
     </>
   );

@@ -1,5 +1,6 @@
 import type { PriceBasis, StockOwner } from './money';
 import type { GstRegistration, LineTax, OrderTax, PurchaseTax } from './gst';
+import type { CutFrom, CutFromAnswer, CutRef, CutStockAnswer } from './cutting';
 /** Shapes returned by the cf_erp backend (apps/cf_erp/services). */
 
 export type DataType = 'number' | 'text' | 'boolean' | 'date' | 'option' | 'table';
@@ -263,6 +264,10 @@ export interface MasterRecord {
   /** The flow it is usually made by, and — for a temporary item without one — its template's. */
   defaultFlow?: FlowRef | null;
   definitionFlow?: FlowRef | null;
+  /** How its pieces are cut, and where that answer comes from (GET /records/:id). */
+  cutFrom?: CutFromAnswer | null;
+  /** The section it is cut from: its own, or its definition's. */
+  cutStock?: CutStockAnswer | null;
 }
 
 /** GET /records?paged=1 → counts: over EVERY match, never the loaded page (masterRecordService.listRecords). */
@@ -455,6 +460,9 @@ export interface StructureNode {
   autoChosen?: boolean;
   /** A selection under a cut plate: the raw plate NESTING chooses — never "to choose" on the structure. */
   underCutPlate?: boolean;
+  /** How this row's pieces are cut (effective), and the section it is cut from. */
+  cutFrom?: CutFrom | null;
+  cutStock?: CutRef | null;
   flow: EffectiveFlow | null;
   bom: { id: number; bomType: BomType; status: RecordStatus; revision: string | null } | null;
   children: StructureNode[];
@@ -1927,6 +1935,10 @@ export type OutlineRing = [number, number][];
 export interface Offcut {
   id: number;
   offcutNo: string;
+  /** A plate drop, or what is left of a stock bar. */
+  kind?: 'plate' | 'bar';
+  /** A bar offcut's length. */
+  lengthMm?: number | null;
   status: OffcutStatus;
   thickness: number | null;
   grade: string | null;
