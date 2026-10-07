@@ -99,7 +99,7 @@ await check('Wording: no user-facing "Lock the line" / "Locked" / "Go to Lock" l
   }
   assert.deepEqual(bad, []);
   const panel = await readFile('src/apps/cf_erp/components/Lock/LockPanel.tsx', 'utf8');
-  assert.match(panel, /Freeze the design/); assert.match(panel, /Frozen on/);
+  assert.match(panel, /Freeze the design/); assert.match(panel, /<strong>Frozen /);
 });
 
 await check('Confirm action: a waitingOn with action confirm shows "Confirm the order" and opens the date dialog', async () => {

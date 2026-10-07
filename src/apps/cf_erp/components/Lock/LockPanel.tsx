@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Box, Button, LinearProgress, Typography } from '@mui/material';
+import { Box, Button, LinearProgress, ListItemText, Menu, MenuItem, Tooltip, Typography } from '@mui/material';
 import LockRounded from '@mui/icons-material/LockRounded';
 import CheckCircleRounded from '@mui/icons-material/CheckCircleRounded';
 import ErrorOutlineRounded from '@mui/icons-material/ErrorOutlineRounded';
 import RemoveCircleOutlineRounded from '@mui/icons-material/RemoveCircleOutlineRounded';
 import AccountTreeRounded from '@mui/icons-material/AccountTreeRounded';
 import ArrowForwardRounded from '@mui/icons-material/ArrowForwardRounded';
+import DownloadRounded from '@mui/icons-material/DownloadRounded';
+import InfoOutlined from '@mui/icons-material/InfoOutlined';
 import { CfApiError } from '../../api/client';
 import { loadLock, lockLine, type LockCheck, type LockView } from '../../api/lock';
 import type { PieceCodesPreview } from '../../api/pieceCodes';
@@ -19,6 +21,8 @@ import { indexPieces } from '../Production/pieceCodeModel';
 import { PieceCodeTree } from '../Production/PieceCodeTree';
 import { Working } from '../WorkingNote';
 import { knownLineSize, lockCheckingText, lockRecheckText, pieceTreeText, rememberLineSize } from '../../lib/working';
+import { saveCsv, saveXlsx } from '../../lib/dashboardExport';
+import { bomFileStem, pieceBomTable } from '../../lib/pieceBomExport';
 
 /**
  * The Lock stage (user, 2026-09-26): "Based on the BOM and the values, the
@@ -109,21 +113,41 @@ function CheckRow({ check, stageLabel, onGo }: { check: LockCheck; stageLabel: s
   );
 }
 
-/** The locked or to-be-locked pieces, as the Piece codes card draws them — only on request. */
-function PiecesCard({ lineId, locked, summary }: { lineId: number; locked: boolean; summary: LockView['summary'] }) {
+/**
+ * The BOM the line builds — every piece and group of identical parts with its code, as the Piece
+ * codes tree draws them — shown on request (a two-span bridge is ~6,000 pieces), and downloadable
+ * whole as Excel or CSV. `header` goes above it: the frozen strip, once the line is frozen.
+ */
+function BomCard({ lineId, lineNo, orderCode, locked, summary, title, header }: {
+  lineId: number; lineNo: number; orderCode: string; locked: boolean; summary: LockView['summary']; title: string; header?: ReactNode;
+}) {
   type Load = { status: 'idle' | 'loading' | 'done' | 'failed'; data: LockView | null; error: CfApiError | null };
   const [load, setLoad] = useState<Load>({ status: 'idle', data: null, error: null });
+  const [shown, setShown] = useState(false);
   const [query, setQuery] = useState('');
+  const [menu, setMenu] = useState<HTMLElement | null>(null);
   const alive = useRef(true);
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
-  const run = async () => {
-    setLoad((s) => ({ ...s, status: 'loading', error: null }));
+  /** The tree, read once and kept. */
+  const fetchNodes = async (): Promise<LockView | null> => {
+    if (load.data) return load.data;
+    setLoad((st) => ({ ...st, status: 'loading', error: null }));
     try {
       const data = await loadLock(lineId, { nodes: true });
       if (alive.current) setLoad({ status: 'done', data, error: null });
+      return data;
     } catch (e) {
-      if (alive.current) setLoad((s) => ({ ...s, status: 'failed', error: e instanceof CfApiError ? e : new CfApiError(0, String(e)) }));
+      if (alive.current) setLoad((st) => ({ ...st, status: 'failed', error: e instanceof CfApiError ? e : new CfApiError(0, String(e)) }));
+      return null;
     }
+  };
+  const download = async (as: 'xlsx' | 'csv') => {
+    setMenu(null);
+    const d = await fetchNodes();
+    if (!d) return;
+    const table = pieceBomTable(d.nodes, d.items);
+    const stem = bomFileStem(orderCode, lineNo);
+    if (as === 'xlsx') saveXlsx(stem, [table]); else saveCsv(stem, table);
   };
   // The Piece codes tree reads the release preview's shape; the lock view is that shape plus its own facts.
   const preview = useMemo<PieceCodesPreview | null>(() => {
@@ -136,25 +160,40 @@ function PiecesCard({ lineId, locked, summary }: { lineId: number; locked: boole
   }, [load.data]);
   const ix = useMemo(() => (preview ? indexPieces(preview) : null), [preview]);
   const loading = load.status === 'loading';
+  const none = summary.nodes === 0;
 
   return (
-    <SectionCard title={locked ? 'The frozen pieces' : 'The pieces freezing will write'}
-      subtitle={locked ? 'Every piece as it was written, with the code it carries.' : 'Every piece, with the code it gets when the line is frozen. Nothing is written by looking.'}
-      actions={!preview
-        ? <Button variant="outlined" startIcon={<AccountTreeRounded />} onClick={run} disabled={loading || summary.nodes === 0}>{loading ? 'Working out…' : 'Show the pieces'}</Button>
-        : undefined}>
+    <SectionCard title={title}
+      actions={(
+        <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+          <Button variant="outlined" startIcon={<AccountTreeRounded />} disabled={loading || none} data-testid="bom-toggle"
+            onClick={() => { if (shown) setShown(false); else { setShown(true); void fetchNodes(); } }}>
+            {shown ? 'Hide the BOM' : 'Show the full BOM'}
+          </Button>
+          <Button variant="outlined" startIcon={<DownloadRounded />} disabled={loading || none} data-testid="bom-download"
+            aria-haspopup="menu" aria-expanded={!!menu} onClick={(e) => setMenu(e.currentTarget)}>Download</Button>
+          <Menu anchorEl={menu} open={!!menu} onClose={() => setMenu(null)} slotProps={{ list: { 'aria-label': 'Download the BOM', dense: true } }}>
+            <MenuItem data-testid="bom-download-xlsx" onClick={() => { void download('xlsx'); }}>
+              <ListItemText primary="Excel workbook (.xlsx)" secondary={`${plural(summary.nodes, 'row')} — every piece with its code`} />
+            </MenuItem>
+            <MenuItem data-testid="bom-download-csv" onClick={() => { void download('csv'); }}>
+              <ListItemText primary="CSV" secondary="The same rows, for any spreadsheet" />
+            </MenuItem>
+          </Menu>
+        </Box>
+      )}>
       <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 1.5 }}>
-        <ErrorNotice error={load.error} onRetry={run} sx={{ mb: 0 }} />
+        {header}
+        <ErrorNotice error={load.error} onRetry={() => { void fetchNodes(); }} sx={{ mb: 0 }} />
         {loading && <LinearProgress aria-label="Working out the pieces" sx={{ borderRadius: 2 }} />}
         <Working active={loading}>{pieceTreeText(summary.nodes || knownLineSize(lineId).pieces, 'pieces')}</Working>
-        {!preview && !loading && (
+        {!header && (
           <Typography sx={{ fontSize: 13.5, color: 'var(--c-text-2)' }}>
-            {summary.nodes === 0
-              ? 'There are no pieces to show yet.'
-              : `${plural(summary.nodes, 'piece')} — ${count(summary.pieces)} numbered one by one, ${plural(summary.groups, 'group')} of identical parts, one code a group. A big line takes a few seconds to show.`}
+            {none ? 'There are no pieces to show yet.'
+              : `${plural(summary.nodes, 'piece')}${locked ? '' : ' will be written'} — ${count(summary.pieces)} numbered one by one, ${plural(summary.groups, 'group')} of identical parts.`}
           </Typography>
         )}
-        {preview && ix && <PieceCodeTree data={preview} ix={ix} query={query} onQueryChange={setQuery} />}
+        {shown && preview && ix && <PieceCodeTree data={preview} ix={ix} query={query} onQueryChange={setQuery} />}
       </Box>
     </SectionCard>
   );
@@ -210,20 +249,32 @@ export function LockPanel({ lineId, lineNo, quantity, canManage, stages, onGoSta
     onChanged();
   };
 
-  let body: ReactNode;
+  // Frozen (user, 2026-10-07: "just too busy"): one strip says it all; the BOM card carries it.
   if (view.locked) {
-    body = (
-      <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 1.5 }}>
-        <Callout tone="success" icon={<LockRounded />}>
-          <Box>
-            <strong>Frozen on {when(view.locked.at)}</strong>{view.locked.by?.name ? ` by ${view.locked.by.name}` : ''}.{' '}
-            {plural(view.locked.pieces, 'piece')} carry their codes{pos ? `, at line position ${pos.text}` : ''}.
-          </Box>
-          <Box>Its structure, values and cut pieces stay as they are now. Nesting, buying and production carry on from these pieces. A change from here on is a new revision of the order.</Box>
-        </Callout>
+    const strip = (
+      <Callout tone="success" icon={<LockRounded />}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexWrap: 'wrap' }} data-testid="frozen-strip">
+          <strong>Frozen {when(view.locked.at)}</strong>
+          {view.locked.by?.name && <span>by {view.locked.by.name}</span>}
+          <span>· {plural(view.locked.pieces, 'piece')} coded{pos ? ` · line position ${pos.text}` : ''}</span>
+          <span>· changes now need a new revision</span>
+          <Tooltip title="Freezing rolled the design out into pieces, each with its own code. The structure, values and cut pieces stay as they are; nesting, buying and production work from these pieces.">
+            <InfoOutlined sx={{ fontSize: 16, ml: 0.25, cursor: 'help', color: 'var(--c-success-700)' }} aria-label="What freezing did" />
+          </Tooltip>
+        </Box>
+      </Callout>
+    );
+    return (
+      <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 2, minWidth: 0 }}>
+        <ErrorNotice error={error} onRetry={reload} sx={{ mb: 0 }} />
+        <BomCard key={`${lineId}:${round}:locked`} lineId={lineId} lineNo={lineNo} orderCode={view.line.orderCode} locked summary={s}
+          title={`Line ${lineNo} · ${view.line.item?.name ?? 'its structure'} ×${view.line.quantity}`} header={strip} />
       </Box>
     );
-  } else {
+  }
+
+  let body: ReactNode;
+  {
     body = (
       <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 1.5 }}>
         {view.released && (
@@ -259,11 +310,9 @@ export function LockPanel({ lineId, lineNo, quantity, canManage, stages, onGoSta
 
   return (
     <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 2, minWidth: 0 }}>
-      <SectionCard title={view.locked ? `Line ${lineNo} is frozen` : `Freeze the design of line ${lineNo}`}
-        subtitle={view.locked
-          ? `${view.line.item?.name ?? 'Its structure'} ×${view.line.quantity}, rolled out into its pieces.`
-          : 'Freezing the design rolls the structure out into pieces, each with its own code. After that its structure, values and cut pieces no longer change — a change means a new revision of the order.'}
-        actions={!view.locked && canManage
+      <SectionCard title={`Freeze the design of line ${lineNo}`}
+        subtitle="Freezing the design rolls the structure out into pieces, each with its own code. After that its structure, values and cut pieces no longer change — a change means a new revision of the order."
+        actions={canManage
           ? <Button variant="contained" startIcon={<LockRounded />} disabled={!view.canLock || loading} onClick={() => setConfirming(true)}>Freeze the design</Button>
           : undefined}>
         <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 1.5 }}>
@@ -273,7 +322,7 @@ export function LockPanel({ lineId, lineNo, quantity, canManage, stages, onGoSta
           {body}
         </Box>
       </SectionCard>
-      <PiecesCard key={`${lineId}:${round}:${view.locked ? 'locked' : 'plan'}`} lineId={lineId} locked={!!view.locked} summary={s} />
+      <BomCard key={`${lineId}:${round}:plan`} lineId={lineId} lineNo={lineNo} orderCode={view.line.orderCode} locked={false} summary={s} title="The BOM freezing will build" />
       <ConfirmDialog open={confirming} title={`Freeze the design of line ${lineNo}?`} confirmLabel="Freeze the design"
         onClose={() => setConfirming(false)} onConfirm={lock}
         body={(
