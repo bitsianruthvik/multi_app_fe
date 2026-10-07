@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Box, Button, CircularProgress, IconButton, Tooltip, Typography } from '@mui/material';
+import SwapHorizRounded from '@mui/icons-material/SwapHorizRounded';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import AddRounded from '@mui/icons-material/AddRounded';
 import EditRounded from '@mui/icons-material/EditRounded';
@@ -23,13 +24,14 @@ import { appPath } from '../navMeta';
 import { CapsLabel, DetailSkeleton, ErrorNotice, Fact, KindChip, Mono, SectionCard, StatusBadge, Surface } from '../components/ui';
 import { CrossLink, DetailHeader, DetailLayout } from '../components/DetailLayout';
 import { EntityList, EntityRow } from '../components/EntityList';
-import { FlowDialog, StepDialog, WaitDialog } from '../components/FlowDialogs';
+import { FlowDialog, ReplaceStepDialog, StepDialog, WaitDialog } from '../components/FlowDialogs';
+import { replacedText } from '../lib/production';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { useDetailTitle } from '../components/shell/detailTitle';
 import { useToast } from '../components/toastContext';
 
-function StepCard({ step, editable, onMove, onEdit, onRemove, onAddWait, onRemoveWait }: {
-  step: FlowStep; editable: boolean; onMove: (dir: 'up' | 'down') => void; onEdit: () => void; onRemove: () => void; onAddWait: () => void; onRemoveWait: (id: number) => void;
+function StepCard({ step, editable, onMove, onEdit, onReplace, onRemove, onAddWait, onRemoveWait }: {
+  step: FlowStep; editable: boolean; onMove: (dir: 'up' | 'down') => void; onEdit: () => void; onReplace: () => void; onRemove: () => void; onAddWait: () => void; onRemoveWait: (id: number) => void;
 }) {
   const company = useCompanySlug();
   return (
@@ -46,6 +48,7 @@ function StepCard({ step, editable, onMove, onEdit, onRemove, onAddWait, onRemov
           <Box sx={{ display: 'flex', flexShrink: 0 }}>
             <IconButton size="small" aria-label={`Move step ${step.operation.code} up`} onClick={() => onMove('up')}><ArrowUpwardRounded fontSize="small" /></IconButton>
             <IconButton size="small" aria-label={`Move step ${step.operation.code} down`} onClick={() => onMove('down')}><ArrowDownwardRounded fontSize="small" /></IconButton>
+            <Tooltip title="Replace the operation"><IconButton size="small" aria-label={`Replace operation of step ${step.operation.code}`} onClick={onReplace}><SwapHorizRounded fontSize="small" /></IconButton></Tooltip>
             <IconButton size="small" aria-label={`Edit step ${step.operation.code}`} onClick={onEdit}><EditRounded fontSize="small" /></IconButton>
             <IconButton size="small" aria-label={`Remove step ${step.operation.code}`} onClick={onRemove}><DeleteOutlineRounded fontSize="small" /></IconButton>
           </Box>
@@ -82,6 +85,7 @@ export default function FlowDetail() {
   const [step, setStep] = useState<{ open: boolean; step: FlowStep | null }>({ open: false, step: null });
   const [waitFor, setWaitFor] = useState<FlowStep | null>(null);
   const [removing, setRemoving] = useState<FlowStep | null>(null);
+  const [replacing, setReplacing] = useState<FlowStep | null>(null);
   const [confirm, setConfirm] = useState<'delete' | 'obsolete' | 'revise' | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [actionError, setActionError] = useState<CfApiError | null>(null);
@@ -164,7 +168,7 @@ export default function FlowDetail() {
                     {g.steps.length > 1 && <CapsLabel>{g.steps.length} steps alongside</CapsLabel>}
                     <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', mt: g.steps.length > 1 ? 0.5 : 0 }}>
                       {g.steps.map((s) => (
-                        <StepCard key={s.id} step={s} editable={editable} onMove={(d) => moveStep(s.id, d)} onEdit={() => setStep({ open: true, step: s })} onRemove={() => setRemoving(s)}
+                        <StepCard key={s.id} step={s} editable={editable} onMove={(d) => moveStep(s.id, d)} onEdit={() => setStep({ open: true, step: s })} onReplace={() => setReplacing(s)} onRemove={() => setRemoving(s)}
                           onAddWait={() => setWaitFor(s)} onRemoveWait={removeWait} />
                       ))}
                     </Box>
@@ -192,6 +196,7 @@ export default function FlowDetail() {
 
       <FlowDialog open={editing} existing={f} onClose={() => setEditing(false)} onSaved={(saved) => { fl.setData(saved); toast.success('Saved.'); }} />
       <StepDialog open={step.open} flow={f} existing={step.step} onClose={() => setStep({ open: false, step: null })} onSaved={(saved) => { fl.setData(saved); toast.success('Step saved.'); }} />
+      <ReplaceStepDialog open={!!replacing} step={replacing} onClose={() => setReplacing(null)} onSaved={(r) => { fl.setData(r.flow); toast.success(replacedText(r.replaced)); }} />
       <WaitDialog open={!!waitFor} step={waitFor} onClose={() => setWaitFor(null)} onSaved={(saved) => { fl.setData(saved); toast.success('Wait added.'); }} />
       <ConfirmDialog open={!!removing} danger confirmLabel="Remove step" title="Remove this step?" entityName={removing ? `${f.code} · step ${removing.sequence} · ${removing.operation.code}` : undefined}
         body="Its wait rules go with it. Other steps that wait for this operation keep their rules." onClose={() => setRemoving(null)}

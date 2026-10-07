@@ -4,7 +4,7 @@ import {
   ToggleButton, ToggleButtonGroup, Typography,
 } from '@mui/material';
 import { cfApi, CfApiError } from '../api/client';
-import type { Flow, FlowDetail, FlowStep, MasterRecord, Operation, WaitRelation } from '../api/types';
+import type { Flow, FlowDetail, FlowStep, MasterRecord, Operation, StepReplaced, WaitRelation } from '../api/types';
 import { useLoad } from '../hooks/useLoad';
 import { RELATION_HELP, RELATION_LABEL } from '../lib/production';
 import { RecordPicker } from './RecordPicker';
@@ -89,7 +89,8 @@ export function StepDialog({ open, flow, existing, onClose, onSaved }: { open: b
   const next = (flow.steps.reduce((m, st) => Math.max(m, st.sequence), 0) || 0) + 10;
   const body = { sequence: sequence === '' ? null : Number(sequence), stepName: stepName || null, notes: notes || null };
   const blocked = !existing && !operationId;
-  const save = () => s.run(() => (existing ? cfApi.put<FlowDetail>(`/flow-steps/${existing.id}`, operationId !== existing.operation.id ? { ...body, operationId } : body) : cfApi.post<FlowDetail>(`/flows/${flow.id}/steps`, { ...body, operationId })));
+  // An existing step changes its operation through Replace (ReplaceStepDialog), which carries what hangs off it.
+  const save = () => s.run(() => (existing ? cfApi.put<FlowDetail>(`/flow-steps/${existing.id}`, body) : cfApi.post<FlowDetail>(`/flows/${flow.id}/steps`, { ...body, operationId })));
   return (
     <Dialog open={open} onClose={() => !s.busy && onClose()} maxWidth="sm" fullWidth onKeyDown={enterSubmits(save, s.busy || blocked)}>
       <DialogHeader title={existing ? `Step ${existing.sequence}: ${existing.operation.name}` : 'Add a step'} onClose={onClose} busy={s.busy}
@@ -97,9 +98,9 @@ export function StepDialog({ open, flow, existing, onClose, onSaved }: { open: b
       <DialogContent>
         <ErrorNotice error={s.error} />
         <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', sm: 'minmax(0, 1fr) 140px' }, gap: 2, pt: 0.5 }}>
-          <Autocomplete size="small" options={options} value={options.find((o) => o.id === operationId) ?? null}
+          <Autocomplete size="small" options={options} value={options.find((o) => o.id === operationId) ?? null} disabled={!!existing}
             getOptionLabel={(o) => `${o.code} · ${o.name}`} isOptionEqualToValue={(a, b) => a.id === b.id} onChange={(_, o) => setOperationId(o?.id ?? null)}
-            renderInput={(p) => <TextField {...p} label="Operation" autoFocus={!existing} helperText={existing ? (operationId !== existing.operation.id ? 'Changed here only if nothing released to production uses this step — otherwise add a new step instead' : 'Pick another operation to change it')
+            renderInput={(p) => <TextField {...p} label="Operation" autoFocus={!existing} helperText={existing ? 'To change it, use Replace (⇄) on the step'
                 : passes(operationId) > 0
                   ? `Already in this flow ${passes(operationId)}x — this adds another pass`
                   : 'An operation may appear more than once — give each pass its own sequence'} />} />
@@ -110,6 +111,41 @@ export function StepDialog({ open, flow, existing, onClose, onSaved }: { open: b
         </Box>
       </DialogContent>
       <Actions busy={s.busy} onClose={onClose} label={existing ? 'Save step' : 'Add step'} disabled={blocked} onSave={save} />
+    </Dialog>
+  );
+}
+
+/**
+ * Replace the operation of one step (POST /flow-steps/:id/replace). The step keeps its number,
+ * name and waits; lines already released keep the old operation; time overrides and contractor
+ * assignments of the rest move to the new one.
+ */
+export function ReplaceStepDialog({ open, step, onClose, onSaved }: { open: boolean; step: FlowStep | null; onClose: () => void; onSaved: (r: { flow: FlowDetail; replaced: StepReplaced }) => void }) {
+  const ops = useLoad(() => (open ? cfApi.get<Operation[]>('/operations?status=active') : Promise.resolve([] as Operation[])), [open]);
+  const [operationId, setOperationId] = useState<number | null>(null);
+  const s = useSave<{ flow: FlowDetail; replaced: StepReplaced }>(onSaved, onClose);
+  useEffect(() => {
+    if (open) { s.setError(null); setOperationId(null); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, step?.id]);
+  const options = (ops.data ?? []).filter((o) => o.id !== step?.operation.id);
+  const save = () => step && operationId && s.run(() => cfApi.post<{ flow: FlowDetail; replaced: StepReplaced }>(`/flow-steps/${step.id}/replace`, { operationId }));
+  return (
+    <Dialog open={open} onClose={() => !s.busy && onClose()} maxWidth="sm" fullWidth onKeyDown={enterSubmits(save, s.busy || !operationId)}>
+      <DialogHeader title={step ? `Replace ${step.operation.name}` : 'Replace'} onClose={onClose} busy={s.busy}
+        subtitle={step ? `Step ${step.sequence}${step.stepName ? ` · ${step.stepName}` : ''} keeps its place, name and waits.` : undefined} />
+      <DialogContent>
+        <ErrorNotice error={s.error} />
+        <Box sx={{ display: 'grid', gap: 2, pt: 0.5 }}>
+          <Autocomplete size="small" options={options} value={options.find((o) => o.id === operationId) ?? null} loading={ops.loading}
+            getOptionLabel={(o) => `${o.code} · ${o.name}`} isOptionEqualToValue={(a, b) => a.id === b.id} onChange={(_, o) => setOperationId(o?.id ?? null)}
+            renderInput={(p) => <TextField {...p} label="Replace with" autoFocus inputProps={{ ...p.inputProps, 'data-testid': 'replace-operation' }} />} />
+          <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>
+            Orders already released keep {step?.operation.code ?? 'the old operation'}. Everything not yet released uses the new one, and their time overrides and contractor assignments move with it.
+          </Typography>
+        </Box>
+      </DialogContent>
+      <Actions busy={s.busy} onClose={onClose} label="Replace" disabled={!operationId} onSave={save} />
     </Dialog>
   );
 }

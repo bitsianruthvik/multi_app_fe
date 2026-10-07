@@ -1,4 +1,4 @@
-import type { EffectiveFlow, TimeView, TimingSubject, WaitRelation } from '../api/types';
+import type { EffectiveFlow, TimeView, TimingSubject, WaitRelation, StepReplaced } from '../api/types';
 
 /** Minutes as people say them: 45 min, 1 h 20 min. */
 export function minutesText(minutes: number | null | undefined): string {
@@ -42,3 +42,15 @@ const FLOW_FROM: Record<EffectiveFlow['from'], string> = {
   template: 'its template’s usual flow',
 };
 export const flowFromText = (f: EffectiveFlow) => FLOW_FROM[f.from];
+
+/** The toast after a replace, in plain words. */
+export function replacedText(r: StepReplaced): string {
+  const parts = [`${r.from?.code ?? 'The step'} replaced by ${r.to.code}.`];
+  if (r.released) parts.push(`${r.released} released step${r.released === 1 ? '' : 's'} keep${r.released === 1 ? 's' : ''} ${r.from?.code ?? 'the old one'}.`);
+  const moved = r.overridesMoved + r.cellsMoved;
+  if (moved) parts.push(`Moved over: ${[r.overridesMoved ? `${r.overridesMoved} time override${r.overridesMoved === 1 ? '' : 's'}` : '', r.cellsMoved ? `${r.cellsMoved} contractor assignment${r.cellsMoved === 1 ? '' : 's'}` : ''].filter(Boolean).join(' and ')}.`);
+  if (r.kept) parts.push(`${r.kept} left on ${r.from?.code} (the row already had one for ${r.to.code}).`);
+  if (r.waitsNaming) parts.push(`${r.waitsNaming} wait rule${r.waitsNaming === 1 ? '' : 's'} elsewhere still name${r.waitsNaming === 1 ? 's' : ''} ${r.from?.code} — check them.`);
+  return parts.join(' ');
+}
+

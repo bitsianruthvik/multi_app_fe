@@ -716,6 +716,20 @@ export interface FlowStep {
   waits: WaitRule[];
 }
 
+/** POST /flow-steps/:id/replace — what moved with the new operation. */
+export interface StepReplaced {
+  from: { id: number; code: string; name: string } | null;
+  to: { id: number; code: string; name: string };
+  /** Production steps already released from this step: they keep the old operation. */
+  released: number;
+  overridesMoved: number;
+  cellsMoved: number;
+  /** Entries left on the old operation because the row already had one for the new. */
+  kept: number;
+  /** Wait rules anywhere that name the old operation (not changed). */
+  waitsNaming: number;
+}
+
 export interface Flow {
   id: number;
   code: string;
