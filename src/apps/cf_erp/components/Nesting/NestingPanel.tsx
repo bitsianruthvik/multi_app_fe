@@ -41,6 +41,7 @@ import { WasteBar } from './WasteBar';
 import { NestSheetDialog } from './NestSheetDialog';
 import { NestMoney } from './NestMoney';
 import { CutPiecesButton } from './CutPiecesDialog';
+import { DrawingsButton } from './DrawingsDialog';
 import { NestRunCard, NestRunLog } from './NestRunCard';
 import { SectionNestingPanel } from './SectionNestingPanel';
 
@@ -708,6 +709,7 @@ function PlateNestingPanel({ orderId, lineId, canManage, canEditCatalog = false,
             {/* The cut pieces are not a stage (2026-10-02): their list opens here, over the layout. */}
             <CutPiecesButton lineId={lineId} lineNo={plan.line.lineNo} count={cutPieceCount} canManage={canManage}
               onChanged={() => { saved.reload(); onChanged?.(); }} />
+            <DrawingsButton orderId={orderId} lineId={lineId} canManage={canManage} onChanged={onChanged} />
             <Tooltip title="The nests as a sheet. Fill it from your nesting program and upload it back.">
               <span>
                 <Button variant="outlined" disabled={fileBusy != null || locked} onClick={downloadSheet}
