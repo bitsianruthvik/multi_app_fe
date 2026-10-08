@@ -32,6 +32,15 @@ import type { NavSection, CountMetaMap } from '@shared/ui';
 
 const ORG = 'cf_hrms_org_view';
 const PEOPLE = 'cf_hrms_people_view';
+/**
+ * The self view (appendix §A3, last row: "Employee · self only"). It is the one
+ * tag that grants a person something about THEMSELVES, and for a shop-floor
+ * employee it is the only tag they hold — so "My place" is the only entry they
+ * see anywhere in this file, and every section below disappears for them
+ * (`TopNav` shows a section only when the user can reach at least one screen in
+ * it). `routes.tsx` sends such a login straight here instead of to Home.
+ */
+const SELF = 'cf_hrms_self_view';
 const ROLES = 'cf_hrms_roles_manage';
 const ATTENDANCE = 'cf_hrms_attendance_view';
 const LEAVE = 'cf_hrms_leave_view';
@@ -64,6 +73,18 @@ export const SECTIONS: NavSection[] = [
     label: 'Home',
     screens: [
       { key: 'home', label: 'Home', path: 'home', keywords: ['cockpit', 'today', 'what needs me', 'dashboard'] },
+      /**
+       * "My place" sits in the Home section rather than in a section of its own
+       * on purpose. For an HR user it is one more thing on the home row — their
+       * own record, beside everyone else's work. For an employee it is the ONLY
+       * reachable screen in the app, and a lone section labelled "You" holding a
+       * single entry would be a menu with one item in it.
+       *
+       * The Home screen itself has no permission (everyone can reach it), so an
+       * employee would otherwise land on an HR cockpit with every card hidden.
+       * `routes.tsx` redirects them here instead — see `SelfOnlyRedirect` there.
+       */
+      { key: 'my-place', label: 'My place', path: 'my-place', permission: SELF, keywords: ['me', 'my job', 'my manager', 'who do i report to', 'my team', 'my responsibilities', 'self', 'profile'] },
     ],
   },
 

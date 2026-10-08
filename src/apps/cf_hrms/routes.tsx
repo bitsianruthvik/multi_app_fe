@@ -1,10 +1,15 @@
 import React, { lazy } from 'react';
 import { Navigate, useParams } from 'react-router-dom';
 import type { RouteObject } from 'react-router-dom';
+import { useIsPermitted } from '@shared/ui';
 import { RequireAppAccess } from '@core/components/RequireAppAccess';
 import { CfHrmsShell } from './components/shell/CfHrmsShell';
 
 const Home = lazy(() => import('./pages/Home'));
+
+// The employee self view — the fourth world (appendix §A3). Not lazy-grouped
+// with anything else: for a shop-floor login it is the only chunk they load.
+const MyPlace = lazy(() => import('./pages/MyPlace'));
 
 // Organisation (DEFINE)
 const OrgChart = lazy(() => import('./pages/OrgChart'));
@@ -73,9 +78,50 @@ export function getCfHrmsRoutes(
     </ProtectedRoute>
   );
 
+  /**
+   * Where a login should land.
+   *
+   * `Home` is the HR cockpit and carries NO permission tag, so without this an
+   * employee holding only `cf_hrms_self_view` would land on it: a page of
+   * work-queue cards, every one of them permission-gated away, under a nav with
+   * nothing in it. `GET /overview/home` answers 200 with `counts: {}` for them,
+   * so it would not even show an error — just an empty screen, which is the one
+   * outcome this feature must not produce.
+   *
+   * The test is "does this person have any HR screen to land on at all", not
+   * "are they an employee": an HR executive who also holds the self view still
+   * belongs on Home. The seven tags below are every tag that gates a screen in
+   * navMeta.ts; the four Access screens are gated on the admin role name
+   * instead, and an admin holds all seven of these anyway.
+   */
+  function useSelfOnly(): boolean {
+    const permitted = useIsPermitted();
+    const hasAnyHrScreen = [
+      'cf_hrms_org_view',
+      'cf_hrms_people_view',
+      'cf_hrms_roles_manage',
+      'cf_hrms_attendance_view',
+      'cf_hrms_leave_view',
+      'cf_hrms_documents_generate',
+      'cf_hrms_import_manage',
+    ].some((tag) => permitted(tag));
+    return permitted('cf_hrms_self_view') && !hasAnyHrScreen;
+  }
+
   function ToHome() {
     const { company } = useParams<{ company: string }>();
-    return <Navigate to={`/${company}/cf_hrms/home`} replace />;
+    const selfOnly = useSelfOnly();
+    return <Navigate to={`/${company}/cf_hrms/${selfOnly ? 'my-place' : 'home'}`} replace />;
+  }
+
+  /**
+   * The Home route itself. An employee who types the URL, follows a bookmark or
+   * clicks the brand mark gets their own place rather than an empty cockpit.
+   */
+  function HomeOrMyPlace() {
+    const { company } = useParams<{ company: string }>();
+    if (useSelfOnly()) return <Navigate to={`/${company}/cf_hrms/my-place`} replace />;
+    return <Home />;
   }
 
   /**
@@ -95,7 +141,13 @@ export function getCfHrmsRoutes(
   return [
     { path: '/:company/cf_hrms', element: <ToHome /> },
     { path: '/:company/cf_hrms/dashboard', element: <ToHome /> },
-    { path: '/:company/cf_hrms/home', element: wrap(<Home />) },
+    { path: '/:company/cf_hrms/home', element: wrap(<HomeOrMyPlace />) },
+
+    // The fourth world: the signed-in person's own place. Inside the same shell
+    // as everything else — an employee gets the real app, with one entry in it,
+    // not a stripped-down variant (appendix §A3: "fewer nav entries, never
+    // different components").
+    { path: '/:company/cf_hrms/my-place', element: wrap(<MyPlace />) },
 
     // Organisation (DEFINE) — Roles lives here: a role is part of what the
     // organisation IS, not a world of its own.
