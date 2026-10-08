@@ -72,7 +72,25 @@ A role sees **fewer cockpit cards and fewer nav entries — never different comp
 | **HR executive** | STAFF + RUN | Home | attendance, leave, documents, regularisation |
 | **Line manager / supervisor** | RUN | Home, filtered to their own reports | marks attendance, approves leave, sees their team's gaps |
 | **Management** | DEFINE, read-only | Org chart | looks at structure, vacancies and manpower |
-| **Employee** (future) | self only | their own profile | their JD, their leave, their attendance |
+| **Employee** (live 2026-10-08) | self only | **My place** — redirected there from Home | sees their own seats, who they report into, their team, their responsibilities |
+
+**The Employee is now the most common reader of this app, and the one the rest of the IA was not
+written for.** 71 of Karni's 72 logins are employees holding one tag, `cf_hrms_self_view`, and
+nothing else. That changes two assumptions above:
+
+- **"Lands on Home" does not apply to them.** Home carries no permission tag, and its cockpit
+  endpoint answers **200 with empty counts** rather than 403 — so an employee sent there sees a
+  blank page and no error. `routes.tsx` redirects `/home` and `/dashboard` to `/my-place` for a
+  login that holds the self tag and none of the seven HR screen tags. Any new landing surface must
+  make the same check; a screen that is merely empty for someone is worse than one that refuses.
+- **They get no cross-links.** Every `CrossLink` in this app points at a screen an employee is
+  403'd from, so My place deliberately links nowhere. A "view in org chart" affordance would be a
+  dead end for the majority of users.
+
+Reporting lines on that screen are **drawn, not captioned** — primary solid, scoped dashed amber
+with a plain-English chip, plain dotted dashed grey. That grey is `--c-text-3`, not `--c-border`:
+in dark mode `--c-border` is `rgba(255,255,255,.09)` and a dashed edge in it is invisible, so a
+dotted line would have read as solid. Worth remembering for any dashed border in this app.
 
 ## A4. Home — the cockpit (§4.1), and what it must not be
 
