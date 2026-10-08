@@ -116,6 +116,9 @@ function DetailsForm({ record, tree, canEdit, onSaved, onTreeChanged }: {
   const rates = useLoad(() => getTaxSettings().then((t) => t.gstRates), []);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<CfApiError | null>(null);
+  const toast = useToast();
+  /** A new flow may have added values its operations read — say which. */
+  const saved = (r: MasterRecord) => { if (r.flowSpecs?.words) toast.info(r.flowSpecs.words); onSaved(r); };
   const isTemp = record.item?.itemType === 'temporary';
   const isSelection = record.definition?.definitionType === 'selection';
   // HSN / SAC and the GST rate live on a catalog item and on a template — what an order line is priced from.
@@ -140,7 +143,7 @@ function DetailsForm({ record, tree, canEdit, onSaved, onTreeChanged }: {
     setBusy(true);
     setError(null);
     if (flowOnly) {
-      try { onSaved(await cfApi.put<MasterRecord>(`/records/${record.id}`, { defaultFlowId: form.defaultFlowId })); } catch (e) { setError(e as CfApiError); } finally { setBusy(false); }
+      try { saved(await cfApi.put<MasterRecord>(`/records/${record.id}`, { defaultFlowId: form.defaultFlowId })); } catch (e) { setError(e as CfApiError); } finally { setBusy(false); }
       return;
     }
     const body: Record<string, unknown> = { name: form.name, description: form.description || null, ...shortNameBody(form.shortName, form.noShortName) };
@@ -154,7 +157,7 @@ function DetailsForm({ record, tree, canEdit, onSaved, onTreeChanged }: {
       if (form.cutFrom !== wasCut) body.cutFrom = form.cutFrom === 'inherit' ? null : form.cutFrom;
       if ((ownStock?.id ?? null) !== (record.cutStock?.own?.id ?? null)) body.cutStockId = ownStock?.id ?? null;
     }
-    try { onSaved(await cfApi.put<MasterRecord>(`/records/${record.id}`, body)); } catch (e) { setError(e as CfApiError); } finally { setBusy(false); }
+    try { saved(await cfApi.put<MasterRecord>(`/records/${record.id}`, body)); } catch (e) { setError(e as CfApiError); } finally { setBusy(false); }
   };
   return (
     <SectionCard title="Details" sx={{ maxWidth: 880 }}>

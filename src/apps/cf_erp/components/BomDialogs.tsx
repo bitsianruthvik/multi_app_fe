@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Alert, Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, Link, TextField, Typography } from '@mui/material';
 import { cfApi, CfApiError, LONG_WRITE_MS } from '../api/client';
-import type { Kind, MasterRecord } from '../api/types';
+import type { FlowSpecsResult, Kind, MasterRecord } from '../api/types';
+import { useToast } from './toastContext';
 import { useIsPermitted } from '../hooks/useIsPermitted';
 import { bomPermission } from '../lib/orders';
 import { ErrorNotice, Mono } from './ui';
@@ -40,6 +41,7 @@ export function AddChildDialog({
   onDone: () => void;
 }) {
   const allowed = useIsPermitted()(bomPermission(custom));
+  const toast = useToast();
   const [child, setChild] = useState<MasterRecord | null>(null);
   const [quantity, setQuantity] = useState('1');
   const [flowId, setFlowId] = useState<number | null>(null);
@@ -50,7 +52,8 @@ export function AddChildDialog({
   const save = async () => {
     setBusy(true); setError(null);
     try {
-      await cfApi.post(`/records/${parentId}/bom/lines`, { childId: child?.id ?? null, quantity, operationFlowId: child?.kind === 'selection' ? null : flowId }, { timeoutMs: LONG_WRITE_MS });
+      const res = await cfApi.post<{ flowSpecs?: FlowSpecsResult }>(`/records/${parentId}/bom/lines`, { childId: child?.id ?? null, quantity, operationFlowId: child?.kind === 'selection' ? null : flowId }, { timeoutMs: LONG_WRITE_MS });
+      if (res?.flowSpecs?.words) toast.info(res.flowSpecs.words);
       setBusy(false); onDone(); onClose();
     } catch (e) {
       setBusy(false);
@@ -109,6 +112,7 @@ export function EditLineDialog({
   onDone: () => void;
 }) {
   const allowed = useIsPermitted()(bomPermission(custom));
+  const toast = useToast();
   const [q, setQ] = useState('');
   const [r, setR] = useState('');
   const [f, setF] = useState<number | null>(null);
@@ -120,7 +124,8 @@ export function EditLineDialog({
   const save = async () => {
     setBusy(true); setError(null);
     try {
-      await cfApi.put(`/bom-lines/${lineId}`, { quantity: q, role: r || null, ...(canHaveFlow ? { operationFlowId: f } : {}) });
+      const res = await cfApi.put<{ flowSpecs?: FlowSpecsResult }>(`/bom-lines/${lineId}`, { quantity: q, role: r || null, ...(canHaveFlow ? { operationFlowId: f } : {}) });
+      if (res?.flowSpecs?.words) toast.info(res.flowSpecs.words);
       setBusy(false); onDone(); onClose();
     } catch (e) { setBusy(false); setError(e as CfApiError); }
   };

@@ -206,7 +206,11 @@ export interface Resolution {
   frozen?: Frozen | null;
 }
 
+/** What a save that chose a flow added: the values that flow's operations read, now required (flowSpecService). */
+export interface FlowSpecsResult { words: string | null }
+
 export interface MasterRecord {
+  flowSpecs?: FlowSpecsResult | null;
   id: number;
   recordKind: 'item' | 'definition';
   kind: Kind;
