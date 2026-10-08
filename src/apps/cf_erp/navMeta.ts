@@ -101,7 +101,7 @@ export const SECTIONS: NavSection[] = [
     label: 'Setup',
     screens: [
       { key: 'specifications', label: 'Specifications', path: 'specifications', permission: VIEW, keywords: ['attributes', 'fields'] },
-      { key: 'formulas', label: 'Formulas', path: 'formulas', permission: VIEW, keywords: ['calculation', 'roll-up', 'timing'] },
+      { key: 'formulas', label: 'Value formulas', path: 'formulas', permission: VIEW, keywords: ['formulas', 'calculation', 'roll-up', 'weight', 'area'] },
       { key: 'coding-rules', label: 'Coding rules', path: 'coding-rules', permission: VIEW, keywords: ['codes', 'numbering', 'names'] },
       { key: 'company-tax', label: 'Company tax details', path: 'company-tax', permission: ORDERS, keywords: ['gst', 'gstin', 'tax', 'hsn', 'invoice prefix', 'lut', 'rates'] },
       { key: 'cutting', label: 'Cutting', path: 'cutting', permission: VIEW, keywords: ['cut from', 'plate', 'section', 'angle', 'beam', 'channel', 'saw', 'kerf', 'offcut', 'cut pieces', 'raw stock'] },

@@ -5,11 +5,9 @@
  *   tokenize / parse   the backend's grammar (formulaEngine.js), for syntax
  *                      colouring and for reading a formula back "in words"
  *   formulaInWords     "Cut length ÷ cutting speed (by thickness) + piercings × pierce time"
- *   rate × quantity    buildRateExpression / parseRateExpression, with unit
- *                      conversion from the field's own unit (mm → m is ÷ 1000)
+ *   rate × quantity    parseRateExpression, to read "1.2 min per m of weld length"
+ *                      back in words (mm → m is ÷ 1000)
  *   unitWarnings       mm-vs-m and similar slips, derived from field units
- *   TEMPLATES          the workbook's shapes, one click each
- *   suggestCode        CG_SAWWELD_TIME from the operation code
  *
  * The backend stays the judge (POST /formulas/check); this only helps write
  * and read formulas.
@@ -253,11 +251,27 @@ export function formulaInWords(expression: string, idx: FieldIndex | null = null
   return s ? s.charAt(0).toUpperCase() + s.slice(1) : null;
 }
 
+/** A time as a rule hands it over: minutes, or an expression (a number typed as the formula is a fixed time). */
+export type TimeLike = { minutes: number | null; expression?: string; formula: { code?: string | null; expression: string } | null };
+
+/** The text a time dialog opens with: the time's expression, else its minutes, else nothing. */
+export const timeStartText = (t: TimeLike | null | undefined) =>
+  t?.expression ?? t?.formula?.expression ?? (t?.minutes != null ? String(t.minutes) : '');
+
+/** The fixed minutes a time stands for: its minutes, or an expression that is just a number. */
+export function fixedMinutes(t: TimeLike | null | undefined): number | null {
+  if (!t) return null;
+  if (t.minutes != null) return t.minutes;
+  const e = t.formula?.expression.trim();
+  return e && /^\d+(\.\d+)?$/.test(e) ? Number(e) : null;
+}
+
 /** A rule's time, plainly: "12 min per piece", "1 min per run", or the formula in words. */
-export function timeInWords(t: { minutes: number | null; formula: { code: string; expression: string } | null } | null, which: 'setup' | 'work', idx: FieldIndex | null = null): string {
+export function timeInWords(t: TimeLike | null, which: 'setup' | 'work', idx: FieldIndex | null = null): string {
   if (!t) return which === 'setup' ? 'No setup' : 'No time yet';
   const per = which === 'setup' ? 'per run' : 'per piece';
-  if (t.minutes != null) return `${numberText(t.minutes)} min ${per}`;
+  const fixed = fixedMinutes(t);
+  if (fixed != null) return `${numberText(fixed)} min ${per}`;
   if (!t.formula) return '—';
   // A rate formula reads best as a rate: "1.2 min per m of SAW weld length".
   const rate = idx ? parseRateExpression(t.formula.expression, (c) => fieldFor(idx, 'item', c)) : null;
@@ -310,23 +324,6 @@ export interface RateModel {
 }
 
 const fmt = (n: number) => String(Number(n.toPrecision(12)));
-
-/** The quantity term in the rate's unit: item.LENGTH / 1000 for a length in mm and a rate per metre. */
-export function quantityTerm(field: string, factor: number): string {
-  if (Math.abs(factor - 1) < 1e-12) return `item.${field}`;
-  if (factor < 1) return `item.${field} / ${fmt(1 / factor)}`;
-  return `item.${field} * ${fmt(factor)}`;
-}
-
-export function buildRateExpression(model: RateModel, field: BuilderField | null): string | null {
-  if (!model.field || model.rate.trim() === '' || !Number.isFinite(Number(model.rate))) return null;
-  const unit = rateUnitsFor(field).find((u) => u.unit === model.rateUnit) ?? rateUnitsFor(field)[0];
-  let expr = `${quantityTerm(model.field, unit.factor)} * ${fmt(Number(model.rate))}`;
-  if (model.multiplier) expr += ` * item.${model.multiplier}`;
-  const c = Number(model.constant);
-  if (model.constant.trim() !== '' && Number.isFinite(c) && c !== 0) expr += ` + ${fmt(c)}`;
-  return expr;
-}
 
 const NUM = '(\\d+(?:\\.\\d+)?(?:[eE][+-]?\\d+)?)';
 const CODE = '([A-Z][A-Z0-9_]*)';
@@ -419,92 +416,6 @@ export function resultWarning(minutes: number | null | undefined): string | null
   return null;
 }
 
-/* ===========================================================================
- * Templates — the workbook's shapes (Process_Flow_v5.xlsx, Master_Formulae)
- * ======================================================================== */
-
-export type TemplateResult = { mode: 'rate'; model: RateModel } | { mode: 'advanced'; expression: string };
-export interface BuilderTemplate { id: string; label: string; hint: string; build: (itemFields: BuilderField[], machineFields: BuilderField[]) => TemplateResult }
-
-const pick = (fields: BuilderField[], test: (f: BuilderField) => boolean, words: RegExp[] = []): BuilderField | null => {
-  const ok = fields.filter((f) => f.dataType === 'number' && test(f));
-  const hasValues = (f: BuilderField) => (f.count ?? 0) > 0;
-  // A named field real pieces carry, else any named field, else any field with values.
-  for (const w of words) { const hit = ok.find((f) => hasValues(f) && (w.test(f.code) || w.test(f.name))); if (hit) return hit; }
-  for (const w of words) { const hit = ok.find((f) => w.test(f.code) || w.test(f.name)); if (hit) return hit; }
-  return ok.find(hasValues) ?? ok[0] ?? null;
-};
-const isLength = (f: BuilderField) => f.measurementType === 'LENGTH' || (f.unit ?? '').toLowerCase() in LENGTH_TO_M;
-const isArea = (f: BuilderField) => f.measurementType === 'AREA' || (f.unit ?? '').toLowerCase() in AREA_TO_M2;
-const isMass = (f: BuilderField) => f.measurementType === 'MASS' || (f.unit ?? '').toLowerCase() in MASS_TO_KG;
-const isCount = (f: BuilderField) => f.measurementType === 'COUNT' || (!f.unit && !f.measurementType);
-const placeholder = (code: string, f: BuilderField | null) => f?.code ?? code;
-
-export const TEMPLATES: BuilderTemplate[] = [
-  {
-    id: 'length', label: 'Length × rate (min/m)', hint: 'Welding, arc, edge prep — e.g. SAW 1.0 min per metre of weld',
-    build: (items) => {
-      const f = pick(items, isLength, [/WELD/i, /CUT_LENGTH/i, /LENGTH/i]);
-      return { mode: 'rate', model: { field: placeholder('WELD_LENGTH', f), rate: '1.0', rateUnit: 'm', multiplier: null, constant: '' } };
-    },
-  },
-  {
-    id: 'count', label: 'Count × rate (min per piece)', hint: 'Holes, studs, piercings — e.g. 0.35 min a hole',
-    build: (items) => {
-      const f = pick(items, isCount, [/HOLE/i, /STUD/i, /PIERC/i]);
-      return { mode: 'rate', model: { field: placeholder('HOLES', f), rate: '0.35', rateUnit: 'each', multiplier: null, constant: '' } };
-    },
-  },
-  {
-    id: 'area', label: 'Area × rate × coats', hint: 'Blasting, metallising, painting — e.g. 2.5 min/m² × coats',
-    build: (items) => {
-      const f = pick(items, isArea, [/SURFACE/i, /AREA/i]);
-      const coats = items.find((x) => /COAT/i.test(x.code)) ?? null;
-      return { mode: 'rate', model: { field: placeholder('SURFACE_AREA', f), rate: '2.5', rateUnit: 'm2', multiplier: coats?.code ?? null, constant: '' } };
-    },
-  },
-  {
-    id: 'cut', label: 'Cut length ÷ speed chart + pierces × pierce time', hint: 'CNC / gas cutting — the speed comes from the machine’s chart by thickness',
-    build: (items, machines) => {
-      const len = pick(items, isLength, [/CUT_LENGTH/i, /PERIMETER/i]);
-      const thk = pick(items, isLength, [/THICK/i]);
-      const pierce = pick(items, isCount, [/PIERC/i]);
-      const chart = machines.find((f) => f.dataType === 'table' && /SPEED/i.test(f.code)) ?? machines.find((f) => f.dataType === 'table') ?? null;
-      const pierceTime = machines.find((f) => f.dataType === 'number' && /PIERCE/i.test(f.code)) ?? null;
-      return {
-        mode: 'advanced',
-        expression: `item.${placeholder('CUT_LENGTH', len)} / LOOKUP(machine.${placeholder('CUT_SPEED', chart)}, item.${placeholder('THICKNESS', thk)}) + item.${placeholder('PIERCINGS', pierce)} * ${pierceTime ? `machine.${pierceTime.code}` : '0.2'}`,
-      };
-    },
-  },
-  {
-    id: 'weight', label: 'Weight-based (N × rate × weight/1000)', hint: 'Fit-up, line matching — e.g. joints × 25 min × tonnes',
-    build: (items) => {
-      const n = pick(items, isCount, [/JOINT/i, /FIT/i]);
-      const w = pick(items, isMass, [/WEIGHT/i]);
-      return { mode: 'advanced', expression: `item.${placeholder('JOINTS', n)} * 25 * item.${placeholder('WEIGHT', w)} / 1000` };
-    },
-  },
-];
-
-/* ===========================================================================
- * Naming
- * ======================================================================== */
-
-/** CG-SAWWELD → CG_SAWWELD_TIME (work) / CG_SAWWELD_SETUP_TIME; _2, _3 … while the code is taken. */
-export function suggestCode(operationCode: string, which: 'setup' | 'work', taken: Iterable<string>): string {
-  let base = operationCode.toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'OPERATION';
-  if (!/^[A-Z]/.test(base)) base = `OP_${base}`;
-  const stem = `${base}${which === 'setup' ? '_SETUP' : ''}_TIME`;
-  const used = new Set([...taken].map((c) => c.toUpperCase()));
-  if (!used.has(stem)) return stem;
-  for (let n = 2; ; n++) if (!used.has(`${stem}_${n}`)) return `${stem}_${n}`;
-}
-
-export function suggestName(operationName: string, which: 'setup' | 'work', subject?: string | null): string {
-  return `${operationName} — ${which === 'setup' ? 'setup per run' : 'time per piece'}${subject ? ` (${subject})` : ''}`;
-}
-
 /** Insert text at a caret, padding with spaces so tokens never run together. */
 export function insertAt(value: string, start: number, end: number, text: string): { value: string; caret: number } {
   const before = value.slice(0, start);
@@ -529,16 +440,14 @@ export function guessAxisField(axis: { label?: string; unit?: string | null }, i
     ?? null;
 }
 
-/** LOOKUP(machine.CHART, item.KEY[, item.KEY2]) — the text the helper inserts. */
-export const lookupText = (chart: string, keys: string[]) => `LOOKUP(machine.${chart}, ${keys.map((k) => `item.${k}`).join(', ')})`;
-
 /**
  * A time as one short phrase for a list cell: "12 min", "2.8 min per m of weld length",
  * "Cut length ÷ speed + pierces × 0.2". Null when nothing is set (the cell then asks for it).
  * Setup and work read the same here — the column says which it is.
  */
-export function timeShort(t: { minutes: number | null; formula: { code: string; expression: string } | null } | null | undefined, idx: FieldIndex | null = null): string | null {
+export function timeShort(t: TimeLike | null | undefined, idx: FieldIndex | null = null): string | null {
   if (!t || (t.minutes == null && !t.formula)) return null;
-  if (t.minutes != null) return `${numberText(t.minutes)} min`;
+  const fixed = fixedMinutes(t);
+  if (fixed != null) return `${numberText(fixed)} min`;
   return timeInWords(t, 'work', idx);
 }

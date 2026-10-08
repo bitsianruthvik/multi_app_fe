@@ -10,11 +10,13 @@ export function minutesText(minutes: number | null | undefined): string {
   return rest ? `${h} h ${rest} min` : `${h} h`;
 }
 
-/** A setup or work time as a rule holds it: a constant, or a formula's code. */
+/** A setup or work time as a rule holds it: a constant, or its formula (a number typed as the formula reads as minutes). */
 export function timeText(t: TimeView | null | undefined): string {
   if (!t) return '—';
   if (t.minutes != null) return minutesText(t.minutes);
-  return t.formula ? t.formula.code : '—';
+  const e = t.formula?.expression ?? t.expression;
+  if (e && Number.isFinite(Number(e))) return minutesText(Number(e));
+  return t.formula ? (t.formula.code ?? t.formula.expression) : '—';
 }
 
 export function subjectText(s: TimingSubject): string {

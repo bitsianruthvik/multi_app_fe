@@ -115,7 +115,7 @@ export default function Home() {
   const steps = setup ? [
     { done: variants > 0, label: 'Classification', detail: `${flat.filter((n) => n.depth === 0).length} families · ${variants} variants`, path: 'items?classification=1' },
     { done: setup.specs.length > 0, label: 'Specifications', detail: `${setup.specs.length} in the library`, path: 'specifications' },
-    { done: setup.formulas.length > 0, label: 'Formulas', detail: `${setup.formulas.length} reusable formulas`, path: 'formulas' },
+    { done: setup.formulas.some((f) => f.kind !== 'timing'), label: 'Value formulas', detail: `${setup.formulas.filter((f) => f.kind !== 'timing').length} reusable formulas`, path: 'formulas' },
     { done: setup.schemes.length > 0, label: 'Coding rules', detail: setup.schemes.length ? `${setup.schemes.length} rules` : 'None yet — codes will need typing in', path: 'coding-rules' },
     { done: setup.items.total > 0, label: 'Catalog items', detail: `${setup.items.total} items · ${activeItems} active`, path: 'items' },
     { done: setup.definitions.total > 0, label: 'Definitions', detail: `${setup.definitions.total} templates and selections`, path: 'definitions' },

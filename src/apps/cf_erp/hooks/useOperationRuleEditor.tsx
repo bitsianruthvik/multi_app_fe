@@ -1,14 +1,14 @@
 import { useMemo, useState } from 'react';
 import { Popover, Typography } from '@mui/material';
 import { cfApi, CfApiError } from '../api/client';
-import type { Formula, Specification, TimingRule, Tree } from '../api/types';
+import type { Specification, TimingRule, Tree } from '../api/types';
 import { useLoad } from './useLoad';
 import { useIsPermitted } from './useIsPermitted';
 import { screenTreePath } from '../lib/classificationScreens';
 import { fieldIndex, type BuilderField } from '../lib/formulaBuilder';
 import { subjectText } from '../lib/production';
 import { ClassificationPicker } from '../components/ClassificationPicker';
-import { TimeBuilder, type TimeAssignment } from '../components/FormulaBuilder/TimeBuilder';
+import { TimeBuilder } from '../components/FormulaBuilder/TimeBuilder';
 import { useToast } from '../components/toastContext';
 import type { OpRef } from '../components/OperationRuleEditor';
 
@@ -19,8 +19,6 @@ export function useOperationRuleEditor(onChanged: () => void) {
   const toast = useToast();
   const isPermitted = useIsPermitted();
   const canManage = isPermitted('cf_erp_production_manage');
-  const canMakeFormula = isPermitted('cf_erp_setup_manage');
-  const formulas = useLoad(() => cfApi.get<Formula[]>('/formulas'), []);
   const specs = useLoad(() => cfApi.get<Specification[]>('/specifications'), []);
   const tree = useLoad(() => cfApi.get<Tree>(screenTreePath('machines')), []);
   const idx = useMemo(() => {
@@ -45,8 +43,7 @@ export function useOperationRuleEditor(onChanged: () => void) {
     try {
       const carry = a.rule ? {
         eligible: a.rule.eligible, effectiveFrom: a.rule.effectiveFrom, effectiveTo: a.rule.effectiveTo, notes: a.rule.notes,
-        setupMinutes: a.rule.setup?.minutes ?? null, setupFormulaId: a.rule.setup?.formula?.id ?? null,
-        workMinutes: a.rule.work?.minutes ?? null, workFormulaId: a.rule.work?.formula?.id ?? null,
+        setupExpression: a.rule.setup?.expression ?? '', workExpression: a.rule.work?.expression ?? '',
       } : {};
       const made = await cfApi.post<TimingRule>(`/operations/${a.op.id}/rules`, { ...carry, subjectType: 'classification', subjectId: nodeId });
       if (a.rule) await cfApi.del(`/operation-rules/${a.rule.id}`);
@@ -74,18 +71,15 @@ export function useOperationRuleEditor(onChanged: () => void) {
       {builder && (
         <TimeBuilder open onClose={() => setBuilder(null)} operation={builder.op}
           subject={{ type: builder.rule.subject.type, id: builder.rule.subject.id, label: subjectText(builder.rule.subject) }}
-          which={builder.which} current={builder.which === 'setup' ? builder.rule.setup : builder.rule.work} ruleSetup={builder.which === 'work' ? builder.rule.setup : null}
-          formulas={formulas.data ?? []} canMakeFormula={canMakeFormula} onFormulasChanged={formulas.reload}
-          onAssign={async (a: TimeAssignment) => {
-            const w = builder.which;
-            const body: Record<string, unknown> = { [`${w}Minutes`]: a.minutes, [`${w}FormulaId`]: a.formulaId };
-            if (w === 'work' && a.setupMinutes !== undefined) Object.assign(body, { setupMinutes: a.setupMinutes, setupFormulaId: null });
-            await cfApi.put(`/operation-rules/${builder.rule.id}`, body);
-            toast.success(a.formula ? `${a.formula.code} assigned to ${subjectText(builder.rule.subject)}.` : 'Time saved.');
+          which={builder.which} current={builder.which === 'setup' ? builder.rule.setup : builder.rule.work}
+          onSave={async (expression) => {
+            // The time lives on the rule itself; empty clears it.
+            await cfApi.put(`/operation-rules/${builder.rule.id}`, { [`${builder.which}Expression`]: expression });
+            toast.success('Time saved.');
             onChanged();
           }} />
       )}
     </>
   );
-  return { ui, idx, canManage, pickType, editTime, formulas };
+  return { ui, idx, canManage, pickType, editTime };
 }

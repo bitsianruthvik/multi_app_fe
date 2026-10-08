@@ -68,7 +68,7 @@ export function TimeCell({ op, rule, which, idx, canManage, onEdit }: {
   return (
     <CellButton testId={testId} label={canManage ? `Edit the ${what} of ${op.code}` : words} disabled={!canManage} onClick={onEdit}>
       {words}
-      {t?.formula && <Box component="span" sx={{ display: 'block', fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--c-text-3)' }}>{t.formula.code}</Box>}
+      {t?.formula?.code && <Box component="span" sx={{ display: 'block', fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--c-text-3)' }}>{t.formula.code}</Box>}
     </CellButton>
   );
 }

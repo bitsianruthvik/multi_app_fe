@@ -136,7 +136,7 @@ export function RuleDialog({
               {needsFormula && (
                 <TextField select label="Formula" required value={formulaId ?? ''} error={!formulaId} onChange={(e) => setFormulaId(Number(e.target.value) || null)}
                   helperText={formulas.find((f) => f.id === formulaId)?.expression
-                    ?? (formulaChoices.length ? 'Pick the formula that works this value out.' : `No ${valueRule === 'rollup' ? 'roll-up' : 'value'} formula exists yet — add one under Setup › Formulas.`)}>
+                    ?? (formulaChoices.length ? 'Pick the formula that works this value out.' : `No ${valueRule === 'rollup' ? 'roll-up' : 'value'} formula exists yet — add one under Setup › Value formulas.`)}>
                   {formulaChoices.map((f) => <MenuItem key={f.id} value={f.id}>{f.name} ({f.code})</MenuItem>)}
                 </TextField>
               )}

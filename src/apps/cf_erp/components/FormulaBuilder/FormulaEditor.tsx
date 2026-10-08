@@ -1,11 +1,12 @@
 import { useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
-import { Autocomplete, Box, Button, MenuItem, Popover, TextField, Tooltip, Typography } from '@mui/material';
+import { Autocomplete, Box, Button, TextField, Tooltip, Typography } from '@mui/material';
 import TableChartRounded from '@mui/icons-material/TableChartRounded';
 import {
-  fieldFor, guessAxisField, insertAt, lookupText, numberText, tokenize, unitText,
+  fieldFor, guessAxisField, insertAt, numberText, tokenize, unitText,
   type BuilderField, type FieldIndex, type FieldRole, type Tok,
 } from '../../lib/formulaBuilder';
 import { suggestAt, type Suggestion } from '../../lib/formulaSuggest';
+import { chartCodeOf, lookupAt, type LookupCall } from '../../lib/lookupHint';
 
 /** One field in the picker, with the namespace it is read through. */
 interface PickOption { role: FieldRole; field: BuilderField; group: string }
@@ -57,26 +58,27 @@ const editorFont = { fontFamily: 'var(--font-mono)', fontSize: 15, lineHeight: '
  * The advanced formula editor: the expression stays plain, editable text (with
  * syntax colouring and unknown names underlined), and everything can also be
  * put in with the mouse — fields from a searchable picker grouped by where
- * they are read, operators and functions as buttons, and a LOOKUP helper that
- * lists the machine's charts and their key columns.
+ * they are read, operators and functions as buttons, and — while the caret is in
+ * a LOOKUP( … ) call — a hint bar that lists the machine's charts to click.
  */
-export function FormulaEditor({ value, onChange, idx, itemFields, machineFields, plainFields = [], timingOnly = true, autoFocus = false, label = 'Formula' }: {
+export function FormulaEditor({ value, onChange, idx, itemFields, machineFields, plainFields = [], timingOnly = true, autoFocus = false, label = 'Formula', minHeight = 72 }: {
   value: string;
   onChange: (v: string) => void;
   idx: FieldIndex | null;
   itemFields: BuilderField[];
   machineFields: BuilderField[];
-  /** Setup › Formulas: plain codes for value formulas, and children.X for roll-ups. */
+  /** Setup › Value formulas: plain codes for value formulas, and children.X for roll-ups. */
   plainFields?: BuilderField[];
   /** An operation time reads only item.X and machine.X. */
   timingOnly?: boolean;
   autoFocus?: boolean;
   label?: string;
+  /** Height of the text area in pixels (about 24 per line). */
+  minHeight?: number;
 }) {
   const area = useRef<HTMLTextAreaElement | null>(null);
   const under = useRef<HTMLDivElement | null>(null);
   const caret = useRef<{ start: number; end: number }>({ start: value.length, end: value.length });
-  const [lookupAnchor, setLookupAnchor] = useState<HTMLElement | null>(null);
   // Type-ahead: the caret as state (the list follows it), whether the text has focus,
   // the highlighted offer, and the text Esc closed the list on (it reopens on the next key).
   const [caretAt, setCaretAt] = useState(value.length);
@@ -110,15 +112,25 @@ export function FormulaEditor({ value, onChange, idx, itemFields, machineFields,
     LOOKUP: [2, 'A rate from a machine chart — LOOKUP(machine.CHART, item.KEY)'], ABS: [1, 'Without its sign'], SQRT: [1, 'Square root'], CEIL: [1, 'Rounded up'], FLOOR: [1, 'Rounded down'],
     SUM: [1, 'Sum over the BOM children'], COUNT: [1, 'How many BOM children'], AVG: [1, 'Average over the BOM children'],
   };
+  const charts = useMemo(() => machineFields.filter((f) => f.dataType === 'table'), [machineFields]);
+  // The LOOKUP call the caret is in, if any — only machine formulas have charts to read.
+  const call = useMemo(() => (timingOnly ? lookupAt(value, Math.min(caretAt, value.length)) : null), [timingOnly, value, caretAt]);
+  const chartOf = useMemo(() => charts.find((c) => c.code === chartCodeOf(call?.args[0]?.text)) ?? null, [charts, call]);
+  /** The piece field that feeds each key of a chart, guessed from the key column's name and unit. */
+  const guessKeys = (chart: BuilderField) => axesOf(chart).map((a) => guessAxisField(a, itemFields));
   const suggestCtx = useMemo(() => {
     const num = (fs: BuilderField[]) => fs.filter((f) => f.dataType === 'number');
+    const lookup = call?.direct && call.open != null
+      ? { arg: call.arg, charts, keyFirst: chartOf ? guessKeys(chartOf)[Math.max(0, call.arg - 1)]?.code ?? null : null }
+      : null;
     return {
+      lookup,
       fields: timingOnly ? { item: num(itemFields), machine: num(machineFields) } : { item: num(itemFields), machine: num(machineFields), plain: num(plainFields), children: num(plainFields) },
       functions: Object.entries(FN_HINTS).filter(([n]) => !timingOnly || !['SUM', 'COUNT', 'AVG'].includes(n)).map(([name, [args, hint]]) => ({ name, args, hint })),
     };
-    // FN_HINTS is a constant table.
+    // FN_HINTS is a constant table, and guessKeys only reads itemFields.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [itemFields, machineFields, plainFields, timingOnly]);
+  }, [itemFields, machineFields, plainFields, timingOnly, call, charts, chartOf]);
   const suggest = useMemo(() => (focused && dismissedAt !== value ? suggestAt(value, Math.min(caretAt, value.length), suggestCtx) : null), [focused, dismissedAt, value, caretAt, suggestCtx]);
   const shown = suggest?.items ?? [];
   const activeIdx = Math.min(active, Math.max(0, shown.length - 1));
@@ -156,6 +168,7 @@ export function FormulaEditor({ value, onChange, idx, itemFields, machineFields,
     onChange(next.value);
     const pos = next.caret - caretBack;
     caret.current = { start: pos, end: pos };
+    setCaretAt(pos);
     requestAnimationFrame(() => { const a = area.current; if (a) { a.focus(); a.setSelectionRange(pos, pos); } });
   };
   /** A function wraps the selection, or leaves the caret between its brackets. */
@@ -165,6 +178,25 @@ export function FormulaEditor({ value, onChange, idx, itemFields, machineFields,
     const commas = ', '.repeat(Math.max(0, args - 1));
     if (selected) insert(`${name}(${selected}${commas})`);
     else insert(`${name}(${commas})`, commas.length + 1);
+  };
+
+  /**
+   * A chart clicked in the hint: the whole LOOKUP call is written (or completed) as
+   * LOOKUP(machine.CHART, item.KEY), the key guessed from the chart's key column, and
+   * the key is left selected so typing replaces it.
+   */
+  const pickChart = (chart: BuilderField) => {
+    if (!call) return;
+    const keys = guessKeys(chart).map((k) => (k ? `item.${k.code}` : ''));
+    const head = `LOOKUP(machine.${chart.code}, `;
+    const next = value.slice(0, call.start) + head + keys.join(', ') + ')' + value.slice(call.end);
+    const from = call.start + head.length;
+    const to = from + keys[0].length;
+    onChange(next);
+    caret.current = { start: from, end: to };
+    setCaretAt(from);
+    setActive(0);
+    requestAnimationFrame(() => { const a = area.current; if (a) { a.focus(); a.setSelectionRange(from, to); } });
   };
 
   const OPS: [string, string, string][] = [['+', ' + ', 'Plus'], ['−', ' - ', 'Minus'], ['×', ' * ', 'Times'], ['÷', ' / ', 'Divided by'], ['(', '(', 'Open bracket'], [')', ')', 'Close bracket']];
@@ -208,14 +240,14 @@ export function FormulaEditor({ value, onChange, idx, itemFields, machineFields,
         {FNS.map(([fn, args, title]) => (
           <Tooltip key={fn} title={title}><Button size="small" variant="outlined" onMouseDown={(e) => { e.preventDefault(); remember(); }} onClick={() => insertFunction(fn, args)} sx={{ minWidth: 48, fontFamily: 'var(--font-mono)', fontWeight: 600 }}>{fn}</Button></Tooltip>
         ))}
-        <Tooltip title="Read a rate from the machine's chart — e.g. cutting speed by thickness">
+        <Tooltip title="Read a rate from the machine's chart — e.g. cutting speed by thickness. Shows the charts to pick from.">
           <Button size="small" variant="outlined" startIcon={<TableChartRounded />} data-testid="lookup-button"
-            onMouseDown={(e) => { e.preventDefault(); remember(); }} onClick={(e) => setLookupAnchor(e.currentTarget)} sx={{ fontFamily: 'var(--font-mono)', fontWeight: 600 }}>LOOKUP</Button>
+            onMouseDown={(e) => { e.preventDefault(); remember(); }} onClick={() => insert('LOOKUP()', 1)} sx={{ fontFamily: 'var(--font-mono)', fontWeight: 600 }}>LOOKUP</Button>
         </Tooltip>
       </Box>
       <Box sx={{ position: 'relative', border: '1px solid var(--c-border)', borderRadius: 'var(--r-sm)', background: 'var(--c-surface)', '&:focus-within': { borderColor: 'var(--c-primary-500)', boxShadow: '0 0 0 1px var(--c-primary-500)' } }}>
         <Typography component="label" htmlFor="formula-text" sx={{ position: 'absolute', top: -9, left: 8, px: 0.5, fontSize: 12, color: 'var(--c-text-2)', background: 'var(--c-surface)', lineHeight: '16px' }}>{label}</Typography>
-        <Box ref={under} aria-hidden sx={{ ...editorFont, minHeight: 72, maxHeight: 220, overflow: 'hidden', color: 'var(--c-text)', m: 0 }}>
+        <Box ref={under} aria-hidden sx={{ ...editorFont, minHeight, maxHeight: Math.max(220, minHeight), overflow: 'hidden', color: 'var(--c-text)', m: 0 }}>
           <Highlight value={value} idx={idx} />
         </Box>
         <Box component="textarea" id="formula-text" ref={area} value={value} spellCheck={false} autoFocus={autoFocus} data-testid="formula-text"
@@ -255,68 +287,69 @@ export function FormulaEditor({ value, onChange, idx, itemFields, machineFields,
           </Box>
         )}
       </Box>
-      <LookupHelper anchor={lookupAnchor} onClose={() => setLookupAnchor(null)} machineFields={machineFields} itemFields={itemFields}
-        onInsert={(text) => { setLookupAnchor(null); insert(text); }} />
+      {call && <LookupHint call={call} charts={charts} chart={chartOf} itemFields={itemFields} onPick={pickChart} />}
     </Box>
   );
 }
 
+
+const mono = { fontFamily: 'var(--font-mono)' } as const;
+const axesOf = (chart: BuilderField) => (chart.tableConfig?.axes?.length ? chart.tableConfig.axes : [{ label: 'Key', unit: null as string | null }]);
+const axisText = (a: { label?: string; unit?: string | null }) => `${a.label ?? 'Key'}${a.unit ? ` (${a.unit})` : ''}`;
+
 /**
- * Lists the machine's charts and their key columns, with the piece field that
- * feeds each key picked for you (Thickness → item.THICKNESS) and changeable.
+ * Shown under the editor while the caret is in a LOOKUP( … ) call: what LOOKUP does,
+ * the machine's charts to click, and which piece field was guessed to look the chart up by.
  */
-export function LookupHelper({ anchor, onClose, machineFields, itemFields, onInsert }: {
-  anchor: HTMLElement | null; onClose: () => void; machineFields: BuilderField[]; itemFields: BuilderField[]; onInsert: (text: string) => void;
+function LookupHint({ call, charts, chart, itemFields, onPick }: {
+  call: LookupCall; charts: BuilderField[]; chart: BuilderField | null; itemFields: BuilderField[]; onPick: (c: BuilderField) => void;
 }) {
-  const charts = machineFields.filter((f) => f.dataType === 'table');
-  const [chosen, setChosen] = useState<string | null>(null);
-  const [keys, setKeys] = useState<Record<string, string>>({});
-  const chart = charts.find((c) => c.code === chosen) ?? charts[0] ?? null;
-  const axes = chart?.tableConfig?.axes?.length ? chart.tableConfig.axes : [{ label: 'Key', unit: null }];
-  const keyOf = (i: number) => keys[`${chart?.code}:${i}`] ?? guessAxisField(axes[i], itemFields)?.code ?? '';
-  const nums = itemFields.filter((f) => f.dataType === 'number');
-  const ready = !!chart && axes.every((_, i) => keyOf(i));
   return (
-    <Popover open={!!anchor} anchorEl={anchor} onClose={onClose} anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
-      slotProps={{ paper: { sx: { p: 2, width: 420, maxWidth: '95vw' }, 'data-testid': 'lookup-helper' } as object }}>
-      <Typography sx={{ fontWeight: 600, mb: 0.5 }}>Read a rate from a machine chart</Typography>
+    <Box data-testid="lookup-hint" role="note" sx={{ p: 1.5, display: 'grid', gap: 1, border: '1px solid var(--c-border)', borderRadius: 'var(--r-sm)', background: 'var(--c-surface-2)' }}>
+      <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }} data-testid="lookup-explain">
+        <Box component="span" sx={{ ...mono, fontWeight: 600, color: 'var(--c-text)' }}>LOOKUP(chart, value)</Box> — reads a rate from a machine's chart.{' '}
+        <b>chart:</b> one of the machine's charts below; <b>value:</b> the piece's value to look it up by.
+      </Typography>
       {!charts.length ? (
-        <Typography sx={{ color: 'var(--c-text-2)', fontSize: 13 }}>
-          No machine this rule covers has a chart yet. Add a table specification (e.g. CUT_SPEED by thickness) to the machine type, fill it on the machine, and it shows here.
+        <Typography sx={{ fontSize: 13, color: 'var(--c-warning-800)' }} data-testid="lookup-nocharts">
+          This machine type has no charts yet — add a table specification such as CUT_SPEED by thickness to it.
         </Typography>
       ) : (
-        <Box sx={{ display: 'grid', gap: 1.5, mt: 1 }}>
-          <Box role="listbox" aria-label="Machine charts" sx={{ display: 'grid', gap: 0.5 }}>
-            {charts.map((c) => (
-              <Box key={c.code} role="option" aria-selected={chart?.code === c.code} tabIndex={0} data-testid={`chart-${c.code}`}
-                onClick={() => setChosen(c.code)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setChosen(c.code); }}
-                sx={{ p: 1, borderRadius: 'var(--r-sm)', cursor: 'pointer', border: '1px solid', borderColor: chart?.code === c.code ? 'var(--c-primary-500)' : 'var(--c-border)', background: chart?.code === c.code ? 'var(--c-primary-50)' : 'transparent' }}>
-                <Box sx={{ fontWeight: 500 }}>{c.name}{c.unit ? <Box component="span" sx={{ color: 'var(--c-text-2)', fontWeight: 400 }}> · {c.unit}</Box> : null}</Box>
-                <Box sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>
-                  <Box component="span" sx={{ fontFamily: 'var(--font-mono)' }}>machine.{c.code}</Box> by {(c.tableConfig?.axes ?? []).map((a) => `${a.label}${a.unit ? ` (${a.unit})` : ''}`).join(' and ') || 'one key'}
-                  {c.count != null && <> · on {c.count} machine{c.count === 1 ? '' : 's'}</>}
-                </Box>
+        <Box role="listbox" aria-label="Machine charts" sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75 }}>
+          {charts.map((c) => (
+            <Box key={c.code} component="button" type="button" role="option" aria-selected={chart?.code === c.code} data-testid={`chart-${c.code}`}
+              onMouseDown={(e: React.MouseEvent) => e.preventDefault()} onClick={() => onPick(c)}
+              sx={{ textAlign: 'left', cursor: 'pointer', font: 'inherit', color: 'inherit', px: 1.25, py: 0.75, borderRadius: 'var(--r-sm)', border: '1px solid',
+                borderColor: chart?.code === c.code ? 'var(--c-primary-500)' : 'var(--c-border)', background: chart?.code === c.code ? 'var(--c-primary-50)' : 'var(--c-surface)' }}>
+              <Box sx={{ fontSize: 13, fontWeight: 500 }}>{c.name}{c.unit ? <Box component="span" sx={{ color: 'var(--c-text-2)', fontWeight: 400 }}> · {unitText(c.unit)}</Box> : null}</Box>
+              <Box sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>
+                <Box component="span" sx={mono}>machine.{c.code}</Box> · by {axesOf(c).map(axisText).join(' and ')}
               </Box>
-            ))}
-          </Box>
-          {chart && axes.map((a, i) => (
-            <TextField key={`${chart.code}:${i}`} select size="small" label={`Look up by ${a.label ?? `key ${i + 1}`}${a.unit ? ` (${a.unit})` : ''} — from the piece`}
-              value={keyOf(i)} onChange={(e) => setKeys((k) => ({ ...k, [`${chart.code}:${i}`]: e.target.value }))}
-              SelectProps={{ native: false }} inputProps={{ 'data-testid': `lookup-key-${i}` }}>
-              {nums.map((f) => <MenuItem key={f.code} value={f.code}>{f.name} <Box component="span" sx={{ ml: 1, color: 'var(--c-text-3)', fontFamily: 'var(--font-mono)', fontSize: 12 }}>item.{f.code}{f.unit ? ` · ${f.unit}` : ''}</Box></MenuItem>)}
-            </TextField>
-          ))}
-          {chart && (
-            <Box sx={{ fontFamily: 'var(--font-mono)', fontSize: 13, p: 1, background: 'var(--c-surface-2)', borderRadius: 'var(--r-sm)' }} data-testid="lookup-preview">
-              {lookupText(chart.code, axes.map((_, i) => keyOf(i) || '?'))}
             </Box>
-          )}
-          <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1 }}>
-            <Button onClick={onClose}>Cancel</Button>
-            <Button variant="contained" disabled={!ready} data-testid="lookup-insert" onClick={() => chart && onInsert(lookupText(chart.code, axes.map((_, i) => keyOf(i))))}>Insert</Button>
-          </Box>
+          ))}
         </Box>
       )}
-    </Popover>
+      {charts.length > 0 && !chart && <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>Click a chart to fill in the call — the piece's value is picked for you, and you can change it.</Typography>}
+      {chart && (
+        <Box sx={{ display: 'grid', gap: 0.25 }} data-testid="lookup-guess">
+          {axesOf(chart).map((a, i) => {
+            const guess = guessAxisField(a, itemFields);
+            const actual = call.args[i + 1]?.text ?? '';
+            return (
+              <Typography key={i} sx={{ fontSize: 12.5, color: 'var(--c-text-2)' }}>
+                {chart.name} is read by <b>{axisText(a)}</b>:{' '}
+                {actual && (!guess || actual !== `item.${guess.code}`) ? (
+                  <><Box component="span" sx={mono}>{actual}</Box>{guess ? <> (we would have guessed <Box component="span" sx={mono}>item.{guess.code}</Box>)</> : null}</>
+                ) : guess ? (
+                  <>guessed the piece's {guess.name} (<Box component="span" sx={mono}>item.{guess.code}</Box>) — change it in the formula if another field fits.</>
+                ) : (
+                  <>no piece field matches that name — type or pick one.</>
+                )}
+              </Typography>
+            );
+          })}
+        </Box>
+      )}
+    </Box>
   );
 }

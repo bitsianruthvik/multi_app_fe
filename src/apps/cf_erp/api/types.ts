@@ -626,7 +626,11 @@ export interface Machine {
   updatedAt: string;
 }
 
-export interface TimeView { minutes: number | null; formula: { id: number; code: string; expression: string } | null }
+/**
+ * A rule's setup or work time. `expression` is always the text it is worked out from (a plain number for a
+ * fixed time). A rule's own expression has `formula.id` and `formula.code` null; an old shared formula has both.
+ */
+export interface TimeView { minutes: number | null; expression?: string; formula: { id: number | null; code: string | null; expression: string } | null }
 
 export interface TimingSubject { type: 'classification' | 'machine'; id: number; code: string | null; name: string | null; level: string }
 

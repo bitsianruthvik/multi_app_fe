@@ -103,9 +103,10 @@ const node = (id, parentId, depth, name, children = []) => ({
 const machineTree = { screen: 'machines', all: false, levels: ['Family', 'Subfamily', 'Variant'], leafDepth: 2, hiddenCount: 0,
   roots: [node(1, null, 0, 'Cutting', [node(2, 1, 1, 'Plasma', [node(3, 2, 2, 'PL-V')])]), node(10, null, 0, 'Welding', [node(11, 10, 1, 'SAW')])] };
 const subj = (type, id, code, name, level) => ({ type, id, code, name, level });
-const tv = (minutes, formula = null) => ({ minutes, formula });
+// A time as the API hands it over (§49): `expression` is always the text; a rule's own expression has a formula with no id.
+const tv = (minutes, formula = null) => ({ minutes, expression: minutes != null ? String(minutes) : formula?.expression, formula });
 const rule = (id, opId, subject, setup, work, extra = {}) => ({ id, operationId: opId, subject, eligible: true, setup, work, effectiveFrom: null, effectiveTo: null, notes: null, ...extra });
-const cutRate = { id: 70, code: 'CUT_RATE', expression: 'item.CUT_LENGTH / 1000 * 2.8' };
+const cutRate = { id: null, code: null, expression: 'item.CUT_LENGTH / 1000 * 2.8' };
 const fitRule1 = rule(31, 3, subj('classification', 11, 'SAW', 'SAW', 'Subfamily'), tv(5), tv(0.5));
 const fitRule2 = rule(32, 3, subj('machine', 7, 'SAW-01', 'SAW Machine 1', 'Machine'), null, tv(0.4));
 const ops = [
@@ -126,7 +127,7 @@ const baseRoutes = () => [
   ['GET', /^\/operations\/\d+\/formula-builder/, () => ctx],
   ['GET', /^\/machines/, () => []],
   ['POST', /^\/formulas\/check$/, () => ({ ok: true, problems: [], references: [], itemRefs: [], machineRefs: [], kind: 'timing', result: { value: 1 }, inputs: [] })],
-  ['POST', /^\/operations\/(\d+)\/rules$/, (p, b) => rule(900, Number(p.split('/')[2]), subj('classification', b.subjectId, 'X', b.subjectId === 2 ? 'Plasma' : 'SAW', 'Subfamily'), b.setupMinutes != null ? tv(b.setupMinutes) : null, b.workMinutes != null ? tv(b.workMinutes) : null)],
+  ['POST', /^\/operations\/(\d+)\/rules$/, (p, b) => rule(900, Number(p.split('/')[2]), subj('classification', b.subjectId, 'X', b.subjectId === 2 ? 'Plasma' : 'SAW', 'Subfamily'), b.setupExpression ? tv(null, { id: null, code: null, expression: b.setupExpression }) : null, b.workExpression ? tv(null, { id: null, code: null, expression: b.workExpression }) : null)],
   ['PUT', /^\/operation-rules\/\d+$/, () => ({})],
   ['DELETE', /^\/operation-rules\/\d+$/, () => ({ ok: true })],
   ['PUT', /^\/operations\/\d+$/, () => ({})],
@@ -168,25 +169,44 @@ await check('list: clicking a time cell opens the time builder for that rule (an
   here = '';
   await click(q('op-work-1'));
   assert.ok(q('time-builder'), 'the builder is open');
-  assert.match(document.querySelector('[data-testid="time-builder"]').textContent, /OPERATION|CUT · Plasma cut/i);
+  assert.equal(q('time-builder-title').textContent, 'Work, per piece');
+  assert.equal(q('formula-text').value, 'item.CUT_LENGTH / 1000 * 2.8', 'it opens with its own expression');
+  assert.match(document.querySelector('[data-testid="time-builder"]').textContent, /CUT · Plasma cut/i);
   assert.ok(!/operations\/1/.test(here), `the row did not navigate (${here})`);
   assert.ok(calls.some((c) => /^\/operations\/1\/formula-builder/.test(c.path) && /subjectId=2/.test(c.path)), 'the builder read the fields for the rule\'s machine type');
 });
 
-await check('list: saving fixed minutes in the builder writes them to the SAME rule and reloads the list', async () => {
-  await click(q('tab-fixed'));
-  const input = [...document.querySelectorAll('[data-testid="time-builder"] input[type="number"], [data-testid="time-builder"] input')].find((i) => i.type === 'number' || /minutes/i.test(i.getAttribute('aria-label') ?? ''));
-  assert.ok(input, 'a minutes input');
-  const set = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value').set;
-  await React.act(async () => { set.call(input, '3.5'); input.dispatchEvent(new dom.window.Event('input', { bubbles: true })); await sleep(0); });
-  const save = [...document.querySelectorAll('[data-testid="time-builder"] button')].find((b) => /Save and assign/.test(b.textContent));
-  assert.ok(save, 'a save button');
+await check('list: saving a number in the dialog writes it to the SAME rule as workExpression (no formula is made) and reloads the list', async () => {
+  const ta = q('formula-text');
+  assert.ok(ta, 'the one formula editor');
+  const set = Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, 'value').set;
+  await React.act(async () => { set.call(ta, '3.5'); ta.dispatchEvent(new dom.window.Event('input', { bubbles: true })); await sleep(0); });
+  await settle(400);
+  const save = q('builder-save');
+  assert.equal(save.textContent, 'Save');
   calls.length = 0;
   await click(save); await settle(80);
   const put = calls.find((c) => c.method === 'PUT');
   assert.ok(put && put.path === '/operation-rules/11', JSON.stringify(calls));
-  assert.equal(put.body.workMinutes, 3.5); assert.equal(put.body.workFormulaId, null);
+  assert.deepEqual(put.body, { workExpression: '3.5' });
+  assert.ok(!calls.some((c) => c.path.startsWith('/formulas') && c.path !== '/formulas/check'), 'no shared formula touched');
   assert.ok(calls.some((c) => c.method === 'GET' && c.path === '/operations'), 'the list reloaded');
+});
+
+await check('list: clicking a SETUP cell opens the same dialog, titled Setup, per run, and saves setupExpression', async () => {
+  reset(); await render('/testco/cf_erp/operations');
+  await click(q('op-setup-1'));
+  assert.equal(q('time-builder-title').textContent, 'Setup, per run');
+  assert.equal(q('formula-text').value, '12');
+  const ta = q('formula-text');
+  const set = Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, 'value').set;
+  await React.act(async () => { set.call(ta, '15'); ta.dispatchEvent(new dom.window.Event('input', { bubbles: true })); await sleep(0); });
+  await settle(400);
+  calls.length = 0;
+  await click(q('builder-save')); await settle(80);
+  const put = calls.find((c) => c.method === 'PUT');
+  assert.ok(put && put.path === '/operation-rules/11', JSON.stringify(calls));
+  assert.deepEqual(put.body, { setupExpression: '15' });
 });
 
 await check('list: picking a machine type on a row with NO rule creates its rule', async () => {
@@ -225,7 +245,8 @@ await check('list: changing the machine type of a ruled row adds the new rule wi
   await click(option(/SAW/)); await settle(80);
   const post = calls.find((c) => c.method === 'POST');
   assert.ok(post && post.path === '/operations/1/rules', JSON.stringify(calls));
-  assert.equal(post.body.setupMinutes, 12); assert.equal(post.body.workFormulaId, 70); assert.equal(post.body.subjectId, 11);
+  assert.equal(post.body.setupExpression, '12'); assert.equal(post.body.workExpression, 'item.CUT_LENGTH / 1000 * 2.8'); assert.equal(post.body.subjectId, 11);
+  assert.ok(!('setupMinutes' in post.body) && !('workFormulaId' in post.body), 'no old time fields');
   const del = calls.find((c) => c.method === 'DELETE');
   assert.ok(del && del.path === '/operation-rules/11', 'the old rule was removed');
   assert.ok(calls.findIndex((c) => c.method === 'POST') < calls.findIndex((c) => c.method === 'DELETE'), 'added before removed');
@@ -268,9 +289,13 @@ await check('page: opening Advanced shows all three, is remembered on the next v
   assert.equal(q('advanced-body'), null, 'folded stays folded');
 });
 
-await check('page: a time on the card opens the same time builder and saves to the rule', async () => {
+await check('page: a time on the card opens the same time dialog (setup and work)', async () => {
   await click(q('op-setup-1'));
   assert.ok(q('time-builder'));
+  assert.equal(q('time-builder-title').textContent, 'Setup, per run');
+  await render('/testco/cf_erp/operations/1');
+  await click(q('op-work-1'));
+  assert.equal(q('time-builder-title').textContent, 'Work, per piece');
 });
 
 await check('page: ?advanced=1 (from "+N more rules") opens Advanced, and the card says which rule it shows', async () => {

@@ -8,11 +8,9 @@ import { fieldIndex, formulaInWords, unitWarnings, type BuilderField } from '../
 import { ErrorNotice, Mono, Surface } from './ui';
 import { DialogHeader } from './FormDialog';
 
-/** Creates or edits a formula — on Setup › Formulas, and in place from an operation's time. */
-export function FormulaDialog({ open, onClose, onSaved, existing, canManage, forTiming = false }: {
+/** Creates or edits a shared value formula (calculated values and roll-ups) — on Setup › Value formulas. */
+export function FormulaDialog({ open, onClose, onSaved, existing, canManage }: {
   open: boolean; onClose: () => void; onSaved: (saved: Formula | null) => void; existing: Formula | null; canManage: boolean;
-  /** Opened from an operation's time: it must read item.X / machine.X to count as a timing formula. */
-  forTiming?: boolean;
 }) {
   const [code, setCode] = useState('');
   const [name, setName] = useState('');
@@ -83,9 +81,9 @@ export function FormulaDialog({ open, onClose, onSaved, existing, canManage, for
             helperText={existing ? `Version ${existing.version} — changing the expression makes version ${existing.version + 1}` : 'e.g. PLATE_WEIGHT'} />
           <TextField label="Name" required value={name} autoFocus={!!existing} onChange={(e) => setName(e.target.value)} />
           <Box sx={{ gridColumn: '1 / -1' }}>
-            <FormulaEditor value={expression} onChange={setExpression} idx={idx} itemFields={fields} machineFields={fields} plainFields={fields} timingOnly={forTiming} label="Expression" />
+            <FormulaEditor value={expression} onChange={setExpression} idx={idx} itemFields={fields} machineFields={fields} plainFields={fields} timingOnly={false} label="Expression" />
             <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)', mt: 0.75 }}>
-              Specification codes, numbers, + − × ÷ % ^, MIN, MAX, ROUND(x, n), ABS, SQRT, CEIL, FLOOR, IF(a &gt; b, x, y). Roll-ups: SUM(children.WEIGHT). Operation times: item.CUT_LENGTH / LOOKUP(machine.CUT_SPEED, item.THICKNESS).
+              Specification codes, numbers, + − × ÷ % ^, MIN, MAX, ROUND(x, n), ABS, SQRT, CEIL, FLOOR, IF(a &gt; b, x, y). Roll-ups: SUM(children.WEIGHT).
             </Typography>
             {expression.trim() && formulaInWords(expression, idx) && <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)', mt: 0.5 }} data-testid="formula-words">In words: {formulaInWords(expression, idx)}</Typography>}
             {unitWarnings(expression, idx).map((w) => <Typography key={w} sx={{ fontSize: 12.5, color: 'var(--c-info-800)', mt: 0.5 }}>{w}</Typography>)}
@@ -98,9 +96,6 @@ export function FormulaDialog({ open, onClose, onSaved, existing, canManage, for
             </TextField>
           )}
         </Box>
-        {forTiming && (!check || check.kind !== 'timing') && expression.trim() !== '' && !check?.problems.length && (
-          <Alert severity="info" sx={{ mt: 2, borderRadius: 'var(--r-sm)' }}>An operation time reads the piece being worked on and the machine: use item.X and machine.X (for example item.CUT_LENGTH / machine.CUTTING_SPEED).</Alert>
-        )}
         {check && (
           <Box sx={{ mt: 2 }}>
             {check.problems.length > 0 ? (
@@ -109,7 +104,7 @@ export function FormulaDialog({ open, onClose, onSaved, existing, canManage, for
               <Alert severity="info" sx={{ borderRadius: 'var(--r-sm)' }}>A roll-up — it reads {check.rollupTerms?.join(', ')} from BOM children and is evaluated once BOMs exist.</Alert>
             ) : (
               <Surface sx={{ p: 2, background: 'var(--c-surface-2)' }}>
-                <Typography sx={{ fontWeight: 500, mb: 1 }}>Try it{check.kind === 'timing' ? ' — minutes, from a sample item and machine' : ''}</Typography>
+                <Typography sx={{ fontWeight: 500, mb: 1 }}>Try it</Typography>
                 <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', alignItems: 'center' }}>
                   {[...check.references, ...(check.itemRefs ?? []).map((c) => `item.${c}`), ...(check.machineRefs ?? []).map((c) => `machine.${c}`)].map((r) => (
                     <TextField key={r} size="small" label={r} type="number" value={sample[r] ?? ''} sx={{ width: 150 }}

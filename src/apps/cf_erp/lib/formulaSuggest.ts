@@ -28,6 +28,11 @@ export interface SuggestContext {
   /** Number fields per namespace the formula may read. */
   fields: Partial<Record<FieldRole, BuilderField[]>>;
   functions: { name: string; args: number; hint: string }[];
+  /**
+   * The caret is directly inside LOOKUP( … ): argument 0 offers only the machine's charts,
+   * later arguments only the piece's number fields, `keyFirst` (the guessed key) leading.
+   */
+  lookup?: { arg: number; charts: BuilderField[]; keyFirst?: string | null } | null;
 }
 
 export interface SuggestResult {
@@ -78,7 +83,21 @@ export function suggestAt(text: string, caret: number, ctx: SuggestContext): Sug
   });
 
   const dot = word.indexOf('.');
-  if (dot >= 0) {
+  if (ctx.lookup) {
+    const { arg, charts, keyFirst } = ctx.lookup;
+    const role: FieldRole = arg === 0 ? 'machine' : 'item';
+    const list = arg === 0 ? charts : (ctx.fields.item ?? []);
+    let rest = word.toLowerCase();
+    if (dot >= 0) {
+      if (word.slice(0, dot).toLowerCase() !== role) return null;
+      rest = word.slice(dot + 1).toLowerCase();
+    }
+    for (const f of list) add(rest ? score(rest, f.code, f.name) : 0, fieldItem(role, f));
+    if (keyFirst && arg > 0) {
+      const at = scored.findIndex((x) => x.item.field?.code === keyFirst);
+      if (at >= 0) scored[at].s = -0.5;
+    }
+  } else if (dot >= 0) {
     const ns = word.slice(0, dot).toLowerCase() as FieldRole;
     const rest = word.slice(dot + 1).toLowerCase();
     const list = ns !== 'plain' ? ctx.fields[ns] : undefined;

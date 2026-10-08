@@ -1,8 +1,9 @@
 // Run from multi_app_fe: node scripts/cf_erp_formula_builder_test.mjs
-// The operation-time builder: rate × quantity writes the right expression (with mm → m conversion), the LOOKUP helper
-// inserts LOOKUP(machine.CHART, item.KEY), templates prefill, the live preview shows minutes from the check, a mm-vs-m
-// slip is warned about, saving creates the formula AND assigns it to the rule, and a shared formula asks before it
-// changes for every rule. The API is mocked; no network.
+// The operation-time dialog (2026-10-08): ONE formula editor — no tabs, no templates, no rate form, no formula code/name — with
+// the operator and function buttons, the field picker and the type-ahead kept; LOOKUP guides the user with a hint bar under the
+// editor (what it does, the machine's charts as chips, the piece field guessed for the key) instead of a popover; the same dialog
+// serves setup ("Setup, per run") and work ("Work, per piece"); saving hands the TEXT to the caller (the rule keeps it: PUT
+// /operation-rules/:id { workExpression | setupExpression }) and never creates a shared formula. The API is mocked; no network.
 import assert from 'node:assert/strict';
 import { mkdir, writeFile, unlink } from 'node:fs/promises';
 import { resolve } from 'node:path';
@@ -43,6 +44,8 @@ const built = await build({
       export { React, createRoot, MemoryRouter };
       export * from './src/apps/cf_erp/lib/formulaBuilder';
       export { suggestAt } from './src/apps/cf_erp/lib/formulaSuggest';
+      export { lookupAt, chartCodeOf } from './src/apps/cf_erp/lib/lookupHint';
+      export { TimingRuleDialog } from './src/apps/cf_erp/components/TimingRuleDialog';
       export { FormulaEditor } from './src/apps/cf_erp/components/FormulaBuilder/FormulaEditor';
       export { TimeBuilder } from './src/apps/cf_erp/components/FormulaBuilder/TimeBuilder';`,
     resolveDir: process.cwd(), loader: 'tsx',
@@ -51,6 +54,7 @@ const built = await build({
     b.onResolve({ filter: /^@core\/(api\/client|contexts\/AuthContext)$/ }, (a) => ({ path: a.path, namespace: 'stub' }));
     b.onLoad({ filter: /.*/, namespace: 'stub' }, (a) => ({ contents: stubs[a.path], loader: 'js' }));
   } }],
+  alias: { '@shared/ui': resolve('src/shared/ui/storage.ts') },
   bundle: true, write: false, format: 'esm', platform: 'browser', jsx: 'automatic', logLevel: 'error',
   define: { 'process.env.NODE_ENV': '"development"' },
 });
@@ -117,25 +121,25 @@ let checkProblems = [];
 const baseRoutes = () => [
   ['GET', /^\/operations\/1\/formula-builder/, () => ctx],
   ['POST', /^\/formulas\/check$/, (c) => ({ ok: !checkProblems.length, problems: checkProblems, references: [], itemRefs: [], machineRefs: [], kind: 'timing', result: checkProblems.length ? null : { value: checkValue }, inputs: [{ ref: 'item.SAW_WELD_LENGTH', value: 24000, from: 'piece' }], _expr: c.body.expression })],
-  ['POST', /^\/formulas$/, (c) => formula(99, c.body.code, c.body.expression, { name: c.body.name })],
-  ['PUT', /^\/formulas\/\d+$/, (c) => formula(Number(c.path.split('/')[2]), 'SHARED_TIME', c.body.expression, { version: 2 })],
+  ['GET', /^\/machines/, () => []],
 ];
 globalThis.__routes = baseRoutes();
 const builder = (props) => React.createElement(m.TimeBuilder, {
   open: true, onClose() {}, operation: ctx.operation, subject: { type: 'classification', id: 3315, label: 'variant SAW' }, which: 'work',
-  current: null, formulas: [], canMakeFormula: true, onAssign: () => {}, ...props,
+  current: null, onSave: () => {}, ...props,
 });
+const noChartFields = machineFields.filter((f) => f.dataType !== 'table');
+const caretTo = async (ta, pos) => { ta.setSelectionRange(pos, pos); await React.act(async () => { ta.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })); await sleep(0); }); await settle(); };
+/** A controlled editor whose text the test can read back. */
+const mountEditor = async (start, fields = machineFields) => {
+  const box = { value: start };
+  const Host = () => { const [v, setV] = React.useState(start); box.value = v; return React.createElement(m.FormulaEditor, { value: v, onChange: setV, idx, itemFields, machineFields: fields }); };
+  await render(React.createElement(Host));
+  return box;
+};
 
 // ── pure logic ─────────────────────────────────────────────────────────────
-await check('rate × quantity: a length in mm at a rate per metre is divided by 1000', async () => {
-  const f = idx.item.get('SAW_WELD_LENGTH');
-  assert.equal(m.buildRateExpression({ field: 'SAW_WELD_LENGTH', rate: '1.0', rateUnit: 'm', multiplier: null, constant: '' }, f), 'item.SAW_WELD_LENGTH / 1000 * 1');
-  assert.equal(m.buildRateExpression({ field: 'SAW_WELD_LENGTH', rate: '0.002', rateUnit: 'mm', multiplier: null, constant: '' }, f), 'item.SAW_WELD_LENGTH * 0.002');
-  assert.equal(m.buildRateExpression({ field: 'SURFACE_AREA', rate: '2.5', rateUnit: 'm2', multiplier: 'PAINT_COATS', constant: '15' }, idx.item.get('SURFACE_AREA')), 'item.SURFACE_AREA * 2.5 * item.PAINT_COATS + 15');
-  assert.equal(m.buildRateExpression({ field: 'WEIGHT', rate: '8', rateUnit: 't', multiplier: null, constant: '' }, idx.item.get('WEIGHT')), 'item.WEIGHT / 1000 * 8');
-  assert.equal(m.buildRateExpression({ field: 'HOLES', rate: '0.35', rateUnit: 'each', multiplier: null, constant: '' }, idx.item.get('HOLES')), 'item.HOLES * 0.35');
-});
-await check('a rate formula reads back into its parts (so editing reopens the simple form)', async () => {
+await check('a rate-shaped formula still reads back into its parts (for "min per m of weld length" in words)', async () => {
   const of = (c) => m.fieldFor(idx, 'item', c);
   assert.deepEqual(m.parseRateExpression('item.SAW_WELD_LENGTH / 1000 * 1', of), { field: 'SAW_WELD_LENGTH', rate: '1', rateUnit: 'm', multiplier: null, constant: '' });
   assert.deepEqual(m.parseRateExpression('item.SURFACE_AREA * 2.5 * item.PAINT_COATS + 15', of), { field: 'SURFACE_AREA', rate: '2.5', rateUnit: 'm2', multiplier: 'PAINT_COATS', constant: '15' });
@@ -158,33 +162,7 @@ await check('unit sanity: mm × a plain rate warns; ÷ 1000 or a speed chart doe
   assert.match(m.unitWarnings('item.CUT_LENGTH / LOOKUP(machine.CUT_SPEED, item.THICKNESS)', metres)[0], /in m but Cutting speed is in mm\/min/);
   assert.equal(m.unitWarnings('item.WEIGHT / 334644.13 * 6.5 * 1440', idx).length, 0);
 });
-await check('suggested code from the operation code, never a taken one', async () => {
-  assert.equal(m.suggestCode('CG-SAWWELD', 'work', []), 'CG_SAWWELD_TIME');
-  assert.equal(m.suggestCode('CG-SAWWELD', 'setup', []), 'CG_SAWWELD_SETUP_TIME');
-  assert.equal(m.suggestCode('CG-SAWWELD', 'work', ['CG_SAWWELD_TIME']), 'CG_SAWWELD_TIME_2');
-  assert.equal(m.suggestCode('3D cut', 'work', []), 'OP_3D_CUT_TIME');
-});
-
-// ── the LOOKUP helper ──────────────────────────────────────────────────────
-await check('LOOKUP helper lists the machine charts and inserts LOOKUP(machine.CUT_SPEED, item.THICKNESS)', async () => {
-  let value = 'item.CUT_LENGTH / ';
-  const Host = () => {
-    const [v, setV] = React.useState(value);
-    value = v;
-    return React.createElement(m.FormulaEditor, { value: v, onChange: setV, idx, itemFields, machineFields });
-  };
-  await render(React.createElement(Host));
-  const ta = q('formula-text');
-  ta.setSelectionRange(ta.value.length, ta.value.length);
-  await click(q('lookup-button'));
-  await settle();
-  assert.ok(q('chart-CUT_SPEED'), 'the chart is listed');
-  assert.match(q('lookup-helper').textContent, /by Thickness \(mm\)/);
-  assert.equal(q('lookup-preview').textContent, 'LOOKUP(machine.CUT_SPEED, item.THICKNESS)', 'the key column is matched to the piece field by name');
-  await click(q('lookup-insert'));
-  await settle();
-  assert.equal(value, 'item.CUT_LENGTH / LOOKUP(machine.CUT_SPEED, item.THICKNESS)');
-});
+// ── buttons and type-ahead ─────────────────────────────────────────────────
 await check('operator and function buttons insert at the caret; text stays editable with colouring', async () => {
   let value = 'item.HOLES';
   const Host = () => { const [v, setV] = React.useState(value); value = v; return React.createElement(m.FormulaEditor, { value: v, onChange: setV, idx, itemFields, machineFields }); };
@@ -247,131 +225,282 @@ await check('typing in the editor shows the list under the caret; Enter inserts 
   assert.equal(q('formula-suggest'), null, 'Esc closes it');
 });
 
-// ── the builder ────────────────────────────────────────────────────────────
-await check('templates prefill: Length × rate → Rate tab with SAW weld length per metre; Cut → Advanced with LOOKUP', async () => {
+// ── where the caret is in a LOOKUP call (pure) ─────────────────────────────
+await check('lookupAt: finds the LOOKUP call the caret is in, the argument, and the range to replace', () => {
+  const L = (t, c = t.length) => m.lookupAt(t, c);
+  assert.equal(L('item.CUT_LENGTH / '), null, 'no LOOKUP anywhere');
+  assert.equal(L('MAX(item.A, '), null, 'a comma in another function is not a LOOKUP argument');
+  const typed = L('item.CUT_LENGTH / LOOKUP');
+  assert.deepEqual([typed.start, typed.end, typed.open, typed.arg], [18, 24, null, 0], 'just the word typed');
+  assert.equal(L('item.CUT_LENGTH / LOOKUPS'), null, 'a longer word is not LOOKUP');
+  assert.equal(L('item.LOOKUP'), null, 'nor is a field called that');
+  const first = L('item.CUT_LENGTH / LOOKUP(');
+  assert.deepEqual([first.start, first.open, first.arg, first.close, first.end], [18, 24, 0, null, 25], 'open, not closed: ends where the text ends');
+  const second = L('LOOKUP(machine.CUT_SPEED, ');
+  assert.equal(second.arg, 1);
+  assert.deepEqual(second.args.map((a) => a.text), ['machine.CUT_SPEED', '']);
+  const done = 'item.CUT_LENGTH / LOOKUP(machine.CUT_SPEED, item.THICKNESS)';
+  const inside = L(done, done.length - 1);
+  assert.deepEqual([inside.start, inside.close, inside.end, inside.arg], [18, done.length - 1, done.length, 1]);
+  assert.deepEqual(inside.args.map((a) => a.text), ['machine.CUT_SPEED', 'item.THICKNESS']);
+  assert.equal(L(done, done.length), null, 'after the closing bracket the caret is outside');
+  assert.equal(L(done, 10), null, 'before the call too');
+  assert.equal(L(done, 25).arg, 0, 'in the chart argument');
+  const nested = L('LOOKUP(machine.T, MAX(item.A, ');
+  assert.deepEqual([nested.arg, nested.direct], [1, false], 'inside a nested bracket: still the second argument, but not directly');
+  assert.equal(L('lookup(machine.T, item.A, ').arg, 2, 'any case; a second key');
+  assert.equal(m.chartCodeOf('machine.CUT_SPEED'), 'CUT_SPEED');
+  assert.equal(m.chartCodeOf(' item.THICKNESS '), null);
+});
+await check('suggestAt inside LOOKUP: the first argument offers the charts only, the second the piece fields with the guessed key first', () => {
+  const nums = (fs) => fs.filter((f) => f.dataType === 'number');
+  const chart = machineFields.find((f) => f.dataType === 'table');
+  const base = { fields: { item: nums(itemFields), machine: nums(machineFields) }, functions: [{ name: 'MIN', args: 2, hint: '' }] };
+  const arg0 = { ...base, lookup: { arg: 0, charts: [chart], keyFirst: null } };
+  assert.deepEqual(m.suggestAt('LOOKUP(cu', 9, arg0).items.map((x) => x.insert), ['machine.CUT_SPEED'], 'by name, and not CUT_LENGTH or MIN');
+  assert.deepEqual(m.suggestAt('LOOKUP(machine.', 15, arg0).items.map((x) => x.insert), ['machine.CUT_SPEED'], 'machine. lists the charts, not PIERCE_TIME');
+  assert.equal(m.suggestAt('LOOKUP(item.', 12, arg0), null, 'a piece field is not a chart');
+  const arg1 = { ...base, lookup: { arg: 1, charts: [chart], keyFirst: 'THICKNESS' } };
+  const keys = m.suggestAt('LOOKUP(machine.CUT_SPEED, item.', 31, arg1).items;
+  assert.equal(keys[0].insert, 'item.THICKNESS', 'the guessed key leads');
+  assert.ok(keys.every((x) => x.insert.startsWith('item.')), 'piece fields only');
+  assert.equal(m.suggestAt('LOOKUP(machine.CUT_SPEED, mach', 29, arg1), null, 'no machine fields in the key');
+  assert.deepEqual(m.suggestAt('LOOKUP(machine.CUT_SPEED, thic', 30, arg1).items.map((x) => x.insert), ['item.THICKNESS']);
+});
+
+// ── LOOKUP guides the user ─────────────────────────────────────────────────
+const EXPLAIN = "LOOKUP(chart, value) — reads a rate from a machine's chart. chart: one of the machine's charts below; value: the piece's value to look it up by.";
+await check('the LOOKUP button just inserts LOOKUP() at the caret — no popover — and the hint bar appears with the charts as chips', async () => {
+  const box = await mountEditor('item.CUT_LENGTH / ');
+  const ta = q('formula-text');
+  ta.setSelectionRange(ta.value.length, ta.value.length);
+  assert.equal(q('lookup-hint'), null, 'no hint away from LOOKUP');
+  await click(q('lookup-button'));
+  await settle();
+  assert.equal(box.value, 'item.CUT_LENGTH / LOOKUP()');
+  assert.ok(!document.querySelector('[data-testid="lookup-helper"], .MuiPopover-root'), 'no popover');
+  assert.ok(q('lookup-hint'), 'the hint is shown');
+  assert.equal(q('lookup-explain').textContent.replace(/\s+/g, ' ').trim(), EXPLAIN);
+  const chip = q('chart-CUT_SPEED');
+  assert.ok(chip, 'the machine chart is a chip');
+  const t = chip.textContent;
+  assert.ok(/Cutting speed/.test(t) && /mm\/min/.test(t) && /machine\.CUT_SPEED/.test(t) && /by Thickness \(mm\)/.test(t), t);
+  assert.equal(q('chart-PIERCE_TIME'), null, 'a plain number is not a chart');
+  assert.equal(q('lookup-guess'), null, 'nothing guessed until a chart is chosen');
+});
+await check('clicking a chart writes LOOKUP(machine.CHART, item.KEY) - the key guessed from the key column - and leaves the key selected', async () => {
+  const box = await mountEditor('item.CUT_LENGTH / ');
+  const ta = q('formula-text');
+  ta.setSelectionRange(ta.value.length, ta.value.length);
+  await click(q('lookup-button'));
+  await settle();
+  await click(q('chart-CUT_SPEED'));
+  await settle(60);
+  assert.equal(box.value, 'item.CUT_LENGTH / LOOKUP(machine.CUT_SPEED, item.THICKNESS)');
+  assert.equal(ta.value.slice(ta.selectionStart, ta.selectionEnd), 'item.THICKNESS', 'the key is selected, so typing replaces it');
+  const guess = q('lookup-guess').textContent.replace(/\s+/g, ' ');
+  assert.match(guess, /Cutting speed is read by Thickness \(mm\): guessed the piece's Thickness \(item\.THICKNESS\)/);
+  assert.equal(q('chart-CUT_SPEED').getAttribute('aria-selected'), 'true', 'the chosen chart is marked');
+  // Changing the key shows which field is used now, and what would have been guessed.
+  const at = box.value.indexOf('item.THICKNESS');
+  await setValue(ta, box.value.replace('item.THICKNESS', 'item.CUT_LENGTH'));
+  await caretTo(ta, at + 3);
+  assert.match(q('lookup-guess').textContent, /item\.CUT_LENGTH.*we would have guessed.*item\.THICKNESS/);
+});
+await check('typing LOOKUP (no bracket yet) shows the hint too, and a chart completes it', async () => {
+  const box = await mountEditor('');
+  await setValue(q('formula-text'), 'LOOKUP');
+  await settle();
+  assert.ok(q('lookup-hint'), 'the hint shows after the word');
+  await click(q('chart-CUT_SPEED'));
+  await settle(60);
+  assert.equal(box.value, 'LOOKUP(machine.CUT_SPEED, item.THICKNESS)');
+});
+await check('picking another chart inside an existing call rewrites that call only', async () => {
+  const two = [...machineFields, { code: 'WELD_SPEED', name: 'Welding speed', dataType: 'table', measurementType: null, unit: 'mm/min', tableConfig: { mode: 'step_up', axes: [{ label: 'Thickness', unit: 'mm' }] }, count: 1 }];
+  const box = await mountEditor('1 + LOOKUP(machine.CUT_SPEED, item.HOLES) * 2', two);
+  const ta = q('formula-text');
+  await caretTo(ta, box.value.indexOf('HOLES'));
+  assert.ok(q('chart-WELD_SPEED'), 'both charts are listed');
+  await click(q('chart-WELD_SPEED'));
+  await settle(60);
+  assert.equal(box.value, '1 + LOOKUP(machine.WELD_SPEED, item.THICKNESS) * 2', 'the text around the call is kept');
+});
+await check('the hint goes away when the caret leaves the call', async () => {
+  const box = await mountEditor('item.CUT_LENGTH / LOOKUP(machine.CUT_SPEED, item.THICKNESS)');
+  const ta = q('formula-text');
+  await caretTo(ta, box.value.length);
+  assert.equal(q('lookup-hint'), null, 'caret after the closing bracket');
+  await caretTo(ta, 5);
+  assert.equal(q('lookup-hint'), null, 'caret before the call');
+  await caretTo(ta, box.value.length - 3);
+  assert.ok(q('lookup-hint'), 'caret inside the call');
+});
+await check('a machine with no charts: the hint says so in one line', async () => {
+  await mountEditor('LOOKUP(', noChartFields);
+  const ta = q('formula-text');
+  await caretTo(ta, 7);
+  assert.equal(q('lookup-nocharts').textContent, 'This machine type has no charts yet — add a table specification such as CUT_SPEED by thickness to it.');
+  assert.equal(document.querySelectorAll('[data-testid^="chart-"]').length, 0, 'no chips');
+});
+await check('type-ahead inside LOOKUP: first argument offers the charts, second the piece fields with the guessed one first', async () => {
+  const box = await mountEditor('');
+  const ta = q('formula-text');
+  await React.act(async () => { ta.focus(); await sleep(0); });
+  await setValue(ta, 'LOOKUP(cu');
+  await settle();
+  const opts = [...q('formula-suggest').querySelectorAll('[role=option]')].map((o) => o.textContent);
+  assert.equal(opts.length, 1, opts.join(' | '));
+  assert.match(opts[0], /Cutting speed.*machine\.CUT_SPEED/);
+  await React.act(async () => { ta.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); await sleep(0); });
+  await settle();
+  assert.equal(box.value, 'LOOKUP(machine.CUT_SPEED');
+  await setValue(ta, 'LOOKUP(machine.CUT_SPEED, item.');
+  await settle();
+  const keys = [...q('formula-suggest').querySelectorAll('[role=option]')];
+  assert.ok(keys.length > 1 && keys.every((o) => /item\./.test(o.textContent) && !/machine\./.test(o.textContent)), 'piece fields only');
+  assert.match(keys[0].textContent, /Thickness/, 'the guessed key is first');
+});
+
+// ── the dialog: one editor ─────────────────────────────────────────────────
+await check('Work, per piece: one formula editor - no tabs, no templates, no rate form, no existing-formula picker, no formula code or name', async () => {
   globalThis.__routes = baseRoutes();
   await render(builder({}));
   await settle(50);
-  assert.ok(q('time-builder'), 'the builder is open');
-  await click(q('template-length'));
-  await settle();
-  assert.equal(q('rate-expression').textContent, 'item.SAW_WELD_LENGTH / 1000 * 1');
-  assert.match(q('rate-conversion').textContent, /SAW weld length is in mm — converted to m \(÷ 1,000\)/);
-  await click(q('template-cut'));
-  await settle();
-  assert.equal(q('formula-text').value, 'item.CUT_LENGTH / LOOKUP(machine.CUT_SPEED, item.THICKNESS) + item.PIERCINGS * machine.PIERCE_TIME');
-  await click(q('template-area'));
-  await settle();
-  assert.equal(q('rate-expression').textContent, 'item.SURFACE_AREA * 2.5 * item.PAINT_COATS');
-  await click(q('template-weight'));
-  await settle();
-  assert.equal(q('formula-text').value, 'item.HBFIT_JOINTS * 25 * item.WEIGHT / 1000');
+  assert.ok(q('time-builder'), 'the dialog is open');
+  assert.equal(q('time-builder-title').textContent, 'Work, per piece');
+  assert.equal(document.querySelectorAll('[role=tab], [role=tablist]').length, 0, 'no tabs');
+  for (const gone of ['tab-fixed', 'tab-rate', 'tab-advanced', 'template-length', 'template-cut', 'rate-expression', 'fixed-minutes', 'existing-formula', 'formula-code', 'formula-name', 'shared-warning']) assert.equal(q(gone), null, `${gone} is gone`);
+  const body = q('time-builder').textContent;
+  for (const gone of ['Start from a shape', 'Start from an existing formula', 'Rate × quantity', 'Fixed minutes', 'Create formula and assign', 'Formula code', 'Formula name']) assert.ok(!body.includes(gone), `"${gone}" is gone`);
+  assert.ok(q('formula-text'), 'the formula editor');
+  assert.ok(q('field-picker'), '"Insert a field" is kept');
+  const labels = [...q('time-builder').querySelectorAll('button')].flatMap((b) => [b.getAttribute('aria-label'), b.textContent.trim()]);
+  for (const kept of ['Plus', 'Minus', 'Times', 'Divided by', 'Open bracket', 'Close bracket', 'MIN', 'MAX', 'ROUND', 'IF', 'LOOKUP', 'Save']) assert.ok(labels.includes(kept), `${kept} is there`);
+  assert.equal(q('builder-save').textContent, 'Save');
 });
-await check('live preview shows the minutes and the formula in words from the check', async () => {
+await check('Setup, per run: the same dialog under the other title', async () => {
+  globalThis.__routes = baseRoutes();
+  await render(builder({ which: 'setup' }));
+  await settle(50);
+  assert.equal(q('time-builder-title').textContent, 'Setup, per run');
+  assert.ok(q('formula-text') && q('field-picker') && q('lookup-button'), 'the same editor');
+  assert.equal(document.querySelectorAll('[role=tab]').length, 0);
+});
+await check('the dialog opens with what the rule holds: its expression, or its minutes', async () => {
+  globalThis.__routes = baseRoutes();
+  const expr = 'item.SAW_WELD_LENGTH / 1000 * 1';
+  await render(builder({ current: { minutes: null, expression: expr, formula: { id: null, code: null, expression: expr } } }));
+  await settle(50);
+  assert.equal(q('formula-text').value, expr);
+  await render(builder({ current: { minutes: 12, expression: '12', formula: null } }));
+  await settle(50);
+  assert.equal(q('formula-text').value, '12');
+  await render(builder({ current: { minutes: 7.5, formula: null } }));
+  await settle(50);
+  assert.equal(q('formula-text').value, '7.5', 'minutes from an older reply still show');
+  await render(builder({ current: null }));
+  await settle(50);
+  assert.equal(q('formula-text').value, '');
+});
+await check('LOOKUP inside the dialog: button, chart chip, key guessed - the whole path', async () => {
+  globalThis.__routes = baseRoutes();
+  await render(builder({}));
+  await settle(50);
+  await click(q('lookup-button'));
+  await settle();
+  assert.ok(q('lookup-hint'));
+  await click(q('chart-CUT_SPEED'));
+  await settle(60);
+  assert.equal(q('formula-text').value, 'LOOKUP(machine.CUT_SPEED, item.THICKNESS)');
+});
+await check('live preview shows the minutes and the formula in words from the check, on the typed text', async () => {
   globalThis.__routes = baseRoutes();
   checkValue = 24;
   calls.length = 0;
   await render(builder({}));
   await settle(50);
-  await click(q('template-length'));
+  await setValue(q('formula-text'), 'item.SAW_WELD_LENGTH / 1000 * 1');
   await settle(400);
   const sent = calls.filter((c) => c.path === '/formulas/check').at(-1);
   assert.ok(sent, 'the check was called');
   assert.equal(sent.body.expression, 'item.SAW_WELD_LENGTH / 1000 * 1');
   assert.equal(sent.body.itemId, 501, 'on the first real piece');
-  assert.equal(sent.body.machineId, 7, 'on a machine of the rule\'s type');
+  assert.equal(sent.body.machineId, 7, "on a machine of the rule's type");
   assert.equal(q('preview-minutes').textContent, '24 min');
   assert.equal(q('preview-words').textContent, '1 min per m of SAW weld length');
   assert.match(q('preview-panel').textContent, /24,000 from the piece/);
 });
-await check('unit warning: SAW weld length in mm × a rate, without ÷ 1000', async () => {
+await check('a plain number is a fixed time: checked like any formula, read as minutes', async () => {
+  globalThis.__routes = baseRoutes();
+  checkValue = 12;
+  calls.length = 0;
+  await render(builder({}));
+  await settle(50);
+  await setValue(q('formula-text'), '12');
+  await settle(400);
+  assert.equal(calls.filter((c) => c.path === '/formulas/check').at(-1).body.expression, '12');
+  assert.equal(q('preview-minutes').textContent, '12 min');
+  assert.equal(q('preview-words').textContent, '12 min per piece');
+});
+await check('unit warning: SAW weld length in mm x a rate, without / 1000', async () => {
   globalThis.__routes = baseRoutes();
   await render(builder({}));
   await settle(50);
-  await click(q('tab-advanced'));
-  await settle();
   await setValue(q('formula-text'), 'item.SAW_WELD_LENGTH * 1.0');
   await settle(400);
   assert.match(q('unit-warnings').textContent, /SAW weld length is in mm\. If the rate is minutes per metre, divide by 1,000/);
 });
-await check('save creates the formula with the suggested code and assigns it to the rule in the same action', async () => {
+await check('Save hands the typed text to the caller and closes - it never creates or changes a shared formula', async () => {
   globalThis.__routes = baseRoutes();
   calls.length = 0;
-  const assigned = [];
+  const saved = [];
   let closed = false;
-  await render(builder({ onAssign: (a) => { assigned.push(a); }, onClose: () => { closed = true; } }));
+  await render(builder({ onSave: (t) => { saved.push(t); }, onClose: () => { closed = true; } }));
   await settle(50);
-  await click(q('template-length'));
-  await setValue(q('rate-value'), '1.2');
-  await setValue(q('rate-setup'), '20');
+  await setValue(q('formula-text'), '  item.SAW_WELD_LENGTH / 1000 * 1.2  ');
   await settle(400);
-  assert.equal(q('formula-code').value, 'CG_SAWWELD_TIME');
   await click(q('builder-save'));
   await settle(50);
-  const post = calls.find((c) => c.method === 'POST' && c.path === '/formulas');
-  assert.ok(post, 'the formula was created');
-  assert.equal(post.body.code, 'CG_SAWWELD_TIME');
-  assert.equal(post.body.expression, 'item.SAW_WELD_LENGTH / 1000 * 1.2');
-  assert.equal(assigned.length, 1);
-  assert.equal(assigned[0].formulaId, 99);
-  assert.equal(assigned[0].setupMinutes, 20, 'the rate form\'s setup goes onto the rule');
+  assert.deepEqual(saved, ['item.SAW_WELD_LENGTH / 1000 * 1.2'], 'trimmed text');
   assert.ok(closed);
+  assert.ok(!calls.some((c) => c.path.startsWith('/formulas') && c.path !== '/formulas/check'), `no formula written: ${JSON.stringify(calls.map((c) => `${c.method} ${c.path}`))}`);
 });
-await check('fixed minutes assign without making a formula', async () => {
+await check('a number saves as a number; empty text saves as empty (the rule clears the time)', async () => {
   globalThis.__routes = baseRoutes();
-  calls.length = 0;
-  const assigned = [];
-  await render(builder({ onAssign: (a) => { assigned.push(a); } }));
+  const saved = [];
+  await render(builder({ onSave: (t) => { saved.push(t); } }));
   await settle(50);
-  await click(q('tab-fixed'));
-  await setValue(q('fixed-minutes'), '12');
+  await setValue(q('formula-text'), '12');
+  await settle(400);
   await click(q('builder-save'));
   await settle(50);
-  assert.deepEqual(assigned, [{ minutes: 12, formulaId: null }]);
-  assert.ok(!calls.some((c) => c.path === '/formulas' || /^\/formulas\/\d/.test(c.path)));
+  await render(builder({ current: { minutes: 12, expression: '12', formula: null }, onSave: (t) => { saved.push(t); } }));
+  await settle(50);
+  await setValue(q('formula-text'), '');
+  await settle(50);
+  assert.equal(q('builder-save').disabled, false, 'clearing is allowed');
+  await click(q('builder-save'));
+  await settle(50);
+  assert.deepEqual(saved, ['12', '']);
 });
-await check('a formula used by other rules asks: change for all, or a new one for this rule', async () => {
+await check('a save that fails shows why and keeps the dialog open', async () => {
   globalThis.__routes = baseRoutes();
-  const shared = formula(42, 'SHARED_TIME', 'item.SAW_WELD_LENGTH / 1000 * 1', { timingRuleCount: 3 });
-  const current = { minutes: null, formula: { id: 42, code: 'SHARED_TIME', expression: shared.expression } };
-  // default: a new formula for this rule
-  calls.length = 0;
-  let assigned = [];
-  await render(builder({ current, formulas: [shared], onAssign: (a) => { assigned.push(a); } }));
+  let closed = false;
+  await render(builder({ onSave: () => { throw new Error('boom'); }, onClose: () => { closed = true; } }));
   await settle(50);
-  assert.equal(q('rate-expression').textContent, 'item.SAW_WELD_LENGTH / 1000 * 1', 'reopens in the Rate form');
-  assert.equal(q('shared-warning'), null, 'no warning while unchanged');
-  await setValue(q('rate-value'), '1.5');
-  await settle(50);
-  assert.match(q('shared-warning').textContent, /SHARED_TIME is used by 3 rules — change it for all, or save a new formula for this rule/);
+  await setValue(q('formula-text'), '12');
+  await settle(400);
   await click(q('builder-save'));
   await settle(50);
-  assert.ok(calls.some((c) => c.method === 'POST' && c.path === '/formulas'), 'saved as a new formula');
-  assert.ok(!calls.some((c) => c.method === 'PUT'), 'the shared one is untouched');
-  assert.equal(assigned[0].formulaId, 99);
-  // change for all
-  calls.length = 0;
-  assigned = [];
-  await render(builder({ current, formulas: [shared], onAssign: (a) => { assigned.push(a); } }));
-  await settle(50);
-  await setValue(q('rate-value'), '1.5');
-  await settle(50);
-  await click(q('share-all').querySelector('input'));
-  await settle();
-  assert.match(q('builder-save').textContent, /Save v2 and assign/);
-  await click(q('builder-save'));
-  await settle(50);
-  const put = calls.find((c) => c.method === 'PUT' && c.path === '/formulas/42');
-  assert.ok(put, 'the shared formula got a new version');
-  assert.equal(put.body.expression, 'item.SAW_WELD_LENGTH / 1000 * 1.5');
-  assert.equal(assigned[0].formulaId, 42);
+  assert.ok(!closed, 'still open');
+  assert.ok(document.querySelector('[role=alert]'), 'an error is shown');
 });
 await check('problems from the check block saving', async () => {
   globalThis.__routes = baseRoutes();
   checkProblems = ['Unknown specification NOPE.'];
   await render(builder({}));
   await settle(50);
-  await click(q('tab-advanced'));
   await setValue(q('formula-text'), 'item.NOPE * 2');
   await settle(400);
   assert.match(q('preview-problems').textContent, /Unknown specification NOPE/);
@@ -379,7 +508,67 @@ await check('problems from the check block saving', async () => {
   checkProblems = [];
 });
 
+// ── the rule dialog: setup opens the same dialog ───────────────────────────
+await check('Edit rule: Setup and Work each open the same time dialog; the rule is saved with setupExpression / workExpression, no formula ids', async () => {
+  globalThis.__routes = [...baseRoutes(), ['PUT', /^\/operation-rules\/31$/, () => ({ id: 31 })]];
+  calls.length = 0;
+  const own = 'item.SAW_WELD_LENGTH / 1000 * 0.5';
+  const rule = { id: 31, operationId: 1, subject: { type: 'classification', id: 3315, code: 'SAW', name: 'SAW', level: 'Subfamily' }, eligible: true,
+    setup: { minutes: 5, expression: '5', formula: null }, work: { minutes: null, expression: own, formula: { id: null, code: null, expression: own } },
+    effectiveFrom: null, effectiveTo: null, notes: null };
+  let saved = 0;
+  await render(React.createElement(m.TimingRuleDialog, { open: true, operationId: 1, operation: ctx.operation, existing: rule, tree: null, onClose() {}, onSaved: () => { saved++; } }));
+  await settle(60);
+  assert.match(q('time-Setup, per run').textContent, /5 min/, "the rule's setup shows");
+  assert.match(q('time-Work, per piece').textContent, /item\.SAW_WELD_LENGTH \/ 1000 \* 0\.5/);
+  assert.equal(document.querySelectorAll('.MuiToggleButton-root[value=formula], .MuiToggleButton-root[value=minutes]').length, 0, 'no Minutes / Formula toggle any more');
+  // Setup -> the same dialog, titled Setup, per run, opened with 5
+  await click(q('build-Setup, per run'));
+  await settle(60);
+  assert.equal(q('time-builder-title').textContent, 'Setup, per run');
+  assert.equal(q('formula-text').value, '5');
+  await setValue(q('formula-text'), '6');
+  await settle(400);
+  await click(q('builder-save'));
+  await settle(60);
+  assert.match(q('time-Setup, per run').textContent, /6 min/, 'the rule form shows the new setup');
+  // Work -> Work, per piece
+  await click(q('build-Work, per piece'));
+  await settle(60);
+  assert.equal(q('time-builder-title').textContent, 'Work, per piece');
+  assert.equal(q('formula-text').value, own);
+  await click([...q('time-builder').querySelectorAll('button')].find((b) => b.textContent.trim() === 'Cancel'));
+  await settle(60);
+  // Save the rule
+  calls.length = 0;
+  await click([...document.querySelectorAll('button')].find((b) => /Save rule/.test(b.textContent)));
+  await settle(60);
+  const put = calls.find((c) => c.method === 'PUT');
+  assert.ok(put && put.path === '/operation-rules/31', JSON.stringify(calls));
+  assert.equal(put.body.setupExpression, '6');
+  assert.equal(put.body.workExpression, own);
+  for (const k of Object.keys(put.body)) assert.ok(!/Minutes|FormulaId/.test(k), `old field ${k} is not sent`);
+  assert.equal(saved, 1);
+});
+await check('Add rule (new): the time dialog fills the rule form (the rule is created on Add rule with the same expression fields)', async () => {
+  globalThis.__routes = [...baseRoutes(), ['POST', /^\/operations\/1\/rules$/, () => ({ id: 99 })]];
+  calls.length = 0;
+  await render(React.createElement(m.TimingRuleDialog, { open: true, operationId: 1, operation: ctx.operation, existing: null, tree: null, onClose() {}, onSaved() {} }));
+  await settle(60);
+  assert.match(q('time-Setup, per run').textContent, /Not set/);
+  await click(q('build-Work, per piece'));
+  await settle(60);
+  assert.equal(q('time-builder-title').textContent, 'Work, per piece');
+  await setValue(q('formula-text'), '2.5');
+  await settle(400);
+  await click(q('builder-save'));
+  await settle(60);
+  assert.match(q('time-Work, per piece').textContent, /2\.5 min/);
+});
+
+
 if (root) await React.act(async () => { root.unmount(); });
-console.log(`\n${passed} passed, ${failed} failed`);
+console.log(`
+${passed} passed, ${failed} failed`);
 process.exitCode = failed ? 1 : 0;
 setTimeout(() => process.exit(process.exitCode), 50);

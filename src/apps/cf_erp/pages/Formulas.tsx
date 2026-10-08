@@ -15,14 +15,14 @@ import { ConfirmDialog } from '../components/ConfirmDialog';
 import { useToast } from '../components/toastContext';
 import { FormulaDialog } from '../components/FormulaDialog';
 
-const KIND_LABEL: Record<FormulaKind, string> = { value: 'Value', rollup: 'Roll-up', timing: 'Timing' };
+const KIND_LABEL: Record<FormulaKind, string> = { value: 'Value', rollup: 'Roll-up', timing: 'Old operation time' };
 const KIND_HELP: Record<FormulaKind, string> = {
   value: 'Reads the same record’s values — for calculated rules.',
   rollup: 'Adds up BOM children — for roll-up rules.',
-  timing: 'Reads the item being worked on and the machine doing it — for operation times.',
+  timing: 'Operation times are now typed on the rule itself (Production › Operations).',
 };
 
-const usedByText = (f: Formula) => [f.ruleCount ? `${f.ruleCount} spec` : null, f.timingRuleCount ? `${f.timingRuleCount} timing` : null].filter(Boolean).join(' · ') || '—';
+const usedByText = (f: Formula) => (f.ruleCount ? `${f.ruleCount} rule${f.ruleCount === 1 ? '' : 's'}` : '—');
 const matches = (f: Formula, term: string) => !term || [f.code, f.name, f.expression].some((v) => v?.toLowerCase().includes(term));
 
 const COLUMNS: DataColumn<Formula>[] = [
@@ -31,11 +31,14 @@ const COLUMNS: DataColumn<Formula>[] = [
   { key: 'expression', header: 'Expression', render: (f) => <Box sx={{ whiteSpace: 'normal', minWidth: 200 }}><Mono muted>{f.expression}</Mono></Box>, sortValue: (f) => f.expression },
   { key: 'kind', header: 'Kind', sortValue: (f) => f.kind, exportValue: (f) => (f.kind ? KIND_LABEL[f.kind] : ''), render: (f) => f.kind && <Tooltip title={KIND_HELP[f.kind]}><Box component="span">{KIND_LABEL[f.kind]}</Box></Tooltip> },
   { key: 'version', header: 'Version', numeric: true, render: (f) => `v${f.version}`, sortValue: (f) => f.version },
-  { key: 'used', header: 'Used by', render: (f) => <Mono muted={usedByText(f) === '—'}>{usedByText(f)}</Mono>, sortValue: (f) => (f.ruleCount ?? 0) + (f.timingRuleCount ?? 0), exportValue: usedByText },
+  { key: 'used', header: 'Used by', render: (f) => <Mono muted={usedByText(f) === '—'}>{usedByText(f)}</Mono>, sortValue: (f) => f.ruleCount ?? 0, exportValue: usedByText },
   { key: 'status', header: 'Status', render: (f) => <StatusBadge status={f.status} />, sortValue: (f) => f.status },
 ];
 
-/** Collection / List (§4.2) — reusable formulas for calculated values, roll-ups and operation times. */
+/**
+ * Collection / List (§4.2) — the shared formulas for calculated values and roll-ups. Operation times are
+ * not formulas of this list any more: each rule carries its own (§49), so old timing formulas are left out.
+ */
 export default function Formulas() {
   const toast = useToast();
   const canManage = useIsPermitted()('cf_erp_setup_manage');
@@ -46,22 +49,22 @@ export default function Formulas() {
   const [toDelete, setToDelete] = useState<Formula | null>(null);
   useNewParam(() => { if (canManage) setDialog({ open: true, formula: null }); });
   const term = search.trim().toLowerCase();
-  const base = (data ?? []).filter((f) => matches(f, term));
+  const base = (data ?? []).filter((f) => f.kind !== 'timing' && matches(f, term));
   const rows = base.filter((f) => !kind || f.kind === kind);
   // The figures describe the rows in the table beneath them, kind chip included.
   const stats = [
     { label: 'Shown', value: rows.length },
-    { label: 'In use', value: rows.filter((f) => (f.ruleCount ?? 0) + (f.timingRuleCount ?? 0) > 0).length, tone: 'success' as const },
-    { label: 'Unused', value: rows.filter((f) => !f.ruleCount && !f.timingRuleCount).length, hint: 'No rule uses it yet' },
+    { label: 'In use', value: rows.filter((f) => (f.ruleCount ?? 0) > 0).length, tone: 'success' as const },
+    { label: 'Unused', value: rows.filter((f) => !f.ruleCount).length, hint: 'No rule uses it yet' },
   ];
 
   return (
     <Box>
-      <PageHeader title="Formulas" subtitle="Reusable expressions: calculated values (weight from length × width × thickness × density), roll-ups, and operation times (cut length at the machine’s speed). Changing one recalculates every item that uses it."
+      <PageHeader title="Value formulas" subtitle="Reusable expressions for calculated values (weight from length × width × thickness × density) and roll-ups. Changing one recalculates every item that uses it. Operation times are typed on the operation’s rule instead."
         actions={canManage && <Button variant="contained" startIcon={<AddRounded />} onClick={() => setDialog({ open: true, formula: null })}>New formula</Button>} />
       <StatStrip stats={stats} />
       <FilterBar search={search} onSearch={setSearch} placeholder="Search code, name or expression">
-        {([['', 'All'], ['value', 'Value'], ['rollup', 'Roll-up'], ['timing', 'Timing']] as const).map(([v, label]) => (
+        {([['', 'All'], ['value', 'Value'], ['rollup', 'Roll-up']] as const).map(([v, label]) => (
           <FacetChip key={v || 'all'} label={label} active={kind === v} count={base.filter((f) => !v || f.kind === v).length} onClick={() => setKind(v)} />
         ))}
       </FilterBar>
@@ -71,7 +74,7 @@ export default function Formulas() {
         rowActions={canManage ? (f) => (
           <Tooltip title="Delete"><IconButton size="small" aria-label={`Delete ${f.code}`} onClick={() => setToDelete(f)}><DeleteOutlineRounded fontSize="small" /></IconButton></Tooltip>
         ) : undefined}
-        empty={<EmptyState icon={<FunctionsRounded />} title={term || kind ? 'No formula matches' : 'No formulas yet'}
+        empty={<EmptyState icon={<FunctionsRounded />} title={term || kind ? 'No formula matches' : 'No value formulas yet'}
           hint={term || kind ? 'Clear the search or pick another kind.' : 'Add one, then use it in a Calculated rule on a classification node or definition.'}
           action={!term && !kind && canManage && <Button variant="contained" onClick={() => setDialog({ open: true, formula: null })}>New formula</Button>} />} />
       <FormulaDialog open={dialog.open} existing={dialog.formula} canManage={canManage} onClose={() => setDialog({ open: false, formula: null })} onSaved={() => { toast.success('Formula saved.'); reload(); }} />
