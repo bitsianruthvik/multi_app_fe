@@ -21,7 +21,7 @@ import {
  * whatever holds it (SpecValueInput's caller) saves it the way it saves anything.
  */
 export function TableValueDialog({
-  open, onClose, specName, tableConfig, value, onSave, disabled,
+  open, onClose, specName, tableConfig, value, onSave, disabled, resultLabel,
 }: {
   open: boolean;
   onClose: () => void;
@@ -31,6 +31,8 @@ export function TableValueDialog({
   value: string;
   onSave: (serialized: string) => void;
   disabled?: boolean;
+  /** Heading of the value column, with its unit, e.g. "Gas cutting speed (mm/min)". */
+  resultLabel?: string;
 }) {
   const axisCount = axisCountOf(tableConfig);
   const axisLabel = (i: number, fallback: string) => {
@@ -62,7 +64,7 @@ export function TableValueDialog({
   return (
     <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
       <DialogHeader title={`${specName} — chart`} onClose={onClose}
-        subtitle={axisCount === 2 ? `${axisLabel(0, 'Row')} × ${axisLabel(1, 'Column')}` : axisLabel(0, 'Row')} />
+        subtitle={`${axisCount === 2 ? `${axisLabel(0, 'Row')} × ${axisLabel(1, 'Column')}` : axisLabel(0, 'Row')}${resultLabel ? ` → ${resultLabel}` : ''}`} />
       <DialogContent>
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1.5, flexWrap: 'wrap', gap: 1 }}>
           <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>{summary}</Typography>
@@ -90,7 +92,7 @@ export function TableValueDialog({
         <Box sx={{ overflow: 'auto', border: '1px solid var(--c-divider)', borderRadius: 'var(--r-sm)', maxHeight: 420 }}>
           {isTable2D(table)
             ? <Grid2D table={table} axisLabel={axisLabel} disabled={disabled} onChange={setTable} />
-            : <Grid1D table={table} axisLabel={axisLabel} disabled={disabled} onChange={setTable} />}
+            : <Grid1D table={table} axisLabel={axisLabel} resultLabel={resultLabel} disabled={disabled} onChange={setTable} />}
         </Box>
         <Box sx={{ mt: 1 }}>
           <Button size="small" startIcon={<AddRounded fontSize="small" />} onClick={() => setTable((t) => addRow(t))} disabled={disabled}>
@@ -141,12 +143,12 @@ const Table = styled('table')({
 
 const numOr = (raw: string, fallback: number) => (raw.trim() === '' ? fallback : Number(raw));
 
-function Grid1D({ table, axisLabel, disabled, onChange }: {
-  table: TableValue1D; axisLabel: (i: number, fallback: string) => string; disabled?: boolean; onChange: (t: TableValue) => void;
+function Grid1D({ table, axisLabel, resultLabel, disabled, onChange }: {
+  table: TableValue1D; axisLabel: (i: number, fallback: string) => string; resultLabel?: string; disabled?: boolean; onChange: (t: TableValue) => void;
 }) {
   return (
     <Table>
-      <thead><tr><th className="hd">{axisLabel(0, 'Row')}</th><th>Rate</th><th style={{ width: 32 }} /></tr></thead>
+      <thead><tr><th className="hd">{axisLabel(0, 'Row')}</th><th>{resultLabel ?? 'Rate'}</th><th style={{ width: 32 }} /></tr></thead>
       <tbody>
         {table.x.map((x, i) => (
           <tr key={i}>

@@ -6,6 +6,7 @@ import {
   type BuilderField, type FieldIndex, type FieldRole, type Tok,
 } from '../../lib/formulaBuilder';
 import { suggestAt, type Suggestion } from '../../lib/formulaSuggest';
+import { boundCharts } from '../../lib/charts';
 import { chartCodeOf, lookupAt, type LookupCall } from '../../lib/lookupHint';
 
 /** One field in the picker, with the namespace it is read through. */
@@ -32,12 +33,13 @@ const COLOUR: Partial<Record<Tok['kind'], string>> = {
 };
 
 /** The coloured copy of the text that sits under the transparent textarea. */
-function Highlight({ value, idx }: { value: string; idx: FieldIndex | null }) {
+function Highlight({ value, idx, shortNames }: { value: string; idx: FieldIndex | null; shortNames: Set<string> }) {
   const toks = tokenize(value);
   return (
     <>
       {toks.map((t) => {
-        const known = !idx || t.kind === 'func' || !['item', 'machine', 'name'].includes(t.kind)
+        const known = !idx || t.kind === 'func' || (t.kind === 'name' && shortNames.has(t.code ?? t.text))
+          || !['item', 'machine', 'name'].includes(t.kind)
           || !!fieldFor(idx, t.kind === 'name' ? 'plain' : (t.kind as FieldRole), t.code ?? '');
         return (
           <Box key={t.start} component="span" data-tok={t.kind}
@@ -118,6 +120,8 @@ export function FormulaEditor({ value, onChange, idx, itemFields, machineFields,
   const chartOf = useMemo(() => charts.find((c) => c.code === chartCodeOf(call?.args[0]?.text)) ?? null, [charts, call]);
   /** The piece field that feeds each key of a chart, guessed from the key column's name and unit. */
   const guessKeys = (chart: BuilderField) => axesOf(chart).map((a) => guessAxisField(a, itemFields));
+  const shortCharts = useMemo(() => (timingOnly ? boundCharts(charts) : []), [timingOnly, charts]);
+  const shortNames = useMemo(() => new Set(shortCharts.map((c) => c.code)), [shortCharts]);
   const suggestCtx = useMemo(() => {
     const num = (fs: BuilderField[]) => fs.filter((f) => f.dataType === 'number');
     const lookup = call?.direct && call.open != null
@@ -125,12 +129,13 @@ export function FormulaEditor({ value, onChange, idx, itemFields, machineFields,
       : null;
     return {
       lookup,
+      shortCharts,
       fields: timingOnly ? { item: num(itemFields), machine: num(machineFields) } : { item: num(itemFields), machine: num(machineFields), plain: num(plainFields), children: num(plainFields) },
       functions: Object.entries(FN_HINTS).filter(([n]) => !timingOnly || !['SUM', 'COUNT', 'AVG'].includes(n)).map(([name, [args, hint]]) => ({ name, args, hint })),
     };
     // FN_HINTS is a constant table, and guessKeys only reads itemFields.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [itemFields, machineFields, plainFields, timingOnly, call, charts, chartOf]);
+  }, [itemFields, machineFields, plainFields, timingOnly, call, charts, chartOf, shortCharts]);
   const suggest = useMemo(() => (focused && dismissedAt !== value ? suggestAt(value, Math.min(caretAt, value.length), suggestCtx) : null), [focused, dismissedAt, value, caretAt, suggestCtx]);
   const shown = suggest?.items ?? [];
   const activeIdx = Math.min(active, Math.max(0, shown.length - 1));
@@ -248,7 +253,7 @@ export function FormulaEditor({ value, onChange, idx, itemFields, machineFields,
       <Box sx={{ position: 'relative', border: '1px solid var(--c-border)', borderRadius: 'var(--r-sm)', background: 'var(--c-surface)', '&:focus-within': { borderColor: 'var(--c-primary-500)', boxShadow: '0 0 0 1px var(--c-primary-500)' } }}>
         <Typography component="label" htmlFor="formula-text" sx={{ position: 'absolute', top: -9, left: 8, px: 0.5, fontSize: 12, color: 'var(--c-text-2)', background: 'var(--c-surface)', lineHeight: '16px' }}>{label}</Typography>
         <Box ref={under} aria-hidden sx={{ ...editorFont, minHeight, maxHeight: Math.max(220, minHeight), overflow: 'hidden', color: 'var(--c-text)', m: 0 }}>
-          <Highlight value={value} idx={idx} />
+          <Highlight value={value} idx={idx} shortNames={shortNames} />
         </Box>
         <Box component="textarea" id="formula-text" ref={area} value={value} spellCheck={false} autoFocus={autoFocus} data-testid="formula-text"
           aria-label={`${label} — type it, or insert fields and functions above`}

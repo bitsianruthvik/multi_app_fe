@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Box, Button } from '@mui/material';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import AddRounded from '@mui/icons-material/AddRounded';
 import AccountTreeRounded from '@mui/icons-material/AccountTreeRounded';
 import PrecisionManufacturingRounded from '@mui/icons-material/PrecisionManufacturingRounded';
@@ -81,7 +81,10 @@ export default function Machines() {
   const columns: DataColumn<Machine>[] = [
     { key: 'code', header: 'Code', render: (m) => <Mono chip>{m.code}</Mono>, sortValue: (m) => m.code, alwaysVisible: true },
     { key: 'name', header: 'Name', render: (m) => <Box sx={{ fontWeight: 500 }}>{m.name}</Box>, sortValue: (m) => m.name },
-    { key: 'type', header: 'Machine type', render: (m) => <Box sx={{ color: 'var(--c-text-2)' }}>{pathOf.get(m.classificationId) ?? m.classificationName}</Box>, sortValue: (m) => pathOf.get(m.classificationId) ?? m.classificationName },
+    { key: 'type', header: 'Machine type', render: (m) => (
+      <Box component={Link} to={appPath(company, `machine-types/${m.classificationId}`)} onClick={(e: React.MouseEvent) => e.stopPropagation()} title="Open this machine type — its specifications and charts"
+        sx={{ color: 'var(--c-text-2)', textDecoration: 'none', '&:hover': { color: 'var(--c-primary-700)', textDecoration: 'underline' } }}>{pathOf.get(m.classificationId) ?? m.classificationName}</Box>
+    ), sortValue: (m) => pathOf.get(m.classificationId) ?? m.classificationName },
     { key: 'serial', header: 'Serial', render: (m) => <Mono muted>{m.serialNumber ?? '—'}</Mono>, sortValue: (m) => m.serialNumber },
     { key: 'bought', header: 'Bought as', render: (m) => <Mono muted>{m.catalogItem?.code ?? '—'}</Mono>, sortValue: (m) => m.catalogItem?.code, defaultHidden: true },
     { key: 'production', header: 'Production', render: (m) => (m.isProduction === false ? <Box sx={{ color: 'var(--c-text-3)' }}>Asset</Box> : <Box>Yes</Box>), sortValue: (m) => (m.isProduction === false ? 0 : 1), exportValue: (m) => (m.isProduction === false ? 'No' : 'Yes'), defaultHidden: scope !== 'all' },

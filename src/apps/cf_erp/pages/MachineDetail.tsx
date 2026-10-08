@@ -8,6 +8,7 @@ import AccountTreeRounded from '@mui/icons-material/AccountTreeRounded';
 import Inventory2Rounded from '@mui/icons-material/Inventory2Rounded';
 import TimerRounded from '@mui/icons-material/TimerRounded';
 import ScheduleRounded from '@mui/icons-material/ScheduleRounded';
+import TableChartOutlined from '@mui/icons-material/TableChartOutlined';
 import { cfApi, qs } from '../api/client';
 import type { MachineDetail as MachineDetailT, MachineOperation, Resolution, Rule, Tree } from '../api/types';
 import { useCompanySlug, useLoad } from '../hooks/useLoad';
@@ -24,6 +25,7 @@ import { SpecsTable } from '../components/SpecsTable';
 import { RuleDialog } from '../components/RuleDialog';
 import { MachineDialog } from '../components/MachineDialog';
 import { ConfirmDialog } from '../components/ConfirmDialog';
+import { ChartsPanel } from '../components/Charts/ChartsPanel';
 import { MachineShifts } from '../components/MachineShifts';
 import { ValueHistory } from '../components/ValueHistory';
 import { useDetailTitle } from '../components/shell/detailTitle';
@@ -82,7 +84,7 @@ export default function MachineDetail() {
       )}
       facts={(
         <>
-          <Fact label="Machine type">{typeName}</Fact>
+          <Fact label="Machine type"><Box component={Link} to={to(`machine-types/${m.classificationId}`)} title="Open this machine type" sx={linkSx}>{typeName}</Box></Fact>
           <Fact label="Serial"><Mono muted={!m.serialNumber}>{m.serialNumber ?? '—'}</Mono></Fact>
           <Fact label="Can do"><Mono>{can.length ? can.map((o) => o.operation.code).join(', ') : 'nothing yet'}</Mono></Fact>
           {m.catalogItem && <Fact label="Bought as"><Mono><Link to={to(`items/${m.catalogItem.id}`)}>{m.catalogItem.code ?? m.catalogItem.name}</Link></Mono></Fact>}
@@ -92,9 +94,11 @@ export default function MachineDetail() {
   );
   const crossLinks = (
     <>
-      {m.classificationPath.map((p) => (
-        <CrossLink key={p.id} icon={<AccountTreeRounded />} label={`${p.level}: ${p.name}`} to={to('classification')} />
+      {m.classificationPath.map((p, i) => (
+        <CrossLink key={p.id} icon={<AccountTreeRounded />} label={`${p.level}: ${p.name}`}
+          to={i === m.classificationPath.length - 1 ? to(`machine-types/${p.id}`) : to('classification')} />
       ))}
+      <CrossLink icon={<TableChartOutlined />} label="Charts" onClick={() => setTab('charts')} />
       <CrossLink icon={<TimerRounded />} label="Operations" count={can.length} onClick={() => setTab('operations')} />
       <CrossLink icon={<ScheduleRounded />} label="Shifts" onClick={() => setTab('shifts')} />
       {m.catalogItem && <CrossLink icon={<Inventory2Rounded />} label={`Bought as ${m.catalogItem.code ?? m.catalogItem.name}`} to={to(`items/${m.catalogItem.id}`)} />}
@@ -102,6 +106,7 @@ export default function MachineDetail() {
   );
   const tabs = [
     { value: 'specs', label: 'Specifications' },
+    { value: 'charts', label: 'Charts' },
     { value: 'operations', label: 'Operations', count: can.length },
     { value: 'shifts', label: 'Shifts' },
     { value: 'history', label: 'History' },
@@ -139,6 +144,8 @@ export default function MachineDetail() {
           </SectionCard>
         </Box>
       )}
+
+      {tab === 'charts' && <ChartsPanel subject={{ type: 'machine', id }} canManage={canManage} onChanged={() => { specs.reload(); mc.reload(); setVersion((v) => v + 1); }} />}
 
       {tab === 'operations' && (
         <SectionCard flush title="What it can do" subtitle="Operations whose rules reach this machine, and how long they take. Times are set on each operation, per machine type or per machine.">

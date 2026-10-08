@@ -28,6 +28,7 @@ const Operators = lazy(() => import('./pages/Operators'));
 const StopReasons = lazy(() => import('./pages/StopReasons'));
 const Machines = lazy(() => import('./pages/Machines'));
 const MachineDetail = lazy(() => import('./pages/MachineDetail'));
+const MachineTypeDetail = lazy(() => import('./pages/MachineTypeDetail'));
 const Operations = lazy(() => import('./pages/Operations'));
 const OperationDetail = lazy(() => import('./pages/OperationDetail'));
 const Flows = lazy(() => import('./pages/Flows'));
@@ -84,6 +85,7 @@ export function getCfErpRoutes(
     { path: '/:company/cf_erp/stop-reasons', element: wrap(<StopReasons />) },
     { path: '/:company/cf_erp/machines', element: wrap(<Machines />) },
     { path: '/:company/cf_erp/machines/:id', element: wrap(<MachineDetail />) },
+    { path: '/:company/cf_erp/machine-types/:id', element: wrap(<MachineTypeDetail />) },
     { path: '/:company/cf_erp/operations', element: wrap(<Operations />) },
     { path: '/:company/cf_erp/operations/:id', element: wrap(<OperationDetail />) },
     { path: '/:company/cf_erp/flows', element: wrap(<Flows />) },

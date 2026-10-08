@@ -133,7 +133,9 @@ export interface ResolvedNav {
 export function resolveNav(pathname: string): ResolvedNav | null {
   const parts = pathname.split('/').filter(Boolean);
   if (parts[1] !== 'cf_erp') return null;
-  const [, , screenPath, detailId] = parts;
+  const [, , rawPath, detailId] = parts;
+  // A machine type's page belongs to the Machines screen; it has no top-nav item of its own.
+  const screenPath = rawPath === 'machine-types' ? 'machines' : rawPath;
   for (const section of SECTIONS) {
     const screen = section.screens.find((s) => s.path === screenPath);
     if (screen) return { section, screen, detailId: screen.hasDetail && detailId ? detailId : null };

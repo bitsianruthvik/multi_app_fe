@@ -85,6 +85,9 @@ export function TimeBuilder({ open, onClose, operation, subject, which, current,
                 : 'Minutes for each piece. A number is a fixed time; or work it out from the piece and the machine, e.g. item.CUT_LENGTH / machine.CUT_SPEED.'}
             </Typography>
             <FormulaEditor value={expression} onChange={setExpression} idx={idx} itemFields={itemFields} machineFields={machineFields} label="Minutes =" autoFocus minHeight={192} />
+            {text && check?.expanded && (
+              <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-3)', fontFamily: 'var(--font-mono)', overflowWrap: 'anywhere' }} data-testid="reads-as">Reads as: {check.expanded}</Typography>
+            )}
             <ErrorNotice error={error} />
           </Box>
 

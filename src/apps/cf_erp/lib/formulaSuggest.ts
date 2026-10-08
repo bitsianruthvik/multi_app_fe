@@ -1,4 +1,5 @@
 import type { BuilderField, FieldRole } from './formulaBuilder';
+import { withUnit } from './charts';
 
 /**
  * Type-ahead for the formula editor: what to offer for the word the caret is
@@ -32,6 +33,8 @@ export interface SuggestContext {
    * The caret is directly inside LOOKUP( … ): argument 0 offers only the machine's charts,
    * later arguments only the piece's number fields, `keyFirst` (the guessed key) leading.
    */
+  /** Charts every column of which names a piece's value: written by their bare name (GAS_CUT_SPEED). */
+  shortCharts?: BuilderField[];
   lookup?: { arg: number; charts: BuilderField[]; keyFirst?: string | null } | null;
 }
 
@@ -61,6 +64,12 @@ function score(q: string, code: string, name: string): number {
   if (c.includes(q)) return 2;
   if (n.includes(q)) return 3;
   return -1;
+}
+
+/** A chart offered by its bare name: "chart · mm/min, by Thickness (mm)". */
+function chartItem(f: BuilderField): Suggestion {
+  const by = (f.tableConfig?.axes ?? []).map((a) => withUnit(a.label ?? 'Key', a.unit)).join(' and ');
+  return { kind: 'field', insert: f.code, caretBack: 0, label: f.name, detail: `chart · ${f.unit ? `${f.unit}, ` : ''}by ${by}`, field: f, role: 'plain' };
 }
 
 const refOf = (role: FieldRole, code: string) => (role === 'plain' ? code : `${role}.${code}`);
@@ -114,6 +123,7 @@ export function suggestAt(text: string, caret: number, ctx: SuggestContext): Sug
     for (const role of ['item', 'machine', 'plain', 'children'] as FieldRole[]) {
       for (const f of ctx.fields[role] ?? []) add(score(q, f.code, f.name), fieldItem(role, f));
     }
+    for (const f of ctx.shortCharts ?? []) add(score(q, f.code, f.name), chartItem(f));
   }
   const items = scored.sort((a, b) => a.s - b.s || a.order - b.order).slice(0, MAX_ITEMS).map((x) => x.item);
   // Nothing to add when the only offer is exactly what is typed.

@@ -134,6 +134,8 @@ export interface FormulaCheck {
   /** LOOKUP(t, x[, y]) — the tables it reads, one entry per LOOKUP call. */
   lookupRefs?: { role: 'plain' | 'item' | 'machine'; code: string; arity: number }[];
   result: { value: number | null; missing?: string[]; error?: string } | null;
+  /** The LOOKUP a short chart name stands for; null when nothing was shortened. */
+  expanded?: string | null;
 }
 
 export interface Rule {
@@ -636,7 +638,7 @@ export interface Machine {
  * A rule's setup or work time. `expression` is always the text it is worked out from (a plain number for a
  * fixed time). A rule's own expression has `formula.id` and `formula.code` null; an old shared formula has both.
  */
-export interface TimeView { minutes: number | null; expression?: string; formula: { id: number | null; code: string | null; expression: string } | null }
+export interface TimeView { minutes: number | null; expression?: string; /** The short form (a chart by its name), when the expression reads one. */ display?: string; formula: { id: number | null; code: string | null; expression: string } | null }
 
 export interface TimingSubject { type: 'classification' | 'machine'; id: number; code: string | null; name: string | null; level: string }
 

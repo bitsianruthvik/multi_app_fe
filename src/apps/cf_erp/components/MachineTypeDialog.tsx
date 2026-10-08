@@ -8,8 +8,10 @@ import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
 import EditRounded from '@mui/icons-material/EditRounded';
 import PrecisionManufacturingRounded from '@mui/icons-material/PrecisionManufacturingRounded';
 import RestartAltRounded from '@mui/icons-material/RestartAltRounded';
+import { Link } from 'react-router-dom';
 import { cfApi, CfApiError } from '../api/client';
-import { useLoad } from '../hooks/useLoad';
+import { appPath } from '../navMeta';
+import { useCompanySlug, useLoad } from '../hooks/useLoad';
 import { ConfirmDialog } from './ConfirmDialog';
 import { DialogHeader } from './FormDialog';
 import { EmptyState, ErrorNotice, Mono, SkeletonRows, StatusBadge, Surface } from './ui';
@@ -178,6 +180,7 @@ export function MachineTypeDialog({ open, canManage, closeOnCreate = false, onCl
   onChanged?: () => void;
 }) {
   const toast = useToast();
+  const company = useCompanySlug();
   // Nothing is fetched while it is shut; every opening starts from the truth.
   const list = useLoad(() => (open ? cfApi.get<MachineTypeTree>('/machine-types') : Promise.resolve(null)), [open]);
   const [adding, setAdding] = useState(false);
@@ -343,7 +346,9 @@ export function MachineTypeDialog({ open, canManage, closeOnCreate = false, onCl
                         {editing?.id === t.id ? editor() : (
                           <>
                             <Mono chip>{t.code}</Mono>
-                            <Box sx={{ flex: 1, minWidth: 0, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.name}</Box>
+                            <Box sx={{ flex: 1, minWidth: 0, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              <Box component={Link} to={appPath(company, `machine-types/${t.id}`)} title="Open this machine type — its specifications, charts and machines" sx={{ color: 'inherit', textDecoration: 'none', '&:hover': { color: 'var(--c-primary-700)', textDecoration: 'underline' } }}>{t.name}</Box>
+                            </Box>
                             {t.status === 'inactive' && <StatusBadge status="inactive" />}
                             <Tooltip title={`${t.machineCount} machine(s) of this type`}>
                               <Box component="span"><Mono muted>{t.machineCount}m</Mono></Box>

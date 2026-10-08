@@ -17,7 +17,7 @@
  * Fields
  * ======================================================================== */
 
-export interface TableAxisLike { label?: string; unit?: string | null; specCode?: string | null }
+export interface TableAxisLike { label?: string; unit?: string | null; specCode?: string | null; /** The piece value this column is read by (a bound chart). */ field?: { code: string; name?: string; unit?: string | null } | string | null }
 export interface BuilderField {
   code: string;
   name: string;
@@ -252,11 +252,11 @@ export function formulaInWords(expression: string, idx: FieldIndex | null = null
 }
 
 /** A time as a rule hands it over: minutes, or an expression (a number typed as the formula is a fixed time). */
-export type TimeLike = { minutes: number | null; expression?: string; formula: { code?: string | null; expression: string } | null };
+export type TimeLike = { minutes: number | null; expression?: string; display?: string; formula: { code?: string | null; expression: string } | null };
 
-/** The text a time dialog opens with: the time's expression, else its minutes, else nothing. */
+/** The text a time dialog opens with: the short form when there is one, else the time's expression, else its minutes, else nothing. */
 export const timeStartText = (t: TimeLike | null | undefined) =>
-  t?.expression ?? t?.formula?.expression ?? (t?.minutes != null ? String(t.minutes) : '');
+  t?.display ?? t?.expression ?? t?.formula?.expression ?? (t?.minutes != null ? String(t.minutes) : '');
 
 /** The fixed minutes a time stands for: its minutes, or an expression that is just a number. */
 export function fixedMinutes(t: TimeLike | null | undefined): number | null {
