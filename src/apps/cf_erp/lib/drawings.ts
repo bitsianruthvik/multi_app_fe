@@ -1,6 +1,6 @@
 import type { DrawingGeometry, DrawingRow, DrawingsSummary, DrawingsUploadFile } from '../api/drawings';
 
-/** Pure helpers for the Part drawings dialog: numbers, the outline as an SVG path, and the sentences. */
+/** Pure helpers for the Drawings dialog: numbers, the outline as an SVG path, and the sentences. */
 
 const group = (n: number, digits: number) =>
   n.toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits });
@@ -61,21 +61,61 @@ export const STATUS_WORDS: Record<DrawingsUploadFile['status'], string> = {
 export const savable = (files: DrawingsUploadFile[]): DrawingsUploadFile[] =>
   files.filter((f) => f.status === 'new' || f.status === 'replaces');
 
-export const isDxf = (name: string): boolean => /\.dxf$/i.test(name);
+/** The kind of drawing a file name is, in any case; null for anything else. */
+export const drawingKind = (name: string): 'dxf' | 'pdf' | null => {
+  const m = /\.(dxf|pdf)$/i.exec(name);
+  return m ? (m[1].toLowerCase() as 'dxf' | 'pdf') : null;
+};
+export const isDxf = (name: string): boolean => drawingKind(name) === 'dxf';
+export const isDrawingFile = (name: string): boolean => drawingKind(name) != null;
 
-export const NO_DRAWINGS = 'Upload the DXF of each plate part, named by its drawing mark, e.g. BIC-01.dxf.';
+/** The server refuses a file over this. */
+export const MAX_DRAWING_BYTES = 4 * 1024 * 1024;
 
-/** "12 of 40 plate parts have a drawing (96 of 310 pieces). Their shapes use 71% of their rectangles — true-shape nesting could save up to 1,240 kg on them." */
-export function summaryWords(s: DrawingsSummary): string {
-  if (!s.partsWithDrawing) return NO_DRAWINGS;
-  const have = s.parts === 1 ? 'plate part has' : 'plate parts have';
-  const first = `${group(s.partsWithDrawing, 0)} of ${group(s.parts, 0)} ${have} a drawing (${group(s.piecesWithDrawing, 0)} of ${group(s.pieces, 0)} ${s.pieces === 1 ? 'piece' : 'pieces'}).`;
-  const use = s.usePct == null ? '' : ` Their shapes use ${group(s.usePct, s.usePct >= 99.5 && s.usePct < 100 ? 1 : 0)}% of their rectangles`;
-  if (s.savingKg > 0.5) return `${first}${use}${use ? ' —' : ''} true-shape nesting could save up to ${fmtKg(s.savingKg)} on them.`;
-  return use ? `${first}${use} — there is little for true-shape nesting to save on them.` : first;
+export const NO_DRAWINGS = 'Upload a drawing for each row, named by its drawing mark.';
+export const NO_MARK_HINT = 'A row needs a drawing mark (Structure or Values) before a drawing can be matched to it.';
+export const INTRO = 'A drawing for any row of this line — DXF or PDF, named by the row\u2019s drawing mark (e.g. G1-1.pdf, BF1.dxf). A plate part\u2019s DXF is also read as its shape: true area, cut length and piercings.';
+
+/** The levels a drawing covers, comma-joined; a dash when none. */
+export const levelText = (levels: string[] | null | undefined): string => (levels && levels.length ? levels.join(', ') : '—');
+/** The levels of some matched rows, each once, in the order met. */
+export const levelsOfRows = (rows: DrawingRow[]): string[] => [...new Set(rows.map((r) => r.level))];
+
+/** Rows grouped by level, in the order each level is first met (the server's order within a level). */
+export function groupByLevel<T extends { level: string }>(rows: T[]): { level: string; rows: T[] }[] {
+  const out: { level: string; rows: T[] }[] = [];
+  const at = new Map<string, { level: string; rows: T[] }>();
+  for (const r of rows) {
+    let g = at.get(r.level);
+    if (!g) { g = { level: r.level, rows: [] }; at.set(r.level, g); out.push(g); }
+    g.rows.push(r);
+  }
+  return out;
 }
 
-/** The button label: "Part drawings", with "n of m" once the line's plate parts are known. */
-export function buttonLabel(s: Pick<DrawingsSummary, 'parts' | 'partsWithDrawing'> | null | undefined): string {
-  return s && s.parts > 0 ? `Part shapes (DXF) (${s.partsWithDrawing} of ${s.parts})` : 'Part shapes (DXF)';
+/** Picked files sorted into those to read, those that are not DXF or PDF, and those over the size limit. */
+export function sortPicked<T extends { name: string; size: number }>(picked: T[]): { ok: T[]; wrongKind: string[]; tooBig: string[] } {
+  const ok: T[] = [], wrongKind: string[] = [], tooBig: string[] = [];
+  for (const f of picked) {
+    if (!isDrawingFile(f.name)) wrongKind.push(f.name);
+    else if (f.size > MAX_DRAWING_BYTES) tooBig.push(f.name);
+    else ok.push(f);
+  }
+  return { ok, wrongKind, tooBig };
+}
+
+/** Two plain sentences: the rows covered, then (only when a plate part has a shape) the measure. */
+export function summaryWords(s: DrawingsSummary): string {
+  const first = `${group(s.rowsWithDrawing, 0)} of ${group(s.rows, 0)} ${s.rows === 1 ? 'row has' : 'rows have'} a drawing.`;
+  if (!s.partsWithShape) return first;
+  const have = s.parts === 1 ? 'plate part has' : 'plate parts have';
+  const second = `${group(s.partsWithShape, 0)} of ${group(s.parts, 0)} ${have} a shape (${group(s.piecesWithShape, 0)} of ${group(s.pieces, 0)} ${s.pieces === 1 ? 'piece' : 'pieces'}).`;
+  const use = s.usePct == null ? '' : ` Their shapes use ${group(s.usePct, s.usePct >= 99.5 && s.usePct < 100 ? 1 : 0)}% of their rectangles`;
+  if (s.savingKg > 0.5) return `${first} ${second}${use}${use ? ' —' : ''} true-shape nesting could save up to ${fmtKg(s.savingKg)} on them.`;
+  return use ? `${first} ${second}${use} — there is little for true-shape nesting to save on them.` : `${first} ${second}`;
+}
+
+/** The button label: "Drawings", with "(n of m rows)" once the line's rows are known. */
+export function buttonLabel(s: Pick<DrawingsSummary, 'rows' | 'rowsWithDrawing'> | null | undefined): string {
+  return s && s.rows > 0 ? `Drawings (${s.rowsWithDrawing} of ${s.rows} rows)` : 'Drawings';
 }

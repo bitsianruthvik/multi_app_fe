@@ -28,6 +28,7 @@ import { cfApi, CfApiError } from '../../api/client';
 import { applyBomSheet, downloadBomSheet, fileToBase64, previewBomSheet, type BomSheetResult } from '../../api/bomSheet';
 import { useCompanySlug, useLoad } from '../../hooks/useLoad';
 import { useIsPermitted } from '../../hooks/useIsPermitted';
+import { DrawingsButton } from '../Drawings/DrawingsDialog';
 import { appPath } from '../../navMeta';
 import { recordPath } from '../../lib/paths';
 import { ORDER_STATUS_LABEL, bomPermission } from '../../lib/orders';
@@ -896,6 +897,8 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
         {orderGrid && <Box component="span" ref={setLineUpEl} sx={{ display: 'inline-flex' }} />}
         {orderGrid && (
           <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center', '& > *': { whiteSpace: 'nowrap' } }}>
+            {/* Drawings for any row of this line (DXF or PDF), by drawing mark. Order lines only. */}
+            {gridLineId != null && state.order && <DrawingsButton size="small" orderId={state.order.id} lineId={gridLineId} canManage={isPermitted('cf_erp_orders_manage')} />}
             {narrowBar ? (
               <>
                 <Tooltip title="More: download, upload, expand, collapse"><IconButton size="small" aria-label="More" aria-haspopup="menu" onClick={(e) => setMoreAnchor(e.currentTarget)}><MoreHorizRounded fontSize="small" /></IconButton></Tooltip>

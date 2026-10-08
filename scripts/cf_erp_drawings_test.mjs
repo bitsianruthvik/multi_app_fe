@@ -1,5 +1,5 @@
 // Run from multi_app_fe: node scripts/cf_erp_drawings_test.mjs
-// CF_ERP part drawings (DXF): the pure helpers behind the Nesting stage's "Part drawings" dialog — number formats,
+// CF_ERP drawings (DXF or PDF, any level): the pure helpers behind the Structure tab's "Drawings" dialog — number formats,
 // the outline as one even-odd SVG path with y flipped, the size check, the summary sentence, what a save would keep.
 import assert from 'node:assert/strict';
 import { mkdir, writeFile, unlink } from 'node:fs/promises';
@@ -20,8 +20,8 @@ const check = (label, fn) => { try { fn(); passed++; console.log(`PASS ${label}`
 
 const geo = { lengthMm: 200, widthMm: 100, areaMm2: 15000, rectAreaMm2: 20000, usePct: 75, cutLengthMm: 1234.5, piercings: 2, holes: 3, holeDiameters: [22, 22, 18.5], innerCuts: 1,
   rings: [[[0, 0], [200, 0], [200, 100], [0, 100]], [[10, 10], [20, 10], [20, 20]]] };
-const row = (over = {}) => ({ id: 1, code: 'P-1', name: 'Gusset', pieces: 4, lengthMm: 200, widthMm: 100, thicknessMm: 12, sizeMatches: true, ...over });
-const summary = (over = {}) => ({ parts: 40, partsWithDrawing: 12, pieces: 310, piecesWithDrawing: 96, rectAreaM2: 10, trueAreaM2: 7.1, usePct: 71, rectKg: 5000, trueKg: 3760, savingKg: 1240, ...over });
+const row = (over = {}) => ({ id: 1, code: 'P-1', name: 'Gusset', level: 'Plate part', isPlatePart: true, pieces: 4, lengthMm: 200, widthMm: 100, thicknessMm: 12, sizeMatches: true, ...over });
+const summary = (over = {}) => ({ rows: 152, rowsWithDrawing: 34, parts: 40, partsWithShape: 12, pieces: 310, piecesWithShape: 96, rectAreaM2: 10, trueAreaM2: 7.1, usePct: 71, rectKg: 5000, trueKg: 3760, savingKg: 1240, ...over });
 
 check('numbers use thousands separators and say a missing one with a dash', () => {
   assert.equal(m.fmtMm(12345.6), '12,346');
@@ -80,14 +80,20 @@ check('hole diameters are counted and sorted', () => {
   assert.equal(m.holesTitle({ ...geo, holes: 0, holeDiameters: [] }), 'No holes to drill.');
 });
 
-check('the summary sentence names the parts, the use and the saving', () => {
+check('the summary says the rows covered, then the shapes, use and saving', () => {
   assert.equal(m.summaryWords(summary()),
-    '12 of 40 plate parts have a drawing (96 of 310 pieces). Their shapes use 71% of their rectangles — true-shape nesting could save up to 1,240 kg on them.');
+    '34 of 152 rows have a drawing. 12 of 40 plate parts have a shape (96 of 310 pieces). Their shapes use 71% of their rectangles — true-shape nesting could save up to 1,240 kg on them.');
 });
 
-check('the summary with no drawing says what to upload', () => {
-  assert.equal(m.summaryWords(summary({ partsWithDrawing: 0, piecesWithDrawing: 0, usePct: null, savingKg: 0 })), m.NO_DRAWINGS);
-  assert.match(m.NO_DRAWINGS, /BIC-01\.dxf/);
+check('with no plate-part shape the summary is the first sentence only', () => {
+  assert.equal(m.summaryWords(summary({ partsWithShape: 0, piecesWithShape: 0, usePct: null, savingKg: 0 })), '34 of 152 rows have a drawing.');
+  assert.equal(m.summaryWords(summary({ rows: 1, rowsWithDrawing: 0, partsWithShape: 0 })), '0 of 1 row has a drawing.');
+});
+
+check('a use between 99.5 and 100 shows one decimal, never 100%', () => {
+  const s = m.summaryWords(summary({ usePct: 99.7, savingKg: 30 }));
+  assert.match(s, /use 99.7% of/);
+  assert.ok(!/100%/.test(s));
 });
 
 check('the summary with nothing to save says so, not "0 kg"', () => {
@@ -96,10 +102,16 @@ check('the summary with nothing to save says so, not "0 kg"', () => {
   assert.match(s, /little for true-shape nesting to save/);
 });
 
-check('the button shows n of m only once parts are known', () => {
-  assert.equal(m.buttonLabel(null), 'Part shapes (DXF)');
-  assert.equal(m.buttonLabel({ parts: 0, partsWithDrawing: 0 }), 'Part shapes (DXF)');
-  assert.equal(m.buttonLabel({ parts: 40, partsWithDrawing: 12 }), 'Part shapes (DXF) (12 of 40)');
+check('the empty state, hint and intro use the agreed words', () => {
+  assert.equal(m.NO_DRAWINGS, 'Upload a drawing for each row, named by its drawing mark.');
+  assert.equal(m.NO_MARK_HINT, 'A row needs a drawing mark (Structure or Values) before a drawing can be matched to it.');
+  assert.equal(m.INTRO.replace(/’/g, "'"), "A drawing for any row of this line — DXF or PDF, named by the row's drawing mark (e.g. G1-1.pdf, BF1.dxf). A plate part's DXF is also read as its shape: true area, cut length and piercings.");
+});
+
+check('the button shows n of m rows only once rows are known', () => {
+  assert.equal(m.buttonLabel(null), 'Drawings');
+  assert.equal(m.buttonLabel({ rows: 0, rowsWithDrawing: 0 }), 'Drawings');
+  assert.equal(m.buttonLabel({ rows: 152, rowsWithDrawing: 34 }), 'Drawings (34 of 152 rows)');
 });
 
 check('only new and replacing files are saved', () => {
@@ -108,9 +120,30 @@ check('only new and replacing files are saved', () => {
   assert.deepEqual(kept, ['new', 'replaces']);
 });
 
-check('only .dxf names are taken, in any case', () => {
-  assert.ok(m.isDxf('BIC-01.dxf') && m.isDxf('BIC-01.DXF'));
-  assert.ok(!m.isDxf('BIC-01.dwg') && !m.isDxf('dxf'));
+check('DXF and PDF names are taken, in any case; nothing else', () => {
+  assert.equal(m.drawingKind('BIC-01.dxf'), 'dxf');
+  assert.equal(m.drawingKind('G1-1.PDF'), 'pdf');
+  assert.equal(m.drawingKind('BIC-01.dwg'), null);
+  assert.equal(m.drawingKind('pdf'), null);
+  assert.ok(m.isDxf('A.DXF') && !m.isDxf('A.pdf'));
+  assert.ok(m.isDrawingFile('a.pdf') && !m.isDrawingFile('a.png'));
+});
+
+check('picked files: wrong kind and over 4 MB are set aside', () => {
+  const f = (name, size) => ({ name, size });
+  const out = m.sortPicked([f('a.dxf', 10), f('b.pdf', 4 * 1024 * 1024), f('c.pdf', 4 * 1024 * 1024 + 1), f('d.png', 1)]);
+  assert.deepEqual(out.ok.map((x) => x.name), ['a.dxf', 'b.pdf']);
+  assert.deepEqual(out.tooBig, ['c.pdf']);
+  assert.deepEqual(out.wrongKind, ['d.png']);
+});
+
+check('level helpers: comma-joined, deduped, grouped in first-met order', () => {
+  assert.equal(m.levelText(['Girder segment', 'Plate part']), 'Girder segment, Plate part');
+  assert.equal(m.levelText([]), '—');
+  assert.equal(m.levelText(null), '—');
+  assert.deepEqual(m.levelsOfRows([row(), row({ id: 2, level: 'Span' }), row({ id: 3 })]), ['Plate part', 'Span']);
+  const g = m.groupByLevel([{ id: 1, level: 'Span' }, { id: 2, level: 'Part' }, { id: 3, level: 'Span' }]);
+  assert.deepEqual(g.map((x) => [x.level, x.rows.map((r) => r.id)]), [['Span', [1, 3]], ['Part', [2]]]);
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

@@ -1,5 +1,6 @@
 import { useRef, useState, type ChangeEvent } from 'react';
 import { Box, Button, CircularProgress, Collapse, Dialog, DialogActions, DialogContent, IconButton, Tooltip, Typography } from '@mui/material';
+import DownloadRounded from '@mui/icons-material/DownloadRounded';
 import DrawRounded from '@mui/icons-material/DrawRounded';
 import UploadFileRounded from '@mui/icons-material/UploadFileRounded';
 import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
@@ -7,13 +8,14 @@ import WarningAmberRounded from '@mui/icons-material/WarningAmberRounded';
 import ExpandMoreRounded from '@mui/icons-material/ExpandMoreRounded';
 import ExpandLessRounded from '@mui/icons-material/ExpandLessRounded';
 import { CfApiError } from '../../api/client';
+import { useToast } from '../toastContext';
 import { fileToBase64 } from '../../api/bomSheet';
 import {
-  deleteDrawing, getDrawings, uploadDrawings,
+  deleteDrawing, downloadDrawing, getDrawings, uploadDrawings,
   type Drawing, type DrawingFileBody, type DrawingGeometry, type DrawingRow, type DrawingsUpload, type DrawingsView,
 } from '../../api/drawings';
 import {
-  buttonLabel, fmtCutM, fmtMm, fmtPct, holesTitle, isDxf, outlineShape, rowCodes, savable, sizeCheck, sizeText, STATUS_WORDS, summaryWords,
+  buttonLabel, fmtCutM, fmtMm, fmtPct, groupByLevel, holesTitle, INTRO, levelText, levelsOfRows, NO_DRAWINGS, NO_MARK_HINT, outlineShape, rowCodes, savable, sizeCheck, sizeText, sortPicked, STATUS_WORDS, summaryWords,
 } from '../../lib/drawings';
 import { NO_MANAGE } from '../../lib/nesting';
 import { useLoad } from '../../hooks/useLoad';
@@ -22,10 +24,10 @@ import { ConfirmDialog } from '../ConfirmDialog';
 import { DialogHeader } from '../FormDialog';
 
 /**
- * PART SHAPES (DXF) — the DXF of each plate part, named by its drawing mark. The server reads the true outline and says
- * how much of each part's rectangle is real part: what a true-shape nesting could save. Cut length and piercings
- * (for CNC) come from the same drawings. A file is read and matched first (dry run); nothing is saved until
- * "Save N drawings". Files that match no row, or cannot be read, are never saved.
+ * DRAWINGS — a DXF or PDF for any row of an order line (span, girder, segment, assembly, part), named by the row's
+ * drawing mark. Only a plate part's DXF is read as a shape: true area (what a true-shape nesting could save), cut length
+ * and piercings for the CNC. A file is read and matched first (dry run); nothing is saved until "Save N drawings".
+ * Files that match no row, or cannot be read, are never saved. Every saved drawing can be downloaded.
  */
 
 const TABLE_SX = {
@@ -53,11 +55,29 @@ function Outline({ geometry, w = 64, h = 40, onClick }: { geometry: DrawingGeome
   );
 }
 
+/** The picture of a drawing: its outline when it has a shape, otherwise a small file-type badge. */
+function Thumb({ drawing, onEnlarge }: { drawing: Drawing; onEnlarge: () => void }) {
+  if (drawing.geometry) return <Outline geometry={drawing.geometry} onClick={onEnlarge} />;
+  return (
+    <Box aria-label={`${drawing.fileKind.toUpperCase()} file`} sx={{
+      width: 64, height: 40, display: 'grid', placeItems: 'center', borderRadius: 'var(--r-sm)', border: '1px solid var(--c-divider)',
+      fontSize: 11.5, fontWeight: 700, letterSpacing: '0.04em', color: 'var(--c-text-2)',
+    }}>{drawing.fileKind.toUpperCase()}</Box>
+  );
+}
+
 function Rows({ rows, geometry }: { rows: DrawingRow[]; geometry: DrawingGeometry | null }) {
   if (!rows.length) return <Box sx={{ color: 'var(--c-text-3)' }}>—</Box>;
   return (
     <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75, minWidth: 0 }}>
       {rows.map((r) => {
+        if (!geometry || !r.isPlatePart) {
+          return (
+            <Tooltip key={r.id} title={`${r.level}${r.name ? ` · ${r.name}` : ''}`}>
+              <Box component="span"><Mono>{r.code ?? r.name}</Mono></Box>
+            </Tooltip>
+          );
+        }
         const c = sizeCheck(r, geometry);
         return (
           <Tooltip key={r.id} title={c.text}>
@@ -94,7 +114,7 @@ function PreviewTable({ upload }: { upload: DrawingsUpload }) {
       <Box component="table" sx={TABLE_SX}>
         <thead>
           <tr>
-            <th>File</th><th>Mark</th><th>Result</th><th>Rows matched</th><th>Size</th>
+            <th>File</th><th>Type</th><th>Mark</th><th>Result</th><th>Rows matched</th><th>Level</th><th>Size</th>
             <th className="n">Use</th><th className="n">Cut length</th><th className="n">Piercings</th><th className="n">Holes</th><th>Notes</th>
           </tr>
         </thead>
@@ -102,14 +122,17 @@ function PreviewTable({ upload }: { upload: DrawingsUpload }) {
           {upload.files.map((f) => {
             const g = f.geometry;
             const wrong = f.rows.filter((r) => r.sizeMatches === false).length;
+            const shaped = !!g && f.rows.some((r) => r.isPlatePart);
             return (
               <tr key={f.name}>
                 <td style={{ overflowWrap: 'anywhere' }}>{f.name}</td>
+                <td>{f.fileKind ? f.fileKind.toUpperCase() : '—'}</td>
                 <td><Mono>{f.mark}</Mono></td>
                 <td><StatusBadge status={f.status} /></td>
                 <td>{f.rows.length ? rowCodes(f.rows) : '—'}</td>
+                <td>{levelText(levelsOfRows(f.rows))}</td>
                 <td>
-                  {!f.rows.length ? '—' : wrong
+                  {!f.rows.length || !shaped ? '—' : wrong
                     ? <Tooltip title={f.rows.filter((r) => r.sizeMatches === false).map((r) => sizeCheck(r, g).text).join(' · ')}><Box component="span" sx={{ color: 'var(--c-warning-700)' }}>⚠ {wrong} differ</Box></Tooltip>
                     : <Box component="span" sx={{ color: 'var(--c-success-700)' }}>✓</Box>}
                 </td>
@@ -127,16 +150,16 @@ function PreviewTable({ upload }: { upload: DrawingsUpload }) {
   );
 }
 
-function DrawingsTable({ drawings, canManage, released, onEnlarge, onDelete }: {
-  drawings: Drawing[]; canManage: boolean; released: boolean; onEnlarge: (d: Drawing) => void; onDelete: (d: Drawing) => void;
+function DrawingsTable({ drawings, canManage, released, onEnlarge, onDelete, onDownload }: {
+  drawings: Drawing[]; canManage: boolean; released: boolean; onEnlarge: (d: Drawing) => void; onDelete: (d: Drawing) => void; onDownload: (d: Drawing) => void;
 }) {
   return (
     <Box sx={{ overflowX: 'auto' }} data-testid="drawings-table">
       <Box component="table" sx={TABLE_SX}>
         <thead>
           <tr>
-            <th /><th>Mark</th><th>File</th><th>Rows</th><th className="n">Rectangle</th><th className="n">Use</th>
-            <th className="n">Cut length</th><th className="n">Piercings</th><th className="n">Holes</th><th /><th />
+            <th /><th>Mark</th><th>File</th><th>Level</th><th>Rows</th><th className="n">Rectangle</th><th className="n">Use</th>
+            <th className="n">Cut length</th><th className="n">Piercings</th><th className="n">Holes</th><th /><th /><th />
           </tr>
         </thead>
         <tbody>
@@ -144,21 +167,27 @@ function DrawingsTable({ drawings, canManage, released, onEnlarge, onDelete }: {
             const g = d.geometry;
             return (
               <tr key={d.id}>
-                <td><Outline geometry={g} onClick={() => onEnlarge(d)} /></td>
+                <td><Thumb drawing={d} onEnlarge={() => onEnlarge(d)} /></td>
                 <td><Mono>{d.mark}</Mono></td>
                 <td style={{ overflowWrap: 'anywhere' }}>{d.fileName}</td>
+                <td>{levelText(d.levels)}</td>
                 <td><Rows rows={d.rows} geometry={g} /></td>
-                <td className="n">{sizeText(g.lengthMm, g.widthMm)}</td>
-                <td className="n">{fmtPct(g.usePct)}</td>
-                <td className="n">{fmtCutM(g.cutLengthMm)}</td>
-                <td className="n">{g.piercings}</td>
-                <td className="n"><Tooltip title={holesTitle(g)}><span>{g.holes}</span></Tooltip></td>
+                <td className="n">{g ? sizeText(g.lengthMm, g.widthMm) : '—'}</td>
+                <td className="n">{g ? fmtPct(g.usePct) : '—'}</td>
+                <td className="n">{g ? fmtCutM(g.cutLengthMm) : '—'}</td>
+                <td className="n">{g ? g.piercings : '—'}</td>
+                <td className="n">{g ? <Tooltip title={holesTitle(g)}><span>{g.holes}</span></Tooltip> : '—'}</td>
                 <td>
                   {d.warnings.length > 0 && (
                     <Tooltip title={d.warnings.join(' · ')}>
                       <WarningAmberRounded fontSize="small" sx={{ color: 'var(--c-warning-600)', display: 'block' }} aria-label={d.warnings.join(' · ')} />
                     </Tooltip>
                   )}
+                </td>
+                <td>
+                  <Tooltip title="Download this drawing">
+                    <IconButton size="small" aria-label={`Download drawing ${d.mark}`} onClick={() => onDownload(d)}><DownloadRounded fontSize="small" /></IconButton>
+                  </Tooltip>
                 </td>
                 <td>
                   {canManage && !released && (
@@ -181,9 +210,10 @@ function Summary({ view }: { view: DrawingsView }) {
   return (
     <Box sx={{ display: 'grid', gap: 1.5, gridTemplateColumns: 'minmax(0, 1fr)' }} data-testid="drawings-summary">
       <Typography sx={{ fontSize: 14 }}>{summaryWords(s)}</Typography>
-      {s.partsWithDrawing > 0 && (
+      {s.partsWithShape > 0 && (
         <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 1.5 }}>
-          <Fact label="Parts with a drawing">{s.partsWithDrawing} of {s.parts}</Fact>
+          <Fact label="Rows with a drawing">{s.rowsWithDrawing} of {s.rows}</Fact>
+          <Fact label="Plate parts with a shape">{s.partsWithShape} of {s.parts}</Fact>
           <Fact label="Rectangles">{s.rectAreaM2.toLocaleString('en-US', { maximumFractionDigits: 2 })} m²</Fact>
           <Fact label="True shapes">{s.trueAreaM2.toLocaleString('en-US', { maximumFractionDigits: 2 })} m²</Fact>
           <Fact label="Use">{fmtPct(s.usePct)}</Fact>
@@ -215,6 +245,8 @@ export function DrawingsDialog({ open, onClose, orderId, lineId, canManage, view
   const [enlarged, setEnlarged] = useState<Drawing | null>(null);
   const [toDelete, setToDelete] = useState<Drawing | null>(null);
   const [withoutOpen, setWithoutOpen] = useState(false);
+  const [tooBig, setTooBig] = useState<string[]>([]);
+  const toast = useToast();
 
   const released = view?.line.released ?? false;
   const mayUpload = canManage && !released;
@@ -224,9 +256,10 @@ export function DrawingsDialog({ open, onClose, orderId, lineId, canManage, view
     const picked = Array.from(ev.target.files ?? []);
     ev.target.value = '';
     if (!picked.length) return;
-    const dxf = picked.filter((f) => isDxf(f.name));
-    setSkipped(picked.filter((f) => !isDxf(f.name)).map((f) => f.name));
-    if (!dxf.length) return;
+    const sorted = sortPicked(picked);
+    setSkipped(sorted.wrongKind); setTooBig(sorted.tooBig);
+    if (!sorted.ok.length) return;
+    const dxf = sorted.ok;
     setBusy('read'); setActionError(null); setPending(null);
     try {
       const files = await Promise.all(dxf.map(async (f) => ({ name: f.name, content: await fileToBase64(f) })));
@@ -241,7 +274,7 @@ export function DrawingsDialog({ open, onClose, orderId, lineId, canManage, view
     try {
       const out = await uploadDrawings(orderId, lineId, pending.files, false);
       if (out.view) onView(out.view); else onView(await getDrawings(orderId, lineId));
-      setPending(null); setSkipped([]);
+      setPending(null); setSkipped([]); setTooBig([]);
       onChanged?.();
     } catch (e) { setActionError(wrap(e)); } finally { setBusy(null); }
   };
@@ -252,14 +285,18 @@ export function DrawingsDialog({ open, onClose, orderId, lineId, canManage, view
     onChanged?.();
   };
 
+  const download = async (d: Drawing) => {
+    try { await downloadDrawing(orderId, lineId, d); } catch (e) { toast.error(wrap(e).message); }
+  };
+
   const toSave = pending ? savable(pending.upload.files) : [];
   const unsaved = pending ? pending.upload.files.length - toSave.length : 0;
 
   return (
     <Dialog open={open} onClose={busy ? undefined : onClose} fullWidth maxWidth="lg" aria-labelledby="drawings-title">
       <DialogHeader
-        title={<span id="drawings-title">{view ? `Part shapes (DXF) — line ${view.line.lineNo}` : 'Part shapes (DXF)'}</span>}
-        subtitle="The true shape of each plate part, from its DXF. It shows how much steel a true-shape nesting could save; the cut length and piercings are for the CNC."
+        title={<span id="drawings-title">{view ? `Drawings — line ${view.line.lineNo}` : 'Drawings'}</span>}
+        subtitle={INTRO}
         onClose={onClose} busy={busy != null}
       />
       <DialogContent dividers>
@@ -270,18 +307,23 @@ export function DrawingsDialog({ open, onClose, orderId, lineId, canManage, view
 
           {view && (
             <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
-              <Tooltip title={!canManage ? NO_MANAGE : released ? 'This line is released, so its drawings cannot change.' : 'Pick the DXF files. You see a check before anything is saved.'}>
+              <Tooltip title={!canManage ? NO_MANAGE : released ? 'This line is released, so its drawings cannot change.' : 'Pick the DXF or PDF files. You see a check before anything is saved.'}>
                 <span>
                   <Button variant="outlined" disabled={!mayUpload || busy != null} onClick={() => input.current?.click()}
                     startIcon={busy === 'read' ? <CircularProgress size={14} color="inherit" /> : <UploadFileRounded />}>
-                    {busy === 'read' ? 'Reading…' : 'Upload DXF files'}
+                    {busy === 'read' ? 'Reading…' : 'Upload drawings'}
                   </Button>
                 </span>
               </Tooltip>
-              <input ref={input} type="file" accept=".dxf" multiple hidden onChange={choose} data-testid="drawings-input" />
+              <input ref={input} type="file" accept=".dxf,.pdf" multiple hidden onChange={choose} data-testid="drawings-input" />
               {skipped.length > 0 && (
                 <Typography sx={{ fontSize: 12.5, color: 'var(--c-warning-800)' }}>
-                  Not a DXF, left out: {skipped.join(', ')}
+                  Not a DXF or PDF, left out: {skipped.join(', ')}
+                </Typography>
+              )}
+              {tooBig.length > 0 && (
+                <Typography sx={{ fontSize: 12.5, color: 'var(--c-warning-800)' }}>
+                  Over 4 MB, left out: {tooBig.join(', ')}
                 </Typography>
               )}
             </Box>
@@ -314,28 +356,32 @@ export function DrawingsDialog({ open, onClose, orderId, lineId, canManage, view
           {view && view.drawings.length > 0 && (
             <SectionCard title="Saved drawings" subtitle={`${view.drawings.length} on this line`} flush>
               <Box sx={{ p: 1.5 }}>
-                <DrawingsTable drawings={view.drawings} canManage={canManage} released={released} onEnlarge={setEnlarged} onDelete={setToDelete} />
+                <DrawingsTable drawings={view.drawings} canManage={canManage} released={released} onEnlarge={setEnlarged} onDelete={setToDelete} onDownload={download} />
               </Box>
             </SectionCard>
           )}
           {view && view.drawings.length === 0 && !pending && (
-            <EmptyState title="No drawings yet" body="Each plate part with a drawing is listed here, with how much of its rectangle it really uses." />
+            <EmptyState title="No drawings yet" body={NO_DRAWINGS} />
           )}
 
-          {view && view.partsWithoutDrawing.length > 0 && (
+          {view && view.rowsWithoutDrawing.length > 0 && (
             <Box>
               <Button size="small" onClick={() => setWithoutOpen((o) => !o)} endIcon={withoutOpen ? <ExpandLessRounded /> : <ExpandMoreRounded />} data-testid="drawings-without-toggle">
-                {view.partsWithoutDrawing.length} {view.partsWithoutDrawing.length === 1 ? 'plate part has' : 'plate parts have'} no drawing
+                {view.rowsWithoutDrawing.length} {view.rowsWithoutDrawing.length === 1 ? 'row has' : 'rows have'} no drawing
               </Button>
               <Collapse in={withoutOpen} unmountOnExit>
                 <Box sx={{ overflowX: 'auto', mt: 1 }} data-testid="drawings-without">
+                  {view.rowsWithoutDrawing.some((p) => !p.mark) && (
+                    <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)', mb: 1 }}>{NO_MARK_HINT}</Typography>
+                  )}
                   <Box component="table" sx={TABLE_SX}>
-                    <thead><tr><th>Code</th><th>Name</th><th>Drawing mark</th><th className="n">Pieces</th></tr></thead>
+                    <thead><tr><th>Code</th><th>Name</th><th>Level</th><th>Drawing mark</th><th className="n">Pieces</th></tr></thead>
                     <tbody>
-                      {view.partsWithoutDrawing.map((p) => (
+                      {groupByLevel(view.rowsWithoutDrawing).flatMap((g) => g.rows).map((p) => (
                         <tr key={p.id}>
                           <td>{p.code ? <Mono>{p.code}</Mono> : '—'}</td>
                           <td style={{ overflowWrap: 'anywhere' }}>{p.name}</td>
+                          <td>{p.level}</td>
                           <td>{p.mark ? <Mono>{p.mark}</Mono> : <Box component="span" sx={{ color: 'var(--c-text-3)' }}>no drawing mark</Box>}</td>
                           <td className="n">{p.pieces}</td>
                         </tr>
@@ -350,20 +396,20 @@ export function DrawingsDialog({ open, onClose, orderId, lineId, canManage, view
       </DialogContent>
       <DialogActions><Button onClick={onClose} disabled={busy != null}>Close</Button></DialogActions>
 
-      <Dialog open={!!enlarged} onClose={() => setEnlarged(null)} maxWidth="md" fullWidth aria-labelledby="drawing-large-title">
-        {enlarged && (
+      <Dialog open={!!enlarged?.geometry} onClose={() => setEnlarged(null)} maxWidth="md" fullWidth aria-labelledby="drawing-large-title">
+        {enlarged?.geometry && (
           <>
-            <DialogHeader title={<span id="drawing-large-title">{enlarged.mark}</span>} subtitle={`${sizeText(enlarged.geometry.lengthMm, enlarged.geometry.widthMm)} · uses ${fmtPct(enlarged.geometry.usePct)} of its rectangle`} onClose={() => setEnlarged(null)} />
+            <DialogHeader title={<span id="drawing-large-title">{enlarged.mark}</span>} subtitle={`${sizeText(enlarged.geometry!.lengthMm, enlarged.geometry!.widthMm)} · uses ${fmtPct(enlarged.geometry!.usePct)} of its rectangle`} onClose={() => setEnlarged(null)} />
             <DialogContent dividers>
               <Box sx={{ display: 'grid', gap: 1.5, justifyItems: 'center' }}>
                 <Box sx={{ width: '100%', maxHeight: '60vh', display: 'flex', justifyContent: 'center' }}>
-                  <Outline geometry={enlarged.geometry} w={720} h={400} />
+                  <Outline geometry={enlarged.geometry!} w={720} h={400} />
                 </Box>
                 <Box sx={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
-                  <Fact label="Cut length">{fmtCutM(enlarged.geometry.cutLengthMm)} ({fmtMm(enlarged.geometry.cutLengthMm)} mm)</Fact>
-                  <Fact label="Piercings">{enlarged.geometry.piercings}</Fact>
-                  <Fact label="Holes">{enlarged.geometry.holes}{enlarged.geometry.holes ? ` · ${holesTitle(enlarged.geometry)}` : ''}</Fact>
-                  <Fact label="Cut-outs">{enlarged.geometry.innerCuts}</Fact>
+                  <Fact label="Cut length">{fmtCutM(enlarged.geometry!.cutLengthMm)} ({fmtMm(enlarged.geometry!.cutLengthMm)} mm)</Fact>
+                  <Fact label="Piercings">{enlarged.geometry!.piercings}</Fact>
+                  <Fact label="Holes">{enlarged.geometry!.holes}{enlarged.geometry!.holes ? ` · ${holesTitle(enlarged.geometry!)}` : ''}</Fact>
+                  <Fact label="Cut-outs">{enlarged.geometry!.innerCuts}</Fact>
                 </Box>
                 {enlarged.warnings.length > 0 && <Box sx={{ color: 'var(--c-warning-800)', fontSize: 13 }}><CapsLabel>Warnings</CapsLabel>{enlarged.warnings.join(' · ')}</Box>}
               </Box>
@@ -376,7 +422,7 @@ export function DrawingsDialog({ open, onClose, orderId, lineId, canManage, view
         open={!!toDelete}
         title="Delete this drawing?"
         entityName={toDelete ? `${toDelete.mark} (${toDelete.fileName})` : undefined}
-        body="The part goes back to having no drawing. You can upload the file again."
+        body="The row goes back to having no drawing. You can upload the file again."
         confirmLabel="Delete" danger
         onConfirm={async () => { if (toDelete) await remove(toDelete); }}
         onClose={() => setToDelete(null)}
@@ -385,16 +431,16 @@ export function DrawingsDialog({ open, onClose, orderId, lineId, canManage, view
   );
 }
 
-/** The "Part drawings" button for the Nesting stage: reads the summary itself and opens the dialog. */
-export function DrawingsButton({ orderId, lineId, canManage, onChanged }: {
-  orderId: number; lineId: number; canManage: boolean; onChanged?: () => void;
+/** The "Drawings" button for an order line's Structure tab: reads the summary itself and opens the dialog. */
+export function DrawingsButton({ orderId, lineId, canManage, onChanged, size }: {
+  orderId: number; lineId: number; canManage: boolean; onChanged?: () => void; size?: 'small' | 'medium';
 }) {
   const [open, setOpen] = useState(false);
   const { data, error, loading, setData } = useLoad(() => getDrawings(orderId, lineId), [orderId, lineId]);
   return (
     <>
-      <Tooltip title="Upload the DXF of each plate part to see its true shape, how much steel true-shape nesting could save, and the CNC cut length.">
-        <Button variant="outlined" startIcon={<DrawRounded />} onClick={() => setOpen(true)} data-testid="drawings-button">
+      <Tooltip title="A drawing for any row of this line, DXF or PDF, named by the row's drawing mark. A plate part's DXF also gives its true shape and the CNC cut length.">
+        <Button size={size} variant="outlined" startIcon={<DrawRounded />} onClick={() => setOpen(true)} data-testid="drawings-button">
           {buttonLabel(data?.summary)}
         </Button>
       </Tooltip>
