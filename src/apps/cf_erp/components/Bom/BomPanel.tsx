@@ -585,7 +585,9 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
   // same rules — the same child twice is two rows with two codes.
   const placeholderOf = (row: BomRow) => {
     const pos = source.kind === 'record' ? bom.positionCodeOf(row.node) : null;
-    if (pos?.code) return { code: pos.code, title: positionCodeTitle(pos, row.node.code), itemCode: row.node.code };
+    // A definition is known by its short name, not a code (user, 2026-10-08): only a catalog item's own code shows beside.
+    const ownCode = row.node.kind === 'catalog' ? row.node.code : null;
+    if (pos?.code) return { code: pos.code, title: positionCodeTitle(pos, ownCode), itemCode: ownCode };
     const p = bom.placeholderOf(row.node);
     return p?.code ? { code: p.code, title: `${placeholderTitle(p)} # = numbered when the design is frozen; a row with quantity 3 covers 2–4, so its code changes with the quantity (L1-1 becomes L1-#).` } : null;
   };
