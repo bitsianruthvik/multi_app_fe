@@ -183,6 +183,8 @@ export interface ResolvedSpec {
     isRequired: boolean;
     formula: { id: number; code: string; name: string; expression: string; version: number } | null;
     sortOrder: number;
+    /** Set when cutting and nesting write this value on an item (records.WORKED_OUT_SPECS): why it cannot be typed. */
+    workedOut?: string;
   };
   definedAt: { level: string; subjectType: string; subjectId: number; code: string | null; name: string };
   overrides: { level: string; valueRule: ValueRule; applicable: boolean }[];

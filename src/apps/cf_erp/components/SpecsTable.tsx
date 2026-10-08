@@ -187,6 +187,7 @@ export function SpecsTable({
                       {s.rule.isRequired && <Typography component="span" sx={{ fontSize: 12, color: 'var(--c-text-2)' }}>required</Typography>}
                       {s.captureAt !== 'item' && <Typography component="span" sx={{ fontSize: 12, color: 'var(--c-text-2)' }}>· {CAPTURE_LABEL[s.captureAt]}</Typography>}
                       {s.rule.formula && <Tooltip title={s.rule.formula.expression}><Box component="span"><Mono muted>{s.rule.formula.code} v{s.rule.formula.version}</Mono></Box></Tooltip>}
+                      {s.rule.workedOut && <Tooltip title={s.rule.workedOut}><Box component="span"><Mono muted>from cutting and nesting</Mono></Box></Tooltip>}
                     </Box>
                   </TableCell>
                   <TableCell>
