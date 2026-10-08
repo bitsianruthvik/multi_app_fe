@@ -8,6 +8,7 @@
  */
 import type { CodegenEntity, CodegenTokenPattern, Condition, RecordList, Segment, Specification } from '../../api/types';
 import type { FlatNode } from '../../lib/tree';
+import { codeOrName } from '../../lib/displayCode';
 
 export const OPERATOR_LABEL: Record<string, string> = { eq: 'is', in: 'is one of', under: 'is under' };
 
@@ -199,7 +200,7 @@ export function conditionValue(c: Condition, flat: FlatNode[], templates: Record
   if (!c.value) return 'nothing chosen yet';
   if (c.tokenKey === 'classification') return flat.find((n) => String(n.id) === c.value)?.path ?? c.value;
   if (c.tokenKey === 'definition') {
-    return c.value.split(',').map((id) => templates?.rows.find((d) => String(d.id) === id.trim())?.code ?? id).join(', ');
+    return c.value.split(',').map((id) => { const d = templates?.rows.find((x) => String(x.id) === id.trim()); return d ? codeOrName(d) : id; }).join(', ');
   }
   return c.operator === 'in' ? c.value.split(',').map((v) => v.trim()).join(', ') : c.value;
 }

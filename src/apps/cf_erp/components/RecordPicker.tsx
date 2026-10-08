@@ -1,3 +1,4 @@
+import { displayCode, displayLabel, isDefinitionKind } from '../lib/displayCode';
 import { useEffect, useState } from 'react';
 import { Autocomplete, Box, TextField, Typography } from '@mui/material';
 import { cfApi, CfApiError, qs } from '../api/client';
@@ -50,14 +51,14 @@ export function RecordPicker({
       options={options.filter((o) => !excludeIds.includes(o.id))}
       loading={loading}
       filterOptions={(x) => x}
-      getOptionLabel={(o) => `${o.code ?? '—'} · ${o.name}`}
+      getOptionLabel={(o) => (isDefinitionKind(o.kind, o.recordKind) ? displayLabel(o) : `${o.code ?? '—'} · ${o.name}`)}
       isOptionEqualToValue={(a, b) => a.id === b.id}
       onChange={(_, o) => onChange(o)}
       onInputChange={(_, v, reason) => { if (reason !== 'reset') setInput(v); }}
-      noOptionsText={input ? 'Nothing matches' : 'Type a code or a name'}
+      noOptionsText={input ? 'Nothing matches' : 'Type a code, a short name or a name'}
       renderOption={(props, o) => (
         <Box component="li" {...props} key={o.id} sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
-          <Mono sx={{ minWidth: 120 }}>{o.code ?? '—'}</Mono>
+          <Mono sx={{ minWidth: 120 }}>{isDefinitionKind(o.kind, o.recordKind) ? displayCode(o) ?? '' : o.code ?? '—'}</Mono>
           <Typography sx={{ flex: 1, fontSize: 14, minWidth: 120 }}>{o.name}</Typography>
           <KindChip kind={o.kind} />
           {o.status !== 'active' && <StatusBadge status={o.status} />}

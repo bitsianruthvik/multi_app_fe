@@ -24,6 +24,7 @@ import { FormDialog } from './FormDialog';
 import { RecordPicker } from './RecordPicker';
 import { ConfirmDialog } from './ConfirmDialog';
 import { useToast } from './toastContext';
+import { codeOrName, definitionLabel } from '../lib/displayCode';
 
 const linkSx = { color: 'inherit', textDecoration: 'none', '&:hover': { color: 'var(--c-primary-700)', textDecoration: 'underline' } };
 
@@ -40,7 +41,7 @@ function AddLineDialog({ order, open, onClose, onDone }: { order: SalesOrder; op
     ...(form.rate.trim() ? { rate: form.rate.trim() } : {}), ...(form.basis ? { rateBasis: form.basis } : {}),
   }, { timeoutMs: LONG_WRITE_MS }));
   const hint = rec?.kind === 'template'
-    ? `Lays ${rec.code ?? rec.name} out as this line’s structure, its whole Template BOM beneath it. Nothing is coded until the design is frozen.`
+    ? `Lays ${codeOrName(rec)} out as this line’s structure, its whole Template BOM beneath it. Nothing is coded until the design is frozen.`
     : rec?.kind === 'catalog' ? 'A standard line: the catalog item as it is, with its Standard BOM if it has one.'
       : stock ? 'Stock orders make catalog items only.' : 'A catalog item for a standard line, or a template definition for a custom one.';
   return (
@@ -158,7 +159,7 @@ export function OrderLinesPanel({ order, onSaved, onOpenStructure, onRelease, on
             {l.item && l.item.status !== 'active' && <StatusBadge status={l.item.status} />}
           </Box>
           <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)', whiteSpace: 'normal' }}>
-            {l.item?.name}{l.lineType === 'custom' ? ` · from ${l.design.code ?? l.design.name}` : ''}{l.description ? ` · “${l.description}”` : ''}
+            {l.item?.name}{l.lineType === 'custom' ? ` · from ${definitionLabel(l.design)}` : ''}{l.description ? ` · “${l.description}”` : ''}
           </Typography>
         </Box>
       ),

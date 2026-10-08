@@ -29,6 +29,7 @@ import { replacedText } from '../lib/production';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { useDetailTitle } from '../components/shell/detailTitle';
 import { useToast } from '../components/toastContext';
+import { isDefinitionKind } from '../lib/displayCode';
 
 function StepCard({ step, editable, onMove, onEdit, onReplace, onRemove, onAddWait, onRemoveWait }: {
   step: FlowStep; editable: boolean; onMove: (dir: 'up' | 'down') => void; onEdit: () => void; onReplace: () => void; onRemove: () => void; onAddWait: () => void; onRemoveWait: (id: number) => void;
@@ -185,7 +186,7 @@ export default function FlowDetail() {
           {usedBy === 0 ? <Typography sx={{ color: 'var(--c-text-3)' }}>Nothing names it yet — choose it on an item or template, under Details.</Typography> : (
             <EntityList>
               {f.uses.records.map((r) => (
-                <EntityRow key={r.id} onClick={() => navigate(recordPath(r))} code={<Mono chip>{r.code ?? '—'}</Mono>} primary={r.name} trailing={<KindChip kind={r.kind} />} />
+                <EntityRow key={r.id} onClick={() => navigate(recordPath(r))} code={isDefinitionKind(r.kind) ? (r.shortName ? <Mono chip>{r.shortName}</Mono> : undefined) : <Mono chip>{r.code ?? '—'}</Mono>} primary={r.name} trailing={<KindChip kind={r.kind} />} />
               ))}
               {recordTotal > f.uses.records.length && <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)', mt: 0.5 }}>Showing {f.uses.records.length} of {recordTotal} records.</Typography>}
               {f.uses.bomLines > 0 && <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)', mt: 0.5 }}>And {f.uses.bomLines} BOM line{f.uses.bomLines === 1 ? '' : 's'} name it for one parent.</Typography>}

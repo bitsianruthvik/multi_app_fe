@@ -16,6 +16,7 @@ import { SOURCING_LABEL } from '../lib/records';
 import { appPath } from '../navMeta';
 import { EmptyState, ErrorNotice, KindChip, Mono, PageHeader, StatStrip, StatusBadge } from '../components/ui';
 import { shortNameText } from '../lib/shortName';
+import { displayCode } from '../lib/displayCode';
 import { DataTable, type DataColumn } from '../components/DataTable';
 import { FacetChip, FilterBar } from '../components/FilterBar';
 import { ClassificationLevelFilter } from '../components/ClassificationLevelFilter';
@@ -77,21 +78,24 @@ function bomCell(r: MasterRecord) {
 
 function columnsFor(recordKind: 'item' | 'definition'): DataColumn<MasterRecord>[] {
   return [
-    { key: 'code', header: 'Code', render: (r) => r.code ? <Mono chip>{r.code}</Mono> : <Mono muted>—</Mono>, sortValue: (r) => r.code, alwaysVisible: true },
+    // A definition is known by its short name, never its code (user, 2026-10-08).
+    recordKind === 'definition'
+      ? { key: 'shortName', header: 'Short name', render: (r: MasterRecord) => { const c = displayCode(r); return c ? <Mono chip>{c}</Mono> : <Mono muted>—</Mono>; }, sortValue: (r: MasterRecord) => r.shortName, alwaysVisible: true } as DataColumn<MasterRecord>
+      : { key: 'code', header: 'Code', render: (r: MasterRecord) => r.code ? <Mono chip>{r.code}</Mono> : <Mono muted>—</Mono>, sortValue: (r: MasterRecord) => r.code, alwaysVisible: true } as DataColumn<MasterRecord>,
     {
       key: 'name', header: 'Name', sortValue: (r) => r.name,
       render: (r) => (
         <Box sx={{ py: 0.5 }}>
           <Box sx={{ fontWeight: 500, whiteSpace: 'normal' }}>{r.name}</Box>
-          {r.item?.itemType === 'temporary' && (r.sourceDefinitionCode || r.owner) && (
+          {r.item?.itemType === 'temporary' && (r.sourceDefinitionShortName || r.owner) && (
             <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>
-              {r.sourceDefinitionCode ? `from ${r.sourceDefinitionCode}` : ''}{r.sourceDefinitionCode && r.owner ? ' · ' : ''}{r.owner ? `${r.owner.orderCode} line ${r.owner.lineNo}` : ''}
+              {r.sourceDefinitionShortName ? `from ${r.sourceDefinitionShortName}` : ''}{r.sourceDefinitionShortName && r.owner ? ' · ' : ''}{r.owner ? `${r.owner.orderCode} line ${r.owner.lineNo}` : ''}
             </Typography>
           )}
         </Box>
       ),
     },
-    { key: 'shortName', header: 'Short name', defaultHidden: true, render: (r) => (r.shortName != null ? <Mono>{shortNameText(r.shortName)}</Mono> : <Mono muted>—</Mono>), sortValue: (r) => r.shortName },
+    ...(recordKind === 'item' ? [{ key: 'shortName', header: 'Short name', defaultHidden: true, render: (r: MasterRecord) => (r.shortName != null ? <Mono>{shortNameText(r.shortName)}</Mono> : <Mono muted>—</Mono>), sortValue: (r: MasterRecord) => r.shortName } as DataColumn<MasterRecord>] : []),
     { key: 'kind', header: 'Kind', render: (r) => <KindChip kind={r.kind} />, sortValue: (r) => r.kind },
     { key: 'classification', header: 'Classification', render: (r) => r.classificationName, sortValue: (r) => r.classificationName },
     recordKind === 'item'
@@ -175,7 +179,7 @@ export default function Records({ recordKind }: { recordKind: 'item' | 'definiti
     { label: filtered && rc ? `Matching (of ${rc.overall.toLocaleString()})` : 'Matching', value: rc?.total ?? list.total },
     { label: 'Active', value: rc?.status.active ?? 0, tone: 'success' as const, onClick: () => setStatus('active') },
     { label: 'Draft', value: rc?.status.draft ?? 0, tone: 'warning' as const, hint: 'Not usable yet', onClick: () => setStatus('draft') },
-    { label: 'Without a code', value: rc?.noCode ?? 0, tone: 'danger' as const, hint: 'Cannot be activated' },
+    ...(recordKind === 'item' ? [{ label: 'Without a code', value: rc?.noCode ?? 0, tone: 'danger' as const, hint: 'Cannot be activated' }] : []),
   ];
 
   const setClassification = (id: number | null) => {
@@ -207,12 +211,12 @@ export default function Records({ recordKind }: { recordKind: 'item' | 'definiti
       <ErrorNotice error={list.error} onRetry={list.reload} />
       <DataTable key={recordKind} rows={rows} columns={columns} getRowId={(r) => r.id} onRowClick={open} loading={!list.loaded}
         server={{ ...list.server, sortable: SORTABLE }}
-        storageKey={copy.path} exportName={copy.path} defaultSortKey="code"
+        storageKey={copy.path} exportName={copy.path} defaultSortKey={recordKind === 'definition' ? 'shortName' : 'code'}
         // A temporary item is never offered: it is born from a sales order line
         // and the backend refuses to create one from here (ORDER_ONLY).
         rowActions={canManage ? (r) => (r.kind === 'temporary' ? null : (
           <Tooltip title="Make a similar one">
-            <IconButton size="small" aria-label={`Make one similar to ${r.code ?? r.name}`} onClick={() => setCopying(r)}>
+            <IconButton size="small" aria-label={`Make one similar to ${displayCode(r) ?? r.name}`} onClick={() => setCopying(r)}>
               <ContentCopyRounded fontSize="small" />
             </IconButton>
           </Tooltip>
@@ -225,7 +229,7 @@ export default function Records({ recordKind }: { recordKind: 'item' | 'definiti
         onTreeChanged={tree.reload} screen={screen}
         onCreated={(r) => {
           invalidateNavCounts();
-          toast.success(`${r.code ?? r.name} created${r.status === 'active' ? ' and activated' : ' as a draft'}.`);
+          toast.success(`${displayCode(r) ?? r.name} created${r.status === 'active' ? ' and activated' : ' as a draft'}.`);
           (r.warnings ?? []).forEach((w) => toast.error(w));
           open(r);
         }} />

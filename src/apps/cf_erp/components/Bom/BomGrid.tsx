@@ -14,6 +14,7 @@ import type { SpecValues } from './useSpecValues';
 import type { RowMark } from './BomTree';
 import type { DropPosition } from './bomArrangement';
 import { DIMENSION_CODES, dimensionsFirst, hiddenOnGrid, isDimension, rollupsLast, shipUnitRelevant, shortLabel, totalAdds } from '../../lib/stripLayout';
+import { codeOrName, displayCode } from '../../lib/displayCode';
 
 export interface GridWrite { row: BomRow; code: string; text: string; saved: string }
 type Cell = { text: string; input: string; saved: string; editable: boolean; why?: string; applies?: boolean; type?: string; options?: { id: number; value: string; label?: string | null }[] };
@@ -110,7 +111,7 @@ export function BomGrid({ rows, view, records: recordValues, recordIds, pending,
   const location = useLocation();
   const company = location.pathname.split('/').filter(Boolean)[0] ?? '';
   const top = rows.find((r) => !r.parent)?.node;
-  const back: BackState = { backTo: { label: `${top?.code ?? top?.name ?? 'the'} BOM`, path: location.pathname + location.search } };
+  const back: BackState = { backTo: { label: `${top ? codeOrName(top) : 'the'} BOM`, path: location.pathname + location.search } };
   const notOf = (row: BomRow) => `Not a value of ${row.node.name}`;
   const cellAt = (row: BomRow, col: { code: string }): Cell => {
     if (col.code === '$total') return { text: String(row.node.total), input: String(row.node.total), saved: '', editable: false, why: 'Calculated from the quantities above this row.' };
@@ -199,7 +200,7 @@ export function BomGrid({ rows, view, records: recordValues, recordIds, pending,
                   {/* The name opens that record; its page offers the way back to this BOM. */}
                   {row.parent && n.id != null && !row.paste ? (
                     <Link to={appPath(company, recordPath(n.kind, n.id))} state={back} onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}
-                      title={`Open ${n.code ?? n.name}`} style={{ color: 'inherit' }}>{n.name}</Link>
+                      title={`Open ${codeOrName(n)}`} style={{ color: 'inherit' }}>{n.name}</Link>
                   ) : n.name}
                   {roleShown(n.name, roleText) ? ` · ${roleShown(n.name, roleText)}` : ''}
                 </Box>
@@ -207,7 +208,7 @@ export function BomGrid({ rows, view, records: recordValues, recordIds, pending,
               </Box>
             )}
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, minWidth: 0 }}>
-            <Box sx={{ fontSize: 10, color: 'var(--c-text-3)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }} title={placeholderOf(row)?.title}>{row.paste ? `New copy${row.paste.source.children.length ? ' with children' : ''}` : <CodeText code={placeholderOf(row)?.code ?? (n.kind === 'temporary' ? '' : n.code ?? '')} itemCode={placeholderOf(row)?.itemCode ?? null} />}{mark && !row.paste ? ` · ${mark.label}` : ''}</Box>
+            <Box sx={{ fontSize: 10, color: 'var(--c-text-3)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }} title={placeholderOf(row)?.title}>{row.paste ? `New copy${row.paste.source.children.length ? ' with children' : ''}` : <CodeText code={placeholderOf(row)?.code ?? (n.kind === 'temporary' ? '' : displayCode(n) ?? '')} itemCode={placeholderOf(row)?.itemCode ?? null} />}{mark && !row.paste ? ` · ${mark.label}` : ''}</Box>
               {flowCell(row)}
               {choiceCell?.(row)}
               {(gaps?.get(n.id)?.length ?? 0) > 0 && <Box component="span" data-testid="row-gaps" title={`Required values still empty: ${gaps?.get(n.id)?.join(', ')}`}

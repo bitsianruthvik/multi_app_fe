@@ -29,6 +29,7 @@ import { ShortNameField } from '../components/ShortNameField';
 import { SectionPicker } from '../components/SectionPicker';
 import { CUT_FROM_LABEL, cutFromWords, sectionSizeText, type CutFrom, type CutRef, type SectionSteel } from '../api/cutting';
 import { shortNameBody, shortNameText } from '../lib/shortName';
+import { displayCode, displayLabel } from '../lib/displayCode';
 import { CrossLink, DetailHeader, DetailLayout } from '../components/DetailLayout';
 import { EntityList, EntityRow } from '../components/EntityList';
 import { FormDialog } from '../components/FormDialog';
@@ -147,7 +148,8 @@ function DetailsForm({ record, tree, canEdit, onSaved, onTreeChanged }: {
       return;
     }
     const body: Record<string, unknown> = { name: form.name, description: form.description || null, ...shortNameBody(form.shortName, form.noShortName) };
-    if (record.status === 'draft') body.code = form.code || null;
+    // A definition's code is never shown or edited here (user, 2026-10-08).
+    if (record.recordKind !== 'definition' && record.status === 'draft') body.code = form.code || null;
     if (!isTemp) body.classificationId = form.classificationId;
     if (record.item) { body.uom = form.uom; body.trackedBy = form.trackedBy; if (!isTemp) body.sourcing = form.sourcing; if (!isTemp) { body.listPrice = form.listPrice.trim() === '' ? null : form.listPrice; body.priceBasis = form.priceBasis; } }
     if (taxable) { body.hsnCode = form.hsnCode.trim() || null; body.gstRate = form.gstRate === '' ? null : Number(form.gstRate); body.isService = form.isService; }
@@ -165,8 +167,10 @@ function DetailsForm({ record, tree, canEdit, onSaved, onTreeChanged }: {
       <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', md: 'repeat(2, minmax(0, 1fr))' }, gap: 2 }}>
         <TextField label="Name" required disabled={readOnly} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} sx={{ gridColumn: '1 / -1' }}
           error={!form.name.trim()} helperText={!form.name.trim() ? 'A name is required.' : ' '} />
-        <TextField label="Code" value={form.code} disabled={readOnly || record.status !== 'draft'} onChange={(e) => setForm({ ...form, code: e.target.value })}
-          helperText={record.status === 'draft' ? 'Editable while draft' : 'Fixed once active — documents may carry it'} inputProps={{ style: { fontFamily: 'var(--font-mono)' } }} />
+        {record.recordKind !== 'definition' && (
+          <TextField label="Code" value={form.code} disabled={readOnly || record.status !== 'draft'} onChange={(e) => setForm({ ...form, code: e.target.value })}
+            helperText={record.status === 'draft' ? 'Editable while draft' : 'Fixed once active — documents may carry it'} inputProps={{ style: { fontFamily: 'var(--font-mono)' } }} />
+        )}
         <ShortNameField disabled={readOnly} value={form.shortName} none={form.noShortName} onChange={(n) => setForm({ ...form, shortName: n.value, noShortName: n.none })}
           helperText="Codes are built from this. Editable at any status — codes already made keep theirs." />
         <TextField label="Description" disabled={readOnly} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} multiline sx={{ gridColumn: '1 / -1' }} />
@@ -323,7 +327,7 @@ export default function RecordDetail({ recordKind }: { recordKind: 'item' | 'def
   const placeholder = placed.data?.rows.find((row) => row.itemId === id && row.code) ?? null;
   // The row it sits in has no code of its own either: show that row's code too, from the same answer.
   const parentPlaceholder = r?.placement ? placed.data?.rows.find((row) => row.itemId === r.placement?.parentId && row.code) ?? null : null;
-  useDetailTitle(r ? (r.code ?? r.name) : null);
+  useDetailTitle(r ? (displayCode(r) ?? r.name) : null);
   const refreshAll = () => { rec.reload(); specs.reload(); rules.reload(); setVersion((v) => v + 1); };
 
   /**
@@ -395,13 +399,13 @@ export default function RecordDetail({ recordKind }: { recordKind: 'item' | 'def
   };
 
   const header = (
-    <DetailHeader code={r.code ?? placeholder?.code ?? undefined} title={<InlineName value={r.name} editable={editable} onSave={renameTo} />} subtitle={r.description ?? undefined}
+    <DetailHeader code={isDefinition ? displayCode(r) ?? undefined : r.code ?? placeholder?.code ?? undefined} title={<InlineName value={r.name} editable={editable} onSave={renameTo} />} subtitle={r.description ?? undefined}
       badges={(
         <>
           <KindChip kind={r.kind} />
           {!isRow && <HsnChip hsn={recordTax(r).hsn} rate={recordTax(r).rate} isService={recordTax(r).isService} />}
           {!isRow && <StatusBadge status={r.status} />}
-          {!r.code && (isRow
+          {!r.code && !isDefinition && (isRow
             ? <Badge family="neutral" label="Coded when its design is frozen" title={placeholder ? placeholderTitle(placeholder) : 'Its pieces get their codes when its design is frozen.'} />
             : <Badge family="warning" label="No code yet" />)}
           {frozen && <Badge family={frozen.reason === 'closed' ? 'neutral' : 'info'} icon={<LockRounded />} label={frozenLabel ?? ''} title={frozenTitle} />}
@@ -428,7 +432,7 @@ export default function RecordDetail({ recordKind }: { recordKind: 'item' | 'def
       )}
       facts={(
         <>
-          <Fact label="Short name"><Mono>{shortNameText(r.shortName)}</Mono></Fact>
+          {!isDefinition && <Fact label="Short name"><Mono>{shortNameText(r.shortName)}</Mono></Fact>}
           <Fact label="Revision"><Mono>{r.revision ?? '—'}</Mono></Fact>
           {r.item && <Fact label="Tracked by">{r.item.trackedBy} <Mono muted>· {r.item.uom}</Mono></Fact>}
           {r.item && r.item.itemType === 'catalog' && <Fact label="Comes from">{SOURCING_LABEL[r.item.sourcing]}</Fact>}
@@ -462,7 +466,7 @@ export default function RecordDetail({ recordKind }: { recordKind: 'item' | 'def
       ))}
       {r.owner && <CrossLink icon={<ReceiptLongRounded />} label={`Order ${r.owner.orderCode}`} to={to(`orders/${r.owner.orderId}`)} />}
       {r.placement && <CrossLink icon={<AccountTreeRounded />} label={`Part of ${r.placement.parentCode ?? r.placement.parentName}`} to={to(`items/${r.placement.parentId}`)} />}
-      {r.sourceDefinition && <CrossLink icon={<CallSplitRounded />} label={`Created from ${r.sourceDefinition.code ?? r.sourceDefinition.name}`} to={to(`definitions/${r.sourceDefinition.id}`)} />}
+      {r.sourceDefinition && <CrossLink icon={<CallSplitRounded />} label={`Created from ${r.sourceDefinition.shortName || r.sourceDefinition.name}`} to={to(`definitions/${r.sourceDefinition.id}`)} />}
       {r.recordKind === 'item' && <CrossLink icon={<WarehouseRounded />} label="Stock" onClick={() => setTab('stock')} />}
     </>
   );
@@ -538,19 +542,19 @@ export default function RecordDetail({ recordKind }: { recordKind: 'item' | 'def
         onClose={() => setCopying(false)}
         onCreated={(made) => {
           invalidateNavCounts();
-          toast.success(`${made.code ?? made.name} created${made.status === 'active' ? ' and activated' : ' as a draft'}.`);
+          toast.success(`${displayCode(made) ?? made.name} created${made.status === 'active' ? ' and activated' : ' as a draft'}.`);
           (made.warnings ?? []).forEach((w) => toast.error(w));
           navigate(to(`${listPath}/${made.id}`));
         }} />
-      <ConfirmDialog open={confirm === 'obsolete'} title="Mark this obsolete?" entityName={`${r.code ?? '—'} · ${r.name}`} confirmLabel="Mark obsolete"
+      <ConfirmDialog open={confirm === 'obsolete'} title="Mark this obsolete?" entityName={isDefinition ? displayLabel(r) : `${r.code ?? '—'} · ${r.name}`} confirmLabel="Mark obsolete"
         body="It stays on existing documents but is no longer offered for new use. It can be reactivated later."
         onClose={() => setConfirm(null)} onConfirm={() => setStatus('obsolete', true)} />
-      <ConfirmDialog open={confirm === 'delete'} title={`Delete this ${isDefinition ? 'definition' : 'item'}?`} entityName={`${r.code ?? '—'} · ${r.name}`} danger confirmLabel="Delete"
+      <ConfirmDialog open={confirm === 'delete'} title={`Delete this ${isDefinition ? 'definition' : 'item'}?`} entityName={isDefinition ? displayLabel(r) : `${r.code ?? '—'} · ${r.name}`} danger confirmLabel="Delete"
         body="Its values and rules go with it. Refused while anything uses it — e.g. an allowed list, or items created from a definition."
         onClose={() => setConfirm(null)}
         onConfirm={async () => { await cfApi.del(`/records/${id}`); invalidateNavCounts(); toast.success('Deleted.'); navigate(to(listPath)); }} />
       <RuleDialog open={ruleDialog.open} existing={ruleDialog.rule} onClose={() => setRuleDialog({ open: false, rule: null })}
-        onSaved={() => { toast.success('Rule saved.'); refreshAll(); }} subjectType="master" subjectId={id} subjectLabel={`${r.code ?? r.name}`} />
+        onSaved={() => { toast.success('Rule saved.'); refreshAll(); }} subjectType="master" subjectId={id} subjectLabel={`${displayCode(r) ?? r.name}`} />
       <ConfirmDialog open={!!deleteRule} title="Delete this rule?" danger confirmLabel="Delete rule" entityName={deleteRule ? `${deleteRule.specCode} · ${deleteRule.specName}` : undefined}
         body="It falls back to whatever the classification says." onClose={() => setDeleteRule(null)}
         onConfirm={async () => { await cfApi.del(`/rules/${deleteRule?.id}`); toast.success('Rule deleted.'); refreshAll(); }} />

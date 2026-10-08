@@ -1,3 +1,4 @@
+import { definitionLabel } from '../../lib/displayCode';
 import type { MouseEvent } from 'react';
 import { Box } from '@mui/material';
 import ArrowDropDownRounded from '@mui/icons-material/ArrowDropDownRounded';
@@ -22,7 +23,7 @@ export function ChoiceCell({ node, editable, why, onChoose }: {
   const state = choiceState(node);
   if (!state || node.lineId == null) return null;
   const lineId = node.lineId;
-  const name = node.selection?.code ?? node.selection?.name ?? node.name;
+  const name = (node.selection ? definitionLabel(node.selection) : node.name);
   const click = (e: MouseEvent) => { e.stopPropagation(); onChoose(lineId); };
   const stop = (e: MouseEvent) => e.stopPropagation();
   const base = {

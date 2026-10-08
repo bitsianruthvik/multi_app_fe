@@ -1,3 +1,4 @@
+import { codeOrName } from '../lib/displayCode';
 import { useEffect, useState } from 'react';
 import { Alert, Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, Link, TextField, Typography } from '@mui/material';
 import { cfApi, CfApiError, LONG_WRITE_MS } from '../api/client';
@@ -61,7 +62,7 @@ export function AddChildDialog({
     }
   };
   const hint = !child ? `A ${allowedKinds.map((k) => KIND_WORD[k]).join(', ')}.`
-    : custom && child.kind === 'template' ? `Lays ${child.code ?? child.name} out as rows here, its Template BOM beneath it. Nothing is coded until the design is frozen.`
+    : custom && child.kind === 'template' ? `Lays ${codeOrName(child)} out as rows here, its Template BOM beneath it. Nothing is coded until the design is frozen.`
       : custom && child.kind === 'selection' ? 'Starts with the selection’s default catalog item, if it has one — you can change it after.'
         : undefined;
 

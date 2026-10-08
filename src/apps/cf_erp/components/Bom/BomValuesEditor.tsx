@@ -1,3 +1,4 @@
+import { codeOrName } from '../../lib/displayCode';
 import { useMemo, useState, type KeyboardEvent } from 'react';
 import { Alert, Box, Button, CircularProgress, IconButton, Tooltip, Typography } from '@mui/material';
 import CloseRounded from '@mui/icons-material/CloseRounded';
@@ -103,7 +104,7 @@ export function BomValuesEditor({
     e.stopPropagation();
   };
 
-  const label = node.code ?? node.name;
+  const label = codeOrName(node);
   return (
     <Box onKeyDown={onKeyDown} aria-label={`Values for ${label}`}
       sx={{ p: 2, background: 'var(--c-surface-2)', borderTop: '1px solid var(--c-divider)' }}>

@@ -22,6 +22,7 @@ import { TokenPalette } from '../components/CodingRules/TokenPalette';
 import { PatternParts } from '../components/CodingRules/PatternParts';
 import { WhichRuleWins } from '../components/CodingRules/WhichRuleWins';
 import { OPERATOR_LABEL, cap, conditionSentence, entityWords, paletteEntries, patternSentence, patternText, tokenPhrase } from '../components/CodingRules/guide';
+import { displayLabel } from '../lib/displayCode';
 
 /** Templates matching what is typed, from the server — used by the condition pickers. */
 const searchTemplates = async (term: string) => (await cfApi.get<RecordList>(`/records${qs({ kinds: 'template', search: term, limit: 30, usable: 1 })}`)).rows;
@@ -233,7 +234,7 @@ function SchemeEditor({ open, onClose, onSaved, existing, entities, specs, tree,
                           onChange={(id) => setCond(i, { value: id ? String(id) : '' })} />
                       ) : c.operator === 'in' ? (
                         <ServerMultiPicker<MasterRecord> noun="template" placeholder="Template definitions" search={searchTemplates}
-                          getId={(o) => o.id} getLabel={(o) => `${o.code ?? '—'} · ${o.name}`}
+                          getId={(o) => o.id} getLabel={(o) => displayLabel(o)}
                           value={c.value.split(',').map((x) => templateById(x.trim())).filter((o): o is MasterRecord => !!o)}
                           onChange={(v) => { onKnown(v); setCond(i, { value: v.map((o) => o.id).join(',') }); }} />
                       ) : (

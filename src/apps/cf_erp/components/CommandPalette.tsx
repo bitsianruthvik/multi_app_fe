@@ -36,7 +36,7 @@ const TYPE_ICON: Record<string, ReactNode> = {
 };
 
 /** `revision` comes on orders only; search returns the latest revision of each. */
-interface SearchResult { type: string; id: number; code: string | null; name: string; detail: string | null; route: string; revision?: number }
+interface SearchResult { type: string; id: number; code: string | null; name: string; detail: string | null; route: string; revision?: number; shortName?: string | null }
 /** An action either goes somewhere (`slug`) or opens a dialog here (`dialog`). */
 interface PaletteAction { id: string; label: string; hint?: string; permission?: string; slug: string; dialog?: PaletteDialog }
 export type PaletteDialog = 'classification';
@@ -145,9 +145,11 @@ function Palette({ open, onClose, onDialog }: { open: boolean; onClose: () => vo
     const recs: Item[] = records.map((r) => {
       // A revised order keeps its code, so "rev 2" goes with the code in the hint — even when the name is the code itself.
       const rev = r.revision && r.revision > 1 ? revisionLabel(r.revision) : null;
+      // A definition is known by its short name, never its code (user, 2026-10-08).
+      const code = r.type === 'definition' ? r.shortName || null : r.code;
       return {
-        kind: 'record' as const, id: `rec:${r.type}:${r.id}`, label: r.name || r.code || '—',
-        hint: [r.code !== r.name ? [r.code, rev].filter(Boolean).join(' ') : rev, r.detail].filter(Boolean).join(' · '), slug: r.route, type: r.type,
+        kind: 'record' as const, id: `rec:${r.type}:${r.id}`, label: r.name || code || '—',
+        hint: [code !== r.name ? [code, rev].filter(Boolean).join(' ') : rev, r.detail].filter(Boolean).join(' · '), slug: r.route, type: r.type,
       };
     });
     const recents: Item[] = term ? [] : readRecents().map((r) => ({ kind: 'recent' as const, id: `rct:${r.slug}`, label: r.label, slug: r.slug }));

@@ -5,6 +5,7 @@ import type { Batch, Machine, Movement, OrderProductionFull, PurchaseOrderRow, R
 import { MOVEMENT_LABEL } from '../../lib/inventory';
 import { useLoad } from '../../hooks/useLoad';
 import { OrderPicker } from '../ServerPicker';
+import { displayCode } from '../../lib/displayCode';
 
 /** A record to try a rule on. */
 export interface SampleRow { id: number; code: string | null; name: string }
@@ -25,7 +26,7 @@ async function loadSamples(entityType: string, search: string, orderId: number |
     case 'item':
     case 'definition': {
       const list = await cfApi.get<RecordList>(`/records${qs({ recordKind: entityType, search: q, limit: 50 })}`);
-      return list.rows.map((r) => ({ id: r.id, code: r.code, name: r.name }));
+      return list.rows.map((r) => ({ id: r.id, code: displayCode(r), name: r.name }));
     }
     case 'sales_order':
       return (await cfApi.get<SalesOrder[]>(`/orders${qs({ search: q, limit: 50 })}`))

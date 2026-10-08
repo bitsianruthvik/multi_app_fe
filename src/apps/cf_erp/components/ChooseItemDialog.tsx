@@ -6,6 +6,7 @@ import { cfApi, CfApiError, qs } from '../api/client';
 import type { LineCandidates } from '../api/types';
 import { EmptyState, ErrorNotice, Mono, SkeletonRows } from './ui';
 import { DialogHeader } from './FormDialog';
+import { definitionLabel } from '../lib/displayCode';
 
 /** How long typing rests before the server is asked again. */
 const SEARCH_DELAY_MS = 250;
@@ -62,7 +63,7 @@ export function ChooseItemDialog({ lineId, open, onClose, onDone }: { lineId: nu
 
   return (
     <Dialog open={open} onClose={() => !busy && onClose()} maxWidth="sm" fullWidth>
-      <DialogHeader title={<>Choose the item{data ? ` for ${data.selection.code ?? data.selection.name}` : ''}</>} onClose={onClose} busy={busy} />
+      <DialogHeader title={<>Choose the item{data ? ` for ${definitionLabel(data.selection)}` : ''}</>} onClose={onClose} busy={busy} />
       <DialogContent>
         <ErrorNotice error={error} />
         {!data && !error && <SkeletonRows rows={3} />}

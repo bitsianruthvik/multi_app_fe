@@ -16,6 +16,7 @@ import { SpecsTable } from './SpecsTable';
 import { CapsLabel, ErrorNotice, Mono, Surface } from './ui';
 import { ShortNameField } from './ShortNameField';
 import { shortNameBody } from '../lib/shortName';
+import { displayCode } from '../lib/displayCode';
 import { DialogHeader } from './FormDialog';
 
 /**
@@ -166,8 +167,8 @@ export function CreateRecordDialog({ open, onClose, onCreated, recordKind, tree,
 
   const valueList = useMemo(() => Object.entries(values).filter(([, v]) => v !== '').map(([id, v]) => ({ specificationId: Number(id), value: v })), [values]);
   const draft = useMemo(() => ({
-    recordKind, itemType: 'catalog', definitionType, classificationId, trackedBy, name: name || null, code: code || null, values: valueList,
-  }), [recordKind, definitionType, classificationId, trackedBy, name, code, valueList]);
+    recordKind, itemType: 'catalog', definitionType, classificationId, trackedBy, name: name || null, code: isItem ? code || null : null, values: valueList,
+  }), [recordKind, isItem, definitionType, classificationId, trackedBy, name, code, valueList]);
 
   useEffect(() => {
     if (!open || !classificationId) { setPreview(null); setPreviewError(null); return undefined; }
@@ -192,7 +193,7 @@ export function CreateRecordDialog({ open, onClose, onCreated, recordKind, tree,
     const accepted = res ? new Set(res.specs.filter((s) => typeable(s, res.mode)).map((s) => s.spec.id)) : null;
     const sending = accepted ? valueList.filter((v) => accepted.has(v.specificationId)) : valueList;
     const common = {
-      classificationId, name: name || null, code: code || null, ...shortNameBody(shortName, noShortName),
+      classificationId, name: name || null, code: isItem ? code || null : null, ...shortNameBody(shortName, noShortName),
       description: description || null, revision: revision || null, status, values: sending,
     };
     try {
@@ -238,7 +239,7 @@ export function CreateRecordDialog({ open, onClose, onCreated, recordKind, tree,
   return (
     <Dialog open={open} onClose={() => !busy && onClose()} maxWidth="lg" fullWidth>
       <DialogHeader
-        title={copyFrom ? `New ${thing}, like ${copyFrom.code ?? copyFrom.name}` : (isItem ? 'New catalog item' : 'New definition')}
+        title={copyFrom ? `New ${thing}, like ${displayCode(copyFrom) ?? copyFrom.name}` : (isItem ? 'New catalog item' : 'New definition')}
         onClose={onClose} busy={busy}
         subtitle="Nothing is saved and no number is taken until you create it." />
       <DialogContent>
@@ -246,8 +247,8 @@ export function CreateRecordDialog({ open, onClose, onCreated, recordKind, tree,
         {copyFrom && (
           <Alert severity="info" sx={{ mb: 2, borderRadius: 'var(--r-sm)' }}>
             <Typography sx={{ fontSize: 13 }}>
-              Filled in from <Mono>{copyFrom.code ?? '—'}</Mono> {copyFrom.name}. Its <strong>code and name are not copied</strong> — they are
-              unique, and the coding rules give this one its own below. Change anything before creating it.
+              Filled in from {displayCode(copyFrom) && <Mono>{displayCode(copyFrom)}</Mono>} {copyFrom.name}. {isItem ? <>Its <strong>code and name are not copied</strong> — they are
+              unique, and the coding rules give this one its own below.</> : <>Its <strong>name is not copied</strong> — it is unique, and the naming rule gives this one its own below.</>} Change anything before creating it.
             </Typography>
             <Typography sx={{ fontSize: 13, mt: 0.75 }}>
               {sourceError ? 'Its specification values could not be read, so none were copied — fill them in below.'
@@ -281,9 +282,11 @@ export function CreateRecordDialog({ open, onClose, onCreated, recordKind, tree,
             helperText="Rules set on this Variant and above decide which specifications apply. Not there? Create it from the list." />
           <TextField label="Name" value={name} autoFocus={startFilled} onChange={(e) => setName(e.target.value)} placeholder={preview?.name?.text ?? ''}
             helperText={copyFrom ? 'Generated — the source’s name is not reused' : 'Leave empty to use the naming rule'} />
-          <TextField label="Code" value={code} onChange={(e) => setCode(e.target.value)} placeholder={preview?.code?.text ?? ''}
-            helperText={copyFrom ? 'Generated — a code is unique per record' : 'Leave empty to use the coding rule'}
-            inputProps={{ style: { fontFamily: 'var(--font-mono)' } }} />
+          {isItem && (
+            <TextField label="Code" value={code} onChange={(e) => setCode(e.target.value)} placeholder={preview?.code?.text ?? ''}
+              helperText={copyFrom ? 'Generated — a code is unique per record' : 'Leave empty to use the coding rule'}
+              inputProps={{ style: { fontFamily: 'var(--font-mono)' } }} />
+          )}
           <ShortNameField value={shortName} none={noShortName} onChange={(n) => { setShortName(n.value); setNoShortName(n.none); }}
             helperText="Codes are built from this — empty falls back to the template’s, then the first word of the name" />
           {isItem && (
@@ -315,7 +318,7 @@ export function CreateRecordDialog({ open, onClose, onCreated, recordKind, tree,
             <ErrorNotice error={previewError} />
             {!previewError && (
               <Box sx={{ display: 'flex', gap: 3, flexWrap: 'wrap', mb: 1.5 }}>
-                {genLine('Code it will get', preview?.code ?? null, code)}
+                {isItem && genLine('Code it will get', preview?.code ?? null, code)}
                 {genLine('Name it will get', preview?.name ?? null, name)}
               </Box>
             )}

@@ -10,6 +10,7 @@ import { recordPath } from '../../lib/paths';
 import { Badge, KindChip, Mono, StatusBadge, WarnBadge, type Family } from '../ui';
 import { FlowTag } from '../FlowTag';
 import { rowLabel, type BomRow } from './bomModel';
+import { codeOrName, definitionLabel, displayCode, isDefinitionKind } from '../../lib/displayCode';
 
 /** What a row offers, in the order a menu shows it. */
 export type BomAction = 'add' | 'choose' | 'change' | 'remove';
@@ -221,7 +222,7 @@ export function BomTree({
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, minWidth: 0 }}>
                   <Guides depth={n.depth} />
                   {row.hasChildren ? (
-                    <IconButton size="small" aria-label={row.open ? `Collapse ${n.code ?? n.name}` : `Expand ${n.code ?? n.name}`} onClick={() => onToggle(n.key)} sx={{ p: 0.25, flexShrink: 0 }}>
+                    <IconButton size="small" aria-label={row.open ? `Collapse ${codeOrName(n)}` : `Expand ${codeOrName(n)}`} onClick={() => onToggle(n.key)} sx={{ p: 0.25, flexShrink: 0 }}>
                       {row.open ? <ExpandMoreRounded fontSize="small" /> : <ChevronRightRounded fontSize="small" />}
                     </IconButton>
                   ) : <Box sx={{ width: 26, flexShrink: 0 }} />}
@@ -230,21 +231,23 @@ export function BomTree({
                       {n.lineNo != null && <Mono muted>{n.lineNo}</Mono>}
                       {/* A copy that is not saved yet has no record to link to — and will not carry this code. */}
                       {row.paste
-                        ? <Typography component="span" sx={{ fontSize: 12, color: 'var(--c-text-2)' }}><Mono>{n.code ?? n.name}</Mono></Typography>
+                        ? <Typography component="span" sx={{ fontSize: 12, color: 'var(--c-text-2)' }}><Mono>{codeOrName(n)}</Mono></Typography>
                         : placeholder && (n.code == null || placeholder.itemCode !== undefined)
                           ? (
                             <Tooltip title={placeholder.title}>
                               <Mono muted sx={look?.strike ? STRUCK : undefined}><Link to={appPath(company, recordPath(n.kind, n.id))}>{placeholder.code}</Link>{placeholder.itemCode ? ` · ${placeholder.itemCode}` : ''}</Mono>
                             </Tooltip>
                           )
-                          : <Mono sx={look?.strike ? STRUCK : undefined}><Link to={appPath(company, recordPath(n.kind, n.id))}>{n.code ?? '—'}</Link></Mono>}
+                          : displayCode(n) != null || !isDefinitionKind(n.kind)
+                            ? <Mono sx={look?.strike ? STRUCK : undefined}><Link to={appPath(company, recordPath(n.kind, n.id))}>{displayCode(n) ?? '—'}</Link></Mono>
+                            : null}
                       <KindChip kind={n.kind} />
                       {flowCell ? flowCell(row) : <FlowTag flow={n.flow} />}
                       {mark && <Badge family={look?.family ?? 'neutral'} label={mark.label} title={mark.title} noIcon={mark.tone === 'gone'} />}
-                      {n.selection && !n.resolved && <WarnBadge label="Choose item" title={`Choose a catalog item for ${n.selection.code ?? n.selection.name}.`} />}
+                      {n.selection && !n.resolved && <WarnBadge label="Choose item" title={`Choose a catalog item for ${definitionLabel(n.selection)}.`} />}
                     </Box>
                     <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', ...(look?.strike && STRUCK) }}>
-                      {rowLabel(n.name, n.role)}{n.selection && n.resolved ? ` · for ${n.selection.code ?? n.selection.name}` : ''}
+                      {displayCode(n) == null && isDefinitionKind(n.kind) && !row.paste && !placeholder ? <Link to={appPath(company, recordPath(n.kind, n.id))} style={{ color: 'inherit' }}>{rowLabel(n.name, n.role)}</Link> : rowLabel(n.name, n.role)}{n.selection && n.resolved ? ` · for ${definitionLabel(n.selection)}` : ''}
                     </Typography>
                   </Box>
                 </Box>
@@ -256,7 +259,7 @@ export function BomTree({
                 <Box sx={editing ? { display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 0.25, minWidth: 0 } : undefined}>
                   {editing ? trailingCell?.(row) : actions.length > 0 && (
                     <Tooltip title="Actions">
-                      <IconButton size="small" aria-label={`Actions for ${n.code ?? n.name}`} onClick={(e) => setMenu({ anchor: e.currentTarget, row })}><MoreVertRounded fontSize="small" /></IconButton>
+                      <IconButton size="small" aria-label={`Actions for ${codeOrName(n)}`} onClick={(e) => setMenu({ anchor: e.currentTarget, row })}><MoreVertRounded fontSize="small" /></IconButton>
                     </Tooltip>
                   )}
                 </Box>

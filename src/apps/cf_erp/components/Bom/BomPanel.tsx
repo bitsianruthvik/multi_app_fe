@@ -56,6 +56,7 @@ import { nextTarget, unchosenTargets } from './selectionChoice';
 import { arrangedRows, moveRow, pruneArrangement, undoCopy, type DropPosition } from './bomArrangement';
 import { computeGaps, gapSentence, keepGapRows, type ValuesView } from '../Values/valuesModel';
 import type { SheetGridHandle } from '@shared/ui';
+import { codeOrName, displayCode, isDefinitionKind } from '../../lib/displayCode';
 
 const TYPE_TEXT: Record<BomType, { title: string; body: string; empty: string }> = {
   standard: {
@@ -298,7 +299,7 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
         <Box sx={{ display: 'grid', gap: 0.5 }}>
           {bom.whereUsed.map((u) => (
             <Box key={u.lineId} sx={{ display: 'flex', gap: 1.5, alignItems: 'center', flexWrap: 'wrap', p: 0.75, borderRadius: 'var(--r-sm)', '&:hover': { background: 'var(--c-surface-2)' } }}>
-              <Mono><Link to={appPath(company, recordPath(u.parent.kind, u.parent.id))}>{u.parent.code ?? '—'}</Link></Mono>
+              <Mono><Link to={appPath(company, recordPath(u.parent.kind, u.parent.id))}>{displayCode(u.parent) ?? (isDefinitionKind(u.parent.kind) ? '' : '—')}</Link></Mono>
               <Typography sx={{ flex: 1, fontSize: 13, minWidth: 140 }}>{u.parent.name}</Typography>
               <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>{TYPE_TEXT[u.bomType].title}{u.via === 'selection' ? ' · via selection' : ''}</Typography>
               {u.order && <Mono muted><Link to={appPath(company, `orders/${u.order.id}`)}>{u.order.code}</Link></Mono>}
@@ -314,7 +315,7 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
   if (!state) return <SkeletonRows rows={5} height={40} />;
 
   const root = state.root;
-  const label = root.code ?? root.name;
+  const label = codeOrName(root);
   // Whether this record holds a BOM at all is the server's call (`canHaveBom`);
   // its kind only names the BOM when there is one.
   const holdsBom = state.canHaveBom ?? state.bomType != null;
@@ -404,7 +405,7 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
   /** Why a line cannot change from here — the words the per-line menus would use. */
   const whyNotLine = (row: BomRow): string => {
     const p = row.parent;
-    const pl = p ? p.code ?? p.name : '';
+    const pl = p ? codeOrName(p) : '';
     if (!p) return '';
     if (goneKeys.has(row.node.key)) return 'It goes with the line above it that is being removed.';
     if (flowsOnly && p.kind === 'temporary') return 'The design is frozen. Only how it is made can change, until the line is released.';
@@ -449,7 +450,7 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
     if (orderGrid) gridValues.reload();
     if (!orderGrid) void values.refreshAll();
     setOpen(new Set([...expanded, row.parent.key]));
-    toast.success(`Copied ${row.node.code ?? row.node.name} — the new row is below it.`);
+    toast.success(`Copied ${codeOrName(row.node)} — the new row is below it.`);
     const cut = cutPiecesNote(out.cutPieces);
     if (cut) toast[cut.tone](cut.text);
   };
@@ -523,7 +524,7 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
         values: Object.fromEntries(Object.entries(p.values ?? {}).filter(([recordId]) => !insideRecords.has(Number(recordId)))),
       };
     });
-    if (dropped) toast.info(`${plural(dropped, 'change', 'changes')} inside ${row.node.code ?? row.node.name} went with it.`);
+    if (dropped) toast.info(`${plural(dropped, 'change', 'changes')} inside ${codeOrName(row.node)} went with it.`);
   };
   const discard = () => { setPending(NO_PENDING); setChecked(null); bom.clearActionError(); };
   const showError = () => setShowRefusal((n) => n + 1);
@@ -626,7 +627,7 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
     const made = isMade(n);
     return (
       <FlowChip shown={shown} made={made} disabled={!!busy} tooltip={flowTooltip(shown, n, made)}
-        label={`How ${n.code ?? n.name} is made here: ${shown.flow ? shown.flow.code : 'no flow'}${shown.tag ? ` (${shown.tag})` : ''}${shown.unsaved ? ', not saved' : ''}. Choose another flow`}
+        label={`How ${codeOrName(n)} is made here: ${shown.flow ? shown.flow.code : 'no flow'}${shown.tag ? ` (${shown.tag})` : ''}${shown.unsaved ? ', not saved' : ''}. Choose another flow`}
         onClick={(e) => setFlowPick({ anchor: e.currentTarget as HTMLElement, row })} />
     );
   };
@@ -641,7 +642,7 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
 
   const trailingCell = (row: BomRow) => {
     const n = row.node;
-    const name = n.code ?? n.name;
+    const name = codeOrName(n);
     if (row.paste) {
       const key = row.paste.key;
       return <RowButton disabled={!!busy} label={`Take back the copy of ${name}`} onClick={() => setPending((p) => undoCopy(p, key))}><UndoRounded fontSize="small" /></RowButton>;
@@ -1000,14 +1001,14 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
         </MenuItem>)}
       </Menu>
 
-      <BulkFlowDialog open={bulkFlow} rows={flowRows.map((r) => ({ key: r.node.key, node: r.node, depth: r.node.depth, label: r.node.code ?? r.node.name }))}
+      <BulkFlowDialog open={bulkFlow} rows={flowRows.map((r) => ({ key: r.node.key, node: r.node, depth: r.node.depth, label: codeOrName(r.node) }))}
         flows={flows.data} shownOf={(n) => flowShown(n, pending.flow, flowLookup)} onClose={() => setBulkFlow(false)} onApply={setFlowMany} />
 
       <Popover open={!!flowPick} anchorEl={flowPick?.anchor} onClose={() => setFlowPick(null)}
         anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }} transformOrigin={{ vertical: 'top', horizontal: 'left' }}>
         <Box sx={{ p: 2, width: 400, maxWidth: 'calc(100vw - 32px)' }}>
           <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)', mb: 1.5 }}>
-            How <Mono>{pickRow?.node.code ?? pickRow?.node.name}</Mono> is made in {pickRow?.parent?.code ?? pickRow?.parent?.name}
+            How <Mono>{pickRow ? codeOrName(pickRow.node) : ''}</Mono> is made in {pickRow?.parent ? codeOrName(pickRow.parent) : ''}
           </Typography>
           {pickRow && (() => {
             const shown = flowShown(pickRow.node, pending.flow, flowLookup);
@@ -1031,7 +1032,7 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
         body={`${plural(doomedTemporary, 'row', 'rows')} ${doomedTemporary === 1 ? 'is' : 'are'} deleted with ${removals.length === 1 ? 'it' : 'them'}, everything below included. Everything else in this save happens with it, or nothing does.`}
         onClose={() => setConfirming(null)}
         onConfirm={async () => { setConfirming(null); await save(); }} />
-      <AddChildDialog open={!!adding && addingKinds.length > 0} parentId={adding?.id ?? 0} parentLabel={adding?.code ?? adding?.name ?? ''}
+      <AddChildDialog open={!!adding && addingKinds.length > 0} parentId={adding?.id ?? 0} parentLabel={adding ? codeOrName(adding) : ''}
         allowedKinds={addingKinds} custom={addingBomType === 'custom'}
         onClose={() => setAdding(null)}
         onDone={() => {
@@ -1040,7 +1041,7 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
           toast.success('Line added.');
           bom.reload();
         }} />
-      <EditLineDialog open={!!editing} lineId={editing?.node.lineId ?? null} label={editing ? (editing.node.code ?? editing.node.name) : ''}
+      <EditLineDialog open={!!editing} lineId={editing?.node.lineId ?? null} label={editing ? codeOrName(editing.node) : ''}
         childName={editing?.node.name ?? ''} repeats={!!editing?.parent && editing.parent.children.filter((n) => n.id === editing.node.id).length > 1}
         quantity={editing?.node.quantity ?? 1} role={editing?.node.role ?? null}
         flowId={editing?.node.flow?.from === 'line' ? editing.node.flow.id : null}
@@ -1048,9 +1049,9 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
         onClose={() => setEditing(null)} onDone={() => { toast.success('Line saved.'); bom.reload(); }} />
       <ChooseItemDialog open={choosing != null} lineId={choosing} onClose={() => setChoosing(null)}
         onDone={(cleared) => { toast.success(cleared ? 'Choice cleared.' : 'Item chosen.'); bom.reload(); if (orderGrid) gridValues.reload(); }} />
-      <ConfirmDialog open={!!removing} danger confirmLabel="Remove line" title={`Remove ${removingNode?.code ?? removingNode?.name}?`}
+      <ConfirmDialog open={!!removing} danger confirmLabel="Remove line" title={`Remove ${removingNode ? codeOrName(removingNode) : ''}?`}
         body={removingNode?.kind === 'temporary'
-          ? `${removingNode.code ?? removingNode.name} exists only for this order, so it is deleted with everything below it.`
+          ? `${codeOrName(removingNode)} exists only for this order, so it is deleted with everything below it.`
           : 'The line goes; the item itself stays in the catalog.'}
         onClose={() => setRemoving(null)}
         onConfirm={async () => { if (removingNode?.lineId != null) { await bom.removeLine(removingNode.lineId); toast.success('Line removed.'); } }} />

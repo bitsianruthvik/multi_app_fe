@@ -254,11 +254,13 @@ export interface MasterRecord {
   gstRate?: number | null;
   isService?: boolean;
   classificationPath?: PathStep[];
-  sourceDefinition?: { id: number; code: string | null; name: string; status: RecordStatus } | null;
+  sourceDefinition?: { id: number; code: string | null; name: string; status: RecordStatus; shortName?: string | null } | null;
   counts?: { temporaryItems: number; allowedItems: number; criteria: number; /** Classification branches a selection picks from. */ branches?: number };
   classificationCode?: string;
   classificationName?: string;
   sourceDefinitionCode?: string | null;
+  /** The short name of the definition a temporary item was created from (shown in place of its code). */
+  sourceDefinitionShortName?: string | null;
   warnings?: string[];
   /** The record itself carries its whole BOM header; a list row carries the two flat fields below instead. */
   bom?: { id: number; bomType: BomType; status: RecordStatus; revision: string | null; lineCount: number } | null;
@@ -424,9 +426,9 @@ export interface BomLine {
   role: string | null;
   quantity: number;
   notes: string | null;
-  child: { id: number; code: string | null; name: string; kind: Kind; status: RecordStatus; recordKind: 'item' | 'definition'; uom: string | null; hasBom: boolean };
-  design: { id: number; code: string | null; name: string };
-  selection: { id: number; code: string | null; name: string } | null;
+  child: { id: number; code: string | null; name: string; kind: Kind; status: RecordStatus; recordKind: 'item' | 'definition'; uom: string | null; hasBom: boolean; shortName?: string | null };
+  design: { id: number; code: string | null; name: string; shortName?: string | null };
+  selection: { id: number; code: string | null; name: string; shortName?: string | null } | null;
   resolved: boolean;
   /** The system chose its item (default, or only candidate); a person has not since. */
   autoChosen?: boolean;
@@ -437,7 +439,7 @@ export interface BomLine {
 }
 
 export interface BomView {
-  parent: { id: number; code: string | null; name: string; kind: Kind; status: RecordStatus };
+  parent: { id: number; code: string | null; name: string; kind: Kind; status: RecordStatus; shortName?: string | null };
   bomType: BomType | null;
   canHaveBom: boolean;
   allowedChildKinds: Kind[];
@@ -451,6 +453,8 @@ export interface StructureNode {
   key: string;
   id: number;
   code: string | null;
+  /** A definition's few characters — what the screen shows in place of its code. */
+  shortName?: string | null;
   name: string;
   kind: Kind;
   status: RecordStatus;
@@ -462,7 +466,7 @@ export interface StructureNode {
   lineNo: number | null;
   position: number | null;
   role: string | null;
-  selection: { id: number; code: string | null; name: string } | null;
+  selection: { id: number; code: string | null; name: string; shortName?: string | null } | null;
   resolved: boolean;
   /** A selection row whose item the SYSTEM chose (its default, or its only candidate) and no person has since — "default · change" (init.sql §42). */
   autoChosen?: boolean;
@@ -500,13 +504,13 @@ export interface WhereUsedRow {
   via: 'child' | 'selection';
   bomType: BomType;
   bomStatus: RecordStatus;
-  parent: { id: number; code: string | null; name: string; kind: Kind };
+  parent: { id: number; code: string | null; name: string; kind: Kind; shortName?: string | null };
   order: { id: number; code: string } | null;
 }
 
 export interface LineCandidates extends Candidates {
   lineId: number;
-  selection: { id: number; code: string | null; name: string };
+  selection: { id: number; code: string | null; name: string; shortName?: string | null };
   chosenItemId: number | null;
   /** The system chose it and no person has since ("default · change"). */
   autoChosen?: boolean;
@@ -539,7 +543,7 @@ export interface SalesOrderLine {
   /** The GST on this line, worked out on top of amount (CF_ERP_GST_PLAN §2). */
   tax?: LineTax | null;
   item: { id: number; code: string | null; name: string; status: RecordStatus; kind: 'catalog' | 'temporary'; uom: string; revision: string | null } | null;
-  design: { id: number; code: string | null; name: string };
+  design: { id: number; code: string | null; name: string; shortName?: string | null };
   bomRevision: string | null;
   bom: { status: RecordStatus; currentRevision: string | null } | null;
   /** temporaryItems: the rows of its structure (cut plates included). */
@@ -719,7 +723,7 @@ export type WaitRelation = 'parent' | 'children' | 'siblings' | 'ancestor';
 export interface WaitRule {
   id: number;
   relation: WaitRelation;
-  targetDefinition: { id: number; code: string | null; name: string } | null;
+  targetDefinition: { id: number; code: string | null; name: string; shortName?: string | null } | null;
   targetOperation: { id: number; code: string; name: string } | null;
   requiredStatus: 'started' | 'done';
   notes: string | null;
@@ -767,7 +771,7 @@ export interface Flow {
 
 export interface FlowDetail extends Flow {
   steps: FlowStep[];
-  uses: { records: { id: number; code: string | null; name: string; kind: Kind }[]; bomLines: number; /** True count of records naming the flow; `records` stops at 100. */ recordCount?: number };
+  uses: { records: { id: number; code: string | null; name: string; kind: Kind; shortName?: string | null }[]; bomLines: number; /** True count of records naming the flow; `records` stops at 100. */ recordCount?: number };
 }
 
 // ---- Shifts (per machine) ---------------------------------------------------------

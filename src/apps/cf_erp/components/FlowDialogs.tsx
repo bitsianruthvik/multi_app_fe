@@ -11,6 +11,7 @@ import { RecordPicker } from './RecordPicker';
 import { ErrorNotice } from './ui';
 import { DialogHeader } from './FormDialog';
 import { enterSubmits } from '../lib/dialog';
+import { codeOrName } from '../lib/displayCode';
 
 function useSave<T>(onDone: (r: T) => void, onClose: () => void) {
   const [busy, setBusy] = useState(false);
@@ -166,7 +167,7 @@ const WHO: Record<Exclude<WaitRelation, 'ancestor'>, string> = { parent: 'its pa
  * than maintained.
  */
 function sentence(relation: WaitRelation, def: MasterRecord | null, op: Operation | null, status: 'started' | 'done') {
-  const madeFrom = def?.code ?? def?.name;
+  const madeFrom = def ? codeOrName(def) : undefined;
   const who = relation === 'ancestor' ? `the nearest ${madeFrom ?? '…'} above it` : `${WHO[relation]}${madeFrom && relation !== 'parent' ? ` made from ${madeFrom}` : ''}`;
   const plural = relation === 'children' || relation === 'siblings';
   if (op) {
