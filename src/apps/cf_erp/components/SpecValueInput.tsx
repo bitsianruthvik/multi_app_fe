@@ -13,6 +13,9 @@ import { ErrorNotice } from './ui';
 import { useToast } from './toastContext';
 import { TableValueDialog } from './TableValue/TableValueDialog';
 import { parseTableValue, summaryOf } from './TableValue/tableValueModel';
+import { ChartRowsDialog } from './Charts/ChartRowsDialog';
+import { chartRows, chartSummary, isRowsChart, withUnit } from '../lib/charts';
+import type { ChartAxis, ChartRow } from '../api/charts';
 
 /** The specification a value is for — enough to add to its list and to say so. */
 interface SpecRef { id: number; code: string; name: string }
@@ -79,7 +82,7 @@ export function SpecValueInput({
     case 'option':
       return <OptionInput options={options} value={value} onChange={onChange} label={label} disabled={disabled} size={size} autoFocus={autoFocus} spec={spec} chain={chain} />;
     case 'table':
-      return <TableTrigger specName={spec?.name ?? label ?? 'Table'} tableConfig={tableConfig} value={value} onChange={onChange} disabled={disabled} />;
+      return <TableTrigger specName={spec?.name ?? label ?? 'Table'} unit={unit} tableConfig={tableConfig} value={value} onChange={onChange} disabled={disabled} />;
     default:
       return <TextField {...common} inputProps={{ maxLength: 500 }} />;
   }
@@ -91,14 +94,16 @@ export function SpecValueInput({
  * dialog. `onChange` gets the same JSON string back every table value is
  * carried as, so whatever saves a plain value saves this one too.
  */
-function TableTrigger({ specName, tableConfig, value, onChange, disabled }: {
+function TableTrigger({ specName, unit, tableConfig, value, onChange, disabled }: {
   specName: string;
+  unit?: string | null;
   tableConfig?: TableConfig | null;
   value: string;
   onChange: (v: string) => void;
   disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  if (isRowsChart(tableConfig)) return <RowsTrigger specName={specName} unit={unit} tableConfig={tableConfig!} value={value} onChange={onChange} disabled={disabled} />;
   const summary = summaryOf(tableConfig, parseTableValue(value));
   return (
     <>
@@ -111,6 +116,26 @@ function TableTrigger({ specName, tableConfig, value, onChange, disabled }: {
       </Button>
       {open && <TableValueDialog open onClose={() => setOpen(false)} specName={specName} tableConfig={tableConfig}
         value={value} onSave={onChange} disabled={disabled} />}
+    </>
+  );
+}
+
+/** A chart of rows (version 2): "12 rows · by Thickness (mm), Grade"; opens the rows editor and hands back { rows } as JSON. */
+function RowsTrigger({ specName, unit, tableConfig, value, onChange, disabled }: {
+  specName: string; unit?: string | null; tableConfig: TableConfig; value: string; onChange: (v: string) => void; disabled?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const parsed = useMemo(() => { try { return value ? JSON.parse(value) : null; } catch { return null; } }, [value]);
+  const rows = chartRows({ rows: null, value: parsed });
+  const axes = tableConfig.axes as unknown as ChartAxis[];
+  return (
+    <>
+      <Button variant="outlined" size="small" fullWidth onClick={() => setOpen(true)} startIcon={<TableChartOutlined fontSize="small" />}
+        sx={{ justifyContent: 'flex-start', textTransform: 'none', fontFamily: 'var(--font-mono)', fontSize: 12.5 }}>
+        {chartSummary(tableConfig, parsed)}
+      </Button>
+      {open && <ChartRowsDialog open onClose={() => setOpen(false)} title={specName} axes={axes} resultLabel={withUnit(specName, unit)} rows={rows}
+        disabled={disabled} onSave={(r: ChartRow[] | null) => onChange(r && r.length ? JSON.stringify({ rows: r }) : '')} />}
     </>
   );
 }

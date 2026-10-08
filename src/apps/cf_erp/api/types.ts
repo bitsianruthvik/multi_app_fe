@@ -6,9 +6,13 @@ import type { CutFrom, CutFromAnswer, CutRef, CutStockAnswer } from './cutting';
 export type DataType = 'number' | 'text' | 'boolean' | 'date' | 'option' | 'table';
 /** step_up: the next row up. linear: a straight line between rows. */
 export type TableMode = 'step_up' | 'linear';
-export interface TableAxis { label: string; unit: string | null }
+export interface TableAxis {
+  label: string; unit: string | null;
+  /** Charts of version 2: what the column is read by (a specification code, or a tree level). */
+  kind?: 'spec' | 'level'; field?: string; level?: 'FAMILY' | 'SUBFAMILY' | 'VARIANT'; dataType?: string;
+}
 /** A table specification's shape — one or two axes, and how a value between rows is read. */
-export interface TableConfig { axes: TableAxis[]; mode: TableMode }
+export interface TableConfig { axes: TableAxis[]; mode: TableMode; /** 2 = a chart of rows (any number of inputs and one result) with value { rows }. */ version?: number }
 /** A table's own chart: 1-D { x, v } or 2-D { x, y, v } with v[yIndex][xIndex]. `null` in v = the machine cannot. */
 export interface TableValue1D { x: number[]; v: (number | null)[] }
 export interface TableValue2D { x: number[]; y: number[]; v: (number | null)[][] }

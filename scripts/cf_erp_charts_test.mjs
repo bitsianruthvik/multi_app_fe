@@ -1,5 +1,6 @@
-// Charts: headings carry units, previews are shaped rows x columns, the dialog checks itself,
-// and the formula type-ahead offers bound charts by their bare name.
+// Charts: a table of rows (any number of inputs + one result). Headings carry units, previews show
+// node names, the rows editor reads pasted text, the dialog checks itself, and the formula
+// type-ahead offers charts, item.family / subfamily / variant and pick-list specs.
 import assert from 'node:assert/strict';
 import { build } from 'esbuild';
 
@@ -17,16 +18,21 @@ function check(label, fn) {
   try { fn(); passed++; console.log(`PASS ${label}`); } catch (e) { failed++; console.log(`FAIL ${label}: ${e.message}`); }
 }
 
-const th = { label: 'Thickness', unit: 'mm', field: { code: 'THICKNESS', name: 'Thickness', unit: 'mm' } };
-const hole = { label: 'Hole diameter', unit: 'mm', field: null };
-const one = { specId: 1, code: 'GAS_CUT_SPEED', name: 'Gas cutting speed', resultUnit: 'mm/min', mode: 'step_up', axes: [th], value: { x: [6, 10, 20], v: [700, 500, null] }, shortForm: 'GAS_CUT_SPEED' };
-const two = { ...one, code: 'PIERCE', name: 'Pierce time', resultUnit: 's', axes: [th, hole], shortForm: null, value: { x: [10, 20], y: [14, 21], v: [[1, 2], [3, null]] } };
+const th = { kind: 'spec', field: 'THICKNESS', label: 'Thickness', unit: 'mm', dataType: 'number' };
+const grade = { kind: 'spec', field: 'GRADE', label: 'Grade', unit: null, dataType: 'option' };
+const fam = { kind: 'level', level: 'FAMILY', label: 'Family', unit: null, dataType: 'level' };
+const nodes = { 7: { code: 'PLATES', name: 'Plates' }, 8: { code: 'BARS', name: 'Bars' } };
+const drill = {
+  specId: 1, code: 'DRILL_TIME', name: 'Drill time', resultUnit: 's', mode: 'step_up', axes: [th, grade, fam], nodes,
+  rows: [[10, 'E250', 7, 4], [10, 'E350', 8, null], [20, 'E250', 7, 6.5]], value: null, own: true, valueFrom: null, shortForm: 'DRILL_TIME',
+};
 
-check('headings carry units', () => {
+check('headings carry units; level and option have none', () => {
   assert.equal(c.axisHeading(th), 'Thickness (mm)');
-  assert.equal(c.resultHeading(one), 'Gas cutting speed (mm/min)');
-  assert.equal(c.chartHeadingLine(one), 'Thickness (mm) → Gas cutting speed (mm/min)');
-  assert.equal(c.chartHeadingLine(two), 'Thickness (mm) × Hole diameter (mm) → Pierce time (s)');
+  assert.equal(c.axisHeading(grade), 'Grade');
+  assert.equal(c.resultHeading(drill), 'Drill time (s)');
+  assert.equal(c.chartHeadingLine(drill), 'Thickness (mm) · Grade · Family → Drill time (s)');
+  assert.equal(c.byText(drill.axes), 'by Thickness (mm), Grade, Family');
 });
 check('no unit, no brackets', () => assert.equal(c.withUnit('Count', null), 'Count'));
 check('between rows is said in words', () => {
@@ -34,88 +40,160 @@ check('between rows is said in words', () => {
   assert.equal(c.modeText('linear'), 'Between rows: a straight line');
 });
 check('short form else LOOKUP', () => {
-  assert.equal(c.formulaNameText(one), 'GAS_CUT_SPEED');
-  assert.equal(c.formulaNameText(two), 'LOOKUP(machine.PIERCE, …)');
+  assert.equal(c.formulaNameText(drill), 'DRILL_TIME');
+  assert.equal(c.formulaNameText({ ...drill, shortForm: null }), 'LOOKUP(machine.DRILL_TIME, …)');
 });
-check('one-column preview: rows down, result heading with unit', () => {
-  const g = c.previewGrid(one);
-  assert.equal(g.rowHeading, 'Thickness (mm)');
-  assert.equal(g.columns[0].heading, 'Gas cutting speed (mm/min)');
-  assert.deepEqual(g.rows.map((r) => [r.x, r.cells[0]]), [[6, 700], [10, 500], [20, null]]);
-});
-check('two-column preview: v[col][row] read as rows x columns', () => {
-  const g = c.previewGrid(two);
-  assert.equal(g.twoD, true);
-  assert.deepEqual(g.columns.map((x) => x.heading), ['14', '21']);
-  assert.deepEqual(g.rows.map((r) => r.cells), [[1, 3], [2, null]]);
-  assert.match(g.rowHeading, /Thickness \(mm\).*Hole diameter \(mm\)/);
-  assert.equal(g.caption, 'Pierce time (s)');
+check('preview: a heading per input, level cells by node name, cannot as a dash', () => {
+  const t = c.previewTable(drill);
+  assert.deepEqual(t.headings, ['Thickness (mm)', 'Grade', 'Family', 'Drill time (s)']);
+  assert.deepEqual(t.rows[0], ['10', 'E250', 'Plates', '4']);
+  assert.deepEqual(t.rows[1], ['10', 'E350', 'Bars', '—']);
+  assert.deepEqual(t.numeric, [true, false, false, true]);
 });
 check('preview is cut to a limit and says how many more', () => {
-  const big = { ...one, value: { x: Array.from({ length: 12 }, (_, i) => i + 1), v: Array(12).fill(1) } };
-  const g = c.previewGrid(big, 8);
-  assert.equal(g.rows.length, 8);
-  assert.equal(g.more, 4);
+  const big = { ...drill, rows: Array.from({ length: 12 }, (_, i) => [i + 1, 'E250', 7, 1]) };
+  const t = c.previewTable(big, 8);
+  assert.equal(t.rows.length, 8);
+  assert.equal(t.more, 4);
 });
-check('no values, no preview', () => assert.equal(c.previewGrid({ ...one, value: null }), null));
+check('no rows, no preview', () => assert.equal(c.previewTable({ ...drill, rows: null }), null));
+check('older values become rows', () => {
+  assert.deepEqual(c.chartRows({ rows: null, value: { x: [6, 10], v: [700, null] } }), [[6, 700], [10, null]]);
+  assert.deepEqual(c.chartRows({ rows: null, value: { x: [10, 20], y: [14, 21], v: [[1, 2], [3, null]] } }), [[10, 14, 1], [10, 21, 3], [20, 14, 2], [20, 21, null]]);
+  assert.deepEqual(c.chartRows({ rows: null, value: { rows: [[1, 2]] } }), [[1, 2]]);
+});
 check('value source in words', () => {
-  assert.equal(c.valueSourceText({ ...one, own: false, valueFrom: { type: 'classification', id: 3, name: 'Pug cutting' } }, 'machine'), 'From Pug cutting (machine type)');
-  assert.equal(c.valueSourceText({ ...one, own: true, valueFrom: null }, 'machine'), 'This machine’s own chart');
-  assert.equal(c.valueSourceText({ ...one, value: null, own: false, valueFrom: null }, 'machine'), 'No values yet');
+  assert.equal(c.valueSourceText({ ...drill, own: false, valueFrom: { type: 'classification', id: 3, name: 'Pug cutting' } }, 'machine'), 'From Pug cutting (machine type)');
+  assert.equal(c.valueSourceText({ ...drill, own: true, valueFrom: null }, 'machine'), 'This machine’s own chart');
+  assert.equal(c.valueSourceText({ ...drill, rows: null, own: false, valueFrom: null }, 'machine'), 'No values yet');
+});
+check('specifications tab summary', () => {
+  assert.equal(c.chartSummary({ axes: [th, grade] }, { rows: [[1, 'A', 2], [2, 'A', 3]] }), '2 rows · by Thickness (mm), Grade');
+  assert.equal(c.chartSummary({ axes: [th] }, null), 'No chart set yet');
+  assert.equal(c.isRowsChart({ version: 2 }), true);
+  assert.equal(c.isRowsChart({}), false);
 });
 
-const base = { name: 'Gas cutting speed', resultUnit: 'mm/min', mode: 'step_up', columns: [{ kind: 'spec', specCode: 'THICKNESS', specName: 'Thickness', specUnit: 'mm', label: '', unit: '' }] };
-check('a complete form has no problems and is bound', () => {
+const base = {
+  name: 'Drill time', resultUnit: 's', mode: 'step_up',
+  inputs: [
+    { kind: 'spec', code: 'THICKNESS', name: 'Thickness', dataType: 'number', specUnit: 'mm', unit: '' },
+    { kind: 'spec', code: 'GRADE', name: 'Grade', dataType: 'option', specUnit: '', unit: '' },
+    { kind: 'level', level: 'FAMILY' },
+  ],
+};
+check('a complete form has no problems; heading and formula name preview', () => {
   assert.deepEqual(c.formProblems(base), []);
-  assert.equal(c.isBound(base), true);
-  assert.equal(c.formHeadingLine(base), 'Thickness (mm) → Gas cutting speed (mm/min)');
-  assert.equal(c.shortNameGuess(base.name), 'GAS_CUTTING_SPEED');
+  assert.equal(c.formHeadingLine(base), 'Thickness (mm) · Grade · Family → Drill time (s)');
+  assert.equal(c.shortNameGuess(base.name), 'DRILL_TIME');
 });
-check('the result unit and the name are required', () => {
-  assert.equal(c.formProblems({ ...base, name: ' ', resultUnit: '' }).length, 2);
+check('name, result unit and an input are required', () => {
+  assert.equal(c.formProblems({ ...base, name: ' ', resultUnit: '', inputs: [] }).length, 3);
 });
-check('a value with no unit asks for one', () => {
-  const f = { ...base, columns: [{ ...base.columns[0], specUnit: '' }] };
+check('a number with no unit asks for one; a word does not', () => {
+  const f = { ...base, inputs: [{ ...base.inputs[0], specUnit: '' }] };
   assert.match(c.formProblems(f)[0], /no unit/);
-  assert.deepEqual(c.axesInput({ ...f, columns: [{ ...f.columns[0], unit: 'mm' }] }), [{ field: 'THICKNESS', unit: 'mm' }]);
+  assert.deepEqual(c.inputsPayload({ ...f, inputs: [{ ...f.inputs[0], unit: 'mm' }] }), [{ field: 'THICKNESS', unit: 'mm' }]);
 });
-check('"Other" needs a label and a unit; it is not bound', () => {
-  const f = { ...base, columns: [{ kind: 'other', specCode: '', specName: '', specUnit: '', label: '', unit: '' }] };
-  assert.equal(c.formProblems(f).length, 2);
-  assert.equal(c.isBound(f), false);
-  assert.deepEqual(c.axesInput({ ...f, columns: [{ ...f.columns[0], label: 'Gas pressure', unit: 'bar' }] }), [{ label: 'Gas pressure', unit: 'bar' }]);
+check('the same input twice is refused', () => {
+  assert.ok(c.formProblems({ ...base, inputs: [base.inputs[2], base.inputs[2]] }).some((p) => /already/.test(p)));
+  assert.ok(c.formProblems({ ...base, inputs: [base.inputs[0], base.inputs[0]] }).some((p) => /already/.test(p)));
 });
-check('the same value cannot be both columns', () => {
-  const f = { ...base, columns: [base.columns[0], base.columns[0]] };
-  assert.ok(c.formProblems(f).some((p) => /already/.test(p)));
+check('inputs are sent as field codes and levels', () => {
+  assert.deepEqual(c.inputsPayload(base), [{ field: 'THICKNESS' }, { field: 'GRADE' }, { level: 'FAMILY' }]);
 });
-check('axes carry the spec code when read by a piece value', () => assert.deepEqual(c.axesInput(base), [{ field: 'THICKNESS' }]));
-check('grid config has labels and units', () => assert.deepEqual(c.formTableConfig(base).axes, [{ label: 'Thickness', unit: 'mm' }]));
-check('value text round-trips; empty means none', () => {
-  assert.equal(c.valueFromText(''), null);
-  assert.deepEqual(c.valueFromText(c.valueToText(one.value)), one.value);
+check('a straight line only when the last input is a number; inputs reorder', () => {
+  assert.equal(c.canLinear(base), false);
+  assert.equal(c.effectiveMode({ ...base, mode: 'linear' }), 'step_up');
+  assert.equal(c.canLinear({ ...base, inputs: [base.inputs[2], base.inputs[0]] }), true);
+  assert.equal(c.effectiveMode({ ...base, mode: 'linear', inputs: [base.inputs[2], base.inputs[0]] }), 'linear');
+  assert.deepEqual(c.moved([1, 2, 3], 2, -1), [1, 3, 2]);
+  assert.deepEqual(c.moved([1, 2, 3], 0, -1), [1, 2, 3]);
 });
-check('only charts bound on every column are short-form charts', () => {
+check('axes of a saved chart open as inputs and back', () => {
+  assert.deepEqual(drill.axes.map(c.inputFromAxis).map((i) => c.inputHeading(i)), ['Thickness (mm)', 'Grade', 'Family']);
+  assert.equal(c.inputAxis(base.inputs[0]).unit, 'mm');
+});
+
+const lookups = {
+  levels: { FAMILY: [{ id: 7, code: 'PLATES', name: 'Plates' }, { id: 8, code: 'BARS', name: 'Bars' }], SUBFAMILY: [], VARIANT: [] },
+  options: { GRADE: [{ value: 'E250', label: 'IS 2062 E250' }, { value: 'E350', label: null }] },
+};
+check('paste: N+1 columns, one row per line; a heading line is skipped', () => {
+  const out = c.parsePastedRows('Thickness\tGrade\tFamily\tDrill time\n10\tE250\tPlates\t4\n20\tE350\tBars\t', 4);
+  assert.equal(out.rows.length, 2);
+  assert.deepEqual(out.rows[1], ['20', 'E350', 'Bars', '']);
+});
+check('paste: a short line is named', () => {
+  const out = c.parsePastedRows('10\tE250\t4', 4);
+  assert.match(out.error, /Line 1 has 3 columns; this chart has 4/);
+});
+check('rows from the editor: names placed to ids and values; blank result = cannot; blank rows dropped', () => {
+  const r = c.draftToRows(drill.axes, [['10', 'IS 2062 E250', 'plates', '4'], ['', '', '', ''], ['20', 'E350', '8', '']], lookups);
+  assert.deepEqual(r.problems, []);
+  assert.deepEqual(r.rows, [[10, 'E250', 7, 4], [20, 'E350', 8, null]]);
+});
+check('rows from the editor: problems in words; unknown names go as typed', () => {
+  const r = c.draftToRows(drill.axes, [['x', 'E999', 'Nowhere', 'a']], lookups);
+  assert.equal(r.problems.length, 2);
+  assert.deepEqual(r.rows[0].slice(1, 3), ['E999', 'Nowhere']);
+});
+check('draft round trip and sort by inputs', () => {
+  const d = c.rowsToDraft([[20, 'E250', 7, 1], [10, 'E350', 8, null], [10, 'E250', 8, 2]]);
+  assert.deepEqual(d[1], ['10', 'E350', '8', '']);
+  const sorted = c.sortDraft(drill.axes, d, (a, t) => (a.kind === 'level' ? nodes[t]?.name ?? t : t));
+  assert.deepEqual(sorted.map((r) => r.slice(0, 2).join('/')), ['10/E250', '10/E350', '20/E250']);
+});
+check('charts of the new kind are short-form charts', () => {
   const fields = [
     { code: 'A', tableConfig: { axes: [{ field: { code: 'T' } }] } },
     { code: 'B', tableConfig: { axes: [{ field: { code: 'T' } }, { field: null }] } },
-    { code: 'C', tableConfig: { axes: [{ label: 'x' }] } },
+    { code: 'C', tableConfig: { version: 2, axes: [{ kind: 'level' }, { kind: 'spec' }] } },
   ];
-  assert.deepEqual(c.boundCharts(fields).map((f) => f.code), ['A']);
+  assert.deepEqual(c.boundCharts(fields).map((f) => f.code), ['A', 'C']);
 });
 
-const chartField = { code: 'GAS_CUT_SPEED', name: 'Gas cutting speed', dataType: 'table', measurementType: null, unit: 'mm/min', tableConfig: { axes: [{ label: 'Thickness', unit: 'mm', field: { code: 'THICKNESS' } }] } };
-const ctx = { fields: { item: [{ code: 'CUT_LENGTH', name: 'Cut length', dataType: 'number', measurementType: null, unit: 'mm' }] }, functions: [], shortCharts: [chartField] };
-check('type-ahead offers a bound chart by its bare name', () => {
-  const text = 'item.CUT_LENGTH / GAS';
+const chartField = {
+  code: 'DRILL_TIME', name: 'Drill time', dataType: 'table', measurementType: null, unit: 's',
+  tableConfig: { version: 2, axes: [{ label: 'Thickness', unit: 'mm' }, { label: 'Grade', unit: null }, { label: 'Family', unit: null }] },
+};
+const ctx = {
+  fields: {
+    item: [
+      { code: 'CUT_LENGTH', name: 'Cut length', dataType: 'number', measurementType: null, unit: 'mm' },
+      { code: 'GRADE', name: 'Grade', dataType: 'option', measurementType: null, unit: null },
+      ...fb.LEVEL_FIELDS,
+    ],
+  },
+  functions: [],
+  shortCharts: [chartField],
+};
+check('type-ahead offers a chart by its bare name, with what it is read by', () => {
+  const text = 'item.CUT_LENGTH / DRI';
   const r = suggestAt(text, text.length, ctx);
-  assert.equal(r.items[0].insert, 'GAS_CUT_SPEED');
-  assert.equal(r.items[0].detail, 'chart · mm/min, by Thickness (mm)');
+  assert.equal(r.items[0].insert, 'DRILL_TIME');
+  assert.equal(r.items[0].detail, 'chart · s, by Thickness (mm), Grade, Family');
+});
+check('item.family / subfamily / variant and pick-list specs are offered', () => {
+  const r = suggestAt('item.fam', 8, ctx);
+  assert.equal(r.items[0].insert, 'item.family');
+  assert.equal(r.items[0].detail, 'item.family · the piece’s family');
+  const g = suggestAt('item.gr', 7, ctx);
+  assert.equal(g.items[0].insert, 'item.GRADE');
+  assert.equal(g.items[0].detail, 'item.GRADE · word');
+  assert.deepEqual(suggestAt('item.', 5, ctx).items.map((i) => i.insert).slice(-3), ['item.family', 'item.subfamily', 'item.variant']);
+});
+check('quoted words parse and read back; family is a known level', () => {
+  assert.ok(fb.tryParse('IF(item.GRADE = "E350", 2, 1)'));
+  assert.ok(fb.tryParse("IF(item.subfamily = 'Parts', 5, 10)"));
+  assert.equal(fb.tokenize('item.GRADE = "E 350"').filter((t) => t.kind === 'str')[0].text, '"E 350"');
+  assert.equal(fb.isLevelCode('SUBFAMILY'), true);
+  assert.equal(fb.isLevelCode('THICKNESS'), false);
 });
 check('LOOKUP suggestions stay as they were', () => {
   const lk = { fields: ctx.fields, functions: [], shortCharts: [chartField], lookup: { arg: 0, charts: [chartField], keyFirst: null } };
-  const r = suggestAt('LOOKUP(gas', 10, lk);
-  assert.equal(r.items[0].insert, 'machine.GAS_CUT_SPEED');
+  const r = suggestAt('LOOKUP(dri', 10, lk);
+  assert.equal(r.items[0].insert, 'machine.DRILL_TIME');
 });
 check('a time opens as its short form', () => {
   assert.equal(fb.timeStartText({ minutes: null, expression: 'x / LOOKUP(machine.A, item.T)', display: 'x / A', formula: null }), 'x / A');

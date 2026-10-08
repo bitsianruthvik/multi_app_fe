@@ -17,15 +17,18 @@
  * Fields
  * ======================================================================== */
 
-export interface TableAxisLike { label?: string; unit?: string | null; specCode?: string | null; /** The piece value this column is read by (a bound chart). */ field?: { code: string; name?: string; unit?: string | null } | string | null }
+export interface TableAxisLike { kind?: string; label?: string; unit?: string | null; specCode?: string | null; /** The piece value this column is read by (a bound chart). */ field?: { code: string; name?: string; unit?: string | null } | string | null }
 export interface BuilderField {
   code: string;
   name: string;
-  dataType: 'number' | 'table' | string;
+  /** number · table (a chart) · option / text / word (a word, in quotes) */
+  dataType: 'number' | 'table' | 'option' | 'text' | 'word' | string;
   measurementType: string | null;
   unit: string | null;
   description?: string | null;
-  tableConfig?: { axes?: TableAxisLike[]; mode?: string } | null;
+  /** What the suggestion says it is, when that is not just the code ("the piece's family"). */
+  hint?: string;
+  tableConfig?: { axes?: TableAxisLike[]; mode?: string; version?: number } | null;
   /** A real value from a piece / machine, when one has it. */
   example?: number | null;
   exampleFrom?: string | null;
@@ -67,7 +70,7 @@ export function numberText(n: number | null | undefined): string {
  * Tokens and the grammar (mirrors formulaEngine.js)
  * ======================================================================== */
 
-export type TokKind = 'num' | 'item' | 'machine' | 'children' | 'name' | 'func' | 'op' | 'paren' | 'comma' | 'space' | 'bad';
+export type TokKind = 'num' | 'str' | 'item' | 'machine' | 'children' | 'name' | 'func' | 'op' | 'paren' | 'comma' | 'space' | 'bad';
 export interface Tok { kind: TokKind; text: string; start: number; end: number; code?: string }
 
 export const FUNCTIONS = ['MIN', 'MAX', 'ROUND', 'IF', 'LOOKUP', 'ABS', 'SQRT', 'CEIL', 'FLOOR', 'SUM', 'COUNT', 'AVG'];
@@ -82,6 +85,8 @@ export function tokenize(src: string): Tok[] {
     if (ws) { out.push({ kind: 'space', text: ws[0], start: i, end: i + ws[0].length }); i += ws[0].length; continue; }
     const num = /^(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?/.exec(rest);
     if (num) { out.push({ kind: 'num', text: num[0], start: i, end: i + num[0].length }); i += num[0].length; continue; }
+    const str = /^("[^"\n]*"|'[^'\n]*')/.exec(rest);
+    if (str) { out.push({ kind: 'str', text: str[0], start: i, end: i + str[0].length }); i += str[0].length; continue; }
     const name = /^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*/.exec(rest);
     if (name) {
       const text = name[0];
@@ -108,6 +113,7 @@ export function tokenize(src: string): Tok[] {
 
 export type Ast =
   | { type: 'num'; value: number }
+  | { type: 'str'; value: string }
   | { type: 'ref'; name: string; role: FieldRole; code: string }
   | { type: 'neg'; arg: Ast }
   | { type: 'bin'; op: string; left: Ast; right: Ast }
@@ -134,6 +140,7 @@ export function parse(src: string): Ast {
     const t = peek();
     if (!t) throw new Error('The formula ends too early');
     if (t.kind === 'num') { k++; return { type: 'num', value: Number(t.text) }; }
+    if (t.kind === 'str') { k++; return { type: 'str', value: t.text.slice(1, -1) }; }
     if (t.kind === 'func' || t.kind === 'name' || t.kind === 'item' || t.kind === 'machine' || t.kind === 'children') {
       k++;
       if (isOp('(')) {
@@ -212,6 +219,7 @@ export function nameIn(idx: FieldIndex | null, role: FieldRole, code: string): s
 function words(n: Ast, idx: FieldIndex | null): string {
   switch (n.type) {
     case 'num': return numberText(n.value);
+    case 'str': return `“${n.value}”`;
     case 'ref': return n.role === 'children' ? `each child's ${nameIn(idx, 'plain', n.code)}` : nameIn(idx, n.role, n.code);
     case 'neg': return `−${precOf(n.arg) < 3 ? `(${words(n.arg, idx)})` : words(n.arg, idx)}`;
     case 'bin': {
@@ -451,3 +459,19 @@ export function timeShort(t: TimeLike | null | undefined, idx: FieldIndex | null
   if (fixed != null) return `${numberText(fixed)} min`;
   return timeInWords(t, 'work', idx);
 }
+
+/* ===========================================================================
+ * The piece's place in the classification tree, readable in a formula
+ * ======================================================================== */
+
+/** item.family / item.subfamily / item.variant — words, written in lower case. */
+export const LEVEL_FIELDS: BuilderField[] = [
+  { code: 'family', name: 'Family', dataType: 'word', measurementType: null, unit: null, hint: 'the piece’s family' },
+  { code: 'subfamily', name: 'Subfamily', dataType: 'word', measurementType: null, unit: null, hint: 'the piece’s subfamily' },
+  { code: 'variant', name: 'Variant', dataType: 'word', measurementType: null, unit: null, hint: 'the piece’s variant' },
+];
+export const isLevelCode = (code: string | undefined) => !!code && LEVEL_FIELDS.some((f) => f.code === code.toLowerCase());
+
+/** A field a formula can read as a number, or as a word in quotes. */
+export const isReadable = (f: BuilderField) => f.dataType === 'number' || f.dataType === 'option' || f.dataType === 'text' || f.dataType === 'word';
+export const isWord = (f: BuilderField) => f.dataType === 'option' || f.dataType === 'text' || f.dataType === 'word';

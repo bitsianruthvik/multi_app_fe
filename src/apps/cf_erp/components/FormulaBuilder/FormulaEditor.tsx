@@ -2,7 +2,7 @@ import { useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from '
 import { Autocomplete, Box, Button, TextField, Tooltip, Typography } from '@mui/material';
 import TableChartRounded from '@mui/icons-material/TableChartRounded';
 import {
-  fieldFor, guessAxisField, insertAt, numberText, tokenize, unitText,
+  LEVEL_FIELDS, fieldFor, guessAxisField, insertAt, isLevelCode, isReadable, isWord, numberText, tokenize, unitText,
   type BuilderField, type FieldIndex, type FieldRole, type Tok,
 } from '../../lib/formulaBuilder';
 import { suggestAt, type Suggestion } from '../../lib/formulaSuggest';
@@ -25,6 +25,7 @@ const COLOUR: Partial<Record<Tok['kind'], string>> = {
   machine: 'var(--c-info-800)',
   children: 'var(--c-success-800)',
   num: 'var(--c-success-800)',
+  str: 'var(--c-success-800)',
   func: 'var(--c-warning-800)',
   op: 'var(--c-text-2)',
   paren: 'var(--c-text-3)',
@@ -40,6 +41,7 @@ function Highlight({ value, idx, shortNames }: { value: string; idx: FieldIndex 
       {toks.map((t) => {
         const known = !idx || t.kind === 'func' || (t.kind === 'name' && shortNames.has(t.code ?? t.text))
           || !['item', 'machine', 'name'].includes(t.kind)
+          || (t.kind === 'item' && isLevelCode(t.code))
           || !!fieldFor(idx, t.kind === 'name' ? 'plain' : (t.kind as FieldRole), t.code ?? '');
         return (
           <Box key={t.start} component="span" data-tok={t.kind}
@@ -92,7 +94,7 @@ export function FormulaEditor({ value, onChange, idx, itemFields, machineFields,
 
   const options = useMemo<PickOption[]>(() => {
     const out: PickOption[] = [];
-    for (const f of itemFields) if (f.dataType === 'number') out.push({ role: 'item', field: f, group: GROUP.item });
+    for (const f of [...itemFields.filter(isReadable), ...LEVEL_FIELDS]) out.push({ role: 'item', field: f, group: GROUP.item });
     for (const f of machineFields) if (f.dataType === 'number') out.push({ role: 'machine', field: f, group: GROUP.machine });
     if (!timingOnly) {
       for (const f of plainFields) if (f.dataType === 'number') out.push({ role: 'plain', field: f, group: GROUP.plain });
@@ -124,13 +126,14 @@ export function FormulaEditor({ value, onChange, idx, itemFields, machineFields,
   const shortNames = useMemo(() => new Set(shortCharts.map((c) => c.code)), [shortCharts]);
   const suggestCtx = useMemo(() => {
     const num = (fs: BuilderField[]) => fs.filter((f) => f.dataType === 'number');
+    const readable = [...itemFields.filter(isReadable), ...LEVEL_FIELDS];
     const lookup = call?.direct && call.open != null
       ? { arg: call.arg, charts, keyFirst: chartOf ? guessKeys(chartOf)[Math.max(0, call.arg - 1)]?.code ?? null : null }
       : null;
     return {
       lookup,
       shortCharts,
-      fields: timingOnly ? { item: num(itemFields), machine: num(machineFields) } : { item: num(itemFields), machine: num(machineFields), plain: num(plainFields), children: num(plainFields) },
+      fields: timingOnly ? { item: readable, machine: num(machineFields) } : { item: readable, machine: num(machineFields), plain: num(plainFields), children: num(plainFields) },
       functions: Object.entries(FN_HINTS).filter(([n]) => !timingOnly || !['SUM', 'COUNT', 'AVG'].includes(n)).map(([name, [args, hint]]) => ({ name, args, hint })),
     };
     // FN_HINTS is a constant table, and guessKeys only reads itemFields.
@@ -230,6 +233,7 @@ export function FormulaEditor({ value, onChange, idx, itemFields, machineFields,
               <Box sx={{ fontWeight: 500 }}>{o.field.name}</Box>
               <Box sx={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--c-text-3)' }}>{refText(o.role, o.field.code)}</Box>
             </Box>
+            {isWord(o.field) && <Box sx={{ fontSize: 12, color: 'var(--c-text-2)' }}>{o.field.hint ?? 'word'}</Box>}
             {o.field.unit && <Box sx={{ fontSize: 12, color: 'var(--c-text-2)' }}>{unitText(o.field.unit)}</Box>}
             {o.field.example != null && <Box sx={{ fontSize: 12, color: 'var(--c-text-3)', fontFamily: 'var(--font-mono)' }} title={o.field.exampleFrom ? `on ${o.field.exampleFrom}` : undefined}>e.g. {numberText(o.field.example)}</Box>}
           </Box>

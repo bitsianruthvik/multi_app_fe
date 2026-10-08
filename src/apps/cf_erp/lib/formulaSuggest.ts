@@ -1,4 +1,4 @@
-import type { BuilderField, FieldRole } from './formulaBuilder';
+import { isWord, type BuilderField, type FieldRole } from './formulaBuilder';
 import { withUnit } from './charts';
 
 /**
@@ -66,13 +66,15 @@ function score(q: string, code: string, name: string): number {
   return -1;
 }
 
-/** A chart offered by its bare name: "chart · mm/min, by Thickness (mm)". */
+/** A chart offered by its bare name: "chart · s, by Thickness (mm), Grade, Family". */
 function chartItem(f: BuilderField): Suggestion {
-  const by = (f.tableConfig?.axes ?? []).map((a) => withUnit(a.label ?? 'Key', a.unit)).join(' and ');
+  const by = (f.tableConfig?.axes ?? []).map((a) => withUnit(a.label ?? 'Key', a.unit)).join(', ');
   return { kind: 'field', insert: f.code, caretBack: 0, label: f.name, detail: `chart · ${f.unit ? `${f.unit}, ` : ''}by ${by}`, field: f, role: 'plain' };
 }
 
 const refOf = (role: FieldRole, code: string) => (role === 'plain' ? code : `${role}.${code}`);
+/** What a field suggestion says it is. */
+const detailOf = (role: FieldRole, f: BuilderField) => (f.hint ? `${refOf(role, f.code)} · ${f.hint}` : isWord(f) ? `${refOf(role, f.code)} · word` : refOf(role, f.code));
 
 export function suggestAt(text: string, caret: number, ctx: SuggestContext): SuggestResult | null {
   const before = text.slice(0, caret);
@@ -88,7 +90,7 @@ export function suggestAt(text: string, caret: number, ctx: SuggestContext): Sug
   const scored: { s: number; order: number; item: Suggestion }[] = [];
   const add = (s: number, item: Suggestion) => { if (s >= 0) scored.push({ s, order: scored.length, item }); };
   const fieldItem = (role: FieldRole, f: BuilderField): Suggestion => ({
-    kind: 'field', insert: refOf(role, f.code), caretBack: 0, label: f.name, detail: refOf(role, f.code), field: f, role,
+    kind: 'field', insert: refOf(role, f.code), caretBack: 0, label: f.name, detail: detailOf(role, f), field: f, role,
   });
 
   const dot = word.indexOf('.');

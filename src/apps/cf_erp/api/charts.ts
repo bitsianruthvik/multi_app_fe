@@ -4,36 +4,47 @@ import { cfApi } from './client';
 export type ChartSubject = { type: 'classification' | 'machine'; id: number };
 export interface ChartPlace { type: 'classification' | 'machine'; id: number; name: string }
 
-/** The same shape a table specification's value already has. */
-export type ChartValue = { x: number[]; v: (number | null)[] } | { x: number[]; y: number[]; v: (number | null)[][] } | null;
 export type ChartMode = 'step_up' | 'linear';
-export interface ChartField { code: string; name: string; unit: string | null }
-export interface ChartAxis { label: string; unit: string | null; field: ChartField | null }
+export type ChartLevel = 'FAMILY' | 'SUBFAMILY' | 'VARIANT';
+/** A column the chart is read by: a specification of the piece, or a level of the classification tree. */
+export type ChartAxis =
+  | { kind: 'spec'; field: string; label: string; unit: string | null; dataType: 'number' | 'option' | 'text' }
+  | { kind: 'level'; level: ChartLevel; label: 'Family' | 'Subfamily' | 'Variant'; unit: null; dataType: 'level' };
+/** [in1, …, inN, result]. A level cell is a classification node id; an option cell its value; the result may be null (= "cannot"). */
+export type ChartCell = number | string | null;
+export type ChartRow = ChartCell[];
+/** Older shapes that may still come back for a moment. */
+export type LegacyValue = { x: number[]; v: (number | null)[] } | { x: number[]; y: number[]; v: (number | null)[][] };
 
 export interface Chart {
   specId: number;
   code: string;
+  /** The result's name, e.g. Drill time. */
   name: string;
   resultUnit: string | null;
   mode: ChartMode;
+  version?: number;
   axes: ChartAxis[];
   /** Where the chart is set up. */
   definedAt: ChartPlace | null;
   valueRule: string;
-  value: ChartValue;
+  rows: ChartRow[] | null;
+  value: { rows: ChartRow[] } | LegacyValue | null;
   valueFrom: ChartPlace | null;
   /** The value sits on THIS machine type / machine. */
   own: boolean;
   /** Operation codes whose time reads it. */
   usedBy: string[];
-  /** The bare name usable in a time formula, when every column names a piece's value. */
+  /** The bare name usable in a time formula. */
   shortForm: string | null;
+  /** Names of the tree nodes the level cells use. */
+  nodes: Record<number, { code: string; name: string }>;
 }
 
-/** One column as it is written: read by a piece's value, or a free label with a unit. */
-export type AxisInput = { field: string; unit?: string } | { label: string; unit: string };
-export interface ChartInput { name: string; resultUnit: string; axes: AxisInput[]; mode?: ChartMode; value?: ChartValue }
-export interface ChartChanges { name?: string; resultUnit?: string; axes?: AxisInput[]; mode?: ChartMode }
+/** One input as it is written: read by a piece's specification (with a unit when it has none), or by a tree level. */
+export type ChartInputSpec = { field: string; unit?: string } | { level: ChartLevel };
+export interface ChartInput { name: string; resultUnit: string; inputs: ChartInputSpec[]; mode?: ChartMode; rows?: ChartRow[] }
+export interface ChartChanges { name?: string; resultUnit?: string; inputs?: ChartInputSpec[]; mode?: ChartMode }
 
 export interface MachineTypeDetails {
   node: { id: number; code: string; name: string; depth: number; status: 'active' | 'inactive'; description: string | null };
@@ -49,6 +60,6 @@ export const getCharts = (s: ChartSubject) => cfApi.get<Chart[]>(`${root(s)}/cha
 export const addChart = (s: ChartSubject, body: ChartInput) =>
   cfApi.post<{ chartId: number; code: string; charts: Chart[] }>(`${root(s)}/charts`, body);
 /** On a machine, `null` drops the machine's own chart (back to the type's). */
-export const putChartValue = (s: ChartSubject, specId: number, value: ChartValue) =>
+export const putChartValue = (s: ChartSubject, specId: number, value: ChartRow[] | null) =>
   cfApi.put<Chart[]>(`${root(s)}/charts/${specId}/values`, { value });
 export const updateChart = (specId: number, body: ChartChanges) => cfApi.put<unknown>(`/charts/${specId}`, body);

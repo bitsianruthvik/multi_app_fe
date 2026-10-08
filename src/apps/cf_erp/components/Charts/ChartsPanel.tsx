@@ -4,43 +4,37 @@ import AddRounded from '@mui/icons-material/AddRounded';
 import EditRounded from '@mui/icons-material/EditRounded';
 import TableChartOutlined from '@mui/icons-material/TableChartOutlined';
 import { CfApiError } from '../../api/client';
-import { getCharts, putChartValue, type Chart, type ChartSubject } from '../../api/charts';
+import { getCharts, putChartValue, type Chart, type ChartRow, type ChartSubject } from '../../api/charts';
 import { useLoad } from '../../hooks/useLoad';
-import { chartTableConfig, formulaNameText, modeText, previewGrid, resultHeading, valueFromText, valueSourceText, cellText } from '../../lib/charts';
+import { byText, chartRows, formulaNameText, modeText, previewTable, resultHeading, valueSourceText } from '../../lib/charts';
 import { EmptyState, ErrorNotice, Mono, SectionCard, SkeletonRows } from '../ui';
 import { ConfirmDialog } from '../ConfirmDialog';
-import { TableValueDialog } from '../TableValue/TableValueDialog';
+import { ChartRowsDialog } from './ChartRowsDialog';
 import { useToast } from '../toastContext';
 import { ChartDialog } from './ChartDialog';
 
 const cellSx = { px: 1, py: 0.5, borderBottom: '1px solid var(--c-divider)', fontFamily: 'var(--font-mono)', fontSize: 12.5, textAlign: 'right', whiteSpace: 'nowrap' } as const;
 
-/** A small table of the chart's values, every heading with its unit. */
+/** A small table of the chart's first rows, every heading with its unit. */
 function ChartPreview({ chart }: { chart: Chart }) {
-  const grid = previewGrid(chart);
-  if (!grid) return <Typography sx={{ color: 'var(--c-text-3)', fontSize: 13 }}>No values yet.</Typography>;
+  const t = previewTable(chart);
+  if (!t) return <Typography sx={{ color: 'var(--c-text-3)', fontSize: 13 }}>No values yet.</Typography>;
+  const head = { ...cellSx, fontFamily: 'var(--font-ui)', fontWeight: 500, fontSize: 12, background: 'var(--c-surface-2)' } as const;
   return (
     <Box sx={{ overflow: 'auto', border: '1px solid var(--c-divider)', borderRadius: 'var(--r-sm)', maxWidth: '100%' }}>
-      {grid.caption && <Box sx={{ px: 1, py: 0.5, fontSize: 12, fontWeight: 500, background: 'var(--c-surface-2)', borderBottom: '1px solid var(--c-divider)' }}>{grid.caption}</Box>}
       <Box component="table" sx={{ borderCollapse: 'collapse', width: '100%' }}>
         <thead>
-          <tr>
-            <Box component="th" sx={{ ...cellSx, textAlign: 'left', fontFamily: 'var(--font-ui)', fontWeight: 500, fontSize: 12, background: 'var(--c-surface-2)' }}>{grid.rowHeading}</Box>
-            {grid.columns.map((c) => (
-              <Box key={c.key} component="th" sx={{ ...cellSx, fontFamily: grid.twoD ? 'var(--font-mono)' : 'var(--font-ui)', fontWeight: 500, fontSize: 12, background: 'var(--c-surface-2)' }}>{c.heading}</Box>
-            ))}
-          </tr>
+          <tr>{t.headings.map((h, i) => <Box key={i} component="th" sx={{ ...head, textAlign: t.numeric[i] ? 'right' : 'left' }}>{h}</Box>)}</tr>
         </thead>
         <tbody>
-          {grid.rows.map((r) => (
-            <tr key={r.x}>
-              <Box component="td" sx={{ ...cellSx, textAlign: 'left' }}>{cellText(r.x)}</Box>
-              {r.cells.map((v, j) => <Box key={j} component="td" sx={{ ...cellSx, color: v == null ? 'var(--c-text-3)' : undefined }}>{cellText(v)}</Box>)}
+          {t.rows.map((r, i) => (
+            <tr key={i}>
+              {r.map((v, j) => <Box key={j} component="td" sx={{ ...cellSx, textAlign: t.numeric[j] ? 'right' : 'left', color: v === '—' ? 'var(--c-text-3)' : undefined }}>{v}</Box>)}
             </tr>
           ))}
         </tbody>
       </Box>
-      {grid.more > 0 && <Box sx={{ px: 1, py: 0.5, fontSize: 12, color: 'var(--c-text-3)' }}>and {grid.more} more row{grid.more === 1 ? '' : 's'}</Box>}
+      {t.more > 0 && <Box sx={{ px: 1, py: 0.5, fontSize: 12, color: 'var(--c-text-3)' }}>and {t.more} more row{t.more === 1 ? '' : 's'}</Box>}
     </Box>
   );
 }
@@ -66,22 +60,19 @@ export function ChartsPanel({ subject, canManage, onChanged }: { subject: ChartS
   const changed = () => { onChanged?.(); };
   const refreshed = (next: Chart[] | null) => { if (next) list.setData(next); else list.reload(); changed(); };
 
-  const saveValues = async (chart: Chart, text: string) => {
-    try {
-      const next = await putChartValue(subject, chart.specId, valueFromText(text));
-      list.setData(next);
-      changed();
-      toast.success('Chart saved.');
-    } catch (e) {
-      setError(e instanceof CfApiError ? e : new CfApiError(0, String(e)));
-    }
+  /** Saves the rows; an error goes back to the rows dialog, which shows the server's words. */
+  const saveValues = async (chart: Chart, rows: ChartRow[] | null) => {
+    const next = await putChartValue(subject, chart.specId, rows);
+    list.setData(next);
+    changed();
+    toast.success('Chart saved.');
   };
 
   /** A machine takes the values it shows as its own, then opens them to edit. */
   const giveOwn = async (chart: Chart) => {
     setError(null);
     try {
-      const next = await putChartValue(subject, chart.specId, chart.value);
+      const next = await putChartValue(subject, chart.specId, chartRows(chart));
       list.setData(next);
       changed();
       setEditingValues(chart.specId);
@@ -105,14 +96,14 @@ export function ChartsPanel({ subject, canManage, onChanged }: { subject: ChartS
       ) : (
         <Box sx={{ display: 'grid', gap: 1.5, gridTemplateColumns: { xs: 'minmax(0, 1fr)', lg: 'repeat(2, minmax(0, 1fr))' }, py: 0.5 }}>
           {charts.map((c) => {
-            const inherited = onMachine && !c.own && !!c.value;
+            const inherited = onMachine && !c.own && !!chartRows(c);
             return (
               <Box key={c.specId} data-testid={`chart-${c.code}`} sx={{ display: 'grid', gap: 1, alignContent: 'start', p: 1.5, minWidth: 0, border: '1px solid var(--c-border)', borderRadius: 'var(--r-md)', background: 'var(--c-surface)' }}>
                 <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1, flexWrap: 'wrap' }}>
                   <Box sx={{ flex: '1 1 200px', minWidth: 0 }}>
                     <Box component="h3" sx={{ m: 0, fontSize: 14.5, fontWeight: 600 }}>{c.name}</Box>
                     <Typography sx={{ fontSize: 12, color: 'var(--c-text-2)' }}>
-                      Gives {c.resultUnit ?? 'a number'}{c.definedAt ? ` · set up on ${c.definedAt.name}` : ''}
+                      Gives {c.resultUnit ?? 'a number'}{c.axes.length ? ` · ${byText(c.axes)}` : ''}{c.definedAt ? ` · set up on ${c.definedAt.name}` : ''}
                     </Typography>
                   </Box>
                   {canManage && <Button size="small" startIcon={<EditRounded fontSize="small" />} onClick={() => setEditingChart(c)}>Edit chart</Button>}
@@ -139,7 +130,7 @@ export function ChartsPanel({ subject, canManage, onChanged }: { subject: ChartS
                       <Button size="small" variant="outlined" onClick={() => void giveOwn(c)}>Give this machine its own chart</Button>
                     ) : (
                       <Button size="small" variant="outlined" startIcon={<TableChartOutlined fontSize="small" />} onClick={() => setEditingValues(c.specId)}>
-                        {c.value ? 'Edit values' : 'Add values'}
+                        {chartRows(c) ? 'Edit rows' : 'Add rows'}
                       </Button>
                     )}
                     {onMachine && c.own && c.definedAt?.type === 'classification' && (
@@ -156,9 +147,8 @@ export function ChartsPanel({ subject, canManage, onChanged }: { subject: ChartS
       {adding && <ChartDialog open subject={subject} onClose={() => setAdding(false)} onSaved={(next) => { toast.success('Chart added.'); refreshed(next); }} />}
       {editingChart && <ChartDialog open subject={subject} existing={editingChart} onClose={() => setEditingChart(null)} onSaved={(next) => { toast.success('Chart saved.'); refreshed(next); }} />}
       {gridChart && (
-        <TableValueDialog open onClose={() => setEditingValues(null)} specName={gridChart.name} tableConfig={chartTableConfig(gridChart)}
-          resultLabel={resultHeading(gridChart)} value={gridChart.value ? JSON.stringify(gridChart.value) : ''}
-          onSave={(text) => void saveValues(gridChart, text)} />
+        <ChartRowsDialog open onClose={() => setEditingValues(null)} title={gridChart.name} axes={gridChart.axes} resultLabel={resultHeading(gridChart)}
+          rows={chartRows(gridChart)} nodes={gridChart.nodes} onSave={(rows) => saveValues(gridChart, rows)} />
       )}
       <ConfirmDialog open={!!giveBack} title="Go back to the type’s chart?" confirmLabel="Go back" entityName={giveBack ? `${giveBack.name} · ${giveBack.code}` : undefined}
         body="This machine’s own values for this chart are dropped. It reads the machine type’s chart again."
