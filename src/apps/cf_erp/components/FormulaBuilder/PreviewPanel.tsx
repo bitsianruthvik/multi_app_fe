@@ -120,7 +120,7 @@ export function PreviewPanel({ expression, ctx, idx, which, onCheck }: {
                 <Box sx={{ minWidth: 0 }}>
                   <Box sx={{ fontSize: 13, fontWeight: 500 }}>{f?.name ?? r.code}{f?.unit ? <Box component="span" sx={{ color: 'var(--c-text-3)', fontWeight: 400 }}> · {unitText(f.unit)}</Box> : null}</Box>
                   <Box sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>
-                    {r.table ? (inp?.chart ? `chart: ${inp.chart}` : 'chart — none on this machine') : inp?.value != null ? `${numberText(inp.value)} ${inp.from ? FROM_LABEL[inp.from] : ''}` : 'no value'}
+                    {r.table ? (inp?.chart ? `chart: ${inp.chart}` : 'chart — none on this machine') : inp?.value != null ? `${typeof inp.value === 'number' ? numberText(inp.value) : `“${inp.value}”`} ${inp.from ? FROM_LABEL[inp.from] : ''}` : 'no value'}
                   </Box>
                 </Box>
                 {!r.table && (

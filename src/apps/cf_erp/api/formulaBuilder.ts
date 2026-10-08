@@ -25,7 +25,7 @@ export interface BuilderContext {
 export const getBuilderContext = (operationId: number, subject?: { type: 'classification' | 'machine'; id: number } | null) =>
   cfApi.get<BuilderContext>(`/operations/${operationId}/formula-builder${subject ? `?subjectType=${subject.type}&subjectId=${subject.id}` : ''}`);
 
-export interface BuilderInput { ref: string; value: number | null; chart?: string | null; from: 'typed' | 'piece' | 'machine' | null }
+export interface BuilderInput { ref: string; value: number | string | null; chart?: string | null; from: 'typed' | 'piece' | 'machine' | null }
 export type BuilderCheck = FormulaCheck & { inputs?: BuilderInput[] };
 
 /** POST /formulas/check on a real piece / machine, typed values laid over them. */
