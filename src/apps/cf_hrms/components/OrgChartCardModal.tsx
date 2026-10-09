@@ -1,11 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import {
   Box,
   Button,
   Chip,
-  Dialog,
-  DialogContent,
   Divider,
   Stack,
   Typography,
@@ -16,7 +14,6 @@ import {
   Callout,
   CrossLink,
   DetailSkeleton,
-  DialogHeader,
   ErrorNotice,
   FactItem,
   Mono,
@@ -28,7 +25,9 @@ import { orgChartApi } from '../api/orgchart';
 import { usePositionRemoval } from './usePositionRemoval';
 
 /**
- * The position card (spec §5).
+ * The position card (spec §5) — the body of the floating panel since 2026-10-09
+ * (spec §14). It was a modal Dialog until then; the file keeps its name so the
+ * history reads straight. The panel draws the title; this draws everything else.
  *
  * The section that earns this modal is **Reporting**. It shows the full
  * resolved set from `reportingResolver` — every manager, with the type of
@@ -171,22 +170,23 @@ function ReportingRow({ row, company }: { row: CardReportingRow; company: string
   );
 }
 
-export function OrgChartCardModal({
+export function OrgChartCard({
   positionId,
   asOf,
   company,
-  fallbackTitle,
   onClose,
   onStartFrom,
   onChanged,
+  children,
 }: {
   positionId: number | null;
   asOf: string;
   company: string;
-  /** The node's disambiguated title — the card payload carries only the plain one. */
-  fallbackTitle?: string;
+  /** Closes the panel; called once a seat has been closed or deleted from here. */
   onClose: () => void;
   onStartFrom: (id: number) => void;
+  /** The viewer's own controls for this box (arrangement, fold), under the actions. */
+  children?: ReactNode;
   /**
    * Called after a position is closed or deleted from this card. The chart holds
    * the whole graph in its parent, so the parent is the one that can refresh it:
@@ -195,7 +195,7 @@ export function OrgChartCardModal({
    */
   onChanged?: () => void;
 }) {
-  const [card, setCard] = useState<PositionCard | null>(null);
+  const [loaded, setCard] = useState<PositionCard | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [loading, setLoading] = useState(false);
   const canManage = useIsPermitted()('cf_hrms_org_manage');
@@ -231,234 +231,223 @@ export function OrgChartCardModal({
     };
   }, [positionId, asOf]);
 
-  const open = positionId != null;
-  const title = fallbackTitle || card?.displayTitle || card?.title || 'Position';
+  // A card from the previous box must never sit under this box's title.
+  const card = loaded && loaded.positionId === positionId ? loaded : null;
 
   return (
     <>
-      <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth scroll="paper">
-        <DialogHeader
-          title={<Typography sx={{ fontSize: 20, fontWeight: 600 }}>{title}</Typography>}
-          subtitle={
-            card ? (
-              <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
-                {card.positionCode && <Mono sx={{ fontSize: 12.5 }}>{card.positionCode}</Mono>}
-                {card.status && <StatusBadge status={card.status} />}
-                <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-3)' }}>as at {asOf}</Typography>
-              </Stack>
-            ) : undefined
-          }
-          onClose={onClose}
-        />
-        <DialogContent dividers>
-          {loading && <DetailSkeleton />}
-          {!!error && <ErrorNotice error={error} />}
-          {card && (
-            <>
-              <Box
-                sx={{
-                  display: 'grid',
-                  gridTemplateColumns: { xs: '1fr 1fr', sm: 'repeat(4, 1fr)' },
-                  gap: 2,
-                  mb: 2,
-                }}
-              >
-                <FactItem label="Role" value={card.roleTitle ?? '—'} />
-                <FactItem label="Department" value={card.departmentName ?? '—'} />
-                <FactItem label="Location" value={card.locationName ?? '—'} />
-                <FactItem
-                  label="Shift"
-                  value={SHIFT_LABEL[card.shiftPattern] ?? card.shiftPattern}
-                />
-                {/* Seats, not headcount: a day/night seat is two seats, and
-                    "sanctioned 1 / vacant 2" on the same card reads as a bug. */}
-                <FactItem
-                  label="Seats"
-                  value={String(card.effectiveSanctioned ?? card.sanctionedHeadcount)}
-                />
-                <FactItem label="Filled" value={String(card.occupants?.length ?? 0)} />
-                <FactItem label="Vacant" value={String(card.vacancies)} />
-                <FactItem label="Open points" value={String(card.openPoints?.length ?? 0)} />
-              </Box>
+      <Box>
+        {loading && !card && <DetailSkeleton />}
+        {!!error && <ErrorNotice error={error} />}
+        {card && (
+          <>
+            <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap sx={{ mb: 2 }}>
+              {card.positionCode && <Mono sx={{ fontSize: 12.5 }}>{card.positionCode}</Mono>}
+              {card.status && <StatusBadge status={card.status} />}
+              <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-3)' }}>as at {asOf}</Typography>
+            </Stack>
+            <Box
+              sx={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fill, minmax(104px, 1fr))',
+                gap: 2,
+                mb: 2,
+              }}
+            >
+              <FactItem label="Role" value={card.roleTitle ?? '—'} />
+              <FactItem label="Department" value={card.departmentName ?? '—'} />
+              <FactItem label="Location" value={card.locationName ?? '—'} />
+              <FactItem
+                label="Shift"
+                value={SHIFT_LABEL[card.shiftPattern] ?? card.shiftPattern}
+              />
+              {/* Seats, not headcount: a day/night seat is two seats, and
+                  "sanctioned 1 / vacant 2" on the same card reads as a bug. */}
+              <FactItem
+                label="Seats"
+                value={String(card.effectiveSanctioned ?? card.sanctionedHeadcount)}
+              />
+              <FactItem label="Filled" value={String(card.occupants?.length ?? 0)} />
+              <FactItem label="Vacant" value={String(card.vacancies)} />
+              <FactItem label="Open points" value={String(card.openPoints?.length ?? 0)} />
+            </Box>
 
-              <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mb: 2 }}>
-                <CrossLink label="Open position" to={`/${company}/cf_hrms/positions/${card.positionId}`} />
-                {card.roleId && (
-                  <CrossLink label="Open role" to={`/${company}/cf_hrms/roles/${card.roleId}`} />
-                )}
+            <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mb: 2 }}>
+              <CrossLink label="Open position" to={`/${company}/cf_hrms/positions/${card.positionId}`} />
+              {card.roleId && (
+                <CrossLink label="Open role" to={`/${company}/cf_hrms/roles/${card.roleId}`} />
+              )}
+              <Button
+                size="small"
+                variant="outlined"
+                startIcon={<OpenInNewRounded />}
+                onClick={() => onStartFrom(card.positionId)}
+              >
+                Start the chart here
+              </Button>
+              {canManage && (
                 <Button
                   size="small"
                   variant="outlined"
-                  startIcon={<OpenInNewRounded />}
-                  onClick={() => {
-                    onStartFrom(card.positionId);
-                    onClose();
-                  }}
+                  color="inherit"
+                  startIcon={<DeleteOutlineRounded />}
+                  disabled={removal.busyId === card.positionId}
+                  onClick={() => { void removal.start(card.positionId); }}
                 >
-                  Start the chart here
+                  Close or delete…
                 </Button>
-                {canManage && (
-                  <Button
-                    size="small"
-                    variant="outlined"
-                    color="inherit"
-                    startIcon={<DeleteOutlineRounded />}
-                    disabled={removal.busyId === card.positionId}
-                    onClick={() => { void removal.start(card.positionId); }}
-                  >
-                    Close or delete…
-                  </Button>
-                )}
-              </Stack>
-
-              {card.rolePurpose && (
-                <Callout label="Purpose" title="Why this role exists">
-                  {card.rolePurpose}
-                </Callout>
               )}
+            </Stack>
 
-              <Box sx={{ mt: 2.5 }}>
-                <Typography sx={{ fontSize: 16, fontWeight: 500, mb: 1 }}>Reporting</Typography>
-                {(card.reporting ?? []).length === 0 ? (
-                  <Typography sx={{ fontSize: 13, color: 'var(--c-text-3)' }}>
-                    No reporting relationship recorded — this is a top of the chart.
-                  </Typography>
-                ) : (
-                  <Stack spacing={1}>
-                    {card.reporting.map((r, i) => (
-                      <ReportingRow key={`${r.typeCode}-${r.managerPositionId}-${i}`} row={r} company={company} />
-                    ))}
-                  </Stack>
-                )}
-              </Box>
+            {children}
 
-              {(card.directReports ?? []).length > 0 && (
-                <Box sx={{ mt: 2.5 }}>
-                  <Typography sx={{ fontSize: 16, fontWeight: 500, mb: 1 }}>
-                    Direct reports
-                    <Typography component="span" sx={{ fontSize: 13, color: 'var(--c-text-3)', ml: 1 }}>
-                      {card.directReports!.length}
-                    </Typography>
-                  </Typography>
-                  <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
-                    {card.directReports!.map((d) => (
-                      <CrossLink
-                        key={d.positionId}
-                        label={d.title}
-                        to={`/${company}/cf_hrms/positions/${d.positionId}`}
-                      />
-                    ))}
-                  </Stack>
-                </Box>
-              )}
+            {card.rolePurpose && (
+              <Callout label="Purpose" title="Why this role exists">
+                {card.rolePurpose}
+              </Callout>
+            )}
 
-              <Box sx={{ mt: 2.5 }}>
-                <Typography sx={{ fontSize: 16, fontWeight: 500, mb: 1 }}>Work contexts</Typography>
-                {(card.contexts ?? []).length === 0 ? (
-                  <Typography sx={{ fontSize: 13, color: 'var(--c-text-3)' }}>
-                    No machine or area recorded against this seat.
-                  </Typography>
-                ) : (
-                  <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
-                    {card.contexts.map((c) => (
-                      <Chip
-                        key={c.id}
-                        component={RouterLink}
-                        to={`/${company}/cf_hrms/work-contexts`}
-                        clickable
-                        size="small"
-                        label={`${c.name}${c.contextType ? ` · ${c.contextType.toLowerCase()}` : ''}`}
-                      />
-                    ))}
-                  </Stack>
-                )}
-                <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)', mt: 0.75 }}>
-                  A machine or area is where the work happens. It is never a manager.
+            <Box sx={{ mt: 2.5 }}>
+              <Typography sx={{ fontSize: 16, fontWeight: 500, mb: 1 }}>Reporting</Typography>
+              {(card.reporting ?? []).length === 0 ? (
+                <Typography sx={{ fontSize: 13, color: 'var(--c-text-3)' }}>
+                  No reporting relationship recorded — this is a top of the chart.
                 </Typography>
-              </Box>
-
-              <Box sx={{ mt: 2.5 }}>
-                <Typography sx={{ fontSize: 16, fontWeight: 500, mb: 1 }}>People in this seat</Typography>
-                {(card.occupants ?? []).length === 0 ? (
-                  <Typography sx={{ fontSize: 13, color: 'var(--c-text-3)' }}>
-                    Nobody is assigned. {card.vacancies} vacant seat
-                    {card.vacancies === 1 ? '' : 's'}.
-                  </Typography>
-                ) : (
-                  <Stack spacing={0.5}>
-                    {card.occupants.map((o) => (
-                      <Stack
-                        key={o.assignmentId ?? o.employeeId}
-                        direction="row"
-                        spacing={1}
-                        alignItems="center"
-                        flexWrap="wrap"
-                        useFlexGap
-                      >
-                        <CrossLink
-                          label={o.name}
-                          to={`/${company}/cf_hrms/employees/${o.employeeId}`}
-                        />
-                        {o.employeeCode && <Mono sx={{ fontSize: 12 }}>{o.employeeCode}</Mono>}
-                        {o.allocationPercent != null && (
-                          <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)' }}>
-                            {o.allocationPercent}% of their time
-                          </Typography>
-                        )}
-                        {o.shiftCode && (
-                          <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)' }}>
-                            {SHIFT_LABEL[o.shiftCode] ?? o.shiftCode}
-                          </Typography>
-                        )}
-                        {o.attendanceStatus && <StatusBadge status={o.attendanceStatus} />}
-                      </Stack>
-                    ))}
-                  </Stack>
-                )}
-              </Box>
-
-              <Divider sx={{ mt: 2.5 }} />
-
-              <ContentList
-                title="KRAs"
-                items={card.kras ?? []}
-                empty="No key result areas recorded for this role."
-              />
-              <ContentList
-                title="Responsibilities"
-                items={card.responsibilities ?? []}
-                empty="No responsibilities recorded for this role."
-              />
-              <ContentList
-                title="KPIs"
-                items={card.kpis ?? []}
-                empty="No key performance indicators recorded."
-              />
-              <ContentList
-                title="Qualifications"
-                items={card.qualifications ?? []}
-                empty="No qualification or experience requirement recorded."
-              />
-
-              {(card.openPoints ?? []).length > 0 && (
-                <Box sx={{ mt: 2.5 }}>
-                  <Typography sx={{ fontSize: 16, fontWeight: 500, mb: 1 }}>
-                    Open points — the client still has to answer these
-                  </Typography>
-                  <Stack component="ol" spacing={0.75} sx={{ m: 0, pl: 2.5 }}>
-                    {card.openPoints.map((p) => (
-                      <Box component="li" key={p.id} sx={{ fontSize: 14, lineHeight: 1.5 }}>
-                        {p.question}
-                        <StatusBadge status={p.status} />
-                      </Box>
-                    ))}
-                  </Stack>
-                </Box>
+              ) : (
+                <Stack spacing={1}>
+                  {card.reporting.map((r, i) => (
+                    <ReportingRow key={`${r.typeCode}-${r.managerPositionId}-${i}`} row={r} company={company} />
+                  ))}
+                </Stack>
               )}
-            </>
-          )}
-        </DialogContent>
-      </Dialog>
+            </Box>
+
+            {(card.directReports ?? []).length > 0 && (
+              <Box sx={{ mt: 2.5 }}>
+                <Typography sx={{ fontSize: 16, fontWeight: 500, mb: 1 }}>
+                  Direct reports
+                  <Typography component="span" sx={{ fontSize: 13, color: 'var(--c-text-3)', ml: 1 }}>
+                    {card.directReports!.length}
+                  </Typography>
+                </Typography>
+                <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
+                  {card.directReports!.map((d) => (
+                    <CrossLink
+                      key={d.positionId}
+                      label={d.title}
+                      to={`/${company}/cf_hrms/positions/${d.positionId}`}
+                    />
+                  ))}
+                </Stack>
+              </Box>
+            )}
+
+            <Box sx={{ mt: 2.5 }}>
+              <Typography sx={{ fontSize: 16, fontWeight: 500, mb: 1 }}>Work contexts</Typography>
+              {(card.contexts ?? []).length === 0 ? (
+                <Typography sx={{ fontSize: 13, color: 'var(--c-text-3)' }}>
+                  No machine or area recorded against this seat.
+                </Typography>
+              ) : (
+                <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
+                  {card.contexts.map((c) => (
+                    <Chip
+                      key={c.id}
+                      component={RouterLink}
+                      to={`/${company}/cf_hrms/work-contexts`}
+                      clickable
+                      size="small"
+                      label={`${c.name}${c.contextType ? ` · ${c.contextType.toLowerCase()}` : ''}`}
+                    />
+                  ))}
+                </Stack>
+              )}
+              <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)', mt: 0.75 }}>
+                A machine or area is where the work happens. It is never a manager.
+              </Typography>
+            </Box>
+
+            <Box sx={{ mt: 2.5 }}>
+              <Typography sx={{ fontSize: 16, fontWeight: 500, mb: 1 }}>People in this seat</Typography>
+              {(card.occupants ?? []).length === 0 ? (
+                <Typography sx={{ fontSize: 13, color: 'var(--c-text-3)' }}>
+                  Nobody is assigned. {card.vacancies} vacant seat
+                  {card.vacancies === 1 ? '' : 's'}.
+                </Typography>
+              ) : (
+                <Stack spacing={0.5}>
+                  {card.occupants.map((o) => (
+                    <Stack
+                      key={o.assignmentId ?? o.employeeId}
+                      direction="row"
+                      spacing={1}
+                      alignItems="center"
+                      flexWrap="wrap"
+                      useFlexGap
+                    >
+                      <CrossLink
+                        label={o.name}
+                        to={`/${company}/cf_hrms/employees/${o.employeeId}`}
+                      />
+                      {o.employeeCode && <Mono sx={{ fontSize: 12 }}>{o.employeeCode}</Mono>}
+                      {o.allocationPercent != null && (
+                        <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)' }}>
+                          {o.allocationPercent}% of their time
+                        </Typography>
+                      )}
+                      {o.shiftCode && (
+                        <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)' }}>
+                          {SHIFT_LABEL[o.shiftCode] ?? o.shiftCode}
+                        </Typography>
+                      )}
+                      {o.attendanceStatus && <StatusBadge status={o.attendanceStatus} />}
+                    </Stack>
+                  ))}
+                </Stack>
+              )}
+            </Box>
+
+            <Divider sx={{ mt: 2.5 }} />
+
+            <ContentList
+              title="KRAs"
+              items={card.kras ?? []}
+              empty="No key result areas recorded for this role."
+            />
+            <ContentList
+              title="Responsibilities"
+              items={card.responsibilities ?? []}
+              empty="No responsibilities recorded for this role."
+            />
+            <ContentList
+              title="KPIs"
+              items={card.kpis ?? []}
+              empty="No key performance indicators recorded."
+            />
+            <ContentList
+              title="Qualifications"
+              items={card.qualifications ?? []}
+              empty="No qualification or experience requirement recorded."
+            />
+
+            {(card.openPoints ?? []).length > 0 && (
+              <Box sx={{ mt: 2.5 }}>
+                <Typography sx={{ fontSize: 16, fontWeight: 500, mb: 1 }}>
+                  Open points — the client still has to answer these
+                </Typography>
+                <Stack component="ol" spacing={0.75} sx={{ m: 0, pl: 2.5 }}>
+                  {card.openPoints.map((p) => (
+                    <Box component="li" key={p.id} sx={{ fontSize: 14, lineHeight: 1.5 }}>
+                      {p.question}
+                      <StatusBadge status={p.status} />
+                    </Box>
+                  ))}
+                </Stack>
+              </Box>
+            )}
+          </>
+        )}
+      </Box>
       {removal.dialog}
     </>
   );

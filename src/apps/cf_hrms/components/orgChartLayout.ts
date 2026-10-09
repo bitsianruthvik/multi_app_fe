@@ -40,15 +40,6 @@ export const HG = 26;
 export const VG = 52;
 export const IND = 24;
 
-/**
- * More children than this and `auto` stacks them instead of laying a row.
- * Five keeps the common shapes — a manager with two to five reports — as the
- * familiar horizontal tree, and folds the outliers into a list rather than
- * letting one of them set the width of the whole chart. Karni's Plant Head has
- * nine reports, and that single row was most of the old 8,374px.
- */
-export const WIDE_ROW = 5;
-
 export const SV = 14;
 export const SG = 10;
 export const M = 36;
@@ -512,7 +503,14 @@ export interface PlacedNode {
   x: number;
   y: number;
   h: number;
-  mode: 'leaf' | 'stack' | 'side';
+  mode: 'leaf' | 'stack' | 'side' | 'mixed';
+  /**
+   * `mixed` only (spec §14): the reports that have teams of their own, side by
+   * side on the next level's line, and the ones that do not, in ONE column
+   * placed after them. Both in payload order; together they are `kids`.
+   */
+  row?: number[];
+  column?: number[];
   /** Subtree width. */
   sw: number;
   /** Children actually drawn (empty when collapsed). */
@@ -571,33 +569,49 @@ export function layoutChart(model: ChartModel, opts: LayoutOptions): LayoutResul
     order.push(id);
     if (!kids.length) return W;
 
-    // ── THE `auto` RULE ──────────────────────────────────────────────────
-    // Two reasons to render children as an indented list rather than a row:
+    // ── THE `auto` RULE (spec §14, since 2026-10-09) ─────────────────────
+    // The client: "all people in one level should be on one horizontal line",
+    // then "if there are only individuals reporting in, we can make it
+    // vertical. That way all ICs won't take up the width." So:
     //
-    //   1. They are all leaves. A row of fourteen boxes with nothing under
-    //      them is a list that happens to be horizontal.
-    //   2. There are MORE THAN `WIDE_ROW` of them. A wide row does not just
-    //      take its own width — every ancestor above it inherits that width,
-    //      so one nine-report manager stretches the whole chart.
+    //   every report has a team of its own   side by side, however many
+    //   every report is a leaf               one column under the manager
+    //   some of each                         `mixed`: the managers side by
+    //                                        side on the next level's line,
+    //                                        the leaves in ONE column AFTER
+    //                                        them (to the right), starting
+    //                                        on that same line
     //
-    // Measured on Karni, fully expanded, in a 1,650px pane:
-    //   side by side          8,374 x 1,750   fits at 19%
-    //   stacking rows over 5  1,678 x 6,522   fits at 97%
+    // Managers set the width; individual contributors add one column per team
+    // at most. A collapsed manager still counts as a manager — it has a team,
+    // folded.
     //
-    // Same 114 boxes. The second is tall and scrolls; the first is wide and
-    // cannot be read at any zoom. A chart people scroll vertically is a chart
-    // they can use — and it is the shape that prints.
+    // This replaced the September rule, which also stacked any team over five
+    // (`WIDE_ROW`): narrow (1,678 x 6,522 for Karni's 114 boxes, against 8,374
+    // x 1,750 fully side by side) but its levels did not line up, which is
+    // what the client could not read.
+    //
+    // A per-node override still wins: `side` puts every report on the line,
+    // leaves too; `stack` makes the whole team an indented list.
     const pref = arrange[id] ?? 'auto';
+    const managers = kids.filter((k) => realKids(k).length > 0);
     p.mode =
       pref === 'side'
         ? 'side'
-        : pref === 'stack'
+        : pref === 'stack' || managers.length === 0
           ? 'stack'
-          : kids.every((k) => realKids(k).length === 0) || kids.length > WIDE_ROW
-            ? 'stack'
-            : 'side';
+          : managers.length === kids.length
+            ? 'side'
+            : 'mixed';
 
     const sizes = kids.map((k) => size(k, depth + 1));
+    if (p.mode === 'mixed') {
+      p.row = managers;
+      p.column = kids.filter((k) => realKids(k).length === 0);
+      const rowW = managers.reduce((a, k) => a + placed.get(k)!.sw, 0) + HG * (managers.length - 1);
+      p.sw = Math.max(W, rowW + HG + IND + W);
+      return p.sw;
+    }
     p.sw =
       p.mode === 'stack'
         ? IND + Math.max(...sizes)
@@ -605,10 +619,23 @@ export function layoutChart(model: ChartModel, opts: LayoutOptions): LayoutResul
     return p.sw;
   };
 
-  const place = (id: number, left: number, top: number): number => {
+  // ── Level bands (spec §14) ──────────────────────────────────────────────
+  // A box is ON THE GRID when every ancestor up to the start lays its team out
+  // side by side (or is `mixed` and the box is one of its managers). Grid boxes
+  // take their level's y whatever branch they are in, and a level's band is as
+  // tall as its tallest GRID box.
+  //
+  // Columns and lists do NOT stretch the band. They hang below their own
+  // manager and may run down beside the next level's line — that is the point
+  // of the column. They cannot collide with it: every subtree owns a disjoint
+  // x-range (`sw`), a column lives inside its manager's range, and nothing else
+  // in that range is placed below it.
+  const levelTop: number[] = [];
+
+  const place = (id: number, left: number, top: number, grid = false): number => {
     const p = placed.get(id)!;
-    p.y = top;
-    let bottom = top + p.info.h;
+    p.y = grid ? levelTop[p.depth] : top;
+    let bottom = p.y + p.info.h;
     if (!p.kids.length) {
       p.x = left;
       return bottom;
@@ -622,17 +649,27 @@ export function layoutChart(model: ChartModel, opts: LayoutOptions): LayoutResul
       }
       return bottom;
     }
+    const row = p.mode === 'mixed' ? p.row! : p.kids;
+    const column = p.mode === 'mixed' ? p.column! : [];
+    const colW = column.length ? HG + IND + W : 0;
     const total =
-      p.kids.reduce((a, k) => a + placed.get(k)!.sw, 0) + HG * (p.kids.length - 1);
+      row.reduce((a, k) => a + placed.get(k)!.sw, 0) + HG * (row.length - 1) + colW;
     let cx = left + (p.sw - total) / 2;
-    const cy = top + p.info.h + VG;
-    for (const k of p.kids) {
-      bottom = Math.max(bottom, place(k, cx, cy));
+    const cy = grid ? levelTop[p.depth + 1] : p.y + p.info.h + VG;
+    for (const k of row) {
+      bottom = Math.max(bottom, place(k, cx, cy, grid));
       cx += placed.get(k)!.sw + HG;
     }
-    const first = placed.get(p.kids[0])!;
-    const last = placed.get(p.kids[p.kids.length - 1])!;
-    const mid = (first.x + last.x) / 2;
+    // The leaf column starts on the managers' line, indented from its spine.
+    let ly = cy;
+    for (const k of column) {
+      const b = place(k, cx + IND, ly);
+      bottom = Math.max(bottom, b);
+      ly = b + SG;
+    }
+    const first = placed.get(row[0])!;
+    const lastX = column.length ? cx + IND : placed.get(row[row.length - 1])!.x;
+    const mid = (first.x + lastX) / 2;
     // Centre over the children, but clamped inside this node's own subtree band
     // so a wide branch never pushes a parent over its neighbour.
     p.x = Math.min(Math.max(mid, left), left + p.sw - W);
@@ -646,11 +683,26 @@ export function layoutChart(model: ChartModel, opts: LayoutOptions): LayoutResul
         ? [opts.root]
         : model.roots;
 
+  for (const r of roots) size(r, 0);
+
+  const band: number[] = [];
+  const onGrid = (id: number) => {
+    const p = placed.get(id)!;
+    band[p.depth] = Math.max(band[p.depth] ?? 0, p.info.h);
+    if (p.mode === 'side') p.kids.forEach(onGrid);
+    else if (p.mode === 'mixed') p.row!.forEach(onGrid);
+  };
+  roots.forEach(onGrid);
+  let t = M + HEAD;
+  band.forEach((h, d) => {
+    levelTop[d] = t;
+    t += h + VG;
+  });
+
   let x = M;
   let bottom = M + HEAD;
   for (const r of roots) {
-    size(r, 0);
-    bottom = Math.max(bottom, place(r, x, M + HEAD));
+    bottom = Math.max(bottom, place(r, x, M + HEAD, true));
     x += placed.get(r)!.sw + HG * 2;
   }
 
@@ -785,13 +837,32 @@ export function buildScene(model: ChartModel, opts: SceneOptions): ChartScene {
     } else {
       const px = n.x + W / 2;
       const pb = n.y + n.info.h;
-      const my = pb + VG / 2;
-      const cxs = n.kids.map((k) => lay.placed.get(k)!.x + W / 2);
+      // The bus runs half a gap above the children rather than half a gap below
+      // the parent: a short parent sits in a band sized by a taller neighbour,
+      // and every bus on one level must share a y or the picture stops
+      // reading as levels.
+      const row = n.mode === 'mixed' ? n.row! : n.kids;
+      const column = n.mode === 'mixed' ? n.column! : [];
+      const my = Math.min(...n.kids.map((k) => lay.placed.get(k)!.y)) - VG / 2;
+      const cxs = row.map((k) => lay.placed.get(k)!.x + W / 2);
+      // A `mixed` team's leaf column hangs off the same bus by a spine down its
+      // left side, the way an indented list hangs off its manager.
+      const spine = column.length ? lay.placed.get(column[0])!.x - IND / 2 : null;
+      if (spine != null) cxs.push(spine);
       linePath.push(`M${px} ${pb}V${my}`);
       linePath.push(`M${Math.min(px, ...cxs)} ${my}H${Math.max(px, ...cxs)}`);
-      for (const k of n.kids) {
+      for (const k of row) {
         const c = lay.placed.get(k)!;
         linePath.push(`M${c.x + W / 2} ${my}V${c.y}`);
+      }
+      if (spine != null) {
+        let last = my;
+        for (const k of column) {
+          const c = lay.placed.get(k)!;
+          last = c.y + Math.min(c.info.h / 2, 17);
+          linePath.push(`M${spine} ${last}H${c.x}`);
+        }
+        linePath.push(`M${spine} ${my}V${last}`);
       }
     }
   }

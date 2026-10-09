@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { Box, Button, Stack, Typography, useTheme } from '@mui/material';
 import ImageRounded from '@mui/icons-material/ImageRounded';
@@ -38,7 +38,12 @@ import {
   type RootOption,
 } from '../components/OrgChartToolbar';
 import { OrgChartPanel } from '../components/OrgChartPanel';
-import { OrgChartCardModal } from '../components/OrgChartCardModal';
+import { OrgChartCard } from '../components/OrgChartCardModal';
+import {
+  OrgChartFloatingPanel,
+  type FloatingPanelHandle,
+} from '../components/OrgChartFloatingPanel';
+import { useFullscreen } from '../components/useFullscreen';
 import { OpenPointsList } from '../components/OrgChartOpenPoints';
 import { useOpenPoints } from '../components/useOpenPoints';
 import { OrgChartDepartments } from '../components/OrgChartDepartments';
@@ -117,7 +122,6 @@ export default function OrgChart() {
     return ORG_CHART_VIEWS.includes(wanted as OrgChartView) ? (wanted as OrgChartView) : 'chart';
   });
   const chartLike = view === 'chart' || view === 'table';
-  const [panelOpen, setPanelOpen] = useState<boolean>(() => readPref<boolean>(key('panel'), true));
   const [collapsed, setCollapsed] = useState<Set<number>>(
     () => new Set(readPref<number[]>(key('collapsed'), [])),
   );
@@ -138,8 +142,11 @@ export default function OrgChart() {
   const [zoom, setZoom] = useState<number | null>(() => readPref<number | null>(key('zoom'), null));
 
   const [selected, setSelected] = useState<number | null>(null);
+  // The box the floating panel shows; null = panel closed (spec §14).
   const [cardId, setCardId] = useState<number | null>(null);
+  const panelRef = useRef<FloatingPanelHandle>(null);
   const [searchOpen, setSearchOpen] = useState(false);
+  const fullscreen = useFullscreen();
 
   // Fetched on arrival, not when the tab opens: the tab shows the count.
   const points = useOpenPoints();
@@ -149,7 +156,13 @@ export default function OrgChart() {
   // loaded, so an effect keyed on mount would observe nothing and the chart
   // would open at 100% instead of a readable fit.
   const [stageEl, setStageEl] = useState<HTMLDivElement | null>(null);
-  const [stageWidth, setStageWidth] = useState(0);
+  const [stage, setStage] = useState({ w: 0, h: 0 });
+  const stageWidth = stage.w;
+  // The region = toolbar + chart. A fixed-height panel on Chart and Table, so
+  // the PAGE never scrolls there and the wheel is free to zoom (spec §14).
+  const [pageEl, setPageEl] = useState<HTMLDivElement | null>(null);
+  const [regionEl, setRegionEl] = useState<HTMLDivElement | null>(null);
+  const [regionH, setRegionH] = useState<number | null>(null);
 
   // ── Data ────────────────────────────────────────────────────────────────
   const load = useCallback(() => {
@@ -200,7 +213,6 @@ export default function OrgChart() {
       { replace: true },
     );
   }, [view, company, setParams]);
-  useEffect(() => writePref(prefKey(company, 'panel'), panelOpen), [panelOpen, company]);
   useEffect(() => writePref(prefKey(company, 'collapsed'), [...collapsed]), [collapsed, company]);
   useEffect(() => writePref(prefKey(company, 'foldTouched'), foldTouched), [foldTouched, company]);
   useEffect(() => writePref(prefKey(company, 'arrange'), arrange), [arrange, company]);
@@ -210,12 +222,61 @@ export default function OrgChart() {
 
   useEffect(() => {
     if (!stageEl) return;
-    setStageWidth(stageEl.clientWidth);
+    const read = () => setStage({ w: stageEl.clientWidth, h: stageEl.clientHeight });
+    read();
     if (typeof ResizeObserver === 'undefined') return;
-    const ro = new ResizeObserver(() => setStageWidth(stageEl.clientWidth));
+    const ro = new ResizeObserver(read);
     ro.observe(stageEl);
     return () => ro.disconnect();
   }, [stageEl]);
+
+  /*
+   * THE REGION FILLS WHAT IS LEFT OF THE WINDOW (spec §14).
+   *
+   * The shell scrolls its <main>, not the document. So the region's height is
+   * main's visible height minus everything above the region and main's own
+   * bottom padding — measured, because the stat strip and the toolbar wrap to a
+   * different height at every width. Re-measured whenever main or the page
+   * resizes; the result does not depend on the region's own height, so setting
+   * it cannot feed back into another measurement.
+   *
+   * A floor of the toolbar plus 360px of chart: on a phone the header, the
+   * strip and a five-row toolbar take most of the screen (measured: 101px of
+   * chart left at 375 x 812), and a sliver of chart is worse than a page that
+   * scrolls there. Full screen is the answer on a phone, and it is in the toolbar.
+   */
+  const scrollEl = pageEl?.closest('main') ?? null;
+  const { active: isFull, exit: exitFull } = fullscreen;
+  useLayoutEffect(() => {
+    // Not while full screen: the region is fixed then, and measuring it would
+    // store a height for a layout it is not in.
+    if (!regionEl || !scrollEl || !chartLike || isFull) return;
+    const measure = () => {
+      const mainRect = scrollEl.getBoundingClientRect();
+      const top = regionEl.getBoundingClientRect().top - mainRect.top + scrollEl.scrollTop;
+      const pad = parseFloat(getComputedStyle(scrollEl.firstElementChild ?? scrollEl).paddingBottom) || 0;
+      // The toolbar is the region's first child; keep at least 360px of chart under it.
+      const bar = (regionEl.firstElementChild as HTMLElement | null)?.offsetHeight ?? 0;
+      setRegionH(Math.max(bar + 16 + 360, Math.floor(scrollEl.clientHeight - top - pad)));
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    let ro: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== 'undefined' && pageEl) {
+      ro = new ResizeObserver(measure);
+      ro.observe(scrollEl);
+      ro.observe(pageEl);
+    }
+    return () => {
+      window.removeEventListener('resize', measure);
+      ro?.disconnect();
+    };
+  }, [regionEl, scrollEl, pageEl, chartLike, isFull]);
+
+  // Full screen belongs to Chart and Table; Departments and Doubts read as pages.
+  useEffect(() => {
+    if (isFull && !chartLike) exitFull();
+  }, [isFull, chartLike, exitFull]);
 
   // ── Model and scene ─────────────────────────────────────────────────────
   const model = useMemo(() => (graph ? buildModel(graph) : null), [graph]);
@@ -272,9 +333,11 @@ export default function OrgChart() {
   // ── Zoom ────────────────────────────────────────────────────────────────
   /** The Fit button: the whole chart, however small that has to be. */
   const fitZoom = useCallback(() => {
-    if (!scene || !stageWidth) return 1;
-    return Math.min(1, Math.max(0.15, (stageWidth - 28) / scene.width));
-  }, [scene, stageWidth]);
+    if (!scene || !stage.w) return 1;
+    // Both ways since §14: the chart now lives in a panel of known height.
+    const byH = stage.h > 60 ? (stage.h - 28) / scene.height : Infinity;
+    return Math.min(1, Math.max(0.15, Math.min((stage.w - 28) / scene.width, byH)));
+  }, [scene, stage]);
 
   /**
    * THE CHART OPENS FOLDED, NOT FITTED.
@@ -440,8 +503,45 @@ export default function OrgChart() {
 
   const secondaryCount = model?.secondary.length ?? 0;
 
+  // ── The floating panel (spec §14) ───────────────────────────────────────
+  /** Open a position in the panel from anywhere: a box, a table row, a search hit. */
+  const openCard = useCallback((id: number) => {
+    setSelected(id);
+    setCardId(id);
+  }, []);
+
+  const closePanel = useCallback(() => {
+    const id = cardId;
+    setCardId(null);
+    // Hand the keyboard back to the box the panel described, so Esc in the
+    // panel lands the viewer where they were in the chart.
+    if (id != null && view === 'chart') {
+      const el = document.getElementById(`orgchart-node-${id}`) as unknown as HTMLElement | null;
+      el?.focus({ preventScroll: true });
+    }
+  }, [cardId, view]);
+
+  // A box: Enter (or a click) opens the panel and LEAVES FOCUS ON THE BOX, so
+  // the arrow keys keep walking the chart; the panel follows the selection
+  // while it is open. Enter on the box the panel already shows moves focus in.
+  const onCanvasOpen = useCallback(
+    (id: number) => {
+      if (cardId === id) panelRef.current?.focus();
+      else openCard(id);
+    },
+    [cardId, openCard],
+  );
+  const onCanvasSelect = useCallback((id: number) => {
+    setSelected(id);
+    setCardId((open) => (open == null ? open : id));
+  }, []);
+
+  const panelNode = cardId != null && model ? model.byId.get(cardId) : null;
+  const panelTitle = panelNode?.displayTitle || panelNode?.title || 'Position';
+  const panelTeam = cardId != null && model ? (model.children.get(cardId)?.length ?? 0) : 0;
+
   return (
-    <Stack spacing={2}>
+    <Stack spacing={2} ref={setPageEl}>
       <PageHeader
         title="Org chart"
         subtitle="Positions, who is in them, and who they answer to"
@@ -481,136 +581,190 @@ export default function OrgChart() {
 
       {!!error && <ErrorNotice error={error} onRetry={load} />}
 
-      {model && scene && (
-        <OrgChartToolbar
-          view={view}
-          onView={setView}
-          // No number until there is one: a "0" while loading, or after a failed
-          // load, would say there is nothing to answer.
-          doubtsCount={points.error || (points.loading && !points.groups.length) ? undefined : points.total}
-          rootOptions={rootOptions}
-          root={root}
-          onRoot={setRoot}
-          shift={shift}
-          onShift={setShift}
-          colours={colours}
-          onColours={setColours}
-          zoom={zoom ?? 1}
-          onZoom={setZoomClamped}
-          onFit={() => setZoom(fitZoom())}
-          collapsedCount={[...collapsed].filter((id) => visibleIds.includes(id)).length}
-          onExpandAll={() => { setFoldTouched(true); setCollapsed(new Set()); }}
-          panelOpen={panelOpen}
-          onPanel={setPanelOpen}
-          asOf={asOf}
-          onAsOf={setAsOf}
-        />
-      )}
+      {/*
+        THE REGION: toolbar + chart. On Chart and Table it is a fixed-height
+        panel filling the rest of the window (measured above), so the page does
+        not scroll and the wheel zooms. In full screen it is fixed over the
+        whole viewport while the DOCUMENT is the browser's full-screen element
+        (useFullscreen explains why not this element).
+      */}
+      <Box
+        ref={setRegionEl}
+        data-orgregion=""
+        sx={
+          isFull
+            ? {
+                position: 'fixed',
+                inset: 0,
+                // The page Stack's spacing is a margin-top on this child, by a
+                // selector that outranks a plain sx margin.
+                mt: '0 !important',
+                zIndex: 'var(--z-sheet)',
+                background: 'var(--c-canvas)',
+                p: { xs: 1, sm: 1.5 },
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 1.5,
+              }
+            : chartLike
+              ? {
+                  height: regionH ?? 560,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 2,
+                }
+              : { display: 'flex', flexDirection: 'column', gap: 2 }
+        }
+      >
+        {model && scene && (
+          <Box sx={{ flexShrink: 0 }}>
+            <OrgChartToolbar
+              view={view}
+              onView={setView}
+              // No number until there is one: a "0" while loading, or after a failed
+              // load, would say there is nothing to answer.
+              doubtsCount={points.error || (points.loading && !points.groups.length) ? undefined : points.total}
+              rootOptions={rootOptions}
+              root={root}
+              onRoot={setRoot}
+              shift={shift}
+              onShift={setShift}
+              colours={colours}
+              onColours={setColours}
+              zoom={zoom ?? 1}
+              onZoom={setZoomClamped}
+              onFit={() => setZoom(fitZoom())}
+              collapsedCount={[...collapsed].filter((id) => visibleIds.includes(id)).length}
+              onExpandAll={() => { setFoldTouched(true); setCollapsed(new Set()); }}
+              fullscreen={isFull}
+              onFullscreen={(on) => (on ? fullscreen.enter() : exitFull())}
+              asOf={asOf}
+              onAsOf={setAsOf}
+            />
+          </Box>
+        )}
 
-      {loading && (chartLike || !model) && <ChartSkeleton />}
+        {loading && (chartLike || !model) && <ChartSkeleton />}
 
-      {chartLike && !loading && !error && model && model.byId.size === 0 && (
-        <EmptyState
-          title="No positions yet"
-          hint="Import the organisation chart, or create positions, and they will appear here."
-        />
-      )}
+        {chartLike && !loading && !error && model && model.byId.size === 0 && (
+          <EmptyState
+            title="No positions yet"
+            hint="Import the organisation chart, or create positions, and they will appear here."
+          />
+        )}
 
-      {chartLike && !loading && model && scene && model.byId.size > 0 && (
-        <Stack
-          direction={{ xs: 'column', lg: 'row' }}
-          spacing={2}
-          sx={{
-            // An explicit height, and deliberately NOT `flex: 1`: a flex item's
-            // basis wins over its height, so the row would grow to the chart's
-            // full 2,240px and the page — not the canvas — would scroll, taking
-            // the toolbar and the summary strip off screen while panning.
-            height: { lg: 'calc(100vh - 330px)' },
-            minHeight: { lg: 440 },
-            alignItems: 'stretch',
-          }}
-        >
-          <Box
-            ref={setStageEl}
-            sx={{
-              // `flex: 1` only where the row is a row. In the phone layout this
-              // stack is a COLUMN, and a flex item's basis beats its height, so
-              // `flex: 1` there would stretch the canvas to the chart's full
-              // 2,000px and put the scrollbar on the page instead of the chart.
-              flex: { xs: '0 0 auto', lg: 1 },
-              minWidth: 0,
-              display: 'flex',
-              flexDirection: 'column',
-              minHeight: { xs: 440, lg: 0 },
-              height: { xs: '68vh', lg: 'auto' },
-            }}
-          >
-            {view === 'chart' ? (
-              <OrgChartCanvas
-                scene={scene}
-                zoom={zoom ?? 1}
-                fontFamily={palette.fontUi}
-                selected={selected}
-                accessibleName={`Organisation chart as at ${asOf}, ${counts?.positions ?? 0} positions`}
-                textAlternative={describeChart(model, visibleIds, shift)}
-                onSelect={setSelected}
-                onOpenCard={setCardId}
-                onToggleCollapse={toggleCollapse}
-                onNavigate={navigate}
-                onZoom={setZoomClamped}
-              />
-            ) : (
-              <OrgChartTable
-                model={model}
-                ids={visibleIds}
-                filter={shift}
-                secondaryEdges={model.secondary}
-                onOpen={(id) => {
-                  setSelected(id);
-                  setCardId(id);
-                }}
-              />
-            )}
+        {chartLike && !loading && model && scene && model.byId.size > 0 && (
+          <Box sx={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+            <Box
+              ref={setStageEl}
+              sx={{ flex: 1, minHeight: 0, minWidth: 0, display: 'flex', flexDirection: 'column' }}
+            >
+              {view === 'chart' ? (
+                <OrgChartCanvas
+                  scene={scene}
+                  zoom={zoom ?? 1}
+                  fontFamily={palette.fontUi}
+                  selected={selected}
+                  accessibleName={`Organisation chart as at ${asOf}, ${counts?.positions ?? 0} positions`}
+                  textAlternative={describeChart(model, visibleIds, shift)}
+                  onSelect={onCanvasSelect}
+                  onOpenCard={onCanvasOpen}
+                  onToggleCollapse={toggleCollapse}
+                  onNavigate={navigate}
+                  onZoom={setZoomClamped}
+                />
+              ) : (
+                <Box sx={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
+                  <OrgChartTable
+                    model={model}
+                    ids={visibleIds}
+                    filter={shift}
+                    secondaryEdges={model.secondary}
+                    onOpen={openCard}
+                  />
+                </Box>
+              )}
+            </Box>
             {view === 'chart' && (
-              <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)', mt: 1 }}>
-                Click a box for its card, or tab into the chart and move with the arrow keys — Enter
-                opens a card, Space folds a branch.
-                {secondaryCount > 0 &&
-                  ` ${secondaryCount} dashed line${secondaryCount === 1 ? '' : 's'} show reporting that is not the primary one; a scoped line carries its scope.`}
+              // One line, truncated: every pixel of this region's height is chart.
+              // The whole sentence is the title, and the keys are in the panel's
+              // own labels and the box's accessible name.
+              <Typography
+                title={
+                  'Scroll to zoom; drag, Shift + scroll or a sideways swipe to pan. Click a box for its details, ' +
+                  'or tab into the chart and use the arrow keys: Enter opens the panel, Enter again moves into it, ' +
+                  'Esc closes it, Space folds a branch.' +
+                  (secondaryCount > 0
+                    ? ` ${secondaryCount} dashed line${secondaryCount === 1 ? '' : 's'} show reporting that is not the primary one.`
+                    : '')
+                }
+                sx={{
+                  fontSize: 12,
+                  color: 'var(--c-text-3)',
+                  mt: 0.5,
+                  flexShrink: 0,
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                }}
+              >
+                Scroll to zoom · drag to pan · click a box for details · arrows walk the chart, Enter
+                opens the panel, Space folds
+                {secondaryCount > 0 && ` · ${secondaryCount} dashed lines are non-primary reporting`}
               </Typography>
             )}
           </Box>
+        )}
 
-          {panelOpen && (
-            <Surface
-              e={2}
-              sx={{ width: { xs: '100%', lg: 340 }, flexShrink: 0, p: 2, overflow: 'auto' }}
-            >
+        {/* Inside the region so it rides into full screen with the chart. */}
+        <OrgChartFloatingPanel
+          ref={panelRef}
+          open={cardId != null}
+          label={panelTitle}
+          title={
+            <Typography sx={{ fontSize: 17, fontWeight: 600, lineHeight: 1.3, overflowWrap: 'anywhere' }}>
+              {panelTitle}
+            </Typography>
+          }
+          onClose={closePanel}
+          // Over the chart on Chart and Table; over the app's scrolling main
+          // region on Departments and Doubts, which read as ordinary pages.
+          boundsEl={chartLike ? stageEl : scrollEl}
+          relayout={`${isFull}:${view}`}
+          storageKey={key('panelPos')}
+        >
+          <OrgChartCard
+            positionId={cardId}
+            asOf={asOf}
+            company={company}
+            onClose={() => setCardId(null)}
+            onChanged={load}
+            onStartFrom={(id) => {
+              setRoot(id);
+              // "Start from here" is a chart instruction; from Departments or
+              // Doubts it would otherwise change nothing the viewer can see.
+              if (!chartLike) setView('chart');
+            }}
+          >
+            {view === 'chart' && cardId != null && (
               <OrgChartPanel
-                model={model}
-                selected={selected}
-                filter={shift}
-                secondaryEdges={model.secondary}
-                company={company}
-                arrange={(selected != null && arrange[selected]) || 'auto'}
+                teamSize={panelTeam}
+                arrange={arrange[cardId] || 'auto'}
                 onArrange={(a) =>
-                  selected != null &&
                   setArrange((prev) => {
                     const next = { ...prev };
-                    if (a === 'auto') delete next[selected];
-                    else next[selected] = a;
+                    if (a === 'auto') delete next[cardId];
+                    else next[cardId] = a;
                     return next;
                   })
                 }
-                collapsed={selected != null && collapsed.has(selected)}
-                onToggleCollapse={() => selected != null && toggleCollapse(selected)}
-                onStartFrom={() => selected != null && setRoot(selected)}
-                onOpenCard={() => selected != null && setCardId(selected)}
+                collapsed={collapsed.has(cardId)}
+                onToggleCollapse={() => toggleCollapse(cardId)}
               />
-            </Surface>
-          )}
-        </Stack>
-      )}
+            )}
+          </OrgChartCard>
+        </OrgChartFloatingPanel>
+      </Box>
 
       {view === 'departments' && model && (
         <OrgChartDepartments
@@ -618,10 +772,7 @@ export default function OrgChart() {
           asOf={asOf}
           onAsOf={setAsOf}
           model={model}
-          onOpenCard={(id) => {
-            setSelected(id);
-            setCardId(id);
-          }}
+          onOpenCard={openCard}
         />
       )}
 
@@ -639,40 +790,16 @@ export default function OrgChart() {
             onRetry={points.reload}
             onChanged={points.reload}
             canManage={canManage}
-            onPick={(id) => {
-              setSelected(id);
-              setCardId(id);
-            }}
+            onPick={openCard}
           />
         </Surface>
       )}
 
-      <OrgChartCardModal
-        positionId={cardId}
-        asOf={asOf}
-        company={company}
-        fallbackTitle={
-          cardId != null && model
-            ? (model.byId.get(cardId)?.displayTitle ?? undefined)
-            : undefined
-        }
-        onClose={() => setCardId(null)}
-        onChanged={load}
-        onStartFrom={(id) => {
-          setRoot(id);
-          // "Start from here" is a chart instruction; from Departments or
-          // Doubts it would otherwise change nothing the viewer can see.
-          if (!chartLike) setView('chart');
-        }}
-      />
       <OrgChartSearch
         open={searchOpen}
         asOf={asOf}
         onClose={() => setSearchOpen(false)}
-        onPick={(id) => {
-          setSelected(id);
-          setCardId(id);
-        }}
+        onPick={openCard}
       />
     </Stack>
   );

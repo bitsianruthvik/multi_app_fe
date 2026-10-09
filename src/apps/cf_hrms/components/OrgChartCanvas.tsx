@@ -112,7 +112,8 @@ export function OrgChartCanvas({
   const pan = useRef<{ x: number; y: number; left: number; top: number } | null>(null);
 
   /*
-   * PINCH TO ZOOM — trackpad and touch.
+   * PINCH TO ZOOM — trackpad and touch. (And since §14, the plain wheel: see
+   * `onWheel` below.)
    *
    * A trackpad pinch reaches the browser as a `wheel` event with `ctrlKey` set
    * (Chrome, Edge, Firefox; Ctrl + mouse wheel arrives the same way), and Safari
@@ -171,14 +172,40 @@ export function OrgChartCanvas({
       return [clientX - r.left, clientY - r.top] as const;
     };
 
+    /*
+     * THE WHEEL ZOOMS (spec §14). Until 2026-10-09 a plain wheel scrolled and
+     * only Ctrl + wheel zoomed; the client asked for the wheel alone, and the
+     * chart now sits in a fixed panel so there is no page to scroll anyway.
+     *
+     *   pinch (ctrlKey)            zoom, fast — a pinch sends small deltas
+     *   plain wheel, mostly ↕      zoom, gentle — a mouse notch is ~100px
+     *   mostly ↔ (trackpad swipe)  pan
+     *   Shift + wheel              pan sideways
+     *
+     * A trackpad two-finger swipe arrives as wheel events too. Sending the
+     * sideways ones to pan keeps trackpad users from being left with drag as
+     * their only way to move; the vertical ones zoom, as the client asked.
+     */
     const onWheel = (e: WheelEvent) => {
-      if (!e.ctrlKey) return;              // plain scrolling still scrolls
       e.preventDefault();
       // deltaMode 1 = lines (a mouse wheel in Firefox); normalise to pixels.
-      const dy = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
+      const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? wrap.clientHeight : 1;
+      const dx = e.deltaX * unit;
+      const dy = e.deltaY * unit;
+      if (!e.ctrlKey && (e.shiftKey || Math.abs(dx) > Math.abs(dy))) {
+        // Windows turns Shift + wheel into deltaX already; other systems leave
+        // it in deltaY. Either way it is a sideways move.
+        if (e.shiftKey && !dx) wrap.scrollLeft += dy;
+        else {
+          wrap.scrollLeft += dx;
+          wrap.scrollTop += dy;
+        }
+        return;
+      }
       const base = wantedZoom.current ?? zoomRef.current;
       const [sx, sy] = local(e.clientX, e.clientY);
-      zoomAt(base * Math.exp(-dy * 0.01), sx, sy);
+      // 0.0015/px is ~16% per mouse notch; a pinch keeps its old 1%/px.
+      zoomAt(base * Math.exp(-dy * (e.ctrlKey ? 0.01 : 0.0015)), sx, sy);
     };
 
     // Safari's trackpad pinch. `scale` is cumulative from the gesture's start.

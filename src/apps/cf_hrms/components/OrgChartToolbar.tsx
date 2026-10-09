@@ -16,7 +16,8 @@ import ZoomInRounded from '@mui/icons-material/ZoomInRounded';
 import ZoomOutRounded from '@mui/icons-material/ZoomOutRounded';
 import FitScreenRounded from '@mui/icons-material/FitScreenRounded';
 import UnfoldMoreRounded from '@mui/icons-material/UnfoldMoreRounded';
-import ViewSidebarRounded from '@mui/icons-material/ViewSidebarRounded';
+import FullscreenRounded from '@mui/icons-material/FullscreenRounded';
+import FullscreenExitRounded from '@mui/icons-material/FullscreenExitRounded';
 import { DetailTabs, Surface } from '@shared/ui';
 import type { ShiftFilter } from './orgChartLayout';
 
@@ -61,8 +62,8 @@ export function OrgChartToolbar({
   onFit,
   collapsedCount,
   onExpandAll,
-  panelOpen,
-  onPanel,
+  fullscreen,
+  onFullscreen,
   asOf,
   onAsOf,
   doubtsCount,
@@ -81,8 +82,8 @@ export function OrgChartToolbar({
   onFit: () => void;
   collapsedCount: number;
   onExpandAll: () => void;
-  panelOpen: boolean;
-  onPanel: (v: boolean) => void;
+  fullscreen: boolean;
+  onFullscreen: (v: boolean) => void;
   asOf: string;
   onAsOf: (d: string) => void;
   /** Open points. Undefined while they load, so the tab never flashes a wrong 0. */
@@ -226,16 +227,30 @@ export function OrgChartToolbar({
             </Tooltip>
           </Stack>
 
-          <Tooltip title={panelOpen ? 'Hide the side panel' : 'Show the side panel'}>
-            <IconButton
+          {/* Entering is an icon beside Fit — the bar must stay one row at 1366px, or
+              the chart loses a third of its height. LEAVING is a labelled, filled
+              button: inside full screen it is the way out, and a way out must
+              not need hunting for (Esc works too). */}
+          {fullscreen ? (
+            <Button
               size="small"
-              onClick={() => onPanel(!panelOpen)}
-              aria-label={panelOpen ? 'Hide the side panel' : 'Show the side panel'}
-              aria-pressed={panelOpen}
+              variant="contained"
+              startIcon={<FullscreenExitRounded />}
+              onClick={() => onFullscreen(false)}
             >
-              <ViewSidebarRounded fontSize="small" />
-            </IconButton>
-          </Tooltip>
+              Exit full screen
+            </Button>
+          ) : (
+            <Tooltip title="Full screen (Esc to leave)">
+              <IconButton
+                size="small"
+                onClick={() => onFullscreen(true)}
+                aria-label="Show the chart full screen"
+              >
+                <FullscreenRounded fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          )}
         </Box>
       )}
     </Surface>
