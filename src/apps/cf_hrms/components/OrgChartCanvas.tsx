@@ -386,6 +386,7 @@ export function OrgChartCanvas({
         <desc>{textAlternative}</desc>
         <rect width={scene.width} height={scene.height} fill={scene.background} />
         <g aria-hidden="true">{scene.header.map((p, i) => renderPrim(p, `h${i}`))}</g>
+        <g aria-hidden="true">{scene.groups.map((p, i) => renderPrim(p, `g${i}`))}</g>
         <g aria-hidden="true">{scene.edges.map((p, i) => renderPrim(p, `e${i}`))}</g>
         <g aria-hidden="true">{scene.secondary.map((p, i) => renderPrim(p, `s${i}`))}</g>
         {selectedBox && (

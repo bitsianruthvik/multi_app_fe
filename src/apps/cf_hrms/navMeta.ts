@@ -67,6 +67,31 @@ const IMPORT = 'cf_hrms_import_manage';
  */
 export const PLATFORM_ADMIN = 'platform_admin';
 
+/**
+ * The second sentinel (2026-10-09): "this person holds the self view and NO HR
+ * screen" — a shop-floor employee. It gates the employee's own Org chart
+ * entry, so an admin or HR user (who also holds cf_hrms_self_view) never sees a
+ * second "Org chart" beside the company one. CfHrmsShell answers it with
+ * `isSelfOnly`, and routes.tsx uses the same function to pick the landing page.
+ */
+export const SELF_ONLY = 'cf_hrms_self_only';
+
+/** Every tag that gates an HR screen in this file. Holding any of them = not self-only. */
+export const HR_SCREEN_TAGS = [
+  'cf_hrms_org_view',
+  'cf_hrms_people_view',
+  'cf_hrms_roles_manage',
+  'cf_hrms_attendance_view',
+  'cf_hrms_leave_view',
+  'cf_hrms_documents_generate',
+  'cf_hrms_import_manage',
+];
+
+/** True for a login that holds the self view and no HR screen at all. */
+export function isSelfOnly(permitted: (tag?: string) => boolean): boolean {
+  return permitted(SELF) && !HR_SCREEN_TAGS.some((tag) => permitted(tag));
+}
+
 export const SECTIONS: NavSection[] = [
   {
     key: 'home',
@@ -84,6 +109,13 @@ export const SECTIONS: NavSection[] = [
        * employee would otherwise land on an HR cockpit with every card hidden.
        * `routes.tsx` redirects them here instead — see `SelfOnlyRedirect` there.
        */
+      /**
+       * The employee's Org chart — their own slice (managers above, their team
+       * below), served by GET /user/me/orgchart. SELF_ONLY, so only a login with
+       * no HR screen sees it; everyone else has the company chart under
+       * Organisation, unchanged. It is the employee's landing screen.
+       */
+      { key: 'my-org-chart', label: 'Org chart', path: 'my-org-chart', permission: SELF_ONLY, keywords: ['chart', 'my manager', 'my team', 'hierarchy', 'who do i report to', 'reporting'] },
       { key: 'my-place', label: 'My place', path: 'my-place', permission: SELF, keywords: ['me', 'my job', 'my manager', 'who do i report to', 'my team', 'my responsibilities', 'self', 'profile'] },
     ],
   },

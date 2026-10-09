@@ -68,6 +68,15 @@ export interface OrgChartNode {
   roleTitle: string | null;
   departmentId: number | null;
   departmentName: string | null;
+  /**
+   * The unit's code, which is the code of the seat that heads it (spec §15):
+   * a box whose positionCode equals it heads its work process.
+   */
+  departmentCode?: string | null;
+  /** The unit's place in a pre-order walk of the unit tree; orders process boxes. */
+  departmentRank?: number | null;
+  /** The unit has no parent unit — leadership; its teams are never boxed by process. */
+  departmentIsRoot?: boolean;
   locationId: number | null;
   locationName: string | null;
   status: string;

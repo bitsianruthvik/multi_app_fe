@@ -132,6 +132,7 @@ export function renderSceneToCanvas(
   ctx.lineJoin = 'round';
 
   scene.header.forEach((p) => drawPrim(ctx, p, family));
+  scene.groups.forEach((p) => drawPrim(ctx, p, family));
   scene.edges.forEach((p) => drawPrim(ctx, p, family));
   scene.secondary.forEach((p) => drawPrim(ctx, p, family));
   for (const box of scene.boxes) {

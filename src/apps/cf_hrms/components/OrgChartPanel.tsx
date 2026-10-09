@@ -13,9 +13,9 @@ import type { Arrange } from './orgChartLayout';
  */
 
 const ARRANGE_HELP: Record<Arrange, string> = {
-  auto: 'Reports with teams of their own side by side on the next level; the rest in one column beside them.',
-  side: 'Everyone side by side, individual contributors too. Wider.',
-  stack: 'The whole team as an indented list under this box. Narrower; its levels stop lining up.',
+  auto: 'A team spanning more than one work process is boxed by process. Otherwise reports with teams of their own sit side by side on the next level; the rest in one column beside them.',
+  side: 'Everyone side by side, individual contributors too, with no process boxes. Wider.',
+  stack: 'The whole team as an indented list under this box, with no process boxes. Narrower; its levels stop lining up.',
 };
 
 export function OrgChartPanel({

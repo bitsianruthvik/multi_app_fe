@@ -6,7 +6,7 @@ import {
   AppShell, ThemeScope, ToastProvider, CommandPaletteProvider, useIsPermitted,
   type Can, type PaletteAction, type PaletteRecord,
 } from '@shared/ui';
-import { SECTIONS, COUNT_META, PLATFORM_ADMIN } from '../../navMeta';
+import { SECTIONS, COUNT_META, PLATFORM_ADMIN, SELF_ONLY, isSelfOnly } from '../../navMeta';
 import { fetchNavCounts } from '../../api/client';
 import { useIsPlatformAdmin } from '../../api/access';
 import { peopleApi } from '../../api/people';
@@ -85,7 +85,12 @@ export function CfHrmsShell({ children }: { children: ReactNode }) {
   const permitted = useIsPermitted();
   const isPlatformAdmin = useIsPlatformAdmin();
   const can = useCallback<Can>(
-    (tag?: string) => (tag === PLATFORM_ADMIN ? isPlatformAdmin : permitted(tag)),
+    (tag?: string) => {
+      if (tag === PLATFORM_ADMIN) return isPlatformAdmin;
+      // The employee's own Org chart entry: self view and no HR screen (navMeta.ts).
+      if (tag === SELF_ONLY) return isSelfOnly(permitted);
+      return permitted(tag);
+    },
     [permitted, isPlatformAdmin],
   );
 

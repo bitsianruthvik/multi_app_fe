@@ -41,6 +41,7 @@
  *                             narrowing.
  */
 import { useCallback, useEffect, useState } from 'react';
+import { Link as RouterLink, useParams } from 'react-router-dom';
 import { Box, Stack, Typography, Button, Tooltip } from '@mui/material';
 import BadgeRounded from '@mui/icons-material/BadgeRounded';
 import PersonRounded from '@mui/icons-material/PersonRounded';
@@ -53,6 +54,7 @@ import HelpOutlineRounded from '@mui/icons-material/HelpOutlineRounded';
 import ExpandMoreRounded from '@mui/icons-material/ExpandMoreRounded';
 import ExpandLessRounded from '@mui/icons-material/ExpandLessRounded';
 import LockOutlined from '@mui/icons-material/LockOutlined';
+import AccountTreeRounded from '@mui/icons-material/AccountTreeRounded';
 import {
   PageHeader, SectionCard, Surface, EmptyState, ErrorNotice, Callout,
   StatusBadge, ToneBadge, Mono, CapsLabel, DetailSkeleton,
@@ -301,6 +303,7 @@ function SeatStrip({ seat, many }: { seat: SelfSeat; many: boolean }) {
 /* ── the screen ─────────────────────────────────────────────────────────── */
 
 export default function MyPlace() {
+  const { company = '' } = useParams<{ company: string }>();
   const [data, setData] = useState<MyPlaceData | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [loading, setLoading] = useState(true);
@@ -365,6 +368,19 @@ export default function MyPlace() {
       {/* ── WHO AM I ─────────────────────────────────────────────────────── */}
       <PageHeader
         title={me.fullName}
+        actions={
+          // Back to the chart. A self-only login gets their slice; anyone who
+          // can see the company chart is redirected there by the route.
+          <Button
+            size="small"
+            variant="outlined"
+            component={RouterLink}
+            to={`/${company}/cf_hrms/my-org-chart`}
+            startIcon={<AccountTreeRounded />}
+          >
+            See me on the org chart
+          </Button>
+        }
         subtitle={
           // `component="span"`, not a Stack: PageHeader renders its subtitle
           // inside a <Typography> (a <p>), and a <div> nested in a <p> is

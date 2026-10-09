@@ -46,6 +46,10 @@ export const M = 36;
 export const HEAD = 84;
 /** Not in the source file: it had no work-context chips because machines were nodes. */
 export const CHIPH = 18;
+/** Process boxes (spec §15): inner padding, title-chip height, top of the first member. */
+export const PB = 10;
+export const PCH = 16;
+export const PT = PB + PCH + 8;
 
 export type ShiftFilter = 'all' | 'D' | 'N';
 export type Arrange = 'auto' | 'side' | 'stack';
@@ -338,6 +342,119 @@ export function descendantCount(model: ChartModel, id: number): number {
   return n;
 }
 
+// ── Work processes (spec §15) ───────────────────────────────────────────────
+
+/**
+ * A position's work process is its unit's NAME, case- and whitespace-
+ * normalised, so same-named units merge: Karni's three machine-level
+ * "Slitting" sections fold into Slitting, the two "BFL" units into one, the
+ * four sibling "Sales & Marketing" units into one. Known limit: two unrelated
+ * units sharing a name in some other company would merge too. '' = no unit.
+ */
+export function processKey(n: OrgChartNode): string {
+  return (n.departmentName ?? '').trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+interface ProcessIndex {
+  /** Every unit code seen for a process — a unit's code is its head seat's code. */
+  heads: Map<string, Set<string>>;
+  /** Every unit code of every process: a seat whose code is here heads SOME process. */
+  allHeads: Set<string>;
+  /** Processes with a ROOT unit (no parent) among the units merged into them — leadership. */
+  roots: Set<string>;
+  /** The display name: the one on the best-ranked unit carrying it. */
+  label: Map<string, string>;
+}
+
+const processCache = new WeakMap<ChartModel, ProcessIndex>();
+
+function processIndex(model: ChartModel): ProcessIndex {
+  const hit = processCache.get(model);
+  if (hit) return hit;
+  const heads = new Map<string, Set<string>>();
+  const allHeads = new Set<string>();
+  const roots = new Set<string>();
+  const label = new Map<string, string>();
+  const labelRank = new Map<string, number>();
+  for (const n of model.byId.values()) {
+    const k = processKey(n);
+    if (!k) continue;
+    if (!heads.has(k)) heads.set(k, new Set());
+    const code = (n.departmentCode ?? '').trim();
+    if (code) {
+      heads.get(k)!.add(code);
+      allHeads.add(code);
+    }
+    if (n.departmentIsRoot) roots.add(k);
+    const r = n.departmentRank ?? Number.POSITIVE_INFINITY;
+    if (!label.has(k) || r < labelRank.get(k)!) {
+      label.set(k, (n.departmentName ?? '').trim().replace(/\s+/g, ' '));
+      labelRank.set(k, r);
+    }
+  }
+  const out = { heads, allHeads, roots, label };
+  processCache.set(model, out);
+  return out;
+}
+
+/**
+ * True when this seat HEADS its process: its position code is the code of its
+ * own unit or of any unit merged into the same process. Production Manager
+ * (P020) heads Production (unit P020); a Printing operator does not.
+ */
+export function headsProcess(model: ChartModel, n: OrgChartNode): boolean {
+  const code = (n.positionCode ?? '').trim();
+  const k = processKey(n);
+  if (!code || !k) return false;
+  return processIndex(model).heads.get(k)?.has(code) ?? false;
+}
+
+/** True when this seat heads ANY process (its code is some unit's code). */
+export function headsAnyProcess(model: ChartModel, n: OrgChartNode): boolean {
+  const code = (n.positionCode ?? '').trim();
+  return Boolean(code) && processIndex(model).allHeads.has(code);
+}
+
+/** The seat sits in a leadership unit — a root of the unit tree, after merging. */
+export function inRootProcess(model: ChartModel, n: OrgChartNode): boolean {
+  const k = processKey(n);
+  return Boolean(k) && processIndex(model).roots.has(k);
+}
+
+export interface ProcessGroup {
+  key: string;
+  /** '' for the unlabelled "no unit" group. */
+  label: string;
+  ids: number[];
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/**
+ * A team split by work process, in a stable order: the manager's own process
+ * first, then the unit tree's order (best rank among the group's members), the
+ * no-unit group last. People keep payload order inside a group.
+ */
+export function groupByProcess(model: ChartModel, managerId: number, kids: number[]): ProcessGroup[] {
+  const idx = processIndex(model);
+  const own = processKey(model.byId.get(managerId)!);
+  const groups = new Map<string, { ids: number[]; rank: number }>();
+  for (const k of kids) {
+    const n = model.byId.get(k)!;
+    const key = processKey(n);
+    const g = groups.get(key) ?? { ids: [], rank: Number.POSITIVE_INFINITY };
+    g.ids.push(k);
+    g.rank = Math.min(g.rank, n.departmentRank ?? Number.POSITIVE_INFINITY);
+    groups.set(key, g);
+  }
+  const weight = (key: string) => (key === '' ? 2 : key === own ? 0 : 1);
+  return [...groups.entries()]
+    .sort(([a, ga], [b, gb]) => weight(a) - weight(b) || ga.rank - gb.rank || a.localeCompare(b))
+    .map(([key, g]) => ({ key, label: key ? (idx.label.get(key) ?? key) : '', ids: g.ids, x: 0, y: 0, w: 0, h: 0 }));
+}
+
 // ── Rows inside a box ───────────────────────────────────────────────────────
 
 export interface BoxRow {
@@ -503,7 +620,14 @@ export interface PlacedNode {
   x: number;
   y: number;
   h: number;
-  mode: 'leaf' | 'stack' | 'side' | 'mixed';
+  mode: 'leaf' | 'stack' | 'side' | 'mixed' | 'groups';
+  /**
+   * `groups` only (spec §15): the team split by work process, one labelled
+   * box per process. `across` when this seat heads its process (boxes side by
+   * side), `down` otherwise (boxes stacked under it, indented).
+   */
+  groups?: ProcessGroup[];
+  orient?: 'across' | 'down';
   /**
    * `mixed` only (spec §14): the reports that have teams of their own, side by
    * side on the next level's line, and the ones that do not, in ONE column
@@ -595,16 +719,48 @@ export function layoutChart(model: ChartModel, opts: LayoutOptions): LayoutResul
     // leaves too; `stack` makes the whole team an indented list.
     const pref = arrange[id] ?? 'auto';
     const managers = kids.filter((k) => realKids(k).length > 0);
+    // ── WORK PROCESSES FIRST (spec §15) ──────────────────────────────────
+    // A team spanning two or more processes is drawn as one labelled box per
+    // process, its people stacked inside. The boxes go side by side when this
+    // seat heads its process, and stack under it otherwise. A team that is all
+    // one process has no box and falls through to the rule below. An override
+    // (`side` / `stack`) means exactly what it says and skips the boxes.
+    // Leadership stays a plain tree: a seat in a ROOT unit (Management, for
+    // Karni) never boxes its team, so the Directors read as an ordinary tree
+    // and the boxes begin where the reports split into departments.
+    const groups = pref === 'auto' && !inRootProcess(model, node) ? groupByProcess(model, id, kids) : [];
     p.mode =
-      pref === 'side'
-        ? 'side'
-        : pref === 'stack' || managers.length === 0
-          ? 'stack'
-          : managers.length === kids.length
-            ? 'side'
-            : 'mixed';
+      groups.length > 1
+        ? 'groups'
+        : pref === 'side'
+          ? 'side'
+          : pref === 'stack' || managers.length === 0
+            ? 'stack'
+            : managers.length === kids.length
+              ? 'side'
+              : 'mixed';
 
     const sizes = kids.map((k) => size(k, depth + 1));
+    if (p.mode === 'groups') {
+      p.groups = groups;
+      // Side by side when this seat heads its process, OR when any box holds a
+      // seat that heads a process (that person has a department under them).
+      // Stacked boxes remain only for small cross-process teams with no head.
+      p.orient =
+        headsProcess(model, node) || kids.some((k) => headsAnyProcess(model, model.byId.get(k)!))
+          ? 'across'
+          : 'down';
+      for (const g of groups) {
+        const inner = Math.max(...g.ids.map((k) => placed.get(k)!.sw));
+        const chip = g.label ? textWidth(g.label, fonts.chip) + 16 : 0;
+        g.w = PB + IND + Math.max(inner, chip) + PB;
+      }
+      p.sw =
+        p.orient === 'across'
+          ? Math.max(W, groups.reduce((a, g) => a + g.w, 0) + HG * (groups.length - 1))
+          : Math.max(W, IND + Math.max(...groups.map((g) => g.w)));
+      return p.sw;
+    }
     if (p.mode === 'mixed') {
       p.row = managers;
       p.column = kids.filter((k) => realKids(k).length === 0);
@@ -638,6 +794,48 @@ export function layoutChart(model: ChartModel, opts: LayoutOptions): LayoutResul
     let bottom = p.y + p.info.h;
     if (!p.kids.length) {
       p.x = left;
+      return bottom;
+    }
+    if (p.mode === 'groups') {
+      // Inside a box the people stack, each with its own team below them; a
+      // member's subtree is laid out by the same rules, so a member whose team
+      // spans processes gets boxes of its own.
+      const fill = (g: ProcessGroup, gx: number, gy: number) => {
+        g.x = gx;
+        g.y = gy;
+        let my = gy + PT;
+        let last = my;
+        for (const k of g.ids) {
+          last = place(k, gx + PB + IND, my);
+          my = last + SG;
+        }
+        g.h = last + PB - gy;
+        return gy + g.h;
+      };
+      const groups = p.groups!;
+      if (p.orient === 'across') {
+        // On the next level's line when this box is on the grid, so a split
+        // team still starts where its cousins' teams start.
+        const next = levelTop[p.depth + 1];
+        const below = p.y + p.info.h + VG;
+        const gy = grid && next !== undefined ? Math.max(next, below) : below;
+        const total = groups.reduce((a, g) => a + g.w, 0) + HG * (groups.length - 1);
+        let gx = left + (p.sw - total) / 2;
+        for (const g of groups) {
+          bottom = Math.max(bottom, fill(g, gx, gy));
+          gx += g.w + HG;
+        }
+        const lastG = groups[groups.length - 1];
+        const mid = (groups[0].x + lastG.x + lastG.w) / 2 - W / 2;
+        p.x = Math.min(Math.max(mid, left), left + p.sw - W);
+      } else {
+        p.x = left;
+        let gy = bottom + SV;
+        for (const g of groups) {
+          bottom = fill(g, left + IND, gy);
+          gy = bottom + SG;
+        }
+      }
       return bottom;
     }
     if (p.mode === 'stack') {
@@ -766,6 +964,8 @@ export interface ChartScene {
   height: number;
   background: string;
   header: Prim[];
+  /** Work-process boxes (spec §15), outer before inner; drawn under the edges. */
+  groups: Prim[];
   edges: Prim[];
   secondary: Prim[];
   boxes: BoxRender[];
@@ -824,6 +1024,41 @@ export function buildScene(model: ChartModel, opts: SceneOptions): ChartScene {
   for (const id of lay.order) {
     const n = lay.placed.get(id)!;
     if (!n.kids.length) continue;
+    if (n.mode === 'groups') {
+      // Each process box has its own spine just inside its left edge, fed by
+      // ONE line from the manager, with a tick to every member — so a report
+      // reaches its manager visibly across the box's border.
+      const pb = n.y + n.info.h;
+      const spineX = (g: ProcessGroup) => g.x + PB + IND / 2;
+      const inner = (g: ProcessGroup, fromY: number) => {
+        const ix = spineX(g);
+        let last = fromY;
+        for (const k of g.ids) {
+          const c = lay.placed.get(k)!;
+          last = c.y + Math.min(c.info.h / 2, 17);
+          linePath.push(`M${ix} ${last}H${c.x}`);
+        }
+        linePath.push(`M${ix} ${fromY}V${last}`);
+      };
+      if (n.orient === 'across') {
+        const px = n.x + W / 2;
+        const my = Math.min(...n.groups!.map((g) => g.y)) - VG / 2;
+        const xs = n.groups!.map(spineX);
+        linePath.push(`M${px} ${pb}V${my}`);
+        linePath.push(`M${Math.min(px, ...xs)} ${my}H${Math.max(px, ...xs)}`);
+        n.groups!.forEach((g) => inner(g, my));
+      } else {
+        const sx = n.x + IND / 2;
+        let lastFeed = pb;
+        for (const g of n.groups!) {
+          lastFeed = g.y + PB + PCH / 2;
+          linePath.push(`M${sx} ${lastFeed}H${spineX(g)}`);
+          inner(g, lastFeed);
+        }
+        linePath.push(`M${sx} ${pb}V${lastFeed}`);
+      }
+      continue;
+    }
     if (n.mode === 'stack') {
       const sx = n.x + IND / 2;
       let last = n.y + n.info.h;
@@ -934,6 +1169,24 @@ export function buildScene(model: ChartModel, opts: SceneOptions): ChartScene {
   }
   if (dashPath.length)
     secondary.unshift({ k: 'path', d: dashPath.join(''), stroke: p.muted, sw: 1.4, dash: [6, 4] });
+
+  // ── Work-process boxes (spec §15). A grouping, not a person: no fill of a
+  // person's box, a larger radius, a hairline in the faint text tone (the
+  // border token vanishes on the dark surface) and a small title chip. ─────
+  const groups: Prim[] = [];
+  for (const id of lay.order) {
+    const n = lay.placed.get(id)!;
+    if (n.mode !== 'groups' || !n.kids.length) continue;
+    for (const g of n.groups!) {
+      groups.push({ k: 'rect', x: g.x, y: g.y, w: g.w, h: g.h, r: 12, fill: p.canvas, stroke: p.faint, sw: 0.9 });
+      if (!g.label) continue;
+      const txt = fitText(g.label, f.chip, g.w - 2 * PB - IND - 16);
+      const cw = textWidth(txt, f.chip) + 16;
+      const cx = g.x + PB + IND;
+      groups.push({ k: 'rect', x: cx, y: g.y + PB, w: cw, h: PCH, r: PCH / 2, fill: p.surface, stroke: p.faint, sw: 0.8 });
+      groups.push({ k: 'text', x: cx + 8, y: g.y + PB + 12, text: txt, size: 11, weight: 600, fill: p.muted });
+    }
+  }
 
   // ── Boxes ────────────────────────────────────────────────────────────────
   for (const id of lay.order) {
@@ -1158,12 +1411,32 @@ export function buildScene(model: ChartModel, opts: SceneOptions): ChartScene {
   }
 
   // ── Header: drawn into the chart because the client prints it ────────────
+  const legend: { swatch?: string; fill?: string; line?: 'solid' | 'dash'; text: string }[] = [];
+  if (opts.colours) {
+    legend.push({ swatch: p.present, fill: p.presentFill, text: 'Present' });
+    legend.push({ swatch: p.absent, fill: p.absentFill, text: 'Absent' });
+    legend.push({ swatch: p.vacant, fill: p.vacantFill, text: 'Vacant' });
+  }
+  legend.push({ line: 'solid', text: 'Reports to' });
+  if (groups.length) legend.push({ swatch: p.faint, fill: p.canvas, text: 'Work process' });
+  if (opts.secondaryEdges.length) legend.push({ line: 'dash', text: 'Other reporting line' });
+
+  let lw = 0;
+  const legendWidths = legend.map((g) => {
+    const w = (g.line ? 34 : 22) + textWidth(g.text, f.headMeta) + 18;
+    lw += w;
+    return w;
+  });
+  // A narrow chart (a folded opening, a small branch) is widened until the
+  // title and the legend share their line without overprinting.
+  const width = Math.max(lay.width, Math.ceil(M + textWidth(opts.header.title, f.headTitle) + 32 + lw + M));
+
   const header: Prim[] = [];
   header.push({
     k: 'text',
     x: M,
     y: M + 18,
-    text: fitText(opts.header.title, f.headTitle, lay.width - 2 * M),
+    text: fitText(opts.header.title, f.headTitle, width - 2 * M),
     size: 20,
     weight: 600,
     fill: p.ink,
@@ -1187,22 +1460,7 @@ export function buildScene(model: ChartModel, opts: SceneOptions): ChartScene {
     fill: p.muted,
   });
 
-  const legend: { swatch?: string; fill?: string; line?: 'solid' | 'dash'; text: string }[] = [];
-  if (opts.colours) {
-    legend.push({ swatch: p.present, fill: p.presentFill, text: 'Present' });
-    legend.push({ swatch: p.absent, fill: p.absentFill, text: 'Absent' });
-    legend.push({ swatch: p.vacant, fill: p.vacantFill, text: 'Vacant' });
-  }
-  legend.push({ line: 'solid', text: 'Reports to' });
-  if (opts.secondaryEdges.length) legend.push({ line: 'dash', text: 'Other reporting line' });
-
-  let lw = 0;
-  const legendWidths = legend.map((g) => {
-    const w = (g.line ? 34 : 22) + textWidth(g.text, f.headMeta) + 18;
-    lw += w;
-    return w;
-  });
-  const legendX = Math.max(M, lay.width - M - lw);
+  const legendX = Math.max(M, width - M - lw);
   let gx = legendX;
   legend.forEach((g, i) => {
     const gy = M + 16;
@@ -1249,16 +1507,17 @@ export function buildScene(model: ChartModel, opts: SceneOptions): ChartScene {
   });
   header.push({
     k: 'path',
-    d: `M${M} ${M + 70}H${lay.width - M}`,
+    d: `M${M} ${M + 70}H${width - M}`,
     stroke: p.border,
     sw: 1,
   });
 
   return {
-    width: lay.width,
+    width,
     height: lay.height,
     background: p.surface,
     header,
+    groups,
     edges,
     secondary,
     boxes,

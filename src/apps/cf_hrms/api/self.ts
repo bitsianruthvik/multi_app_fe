@@ -1,5 +1,5 @@
 /**
- * The employee self view. One endpoint, one request, no ids.
+ * The employee self view. Two endpoints (my place, my org chart slice), no ids.
  *
  * `GET /user/me/place` answers for the signed-in person and for nobody else —
  * the backend resolves the employee from the JWT via `hrms_employees.user_id`
@@ -229,3 +229,73 @@ export const getMyPlace = (on?: string) =>
 
 /** The one tag the self view is gated on. Exported so nav and routes agree with the backend. */
 export const SELF_VIEW = 'cf_hrms_self_view';
+
+/* ── My slice of the org chart (GET /user/me/orgchart, 2026-10-09) ──────────
+ *
+ * The same rule as above: no id goes up. The server computes the slice —
+ * managers up to the top, the caller's seats, their branch below, their
+ * dotted-line managers — from the caller's own seats and sends only that, with
+ * a field whitelist. The employee chart must never call `/orgchart`, the
+ * position card or any other HR endpoint; this function is its only data. */
+
+/** Why a seat is in the caller's slice. */
+export type SliceRelation = 'SELF' | 'MANAGER' | 'REPORT' | 'DOTTED_MANAGER';
+
+export interface SliceOccupant {
+  name: string;
+  shiftCode: string | null;
+  /** This occupant is the signed-in person. */
+  isMe: boolean;
+}
+
+export interface SliceNode {
+  id: number;
+  positionCode: string | null;
+  title: string;
+  displayTitle: string;
+  roleTitle: string | null;
+  departmentName: string | null;
+  /** Org structure for the process grouping (spec §15) — the heading seat's code and the unit's tree rank. */
+  departmentCode: string | null;
+  departmentRank: number | null;
+  departmentIsRoot: boolean;
+  locationName: string | null;
+  shiftPattern: 'G' | 'D' | 'N' | 'DN';
+  defaultShift: { code: string | null; name: string | null } | null;
+  sanctionedHeadcount: number;
+  effectiveSanctioned: number;
+  requirements: { shiftCode: string | null; shiftName: string | null; requiredCount: number }[];
+  contexts: { name: string; contextType: string | null; isPrimary: boolean }[];
+  occupants: SliceOccupant[];
+  relation: SliceRelation;
+}
+
+export interface SliceEdge {
+  /** The subordinate seat. */
+  fromPositionId: number;
+  /** The manager seat. */
+  toPositionId: number;
+  typeCode: string;
+  typeName: string;
+  isFormal: boolean;
+  isPrimary: boolean;
+  scopeType: string;
+  scopeLabel: string | null;
+  scopeWorkContextName: string | null;
+  scopeSentence: string | null;
+}
+
+export interface MyOrgChart {
+  asOf: string;
+  linked: boolean;
+  reason: string | null;
+  nodes: SliceNode[];
+  edges: SliceEdge[];
+  /** The seats the caller holds — the boxes to highlight and centre on. */
+  mySeatIds: number[];
+  counts: { positions: number; managers: number; reports: number; dotted: number };
+}
+
+/** The signed-in person's slice of the org chart. The only call the employee chart makes. */
+export const getMyOrgChart = (on?: string) =>
+  api.get<MyOrgChart>(`/user/me/orgchart${on ? `?on=${encodeURIComponent(on)}` : ''}`);

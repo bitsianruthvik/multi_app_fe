@@ -4,12 +4,16 @@ import type { RouteObject } from 'react-router-dom';
 import { useIsPermitted } from '@shared/ui';
 import { RequireAppAccess } from '@core/components/RequireAppAccess';
 import { CfHrmsShell } from './components/shell/CfHrmsShell';
+import { isSelfOnly } from './navMeta';
 
 const Home = lazy(() => import('./pages/Home'));
 
 // The employee self view — the fourth world (appendix §A3). Not lazy-grouped
 // with anything else: for a shop-floor login it is the only chunk they load.
 const MyPlace = lazy(() => import('./pages/MyPlace'));
+// The employee's own slice of the org chart — their landing screen. A separate
+// page from OrgChart: it imports api/self only, never the company-wide chart.
+const MyOrgChart = lazy(() => import('./pages/MyOrgChart'));
 
 // Organisation (DEFINE)
 const OrgChart = lazy(() => import('./pages/OrgChart'));
@@ -95,33 +99,37 @@ export function getCfHrmsRoutes(
    * instead, and an admin holds all seven of these anyway.
    */
   function useSelfOnly(): boolean {
-    const permitted = useIsPermitted();
-    const hasAnyHrScreen = [
-      'cf_hrms_org_view',
-      'cf_hrms_people_view',
-      'cf_hrms_roles_manage',
-      'cf_hrms_attendance_view',
-      'cf_hrms_leave_view',
-      'cf_hrms_documents_generate',
-      'cf_hrms_import_manage',
-    ].some((tag) => permitted(tag));
-    return permitted('cf_hrms_self_view') && !hasAnyHrScreen;
+    // One definition, shared with the nav's SELF_ONLY sentinel (navMeta.ts).
+    return isSelfOnly(useIsPermitted());
   }
+
+  /** Since 2026-10-09 an employee lands on their own slice of the org chart. */
+  const SELF_LANDING = 'my-org-chart';
 
   function ToHome() {
     const { company } = useParams<{ company: string }>();
     const selfOnly = useSelfOnly();
-    return <Navigate to={`/${company}/cf_hrms/${selfOnly ? 'my-place' : 'home'}`} replace />;
+    return <Navigate to={`/${company}/cf_hrms/${selfOnly ? SELF_LANDING : 'home'}`} replace />;
   }
 
   /**
    * The Home route itself. An employee who types the URL, follows a bookmark or
-   * clicks the brand mark gets their own place rather than an empty cockpit.
+   * clicks the brand mark gets their own org chart rather than an empty cockpit.
    */
   function HomeOrMyPlace() {
     const { company } = useParams<{ company: string }>();
-    if (useSelfOnly()) return <Navigate to={`/${company}/cf_hrms/my-place`} replace />;
+    if (useSelfOnly()) return <Navigate to={`/${company}/cf_hrms/${SELF_LANDING}`} replace />;
     return <Home />;
+  }
+
+  /**
+   * The employee chart is for a self-only login. Anyone who can open the
+   * company chart goes to it instead of to a slice of it.
+   */
+  function MyOrgChartOrCompany() {
+    const { company } = useParams<{ company: string }>();
+    if (!useSelfOnly()) return <Navigate to={`/${company}/cf_hrms/org-chart`} replace />;
+    return <MyOrgChart />;
   }
 
   /**
@@ -148,6 +156,9 @@ export function getCfHrmsRoutes(
     // not a stripped-down variant (appendix §A3: "fewer nav entries, never
     // different components").
     { path: '/:company/cf_hrms/my-place', element: wrap(<MyPlace />) },
+    // The employee's own org chart slice. Anyone with the company chart is sent
+    // there instead, so an admin following an employee's link sees the full chart.
+    { path: '/:company/cf_hrms/my-org-chart', element: wrap(<MyOrgChartOrCompany />) },
 
     // Organisation (DEFINE) — Roles lives here: a role is part of what the
     // organisation IS, not a world of its own.
