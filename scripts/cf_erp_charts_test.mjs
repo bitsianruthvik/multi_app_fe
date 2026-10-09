@@ -102,6 +102,15 @@ check('the same input twice is refused', () => {
 check('inputs are sent as field codes and levels', () => {
   assert.deepEqual(c.inputsPayload(base), [{ field: 'THICKNESS' }, { field: 'GRADE' }, { level: 'FAMILY' }]);
 });
+check('a changed chart sends where each input was, and the value the rows are for on a new one; a typed unit wins', () => {
+  const ed = { ...base, inputs: [{ ...base.inputs[1], from: 1 }, { ...base.inputs[0], from: 0, unit: 'cm' }, { ...base.inputs[2], fill: ' Plates ' }] };
+  assert.deepEqual(c.inputsPayload(ed), [{ field: 'GRADE', from: 1 }, { field: 'THICKNESS', unit: 'cm', from: 0 }, { level: 'FAMILY', fill: 'Plates' }]);
+  assert.equal(c.inputHeading(ed.inputs[1]), 'Thickness (cm)');
+  assert.ok(c.formProblems({ ...ed, inputs: [ed.inputs[0], { ...base.inputs[2] }] }, true).some((p) => /is new/.test(p)));
+  assert.equal(c.formProblems(ed, true).length, 0);
+  const fromAxis = c.inputFromAxis({ kind: 'spec', field: 'THICKNESS', label: 'Thickness', unit: 'mm', dataType: 'number' }, 0);
+  assert.equal(fromAxis.from, 0); assert.equal(c.inputHeading(fromAxis), 'Thickness (mm)');
+});
 check('a straight line whenever any input is a number, wherever it sits; inputs reorder', () => {
   assert.equal(c.canLinear(base), true);
   assert.equal(c.effectiveMode({ ...base, mode: 'linear' }), 'linear');

@@ -8,13 +8,14 @@ import ArrowUpwardRounded from '@mui/icons-material/ArrowUpwardRounded';
 import CloseRounded from '@mui/icons-material/CloseRounded';
 import TableChartOutlined from '@mui/icons-material/TableChartOutlined';
 import { cfApi, CfApiError } from '../../api/client';
-import { addChart, updateChart, type Chart, type ChartLevel, type ChartRow, type ChartSubject } from '../../api/charts';
+import { addChart, deleteChart, updateChart, type Chart, type ChartLevel, type ChartRow, type ChartSubject } from '../../api/charts';
 import type { Specification } from '../../api/types';
 import { useLoad } from '../../hooks/useLoad';
 import {
   LEVEL_LABEL, canLinear, chartRows, effectiveMode, formHeadingLine, formProblems, inputAxis, inputFromAxis, inputHeading, inputsPayload,
-  moved, shortNameGuess, withUnit, type ChartForm, type InputForm,
+  moved, shortNameGuess, unitOf, withUnit, type ChartForm, type InputForm,
 } from '../../lib/charts';
+import { ConfirmDialog } from '../ConfirmDialog';
 import { DialogHeader } from '../FormDialog';
 import { ErrorNotice, Mono } from '../ui';
 import { ChartRowsDialog } from './ChartRowsDialog';
@@ -54,22 +55,29 @@ export function ChartDialog({ open, onClose, subject, existing, onSaved }: {
   }, [specs.data]);
 
   const [form, setForm] = useState<ChartForm>(() => (existing
-    ? { name: existing.name, resultUnit: existing.resultUnit ?? '', mode: existing.mode, inputs: existing.axes.map(inputFromAxis) }
+    ? { name: existing.name, resultUnit: existing.resultUnit ?? '', mode: existing.mode, inputs: existing.axes.map((a, i) => inputFromAxis(a, i)) }
     : { name: '', resultUnit: '', mode: 'step_up', inputs: [] }));
   const [rows, setRows] = useState<ChartRow[] | null>(null);
   const [gridOpen, setGridOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<CfApiError | null>(null);
 
-  /** The columns cannot change once there are rows. */
-  const locked = !!existing && !!chartRows(existing)?.length;
-  const problems = formProblems(form);
+  /** A chart with rows can still change its inputs: moved columns move their values, a new one takes the value the rows are for. */
+  const hasRows = !!existing && !!chartRows(existing)?.length;
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const problems = formProblems(form, hasRows);
   const setInputs = (f: (list: InputForm[]) => InputForm[]) => {
     setForm((cur) => ({ ...cur, inputs: f(cur.inputs) }));
     setRows(null); // the typed rows were shaped for the old columns
   };
   const setInput = (i: number, patch: Partial<Extract<InputForm, { kind: 'spec' }>>) =>
     setForm((cur) => ({ ...cur, inputs: cur.inputs.map((c, j) => (j === i && c.kind === 'spec' ? { ...c, ...patch } : c)) }));
+  const setFill = (i: number, fill: string) =>
+    setForm((cur) => ({ ...cur, inputs: cur.inputs.map((c, j) => (j === i ? { ...c, fill } : c)) }));
+  const remove = async () => {
+    if (!existing) return;
+    try { await deleteChart(existing.specId); onSaved(null); onClose(); } catch (e) { setError(e instanceof CfApiError ? e : new CfApiError(0, String(e))); throw e; }
+  };
 
   const save = async () => {
     setBusy(true); setError(null);
@@ -78,7 +86,7 @@ export function ChartDialog({ open, onClose, subject, existing, onSaved }: {
       if (existing) {
         await updateChart(existing.specId, {
           name: form.name.trim(), resultUnit: form.resultUnit.trim(), mode,
-          ...(locked ? {} : { inputs: inputsPayload(form) }),
+          inputs: inputsPayload(form),
         });
         onSaved(null);
       } else {
@@ -120,9 +128,9 @@ export function ChartDialog({ open, onClose, subject, existing, onSaved }: {
 
           <Box>
             <Typography sx={{ fontSize: 13, fontWeight: 600, mb: 1 }}>Inputs <Box component="span" sx={{ fontWeight: 400, color: 'var(--c-text-3)' }}>— read in this order</Box></Typography>
-            {locked && (
+            {hasRows && (
               <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)', mb: 1 }}>
-                This chart has rows, so its inputs can no longer change. Clear the rows first, or add a new chart.
+                This chart has rows. Moving an input moves its values in every row; removing one drops its values; a new input asks which value the existing rows are for. Times that use the chart follow. A unit is the heading's word — the numbers in the rows are not converted.
               </Typography>
             )}
             <Box sx={{ display: 'grid', gap: 1 }}>
@@ -133,22 +141,27 @@ export function ChartDialog({ open, onClose, subject, existing, onSaved }: {
                     <Box sx={{ flex: 1, minWidth: 0 }}>
                       <Box sx={{ fontWeight: 500, fontSize: 13.5 }}>{c.kind === 'level' ? LEVEL_LABEL[c.level] : c.name}</Box>
                       <Box sx={{ fontSize: 12, color: 'var(--c-text-2)' }}>
-                        {c.kind === 'level' ? 'A level of the tree' : <>{TYPE_WORD[c.dataType]}{c.dataType === 'number' && c.specUnit ? ` · ${c.specUnit}` : ''} · <Mono muted>{c.code}</Mono></>}
+                        {c.kind === 'level' ? 'A level of the tree' : <>{TYPE_WORD[c.dataType]}{c.dataType === 'number' && unitOf(c) ? ` · ${unitOf(c)}` : ''} · <Mono muted>{c.code}</Mono></>}
+                        {hasRows && c.from == null && <Box component="span" sx={{ color: 'var(--c-primary-700)', fontWeight: 600 }}> · new</Box>}
                       </Box>
                     </Box>
-                    <Tooltip title="Move up"><span><IconButton size="small" aria-label="Move up" disabled={locked || i === 0} onClick={() => setInputs((l) => moved(l, i, -1))}><ArrowUpwardRounded fontSize="small" /></IconButton></span></Tooltip>
-                    <Tooltip title="Move down"><span><IconButton size="small" aria-label="Move down" disabled={locked || i === form.inputs.length - 1} onClick={() => setInputs((l) => moved(l, i, 1))}><ArrowDownwardRounded fontSize="small" /></IconButton></span></Tooltip>
-                    <Tooltip title="Remove input"><span><IconButton size="small" aria-label="Remove input" disabled={locked} onClick={() => setInputs((l) => l.filter((_, j) => j !== i))}><CloseRounded fontSize="small" /></IconButton></span></Tooltip>
+                    <Tooltip title="Move up"><span><IconButton size="small" aria-label="Move up" disabled={i === 0} onClick={() => setInputs((l) => moved(l, i, -1))}><ArrowUpwardRounded fontSize="small" /></IconButton></span></Tooltip>
+                    <Tooltip title="Move down"><span><IconButton size="small" aria-label="Move down" disabled={i === form.inputs.length - 1} onClick={() => setInputs((l) => moved(l, i, 1))}><ArrowDownwardRounded fontSize="small" /></IconButton></span></Tooltip>
+                    <Tooltip title="Remove input"><span><IconButton size="small" aria-label="Remove input" onClick={() => setInputs((l) => l.filter((_, j) => j !== i))}><CloseRounded fontSize="small" /></IconButton></span></Tooltip>
                   </Box>
-                  {c.kind === 'spec' && c.dataType === 'number' && !c.specUnit && (
-                    <TextField size="small" label={`Unit of ${c.name} (optional)`} value={c.unit} disabled={locked} onChange={(e) => setInput(i, { unit: e.target.value })}
-                      helperText="This value has no unit. Leave it empty for a count (coats, holes, studs); otherwise say which unit the rows are in." inputProps={{ maxLength: 20 }} />
+                  {c.kind === 'spec' && c.dataType === 'number' && (
+                    <TextField size="small" label={`Unit of ${c.name}`} value={c.unit} placeholder={c.specUnit || 'none — a count'} onChange={(e) => setInput(i, { unit: e.target.value })}
+                      helperText={c.specUnit ? `Empty = ${c.specUnit}, the specification's unit.` : 'Leave it empty for a count (coats, holes, studs); otherwise say which unit the rows are in.'} inputProps={{ maxLength: 20 }} />
+                  )}
+                  {hasRows && c.from == null && (
+                    <TextField size="small" required label={`${c.kind === 'level' ? LEVEL_LABEL[c.level] : c.name} of the existing rows`} value={c.fill ?? ''} onChange={(e) => setFill(i, e.target.value)}
+                      helperText={c.kind === 'level' ? 'Its name or code, e.g. the family every row so far is for.' : c.dataType === 'option' ? 'The choice every row so far is for.' : 'The value every row so far is for — you can change rows one by one afterwards.'} inputProps={{ maxLength: 80 }} />
                   )}
                 </Box>
               ))}
               {!form.inputs.length && <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-3)' }}>No inputs yet.</Typography>}
             </Box>
-            {!locked && (
+            {(
               <Autocomplete<Offer> size="small" sx={{ mt: 1 }} options={offers} groupBy={(o) => o.group} value={null} blurOnSelect clearOnBlur
                 loading={specs.loading} getOptionLabel={(o) => o.label}
                 getOptionDisabled={(o) => form.inputs.some((c) => (c.kind === 'level' ? `level:${c.level}` : `spec:${c.code}`) === o.id)}
@@ -207,11 +220,23 @@ export function ChartDialog({ open, onClose, subject, existing, onSaved }: {
         </Box>
       </DialogContent>
       <DialogActions>
+        {existing && (
+          <Tooltip title={existing.usedBy.length ? `Read by ${existing.usedBy.join(', ')} — change ${existing.usedBy.length === 1 ? 'that time' : 'those times'} first.` : 'Delete this chart and all its rows.'}>
+            <span style={{ marginRight: 'auto' }}>
+              <Button color="error" onClick={() => setConfirmDelete(true)} disabled={busy || existing.usedBy.length > 0}>Delete chart</Button>
+            </span>
+          </Tooltip>
+        )}
         <Button onClick={onClose} disabled={busy}>Cancel</Button>
         <Button variant="contained" onClick={save} disabled={busy || problems.length > 0} startIcon={busy ? <CircularProgress size={14} color="inherit" /> : undefined}>
           {busy ? 'Saving…' : existing ? 'Save chart' : 'Add chart'}
         </Button>
       </DialogActions>
+      {existing && (
+        <ConfirmDialog open={confirmDelete} title="Delete this chart?" entityName={existing.name} danger confirmLabel="Delete"
+          body={`The chart and its rows go — on ${existing.definedAt?.name ?? 'its machine type'} and on every machine that had its own.`}
+          onConfirm={remove} onClose={() => setConfirmDelete(false)} />
+      )}
       {gridOpen && (
         <ChartRowsDialog open onClose={() => setGridOpen(false)} title={form.name.trim() || 'New chart'} axes={axes} resultLabel={resultLabel}
           rows={rows} canClear={false} onSave={(r) => setRows(r && r.length ? r : null)} />

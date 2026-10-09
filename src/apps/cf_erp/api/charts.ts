@@ -42,7 +42,8 @@ export interface Chart {
 }
 
 /** One input as it is written: read by a piece's specification (with a unit when it has none), or by a tree level. */
-export type ChartInputSpec = { field: string; unit?: string } | { level: ChartLevel };
+/** `from` = the old column this input was (its values move with it); `fill` = the value existing rows are for, on a new input. */
+export type ChartInputSpec = ({ field: string; unit?: string } | { level: ChartLevel }) & { from?: number; fill?: string };
 export interface ChartInput { name: string; resultUnit: string; inputs: ChartInputSpec[]; mode?: ChartMode; rows?: ChartRow[] }
 export interface ChartChanges { name?: string; resultUnit?: string; inputs?: ChartInputSpec[]; mode?: ChartMode }
 
@@ -63,3 +64,5 @@ export const addChart = (s: ChartSubject, body: ChartInput) =>
 export const putChartValue = (s: ChartSubject, specId: number, value: ChartRow[] | null) =>
   cfApi.put<Chart[]>(`${root(s)}/charts/${specId}/values`, { value });
 export const updateChart = (specId: number, body: ChartChanges) => cfApi.put<unknown>(`/charts/${specId}`, body);
+/** Refused, in words, while a time or formula reads the chart. */
+export const deleteChart = (specId: number) => cfApi.del<{ ok: boolean }>(`/charts/${specId}`);

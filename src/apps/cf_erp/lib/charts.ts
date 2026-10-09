@@ -221,18 +221,27 @@ export function parsePastedRows(text: string, columns: number): { rows: string[]
 export const shortNameGuess = (name: string) => name.trim().toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_+|_+$/g, '');
 
 /** One input as the dialog holds it. */
-export type InputForm =
+/**
+ * An input as the form holds it. specUnit = the specification's own unit, unit = the one the chart's
+ * heading says (empty = the specification's). On a chart being changed, `from` is the column it was
+ * (so its values move with it) and `fill` the value existing rows are for when it is new.
+ */
+export type InputForm = (
   | { kind: 'spec'; code: string; name: string; dataType: 'number' | 'option' | 'text'; specUnit: string; unit: string }
-  | { kind: 'level'; level: ChartLevel };
+  | { kind: 'level'; level: ChartLevel }
+) & { from?: number; fill?: string };
 
-export function inputFromAxis(a: ChartAxis): InputForm {
+export function inputFromAxis(a: ChartAxis, from?: number): InputForm {
   return a.kind === 'level'
-    ? { kind: 'level', level: a.level }
-    : { kind: 'spec', code: a.field, name: a.label, dataType: a.dataType, specUnit: a.unit ?? '', unit: '' };
+    ? { kind: 'level', level: a.level, from }
+    : { kind: 'spec', code: a.field, name: a.label, dataType: a.dataType, specUnit: '', unit: a.unit ?? '', from };
 }
 
+/** The unit a number input's heading shows: the chart's own word, else the specification's. */
+export const unitOf = (i: Extract<InputForm, { kind: 'spec' }>) => (i.dataType === 'number' ? i.unit.trim() || i.specUnit || '' : '');
+
 export function inputHeading(i: InputForm): string {
-  return i.kind === 'level' ? LEVEL_LABEL[i.level] : withUnit(i.name, i.dataType === 'number' ? i.specUnit || i.unit : null);
+  return i.kind === 'level' ? LEVEL_LABEL[i.level] : withUnit(i.name, unitOf(i) || null);
 }
 
 export interface ChartForm { name: string; resultUnit: string; mode: ChartMode; inputs: InputForm[] }
@@ -248,7 +257,7 @@ export function formHeadingLine(f: ChartForm): string {
 }
 
 /** Problems in words, in the order the form reads. Empty = ready to send. */
-export function formProblems(f: ChartForm): string[] {
+export function formProblems(f: ChartForm, hasRows = false): string[] {
   const out: string[] = [];
   if (!f.name.trim()) out.push('Give the result a name, e.g. Drill time.');
   if (!f.resultUnit.trim()) out.push('Say what unit it gives, e.g. s or mm/min.');
@@ -261,6 +270,7 @@ export function formProblems(f: ChartForm): string[] {
       if (!c.code) { out.push(`Input ${n}: pick a specification.`); return; }
     }
     if (seen.has(key)) out.push(`Input ${n}: ${inputHeading(c).replace(/ \(.*\)$/, '')} is already an input.`);
+    if (hasRows && c.from == null && !(c.fill ?? '').trim()) out.push(`Input ${n}: ${inputHeading(c).replace(/ \(.*\)$/, '')} is new — say which value the existing rows are for.`);
     seen.add(key);
   });
   return out;
@@ -268,9 +278,12 @@ export function formProblems(f: ChartForm): string[] {
 
 /** The inputs as the server takes them. */
 export function inputsPayload(f: ChartForm): ChartInputSpec[] {
-  return f.inputs.map((c) => (c.kind === 'level'
-    ? { level: c.level }
-    : c.dataType === 'number' && !c.specUnit ? { field: c.code, unit: c.unit.trim() } : { field: c.code }));
+  return f.inputs.map((c) => {
+    const keep = { ...(c.from != null ? { from: c.from } : {}), ...(c.from == null && (c.fill ?? '').trim() ? { fill: (c.fill ?? '').trim() } : {}) };
+    if (c.kind === 'level') return { level: c.level, ...keep };
+    // A typed unit is sent; an empty one means the specification's own.
+    return c.dataType === 'number' && c.unit.trim() ? { field: c.code, unit: c.unit.trim(), ...keep } : { field: c.code, ...keep };
+  });
 }
 
 /** Moves item `i` by `by` places; a copy. */
@@ -290,5 +303,5 @@ export const boundCharts = <T extends { tableConfig?: { version?: number; axes?:
 export function inputAxis(i: InputForm): ChartAxis {
   return i.kind === 'level'
     ? { kind: 'level', level: i.level, label: LEVEL_LABEL[i.level], unit: null, dataType: 'level' }
-    : { kind: 'spec', field: i.code, label: i.name, unit: i.dataType === 'number' ? (i.specUnit || i.unit.trim() || null) : null, dataType: i.dataType };
+    : { kind: 'spec', field: i.code, label: i.name, unit: unitOf(i) || null, dataType: i.dataType };
 }
