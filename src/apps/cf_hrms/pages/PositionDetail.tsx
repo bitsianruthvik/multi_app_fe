@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { Box, Button, IconButton, Stack, Tooltip, Typography } from '@mui/material';
 import AddRounded from '@mui/icons-material/AddRounded';
 import EditRounded from '@mui/icons-material/EditRounded';
@@ -22,6 +22,7 @@ import type { ResolvedRelationship } from '../api/assignments';
 import { ContentOverrideDialog, PositionContextDialog, PositionFormDialog } from '../components/PositionDialogs';
 import { PositionReportingDialog } from '../components/ReportingDialogs';
 import { ReportingRowList } from '../components/ReportingRows';
+import { usePositionRemoval } from '../components/usePositionRemoval';
 
 /**
  * One position (DESIGN_SYSTEM.md §4.3 Record).
@@ -47,6 +48,7 @@ export default function PositionDetail() {
   const can = useIsPermitted();
   const canManage = can('cf_hrms_org_manage');
   const toast = useToast();
+  const navigate = useNavigate();
 
   const [position, setPosition] = useState<PositionRow | null>(null);
   const [options, setOptions] = useState<PositionOptions | null>(null);
@@ -62,6 +64,8 @@ export default function PositionDetail() {
   const [addingContext, setAddingContext] = useState(false);
   const [addingReporting, setAddingReporting] = useState(false);
   const [addingOverride, setAddingOverride] = useState(false);
+  // Close or delete this seat; the dialog reads what it would do to the team first. A deleted seat has no page to stay on.
+  const removal = usePositionRemoval({ onDone: (r) => { if (r.deletedIds) navigate(`/${company}/cf_hrms/positions`); else load(); } });
 
   const load = useCallback(() => {
     if (!Number.isInteger(positionId) || positionId <= 0) { setError(new Error('That is not a position id.')); setLoading(false); return; }
@@ -125,6 +129,7 @@ export default function PositionDetail() {
               canManage && (
                 <Stack direction="row" spacing={1}>
                   <Button size="small" variant="outlined" startIcon={<EditRounded />} onClick={() => setEditing(true)}>Edit</Button>
+                  <Button size="small" variant="outlined" color="inherit" startIcon={<DeleteOutlineRounded />} disabled={removal.busyId === position.id} onClick={() => { void removal.start(position.id); }}>Close or delete…</Button>
                 </Stack>
               )
             }
@@ -336,6 +341,7 @@ export default function PositionDetail() {
         )}
       </DetailLayout>
 
+      {removal.dialog}
       <PositionFormDialog
         open={editing}
         onClose={() => setEditing(false)}

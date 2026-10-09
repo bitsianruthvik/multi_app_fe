@@ -3,7 +3,6 @@ import { useParams, useSearchParams } from 'react-router-dom';
 import { Box, Button, Stack, Typography, useTheme } from '@mui/material';
 import ImageRounded from '@mui/icons-material/ImageRounded';
 import PictureAsPdfRounded from '@mui/icons-material/PictureAsPdfRounded';
-import HelpOutlineRounded from '@mui/icons-material/HelpOutlineRounded';
 import SearchRounded from '@mui/icons-material/SearchRounded';
 import {
   ChartSkeleton,
@@ -33,10 +32,16 @@ import {
 } from '../components/orgChartLayout';
 import { OrgChartCanvas, type NavDirection } from '../components/OrgChartCanvas';
 import { OrgChartTable } from '../components/OrgChartTable';
-import { OrgChartToolbar, type RootOption } from '../components/OrgChartToolbar';
+import {
+  OrgChartToolbar,
+  type OrgChartView,
+  type RootOption,
+} from '../components/OrgChartToolbar';
 import { OrgChartPanel } from '../components/OrgChartPanel';
 import { OrgChartCardModal } from '../components/OrgChartCardModal';
-import { OrgChartOpenPoints } from '../components/OrgChartOpenPoints';
+import { OpenPointsList } from '../components/OrgChartOpenPoints';
+import { useOpenPoints } from '../components/useOpenPoints';
+import { OrgChartDepartments } from '../components/OrgChartDepartments';
 import { OrgChartSearch } from '../components/OrgChartSearch';
 import { exportPdf, exportPng } from '../components/OrgChartExport';
 
@@ -59,6 +64,12 @@ import { exportPdf, exportPng } from '../components/OrgChartExport';
  * shift filter and the attendance tint are per-person preferences in
  * localStorage. None of it is org data and there is no `chart_arrange` column
  * (spec §9, "What is NOT in the API").
+ *
+ * FOUR VIEWS, ONE SCREEN (spec §13). Chart and Table draw the same rows under
+ * the same filters. Departments answers "what is this unit accountable for"
+ * from `GET /orgchart/departments`, borrowing this page's graph for titles and
+ * seat counts. Doubts is the open-points list, fetched here rather than in the
+ * tab so the tab can carry its count before anyone opens it.
  */
 
 const SHIFT_NAME: Record<ShiftFilter, string> = {
@@ -68,6 +79,8 @@ const SHIFT_NAME: Record<ShiftFilter, string> = {
 };
 
 /** Preference keys are per company: a root id from another tenant is meaningless. */
+const ORG_CHART_VIEWS: OrgChartView[] = ['chart', 'table', 'departments', 'doubts'];
+
 const prefKey = (company: string, suffix: string) => `orgchart:${company}:${suffix}`;
 
 function today(): string {
@@ -97,9 +110,13 @@ export default function OrgChart() {
   });
   const [shift, setShift] = useState<ShiftFilter>(() => readPref<ShiftFilter>(key('shift'), 'all'));
   const [colours, setColours] = useState<boolean>(() => readPref<boolean>(key('colours'), true));
-  const [view, setView] = useState<'chart' | 'table'>(() =>
-    readPref<'chart' | 'table'>(key('view'), 'chart'),
-  );
+  // The URL wins over the stored preference, so a link to ?view=departments
+  // opens on Departments whatever this viewer last looked at.
+  const [view, setView] = useState<OrgChartView>(() => {
+    const wanted = params.get('view') || readPref<string>(key('view'), 'chart');
+    return ORG_CHART_VIEWS.includes(wanted as OrgChartView) ? (wanted as OrgChartView) : 'chart';
+  });
+  const chartLike = view === 'chart' || view === 'table';
   const [panelOpen, setPanelOpen] = useState<boolean>(() => readPref<boolean>(key('panel'), true));
   const [collapsed, setCollapsed] = useState<Set<number>>(
     () => new Set(readPref<number[]>(key('collapsed'), [])),
@@ -122,8 +139,10 @@ export default function OrgChart() {
 
   const [selected, setSelected] = useState<number | null>(null);
   const [cardId, setCardId] = useState<number | null>(null);
-  const [pointsOpen, setPointsOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
+
+  // Fetched on arrival, not when the tab opens: the tab shows the count.
+  const points = useOpenPoints();
   const [exporting, setExporting] = useState(false);
 
   // A callback ref, not useRef: the stage only exists once the graph has
@@ -169,7 +188,18 @@ export default function OrgChart() {
 
   useEffect(() => writePref(prefKey(company, 'shift'), shift), [shift, company]);
   useEffect(() => writePref(prefKey(company, 'colours'), colours), [colours, company]);
-  useEffect(() => writePref(prefKey(company, 'view'), view), [view, company]);
+  useEffect(() => {
+    writePref(prefKey(company, 'view'), view);
+    setParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        if (view === 'chart') next.delete('view');
+        else next.set('view', view);
+        return next;
+      },
+      { replace: true },
+    );
+  }, [view, company, setParams]);
   useEffect(() => writePref(prefKey(company, 'panel'), panelOpen), [panelOpen, company]);
   useEffect(() => writePref(prefKey(company, 'collapsed'), [...collapsed]), [collapsed, company]);
   useEffect(() => writePref(prefKey(company, 'foldTouched'), foldTouched), [foldTouched, company]);
@@ -420,36 +450,34 @@ export default function OrgChart() {
             <Button size="small" startIcon={<SearchRounded />} onClick={() => setSearchOpen(true)}>
               Search KRAs
             </Button>
-            <Button
-              size="small"
-              startIcon={<HelpOutlineRounded />}
-              onClick={() => setPointsOpen(true)}
-            >
-              Open points
-            </Button>
-            <Button
-              size="small"
-              variant="outlined"
-              startIcon={<ImageRounded />}
-              disabled={!scene || exporting}
-              onClick={() => doExport('png')}
-            >
-              PNG
-            </Button>
-            <Button
-              size="small"
-              variant="contained"
-              startIcon={<PictureAsPdfRounded />}
-              disabled={!scene || exporting}
-              onClick={() => doExport('pdf')}
-            >
-              PDF
-            </Button>
+            {/* The exports draw the chart, so they belong to the views that are the chart. */}
+            {chartLike && (
+              <>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  startIcon={<ImageRounded />}
+                  disabled={!scene || exporting}
+                  onClick={() => doExport('png')}
+                >
+                  PNG
+                </Button>
+                <Button
+                  size="small"
+                  variant="contained"
+                  startIcon={<PictureAsPdfRounded />}
+                  disabled={!scene || exporting}
+                  onClick={() => doExport('pdf')}
+                >
+                  PDF
+                </Button>
+              </>
+            )}
           </Stack>
         }
       />
 
-      <StatStrip stats={stats} />
+      {chartLike && <StatStrip stats={stats} />}
 
       {!!error && <ErrorNotice error={error} onRetry={load} />}
 
@@ -457,6 +485,9 @@ export default function OrgChart() {
         <OrgChartToolbar
           view={view}
           onView={setView}
+          // No number until there is one: a "0" while loading, or after a failed
+          // load, would say there is nothing to answer.
+          doubtsCount={points.error || (points.loading && !points.groups.length) ? undefined : points.total}
           rootOptions={rootOptions}
           root={root}
           onRoot={setRoot}
@@ -476,16 +507,16 @@ export default function OrgChart() {
         />
       )}
 
-      {loading && <ChartSkeleton />}
+      {loading && (chartLike || !model) && <ChartSkeleton />}
 
-      {!loading && !error && model && model.byId.size === 0 && (
+      {chartLike && !loading && !error && model && model.byId.size === 0 && (
         <EmptyState
           title="No positions yet"
           hint="Import the organisation chart, or create positions, and they will appear here."
         />
       )}
 
-      {!loading && model && scene && model.byId.size > 0 && (
+      {chartLike && !loading && model && scene && model.byId.size > 0 && (
         <Stack
           direction={{ xs: 'column', lg: 'row' }}
           spacing={2}
@@ -580,6 +611,41 @@ export default function OrgChart() {
         </Stack>
       )}
 
+      {view === 'departments' && model && (
+        <OrgChartDepartments
+          company={company}
+          asOf={asOf}
+          onAsOf={setAsOf}
+          model={model}
+          onOpenCard={(id) => {
+            setSelected(id);
+            setCardId(id);
+          }}
+        />
+      )}
+
+      {view === 'doubts' && (
+        <Surface e={1} sx={{ p: { xs: 1.75, sm: 2.25 } }}>
+          {!points.error && !(points.loading && !points.groups.length) && points.total > 0 && (
+            <Typography sx={{ fontSize: 14, color: 'var(--c-text-2)', mb: 1.5 }}>
+              {points.total} question{points.total === 1 ? '' : 's'} the chart cannot answer by itself.
+            </Typography>
+          )}
+          <OpenPointsList
+            groups={points.groups}
+            loading={points.loading}
+            error={points.error}
+            onRetry={points.reload}
+            onChanged={points.reload}
+            canManage={canManage}
+            onPick={(id) => {
+              setSelected(id);
+              setCardId(id);
+            }}
+          />
+        </Surface>
+      )}
+
       <OrgChartCardModal
         positionId={cardId}
         asOf={asOf}
@@ -590,15 +656,12 @@ export default function OrgChart() {
             : undefined
         }
         onClose={() => setCardId(null)}
-        onStartFrom={(id) => setRoot(id)}
-      />
-      <OrgChartOpenPoints
-        open={pointsOpen}
-        onClose={() => setPointsOpen(false)}
-        canManage={canManage}
-        onPick={(id) => {
-          setSelected(id);
-          setCardId(id);
+        onChanged={load}
+        onStartFrom={(id) => {
+          setRoot(id);
+          // "Start from here" is a chart instruction; from Departments or
+          // Doubts it would otherwise change nothing the viewer can see.
+          if (!chartLike) setView('chart');
         }}
       />
       <OrgChartSearch

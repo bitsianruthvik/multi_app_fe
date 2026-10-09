@@ -3,6 +3,7 @@ import { Alert, MenuItem, Stack, TextField, Typography } from '@mui/material';
 import { FormDialog } from '@shared/ui';
 import type { LookupRow, PositionOptions, PositionRow } from '../api/positions';
 import { positionsApi } from '../api/positions';
+import { usePositionRemoval } from './usePositionRemoval';
 
 /**
  * Position forms, plus the content-override form both detail screens share.
@@ -34,6 +35,9 @@ export function PositionFormDialog({
   const [status, setStatus] = useState('DRAFT');
   const [effectiveFrom, setEffectiveFrom] = useState(today());
   const [effectiveTo, setEffectiveTo] = useState('');
+  // CLOSED is not a plain field: a closed seat leaves the chart, and a manager's team would be left as
+  // separate tops. Picking it saves the other fields, then hands over to the close dialog, which moves the team up.
+  const removal = usePositionRemoval({ onDone: () => { if (position) onDone(position.id); } });
 
   useEffect(() => {
     if (!open) return;
@@ -50,85 +54,90 @@ export function PositionFormDialog({
   }, [open, position]);
 
   return (
-    <FormDialog
-      open={open}
-      title={position ? 'Edit position' : 'New position'}
-      subtitle="A sanctioned seat. It survives a vacancy and a change of people."
-      onClose={onClose}
-      submitLabel={position ? 'Save' : 'Create position'}
-      submitDisabled={roleId === ''}
-      onSubmit={async () => {
-        const body = {
-          roleId,
-          positionCode: positionCode || null,
-          positionTitle: positionTitle || null,
-          departmentId: departmentId === '' ? null : departmentId,
-          locationId: locationId === '' ? null : locationId,
-          sanctionedHeadcount: Number(sanctionedHeadcount),
-          defaultShiftId: defaultShiftId === '' ? null : defaultShiftId,
-          status,
-          effectiveFrom: effectiveFrom || null,
-          effectiveTo: effectiveTo || null,
-        };
-        const res = position
-          ? await positionsApi.update(position.id, body)
-          : await positionsApi.create(body);
-        onDone(res.position.id);
-      }}
-    >
-      <Stack spacing={2} sx={{ pt: 0.5 }}>
-        <TextField
-          select size="small" label="Role" value={roleId}
-          onChange={(e) => setRoleId(Number(e.target.value))}
-          helperText="Required. The role says what kind of work this seat is for."
-        >
-          {(options?.roles ?? []).map((r) => (
-            <MenuItem key={r.id} value={r.id}>{r.name}{r.code ? ` · ${r.code}` : ''}</MenuItem>
-          ))}
-        </TextField>
-
-        <Stack direction="row" spacing={2}>
-          <TextField size="small" label="Position code" fullWidth value={positionCode} onChange={(e) => setPositionCode(e.target.value)} />
+    <>
+      <FormDialog
+        open={open}
+        title={position ? 'Edit position' : 'New position'}
+        subtitle="A sanctioned seat. It survives a vacancy and a change of people."
+        onClose={onClose}
+        submitLabel={position ? 'Save' : 'Create position'}
+        submitDisabled={roleId === ''}
+        onSubmit={async () => {
+          const closing = position != null && status === 'CLOSED' && position.status !== 'CLOSED';
+          const body = {
+            roleId,
+            positionCode: positionCode || null,
+            positionTitle: positionTitle || null,
+            departmentId: departmentId === '' ? null : departmentId,
+            locationId: locationId === '' ? null : locationId,
+            sanctionedHeadcount: Number(sanctionedHeadcount),
+            defaultShiftId: defaultShiftId === '' ? null : defaultShiftId,
+            status: closing && position ? position.status : status,
+            effectiveFrom: effectiveFrom || null,
+            effectiveTo: effectiveTo || null,
+          };
+          const res = position
+            ? await positionsApi.update(position.id, body)
+            : await positionsApi.create(body);
+          if (closing) await removal.start(position.id);
+          onDone(res.position.id);
+        }}
+      >
+        <Stack spacing={2} sx={{ pt: 0.5 }}>
           <TextField
-            size="small" label="Title override" fullWidth value={positionTitle}
-            onChange={(e) => setPositionTitle(e.target.value)}
-            helperText="Only when the seat is called something other than the role."
-          />
-        </Stack>
+            select size="small" label="Role" value={roleId}
+            onChange={(e) => setRoleId(Number(e.target.value))}
+            helperText="Required. The role says what kind of work this seat is for."
+          >
+            {(options?.roles ?? []).map((r) => (
+              <MenuItem key={r.id} value={r.id}>{r.name}{r.code ? ` · ${r.code}` : ''}</MenuItem>
+            ))}
+          </TextField>
 
-        <Stack direction="row" spacing={2}>
-          <TextField select size="small" label="Department" fullWidth value={departmentId} onChange={(e) => setDepartmentId(e.target.value === '' ? '' : Number(e.target.value))}>
-            <MenuItem value="">Not set</MenuItem>
-            {(options?.departments ?? []).map((d) => <MenuItem key={d.id} value={d.id}>{d.name}</MenuItem>)}
-          </TextField>
-          <TextField select size="small" label="Location" fullWidth value={locationId} onChange={(e) => setLocationId(e.target.value === '' ? '' : Number(e.target.value))}>
-            <MenuItem value="">Not set</MenuItem>
-            {(options?.locations ?? []).map((l) => <MenuItem key={l.id} value={l.id}>{l.name}</MenuItem>)}
-          </TextField>
-        </Stack>
+          <Stack direction="row" spacing={2}>
+            <TextField size="small" label="Position code" fullWidth value={positionCode} onChange={(e) => setPositionCode(e.target.value)} />
+            <TextField
+              size="small" label="Title override" fullWidth value={positionTitle}
+              onChange={(e) => setPositionTitle(e.target.value)}
+              helperText="Only when the seat is called something other than the role."
+            />
+          </Stack>
 
-        <Stack direction="row" spacing={2}>
-          <TextField
-            size="small" type="number" label="Sanctioned headcount" fullWidth
-            value={sanctionedHeadcount} onChange={(e) => setSanctionedHeadcount(e.target.value)}
-            inputProps={{ min: 0, step: 1 }}
-            helperText="How many people this seat is approved for. Vacancy = this minus active assignments."
-          />
-          <TextField select size="small" label="Default shift" fullWidth value={defaultShiftId} onChange={(e) => setDefaultShiftId(e.target.value === '' ? '' : Number(e.target.value))}>
-            <MenuItem value="">Not set</MenuItem>
-            {(options?.shifts ?? []).map((s) => <MenuItem key={s.id} value={s.id}>{s.code} · {s.name}</MenuItem>)}
-          </TextField>
-        </Stack>
+          <Stack direction="row" spacing={2}>
+            <TextField select size="small" label="Department" fullWidth value={departmentId} onChange={(e) => setDepartmentId(e.target.value === '' ? '' : Number(e.target.value))}>
+              <MenuItem value="">Not set</MenuItem>
+              {(options?.departments ?? []).map((d) => <MenuItem key={d.id} value={d.id}>{d.name}</MenuItem>)}
+            </TextField>
+            <TextField select size="small" label="Location" fullWidth value={locationId} onChange={(e) => setLocationId(e.target.value === '' ? '' : Number(e.target.value))}>
+              <MenuItem value="">Not set</MenuItem>
+              {(options?.locations ?? []).map((l) => <MenuItem key={l.id} value={l.id}>{l.name}</MenuItem>)}
+            </TextField>
+          </Stack>
 
-        <Stack direction="row" spacing={2}>
-          <TextField select size="small" label="Status" fullWidth value={status} onChange={(e) => setStatus(e.target.value)}>
-            {(options?.positionStatuses ?? ['DRAFT', 'ACTIVE', 'FROZEN', 'CLOSED']).map((s) => <MenuItem key={s} value={s}>{s}</MenuItem>)}
-          </TextField>
-          <TextField size="small" type="date" label="From" fullWidth InputLabelProps={{ shrink: true }} value={effectiveFrom} onChange={(e) => setEffectiveFrom(e.target.value)} />
-          <TextField size="small" type="date" label="Until" fullWidth InputLabelProps={{ shrink: true }} value={effectiveTo} onChange={(e) => setEffectiveTo(e.target.value)} />
+          <Stack direction="row" spacing={2}>
+            <TextField
+              size="small" type="number" label="Sanctioned headcount" fullWidth
+              value={sanctionedHeadcount} onChange={(e) => setSanctionedHeadcount(e.target.value)}
+              inputProps={{ min: 0, step: 1 }}
+              helperText="How many people this seat is approved for. Vacancy = this minus active assignments."
+            />
+            <TextField select size="small" label="Default shift" fullWidth value={defaultShiftId} onChange={(e) => setDefaultShiftId(e.target.value === '' ? '' : Number(e.target.value))}>
+              <MenuItem value="">Not set</MenuItem>
+              {(options?.shifts ?? []).map((s) => <MenuItem key={s.id} value={s.id}>{s.code} · {s.name}</MenuItem>)}
+            </TextField>
+          </Stack>
+
+          <Stack direction="row" spacing={2}>
+            <TextField select size="small" label="Status" fullWidth value={status} onChange={(e) => setStatus(e.target.value)}>
+              {(options?.positionStatuses ?? ['DRAFT', 'ACTIVE', 'FROZEN', 'CLOSED']).map((s) => <MenuItem key={s} value={s}>{s}</MenuItem>)}
+            </TextField>
+            <TextField size="small" type="date" label="From" fullWidth InputLabelProps={{ shrink: true }} value={effectiveFrom} onChange={(e) => setEffectiveFrom(e.target.value)} />
+            <TextField size="small" type="date" label="Until" fullWidth InputLabelProps={{ shrink: true }} value={effectiveTo} onChange={(e) => setEffectiveTo(e.target.value)} />
+          </Stack>
         </Stack>
-      </Stack>
-    </FormDialog>
+      </FormDialog>
+      {removal.dialog}
+    </>
   );
 }
 

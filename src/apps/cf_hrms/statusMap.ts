@@ -84,6 +84,16 @@ registerStatusTones({
   // Position fill — see the note above on VACANT
   VACANT: 'neutral',
   FILLED: 'success',
+
+  // What became of each line in a content copy (ContentCopySheet). Prefixed
+  // because this registry is one table for the whole SPA, and "ADDED" or
+  // "BLOCKED" is a word other apps will want to mean something else by.
+  //   added          success — it is on the target now
+  //   already there  neutral — the target had it (or says the same thing); nothing to do, nothing wrong
+  //   not added      warning — a person has to act first (reactivate a master, lift a seat's exception)
+  COPY_ADDED: 'success',
+  COPY_REUSED: 'neutral',
+  COPY_BLOCKED: 'warning',
 });
 
 /**
@@ -123,6 +133,9 @@ registerStatusLabels({
   DISMISSED: 'Dismissed',
   VACANT: 'Vacant',
   FILLED: 'Filled',
+  COPY_ADDED: 'Added',
+  COPY_REUSED: 'Already there',
+  COPY_BLOCKED: 'Not added',
   parsed: 'Parsed',
   validated: 'Validated',
   committed: 'Committed',

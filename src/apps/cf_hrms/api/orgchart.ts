@@ -239,10 +239,105 @@ export interface SearchHit {
 
 export interface OpenPointGroup {
   entityType: string;
+  /** "Organisation", "Position", "Work assignment" — the type said in words. */
+  entityKind?: string;
   entityLabel: string;
   entityId?: number | null;
   positionId?: number | null;
   points: OpenPoint[];
+}
+
+/* ── The Departments view (spec §13) ──────────────────────────────────────
+ * `GET /orgchart/departments` — what each unit is accountable for.
+ *
+ * Content belongs to ROLES and roles are shared, so the server de-duplicates
+ * within a unit (three seats holding one duty is one line, carried three
+ * times) and never across units (the same duty under Printing and under
+ * Slitting is the true answer for both). Every line names its carriers; a
+ * reader must never be left thinking one person does what three do.
+ */
+
+export type AccountabilityKind = 'KRA' | 'RESPONSIBILITY' | 'KPI' | 'QUALIFICATION';
+
+/** One distinct statement. `units[].lines[].line` indexes into `DepartmentRollup.lines`. */
+export interface AccountabilityLine {
+  kind: AccountabilityKind;
+  definitionId: number | null;
+  name: string;
+  /** "2400 MT · Monthly", "Owner", "Required · Education". Absent when there is nothing to add. */
+  detail?: string;
+  /** Only when it says more than the name. */
+  description?: string;
+}
+
+export interface UnitLine {
+  line: number;
+  /** The positions in this unit that carry the line, heads first. */
+  positionIds: number[];
+  /** Of those, the ones whose line comes from (or was changed by) a position overlay. */
+  exceptionPositionIds?: number[];
+}
+
+export interface UnitSuppressed {
+  kind: string;
+  definitionId: number;
+  name: string;
+  positionIds: number[];
+  reasons: string[];
+}
+
+export interface DepartmentUnit {
+  /** 0 is the synthetic "Not in any department" unit, present only when positions have none. */
+  id: number;
+  code: string | null;
+  name: string;
+  parentId: number | null;
+  status: string;
+  depth: number;
+  /** Ancestors, root first. The screen prints them above the name. */
+  path: { id: number; name: string; code: string | null; qualifier: string | null }[];
+  /** Another unit somewhere carries the same name. */
+  clash: boolean;
+  /** What tells same-named siblings apart: the head's machine, the head's title, or the code. */
+  qualifier: string | null;
+  qualifierKind: 'context' | 'head' | 'code' | null;
+  childIds: number[];
+  /** Where the unit starts: its positions whose primary manager sits outside it. */
+  headPositionIds: number[];
+  /** This unit's OWN positions (not its sections'), heads first. */
+  positionIds: number[];
+  lines: UnitLine[];
+  suppressed: UnitSuppressed[];
+  synthetic?: boolean;
+}
+
+export interface DepartmentRollup {
+  asOf: string;
+  /** Depth-first, siblings by name, so namesakes sit together. */
+  units: DepartmentUnit[];
+  lines: AccountabilityLine[];
+  positions: Record<string, {
+    id: number;
+    code: string | null;
+    title: string;
+    roleId: number | null;
+    roleTitle: string | null;
+    unitId: number;
+    status: string;
+  }>;
+  /** Each role, with every unit it is used in — "also used in 7 other units". */
+  roles: Record<string, { id: number; title: string; unitIds: number[]; positionIds: number[] }>;
+  /**
+   * `carried` — distinct lines some current position holds. `written` — distinct
+   * lines on any role at all. Zero `written` means nobody has written any yet,
+   * which the screen says once, rather than "none" in every unit.
+   */
+  totals: Record<AccountabilityKind, { carried: number; written: number }>;
+  exceptions: { positions: number; unresolved: { positionId: number; message: string }[] };
+  counts: { units: number; positions: number; unplacedPositions: number; distinctUnitNames: number };
+  /** Round trips the server used. Six for the whole company, plus ~13 per seat-level exception. */
+  queries: number;
+  generatedInMs: number;
 }
 
 function qs(params: Record<string, string | number | undefined | null>): string {
@@ -265,6 +360,10 @@ export const orgChartApi = {
   /** Multi-word AND across responsibility, KRA, KPI and qualification text. */
   search: (q: string, on?: string) =>
     api.get<SearchHit[]>(`/orgchart/search${qs({ q, on })}`),
+
+  /** Every unit and what it is accountable for, as of a date. One payload, like the graph. */
+  departments: (on?: string) =>
+    api.get<DepartmentRollup>(`/orgchart/departments${qs({ on })}`),
 
   openPoints: () => api.get<OpenPointGroup[]>('/orgchart/open-points'),
 

@@ -167,6 +167,71 @@ export interface PositionFilters {
   search?: string;
 }
 
+/**
+ * Taking a seat off the chart. GET /positions/:id/delete-impact says what
+ * closing it, deleting it alone and deleting it with its team would each do —
+ * and whether each is allowed — BEFORE anyone confirms. The server runs the very
+ * same assessment again when the write arrives, so a refusal here is also a
+ * refusal there; `expect` carries the number the person saw so a stale dialog
+ * is caught instead of doing more than was agreed.
+ *
+ * "Its manager" is the PRIMARY_MANAGER line, because that is the line the org
+ * chart draws its tree on. A dotted or functional line is not a manager: those
+ * are not moved, they go with the seat, and `otherLines` counts them.
+ */
+export interface RemovalSeat {
+  id: number;
+  positionCode: string | null;
+  title: string;
+  status: string;
+}
+export interface RemovalOutcome {
+  allowed: boolean;
+  /** IN_USE · ROOT_HAS_TEAM · TEAM_IN_USE · REPORTING_LOOP · ALREADY_CLOSED — null when allowed. */
+  code: string | null;
+  /** The sentence to show when it is not allowed. The server writes it; do not rephrase it here. */
+  reason: string | null;
+}
+export interface PositionRemovalImpact {
+  asOf: string;
+  position: RemovalSeat;
+  /** Where its direct reports would move: the first OPEN seat above it. null = nowhere to send them. */
+  manager: RemovalSeat | null;
+  directReports: (RemovalSeat & { assignments: number })[];
+  team: {
+    /** Positions under it, all levels, not counting itself. */
+    count: number;
+    /** What "with its team" deletes: `count` plus the seat itself. This is the number in the label. */
+    total: number;
+    /** How many of `count` are already closed. */
+    closed: number;
+    /** Team members holding live work assignments — each one blocks "with its team". */
+    blockers: (RemovalSeat & { assignments: number })[];
+  };
+  /** Live work assignments on the seat itself. Blocks every kind of delete (not close). */
+  ownAssignments: number;
+  /** Dotted / functional / planned / ended lines that go with the seat(s), per outcome. */
+  otherLines: { thisOnly: number; withTeam: number };
+  outcomes: {
+    close: RemovalOutcome & { movesReports: number };
+    deleteOnly: RemovalOutcome & { movesReports: number };
+    deleteWithTeam: RemovalOutcome & { deletes: number };
+  };
+}
+export type RemovalMode = 'THIS_ONLY' | 'WITH_TEAM';
+export interface RemovalResult {
+  ok: true;
+  /** Present on a delete. */
+  mode?: RemovalMode;
+  deletedIds?: number[];
+  deletedCount?: number;
+  /** Present on a close. */
+  position?: PositionRow;
+  alreadyClosed?: boolean;
+  movedReports: RemovalSeat[];
+  movedTo: RemovalSeat | null;
+}
+
 function qs(params: object): string {
   const sp = new URLSearchParams();
   for (const [k, v] of Object.entries(params)) {
@@ -184,7 +249,18 @@ export const positionsApi = {
   create: (body: Record<string, unknown>) => api.post<{ position: PositionRow }>('/positions', body),
   update: (id: number, body: Record<string, unknown>) => api.put<{ position: PositionRow }>(`/positions/${id}`, body),
   setStatus: (id: number, status: string) => api.post<{ position: PositionRow }>(`/positions/${id}/status`, { status }),
-  remove: (id: number) => api.del<{ ok: true }>(`/positions/${id}`),
+  /** Read this BEFORE offering a close or a delete: it is what the confirm dialog says. */
+  deleteImpact: (id: number) => api.get<PositionRemovalImpact>(`/positions/${id}/delete-impact`),
+  /**
+   * Delete a seat. `mode` is required by the server whenever the seat has direct
+   * reports (THIS_ONLY moves them up to its manager; WITH_TEAM deletes them too).
+   * `expect` is the number the person saw — reports moved, or positions deleted.
+   */
+  remove: (id: number, opts: { mode?: RemovalMode; expect?: number } = {}) =>
+    api.del<RemovalResult>(`/positions/${id}${qs(opts)}`),
+  /** Close a seat: it keeps its history and leaves the chart; its direct reports move up. */
+  close: (id: number, expect?: number) =>
+    api.post<RemovalResult>(`/positions/${id}/close`, expect == null ? {} : { expect }),
 
   contexts: (id: number) => api.get<{ items: PositionContextRow[]; total: number }>(`/positions/${id}/work-contexts`),
   addContext: (id: number, body: Record<string, unknown>) => api.post<{ id: number }>(`/positions/${id}/work-contexts`, body),

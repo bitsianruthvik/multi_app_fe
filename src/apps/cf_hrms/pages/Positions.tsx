@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { Button, MenuItem, Stack, TextField, Typography } from '@mui/material';
+import { Box, Button, IconButton, MenuItem, Stack, TextField, Tooltip, Typography } from '@mui/material';
 import AddRounded from '@mui/icons-material/AddRounded';
+import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
 import EventSeatRounded from '@mui/icons-material/EventSeatRounded';
 import {
   DataTable, EmptyState, ErrorNotice, FilterBar, ListSkeleton, Mono, PageHeader,
@@ -11,6 +12,7 @@ import type { DataColumn, Stat, StatusTone } from '@shared/ui';
 import type { PositionListResult, PositionOptions, PositionRow } from '../api/positions';
 import { positionsApi } from '../api/positions';
 import { PositionFormDialog } from '../components/PositionDialogs';
+import { usePositionRemoval } from '../components/usePositionRemoval';
 
 /**
  * Positions — the sanctioned seats (DESIGN_SYSTEM.md §4.2 Collection).
@@ -57,6 +59,8 @@ export default function Positions() {
   }, [search, status, departmentId]);
 
   useEffect(() => { load(); }, [load]);
+  // Close or delete a seat. The dialog reads what it would do to the team BEFORE it offers anything.
+  const removal = usePositionRemoval({ onDone: () => load() });
   useEffect(() => { positionsApi.options().then(setOptions).catch(() => setOptions(null)); }, []);
 
   // The shell's quick-create sends people here with ?new=1.
@@ -178,6 +182,25 @@ export default function Positions() {
           columns={columns}
           getRowId={(p) => p.id}
           onRowClick={(p) => navigate(`/${company}/cf_hrms/positions/${p.id}`)}
+          rowActions={
+            canManage
+              ? (p) => (
+                  <Tooltip title="Close or delete this position…">
+                    {/* A disabled IconButton fires no events, so the tooltip needs a wrapper to hover. */}
+                    <Box component="span">
+                      <IconButton
+                        size="small"
+                        disabled={removal.busyId === p.id}
+                        onClick={() => { void removal.start(p.id); }}
+                        aria-label={`Close or delete ${p.displayTitle}`}
+                      >
+                        <DeleteOutlineRounded fontSize="small" />
+                      </IconButton>
+                    </Box>
+                  </Tooltip>
+                )
+              : undefined
+          }
           loading={loading}
           storageKey="cf_hrms.positions"
           exportName="positions"
@@ -196,6 +219,8 @@ export default function Positions() {
           }
         />
       )}
+
+      {removal.dialog}
 
       <PositionFormDialog
         open={creating}

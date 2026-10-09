@@ -261,6 +261,157 @@ export const regroupContent = (kind: ContentKind, id: number, roleKraAssignmentI
   api.put<ContentRow>(`/role-content/${kind}/${id}/group`, { roleKraAssignmentId });
 
 // ---------------------------------------------------------------------------
+// Copying content between roles and seats
+// (backend: services/contentCopyService.js, routes/roles.js /role-content-copy)
+//
+// THREE DIFFERENT ACTS, and the screen must say which one it is doing, with a
+// number — because content belongs to a ROLE and a role is shared:
+//
+//   SEAT  an overlay on the target seat only. Changes 1 seat. The safe default.
+//   ROLE  new rows on the target's role. Changes EVERY seat holding it.
+//   FORK  a new role cloned from the seat's own, plus the lines; the seat moves
+//         onto it. Changes 1 seat, leaves the old role alone, costs one more role.
+//
+// Only KRAs, responsibilities and KPIs have a seat-level layer, so SEAT cannot
+// carry anything else (a qualification can only go on a role).
+// ---------------------------------------------------------------------------
+
+export type CopyMode = 'SEAT' | 'ROLE' | 'FORK';
+
+export interface CopyRef {
+  type: 'role' | 'position';
+  id: number;
+}
+
+/** What a source is: its label, the role it holds, and how many seats that role has. */
+export interface CopySourceInfo extends CopyRef {
+  label: string;
+  roleId: number;
+  roleTitle: string;
+  positionId: number | null;
+  seats: number;
+}
+
+/** One thing that could be copied. `key` is the server's; send it back as-is. */
+export interface CopyLine {
+  key: string;
+  kind: ContentKind;
+  definitionId: number | null;
+  name: string;
+  code: string | null;
+  description: string | null;
+  /** The sentence the JD prints for it — the same one, from the resolver. */
+  text: string;
+  /** ROLE = the role says it; POSITION = this seat's own exception (a seat source only). */
+  origin: 'ROLE' | 'POSITION';
+  groupName: string | null;
+  inactive: boolean;
+  endsOn: string | null;
+}
+
+export interface CopySource {
+  source: CopySourceInfo;
+  asOf: string;
+  layers: string[];
+  lines: CopyLine[];
+  counts: Record<ContentKind, number>;
+  suppressed: { kind: string; name: string; byLayer: string }[];
+  /** The kinds a single seat can carry. */
+  seatKinds: ContentKind[];
+}
+
+export interface CopyRequest {
+  source: CopyRef;
+  targets: CopyRef[];
+  mode: CopyMode;
+  kinds: ContentKind[];
+  /** Line keys. Omit for every line of the chosen kinds. */
+  lines?: string[] | null;
+  on?: string;
+  effectiveFrom?: string | null;
+  forkTitle?: string | null;
+  /** ROLE requires it: the seat count the person was shown. */
+  confirm?: { seats: number };
+}
+
+export interface CopyKindCounts {
+  selected: number;
+  created: number;
+  reused: number;
+  blocked: number;
+}
+
+export interface CopyException {
+  key: string;
+  kind: ContentKind;
+  name: string;
+  outcome: 'REUSED' | 'BLOCKED';
+  code: string | null;
+  why: string | null;
+}
+
+export interface CopyTargetPlan {
+  type: 'role' | 'position';
+  id: number;
+  label: string;
+  roleId: number;
+  roleTitle: string;
+  /** In ROLE mode, the seats that were picked and led here. */
+  via: string[];
+  reach: { seats: number; people: number };
+  kinds: Partial<Record<ContentKind, CopyKindCounts>>;
+  ungrouped: number;
+  fork?: {
+    newRoleTitle: string;
+    newRoleId?: number;
+    assignmentsMoved: number;
+    manpowerMoved: number;
+    currentDocuments: number;
+  };
+  exceptions: CopyException[];
+}
+
+export interface CopyPlan {
+  ok: boolean;
+  dryRun: boolean;
+  mode: CopyMode;
+  asOf: string;
+  source: CopySourceInfo;
+  kinds: ContentKind[];
+  effectiveFrom: string | null;
+  targets: CopyTargetPlan[];
+  totals: {
+    targets: number;
+    seats: number;
+    people: number;
+    selected: number;
+    created: number;
+    reused: number;
+    blocked: number;
+    ungrouped: number;
+    /** Always 0: a copy points at the existing master row. */
+    definitionsCreated: number;
+    newRoles: number;
+    assignmentsMoved: number;
+    manpowerMoved: number;
+    byKind: Partial<Record<ContentKind, CopyKindCounts>>;
+  };
+  reachByMode: Partial<Record<CopyMode, { seats: number; people: number; roles: number; newRoles?: number }>>;
+  confirmSeats: number;
+  needsSeatConfirmation: boolean;
+  notices: { tone: 'info' | 'warning'; text: string }[];
+}
+
+export const getCopySource = (ref: CopyRef, on?: string) =>
+  api.get<CopySource>(`/role-content-copy/source?type=${ref.type}&id=${ref.id}${on ? `&on=${on}` : ''}`);
+
+/** What a copy WOULD do. Writes nothing. */
+export const previewCopy = (body: CopyRequest) => api.post<CopyPlan>('/role-content-copy/preview', body);
+
+/** Does it, in one transaction. ROLE mode must carry `confirm.seats`. */
+export const runCopy = (body: CopyRequest) => api.post<CopyPlan>('/role-content-copy', body);
+
+// ---------------------------------------------------------------------------
 // Vocabularies. /meta is the backend's copy of the ENUMs (routes/index.js), so
 // a picker never hard-codes a value a migration could rename.
 // ---------------------------------------------------------------------------

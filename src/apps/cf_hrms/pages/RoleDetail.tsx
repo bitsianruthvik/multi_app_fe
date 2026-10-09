@@ -19,13 +19,17 @@
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { Box, Button, Stack, TextField, Typography } from '@mui/material';
+import { Box, Button, ListItemIcon, ListItemText, Menu, MenuItem, Stack, TextField, Typography } from '@mui/material';
 import ApartmentRounded from '@mui/icons-material/ApartmentRounded';
 import WorkOutlineRounded from '@mui/icons-material/WorkOutlineRounded';
 import AssignmentIndRounded from '@mui/icons-material/AssignmentIndRounded';
 import FlagRounded from '@mui/icons-material/FlagRounded';
 import EditRounded from '@mui/icons-material/EditRounded';
 import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
+import ContentCopyRounded from '@mui/icons-material/ContentCopyRounded';
+import ArrowDropDownRounded from '@mui/icons-material/ArrowDropDownRounded';
+import CallMadeRounded from '@mui/icons-material/CallMadeRounded';
+import CallReceivedRounded from '@mui/icons-material/CallReceivedRounded';
 import {
   DetailLayout, DetailHeader, CrossLink, FactItem, SectionCard, StatusBadge, ToneBadge, Mono,
   Surface, Callout, ErrorNotice, DetailSkeleton, ConfirmDialog, useToast, useIsPermitted, useCompanySlug,
@@ -37,6 +41,7 @@ import {
 import { RoleFormDialog } from '../components/RoleFormDialog';
 import { RoleContentTab } from '../components/RoleContentTab';
 import { RoleContentSection } from '../components/RoleContentSection';
+import { ContentCopySheet, type ContentCopyStart } from '../components/ContentCopySheet';
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
 
@@ -48,6 +53,10 @@ export default function RoleDetail() {
   const toast = useToast();
   const can = useIsPermitted();
   const canManage = can('cf_hrms_roles_manage');
+  // Copying is the one thing here two different tags can do: a seat-only copy
+  // needs org_manage, a role-wide one roles_manage. The sheet turns off whichever
+  // way is not open to this person, and says why.
+  const canCopy = canManage || can('cf_hrms_org_manage');
 
   const [content, setContent] = useState<RoleContent | null>(null);
   const [loading, setLoading] = useState(true);
@@ -57,6 +66,8 @@ export default function RoleDetail() {
   const [on, setOn] = useState(todayIso());
   const [editing, setEditing] = useState(false);
   const [removing, setRemoving] = useState(false);
+  const [copyStart, setCopyStart] = useState<ContentCopyStart | null>(null);
+  const [copyMenu, setCopyMenu] = useState<HTMLElement | null>(null);
 
   const load = useCallback(async () => {
     if (!Number.isInteger(roleId) || roleId <= 0) {
@@ -114,14 +125,28 @@ export default function RoleDetail() {
       }
       subtitle={role.roleSummary ?? undefined}
       actions={
-        canManage ? (
+        canCopy ? (
           <Stack direction="row" spacing={1}>
-            <Button size="small" startIcon={<EditRounded />} onClick={() => setEditing(true)}>
-              Edit
+            <Button
+              size="small"
+              startIcon={<ContentCopyRounded />}
+              endIcon={<ArrowDropDownRounded />}
+              onClick={(e) => setCopyMenu(e.currentTarget)}
+              aria-haspopup="menu"
+              aria-expanded={!!copyMenu}
+            >
+              Copy content
             </Button>
-            <Button size="small" color="error" startIcon={<DeleteOutlineRounded />} onClick={() => setRemoving(true)}>
-              Delete
-            </Button>
+            {canManage && (
+              <>
+                <Button size="small" startIcon={<EditRounded />} onClick={() => setEditing(true)}>
+                  Edit
+                </Button>
+                <Button size="small" color="error" startIcon={<DeleteOutlineRounded />} onClick={() => setRemoving(true)}>
+                  Delete
+                </Button>
+              </>
+            )}
           </Stack>
         ) : undefined
       }
@@ -350,6 +375,37 @@ export default function RoleDetail() {
           />
         )}
       </DetailLayout>
+
+      <Menu anchorEl={copyMenu} open={!!copyMenu} onClose={() => setCopyMenu(null)}>
+        <MenuItem
+          onClick={() => {
+            setCopyMenu(null);
+            setCopyStart({ from: { type: 'role', id: roleId }, toType: 'position' });
+          }}
+        >
+          <ListItemIcon>
+            <CallMadeRounded fontSize="small" />
+          </ListItemIcon>
+          <ListItemText primary="Copy this role's content to…" secondary="Other seats or roles. A single seat is the safe default." />
+        </MenuItem>
+        <MenuItem
+          disabled={!canManage}
+          onClick={() => {
+            setCopyMenu(null);
+            setCopyStart({ to: [{ type: 'role', id: roleId }], toType: 'role' });
+          }}
+        >
+          <ListItemIcon>
+            <CallReceivedRounded fontSize="small" />
+          </ListItemIcon>
+          <ListItemText
+            primary="Copy content into this role from…"
+            secondary={`Changes the role itself — all ${role.positionCount} seat${role.positionCount === 1 ? '' : 's'} holding it.`}
+          />
+        </MenuItem>
+      </Menu>
+
+      <ContentCopySheet open={!!copyStart} start={copyStart} onClose={() => setCopyStart(null)} onDone={() => void load()} />
 
       <RoleFormDialog
         open={editing}

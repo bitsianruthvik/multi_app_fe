@@ -13,6 +13,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Box, Button, Stack } from '@mui/material';
 import AddRounded from '@mui/icons-material/AddRounded';
 import BadgeRounded from '@mui/icons-material/BadgeRounded';
+import ContentCopyRounded from '@mui/icons-material/ContentCopyRounded';
 import {
   PageHeader, FilterBar, FacetChip, DataTable, EmptyState, StatStrip, StatusBadge, ToneBadge,
   Mono, ErrorNotice, ListSkeleton, useIsPermitted, useCompanySlug,
@@ -20,6 +21,7 @@ import {
 } from '@shared/ui';
 import { listRoles, pretty, type Role } from '../api/roles';
 import { RoleFormDialog } from '../components/RoleFormDialog';
+import { ContentCopySheet, type ContentCopyStart } from '../components/ContentCopySheet';
 
 type Gap = 'purpose' | 'kras';
 
@@ -38,6 +40,7 @@ export default function Roles() {
   const [gap, setGap] = useState<Gap | null>(null);
   // The shell's quick-create sends ?new=1 here.
   const [creating, setCreating] = useState(params.get('new') === '1');
+  const [copyStart, setCopyStart] = useState<ContentCopyStart | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -217,6 +220,21 @@ export default function Roles() {
             columns={columns}
             getRowId={(r) => r.id}
             storageKey="cf_hrms:roles"
+            selectable={mayManage}
+            bulkActions={(selected, clear) => (
+              <Button
+                size="small"
+                startIcon={<ContentCopyRounded />}
+                onClick={() => {
+                  // The ticked roles are where the content goes; where it comes
+                  // FROM is chosen in the sheet.
+                  setCopyStart({ to: selected.map((r) => ({ type: 'role' as const, id: r.id })), toType: 'role' });
+                  clear();
+                }}
+              >
+                Copy content into {selected.length} role{selected.length === 1 ? '' : 's'}…
+              </Button>
+            )}
             exportName="cf_hrms-roles"
             defaultSortKey="title"
             onRowClick={(r) => navigate(`/${company}/cf_hrms/roles/${r.id}`)}
@@ -246,6 +264,8 @@ export default function Roles() {
           </Stack>
         </>
       )}
+
+      <ContentCopySheet open={!!copyStart} start={copyStart} onClose={() => setCopyStart(null)} onDone={() => void load()} />
 
       <RoleFormDialog
         open={creating}
