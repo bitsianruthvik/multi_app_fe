@@ -137,7 +137,8 @@ export interface FormulaCheck {
   machineRefs?: string[];
   /** LOOKUP(t, x[, y]) — the tables it reads, one entry per LOOKUP call. */
   lookupRefs?: { role: 'plain' | 'item' | 'machine'; code: string; arity: number }[];
-  result: { value: number | null; missing?: string[]; error?: string } | null;
+  /** notes: how the value was found, e.g. a chart read past its edge. */
+  result: { value: number | null; missing?: string[]; error?: string; notes?: string[] } | null;
   /** The LOOKUP a short chart name stands for; null when nothing was shortened. */
   expanded?: string | null;
 }

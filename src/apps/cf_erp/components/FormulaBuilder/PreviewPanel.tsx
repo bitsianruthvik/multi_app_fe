@@ -98,6 +98,9 @@ export function PreviewPanel({ expression, ctx, idx, which, onCheck }: {
               <Typography sx={{ fontFamily: 'var(--font-mono)', fontSize: 30, fontWeight: 500, lineHeight: 1.1 }} data-testid="preview-minutes">{numberText(value)} min</Typography>
               <Typography sx={{ color: 'var(--c-text-2)' }}>{which === 'setup' ? 'per run' : 'per piece'}{value >= 60 ? ` · ${minutesText(value)}` : ''}</Typography>
             </Box>
+            {(check?.result?.notes ?? []).map((n) => (
+              <Typography key={n} sx={{ mt: 0.75, fontSize: 13, color: 'var(--c-warning-800)' }} data-testid="preview-extended">Extended past the chart: {n}</Typography>
+            ))}
           </>
         ) : check?.result?.missing?.length ? (
           <Typography sx={{ color: 'var(--c-warning-800)' }}>Needs {check.result.missing.map((m) => m.replace(/^(item|machine) · /, '')).join(', ')} — {piece ? 'not on this piece or machine; ' : ''}type a value below to try.</Typography>
