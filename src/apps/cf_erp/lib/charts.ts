@@ -22,7 +22,7 @@ export function chartHeadingLine(c: Pick<Chart, 'name' | 'resultUnit' | 'axes'>)
 /** "by Thickness (mm), Grade, Family". */
 export const byText = (axes: Pick<ChartAxis, 'label' | 'unit'>[]) => `by ${axes.map(axisHeading).join(', ')}`;
 
-export const modeText = (m: ChartMode) => (m === 'linear' ? 'Between rows: a straight line' : 'Between rows: steps up to the next row');
+export const modeText = (m: ChartMode) => (m === 'linear' ? 'Between rows: worked out on a straight line along every number column' : 'Between rows: steps up to the next row');
 
 /** How a time formula names the chart: the bare name, else the LOOKUP it stands for. */
 export const formulaNameText = (c: Pick<Chart, 'shortForm' | 'code'>) => c.shortForm ?? `LOOKUP(machine.${c.code}, …)`;
@@ -237,11 +237,8 @@ export function inputHeading(i: InputForm): string {
 
 export interface ChartForm { name: string; resultUnit: string; mode: ChartMode; inputs: InputForm[] }
 
-/** A straight line needs a number to run along: only when the last input is one. */
-export const canLinear = (f: Pick<ChartForm, 'inputs'>) => {
-  const last = f.inputs[f.inputs.length - 1];
-  return !!last && last.kind === 'spec' && last.dataType === 'number';
-};
+/** Straight lines run along number inputs — every one of them at once, wherever they sit; words and tree levels make groups. */
+export const canLinear = (f: Pick<ChartForm, 'inputs'>) => f.inputs.some((c) => c.kind === 'spec' && c.dataType === 'number');
 export const effectiveMode = (f: ChartForm): ChartMode => (f.mode === 'linear' && canLinear(f) ? 'linear' : 'step_up');
 
 /** The heading line the dialog previews while it is being filled. */
@@ -262,7 +259,6 @@ export function formProblems(f: ChartForm): string[] {
     const key = c.kind === 'level' ? `level:${c.level}` : `spec:${c.code}`;
     if (c.kind === 'spec') {
       if (!c.code) { out.push(`Input ${n}: pick a specification.`); return; }
-      if (c.dataType === 'number' && !c.specUnit && !c.unit.trim()) out.push(`Input ${n}: ${c.name} has no unit. Say which one.`);
     }
     if (seen.has(key)) out.push(`Input ${n}: ${inputHeading(c).replace(/ \(.*\)$/, '')} is already an input.`);
     seen.add(key);

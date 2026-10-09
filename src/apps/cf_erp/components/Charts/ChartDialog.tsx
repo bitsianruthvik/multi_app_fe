@@ -141,8 +141,8 @@ export function ChartDialog({ open, onClose, subject, existing, onSaved }: {
                     <Tooltip title="Remove input"><span><IconButton size="small" aria-label="Remove input" disabled={locked} onClick={() => setInputs((l) => l.filter((_, j) => j !== i))}><CloseRounded fontSize="small" /></IconButton></span></Tooltip>
                   </Box>
                   {c.kind === 'spec' && c.dataType === 'number' && !c.specUnit && (
-                    <TextField size="small" required label={`Unit of ${c.name}`} value={c.unit} disabled={locked} onChange={(e) => setInput(i, { unit: e.target.value })}
-                      helperText="This value has no unit set. Say which one the rows are in." inputProps={{ maxLength: 20 }} />
+                    <TextField size="small" label={`Unit of ${c.name} (optional)`} value={c.unit} disabled={locked} onChange={(e) => setInput(i, { unit: e.target.value })}
+                      helperText="This value has no unit. Leave it empty for a count (coats, holes, studs); otherwise say which unit the rows are in." inputProps={{ maxLength: 20 }} />
                   )}
                 </Box>
               ))}
@@ -171,7 +171,7 @@ export function ChartDialog({ open, onClose, subject, existing, onSaved }: {
           </Box>
 
           <TextField select size="small" label="Between rows" value={effectiveMode(form)} onChange={(e) => setForm((f) => ({ ...f, mode: e.target.value as ChartForm['mode'] }))}
-            helperText={canLinear(form) ? undefined : 'A straight line needs the last input to be a number.'}>
+            helperText={canLinear(form) ? 'Straight line: every number input is read between its rows at once; words and tree levels pick the group.' : 'A straight line needs at least one number input.'}>
             <MenuItem value="step_up">Step up — a value between two rows takes the next row’s result</MenuItem>
             <MenuItem value="linear" disabled={!canLinear(form)}>Straight line — a value between two rows is worked out between them</MenuItem>
           </TextField>

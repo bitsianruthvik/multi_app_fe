@@ -37,7 +37,7 @@ check('headings carry units; level and option have none', () => {
 check('no unit, no brackets', () => assert.equal(c.withUnit('Count', null), 'Count'));
 check('between rows is said in words', () => {
   assert.equal(c.modeText('step_up'), 'Between rows: steps up to the next row');
-  assert.equal(c.modeText('linear'), 'Between rows: a straight line');
+  assert.equal(c.modeText('linear'), 'Between rows: worked out on a straight line along every number column');
 });
 check('short form else LOOKUP', () => {
   assert.equal(c.formulaNameText(drill), 'DRILL_TIME');
@@ -90,9 +90,9 @@ check('a complete form has no problems; heading and formula name preview', () =>
 check('name, result unit and an input are required', () => {
   assert.equal(c.formProblems({ ...base, name: ' ', resultUnit: '', inputs: [] }).length, 3);
 });
-check('a number with no unit asks for one; a word does not', () => {
+check('a number with no unit (a count) is fine without one; a unit given is sent', () => {
   const f = { ...base, inputs: [{ ...base.inputs[0], specUnit: '' }] };
-  assert.match(c.formProblems(f)[0], /no unit/);
+  assert.equal(c.formProblems(f).filter((x) => /unit/.test(x)).length, 0);
   assert.deepEqual(c.inputsPayload({ ...f, inputs: [{ ...f.inputs[0], unit: 'mm' }] }), [{ field: 'THICKNESS', unit: 'mm' }]);
 });
 check('the same input twice is refused', () => {
@@ -102,9 +102,11 @@ check('the same input twice is refused', () => {
 check('inputs are sent as field codes and levels', () => {
   assert.deepEqual(c.inputsPayload(base), [{ field: 'THICKNESS' }, { field: 'GRADE' }, { level: 'FAMILY' }]);
 });
-check('a straight line only when the last input is a number; inputs reorder', () => {
-  assert.equal(c.canLinear(base), false);
-  assert.equal(c.effectiveMode({ ...base, mode: 'linear' }), 'step_up');
+check('a straight line whenever any input is a number, wherever it sits; inputs reorder', () => {
+  assert.equal(c.canLinear(base), true);
+  assert.equal(c.effectiveMode({ ...base, mode: 'linear' }), 'linear');
+  assert.equal(c.canLinear({ ...base, inputs: [base.inputs[1], base.inputs[2]] }), false);
+  assert.equal(c.effectiveMode({ ...base, mode: 'linear', inputs: [base.inputs[1], base.inputs[2]] }), 'step_up');
   assert.equal(c.canLinear({ ...base, inputs: [base.inputs[2], base.inputs[0]] }), true);
   assert.equal(c.effectiveMode({ ...base, mode: 'linear', inputs: [base.inputs[2], base.inputs[0]] }), 'linear');
   assert.deepEqual(c.moved([1, 2, 3], 2, -1), [1, 3, 2]);
