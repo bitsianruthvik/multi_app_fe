@@ -16,7 +16,7 @@ import { PreviewPanel } from './PreviewPanel';
  * time lives on the rule itself; `onSave` gets the text (empty clears the time).
  * A live preview on a real piece and machine runs beside it.
  */
-export function TimeBuilder({ open, onClose, operation, subject, which, current, onSave }: {
+export function TimeBuilder({ open, onClose, operation, subject, which, current, onSave, saveLabel = 'Save' }: {
   open: boolean;
   onClose: () => void;
   operation: { id: number; code: string; name: string };
@@ -26,6 +26,8 @@ export function TimeBuilder({ open, onClose, operation, subject, which, current,
   /** What the rule holds now; the editor opens with its text. */
   current: TimeView | null;
   onSave: (expression: string) => Promise<void> | void;
+  /** The button's word: "Save" when it saves the rule now, "Use this time" when the rule is not added yet. */
+  saveLabel?: string;
 }) {
   const ctx = useLoad(() => (open ? getBuilderContext(operation.id, subject) : Promise.resolve(null)), [open, operation.id, subject?.type, subject?.id]);
   const itemFields = useMemo(() => ctx.data?.itemFields ?? [], [ctx.data]);
@@ -101,7 +103,7 @@ export function TimeBuilder({ open, onClose, operation, subject, which, current,
           <Box sx={{ flex: 1 }} />
           <Button onClick={onClose} disabled={busy}>Cancel</Button>
           <Button variant="contained" onClick={save} disabled={busy || blocked} data-testid="builder-save"
-            startIcon={busy ? <CircularProgress size={14} color="inherit" /> : undefined}>{busy ? 'Saving…' : 'Save'}</Button>
+            startIcon={busy ? <CircularProgress size={14} color="inherit" /> : undefined}>{busy ? 'Saving…' : saveLabel}</Button>
         </Box>
       </Box>
     </Drawer>

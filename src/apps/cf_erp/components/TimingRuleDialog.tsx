@@ -148,7 +148,13 @@ export function TimingRuleDialog({ open, operationId, operation, existing, tree,
       <TimeBuilder open onClose={() => setBuildFor(null)} operation={operation} which={buildFor}
         subject={subjectType === 'machine' ? (machineId ? { type: 'machine', id: machineId, label: chosenMachine?.code ?? null } : null) : (nodeId ? { type: 'classification', id: nodeId } : null)}
         current={(() => { const t = (buildFor === 'setup' ? setup : work).trim(); return t ? { minutes: null, expression: t, formula: null } : null; })()}
-        onSave={(expression) => { (buildFor === 'setup' ? setSetup : setWork)(expression); }} />
+        saveLabel={existing ? 'Save' : 'Use this time'}
+        onSave={async (expression) => {
+          // An existing rule's time is saved here and now (2026-10-09: a time saved in this dialog was lost
+          // when the rule dialog was then closed without "Save rule"); a new rule takes it on "Add rule".
+          if (existing) { await cfApi.put(`/operation-rules/${existing.id}`, { [`${buildFor}Expression`]: expression }); onSaved(); }
+          (buildFor === 'setup' ? setSetup : setWork)(expression);
+        }} />
     )}
     </>
   );
