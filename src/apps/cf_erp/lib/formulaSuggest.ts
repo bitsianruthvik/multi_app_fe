@@ -66,10 +66,10 @@ function score(q: string, code: string, name: string): number {
   return -1;
 }
 
-/** A chart offered by its bare name: "chart · s, by Thickness (mm), Grade, Family". */
+/** A chart, offered as the machine's: machine.DRILL_TIME — "chart · s, by Thickness (mm), Grade, Family". */
 function chartItem(f: BuilderField): Suggestion {
   const by = (f.tableConfig?.axes ?? []).map((a) => withUnit(a.label ?? 'Key', a.unit)).join(', ');
-  return { kind: 'field', insert: f.code, caretBack: 0, label: f.name, detail: `chart · ${f.unit ? `${f.unit}, ` : ''}by ${by}`, field: f, role: 'plain' };
+  return { kind: 'field', insert: `machine.${f.code}`, caretBack: 0, label: f.name, detail: `machine.${f.code} · chart · ${f.unit ? `${f.unit}, ` : ''}by ${by}`, field: f, role: 'machine' };
 }
 
 const refOf = (role: FieldRole, code: string) => (role === 'plain' ? code : `${role}.${code}`);
@@ -111,9 +111,11 @@ export function suggestAt(text: string, caret: number, ctx: SuggestContext): Sug
   } else if (dot >= 0) {
     const ns = word.slice(0, dot).toLowerCase() as FieldRole;
     const rest = word.slice(dot + 1).toLowerCase();
-    const list = ns !== 'plain' ? ctx.fields[ns] : undefined;
+    const list = ns !== 'plain' ? (ctx.fields[ns] ?? (ns === 'machine' && ctx.shortCharts?.length ? [] : undefined)) : undefined;
     if (!list) return null;
     for (const f of list) add(rest ? score(rest, f.code, f.name) : 0, fieldItem(ns, f));
+    // machine. lists the machine's charts too, beside its numbers.
+    if (ns === 'machine') for (const f of ctx.shortCharts ?? []) add(rest ? score(rest, f.code, f.name) : 0, chartItem(f));
   } else {
     const q = word.toLowerCase();
     for (const fn of ctx.functions) {

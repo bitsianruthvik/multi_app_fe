@@ -39,7 +39,7 @@ function Highlight({ value, idx, shortNames }: { value: string; idx: FieldIndex 
   return (
     <>
       {toks.map((t) => {
-        const known = !idx || t.kind === 'func' || (t.kind === 'name' && shortNames.has(t.code ?? t.text))
+        const known = !idx || t.kind === 'func' || (t.kind === 'name' && shortNames.has(t.code ?? t.text)) || (t.kind === 'machine' && shortNames.has(t.code ?? ''))
           || !['item', 'machine', 'name'].includes(t.kind)
           || (t.kind === 'item' && isLevelCode(t.code))
           || !!fieldFor(idx, t.kind === 'name' ? 'plain' : (t.kind as FieldRole), t.code ?? '');
@@ -123,7 +123,8 @@ export function FormulaEditor({ value, onChange, idx, itemFields, machineFields,
   /** The piece field that feeds each key of a chart, guessed from the key column's name and unit. */
   const guessKeys = (chart: BuilderField) => axesOf(chart).map((a) => guessAxisField(a, itemFields));
   const shortCharts = useMemo(() => (timingOnly ? boundCharts(charts) : []), [timingOnly, charts]);
-  const shortNames = useMemo(() => new Set(shortCharts.map((c) => c.code)), [shortCharts]);
+  // A chart is written machine.NAME (a bare NAME is read the same): both are known names.
+  const shortNames = useMemo(() => new Set(shortCharts.flatMap((c) => [c.code, `machine.${c.code}`])), [shortCharts]);
   const suggestCtx = useMemo(() => {
     const num = (fs: BuilderField[]) => fs.filter((f) => f.dataType === 'number');
     const readable = [...itemFields.filter(isReadable), ...LEVEL_FIELDS];

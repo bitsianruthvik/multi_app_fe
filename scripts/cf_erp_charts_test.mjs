@@ -170,11 +170,16 @@ const ctx = {
   functions: [],
   shortCharts: [chartField],
 };
-check('type-ahead offers a chart by its bare name, with what it is read by', () => {
+check('type-ahead offers a chart as machine.NAME, with what it is read by', () => {
   const text = 'item.CUT_LENGTH / DRI';
   const r = suggestAt(text, text.length, ctx);
-  assert.equal(r.items[0].insert, 'DRILL_TIME');
-  assert.equal(r.items[0].detail, 'chart · s, by Thickness (mm), Grade, Family');
+  assert.equal(r.items[0].insert, 'machine.DRILL_TIME');
+  assert.equal(r.items[0].detail, 'machine.DRILL_TIME · chart · s, by Thickness (mm), Grade, Family');
+});
+check('typing machine. lists its charts beside its numbers', () => {
+  const text = 'item.HOLES * machine.';
+  const r = suggestAt(text, text.length, ctx);
+  assert.ok(r.items.some((i) => i.insert === 'machine.DRILL_TIME'), JSON.stringify(r.items.map((i) => i.insert)));
 });
 check('item.family / subfamily / variant and pick-list specs are offered', () => {
   const r = suggestAt('item.fam', 8, ctx);
