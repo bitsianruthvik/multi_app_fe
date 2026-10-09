@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, type PointerEvent as ReactPointerEvent } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, type PointerEvent as ReactPointerEvent } from 'react';
 import { Box } from '@mui/material';
 import type { ChartScene, Prim } from './orgChartLayout';
 
@@ -89,6 +89,7 @@ export function OrgChartCanvas({
   onOpenCard,
   onToggleCollapse,
   onNavigate,
+  onZoom,
 }: {
   scene: ChartScene;
   zoom: number;
@@ -101,9 +102,113 @@ export function OrgChartCanvas({
   onOpenCard: (id: number) => void;
   onToggleCollapse: (id: number) => void;
   onNavigate: (from: number, dir: NavDirection) => number | null;
+  /**
+   * Ask for a new zoom. The page clamps it (15 %–250 %) and passes the result
+   * back as `zoom`; the canvas never assumes its request was granted as asked.
+   */
+  onZoom?: (zoom: number) => void;
 }) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const pan = useRef<{ x: number; y: number; left: number; top: number } | null>(null);
+
+  /*
+   * PINCH TO ZOOM — trackpad and touch.
+   *
+   * A trackpad pinch reaches the browser as a `wheel` event with `ctrlKey` set
+   * (Chrome, Edge, Firefox; Ctrl + mouse wheel arrives the same way), and Safari
+   * sends its own `gesturechange` with a `scale`. A touchscreen sends two
+   * pointers. All three end in the same place: ask the page for a new zoom, and
+   * remember which point of the chart was under the fingers.
+   *
+   * That anchor is the whole difference between a pinch that feels right and one
+   * that is useless. Zoom is applied to the <svg>'s width/height, so growing it
+   * pushes everything right and down from the top-left corner — without
+   * correcting the scroll, a pinch over the Slitting section ends up somewhere
+   * else entirely. So the chart coordinate under the fingers is noted before the
+   * zoom changes, and after React has re-rendered at the new zoom, the scroll is
+   * set so that same coordinate is back under the same screen point.
+   *
+   * The correction runs in a layout effect keyed on `zoom`, i.e. on the zoom the
+   * page actually granted after clamping — not on the one requested.
+   *
+   * The listeners are native, not React props: React attaches `wheel` as a
+   * passive listener, and a passive listener cannot preventDefault, so the
+   * browser would zoom the whole page instead of the chart.
+   */
+  const zoomRef = useRef(zoom);
+  const wantedZoom = useRef<number | null>(null);   // accumulates a fast burst of wheel events
+  const anchor = useRef<{ cx: number; cy: number; sx: number; sy: number } | null>(null);
+  const onZoomRef = useRef(onZoom);
+  useEffect(() => { onZoomRef.current = onZoom; }, [onZoom]);
+
+  useLayoutEffect(() => {
+    zoomRef.current = zoom;
+    wantedZoom.current = null;
+    const wrap = wrapRef.current;
+    const a = anchor.current;
+    if (!wrap || !a) return;
+    wrap.scrollLeft = a.cx * zoom - a.sx;
+    wrap.scrollTop = a.cy * zoom - a.sy;
+    anchor.current = null;
+  }, [zoom]);
+
+  /** Request `next`, keeping the chart point at screen offset (sx, sy) fixed. */
+  const zoomAt = useCallback((next: number, sx: number, sy: number) => {
+    const wrap = wrapRef.current;
+    const ask = onZoomRef.current;
+    if (!wrap || !ask) return;
+    const z = zoomRef.current;
+    anchor.current = { cx: (wrap.scrollLeft + sx) / z, cy: (wrap.scrollTop + sy) / z, sx, sy };
+    wantedZoom.current = next;
+    ask(next);
+  }, []);
+
+  useEffect(() => {
+    const wrap = wrapRef.current;
+    if (!wrap) return;
+    const local = (clientX: number, clientY: number) => {
+      const r = wrap.getBoundingClientRect();
+      return [clientX - r.left, clientY - r.top] as const;
+    };
+
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey) return;              // plain scrolling still scrolls
+      e.preventDefault();
+      // deltaMode 1 = lines (a mouse wheel in Firefox); normalise to pixels.
+      const dy = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
+      const base = wantedZoom.current ?? zoomRef.current;
+      const [sx, sy] = local(e.clientX, e.clientY);
+      zoomAt(base * Math.exp(-dy * 0.01), sx, sy);
+    };
+
+    // Safari's trackpad pinch. `scale` is cumulative from the gesture's start.
+    let gestureStart = 1;
+    type GestureEvt = Event & { scale: number; clientX: number; clientY: number };
+    const onGestureStart = (e: Event) => { e.preventDefault(); gestureStart = zoomRef.current; };
+    const onGestureChange = (e: Event) => {
+      e.preventDefault();
+      const g = e as GestureEvt;
+      const [sx, sy] = local(g.clientX, g.clientY);
+      zoomAt(gestureStart * g.scale, sx, sy);
+    };
+
+    wrap.addEventListener('wheel', onWheel, { passive: false });
+    wrap.addEventListener('gesturestart', onGestureStart);
+    wrap.addEventListener('gesturechange', onGestureChange);
+    return () => {
+      wrap.removeEventListener('wheel', onWheel);
+      wrap.removeEventListener('gesturestart', onGestureStart);
+      wrap.removeEventListener('gesturechange', onGestureChange);
+    };
+  }, [zoomAt]);
+
+  // Two fingers on a touchscreen. One finger still pans (below).
+  const touches = useRef(new Map<number, { x: number; y: number }>());
+  const pinch = useRef<{ dist: number; zoom: number } | null>(null);
+  const spread = () => {
+    const [a, b] = [...touches.current.values()];
+    return { dist: Math.hypot(a.x - b.x, a.y - b.y), mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2 };
+  };
   const selectedBox = selected == null ? null : scene.boxes.find((b) => b.id === selected) ?? null;
 
   const focusNode = useCallback((id: number) => {
@@ -152,6 +257,26 @@ export function OrgChartCanvas({
   const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
     const wrap = wrapRef.current;
     if (!wrap || e.button !== 0) return;
+    if (e.pointerType === 'touch') {
+      touches.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (touches.current.size === 2) {
+        // The second finger turns a pan into a pinch. Stop panning, so the two
+        // do not fight over the scroll position.
+        pan.current = null;
+        pinch.current = { dist: spread().dist, zoom: zoomRef.current };
+        return;
+      }
+    }
+    if (e.pointerType === 'touch') {
+      // With `touch-action: none` the browser no longer scrolls for us, so a
+      // finger must pan from ANYWHERE — on a box too, or a chart that is mostly
+      // boxes could hardly be moved. No pointer capture here: a touch pointer is
+      // already held by the element it went down on, and capturing it to the
+      // wrapper would retarget the tap's click away from the box, so a tap
+      // would stop opening its card. A tap barely moves, so it still clicks.
+      pan.current = { x: e.clientX, y: e.clientY, left: wrap.scrollLeft, top: wrap.scrollTop };
+      return;
+    }
     const target = e.target as Element;
     if (target.closest('[data-orgnode]') || target.closest('[data-orgtoggle]')) return;
     pan.current = { x: e.clientX, y: e.clientY, left: wrap.scrollLeft, top: wrap.scrollTop };
@@ -165,12 +290,27 @@ export function OrgChartCanvas({
 
   const onPointerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
     const wrap = wrapRef.current;
+    if (e.pointerType === 'touch' && touches.current.has(e.pointerId)) {
+      touches.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pinch.current && touches.current.size === 2 && wrap) {
+        const { dist, mx, my } = spread();
+        if (pinch.current.dist > 0) {
+          const r = wrap.getBoundingClientRect();
+          zoomAt(pinch.current.zoom * (dist / pinch.current.dist), mx - r.left, my - r.top);
+        }
+        return;
+      }
+    }
     if (!wrap || !pan.current) return;
     wrap.scrollLeft = pan.current.left - (e.clientX - pan.current.x);
     wrap.scrollTop = pan.current.top - (e.clientY - pan.current.y);
   };
 
   const endPan = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (e.pointerType === 'touch') {
+      touches.current.delete(e.pointerId);
+      if (touches.current.size < 2) pinch.current = null;
+    }
     const wrap = wrapRef.current;
     if (wrap?.hasPointerCapture(e.pointerId)) wrap.releasePointerCapture(e.pointerId);
     pan.current = null;
@@ -193,7 +333,9 @@ export function OrgChartCanvas({
         boxShadow: 'var(--e-1)',
         cursor: 'grab',
         '&:active': { cursor: 'grabbing' },
-        touchAction: 'pan-x pan-y',
+        // `none`, so a two-finger pinch reaches the handlers above instead of
+        // zooming the whole page. One-finger panning is done by the handlers too.
+        touchAction: 'none',
         // Dragging to pan must not sweep a selection across every label it
         // crosses. The chart is SVG text, so a drag across it selects half the
         // organisation and leaves it highlighted — which reads as the app

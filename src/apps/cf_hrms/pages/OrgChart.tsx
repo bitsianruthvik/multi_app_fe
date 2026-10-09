@@ -557,6 +557,7 @@ export default function OrgChart() {
                 onOpenCard={setCardId}
                 onToggleCollapse={toggleCollapse}
                 onNavigate={navigate}
+                onZoom={setZoomClamped}
               />
             ) : (
               <OrgChartTable
