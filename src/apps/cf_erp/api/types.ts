@@ -723,7 +723,7 @@ export interface TimingPreview {
   work?: TimePart;
 }
 
-export type WaitRelation = 'parent' | 'children' | 'siblings' | 'ancestor';
+export type WaitRelation = 'parent' | 'children' | 'siblings' | 'ancestor' | 'descendants';
 
 export interface WaitRule {
   id: number;

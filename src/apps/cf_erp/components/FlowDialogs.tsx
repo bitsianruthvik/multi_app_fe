@@ -151,7 +151,7 @@ export function ReplaceStepDialog({ open, step, onClose, onSaved }: { open: bool
   );
 }
 
-const WHO: Record<Exclude<WaitRelation, 'ancestor'>, string> = { parent: 'its parent', children: 'its children', siblings: 'its siblings' };
+const WHO: Record<Exclude<WaitRelation, 'ancestor'>, string> = { parent: 'its parent', children: 'its children', siblings: 'its siblings', descendants: 'every piece below it' };
 
 /**
  * The rule in one sentence, as the backend words it — and that "as" is a
@@ -169,7 +169,7 @@ const WHO: Record<Exclude<WaitRelation, 'ancestor'>, string> = { parent: 'its pa
 function sentence(relation: WaitRelation, def: MasterRecord | null, op: Operation | null, status: 'started' | 'done') {
   const madeFrom = def ? codeOrName(def) : undefined;
   const who = relation === 'ancestor' ? `the nearest ${madeFrom ?? '…'} above it` : `${WHO[relation]}${madeFrom && relation !== 'parent' ? ` made from ${madeFrom}` : ''}`;
-  const plural = relation === 'children' || relation === 'siblings';
+  const plural = relation === 'children' || relation === 'siblings' || relation === 'descendants';
   if (op) {
     // Kept word for word in step with waitText() in flowService.js.
     const pass = status === 'started'

@@ -29,6 +29,7 @@ export const RELATION_LABEL: Record<WaitRelation, string> = {
   children: 'Its children',
   siblings: 'Its siblings',
   ancestor: 'An ancestor further up',
+  descendants: 'Every piece below',
 };
 
 export const RELATION_HELP: Record<WaitRelation, string> = {
@@ -36,6 +37,7 @@ export const RELATION_HELP: Record<WaitRelation, string> = {
   children: 'The pieces that go into it — e.g. a girder waits for its plates to be drilled before welding.',
   siblings: 'Other pieces in the same parent — e.g. a flange waits for the web to be cut.',
   ancestor: 'The nearest assembly of a given template further up the tree — e.g. a plate waits for its span.',
+  descendants: 'Every piece under it at any depth, optionally only those made from one template — e.g. a span\u2019s trial assembly waits for all its girder segments to be welded.',
 };
 
 const FLOW_FROM: Record<EffectiveFlow['from'], string> = {
