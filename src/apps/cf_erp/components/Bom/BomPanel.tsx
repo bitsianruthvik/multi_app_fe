@@ -11,6 +11,7 @@ import DownloadRounded from '@mui/icons-material/DownloadRounded';
 import HistoryRounded from '@mui/icons-material/HistoryRounded';
 import LockOutlined from '@mui/icons-material/LockOutlined';
 import MoreHorizRounded from '@mui/icons-material/MoreHorizRounded';
+import DrawRounded from '@mui/icons-material/DrawRounded';
 import PlaylistAddCheckRounded from '@mui/icons-material/PlaylistAddCheckRounded';
 import RestoreFromTrashRounded from '@mui/icons-material/RestoreFromTrashRounded';
 import RouteRounded from '@mui/icons-material/RouteRounded';
@@ -193,6 +194,7 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
   const [bulkFlow, setBulkFlow] = useState(false);
   const [flowPick, setFlowPick] = useState<{ anchor: HTMLElement; row: BomRow } | null>(null);
   const [rowMenu, setRowMenu] = useState<{ anchor: HTMLElement; row: BomRow } | null>(null);
+  const [drawingRow, setDrawingRow] = useState<{ id: number; name: string } | null>(null);
   // Quiet switches for the order's grid: the automatic cut pieces are out of sight, and so are the columns no row uses.
   const [onlyUsed, setOnlyUsed] = useState(true);
   const errorAt = useRef<HTMLDivElement>(null);
@@ -357,6 +359,7 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
     }
     return list;
   };
+  const drawingRowOf = (row: BomRow) => ({ id: row.node.id, name: row.node.shortName ?? row.node.code ?? row.node.name });
   const onAction = (action: BomAction, row: BomRow) => {
     if (action === 'add') setAdding(row.node);
     else if (action === 'choose') setChoosing(row.node.lineId);
@@ -650,9 +653,14 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
     if (!lineEditable(row)) {
       if (!row.parent || goneKeys.has(n.key)) return null;
       return (
-        <Tooltip title={whyNotLine(row)}>
-          <Box component="span" tabIndex={0} aria-label={`Read only: ${whyNotLine(row)}`} sx={{ display: 'inline-flex', p: 0.75, color: 'var(--c-text-3)' }}><LockOutlined sx={{ fontSize: 16 }} /></Box>
-        </Tooltip>
+        <>
+          <Tooltip title={whyNotLine(row)}>
+            <Box component="span" tabIndex={0} aria-label={`Read only: ${whyNotLine(row)}`} sx={{ display: 'inline-flex', p: 0.75, color: 'var(--c-text-3)' }}><LockOutlined sx={{ fontSize: 16 }} /></Box>
+          </Tooltip>
+          {gridLineId != null && state.order && (
+            <RowButton disabled={!!busy} label={`Drawings for ${name}`} onClick={() => setDrawingRow(drawingRowOf(row))}><DrawRounded fontSize="small" /></RowButton>
+          )}
+        </>
       );
     }
     const removed = removedKeys.has(n.key);
@@ -901,7 +909,8 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
         {orderGrid && (
           <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center', '& > *': { whiteSpace: 'nowrap' } }}>
             {/* Drawings for any row of this line (DXF or PDF), by drawing mark. Order lines only. */}
-            {gridLineId != null && state.order && <DrawingsButton size="small" orderId={state.order.id} lineId={gridLineId} canManage={isPermitted('cf_erp_orders_manage')} />}
+            {gridLineId != null && state.order && <DrawingsButton size="small" orderId={state.order.id} lineId={gridLineId} canManage={isPermitted('cf_erp_orders_manage')}
+              focusRow={drawingRow} onFocusDone={() => setDrawingRow(null)} />}
             {narrowBar ? (
               <>
                 <Tooltip title="More: download, upload, expand, collapse"><IconButton size="small" aria-label="More" aria-haspopup="menu" onClick={(e) => setMoreAnchor(e.currentTarget)}><MoreHorizRounded fontSize="small" /></IconButton></Tooltip>
@@ -999,6 +1008,9 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
         {rowMenu && actionsFor(rowMenu.row).filter((a) => a !== 'remove').map((action) => <MenuItem key={action} onClick={() => { onAction(action, rowMenu.row); setRowMenu(null); }}>
           {action === 'add' ? 'Add a line inside' : action === 'choose' ? 'Choose item' : 'Edit line details'}
         </MenuItem>)}
+        {rowMenu && gridLineId != null && state.order && rowMenu.row.parent != null && (
+          <MenuItem onClick={() => { setDrawingRow(drawingRowOf(rowMenu.row)); setRowMenu(null); }}>Drawings for this row…</MenuItem>
+        )}
       </Menu>
 
       <BulkFlowDialog open={bulkFlow} rows={flowRows.map((r) => ({ key: r.node.key, node: r.node, depth: r.node.depth, label: codeOrName(r.node) }))}

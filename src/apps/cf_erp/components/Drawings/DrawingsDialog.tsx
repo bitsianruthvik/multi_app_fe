@@ -1,5 +1,7 @@
 import { useRef, useState, type ChangeEvent } from 'react';
-import { Box, Button, CircularProgress, Collapse, Dialog, DialogActions, DialogContent, IconButton, Tooltip, Typography } from '@mui/material';
+import { Autocomplete, Box, Button, CircularProgress, Collapse, Dialog, DialogActions, DialogContent, IconButton, MenuItem, TextField, Tooltip, Typography } from '@mui/material';
+import AddRounded from '@mui/icons-material/AddRounded';
+import AttachFileRounded from '@mui/icons-material/AttachFileRounded';
 import DownloadRounded from '@mui/icons-material/DownloadRounded';
 import DrawRounded from '@mui/icons-material/DrawRounded';
 import UploadFileRounded from '@mui/icons-material/UploadFileRounded';
@@ -11,17 +13,19 @@ import { CfApiError } from '../../api/client';
 import { useToast } from '../toastContext';
 import { fileToBase64 } from '../../api/bomSheet';
 import {
-  deleteDrawing, downloadDrawing, getDrawings, uploadDrawings,
-  type Drawing, type DrawingFileBody, type DrawingGeometry, type DrawingRow, type DrawingsUpload, type DrawingsView,
+  deleteDrawing, downloadDrawing, downloadRegisterFile, getDrawings, startDrawing, uploadDrawings,
+  type Drawing, type DrawingFileBody, type DrawingGeometry, type DrawingRow, type DrawingsUpload, type DrawingsView, type RegisterRef,
 } from '../../api/drawings';
 import {
-  buttonLabel, fmtCutM, fmtMm, fmtPct, groupByLevel, holesTitle, INTRO, levelText, levelsOfRows, NO_DRAWINGS, NO_MARK_HINT, outlineShape, rowCodes, savable, sizeCheck, sizeText, sortPicked, STATUS_WORDS, summaryWords,
+  buttonLabel, coveringRow, deleteBody, fmtCutM, fmtMm, fmtPct, groupByLevel, holesTitle, INTRO, levelText, levelsOfRows, NO_DRAWINGS, NO_MARK_HINT, outlineShape,
+  prefillNumber, refText, REGISTER_STATUS_FAMILY, registerWords, rowChoices, rowCodes, savable, sizeCheck, sizeText, sortPicked, STATUS_WORDS, summaryWords, WAITING_HINT,
+  type RowChoice,
 } from '../../lib/drawings';
 import { NO_MANAGE } from '../../lib/nesting';
 import { useLoad } from '../../hooks/useLoad';
 import { Badge, CapsLabel, EmptyState, ErrorNotice, Fact, Mono, SectionCard, SkeletonRows } from '../ui';
 import { ConfirmDialog } from '../ConfirmDialog';
-import { DialogHeader } from '../FormDialog';
+import { DialogHeader, FormDialog } from '../FormDialog';
 
 /**
  * DRAWINGS — a DXF or PDF for any row of an order line (span, girder, segment, assembly, part), named by the row's
@@ -107,6 +111,38 @@ function Notes({ problems, warnings }: { problems?: string[]; warnings: string[]
   );
 }
 
+function RegisterBadge({ status }: { status: RegisterRef['status'] }) {
+  return <Badge family={REGISTER_STATUS_FAMILY[status]} label={status} noIcon />;
+}
+
+/** The register sheet of a saved file: number, revision, status, and a link for each earlier revision that has a file. */
+function RegisterCell({ drawing, fileKind, onDownloadEarlier }: {
+  drawing: RegisterRef | null; fileKind: string; onDownloadEarlier: (id: number, name: string) => void;
+}) {
+  if (!drawing) return <Box sx={{ color: 'var(--c-text-3)' }}>—</Box>;
+  const earlier = drawing.earlier.filter((e) => e.hasFile);
+  return (
+    <Box sx={{ display: 'grid', gap: 0.5, justifyItems: 'start' }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexWrap: 'wrap' }}>
+        <Mono>{drawing.number}</Mono>
+        <span>rev {drawing.revision}</span>
+        <RegisterBadge status={drawing.status} />
+      </Box>
+      {earlier.length > 0 && (
+        <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
+          {earlier.map((e) => (
+            <Tooltip key={e.id} title={`Download the file of rev ${e.revision} (${e.status})`}>
+              <Button size="small" sx={{ minWidth: 0, py: 0, px: 0.75, fontSize: 12 }} onClick={() => onDownloadEarlier(e.id, e.fileName ?? `${drawing.number}_rev${e.revision}.${fileKind}`)}>
+                rev {e.revision}
+              </Button>
+            </Tooltip>
+          ))}
+        </Box>
+      )}
+    </Box>
+  );
+}
+
 /** The check shown after the files are read — before anything is saved. */
 function PreviewTable({ upload }: { upload: DrawingsUpload }) {
   return (
@@ -114,7 +150,7 @@ function PreviewTable({ upload }: { upload: DrawingsUpload }) {
       <Box component="table" sx={TABLE_SX}>
         <thead>
           <tr>
-            <th>File</th><th>Type</th><th>Mark</th><th>Result</th><th>Rows matched</th><th>Level</th><th>Size</th>
+            <th>File</th><th>Type</th><th>Mark</th><th>Drawing</th><th>Result</th><th>Rows matched</th><th>Level</th><th>Size</th>
             <th className="n">Use</th><th className="n">Cut length</th><th className="n">Piercings</th><th className="n">Holes</th><th>Notes</th>
           </tr>
         </thead>
@@ -128,6 +164,7 @@ function PreviewTable({ upload }: { upload: DrawingsUpload }) {
                 <td style={{ overflowWrap: 'anywhere' }}>{f.name}</td>
                 <td>{f.fileKind ? f.fileKind.toUpperCase() : '—'}</td>
                 <td><Mono>{f.mark}</Mono></td>
+                <td>{registerWords(f.register)}</td>
                 <td><StatusBadge status={f.status} /></td>
                 <td>{f.rows.length ? rowCodes(f.rows) : '—'}</td>
                 <td>{levelText(levelsOfRows(f.rows))}</td>
@@ -150,15 +187,16 @@ function PreviewTable({ upload }: { upload: DrawingsUpload }) {
   );
 }
 
-function DrawingsTable({ drawings, canManage, released, onEnlarge, onDelete, onDownload }: {
+function DrawingsTable({ drawings, canManage, released, onEnlarge, onDelete, onDownload, onDownloadEarlier }: {
   drawings: Drawing[]; canManage: boolean; released: boolean; onEnlarge: (d: Drawing) => void; onDelete: (d: Drawing) => void; onDownload: (d: Drawing) => void;
+  onDownloadEarlier: (id: number, name: string) => void;
 }) {
   return (
     <Box sx={{ overflowX: 'auto' }} data-testid="drawings-table">
       <Box component="table" sx={TABLE_SX}>
         <thead>
           <tr>
-            <th /><th>Mark</th><th>File</th><th>Level</th><th>Rows</th><th className="n">Rectangle</th><th className="n">Use</th>
+            <th /><th>Mark</th><th>Drawing</th><th>File</th><th>Level</th><th>Rows</th><th className="n">Rectangle</th><th className="n">Use</th>
             <th className="n">Cut length</th><th className="n">Piercings</th><th className="n">Holes</th><th /><th /><th />
           </tr>
         </thead>
@@ -169,6 +207,7 @@ function DrawingsTable({ drawings, canManage, released, onEnlarge, onDelete, onD
               <tr key={d.id}>
                 <td><Thumb drawing={d} onEnlarge={() => onEnlarge(d)} /></td>
                 <td><Mono>{d.mark}</Mono></td>
+                <td><RegisterCell drawing={d.drawing} fileKind={d.fileKind} onDownloadEarlier={onDownloadEarlier} /></td>
                 <td style={{ overflowWrap: 'anywhere' }}>{d.fileName}</td>
                 <td>{levelText(d.levels)}</td>
                 <td><Rows rows={d.rows} geometry={g} /></td>
@@ -205,6 +244,131 @@ function DrawingsTable({ drawings, canManage, released, onEnlarge, onDelete, onD
   );
 }
 
+type Waiting = DrawingsView['waiting'][number];
+
+/** Register drawings that are linked to rows but have no file yet. */
+function WaitingTable({ waiting, mayAttach, busy, onAttach }: {
+  waiting: Waiting[]; mayAttach: boolean; busy: boolean; onAttach: (d: RegisterRef) => void;
+}) {
+  return (
+    <Box sx={{ overflowX: 'auto' }} data-testid="drawings-waiting">
+      <Box component="table" sx={TABLE_SX}>
+        <thead><tr><th>Drawing</th><th>Title</th><th>Rows</th><th /></tr></thead>
+        <tbody>
+          {waiting.map((w) => (
+            <tr key={w.drawing.id}>
+              <td>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexWrap: 'wrap' }}>
+                  <Mono>{w.drawing.number}</Mono><span>rev {w.drawing.revision}</span><RegisterBadge status={w.drawing.status} />
+                </Box>
+              </td>
+              <td style={{ overflowWrap: 'anywhere' }}>{w.drawing.title ?? '—'}</td>
+              <td><Rows rows={w.rows} geometry={null} /></td>
+              <td>
+                {mayAttach && (
+                  <Button size="small" variant="outlined" startIcon={<AttachFileRounded />} disabled={busy} onClick={() => onAttach(w.drawing)}
+                    aria-label={`Attach file to ${refText(w.drawing)}`}>
+                    Attach file
+                  </Button>
+                )}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </Box>
+    </Box>
+  );
+}
+
+/** The small form that starts a register drawing from rows, before any file exists. */
+function StartDrawingDialog({ open, choices, initialIds, onClose, onStart }: {
+  open: boolean; choices: RowChoice[]; initialIds: number[]; onClose: () => void;
+  onStart: (body: { rowIds: number[]; number: string; revision: string; title?: string; source: 'shop' | 'customer'; status: 'draft' | 'issued' }) => Promise<void>;
+}) {
+  if (!open) return null;
+  return <StartDrawingForm choices={choices} initialIds={initialIds} onClose={onClose} onStart={onStart} />;
+}
+
+function StartDrawingForm({ choices, initialIds, onClose, onStart }: {
+  choices: RowChoice[]; initialIds: number[]; onClose: () => void;
+  onStart: (body: { rowIds: number[]; number: string; revision: string; title?: string; source: 'shop' | 'customer'; status: 'draft' | 'issued' }) => Promise<void>;
+}) {
+  const [ids, setIds] = useState<number[]>(initialIds);
+  const [number, setNumber] = useState(() => prefillNumber(choices, initialIds));
+  const [touched, setTouched] = useState(false);
+  const [revision, setRevision] = useState('A');
+  const [title, setTitle] = useState('');
+  const [source, setSource] = useState<'shop' | 'customer'>('shop');
+  const [status, setStatus] = useState<'draft' | 'issued'>('issued');
+  const chosen = ids.map((id) => choices.find((c) => c.id === id)).filter((c): c is RowChoice => !!c);
+
+  const pick = (next: RowChoice[]) => {
+    const nextIds = next.map((c) => c.id);
+    setIds(nextIds);
+    if (!touched) setNumber(prefillNumber(choices, nextIds));
+  };
+
+  return (
+    <FormDialog open title="Start a drawing" subtitle="The drawing goes in the register now. Its file can come later."
+      onClose={onClose} submitLabel="Start drawing" busyLabel="Starting…" submitDisabled={!ids.length || !number.trim()}
+      enterSubmits={false}
+      onSubmit={() => onStart({ rowIds: ids, number: number.trim(), revision: revision.trim() || 'A', title: title.trim() || undefined, source, status })}>
+      <Autocomplete multiple options={choices} value={chosen} onChange={(_, v) => pick(v)}
+        getOptionLabel={(c) => c.label} isOptionEqualToValue={(a, b) => a.id === b.id}
+        renderOption={(props, c) => <li {...props} key={c.id}><Mono>{c.label}</Mono>&nbsp;<Box component="span" sx={{ color: 'var(--c-text-3)', ml: 0.5 }}>{c.level}</Box></li>}
+        renderInput={(p) => <TextField {...p} label="Rows" helperText="The rows this drawing covers." />} />
+      <TextField label="Number" value={number} required onChange={(e) => { setNumber(e.target.value); setTouched(true); }}
+        helperText="The sheet number, e.g. G1-1." />
+      <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 2 }}>
+        <TextField label="Revision" value={revision} onChange={(e) => setRevision(e.target.value)} />
+        <TextField label="Title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder={chosen[0]?.name ?? ''} helperText="Optional." />
+      </Box>
+      <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2 }}>
+        <TextField select label="Source" value={source} onChange={(e) => setSource(e.target.value as 'shop' | 'customer')}>
+          <MenuItem value="shop">Ours</MenuItem>
+          <MenuItem value="customer">Customer’s</MenuItem>
+        </TextField>
+        <TextField select label="Status" value={status} onChange={(e) => setStatus(e.target.value as 'draft' | 'issued')}
+          helperText={status === 'draft' ? 'Still being drawn.' : undefined}>
+          <MenuItem value="issued">Issued</MenuItem>
+          <MenuItem value="draft">Draft</MenuItem>
+        </TextField>
+      </Box>
+    </FormDialog>
+  );
+}
+
+/** Opened from a row: the drawings that cover just this row, each with its action. */
+function FocusCard({ view, row, mayAttach, canManage, onDownload, onAttach, onStart }: {
+  view: DrawingsView; row: { id: number; name: string }; mayAttach: boolean; canManage: boolean;
+  onDownload: (d: Drawing) => void; onAttach: (d: RegisterRef) => void; onStart: () => void;
+}) {
+  const { saved, waiting } = coveringRow(view, row.id);
+  return (
+    <SectionCard title={`For ${row.name}`} subtitle={saved.length + waiting.length ? undefined : 'No drawing covers this row yet.'}>
+      <Box sx={{ display: 'grid', gap: 1 }} data-testid="drawings-focus">
+        {saved.map((d) => (
+          <Box key={d.id} sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', fontSize: 13 }}>
+            {d.drawing ? <><Mono>{d.drawing.number}</Mono><span>rev {d.drawing.revision}</span><RegisterBadge status={d.drawing.status} /></> : <Mono>{d.mark}</Mono>}
+            <Box component="span" sx={{ color: 'var(--c-text-2)', overflowWrap: 'anywhere' }}>{d.fileName}</Box>
+            <Button size="small" startIcon={<DownloadRounded />} onClick={() => onDownload(d)}>Download</Button>
+          </Box>
+        ))}
+        {waiting.map((w) => (
+          <Box key={w.drawing.id} sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', fontSize: 13 }}>
+            <Mono>{w.drawing.number}</Mono><span>rev {w.drawing.revision}</span><RegisterBadge status={w.drawing.status} />
+            <Box component="span" sx={{ color: 'var(--c-text-2)' }}>waiting for a file</Box>
+            {mayAttach && <Button size="small" startIcon={<AttachFileRounded />} onClick={() => onAttach(w.drawing)}>Attach file</Button>}
+          </Box>
+        ))}
+        {canManage && (
+          <Box><Button size="small" variant="outlined" startIcon={<AddRounded />} onClick={onStart}>Start a drawing for this row</Button></Box>
+        )}
+      </Box>
+    </SectionCard>
+  );
+}
+
 function Summary({ view }: { view: DrawingsView }) {
   const s = view.summary;
   return (
@@ -224,7 +388,7 @@ function Summary({ view }: { view: DrawingsView }) {
   );
 }
 
-export function DrawingsDialog({ open, onClose, orderId, lineId, canManage, view, error, loading, onView, onChanged }: {
+export function DrawingsDialog({ open, onClose, orderId, lineId, canManage, view, error, loading, onView, onChanged, focusRow }: {
   open: boolean;
   onClose: () => void;
   orderId: number;
@@ -236,8 +400,13 @@ export function DrawingsDialog({ open, onClose, orderId, lineId, canManage, view
   /** The server's newest view of the line's drawings (after a save or a delete). */
   onView: (v: DrawingsView) => void;
   onChanged?: () => void;
+  /** Opened from a row: show what covers just this row at the top. */
+  focusRow?: { id: number; name: string; mark?: string | null } | null;
 }) {
   const input = useRef<HTMLInputElement>(null);
+  const attachInput = useRef<HTMLInputElement>(null);
+  const attachTo = useRef<RegisterRef | null>(null);
+  const [starting, setStarting] = useState<number[] | null>(null);
   const [busy, setBusy] = useState<'read' | 'save' | null>(null);
   const [actionError, setActionError] = useState<CfApiError | null>(null);
   const [skipped, setSkipped] = useState<string[]>([]);
@@ -252,9 +421,7 @@ export function DrawingsDialog({ open, onClose, orderId, lineId, canManage, view
   const mayUpload = canManage && !released;
   const wrap = (e: unknown) => (e instanceof CfApiError ? e : new CfApiError(0, e instanceof Error ? e.message : String(e)));
 
-  const choose = async (ev: ChangeEvent<HTMLInputElement>) => {
-    const picked = Array.from(ev.target.files ?? []);
-    ev.target.value = '';
+  const read = async (picked: File[], drawingId?: number) => {
     if (!picked.length) return;
     const sorted = sortPicked(picked);
     setSkipped(sorted.wrongKind); setTooBig(sorted.tooBig);
@@ -262,10 +429,38 @@ export function DrawingsDialog({ open, onClose, orderId, lineId, canManage, view
     const dxf = sorted.ok;
     setBusy('read'); setActionError(null); setPending(null);
     try {
-      const files = await Promise.all(dxf.map(async (f) => ({ name: f.name, content: await fileToBase64(f) })));
+      const files: DrawingFileBody[] = await Promise.all(dxf.map(async (f) => ({
+        name: f.name, content: await fileToBase64(f), ...(drawingId != null ? { drawingId } : {}),
+      })));
       const upload = await uploadDrawings(orderId, lineId, files, true);
       setPending({ files, upload });
     } catch (e) { setActionError(wrap(e)); } finally { setBusy(null); }
+  };
+
+  const choose = (ev: ChangeEvent<HTMLInputElement>) => {
+    const picked = Array.from(ev.target.files ?? []);
+    ev.target.value = '';
+    void read(picked);
+  };
+
+  const chooseAttach = (ev: ChangeEvent<HTMLInputElement>) => {
+    const picked = Array.from(ev.target.files ?? []).slice(0, 1);
+    ev.target.value = '';
+    const target = attachTo.current;
+    attachTo.current = null;
+    if (target) void read(picked, target.id);
+  };
+
+  const startAttach = (d: RegisterRef) => { attachTo.current = d; attachInput.current?.click(); };
+
+  const start = async (body: { rowIds: number[]; number: string; revision: string; title?: string; source: 'shop' | 'customer'; status: 'draft' | 'issued' }) => {
+    const out = await startDrawing(orderId, lineId, body);
+    onView(out.view);
+    onChanged?.();
+  };
+
+  const downloadEarlier = async (id: number, name: string) => {
+    try { await downloadRegisterFile(id, name); } catch (e) { toast.error(wrap(e).message); }
   };
 
   const save = async () => {
@@ -305,6 +500,11 @@ export function DrawingsDialog({ open, onClose, orderId, lineId, canManage, view
           {loading && !view && <SkeletonRows rows={4} />}
           {view && <Summary view={view} />}
 
+          {view && focusRow && (
+            <FocusCard view={view} row={focusRow} mayAttach={mayUpload && busy == null} canManage={canManage}
+              onDownload={download} onAttach={startAttach} onStart={() => setStarting([focusRow.id])} />
+          )}
+
           {view && (
             <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
               <Tooltip title={!canManage ? NO_MANAGE : released ? 'This line is released, so its drawings cannot change.' : 'Pick the DXF or PDF files. You see a check before anything is saved.'}>
@@ -316,6 +516,16 @@ export function DrawingsDialog({ open, onClose, orderId, lineId, canManage, view
                 </span>
               </Tooltip>
               <input ref={input} type="file" accept=".dxf,.pdf" multiple hidden onChange={choose} data-testid="drawings-input" />
+              <input ref={attachInput} type="file" accept=".dxf,.pdf" hidden onChange={chooseAttach} data-testid="drawings-attach-input" />
+              {canManage && (
+                <Tooltip title="Put a drawing in the register for some rows now. Its file can come later.">
+                  <span>
+                    <Button variant="outlined" disabled={busy != null} startIcon={<AddRounded />} onClick={() => setStarting([])} data-testid="drawings-start">
+                      Start a drawing
+                    </Button>
+                  </span>
+                </Tooltip>
+              )}
               {skipped.length > 0 && (
                 <Typography sx={{ fontSize: 12.5, color: 'var(--c-warning-800)' }}>
                   Not a DXF or PDF, left out: {skipped.join(', ')}
@@ -353,14 +563,22 @@ export function DrawingsDialog({ open, onClose, orderId, lineId, canManage, view
             </SectionCard>
           )}
 
-          {view && view.drawings.length > 0 && (
-            <SectionCard title="Saved drawings" subtitle={`${view.drawings.length} on this line`} flush>
+          {view && view.waiting.length > 0 && (
+            <SectionCard title="Waiting for a file" subtitle={WAITING_HINT} flush>
               <Box sx={{ p: 1.5 }}>
-                <DrawingsTable drawings={view.drawings} canManage={canManage} released={released} onEnlarge={setEnlarged} onDelete={setToDelete} onDownload={download} />
+                <WaitingTable waiting={view.waiting} mayAttach={mayUpload} busy={busy != null} onAttach={startAttach} />
               </Box>
             </SectionCard>
           )}
-          {view && view.drawings.length === 0 && !pending && (
+
+          {view && view.drawings.length > 0 && (
+            <SectionCard title="Saved drawings" subtitle={`${view.drawings.length} on this line`} flush>
+              <Box sx={{ p: 1.5 }}>
+                <DrawingsTable drawings={view.drawings} canManage={canManage} released={released} onEnlarge={setEnlarged} onDelete={setToDelete} onDownload={download} onDownloadEarlier={downloadEarlier} />
+              </Box>
+            </SectionCard>
+          )}
+          {view && view.drawings.length === 0 && view.waiting.length === 0 && !pending && (
             <EmptyState title="No drawings yet" body={NO_DRAWINGS} />
           )}
 
@@ -375,7 +593,7 @@ export function DrawingsDialog({ open, onClose, orderId, lineId, canManage, view
                     <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)', mb: 1 }}>{NO_MARK_HINT}</Typography>
                   )}
                   <Box component="table" sx={TABLE_SX}>
-                    <thead><tr><th>Code</th><th>Name</th><th>Level</th><th>Drawing mark</th><th className="n">Pieces</th></tr></thead>
+                    <thead><tr><th>Code</th><th>Name</th><th>Level</th><th>Drawing mark</th><th className="n">Pieces</th><th /></tr></thead>
                     <tbody>
                       {groupByLevel(view.rowsWithoutDrawing).flatMap((g) => g.rows).map((p) => (
                         <tr key={p.id}>
@@ -384,6 +602,11 @@ export function DrawingsDialog({ open, onClose, orderId, lineId, canManage, view
                           <td>{p.level}</td>
                           <td>{p.mark ? <Mono>{p.mark}</Mono> : <Box component="span" sx={{ color: 'var(--c-text-3)' }}>no drawing mark</Box>}</td>
                           <td className="n">{p.pieces}</td>
+                          <td>
+                            {canManage && (
+                              <Button size="small" onClick={() => setStarting([p.id])} aria-label={`Start a drawing for ${p.code ?? p.name}`}>Start drawing</Button>
+                            )}
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -418,11 +641,14 @@ export function DrawingsDialog({ open, onClose, orderId, lineId, canManage, view
         )}
       </Dialog>
 
+      <StartDrawingDialog open={starting != null && !!view} choices={view ? rowChoices(view) : []} initialIds={starting ?? []}
+        onClose={() => setStarting(null)} onStart={start} />
+
       <ConfirmDialog
         open={!!toDelete}
         title="Delete this drawing?"
         entityName={toDelete ? `${toDelete.mark} (${toDelete.fileName})` : undefined}
-        body="The row goes back to having no drawing. You can upload the file again."
+        body={deleteBody(toDelete?.drawing)}
         confirmLabel="Delete" danger
         onConfirm={async () => { if (toDelete) await remove(toDelete); }}
         onClose={() => setToDelete(null)}
@@ -432,10 +658,15 @@ export function DrawingsDialog({ open, onClose, orderId, lineId, canManage, view
 }
 
 /** The "Drawings" button for an order line's Structure tab: reads the summary itself and opens the dialog. */
-export function DrawingsButton({ orderId, lineId, canManage, onChanged, size }: {
+export function DrawingsButton({ orderId, lineId, canManage, onChanged, size, focusRow, onFocusDone }: {
   orderId: number; lineId: number; canManage: boolean; onChanged?: () => void; size?: 'small' | 'medium';
+  /** A row to open the dialog for; the dialog opens while it is set. */
+  focusRow?: { id: number; name: string; mark?: string | null } | null;
+  onFocusDone?: () => void;
 }) {
   const [open, setOpen] = useState(false);
+  const shown = open || !!focusRow;
+  const close = () => { setOpen(false); onFocusDone?.(); };
   const { data, error, loading, setData } = useLoad(() => getDrawings(orderId, lineId), [orderId, lineId]);
   return (
     <>
@@ -444,9 +675,9 @@ export function DrawingsButton({ orderId, lineId, canManage, onChanged, size }: 
           {buttonLabel(data?.summary)}
         </Button>
       </Tooltip>
-      {open && (
-        <DrawingsDialog open onClose={() => setOpen(false)} orderId={orderId} lineId={lineId} canManage={canManage}
-          view={data} error={error} loading={loading} onView={setData} onChanged={onChanged} />
+      {shown && (
+        <DrawingsDialog open onClose={close} orderId={orderId} lineId={lineId} canManage={canManage}
+          view={data} error={error} loading={loading} onView={setData} onChanged={onChanged} focusRow={focusRow} />
       )}
     </>
   );

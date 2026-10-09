@@ -25,8 +25,18 @@ export interface DrawingRow {
   sizeMatches: boolean | null;
 }
 
+/** A sheet of the drawings register: number + revision + status. */
+export interface RegisterRef {
+  id: number; code: string | null; number: string; revision: string;
+  status: 'draft' | 'issued' | 'superseded' | 'withdrawn'; title: string | null;
+  /** earlier revisions of the same drawing, oldest first */
+  earlier: { id: number; revision: string; status: string; hasFile: boolean; fileName: string | null }[];
+}
+
 export interface Drawing {
   id: number; mark: string; fileName: string; fileKind: 'dxf' | 'pdf'; uploadedAt: string;
+  /** the register drawing this file sits on */
+  drawing: RegisterRef | null;
   levels: string[];
   /** only a plate part's DXF is read as a shape */
   geometry: DrawingGeometry | null;
@@ -39,13 +49,22 @@ export interface DrawingsSummary {
   pieces: number; piecesWithShape: number;
   rectAreaM2: number; trueAreaM2: number; usePct: number | null;
   rectKg: number; trueKg: number; savingKg: number;
+  /** register drawings started from rows that have no file yet */
+  waiting: number;
 }
 
 export interface DrawingsView {
   line: { id: number; lineNo: number; orderId: number; orderCode: string; released: boolean };
   drawings: Drawing[];
   rowsWithoutDrawing: { id: number; code: string | null; name: string; level: string; mark: string | null; pieces: number; isPlatePart: boolean }[];
+  /** register drawings linked to rows of this line that have no file yet */
+  waiting: { drawing: RegisterRef; rows: DrawingRow[] }[];
   summary: DrawingsSummary;
+}
+
+export type RegisterAction = 'create' | 'attach' | 'revise' | 'replace';
+export interface UploadRegister {
+  action: RegisterAction; drawingId: number | null; code: string | null; number: string; revision: string; fromRevision: string | null;
 }
 
 export interface DrawingsUploadFile {
@@ -56,6 +75,7 @@ export interface DrawingsUploadFile {
   geometry: DrawingGeometry | null;
   problems: string[];
   warnings: string[];
+  register: UploadRegister | null;
 }
 
 export interface DrawingsUpload {
@@ -64,7 +84,17 @@ export interface DrawingsUpload {
   view: DrawingsView | null;
 }
 
-export interface DrawingFileBody { name: string; content: string }
+/** `drawingId` puts the file on that register drawing by hand — the file name then does not matter. */
+export interface DrawingFileBody { name: string; content: string; drawingId?: number }
+
+export interface StartDrawingBody {
+  rowIds: number[]; number: string; revision?: string; title?: string;
+  source?: 'shop' | 'customer'; status?: 'draft' | 'issued'; notes?: string;
+}
+export interface StartDrawingResult {
+  drawing: { id: number; code: string | null; number: string; revision: string; status: string };
+  view: DrawingsView;
+}
 
 const base = (orderId: number, lineId: number) => `/orders/${orderId}/lines/${lineId}/drawings`;
 
@@ -78,15 +108,26 @@ export const uploadDrawings = (orderId: number, lineId: number, files: DrawingFi
 export const deleteDrawing = (orderId: number, lineId: number, drawingId: number) =>
   cfApi.del<DrawingsView>(`${base(orderId, lineId)}/${drawingId}`, { timeoutMs: LONG_WRITE_MS });
 
-/** The saved file itself, handed to the browser as a download. */
-export async function downloadDrawing(orderId: number, lineId: number, d: { id: number; fileName: string }): Promise<void> {
-  const blob = await cfApi.getBlob(`${base(orderId, lineId)}/${d.id}/file`, { timeoutMs: LONG_WRITE_MS });
+/** Start a register drawing from rows before any file exists; it then waits for a file. */
+export const startDrawing = (orderId: number, lineId: number, body: StartDrawingBody) =>
+  cfApi.post<StartDrawingResult>(`${base(orderId, lineId)}/start`, body);
+
+async function saveBlob(path: string, fileName: string): Promise<void> {
+  const blob = await cfApi.getBlob(path, { timeoutMs: LONG_WRITE_MS });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
-  link.download = d.fileName;
+  link.download = fileName;
   document.body.appendChild(link);
   link.click();
   link.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
+
+/** The saved file itself, handed to the browser as a download. */
+export const downloadDrawing = (orderId: number, lineId: number, d: { id: number; fileName: string }): Promise<void> =>
+  saveBlob(`${base(orderId, lineId)}/${d.id}/file`, d.fileName);
+
+/** The file of one register revision (works for earlier, superseded revisions too). */
+export const downloadRegisterFile = (drawingId: number, fileName: string): Promise<void> =>
+  saveBlob(`/drawings/${drawingId}/file`, fileName);

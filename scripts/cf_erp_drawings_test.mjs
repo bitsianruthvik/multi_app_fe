@@ -21,7 +21,7 @@ const check = (label, fn) => { try { fn(); passed++; console.log(`PASS ${label}`
 const geo = { lengthMm: 200, widthMm: 100, areaMm2: 15000, rectAreaMm2: 20000, usePct: 75, cutLengthMm: 1234.5, piercings: 2, holes: 3, holeDiameters: [22, 22, 18.5], innerCuts: 1,
   rings: [[[0, 0], [200, 0], [200, 100], [0, 100]], [[10, 10], [20, 10], [20, 20]]] };
 const row = (over = {}) => ({ id: 1, code: 'P-1', name: 'Gusset', level: 'Plate part', isPlatePart: true, pieces: 4, lengthMm: 200, widthMm: 100, thicknessMm: 12, sizeMatches: true, ...over });
-const summary = (over = {}) => ({ rows: 152, rowsWithDrawing: 34, parts: 40, partsWithShape: 12, pieces: 310, piecesWithShape: 96, rectAreaM2: 10, trueAreaM2: 7.1, usePct: 71, rectKg: 5000, trueKg: 3760, savingKg: 1240, ...over });
+const summary = (over = {}) => ({ rows: 152, rowsWithDrawing: 34, parts: 40, partsWithShape: 12, pieces: 310, piecesWithShape: 96, rectAreaM2: 10, trueAreaM2: 7.1, usePct: 71, rectKg: 5000, trueKg: 3760, savingKg: 1240, waiting: 0, ...over });
 
 check('numbers use thousands separators and say a missing one with a dash', () => {
   assert.equal(m.fmtMm(12345.6), '12,346');
@@ -105,7 +105,53 @@ check('the summary with nothing to save says so, not "0 kg"', () => {
 check('the empty state, hint and intro use the agreed words', () => {
   assert.equal(m.NO_DRAWINGS, 'Upload a drawing for each row, named by its drawing mark.');
   assert.equal(m.NO_MARK_HINT, 'A row needs a drawing mark (Structure or Values) before a drawing can be matched to it.');
-  assert.equal(m.INTRO.replace(/’/g, "'"), "A drawing for any row of this line — DXF or PDF, named by the row's drawing mark (e.g. G1-1.pdf, BF1.dxf). A plate part's DXF is also read as its shape: true area, cut length and piercings.");
+  const intro = m.INTRO.replace(/’/g, "'");
+  assert.ok(intro.startsWith('A drawing is a sheet of the register (a number and a revision) and its file'));
+  assert.ok(intro.includes('Upload again over an issued drawing and it becomes the next revision.'));
+  assert.ok(intro.endsWith("A plate part's DXF is also read as its shape: true area, cut length and piercings."));
+});
+
+const reg = (action, over = {}) => ({ action, drawingId: 7, code: 'DRW-7', number: 'G1-1', revision: 'B', fromRevision: 'A', ...over });
+check('registerWords says what a save does for all four actions', () => {
+  assert.equal(m.registerWords(reg('create', { revision: 'A' })), 'New drawing G1-1 rev A');
+  assert.equal(m.registerWords(reg('attach')), 'Goes on G1-1 rev B');
+  assert.equal(m.registerWords(reg('revise')), 'G1-1: rev A → B');
+  assert.equal(m.registerWords(reg('replace')), 'Replaces the file of G1-1 rev B (draft)');
+  assert.equal(m.registerWords(null), '—');
+  assert.equal(m.refText({ number: 'G1-1', revision: 'C' }), 'G1-1 rev C');
+});
+
+check('rowChoices lists each row once from all three sources and keeps a mark', () => {
+  const r = (id, over = {}) => ({ id, code: 'C' + id, name: 'Row ' + id, level: 'Plate part', ...over });
+  const view = {
+    rowsWithoutDrawing: [{ ...r(1), mark: 'M1', pieces: 1, isPlatePart: true }, { ...r(2, { code: null }), mark: null, pieces: 1, isPlatePart: false }],
+    drawings: [{ mark: 'D1', rows: [r(2), r(3)] }, { mark: 'D2', rows: [r(3)] }],
+    waiting: [{ drawing: {}, rows: [r(1), r(4)] }],
+  };
+  const c = m.rowChoices(view);
+  assert.deepEqual(c.map((x) => x.id), [1, 2, 3, 4]);
+  assert.equal(c[1].label, 'Row 2');
+  assert.equal(c[1].mark, 'D1');
+  assert.equal(c[0].label, 'C1');
+  assert.equal(m.prefillNumber(c, [1, 3]), 'M1');
+  assert.equal(m.prefillNumber(c, [4]), '');
+  assert.equal(m.prefillNumber(c, []), '');
+});
+
+check('coveringRow finds saved and waiting drawings of one row', () => {
+  const v = { drawings: [{ id: 1, rows: [{ id: 5 }] }, { id: 2, rows: [{ id: 6 }] }], waiting: [{ drawing: { id: 9 }, rows: [{ id: 5 }] }] };
+  const out = m.coveringRow(v, 5);
+  assert.deepEqual(out.saved.map((d) => d.id), [1]);
+  assert.deepEqual(out.waiting.map((w) => w.drawing.id), [9]);
+});
+
+check('the delete body names the register drawing that stays', () => {
+  assert.equal(m.deleteBody({ number: 'G1-1', revision: 'A' }), 'The file is removed. The drawing G1-1 rev A stays in the register, waiting for a file.');
+});
+
+check('the summary adds the waiting sentence only when something waits', () => {
+  assert.equal(m.summaryWords(summary({ partsWithShape: 0, piecesWithShape: 0, usePct: null, savingKg: 0, waiting: 3 })), '34 of 152 rows have a drawing. 3 waiting for a file.');
+  assert.ok(!/waiting/.test(m.summaryWords(summary({ waiting: 0 }))));
 });
 
 check('the button shows n of m rows only once rows are known', () => {
@@ -115,7 +161,7 @@ check('the button shows n of m rows only once rows are known', () => {
 });
 
 check('only new and replacing files are saved', () => {
-  const f = (status) => ({ name: `${status}.dxf`, mark: status, status, rows: [], geometry: null, problems: [], warnings: [] });
+  const f = (status) => ({ name: `${status}.dxf`, mark: status, status, rows: [], geometry: null, problems: [], warnings: [], register: null });
   const kept = m.savable(['new', 'replaces', 'unmatched', 'error'].map(f)).map((x) => x.status);
   assert.deepEqual(kept, ['new', 'replaces']);
 });

@@ -1,4 +1,4 @@
-import type { DrawingGeometry, DrawingRow, DrawingsSummary, DrawingsUploadFile } from '../api/drawings';
+import type { Drawing, DrawingGeometry, DrawingRow, DrawingsSummary, DrawingsUploadFile, DrawingsView, RegisterRef, UploadRegister } from '../api/drawings';
 
 /** Pure helpers for the Drawings dialog: numbers, the outline as an SVG path, and the sentences. */
 
@@ -74,7 +74,60 @@ export const MAX_DRAWING_BYTES = 4 * 1024 * 1024;
 
 export const NO_DRAWINGS = 'Upload a drawing for each row, named by its drawing mark.';
 export const NO_MARK_HINT = 'A row needs a drawing mark (Structure or Values) before a drawing can be matched to it.';
-export const INTRO = 'A drawing for any row of this line — DXF or PDF, named by the row\u2019s drawing mark (e.g. G1-1.pdf, BF1.dxf). A plate part\u2019s DXF is also read as its shape: true area, cut length and piercings.';
+export const INTRO = 'A drawing is a sheet of the register (a number and a revision) and its file \u2014 DXF or PDF, named by the row\u2019s drawing mark (e.g. G1-1.pdf, BF1.dxf). Upload again over an issued drawing and it becomes the next revision. A plate part\u2019s DXF is also read as its shape: true area, cut length and piercings.';
+export const WAITING_HINT = 'These drawings are in the register and linked to rows, but have no file yet.';
+
+/** The register sheet in words: "G1-1 rev B". */
+export const refText = (r: { number: string; revision: string }): string => `${r.number} rev ${r.revision}`;
+
+/** What saving one file will do to the register, in plain words; a dash when there is no register step. */
+export function registerWords(r: UploadRegister | null | undefined): string {
+  if (!r) return '\u2014';
+  switch (r.action) {
+    case 'create': return `New drawing ${r.number} rev ${r.revision}`;
+    case 'attach': return `Goes on ${r.number} rev ${r.revision}`;
+    case 'revise': return `${r.number}: rev ${r.fromRevision ?? '?'} \u2192 ${r.revision}`;
+    default: return `Replaces the file of ${r.number} rev ${r.revision} (draft)`;
+  }
+}
+
+export const deleteBody = (d: { number: string; revision: string } | null | undefined): string =>
+  d ? `The file is removed. The drawing ${d.number} rev ${d.revision} stays in the register, waiting for a file.`
+    : 'The row goes back to having no drawing. You can upload the file again.';
+
+export const REGISTER_STATUS_FAMILY: Record<RegisterRef['status'], 'success' | 'info' | 'neutral' | 'warning'> = {
+  issued: 'success', draft: 'info', superseded: 'neutral', withdrawn: 'warning',
+};
+
+/** One choice in the "Start a drawing" row picker. */
+export interface RowChoice { id: number; label: string; level: string; name: string; mark: string | null }
+type AnyRow = { id: number; code: string | null; name: string; level: string };
+
+/** Every row of the line the dialog knows of: without a drawing, on a saved file, or on a waiting drawing, each once. */
+export function rowChoices(view: Pick<DrawingsView, 'rowsWithoutDrawing' | 'drawings' | 'waiting'>): RowChoice[] {
+  const seen = new Map<number, RowChoice>();
+  const add = (r: AnyRow, mark: string | null) => {
+    const had = seen.get(r.id);
+    if (had) { if (!had.mark && mark) had.mark = mark; return; }
+    seen.set(r.id, { id: r.id, label: r.code ?? r.name, level: r.level, name: r.name, mark });
+  };
+  for (const r of view.rowsWithoutDrawing) add(r, r.mark);
+  for (const d of view.drawings) for (const r of d.rows) add(r, d.mark);
+  for (const w of view.waiting ?? []) for (const r of w.rows) add(r, null);
+  return [...seen.values()];
+}
+
+/** What the "Start a drawing" number field begins with: the first chosen row's drawing mark, else empty. */
+export const prefillNumber = (choices: RowChoice[], ids: number[]): string =>
+  choices.find((c) => c.id === ids[0])?.mark ?? '';
+
+/** The drawings (saved and waiting) that cover one row. */
+export function coveringRow(view: Pick<DrawingsView, 'drawings' | 'waiting'>, rowId: number): { saved: Drawing[]; waiting: DrawingsView['waiting'] } {
+  return {
+    saved: view.drawings.filter((d) => d.rows.some((r) => r.id === rowId)),
+    waiting: (view.waiting ?? []).filter((w) => w.rows.some((r) => r.id === rowId)),
+  };
+}
 
 /** The levels a drawing covers, comma-joined; a dash when none. */
 export const levelText = (levels: string[] | null | undefined): string => (levels && levels.length ? levels.join(', ') : '—');
@@ -106,7 +159,8 @@ export function sortPicked<T extends { name: string; size: number }>(picked: T[]
 
 /** Two plain sentences: the rows covered, then (only when a plate part has a shape) the measure. */
 export function summaryWords(s: DrawingsSummary): string {
-  const first = `${group(s.rowsWithDrawing, 0)} of ${group(s.rows, 0)} ${s.rows === 1 ? 'row has' : 'rows have'} a drawing.`;
+  const waiting = s.waiting > 0 ? ` ${group(s.waiting, 0)} waiting for a file.` : '';
+  const first = `${group(s.rowsWithDrawing, 0)} of ${group(s.rows, 0)} ${s.rows === 1 ? 'row has' : 'rows have'} a drawing.${waiting}`;
   if (!s.partsWithShape) return first;
   const have = s.parts === 1 ? 'plate part has' : 'plate parts have';
   const second = `${group(s.partsWithShape, 0)} of ${group(s.parts, 0)} ${have} a shape (${group(s.piecesWithShape, 0)} of ${group(s.pieces, 0)} ${s.pieces === 1 ? 'piece' : 'pieces'}).`;
