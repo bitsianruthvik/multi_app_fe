@@ -46,10 +46,25 @@ export const M = 36;
 export const HEAD = 84;
 /** Not in the source file: it had no work-context chips because machines were nodes. */
 export const CHIPH = 18;
-/** Process boxes (spec §15): inner padding, title-chip height, top of the first member. */
-export const PB = 10;
-export const PCH = 16;
-export const PT = PB + PCH + 8;
+/**
+ * Work-process headings (spec §15). No box: the process name is a heading
+ * centred over the first person in its column, and the SPACE between columns
+ * marks the boundary.
+ *   PHS   heading size — 20 against the box title's 13.5 (≈1.5×), bold, so it
+ *         reads as a section heading at the 55–100% the chart opens at
+ *   PHH   the heading's own band (cap top to descender)
+ *   PHT   group top to the first person's top (heading band + room for the
+ *         line that leaves the heading)
+ *   PHB   group top to that line, below the heading text
+ *   PGAP  between side-by-side columns: 64 against the sibling gap HG's 26
+ *   PGV   extra space above each heading when the groups stack
+ */
+export const PHS = 20;
+export const PHH = 24;
+export const PHT = 42;
+export const PHB = 32;
+export const PGAP = 64;
+export const PGV = 26;
 
 export type ShiftFilter = 'all' | 'D' | 'N';
 export type Arrange = 'auto' | 'side' | 'stack';
@@ -204,6 +219,7 @@ export interface ChartFonts {
   headTitle: string;
   headMeta: string;
   badge: string;
+  process: string;
 }
 
 export function makeFonts(family: string): ChartFonts {
@@ -216,6 +232,7 @@ export function makeFonts(family: string): ChartFonts {
     headTitle: fontString(20, 600, family),
     headMeta: fontString(13, 400, family),
     badge: fontString(10, 600, family),
+    process: fontString(PHS, 700, family),
   };
 }
 
@@ -423,13 +440,27 @@ export function inRootProcess(model: ChartModel, n: OrgChartNode): boolean {
 
 export interface ProcessGroup {
   key: string;
-  /** '' for the unlabelled "no unit" group. */
+  /** '' for the unlabelled "no unit" group: no heading, no heading band. */
   label: string;
   ids: number[];
+  /** The column: its x-range is owned by this group alone; y is the heading's top. */
   x: number;
   y: number;
   w: number;
   h: number;
+  /** Heading centre and measured width (0 when unlabelled). */
+  hx: number;
+  hw: number;
+}
+
+/** Where a group's people start, below its heading band. */
+export function groupTop(g: ProcessGroup): number {
+  return g.y + (g.label ? PHT : 12);
+}
+
+/** The line into a column leaves the heading here (just above the first person). */
+export function groupLineY(g: ProcessGroup): number {
+  return g.y + (g.label ? PHB : 2);
 }
 
 /**
@@ -452,7 +483,7 @@ export function groupByProcess(model: ChartModel, managerId: number, kids: numbe
   const weight = (key: string) => (key === '' ? 2 : key === own ? 0 : 1);
   return [...groups.entries()]
     .sort(([a, ga], [b, gb]) => weight(a) - weight(b) || ga.rank - gb.rank || a.localeCompare(b))
-    .map(([key, g]) => ({ key, label: key ? (idx.label.get(key) ?? key) : '', ids: g.ids, x: 0, y: 0, w: 0, h: 0 }));
+    .map(([key, g]) => ({ key, label: key ? (idx.label.get(key) ?? key) : '', ids: g.ids, x: 0, y: 0, w: 0, h: 0, hx: 0, hw: 0 }));
 }
 
 // ── Rows inside a box ───────────────────────────────────────────────────────
@@ -750,14 +781,18 @@ export function layoutChart(model: ChartModel, opts: LayoutOptions): LayoutResul
         headsProcess(model, node) || kids.some((k) => headsAnyProcess(model, model.byId.get(k)!))
           ? 'across'
           : 'down';
+      // A heading wider than its column WIDENS the column (one line, never
+      // wrapped): "Packaging & Loading" over a one-person column would
+      // otherwise reach into the next column's heading.
+      const indent = p.orient === 'across' ? IND : 0;
       for (const g of groups) {
         const inner = Math.max(...g.ids.map((k) => placed.get(k)!.sw));
-        const chip = g.label ? textWidth(g.label, fonts.chip) + 16 : 0;
-        g.w = PB + IND + Math.max(inner, chip) + PB;
+        g.hw = g.label ? textWidth(g.label, fonts.process) : 0;
+        g.w = Math.max(indent + inner, g.hw ? g.hw + 8 : 0);
       }
       p.sw =
         p.orient === 'across'
-          ? Math.max(W, groups.reduce((a, g) => a + g.w, 0) + HG * (groups.length - 1))
+          ? Math.max(W, groups.reduce((a, g) => a + g.w, 0) + PGAP * (groups.length - 1))
           : Math.max(W, IND + Math.max(...groups.map((g) => g.w)));
       return p.sw;
     }
@@ -797,19 +832,25 @@ export function layoutChart(model: ChartModel, opts: LayoutOptions): LayoutResul
       return bottom;
     }
     if (p.mode === 'groups') {
-      // Inside a box the people stack, each with its own team below them; a
-      // member's subtree is laid out by the same rules, so a member whose team
-      // spans processes gets boxes of its own.
+      // Under its heading a column's people stack, each with its own team
+      // below them; a member's subtree is laid out by the same rules, so a
+      // member whose team spans processes gets headed columns of its own.
+      const indent = p.orient === 'across' ? IND : 0;
       const fill = (g: ProcessGroup, gx: number, gy: number) => {
         g.x = gx;
         g.y = gy;
-        let my = gy + PT;
+        let my = groupTop(g);
         let last = my;
         for (const k of g.ids) {
-          last = place(k, gx + PB + IND, my);
+          last = place(k, gx + indent, my);
           my = last + SG;
         }
-        g.h = last + PB - gy;
+        g.h = last - gy;
+        // The heading sits right above the first person, kept inside the
+        // column's own x-range so it can never reach a neighbour's.
+        const first = placed.get(g.ids[0])!;
+        const want = first.x + W / 2;
+        g.hx = g.hw ? Math.min(Math.max(want, gx + g.hw / 2), gx + g.w - g.hw / 2) : want;
         return gy + g.h;
       };
       const groups = p.groups!;
@@ -819,21 +860,21 @@ export function layoutChart(model: ChartModel, opts: LayoutOptions): LayoutResul
         const next = levelTop[p.depth + 1];
         const below = p.y + p.info.h + VG;
         const gy = grid && next !== undefined ? Math.max(next, below) : below;
-        const total = groups.reduce((a, g) => a + g.w, 0) + HG * (groups.length - 1);
+        const total = groups.reduce((a, g) => a + g.w, 0) + PGAP * (groups.length - 1);
         let gx = left + (p.sw - total) / 2;
         for (const g of groups) {
           bottom = Math.max(bottom, fill(g, gx, gy));
-          gx += g.w + HG;
+          gx += g.w + PGAP;
         }
         const lastG = groups[groups.length - 1];
         const mid = (groups[0].x + lastG.x + lastG.w) / 2 - W / 2;
         p.x = Math.min(Math.max(mid, left), left + p.sw - W);
       } else {
         p.x = left;
-        let gy = bottom + SV;
+        let gy = bottom + SV + PGV;
         for (const g of groups) {
           bottom = fill(g, left + IND, gy);
-          gy = bottom + SG;
+          gy = bottom + SG + PGV;
         }
       }
       return bottom;
@@ -964,7 +1005,7 @@ export interface ChartScene {
   height: number;
   background: string;
   header: Prim[];
-  /** Work-process boxes (spec §15), outer before inner; drawn under the edges. */
+  /** Work-process headings (spec §15); drawn under the edges, which never cross them. */
   groups: Prim[];
   edges: Prim[];
   secondary: Prim[];
@@ -1025,37 +1066,58 @@ export function buildScene(model: ChartModel, opts: SceneOptions): ChartScene {
     const n = lay.placed.get(id)!;
     if (!n.kids.length) continue;
     if (n.mode === 'groups') {
-      // Each process box has its own spine just inside its left edge, fed by
-      // ONE line from the manager, with a tick to every member — so a report
-      // reaches its manager visibly across the box's border.
+      // THE HEADING SITS ON THE LINE INTO ITS COLUMN. Side by side: the
+      // manager's bus drops at the heading's centre and stops just above the
+      // text; it resumes just below it, runs straight down into the first
+      // person, and branches left to a spine that ticks into everyone else in
+      // the column. Stacked: the manager's own spine feeds each column under
+      // its heading. No line crosses heading text.
       const pb = n.y + n.info.h;
-      const spineX = (g: ProcessGroup) => g.x + PB + IND / 2;
-      const inner = (g: ProcessGroup, fromY: number) => {
-        const ix = spineX(g);
-        let last = fromY;
-        for (const k of g.ids) {
-          const c = lay.placed.get(k)!;
-          last = c.y + Math.min(c.info.h / 2, 17);
-          linePath.push(`M${ix} ${last}H${c.x}`);
-        }
-        linePath.push(`M${ix} ${fromY}V${last}`);
+      const drop = (g: ProcessGroup) => {
+        const ly = groupLineY(g);
+        const first = lay.placed.get(g.ids[0])!;
+        const fx = Math.min(Math.max(g.hx, first.x + 12), first.x + W - 12);
+        linePath.push(`M${fx} ${ly}V${first.y}`);
+        return { ly, fx };
       };
       if (n.orient === 'across') {
         const px = n.x + W / 2;
         const my = Math.min(...n.groups!.map((g) => g.y)) - VG / 2;
-        const xs = n.groups!.map(spineX);
+        const xs = n.groups!.map((g) => g.hx);
         linePath.push(`M${px} ${pb}V${my}`);
         linePath.push(`M${Math.min(px, ...xs)} ${my}H${Math.max(px, ...xs)}`);
-        n.groups!.forEach((g) => inner(g, my));
+        for (const g of n.groups!) {
+          const { ly, fx } = drop(g);
+          // Unlabelled: nothing to step over, the line runs straight through.
+          linePath.push(g.label ? `M${g.hx} ${my}V${g.y - 3}` : `M${g.hx} ${my}V${ly}`);
+          const sx = g.x + IND / 2;
+          const rest = g.ids.slice(1);
+          const xsAt = [g.hx, fx, ...(rest.length ? [sx] : [])];
+          if (Math.max(...xsAt) - Math.min(...xsAt) > 0.5) linePath.push(`M${Math.min(...xsAt)} ${ly}H${Math.max(...xsAt)}`);
+          if (rest.length) {
+            let last = ly;
+            for (const k of rest) {
+              const c = lay.placed.get(k)!;
+              last = c.y + Math.min(c.info.h / 2, 17);
+              linePath.push(`M${sx} ${last}H${c.x}`);
+            }
+            linePath.push(`M${sx} ${ly}V${last}`);
+          }
+        }
       } else {
         const sx = n.x + IND / 2;
-        let lastFeed = pb;
+        let last = pb;
         for (const g of n.groups!) {
-          lastFeed = g.y + PB + PCH / 2;
-          linePath.push(`M${sx} ${lastFeed}H${spineX(g)}`);
-          inner(g, lastFeed);
+          const { ly, fx } = drop(g);
+          linePath.push(`M${sx} ${ly}H${fx}`);
+          last = ly;
+          for (const k of g.ids.slice(1)) {
+            const c = lay.placed.get(k)!;
+            last = c.y + Math.min(c.info.h / 2, 17);
+            linePath.push(`M${sx} ${last}H${c.x}`);
+          }
         }
-        linePath.push(`M${sx} ${pb}V${lastFeed}`);
+        linePath.push(`M${sx} ${pb}V${last}`);
       }
       continue;
     }
@@ -1170,21 +1232,25 @@ export function buildScene(model: ChartModel, opts: SceneOptions): ChartScene {
   if (dashPath.length)
     secondary.unshift({ k: 'path', d: dashPath.join(''), stroke: p.muted, sw: 1.4, dash: [6, 4] });
 
-  // ── Work-process boxes (spec §15). A grouping, not a person: no fill of a
-  // person's box, a larger radius, a hairline in the faint text tone (the
-  // border token vanishes on the dark surface) and a small title chip. ─────
+  // ── Work-process headings (spec §15): no box, no chip — the name, large,
+  // bold, in the accent text tone (--c-primary-900, which dark mode re-tones
+  // to a light violet), centred over its column. ───────────────────────────
   const groups: Prim[] = [];
   for (const id of lay.order) {
     const n = lay.placed.get(id)!;
     if (n.mode !== 'groups' || !n.kids.length) continue;
     for (const g of n.groups!) {
-      groups.push({ k: 'rect', x: g.x, y: g.y, w: g.w, h: g.h, r: 12, fill: p.canvas, stroke: p.faint, sw: 0.9 });
       if (!g.label) continue;
-      const txt = fitText(g.label, f.chip, g.w - 2 * PB - IND - 16);
-      const cw = textWidth(txt, f.chip) + 16;
-      const cx = g.x + PB + IND;
-      groups.push({ k: 'rect', x: cx, y: g.y + PB, w: cw, h: PCH, r: PCH / 2, fill: p.surface, stroke: p.faint, sw: 0.8 });
-      groups.push({ k: 'text', x: cx + 8, y: g.y + PB + 12, text: txt, size: 11, weight: 600, fill: p.muted });
+      groups.push({
+        k: 'text',
+        x: g.hx,
+        y: g.y + 19,
+        text: fitText(g.label, f.process, g.w),
+        size: PHS,
+        weight: 700,
+        fill: p.accentText,
+        anchor: 'middle',
+      });
     }
   }
 
@@ -1418,7 +1484,6 @@ export function buildScene(model: ChartModel, opts: SceneOptions): ChartScene {
     legend.push({ swatch: p.vacant, fill: p.vacantFill, text: 'Vacant' });
   }
   legend.push({ line: 'solid', text: 'Reports to' });
-  if (groups.length) legend.push({ swatch: p.faint, fill: p.canvas, text: 'Work process' });
   if (opts.secondaryEdges.length) legend.push({ line: 'dash', text: 'Other reporting line' });
 
   let lw = 0;
