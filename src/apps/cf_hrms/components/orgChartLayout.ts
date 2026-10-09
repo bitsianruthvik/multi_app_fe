@@ -65,6 +65,23 @@ export const PHT = 42;
 export const PHB = 32;
 export const PGAP = 64;
 export const PGV = 26;
+/**
+ * Machine / area headings (spec §15, "machines"): the level under a section,
+ * one step smaller — 16 bold against the section's 20 and the box title's
+ * 13.5. Same colour, same centring, same line treatment.
+ *   MHS/MHH/MHT/MHB  as PHS/PHH/PHT/PHB, for the smaller heading
+ *   CGAP  between side-by-side crews: 40, between the sibling gap (26) and
+ *         the section gap (64)
+ *   CGV   extra space above each crew heading when crews stack
+ *   CTOP  the last ungrouped person (or the column's line) to the crews' headings
+ */
+export const MHS = 16;
+export const MHH = 20;
+export const MHT = 36;
+export const MHB = 28;
+export const CGAP = 40;
+export const CGV = 16;
+export const CTOP = 32;
 
 export type ShiftFilter = 'all' | 'D' | 'N';
 export type Arrange = 'auto' | 'side' | 'stack';
@@ -220,6 +237,7 @@ export interface ChartFonts {
   headMeta: string;
   badge: string;
   process: string;
+  machine: string;
 }
 
 export function makeFonts(family: string): ChartFonts {
@@ -233,6 +251,7 @@ export function makeFonts(family: string): ChartFonts {
     headMeta: fontString(13, 400, family),
     badge: fontString(10, 600, family),
     process: fontString(PHS, 700, family),
+    machine: fontString(MHS, 700, family),
   };
 }
 
@@ -440,9 +459,16 @@ export function inRootProcess(model: ChartModel, n: OrgChartNode): boolean {
 
 export interface ProcessGroup {
   key: string;
-  /** '' for the unlabelled "no unit" group: no heading, no heading band. */
+  /** '' for an unlabelled column (no unit, or a one-section team split only by machine). */
   label: string;
+  /** 0 = a section (department/section unit) heading, 1 = a machine/area heading. */
+  level: 0 | 1;
   ids: number[];
+  /** People with no machine shown here — stacked first, above any machine headings. */
+  loose: number[];
+  /** Machine crews, in payload order of their first member (always empty on a crew). */
+  crews: ProcessGroup[];
+  crewOrient: 'across' | 'down';
   /** The column: its x-range is owned by this group alone; y is the heading's top. */
   x: number;
   y: number;
@@ -455,12 +481,90 @@ export interface ProcessGroup {
 
 /** Where a group's people start, below its heading band. */
 export function groupTop(g: ProcessGroup): number {
-  return g.y + (g.label ? PHT : 12);
+  if (!g.label) return g.y + 12;
+  return g.y + (g.level === 0 ? PHT : MHT);
 }
 
 /** The line into a column leaves the heading here (just above the first person). */
 export function groupLineY(g: ProcessGroup): number {
-  return g.y + (g.label ? PHB : 2);
+  if (!g.label) return g.y + 2;
+  return g.y + (g.level === 0 ? PHB : MHB);
+}
+
+/** The heading's text band (for checks): top = g.y. */
+export function headingHeight(g: ProcessGroup): number {
+  return g.level === 0 ? PHH : MHH;
+}
+
+/** Name normalisation shared by processes and machines: trimmed, spaces collapsed, lower case. */
+export function normName(t: string | null | undefined): string {
+  return (t ?? '').trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+/**
+ * A work context is a PROCESS, not a machine, when its name ends in
+ * "Process" (Karni: 4 of 4 — "Printing Process", "BFL Process", …). Those
+ * are 1:1 with sections and are ignored. Known heuristic (spec §15).
+ */
+export function isProcessContext(name: string): boolean {
+  return /\bprocess$/i.test((name ?? '').trim());
+}
+
+/**
+ * A position's machine/area: its PRIMARY non-process work context, else its
+ * only non-process context, else none.
+ */
+export function machineOf(n: OrgChartNode): { key: string; label: string } | null {
+  const own = (n.contexts ?? []).filter((c) => c.name && !isProcessContext(c.name));
+  const m = own.find((c) => c.isPrimary) ?? (own.length === 1 ? own[0] : null);
+  if (!m) return null;
+  const label = m.name.trim().replace(/\s+/g, ' ');
+  return { key: normName(label), label };
+}
+
+/**
+ * Splits a column's people into the ungrouped ones and machine crews. A
+ * machine that repeats the heading directly above (`above`, normalised) is
+ * not a new heading — "Rewinding" under "Rewinding" — and its people stay
+ * ungrouped. Returns each person's own heading-above for the next level down.
+ */
+export function splitByMachine(
+  model: ChartModel,
+  g: ProcessGroup,
+  above: string,
+  orient: 'across' | 'down',
+): Map<number, string> {
+  const heading = g.label ? normName(g.label) : above;
+  const crews = new Map<string, ProcessGroup>();
+  const aboveOf = new Map<number, string>();
+  g.loose = [];
+  for (const id of g.ids) {
+    const m = machineOf(model.byId.get(id)!);
+    if (!m || m.key === heading) {
+      g.loose.push(id);
+      aboveOf.set(id, heading);
+      continue;
+    }
+    let c = crews.get(m.key);
+    if (!c) {
+      c = {
+        key: m.key, label: m.label, level: 1, ids: [], loose: [], crews: [], crewOrient: 'across',
+        x: 0, y: 0, w: 0, h: 0, hx: 0, hw: 0,
+      };
+      crews.set(m.key, c);
+    }
+    c.ids.push(id);
+    c.loose.push(id);
+    aboveOf.set(id, m.key);
+  }
+  g.crews = [...crews.values()];
+  g.crewOrient = orient;
+  return aboveOf;
+}
+
+/** Every heading in a split, sections then their crews. */
+export function allGroups(groups: ProcessGroup[]): ProcessGroup[] {
+  return groups.flatMap((g) => [g, ...g.crews]);
 }
 
 /**
@@ -483,7 +587,11 @@ export function groupByProcess(model: ChartModel, managerId: number, kids: numbe
   const weight = (key: string) => (key === '' ? 2 : key === own ? 0 : 1);
   return [...groups.entries()]
     .sort(([a, ga], [b, gb]) => weight(a) - weight(b) || ga.rank - gb.rank || a.localeCompare(b))
-    .map(([key, g]) => ({ key, label: key ? (idx.label.get(key) ?? key) : '', ids: g.ids, x: 0, y: 0, w: 0, h: 0, hx: 0, hw: 0 }));
+    .map(([key, g]) => ({
+      key, label: key ? (idx.label.get(key) ?? key) : '', level: 0 as const, ids: g.ids,
+      loose: [...g.ids], crews: [] as ProcessGroup[], crewOrient: 'across' as const,
+      x: 0, y: 0, w: 0, h: 0, hx: 0, hw: 0,
+    }));
 }
 
 // ── Rows inside a box ───────────────────────────────────────────────────────
@@ -701,7 +809,8 @@ export function layoutChart(model: ChartModel, opts: LayoutOptions): LayoutResul
 
   const realKids = (id: number) => model.children.get(id) ?? [];
 
-  const size = (id: number, depth: number): number => {
+  /** `above`: the normalised heading directly over this box ('' for none) — rule 6 of the machines. */
+  const size = (id: number, depth: number, above = ''): number => {
     const node = model.byId.get(id)!;
     const isCollapsed = collapsed.has(id);
     const kids = isCollapsed ? [] : realKids(id);
@@ -759,9 +868,30 @@ export function layoutChart(model: ChartModel, opts: LayoutOptions): LayoutResul
     // Leadership stays a plain tree: a seat in a ROOT unit (Management, for
     // Karni) never boxes its team, so the Directors read as an ordinary tree
     // and the boxes begin where the reports split into departments.
-    const groups = pref === 'auto' && !inRootProcess(model, node) ? groupByProcess(model, id, kids) : [];
+    //
+    // MACHINES (spec §15): inside a section column — and inside a one-section
+    // team — people are sub-grouped by machine/area (their primary non-process
+    // work context), a smaller heading over each crew, the ungrouped people
+    // first. A one-section team with machines becomes ONE unlabelled column.
+    const allowed = pref === 'auto' && !inRootProcess(model, node);
+    let groups = allowed ? groupByProcess(model, id, kids) : [];
+    const orient: 'across' | 'down' =
+      headsProcess(model, node) || kids.some((k) => headsAnyProcess(model, model.byId.get(k)!))
+        ? 'across'
+        : 'down';
+    const aboveOf = new Map<number, string>();
+    if (groups.length === 1) groups[0].label = '';
+    // A section heading that repeats the heading directly above (P022 sits
+    // under "Printing"; its own Printing column would say "Printing" again)
+    // is not drawn: the column stays, the line runs straight into it.
+    for (const g of groups) if (g.label && normName(g.label) === above) g.label = '';
+    for (const g of groups) splitByMachine(model, g, above, orient).forEach((v, k) => aboveOf.set(k, v));
+    if (groups.length === 1 && !groups[0].crews.length) {
+      groups = [];
+      aboveOf.clear();
+    }
     p.mode =
-      groups.length > 1
+      groups.length > 0
         ? 'groups'
         : pref === 'side'
           ? 'side'
@@ -771,24 +901,31 @@ export function layoutChart(model: ChartModel, opts: LayoutOptions): LayoutResul
               ? 'side'
               : 'mixed';
 
-    const sizes = kids.map((k) => size(k, depth + 1));
+    const sizes = kids.map((k) => size(k, depth + 1, aboveOf.get(k) ?? above));
     if (p.mode === 'groups') {
       p.groups = groups;
-      // Side by side when this seat heads its process, OR when any box holds a
-      // seat that heads a process (that person has a department under them).
-      // Stacked boxes remain only for small cross-process teams with no head.
-      p.orient =
-        headsProcess(model, node) || kids.some((k) => headsAnyProcess(model, model.byId.get(k)!))
-          ? 'across'
-          : 'down';
+      // Side by side when this seat heads its process, OR when any column holds
+      // a seat that heads a process (that person has a department under them).
+      // Stacked columns remain only for small cross-process teams with no head.
+      // Machine crews inside a column follow the same answer.
+      p.orient = orient;
       // A heading wider than its column WIDENS the column (one line, never
       // wrapped): "Packaging & Loading" over a one-person column would
       // otherwise reach into the next column's heading.
-      const indent = p.orient === 'across' ? IND : 0;
+      const widest = (ids: number[]) => (ids.length ? IND + Math.max(...ids.map((k) => placed.get(k)!.sw)) : 0);
       for (const g of groups) {
-        const inner = Math.max(...g.ids.map((k) => placed.get(k)!.sw));
+        for (const c of g.crews) {
+          c.hw = textWidth(c.label, fonts.machine);
+          c.w = Math.max(widest(c.ids), c.hw + 8);
+        }
+        const crewsW = !g.crews.length
+          ? 0
+          : IND +
+            (g.crewOrient === 'across'
+              ? g.crews.reduce((a, c) => a + c.w, 0) + CGAP * (g.crews.length - 1)
+              : Math.max(...g.crews.map((c) => c.w)));
         g.hw = g.label ? textWidth(g.label, fonts.process) : 0;
-        g.w = Math.max(indent + inner, g.hw ? g.hw + 8 : 0);
+        g.w = Math.max(widest(g.loose), crewsW, g.hw ? g.hw + 8 : 0);
       }
       p.sw =
         p.orient === 'across'
@@ -835,23 +972,43 @@ export function layoutChart(model: ChartModel, opts: LayoutOptions): LayoutResul
       // Under its heading a column's people stack, each with its own team
       // below them; a member's subtree is laid out by the same rules, so a
       // member whose team spans processes gets headed columns of its own.
-      const indent = p.orient === 'across' ? IND : 0;
-      const fill = (g: ProcessGroup, gx: number, gy: number) => {
+      // A column: its ungrouped people stacked first, then its machine crews
+      // (side by side or stacked), each crew a smaller column of its own.
+      const fill = (g: ProcessGroup, gx: number, gy: number): number => {
         g.x = gx;
         g.y = gy;
         let my = groupTop(g);
-        let last = my;
-        for (const k of g.ids) {
-          last = place(k, gx + indent, my);
+        let last = groupLineY(g);
+        for (const k of g.loose) {
+          last = place(k, gx + IND, my);
           my = last + SG;
         }
+        if (g.crews.length) {
+          let cy = g.loose.length ? last + CTOP : groupLineY(g) + CTOP - 12;
+          if (g.crewOrient === 'across') {
+            let cx = gx + IND;
+            for (const c of g.crews) {
+              last = Math.max(last, fill(c, cx, cy));
+              cx += c.w + CGAP;
+            }
+          } else {
+            for (const c of g.crews) {
+              cy += CGV;
+              last = fill(c, gx + IND, cy);
+              cy = last + SG;
+            }
+          }
+        }
         g.h = last - gy;
-        // The heading sits right above the first person, kept inside the
-        // column's own x-range so it can never reach a neighbour's.
-        const first = placed.get(g.ids[0])!;
-        const want = first.x + W / 2;
+        // The heading sits right above the first person (or, with no
+        // ungrouped people, over its crews), kept inside the column's own
+        // x-range so it can never reach a neighbour's.
+        let want: number;
+        if (g.loose.length) want = placed.get(g.loose[0])!.x + W / 2;
+        else if (g.crewOrient === 'across') want = (g.crews[0].hx + g.crews[g.crews.length - 1].hx) / 2;
+        else want = g.crews[0].hx;
         g.hx = g.hw ? Math.min(Math.max(want, gx + g.hw / 2), gx + g.w - g.hw / 2) : want;
-        return gy + g.h;
+        return last;
       };
       const groups = p.groups!;
       if (p.orient === 'across') {
@@ -922,7 +1079,7 @@ export function layoutChart(model: ChartModel, opts: LayoutOptions): LayoutResul
         ? [opts.root]
         : model.roots;
 
-  for (const r of roots) size(r, 0);
+  for (const r of roots) size(r, 0, '');
 
   const band: number[] = [];
   const onGrid = (id: number) => {
@@ -1073,49 +1230,75 @@ export function buildScene(model: ChartModel, opts: SceneOptions): ChartScene {
       // the column. Stacked: the manager's own spine feeds each column under
       // its heading. No line crosses heading text.
       const pb = n.y + n.info.h;
-      const drop = (g: ProcessGroup) => {
+      // Arrival at a heading from a bus above: stop 3px over the text (an
+      // unlabelled column has nothing to step over, so the line runs through).
+      const arrive = (g: ProcessGroup, fromY: number) =>
+        linePath.push(g.label ? `M${g.hx} ${fromY}V${g.y - 3}` : `M${g.hx} ${fromY}V${groupLineY(g)}`);
+      // Everything below a column's heading: the line resumes at (hx, ly),
+      // drops straight into the first ungrouped person, branches to a spine
+      // for the rest, and carries on to the crews — a bus above crews that sit
+      // side by side, a feed under each heading of crews that stack.
+      const column = (g: ProcessGroup) => {
         const ly = groupLineY(g);
-        const first = lay.placed.get(g.ids[0])!;
-        const fx = Math.min(Math.max(g.hx, first.x + 12), first.x + W - 12);
-        linePath.push(`M${fx} ${ly}V${first.y}`);
-        return { ly, fx };
+        const sx = g.x + IND / 2;
+        const across = g.crewOrient === 'across';
+        const crewBus = g.crews.length && across ? Math.min(...g.crews.map((c) => c.y)) - 12 : null;
+        const spine = g.loose.length > 1 || (g.crews.length > 0 && (g.loose.length > 0 || !across));
+        const xsAt = [g.hx];
+        let last = ly;
+        if (g.loose.length) {
+          const first = lay.placed.get(g.loose[0])!;
+          const fx = Math.min(Math.max(g.hx, first.x + 12), first.x + W - 12);
+          linePath.push(`M${fx} ${ly}V${first.y}`);
+          xsAt.push(fx);
+          for (const k of g.loose.slice(1)) {
+            const c = lay.placed.get(k)!;
+            last = c.y + Math.min(c.info.h / 2, 17);
+            linePath.push(`M${sx} ${last}H${c.x}`);
+          }
+        }
+        if (spine) xsAt.push(sx);
+        if (Math.max(...xsAt) - Math.min(...xsAt) > 0.5) linePath.push(`M${Math.min(...xsAt)} ${ly}H${Math.max(...xsAt)}`);
+        if (crewBus != null) {
+          const from = g.loose.length ? sx : g.hx;
+          if (!g.loose.length) linePath.push(`M${g.hx} ${ly}V${crewBus}`);
+          else last = Math.max(last, crewBus);
+          const xs = g.crews.map((c) => c.hx);
+          linePath.push(`M${Math.min(from, ...xs)} ${crewBus}H${Math.max(from, ...xs)}`);
+          for (const c of g.crews) {
+            arrive(c, crewBus);
+            column(c);
+          }
+        } else {
+          for (const c of g.crews) {
+            const cly = groupLineY(c);
+            linePath.push(`M${sx} ${cly}H${c.hx}`);
+            column(c);
+            last = cly;
+          }
+        }
+        if (spine && last > ly) linePath.push(`M${sx} ${ly}V${last}`);
       };
       if (n.orient === 'across') {
         const px = n.x + W / 2;
         const my = Math.min(...n.groups!.map((g) => g.y)) - VG / 2;
         const xs = n.groups!.map((g) => g.hx);
         linePath.push(`M${px} ${pb}V${my}`);
-        linePath.push(`M${Math.min(px, ...xs)} ${my}H${Math.max(px, ...xs)}`);
+        const lo = Math.min(px, ...xs);
+        const hi = Math.max(px, ...xs);
+        if (hi - lo > 0.5) linePath.push(`M${lo} ${my}H${hi}`);
         for (const g of n.groups!) {
-          const { ly, fx } = drop(g);
-          // Unlabelled: nothing to step over, the line runs straight through.
-          linePath.push(g.label ? `M${g.hx} ${my}V${g.y - 3}` : `M${g.hx} ${my}V${ly}`);
-          const sx = g.x + IND / 2;
-          const rest = g.ids.slice(1);
-          const xsAt = [g.hx, fx, ...(rest.length ? [sx] : [])];
-          if (Math.max(...xsAt) - Math.min(...xsAt) > 0.5) linePath.push(`M${Math.min(...xsAt)} ${ly}H${Math.max(...xsAt)}`);
-          if (rest.length) {
-            let last = ly;
-            for (const k of rest) {
-              const c = lay.placed.get(k)!;
-              last = c.y + Math.min(c.info.h / 2, 17);
-              linePath.push(`M${sx} ${last}H${c.x}`);
-            }
-            linePath.push(`M${sx} ${ly}V${last}`);
-          }
+          arrive(g, my);
+          column(g);
         }
       } else {
         const sx = n.x + IND / 2;
         let last = pb;
         for (const g of n.groups!) {
-          const { ly, fx } = drop(g);
-          linePath.push(`M${sx} ${ly}H${fx}`);
+          const ly = groupLineY(g);
+          linePath.push(`M${sx} ${ly}H${g.hx}`);
+          column(g);
           last = ly;
-          for (const k of g.ids.slice(1)) {
-            const c = lay.placed.get(k)!;
-            last = c.y + Math.min(c.info.h / 2, 17);
-            linePath.push(`M${sx} ${last}H${c.x}`);
-          }
         }
         linePath.push(`M${sx} ${pb}V${last}`);
       }
@@ -1239,14 +1422,15 @@ export function buildScene(model: ChartModel, opts: SceneOptions): ChartScene {
   for (const id of lay.order) {
     const n = lay.placed.get(id)!;
     if (n.mode !== 'groups' || !n.kids.length) continue;
-    for (const g of n.groups!) {
+    for (const g of allGroups(n.groups!)) {
       if (!g.label) continue;
+      const section = g.level === 0;
       groups.push({
         k: 'text',
         x: g.hx,
-        y: g.y + 19,
-        text: fitText(g.label, f.process, g.w),
-        size: PHS,
+        y: g.y + (section ? 19 : 15),
+        text: fitText(g.label, section ? f.process : f.machine, g.w),
+        size: section ? PHS : MHS,
         weight: 700,
         fill: p.accentText,
         anchor: 'middle',
