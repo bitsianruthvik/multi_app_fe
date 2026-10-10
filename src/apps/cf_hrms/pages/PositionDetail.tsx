@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Box, Button, IconButton, Stack, Tooltip, Typography } from '@mui/material';
 import AddRounded from '@mui/icons-material/AddRounded';
 import EditRounded from '@mui/icons-material/EditRounded';
@@ -7,7 +7,6 @@ import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
 import EventBusyRounded from '@mui/icons-material/EventBusyRounded';
 import PrecisionManufacturingRounded from '@mui/icons-material/PrecisionManufacturingRounded';
 import GroupsRounded from '@mui/icons-material/GroupsRounded';
-import LayersRounded from '@mui/icons-material/LayersRounded';
 import {
   CrossLink, DetailHeader, DetailLayout, DetailSkeleton, EmptyState, ErrorNotice,
   FactItem, Mono, SectionCard, StatusBadge, Surface, ToneBadge,
@@ -15,11 +14,12 @@ import {
 } from '@shared/ui';
 import type { DetailTab, StatusTone } from '@shared/ui';
 import type {
-  ContentOverrideRow, PositionContextRow, PositionOccupant, PositionOptions, PositionRow,
+  PositionContextRow, PositionOccupant, PositionOptions, PositionRow,
 } from '../api/positions';
 import { positionsApi } from '../api/positions';
 import type { ResolvedRelationship } from '../api/assignments';
-import { ContentOverrideDialog, PositionContextDialog, PositionFormDialog } from '../components/PositionDialogs';
+import { PositionContextDialog, PositionFormDialog } from '../components/PositionDialogs';
+import { SeatJobContentEditor } from '../components/SeatJobContentEditor';
 import { PositionReportingDialog } from '../components/ReportingDialogs';
 import { ReportingRowList } from '../components/ReportingRows';
 import { usePositionRemoval } from '../components/usePositionRemoval';
@@ -29,8 +29,10 @@ import { usePositionRemoval } from '../components/usePositionRemoval';
  *
  * The record of a SEAT, not of a person. Its tabs are the four things a seat
  * has that a person does not: the contexts it covers, the FORMAL reporting that
- * survives it being empty, whoever currently occupies it, and the content it
- * overlays on its role.
+ * survives it being empty, whoever currently occupies it, and its job content —
+ * what its role says, with anything this seat does differently marked and
+ * editable in plain words (`SeatJobContentEditor`, which replaced the
+ * "Overrides" tab on 2026-10-10). `?tab=job&edit=1` opens that tab in edit mode.
  *
  * Formal reporting here is many rows on purpose — a primary line and a scoped
  * functional line are two rows on ONE position, never two positions and never a
@@ -56,14 +58,13 @@ export default function PositionDetail() {
   const [reporting, setReporting] = useState<ResolvedRelationship[]>([]);
   const [directReports, setDirectReports] = useState<{ id: number; fromPositionId: number; fromPositionTitle: string | null; relationshipTypeName: string | null }[]>([]);
   const [occupants, setOccupants] = useState<PositionOccupant[]>([]);
-  const [overrides, setOverrides] = useState<ContentOverrideRow[]>([]);
   const [error, setError] = useState<unknown>(null);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState('overview');
+  const [search] = useSearchParams();
+  const [tab, setTab] = useState(search.get('tab') === 'job' ? 'job' : 'overview');
   const [editing, setEditing] = useState(false);
   const [addingContext, setAddingContext] = useState(false);
   const [addingReporting, setAddingReporting] = useState(false);
-  const [addingOverride, setAddingOverride] = useState(false);
   // Close or delete this seat; the dialog reads what it would do to the team first. A deleted seat has no page to stay on.
   const removal = usePositionRemoval({ onDone: (r) => { if (r.deletedIds) navigate(`/${company}/cf_hrms/positions`); else load(); } });
 
@@ -76,9 +77,8 @@ export default function PositionDetail() {
       positionsApi.resolvedReporting(positionId),
       positionsApi.reporting(positionId),
       positionsApi.occupants(positionId),
-      positionsApi.overrides(positionId),
     ])
-      .then(([p, c, rr, r, o, ov]) => {
+      .then(([p, c, rr, r, o]) => {
         setPosition(p.position);
         setContexts(c.items);
         setReporting(rr.relationships);
@@ -86,7 +86,6 @@ export default function PositionDetail() {
           id: d.id, fromPositionId: d.fromPositionId, fromPositionTitle: d.fromPositionTitle, relationshipTypeName: d.relationshipTypeName,
         })));
         setOccupants(o.items);
-        setOverrides(ov.items);
         setError(null);
       })
       .catch(setError)
@@ -110,7 +109,7 @@ export default function PositionDetail() {
       : []),
     { value: 'reporting', label: 'Formal reporting', count: reporting.length },
     { value: 'occupants', label: 'Occupants', count: occupants.filter((o) => o.liveOnDate).length },
-    { value: 'overrides', label: 'Overrides', count: overrides.length },
+    { value: 'job', label: 'Job content' },
   ];
 
   return (
@@ -307,41 +306,13 @@ export default function PositionDetail() {
           </SectionCard>
         )}
 
-        {tab === 'overrides' && (
-          <SectionCard
-            title="Content overlays"
-            subtitle="What this seat ADDs to, OVERRIDEs or SUPPRESSes from its role's content. Used for a genuine contextual difference, not to copy role content down."
-            action={canManage && <Button size="small" startIcon={<AddRounded />} onClick={() => setAddingOverride(true)}>Add overlay</Button>}
-          >
-            {overrides.length === 0 ? (
-              <EmptyState
-                icon={<LayersRounded />}
-                title="No overlays"
-                hint="This seat carries exactly what its role says. That is the normal and preferred state."
-                action={canManage ? <Button size="small" variant="contained" onClick={() => setAddingOverride(true)}>Add overlay</Button> : undefined}
-              />
-            ) : (
-              <Stack spacing={1}>
-                {overrides.map((o) => (
-                  <Surface key={o.id} e={1} bordered sx={{ p: 1.5, display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap' }}>
-                    <ToneBadge tone={o.action === 'SUPPRESS' ? 'danger' : o.action === 'OVERRIDE' ? 'warning' : 'success'} noIcon label={o.action} />
-                    <ToneBadge tone="neutral" noIcon label={o.contentType} />
-                    <Typography sx={{ fontSize: 14, flex: 1 }}>{o.definitionName ?? '—'}</Typography>
-                    {o.reason && <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>{o.reason}</Typography>}
-                    {canManage && (
-                      <IconButton
-                        size="small"
-                        aria-label="Remove this overlay"
-                        onClick={async () => { await positionsApi.removeOverride(o.id); toast.success('Overlay removed'); load(); }}
-                      >
-                        <DeleteOutlineRounded fontSize="small" />
-                      </IconButton>
-                    )}
-                  </Surface>
-                ))}
-              </Stack>
-            )}
-          </SectionCard>
+        {tab === 'job' && (
+          <SeatJobContentEditor
+            positionId={position.id}
+            company={company}
+            canManage={canManage}
+            startEditing={search.get('edit') === '1'}
+          />
         )}
       </DetailLayout>
 
@@ -366,21 +337,6 @@ export default function PositionDetail() {
         onDone={() => { setAddingReporting(false); load(); }}
         positionId={position.id}
         options={options}
-      />
-      <ContentOverrideDialog
-        open={addingOverride}
-        onClose={() => setAddingOverride(false)}
-        subtitle="Applied on top of the role's content, for this seat only."
-        definitions={{
-          KRA: options?.kraDefinitions ?? [],
-          RESPONSIBILITY: options?.responsibilityDefinitions ?? [],
-          KPI: options?.kpiDefinitions ?? [],
-        }}
-        onSubmit={async (body) => {
-          await positionsApi.addOverride(position.id, body);
-          setAddingOverride(false);
-          load();
-        }}
       />
       {error && <ErrorNotice error={error} onRetry={load} sx={{ mt: 2 }} />}
       {!canManage && (

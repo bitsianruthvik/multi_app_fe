@@ -18,7 +18,7 @@
  *   pointed at any date to show what was, or will be, in force then.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Box, Button, ListItemIcon, ListItemText, Menu, MenuItem, Stack, TextField, Typography } from '@mui/material';
 import ApartmentRounded from '@mui/icons-material/ApartmentRounded';
 import WorkOutlineRounded from '@mui/icons-material/WorkOutlineRounded';
@@ -61,7 +61,9 @@ export default function RoleDetail() {
   const [content, setContent] = useState<RoleContent | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<unknown>(null);
-  const [tab, setTab] = useState('overview');
+  // `?tab=content` lands on the editor — where the Departments screen's Edit goes.
+  const [search] = useSearchParams();
+  const [tab, setTab] = useState(search.get('tab') === 'content' ? 'content' : 'overview');
   const [scope, setScope] = useState<'all' | 'effective'>('all');
   const [on, setOn] = useState(todayIso());
   const [editing, setEditing] = useState(false);
@@ -267,7 +269,7 @@ export default function RoleDetail() {
                   {!role.hasPurpose && <Box>· Write the purpose — one or two sentences on why the role exists.</Box>}
                   {role.kraCount === 0 && (
                     <Box>
-                      · Assign at least one KRA, then group the duties and measures under it.{' '}
+                      · Write at least one KRA, then file the responsibilities and KPIs under it.{' '}
                       <Box component="button" type="button" onClick={() => setTab('content')} sx={{ border: 0, background: 'none', p: 0, font: 'inherit', color: 'var(--c-primary-700)', cursor: 'pointer' }}>
                         Open the Content tab
                       </Box>

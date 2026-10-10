@@ -111,6 +111,8 @@ export interface SelfResponsibilityItem {
   origin: 'ROLE' | 'POSITION' | 'ASSIGNMENT';
   /** True when this line belongs to this seat rather than to the role everywhere. */
   isSpecificToThisSeat: boolean;
+  /** The role says it and this seat does it differently. (Added 2026-10-10.) */
+  isChangedForThisSeat?: boolean;
   notes: string | null;
 }
 
@@ -120,6 +122,7 @@ export interface SelfMeasure {
   targetText: string | null;
   frequency: string | null;
   origin: 'ROLE' | 'POSITION' | 'ASSIGNMENT';
+  isChangedForThisSeat?: boolean;
 }
 
 export interface SelfResponsibilityArea {

@@ -51,8 +51,6 @@ import WorkOutlineRounded from '@mui/icons-material/WorkOutlineRounded';
 import PrecisionManufacturingRounded from '@mui/icons-material/PrecisionManufacturingRounded';
 import ScheduleRounded from '@mui/icons-material/ScheduleRounded';
 import HelpOutlineRounded from '@mui/icons-material/HelpOutlineRounded';
-import ExpandMoreRounded from '@mui/icons-material/ExpandMoreRounded';
-import ExpandLessRounded from '@mui/icons-material/ExpandLessRounded';
 import LockOutlined from '@mui/icons-material/LockOutlined';
 import AccountTreeRounded from '@mui/icons-material/AccountTreeRounded';
 import {
@@ -66,8 +64,9 @@ import {
   type SelfReportingLine,
   type SelfSeat,
   type SelfTeamMember,
-  type SelfResponsibilityItem,
 } from '../api/self';
+import { fromSelfResponsibilities } from '../api/jobContent';
+import { JobContent } from '../components/JobContent';
 
 /**
  * Relationship type → badge tone. A KIND OF AUTHORITY, not a lifecycle state,
@@ -84,8 +83,6 @@ const TYPE_TONE: Record<string, StatusTone> = {
   SHIFT_SUPERVISOR: 'neutral',
 };
 
-/** How many responsibilities to show before "show all". */
-const RESPONSIBILITY_PREVIEW = 6;
 
 /* ── small pieces ───────────────────────────────────────────────────────── */
 
@@ -218,23 +215,6 @@ function TeamRow({ member, showLine = false }: { member: SelfTeamMember; showLin
   );
 }
 
-function ResponsibilityRow({ item }: { item: SelfResponsibilityItem }) {
-  return (
-    <Box sx={{ display: 'flex', gap: 1, py: 0.6 }}>
-      <Box sx={{ mt: '7px', width: 5, height: 5, borderRadius: '50%', background: 'var(--c-primary-500)', flexShrink: 0 }} aria-hidden />
-      <Box sx={{ minWidth: 0 }}>
-        <Typography sx={{ fontSize: 13.5, color: 'var(--c-text)', lineHeight: 1.5 }}>
-          {item.name}
-        </Typography>
-        {item.isSpecificToThisSeat && (
-          <Typography sx={{ fontSize: 11.5, color: 'var(--c-text-3)' }}>
-            Added for your job specifically
-          </Typography>
-        )}
-      </Box>
-    </Box>
-  );
-}
 
 /** One of the caller's jobs: the seat, and the facts about it. */
 function SeatStrip({ seat, many }: { seat: SelfSeat; many: boolean }) {
@@ -307,7 +287,6 @@ export default function MyPlace() {
   const [data, setData] = useState<MyPlaceData | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [loading, setLoading] = useState(true);
-  const [showAllResponsibilities, setShowAll] = useState(false);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -358,9 +337,12 @@ export default function MyPlace() {
     ...(s.responsibilities?.areas ?? []).flatMap((a) => a.responsibilities),
     ...(s.responsibilities?.additional.responsibilities ?? []),
   ]);
-  const shown = showAllResponsibilities
-    ? allResponsibilities
-    : allResponsibilities.slice(0, RESPONSIBILITY_PREVIEW);
+  // The measures count too: a job with KPIs and no listed duties is not "nothing".
+  const allMeasures = seats.flatMap((s) => [
+    ...(s.responsibilities?.areas ?? []).flatMap((a) => a.measures),
+    ...(s.responsibilities?.additional.measures ?? []),
+  ]);
+  const itemCount = allResponsibilities.length + allMeasures.length;
   const unwritten = seats.every((s) => s.responsibilities?.emptyBecauseUnwritten !== false);
 
   return (
@@ -519,13 +501,16 @@ export default function MyPlace() {
           flush
           title="What you are responsible for"
           subtitle={
-            allResponsibilities.length > 0
-              ? `${allResponsibilities.length} ${allResponsibilities.length === 1 ? 'item' : 'items'}`
+            itemCount > 0
+              ? [
+                  `${allResponsibilities.length} ${allResponsibilities.length === 1 ? 'responsibility' : 'responsibilities'}`,
+                  allMeasures.length ? `${allMeasures.length} ${allMeasures.length === 1 ? 'KPI' : 'KPIs'}` : null,
+                ].filter(Boolean).join(' · ')
               : undefined
           }
         >
           <ScrollPanel>
-            {allResponsibilities.length === 0 ? (
+            {itemCount === 0 ? (
               <Callout
                 tone="neutral"
                 icon={<ChecklistRounded sx={{ fontSize: 18 }} />}
@@ -544,21 +529,24 @@ export default function MyPlace() {
                     {seats[0].responsibilities.rolePurpose}
                   </Typography>
                 )}
-                <Box>
-                  {shown.map((item) => <ResponsibilityRow key={item.key} item={item} />)}
-                </Box>
-                {allResponsibilities.length > RESPONSIBILITY_PREVIEW && (
-                  <Button
-                    size="small"
-                    onClick={() => setShowAll((v) => !v)}
-                    startIcon={showAllResponsibilities ? <ExpandLessRounded /> : <ExpandMoreRounded />}
-                    sx={{ mt: 1, textTransform: 'none' }}
-                  >
-                    {showAllResponsibilities
-                      ? 'Show fewer'
-                      : `Show all ${allResponsibilities.length}`}
-                  </Button>
-                )}
+                {/* The same grouped view HR sees on the role and the position
+                    (components/JobContent.tsx), built from what /user/me/place
+                    already returned — no request is made for it. One per job
+                    for the people who hold more than one. */}
+                <Stack spacing={2}>
+                  {seats
+                    .filter((s) => s.responsibilities)
+                    .map((s) => (
+                      <Box key={s.assignmentId} data-myjob="">
+                        {many && (
+                          <Typography sx={{ fontSize: 12, fontWeight: 600, color: 'var(--c-text-2)', mb: 0.5 }}>
+                            {`as ${s.label}`}
+                          </Typography>
+                        )}
+                        <JobContent content={fromSelfResponsibilities(s.responsibilities!)} voice="self" dense />
+                      </Box>
+                    ))}
+                </Stack>
               </>
             )}
           </ScrollPanel>

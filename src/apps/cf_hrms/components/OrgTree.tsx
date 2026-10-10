@@ -31,6 +31,7 @@ export function OrgTreeView<T extends TreeMeta>({
   renderSecondary,
   renderTrailing,
   renderActions,
+  renderBelow,
 }: {
   /** Pre-order, already searched. Collapsing is applied here. */
   rows: T[];
@@ -42,6 +43,8 @@ export function OrgTreeView<T extends TreeMeta>({
   renderSecondary?: (row: T) => ReactNode;
   renderTrailing?: (row: T) => ReactNode;
   renderActions?: (row: T) => ReactNode;
+  /** Opened under a row, at its indent — a department's roles and positions. Null draws nothing. */
+  renderBelow?: (row: T) => ReactNode;
 }) {
   const expandable = idsWithVisibleChildren(rows);
   const shown = visibleRows(rows, collapsed);
@@ -105,6 +108,7 @@ export function OrgTreeView<T extends TreeMeta>({
                 trailing={renderTrailing?.(row)}
                 actions={renderActions?.(row)}
               />
+              {renderBelow?.(row)}
             </Box>
           </Box>
         );

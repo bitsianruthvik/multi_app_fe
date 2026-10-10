@@ -34,7 +34,10 @@ import {
   useToast,
   type Stat,
 } from '@shared/ui';
+import { useCompanySlug } from '@shared/ui';
 import { orgApi, ORG_MANAGE, type Department } from '../api/organisation';
+import { getDepartmentStaffing } from '../api/jobContent';
+import { DepartmentStaffingPanel, JobPeekSheet, type JobPeek } from '../components/DepartmentStaffing';
 import {
   ORG_STATUS_LABELS,
   ORG_STATUS_TONES,
@@ -54,6 +57,13 @@ import { OrgCode, OrgTreeView } from '../components/OrgTree';
  * says almost nothing, "Production › Printing" says which JD, which manpower
  * plan and which holiday calendar it belongs to. A flat table with a Parent
  * column makes the reader rebuild that in their head on every visit.
+ *
+ * WHO WORKS THERE (2026-10-10). A department's name is a button: it opens the
+ * department's roles and positions under its row — positions grouped by role,
+ * with seats, filled, vacant and who is in each. Clicking a role or a position
+ * opens its KRAs, responsibilities and KPIs in a side sheet, with Edit going to
+ * the role's Content tab or the position's job-content editor. Two requests for
+ * the whole screen: the tree, and every department's staffing in one answer.
  */
 
 interface DraftState {
@@ -80,13 +90,33 @@ const emptyDraft = (parentId: number | null): DraftState => ({
   serves: [],
 });
 
+/** "3 roles · 12 seats" — what a department holds, on its row. */
+const staffLabel = (c: { roles: number; seats: number }) =>
+  `${c.roles} role${c.roles === 1 ? '' : 's'} · ${c.seats} seat${c.seats === 1 ? '' : 's'}`;
+
 export default function Departments() {
   const can = useIsPermitted();
   const canManage = can(ORG_MANAGE);
   const { success } = useToast();
 
-  const load = useCallback(() => orgApi.departments.listWithTypes(), []);
+  const company = useCompanySlug();
+  const load = useCallback(
+    () =>
+      Promise.all([orgApi.departments.listWithTypes(), getDepartmentStaffing()]).then(([tree, staffing]) => ({
+        ...tree,
+        staffing,
+      })),
+    [],
+  );
   const { data, error, loading, reload } = useOrgLoad(load);
+  const staffingOf = useMemo(
+    () => new Map((data?.staffing.departments ?? []).map((d) => [d.departmentId ?? 0, d])),
+    [data],
+  );
+  // The department whose roles and positions are open, and the job being peeked at.
+  const [openId, setOpenId] = useState<number | null>(null);
+  const [peek, setPeek] = useState<JobPeek | null>(null);
+  const unplaced = staffingOf.get(0) ?? null;
   const rows = useMemo(() => data?.rows ?? [], [data]);
   const types = useMemo(() => data?.types ?? [], [data]);
   const nameOf = useMemo(() => new Map(rows.map((r) => [r.id, r.name])), [rows]);
@@ -108,8 +138,18 @@ export default function Departments() {
     const noCode = rows.filter((r) => !r.code).length;
     const inactive = rows.filter((r) => r.status === 'INACTIVE').length;
     const roots = rows.filter((r) => r.depth === 0).length;
+    const totals = data?.staffing.counts;
     return [
       { label: 'Departments', value: rows.length },
+      ...(totals
+        ? [
+            {
+              label: 'Seats',
+              value: totals.seats,
+              hint: `${totals.filled} filled, ${totals.vacant} vacant across ${totals.positions} positions — the same count the org chart shows.`,
+            },
+          ]
+        : []),
       {
         label: 'Top level',
         value: roots,
@@ -128,7 +168,7 @@ export default function Departments() {
         hint: 'Kept for history; hidden from new pickers.',
       },
     ];
-  }, [rows]);
+  }, [rows, data]);
 
   const openNew = (parentId: number | null) => setDraft(emptyDraft(parentId));
   const openEdit = (row: Department) =>
@@ -202,7 +242,7 @@ export default function Departments() {
 
       {loading ? (
         <>
-          <StatSkeleton count={4} />
+          <StatSkeleton count={5} />
           <Box sx={{ mt: 2 }}>
             <ListSkeleton rows={6} />
           </Box>
@@ -244,7 +284,38 @@ export default function Departments() {
               onToggle={toggle}
               ariaLabel="Departments"
               renderCode={(row) => <OrgCode code={row.code} />}
-              renderPrimary={(row) => row.name}
+              renderPrimary={(row) => (
+                <Box
+                  component="button"
+                  type="button"
+                  aria-expanded={openId === row.id}
+                  title="Show the roles and positions in this department"
+                  onClick={() => setOpenId((id) => (id === row.id ? null : row.id))}
+                  sx={{
+                    border: 0,
+                    background: 'none',
+                    p: 0,
+                    font: 'inherit',
+                    color: 'inherit',
+                    cursor: 'pointer',
+                    textAlign: 'left',
+                    '&:hover': { color: 'var(--c-primary-700)', textDecoration: 'underline' },
+                    '&:focus-visible': { outline: '2px solid var(--c-primary-500)', outlineOffset: 2, borderRadius: '4px' },
+                  }}
+                >
+                  {row.name}
+                </Box>
+              )}
+              renderBelow={(row) =>
+                openId === row.id ? (
+                  <DepartmentStaffingPanel
+                    name={row.name}
+                    staffing={staffingOf.get(row.id) ?? null}
+                    hasChildren={row.childCount > 0}
+                    onPeek={setPeek}
+                  />
+                ) : null
+              }
               renderSecondary={(row) => {
                 const served = (row.serves ?? []).map((id) => nameOf.get(id)).filter(Boolean);
                 return [row.type, parentPath(row), served.length ? `serves ${served.join(', ')}` : null]
@@ -253,6 +324,7 @@ export default function Departments() {
               }}
               renderTrailing={(row) => (
                 <>
+                  {staffingOf.get(row.id) && <ToneBadge tone="neutral" noIcon label={staffLabel(staffingOf.get(row.id)!.counts)} />}
                   {row.isShared && <ToneBadge tone="info" noIcon label="Shared crew" />}
                   {row.childCount > 0 && (
                     <ToneBadge
@@ -295,6 +367,24 @@ export default function Departments() {
           )}
         </>
       )}
+
+      {!loading && unplaced && unplaced.counts.positions > 0 && (
+        <Box sx={{ mt: 2 }}>
+          <Button
+            size="small"
+            aria-expanded={openId === 0}
+            onClick={() => setOpenId((id) => (id === 0 ? null : 0))}
+            sx={{ textTransform: 'none' }}
+          >
+            {unplaced.counts.positions} position{unplaced.counts.positions === 1 ? ' is' : 's are'} not in any department
+          </Button>
+          {openId === 0 && (
+            <DepartmentStaffingPanel name="no department" staffing={unplaced} hasChildren={false} onPeek={setPeek} />
+          )}
+        </Box>
+      )}
+
+      <JobPeekSheet peek={peek} company={company} onClose={() => setPeek(null)} />
 
       <FormDialog
         open={!!draft}

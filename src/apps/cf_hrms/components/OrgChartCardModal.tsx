@@ -23,6 +23,7 @@ import {
 import type { CardContentItem, CardReportingRow, PositionCard } from '../api/orgchart';
 import { orgChartApi } from '../api/orgchart';
 import { usePositionRemoval } from './usePositionRemoval';
+import { JobContentPanel } from './JobContentPanel';
 
 /**
  * The position card (spec §5) — the body of the floating panel since 2026-10-09
@@ -198,7 +199,9 @@ export function OrgChartCard({
   const [loaded, setCard] = useState<PositionCard | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [loading, setLoading] = useState(false);
-  const canManage = useIsPermitted()('cf_hrms_org_manage');
+  const can = useIsPermitted();
+  const canManage = can('cf_hrms_org_manage');
+  const canEditRole = can('cf_hrms_roles_manage');
   // Close or delete this seat. The dialog reads what it would do to the seat's
   // team before it offers anything, and makes closing the default.
   const removal = usePositionRemoval({
@@ -413,21 +416,37 @@ export function OrgChartCard({
 
             <Divider sx={{ mt: 2.5 }} />
 
-            <ContentList
-              title="KRAs"
-              items={card.kras ?? []}
-              empty="No key result areas recorded for this role."
-            />
-            <ContentList
-              title="Responsibilities"
-              items={card.responsibilities ?? []}
-              empty="No responsibilities recorded for this role."
-            />
-            <ContentList
-              title="KPIs"
-              items={card.kpis ?? []}
-              empty="No key performance indicators recorded."
-            />
+            {/* The seat's RESOLVED job: its role's KRAs with the responsibilities
+                and KPIs under each, and anything this seat does differently marked
+                on the line. Its own request (cf_hrms_org_view), made beside the
+                card's, so the facts above never wait for it. Until 2026-10-10 this
+                was three flat lists of the ROLE's content, which could not show a
+                seat's own changes. */}
+            <Box sx={{ mt: 2.5 }} data-card-jobcontent="">
+              <Typography sx={{ fontSize: 16, fontWeight: 500, mb: 1 }}>Job content</Typography>
+              <JobContentPanel
+                target={{ type: 'position', id: card.positionId }}
+                asOf={asOf}
+                dense
+                noKrasAction={
+                  card.roleId ? (
+                    <Box component={RouterLink} to={`/${company}/cf_hrms/roles/${card.roleId}?tab=content`} sx={{ color: 'var(--c-primary-700)' }}>
+                      {canEditRole ? 'Write them on the role' : 'Open the role'}
+                    </Box>
+                  ) : undefined
+                }
+                after={() => (
+                  <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mt: 1.25 }}>
+                    {canManage && (
+                      <CrossLink label="Edit for this seat" to={`/${company}/cf_hrms/positions/${card.positionId}?tab=job&edit=1`} />
+                    )}
+                    {canEditRole && card.roleId && (
+                      <CrossLink label="Edit the role's KRAs" to={`/${company}/cf_hrms/roles/${card.roleId}?tab=content`} />
+                    )}
+                  </Stack>
+                )}
+              />
+            </Box>
             <ContentList
               title="Qualifications"
               items={card.qualifications ?? []}
