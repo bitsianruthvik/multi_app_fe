@@ -75,6 +75,12 @@ export interface DrawingsUploadFile {
   geometry: DrawingGeometry | null;
   problems: string[];
   warnings: string[];
+  /** said, not wrong: e.g. the file name differs from the row's drawing mark */
+  notes?: string[];
+  /** the row the file was aimed at, when it was */
+  targetRowId?: number | null;
+  /** the row had no drawing mark and takes the file name as it */
+  markSet?: boolean;
   register: UploadRegister | null;
 }
 
@@ -85,7 +91,8 @@ export interface DrawingsUpload {
 }
 
 /** `drawingId` puts the file on that register drawing by hand — the file name then does not matter. */
-export interface DrawingFileBody { name: string; content: string; drawingId?: number }
+/** `rowId` aims the file at that row: no drawing mark is needed (a markless row takes the file name as its mark). */
+export interface DrawingFileBody { name: string; content: string; drawingId?: number; rowId?: number }
 
 export interface StartDrawingBody {
   rowIds: number[]; number: string; revision?: string; title?: string;

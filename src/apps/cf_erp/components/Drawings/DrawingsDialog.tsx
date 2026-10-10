@@ -1,4 +1,4 @@
-import { useRef, useState, type ChangeEvent } from 'react';
+import { useEffect, useRef, useState, type ChangeEvent } from 'react';
 import { Autocomplete, Box, Button, CircularProgress, Collapse, Dialog, DialogActions, DialogContent, IconButton, MenuItem, TextField, Tooltip, Typography } from '@mui/material';
 import AddRounded from '@mui/icons-material/AddRounded';
 import AttachFileRounded from '@mui/icons-material/AttachFileRounded';
@@ -18,11 +18,10 @@ import {
 } from '../../api/drawings';
 import {
   buttonLabel, coveringRow, deleteBody, fmtCutM, fmtMm, fmtPct, groupByLevel, holesTitle, INTRO, levelText, levelsOfRows, NO_DRAWINGS, NO_MARK_HINT, outlineShape,
-  prefillNumber, refText, REGISTER_STATUS_FAMILY, registerWords, rowChoices, rowCodes, savable, sizeCheck, sizeText, sortPicked, STATUS_WORDS, summaryWords, WAITING_HINT,
+  aimFile, prefillNumber, refText, REGISTER_STATUS_FAMILY, registerWords, rowChoices, rowCodes, savable, sizeCheck, sizeText, sortPicked, STATUS_WORDS, summaryWords, WAITING_HINT,
   type RowChoice,
 } from '../../lib/drawings';
 import { NO_MANAGE } from '../../lib/nesting';
-import { useLoad } from '../../hooks/useLoad';
 import { Badge, CapsLabel, EmptyState, ErrorNotice, Fact, Mono, SectionCard, SkeletonRows } from '../ui';
 import { ConfirmDialog } from '../ConfirmDialog';
 import { DialogHeader, FormDialog } from '../FormDialog';
@@ -101,12 +100,13 @@ function StatusBadge({ status }: { status: DrawingsUpload['files'][number]['stat
   return <Badge family={family} label={STATUS_WORDS[status]} noIcon />;
 }
 
-function Notes({ problems, warnings }: { problems?: string[]; warnings: string[] }) {
-  if (!(problems?.length) && !warnings.length) return <Box sx={{ color: 'var(--c-text-3)' }}>—</Box>;
+function Notes({ problems, warnings, notes }: { problems?: string[]; warnings: string[]; notes?: string[] }) {
+  if (!(problems?.length) && !warnings.length && !(notes?.length)) return <Box sx={{ color: 'var(--c-text-3)' }}>—</Box>;
   return (
     <Box component="ul" sx={{ m: 0, pl: 2, display: 'grid', gap: 0.25, overflowWrap: 'anywhere' }}>
       {(problems ?? []).map((p) => <li key={`p${p}`} style={{ color: 'var(--c-danger-700)' }}>{p}</li>)}
       {warnings.map((p) => <li key={`w${p}`} style={{ color: 'var(--c-warning-800)' }}>{p}</li>)}
+      {(notes ?? []).map((p) => <li key={`n${p}`} style={{ color: 'var(--c-text-2)' }}>{p}</li>)}
     </Box>
   );
 }
@@ -144,7 +144,22 @@ function RegisterCell({ drawing, fileKind, onDownloadEarlier }: {
 }
 
 /** The check shown after the files are read — before anything is saved. */
-function PreviewTable({ upload }: { upload: DrawingsUpload }) {
+const matchRow = (c: RowChoice, text: string) => `${c.label} ${c.name} ${c.mark ?? ''} ${c.level}`.toLowerCase().includes(text.trim().toLowerCase());
+
+/** "Choose row…": an unmatched file is aimed at a row picked by name or code — no drawing mark needed. */
+function RowPicker({ file, choices, disabled, onPick }: { file: string; choices: RowChoice[]; disabled: boolean; onPick: (rowId: number) => void }) {
+  return (
+    <Autocomplete size="small" options={choices} disabled={disabled} value={null} blurOnSelect clearOnBlur
+      filterOptions={(opts, st) => opts.filter((c) => matchRow(c, st.inputValue)).slice(0, 60)}
+      getOptionLabel={(c) => c.label} isOptionEqualToValue={(a, b) => a.id === b.id}
+      onChange={(_, c) => { if (c) onPick(c.id); }}
+      sx={{ minWidth: 190 }}
+      renderOption={(props, c) => <li {...props} key={c.id}><Mono>{c.label}</Mono>&nbsp;<Box component="span" sx={{ color: 'var(--c-text-3)', ml: 0.5 }}>{c.name !== c.label ? `${c.name} · ` : ''}{c.level}</Box></li>}
+      renderInput={(p) => <TextField {...p} placeholder="Choose row…" inputProps={{ ...p.inputProps, 'aria-label': `Choose row for ${file}`, 'data-testid': 'choose-row' }} />} />
+  );
+}
+
+function PreviewTable({ upload, choices, picking, onPick }: { upload: DrawingsUpload; choices: RowChoice[]; picking: boolean; onPick: (file: string, rowId: number) => void }) {
   return (
     <Box sx={{ overflowX: 'auto' }} data-testid="drawings-preview">
       <Box component="table" sx={TABLE_SX}>
@@ -165,7 +180,10 @@ function PreviewTable({ upload }: { upload: DrawingsUpload }) {
                 <td>{f.fileKind ? f.fileKind.toUpperCase() : '—'}</td>
                 <td><Mono>{f.mark}</Mono></td>
                 <td>{registerWords(f.register)}</td>
-                <td><StatusBadge status={f.status} /></td>
+                <td>
+                  <StatusBadge status={f.status} />
+                  {f.status === 'unmatched' && choices.length > 0 && <Box sx={{ mt: 0.5 }}><RowPicker file={f.name} choices={choices} disabled={picking} onPick={(id) => onPick(f.name, id)} /></Box>}
+                </td>
                 <td>{f.rows.length ? rowCodes(f.rows) : '—'}</td>
                 <td>{levelText(levelsOfRows(f.rows))}</td>
                 <td>
@@ -177,7 +195,7 @@ function PreviewTable({ upload }: { upload: DrawingsUpload }) {
                 <td className="n">{g ? fmtCutM(g.cutLengthMm) : '—'}</td>
                 <td className="n">{g ? g.piercings : '—'}</td>
                 <td className="n">{g ? <Tooltip title={holesTitle(g)}><span>{g.holes}</span></Tooltip> : '—'}</td>
-                <td><Notes problems={f.problems} warnings={f.warnings} /></td>
+                <td><Notes problems={f.problems} warnings={f.warnings} notes={f.notes} /></td>
               </tr>
             );
           })}
@@ -339,9 +357,9 @@ function StartDrawingForm({ choices, initialIds, onClose, onStart }: {
 }
 
 /** Opened from a row: the drawings that cover just this row, each with its action. */
-function FocusCard({ view, row, mayAttach, canManage, onDownload, onAttach, onStart }: {
+function FocusCard({ view, row, mayAttach, canManage, onDownload, onAttach, onStart, onUploadHere }: {
   view: DrawingsView; row: { id: number; name: string }; mayAttach: boolean; canManage: boolean;
-  onDownload: (d: Drawing) => void; onAttach: (d: RegisterRef) => void; onStart: () => void;
+  onDownload: (d: Drawing) => void; onAttach: (d: RegisterRef) => void; onStart: () => void; onUploadHere: () => void;
 }) {
   const { saved, waiting } = coveringRow(view, row.id);
   return (
@@ -362,7 +380,10 @@ function FocusCard({ view, row, mayAttach, canManage, onDownload, onAttach, onSt
           </Box>
         ))}
         {canManage && (
-          <Box><Button size="small" variant="outlined" startIcon={<AddRounded />} onClick={onStart}>Start a drawing for this row</Button></Box>
+          <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+            {mayAttach && <Button size="small" variant="contained" startIcon={<UploadFileRounded />} onClick={onUploadHere} data-testid="drawings-upload-here">Upload a drawing for this row</Button>}
+            <Button size="small" variant="outlined" startIcon={<AddRounded />} onClick={onStart}>Start a drawing for this row</Button>
+          </Box>
         )}
       </Box>
     </SectionCard>
@@ -388,7 +409,7 @@ function Summary({ view }: { view: DrawingsView }) {
   );
 }
 
-export function DrawingsDialog({ open, onClose, orderId, lineId, canManage, view, error, loading, onView, onChanged, focusRow }: {
+export function DrawingsDialog({ open, onClose, orderId, lineId, canManage, view, error, loading, onView, onChanged, focusRow, incoming }: {
   open: boolean;
   onClose: () => void;
   orderId: number;
@@ -402,8 +423,12 @@ export function DrawingsDialog({ open, onClose, orderId, lineId, canManage, view
   onChanged?: () => void;
   /** Opened from a row: show what covers just this row at the top. */
   focusRow?: { id: number; name: string; mark?: string | null } | null;
+  /** Files dropped on the Structure tab: read as soon as the dialog opens, aimed at `rowId` (a row drop) or matched by name (the background). */
+  incoming?: { files: File[]; rowId: number | null; seq: number } | null;
 }) {
   const input = useRef<HTMLInputElement>(null);
+  const hereInput = useRef<HTMLInputElement>(null);
+  const seenIncoming = useRef(0);
   const attachInput = useRef<HTMLInputElement>(null);
   const attachTo = useRef<RegisterRef | null>(null);
   const [starting, setStarting] = useState<number[] | null>(null);
@@ -421,7 +446,7 @@ export function DrawingsDialog({ open, onClose, orderId, lineId, canManage, view
   const mayUpload = canManage && !released;
   const wrap = (e: unknown) => (e instanceof CfApiError ? e : new CfApiError(0, e instanceof Error ? e.message : String(e)));
 
-  const read = async (picked: File[], drawingId?: number) => {
+  const read = async (picked: File[], drawingId?: number, rowId?: number) => {
     if (!picked.length) return;
     const sorted = sortPicked(picked);
     setSkipped(sorted.wrongKind); setTooBig(sorted.tooBig);
@@ -430,7 +455,7 @@ export function DrawingsDialog({ open, onClose, orderId, lineId, canManage, view
     setBusy('read'); setActionError(null); setPending(null);
     try {
       const files: DrawingFileBody[] = await Promise.all(dxf.map(async (f) => ({
-        name: f.name, content: await fileToBase64(f), ...(drawingId != null ? { drawingId } : {}),
+        name: f.name, content: await fileToBase64(f), ...(drawingId != null ? { drawingId } : {}), ...(rowId != null ? { rowId } : {}),
       })));
       const upload = await uploadDrawings(orderId, lineId, files, true);
       setPending({ files, upload });
@@ -449,6 +474,31 @@ export function DrawingsDialog({ open, onClose, orderId, lineId, canManage, view
     const target = attachTo.current;
     attachTo.current = null;
     if (target) void read(picked, target.id);
+  };
+
+  const chooseHere = (ev: ChangeEvent<HTMLInputElement>) => {
+    const picked = Array.from(ev.target.files ?? []).slice(0, 1);
+    ev.target.value = '';
+    if (focusRow) void read(picked, undefined, focusRow.id);
+  };
+
+  // Files dropped on the tab arrive here once, whatever the render count.
+  useEffect(() => {
+    if (!incoming || incoming.seq === seenIncoming.current) return;
+    seenIncoming.current = incoming.seq;
+    void read(incoming.files, undefined, incoming.rowId ?? undefined);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [incoming]);
+
+  /** "Choose row…": the same files again, with this one aimed at the chosen row. */
+  const aim = async (name: string, rowId: number) => {
+    if (!pending) return;
+    const files = aimFile(pending.files, name, rowId);
+    setBusy('read'); setActionError(null);
+    try {
+      const upload = await uploadDrawings(orderId, lineId, files, true);
+      setPending({ files, upload });
+    } catch (e) { setActionError(wrap(e)); } finally { setBusy(null); }
   };
 
   const startAttach = (d: RegisterRef) => { attachTo.current = d; attachInput.current?.click(); };
@@ -502,7 +552,7 @@ export function DrawingsDialog({ open, onClose, orderId, lineId, canManage, view
 
           {view && focusRow && (
             <FocusCard view={view} row={focusRow} mayAttach={mayUpload && busy == null} canManage={canManage}
-              onDownload={download} onAttach={startAttach} onStart={() => setStarting([focusRow.id])} />
+              onDownload={download} onAttach={startAttach} onStart={() => setStarting([focusRow.id])} onUploadHere={() => hereInput.current?.click()} />
           )}
 
           {view && (
@@ -516,6 +566,7 @@ export function DrawingsDialog({ open, onClose, orderId, lineId, canManage, view
                 </span>
               </Tooltip>
               <input ref={input} type="file" accept=".dxf,.pdf" multiple hidden onChange={choose} data-testid="drawings-input" />
+              <input ref={hereInput} type="file" accept=".dxf,.pdf" hidden onChange={chooseHere} data-testid="drawings-here-input" />
               <input ref={attachInput} type="file" accept=".dxf,.pdf" hidden onChange={chooseAttach} data-testid="drawings-attach-input" />
               {canManage && (
                 <Tooltip title="Put a drawing in the register for some rows now. Its file can come later.">
@@ -546,7 +597,7 @@ export function DrawingsDialog({ open, onClose, orderId, lineId, canManage, view
               flush
             >
               <Box sx={{ p: 1.5, display: 'grid', gap: 1.5, gridTemplateColumns: 'minmax(0, 1fr)' }}>
-                <PreviewTable upload={pending.upload} />
+                <PreviewTable upload={pending.upload} choices={view ? rowChoices(view) : []} picking={busy != null} onPick={aim} />
                 {unsaved > 0 && (
                   <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)' }}>
                     {unsaved} {unsaved === 1 ? 'file is' : 'files are'} not saved: a file with no matching row has nothing to attach to, and a file that cannot be read cannot be used.
@@ -657,27 +708,34 @@ export function DrawingsDialog({ open, onClose, orderId, lineId, canManage, view
   );
 }
 
-/** The "Drawings" button for an order line's Structure tab: reads the summary itself and opens the dialog. */
-export function DrawingsButton({ orderId, lineId, canManage, onChanged, size, focusRow, onFocusDone }: {
+/**
+ * The toolbar button for an order line's Structure tab: "Upload drawings" until a row has one, then "Drawings · n of m".
+ * The drawings are loaded by the panel (the row icons need them too) and handed in.
+ */
+export function DrawingsButton({ orderId, lineId, canManage, onChanged, size, focusRow, onFocusDone, drawings, incoming, onIncomingDone }: {
   orderId: number; lineId: number; canManage: boolean; onChanged?: () => void; size?: 'small' | 'medium';
   /** A row to open the dialog for; the dialog opens while it is set. */
   focusRow?: { id: number; name: string; mark?: string | null } | null;
   onFocusDone?: () => void;
+  drawings: { data: DrawingsView | null; error: CfApiError | null; loading: boolean; setData: (v: DrawingsView | null) => void };
+  /** Files dropped on the tab: the dialog opens with them read. */
+  incoming?: { files: File[]; rowId: number | null; seq: number } | null;
+  onIncomingDone?: () => void;
 }) {
   const [open, setOpen] = useState(false);
-  const shown = open || !!focusRow;
-  const close = () => { setOpen(false); onFocusDone?.(); };
-  const { data, error, loading, setData } = useLoad(() => getDrawings(orderId, lineId), [orderId, lineId]);
+  const shown = open || !!focusRow || !!incoming;
+  const close = () => { setOpen(false); onFocusDone?.(); onIncomingDone?.(); };
+  const { data, error, loading, setData } = drawings;
   return (
     <>
-      <Tooltip title="A drawing for any row of this line, DXF or PDF, named by the row's drawing mark. A plate part's DXF also gives its true shape and the CNC cut length.">
-        <Button size={size} variant="outlined" startIcon={<DrawRounded />} onClick={() => setOpen(true)} data-testid="drawings-button">
+      <Tooltip title="Upload a DXF or PDF for any row of this line. Each file goes to the row whose drawing mark is its name, or drop a file on a row to aim it there. A plate part's DXF also gives its true shape and the CNC cut length.">
+        <Button size={size} variant="outlined" startIcon={data?.summary.rowsWithDrawing ? <DrawRounded /> : <UploadFileRounded />} onClick={() => setOpen(true)} data-testid="drawings-button">
           {buttonLabel(data?.summary)}
         </Button>
       </Tooltip>
       {shown && (
         <DrawingsDialog open onClose={close} orderId={orderId} lineId={lineId} canManage={canManage}
-          view={data} error={error} loading={loading} onView={setData} onChanged={onChanged} focusRow={focusRow} />
+          view={data} error={error} loading={loading} onView={(v) => setData(v)} onChanged={onChanged} focusRow={focusRow} incoming={incoming} />
       )}
     </>
   );

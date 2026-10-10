@@ -28,7 +28,7 @@ function CodeText({ code, itemCode }: { code: string; itemCode: string | null })
   return <><Box component="span" data-testid="row-code" sx={{ fontFamily: 'var(--font-mono)' }}>{code}</Box>{itemCode && itemCode !== code ? <Box component="span" sx={{ fontFamily: 'var(--font-mono)' }}> · {itemCode}</Box> : null}</>;
 }
 
-export function BomGrid({ rows, view, records: recordValues, recordIds, pending, busy, canEdit, canEditValues, onToggle, onWrites, onMove, dropRefusal, trailingCell, flowCell, choiceCell, markOf, placeholderOf, roleOf, canEditRole, onRole, onlyUsedColumns, footer, gaps, handleRef, lineUpSlot }: {
+export function BomGrid({ rows, view, records: recordValues, recordIds, pending, busy, canEdit, canEditValues, onToggle, onWrites, onMove, dropRefusal, trailingCell, flowCell, choiceCell, markOf, placeholderOf, roleOf, canEditRole, onRole, onlyUsedColumns, footer, gaps, handleRef, lineUpSlot, fileDrop }: {
   rows: BomRow[]; view: ValuesView | null; pending: Pending; busy: boolean; canEdit: (row: BomRow) => boolean;
   records?: SpecValues; recordIds?: number[]; canEditValues: (row: BomRow) => boolean;
   onToggle: (key: string) => void; onWrites: (writes: GridWrite[]) => void;
@@ -55,11 +55,15 @@ export function BomGrid({ rows, view, records: recordValues, recordIds, pending,
   handleRef?: RefObject<SheetGridHandle | null>;
   /** The toolbar element the "Line up all columns" switch is drawn into. */
   lineUpSlot?: HTMLElement | null;
+  /** Drawing files dropped on a row: which rows take them, and what to do with them. Row moves (the drag handle) are unaffected. */
+  fileDrop?: { canDrop: (row: BomRow) => boolean; onDrop: (row: BomRow, files: File[]) => void };
 }) {
   const ownHandle = useRef<SheetGridHandle>(null);
   const grid = handleRef ?? ownHandle;
   const [drag, setDrag] = useState<BomRow | null>(null);
   const [drop, setDrop] = useState<{ key: string; position: DropPosition; refusal: string | null } | null>(null);
+  /** The row a file is being dragged over. */
+  const [fileOver, setFileOver] = useState<string | null>(null);
   const [roleEdit, setRoleEdit] = useState<{ key: string; text: string } | null>(null);
   const [moveDialog, setMoveDialog] = useState<BomRow | null>(null);
   const [moveTarget, setMoveTarget] = useState('');
@@ -209,7 +213,12 @@ export function BomGrid({ rows, view, records: recordValues, recordIds, pending,
         const row = rowByKey.get(key);
         if (!row) return undefined;
         return {
+          onDragLeave: () => { if (fileOver === key) setFileOver(null); },
           onDragOver: (e) => {
+            if (!drag && fileDrop && Array.from(e.dataTransfer?.types ?? []).includes('Files')) {
+              if (fileDrop.canDrop(row)) { e.preventDefault(); e.stopPropagation(); e.dataTransfer.dropEffect = 'copy'; if (fileOver !== key) setFileOver(key); }
+              return;
+            }
             if (!drag) return;
             const rect = e.currentTarget.getBoundingClientRect(), fraction = (e.clientY - rect.top) / rect.height;
             const position = fraction < 0.25 ? 'before' : fraction > 0.75 ? 'after' : 'inside';
@@ -218,13 +227,18 @@ export function BomGrid({ rows, view, records: recordValues, recordIds, pending,
             setDrop({ key, position, refusal });
           },
           onDrop: (e) => {
+            if (!drag && fileDrop && Array.from(e.dataTransfer?.types ?? []).includes('Files')) {
+              setFileOver(null);
+              if (fileDrop.canDrop(row)) { e.preventDefault(); e.stopPropagation(); fileDrop.onDrop(row, Array.from(e.dataTransfer.files ?? [])); }
+              return;
+            }
             e.preventDefault();
             if (drag && drop?.key === key && !drop.refusal) { onMove(drag, row, drop.position); grid.current?.clearSelection(); }
             setDrop(null); setDrag(null);
           },
         };
       }}
-      rowSx={(key) => drop?.key === key ? { '& > td': { boxShadow: `inset 0 ${drop.position === 'after' ? '-3px' : '3px'} 0 ${drop.refusal ? 'var(--c-danger-600)' : 'var(--c-primary-600)'}` } } : undefined} />
+      rowSx={(key) => fileOver === key ? { '& > td': { background: 'var(--c-primary-50)', boxShadow: 'inset 0 2px 0 var(--c-primary-600), inset 0 -2px 0 var(--c-primary-600)' } } : drop?.key === key ? { '& > td': { boxShadow: `inset 0 ${drop.position === 'after' ? '-3px' : '3px'} 0 ${drop.refusal ? 'var(--c-danger-600)' : 'var(--c-primary-600)'}` } } : undefined} />
     <Dialog open={!!moveDialog} onClose={() => setMoveDialog(null)} fullWidth maxWidth="sm">
       <DialogTitle>Move {moveDialog?.node.name}<IconButton aria-label="Close move options" onClick={() => setMoveDialog(null)} sx={{ position: 'absolute', right: 8, top: 8 }}><CloseRounded /></IconButton></DialogTitle>
       <DialogContent sx={{ display: 'grid', gap: 2, pt: '16px !important' }}>

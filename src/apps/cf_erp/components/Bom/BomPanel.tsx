@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent, type ReactNode } from 'react';
 import { Alert, Box, Button, CircularProgress, FormControlLabel, IconButton, Menu, MenuItem, Popover, Switch, Tooltip, Typography, useMediaQuery } from '@mui/material';
 import { Link } from 'react-router-dom';
 import AddRounded from '@mui/icons-material/AddRounded';
@@ -11,7 +11,6 @@ import DownloadRounded from '@mui/icons-material/DownloadRounded';
 import HistoryRounded from '@mui/icons-material/HistoryRounded';
 import LockOutlined from '@mui/icons-material/LockOutlined';
 import MoreHorizRounded from '@mui/icons-material/MoreHorizRounded';
-import DrawRounded from '@mui/icons-material/DrawRounded';
 import PlaylistAddCheckRounded from '@mui/icons-material/PlaylistAddCheckRounded';
 import RestoreFromTrashRounded from '@mui/icons-material/RestoreFromTrashRounded';
 import RouteRounded from '@mui/icons-material/RouteRounded';
@@ -30,6 +29,10 @@ import { applyBomSheet, downloadBomSheet, fileToBase64, previewBomSheet, type Bo
 import { useCompanySlug, useLoad } from '../../hooks/useLoad';
 import { useIsPermitted } from '../../hooks/useIsPermitted';
 import { DrawingsButton } from '../Drawings/DrawingsDialog';
+import { NO_MANAGE } from '../../lib/nesting';
+import { RowDrawingCell } from '../Drawings/RowDrawingCell';
+import { getDrawings } from '../../api/drawings';
+import { dragHasFiles, isDrawingFile, rowDrawing } from '../../lib/drawings';
 import { appPath } from '../../navMeta';
 import { recordPath } from '../../lib/paths';
 import { ORDER_STATUS_LABEL, bomPermission } from '../../lib/orders';
@@ -173,6 +176,12 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
   const orderGrid = source.kind === 'orderLine';
   const gridLineId = source.kind === 'orderLine' ? source.lineId : null;
   const gridValues = useLoad(() => gridLineId == null ? Promise.resolve(null) : cfApi.get<ValuesView>(`/order-lines/${gridLineId}/values`), [gridLineId, state?.root]);
+  // The line's drawings: the toolbar button and every row's drawing cell read the same answer.
+  const drawingsOrderId = state?.order?.id ?? null;
+  const drawings = useLoad(() => (drawingsOrderId == null || gridLineId == null ? Promise.resolve(null) : getDrawings(drawingsOrderId, gridLineId)), [drawingsOrderId, gridLineId]);
+  /** Files dropped on the tab (a row, or the background) waiting for the dialog to read them. */
+  const [dropped, setDropped] = useState<{ files: File[]; rowId: number | null; seq: number } | null>(null);
+  const dropSeq = useRef(0);
   const [open, setOpen] = useState<Set<string> | null>(null);
   const [adding, setAdding] = useState<StructureNode | null>(null);
   const [editing, setEditing] = useState<BomRow | null>(null);
@@ -663,12 +672,54 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
   /** Rows whose flow may change here — what the "several rows" dialog lists. */
   const flowRows = rows.filter((r) => !r.paste && flowEditable(r) && !removedKeys.has(r.node.key) && canHaveFlow(r.node));
 
+  /** A made row of an order line that can have a drawing — the same rows the "Drawings for this row…" menu item is on. */
+  const drawingRowOk = (row: BomRow) => gridLineId != null && !!state?.order && row.parent != null && isMade(row.node) && row.node.kind !== 'selection'
+    && !row.paste && !goneKeys.has(row.node.key) && !removedKeys.has(row.node.key);
+  const canManageDrawings = isPermitted('cf_erp_orders_manage');
+  const drawingWhy = (row: BomRow): string | null => {
+    if (!canManageDrawings) return NO_MANAGE;
+    if (drawings.data?.line.released) return 'This line is released, so its drawings cannot change.';
+    if (row.paste) return 'Save your changes first';
+    return null;
+  };
+  const drawingCell = (row: BomRow) => {
+    if (!drawingRowOk(row)) {
+      // An unsaved copy has no row to hold a drawing yet.
+      if (row.paste && gridLineId != null && !!state?.order) return <RowDrawingCell name={codeOrName(row.node)} state={rowDrawing(null, 0)} why="Save your changes first" onClick={() => {}} />;
+      return null;
+    }
+    const name = codeOrName(row.node);
+    return <RowDrawingCell name={name} state={rowDrawing(drawings.data, row.node.id)} why={drawingWhy(row)} onClick={() => setDrawingRow(drawingRowOf(row))} />;
+  };
+  const fileDrop = {
+    canDrop: (row: BomRow) => drawingRowOk(row) && drawingWhy(row) == null,
+    onDrop: (row: BomRow, files: File[]) => {
+      const ok = files.filter((f) => isDrawingFile(f.name));
+      if (!ok.length) { toast.error('Only DXF and PDF drawings are taken.'); return; }
+      setDrawingRow(drawingRowOf(row));
+      setDropped({ files: ok, rowId: row.node.id, seq: ++dropSeq.current });
+    },
+  };
+  /** Dropping files on the panel's background: the dialog opens with them read, matched to rows by name. */
+  const backgroundDrop = orderGrid && gridLineId != null ? {
+    onDragOver: (e: DragEvent<HTMLElement>) => { if (dragHasFiles(e.dataTransfer)) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } },
+    onDrop: (e: DragEvent<HTMLElement>) => {
+      if (!dragHasFiles(e.dataTransfer)) return;
+      e.preventDefault();
+      const all = Array.from(e.dataTransfer.files ?? []);
+      const ok = all.filter((f) => isDrawingFile(f.name));
+      if (!canManageDrawings) { toast.error(NO_MANAGE); return; }
+      if (!ok.length) { toast.error('Only DXF and PDF drawings are taken.'); return; }
+      setDropped({ files: ok, rowId: null, seq: ++dropSeq.current });
+    },
+  } : {};
+
   const trailingCell = (row: BomRow) => {
     const n = row.node;
     const name = codeOrName(n);
     if (row.paste) {
       const key = row.paste.key;
-      return <RowButton disabled={!!busy} label={`Take back the copy of ${name}`} onClick={() => setPending((p) => undoCopy(p, key))}><UndoRounded fontSize="small" /></RowButton>;
+      return <>{drawingCell(row)}<RowButton disabled={!!busy} label={`Take back the copy of ${name}`} onClick={() => setPending((p) => undoCopy(p, key))}><UndoRounded fontSize="small" /></RowButton></>;
     }
     if (!lineEditable(row)) {
       if (!row.parent || goneKeys.has(n.key)) return null;
@@ -677,15 +728,14 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
           <Tooltip title={whyNotLine(row)}>
             <Box component="span" tabIndex={0} aria-label={`Read only: ${whyNotLine(row)}`} sx={{ display: 'inline-flex', p: 0.75, color: 'var(--c-text-3)' }}><LockOutlined sx={{ fontSize: 16 }} /></Box>
           </Tooltip>
-          {gridLineId != null && state.order && (
-            <RowButton disabled={!!busy} label={`Drawings for ${name}`} onClick={() => setDrawingRow(drawingRowOf(row))}><DrawRounded fontSize="small" /></RowButton>
-          )}
+          {drawingCell(row)}
         </>
       );
     }
     const removed = removedKeys.has(n.key);
     return (
       <>
+        {drawingCell(row)}
         {!removed && <Tooltip title={dirty ? 'Save changes before adding lines or editing details' : `More actions for ${name}`}><span><IconButton size="small" aria-label={`More actions for ${name}`} disabled={dirty || !!busy} onClick={(e) => setRowMenu({ anchor: e.currentTarget, row })}><MoreHorizRounded fontSize="small" /></IconButton></span></Tooltip>}
         {!removed && (
           <RowButton disabled={!!busy} label={`Copy ${name} below`}
@@ -813,7 +863,7 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
   };
 
   return (
-    <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 1 }}>
+    <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 1 }} {...backgroundDrop}>
       {bom.actionError && <Box ref={errorAt} sx={{ scrollMarginTop: 96 }}><ErrorNotice error={bom.actionError} sx={{ mb: 0 }} /></Box>}
       <SectionCard
         title={orderGrid ? undefined : type.title}
@@ -929,8 +979,9 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
         {orderGrid && (
           <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center', '& > *': { whiteSpace: 'nowrap' } }}>
             {/* Drawings for any row of this line (DXF or PDF), by drawing mark. Order lines only. */}
-            {gridLineId != null && state.order && <DrawingsButton size="small" orderId={state.order.id} lineId={gridLineId} canManage={isPermitted('cf_erp_orders_manage')}
-              focusRow={drawingRow} onFocusDone={() => setDrawingRow(null)} />}
+            {gridLineId != null && state.order && <DrawingsButton size="small" orderId={state.order.id} lineId={gridLineId} canManage={canManageDrawings}
+              drawings={drawings} focusRow={drawingRow} onFocusDone={() => setDrawingRow(null)} incoming={dropped} onIncomingDone={() => setDropped(null)}
+              onChanged={() => { gridValues.reload(); drawings.reload(); }} />}
             {narrowBar ? (
               <>
                 <Tooltip title="More: download, upload, expand, collapse"><IconButton size="small" aria-label="More" aria-haspopup="menu" onClick={(e) => setMoreAnchor(e.currentTarget)}><MoreHorizRounded fontSize="small" /></IconButton></Tooltip>
@@ -962,7 +1013,7 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
               onToggle={(key) => { const next = new Set(expanded); if (next.has(key)) next.delete(key); else next.add(key); setOpen(next); }}
               onlyUsedColumns={orderGrid && onlyUsed} roleOf={roleOf} canEditRole={canEditRole} onRole={onRole}
               gaps={liveGaps ?? undefined} handleRef={gridHandle} lineUpSlot={orderGrid ? lineUpEl : undefined}
-              onWrites={onGridWrites} onMove={onGridMove} dropRefusal={dropRefusal} trailingCell={trailingCell} flowCell={flowCell} choiceCell={choiceCell} markOf={markOf} placeholderOf={placeholderOf}
+              onWrites={onGridWrites} onMove={onGridMove} dropRefusal={dropRefusal} trailingCell={trailingCell} fileDrop={orderGrid ? fileDrop : undefined} flowCell={flowCell} choiceCell={choiceCell} markOf={markOf} placeholderOf={placeholderOf}
               footer={gapsOn && onlyMissing
                 ? rows.length === 0 && !!gridValues.data && <EmptyState title={onlyMissing ? 'Nothing is missing' : 'Nothing below it yet'} hint={onlyMissing ? 'Every required value on this line is filled.' : undefined} />
                 : root.children.length === 0 && pending.pastes.length === 0 && <EmptyState title="Nothing below it yet" action={canAddToRoot && addButton('contained')} />} />

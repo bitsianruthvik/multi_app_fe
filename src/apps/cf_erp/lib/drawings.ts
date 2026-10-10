@@ -73,7 +73,7 @@ export const isDrawingFile = (name: string): boolean => drawingKind(name) != nul
 export const MAX_DRAWING_BYTES = 4 * 1024 * 1024;
 
 export const NO_DRAWINGS = 'Upload a drawing for each row, named by its drawing mark.';
-export const NO_MARK_HINT = 'A row needs a drawing mark (Structure or Values) before a drawing can be matched to it.';
+export const NO_MARK_HINT = 'A row with no drawing mark is matched by choosing it: drop the file on its row, or pick the row for an unmatched file (its name then becomes the mark).';
 export const INTRO = 'A drawing is a sheet of the register (a number and a revision) and its file \u2014 DXF or PDF, named by the row\u2019s drawing mark (e.g. G1-1.pdf, BF1.dxf). Upload again over an issued drawing and it becomes the next revision. A plate part\u2019s DXF is also read as its shape: true area, cut length and piercings.';
 export const WAITING_HINT = 'These drawings are in the register and linked to rows, but have no file yet.';
 
@@ -169,7 +169,36 @@ export function summaryWords(s: DrawingsSummary): string {
   return use ? `${first} ${second}${use} — there is little for true-shape nesting to save on them.` : `${first} ${second}`;
 }
 
-/** The button label: "Drawings", with "(n of m rows)" once the line's rows are known. */
+/** The toolbar label: "Upload drawings" until a row has one, then "Drawings · n of m". */
 export function buttonLabel(s: Pick<DrawingsSummary, 'rows' | 'rowsWithDrawing'> | null | undefined): string {
-  return s && s.rows > 0 ? `Drawings (${s.rowsWithDrawing} of ${s.rows} rows)` : 'Drawings';
+  return s && s.rows > 0 && s.rowsWithDrawing > 0 ? `Drawings · ${s.rowsWithDrawing} of ${s.rows}` : 'Upload drawings';
+}
+
+/** What one row shows in its drawing cell: nothing yet, a file (with its revision), or a register drawing waiting for one. */
+export interface RowDrawingState { kind: 'none' | 'file' | 'waiting'; revision: string | null; fileName: string | null; number: string | null }
+export function rowDrawing(view: Pick<DrawingsView, 'drawings' | 'waiting'> | null | undefined, rowId: number): RowDrawingState {
+  if (!view) return { kind: 'none', revision: null, fileName: null, number: null };
+  const { saved, waiting } = coveringRow(view, rowId);
+  // The file the row is read by: one with its own mark first is the server's rule; here the newest saved file covering it.
+  const d = saved[saved.length - 1];
+  if (d) return { kind: 'file', revision: d.drawing?.revision ?? null, fileName: d.fileName, number: d.drawing?.number ?? d.mark };
+  const w = waiting[0];
+  if (w) return { kind: 'waiting', revision: w.drawing.revision, fileName: null, number: w.drawing.number };
+  return { kind: 'none', revision: null, fileName: null, number: null };
+}
+
+/** The row cell's tooltip. `why` (cannot upload now) wins; otherwise the row's drawing or the invitation to add one. */
+export function rowDrawingTitle(name: string, s: RowDrawingState, why?: string | null): string {
+  if (why) return why;
+  if (s.kind === 'file') return `${s.fileName ?? 'Drawing'}${s.revision ? ` · rev ${s.revision}` : ''} — click to see it or upload a new revision for ${name}`;
+  if (s.kind === 'waiting') return `${s.number} is in the register, waiting for a file — click to attach one for ${name}`;
+  return `Upload a drawing for ${name}`;
+}
+
+/** A drag carries files (not a row being moved, not text). */
+export const dragHasFiles = (dt: Pick<DataTransfer, 'types'> | null | undefined): boolean => !!dt && Array.from(dt.types ?? []).includes('Files');
+
+/** The same upload with one file (by name) aimed at a row — what "Choose row…" does. */
+export function aimFile<T extends { name: string }>(files: T[], name: string, rowId: number): (T & { rowId: number })[] {
+  return files.map((f) => (f.name === name ? { ...f, rowId } : f)) as (T & { rowId: number })[];
 }
