@@ -89,6 +89,11 @@ export const OrgChartFloatingPanel = forwardRef<
     /** Plain text for the accessible name; `title` may be rich. */
     label: string;
     onClose: () => void;
+    /**
+     * Esc inside the panel. Defaults to `onClose`. The org chart passes "one
+     * level back, and close only from the first view" (spec §17).
+     */
+    onEscape?: () => void;
     /** The element the panel floats over and is kept inside. Null = viewport. */
     boundsEl: HTMLElement | null;
     /** Preference key the dragged position is kept under (per viewer). */
@@ -98,7 +103,7 @@ export const OrgChartFloatingPanel = forwardRef<
     children: ReactNode;
   }
 >(function OrgChartFloatingPanel(
-  { open, title, label, onClose, boundsEl, storageKey, relayout, children },
+  { open, title, label, onClose, onEscape, boundsEl, storageKey, relayout, children },
   ref,
 ) {
   const theme = useTheme();
@@ -191,7 +196,7 @@ export const OrgChartFloatingPanel = forwardRef<
   const onKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>) => {
     if (e.key !== 'Escape' || !e.currentTarget.contains(e.target as Node)) return;
     e.stopPropagation();
-    onClose();
+    (onEscape ?? onClose)();
   };
 
   // Do not leave a stale drag behind if the panel closes mid-drag.

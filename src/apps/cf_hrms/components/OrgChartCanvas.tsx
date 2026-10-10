@@ -379,15 +379,17 @@ export function OrgChartCanvas({
         role="img"
         aria-label={accessibleName}
         width={Math.round(scene.width * zoom)}
-        height={Math.round(scene.height * zoom)}
-        viewBox={`0 0 ${scene.width} ${scene.height}`}
+        // `scene.top` crops the band the title block would have used: on screen
+        // the title is a fixed strip above this canvas, not part of the drawing.
+        height={Math.round((scene.height - scene.top) * zoom)}
+        viewBox={`0 ${scene.top} ${scene.width} ${scene.height - scene.top}`}
         xmlns="http://www.w3.org/2000/svg"
         fontFamily={fontFamily}
         style={{ display: 'block' }}
       >
         <title>{accessibleName}</title>
         <desc>{textAlternative}</desc>
-        <rect width={scene.width} height={scene.height} fill={scene.background} />
+        <rect y={scene.top} width={scene.width} height={scene.height - scene.top} fill={scene.background} />
         <g aria-hidden="true">{scene.header.map((p, i) => renderPrim(p, `h${i}`))}</g>
         <g aria-hidden="true">{scene.under.map((p, i) => renderPrim(p, `u${i}`))}</g>
         {scene.depts.length > 0 && (

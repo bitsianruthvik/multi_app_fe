@@ -19,7 +19,7 @@
  * `/positions/:id/job-content/*`); what changed is that nobody has to know the
  * three verbs or type JSON to say "this seat's target is 99%".
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import {
   Box, Button, IconButton, ListItemText, Menu, MenuItem, Skeleton, Stack, TextField, Tooltip, Typography,
@@ -142,13 +142,53 @@ type DialogState =
   | { mode: 'off'; line: JobLine }
   | null;
 
+/**
+ * The frame round the editor: a card on the position page, nothing but the
+ * Edit / Done button in the org chart panel (which has its own heading).
+ */
+function Shell({ embedded, action, children }: { embedded: boolean; action: ReactNode; children: ReactNode }) {
+  if (embedded) {
+    return (
+      <Box data-seateditor="">
+        {action && (
+          <Stack direction="row" justifyContent="flex-end" sx={{ mb: 0.75 }}>
+            {action}
+          </Stack>
+        )}
+        {children}
+      </Box>
+    );
+  }
+  return (
+    <SectionCard
+      title="Job content"
+      subtitle="The KRAs, responsibilities and KPIs of this seat: what its role says, with anything this seat does differently marked on the line."
+      action={action}
+    >
+      {children}
+    </SectionCard>
+  );
+}
+
 export function SeatJobContentEditor({
   positionId,
   company,
   canManage,
   startEditing = false,
   onChanged,
+  embedded = false,
+  onOpenRole,
+  asOf,
 }: {
+  /**
+   * In the org chart's 500px panel: no card round it, tighter lines, sections
+   * folded until opened. Same data, same four actions, same endpoints.
+   */
+  embedded?: boolean;
+  /** Where "open the role" goes. Omitted: the role's page. The panel passes its own role view. */
+  onOpenRole?: (roleId: number, title: string) => void;
+  /** Read the content as at a date (the chart's). Default today. */
+  asOf?: string;
   positionId: number;
   company: string;
   /** Holds `cf_hrms_org_manage`. Without it the tab is the read-only view. */
@@ -159,7 +199,7 @@ export function SeatJobContentEditor({
   onChanged?: (content: JobContentData) => void;
 }) {
   const toast = useToast();
-  const { data, error, loading, reload, setData } = useJobContent({ type: 'position', id: positionId });
+  const { data, error, loading, reload, setData } = useJobContent({ type: 'position', id: positionId }, asOf);
   const [editing, setEditing] = useState(startEditing && canManage);
   const [dialog, setDialog] = useState<DialogState>(null);
   const [menu, setMenu] = useState<{ anchor: HTMLElement; line: JobLine } | null>(null);
@@ -276,16 +316,25 @@ export function SeatJobContentEditor({
     </Stack>
   );
 
-  const roleLink = data?.roleId ? (
+  const roleLink = data?.roleId && onOpenRole ? (
+    <Box
+      component="button"
+      type="button"
+      data-openrole=""
+      onClick={() => onOpenRole(data.roleId!, data.roleTitle ?? 'Role')}
+      sx={{ border: 0, background: 'none', p: 0, font: 'inherit', cursor: 'pointer', color: 'var(--c-primary-700)', textDecoration: 'underline', textAlign: 'left' }}
+    >
+      {`Open the role${data.roleTitle ? ` “${data.roleTitle}”` : ''}`}
+    </Box>
+  ) : data?.roleId ? (
     <Box component={RouterLink} to={`/${company}/cf_hrms/roles/${data.roleId}?tab=content`} sx={{ color: 'var(--c-primary-700)' }}>
       {`Open the role${data.roleTitle ? ` “${data.roleTitle}”` : ''}`}
     </Box>
   ) : null;
 
   return (
-    <SectionCard
-      title="Job content"
-      subtitle="The KRAs, responsibilities and KPIs of this seat: what its role says, with anything this seat does differently marked on the line."
+    <Shell
+      embedded={embedded}
       action={
         canManage && data ? (
           editing ? (
@@ -294,7 +343,7 @@ export function SeatJobContentEditor({
             </Button>
           ) : (
             <Button size="small" variant="outlined" startIcon={<EditRounded />} onClick={() => setEditing(true)}>
-              Edit for this seat
+              {embedded ? 'Edit for this position' : 'Edit for this seat'}
             </Button>
           )
         ) : undefined
@@ -310,7 +359,16 @@ export function SeatJobContentEditor({
 
       {data && (
         <>
-          <Typography data-krarule="" sx={{ fontSize: 13, color: 'var(--c-text-2)', lineHeight: 1.6, mb: 1.5, maxWidth: 760 }}>
+          {editing && (
+            <Box
+              data-seatscope=""
+              role="status"
+              sx={{ fontSize: 13, lineHeight: 1.5, color: 'var(--c-info-800)', background: 'var(--c-info-50)', borderRadius: 'var(--r-sm)', px: 1.25, py: 0.75, mb: 1 }}
+            >
+              <strong>Changes here are for this position only.</strong> {others}
+            </Box>
+          )}
+          <Typography data-krarule="" sx={{ fontSize: embedded ? 12.5 : 13, color: 'var(--c-text-2)', lineHeight: 1.6, mb: embedded ? 1 : 1.5, maxWidth: 760 }}>
             {editing
               ? 'For this seat alone you can add a responsibility or a KPI, change a line’s wording or a KPI’s target, or switch off a line that does not apply — use the ⋮ on a line. '
               : ''}
@@ -351,7 +409,8 @@ export function SeatJobContentEditor({
 
           <JobContent
             content={data}
-            initiallyOpen="all"
+            dense={embedded}
+            initiallyOpen={embedded ? 'auto' : 'all'}
             lineActions={editing ? lineActions : undefined}
             sectionFooter={editing ? sectionFooter : undefined}
           />
@@ -556,7 +615,7 @@ export function SeatJobContentEditor({
           </>
         )}
       </FormDialog>
-    </SectionCard>
+    </Shell>
   );
 }
 

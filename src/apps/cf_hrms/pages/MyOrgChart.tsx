@@ -43,6 +43,7 @@ import {
 } from '../components/OrgChartFloatingPanel';
 import { useFullscreen } from '../components/useFullscreen';
 import { MyOrgChartCard } from '../components/MyOrgChartCard';
+import { OrgChartTitleStrip } from '../components/OrgChartTitleStrip';
 
 /**
  * The EMPLOYEE's org chart — their own slice of the organisation (2026-10-09).
@@ -297,6 +298,9 @@ export default function MyOrgChart() {
       show,
       deptClosed,
       secondaryEdges: model.secondary,
+      // On screen the title is the fixed strip above the canvas (it used to
+      // zoom and pan away with the chart); this page has no export.
+      titleBlock: false,
       header: {
         // No big title: a slice is often one box wide, and the legend that sits on
         // the title's line (right-aligned to the chart) would run into it.
@@ -312,7 +316,7 @@ export default function MyOrgChart() {
   // ── Zoom, then centre on me ─────────────────────────────────────────────
   const fitZoom = useCallback(() => {
     if (!scene || !stage.w) return 1;
-    const byH = stage.h > 60 ? (stage.h - 28) / scene.height : Infinity;
+    const byH = stage.h > 60 ? (stage.h - 28) / (scene.height - scene.top) : Infinity;
     return Math.min(1, Math.max(0.15, Math.min((stage.w - 28) / scene.width, byH)));
   }, [scene, stage]);
 
@@ -579,6 +583,15 @@ export default function MyOrgChart() {
 
         {slice && slice.linked && model && scene && (
           <Box sx={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+            <OrgChartTitleStrip
+              meta={`Your place in the organisation, as at ${slice.asOf}`}
+              facts={[
+                { label: 'Above you', value: slice.counts.managers },
+                { label: 'In your team', value: slice.counts.reports },
+                ...(slice.counts.dotted ? [{ label: 'Dotted-line managers', value: slice.counts.dotted }] : []),
+              ]}
+              legend={scene.legend}
+            />
             <Box
               ref={setStageEl}
               sx={{ flex: 1, minHeight: 0, minWidth: 0, display: 'flex', flexDirection: 'column', ...highlight }}

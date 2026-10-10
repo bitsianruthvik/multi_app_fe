@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
-import { Box, Button, Stack, Typography, useTheme } from '@mui/material';
+import { Box, Button, IconButton, Stack, Tooltip, Typography, useTheme } from '@mui/material';
+import ArrowBackRounded from '@mui/icons-material/ArrowBackRounded';
 import ImageRounded from '@mui/icons-material/ImageRounded';
 import PictureAsPdfRounded from '@mui/icons-material/PictureAsPdfRounded';
 import SearchRounded from '@mui/icons-material/SearchRounded';
@@ -42,8 +43,10 @@ import {
   type OrgChartView,
   type RootOption,
 } from '../components/OrgChartToolbar';
-import { OrgChartPanel } from '../components/OrgChartPanel';
-import { OrgChartCard } from '../components/OrgChartCardModal';
+import { OrgChartPanelViews } from '../components/OrgChartPanelViews';
+import { OrgChartViewOptions } from '../components/OrgChartViewOptions';
+import { OrgChartTitleStrip } from '../components/OrgChartTitleStrip';
+import { viewKind, type PanelView } from '../components/orgChartPanelNav';
 import {
   OrgChartFloatingPanel,
   type FloatingPanelHandle,
@@ -160,6 +163,9 @@ export default function OrgChart() {
   const [selected, setSelected] = useState<number | null>(null);
   // The box the floating panel shows; null = panel closed (spec §14).
   const [cardId, setCardId] = useState<number | null>(null);
+  // What was opened ON TOP of that box inside the panel — a person, an open
+  // seat, the role, another position — newest last (spec §17). Empty = the box.
+  const [stack, setStack] = useState<PanelView[]>([]);
   const panelRef = useRef<FloatingPanelHandle>(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const fullscreen = useFullscreen();
@@ -181,8 +187,10 @@ export default function OrgChart() {
   const [regionH, setRegionH] = useState<number | null>(null);
 
   // ── Data ────────────────────────────────────────────────────────────────
-  const load = useCallback(() => {
-    setLoading(true);
+  // `quiet`: re-read without the skeleton, for a change made from the panel —
+  // the chart stays where it is and redraws with the new person in the seat.
+  const load = useCallback((quiet = false) => {
+    if (!quiet) setLoading(true);
     orgChartApi
       .graph({ on: asOf })
       .then((g) => {
@@ -199,6 +207,12 @@ export default function OrgChart() {
   useEffect(() => {
     load();
   }, [load]);
+  const refresh = useCallback(() => load(true), [load]);
+
+  // A different box (or no box): the panel starts again from that seat.
+  useEffect(() => {
+    setStack([]);
+  }, [cardId]);
 
   // The whole graph travels in one payload, so re-rooting is a client-side
   // filter and costs nothing — no refetch, no flash, no lost scroll position.
@@ -345,9 +359,12 @@ export default function OrgChart() {
     [model, boxed, root, shift, fonts, show],
   );
 
-  const scene = useMemo(() => {
+  // Everything the drawing is made from. The SCREEN draws it without the title
+  // block (that is the fixed strip above the canvas, so it neither zooms nor
+  // pans); an EXPORT draws it with one, because a file has no page around it.
+  const sceneOptions = useMemo(() => {
     if (!model || !counts) return null;
-    return buildScene(model, {
+    return {
       root,
       filter: shift,
       collapsed,
@@ -367,15 +384,20 @@ export default function OrgChart() {
             ? `     Present ${counts.present}     Absent ${counts.absent}`
             : ''),
       },
-    });
+    };
   }, [model, counts, root, shift, collapsed, arrange, fonts, palette, colours, show, deptClosed, rootNode, asOf]);
+
+  const scene = useMemo(
+    () => (model && sceneOptions ? buildScene(model, { ...sceneOptions, titleBlock: false }) : null),
+    [model, sceneOptions],
+  );
 
   // ── Zoom ────────────────────────────────────────────────────────────────
   /** The Fit button: the whole chart, however small that has to be. */
   const fitZoom = useCallback(() => {
     if (!scene || !stage.w) return 1;
     // Both ways since §14: the chart now lives in a panel of known height.
-    const byH = stage.h > 60 ? (stage.h - 28) / scene.height : Infinity;
+    const byH = stage.h > 60 ? (stage.h - 28) / (scene.height - scene.top) : Infinity;
     return Math.min(1, Math.max(0.15, Math.min((stage.w - 28) / scene.width, byH)));
   }, [scene, stage]);
 
@@ -566,12 +588,14 @@ export default function OrgChart() {
   }, [counts, root, asOf, shift, collapsed, visibleIds]);
 
   const doExport = async (kind: 'png' | 'pdf') => {
-    if (!scene) return;
+    if (!model || !sceneOptions) return;
     setExporting(true);
     try {
       const name = rootNode ? `Org_chart_${rootNode.positionCode ?? rootNode.id}` : 'Org_chart';
-      if (kind === 'png') await exportPng(scene, palette.fontUi, name);
-      else await exportPdf(scene, palette.fontUi, `Organisation chart as at ${asOf}`, name);
+      // The same drawing, WITH its title block and legend: the print carries them.
+      const printed = buildScene(model, { ...sceneOptions, titleBlock: true });
+      if (kind === 'png') await exportPng(printed, palette.fontUi, name);
+      else await exportPdf(printed, palette.fontUi, `Organisation chart as at ${asOf}`, name);
       toast.success(kind === 'png' ? 'Image downloaded.' : 'PDF downloaded.');
     } catch (e) {
       toast.error(
@@ -623,6 +647,30 @@ export default function OrgChart() {
 
   const panelNode = cardId != null && model ? model.byId.get(cardId) : null;
   const panelTitle = panelNode?.displayTitle || panelNode?.title || 'Position';
+
+  // The panel's views: the box, then whatever was opened from it. Moving
+  // between them puts the keyboard on the panel's header, which reads the new
+  // title — so a keyboard user hears where they have landed.
+  const views: PanelView[] = useMemo(
+    () => (cardId == null ? [] : [{ kind: 'seat', positionId: cardId, title: panelTitle }, ...stack]),
+    [cardId, panelTitle, stack],
+  );
+  const topView = views[views.length - 1] ?? null;
+  const focusPanel = () => requestAnimationFrame(() => panelRef.current?.focus());
+  const panelNav = useMemo(
+    () => ({
+      push: (v: PanelView) => {
+        setStack((s) => [...s, v]);
+        focusPanel();
+      },
+      back: () => {
+        setStack((s) => s.slice(0, -1));
+        focusPanel();
+      },
+    }),
+    [],
+  );
+  const crumbs = views.slice(Math.max(0, views.length - 3), -1).map((v) => v.title);
   const panelBox = cardId != null && model && boxed ? scene?.layout.dept?.boxes.get(departmentOfSeat(model, cardId)) : undefined;
   // Inside a box, a seat arranges only the reports that sit in the box with it.
   const panelTeam =
@@ -675,7 +723,7 @@ export default function OrgChart() {
 
       {chartLike && <StatStrip stats={stats} />}
 
-      {!!error && <ErrorNotice error={error} onRetry={load} />}
+      {!!error && <ErrorNotice error={error} onRetry={() => load()} />}
 
       {/*
         THE REGION: toolbar + chart. On Chart and Table it is a fixed-height
@@ -757,6 +805,25 @@ export default function OrgChart() {
 
         {chartLike && !loading && model && scene && model.byId.size > 0 && (
           <Box sx={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+            {view === 'chart' && counts && (
+              <OrgChartTitleStrip
+                title={rootNode ? `${rootNode.displayTitle || rootNode.title} — and below` : 'Organisation chart'}
+                meta={`As at ${asOf} · ${SHIFT_NAME[shift]}`}
+                facts={[
+                  { label: 'Positions', value: counts.positions },
+                  { label: 'Seats', value: counts.seats },
+                  { label: 'Filled', value: counts.filled },
+                  { label: 'Vacant', value: counts.vacant },
+                  ...(counts.present || counts.absent
+                    ? [
+                        { label: 'Present', value: counts.present },
+                        { label: 'Absent', value: counts.absent },
+                      ]
+                    : []),
+                ]}
+                legend={scene.legend}
+              />
+            )}
             <Box
               ref={setStageEl}
               sx={{ flex: 1, minHeight: 0, minWidth: 0, display: 'flex', flexDirection: 'column' }}
@@ -824,54 +891,89 @@ export default function OrgChart() {
         <OrgChartFloatingPanel
           ref={panelRef}
           open={cardId != null}
-          label={panelTitle}
+          label={topView ? `${viewKind(topView)}: ${topView.title}` : panelTitle}
           title={
-            <Typography sx={{ fontSize: 17, fontWeight: 600, lineHeight: 1.3, overflowWrap: 'anywhere' }}>
-              {panelTitle}
-            </Typography>
+            <Stack direction="row" alignItems="flex-start" spacing={0.5} data-paneltitle="">
+              {stack.length > 0 && (
+                <Tooltip title="Back (Esc)">
+                  <IconButton
+                    size="small"
+                    onClick={panelNav.back}
+                    aria-label={`Back to ${views[views.length - 2]?.title ?? 'the position'}`}
+                    sx={{ mt: '-3px', ml: '-4px' }}
+                  >
+                    <ArrowBackRounded fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              )}
+              <Box sx={{ minWidth: 0 }}>
+                <Typography
+                  sx={{
+                    fontSize: 11.5,
+                    color: 'var(--c-text-2)',
+                    lineHeight: 1.3,
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                  }}
+                >
+                  {[...crumbs, topView ? viewKind(topView) : 'Position'].join(' › ')}
+                </Typography>
+                <Typography sx={{ fontSize: 16, fontWeight: 600, lineHeight: 1.3, overflowWrap: 'anywhere' }}>
+                  {topView?.title ?? panelTitle}
+                </Typography>
+              </Box>
+            </Stack>
           }
           onClose={closePanel}
+          // Esc goes back one view; from the box itself it closes the panel.
+          onEscape={stack.length > 0 ? panelNav.back : closePanel}
           // Over the chart on Chart and Table; over the app's scrolling main
           // region on Departments and Doubts, which read as ordinary pages.
           boundsEl={chartLike ? stageEl : scrollEl}
           relayout={`${isFull}:${view}`}
           storageKey={key('panelPos')}
         >
-          <OrgChartCard
-            positionId={cardId}
-            asOf={asOf}
-            company={company}
-            onClose={() => setCardId(null)}
-            onChanged={load}
-            onStartFrom={(id) => {
-              setRoot(id);
-              // "Start from here" is a chart instruction; from Departments or
-              // Doubts it would otherwise change nothing the viewer can see.
-              if (!chartLike) setView('chart');
-            }}
-          >
-            {view === 'chart' && cardId != null && (
-              <OrgChartPanel
-                teamSize={panelTeam}
-                arrange={arrange[cardId] || 'auto'}
-                onArrange={(a) =>
-                  setArrange((prev) => {
-                    const next = { ...prev };
-                    if (a === 'auto') delete next[cardId];
-                    else next[cardId] = a;
-                    return next;
-                  })
-                }
-                collapsed={collapsed.has(cardId)}
-                onToggleCollapse={() => toggleCollapse(cardId)}
-                department={
-                  panelBox
-                    ? { name: panelBox.name, canClose: panelBox.canToggle, onClose: () => toggleDept(panelBox.id) }
-                    : undefined
-                }
-              />
-            )}
-          </OrgChartCard>
+          {topView && (
+            <OrgChartPanelViews
+              view={topView}
+              model={model}
+              asOf={asOf}
+              company={company}
+              nav={panelNav}
+              onClose={() => setCardId(null)}
+              onChanged={refresh}
+              onStartFrom={(id) => {
+                setRoot(id);
+                // "Start from here" is a chart instruction; from Departments or
+                // Doubts it would otherwise change nothing the viewer can see.
+                if (!chartLike) setView('chart');
+              }}
+              // The viewer's own drawing options, for the box the panel was
+              // opened from and only while the chart is what is on screen.
+              viewOptions={(positionId) =>
+                view === 'chart' && positionId === cardId ? (
+                  <OrgChartViewOptions
+                    teamSize={panelTeam}
+                    arrange={arrange[positionId] || 'auto'}
+                    onArrange={(a) =>
+                      setArrange((prev) => {
+                        const next = { ...prev };
+                        if (a === 'auto') delete next[positionId];
+                        else next[positionId] = a;
+                        return next;
+                      })
+                    }
+                    fold={
+                      boxed
+                        ? undefined
+                        : { collapsed: collapsed.has(positionId), onToggle: () => toggleCollapse(positionId) }
+                    }
+                  />
+                ) : null
+              }
+            />
+          )}
         </OrgChartFloatingPanel>
       </Box>
 

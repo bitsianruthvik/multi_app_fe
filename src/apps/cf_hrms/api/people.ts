@@ -72,6 +72,8 @@ export interface Employee extends Omit<EmployeeRow,
   | 'locationId' | 'locationName' | 'documentCount' | 'expiredDocumentCount' | 'expiringDocumentCount'> {
   addressJson: Address | null;
   emergencyContactJson: EmergencyContact | null;
+  /** "Mr.", "Ms." — as the organisation recorded it. */
+  salutation?: string | null;
   photoFileName: string | null;
   photoMimeType: string | null;
   photoSizeBytes: number | null;
@@ -225,6 +227,16 @@ export const peopleApi = {
     api.get<{ asOf: string; total: number; items: EmployeeRow[] }>(`/people/employees${qs(filters)}`),
 
   get: (id: number) => api.get<EmployeeDetail>(`/people/employees/${id}`),
+  /**
+   * The org chart panel's read. Contact details (phone, email, date of birth,
+   * address, emergency contact) come back ONLY for a caller holding
+   * cf_hrms_people_pii — and that read is audited on the server. For anyone
+   * else they are removed on the server and `contact` says 'HIDDEN'.
+   */
+  getForPanel: (id: number, asOf?: string) =>
+    api.get<EmployeeDetail & { contact: 'SHOWN' | 'HIDDEN' }>(
+      `/people/employees/${id}?contact=1${asOf ? `&asOf=${asOf}` : ''}`,
+    ),
   create: (body: EmployeeInput) => api.post<EmployeeDetail>('/people/employees', body),
   update: (id: number, body: EmployeeInput) => api.put<EmployeeDetail>(`/people/employees/${id}`, body),
   remove: (id: number) => api.del<{ id: number }>(`/people/employees/${id}`),

@@ -1753,11 +1753,35 @@ export interface SceneHeader {
   counts: string;
 }
 
+/** One entry of the legend, with its colours resolved — drawn in the scene (export) or in HTML (screen). */
+export interface SceneLegendItem {
+  /** A tinted swatch (attendance), or a sample of a line. */
+  swatch?: string;
+  fill?: string;
+  line?: 'solid' | 'dash' | 'serves' | 'thin' | 'same';
+  /** The line's stroke, width and dash as the chart draws that kind of line. */
+  stroke?: string;
+  sw?: number;
+  dash?: number[];
+  /** The ring the "same person" connector ends in. */
+  ring?: { fill: string; stroke: string };
+  text: string;
+}
+
 export interface ChartScene {
   width: number;
   height: number;
+  /**
+   * Where the drawing starts. 0 when the title block is in the scene (an
+   * export); `HEAD` when it is not (the screen, where the title is a fixed
+   * strip above the canvas), so the canvas can crop the band it would have used.
+   */
+  top: number;
   background: string;
+  /** The title block and legend as primitives. Empty when `titleBlock` is off. */
   header: Prim[];
+  /** The same legend as data, for a screen that draws it outside the canvas. */
+  legend: SceneLegendItem[];
   /**
    * Draw order, bottom to top (spec §16): `under` (serves links that pass
    * behind boxes) · `depts` · `edges` · `links` (serves, exceptions, the
@@ -1791,6 +1815,13 @@ export interface SceneOptions extends LayoutOptions {
   palette: ChartPalette;
   colours: boolean;
   header: SceneHeader;
+  /**
+   * Draw the title, the counts and the legend INTO the scene. On for an export
+   * (the client prints it, and a file has no page around it); off on screen
+   * since 2026-10-10, where they are a fixed strip above the canvas — drawn in
+   * the scene they zoomed and panned away with the chart. Default on.
+   */
+  titleBlock?: boolean;
   /** Suppresses the selection ring and keeps every collapse pill for print. */
   forExport?: boolean;
   secondaryEdges: OrgChartEdge[];
@@ -2443,12 +2474,7 @@ export function buildScene(model: ChartModel, opts: SceneOptions): ChartScene {
   }
 
   // ── Header: drawn into the chart because the client prints it ────────────
-  const legend: {
-    swatch?: string;
-    fill?: string;
-    line?: 'solid' | 'dash' | 'serves' | 'thin' | 'same';
-    text: string;
-  }[] = [];
+  const legend: SceneLegendItem[] = [];
   if (opts.colours) {
     legend.push({ swatch: p.present, fill: p.presentFill, text: 'Present' });
     legend.push({ swatch: p.absent, fill: p.absentFill, text: 'Absent' });
@@ -2459,6 +2485,14 @@ export function buildScene(model: ChartModel, opts: SceneOptions): ChartScene {
   if (exceptionsDrawn) legend.push({ line: 'thin', text: 'Reports outside the department' });
   if (servesDrawn) legend.push({ line: 'serves', text: 'Serves' });
   if (sameDrawn) legend.push({ line: 'same', text: 'Same person' });
+  for (const g of legend) {
+    if (!g.line) continue;
+    g.stroke = g.line === 'dash' ? p.muted : g.line === 'serves' || g.line === 'same' ? p.accent : p.faint;
+    g.sw = g.line === 'thin' ? 1 : 1.4;
+    g.dash = g.line === 'dash' ? [6, 4] : g.line === 'serves' ? [5, 3] : g.line === 'thin' ? [3, 3] : undefined;
+    if (g.line === 'same') g.ring = { fill: p.surface, stroke: p.accent };
+  }
+  const titleBlock = opts.titleBlock !== false;
 
   let lw = 0;
   const legendWidths = legend.map((g) => {
@@ -2468,9 +2502,12 @@ export function buildScene(model: ChartModel, opts: SceneOptions): ChartScene {
   });
   // A narrow chart (a folded opening, a small branch) is widened until the
   // title and the legend share their line without overprinting.
-  const width = Math.max(lay.width, Math.ceil(M + textWidth(opts.header.title, f.headTitle) + 32 + lw + M));
+  const width = titleBlock
+    ? Math.max(lay.width, Math.ceil(M + textWidth(opts.header.title, f.headTitle) + 32 + lw + M))
+    : lay.width;
 
   const header: Prim[] = [];
+  if (titleBlock) {
   header.push({
     k: 'text',
     x: M,
@@ -2507,10 +2544,9 @@ export function buildScene(model: ChartModel, opts: SceneOptions): ChartScene {
       header.push({
         k: 'path',
         d: `M${gx} ${gy - 4}H${gx + 28}`,
-        stroke: g.line === 'dash' ? p.muted : g.line === 'serves' || g.line === 'same' ? p.accent : p.faint,
-        sw: g.line === 'thin' ? 1 : 1.4,
-        dash:
-          g.line === 'dash' ? [6, 4] : g.line === 'serves' ? [5, 3] : g.line === 'thin' ? [3, 3] : undefined,
+        stroke: g.stroke!,
+        sw: g.sw,
+        dash: g.dash,
       });
       if (g.line === 'same') {
         header.push({ k: 'circle', cx: gx + 3, cy: gy - 4, r: 3, fill: p.surface, stroke: p.accent, sw: 1.4 });
@@ -2555,12 +2591,15 @@ export function buildScene(model: ChartModel, opts: SceneOptions): ChartScene {
     stroke: p.border,
     sw: 1,
   });
+  }
 
   return {
     width,
     height: lay.height,
+    top: titleBlock ? 0 : HEAD,
     background: p.surface,
     header,
+    legend,
     under,
     depts,
     edges,

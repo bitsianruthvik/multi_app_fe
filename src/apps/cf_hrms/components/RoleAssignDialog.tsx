@@ -144,6 +144,7 @@ export function RoleAssignDialog({
   defaultKraId,
   onClose,
   onSaved,
+  notice,
 }: {
   open: boolean;
   roleId: number;
@@ -157,6 +158,8 @@ export function RoleAssignDialog({
   defaultKraId?: number | null;
   onClose: () => void;
   onSaved: (message: string) => void;
+  /** Said above the form — who else this edit reaches (the org chart panel edits a ROLE from a seat). */
+  notice?: React.ReactNode;
 }) {
   const company = useCompanySlug();
   const masterKind = MASTER_FOR[kind];
@@ -312,6 +315,11 @@ export function RoleAssignDialog({
       maxWidth="sm"
     >
       <Stack spacing={2} sx={{ mt: 0.5 }}>
+        {notice && (
+          <Box data-reach="" sx={{ fontSize: 13, lineHeight: 1.5, color: 'var(--c-warning-800)', background: 'var(--c-warning-50)', borderRadius: 'var(--r-sm)', px: 1.25, py: 0.75 }}>
+            {notice}
+          </Box>
+        )}
         {masterKind && !row && (
           <>
             <Autocomplete

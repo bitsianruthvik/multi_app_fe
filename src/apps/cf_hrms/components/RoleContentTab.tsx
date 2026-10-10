@@ -45,10 +45,20 @@ export function RoleContentTab({
   content,
   canManage,
   onChanged,
+  dense = false,
+  reach,
 }: {
   content: RoleContent;
   canManage: boolean;
   onChanged: () => void;
+  /** The 500px org chart panel: tighter lines, sections folded until opened. */
+  dense?: boolean;
+  /**
+   * Who an edit reaches, as a sentence — "Changes the role X — 2 positions".
+   * Set where the editor is opened from ONE seat (the org chart panel), so
+   * every dialog says it before saving. The role's own page has it in its title.
+   */
+  reach?: string;
 }) {
   const toast = useToast();
   const { kras, additional, weights } = content;
@@ -278,7 +288,8 @@ export function RoleContentTab({
       ) : (
         <JobContent
           content={view}
-          initiallyOpen="all"
+          initiallyOpen={dense ? 'auto' : 'all'}
+          dense={dense}
           summary={false}
           lineActions={canManage ? lineActions : undefined}
           kraActions={canManage ? kraActions : undefined}
@@ -322,7 +333,9 @@ export function RoleContentTab({
             position: 'sticky', bottom: 12, zIndex: 2, border: '1px solid var(--c-primary-500)',
           }}
         >
-          <Box sx={{ fontSize: 13, fontWeight: 500, flex: 1 }}>{plural(selected.size, 'line')} selected</Box>
+          <Box sx={{ fontSize: 13, fontWeight: 500, flex: 1 }}>
+            {plural(selected.size, 'line')} selected{reach ? ` · ${reach}` : ''}
+          </Box>
           <Button
             size="small"
             variant="contained"
@@ -511,7 +524,9 @@ export function RoleContentTab({
         open={!!kraForm}
         title={kraForm?.kra ? 'Rename this KRA' : 'New KRA'}
         subtitle={
-          kraForm?.kra
+          reach
+            ? `${reach}. ${kraForm?.kra ? 'The responsibilities and KPIs under it stay where they are.' : 'Its responsibilities and KPIs are filed under it afterwards.'}`
+            : kraForm?.kra
             ? 'The responsibilities and KPIs under it stay where they are.'
             : 'An outcome area this role is accountable for — "Machine uptime", "Dispatch on time". Its responsibilities and KPIs are filed under it afterwards.'
         }
@@ -551,11 +566,11 @@ export function RoleContentTab({
         open={!!deleting}
         title="Delete this KRA from the role?"
         entityName={deleting?.definition?.name}
-        body={
+        body={(
           deletingLines > 0
             ? `Only the KRA goes. Its ${plural(deleting?.responsibilities.length ?? 0, 'responsibility', 'responsibilities')} and ${plural(deleting?.kpis.length ?? 0, 'KPI')} are NOT deleted — they stay on this role and move to “Not yet grouped under a KRA”, where you can file them under another KRA.`
             : 'Nothing is filed under it, so nothing else changes. Seats holding this role lose the heading too.'
-        }
+        ) + (reach ? ` ${reach}.` : '')}
         confirmLabel="Delete the KRA"
         danger
         onClose={() => setDeleting(null)}
@@ -576,6 +591,7 @@ export function RoleContentTab({
           row={assign.row}
           kras={kras}
           defaultKraId={assign.kraId ?? null}
+          notice={reach}
           assigned={
             assign.kind === 'kras'
               ? kras.map((k) => k.definitionId!).filter(Boolean)
@@ -596,7 +612,7 @@ export function RoleContentTab({
         open={!!removing}
         title={`Unassign this ${KIND_NOUN[removing?.kind ?? 'kras'] ?? 'item'}?`}
         entityName={removing?.row.definition?.name}
-        body="It stops applying to this role from today, for every seat that holds the role. It stays readable as history."
+        body={`It stops applying to this role from today, for every seat that holds the role. It stays readable as history.${reach ? ` ${reach}.` : ''}`}
         confirmLabel="Unassign"
         danger
         onClose={() => setRemoving(null)}
