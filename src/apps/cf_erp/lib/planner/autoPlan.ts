@@ -1,6 +1,6 @@
-import { allocate, bookUnit, emptyEnd, evaluate, floorOf, rankOf, shipPeriods } from './evaluate';
+import { bookUnit, emptyEnd, evaluate, floorOf, rankOf, shipPeriods } from './evaluate';
 import { bookForward, forwardEnd } from './load';
-import { newSupply, release, takeMaterial } from './material';
+import { materialOf } from './material';
 import { activeUnits, getModel, type Model } from './model';
 import { monthLong } from './periods';
 import type { AutoPlanOptions, AutoPlanResult, Plan, PlannerSnapshot } from './types';
@@ -13,8 +13,8 @@ import type { AutoPlanOptions, AutoPlanResult, Plan, PlannerSnapshot } from './t
  * ship week. `evaluate` books an unpinned card the same way (forward from its material), in the
  * same order — so the board shows exactly what auto-plan saw. A pinned unit books where it is pinned. Projects run in
  * parallel by themselves: a later order takes whatever hours the earlier ones leave free in a week.
- * Nothing starts before its material (an ordered PO's date, or stock).
- * Finally `evaluate` re-checks; a card the material order leaves blocked is taken off again.
+ * Material is the server's answer (units[].material): a card that WAITS for stock is never placed, and nothing
+ * starts before its earliest week. Finally `evaluate` re-checks; a card left blocked is taken off again.
  */
 export function autoPlan(snapshot: PlannerSnapshot, plan: Plan, options: AutoPlanOptions = {}): AutoPlanResult {
   const m = getModel(snapshot);
@@ -25,22 +25,20 @@ export function autoPlan(snapshot: PlannerSnapshot, plan: Plan, options: AutoPla
   const act = activeUnits(m, pins, options);
   const pinShip = shipPeriods(m, pins, act);
 
-  // Material and hours both go in claim order — pins first, then by priority — exactly evaluate's
-  // order (rankOf), since a unit left off gives its material back before the next one takes.
-  const supply = newSupply(m);
+  // Hours go in claim order — pins first, then by priority — exactly evaluate's order (rankOf).
   const ship = new Int32Array(m.N).fill(-1);
   const rem = Float64Array.from(m.cap);
   for (const u of [...act].sort((a, b) => rankOf(m, pins, a) - rankOf(m, pins, b))) {
     if (pinShip[u] >= 0) {
       ship[u] = pinShip[u];
-      bookUnit(m, rem, pins, u, ship[u], floorOf(m, takeMaterial(m, supply, u).res), []);
+      bookUnit(m, rem, pins, u, ship[u], floorOf(m, materialOf(m, u)), []);
       continue;
     }
-    const { res, takes } = takeMaterial(m, supply, u);
-    if (res.short) continue;
+    const res = materialOf(m, u);
+    if (res.short) continue; // waits for stock — never placed
     const a = floorOf(m, res);
     const end = a >= P ? P : forwardEnd(m, rem, u, a);
-    if (end >= P) { release(m, supply, takes); continue; }
+    if (end >= P) continue;
     bookForward(m, rem, u, a, end, []);
     ship[u] = end;
   }
@@ -48,7 +46,7 @@ export function autoPlan(snapshot: PlannerSnapshot, plan: Plan, options: AutoPla
   const out: Plan = { ...pins };
   for (const u of act) if (ship[u] >= 0 && pinShip[u] < 0) out[m.units[u].key] = { period: periods[ship[u]].key, pinned: false };
 
-  // Repair: material handed out in plan order (as evaluate does) can differ from booking order.
+  // Repair: re-check the plan as the board will read it; a card left blocked is taken off.
   let ev = evaluate(snapshot, out, options);
   for (let round = 0; round < 5; round++) {
     const bad = Object.entries(ev.units).filter(([k, x]) => x.period && x.blocked && !out[k]?.pinned).map(([k]) => k);
@@ -66,7 +64,7 @@ export function autoPlan(snapshot: PlannerSnapshot, plan: Plan, options: AutoPla
   const why = waitingReasons(m, ev, out);
   const lastMonth = monthLong(m.months[m.months.length - 1]);
   const cards = (n: number) => `${n} card${n === 1 ? '' : 's'}`;
-  if (why.notOrdered) notes.push(`${cards(why.notOrdered)} wait${why.notOrdered === 1 ? 's' : ''} for material that isn't ordered — see the Buy list.`);
+  if (why.waiting) notes.push(`${cards(why.waiting)} wait${why.waiting === 1 ? 's' : ''} for stock (buying skipped or no date yet) — see ${why.waiting === 1 ? 'its' : 'their'} reasons.`);
   if (why.dueAfter) notes.push(`${cards(why.dueAfter)} wait${why.dueAfter === 1 ? 's' : ''} for material due after ${lastMonth}.`);
   if (why.tooLate) notes.push(`${cards(why.tooLate)} get${why.tooLate === 1 ? 's' : ''} ${why.tooLate === 1 ? 'its' : 'their'} material too late to finish by the end of ${lastMonth}.`);
   if (why.capacity) notes.push(`${cards(why.capacity)} ${why.capacity === 1 ? "doesn't" : "don't"} fit the machine hours left before the end of ${lastMonth}.`);
@@ -105,20 +103,18 @@ function parallelOrders(m: Model, ev: ReturnType<typeof evaluate>): { max: numbe
 }
 
 /**
- * Why each unplaced card is off the board. Material is handed out in plan order, as `evaluate`
- * does, so a card "waits for material" exactly when the board would say so.
+ * Why each unplaced card is off the board. Material is the server's answer, so a card "waits for
+ * stock" exactly when the board says so.
  */
 function waitingReasons(m: Model, ev: ReturnType<typeof evaluate>, plan: Plan) {
-  const act: number[] = [];
-  for (const k of Object.keys(ev.units)) { const u = m.unitIdx.get(k); if (u !== undefined) act.push(u); }
-  const mat = allocate(m, plan, act, shipPeriods(m, plan, act));
-  const out = { notOrdered: 0, dueAfter: 0, tooLate: 0, capacity: 0 };
-  for (const u of act) {
-    if (plan[m.units[u].key] || m.units[u].done) continue;
-    const r = mat.get(u)!;
-    if (r.short) out.notOrdered++;
+  const out = { waiting: 0, dueAfter: 0, tooLate: 0, capacity: 0 };
+  for (const k of Object.keys(ev.units)) {
+    const u = m.unitIdx.get(k);
+    if (u === undefined || plan[k] || m.units[u].done) continue;
+    const r = materialOf(m, u);
+    if (r.short) out.waiting++;
     else if (r.period >= m.P) out.dueAfter++;
-    else if (emptyEnd(m, u, r.period) >= m.P) out.tooLate++;
+    else if (emptyEnd(m, u, Math.max(0, r.period)) >= m.P) out.tooLate++;
     else out.capacity++;
   }
   return out;

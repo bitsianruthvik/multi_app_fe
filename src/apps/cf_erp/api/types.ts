@@ -1087,6 +1087,8 @@ export interface ReleaseCheck {
   problems: string[];
   summary: { pieces: number; groups: number; steps: number; waits: number; requirements: number };
   materials: { item: { id: number; code: string | null; name: string; uom: string | null }; required: number; free: number; short: number }[];
+  /** Buying v2: can the work start? Release is never refused for material — planning and starting a step wait. */
+  materialReady?: import('./requisitions').LineMaterialReady | null;
   /** The obvious place for finished work, when exactly one area fits. */
   finishedArea: { id: number; code: string; name: string; purpose: AreaPurpose } | null;
   /** It could not settle on one — the dialog asks instead of blocking the release. */
@@ -1165,7 +1167,11 @@ export interface PurchaseLine extends Partial<PurchaseTax> {
   unlinked?: number;
 }
 
-export interface PurchaseLineOrder { id: number; orderId: number; orderCode: string; quantity: number; received: number }
+export interface PurchaseLineOrder {
+  id: number; orderId: number; orderCode: string; quantity: number; received: number;
+  /** Buying v2: the requisition line this share is bought for. */
+  prLineId?: number | null; requisition?: { id: number; code: string; lineNo: number } | null;
+}
 
 export interface PurchaseOrderRow {
   id: number;
@@ -1283,6 +1289,8 @@ export interface OrderStage {
   blockers: StageBlocker[];
   /** When an earlier stage has to come first: one line, and the stage to jump to. */
   waitingOn?: { stageKey: string | null; message: string; action?: 'confirm' | null } | null;
+  /** Buying only (Buying v2): how many materials are decided, and how. `waiting` = skipped and not in stock yet. */
+  summary?: { materials: number; fromStock?: number; onOrder?: number; skipped: number; waiting: number; open: number } | null;
 }
 
 export interface OrderProcessLine {

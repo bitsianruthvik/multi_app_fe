@@ -1,90 +1,83 @@
 import type { Model } from './model';
+import { dayLabel, firstPeriodFrom } from './periods';
+import type { MaterialState } from './types';
 
 /**
- * Material gate. Supply lots (stock first, then POs by date) are handed to units in the order they
- * are offered; a unit takes the earliest lots with quantity left. Its material period is the latest
- * lead-start period among the lots it took (received stock = the period containing its date, an
- * open PO = the first period starting on/after its expected date). A unit whose need cannot be
- * covered takes nothing and is "not ordered".
+ * Material, as the SERVER decided it (CF_ERP_BUYING_V2.md §4–5). The browser does not compute
+ * readiness: each unit carries `material` on the snapshot, and this file only turns that answer
+ * into the plan period the work may start in. Units compete for stock on the server, in claim
+ * order — nothing here hands anything out.
+ *
+ *   waiting  → `short` is set (the unit cannot be planned); `short.text` is the backend's sentence
+ *   dated    → work may start in the plan period on/after `earliest` (null = any week)
+ *   late     → flagged; placeable unless the server gave an `earliest`
+ *   no `material` field (an old snapshot or fixture) → no gate at all
  */
-export interface SupplyState {
-  rem: Float64Array;
-  /** first lot with quantity left, per item */
-  ptr: Int32Array;
-}
-
 export interface MaterialResult {
-  /** −1 when the unit needs nothing */
+  /** First plan period the work may start in; −1 = no gate (any week), P = after the plan */
   period: number;
+  /** The server's ready date (null when it waits, or needs nothing) */
   date: string | null;
+  /** Always null now (the PO a date came from is in the server's sentence) */
   source: string | null;
-  /** set when not covered */
-  short: { itemId: string; qty: number } | null;
+  /** set when the unit waits for stock */
+  short: { itemId: string; qty: number; text: string } | null;
+  state: MaterialState | null;
+  /** The server's sentence for the whole unit */
+  text: string | null;
 }
 
-/** Lots taken: flat pairs [lot, qty, lot, qty, …] */
+/** Kept for callers that still pass a supply around; there is no supply in the browser any more. */
+export interface SupplyState { readonly none: true }
+/** Always empty (the server assigns cover). */
 export type Takes = number[];
 
-const EPS = 1e-9;
+const NONE: MaterialResult = { period: -1, date: null, source: null, short: null, state: null, text: null };
+const cache = new WeakMap<Model, (MaterialResult | undefined)[]>();
 
-export function newSupply(m: Model): SupplyState {
-  return { rem: Float64Array.from(m.lotQty), ptr: Int32Array.from(m.itemLots.map((r) => r[0])) };
-}
+const fmtQty = (q: number) => (Math.abs(q) >= 10 ? String(Math.round(q)) : String(Number(q.toFixed(2))));
 
-export function cloneSupply(s: SupplyState): SupplyState {
-  return { rem: Float64Array.from(s.rem), ptr: Int32Array.from(s.ptr) };
-}
-
-function walk(m: Model, s: SupplyState, u: number, takes: Takes | null): MaterialResult {
-  const items = m.matItem[u], qtys = m.matQty[u];
-  let period = -1, date: string | null = null, source: string | null = null;
-  for (let k = 0; k < items.length; k++) {
-    const it = items[k];
-    let need = qtys[k];
-    if (it < 0) return { period: -1, date: null, source: null, short: { itemId: m.matItemId[u][k], qty: need } };
-    const [, end] = m.itemLots[it];
-    let l = s.ptr[it];
-    while (need > EPS * Math.max(1, qtys[k]) && l < end) {
-      const avail = s.rem[l];
-      if (avail > EPS) {
-        const t = Math.min(avail, need);
-        need -= t;
-        if (takes) { takes.push(l, t); s.rem[l] -= t; }
-        if (m.lotPeriod[l] > period) period = m.lotPeriod[l];
-        if (date === null || m.lotDate[l] > date) { date = m.lotDate[l]; source = m.lotSource[l]; }
-      }
-      if (s.rem[l] <= EPS || !takes) l++;
-    }
-    if (takes) {
-      let p = s.ptr[it];
-      while (p < end && s.rem[p] <= EPS) p++;
-      s.ptr[it] = p;
-    }
-    if (need > EPS * Math.max(1, qtys[k])) {
-      if (takes) release(m, s, takes);
-      return { period: -1, date: null, source: null, short: { itemId: m.matItemId[u][k], qty: need } };
-    }
+/** What the server said about unit `u`, as a MaterialResult. */
+export function materialOf(m: Model, u: number): MaterialResult {
+  let arr = cache.get(m);
+  if (!arr) { arr = new Array(m.N); cache.set(m, arr); }
+  const hit = arr[u];
+  if (hit) return hit;
+  const mat = m.units[u].material;
+  let r: MaterialResult;
+  if (!mat) r = NONE;
+  else if (mat.state === 'waiting') {
+    const reason = mat.reasons?.find((x) => x.state === 'waiting' && x.short > 0) ?? mat.reasons?.find((x) => x.state === 'waiting') ?? mat.reasons?.[0];
+    const named = reason?.skipped && !mat.text && !reason.text
+      ? `Waiting for stock: ${reason.item.code} short by ${fmtQty(reason.short)}. Buying was skipped for it.`
+      : null;
+    const text = mat.text || reason?.text || named || 'Waiting for material — see Purchase.';
+    r = { period: -1, date: null, source: null, short: { itemId: String(reason?.item.id ?? ''), qty: reason?.short ?? 0, text }, state: 'waiting', text };
+  } else {
+    const gate = mat.earliest ? Math.min(firstPeriodFrom(m.periods, mat.earliest), m.P) : -1;
+    r = { period: gate, date: mat.readyDate ?? null, source: null, short: null, state: mat.state, text: mat.text || null };
   }
-  return { period, date, source, short: null };
+  arr[u] = r;
+  return r;
 }
 
-/** What the unit would get, without taking anything. */
-export const trialMaterial = (m: Model, s: SupplyState, u: number) => walk(m, s, u, null);
+/** Plain words for "cannot go before this week". */
+export const earliestWords = (m: Model, r: MaterialResult) =>
+  r.period >= m.P ? 'after the last week of this plan' : `the week of ${dayLabel(m.periods[Math.max(0, r.period)].start)} or later`;
 
-/** Take the unit's material; on shortage nothing is taken. */
-export function takeMaterial(m: Model, s: SupplyState, u: number): { res: MaterialResult; takes: Takes } {
-  const takes: Takes = [];
-  const res = walk(m, s, u, takes);
-  return { res, takes: res.short ? [] : takes };
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export const newSupply = (_m: Model): SupplyState => ({ none: true });
+export const cloneSupply = (s: SupplyState): SupplyState => s;
+
+/** What the server said — nothing is taken. */
+export const trialMaterial = (m: Model, _s: SupplyState, u: number) => materialOf(m, u);
+
+/** The unit's material, as the server answered; nothing is taken from anywhere. */
+export function takeMaterial(m: Model, _s: SupplyState, u: number): { res: MaterialResult; takes: Takes } {
+  return { res: materialOf(m, u), takes: [] };
 }
 
-/** Give lots back (unplace / rollback). */
-export function release(m: Model, s: SupplyState, takes: Takes) {
-  for (let i = 0; i < takes.length; i += 2) {
-    const l = takes[i];
-    s.rem[l] += takes[i + 1];
-    const it = m.lotItem[l];
-    if (l < s.ptr[it]) s.ptr[it] = l;
-  }
+/** Nothing to give back. */
+export function release(_m: Model, _s: SupplyState, takes: Takes) {
   takes.length = 0;
 }

@@ -3,7 +3,8 @@ import ArrowBackRounded from '@mui/icons-material/ArrowBackRounded';
 import ArrowForwardRounded from '@mui/icons-material/ArrowForwardRounded';
 import SkipNextRounded from '@mui/icons-material/SkipNextRounded';
 import type { OrderStage } from '../../api/types';
-import { forwardHelp, forwardLabel, stageSatisfied } from '../../lib/process';
+import { buyingSummaryWords, forwardHelp, forwardLabel, stageSatisfied } from '../../lib/process';
+import { Badge } from '../ui';
 import { DetailLine, OptionalBadge, StageStateBadge } from './stageUi';
 
 /**
@@ -48,6 +49,11 @@ export function StageFoot({ stages, current, checks = [], onGo }: {
         <Box sx={{ gridArea: 'state', display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}>
           <StageStateBadge stage={current} />
           <OptionalBadge stage={current} />
+          {current.summary && current.summary.skipped > 0 && (
+            <Box data-testid="foot-skipped" sx={{ flexShrink: 0 }}>
+              <Badge family="warning" label={`${current.summary.skipped} skipped, waiting for stock`} title={buyingSummaryWords(current.summary) ?? undefined} />
+            </Box>
+          )}
           <DetailLine text={current.detail} sx={{ flex: '1 1 auto', fontSize: 13 }} />
         </Box>
         <Box sx={{ gridArea: 'fwd', justifySelf: 'end', minWidth: 0 }}>

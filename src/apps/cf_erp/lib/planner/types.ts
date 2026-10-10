@@ -112,6 +112,51 @@ export interface UnitMaterial {
   qty: number;
 }
 
+/** The server's material-ready engine answer (CF_ERP_BUYING_V2.md §4–5). */
+export type MaterialState = 'ready' | 'dated' | 'late' | 'waiting';
+
+export interface MaterialReason {
+  item: { id: Id; code: string; name?: string; uom?: string };
+  need: number;
+  short: number;
+  state: MaterialState;
+  date: string | null;
+  skipped: boolean;
+  requisitionLineId?: Id | null;
+  cover?: { kind: string; date?: string | null; qty: number; [k: string]: unknown }[];
+  text: string;
+}
+
+export interface UnitMaterialInfo {
+  state: MaterialState;
+  readyDate: string | null;
+  /** The first day (a plan period's start) its work may start; null = any week. */
+  earliest: string | null;
+  soft: boolean;
+  materials: number;
+  text: string;
+  reasons: MaterialReason[];
+  moreReasons?: number;
+  estimate?: boolean;
+  incomplete?: string;
+}
+
+/** A stored placement the material no longer allows (PlanEntryRow.blocked). */
+export interface EntryBlocked {
+  kind: 'material_late' | 'waiting';
+  message: string;
+  readyDate: string | null;
+  earliest: string | null;
+  was?: { state: MaterialState | null; date: string | null };
+}
+
+export interface MaterialReadySummary {
+  engine: number;
+  today: string;
+  counts: Partial<Record<MaterialState, number>>;
+  blockedEntries: number;
+}
+
 /** One step of a unit's chain: minutes on one machine type. */
 export interface StageStep {
   fn: string;
@@ -161,6 +206,8 @@ export interface PlannerUnit {
   done: boolean;
   progress: number;
   materials: UnitMaterial[];
+  /** The server's answer: null = shown at no level; absent = an old snapshot (no gate). */
+  material?: UnitMaterialInfo | null;
   committedDate: string | null;
 }
 
@@ -184,6 +231,8 @@ export interface PlanEntryRow {
   /** A stretched bar's first week (its start); null = booked back from the ship week. */
   startDate?: string | null;
   pinned: boolean;
+  /** Present only when the stored placement can no longer stand. */
+  blocked?: EntryBlocked;
 }
 
 export interface PlannerSnapshot {
@@ -193,7 +242,9 @@ export interface PlannerSnapshot {
   functions: PlannerFunction[];
   orders: PlannerOrder[];
   units: PlannerUnit[];
-  supply: Record<string, SupplyItem>;
+  /** Old pooled supply — still sent, no longer read by the engine. */
+  supply?: Record<string, SupplyItem>;
+  materialReady?: MaterialReadySummary;
   entries: Record<string, PlanEntryRow>;
   /**
    * A line's units in the order dragged by hand (`{ [unitKey]: 1.. }`, per line; init.sql §38).
@@ -263,7 +314,7 @@ export interface LoadCell {
   pct: number;
 }
 
-export type BlockedKind = 'not_ordered' | 'material_late';
+export type BlockedKind = 'waiting' | 'material_late';
 
 export interface UnitEval {
   /** Ship period key, null = unplanned. */
@@ -279,11 +330,15 @@ export interface UnitEval {
   minWeeks: number | null;
   /** Minutes booked per week per machine type: `{ [periodKey]: { [fnKey]: minutes } }`. */
   booked: Record<string, Record<string, number>>;
-  /** Latest date among the supply lots covering this unit; null when it needs nothing (or blocked). */
+  /** The server's ready date for its material; null when it needs nothing, or waits. */
   materialDate: string | null;
-  /** Source of that latest lot (`'stock'` / `'PO-12'`). */
+  /** Always null now (kept for older callers). */
   materialSource: string | null;
-  /** Plain reason when the unit cannot run where it is, e.g. "Not ordered: PL20 short by 1.2 t". */
+  /** The server's state for its material (null = no answer / needs nothing). */
+  materialState: MaterialState | null;
+  /** The server's sentence for it. */
+  materialText: string | null;
+  /** Plain reason when the unit cannot run where it is — the backend's sentence. */
   blocked: string | null;
   blockedKind: BlockedKind | null;
   late: boolean;

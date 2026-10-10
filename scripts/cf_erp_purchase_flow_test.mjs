@@ -224,13 +224,14 @@ await check('the removed pages, components and helpers are deleted', () => {
   const p = src('api/procurement.ts');
   for (const gone of ['listRequests', 'raiseFromBuyList', 'listRfqs', 'makeRfq', 'createPos', 'awardLines', 'saveQuote']) assert.ok(!p.includes(gone), gone);
 });
-await check('the Board page: lanes from the server, filters in the URL, New request with a sales-order picker', () => {
+// CHANGED for Buying v2: there is no "New request" / Request items dialog any more — buying for an order starts from its requisition (Buy…).
+// The Board page offers "Buy for stock" (a PO for no order) and a Requisitions / Purchase orders toggle.
+await check('the Board page: lanes from the server, filters in the URL, Buy for stock, no Request items path', () => {
   const s = src('pages/PurchaseBoard.tsx');
-  assert.match(s, /getPurchaseBoard\(\{ orderId, supplierId, search: term \}\)/);
+  assert.match(s, /getPurchaseBoard\({ orderId, supplierId, search: term }\)/);
   assert.match(s, /useUrlParam\('order'/); assert.match(s, /useUrlParam\('supplier'/); assert.match(s, /useUrlParam\('q'/);
-  assert.match(s, /New request/); assert.match(s, /<PurchaseLanes lanes=\{lanes\} \/>/);
-  const d = src('components/Purchase/RequestItemsDialog.tsx');
-  assert.match(d, /<OrderPicker/); assert.match(d, /!order &&/);
+  assert.match(s, /Buy for stock/); assert.doesNotMatch(s, /New request|RequestItemsDialog/); assert.ok(s.includes('<PurchaseLanes lanes={lanes} />'));
+  assert.ok(!existsSync(resolve('src/apps/cf_erp', 'components/Purchase/RequestItemsDialog.tsx')));
 });
 await check('the PO page has the stage strip and one action panel with the stage actions', () => {
   const s = src('pages/PurchaseOrderDetail.tsx'); const p = src('components/Purchase/PoStagePanel.tsx');
@@ -242,11 +243,12 @@ await check('the PO page has the stage strip and one action panel with the stage
   for (const call of ['getStockCheck', 'applyStockCheck', 'getPoQuotes', 'recordQuote', 'placeOrder', 'rfqEmail', 'openRfqPrint', 'RfqComparison', 'QuoteDialog']) assert.ok(p.includes(call), call);
   assert.match(src('components/Purchase/DateCell.tsx'), /setLineExpected/);
 });
-await check('the sales order Buying stage has Request items, the order lanes and the held list', () => {
-  const o = src('components/Purchase/OrderPurchasePanel.tsx'); const d = src('components/Purchase/RequestItemsDialog.tsx');
-  assert.match(o, /Request items/); assert.match(o, /getOrderPurchase/); assert.match(o, /<PurchaseLanes lanes=\{data\.lanes\} compact \/>/); assert.match(o, /order-held-row/);
-  assert.match(d, /requestItems\(target\.id/); assert.match(d, /Add item/); assert.match(d, /Remove /);
-  assert.match(src('components/OrderProcess/StageBody.tsx'), /<OrderPurchasePanel order=\{order\} stage=\{stage\} \/>/);
+// CHANGED for Buying v2: the stage no longer has a "Request items" button or the held list — it is the requisition table
+// (hold from stock / buy / skip per material); the held stock is a chip on its row. The PO lanes and the old request dialog stay.
+await check('the sales order Buying stage is the requisition table, with the order lanes under it', () => {
+  const o = src('components/Purchase/OrderPurchasePanel.tsx');
+  assert.match(o, /getOrderRequisitions/); assert.match(o, /getOrderPurchase/); assert.ok(o.includes('<PurchaseLanes lanes={lanes.data!.lanes} compact />')); assert.match(o, /RequisitionBlock/);
+  assert.ok(src('components/OrderProcess/StageBody.tsx').includes('<OrderPurchasePanel order={order} stage={stage} onChanged={onReloadAll} />'));
 });
 await check('no "Suggest a purchase order" button is left anywhere in cf_erp', async () => {
   const walk = async (d) => (await Promise.all((await readdir(d)).map(async (n) => {

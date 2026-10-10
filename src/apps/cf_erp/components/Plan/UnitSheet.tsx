@@ -66,7 +66,7 @@ export function UnitSheet({ unit, snapshot, evaluation, plan, periodLabel, canEd
           {unit.committedDate && <Row k="Promised">{shortDate(unit.committedDate)}{ev?.late ? ' — after this date' : ''}</Row>}
           {unit.progress > 0 && <Row k="Done">{Math.round(unit.progress * 100)}%</Row>}
           {ev?.blocked && <Typography sx={{ mt: 1, fontSize: 13, color: 'var(--c-danger-800)' }}>
-            {ev.blocked}{ev.blockedKind === 'not_ordered' && <> — <Link to={buyListPath}>open Purchase</Link></>}
+            {ev.blocked}{ev.blockedKind === 'waiting' && <> — <Link to={buyListPath}>open Purchase</Link></>}
           </Typography>}
 
           {canEdit && (
@@ -87,19 +87,36 @@ export function UnitSheet({ unit, snapshot, evaluation, plan, periodLabel, canEd
           {unit.noRate > 0 && <Typography sx={{ fontSize: 12.5, color: 'var(--c-warning-800)', mt: 0.5 }}>{unit.noRate} {unit.noRate === 1 ? 'step has' : 'steps have'} no time set.</Typography>}
 
           <Typography sx={{ fontWeight: 600, fontSize: 13, mt: 2, mb: 0.5 }}>Material</Typography>
-          {unit.materials.length === 0 ? <Typography sx={{ fontSize: 13, color: 'var(--c-text-3)' }}>None needed.</Typography> : unit.materials.map((m) => {
-            const item = snapshot.supply[String(m.itemId)];
-            return (
-              <Box key={String(m.itemId)} sx={{ py: 0.5, borderBottom: '1px solid var(--c-divider)', fontSize: 13 }}>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2 }}>
-                  <span>{item?.name ?? `Item ${m.itemId}`}</span><span>{Math.round(m.qty * 100) / 100} {item?.uom ?? ''}</span>
-                </Box>
-                <Typography sx={{ fontSize: 12, color: 'var(--c-text-2)' }}>
-                  {item && item.lots.length ? item.lots.map((l) => (l.source === 'stock' ? 'In stock' : `${l.source} ${shortDate(l.date)}${l.received ? ' (received)' : ''}`)).join(' · ') : 'Not ordered'}
+          {unit.material
+            ? (
+              <Box data-testid="unit-material">
+                <Typography data-testid="unit-material-text" sx={{ fontSize: 13, color: unit.material.state === 'waiting' ? 'var(--c-danger-800)' : unit.material.state === 'late' ? 'var(--c-warning-800)' : 'var(--c-text)' }}>
+                  {unit.material.text}{unit.material.state === 'waiting' && <> — <Link to={buyListPath}>open Purchase</Link></>}
                 </Typography>
+                {unit.material.estimate && <Typography sx={{ fontSize: 12, color: 'var(--c-text-2)' }}>Judged on an estimate — the design is not frozen yet.</Typography>}
+                {unit.material.incomplete && <Typography sx={{ fontSize: 12, color: 'var(--c-warning-800)' }}>{unit.material.incomplete}</Typography>}
+                {unit.material.reasons.map((r, n) => (
+                  <Box key={`${r.item.id}-${n}`} data-testid="unit-material-reason" sx={{ py: 0.5, borderBottom: '1px solid var(--c-divider)', fontSize: 13 }}>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2 }}>
+                      <span>{r.item.code}</span>
+                      <span>{Math.round(r.need * 100) / 100} {r.item.uom ?? ''}{r.short > 0 ? ` · short ${Math.round(r.short * 100) / 100}` : ''}</span>
+                    </Box>
+                    <Typography sx={{ fontSize: 12, color: 'var(--c-text-2)' }}>{r.text}</Typography>
+                  </Box>
+                ))}
+                {!!unit.material.moreReasons && <Typography sx={{ fontSize: 12, color: 'var(--c-text-2)', mt: 0.5 }}>and {unit.material.moreReasons} more</Typography>}
               </Box>
-            );
-          })}
+            )
+            : unit.materials.length === 0
+              ? <Typography sx={{ fontSize: 13, color: 'var(--c-text-3)' }}>{unit.material === null ? 'Not shown at this level.' : 'None needed.'}</Typography>
+              : unit.materials.map((m) => {
+                const item = snapshot.supply?.[String(m.itemId)];
+                return (
+                  <Box key={String(m.itemId)} sx={{ py: 0.5, borderBottom: '1px solid var(--c-divider)', fontSize: 13, display: 'flex', justifyContent: 'space-between', gap: 2 }}>
+                    <span>{item?.name ?? `Item ${m.itemId}`}</span><span>{Math.round(m.qty * 100) / 100} {item?.uom ?? ''}</span>
+                  </Box>
+                );
+              })}
         </Box>
       )}
     </SideSheet>

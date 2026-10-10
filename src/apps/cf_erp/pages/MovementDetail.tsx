@@ -110,7 +110,7 @@ export default function MovementDetail() {
       <PromptDialog open={reversing} title={`Reverse ${m.code}?`} label="Why" confirmLabel="Reverse" danger
         body="Posts the exact opposite, dated today; both stay in the ledger. Refused if the stock it put somewhere has since moved on."
         onClose={() => setReversing(false)}
-        onConfirm={async (reason) => { const rev = await cfApi.post<MovementDetailT>(`/movements/${id}/reverse`, { reason }); invalidateNavCounts(); toast.success(`${rev.code} posted.`); navigate(to(`movements/${rev.id}`)); }} />
+        onConfirm={async (reason) => { const rev = await cfApi.post<MovementDetailT>(`/movements/${id}/reverse`, { reason }); invalidateNavCounts(); const pu = (rev as unknown as { purchase?: { released?: unknown[]; plannedUnits?: { late?: number; waiting?: number } | null } }).purchase; toast.success(`${rev.code} posted.${pu?.released?.length ? ` ${pu.released.length} held share${pu.released.length === 1 ? ' was' : 's were'} let go.` : ''}${pu?.plannedUnits && ((pu.plannedUnits.late ?? 0) + (pu.plannedUnits.waiting ?? 0)) ? ' Some planned cards now wait for this material — see the Plan board.' : ''}`); navigate(to(`movements/${rev.id}`)); }} />
     </DetailLayout>
   );
 }

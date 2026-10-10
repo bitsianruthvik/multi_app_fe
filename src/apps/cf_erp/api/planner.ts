@@ -26,3 +26,12 @@ export const putChanges = (body: { entries: EntryWrite[]; ranks: RankWrite[] }) 
 /** Plan a row's parts separately (split) or as one unit again, for this order line only. Needs a locked line; re-read the snapshot after. */
 export const putLineSplit = (lineId: number | string, bomLineId: number | string, split: boolean) =>
   cfApi.put<{ lineId: number | string; bomLineId: number | string; split: boolean }>(`/planner/lines/${lineId}/splits`, { bomLineId, split });
+
+/** PUT /planner/changes (or /entries) answers 422 with this code when a placed or moved card's material does not allow it. */
+export const MATERIAL_NOT_READY = 'MATERIAL_NOT_READY';
+export interface MaterialRefusal { unitKey: string; kind: 'waiting' | 'material_late'; readyDate: string | null; earliest: string | null }
+/** The refused cards of a MATERIAL_NOT_READY error (empty for any other error). */
+export function refusedUnits(e: unknown): MaterialRefusal[] {
+  const err = e as { code?: string; detail?: { units?: MaterialRefusal[] } } | null;
+  return err?.code === MATERIAL_NOT_READY && Array.isArray(err.detail?.units) ? err.detail!.units! : [];
+}

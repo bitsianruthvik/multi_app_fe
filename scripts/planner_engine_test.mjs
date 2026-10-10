@@ -1,6 +1,7 @@
 // Run from multi_app_fe: node scripts/planner_engine_test.mjs
 // Pure engine tests for src/apps/cf_erp/lib/planner (contract: TM/CF_ERP_PLANNER_PLAN.md §1–3,
 // booking: TM/CF_ERP_PLANNER_V2_PLAN.md — finite capacity, priority order, stretch, fastest).
+// Material is the SERVER's answer (TM/CF_ERP_BUYING_V2.md §5): each unit carries `material`, the browser only enforces it.
 import assert from 'node:assert/strict';
 import { mkdir, writeFile, unlink } from 'node:fs/promises';
 import { resolve } from 'node:path';
@@ -21,12 +22,27 @@ const check = (label, fn) => { try { fn(); passed++; console.log(`PASS ${label}`
 // ── Fixture ─────────────────────────────────────────────────────────────────────────────────────
 // Order A (priority 1): line 11 → span S1 (p1) → girder lines G1 (p2), G2 (p3) → segments (marks)
 // p4,p5 under G1 and p6,p7 under G2. Each segment: cut 300, weld 300, 10 t, 1 PL.
-// Order B (priority 2): line 21, unlocked, one line unit needing item XX (no supply).
+// Order B (priority 2): line 21, unlocked, one line unit needing item XX (the server says: not ordered).
 const periods = E.buildPeriods('2026-10-01', 3);
 const cap = (v) => Object.fromEntries(periods.map((p) => [p.key, v]));
-const seg = (id, parent, group, code) => ({ key: `p${id}`, orderId: 1, lineId: 11, level: '3', pieceId: id, code, name: code, depth: 3, parentKey: parent, groupKey: group, isMark: true, marks: 1, tonnes: 10, work: { cut: 300, weld: 300 }, noRate: 0, done: false, progress: 0, materials: [{ itemId: 'PL', qty: 1 }], committedDate: null });
-const agg = (key, id, depth, parent, group, code, n) => ({ key, orderId: 1, lineId: 11, level: id == null ? 'line' : String(depth), pieceId: id, code, name: code, depth, parentKey: parent, groupKey: group, isMark: false, marks: n, tonnes: 10 * n, work: { cut: 300 * n, weld: 300 * n }, noRate: 0, done: false, progress: 0, materials: [{ itemId: 'PL', qty: n }], committedDate: null });
+const seg = (id, parent, group, code) => ({ key: `p${id}`, orderId: 1, lineId: 11, level: '3', pieceId: id, code, name: code, depth: 3, parentKey: parent, groupKey: group, isMark: true, marks: 1, tonnes: 10, work: { cut: 300, weld: 300 }, noRate: 0, done: false, progress: 0, materials: [{ itemId: 'PL', qty: 1 }], material: READY, committedDate: null });
+const agg = (key, id, depth, parent, group, code, n) => ({ key, orderId: 1, lineId: 11, level: id == null ? 'line' : String(depth), pieceId: id, code, name: code, depth, parentKey: parent, groupKey: group, isMark: false, marks: n, tonnes: 10 * n, work: { cut: 300 * n, weld: 300 * n }, noRate: 0, done: false, progress: 0, materials: [{ itemId: 'PL', qty: n }], material: READY, committedDate: null });
+// The server's per-unit answer (shape: UnitMaterialInfo).
+const READY = { state: 'ready', readyDate: '2026-10-01', earliest: null, soft: false, materials: 1, text: 'PL20: in stock.', reasons: [] };
+const dated = (date, text = `PL20: due ${date} on PO-1.`, earliest = date) => ({ state: 'dated', readyDate: date, earliest, soft: false, materials: 1, text, reasons: [] });
+const lateMat = (date = '2026-10-05') => ({ state: 'late', readyDate: date, earliest: null, soft: false, materials: 1, text: `PL20: was due ${date}, not here yet.`, reasons: [] });
+const waiting = (text = 'Waiting for stock: PL20 short by 1. Buying was skipped for it.') => ({ state: 'waiting', readyDate: null, earliest: null, soft: false, materials: 1, text, reasons: [] });
+const NOT_ORDERED = 'Not ordered: item XX is short by 3.';
+/** The first plan period starting on/after a date (what the server sends as `earliest`). */
+const periodFrom = (d) => periods.find((p) => p.start >= d)?.start ?? null;
+/** fixture({ mat: { p3: dated(...) } }) puts the server's answer on those units; the rest are ready (l21 is not ordered). */
 function fixture(over = {}) {
+  const { mat = {}, ...rest } = over;
+  const f = base(rest);
+  f.units = f.units.map((u) => ({ ...u, material: mat[u.key] ?? u.material }));
+  return f;
+}
+function base(over = {}) {
   return {
     horizon: { from: periods[0].start, to: periods[periods.length - 1].end, periods },
     settings: { minLinesPerMonth: 1, allowPartialLines: true },
@@ -46,11 +62,8 @@ function fixture(over = {}) {
       agg('p2', 2, 2, 'p1', 'p2', 'G1', 2),
       agg('p3', 3, 2, 'p1', 'p3', 'G2', 2),
       seg(4, 'p2', 'p2', 'G1-1'), seg(5, 'p2', 'p2', 'G1-2'), seg(6, 'p3', 'p3', 'G2-1'), seg(7, 'p3', 'p3', 'G2-2'),
-      { key: 'l21', orderId: 2, lineId: 21, level: 'line', pieceId: null, code: 'SO-B/1', name: 'Stock', depth: 0, parentKey: null, groupKey: 'l21', isMark: false, marks: 0, tonnes: 5, work: { cut: 100, contractor: 5000 }, noRate: 1, done: false, progress: 0, materials: [{ itemId: 'XX', qty: 3 }], committedDate: null },
+      { key: 'l21', orderId: 2, lineId: 21, level: 'line', pieceId: null, code: 'SO-B/1', name: 'Stock', depth: 0, parentKey: null, groupKey: 'l21', isMark: false, marks: 0, tonnes: 5, work: { cut: 100, contractor: 5000 }, noRate: 1, done: false, progress: 0, materials: [{ itemId: 'XX', qty: 3 }], material: waiting(NOT_ORDERED), committedDate: null },
     ],
-    supply: {
-      PL: { name: 'Plate 20', code: 'PL20', uom: 'nos', lots: [{ date: '2026-10-01', qty: 2, source: 'stock', received: true }, { date: '2026-10-20', qty: 2, source: 'PO-1', received: false }] },
-    },
     entries: {},
     ...over,
   };
@@ -95,7 +108,7 @@ check('board shows the current level; levels option overrides; split via child e
 
 // ── Booking and load ────────────────────────────────────────────────────────────────────────
 check('booking: a card placed by hand books BACK from its ship week into the hours left, each step before the next', () => {
-  const s = fixture({ supply: { PL: { name: 'P', code: 'PL', uom: 'nos', lots: [{ date: '2026-10-01', qty: 99, source: 'stock', received: true }] } } });
+  const s = fixture({  });
   const lv = { levels: { 11: '1' } };
   // span: cut 1200 then weld 1200, 1000 a week each → weld fills week 3 and 200 of week 2, cut fills week 2 and 200 of week 1
   const ev = E.evaluate(s, { p1: { period: pk(3), pinned: true } }, lv);
@@ -111,7 +124,7 @@ check('booking: a card placed by hand books BACK from its ship week into the hou
   assert.equal(u.overload, false);
   assert.equal(u.minWeeks, 3, 'an empty shop: cut weeks 0–1, weld weeks 1–2');
   // stages set the order: here welding (deeper level) comes first, then cutting
-  const st = fixture({ supply: { PL: { name: 'P', code: 'PL', uom: 'nos', lots: [{ date: '2026-10-01', qty: 99, source: 'stock', received: true }] } }, units: fixture().units.map((x) => (x.key === 'p2' ? { ...x, work: { cut: 500, weld: 1500 }, stages: [{ depth: 3, steps: [{ fn: 'weld', minutes: 1500 }] }, { depth: 2, steps: [{ fn: 'cut', minutes: 500 }] }] } : x)) });
+  const st = fixture({ units: fixture().units.map((x) => (x.key === 'p2' ? { ...x, work: { cut: 500, weld: 1500 }, stages: [{ depth: 3, steps: [{ fn: 'weld', minutes: 1500 }] }, { depth: 2, steps: [{ fn: 'cut', minutes: 500 }] }] } : x)) });
   const evs = E.evaluate(st, { p2: { period: pk(3), pinned: true } });
   assert.deepEqual(evs.units.p2.booked[pk(3)], { cut: 500, weld: 1000 });
   assert.deepEqual(evs.units.p2.booked[pk(2)], { weld: 500 });
@@ -129,7 +142,7 @@ check('booking: a card placed by hand books BACK from its ship week into the hou
 });
 
 check('booking: finite capacity in priority order — the card behind takes what is left', () => {
-  const s = fixture({ supply: { PL: { name: 'P', code: 'PL', uom: 'nos', lots: [{ date: '2026-10-01', qty: 99, source: 'stock', received: true }] } } });
+  const s = fixture({  });
   const ev = E.evaluate(s, { p2: { period: pk(3), pinned: true }, p3: { period: pk(3), pinned: true } });
   assert.equal(ev.units.p2.leadStart, pk(3), 'G1 (ahead) books its whole chain in week 3');
   assert.equal(ev.units.p3.leadStart, pk(2), 'G2 gets the 400 left in week 3 and goes back into week 2');
@@ -142,10 +155,11 @@ check('booking: finite capacity in priority order — the card behind takes what
   assert.equal(pin.units.p2.leadStart, pk(0), 'the auto-placed G1 books forward around the pin');
 });
 check('load sums over units; contractor is unlimited; overload flagged', () => {
-  const s = fixture();
+  // the server holds the four segments to week 1 or later, so the hand-pinned cards cannot book back before it and the cell overloads
+  const wk1 = dated(periods[1].start, 'PL20: due the second week.', periods[1].start);
+  const s = fixture({ mat: { p4: wk1, p5: wk1, p6: wk1, p7: wk1 } });
   const lv = { levels: { 11: '3' } };
   const plan = { p4: { period: pk(1), pinned: true }, p5: { period: pk(1), pinned: true }, p6: { period: pk(1), pinned: true }, p7: { period: pk(2), pinned: true } };
-  // p6 at pk(1) takes... material: stock 2 → first two in plan order; the others need PO-1 (period starting ≥ 20 Oct)
   const ev = E.evaluate(s, plan, lv);
   assert.equal(ev.load.cut[pk(1)].minutes, 900);
   assert.equal(ev.load.weld[pk(1)].minutes, 900);
@@ -165,61 +179,83 @@ check('load sums over units; contractor is unlimited; overload flagged', () => {
 });
 
 // ── Material ────────────────────────────────────────────────────────────────────────────────────
-check('material: stock first, then POs by date, claimed pins first, then by priority', () => {
-  const s = fixture();
-  const poPeriod = idxOf(periods.find((p) => p.start >= '2026-10-20').key);
-  const ev = E.evaluate(s, { p2: { period: pk(6), pinned: false }, p3: { period: pk(6), pinned: false } });
-  assert.equal(ev.units.p2.materialSource, 'stock');
-  assert.equal(ev.units.p3.materialSource, 'PO-1');
-  assert.equal(ev.units.p3.materialDate, '2026-10-20');
-  assert.equal(ev.units.p3.blocked, null);
-  // a pin claims first
-  const ev2 = E.evaluate(s, { p3: { period: pk(6), pinned: true }, p2: { period: pk(6), pinned: false } });
-  assert.equal(ev2.units.p3.materialSource, 'stock');
-  assert.equal(ev2.units.p2.materialSource, 'PO-1');
-  // both early → the second in priority order is material-late
-  const ev3 = E.evaluate(s, { p2: { period: pk(1), pinned: false }, p3: { period: pk(1), pinned: false } });
-  assert.equal(ev3.units.p2.blocked, null);
-  assert.equal(ev3.units.p3.blockedKind, 'material_late');
-  assert.match(ev3.units.p3.blocked, /20 Oct \(PO-1\)/);
-  // its work starts no earlier than the PO week
-  const ev4 = E.evaluate(s, { p2: { period: pk(1), pinned: false }, p3: { period: pk(poPeriod), pinned: false } });
-  assert.equal(ev4.units.p3.leadStart, pk(poPeriod));
-  assert.equal(ev4.units.p3.blocked, null);
+const PO = periodFrom('2026-10-20');
+const poIdx = idxOf(PO);
+const PO_TEXT = 'PL20: due 20 Oct 2026 on PO-1.';
+check('material: the server\'s answer reaches the card and is enforced (ready / dated / late; a pin and an auto card alike)', () => {
+  const s = fixture({ mat: { p3: dated('2026-10-20', PO_TEXT, PO), p2: lateMat() } });
+  const ok = E.evaluate(s, { p2: { period: pk(1), pinned: false }, p3: { period: pk(poIdx), pinned: false } });
+  assert.equal(ok.units.p2.materialState, 'late');
+  assert.equal(ok.units.p2.blocked, null, 'late has no date to hold the card to');
+  assert.equal(ok.units.p3.materialState, 'dated');
+  assert.equal(ok.units.p3.materialDate, '2026-10-20');
+  assert.match(ok.units.p3.materialText, /20 Oct 2026 on PO-1/);
+  assert.equal(ok.units.p3.blocked, null);
+  assert.equal(ok.units.p3.leadStart, pk(poIdx), 'its work starts no earlier than the earliest week');
+  for (const pinned of [false, true]) {
+    const early = E.evaluate(s, { p3: { period: pk(1), pinned } });
+    assert.equal(early.units.p3.blockedKind, 'material_late');
+    assert.match(early.units.p3.blocked, /20 Oct 2026 on PO-1/);
+    assert.equal(early.score.blockedUnits, 2, 'p3 and the not-ordered l21');
+  }
+  // no claiming in the browser: the answer does not depend on which card is pinned first
+  const a = E.evaluate(s, { p3: { period: pk(poIdx), pinned: true }, p2: { period: pk(1), pinned: false } });
+  const b = E.evaluate(s, { p2: { period: pk(1), pinned: true }, p3: { period: pk(poIdx), pinned: false } });
+  for (const ev of [a, b]) { assert.equal(ev.units.p2.blocked, null); assert.equal(ev.units.p3.blocked, null); }
+  // no material on a unit = no gate
+  const none = fixture();
+  none.units = none.units.map((u) => { const { material, ...r } = u; return r; });
+  assert.equal(E.evaluate(none, { l21: { period: pk(0), pinned: false } }).units.l21.blocked, null);
 });
-check('material: uncovered need is blocked "not ordered" (planned or not)', () => {
+check('material: a card the server says WAITS is blocked with its sentence (planned or not)', () => {
   const s = fixture();
   const ev = E.evaluate(s, {});
-  assert.equal(ev.units.l21.blockedKind, 'not_ordered');
+  assert.equal(ev.units.l21.blockedKind, 'waiting');
   assert.match(ev.units.l21.blocked, /^Not ordered: item XX is short by 3/);
-  const small = fixture({ supply: { PL: { name: 'Plate', code: 'PL20', uom: 'nos', lots: [{ date: '2026-10-01', qty: 3, source: 'stock', received: true }] } } });
-  const ev2 = E.evaluate(small, { p2: { period: pk(2), pinned: false }, p3: { period: pk(3), pinned: false } });
+  assert.equal(ev.units.l21.materialDate, null);
+  const two = fixture({ mat: { p3: waiting('Waiting for stock: PL20 short by 1 nos.') } });
+  const ev2 = E.evaluate(two, { p2: { period: pk(2), pinned: false }, p3: { period: pk(3), pinned: false } });
   assert.equal(ev2.units.p2.blocked, null);
-  assert.equal(ev2.units.p3.blockedKind, 'not_ordered'); // needs 2, only 1 left
-  assert.match(ev2.units.p3.blocked, /PL20 is short by 1 nos/);
-  assert.equal(ev2.score.blockedUnits, 2);
+  assert.equal(ev2.units.p3.blockedKind, 'waiting');
+  assert.match(ev2.units.p3.blocked, /PL20 short by 1 nos/);
+  assert.equal(ev2.score.blockedUnits, 2); // p3 and the not-ordered l21
+  // the server's call stands whatever else the snapshot carries (a leftover supply is ignored)
+  const stocked = { ...two, supply: { PL: { name: 'P', code: 'PL', uom: 'nos', lots: [{ date: '2026-10-01', qty: 99, source: 'stock', received: true }] } } };
+  assert.equal(E.evaluate(stocked, { p3: { period: pk(3), pinned: false } }).units.p3.blockedKind, 'waiting');
 });
 
 check('canPlace refuses what material makes impossible, with a reason; allows overload', () => {
-  const s = fixture();
-  const poPeriod = idxOf(periods.find((p) => p.start >= '2026-10-20').key);
-  const plan = { p2: { period: pk(1), pinned: true } }; // a card moved by hand is pinned and claims first, so G1 must be too
+  const s = fixture({ mat: { p3: dated('2026-10-20', PO_TEXT, PO) } });
+  const plan = { p2: { period: pk(1), pinned: true } };
   const r = E.canPlace(s, plan, 'p3', pk(1));
   assert.equal(r.ok, false);
-  assert.match(r.reason, /Material arrives 20 Oct \(PO-1\)/);
-  assert.equal(r.earliest, pk(poPeriod));
-  assert.equal(E.canPlace(s, plan, 'p3', pk(poPeriod)).ok, true);
+  assert.match(r.reason, /20 Oct 2026 on PO-1/);
+  assert.match(r.reason, /cannot ship before then/);
+  assert.equal(r.earliest, pk(poIdx));
+  assert.equal(E.canPlace(s, plan, 'p3', pk(poIdx)).ok, true);
+  assert.equal(E.canPlace(s, plan, 'p3', pk(poIdx + 1)).ok, true);
   const nr = E.canPlace(s, {}, 'l21', pk(3));
   assert.equal(nr.ok, false);
   assert.match(nr.reason, /Not ordered/);
-  // a span from the PO week: cut 1200 runs into the next week, weld after it → two weeks at least
+  assert.equal(nr.earliest, null, 'a waiting card has no earliest week');
+  // an earliest week after the plan ends: refused, no week to offer
+  const beyond = fixture({ mat: { p2: dated('2027-01-11', 'PL20: due 11 Jan 2027.') } });
+  const br = E.canPlace(beyond, {}, 'p2', pk(periods.length - 1));
+  assert.equal(br.ok, false);
+  assert.match(br.reason, /after the last week/);
+  assert.equal(br.earliest ?? null, null);
+  // a span dated at the PO week: refused before it, accepted from it
   const lv = { levels: { 11: '1' } };
-  const two = fixture({ supply: { PL: { name: 'Plate', code: 'PL20', uom: 'nos', lots: [{ date: '2026-10-20', qty: 9, source: 'PO-1', received: false }] } } });
-  const lr = E.canPlace(two, {}, 'p1', pk(poPeriod + 1), lv);
+  const two = fixture({ mat: { p1: dated('2026-10-20', PO_TEXT, PO) } });
+  const lr = E.canPlace(two, {}, 'p1', pk(poIdx - 1), lv);
   assert.equal(lr.ok, false);
-  assert.match(lr.reason, /takes until/);
-  assert.equal(lr.earliest, pk(poPeriod + 2));
-  assert.equal(E.canPlace(two, {}, 'p1', pk(poPeriod + 2), lv).ok, true);
+  assert.equal(lr.earliest, pk(poIdx));
+  // restored: the week it is dated is not enough when the work needs two weeks after it (cut 1200 runs into the next week, weld after)
+  const tu = E.canPlace(two, {}, 'p1', pk(poIdx + 1), lv);
+  assert.equal(tu.ok, false);
+  assert.match(tu.reason, /takes until/);
+  assert.equal(tu.earliest, pk(poIdx + 2));
+  assert.equal(E.canPlace(two, {}, 'p1', pk(poIdx + 2), lv).ok, true);
   // overload is allowed by hand
   const heavy = { p2: { period: pk(1), pinned: false } };
   const hs = fixture({ functions: [{ key: 'cut', name: 'Cut', capacity: cap(10) }, { key: 'weld', name: 'Weld', capacity: cap(10) }] });
@@ -229,7 +265,7 @@ check('canPlace refuses what material makes impossible, with a reason; allows ov
 });
 
 check('stretch: work spreads evenly from the start week; moves keep the width; not before material', () => {
-  const s = fixture({ supply: { PL: { name: 'P', code: 'PL', uom: 'nos', lots: [{ date: '2026-10-01', qty: 99, source: 'stock', received: true }] } } });
+  const s = fixture({  });
   const lv = { levels: { 11: '1' } };
   const ev = E.evaluate(s, { p1: { period: pk(4), start: pk(1), pinned: true } }, lv);
   assert.equal(ev.units.p1.leadStart, pk(1));
@@ -245,8 +281,8 @@ check('stretch: work spreads evenly from the start week; moves keep the width; n
   const back = E.shiftBy(s, { p1: { period: pk(4), start: pk(1), pinned: true } }, ['p1'], -3);
   assert.deepEqual(back.p1, { period: pk(1), start: pk(0), pinned: true }, 'clamped at the first week');
   // not before its material
-  const two = fixture({ supply: { PL: { name: 'Plate', code: 'PL20', uom: 'nos', lots: [{ date: '2026-10-20', qty: 9, source: 'PO-1', received: false }] } } });
-  const poPeriod = idxOf(periods.find((p) => p.start >= '2026-10-20').key);
+  const two = fixture({ mat: { p2: dated('2026-10-20', PO_TEXT, PO) } });
+  const poPeriod = poIdx;
   const pp = { p2: { period: pk(6), pinned: true } };
   const no = E.canStretch(two, pp, 'p2', pk(2));
   assert.equal(no.ok, false);
@@ -256,23 +292,26 @@ check('stretch: work spreads evenly from the start week; moves keep the width; n
   assert.equal(E.canStretch(two, pp, 'p2', pk(7)).ok, false, 'not after its ship week');
   const bad = E.evaluate(two, { p2: { period: pk(6), start: pk(2), pinned: true } });
   assert.equal(bad.units.p2.blockedKind, 'material_late');
-  assert.match(bad.units.p2.blocked, /stretched bar starts/);
+  assert.match(bad.units.p2.blocked, /work cannot start before/);
+  // a waiting card is not refused a stretch here (it cannot be planned at all)
+  assert.equal(E.canStretch(fixture(), { l21: { period: pk(6), pinned: true } }, 'l21', pk(2)).ok, true);
 });
 
 check('fastest: as early as material and the hours left by the cards ahead allow', () => {
-  const s = fixture({ supply: { PL: { name: 'P', code: 'PL', uom: 'nos', lots: [{ date: '2026-10-01', qty: 99, source: 'stock', received: true }] } } });
+  const s = fixture({  });
   assert.equal(E.fastest(s, {}, 'p4', { levels: { 11: '3' } }), pk(0));
   // G1 pinned in week 0 leaves 400 a machine there: G2 cuts 400 + 200, then welds in week 1
   assert.equal(E.fastest(s, { p2: { period: pk(0), pinned: true } }, 'p3'), pk(1));
   // a card behind it in priority makes room
   assert.equal(E.fastest(s, { p3: { period: pk(0), pinned: false } }, 'p2'), pk(0));
   assert.equal(E.fastest(fixture(), {}, 'l21'), null, 'not ordered');
-  const d = E.fastest(fixture(), { p2: { period: pk(0), pinned: true } }, 'p3');
-  assert.equal(d, pk(idxOf(periods.find((p) => p.start >= '2026-10-20').key)), 'from its PO week');
+  const d = E.fastest(fixture({ mat: { p3: dated('2026-10-20', PO_TEXT, PO) } }), { p2: { period: pk(0), pinned: true } }, 'p3');
+  assert.equal(d, pk(poIdx), 'from its earliest week');
 });
-check('a received lot before the horizon counts from the first period', () => {
-  const s = fixture({ supply: { PL: { name: 'P', code: 'PL', uom: 'nos', lots: [{ date: '2026-09-15', qty: 9, source: 'PO-7', received: true }] } } });
+check('material ready before the horizon (earliest null) counts from the first period', () => {
+  const s = fixture({ mat: { p2: { state: 'ready', readyDate: '2026-09-15', earliest: null, soft: false, materials: 1, text: 'PL20: received 15 Sep.', reasons: [] } } });
   assert.equal(E.canPlace(s, {}, 'p2', pk(0)).ok, true);
+  assert.equal(E.fastest(s, {}, 'p2'), pk(0));
 });
 
 // ── Lines, months, late ─────────────────────────────────────────────────────────────────────────
@@ -315,8 +354,6 @@ check('late = ship period end after the committed date', () => {
 });
 
 // ── autoPlan ────────────────────────────────────────────────────────────────────────────────────
-const richSupply = { PL: { name: 'P', code: 'PL', uom: 'nos', lots: [{ date: '2026-10-01', qty: 99, source: 'stock', received: true }] } };
-
 check('autoPlan: never overloads, respects material, deterministic', () => {
   const s = fixture();
   const a = E.autoPlan(s, {});
@@ -326,35 +363,41 @@ check('autoPlan: never overloads, respects material, deterministic', () => {
   assert.equal(ev.score.overloadedCells, 0);
   for (const [k, u] of Object.entries(ev.units)) if (u.period) assert.equal(u.blocked, null, `${k} placed but blocked`);
   assert.ok(a.plan.p2 && a.plan.p3, 'both girder lines placed');
-  assert.ok(!a.plan.l21, 'not-ordered line stays off the board');
-  assert.ok(a.notes.some((n) => /isn't ordered/.test(n)), a.notes.join(' | '));
+  assert.ok(!a.plan.l21, 'a card the server says waits stays off the board');
+  assert.ok(a.notes.some((n) => /waits? for stock/.test(n)), a.notes.join(' | '));
+  // a dated card is not placed before its earliest week
+  const d = fixture({ mat: { p3: dated('2026-10-20', PO_TEXT, PO) } });
+  const ad = E.autoPlan(d, {});
+  assert.ok(idxOf(ad.plan.p3.period) >= poIdx, 'p3 ships no earlier than its earliest week');
+  assert.equal(E.evaluate(d, ad.plan).units.p3.blocked, null);
   assert.ok(a.notes.some((n) => /^October: \d+ t of the 50 t goal/.test(n)), a.notes.join(' | '));
 });
 
 check('autoPlan notes: cards off the board say why, counted, before the month lines', () => {
   const a = E.autoPlan(fixture(), {});
-  assert.equal(a.notes[0], "1 card waits for material that isn't ordered — see the Buy list.", a.notes.join(' | '));
+  assert.equal(a.notes[0], '1 card waits for stock (buying skipped or no date yet) — see its reasons.', a.notes.join(' | '));
   assert.ok(a.notes.findIndex((n) => n.startsWith('October:')) > 0, 'the reason comes before the month lines');
   const lv = { levels: { 11: '3' } };
-  const late = E.autoPlan(fixture({ supply: { PL: { name: 'P', code: 'PL', uom: 'nos', lots: [{ date: '2027-01-11', qty: 99, source: 'PO-7', received: false }] } } }), {}, lv);
+  const after = dated('2027-01-11', 'PL20: due 11 Jan 2027.');
+  const late = E.autoPlan(fixture({ mat: { p4: after, p5: after, p6: after, p7: after } }), {}, lv);
   assert.ok(late.notes.includes('4 cards wait for material due after December.'), late.notes.join(' | '));
-  assert.ok(late.notes.includes("1 card waits for material that isn't ordered — see the Buy list."), late.notes.join(' | '));
+  assert.ok(late.notes.includes('1 card waits for stock (buying skipped or no date yet) — see its reasons.'), late.notes.join(' | '));
   // 50 a week: four segments need 1,200 min of cutting, the horizon gives ~750
-  const tight = fixture({ supply: { PL: { name: 'P', code: 'PL', uom: 'nos', lots: [{ date: '2026-10-01', qty: 99, source: 'stock', received: true }] } }, functions: [{ key: 'cut', name: 'Cut', capacity: cap(50) }, { key: 'weld', name: 'Weld', capacity: cap(50) }] });
+  const tight = fixture({ functions: [{ key: 'cut', name: 'Cut', capacity: cap(50) }, { key: 'weld', name: 'Weld', capacity: cap(50) }] });
   const t = E.autoPlan(tight, {}, lv);
   assert.ok(t.notes.some((n) => /cards? (doesn't|don't) fit the machine hours left before the end of December\./.test(n)), t.notes.join(' | '));
   assert.ok(!t.notes.some((n) => /due after|too late/.test(n)), t.notes.join(' | '));
   assert.equal(E.evaluate(tight, t.plan, lv).score.overloadedCells, 0);
-  const none = E.autoPlan(fixture({ supply: {} }), {});
-  assert.ok(none.notes.includes("3 cards wait for material that isn't ordered — see the Buy list."), none.notes.join(' | '));
+  const none = E.autoPlan(fixture({ mat: { p2: waiting(), p3: waiting() } }), {});
+  assert.ok(none.notes.includes('3 cards wait for stock (buying skipped or no date yet) — see their reasons.'), none.notes.join(' | '));
   // a machine type with no shifts cannot be timed: its work is planned free and named
-  const noShift = fixture({ supply: { PL: { name: 'P', code: 'PL', uom: 'nos', lots: [{ date: '2026-10-01', qty: 99, source: 'stock', received: true }] } }, functions: [{ key: 'cut', name: 'Cut', capacity: cap(0) }, { key: 'weld', name: 'Weld', capacity: cap(1000) }] });
+  const noShift = fixture({ functions: [{ key: 'cut', name: 'Cut', capacity: cap(0) }, { key: 'weld', name: 'Weld', capacity: cap(1000) }] });
   const ns = E.autoPlan(noShift, {}, lv);
   assert.equal(Object.keys(ns.plan).length, 4);
   assert.ok(ns.notes.includes('Cut has no shift time in this plan — its work is shown but cannot be timed; set its shifts.'), ns.notes.join(' | '));
 });
 check('autoPlan: pins stay exactly where they are', () => {
-  const s = fixture({ supply: richSupply });
+  const s = fixture();
   const late = pk(periods.length - 1);
   const plan = { p3: { period: late, pinned: true }, p2: { period: pk(9), pinned: false } };
   const a = E.autoPlan(s, plan);
@@ -363,7 +406,7 @@ check('autoPlan: pins stay exactly where they are', () => {
   assert.ok(idxOf(a.plan.p2.period) < 9, 'unpinned card is re-planned (earliest)');
   assert.ok(a.notes[0].startsWith('Kept 1 pinned card'));
   // a pin that overloads stays, and autoPlan adds nothing to that cell
-  const hs = fixture({ supply: richSupply, functions: [{ key: 'cut', name: 'Cut', capacity: cap(250) }, { key: 'weld', name: 'Weld', capacity: cap(250) }] });
+  const hs = fixture({ functions: [{ key: 'cut', name: 'Cut', capacity: cap(250) }, { key: 'weld', name: 'Weld', capacity: cap(250) }] });
   const pins = { p4: { period: pk(1), pinned: true }, p5: { period: pk(1), pinned: true } };
   const p = E.autoPlan(hs, pins, { levels: { 11: '3' } });
   assert.deepEqual(p.plan.p4, { period: pk(1), pinned: true });
@@ -376,7 +419,7 @@ check('autoPlan: pins stay exactly where they are', () => {
 });
 
 check('autoPlan: each card as early as it can, in priority order', () => {
-  const s = fixture({ supply: { PL: { name: 'P', code: 'PL', uom: 'nos', lots: [{ date: '2026-10-01', qty: 99, source: 'stock', received: true }] } } });
+  const s = fixture({  });
   const lv = { levels: { 11: '3' } };
   const a = E.autoPlan(s, {}, lv);
   // segments 300 + 300 each, 1000 a week: three fit week 0, the fourth needs week 1
@@ -399,9 +442,8 @@ check('autoPlan: a later order runs alongside in the hours an earlier one leaves
       { id: 1, code: 'SO-A', customer: 'K', committedDate: '2026-12-31', priority: 1, lines: [{ id: 11, lineNo: 1, name: 'A', quantity: 1, locked: true, released: false, level: '1', levels: [{ value: '1', label: 'Segment' }] }] },
       { id: 3, code: 'SO-C', customer: 'K', committedDate: '2026-12-31', priority: 2, lines: [{ id: 31, lineNo: 1, name: 'C', quantity: 1, locked: true, released: false, level: '1', levels: [{ value: '1', label: 'Segment' }] }] },
     ],
-    units: [...segs, ...c],
+    units: [...segs, ...c.map((u) => ({ ...u, material: dated(lastOct.start, 'Q: due in the last October week.', lastOct.start) }))],
     functions: [{ key: 'cut', name: 'Cut', capacity: cap(1000) }, { key: 'weld', name: 'Weld', capacity: cap(1000) }],
-    supply: { Q: { name: 'Q', code: 'Q', uom: 'nos', lots: [{ date: lastOct.start, qty: 2, source: 'PO-9', received: false }] } },
   });
   const a = E.autoPlan(s, {});
   const ev = E.evaluate(s, a.plan);
@@ -411,7 +453,7 @@ check('autoPlan: a later order runs alongside in the hours an earlier one leaves
   assert.ok(a.notes.some((n) => /^Up to 2 orders are in work at once/.test(n)), a.notes.join(' | '));
 });
 check('autoPlan: determinism across calls and fresh snapshot copies', () => {
-  const s1 = fixture({ supply: richSupply });
+  const s1 = fixture();
   const s2 = JSON.parse(JSON.stringify(s1));
   const lv = { levels: { 11: '3' } };
   assert.deepEqual(E.autoPlan(s1, {}, lv), E.autoPlan(s2, {}, lv));
@@ -419,7 +461,7 @@ check('autoPlan: determinism across calls and fresh snapshot copies', () => {
 
 // ── feedback ────────────────────────────────────────────────────────────────────────────────────
 check('feedback: tonnes deltas, lines moving month, functions crossing 100%, late / blocked', () => {
-  const s = fixture({ supply: richSupply });
+  const s = fixture();
   const lateIdx = periods.findIndex((p) => p.end > '2026-11-15');
   const before = E.evaluate(s, { p2: { period: pk(1), pinned: false }, p3: { period: pk(2), pinned: false } });
   const after = E.evaluate(s, { p2: { period: pk(1), pinned: false }, p3: { period: pk(lateIdx), pinned: false } });
@@ -432,8 +474,9 @@ check('feedback: tonnes deltas, lines moving month, functions crossing 100%, lat
   const fb2 = E.feedback(before, over);
   assert.ok(fb2.some((l) => new RegExp(`^CNC plasma cutting 120% in ${periods[0].label}$`).test(l)), fb2.join(' | '));
   assert.ok(E.feedback(over, before).some((l) => /^SAW welding back under 100% in /.test(l)));
-  const blocked = E.evaluate(fixture(), { p2: { period: pk(1), pinned: false }, p3: { period: pk(1), pinned: false } });
-  const okEv = E.evaluate(fixture(), { p2: { period: pk(1), pinned: false } });
+  const fb = fixture({ mat: { p3: dated('2026-10-20', PO_TEXT, PO) } });
+  const blocked = E.evaluate(fb, { p2: { period: pk(1), pinned: false }, p3: { period: pk(1), pinned: false } });
+  const okEv = E.evaluate(fb, { p2: { period: pk(1), pinned: false } });
   assert.ok(E.feedback(okEv, blocked).some((l) => l === 'G2 is now blocked by material'));
   assert.deepEqual(E.feedback(before, before), []);
   const offPlan = E.evaluate(s, { p2: { period: pk(1), pinned: false } });
@@ -454,14 +497,14 @@ check('entries round trip: planFromEntries / entriesDiff', () => {
 });
 
 // ── Performance: 2,000 units × 15 periods × 40 functions ────────────────────────────────────────
+// ~5% of segments wait for stock, ~20% are dated to a week inside the horizon, the rest are ready.
+const servedMaterial = (r) => (r < 0.05 ? waiting() : r < 0.25 ? dated(periods[1 + (Math.floor(r * 100) % 6)].start) : READY);
 function synthetic(seed = 7) {
   let x = seed;
   const rnd = () => ((x = (x * 1103515245 + 12345) % 2147483648) / 2147483648);
   const fns = Array.from({ length: 40 }, (_, i) => ({ key: `f${i}`, name: `Function ${i}`, machines: 2, capacity: cap(2400 + Math.floor(rnd() * 4000)), noShifts: false }));
   fns.push({ key: 'contractor', name: 'Contractors', unlimited: true });
   const items = Array.from({ length: 12 }, (_, i) => `I${i}`);
-  const supply = {};
-  for (const it of items) supply[it] = { name: it, code: it, uom: 't', lots: [{ date: '2026-10-01', qty: 40, source: 'stock', received: true }, { date: '2026-10-21', qty: 60, source: `PO-${it}a`, received: false }, { date: '2026-11-18', qty: 80, source: `PO-${it}b`, received: false }] };
   const orders = [], units = [];
   let pid = 1;
   const levels = ['1', '2', '3', 'line'];
@@ -490,7 +533,7 @@ function synthetic(seed = 7) {
           const nf = 3 + Math.floor(rnd() * 4);
           for (let f = 0; f < nf; f++) work[`f${Math.floor(rnd() * 40)}`] = 60 + Math.floor(rnd() * 300);
           if (rnd() < 0.1) work.contractor = 200;
-          const segU = { key: `p${pid}`, orderId: o + 1, lineId, level: '3', pieceId: pid++, code: `${gl.code}-${k}`, name: 'segment', depth: 3, parentKey: gl.key, groupKey: gl.key, isMark: true, marks: 1, tonnes: 2 + rnd() * 3, work, noRate: 0, done: false, progress: 0, materials: [{ itemId: items[Math.floor(rnd() * items.length)], qty: 0.5 + rnd() }], committedDate: null };
+          const segU = { key: `p${pid}`, orderId: o + 1, lineId, level: '3', pieceId: pid++, code: `${gl.code}-${k}`, name: 'segment', depth: 3, parentKey: gl.key, groupKey: gl.key, isMark: true, marks: 1, tonnes: 2 + rnd() * 3, work, noRate: 0, done: false, progress: 0, materials: [{ itemId: items[Math.floor(rnd() * items.length)], qty: 0.5 + rnd() }], material: servedMaterial(rnd()), committedDate: null };
           units.push(segU);
           addUp(gl, segU);
         }
@@ -499,7 +542,7 @@ function synthetic(seed = 7) {
       addUp(line, span);
     }
   }
-  return fixture({ functions: fns, orders, units, supply, targets: { '2026-10': 300, '2026-11': 300, '2026-12': 300 } });
+  return fixture({ functions: fns, orders, units, targets: { '2026-10': 300, '2026-11': 300, '2026-12': 300 } });
 }
 
 const timings = {};
@@ -512,14 +555,15 @@ check('ranks: a line\'s hand-dragged order comes first in priority, and auto-pla
   const p1 = E.unitPriority(s1);
   assert.ok(p1.get('p3') < p1.get('p2'), 'G2 ranked first');
   assert.ok(p1.get('l21') > p1.get('p2'), 'ranks never jump the order ranking (order B stays after order A)');
-  // scarce plate: only the first-ranked girder line gets the stock
-  const scarce = (ranks) => fixture({ ranks, supply: { PL: { name: 'P', code: 'PL20', uom: 'nos', lots: [{ date: '2026-10-01', qty: 2, source: 'stock', received: true }] } } });
-  const evA = E.evaluate(scarce({}), {});
-  const evB = E.evaluate(scarce({ p3: 1, p2: 2 }), {});
-  assert.equal(evA.units.p2.blocked, null); assert.ok(evA.units.p3.blocked);
-  assert.equal(evB.units.p3.blocked, null); assert.ok(evB.units.p2.blocked);
-  const r = E.autoPlan(scarce({ p3: 1, p2: 2 }), {});
-  assert.ok(r.plan.p3 && !r.plan.p2, `auto-plan places the ranked line: ${JSON.stringify(r.plan)}`);
+  // The material answer is the server's and the same whatever the order: ranks only decide who books hours first.
+  const m = (ranks) => fixture({ ranks, mat: { p2: dated('2026-10-20', PO_TEXT, PO) } });
+  assert.ok(E.evaluate(m({}), { p2: { period: pk(1), pinned: false } }).units.p2.blocked);
+  assert.ok(E.evaluate(m({ p3: 1, p2: 2 }), { p2: { period: pk(1), pinned: false } }).units.p2.blocked);
+  // tight shop (700 min a week per machine, 600 cut + 600 weld per girder line): the ranked line gets the first hours and ships first
+  const tight = (ranks) => fixture({ ranks, functions: [{ key: 'cut', name: 'Cut', capacity: cap(700) }, { key: 'weld', name: 'Weld', capacity: cap(700) }] });
+  const shipOf = (s, k) => idxOf(E.autoPlan(s, {}).plan[k].period);
+  assert.ok(shipOf(tight({}), 'p2') < shipOf(tight({}), 'p3'), 'structure order without ranks: G1 first');
+  assert.ok(shipOf(tight({ p3: 1, p2: 2 }), 'p3') < shipOf(tight({ p3: 1, p2: 2 }), 'p2'), 'ranked G2 ships first');
 });
 check('moves: dragTo shifts planned units by the anchor\'s delta (clamped) and lands unplanned ones on the target; all pinned', () => {
   const s = fixture();
@@ -645,10 +689,9 @@ check('performance: evaluate < 50 ms and autoPlan < 300 ms at 2,000 units × 15 
   console.log('   notes (mixed):', ap2.notes.join(' | '));
 });
 
-check('performance: tight capacity + scarce material + pins stays < 300 ms and never overloads', () => {
+check('performance: tight capacity + waiting/dated material + pins stays < 300 ms and never overloads', () => {
   const base = synthetic(11);
-  const tight = { ...base, functions: base.functions.map((f) => (f.unlimited ? f : { ...f, capacity: Object.fromEntries(Object.entries(f.capacity).map(([k, v]) => [k, Math.round(v / 6)])) })),
-    supply: Object.fromEntries(Object.entries(base.supply).map(([k, v]) => [k, { ...v, lots: v.lots.map((l) => ({ ...l, qty: l.qty / 3 })) }])) };
+  const tight = { ...base, functions: base.functions.map((f) => (f.unlimited ? f : { ...f, capacity: Object.fromEntries(Object.entries(f.capacity).map(([k, v]) => [k, Math.round(v / 6)])) })) };
   const allSeg = { levels: Object.fromEntries(tight.orders.map((o) => [o.lines[0].id, '3'])) };
   const pins = {};
   Object.keys(E.evaluate(tight, {}, allSeg).units).slice(0, 40).forEach((k, i) => (pins[k] = { period: tight.horizon.periods[i % 15].key, pinned: true }));

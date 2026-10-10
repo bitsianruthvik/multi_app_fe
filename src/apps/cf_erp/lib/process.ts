@@ -360,7 +360,7 @@ export const CONFIRM_WHAT_HAPPENS = [
 
 export const CONFIRM_WHAT_DOES_NOT = [
   'Nothing is released to the shop floor, and no material is reserved or issued.',
-  'Nothing is bought: items are requested from the Buying stage.',
+  'Nothing is bought yet: each material is held from stock, bought or skipped in the Buying stage.',
   'A structure that is still being drawn stays editable until its design is frozen.',
 ];
 
@@ -370,3 +370,13 @@ export const CONFIRM_WHAT_DOES_NOT = [
  * difference between a screen that explains itself and one that looks broken.
  */
 export const CONFIRM_STILL_ON_THE_PAGE = 'The order’s own Confirm button, at the top of the page, still works; the process is asking for these to be settled first.';
+
+/**
+ * The Buying stage's summary in a short line, for the stage foot and the Buying screen. Only what the server counted:
+ * a skipped material waits for stock, and the work that needs it waits with it.
+ */
+export function buyingSummaryWords(s: OrderStage['summary']): string | null {
+  if (!s || !s.skipped) return null;
+  const waiting = s.waiting > 0 ? `, ${s.waiting} waiting for stock now` : '';
+  return `${s.skipped} skipped${waiting}.`;
+}

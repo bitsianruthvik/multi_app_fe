@@ -12,12 +12,15 @@ export class CfApiError extends Error {
   status: number;
   code?: string;
   problems: string[];
+  /** The backend's `detail` object, when it sent one (e.g. which cards a planner save refused). */
+  detail?: unknown;
 
-  constructor(status: number, message: string, code?: string, problems: string[] = []) {
+  constructor(status: number, message: string, code?: string, problems: string[] = [], detail?: unknown) {
     super(message);
     this.status = status;
     this.code = code;
     this.problems = problems;
+    this.detail = detail;
   }
 }
 
@@ -41,7 +44,7 @@ function toCfError(err: unknown, method: Method = 'GET'): CfApiError {
   const status = Number(m[1]);
   try {
     const body = JSON.parse(m[2]);
-    return new CfApiError(status, body.message ?? 'Something went wrong.', body.code, Array.isArray(body.problems) ? body.problems : []);
+    return new CfApiError(status, body.message ?? 'Something went wrong.', body.code, Array.isArray(body.problems) ? body.problems : [], body.detail);
   } catch {
     return new CfApiError(status, status === 403 ? 'You do not have permission for this.' : 'Something went wrong.');
   }

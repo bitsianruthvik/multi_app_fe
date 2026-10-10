@@ -4,6 +4,7 @@
  *   evaluate(snapshot, plan, opts?)                  → Evaluation
  *   canPlace(snapshot, plan, unitKey, period, opts?) → { ok, reason?, earliest? }
  *   canStretch(snapshot, plan, unitKey, start, opts?) → { ok, reason?, earliestStart? }
+ *   refusedMoves(snapshot, from, to, opts?)           → cards `to` places/moves that the server would refuse
  *   fastest(snapshot, plan, unitKey, opts?)          → the earliest ship week (period key) or null
  *   autoPlan(snapshot, plan, options?)               → { plan, notes }
  *   feedback(before, after)                          → string[]
@@ -14,7 +15,7 @@ import { activeUnits, getModel } from './model';
 import { periodContaining } from './periods';
 import type { EngineOptions, Plan, PlannerSnapshot } from './types';
 
-export { evaluate, canPlace, canStretch, fastest } from './evaluate';
+export { evaluate, canPlace, canStretch, fastest, refusedMoves } from './evaluate';
 export { autoPlan } from './autoPlan';
 export { feedback } from './feedback';
 export { buildPeriods, periodContaining, monthShort, monthLong } from './periods';

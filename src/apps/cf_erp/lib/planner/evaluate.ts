@@ -1,6 +1,6 @@
 import { bookBackward, bookForward, bookSpread, emptyShopEnd, forwardEnd, pctOf, type Cells } from './load';
-import { newSupply, takeMaterial, type MaterialResult } from './material';
-import { activeUnits, getModel, materialWords, type Model } from './model';
+import { earliestWords, materialOf, type MaterialResult } from './material';
+import { activeUnits, getModel, type Model } from './model';
 import type { CanPlaceResult, CanStretchResult, EngineOptions, Evaluation, LineEval, LoadCell, MonthEval, Plan, PlannerSnapshot, UnitEval } from './types';
 
 export const fmtQty = (q: number) => (Math.abs(q) >= 10 ? String(Math.round(q)) : String(Number(q.toFixed(2))));
@@ -21,14 +21,15 @@ export function shipPeriods(m: Model, plan: Plan, act: number[]): Int32Array {
  */
 export const rankOf = (m: Model, plan: Plan, u: number) => (plan[m.units[u].key]?.pinned ? 0 : m.N) + m.prio[u];
 
-/** Material in claim order (rankOf) for the planned units, then the unplanned by priority. */
-export function allocate(m: Model, plan: Plan, act: number[], ship: Int32Array): Map<number, MaterialResult> {
-  const planned = act.filter((u) => ship[u] >= 0).sort((a, b) => rankOf(m, plan, a) - rankOf(m, plan, b));
-  const unplanned = act.filter((u) => ship[u] < 0).sort((a, b) => m.prio[a] - m.prio[b]);
-  const s = newSupply(m);
+/**
+ * The server's material answer for each active unit. Nothing is handed out here any more: the
+ * server already assigned stock and POs in claim order, so units do not compete in the browser.
+ * (`plan` and `ship` are kept so older callers still fit.)
+ */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export function allocate(m: Model, _plan?: Plan, act: number[] = [], _ship?: Int32Array): Map<number, MaterialResult> {
   const out = new Map<number, MaterialResult>();
-  for (const u of planned) out.set(u, takeMaterial(m, s, u).res);
-  for (const u of unplanned) out.set(u, takeMaterial(m, s, u).res);
+  for (const u of act) out.set(u, materialOf(m, u));
   return out;
 }
 
@@ -90,23 +91,31 @@ export function emptyEnd(m: Model, u: number, a: number): number {
   return v;
 }
 
-export function notOrderedReason(m: Model, r: MaterialResult): string {
-  const it = m.snap.supply?.[r.short!.itemId];
-  const name = it ? it.code || it.name : `item ${r.short!.itemId}`;
-  const uom = it?.uom ? ` ${it.uom}` : '';
-  return `Not ordered: ${name} is short by ${fmtQty(r.short!.qty)}${uom} (see the Buy list)`;
+/**
+ * Why a unit cannot be where it is because of its material (the server's rule, plain words); null
+ * when it can. A unit that waits cannot be planned; a dated one cannot ship — or start — before its
+ * earliest week. `late` (overdue) has no date to hold it to. `s` = ship period, `a` = stretched start (−1 none).
+ */
+function placeRefusal(m: Model, u: number, r: MaterialResult, s: number, a: number): { reason: string; earliest: number | null } | null {
+  if (r.short) return { reason: r.short.text, earliest: null };
+  if (r.period < 0) return null;
+  const say = (tail: string) => `${r.text ? `${r.text} ` : ''}${tail}`;
+  if (r.period >= m.P) return { reason: say('Its material arrives after the last week of this plan.'), earliest: m.P };
+  if (s < r.period) return { reason: say(`It cannot ship before then — plan it for ${earliestWords(m, r)}.`), earliest: r.period };
+  // The work itself takes time after the material date, even in an empty shop (the server only knows the material date).
+  if (r.period > 0) {
+    const end = emptyEnd(m, u, r.period);
+    if (end >= m.P) return { reason: say('Its work cannot finish inside this plan.'), earliest: m.P };
+    if (s < end) return { reason: say(`Its work takes until ${m.periods[end].label} at the earliest, so ship it in ${m.periods[end].label} or later.`), earliest: end };
+  }
+  if (a >= 0 && a < r.period) return { reason: say(`The work cannot start before then — start it in ${earliestWords(m, r)}.`), earliest: r.period };
+  return null;
 }
 
-/** Why a unit cannot run where it is because of its material; null when it can. */
-function materialLate(m: Model, u: number, r: MaterialResult, s: number, a: number): { reason: string; earliest: number } | null {
-  if (r.short || r.period <= 0) return null;
-  const words = materialWords(r.date!, r.source);
-  if (r.period >= m.P) return { reason: `Material arrives ${words}, after the last week of this plan`, earliest: m.P };
-  const end = emptyEnd(m, u, r.period);
-  if (end >= m.P) return { reason: `Material arrives ${words}; its work cannot finish inside this plan`, earliest: m.P };
-  if (s < end) return { reason: `Material arrives ${words}; its work takes until ${m.periods[end].label} at the earliest, so ship it in ${m.periods[end].label} or later`, earliest: end };
-  if (a >= 0 && a < r.period) return { reason: `Material arrives ${words}; the stretched bar starts in ${m.periods[a].label}, before it — start it in ${m.periods[r.period].label} or later`, earliest: end };
-  return null;
+/** The card sits where the plan was saved (same ship week and start). */
+function atSaved(m: Model, key: string, plan: Plan): boolean {
+  const sv = m.saved.get(key), e = plan[key];
+  return !!sv && !!e && sv.period === e.period && (sv.start ?? null) === (e.start ?? null);
 }
 
 /** Evaluate a plan: month scoreboard, function load, per-card state, lines, score. */
@@ -193,10 +202,13 @@ export function evaluate(snapshot: PlannerSnapshot, plan: Plan, opts?: EngineOpt
     const stretched = s >= 0 ? startOf(m, plan, u, s) : -1;
     let blocked: string | null = null;
     let blockedKind: UnitEval['blockedKind'] = null;
-    if (r.short) { blocked = notOrderedReason(m, r); blockedKind = 'not_ordered'; }
-    else if (s >= 0) {
-      const ml = materialLate(m, u, r, s, stretched);
-      if (ml) { blocked = ml.reason; blockedKind = 'material_late'; }
+    const flag = s >= 0 && atSaved(m, unit.key, plan) ? snapshot.entries?.[unit.key]?.blocked : undefined;
+    if (s >= 0 && atSaved(m, unit.key, plan)) {
+      // Where it was saved: the server says whether that can still stand (and nothing is moved for it).
+      if (flag) { blocked = flag.message; blockedKind = flag.kind === 'waiting' ? 'waiting' : 'material_late'; }
+    } else {
+      const ref = s >= 0 || r.short ? placeRefusal(m, u, r, s, stretched) : null;
+      if (ref) { blocked = ref.reason; blockedKind = r.short ? 'waiting' : 'material_late'; }
     }
     const committed = m.committed[u];
     const late = s >= 0 && !!committed && periods[s].end > committed;
@@ -231,7 +243,9 @@ export function evaluate(snapshot: PlannerSnapshot, plan: Plan, opts?: EngineOpt
       minWeeks: end < P ? end - from + 1 : null,
       booked,
       materialDate: r.short ? null : r.date,
-      materialSource: r.short ? null : r.source,
+      materialSource: null,
+      materialState: r.state,
+      materialText: r.short ? r.short.text : r.text,
       blocked, blockedKind, late, overload, completesLines,
     };
   }
@@ -266,10 +280,31 @@ export function canPlace(snapshot: PlannerSnapshot, plan: Plan, unitKey: string,
   if (!act.includes(u)) return { ok: false, reason: 'This card sits above the level the line is planned at — change the line’s level first.' };
   const ship = shipPeriods(m, next, act);
   const r = allocate(m, next, act, ship).get(u)!;
-  if (r.short) return { ok: false, reason: notOrderedReason(m, r), earliest: null };
-  const ml = materialLate(m, u, r, s, startOf(m, next, u, s));
-  if (ml) return { ok: false, reason: ml.reason, earliest: ml.earliest < m.P ? m.periods[ml.earliest].key : null };
+  const ref = placeRefusal(m, u, r, s, startOf(m, next, u, s));
+  if (ref) return { ok: false, reason: ref.reason, earliest: ref.earliest != null && ref.earliest < m.P ? m.periods[ref.earliest].key : null };
   return { ok: true };
+}
+
+/**
+ * The cards that `to` PLACES or MOVES (their ship week or start differs from `from`) and the server
+ * would refuse — waiting for stock, or before their earliest week — each with the plain reason.
+ * A card that stays where it is is never refused (the page flags it instead); taking one off is never refused.
+ */
+export function refusedMoves(snapshot: PlannerSnapshot, from: Plan, to: Plan, opts?: EngineOptions): { unitKey: string; reason: string; earliest: string | null }[] {
+  const m = getModel(snapshot);
+  const act = new Set(activeUnits(m, to, opts));
+  const out: { unitKey: string; reason: string; earliest: string | null }[] = [];
+  for (const [k, e] of Object.entries(to)) {
+    const f = from[k];
+    if (f && f.period === e.period && (f.start ?? null) === (e.start ?? null)) continue;
+    const u = m.unitIdx.get(k);
+    const s = m.periodIdx.get(e.period);
+    if (u === undefined || s === undefined || !act.has(u)) continue;
+    const a = e.start != null ? m.periodIdx.get(e.start) : undefined;
+    const ref = placeRefusal(m, u, materialOf(m, u), s, a !== undefined && a < s ? a : -1);
+    if (ref) out.push({ unitKey: k, reason: ref.reason, earliest: ref.earliest != null && ref.earliest < m.P ? m.periods[ref.earliest].key : null });
+  }
+  return out;
 }
 
 /** May this planned card's bar start in `startPeriod` (a stretch)? Not before its material. */
@@ -286,7 +321,7 @@ export function canStretch(snapshot: PlannerSnapshot, plan: Plan, unitKey: strin
   if (!r || r.short) return { ok: true, earliestStart: null };
   if (r.period > 0 && a < r.period) {
     const at = Math.min(r.period, m.P - 1);
-    return { ok: false, reason: `Its material arrives ${materialWords(r.date!, r.source)} — the work cannot start before ${m.periods[at].label}.`, earliestStart: m.periods[at].key };
+    return { ok: false, reason: `${r.text ? `${r.text} ` : ''}The work cannot start before ${m.periods[at].label}.`, earliestStart: m.periods[at].key };
   }
   return { ok: true, earliestStart: r.period > 0 ? m.periods[Math.min(r.period, m.P - 1)].key : null };
 }

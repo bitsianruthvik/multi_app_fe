@@ -9,7 +9,7 @@ import WarningAmberRounded from '@mui/icons-material/WarningAmberRounded';
 import ScheduleRounded from '@mui/icons-material/ScheduleRounded';
 import MoreHorizRounded from '@mui/icons-material/MoreHorizRounded';
 import { dragTo, stretchTo } from '../../lib/planner/moves';
-import { canStretch } from '../../lib/planner/evaluate';
+import { canStretch, refusedMoves } from '../../lib/planner/evaluate';
 import type { Evaluation, Plan, PlannerOrder, PlannerSnapshot, PlannerUnit } from '../../lib/planner/types';
 import { HEAD_H, ROW_H, type Geometry } from './geometry';
 import { hoursText, monthName, shortCode, shortDate, splitAction, tonnes } from './model';
@@ -73,6 +73,8 @@ export function PlanGrid(props: {
   onOpen: (key: string) => void;
   onPreview: (trial: Plan | null, info: DragInfo | null) => void;
   onDrop: (trial: Plan, info: DragInfo) => void;
+  /** a drop the server would refuse (waiting for stock, or before its earliest week): why */
+  onRefuse?: (reason: string) => void;
   /** the left grip of a bar: start it in this week (null = back to the shortest bar) */
   onStretch: (unitKey: string, startPeriodKey: string | null) => void;
   /** "Plan its parts separately" (split) or "Plan … as one unit again" (!split) for this row */
@@ -226,7 +228,16 @@ export function PlanGrid(props: {
         d.target = t;
         const p = latest.current;
         const trial = dragTo(p.snapshot, p.plan, d.keys, d.anchor, t === BACKLOG ? null : t);
-        p.onPreview(trial, { target: t, keys: d.keys });
+        // A card that waits for stock, or would ship/start before its material's earliest week, cannot go there.
+        const bad = t === BACKLOG ? [] : refusedMoves(p.snapshot, p.plan, trial);
+        if (bad.length) {
+          const u = p.units.get(bad[0].unitKey);
+          d.refused = `${u ? shortCode(u, orders.get(String(u.orderId))?.code) : bad[0].unitKey}: ${bad[0].reason}${bad.length > 1 ? ` (and ${bad.length - 1} more ${bad.length === 2 ? 'card' : 'cards'})` : ''}`;
+          p.onPreview(null, null);
+        } else {
+          d.refused = undefined;
+          p.onPreview(trial, { target: t, keys: d.keys });
+        }
       }
     } else if (d.mode === 'stretch') {
       const i = stretchIndex(e.clientX);
@@ -287,6 +298,7 @@ export function PlanGrid(props: {
       p.onStretch(d.anchor, d.stretch);
     } else if (d.mode === 'move') {
       if (d.target === undefined) { p.onPreview(null, null); return; }
+      if (d.refused) { p.onPreview(null, null); p.onRefuse?.(d.refused); return; }
       const trial = dragTo(p.snapshot, p.plan, d.keys, d.anchor, d.target === BACKLOG ? null : d.target);
       p.onDrop(trial, { target: d.target, keys: d.keys });
     } else if (d.mode === 'rank') {
@@ -367,16 +379,17 @@ export function PlanGrid(props: {
     }
     const sel = selected.has(u.key);
     const lifted = draggedKeys.has(u.key);
-    const warn = !!ev.blocked;
+    const matNote = !ev.blocked && ev.materialState && ev.materialState !== 'ready' ? ev.materialText : null;
+    const warn = !!ev.blocked || ev.materialState === 'late';
     const late = ev.late;
     const lit = highlight?.has(u.key);
     const shipW = g.colW - 6;
     const stretched = ev.start != null;
     const startLabel = stretched ? periods[pIdx.get(ev.start!) ?? a]?.label ?? '' : '';
-    const label = `${u.code}: ships ${periods[s].label}${a < s ? `, work from ${periods[a].label}` : ''}${stretched ? `. Stretched from ${startLabel}` : ''}${ev.pinned ? ', kept here' : ''}${warn ? `. ${ev.blocked}` : ''}${late ? '. After the promised date' : ''}`;
+    const label = `${u.code}: ships ${periods[s].label}${a < s ? `, work from ${periods[a].label}` : ''}${stretched ? `. Stretched from ${startLabel}` : ''}${ev.pinned ? ', kept here' : ''}${ev.blocked ? `. ${ev.blocked}` : matNote ? `. ${matNote}` : ''}${late ? '. After the promised date' : ''}`;
     return (
       <Box role="button" aria-label={label} aria-pressed={sel} data-testid={`bar-${u.key}`} data-period={ev.period}
-        title={[`${u.code} — ${tonnes(u.tonnes)} t`, `Ships ${periods[s].label} (${shortDate(periods[s].start)}–${shortDate(periods[s].end)})`, a < s ? `Work from ${periods[a].label}` : '', stretched ? `Stretched from ${startLabel}` : '', ev.blocked ?? '', late ? 'After the promised date' : '', canEdit ? 'Drag to move · drag the left edge to stretch · double-click for details' : 'Double-click for details'].filter(Boolean).join('\n')}
+        title={[`${u.code} — ${tonnes(u.tonnes)} t`, `Ships ${periods[s].label} (${shortDate(periods[s].start)}–${shortDate(periods[s].end)})`, a < s ? `Work from ${periods[a].label}` : '', stretched ? `Stretched from ${startLabel}` : '', ev.blocked ?? matNote ?? '', late ? 'After the promised date' : '', canEdit ? 'Drag to move · drag the left edge to stretch · double-click for details' : 'Double-click for details'].filter(Boolean).join('\n')}
         onPointerDown={(e) => begin(e, 'move', u.key, moveKeys(u.key))}
         onDoubleClick={() => props.onOpen(u.key)}
         sx={{
@@ -415,9 +428,10 @@ export function PlanGrid(props: {
     const ev = evaluation.units[u.key];
     if (!ev || ev.period) return null;
     const sel = selected.has(u.key);
+    const matNote = !ev.blocked && ev.materialState && ev.materialState !== 'ready' ? ev.materialText : null;
     return (
-      <Box role="button" aria-label={`${u.code}: not planned${ev.blocked ? `. ${ev.blocked}` : ''}`} aria-pressed={sel} data-testid={`chip-${u.key}`}
-        title={[`${u.code} — ${tonnes(u.tonnes)} t, not planned`, ev.blocked ?? '', canEdit ? 'Drag onto a week to plan it' : ''].filter(Boolean).join('\n')}
+      <Box role="button" aria-label={`${u.code}: not planned${ev.blocked ? `. ${ev.blocked}` : matNote ? `. ${matNote}` : ''}`} aria-pressed={sel} data-testid={`chip-${u.key}`}
+        title={[`${u.code} — ${tonnes(u.tonnes)} t, not planned`, ev.blocked ?? matNote ?? '', canEdit ? 'Drag onto a week to plan it' : ''].filter(Boolean).join('\n')}
         onPointerDown={(e) => begin(e, 'move', u.key, moveKeys(u.key))}
         onDoubleClick={() => props.onOpen(u.key)}
         sx={{ position: 'absolute', left: 4, right: 4, top: 6, height: ROW_H - 12, borderRadius: '6px', border: `1px dashed ${ev.blocked ? 'var(--c-warning-600)' : 'var(--c-border-strong, var(--c-text-3))'}`,
@@ -504,7 +518,7 @@ export function PlanGrid(props: {
             <span style={{ fontFamily: (u.quantity ?? 1) > 1 ? 'inherit' : 'var(--font-mono, monospace)', fontWeight: child ? 400 : 600 }}>{shortCode(u, order?.code)}</span>
             {(u.quantity ?? 1) <= 1 && <span style={{ color: 'var(--c-text-3)' }}> {u.name}</span>}
           </Box>
-          {!child && ev?.blocked && <WarningAmberRounded titleAccess={ev.blocked} sx={{ fontSize: 14, color: 'var(--c-warning-600)' }} />}
+          {!child && (ev?.blocked || ev?.materialState === 'late') && <WarningAmberRounded titleAccess={ev.blocked ?? ev.materialText ?? ''} sx={{ fontSize: 14, color: 'var(--c-warning-600)' }} />}
           {!child && ev?.late && <ScheduleRounded titleAccess="After the promised date" sx={{ fontSize: 14, color: 'var(--c-danger-600)' }} />}
           <Box component="span" sx={{ fontSize: 11.5, color: 'var(--c-text-2)', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{tonnes(u.tonnes)} t</Box>
           {!child && canEdit && splitAction(snapshot.units, u, order?.code) && (
@@ -606,7 +620,7 @@ export function PlanGrid(props: {
             <>
               <b>{ui.keys.length > 1 ? `${ui.keys.length} units` : (() => { const u = units.get(ui.anchor); return u ? shortCode(u, orders.get(String(u.orderId))?.code) : ''; })()}</b>
               {' → '}{dragTarget === BACKLOG ? 'not planned' : dragTarget ? `${periods[pIdx.get(dragTarget) ?? 0]?.label} (${shortDate(periods[pIdx.get(dragTarget) ?? 0]?.start ?? '')})` : '…'}
-              {dragNotes.length ? dragNotes.map((n) => <Box key={n} sx={{ color: 'var(--c-warning-800)' }}>⚠ {n}</Box>) : dragTarget && dragTarget !== BACKLOG ? <Box sx={{ color: 'var(--c-success-800)' }}>Fits — no conflicts</Box> : null}
+              {ui.reason ? <Box sx={{ color: 'var(--c-danger-800)' }}>⚠ {ui.reason}</Box> : dragNotes.length ? dragNotes.map((n) => <Box key={n} sx={{ color: 'var(--c-warning-800)' }}>⚠ {n}</Box>) : dragTarget && dragTarget !== BACKLOG ? <Box sx={{ color: 'var(--c-success-800)' }}>Fits — no conflicts</Box> : null}
             </>
           ) : ui.mode === 'stretch' ? (
             <>

@@ -10,10 +10,10 @@ import UnfoldLessRounded from '@mui/icons-material/UnfoldLessRounded';
 import CloseRounded from '@mui/icons-material/CloseRounded';
 import {
   areaUsage, autoPlan, cellDrivers, entriesDiff, evaluate, feedback, functionUsage, machineAreas, workingFunctions, planFromEntries,
-  dragTo, rankChanges, rankLine, reorderKeys, shiftBy, stretchTo, unitPriority, unplan,
+  dragTo, rankChanges, rankLine, refusedMoves, reorderKeys, shiftBy, stretchTo, unitPriority, unplan,
 } from '../lib/planner';
 import type { AutoPlanResult, Evaluation, Plan as PlanMap, PlannerSnapshot, PlannerUnit, UsageRow } from '../lib/planner';
-import { getPlanner, putChanges, putLevel, putLineSplit, putPriorities, putTargets } from '../api/planner';
+import { getPlanner, putChanges, refusedUnits, putLevel, putLineSplit, putPriorities, putTargets } from '../api/planner';
 import { CfApiError } from '../api/client';
 import { useIsPermitted } from '../hooks/useIsPermitted';
 import { useCompanySlug, useLoad } from '../hooks/useLoad';
@@ -71,6 +71,8 @@ export default function Plan() {
   const [preview, setPreview] = useState<AutoPlanResult | null>(null);
   const [busy, setBusy] = useState(false);
   const [splitBusy, setSplitBusy] = useState(false);
+  /** The server refused a save for material: what it said, until dismissed. */
+  const [refusal, setRefusal] = useState<{ message: string; problems: string[] } | null>(null);
   const [openKey, setOpenKey] = useState<string | null>(null);
   const [drag, setDrag] = useState<{ trial: PlanMap; info: DragInfo } | null>(null);
   const [selection, setSelection] = useState<string[]>([]);
@@ -141,10 +143,25 @@ export default function Plan() {
     setSaving(true);
     const sent = present;
     putChanges({ entries: changes.entries, ranks: changes.ranks })
-      .then(() => { setSaved(sent); toast.success(`Plan saved — ${changes.count} ${changes.count === 1 ? 'change' : 'changes'}`); })
-      .catch((e) => fail(e, 'Could not save the plan.'))
+      .then(() => { setSaved(sent); setRefusal(null); toast.success(`Plan saved — ${changes.count} ${changes.count === 1 ? 'change' : 'changes'}`); })
+      .catch((e) => {
+        const refused = refusedUnits(e);
+        if (!refused.length && !(e instanceof CfApiError && e.code === 'MATERIAL_NOT_READY')) { fail(e, 'Could not save the plan.'); return; }
+        // The server refused for material: say why, and put the refused cards back where they were saved.
+        const err = e as CfApiError;
+        setRefusal({ message: err.message, problems: err.problems });
+        const keys = new Set(refused.map((r) => r.unitKey));
+        if (keys.size && saved) {
+          setHist((h) => {
+            if (!h) return h;
+            const plan = { ...h.present.plan };
+            for (const k of keys) { if (saved.plan[k]) plan[k] = saved.plan[k]; else delete plan[k]; }
+            return commit(h, { plan, ranks: h.present.ranks });
+          });
+        }
+      })
       .finally(() => setSaving(false));
-  }, [present, changes, saving, toast, fail]);
+  }, [present, changes, saving, saved, toast, fail]);
   const discard = useCallback(() => { if (saved) { setHist(startHistory(saved)); setDrag(null); } }, [saved]);
   const doUndo = useCallback(() => setHist((h) => (h ? undo(h) : h)), []);
   const doRedo = useCallback(() => setHist((h) => (h ? redo(h) : h)), []);
@@ -171,7 +188,8 @@ export default function Plan() {
     for (const k of drag.info.keys) {
       const ev = trialEval.units[k];
       if (!ev?.period) continue;
-      if (ev.blocked) notes.push(`${codeOf(k)}: ${ev.blocked.replace(/ \(see the Buy list\)$/, '')}`);
+      if (ev.blocked) notes.push(`${codeOf(k)}: ${ev.blocked}`);
+      else if (ev.materialState === 'late' && ev.materialText) notes.push(`${codeOf(k)}: ${ev.materialText}`);
       if (ev.late) notes.push(`${codeOf(k)} ships after the promised date`);
     }
     usage.forEach((r, i) => {
@@ -265,7 +283,10 @@ export default function Plan() {
     if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && canEdit && !preview) {
       e.preventDefault();
       const step = (e.key === 'ArrowRight' ? 1 : -1) * (e.shiftKey ? 4 : 1);
-      putPlan(shiftBy(view, present.plan, sel, step, e.key === 'ArrowRight' ? view.horizon.periods[0]?.key : undefined));
+      const next = shiftBy(view, present.plan, sel, step, e.key === 'ArrowRight' ? view.horizon.periods[0]?.key : undefined);
+      const bad = next === present.plan ? [] : refusedMoves(view, present.plan, next);
+      if (bad.length) toast.error(`${codeOf(bad[0].unitKey)}: ${bad[0].reason}`);
+      else putPlan(next);
     } else if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && e.altKey && canEdit && !preview) {
       e.preventDefault();
       const lineId = String(units.get(sel[0])?.lineId);
@@ -290,7 +311,7 @@ export default function Plan() {
       e.preventDefault();
       setOpenKey(sel[0]);
     }
-  }, [view, present, selection, units, visibleUnits, canEdit, preview, putPlan, lineOrder, onRank]);
+  }, [view, present, selection, units, visibleUnits, canEdit, preview, putPlan, lineOrder, onRank, toast, codeOf]);
 
   // keep the selected row on screen when it moves by keyboard
   useEffect(() => {
@@ -386,6 +407,11 @@ export default function Plan() {
       <PageHeader title="Plan" subtitle="What ships when, this month and the next two."
         actions={(
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
+            {(snap.materialReady?.counts?.waiting ?? 0) > 0 && (
+              <Typography data-testid="material-waiting" sx={{ fontSize: 13, color: 'var(--c-warning-800)' }}>
+                {snap.materialReady!.counts.waiting} {snap.materialReady!.counts.waiting === 1 ? 'card waits' : 'cards wait'} for stock
+              </Typography>
+            )}
             {canEdit && <Button variant="contained" startIcon={<AutoAwesomeRounded />} disabled={busy || !!preview} onClick={runAutoPlan}>{busy ? 'Planning…' : 'Auto-plan'}</Button>}
           </Box>
         )} />
@@ -398,6 +424,18 @@ export default function Plan() {
       )}
 
       <Scoreboard months={months} evaluation={shown} targets={snap.targets} canEdit={editable} onTarget={setTarget} />
+
+      {refusal && (
+        <Box role="alert" data-testid="save-refused" sx={{ p: 1.5, borderRadius: '10px', background: 'var(--c-danger-50, var(--c-surface-2))', border: '1px solid var(--c-danger-200, var(--c-border))', display: 'flex', gap: 1.5, alignItems: 'flex-start' }}>
+          <Box sx={{ flex: 1, minWidth: 0 }}>
+            <Typography sx={{ fontWeight: 600, fontSize: 14, color: 'var(--c-danger-800)' }}>Not saved — the material does not allow it yet. The cards were put back.</Typography>
+            <Box component="ul" sx={{ m: 0, mt: 0.5, pl: 2.5, fontSize: 13 }}>
+              {(refusal.problems.length ? refusal.problems : [refusal.message]).map((p, i) => <li key={i}>{p}</li>)}
+            </Box>
+          </Box>
+          <IconButton size="small" aria-label="Dismiss" onClick={() => setRefusal(null)}><CloseRounded sx={{ fontSize: 16 }} /></IconButton>
+        </Box>
+      )}
 
       {preview && <AutoPlanBanner lines={previewLines} buyListPath={appPath(company, 'purchase')} onApply={applyPreview} onDiscard={() => setPreview(null)} />}
 
@@ -449,7 +487,7 @@ export default function Plan() {
 
       <PlanGrid snapshot={view} evaluation={shown} plan={present.plan} rows={rows} units={units} geometry={geometry} canEdit={editable}
         selection={selection} highlight={highlight?.keys ?? null} dragTarget={drag?.info.target ?? null} dragNotes={dragNotes}
-        onToggle={onToggle} onUnitClick={onUnitClick} onOpen={setOpenKey} onPreview={onPreview} onDrop={onDrop} onStretch={onStretch} onSplit={onSplit} splitBusy={splitBusy}
+        onToggle={onToggle} onUnitClick={onUnitClick} onOpen={setOpenKey} onPreview={onPreview} onDrop={onDrop} onRefuse={(why) => toast.error(why)} onStretch={onStretch} onSplit={onSplit} splitBusy={splitBusy}
         onRank={onRank} onOrderRank={onOrderRank} onLevel={onLevel} onKeyDown={onGridKey} scrollerRef={scrollerRef}
         footer={(
           <UsagePanel rows={usage} level={areaSet.level} periods={snap.horizon.periods} geometry={geometry} fnRows={fnRows}

@@ -10,6 +10,7 @@ import { PURPOSE_LABEL, qtyText } from '../lib/inventory';
 import { FormDialog } from './FormDialog';
 import { ErrorNotice, Fact, Mono, SkeletonRows } from './ui';
 import { Working } from './WorkingNote';
+import { MaterialReadyChip } from './Purchase/MaterialReadyChip';
 import { knownLineSize, releaseCheckText, rememberLineSize } from '../lib/working';
 
 /** A typed quantity: empty counts as none, anything unreadable as NaN so the form can refuse it. */
@@ -81,6 +82,13 @@ export function ReleaseDialog({ line, onClose, onReleased }: {
             <Box>
               <Button size="small" variant="outlined" onClick={createYard} disabled={fixing}>Create a dispatch yard</Button>
               <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-3)', mt: 0.5 }}>There is no dispatch area yet. This makes one called &ldquo;Dispatch yard&rdquo; and picks it.</Typography>
+            </Box>
+          )}
+          {c.materialReady && c.materialReady.known && (
+            <Box data-testid="release-material-ready" sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
+              <Typography sx={{ fontSize: 13 }}>Material for this line:</Typography>
+              <MaterialReadyChip state={c.materialReady.state} date={c.materialReady.readyDate} text={c.materialReady.text} reasons={c.materialReady.materials} testId="release-ready" />
+              <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-3)' }}>Release is never held for material. Planning and starting a step wait for it.</Typography>
             </Box>
           )}
           {c.ok ? (

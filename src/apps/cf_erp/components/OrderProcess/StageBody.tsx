@@ -401,8 +401,8 @@ export function StageBody({
     body = <ProductionPanel stage={stage} line={line} order={order} production={production} productionError={productionError}
       hasLockStage={view.stages.some((s) => s.stageKey === 'lock')} onReleaseChanged={onReleaseChanged} onReloadAll={onReloadAll} onGoStage={onGoStage} />;
   } else if (stage.stageKey === 'buying') {
-    // The order's purchase orders by lane, and the Request items button (CF_ERP_PURCHASE_FLOW_PLAN) — readiness stays the process's (WaitingOn above).
-    body = <OrderPurchasePanel order={order} stage={stage} />;
+    // The requisition of each line (Buying v2): hold from stock, buy, or skip — and the order's purchase orders by lane.
+    body = <OrderPurchasePanel order={order} stage={stage} onChanged={onReloadAll} />;
   } else if (stage.stageKey === 'confirm') {
     body = <ConfirmPanel view={view} order={order} />;
   } else if (isUnbuilt(stage.stageKey)) {

@@ -123,4 +123,4 @@ export const placeOrder = (poId: number, awards: Award[]) => cfApi.post<{ purcha
 /** Place straight with a supplier — no RFQ needed. */
 export const placeWithSupplier = (poId: number, supplierId: number) => cfApi.post<PurchaseOrder>(`/purchase-orders/${poId}/order`, { supplierId });
 /** One tentative expected date per line. */
-export const setLineExpected = (lineId: number, expectedDate: string | null) => cfApi.put<PurchaseOrder>(`/purchase-lines/${lineId}`, { expectedDate });
+export const setLineExpected = (lineId: number, expectedDate: string | null) => cfApi.put<PurchaseOrder & { plannedUnits?: import('./requisitions').PlannedUnits | null }>(`/purchase-lines/${lineId}`, { expectedDate });

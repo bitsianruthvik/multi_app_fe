@@ -65,7 +65,7 @@ const check = async (label, fn) => { try { await fn(); passed++; console.log(`PA
 // p2, p3 → segments p4..p7 (marks). A segment = 300 min cutting + 300 min welding, 10 t, 1 PL.
 // Cutting and welding have 1000 min a week, so one girder line is 60 % of a week and two are 120 %.
 // p2 ships in week 1 (pinned); p3 is not planned. Order B: one unlocked line that needs item XX,
-// which nobody has ordered (the material gate) — it can still be put on the plan, with a warning.
+// whose delivery is OVERDUE (the server's `material` answer, state 'late') — it can still be put on the plan, with a warning.
 const periods = E.buildPeriods('2026-10-01', 3);
 const P0 = periods[0].key, P1 = periods[1].key, P3 = periods[3].key;
 const cap = (v) => Object.fromEntries(periods.map((p) => [p.key, v]));
@@ -95,7 +95,7 @@ const snapshot = () => ({
     { ...agg('p2', 2, 2, 'p1', 'p2', 'SO-A-S1-G1', 'Girder line', 2), splittable: true, bomLineId: 55 },
     agg('p3', 3, 2, 'p1', 'p3', 'SO-A-S1-G2', 'Girder line', 2),
     seg(4, 'p2', 'SO-A-S1-G1-1'), seg(5, 'p2', 'SO-A-S1-G1-2'), seg(6, 'p3', 'SO-A-S1-G2-1'), seg(7, 'p3', 'SO-A-S1-G2-2'),
-    { key: 'l21', orderId: 2, lineId: 21, level: 'line', pieceId: null, code: 'SO-B/1', name: 'Stock', depth: 0, parentKey: null, groupKey: 'l21', isMark: false, marks: 0, tonnes: 5, work: { drill: 100, contractor: 600 }, noRate: 0, done: false, progress: 0, materials: [{ itemId: 'XX', qty: 3 }], committedDate: null },
+    { key: 'l21', orderId: 2, lineId: 21, level: 'line', pieceId: null, code: 'SO-B/1', name: 'Stock', depth: 0, parentKey: null, groupKey: 'l21', isMark: false, marks: 0, tonnes: 5, work: { drill: 100, contractor: 600 }, noRate: 0, done: false, progress: 0, materials: [{ itemId: 'XX', qty: 3 }], material: { state: 'late', readyDate: null, earliest: null, soft: false, materials: 1, text: 'XX: was due 20 Oct 2026 on PO-000987 and has not arrived — overdue.', reasons: [] }, committedDate: null },
   ],
   supply: { PL: { name: 'Plate', code: 'PL', uom: 'nos', lots: [{ date: periods[0].start, qty: 100, source: 'stock', received: true }] } },
   entries: { p2: { shipDate: P0, pinned: true } },
@@ -279,17 +279,17 @@ await check('stretch grip: dragging the left edge of a bar to an earlier week st
   assert.doesNotMatch($('bar-p3').getAttribute('aria-label'), /Stretched from/);
   assert.equal($('change-count').textContent, '1 change');
 });
-await check('a material gate or a promised date is a WARNING, never a block: SO-B lands without its material', async () => {
+await check('an overdue delivery (material state late) is a WARNING, never a block: SO-B lands', async () => {
   const chip = $('chip-l21');
   await pointer(chip, 'pointerdown', G.tree + 20, 300);
   await pointer(window, 'pointermove', G.tree + 40, 300);
   await pointer(window, 'pointermove', xOfPeriod(1), 300);
   await settle();
-  assert.match($('drag-hint').textContent, /Stock: Not ordered: item XX is short by 3/);
+  assert.match($('drag-hint').textContent, /Stock: XX: was due 20 Oct 2026 on PO-000987 and has not arrived — overdue./);
   await pointer(window, 'pointerup', xOfPeriod(1), 300);
   await settle();
   assert.equal($('bar-l21').dataset.period, P1);
-  assert.match($('bar-l21').getAttribute('aria-label'), /Not ordered/);
+  assert.match($('bar-l21').getAttribute('aria-label'), /overdue/);
 });
 await check('Esc during a drag cancels it', async () => {
   const bar = $('bar-l21');

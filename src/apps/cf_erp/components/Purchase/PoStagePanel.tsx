@@ -6,7 +6,9 @@ import ChevronRightRounded from '@mui/icons-material/ChevronRightRounded';
 import RadioButtonCheckedRounded from '@mui/icons-material/RadioButtonCheckedRounded';
 import RadioButtonUncheckedRounded from '@mui/icons-material/RadioButtonUncheckedRounded';
 import Inventory2Rounded from '@mui/icons-material/Inventory2Rounded';
-import { CfApiError } from '../../api/client';
+import { CfApiError, cfApi } from '../../api/client';
+import { PromptDialog } from '../PromptDialog';
+import UndoRounded from '@mui/icons-material/UndoRounded';
 import { rfqEmail, type QuoteInput, type RfqSupplier } from '../../api/procurement';
 import { applyStockCheck, getPoQuotes, getStockCheck, placeOrder, recordQuote, type StockCheck } from '../../api/purchase';
 import type { PurchaseLine, PurchaseOrder } from '../../api/types';
@@ -22,7 +24,8 @@ import { QuoteDialog } from '../QuoteDialog';
 import { SendPurchaseDialog } from '../PurchaseDialogs';
 import { useToast } from '../toastContext';
 import { SendRfqDialog } from './SendRfqDialog';
-import { DateCell } from './DateCell';
+import { DateCell, QtyCell } from './DateCell';
+import { plannedUnitsSentence, type PlannedUnits } from '../../api/requisitions';
 
 const linkSx = { color: 'inherit', textDecoration: 'none', '&:hover': { color: 'var(--c-primary-700)', textDecoration: 'underline' } };
 
@@ -115,6 +118,8 @@ export function PoStagePanel({ po, canManage, onPo, onChanged, onReceive }: {
   const [quoteFor, setQuoteFor] = useState<RfqSupplier | null>(null);
   const [choices, setChoices] = useState<Choices | null>(null);
   const [split, setSplit] = useState<PurchaseOrder[] | null>(null);
+  const [late, setLate] = useState<PlannedUnits | null>(null);
+  const [undoing, setUndoing] = useState<{ id: number; code: string; item: string } | null>(null);
 
   const stockChecked = requested && !!sc.data?.purchaseOrder.stockCheckedAt;
   const rfq = pq.data?.rfq ?? null;
@@ -164,6 +169,11 @@ export function PoStagePanel({ po, canManage, onPo, onChanged, onReceive }: {
   };
   const print = async (s: RfqSupplier) => { if (!rfq) return; try { await openRfqPrint(rfq.id, s.supplier.id); } catch (e) { fail(e); } };
 
+  /** A date or quantity changed: say it, then say which planned cards it now holds up (the server flags them on the plan). */
+  const lineSaved = (n: PurchaseOrder & { plannedUnits?: PlannedUnits | null }, message: string) => {
+    setLate(n.plannedUnits && n.plannedUnits.units.length ? n.plannedUnits : null);
+    onPo(n, message);
+  };
   const lineCount = po.lines.length;
   const open = po.status === 'ordered' || po.status === 'partially_received';
   const undated = po.lines.filter((l) => !l.expectedDate && l.outstanding > 0).length;
@@ -265,26 +275,35 @@ export function PoStagePanel({ po, canManage, onPo, onChanged, onReceive }: {
 
       {open && (
         <SectionCard title={po.status === 'partially_received' ? 'Timeline and goods receipt — part received' : 'Timeline and goods receipt'}
-          subtitle="One tentative expected date per line, until it arrives. Book the delivery against the line as it comes in.">
+          subtitle="One receiving date per line, until it arrives. Production waits for these dates. Book the delivery against the line as it comes in.">
           {undated > 0 && (
             <Typography data-testid="po-undated" sx={{ fontSize: 13, color: 'var(--c-warning-800)', mb: 1 }}>
               {undated} {undated === 1 ? 'line has' : 'lines have'} no expected date yet.
             </Typography>
           )}
+          {late && (
+            <Box data-testid="po-late-note" role="status" sx={{ mb: 1, color: 'var(--c-warning-800)', fontSize: 13 }}>
+              <Typography sx={{ fontSize: 13, fontWeight: 600 }}>{plannedUnitsSentence(late)}</Typography>
+              {late.units.map((u) => <Box key={u.unitKey} data-testid="po-late-unit" sx={{ fontSize: 12.5 }}>{u.code}: {u.message}</Box>)}
+            </Box>
+          )}
           <Box component="table" data-testid="po-timeline" sx={tableSx}>
-            <thead><tr><th>Item</th><th style={{ textAlign: 'right' }}>Ordered</th><th style={{ textAlign: 'right' }}>Received</th><th>Expected</th><th /></tr></thead>
+            <thead><tr><th>Item</th><th style={{ textAlign: 'right' }}>Ordered</th><th style={{ textAlign: 'right' }}>Received</th><th>Receiving date</th><th /></tr></thead>
             <tbody>
               {po.lines.map((l) => {
                 const missing = !l.expectedDate && l.outstanding > 0;
                 return (
                   <tr key={l.id} data-testid="po-timeline-row" data-missing={missing ? 'true' : 'false'} style={missing ? { background: 'var(--c-warning-50)' } : undefined}>
-                    <td><Mono>{l.item.code ?? '—'}</Mono><Box sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>{l.item.name}</Box></td>
-                    <td style={{ textAlign: 'right' }}><Mono>{qtyText(l.quantity)}</Mono> <Mono muted>{l.item.uom}</Mono></td>
+                    <td><Mono>{l.item.code ?? '—'}</Mono><Box sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>{l.item.name}</Box>
+                      {(l.orders ?? []).some((o) => o.requisition) && <Box data-testid="po-line-pr" sx={{ fontSize: 11.5, color: 'var(--c-text-3)' }}>For {(l.orders ?? []).filter((o) => o.requisition).map((o) => `${o.requisition!.code} (${qtyText(o.quantity)})`).join(', ')}</Box>}</td>
+                    <td style={{ textAlign: 'right' }}>{canManage && l.outstanding > 0
+                      ? <QtyCell value={l.quantity} label={`Ordered quantity of ${l.item.code ?? l.item.name}`} lineId={l.id} onSaved={(n) => lineSaved(n, 'Quantity saved.')} />
+                      : <Mono>{qtyText(l.quantity)}</Mono>} <Mono muted>{l.item.uom}</Mono></td>
                     <td style={{ textAlign: 'right' }}><Mono muted={!l.received}>{qtyText(l.received)}</Mono></td>
                     <td>
                       {l.outstanding > 0
                         ? <DateCell value={l.expectedDate} label={`Expected date for ${l.item.code ?? l.item.name}`} disabled={!canManage} missing={missing} lineId={l.id}
-                          onSaved={(n) => onPo(n, 'Expected date saved.')} />
+                          onSaved={(n) => lineSaved(n, 'Receiving date saved.')} />
                         : <Mono muted>{l.expectedDate ?? '—'}</Mono>}
                     </td>
                     <td style={{ textAlign: 'right' }}>
@@ -298,6 +317,37 @@ export function PoStagePanel({ po, canManage, onPo, onChanged, onReceive }: {
         </SectionCard>
       )}
 
+      {po.lines.some((l) => l.receipts.length > 0) && (
+        <SectionCard title="Deliveries booked" subtitle="A wrong delivery can be undone while its stock has not been used. Stock already reserved or issued must be let go first.">
+          <Box component="table" data-testid="po-deliveries" sx={tableSx}>
+            <thead><tr><th>Item</th><th>Delivery</th><th style={{ textAlign: 'right' }}>Quantity</th><th>Date</th><th /></tr></thead>
+            <tbody>
+              {po.lines.flatMap((l) => {
+                const latest = Math.max(...l.receipts.map((r) => r.id));
+                return l.receipts.map((r) => (
+                  <tr key={r.id} data-testid="po-delivery-row">
+                    <td><Mono>{l.item.code ?? l.item.name}</Mono></td>
+                    <td><Box component={Link} to={appPath(company, `movements/${r.id}`)} sx={{ ...linkSx, fontFamily: 'var(--font-mono)', fontSize: 12 }}>{r.code}</Box></td>
+                    <td style={{ textAlign: 'right' }}><Mono>{qtyText(r.quantity)}</Mono> <Mono muted>{l.item.uom}</Mono></td>
+                    <td><Mono muted>{r.date}</Mono></td>
+                    <td style={{ textAlign: 'right' }}>{canManage && r.id === latest && (
+                      <Button size="small" startIcon={<UndoRounded />} onClick={() => setUndoing({ id: r.id, code: r.code, item: l.item.code ?? l.item.name })}>Undo receipt</Button>)}</td>
+                  </tr>
+                ));
+              })}
+            </tbody>
+          </Box>
+        </SectionCard>
+      )}
+      <PromptDialog open={!!undoing} title={`Undo ${undoing?.code ?? 'the receipt'}?`} label="Why" confirmLabel="Undo receipt" danger
+        body={`Takes ${undoing?.item ?? 'the goods'} back out of stock and puts the quantity back on the purchase order. Refused if the stock has already been reserved for production or issued.`}
+        onClose={() => setUndoing(null)}
+        onConfirm={async (reason) => {
+          if (!undoing) return;
+          const r = await cfApi.post<{ code: string; purchase?: { released?: unknown[] } }>(`/movements/${undoing.id}/reverse`, { reason });
+          const n = r.purchase?.released?.length ?? 0;
+          onChanged(`${undoing.code} undone (${r.code}).${n ? ` ${n} held ${n === 1 ? 'share was' : 'shares were'} let go.` : ''}`);
+        }} />
       {rfq && (
         <QuoteDialog rfq={rfq} entry={quoteFor} onClose={() => setQuoteFor(null)} onSave={saveQuote} />
       )}

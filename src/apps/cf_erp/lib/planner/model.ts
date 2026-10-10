@@ -1,9 +1,9 @@
-import { dayLabel, firstPeriodFrom, monthShort, periodContaining } from './periods';
+import { monthShort, periodContaining } from './periods';
 import type { EngineOptions, EvalLabels, Period, Plan, PlannerLine, PlannerOrder, PlannerSnapshot, PlannerUnit } from './types';
 
 /**
  * The per-snapshot index every engine call shares (cached by snapshot object).
- * Units, functions, periods and supply lots are addressed by integer position.
+ * Units, functions and periods are addressed by integer position.
  */
 export interface Model {
   snap: PlannerSnapshot;
@@ -58,20 +58,8 @@ export interface Model {
    */
   noCap: boolean[];
 
-  /** supply */
-  itemPos: Map<string, number>;
-  itemIds: string[];
-  itemLots: [number, number][];
-  lotQty: Float64Array;
-  /** earliest lead-start period position a lot allows (P = beyond the horizon) */
-  lotPeriod: Int32Array;
-  lotDate: string[];
-  lotSource: string[];
-  lotItem: Int32Array;
-  /** per unit: item positions (−1 = item has no supply at all) and quantities */
-  matItem: Int32Array[];
-  matQty: Float64Array[];
-  matItemId: string[][];
+  /** The saved placements (snapshot.entries) as period keys — what "the card is where it was saved" compares to. */
+  saved: Map<string, { period: string; start: string | null }>;
 
   labels: EvalLabels;
 }
@@ -262,45 +250,15 @@ function buildModel(snap: PlannerSnapshot): Model {
     stepMin[i] = sf.length ? Float64Array.from(sm) : workMin[i];
   });
 
-  // supply
-  const itemPos = new Map<string, number>();
-  const itemIds: string[] = [];
-  const itemLots: [number, number][] = [];
-  const qty: number[] = [], li: number[] = [], lp: number[] = [], ld: string[] = [], ls: string[] = [];
-  for (const [id, item] of Object.entries(snap.supply || {})) {
-    const lots = [...(item.lots || [])].filter((l) => Number(l.qty) > 0).sort((a, b) => {
-      const sa = a.source === 'stock' ? 0 : 1, sb = b.source === 'stock' ? 0 : 1;
-      return sa - sb || cmpStr(a.date, b.date) || String(a.source).localeCompare(String(b.source));
-    });
-    itemPos.set(String(id), itemIds.length);
-    itemIds.push(String(id));
-    const start = qty.length;
-    for (const l of lots) {
-      qty.push(Number(l.qty));
-      li.push(itemIds.length - 1);
-      let p: number;
-      if (l.received || l.source === 'stock') p = Math.max(0, periodContaining(periods, l.date));
-      else p = firstPeriodFrom(periods, l.date);
-      lp.push(Math.min(p, P));
-      ld.push(l.date);
-      ls.push(l.source);
-    }
-    itemLots.push([start, qty.length]);
+  // saved placements
+  const saved = new Map<string, { period: string; start: string | null }>();
+  for (const [k, e] of Object.entries(snap.entries || {})) {
+    if (!e?.shipDate) continue;
+    const i = periodContaining(periods, e.shipDate.slice(0, 10));
+    if (i < 0 || i >= periods.length) continue;
+    const a = e.startDate ? periodContaining(periods, e.startDate.slice(0, 10)) : -1;
+    saved.set(k, { period: periods[i].key, start: a >= 0 && a < i ? periods[a].key : null });
   }
-  const matItem: Int32Array[] = new Array(N);
-  const matQty: Float64Array[] = new Array(N);
-  const matItemId: string[][] = new Array(N);
-  units.forEach((u, i) => {
-    const agg = new Map<string, number>();
-    for (const mt of u.materials || []) {
-      const q = Number(mt.qty) || 0;
-      if (q > 0) agg.set(String(mt.itemId), (agg.get(String(mt.itemId)) ?? 0) + q);
-    }
-    const ids = [...agg.keys()];
-    matItemId[i] = ids;
-    matItem[i] = Int32Array.from(ids.map((id) => itemPos.get(id) ?? -1));
-    matQty[i] = Float64Array.from(ids.map((id) => agg.get(id)!));
-  });
 
   // labels
   const levelWord = (u: PlannerUnit) => {
@@ -327,8 +285,7 @@ function buildModel(snap: PlannerSnapshot): Model {
     snap, periods, P, periodIdx, months, periodMonth, monthRange,
     units, N, unitIdx, children, parent, depth, lineTops, lines, covers, groupTotal, groups, prio, committed,
     F, fnKeys, fnNames, unlimited, cap, workFn, workMin, stepFn, stepMin, noCap,
-    itemPos, itemIds, itemLots, lotQty: Float64Array.from(qty), lotPeriod: Int32Array.from(lp), lotDate: ld, lotSource: ls, lotItem: Int32Array.from(li),
-    matItem, matQty, matItemId, labels,
+    saved, labels,
   };
 }
 
@@ -381,7 +338,3 @@ export function activeUnits(m: Model, plan: Plan, opts?: EngineOptions, extraKey
   }
   return out;
 }
-
-/** "14 Nov (PO-12)" */
-export const materialWords = (date: string, source: string | null) =>
-  source && source !== 'stock' ? `${dayLabel(date)} (${source})` : dayLabel(date);

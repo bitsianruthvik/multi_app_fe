@@ -64,11 +64,12 @@ await check('Receiving reports what was held for which order', () => {
   const s = src('pages/PurchaseOrderDetail.tsx'); const d = src('components/PurchaseDialogs.tsx');
   assert.match(d, /held\?: HeldReceipt\[\]/); assert.match(s, /Held \$\{qtyText\(h\.quantity\)\} for \$\{h\.orderCode\}/); assert.match(s, /nobody else can use it/);
 });
-await check('OrderPurchasePanel renders the held section (fed by GET /orders/:id/purchase)', () => {
-  const o = src('components/Purchase/OrderPurchasePanel.tsx');
-  assert.match(o, /Held for this order/); assert.match(o, /order-held-row/); assert.match(o, /Release uses it first\./);
-  assert.match(o, /data\.held\?\.rows/); assert.doesNotMatch(o, /names no order/);
-  assert.match(src('api/purchase.ts'), /held\?: \{ total: number; rows: HeldRow\[\] \}/);
+// CHANGED for Buying v2: the "Held for this order" list is gone from the Buying stage; stock held for a requisition line
+// is the "From stock n" chip on its row (and the hold is listed in the chip's tooltip). The held rows still come from the server.
+await check('the Buying stage shows held stock as a chip on the requisition row (holds come with the line)', () => {
+  const t = src('lib/requisition.ts'); const o = src('components/Purchase/OrderPurchasePanel.tsx');
+  assert.ok(t.includes('From stock ${qtyText(c.held)}')); assert.ok(t.includes('line.holds.map')); assert.doesNotMatch(o, /order-held-row/);
+  assert.ok(src('api/purchase.ts').includes('held?: { total: number; rows: HeldRow[] }'));
 });
 await check('Item stock renders held reservations with a Let go action behind canManage and a confirm', () => {
   const s = src('components/ItemStockPanel.tsx');

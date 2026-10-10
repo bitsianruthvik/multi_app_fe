@@ -74,7 +74,7 @@ await check('the Plates to use control has both options and saves through setNes
 await check('every run button waits for the choice, with an amber note', () => {
   assert.ok(panel.includes('Choose which plates to use before nesting.'));
   assert.ok(panel.includes('plateChoice === null'));
-  assert.equal((panel.match(/\|\| platesUnset/g) ?? []).length, 3, 'main, redo-all and short-pieces buttons');
+  assert.equal((panel.match(/\|\| platesUnset/g) ?? []).length, 4, 'main, redo-all, short-pieces and start-again buttons');
 });
 
 await check('PLATES_NOT_CHOSEN shows the server message in place', () => {
