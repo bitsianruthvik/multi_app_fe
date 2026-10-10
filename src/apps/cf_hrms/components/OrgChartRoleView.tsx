@@ -5,7 +5,7 @@ import AddRounded from '@mui/icons-material/AddRounded';
 import { ErrorNotice, Mono, StatusBadge, ToneBadge, useIsPermitted, useToast } from '@shared/ui';
 import { getRole, type Role } from '../api/roles';
 import { positionsApi, type LookupRow } from '../api/positions';
-import { cardCount, rowsOf, type ChartCard, type ChartModel } from './orgChartLayout';
+import { cardCount, rowsOf, vacantLine, type ChartCard, type ChartModel } from './orgChartLayout';
 import { OrgChartJobSection } from './OrgChartJobSection';
 import { PositionListRow, SectionTitle } from './OrgChartPositionParts';
 import { shiftWord } from './usePositionCard';
@@ -233,7 +233,7 @@ export function OrgChartRoleView({
       {/* 2 ── this card's positions */}
       {card && count && (
         <Box sx={{ mt: 1.5 }} data-rolepositions="">
-          <SectionTitle count={count.vacant ? `${count.positions} · ${count.vacant} vacant` : `${count.positions} · all filled`}>
+          <SectionTitle count={count.vacant ? `${count.positions} · ${vacantLine(count)}` : `${count.positions} · all filled`}>
             Positions
           </SectionTitle>
           <Stack spacing={0.5}>
@@ -244,6 +244,8 @@ export function OrgChartRoleView({
                   name={r.occupant ? r.occupant.name?.trim() || 'Name not recorded' : null}
                   shift={r.shiftName}
                   code={r.positionCode}
+                  hiring={r.hiring}
+                  joining={r.joining}
                   onClick={() => nav.push(positionView(model, r.positionId!))}
                 />
               ),

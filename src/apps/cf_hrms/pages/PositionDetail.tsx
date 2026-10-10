@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { Button, IconButton, Stack, Tooltip, Typography } from '@mui/material';
+import { Box, Button, IconButton, Stack, Tooltip, Typography } from '@mui/material';
 import AddRounded from '@mui/icons-material/AddRounded';
 import EditRounded from '@mui/icons-material/EditRounded';
 import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
@@ -23,6 +23,7 @@ import { PositionContextDialog, PositionFormDialog, PositionSiblingDialog } from
 import { SeatJobContentEditor } from '../components/SeatJobContentEditor';
 import { PositionShiftControl } from '../components/PositionShiftControl';
 import { HiringEntry } from '../components/HiringEntry';
+import { joiningSentence, vacantLabel } from '../api/hiring';
 import { PositionReportingDialog } from '../components/ReportingDialogs';
 import { ReportingRowList } from '../components/ReportingRows';
 import { usePositionRemoval } from '../components/usePositionRemoval';
@@ -105,6 +106,8 @@ export default function PositionDetail() {
   if (error && !position) return <ErrorNotice error={error} onRetry={load} />;
   if (!position) return null;
   const isVacant = position.occupant === null || (position.occupant === undefined && position.filledCount === 0);
+  // The open hiring, if any. The position is still vacant while it is open.
+  const hiring = isVacant ? (position.hiring ?? null) : null;
   const shiftFact = (
     <PositionShiftControl
       positionId={position.id}
@@ -113,17 +116,34 @@ export default function PositionDetail() {
       onChanged={() => load()}
     />
   );
-  const vacantPaths = isVacant && canManage ? (
+  // Somebody is appointed and joins later: vacant until then, and nothing else may fill it.
+  const joining = isVacant ? (position.joining ?? null) : null;
+  const vacantPaths = joining ? (
+    <Typography data-joining="" sx={{ fontSize: 13.5, mt: 1.5, lineHeight: 1.55 }}>
+      <CrossLink label={joining.name} to={`/${company}/cf_hrms/employees/${joining.employeeId}`} />
+      {joiningSentence(joining).slice(joining.name.length)}. The position is vacant until that day.
+    </Typography>
+  ) : isVacant && canManage ? (
     <Stack spacing={1} sx={{ mt: 1.5 }}>
       <Typography sx={{ fontSize: 13, fontWeight: 500 }}>Fill this position</Typography>
       <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" alignItems="center">
-        <Button size="small" variant="outlined" onClick={() => navigate(`/${company}/cf_hrms/assignments?new=1&positionId=${position.id}`)}>Move an existing employee here</Button>
-        <HiringEntry positionId={position.id} positionCode={position.positionCode} roleTitle={position.roleTitle} onChanged={() => load()} />
+        {/* While a hiring is open nobody else can be moved in; the reason is said, not hidden. */}
+        <Tooltip title={hiring ? 'A hiring is open for this position. Close it first.' : ''}>
+          <Box component="span">
+            <Button size="small" variant="outlined" disabled={!!hiring} onClick={() => navigate(`/${company}/cf_hrms/assignments?new=1&positionId=${position.id}`)}>Move an existing employee here</Button>
+          </Box>
+        </Tooltip>
+        <HiringEntry positionId={position.id} positionCode={position.positionCode} roleTitle={position.roleTitle} hiring={hiring} onChanged={() => load()} />
       </Stack>
+      {hiring && (
+        <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)' }}>
+          A hiring is open for this position. Close it first to move an existing employee here.
+        </Typography>
+      )}
     </Stack>
   ) : null;
   const personFact = isVacant
-    ? 'Vacant'
+    ? vacantLabel({ hiring, joining: position.joining }) ?? 'Vacant'
     : position.occupant
       ? <CrossLink label={position.occupant.name} to={`/${company}/cf_hrms/employees/${position.occupant.employeeId}`} />
       : 'Filled';
@@ -151,7 +171,7 @@ export default function PositionDetail() {
               <Stack direction="row" spacing={0.75} alignItems="center">
                 <StatusBadge status={position.status} map={STATUS_TONES} />
                 {isVacant
-                  ? <ToneBadge tone="neutral" noIcon label="Vacant" />
+                  ? <ToneBadge tone="neutral" noIcon label={position.joining ? 'Vacant · joining' : hiring ? 'Vacant · hiring' : 'Vacant'} />
                   : <ToneBadge tone="success" noIcon label="Filled" />}
               </Stack>
             }

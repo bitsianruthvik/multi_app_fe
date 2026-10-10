@@ -197,8 +197,12 @@ export interface FileTransport {
   dataBase64: string;
 }
 
+/**
+ * What a client may write on an employee. There is NO employee code here: the
+ * server issues it from the company's code format when the employee is created
+ * and ignores one sent from anywhere (CF_HRMS_HIRING_SPEC.md §1.4).
+ */
 export interface EmployeeInput {
-  employeeCode?: string;
   fullName?: string;
   dateOfBirth?: string | null;
   gender?: string | null;

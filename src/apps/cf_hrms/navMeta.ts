@@ -31,6 +31,8 @@
 import type { NavSection, CountMetaMap } from '@shared/ui';
 
 const ORG = 'cf_hrms_org_view';
+/** Settings only the people who can change them have a use for (the letter templates). */
+const ORG_MANAGE = 'cf_hrms_org_manage';
 const PEOPLE = 'cf_hrms_people_view';
 /**
  * The self view (appendix §A3, last row: "Employee · self only"). It is the one
@@ -143,6 +145,10 @@ export const SECTIONS: NavSection[] = [
     screens: [
       { key: 'employees', label: 'Employees', path: 'employees', hasDetail: true, permission: PEOPLE, countKey: 'employees', keywords: ['staff', 'person', 'workers', 'headcount', 'documents', 'identifiers'] },
       { key: 'assignments', label: 'Work assignments', path: 'assignments', hasDetail: true, permission: PEOPLE, countKey: 'activeAssignments', keywords: ['allocation', 'multiple roles', 'reporting', 'manager'] },
+      // A hiring STARTS on a vacant position (Organisation); this is where the
+      // ones in progress are found again. The candidate is not an employee yet,
+      // which is why it is its own entry and not a filter on Employees.
+      { key: 'hiring', label: 'Hiring', path: 'hiring', hasDetail: true, permission: PEOPLE, keywords: ['recruit', 'candidate', 'offer letter', 'appointment letter', 'new joiner', 'vacancy', 'job description', 'onboarding'] },
       { key: 'documents', label: 'Documents', path: 'documents', hasDetail: true, permission: DOCS, countKey: 'documents', keywords: ['jd', 'job description', 'responsibility profile', 'snapshot', 'pdf', 'docx', 'generated'] },
     ],
   },
@@ -176,6 +182,10 @@ export const SECTIONS: NavSection[] = [
       { key: 'leave-types', label: 'Leave types', path: 'leave-types', permission: LEAVE, keywords: ['casual', 'sick', 'earned', 'entitlement'] },
       { key: 'reporting-types', label: 'Reporting types', path: 'reporting-types', permission: ORG, keywords: ['primary', 'functional', 'dotted', 'project', 'admin'] },
       { key: 'contractors', label: 'Contractors', path: 'contractors', permission: PEOPLE, keywords: ['contract labour', 'manpower supplier', 'agency'] },
+      // How codes are built, and what the hiring letters print. Set once, by
+      // whoever sets the organisation up; read by everything that issues a code.
+      { key: 'code-formats', label: 'Code formats', path: 'code-formats', permission: ORG, keywords: ['employee code', 'numbering', 'prefix', 'running number', 'reference number', 'sequence', 'coding rules'] },
+      { key: 'letters', label: 'Letters', path: 'letters', permission: ORG_MANAGE, keywords: ['offer letter', 'appointment letter', 'template', 'docx', 'placeholder', 'signatory', 'probation', 'notice period', 'letterhead'] },
       { key: 'open-points', label: 'Open points', path: 'open-points', permission: ORG, countKey: 'openPoints', keywords: ['doubt', 'question', 'unresolved', 'decision'] },
       { key: 'import', label: 'Import', path: 'import', permission: IMPORT, keywords: ['org chart', 'migration', 'excel', 'html', 'upload'] },
 

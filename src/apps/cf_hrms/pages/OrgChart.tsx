@@ -407,6 +407,8 @@ export default function OrgChart() {
         meta: `As at ${asOf}     |     ${shiftLabel}`,
         counts:
           `Positions ${counts.positions}     Filled ${counts.filled}     Vacant ${counts.vacant}` +
+          (counts.hiring ? `     Hiring ${counts.hiring}` : '') +
+          (counts.joining ? `     Joining ${counts.joining}` : '') +
           (counts.present || counts.absent
             ? `     Present ${counts.present}     Absent ${counts.absent}`
             : ''),
@@ -610,6 +612,8 @@ export default function OrgChart() {
         hint:
           `Positions with nobody in them${shift === 'all' ? '' : `, ${shiftLabel.toLowerCase()} only`}. ` +
           'Positions = filled + vacant.' +
+          (c?.hiring ? ` A hiring is open for ${c.hiring} of them; they stay vacant until the employee is created.` : '') +
+          (c?.joining ? ` Somebody is appointed to ${c.joining} and has not joined yet.` : '') +
           (folded ? ` Includes ${folded} folded branch${folded === 1 ? '' : 'es'}.` : ''),
       },
     ];
@@ -871,6 +875,9 @@ export default function OrgChart() {
                   { label: 'Positions', value: counts.positions },
                   { label: 'Filled', value: counts.filled },
                   { label: 'Vacant', value: counts.vacant },
+                  // Part of the vacant count, said quietly beside it: "149 vacant · 3 hiring".
+                  ...(counts.hiring ? [{ label: 'Hiring', value: counts.hiring }] : []),
+                  ...(counts.joining ? [{ label: 'Joining', value: counts.joining }] : []),
                   ...(counts.present || counts.absent
                     ? [
                         { label: 'Present', value: counts.present },

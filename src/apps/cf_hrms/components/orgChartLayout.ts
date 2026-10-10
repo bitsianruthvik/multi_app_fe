@@ -5,6 +5,7 @@ import type {
   OrgChartNode,
   OrgChartOccupant,
 } from '../api/orgchart';
+import { joiningLabel, type HiringRef, type JoiningRef } from '../api/hiring';
 
 /**
  * The org chart's layout engine — a faithful port of `Org_Chart_V12.html`'s
@@ -500,6 +501,21 @@ export interface BoxRow {
   /** "General", "Day", "Night" — drawn small and quiet on every row. */
   shiftName: string;
   occupant: OrgChartOccupant | null;
+  /**
+   * The open hiring on a VACANT position: the row then shows the candidate
+   * (or "Hiring") in the vacancy's quiet style, with a small "Hiring" label.
+   * The position is still vacant in every count.
+   */
+  hiring?: HiringRef | null;
+  /** Someone appointed who joins on a later day: "Joins 23 Oct · name", still a vacancy. */
+  joining?: JoiningRef | null;
+}
+
+/** What a row with nobody in it says: who joins and when, the candidate being hired, "Hiring", or "Vacant". */
+export function vacantRowText(r: { hiring?: HiringRef | null; joining?: JoiningRef | null }, vacantWord = 'Vacant'): string {
+  if (r.joining) return joiningLabel(r.joining);
+  if (!r.hiring) return vacantWord;
+  return r.hiring.candidateName?.trim() || 'Hiring';
 }
 
 function inShift(n: OrgChartNode, filter: ShiftFilter): boolean {
@@ -523,6 +539,8 @@ export function rowsOf(card: ChartCard, filter: ShiftFilter): BoxRow[] {
       shiftCode: shiftCodeOf(p),
       shiftName: shiftNameOf(p),
       occupant: p.occupants?.[0] ?? null,
+      hiring: p.occupants?.[0] ? null : (p.hiring ?? null),
+      joining: p.occupants?.[0] ? null : (p.joining ?? null),
     }));
 }
 
@@ -536,6 +554,15 @@ export interface VisibleCounts {
   /** Someone is in the position but the day has no attendance record. */
   unmarked: number;
   vacant: number;
+  /** Vacant positions with an open hiring. Part of `vacant`, never on top of it. */
+  hiring: number;
+  /** Vacant positions somebody is appointed to and has not joined yet. Part of `vacant`. */
+  joining: number;
+}
+
+/** "149 vacant · 3 hiring · 1 joining" — only the parts that are not zero after the first. */
+export function vacantLine(c: { vacant: number; hiring?: number; joining?: number }): string {
+  return [`${c.vacant} vacant`, c.hiring ? `${c.hiring} hiring` : '', c.joining ? `${c.joining} joining` : ''].filter(Boolean).join(' · ');
 }
 
 /**
@@ -562,13 +589,15 @@ export interface VisibleCounts {
  * would report an attendance figure the system does not have.
  */
 export function countPositions(nodes: Iterable<OrgChartNode>, filter: ShiftFilter = 'all'): VisibleCounts {
-  const c: VisibleCounts = { cards: 0, positions: 0, filled: 0, present: 0, absent: 0, unmarked: 0, vacant: 0 };
+  const c: VisibleCounts = { cards: 0, positions: 0, filled: 0, present: 0, absent: 0, unmarked: 0, vacant: 0, hiring: 0, joining: 0 };
   for (const n of nodes) {
     if (!inShift(n, filter)) continue;
     c.positions += 1;
     const o = n.occupants?.[0];
     if (!o) {
       c.vacant += 1;
+      if (n.joining) c.joining += 1;
+      else if (n.hiring) c.hiring += 1;
       continue;
     }
     c.filled += 1;
@@ -1920,7 +1949,8 @@ function rowTone(
   r: BoxRow,
   p: ChartPalette,
 ): { bar: string; fill: string; text: string; status: string } {
-  if (!r.occupant) return { bar: p.vacant, fill: p.vacantFill, text: p.vacantText, status: '' };
+  // Being hired for: still the vacancy's colours — it IS vacant — with one small word.
+  if (!r.occupant) return { bar: p.vacant, fill: p.vacantFill, text: p.vacantText, status: r.hiring && !r.joining ? 'Hiring' : '' };
   if (r.occupant.attendanceStatus === 'ABSENT')
     return { bar: p.absent, fill: p.absentFill, text: p.absentText, status: 'Absent' };
   if (r.occupant.attendanceStatus === 'PRESENT')
@@ -2396,7 +2426,13 @@ export function buildScene(model: ChartModel, opts: SceneOptions): ChartScene {
       for (const r of I.rows) {
         const tone = rowTone(r, p);
         if (r.positionId != null) {
-          const who = r.occupant ? r.occupant.name?.trim() || 'Name not recorded' : 'Vacant';
+          const who = r.occupant
+            ? r.occupant.name?.trim() || 'Name not recorded'
+            : r.joining
+              ? `Vacant, ${joiningLabel(r.joining)}`
+              : r.hiring
+                ? `Vacant, hiring${r.hiring.candidateName?.trim() ? ` ${r.hiring.candidateName.trim()}` : ' in progress'}`
+                : 'Vacant';
           rowHits.push({
             positionId: r.positionId,
             x: x + PAD,
@@ -2444,9 +2480,11 @@ export function buildScene(model: ChartModel, opts: SceneOptions): ChartScene {
         }
         const name = r.occupant
           ? r.occupant.name?.trim() || 'Name not recorded'
-          : show.roles
-            ? 'Vacant'
-            : 'Vacant position';
+          : r.hiring || r.joining
+            ? vacantRowText(r)
+            : show.roles
+              ? 'Vacant'
+              : 'Vacant position';
         if (r.occupant) {
           const who = r.occupant.sameAs ?? (r.occupant.employeeId > 0 ? `e${r.occupant.employeeId}` : null);
           if (who) {

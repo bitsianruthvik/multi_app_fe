@@ -1,4 +1,5 @@
 import { api } from './client';
+import type { HiringRef, JoiningRef } from './hiring';
 
 /**
  * Org chart read model — the client side of CF_HRMS_ORG_CHART_SPEC.md §9.
@@ -129,6 +130,13 @@ export interface OrgChartNode {
   requirements: OrgChartRequirement[];
   /** 1 when nobody is in the position, else 0. */
   vacancies: number;
+  /**
+   * The OPEN hiring on this position, or null. A position with one is still
+   * VACANT everywhere it is counted; it is only drawn with the candidate.
+   */
+  hiring?: HiringRef | null;
+  /** Someone appointed here who joins on a later day. Still vacant until then. */
+  joining?: JoiningRef | null;
   counts: OrgChartCounts;
   hasContent: boolean;
 }
@@ -171,6 +179,10 @@ export interface OrgChartGraph {
     sanctioned: number;
     filled: number;
     vacant: number;
+    /** Open hirings. Each is on a vacant position, so this is part of `vacant`, never added to it. */
+    hiring?: number;
+    /** Vacant positions somebody is appointed to and has not joined yet. Also part of `vacant`. */
+    joining?: number;
     /** Role cards. */
     cards?: number;
     /** Per shift code. */
@@ -273,10 +285,15 @@ export interface PositionCard {
     positionCode: string | null;
     shift: { id: number; code: string | null; name: string } | null;
     occupant: { employeeId: number; name: string } | null;
+    hiring?: HiringRef | null;
+    joining?: JoiningRef | null;
   }[];
   vacancies: number;
   contexts: OrgChartContext[];
   occupants: CardOccupant[];
+  /** The open hiring on this position, or null. */
+  hiring?: HiringRef | null;
+  joining?: JoiningRef | null;
   /** The full resolved set, with scopes. Never one manager. */
   reporting: CardReportingRow[];
   directReports?: { positionId: number; title: string; positionCode?: string | null }[];

@@ -17,6 +17,11 @@ export interface ApiProblem extends Error {
   status: number;
   code?: string;
   problems: string[];
+  /**
+   * The whole error body, for the few refusals that carry more than words —
+   * 409 `HIRING_OPEN` names the open hiring so the screen can go to it.
+   */
+  body?: Record<string, unknown>;
 }
 
 function toApiError(err: unknown): ApiProblem {
@@ -40,12 +45,14 @@ function toApiError(err: unknown): ApiProblem {
   const status = Number(m[1]);
   try {
     const body = JSON.parse(m[2]);
-    return make(
+    const e = make(
       status,
       body.message ?? 'Something went wrong.',
       body.code,
       Array.isArray(body.problems) ? body.problems : [],
     );
+    if (body && typeof body === 'object') e.body = body as Record<string, unknown>;
+    return e;
   } catch {
     return make(
       status,

@@ -16,6 +16,7 @@
  *   OFF       the role says it and this seat does not do it
  */
 import { api } from './client';
+import type { HiringRef, JoiningRef } from './hiring';
 import { pretty, targetText, type ContentRow, type KraGroup, type RoleContent } from './roles';
 import type { SelfResponsibilities } from './self';
 
@@ -148,6 +149,10 @@ export interface StaffingPosition {
   vacant: number;
   overFilled: boolean;
   occupants: { employeeId: number; name: string; employeeCode: string | null }[];
+  /** The OPEN hiring on this position, or null. */
+  hiring?: HiringRef | null;
+  /** Someone appointed here who joins on a later day. */
+  joining?: JoiningRef | null;
   /** This position reads differently from its role. */
   hasSeatChanges: boolean;
 }

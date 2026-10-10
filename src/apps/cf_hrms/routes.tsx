@@ -30,6 +30,8 @@ const Employees = lazy(() => import('./pages/Employees'));
 const EmployeeDetail = lazy(() => import('./pages/EmployeeDetail'));
 const Assignments = lazy(() => import('./pages/Assignments'));
 const AssignmentDetail = lazy(() => import('./pages/AssignmentDetail'));
+const Hiring = lazy(() => import('./pages/Hiring'));
+const HiringDetail = lazy(() => import('./pages/HiringDetail'));
 const Documents = lazy(() => import('./pages/Documents'));
 const DocumentDetail = lazy(() => import('./pages/DocumentDetail'));
 
@@ -53,6 +55,8 @@ const Holidays = lazy(() => import('./pages/Holidays'));
 const LeaveTypes = lazy(() => import('./pages/LeaveTypes'));
 const ReportingTypes = lazy(() => import('./pages/ReportingTypes'));
 const Contractors = lazy(() => import('./pages/Contractors'));
+const CodeFormats = lazy(() => import('./pages/CodeFormats'));
+const HiringSettings = lazy(() => import('./pages/HiringSettings'));
 const OpenPoints = lazy(() => import('./pages/OpenPoints'));
 const ImportOrgChart = lazy(() => import('./pages/ImportOrgChart'));
 
@@ -176,6 +180,8 @@ export function getCfHrmsRoutes(
     { path: '/:company/cf_hrms/employees/:id', element: wrap(<EmployeeDetail />) },
     { path: '/:company/cf_hrms/assignments', element: wrap(<Assignments />) },
     { path: '/:company/cf_hrms/assignments/:id', element: wrap(<AssignmentDetail />) },
+    { path: '/:company/cf_hrms/hiring', element: wrap(<Hiring />) },
+    { path: '/:company/cf_hrms/hiring/:id', element: wrap(<HiringDetail />) },
     { path: '/:company/cf_hrms/documents', element: wrap(<Documents />) },
     { path: '/:company/cf_hrms/documents/:id', element: wrap(<DocumentDetail />) },
 
@@ -200,6 +206,8 @@ export function getCfHrmsRoutes(
     { path: '/:company/cf_hrms/leave-types', element: wrap(<LeaveTypes />) },
     { path: '/:company/cf_hrms/reporting-types', element: wrap(<ReportingTypes />) },
     { path: '/:company/cf_hrms/contractors', element: wrap(<Contractors />) },
+    { path: '/:company/cf_hrms/code-formats', element: wrap(<CodeFormats />) },
+    { path: '/:company/cf_hrms/letters', element: wrap(<HiringSettings />) },
     { path: '/:company/cf_hrms/open-points', element: wrap(<OpenPoints />) },
     { path: '/:company/cf_hrms/import', element: wrap(<ImportOrgChart />) },
 

@@ -12,12 +12,13 @@
  * chart's numbers by construction. One request serves every department.
  */
 import { Link as RouterLink, useNavigate } from 'react-router-dom';
-import { Box, Button, Stack, Typography } from '@mui/material';
+import { Box, Button, Stack, Tooltip, Typography } from '@mui/material';
 import EditRounded from '@mui/icons-material/EditRounded';
 import { Mono, SideSheet, ToneBadge, useIsPermitted } from '@shared/ui';
 import type { PositionShift } from '../api/positions';
 import { PositionShiftControl } from './PositionShiftControl';
 import { HiringEntry } from './HiringEntry';
+import { joiningSentence, vacantLabel, type HiringRef, type JoiningRef } from '../api/hiring';
 import type { DepartmentStaffing, StaffingPosition, StaffingRole } from '../api/jobContent';
 import { JobContentPanel } from './JobContentPanel';
 
@@ -39,13 +40,17 @@ export interface JobPeek {
   occupantName?: string | null;
   positionCode?: string | null;
   roleTitle?: string | null;
+  /** The open hiring on the peeked position, if there is one. */
+  hiring?: HiringRef | null;
+  /** Someone appointed to the peeked position who has not joined yet. */
+  joining?: JoiningRef | null;
 }
 
 const countsText = (x: { filled: number; vacant: number }, n: number) =>
   `${plural(n, 'position')} · ${x.filled} filled · ${x.vacant} vacant`;
 
 function who(p: StaffingPosition): string {
-  if (p.occupants.length === 0) return 'Vacant';
+  if (p.occupants.length === 0) return vacantLabel(p) ?? 'Vacant';
   return p.occupants.map((o) => o.name).join(', ');
 }
 
@@ -96,6 +101,8 @@ export function DepartmentStaffingPanel({
       occupantName: p.occupants[0]?.name ?? null,
       positionCode: p.positionCode,
       roleTitle: r.roleTitle,
+      hiring: p.occupants.length === 0 ? (p.hiring ?? null) : null,
+      joining: p.occupants.length === 0 ? (p.joining ?? null) : null,
     });
 
   return (
@@ -259,15 +266,34 @@ export function JobPeekSheet({
               onChanged={(s) => onChanged?.(s)}
             />
           </Stack>
-          {!peek.occupantName && (
+          {!peek.occupantName && peek.joining && (
+            <Typography data-joining="" sx={{ fontSize: 13, color: 'var(--c-text-2)', lineHeight: 1.5 }}>
+              <Box component={RouterLink} to={`/${company}/cf_hrms/employees/${peek.joining.employeeId}`} sx={{ color: 'var(--c-primary-700)' }}>
+                {peek.joining.name}
+              </Box>
+              {joiningSentence(peek.joining).slice(peek.joining.name.length)}. Vacant until then.
+            </Typography>
+          )}
+          {!peek.occupantName && !peek.joining && (
             <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" alignItems="center">
-              <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-3)' }}>Vacant</Typography>
+              <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-3)' }}>{vacantLabel(peek) ?? 'Vacant'}</Typography>
               {can('cf_hrms_org_manage') && (
                 <>
-                  <Button component={RouterLink} to={`/${company}/cf_hrms/assignments?new=1&positionId=${peek.id}`} size="small" variant="outlined">
-                    Move an existing employee here
-                  </Button>
-                  <HiringEntry positionId={peek.id} positionCode={peek.positionCode ?? null} roleTitle={peek.roleTitle ?? null} onChanged={() => onChanged?.(peek.shift as PositionShift)} />
+                  {/* While a hiring is open nobody else can be moved in; the reason is on the button. */}
+                  <Tooltip title={peek.hiring ? 'A hiring is open for this position. Close it first.' : ''}>
+                    <Box component="span">
+                      <Button
+                        component={RouterLink}
+                        to={`/${company}/cf_hrms/assignments?new=1&positionId=${peek.id}`}
+                        size="small"
+                        variant="outlined"
+                        disabled={!!peek.hiring}
+                      >
+                        Move an existing employee here
+                      </Button>
+                    </Box>
+                  </Tooltip>
+                  <HiringEntry positionId={peek.id} positionCode={peek.positionCode ?? null} roleTitle={peek.roleTitle ?? null} hiring={peek.hiring} onChanged={() => onChanged?.(peek.shift as PositionShift)} />
                 </>
               )}
             </Stack>

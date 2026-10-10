@@ -544,7 +544,8 @@ interface FileTransport {
   dataBase64: string;
 }
 
-function saveBlob(blob: Blob, fileName: string) {
+/** Hands bytes to the browser as a download. Shared with the hiring letters (api/hiring.ts). */
+export function saveBlob(blob: Blob, fileName: string) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;

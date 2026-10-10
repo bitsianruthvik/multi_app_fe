@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Box, MenuItem, TextField, Typography } from '@mui/material';
-import { FormDialog } from '@shared/ui';
+import { FormDialog, Mono } from '@shared/ui';
 import {
   peopleApi, EMPLOYMENT_TYPE_LABEL, EMPLOYMENT_STATUS_LABEL,
   type Employee, type EmployeeDetail, type EmployeeInput, type PeoplePickers,
@@ -15,8 +15,13 @@ import {
  * "department". `contractorId` appears only when the employment type is
  * Contract, because that is the only combination the service accepts.
  *
+ * THE EMPLOYEE CODE IS NOT A FIELD. It is issued by the server, from the
+ * company's code format, in the same write that creates the employee — so a new
+ * employee has none yet, and an existing one shows theirs as text. Nothing sent
+ * from here carries a code (CF_HRMS_HIRING_SPEC.md §1.4).
+ *
  * The form does not pre-validate beyond the two fields the user must type
- * something into. Every other rule — the code being free, the exit date, the
+ * something into. Every other rule — the exit date, the
  * contractor pairing — is the service's, and FormDialog renders its refusal
  * with the itemised `problems` list intact. Re-implementing those checks here
  * would give two sets of words for one rule.
@@ -36,7 +41,6 @@ export function EmployeeFormDialog({
   employee?: Employee;
 }) {
   const blank: EmployeeInput = useMemo(() => ({
-    employeeCode: '',
     fullName: '',
     dateOfBirth: '',
     gender: '',
@@ -57,7 +61,6 @@ export function EmployeeFormDialog({
     if (!open) return;
     if (employee) {
       setForm({
-        employeeCode: employee.employeeCode,
         fullName: employee.fullName,
         dateOfBirth: employee.dateOfBirth ?? '',
         gender: employee.gender ?? '',
@@ -129,26 +132,28 @@ export function EmployeeFormDialog({
       onClose={onClose}
       onSubmit={submit}
       submitLabel={employee ? 'Save' : 'Create employee'}
-      submitDisabled={!form.employeeCode?.trim() || !form.fullName?.trim() || !form.dateOfJoining}
+      submitDisabled={!form.fullName?.trim() || !form.dateOfJoining}
       maxWidth="md"
     >
-      <Box sx={grid}>
-        <TextField
-          label="Employee code"
-          required
-          value={form.employeeCode ?? ''}
-          onChange={(e) => set('employeeCode', e.target.value)}
-          size="small"
-          autoFocus
-          helperText="Unique in this company; case does not matter"
-        />
+      {/* The top padding keeps the first field's floating label clear of the dialog's scroll edge. */}
+      <Box sx={{ ...grid, pt: 0.75 }}>
         <TextField
           label="Full name"
           required
           value={form.fullName ?? ''}
           onChange={(e) => set('fullName', e.target.value)}
           size="small"
+          autoFocus
         />
+        <Box data-employeecode="" sx={{ alignSelf: 'center', minWidth: 0 }}>
+          {employee ? (
+            <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>
+              Employee code <Mono sx={{ fontSize: 14, color: 'var(--c-text)' }}>{employee.employeeCode}</Mono>
+            </Typography>
+          ) : (
+            <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>The code is issued when you save.</Typography>
+          )}
+        </Box>
       </Box>
 
       <Typography sx={label}>Employment</Typography>

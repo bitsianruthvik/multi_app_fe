@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { Box, Stack, Typography } from '@mui/material';
 import { EmptyState, ErrorNotice, ListSkeleton, Mono, SectionCard, Surface, ToneBadge } from '@shared/ui';
 import { positionsApi, type PositionRow } from '../api/positions';
+import { vacantLabel } from '../api/hiring';
 
 const isVacant = (p: PositionRow) => p.occupant === null || (p.occupant === undefined && p.filledCount === 0);
 
@@ -36,7 +37,7 @@ export function RolePositionsTab({ roleId, company }: { roleId: number; company:
           {rows.map((p) => (
             <Surface key={p.id} e={1} bordered sx={{ p: 1.5, display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap' }}>
               <Box component={Link} to={`/${company}/cf_hrms/positions/${p.id}`} sx={{ color: 'var(--c-primary-700)', textDecoration: 'none', fontSize: 14, fontWeight: 500 }}>
-                {isVacant(p) ? 'Vacant' : p.occupant?.name ?? 'Filled'}
+                {isVacant(p) ? (vacantLabel(p) ?? 'Vacant') : p.occupant?.name ?? 'Filled'}
               </Box>
               <Mono sx={{ fontSize: 12.5 }}>{p.positionCode ?? `#${p.id}`}</Mono>
               <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-3)', flex: 1 }}>

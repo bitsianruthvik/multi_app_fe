@@ -1,6 +1,8 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Box, FormControlLabel, Radio, RadioGroup, Typography } from '@mui/material';
-import { ConfirmDialog, Mono, useToast } from '@shared/ui';
+import { Link as RouterLink } from 'react-router-dom';
+import { ConfirmDialog, Mono, useCompanySlug, useToast } from '@shared/ui';
+import { openHiringIdOf } from '../api/hiring';
 import type { PositionRemovalImpact, RemovalResult } from '../api/positions';
 import { positionsApi } from '../api/positions';
 
@@ -112,11 +114,13 @@ const firstAllowed = (impact: PositionRemovalImpact): Choice | null =>
   choicesFor(impact).find((c) => c.allowed)?.value ?? null;
 
 function ChoiceRow({
-  c, selected, blockers,
+  c, selected, blockers, hiringHref,
 }: {
   c: ChoiceView;
   selected: boolean;
   blockers: PositionRemovalImpact['team']['blockers'];
+  /** The open hiring that blocks this choice, when the refusal is HIRING_OPEN. */
+  hiringHref: string | null;
 }) {
   const edge = selected ? (c.destructive ? 'var(--c-danger-600)' : 'var(--c-primary-500)') : 'var(--c-border)';
   return (
@@ -159,6 +163,14 @@ function ChoiceRow({
               }}
             >
               {c.reason}
+              {c.code === 'HIRING_OPEN' && hiringHref && (
+                <>
+                  {' '}
+                  <Box component={RouterLink} to={hiringHref} sx={{ color: 'var(--c-primary-700)', fontWeight: 500 }}>
+                    Go to the hiring
+                  </Box>
+                </>
+              )}
               {c.code === 'TEAM_IN_USE' && blockers.length > 0 && (
                 <Box
                   component="ul"
@@ -200,6 +212,13 @@ export function PositionRemoveDialog({
     setChoice((cur) => (cur && choicesFor(impact).find((c) => c.value === cur)?.allowed ? cur : firstAllowed(impact)));
   }, [impact]);
 
+  // The open hiring that stands in the way: named by the impact read, or by the
+  // 409 if one was opened while this dialog was on screen.
+  const company = useCompanySlug();
+  const [refusedHiring, setRefusedHiring] = useState<number | null>(null);
+  const blockingHiring = impact.hiring?.id ?? impact.existing?.id ?? impact.detail?.hiringId ?? refusedHiring;
+  const hiringHref = blockingHiring ? `/${company}/cf_hrms/hiring/${blockingHiring}` : null;
+
   const destructive = choice === 'DELETE_ONLY' || choice === 'DELETE_TEAM';
   const nothingAllowed = choice === null;
 
@@ -224,6 +243,7 @@ export function PositionRemoveDialog({
       // show its words in place, and re-read the impact so the choices and the
       // counts in the labels match what is true now.
       if ((e as { status?: number })?.status === 409) onReload();
+      setRefusedHiring(openHiringIdOf(e));
       throw e;
     }
     const moved = result.movedReports.length;
@@ -251,9 +271,17 @@ export function PositionRemoveDialog({
       </Typography>
       <RadioGroup value={choice ?? ''} onChange={(e) => setChoice(e.target.value as Choice)} aria-label="What to do with this position">
         {choices.map((c) => (
-          <ChoiceRow key={c.value} c={c} selected={choice === c.value} blockers={team.blockers} />
+          <ChoiceRow key={c.value} c={c} selected={choice === c.value} blockers={team.blockers} hiringHref={hiringHref} />
         ))}
       </RadioGroup>
+      {/* Refused just now because of a hiring the choices above did not know about. */}
+      {refusedHiring != null && hiringHref && !choices.some((c) => c.code === 'HIRING_OPEN') && (
+        <Typography sx={{ fontSize: 13, mb: 0.5 }}>
+          <Box component={RouterLink} to={hiringHref} sx={{ color: 'var(--c-primary-700)', fontWeight: 500 }}>
+            Go to the hiring
+          </Box>
+        </Typography>
+      )}
       <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-3)', mt: 0.5 }}>
         A closed position can be reopened. A deleted one cannot.
       </Typography>

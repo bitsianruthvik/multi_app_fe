@@ -6,6 +6,8 @@ import type { OrgChartNode } from '../api/orgchart';
 import { positionsApi, type PositionOccupant } from '../api/positions';
 import { peopleApi, type EmployeeRow } from '../api/people';
 import { assignmentsApi } from '../api/assignments';
+import { Link as RouterLink } from 'react-router-dom';
+import { joiningSentence } from '../api/hiring';
 import { HiringEntry } from './HiringEntry';
 import { OrgChartJobSection } from './OrgChartJobSection';
 import {
@@ -119,6 +121,11 @@ export function OrgChartVacantPositionView({
   const roleTitle = node?.roleTitle ?? card?.roleTitle ?? null;
   const code = node?.positionCode ?? card?.positionCode ?? null;
   const shiftId = node?.defaultShift?.id ?? card?.shift?.id ?? null;
+  // The open hiring, if there is one. While it is open the position is still
+  // vacant, but nobody else can be moved into it: the hiring is closed first.
+  const hiring = node?.hiring ?? card?.hiring ?? null;
+  // Somebody is appointed and joins on a later day: nothing else can fill the position.
+  const joining = node?.joining ?? card?.joining ?? null;
 
   const lastHolder = useMemo(() => {
     const ended = (past ?? []).filter((o) => !o.liveOnDate && o.effectiveTo && o.effectiveTo < asOf);
@@ -161,6 +168,8 @@ export function OrgChartVacantPositionView({
     } catch (e) {
       // The server's sentence as it comes — e.g. "This position already has a person in it."
       setError(e);
+      // A hiring was opened for this position meanwhile: reload, so the panel shows it.
+      if ((e as { code?: string })?.code === 'HIRING_OPEN') onChanged?.();
     } finally {
       setBusy(false);
     }
@@ -180,8 +189,15 @@ export function OrgChartVacantPositionView({
       </Typography>
 
       <Box sx={{ mt: 2 }} data-fill="">
-        <SectionTitle>Put a person in this position</SectionTitle>
-        {!canAssign ? (
+        <SectionTitle>{joining ? 'Who is coming' : 'Put a person in this position'}</SectionTitle>
+        {joining ? (
+          <Typography data-joining="" sx={{ fontSize: 13.5, lineHeight: 1.55 }}>
+            <Box component={RouterLink} to={`/${company}/cf_hrms/employees/${joining.employeeId}`} sx={{ color: 'var(--c-primary-700)', fontWeight: 500 }}>
+              {joining.name}
+            </Box>
+            {joiningSentence(joining).slice(joining.name.length)}. The position is vacant until that day, and nobody else can be put in it.
+          </Typography>
+        ) : !canAssign ? (
           <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>
             Putting a person in a position needs the permission to manage work assignments.
           </Typography>
@@ -192,8 +208,12 @@ export function OrgChartVacantPositionView({
               data-fill-move=""
               sx={{ border: '1px solid var(--c-border)', borderRadius: 'var(--r-sm)', p: 1.25 }}
             >
-              <Box sx={{ ...smallLabel, mb: 0.75 }}>Move an existing employee here</Box>
-              {people == null && !error ? (
+              <Box sx={{ ...smallLabel, mb: 0.75, color: hiring ? 'var(--c-text-3)' : undefined }}>Move an existing employee here</Box>
+              {hiring ? (
+                <Typography data-fill-move-blocked="" sx={{ fontSize: 12.5, color: 'var(--c-text-2)', lineHeight: 1.5 }}>
+                  A hiring is open for this position. Close it first.
+                </Typography>
+              ) : people == null && !error ? (
                 <Skeleton variant="rounded" height={40} />
               ) : (
                 <Stack spacing={1.25}>
@@ -267,15 +287,20 @@ export function OrgChartVacantPositionView({
               }}
             >
               <Box sx={{ flex: '1 1 180px', minWidth: 0 }}>
-                <Box sx={smallLabel}>Hire a new person</Box>
+                <Box sx={smallLabel}>{hiring ? 'Hiring in progress' : 'Hire a new person'}</Box>
                 <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)', lineHeight: 1.5 }}>
-                  For someone who is not an employee yet.
+                  {hiring
+                    ? hiring.candidateName?.trim()
+                      ? `For ${hiring.candidateName.trim()}. They become an employee at the appointment.`
+                      : 'No candidate has been entered yet.'
+                    : 'For someone who is not an employee yet.'}
                 </Typography>
               </Box>
               <HiringEntry
                 positionId={positionId}
                 positionCode={code}
                 roleTitle={roleTitle}
+                hiring={hiring}
                 onChanged={() => onChanged?.()}
               />
             </Box>

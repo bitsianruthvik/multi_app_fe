@@ -8,6 +8,7 @@ import PersonRounded from '@mui/icons-material/PersonRounded';
 import PersonOutlineRounded from '@mui/icons-material/PersonOutlineRounded';
 import { ErrorNotice, Mono, StatusBadge, ToneBadge, useIsPermitted } from '@shared/ui';
 import type { CardReportingRow, OrgChartNode, PositionCard } from '../api/orgchart';
+import { joiningLabel, type JoiningRef } from '../api/hiring';
 import { shiftNameOf } from './orgChartLayout';
 import { PositionShiftControl } from './PositionShiftControl';
 import { usePositionRemoval } from './usePositionRemoval';
@@ -78,17 +79,26 @@ export function PositionListRow({
   shift,
   code,
   current,
+  hiring,
+  joining,
   onClick,
 }: {
   /** The person in it; null = vacant. */
   name: string | null;
+  /** A vacant position with a hiring open: the candidate (or "Hiring"), still drawn as a vacancy. */
+  hiring?: { candidateName: string | null } | null;
+  /** A vacant position somebody is appointed to and has not joined yet. */
+  joining?: JoiningRef | null;
   shift: string | null;
   code: string | null;
   /** This is the position the panel was opened on. */
   current?: boolean;
   onClick: () => void;
 }) {
-  const label = `${name ?? 'Vacant'}${shift ? `, ${shift} shift` : ''}${code ? `, position ${code}` : ''}. Open this position.`;
+  const coming = !name && joining ? joiningLabel(joining) : null;
+  const beingHired = !name && !coming && hiring ? hiring.candidateName?.trim() || 'Hiring' : null;
+  const said = name ?? (coming ? `Vacant, ${coming}` : beingHired ? `Vacant, hiring ${beingHired === 'Hiring' ? 'in progress' : beingHired}` : 'Vacant');
+  const label = `${said}${shift ? `, ${shift} shift` : ''}${code ? `, position ${code}` : ''}. Open this position.`;
   return (
     <Box
       component="button"
@@ -132,9 +142,17 @@ export function PositionListRow({
             overflowWrap: 'anywhere',
           }}
         >
-          {name ?? 'Vacant'}
+          {name ?? coming ?? beingHired ?? 'Vacant'}
         </Box>
       </Box>
+      {beingHired && beingHired !== 'Hiring' && (
+        <Box
+          data-hiringlabel=""
+          sx={{ fontSize: 11, px: 0.75, borderRadius: 'var(--r-sm)', background: 'var(--c-surface-3)', color: 'var(--c-text-2)', flexShrink: 0 }}
+        >
+          Hiring
+        </Box>
+      )}
       {shift && <Box sx={{ fontSize: 12, color: 'var(--c-text-2)', flexShrink: 0 }}>{shift}</Box>}
       {code && <Mono sx={{ fontSize: 11.5, flexShrink: 0 }}>{code}</Mono>}
       <ChevronRightRounded aria-hidden sx={{ fontSize: 18, color: 'var(--c-text-3)', flexShrink: 0 }} />

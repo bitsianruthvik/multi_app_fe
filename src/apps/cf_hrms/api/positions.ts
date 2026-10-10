@@ -1,5 +1,6 @@
 import { api } from './client';
 import type { ReportingSummary, ResolvedRelationship } from './assignments';
+import type { HiringRef, JoiningRef } from './hiring';
 
 /**
  * Positions — the sanctioned seats, their work contexts, their FORMAL reporting
@@ -48,6 +49,10 @@ export interface PositionRow {
   shift?: PositionShift | null;
   /** The one person in the position; null when it is vacant. Absent from an older server. */
   occupant?: { employeeId: number; name: string; employeeCode: string | null } | null;
+  /** The OPEN hiring on this position, or null. It is still vacant while one is open. */
+  hiring?: HiringRef | null;
+  /** Someone appointed here who joins on a later day. The position is vacant until then. */
+  joining?: JoiningRef | null;
   status: string;
   effectiveFrom: string | null;
   effectiveTo: string | null;
@@ -236,6 +241,10 @@ export interface PositionRemovalImpact {
   ownAssignments: number;
   /** Dotted / functional / planned / ended lines that go with the seat(s), per outcome. */
   otherLines: { thisOnly: number; withTeam: number };
+  /** The open hiring that blocks closing or deleting (outcome code HIRING_OPEN), where the server names it. */
+  hiring?: { id: number } | null;
+  existing?: { id: number } | null;
+  detail?: { hiringId?: number } | null;
   outcomes: {
     close: RemovalOutcome & { movesReports: number };
     deleteOnly: RemovalOutcome & { movesReports: number };
