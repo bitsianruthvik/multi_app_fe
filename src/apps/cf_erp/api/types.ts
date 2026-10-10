@@ -441,6 +441,8 @@ export interface BomLine {
   /** The flow this line names, and the one that applies. */
   flow: { id: number; code: string; name: string } | null;
   effectiveFlow: EffectiveFlow | null;
+  /** What the child's definition is made by today. */
+  definitionFlow?: { id: number; code: string; name: string } | null;
 }
 
 export interface BomView {
@@ -481,6 +483,8 @@ export interface StructureNode {
   cutFrom?: CutFrom | null;
   cutStock?: CutRef | null;
   flow: EffectiveFlow | null;
+  /** What the row's DEFINITION is made by today (an order row keeps the flow it was made with) — said even when the row has no flow. */
+  definitionFlow?: { id: number; code: string; name: string } | null;
   bom: { id: number; bomType: BomType; status: RecordStatus; revision: string | null } | null;
   children: StructureNode[];
 }
@@ -736,13 +740,59 @@ export interface WaitRule {
   text: string;
 }
 
+/** One time of a flow step's operation; every field null when it is not set. */
+export interface FlowStepTimePart { minutes: number | null; expression: string | null; display: string | null; formula: { id: number | null; code: string | null; expression: string } | null }
+
+/** The operation's own times, from its MAIN rule (the one the Operations list shows). No rule: ruleId null, rules 0. */
+export interface FlowStepTime {
+  setup: FlowStepTimePart;
+  work: FlowStepTimePart;
+  ruleId: number | null;
+  subject: TimingSubject | null;
+  eligible: boolean | null;
+  /** How many rules the operation has in all. */
+  rules: number;
+}
+
 export interface FlowStep {
   id: number;
   sequence: number;
   operation: { id: number; code: string; name: string; status: 'active' | 'inactive' };
   stepName: string | null;
   notes: string | null;
+  time?: FlowStepTime;
+  /** The lane it is drawn in: 0 = the trunk. Worked out from the numbers for a flow not yet saved with lanes. */
+  lane?: number;
+  /** The ids of the steps it starts after — the flow's order (init.sql §54). */
+  after?: number[];
   waits: WaitRule[];
+}
+
+/** PUT /flows/:id/steps — the whole list of steps in one save (the flow page's edit mode). */
+export interface FlowStepsPayload {
+  steps: {
+    id?: number;
+    operationId: number;
+    stepName: string | null;
+    notes: string | null;
+    /** The name this list gives the step, for `after` to point at. */
+    key: string;
+    /** The lane it is drawn in: 0 = the trunk, 1, 2 … to its right. */
+    lane: number;
+    /** The keys of the steps it starts after. None = a first step; two or more = lanes meet at it. */
+    after: string[];
+    waits: ({ id: number } | { relation: WaitRelation; targetDefinitionId: number | null; targetOperationId: number | null; requiredStatus: 'started' | 'done'; notes: string | null })[];
+  }[];
+  dryRun?: boolean;
+}
+
+export interface FlowStepsSaved {
+  flow: FlowDetail;
+  /** What the save did, in words: "2 steps added, order changed." */
+  summary: string;
+  changes: { added: number; removed: number; replaced: number; edited: number; waitsAdded: number; waitsRemoved: number; orderChanged: boolean; lanesChanged?: boolean; renumbered: boolean };
+  synced: boolean;
+  dryRun: boolean;
 }
 
 /** POST /flow-steps/:id/replace — what moved with the new operation. */
@@ -775,6 +825,8 @@ export interface Flow {
 }
 
 export interface FlowDetail extends Flow {
+  /** true = saved with lanes and read by what each step starts after; false = a flow from before, read by its numbers. */
+  linked?: boolean;
   steps: FlowStep[];
   uses: { records: { id: number; code: string | null; name: string; kind: Kind; shortName?: string | null }[]; bomLines: number; /** True count of records naming the flow; `records` stops at 100. */ recordCount?: number };
 }

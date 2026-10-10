@@ -268,6 +268,11 @@ export interface Pending {
   quantity: Record<number, string>;
   /** The flow chosen for a line; null goes back to the way the child is usually made. */
   flow: Record<number, number | null>;
+  /**
+   * A row's OWN flow, keyed by RECORD id (not line): the only flow the top row of an order line has, and
+   * what "take the definition's flow again" sets. null = no flow.
+   */
+  ownFlow?: Record<number, number | null>;
   /** The description typed for a line (the text after the dot in its label). */
   role?: Record<number, string>;
   remove: Record<number, true>;
@@ -298,7 +303,51 @@ export function withFlow(p: Pending, node: StructureNode, flowId: number | null)
   return { ...p, flow };
 }
 
+/** The row's OWN saved flow — what applies once its line names none (an order row keeps the flow it was made with). */
+export const ownFlowId = (node: StructureNode): number | null => (node.flow?.from === 'line' ? node.flow.usual?.id ?? null : node.flow?.id ?? null);
+
+/** A row whose own flow can be set from a structure: an order's own row (a catalog item's or a definition's is set on the record itself). */
+export const hasOwnFlow = (node: StructureNode): boolean => node.kind === 'temporary';
+
+/** Waiting own-flow choices with one more. Choosing what is already saved takes the entry away. */
+export function withOwnFlow(p: Pending, node: StructureNode, flowId: number | null): Pending {
+  if (!hasOwnFlow(node)) return p;
+  const ownFlow = { ...p.ownFlow };
+  if ((flowId ?? null) === ownFlowId(node)) delete ownFlow[node.id];
+  else ownFlow[node.id] = flowId;
+  return { ...p, ownFlow };
+}
+
+/**
+ * A flow picked for a row, whichever kind of row it is. A row held by a BOM line: the line names it
+ * (null = back to the row's own). The TOP row of an order line has no line, so the choice is its own
+ * flow — and "each row's default" leaves it alone, because its own flow IS its default.
+ */
+export function withFlowChoice(p: Pending, node: StructureNode, flowId: number | null): Pending {
+  if (node.lineId != null) return withFlow(p, node, flowId);
+  return flowId == null ? p : withOwnFlow(p, node, flowId);
+}
+
+/**
+ * "Take the definition's flow again": the row's OWN flow becomes what its definition is made by today,
+ * and its line's own choice is cleared — both waiting, saved together. The top row has no line.
+ */
+export function withDefinitionFlow(p: Pending, node: StructureNode): Pending {
+  const def = node.definitionFlow;
+  if (!def || !hasOwnFlow(node)) return p;
+  const next = withOwnFlow(p, node, def.id);
+  return node.lineId != null ? withFlow(next, node, null) : next;
+}
+
 const sameNumber = (a: number, b: number) => Math.abs(a - b) < 1e-9;
+
+/** Every node of the tree by its record id (the first place it is drawn) — the top row included. */
+export function nodesByRecord(root: StructureNode): Map<number, StructureNode> {
+  const out = new Map<number, StructureNode>();
+  const walk = (n: StructureNode) => { if (!out.has(n.id)) out.set(n.id, n); n.children.forEach(walk); };
+  walk(root);
+  return out;
+}
 
 /** Every node of the tree by its BOM line id. */
 export function nodesByLine(root: StructureNode): Map<number, StructureNode> {
@@ -313,7 +362,7 @@ export function nodesByLine(root: StructureNode): Map<number, StructureNode> {
  * row keys whose quantity field does not hold a quantity — those cannot be
  * sent, and Save waits for them.
  */
-export function pendingChanges(p: Pending, byLine: Map<number, StructureNode>): { changes: BomChange[]; invalid: string[] } {
+export function pendingChanges(p: Pending, byLine: Map<number, StructureNode>, byRecord?: Map<number, StructureNode>): { changes: BomChange[]; invalid: string[] } {
   const changes: BomChange[] = [];
   const invalid: string[] = [];
   for (const pasted of p.pastes) {
@@ -333,6 +382,11 @@ export function pendingChanges(p: Pending, byLine: Map<number, StructureNode>): 
   for (const [id, flowId] of Object.entries(p.flow)) {
     const node = byLine.get(Number(id));
     if (node && (flowId ?? null) !== lineFlowId(node)) changes.push({ op: 'flow', lineId: Number(id), flowId: flowId ?? null });
+  }
+  // A row's own flow, by record — the top row is in no line map, so it is found in the tree's records.
+  for (const [id, flowId] of Object.entries(p.ownFlow ?? {})) {
+    const node = byRecord?.get(Number(id)) ?? [...byLine.values()].find((n) => n.id === Number(id));
+    if (node && (flowId ?? null) !== ownFlowId(node)) changes.push({ op: 'ownFlow', recordId: Number(id), flowId: flowId ?? null });
   }
   for (const [id, text] of Object.entries(p.role ?? {})) {
     const node = byLine.get(Number(id));

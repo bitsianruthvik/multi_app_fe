@@ -548,7 +548,7 @@ await check('Edit rule: Setup and Work each open the same time dialog; the rule 
   assert.equal(put.body.setupExpression, '6');
   assert.equal(put.body.workExpression, own);
   for (const k of Object.keys(put.body)) assert.ok(!/Minutes|FormulaId/.test(k), `old field ${k} is not sent`);
-  assert.equal(saved, 1);
+  assert.equal(saved, 2, 'once when the setup time was saved (it is saved at once), once on Save rule');
 });
 await check('Add rule (new): the time dialog fills the rule form (the rule is created on Add rule with the same expression fields)', async () => {
   globalThis.__routes = [...baseRoutes(), ['POST', /^\/operations\/1\/rules$/, () => ({ id: 99 })]];

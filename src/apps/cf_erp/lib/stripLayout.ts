@@ -79,6 +79,17 @@ export function shortLabel(code: string, name?: string | null): string {
   return text.length <= MAX ? text : `${text.slice(0, MAX - 1).trimEnd()}…`;
 }
 
+/**
+ * The same label where there is room for the whole of it — the order-line Excel
+ * (backend lib/orderSheetLayout.js mirrors this; scripts/cf_erp_order_sheet_layout_test.mjs
+ * holds the two together): the grid's own short word for a well-known value,
+ * else the specification's whole name. The grid cuts a long name to fit a cell
+ * and keeps the rest in a tooltip; a spreadsheet has no tooltip.
+ */
+export function sheetLabel(code: string, name?: string | null): string {
+  return SHORT[code] ?? (name || code).trim();
+}
+
 /** An operation's label: its name when short, else its code. */
 export function opShortLabel(op: { code?: string | null; name: string }): string {
   if (op.name.length <= MAX) return op.name;

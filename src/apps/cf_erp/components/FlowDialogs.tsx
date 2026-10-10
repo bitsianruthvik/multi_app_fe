@@ -1,12 +1,12 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
-  Autocomplete, Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, MenuItem, TextField,
+  Alert, Autocomplete, Box, Button, Checkbox, CircularProgress, Dialog, DialogActions, DialogContent, FormControlLabel, MenuItem, TextField,
   ToggleButton, ToggleButtonGroup, Typography,
 } from '@mui/material';
 import { cfApi, CfApiError } from '../api/client';
-import type { Flow, FlowDetail, FlowStep, MasterRecord, Operation, StepReplaced, WaitRelation } from '../api/types';
-import { useLoad } from '../hooks/useLoad';
+import type { Flow, FlowDetail, MasterRecord, Operation, WaitRelation } from '../api/types';
 import { RELATION_HELP, RELATION_LABEL } from '../lib/production';
+import { mergeChoices, meetingSteps, type FlowDraft, type Gap, type Merge, type MergeChoice, type NewWait as PendingWait } from '../lib/flowEdit';
 import { RecordPicker } from './RecordPicker';
 import { ErrorNotice } from './ui';
 import { DialogHeader } from './FormDialog';
@@ -63,90 +63,41 @@ export function FlowDialog({ open, existing, onClose, onSaved }: { open: boolean
   );
 }
 
-/** Adds a step (an operation at a sequence number) or edits one. Same number = runs alongside. */
-export function StepDialog({ open, flow, existing, onClose, onSaved }: { open: boolean; flow: FlowDetail; existing: FlowStep | null; onClose: () => void; onSaved: (f: FlowDetail) => void }) {
-  const ops = useLoad(() => cfApi.get<Operation[]>('/operations?status=active'), []);
-  const [operationId, setOperationId] = useState<number | null>(null);
-  const [sequence, setSequence] = useState('');
-  const [stepName, setStepName] = useState('');
-  const [notes, setNotes] = useState('');
-  const s = useSave<FlowDetail>(onSaved, onClose);
-  useEffect(() => {
-    if (!open) return;
-    s.setError(null);
-    setOperationId(existing?.operation.id ?? null);
-    setSequence(existing ? String(existing.sequence) : '');
-    setStepName(existing?.stepName ?? '');
-    setNotes(existing?.notes ?? '');
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, existing]);
-  // Every operation stays on offer: a girder is welded, crane-turned and welded
-  // again, which is two passes of ONE operation. What may not repeat is an
-  // operation at the same SEQUENCE, because steps sharing a number run
-  // alongside each other and "the first pass" would stop meaning anything —
-  // that is uq_cofs_operation_seq, and the server says so if you try.
-  const passes = (id: number | null) => (id == null ? 0 : flow.steps.filter((st) => st.operation.id === id).length);
-  const options = ops.data ?? [];
-  const next = (flow.steps.reduce((m, st) => Math.max(m, st.sequence), 0) || 0) + 10;
-  const body = { sequence: sequence === '' ? null : Number(sequence), stepName: stepName || null, notes: notes || null };
-  const blocked = !existing && !operationId;
-  // An existing step changes its operation through Replace (ReplaceStepDialog), which carries what hangs off it.
-  const save = () => s.run(() => (existing ? cfApi.put<FlowDetail>(`/flow-steps/${existing.id}`, body) : cfApi.post<FlowDetail>(`/flows/${flow.id}/steps`, { ...body, operationId })));
-  return (
-    <Dialog open={open} onClose={() => !s.busy && onClose()} maxWidth="sm" fullWidth onKeyDown={enterSubmits(save, s.busy || blocked)}>
-      <DialogHeader title={existing ? `Step ${existing.sequence}: ${existing.operation.name}` : 'Add a step'} onClose={onClose} busy={s.busy}
-        subtitle="Steps run in sequence order; two steps with the same number run alongside each other." />
-      <DialogContent>
-        <ErrorNotice error={s.error} />
-        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', sm: 'minmax(0, 1fr) 140px' }, gap: 2, pt: 0.5 }}>
-          <Autocomplete size="small" options={options} value={options.find((o) => o.id === operationId) ?? null} disabled={!!existing}
-            getOptionLabel={(o) => `${o.code} · ${o.name}`} isOptionEqualToValue={(a, b) => a.id === b.id} onChange={(_, o) => setOperationId(o?.id ?? null)}
-            renderInput={(p) => <TextField {...p} label="Operation" autoFocus={!existing} helperText={existing ? 'To change it, use Replace (⇄) on the step'
-                : passes(operationId) > 0
-                  ? `Already in this flow ${passes(operationId)}x — this adds another pass`
-                  : 'An operation may appear more than once — give each pass its own sequence'} />} />
-          <TextField label="Sequence" type="number" value={sequence} onChange={(e) => setSequence(e.target.value)} placeholder={String(next)}
-            helperText={existing ? 'Same number as another step = alongside it' : `Empty: ${next}`} />
-          <TextField label="Step name (optional)" value={stepName} onChange={(e) => setStepName(e.target.value)} sx={{ gridColumn: '1 / -1' }} helperText="e.g. Drill splice holes" />
-          <TextField label="Notes" value={notes} onChange={(e) => setNotes(e.target.value)} multiline sx={{ gridColumn: '1 / -1' }} />
-        </Box>
-      </DialogContent>
-      <Actions busy={s.busy} onClose={onClose} label={existing ? 'Save step' : 'Add step'} disabled={blocked} onSave={save} />
-    </Dialog>
-  );
-}
-
 /**
- * Replace the operation of one step (POST /flow-steps/:id/replace). The step keeps its number,
- * name and waits; lines already released keep the old operation; time overrides and contractor
- * assignments of the rest move to the new one.
+ * Picks ONE operation for the flow page's edit mode — a new step at a gap, a step alongside, or the
+ * operation that replaces a step's. It calls nothing: the pick goes into the page's pending edits,
+ * and Save sends them all at once.
+ *
+ * Every operation stays on offer: a girder is welded, crane-turned and welded again, which is two
+ * passes of ONE operation. What may not repeat is an operation at the same NUMBER, because steps
+ * sharing a number run alongside each other — `exclude` leaves those out.
  */
-export function ReplaceStepDialog({ open, step, onClose, onSaved }: { open: boolean; step: FlowStep | null; onClose: () => void; onSaved: (r: { flow: FlowDetail; replaced: StepReplaced }) => void }) {
-  const ops = useLoad(() => (open ? cfApi.get<Operation[]>('/operations?status=active') : Promise.resolve([] as Operation[])), [open]);
-  const [operationId, setOperationId] = useState<number | null>(null);
-  const s = useSave<{ flow: FlowDetail; replaced: StepReplaced }>(onSaved, onClose);
-  useEffect(() => {
-    if (open) { s.setError(null); setOperationId(null); }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, step?.id]);
-  const options = (ops.data ?? []).filter((o) => o.id !== step?.operation.id);
-  const save = () => step && operationId && s.run(() => cfApi.post<{ flow: FlowDetail; replaced: StepReplaced }>(`/flow-steps/${step.id}/replace`, { operationId }));
+export function OperationPickDialog({ open, title, subtitle, note, confirmLabel, options, loading = false, exclude = [], passes, onClose, onPick }: {
+  open: boolean; title: string; subtitle?: string; note?: string; confirmLabel: string; options: Operation[]; loading?: boolean;
+  /** Operation ids not offered. */
+  exclude?: number[];
+  /** How many steps of the flow already do this operation. */
+  passes?: (operationId: number) => number;
+  onClose: () => void; onPick: (operation: Operation) => void;
+}) {
+  const [picked, setPicked] = useState<Operation | null>(null);
+  useEffect(() => { if (open) setPicked(null); }, [open]);
+  const offered = options.filter((o) => !exclude.includes(o.id));
+  const already = picked && passes ? passes(picked.id) : 0;
+  const pick = () => { if (picked) { onPick(picked); onClose(); } };
   return (
-    <Dialog open={open} onClose={() => !s.busy && onClose()} maxWidth="sm" fullWidth onKeyDown={enterSubmits(save, s.busy || !operationId)}>
-      <DialogHeader title={step ? `Replace ${step.operation.name}` : 'Replace'} onClose={onClose} busy={s.busy}
-        subtitle={step ? `Step ${step.sequence}${step.stepName ? ` · ${step.stepName}` : ''} keeps its place, name and waits.` : undefined} />
+    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth onKeyDown={enterSubmits(pick, !picked)}>
+      <DialogHeader title={title} onClose={onClose} subtitle={subtitle} />
       <DialogContent>
-        <ErrorNotice error={s.error} />
         <Box sx={{ display: 'grid', gap: 2, pt: 0.5 }}>
-          <Autocomplete size="small" options={options} value={options.find((o) => o.id === operationId) ?? null} loading={ops.loading}
-            getOptionLabel={(o) => `${o.code} · ${o.name}`} isOptionEqualToValue={(a, b) => a.id === b.id} onChange={(_, o) => setOperationId(o?.id ?? null)}
-            renderInput={(p) => <TextField {...p} label="Replace with" autoFocus inputProps={{ ...p.inputProps, 'data-testid': 'replace-operation' }} />} />
-          <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>
-            Orders already released keep {step?.operation.code ?? 'the old operation'}. Everything not yet released uses the new one, and their time overrides and contractor assignments move with it.
-          </Typography>
+          <Autocomplete size="small" options={offered} value={picked} loading={loading}
+            getOptionLabel={(o) => `${o.code} · ${o.name}`} isOptionEqualToValue={(a, b) => a.id === b.id} onChange={(_, o) => setPicked(o)}
+            renderInput={(p) => <TextField {...p} label="Operation" autoFocus inputProps={{ ...p.inputProps, 'data-testid': 'pick-operation' }}
+              helperText={already > 0 ? `Already in this flow ${already}x — this is another pass` : undefined} />} />
+          {note && <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>{note}</Typography>}
         </Box>
       </DialogContent>
-      <Actions busy={s.busy} onClose={onClose} label="Replace" disabled={!operationId} onSave={save} />
+      <Actions busy={false} onClose={onClose} label={confirmLabel} disabled={!picked} onSave={pick} />
     </Dialog>
   );
 }
@@ -184,32 +135,39 @@ function sentence(relation: WaitRelation, def: MasterRecord | null, op: Operatio
  * Adds a Wait-For rule to a step. The rule names a relative target — parent,
  * children, siblings or the nearest ancestor of a template — so it holds for
  * every order; the production tracker tree resolves who that is.
+ *
+ * It calls nothing: the rule goes to `onAdd`, into the flow page's pending edits (Save sends them
+ * all at once), with the sentence composed here so the card can show it before it is saved.
+ * `clash` says the step already waits for exactly that.
  */
-export function WaitDialog({ open, step, onClose, onSaved }: { open: boolean; step: FlowStep | null; onClose: () => void; onSaved: (f: FlowDetail) => void }) {
-  const ops = useLoad(() => cfApi.get<Operation[]>('/operations?status=active'), []);
+export function WaitDialog({ open, step, options, clash, onClose, onAdd }: {
+  open: boolean; step: { sequence: number | null; operation: { code: string } } | null; options: Operation[];
+  clash?: (wait: PendingWait) => boolean; onClose: () => void; onAdd: (wait: PendingWait) => void;
+}) {
   const [relation, setRelation] = useState<WaitRelation>('children');
   const [def, setDef] = useState<MasterRecord | null>(null);
   const [opId, setOpId] = useState<number | null>(null);
   const [status, setStatus] = useState<'started' | 'done'>('done');
   const [notes, setNotes] = useState('');
-  const s = useSave<FlowDetail>(onSaved, onClose);
   useEffect(() => {
     if (!open) return;
-    s.setError(null); setRelation('children'); setDef(null); setOpId(null); setStatus('done'); setNotes('');
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    setRelation('children'); setDef(null); setOpId(null); setStatus('done'); setNotes('');
   }, [open]);
-  const op = (ops.data ?? []).find((o) => o.id === opId) ?? null;
+  const op = options.find((o) => o.id === opId) ?? null;
   const needsDef = relation === 'ancestor';
-  const blocked = !step || (needsDef && !def);
-  const save = () => s.run(() => cfApi.post<FlowDetail>(`/flow-steps/${step?.id}/waits`, {
-    relation, targetDefinitionId: def?.id ?? null, targetOperationId: opId, requiredStatus: status, notes: notes || null,
-  }));
+  const wait: PendingWait = {
+    relation, targetDefinitionId: relation === 'parent' ? null : def?.id ?? null, targetOperationId: opId, requiredStatus: status, notes: notes.trim() || null,
+    text: sentence(relation, def, op, status),
+  };
+  const twice = !!clash?.(wait);
+  const blocked = !step || (needsDef && !def) || twice;
+  const save = () => { if (!blocked) { onAdd(wait); onClose(); } };
   return (
-    <Dialog open={open} onClose={() => !s.busy && onClose()} maxWidth="sm" fullWidth onKeyDown={enterSubmits(save, s.busy || blocked)}>
-      <DialogHeader title={step ? `Step ${step.sequence} (${step.operation.code}) waits for…` : 'Wait for'} onClose={onClose} busy={s.busy}
+    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth onKeyDown={enterSubmits(save, blocked)}>
+      <DialogHeader title={step ? `Step ${step.sequence ?? ''} (${step.operation.code}) waits for…` : 'Wait for'} onClose={onClose}
         subtitle="A relative rule, so it holds for every order; the production tracker tree works out who that is." />
       <DialogContent>
-        <ErrorNotice error={s.error} />
+        {twice && <Alert severity="warning" sx={{ mb: 2 }}>This step already waits for that.</Alert>}
         <Box sx={{ display: 'grid', gap: 2, pt: 0.5 }}>
           <Box>
             <ToggleButtonGroup exclusive size="small" value={relation} onChange={(_, v) => { if (v) { setRelation(v); if (v === 'parent') setDef(null); } }} aria-label="Who to wait for" sx={{ flexWrap: 'wrap' }}>
@@ -221,7 +179,7 @@ export function WaitDialog({ open, step, onClose, onSaved }: { open: boolean; st
             <RecordPicker kinds={['template']} value={def} onChange={setDef} label={needsDef ? 'Which ancestor — made from template' : 'Only those made from (optional)'}
               helperText={needsDef ? 'The nearest one of these above the piece' : 'Empty: all of them'} />
           )}
-          <Autocomplete size="small" options={ops.data ?? []} value={op} getOptionLabel={(o) => `${o.code} · ${o.name}`} isOptionEqualToValue={(a, b) => a.id === b.id}
+          <Autocomplete size="small" options={options} value={op} getOptionLabel={(o) => `${o.code} · ${o.name}`} isOptionEqualToValue={(a, b) => a.id === b.id}
             onChange={(_, o) => setOpId(o?.id ?? null)} renderInput={(p) => <TextField {...p} label="At which of their steps (optional)" helperText="Empty: the piece as a whole" />} />
           <TextField select label="Until it has" value={status} onChange={(e) => setStatus(e.target.value as 'started' | 'done')}>
             <MenuItem value="done">Finished</MenuItem>
@@ -233,7 +191,92 @@ export function WaitDialog({ open, step, onClose, onSaved }: { open: boolean; st
           </Box>
         </Box>
       </DialogContent>
-      <Actions busy={s.busy} onClose={onClose} label="Add wait" disabled={blocked} onSave={save} />
+      <Actions busy={false} onClose={onClose} label="Add wait" disabled={blocked} onSave={save} />
+    </Dialog>
+  );
+}
+
+/**
+ * MERGE at a gap: which lanes meet here, which lane the flow continues in, and the step they meet at
+ * — an existing step of that lane, or a new one at its end. The lanes that are not continued in END
+ * here; the meeting step then waits for the step above it and for the last step of each of them.
+ * It calls nothing: the merge goes into the page's pending edits (`onMerge` answers a refusal in words).
+ */
+export function MergeDialog({ open, draft, gap, options, loading = false, onClose, onMerge }: {
+  open: boolean; draft: FlowDraft | null; gap: Gap | null; options: Operation[]; loading?: boolean; onClose: () => void; onMerge: (merge: Merge) => string | null;
+}) {
+  const [chosen, setChosen] = useState<string[]>([]);
+  const [target, setTarget] = useState<string>('');
+  const [at, setAt] = useState<string>('new');
+  const [operation, setOperation] = useState<Operation | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const choices = useMemo(() => (open && draft && gap ? mergeChoices(draft, gap) : null), [open, draft, gap]);
+  const lanes = useMemo(() => choices?.lanes ?? [], [choices]);
+  const byKey = (k: string) => lanes.find((l) => l.key === k);
+  // The lanes a set could continue in: every other lane of the set must be able to end here.
+  const targetsOf = (set: string[]) => set.filter((t) => set.every((k) => k === t || byKey(k)?.closable));
+  const meeting = (set: string[], t: string) => (draft && t ? meetingSteps(draft, set.filter((k) => k !== t), t, gap) : { steps: [], suggested: null });
+  const settle = (set: string[], wanted?: string) => {
+    const targets = targetsOf(set);
+    const t = wanted && targets.includes(wanted) ? wanted : targets[0] ?? '';
+    setChosen(set); setTarget(t); setAt(meeting(set, t).suggested ?? 'new'); setError(null);
+  };
+  useEffect(() => {
+    if (!open || !choices) return;
+    const mine = choices.lanes.find((l) => l.isGapLane);
+    const others = choices.lanes.filter((l) => !l.isGapLane);
+    const closers = others.filter((l) => l.closable);
+    // The obvious one: the only other lane that can end here; or, when this lane itself ends, the lane on its left.
+    const also = closers.length === 1 ? [closers[0].key]
+      : closers.length === 0 && mine?.closable ? others.filter((l) => l.number < mine.number).slice(-1).map((l) => l.key) : [];
+    setOperation(null);
+    settle([...(mine ? [mine.key] : []), ...also]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, choices]);
+  const set = lanes.filter((l) => chosen.includes(l.key)).map((l) => l.key);          // left to right
+  const targets = targetsOf(set);
+  const closing = set.filter((k) => k !== target);
+  const meet = meeting(set, target);
+  const blocked = set.length < 2 || !target || (at === 'new' && !operation);
+  const name = (l: MergeChoice) => `Lane ${l.number}${l.ends ? ` — ends at ${l.ends}` : ''}`;
+  const save = () => {
+    if (blocked || !draft) return;
+    const refused = onMerge({ closing, target, at: at === 'new' ? { operation: { id: (operation as Operation).id, code: (operation as Operation).code, name: (operation as Operation).name, status: (operation as Operation).status } } : at });
+    if (refused) setError(refused); else onClose();
+  };
+  return (
+    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth onKeyDown={enterSubmits(save, blocked)}>
+      <DialogHeader title="Lanes meet here" onClose={onClose}
+        subtitle="The lanes that are not continued in end here. The step they meet at waits for the last step of each of them." />
+      <DialogContent>
+        {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+        <Box sx={{ display: 'grid', gap: 2, pt: 0.5 }}>
+          <Box role="group" aria-label="Which lanes meet here?">
+            <Typography sx={{ fontSize: 13, fontWeight: 600, mb: 0.25 }}>Which lanes meet here?</Typography>
+            {lanes.map((l) => (
+              <FormControlLabel key={l.key} sx={{ display: 'flex', ml: 0 }}
+                control={<Checkbox size="small" checked={chosen.includes(l.key)} disabled={l.isGapLane} inputProps={{ 'aria-label': name(l) }}
+                  onChange={(e) => settle(e.target.checked ? [...chosen, l.key] : chosen.filter((k) => k !== l.key), target)} />}
+                label={<Box sx={{ fontSize: 14 }}>{name(l)}{l.isGapLane && <Box component="span" sx={{ color: 'var(--c-text-3)' }}> · this lane</Box>}{!l.closable && !l.isGapLane && <Box component="span" sx={{ color: 'var(--c-text-3)' }}> · goes on below</Box>}</Box>} />
+            ))}
+          </Box>
+          <TextField select size="small" label="Continue in lane" value={targets.includes(target) ? target : ''} onChange={(e) => settle(set, e.target.value)}
+            helperText={set.length < 2 ? 'Choose at least two lanes' : targets.length === 0 ? 'Two of these lanes go on below — only one of the chosen lanes can do that' : 'The other chosen lanes end here'}
+            inputProps={{ 'data-testid': 'merge-target' }}>
+            {targets.map((k) => <MenuItem key={k} value={k}>{`Lane ${byKey(k)?.number}`}</MenuItem>)}
+          </TextField>
+          <TextField select size="small" label="They meet at" value={at} onChange={(e) => { setAt(e.target.value); setError(null); }} disabled={!target} inputProps={{ 'data-testid': 'merge-at' }}>
+            {meet.steps.map((k) => <MenuItem key={k} value={k}>{`${draft?.steps[k]?.operation.code} · ${draft?.steps[k]?.operation.name}`}</MenuItem>)}
+            <MenuItem value="new">{`A new step at the end of lane ${byKey(target)?.number ?? ''}`}</MenuItem>
+          </TextField>
+          {at === 'new' && (
+            <Autocomplete size="small" options={options} value={operation} loading={loading}
+              getOptionLabel={(o) => `${o.code} · ${o.name}`} isOptionEqualToValue={(a, b) => a.id === b.id} onChange={(_, o) => setOperation(o)}
+              renderInput={(p) => <TextField {...p} label="Operation of the new step" inputProps={{ ...p.inputProps, 'data-testid': 'merge-operation' }} />} />
+          )}
+        </Box>
+      </DialogContent>
+      <Actions busy={false} onClose={onClose} label="Merge" disabled={blocked} onSave={save} />
     </Dialog>
   );
 }

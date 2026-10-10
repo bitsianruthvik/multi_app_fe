@@ -7,8 +7,8 @@ import type { Flow, StructureNode } from '../../api/types';
 import { Mono } from '../ui';
 import { isMade } from './flowShown';
 
-import type { FlowShown, FlowDefault } from './flowShown';
-import { usualFromText, type BulkRow } from './flowShown';
+import type { FlowShown, FlowDefault, FlowRef } from './flowShown';
+import { takeAgainNote, usualFromText, type BulkRow } from './flowShown';
 
 const stepsOf = (f: Flow) => (f.steps ?? []).slice().sort((a, b) => a.sequence - b.sequence).map((s) => s.operation.name);
 
@@ -49,14 +49,20 @@ export function FlowChip({ shown, made, disabled, label, onClick, tooltip }: {
  * The list under a row's picker: a search box, "Use the default" first, then
  * each flow with its steps in order. Obsolete flows are never offered.
  */
-export function FlowChoiceList({ flows, chosen, usual, onPick, autoFocus = true }: {
+export function FlowChoiceList({ flows, chosen, usual, onPick, autoFocus = true, takeAgain, onTakeAgain }: {
   flows: Flow[] | null | undefined;
-  /** The row's own choice now (null = the default). */
+  /** The row's own choice now (null = the default). With `usual: 'own'`: the row's own flow. */
   chosen: number | null;
-  /** 'each': several rows at once — every row goes to its own default. */
-  usual: FlowDefault | null | 'each';
+  /**
+   * 'each': several rows at once — every row goes to its own default.
+   * 'own': the TOP row of an order line — no BOM line holds it, so the flow picked IS the row's own and there is no default to go back to.
+   */
+  usual: FlowDefault | null | 'each' | 'own';
   onPick: (id: number | null) => void;
   autoFocus?: boolean;
+  /** The definition's flow of today, when it is not the flow the row is made by: one extra entry at the top. */
+  takeAgain?: FlowRef | null;
+  onTakeAgain?: () => void;
 }) {
   const [q, setQ] = useState('');
   const shown = useMemo(() => {
@@ -74,15 +80,23 @@ export function FlowChoiceList({ flows, chosen, usual, onPick, autoFocus = true 
         inputProps={{ 'aria-label': 'Search flows' }}
         InputProps={{ startAdornment: <InputAdornment position="start"><SearchRounded fontSize="small" /></InputAdornment> }} />
       <Box role="listbox" aria-label="Flows" sx={{ mt: 1, maxHeight: 320, overflowY: 'auto', border: '1px solid var(--c-border)', borderRadius: 'var(--r-sm)' }}>
-        <Box component="button" type="button" role="option" aria-selected={chosen == null} data-testid="flow-use-default" onClick={() => onPick(null)} sx={row(chosen == null)}>
-          <Typography sx={{ fontSize: 13, fontWeight: 600 }}>
-            {usual === 'each' ? 'Use each row’s default' : usual ? <>Use the default (<Mono>{usual.code}</Mono>)</> : 'Use the default (none set up)'}
-          </Typography>
-          <Typography sx={{ fontSize: 11.5, color: 'var(--c-text-3)' }}>
-            {usual === 'each' ? 'Takes the choice off each ticked row; it follows its item or template again.'
-              : usual ? `${usual.name} — from ${usualFromText(usual)}` : 'The row follows its item or template, which have no flow yet.'}
-          </Typography>
-        </Box>
+        {takeAgain && onTakeAgain && (
+          <Box component="button" type="button" role="option" aria-selected={false} data-testid="flow-take-again" onClick={onTakeAgain} sx={row(false)}>
+            <Typography sx={{ fontSize: 13, fontWeight: 600 }}>Take the definition’s flow again — <Mono>{takeAgain.code}</Mono></Typography>
+            <Typography sx={{ fontSize: 11.5, color: 'var(--c-text-3)' }}>{takeAgainNote(takeAgain)}</Typography>
+          </Box>
+        )}
+        {usual !== 'own' && (
+          <Box component="button" type="button" role="option" aria-selected={chosen == null} data-testid="flow-use-default" onClick={() => onPick(null)} sx={row(chosen == null)}>
+            <Typography sx={{ fontSize: 13, fontWeight: 600 }}>
+              {usual === 'each' ? 'Use each row’s default' : usual ? <>Use the default (<Mono>{usual.code}</Mono>)</> : 'Use the default (none set up)'}
+            </Typography>
+            <Typography sx={{ fontSize: 11.5, color: 'var(--c-text-3)' }}>
+              {usual === 'each' ? 'Takes the choice off each ticked row; it is made by its own flow again.'
+                : usual ? `${usual.name} — from ${usualFromText(usual)}` : 'The row has no flow of its own yet.'}
+            </Typography>
+          </Box>
+        )}
         {shown.map((f) => {
           const steps = stepsOf(f);
           return (

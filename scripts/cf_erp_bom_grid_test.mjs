@@ -378,8 +378,95 @@ await check('A flow from the template shows as default; one set on the line show
   assert.equal(m.flowShown(flange, {}, lookup).tag, 'changed');
   assert.equal(m.flowShown(flange, {}, lookup).usual.code, 'GS-FLOW');
   assert.equal(m.flowShown(stiff, {}, lookup).tag, null);
-  assert.match(m.flowTooltip(m.flowShown(web, {}, lookup), web, true), /default, from the template/);
-  assert.match(m.flowTooltip(m.flowShown(flange, {}, lookup), flange, true), /changed on this order.*default is GS-FLOW/);
+  assert.equal(m.flowTooltip(m.flowShown(web, {}, lookup), web, true), 'GS-FLOW — this row’s flow (taken from its definition when the order was made).');
+  assert.equal(m.flowTooltip(m.flowShown(flange, {}, lookup), flange, true), 'FL-CUSTOM — changed on this order line. The row’s own flow is GS-FLOW.');
+});
+// ── an order row's flow is its own: the top row, and taking the definition's flow again (2026-10-10) ──
+const defNew = { id: 9, code: 'FL-NEW', name: 'New one' };
+const allFlowsEarly = [
+  { id: 7, code: 'GS-FLOW', name: 'Girder standard', status: 'active', steps: [] },
+  { id: 9, code: 'FL-NEW', name: 'New one', status: 'active', steps: [] },
+  { id: 10, code: 'OLD', name: 'Retired', status: 'obsolete', steps: [] },
+];
+// The top row of an order line: no BOM line holds it. Its definition has since moved to FL-NEW.
+const topRow = node(20, flowRows, { name: 'Girder', lineId: null, lineNo: null, depth: 0, flow: { ...gs, from: 'item' }, definitionFlow: defNew });
+const webMoved = { ...web, definitionFlow: defNew };                                   // own GS-FLOW, definition now FL-NEW
+const flangeMoved = { ...flange, definitionFlow: defNew };                             // line names FL-CUSTOM, own GS-FLOW, definition FL-NEW
+const stiffMoved = { ...stiff, definitionFlow: defNew };                               // no flow at all, definition FL-NEW
+const webSame = { ...web, definitionFlow: { id: 7, code: 'GS-FLOW', name: 'Girder standard' } };
+await check('The tooltip says whose flow it is, and when the definition has moved on', () => {
+  const tip = (n, p = m.NO_PENDING) => m.flowTooltip(m.flowShown(n, p.flow, lookup, p.ownFlow), n, true);
+  assert.equal(tip(webSame), 'GS-FLOW — this row’s flow (taken from its definition when the order was made).');
+  assert.equal(tip(webMoved), 'GS-FLOW — this row’s flow (taken from its definition when the order was made). Its definition is made by FL-NEW today.');
+  assert.equal(tip(flangeMoved), 'FL-CUSTOM — changed on this order line. The row’s own flow is GS-FLOW. Its definition is made by FL-NEW today.');
+  assert.match(tip(stiffMoved), /has no flow.*Its definition is made by FL-NEW today\./);
+  assert.equal(m.flowTooltip(m.flowShown(bolt, { 240: 9 }, lookup), bolt, false), 'FL-NEW — changed on this order line. The row has no flow of its own.');
+  // the two visual states stay: the row's own flow is 'default', a line's choice is 'changed'
+  assert.deepEqual([webMoved, flangeMoved, stiffMoved, topRow].map((n) => m.flowShown(n, {}, lookup).tag), ['default', 'changed', null, 'default']);
+});
+await check('Take-again is offered only when the definition’s flow is not the flow the row is made by', () => {
+  const offer = (n, p = m.NO_PENDING) => m.flowShown(n, p.flow, lookup, p.ownFlow).takeAgain?.code ?? null;
+  assert.deepEqual([offer(webSame), offer(web), offer(webMoved), offer(flangeMoved), offer(stiffMoved), offer(topRow)], [null, null, 'FL-NEW', 'FL-NEW', 'FL-NEW', 'FL-NEW']);
+  // a line that already names the definition's flow is made by it: nothing to take
+  assert.equal(offer(webMoved, m.withFlow(m.NO_PENDING, webMoved, 9)), null);
+  assert.equal(m.takeAgainNote(defNew), 'The definition is made by FL-NEW today; this row keeps the flow it was created with until you take it.');
+});
+await check('The top row’s flow is its own: a pending own-flow edit by record, saved as ownFlow', () => {
+  const p1 = m.withFlowChoice(m.NO_PENDING, topRow, 9);
+  assert.deepEqual([p1.ownFlow, p1.flow], [{ 20: 9 }, {}]);
+  const s = m.flowShown(topRow, p1.flow, lookup, p1.ownFlow);
+  assert.deepEqual([s.flow.code, s.tag, s.unsaved, s.chosen, s.usual.code, s.takeAgain], ['FL-NEW', 'default', true, null, 'FL-NEW', null]);
+  const byLine = m.nodesByLine(topRow), byRecord = m.nodesByRecord(topRow);
+  assert.deepEqual(m.pendingChanges(p1, byLine, byRecord).changes, [{ op: 'ownFlow', recordId: 20, flowId: 9 }]);
+  // choosing what is saved takes the entry away; "each row's default" leaves the top row alone
+  assert.equal(m.pendingChanges(m.withFlowChoice(p1, topRow, 7), byLine, byRecord).changes.length, 0);
+  assert.equal(m.withFlowChoice(m.NO_PENDING, topRow, null), m.NO_PENDING);
+  // a row held by a line still goes through the line, exactly as before
+  assert.deepEqual(m.pendingChanges(m.withFlowChoice(m.NO_PENDING, web, 9), byLine, byRecord).changes, [{ op: 'flow', lineId: 210, flowId: 9 }]);
+  // a catalog item in the structure has no own flow to set here
+  assert.equal(m.withOwnFlow(m.NO_PENDING, bolt, 9), m.NO_PENDING);
+});
+await check('Take-again: own flow = the definition’s AND the line’s choice cleared, both pending, saved together', () => {
+  const tree2 = node(30, [webMoved, flangeMoved, stiffMoved], { lineId: null, depth: 0, flow: { ...gs, from: 'item' }, definitionFlow: defNew });
+  const byLine = m.nodesByLine(tree2), byRecord = m.nodesByRecord(tree2);
+  const p = m.withDefinitionFlow(m.NO_PENDING, flangeMoved);
+  assert.deepEqual([p.ownFlow, p.flow], [{ 22: 9 }, { 220: null }]);
+  assert.deepEqual(m.pendingChanges(p, byLine, byRecord).changes, [{ op: 'flow', lineId: 220, flowId: null }, { op: 'ownFlow', recordId: 22, flowId: 9 }]);
+  const s = m.flowShown(flangeMoved, p.flow, lookup, p.ownFlow);
+  assert.deepEqual([s.flow.code, s.tag, s.unsaved, s.takeAgain], ['FL-NEW', 'default', true, null]);
+  assert.equal(m.flowTooltip(s, flangeMoved, true), 'FL-NEW — this row’s flow (taken from its definition when the order was made).');
+  // a row whose line named nothing: only its own flow changes
+  assert.deepEqual(m.pendingChanges(m.withDefinitionFlow(m.NO_PENDING, webMoved), byLine, byRecord).changes, [{ op: 'ownFlow', recordId: 21, flowId: 9 }]);
+  // a row with no flow at all takes it too; the top row has no line to clear
+  assert.deepEqual(m.pendingChanges(m.withDefinitionFlow(m.NO_PENDING, stiffMoved), byLine, byRecord).changes, [{ op: 'ownFlow', recordId: 23, flowId: 9 }]);
+  assert.deepEqual(m.pendingChanges(m.withDefinitionFlow(m.NO_PENDING, tree2), byLine, byRecord).changes, [{ op: 'ownFlow', recordId: 30, flowId: 9 }]);
+  // nothing to take without a definition's flow
+  assert.equal(m.withDefinitionFlow(m.NO_PENDING, web), m.NO_PENDING);
+});
+await check('The picker offers "Take the definition’s flow again" first, and the top row has no default entry', async () => {
+  let took = 0, picked;
+  await React.act(() => root.render(React.createElement(m.FlowChoiceList, { flows: allFlowsEarly, chosen: null, usual: gs, takeAgain: defNew, onTakeAgain: () => { took += 1; }, onPick: (id) => { picked = id; } })));
+  let opts = [...document.querySelectorAll('[role="option"]')];
+  assert.match(opts[0].textContent, /^Take the definition’s flow again — FL-NEW/);
+  assert.ok(opts[0].textContent.includes('The definition is made by FL-NEW today; this row keeps the flow it was created with until you take it.'));
+  assert.ok(opts[1].textContent.includes('Use the default (GS-FLOW)'));
+  await fire(document.querySelector('[data-testid="flow-take-again"]'), 'click');
+  assert.deepEqual([took, picked], [1, undefined]);
+  // no entry when there is nothing to take
+  await React.act(() => root.render(React.createElement(m.FlowChoiceList, { flows: allFlowsEarly, chosen: null, usual: gs, takeAgain: null, onTakeAgain: () => {}, onPick: () => {} })));
+  assert.equal(document.querySelector('[data-testid="flow-take-again"]'), null);
+  // the top row: the flows only (its own is marked), plus take-again
+  await React.act(() => root.render(React.createElement(m.FlowChoiceList, { flows: allFlowsEarly, chosen: 7, usual: 'own', takeAgain: defNew, onTakeAgain: () => {}, onPick: (id) => { picked = id; } })));
+  opts = [...document.querySelectorAll('[role="option"]')];
+  assert.equal(document.querySelector('[data-testid="flow-use-default"]'), null);
+  assert.deepEqual(opts.map((o) => o.getAttribute('aria-selected')), ['false', 'true', 'false']);
+  await fire(opts[2], 'click'); assert.equal(picked, 9);
+});
+await check('Bulk change lists the top row; one flow for all becomes its own flow and the others’ line flows', () => {
+  const tree3 = node(40, [web, stiff], { name: 'Girder', lineId: null, depth: 0, flow: { ...gs, from: 'item' } });
+  const p = [tree3, web, stiff].reduce((acc, n) => m.withFlowChoice(acc, n, 9), m.NO_PENDING);
+  assert.deepEqual(m.pendingChanges(p, m.nodesByLine(tree3), m.nodesByRecord(tree3)).changes,
+    [{ op: 'flow', lineId: 210, flowId: 9 }, { op: 'flow', lineId: 230, flowId: 9 }, { op: 'ownFlow', recordId: 40, flowId: 9 }]);
 });
 await check('A waiting choice shows as changed + unsaved, and reset shows the default again', () => {
   const picked = m.withFlow(m.NO_PENDING, web, 9);

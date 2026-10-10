@@ -8,6 +8,7 @@ import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
 import CheckCircleRounded from '@mui/icons-material/CheckCircleRounded';
 import ArchiveRounded from '@mui/icons-material/ArchiveRounded';
 import HistoryRounded from '@mui/icons-material/HistoryRounded';
+import HelpOutlineRounded from '@mui/icons-material/HelpOutlineRounded';
 import AccountTreeRounded from '@mui/icons-material/AccountTreeRounded';
 import LockRounded from '@mui/icons-material/LockRounded';
 import ReceiptLongRounded from '@mui/icons-material/ReceiptLongRounded';
@@ -51,6 +52,7 @@ import { gstRateText } from '../lib/gst';
 import { HsnChip } from '../components/GstUi';
 import type { PriceBasis } from '../api/money';
 import { ValueHistory } from '../components/ValueHistory';
+import { ValueReasonsDialog } from '../components/ValueReasonsDialog';
 import { useDetailTitle } from '../components/shell/detailTitle';
 import { useToast } from '../components/toastContext';
 
@@ -260,7 +262,7 @@ function DetailsForm({ record, tree, canEdit, onSaved, onTreeChanged }: {
               helperText={flowOnly
                 ? 'Its line’s design is frozen, so only this can change — until the line is released.'
                 : isTemp && record.definitionFlow && !form.defaultFlowId
-                ? `Empty: its template's flow, ${record.definitionFlow.code}`
+                ? `Empty: it has no flow. Its definition's flow today is ${record.definitionFlow.code} — choose it here to take it.`
                 : 'The flow it is made by unless a BOM line says otherwise. Empty for things bought in.'} />
           </Box>
         )}
@@ -315,6 +317,8 @@ export default function RecordDetail({ recordKind }: { recordKind: 'item' | 'def
   const [ruleDialog, setRuleDialog] = useState<{ open: boolean; rule: Rule | null }>({ open: false, rule: null });
   const [deleteRule, setDeleteRule] = useState<Rule | null>(null);
   const [version, setVersion] = useState(0);
+  /** "Why these values": each asked value with its reason (ValueReasonsDialog). */
+  const [whyOpen, setWhyOpen] = useState(false);
   /** After a definition is renamed: its own folder may still carry the old name. */
   const [folderOffer, setFolderOffer] = useState<{ nodeId: number; oldName: string; note: string | null } | null>(null);
   const [folderBusy, setFolderBusy] = useState(false);
@@ -440,8 +444,8 @@ export default function RecordDetail({ recordKind }: { recordKind: 'item' | 'def
           {r.placement && <Fact label="Sits in"><Mono><Link to={to(`items/${r.placement.parentId}`)}>{r.placement.parentCode ?? parentPlaceholder?.code ?? r.placement.parentName}</Link></Mono> <Mono muted>· ×{r.placement.quantity}{r.placement.role && r.placement.role.trim().toLowerCase() !== r.name.trim().toLowerCase() ? ` · ${r.placement.role}` : ''}</Mono></Fact>}
           {r.item?.itemType === 'catalog' && money.data && <ItemMoneyFacts prices={money.data.prices} cost={money.data.cost} />}
           {r.bom && <Fact label="BOM"><Mono>{r.bom.lineCount} line{r.bom.lineCount === 1 ? '' : 's'}</Mono>{r.bom.bomType !== 'custom' && <Mono muted> · {r.bom.status}{r.bom.revision ? ` · rev ${r.bom.revision}` : ''}</Mono>}</Fact>}
-          {(r.defaultFlow || r.definitionFlow) && (
-            <Fact label="Made by"><FlowTag flow={r.defaultFlow ? { ...r.defaultFlow, from: 'item' } : { ...r.definitionFlow!, from: 'template' }} /></Fact>
+          {r.defaultFlow && (
+            <Fact label="Made by"><FlowTag flow={{ ...r.defaultFlow, from: 'item' }} /></Fact>
           )}
           {r.cutFrom?.value && r.cutFrom.value !== 'NONE' && <Fact label="Cut from">{CUT_FROM_LABEL[r.cutFrom.value]}{r.cutFrom.value === 'SECTION' && r.cutStock?.effective && <Mono muted> · {r.cutStock.effective.code ?? r.cutStock.effective.name}</Mono>}</Fact>}
           {isSelection && <Fact label="Picks from"><Mono>{picksFrom(r.counts)}</Mono></Fact>}
@@ -487,7 +491,12 @@ export default function RecordDetail({ recordKind }: { recordKind: 'item' | 'def
             title={isDefinition ? 'What its items will carry' : 'Specifications'}
             subtitle={isDefinition
               ? 'Rules reaching this definition from its classification, plus its own. Values here are defaults for the items it creates.'
-              : 'Every rule that reaches this item and where each value comes from. Fixed and calculated values cannot be typed here.'}>
+              : 'Every rule that reaches this item and where each value comes from. Fixed and calculated values cannot be typed here.'}
+            actions={!isSelection && (
+              <Tooltip title="Why each value is asked: its flow reads it, somebody set it by hand, or it is worked out — and which hand-made ones nothing reads.">
+                <Button size="small" data-testid="why-these-values" startIcon={<HelpOutlineRounded />} onClick={() => setWhyOpen(true)}>Why these values</Button>
+              </Tooltip>
+            )}>
             <ErrorNotice error={specs.error} onRetry={specs.reload} />
             {specs.loading && !specs.data ? <SkeletonRows rows={5} /> : specs.data && (
               <SpecsTable resolution={specs.data}
@@ -537,6 +546,7 @@ export default function RecordDetail({ recordKind }: { recordKind: 'item' | 'def
       {tab === 'details' && <DetailsForm key={r.updatedAt} record={r} tree={tree.data} canEdit={canManage} onTreeChanged={tree.reload}
         onSaved={(saved) => { rec.setData(saved); toast.success('Details saved.'); specs.reload(); }} />}
 
+      <ValueReasonsDialog open={whyOpen} recordId={id} label={isDefinition ? displayLabel(r) : r.code ?? r.name} onClose={() => setWhyOpen(false)} />
       <RevisionDialog open={revising} record={r} onClose={() => setRevising(false)} onDone={(saved) => { rec.setData(saved); toast.success(`Now at revision ${saved.revision}.`); }} />
       <CreateRecordDialog open={copying} copyFrom={r} recordKind={recordKind} tree={tree.data} onTreeChanged={tree.reload} screen={recordKind === 'item' ? 'items' : 'definitions'}
         onClose={() => setCopying(false)}

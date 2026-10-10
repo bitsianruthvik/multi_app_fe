@@ -18,6 +18,11 @@ export type BomChange =
   | { op: 'quantity'; lineId: number; quantity: number }
   /** null goes back to the way the child is usually made. */
   | { op: 'flow'; lineId: number; flowId: number | null }
+  /**
+   * The ROW'S OWN flow (an order row keeps the flow it was made with) — the only flow the top row of an
+   * order line has. null = no flow. With `flow: null` on the row's line it is "take the definition's flow again".
+   */
+  | { op: 'ownFlow'; recordId: number; flowId: number | null }
   /** The row's description (the text after the dot). null / empty clears it. Only before the line is locked. */
   | { op: 'role'; lineId: number; role: string | null }
   | { op: 'remove'; lineId: number }
@@ -40,6 +45,9 @@ export interface BomChangesRequest {
 export interface BomChangeCounts {
   quantity: number;
   flow: number;
+  /** Rows whose own flow changed, and rows whose flow changed either way (a row counted once). */
+  ownFlow?: number;
+  flowRows?: number;
   role?: number;
   pasted: number;
   /** New temporary items the pastes created. */
@@ -59,6 +67,7 @@ export interface BomChangeCopy { id: number | null; code: string | null; name: s
 export type BomChangeResult =
   | { op: 'quantity'; lineId: number; from: number; to: number; changed: boolean }
   | { op: 'flow'; lineId: number; from: number | null; to: number | null; changed: boolean }
+  | { op: 'ownFlow'; recordId: number; from: number | null; to: number | null; changed: boolean }
   | { op: 'role'; lineId: number; from: string | null; to: string | null; changed: boolean }
   | { op: 'remove'; lineId: number; beneath: number; withParent: boolean }
   | { op: 'arrange'; moved: number; reordered: number }

@@ -5,7 +5,7 @@ import CloseRounded from '@mui/icons-material/CloseRounded';
 import EditOutlined from '@mui/icons-material/EditOutlined';
 import { Link, useLocation } from 'react-router-dom';
 import { SheetGrid, type SheetCell, type SheetGridHandle, type SheetWrite } from '@shared/ui';
-import { effectiveCell, type ValuesColumn, type ValuesView } from '../Values/valuesModel';
+import type { ValuesView } from '../Values/valuesModel';
 import { ownInput, valueEditable, rowLabel, roleShown, type BomRow, type Pending } from './bomModel';
 import { appPath } from '../../navMeta';
 import { recordPath } from '../../lib/paths';
@@ -13,7 +13,8 @@ import type { BackState } from '../shell/backState';
 import type { SpecValues } from './useSpecValues';
 import type { RowMark } from './BomTree';
 import type { DropPosition } from './bomArrangement';
-import { DIMENSION_CODES, dimensionsFirst, hiddenOnGrid, isDimension, rollupsLast, shipUnitRelevant, shortLabel, totalAdds } from '../../lib/stripLayout';
+import { isDimension, shortLabel } from '../../lib/stripLayout';
+import { rowColumnCodes, shownColumns, sortColumns, viewCatalog, viewCell, viewUses } from '../../lib/bomGridLayout';
 import { codeOrName, displayCode } from '../../lib/displayCode';
 
 export interface GridWrite { row: BomRow; code: string; text: string; saved: string }
@@ -64,16 +65,8 @@ export function BomGrid({ rows, view, records: recordValues, recordIds, pending,
   const [moveTarget, setMoveTarget] = useState('');
   const [movePosition, setMovePosition] = useState<DropPosition>('before');
   const catalog = useMemo(() => {
-    const cols = new Map<string, ValuesColumn>();
-    const records = new Map<number, { row: ValuesView['groups'][number]['rows'][number]; columns: Map<string, ValuesColumn> }>();
-    for (const group of view?.groups ?? []) {
-      for (const col of group.columns) {
-        const old = cols.get(col.code);
-        cols.set(col.code, old ? { ...old, editable: old.editable || col.editable } : col);
-      }
-      const columns = new Map(group.columns.map((c) => [c.code, c]));
-      for (const row of group.rows) records.set(row.id, { row, columns });
-    }
+    // The view's columns and records, and the order they are drawn in, are lib/bomGridLayout's — the order-line Excel mirrors them.
+    const { cols, records } = viewCatalog(view);
     // Record BOMs reuse the same resolution and editability rules as their
     // former per-row editor. Child records remain shared and read-only.
     for (const id of recordIds ?? rows.map((r) => r.node.id)) for (const s of recordValues?.get(id)?.resolution?.specs ?? []) {
@@ -82,27 +75,22 @@ export function BomGrid({ rows, view, records: recordValues, recordIds, pending,
       const old = cols.get(s.spec.code);
       cols.set(s.spec.code, { ...s.spec, rule: s.rule.valueRule, required: s.rule.isRequired, editable: !!old?.editable || valueEditable(s, mode) });
     }
-    return { cols: [...cols.values()].sort((a, b) => Number(b.editable) - Number(a.editable)), records };
+    return { cols: sortColumns(cols), records };
   }, [view, rows, recordValues, recordIds]);
   /** Whether a row can hold this variable at all — the same lookups cellAt makes, without building the cell. */
   const uses = (row: BomRow, code: string): boolean => {
     if (recordValues) return !!recordValues.get(row.node.id)?.resolution?.specs.some((s) => s.applicable && s.spec.code === code);
-    const info = catalog.records.get(row.node.id);
-    return !!info?.columns.get(code) && !!info.row.cells[code];
+    return viewUses(catalog.records, row.node.id, code);
   };
   const loaded = !!recordValues || !!view;
   const used = onlyUsedColumns && loaded ? catalog.cols.filter((c) => rows.some((r) => uses(r, c.code))) : catalog.cols;
   // The dimensions lead (Thk · L · W) and come as a set: a row with one of them shows all three, so rows line up.
-  const byCode = new Map(catalog.cols.map((c) => [c.code, c]));
-  const dims: { code: string; name: string; unit?: string | null; dataType?: string }[] = used.some((c) => isDimension(c.code))
-    ? DIMENSION_CODES.map((code) => byCode.get(code) ?? { code, name: code.charAt(0) + code.slice(1).toLowerCase(), unit: 'mm', dataType: 'number' })
-    : [];
-  const shown = [...dims, ...used.filter((c) => !isDimension(c.code))];
+  const shown = shownColumns(catalog.cols, used);
   const columns: { code: string; name: string; unit?: string | null; dataType?: string }[] = [{ code: '$quantity', name: 'Quantity' }, { code: '$total', name: 'Total' }, ...shown];
   /** Strip layout: this row's own cells — quantity and total, then its values with the dimensions first. */
   const rowColumns = (row: BomRow) => {
-    const own = shown.filter((c) => uses(row, c.code) && (c.code !== 'SHIP_UNIT' || shipUnitRelevant(row.hasChildren, cellAt(row, c).input, !!gaps?.get(row.node.id)?.includes(c.code))) && !hiddenOnGrid(c.code, !!gaps?.get(row.node.id)?.includes(c.code))).map((c) => c.code);
-    return ['$quantity', ...(totalAdds(row.node.quantity, row.node.total) ? ['$total'] : []), ...rollupsLast(dimensionsFirst(own))];
+    return rowColumnCodes(shown, { quantity: row.node.quantity, total: row.node.total, hasChildren: row.hasChildren },
+      (code) => uses(row, code), (code) => cellAt(row, { code }).input, (code) => !!gaps?.get(row.node.id)?.includes(code));
   };
   const rowByKey = useMemo(() => new Map(rows.map((r) => [r.node.key, r])), [rows]);
   const colByKey = new Map(columns.map((c) => [c.code, c]));
@@ -132,17 +120,12 @@ export function BomGrid({ rows, view, records: recordValues, recordIds, pending,
       return { text, input, saved, editable, type: s.spec.dataType, options: s.options,
         why: !canEditValues(row) ? 'Shared values: open this item or definition to edit them.' : editable ? undefined : `${s.rule.valueRule} value — read-only here.` };
     }
-    const info = catalog.records.get(row.node.id), actual = info?.columns.get(col.code);
-    const raw = info?.row.cells[col.code];
-    if (view && info && (!actual || !raw)) return { text: '', input: '', saved: '', editable: false, applies: false, why: notOf(row) };
-    if (!view || !info || !actual || !raw) return { text: '', input: '', saved: '', editable: false, why: view ? 'This variable does not apply to this row.' : 'Loading values…' };
-    const c = effectiveCell(view, actual, info.row, raw, !busy && !row.paste && canEditValues(row));
-    const input = pending.values?.[row.node.id]?.[col.code] ?? c.input;
-    const text = input === '' ? c.defaultDisplay ?? c.display ?? ''
-      : actual.dataType === 'option' ? c.options?.find((o) => String(o.id) === input)?.label || c.options?.find((o) => String(o.id) === input)?.value || input
-        : actual.dataType === 'boolean' ? input === 'true' ? 'Yes' : 'No' : input;
-    return { text, input, saved: c.input, editable: c.editable, type: actual.dataType, options: c.options,
-      why: row.paste ? 'Save this copy to edit its own values.' : info.row.readOnly ?? c.why ?? (c.missing ? 'Required value is missing.' : undefined) };
+    const info = catalog.records.get(row.node.id);
+    const vc = view ? viewCell(view, info, col.code, !busy && !row.paste && canEditValues(row), pending.values?.[row.node.id]?.[col.code]) : null;
+    if (view && info && !vc) return { text: '', input: '', saved: '', editable: false, applies: false, why: notOf(row) };
+    if (!view || !info || !vc) return { text: '', input: '', saved: '', editable: false, why: view ? 'This variable does not apply to this row.' : 'Loading values…' };
+    return { text: vc.text, input: vc.input, saved: vc.saved, editable: vc.editable, type: vc.type, options: vc.options,
+      why: row.paste ? 'Save this copy to edit its own values.' : info.row.readOnly ?? vc.cell.why ?? (vc.cell.missing ? 'Required value is missing.' : undefined) };
   };
   const sheetCell = (row: BomRow, col: { code: string }): SheetCell => {
     const c = cellAt(row, col), n = row.node;

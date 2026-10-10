@@ -4,6 +4,12 @@ export type BomSheetSource =
   | { kind: 'record'; recordId: number }
   | { kind: 'orderLine'; lineId: number };
 
+/**
+ * Two sheets share this shape. A catalog item's or definition's BOM is one row per line, and its upload may add and
+ * remove rows (bomSheetService). An ORDER LINE's is the Structure tab itself — two rows per BOM line, the grey one
+ * naming that line's fields and the one under it holding their values — and its upload changes quantities and values
+ * only (orderSheetService: .xlsx only), so the role / notes / added / removed counts are always 0 for it.
+ */
 export interface BomSheetSummary {
   sentence: string;
   rowsInSheet: number;
@@ -23,7 +29,7 @@ export interface BomSheetResult {
   applied?: boolean;
   ok: boolean;
   summary: BomSheetSummary;
-  changes: Array<{ action: string; field?: string; path?: string; detail?: string; from?: unknown; to?: unknown }>;
+  changes: Array<{ action: string; field?: string; rowId?: string | null; path?: string; detail?: string; from?: unknown; to?: unknown }>;
   problems: string[];
 }
 

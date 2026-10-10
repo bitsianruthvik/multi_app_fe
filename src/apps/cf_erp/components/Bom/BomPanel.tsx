@@ -43,8 +43,8 @@ import { flowShown, flowTooltip, isMade } from './flowShown';
 import { FlowTag } from '../FlowTag';
 import { useToast } from '../toastContext';
 import {
-  allowedChildren, bomTypeOfKind, keysBelow, lineFlowId, nodesByLine, openableKeys,
-  parseQuantity, pasteRefusal, pendingChanges, temporaryCount, walkNodes, withFlow,
+  allowedChildren, bomTypeOfKind, hasOwnFlow, keysBelow, lineFlowId, nodesByLine, nodesByRecord, openableKeys, ownFlowId,
+  parseQuantity, pasteRefusal, pendingChanges, temporaryCount, walkNodes, withDefinitionFlow, withFlowChoice,
   NO_PENDING, VALUES_PERMISSION, isCutPiece, withoutCutPieces, type BomRow, type Pending,
 } from './bomModel';
 import type { BomAction, RowMark } from './BomTree';
@@ -58,6 +58,7 @@ import { arrangedRows, moveRow, pruneArrangement, undoCopy, type DropPosition } 
 import { computeGaps, gapSentence, keepGapRows, type ValuesView } from '../Values/valuesModel';
 import type { SheetGridHandle } from '@shared/ui';
 import { codeOrName, displayCode, isDefinitionKind } from '../../lib/displayCode';
+import { ValueReasonsDialog } from '../ValueReasonsDialog';
 
 const TYPE_TEXT: Record<BomType, { title: string; body: string; empty: string }> = {
   standard: {
@@ -195,6 +196,8 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
   const [flowPick, setFlowPick] = useState<{ anchor: HTMLElement; row: BomRow } | null>(null);
   const [rowMenu, setRowMenu] = useState<{ anchor: HTMLElement; row: BomRow } | null>(null);
   const [drawingRow, setDrawingRow] = useState<{ id: number; name: string } | null>(null);
+  /** "Why these values…" for one row: the record whose reasons are open. */
+  const [whyRow, setWhyRow] = useState<{ id: number; name: string } | null>(null);
   // Quiet switches for the order's grid: the automatic cut pieces are out of sight, and so are the columns no row uses.
   const [onlyUsed, setOnlyUsed] = useState(true);
   const errorAt = useRef<HTMLDivElement>(null);
@@ -258,7 +261,8 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
 
   // What is waiting, as Save would send it.
   const byLine = useMemo(() => (state ? nodesByLine(state.root) : new Map<number, StructureNode>()), [state]);
-  const { changes, invalid } = useMemo(() => pendingChanges(pruneArrangement(pending, state?.root), byLine), [pending, byLine, state]);
+  const byRecord = useMemo(() => (state ? nodesByRecord(state.root) : new Map<number, StructureNode>()), [state]);
+  const { changes, invalid } = useMemo(() => pendingChanges(pruneArrangement(pending, state?.root), byLine, byRecord), [pending, byLine, byRecord, state]);
   const invalidKeys = useMemo(() => new Set(invalid), [invalid]);
   const dirty = changes.length > 0 || invalid.length > 0;
   useLeaveGuard(editOn && dirty, `${plural(changes.length + invalid.length, 'change', 'changes')} to this BOM ${changes.length + invalid.length === 1 ? 'is' : 'are'} not saved. Leave and lose ${changes.length + invalid.length === 1 ? 'it' : 'them'}?`);
@@ -400,9 +404,18 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
   /** A line this screen may change, and that is not going with a removal above it. */
   const lineEditable = (row: BomRow) => !row.paste && row.node.lineId != null
     && mayEdit(row.parent, row.bomType) && !goneKeys.has(row.node.key);
-  /** A line whose flow may change: any line this screen may change, and on a frozen line an order row's line. */
-  const flowEditable = (row: BomRow) => lineEditable(row)
+  /**
+   * The TOP row of an order's structure: no BOM line holds it, so the flow it is made by is its OWN
+   * (user, 2026-10-10) — changed here like every other row's, saved with the same Save ('ownFlow').
+   * Order design, so the order grant; still open on a frozen line until release, like every flow.
+   */
+  const ownFlowEditable = (row: BomRow) => !row.paste && row.parent == null && hasOwnFlow(row.node)
+    && isPermitted(bomPermission(true)) && (mine(row.node) || canChangeFlowsHere);
+  /** A row whose flow may change: any line this screen may change, on a frozen line an order row's line, and the top row. */
+  const flowEditable = (row: BomRow) => lineEditable(row) || ownFlowEditable(row)
     || (canChangeFlowsHere && !row.paste && row.node.lineId != null && row.parent?.kind === 'temporary' && !goneKeys.has(row.node.key));
+  /** "Take the definition's flow again" writes the row's OWN flow: an order's own row, with the order grant. */
+  const mayTakeAgain = (row: BomRow) => hasOwnFlow(row.node) && isPermitted(bomPermission(true));
   /** A flow is how a thing is made in its parent; a selection takes its chosen item's (EditLineDialog's rule). */
   const canHaveFlow = (node: StructureNode) => !node.selection && node.kind !== 'selection';
   /** Why a line cannot change from here — the words the per-line menus would use. */
@@ -476,11 +489,12 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
     setPending((p) => moveRow(p, from, to, position));
     if (position === 'inside') setOpen(new Set([...expanded, to.node.key]));
   };
-  const setFlow = (row: BomRow, flowId: number | null) => setPending((p) => withFlow(p, row.node, flowId));
+  /** A row held by a line: the line names the flow. The top row: the flow is its own (bomModel.withFlowChoice). */
+  const setFlow = (row: BomRow, flowId: number | null) => setPending((p) => withFlowChoice(p, row.node, flowId));
   /** One flow (or each row's default) for every key in the list — the same pending path as one row. */
   const setFlowMany = (keys: string[], flowId: number | null) => setPending((p) => {
     const byKey = new Map(rows.map((r) => [r.node.key, r.node]));
-    return keys.reduce((acc, k) => { const n = byKey.get(k); return n ? withFlow(acc, n, flowId) : acc; }, p);
+    return keys.reduce((acc, k) => { const n = byKey.get(k); return n ? withFlowChoice(acc, n, flowId) : acc; }, p);
   });
   /** The description as it will be: what was typed, else what is saved. */
   const roleOf = (row: BomRow): string | null => {
@@ -514,6 +528,7 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
     const dropped = Object.keys(pending.quantity).filter(within).length + Object.keys(pending.role ?? {}).filter(within).length + Object.keys(pending.flow).filter(within).length
       + Object.keys(pending.remove).filter((l) => byLine.get(Number(l))?.key !== row.node.key && within(l)).length
       + pending.pastes.filter((x) => x.parentKey === row.node.key || inside.has(x.parentKey)).length
+      + Object.keys(pending.ownFlow ?? {}).filter((recordId) => insideRecords.has(Number(recordId))).length
       + Object.entries(pending.values ?? {}).filter(([id]) => insideRecords.has(Number(id))).reduce((n, [, cells]) => n + Object.keys(cells).length, 0);
     setPending((p) => {
       const keep = <T,>(rec: Record<number, T>) => Object.fromEntries(Object.entries(rec).filter(([l]) => !within(l))) as Record<number, T>;
@@ -521,6 +536,7 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
         ...p,
         quantity: keep(p.quantity),
         flow: keep(p.flow),
+        ownFlow: p.ownFlow ? Object.fromEntries(Object.entries(p.ownFlow).filter(([recordId]) => !insideRecords.has(Number(recordId)))) : undefined,
         role: p.role ? keep(p.role) : undefined,
         remove: { ...keep(p.remove), [id]: true },
         pastes: p.pastes.filter((x) => x.parentKey !== row.node.key && !inside.has(x.parentKey)),
@@ -532,9 +548,12 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
   const discard = () => { setPending(NO_PENDING); setChecked(null); bom.clearActionError(); };
   const showError = () => setShowRefusal((n) => n + 1);
 
+  // "Take the definition's flow again" is two changes for ONE row (its own flow, and its line's choice cleared): counted once.
+  const lineFlowRecords = new Set(changes.flatMap((ch) => (ch.op === 'flow' ? [byLine.get(ch.lineId)?.id] : [])));
+  const flowPairs = changes.filter((ch) => ch.op === 'ownFlow' && lineFlowRecords.has(ch.recordId)).length;
   const counts = {
     quantity: changes.filter((ch) => ch.op === 'quantity').length,
-    flow: changes.filter((ch) => ch.op === 'flow').length,
+    flow: changes.filter((ch) => ch.op === 'flow' || ch.op === 'ownFlow').length - flowPairs,
     role: changes.filter((ch) => ch.op === 'role').length,
     remove: changes.filter((ch) => ch.op === 'remove').length,
     paste: changes.filter((ch) => ch.op === 'paste').length,
@@ -542,7 +561,7 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
     values: Object.values(pending.values ?? {}).reduce((n, cells) => n + Object.keys(cells).length, 0),
   };
   // Typed values travel as ONE 'values' change; people count the cells they typed, so the bar does too.
-  const shownChanges = changes.filter((ch) => ch.op !== 'values').length + counts.values;
+  const shownChanges = changes.filter((ch) => ch.op !== 'values').length - flowPairs + counts.values;
   const breakdown = [
     counts.quantity && plural(counts.quantity, 'quantity', 'quantities'),
     counts.flow && plural(counts.flow, 'flow', 'flows'),
@@ -609,11 +628,12 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
     }
     if (goneKeys.has(k)) return { tone: 'gone', label: 'Goes with it', title: 'A line above it is being removed.' };
     if (invalidKeys.has(k)) return { tone: 'invalid', label: 'Fix quantity', title: 'A quantity is a number above zero.' };
+    const ownChanged = pending.ownFlow != null && row.node.id in pending.ownFlow && (pending.ownFlow[row.node.id] ?? null) !== ownFlowId(row.node);
     const id = row.node.lineId;
-    if (id == null) return null;
+    if (id == null) return ownChanged ? { tone: 'changed', label: 'Changed' } : null;
     const text = pending.quantity[id];
     const q = text != null ? parseQuantity(text) : null;
-    const flowChanged = id in pending.flow && (pending.flow[id] ?? null) !== lineFlowId(row.node);
+    const flowChanged = ownChanged || (id in pending.flow && (pending.flow[id] ?? null) !== lineFlowId(row.node));
     const roleChanged = pending.role != null && id in pending.role && pending.role[id].trim() !== (row.node.role ?? '');
     if ((q != null && !sameNumber(q, byLine.get(id)?.quantity ?? q)) || flowChanged || roleChanged) return { tone: 'changed', label: 'Changed' };
     return null;
@@ -626,7 +646,7 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
       const why = !row.paste && !removedKeys.has(n.key) && canHaveFlow(n) && n.flow && row.parent ? flowReadOnlyWhy(row) : undefined;
       return <FlowTag flow={n.flow} note={why} />;
     }
-    const shown = flowShown(n, pending.flow, flowLookup);
+    const shown = flowShown(n, pending.flow, flowLookup, pending.ownFlow);
     const made = isMade(n);
     return (
       <FlowChip shown={shown} made={made} disabled={!!busy} tooltip={flowTooltip(shown, n, made)}
@@ -641,7 +661,7 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
     return whyNotLine(row);
   };
   /** Rows whose flow may change here — what the "several rows" dialog lists. */
-  const flowRows = rows.filter((r) => !r.paste && flowEditable(r) && !removedKeys.has(r.node.key) && canHaveFlow(r.node) && r.parent != null);
+  const flowRows = rows.filter((r) => !r.paste && flowEditable(r) && !removedKeys.has(r.node.key) && canHaveFlow(r.node));
 
   const trailingCell = (row: BomRow) => {
     const n = row.node;
@@ -811,7 +831,7 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
                 onClick={() => sheetInput.current?.click()} disabled={sheetBusy != null || dirty}>
                 Upload Excel
               </Button>
-              <input ref={sheetInput} type="file" accept=".xlsx,.csv" hidden onChange={chooseSheet} />
+              <input ref={sheetInput} type="file" accept={orderGrid ? '.xlsx' : '.xlsx,.csv'} hidden onChange={chooseSheet} />
             </>}
             {deep && !(gapsOn && onlyMissing) && <Button size="small" startIcon={<UnfoldMoreRounded />} onClick={() => setOpen(new Set(openableKeys(root)))}>Expand all</Button>}
             {deep && !(gapsOn && onlyMissing) && <Button size="small" startIcon={<UnfoldLessRounded />} onClick={() => setOpen(new Set([root.key]))}>Collapse all</Button>}
@@ -929,7 +949,7 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
                 {deep && !onlyMissing && <Button size="small" startIcon={<UnfoldLessRounded />} onClick={() => setOpen(new Set([root.key]))}>Collapse</Button>}
               </>
             )}
-            {canSheetEdit && <input ref={sheetInput} type="file" accept=".xlsx,.csv" hidden onChange={chooseSheet} />}
+            {canSheetEdit && <input ref={sheetInput} type="file" accept={orderGrid ? '.xlsx' : '.xlsx,.csv'} hidden onChange={chooseSheet} />}
             {!dirty && !busy && canAddToRoot && <Button size="small" variant="contained" startIcon={<AddRounded />} onClick={() => setAdding(root)}>Add line</Button>}
           </Box>
         )}
@@ -1011,24 +1031,33 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
         {rowMenu && gridLineId != null && state.order && rowMenu.row.parent != null && (
           <MenuItem onClick={() => { setDrawingRow(drawingRowOf(rowMenu.row)); setRowMenu(null); }}>Drawings for this row…</MenuItem>
         )}
+        {/* Why each value on this row is asked: its flow reads it, somebody set it by hand, or it is worked out. */}
+        {rowMenu && rowMenu.row.node.kind !== 'selection' && (
+          <MenuItem data-testid="row-why-values" onClick={() => { setWhyRow({ id: rowMenu.row.node.id, name: codeOrName(rowMenu.row.node) }); setRowMenu(null); }}>Why these values…</MenuItem>
+        )}
       </Menu>
+      <ValueReasonsDialog open={!!whyRow} recordId={whyRow?.id ?? null} label={whyRow?.name ?? ''} onClose={() => setWhyRow(null)} />
 
       <BulkFlowDialog open={bulkFlow} rows={flowRows.map((r) => ({ key: r.node.key, node: r.node, depth: r.node.depth, label: codeOrName(r.node) }))}
-        flows={flows.data} shownOf={(n) => flowShown(n, pending.flow, flowLookup)} onClose={() => setBulkFlow(false)} onApply={setFlowMany} />
+        flows={flows.data} shownOf={(n) => flowShown(n, pending.flow, flowLookup, pending.ownFlow)} onClose={() => setBulkFlow(false)} onApply={setFlowMany} />
 
       <Popover open={!!flowPick} anchorEl={flowPick?.anchor} onClose={() => setFlowPick(null)}
         anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }} transformOrigin={{ vertical: 'top', horizontal: 'left' }}>
         <Box sx={{ p: 2, width: 400, maxWidth: 'calc(100vw - 32px)' }}>
           <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)', mb: 1.5 }}>
-            How <Mono>{pickRow ? codeOrName(pickRow.node) : ''}</Mono> is made in {pickRow?.parent ? codeOrName(pickRow.parent) : ''}
+            How <Mono>{pickRow ? codeOrName(pickRow.node) : ''}</Mono> is made{pickRow?.parent ? ` in ${codeOrName(pickRow.parent)}` : ' — this row’s own flow'}
           </Typography>
           {pickRow && (() => {
-            const shown = flowShown(pickRow.node, pending.flow, flowLookup);
+            const shown = flowShown(pickRow.node, pending.flow, flowLookup, pending.ownFlow);
+            // The top row has no line: the flow picked is its own, and there is no default to go back to.
+            const top = pickRow.parent == null;
             return (
               <>
-                <FlowChoiceList flows={flows.data} chosen={shown.chosen} usual={shown.usual}
+                <FlowChoiceList flows={flows.data} chosen={top ? shown.flow?.id ?? null : shown.chosen} usual={top ? 'own' : shown.usual}
+                  takeAgain={mayTakeAgain(pickRow) ? shown.takeAgain : null}
+                  onTakeAgain={() => { setPending((p) => withDefinitionFlow(p, pickRow.node)); setFlowPick(null); }}
                   onPick={(id) => { setFlow(pickRow, id); setFlowPick(null); }} />
-                {shown.chosen != null && (
+                {!top && shown.chosen != null && (
                   <Button size="small" sx={{ mt: 1 }} onClick={() => { setFlow(pickRow, null); setFlowPick(null); }}>
                     {shown.usual ? `Reset to default (${shown.usual.code})` : 'Reset to default'}
                   </Button>
