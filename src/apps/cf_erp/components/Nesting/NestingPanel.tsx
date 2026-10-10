@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent, type ReactNode } from 'react';
 import {
-  Alert, Box, Button, CircularProgress, Collapse, Menu, MenuItem, Switch, ToggleButton, ToggleButtonGroup, Tooltip, Typography,
+  Alert, Box, Button, CircularProgress, Collapse, Dialog, DialogActions, DialogContent, DialogTitle, Menu, MenuItem, Switch, ToggleButton, ToggleButtonGroup, Tooltip, Typography,
 } from '@mui/material';
 import GridViewRounded from '@mui/icons-material/GridViewRounded';
 import AutoAwesomeRounded from '@mui/icons-material/AutoAwesomeRounded';
@@ -14,21 +14,26 @@ import LightbulbOutlined from '@mui/icons-material/LightbulbOutlined';
 import DownloadRounded from '@mui/icons-material/DownloadRounded';
 import UploadFileRounded from '@mui/icons-material/UploadFileRounded';
 import PrecisionManufacturingRounded from '@mui/icons-material/PrecisionManufacturingRounded';
+import FolderOpenRounded from '@mui/icons-material/FolderOpenRounded';
+import CompareArrowsRounded from '@mui/icons-material/CompareArrowsRounded';
+import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
 import { cfApi, LONG_WRITE_MS, CfApiError } from '../../api/client';
 import { fileToBase64 } from '../../api/bomSheet';
 import {
-  discardNestRun, downloadCncZip, downloadLotCnc, downloadNestingSheet, getNestRun, getNestingChoices, previewNestingSheet, saveNestingSheet,
-  setNestPlates, startNestRun,
+  discardNestRun, downloadCncZip, downloadCustomerFile, downloadLotCnc, downloadNestingSheet, getNestFiles, getNestRun, getNestingChoices,
+  previewNestingSheet, removeNestLot, saveNestingSheet, setNestPlates, startNestRun, stopNestRun,
+  type NestFileUpload, type NestFilesInfo, type NestFilesResult,
 } from '../../api/nesting';
 import type {
   Nest, NestCoverage, NestCutPlate, NestGroup, NestRunSnapshot, NestSheetResult, NestingAccepted, NestingChoices, NestingPlan, PlateChoice,
 } from '../../api/types';
 import { useLoad } from '../../hooks/useLoad';
 import {
-  ACCEPT_AGAIN, ACCEPT_WHAT_HAPPENS, CAPPED_LINE, EFFORTS, LOOK_IS_A_LOOK, MANUAL_HELP, NO_MANAGE,
+  ACCEPT_AGAIN, ACCEPT_WHAT_HAPPENS, CAPPED_LINE, EFFORTS, EFFORT_LINE, EFFORT_LONG_LINE, offlineLine, LOOK_IS_A_LOOK, MANUAL_HELP, NO_MANAGE,
   acceptBody, adviceSentence, choicesLine, adviceTitle, basisWord, colourIndex, cutOrderSentence, dedupeAdvice, driftWords, kg, marginOf,
   marginSentence, mm, mmPair, RUN_CARRIES_ON, RUN_INTERRUPTED, runSummary, pct, pieceColour, platePieceKinds, sequenceOver, steelWord, tonnes,
-  NO_LAYOUT, anyImported, hasLayout, isImported, lineOffcuts, verdictOf, wasteBreakdown, wasteTotalKg,
+  NO_LAYOUT, isFreeLayout, anyImported, hasLayout, isImported, lineOffcuts, verdictOf, wasteBreakdown, wasteTotalKg,
+  DROP_ONLY_DXF, isCustomerPlate, originLine, ourPieceCount, pieceCounts, restOf,
   type Effort, type NestingBudget,
 } from '../../lib/nesting';
 import {
@@ -39,6 +44,9 @@ import { PlateDiagram, PlateRuleBadge, PlateThumb } from './PlateDiagram';
 import { NestChoices } from './NestChoices';
 import { WasteBar } from './WasteBar';
 import { NestSheetDialog } from './NestSheetDialog';
+import { NestFilesDialog } from './NestFilesDialog';
+import { NestCompareDialog } from './NestCompareDialog';
+import { Additions, RestSummary } from './NestRest';
 import { NestMoney } from './NestMoney';
 import { CutPiecesButton } from './CutPiecesDialog';
 import { NestRunCard, NestRunLog } from './NestRunCard';
@@ -118,14 +126,20 @@ function Cell({ label, children, title }: { label: string; children: ReactNode; 
 }
 
 /** One plate: its drawing, its two sizes, its wastage and what is on it. */
-function PlateCard({ nest, group, colourOf, onCnc }: {
+function PlateCard({ nest, group, colourOf, onCnc, onRemove, onCustomerFile, fresh = false }: {
   nest: Nest; group: NestGroup; colourOf?: (id: number) => string;
   /** Present only when this plate has a saved lot and a layout to cut from. */
   onCnc?: () => Promise<void>;
+  /** Present only on a saved plate the customer's file made, when the role may change the line. */
+  onRemove?: () => void;
+  onCustomerFile?: () => Promise<void>;
+  /** A proposal's new plate, beside the customer's. */
+  fresh?: boolean;
 }) {
   const margin = marginOf(nest, group);
   const kinds = platePieceKinds(nest);
-  const over = nest.sequences.filter(sequenceOver);
+  const free = isFreeLayout(nest);
+  const over = free ? [] : (nest.sequences ?? []).filter(sequenceOver);
   const verdict = verdictOf(nest.verdict);
   const laidOut = hasLayout(nest);
   const breakdown = laidOut ? wasteBreakdown(nest, nest.sheetArea) : null;
@@ -147,19 +161,31 @@ function PlateCard({ nest, group, colourOf, onCnc }: {
         <Box sx={{ fontSize: 13.5, fontWeight: 500, minWidth: 0, overflowWrap: 'anywhere' }}>{nest.plateCode ?? nest.plateName ?? 'Unnamed plate'}</Box>
         {nest.source === 'offcut' && <Badge family="success" label="Offcut" title="Left over from another plate, so it costs no new steel." />}
         {isImported(nest)
-          ? <Badge family="info" label="Imported" noIcon title="Brought in from the Excel sheet." />
-          : <Badge family="neutral" label="Automatic" noIcon title="Laid out by our packer." />}
+          ? <Badge family="info" label={isCustomerPlate(nest) ? 'Customer’s' : 'Imported'} noIcon title={isCustomerPlate(nest) ? 'Copied from the customer’s nesting file.' : 'Brought in from the Excel sheet.'} />
+          : <Badge family="neutral" label={fresh ? 'New plate' : 'Automatic'} noIcon title="Laid out by our packer." />}
+        {ourPieceCount(nest) > 0 && <Badge family="info" label={`${ourPieceCount(nest)} added by us`} noIcon title="Parts our packer put in the space the customer left." />}
         {verdict && <Badge family={verdict.family} label={verdict.label} title={verdict.help} />}
         {nest.forced && <Badge family="warning" label="Saved anyway" noIcon title="Saved although our check did not say it fits." />}
-        {onCnc && (
-          <Box sx={{ ml: 'auto' }}>
-            <Button size="small" onClick={cnc} disabled={cncBusy}
-              startIcon={cncBusy ? <CircularProgress size={14} color="inherit" /> : <DownloadRounded />}>
-              CNC file
-            </Button>
+        {(onCnc || onRemove || onCustomerFile) && (
+          <Box sx={{ ml: 'auto', display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
+            {onCustomerFile && (
+              <Button size="small" onClick={() => { void onCustomerFile().catch((e) => toast.error((e as Error).message || 'Could not get the file.')); }} startIcon={<FolderOpenRounded />}>
+                Customer’s file
+              </Button>
+            )}
+            {onCnc && (
+              <Button size="small" onClick={cnc} disabled={cncBusy}
+                startIcon={cncBusy ? <CircularProgress size={14} color="inherit" /> : <DownloadRounded />}>
+                CNC file
+              </Button>
+            )}
+            {onRemove && (
+              <Button size="small" color="error" onClick={onRemove} startIcon={<DeleteOutlineRounded />}>Remove plate</Button>
+            )}
           </Box>
         )}
       </Box>
+      <Box data-testid="plate-origin" sx={{ fontSize: 12.5, color: 'var(--c-text-2)', overflowWrap: 'anywhere' }}>{originLine(nest)}</Box>
 
       {(reasons.length > 0 || nest.verdict === 'tight') && (
         <Box component="ul" sx={{ m: 0, pl: 2.5, fontSize: 12.5, color: 'var(--c-text-2)', display: 'grid', gap: 0.3, overflowWrap: 'anywhere' }}>
@@ -256,9 +282,12 @@ function PlateCard({ nest, group, colourOf, onCnc }: {
 }
 
 /** One steel — thickness, grade and material together, never thickness alone. */
-function GroupCard({ group, open, onToggle, cncFor }: {
+function GroupCard({ group, open, onToggle, cncFor, removeFor, fileFor, fresh = false }: {
   group: NestGroup; open: boolean; onToggle: () => void;
   cncFor: (nest: Nest) => (() => Promise<void>) | undefined;
+  removeFor?: (nest: Nest) => (() => void) | undefined;
+  fileFor?: (nest: Nest) => (() => Promise<void>) | undefined;
+  fresh?: boolean;
 }) {
   const [shown, setShown] = useState(FIRST_THUMBS);
   const [picked, setPicked] = useState(0);
@@ -354,7 +383,8 @@ function GroupCard({ group, open, onToggle, cncFor }: {
                   {`Show ${Math.min(MORE_THUMBS, group.nests.length - shown)} more — ${group.nests.length - shown} still hidden`}
                 </Button>
               )}
-              {current && <PlateCard key={current.id ?? current.lotNo ?? `${current.plateItemId}`} nest={current} group={group} onCnc={cncFor(current)} />}
+              {current && <PlateCard key={current.id ?? current.lotNo ?? `${current.plateItemId}`} nest={current} group={group} onCnc={cncFor(current)}
+                onRemove={removeFor?.(current)} onCustomerFile={fileFor?.(current)} fresh={fresh} />}
             </>
           )}
       </Box>
@@ -416,6 +446,9 @@ function PlateNestingPanel({ orderId, lineId, canManage, canEditCatalog = false,
   const choicesLoad = useLoad(() => getNestingChoices(orderId, lineId).catch(() => null), [orderId, lineId]);
   const [choicesSaved, setChoicesSaved] = useState<NestingChoices | null>(null);
   const choices = choicesSaved ?? choicesLoad.data ?? null;
+  // What the customer's files did to the line: may it be changed, and what is left over. An older API has none.
+  const filesLoad = useLoad<NestFilesInfo | null>(() => getNestFiles(orderId, lineId).catch(() => null), [orderId, lineId]);
+  const filesInfo = filesLoad.data;
   const [choicesOpen, setChoicesOpen] = useState<boolean | null>(null);
   const [proposal, setProposal] = useState<NestingPlan | null>(null);
   // true when the proposal re-nests the whole line, imported nests included.
@@ -435,6 +468,13 @@ function PlateNestingPanel({ orderId, lineId, canManage, canEditCatalog = false,
   const [sheet, setSheet] = useState<{ name: string; base64: string; result: NestSheetResult } | null>(null);
   const [fileBusy, setFileBusy] = useState<'download' | 'preview' | 'save' | 'cnc' | null>(null);
   const sheetInput = useRef<HTMLInputElement>(null);
+  // THE CUSTOMER'S FILES (nesting v2). Many DXFs at once, by button or by dropping them on the panel.
+  const filesInput = useRef<HTMLInputElement>(null);
+  const [uploads, setUploads] = useState<NestFileUpload[] | null>(null);
+  const [dragging, setDragging] = useState(false);
+  const [compareOpen, setCompareOpen] = useState(false);
+  const [removing, setRemoving] = useState<Nest | null>(null);
+  const [removeBusy, setRemoveBusy] = useState(false);
   const [effortAnchor, setEffortAnchor] = useState<HTMLElement | null>(null);
   /** Take a snapshot from the server: remember it, and act on how it ended. */
   const adopt = useCallback((snap: NestRunSnapshot) => {
@@ -499,6 +539,7 @@ function PlateNestingPanel({ orderId, lineId, canManage, canEditCatalog = false,
   const plateChoice: PlateChoice | null | undefined = choices ? choices.plateChoice : saved.data?.line.plateChoice;
   const platesUnset = plateChoice === null;
   const [platesBusy, setPlatesBusy] = useState(false);
+  const reloadAll = () => { saved.reload(); filesLoad.reload(); onChanged?.(); };
   const lineName = plan ? `${plan.line.orderCode}_line${plan.line.lineNo}` : `line${lineId}`;
 
   const downloadSheet = async () => {
@@ -540,7 +581,7 @@ function PlateNestingPanel({ orderId, lineId, canManage, canEditCatalog = false,
       await saveNestingSheet(orderId, lineId, sheet.base64, sheet.name, force);
       setSheet(null);
       setProposal(null);
-      saved.reload();
+      saved.reload(); filesLoad.reload();
       onChanged?.();
       toast.success('Sheet saved. Its plates replace the ones this line had.');
     } catch (e) {
@@ -549,6 +590,51 @@ function PlateNestingPanel({ orderId, lineId, canManage, canEditCatalog = false,
       else { setSheet(null); setActionError(e as CfApiError); }
     } finally { setFileBusy(null); }
   };
+
+  // ---- the customer's files ------------------------------------------------
+  const uploadWhy = !canManage ? NO_MANAGE : filesInfo?.canUpload === false ? (filesInfo.readOnlyReason ?? 'This line cannot take nesting files now.') : null;
+
+  /** Read the chosen DXFs into base64; the dialog sends them in ONE request. */
+  const takeFiles = async (list: File[]) => {
+    const dxf = list.filter((f) => /.dxf$/i.test(f.name));
+    if (!dxf.length) { setActionError(new CfApiError(0, DROP_ONLY_DXF)); return; }
+    setFileBusy('preview'); setActionError(null);
+    try {
+      const read = await Promise.all(dxf.map(async (f) => ({ filename: f.name, file: await fileToBase64(f) })));
+      if (dxf.length < list.length) toast.info(`${list.length - dxf.length} ${list.length - dxf.length === 1 ? 'file was' : 'files were'} not DXF and left out.`);
+      setUploads(read);
+    } catch (e) { setActionError(e as CfApiError); } finally { setFileBusy(null); }
+  };
+  const chooseFiles = (event: ChangeEvent<HTMLInputElement>) => {
+    const list = [...(event.target.files ?? [])];
+    event.target.value = '';
+    if (list.length) void takeFiles(list);
+  };
+  const dragOk = (e: DragEvent<HTMLElement>) => [...(e.dataTransfer?.types ?? [])].includes('Files');
+  const onDragOver = (e: DragEvent<HTMLElement>) => { if (dragOk(e)) { e.preventDefault(); if (!dragging) setDragging(true); } };
+  const onDrop = (e: DragEvent<HTMLElement>) => {
+    if (!dragOk(e)) return;
+    e.preventDefault(); setDragging(false);
+    if (uploadWhy || locked || fileBusy != null) { setActionError(new CfApiError(0, uploadWhy ?? 'Wait for the current work to finish.')); return; }
+    void takeFiles([...e.dataTransfer.files]);
+  };
+
+  /** Take one uploaded plate off the line; its pieces go back to left over. */
+  const confirmRemove = async () => {
+    if (removing?.id == null) return;
+    setRemoveBusy(true);
+    try {
+      const out = await removeNestLot(orderId, lineId, removing.id);
+      setRemoving(null); setProposal(null);
+      reloadAll();
+      toast.success(out.message || `${removing.lotNo ?? 'The plate'} is off the line.`);
+    } catch (e) { setRemoving(null); setActionError(e as CfApiError); } finally { setRemoveBusy(false); }
+  };
+  const removeFor = (n: Nest) => (!proposal && plan?.saved && n.id != null && isImported(n) && isCustomerPlate(n) && canManage && !uploadWhy && !running
+    ? () => setRemoving(n) : undefined);
+  const fileFor = (n: Nest) => (!proposal && n.id != null && isCustomerPlate(n)
+    ? () => downloadCustomerFile(orderId, lineId, n.id as number, (n as Nest & { sourceFile?: string | null }).sourceFile ?? null)
+    : undefined);
 
   /**
    * A plate's own DXF — only for a saved lot that says it has a layout. The
@@ -592,15 +678,29 @@ function PlateNestingPanel({ orderId, lineId, canManage, canEditCatalog = false,
     setProposal(null); setRun(null); rememberRun(lineId, null);
   };
 
+  /** "Stop and use this": the run ends within a second or two with the best layout it has. The poll picks the finished proposal up. */
+  const stopRun = async () => {
+    setActionError(null);
+    try { adopt(await stopNestRun(orderId, lineId)); } catch (e) { setActionError(e as CfApiError); }
+  };
+
+  /** Cancel: the run is gone at once and a new one may start. */
+  const cancelRun = async () => {
+    setActionError(null);
+    try { await discardNestRun(orderId, lineId); } catch (e) { setActionError(e as CfApiError); return; }
+    setRun(null); setProposal(null); rememberRun(lineId, null);
+  };
+
   const accept = async () => {
     if (!proposal) return;
     setBusy('accept'); setActionError(null);
     try {
       const out = await cfApi.post<NestingAccepted>(`${path}/accept`, { ...acceptBody(proposal), ...(replaceAll ? { replaceImported: true } : {}) }, { timeoutMs: LONG_WRITE_MS });
       setProposal(null); setRun(null); rememberRun(lineId, null);
-      saved.reload();
+      saved.reload(); filesLoad.reload();
       onChanged?.();
-      toast.success(`${out.plates} plates and ${out.pieces} pieces written${out.replacedLots ? `, replacing ${out.replacedLots}` : ''}.`);
+      const added = (out as NestingAccepted & { additions?: { lots: number; pieces: number } }).additions;
+      toast.success(`${out.plates} plates and ${out.pieces} pieces written${out.replacedLots ? `, replacing ${out.replacedLots}` : ''}.${added?.pieces ? ` ${added.pieces} pieces added to ${added.lots} of the customer’s plates.` : ''}`);
     } catch (e) { setActionError(e as CfApiError); } finally { setBusy(null); }
   };
 
@@ -677,9 +777,16 @@ function PlateNestingPanel({ orderId, lineId, canManage, canEditCatalog = false,
     ...(breakdown ? [`${cuts.count} ${cuts.count === 1 ? 'offcut' : 'offcuts'}`] : []),
   ].join(' · ');
 
+  const uploadedHere = (filesInfo?.plates ?? []).some((x) => x.sourceKind === 'dxf' || x.layoutOrigin === 'customer')
+    || (saved.data?.groups ?? []).some((g) => g.nests.some(isCustomerPlate));
+  const withOurs = !!proposal && restOf(proposal) != null;
+  const savedNests = (saved.data?.groups ?? []).flatMap((g) => g.nests);
+
   return (
-    <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 2, minWidth: 0 }}>
-      {running && run && <NestRunCard run={run} receivedAt={runAt} />}
+    <Box data-testid="nest-drop-zone" onDragOver={onDragOver} onDragLeave={() => setDragging(false)} onDrop={onDrop}
+      sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 2, minWidth: 0, borderRadius: 'var(--r-md)', outline: dragging ? '2px dashed var(--c-primary-600)' : 'none', outlineOffset: 4 }}>
+      {dragging && <Alert severity="info" data-testid="nest-drop-hint">Drop the DXF files to read them. Nothing is saved yet.</Alert>}
+      {running && run && <NestRunCard run={run} receivedAt={runAt} onStop={stopRun} onCancel={cancelRun} />}
       {interrupted && !running && <Alert severity="warning" data-testid="nest-run-interrupted">{RUN_INTERRUPTED}</Alert>}
       {run?.status === 'failed' && !running && (
         <Alert severity="error" data-testid="nest-run-failed">
@@ -689,6 +796,9 @@ function PlateNestingPanel({ orderId, lineId, canManage, canEditCatalog = false,
               {run.error?.problems?.map((x) => <li key={x}>{x}</li>)}
             </Box>
           )}
+          <Box sx={{ mt: 0.5 }}>
+            <Button size="small" variant="outlined" color="inherit" onClick={() => propose(false)} disabled={locked || platesUnset}>Start again</Button>
+          </Box>
           {run.log.length > 0 && (
             <Box sx={{ mt: 0.5 }}>
               <Button size="small" color="inherit" onClick={() => setLogOpen((o) => !o)}>{logOpen ? 'Hide run log' : 'Show run log'}</Button>
@@ -702,7 +812,7 @@ function PlateNestingPanel({ orderId, lineId, canManage, canEditCatalog = false,
       )}
       <SectionCard
         title="Nesting"
-        subtitle={`Line ${plan.line.lineNo} of ${plan.line.orderCode} · plate → sequence → row → part, and the floor cuts in that order.`}
+        subtitle={`Line ${plan.line.lineNo} of ${plan.line.orderCode} · each part on the plate it is cut from, in the order it is cut.`}
         actions={(
           <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
             {/* The cut pieces are not a stage (2026-10-02): their list opens here, over the layout. */}
@@ -725,6 +835,24 @@ function PlateNestingPanel({ orderId, lineId, canManage, canEditCatalog = false,
               </span>
             </Tooltip>
             <input ref={sheetInput} type="file" accept=".xlsx" hidden onChange={chooseSheet} />
+            <Tooltip title={uploadWhy ?? 'Bring in the customer’s nesting: one DXF per plate, as many as you like. You see a check before anything is saved.'}>
+              <span>
+                <Button variant="outlined" disabled={!!uploadWhy || fileBusy != null || locked} onClick={() => filesInput.current?.click()}
+                  startIcon={<UploadFileRounded />}>
+                  Upload nesting files
+                </Button>
+              </span>
+            </Tooltip>
+            <input ref={filesInput} data-testid="nest-files-input" type="file" accept=".dxf" multiple hidden onChange={chooseFiles} />
+            {uploadedHere && (
+              <Tooltip title="Put the customer’s nesting beside our automatic one, figure by figure.">
+                <span>
+                  <Button variant="outlined" disabled={running} startIcon={<CompareArrowsRounded />} onClick={() => setCompareOpen(true)}>
+                    Compare with auto nesting
+                  </Button>
+                </span>
+              </Tooltip>
+            )}
             <Tooltip title={imported
               ? 'Lays out what the imported nests do not cover. Imported plates stay. Nothing is written until you accept.'
               : 'Lays out every cut plate on the line. Nothing is written until you accept.'}>
@@ -742,6 +870,8 @@ function PlateNestingPanel({ orderId, lineId, canManage, canEditCatalog = false,
               {EFFORTS.find((x) => x.value === effort)?.label}
             </Button>
             <Menu anchorEl={effortAnchor} open={!!effortAnchor} onClose={() => setEffortAnchor(null)}>
+              <Box data-testid="effort-line" sx={{ px: 2, pb: 0.75, fontSize: 12, color: 'var(--c-text-2)', maxWidth: 240 }}>{EFFORT_LINE}</Box>
+              <Box data-testid="effort-long-line" sx={{ px: 2, pb: 0.75, fontSize: 12, color: 'var(--c-text-2)', maxWidth: 240 }}>{EFFORT_LONG_LINE}</Box>
               {EFFORTS.map((e) => (
                 <MenuItem key={e.value} selected={e.value === effort} onClick={() => { setEffort(e.value); setEffortAnchor(null); }}>
                   <Box>
@@ -782,9 +912,18 @@ function PlateNestingPanel({ orderId, lineId, canManage, canEditCatalog = false,
           </Box>
           {plan.settingsNote && <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-3)' }}>{plan.settingsNote}</Typography>}
           {proposal && capped && <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)' }}>{CAPPED_LINE}</Typography>}
+          {proposal && (proposal as NestingPlan & { budget?: { stopped?: boolean } }).budget?.stopped && (
+            <Typography data-testid="nest-stopped" sx={{ fontSize: 12.5, color: 'var(--c-text-2)' }}>You stopped the run early. This is the best layout it had found.</Typography>
+          )}
           {actionError?.code === 'PLATES_NOT_CHOSEN'
             ? <Alert severity="warning" data-testid="plates-not-chosen-error">{actionError.message}</Alert>
-            : <ErrorNotice error={actionError} sx={{ mb: 0 }} />}
+            : actionError?.code === 'CHANGED_MEANWHILE'
+              ? (
+                <Alert severity="warning" data-testid="changed-meanwhile" action={(
+                  <Button color="inherit" size="small" onClick={() => { setActionError(null); setProposal(null); reloadAll(); }}>Reload</Button>
+                )}>{actionError.message}</Alert>
+              )
+              : <ErrorNotice error={actionError} sx={{ mb: 0 }} />}
           {/*
             The commitment is laid out BEFORE the button that makes it, not
             after — and the button sits here rather than in the card's header so
@@ -793,7 +932,12 @@ function PlateNestingPanel({ orderId, lineId, canManage, canEditCatalog = false,
           {proposal && (
             <>
               {run?.status === 'done' && run.summary && (
-                <Alert severity="success" data-testid="nest-run-done">{runSummary(run)}</Alert>
+                <Alert severity="success" data-testid="nest-run-done">
+                  {runSummary(run)}
+                  {offlineLine(run.startedBy, run.finishedAt ?? run.startedAt) && (
+                    <Box data-testid="nest-run-offline" sx={{ fontSize: 12.5, mt: 0.25 }}>{offlineLine(run.startedBy, run.finishedAt ?? run.startedAt)}</Box>
+                  )}
+                </Alert>
               )}
               {run?.status === 'done' && run.log.length > 0 && (
                 <Box>
@@ -810,6 +954,7 @@ function PlateNestingPanel({ orderId, lineId, canManage, canEditCatalog = false,
                 </Box>
                 <Box>{ACCEPT_AGAIN}</Box>
               </Note>
+              <RestSummary plan={proposal} />
               <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center', minWidth: 0 }}>
                 <Tooltip title={canManage ? 'Writes this layout down. It becomes what the shop cuts to and what the order buys.' : NO_MANAGE}>
                   <span>
@@ -823,12 +968,19 @@ function PlateNestingPanel({ orderId, lineId, canManage, canEditCatalog = false,
                 <Button size="small" startIcon={<UndoRounded />} onClick={discard} disabled={locked}>
                   Discard
                 </Button>
+                {uploadedHere && (
+                  <Button size="small" startIcon={<CompareArrowsRounded />} onClick={() => setCompareOpen(true)} disabled={locked}>
+                    Compare with auto nesting
+                  </Button>
+                )}
               </Box>
             </>
           )}
           {!canManage && <Note tone="warning"><Box>{NO_MANAGE}</Box></Note>}
         </Box>
       </SectionCard>
+
+      {proposal && <Additions plan={proposal} saved={saved.data} />}
 
       {blocked.length > 0 && (
         <Alert severity="warning" data-testid="nest-blocked">
@@ -1000,7 +1152,7 @@ function PlateNestingPanel({ orderId, lineId, canManage, canEditCatalog = false,
           </SectionCard>
         )
         : plan.groups.map((g) => (
-          <GroupCard key={g.key} group={g} cncFor={cncFor}
+          <GroupCard key={g.key} group={g} cncFor={cncFor} removeFor={removeFor} fileFor={fileFor} fresh={withOurs}
             open={openGroup === g.key}
             onToggle={() => setOpenGroup((k) => (k === g.key ? null : g.key))} />
         ))}
@@ -1028,6 +1180,31 @@ function PlateNestingPanel({ orderId, lineId, canManage, canEditCatalog = false,
           </Box>
         </SectionCard>
       )}
+
+      <NestFilesDialog open={!!uploads} orderId={orderId} lineId={lineId} uploads={uploads ?? []}
+        onClose={() => setUploads(null)}
+        onSaved={(out: NestFilesResult) => { setProposal(null); setRun(null); reloadAll(); toast.success(out.message || 'The customer’s nesting is saved.'); }}
+        onCompare={() => { setUploads(null); setCompareOpen(true); }} />
+
+      <NestCompareDialog open={compareOpen} orderId={orderId} lineId={lineId} canManage={canManage} savedNests={savedNests}
+        onClose={() => setCompareOpen(false)}
+        onDecided={(message) => { setCompareOpen(false); setProposal(null); setRun(null); reloadAll(); toast.success(message); }} />
+
+      <Dialog open={!!removing} onClose={removeBusy ? undefined : () => setRemoving(null)} maxWidth="sm" fullWidth>
+        <DialogTitle>{`Remove ${removing?.lotNo ?? 'this plate'}?`}</DialogTitle>
+        <DialogContent>
+          <Typography sx={{ fontSize: 14 }} data-testid="remove-text">
+            {removing
+              ? `The plate comes off the line. Its ${removing.pieces.length} ${removing.pieces.length === 1 ? 'piece goes' : 'pieces go'} back to left over (${pieceCounts(removing.pieces).map((c) => `${c.code} ×${c.qty}`).join(', ')}), ready to be nested again. The customer’s file stays on record.`
+              : ''}
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setRemoving(null)} disabled={removeBusy}>Cancel</Button>
+          <Button color="error" variant="contained" onClick={confirmRemove} disabled={removeBusy}
+            startIcon={removeBusy ? <CircularProgress size={14} color="inherit" /> : undefined}>Remove plate</Button>
+        </DialogActions>
+      </Dialog>
 
       <NestSheetDialog open={!!sheet} fileName={sheet?.name ?? ''} result={sheet?.result ?? null}
         busy={fileBusy === 'save'} onClose={() => setSheet(null)} onSave={saveSheet} />

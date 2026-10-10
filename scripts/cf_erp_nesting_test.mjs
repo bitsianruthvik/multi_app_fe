@@ -159,22 +159,23 @@ await check('the toolbar has a "Cut pieces (N)" button (the cut pieces are not a
   assert.match(b.textContent.trim(), /^Cut pieces \(\d+\)$/);
 });
 
-await check('the effort chip shows Standard and opens three one-line choices', async () => {
+await check('the effort chip shows 10 min and opens three time choices with one plain line', async () => {
   const chip = find('Effort');
-  assert.ok(chip.textContent.includes('Standard'));
+  assert.ok(chip.textContent.includes('10 min'));
   assert.ok(!find('More'), 'the ... menu is gone');
   await click(chip, 'chip');
-  await waitFor(() => text().includes('squeezes the last kilos'), 'menu');
-  assert.ok(text().includes('a good first layout') && text().includes('usually the best value'));
-  await click(find('Deep'), 'Deep');
-  assert.ok(find('Effort').textContent.includes('Deep'));
+  await waitFor(() => document.querySelector('[data-testid=effort-line]'), 'menu');
+  assert.ok(text().includes('Up to 5 minutes') && text().includes('Up to 10 minutes') && text().includes('Up to 20 minutes'));
+  assert.equal(document.querySelector('[data-testid=effort-line]').textContent, 'These are ceilings. A small line finishes early.');
+  await click(find('20 min'), '20 min');
+  assert.ok(find('Effort').textContent.includes('20 min'));
 });
 
 await check('a run shows the running card, sends the effort, and locks the run buttons', async () => {
   await click(find('Nest everything'), 'nest');
   await waitFor(() => document.querySelector('[data-testid=nest-run-card]'), 'running card');
   assert.deepEqual(posts[0].effort, 'deep');
-  assert.ok(text().includes('Packing plates (3/10 tries)') && text().includes('up to 10 min'));
+  assert.ok(text().includes('Packing plates (3/10 tries)') && text().includes('of 10:00 used'));
   assert.equal(find('Nest everything').disabled, true);
   assert.ok(text().includes('you can leave this page'));
   await waitFor(() => text().includes('0:05'), 'the timer tick', 2500);

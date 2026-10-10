@@ -211,7 +211,7 @@ export function NestChoices({ orderId, lineId, choices, canManage, canEditCatalo
   if (!open) return <Box sx={{ minWidth: 0 }}>{summaryBar}</Box>;
 
   return (
-    <SectionCard title="What to nest" subtitle="Before nesting: the cut pieces to lay out, then the plates they may be cut from. Every run (Quick, Standard, Deep, re-nest) uses these.">
+    <SectionCard title="What to nest" subtitle="Before nesting: the cut pieces to lay out, then the plates they may be cut from. Every run uses these.">
       <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 1.75, minWidth: 0 }}>
         {summaryBar}
         {!choices.canSave && choices.readOnlyReason && <Alert severity="info" sx={{ py: 0 }}>{choices.readOnlyReason}</Alert>}

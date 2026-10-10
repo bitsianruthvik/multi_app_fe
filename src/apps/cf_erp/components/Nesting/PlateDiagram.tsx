@@ -6,7 +6,8 @@ import ZoomOutMapRounded from '@mui/icons-material/ZoomOutMapRounded';
 import ExpandMoreRounded from '@mui/icons-material/ExpandMoreRounded';
 import ExpandLessRounded from '@mui/icons-material/ExpandLessRounded';
 import type { Nest, NestRules } from '../../api/types';
-import { kg, mm } from '../../lib/nesting';
+import { isFreeLayout, kg, mm, pieceColour } from '../../lib/nesting';
+import type { PieceExtras, PieceRings } from '../../api/nesting';
 import {
   DIAGRAM_COLOURS as C, DIM_ZOOM, LEGEND, clampZoom, dim, dimensionLabels, laidOut, ruleBadge, seqBoxes, seqColour,
   seqGaps, sharedCuts,
@@ -39,6 +40,23 @@ const PX = {
   gutterTop: 22,   // room above the plate for its size
   pad: 8,
 };
+
+const r2 = (n: number) => Math.round(n * 100) / 100;
+
+/** One path for a whole part: the outline, its torch-cut windows and its drilled holes (even-odd, so they are holes). */
+function ringsPath(rings: PieceRings, flip: (y: number) => number): string {
+  const poly = (pts: [number, number][]) => `M${pts.map(([x, y]) => `${r2(x)},${r2(flip(y))}`).join('L')}Z`;
+  const out = [poly(rings.outline)];
+  for (const c of rings.cutouts ?? []) if (c.length >= 3) out.push(poly(c));
+  for (const h of rings.holes ?? []) {
+    const r = h.d / 2;
+    out.push(`M${r2(h.cx - r)},${r2(flip(h.cy))}a${r2(r)},${r2(r)} 0 1,0 ${r2(h.d)},0a${r2(r)},${r2(r)} 0 1,0 ${r2(-h.d)},0Z`);
+  }
+  return out.join(' ');
+}
+
+type Drawn = ReturnType<typeof laidOut>[number] & PieceExtras;
+const SCRAP_TIP = 'Scrap: a closed area between parts that are cut edge to edge. It is not a part.';
 
 export const PlateRuleBadge = memo(function PlateRuleBadge({ rules, compact = false }: { rules: NestRules | null | undefined; compact?: boolean }) {
   const [open, setOpen] = useState(false);
@@ -92,12 +110,13 @@ export const PlateThumb = memo(function PlateThumb({ nest, width = 132 }: { nest
   const L = nest.length || 1;
   const W = nest.width || 1;
   const h = Math.max(18, Math.min(80, (width * W) / L));
-  const pieces = laidOut(nest.pieces);
+  const pieces = laidOut(nest.pieces ?? []);
+  const free = isFreeLayout(nest);
   return (
     <Box component="svg" viewBox={`0 0 ${L} ${W}`} width={width} height={h} preserveAspectRatio="none" aria-hidden sx={{ display: 'block' }}>
       <rect x={0} y={0} width={L} height={W} fill={C.scrap} />
       {pieces.map((p, i) => (
-        <rect key={i} x={p.x} y={W - p.y - p.width} width={p.length} height={p.width} fill={seqColour(p.seqNo)} />
+        <rect key={i} x={p.x} y={W - p.y - p.width} width={p.length} height={p.width} fill={free ? pieceColour(p.cutPlateId) : seqColour(p.seqNo)} />
       ))}
     </Box>
   );
@@ -116,7 +135,7 @@ function Swatch({ children, label, help }: { children: ReactNode; label: string;
 const SHOWN_SEQ = 10;
 
 /** The legend: sequences first (they are the cut order), then what the other colours are. */
-export function DiagramLegend({ seqs }: { seqs: number[] }) {
+export function DiagramLegend({ seqs, hasOurs = false, hasOutside = false, hasScrap = false }: { seqs: number[]; hasOurs?: boolean; hasOutside?: boolean; hasScrap?: boolean }) {
   return (
     <Box data-testid="diagram-legend" sx={{ display: 'flex', flexWrap: 'wrap', gap: '6px 14px', alignItems: 'center', minWidth: 0 }}>
       {seqs.slice(0, SHOWN_SEQ).map((s) => (
@@ -124,6 +143,26 @@ export function DiagramLegend({ seqs }: { seqs: number[] }) {
           <rect x={1} y={1} width={16} height={10} rx={2} fill={seqColour(s)} stroke={seqColour(s)} strokeDasharray="3 2" />
         </Swatch>
       ))}
+      {hasOutside && (
+        <Swatch label="Off the plate" help="This part runs across the plate edge. It is not counted as nested.">
+          <rect x={1.5} y={1.5} width={15} height={9} rx={2} fill="var(--c-danger-600)" fillOpacity={0.45} stroke="var(--c-danger-600)" strokeDasharray="2 2" />
+        </Swatch>
+      )}
+      {hasScrap && (
+        <Swatch label="Scrap between parts" help={SCRAP_TIP}>
+          <rect x={1.5} y={1.5} width={15} height={9} fill={C.scrap} stroke="var(--c-text-3)" strokeDasharray="3 2" />
+        </Swatch>
+      )}
+      {hasOurs && (
+        <>
+          <Swatch label="Customer's part" help="Where the customer's own file drew this part.">
+            <rect x={1} y={1} width={16} height={10} rx={2} fill={C.scrapLine} fillOpacity={0.85} />
+          </Swatch>
+          <Swatch label="Added by us" help="A part our packer added to the customer's plate, in the space they left.">
+            <rect x={1.5} y={1.5} width={15} height={9} rx={2} fill={C.scrapLine} fillOpacity={0.35} stroke="var(--c-primary-700)" strokeWidth={1.4} strokeDasharray="3 2" />
+          </Swatch>
+        </>
+      )}
       {seqs.length > SHOWN_SEQ && <Box component="span" sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>{`+${seqs.length - SHOWN_SEQ} more`}</Box>}
       {LEGEND.map((l) => (
         <Swatch key={l.key} label={l.label} help={l.help}>
@@ -190,12 +229,19 @@ export function PlateDiagram({ nest, kerfMm, title }: {
   const view = { x: cx - vw / 2, y: cy - vh / 2, w: vw, h: vh };
   const fy = useCallback((y: number, h = 0) => W - y - h, [W]);
 
-  const pieces = useMemo(() => laidOut(nest.pieces), [nest]);
-  const boxes = useMemo(() => seqBoxes(pieces), [pieces]);
-  const cuts = useMemo(() => sharedCuts(pieces, k), [pieces, k]);
+  const pieces = useMemo(() => laidOut(nest.pieces ?? []) as Drawn[], [nest]);
+  // A customer's plate, or one laid out by true shape, has no rows or sequences: colour by part, no sequence boxes.
+  const free = isFreeLayout(nest);
+  // Rectangles only for the arithmetic that assumes them (shared cuts, dimensions); a drawn shape is drawn.
+  const plain = useMemo(() => pieces.filter((p) => !p.rings), [pieces]);
+  const shapes = useMemo(() => pieces.map((p) => (p.rings ? ringsPath(p.rings, (y) => W - y) : null)), [pieces, W]);
+  const hasOurs = pieces.some((p) => p.placedBy === 'ours');
+  const boxes = useMemo(() => (free ? [] : seqBoxes(pieces)), [pieces, free]);
+  const scrap = (nest as { scrap?: { x: number; y: number; length: number; width: number }[] }).scrap ?? [];
+  const cuts = useMemo(() => sharedCuts(plain, k), [plain, k]);
   const gaps = useMemo(() => seqGaps(boxes), [boxes]);
   const offcuts = useMemo(() => nest.offcuts ?? [], [nest]);
-  const dims = dimensionLabels({ zoom, scale, fontPx: PX.dim, pieces, kerf: k, cuts, gaps, offcuts, view, flipY: (y) => fy(y) });
+  const dims = dimensionLabels({ zoom, scale, fontPx: PX.dim, pieces: plain, kerf: k, cuts, gaps, offcuts, view, flipY: (y) => fy(y) });
   const showDims = zoom >= DIM_ZOOM;
 
   // ---- interaction --------------------------------------------------------
@@ -304,7 +350,7 @@ export function PlateDiagram({ nest, kerfMm, title }: {
         <svg
           ref={svg}
           role="img"
-          aria-label={title ?? `${nest.lotNo ?? 'Plate'}: ${pieces.length} pieces in ${boxes.length} sequences${offcuts.length ? `, ${offcuts.length} offcuts` : ''}`}
+          aria-label={title ?? `${nest.lotNo ?? 'Plate'}: ${pieces.length} pieces${free ? ', cut in order along the plate' : ` in ${boxes.length} sequences`}${offcuts.length ? `, ${offcuts.length} offcuts` : ''}`}
           viewBox={`${view.x} ${view.y} ${view.w} ${view.h}`}
           width={width}
           height={height}
@@ -350,7 +396,7 @@ export function PlateDiagram({ nest, kerfMm, title }: {
               </path>
             )}
             {/* Kerf: the halo round every part. Shared boundaries overlap, so they read as one band. */}
-            {k > 0 && pieces.map((p, i) => (
+            {k > 0 && plain.map((p, i) => (
               <rect key={`k${i}`} x={p.x - k} y={fy(p.y, p.width) - k} width={p.length + 2 * k} height={p.width + 2 * k} fill={C.kerf} />
             ))}
           </g>
@@ -372,16 +418,43 @@ export function PlateDiagram({ nest, kerfMm, title }: {
             </g>
           ))}
 
-          {/* The parts, by sequence. */}
-          {pieces.map((p) => (
-            <rect key={`${p.seqNo}-${p.rowNo}-${p.posNo}-${p.x}-${p.y}`} x={p.x} y={fy(p.y, p.width)} width={p.length} height={p.width}
-              fill={seqColour(p.seqNo)} fillOpacity={0.85} stroke="var(--c-surface)" {...stroke(0.6)}>
-              <title>
-                {`${p.cutPlateCode} — sequence ${p.seqNo}, row ${p.rowNo}, position ${p.posNo}`
-                  + `\n${mm(p.length)} × ${mm(p.width)} mm${p.rotated ? ' (turned)' : ''} at ${mm(p.x)}, ${mm(p.y)}`}
-              </title>
+          {/* The parts. A drawn part is ONE path (outline, windows, holes); a plain one is a rectangle. Ours are paler with a dashed edge. */}
+          {pieces.map((p, i) => {
+            const ours = p.placedBy === 'ours';
+            const outside = !!(p as { outside?: boolean }).outside;
+            const fill = outside ? 'var(--c-danger-600)' : free ? pieceColour(p.cutPlateId) : seqColour(p.seqNo);
+            const look = outside
+              ? { fillOpacity: 0.45, stroke: 'var(--c-danger-700, var(--c-danger-600))', strokeDasharray: '2 2', ...stroke(1.6) }
+              : ours
+              ? { fillOpacity: 0.4, stroke: 'var(--c-primary-700)', strokeDasharray: '5 3', ...stroke(1.6) }
+              : { fillOpacity: 0.85, stroke: 'var(--c-surface)', ...stroke(0.6) };
+            const order = Number.isFinite(p.posNo) ? `cut ${p.posNo} of ${pieces.length}` : '';
+            const where = outside ? ' — runs off the plate, not counted as nested' : ours ? ` — added by us, ${order}` : free ? ` — ${order}` : ` — sequence ${p.seqNo}, row ${p.rowNo}, position ${p.posNo}`;
+            const kept = (p as { shapeFrom?: string | null }).shapeFrom === 'nesting file' ? '\nShape taken from the nesting file' : '';
+            const turn = p.rotationDeg ? ` turned ${mm(p.rotationDeg)}°` : p.rotated ? ' (turned)' : '';
+            const tip = (
+              <title>{`${p.cutPlateCode}${where}\n${mm(p.length)} × ${mm(p.width)} mm${turn}${p.mirrored ? ' (flipped)' : ''} at ${mm(p.x)}, ${mm(p.y)}${kept}`}</title>
+            );
+            const d = shapes[i];
+            return d ? (
+              <path key={`${p.cutPlateId}-${i}`} data-part="shape" data-by={ours ? 'ours' : 'customer'} d={d} fillRule="evenodd" fill={fill} {...look}>{tip}</path>
+            ) : (
+              <rect key={`${p.cutPlateId}-${p.seqNo}-${p.rowNo}-${p.posNo}-${p.x}-${p.y}`} data-part="rect" data-by={ours ? 'ours' : 'customer'}
+                x={p.x} y={fy(p.y, p.width)} width={p.length} height={p.width} fill={fill} {...look}>{tip}</rect>
+            );
+          })}
+
+          {scrap.map((v, i) => (
+            <rect key={`scrap${i}`} data-scrap="1" x={v.x} y={fy(v.y, v.width)} width={v.length} height={v.width} fill={`url(#${scrapHatch})`} stroke="var(--c-text-3)" strokeDasharray="4 3" {...stroke(1)}>
+              <title>{SCRAP_TIP}</title>
             </rect>
           ))}
+
+          {/* Cut order on a free layout: the number each part is cut in, where it fits. */}
+          {free && pieces.map((p, i) => (p.length * scale >= 26 && p.width * scale >= 15 && Number.isFinite(p.posNo) ? (
+            <text key={`o${i}`} data-cut-order={p.posNo} x={p.x + p.length / 2} y={fy(p.y, p.width) + p.width / 2} fontSize={u(PX.label)} textAnchor="middle" dominantBaseline="central"
+              fontWeight={700} fill="var(--c-text)" pointerEvents="none" style={{ paintOrder: 'stroke', stroke: 'var(--c-surface)', strokeWidth: u(3) }}>{p.posNo}</text>
+          ) : null))}
 
           {/* Shared cuts — one cut serving two parts. */}
           {cuts.map((c2, i) => (
@@ -421,7 +494,7 @@ export function PlateDiagram({ nest, kerfMm, title }: {
           ))}
         </svg>
       </Box>
-      <DiagramLegend seqs={seqs} />
+      <DiagramLegend seqs={free ? [] : seqs} hasOurs={hasOurs} hasScrap={scrap.length > 0} hasOutside={pieces.some((p) => (p as { outside?: boolean }).outside)} />
     </Box>
   );
 }

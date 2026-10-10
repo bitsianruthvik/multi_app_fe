@@ -1,6 +1,7 @@
 import type {
   Nest, NestDrift, NestGroup, NestMetrics, NestPiece, NestRunSnapshot, NestSizeAdvice, NestVerdict, NestWaste, NestingPlan,
 } from '../api/types';
+import type { CompareMetrics, NestExtras, NestFileRead, PieceExtras } from '../api/nesting';
 
 /**
  * Words and arithmetic for the nesting screen.
@@ -63,10 +64,43 @@ export function basisWord(plan: NestingPlan): { label: string; family: 'success'
 
 /** How hard the packer may look. The floor is deterministic, so more is never worse. */
 export const EFFORTS = [
-  { value: 'quick', label: 'Quick', help: 'Seconds, a good first layout.', bound: 'a few seconds' },
-  { value: 'standard', label: 'Standard', help: '~5 min, usually the best value.', bound: 'about 5 minutes' },
-  { value: 'deep', label: 'Deep', help: '~10 min, squeezes the last kilos.', bound: 'about 10 minutes' },
+  { value: 'quick', label: '5 min', help: 'Up to 5 minutes.', bound: '5 minutes' },
+  { value: 'standard', label: '10 min', help: 'Up to 10 minutes.', bound: '10 minutes' },
+  { value: 'deep', label: '20 min', help: 'Up to 20 minutes.', bound: '20 minutes' },
+  { value: 'long', label: '1 hour', help: 'Up to 1 hour.', bound: '1 hour' },
 ] as const;
+
+/** Said once under every time picker. */
+export const EFFORT_LINE = 'These are ceilings. A small line finishes early.';
+
+/** For the long level: the run belongs to the server, not to this page. */
+export const EFFORT_LONG_LINE = 'A long run keeps going on the server if you close this page. Come back later for the result.';
+
+/** "40 s ago", "3 min ago" from milliseconds. */
+export function agoWords(ms: number | null | undefined): string {
+  if (ms == null || !Number.isFinite(ms)) return '';
+  const s = Math.max(0, Math.round(ms / 1000));
+  if (s < 60) return `${s} s ago`;
+  if (s < 3600) return `${Math.round(s / 60)} min ago`;
+  return `${Math.round(s / 3600)} h ago`;
+}
+
+/** "Picked up again after an interruption (2 times)", or null when the run never was. */
+export function resumedLine(resumes: number | null | undefined, resumed: boolean | null | undefined): string | null {
+  const n = resumes ?? (resumed ? 1 : 0);
+  if (!n) return null;
+  return `Picked up again after an interruption (${n} ${n === 1 ? 'time' : 'times'})`;
+}
+
+/** A run made by the offline runner on a developer's computer is an ordinary ready run that says where it came from. */
+export function offlineLine(startedBy: string | number | null | undefined, when: string | null | undefined): string | null {
+  if (typeof startedBy !== 'string' || !startedBy.toLowerCase().startsWith('offline runner')) return null;
+  const d = when ? new Date(when) : null;
+  const at = d && !Number.isNaN(d.getTime())
+    ? d.toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+    : null;
+  return at ? `Nested on a computer, ${at}` : 'Nested on a computer';
+}
 
 export type Effort = typeof EFFORTS[number]['value'];
 
@@ -83,10 +117,10 @@ export function clock(seconds: number): string {
 export function progressLine(pieces: number | null, seconds: number, effort: Effort): string {
   const e = EFFORTS.find((x) => x.value === effort) ?? EFFORTS[1];
   const what = pieces ? `Packing ${pieces.toLocaleString('en-US')} pieces…` : 'Packing…';
-  return `${what} ${clock(seconds)} — ${e.label} takes up to ${e.bound}`;
+  return `${what} ${clock(seconds)} — up to ${e.bound}`;
 }
 
-export const CAPPED_LINE = 'Stopped at the time limit — a Deep run may find a little less waste.';
+export const CAPPED_LINE = 'Stopped at the time limit — a longer run may find a little less waste.';
 
 /**
  * THE MARGIN, AS IT ACTUALLY CAME OUT. The shop asks for +100 mm of length and
@@ -141,7 +175,11 @@ export const wasteWord = (wasteKg: number, wastePct: number) => `${kg(wasteKg)} 
  * shifting mid-cut.
  */
 export function cutOrderSentence(nest: Nest): string {
-  const n = nest.sequences.length;
+  if (isFreeLayout(nest)) {
+    const pieces = (nest.pieces ?? []).length;
+    return pieces ? `Cut order: 1 to ${pieces}, along the plate. Cut-outs are cut before the outline of each part. This plate has no rows or sequences.` : 'Nothing is placed on this plate.';
+  }
+  const n = (nest.sequences ?? []).length;
   if (!n) return 'Nothing is placed on this plate.';
   if (n === 1) return 'One sequence: the whole plate is cut as one unit.';
   return `${n} sequences, cut in order — 1 in full, then 2${n > 2 ? `, then 3${n > 3 ? ' …' : ''}` : ''}. Piercing may not start on a later sequence.`;
@@ -270,7 +308,10 @@ export const adviceTitle = (a: NestSizeAdvice): string =>
  * replaces the automatic ones.
  */
 export function acceptBody(plan: NestingPlan) {
+  const additions = additionsOf(plan);
   return {
+    // Nest the rest on a customer's plates: the pieces added to them go back whole (nesting v2, section 5).
+    ...(additions.length ? { additions } : {}),
     nests: plan.groups.flatMap((g) => g.nests.filter((n) => !isImported(n)).map((n) => ({
       lotNo: n.lotNo,
       plateItemId: n.plateItemId,
@@ -369,7 +410,7 @@ export function wasteTotalKg(x: Pick<Nest | NestMetrics, 'wasteKg' | 'wasteTotal
   if (typeof x.wasteTotalKg === 'number') return x.wasteTotalKg;
   const w = x.wasteKg;
   if (typeof w === 'number') return w;
-  if (isWaste(w)) return w.kerf + w.sequenceGaps + w.rim + w.offcut + w.wastage;
+  if (isWaste(w)) return (w.kerf || 0) + (w.sequenceGaps || 0) + (w.rim || 0) + (w.offcut || 0) + (w.wastage || 0);
   return 0;
 }
 
@@ -394,14 +435,15 @@ export function wasteBreakdown(
   }
   if (!kgs) return null;
   const total = x.weightKg || 0;
-  const wasteSum = kgs.kerf + kgs.sequenceGaps + kgs.rim + kgs.offcut + kgs.wastage;
+  const wasteSum = (kgs.kerf || 0) + (kgs.sequenceGaps || 0) + (kgs.rim || 0) + (kgs.offcut || 0) + (kgs.wastage || 0);
   // Parts from the API when it says; a plate with no layout has parts and waste of
   // zero, and what is left of its weight is shown as No layout, not as parts.
   const parts = typeof x.partsKg === 'number' ? x.partsKg : Math.max(total - wasteSum, 0);
   const rest = Math.max(total - parts - wasteSum, 0);
   const values: Record<WasteKey, number> = { parts, ...kgs, noLayout: rest > total * 0.001 ? rest : 0 };
-  return WASTE_KEYS.filter((key) => key !== 'noLayout' || values.noLayout > 0).map((key) => ({
-    key, label: WASTE_LABEL[key], kg: values[key], pct: total > 0 ? (values[key] / total) * 100 : 0,
+  // A free layout has no sequence gaps: the cause is dropped when there is none, not shown as a zero.
+  return WASTE_KEYS.filter((key) => (key !== 'noLayout' || values.noLayout > 0) && (key !== 'sequenceGaps' || values.sequenceGaps > 0)).map((key) => ({
+    key, label: WASTE_LABEL[key], kg: values[key] || 0, pct: total > 0 ? ((values[key] || 0) / total) * 100 : 0,
   }));
 }
 
@@ -467,3 +509,163 @@ export function runSummary(run: Pick<NestRunSnapshot, 'summary'>): string {
     `${n(s.problems)} ${s.problems === 1 ? 'problem' : 'problems'}`,
   ].join(' · ');
 }
+
+/* ===========================================================================
+ * NESTING v2 — the customer's files, and the comparison (CF_ERP_NESTING_V2.md)
+ * ======================================================================== */
+
+type V2Nest = Nest & NestExtras;
+
+/** True for a plate that came from the customer's own DXF (the layout is theirs). */
+export const isCustomerPlate = (n: object): boolean => {
+  const v = n as NestExtras;
+  return v.layoutOrigin === 'customer' || v.sourceKind === 'dxf';
+};
+
+/** Where a plate's layout came from, in the words the card shows. */
+export function originLine(n: Nest): string {
+  const v = n as V2Nest;
+  if (isCustomerPlate(v)) return `Customer's layout${v.sourceFile ? ` · ${v.sourceFile}` : ''}`;
+  if (v.sourceKind === 'sheet') return 'From the Excel sheet';
+  return 'Nested here';
+}
+
+/** A plate drawn by true shape has no rows or sequences, so it is coloured by part. */
+export const isFreeLayout = (n: Nest): boolean => {
+  const v = n as V2Nest;
+  return v.layout === 'free' || isCustomerPlate(v) || ((v.sequences ?? []).length === 0 && (v.pieces ?? []).length > 0);
+};
+
+/** How many pieces on a plate our packer added to a customer's layout. */
+export const ourPieceCount = (n: Nest): number =>
+  (n.pieces as (NestPiece & PieceExtras)[]).filter((p) => p.placedBy === 'ours').length;
+
+/** One uploaded file as a plate, so the plate diagram can draw the preview. */
+export function fileNest(f: NestFileRead): Nest {
+  const L = f.plate?.length ?? 1;
+  const W = f.plate?.width ?? 1;
+  const outside = new Set(f.errors.filter((e) => e.code === 'OUTSIDE_PLATE' && e.partId).map((e) => e.partId as string));
+  const pieces = f.placements.map((p, i) => ({
+    cutPlateId: p.cutPlateId, cutPlateCode: p.cutPlateCode, seqNo: 1, rowNo: 1, posNo: i + 1,
+    x: p.x, y: p.y, length: p.length, width: p.width, rotated: p.rotationDeg === 90 || p.rotationDeg === 270,
+    rotationDeg: p.rotationDeg, mirrored: p.mirrored, placedBy: p.placedBy ?? 'customer', area: p.area, rings: p.rings,
+    shapeFrom: p.shapeFrom, outside: !!p.partId && outside.has(p.partId),
+  }));
+  const v2: NestExtras = { layoutOrigin: 'customer', sourceKind: 'dxf', sourceFile: f.filename, layout: 'free', scrap: f.scrap };
+  return {
+    lotNo: f.lotNo ?? f.nestNo ?? f.filename, plateItemId: f.plate?.itemId ?? null, plateCode: f.plate?.code ?? null, plateName: f.plate?.code ?? null,
+    source: 'catalog', thickness: f.plate?.thickness ?? 0, grade: f.plate?.grade ?? null, material: null, density: null,
+    length: L, width: W, requiredLength: null, requiredWidth: null, sheetArea: L * W, usedArea: 0, wasteArea: 0, wastePct: f.metrics?.wastePct ?? 0,
+    weightKg: f.metrics?.plateKg ?? 0, wasteKg: f.metrics?.wasteKgTotal ?? 0, sequences: [], pieces, ...v2,
+  } as Nest;
+}
+
+/** The pieces of a list, counted by cut plate code. */
+export function pieceCounts(pieces: { cutPlateCode: string }[]): { code: string; qty: number }[] {
+  const by = new Map<string, number>();
+  for (const p of pieces) by.set(p.cutPlateCode, (by.get(p.cutPlateCode) ?? 0) + 1);
+  return [...by].map(([code, qty]) => ({ code, qty }));
+}
+
+export interface NestRest {
+  pieces: { cutPlateId: number; cutPlateCode: string; qty: number;
+    onExisting: { lotNo: string; lotId: number; qty: number }[]; onNew: { lotNo: string; qty: number }[]; unplaced: number }[];
+  onExisting: number; onNew: number; unplaced: number; existingPlatesUsed: number;
+}
+
+export interface NestAddition {
+  lotId: number; lotNo: string; plateCode: string; length: number; width: number; sourceFile?: string | null; kerfMm?: number;
+  pieces: (NestPiece & PieceExtras)[];
+}
+
+/** The proposal's v2 fields (§5). */
+export const additionsOf = (plan: NestingPlan | null | undefined): NestAddition[] =>
+  ((plan as unknown as { additions?: NestAddition[] } | null)?.additions) ?? [];
+export const restOf = (plan: NestingPlan | null | undefined): NestRest | null =>
+  ((plan as unknown as { rest?: NestRest } | null)?.rest) ?? null;
+
+/** The sentence under "Nest the rest": where each left-over piece went. */
+export function restLine(rest: NestRest | undefined | null): string | null {
+  if (!rest) return null;
+  const onOld = `${rest.onExisting} on the customer's ${rest.existingPlatesUsed === 1 ? 'plate' : 'plates'} (${rest.existingPlatesUsed})`;
+  const text = `The left-over pieces: ${onOld}, ${rest.onNew} on new plates.`;
+  return rest.unplaced > 0 ? `${text} ${rest.unplaced} could not be placed.` : text;
+}
+
+/** Rows of the comparison. `better` says which way is good: lower is better, or the row is only information. */
+export const COMPARE_ROWS: { key: string; label: string; better: 'lower' | 'info'; unit: string; digits: number;
+  get: (m: CompareMetrics) => number | null | undefined; sub?: boolean; help?: string }[] = [
+  { key: 'plates', label: 'Plates', better: 'lower', unit: '', digits: 0, get: (m) => m.plates },
+  { key: 'tonnesBought', label: 'Steel bought', better: 'lower', unit: 't', digits: 3, get: (m) => m.tonnesBought },
+  { key: 'partsTonnes', label: 'Parts', better: 'info', unit: 't', digits: 3, get: (m) => m.partsTonnes, help: 'The steel in the parts. It should be the same on both sides.' },
+  { key: 'wastePct', label: 'Waste', better: 'lower', unit: '%', digits: 1, get: (m) => m.wastePct },
+  { key: 'wasteKgTotal', label: 'Waste, all causes', better: 'lower', unit: 'kg', digits: 0, get: (m) => m.wasteKgTotal },
+  { key: 'wasteKerf', label: 'Kerf', sub: true, better: 'lower', unit: 'kg', digits: 0, get: (m) => m.wasteKg?.kerf },
+  { key: 'wasteGaps', label: 'Sequence gaps', sub: true, better: 'lower', unit: 'kg', digits: 0, get: (m) => m.wasteKg?.sequenceGaps },
+  { key: 'wasteRim', label: 'Rim', sub: true, better: 'lower', unit: 'kg', digits: 0, get: (m) => m.wasteKg?.rim },
+  { key: 'wasteOffcut', label: 'Offcuts kept', sub: true, better: 'info', unit: 'kg', digits: 0, get: (m) => m.wasteKg?.offcut, help: 'Not lost: offcuts go back to stock.' },
+  { key: 'wasteWastage', label: 'Wastage', sub: true, better: 'lower', unit: 'kg', digits: 0, get: (m) => m.wasteKg?.wastage },
+  { key: 'offcuts', label: 'Offcuts', better: 'info', unit: '', digits: 0, get: (m) => m.offcuts?.count },
+  { key: 'cutLengthM', label: 'Cut length', better: 'lower', unit: 'm', digits: 1, get: (m) => m.cutLengthM },
+  { key: 'piercings', label: 'Piercings', better: 'lower', unit: '', digits: 0, get: (m) => m.piercings },
+  { key: 'cost', label: 'Cost', better: 'lower', unit: '₹', digits: 0, get: (m) => m.cost?.value },
+];
+
+export const metricText = (v: number | null | undefined, digits: number, unit: string): string => {
+  if (v == null || !Number.isFinite(v)) return '—';
+  const s = v.toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: digits });
+  return unit === '₹' ? `₹${s}` : unit === '%' ? `${s}%` : unit ? `${s} ${unit}` : s;
+};
+
+/** The backend's key for a row's difference, where it has one. */
+export const DELTA_KEY: Record<string, string> = {
+  plates: 'plates', tonnesBought: 'tonnesBought', partsTonnes: 'partsTonnes', wastePct: 'wastePct', wasteKgTotal: 'wasteKgTotal',
+  cutLengthM: 'cutLengthM', piercings: 'piercings', cost: 'cost',
+};
+
+/**
+ * Why a figure is missing, in the backend's words. Every null metric comes with one:
+ * cost.reason, wastePctReason, or the side's own reason (no run, no whole-line plan).
+ */
+export function missingReason(key: string, m: CompareMetrics | null | undefined, sideReason?: string | null): string {
+  if (!m) return sideReason || 'This side has no figures yet.';
+  if (key === 'cost' && m.cost?.reason) return m.cost.reason;
+  if (key === 'wastePct' && m.wastePctReason) return m.wastePctReason;
+  return sideReason || 'The server gave no reason for this missing figure.';
+}
+
+/**
+ * The difference (auto minus customer's) in words, with an arrow, and who is better.
+ * `given` is the backend's own delta for the row (undefined = it has none for this row, so it is worked out here).
+ */
+export function differenceText(row: typeof COMPARE_ROWS[number], up: number | null | undefined, auto: number | null | undefined, given?: number | null | string):
+  { arrow: string; text: string; side: 'auto' | 'uploaded' | 'same' | 'none' } {
+  let d: number;
+  if (typeof given === 'number') d = given;
+  else if (given === null) return { arrow: '', text: '—', side: 'none' };
+  else {
+    if (up == null || auto == null || !Number.isFinite(up) || !Number.isFinite(auto)) return { arrow: '', text: '—', side: 'none' };
+    d = auto - up;
+  }
+  const eps = 0.5 * 10 ** -row.digits;
+  if (Math.abs(d) < eps) return { arrow: '=', text: 'Same', side: 'same' };
+  const arrow = d < 0 ? '↓' : '↑';
+  const amount = metricText(Math.abs(d), row.digits, row.unit);
+  const word = d < 0 ? 'less' : 'more';
+  if (row.better === 'info') return { arrow, text: `Auto ${amount} ${word}`, side: 'none' };
+  const autoBetter = d < 0;
+  return { arrow, text: `Auto ${amount} ${word} · ${autoBetter ? 'auto is better' : "customer's is better"}`, side: autoBetter ? 'auto' : 'uploaded' };
+}
+
+/** "ran 3 min ago" for the saved automatic run. */
+export function ranAgo(iso: string | null | undefined, now = Date.now()): string {
+  if (!iso) return 'ran earlier';
+  const s = Math.max(0, Math.round((now - new Date(iso).getTime()) / 1000));
+  if (s < 60) return 'ran just now';
+  if (s < 3600) return `ran ${Math.round(s / 60)} min ago`;
+  if (s < 86400) return `ran ${Math.round(s / 3600)} h ago`;
+  return `ran ${Math.round(s / 86400)} days ago`;
+}
+
+export const DROP_ONLY_DXF = 'Drop DXF files here. For an Excel sheet, use Upload Excel.';
+export const REPLACE_WARNING = 'Plates you uploaded before that are not in these files will be removed. Their pieces go back to left over.';

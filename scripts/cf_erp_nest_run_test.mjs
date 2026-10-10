@@ -67,12 +67,14 @@ globalThis.fetch = async (url, o = {}) => {
   const method = o.method || 'GET';
   calls.push(`${method} ${url}`);
   let out;
-  if (String(url).includes('/nesting/runs/current')) {
+  if (String(url).endsWith('/runs/current/stop') && method === 'POST') out = server.onStop ? server.onStop() : server.current;
+  else if (String(url).includes('/nesting/runs/current')) {
     out = server.current;
     if (method === 'GET' && out.status === 'done' && !String(url).includes('plan=1')) { const { plan: _p, ...rest } = out; out = rest; }
     if (method === 'DELETE') server.current = { status: 'none' };
     if (method === 'DELETE') out = { ok: true, running: false };
   } else if (String(url).endsWith('/nesting/runs') && method === 'POST') {
+    server.lastBody = o.body ? JSON.parse(o.body) : null;
     out = server.start ?? snap('running');
     server.current = out;
   } else if (String(url).includes('/nesting/choices')) return { ok: false, status: 404, text: async () => '{}' };
@@ -137,7 +139,7 @@ await check('opening the page mid-run shows the running card, its log, a progres
   assert.equal(document.querySelector('[role=progressbar]').getAttribute('aria-valuenow'), '30');
   const log = document.querySelector('[data-testid=nest-run-log]');
   assert.ok(log.textContent.includes('Grouping by steel: 2 groups'));
-  assert.ok(text().includes('you can leave this page') && text().includes('up to 5 min') && text().includes('Started by Asha'));
+  assert.ok(text().includes('you can leave this page') && text().includes('of 5:00 used') && text().includes('Started by Asha'));
   await waitFor(() => find('Nest everything'), 'the toolbar');
   assert.equal(find('Nest everything').disabled, true);
 });
@@ -192,6 +194,150 @@ await check('a run seen running that the server no longer knows is called interr
   assert.ok(text().includes('The run was interrupted (the server restarted) — start it again.'));
   assert.equal(document.querySelector('[data-testid=nest-run-card]'), null);
   assert.equal(localStorage.getItem('cf_erp_nest_run_seen_5'), null);
+  await unmount();
+});
+
+const rich = (extra = {}) => snap('running', {
+  progress: {
+    done: 3, total: 10, pct: 30,
+    best: { plates: 124, areaBoughtM2: 3511.2, wastePct: 5.092, unplaced: 0, atMs: 3021, scope: 'rest' },
+    curve: [
+      { atMs: 1000, plates: 130, areaBoughtM2: 3600, wastePct: 8.1, unplaced: 0 },
+      { atMs: 2000, plates: 126, areaBoughtM2: 3540, wastePct: 6.2, unplaced: 0 },
+      { atMs: 3021, plates: 124, areaBoughtM2: 3511.2, wastePct: 5.092, unplaced: 0 },
+    ],
+  },
+  canStop: true, stopRequested: false, stopped: false, ...extra,
+});
+
+await check('the run card shows the best so far, the time used of the budget, and the improvement curve', async () => {
+  server.current = rich();
+  await mount();
+  await waitFor(() => document.querySelector('[data-testid=nest-run-card]'), 'running card');
+  assert.equal(document.querySelector('[data-testid=nest-run-best]').textContent.includes('Best so far: 124 plates · 5.1% waste'), true);
+  assert.ok(text().includes('0:04 of 5:00 used'));
+  const spark = document.querySelector('[data-testid=nest-run-spark]');
+  assert.ok(spark, 'a sparkline');
+  assert.equal(spark.querySelectorAll('path').length, 1, 'one path, no per-point elements');
+  assert.match(spark.getAttribute('aria-label'), /Waste fell from 8\.1% to 5\.1%/);
+  await unmount();
+});
+
+await check('before any layout exists the card says it is still looking, and draws no curve', async () => {
+  server.current = snap('running', { progress: { done: 0, total: 10, pct: 0, best: null, curve: [] }, canStop: true });
+  await mount();
+  await waitFor(() => document.querySelector('[data-testid=nest-run-card]'), 'running card');
+  assert.ok(document.querySelector('[data-testid=nest-run-best]').textContent.includes('Looking for the first layout'));
+  assert.equal(document.querySelector('[data-testid=nest-run-spark]'), null);
+  await unmount();
+});
+
+await check('Stop and use this posts the stop route, says it is stopping, and the finished proposal arrives', async () => {
+  server.current = rich();
+  server.onStop = () => { server.current = snap('done', { stopped: true, plan: plan() }); return rich({ stopRequested: true }); };
+  calls.length = 0;
+  await mount();
+  await waitFor(() => find('Stop and use this'), 'the stop button');
+  assert.ok(find('Cancel'), 'Cancel sits beside it');
+  assert.equal(find('Stop and use this').disabled, false);
+  await click(find('Stop and use this'), 'Stop');
+  assert.ok(calls.some((c) => c.startsWith('POST ') && c.endsWith('/nesting/runs/current/stop')), 'the stop route');
+  assert.ok(document.querySelector('[data-testid=nest-run-stopping]'), 'it says it is stopping');
+  assert.equal(find('Stop and use this').disabled, true);
+  await waitFor(() => text().includes('Nothing here is written down yet'), 'the proposal', 6000);
+  server.onStop = undefined;
+  await unmount();
+});
+
+await check('Stop is off when the run cannot stop yet; Cancel deletes the run and the card goes', async () => {
+  server.current = rich({ canStop: false });
+  calls.length = 0;
+  await mount();
+  await waitFor(() => find('Stop and use this'), 'the stop button');
+  assert.equal(find('Stop and use this').disabled, true);
+  await click(find('Cancel'), 'Cancel');
+  assert.ok(calls.some((c) => c.startsWith('DELETE ') && c.endsWith('/runs/current')));
+  await waitFor(() => !document.querySelector('[data-testid=nest-run-card]'), 'the card gone');
+  await unmount();
+});
+
+const resumedRun = (extra = {}) => rich({
+  resumed: true, canStop: false,
+  progress: { done: 3, total: 10, pct: 30, resumes: 2, checkpointAt: '2026-10-10T10:00:00Z', checkpointAgeMs: 40000,
+    best: { plates: 124, areaBoughtM2: 3511.2, wastePct: 5.092, unplaced: 0, atMs: 3021, scope: 'rest' }, curve: [],
+    keepAwake: { on: true, configured: true, runs: 1, everyMs: 240000, pings: 5, failures: 1, lastPingAt: new Date().toISOString(), lastOkAt: new Date(Date.now() - 120000).toISOString(), lastStatus: 200, lastError: 'timeout' } },
+  ...extra,
+});
+
+await check('the effort picker reads 5 min / 10 min / 20 min / 1 hour, with the long-run line; 1 hour sends long', async () => {
+  server.current = { status: 'none' };
+  await mount();
+  await waitFor(() => document.querySelector('button[aria-label=Effort]'), 'the chip');
+  await click(document.querySelector('button[aria-label=Effort]'), 'chip');
+  await waitFor(() => document.querySelector('[data-testid=effort-long-line]'), 'menu');
+  const items = [...document.querySelectorAll('[role=menuitem]')].map((m) => m.textContent.trim().replace(/Up to.*/, ''));
+  assert.deepEqual(items, ['5 min', '10 min', '20 min', '1 hour']);
+  assert.equal(document.querySelector('[data-testid=effort-long-line]').textContent, 'A long run keeps going on the server if you close this page. Come back later for the result.');
+  await click([...document.querySelectorAll('[role=menuitem]')].find((m) => m.textContent.startsWith('1 hour')), '1 hour');
+  assert.ok(document.querySelector('button[aria-label=Effort]').textContent.includes('1 hour'));
+  server.start = snap('running');
+  await click(find('Nest everything'), 'nest');
+  await waitFor(() => server.lastBody, 'the start');
+  assert.equal(server.lastBody.effort, 'long');
+  server.start = undefined;
+  await unmount();
+});
+
+await check('a picked-up run says so with its count and checkpoint age; Stop still works though it is not live; details only when present', async () => {
+  server.current = resumedRun();
+  server.onStop = () => { server.current = snap('done', { stopped: true, plan: plan() }); return resumedRun({ stopRequested: true }); };
+  calls.length = 0;
+  await mount();
+  await waitFor(() => document.querySelector('[data-testid=nest-run-resumed]'), 'the resumed line');
+  assert.equal(document.querySelector('[data-testid=nest-run-resumed]').textContent, 'Picked up again after an interruption (2 times)');
+  assert.equal(document.querySelector('[data-testid=nest-run-checkpoint]').textContent, 'Last saved 40 s ago');
+  assert.ok(find('Stop and use this'), 'not hidden');
+  assert.equal(find('Stop and use this').disabled, false, 'works on a run that is not live');
+  assert.equal(document.querySelector('[data-testid=nest-run-details]'), null, 'details are folded away');
+  await click(document.querySelector('[data-testid=nest-run-details-toggle]'), 'Details');
+  const d = document.querySelector('[data-testid=nest-run-details]').textContent;
+  assert.ok(d.includes('Keeping the server awake: on') && d.includes('Last answered 2 min ago') && d.includes('1 failed ping: timeout'));
+  await click(find('Stop and use this'), 'Stop');
+  assert.ok(calls.some((c) => c.startsWith('POST ') && c.endsWith('/runs/current/stop')));
+  server.onStop = undefined;
+  await unmount();
+});
+
+await check('a run never picked up shows no resumed line, no checkpoint line and no details', async () => {
+  server.current = rich();
+  await mount();
+  await waitFor(() => document.querySelector('[data-testid=nest-run-card]'), 'card');
+  assert.equal(document.querySelector('[data-testid=nest-run-resumed]'), null);
+  assert.equal(document.querySelector('[data-testid=nest-run-checkpoint]'), null);
+  assert.equal(document.querySelector('[data-testid=nest-run-details-toggle]'), null);
+  await unmount();
+});
+
+await check('a failed run shows the backend reason and Start again starts a new run', async () => {
+  server.current = snap('failed', { phase: 'failed', error: { code: 'DEMAND_CHANGED', message: 'The line changed while the run slept, so its checkpoint no longer fits. Start it again.', problems: null } });
+  server.start = snap('running');
+  server.lastBody = null;
+  await mount();
+  await waitFor(() => document.querySelector('[data-testid=nest-run-failed]'), 'the failed note');
+  assert.ok(document.querySelector('[data-testid=nest-run-failed]').textContent.includes('The line changed while the run slept'));
+  await click(find('Start again'), 'Start again');
+  await waitFor(() => server.lastBody, 'a new run');
+  server.start = undefined;
+  await unmount();
+});
+
+await check('a finished run from the offline runner says where it was nested, and is otherwise a normal proposal', async () => {
+  server.current = snap('done', { startedBy: 'offline runner (KEPL-LAPTOP)', finishedAt: '2026-10-10T16:40:00Z', restored: true, plan: plan() });
+  await mount();
+  await waitFor(() => document.querySelector('[data-testid=nest-run-done]'), 'the done note');
+  assert.match(document.querySelector('[data-testid=nest-run-offline]').textContent, /^Nested on a computer, 10 Oct 2026/);
+  assert.ok(text().includes('Nothing here is written down yet'));
+  assert.ok(find('Accept this layout'));
   await unmount();
 });
 
