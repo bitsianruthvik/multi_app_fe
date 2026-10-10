@@ -342,6 +342,9 @@ export function OrgChartCard({
               </Box>
             )}
 
+            {/* Machines and areas are departments now (plan §9.4); this block is
+                only for a seat that still carries a work context. */}
+            {(card.contexts ?? []).length > 0 && (
             <Box sx={{ mt: 2.5 }}>
               <Typography sx={{ fontSize: 16, fontWeight: 500, mb: 1 }}>Work contexts</Typography>
               {(card.contexts ?? []).length === 0 ? (
@@ -366,6 +369,7 @@ export function OrgChartCard({
                 A machine or area is where the work happens. It is never a manager.
               </Typography>
             </Box>
+            )}
 
             <Box sx={{ mt: 2.5 }}>
               <Typography sx={{ fontSize: 16, fontWeight: 500, mb: 1 }}>People in this seat</Typography>

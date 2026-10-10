@@ -3,7 +3,7 @@ import { Box, Stack, Tooltip, Typography } from '@mui/material';
 import { DataTable, EmptyState, Mono, StatusBadge } from '@shared/ui';
 import type { DataColumn } from '@shared/ui';
 import type { OrgChartEdge } from '../api/orgchart';
-import { rowsOf, type ChartModel, type ShiftFilter } from './orgChartLayout';
+import { seatCount, type ChartModel, type ShiftFilter } from './orgChartLayout';
 
 /**
  * The chart as a table — and the reason this screen passes DESIGN_SYSTEM.md
@@ -67,10 +67,12 @@ export function OrgChartTable({
     return ids.flatMap((id) => {
       const n = model.byId.get(id);
       if (!n) return [];
-      const seatRows = rowsOf(n, filter);
-      const filled = seatRows.filter((r) => r.occupant).length;
-      const present = seatRows.filter((r) => r.occupant?.attendanceStatus === 'PRESENT').length;
-      const absent = seatRows.filter((r) => r.occupant?.attendanceStatus === 'ABSENT').length;
+      // Seats, filled and vacant by the one seat rule (orgChartLayout.seatCount),
+      // so a row here agrees with the chart header and the stat strip.
+      const count = seatCount(n, filter);
+      const filled = count.filled;
+      const present = count.occupants.filter((o) => o.attendanceStatus === 'PRESENT').length;
+      const absent = count.occupants.filter((o) => o.attendanceStatus === 'ABSENT').length;
       const mgrId = model.parent.get(id) ?? null;
       const mgr = mgrId != null ? model.byId.get(mgrId) : null;
       return [
@@ -91,15 +93,12 @@ export function OrgChartTable({
             })
             .join('; '),
           shift: SHIFT_LABEL[n.shiftPattern] ?? n.shiftPattern,
-          seats: seatRows.length,
+          seats: count.seats,
           filled,
-          vacant: seatRows.length - filled,
+          vacant: count.vacant,
           present,
           absent,
-          occupants: seatRows
-            .filter((r) => r.occupant)
-            .map((r) => r.occupant!.name)
-            .join(', '),
+          occupants: count.occupants.map((o) => o.name).join(', '),
           department: n.departmentName ?? '—',
           location: n.locationName ?? '—',
           status: n.status,

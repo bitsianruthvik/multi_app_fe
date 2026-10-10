@@ -103,7 +103,11 @@ export default function PositionDetail() {
 
   const tabs: DetailTab[] = [
     { value: 'overview', label: 'Overview' },
-    { value: 'contexts', label: 'Work contexts', count: contexts.length },
+    // Machines and areas are departments now (plan §9.4). The tab stays only for
+    // a company that still has work contexts recorded, or a seat still linked to one.
+    ...(contexts.length > 0 || (options?.workContexts?.length ?? 0) > 0
+      ? [{ value: 'contexts', label: 'Work contexts', count: contexts.length }]
+      : []),
     { value: 'reporting', label: 'Formal reporting', count: reporting.length },
     { value: 'occupants', label: 'Occupants', count: occupants.filter((o) => o.liveOnDate).length },
     { value: 'overrides', label: 'Overrides', count: overrides.length },

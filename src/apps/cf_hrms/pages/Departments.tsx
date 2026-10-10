@@ -1,5 +1,16 @@
 import { useCallback, useMemo, useState } from 'react';
-import { Box, Button, IconButton, MenuItem, TextField, Tooltip } from '@mui/material';
+import {
+  Autocomplete,
+  Box,
+  Button,
+  FormControlLabel,
+  IconButton,
+  MenuItem,
+  Switch,
+  TextField,
+  Tooltip,
+  Typography,
+} from '@mui/material';
 import AddRounded from '@mui/icons-material/AddRounded';
 import EditRounded from '@mui/icons-material/EditRounded';
 import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
@@ -51,6 +62,11 @@ interface DraftState {
   code: string;
   parentId: number | '';
   status: 'ACTIVE' | 'INACTIVE';
+  /** A label, free text; the labels already in use are offered. */
+  type: string;
+  /** A shared crew — one box on the org chart, pointing at what it serves. */
+  isShared: boolean;
+  serves: number[];
 }
 
 const emptyDraft = (parentId: number | null): DraftState => ({
@@ -59,6 +75,9 @@ const emptyDraft = (parentId: number | null): DraftState => ({
   code: '',
   parentId: parentId ?? '',
   status: 'ACTIVE',
+  type: '',
+  isShared: false,
+  serves: [],
 });
 
 export default function Departments() {
@@ -66,13 +85,15 @@ export default function Departments() {
   const canManage = can(ORG_MANAGE);
   const { success } = useToast();
 
-  const load = useCallback(() => orgApi.departments.list(), []);
+  const load = useCallback(() => orgApi.departments.listWithTypes(), []);
   const { data, error, loading, reload } = useOrgLoad(load);
-  const rows = useMemo(() => data ?? [], [data]);
+  const rows = useMemo(() => data?.rows ?? [], [data]);
+  const types = useMemo(() => data?.types ?? [], [data]);
+  const nameOf = useMemo(() => new Map(rows.map((r) => [r.id, r.name])), [rows]);
 
   const [query, setQuery] = useState('');
   const filtered = useMemo(
-    () => filterTree(rows, query, (r) => `${r.name} ${r.code ?? ''} ${r.path}`),
+    () => filterTree(rows, query, (r) => `${r.name} ${r.code ?? ''} ${r.path} ${r.type ?? ''}`),
     [rows, query],
   );
   const { collapsed, toggle, expandAll, collapseAll, anyCollapsed } = useTreeCollapse(rows);
@@ -117,6 +138,9 @@ export default function Departments() {
       code: row.code ?? '',
       parentId: row.parentId ?? '',
       status: row.status,
+      type: row.type ?? '',
+      isShared: Boolean(row.isShared),
+      serves: row.serves ?? [],
     });
 
   const save = async () => {
@@ -126,6 +150,10 @@ export default function Departments() {
       code: draft.code,
       parentId: draft.parentId === '' ? null : draft.parentId,
       status: draft.status,
+      type: draft.type.trim() || null,
+      isShared: draft.isShared,
+      // Only a shared department serves others; un-sharing one clears its list.
+      serves: draft.isShared ? draft.serves : [],
     };
     if (draft.id) await orgApi.departments.update(draft.id, body);
     else await orgApi.departments.create(body);
@@ -186,7 +214,7 @@ export default function Departments() {
             <FilterBar
               search={query}
               onSearch={setQuery}
-              placeholder="Search departments by name or code"
+              placeholder="Search departments by name, code or type"
             />
           </Box>
 
@@ -217,9 +245,15 @@ export default function Departments() {
               ariaLabel="Departments"
               renderCode={(row) => <OrgCode code={row.code} />}
               renderPrimary={(row) => row.name}
-              renderSecondary={(row) => parentPath(row)}
+              renderSecondary={(row) => {
+                const served = (row.serves ?? []).map((id) => nameOf.get(id)).filter(Boolean);
+                return [row.type, parentPath(row), served.length ? `serves ${served.join(', ')}` : null]
+                  .filter(Boolean)
+                  .join(' · ');
+              }}
               renderTrailing={(row) => (
                 <>
+                  {row.isShared && <ToneBadge tone="info" noIcon label="Shared crew" />}
                   {row.childCount > 0 && (
                     <ToneBadge
                       tone="neutral"
@@ -315,6 +349,64 @@ export default function Departments() {
                   </MenuItem>
                 ))}
             </TextField>
+            <Autocomplete
+              freeSolo
+              size="small"
+              options={types}
+              value={draft.type}
+              onChange={(_, v) => setDraft({ ...draft, type: v ?? '' })}
+              onInputChange={(_, v) => setDraft((d) => (d ? { ...d, type: v } : d))}
+              renderInput={(p) => (
+                <TextField
+                  {...p}
+                  label="Type"
+                  helperText="A label shown under the name on the org chart — Department, Section, Machine / area. Pick one in use or type a new one."
+                />
+              )}
+            />
+            <Box>
+              <FormControlLabel
+                control={
+                  <Switch
+                    size="small"
+                    checked={draft.isShared}
+                    onChange={(e) => setDraft({ ...draft, isShared: e.target.checked })}
+                  />
+                }
+                label={<Typography sx={{ fontSize: 14 }}>Shared crew</Typography>}
+              />
+              <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)', ml: 0.25 }}>
+                Its people work for several departments. The org chart draws it as one box with an
+                arrow to each department it serves.
+              </Typography>
+            </Box>
+            {draft.isShared && (
+              <Autocomplete
+                multiple
+                size="small"
+                options={rows.filter((r) => r.id !== draft.id)}
+                value={rows.filter((r) => draft.serves.includes(r.id))}
+                onChange={(_, v) => setDraft({ ...draft, serves: v.map((r) => r.id) })}
+                getOptionLabel={(r) => r.name}
+                isOptionEqualToValue={(a, b) => a.id === b.id}
+                renderOption={(props, r) => {
+                  const { key, ...rest } = props as React.HTMLAttributes<HTMLLIElement> & { key: string };
+                  return (
+                    <li key={key} {...rest}>
+                      {indentedLabel(r.depth, r.name)}
+                    </li>
+                  );
+                }}
+                renderInput={(p) => (
+                  <TextField
+                    {...p}
+                    label="Serves"
+                    placeholder={draft.serves.length ? '' : 'Pick the departments this crew works for'}
+                    helperText="Two or more makes it a shared crew in the picture; none draws it as an ordinary box with a dashed frame."
+                  />
+                )}
+              />
+            )}
             <TextField
               select
               label="Status"
@@ -338,7 +430,7 @@ export default function Departments() {
         danger
         title="Delete this department?"
         entityName={doomed?.path}
-        body="Anything already pointing at it — a role, a position, a work context — will block the delete and say so. Set it inactive instead if you only want it out of the pickers."
+        body="Anything already pointing at it — a role, a position, a sub-department — will block the delete and say so. Set it inactive instead if you only want it out of the pickers."
         confirmLabel="Delete"
         onConfirm={remove}
         onClose={() => setDoomed(null)}

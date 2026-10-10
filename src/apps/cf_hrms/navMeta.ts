@@ -130,7 +130,9 @@ export const SECTIONS: NavSection[] = [
       { key: 'roles', label: 'Roles', path: 'roles', hasDetail: true, permission: ROLES, countKey: 'roles', keywords: ['job', 'title', 'jd', 'kind of work', 'purpose', 'kra'] },
       { key: 'departments', label: 'Departments', path: 'departments', permission: ORG, countKey: 'departments', keywords: ['function', 'division'] },
       { key: 'locations', label: 'Locations', path: 'locations', permission: ORG, countKey: 'locations', keywords: ['plant', 'unit', 'site', 'branch', 'office'] },
-      { key: 'work-contexts', label: 'Work contexts', path: 'work-contexts', permission: ORG, countKey: 'workContexts', keywords: ['machine', 'line', 'area', 'project', 'cell'] },
+      // Work contexts left the navigation on 2026-10-10: a machine, a line and an
+      // area are departments now (CF_HRMS_PLAN.md §9.4). The screen is still
+      // reachable at /work-contexts for a company that recorded some.
     ],
   },
 

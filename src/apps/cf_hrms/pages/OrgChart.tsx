@@ -533,7 +533,7 @@ export default function OrgChart() {
         label: 'Filled',
         value: c?.filled ?? 0,
         tone: 'success',
-        hint: 'Seats with somebody working in them, counted over the rows drawn.',
+        hint: 'People working in a seat. A seat holding more people than it is sanctioned for counts every one of them.',
       },
       {
         label: 'Present',
@@ -559,7 +559,7 @@ export default function OrgChart() {
         value: c?.vacant ?? 0,
         hint:
           `Sanctioned seats with nobody in them${shift === 'all' ? '' : `, ${SHIFT_NAME[shift].toLowerCase()} only`}. ` +
-          `A day-and-night seat is counted twice, once per shift, because it is two seats.` +
+          `A day-and-night seat is two seats, one per shift. A seat holding more people than it has seats for has no vacancy.` +
           (folded ? ` Includes ${folded} folded branch${folded === 1 ? '' : 'es'}.` : ''),
       },
     ];

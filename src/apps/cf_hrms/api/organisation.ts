@@ -35,6 +35,14 @@ export interface TreeMeta {
 export interface Department extends TreeMeta {
   code: string | null;
   status: OrgStatus;
+  /**
+   * A LABEL — "Department", "Section", "Machine / area", "Shared crew" or
+   * whatever the company calls its levels. Nothing may branch on its text.
+   */
+  type?: string | null;
+  /** A shared crew: its people work for the departments in `serves`. */
+  isShared?: boolean;
+  serves?: number[];
 }
 
 export interface Address {
@@ -139,6 +147,11 @@ export const orgApi = {
 
   departments: {
     list: () => list<Department>('/organisation/departments'),
+    /** The rows plus the type labels already in use (offered as suggestions). */
+    listWithTypes: () =>
+      api
+        .get<{ rows: Department[]; types?: string[] }>('/organisation/departments')
+        .then((r) => ({ rows: r.rows ?? [], types: r.types ?? [] })),
     create: (body: unknown) => api.post<Department>('/organisation/departments', body),
     update: (id: number, body: unknown) => api.put<Department>(`/organisation/departments/${id}`, body),
     remove: (id: number) => api.del<{ ok: true }>(`/organisation/departments/${id}`),

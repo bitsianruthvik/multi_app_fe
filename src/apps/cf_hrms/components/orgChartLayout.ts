@@ -453,14 +453,73 @@ export interface VisibleCounts {
   vacant: number;
 }
 
+/** One position's seats on the chart's terms. */
+export interface SeatCount {
+  seats: number;
+  filled: number;
+  vacant: number;
+  /** More people than seats. Counted as its seats, no vacancy, every person filled. */
+  overFilled: boolean;
+  /** The people counted (those of the filtered shift, on a day-and-night seat). */
+  occupants: OrgChartOccupant[];
+}
+
 /**
- * Counted over exactly the rows the chart draws, so the summary strip cannot
- * disagree with the picture under it.
+ * THE seat rule on the frontend — the mirror of the backend's
+ * `services/seatCount.js`, and the only place this app's screens may get
+ * seats, filled and vacant from for a chart node.
  *
- * "Filled" and "present" are kept apart deliberately. Karni's only attendance
- * is 2026-09-10, so on any other date all 13 occupied seats are *unmarked* —
- * folding those into "present" would report an attendance figure the system
- * does not have.
+ *   seats   = `effectiveSanctioned` (the server's answer: headcount for a
+ *             single-shift seat, Σ required_count for a day-and-night one)
+ *   filled  = the people in the seat
+ *   vacant  = max(0, seats − filled) — the server's `vacancies`; never negative
+ *
+ * AN OVER-FILLED SEAT (seven day operators on a seat sanctioned 1 + 1) is its
+ * sanctioned seats, all its people filled, and NO vacancy — the surplus on day
+ * is not a vacancy on night. So Σ seats − Σ filled is NOT Σ vacant: Karni is
+ * 202 seats, 71 filled, 149 vacant (the six over-filled seats hold 18 more
+ * people than they have seats for).
+ *
+ * Until 2026-10-10 the header, the stat strip and the box counts counted the
+ * ROWS DRAWN instead (`rowsOf`), which pads each shift on its own and counts
+ * every surplus person as a seat: 234 seats / 163 vacant against the server's
+ * 202 / 149. `rowsOf` is still what a box DRAWS — a row per person, an empty
+ * row per unfilled shift — but it is no longer what anything counts.
+ *
+ * With a shift filter there is no server number, so the same rule is applied
+ * to that shift alone: its required count, its people, the difference floored
+ * at zero. A general-shift seat belongs to neither and is counted either way.
+ */
+export function seatCount(n: OrgChartNode, filter: ShiftFilter = 'all'): SeatCount {
+  const all = n.occupants ?? [];
+  if (filter === 'all' || n.shiftPattern !== 'DN') {
+    const fixed = n.shiftPattern === 'D' || n.shiftPattern === 'N' ? n.shiftPattern : null;
+    if (filter !== 'all' && fixed && fixed !== filter) {
+      return { seats: 0, filled: 0, vacant: 0, overFilled: false, occupants: [] };
+    }
+    const seats = effectiveSeats(n);
+    const vacant = Math.max(0, n.vacancies ?? seats - all.length);
+    return { seats, filled: all.length, vacant, overFilled: all.length > seats, occupants: all };
+  }
+  const seats = requiredFor(n, filter);
+  const people = all.filter((o) => occupantShift(o) === filter);
+  return {
+    seats,
+    filled: people.length,
+    vacant: Math.max(0, seats - people.length),
+    overFilled: people.length > seats,
+    occupants: people,
+  };
+}
+
+/**
+ * Totals over a set of positions, by `seatCount` — so the header, the stat
+ * strip, a closed department's count and the table cannot disagree with each
+ * other or with the server's `counts`.
+ *
+ * "Filled" and "present" are kept apart deliberately: on a date with no
+ * attendance every person is *unmarked*, and folding those into "present"
+ * would report an attendance figure the system does not have.
  */
 export function countRows(model: ChartModel, ids: number[], filter: ShiftFilter): VisibleCounts {
   let present = 0;
@@ -468,26 +527,21 @@ export function countRows(model: ChartModel, ids: number[], filter: ShiftFilter)
   let unmarked = 0;
   let vacant = 0;
   let seats = 0;
+  let filled = 0;
   for (const id of ids) {
     const n = model.byId.get(id);
     if (!n) continue;
-    for (const r of rowsOf(n, filter)) {
-      seats += 1;
-      if (!r.occupant) vacant += 1;
-      else if (r.occupant.attendanceStatus === 'ABSENT') absent += 1;
-      else if (r.occupant.attendanceStatus === 'PRESENT') present += 1;
+    const c = seatCount(n, filter);
+    seats += c.seats;
+    filled += c.filled;
+    vacant += c.vacant;
+    for (const o of c.occupants) {
+      if (o.attendanceStatus === 'ABSENT') absent += 1;
+      else if (o.attendanceStatus === 'PRESENT') present += 1;
       else unmarked += 1;
     }
   }
-  return {
-    positions: ids.length,
-    seats,
-    filled: seats - vacant,
-    present,
-    absent,
-    unmarked,
-    vacant,
-  };
+  return { positions: ids.length, seats, filled, present, absent, unmarked, vacant };
 }
 
 // ── Box anatomy (spec §2) ───────────────────────────────────────────────────
@@ -1758,12 +1812,12 @@ const SHIFT_NAME: Record<'G' | 'D' | 'N', string> = { G: 'General', D: 'Day', N:
 
 function boxLabel(p: PlacedNode, filter: ShiftFilter): string {
   const n = p.node;
-  const rows = p.info.rows;
-  const filled = rows.filter((r) => r.occupant).length;
+  const c = seatCount(n, filter);
   const bits = [n.displayTitle || n.title];
   if (n.positionCode) bits.push(n.positionCode);
-  bits.push(`${filled} of ${rows.length} seats filled`);
-  if (rows.length - filled > 0) bits.push(`${rows.length - filled} vacant`);
+  bits.push(`${c.seats} seat${c.seats === 1 ? '' : 's'}, ${c.filled} filled`);
+  if (c.vacant > 0) bits.push(`${c.vacant} vacant`);
+  if (c.overFilled) bits.push('more people than seats');
   if (n.shiftPattern === 'DN') bits.push('day and night shift');
   if (n.contexts?.length) bits.push(`work context ${n.contexts.map((c) => c.name).join(', ')}`);
   const kids = p.kids.length + p.hidden;
@@ -1886,9 +1940,14 @@ export function buildScene(model: ChartModel, opts: SceneOptions): ChartScene {
     t: PlacedNode,
     sb: DeptBox,
     tb: DeptBox,
-  ): { out: string; stubs: string; at: { x: number; y: number } } => {
-    const sy = s.y + Math.min(s.info.h - 6, 14);
-    const ty = t.y + Math.min(t.info.h - 6, 26);
+    // The same-person connector uses its own heights (the two rows), its own
+    // gutter and lane (so it never lies on a dotted line) and rounded corners.
+    o: { sy?: number; ty?: number; gutter?: number; lane?: number; round?: number } = {},
+  ): { out: string; stubs: string; at: { x: number; y: number }; ends: [number, number][] } => {
+    const sy = o.sy ?? s.y + Math.min(s.info.h - 6, 14);
+    const ty = o.ty ?? t.y + Math.min(t.info.h - 6, 26);
+    const gut = o.gutter ?? 10.5;
+    const lane = o.lane ?? 11;
     // The run from a seat to the edge of its box must not cross a neighbour in
     // the box: take the wanted side when it is clear, the other when only that is.
     const side = (n: PlacedNode, b: DeptBox, y: number, wantRight: boolean) => {
@@ -1901,17 +1960,48 @@ export function buildScene(model: ChartModel, opts: SceneOptions): ChartScene {
     };
     const right = side(s, sb, sy, t.x + W / 2 >= s.x + W / 2);
     const sEdge = right ? sb.x + sb.w : sb.x;
-    const sOut = right ? sEdge + 10.5 : sEdge - 11.5;
+    const sOut = right ? sEdge + gut : sEdge - gut - 1;
     // Into the target from the side the line comes from.
     const fromRight = side(t, tb, ty, sOut >= tb.x + tb.w / 2);
     const tEdge = fromRight ? tb.x + tb.w : tb.x;
-    const tOut = fromRight ? tEdge + 10.5 : tEdge - 11.5;
+    const tOut = fromRight ? tEdge + gut : tEdge - gut - 1;
     const laneY =
-      tb.y + tb.h <= sb.y ? tb.y + tb.h + 11 : tb.y >= sb.y + sb.h ? tb.y - 11 : Math.min(sb.y, tb.y) - 11;
+      tb.y + tb.h <= sb.y ? tb.y + tb.h + lane : tb.y >= sb.y + sb.h ? tb.y - lane : Math.min(sb.y, tb.y) - lane;
+    // Two boxes standing next to each other, facing: straight across the gap
+    // between them — no trip over the top.
+    const beside = !(tb.y + tb.h <= sb.y) && !(tb.y >= sb.y + sb.h);
+    const gap = right ? tEdge - sEdge : sEdge - tEdge;
+    const facing = beside && right !== fromRight && gap > 4 && gap < 70;
+    const mid = (sEdge + tEdge) / 2;
+    const pts: [number, number][] = facing
+      ? [[sEdge, sy], [mid, sy], [mid, ty], [tEdge, ty]]
+      : [[sEdge, sy], [sOut, sy], [sOut, laneY], [tOut, laneY], [tOut, ty], [tEdge, ty]];
+    // Corners rounded with a quadratic through each elbow, when asked.
+    let out = `M${pts[0][0]} ${pts[0][1]}`;
+    for (let i = 1; i < pts.length; i += 1) {
+      const [x, y] = pts[i];
+      const next = pts[i + 1];
+      const prev = pts[i - 1];
+      const r = next
+        ? Math.min(o.round ?? 0, Math.hypot(x - prev[0], y - prev[1]) / 2, Math.hypot(next[0] - x, next[1] - y) / 2)
+        : 0;
+      if (r < 1 || !next) {
+        out += `L${x} ${y}`;
+        continue;
+      }
+      const inX = x - Math.sign(x - prev[0]) * r;
+      const inY = y - Math.sign(y - prev[1]) * r;
+      const outX = x + Math.sign(next[0] - x) * r;
+      const outY = y + Math.sign(next[1] - y) * r;
+      out += `L${inX} ${inY}Q${x} ${y} ${outX} ${outY}`;
+    }
+    const sSeat = right ? s.x + W : s.x;
+    const tSeat = fromRight ? t.x + W : t.x;
     return {
-      out: `M${sEdge} ${sy}H${sOut}V${laneY}H${tOut}V${ty}H${tEdge}`,
-      stubs: `M${right ? s.x + W : s.x} ${sy}H${sEdge}M${tEdge} ${ty}H${fromRight ? t.x + W : t.x}`,
-      at: { x: (sOut + tOut) / 2, y: laneY - 4 },
+      out,
+      stubs: `M${sSeat} ${sy}H${sEdge}M${tEdge} ${ty}H${tSeat}`,
+      at: facing ? { x: mid, y: (sy + ty) / 2 - 4 } : { x: (sOut + tOut) / 2, y: laneY - 4 },
+      ends: [[sSeat, sy], [tSeat, ty]],
     };
   };
   const dashUnder: string[] = [];
@@ -2061,7 +2151,7 @@ export function buildScene(model: ChartModel, opts: SceneOptions): ChartScene {
 
   // ── Boxes ────────────────────────────────────────────────────────────────
   /** Where each person's row sits, to join one person drawn in two seats. */
-  const rowsOfPerson = new Map<string, { x: number; y: number }[]>();
+  const rowsOfPerson = new Map<string, { id: number; x: number; y: number }[]>();
   for (const id of lay.order) {
     const n = lay.placed.get(id)!;
     const I = n.info;
@@ -2220,7 +2310,7 @@ export function buildScene(model: ChartModel, opts: SceneOptions): ChartScene {
         if (r.occupant) {
           const who = r.occupant.sameAs ?? (r.occupant.employeeId > 0 ? `e${r.occupant.employeeId}` : null);
           if (who) {
-            const at = { x, y: cy + ROWH / 2 };
+            const at = { id, x, y: cy + ROWH / 2 };
             const list = rowsOfPerson.get(who);
             if (list) list.push(at);
             else rowsOfPerson.set(who, [at]);
@@ -2302,32 +2392,51 @@ export function buildScene(model: ChartModel, opts: SceneOptions): ChartScene {
     });
   }
 
-  // ── One person in two seats (rule 7): shown in both, and the two rows
-  // joined by the only CURVED line on the chart, ringed at both ends. It runs
-  // under the cards, so it can pass behind a seat but never through its text.
+  // ── One person in two seats (rule 7): shown in both, and the two rows joined
+  // by an accent connector ringed at both ends.
+  //
+  //   in two different boxes   out of the side of each seat's row to the edge
+  //                            of its box (drawn ON TOP, so both ends show),
+  //                            then round the boxes in its own gutter and lane
+  //                            with rounded corners — that part is drawn UNDER
+  //                            the boxes, so where it has to pass one it goes
+  //                            behind it. It can never cross a department's
+  //                            title or a seat.
+  //   in the same box, or      a curve between the two rows, under the cards.
+  //   with departments off     In a box it is kept inside the gap beside the
+  //                            box, below every title.
   let sameDrawn = 0;
+  const same = { stroke: p.accent, sw: 1.6 };
   for (const list of rowsOfPerson.values()) {
     for (let i = 1; i < list.length; i += 1) {
       const a = list[i - 1];
       const b = list[i];
       const [l, r] = a.x <= b.x ? [a, b] : [b, a];
-      let d: string;
+      const lb = boxOfSeat.get(l.id);
+      const rb = boxOfSeat.get(r.id);
       let ends: [number, number][];
-      if (r.x - l.x < W + 8) {
+      if (lb && rb && lb !== rb) {
+        const route = routeBoxed(lay.placed.get(l.id)!, lay.placed.get(r.id)!, lb, rb, {
+          sy: l.y, ty: r.y, gutter: 19.5, lane: 20, round: 8,
+        });
+        under.push({ k: 'path', d: route.out, ...same });
+        links.push({ k: 'path', d: route.stubs, ...same });
+        ends = route.ends;
+      } else if (r.x - l.x < W + 8) {
         // Same column: loop out to the right of both.
         const x1 = l.x + W;
         const x2 = r.x + W;
-        const out = Math.max(x1, x2) + 34 + Math.min(40, Math.abs(l.y - r.y) / 6);
-        d = `M${x1} ${l.y}C${out} ${l.y} ${out} ${r.y} ${x2} ${r.y}`;
+        let out = Math.max(x1, x2) + 34 + Math.min(40, Math.abs(l.y - r.y) / 6);
+        if (lb) out = Math.max(Math.max(x1, x2) + 16, Math.min(out, lb.x + lb.w + 12));
+        links.push({ k: 'path', d: `M${x1} ${l.y}C${out} ${l.y} ${out} ${r.y} ${x2} ${r.y}`, ...same });
         ends = [[x1, l.y], [x2, r.y]];
       } else {
         const x1 = l.x + W;
         const x2 = r.x;
         const bend = Math.max(40, (x2 - x1) / 2);
-        d = `M${x1} ${l.y}C${x1 + bend} ${l.y} ${x2 - bend} ${r.y} ${x2} ${r.y}`;
+        links.push({ k: 'path', d: `M${x1} ${l.y}C${x1 + bend} ${l.y} ${x2 - bend} ${r.y} ${x2} ${r.y}`, ...same });
         ends = [[x1, l.y], [x2, r.y]];
       }
-      links.push({ k: 'path', d, stroke: p.accent, sw: 1.6 });
       for (const [ex, ey] of ends) links.push({ k: 'circle', cx: ex, cy: ey, r: 3.5, fill: p.surface, stroke: p.accent, sw: 1.6 });
       sameDrawn += 1;
     }
@@ -2487,7 +2596,7 @@ export function describeChart(model: ChartModel, ids: number[], filter: ShiftFil
   const c = countRows(model, ids, filter);
   return (
     `A reporting chart of ${c.positions} positions holding ${c.seats} sanctioned seats, ` +
-    `${c.seats - c.vacant} filled and ${c.vacant} vacant` +
+    `${c.filled} people in them and ${c.vacant} vacant` +
     (filter === 'all' ? '' : `, showing ${filter === 'D' ? 'day' : 'night'} shift seats only`) +
     '. ' +
     (tops.length ? `It starts at ${tops.join('; ')}. ` : '') +

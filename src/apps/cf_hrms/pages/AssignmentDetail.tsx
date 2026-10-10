@@ -101,7 +101,10 @@ export default function AssignmentDetail() {
   const tabs: DetailTab[] = [
     { value: 'overview', label: 'Overview' },
     { value: 'reporting', label: 'Reporting', count: rows.length },
-    { value: 'contexts', label: 'Contexts', count: contexts.length },
+    // Kept only where work contexts are still in use (plan §9.4).
+    ...(contexts.length > 0 || (options?.workContexts?.length ?? 0) > 0
+      ? [{ value: 'contexts', label: 'Contexts', count: contexts.length }]
+      : []),
     { value: 'overrides', label: 'Overrides', count: overrides.length },
   ];
 
