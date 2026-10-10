@@ -49,8 +49,8 @@ export interface RootOption {
 
 const SHOW_KEYS: { key: keyof ChartShow; label: string; hint: string }[] = [
   { key: 'departments', label: 'Departments', hint: 'Departments as boxes around their people. Off: the plain reporting tree.' },
-  { key: 'roles', label: 'Roles', hint: 'The title of each seat.' },
-  { key: 'people', label: 'People', hint: 'The names in each seat, and its vacancies.' },
+  { key: 'roles', label: 'Roles', hint: 'The role on each card.' },
+  { key: 'people', label: 'People', hint: 'The position rows of each card: a name, or Vacant, with the shift.' },
 ];
 
 /**
@@ -95,6 +95,7 @@ export function OrgChartToolbar({
   onRoot,
   shift,
   onShift,
+  shifts,
   colours,
   onColours,
   show,
@@ -118,6 +119,8 @@ export function OrgChartToolbar({
   onRoot: (id: number | '') => void;
   shift: ShiftFilter;
   onShift: (s: ShiftFilter) => void;
+  /** The shifts positions are on (General, Day, Night, …) — the filter's choices. */
+  shifts: { code: string; name: string }[];
   colours: boolean;
   onColours: (v: boolean) => void;
   /** What is drawn (spec §16). Chart only — the table always lists everything. */
@@ -220,8 +223,13 @@ export function OrgChartToolbar({
             aria-label="Shift shown"
           >
             <ToggleButton value="all">All shifts</ToggleButton>
-            <ToggleButton value="D">Day</ToggleButton>
-            <ToggleButton value="N">Night</ToggleButton>
+            {/* Positions on that shift only. Worth offering only when there is more than one. */}
+            {shifts.length > 1 &&
+              shifts.map((s) => (
+                <ToggleButton key={s.code} value={s.code}>
+                  {s.name}
+                </ToggleButton>
+              ))}
           </ToggleButtonGroup>
 
           {view === 'chart' && <ShowSwitches show={show} onShow={onShow} />}
@@ -230,7 +238,7 @@ export function OrgChartToolbar({
             control={
               <Switch size="small" checked={colours} onChange={(e) => onColours(e.target.checked)} />
             }
-            title="Colour each seat by attendance on this date"
+            title="Colour each position by attendance on this date"
             label={<Typography sx={{ fontSize: 13 }}>Attendance</Typography>}
           />
 

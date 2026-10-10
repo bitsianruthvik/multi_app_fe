@@ -138,13 +138,17 @@ export interface StaffingPosition {
   positionCode: string | null;
   title: string;
   status: string;
+  /** The shift's code (G / D / N, or a company's own). Never 'DN'. */
   shiftPattern: string;
+  /** The position's shift as one object; absent from an older server. */
+  shift?: { id: number; code: string | null; name: string | null } | null;
+  /** Always 1: wire name kept, never shown as a number. */
   seats: number;
   filled: number;
   vacant: number;
   overFilled: boolean;
   occupants: { employeeId: number; name: string; employeeCode: string | null }[];
-  /** This seat reads differently from its role. */
+  /** This position reads differently from its role. */
   hasSeatChanges: boolean;
 }
 

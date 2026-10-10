@@ -11,36 +11,45 @@ import type { MyOrgChart, SliceNode, SliceRelation } from '../api/self';
  * It renders from the slice payload the page already holds and from nothing
  * else: no fetch, no import of api/orgchart, api/positions or api/people, and
  * no link to an HR screen a self-only login would get a 403 from. That is the
- * point of a separate card — the admin `OrgChartCard` fetches
+ * point of a separate card — the admin panel fetches
  * `/orgchart/positions/:id/card` and offers "Close or delete…", and reusing it
  * here would open the side door the slice endpoint exists to close.
  *
- * The caller's own seat points at My place for the full list of
+ * ONE VIEW FOR A CARD (2026-10-10): the role, and its positions as rows — the
+ * person or Vacant, the shift, the code. A click on a row of the chart opens
+ * the same view with that row marked. There is nothing to edit here, so there
+ * is no separate position view.
+ *
+ * The caller's own position points at My place for the full list of
  * responsibilities, which `/user/me/place` serves for them alone.
  */
 
 const RELATION_LABEL: Record<SliceRelation, string> = {
   SELF: 'You',
+  SAME_CARD: 'Same role as you',
   MANAGER: 'Above you',
   REPORT: 'In your team',
   DOTTED_MANAGER: 'Your dotted-line manager',
 };
+const RELATION_RANK: SliceRelation[] = ['SELF', 'SAME_CARD', 'MANAGER', 'DOTTED_MANAGER', 'REPORT'];
 
-const SHIFT_WORDS: Record<string, string> = {
-  G: 'General shift',
-  D: 'Day shift',
-  N: 'Night shift',
-  DN: 'Day & Night shifts',
-};
+const SHIFT_WORDS: Record<string, string> = { G: 'General', D: 'Day', N: 'Night' };
 
-function seatName(n: SliceNode | undefined): string {
-  if (!n) return 'A seat outside this view';
+function shiftOf(n: SliceNode): string {
+  const name = n.defaultShift?.name?.trim();
+  if (name) return name.replace(/\s+shift$/i, '') || name;
+  return SHIFT_WORDS[n.shiftPattern] ?? n.shiftPattern ?? '';
+}
+
+function roleName(n: SliceNode | undefined): string {
+  if (!n) return 'A position outside this view';
   return n.displayTitle || n.title;
 }
 
-function people(n: SliceNode | undefined): string {
-  if (!n || !n.occupants.length) return 'Vacant';
-  return n.occupants.map((o) => (o.isMe ? `${o.name} (you)` : o.name)).join(', ');
+function person(n: SliceNode | undefined): string {
+  const o = n?.occupants[0];
+  if (!o) return 'Vacant';
+  return o.isMe ? `${o.name} (you)` : o.name;
 }
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
@@ -58,39 +67,51 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
 
 export function MyOrgChartCard({
   slice,
-  positionId,
+  positionIds,
+  currentId,
   company,
   teamSize,
   children,
 }: {
   slice: MyOrgChart;
-  positionId: number | null;
+  /** The positions of the card that was opened, in the card's row order. */
+  positionIds: number[];
+  /** The row that was clicked, if it was a row. */
+  currentId?: number | null;
   company: string;
-  /** Direct reports drawn under this box. */
+  /** Cards drawn directly under this one. */
   teamSize: number;
   /** The viewer's own view controls (arrange, fold) — presentation only. */
   children?: ReactNode;
 }) {
   const byId = new Map(slice.nodes.map((n) => [n.id, n]));
-  const node = positionId == null ? undefined : byId.get(positionId);
-  if (!node) return null;
+  const rows = positionIds.map((id) => byId.get(id)).filter((n): n is SliceNode => !!n);
+  const first = rows[0];
+  if (!first) return null;
 
-  const mine = node.relation === 'SELF';
+  const mine = rows.some((n) => n.relation === 'SELF');
+  const relation = RELATION_RANK.find((r) => rows.some((n) => n.relation === r)) ?? first.relation;
+  const inCard = new Set(positionIds);
+  // The card's reporting lines: each distinct manager once, primary first.
+  const seen = new Set<string>();
   const lines = slice.edges
-    .filter((e) => e.fromPositionId === node.id)
-    .sort((a, b) => Number(b.isPrimary) - Number(a.isPrimary));
-  const shift =
-    node.shiftPattern === 'DN'
-      ? SHIFT_WORDS.DN
-      : node.defaultShift?.name ?? SHIFT_WORDS[node.shiftPattern] ?? '—';
+    .filter((e) => inCard.has(e.fromPositionId))
+    .sort((a, b) => Number(b.isPrimary) - Number(a.isPrimary))
+    .filter((e) => {
+      const key = `${e.toPositionId}|${e.typeCode}|${e.scopeLabel ?? ''}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  const contexts = [...new Set(rows.flatMap((n) => n.contexts.map((c) => c.name)))];
+  const vacant = rows.filter((n) => !n.occupants.length).length;
 
   return (
     <Box>
       <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap sx={{ mb: 2 }}>
-        {node.positionCode && <Mono sx={{ fontSize: 12.5 }}>{node.positionCode}</Mono>}
         <Chip
           size="small"
-          label={RELATION_LABEL[node.relation]}
+          label={RELATION_LABEL[relation]}
           color={mine ? 'primary' : 'default'}
           variant={mine ? 'filled' : 'outlined'}
         />
@@ -108,7 +129,7 @@ export function MyOrgChartCard({
           }}
         >
           <Typography sx={{ fontSize: 14, fontWeight: 600, color: 'var(--c-text)', mb: 0.5 }}>
-            This is your seat
+            This is your role
           </Typography>
           <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)', mb: 1 }}>
             Your responsibilities, KRAs and everyone you report to, in full, are on My place.
@@ -133,43 +154,65 @@ export function MyOrgChartCard({
           mb: 2,
         }}
       >
-        <FactItem label="Role" value={node.roleTitle ?? '—'} />
-        <FactItem label="Department" value={node.departmentName ?? '—'} />
-        <FactItem label="Location" value={node.locationName ?? '—'} />
-        <FactItem label="Shift" value={shift} />
+        <FactItem label="Role" value={first.roleTitle ?? '—'} />
+        <FactItem label="Department" value={first.departmentName ?? '—'} />
+        <FactItem label="Location" value={first.locationName ?? '—'} />
       </Box>
 
-      {node.contexts.length > 0 && (
+      <Section
+        title={`Positions · ${rows.length}${vacant ? ` · ${vacant} vacant` : ''}`}
+      >
+        <Stack spacing={0.5} data-mypositions="">
+          {rows.map((n) => {
+            const o = n.occupants[0];
+            const current = currentId === n.id;
+            return (
+              <Box
+                key={n.id}
+                aria-current={current ? 'true' : undefined}
+                sx={{
+                  display: 'flex',
+                  alignItems: 'baseline',
+                  gap: 1,
+                  px: 1,
+                  py: 0.6,
+                  border: '1px solid var(--c-border)',
+                  borderStyle: o ? 'solid' : 'dashed',
+                  borderColor: current ? 'var(--c-primary-500)' : 'var(--c-border)',
+                  borderRadius: 'var(--r-sm)',
+                  background: o ? 'var(--c-surface)' : 'var(--c-surface-2)',
+                }}
+              >
+                <Typography
+                  sx={{
+                    flex: 1,
+                    minWidth: 0,
+                    fontSize: 14,
+                    overflowWrap: 'anywhere',
+                    color: o ? 'var(--c-text)' : 'var(--c-text-2)',
+                    fontStyle: o ? 'normal' : 'italic',
+                  }}
+                >
+                  {o ? o.name : 'Vacant'}
+                  {o?.isMe && <Box component="span" sx={{ color: 'var(--c-primary-500)', fontWeight: 600 }}> · you</Box>}
+                </Typography>
+                <Box sx={{ fontSize: 12, color: 'var(--c-text-2)', flexShrink: 0 }}>{shiftOf(n)}</Box>
+                {n.positionCode && <Mono sx={{ fontSize: 11.5, flexShrink: 0 }}>{n.positionCode}</Mono>}
+              </Box>
+            );
+          })}
+        </Stack>
+      </Section>
+
+      {contexts.length > 0 && (
         <Section title="Works on">
           <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
-            {node.contexts.map((c) => (
-              <Chip key={c.name} size="small" variant="outlined" label={c.name} />
+            {contexts.map((c) => (
+              <Chip key={c} size="small" variant="outlined" label={c} />
             ))}
           </Stack>
         </Section>
       )}
-
-      <Section title={node.occupants.length === 1 ? 'Person in this seat' : 'People in this seat'}>
-        {node.occupants.length ? (
-          <Stack spacing={0.5}>
-            {node.occupants.map((o, i) => (
-              <Typography key={`${o.name}-${i}`} sx={{ fontSize: 14, color: 'var(--c-text)' }}>
-                {o.name}
-                {o.isMe && <Box component="span" sx={{ color: 'var(--c-primary-500)', fontWeight: 600 }}> · you</Box>}
-                {node.shiftPattern === 'DN' && o.shiftCode && (
-                  <Box component="span" sx={{ color: 'var(--c-text-3)' }}>
-                    {' '}· {o.shiftCode === 'N' ? 'Night' : 'Day'}
-                  </Box>
-                )}
-              </Typography>
-            ))}
-          </Stack>
-        ) : (
-          <Typography sx={{ fontSize: 13.5, color: 'var(--c-text-3)', fontStyle: 'italic' }}>
-            Nobody is in this seat today.
-          </Typography>
-        )}
-      </Section>
 
       <Section title="Reports to">
         {lines.length ? (
@@ -179,10 +222,10 @@ export function MyOrgChartCard({
               return (
                 <Box key={`${e.toPositionId}-${e.typeCode}-${e.scopeLabel ?? ''}`}>
                   <Typography sx={{ fontSize: 14, fontWeight: 600, color: 'var(--c-text)' }}>
-                    {seatName(mgr)}
+                    {person(mgr)}
                   </Typography>
                   <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>
-                    {people(mgr)}
+                    {roleName(mgr)}
                   </Typography>
                   <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-3)' }}>
                     {e.isPrimary || e.typeCode === 'PRIMARY_MANAGER' ? 'Main manager' : `${e.typeName} (dashed line)`}
@@ -201,7 +244,7 @@ export function MyOrgChartCard({
 
       {teamSize > 0 && (
         <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)', mb: 1.5 }}>
-          {teamSize} seat{teamSize === 1 ? '' : 's'} report{teamSize === 1 ? 's' : ''} directly to this one in your view.
+          {teamSize} role{teamSize === 1 ? '' : 's'} report{teamSize === 1 ? 's' : ''} directly to this one in your view.
         </Typography>
       )}
 

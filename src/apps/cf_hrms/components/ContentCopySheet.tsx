@@ -1,28 +1,28 @@
 /**
- * Copying content between roles and seats — the one panel behind every "Copy
+ * Copying content between roles and positions — the one panel behind every "Copy
  * content…" in HRMS.
  *
  * WHY THIS IS NOT A PASTE BUTTON. The client's own org-chart tool copies KRAs,
  * KPIs and qualifications between POSITIONS, because there a position owns its
  * lists. Here content belongs to a ROLE, and a role is shared: "Helper 1" is one
- * role across ten seats. So "copy these duties to that seat" can mean three
+ * role across ten positions. So "copy these duties to that position" can mean three
  * different acts, and the difference between them is how many people's job
  * descriptions change. The panel makes the person choose, in words, with the
  * number next to each choice:
  *
- *   This seat only        an overlay on that one seat. Changes 1 seat. THE DEFAULT.
- *   Add to the role       new rows on the role itself. Changes EVERY seat holding it.
- *   Its own role          a new role cloned from the seat's, the lines added, the
- *                         seat moved onto it. Changes 1 seat; costs one more role.
+ *   This position only        an overlay on that one position. Changes 1 position. THE DEFAULT.
+ *   Add to the role       new rows on the role itself. Changes EVERY position holding it.
+ *   Its own role          a new role cloned from the position's, the lines added, the
+ *                         position moved onto it. Changes 1 position; costs one more role.
  *
  * and it never lets the biggest of them be a bare button: the confirm step
- * states the seat count, and the server refuses a role-wide write unless the
+ * states the position count, and the server refuses a role-wide write unless the
  * number it is sent is the number it finds (STALE_COUNT).
  *
  * Three things it deliberately does NOT do quietly:
- *   - Qualifications and skills have no seat-level layer. Ticking one turns the
- *     "this seat only" card off and says why, instead of dropping it from the copy.
- *   - A seat that suppresses a duty keeps suppressing it; that line comes back as
+ *   - Qualifications and skills have no position-level layer. Ticking one turns the
+ *     "this position only" card off and says why, instead of dropping it from the copy.
+ *   - A position that suppresses a duty keeps suppressing it; that line comes back as
  *     "not added" with the reason, in the review, before anything is written.
  *   - A line the target already has (by definition, or by the same words once
  *     normalised) is "already there": left alone, never doubled, and no new
@@ -55,7 +55,7 @@ import { positionsApi, type PositionRow } from '../api/positions';
  * ══════════════════════════════════════════════════════════════════════════ */
 
 export interface ContentCopyStart {
-  /** Copy FROM this role or seat. Leave out to let the person choose. */
+  /** Copy FROM this role or position. Leave out to let the person choose. */
   from?: CopyRef | null;
   /** Copy TO these. Leave out to let the person choose. */
   to?: CopyRef[];
@@ -92,10 +92,10 @@ interface Opt {
 const roleOpt = (r: Role): Opt => ({
   type: 'role', id: r.id, roleId: r.id, group: 'Roles',
   label: r.title,
-  sub: [r.roleCode, plural(r.positionCount, 'seat'), r.status === 'RETIRED' ? 'retired' : null].filter(Boolean).join(' · '),
+  sub: [r.roleCode, plural(r.positionCount, 'position'), r.status === 'RETIRED' ? 'retired' : null].filter(Boolean).join(' · '),
 });
 const seatOpt = (p: PositionRow): Opt => ({
-  type: 'position', id: p.id, roleId: p.roleId, group: p.roleTitle ?? 'Seats',
+  type: 'position', id: p.id, roleId: p.roleId, group: p.roleTitle ?? 'Positions',
   label: `${p.displayTitle}${p.positionCode ? ` (${p.positionCode})` : ''}`,
   sub: [p.roleTitle !== p.displayTitle ? p.roleTitle : null, p.departmentName, p.filledCount ? plural(p.filledCount, 'person', 'people') : 'vacant', p.status === 'CLOSED' ? 'closed' : null]
     .filter(Boolean).join(' · '),
@@ -126,7 +126,7 @@ export function ContentCopySheet({
 
   // ── what the pickers are made from ──────────────────────────────────────
   const [roles, setRoles] = useState<Role[]>([]);
-  const [seats, setSeats] = useState<PositionRow[]>([]);
+  const [positions, setSeats] = useState<PositionRow[]>([]);
   const [catalogError, setCatalogError] = useState<unknown>(null);
 
   // ── the person's choices ────────────────────────────────────────────────
@@ -206,8 +206,8 @@ export function ContentCopySheet({
 
   // ── the options ─────────────────────────────────────────────────────────
   const roleOptions = useMemo(() => roles.map(roleOpt), [roles]);
-  const seatOptions = useMemo(() => seats.map(seatOpt), [seats]);
-  const sourceOptions = useMemo(() => [...roleOptions, ...seatOptions.map((o) => ({ ...o, group: 'Seats' }))], [roleOptions, seatOptions]);
+  const seatOptions = useMemo(() => positions.map(seatOpt), [positions]);
+  const sourceOptions = useMemo(() => [...roleOptions, ...seatOptions.map((o) => ({ ...o, group: 'Positions' }))], [roleOptions, seatOptions]);
   const targetOptions = toType === 'role' ? roleOptions : seatOptions;
   const optionOf = useCallback(
     (ref: CopyRef | null) => (ref ? (ref.type === 'role' ? roleOptions : seatOptions).find((o) => o.id === ref.id) ?? null : null),
@@ -242,12 +242,12 @@ export function ContentCopySheet({
 
   // ── which ways of copying are open to this person, for this selection ───
   const why = useMemo(() => {
-    const seatOnly = toType !== 'position' ? 'Needs seats to copy to.'
+    const seatOnly = toType !== 'position' ? 'Needs positions to copy to.'
       : !mayOrg ? 'Needs permission to manage the organisation.'
-        : offSeat.length ? `${offSeat.map((k) => KIND[k].many).join(' and ')} can't be added to a single seat — only KRAs, responsibilities and KPIs have a layer below the role. Untick them, or choose another way.`
+        : offSeat.length ? `${offSeat.map((k) => KIND[k].many).join(' and ')} can't be added to a single position — only KRAs, responsibilities and KPIs have a layer below the role. Untick them, or choose another way.`
           : null;
     const role = !mayRoles ? 'Needs permission to manage roles.' : null;
-    const fork = toType !== 'position' ? 'Needs seats to copy to.' : !(mayOrg && mayRoles) ? 'Needs permission to manage both roles and the organisation.' : null;
+    const fork = toType !== 'position' ? 'Needs positions to copy to.' : !(mayOrg && mayRoles) ? 'Needs permission to manage both roles and the organisation.' : null;
     return { SEAT: seatOnly, ROLE: role, FORK: fork } as Record<CopyMode, string | null>;
   }, [toType, mayOrg, mayRoles, offSeat]);
 
@@ -349,9 +349,9 @@ export function ContentCopySheet({
   const modeCards: { value: CopyMode; title: string; body: string; number: string; wide: boolean }[] = [
     {
       value: 'SEAT',
-      title: reach.seatCount > 1 ? 'These seats only' : 'This seat only',
-      body: "Adds the lines as the seat's own extra duties. The role, and every other seat that holds it, stays exactly as it is.",
-      number: `Changes ${plural(reach.seatCount, 'seat')}`,
+      title: reach.seatCount > 1 ? 'These positions only' : 'This position only',
+      body: "Adds the lines as the position's own extra duties. The role, and every other position that holds it, stays exactly as it is.",
+      number: `Changes ${plural(reach.seatCount, 'position')}`,
       wide: false,
     },
     {
@@ -359,15 +359,15 @@ export function ContentCopySheet({
       title: reach.roleIds.length === 1
         ? `Add to the role “${roles.find((r) => r.id === reach.roleIds[0])?.title ?? ''}”`
         : `Add to ${plural(reach.roleIds.length, 'role')}`,
-      body: 'Changes the role itself, so every seat that holds it gets these lines in its job description and its people in their profile.',
-      number: `Changes ${plural(reach.roleSeats, 'seat')}${reach.roleSeats === 0 ? ' — nobody holds it yet' : ''}`,
+      body: 'Changes the role itself, so every position that holds it gets these lines in its job description and its people in their profile.',
+      number: `Changes ${plural(reach.roleSeats, 'position')}${reach.roleSeats === 0 ? ' — nobody holds it yet' : ''}`,
       wide: reach.roleSeats > 1,
     },
     {
       value: 'FORK',
-      title: reach.seatCount > 1 ? 'Give each seat its own role' : 'Give this seat its own role',
-      body: "Creates a new role that starts as a copy of the seat's current one, adds the lines, and moves the seat onto it. The old role and its other seats don't change. Heavier: it is one more role to keep up to date.",
-      number: `Creates ${plural(reach.seatCount, 'role')} · changes ${plural(reach.seatCount, 'seat')}`,
+      title: reach.seatCount > 1 ? 'Give each position its own role' : 'Give this position its own role',
+      body: "Creates a new role that starts as a copy of the position's current one, adds the lines, and moves the position onto it. The old role and its other positions don't change. Heavier: it is one more role to keep up to date.",
+      number: `Creates ${plural(reach.seatCount, 'role')} · changes ${plural(reach.seatCount, 'position')}`,
       wide: false,
     },
   ];
@@ -376,7 +376,7 @@ export function ContentCopySheet({
     <Done result={result} company={company} go={(to) => { onClose(); navigate(to); }} />
   ) : (
     <Stack spacing={3}>
-      {catalogError ? <ErrorNotice error={catalogError} fallback="The roles and seats could not be loaded." /> : null}
+      {catalogError ? <ErrorNotice error={catalogError} fallback="The roles and positions could not be loaded." /> : null}
 
       {/* 1 ── FROM ─────────────────────────────────────────────────────── */}
       <Section n={1} title="Copy from">
@@ -389,13 +389,13 @@ export function ContentCopySheet({
           getOptionLabel={(o) => o.label}
           isOptionEqualToValue={(a, b) => a.type === b.type && a.id === b.id}
           renderOption={(props, o) => <OptionRow {...props} key={`${o.type}:${o.id}`} o={o} />}
-          renderInput={(p) => <TextField {...p} label="A role or a seat" placeholder="Search…" />}
+          renderInput={(p) => <TextField {...p} label="A role or a position" placeholder="Search…" />}
         />
         {src && (
           <Box sx={{ fontSize: 12.5, color: 'var(--c-text-2)' }}>
             {src.source.type === 'role'
-              ? `Role · held by ${plural(src.source.seats, 'seat')}`
-              : `Seat · it carries what its role “${src.source.roleTitle}” says, plus its own exceptions`}
+              ? `Role · held by ${plural(src.source.seats, 'position')}`
+              : `Position · it carries what its role “${src.source.roleTitle}” says, plus its own exceptions`}
             {' · '}in force on {src.asOf}
           </Box>
         )}
@@ -415,7 +415,7 @@ export function ContentCopySheet({
             <CircularProgress size={14} /> Reading what it carries…
           </Box>
         ) : !lines.length ? (
-          <Hint>This {src?.source.type === 'role' ? 'role' : 'seat'} carries nothing yet, so there is nothing to copy.</Hint>
+          <Hint>This {src?.source.type === 'role' ? 'role' : 'position'} carries nothing yet, so there is nothing to copy.</Hint>
         ) : (
           <>
             <Stack direction="row" flexWrap="wrap" sx={{ gap: 0.75 }}>
@@ -467,7 +467,7 @@ export function ContentCopySheet({
           }}
           aria-label="What to copy to"
         >
-          <ToggleButton value="position">Seats</ToggleButton>
+          <ToggleButton value="position">Positions</ToggleButton>
           <ToggleButton value="role">Roles</ToggleButton>
         </ToggleButtonGroup>
 
@@ -493,7 +493,7 @@ export function ContentCopySheet({
             />
           )}
           renderInput={(p) => (
-            <TextField {...p} label={toType === 'role' ? 'Roles' : 'Seats'} placeholder={targets.length ? '' : 'Search…'} />
+            <TextField {...p} label={toType === 'role' ? 'Roles' : 'Positions'} placeholder={targets.length ? '' : 'Search…'} />
           )}
         />
         {toType === 'position' && (
@@ -505,12 +505,12 @@ export function ContentCopySheet({
             clearOnBlur
             onChange={(_, role) => {
               if (!role) return;
-              const ids = seats.filter((s) => s.roleId === role.id).map((s) => s.id);
+              const ids = positions.filter((s) => s.roleId === role.id).map((s) => s.id);
               setTargets((prev) => [...prev, ...ids.filter((id) => !prev.some((t) => t.type === 'position' && t.id === id)).map((id) => ({ type: 'position' as const, id }))]);
             }}
             getOptionLabel={(o) => o.label}
             renderOption={(props, o) => <OptionRow {...props} key={`${o.type}:${o.id}`} o={o} />}
-            renderInput={(p) => <TextField {...p} label="Or add every seat of a role" placeholder="Search roles…" />}
+            renderInput={(p) => <TextField {...p} label="Or add every position of a role" placeholder="Search roles…" />}
           />
         )}
         {droppedTargets > 0 && (
@@ -521,7 +521,7 @@ export function ContentCopySheet({
         )}
         {usableTargets.length > 0 && (
           <Box sx={{ fontSize: 12.5, color: 'var(--c-text-2)' }}>
-            {toType === 'role' ? plural(usableTargets.length, 'role') : plural(usableTargets.length, 'seat')} chosen
+            {toType === 'role' ? plural(usableTargets.length, 'role') : plural(usableTargets.length, 'position')} chosen
           </Box>
         )}
       </Section>
@@ -693,7 +693,7 @@ export function ContentCopySheet({
             <span>Copy content</span>
           </Stack>
         }
-        subtitle="KRAs, responsibilities, KPIs, qualifications — from one role or seat to others."
+        subtitle="KRAs, responsibilities, KPIs, qualifications — from one role or position to others."
         actions={
           result ? (
             <>
@@ -760,13 +760,13 @@ function describe(plan: CopyPlan, names: string[]) {
   const first = plan.targets[0];
   if (plan.mode === 'SEAT') {
     return {
-      reach: `This changes ${plural(t.seats, 'seat')} — ${one ? first.label : names.slice(0, 3).join(', ') + (names.length > 3 ? ` and ${names.length - 3} more` : '')}.`,
+      reach: `This changes ${plural(t.seats, 'position')} — ${one ? first.label : names.slice(0, 3).join(', ') + (names.length > 3 ? ` and ${names.length - 3} more` : '')}.`,
       untouched: one
-        ? `The role “${first.roleTitle}” and its other seats are not touched; these lines are this seat's own.`
-        : 'Their roles, and every other seat holding them, are not touched; these lines are each seat’s own.',
-      button: one ? `Add ${lines} to this seat only` : `Add ${lines} to ${plural(t.seats, 'seat')} — those seats only`,
-      confirmTitle: one ? 'Add to this seat only?' : `Add to ${plural(t.seats, 'seat')}, each on its own?`,
-      confirmLabel: one ? `Add ${lines} to 1 seat` : `Add ${lines} to ${plural(t.seats, 'seat')}`,
+        ? `The role “${first.roleTitle}” and its other positions are not touched; these lines are this position's own.`
+        : 'Their roles, and every other position holding them, are not touched; these lines are each position’s own.',
+      button: one ? `Add ${lines} to this position only` : `Add ${lines} to ${plural(t.seats, 'position')} — those positions only`,
+      confirmTitle: one ? 'Add to this position only?' : `Add to ${plural(t.seats, 'position')}, each on its own?`,
+      confirmLabel: one ? `Add ${lines} to 1 position` : `Add ${lines} to ${plural(t.seats, 'position')}`,
     };
   }
   if (plan.mode === 'ROLE') {
@@ -774,27 +774,27 @@ function describe(plan: CopyPlan, names: string[]) {
     const who = t.people ? ` and ${plural(t.people, 'person', 'people')} in them` : '';
     return {
       reach: roles === 1
-        ? `This changes the role “${first.roleTitle}” itself — ${plural(t.seats, 'seat')}${who}.`
-        : `This changes ${plural(roles, 'role')} themselves — ${plural(t.seats, 'seat')}${who}.`,
+        ? `This changes the role “${first.roleTitle}” itself — ${plural(t.seats, 'position')}${who}.`
+        : `This changes ${plural(roles, 'role')} themselves — ${plural(t.seats, 'position')}${who}.`,
       untouched: null as string | null,
       button: roles === 1
-        ? `Add ${lines} to role “${first.roleTitle}” — affects ${plural(t.seats, 'seat')}`
-        : `Add ${lines} to ${plural(roles, 'role')} — affects ${plural(t.seats, 'seat')}`,
+        ? `Add ${lines} to role “${first.roleTitle}” — affects ${plural(t.seats, 'position')}`
+        : `Add ${lines} to ${plural(roles, 'role')} — affects ${plural(t.seats, 'position')}`,
       confirmTitle: roles === 1 ? `Add to the role “${first.roleTitle}”?` : `Add to ${plural(roles, 'role')}?`,
-      confirmLabel: `Add ${lines} — affects ${plural(t.seats, 'seat')}`,
+      confirmLabel: `Add ${lines} — affects ${plural(t.seats, 'position')}`,
     };
   }
   const moved = t.assignmentsMoved ? ` ${plural(t.assignmentsMoved, 'person', 'people')}’s work ${t.assignmentsMoved === 1 ? 'assignment moves' : 'assignments move'} with ${one ? 'it' : 'them'}.` : '';
   return {
     reach: one
-      ? `This creates the role “${first.fork?.newRoleTitle ?? ''}” and moves 1 seat onto it.${moved}`
-      : `This creates ${plural(t.newRoles, 'new role')} and moves ${plural(t.seats, 'seat')}, one onto each.${moved}`,
+      ? `This creates the role “${first.fork?.newRoleTitle ?? ''}” and moves 1 position onto it.${moved}`
+      : `This creates ${plural(t.newRoles, 'new role')} and moves ${plural(t.seats, 'position')}, one onto each.${moved}`,
     untouched: one
-      ? `“${first.roleTitle}” and its other seats are not touched.`
-      : 'The old roles, and every other seat holding them, are not touched.',
-    button: one ? `Give this seat its own role, with ${lines} added` : `Give ${plural(t.seats, 'seat')} their own roles, with ${lines} added`,
-    confirmTitle: one ? 'Give this seat a role of its own?' : `Give ${plural(t.seats, 'seat')} roles of their own?`,
-    confirmLabel: one ? 'Create role and move seat' : `Create ${plural(t.newRoles, 'role')} and move seats`,
+      ? `“${first.roleTitle}” and its other positions are not touched.`
+      : 'The old roles, and every other position holding them, are not touched.',
+    button: one ? `Give this position its own role, with ${lines} added` : `Give ${plural(t.seats, 'position')} their own roles, with ${lines} added`,
+    confirmTitle: one ? 'Give this position a role of its own?' : `Give ${plural(t.seats, 'position')} roles of their own?`,
+    confirmLabel: one ? 'Create role and move position' : `Create ${plural(t.newRoles, 'role')} and move positions`,
   };
 }
 
@@ -890,7 +890,7 @@ function LineRow({ line, on, toggle }: { line: CopyLine; on: boolean; toggle: ()
           )}
           {(line.origin === 'POSITION' || line.inactive || line.groupName || line.endsOn) && (
             <Stack direction="row" spacing={0.5} sx={{ mt: 0.25 }} flexWrap="wrap">
-              {line.origin === 'POSITION' && <ToneBadge tone="info" noIcon label="this seat's own" />}
+              {line.origin === 'POSITION' && <ToneBadge tone="info" noIcon label="this position's own" />}
               {line.inactive && <ToneBadge tone="warning" noIcon label="inactive — can't be copied" />}
               {line.groupName && <ToneBadge tone="neutral" noIcon label={`under ${line.groupName}`} />}
               {line.endsOn && <ToneBadge tone="neutral" noIcon label={`ends ${line.endsOn}`} />}
@@ -913,9 +913,9 @@ function Done({ result, company, go }: { result: CopyPlan; company: string; go: 
         title={t.created ? `Added ${plural(t.created, 'line')}` : 'Nothing needed adding — it was all there already'}
         sx={{ mb: 0 }}
       >
-        {result.mode === 'ROLE' && `Applied to the role${result.targets.length === 1 ? '' : 's'} itself: ${plural(t.seats, 'seat')} now carry${t.seats === 1 ? 'es' : ''} ${t.created === 1 ? 'it' : 'them'}.`}
-        {result.mode === 'SEAT' && `Added as ${t.seats === 1 ? "the seat's own" : "each seat's own"} lines; the roles are unchanged.`}
-        {result.mode === 'FORK' && `Created ${plural(t.newRoles, 'role')} and moved ${plural(t.seats, 'seat')} onto ${t.newRoles === 1 ? 'it' : 'them'}.`}
+        {result.mode === 'ROLE' && `Applied to the role${result.targets.length === 1 ? '' : 's'} itself: ${plural(t.seats, 'position')} now carry${t.seats === 1 ? 'es' : ''} ${t.created === 1 ? 'it' : 'them'}.`}
+        {result.mode === 'SEAT' && `Added as ${t.seats === 1 ? "the position's own" : "each position's own"} lines; the roles are unchanged.`}
+        {result.mode === 'FORK' && `Created ${plural(t.newRoles, 'role')} and moved ${plural(t.seats, 'position')} onto ${t.newRoles === 1 ? 'it' : 'them'}.`}
         {' '}No new definitions were created.
       </Callout>
       <Stack direction="row" flexWrap="wrap" sx={{ gap: 1 }}>
@@ -924,7 +924,7 @@ function Done({ result, company, go }: { result: CopyPlan; company: string; go: 
         <Count status="COPY_BLOCKED" n={t.blocked} verb="not added" />
       </Stack>
       {t.assignmentsMoved > 0 && (
-        <Box sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>{plural(t.assignmentsMoved, 'work assignment')} moved onto the new role with the seat.</Box>
+        <Box sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>{plural(t.assignmentsMoved, 'work assignment')} moved onto the new role with the position.</Box>
       )}
       <Stack spacing={0.75}>
         <CapsLabel>Where</CapsLabel>

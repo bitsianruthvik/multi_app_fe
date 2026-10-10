@@ -18,7 +18,7 @@ import { AssignmentFormDialog } from '../components/AssignmentDialogs';
  * The list a person reads to answer "is this organisation described
  * correctly?". Its StatStrip therefore names things somebody can FIX rather
  * than restating the row count: assignments with nobody responsible for them,
- * people committed past 100%, work with no sanctioned seat behind it.
+ * people committed past 100%, work with no position behind it.
  *
  * "No position 7" is NOT a failure — position is optional by design. It is
  * reported because it is the gap between what people do and what the company
@@ -74,7 +74,7 @@ export default function Assignments() {
       { label: 'Assignments', value: t?.assignments ?? 0, hint: 'Rows shown below. One person may hold several at once.' },
       { label: 'No manager', value: t?.noManager ?? 0, tone: 'danger', hint: 'Nobody has authority over this work — neither on the assignment nor inherited from a position.' },
       { label: 'People over 100%', value: t?.overAllocatedEmployees ?? 0, tone: 'warning', hint: 'Allocation across all their live assignments exceeds 100%. Advisory — recorded, never blocked.' },
-      { label: 'No position', value: t?.noPosition ?? 0, hint: 'Real work with no sanctioned seat behind it. Normal in an SME; the gap worth knowing.' },
+      { label: 'No position', value: t?.noPosition ?? 0, hint: 'Real work with no position behind it. Normal in an SME; the gap worth knowing.' },
     ];
   }, [data]);
 
@@ -107,7 +107,7 @@ export default function Assignments() {
       render: (a) => a.positionId
         ? <Mono sx={{ fontSize: 12.5 }}>{a.positionCode ?? `#${a.positionId}`}</Mono>
         : (
-          <Tooltip title="Position is optional. Real work exists before a company writes down sanctioned seats.">
+          <Tooltip title="Position is optional. Real work exists before a company writes down positions.">
             <span><ToneBadge tone="neutral" noIcon label="No position" /></span>
           </Tooltip>
         ),

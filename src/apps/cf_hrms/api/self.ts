@@ -242,7 +242,7 @@ export const SELF_VIEW = 'cf_hrms_self_view';
  * position card or any other HR endpoint; this function is its only data. */
 
 /** Why a seat is in the caller's slice. */
-export type SliceRelation = 'SELF' | 'MANAGER' | 'REPORT' | 'DOTTED_MANAGER';
+export type SliceRelation = 'SELF' | 'SAME_CARD' | 'MANAGER' | 'REPORT' | 'DOTTED_MANAGER';
 
 export interface SliceOccupant {
   name: string;
@@ -271,6 +271,8 @@ export interface SliceDepartment {
 
 export interface SliceNode {
   id: number;
+  /** The role card the position is drawn in (see api/orgchart.ts). Absent = its own card. */
+  cardId?: number;
   positionCode: string | null;
   title: string;
   displayTitle: string;
@@ -283,8 +285,10 @@ export interface SliceNode {
   departmentRank: number | null;
   departmentIsRoot: boolean;
   locationName: string | null;
-  shiftPattern: 'G' | 'D' | 'N' | 'DN';
-  defaultShift: { code: string | null; name: string | null } | null;
+  /** The position's shift code. Never 'DN': a position is on one shift. */
+  shiftPattern: string;
+  /** The position's shift. */
+  defaultShift: { id?: number | null; code: string | null; name: string | null } | null;
   sanctionedHeadcount: number;
   effectiveSanctioned: number;
   requirements: { shiftCode: string | null; shiftName: string | null; requiredCount: number }[];
@@ -318,7 +322,8 @@ export interface MyOrgChart {
   departments?: SliceDepartment[];
   /** The seats the caller holds — the boxes to highlight and centre on. */
   mySeatIds: number[];
-  counts: { positions: number; managers: number; reports: number; dotted: number };
+  /** `sameCard`: the caller's card-mates — the other positions of their own role card (e.g. the other shift). */
+  counts: { positions: number; managers: number; reports: number; dotted: number; sameCard?: number };
 }
 
 /** The signed-in person's slice of the org chart. The only call the employee chart makes. */

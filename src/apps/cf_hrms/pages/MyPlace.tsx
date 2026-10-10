@@ -173,8 +173,8 @@ function ReportingLine({ line }: { line: SelfReportingLine }) {
           )}
         </>
       ) : (
-        // A vacant seat is the honest answer, not a blank. The chart says this
-        // job reports into a seat; nobody is in it today.
+        // A vacant position is the honest answer, not a blank. The chart says this
+        // job reports into a position; nobody is in it today.
         <Typography sx={{ fontSize: 14, color: 'var(--c-text-2)' }}>
           {`Nobody is in the ${line.seatTitle ?? 'manager'} job right now, so this line has no person today.`}
         </Typography>
@@ -237,7 +237,7 @@ function SeatStrip({ seat, many }: { seat: SelfSeat; many: boolean }) {
       {/* The formal seat, when the person's own job name differs from it. */}
       {seat.positionTitle && seat.positionTitle !== seat.label && (
         <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)', mt: -0.75, mb: 1.25, ml: 3.25 }}>
-          {`Seat: ${seat.positionTitle}`}
+          {`Position: ${seat.positionTitle}`}
         </Typography>
       )}
 

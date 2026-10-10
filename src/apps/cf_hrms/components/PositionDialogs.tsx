@@ -8,12 +8,17 @@ import { usePositionRemoval } from './usePositionRemoval';
 /**
  * Position forms, plus the content-override form both detail screens share.
  *
- * A position is the sanctioned seat — the design of the organisation, not the
- * person in it. `sanctionedHeadcount` may be more than one (a grouped seat), so
- * vacancy is a number and not a yes/no.
+ * A position is one chair for one person on one shift — the design of the
+ * organisation, not the person in it. Vacant or filled; never a count.
  */
 
 const today = () => new Date().toISOString().slice(0, 10);
+
+/** The shift a new position starts on: General (code G), when the company has it. */
+const generalShiftId = (shifts: LookupRow[] | undefined): number | '' => {
+  const g = (shifts ?? []).find((s) => s.code === 'G') ?? (shifts ?? []).find((s) => /^general/i.test(s.name));
+  return g ? g.id : '';
+};
 
 export function PositionFormDialog({
   open, onClose, onDone, options, position,
@@ -30,7 +35,6 @@ export function PositionFormDialog({
   const [positionTitle, setPositionTitle] = useState('');
   const [departmentId, setDepartmentId] = useState<number | ''>('');
   const [locationId, setLocationId] = useState<number | ''>('');
-  const [sanctionedHeadcount, setSanctionedHeadcount] = useState('1');
   const [defaultShiftId, setDefaultShiftId] = useState<number | ''>('');
   const [status, setStatus] = useState('DRAFT');
   const [effectiveFrom, setEffectiveFrom] = useState(today());
@@ -46,22 +50,21 @@ export function PositionFormDialog({
     setPositionTitle(position?.positionTitle ?? '');
     setDepartmentId(position?.departmentId ?? '');
     setLocationId(position?.locationId ?? '');
-    setSanctionedHeadcount(String(position?.sanctionedHeadcount ?? 1));
-    setDefaultShiftId(position?.defaultShiftId ?? '');
+    setDefaultShiftId(position?.defaultShiftId ?? position?.shift?.id ?? generalShiftId(options?.shifts));
     setStatus(position?.status ?? 'DRAFT');
     setEffectiveFrom(position?.effectiveFrom ?? today());
     setEffectiveTo(position?.effectiveTo ?? '');
-  }, [open, position]);
+  }, [open, position, options]);
 
   return (
     <>
       <FormDialog
         open={open}
         title={position ? 'Edit position' : 'New position'}
-        subtitle="A sanctioned seat. It survives a vacancy and a change of people."
+        subtitle="One chair for one person, on one shift. It survives a vacancy and a change of people."
         onClose={onClose}
         submitLabel={position ? 'Save' : 'Create position'}
-        submitDisabled={roleId === ''}
+        submitDisabled={roleId === '' || defaultShiftId === ''}
         onSubmit={async () => {
           const closing = position != null && status === 'CLOSED' && position.status !== 'CLOSED';
           const body = {
@@ -70,8 +73,7 @@ export function PositionFormDialog({
             positionTitle: positionTitle || null,
             departmentId: departmentId === '' ? null : departmentId,
             locationId: locationId === '' ? null : locationId,
-            sanctionedHeadcount: Number(sanctionedHeadcount),
-            defaultShiftId: defaultShiftId === '' ? null : defaultShiftId,
+            defaultShiftId,
             status: closing && position ? position.status : status,
             effectiveFrom: effectiveFrom || null,
             effectiveTo: effectiveTo || null,
@@ -87,7 +89,7 @@ export function PositionFormDialog({
           <TextField
             select size="small" label="Role" value={roleId}
             onChange={(e) => setRoleId(Number(e.target.value))}
-            helperText="Required. The role says what kind of work this seat is for."
+            helperText="Required. The role says what kind of work this position is for."
           >
             {(options?.roles ?? []).map((r) => (
               <MenuItem key={r.id} value={r.id}>{r.name}{r.code ? ` · ${r.code}` : ''}</MenuItem>
@@ -99,7 +101,7 @@ export function PositionFormDialog({
             <TextField
               size="small" label="Title override" fullWidth value={positionTitle}
               onChange={(e) => setPositionTitle(e.target.value)}
-              helperText="Only when the seat is called something other than the role."
+              helperText="Only when the position is called something other than the role."
             />
           </Stack>
 
@@ -116,14 +118,13 @@ export function PositionFormDialog({
 
           <Stack direction="row" spacing={2}>
             <TextField
-              size="small" type="number" label="Sanctioned headcount" fullWidth
-              value={sanctionedHeadcount} onChange={(e) => setSanctionedHeadcount(e.target.value)}
-              inputProps={{ min: 0, step: 1 }}
-              helperText="How many people this seat is approved for. Vacancy = this minus active assignments."
-            />
-            <TextField select size="small" label="Default shift" fullWidth value={defaultShiftId} onChange={(e) => setDefaultShiftId(e.target.value === '' ? '' : Number(e.target.value))}>
-              <MenuItem value="">Not set</MenuItem>
-              {(options?.shifts ?? []).map((s) => <MenuItem key={s.id} value={s.id}>{s.code} · {s.name}</MenuItem>)}
+              select size="small" label="Shift" fullWidth required value={defaultShiftId}
+              onChange={(e) => setDefaultShiftId(Number(e.target.value))}
+              helperText={position && (position.occupant || position.filledCount > 0)
+                ? 'Required. Changing it also moves the person in this position to the new shift.'
+                : 'Required. The shift this position works.'}
+            >
+              {(options?.shifts ?? []).map((s) => <MenuItem key={s.id} value={s.id}>{s.name}{s.code ? ` · ${s.code}` : ''}</MenuItem>)}
             </TextField>
           </Stack>
 
@@ -164,7 +165,7 @@ export function PositionContextDialog({
     <FormDialog
       open={open}
       title="Add a work context"
-      subtitle="One seat may cover several machines. That is a link, never a cloned position."
+      subtitle="One position may cover several machines. That is a link, never a cloned position."
       onClose={onClose}
       submitLabel="Add context"
       submitDisabled={workContextId === ''}
@@ -288,6 +289,48 @@ export function ContentOverrideDialog({
             Role — a company that fills this list is describing roles it has not defined yet.
           </Typography>
         </Alert>
+      </Stack>
+    </FormDialog>
+  );
+}
+
+/** "Add a position like this" — one more vacant position with the same role, department and manager. */
+export function PositionSiblingDialog({
+  open, onClose, onDone, position, options,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onDone: (id: number) => void;
+  position: PositionRow;
+  options: PositionOptions | null;
+}) {
+  const [shiftId, setShiftId] = useState<number | ''>('');
+  useEffect(() => {
+    if (!open) return;
+    setShiftId(position.defaultShiftId ?? position.shift?.id ?? generalShiftId(options?.shifts));
+  }, [open, position, options]);
+
+  return (
+    <FormDialog
+      open={open}
+      title="Add a position like this"
+      subtitle="One more vacant position with the same role, department and manager."
+      onClose={onClose}
+      submitLabel="Add position"
+      submitDisabled={shiftId === ''}
+      onSubmit={async () => {
+        const res = await positionsApi.addSibling(position.id, shiftId === '' ? {} : { shiftId });
+        onDone(res.position.id);
+      }}
+    >
+      <Stack spacing={2} sx={{ pt: 0.5 }}>
+        <TextField
+          select size="small" label="Shift" required value={shiftId}
+          onChange={(e) => setShiftId(Number(e.target.value))}
+          helperText="The new position is vacant. Pick the shift it works."
+        >
+          {(options?.shifts ?? []).map((s) => <MenuItem key={s.id} value={s.id}>{s.name}{s.code ? ` · ${s.code}` : ''}</MenuItem>)}
+        </TextField>
       </Stack>
     </FormDialog>
   );

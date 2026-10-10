@@ -10,7 +10,13 @@ import type { ChartScene, Prim } from './orgChartLayout';
  * screen, and an org chart nobody can tab through is an org chart half the
  * client's office cannot read. Arrow keys walk the tree the way the tree looks:
  * ← → between siblings, ↑ to the manager, ↓ to the first report; Enter opens
- * the card, Space folds the branch.
+ * the card's role, Space folds the branch.
+ *
+ * TWO CLICK TARGETS PER CARD (2026-10-10). A card is a ROLE and its rows are
+ * POSITIONS: a click anywhere on the card that is not a row opens the role; a
+ * click on a row opens that position. The rows are pointer targets only — the
+ * keyboard reaches a position through the role view, which lists the card's
+ * positions as buttons — so a card stays one tab stop, not one per row.
  *
  * Zoom is applied to the `<svg>` element's width/height only — the viewBox and
  * every coordinate stay put — so zooming never re-renders a thousand nodes.
@@ -83,10 +89,12 @@ export function OrgChartCanvas({
   zoom,
   fontFamily,
   selected,
+  selectedRow = null,
   accessibleName,
   textAlternative,
   onSelect,
   onOpenCard,
+  onOpenRow,
   onToggleCollapse,
   onToggleDept,
   onNavigate,
@@ -96,11 +104,15 @@ export function OrgChartCanvas({
   zoom: number;
   fontFamily: string;
   selected: number | null;
+  /** The position whose view is open in the panel: its row is ringed. */
+  selectedRow?: number | null;
   accessibleName: string;
   /** Read out in place of the picture; the table view is the full fallback. */
   textAlternative: string;
   onSelect: (id: number) => void;
   onOpenCard: (id: number) => void;
+  /** A click on a position row of a card. */
+  onOpenRow?: (cardId: number, positionId: number) => void;
   onToggleCollapse: (id: number) => void;
   /** A click (or Enter / Space) on a department's title opens or closes it (spec §16). */
   onToggleDept?: (id: number) => void;
@@ -240,6 +252,10 @@ export function OrgChartCanvas({
     return { dist: Math.hypot(a.x - b.x, a.y - b.y), mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2 };
   };
   const selectedBox = selected == null ? null : scene.boxes.find((b) => b.id === selected) ?? null;
+  const selectedRowHit =
+    selectedRow == null
+      ? null
+      : (scene.boxes.flatMap((b) => b.rows).find((r) => r.positionId === selectedRow) ?? null);
 
   const focusNode = useCallback((id: number) => {
     const el = document.getElementById(`orgchart-node-${id}`);
@@ -373,6 +389,9 @@ export function OrgChartCanvas({
         userSelect: 'none',
         WebkitUserSelect: 'none',
         '& text, & tspan': { userSelect: 'none', WebkitUserSelect: 'none' },
+        // A position row answers the pointer, so it reads as its own target.
+        '& [data-orgrow]': { fill: 'transparent', cursor: 'pointer' },
+        '& [data-orgrow]:hover': { fill: 'var(--c-primary-500)', fillOpacity: 0.1 },
       }}
     >
       <svg
@@ -443,7 +462,20 @@ export function OrgChartCanvas({
             strokeWidth={2.4}
           />
         )}
-        <g role="tree" aria-label="Positions">
+        {selectedRowHit && (
+          <rect
+            aria-hidden="true"
+            x={selectedRowHit.x - 1.5}
+            y={selectedRowHit.y - 1.5}
+            width={selectedRowHit.w + 3}
+            height={selectedRowHit.h + 3}
+            rx={5}
+            fill="none"
+            stroke="var(--c-primary-500)"
+            strokeWidth={1.8}
+          />
+        )}
+        <g role="tree" aria-label="Roles and their positions">
           {scene.boxes.map((box) => (
             <g key={box.id}>
               <g
@@ -465,6 +497,25 @@ export function OrgChartCanvas({
                 onKeyDown={(e) => onKeyDown(e, box.id)}
               >
                 {box.prims.map((p, i) => renderPrim(p, `${box.id}-${i}`))}
+                {onOpenRow &&
+                  box.rows.map((r) => (
+                    <rect
+                      key={`r${r.positionId}`}
+                      data-orgrow={r.positionId}
+                      x={r.x}
+                      y={r.y}
+                      width={r.w}
+                      height={r.h}
+                      rx={4}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onSelect(box.id);
+                        onOpenRow(box.id, r.positionId);
+                      }}
+                    >
+                      <title>{r.label}</title>
+                    </rect>
+                  ))}
               </g>
               {box.toggle && (
                 <g

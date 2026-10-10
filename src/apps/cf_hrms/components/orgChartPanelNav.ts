@@ -1,22 +1,40 @@
+import type { ChartModel } from './orgChartLayout';
+
 /**
  * What the org chart's floating panel can be showing, and how it moves between
- * them (spec §17). The panel is a small STACK: a seat at the bottom (the box
- * that was clicked), and whatever was opened from it on top — a person, an open
- * seat, the role, another seat — each with a Back.
+ * them (spec §17, reshaped 2026-10-10 for the two-level model).
+ *
+ * TWO THINGS ON THE CHART, TWO VIEWS:
+ *   a ROLE     — what a card's headline opens. The job: its positions in this
+ *                card, its purpose, and its KRAs → responsibilities and KPIs,
+ *                edited at ROLE level.
+ *   a POSITION — what a row of a card opens. One chair for one person on one
+ *                shift: the person in it (or the vacancy), and the position's
+ *                responsibilities and KPIs, edited at POSITION level. KRAs are
+ *                shown and fixed.
+ *
+ * The panel is a small STACK: the card's role at the bottom, and whatever was
+ * opened from it on top — a position, another role, a manager — each with Back.
+ * `person` is someone reached without going through one of their positions'
+ * rows (a manager named on a reporting line); it shows the same person view.
  */
 export type PanelView =
-  | { kind: 'seat'; positionId: number; title: string }
+  | {
+      kind: 'role';
+      roleId: number | null;
+      /** The card it was opened from — its positions are the ones listed. Null when opened away from a card. */
+      cardId: number | null;
+      title: string;
+    }
+  | { kind: 'position'; positionId: number; title: string }
   | {
       kind: 'person';
       employeeId: number;
       title: string;
       employeeCode: string | null;
-      /** The seat and shift they were opened from — what the chart knows without asking. */
+      /** The position they were reached through, when there is one. */
       positionId: number | null;
-      shiftCode: string | null;
-    }
-  | { kind: 'open'; positionId: number; shift: 'G' | 'D' | 'N'; title: string }
-  | { kind: 'role'; roleId: number; title: string };
+    };
 
 export interface PanelNav {
   /** Open something on top of the current view. */
@@ -25,21 +43,48 @@ export interface PanelNav {
   back: () => void;
 }
 
-export const SHIFT_WORD: Record<string, string> = { G: 'General shift', D: 'Day shift', N: 'Night shift', DN: 'Day & night shifts' };
-export const SHIFT_SHORT: Record<string, string> = { G: 'General', D: 'Day', N: 'Night' };
-
-/** What a view is, in two words — the small line above its title. */
+/** What a view is, in one word — the small line above its title. */
 export function viewKind(view: PanelView): string {
   switch (view.kind) {
-    case 'seat':
+    case 'position':
       return 'Position';
     case 'person':
       return 'Person';
-    case 'open':
-      return 'Open seat';
     default:
       return 'Role';
   }
+}
+
+/** The view a card's headline opens: its role, with this card's positions. */
+export function roleViewOfCard(model: ChartModel, cardId: number): PanelView {
+  const card = model.byId.get(cardId);
+  return {
+    kind: 'role',
+    roleId: card?.roleId ?? null,
+    cardId,
+    title: card?.displayTitle || card?.title || 'Role',
+  };
+}
+
+/**
+ * A position's title in the panel: the person in it, or that it is vacant.
+ * Read from the chart every time, so the header follows an assignment.
+ */
+export function positionTitle(model: ChartModel | null, positionId: number, fallback = 'Position'): string {
+  const node = model?.positions.get(positionId);
+  if (!node) return fallback;
+  const who = node.occupants?.[0]?.name?.trim();
+  return who || `Vacant — ${node.displayTitle || node.title}`;
+}
+
+/** The view a position row opens. */
+export function positionView(model: ChartModel | null, positionId: number, fallback?: string): PanelView {
+  return { kind: 'position', positionId, title: positionTitle(model, positionId, fallback) };
+}
+
+/** The title to print for a view now (a position's follows the chart; the others are as pushed). */
+export function viewTitle(model: ChartModel | null, view: PanelView): string {
+  return view.kind === 'position' ? positionTitle(model, view.positionId, view.title) : view.title;
 }
 
 /** The tiny caps label the panel's fact strips use. */

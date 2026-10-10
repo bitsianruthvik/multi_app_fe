@@ -18,7 +18,7 @@ import { orgChartApi } from '../api/orgchart';
  * Search across KRA, responsibility, KPI and qualification text (spec §5).
  *
  * Multi-word queries are **AND**, not OR: someone typing "safety audit" wants
- * the seats that carry both words, and an OR search over 282 responsibility
+ * the positions that carry both words, and an OR search over 282 responsibility
  * definitions returns most of the chart and answers nothing. The server matches
  * the same way; the words are re-highlighted here so a hit shows *why* it
  * matched rather than asking the reader to find it.

@@ -23,7 +23,8 @@ import { getMyOrgChart, type MyOrgChart as Slice } from '../api/self';
 import {
   buildModel,
   buildScene,
-  departmentOfSeat,
+  cardIdOf,
+  departmentOfCard,
   departmentTree,
   describeChart,
   makeFonts,
@@ -77,6 +78,8 @@ function toGraph(s: Slice): OrgChartGraph {
   let synthetic = 0;
   const nodes = s.nodes.map((n) => ({
     id: n.id,
+    // The role card the position is drawn in — the server's grouping, passed on.
+    cardId: n.cardId,
     positionCode: n.positionCode,
     title: n.title,
     displayTitle: n.displayTitle,
@@ -90,10 +93,13 @@ function toGraph(s: Slice): OrgChartGraph {
     locationId: null,
     locationName: n.locationName,
     status: '',
-    sanctionedHeadcount: n.sanctionedHeadcount,
-    effectiveSanctioned: n.effectiveSanctioned,
-    shiftPattern: n.shiftPattern,
-    defaultShift: null,
+    sanctionedHeadcount: 1,
+    effectiveSanctioned: 1,
+    shiftPattern: n.defaultShift?.code ?? n.shiftPattern,
+    // The slice names the shift but need not send its id; the chart only draws the name.
+    defaultShift: n.defaultShift?.name
+      ? { id: n.defaultShift.id ?? 0, code: n.defaultShift.code ?? n.shiftPattern, name: n.defaultShift.name }
+      : null,
     contexts: n.contexts.map((c, i) => ({ id: i, name: c.name, contextType: c.contextType, isPrimary: c.isPrimary })),
     occupants: n.occupants.map((o) => {
       synthetic -= 1;
@@ -110,8 +116,8 @@ function toGraph(s: Slice): OrgChartGraph {
         sameAs: o.isMe ? 'me' : (o.sameAs ?? null),
       };
     }),
-    requirements: n.requirements.map((r) => ({ shiftId: null, shiftCode: r.shiftCode, requiredCount: r.requiredCount })),
-    vacancies: Math.max(0, n.effectiveSanctioned - n.occupants.length),
+    requirements: [],
+    vacancies: n.occupants.length ? 0 : 1,
     counts: { kras: 0, responsibilities: 0, kpis: 0, qualifications: 0, openPoints: 0 },
     hasContent: false,
   }));
@@ -152,6 +158,8 @@ export default function MyOrgChart() {
   const [zoom, setZoom] = useState<number | null>(null);
   const [selected, setSelected] = useState<number | null>(null);
   const [cardId, setCardId] = useState<number | null>(null);
+  // The position row that was clicked, if the panel was opened from a row.
+  const [rowId, setRowId] = useState<number | null>(null);
   const centred = useRef(false);
   const panelRef = useRef<FloatingPanelHandle>(null);
   const fullscreen = useFullscreen();
@@ -226,7 +234,12 @@ export default function MyOrgChart() {
 
   // ── Model and scene, from the shared layout ─────────────────────────────
   const model = useMemo(() => (slice ? buildModel(toGraph(slice)) : null), [slice]);
-  const mySeats = useMemo(() => slice?.mySeatIds ?? [], [slice]);
+  // The caller's own POSITIONS (the server's `mySeatIds`), and the cards they are rows of.
+  const myPositions = useMemo(() => slice?.mySeatIds ?? [], [slice]);
+  const mySeats = useMemo(
+    () => (model ? [...new Set(myPositions.map((id) => cardIdOf(model, id)).filter((id): id is number => id != null))] : []),
+    [model, myPositions],
+  );
 
   const [palette, setPalette] = useState(() => readPalette());
   useEffect(() => {
@@ -256,7 +269,9 @@ export default function MyOrgChart() {
     const fold = new Set<number>();
     for (const n of slice.nodes) {
       if (n.relation !== 'REPORT') continue;
-      if ((model.depth.get(n.id) ?? 0) >= myDepth + 2 && (model.children.get(n.id)?.length ?? 0) > 0) fold.add(n.id);
+      const card = cardIdOf(model, n.id);
+      if (card == null) continue;
+      if ((model.depth.get(card) ?? 0) >= myDepth + 2 && (model.children.get(card)?.length ?? 0) > 0) fold.add(card);
     }
     if (fold.size) setCollapsed(fold);
     setFoldSettled(true);
@@ -277,7 +292,7 @@ export default function MyOrgChart() {
     if (deptFoldSettled || !model || !slice) return;
     if (!model.departments.length || deptFoldTouched || deptClosed.size > 0) { setDeptFoldSettled(true); return; }
     const tree = departmentTree(model, { root: '', filter: 'all', collapsed: new Set(), arrange: {}, fonts });
-    const mine = Math.max(0, ...mySeats.map((id) => tree.get(departmentOfSeat(model, id))?.depth ?? 0));
+    const mine = Math.max(0, ...mySeats.map((id) => tree.get(departmentOfCard(model, id))?.depth ?? 0));
     const fold = new Set<number>();
     for (const b of tree.values()) if (b.depth >= mine + 2 && b.canToggle) fold.add(b.id);
     if (fold.size) setDeptClosed(fold);
@@ -353,7 +368,7 @@ export default function MyOrgChart() {
     // A seat inside a closed department is not on the canvas: open the boxes
     // above it first, and centre once they have been drawn.
     if (model && deptTree) {
-      const dept = departmentOfSeat(model, id);
+      const dept = departmentOfCard(model, id);
       const opened = openAbove(deptTree, deptClosed, dept);
       if (opened !== deptClosed) {
         setDeptClosed(opened);
@@ -423,6 +438,7 @@ export default function MyOrgChart() {
   const openCard = useCallback((id: number) => {
     setSelected(id);
     setCardId(id);
+    setRowId(null);
   }, []);
   const closePanel = useCallback(() => {
     const id = cardId;
@@ -441,13 +457,16 @@ export default function MyOrgChart() {
   );
   const onCanvasSelect = useCallback((id: number) => {
     setSelected(id);
-    setCardId((open) => (open == null ? open : id));
+    setCardId((open) => {
+      if (open != null && open !== id) setRowId(null);
+      return open == null ? open : id;
+    });
   }, []);
 
   const zoomNow = zoom ?? 1;
   const panelNode = cardId != null && model ? model.byId.get(cardId) : null;
-  const panelTitle = panelNode?.displayTitle || panelNode?.title || 'Position';
-  const panelBox = cardId != null && model && boxed ? scene?.layout.dept?.boxes.get(departmentOfSeat(model, cardId)) : undefined;
+  const panelTitle = panelNode?.displayTitle || panelNode?.title || 'Role';
+  const panelBox = cardId != null && model && boxed ? scene?.layout.dept?.boxes.get(departmentOfCard(model, cardId)) : undefined;
   const panelTeam =
     cardId != null && model
       ? (model.children.get(cardId) ?? []).filter((k) => !panelBox || panelBox.members.includes(k)).length
@@ -456,8 +475,8 @@ export default function MyOrgChart() {
   const collapsedCount = boxed ? closedBoxes : [...collapsed].filter((id) => model?.byId.has(id)).length;
   const secondaryCount = model?.secondary.length ?? 0;
 
-  // My own boxes, ringed. A CSS rule over the canvas's node ids — the shared
-  // canvas draws a plain border and is not changed for this.
+  // My own card ringed, and my own row in it tinted. CSS rules over the
+  // canvas's node and row ids — the shared canvas is not changed for this.
   const highlight = useMemo(() => {
     const sx: Record<string, object> = {};
     for (const id of mySeats) {
@@ -467,8 +486,11 @@ export default function MyOrgChart() {
         fill: 'var(--c-primary-50)',
       };
     }
+    for (const id of myPositions) {
+      sx[`& [data-orgrow="${id}"]`] = { fill: 'var(--c-primary-500)', fillOpacity: 0.14 };
+    }
     return sx;
-  }, [mySeats]);
+  }, [mySeats, myPositions]);
 
   const c = slice?.counts;
   const subtitle = !slice
@@ -601,6 +623,12 @@ export default function MyOrgChart() {
                 zoom={zoomNow}
                 fontFamily={palette.fontUi}
                 selected={selected}
+                selectedRow={cardId != null ? rowId : null}
+                onOpenRow={(card, positionId) => {
+                  setSelected(card);
+                  setCardId(card);
+                  setRowId(positionId);
+                }}
                 accessibleName={`Your place in the organisation as at ${slice.asOf}, ${slice.counts.positions} positions`}
                 textAlternative={describeChart(model, visibleIds, 'all')}
                 onSelect={onCanvasSelect}
@@ -612,7 +640,7 @@ export default function MyOrgChart() {
               />
             </Box>
             <Typography
-              title="Scroll to zoom; drag to pan. Click a box for its details. Your own seat is outlined."
+              title="Scroll to zoom; drag to pan. Click a card for its details. Your own position is outlined."
               sx={{
                 fontSize: 12,
                 color: 'var(--c-text-3)',
@@ -623,7 +651,7 @@ export default function MyOrgChart() {
                 textOverflow: 'ellipsis',
               }}
             >
-              Your seat is outlined · scroll to zoom · drag to pan · click a seat for details
+              Your position is outlined · scroll to zoom · drag to pan · click a card for details
               {boxed && ' · click a department name to open or close it'}
               {secondaryCount > 0 && ' · dashed lines are non-primary reporting'}
             </Typography>
@@ -645,7 +673,13 @@ export default function MyOrgChart() {
           storageKey={key('panelPos')}
         >
           {slice && (
-            <MyOrgChartCard slice={slice} positionId={cardId} company={company} teamSize={panelTeam}>
+            <MyOrgChartCard
+              slice={slice}
+              positionIds={(panelNode?.positions ?? []).map((p) => p.id)}
+              currentId={rowId}
+              company={company}
+              teamSize={panelTeam}
+            >
               {cardId != null && (panelTeam > 0 || (panelBox?.canToggle ?? false)) && (
                 <OrgChartPanel
                   department={

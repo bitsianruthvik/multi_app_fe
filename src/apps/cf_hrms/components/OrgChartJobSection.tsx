@@ -3,16 +3,16 @@
  * the editor for them in place. WHICH editor is decided by the view the panel
  * is in — never by a prompt (the client's decision, 2026-10-10):
  *
- *   a POSITION (the view a box opens)
+ *   a POSITION (the view a row of a card opens)
  *       Shows the position's RESOLVED content: the role's KRAs as fixed
  *       headings, and under them the position's responsibilities and KPIs.
  *       Editing is POSITION-LEVEL only — add a line, change its wording or a
- *       KPI's target, switch a line off, undo — through the seat endpoints
+ *       KPI's target, switch a line off, undo — through the position endpoints
  *       (`SeatJobContentEditor`, embedded). KRAs cannot be touched here; one
  *       sentence says so and opens the role view. Other positions holding the
  *       role are not affected, and the edit surface says that.
  *
- *   a ROLE (reached by clicking the role's name)
+ *   a ROLE (the view a card's headline opens)
  *       The role's own content, with ROLE-level editing through the role
  *       endpoints (`RoleContentTab`): KRAs, lines, moves, default targets. A
  *       role is shared, so the editor says who it reaches before anything is
@@ -45,9 +45,9 @@ export function OrgChartJobSection({
   onChanged,
   onOpenRole,
 }: {
-  /** From a seat: opens the role's view in the panel (where KRAs are edited). */
+  /** From a position: opens the role's view in the panel (where KRAs are edited). */
   onOpenRole?: (roleId: number, title: string) => void;
-  /** What is being read: a seat (resolved, with its own changes marked) or the role itself. */
+  /** What is being read: a position (resolved, with its own changes marked) or the role itself. */
   target: { type: 'position' | 'role'; id: number };
   roleId: number | null;
   asOf?: string;
@@ -64,7 +64,7 @@ export function OrgChartJobSection({
   // Bumped when editing ends, so the read view is fetched again with the edits in it.
   const [readKey, setReadKey] = useState(0);
 
-  // A different seat or role: back to reading, with nothing carried over.
+  // A different position or role: back to reading, with nothing carried over.
   useEffect(() => {
     setEditing(false);
     setContent(null);
@@ -84,7 +84,7 @@ export function OrgChartJobSection({
   }, [editing, load]);
 
   // A POSITION is edited at the position: its own responsibilities, KPIs and
-  // targets, through the seat endpoints. KRAs are not touched here.
+  // targets, through the position endpoints. KRAs are not touched here.
   if (target.type === 'position') {
     return (
       <SeatJobContentEditor

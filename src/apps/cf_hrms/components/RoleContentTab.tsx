@@ -56,7 +56,7 @@ export function RoleContentTab({
   dense?: boolean;
   /**
    * Who an edit reaches, as a sentence — "Changes the role X — 2 positions".
-   * Set where the editor is opened from ONE seat (the org chart panel), so
+   * Set where the editor is opened from ONE position (the org chart panel), so
    * every dialog says it before saving. The role's own page has it in its title.
    */
   reach?: string;
@@ -576,7 +576,7 @@ export function RoleContentTab({
         body={(
           deletingLines > 0
             ? `Only the KRA goes. Its ${plural(deleting?.responsibilities.length ?? 0, 'responsibility', 'responsibilities')} and ${plural(deleting?.kpis.length ?? 0, 'KPI')} are NOT deleted — they stay on this role and move to “Not yet grouped under a KRA”, where you can file them under another KRA.`
-            : 'Nothing is filed under it, so nothing else changes. Seats holding this role lose the heading too.'
+            : 'Nothing is filed under it, so nothing else changes. Positions holding this role lose the heading too.'
         ) + (reach ? ` ${reach}.` : '')}
         confirmLabel="Delete the KRA"
         danger
@@ -619,7 +619,7 @@ export function RoleContentTab({
         open={!!removing}
         title={`Unassign this ${KIND_NOUN[removing?.kind ?? 'kras'] ?? 'item'}?`}
         entityName={removing?.row.definition?.name}
-        body={`It stops applying to this role from today, for every seat that holds the role. It stays readable as history.${reach ? ` ${reach}.` : ''}`}
+        body={`It stops applying to this role from today, for every position that holds the role. It stays readable as history.${reach ? ` ${reach}.` : ''}`}
         confirmLabel="Unassign"
         danger
         onClose={() => setRemoving(null)}

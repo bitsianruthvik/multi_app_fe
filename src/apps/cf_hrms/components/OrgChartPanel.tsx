@@ -34,8 +34,8 @@ export function OrgChartPanel({
   onToggleCollapse: () => void;
   /**
    * Set when departments are drawn as boxes (spec §16). The fold is then the
-   * department's, so the per-seat fold is replaced by closing this seat's box,
-   * and the arrangement applies to the seat's reports INSIDE its box.
+   * department's, so the per-card fold is replaced by closing this card's box,
+   * and the arrangement applies to the card's reports INSIDE its box.
    */
   department?: { name: string; canClose: boolean; onClose: () => void };
 }) {
@@ -61,7 +61,7 @@ export function OrgChartPanel({
                 exclusive
                 value={arrange}
                 onChange={(_, v) => v && onArrange(v as Arrange)}
-                aria-label="How to arrange the reports of this seat inside the department"
+                aria-label="How to arrange the roles reporting to this one inside the department"
               >
                 <ToggleButton value="auto">Automatic</ToggleButton>
                 <ToggleButton value="side">Side by side</ToggleButton>
@@ -76,14 +76,14 @@ export function OrgChartPanel({
           </Stack>
           <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)', lineHeight: 1.45 }}>
             {teamSize > 0
-              ? `Arranges the ${teamSize} seat${teamSize === 1 ? '' : 's'} reporting to this one inside ${department.name}. `
+              ? `Arranges the ${teamSize} role${teamSize === 1 ? '' : 's'} reporting to this one inside ${department.name}. `
               : ''}
             Departments open and close as a whole — click a department&apos;s name on the chart.
           </Typography>
         </Stack>
       ) : teamSize === 0 ? (
         <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>
-          This seat has no reports to arrange or fold.
+          This role has no reports to arrange or fold.
         </Typography>
       ) : (
         <Stack spacing={1}>

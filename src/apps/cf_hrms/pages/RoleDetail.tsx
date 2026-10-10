@@ -39,6 +39,7 @@ import {
   getRoleContent, deleteRole, pretty, type RoleContent,
 } from '../api/roles';
 import { RoleFormDialog } from '../components/RoleFormDialog';
+import { RolePositionsTab } from '../components/RolePositionsTab';
 import { RoleContentTab } from '../components/RoleContentTab';
 import { RoleContentSection } from '../components/RoleContentSection';
 import { ContentCopySheet, type ContentCopyStart } from '../components/ContentCopySheet';
@@ -53,7 +54,7 @@ export default function RoleDetail() {
   const toast = useToast();
   const can = useIsPermitted();
   const canManage = can('cf_hrms_roles_manage');
-  // Copying is the one thing here two different tags can do: a seat-only copy
+  // Copying is the one thing here two different tags can do: a position-only copy
   // needs org_manage, a role-wide one roles_manage. The sheet turns off whichever
   // way is not open to this person, and says why.
   const canCopy = canManage || can('cf_hrms_org_manage');
@@ -103,8 +104,9 @@ export default function RoleDetail() {
       { value: 'authority', label: 'Authority', count: c.authorities ?? 0 },
       { value: 'relationships', label: 'Relationships', count: c.relationships ?? 0 },
       { value: 'conditions', label: 'Conditions', count: c.conditions ?? 0 },
+      { value: 'positions', label: 'Positions', count: role?.positionCount },
     ];
-  }, [content]);
+  }, [content, role?.positionCount]);
 
   if (loading) return <DetailSkeleton />;
   if (error || !content || !role) {
@@ -215,7 +217,9 @@ export default function RoleDetail() {
 
   return (
     <>
-      <DetailLayout header={header} crossLinks={crossLinks} beforeTabs={tab === 'overview' ? undefined : dateBand} tabs={tabs} active={tab} onTab={setTab}>
+      <DetailLayout header={header} crossLinks={crossLinks} beforeTabs={tab === 'overview' || tab === 'positions' ? undefined : dateBand} tabs={tabs} active={tab} onTab={setTab}>
+        {tab === 'positions' && <RolePositionsTab roleId={roleId} company={company} />}
+
         {tab === 'overview' && (
           <Stack spacing={2}>
             <SectionCard
@@ -388,7 +392,7 @@ export default function RoleDetail() {
           <ListItemIcon>
             <CallMadeRounded fontSize="small" />
           </ListItemIcon>
-          <ListItemText primary="Copy this role's content to…" secondary="Other seats or roles. A single seat is the safe default." />
+          <ListItemText primary="Copy this role's content to…" secondary="Other positions or roles. A single position is the safe default." />
         </MenuItem>
         <MenuItem
           disabled={!canManage}
@@ -402,7 +406,7 @@ export default function RoleDetail() {
           </ListItemIcon>
           <ListItemText
             primary="Copy content into this role from…"
-            secondary={`Changes the role itself — all ${role.positionCount} seat${role.positionCount === 1 ? '' : 's'} holding it.`}
+            secondary={`Changes the role itself — all ${role.positionCount} position${role.positionCount === 1 ? '' : 's'} holding it.`}
           />
         </MenuItem>
       </Menu>

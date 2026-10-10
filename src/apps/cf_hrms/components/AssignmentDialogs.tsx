@@ -12,7 +12,7 @@ import { assignmentsApi } from '../api/assignments';
  *
  *   POSITION IS OPTIONAL. The field says so, sits after the role, and defaults
  *   to "No sanctioned position". An SME has real people doing real work long
- *   before it writes down seats.
+ *   before it writes down positions.
  *
  *   ALLOCATION IS ADVISORY. The form shows what this person is already
  *   committed to and flags an overload in words; it never disables Save over
@@ -166,9 +166,9 @@ export function AssignmentFormDialog({
             }
           }}
           disabled={locked}
-          helperText="Leave blank when the work is real but no sanctioned seat has been written down. That is normal."
+          helperText="Leave blank when the work is real but no position has been written down. That is normal."
         >
-          <MenuItem value="">No sanctioned position</MenuItem>
+          <MenuItem value="">No position</MenuItem>
           {(options?.positions ?? []).map((p) => (
             <MenuItem key={p.id} value={p.id}>{p.name}{p.code ? ` · ${p.code}` : ''}</MenuItem>
           ))}
@@ -176,7 +176,7 @@ export function AssignmentFormDialog({
 
         {roleClash && (
           <Alert severity="warning" sx={{ fontSize: 13 }}>
-            That position sanctions <strong>{position?.roleTitle}</strong>, not the role chosen. If
+            That position is for the role <strong>{position?.roleTitle}</strong>, not the role chosen. If
             that is deliberate, tick the exception below and say why.
             <FormControlLabel
               sx={{ display: 'block', mt: 0.5 }}

@@ -1,10 +1,10 @@
 /**
- * A seat's job content — what its role says, with this seat's own changes
- * applied and marked — and the three things a seat may do about it.
+ * A position's job content — what its role says, with this position's own changes
+ * applied and marked — and the three things a position may do about it.
  *
- * THE RULE (the client's, 2026-10-10): KRAs are fixed at the ROLE. A seat may
+ * THE RULE (the client's, 2026-10-10): KRAs are fixed at the ROLE. A position may
  * expand, change or contract the responsibilities, the KPIs and a KPI's target.
- * So this editor offers, in plain words and for this seat only:
+ * So this editor offers, in plain words and for this position only:
  *
  *   Add         a responsibility or a KPI, under one of the role's KRAs
  *   Change      a line's wording, or a KPI's target
@@ -17,7 +17,7 @@
  * SUPPRESS badges, a definition picker and a raw JSON box. The rows underneath
  * are the same (`hrms_position_content_overrides`, written through
  * `/positions/:id/job-content/*`); what changed is that nobody has to know the
- * three verbs or type JSON to say "this seat's target is 99%".
+ * three verbs or type JSON to say "this position's target is 99%".
  */
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
@@ -162,7 +162,7 @@ function Shell({ embedded, action, children }: { embedded: boolean; action: Reac
   return (
     <SectionCard
       title="Job content"
-      subtitle="The KRAs, responsibilities and KPIs of this seat: what its role says, with anything this seat does differently marked on the line."
+      subtitle="The KRAs, responsibilities and KPIs of this position: what its role says, with anything this position does differently marked on the line."
       action={action}
     >
       {children}
@@ -195,16 +195,11 @@ export function SeatJobContentEditor({
   canManage: boolean;
   /** Arrive in edit mode (the Departments screen's Edit button). */
   startEditing?: boolean;
-  /** After any change, so the page can refresh what it shows about the seat. */
+  /** After any change, so the page can refresh what it shows about the position. */
   onChanged?: (content: JobContentData) => void;
 }) {
-  // In the org chart panel the thing being edited is called a POSITION (that is
-  // what a box is, and the edit belongs to it whoever sits there); on the
-  // position's own page the older word "seat" stays. One vocabulary per surface.
-  const t = (text: string) =>
-    embedded
-      ? text.replace(/\bseats\b/g, 'positions').replace(/\bseat\b/g, 'position').replace(/\bSeat\b/g, 'Position')
-      : text;
+  // One vocabulary everywhere: the thing being edited is a position. `t` stays so the strings below read unchanged.
+  const t = (text: string) => text;
   const toast = useToast();
   const { data, error, loading, reload, setData } = useJobContent({ type: 'position', id: positionId }, asOf);
   const [editing, setEditing] = useState(startEditing && canManage);
@@ -241,7 +236,7 @@ export function SeatJobContentEditor({
     try {
       done(
         await jobContentApi.seatUndo(positionId, { kind: line.kind, definitionId: line.definitionId }),
-        line.mark === 'ADDED' ? t('Removed from this seat.') : 'Back to what the role says.',
+        line.mark === 'ADDED' ? t('Removed from this position.') : 'Back to what the role says.',
       );
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'That could not be undone.');
@@ -259,7 +254,7 @@ export function SeatJobContentEditor({
         target: dialog.kind === 'KPI' && target.value.trim() ? targetOf(target, 'TEXT') : null,
         reason: why,
       };
-      done(await jobContentApi.seatAdd(positionId, body), t('Added for this seat only.'));
+      done(await jobContentApi.seatAdd(positionId, body), t('Added for this position only.'));
     } else if (dialog.mode === 'change') {
       const { line } = dialog;
       if (line.definitionId == null) return;
@@ -273,34 +268,34 @@ export function SeatJobContentEditor({
           ...(retargeted ? { target: targetOf(target, line.measurementType) } : {}),
           reason: why,
         }),
-        t('Changed for this seat only.'),
+        t('Changed for this position only.'),
       );
     } else {
       const { line } = dialog;
       if (line.definitionId == null) return;
       done(
         await jobContentApi.seatSwitchOff(positionId, { kind: line.kind, definitionId: line.definitionId, reason: why }),
-        t('Switched off for this seat.'),
+        t('Switched off for this position.'),
       );
     }
     setDialog(null);
   };
 
-  // Said in every dialog, so "this seat only" has a number beside it.
+  // Said in every dialog, so "this position only" has a number beside it.
   const otherSeats = data?.otherSeatsOnRole ?? null;
   const others =
     otherSeats == null
-      ? t('The role, and every other seat holding it, stays as it is.')
+      ? t('The role, and every other position holding it, stays as it is.')
       : otherSeats === 0
-        ? t('This is the only seat holding the role — the role itself stays as it is.')
-        : t(`The role and the ${otherSeats} other seat${otherSeats === 1 ? '' : 's'} holding it stay as they are.`);
+        ? t('This is the only position holding the role — the role itself stays as it is.')
+        : t(`The role and the ${otherSeats} other position${otherSeats === 1 ? '' : 's'} holding it stay as they are.`);
 
   const changeDirty =
     dialog?.mode === 'change' &&
     (text.trim() !== dialog.line.name.trim() || (dialog.line.kind === 'KPI' && !sameTarget(target, draftOf(dialog.line))));
 
   const lineActions = (line: JobLine) => (
-    <Tooltip title={t('Change for this seat')}>
+    <Tooltip title={t('Change for this position')}>
       <IconButton
         size="small"
         aria-label={`Actions for: ${line.name}`}
@@ -315,10 +310,10 @@ export function SeatJobContentEditor({
   const sectionFooter = (kra: JobKra | null) => (
     <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mt: 1.25 }}>
       <Button size="small" startIcon={<AddRounded sx={{ fontSize: 16 }} />} onClick={() => setDialog({ mode: 'add', kind: 'RESPONSIBILITY', kra })} sx={{ textTransform: 'none' }}>
-        {t('Add a responsibility for this seat')}
+        {t('Add a responsibility for this position')}
       </Button>
       <Button size="small" startIcon={<AddRounded sx={{ fontSize: 16 }} />} onClick={() => setDialog({ mode: 'add', kind: 'KPI', kra })} sx={{ textTransform: 'none' }}>
-        {t('Add a KPI for this seat')}
+        {t('Add a KPI for this position')}
       </Button>
     </Stack>
   );
@@ -350,7 +345,7 @@ export function SeatJobContentEditor({
             </Button>
           ) : (
             <Button size="small" variant="outlined" startIcon={<EditRounded />} onClick={() => setEditing(true)}>
-              {embedded ? 'Edit for this position' : 'Edit for this seat'}
+              Edit for this position
             </Button>
           )
         ) : undefined
@@ -377,15 +372,15 @@ export function SeatJobContentEditor({
           )}
           <Typography data-krarule="" sx={{ fontSize: embedded ? 12.5 : 13, color: 'var(--c-text-2)', lineHeight: 1.6, mb: embedded ? 1 : 1.5, maxWidth: 760 }}>
             {editing
-              ? t('For this seat alone you can add a responsibility or a KPI, change a line’s wording or a KPI’s target, or switch off a line that does not apply — use the ⋮ on a line. ')
+              ? t('For this position alone you can add a responsibility or a KPI, change a line’s wording or a KPI’s target, or switch off a line that does not apply — use the ⋮ on a line. ')
               : ''}
-            {t('KRAs are set on the role and are the same for every seat that holds it, so they cannot be added or removed')}
+            {t('KRAs are set on the role and are the same for every position that holds it, so they cannot be added or removed')}{' '}
             here. {roleLink}
             {roleLink ? ' to change them.' : ''}
           </Typography>
 
           {(data.kraExceptions?.length ?? 0) > 0 && (
-            <Callout tone="warning" title={t('This seat has an older exception on a KRA')}>
+            <Callout tone="warning" title={t('This position has an older exception on a KRA')}>
               <Box sx={{ fontSize: 13, lineHeight: 1.6 }}>
                 {t('It was recorded before KRAs were fixed at the role. Remove it to bring this seat’s KRAs back in line')}
                 with the role.
@@ -417,7 +412,6 @@ export function SeatJobContentEditor({
           <JobContent
             content={data}
             dense={embedded}
-            noun={embedded ? 'position' : 'seat'}
             initiallyOpen={embedded ? 'auto' : 'all'}
             lineActions={editing ? lineActions : undefined}
             sectionFooter={editing ? sectionFooter : undefined}
@@ -427,7 +421,7 @@ export function SeatJobContentEditor({
             <Box sx={{ mt: 1.5, fontSize: 12.5, color: 'var(--c-text-2)' }}>
               {data.ignored!.map((i) => (
                 <Box key={i.overrideId}>
-                  {t('A change recorded on this seat is not taking effect')}
+                  {t('A change recorded on this position is not taking effect')}
                   {i.name ? ` (${i.name})` : ''}: {i.why}
                 </Box>
               ))}
@@ -447,7 +441,7 @@ export function SeatJobContentEditor({
           >
             <ListItemText
               primary={menu.line.kind === 'KPI' ? 'Change the wording or target…' : 'Change the wording…'}
-              secondary={t('For this seat only')}
+              secondary={t('For this position only')}
             />
           </MenuItem>
         )}
@@ -458,7 +452,7 @@ export function SeatJobContentEditor({
               setMenu(null);
             }}
           >
-            <ListItemText primary={t('Switch off for this seat…')} secondary={t('The role keeps it; this seat does not do it')} />
+            <ListItemText primary={t('Switch off for this seat…')} secondary={t('The role keeps it; this position does not do it')} />
           </MenuItem>
         )}
         {menu && menu.line.mark != null && (
@@ -471,7 +465,7 @@ export function SeatJobContentEditor({
             <ListItemText
               primary={
                 menu.line.mark === 'ADDED'
-                  ? t('Remove from this seat')
+                  ? t('Remove from this position')
                   : menu.line.mark === 'OFF'
                     ? 'Undo — switch it back on'
                     : 'Undo — back to what the role says'
@@ -483,11 +477,11 @@ export function SeatJobContentEditor({
 
       <FormDialog
         open={dialog?.mode === 'add'}
-        title={dialog?.mode === 'add' ? t(`Add a ${NOUN[dialog.kind]} for this seat`) : ''}
-        subtitle={t(`Only this seat gets it. ${others}`)}
+        title={dialog?.mode === 'add' ? t(`Add a ${NOUN[dialog.kind]} for this position`) : ''}
+        subtitle={t(`Only this position gets it. ${others}`)}
         onClose={() => setDialog(null)}
         onSubmit={submit}
-        submitLabel={t('Add for this seat')}
+        submitLabel={t('Add for this position')}
         submitDisabled={!text.trim()}
         enterSubmits={false}
       >
@@ -516,7 +510,7 @@ export function SeatJobContentEditor({
               helperText={
                 (data?.kras.length ?? 0) === 0
                   ? 'The role has no KRAs yet, so it will sit under none. KRAs are written on the role.'
-                  : t('One of the role’s KRAs. A seat cannot have a KRA of its own.')
+                  : t('One of the role’s KRAs. A position cannot have a KRA of its own.')
               }
             >
               <MenuItem value="">
@@ -531,7 +525,7 @@ export function SeatJobContentEditor({
                 ))}
             </TextField>
             <TextField
-              label={t('Why this seat differs (optional)')}
+              label={t('Why this position differs (optional)')}
               value={reason}
               onChange={(e) => setReason(e.target.value)}
               fullWidth
@@ -544,18 +538,18 @@ export function SeatJobContentEditor({
 
       <FormDialog
         open={dialog?.mode === 'change'}
-        title={dialog?.mode === 'change' ? t(`Change this ${NOUN[dialog.line.kind]} for this seat`) : ''}
-        subtitle={t(`Only this seat changes. ${others}`)}
+        title={dialog?.mode === 'change' ? t(`Change this ${NOUN[dialog.line.kind]} for this position`) : ''}
+        subtitle={t(`Only this position changes. ${others}`)}
         onClose={() => setDialog(null)}
         onSubmit={submit}
-        submitLabel={t('Change for this seat')}
+        submitLabel={t('Change for this position')}
         submitDisabled={!text.trim() || !changeDirty}
         enterSubmits={false}
       >
         {dialog?.mode === 'change' && (
           <>
             <TextField
-              label={t('Wording for this seat')}
+              label={t('Wording for this position')}
               value={text}
               onChange={(e) => setText(e.target.value.slice(0, 2000))}
               required
@@ -566,8 +560,8 @@ export function SeatJobContentEditor({
               size="small"
               helperText={
                 dialog.line.mark == null
-                  ? t('Rewording it switches the role’s line off for this seat and puts yours in its place.')
-                  : t('This line belongs to this seat only.')
+                  ? t('Rewording it switches the role’s line off for this position and puts yours in its place.')
+                  : t('This line belongs to this position only.')
               }
             />
             {dialog.line.kind === 'KPI' && (
@@ -580,7 +574,7 @@ export function SeatJobContentEditor({
               />
             )}
             <TextField
-              label={t('Why this seat differs (optional)')}
+              label={t('Why this position differs (optional)')}
               value={reason}
               onChange={(e) => setReason(e.target.value)}
               fullWidth
@@ -592,11 +586,11 @@ export function SeatJobContentEditor({
 
       <FormDialog
         open={dialog?.mode === 'off'}
-        title={dialog?.mode === 'off' ? t(`Switch off this ${NOUN[dialog.line.kind]} for this seat?`) : ''}
+        title={dialog?.mode === 'off' ? t(`Switch off this ${NOUN[dialog.line.kind]} for this position?`) : ''}
         subtitle={`The role keeps it. ${others} You can switch it back on at any time.`}
         onClose={() => setDialog(null)}
         onSubmit={submit}
-        submitLabel={t('Switch off for this seat')}
+        submitLabel={t('Switch off for this position')}
       >
         {dialog?.mode === 'off' && (
           <>

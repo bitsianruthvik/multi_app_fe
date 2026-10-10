@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { Box, Button, IconButton, Stack, Tooltip, Typography } from '@mui/material';
+import { Button, IconButton, Stack, Tooltip, Typography } from '@mui/material';
 import AddRounded from '@mui/icons-material/AddRounded';
 import EditRounded from '@mui/icons-material/EditRounded';
 import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
 import EventBusyRounded from '@mui/icons-material/EventBusyRounded';
 import PrecisionManufacturingRounded from '@mui/icons-material/PrecisionManufacturingRounded';
+import ContentCopyRounded from '@mui/icons-material/ContentCopyRounded';
 import GroupsRounded from '@mui/icons-material/GroupsRounded';
 import {
   CrossLink, DetailHeader, DetailLayout, DetailSkeleton, EmptyState, ErrorNotice,
@@ -18,8 +19,10 @@ import type {
 } from '../api/positions';
 import { positionsApi } from '../api/positions';
 import type { ResolvedRelationship } from '../api/assignments';
-import { PositionContextDialog, PositionFormDialog } from '../components/PositionDialogs';
+import { PositionContextDialog, PositionFormDialog, PositionSiblingDialog } from '../components/PositionDialogs';
 import { SeatJobContentEditor } from '../components/SeatJobContentEditor';
+import { PositionShiftControl } from '../components/PositionShiftControl';
+import { HiringEntry } from '../components/HiringEntry';
 import { PositionReportingDialog } from '../components/ReportingDialogs';
 import { ReportingRowList } from '../components/ReportingRows';
 import { usePositionRemoval } from '../components/usePositionRemoval';
@@ -27,10 +30,11 @@ import { usePositionRemoval } from '../components/usePositionRemoval';
 /**
  * One position (DESIGN_SYSTEM.md §4.3 Record).
  *
- * The record of a SEAT, not of a person. Its tabs are the four things a seat
- * has that a person does not: the contexts it covers, the FORMAL reporting that
- * survives it being empty, whoever currently occupies it, and its job content —
- * what its role says, with anything this seat does differently marked and
+ * The record of a POSITION (one chair, one person, one shift), not of a person.
+ * Its tabs are the four things a position has that a person does not: the
+ * contexts it covers, the FORMAL reporting that survives it being empty, whoever
+ * currently holds it, and its job content —
+ * what its role says, with anything this position does differently marked and
  * editable in plain words (`SeatJobContentEditor`, which replaced the
  * "Overrides" tab on 2026-10-10). `?tab=job&edit=1` opens that tab in edit mode.
  *
@@ -63,9 +67,10 @@ export default function PositionDetail() {
   const [search] = useSearchParams();
   const [tab, setTab] = useState(search.get('tab') === 'job' ? 'job' : 'overview');
   const [editing, setEditing] = useState(false);
+  const [adding, setAdding] = useState(false);
   const [addingContext, setAddingContext] = useState(false);
   const [addingReporting, setAddingReporting] = useState(false);
-  // Close or delete this seat; the dialog reads what it would do to the team first. A deleted seat has no page to stay on.
+  // Close or delete this position; the dialog reads what it would do to the team first. A deleted position has no page to stay on.
   const removal = usePositionRemoval({ onDone: (r) => { if (r.deletedIds) navigate(`/${company}/cf_hrms/positions`); else load(); } });
 
   const load = useCallback(() => {
@@ -99,16 +104,39 @@ export default function PositionDetail() {
   if (loading && !position) return <DetailSkeleton />;
   if (error && !position) return <ErrorNotice error={error} onRetry={load} />;
   if (!position) return null;
+  const isVacant = position.occupant === null || (position.occupant === undefined && position.filledCount === 0);
+  const shiftFact = (
+    <PositionShiftControl
+      positionId={position.id}
+      shift={position.shift ?? (position.shiftName ? { id: position.defaultShiftId, code: position.shiftCode, name: position.shiftName } : null)}
+      occupantName={position.occupant?.name ?? null}
+      onChanged={() => load()}
+    />
+  );
+  const vacantPaths = isVacant && canManage ? (
+    <Stack spacing={1} sx={{ mt: 1.5 }}>
+      <Typography sx={{ fontSize: 13, fontWeight: 500 }}>Fill this position</Typography>
+      <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" alignItems="center">
+        <Button size="small" variant="outlined" onClick={() => navigate(`/${company}/cf_hrms/assignments?new=1&positionId=${position.id}`)}>Move an existing employee here</Button>
+        <HiringEntry positionId={position.id} positionCode={position.positionCode} roleTitle={position.roleTitle} onChanged={() => load()} />
+      </Stack>
+    </Stack>
+  ) : null;
+  const personFact = isVacant
+    ? 'Vacant'
+    : position.occupant
+      ? <CrossLink label={position.occupant.name} to={`/${company}/cf_hrms/employees/${position.occupant.employeeId}`} />
+      : 'Filled';
 
   const tabs: DetailTab[] = [
     { value: 'overview', label: 'Overview' },
     // Machines and areas are departments now (plan §9.4). The tab stays only for
-    // a company that still has work contexts recorded, or a seat still linked to one.
+    // a company that still has work contexts recorded, or a position still linked to one.
     ...(contexts.length > 0 || (options?.workContexts?.length ?? 0) > 0
       ? [{ value: 'contexts', label: 'Work contexts', count: contexts.length }]
       : []),
     { value: 'reporting', label: 'Formal reporting', count: reporting.length },
-    { value: 'occupants', label: 'Occupants', count: occupants.filter((o) => o.liveOnDate).length },
+    { value: 'occupants', label: 'Person', count: occupants.filter((o) => o.liveOnDate).length },
     { value: 'job', label: 'Job content' },
   ];
 
@@ -122,15 +150,16 @@ export default function PositionDetail() {
             badges={
               <Stack direction="row" spacing={0.75} alignItems="center">
                 <StatusBadge status={position.status} map={STATUS_TONES} />
-                {position.overFilled
-                  ? <ToneBadge tone="warning" label={`${position.filledCount - position.seats} over sanctioned`} />
-                  : <ToneBadge tone="neutral" noIcon label={`${position.vacancyCount} vacant of ${position.seats}`} />}
+                {isVacant
+                  ? <ToneBadge tone="neutral" noIcon label="Vacant" />
+                  : <ToneBadge tone="success" noIcon label="Filled" />}
               </Stack>
             }
-            subtitle={position.roleTitle ? `Sanctions the role ${position.roleTitle}` : undefined}
+            subtitle={position.roleTitle ? `The role is ${position.roleTitle}` : undefined}
             actions={
               canManage && (
                 <Stack direction="row" spacing={1}>
+                  <Button size="small" variant="outlined" startIcon={<ContentCopyRounded />} onClick={() => setAdding(true)}>Add a position like this</Button>
                   <Button size="small" variant="outlined" startIcon={<EditRounded />} onClick={() => setEditing(true)}>Edit</Button>
                   <Button size="small" variant="outlined" color="inherit" startIcon={<DeleteOutlineRounded />} disabled={removal.busyId === position.id} onClick={() => { void removal.start(position.id); }}>Close or delete…</Button>
                 </Stack>
@@ -138,10 +167,8 @@ export default function PositionDetail() {
             }
             facts={
               <>
-                <FactItem label="Seats" value={<Mono>{position.seats}</Mono>} />
-                <FactItem label="Filled" value={<Mono>{position.filledCount}</Mono>} />
-                <FactItem label="Vacant" value={<Mono>{position.vacancyCount}</Mono>} />
-                <FactItem label="Default shift" value={position.shiftCode ? `${position.shiftCode} · ${position.shiftName}` : '—'} />
+                <FactItem label="Person" value={personFact} />
+                <FactItem label="Shift" value={shiftFact} />
               </>
             }
           />
@@ -164,28 +191,17 @@ export default function PositionDetail() {
         onTab={setTab}
       >
         {tab === 'overview' && (
-          <SectionCard title="The seat">
+          <SectionCard title="The position">
             <Stack spacing={1.25}>
               <FactItem label="Role" value={<CrossLink label={position.roleTitle ?? '—'} to={`/${company}/cf_hrms/roles/${position.roleId}`} />} />
               <FactItem label="Department" value={position.departmentName ?? 'Not set'} />
               <FactItem label="Location" value={position.locationName ?? 'Not set'} />
-              <FactItem
-                label="Sanctioned headcount"
-                value={
-                  <>
-                    <Mono>{position.sanctionedHeadcount}</Mono>
-                    {position.seats !== position.sanctionedHeadcount && (
-                      <Box component="span" sx={{ ml: 0.75, color: 'var(--c-text-2)', fontSize: 13, whiteSpace: 'nowrap' }}>
-                        · per shift ({position.seats} across day and night)
-                      </Box>
-                    )}
-                  </>
-                }
-              />
-              <FactItem label="Default shift" value={position.shiftCode ? `${position.shiftCode} · ${position.shiftName}` : 'Not set'} />
+              <FactItem label="Person" value={personFact} />
+              <FactItem label="Shift" value={shiftFact} />
               <FactItem label="Status" value={<StatusBadge status={position.status} map={STATUS_TONES} />} />
               <FactItem label="Effective" value={<Mono>{position.effectiveFrom ?? '—'}{position.effectiveTo ? ` → ${position.effectiveTo}` : ''}</Mono>} />
             </Stack>
+            {vacantPaths}
             <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-3)', mt: 2 }}>
               A vacancy here is a fact to plan against, not an error. A position with no occupant is
               still a real part of the organisation's design, and its formal reporting still stands.
@@ -196,14 +212,14 @@ export default function PositionDetail() {
         {tab === 'contexts' && (
           <SectionCard
             title="Work contexts"
-            subtitle="The machines, lines, areas or projects this one seat covers — linked, never cloned per machine."
+            subtitle="The machines, lines, areas or projects this position covers — linked, never cloned per machine."
             action={canManage && <Button size="small" startIcon={<AddRounded />} onClick={() => setAddingContext(true)}>Add context</Button>}
           >
             {contexts.length === 0 ? (
               <EmptyState
                 icon={<PrecisionManufacturingRounded />}
                 title="No work contexts linked"
-                hint="A shared seat — one helper serving four machines — is this one position with four context links."
+                hint="A shared position — one helper serving four machines — is this one position with four context links."
                 action={canManage ? <Button size="small" variant="contained" onClick={() => setAddingContext(true)}>Add context</Button> : undefined}
               />
             ) : (
@@ -242,7 +258,7 @@ export default function PositionDetail() {
                 rows={reporting}
                 companySlug={company}
                 emptyTitle="No formal reporting line"
-                emptyHint="This seat has no manager in the organisation's design yet. A primary line plus a scoped functional or dotted line are separate rows on this one position."
+                emptyHint="This position has no manager in the organisation's design yet. A primary line plus a scoped functional or dotted line are separate rows on this one position."
                 emptyAction={canManage ? <Button size="small" variant="contained" onClick={() => setAddingReporting(true)}>Add line</Button> : undefined}
                 rowActions={(r) => canManage ? (
                   <Stack direction="row" spacing={0.5}>
@@ -260,9 +276,9 @@ export default function PositionDetail() {
               />
             </SectionCard>
 
-            <SectionCard title="Reports into this seat" subtitle="Positions whose formal line points here.">
+            <SectionCard title="Reports into this position" subtitle="Positions whose formal line points here.">
               {directReports.length === 0 ? (
-                <EmptyState title="Nobody reports to this seat" hint="No position names this one as its manager." />
+                <EmptyState title="Nobody reports to this position" hint="No position names this one as its manager." />
               ) : (
                 <Stack spacing={1}>
                   {directReports.map((d) => (
@@ -279,14 +295,14 @@ export default function PositionDetail() {
 
         {tab === 'occupants' && (
           <SectionCard
-            title="Occupants"
-            subtitle={`${occupants.filter((o) => o.liveOnDate).length} of ${position.seats} sanctioned seats filled.`}
+            title="Person"
+            subtitle={isVacant ? 'This position is vacant.' : 'One person holds this position.'}
           >
             {occupants.length === 0 ? (
               <EmptyState
                 icon={<GroupsRounded />}
-                title="Nobody holds this seat"
-                hint="A vacant seat is a fact, not a fault. Its formal reporting still stands and the vacancy is countable."
+                title="Nobody holds this position"
+                hint="A vacant position is a fact, not a fault. Its formal reporting still stands and the vacancy is countable."
               />
             ) : (
               <Stack spacing={1}>
@@ -323,6 +339,13 @@ export default function PositionDetail() {
         onDone={() => { setEditing(false); load(); }}
         options={options}
         position={position}
+      />
+      <PositionSiblingDialog
+        open={adding}
+        onClose={() => setAdding(false)}
+        onDone={(newId) => { setAdding(false); navigate(`/${company}/cf_hrms/positions/${newId}`); }}
+        position={position}
+        options={options}
       />
       <PositionContextDialog
         open={addingContext}

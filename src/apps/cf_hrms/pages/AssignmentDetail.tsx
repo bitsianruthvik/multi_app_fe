@@ -121,10 +121,10 @@ export default function AssignmentDetail() {
                 {assignment.isPrimary && <ToneBadge tone="success" noIcon label="Primary assignment" />}
                 {!assignment.positionId && (
                   <Tooltip title="Position is optional. Role is required.">
-                    <span><ToneBadge tone="neutral" noIcon label="No sanctioned position" /></span>
+                    <span><ToneBadge tone="neutral" noIcon label="No position" /></span>
                   </Tooltip>
                 )}
-                {assignment.roleDiffersFromPosition && <ToneBadge tone="warning" label="Role differs from the seat" />}
+                {assignment.roleDiffersFromPosition && <ToneBadge tone="warning" label="Role differs from the position" />}
               </Stack>
             }
             subtitle={assignment.assignmentTitle ?? assignment.roleTitle ?? undefined}
@@ -178,7 +178,7 @@ export default function AssignmentDetail() {
                   label="Position (optional)"
                   value={assignment.positionId
                     ? <CrossLink label={assignment.positionTitle ?? assignment.positionCode ?? '—'} to={`/${company}/cf_hrms/positions/${assignment.positionId}`} />
-                    : 'No sanctioned position — the work is real either way.'}
+                    : 'No position — the work is real either way.'}
                 />
                 <FactItem label="Department" value={assignment.departmentName ?? 'Not set'} />
                 <FactItem label="Location" value={assignment.locationName ?? 'Not set'} />

@@ -54,8 +54,17 @@ interface ChoiceView {
 function choicesFor(impact: PositionRemovalImpact): ChoiceView[] {
   const { outcomes: o, directReports, team, manager, ownAssignments, otherLines, position } = impact;
   const direct = directReports.length;
-  const moves = (verb: string) =>
-    direct > 0 ? ` Its ${plural(direct, 'direct report')} ${direct === 1 ? `${verb}s` : verb} up to ${manager?.title ?? 'its manager'}.` : '';
+  // Reports stay with the role card when another of its positions remains
+  // (they move to that sibling); only the card's last position sends them up.
+  const seatName = (s: { title: string; positionCode: string | null }) => (s.positionCode ? `${s.title} (${s.positionCode})` : s.title);
+  const siblings = impact.movesReportsTo === 'CARD' ? (impact.moveTargets ?? []) : [];
+  const moves = (verb: string) => {
+    if (direct === 0) return '';
+    const who = ` Its ${plural(direct, 'direct report')} ${direct === 1 ? `${verb}s` : verb}`;
+    return siblings.length
+      ? `${who} to ${siblings.map(seatName).join(' and ')}, the other position${siblings.length === 1 ? '' : 's'} of this role here.`
+      : `${who} up to ${manager?.title ?? 'its manager'}.`;
+  };
 
   const list: ChoiceView[] = [];
 
@@ -63,12 +72,12 @@ function choicesFor(impact: PositionRemovalImpact): ChoiceView[] {
     let d = 'Keeps its history. The chart stops showing it.';
     d += moves('move');
     if (ownAssignments > 0) {
-      d += ` The ${plural(ownAssignments, 'work assignment')} stay${ownAssignments === 1 ? 's' : ''}, but the chart no longer shows the seat.`;
+      d += ` The ${plural(ownAssignments, 'work assignment')} stay${ownAssignments === 1 ? 's' : ''}, but the chart no longer shows the position.`;
     }
     list.push({ value: 'CLOSE', label: 'Close this position', description: d, allowed: o.close.allowed, reason: o.close.reason, code: o.close.code, destructive: false });
   }
 
-  let d = 'Removes the seat and its history.';
+  let d = 'Removes the position and its history.';
   d += moves('move');
   if (otherLines.thisOnly > 0) d += ` ${plural(otherLines.thisOnly, 'other reporting line')} to or from it go with it.`;
   list.push({
@@ -218,7 +227,10 @@ export function PositionRemoveDialog({
       throw e;
     }
     const moved = result.movedReports.length;
-    const where = result.movedTo ? ` ${plural(moved, 'direct report')} now ${moved === 1 ? 'reports' : 'report'} to ${result.movedTo.title}.` : '';
+    const target = result.movedWithinCard && result.movedToPositions?.length
+      ? result.movedToPositions.map((s) => (s.positionCode ? `${s.title} (${s.positionCode})` : s.title)).join(' and ')
+      : (result.movedTo?.title ?? null);
+    const where = target ? ` ${plural(moved, 'direct report')} now ${moved === 1 ? 'reports' : 'report'} to ${target}.` : '';
     toast.success(
       choice === 'CLOSE'
         ? `Closed ${position.title}.${where}`
@@ -235,7 +247,7 @@ export function PositionRemoveDialog({
         {direct > 0
           ? `${plural(direct, 'position')} ${direct === 1 ? 'reports' : 'report'} to it directly${team.count > direct ? `; ${team.count} sit under it in all` : ''}.`
           : 'Nobody reports to it.'}
-        {impact.ownAssignments > 0 && ` ${plural(impact.ownAssignments, 'work assignment')} ${impact.ownAssignments === 1 ? 'is' : 'are'} held in this seat.`}
+        {impact.ownAssignments > 0 && ` ${plural(impact.ownAssignments, 'work assignment')} ${impact.ownAssignments === 1 ? 'is' : 'are'} held in this position.`}
       </Typography>
       <RadioGroup value={choice ?? ''} onChange={(e) => setChoice(e.target.value as Choice)} aria-label="What to do with this position">
         {choices.map((c) => (

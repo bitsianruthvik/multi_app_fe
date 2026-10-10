@@ -12,18 +12,22 @@ import { api } from './client';
  *     and draws everything else as a secondary link. Filtering edges here would
  *     re-introduce the single-manager model the whole schema exists to avoid
  *     (CF_HRMS_PLAN.md §2 rule 9).
- *  2. **`shiftPattern` and `vacancies` are derived together.** A `DN` position
- *     is sanctioned per shift, so its vacancy count is Σ(requiredCount), not
- *     `sanctionedHeadcount`. Karni's 156 vacancies are 110 day/night seats plus
- *     59 single-shift ones minus 13 filled; reading `sanctionedHeadcount` alone
- *     shows 101 and the screen silently understates the thing it exists to say.
+ *  2. **A node is ONE position: one chair, one person, one shift** (since
+ *     2026-10-10). `occupants` has 0 or 1 entries, `vacancies` is 0 or 1, and
+ *     the shift is `defaultShift` — General, Day and Night are shift records.
+ *     There is no day-and-night position any more.
+ *  3. **`cardId` groups positions into the ROLE CARDS the chart draws.** A card
+ *     is the positions with the same role and department whose managers sit in
+ *     one card; the id is the lowest position id in it. The grouping is the
+ *     server's — the client groups by the field and never re-derives it.
  *
  * `arrange`, zoom, collapsed nodes, the shift filter and the attendance-colour
  * toggle are deliberately absent: they are per-viewer view state and live in
  * localStorage (§9, "What is NOT in the API").
  */
 
-export type ShiftPattern = 'G' | 'D' | 'N' | 'DN';
+/** A shift's code — G, D, N, or a company's own. Never 'DN': a position is on ONE shift. */
+export type ShiftPattern = string;
 
 export interface OrgChartContext {
   id: number;
@@ -83,6 +87,12 @@ export interface OrgChartCounts {
 
 export interface OrgChartNode {
   id: number;
+  /**
+   * The role card this position is drawn in (see the file header). Absent from
+   * a server older than 2026-10-10; the layout then treats each position as its
+   * own card — a fallback, not a rule.
+   */
+  cardId?: number;
   positionCode: string | null;
   title: string;
   /** Disambiguated with the parent's title when a title repeats. */
@@ -103,23 +113,21 @@ export interface OrgChartNode {
   locationId: number | null;
   locationName: string | null;
   status: string;
-  /** ONE seat. Stays 1 on a day/night position — it is not what the box fills. */
+  /** Always 1: a position is one chair. Not read by any screen. */
   sanctionedHeadcount: number;
-  /**
-   * What the box must actually fill on the view date: `sanctionedHeadcount` for
-   * a single-shift seat, `Σ(requirements[].requiredCount)` for a `DN` one. This
-   * is the field row padding uses. Padding from `sanctionedHeadcount` instead
-   * renders 78 vacancies where Karni has 156 — the single most common way to
-   * get this screen wrong, which is why the server now derives it.
-   */
+  /** Always 1. Not read by any screen. */
   effectiveSanctioned?: number;
-  /** More people assigned than the seat sanctions — an inconsistency, not a vacancy. */
   overFilled?: boolean;
+  /** The position's shift code — the same shift as `defaultShift`. */
   shiftPattern: ShiftPattern;
+  /** The position's shift. Always set by a current server. */
   defaultShift: { id: number; code: string; name: string } | null;
   contexts: OrgChartContext[];
+  /** The one person in the position, or nobody. */
   occupants: OrgChartOccupant[];
+  /** Always empty: a shift is the position's own, not a requirement row. */
   requirements: OrgChartRequirement[];
+  /** 1 when nobody is in the position, else 0. */
   vacancies: number;
   counts: OrgChartCounts;
   hasContent: boolean;
@@ -159,9 +167,14 @@ export interface OrgChartGraph {
   generatedInMs?: number;
   counts: {
     positions: number;
+    /** Equal to `positions`. */
     sanctioned: number;
     filled: number;
     vacant: number;
+    /** Role cards. */
+    cards?: number;
+    /** Per shift code. */
+    byShift?: Record<string, { positions: number; filled: number }>;
     present: number;
     absent: number;
     edges?: number;
@@ -248,9 +261,19 @@ export interface PositionCard {
   locationId?: number | null;
   locationName: string | null;
   sanctionedHeadcount: number;
-  /** Seats on the date — `sanctionedHeadcount` doubled by a day/night pattern. */
   effectiveSanctioned?: number;
   shiftPattern: ShiftPattern;
+  /** The role card the position is drawn in. */
+  cardId?: number;
+  /** The position's shift. */
+  shift?: { id: number; code: string | null; name: string } | null;
+  /** The other positions of the same card (same role, department and manager). */
+  siblings?: {
+    positionId: number;
+    positionCode: string | null;
+    shift: { id: number; code: string | null; name: string } | null;
+    occupant: { employeeId: number; name: string } | null;
+  }[];
   vacancies: number;
   contexts: OrgChartContext[];
   occupants: CardOccupant[];

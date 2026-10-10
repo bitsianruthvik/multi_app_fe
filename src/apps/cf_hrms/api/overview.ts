@@ -22,7 +22,7 @@ export interface OverviewCounts {
   workContexts?: number;
   shifts?: number;
   positions?: number;
-  /** Seats the organisation has sanctioned, counted the org chart's way. */
+  /** Positions in the organisation, counted the org chart's way (wire name kept). */
   sanctioned?: number;
   filled?: number;
   vacantSeats?: number;

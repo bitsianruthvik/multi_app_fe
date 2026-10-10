@@ -91,7 +91,7 @@ function queuesFor(c: OverviewCounts): Queue[] {
       count: c.openPoints,
       unit: 'unresolved',
       description:
-        'Questions the org chart raised and nobody has answered. Each one is a seat, a role or a reporting line that is still a guess.',
+        'Questions the org chart raised and nobody has answered. Each one is a position, a role or a reporting line that is still a guess.',
       clearNote: 'Every question the org chart raised has been answered.',
       actionLabel: 'Resolve',
       path: 'org-chart',
@@ -115,12 +115,12 @@ function queuesFor(c: OverviewCounts): Queue[] {
       key: 'vacantSeats',
       permission: ORG,
       icon: <EventSeatRounded />,
-      title: 'Vacant seats',
+      title: 'Vacant positions',
       count: c.vacantSeats,
-      unit: `of ${c.sanctioned ?? 0} sanctioned`,
+      unit: `of ${c.sanctioned ?? 0} positions`,
       description:
-        'Seats the organisation has sanctioned with nobody in them. A vacancy is a fact, not an error — but it is the one the floor feels every shift.',
-      clearNote: 'Every sanctioned seat has somebody in it.',
+        'Positions with nobody in them. A vacancy is a fact, not an error — but it is the one the floor feels every shift.',
+      clearNote: 'Every position has somebody in it.',
       actionLabel: 'See the chart',
       path: 'org-chart',
       tone: 'primary',
@@ -227,12 +227,12 @@ export default function Home() {
       onClick: () => go('employees'),
     },
     c.sanctioned !== undefined && can(ORG) && {
-      label: 'Seats filled',
+      label: 'Positions filled',
       value: c.filled ?? 0,
       // A bare "13" says nothing; 13 of 169 is the whole story of this plant.
       display: `${c.filled ?? 0} of ${c.sanctioned}`,
       icon: <EventSeatRounded />,
-      hint: 'Sanctioned seats with somebody in them, counted the way the org chart counts them',
+      hint: 'Positions with somebody in them, counted the way the org chart counts them',
       onClick: () => go('positions'),
     },
     c.rolesTotal !== undefined && can(ROLES) && {
@@ -265,7 +265,7 @@ export default function Home() {
         { label: 'Departments', n: c.departments, path: 'departments', hint: 'Functions and divisions' },
         { label: 'Shifts', n: c.shifts, path: 'shifts', hint: 'General, day, night' },
         { label: 'Roles', n: c.rolesTotal, path: 'roles', hint: 'The kinds of work' },
-        { label: 'Positions', n: c.positions, path: 'positions', hint: 'Sanctioned seats' },
+        { label: 'Positions', n: c.positions, path: 'positions', hint: 'One person each, on one shift' },
         { label: 'Employees', n: c.employees, path: 'employees', hint: 'People on the payroll' },
         { label: 'Leave types', n: c.leaveTypes, path: 'leave-types', hint: 'What people can apply for' },
       ].filter((s) => s.n !== undefined)
@@ -314,7 +314,7 @@ export default function Home() {
             <EmptyState
               icon={<CheckCircleRounded />}
               title="Nothing is waiting on you"
-              hint="Open points, roles without a purpose, vacant seats, unassigned people, leave to approve, attendance to mark and documents about to expire all show up here."
+              hint="Open points, roles without a purpose, vacant positions, unassigned people, leave to approve, attendance to mark and documents about to expire all show up here."
             />
           ) : (
             <Box

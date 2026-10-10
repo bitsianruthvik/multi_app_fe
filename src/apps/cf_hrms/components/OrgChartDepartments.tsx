@@ -30,7 +30,7 @@ import type {
   DepartmentUnit,
 } from '../api/orgchart';
 import { orgChartApi } from '../api/orgchart';
-import { countRows, type ChartModel } from './orgChartLayout';
+import { countPositionIds, type ChartModel } from './orgChartLayout';
 
 /**
  * The Departments view — "what is this department accountable for?", which no
@@ -42,15 +42,15 @@ import { countRows, type ChartModel } from './orgChartLayout';
  * payroll is out of V1.
  *
  * READ IT THIS WAY. A line is a statement a position in the unit carries, said
- * ONCE per unit however many seats carry it, with the count beside it. The same
+ * ONCE per unit however many positions carry it, with the count beside it. The same
  * line can and does appear under several units: content belongs to ROLES, and a
  * role used in eight units puts its duties in all eight. That is the true
  * answer for each of them, so it is shown, and the role is named so the reader
  * can see why.
  *
- * THE NUMBERS COME FROM THE CHART. Positions, seats and filled are counted with
+ * THE NUMBERS COME FROM THE CHART. Positions, filled and vacant are counted with
  * `countRows` over the graph this page already holds — the same function the
- * strip above the chart uses — so a unit's "8 seats" here can never disagree
+ * strip above the chart uses — so a unit's "8 positions" here can never disagree
  * with the chart's arithmetic.
  */
 
@@ -93,7 +93,7 @@ export function OrgChartDepartments({
   company: string;
   asOf: string;
   onAsOf: (d: string) => void;
-  /** The chart's graph, already loaded: titles and seat counts come from it. */
+  /** The chart's graph, already loaded: titles and position counts come from it. */
   model: ChartModel;
   onOpenCard: (positionId: number) => void;
 }) {
@@ -240,11 +240,11 @@ export function OrgChartDepartments({
   };
 
   // The plain title, not the chart's disambiguated one: inside a unit the unit
-  // already says where the seat is, and the chart's suffix (the parent's title)
+  // already says where the position is, and the chart's suffix (the parent's title)
   // reads as 'Incharge - Logistics (Incharge - Logistics)' here. The code
   // beside it tells namesakes apart.
-  const titleOf = (id: number) => data?.positions[id]?.title || model.byId.get(id)?.title || `Position ${id}`;
-    const codeOf = (id: number) => data?.positions[id]?.code ?? model.byId.get(id)?.positionCode ?? null;
+  const titleOf = (id: number) => data?.positions[id]?.title || model.positions.get(id)?.title || `Position ${id}`;
+    const codeOf = (id: number) => data?.positions[id]?.code ?? model.positions.get(id)?.positionCode ?? null;
 
   const tickedCount = sel ? sel.filter((id) => unitById.has(id)).length : (data?.units.length ?? 0);
 
@@ -443,7 +443,8 @@ export function OrgChartDepartments({
   const renderView = (v: UnitView) => {
     const u = v.unit;
     const headingId = `dept-unit-${u.id}-h`;
-    const c = countRows(model, v.positionIds, 'all');
+    // The unit's positions, counted by the chart's own rule (positions = filled + vacant).
+    const c = countPositionIds(model, v.positionIds, 'all');
     const carriers = new Set<number>();
     for (const k of listedKinds) for (const e of v.byKind[k.kind]) e.positionIds.forEach((id) => carriers.add(id));
     const singleCarrier = carriers.size === 1 ? [...carriers][0] : null;
@@ -510,8 +511,8 @@ export function OrgChartDepartments({
               {' · '}
             </>
           )}
-          {plural(c.positions, 'position', 'positions')} · {plural(c.seats, 'seat', 'seats')} ·{' '}
-          {c.filled.toLocaleString('en-IN')} filled
+          {plural(c.positions, 'position', 'positions')} · {c.filled.toLocaleString('en-IN')} filled ·{' '}
+          {c.vacant.toLocaleString('en-IN')} vacant
           {folded.length > 0 && (
             <>
               {' · includes '}
@@ -531,7 +532,7 @@ export function OrgChartDepartments({
                 Everything below is carried by one position,{' '}
                 <PositionLink onClick={() => onOpenCard(singleCarrier)}>{titleOf(singleCarrier)}</PositionLink>
                 {codeOf(singleCarrier) && <Mono muted> {codeOf(singleCarrier)}</Mono>}
-                {` (${plural(countRows(model, [singleCarrier], 'all').seats, 'seat', 'seats')}).`}
+.
               </>
             ) : (
               <>
@@ -789,7 +790,7 @@ function UnitName({ unit }: { unit: DepartmentUnit }) {
   );
 }
 
-/** "Helper 1 ×4, Helper 2 ×4 and Store Supervisor - Scrap" — seats with nothing written, by title. */
+/** "Helper 1 ×4, Helper 2 ×4 and Store Supervisor - Scrap" — positions with nothing written, by title. */
 function groupTitles(titles: string[]): string {
   const counts = new Map<string, number>();
   for (const t of titles) counts.set(t, (counts.get(t) ?? 0) + 1);

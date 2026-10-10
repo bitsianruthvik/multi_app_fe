@@ -3,7 +3,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Box, Button, IconButton, MenuItem, Stack, TextField, Tooltip, Typography } from '@mui/material';
 import AddRounded from '@mui/icons-material/AddRounded';
 import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
-import EventSeatRounded from '@mui/icons-material/EventSeatRounded';
+import BadgeRounded from '@mui/icons-material/BadgeRounded';
 import {
   DataTable, EmptyState, ErrorNotice, FilterBar, ListSkeleton, Mono, PageHeader,
   StatStrip, StatusBadge, useIsPermitted,
@@ -15,17 +15,18 @@ import { PositionFormDialog } from '../components/PositionDialogs';
 import { usePositionRemoval } from '../components/usePositionRemoval';
 
 /**
- * Positions — the sanctioned seats (DESIGN_SYSTEM.md §4.2 Collection).
+ * Positions — one chair for one person on one shift (DESIGN_SYSTEM.md §4.2 Collection).
  *
- * The StatStrip answers the only question a headcount screen is really asked:
- * how many seats, how many filled, how many empty. All three are computed over
- * the SAME filtered rows the table shows, so they can never disagree with it.
+ * The StatStrip answers the only question a staffing screen is really asked:
+ * how many positions, how many filled, how many empty. All three are computed
+ * over the SAME filtered rows the table shows, so they can never disagree with it.
  *
- * VACANCY IS NOT COLOURED AS A FAILURE. 156 of Karni's 169 seats are vacant and
- * that is the truth this system exists to show, not an alarm. Only an
- * over-filled seat — more people than the company sanctioned — gets a warning
- * tone, because that one is an inconsistency somebody has to resolve.
+ * VACANCY IS NOT COLOURED AS A FAILURE. Most of Karni's positions are vacant and
+ * that is the truth this system exists to show, not an alarm.
  */
+
+const shiftNameOf = (p: PositionRow) => p.shift?.name ?? p.shiftName;
+const isVacantRow = (p: PositionRow) => p.occupant === null || (p.occupant === undefined && p.filledCount === 0);
 
 const STATUS_TONES: Record<string, StatusTone> = {
   DRAFT: 'warning',
@@ -59,7 +60,7 @@ export default function Positions() {
   }, [search, status, departmentId]);
 
   useEffect(() => { load(); }, [load]);
-  // Close or delete a seat. The dialog reads what it would do to the team BEFORE it offers anything.
+  // Close or delete a position. The dialog reads what it would do to the team BEFORE it offers anything.
   const removal = usePositionRemoval({ onDone: () => load() });
   useEffect(() => { positionsApi.options().then(setOptions).catch(() => setOptions(null)); }, []);
 
@@ -73,13 +74,13 @@ export default function Positions() {
   }, [params, setParams, canManage]);
 
   const stats: Stat[] = useMemo(() => {
-    const t = data?.totals;
+    const items = data?.items ?? [];
+    const vacant = items.filter(isVacantRow).length;
     return [
-      { label: 'Sanctioned seats', value: t?.sanctioned ?? 0, hint: 'Headcount the company has approved, across the rows below.' },
-      { label: 'Filled', value: t?.filled ?? 0, tone: 'success', hint: 'Active work assignments against these positions today.' },
+      { label: 'Positions', value: data?.total ?? items.length, hint: 'One person each, on one shift, across the rows below.' },
+      { label: 'Filled', value: items.length - vacant, tone: 'success', hint: 'Positions with somebody in them today.' },
       // Deliberately toneless: a vacancy is a fact, not an error.
-      { label: 'Vacant', value: t?.vacant ?? 0, hint: 'Sanctioned minus filled. A fact to plan against, not a failure.' },
-      { label: 'Over-filled seats', value: t?.overFilled ?? 0, tone: 'warning', hint: 'More people assigned than the seat sanctions — worth resolving.' },
+      { label: 'Vacant', value: vacant, hint: 'Positions with nobody in them. A fact to plan against, not a failure.' },
     ];
   }, [data]);
 
@@ -105,29 +106,19 @@ export default function Positions() {
     },
     { key: 'department', header: 'Department', render: (p) => p.departmentName ?? '—', sortValue: (p) => p.departmentName ?? '' },
     { key: 'location', header: 'Location', render: (p) => p.locationName ?? '—', sortValue: (p) => p.locationName ?? '' },
-    { key: 'shift', header: 'Shift', width: 110, defaultHidden: true, render: (p) => p.shiftCode ?? '—', sortValue: (p) => p.shiftCode ?? '' },
     {
-      key: 'sanctioned', header: 'Sanctioned', numeric: true, align: 'right', width: 110,
-      // The EFFECTIVE seats for the date, not the raw column: a day+night position
-      // sanctions one seat and needs two people. Showing the raw 1 beside a
-      // vacancy of 2 is the contradiction this screen already had once.
-      render: (p) => <Mono sx={{ fontSize: 13 }}>{p.seats}</Mono>,
-      sortValue: (p) => p.seats,
+      key: 'shift', header: 'Shift', width: 120,
+      render: (p) => shiftNameOf(p) ?? '—',
+      sortValue: (p) => shiftNameOf(p) ?? '',
+      exportValue: (p) => shiftNameOf(p) ?? '',
     },
     {
-      key: 'filled', header: 'Filled', numeric: true, align: 'right', width: 90,
-      render: (p) => <Mono sx={{ fontSize: 13 }}>{p.filledCount}</Mono>,
-      sortValue: (p) => p.filledCount,
-    },
-    {
-      key: 'vacant', header: 'Vacant', numeric: true, align: 'right', width: 90,
-      render: (p) => (
-        <Mono sx={{ fontSize: 13, color: p.overFilled ? 'var(--c-warning-700)' : 'var(--c-text-1)' }}>
-          {p.overFilled ? `+${p.filledCount - p.seats} over` : p.vacancyCount}
-        </Mono>
-      ),
-      sortValue: (p) => p.vacancyCount,
-      exportValue: (p) => p.vacancyCount,
+      key: 'person', header: 'Person', width: 190,
+      render: (p) => (isVacantRow(p)
+        ? <Typography component="span" sx={{ fontSize: 13.5, color: 'var(--c-text-3)' }}>Vacant</Typography>
+        : <Typography component="span" sx={{ fontSize: 13.5 }}>{p.occupant?.name ?? 'Filled'}</Typography>),
+      sortValue: (p) => (isVacantRow(p) ? '' : p.occupant?.name ?? ''),
+      exportValue: (p) => (isVacantRow(p) ? 'Vacant' : p.occupant?.name ?? 'Filled'),
     },
     {
       key: 'status', header: 'Status', width: 130,
@@ -142,7 +133,7 @@ export default function Positions() {
     <>
       <PageHeader
         title="Positions"
-        subtitle="sanctioned seats — the organisation's design, independent of who fills it"
+        subtitle="one chair for one person, on one shift — the organisation's design, independent of who fills it"
         actions={
           canManage && (
             <Button size="small" variant="contained" startIcon={<AddRounded />} onClick={() => setCreating(true)}>
@@ -207,12 +198,12 @@ export default function Positions() {
           defaultSortKey="title"
           empty={
             <EmptyState
-              icon={<EventSeatRounded />}
+              icon={<BadgeRounded />}
               title={search || status || departmentId ? 'No positions match this filter' : 'No positions yet'}
               hint={
                 search || status || departmentId
-                  ? 'Clear the filter to see every sanctioned seat.'
-                  : 'A position is a sanctioned seat. It is optional — people can hold work assignments without one — but it is what makes vacancies countable.'
+                  ? 'Clear the filter to see every position.'
+                  : 'A position is one chair for one person on one shift. It is optional — people can hold work assignments without one — but it is what makes vacancies countable.'
               }
               action={canManage && !search ? <Button variant="contained" size="small" onClick={() => setCreating(true)}>New position</Button> : undefined}
             />

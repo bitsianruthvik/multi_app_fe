@@ -60,7 +60,7 @@ import { OrgCode, OrgTreeView } from '../components/OrgTree';
  *
  * WHO WORKS THERE (2026-10-10). A department's name is a button: it opens the
  * department's roles and positions under its row — positions grouped by role,
- * with seats, filled, vacant and who is in each. Clicking a role or a position
+ * with positions, filled, vacant and who is in each. Clicking a role or a position
  * opens its KRAs, responsibilities and KPIs in a side sheet, with Edit going to
  * the role's Content tab or the position's job-content editor. Two requests for
  * the whole screen: the tree, and every department's staffing in one answer.
@@ -90,9 +90,9 @@ const emptyDraft = (parentId: number | null): DraftState => ({
   serves: [],
 });
 
-/** "3 roles · 12 seats" — what a department holds, on its row. */
-const staffLabel = (c: { roles: number; seats: number }) =>
-  `${c.roles} role${c.roles === 1 ? '' : 's'} · ${c.seats} seat${c.seats === 1 ? '' : 's'}`;
+/** "3 roles · 12 positions" — what a department holds, on its row. */
+const staffLabel = (c: { roles: number; positions: number }) =>
+  `${c.roles} role${c.roles === 1 ? '' : 's'} · ${c.positions} position${c.positions === 1 ? '' : 's'}`;
 
 export default function Departments() {
   const can = useIsPermitted();
@@ -144,8 +144,8 @@ export default function Departments() {
       ...(totals
         ? [
             {
-              label: 'Seats',
-              value: totals.seats,
+              label: 'Positions',
+              value: totals.positions,
               hint: `${totals.filled} filled, ${totals.vacant} vacant across ${totals.positions} positions — the same count the org chart shows.`,
             },
           ]
@@ -384,7 +384,15 @@ export default function Departments() {
         </Box>
       )}
 
-      <JobPeekSheet peek={peek} company={company} onClose={() => setPeek(null)} />
+      <JobPeekSheet
+        peek={peek}
+        company={company}
+        onClose={() => setPeek(null)}
+        onChanged={(shift) => {
+          setPeek((p) => (p ? { ...p, shift } : p));
+          void reload();
+        }}
+      />
 
       <FormDialog
         open={!!draft}

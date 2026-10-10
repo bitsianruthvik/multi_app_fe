@@ -3,46 +3,39 @@ import { Box, Stack, Tooltip, Typography } from '@mui/material';
 import { DataTable, EmptyState, Mono, StatusBadge } from '@shared/ui';
 import type { DataColumn } from '@shared/ui';
 import type { OrgChartEdge } from '../api/orgchart';
-import { seatCount, type ChartModel, type ShiftFilter } from './orgChartLayout';
+import { rowsOf, type ChartModel, type ShiftFilter } from './orgChartLayout';
 
 /**
  * The chart as a table — and the reason this screen passes DESIGN_SYSTEM.md
  * §4.5 and §6.4, which require a canvas to have a keyboard/list alternative.
  *
- * It is NOT a cut-down version. It carries the same positions, under the same
- * "start from" root and the same shift filter, with the same seat maths, so the
- * vacancy totals in the strip above are true of whichever view is open. A
- * fallback that shows less than the picture is a fallback nobody can rely on.
+ * ONE ROW PER POSITION — the rows the cards draw (`rowsOf`), under the same
+ * "start from" root and the same shift filter. So the number of rows is the
+ * strip's "Positions", the rows with a person are its "Filled" and the rows
+ * that say Vacant are its "Vacant": nothing is counted here, and a fallback
+ * that shows less than the picture is a fallback nobody can rely on.
+ *
+ * A row opens its POSITION; the role is one click further, in the panel.
  */
 
 interface Row {
   id: number;
+  cardId: number;
   code: string | null;
-  title: string;
+  role: string;
+  person: string;
+  vacant: boolean;
+  shift: string;
   manager: string;
-  managerId: number | null;
   contexts: string;
   secondary: string;
-  shift: string;
-  seats: number;
-  filled: number;
-  vacant: number;
-  present: number;
-  absent: number;
-  occupants: string;
+  attendance: string;
   department: string;
   location: string;
   status: string;
   depth: number;
   openPoints: number;
 }
-
-const SHIFT_LABEL: Record<string, string> = {
-  G: 'General',
-  D: 'Day',
-  N: 'Night',
-  DN: 'Day & Night',
-};
 
 export function OrgChartTable({
   model,
@@ -52,10 +45,13 @@ export function OrgChartTable({
   onOpen,
 }: {
   model: ChartModel;
+  /** CARD ids in view. */
   ids: number[];
   filter: ShiftFilter;
+  /** Card → card lines other than the primary one. */
   secondaryEdges: OrgChartEdge[];
-  onOpen: (id: number) => void;
+  /** Opens a POSITION (by position id). */
+  onOpen: (positionId: number) => void;
 }) {
   const rows: Row[] = useMemo(() => {
     const byFrom = new Map<number, OrgChartEdge[]>();
@@ -65,47 +61,43 @@ export function OrgChartTable({
       else byFrom.set(e.fromPositionId, [e]);
     }
     return ids.flatMap((id) => {
-      const n = model.byId.get(id);
-      if (!n) return [];
-      // Seats, filled and vacant by the one seat rule (orgChartLayout.seatCount),
-      // so a row here agrees with the chart header and the stat strip.
-      const count = seatCount(n, filter);
-      const filled = count.filled;
-      const present = count.occupants.filter((o) => o.attendanceStatus === 'PRESENT').length;
-      const absent = count.occupants.filter((o) => o.attendanceStatus === 'ABSENT').length;
-      const mgrId = model.parent.get(id) ?? null;
+      const card = model.byId.get(id);
+      if (!card) return [];
+      const mgrId = model.parent.get(id);
       const mgr = mgrId != null ? model.byId.get(mgrId) : null;
-      return [
-        {
-          id,
-          code: n.positionCode,
-          title: n.displayTitle || n.title,
-          manager: mgr ? mgr.displayTitle || mgr.title : '—',
-          managerId: mgrId,
-          contexts: (n.contexts ?? []).map((c) => c.name).join(', '),
-          secondary: (byFrom.get(id) ?? [])
-            .map((e) => {
-              const to = model.byId.get(e.toPositionId);
-              const who = to ? to.displayTitle || to.title : `#${e.toPositionId}`;
-              const scope =
-                e.scopeType && e.scopeType !== 'GENERAL' && e.scopeLabel ? ` — ${e.scopeLabel}` : '';
-              return `${e.typeName} → ${who}${scope}`;
-            })
-            .join('; '),
-          shift: SHIFT_LABEL[n.shiftPattern] ?? n.shiftPattern,
-          seats: count.seats,
-          filled,
-          vacant: count.vacant,
-          present,
-          absent,
-          occupants: count.occupants.map((o) => o.name).join(', '),
-          department: n.departmentName ?? '—',
-          location: n.locationName ?? '—',
-          status: n.status,
-          depth: model.depth.get(id) ?? 0,
-          openPoints: n.counts?.openPoints ?? 0,
-        },
-      ];
+      const secondary = (byFrom.get(id) ?? [])
+        .map((e) => {
+          const to = model.byId.get(e.toPositionId);
+          const who = to ? to.displayTitle || to.title : `#${e.toPositionId}`;
+          const scope = e.scopeType && e.scopeType !== 'GENERAL' && e.scopeLabel ? ` — ${e.scopeLabel}` : '';
+          return `${e.typeName} → ${who}${scope}`;
+        })
+        .join('; ');
+      return rowsOf(card, filter).flatMap((r) => {
+        if (r.positionId == null) return [];
+        const p = model.positions.get(r.positionId);
+        const att = r.occupant?.attendanceStatus;
+        return [
+          {
+            id: r.positionId,
+            cardId: id,
+            code: r.positionCode,
+            role: card.displayTitle || card.title,
+            person: r.occupant ? r.occupant.name?.trim() || 'Name not recorded' : '',
+            vacant: !r.occupant,
+            shift: r.shiftName,
+            manager: mgr ? mgr.displayTitle || mgr.title : '—',
+            contexts: (p?.contexts ?? card.contexts ?? []).map((c) => c.name).join(', '),
+            secondary,
+            attendance: att ? `${att.charAt(0)}${att.slice(1).toLowerCase()}` : '',
+            department: card.departmentName ?? '—',
+            location: p?.locationName ?? card.locationName ?? '—',
+            status: p?.status ?? card.status,
+            depth: model.depth.get(id) ?? 0,
+            openPoints: p?.counts?.openPoints ?? 0,
+          },
+        ];
+      });
     });
   }, [model, ids, filter, secondaryEdges]);
 
@@ -113,7 +105,7 @@ export function OrgChartTable({
     () => [
       {
         key: 'code',
-        header: 'Code',
+        header: 'Position',
         width: 110,
         alwaysVisible: true,
         render: (r) => <Mono sx={{ fontSize: 12.5 }}>{r.code ?? '—'}</Mono>,
@@ -121,12 +113,12 @@ export function OrgChartTable({
         exportValue: (r) => r.code ?? '',
       },
       {
-        key: 'title',
-        header: 'Position',
+        key: 'role',
+        header: 'Role',
         render: (r) => (
           <Stack direction="row" spacing={1} alignItems="center" sx={{ minWidth: 0 }}>
             <Box sx={{ width: r.depth * 10, flexShrink: 0 }} />
-            <Typography sx={{ fontSize: 14, fontWeight: 500 }}>{r.title}</Typography>
+            <Typography sx={{ fontSize: 14, fontWeight: 500 }}>{r.role}</Typography>
             {r.openPoints > 0 && (
               <Tooltip title={`${r.openPoints} open point${r.openPoints === 1 ? '' : 's'}`}>
                 <Box
@@ -145,8 +137,30 @@ export function OrgChartTable({
             )}
           </Stack>
         ),
-        sortValue: (r) => r.title,
-        exportValue: (r) => r.title,
+        sortValue: (r) => r.role,
+        exportValue: (r) => r.role,
+      },
+      {
+        key: 'person',
+        header: 'Person',
+        render: (r) =>
+          r.vacant ? (
+            // A vacancy is a fact, not an alarm: muted, never a warning colour.
+            <Typography sx={{ fontSize: 13.5, color: 'var(--c-text-2)', fontStyle: 'italic' }}>Vacant</Typography>
+          ) : (
+            <Typography sx={{ fontSize: 13.5 }}>{r.person}</Typography>
+          ),
+        // Vacant rows sort together, after the names.
+        sortValue: (r) => (r.vacant ? '￿' : r.person),
+        exportValue: (r) => (r.vacant ? 'Vacant' : r.person),
+      },
+      {
+        key: 'shift',
+        header: 'Shift',
+        width: 110,
+        render: (r) => r.shift,
+        sortValue: (r) => r.shift,
+        exportValue: (r) => r.shift,
       },
       {
         key: 'manager',
@@ -174,80 +188,17 @@ export function OrgChartTable({
         exportValue: (r) => r.contexts,
       },
       {
-        key: 'shift',
-        header: 'Shift',
-        width: 120,
-        render: (r) => r.shift,
-        sortValue: (r) => r.shift,
-        exportValue: (r) => r.shift,
-      },
-      {
-        key: 'seats',
-        header: 'Seats',
-        numeric: true,
-        align: 'right',
-        width: 80,
-        render: (r) => <Mono sx={{ fontSize: 13 }}>{r.seats}</Mono>,
-        sortValue: (r) => r.seats,
-        exportValue: (r) => r.seats,
-      },
-      {
-        key: 'filled',
-        header: 'Filled',
-        numeric: true,
-        align: 'right',
-        width: 80,
-        render: (r) => <Mono sx={{ fontSize: 13 }}>{r.filled}</Mono>,
-        sortValue: (r) => r.filled,
-        exportValue: (r) => r.filled,
-      },
-      {
-        key: 'vacant',
-        header: 'Vacant',
-        numeric: true,
-        align: 'right',
-        width: 80,
-        render: (r) => <Mono sx={{ fontSize: 13 }}>{r.vacant}</Mono>,
-        sortValue: (r) => r.vacant,
-        exportValue: (r) => r.vacant,
-      },
-      {
-        key: 'present',
-        header: 'Present',
-        numeric: true,
-        align: 'right',
-        width: 90,
+        key: 'attendance',
+        header: 'Attendance',
+        width: 110,
         defaultHidden: true,
-        render: (r) => <Mono sx={{ fontSize: 13 }}>{r.present}</Mono>,
-        sortValue: (r) => r.present,
-        exportValue: (r) => r.present,
-      },
-      {
-        key: 'absent',
-        header: 'Absent',
-        numeric: true,
-        align: 'right',
-        width: 90,
-        defaultHidden: true,
-        render: (r) => <Mono sx={{ fontSize: 13 }}>{r.absent}</Mono>,
-        sortValue: (r) => r.absent,
-        exportValue: (r) => r.absent,
-      },
-      {
-        key: 'occupants',
-        header: 'People',
-        render: (r) => (
-          <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)' }}>
-            {r.occupants || 'Nobody assigned'}
-          </Typography>
-        ),
-        sortValue: (r) => r.occupants,
-        exportValue: (r) => r.occupants,
+        render: (r) => r.attendance || '—',
+        sortValue: (r) => r.attendance,
+        exportValue: (r) => r.attendance,
       },
       {
         key: 'department',
         header: 'Department',
-        defaultHidden: true,
         render: (r) => r.department,
         sortValue: (r) => r.department,
         exportValue: (r) => r.department,
@@ -264,6 +215,7 @@ export function OrgChartTable({
         key: 'status',
         header: 'Status',
         width: 110,
+        defaultHidden: true,
         render: (r) => <StatusBadge status={r.status} />,
         sortValue: (r) => r.status,
         exportValue: (r) => r.status,
@@ -289,7 +241,8 @@ export function OrgChartTable({
       columns={columns}
       getRowId={(r) => r.id}
       onRowClick={(r) => onOpen(r.id)}
-      storageKey="orgchart-table"
+      // A new key: the columns changed shape on 2026-10-10 (one row per position).
+      storageKey="orgchart-positions-table"
       exportName="org-chart"
       pageSize={50}
       defaultSortKey="code"

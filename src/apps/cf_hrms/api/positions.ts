@@ -10,6 +10,13 @@ import type { ReportingSummary, ResolvedRelationship } from './assignments';
  * assignment may have no position at all.
  */
 
+/** A real shift record — General, Day and Night are shifts like any other. */
+export interface PositionShift {
+  id: number;
+  code: string | null;
+  name: string;
+}
+
 export interface PositionRow {
   id: number;
   positionCode: string | null;
@@ -22,16 +29,25 @@ export interface PositionRow {
   departmentName: string | null;
   locationId: number | null;
   locationName: string | null;
+  /**
+   * Always 1 since 2026-10-10: a position is ONE chair for ONE person. The
+   * server still sends these three; no screen may show them as a number.
+   */
   sanctionedHeadcount: number;
-  /** Effective seats on the date: sanctioned, or the day+night total. See backend services/seatCount.js. */
   seats: number;
+  /** 0 or 1. */
   filledCount: number;
-  /** sanctioned − filled. A FACT, not a failure — never coloured as an error. */
+  /** 1 when nobody is in the position, else 0. A FACT, not a failure — never coloured as an error. */
   vacancyCount: number;
   overFilled: boolean;
+  /** The position's shift. Changing it also moves the occupant's shift. */
   defaultShiftId: number | null;
   shiftCode: string | null;
   shiftName: string | null;
+  /** The same shift as one object (contract of 2026-10-10). Absent from an older server. */
+  shift?: PositionShift | null;
+  /** The one person in the position; null when it is vacant. Absent from an older server. */
+  occupant?: { employeeId: number; name: string; employeeCode: string | null } | null;
   status: string;
   effectiveFrom: string | null;
   effectiveTo: string | null;
@@ -195,8 +211,16 @@ export interface RemovalOutcome {
 export interface PositionRemovalImpact {
   asOf: string;
   position: RemovalSeat;
-  /** Where its direct reports would move: the first OPEN seat above it. null = nowhere to send them. */
+  /** Where its direct reports would move when they go UP: the first OPEN position above it. null = nowhere to send them. */
   manager: RemovalSeat | null;
+  /**
+   * Where the direct reports go: 'CARD' — to another position of the same role card (the sibling keeps
+   * the team); 'UP' — to the manager, because this was the card's last position; null — it has none.
+   * Absent from a server older than 2026-10-10 (read as 'UP').
+   */
+  movesReportsTo?: 'CARD' | 'UP' | null;
+  /** The positions the reports move to. */
+  moveTargets?: RemovalSeat[];
   directReports: (RemovalSeat & { assignments: number })[];
   team: {
     /** Positions under it, all levels, not counting itself. */
@@ -230,6 +254,9 @@ export interface RemovalResult {
   alreadyClosed?: boolean;
   movedReports: RemovalSeat[];
   movedTo: RemovalSeat | null;
+  /** The reports stayed in the card, under these sibling positions. */
+  movedWithinCard?: boolean | null;
+  movedToPositions?: RemovalSeat[];
 }
 
 function qs(params: object): string {
@@ -248,6 +275,12 @@ export const positionsApi = {
   get: (id: number, on?: string) => api.get<{ asOf: string; position: PositionRow }>(`/positions/${id}${qs({ on })}`),
   create: (body: Record<string, unknown>) => api.post<{ position: PositionRow }>('/positions', body),
   update: (id: number, body: Record<string, unknown>) => api.put<{ position: PositionRow }>(`/positions/${id}`, body),
+  /**
+   * One more VACANT position in the same card: same role, department and
+   * manager as `id`; its shift is `shiftId`, or the source's when omitted.
+   */
+  addSibling: (id: number, body: { shiftId?: number } = {}) =>
+    api.post<{ position: PositionRow }>(`/positions/${id}/add-sibling`, body),
   setStatus: (id: number, status: string) => api.post<{ position: PositionRow }>(`/positions/${id}/status`, { status }),
   /** Read this BEFORE offering a close or a delete: it is what the confirm dialog says. */
   deleteImpact: (id: number) => api.get<PositionRemovalImpact>(`/positions/${id}/delete-impact`),

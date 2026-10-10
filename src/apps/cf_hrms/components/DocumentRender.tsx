@@ -79,7 +79,7 @@ function observedOrigins(c: ResolvedContent): Origin[] {
 
 /**
  * A grid of small facts — the things true of a whole block rather than of one
- * row. Anything null is dropped, so a seat with no location does not print a
+ * row. Anything null is dropped, so a position with no location does not print a
  * label above an em dash.
  */
 function FactGrid({ facts }: { facts: { label: string; value: ReactNode }[] }) {
@@ -207,7 +207,7 @@ export function DocumentContentBody({
    * `content.layers` says which layers were CONSIDERED — a JD asked for by
    * position always lists POSITION. `observedOrigins` says which ones actually
    * produced something. Karni's position-specific JD for BFL Incharge declares
-   * POSITION and carries 27 rows that all came from the role, because that seat
+   * POSITION and carries 27 rows that all came from the role, because that position
    * has no overlays yet.
    *
    * Marking every one of those 27 rows "Role" would be 27 identical chips, which
@@ -484,12 +484,12 @@ function RoleJdBody({
         </SectionCard>
       )}
 
-      {/* The position-specific version says which seat it is for, and what that
-          seat adds — department, location, shift, machines, formal line. */}
+      {/* The position-specific version says which position it is for, and what that
+          position adds — department, location, shift, machines, formal line. */}
       {ctx?.position && (
         <SectionCard
           title="At this position"
-          subtitle="The seat this version of the job description is written for"
+          subtitle="The position this version of the job description is written for"
           sx={{ mt: 2 }}
         >
           <FactGrid
@@ -513,11 +513,7 @@ function RoleJdBody({
               { label: 'Title', value: ctx.position.positionTitle ?? ctx.position.displayTitle },
               { label: 'Department', value: ctx.position.departmentName },
               { label: 'Location', value: ctx.position.locationName },
-              { label: 'Default shift', value: ctx.position.shiftName ?? ctx.position.shiftCode },
-              {
-                label: 'Sanctioned seats',
-                value: <Mono tabular>{ctx.position.seats}</Mono>,
-              },
+              { label: 'Shift', value: ctx.position.shiftName ?? ctx.position.shiftCode },
             ]}
           />
           {!!ctx.workContexts?.length && (
@@ -530,7 +526,7 @@ function RoleJdBody({
           )}
           <Box sx={{ mt: 1.75 }}>
             <CapsLabel sx={{ mb: 0.5 }}>
-              Formal reporting · seat to seat ·{' '}
+              Formal reporting · position to position ·{' '}
               {ctx.formalReporting?.relationships?.length ?? 0}
             </CapsLabel>
             <ManagerLines
@@ -631,7 +627,7 @@ function AssignmentBlock({
               </Box>
             ) : (
               <Box component="span" sx={{ color: 'var(--c-text-3)' }}>
-                No sanctioned seat — normal; the role is what is required
+                No position — normal; the role is what is required
               </Box>
             ),
           },

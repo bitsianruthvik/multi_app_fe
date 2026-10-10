@@ -15,8 +15,8 @@ import type { SceneLegendItem } from './orgChartLayout';
  *     chart region so it rides into full screen;
  *   - the scene's own header, for PNG / PDF only (`buildScene({ titleBlock })`).
  *
- * The counts are whatever the page computed with the one seat rule
- * (`countRows` / `seatCount`); nothing is counted here. The legend is the
+ * The counts are whatever the page computed with the one counting rule
+ * (`countRows` / `countPositions`); nothing is counted here. The legend is the
  * scene's `legend` — the same entries, the same resolved colours — so the key
  * can never show a line the chart is not drawing.
  */

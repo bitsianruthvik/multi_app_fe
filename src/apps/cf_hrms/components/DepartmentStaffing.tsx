@@ -3,22 +3,28 @@
  * a role's or a position's job content from them.
  *
  * Positions are grouped by role because that is the question the screen is
- * asked: "what kinds of job does Stores have, how many seats of each, and who
+ * asked: "what kinds of job does Stores have, how many positions of each, and who
  * is in them". A role's row opens what the role says; a position's row opens
- * what that SEAT does — the role's content with the seat's own changes marked.
+ * what that POSITION does — the role's content with the position's own changes marked.
  *
  * The numbers come from `GET /organisation/departments/staffing`, which is cut
- * from the org chart's own nodes, so seats / filled / vacant here are the
+ * from the org chart's own nodes, so positions / filled / vacant here are the
  * chart's numbers by construction. One request serves every department.
  */
 import { Link as RouterLink, useNavigate } from 'react-router-dom';
 import { Box, Button, Stack, Typography } from '@mui/material';
 import EditRounded from '@mui/icons-material/EditRounded';
 import { Mono, SideSheet, ToneBadge, useIsPermitted } from '@shared/ui';
+import type { PositionShift } from '../api/positions';
+import { PositionShiftControl } from './PositionShiftControl';
+import { HiringEntry } from './HiringEntry';
 import type { DepartmentStaffing, StaffingPosition, StaffingRole } from '../api/jobContent';
 import { JobContentPanel } from './JobContentPanel';
 
-const SHIFT_LABEL: Record<string, string> = { G: 'General shift', D: 'Day shift', N: 'Night shift', DN: 'Day & night' };
+const SHIFT_NAME: Record<string, string> = { G: 'General', D: 'Day', N: 'Night' };
+/** The shift's NAME when the row carries one, else the code mapped to its usual name. */
+const shiftOf = (p: StaffingPosition): string =>
+  p.shift?.name ?? (p.shiftPattern ? (SHIFT_NAME[p.shiftPattern] ?? p.shiftPattern) : '');
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 /** What the side sheet is showing. */
@@ -28,10 +34,15 @@ export interface JobPeek {
   title: string;
   subtitle: string;
   roleId: number | null;
+  /** Position peeks only: what the side sheet needs to change the shift and offer hiring. */
+  shift?: { id?: number | null; code?: string | null; name?: string | null } | null;
+  occupantName?: string | null;
+  positionCode?: string | null;
+  roleTitle?: string | null;
 }
 
-const seatsText = (x: { seats: number; filled: number; vacant: number }) =>
-  `${plural(x.seats, 'seat')} · ${x.filled} filled · ${x.vacant} vacant`;
+const countsText = (x: { filled: number; vacant: number }, n: number) =>
+  `${plural(n, 'position')} · ${x.filled} filled · ${x.vacant} vacant`;
 
 function who(p: StaffingPosition): string {
   if (p.occupants.length === 0) return 'Vacant';
@@ -70,7 +81,7 @@ export function DepartmentStaffingPanel({
       type: 'role',
       id: r.roleId,
       title: r.roleTitle,
-      subtitle: `Role · ${plural(r.positions.length, 'position')} in ${name} · ${seatsText(r)}`,
+      subtitle: `Role · in ${name} · ${countsText(r, r.positions.length)}`,
       roleId: r.roleId,
     });
   };
@@ -81,6 +92,10 @@ export function DepartmentStaffingPanel({
       title: p.title,
       subtitle: `Position${p.positionCode ? ` ${p.positionCode}` : ''} · role ${r.roleTitle} · ${who(p)}`,
       roleId: r.roleId,
+      shift: p.shift ?? (p.shiftPattern ? { code: p.shiftPattern, name: shiftOf(p) } : null),
+      occupantName: p.occupants[0]?.name ?? null,
+      positionCode: p.positionCode,
+      roleTitle: r.roleTitle,
     });
 
   return (
@@ -107,8 +122,7 @@ export function DepartmentStaffingPanel({
       ) : (
         <>
           <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)', mt: 0.25 }}>
-            {plural(staffing!.counts.roles, 'role')} · {plural(staffing!.counts.positions, 'position')} ·{' '}
-            {seatsText(staffing!.counts)}. Click a role or a position to see its KRAs, responsibilities and KPIs.
+            {plural(staffing!.counts.roles, 'role')} · {countsText(staffing!.counts, staffing!.counts.positions)}. Click a role or a position to see its KRAs, responsibilities and KPIs.
           </Typography>
           <Stack spacing={1} sx={{ mt: 1.25 }}>
             {roles.map((r) => (
@@ -147,7 +161,7 @@ export function DepartmentStaffingPanel({
                     <Typography sx={{ fontSize: 14, fontWeight: 600 }}>{r.roleTitle}</Typography>
                   )}
                   <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)' }}>
-                    {plural(r.positions.length, 'position')} · {seatsText(r)}
+                    {countsText(r, r.positions.length)}
                   </Typography>
                 </Stack>
                 <Box
@@ -176,8 +190,7 @@ export function DepartmentStaffingPanel({
                         {who(p)}
                       </Typography>
                       <Typography sx={{ fontSize: 12, color: 'var(--c-text-2)' }}>
-                        {SHIFT_LABEL[p.shiftPattern] ?? p.shiftPattern} · {p.filled} of {plural(p.seats, 'seat')} filled
-                        {p.overFilled ? ' (over)' : ''}
+                        {shiftOf(p) || 'No shift'}
                       </Typography>
                       {p.hasSeatChanges && <ToneBadge tone="warning" noIcon label="Differs from its role" />}
                     </Box>
@@ -196,16 +209,19 @@ export function DepartmentStaffingPanel({
  * The peek: a role's or a position's job content beside the department list,
  * with Edit going to the screen that owns the edit — the role's Content tab, or
  * the position's job-content editor. Edit is hidden from a login that cannot
- * use it (`cf_hrms_roles_manage` for a role, `cf_hrms_org_manage` for a seat).
+ * use it (`cf_hrms_roles_manage` for a role, `cf_hrms_org_manage` for a position).
  */
 export function JobPeekSheet({
   peek,
   company,
   onClose,
+  onChanged,
 }: {
   peek: JobPeek | null;
   company: string;
   onClose: () => void;
+  /** After the shift of the peeked position changed, so the list behind can reload. */
+  onChanged?: (shift: PositionShift) => void;
 }) {
   const can = useIsPermitted();
   const navigate = useNavigate();
@@ -227,11 +243,37 @@ export function JobPeekSheet({
       actions={
         peek && canEdit ? (
           <Button component={RouterLink} to={edit} variant="contained" size="small" startIcon={<EditRounded />}>
-            {isRole ? 'Edit the role’s content' : 'Edit for this seat'}
+            {isRole ? 'Edit the role’s content' : 'Edit for this position'}
           </Button>
         ) : undefined
       }
     >
+      {peek && !isRole && (
+        <Stack spacing={1} sx={{ mb: 1.5 }}>
+          <Stack direction="row" spacing={1} alignItems="center" useFlexGap flexWrap="wrap">
+            <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-3)' }}>Shift</Typography>
+            <PositionShiftControl
+              positionId={peek.id}
+              shift={peek.shift ?? null}
+              occupantName={peek.occupantName ?? null}
+              onChanged={(s) => onChanged?.(s)}
+            />
+          </Stack>
+          {!peek.occupantName && (
+            <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" alignItems="center">
+              <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-3)' }}>Vacant</Typography>
+              {can('cf_hrms_org_manage') && (
+                <>
+                  <Button component={RouterLink} to={`/${company}/cf_hrms/assignments?new=1&positionId=${peek.id}`} size="small" variant="outlined">
+                    Move an existing employee here
+                  </Button>
+                  <HiringEntry positionId={peek.id} positionCode={peek.positionCode ?? null} roleTitle={peek.roleTitle ?? null} onChanged={() => onChanged?.(peek.shift as PositionShift)} />
+                </>
+              )}
+            </Stack>
+          )}
+        </Stack>
+      )}
       {peek && (
         <JobContentPanel
           target={{ type: peek.type, id: peek.id }}
@@ -246,10 +288,10 @@ export function JobPeekSheet({
           after={() => (
             <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)', mt: 1.5, lineHeight: 1.55 }}>
               {isRole ? (
-                'This is what the role says. Every seat holding it starts from this; open a position to see what that one seat does differently.'
+                'This is what the role says. Every position holding it starts from this; open a position to see what that one does differently.'
               ) : (
                 <>
-                  KRAs come from the role and are the same for every seat holding it.{' '}
+                  KRAs come from the role and are the same for every position holding it.{' '}
                   {roleHref && (
                     <Box component={RouterLink} to={roleHref} sx={{ color: 'var(--c-primary-700)' }}>
                       Open the role

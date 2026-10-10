@@ -7,16 +7,28 @@ import { assignmentsApi, type ResolvedRelationship } from '../api/assignments';
 import { pretty } from '../api/roles';
 import ChevronRightRounded from '@mui/icons-material/ChevronRightRounded';
 import ExpandMoreRounded from '@mui/icons-material/ExpandMoreRounded';
-import { SectionTitle } from './OrgChartSeatView';
+import type { OrgChartNode } from '../api/orgchart';
 import { OrgChartJobSection } from './OrgChartJobSection';
-import { SHIFT_WORD, inPanelLink, smallLabel, type PanelNav, type PanelView } from './orgChartPanelNav';
+import {
+  FactsGrid,
+  PositionFacts,
+  PositionFooter,
+  PositionReportsTo,
+  SectionTitle,
+} from './OrgChartPositionParts';
+import { usePositionCard } from './usePositionCard';
+import { inPanelLink, smallLabel, type PanelNav, type PanelView } from './orgChartPanelNav';
 
 /**
- * A person, in the org chart's floating panel (spec §17).
+ * A person, in the org chart's floating panel — which is what a FILLED
+ * POSITION opens (a row of a role card), since a position is one chair for one
+ * person.
  *
- * Opened from a row of a seat. It answers "who is this" without leaving the
- * chart: their work — the positions they hold, their shift, who they report to
- * — and how to reach them.
+ * TOP TO BOTTOM: the person (code, joined, employment); the position they were
+ * opened on (its code, shift with "Change shift", role, department) and who it
+ * reports to; their other positions, if they hold several; contact details;
+ * then the position's KRAs (the role's, fixed) with its responsibilities and
+ * KPIs, edited at POSITION level; then the position's actions.
  *
  * WHO THEY REPORT TO IS THE RESOLVER'S ANSWER, per job: the formal lines of the
  * seat plus anything recorded for this person, each with its type and the part
@@ -65,7 +77,6 @@ function ReportingLine({ r, nav }: { r: ResolvedRelationship; nav: PanelNav }) {
                     title: p.name,
                     employeeCode: p.employeeCode,
                     positionId: p.positionId,
-                    shiftCode: null,
                   })
                 }
                 sx={{ ...inPanelLink, fontWeight: 500 }}
@@ -76,7 +87,7 @@ function ReportingLine({ r, nav }: { r: ResolvedRelationship; nav: PanelNav }) {
           ))
         ) : (
           <Box component="span" sx={{ fontStyle: 'italic', color: 'var(--c-text-2)' }}>
-            {r.note ?? 'Nobody is in that seat today'}
+            {r.note ?? 'That position is vacant today'}
           </Box>
         )}
         <Box component="span" sx={{ fontSize: 12, color: 'var(--c-text-2)' }}>
@@ -90,7 +101,7 @@ function ReportingLine({ r, nav }: { r: ResolvedRelationship; nav: PanelNav }) {
             component="button"
             type="button"
             onClick={() =>
-              nav.push({ kind: 'seat', positionId: r.managerPosition!.id, title: r.managerPosition!.title ?? 'Position' })
+              nav.push({ kind: 'position', positionId: r.managerPosition!.id, title: r.managerPosition!.title ?? 'Position' })
             }
             sx={inPanelLink}
           >
@@ -121,6 +132,7 @@ function PositionJob({
   company,
   nav,
   onChanged,
+  cardIdOfPosition,
 }: {
   positionId: number;
   title: string;
@@ -131,6 +143,8 @@ function PositionJob({
   company: string;
   nav: PanelNav;
   onChanged?: () => void;
+  /** The role card a position is drawn in, so the role view opened from here lists the right positions. */
+  cardIdOfPosition?: (positionId: number) => number | null;
 }) {
   const [open, setOpen] = useState(startOpen || !collapsible);
   const bodyId = `personjob-${positionId}`;
@@ -195,7 +209,7 @@ function PositionJob({
             asOf={asOf}
             company={company}
             onChanged={onChanged}
-            onOpenRole={(id, t) => nav.push({ kind: 'role', roleId: id, title: t })}
+            onOpenRole={(id, t) => nav.push({ kind: 'role', roleId: id, cardId: cardIdOfPosition?.(positionId) ?? null, title: t })}
           />
         </Box>
       )}
@@ -205,23 +219,35 @@ function PositionJob({
 
 export function OrgChartPersonView({
   view,
+  node,
   asOf,
   company,
   nav,
   titleOf,
+  cardIdOfPosition,
+  onStartFrom,
+  onClose,
   onChanged,
 }: {
   view: PersonView;
+  /** The position they were opened on, as the chart holds it. */
+  node?: OrgChartNode | null;
+  cardIdOfPosition?: (positionId: number) => number | null;
+  onStartFrom?: (positionId: number) => void;
+  /** Closes the panel, once the position has been closed or deleted from here. */
+  onClose?: () => void;
   asOf: string;
   company: string;
   nav: PanelNav;
   /** A position's title as the chart writes it (disambiguated). */
   titleOf?: (positionId: number) => string | undefined;
-  /** After a position's content is edited from here. */
+  /** After the position's content or shift is edited from here. */
   onChanged?: () => void;
 }) {
   const can = useIsPermitted();
   const canRead = can('cf_hrms_people_view');
+  // The position they were opened on: its reporting, reports and open points.
+  const { card, error: cardError } = usePositionCard(view.positionId, asOf, node?.defaultShift?.code ?? '');
   const [detail, setDetail] = useState<Detail | null>(null);
   const [reporting, setReporting] = useState<Record<number, ResolvedRelationship[]>>({});
   const [error, setError] = useState<unknown>(null);
@@ -266,7 +292,6 @@ export function OrgChartPersonView({
   const e = detail?.employee ?? null;
   const jobs: AssignmentSummary[] = useMemo(() => (detail?.assignments ?? []).filter((a) => a.isActive), [detail]);
   const many = jobs.length > 1;
-  const cameFrom = view.shiftCode ? SHIFT_WORD[view.shiftCode] : null;
 
   // The positions whose job content is shown: every position they hold today,
   // the one they were opened from first. Without an employee record to read
@@ -290,7 +315,9 @@ export function OrgChartPersonView({
   const facts: { label: string; value: React.ReactNode }[] = [];
   const code = e?.employeeCode ?? view.employeeCode;
   if (code) facts.push({ label: 'Employee code', value: <Mono sx={{ fontSize: 12.5 }}>{code}</Mono> });
-  const shift = jobs.find((a) => a.positionId === view.positionId)?.shiftName ?? jobs.find((a) => a.isPrimary)?.shiftName ?? cameFrom;
+  // The shift is the POSITION's and is shown with it below; only someone
+  // reached without a position gets it here, from their main job.
+  const shift = view.positionId == null ? jobs.find((a) => a.isPrimary)?.shiftName : null;
   if (shift) facts.push({ label: 'Shift', value: shift });
   if (e) {
     facts.push({ label: 'Joined', value: e.dateOfJoining || '—' });
@@ -327,37 +354,28 @@ export function OrgChartPersonView({
       )}
       {!!error && <ErrorNotice error={error} fallback="That person could not be loaded." />}
 
-      <Box
-        component="dl"
-        data-facts=""
-        sx={{
-          display: 'grid',
-          gridTemplateColumns: 'auto minmax(0, 1fr) auto minmax(0, 1fr)',
-          columnGap: 1,
-          rowGap: 0.25,
-          alignItems: 'baseline',
-          m: 0,
-          fontSize: 13,
-          lineHeight: 1.5,
-          '@media (max-width: 420px)': { gridTemplateColumns: 'auto minmax(0, 1fr)' },
-        }}
-      >
-        {facts.map((f) => (
-          <Box key={f.label} sx={{ display: 'contents' }}>
-            <Box component="dt" sx={smallLabel}>
-              {f.label}
-            </Box>
-            <Box component="dd" sx={{ m: 0, minWidth: 0, overflowWrap: 'anywhere' }}>
-              {f.value}
-            </Box>
-          </Box>
-        ))}
-      </Box>
+      <FactsGrid facts={facts} />
 
-      {/* The positions they hold, each back into a seat view. */}
-      {detail && (
+      {/* The position they were opened on: its code, shift, role — and who it reports to. */}
+      {view.positionId != null && (
+        <Box sx={{ mt: 1.5 }} data-personposition="">
+          <SectionTitle>Position</SectionTitle>
+          <PositionFacts
+            positionId={view.positionId}
+            node={node ?? null}
+            card={card}
+            asOf={asOf}
+            nav={nav}
+            onChanged={onChanged}
+          />
+          {card && <PositionReportsTo card={card} nav={nav} titleOf={titleOf} />}
+        </Box>
+      )}
+
+      {/* Every position they hold — shown when there is more than the one above. */}
+      {detail && (many || view.positionId == null) && (
         <Box sx={{ mt: 1.75 }} data-personjobs="">
-          <SectionTitle count={jobs.length || undefined}>{many ? 'Positions they hold' : 'Position'}</SectionTitle>
+          <SectionTitle count={jobs.length || undefined}>{many ? 'All the positions they hold' : 'Position'}</SectionTitle>
           {jobs.length === 0 ? (
             <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>No work is assigned to them on {asOf}.</Typography>
           ) : (
@@ -371,7 +389,7 @@ export function OrgChartPersonView({
                         type="button"
                         onClick={() =>
                           nav.push({
-                            kind: 'seat',
+                            kind: 'position',
                             positionId: a.positionId!,
                             title: a.positionTitle ?? a.roleTitle ?? 'Position',
                           })
@@ -476,18 +494,40 @@ export function OrgChartPersonView({
                 company={company}
                 nav={nav}
                 onChanged={onChanged}
+                cardIdOfPosition={cardIdOfPosition}
               />
             ))}
           </Stack>
         </Box>
       )}
 
-      {canRead && (
-        <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap sx={{ mt: 2 }}>
-          <Button size="small" variant="outlined" component={RouterLink} to={`/${company}/cf_hrms/employees/${view.employeeId}`}>
-            Full employee record
-          </Button>
-        </Stack>
+      {view.positionId != null ? (
+        <PositionFooter
+          positionId={view.positionId}
+          card={card}
+          error={cardError}
+          company={company}
+          nav={nav}
+          titleOf={titleOf}
+          onStartFrom={onStartFrom}
+          onClose={onClose}
+          onChanged={onChanged}
+          extraActions={
+            canRead ? (
+              <Button size="small" variant="outlined" component={RouterLink} to={`/${company}/cf_hrms/employees/${view.employeeId}`}>
+                Full employee record
+              </Button>
+            ) : undefined
+          }
+        />
+      ) : (
+        canRead && (
+          <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap sx={{ mt: 2 }}>
+            <Button size="small" variant="outlined" component={RouterLink} to={`/${company}/cf_hrms/employees/${view.employeeId}`}>
+              Full employee record
+            </Button>
+          </Stack>
+        )
       )}
     </Box>
   );

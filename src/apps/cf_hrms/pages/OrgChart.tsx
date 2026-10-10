@@ -23,14 +23,17 @@ import { orgChartApi } from '../api/orgchart';
 import {
   buildModel,
   buildScene,
+  cardIdOf,
   countRows,
-  departmentOfSeat,
+  departmentOfCard,
   departmentTree,
   describeChart,
   makeFonts,
   normaliseShow,
   openAbove,
   readPalette,
+  shiftCodeOf,
+  shiftNameOf,
   subtreeIds,
   type Arrange,
   type ChartShow,
@@ -46,7 +49,13 @@ import {
 import { OrgChartPanelViews } from '../components/OrgChartPanelViews';
 import { OrgChartViewOptions } from '../components/OrgChartViewOptions';
 import { OrgChartTitleStrip } from '../components/OrgChartTitleStrip';
-import { viewKind, type PanelView } from '../components/orgChartPanelNav';
+import {
+  positionView,
+  roleViewOfCard,
+  viewKind,
+  viewTitle,
+  type PanelView,
+} from '../components/orgChartPanelNav';
 import {
   OrgChartFloatingPanel,
   type FloatingPanelHandle,
@@ -67,11 +76,15 @@ import { exportPdf, exportPng } from '../components/OrgChartExport';
  * Table toggle *is* that alternative and carries the same rows under the same
  * filters — §6.4.
  *
- * THE NUMBER THIS SCREEN EXISTS FOR IS 156. Karni has 169 sanctioned seats and
- * 13 people. Every design decision here serves making that legible: vacancies
- * are drawn as empty rows rather than omitted, a day/night seat shows both its
- * shifts, and the summary strip counts exactly the rows the chart draws so it
- * can never flatter the picture beneath it.
+ * WHAT IS DRAWN (2026-10-10): a card per ROLE in a department, a row per
+ * POSITION in it — one chair, one person, one shift. The card's headline opens
+ * the role; a row opens that position.
+ *
+ * THE NUMBERS THIS SCREEN EXISTS FOR ARE THE VACANCIES. Vacant positions are
+ * drawn as rows that say Vacant rather than omitted, and every count on the
+ * page — the stat strip, the fixed strip, a closed department — comes from one
+ * rule (`countPositions`), so the summary can never flatter the picture
+ * beneath it: positions = filled + vacant.
  *
  * VIEW STATE IS THE VIEWER'S. Zoom, folded branches, arrangement overrides, the
  * shift filter and the attendance tint are per-person preferences in
@@ -81,15 +94,11 @@ import { exportPdf, exportPng } from '../components/OrgChartExport';
  * FOUR VIEWS, ONE SCREEN (spec §13). Chart and Table draw the same rows under
  * the same filters. Departments answers "what is this unit accountable for"
  * from `GET /orgchart/departments`, borrowing this page's graph for titles and
- * seat counts. Doubts is the open-points list, fetched here rather than in the
+ * position counts. Doubts is the open-points list, fetched here rather than in the
  * tab so the tab can carry its count before anyone opens it.
  */
 
-const SHIFT_NAME: Record<ShiftFilter, string> = {
-  all: 'All shifts',
-  D: 'Day shift',
-  N: 'Night shift',
-};
+const SHIFT_ORDER: Record<string, number> = { G: 0, D: 1, N: 2 };
 
 /** Preference keys are per company: a root id from another tenant is meaningless. */
 const ORG_CHART_VIEWS: OrgChartView[] = ['chart', 'table', 'departments', 'doubts'];
@@ -149,7 +158,7 @@ export default function OrgChart() {
   );
   const [zoom, setZoom] = useState<number | null>(() => readPref<number | null>(key('zoom'), null));
   // What is drawn (spec §16), and the DEPARTMENT fold that goes with boxes.
-  // The seat fold above (`collapsed`) is the fold of the plain tree; with
+  // The card fold above (`collapsed`) is the fold of the plain tree; with
   // departments drawn the fold is the department's and that one is not read.
   const [show, setShow] = useState<ChartShow>(() => normaliseShow(readPref<Partial<ChartShow>>(key('show'), {})));
   const [deptClosed, setDeptClosed] = useState<Set<number>>(
@@ -160,12 +169,12 @@ export default function OrgChart() {
   );
   const [deptFoldSettled, setDeptFoldSettled] = useState(false);
 
+  // The CARD that is ringed on the chart.
   const [selected, setSelected] = useState<number | null>(null);
-  // The box the floating panel shows; null = panel closed (spec §14).
-  const [cardId, setCardId] = useState<number | null>(null);
-  // What was opened ON TOP of that box inside the panel — a person, an open
-  // seat, the role, another position — newest last (spec §17). Empty = the box.
-  const [stack, setStack] = useState<PanelView[]>([]);
+  // The floating panel, as a stack of views — newest last (spec §17). Empty =
+  // closed. A card's headline opens its ROLE; a row opens that POSITION on top
+  // of the card's role, so Back from a position lands on the role it belongs to.
+  const [views, setViews] = useState<PanelView[]>([]);
   const panelRef = useRef<FloatingPanelHandle>(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const fullscreen = useFullscreen();
@@ -208,11 +217,6 @@ export default function OrgChart() {
     load();
   }, [load]);
   const refresh = useCallback(() => load(true), [load]);
-
-  // A different box (or no box): the panel starts again from that seat.
-  useEffect(() => {
-    setStack([]);
-  }, [cardId]);
 
   // The whole graph travels in one payload, so re-rooting is a client-side
   // filter and costs nothing — no refetch, no flash, no lost scroll position.
@@ -334,17 +338,40 @@ export default function OrgChart() {
   }, [theme.palette.mode]);
   const fonts = useMemo(() => makeFonts(palette.fontUi), [palette.fontUi]);
 
+  // "Start from" is a CARD. A stored or linked id may be a position's (links
+  // made before 2026-10-10, or "start the chart here" on a position): it is
+  // read as the card that position is drawn in.
+  const rootCard: number | '' = root === '' || !model ? root : (cardIdOf(model, root) ?? '');
+
   const visibleIds = useMemo(
-    () => (model ? subtreeIds(model, root) : []),
-    [model, root],
+    () => (model ? subtreeIds(model, rootCard) : []),
+    [model, rootCard],
   );
+
+  // The shifts positions are on, General → Day → Night — what the filter offers.
+  const shiftOptions = useMemo(() => {
+    const seen = new Map<string, string>();
+    for (const n of model?.positions.values() ?? []) {
+      const code = shiftCodeOf(n);
+      if (!seen.has(code)) seen.set(code, shiftNameOf(n));
+    }
+    return [...seen]
+      .map(([code, name]) => ({ code, name }))
+      .sort((a, b) => (SHIFT_ORDER[a.code] ?? 3) - (SHIFT_ORDER[b.code] ?? 3) || a.name.localeCompare(b.name));
+  }, [model]);
+  // A stored filter for a shift this company does not have would empty the chart.
+  useEffect(() => {
+    if (model && shift !== 'all' && !shiftOptions.some((s) => s.code === shift)) setShift('all');
+  }, [model, shift, shiftOptions]);
+  const shiftLabel =
+    shift === 'all' ? 'All shifts' : `${shiftOptions.find((s) => s.code === shift)?.name ?? shift} shift`;
 
   const counts = useMemo(
     () => (model ? countRows(model, visibleIds, shift) : null),
     [model, visibleIds, shift],
   );
 
-  const rootNode = root && model ? model.byId.get(root) : null;
+  const rootNode = rootCard && model ? model.byId.get(rootCard) : null;
 
   // Departments are drawn as boxes when the switch is on AND the payload has a
   // department tree (a backend older than 2026-10-10 sends none).
@@ -354,9 +381,9 @@ export default function OrgChart() {
   const deptTree = useMemo(
     () =>
       model && boxed
-        ? departmentTree(model, { root, filter: shift, collapsed: new Set(), arrange: {}, fonts, show })
+        ? departmentTree(model, { root: rootCard, filter: shift, collapsed: new Set(), arrange: {}, fonts, show })
         : null,
-    [model, boxed, root, shift, fonts, show],
+    [model, boxed, rootCard, shift, fonts, show],
   );
 
   // Everything the drawing is made from. The SCREEN draws it without the title
@@ -365,7 +392,7 @@ export default function OrgChart() {
   const sceneOptions = useMemo(() => {
     if (!model || !counts) return null;
     return {
-      root,
+      root: rootCard,
       filter: shift,
       collapsed,
       arrange,
@@ -377,15 +404,15 @@ export default function OrgChart() {
       secondaryEdges: model.secondary,
       header: {
         title: rootNode ? `${rootNode.displayTitle || rootNode.title} — and below` : 'Organisation chart',
-        meta: `As at ${asOf}     |     ${SHIFT_NAME[shift]}`,
+        meta: `As at ${asOf}     |     ${shiftLabel}`,
         counts:
-          `Positions ${counts.positions}     Seats ${counts.seats}     Filled ${counts.filled}     Vacant ${counts.vacant}` +
+          `Positions ${counts.positions}     Filled ${counts.filled}     Vacant ${counts.vacant}` +
           (counts.present || counts.absent
             ? `     Present ${counts.present}     Absent ${counts.absent}`
             : ''),
       },
     };
-  }, [model, counts, root, shift, collapsed, arrange, fonts, palette, colours, show, deptClosed, rootNode, asOf]);
+  }, [model, counts, rootCard, shift, shiftLabel, collapsed, arrange, fonts, palette, colours, show, deptClosed, rootNode, asOf]);
 
   const scene = useMemo(
     () => (model && sceneOptions ? buildScene(model, { ...sceneOptions, titleBlock: false }) : null),
@@ -478,18 +505,18 @@ export default function OrgChart() {
     });
   }, []);
 
-  /** Opens every box above a seat, so a seat picked from a list is on the canvas. */
+  /** Opens every department above a card, so a card picked from a list is on the canvas. */
   const reveal = useCallback(
     (id: number) => {
       if (!model || !deptTree) return;
-      setDeptClosed((prev) => openAbove(deptTree, prev, departmentOfSeat(model, id)));
+      setDeptClosed((prev) => openAbove(deptTree, prev, departmentOfCard(model, id)));
     },
     [model, deptTree],
   );
 
   const toggleCollapse = useCallback((id: number) => {
     // With departments drawn the fold belongs to the department (its title);
-    // Space on a seat does nothing rather than hide the seat under the cursor.
+    // Space on a card does nothing rather than hide the card under the cursor.
     if (boxed) return;
     setFoldTouched(true);
     setCollapsed((prev) => {
@@ -534,7 +561,8 @@ export default function OrgChart() {
       return {
         id,
         label: n.displayTitle || n.title,
-        code: n.positionCode,
+        // A card of one position carries its code; a card of several, their department.
+        code: n.positionCode ?? n.departmentName,
         depth: model.depth.get(id) ?? 0,
       };
     });
@@ -547,15 +575,15 @@ export default function OrgChart() {
       {
         label: 'Positions',
         value: c?.positions ?? 0,
-        hint: root
-          ? 'Seats in the branch you started from.'
-          : 'Every sanctioned seat in the organisation.',
+        hint: rootCard
+          ? 'Positions in the branch you started from. One position is one chair for one person, on one shift.'
+          : 'Every position in the organisation. One position is one chair for one person, on one shift.',
       },
       {
         label: 'Filled',
         value: c?.filled ?? 0,
         tone: 'success',
-        hint: 'People working in a seat. A seat holding more people than it is sanctioned for counts every one of them.',
+        hint: 'Positions with a person in them.',
       },
       {
         label: 'Present',
@@ -565,7 +593,7 @@ export default function OrgChart() {
         // figure the system does not hold.
         hint:
           c && c.unmarked > 0
-            ? `Marked present on ${asOf}. ${c.unmarked} filled seat${c.unmarked === 1 ? ' has' : 's have'} no attendance recorded for this date.`
+            ? `Marked present on ${asOf}. ${c.unmarked} filled position${c.unmarked === 1 ? ' has' : 's have'} no attendance recorded for this date.`
             : `People marked present on ${asOf}.`,
       },
       {
@@ -575,17 +603,17 @@ export default function OrgChart() {
         hint: `People marked absent on ${asOf}.`,
       },
       {
-        // Deliberately toneless. 156 of 169 seats are empty; painting that red
+        // Deliberately toneless. Most positions are empty; painting that red
         // every day is how a screen stops being read (statusMap.ts).
-        label: 'Vacant seats',
+        label: 'Vacant positions',
         value: c?.vacant ?? 0,
         hint:
-          `Sanctioned seats with nobody in them${shift === 'all' ? '' : `, ${SHIFT_NAME[shift].toLowerCase()} only`}. ` +
-          `A day-and-night seat is two seats, one per shift. A seat holding more people than it has seats for has no vacancy.` +
+          `Positions with nobody in them${shift === 'all' ? '' : `, ${shiftLabel.toLowerCase()} only`}. ` +
+          'Positions = filled + vacant.' +
           (folded ? ` Includes ${folded} folded branch${folded === 1 ? '' : 'es'}.` : ''),
       },
     ];
-  }, [counts, root, asOf, shift, collapsed, visibleIds]);
+  }, [counts, rootCard, asOf, shift, shiftLabel, collapsed, visibleIds]);
 
   const doExport = async (kind: 'png' | 'pdf') => {
     if (!model || !sceneOptions) return;
@@ -609,70 +637,99 @@ export default function OrgChart() {
   const secondaryCount = model?.secondary.length ?? 0;
 
   // ── The floating panel (spec §14) ───────────────────────────────────────
-  /** Open a position in the panel from anywhere: a box, a table row, a search hit. */
+  const focusPanel = () => requestAnimationFrame(() => panelRef.current?.focus());
+  // The card the panel was opened on (the bottom of the stack), when it was a card.
+  const base = views[0] ?? null;
+  const cardId = base?.kind === 'role' ? base.cardId : null;
+
+  /** Open a CARD's role in the panel: a click on a card's headline, a "used in" place. */
   const openCard = useCallback(
     (id: number) => {
+      if (!model) return;
       reveal(id);
       setSelected(id);
-      setCardId(id);
+      setViews([roleViewOfCard(model, id)]);
     },
-    [reveal],
+    [model, reveal],
+  );
+
+  /**
+   * Open a POSITION from anywhere — a row of a card, a table row, a search hit,
+   * a doubt. It sits on top of its card's role, so Back shows the role and the
+   * other positions beside it. One that is not on the chart opens on its own.
+   */
+  const openPosition = useCallback(
+    (positionId: number) => {
+      if (!model) return;
+      const card = model.cardOf.get(positionId);
+      if (card != null) {
+        reveal(card);
+        setSelected(card);
+        setViews([roleViewOfCard(model, card), positionView(model, positionId)]);
+      } else if (model.byId.has(positionId)) {
+        // Already a card id (a list that speaks in cards).
+        openCard(positionId);
+      } else {
+        setViews([positionView(model, positionId)]);
+      }
+    },
+    [model, reveal, openCard],
   );
 
   const closePanel = useCallback(() => {
-    const id = cardId;
-    setCardId(null);
-    // Hand the keyboard back to the box the panel described, so Esc in the
+    setViews([]);
+    // Hand the keyboard back to the card the panel described, so Esc in the
     // panel lands the viewer where they were in the chart.
-    if (id != null && view === 'chart') {
-      const el = document.getElementById(`orgchart-node-${id}`) as unknown as HTMLElement | null;
+    if (cardId != null && view === 'chart') {
+      const el = document.getElementById(`orgchart-node-${cardId}`) as unknown as HTMLElement | null;
       el?.focus({ preventScroll: true });
     }
   }, [cardId, view]);
 
-  // A box: Enter (or a click) opens the panel and LEAVES FOCUS ON THE BOX, so
+  // A card: Enter (or a click) opens the panel and LEAVES FOCUS ON THE CARD, so
   // the arrow keys keep walking the chart; the panel follows the selection
-  // while it is open. Enter on the box the panel already shows moves focus in.
+  // while it is open. Enter on the card the panel already shows moves focus in.
   const onCanvasOpen = useCallback(
     (id: number) => {
-      if (cardId === id) panelRef.current?.focus();
+      if (cardId === id && views.length === 1) panelRef.current?.focus();
       else openCard(id);
     },
-    [cardId, openCard],
+    [cardId, views.length, openCard],
   );
-  const onCanvasSelect = useCallback((id: number) => {
-    setSelected(id);
-    setCardId((open) => (open == null ? open : id));
-  }, []);
-
-  const panelNode = cardId != null && model ? model.byId.get(cardId) : null;
-  const panelTitle = panelNode?.displayTitle || panelNode?.title || 'Position';
-
-  // The panel's views: the box, then whatever was opened from it. Moving
-  // between them puts the keyboard on the panel's header, which reads the new
-  // title — so a keyboard user hears where they have landed.
-  const views: PanelView[] = useMemo(
-    () => (cardId == null ? [] : [{ kind: 'seat', positionId: cardId, title: panelTitle }, ...stack]),
-    [cardId, panelTitle, stack],
+  const onCanvasSelect = useCallback(
+    (id: number) => {
+      setSelected(id);
+      // While the panel is open it follows the selection: another card, its role.
+      setViews((cur) => {
+        if (!cur.length || !model) return cur;
+        const b = cur[0];
+        return b.kind === 'role' && b.cardId === id ? cur : [roleViewOfCard(model, id)];
+      });
+    },
+    [model],
   );
+
   const topView = views[views.length - 1] ?? null;
-  const focusPanel = () => requestAnimationFrame(() => panelRef.current?.focus());
+  const panelTitle = topView ? viewTitle(model, topView) : 'Role';
+  // Moving between views puts the keyboard on the panel's header, which reads
+  // the new title — so a keyboard user hears where they have landed.
   const panelNav = useMemo(
     () => ({
       push: (v: PanelView) => {
-        setStack((s) => [...s, v]);
+        setViews((s) => [...s, v]);
         focusPanel();
       },
       back: () => {
-        setStack((s) => s.slice(0, -1));
+        setViews((s) => (s.length > 1 ? s.slice(0, -1) : s));
         focusPanel();
       },
     }),
     [],
   );
-  const crumbs = views.slice(Math.max(0, views.length - 3), -1).map((v) => v.title);
-  const panelBox = cardId != null && model && boxed ? scene?.layout.dept?.boxes.get(departmentOfSeat(model, cardId)) : undefined;
-  // Inside a box, a seat arranges only the reports that sit in the box with it.
+  const crumbs = views.slice(Math.max(0, views.length - 3), -1).map((v) => viewTitle(model, v));
+  const openRow = topView?.kind === 'position' ? topView.positionId : null;
+  const panelBox = cardId != null && model && boxed ? scene?.layout.dept?.boxes.get(departmentOfCard(model, cardId)) : undefined;
+  // Inside a department, a card arranges only the reports that sit in the box with it.
   const panelTeam =
     cardId != null && model
       ? (model.children.get(cardId) ?? []).filter((k) => !panelBox || panelBox.members.includes(k)).length
@@ -769,10 +826,11 @@ export default function OrgChart() {
               // load, would say there is nothing to answer.
               doubtsCount={points.error || (points.loading && !points.groups.length) ? undefined : points.total}
               rootOptions={rootOptions}
-              root={root}
+              root={rootCard}
               onRoot={setRoot}
               shift={shift}
               onShift={setShift}
+              shifts={shiftOptions}
               colours={colours}
               onColours={setColours}
               zoom={zoom ?? 1}
@@ -808,10 +866,9 @@ export default function OrgChart() {
             {view === 'chart' && counts && (
               <OrgChartTitleStrip
                 title={rootNode ? `${rootNode.displayTitle || rootNode.title} — and below` : 'Organisation chart'}
-                meta={`As at ${asOf} · ${SHIFT_NAME[shift]}`}
+                meta={`As at ${asOf} · ${shiftLabel}`}
                 facts={[
                   { label: 'Positions', value: counts.positions },
-                  { label: 'Seats', value: counts.seats },
                   { label: 'Filled', value: counts.filled },
                   { label: 'Vacant', value: counts.vacant },
                   ...(counts.present || counts.absent
@@ -834,6 +891,8 @@ export default function OrgChart() {
                   zoom={zoom ?? 1}
                   fontFamily={palette.fontUi}
                   selected={selected}
+                  selectedRow={openRow}
+                  onOpenRow={(_card, positionId) => openPosition(positionId)}
                   accessibleName={`Organisation chart as at ${asOf}, ${counts?.positions ?? 0} positions`}
                   textAlternative={describeChart(model, visibleIds, shift)}
                   onSelect={onCanvasSelect}
@@ -850,7 +909,7 @@ export default function OrgChart() {
                     ids={visibleIds}
                     filter={shift}
                     secondaryEdges={model.secondary}
-                    onOpen={openCard}
+                    onOpen={openPosition}
                   />
                 </Box>
               )}
@@ -861,7 +920,7 @@ export default function OrgChart() {
               // own labels and the box's accessible name.
               <Typography
                 title={
-                  'Scroll to zoom; drag, Shift + scroll or a sideways swipe to pan. Click a box for its details, ' +
+                  'Scroll to zoom; drag, Shift + scroll or a sideways swipe to pan. Click a card for its role, or a row in it for that position, ' +
                   'or tab into the chart and use the arrow keys: Enter opens the panel, Enter again moves into it, ' +
                   'Esc closes it, Space folds a branch.' +
                   (secondaryCount > 0
@@ -878,7 +937,7 @@ export default function OrgChart() {
                   textOverflow: 'ellipsis',
                 }}
               >
-                Scroll to zoom · drag to pan · click a seat for details
+                Scroll to zoom · drag to pan · click a card for its role, a row for that position
                 {boxed ? ' · click a department name to open or close it' : ' · Space folds a branch'} · arrows walk
                 the chart, Enter opens the panel
                 {secondaryCount > 0 && ` · ${secondaryCount} dashed lines are non-primary reporting`}
@@ -890,16 +949,16 @@ export default function OrgChart() {
         {/* Inside the region so it rides into full screen with the chart. */}
         <OrgChartFloatingPanel
           ref={panelRef}
-          open={cardId != null}
-          label={topView ? `${viewKind(topView)}: ${topView.title}` : panelTitle}
+          open={views.length > 0}
+          label={topView ? `${viewKind(topView)}: ${panelTitle}` : panelTitle}
           title={
             <Stack direction="row" alignItems="flex-start" spacing={0.5} data-paneltitle="">
-              {stack.length > 0 && (
+              {views.length > 1 && (
                 <Tooltip title="Back (Esc)">
                   <IconButton
                     size="small"
                     onClick={panelNav.back}
-                    aria-label={`Back to ${views[views.length - 2]?.title ?? 'the position'}`}
+                    aria-label={`Back to ${views.length > 1 ? viewTitle(model, views[views.length - 2]) : 'the role'}`}
                     sx={{ mt: '-3px', ml: '-4px' }}
                   >
                     <ArrowBackRounded fontSize="small" />
@@ -917,17 +976,17 @@ export default function OrgChart() {
                     textOverflow: 'ellipsis',
                   }}
                 >
-                  {[...crumbs, topView ? viewKind(topView) : 'Position'].join(' › ')}
+                  {[...crumbs, topView ? viewKind(topView) : 'Role'].join(' › ')}
                 </Typography>
                 <Typography sx={{ fontSize: 16, fontWeight: 600, lineHeight: 1.3, overflowWrap: 'anywhere' }}>
-                  {topView?.title ?? panelTitle}
+                  {panelTitle}
                 </Typography>
               </Box>
             </Stack>
           }
           onClose={closePanel}
-          // Esc goes back one view; from the box itself it closes the panel.
-          onEscape={stack.length > 0 ? panelNav.back : closePanel}
+          // Esc goes back one view; from the first it closes the panel.
+          onEscape={views.length > 1 ? panelNav.back : closePanel}
           // Over the chart on Chart and Table; over the app's scrolling main
           // region on Departments and Doubts, which read as ordinary pages.
           boundsEl={chartLike ? stageEl : scrollEl}
@@ -941,33 +1000,34 @@ export default function OrgChart() {
               asOf={asOf}
               company={company}
               nav={panelNav}
-              onClose={() => setCardId(null)}
+              onClose={() => setViews([])}
               onChanged={refresh}
-              onStartFrom={(id) => {
-                setRoot(id);
+              onOpenCard={openCard}
+              onStartFrom={(positionId) => {
+                setRoot(model ? (cardIdOf(model, positionId) ?? '') : '');
                 // "Start from here" is a chart instruction; from Departments or
                 // Doubts it would otherwise change nothing the viewer can see.
                 if (!chartLike) setView('chart');
               }}
-              // The viewer's own drawing options, for the box the panel was
-              // opened from and only while the chart is what is on screen.
-              viewOptions={(positionId) =>
-                view === 'chart' && positionId === cardId ? (
+              // The viewer's own drawing options, for the card the panel was
+              // opened on and only while the chart is what is on screen.
+              viewOptions={(id) =>
+                view === 'chart' && id === cardId ? (
                   <OrgChartViewOptions
                     teamSize={panelTeam}
-                    arrange={arrange[positionId] || 'auto'}
+                    arrange={arrange[id] || 'auto'}
                     onArrange={(a) =>
                       setArrange((prev) => {
                         const next = { ...prev };
-                        if (a === 'auto') delete next[positionId];
-                        else next[positionId] = a;
+                        if (a === 'auto') delete next[id];
+                        else next[id] = a;
                         return next;
                       })
                     }
                     fold={
                       boxed
                         ? undefined
-                        : { collapsed: collapsed.has(positionId), onToggle: () => toggleCollapse(positionId) }
+                        : { collapsed: collapsed.has(id), onToggle: () => toggleCollapse(id) }
                     }
                   />
                 ) : null
@@ -983,7 +1043,7 @@ export default function OrgChart() {
           asOf={asOf}
           onAsOf={setAsOf}
           model={model}
-          onOpenCard={openCard}
+          onOpenCard={openPosition}
         />
       )}
 
@@ -1001,7 +1061,7 @@ export default function OrgChart() {
             onRetry={points.reload}
             onChanged={points.reload}
             canManage={canManage}
-            onPick={openCard}
+            onPick={openPosition}
           />
         </Surface>
       )}
@@ -1010,7 +1070,7 @@ export default function OrgChart() {
         open={searchOpen}
         asOf={asOf}
         onClose={() => setSearchOpen(false)}
-        onPick={openCard}
+        onPick={openPosition}
       />
     </Stack>
   );

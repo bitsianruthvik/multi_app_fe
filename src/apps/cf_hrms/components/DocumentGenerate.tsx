@@ -64,7 +64,7 @@ function summaryFor(
     if (role.kraCount === 0) gaps.push('no key result areas');
     if (role.kpiCount === 0) gaps.push('no indicators');
     const where = position
-      ? `for the seat ${position.positionCode ?? position.displayTitle}, so this position's overlays apply`
+      ? `for the position ${position.positionCode ?? position.displayTitle}, so this position's overlays apply`
       : 'for the role as held anywhere, with no position overlay';
     const thin = gaps.length
       ? ` This role has ${gaps.join(', ')}, so those sections will say so rather than be left out.`
@@ -117,7 +117,7 @@ export function DocumentGeneratePanel({
   }, []);
 
   // The position picker is narrowed to the chosen role: a position-specific JD
-  // is a version of THAT role, and offering every seat in the company would
+  // is a version of THAT role, and offering every position in the company would
   // invite a combination the resolver would reject.
   useEffect(() => {
     setPosition(null);
@@ -293,7 +293,7 @@ export function DocumentGeneratePanel({
                       helperText={
                         role
                           ? positions.length
-                            ? 'Adds this seat’s context and overlays'
+                            ? 'Adds this position’s context and overlays'
                             : 'This role has no positions'
                           : 'Pick a role first'
                       }

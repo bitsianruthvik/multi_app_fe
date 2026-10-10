@@ -109,7 +109,7 @@ export function ReportingRow({
               )}
               {row.managerPosition && (
                 <CrossLink
-                  label={row.managerPosition.code ?? row.managerPosition.title ?? 'seat'}
+                  label={row.managerPosition.code ?? row.managerPosition.title ?? 'position'}
                   to={`/${companySlug}/cf_hrms/positions/${row.managerPosition.id}`}
                 />
               )}
@@ -119,7 +119,7 @@ export function ReportingRow({
               <AccountTreeRounded sx={{ fontSize: 16, color: 'var(--c-text-3)' }} aria-hidden />
               <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>
                 {row.managerPosition
-                  ? `${row.managerPosition.title ?? 'That seat'} is vacant — the formal line still stands, nobody currently holds it.`
+                  ? `${row.managerPosition.title ?? 'That position'} is vacant — the formal line still stands, nobody currently holds it.`
                   : 'No manager recorded.'}
               </Typography>
             </Stack>
@@ -127,7 +127,7 @@ export function ReportingRow({
 
           {row.managerCandidates.length > 1 && (
             <Typography sx={{ fontSize: 12, color: 'var(--c-text-2)', mt: 0.5 }}>
-              Also in that seat: {row.managerCandidates.slice(1).map((m) => m.name).join(', ')}
+              Also in that position: {row.managerCandidates.slice(1).map((m) => m.name).join(', ')}
             </Typography>
           )}
 

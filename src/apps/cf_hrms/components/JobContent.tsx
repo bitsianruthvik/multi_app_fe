@@ -17,8 +17,8 @@
  * each heading is a button. A short job (a handful of lines) opens itself.
  *
  * A SEAT'S OWN CHANGES ARE MARKED ON THE LINE, in words — "Specific to this
- * seat", "Changed for this seat" (with what the role says underneath), "Switched
- * off for this seat" (struck through). The strike-through is never the only
+ * position", "Changed for this position" (with what the role says underneath), "Switched
+ * off for this position" (struck through). The strike-through is never the only
  * signal: the badge says it in text, so it survives a screen reader, a
  * monochrome print and anyone who does not read a line through as "removed".
  *
@@ -39,11 +39,11 @@ const DENSE_PREVIEW = 8;
 const AUTO_OPEN_LINES = 8;
 
 const MARK_LABEL: Record<Exclude<JobMark, null>, string> = {
-  ADDED: 'Specific to this seat',
-  CHANGED: 'Changed for this seat',
-  OFF: 'Switched off for this seat',
+  ADDED: 'Specific to this position',
+  CHANGED: 'Changed for this position',
+  OFF: 'Switched off for this position',
 };
-/** Said to the person in the seat, the same three facts read as theirs. */
+/** Said to the person in the position, the same three facts read as theirs. */
 const MARK_LABEL_SELF: Record<Exclude<JobMark, null>, string> = {
   ADDED: 'Specific to your job',
   CHANGED: 'Different for your job',
@@ -75,7 +75,7 @@ export interface JobContentSelection {
 
 export interface JobContentProps {
   content: JobContentData;
-  /** `self`: the reader is the person in the seat, so the sentences say "your". */
+  /** `self`: the reader is the person in the position, so the sentences say "your". */
   voice?: 'hr' | 'self';
   /** For the 500px panel and the side sheet: tighter type, and long lists fold. */
   dense?: boolean;
@@ -91,10 +91,7 @@ export interface JobContentProps {
   selection?: JobContentSelection;
   /** Shown beside the "no KRAs yet" sentence — usually a link to the role. */
   noKrasAction?: ReactNode;
-  /**
-   * What a seat is called on this surface. The org chart panel says "position"
-   * (an edit belongs to the position, whoever sits in it); elsewhere "seat".
-   */
+  /** Accepted so older callers compile; the word is "position" everywhere now. */
   noun?: 'seat' | 'position';
   /** Off where the page already prints the counts above (the role editor's band). */
   summary?: boolean;
@@ -111,7 +108,6 @@ export function JobContent({
   selection,
   noKrasAction,
   summary = true,
-  noun = 'seat',
 }: JobContentProps) {
   const { kras, ungrouped, counts, subject } = content;
   const ungroupedCount = ungrouped.responsibilities.length + ungrouped.kpis.length;
@@ -136,12 +132,11 @@ export function JobContent({
   const setAll = (open: boolean) => setToggled(Object.fromEntries(sectionKeys.map((k) => [k, open])));
 
   const fontSize = dense ? 13 : 13.5;
-  const named = (text: string) => (noun === 'seat' ? text : text.replace(/\bseat\b/g, noun));
   const markLabel =
     voice === 'self'
       ? MARK_LABEL_SELF
-      : { ADDED: named(MARK_LABEL.ADDED), CHANGED: named(MARK_LABEL.CHANGED), OFF: named(MARK_LABEL.OFF) };
-  const whose = voice === 'self' ? 'your' : subject === 'SEAT' ? `this ${noun}'s` : "this role's";
+      : MARK_LABEL;
+  const whose = voice === 'self' ? 'your' : subject === 'SEAT' ? "this position's" : "this role's";
 
   /* ── nothing at all ─────────────────────────────────────────────────────── */
   if (kras.length === 0 && totalLines === 0) {
@@ -151,7 +146,7 @@ export function JobContent({
           {voice === 'self'
             ? 'Your responsibilities have not been written into the system yet. That is about the records, not about your job.'
             : subject === 'SEAT'
-              ? named('This seat has no responsibilities — no KRAs, responsibilities or KPIs are written for its role yet.')
+              ? 'This position has no responsibilities — no KRAs, responsibilities or KPIs are written for its role yet.'
               : 'No KRAs, responsibilities or KPIs are written for this role yet.'}
           {noKrasAction ? <> {noKrasAction}</> : null}
         </Typography>
@@ -361,7 +356,7 @@ export function JobContent({
                 {differs === 0
                   ? 'exactly as the role says'
                   : [
-                      counts.added ? `${counts.added} specific to this ${noun}` : null,
+                      counts.added ? `${counts.added} specific to this position` : null,
                       counts.changed ? `${counts.changed} changed` : null,
                       counts.off ? `${counts.off} switched off` : null,
                     ]

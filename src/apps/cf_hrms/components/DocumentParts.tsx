@@ -9,7 +9,7 @@
  *   1. ORIGIN IS VISIBLE. Role content is overlaid by the Position and then by
  *      the Work Assignment (plan §2 rule 6). If the reader cannot see which
  *      layer a line came from, the layering was pointless — "the role does this
- *      everywhere" and "we added this for this one seat" are different facts and
+ *      everywhere" and "we added this for this one position" are different facts and
  *      an HR person answers different questions with them.
  *
  *   2. AN EMPTY SECTION SAYS WHY. Karni's 63 roles have no purpose, no KRAs, no
@@ -106,7 +106,7 @@ export function OriginChip({ origin, overridden }: { origin: Origin; overridden?
  * "Role" would be 27 identical chips on a Karni JD, which teaches people to stop
  * reading chips. So that case says it once in words — and, crucially, names the
  * declared layers that contributed nothing. "This position adds nothing" is a
- * real finding about the seat, not an absence.
+ * real finding about the position, not an absence.
  */
 export function OriginLegend({
   observed,
@@ -325,7 +325,7 @@ export function SuppressedList({
  * Overlay rows that changed nothing, and why.
  *
  * An exception somebody wrote that silently does nothing is the worst kind: the
- * seat looks configured and behaves like the role. The resolver reports these
+ * position looks configured and behaves like the role. The resolver reports these
  * rather than swallowing them, so the screen shows them — quietly, because they
  * are not an error in the document, they are a mistake in the overlay.
  */
@@ -538,7 +538,7 @@ export function ItemLines({
  * prints only the first is the exact mistake the model was built to prevent —
  * `employee.manager_id` does not exist precisely so this cannot be done by
  * accident. A vacant line is still printed, because the reporting line stands
- * even when nobody holds the seat.
+ * even when nobody holds the position.
  */
 export function ManagerLines({
   managers,
@@ -606,7 +606,7 @@ export function ManagerLines({
                   )
                 ) : (
                   <Typography sx={{ fontSize: 13.5, color: 'var(--c-text-2)' }}>
-                    {m.managerPosition?.title ?? m.managerPosition?.code ?? 'That seat'} is vacant —
+                    {m.managerPosition?.title ?? m.managerPosition?.code ?? 'That position'} is vacant —
                     the line stands, nobody currently holds it.
                   </Typography>
                 )}

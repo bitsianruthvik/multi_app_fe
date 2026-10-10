@@ -47,15 +47,16 @@ export const M = 36;
 export const HEAD = 84;
 /** Not in the source file: it had no work-context chips because machines were nodes. */
 export const CHIPH = 18;
-export type ShiftFilter = 'all' | 'D' | 'N';
+/** Every shift, or the positions on ONE shift (its code: G, D, N, or a company's own). */
+export type ShiftFilter = string;
 export type Arrange = 'auto' | 'side' | 'stack';
 
 /**
  * What is DRAWN (spec §16) — three switches over the same data. At least one
  * is always on (`normaliseShow`), so the canvas is never empty.
  *   departments  boxes around their people; off = the plain reporting tree
- *   roles        the seat's title
- *   people       the names (and the vacancy rows) in the seat
+ *   roles        the card's title
+ *   people       the position rows — a name, or Vacant
  */
 export interface ChartShow {
   departments: boolean;
@@ -247,14 +248,43 @@ export function makeFonts(family: string): ChartFonts {
 
 export const PRIMARY = 'PRIMARY_MANAGER';
 
+/**
+ * A ROLE CARD — what the chart draws as one box since 2026-10-10.
+ *
+ * The model is two levels: a ROLE (the job) and a POSITION (one chair for one
+ * person, on one shift). The payload stays position-shaped — one node per
+ * position — and the server says which positions are drawn together:
+ * `node.cardId`. A card is the positions with the same role and department
+ * whose managers sit in one card. The grouping is the SERVER's; nothing here
+ * re-derives it.
+ *
+ * A card is laid out, folded, arranged and joined by lines exactly as a
+ * position's box used to be, so it carries a position node's fields (taken from
+ * its first position; `id` is the card id) and the engine below is unchanged.
+ * `positions` are its rows.
+ */
+export interface ChartCard extends OrgChartNode {
+  /** The card's positions in row order: General → Day → Night, then position code. */
+  positions: OrgChartNode[];
+}
+
 export interface ChartModel {
-  byId: Map<number, OrgChartNode>;
+  /** CARDS by card id — what is drawn. Every other map and list here is in card ids. */
+  byId: Map<number, ChartCard>;
+  /** Every POSITION by its own id. */
+  positions: Map<number, OrgChartNode>;
+  /** Position id → the id of the card it is a row of. */
+  cardOf: Map<number, number>;
   /** Child ids in payload order, so the chart is stable between loads. */
   children: Map<number, number[]>;
   parent: Map<number, number>;
   roots: number[];
   depth: Map<number, number>;
-  /** Everything that is not PRIMARY_MANAGER — dotted, functional, project, … */
+  /**
+   * Everything that is not PRIMARY_MANAGER — dotted, functional, project, … —
+   * as CARD → CARD lines (`fromPositionId` / `toPositionId` hold card ids),
+   * each distinct (from, to, type, scope) once.
+   */
   secondary: OrgChartEdge[];
   /** Edges dropped to keep the tree a tree, reported rather than hidden. */
   droppedPrimary: OrgChartEdge[];
@@ -264,41 +294,122 @@ export interface ChartModel {
   deptById: Map<number, OrgChartDepartment>;
 }
 
+/** A shift's short code. General / Day / Night are G / D / N; any other shift keeps its own. */
+export function shiftCodeOf(n: OrgChartNode): string {
+  return n.defaultShift?.code || n.shiftPattern || 'G';
+}
+
+const SHIFT_FALLBACK: Record<string, string> = { G: 'General', D: 'Day', N: 'Night' };
+
+/** The shift as a word for a row: "Day", not "Day shift" — the column says what it is. */
+export function shiftNameOf(n: OrgChartNode): string {
+  const name = n.defaultShift?.name?.trim();
+  if (name) return name.replace(/\s+shift$/i, '') || name;
+  const code = shiftCodeOf(n);
+  return SHIFT_FALLBACK[code] ?? code;
+}
+
+const SHIFT_RANK: Record<string, number> = { G: 0, D: 1, N: 2 };
+
+/** Row order inside a card: General → Day → Night → any other shift, then position code. */
+function byShiftThenCode(a: OrgChartNode, b: OrgChartNode): number {
+  const ra = SHIFT_RANK[shiftCodeOf(a)] ?? 3;
+  const rb = SHIFT_RANK[shiftCodeOf(b)] ?? 3;
+  if (ra !== rb) return ra - rb;
+  if (ra === 3) {
+    const byName = shiftNameOf(a).localeCompare(shiftNameOf(b));
+    if (byName) return byName;
+  }
+  const byCode = (a.positionCode ?? '').localeCompare(b.positionCode ?? '', undefined, { numeric: true });
+  return byCode || a.id - b.id;
+}
+
+function makeCard(id: number, list: OrgChartNode[]): ChartCard {
+  const positions = [...list].sort(byShiftThenCode);
+  const first = list[0];
+  const contexts = new Map<number, OrgChartNode['contexts'][number]>();
+  for (const p of list) for (const c of p.contexts ?? []) if (!contexts.has(c.id)) contexts.set(c.id, c);
+  return {
+    ...first,
+    id,
+    // A card of several positions has no one code; each row has its own.
+    positionCode: list.length === 1 ? first.positionCode : null,
+    occupants: list.flatMap((p) => (p.occupants ?? []).slice(0, 1)),
+    vacancies: list.filter((p) => !(p.occupants ?? []).length).length,
+    sanctionedHeadcount: list.length,
+    effectiveSanctioned: list.length,
+    requirements: [],
+    contexts: [...contexts.values()],
+    hasContent: list.some((p) => p.hasContent),
+    counts: {
+      ...first.counts,
+      openPoints: list.reduce((a, p) => a + (p.counts?.openPoints ?? 0), 0),
+    },
+    positions,
+  };
+}
+
 /**
- * Picks the PRIMARY_MANAGER edges as the drawn tree and keeps everything else
- * as a secondary link. This is a *rendering* choice over a many-to-many table,
- * not a claim that a position has one manager (plan §2 rule 9) — which is why
- * the card modal shows the resolved set and the chart draws the rest dashed.
+ * Groups the positions into role cards (by the server's `cardId`), then picks
+ * the PRIMARY_MANAGER lines as the drawn tree and keeps everything else as a
+ * secondary link. Each position edge becomes a card → card edge and each
+ * distinct one is drawn once: six operators reporting to one incharge are one
+ * line from their card to the incharge's.
+ *
+ * Choosing PRIMARY for the tree is a *rendering* choice over a many-to-many
+ * table, not a claim that a position has one manager (plan §2 rule 9) — which
+ * is why the panel shows the resolved set and the chart draws the rest dashed.
  */
 export function buildModel(graph: OrgChartGraph): ChartModel {
-  const byId = new Map<number, OrgChartNode>();
+  const positions = new Map<number, OrgChartNode>();
+  const cardOf = new Map<number, number>();
+  const groups = new Map<number, OrgChartNode[]>();
   const order: number[] = [];
   for (const n of graph.nodes) {
-    byId.set(n.id, n);
-    order.push(n.id);
+    positions.set(n.id, n);
+    // FALLBACK ONLY: a server older than 2026-10-10 sends no `cardId`, so each
+    // position is its own card. The grouping is never worked out here.
+    const card = n.cardId ?? n.id;
+    cardOf.set(n.id, card);
+    const list = groups.get(card);
+    if (list) list.push(n);
+    else {
+      groups.set(card, [n]);
+      order.push(card);
+    }
   }
+  const byId = new Map<number, ChartCard>();
+  for (const id of order) byId.set(id, makeCard(id, groups.get(id)!));
 
   const parent = new Map<number, number>();
   const secondary: OrgChartEdge[] = [];
+  const secondarySeen = new Set<string>();
   const droppedPrimary: OrgChartEdge[] = [];
+  const addSecondary = (e: OrgChartEdge, from: number, to: number) => {
+    const key = `${from}>${to}|${e.typeCode}|${e.scopeType ?? ''}|${e.scopeLabel ?? ''}`;
+    if (secondarySeen.has(key)) return;
+    secondarySeen.add(key);
+    secondary.push({ ...e, fromPositionId: from, toPositionId: to });
+  };
 
   for (const e of graph.edges) {
+    const child = cardOf.get(e.fromPositionId);
+    const mgr = cardOf.get(e.toPositionId);
     if (e.typeCode !== PRIMARY) {
-      if (byId.has(e.fromPositionId) && byId.has(e.toPositionId)) secondary.push(e);
+      if (child !== undefined && mgr !== undefined && child !== mgr) addSecondary(e, child, mgr);
       continue;
     }
-    const child = e.fromPositionId;
-    const mgr = e.toPositionId;
-    if (!byId.has(child) || !byId.has(mgr) || child === mgr) {
+    if (child === undefined || mgr === undefined || child === mgr) {
       droppedPrimary.push(e);
       continue;
     }
-    if (parent.has(child)) {
-      // Two primary managers on one seat. The tree can draw one; the other is
-      // still real, so it falls through to the secondary set and is drawn
-      // dashed rather than deleted.
+    const has = parent.get(child);
+    if (has === mgr) continue; // the same card → card line, from another row
+    if (has !== undefined) {
+      // Two primary managers in different cards. The tree can draw one; the
+      // other is still real, so it is drawn dashed rather than deleted.
       droppedPrimary.push(e);
-      secondary.push(e);
+      addSecondary(e, child, mgr);
       continue;
     }
     parent.set(child, mgr);
@@ -343,10 +454,17 @@ export function buildModel(graph: OrgChartGraph): ChartModel {
   const departments = [...(graph.departments ?? [])].sort((a, b) => a.rank - b.rank || a.id - b.id);
   const deptById = new Map(departments.map((d) => [d.id, d]));
 
-  return { byId, children, parent, roots, depth, secondary, droppedPrimary, order, departments, deptById };
+  return {
+    byId, positions, cardOf, children, parent, roots, depth, secondary, droppedPrimary, order, departments, deptById,
+  };
 }
 
-/** Every id in a subtree, root included — depth first, siblings in payload order. */
+/** The card a position is drawn in; a card id is returned as it is. Null when it is not on the chart. */
+export function cardIdOf(model: ChartModel, id: number): number | null {
+  return model.cardOf.get(id) ?? (model.byId.has(id) ? id : null);
+}
+
+/** Every card id in a subtree, root included — depth first, siblings in payload order. */
 export function subtreeIds(model: ChartModel, rootId: number | ''): number[] {
   const out: number[] = [];
   const seen = new Set<number>();
@@ -372,179 +490,132 @@ export function descendantCount(model: ChartModel, id: number): number {
   return n;
 }
 
-// ── Rows inside a box ───────────────────────────────────────────────────────
+// ── Rows inside a card: one per position ────────────────────────────────────
 
 export interface BoxRow {
-  shift: 'G' | 'D' | 'N';
+  /** The position this row is. Null only for the one placeholder row of a names-only card with nobody in it. */
+  positionId: number | null;
+  positionCode: string | null;
+  shiftCode: string;
+  /** "General", "Day", "Night" — drawn small and quiet on every row. */
+  shiftName: string;
   occupant: OrgChartOccupant | null;
 }
 
-function occupantShift(o: OrgChartOccupant): 'D' | 'N' {
-  return o.shiftCode === 'N' ? 'N' : 'D';
-}
-
-function requiredFor(n: OrgChartNode, shift: 'D' | 'N'): number {
-  const req = n.requirements?.find((r) => r.shiftCode === shift);
-  if (req) return Math.max(0, req.requiredCount);
-  // No requirement row for that shift: split the effective count across the two
-  // shifts rather than falling back to sanctionedHeadcount, which means ONE seat
-  // and would halve a DN position's rows.
-  const eff = n.effectiveSanctioned ?? n.sanctionedHeadcount;
-  return Math.max(0, Math.round(eff / 2));
+function inShift(n: OrgChartNode, filter: ShiftFilter): boolean {
+  return filter === 'all' || shiftCodeOf(n) === filter;
 }
 
 /**
- * How many rows the box has to show.
+ * A card's rows: one per position, in the card's row order — the person in it,
+ * or nobody (drawn "Vacant"). A vacancy is a rendered empty row, never an
+ * omitted one: seeing the hole is the point.
  *
- * `sanctionedHeadcount` is ONE SEAT and stays 1 on a day/night position, so it
- * is the wrong number to pad from: 78 vacancies instead of 156 across Karni.
- * `effectiveSanctioned` is the server's derived answer — headcount for a
- * single-shift seat, Σ(requiredCount) for a DN one — and is what this uses.
+ * The shift filter keeps the positions ON that shift; General is a shift like
+ * the others, so "Day" shows day positions only.
  */
-function effectiveSeats(n: OrgChartNode): number {
-  return Math.max(0, n.effectiveSanctioned ?? n.sanctionedHeadcount);
-}
-
-/**
- * Occupant rows, then vacancy rows padding to the sanctioned count.
- *
- * THE DAY/NIGHT RULE. A `DN` position is sanctioned *per shift*: its rows are
- * grouped into a Day set and a Night set and **each group pads to its own
- * required count independently**, so a `DN` seat requiring 1 shows two rows.
- * 55 of Karni's 114 positions are DN; treating the pattern as one pool halves
- * the visible vacancies — 101 instead of 156 — which is precisely the number
- * this screen was built to communicate.
- *
- * A vacancy is a rendered empty slot, never an omitted row. Seeing the hole is
- * the point.
- */
-export function rowsOf(n: OrgChartNode, filter: ShiftFilter): BoxRow[] {
-  const rows: BoxRow[] = [];
-  if (n.shiftPattern === 'DN') {
-    (['D', 'N'] as const)
-      .filter((s) => filter === 'all' || filter === s)
-      .forEach((s) => {
-        const req = requiredFor(n, s);
-        const people = (n.occupants ?? []).filter((o) => occupantShift(o) === s);
-        people.forEach((o) => rows.push({ shift: s, occupant: o }));
-        for (let i = people.length; i < req; i += 1) rows.push({ shift: s, occupant: null });
-      });
-    return rows;
-  }
-  const group: 'G' | 'D' | 'N' =
-    n.shiftPattern === 'D' || n.shiftPattern === 'N' ? n.shiftPattern : 'G';
-  // A general-shift seat belongs to neither day nor night, so the shift filter
-  // leaves it alone; a seat explicitly sanctioned for one shift respects it.
-  if (group !== 'G' && filter !== 'all' && filter !== group) return [];
-  const req = effectiveSeats(n);
-  (n.occupants ?? []).forEach((o) => rows.push({ shift: group, occupant: o }));
-  for (let i = (n.occupants ?? []).length; i < req; i += 1) rows.push({ shift: group, occupant: null });
-  return rows;
+export function rowsOf(card: ChartCard, filter: ShiftFilter): BoxRow[] {
+  return card.positions
+    .filter((p) => inShift(p, filter))
+    .map((p) => ({
+      positionId: p.id,
+      positionCode: p.positionCode,
+      shiftCode: shiftCodeOf(p),
+      shiftName: shiftNameOf(p),
+      occupant: p.occupants?.[0] ?? null,
+    }));
 }
 
 export interface VisibleCounts {
+  /** Role cards counted. */
+  cards: number;
   positions: number;
-  seats: number;
   filled: number;
   present: number;
   absent: number;
-  /** Someone is in the seat but the day has no attendance record. */
+  /** Someone is in the position but the day has no attendance record. */
   unmarked: number;
   vacant: number;
 }
 
-/** One position's seats on the chart's terms. */
-export interface SeatCount {
-  seats: number;
-  filled: number;
-  vacant: number;
-  /** More people than seats. Counted as its seats, no vacancy, every person filled. */
-  overFilled: boolean;
-  /** The people counted (those of the filtered shift, on a day-and-night seat). */
-  occupants: OrgChartOccupant[];
-}
-
 /**
- * THE seat rule on the frontend — the mirror of the backend's
- * `services/seatCount.js`, and the only place this app's screens may get
- * seats, filled and vacant from for a chart node.
+ * THE counting rule on the frontend — the only place this app's chart screens
+ * may get positions, filled and vacant from.
  *
- *   seats   = `effectiveSanctioned` (the server's answer: headcount for a
- *             single-shift seat, Σ required_count for a day-and-night one)
- *   filled  = the people in the seat
- *   vacant  = max(0, seats − filled) — the server's `vacancies`; never negative
+ *   positions = the positions (one chair each)
+ *   filled    = the positions with a person in them
+ *   vacant    = the positions with nobody in them
  *
- * AN OVER-FILLED SEAT (seven day operators on a seat sanctioned 1 + 1) is its
- * sanctioned seats, all its people filled, and NO vacancy — the surplus on day
- * is not a vacancy on night. So Σ seats − Σ filled is NOT Σ vacant: Karni is
- * 202 seats, 71 filled, 149 vacant (the six over-filled seats hold 18 more
- * people than they have seats for).
+ * So positions = filled + vacant, always, and the header, the fixed strip, a
+ * department box's count, the table and the Departments tab cannot disagree
+ * with each other or with the server's `counts` (Karni, local: 220 / 71 / 149).
  *
- * Until 2026-10-10 the header, the stat strip and the box counts counted the
- * ROWS DRAWN instead (`rowsOf`), which pads each shift on its own and counts
- * every surplus person as a seat: 234 seats / 163 vacant against the server's
- * 202 / 149. `rowsOf` is still what a box DRAWS — a row per person, an empty
- * row per unfilled shift — but it is no longer what anything counts.
+ * Until 2026-10-10 a position could hold several seats — one per shift on a
+ * day-and-night position, several people on an over-filled one — and this rule
+ * had to reconcile `effectiveSanctioned`, requirement rows and surplus people.
+ * None of that exists any more: a shift is a property of the position.
  *
- * With a shift filter there is no server number, so the same rule is applied
- * to that shift alone: its required count, its people, the difference floored
- * at zero. A general-shift seat belongs to neither and is counted either way.
- */
-export function seatCount(n: OrgChartNode, filter: ShiftFilter = 'all'): SeatCount {
-  const all = n.occupants ?? [];
-  if (filter === 'all' || n.shiftPattern !== 'DN') {
-    const fixed = n.shiftPattern === 'D' || n.shiftPattern === 'N' ? n.shiftPattern : null;
-    if (filter !== 'all' && fixed && fixed !== filter) {
-      return { seats: 0, filled: 0, vacant: 0, overFilled: false, occupants: [] };
-    }
-    const seats = effectiveSeats(n);
-    const vacant = Math.max(0, n.vacancies ?? seats - all.length);
-    return { seats, filled: all.length, vacant, overFilled: all.length > seats, occupants: all };
-  }
-  const seats = requiredFor(n, filter);
-  const people = all.filter((o) => occupantShift(o) === filter);
-  return {
-    seats,
-    filled: people.length,
-    vacant: Math.max(0, seats - people.length),
-    overFilled: people.length > seats,
-    occupants: people,
-  };
-}
-
-/**
- * Totals over a set of positions, by `seatCount` — so the header, the stat
- * strip, a closed department's count and the table cannot disagree with each
- * other or with the server's `counts`.
+ * With a shift filter the same rule runs over the positions on that shift.
  *
  * "Filled" and "present" are kept apart deliberately: on a date with no
  * attendance every person is *unmarked*, and folding those into "present"
  * would report an attendance figure the system does not have.
  */
-export function countRows(model: ChartModel, ids: number[], filter: ShiftFilter): VisibleCounts {
-  let present = 0;
-  let absent = 0;
-  let unmarked = 0;
-  let vacant = 0;
-  let seats = 0;
-  let filled = 0;
-  for (const id of ids) {
-    const n = model.byId.get(id);
-    if (!n) continue;
-    const c = seatCount(n, filter);
-    seats += c.seats;
-    filled += c.filled;
-    vacant += c.vacant;
-    for (const o of c.occupants) {
-      if (o.attendanceStatus === 'ABSENT') absent += 1;
-      else if (o.attendanceStatus === 'PRESENT') present += 1;
-      else unmarked += 1;
+export function countPositions(nodes: Iterable<OrgChartNode>, filter: ShiftFilter = 'all'): VisibleCounts {
+  const c: VisibleCounts = { cards: 0, positions: 0, filled: 0, present: 0, absent: 0, unmarked: 0, vacant: 0 };
+  for (const n of nodes) {
+    if (!inShift(n, filter)) continue;
+    c.positions += 1;
+    const o = n.occupants?.[0];
+    if (!o) {
+      c.vacant += 1;
+      continue;
     }
+    c.filled += 1;
+    if (o.attendanceStatus === 'ABSENT') c.absent += 1;
+    else if (o.attendanceStatus === 'PRESENT') c.present += 1;
+    else c.unmarked += 1;
   }
-  return { positions: ids.length, seats, filled, present, absent, unmarked, vacant };
+  return c;
 }
 
-// ── Box anatomy (spec §2) ───────────────────────────────────────────────────
+/** One card's count, by `countPositions`. */
+export function cardCount(card: ChartCard, filter: ShiftFilter = 'all'): VisibleCounts {
+  return { ...countPositions(card.positions, filter), cards: 1 };
+}
+
+/** "2 positions · 1 vacant" — the one line a card, a closed department and a list row all use. */
+export function positionsLine(c: { positions: number; vacant: number }): string {
+  const n = `${c.positions} position${c.positions === 1 ? '' : 's'}`;
+  if (!c.positions) return 'No positions';
+  if (!c.vacant) return `${n} · ${c.positions === 1 ? 'filled' : 'all filled'}`;
+  return `${n} · ${c.positions === 1 ? 'vacant' : `${c.vacant} vacant`}`;
+}
+
+/** Totals over a set of CARDS (by card id), by `countPositions`. */
+export function countRows(model: ChartModel, ids: number[], filter: ShiftFilter): VisibleCounts {
+  const all: OrgChartNode[] = [];
+  let cards = 0;
+  for (const id of ids) {
+    const card = model.byId.get(id);
+    if (!card) continue;
+    cards += 1;
+    all.push(...card.positions);
+  }
+  return { ...countPositions(all, filter), cards };
+}
+
+/** The same totals over POSITION ids (a list that is not card-shaped, e.g. the Departments tab). */
+export function countPositionIds(model: ChartModel, positionIds: number[], filter: ShiftFilter = 'all'): VisibleCounts {
+  const all: OrgChartNode[] = [];
+  for (const id of positionIds) {
+    const n = model.positions.get(id);
+    if (n) all.push(n);
+  }
+  return countPositions(all, filter);
+}
+
+// ── Card anatomy (spec §2, reshaped 2026-10-10) ─────────────────────────────
 
 export interface BoxInfo {
   titleLines: string[];
@@ -552,11 +623,13 @@ export interface BoxInfo {
   /** Work contexts shown as chips — never as parent nodes (spec §1). */
   chips: string[];
   rows: BoxRow[];
+  /** Width of the shift column at the left of every row (0 when there are no rows). */
+  shiftW: number;
   h: number;
 }
 
 export function boxInfo(
-  n: OrgChartNode,
+  n: ChartCard,
   filter: ShiftFilter,
   fonts: ChartFonts,
   show: ChartShow = SHOW_ALL,
@@ -565,44 +638,48 @@ export function boxInfo(
   const titleLines = show.roles
     ? wrapText(n.displayTitle || n.title, fonts.title, W - 2 * PAD - badge)
     : [];
-  // PEOPLE OFF: the seat is its role — no names and no vacancy rows.
+  // PEOPLE OFF: the card is its role and one line saying how many positions it
+  // has — no names and no vacancy rows.
   // ROLES OFF: names only. A vacancy row says "this role is unfilled", and with
-  // the role hidden it says nothing, so vacancy rows go; a seat with nobody in
-  // it keeps ONE muted "Vacant seat" row so the reporting shape stays whole.
+  // the role hidden it says nothing, so vacancy rows go; a card with nobody in
+  // it keeps ONE muted "Vacant position" row so the reporting shape stays whole.
   let rows = show.people ? rowsOf(n, filter) : [];
   if (show.people && !show.roles) {
     rows = rows.filter((r) => r.occupant);
-    if (!rows.length) rows = [{ shift: 'G', occupant: null }];
+    if (!rows.length) rows = [{ positionId: null, positionCode: null, shiftCode: '', shiftName: '', occupant: null }];
   }
   const captions: string[] = [];
   const chips: string[] = [];
 
   const contexts = n.contexts ?? [];
   if (contexts.length === 1) {
-    // One context reads best as the thing it is: a chip on the box saying where
-    // this work happens. The four seats on Pelican Machine hang under Printing
-    // Incharge and carry "Pelican Machine" here — the machine is not a manager.
+    // One context reads best as the thing it is: a chip on the card saying
+    // where this work happens — the machine is not a manager.
     chips.push(fitText(contexts[0].name, fonts.chip, W - 2 * PAD - 12));
   }
-  if (n.shiftPattern === 'DN' && show.roles) captions.push('Day & Night shift');
+  if (!show.people && show.roles) captions.push(positionsLine(cardCount(n, filter)));
   if (contexts.length > 1) {
     wrapText(`Shared across: ${contexts.map((c) => c.name).join(', ')}`, fonts.caption, W - 2 * PAD)
       .forEach((l) => captions.push(l));
   }
   if (n.status && n.status !== 'ACTIVE' && show.roles) captions.push(`${n.status.charAt(0)}${n.status.slice(1).toLowerCase()} position`);
 
+  const shiftW = rows.length
+    ? Math.min(62, Math.ceil(Math.max(0, ...rows.map((r) => (r.shiftName ? textWidth(r.shiftName, fonts.rowSmall) : 0)))))
+    : 0;
+
   let h = PAD + titleLines.length * TLH + captions.length * CAPH + chips.length * CHIPH;
   const top = titleLines.length + captions.length + chips.length > 0;
   if (rows.length) h += (top ? 7 : 0) + rows.length * (ROWH + ROWG) - ROWG;
   h += PAD + 2;
-  return { titleLines, captions, chips, rows, h };
+  return { titleLines, captions, chips, rows, shiftW, h };
 }
 
 // ── Layout: two passes ──────────────────────────────────────────────────────
 
 export interface PlacedNode {
   id: number;
-  node: OrgChartNode;
+  node: ChartCard;
   info: BoxInfo;
   x: number;
   y: number;
@@ -1276,14 +1353,13 @@ export function layoutDepartments(model: ChartModel, opts: LayoutOptions): Layou
     const inner = innerLayout(drawnCards.length ? tops0 : [], kidsIn, (id) => placed.get(id)!.h, arrange);
     inners.set(d, inner);
 
-    const seatWord = (n: number) => `${n} seat${n === 1 ? '' : 's'}`;
-    const notes: string[] = [];
+        const notes: string[] = [];
     if (!own.length && !kidsAll.length) {
       const by = servedBy(d);
       // The arrows say WHICH crew; the words only say why the box is empty.
-      notes.push(by === 1 ? 'Worked by a shared crew' : by ? `Worked by ${by} shared crews` : 'No seats of its own');
+      notes.push(by === 1 ? 'Worked by a shared crew' : by ? `Worked by ${by} shared crews` : 'No positions of its own');
     } else if (!open || !cards) {
-      notes.push(counts.seats ? `${seatWord(counts.seats)}, ${counts.vacant} vacant` : 'No seats of its own');
+      notes.push(counts.positions ? positionsLine(counts) : 'No positions of its own');
       if (!open && below) notes.push(`${below} department${below === 1 ? '' : 's'} inside`);
     }
     const contentW = Math.max(W, inner.w);
@@ -1686,8 +1762,8 @@ export function departmentTree(model: ChartModel, opts: LayoutOptions): Map<numb
   return layoutDepartments(model, { ...opts, deptClosed: new Set() }).dept!.boxes;
 }
 
-/** The department box a seat is drawn in. */
-export function departmentOfSeat(model: ChartModel, id: number): number {
+/** The department box a card is drawn in. */
+export function departmentOfCard(model: ChartModel, id: number): number {
   const d = model.byId.get(id)?.departmentId;
   return d != null && model.deptById.has(d) ? d : NO_DEPT;
 }
@@ -1735,8 +1811,21 @@ export type Prim =
       anchor?: 'start' | 'middle' | 'end';
     };
 
+/** One position row of a card: where it is, and what a click on it opens. */
+export interface RowHit {
+  positionId: number;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  label: string;
+}
+
 export interface BoxRender {
+  /** The CARD's id. A click on the card (not on a row) opens its role. */
   id: number;
+  /** The position rows drawn in it, each its own click target. */
+  rows: RowHit[];
   x: number;
   y: number;
   w: number;
@@ -1839,21 +1928,16 @@ function rowTone(
   return { bar: p.faint, fill: p.surface2, text: p.ink, status: '' };
 }
 
-const SHIFT_NAME: Record<'G' | 'D' | 'N', string> = { G: 'General', D: 'Day', N: 'Night' };
-
-function boxLabel(p: PlacedNode, filter: ShiftFilter): string {
+function boxLabel(p: PlacedNode, filter: ShiftFilter, shiftName: string | null): string {
   const n = p.node;
-  const c = seatCount(n, filter);
-  const bits = [n.displayTitle || n.title];
-  if (n.positionCode) bits.push(n.positionCode);
-  bits.push(`${c.seats} seat${c.seats === 1 ? '' : 's'}, ${c.filled} filled`);
-  if (c.vacant > 0) bits.push(`${c.vacant} vacant`);
-  if (c.overFilled) bits.push('more people than seats');
-  if (n.shiftPattern === 'DN') bits.push('day and night shift');
+  const c = cardCount(n, filter);
+  const bits = [`Role ${n.displayTitle || n.title}`];
+  if (n.departmentName) bits.push(n.departmentName);
+  bits.push(`${c.positions} position${c.positions === 1 ? '' : 's'}, ${c.filled} filled, ${c.vacant} vacant`);
   if (n.contexts?.length) bits.push(`work context ${n.contexts.map((c) => c.name).join(', ')}`);
   const kids = p.kids.length + p.hidden;
   if (kids) bits.push(p.collapsed ? `${p.hidden} reports hidden` : `${p.kids.length} direct reports`);
-  if (filter !== 'all') bits.push(`${SHIFT_NAME[filter]} shift only`);
+  if (filter !== 'all') bits.push(`${shiftName ?? filter} shift only`);
   return bits.join('. ');
 }
 
@@ -1870,6 +1954,16 @@ export function buildScene(model: ChartModel, opts: SceneOptions): ChartScene {
   const edges: Prim[] = [];
   const secondary: Prim[] = [];
   const boxes: BoxRender[] = [];
+  // The filtered shift's name, for a card's accessible name.
+  let filterName: string | null = null;
+  if (opts.filter !== 'all') {
+    for (const n of model.positions.values()) {
+      if (shiftCodeOf(n) === opts.filter) {
+        filterName = shiftNameOf(n);
+        break;
+      }
+    }
+  }
 
   const linePath: string[] = [];
   for (const id of lay.order) {
@@ -2136,7 +2230,7 @@ export function buildScene(model: ChartModel, opts: SceneOptions): ChartScene {
         id: d, x: b.x, y: b.y, w: b.w, h: b.h, titleH: b.titleH, prims,
         label:
           `${b.name}${b.type ? `, ${b.type}` : ''}. ` +
-          (c.seats ? `${c.seats} seat${c.seats === 1 ? '' : 's'}, ${c.vacant} vacant. ` : 'No seats of its own. ') +
+          (c.positions ? `${positionsLine(c)}. ` : 'No positions of its own. ') +
           (b.canToggle ? (b.open ? 'Open.' : `Closed${b.below ? `, ${b.below} departments inside` : ''}.`) : ''),
         open: b.open,
         canToggle: b.canToggle,
@@ -2195,6 +2289,7 @@ export function buildScene(model: ChartModel, opts: SceneOptions): ChartScene {
     const isHead = heads.has(id);
     const stroke = isHead ? p.accent : p.border;
     const prims: Prim[] = [];
+    const rowHits: RowHit[] = [];
 
     prims.push({
       k: 'rect',
@@ -2300,6 +2395,17 @@ export function buildScene(model: ChartModel, opts: SceneOptions): ChartScene {
       }
       for (const r of I.rows) {
         const tone = rowTone(r, p);
+        if (r.positionId != null) {
+          const who = r.occupant ? r.occupant.name?.trim() || 'Name not recorded' : 'Vacant';
+          rowHits.push({
+            positionId: r.positionId,
+            x: x + PAD,
+            y: cy,
+            w: W - 2 * PAD,
+            h: ROWH,
+            label: `${who}, ${r.shiftName} shift${r.positionCode ? `, position ${r.positionCode}` : ''}. Open this position.`,
+          });
+        }
         const rx = x + PAD;
         const rw = W - 2 * PAD;
         const base = cy + 13.5;
@@ -2321,23 +2427,26 @@ export function buildScene(model: ChartModel, opts: SceneOptions): ChartScene {
           });
         }
         let tx = rx + 8;
-        if (r.shift !== 'G' && opts.filter === 'all') {
+        // The shift, small and quiet, on EVERY row (the client asked to see it
+        // on the chart): a position is on one shift, and that is how two rows
+        // of one card differ.
+        if (r.shiftName && I.shiftW) {
           prims.push({
             k: 'text',
             x: tx,
             y: base,
-            text: SHIFT_NAME[r.shift],
+            text: fitText(r.shiftName, f.rowSmall, I.shiftW),
             size: 11,
             weight: 400,
-            fill: p.faint,
+            fill: opts.colours ? tone.text : p.muted,
           });
-          tx += 36;
+          tx += I.shiftW + 8;
         }
         const name = r.occupant
           ? r.occupant.name?.trim() || 'Name not recorded'
           : show.roles
             ? 'Vacant'
-            : 'Vacant seat';
+            : 'Vacant position';
         if (r.occupant) {
           const who = r.occupant.sameAs ?? (r.occupant.employeeId > 0 ? `e${r.occupant.employeeId}` : null);
           if (who) {
@@ -2418,7 +2527,8 @@ export function buildScene(model: ChartModel, opts: SceneOptions): ChartScene {
       w: W,
       h: I.h,
       prims,
-      label: boxLabel(n, opts.filter),
+      rows: rowHits,
+      label: boxLabel(n, opts.filter, filterName),
       toggle,
     });
   }
@@ -2634,16 +2744,17 @@ export function describeChart(model: ChartModel, ids: number[], filter: ShiftFil
     .filter(Boolean);
   const c = countRows(model, ids, filter);
   return (
-    `A reporting chart of ${c.positions} positions holding ${c.seats} sanctioned seats, ` +
-    `${c.filled} people in them and ${c.vacant} vacant` +
-    (filter === 'all' ? '' : `, showing ${filter === 'D' ? 'day' : 'night'} shift seats only`) +
+    `A reporting chart of ${c.cards} role cards holding ${c.positions} positions: ` +
+    `${c.filled} filled and ${c.vacant} vacant` +
+    (filter === 'all' ? '' : ', showing the positions on one shift only') +
     '. ' +
     (tops.length ? `It starts at ${tops.join('; ')}. ` : '') +
+    'Each card is a role; each row in it is one position, with the person in it or the word Vacant, and its shift. ' +
     'Primary reporting lines are solid; every other reporting relationship is dashed and labelled with its scope. ' +
     'With Departments on, each department is a box around its people, joined by one line to the person it rolls up to; ' +
     'a shared department has a dashed frame and an arrow to each department it serves. ' +
-    'Each box is focusable: use the arrow keys to move between a manager, its reports and its siblings, ' +
-    'Enter to open the position card, and Space to fold a branch. ' +
+    'Each card is focusable: use the arrow keys to move between a manager, its reports and its siblings, ' +
+    'Enter to open the role with its positions, and Space to fold a branch. ' +
     'The Table view carries the same positions and the same filters in a keyboard-operable list.'
   );
 }
