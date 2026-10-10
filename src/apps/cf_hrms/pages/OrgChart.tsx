@@ -23,11 +23,16 @@ import {
   buildModel,
   buildScene,
   countRows,
+  departmentOfSeat,
+  departmentTree,
   describeChart,
   makeFonts,
+  normaliseShow,
+  openAbove,
   readPalette,
   subtreeIds,
   type Arrange,
+  type ChartShow,
   type ShiftFilter,
 } from '../components/orgChartLayout';
 import { OrgChartCanvas, type NavDirection } from '../components/OrgChartCanvas';
@@ -140,6 +145,17 @@ export default function OrgChart() {
     readPref<Record<number, Arrange>>(key('arrange'), {}),
   );
   const [zoom, setZoom] = useState<number | null>(() => readPref<number | null>(key('zoom'), null));
+  // What is drawn (spec §16), and the DEPARTMENT fold that goes with boxes.
+  // The seat fold above (`collapsed`) is the fold of the plain tree; with
+  // departments drawn the fold is the department's and that one is not read.
+  const [show, setShow] = useState<ChartShow>(() => normaliseShow(readPref<Partial<ChartShow>>(key('show'), {})));
+  const [deptClosed, setDeptClosed] = useState<Set<number>>(
+    () => new Set(readPref<number[]>(key('deptClosed'), [])),
+  );
+  const [deptFoldTouched, setDeptFoldTouched] = useState<boolean>(
+    () => readPref<boolean>(key('deptFoldTouched'), false),
+  );
+  const [deptFoldSettled, setDeptFoldSettled] = useState(false);
 
   const [selected, setSelected] = useState<number | null>(null);
   // The box the floating panel shows; null = panel closed (spec §14).
@@ -216,6 +232,9 @@ export default function OrgChart() {
   useEffect(() => writePref(prefKey(company, 'collapsed'), [...collapsed]), [collapsed, company]);
   useEffect(() => writePref(prefKey(company, 'foldTouched'), foldTouched), [foldTouched, company]);
   useEffect(() => writePref(prefKey(company, 'arrange'), arrange), [arrange, company]);
+  useEffect(() => writePref(prefKey(company, 'show'), show), [show, company]);
+  useEffect(() => writePref(prefKey(company, 'deptClosed'), [...deptClosed]), [deptClosed, company]);
+  useEffect(() => writePref(prefKey(company, 'deptFoldTouched'), deptFoldTouched), [deptFoldTouched, company]);
   useEffect(() => {
     if (zoom != null) writePref(prefKey(company, 'zoom'), zoom);
   }, [zoom, company]);
@@ -291,7 +310,13 @@ export default function OrgChart() {
     const read = () => setPalette(readPalette());
     read();
     const raf = requestAnimationFrame(read);
-    return () => cancelAnimationFrame(raf);
+    // A background tab runs no animation frames; the timer covers a chart that
+    // was opened there before the token stylesheet had been applied.
+    const late = window.setTimeout(read, 400);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.clearTimeout(late);
+    };
   }, [theme.palette.mode]);
   const fonts = useMemo(() => makeFonts(palette.fontUi), [palette.fontUi]);
 
@@ -307,6 +332,19 @@ export default function OrgChart() {
 
   const rootNode = root && model ? model.byId.get(root) : null;
 
+  // Departments are drawn as boxes when the switch is on AND the payload has a
+  // department tree (a backend older than 2026-10-10 sends none).
+  const boxed = show.departments && !!model && model.departments.length > 0;
+  // The box tree with nothing closed: depths for the opening fold, parents for
+  // opening the boxes above a seat. Recomputed per payload / start, not per frame.
+  const deptTree = useMemo(
+    () =>
+      model && boxed
+        ? departmentTree(model, { root, filter: shift, collapsed: new Set(), arrange: {}, fonts, show })
+        : null,
+    [model, boxed, root, shift, fonts, show],
+  );
+
   const scene = useMemo(() => {
     if (!model || !counts) return null;
     return buildScene(model, {
@@ -317,6 +355,8 @@ export default function OrgChart() {
       fonts,
       palette,
       colours,
+      show,
+      deptClosed,
       secondaryEdges: model.secondary,
       header: {
         title: rootNode ? `${rootNode.displayTitle || rootNode.title} — and below` : 'Organisation chart',
@@ -328,7 +368,7 @@ export default function OrgChart() {
             : ''),
       },
     });
-  }, [model, counts, root, shift, collapsed, arrange, fonts, palette, colours, rootNode, asOf]);
+  }, [model, counts, root, shift, collapsed, arrange, fonts, palette, colours, show, deptClosed, rootNode, asOf]);
 
   // ── Zoom ────────────────────────────────────────────────────────────────
   /** The Fit button: the whole chart, however small that has to be. */
@@ -380,16 +420,55 @@ export default function OrgChart() {
    * past that the occupant rows stop being readable and the chart is decoration.
    * Panning a slightly-too-wide chart is a better trade than squinting at all of it.
    */
+  /*
+   * The same opening, for departments (spec §16): the top box and the boxes
+   * hanging straight from it open, everything deeper closed to a name and a
+   * count. Depth is the BOX tree's — measured over the whole organisation, so
+   * starting from a branch does not change which boxes are shut.
+   */
+  const OPENING_DEPT_DEPTH = 2;
   useEffect(() => {
-    if (zoom == null && foldSettled && scene && stageWidth) {
+    if (deptFoldSettled || !model) return;
+    if (!model.departments.length || deptFoldTouched || deptClosed.size > 0) { setDeptFoldSettled(true); return; }
+    const tree = departmentTree(model, { root: '', filter: 'all', collapsed: new Set(), arrange: {}, fonts });
+    const fold = new Set<number>();
+    for (const b of tree.values()) if (b.depth >= OPENING_DEPT_DEPTH && b.canToggle) fold.add(b.id);
+    if (fold.size) setDeptClosed(fold);
+    setDeptFoldSettled(true);
+  }, [deptFoldSettled, deptFoldTouched, deptClosed.size, model, fonts]);
+
+  useEffect(() => {
+    if (zoom == null && foldSettled && deptFoldSettled && scene && stageWidth) {
       setZoom(Math.min(1, Math.max(0.55, (stageWidth - 28) / scene.width)));
     }
-  }, [zoom, foldSettled, scene, stageWidth]);
+  }, [zoom, foldSettled, deptFoldSettled, scene, stageWidth]);
 
   const setZoomClamped = (z: number) => setZoom(Math.min(2.5, Math.max(0.15, z)));
 
   // ── Interactions ────────────────────────────────────────────────────────
+  const toggleDept = useCallback((id: number) => {
+    setDeptFoldTouched(true);
+    setDeptClosed((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  /** Opens every box above a seat, so a seat picked from a list is on the canvas. */
+  const reveal = useCallback(
+    (id: number) => {
+      if (!model || !deptTree) return;
+      setDeptClosed((prev) => openAbove(deptTree, prev, departmentOfSeat(model, id)));
+    },
+    [model, deptTree],
+  );
+
   const toggleCollapse = useCallback((id: number) => {
+    // With departments drawn the fold belongs to the department (its title);
+    // Space on a seat does nothing rather than hide the seat under the cursor.
+    if (boxed) return;
     setFoldTouched(true);
     setCollapsed((prev) => {
       const next = new Set(prev);
@@ -397,7 +476,7 @@ export default function OrgChart() {
       else next.add(id);
       return next;
     });
-  }, []);
+  }, [boxed]);
 
   const navigate = useCallback(
     (from: number, dir: NavDirection): number | null => {
@@ -406,8 +485,9 @@ export default function OrgChart() {
       const ok = (id: number | undefined) => (id != null && placed.has(id) ? id : null);
       if (dir === 'up') return ok(model.parent.get(from));
       if (dir === 'down') {
-        if (collapsed.has(from)) return null;
-        return ok((model.children.get(from) ?? [])[0]);
+        if (!boxed && collapsed.has(from)) return null;
+        // First report that is on the canvas (one in a closed department is not).
+        return ok((model.children.get(from) ?? []).find((k) => placed.has(k)));
       }
       const parentId = model.parent.get(from);
       const sibs =
@@ -417,11 +497,12 @@ export default function OrgChart() {
               const p = model.parent.get(id);
               return p === undefined || !placed.has(p);
             });
-      const i = sibs.indexOf(from);
+      const shown = sibs.filter((id) => placed.has(id));
+      const i = shown.indexOf(from);
       if (i < 0) return null;
-      return ok(sibs[dir === 'left' ? i - 1 : i + 1]);
+      return ok(shown[dir === 'left' ? i - 1 : i + 1]);
     },
-    [model, scene, collapsed, visibleIds],
+    [model, scene, collapsed, visibleIds, boxed],
   );
 
   const rootOptions: RootOption[] = useMemo(() => {
@@ -505,10 +586,14 @@ export default function OrgChart() {
 
   // ── The floating panel (spec §14) ───────────────────────────────────────
   /** Open a position in the panel from anywhere: a box, a table row, a search hit. */
-  const openCard = useCallback((id: number) => {
-    setSelected(id);
-    setCardId(id);
-  }, []);
+  const openCard = useCallback(
+    (id: number) => {
+      reveal(id);
+      setSelected(id);
+      setCardId(id);
+    },
+    [reveal],
+  );
 
   const closePanel = useCallback(() => {
     const id = cardId;
@@ -538,7 +623,18 @@ export default function OrgChart() {
 
   const panelNode = cardId != null && model ? model.byId.get(cardId) : null;
   const panelTitle = panelNode?.displayTitle || panelNode?.title || 'Position';
-  const panelTeam = cardId != null && model ? (model.children.get(cardId)?.length ?? 0) : 0;
+  const panelBox = cardId != null && model && boxed ? scene?.layout.dept?.boxes.get(departmentOfSeat(model, cardId)) : undefined;
+  // Inside a box, a seat arranges only the reports that sit in the box with it.
+  const panelTeam =
+    cardId != null && model
+      ? (model.children.get(cardId) ?? []).filter((k) => !panelBox || panelBox.members.includes(k)).length
+      : 0;
+  const closedBoxes = boxed && scene?.layout.dept ? [...scene.layout.dept.boxes.values()].filter((b) => !b.open).length : 0;
+  const foldedSeats = [...collapsed].filter((id) => visibleIds.includes(id)).length;
+  const foldedCount = boxed ? closedBoxes : foldedSeats;
+  const foldedLabel = boxed
+    ? `Open all (${closedBoxes} closed)`
+    : `Expand all (${foldedSeats} folded)`;
 
   return (
     <Stack spacing={2} ref={setPageEl}>
@@ -634,8 +730,14 @@ export default function OrgChart() {
               zoom={zoom ?? 1}
               onZoom={setZoomClamped}
               onFit={() => setZoom(fitZoom())}
-              collapsedCount={[...collapsed].filter((id) => visibleIds.includes(id)).length}
-              onExpandAll={() => { setFoldTouched(true); setCollapsed(new Set()); }}
+              show={show}
+              onShow={setShow}
+              foldedLabel={foldedLabel}
+              collapsedCount={foldedCount}
+              onExpandAll={() => {
+                if (boxed) { setDeptFoldTouched(true); setDeptClosed(new Set()); }
+                else { setFoldTouched(true); setCollapsed(new Set()); }
+              }}
               fullscreen={isFull}
               onFullscreen={(on) => (on ? fullscreen.enter() : exitFull())}
               asOf={asOf}
@@ -670,6 +772,7 @@ export default function OrgChart() {
                   onSelect={onCanvasSelect}
                   onOpenCard={onCanvasOpen}
                   onToggleCollapse={toggleCollapse}
+                  onToggleDept={toggleDept}
                   onNavigate={navigate}
                   onZoom={setZoomClamped}
                 />
@@ -708,8 +811,9 @@ export default function OrgChart() {
                   textOverflow: 'ellipsis',
                 }}
               >
-                Scroll to zoom · drag to pan · click a box for details · arrows walk the chart, Enter
-                opens the panel, Space folds
+                Scroll to zoom · drag to pan · click a seat for details
+                {boxed ? ' · click a department name to open or close it' : ' · Space folds a branch'} · arrows walk
+                the chart, Enter opens the panel
                 {secondaryCount > 0 && ` · ${secondaryCount} dashed lines are non-primary reporting`}
               </Typography>
             )}
@@ -760,6 +864,11 @@ export default function OrgChart() {
                 }
                 collapsed={collapsed.has(cardId)}
                 onToggleCollapse={() => toggleCollapse(cardId)}
+                department={
+                  panelBox
+                    ? { name: panelBox.name, canClose: panelBox.canToggle, onClose: () => toggleDept(panelBox.id) }
+                    : undefined
+                }
               />
             )}
           </OrgChartCard>

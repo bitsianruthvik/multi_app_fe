@@ -23,12 +23,18 @@ import { getMyOrgChart, type MyOrgChart as Slice } from '../api/self';
 import {
   buildModel,
   buildScene,
+  departmentOfSeat,
+  departmentTree,
   describeChart,
   makeFonts,
+  normaliseShow,
+  openAbove,
   readPalette,
   subtreeIds,
   type Arrange,
+  type ChartShow,
 } from '../components/orgChartLayout';
+import { ShowSwitches } from '../components/OrgChartToolbar';
 import { OrgChartCanvas, type NavDirection } from '../components/OrgChartCanvas';
 import { OrgChartPanel } from '../components/OrgChartPanel';
 import {
@@ -75,7 +81,7 @@ function toGraph(s: Slice): OrgChartGraph {
     displayTitle: n.displayTitle,
     roleId: null,
     roleTitle: n.roleTitle,
-    departmentId: null,
+    departmentId: n.departmentId ?? null,
     departmentName: n.departmentName,
     departmentCode: n.departmentCode ?? null,
     departmentRank: n.departmentRank ?? null,
@@ -98,6 +104,9 @@ function toGraph(s: Slice): OrgChartGraph {
         allocationPercent: null,
         shiftCode: o.shiftCode,
         attendanceStatus: null,
+        // No employee ids in the slice: the caller's own seats join on `isMe`,
+        // anyone else in two seats on the server's per-response key.
+        sameAs: o.isMe ? 'me' : (o.sameAs ?? null),
       };
     }),
     requirements: n.requirements.map((r) => ({ shiftId: null, shiftCode: r.shiftCode, requiredCount: r.requiredCount })),
@@ -110,6 +119,7 @@ function toGraph(s: Slice): OrgChartGraph {
     root: null,
     nodes,
     edges: s.edges.map((e) => ({ ...e, scopeWorkContextId: null })),
+    departments: s.departments ?? [],
     counts: { positions: nodes.length, sanctioned: 0, filled: 0, vacant: 0, present: 0, absent: 0 },
   };
 }
@@ -131,6 +141,13 @@ export default function MyOrgChart() {
   const [arrange, setArrange] = useState<Record<number, Arrange>>(() =>
     readPref<Record<number, Arrange>>(prefKey(company, 'arrange'), {}),
   );
+  // The same three switches and the same department fold as the admin chart (spec §16).
+  const [show, setShow] = useState<ChartShow>(() => normaliseShow(readPref<Partial<ChartShow>>(prefKey(company, 'show'), {})));
+  const [deptClosed, setDeptClosed] = useState<Set<number>>(
+    () => new Set(readPref<number[]>(prefKey(company, 'deptClosed'), [])),
+  );
+  const [deptFoldTouched, setDeptFoldTouched] = useState<boolean>(() => readPref<boolean>(prefKey(company, 'deptFoldTouched'), false));
+  const [deptFoldSettled, setDeptFoldSettled] = useState(false);
   const [zoom, setZoom] = useState<number | null>(null);
   const [selected, setSelected] = useState<number | null>(null);
   const [cardId, setCardId] = useState<number | null>(null);
@@ -166,6 +183,9 @@ export default function MyOrgChart() {
   useEffect(() => writePref(key('collapsed'), [...collapsed]), [collapsed, key]);
   useEffect(() => writePref(key('foldTouched'), foldTouched), [foldTouched, key]);
   useEffect(() => writePref(key('arrange'), arrange), [arrange, key]);
+  useEffect(() => writePref(key('show'), show), [show, key]);
+  useEffect(() => writePref(key('deptClosed'), [...deptClosed]), [deptClosed, key]);
+  useEffect(() => writePref(key('deptFoldTouched'), deptFoldTouched), [deptFoldTouched, key]);
 
   useEffect(() => {
     if (!stageEl) return;
@@ -212,7 +232,13 @@ export default function MyOrgChart() {
     const read = () => setPalette(readPalette());
     read();
     const raf = requestAnimationFrame(read);
-    return () => cancelAnimationFrame(raf);
+    // A background tab runs no animation frames; the timer covers a chart that
+    // was opened there before the token stylesheet had been applied.
+    const late = window.setTimeout(read, 400);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.clearTimeout(late);
+    };
   }, [theme.palette.mode]);
   const fonts = useMemo(() => makeFonts(palette.fontUi), [palette.fontUi]);
   const visibleIds = useMemo(() => (model ? subtreeIds(model, '') : []), [model]);
@@ -235,6 +261,28 @@ export default function MyOrgChart() {
     setFoldSettled(true);
   }, [foldSettled, foldTouched, model, slice, collapsed.size, mySeats]);
 
+  const boxed = show.departments && !!model && model.departments.length > 0;
+  const deptTree = useMemo(
+    () =>
+      model && boxed
+        ? departmentTree(model, { root: '', filter: 'all', collapsed: new Set(), arrange: {}, fonts, show })
+        : null,
+    [model, boxed, fonts, show],
+  );
+
+  // The same opening for departments: the caller's own box and the boxes
+  // hanging straight from it open, anything deeper closed to a name and a count.
+  useEffect(() => {
+    if (deptFoldSettled || !model || !slice) return;
+    if (!model.departments.length || deptFoldTouched || deptClosed.size > 0) { setDeptFoldSettled(true); return; }
+    const tree = departmentTree(model, { root: '', filter: 'all', collapsed: new Set(), arrange: {}, fonts });
+    const mine = Math.max(0, ...mySeats.map((id) => tree.get(departmentOfSeat(model, id))?.depth ?? 0));
+    const fold = new Set<number>();
+    for (const b of tree.values()) if (b.depth >= mine + 2 && b.canToggle) fold.add(b.id);
+    if (fold.size) setDeptClosed(fold);
+    setDeptFoldSettled(true);
+  }, [deptFoldSettled, deptFoldTouched, deptClosed.size, model, slice, mySeats, fonts]);
+
   const scene = useMemo(() => {
     if (!model || !slice) return null;
     const c = slice.counts;
@@ -246,6 +294,8 @@ export default function MyOrgChart() {
       fonts,
       palette,
       colours: false,
+      show,
+      deptClosed,
       secondaryEdges: model.secondary,
       header: {
         // No big title: a slice is often one box wide, and the legend that sits on
@@ -257,7 +307,7 @@ export default function MyOrgChart() {
           (c.dotted ? `     ${c.dotted} dotted-line manager${c.dotted === 1 ? '' : 's'}` : ''),
       },
     });
-  }, [model, slice, collapsed, arrange, fonts, palette]);
+  }, [model, slice, collapsed, arrange, fonts, palette, show, deptClosed]);
 
   // ── Zoom, then centre on me ─────────────────────────────────────────────
   const fitZoom = useCallback(() => {
@@ -267,10 +317,10 @@ export default function MyOrgChart() {
   }, [scene, stage]);
 
   useEffect(() => {
-    if (zoom == null && foldSettled && scene && stage.w) {
+    if (zoom == null && foldSettled && deptFoldSettled && scene && stage.w) {
       setZoom(Math.min(1, Math.max(0.55, (stage.w - 28) / scene.width)));
     }
-  }, [zoom, foldSettled, scene, stage.w]);
+  }, [zoom, foldSettled, deptFoldSettled, scene, stage.w]);
 
   const setZoomClamped = (z: number) => setZoom(Math.min(2.5, Math.max(0.15, z)));
 
@@ -296,8 +346,19 @@ export default function MyOrgChart() {
     const id = mySeats[0];
     if (id == null) return;
     setSelected(id);
+    // A seat inside a closed department is not on the canvas: open the boxes
+    // above it first, and centre once they have been drawn.
+    if (model && deptTree) {
+      const dept = departmentOfSeat(model, id);
+      const opened = openAbove(deptTree, deptClosed, dept);
+      if (opened !== deptClosed) {
+        setDeptClosed(opened);
+        window.setTimeout(() => centreOn(id), 80);
+        return;
+      }
+    }
     centreOn(id);
-  }, [mySeats, centreOn]);
+  }, [mySeats, centreOn, model, deptTree, deptClosed]);
   // On opening: once the zoom is set and the stage has stopped resizing.
   useEffect(() => {
     if (centred.current || zoom == null || !scene || !mySeats.length || !stage.w) return;
@@ -309,9 +370,9 @@ export default function MyOrgChart() {
   }, [zoom, scene, mySeats, findMe, stage.w, stage.h]);
 
   // ── Interactions ────────────────────────────────────────────────────────
-  const toggleCollapse = useCallback((id: number) => {
-    setFoldTouched(true);
-    setCollapsed((prev) => {
+  const toggleDept = useCallback((id: number) => {
+    setDeptFoldTouched(true);
+    setDeptClosed((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
@@ -319,13 +380,26 @@ export default function MyOrgChart() {
     });
   }, []);
 
+  const toggleCollapse = useCallback((id: number) => {
+    // With departments drawn, the fold is the department's (its title).
+    if (boxed) return;
+    setFoldTouched(true);
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, [boxed]);
+
   const navigate = useCallback(
     (from: number, dir: NavDirection): number | null => {
       if (!model || !scene) return null;
       const placed = scene.layout.placed;
       const ok = (id: number | undefined) => (id != null && placed.has(id) ? id : null);
       if (dir === 'up') return ok(model.parent.get(from));
-      if (dir === 'down') return collapsed.has(from) ? null : ok((model.children.get(from) ?? [])[0]);
+      if (dir === 'down')
+        return !boxed && collapsed.has(from) ? null : ok((model.children.get(from) ?? []).find((k) => placed.has(k)));
       const parentId = model.parent.get(from);
       const sibs =
         parentId != null && placed.has(parentId)
@@ -334,11 +408,12 @@ export default function MyOrgChart() {
               const p = model.parent.get(id);
               return p === undefined || !placed.has(p);
             });
-      const i = sibs.indexOf(from);
+      const shown = sibs.filter((id) => placed.has(id));
+      const i = shown.indexOf(from);
       if (i < 0) return null;
-      return ok(sibs[dir === 'left' ? i - 1 : i + 1]);
+      return ok(shown[dir === 'left' ? i - 1 : i + 1]);
     },
-    [model, scene, collapsed, visibleIds],
+    [model, scene, collapsed, visibleIds, boxed],
   );
 
   const openCard = useCallback((id: number) => {
@@ -368,8 +443,13 @@ export default function MyOrgChart() {
   const zoomNow = zoom ?? 1;
   const panelNode = cardId != null && model ? model.byId.get(cardId) : null;
   const panelTitle = panelNode?.displayTitle || panelNode?.title || 'Position';
-  const panelTeam = cardId != null && model ? (model.children.get(cardId)?.length ?? 0) : 0;
-  const collapsedCount = [...collapsed].filter((id) => model?.byId.has(id)).length;
+  const panelBox = cardId != null && model && boxed ? scene?.layout.dept?.boxes.get(departmentOfSeat(model, cardId)) : undefined;
+  const panelTeam =
+    cardId != null && model
+      ? (model.children.get(cardId) ?? []).filter((k) => !panelBox || panelBox.members.includes(k)).length
+      : 0;
+  const closedBoxes = boxed && scene?.layout.dept ? [...scene.layout.dept.boxes.values()].filter((b) => !b.open).length : 0;
+  const collapsedCount = boxed ? closedBoxes : [...collapsed].filter((id) => model?.byId.has(id)).length;
   const secondaryCount = model?.secondary.length ?? 0;
 
   // My own boxes, ringed. A CSS rule over the canvas's node ids — the shared
@@ -437,14 +517,20 @@ export default function MyOrgChart() {
               <Button size="small" startIcon={<MyLocationRounded />} onClick={findMe}>
                 Find me
               </Button>
+              <ShowSwitches show={show} onShow={setShow} />
               <Box sx={{ flex: 1 }} />
               {collapsedCount > 0 && (
                 <Button
                   size="small"
                   startIcon={<UnfoldMoreRounded />}
-                  onClick={() => { setFoldTouched(true); setCollapsed(new Set()); }}
+                  onClick={() => {
+                    if (boxed) { setDeptFoldTouched(true); setDeptClosed(new Set()); }
+                    else { setFoldTouched(true); setCollapsed(new Set()); }
+                  }}
                 >
-                  {collapsedCount} folded — expand all
+                  {boxed
+                    ? `Open all (${collapsedCount} closed)`
+                    : `Expand all (${collapsedCount} folded)`}
                 </Button>
               )}
               <Stack direction="row" spacing={0.5} alignItems="center">
@@ -507,6 +593,7 @@ export default function MyOrgChart() {
                 onSelect={onCanvasSelect}
                 onOpenCard={onCanvasOpen}
                 onToggleCollapse={toggleCollapse}
+                onToggleDept={toggleDept}
                 onNavigate={navigate}
                 onZoom={setZoomClamped}
               />
@@ -523,7 +610,8 @@ export default function MyOrgChart() {
                 textOverflow: 'ellipsis',
               }}
             >
-              Your seat is outlined · scroll to zoom · drag to pan · click a box for details
+              Your seat is outlined · scroll to zoom · drag to pan · click a seat for details
+              {boxed && ' · click a department name to open or close it'}
               {secondaryCount > 0 && ' · dashed lines are non-primary reporting'}
             </Typography>
           </Box>
@@ -545,8 +633,13 @@ export default function MyOrgChart() {
         >
           {slice && (
             <MyOrgChartCard slice={slice} positionId={cardId} company={company} teamSize={panelTeam}>
-              {cardId != null && panelTeam > 0 && (
+              {cardId != null && (panelTeam > 0 || (panelBox?.canToggle ?? false)) && (
                 <OrgChartPanel
+                  department={
+                    panelBox
+                      ? { name: panelBox.name, canClose: panelBox.canToggle, onClose: () => toggleDept(panelBox.id) }
+                      : undefined
+                  }
                   teamSize={panelTeam}
                   arrange={arrange[cardId] || 'auto'}
                   onArrange={(a) =>

@@ -88,6 +88,7 @@ export function OrgChartCanvas({
   onSelect,
   onOpenCard,
   onToggleCollapse,
+  onToggleDept,
   onNavigate,
   onZoom,
 }: {
@@ -101,6 +102,8 @@ export function OrgChartCanvas({
   onSelect: (id: number) => void;
   onOpenCard: (id: number) => void;
   onToggleCollapse: (id: number) => void;
+  /** A click (or Enter / Space) on a department's title opens or closes it (spec §16). */
+  onToggleDept?: (id: number) => void;
   onNavigate: (from: number, dir: NavDirection) => number | null;
   /**
    * Ask for a new zoom. The page clamps it (15 %–250 %) and passes the result
@@ -305,7 +308,7 @@ export function OrgChartCanvas({
       return;
     }
     const target = e.target as Element;
-    if (target.closest('[data-orgnode]') || target.closest('[data-orgtoggle]')) return;
+    if (target.closest('[data-orgnode]') || target.closest('[data-orgtoggle]') || target.closest('[data-orgdept]')) return;
     pan.current = { x: e.clientX, y: e.clientY, left: wrap.scrollLeft, top: wrap.scrollTop };
     wrap.setPointerCapture(e.pointerId);
     // Belt and braces with the `userSelect: none` above: a pointerdown that is
@@ -386,8 +389,44 @@ export function OrgChartCanvas({
         <desc>{textAlternative}</desc>
         <rect width={scene.width} height={scene.height} fill={scene.background} />
         <g aria-hidden="true">{scene.header.map((p, i) => renderPrim(p, `h${i}`))}</g>
-        <g aria-hidden="true">{scene.groups.map((p, i) => renderPrim(p, `g${i}`))}</g>
+        <g aria-hidden="true">{scene.under.map((p, i) => renderPrim(p, `u${i}`))}</g>
+        {scene.depts.length > 0 && (
+          <g role="group" aria-label="Departments">
+            {scene.depts.map((d) => (
+              <g key={d.id} data-orgdeptbox={d.id}>
+                <g aria-hidden="true">{d.prims.map((p, i) => renderPrim(p, `d${d.id}-${i}`))}</g>
+                {/* The title band is the control; the rest of the box still pans. */}
+                {d.canToggle && onToggleDept && (
+                  <rect
+                    data-orgdept={d.id}
+                    role="button"
+                    tabIndex={0}
+                    aria-label={d.label}
+                    aria-expanded={d.open}
+                    x={d.x}
+                    y={d.y}
+                    width={d.w}
+                    height={d.titleH}
+                    rx={10}
+                    fill="transparent"
+                    style={{ cursor: 'pointer', outlineOffset: 1 }}
+                    onClick={() => onToggleDept(d.id)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        onToggleDept(d.id);
+                      }
+                    }}
+                  >
+                    <title>{d.open ? `Close ${d.label.split(/[.,]/)[0]}` : `Open ${d.label.split(/[.,]/)[0]}`}</title>
+                  </rect>
+                )}
+              </g>
+            ))}
+          </g>
+        )}
         <g aria-hidden="true">{scene.edges.map((p, i) => renderPrim(p, `e${i}`))}</g>
+        <g aria-hidden="true">{scene.links.map((p, i) => renderPrim(p, `l${i}`))}</g>
         <g aria-hidden="true">{scene.secondary.map((p, i) => renderPrim(p, `s${i}`))}</g>
         {selectedBox && (
           <rect

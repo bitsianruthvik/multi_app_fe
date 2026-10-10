@@ -246,6 +246,24 @@ export interface SliceOccupant {
   shiftCode: string | null;
   /** This occupant is the signed-in person. */
   isMe: boolean;
+  /**
+   * Set when this person sits in two seats of the slice: both rows carry the
+   * same key (an ordinal within the response, never an id), so the chart can
+   * join them. null for everyone who appears once.
+   */
+  sameAs?: string | null;
+}
+
+/** A department of the slice — its own branch of the tree, and what a shared one serves. */
+export interface SliceDepartment {
+  id: number;
+  code: string | null;
+  name: string;
+  parentId: number | null;
+  type: string | null;
+  isShared: boolean;
+  serves: number[];
+  rank: number;
 }
 
 export interface SliceNode {
@@ -254,8 +272,10 @@ export interface SliceNode {
   title: string;
   displayTitle: string;
   roleTitle: string | null;
+  /** Points into `departments` (spec §16). */
+  departmentId?: number | null;
   departmentName: string | null;
-  /** Org structure for the process grouping (spec §15) — the heading seat's code and the unit's tree rank. */
+  /** The heading seat's code and the unit's tree rank (kept from spec §15; the chart no longer reads them). */
   departmentCode: string | null;
   departmentRank: number | null;
   departmentIsRoot: boolean;
@@ -291,6 +311,8 @@ export interface MyOrgChart {
   reason: string | null;
   nodes: SliceNode[];
   edges: SliceEdge[];
+  /** Every `parentId` and every id in `serves` resolves inside this list. */
+  departments?: SliceDepartment[];
   /** The seats the caller holds — the boxes to highlight and centre on. */
   mySeatIds: number[];
   counts: { positions: number; managers: number; reports: number; dotted: number };

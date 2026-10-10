@@ -1,4 +1,5 @@
 import type {
+  OrgChartDepartment,
   OrgChartEdge,
   OrgChartGraph,
   OrgChartNode,
@@ -46,45 +47,32 @@ export const M = 36;
 export const HEAD = 84;
 /** Not in the source file: it had no work-context chips because machines were nodes. */
 export const CHIPH = 18;
-/**
- * Work-process headings (spec §15). No box: the process name is a heading
- * centred over the first person in its column, and the SPACE between columns
- * marks the boundary.
- *   PHS   heading size — 20 against the box title's 13.5 (≈1.5×), bold, so it
- *         reads as a section heading at the 55–100% the chart opens at
- *   PHH   the heading's own band (cap top to descender)
- *   PHT   group top to the first person's top (heading band + room for the
- *         line that leaves the heading)
- *   PHB   group top to that line, below the heading text
- *   PGAP  between side-by-side columns: 64 against the sibling gap HG's 26
- *   PGV   extra space above each heading when the groups stack
- */
-export const PHS = 20;
-export const PHH = 24;
-export const PHT = 42;
-export const PHB = 32;
-export const PGAP = 64;
-export const PGV = 26;
-/**
- * Machine / area headings (spec §15, "machines"): the level under a section,
- * one step smaller — 16 bold against the section's 20 and the box title's
- * 13.5. Same colour, same centring, same line treatment.
- *   MHS/MHH/MHT/MHB  as PHS/PHH/PHT/PHB, for the smaller heading
- *   CGAP  between side-by-side crews: 40, between the sibling gap (26) and
- *         the section gap (64)
- *   CGV   extra space above each crew heading when crews stack
- *   CTOP  the last ungrouped person (or the column's line) to the crews' headings
- */
-export const MHS = 16;
-export const MHH = 20;
-export const MHT = 36;
-export const MHB = 28;
-export const CGAP = 40;
-export const CGV = 16;
-export const CTOP = 32;
-
 export type ShiftFilter = 'all' | 'D' | 'N';
 export type Arrange = 'auto' | 'side' | 'stack';
+
+/**
+ * What is DRAWN (spec §16) — three switches over the same data. At least one
+ * is always on (`normaliseShow`), so the canvas is never empty.
+ *   departments  boxes around their people; off = the plain reporting tree
+ *   roles        the seat's title
+ *   people       the names (and the vacancy rows) in the seat
+ */
+export interface ChartShow {
+  departments: boolean;
+  roles: boolean;
+  people: boolean;
+}
+export const SHOW_ALL: ChartShow = { departments: true, roles: true, people: true };
+
+/** A stored value made safe: unknown keys dropped, all-off turned back to all-on. */
+export function normaliseShow(v: Partial<ChartShow> | null | undefined): ChartShow {
+  const s = {
+    departments: v?.departments !== false,
+    roles: v?.roles !== false,
+    people: v?.people !== false,
+  };
+  return s.departments || s.roles || s.people ? s : { ...SHOW_ALL };
+}
 
 // ── Colour: every value resolved from tokens.css, never written here ────────
 
@@ -236,8 +224,8 @@ export interface ChartFonts {
   headTitle: string;
   headMeta: string;
   badge: string;
-  process: string;
-  machine: string;
+  dept: string;
+  deptMeta: string;
 }
 
 export function makeFonts(family: string): ChartFonts {
@@ -250,8 +238,8 @@ export function makeFonts(family: string): ChartFonts {
     headTitle: fontString(20, 600, family),
     headMeta: fontString(13, 400, family),
     badge: fontString(10, 600, family),
-    process: fontString(PHS, 700, family),
-    machine: fontString(MHS, 700, family),
+    dept: fontString(13.5, 700, family),
+    deptMeta: fontString(11, 400, family),
   };
 }
 
@@ -271,6 +259,9 @@ export interface ChartModel {
   /** Edges dropped to keep the tree a tree, reported rather than hidden. */
   droppedPrimary: OrgChartEdge[];
   order: number[];
+  /** The department tree, in rank order (empty for a payload that predates it). */
+  departments: OrgChartDepartment[];
+  deptById: Map<number, OrgChartDepartment>;
 }
 
 /**
@@ -349,7 +340,10 @@ export function buildModel(graph: OrgChartGraph): ChartModel {
   };
   roots.forEach((r) => walk(r, 0));
 
-  return { byId, children, parent, roots, depth, secondary, droppedPrimary, order };
+  const departments = [...(graph.departments ?? [])].sort((a, b) => a.rank - b.rank || a.id - b.id);
+  const deptById = new Map(departments.map((d) => [d.id, d]));
+
+  return { byId, children, parent, roots, depth, secondary, droppedPrimary, order, departments, deptById };
 }
 
 /** Every id in a subtree, root included — depth first, siblings in payload order. */
@@ -376,222 +370,6 @@ export function descendantCount(model: ChartModel, id: number): number {
     stack.push(...(model.children.get(c) ?? []));
   }
   return n;
-}
-
-// ── Work processes (spec §15) ───────────────────────────────────────────────
-
-/**
- * A position's work process is its unit's NAME, case- and whitespace-
- * normalised, so same-named units merge: Karni's three machine-level
- * "Slitting" sections fold into Slitting, the two "BFL" units into one, the
- * four sibling "Sales & Marketing" units into one. Known limit: two unrelated
- * units sharing a name in some other company would merge too. '' = no unit.
- */
-export function processKey(n: OrgChartNode): string {
-  return (n.departmentName ?? '').trim().replace(/\s+/g, ' ').toLowerCase();
-}
-
-interface ProcessIndex {
-  /** Every unit code seen for a process — a unit's code is its head seat's code. */
-  heads: Map<string, Set<string>>;
-  /** Every unit code of every process: a seat whose code is here heads SOME process. */
-  allHeads: Set<string>;
-  /** Processes with a ROOT unit (no parent) among the units merged into them — leadership. */
-  roots: Set<string>;
-  /** The display name: the one on the best-ranked unit carrying it. */
-  label: Map<string, string>;
-}
-
-const processCache = new WeakMap<ChartModel, ProcessIndex>();
-
-function processIndex(model: ChartModel): ProcessIndex {
-  const hit = processCache.get(model);
-  if (hit) return hit;
-  const heads = new Map<string, Set<string>>();
-  const allHeads = new Set<string>();
-  const roots = new Set<string>();
-  const label = new Map<string, string>();
-  const labelRank = new Map<string, number>();
-  for (const n of model.byId.values()) {
-    const k = processKey(n);
-    if (!k) continue;
-    if (!heads.has(k)) heads.set(k, new Set());
-    const code = (n.departmentCode ?? '').trim();
-    if (code) {
-      heads.get(k)!.add(code);
-      allHeads.add(code);
-    }
-    if (n.departmentIsRoot) roots.add(k);
-    const r = n.departmentRank ?? Number.POSITIVE_INFINITY;
-    if (!label.has(k) || r < labelRank.get(k)!) {
-      label.set(k, (n.departmentName ?? '').trim().replace(/\s+/g, ' '));
-      labelRank.set(k, r);
-    }
-  }
-  const out = { heads, allHeads, roots, label };
-  processCache.set(model, out);
-  return out;
-}
-
-/**
- * True when this seat HEADS its process: its position code is the code of its
- * own unit or of any unit merged into the same process. Production Manager
- * (P020) heads Production (unit P020); a Printing operator does not.
- */
-export function headsProcess(model: ChartModel, n: OrgChartNode): boolean {
-  const code = (n.positionCode ?? '').trim();
-  const k = processKey(n);
-  if (!code || !k) return false;
-  return processIndex(model).heads.get(k)?.has(code) ?? false;
-}
-
-/** True when this seat heads ANY process (its code is some unit's code). */
-export function headsAnyProcess(model: ChartModel, n: OrgChartNode): boolean {
-  const code = (n.positionCode ?? '').trim();
-  return Boolean(code) && processIndex(model).allHeads.has(code);
-}
-
-/** The seat sits in a leadership unit — a root of the unit tree, after merging. */
-export function inRootProcess(model: ChartModel, n: OrgChartNode): boolean {
-  const k = processKey(n);
-  return Boolean(k) && processIndex(model).roots.has(k);
-}
-
-export interface ProcessGroup {
-  key: string;
-  /** '' for an unlabelled column (no unit, or a one-section team split only by machine). */
-  label: string;
-  /** 0 = a section (department/section unit) heading, 1 = a machine/area heading. */
-  level: 0 | 1;
-  ids: number[];
-  /** People with no machine shown here — stacked first, above any machine headings. */
-  loose: number[];
-  /** Machine crews, in payload order of their first member (always empty on a crew). */
-  crews: ProcessGroup[];
-  crewOrient: 'across' | 'down';
-  /** The column: its x-range is owned by this group alone; y is the heading's top. */
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-  /** Heading centre and measured width (0 when unlabelled). */
-  hx: number;
-  hw: number;
-}
-
-/** Where a group's people start, below its heading band. */
-export function groupTop(g: ProcessGroup): number {
-  if (!g.label) return g.y + 12;
-  return g.y + (g.level === 0 ? PHT : MHT);
-}
-
-/** The line into a column leaves the heading here (just above the first person). */
-export function groupLineY(g: ProcessGroup): number {
-  if (!g.label) return g.y + 2;
-  return g.y + (g.level === 0 ? PHB : MHB);
-}
-
-/** The heading's text band (for checks): top = g.y. */
-export function headingHeight(g: ProcessGroup): number {
-  return g.level === 0 ? PHH : MHH;
-}
-
-/** Name normalisation shared by processes and machines: trimmed, spaces collapsed, lower case. */
-export function normName(t: string | null | undefined): string {
-  return (t ?? '').trim().replace(/\s+/g, ' ').toLowerCase();
-}
-
-/**
- * A work context is a PROCESS, not a machine, when its name ends in
- * "Process" (Karni: 4 of 4 — "Printing Process", "BFL Process", …). Those
- * are 1:1 with sections and are ignored. Known heuristic (spec §15).
- */
-export function isProcessContext(name: string): boolean {
-  return /\bprocess$/i.test((name ?? '').trim());
-}
-
-/**
- * A position's machine/area: its PRIMARY non-process work context, else its
- * only non-process context, else none.
- */
-export function machineOf(n: OrgChartNode): { key: string; label: string } | null {
-  const own = (n.contexts ?? []).filter((c) => c.name && !isProcessContext(c.name));
-  const m = own.find((c) => c.isPrimary) ?? (own.length === 1 ? own[0] : null);
-  if (!m) return null;
-  const label = m.name.trim().replace(/\s+/g, ' ');
-  return { key: normName(label), label };
-}
-
-/**
- * Splits a column's people into the ungrouped ones and machine crews. A
- * machine that repeats the heading directly above (`above`, normalised) is
- * not a new heading — "Rewinding" under "Rewinding" — and its people stay
- * ungrouped. Returns each person's own heading-above for the next level down.
- */
-export function splitByMachine(
-  model: ChartModel,
-  g: ProcessGroup,
-  above: string,
-  orient: 'across' | 'down',
-): Map<number, string> {
-  const heading = g.label ? normName(g.label) : above;
-  const crews = new Map<string, ProcessGroup>();
-  const aboveOf = new Map<number, string>();
-  g.loose = [];
-  for (const id of g.ids) {
-    const m = machineOf(model.byId.get(id)!);
-    if (!m || m.key === heading) {
-      g.loose.push(id);
-      aboveOf.set(id, heading);
-      continue;
-    }
-    let c = crews.get(m.key);
-    if (!c) {
-      c = {
-        key: m.key, label: m.label, level: 1, ids: [], loose: [], crews: [], crewOrient: 'across',
-        x: 0, y: 0, w: 0, h: 0, hx: 0, hw: 0,
-      };
-      crews.set(m.key, c);
-    }
-    c.ids.push(id);
-    c.loose.push(id);
-    aboveOf.set(id, m.key);
-  }
-  g.crews = [...crews.values()];
-  g.crewOrient = orient;
-  return aboveOf;
-}
-
-/** Every heading in a split, sections then their crews. */
-export function allGroups(groups: ProcessGroup[]): ProcessGroup[] {
-  return groups.flatMap((g) => [g, ...g.crews]);
-}
-
-/**
- * A team split by work process, in a stable order: the manager's own process
- * first, then the unit tree's order (best rank among the group's members), the
- * no-unit group last. People keep payload order inside a group.
- */
-export function groupByProcess(model: ChartModel, managerId: number, kids: number[]): ProcessGroup[] {
-  const idx = processIndex(model);
-  const own = processKey(model.byId.get(managerId)!);
-  const groups = new Map<string, { ids: number[]; rank: number }>();
-  for (const k of kids) {
-    const n = model.byId.get(k)!;
-    const key = processKey(n);
-    const g = groups.get(key) ?? { ids: [], rank: Number.POSITIVE_INFINITY };
-    g.ids.push(k);
-    g.rank = Math.min(g.rank, n.departmentRank ?? Number.POSITIVE_INFINITY);
-    groups.set(key, g);
-  }
-  const weight = (key: string) => (key === '' ? 2 : key === own ? 0 : 1);
-  return [...groups.entries()]
-    .sort(([a, ga], [b, gb]) => weight(a) - weight(b) || ga.rank - gb.rank || a.localeCompare(b))
-    .map(([key, g]) => ({
-      key, label: key ? (idx.label.get(key) ?? key) : '', level: 0 as const, ids: g.ids,
-      loose: [...g.ids], crews: [] as ProcessGroup[], crewOrient: 'across' as const,
-      x: 0, y: 0, w: 0, h: 0, hx: 0, hw: 0,
-    }));
 }
 
 // ── Rows inside a box ───────────────────────────────────────────────────────
@@ -723,10 +501,25 @@ export interface BoxInfo {
   h: number;
 }
 
-export function boxInfo(n: OrgChartNode, filter: ShiftFilter, fonts: ChartFonts): BoxInfo {
+export function boxInfo(
+  n: OrgChartNode,
+  filter: ShiftFilter,
+  fonts: ChartFonts,
+  show: ChartShow = SHOW_ALL,
+): BoxInfo {
   const badge = n.hasContent ? 18 : 0;
-  const titleLines = wrapText(n.displayTitle || n.title, fonts.title, W - 2 * PAD - badge);
-  const rows = rowsOf(n, filter);
+  const titleLines = show.roles
+    ? wrapText(n.displayTitle || n.title, fonts.title, W - 2 * PAD - badge)
+    : [];
+  // PEOPLE OFF: the seat is its role — no names and no vacancy rows.
+  // ROLES OFF: names only. A vacancy row says "this role is unfilled", and with
+  // the role hidden it says nothing, so vacancy rows go; a seat with nobody in
+  // it keeps ONE muted "Vacant seat" row so the reporting shape stays whole.
+  let rows = show.people ? rowsOf(n, filter) : [];
+  if (show.people && !show.roles) {
+    rows = rows.filter((r) => r.occupant);
+    if (!rows.length) rows = [{ shift: 'G', occupant: null }];
+  }
   const captions: string[] = [];
   const chips: string[] = [];
 
@@ -737,15 +530,16 @@ export function boxInfo(n: OrgChartNode, filter: ShiftFilter, fonts: ChartFonts)
     // Incharge and carry "Pelican Machine" here — the machine is not a manager.
     chips.push(fitText(contexts[0].name, fonts.chip, W - 2 * PAD - 12));
   }
-  if (n.shiftPattern === 'DN') captions.push('Day & Night shift');
+  if (n.shiftPattern === 'DN' && show.roles) captions.push('Day & Night shift');
   if (contexts.length > 1) {
     wrapText(`Shared across: ${contexts.map((c) => c.name).join(', ')}`, fonts.caption, W - 2 * PAD)
       .forEach((l) => captions.push(l));
   }
-  if (n.status && n.status !== 'ACTIVE') captions.push(`${n.status.charAt(0)}${n.status.slice(1).toLowerCase()} position`);
+  if (n.status && n.status !== 'ACTIVE' && show.roles) captions.push(`${n.status.charAt(0)}${n.status.slice(1).toLowerCase()} position`);
 
   let h = PAD + titleLines.length * TLH + captions.length * CAPH + chips.length * CHIPH;
-  if (rows.length) h += 7 + rows.length * (ROWH + ROWG) - ROWG;
+  const top = titleLines.length + captions.length + chips.length > 0;
+  if (rows.length) h += (top ? 7 : 0) + rows.length * (ROWH + ROWG) - ROWG;
   h += PAD + 2;
   return { titleLines, captions, chips, rows, h };
 }
@@ -759,14 +553,7 @@ export interface PlacedNode {
   x: number;
   y: number;
   h: number;
-  mode: 'leaf' | 'stack' | 'side' | 'mixed' | 'groups';
-  /**
-   * `groups` only (spec §15): the team split by work process, one labelled
-   * box per process. `across` when this seat heads its process (boxes side by
-   * side), `down` otherwise (boxes stacked under it, indented).
-   */
-  groups?: ProcessGroup[];
-  orient?: 'across' | 'down';
+  mode: 'leaf' | 'stack' | 'side' | 'mixed';
   /**
    * `mixed` only (spec §14): the reports that have teams of their own, side by
    * side on the next level's line, and the ones that do not, in ONE column
@@ -788,6 +575,8 @@ export interface LayoutResult {
   order: number[];
   width: number;
   height: number;
+  /** Set when departments are drawn as boxes (spec §16). */
+  dept?: DeptLayout;
 }
 
 export interface LayoutOptions {
@@ -796,6 +585,10 @@ export interface LayoutOptions {
   collapsed: Set<number>;
   arrange: Record<number, Arrange>;
   fonts: ChartFonts;
+  /** What is drawn. Default: everything. */
+  show?: ChartShow;
+  /** Department ids folded shut (only read when departments are drawn). */
+  deptClosed?: Set<number>;
 }
 
 /**
@@ -809,15 +602,14 @@ export function layoutChart(model: ChartModel, opts: LayoutOptions): LayoutResul
 
   const realKids = (id: number) => model.children.get(id) ?? [];
 
-  /** `above`: the normalised heading directly over this box ('' for none) — rule 6 of the machines. */
-  const size = (id: number, depth: number, above = ''): number => {
+  const size = (id: number, depth: number): number => {
     const node = model.byId.get(id)!;
     const isCollapsed = collapsed.has(id);
     const kids = isCollapsed ? [] : realKids(id);
     const p: PlacedNode = {
       id,
       node,
-      info: boxInfo(node, filter, fonts),
+      info: boxInfo(node, filter, fonts, opts.show),
       x: 0,
       y: 0,
       h: 0,
@@ -859,80 +651,16 @@ export function layoutChart(model: ChartModel, opts: LayoutOptions): LayoutResul
     // leaves too; `stack` makes the whole team an indented list.
     const pref = arrange[id] ?? 'auto';
     const managers = kids.filter((k) => realKids(k).length > 0);
-    // ── WORK PROCESSES FIRST (spec §15) ──────────────────────────────────
-    // A team spanning two or more processes is drawn as one labelled box per
-    // process, its people stacked inside. The boxes go side by side when this
-    // seat heads its process, and stack under it otherwise. A team that is all
-    // one process has no box and falls through to the rule below. An override
-    // (`side` / `stack`) means exactly what it says and skips the boxes.
-    // Leadership stays a plain tree: a seat in a ROOT unit (Management, for
-    // Karni) never boxes its team, so the Directors read as an ordinary tree
-    // and the boxes begin where the reports split into departments.
-    //
-    // MACHINES (spec §15): inside a section column — and inside a one-section
-    // team — people are sub-grouped by machine/area (their primary non-process
-    // work context), a smaller heading over each crew, the ungrouped people
-    // first. A one-section team with machines becomes ONE unlabelled column.
-    const allowed = pref === 'auto' && !inRootProcess(model, node);
-    let groups = allowed ? groupByProcess(model, id, kids) : [];
-    const orient: 'across' | 'down' =
-      headsProcess(model, node) || kids.some((k) => headsAnyProcess(model, model.byId.get(k)!))
-        ? 'across'
-        : 'down';
-    const aboveOf = new Map<number, string>();
-    if (groups.length === 1) groups[0].label = '';
-    // A section heading that repeats the heading directly above (P022 sits
-    // under "Printing"; its own Printing column would say "Printing" again)
-    // is not drawn: the column stays, the line runs straight into it.
-    for (const g of groups) if (g.label && normName(g.label) === above) g.label = '';
-    for (const g of groups) splitByMachine(model, g, above, orient).forEach((v, k) => aboveOf.set(k, v));
-    if (groups.length === 1 && !groups[0].crews.length) {
-      groups = [];
-      aboveOf.clear();
-    }
     p.mode =
-      groups.length > 0
-        ? 'groups'
-        : pref === 'side'
-          ? 'side'
-          : pref === 'stack' || managers.length === 0
-            ? 'stack'
-            : managers.length === kids.length
-              ? 'side'
-              : 'mixed';
+      pref === 'side'
+        ? 'side'
+        : pref === 'stack' || managers.length === 0
+          ? 'stack'
+          : managers.length === kids.length
+            ? 'side'
+            : 'mixed';
 
-    const sizes = kids.map((k) => size(k, depth + 1, aboveOf.get(k) ?? above));
-    if (p.mode === 'groups') {
-      p.groups = groups;
-      // Side by side when this seat heads its process, OR when any column holds
-      // a seat that heads a process (that person has a department under them).
-      // Stacked columns remain only for small cross-process teams with no head.
-      // Machine crews inside a column follow the same answer.
-      p.orient = orient;
-      // A heading wider than its column WIDENS the column (one line, never
-      // wrapped): "Packaging & Loading" over a one-person column would
-      // otherwise reach into the next column's heading.
-      const widest = (ids: number[]) => (ids.length ? IND + Math.max(...ids.map((k) => placed.get(k)!.sw)) : 0);
-      for (const g of groups) {
-        for (const c of g.crews) {
-          c.hw = textWidth(c.label, fonts.machine);
-          c.w = Math.max(widest(c.ids), c.hw + 8);
-        }
-        const crewsW = !g.crews.length
-          ? 0
-          : IND +
-            (g.crewOrient === 'across'
-              ? g.crews.reduce((a, c) => a + c.w, 0) + CGAP * (g.crews.length - 1)
-              : Math.max(...g.crews.map((c) => c.w)));
-        g.hw = g.label ? textWidth(g.label, fonts.process) : 0;
-        g.w = Math.max(widest(g.loose), crewsW, g.hw ? g.hw + 8 : 0);
-      }
-      p.sw =
-        p.orient === 'across'
-          ? Math.max(W, groups.reduce((a, g) => a + g.w, 0) + PGAP * (groups.length - 1))
-          : Math.max(W, IND + Math.max(...groups.map((g) => g.w)));
-      return p.sw;
-    }
+    const sizes = kids.map((k) => size(k, depth + 1));
     if (p.mode === 'mixed') {
       p.row = managers;
       p.column = kids.filter((k) => realKids(k).length === 0);
@@ -966,74 +694,6 @@ export function layoutChart(model: ChartModel, opts: LayoutOptions): LayoutResul
     let bottom = p.y + p.info.h;
     if (!p.kids.length) {
       p.x = left;
-      return bottom;
-    }
-    if (p.mode === 'groups') {
-      // Under its heading a column's people stack, each with its own team
-      // below them; a member's subtree is laid out by the same rules, so a
-      // member whose team spans processes gets headed columns of its own.
-      // A column: its ungrouped people stacked first, then its machine crews
-      // (side by side or stacked), each crew a smaller column of its own.
-      const fill = (g: ProcessGroup, gx: number, gy: number): number => {
-        g.x = gx;
-        g.y = gy;
-        let my = groupTop(g);
-        let last = groupLineY(g);
-        for (const k of g.loose) {
-          last = place(k, gx + IND, my);
-          my = last + SG;
-        }
-        if (g.crews.length) {
-          let cy = g.loose.length ? last + CTOP : groupLineY(g) + CTOP - 12;
-          if (g.crewOrient === 'across') {
-            let cx = gx + IND;
-            for (const c of g.crews) {
-              last = Math.max(last, fill(c, cx, cy));
-              cx += c.w + CGAP;
-            }
-          } else {
-            for (const c of g.crews) {
-              cy += CGV;
-              last = fill(c, gx + IND, cy);
-              cy = last + SG;
-            }
-          }
-        }
-        g.h = last - gy;
-        // The heading sits right above the first person (or, with no
-        // ungrouped people, over its crews), kept inside the column's own
-        // x-range so it can never reach a neighbour's.
-        let want: number;
-        if (g.loose.length) want = placed.get(g.loose[0])!.x + W / 2;
-        else if (g.crewOrient === 'across') want = (g.crews[0].hx + g.crews[g.crews.length - 1].hx) / 2;
-        else want = g.crews[0].hx;
-        g.hx = g.hw ? Math.min(Math.max(want, gx + g.hw / 2), gx + g.w - g.hw / 2) : want;
-        return last;
-      };
-      const groups = p.groups!;
-      if (p.orient === 'across') {
-        // On the next level's line when this box is on the grid, so a split
-        // team still starts where its cousins' teams start.
-        const next = levelTop[p.depth + 1];
-        const below = p.y + p.info.h + VG;
-        const gy = grid && next !== undefined ? Math.max(next, below) : below;
-        const total = groups.reduce((a, g) => a + g.w, 0) + PGAP * (groups.length - 1);
-        let gx = left + (p.sw - total) / 2;
-        for (const g of groups) {
-          bottom = Math.max(bottom, fill(g, gx, gy));
-          gx += g.w + PGAP;
-        }
-        const lastG = groups[groups.length - 1];
-        const mid = (groups[0].x + lastG.x + lastG.w) / 2 - W / 2;
-        p.x = Math.min(Math.max(mid, left), left + p.sw - W);
-      } else {
-        p.x = left;
-        let gy = bottom + SV + PGV;
-        for (const g of groups) {
-          bottom = fill(g, left + IND, gy);
-          gy = bottom + SG + PGV;
-        }
-      }
       return bottom;
     }
     if (p.mode === 'stack') {
@@ -1079,7 +739,7 @@ export function layoutChart(model: ChartModel, opts: LayoutOptions): LayoutResul
         ? [opts.root]
         : model.roots;
 
-  for (const r of roots) size(r, 0, '');
+  for (const r of roots) size(r, 0);
 
   const band: number[] = [];
   const onGrid = (id: number) => {
@@ -1108,6 +768,888 @@ export function layoutChart(model: ChartModel, opts: LayoutOptions): LayoutResul
     width: Math.max(600, x - HG * 2 + M),
     height: bottom + M,
   };
+}
+
+// ── Departments as boxes, the reporting chart laid over them (spec §16) ─────
+//
+// A department is a BOX that holds its people. The box hangs under the PERSON
+// its top people report to (one roll-up line per department, not one per
+// person); with no people of its own it hangs under its parent department's
+// box. So the picture is a tree of boxes whose lines end on people, with the
+// in-box reporting chain drawn inside each box by the §14 rule.
+//
+// Nothing in here reads a department's NAME or TYPE: everything comes from
+// `parentId`, `isShared`, `serves` and the primary reporting edges.
+
+/** Box padding, and the gaps between boxes. */
+export const BP = 12;
+export const BGAP = 28;
+export const BVG = 46;
+export const BSG = 14;
+/** One routing lane: a bus level under a box, a spine beside a column, a gutter beside a box. */
+export const LANE = 9;
+/** Inside a box: level gap and sibling gap (tighter than the plain tree's VG / HG). */
+export const IVG = 34;
+export const IHG = 16;
+/** A column of leaf boxes is split once it would be taller than this. */
+export const COLCAP = 620;
+/** Department title metrics. */
+const DTP = 9;
+const DTL = 17;
+const DNL = 15;
+/** The id of the box that holds seats with no department. */
+export const NO_DEPT = 0;
+
+export type DeptAttach = { person: number; box: number } | { box: number } | null;
+
+export interface DeptBox {
+  id: number;
+  name: string;
+  type: string | null;
+  shared: boolean;
+  serves: number[];
+  open: boolean;
+  /** Visible seats of this department, payload order. */
+  members: number[];
+  /** The seats drawn as cards (none when closed, or with roles and people both off). */
+  drawn: number[];
+  /** What the box hangs from: a person (in another box), a box, or nothing (a top box). */
+  attach: DeptAttach;
+  parent: number | null;
+  depth: number;
+  /** Child boxes drawn under this one (none when closed). */
+  kids: number[];
+  /** Every box below this one in the tree, drawn or folded. */
+  below: number;
+  /** Seats counted by the app's rule: its own, plus everything folded into it when closed. */
+  counts: VisibleCounts;
+  /** The one seat that heads the box: the only top seat, with reports inside. */
+  head: number | null;
+  /** Top seats whose manager is neither the roll-up person nor in the box (rule 4). */
+  exceptions: number[];
+  titleLines: string[];
+  /** Small lines under the title: the count of a closed box, who works an empty one. */
+  notes: string[];
+  canToggle: boolean;
+  titleH: number;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+export interface DeptLayout {
+  boxes: Map<number, DeptBox>;
+  /** Draw order: a parent before its children. */
+  order: number[];
+  /** Reporting lines: roll-ups, buses, spines and the in-box chains. */
+  solid: string[];
+  /** "Serves" links routed in the open (never under a box). */
+  serves: string[];
+  /** "Serves" links that pass behind boxes on the way (drawn under everything). */
+  servesUnder: string[];
+  /** Arrowheads of the serves links: tip, and the direction the arrow points. */
+  arrows: { x: number; y: number; dir: 'l' | 'r' | 'u' | 'd'; under: boolean }[];
+  /** Rule 4: primary edges that leave a box for someone other than its roll-up person. */
+  exceptions: { from: number; to: number }[];
+}
+
+interface Inner {
+  pos: Map<number, { x: number; y: number }>;
+  w: number;
+  h: number;
+  lines: string[];
+}
+
+/**
+ * The people of ONE box: its in-box reporting forest laid out by the §14 rule
+ * (managers side by side, leaf seats in one column), coordinates relative to
+ * the box's content corner.
+ *
+ * Lines are drawn only when the chain is more than "everyone reports to the
+ * head" (rule 3): one head over leaves, or a box of leaves, is a plain stack
+ * with no lines and no indent.
+ */
+function innerLayout(
+  roots: number[],
+  kidsIn: (id: number) => number[],
+  hOf: (id: number) => number,
+  arrange: Record<number, Arrange>,
+): Inner {
+  const pos = new Map<number, { x: number; y: number }>();
+  const lines: string[] = [];
+  if (!roots.length) return { pos, w: 0, h: 0, lines };
+  const isMgr = (id: number) => kidsIn(id).length > 0;
+  const lined = !(
+    roots.every((r) => !isMgr(r)) ||
+    (roots.length === 1 && kidsIn(roots[0]).every((k) => !isMgr(k)))
+  );
+  const ind = lined ? IND : 0;
+  interface N { mode: 'leaf' | 'stack' | 'side' | 'mixed'; sw: number; row: number[]; col: number[] }
+  const info = new Map<number, N>();
+
+  const size = (id: number): number => {
+    const kids = kidsIn(id);
+    if (!kids.length) {
+      info.set(id, { mode: 'leaf', sw: W, row: [], col: [] });
+      return W;
+    }
+    const sizes = kids.map(size);
+    const pref = arrange[id] ?? 'auto';
+    const managers = kids.filter(isMgr);
+    const mode: N['mode'] =
+      pref === 'side'
+        ? 'side'
+        : pref === 'stack' || managers.length === 0
+          ? 'stack'
+          : managers.length === kids.length
+            ? 'side'
+            : 'mixed';
+    let sw: number;
+    let row = kids;
+    let col: number[] = [];
+    if (mode === 'stack') {
+      sw = Math.max(W, ind + Math.max(...sizes));
+      row = [];
+      col = kids;
+    } else if (mode === 'side') {
+      sw = Math.max(W, sizes.reduce((a, b) => a + b, 0) + IHG * (sizes.length - 1));
+    } else {
+      row = managers;
+      col = kids.filter((k) => !isMgr(k));
+      const rowW = row.reduce((a, k) => a + info.get(k)!.sw, 0) + IHG * (row.length - 1);
+      sw = Math.max(W, rowW + IHG + ind + W);
+    }
+    info.set(id, { mode, sw, row, col });
+    return sw;
+  };
+
+  const place = (id: number, left: number, top: number): number => {
+    const n = info.get(id)!;
+    const h = hOf(id);
+    let bottom = top + h;
+    if (n.mode === 'leaf') {
+      pos.set(id, { x: left, y: top });
+      return bottom;
+    }
+    if (n.mode === 'stack') {
+      pos.set(id, { x: left, y: top });
+      let cy = bottom + SG;
+      for (const k of n.col) {
+        bottom = place(k, left + ind, cy);
+        cy = bottom + SG;
+      }
+      if (lined) {
+        const sx = left + ind / 2;
+        let last = top + h;
+        for (const k of n.col) {
+          const c = pos.get(k)!;
+          last = c.y + Math.min(hOf(k) / 2, 17);
+          lines.push(`M${sx} ${last}H${c.x}`);
+        }
+        lines.push(`M${sx} ${top + h}V${last}`);
+      }
+      return bottom;
+    }
+    const colW = n.col.length ? IHG + ind + W : 0;
+    const total = n.row.reduce((a, k) => a + info.get(k)!.sw, 0) + IHG * (n.row.length - 1) + colW;
+    let cx = left + (n.sw - total) / 2;
+    const cy = top + h + IVG;
+    for (const k of n.row) {
+      bottom = Math.max(bottom, place(k, cx, cy));
+      cx += info.get(k)!.sw + IHG;
+    }
+    let ly = cy;
+    for (const k of n.col) {
+      const b = place(k, cx + ind, ly);
+      bottom = Math.max(bottom, b);
+      ly = b + SG;
+    }
+    const first = pos.get(n.row[0])!;
+    const lastX = n.col.length ? cx + ind : pos.get(n.row[n.row.length - 1])!.x;
+    const x = Math.min(Math.max((first.x + lastX) / 2, left), left + n.sw - W);
+    pos.set(id, { x, y: top });
+    // The whole in-box tree is drawn once any of it is needed.
+    const px = x + W / 2;
+    const my = cy - IVG / 2;
+    const cxs = n.row.map((k) => pos.get(k)!.x + W / 2);
+    const spine = n.col.length ? pos.get(n.col[0])!.x - ind / 2 : null;
+    if (spine != null) cxs.push(spine);
+    lines.push(`M${px} ${top + h}V${my}`);
+    lines.push(`M${Math.min(px, ...cxs)} ${my}H${Math.max(px, ...cxs)}`);
+    for (const k of n.row) lines.push(`M${pos.get(k)!.x + W / 2} ${my}V${cy}`);
+    if (spine != null) {
+      let last = my;
+      for (const k of n.col) {
+        const c = pos.get(k)!;
+        last = c.y + Math.min(hOf(k) / 2, 17);
+        lines.push(`M${spine} ${last}H${c.x}`);
+      }
+      lines.push(`M${spine} ${my}V${last}`);
+    }
+    return bottom;
+  };
+
+  roots.forEach(size);
+  let w = 0;
+  let h = 0;
+  if (roots.length === 1) {
+    h = place(roots[0], 0, 0);
+  } else {
+    // Several top seats: the ones with a chain side by side, the rest in one
+    // column after them — the same rule, with no line joining them (their
+    // common manager is outside the box; the box's roll-up line says so).
+    const mgrs = roots.filter(isMgr);
+    let cx = 0;
+    for (const r of mgrs) {
+      h = Math.max(h, place(r, cx, 0));
+      cx += info.get(r)!.sw + IHG;
+    }
+    let ly = 0;
+    for (const r of roots.filter((x) => !isMgr(x))) {
+      const b = place(r, cx, ly);
+      h = Math.max(h, b);
+      ly = b + SG;
+    }
+  }
+  for (const q of pos.values()) w = Math.max(w, q.x + W);
+  return { pos, w, h, lines: lined ? lines : [] };
+}
+
+/** Splits boxes into order-preserving columns of about equal height, none much over `cap`. */
+function packColumns<T>(items: T[], hOf: (t: T) => number, gap: number, cap: number): T[][] {
+  if (!items.length) return [];
+  const total = items.reduce((a, t) => a + hOf(t), 0) + gap * (items.length - 1);
+  const n = Math.min(items.length, Math.max(1, Math.ceil(total / cap)));
+  const target = total / n;
+  const cols: T[][] = [[]];
+  let cur = 0;
+  for (const t of items) {
+    const h = hOf(t);
+    const col = cols[cols.length - 1];
+    if (col.length && cols.length < n && cur + h / 2 > target) {
+      cols.push([t]);
+      cur = h + gap;
+    } else {
+      col.push(t);
+      cur += h + gap;
+    }
+  }
+  return cols;
+}
+
+export function layoutDepartments(model: ChartModel, opts: LayoutOptions): LayoutResult {
+  const { filter, fonts, arrange } = opts;
+  const show = opts.show ?? SHOW_ALL;
+  const closed = opts.deptClosed ?? new Set<number>();
+  const cards = show.roles || show.people;
+
+  // ── 1. Who is in view, and in which department ───────────────────────────
+  const visible = subtreeIds(model, opts.root);
+  const inView = new Set(visible);
+  const deptOf = (id: number): number => {
+    const d = model.byId.get(id)?.departmentId;
+    return d != null && model.deptById.has(d) ? d : NO_DEPT;
+  };
+  const members = new Map<number, number[]>();
+  for (const id of visible) {
+    const d = deptOf(id);
+    const list = members.get(d);
+    if (list) list.push(id);
+    else members.set(d, [id]);
+  }
+  const staffed = new Set<number>();
+  for (const id of model.byId.keys()) staffed.add(deptOf(id));
+
+  const defs = new Map<number, OrgChartDepartment>(model.deptById);
+  if (members.has(NO_DEPT))
+    defs.set(NO_DEPT, {
+      id: NO_DEPT, code: null, name: 'No department', parentId: null, type: null,
+      isShared: false, serves: [], rank: Number.MAX_SAFE_INTEGER,
+    });
+  const rankOf = (d: number) => defs.get(d)?.rank ?? Number.MAX_SAFE_INTEGER;
+  const byRank = (a: number, b: number) => rankOf(a) - rankOf(b) || a - b;
+  const treeKids = new Map<number, number[]>();
+  for (const d of defs.values()) {
+    if (d.parentId == null || !defs.has(d.parentId)) continue;
+    const list = treeKids.get(d.parentId);
+    if (list) list.push(d.id);
+    else treeKids.set(d.parentId, [d.id]);
+  }
+
+  // ── 2. Which departments are drawn ───────────────────────────────────────
+  // One with seats in view, always. One with no seats at all — a heading over
+  // sub-departments, or a machine worked only by a shared crew — when the whole
+  // organisation is shown, or when something drawn hangs from it or serves it.
+  const drawn = new Set<number>();
+  for (const d of defs.keys()) {
+    if (members.has(d) || (!staffed.has(d) && opts.root === '')) drawn.add(d);
+  }
+  for (let changed = true, guard = 0; changed && guard < 60; guard += 1) {
+    changed = false;
+    for (const d of defs.values()) {
+      if (drawn.has(d.id) || staffed.has(d.id)) continue;
+      const need =
+        (treeKids.get(d.id) ?? []).some((k) => drawn.has(k)) ||
+        [...drawn].some((s) => defs.get(s)!.isShared && defs.get(s)!.serves.includes(d.id));
+      if (need) {
+        drawn.add(d.id);
+        changed = true;
+      }
+    }
+  }
+  const ids = [...drawn].sort(byRank);
+  /** The nearest DRAWN department above, in the department tree. */
+  const treeParent = (d: number): number | null => {
+    let cur = defs.get(d)?.parentId ?? null;
+    for (let g = 0; cur != null && g < 60; g += 1) {
+      if (drawn.has(cur)) return cur;
+      cur = defs.get(cur)?.parentId ?? null;
+    }
+    return null;
+  };
+
+  // ── 3. The roll-up person, and what each box hangs from ──────────────────
+  const rollup = new Map<number, number>();
+  const exceptionsOf = new Map<number, number[]>();
+  const mgrOf = (id: number) => {
+    const m = model.parent.get(id);
+    return m != null && inView.has(m) ? m : null;
+  };
+  const mostCommon = (xs: number[]): number | null => {
+    const tally = new Map<number, number>();
+    for (const x of xs) tally.set(x, (tally.get(x) ?? 0) + 1);
+    let best: number | null = null;
+    for (const [k, c] of tally) if (best == null || c > tally.get(best)!) best = k;
+    return best;
+  };
+  for (const d of ids) {
+    const own = members.get(d) ?? [];
+    const outside = own
+      .map((id) => ({ id, m: mgrOf(id) }))
+      .filter((e): e is { id: number; m: number } => e.m != null && deptOf(e.m) !== d);
+    const r = mostCommon(outside.map((e) => e.m));
+    if (r != null) rollup.set(d, r);
+    exceptionsOf.set(d, outside.filter((e) => e.m !== r).map((e) => e.id));
+  }
+  // A department with no seats in view rolls up where its sub-departments do.
+  for (const d of [...ids].reverse()) {
+    if (rollup.has(d) || members.has(d)) continue;
+    const r = mostCommon(
+      (treeKids.get(d) ?? [])
+        .filter((k) => drawn.has(k) && rollup.has(k))
+        .map((k) => rollup.get(k)!),
+    );
+    if (r != null && deptOf(r) !== d) rollup.set(d, r);
+  }
+  const attach = new Map<number, DeptAttach>();
+  for (const d of ids) {
+    const tp = treeParent(d);
+    const r = rollup.get(d);
+    // Rule 5: under a department with no people, the line is box to box.
+    if (tp != null && !members.has(tp)) attach.set(d, { box: tp });
+    else if (r != null && cards) attach.set(d, { person: r, box: deptOf(r) });
+    else if (r != null) attach.set(d, { box: deptOf(r) });
+    else attach.set(d, tp != null ? { box: tp } : null);
+  }
+  // A loop in the data must cost a detached box, not a hang.
+  for (const d of ids) {
+    const seen = new Set<number>([d]);
+    let cur = attach.get(d)?.box;
+    for (let g = 0; cur != null && g < 80; g += 1) {
+      if (seen.has(cur)) {
+        const tp = treeParent(d);
+        attach.set(d, tp != null && !seen.has(tp) ? { box: tp } : null);
+        break;
+      }
+      seen.add(cur);
+      cur = attach.get(cur)?.box;
+    }
+  }
+  const allKids = new Map<number, number[]>();
+  const tops: number[] = [];
+  for (const d of ids) {
+    const a = attach.get(d);
+    if (!a) tops.push(d);
+    else {
+      const list = allKids.get(a.box);
+      if (list) list.push(d);
+      else allKids.set(a.box, [d]);
+    }
+  }
+
+  // ── 4. Boxes, folds and counts ───────────────────────────────────────────
+  const boxes = new Map<number, DeptBox>();
+  const order: number[] = [];
+  const placed = new Map<number, PlacedNode>();
+  const cardOrder: number[] = [];
+  const inners = new Map<number, Inner>();
+  const subtreeSeats = (d: number, out: number[]): number => {
+    out.push(...(members.get(d) ?? []));
+    let n = 0;
+    for (const k of allKids.get(d) ?? []) n += 1 + subtreeSeats(k, out);
+    return n;
+  };
+  const servedBy = (d: number) =>
+    ids.filter((s) => defs.get(s)!.isShared && defs.get(s)!.serves.includes(d)).length;
+
+  const make = (d: number, depth: number, parent: number | null) => {
+    const def = defs.get(d)!;
+    const own = members.get(d) ?? [];
+    const kidsAll = allKids.get(d) ?? [];
+    // A top box is always open: closing it would leave nothing on the canvas,
+    // and a chart started from a branch must not open on one shut box.
+    const canToggle = depth > 0 && (own.length > 0 || kidsAll.length > 0);
+    const open = !canToggle || !closed.has(d);
+    const seatIds: number[] = [];
+    const below = subtreeSeats(d, seatIds);
+    const counts = countRows(model, open ? own : seatIds, filter);
+    const drawnCards = open && cards ? own : [];
+    const ownSet = new Set(own);
+    const tops0 = own.filter((id) => {
+      const m = model.parent.get(id);
+      return m == null || !ownSet.has(m);
+    });
+    const kidsIn = (id: number) => (model.children.get(id) ?? []).filter((k) => ownSet.has(k));
+    for (const id of drawnCards) {
+      const node = model.byId.get(id)!;
+      const info = boxInfo(node, filter, fonts, show);
+      placed.set(id, {
+        id, node, info, x: 0, y: 0, h: info.h, mode: 'leaf', sw: W, kids: [],
+        collapsed: false, hidden: 0, depth: model.depth.get(id) ?? 0,
+      });
+    }
+    const inner = innerLayout(drawnCards.length ? tops0 : [], kidsIn, (id) => placed.get(id)!.h, arrange);
+    inners.set(d, inner);
+
+    const seatWord = (n: number) => `${n} seat${n === 1 ? '' : 's'}`;
+    const notes: string[] = [];
+    if (!own.length && !kidsAll.length) {
+      const by = servedBy(d);
+      // The arrows say WHICH crew; the words only say why the box is empty.
+      notes.push(by === 1 ? 'Worked by a shared crew' : by ? `Worked by ${by} shared crews` : 'No seats of its own');
+    } else if (!open || !cards) {
+      notes.push(counts.seats ? `${seatWord(counts.seats)}, ${counts.vacant} vacant` : 'No seats of its own');
+      if (!open && below) notes.push(`${below} department${below === 1 ? '' : 's'} inside`);
+    }
+    const contentW = Math.max(W, inner.w);
+    const w = contentW + 2 * BP;
+    const titleLines = wrapText(def.name, fonts.dept, w - 2 * BP - (canToggle ? 30 : 0));
+    const titleH = DTP + titleLines.length * DTL + (def.type ? DNL : 0) + notes.length * DNL + 7;
+    const box: DeptBox = {
+      id: d, name: def.name, type: def.type || null, shared: def.isShared, serves: def.serves,
+      open, members: own, drawn: drawnCards, attach: attach.get(d) ?? null, parent, depth,
+      kids: open ? kidsAll : [], below, counts,
+      head: tops0.length === 1 && kidsIn(tops0[0]).length > 0 ? tops0[0] : null,
+      exceptions: exceptionsOf.get(d) ?? [],
+      titleLines, notes: notes.map((t) => fitText(t, fonts.deptMeta, w - 2 * BP)),
+      canToggle, titleH, x: 0, y: 0, w, h: titleH + (drawnCards.length ? inner.h + BP : 0),
+    };
+    boxes.set(d, box);
+    order.push(d);
+    cardOrder.push(...drawnCards);
+    for (const k of box.kids) make(k, depth + 1, d);
+  };
+  tops.forEach((d) => make(d, 0, null));
+
+  // ── 5. Where a roll-up line leaves the box of the person it ends on ──────
+  // Straight down from the person when nothing in the box is under them;
+  // otherwise out of the side of their card to a gutter beside the box.
+  interface Exit {
+    key: string;
+    side: 'bottom' | 'right' | 'left' | 'box';
+    lane: number;
+    ex: number;
+    ey: number;
+  }
+  const keyOf = (a: DeptAttach) => (a && 'person' in a && placed.has(a.person) ? `p${a.person}` : 'box');
+  const exitsOf = new Map<number, Exit[]>();
+  const gutters = new Map<number, { l: number; r: number }>();
+  const contentX = (b: DeptBox) => BP + (b.w - 2 * BP - inners.get(b.id)!.w) / 2;
+  for (const d of order) {
+    const b = boxes.get(d)!;
+    const inner = inners.get(d)!;
+    const ox = contentX(b);
+    const exits: Exit[] = [];
+    for (const k of b.kids) {
+      const key = keyOf(boxes.get(k)!.attach);
+      if (exits.some((e) => e.key === key)) continue;
+      const me = key === 'box' ? undefined : inner.pos.get(Number(key.slice(1)));
+      if (!me) {
+        if (!exits.some((e) => e.side === 'box')) exits.push({ key: 'box', side: 'box', lane: 0, ex: b.w / 2, ey: b.h });
+        continue;
+      }
+      const pid = Number(key.slice(1));
+      const h = placed.get(pid)!.h;
+      const ey = me.y + Math.min(h / 2, 17);
+      const cx = me.x + W / 2;
+      let below = false;
+      let right = false;
+      let left = false;
+      for (const [id, q] of inner.pos) {
+        if (id === pid) continue;
+        const qh = placed.get(id)!.h;
+        if (q.y > me.y && cx > q.x - 6 && cx < q.x + W + 6) below = true;
+        if (ey > q.y - 6 && ey < q.y + qh + 6) {
+          if (q.x > me.x) right = true;
+          else if (q.x < me.x) left = true;
+        }
+      }
+      const side = !below ? 'bottom' : !right ? 'right' : !left ? 'left' : 'right';
+      exits.push({
+        key, side, lane: 0,
+        ex: ox + (side === 'bottom' ? cx : side === 'right' ? me.x + W : me.x),
+        ey: b.titleH + (side === 'bottom' ? me.y + h : ey),
+      });
+    }
+    // The lowest person takes the lane nearest the box, so no exit crosses another.
+    for (const side of ['right', 'left'] as const) {
+      exits.filter((e) => e.side === side).sort((a, c) => c.ey - a.ey).forEach((e, i) => { e.lane = i; });
+    }
+    // A box-to-box line shares the bottom edge with any person leaving straight down.
+    const boxExit = exits.find((e) => e.side === 'box');
+    if (boxExit) {
+      const taken = exits.filter((e) => e.side === 'bottom').map((e) => e.ex);
+      while (taken.some((x) => Math.abs(x - boxExit.ex) < 14) && boxExit.ex < b.w - 16) boxExit.ex += 16;
+    }
+    exitsOf.set(d, exits);
+    const nr = exits.filter((e) => e.side === 'right').length;
+    const nl = exits.filter((e) => e.side === 'left').length;
+    gutters.set(d, { l: nl ? nl * LANE + 6 : 0, r: nr ? nr * LANE + 6 : 0 });
+  }
+  /** The lane a child's line runs in under its parent box. */
+  const laneKey = (parent: number, child: number) => {
+    const key = keyOf(boxes.get(child)!.attach);
+    return exitsOf.get(parent)!.some((e) => e.key === key) ? key : 'box';
+  };
+
+  // ── 6. The tree of boxes ─────────────────────────────────────────────────
+  // Under a box: the children that have boxes of their own side by side; the
+  // leaf boxes in columns (the §14 rule, for boxes). A shared box and the leaf
+  // siblings it serves form a CLUSTER: the served boxes in one column, the
+  // shared boxes in the next, so every "serves" line is a short hop across the
+  // gutter between them and crosses nothing.
+  interface Column { boxes: number[]; keys: string[]; indent: number; w: number; h: number }
+  type Unit =
+    | { kind: 'row'; id: number; w: number; h: number; first: number }
+    | { kind: 'col'; col: Column; w: number; h: number; first: number }
+    | { kind: 'cluster'; a: Column; b: Column; gutter: number; w: number; h: number; first: number };
+  const unitsOf = new Map<number, Unit[]>();
+  const sw = new Map<number, number>();
+  const sh = new Map<number, number>();
+  const fw = (d: number) => boxes.get(d)!.w + gutters.get(d)!.l + gutters.get(d)!.r;
+  const gapUnder = (d: number) => BVG + (Math.max(1, exitsOf.get(d)!.length) - 1) * LANE;
+  const column = (parent: number, list: number[]): Column => {
+    const keys: string[] = [];
+    for (const k of list) {
+      const key = laneKey(parent, k);
+      if (!keys.includes(key)) keys.push(key);
+    }
+    const indent = 15 + keys.length * LANE;
+    return {
+      boxes: list, keys, indent,
+      w: indent + Math.max(...list.map(fw)),
+      h: list.reduce((a, k) => a + boxes.get(k)!.h, 0) + BSG * (list.length - 1),
+    };
+  };
+
+  const size = (d: number) => {
+    const b = boxes.get(d)!;
+    b.kids.forEach(size);
+    if (!b.kids.length) {
+      sw.set(d, fw(d));
+      sh.set(d, b.h);
+      unitsOf.set(d, []);
+      return;
+    }
+    const at = new Map(b.kids.map((k, i) => [k, i]));
+    // An only child hangs straight under its parent — a column of one would
+    // add a spine and a jog for nothing.
+    const inRow = (k: number) => boxes.get(k)!.kids.length > 0 || b.kids.length === 1;
+    const rows = b.kids.filter(inRow);
+    const leaves = b.kids.filter((k) => !inRow(k));
+    const units: Unit[] = rows.map((k) => ({ kind: 'row', id: k, w: sw.get(k)!, h: sh.get(k)!, first: at.get(k)! }));
+
+    // Clusters: union the shared leaf boxes with the leaf siblings they serve.
+    const group = new Map<number, number>();
+    const find = (x: number): number => {
+      let r = x;
+      while (group.get(r) !== r) r = group.get(r)!;
+      return r;
+    };
+    const leafSet = new Set(leaves);
+    for (const k of leaves) group.set(k, k);
+    const touched = new Set<number>();
+    for (const s of leaves) {
+      const sb = boxes.get(s)!;
+      if (!sb.shared) continue;
+      for (const t of sb.serves) {
+        if (!leafSet.has(t) || t === s) continue;
+        group.set(find(t), find(s));
+        touched.add(s);
+        touched.add(t);
+      }
+    }
+    const clusters = new Map<number, number[]>();
+    for (const k of leaves) {
+      if (!touched.has(k)) continue;
+      const r = find(k);
+      const list = clusters.get(r);
+      if (list) list.push(k);
+      else clusters.set(r, [k]);
+    }
+    const clustered = new Set<number>();
+    for (const list of clusters.values()) {
+      const sharedIn = (k: number) =>
+        boxes.get(k)!.shared && boxes.get(k)!.serves.some((t) => list.includes(t) && t !== k);
+      const left = list.filter((k) => !sharedIn(k));
+      const right = list.filter(sharedIn);
+      // Shared boxes that only serve each other have no plain column to face.
+      if (!left.length || !right.length) continue;
+      const a = column(d, left);
+      const bcol = column(d, right);
+      const gutter = 12 + bcol.boxes.length * LANE + 6;
+      list.forEach((k) => clustered.add(k));
+      units.push({
+        kind: 'cluster', a, b: bcol, gutter,
+        w: a.w + gutter + bcol.w, h: Math.max(a.h, bcol.h),
+        first: Math.min(...list.map((k) => at.get(k)!)),
+      });
+    }
+    const loose = leaves.filter((k) => !clustered.has(k));
+    const cap = Math.max(COLCAP, ...units.map((u) => u.h));
+    for (const list of packColumns(loose, (k) => boxes.get(k)!.h, BSG, cap)) {
+      const col = column(d, list);
+      units.push({ kind: 'col', col, w: col.w, h: col.h, first: at.get(list[0])! });
+    }
+    units.sort((x, y) => x.first - y.first);
+    unitsOf.set(d, units);
+    const total = units.reduce((acc, u) => acc + u.w, 0) + BGAP * (units.length - 1);
+    sw.set(d, Math.max(fw(d), total));
+    sh.set(d, b.h + gapUnder(d) + Math.max(...units.map((u) => u.h)));
+  };
+
+  const solid: string[] = [];
+  const serves: string[] = [];
+  const servesUnder: string[] = [];
+  const arrows: DeptLayout['arrows'] = [];
+  const servedDone = new Set<string>();
+
+  const place = (d: number, left: number, top: number) => {
+    const b = boxes.get(d)!;
+    const units = unitsOf.get(d)!;
+    const g = gutters.get(d)!;
+    b.y = top;
+    if (!units.length) {
+      b.x = left + g.l;
+      return;
+    }
+    const total = units.reduce((acc, u) => acc + u.w, 0) + BGAP * (units.length - 1);
+    const width = sw.get(d)!;
+    const cy = top + b.h + gapUnder(d);
+    let ux = left + (width - total) / 2;
+    b.x = Math.min(Math.max(ux + total / 2 - fw(d) / 2, left), left + width - fw(d)) + g.l;
+
+    // Where each child's line arrives: a point on top of a box in the row, or a
+    // spine down the left of a column with a tick into each box.
+    const drops = new Map<string, number[]>();
+    const drop = (key: string, x: number) => {
+      const v = drops.get(key);
+      if (v) v.push(x);
+      else drops.set(key, [x]);
+    };
+    const exits = exitsOf.get(d)!;
+    const laneY = (key: string) => cy - 16 - Math.max(0, exits.findIndex((e) => e.key === key)) * LANE;
+    const putColumn = (col: Column, x: number) => {
+      let y = cy;
+      const ticks = new Map<string, number>();
+      for (const k of col.boxes) {
+        place(k, x + col.indent, y);
+        const kb = boxes.get(k)!;
+        const key = laneKey(d, k);
+        const sx = x + 8 + col.keys.indexOf(key) * LANE;
+        const ty = kb.y + 16;
+        solid.push(`M${sx} ${ty}H${kb.x}`);
+        ticks.set(key, ty);
+        y += kb.h + BSG;
+      }
+      for (const [key, ty] of ticks) {
+        const sx = x + 8 + col.keys.indexOf(key) * LANE;
+        solid.push(`M${sx} ${laneY(key)}V${ty}`);
+        drop(key, sx);
+      }
+    };
+    for (const u of units) {
+      if (u.kind === 'row') {
+        place(u.id, ux, cy);
+        const kb = boxes.get(u.id)!;
+        const key = laneKey(d, u.id);
+        const x = kb.x + kb.w / 2;
+        solid.push(`M${x} ${laneY(key)}V${kb.y}`);
+        drop(key, x);
+      } else if (u.kind === 'col') {
+        putColumn(u.col, ux);
+      } else {
+        putColumn(u.a, ux);
+        putColumn(u.b, ux + u.a.w + u.gutter);
+        // The serves links: out of the shared box's left edge, along its own
+        // lane in the gutter, a tick with an arrowhead into each box it serves.
+        const aRight = ux + u.a.w;
+        u.b.boxes.forEach((s, i) => {
+          const sb = boxes.get(s)!;
+          const lx = aRight + 12 + i * LANE;
+          const sy = sb.y + Math.min(sb.h - 8, 34);
+          const ys = [sy];
+          for (const t of sb.serves) {
+            if (!u.a.boxes.includes(t)) continue;
+            const tb = boxes.get(t)!;
+            const ty = tb.y + Math.min(tb.h - 6, 12 + i * LANE);
+            serves.push(`M${lx} ${ty}H${tb.x + tb.w + 3}`);
+            arrows.push({ x: tb.x + tb.w + 1, y: ty, dir: 'l', under: false });
+            ys.push(ty);
+            servedDone.add(`${s}>${t}`);
+          }
+          serves.push(`M${sb.x} ${sy}H${lx}`, `M${lx} ${Math.min(...ys)}V${Math.max(...ys)}`);
+        });
+      }
+      ux += u.w + BGAP;
+    }
+
+    for (const e of exits) {
+      const xs = drops.get(e.key);
+      if (!xs) continue;
+      const ly = laneY(e.key);
+      const bx = b.x + e.ex;
+      const by = b.y + e.ey;
+      let x = bx;
+      if (e.side === 'right' || e.side === 'left') {
+        x = e.side === 'right' ? b.x + b.w + 6 + e.lane * LANE : b.x - 6 - e.lane * LANE;
+        solid.push(`M${bx} ${by}H${x}V${ly}`);
+      } else {
+        solid.push(`M${bx} ${by}V${ly}`);
+      }
+      const lo = Math.min(x, ...xs);
+      const hi = Math.max(x, ...xs);
+      if (hi - lo > 0.5) solid.push(`M${lo} ${ly}H${hi}`);
+    }
+  };
+
+  tops.forEach(size);
+  let x = M;
+  let bottom = M + HEAD;
+  for (const d of tops) {
+    place(d, x, M + HEAD);
+    bottom = Math.max(bottom, M + HEAD + sh.get(d)!);
+    x += sw.get(d)! + BGAP * 2;
+  }
+
+  // ── 7. Cards to chart coordinates; in-box chains ─────────────────────────
+  for (const d of order) {
+    const b = boxes.get(d)!;
+    const inner = inners.get(d)!;
+    const ox = b.x + contentX(b);
+    const oy = b.y + b.titleH;
+    for (const [id, q] of inner.pos) {
+      const p = placed.get(id)!;
+      p.x = ox + q.x;
+      p.y = oy + q.y;
+    }
+    // The in-box paths use only M / H / V with absolute numbers, so moving them
+    // into chart coordinates is a matter of re-reading each command.
+    for (const seg of inner.lines) {
+      solid.push(
+        seg.replace(/([MHV])(-?[\d.]+)(?: (-?[\d.]+))?/g, (_m, c: string, a: string, b2?: string) =>
+          c === 'M'
+            ? `M${Number(a) + ox} ${Number(b2) + oy}`
+            : c === 'H'
+              ? `H${Number(a) + ox}`
+              : `V${Number(a) + oy}`,
+        ),
+      );
+    }
+  }
+
+  // ── 8. Serves links that are not a hop across a cluster's gutter ─────────
+  // An elbow through the gap beside the served box. Where it has to pass other
+  // boxes it is drawn UNDER them: it disappears behind a box and comes out the
+  // other side, and can never run through anyone's text.
+  for (const d of order) {
+    const s = boxes.get(d)!;
+    if (!s.shared) continue;
+    let n = 0;
+    for (const t of s.serves) {
+      const tb = boxes.get(t);
+      if (!tb || t === d || servedDone.has(`${d}>${t}`)) continue;
+      const x1 = s.x + s.w * 0.72 + n * LANE;
+      n += 1;
+      if (tb.y + tb.h <= s.y) {
+        const ly = tb.y + tb.h + 9;
+        const x2 = Math.min(Math.max(x1, tb.x + 14), tb.x + tb.w - 14);
+        servesUnder.push(`M${x1} ${s.y}V${ly}H${x2}V${tb.y + tb.h + 3}`);
+        arrows.push({ x: x2, y: tb.y + tb.h + 1, dir: 'u', under: true });
+      } else if (tb.y >= s.y + s.h) {
+        const ly = tb.y - 9;
+        const x2 = Math.min(Math.max(x1, tb.x + 14), tb.x + tb.w - 14);
+        servesUnder.push(`M${x1} ${s.y + s.h}V${ly}H${x2}V${tb.y - 3}`);
+        arrows.push({ x: x2, y: tb.y - 1, dir: 'd', under: true });
+      } else {
+        const toRight = tb.x > s.x;
+        const sx = toRight ? s.x + s.w : s.x;
+        const tx = toRight ? tb.x - 3 : tb.x + tb.w + 3;
+        const sy = s.y + Math.min(s.h - 8, 34);
+        const ty = tb.y + Math.min(tb.h - 6, 14);
+        const mx = (sx + tx) / 2;
+        servesUnder.push(`M${sx} ${sy}H${mx}V${ty}H${tx}`);
+        arrows.push({ x: toRight ? tb.x - 1 : tb.x + tb.w + 1, y: ty, dir: toRight ? 'r' : 'l', under: true });
+      }
+    }
+  }
+
+  const exceptions: DeptLayout['exceptions'] = [];
+  for (const d of order) {
+    for (const id of boxes.get(d)!.exceptions) {
+      const m = model.parent.get(id);
+      if (m != null && placed.has(id) && placed.has(m)) exceptions.push({ from: id, to: m });
+    }
+  }
+
+  return {
+    placed,
+    order: cardOrder,
+    width: Math.max(600, x - BGAP * 2 + M),
+    height: bottom + M,
+    dept: { boxes, order, solid, serves, servesUnder, arrows, exceptions },
+  };
+}
+
+/**
+ * The box tree with every department open — what the pages need to work out
+ * the opening fold (by depth) and to open the boxes above a seat. Geometry is
+ * computed and thrown away; it is one extra layout per payload, not per frame.
+ */
+export function departmentTree(model: ChartModel, opts: LayoutOptions): Map<number, DeptBox> {
+  if (!model.departments.length) return new Map();
+  return layoutDepartments(model, { ...opts, deptClosed: new Set() }).dept!.boxes;
+}
+
+/** The department box a seat is drawn in. */
+export function departmentOfSeat(model: ChartModel, id: number): number {
+  const d = model.byId.get(id)?.departmentId;
+  return d != null && model.deptById.has(d) ? d : NO_DEPT;
+}
+
+/** `closed` with every box from this seat's department up to the top opened. */
+export function openAbove(tree: Map<number, DeptBox>, closed: Set<number>, dept: number): Set<number> {
+  let next = closed;
+  let cur: number | null = dept;
+  for (let g = 0; cur != null && g < 80; g += 1) {
+    if (next.has(cur)) {
+      if (next === closed) next = new Set(closed);
+      next.delete(cur);
+    }
+    cur = tree.get(cur)?.parent ?? null;
+  }
+  return next;
 }
 
 // ── The draw list ───────────────────────────────────────────────────────────
@@ -1162,12 +1704,33 @@ export interface ChartScene {
   height: number;
   background: string;
   header: Prim[];
-  /** Work-process headings (spec §15); drawn under the edges, which never cross them. */
-  groups: Prim[];
+  /**
+   * Draw order, bottom to top (spec §16): `under` (serves links that pass
+   * behind boxes) · `depts` · `edges` · `links` (serves, exceptions, the
+   * one-person-two-seats connector) · `secondary` · `boxes`.
+   */
+  under: Prim[];
+  depts: DeptRender[];
   edges: Prim[];
+  links: Prim[];
   secondary: Prim[];
   boxes: BoxRender[];
   layout: LayoutResult;
+}
+
+/** A department box: its frame and title, and whether a click folds it. */
+export interface DeptRender {
+  id: number;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  /** The title band — the click target. */
+  titleH: number;
+  prims: Prim[];
+  label: string;
+  open: boolean;
+  canToggle: boolean;
 }
 
 export interface SceneOptions extends LayoutOptions {
@@ -1211,7 +1774,12 @@ function boxLabel(p: PlacedNode, filter: ShiftFilter): string {
 
 /** Builds every primitive the chart draws, once, for both renderers. */
 export function buildScene(model: ChartModel, opts: SceneOptions): ChartScene {
-  const lay = layoutChart(model, opts);
+  const show = opts.show ?? SHOW_ALL;
+  // A payload with no department tree (a client cached before 2026-10-10) has
+  // nothing to box; it gets the plain tree rather than one giant box.
+  const boxed = show.departments && model.departments.length > 0;
+  const lay = boxed ? layoutDepartments(model, opts) : layoutChart(model, opts);
+  const dl = lay.dept;
   const p = opts.palette;
   const f = opts.fonts;
   const edges: Prim[] = [];
@@ -1222,88 +1790,6 @@ export function buildScene(model: ChartModel, opts: SceneOptions): ChartScene {
   for (const id of lay.order) {
     const n = lay.placed.get(id)!;
     if (!n.kids.length) continue;
-    if (n.mode === 'groups') {
-      // THE HEADING SITS ON THE LINE INTO ITS COLUMN. Side by side: the
-      // manager's bus drops at the heading's centre and stops just above the
-      // text; it resumes just below it, runs straight down into the first
-      // person, and branches left to a spine that ticks into everyone else in
-      // the column. Stacked: the manager's own spine feeds each column under
-      // its heading. No line crosses heading text.
-      const pb = n.y + n.info.h;
-      // Arrival at a heading from a bus above: stop 3px over the text (an
-      // unlabelled column has nothing to step over, so the line runs through).
-      const arrive = (g: ProcessGroup, fromY: number) =>
-        linePath.push(g.label ? `M${g.hx} ${fromY}V${g.y - 3}` : `M${g.hx} ${fromY}V${groupLineY(g)}`);
-      // Everything below a column's heading: the line resumes at (hx, ly),
-      // drops straight into the first ungrouped person, branches to a spine
-      // for the rest, and carries on to the crews — a bus above crews that sit
-      // side by side, a feed under each heading of crews that stack.
-      const column = (g: ProcessGroup) => {
-        const ly = groupLineY(g);
-        const sx = g.x + IND / 2;
-        const across = g.crewOrient === 'across';
-        const crewBus = g.crews.length && across ? Math.min(...g.crews.map((c) => c.y)) - 12 : null;
-        const spine = g.loose.length > 1 || (g.crews.length > 0 && (g.loose.length > 0 || !across));
-        const xsAt = [g.hx];
-        let last = ly;
-        if (g.loose.length) {
-          const first = lay.placed.get(g.loose[0])!;
-          const fx = Math.min(Math.max(g.hx, first.x + 12), first.x + W - 12);
-          linePath.push(`M${fx} ${ly}V${first.y}`);
-          xsAt.push(fx);
-          for (const k of g.loose.slice(1)) {
-            const c = lay.placed.get(k)!;
-            last = c.y + Math.min(c.info.h / 2, 17);
-            linePath.push(`M${sx} ${last}H${c.x}`);
-          }
-        }
-        if (spine) xsAt.push(sx);
-        if (Math.max(...xsAt) - Math.min(...xsAt) > 0.5) linePath.push(`M${Math.min(...xsAt)} ${ly}H${Math.max(...xsAt)}`);
-        if (crewBus != null) {
-          const from = g.loose.length ? sx : g.hx;
-          if (!g.loose.length) linePath.push(`M${g.hx} ${ly}V${crewBus}`);
-          else last = Math.max(last, crewBus);
-          const xs = g.crews.map((c) => c.hx);
-          linePath.push(`M${Math.min(from, ...xs)} ${crewBus}H${Math.max(from, ...xs)}`);
-          for (const c of g.crews) {
-            arrive(c, crewBus);
-            column(c);
-          }
-        } else {
-          for (const c of g.crews) {
-            const cly = groupLineY(c);
-            linePath.push(`M${sx} ${cly}H${c.hx}`);
-            column(c);
-            last = cly;
-          }
-        }
-        if (spine && last > ly) linePath.push(`M${sx} ${ly}V${last}`);
-      };
-      if (n.orient === 'across') {
-        const px = n.x + W / 2;
-        const my = Math.min(...n.groups!.map((g) => g.y)) - VG / 2;
-        const xs = n.groups!.map((g) => g.hx);
-        linePath.push(`M${px} ${pb}V${my}`);
-        const lo = Math.min(px, ...xs);
-        const hi = Math.max(px, ...xs);
-        if (hi - lo > 0.5) linePath.push(`M${lo} ${my}H${hi}`);
-        for (const g of n.groups!) {
-          arrive(g, my);
-          column(g);
-        }
-      } else {
-        const sx = n.x + IND / 2;
-        let last = pb;
-        for (const g of n.groups!) {
-          const ly = groupLineY(g);
-          linePath.push(`M${sx} ${ly}H${g.hx}`);
-          column(g);
-          last = ly;
-        }
-        linePath.push(`M${sx} ${pb}V${last}`);
-      }
-      continue;
-    }
     if (n.mode === 'stack') {
       const sx = n.x + IND / 2;
       let last = n.y + n.info.h;
@@ -1346,18 +1832,15 @@ export function buildScene(model: ChartModel, opts: SceneOptions): ChartScene {
       }
     }
   }
+  if (dl) linePath.push(...dl.solid);
   if (linePath.length) edges.push({ k: 'path', d: linePath.join(''), stroke: p.faint, sw: 1.2 });
 
   // ── Secondary links. A dashed line with no words on it is exactly what made
   // this client invent fake roles to explain who else they answer to, so a
   // scoped edge is labelled with its scope. ────────────────────────────────
-  const dashPath: string[] = [];
-  for (const e of opts.secondaryEdges) {
-    const s = lay.placed.get(e.fromPositionId);
-    const t = lay.placed.get(e.toPositionId);
-    if (!s || !t) continue;
+  /** A line from one seat up to another that is not its drawn parent, round whatever is between. */
+  const route = (s: PlacedNode, t: PlacedNode): { d: string; at: { x: number; y: number } } => {
     const tb = t.y + t.info.h;
-    let labelAt: { x: number; y: number } | null = null;
     if (tb + 10 < s.y) {
       const laneY = tb + Math.round(VG * 0.22);
       const obstacles = [...lay.placed.values()].filter(
@@ -1374,12 +1857,80 @@ export function buildScene(model: ChartModel, opts: SceneOptions): ChartScene {
         }
       }
       const tx = lx > t.x + W / 2 ? t.x + W * 0.74 : t.x + W * 0.26;
-      dashPath.push(`M${sideX} ${s.y + 14}H${lx}V${laneY}H${tx}V${tb}`);
-      labelAt = { x: (lx + tx) / 2, y: laneY - 4 };
-    } else {
-      dashPath.push(`M${s.x + W / 2} ${s.y}L${t.x + W / 2} ${tb}`);
-      labelAt = { x: (s.x + t.x) / 2 + W / 2, y: (s.y + tb) / 2 - 4 };
+      return {
+        d: `M${sideX} ${s.y + 14}H${lx}V${laneY}H${tx}V${tb}`,
+        at: { x: (lx + tx) / 2, y: laneY - 4 },
+      };
     }
+    return {
+      d: `M${s.x + W / 2} ${s.y}L${t.x + W / 2} ${tb}`,
+      at: { x: (s.x + t.x) / 2 + W / 2, y: (s.y + tb) / 2 - 4 },
+    };
+  };
+
+  /*
+   * The same, between seats in two DIFFERENT department boxes (spec §16). The
+   * plain router runs its lane just under the target seat, which inside a box
+   * is where the next seat is. So: out of the side of the seat to just outside
+   * its box, along a lane in the clear band under (or over) the target's box,
+   * and in through the side of the target's box to the seat.
+   *
+   * `out` is the part outside the boxes and is drawn UNDER them: where it has
+   * to pass another box it goes behind it, never through its text. `stubs` are
+   * the two short runs inside the boxes and are drawn on top.
+   */
+  const boxOfSeat = new Map<number, DeptBox>();
+  if (dl) for (const b of dl.boxes.values()) for (const id of b.drawn) boxOfSeat.set(id, b);
+  const routeBoxed = (
+    s: PlacedNode,
+    t: PlacedNode,
+    sb: DeptBox,
+    tb: DeptBox,
+  ): { out: string; stubs: string; at: { x: number; y: number } } => {
+    const sy = s.y + Math.min(s.info.h - 6, 14);
+    const ty = t.y + Math.min(t.info.h - 6, 26);
+    // The run from a seat to the edge of its box must not cross a neighbour in
+    // the box: take the wanted side when it is clear, the other when only that is.
+    const side = (n: PlacedNode, b: DeptBox, y: number, wantRight: boolean) => {
+      const blocked = (toRight: boolean) =>
+        b.drawn.some((id) => {
+          const q = lay.placed.get(id)!;
+          return q !== n && y > q.y - 3 && y < q.y + q.info.h + 3 && (toRight ? q.x > n.x : q.x < n.x);
+        });
+      return blocked(wantRight) && !blocked(!wantRight) ? !wantRight : wantRight;
+    };
+    const right = side(s, sb, sy, t.x + W / 2 >= s.x + W / 2);
+    const sEdge = right ? sb.x + sb.w : sb.x;
+    const sOut = right ? sEdge + 10.5 : sEdge - 11.5;
+    // Into the target from the side the line comes from.
+    const fromRight = side(t, tb, ty, sOut >= tb.x + tb.w / 2);
+    const tEdge = fromRight ? tb.x + tb.w : tb.x;
+    const tOut = fromRight ? tEdge + 10.5 : tEdge - 11.5;
+    const laneY =
+      tb.y + tb.h <= sb.y ? tb.y + tb.h + 11 : tb.y >= sb.y + sb.h ? tb.y - 11 : Math.min(sb.y, tb.y) - 11;
+    return {
+      out: `M${sEdge} ${sy}H${sOut}V${laneY}H${tOut}V${ty}H${tEdge}`,
+      stubs: `M${right ? s.x + W : s.x} ${sy}H${sEdge}M${tEdge} ${ty}H${fromRight ? t.x + W : t.x}`,
+      at: { x: (sOut + tOut) / 2, y: laneY - 4 },
+    };
+  };
+  const dashUnder: string[] = [];
+
+  const dashPath: string[] = [];
+  for (const e of opts.secondaryEdges) {
+    const s = lay.placed.get(e.fromPositionId);
+    const t = lay.placed.get(e.toPositionId);
+    if (!s || !t) continue;
+    const sb = boxOfSeat.get(s.id);
+    const tb = boxOfSeat.get(t.id);
+    let r: { d: string; at: { x: number; y: number } };
+    if (sb && tb && sb !== tb) {
+      const b = routeBoxed(s, t, sb, tb);
+      dashUnder.push(b.out);
+      r = { d: b.stubs, at: b.at };
+    } else r = route(s, t);
+    dashPath.push(r.d);
+    const labelAt: { x: number; y: number } | null = r.at;
     const label =
       e.scopeType && e.scopeType !== 'GENERAL' && e.scopeLabel
         ? `${e.typeName}: ${e.scopeLabel}`
@@ -1414,31 +1965,103 @@ export function buildScene(model: ChartModel, opts: SceneOptions): ChartScene {
   }
   if (dashPath.length)
     secondary.unshift({ k: 'path', d: dashPath.join(''), stroke: p.muted, sw: 1.4, dash: [6, 4] });
+  const under: Prim[] = [];
+  if (dashUnder.length) under.push({ k: 'path', d: dashUnder.join(''), stroke: p.muted, sw: 1.4, dash: [6, 4] });
 
-  // ── Work-process headings (spec §15): no box, no chip — the name, large,
-  // bold, in the accent text tone (--c-primary-900, which dark mode re-tones
-  // to a light violet), centred over its column. ───────────────────────────
-  const groups: Prim[] = [];
-  for (const id of lay.order) {
-    const n = lay.placed.get(id)!;
-    if (n.mode !== 'groups' || !n.kids.length) continue;
-    for (const g of allGroups(n.groups!)) {
-      if (!g.label) continue;
-      const section = g.level === 0;
-      groups.push({
-        k: 'text',
-        x: g.hx,
-        y: g.y + (section ? 19 : 15),
-        text: fitText(g.label, section ? f.process : f.machine, g.w),
-        size: section ? PHS : MHS,
-        weight: 700,
-        fill: p.accentText,
-        anchor: 'middle',
+  // ── Departments (spec §16) ───────────────────────────────────────────────
+  const links: Prim[] = [];
+  const depts: DeptRender[] = [];
+  const heads = new Set<number>();
+  let servesDrawn = 0;
+  let exceptionsDrawn = 0;
+  if (dl) {
+    for (const d of dl.order) {
+      const b = dl.boxes.get(d)!;
+      if (b.head != null) heads.add(b.head);
+      const prims: Prim[] = [];
+      // The frame is thin and uses --c-text-3: --c-border disappears in dark.
+      // A shared department's frame is dashed — it belongs to no one branch.
+      prims.push({
+        k: 'rect', x: b.x, y: b.y, w: b.w, h: b.h, r: 10,
+        fill: p.canvas, stroke: p.faint, sw: 1, dash: b.shared ? [6, 4] : undefined,
+      });
+      let ty = b.y + 9 + 12.5;
+      for (const line of b.titleLines) {
+        prims.push({ k: 'text', x: b.x + BP, y: ty, text: line, size: 13.5, weight: 700, fill: p.accentText });
+        ty += 17;
+      }
+      if (b.type) {
+        prims.push({
+          k: 'text', x: b.x + BP, y: ty - 2, size: 11, weight: 400, fill: p.muted,
+          text: fitText(b.type, f.deptMeta, b.w - 2 * BP),
+        });
+        ty += 15;
+      }
+      for (const note of b.notes) {
+        prims.push({ k: 'text', x: b.x + BP, y: ty - 2, text: note, size: 11, weight: 500, fill: p.muted });
+        ty += 15;
+      }
+      if (b.canToggle && !opts.forExport) {
+        const bx = b.x + b.w - BP - 9;
+        const by = b.y + 9 + 8;
+        prims.push({ k: 'rect', x: bx - 10, y: by - 8, w: 20, h: 16, r: 8, fill: p.surface, stroke: p.faint, sw: 0.8 });
+        prims.push({
+          k: 'text', x: bx, y: by + 4, text: b.open ? '−' : '+', size: 11, weight: 600,
+          fill: p.muted, anchor: 'middle',
+        });
+      }
+      const c = b.counts;
+      depts.push({
+        id: d, x: b.x, y: b.y, w: b.w, h: b.h, titleH: b.titleH, prims,
+        label:
+          `${b.name}${b.type ? `, ${b.type}` : ''}. ` +
+          (c.seats ? `${c.seats} seat${c.seats === 1 ? '' : 's'}, ${c.vacant} vacant. ` : 'No seats of its own. ') +
+          (b.canToggle ? (b.open ? 'Open.' : `Closed${b.below ? `, ${b.below} departments inside` : ''}.`) : ''),
+        open: b.open,
+        canToggle: b.canToggle,
       });
     }
+    // "Serves": dashed in the accent colour with an arrowhead — a shared crew
+    // WORKS FOR these boxes; it does not report to them.
+    const serveStyle = { stroke: p.accent, sw: 1.5, dash: [5, 3] };
+    if (dl.servesUnder.length) under.push({ k: 'path', d: dl.servesUnder.join(''), ...serveStyle });
+    if (dl.serves.length) links.push({ k: 'path', d: dl.serves.join(''), ...serveStyle });
+    for (const a of dl.arrows) {
+      const { x, y } = a;
+      const d =
+        a.dir === 'l'
+          ? `M${x} ${y}L${x + 7} ${y - 4}L${x + 7} ${y + 4}Z`
+          : a.dir === 'r'
+            ? `M${x} ${y}L${x - 7} ${y - 4}L${x - 7} ${y + 4}Z`
+            : a.dir === 'u'
+              ? `M${x} ${y}L${x - 4} ${y + 7}L${x + 4} ${y + 7}Z`
+              : `M${x} ${y}L${x - 4} ${y - 7}L${x + 4} ${y - 7}Z`;
+      (a.under ? under : links).push({ k: 'path', d, stroke: p.accent, sw: 1, fill: p.accent });
+    }
+    servesDrawn = dl.arrows.length;
+    // Rule 4: a seat whose manager is neither the box's roll-up person nor in
+    // the box keeps its own line — thin and dashed, so it reads as the exception.
+    const exc: string[] = [];
+    const excUnder: string[] = [];
+    for (const e of dl.exceptions) {
+      const s = lay.placed.get(e.from);
+      const t = lay.placed.get(e.to);
+      const sb = boxOfSeat.get(e.from);
+      const tb = boxOfSeat.get(e.to);
+      if (!s || !t || !sb || !tb) continue;
+      const r = routeBoxed(s, t, sb, tb);
+      exc.push(r.stubs);
+      excUnder.push(r.out);
+    }
+    exceptionsDrawn = exc.length;
+    const thin = { stroke: p.faint, sw: 1, dash: [3, 3] };
+    if (exc.length) links.push({ k: 'path', d: exc.join(''), ...thin });
+    if (excUnder.length) under.push({ k: 'path', d: excUnder.join(''), ...thin });
   }
 
   // ── Boxes ────────────────────────────────────────────────────────────────
+  /** Where each person's row sits, to join one person drawn in two seats. */
+  const rowsOfPerson = new Map<string, { x: number; y: number }[]>();
   for (const id of lay.order) {
     const n = lay.placed.get(id)!;
     const I = n.info;
@@ -1447,7 +2070,9 @@ export function buildScene(model: ChartModel, opts: SceneOptions): ChartScene {
     // The selection ring is NOT drawn here. It is an overlay in the canvas
     // component, so moving the selection with the arrow keys does not rebuild
     // every primitive in the chart on each keystroke.
-    const stroke = p.border;
+    // The head of a department is slightly emphasised (rule 3).
+    const isHead = heads.has(id);
+    const stroke = isHead ? p.accent : p.border;
     const prims: Prim[] = [];
 
     prims.push({
@@ -1459,10 +2084,10 @@ export function buildScene(model: ChartModel, opts: SceneOptions): ChartScene {
       r: 8,
       fill: p.surface,
       stroke,
-      sw: 1.1,
+      sw: isHead ? 1.6 : 1.1,
     });
 
-    if (n.node.hasContent) {
+    if (n.node.hasContent && show.roles) {
       const open = n.node.counts?.openPoints ?? 0;
       prims.push({
         k: 'circle',
@@ -1542,14 +2167,16 @@ export function buildScene(model: ChartModel, opts: SceneOptions): ChartScene {
     }
 
     if (I.rows.length) {
-      cy += 3;
-      prims.push({
-        k: 'path',
-        d: `M${x + PAD} ${cy}H${x + W - PAD}`,
-        stroke: p.divider,
-        sw: 1,
-      });
-      cy += 4;
+      if (I.titleLines.length + I.captions.length + I.chips.length > 0) {
+        cy += 3;
+        prims.push({
+          k: 'path',
+          d: `M${x + PAD} ${cy}H${x + W - PAD}`,
+          stroke: p.divider,
+          sw: 1,
+        });
+        cy += 4;
+      }
       for (const r of I.rows) {
         const tone = rowTone(r, p);
         const rx = x + PAD;
@@ -1585,7 +2212,20 @@ export function buildScene(model: ChartModel, opts: SceneOptions): ChartScene {
           });
           tx += 36;
         }
-        const name = r.occupant ? r.occupant.name?.trim() || 'Name not recorded' : 'Vacant';
+        const name = r.occupant
+          ? r.occupant.name?.trim() || 'Name not recorded'
+          : show.roles
+            ? 'Vacant'
+            : 'Vacant seat';
+        if (r.occupant) {
+          const who = r.occupant.sameAs ?? (r.occupant.employeeId > 0 ? `e${r.occupant.employeeId}` : null);
+          if (who) {
+            const at = { x, y: cy + ROWH / 2 };
+            const list = rowsOfPerson.get(who);
+            if (list) list.push(at);
+            else rowsOfPerson.set(who, [at]);
+          }
+        }
         const statusW = tone.status ? 48 : 4;
         prims.push({
           k: 'text',
@@ -1617,7 +2257,9 @@ export function buildScene(model: ChartModel, opts: SceneOptions): ChartScene {
     // never reads as an empty one.
     const realKidCount = (model.children.get(id) ?? []).length;
     let toggle: BoxRender['toggle'] = null;
-    if (realKidCount && (!opts.forExport || n.collapsed)) {
+    // With departments drawn the fold is the DEPARTMENT's (one mechanism, not
+  // two): a seat has no pill of its own.
+    if (!dl && realKidCount && (!opts.forExport || n.collapsed)) {
       const label = n.collapsed ? `+${n.hidden}` : '−';
       const bw = n.collapsed ? Math.max(28, textWidth(label, f.badge) + 16) : 20;
       const bx = x + W - 16;
@@ -1660,8 +2302,44 @@ export function buildScene(model: ChartModel, opts: SceneOptions): ChartScene {
     });
   }
 
+  // ── One person in two seats (rule 7): shown in both, and the two rows
+  // joined by the only CURVED line on the chart, ringed at both ends. It runs
+  // under the cards, so it can pass behind a seat but never through its text.
+  let sameDrawn = 0;
+  for (const list of rowsOfPerson.values()) {
+    for (let i = 1; i < list.length; i += 1) {
+      const a = list[i - 1];
+      const b = list[i];
+      const [l, r] = a.x <= b.x ? [a, b] : [b, a];
+      let d: string;
+      let ends: [number, number][];
+      if (r.x - l.x < W + 8) {
+        // Same column: loop out to the right of both.
+        const x1 = l.x + W;
+        const x2 = r.x + W;
+        const out = Math.max(x1, x2) + 34 + Math.min(40, Math.abs(l.y - r.y) / 6);
+        d = `M${x1} ${l.y}C${out} ${l.y} ${out} ${r.y} ${x2} ${r.y}`;
+        ends = [[x1, l.y], [x2, r.y]];
+      } else {
+        const x1 = l.x + W;
+        const x2 = r.x;
+        const bend = Math.max(40, (x2 - x1) / 2);
+        d = `M${x1} ${l.y}C${x1 + bend} ${l.y} ${x2 - bend} ${r.y} ${x2} ${r.y}`;
+        ends = [[x1, l.y], [x2, r.y]];
+      }
+      links.push({ k: 'path', d, stroke: p.accent, sw: 1.6 });
+      for (const [ex, ey] of ends) links.push({ k: 'circle', cx: ex, cy: ey, r: 3.5, fill: p.surface, stroke: p.accent, sw: 1.6 });
+      sameDrawn += 1;
+    }
+  }
+
   // ── Header: drawn into the chart because the client prints it ────────────
-  const legend: { swatch?: string; fill?: string; line?: 'solid' | 'dash'; text: string }[] = [];
+  const legend: {
+    swatch?: string;
+    fill?: string;
+    line?: 'solid' | 'dash' | 'serves' | 'thin' | 'same';
+    text: string;
+  }[] = [];
   if (opts.colours) {
     legend.push({ swatch: p.present, fill: p.presentFill, text: 'Present' });
     legend.push({ swatch: p.absent, fill: p.absentFill, text: 'Absent' });
@@ -1669,6 +2347,9 @@ export function buildScene(model: ChartModel, opts: SceneOptions): ChartScene {
   }
   legend.push({ line: 'solid', text: 'Reports to' });
   if (opts.secondaryEdges.length) legend.push({ line: 'dash', text: 'Other reporting line' });
+  if (exceptionsDrawn) legend.push({ line: 'thin', text: 'Reports outside the department' });
+  if (servesDrawn) legend.push({ line: 'serves', text: 'Serves' });
+  if (sameDrawn) legend.push({ line: 'same', text: 'Same person' });
 
   let lw = 0;
   const legendWidths = legend.map((g) => {
@@ -1717,10 +2398,15 @@ export function buildScene(model: ChartModel, opts: SceneOptions): ChartScene {
       header.push({
         k: 'path',
         d: `M${gx} ${gy - 4}H${gx + 28}`,
-        stroke: g.line === 'dash' ? p.muted : p.faint,
-        sw: 1.4,
-        dash: g.line === 'dash' ? [6, 4] : undefined,
+        stroke: g.line === 'dash' ? p.muted : g.line === 'serves' || g.line === 'same' ? p.accent : p.faint,
+        sw: g.line === 'thin' ? 1 : 1.4,
+        dash:
+          g.line === 'dash' ? [6, 4] : g.line === 'serves' ? [5, 3] : g.line === 'thin' ? [3, 3] : undefined,
       });
+      if (g.line === 'same') {
+        header.push({ k: 'circle', cx: gx + 3, cy: gy - 4, r: 3, fill: p.surface, stroke: p.accent, sw: 1.4 });
+        header.push({ k: 'circle', cx: gx + 25, cy: gy - 4, r: 3, fill: p.surface, stroke: p.accent, sw: 1.4 });
+      }
       header.push({
         k: 'text',
         x: gx + 34,
@@ -1766,8 +2452,10 @@ export function buildScene(model: ChartModel, opts: SceneOptions): ChartScene {
     height: lay.height,
     background: p.surface,
     header,
-    groups,
+    under,
+    depts,
     edges,
+    links,
     secondary,
     boxes,
     layout: lay,
@@ -1804,7 +2492,8 @@ export function describeChart(model: ChartModel, ids: number[], filter: ShiftFil
     '. ' +
     (tops.length ? `It starts at ${tops.join('; ')}. ` : '') +
     'Primary reporting lines are solid; every other reporting relationship is dashed and labelled with its scope. ' +
-    'A machine or area is shown as a chip on the box, never as a manager. ' +
+    'With Departments on, each department is a box around its people, joined by one line to the person it rolls up to; ' +
+    'a shared department has a dashed frame and an arrow to each department it serves. ' +
     'Each box is focusable: use the arrow keys to move between a manager, its reports and its siblings, ' +
     'Enter to open the position card, and Space to fold a branch. ' +
     'The Table view carries the same positions and the same filters in a keyboard-operable list.'

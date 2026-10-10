@@ -13,9 +13,9 @@ import type { Arrange } from './orgChartLayout';
  */
 
 const ARRANGE_HELP: Record<Arrange, string> = {
-  auto: 'A team spanning more than one work process is boxed by process. Otherwise reports with teams of their own sit side by side on the next level; the rest in one column beside them.',
-  side: 'Everyone side by side, individual contributors too, with no process boxes. Wider.',
-  stack: 'The whole team as an indented list under this box, with no process boxes. Narrower; its levels stop lining up.',
+  auto: 'Reports with teams of their own sit side by side on the next level; the rest in one column beside them.',
+  side: 'Everyone side by side, individual contributors too. Wider.',
+  stack: 'The whole team as an indented list under this box. Narrower; its levels stop lining up.',
 };
 
 export function OrgChartPanel({
@@ -24,6 +24,7 @@ export function OrgChartPanel({
   onArrange,
   collapsed,
   onToggleCollapse,
+  department,
 }: {
   /** Direct reports in the model — the toggles are meaningless without any. */
   teamSize: number;
@@ -31,6 +32,12 @@ export function OrgChartPanel({
   onArrange: (a: Arrange) => void;
   collapsed: boolean;
   onToggleCollapse: () => void;
+  /**
+   * Set when departments are drawn as boxes (spec §16). The fold is then the
+   * department's, so the per-seat fold is replaced by closing this seat's box,
+   * and the arrangement applies to the seat's reports INSIDE its box.
+   */
+  department?: { name: string; canClose: boolean; onClose: () => void };
 }) {
   return (
     <Box
@@ -45,7 +52,36 @@ export function OrgChartPanel({
       <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)', mb: 0.75 }}>
         Your view of this team — kept in this browser, never written to the organisation
       </Typography>
-      {teamSize === 0 ? (
+      {department ? (
+        <Stack spacing={1}>
+          <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+            {teamSize > 0 && (
+              <ToggleButtonGroup
+                size="small"
+                exclusive
+                value={arrange}
+                onChange={(_, v) => v && onArrange(v as Arrange)}
+                aria-label="How to arrange the reports of this seat inside the department"
+              >
+                <ToggleButton value="auto">Automatic</ToggleButton>
+                <ToggleButton value="side">Side by side</ToggleButton>
+                <ToggleButton value="stack">List</ToggleButton>
+              </ToggleButtonGroup>
+            )}
+            {department.canClose && (
+              <Button size="small" onClick={department.onClose}>
+                Close {department.name}
+              </Button>
+            )}
+          </Stack>
+          <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)', lineHeight: 1.45 }}>
+            {teamSize > 0
+              ? `Arranges the ${teamSize} seat${teamSize === 1 ? '' : 's'} reporting to this one inside ${department.name}. `
+              : ''}
+            Departments open and close as a whole — click a department&apos;s name on the chart.
+          </Typography>
+        </Stack>
+      ) : teamSize === 0 ? (
         <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>
           This seat has no reports to arrange or fold.
         </Typography>

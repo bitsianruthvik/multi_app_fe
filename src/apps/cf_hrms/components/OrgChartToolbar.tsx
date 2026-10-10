@@ -19,7 +19,7 @@ import UnfoldMoreRounded from '@mui/icons-material/UnfoldMoreRounded';
 import FullscreenRounded from '@mui/icons-material/FullscreenRounded';
 import FullscreenExitRounded from '@mui/icons-material/FullscreenExitRounded';
 import { DetailTabs, Surface } from '@shared/ui';
-import type { ShiftFilter } from './orgChartLayout';
+import type { ChartShow, ShiftFilter } from './orgChartLayout';
 
 /** The four ways to read the organisation, as peer tabs (spec §13). */
 export type OrgChartView = 'chart' | 'table' | 'departments' | 'doubts';
@@ -47,6 +47,46 @@ export interface RootOption {
   depth: number;
 }
 
+const SHOW_KEYS: { key: keyof ChartShow; label: string; hint: string }[] = [
+  { key: 'departments', label: 'Departments', hint: 'Departments as boxes around their people. Off: the plain reporting tree.' },
+  { key: 'roles', label: 'Roles', hint: 'The title of each seat.' },
+  { key: 'people', label: 'People', hint: 'The names in each seat, and its vacancies.' },
+];
+
+/**
+ * Departments · Roles · People — what the chart DRAWS, not what it holds
+ * (spec §16). Each is on or off; the last one left on cannot be switched off,
+ * so the canvas is never empty. Shared with the employee chart.
+ */
+export function ShowSwitches({ show, onShow }: { show: ChartShow; onShow: (s: ChartShow) => void }) {
+  const on = SHOW_KEYS.filter((k) => show[k.key]).map((k) => k.key);
+  return (
+    <ToggleButtonGroup
+      size="small"
+      value={on}
+      onChange={(_, next: (keyof ChartShow)[]) => {
+        if (!next.length) return;
+        onShow({
+          departments: next.includes('departments'),
+          roles: next.includes('roles'),
+          people: next.includes('people'),
+        });
+      }}
+      aria-label="What the chart shows"
+    >
+      {SHOW_KEYS.map((k) => (
+        <ToggleButton
+          key={k.key}
+          value={k.key}
+          title={on.length === 1 && on[0] === k.key ? 'At least one of the three stays on.' : k.hint}
+        >
+          {k.label}
+        </ToggleButton>
+      ))}
+    </ToggleButtonGroup>
+  );
+}
+
 export function OrgChartToolbar({
   view,
   onView,
@@ -57,6 +97,9 @@ export function OrgChartToolbar({
   onShift,
   colours,
   onColours,
+  show,
+  onShow,
+  foldedLabel,
   zoom,
   onZoom,
   onFit,
@@ -77,6 +120,11 @@ export function OrgChartToolbar({
   onShift: (s: ShiftFilter) => void;
   colours: boolean;
   onColours: (v: boolean) => void;
+  /** What is drawn (spec §16). Chart only — the table always lists everything. */
+  show: ChartShow;
+  onShow: (s: ChartShow) => void;
+  /** "3 departments closed" / "2 branches folded" — which fold is in force depends on `show`. */
+  foldedLabel: string;
   zoom: number;
   onZoom: (z: number) => void;
   onFit: () => void;
@@ -135,7 +183,7 @@ export function OrgChartToolbar({
             onChange={(_, v) => onRoot(v ? v.id : '')}
             getOptionLabel={(o) => o.label}
             isOptionEqualToValue={(a, b) => a.id === b.id}
-            sx={{ minWidth: 260, flex: '1 1 260px', maxWidth: 380 }}
+            sx={{ minWidth: 180, flex: '1 1 180px', maxWidth: 380 }}
             renderInput={(p) => (
               <TextField {...p} label="Start from" placeholder="Whole organisation" />
             )}
@@ -176,18 +224,21 @@ export function OrgChartToolbar({
             <ToggleButton value="N">Night</ToggleButton>
           </ToggleButtonGroup>
 
+          {view === 'chart' && <ShowSwitches show={show} onShow={onShow} />}
+
           <FormControlLabel
             control={
               <Switch size="small" checked={colours} onChange={(e) => onColours(e.target.checked)} />
             }
-            label={<Typography sx={{ fontSize: 13 }}>Attendance colours</Typography>}
+            title="Colour each seat by attendance on this date"
+            label={<Typography sx={{ fontSize: 13 }}>Attendance</Typography>}
           />
 
           <Box sx={{ flex: 1 }} />
 
           {collapsedCount > 0 && (
             <Button size="small" startIcon={<UnfoldMoreRounded />} onClick={onExpandAll}>
-              {collapsedCount} branch{collapsedCount === 1 ? '' : 'es'} folded — expand all
+              {foldedLabel}
             </Button>
           )}
 

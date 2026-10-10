@@ -42,6 +42,29 @@ export interface OrgChartOccupant {
   shiftCode: string | null;
   /** null when there is no attendance record on the view date. */
   attendanceStatus: string | null;
+  /**
+   * Set where the payload has no employee id to compare (the employee slice):
+   * occupants carrying the same key are ONE person in two seats (spec §16).
+   */
+  sameAs?: string | null;
+}
+
+/**
+ * One department — a unit, a machine, an area or a shared crew; they are all
+ * departments since 2026-10-10 (CF_HRMS_PLAN.md §9.4). `type` is a LABEL: no
+ * logic may branch on its text. `isShared` and `serves` are facts.
+ */
+export interface OrgChartDepartment {
+  id: number;
+  code: string | null;
+  name: string;
+  parentId: number | null;
+  type: string | null;
+  isShared: boolean;
+  /** Department ids a shared department works for. */
+  serves: number[];
+  /** Pre-order place in the department tree; the array arrives in this order. */
+  rank: number;
 }
 
 export interface OrgChartRequirement {
@@ -127,6 +150,8 @@ export interface OrgChartGraph {
   root: { positionId: number; positionCode: string | null } | null;
   nodes: OrgChartNode[];
   edges: OrgChartEdge[];
+  /** The whole department tree (the employee slice sends only its own branch). */
+  departments?: OrgChartDepartment[];
   /** Node ids with no primary manager. Karni has exactly one: P001, the Chairman. */
   roots?: number[];
   /** Edges the server dropped because `?root=` cut them. Zero when the whole org is fetched. */
