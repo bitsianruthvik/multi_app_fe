@@ -23,10 +23,12 @@ import { DataTable, type DataColumn } from '../components/DataTable';
 import { PurchaseStatusBadge } from '../components/purchaseUi';
 import { AddPurchaseLineDialog, LineOrdersDialog, PurchaseForOrderDialog, ReceiveLineDialog } from '../components/PurchaseDialogs';
 import { ConfirmDialog } from '../components/ConfirmDialog';
-import { PromptDialog } from '../components/PromptDialog';
 import { useDetailTitle } from '../components/shell/detailTitle';
 import { useToast } from '../components/toastContext';
 import { PoStagePanel } from '../components/Purchase/PoStagePanel';
+import { CancelPoDialog } from '../components/Purchase/CancelPoDialog';
+import { PlannedUnitsNote } from '../components/Purchase/PlannedUnitsNote';
+import type { PlannedUnits } from '../api/requisitions';
 
 const linkSx = { color: 'inherit', textDecoration: 'none', '&:hover': { color: 'var(--c-primary-700)', textDecoration: 'underline' } };
 
@@ -44,6 +46,7 @@ export default function PurchaseOrderDetail() {
   const [linking, setLinking] = useState<PurchaseLine | null>(null);
   const [removing, setRemoving] = useState<PurchaseLine | null>(null);
   const [cancelling, setCancelling] = useState(false);
+  const [cancelPlanned, setCancelPlanned] = useState<PlannedUnits | null>(null);
   const p = po.data;
   useDetailTitle(p?.code ?? null);
   if (po.error) return <ErrorNotice error={po.error} onRetry={po.reload} />;
@@ -173,6 +176,7 @@ export default function PurchaseOrderDetail() {
         />
       }
     >
+      {p.status === 'cancelled' && <PlannedUnitsNote planned={cancelPlanned} />}
       {p.status !== 'cancelled' && (
         <PoStagePanel po={p} canManage={canManage} onPo={done} onChanged={changed} onReceive={setReceiving} />
       )}
@@ -204,10 +208,8 @@ export default function PurchaseOrderDetail() {
           done(await cfApi.del<PurchaseOrder>(`/purchase-lines/${removing.id}`), `${removing.item.code ?? removing.item.name} removed.`);
           setRemoving(null);
         }} />
-      <PromptDialog open={cancelling} title={`Cancel ${p.code}?`} label="Why" confirmLabel="Cancel the order" danger
-        body="Nothing has been received against it. It stays on the list under All."
-        onClose={() => setCancelling(false)}
-        onConfirm={async (reason: string) => { done(await cfApi.post<PurchaseOrder>(`/purchase-orders/${p.id}/cancel`, { reason }), `${p.code} cancelled.`); setCancelling(false); }} />
+      <CancelPoDialog po={p} open={cancelling} onClose={() => setCancelling(false)}
+        onCancelled={(next, planned) => { setCancelPlanned(planned); done(next, `${p.code} cancelled.`); }} />
     </DetailLayout>
   );
 }

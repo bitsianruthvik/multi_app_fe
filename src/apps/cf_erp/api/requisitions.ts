@@ -269,3 +269,6 @@ export function plannedUnitsSentence(p: PlannedUnits | null | undefined): string
   const parts = p.late && p.waiting ? 'late or waiting' : p.waiting ? 'wait for stock' : 'late';
   return `This makes ${p.units.length} planned ${p.units.length === 1 ? 'card' : 'cards'} ${parts}: ${shown}. Move ${p.units.length === 1 ? 'it' : 'them'} on the Plan board.`;
 }
+
+/** Cancel a purchase order; the answer carries `plannedUnits` (the planned cards it made late or waiting). */
+export const cancelPurchaseOrder = (id: number, reason: string) => cfApi.post<WithPlanned<PurchaseOrder>>(`/purchase-orders/${id}/cancel`, { reason });

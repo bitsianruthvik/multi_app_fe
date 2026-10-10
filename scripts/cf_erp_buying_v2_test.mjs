@@ -48,6 +48,8 @@ const built = await build({
       export { OrderPurchasePanel } from './src/apps/cf_erp/components/Purchase/OrderPurchasePanel';
       export { MaterialReadyChip } from './src/apps/cf_erp/components/Purchase/MaterialReadyChip';
       export { RequisitionBoard } from './src/apps/cf_erp/components/Purchase/RequisitionBoard';
+      export { CancelPoDialog } from './src/apps/cf_erp/components/Purchase/CancelPoDialog';
+      export { PlannedUnitsNote } from './src/apps/cf_erp/components/Purchase/PlannedUnitsNote';
       export { PoStagePanel } from './src/apps/cf_erp/components/Purchase/PoStagePanel';
       export { StageFoot } from './src/apps/cf_erp/components/OrderProcess/StageFoot';
       export { buyingSummaryWords } from './src/apps/cf_erp/lib/process';`,
@@ -577,6 +579,38 @@ await check('Undo receipt on the latest delivery of a line asks why, posts the r
   await click(buttonIn(document.querySelector('[role="dialog"]'), 'Undo receipt')); await settle();
   assert.deepEqual(lastCall('POST', '/movements/7002/reverse').body, { reason: 'my mistake' });
   assert.ok(said && said.includes('GRN-007144 undone (GRN-007145). 1 held share was let go.'), said);
+});
+
+await check('Cancel PO says what it does to the requisition first, then lists the planned cards it made late or waiting', async () => {
+  reset();
+  const po = poFixture();
+  const planned = { orderIds: [22552], late: 0, waiting: 1, units: [{ unitKey: 'l9951', code: 'BHMV2RB688-FG', order: { id: 22552, code: 'BHMV2RB688-O1' }, line: { id: 9951, lineNo: 10 }, kind: 'waiting', week: '2026-11-16', startDate: null, wasDate: '2026-11-11', wasState: 'dated', readyDate: null, earliest: null, message: 'It now waits: BHMV2RB688-B is not covered. When this card was placed its material was due 11 Nov 2026.' }] };
+  globalThis.__routes['POST /purchase-orders/1035/cancel'] = () => ({ ...po, status: 'cancelled', plannedUnits: planned });
+  let got = null;
+  await render(React.createElement(m.CancelPoDialog, { po, open: true, onClose: () => {}, onCancelled: (n, pl) => { got = [n, pl]; } }));
+  const dlg = document.querySelector('[role="dialog"]');
+  assert.match(text(dlg), /Cancelling PO-001035 puts what it was bought for back to Open on PR-BHMV2RB688-O1-10/);
+  assert.match(text(dlg), /work that needed this delivery waits/);
+  await setValue(dlg.querySelector('textarea'), 'supplier cannot deliver');
+  await click(buttonIn(dlg, 'Cancel the order')); await settle();
+  assert.deepEqual(lastCall('POST', '/purchase-orders/1035/cancel').body, { reason: 'supplier cannot deliver' });
+  assert.equal(got[0].status, 'cancelled'); assert.equal(got[1].units.length, 1);
+  await render(React.createElement(m.PlannedUnitsNote, { planned: got[1] }));
+  assert.match(text(q1('po-late-note')), /This makes 1 planned card wait for stock: BHMV2RB688-FG/);
+  assert.match(text(q1('po-late-unit')), /When this card was placed its material was due 11 Nov 2026/);
+  // a PO bought for no requisition says nothing about one; nothing made late shows nothing
+  const plain = poFixture(); plain.lines[0].orders = [];
+  await render(React.createElement(m.CancelPoDialog, { po: plain, open: true, onClose: () => {}, onCancelled: () => {} }));
+  assert.ok(!text(document.querySelector('[role="dialog"]')).includes('back to Open'));
+  await render(React.createElement(m.PlannedUnitsNote, { planned: { orderIds: [], late: 0, waiting: 0, units: [] } }));
+  assert.equal(q1('po-late-note'), null);
+});
+await check('every cancel of a purchase order goes through CancelPoDialog (the PO page); the board and the Buying stage only link to it', () => {
+  const d = src('pages/PurchaseOrderDetail.tsx');
+  assert.match(d, /<CancelPoDialog /); assert.match(d, /PlannedUnitsNote/); assert.ok(!d.includes('/cancel'));
+  for (const f of ['components/Purchase/PurchaseLanes.tsx', 'components/Purchase/OrderPurchasePanel.tsx', 'components/Purchase/RequisitionBoard.tsx', 'pages/PurchaseBoard.tsx', 'pages/PurchaseOrders.tsx'])
+    assert.ok(!src(f).includes('/cancel') && !src(f).includes('cancelPurchaseOrder'), f);
+  assert.ok(src('components/Purchase/PoStagePanel.tsx').includes('<PlannedUnitsNote planned={late} />'));
 });
 
 // ── 11: the board ──────────────────────────────────────────────────────────────────

@@ -25,7 +25,8 @@ import { SendPurchaseDialog } from '../PurchaseDialogs';
 import { useToast } from '../toastContext';
 import { SendRfqDialog } from './SendRfqDialog';
 import { DateCell, QtyCell } from './DateCell';
-import { plannedUnitsSentence, type PlannedUnits } from '../../api/requisitions';
+import { PlannedUnitsNote } from './PlannedUnitsNote';
+import type { PlannedUnits } from '../../api/requisitions';
 
 const linkSx = { color: 'inherit', textDecoration: 'none', '&:hover': { color: 'var(--c-primary-700)', textDecoration: 'underline' } };
 
@@ -281,12 +282,7 @@ export function PoStagePanel({ po, canManage, onPo, onChanged, onReceive }: {
               {undated} {undated === 1 ? 'line has' : 'lines have'} no expected date yet.
             </Typography>
           )}
-          {late && (
-            <Box data-testid="po-late-note" role="status" sx={{ mb: 1, color: 'var(--c-warning-800)', fontSize: 13 }}>
-              <Typography sx={{ fontSize: 13, fontWeight: 600 }}>{plannedUnitsSentence(late)}</Typography>
-              {late.units.map((u) => <Box key={u.unitKey} data-testid="po-late-unit" sx={{ fontSize: 12.5 }}>{u.code}: {u.message}</Box>)}
-            </Box>
-          )}
+          <PlannedUnitsNote planned={late} />
           <Box component="table" data-testid="po-timeline" sx={tableSx}>
             <thead><tr><th>Item</th><th style={{ textAlign: 'right' }}>Ordered</th><th style={{ textAlign: 'right' }}>Received</th><th>Receiving date</th><th /></tr></thead>
             <tbody>
