@@ -35,6 +35,7 @@ import {
 } from '../api/roles';
 import { fromRoleContent, jobContentApi, type JobKra, type JobLine } from '../api/jobContent';
 import { JobContent } from './JobContent';
+import { clearJobContentCache } from './useJobContent';
 import { RoleAssignDialog } from './RoleAssignDialog';
 
 const KIND_OF: Record<JobLine['kind'], 'responsibilities' | 'kpis'> = { RESPONSIBILITY: 'responsibilities', KPI: 'kpis' };
@@ -44,7 +45,7 @@ const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? o
 export function RoleContentTab({
   content,
   canManage,
-  onChanged,
+  onChanged: notifyChanged,
   dense = false,
   reach,
 }: {
@@ -61,6 +62,12 @@ export function RoleContentTab({
   reach?: string;
 }) {
   const toast = useToast();
+  // A role edit reaches every position holding the role: forget what was read
+  // of any job, so no other view shows the role as it was.
+  const onChanged = () => {
+    clearJobContentCache();
+    notifyChanged();
+  };
   const { kras, additional, weights } = content;
   const view = useMemo(() => fromRoleContent(content), [content]);
 

@@ -91,6 +91,11 @@ export interface JobContentProps {
   selection?: JobContentSelection;
   /** Shown beside the "no KRAs yet" sentence — usually a link to the role. */
   noKrasAction?: ReactNode;
+  /**
+   * What a seat is called on this surface. The org chart panel says "position"
+   * (an edit belongs to the position, whoever sits in it); elsewhere "seat".
+   */
+  noun?: 'seat' | 'position';
   /** Off where the page already prints the counts above (the role editor's band). */
   summary?: boolean;
 }
@@ -106,6 +111,7 @@ export function JobContent({
   selection,
   noKrasAction,
   summary = true,
+  noun = 'seat',
 }: JobContentProps) {
   const { kras, ungrouped, counts, subject } = content;
   const ungroupedCount = ungrouped.responsibilities.length + ungrouped.kpis.length;
@@ -119,15 +125,23 @@ export function JobContent({
   // What the reader opened or closed by hand; everything else follows the default.
   const [toggled, setToggled] = useState<Record<string, boolean>>({});
   const [showAll, setShowAll] = useState<Record<string, boolean>>({});
-  const openByDefault =
-    initiallyOpen === 'all' || (initiallyOpen === 'auto' && totalLines <= AUTO_OPEN_LINES);
+  // Decided ONCE, when the job is first shown. Recomputed on every render it
+  // flipped when an edit took a short job past the threshold (8 lines -> 9), and
+  // every section snapped shut under the line that had just been added.
+  const [openByDefault] = useState(
+    () => initiallyOpen === 'all' || (initiallyOpen === 'auto' && totalLines <= AUTO_OPEN_LINES),
+  );
   const isOpen = (key: string) => toggled[key] ?? openByDefault;
   const anyClosed = sectionKeys.some((k) => !isOpen(k));
   const setAll = (open: boolean) => setToggled(Object.fromEntries(sectionKeys.map((k) => [k, open])));
 
   const fontSize = dense ? 13 : 13.5;
-  const markLabel = voice === 'self' ? MARK_LABEL_SELF : MARK_LABEL;
-  const whose = voice === 'self' ? 'your' : subject === 'SEAT' ? "this seat's" : "this role's";
+  const named = (text: string) => (noun === 'seat' ? text : text.replace(/\bseat\b/g, noun));
+  const markLabel =
+    voice === 'self'
+      ? MARK_LABEL_SELF
+      : { ADDED: named(MARK_LABEL.ADDED), CHANGED: named(MARK_LABEL.CHANGED), OFF: named(MARK_LABEL.OFF) };
+  const whose = voice === 'self' ? 'your' : subject === 'SEAT' ? `this ${noun}'s` : "this role's";
 
   /* ── nothing at all ─────────────────────────────────────────────────────── */
   if (kras.length === 0 && totalLines === 0) {
@@ -137,7 +151,7 @@ export function JobContent({
           {voice === 'self'
             ? 'Your responsibilities have not been written into the system yet. That is about the records, not about your job.'
             : subject === 'SEAT'
-              ? 'This seat has no responsibilities — no KRAs, responsibilities or KPIs are written for its role yet.'
+              ? named('This seat has no responsibilities — no KRAs, responsibilities or KPIs are written for its role yet.')
               : 'No KRAs, responsibilities or KPIs are written for this role yet.'}
           {noKrasAction ? <> {noKrasAction}</> : null}
         </Typography>
@@ -347,7 +361,7 @@ export function JobContent({
                 {differs === 0
                   ? 'exactly as the role says'
                   : [
-                      counts.added ? `${counts.added} specific to this seat` : null,
+                      counts.added ? `${counts.added} specific to this ${noun}` : null,
                       counts.changed ? `${counts.changed} changed` : null,
                       counts.off ? `${counts.off} switched off` : null,
                     ]

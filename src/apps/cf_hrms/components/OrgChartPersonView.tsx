@@ -1,11 +1,14 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import { Box, Button, Skeleton, Stack, Typography } from '@mui/material';
 import { ErrorNotice, Mono, StatusBadge, ToneBadge, useIsPermitted } from '@shared/ui';
 import { peopleApi, type AssignmentSummary, type EmployeeDetail } from '../api/people';
 import { assignmentsApi, type ResolvedRelationship } from '../api/assignments';
 import { pretty } from '../api/roles';
+import ChevronRightRounded from '@mui/icons-material/ChevronRightRounded';
+import ExpandMoreRounded from '@mui/icons-material/ExpandMoreRounded';
 import { SectionTitle } from './OrgChartSeatView';
+import { OrgChartJobSection } from './OrgChartJobSection';
 import { SHIFT_WORD, inPanelLink, smallLabel, type PanelNav, type PanelView } from './orgChartPanelNav';
 
 /**
@@ -100,16 +103,122 @@ function ReportingLine({ r, nav }: { r: ResolvedRelationship; nav: PanelNav }) {
   );
 }
 
+/**
+ * One position's job content inside a person's view.
+ *
+ * A person with one position gets it straight; a person with several gets a
+ * block PER POSITION, titled with the position, because an edit here belongs to
+ * that one position. Only the position they were opened from starts open; the
+ * others fetch nothing until they are opened.
+ */
+function PositionJob({
+  positionId,
+  title,
+  code,
+  collapsible,
+  startOpen,
+  asOf,
+  company,
+  nav,
+  onChanged,
+}: {
+  positionId: number;
+  title: string;
+  code: string | null;
+  collapsible: boolean;
+  startOpen: boolean;
+  asOf: string;
+  company: string;
+  nav: PanelNav;
+  onChanged?: () => void;
+}) {
+  const [open, setOpen] = useState(startOpen || !collapsible);
+  const bodyId = `personjob-${positionId}`;
+  return (
+    <Box
+      data-personjob={positionId}
+      sx={
+        collapsible
+          ? { border: '1px solid var(--c-border)', borderRadius: 'var(--r-sm)', overflow: 'hidden' }
+          : undefined
+      }
+    >
+      {collapsible ? (
+        <Box
+          component="button"
+          type="button"
+          aria-expanded={open}
+          aria-controls={bodyId}
+          onClick={() => setOpen((v) => !v)}
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 0.5,
+            width: '100%',
+            textAlign: 'left',
+            border: 0,
+            background: 'var(--c-surface-2)',
+            font: 'inherit',
+            color: 'inherit',
+            cursor: 'pointer',
+            px: 1,
+            py: 0.8,
+            '&:focus-visible': { outline: '2px solid var(--c-primary-500)', outlineOffset: -2 },
+          }}
+        >
+          {open ? (
+            <ExpandMoreRounded aria-hidden sx={{ fontSize: 20, color: 'var(--c-text-2)' }} />
+          ) : (
+            <ChevronRightRounded aria-hidden sx={{ fontSize: 20, color: 'var(--c-text-2)' }} />
+          )}
+          <Box sx={{ fontSize: 13.5, fontWeight: 600, flex: 1, minWidth: 0, overflowWrap: 'anywhere' }}>
+            <Box component="span" sx={{ ...smallLabel, mr: 0.75 }}>
+              Position
+            </Box>
+            {title}
+          </Box>
+          {code && <Mono sx={{ fontSize: 11.5 }}>{code}</Mono>}
+        </Box>
+      ) : (
+        <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)', mb: 0.5 }}>
+          <Box component="span" sx={{ ...smallLabel, mr: 0.75 }}>
+            Position
+          </Box>
+          {title}
+        </Typography>
+      )}
+      {open && (
+        <Box id={bodyId} sx={collapsible ? { p: 1 } : undefined}>
+          <OrgChartJobSection
+            target={{ type: 'position', id: positionId }}
+            roleId={null}
+            asOf={asOf}
+            company={company}
+            onChanged={onChanged}
+            onOpenRole={(id, t) => nav.push({ kind: 'role', roleId: id, title: t })}
+          />
+        </Box>
+      )}
+    </Box>
+  );
+}
+
 export function OrgChartPersonView({
   view,
   asOf,
   company,
   nav,
+  titleOf,
+  onChanged,
 }: {
   view: PersonView;
   asOf: string;
   company: string;
   nav: PanelNav;
+  /** A position's title as the chart writes it (disambiguated). */
+  titleOf?: (positionId: number) => string | undefined;
+  /** After a position's content is edited from here. */
+  onChanged?: () => void;
 }) {
   const can = useIsPermitted();
   const canRead = can('cf_hrms_people_view');
@@ -155,9 +264,28 @@ export function OrgChartPersonView({
   }, [canRead, view.employeeId, asOf]);
 
   const e = detail?.employee ?? null;
-  const jobs: AssignmentSummary[] = (detail?.assignments ?? []).filter((a) => a.isActive);
+  const jobs: AssignmentSummary[] = useMemo(() => (detail?.assignments ?? []).filter((a) => a.isActive), [detail]);
   const many = jobs.length > 1;
   const cameFrom = view.shiftCode ? SHIFT_WORD[view.shiftCode] : null;
+
+  // The positions whose job content is shown: every position they hold today,
+  // the one they were opened from first. Without an employee record to read
+  // (no cf_hrms_people_view) that is just the position they were opened from.
+  const heldPositions = useMemo(() => {
+    const list = jobs
+      .filter((a) => a.positionId != null)
+      .map((a) => ({
+        positionId: a.positionId!,
+        title: titleOf?.(a.positionId!) ?? a.positionTitle ?? a.roleTitle ?? 'Position',
+        code: a.positionCode,
+      }));
+    if (view.positionId != null && !list.some((h) => h.positionId === view.positionId) && (!canRead || detail)) {
+      list.push({ positionId: view.positionId, title: titleOf?.(view.positionId) ?? 'Position', code: null });
+    }
+    const unique = [...new Map(list.map((h) => [h.positionId, h])).values()];
+    return unique
+      .sort((a, b) => Number(b.positionId === view.positionId) - Number(a.positionId === view.positionId));
+  }, [jobs, view.positionId, titleOf, canRead, detail]);
 
   const facts: { label: string; value: React.ReactNode }[] = [];
   const code = e?.employeeCode ?? view.employeeCode;
@@ -324,6 +452,33 @@ export function OrgChartPersonView({
               </Typography>
             </>
           )}
+        </Box>
+      )}
+
+      {/* What the job is — per POSITION. The one they were opened from first. */}
+      {heldPositions.length > 0 && (
+        <Box sx={{ mt: 1.75 }} data-card-jobcontent="">
+          <SectionTitle>KRAs, responsibilities and KPIs</SectionTitle>
+          <Typography data-belongs="" sx={{ fontSize: 12.5, color: 'var(--c-text-2)', lineHeight: 1.5, mb: 0.75 }}>
+            These belong to the position, not to {view.title}: whoever sits in it has the same responsibilities and
+            KPIs, and an edit here changes the position.
+          </Typography>
+          <Stack spacing={1}>
+            {heldPositions.map((h, i) => (
+              <PositionJob
+                key={h.positionId}
+                positionId={h.positionId}
+                title={h.title}
+                code={h.code}
+                collapsible={heldPositions.length > 1}
+                startOpen={i === 0}
+                asOf={asOf}
+                company={company}
+                nav={nav}
+                onChanged={onChanged}
+              />
+            ))}
+          </Stack>
         </Box>
       )}
 

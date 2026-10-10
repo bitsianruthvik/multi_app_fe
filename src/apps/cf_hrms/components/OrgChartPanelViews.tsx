@@ -51,13 +51,23 @@ export function OrgChartPanelViews({
         </OrgChartSeatView>
       );
     case 'person':
-      return <OrgChartPersonView view={view} asOf={asOf} company={company} nav={nav} />;
+      return (
+        <OrgChartPersonView
+          view={view}
+          asOf={asOf}
+          company={company}
+          nav={nav}
+          titleOf={(id) => model?.byId.get(id)?.displayTitle}
+          onChanged={onChanged}
+        />
+      );
     case 'open':
       return (
         <OrgChartOpenSeatView
           view={view}
           node={model?.byId.get(view.positionId) ?? null}
           asOf={asOf}
+          company={company}
           nav={nav}
           onChanged={onChanged}
         />

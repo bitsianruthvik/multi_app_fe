@@ -7,6 +7,7 @@ import { positionsApi, type PositionOccupant } from '../api/positions';
 import { peopleApi, type EmployeeRow } from '../api/people';
 import { assignmentsApi } from '../api/assignments';
 import { SectionTitle } from './OrgChartSeatView';
+import { OrgChartJobSection } from './OrgChartJobSection';
 import { SHIFT_WORD, inPanelLink, smallLabel, type PanelNav, type PanelView } from './orgChartPanelNav';
 
 /**
@@ -64,9 +65,11 @@ export function OrgChartOpenSeatView({
   view,
   node,
   asOf,
+  company,
   nav,
   onChanged,
 }: {
+  company: string;
   view: OpenView;
   node: OrgChartNode | null;
   asOf: string;
@@ -399,6 +402,24 @@ export function OrgChartOpenSeatView({
             )}
           </Stack>
         )}
+      </Box>
+
+      {/* What whoever fills this seat will be doing. The POSITION's content —
+          the role's KRAs, fixed, with the position's responsibilities and KPIs —
+          and the same position-level editing the position view has. */}
+      <Box sx={{ mt: 2 }} data-card-jobcontent="">
+        <SectionTitle>KRAs, responsibilities and KPIs</SectionTitle>
+        <Typography data-belongs="" sx={{ fontSize: 12.5, color: 'var(--c-text-2)', lineHeight: 1.5, mb: 0.75 }}>
+          These belong to the position: whoever is put in this seat takes them on as they stand.
+        </Typography>
+        <OrgChartJobSection
+          target={{ type: 'position', id: view.positionId }}
+          roleId={node?.roleId ?? null}
+          asOf={asOf}
+          company={company}
+          onChanged={onChanged}
+          onOpenRole={(id, t) => nav.push({ kind: 'role', roleId: id, title: t })}
+        />
       </Box>
     </Box>
   );
