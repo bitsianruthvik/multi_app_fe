@@ -2,18 +2,18 @@ import { useMemo, useRef, useState, type RefObject, type ChangeEvent, type Clipb
 import { Alert, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, MenuItem, TextField, Tooltip, Typography } from '@mui/material';
 import DragIndicatorRounded from '@mui/icons-material/DragIndicatorRounded';
 import CloseRounded from '@mui/icons-material/CloseRounded';
-import EditOutlined from '@mui/icons-material/EditOutlined';
 import { Link, useLocation } from 'react-router-dom';
 import { SheetGrid, type SheetCell, type SheetGridHandle, type SheetWrite } from '@shared/ui';
 import type { ValuesView } from '../Values/valuesModel';
-import { ownInput, valueEditable, rowLabel, roleShown, type BomRow, type Pending } from './bomModel';
+import { ownInput, valueEditable, rowLabel, type BomRow, type Pending } from './bomModel';
 import { appPath } from '../../navMeta';
 import { recordPath } from '../../lib/paths';
 import type { BackState } from '../shell/backState';
 import type { SpecValues } from './useSpecValues';
 import type { RowMark } from './BomTree';
 import type { DropPosition } from './bomArrangement';
-import { isDimension, shortLabel } from '../../lib/stripLayout';
+import { isDimension, sheetLabel } from '../../lib/stripLayout';
+import { CODE_NUMBERS_TITLE, codeWithNumbers, hasNumbers, type CodeSegment } from '../../lib/codeSegments';
 import { rowColumnCodes, shownColumns, sortColumns, viewCatalog, viewCell, viewUses } from '../../lib/bomGridLayout';
 import { codeOrName, displayCode } from '../../lib/displayCode';
 
@@ -23,12 +23,15 @@ type Cell = { text: string; input: string; saved: string; editable: boolean; why
 /** The BOM around the shared SheetGrid: SheetGrid owns selection, clipboard and
  * the editor; this owns what a BOM cell means, plus row drag/drop and moving. */
 /** A row's code in mono — a catalog row's position code with the item's own code beside it. */
-function CodeText({ code, itemCode }: { code: string; itemCode: string | null }) {
+function CodeText({ code, itemCode, segments }: { code: string; itemCode: string | null; segments?: CodeSegment[] | null }) {
   if (!code) return null;
-  return <><Box component="span" data-testid="row-code" sx={{ fontFamily: 'var(--font-mono)' }}>{code}</Box>{itemCode && itemCode !== code ? <Box component="span" sx={{ fontFamily: 'var(--font-mono)' }}> · {itemCode}</Box> : null}</>;
+  const shown = codeWithNumbers(code, segments);
+  // The whole code, always: it wraps after a hyphen rather than being cut, and runs under the row's buttons.
+  const parts = shown.split('-').map((t, i, all) => (i < all.length - 1 ? `${t}-` : t));
+  return <><Box component="span" data-testid="row-code" sx={{ fontFamily: 'var(--font-mono)', whiteSpace: 'normal', overflowWrap: 'break-word' }}>{parts.map((t, i) => <span key={i}>{t}{i < parts.length - 1 ? <wbr /> : null}</span>)}</Box>{itemCode && itemCode !== code ? <Box component="span" sx={{ fontFamily: 'var(--font-mono)' }}> · {itemCode}</Box> : null}</>;
 }
 
-export function BomGrid({ rows, view, records: recordValues, recordIds, pending, busy, canEdit, canEditValues, onToggle, onWrites, onMove, dropRefusal, trailingCell, flowCell, choiceCell, markOf, placeholderOf, roleOf, canEditRole, onRole, onlyUsedColumns, footer, gaps, handleRef, lineUpSlot, fileDrop }: {
+export function BomGrid({ rows, view, records: recordValues, recordIds, pending, busy, canEdit, canEditValues, onToggle, onWrites, onMove, dropRefusal, trailingCell, flowCell, choiceCell, markOf, placeholderOf, roleOf, canEditRole, onRole, onlyMissing, footer, gaps, handleRef, fileDrop }: {
   rows: BomRow[]; view: ValuesView | null; pending: Pending; busy: boolean; canEdit: (row: BomRow) => boolean;
   records?: SpecValues; recordIds?: number[]; canEditValues: (row: BomRow) => boolean;
   onToggle: (key: string) => void; onWrites: (writes: GridWrite[]) => void;
@@ -39,22 +42,20 @@ export function BomGrid({ rows, view, records: recordValues, recordIds, pending,
   choiceCell?: (row: BomRow) => ReactNode;
   markOf: (row: BomRow) => RowMark | null;
   /** The row's code as a design: an order row's placeholder, or a catalog row's position code (with the item's own code beside it). */
-  placeholderOf: (row: BomRow) => { code: string; title: string; itemCode?: string | null } | null;
+  placeholderOf: (row: BomRow) => { code: string; title: string; itemCode?: string | null; segments?: CodeSegment[] | null } | null;
   /** The description shown after the dot: a typed one wins over the saved one. */
   roleOf?: (row: BomRow) => string | null;
   /** Whether the description may be edited on this row. */
   canEditRole?: (row: BomRow) => boolean;
   onRole?: (row: BomRow, text: string) => void;
   /** "cut from 25 × 500 × 11650" for a part whose automatic cut pieces are hidden. */
-  /** Show a column only if some row on screen can use it. */
-  onlyUsedColumns?: boolean;
+  /** "Only what's missing": each row shows ONLY the cells whose required value is still missing in what is saved (this map: record id → codes). Rows with none show no value cells at all. */
+  onlyMissing?: ReadonlyMap<number, string[]>;
   footer?: ReactNode;
   /** Values stage: the spec codes still missing on each record (by record id). Those cells turn amber and the row says how many. */
   gaps?: ReadonlyMap<number, string[]>;
   /** The grid's handle, for a screen that jumps to a cell. */
   handleRef?: RefObject<SheetGridHandle | null>;
-  /** The toolbar element the "Line up all columns" switch is drawn into. */
-  lineUpSlot?: HTMLElement | null;
   /** Drawing files dropped on a row: which rows take them, and what to do with them. Row moves (the drag handle) are unaffected. */
   fileDrop?: { canDrop: (row: BomRow) => boolean; onDrop: (row: BomRow, files: File[]) => void };
 }) {
@@ -87,14 +88,18 @@ export function BomGrid({ rows, view, records: recordValues, recordIds, pending,
     return viewUses(catalog.records, row.node.id, code);
   };
   const loaded = !!recordValues || !!view;
-  const used = onlyUsedColumns && loaded ? catalog.cols.filter((c) => rows.some((r) => uses(r, c.code))) : catalog.cols;
+  // Only the columns some row can use (the header and the cells of a row never name any other).
+  const used = loaded ? catalog.cols.filter((c) => rows.some((r) => uses(r, c.code))) : catalog.cols;
   // The dimensions lead (Thk · L · W) and come as a set: a row with one of them shows all three, so rows line up.
   const shown = shownColumns(catalog.cols, used);
   const columns: { code: string; name: string; unit?: string | null; dataType?: string }[] = [{ code: '$quantity', name: 'Quantity' }, { code: '$total', name: 'Total' }, ...shown];
   /** Strip layout: this row's own cells — quantity and total, then its values with the dimensions first. */
   const rowColumns = (row: BomRow) => {
-    return rowColumnCodes(shown, { quantity: row.node.quantity, total: row.node.total, hasChildren: row.hasChildren },
+    const own = rowColumnCodes(shown, { quantity: row.node.quantity, total: row.node.total, hasChildren: row.hasChildren },
       (code) => uses(row, code), (code) => cellAt(row, { code }).input, (code) => !!gaps?.get(row.node.id)?.includes(code));
+    // Only what's missing: just the cells that were missing when last saved (a gap typed away stays, marked changed, until Save).
+    if (onlyMissing) { const gap = new Set(onlyMissing.get(row.node.id) ?? []); return own.filter((c) => gap.has(c)); }
+    return own;
   };
   const rowByKey = useMemo(() => new Map(rows.map((r) => [r.node.key, r])), [rows]);
   const colByKey = new Map(columns.map((c) => [c.code, c]));
@@ -155,11 +160,11 @@ export function BomGrid({ rows, view, records: recordValues, recordIds, pending,
 
   return <>
     <SheetGrid ref={grid} ariaLabel="BOM spreadsheet" busy={busy || (!view && !recordValues)} footer={footer}
-      lineUpSlot={lineUpSlot} cornerHeader="BOM line" rowHeaderWidth={560} rowHeight={42} fillViewport
+      lineUpToggle={false} cornerHeader="BOM line" rowHeaderWidth={560} rowHeight={42} fillViewport
       hint="Type to fill a cell · Enter, Tab or an arrow keeps it and moves on · F2 edits in place · Ctrl+C / Ctrl+V copy and paste · Ctrl+D fills down · Shift-click selects a block · Drag the handle to move a row"
       rowColumns={(key) => { const row = rowByKey.get(key); return row ? rowColumns(row) : []; }} prefKey="bom-grid"
       columns={columns.map((col, i) => ({ key: col.code, label: col.name, width: i < 2 ? 88 : 145,
-        short: i === 0 ? 'Qty' : i === 1 ? 'Total' : shortLabel(col.code, col.name), unit: col.unit ?? undefined,
+        short: i === 0 ? 'Qty' : i === 1 ? 'Total' : sheetLabel(col.code, col.name), unit: col.unit ?? undefined,
         stripWidth: i < 2 ? 64 : isDimension(col.code) ? 84 : 112, align: i < 2 || col.dataType === 'number' ? 'right' as const : undefined, header: <>
         {col.name}{col.unit && <Typography component="span" sx={{ display: 'block', fontSize: 10, color: 'var(--c-text-3)' }}>{col.unit}</Typography>}
       </> }))}
@@ -181,27 +186,28 @@ export function BomGrid({ rows, view, records: recordValues, recordIds, pending,
                 onCopy={(e: ClipboardEvent) => e.stopPropagation()} onPaste={(e: ClipboardEvent) => e.stopPropagation()}
                 sx={{ width: '100%', font: 'inherit', fontSize: 12, p: '1px 4px', border: '1px solid var(--c-primary-400)', borderRadius: 'var(--r-sm)', background: 'var(--c-surface)', color: 'var(--c-text)' }} />
             ) : (
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25, minWidth: 0 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, minWidth: 0 }}>
+                {/* The name only; the line's own description is its tooltip (it is edited under ⋯ → Edit line details). */}
                 <Box onDoubleClick={roleEditable ? () => startRole(row) : undefined} title={`${rowLabel(n.name, roleText)}${roleEditable ? ' — double-click to change the description' : ''}`}
-                  sx={{ fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>
+                  sx={{ fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0, flexShrink: 1 }}>
                   {/* The name opens that record; its page offers the way back to this BOM. */}
                   {row.parent && n.id != null && !row.paste ? (
                     <Link to={appPath(company, recordPath(n.kind, n.id))} state={back} onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}
                       title={`Open ${codeOrName(n)}`} style={{ color: 'inherit' }}>{n.name}</Link>
                   ) : n.name}
-                  {roleShown(n.name, roleText) ? ` · ${roleShown(n.name, roleText)}` : ''}
                 </Box>
-                {roleEditable && <Tooltip title="Change the description"><IconButton size="small" aria-label={`Edit description of ${n.name}`} onClick={() => startRole(row)} sx={{ p: 0.25, color: 'var(--c-text-3)' }}><EditOutlined sx={{ fontSize: 14 }} /></IconButton></Tooltip>}
+                {flowCell(row)}
+                {choiceCell?.(row)}
+                {(gaps?.get(n.id)?.length ?? 0) > 0 && <Box component="span" data-testid="row-gaps" title={`Required values still empty: ${gaps?.get(n.id)?.join(', ')}`}
+                  sx={{ fontSize: 10.5, fontWeight: 600, px: 0.75, borderRadius: 'var(--r-sm)', background: 'var(--c-warning-200)', color: 'var(--c-warning-800)', whiteSpace: 'nowrap', flexShrink: 0 }}>{gaps?.get(n.id)?.length} missing</Box>}
               </Box>
             )}
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, minWidth: 0 }}>
-            <Box sx={{ fontSize: 10, color: 'var(--c-text-3)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }} title={placeholderOf(row)?.title}>{row.paste ? `New copy${row.paste.source.children.length ? ' with children' : ''}` : <CodeText code={placeholderOf(row)?.code ?? (n.kind === 'temporary' ? '' : displayCode(n) ?? '')} itemCode={placeholderOf(row)?.itemCode ?? null} />}{mark && !row.paste ? ` · ${mark.label}` : ''}</Box>
-              {flowCell(row)}
-              {choiceCell?.(row)}
-              {(gaps?.get(n.id)?.length ?? 0) > 0 && <Box component="span" data-testid="row-gaps" title={`Required values still empty: ${gaps?.get(n.id)?.join(', ')}`}
-                sx={{ fontSize: 10.5, fontWeight: 600, px: 0.75, borderRadius: 'var(--r-sm)', background: 'var(--c-warning-200)', color: 'var(--c-warning-800)', whiteSpace: 'nowrap' }}>{gaps?.get(n.id)?.length} missing</Box>}
-            </Box>
           </>,
+          // The code in full on a line of its own: it may use the whole cell and run under the buttons.
+          below: (() => {
+            const ph = placeholderOf(row);
+            return <Box data-testid="row-code-line" sx={{ fontSize: 10, color: 'var(--c-text-3)', whiteSpace: 'normal', overflowWrap: 'break-word', minWidth: 0, lineHeight: 1.3 }} title={hasNumbers(ph?.segments) && !row.paste ? CODE_NUMBERS_TITLE : ph?.title}>{row.paste ? `New copy${row.paste.source.children.length ? ' with children' : ''}` : <CodeText code={ph?.code ?? (n.kind === 'temporary' ? '' : displayCode(n) ?? '')} itemCode={ph?.itemCode ?? null} segments={ph?.segments} />}{mark && !row.paste ? ` · ${mark.label}` : ''}</Box>;
+          })(),
           trail: <>
             <Box sx={{ display: 'flex', flexShrink: 0 }}>{trailingCell(row)}</Box>
             {marker && <Box component="span" sx={{ position: 'absolute', right: 8, top: 0, zIndex: 5, fontSize: 10, background: 'var(--c-surface-2)', color: marker.refusal ? 'var(--c-danger-600)' : 'var(--c-primary-700)' }}>{marker.refusal ?? (marker.position === 'inside' ? `Into ${n.name}` : marker.position === 'before' ? 'Before this row' : 'After this row')}</Box>}

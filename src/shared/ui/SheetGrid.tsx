@@ -88,6 +88,8 @@ export interface SheetRow {
   lead?: ReactNode;
   /** Rendered at the far end of the row header (counts, actions). */
   trail?: ReactNode;
+  /** A second line across the row header, lined up with the header's text and running UNDER the trail (a code that must show in full). The row grows to fit it. */
+  below?: ReactNode;
 }
 
 export interface SheetColumn {
@@ -228,7 +230,7 @@ const refusal = (text: string, colName: string, m: OptionMatch) =>
   m && 'ambiguous' in m ? `“${text}” could be ${m.ambiguous.map((l) => `“${l}”`).join(' or ')} in ${colName}. Type more of it.` : `“${text}” is not an allowed ${colName}.`;
 
 /** The note shown instead of an editor on a phone-width window. */
-export const SHEET_GRID_NARROW_NOTE = 'Editing this is easier on a wider screen';
+export const SHEET_GRID_NARROW_NOTE = 'This window is too narrow to edit here. Widen it to change values.';
 export const SHEET_GRID_NARROW_QUERY = '(max-width:599.95px)';
 
 export const SHEET_GRID_HINT = 'Type to fill a cell · Enter, Tab or an arrow keeps it and moves on · F2 edits in place · Esc cancels · Ctrl+C / Ctrl+V copy and paste · Ctrl+D / Ctrl+R fill down / right · Ctrl+Z undo · Shift-click or drag selects a block';
@@ -297,7 +299,7 @@ export function SheetGrid({
     if (ro && document.body) ro.observe(document.body);
     return () => { if (raf) cancelAnimationFrame(raf); window.removeEventListener('scroll', queue, true); window.removeEventListener('resize', queue); ro?.disconnect(); };
   }, [fillViewport]);
-  const [lineUp, setLineUp] = useState<boolean>(() => readPref(lineUpPref, false));
+  const [lineUp, setLineUp] = useState<boolean>(() => lineUpToggle && readPref(lineUpPref, false));
   const problem = (message: string | null) => { if (onProblem) onProblem(message); else setInline(message); };
   const rowIndex = useMemo(() => new Map(rows.map((r, i) => [r.key, i])), [rows]);
   const colByKey = useMemo(() => new Map(columns.map((c) => [c.key, c])), [columns]);
@@ -669,10 +671,12 @@ export function SheetGrid({
     const tone = cell.tone ?? 'normal', blank = tone === 'blank', can = writable(cell), na = isNa(cell);
     const width = stripKeys ? slotWidths[c] : col.width ?? 145;
     const label = labelOf(key);
-    return <Box component="td" key={stripKeys ? `${c}:${key}` : key} role="gridcell" data-cell={`${r}:${c + 1}`} data-col-key={key} data-name={stripKeys && !blank ? `${col.short ?? col.label ?? key}${col.unit ? ` ${col.unit}` : ''}` : undefined} className="sg-data" data-tone={tone} data-na={na ? 'true' : undefined} data-state={cell.state}
+    const stripName = stripKeys && !blank ? `${col.short ?? col.label ?? key}${col.unit ? ` ${col.unit}` : ''}` : undefined;
+    const twoLines = !!stripName && stripName.length > Math.floor((width - 20) / 4.9);
+    return <Box component="td" key={stripKeys ? `${c}:${key}` : key} role="gridcell" data-cell={`${r}:${c + 1}`} data-col-key={key} data-name={stripName} data-label-lines={stripName && stripName.length > Math.floor((width - 20) / 4.9) ? 2 : undefined} className="sg-data" data-tone={tone} data-na={na ? 'true' : undefined} data-state={cell.state}
       data-dropdown={isDropdown(cell) && can ? 'true' : undefined}
       tabIndex={same(anchor, at) || (!anchor && r === 0 && c === 0) ? 0 : -1} aria-selected={active} aria-readonly={!can} aria-disabled={na || undefined}
-      title={na ? cell.why ?? cell.title ?? 'Does not apply to this row' : cell.title ?? cell.why ?? cell.text}
+      title={`${twoLines ? `${stripName} — ` : ''}${na ? cell.why ?? cell.title ?? 'Does not apply to this row' : cell.title ?? cell.why ?? cell.text}`}
       onClick={(e) => { if ((e.target as HTMLElement).closest('button, input, select, a')) return; choose(at, e.shiftKey); e.currentTarget.focus(); if (!e.shiftKey) onCellClick?.(row.key, key); }}
       onPointerDown={(e) => { if (e.button !== 0 || (e.target as HTMLElement).closest('button, input, select, a')) return; if (e.shiftKey) e.preventDefault(); /* shift-click extends the cell range, not a text selection across the page */ selecting.current = true; choose(at, e.shiftKey); }}
       onMouseDown={(e) => { if (e.shiftKey && !(e.target as HTMLElement).closest('button, input, select, a')) e.preventDefault(); }}
@@ -689,10 +693,12 @@ export function SheetGrid({
         outline: same(anchor, at) ? '2px solid var(--c-primary-600)' : undefined,
         ...(isDropdown(cell) && can && !editing ? { pr: 2.25 } : {}),
         ...(stripKeys && !blank ? {
-          pt: '13px', pb: '3px', verticalAlign: 'bottom',
+          pt: twoLines ? '25px' : '13px', pb: '3px', verticalAlign: 'bottom',
           // Strip: the cell names itself — a small muted label inside the box, the value below — so no row of column headings is needed.
           // A pseudo-element, so the cell's own text stays just its value (copy, tests and readers see the value).
-          '&::before': { content: 'attr(data-name)', position: 'absolute', top: 2, left: 6, right: 14, fontSize: 9.5, lineHeight: 1.1, color: 'var(--c-text-3)', fontWeight: 400, fontFamily: 'var(--font-ui)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', pointerEvents: 'none', textAlign: 'left' },
+          '&::before': { content: 'attr(data-name)', position: 'absolute', top: 2, left: 6, right: 14, fontSize: 9.5, lineHeight: 1.1, color: 'var(--c-text-3)', fontWeight: 400, fontFamily: 'var(--font-ui)', pointerEvents: 'none', textAlign: 'left',
+            // A long name goes onto a second line (then an ellipsis; the cell's tooltip carries the whole name).
+            whiteSpace: 'normal', overflowWrap: 'anywhere', display: '-webkit-box', WebkitBoxOrient: 'vertical', WebkitLineClamp: 2, lineClamp: 2, overflow: 'hidden' },
         } : {}),
       }}>
       {cell.mark != null && <Box component="span" data-mark="" sx={{ position: 'absolute', top: 2, right: 2, lineHeight: 0, fontSize: 8, pointerEvents: 'none' }}>{cell.mark}</Box>}
@@ -792,16 +798,17 @@ export function SheetGrid({
             sx={rowSx?.(row.key)} data-row={row.key}>
             <Box component="td" role="rowheader" data-cell={`${r}:0`} className="sg-rowhead" tabIndex={-1}
               onClick={(e) => { if ((e.target as HTMLElement).closest(INTERACTIVE)) return; selectRow(row.key); }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25 }}>
-                {row.lead}
-                <Box sx={{ ml: Math.min(row.depth ?? 0, 7) * 1.25, display: 'flex', minWidth: 0, alignItems: 'center', flex: 1 }}>
+              <Box sx={row.below != null ? { display: 'grid', gridTemplateColumns: 'auto minmax(0, 1fr) auto', columnGap: '2px', alignItems: 'center' } : { display: 'flex', alignItems: 'center', gap: 0.25 }}>
+                {row.below != null ? <Box sx={{ gridColumn: 1, gridRow: 1, display: 'flex', alignItems: 'center' }}>{row.lead}</Box> : row.lead}
+                <Box sx={{ ml: Math.min(row.depth ?? 0, 7) * 1.25, display: 'flex', minWidth: 0, alignItems: 'center', flex: 1, ...(row.below != null ? { gridColumn: 2, gridRow: 1 } : {}) }}>
                   {anyCollapsible && <IconButton size="small" disabled={!row.collapsible} aria-label={`${row.collapsed ? 'Expand' : 'Collapse'} ${row.label ?? row.key}`}
                     onClick={() => onToggleRow?.(row.key)} sx={{ width: 28, height: Math.max(20, rowHeight - 6), visibility: row.collapsible ? 'visible' : 'hidden' }}>
                     {row.collapsed ? <ChevronRightRounded fontSize="small" /> : <ExpandMoreRounded fontSize="small" />}
                   </IconButton>}
                   <Box sx={{ minWidth: 0, flex: 1 }}>{row.header}</Box>
                 </Box>
-                {row.trail}
+                {row.trail != null && (row.below != null ? <Box sx={{ gridColumn: 3, gridRow: 1, display: 'flex', alignItems: 'center' }}>{row.trail}</Box> : row.trail)}
+                {row.below != null && <Box data-testid="sg-rowhead-below" sx={{ gridColumn: '2 / 4', gridRow: 2, minWidth: 0, ml: Math.min(row.depth ?? 0, 7) * 1.25, pl: anyCollapsible ? '28px' : 0 }}>{row.below}</Box>}
               </Box>
             </Box>
             {Array.from({ length: len }, (_, c) => dataCell(row, r, c))}

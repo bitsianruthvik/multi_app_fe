@@ -17,7 +17,7 @@ Object.defineProperty(globalThis, 'localStorage', { value: dom.window.localStora
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const React = await import('react');
 const { createRoot } = await import('react-dom/client');
-const built = await build({ alias: { '@shared/ui': resolve('src/shared/ui/SheetGrid.tsx') }, stdin: { contents: `export * from './src/apps/cf_erp/components/Bom/BomGrid'; export * from './src/apps/cf_erp/components/Bom/bomArrangement'; export * from './src/apps/cf_erp/components/Bom/bomModel'; export * from './src/apps/cf_erp/lib/stripLayout'; export * from './src/apps/cf_erp/components/Bom/FlowChoice'; export * from './src/apps/cf_erp/components/Bom/flowShown'; export * from './src/apps/cf_erp/components/Bom/ChoiceCell'; export * from './src/apps/cf_erp/components/Bom/selectionChoice';`, resolveDir: process.cwd(), loader: 'tsx' }, bundle: true, write: false, format: 'esm', platform: 'node', packages: 'external', jsx: 'automatic' });
+const built = await build({ alias: { '@shared/ui': resolve('src/shared/ui/SheetGrid.tsx') }, stdin: { contents: `export * from './src/apps/cf_erp/components/Bom/BomGrid'; export * from './src/apps/cf_erp/components/Bom/bomArrangement'; export * from './src/apps/cf_erp/components/Bom/bomModel'; export * from './src/apps/cf_erp/lib/stripLayout'; export * from './src/apps/cf_erp/lib/codeSegments'; export * from './src/apps/cf_erp/components/Bom/FlowChoice'; export * from './src/apps/cf_erp/components/Bom/flowShown'; export * from './src/apps/cf_erp/components/Bom/ChoiceCell'; export * from './src/apps/cf_erp/components/Bom/selectionChoice';`, resolveDir: process.cwd(), loader: 'tsx' }, bundle: true, write: false, format: 'esm', platform: 'node', packages: 'external', jsx: 'automatic' });
 const cache = resolve('node_modules/.cache');
 await mkdir(cache, { recursive: true });
 const artifact = resolve(cache, `bom-grid-test-${process.pid}.mjs`);
@@ -175,10 +175,15 @@ let roleSaved = [];
 const roles = { 4: 'Girder G1' };
 const roleGrid = { ...roleProps, rows: rs, roleOf: (r) => roles[r.node.id] ?? r.node.role, canEditRole: (r) => r.node.id === 4, onRole: (r, t) => { roleSaved.push([r.node.id, t]); } };
 await render(roleGrid);
-await check('The description shows after the dot', () => assert.match(document.body.textContent, /Row 4 · Girder G1/));
-await check('Only rows that may be edited offer the description editor', () => {
-  assert.equal(document.querySelectorAll('[aria-label^="Edit description of"]').length, 1);
-  assert.ok(document.querySelector('[aria-label="Edit description of Row 4"]'));
+await check('Line 1 is the name only: the description is its tooltip, not text', () => {
+  const link = [...document.querySelectorAll('a')].find((a) => a.textContent === 'Row 4');
+  assert.ok(link, 'the name is there');
+  assert.doesNotMatch(document.body.textContent, /Girder G1/, 'the description is not drawn');
+  assert.equal(link.parentElement.textContent, 'Row 4');
+  assert.equal(link.parentElement.getAttribute('title'), 'Row 4 · Girder G1 — double-click to change the description');
+});
+await check('There is no description pencil any more (the description is edited under ⋯ → Edit line details)', () => {
+  assert.equal(document.querySelectorAll('[aria-label^="Edit description of"]').length, 0);
 });
 await check('One name per row: a role that repeats the name is not shown twice', async () => {
   assert.equal(m.rowLabel('Web', 'web'), 'Web');
@@ -190,7 +195,7 @@ await check('One name per row: a role that repeats the name is not shown twice',
   await render({ ...roleGrid, roleOf: (r) => (r.node.id === 5 ? 'row 5' : roles[r.node.id] ?? r.node.role) });
   assert.doesNotMatch(document.body.textContent, /Row 5 · row 5/i);
   assert.match(document.body.textContent, /Row 5/);
-  assert.match(document.body.textContent, /Row 4 · Girder G1/);
+  assert.ok([...document.querySelectorAll('[title^="Row 4 · Girder G1"]')].length === 1, 'the description rides on the name as a tooltip');
   await render(roleGrid);
 });
 await check('Adding the same item twice asks for no name — there is no repeat prompt any more', () => {
@@ -198,8 +203,8 @@ await check('Adding the same item twice asks for no name — there is no repeat 
   const dialogs = readFileSync(resolve('src/apps/cf_erp/components/BomDialogs.tsx'), 'utf8');
   assert.doesNotMatch(dialogs, /USE_NAME_REQUIRED|already in this BOM|siblingIds/);
 });
-await check('Edit icon opens an input; Enter saves the typed description', async () => {
-  await fire(document.querySelector('[aria-label="Edit description of Row 4"]'), 'click');
+await check('Double-clicking the name opens an input; Enter saves the typed description', async () => {
+  await fire([...document.querySelectorAll('[title^="Row 4 · Girder G1"]')][0], 'dblclick');
   const input = document.querySelector('input[aria-label="Description of Row 4"]');
   assert.equal(input.value, 'Girder G1');
   const set = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value').set;
@@ -211,7 +216,7 @@ await check('Edit icon opens an input; Enter saves the typed description', async
 await check('Double-clicking the label opens it too, and Escape changes nothing', async () => {
   roleSaved = [];
   // The name inside it is a link to the record; the rest of the label still opens the description.
-  const label = [...document.querySelectorAll('div')].find((d) => d.textContent === 'Row 4 · Girder G1' && d.querySelector(':scope > a'));
+  const label = [...document.querySelectorAll('div')].find((d) => d.getAttribute('title')?.startsWith('Row 4 · Girder G1') && d.querySelector(':scope > a'));
   await fire(label, 'dblclick');
   assert.ok(document.querySelector('input[aria-label="Description of Row 4"]'));
   await fire(document.querySelector('input[aria-label="Description of Row 4"]'), 'keydown', { key: 'Escape' });
@@ -227,7 +232,7 @@ const colView = { editable: true, optionLists: {}, groups: [{ columns: [
   { code: 'LENGTH', name: 'Length', dataType: 'number', rule: 'entered', editable: true },
   { code: 'HOLED', name: 'Holed', dataType: 'boolean', rule: 'entered', editable: true },
 ], rows: rs.map((r) => ({ id: r.node.id, cells: r.node.id === 4 ? { LENGTH: { input: '1' } } : { LENGTH: { input: '2' } } })) }] };
-// The wide sheet ("Line up all columns"): one column per value, hatched where a row lacks it.
+// (The "Line up all columns" mode is gone: a row shows only its own cells, each with its label.)
 await check('A row name opens its record and carries the way back to this BOM', async () => {
   await render();
   const links = [...document.querySelectorAll('a')].filter((a) => a.textContent === 'Row 2');
@@ -236,17 +241,11 @@ await check('A row name opens its record and carries the way back to this BOM', 
   assert.ok(![...document.querySelectorAll('a')].some((a) => a.textContent === 'Row 1'), 'the record itself is not a link');
 });
 await React.act(() => root.render(null));
-localStorage.setItem('ui:sheetgrid.lineUp.bom-grid', 'true');
-// HOLED is declared by the group but no row has a cell for it: nobody can use it.
-await check('Only columns some row uses: an unused column is hidden', async () => {
-  await render({ ...props, view: colView, onlyUsedColumns: true });
-  const heads = [...document.querySelectorAll('thead th')].map((t) => t.textContent);
-  assert.ok(heads.some((h) => h.startsWith('Length')));
-  assert.ok(!heads.some((h) => h.startsWith('Holed')), heads.join('|'));
-});
-await check('All columns shows it again', async () => {
-  await render({ ...props, view: colView, onlyUsedColumns: false });
-  assert.ok([...document.querySelectorAll('thead th')].some((t) => t.textContent.startsWith('Holed')));
+// HOLED is declared by the group but no row has a cell for it: nobody can use it, so it is never drawn.
+await check('Only columns some row uses: an unused column is never drawn', async () => {
+  await render({ ...props, view: colView });
+  assert.ok(document.querySelector('[data-col-key="LENGTH"]'));
+  assert.equal(document.querySelector('[data-col-key="HOLED"]'), null);
 });
 // ── not applicable vs missing ────────────────────────────────────────────────
 const naView = { editable: true, optionLists: {}, groups: [{ columns: [
@@ -257,32 +256,35 @@ const naProps = { ...props, view: naView, gaps: new Map([[4, ['LENGTH']]]) };
 await render(naProps);
 // rs order: k1(row 0), k2, k4, k5, k3; data columns: 1 Quantity, 2 Total, then the value columns (editable first, in order).
 const colOf = (name) => [...document.querySelectorAll('thead th')].findIndex((t) => t.textContent.startsWith(name));
-await check('A variable the row does not have is not-applicable: hatched, no text, not editable, says why', () => {
-  const c = cell(1, colOf('Holed'));
-  assert.equal(c.getAttribute('data-na'), 'true'); assert.equal(c.getAttribute('aria-readonly'), 'true'); assert.equal(c.textContent, '');
-  assert.match(c.getAttribute('title'), /Not a value of Row 2/);
-});
-await check('A variable the row has stays a normal cell', () => {
-  const c = cell(2, colOf('Holed'));
+await check('A variable the row does not have is not drawn on that row; a row that has it draws a normal cell', () => {
+  assert.equal(cellKey(1, 'HOLED'), null, 'row 2 has no Holed');
+  const c = cellKey(2, 'HOLED');
   assert.equal(c.getAttribute('data-na'), null); assert.equal(c.getAttribute('aria-readonly'), 'false');
 });
 await check('A required value that is empty is missing (amber), not not-applicable', () => {
-  const c = cell(2, colOf('Length'));
+  const c = cellKey(2, 'LENGTH');
   assert.equal(c.getAttribute('data-na'), null); assert.match(c.getAttribute('title'), /Missing/);
 });
-await check('Pasting over not-applicable cells skips them and says so', async () => {
-  writes = []; const h = colOf('Holed');
-  await fire(cell(1, h), 'click'); await fire(cell(2, h), 'click', { shiftKey: true });
-  await clipboard(cell(2, h), 'paste', 'Yes');
-  assert.equal(writes.length, 1); assert.equal(writes[0].row.node.id, 4);
-  assert.match(document.body.textContent, /1 cell doesn't apply to its row and was skipped/);
+await check('Only what is missing: a row shows just its missing cells (no Qty, no Total, no other value); rows with none show no value cells', async () => {
+  await React.act(() => root.render(null));
+  localStorage.setItem('ui:sheetgrid.lineUp.bom-grid', 'true'); // an old "line up" choice is ignored: there is one layout
+  await render({ ...naProps, onlyMissing: new Map([[4, ['LENGTH']]]) });
+  const dataCells = [...document.querySelectorAll('td.sg-data')];
+  assert.equal(dataCells.length, 1, dataCells.map((c) => c.getAttribute('data-col-key')).join(','));
+  assert.equal(dataCells[0].getAttribute('data-col-key'), 'LENGTH');
+  assert.match(dataCells[0].getAttribute('title'), /Missing/);
+  assert.equal(document.querySelector('[data-layout]').getAttribute('data-layout'), 'strip');
+  assert.equal(document.querySelector('[data-testid="sheet-grid-line-up"]'), null, 'no Line up switch');
+  localStorage.removeItem('ui:sheetgrid.lineUp.bom-grid');
+  await render(naProps);
+  assert.ok([...document.querySelectorAll('td.sg-data')].length > 1, 'off: every cell of the rows again');
 });
 const resNa = { mode: 'setup', specs: [{ spec: { code: 'WIDTH', name: 'Width', dataType: 'number' }, applicable: true, rule: { valueRule: 'fixed', isRequired: false }, value: { raw: 150, display: '150' } }, { spec: { code: 'DEPTH', name: 'Depth', dataType: 'number' }, applicable: false, rule: { valueRule: 'fixed', isRequired: false } }] };
 await render({ ...props, view: null, records: { get: (id) => (id === 1 ? { resolution: { ...resNa, specs: [...resNa.specs, { ...resNa.specs[1], spec: { code: 'DEPTH', name: 'Depth', dataType: 'number' }, applicable: true }] } } : { resolution: resNa }) }, canEditValues: () => true });
-await check('Record BOMs: an inapplicable spec is not-applicable, an applicable one is not', () => {
-  assert.equal(cell(1, colOf('Depth')).getAttribute('data-na'), 'true');
-  assert.equal(cell(0, colOf('Depth')).getAttribute('data-na'), null);
-  assert.equal(cell(1, colOf('Width')).getAttribute('data-na'), null);
+await check('Record BOMs: an inapplicable spec is not drawn, an applicable one is', () => {
+  assert.equal(cellKey(1, 'DEPTH'), null);
+  assert.equal(cellKey(0, 'DEPTH').getAttribute('data-na'), null);
+  assert.equal(cellKey(1, 'WIDTH').getAttribute('data-na'), null);
 });
 await check('Record BOM rows show their position code, the same child twice with two codes', async () => {
   const twin = (id, more = {}) => node(id, [], { kind: 'template', code: 'SEG-002', name: 'Girder segment', ...more });
@@ -297,6 +299,84 @@ await check('Record BOM rows show their position code, the same child twice with
   assert.equal([...document.body.textContent.matchAll(/Girder segment/g)].length >= 2, true);
   await render();
 });
+// ── the row header: name, flow and chips on line 1; the whole code on line 2 ──────
+const longCode = 'SO260002-SPAN-01-G2-SEG4-WEB-STIFFENER-INTERMEDIATE-LONGER-THAN-ANY-CELL-L5';
+const codeGrid = (codes, over = {}) => ({ ...props, flowCell: () => React.createElement('button', { 'data-testid': 'flow-chip' }, 'GIRDER-SEGMENT DEFAULT'),
+  trailingCell: () => React.createElement('button', { 'aria-label': 'Copy it below' }, 'c'), placeholderOf: (r) => codes[r.node.id] ?? null, ...over });
+await check('Line 1 holds the name and the flow chip; the code is on its own line below, with no description beside it', async () => {
+  await render(codeGrid({ 4: { code: 'A-B', title: 'position' } }, { roleOf: () => 'Girder G1' }));
+  const head = cell(2, 0);
+  const line1 = head.querySelector('a').parentElement.parentElement;
+  assert.ok(line1.querySelector('[data-testid="flow-chip"]'), 'the flow chip shares line 1 with the name');
+  assert.ok(!line1.querySelector('[data-testid="row-code"]'), 'the code is not on line 1');
+  const below = head.querySelector('[data-testid="sg-rowhead-below"]');
+  assert.ok(below && below.querySelector('[data-testid="row-code"]'), 'the code is on the second line');
+  assert.doesNotMatch(head.textContent, /Girder G1/);
+});
+await check('A long code is in the DOM whole — no ellipsis style, wrapping allowed', async () => {
+  await render(codeGrid({ 4: { code: longCode, title: 'position' } }));
+  const code = cell(2, 0).querySelector('[data-testid="row-code"]');
+  assert.equal(code.textContent, longCode);
+  const line = cell(2, 0).querySelector('[data-testid="row-code-line"]');
+  for (const el of [code, line]) { const css = window.getComputedStyle(el); assert.notEqual(css.textOverflow, 'ellipsis'); assert.notEqual(css.whiteSpace, 'nowrap'); }
+  assert.notEqual(window.getComputedStyle(line).overflow, 'hidden');
+});
+await check('Each # shows the numbers it takes, in brackets: (1,2,3), (5,6), (1–16), nested', async () => {
+  const hole = (from, to, values) => ({ from, to, ...(values ? { values } : {}) });
+  assert.equal(m.codeWithNumbers('SO260002-CG#-L4', [{ text: 'SO260002-CG' }, hole(1, 3, [1, 2, 3]), { text: '-L4' }]), 'SO260002-CG(1,2,3)-L4');
+  assert.equal(m.codeWithNumbers('EDP#', [{ text: 'EDP' }, hole(5, 6, [5, 6])]), 'EDP(5,6)');
+  assert.equal(m.codeWithNumbers('IDP#', [{ text: 'IDP' }, hole(1, 16)]), 'IDP(1–16)');
+  assert.equal(m.codeWithNumbers('BLB#', [{ text: 'BLB' }, hole(1, 60)]), 'BLB(1–60)');
+  assert.equal(m.codeWithNumbers('X#', [{ text: 'X' }, hole(1, 6, [1, 2, 3, 4, 5, 6])]), 'X(1,2,3,4,5,6)');
+  assert.equal(m.codeWithNumbers('X#', [{ text: 'X' }, hole(1, 7)]), 'X(1–7)', 'more than six: a range');
+  assert.equal(m.codeWithNumbers('CG#-L#-STP1', [{ text: 'CG' }, hole(1, 3, [1, 2, 3]), { text: '-L' }, hole(1, 4, [1, 2, 3, 4]), { text: '-STP1' }]), 'CG(1,2,3)-L(1,2,3,4)-STP1');
+  assert.equal(m.codeWithNumbers('A-#', null), 'A-#', 'no segments from the backend: the plain code');
+  await render(codeGrid({ 4: { code: 'SO260002-CG#-L#-STP1', title: 'position', segments: [{ text: 'SO260002-CG' }, hole(1, 3, [1, 2, 3]), { text: '-L' }, hole(1, 16), { text: '-STP1' }] } }));
+  assert.equal(cell(2, 0).querySelector('[data-testid="row-code"]').textContent, 'SO260002-CG(1,2,3)-L(1–16)-STP1');
+  assert.equal(cell(2, 0).querySelector('[data-testid="row-code-line"]').getAttribute('title'), m.CODE_NUMBERS_TITLE);
+  assert.equal(m.CODE_NUMBERS_TITLE, 'Codes are given when the design is frozen. The numbers in brackets are the copies this row stands for.');
+});
+await check('The action buttons keep their labels exactly (the grid does not rename them)', async () => {
+  await render(codeGrid({}, { canEdit: () => true }));
+  assert.ok(document.querySelector('[aria-label="Move Row 4"]'));
+  assert.ok(document.querySelector('[aria-label="Collapse Row 2"]'));
+  assert.ok(document.querySelector('[aria-label="Copy it below"]'), 'the trailing cell is still drawn in the header');
+});
+await check('A long column label wraps onto two lines (line clamp 2, no ellipsis cut) and the cell tooltip carries the full name', async () => {
+  const longView = { editable: true, optionLists: {}, groups: [{ columns: [
+    { code: 'HOLES_GIRDER_TOP', name: 'Holes - girder top flange', dataType: 'number', rule: 'entered', editable: true },
+    { code: 'LEN2', name: 'Len', dataType: 'number', rule: 'entered', editable: true },
+  ], rows: rs.map((r) => ({ id: r.node.id, cells: { HOLES_GIRDER_TOP: { input: '4' }, LEN2: { input: '2' } } })) }] };
+  await React.act(() => root.render(null));
+  await render({ ...props, view: longView });
+  const long = document.querySelector('[data-col-key="HOLES_GIRDER_TOP"]');
+  assert.equal(long.getAttribute('data-name'), 'Holes - girder top flange', 'the whole name, not cut to 14 letters');
+  assert.equal(long.getAttribute('data-label-lines'), '2');
+  assert.match(long.getAttribute('title'), /^Holes - girder top flange — /);
+  assert.equal(document.querySelector('[data-col-key="LEN2"]').getAttribute('data-label-lines'), null, 'a short name stays on one line');
+  const css = [...document.styleSheets].flatMap((sh) => [...sh.cssRules].map((r) => r.cssText)).join(' ');
+  assert.match(css, /-webkit-line-clamp:\s*2/);
+  const rule = css.split('}').find((r) => r.includes('::before') && r.includes('attr(data-name)')) ?? '';
+  assert.match(rule, /white-space:\s*normal/); assert.doesNotMatch(rule, /nowrap|text-overflow:\s*ellipsis/);
+  assert.equal(m.sheetLabel('ANY', 'Hole drilling thickness'), 'Hole drilling thickness');
+  assert.equal(m.shortLabel('ANY', 'Hole drilling thickness') === 'Hole drilling thickness', false, 'shortLabel still cuts (the grid no longer uses it)');
+});
+await check('A narrow window makes the grid read-only and says so in one plain line above it', async () => {
+  const stub = (narrow) => { window.matchMedia = (q) => ({ matches: narrow && q === '(max-width:599.95px)', media: q, addListener() {}, removeListener() {}, addEventListener() {}, removeEventListener() {} }); };
+  await React.act(() => root.render(null));
+  stub(true);
+  await render();
+  const note = document.querySelector('[data-testid="sheet-grid-narrow-note"]');
+  assert.ok(note, 'the note is there');
+  assert.equal(note.textContent, 'This window is too narrow to edit here. Widen it to change values.');
+  assert.equal(cell(2, 3).getAttribute('aria-readonly'), 'true', 'and the cells are read-only');
+  await React.act(() => root.render(null));
+  stub(false);
+  await render();
+  assert.equal(document.querySelector('[data-testid="sheet-grid-narrow-note"]'), null, 'a wide window has no note');
+  assert.equal(cell(2, 3).getAttribute('aria-readonly'), 'false');
+});
+await render();
 // ── strip layout: dimensions first (Thk · L · W), only a row's own cells ─────
 await check('Relevance: Total only when it differs from Qty; Ship unit only on assemblies / answered rows; roll-up weight last', () => {
   assert.equal(m.totalAdds(1, 1), false); assert.equal(m.totalAdds(2, 4), true);
@@ -502,25 +582,7 @@ await check('Picker lists the default first, steps in order, and hides obsolete 
   await fire(opts[2], 'click'); assert.equal(picked, 9);
   await fire(document.querySelector('[data-testid="flow-use-default"]'), 'click'); assert.equal(picked, null);
 });
-await check('Bulk dialog applies one flow to every ticked row, warning about mixed kinds', async () => {
-  let applied;
-  const brows = flowRows.map((n) => ({ key: n.key, node: n, depth: 1, label: n.name }));
-  await React.act(() => root.render(React.createElement(m.BulkFlowDialog, { open: true, rows: brows, flows: allFlows, shownOf: (n) => m.flowShown(n, {}, lookup), onClose: () => {}, onApply: (keys, id) => { applied = [keys, id]; } })));
-  const apply = () => document.querySelector('[data-testid="bulk-apply"]');
-  assert.equal(apply().disabled, true);
-  for (const n of [web, stiff]) await fire(document.querySelector(`input[aria-label="Select ${n.name}"]`), 'click');
-  await fire([...document.querySelectorAll('[data-testid="flow-option"]')][1], 'click');
-  assert.equal(apply().disabled, false);
-  assert.ok(!/different kinds/.test(document.body.textContent));
-  await fire(document.querySelector('input[aria-label="Select Bolt"]'), 'click');
-  assert.match(document.body.textContent, /different kinds/);
-  await fire(apply(), 'click');
-  assert.deepEqual(applied, [[web.key, stiff.key, bolt.key], 9]);
-  // ...and those become pending 'flow' ops through the one Save path
-  const p = applied[0].reduce((acc, k) => m.withFlow(acc, flowRows.find((n) => n.key === k), applied[1]), m.NO_PENDING);
-  const byLine = m.nodesByLine(node(1, flowRows, { lineId: null, depth: 0 }));
-  assert.deepEqual(m.pendingChanges(p, byLine).changes.map((c) => [c.op, c.lineId, c.flowId]), [['flow', 210, 9], ['flow', 230, 9], ['flow', 240, 9]]);
-});
+// (The bulk "Change flow…" dialog is gone: flows change per row, with the row's flow chip.)
 // ---- A selection row's item, on the row itself (init.sql §42, 2026-10-02) ----
 const selOf = { id: 900, code: 'SELST', name: 'Shear stud' };
 const unchosen = node(61, [], { name: 'Shear stud', kind: 'selection', selection: selOf, resolved: false });

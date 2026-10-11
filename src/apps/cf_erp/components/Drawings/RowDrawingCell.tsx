@@ -21,9 +21,9 @@ export function RowDrawingCell({ name, state, why, onClick, onView }: {
     <Tooltip title={title}>
       <span>
         <IconButton size="small" aria-label={title} data-testid="row-drawing" data-state={state.kind} disabled={!!why && !viewing} onClick={viewing ? onView : onClick}
-          sx={{ color: has ? 'var(--c-primary-700)' : 'var(--c-text-3)', gap: 0.25, borderRadius: 'var(--r-md)' }}>
+          sx={{ color: has ? 'var(--c-primary-700)' : 'var(--c-text-3)', gap: 0.125, borderRadius: 'var(--r-md)', minWidth: 26, height: 26, p: '3px', '& svg': { fontSize: 17 } }}>
           {has ? <DescriptionRounded fontSize="small" /> : state.kind === 'waiting' ? <AttachFileRounded fontSize="small" /> : <FileUploadOutlined fontSize="small" />}
-          {has && state.revision && <Box component="span" sx={{ fontSize: 10.5, fontWeight: 700, lineHeight: 1 }}>{state.revision}</Box>}
+          {has && state.revision && <Box component="span" sx={{ fontSize: 10, fontWeight: 700, lineHeight: 1 }}>{state.revision}</Box>}
         </IconButton>
       </span>
     </Tooltip>

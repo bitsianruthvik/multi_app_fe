@@ -79,8 +79,6 @@ export function flowShown(
 /** A row that is built here, not bought: it needs a flow. */
 export const isMade = (node: StructureNode) => node.kind === 'temporary' || node.bom != null;
 
-export interface BulkRow { key: string; node: StructureNode; label: string; depth: number }
-
 /** " Its definition is made by X today." — only when the definition has moved on from the row's own flow. */
 const definitionMoved = (shown: FlowShown): string => (shown.definition && shown.definition.id !== shown.usual?.id ? ` Its definition is made by ${shown.definition.code} today.` : '');
 

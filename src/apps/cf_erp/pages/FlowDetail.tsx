@@ -104,6 +104,7 @@ export default function FlowDetail() {
   const waits = f.steps.reduce((n, s) => n + s.waits.length, 0);
   const recordTotal = f.uses.recordCount ?? f.uses.records.length;
   const usedBy = recordTotal + f.uses.bomLines;
+  const orderRows = f.uses.orderRows ?? 0;
   const recordPath = (r: FlowDetailT['uses']['records'][number]) => to(`${r.kind === 'template' || r.kind === 'selection' ? 'definitions' : 'items'}/${r.id}`);
 
   const act = async (key: string, fn: () => Promise<FlowDetailT>, done: string) => {
@@ -262,14 +263,15 @@ export default function FlowDetail() {
       )}
 
       {tab === 'uses' && (
-        <SectionCard title="Made by this flow" subtitle="Items and templates that are usually made this way. BOM lines can also name it for one parent.">
-          {usedBy === 0 ? <Typography sx={{ color: 'var(--c-text-3)' }}>Nothing names it yet — choose it on an item or template, under Details.</Typography> : (
+        <SectionCard title="Made by this flow" subtitle="Catalog items and templates that are usually made this way. Rows of orders are not listed here — each order shows its own.">
+          {usedBy === 0 ? <Typography sx={{ color: 'var(--c-text-3)' }}>Nothing names it yet — choose it on an item or template, under Details.{orderRows > 0 ? ` ${orderRows} row${orderRows === 1 ? '' : 's'} of orders ${orderRows === 1 ? 'is' : 'are'} made by it.` : ''}</Typography> : (
             <EntityList>
               {f.uses.records.map((r) => (
                 <EntityRow key={r.id} onClick={() => navigate(recordPath(r))} code={isDefinitionKind(r.kind) ? (r.shortName ? <Mono chip>{r.shortName}</Mono> : undefined) : <Mono chip>{r.code ?? '—'}</Mono>} primary={r.name} trailing={<KindChip kind={r.kind} />} />
               ))}
               {recordTotal > f.uses.records.length && <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)', mt: 0.5 }}>Showing {f.uses.records.length} of {recordTotal} records.</Typography>}
               {f.uses.bomLines > 0 && <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)', mt: 0.5 }}>And {f.uses.bomLines} BOM line{f.uses.bomLines === 1 ? '' : 's'} name it for one parent.</Typography>}
+              {orderRows > 0 && <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)', mt: 0.5 }}>Also {orderRows} row{orderRows === 1 ? '' : 's'} of orders {orderRows === 1 ? 'is' : 'are'} made by it — not listed here.</Typography>}
             </EntityList>
           )}
         </SectionCard>

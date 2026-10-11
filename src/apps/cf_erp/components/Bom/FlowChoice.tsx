@@ -1,14 +1,13 @@
 import { useMemo, useState, type MouseEvent } from 'react';
-import { Alert, Box, Button, Checkbox, Dialog, DialogActions, DialogContent, DialogTitle, InputAdornment, TextField, Tooltip, Typography } from '@mui/material';
+import { Box, InputAdornment, TextField, Tooltip, Typography } from '@mui/material';
 import ArrowDropDownRounded from '@mui/icons-material/ArrowDropDownRounded';
 import RouteRounded from '@mui/icons-material/RouteRounded';
 import SearchRounded from '@mui/icons-material/SearchRounded';
-import type { Flow, StructureNode } from '../../api/types';
+import type { Flow } from '../../api/types';
 import { Mono } from '../ui';
-import { isMade } from './flowShown';
 
 import type { FlowShown, FlowDefault, FlowRef } from './flowShown';
-import { takeAgainNote, usualFromText, type BulkRow } from './flowShown';
+import { takeAgainNote, usualFromText } from './flowShown';
 
 const stepsOf = (f: Flow) => (f.steps ?? []).slice().sort((a, b) => a.sequence - b.sequence).map((s) => s.operation.name);
 
@@ -54,10 +53,9 @@ export function FlowChoiceList({ flows, chosen, usual, onPick, autoFocus = true,
   /** The row's own choice now (null = the default). With `usual: 'own'`: the row's own flow. */
   chosen: number | null;
   /**
-   * 'each': several rows at once — every row goes to its own default.
    * 'own': the TOP row of an order line — no BOM line holds it, so the flow picked IS the row's own and there is no default to go back to.
    */
-  usual: FlowDefault | null | 'each' | 'own';
+  usual: FlowDefault | null | 'own';
   onPick: (id: number | null) => void;
   autoFocus?: boolean;
   /** The definition's flow of today, when it is not the flow the row is made by: one extra entry at the top. */
@@ -89,11 +87,10 @@ export function FlowChoiceList({ flows, chosen, usual, onPick, autoFocus = true,
         {usual !== 'own' && (
           <Box component="button" type="button" role="option" aria-selected={chosen == null} data-testid="flow-use-default" onClick={() => onPick(null)} sx={row(chosen == null)}>
             <Typography sx={{ fontSize: 13, fontWeight: 600 }}>
-              {usual === 'each' ? 'Use each row’s default' : usual ? <>Use the default (<Mono>{usual.code}</Mono>)</> : 'Use the default (none set up)'}
+              {usual ? <>Use the default (<Mono>{usual.code}</Mono>)</> : 'Use the default (none set up)'}
             </Typography>
             <Typography sx={{ fontSize: 11.5, color: 'var(--c-text-3)' }}>
-              {usual === 'each' ? 'Takes the choice off each ticked row; it is made by its own flow again.'
-                : usual ? `${usual.name} — from ${usualFromText(usual)}` : 'The row has no flow of its own yet.'}
+              {usual ? `${usual.name} — from ${usualFromText(usual)}` : 'The row has no flow of its own yet.'}
             </Typography>
           </Box>
         )}
@@ -113,72 +110,5 @@ export function FlowChoiceList({ flows, chosen, usual, onPick, autoFocus = true,
         {!shown.length && <Typography sx={{ p: 1.5, fontSize: 13, color: 'var(--c-text-3)' }}>{flows ? 'No flow matches' : 'Reading the flows…'}</Typography>}
       </Box>
     </Box>
-  );
-}
-
-
-/** "Change flow for N rows…": tick the rows, choose one flow (or the default) for all of them. */
-export function BulkFlowDialog({ open, rows, flows, shownOf, onClose, onApply }: {
-  open: boolean;
-  rows: BulkRow[];
-  flows: Flow[] | null | undefined;
-  shownOf: (node: StructureNode) => FlowShown;
-  onClose: () => void;
-  onApply: (keys: string[], flowId: number | null) => void;
-}) {
-  const [ticked, setTicked] = useState<Set<string>>(new Set());
-  const [choice, setChoice] = useState<{ id: number | null } | undefined>(undefined);
-  const chosenRows = rows.filter((r) => ticked.has(r.key));
-  const kinds = new Set(chosenRows.map((r) => (isMade(r.node) ? 'made' : 'bought')));
-  const mixed = kinds.size > 1;
-  const toggle = (key: string) => setTicked((t) => { const n = new Set(t); if (n.has(key)) n.delete(key); else n.add(key); return n; });
-  const flowOf = (id: number | null) => (id == null ? null : (flows ?? []).find((f) => f.id === id));
-  const close = () => { setTicked(new Set()); setChoice(undefined); onClose(); };
-  return (
-    <Dialog open={open} onClose={close} fullWidth maxWidth="md">
-      <DialogTitle>Change the flow for several rows</DialogTitle>
-      <DialogContent sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 2, pt: '8px !important' }}>
-        <Box>
-          <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', mb: 0.5 }}>
-            <Typography sx={{ fontSize: 13, fontWeight: 600, flex: 1 }}>1. Tick the rows</Typography>
-            <Button size="small" onClick={() => setTicked(new Set(rows.map((r) => r.key)))}>All</Button>
-            <Button size="small" onClick={() => setTicked(new Set())}>None</Button>
-          </Box>
-          <Box data-testid="bulk-rows" sx={{ maxHeight: 360, overflowY: 'auto', border: '1px solid var(--c-border)', borderRadius: 'var(--r-sm)' }}>
-            {rows.map((r) => {
-              const s = shownOf(r.node);
-              return (
-                <Box key={r.key} component="label" sx={{ display: 'flex', alignItems: 'center', gap: 0.5, pl: r.depth * 1.5, pr: 1, borderBottom: '1px solid var(--c-border)', cursor: 'pointer' }}>
-                  <Checkbox size="small" checked={ticked.has(r.key)} onChange={() => toggle(r.key)} inputProps={{ 'aria-label': `Select ${r.label}` }} />
-                  <Typography sx={{ fontSize: 12.5, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.label}</Typography>
-                  <Typography sx={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: s.flow ? 'var(--c-text-2)' : 'var(--c-warning-800)' }}>
-                    {s.flow ? `${s.flow.code}${s.tag === 'changed' ? ' (changed)' : ''}` : 'No flow'}
-                  </Typography>
-                </Box>
-              );
-            })}
-            {!rows.length && <Typography sx={{ p: 1.5, fontSize: 13, color: 'var(--c-text-3)' }}>No row here can change its flow.</Typography>}
-          </Box>
-        </Box>
-        <Box>
-          <Typography sx={{ fontSize: 13, fontWeight: 600, mb: 0.5 }}>2. Choose the flow</Typography>
-          {open && <FlowChoiceList flows={flows} autoFocus={false} chosen={choice ? choice.id : null} usual="each"
-            onPick={(id) => setChoice({ id })} />}
-          {choice && (
-            <Typography data-testid="bulk-choice" sx={{ mt: 1, fontSize: 12.5 }}>
-              {choice.id == null ? 'Each row goes back to its own default.' : <>All ticked rows will be made by <Mono>{flowOf(choice.id)?.code}</Mono>.</>}
-            </Typography>
-          )}
-          {mixed && <Alert severity="warning" sx={{ mt: 1 }}>The ticked rows are of different kinds (made and bought). A flow suits one kind better than the other — you can still apply it.</Alert>}
-        </Box>
-      </DialogContent>
-      <DialogActions>
-        <Button onClick={close}>Cancel</Button>
-        <Button variant="contained" disabled={!chosenRows.length || !choice} data-testid="bulk-apply"
-          onClick={() => { onApply(chosenRows.map((r) => r.key), choice?.id ?? null); close(); }}>
-          {chosenRows.length ? `Apply to ${chosenRows.length} ${chosenRows.length === 1 ? 'row' : 'rows'}` : 'Apply'}
-        </Button>
-      </DialogActions>
-    </Dialog>
   );
 }

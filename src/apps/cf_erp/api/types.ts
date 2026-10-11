@@ -828,7 +828,7 @@ export interface FlowDetail extends Flow {
   /** true = saved with lanes and read by what each step starts after; false = a flow from before, read by its numbers. */
   linked?: boolean;
   steps: FlowStep[];
-  uses: { records: { id: number; code: string | null; name: string; kind: Kind; shortName?: string | null }[]; bomLines: number; /** True count of records naming the flow; `records` stops at 100. */ recordCount?: number };
+  uses: { records: { id: number; code: string | null; name: string; kind: Kind; shortName?: string | null }[]; bomLines: number; /** True count of records naming the flow; `records` stops at 100. */ recordCount?: number; /** Rows of orders made by it (temporary items) — counted, never listed. */ orderRows?: number };
 }
 
 // ---- Shifts (per machine) ---------------------------------------------------------

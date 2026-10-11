@@ -1,4 +1,5 @@
 import { cfApi } from './client';
+import type { CodeSegment } from '../lib/codeSegments';
 
 /**
  * GET /order-lines/:id/placeholders — the code each row of a line's structure
@@ -16,6 +17,8 @@ export interface PlaceholderRow {
   pieces: number;
   /** What the # after its short name runs over under each parent piece — [1, 21] — or null when its number does not vary. */
   seqRange: [number, number] | null;
+  /** The code cut at each # with the numbers that # takes — null when the code has none to show or they could not be placed. */
+  segments?: CodeSegment[] | null;
 }
 
 export interface LinePlaceholders {

@@ -13,7 +13,6 @@ import LockOutlined from '@mui/icons-material/LockOutlined';
 import MoreHorizRounded from '@mui/icons-material/MoreHorizRounded';
 import PlaylistAddCheckRounded from '@mui/icons-material/PlaylistAddCheckRounded';
 import RestoreFromTrashRounded from '@mui/icons-material/RestoreFromTrashRounded';
-import RouteRounded from '@mui/icons-material/RouteRounded';
 import UploadFileRounded from '@mui/icons-material/UploadFileRounded';
 import UndoRounded from '@mui/icons-material/UndoRounded';
 import UnfoldLessRounded from '@mui/icons-material/UnfoldLessRounded';
@@ -41,7 +40,7 @@ import { DangerBadge, EmptyState, ErrorNotice, Fact, Mono, SectionCard, Skeleton
 import { AddChildDialog, EditLineDialog } from '../BomDialogs';
 import { ChooseItemDialog } from '../ChooseItemDialog';
 import { ConfirmDialog } from '../ConfirmDialog';
-import { BulkFlowDialog, FlowChip, FlowChoiceList } from './FlowChoice';
+import { FlowChip, FlowChoiceList } from './FlowChoice';
 import { flowShown, flowTooltip, isMade } from './flowShown';
 import { FlowTag } from '../FlowTag';
 import { useToast } from '../toastContext';
@@ -126,6 +125,9 @@ function useLeaveGuard(active: boolean, message: string) {
   }, [active, message]);
 }
 
+/** The row's action icons are small so the code beside them has room (user, 2026-10-11) — smaller than the design system's 40px target, by request. */
+const ROW_ICON = { width: 26, height: 26, p: '3px', '& svg': { fontSize: 17 } } as const;
+
 /** A compact icon button for a row's edit controls — always labelled, since it shows no text. */
 function RowButton({ label, onClick, children, pressed, danger, disabled }: {
   label: string; onClick: () => void; children: ReactNode; pressed?: boolean; danger?: boolean; disabled?: boolean;
@@ -135,6 +137,7 @@ function RowButton({ label, onClick, children, pressed, danger, disabled }: {
       <span>
         <IconButton size="small" aria-label={label} aria-pressed={pressed} onClick={onClick} disabled={disabled}
           sx={{
+            ...ROW_ICON,
             color: danger ? 'var(--c-danger-700)' : pressed ? 'var(--c-primary-700)' : 'var(--c-text-2)',
             background: pressed ? 'var(--c-primary-50)' : undefined,
           }}>
@@ -190,8 +193,6 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
   const [sheet, setSheet] = useState<{ file: File; base64: string; result: BomSheetResult } | null>(null);
   const [sheetBusy, setSheetBusy] = useState<'download' | 'preview' | 'apply' | null>(null);
   const sheetInput = useRef<HTMLInputElement>(null);
-  /** Where the grid draws its "Line up all columns" switch — in this panel's toolbar row, not a row of its own. */
-  const [lineUpEl, setLineUpEl] = useState<HTMLElement | null>(null);
   const narrowBar = useMediaQuery('(max-width: 1500px)', { noSsr: true });
   const [moreAnchor, setMoreAnchor] = useState<HTMLElement | null>(null);
 
@@ -201,7 +202,6 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
   /** A dry run's answer, kept with the pending state it answered for — any edit makes it stale. */
   const [checked, setChecked] = useState<{ for: Pending; out: BomChangesResponse } | null>(null);
   const [confirming, setConfirming] = useState<'save' | null>(null);
-  const [bulkFlow, setBulkFlow] = useState(false);
   const [flowPick, setFlowPick] = useState<{ anchor: HTMLElement; row: BomRow } | null>(null);
   const [rowMenu, setRowMenu] = useState<{ anchor: HTMLElement; row: BomRow } | null>(null);
   const [drawingRow, setDrawingRow] = useState<{ id: number; name: string } | null>(null);
@@ -209,8 +209,6 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
   const [viewRow, setViewRow] = useState<{ id: number; name: string } | null>(null);
   /** "Why these values…" for one row: the record whose reasons are open. */
   const [whyRow, setWhyRow] = useState<{ id: number; name: string } | null>(null);
-  // Quiet switches for the order's grid: the automatic cut pieces are out of sight, and so are the columns no row uses.
-  const [onlyUsed, setOnlyUsed] = useState(true);
   const errorAt = useRef<HTMLDivElement>(null);
   // Structure and Values are ONE tab (user, 2026-10-02: "same things are there so no point having two tabs"):
   // an order line's grid carries the values too — required ones still empty are amber, with a
@@ -296,7 +294,8 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
   // server's answer; the filter reads what is SAVED, so a row does not vanish under the cursor as its last gap is typed.
   const gapScope = useMemo(() => new Set(flat.filter((f) => !isCutPiece(f.node)).map((f) => f.node.id)), [flat]);
   const liveGaps = useMemo(() => (gapsOn ? computeGaps(gridValues.data ?? null, pending.values, gapScope) : null), [gapsOn, gridValues.data, pending.values, gapScope]);
-  const savedGapIds = useMemo(() => (gapsOn ? new Set(computeGaps(gridValues.data ?? null, undefined, gapScope).keys()) : null), [gapsOn, gridValues.data, gapScope]);
+  const savedGaps = useMemo(() => (gapsOn ? computeGaps(gridValues.data ?? null, undefined, gapScope) : null), [gapsOn, gridValues.data, gapScope]);
+  const savedGapIds = useMemo(() => (savedGaps ? new Set(savedGaps.keys()) : null), [savedGaps]);
   const rows = useMemo(() => (gapsOn && onlyMissing && savedGapIds && gridValues.data ? keepGapRows(treeRows, savedGapIds) : treeRows), [gapsOn, onlyMissing, savedGapIds, gridValues.data, treeRows]);
   // A jump to a row still to choose lands once that row is drawn (its branch may have just been opened).
   useEffect(() => {
@@ -502,11 +501,6 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
   };
   /** A row held by a line: the line names the flow. The top row: the flow is its own (bomModel.withFlowChoice). */
   const setFlow = (row: BomRow, flowId: number | null) => setPending((p) => withFlowChoice(p, row.node, flowId));
-  /** One flow (or each row's default) for every key in the list — the same pending path as one row. */
-  const setFlowMany = (keys: string[], flowId: number | null) => setPending((p) => {
-    const byKey = new Map(rows.map((r) => [r.node.key, r.node]));
-    return keys.reduce((acc, k) => { const n = byKey.get(k); return n ? withFlowChoice(acc, n, flowId) : acc; }, p);
-  });
   /** The description as it will be: what was typed, else what is saved. */
   const roleOf = (row: BomRow): string | null => {
     const id = row.node.lineId;
@@ -621,9 +615,9 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
     const pos = source.kind === 'record' ? bom.positionCodeOf(row.node) : null;
     // A definition is known by its short name, not a code (user, 2026-10-08): only a catalog item's own code shows beside.
     const ownCode = row.node.kind === 'catalog' ? row.node.code : null;
-    if (pos?.code) return { code: pos.code, title: positionCodeTitle(pos, ownCode), itemCode: ownCode };
+    if (pos?.code) return { code: pos.code, title: positionCodeTitle(pos, ownCode), itemCode: ownCode, segments: pos.segments ?? null };
     const p = bom.placeholderOf(row.node);
-    return p?.code ? { code: p.code, title: `${placeholderTitle(p)} # = numbered when the design is frozen; a row with quantity 3 covers 2–4, so its code changes with the quantity (L1-1 becomes L1-#).` } : null;
+    return p?.code ? { code: p.code, title: `${placeholderTitle(p)} # = numbered when the design is frozen; a row with quantity 3 covers 2–4, so its code changes with the quantity (L1-1 becomes L1-#).`, segments: p.segments ?? null } : null;
   };
 
   const markOf = (row: BomRow): RowMark | null => {
@@ -671,8 +665,6 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
     if (state?.frozen && !flowsOnly) return 'This order is closed, so how it is made no longer changes.';
     return whyNotLine(row);
   };
-  /** Rows whose flow may change here — what the "several rows" dialog lists. */
-  const flowRows = rows.filter((r) => !r.paste && flowEditable(r) && !removedKeys.has(r.node.key) && canHaveFlow(r.node));
 
   /** A made row of an order line that can have a drawing — the same rows the "Drawings for this row…" menu item is on. */
   const drawingRowOk = (row: BomRow) => gridLineId != null && !!state?.order && isMade(row.node) && row.node.kind !== 'selection'
@@ -724,11 +716,13 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
       return <>{drawingCell(row)}<RowButton disabled={!!busy} label={`Take back the copy of ${name}`} onClick={() => setPending((p) => undoCopy(p, key))}><UndoRounded fontSize="small" /></RowButton></>;
     }
     if (!lineEditable(row)) {
-      if (!row.parent || goneKeys.has(n.key)) return null;
+      if (goneKeys.has(n.key)) return null;
+      // The top row (the span itself) is not a line that can be edited, moved or removed — but it holds a drawing like any other row.
+      if (!row.parent) return drawingCell(row);
       return (
         <>
           <Tooltip title={whyNotLine(row)}>
-            <Box component="span" tabIndex={0} aria-label={`Read only: ${whyNotLine(row)}`} sx={{ display: 'inline-flex', p: 0.75, color: 'var(--c-text-3)' }}><LockOutlined sx={{ fontSize: 16 }} /></Box>
+            <Box component="span" tabIndex={0} aria-label={`Read only: ${whyNotLine(row)}`} sx={{ display: 'inline-flex', p: 0.5, color: 'var(--c-text-3)' }}><LockOutlined sx={{ fontSize: 15 }} /></Box>
           </Tooltip>
           {drawingCell(row)}
         </>
@@ -738,7 +732,7 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
     return (
       <>
         {drawingCell(row)}
-        {!removed && <Tooltip title={dirty ? 'Save changes before adding lines or editing details' : `More actions for ${name}`}><span><IconButton size="small" aria-label={`More actions for ${name}`} disabled={dirty || !!busy} onClick={(e) => setRowMenu({ anchor: e.currentTarget, row })}><MoreHorizRounded fontSize="small" /></IconButton></span></Tooltip>}
+        {!removed && <Tooltip title={dirty ? 'Save changes before adding lines or editing details' : `More actions for ${name}`}><span><IconButton size="small" aria-label={`More actions for ${name}`} disabled={dirty || !!busy} sx={ROW_ICON} onClick={(e) => setRowMenu({ anchor: e.currentTarget, row })}><MoreHorizRounded fontSize="small" /></IconButton></span></Tooltip>}
         {!removed && (
           <RowButton disabled={!!busy} label={`Copy ${name} below`}
             onClick={() => void duplicate(row)}>
@@ -961,23 +955,12 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
               control={<Switch size="small" checked={onlyMissing} onChange={(e) => { setOnlyMissing(e.target.checked); jumpAt.current = -1; }} />}
               label="Only what’s missing" />
           )}
-          {orderGrid && (
-            <FormControlLabel sx={{ m: 0, '& .MuiFormControlLabel-label': { fontSize: 12, color: 'var(--c-text-3)' } }}
-              control={<Switch size="small" checked={onlyUsed} onChange={(e) => setOnlyUsed(e.target.checked)} />}
-              label="Used columns" />
-          )}
-          {editOn && flowRows.length > 1 && (
-            <Button size="small" data-testid="bulk-flow-open" startIcon={<RouteRounded />} disabled={!!busy} onClick={() => setBulkFlow(true)}>
-              Change flow…
-            </Button>
-          )}
           {orderGrid
             ? null
             : <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>
               {flowsOnly ? 'Only flows can change · changes wait for Save' : 'Type in a cell · an arrow, Enter or Tab keeps it · copy adds a row below at once · drag to rearrange · changes wait for Save'}
             </Typography>}
         </Box>
-        {orderGrid && <Box component="span" ref={setLineUpEl} sx={{ display: 'inline-flex' }} />}
         {orderGrid && (
           <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center', '& > *': { whiteSpace: 'nowrap' } }}>
             {/* Drawings for any row of this line (DXF or PDF), by drawing mark. Order lines only. */}
@@ -1013,8 +996,8 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
               canEdit={(row) => editOn && !removedKeys.has(row.node.key) && !goneKeys.has(row.node.key) && (!!row.paste || lineEditable(row) || row.node.depth === 0 && mine(row.node))}
               canEditValues={(row) => !removedKeys.has(row.node.key) && !goneKeys.has(row.node.key) && (orderGrid ? editOn && mine(row.node) : mayEditValues(row.node))}
               onToggle={(key) => { const next = new Set(expanded); if (next.has(key)) next.delete(key); else next.add(key); setOpen(next); }}
-              onlyUsedColumns={orderGrid && onlyUsed} roleOf={roleOf} canEditRole={canEditRole} onRole={onRole}
-              gaps={liveGaps ?? undefined} handleRef={gridHandle} lineUpSlot={orderGrid ? lineUpEl : undefined}
+              roleOf={roleOf} canEditRole={canEditRole} onRole={onRole}
+              gaps={liveGaps ?? undefined} handleRef={gridHandle} onlyMissing={gapsOn && onlyMissing ? savedGaps ?? undefined : undefined}
               onWrites={onGridWrites} onMove={onGridMove} dropRefusal={dropRefusal} trailingCell={trailingCell} fileDrop={orderGrid ? fileDrop : undefined} flowCell={flowCell} choiceCell={choiceCell} markOf={markOf} placeholderOf={placeholderOf}
               footer={gapsOn && onlyMissing
                 ? rows.length === 0 && !!gridValues.data && <EmptyState title={onlyMissing ? 'Nothing is missing' : 'Nothing below it yet'} hint={onlyMissing ? 'Every required value on this line is filled.' : undefined} />
@@ -1091,8 +1074,6 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
       </Menu>
       <ValueReasonsDialog open={!!whyRow} recordId={whyRow?.id ?? null} label={whyRow?.name ?? ''} onClose={() => setWhyRow(null)} />
 
-      <BulkFlowDialog open={bulkFlow} rows={flowRows.map((r) => ({ key: r.node.key, node: r.node, depth: r.node.depth, label: codeOrName(r.node) }))}
-        flows={flows.data} shownOf={(n) => flowShown(n, pending.flow, flowLookup, pending.ownFlow)} onClose={() => setBulkFlow(false)} onApply={setFlowMany} />
 
       <Popover open={!!flowPick} anchorEl={flowPick?.anchor} onClose={() => setFlowPick(null)}
         anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }} transformOrigin={{ vertical: 'top', horizontal: 'left' }}>

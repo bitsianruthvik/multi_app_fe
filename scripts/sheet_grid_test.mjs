@@ -360,7 +360,7 @@ await check('Below 600 px the grid is read-only with a one-line note; above it n
   try {
     stub(true); writes = []; await render({ ...props, historyKey: 'narrow' });
     const note = document.querySelector('[data-testid="sheet-grid-narrow-note"]');
-    assert.ok(note, 'note shown'); assert.match(note.textContent, /Editing this is easier on a wider screen/);
+    assert.ok(note, 'note shown'); assert.match(note.textContent, /This window is too narrow to edit here. Widen it to change values./);
     await fire(cell(1, 1), 'click'); await fire(cell(1, 1), 'keydown', { key: '9' });
     assert.equal(document.querySelector('input'), null, 'no editor opens'); assert.deepEqual(writes, []);
     await render({ ...props, historyKey: 'narrow2', narrowReadOnly: false });
