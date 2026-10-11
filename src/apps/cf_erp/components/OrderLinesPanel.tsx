@@ -154,12 +154,18 @@ export function OrderLinesPanel({ order, onSaved, onOpenStructure, onRelease, on
       render: (l) => (
         <Box sx={{ py: 0.5 }}>
           <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
-            {l.item ? <Mono><Box component={Link} to={to(recordPath(l.item.kind, l.item.id))} sx={linkSx}>{l.item.code ?? '—'}</Box></Mono> : <Mono muted>—</Mono>}
-            {l.item && <KindChip kind={l.item.kind} />}
+            {/* The name leads: what the line sells, as the user chose it. Its code and where it came from sit under it. */}
+            {l.item
+              ? <Box component={Link} to={to(recordPath(l.item.kind, l.item.id))} sx={{ ...linkSx, fontSize: 14, fontWeight: 600 }}>{l.item.name ?? l.item.code ?? 'Unnamed item'}</Box>
+              : <Mono muted>—</Mono>}
+            {l.item && l.lineType !== 'custom' && <KindChip kind={l.item.kind} />}
             {l.item && l.item.status !== 'active' && <StatusBadge status={l.item.status} />}
           </Box>
-          <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)', whiteSpace: 'normal' }}>
-            {l.item?.name}{l.lineType === 'custom' ? ` · from ${definitionLabel(l.design)}` : ''}{l.description ? ` · “${l.description}”` : ''}
+          <Typography component="div" sx={{ fontSize: 13, color: 'var(--c-text-2)', whiteSpace: 'normal' }}>
+            {l.lineType === 'custom'
+              ? <>Made to order from template {definitionLabel(l.design)} · {l.item?.code ? <Mono>{l.item.code}</Mono> : 'gets its code when the design is frozen'}</>
+              : l.item?.code ? <Mono>{l.item.code}</Mono> : null}
+            {l.description ? ` · “${l.description}”` : ''}
           </Typography>
         </Box>
       ),
