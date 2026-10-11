@@ -38,7 +38,7 @@ export interface JobPeek {
   subtitle: string;
   roleId: number | null;
   /** Position peeks only: what the side sheet needs to change the shift and offer hiring. */
-  shift?: { id?: number | null; code?: string | null; name?: string | null } | null;
+  shift?: { id?: number | null; code?: string | null; name?: string | null; summary?: string | null } | null;
   occupantName?: string | null;
   positionCode?: string | null;
   roleTitle?: string | null;

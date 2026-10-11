@@ -6,7 +6,7 @@ import {
   DataTable, DateCell, EmptyState, ErrorNotice, FacetChip, FilterBar, ListSkeleton, Mono, PageHeader,
   type DataColumn,
 } from '@shared/ui';
-import { CLOSE_REASON_LABEL, hiringApi, type CloseReason, type HiringSummary } from '../api/hiring';
+import { CLOSE_REASON_LABEL, hiringApi, niceDate, type CloseReason, type HiringSummary } from '../api/hiring';
 
 /**
  * Hiring — every hiring, open first (DESIGN_SYSTEM.md §4.2 Collection).
@@ -97,6 +97,15 @@ export default function Hiring() {
         render: (r) => (
           <Typography sx={{ fontSize: 13.5, color: 'var(--c-text)' }}>
             {r.statusLine}
+            {/* Waiting between the yes and the first day: when they said yes, and when they are due. */}
+            {r.stage === 'APPOINTMENT' && (r.offerAcceptedOn || r.proposedJoiningDate) && (
+              <Box component="span" data-waiting="" sx={{ display: 'block', fontSize: 12, color: 'var(--c-text-2)' }}>
+                {[
+                  r.offerAcceptedOn ? `Accepted ${niceDate(r.offerAcceptedOn)}` : null,
+                  r.proposedJoiningDate ? `joining ${niceDate(r.proposedJoiningDate)}` : null,
+                ].filter(Boolean).join(' · ')}
+              </Box>
+            )}
           </Typography>
         ),
         sortValue: (r) => r.statusLine,

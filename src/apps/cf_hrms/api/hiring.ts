@@ -25,6 +25,11 @@ export interface HiringSummary {
   candidateName: string | null; offerAccepted: boolean;
   proposedJoiningDate: string | null; createdAt: string; updatedAt: string;
   employee: { id: number; employeeCode: string; fullName: string } | null;
+  /**
+   * When the offer was accepted. §2.4 has it on the full hiring only; the list
+   * shows it for a hiring waiting at the appointment step when a row carries it.
+   */
+  offerAcceptedOn?: string | null;
   /** §3.4: the close reason in words, on rows too. */
   closeReasonLabel?: string | null;
   /** One short line for a row: "Offer sent to Pabitra Kumar Panda" / "Job description to confirm". */
@@ -49,7 +54,11 @@ export interface Hiring extends HiringSummary {
   /** What the next action needs and does not have yet, in plain words. Empty = ready. */
   missing: { offerLetter: string[]; appoint: string[] };
   /** Which actions the server will accept right now. */
-  can: { edit: boolean; confirmJd: boolean; generateOffer: boolean; acceptOffer: boolean; appoint: boolean; close: boolean };
+  can: { edit: boolean; confirmJd: boolean; generateOffer: boolean; acceptOffer: boolean; appoint: boolean; close: boolean;
+         /** §5.3 — absent from an older server, read as false. */
+         uploadSignedOffer?: boolean; uploadSignedAppointment?: boolean };
+  /** §5.3 — the signed copies on file. Absent from an older server. */
+  signed?: { offer: SignedMeta | null; appointment: SignedMeta | null };
 }
 
 export interface LetterMeta { id: number; kind: 'OFFER' | 'APPOINTMENT'; version: number; isCurrent: boolean;
@@ -94,9 +103,17 @@ export const joiningSentence = (j: JoiningRef): string => {
   const p = dayParts(j.date);
   return `${j.name} joins on ${p ? `${p.d} ${p.month} ${p.y}` : j.date}`;
 };
-/** What a vacant row says: who is joining, who is being hired, or null for plain "Vacant". */
+/**
+ * What a vacant row says instead of "Vacant" (§5.1): who is joining, or — with a
+ * hiring open — the SERVER's status line, whole ("Offer sent to Pabitra Kumar
+ * Panda"). Null for a plain vacancy. The position is still vacant in every count.
+ */
 export const vacantLabel = (p: { hiring?: HiringRef | null; joining?: JoiningRef | null }): string | null =>
-  p.joining ? joiningLabel(p.joining) : p.hiring ? hiringLabel(p.hiring) : null;
+  p.joining ? joiningLabel(p.joining) : p.hiring ? p.hiring.statusLine || hiringLabel(p.hiring) : null;
+
+/** A signed copy of a letter, as uploaded (§5.3). One current file per kind. */
+export interface SignedMeta { id: number; fileName: string; mimeType: string; sizeBytes: number; uploadedAt: string; uploadedByName: string | null }
+export type SignedKind = 'offer' | 'appointment';
 
 /** A placeholder as it is typed into the Word file. The server sends the bare key. */
 export const braced = (key: string): string => (key.startsWith('{') ? key : `{${key}}`);
@@ -220,6 +237,11 @@ export const hiringApi = {
   /** Everything the job description prints, as the Documents preview returns it, and what it still lacks. */
   jdPreview: (id: number) =>
     api.get<{ preview: PreviewResult; readiness: { ready: boolean; missing: string[] } }>(`/hirings/${id}/jd/preview`),
+  /** A signed copy: PDF, JPG or PNG, as base64. Replaces the one on file. 422 INVALID for type or size. */
+  putSigned: (id: number, kind: SignedKind, body: { fileName: string; contentBase64: string }) =>
+    api.put<{ hiring: Hiring; signed: SignedMeta }>(`/hirings/${id}/signed/${kind}`, body),
+  signedFile: (id: number, kind: SignedKind) => api.get<HiringFile>(`/hirings/${id}/signed/${kind}/file`),
+  removeSigned: (id: number, kind: SignedKind) => api.del<{ hiring: Hiring }>(`/hirings/${id}/signed/${kind}`),
   closeReasons: (hiringId: number) =>
     api.get<{ groups: CloseReasonGroup[] }>(`/hiring/close-reasons?hiringId=${hiringId}`),
 

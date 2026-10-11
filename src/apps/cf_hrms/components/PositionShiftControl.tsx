@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { Box, Button, ListItemText, Menu, MenuItem } from '@mui/material';
 import CheckRounded from '@mui/icons-material/CheckRounded';
 import { useIsPermitted, useToast } from '@shared/ui';
-import { positionsApi, type LookupRow, type PositionShift } from '../api/positions';
+import { positionsApi, type PositionShift } from '../api/positions';
+import { shiftsApi } from '../api/shifts';
 import { shiftWord } from './usePositionCard';
 
 /**
@@ -18,13 +19,19 @@ import { shiftWord } from './usePositionCard';
 
 // The company's shifts, read once per page load: every control offers the same list.
 const SHIFT_ORDER: Record<string, number> = { G: 0, D: 1, N: 2 };
-let shiftsOnce: Promise<LookupRow[]> | null = null;
-function loadShifts(): Promise<LookupRow[]> {
+/** A shift as the menu lists it: its name, and its days and hours so two shifts can be told apart. */
+interface ShiftChoice { id: number; code?: string | null; name: string; status?: string | null; summary?: string | null }
+let shiftsOnce: Promise<ShiftChoice[]> | null = null;
+function loadShifts(): Promise<ShiftChoice[]> {
   if (!shiftsOnce) {
-    shiftsOnce = positionsApi
-      .options()
-      .then((o) =>
-        o.shifts
+    // The shifts themselves carry the summary line; the position options are the fallback
+    // (names only) for a server that does not have it.
+    shiftsOnce = shiftsApi
+      .list()
+      .then((list): ShiftChoice[] => list)
+      .catch(() => positionsApi.options().then((o): ShiftChoice[] => o.shifts))
+      .then((list) =>
+        list
           .filter((s) => !s.status || s.status === 'ACTIVE')
           // General, Day, Night first — the order the chart lists a card's rows in.
           .sort((a, b) => (SHIFT_ORDER[a.code ?? ''] ?? 3) - (SHIFT_ORDER[b.code ?? ''] ?? 3) || a.name.localeCompare(b.name)),
@@ -46,7 +53,7 @@ export function PositionShiftControl({
 }: {
   positionId: number;
   /** The position's shift now. `id` may be missing on an older payload; the name is still shown. */
-  shift: { id?: number | null; code?: string | null; name?: string | null } | null;
+  shift: { id?: number | null; code?: string | null; name?: string | null; summary?: string | null } | null;
   /** The person in the position, if any — their shift moves with it, and the menu says so. */
   occupantName?: string | null;
   onChanged: (shift: PositionShift) => void;
@@ -57,7 +64,7 @@ export function PositionShiftControl({
   const toast = useToast();
   const canManage = can('cf_hrms_org_manage');
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
-  const [shifts, setShifts] = useState<LookupRow[] | null>(null);
+  const [shifts, setShifts] = useState<ShiftChoice[] | null>(null);
   const [busy, setBusy] = useState(false);
 
   const open = (el: HTMLElement) => {
@@ -70,7 +77,7 @@ export function PositionShiftControl({
       });
   };
 
-  const pick = async (s: LookupRow) => {
+  const pick = async (s: ShiftChoice) => {
     setAnchor(null);
     if (s.id === shift?.id) return;
     setBusy(true);
@@ -81,7 +88,7 @@ export function PositionShiftControl({
           ? `This position is now on ${shiftWord(s.name)}; ${occupantName} moves with it.`
           : `This position is now on ${shiftWord(s.name)}.`,
       );
-      onChanged({ id: s.id, code: s.code ?? null, name: s.name });
+      onChanged({ id: s.id, code: s.code ?? null, name: s.name, summary: s.summary ?? null });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'The shift could not be changed.');
     } finally {
@@ -118,12 +125,22 @@ export function PositionShiftControl({
             )}
             {(shifts ?? []).map((s) => (
               <MenuItem key={s.id} selected={s.id === shift?.id} onClick={() => void pick(s)} dense>
-                <ListItemText>{shiftWord(s.name)}</ListItemText>
+                <ListItemText
+                  primary={shiftWord(s.name)}
+                  secondary={s.summary || undefined}
+                  slotProps={{ secondary: { sx: { fontSize: 12, color: 'var(--c-text-2)' } } }}
+                />
                 {s.id === shift?.id && <CheckRounded fontSize="small" sx={{ ml: 1.5, color: 'var(--c-text-2)' }} />}
               </MenuItem>
             ))}
           </Menu>
         </>
+      )}
+      {/* Which days, from when to when — under the name, wherever a position's shift is shown. */}
+      {showName && shift?.summary && (
+        <Box component="span" data-shiftsummary="" sx={{ flexBasis: '100%', fontSize: 12.5, color: 'var(--c-text-2)', fontWeight: 400 }}>
+          {shift.summary}
+        </Box>
       )}
     </Box>
   );

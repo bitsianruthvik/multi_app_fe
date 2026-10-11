@@ -1,8 +1,10 @@
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import { Box, Button, Chip, Divider, Stack, Typography } from '@mui/material';
 import ArrowForwardRounded from '@mui/icons-material/ArrowForwardRounded';
 import { FactItem, Mono } from '@shared/ui';
+import { SeatJobContentEditor } from './SeatJobContentEditor';
+import { TeamShiftControl } from './TeamShiftControl';
 import type { MyOrgChart, SliceNode, SliceRelation } from '../api/self';
 
 /**
@@ -71,6 +73,7 @@ export function MyOrgChartCard({
   currentId,
   company,
   teamSize,
+  onChanged,
   children,
 }: {
   slice: MyOrgChart;
@@ -81,9 +84,13 @@ export function MyOrgChartCard({
   company: string;
   /** Cards drawn directly under this one. */
   teamSize: number;
+  /** After a team position's shift was changed here: read the chart again. */
+  onChanged?: () => void;
   /** The viewer's own view controls (arrange, fold) — presentation only. */
   children?: ReactNode;
 }) {
+  /** Which of the card's editable positions is open below. */
+  const [pickedId, setPickedId] = useState<number | null>(null);
   const byId = new Map(slice.nodes.map((n) => [n.id, n]));
   const rows = positionIds.map((id) => byId.get(id)).filter((n): n is SliceNode => !!n);
   const first = rows[0];
@@ -105,6 +112,10 @@ export function MyOrgChartCard({
     });
   const contexts = [...new Set(rows.flatMap((n) => n.contexts.map((c) => c.name)))];
   const vacant = rows.filter((n) => !n.occupants.length).length;
+  // The positions of this card the signed-in person may change (the server says which: only ones BELOW them).
+  // Any other card — their own, a card-mate's, a manager's — has none, and then nothing about editing is drawn at all.
+  const editable = rows.filter((n) => n.canEdit === true);
+  const picked = editable.find((n) => n.id === pickedId) ?? editable.find((n) => n.id === currentId) ?? editable[0] ?? null;
 
   return (
     <Box>
@@ -241,6 +252,47 @@ export function MyOrgChartCard({
           </Typography>
         )}
       </Section>
+
+      {picked && (
+        <Section title="Your team">
+          <Typography data-teamnote="" sx={{ fontSize: 13, color: 'var(--c-text-2)', lineHeight: 1.5, mb: 1 }}>
+            You can change responsibilities, KPIs and the shift for your team.
+          </Typography>
+          {editable.length > 1 && (
+            <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap sx={{ mb: 1 }} role="group" aria-label="Which position">
+              {editable.map((n) => (
+                <Chip
+                  key={n.id}
+                  size="small"
+                  clickable
+                  color={n.id === picked.id ? 'primary' : 'default'}
+                  variant={n.id === picked.id ? 'filled' : 'outlined'}
+                  label={[n.occupants[0]?.name ?? 'Vacant', shiftOf(n), n.positionCode].filter(Boolean).join(' · ')}
+                  onClick={() => setPickedId(n.id)}
+                />
+              ))}
+            </Stack>
+          )}
+          <Box data-teamposition={picked.id}>
+            <Typography sx={{ fontSize: 13.5, fontWeight: 600, mb: 0.5 }}>
+              {picked.occupants[0]?.name ?? 'Vacant'}
+              {picked.positionCode ? <> · <Mono sx={{ fontSize: 12 }}>{picked.positionCode}</Mono></> : null}
+            </Typography>
+            <Box sx={{ fontSize: 13.5, mb: 1.25 }}>
+              <Box component="span" sx={{ color: 'var(--c-text-2)', mr: 0.75 }}>Shift</Box>
+              <TeamShiftControl
+                key={picked.id}
+                positionId={picked.id}
+                shift={picked.defaultShift ?? null}
+                shiftName={shiftOf(picked)}
+                occupantName={picked.occupants[0]?.name ?? null}
+                onChanged={() => onChanged?.()}
+              />
+            </Box>
+            <SeatJobContentEditor key={picked.id} positionId={picked.id} company={company} canManage embedded scope="team" />
+          </Box>
+        </Section>
+      )}
 
       {teamSize > 0 && (
         <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)', mb: 1.5 }}>

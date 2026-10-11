@@ -1,207 +1,233 @@
-import { useCallback, useMemo, useState } from 'react';
-import { Box, Button, FormControlLabel, IconButton, MenuItem, Switch, TextField, Tooltip } from '@mui/material';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Link as RouterLink, useParams } from 'react-router-dom';
+import { Box, Button, IconButton, MenuItem, Switch, TextField, Tooltip, Typography } from '@mui/material';
 import AddRounded from '@mui/icons-material/AddRounded';
-import EditRounded from '@mui/icons-material/EditRounded';
 import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
 import ScheduleRounded from '@mui/icons-material/ScheduleRounded';
-import BedtimeRounded from '@mui/icons-material/BedtimeRounded';
 import {
-  ConfirmDialog,
-  DataTable,
-  EmptyState,
-  ErrorNotice,
-  FormDialog,
-  ListSkeleton,
-  Mono,
-  PageHeader,
-  StatSkeleton,
-  StatStrip,
-  StatusBadge,
-  ToneBadge,
-  useIsPermitted,
-  useToast,
-  type DataColumn,
-  type Stat,
+  ConfirmDialog, DataTable, EmptyState, ErrorNotice, FormDialog, ListSkeleton, Mono, PageHeader, StatusBadge,
+  useIsPermitted, useToast, type DataColumn,
 } from '@shared/ui';
-import { orgApi, ORG_MANAGE, type Shift } from '../api/organisation';
-import { ORG_STATUS_LABELS, ORG_STATUS_TONES, useOrgLoad } from '../components/OrgData';
-import { OrgNote } from '../components/OrgNote';
+import { ORG_MANAGE } from '../api/organisation';
+import {
+  WEEKDAYS, WEEKDAY_NAMES, calendarsApi, dayFigures, hhmm, hoursText, shiftsApi,
+  type HolidayCalendar, type Shift, type ShiftInput, type Weekday,
+} from '../api/shifts';
+import { ORG_STATUS_LABELS, ORG_STATUS_TONES } from '../components/OrgData';
 
 /**
- * Shifts — the working patterns positions, assignments, rosters and attendance
- * all point at.
+ * Shifts — the hours a position works, day by day (CF_HRMS_HIRING_SPEC.md §6.3).
  *
- * THE ONE THING THIS SCREEN MUST GET RIGHT: a shift with no start and no end
- * time is FLEXIBLE, by design (init.sql §1e), not broken and not half-entered.
- * The seeded General shift is exactly that — an SME's office staff are expected
- * during the working day, and writing 09:00–18:00 against them would turn every
- * late arrival into a fabricated exception. So the table says "Flexible" in
- * words, the form says so in its helper text, and the backend refuses a shift
- * with only one of the two times, because THAT is the broken state.
+ * A SHIFT IS SEVEN DAYS, NOT ONE PAIR OF TIMES. Monday to Sunday, each either a
+ * working day or not; a working day has a start and an end, or neither — which
+ * is "flexible hours", allowed on purpose (an office's General shift) and not a
+ * half-filled form. A day whose end is at or before its start ends the next
+ * day: that is worked out, never ticked.
+ *
+ * THE FIGURES BESIDE EACH ROW ARE LIVE: hours that day with the break taken
+ * off, and the week's total under them — the same arithmetic the server does,
+ * so what is read while typing is what comes back after the save. The server
+ * still decides; its refusals are listed in its own words.
+ *
+ * A shift also picks ONE holiday calendar, or none. The calendars themselves
+ * are kept on Setup › Holidays.
  */
 
-interface DraftState {
+interface DayDraft {
+  weekday: Weekday;
+  isWorking: boolean;
+  startTime: string;
+  endTime: string;
+  breakMinutes: string;
+}
+
+interface Draft {
   id: number | null;
   code: string;
   name: string;
-  flexible: boolean;
-  startTime: string;
-  endTime: string;
-  crossesMidnight: boolean;
+  status: string;
+  holidayCalendarId: number | '';
   graceInMinutes: string;
   graceOutMinutes: string;
-  status: 'ACTIVE' | 'INACTIVE';
+  days: DayDraft[];
 }
 
-const emptyDraft = (): DraftState => ({
+const blankDraft = (): Draft => ({
   id: null,
   code: '',
   name: '',
-  flexible: false,
-  startTime: '09:00',
-  endTime: '18:00',
-  crossesMidnight: false,
+  status: 'ACTIVE',
+  holidayCalendarId: '',
   graceInMinutes: '0',
   graceOutMinutes: '0',
-  status: 'ACTIVE',
+  // Monday to Saturday working, Sunday off — the common week; every day is changed in the rows.
+  days: WEEKDAYS.map((weekday) => ({ weekday, isWorking: weekday !== 7, startTime: '', endTime: '', breakMinutes: '0' })),
 });
 
+const draftOf = (s: Shift): Draft => ({
+  id: s.id,
+  code: s.code,
+  name: s.name,
+  status: s.status,
+  holidayCalendarId: s.holidayCalendar?.id ?? '',
+  graceInMinutes: String(s.graceInMinutes ?? 0),
+  graceOutMinutes: String(s.graceOutMinutes ?? 0),
+  days: WEEKDAYS.map((weekday) => {
+    const d = (s.days ?? []).find((x) => x.weekday === weekday);
+    return {
+      weekday,
+      isWorking: d ? d.isWorking : weekday !== 7,
+      startTime: hhmm(d?.startTime),
+      endTime: hhmm(d?.endTime),
+      breakMinutes: String(d?.breakMinutes ?? 0),
+    };
+  }),
+});
+
+const figuresOf = (d: DayDraft) =>
+  dayFigures({ isWorking: d.isWorking, startTime: d.startTime, endTime: d.endTime, breakMinutes: Number(d.breakMinutes) || 0 });
+
+const inputOf = (d: Draft): ShiftInput => ({
+  code: d.code.trim(),
+  name: d.name.trim(),
+  status: d.status,
+  holidayCalendarId: d.holidayCalendarId === '' ? null : d.holidayCalendarId,
+  graceInMinutes: Number(d.graceInMinutes) || 0,
+  graceOutMinutes: Number(d.graceOutMinutes) || 0,
+  days: d.days.map((x) => ({
+    weekday: x.weekday,
+    isWorking: x.isWorking,
+    // A day off carries no hours; a working day with no times is flexible.
+    startTime: x.isWorking && x.startTime ? x.startTime : null,
+    endTime: x.isWorking && x.endTime ? x.endTime : null,
+    breakMinutes: x.isWorking ? Number(x.breakMinutes) || 0 : 0,
+  })),
+});
+
+const shrink = { inputLabel: { shrink: true } };
+
 export default function Shifts() {
+  const { company = '' } = useParams<{ company: string }>();
   const can = useIsPermitted();
   const canManage = can(ORG_MANAGE);
-  const { success } = useToast();
+  const toast = useToast();
 
-  const load = useCallback(() => orgApi.shifts.list(), []);
-  const { data, error, loading, reload } = useOrgLoad(load);
-  const rows = useMemo(() => data ?? [], [data]);
-
-  const [draft, setDraft] = useState<DraftState | null>(null);
+  const [rows, setRows] = useState<Shift[] | null>(null);
+  const [calendars, setCalendars] = useState<HolidayCalendar[]>([]);
+  const [error, setError] = useState<unknown>(null);
+  const [loading, setLoading] = useState(true);
+  const [draft, setDraft] = useState<Draft | null>(null);
   const [doomed, setDoomed] = useState<Shift | null>(null);
 
-  const stats: Stat[] = useMemo(() => {
-    const flexible = rows.filter((r) => r.isFlexible).length;
-    const inactive = rows.filter((r) => r.status === 'INACTIVE').length;
-    const noGrace = rows.filter((r) => !r.isFlexible && !r.graceInMinutes).length;
-    return [
-      { label: 'Shifts', value: rows.length },
-      {
-        label: 'Flexible',
-        value: flexible,
-        tone: 'info',
-        hint: 'No fixed hours, on purpose. Attendance treats presence during the working day as on time.',
-      },
-      {
-        label: 'No grace period',
-        value: noGrace,
-        tone: 'warning',
-        hint: 'A timed shift with zero grace marks someone late at one minute past. Set a few minutes unless that is the policy.',
-      },
-      { label: 'Inactive', value: inactive, tone: 'warning', hint: 'Kept for history; hidden from new pickers.' },
-    ];
-  }, [rows]);
+  const load = useCallback(() => {
+    setLoading(true);
+    shiftsApi
+      .list()
+      .then((list) => {
+        setRows(list);
+        setError(null);
+      })
+      .catch(setError)
+      .finally(() => setLoading(false));
+    // The calendars only fill the editor's select; a company without any still has shifts.
+    calendarsApi.list().then(setCalendars).catch(() => setCalendars([]));
+  }, []);
 
-  const openEdit = (row: Shift) =>
-    setDraft({
-      id: row.id,
-      code: row.code,
-      name: row.name,
-      flexible: row.isFlexible,
-      startTime: row.startTime ?? '09:00',
-      endTime: row.endTime ?? '18:00',
-      crossesMidnight: row.crossesMidnight,
-      graceInMinutes: String(row.graceInMinutes),
-      graceOutMinutes: String(row.graceOutMinutes),
-      status: row.status,
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const setDay = (weekday: Weekday, patch: Partial<DayDraft>) =>
+    setDraft((d) => (d ? { ...d, days: d.days.map((x) => (x.weekday === weekday ? { ...x, ...patch } : x)) } : d));
+
+  const copyMonday = () =>
+    setDraft((d) => {
+      if (!d) return d;
+      const mon = d.days[0];
+      return {
+        ...d,
+        days: d.days.map((x) =>
+          x.weekday === 1 || !x.isWorking ? x : { ...x, startTime: mon.startTime, endTime: mon.endTime, breakMinutes: mon.breakMinutes },
+        ),
+      };
     });
+
+  const figures = useMemo(() => (draft ? draft.days.map(figuresOf) : []), [draft]);
+  const weekly = figures.reduce((t, f) => t + (f.hours ?? 0), 0);
+  const workingDays = draft ? draft.days.filter((d) => d.isWorking).length : 0;
+  const timedDays = figures.filter((f) => f.hours != null).length;
+  const rowProblem = figures.some((f) => f.problem);
 
   const save = async () => {
     if (!draft) return;
-    const body = {
-      code: draft.code,
-      name: draft.name,
-      // Flexible sends both times as null — that is the shape the model means
-      // by "no fixed hours", and the backend rejects sending only one.
-      startTime: draft.flexible ? null : draft.startTime,
-      endTime: draft.flexible ? null : draft.endTime,
-      crossesMidnight: draft.flexible ? false : draft.crossesMidnight,
-      graceInMinutes: Number(draft.graceInMinutes) || 0,
-      graceOutMinutes: Number(draft.graceOutMinutes) || 0,
-      status: draft.status,
-    };
-    if (draft.id) await orgApi.shifts.update(draft.id, body);
-    else await orgApi.shifts.create(body);
-    success(draft.id ? 'Shift saved.' : 'Shift added.');
-    reload();
-  };
-
-  const remove = async () => {
-    if (!doomed) return;
-    await orgApi.shifts.remove(doomed.id);
-    success(`${doomed.name} deleted.`);
-    reload();
+    const body = inputOf(draft);
+    if (draft.id) await shiftsApi.update(draft.id, body);
+    else await shiftsApi.create(body);
+    toast.success(draft.id ? 'Shift saved.' : 'Shift added.');
+    load();
   };
 
   const columns: DataColumn<Shift>[] = useMemo(
     () => [
       {
-        key: 'code',
-        header: 'Code',
-        width: 90,
-        render: (r) => <Mono chip>{r.code}</Mono>,
-        sortValue: (r) => r.code,
-      },
-      { key: 'name', header: 'Name', render: (r) => r.name, sortValue: (r) => r.name },
-      {
-        key: 'hours',
-        header: 'Hours',
-        render: (r) =>
-          r.isFlexible ? (
-            <ToneBadge
-              tone="info"
-              label="Flexible"
-              title="No fixed hours — presence during the working day counts as on time."
-            />
-          ) : (
-            <Mono tabular>{`${r.startTime} – ${r.endTime}`}</Mono>
-          ),
-        sortValue: (r) => r.startTime ?? '',
-        exportValue: (r) => (r.isFlexible ? 'Flexible' : `${r.startTime}-${r.endTime}`),
+        key: 'name',
+        header: 'Shift',
+        alwaysVisible: true,
+        render: (s) => (
+          <Box sx={{ minWidth: 0 }}>
+            <Typography sx={{ fontSize: 14, fontWeight: 500 }}>
+              {s.name} <Mono sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>{s.code}</Mono>
+            </Typography>
+            {/* The server's own line: "Mon–Sat 08:00–20:00". */}
+            <Typography data-shiftsummary="" sx={{ fontSize: 12.5, color: 'var(--c-text-2)', overflowWrap: 'anywhere' }}>
+              {s.summary || 'No days set'}
+            </Typography>
+          </Box>
+        ),
+        sortValue: (s) => s.name,
+        exportValue: (s) => s.name,
       },
       {
-        key: 'crossesMidnight',
-        header: 'Crosses midnight',
-        render: (r) =>
-          r.crossesMidnight ? (
-            <ToneBadge tone="neutral" icon={<BedtimeRounded fontSize="small" />} label="Overnight" />
-          ) : (
-            <Box component="span" sx={{ color: 'var(--c-text-3)' }}>
-              —
-            </Box>
-          ),
-        sortValue: (r) => (r.crossesMidnight ? 1 : 0),
-        exportValue: (r) => (r.crossesMidnight ? 'yes' : 'no'),
+        key: 'summary',
+        header: 'Days and hours',
+        defaultHidden: true,
+        render: (s) => s.summary || '—',
+        exportValue: (s) => s.summary ?? '',
       },
       {
-        key: 'graceIn',
-        header: 'Grace in',
+        key: 'weekly',
+        header: 'Hours a week',
+        width: 130,
         numeric: true,
-        render: (r) => (r.isFlexible ? '—' : `${r.graceInMinutes} min`),
-        sortValue: (r) => r.graceInMinutes,
+        align: 'right',
+        render: (s) => <Mono sx={{ fontSize: 13 }}>{s.weeklyHours == null ? 'Flexible' : hoursText(s.weeklyHours)}</Mono>,
+        sortValue: (s) => s.weeklyHours ?? -1,
+        exportValue: (s) => s.weeklyHours ?? '',
       },
       {
-        key: 'graceOut',
-        header: 'Grace out',
+        key: 'calendar',
+        header: 'Holiday calendar',
+        render: (s) =>
+          s.holidayCalendar ? s.holidayCalendar.name : <Typography component="span" sx={{ fontSize: 13.5, color: 'var(--c-text-3)' }}>No holidays</Typography>,
+        sortValue: (s) => s.holidayCalendar?.name ?? '',
+        exportValue: (s) => s.holidayCalendar?.name ?? '',
+      },
+      {
+        key: 'positions',
+        header: 'Positions on it',
+        width: 130,
         numeric: true,
-        render: (r) => (r.isFlexible ? '—' : `${r.graceOutMinutes} min`),
-        sortValue: (r) => r.graceOutMinutes,
+        align: 'right',
+        render: (s) => <Mono sx={{ fontSize: 13 }}>{s.positionCount ?? 0}</Mono>,
+        sortValue: (s) => s.positionCount ?? 0,
+        exportValue: (s) => s.positionCount ?? 0,
       },
       {
         key: 'status',
         header: 'Status',
-        render: (r) => (
-          <StatusBadge status={r.status} map={ORG_STATUS_TONES} labelMap={ORG_STATUS_LABELS} />
-        ),
-        sortValue: (r) => r.status,
+        width: 110,
+        render: (s) => <StatusBadge status={s.status} map={ORG_STATUS_TONES} labelMap={ORG_STATUS_LABELS} />,
+        sortValue: (s) => s.status,
       },
     ],
     [],
@@ -211,206 +237,249 @@ export default function Shifts() {
     <>
       <PageHeader
         title="Shifts"
-        subtitle="The working patterns rosters, attendance and assignments point at"
+        subtitle="the hours a position works, day by day — and the holiday calendar that goes with them"
         actions={
-          canManage ? (
-            <Button variant="contained" startIcon={<AddRounded />} onClick={() => setDraft(emptyDraft())}>
+          canManage && (
+            <Button size="small" variant="contained" startIcon={<AddRounded />} onClick={() => setDraft(blankDraft())}>
               New shift
             </Button>
-          ) : undefined
+          )
         }
       />
 
-      <OrgNote label="Reading this table" title="A shift with no hours is flexible, not unfinished.">
-        General has no start or end time on purpose: staff are expected during the working day, and
-        writing fixed hours against them would turn every late arrival into an exception that never
-        really happened. A shift either has both times or neither — one alone is the state that is
-        actually wrong, and it is refused.
-      </OrgNote>
+      {!!error && <ErrorNotice error={error} onRetry={load} sx={{ mb: 2 }} />}
 
-      <ErrorNotice error={error} fallback="Could not load shifts." onRetry={reload} />
-
-      {loading ? (
-        <>
-          <StatSkeleton count={4} />
-          <Box sx={{ mt: 2 }}>
-            <ListSkeleton rows={4} />
-          </Box>
-        </>
+      {loading && !rows ? (
+        <ListSkeleton rows={4} />
       ) : (
-        <>
-          <StatStrip stats={stats} />
-          <Box sx={{ mt: 2 }}>
-            <DataTable
-              rows={rows}
-              columns={columns}
-              getRowId={(r) => r.id}
-              storageKey="cf_hrms_shifts"
-              exportName="shifts"
-              defaultSortKey="code"
-              rowActions={
-                canManage
-                  ? (row) => (
-                      <>
-                        <Tooltip title="Edit">
-                          <IconButton size="small" onClick={() => openEdit(row)} aria-label={`Edit ${row.name}`}>
-                            <EditRounded fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                        <Tooltip title="Delete">
-                          <IconButton size="small" onClick={() => setDoomed(row)} aria-label={`Delete ${row.name}`}>
-                            <DeleteOutlineRounded fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                      </>
-                    )
-                  : undefined
-              }
-              empty={
-                <EmptyState
-                  icon={<ScheduleRounded />}
-                  title="No shifts yet"
-                  hint="Most plants need three: a flexible General for staff, a Day and a Night. A shift is what a roster allocates and what attendance is judged against."
-                  action={
-                    canManage ? (
-                      <Button variant="contained" startIcon={<AddRounded />} onClick={() => setDraft(emptyDraft())}>
-                        Add the first shift
-                      </Button>
-                    ) : undefined
-                  }
-                />
-              }
+        <DataTable
+          rows={rows ?? []}
+          columns={columns}
+          getRowId={(s) => s.id}
+          onRowClick={(s) => setDraft(draftOf(s))}
+          rowActions={
+            canManage
+              ? (s) => (
+                  <Tooltip title="Delete this shift…">
+                    <IconButton size="small" aria-label={`Delete ${s.name}`} onClick={() => setDoomed(s)}>
+                      <DeleteOutlineRounded fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                )
+              : undefined
+          }
+          loading={loading}
+          storageKey="cf_hrms.shifts.v2"
+          exportName="shifts"
+          defaultSortKey="name"
+          empty={
+            <EmptyState
+              icon={<ScheduleRounded />}
+              title="No shifts yet"
+              hint="A shift says which days of the week are worked and from when to when. Every position is on one shift."
+              action={canManage ? <Button size="small" variant="contained" onClick={() => setDraft(blankDraft())}>New shift</Button> : undefined}
             />
-          </Box>
-        </>
+          }
+        />
       )}
 
       <FormDialog
         open={!!draft}
-        title={draft?.id ? 'Edit shift' : 'New shift'}
-        subtitle="Leave the hours off for a shift with no fixed timing."
+        title={draft?.id ? `${draft.name || 'Shift'}` : 'New shift'}
+        subtitle="Set each day of the week. A working day with no times has flexible hours."
         onClose={() => setDraft(null)}
         onSubmit={save}
-        submitLabel={draft?.id ? 'Save' : 'Create'}
-        submitDisabled={!draft?.code.trim() || !draft?.name.trim()}
+        submitLabel={draft?.id ? 'Save' : 'Add shift'}
+        submitDisabled={!canManage || !draft?.code.trim() || !draft?.name.trim() || rowProblem}
+        maxWidth="md"
+        enterSubmits={false}
       >
         {draft && (
-          <>
-            <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+          <Box sx={{ display: 'grid', gap: 2, pt: 0.75 }}>
+            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '140px minmax(0, 1fr) 150px' }, gap: 1.5 }}>
               <TextField
                 label="Code"
-                value={draft.code}
-                onChange={(e) => setDraft({ ...draft, code: e.target.value })}
                 required
-                autoFocus
                 size="small"
-                sx={{ flex: '1 1 120px' }}
-                helperText="G, D, N — matched without case"
+                value={draft.code}
+                disabled={!canManage}
+                onChange={(e) => setDraft({ ...draft, code: e.target.value.toUpperCase() })}
+                slotProps={{ htmlInput: { style: { fontFamily: 'var(--font-mono)' } } }}
+              />
+              <TextField label="Name" required size="small" value={draft.name} disabled={!canManage} onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
+              <TextField select label="Status" size="small" value={draft.status} disabled={!canManage} onChange={(e) => setDraft({ ...draft, status: e.target.value })}>
+                <MenuItem value="ACTIVE">{ORG_STATUS_LABELS.ACTIVE ?? 'Active'}</MenuItem>
+                <MenuItem value="INACTIVE">{ORG_STATUS_LABELS.INACTIVE ?? 'Inactive'}</MenuItem>
+              </TextField>
+            </Box>
+
+            {/* ── The week ─────────────────────────────────────────────────── */}
+            <Box>
+              <Box sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 1, mb: 0.75 }}>
+                <Typography sx={{ fontSize: 13.5, fontWeight: 600, flex: '1 1 160px' }}>The week</Typography>
+                {canManage && (
+                  <Button size="small" onClick={copyMonday} data-copymonday="">
+                    Copy Monday to every working day
+                  </Button>
+                )}
+              </Box>
+              <Box component="ol" data-shiftweek="" sx={{ listStyle: 'none', m: 0, p: 0, display: 'grid', gap: 0.75 }}>
+                {draft.days.map((d, i) => {
+                  const f = figures[i];
+                  const day = WEEKDAY_NAMES[d.weekday];
+                  return (
+                    <Box
+                      component="li"
+                      key={d.weekday}
+                      data-shiftday={d.weekday}
+                      sx={{
+                        display: 'grid',
+                        alignItems: 'center',
+                        columnGap: 1,
+                        rowGap: 0.75,
+                        gridTemplateColumns: { xs: 'minmax(0, 1fr) minmax(0, 1fr) 84px', md: '170px 130px 130px 110px minmax(0, 1fr)' },
+                        gridTemplateAreas: { xs: '"day day day" "start end brk" "fig fig fig"', md: '"day start end brk fig"' },
+                        border: '1px solid var(--c-divider)',
+                        borderRadius: 'var(--r-sm)',
+                        px: 1.25,
+                        py: 0.75,
+                        background: d.isWorking ? 'var(--c-surface)' : 'var(--c-surface-2)',
+                      }}
+                    >
+                      <Box sx={{ gridArea: 'day', display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                        <Switch
+                          size="small"
+                          checked={d.isWorking}
+                          disabled={!canManage}
+                          onChange={(e) => setDay(d.weekday, { isWorking: e.target.checked })}
+                          slotProps={{ input: { 'aria-label': `${day} is a working day` } }}
+                        />
+                        <Typography sx={{ fontSize: 14, fontWeight: 500, color: d.isWorking ? 'var(--c-text)' : 'var(--c-text-2)' }}>{day}</Typography>
+                      </Box>
+                      {d.isWorking ? (
+                        <>
+                          <TextField
+                            sx={{ gridArea: 'start' }}
+                            label="Start"
+                            type="time"
+                            size="small"
+                            value={d.startTime}
+                            disabled={!canManage}
+                            onChange={(e) => setDay(d.weekday, { startTime: hhmm(e.target.value) })}
+                            slotProps={{ ...shrink, htmlInput: { 'aria-label': `${day} start` } }}
+                          />
+                          <TextField
+                            sx={{ gridArea: 'end' }}
+                            label="End"
+                            type="time"
+                            size="small"
+                            value={d.endTime}
+                            disabled={!canManage}
+                            onChange={(e) => setDay(d.weekday, { endTime: hhmm(e.target.value) })}
+                            slotProps={{ ...shrink, htmlInput: { 'aria-label': `${day} end` } }}
+                          />
+                          <TextField
+                            sx={{ gridArea: 'brk' }}
+                            label="Break (min)"
+                            size="small"
+                            value={d.breakMinutes}
+                            disabled={!canManage}
+                            onChange={(e) => setDay(d.weekday, { breakMinutes: e.target.value.replace(/\D/g, '') })}
+                            slotProps={{ ...shrink, htmlInput: { inputMode: 'numeric', 'aria-label': `${day} break in minutes` } }}
+                          />
+                          <Typography
+                            data-dayhours=""
+                            sx={{ gridArea: 'fig', fontSize: 13, color: f?.problem ? 'var(--c-danger-600)' : 'var(--c-text-2)', minWidth: 0 }}
+                          >
+                            {f?.problem
+                              ? f.problem
+                              : f?.hours == null
+                                ? 'Flexible hours'
+                                : `${hoursText(f.hours)}${f.nextDay ? ' · ends next day' : ''}`}
+                          </Typography>
+                        </>
+                      ) : (
+                        <Typography sx={{ gridColumn: { xs: '1 / -1', md: '2 / -1' }, fontSize: 13, color: 'var(--c-text-3)' }}>Not a working day</Typography>
+                      )}
+                    </Box>
+                  );
+                })}
+              </Box>
+              <Typography data-weektotal="" role="status" sx={{ fontSize: 13.5, mt: 1 }}>
+                {workingDays === 0
+                  ? 'No working days.'
+                  : timedDays === 0
+                    ? `${workingDays} working day${workingDays === 1 ? '' : 's'} a week, flexible hours.`
+                    : `${workingDays} working day${workingDays === 1 ? '' : 's'} · ${hoursText(Math.round(weekly * 100) / 100)} a week${timedDays < workingDays ? ` on the ${timedDays} with set hours` : ''}.`}
+              </Typography>
+            </Box>
+
+            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'minmax(0, 1.4fr) 1fr 1fr' }, gap: 1.5, alignItems: 'start' }}>
+              <TextField
+                select
+                label="Holiday calendar"
+                size="small"
+                value={draft.holidayCalendarId}
+                disabled={!canManage}
+                onChange={(e) => setDraft({ ...draft, holidayCalendarId: e.target.value === '' ? '' : Number(e.target.value) })}
+                slotProps={{ select: { displayEmpty: true }, inputLabel: { shrink: true } }}
+                helperText={
+                  <Box component={RouterLink} to={`/${company}/cf_hrms/holidays`} sx={{ color: 'var(--c-primary-700)' }}>
+                    Manage holiday calendars
+                  </Box>
+                }
+              >
+                <MenuItem value="">No holidays</MenuItem>
+                {/* A calendar this shift already uses still shows, even if the list could not be read. */}
+                {[
+                  ...calendars.map((c) => ({ id: c.id, name: c.name })),
+                  ...(rows ?? [])
+                    .map((s) => s.holidayCalendar)
+                    .filter((c): c is { id: number; name: string } => !!c && c.id === draft.holidayCalendarId && !calendars.some((x) => x.id === c.id))
+                    .slice(0, 1),
+                ].map((c) => (
+                  <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>
+                ))}
+              </TextField>
+              <TextField
+                label="Grace coming in (min)"
+                size="small"
+                value={draft.graceInMinutes}
+                disabled={!canManage}
+                onChange={(e) => setDraft({ ...draft, graceInMinutes: e.target.value.replace(/\D/g, '') })}
+                slotProps={{ htmlInput: { inputMode: 'numeric' } }}
               />
               <TextField
-                label="Name"
-                value={draft.name}
-                onChange={(e) => setDraft({ ...draft, name: e.target.value })}
-                required
+                label="Grace going out (min)"
                 size="small"
-                sx={{ flex: '2 1 220px' }}
+                value={draft.graceOutMinutes}
+                disabled={!canManage}
+                onChange={(e) => setDraft({ ...draft, graceOutMinutes: e.target.value.replace(/\D/g, '') })}
+                slotProps={{ htmlInput: { inputMode: 'numeric' } }}
               />
             </Box>
-
-            <FormControlLabel
-              control={
-                <Switch
-                  checked={draft.flexible}
-                  onChange={(e) => setDraft({ ...draft, flexible: e.target.checked })}
-                />
-              }
-              label="Flexible — no fixed hours"
-            />
-            <Box sx={{ fontSize: 13, color: 'var(--c-text-2)', mt: -1.5 }}>
-              For staff expected during the working day rather than between two clock times.
-              Attendance will not judge them late.
-            </Box>
-
-            {!draft.flexible && (
-              <>
-                <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-                  <TextField
-                    label="Start time"
-                    type="time"
-                    value={draft.startTime}
-                    onChange={(e) => setDraft({ ...draft, startTime: e.target.value })}
-                    size="small"
-                    sx={{ flex: '1 1 150px' }}
-                    slotProps={{ inputLabel: { shrink: true } }}
-                  />
-                  <TextField
-                    label="End time"
-                    type="time"
-                    value={draft.endTime}
-                    onChange={(e) => setDraft({ ...draft, endTime: e.target.value })}
-                    size="small"
-                    sx={{ flex: '1 1 150px' }}
-                    slotProps={{ inputLabel: { shrink: true } }}
-                  />
-                </Box>
-                <FormControlLabel
-                  control={
-                    <Switch
-                      checked={draft.crossesMidnight}
-                      onChange={(e) => setDraft({ ...draft, crossesMidnight: e.target.checked })}
-                    />
-                  }
-                  label="Crosses midnight"
-                />
-                <Box sx={{ fontSize: 13, color: 'var(--c-text-2)', mt: -1.5 }}>
-                  Stored rather than guessed from the clock, so a night shift is never silently
-                  treated as an eight-hour day. It must agree with the times.
-                </Box>
-                <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-                  <TextField
-                    label="Grace in (minutes)"
-                    type="number"
-                    value={draft.graceInMinutes}
-                    onChange={(e) => setDraft({ ...draft, graceInMinutes: e.target.value })}
-                    size="small"
-                    sx={{ flex: '1 1 150px' }}
-                  />
-                  <TextField
-                    label="Grace out (minutes)"
-                    type="number"
-                    value={draft.graceOutMinutes}
-                    onChange={(e) => setDraft({ ...draft, graceOutMinutes: e.target.value })}
-                    size="small"
-                    sx={{ flex: '1 1 150px' }}
-                  />
-                </Box>
-              </>
-            )}
-
-            <TextField
-              select
-              label="Status"
-              value={draft.status}
-              onChange={(e) => setDraft({ ...draft, status: e.target.value as DraftState['status'] })}
-              size="small"
-              fullWidth
-            >
-              <MenuItem value="ACTIVE">Active</MenuItem>
-              <MenuItem value="INACTIVE">Inactive</MenuItem>
-            </TextField>
-          </>
+          </Box>
         )}
       </FormDialog>
 
       <ConfirmDialog
         open={!!doomed}
+        title={`Delete ${doomed?.name ?? "this shift"}?`}
         danger
-        title="Delete this shift?"
-        entityName={doomed ? `${doomed.code} — ${doomed.name}` : undefined}
-        body="Positions, assignments, rosters, attendance rows and manpower requirements that use it will block the delete and say how many. Set it inactive to retire it instead."
         confirmLabel="Delete"
-        onConfirm={remove}
+        body={
+          doomed?.positionCount
+            ? `${doomed.positionCount} position${doomed.positionCount === 1 ? ' is' : 's are'} on this shift, so it cannot be deleted. Move them to another shift first.`
+            : 'No position is on this shift. This cannot be undone.'
+        }
         onClose={() => setDoomed(null)}
+        onConfirm={async () => {
+          if (!doomed) return;
+          // The server refuses a shift that is in use, and says how many positions hold it.
+          await shiftsApi.remove(doomed.id);
+          toast.success('Shift deleted.');
+          load();
+        }}
       />
     </>
   );

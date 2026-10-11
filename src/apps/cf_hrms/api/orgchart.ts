@@ -1,6 +1,7 @@
 import { api } from './client';
 import type { HiringRef, JoiningRef } from './hiring';
 import type { NoticeRef } from './people';
+import type { Effective } from './leave';
 
 /**
  * Org chart read model — the client side of CF_HRMS_ORG_CHART_SPEC.md §9.
@@ -125,7 +126,7 @@ export interface OrgChartNode {
   /** The position's shift code — the same shift as `defaultShift`. */
   shiftPattern: ShiftPattern;
   /** The position's shift. Always set by a current server. */
-  defaultShift: { id: number; code: string; name: string } | null;
+  defaultShift: { id: number; code: string; name: string; summary?: string | null } | null;
   contexts: OrgChartContext[];
   /** The one person in the position, or nobody. */
   occupants: OrgChartOccupant[];
@@ -283,7 +284,7 @@ export interface PositionCard {
   /** The role card the position is drawn in. */
   cardId?: number;
   /** The position's shift. */
-  shift?: { id: number; code: string | null; name: string } | null;
+  shift?: { id: number; code: string | null; name: string; summary?: string | null } | null;
   /** The other positions of the same card (same role, department and manager). */
   siblings?: {
     positionId: number;
@@ -298,6 +299,8 @@ export interface PositionCard {
   occupants: CardOccupant[];
   /** The occupant is on notice, so a replacement may be hired before they leave. */
   canHireReplacement?: boolean;
+  /** The leave policy this position ends up with (§8.3). */
+  leavePolicy?: Effective | null;
   /** The open hiring on this position, or null. */
   hiring?: HiringRef | null;
   joining?: JoiningRef | null;

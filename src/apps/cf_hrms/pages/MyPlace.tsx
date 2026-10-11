@@ -248,8 +248,16 @@ function SeatStrip({ seat, many }: { seat: SelfSeat; many: boolean }) {
           <Fact
             label="Shift"
             icon={<ScheduleRounded sx={{ fontSize: 15, color: 'var(--c-text-3)' }} aria-hidden />}
+            // The shift's own line — which days, from when to when — under its name.
             value={
-              seat.shift.startTime && seat.shift.endTime
+              seat.shift.summary ? (
+                <>
+                  {seat.shift.name}
+                  <Box component="span" data-shiftsummary="" sx={{ display: 'block', fontSize: 12.5, fontWeight: 400, color: 'var(--c-text-2)' }}>
+                    {seat.shift.summary}
+                  </Box>
+                </>
+              ) : seat.shift.startTime && seat.shift.endTime
                 ? `${seat.shift.name} · ${seat.shift.startTime}–${seat.shift.endTime}`
                 : seat.shift.name
             }
@@ -555,6 +563,24 @@ export default function MyPlace() {
 
       {/* ── The footnotes. Below the fold on purpose: useful, not the answer. ── */}
       <Stack spacing={1.5} sx={{ mt: 2 }}>
+        {/* Their own leave: the policy that applies to them and, in a sentence each, what it gives. */}
+        {data.leavePolicy && (
+          <SectionCard
+            title="Your leave"
+            subtitle={data.leavePolicy.policy ? data.leavePolicy.line : 'No leave policy applies to your position yet. Ask HR.'}
+          >
+            {(data.leavePolicy.rules ?? data.leaveRules ?? []).length > 0 && (
+              <Box component="ul" data-yourleave="" sx={{ listStyle: 'none', m: 0, p: 0, display: 'grid', gap: 1.25 }}>
+                {(data.leavePolicy.rules ?? data.leaveRules ?? []).map((r) => (
+                  <Box component="li" key={r.leaveTypeName}>
+                    <Typography sx={{ fontSize: 14, fontWeight: 600 }}>{r.leaveTypeName}</Typography>
+                    <Typography sx={{ fontSize: 13.5, color: 'var(--c-text-2)', lineHeight: 1.55 }}>{r.summary}</Typography>
+                  </Box>
+                ))}
+              </Box>
+            )}
+          </SectionCard>
+        )}
         {/* Their own details, so "my emergency contact is wrong" is actionable. */}
         {(me.contact.phone || me.contact.email || me.contact.dateOfBirth) && (
           <SectionCard title="Your details on file">

@@ -41,6 +41,8 @@ const Roster = lazy(() => import('./pages/Roster'));
 const LeaveRequests = lazy(() => import('./pages/LeaveRequests'));
 const LeaveRequestDetail = lazy(() => import('./pages/LeaveRequestDetail'));
 const LeaveBalances = lazy(() => import('./pages/LeaveBalances'));
+const LeavePolicies = lazy(() => import('./pages/LeavePolicies'));
+const LeavePolicyDetail = lazy(() => import('./pages/LeavePolicyDetail'));
 const Manpower = lazy(() => import('./pages/Manpower'));
 
 // Setup — the vocabulary the rest is written from
@@ -190,6 +192,8 @@ export function getCfHrmsRoutes(
     { path: '/:company/cf_hrms/roster', element: wrap(<Roster />) },
     { path: '/:company/cf_hrms/leave-requests', element: wrap(<LeaveRequests />) },
     { path: '/:company/cf_hrms/leave-requests/:id', element: wrap(<LeaveRequestDetail />) },
+    { path: '/:company/cf_hrms/leave-policies', element: wrap(<LeavePolicies />) },
+    { path: '/:company/cf_hrms/leave-policies/:id', element: wrap(<LeavePolicyDetail />) },
     { path: '/:company/cf_hrms/leave-balances', element: wrap(<LeaveBalances />) },
     { path: '/:company/cf_hrms/manpower', element: wrap(<Manpower />) },
 

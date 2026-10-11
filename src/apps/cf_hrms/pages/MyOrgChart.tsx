@@ -679,6 +679,7 @@ export default function MyOrgChart() {
               currentId={rowId}
               company={company}
               teamSize={panelTeam}
+              onChanged={load}
             >
               {cardId != null && (panelTeam > 0 || (panelBox?.canToggle ?? false)) && (
                 <OrgChartPanel

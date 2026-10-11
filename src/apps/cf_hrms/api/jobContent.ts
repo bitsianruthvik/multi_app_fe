@@ -100,24 +100,41 @@ export interface TargetInput {
 
 const on = (date?: string) => (date ? `?on=${date}` : '');
 
+/**
+ * Which door a POSITION's job content goes through.
+ *   `hr`    the organisation routes (`cf_hrms_org_view` / `cf_hrms_org_manage`);
+ *   `team`  a manager's own team (`/user/me/team/…`, CF_HRMS_HIRING_SPEC.md §7.2) —
+ *           the same services behind them, refused with 403 NOT_YOUR_TEAM for
+ *           any position that is not below the signed-in person.
+ * One editor serves both; only this prefix differs.
+ */
+export type JobContentScope = 'hr' | 'team';
+const positionPath = (positionId: number, scope: JobContentScope = 'hr') =>
+  `${scope === 'team' ? '/user/me/team' : ''}/positions/${positionId}/job-content`;
+
 export const jobContentApi = {
   forRole: (roleId: number, date?: string) => api.get<JobContentData>(`/roles/${roleId}/job-content${on(date)}`),
-  forPosition: (positionId: number, date?: string) =>
-    api.get<JobContentData>(`/positions/${positionId}/job-content${on(date)}`),
+  forPosition: (positionId: number, date?: string, scope: JobContentScope = 'hr') =>
+    api.get<JobContentData>(`${positionPath(positionId, scope)}${on(date)}`),
 
   // Seat edits. Each answers with the seat's job content after the edit.
   seatAdd: (
     positionId: number,
     body: { kind: JobLineKind; text: string; parentKraDefinitionId?: number | null; target?: TargetInput | null; reason?: string },
-  ) => api.post<JobContentData>(`/positions/${positionId}/job-content/add`, body),
+    scope: JobContentScope = 'hr',
+  ) => api.post<JobContentData>(`${positionPath(positionId, scope)}/add`, body),
   seatChange: (
     positionId: number,
     body: { kind: JobLineKind; definitionId: number; text?: string; target?: TargetInput | null; reason?: string },
-  ) => api.post<JobContentData>(`/positions/${positionId}/job-content/change`, body),
-  seatSwitchOff: (positionId: number, body: { kind: JobLineKind; definitionId: number; reason?: string }) =>
-    api.post<JobContentData>(`/positions/${positionId}/job-content/switch-off`, body),
-  seatUndo: (positionId: number, body: { kind: JobLineKind; definitionId: number }) =>
-    api.post<JobContentData>(`/positions/${positionId}/job-content/undo`, body),
+    scope: JobContentScope = 'hr',
+  ) => api.post<JobContentData>(`${positionPath(positionId, scope)}/change`, body),
+  seatSwitchOff: (
+    positionId: number,
+    body: { kind: JobLineKind; definitionId: number; reason?: string },
+    scope: JobContentScope = 'hr',
+  ) => api.post<JobContentData>(`${positionPath(positionId, scope)}/switch-off`, body),
+  seatUndo: (positionId: number, body: { kind: JobLineKind; definitionId: number }, scope: JobContentScope = 'hr') =>
+    api.post<JobContentData>(`${positionPath(positionId, scope)}/undo`, body),
 
   // Role edits — the KRAs themselves.
   createKra: (roleId: number, body: { name: string; description?: string }) =>
@@ -143,7 +160,7 @@ export interface StaffingPosition {
   /** The shift's code (G / D / N, or a company's own). Never 'DN'. */
   shiftPattern: string;
   /** The position's shift as one object; absent from an older server. */
-  shift?: { id: number; code: string | null; name: string | null } | null;
+  shift?: { id: number; code: string | null; name: string | null; summary?: string | null } | null;
   /** Always 1: wire name kept, never shown as a number. */
   seats: number;
   filled: number;

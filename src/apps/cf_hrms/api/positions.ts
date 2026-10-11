@@ -2,6 +2,7 @@ import { api } from './client';
 import type { ReportingSummary, ResolvedRelationship } from './assignments';
 import type { HiringRef, JoiningRef } from './hiring';
 import type { NoticeRef } from './people';
+import type { Effective } from './leave';
 
 /**
  * Positions — the sanctioned seats, their work contexts, their FORMAL reporting
@@ -17,6 +18,8 @@ export interface PositionShift {
   id: number;
   code: string | null;
   name: string;
+  /** The shift's days and hours in one line — "Mon–Sat 08:00–20:00" (§6.2). Absent from an older server. */
+  summary?: string | null;
 }
 
 export interface PositionRow {
@@ -56,6 +59,8 @@ export interface PositionRow {
   hiring?: HiringRef | null;
   /** Someone appointed here who joins on a later day. The position is vacant until then. */
   joining?: JoiningRef | null;
+  /** The leave policy this position ends up with — its role's, else its location's, else the company's (§8.3). */
+  leavePolicy?: Effective | null;
   status: string;
   effectiveFrom: string | null;
   effectiveTo: string | null;

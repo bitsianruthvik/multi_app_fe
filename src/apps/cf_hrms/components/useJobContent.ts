@@ -4,7 +4,7 @@
  * this target, never the previous one's".
  */
 import { useEffect, useState } from 'react';
-import { jobContentApi, type JobContentData } from '../api/jobContent';
+import { jobContentApi, type JobContentData, type JobContentScope } from '../api/jobContent';
 
 export interface JobTarget {
   type: 'role' | 'position';
@@ -20,13 +20,13 @@ export interface JobTarget {
  */
 const FRESH_MS = 60_000;
 const cache = new Map<string, { at: number; data: JobContentData }>();
-const keyOf = (type: string, id: number, asOf?: string) => `${type}:${id}:${asOf ?? ''}`;
+const keyOf = (type: string, id: number, asOf?: string, scope: JobContentScope = 'hr') => `${scope}:${type}:${id}:${asOf ?? ''}`;
 export function clearJobContentCache() {
   cache.clear();
 }
 
 /** Loads one job's content; `reload` after an edit elsewhere. */
-export function useJobContent(target: JobTarget | null, asOf?: string) {
+export function useJobContent(target: JobTarget | null, asOf?: string, scope: JobContentScope = 'hr') {
   const [data, setData] = useState<JobContentData | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [loading, setLoading] = useState(false);
@@ -37,7 +37,7 @@ export function useJobContent(target: JobTarget | null, asOf?: string) {
   useEffect(() => {
     if (type == null || id == null) return;
     let live = true;
-    const key = keyOf(type, id, asOf);
+    const key = keyOf(type, id, asOf, scope);
     const hit = cache.get(key);
     // `tick` > 0 is an explicit reload: always ask.
     if (hit && tick === 0 && Date.now() - hit.at < FRESH_MS) {
@@ -48,7 +48,7 @@ export function useJobContent(target: JobTarget | null, asOf?: string) {
     }
     setLoading(true);
     setError(null);
-    (type === 'role' ? jobContentApi.forRole(id, asOf) : jobContentApi.forPosition(id, asOf))
+    (type === 'role' ? jobContentApi.forRole(id, asOf) : jobContentApi.forPosition(id, asOf, scope))
       .then((d) => {
         cache.set(key, { at: Date.now(), data: d });
         if (live) setData(d);
@@ -62,7 +62,7 @@ export function useJobContent(target: JobTarget | null, asOf?: string) {
     return () => {
       live = false;
     };
-  }, [type, id, asOf, tick]);
+  }, [type, id, asOf, tick, scope]);
 
   // Content from the previous target must never sit under this target's title.
   const mine =
@@ -71,7 +71,7 @@ export function useJobContent(target: JobTarget | null, asOf?: string) {
       : null;
   /** After an edit that answered with the new content: show it and remember it. */
   const store = (next: JobContentData) => {
-    if (type != null && id != null) cache.set(keyOf(type, id, asOf), { at: Date.now(), data: next });
+    if (type != null && id != null) cache.set(keyOf(type, id, asOf, scope), { at: Date.now(), data: next });
     setData(next);
   };
   return { data: mine, error, loading, reload: () => setTick((t) => t + 1), setData: store };

@@ -30,7 +30,7 @@ import MoreVertRounded from '@mui/icons-material/MoreVertRounded';
 import DoneRounded from '@mui/icons-material/DoneRounded';
 import { Callout, ErrorNotice, FormDialog, SectionCard, useToast } from '@shared/ui';
 import {
-  jobContentApi, type JobContentData, type JobKra, type JobLine, type JobLineKind, type TargetInput,
+  jobContentApi, type JobContentData, type JobContentScope, type JobKra, type JobLine, type JobLineKind, type TargetInput,
 } from '../api/jobContent';
 import { positionsApi } from '../api/positions';
 import { JobContent } from './JobContent';
@@ -179,7 +179,14 @@ export function SeatJobContentEditor({
   embedded = false,
   onOpenRole,
   asOf,
+  scope = 'hr',
 }: {
+  /**
+   * `team`: a manager editing a position BELOW them, on their own chart. The
+   * same four actions through `/user/me/team/…`; nothing here then points at a
+   * role or any other HR screen, because that login cannot open one.
+   */
+  scope?: JobContentScope;
   /**
    * In the org chart's 500px panel: no card round it, tighter lines, sections
    * folded until opened. Same data, same four actions, same endpoints.
@@ -201,7 +208,8 @@ export function SeatJobContentEditor({
   // One vocabulary everywhere: the thing being edited is a position. `t` stays so the strings below read unchanged.
   const t = (text: string) => text;
   const toast = useToast();
-  const { data, error, loading, reload, setData } = useJobContent({ type: 'position', id: positionId }, asOf);
+  const { data, error, loading, reload, setData } = useJobContent({ type: 'position', id: positionId }, asOf, scope);
+  const team = scope === 'team';
   const [editing, setEditing] = useState(startEditing && canManage);
   const [dialog, setDialog] = useState<DialogState>(null);
   const [menu, setMenu] = useState<{ anchor: HTMLElement; line: JobLine } | null>(null);
@@ -235,7 +243,7 @@ export function SeatJobContentEditor({
     if (line.definitionId == null) return;
     try {
       done(
-        await jobContentApi.seatUndo(positionId, { kind: line.kind, definitionId: line.definitionId }),
+        await jobContentApi.seatUndo(positionId, { kind: line.kind, definitionId: line.definitionId }, scope),
         line.mark === 'ADDED' ? t('Removed from this position.') : 'Back to what the role says.',
       );
     } catch (e) {
@@ -254,7 +262,7 @@ export function SeatJobContentEditor({
         target: dialog.kind === 'KPI' && target.value.trim() ? targetOf(target, 'TEXT') : null,
         reason: why,
       };
-      done(await jobContentApi.seatAdd(positionId, body), t('Added for this position only.'));
+      done(await jobContentApi.seatAdd(positionId, body, scope), t('Added for this position only.'));
     } else if (dialog.mode === 'change') {
       const { line } = dialog;
       if (line.definitionId == null) return;
@@ -267,14 +275,14 @@ export function SeatJobContentEditor({
           ...(reworded ? { text: text.trim() } : {}),
           ...(retargeted ? { target: targetOf(target, line.measurementType) } : {}),
           reason: why,
-        }),
+        }, scope),
         t('Changed for this position only.'),
       );
     } else {
       const { line } = dialog;
       if (line.definitionId == null) return;
       done(
-        await jobContentApi.seatSwitchOff(positionId, { kind: line.kind, definitionId: line.definitionId, reason: why }),
+        await jobContentApi.seatSwitchOff(positionId, { kind: line.kind, definitionId: line.definitionId, reason: why }, scope),
         t('Switched off for this position.'),
       );
     }
@@ -318,7 +326,7 @@ export function SeatJobContentEditor({
     </Stack>
   );
 
-  const roleLink = data?.roleId && onOpenRole ? (
+  const roleLink = team ? null : data?.roleId && onOpenRole ? (
     <Box
       component="button"
       type="button"
@@ -391,7 +399,7 @@ export function SeatJobContentEditor({
                     <Typography sx={{ fontSize: 13 }}>
                       {x.action === 'ADD' ? 'Added' : x.action === 'SUPPRESS' ? 'Switched off' : 'Changed'}: {x.name ?? 'a KRA'}
                     </Typography>
-                    {canManage && (
+                    {canManage && !team && (
                       <Button
                         size="small"
                         onClick={async () => {

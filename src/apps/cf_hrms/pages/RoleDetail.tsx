@@ -40,6 +40,8 @@ import {
 } from '../api/roles';
 import { RoleFormDialog } from '../components/RoleFormDialog';
 import { RolePositionsTab } from '../components/RolePositionsTab';
+import { LEAVE_VIEW } from '../api/leave';
+import { RoleLeavePolicy } from '../components/LeavePolicyLine';
 import { RoleContentTab } from '../components/RoleContentTab';
 import { RoleContentSection } from '../components/RoleContentSection';
 import { ContentCopySheet, type ContentCopyStart } from '../components/ContentCopySheet';
@@ -161,6 +163,8 @@ export default function RoleDetail() {
           <FactItem label="Responsibilities" value={role.responsibilityCount} />
           <FactItem label="KPIs" value={role.kpiCount} />
           <FactItem label="Positions using it" value={role.positionCount} />
+          {/* The role's own leave policy, or that it follows the location; changed from here. */}
+          {can(LEAVE_VIEW) && <FactItem label="Leave policy" value={<RoleLeavePolicy roleId={role.id} roleTitle={role.title} company={company} />} />}
           <FactItem
             label="Effective"
             value={role.effectiveFrom ? `${role.effectiveFrom}${role.effectiveTo ? ` → ${role.effectiveTo}` : ''}` : '—'}

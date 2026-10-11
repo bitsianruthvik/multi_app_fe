@@ -6,7 +6,9 @@ import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
 import OpenInNewRounded from '@mui/icons-material/OpenInNewRounded';
 import PersonRounded from '@mui/icons-material/PersonRounded';
 import PersonOutlineRounded from '@mui/icons-material/PersonOutlineRounded';
-import { ErrorNotice, Mono, StatusBadge, ToneBadge, useIsPermitted } from '@shared/ui';
+import { ErrorNotice, Mono, StatusBadge, ToneBadge, useCompanySlug, useIsPermitted } from '@shared/ui';
+import { LEAVE_VIEW } from '../api/leave';
+import { PositionLeavePolicy } from './LeavePolicyLine';
 import type { CardReportingRow, OrgChartNode, PositionCard } from '../api/orgchart';
 import { joiningLabel, type JoiningRef } from '../api/hiring';
 import { noticeLabel } from '../api/people';
@@ -88,7 +90,7 @@ export function PositionListRow({
   /** The person in it; null = vacant. */
   name: string | null;
   /** A vacant position with a hiring open: the candidate (or "Hiring"), still drawn as a vacancy. */
-  hiring?: { candidateName: string | null } | null;
+  hiring?: { candidateName: string | null; statusLine?: string | null } | null;
   /** A vacant position somebody is appointed to and has not joined yet. */
   joining?: JoiningRef | null;
   /** The person in it is on notice: still here, with a last working day. */
@@ -100,8 +102,9 @@ export function PositionListRow({
   onClick: () => void;
 }) {
   const coming = !name && joining ? joiningLabel(joining) : null;
-  const beingHired = !name && !coming && hiring ? hiring.candidateName?.trim() || 'Hiring' : null;
-  const said = name ?? (coming ? `Vacant, ${coming}` : beingHired ? `Vacant, hiring ${beingHired === 'Hiring' ? 'in progress' : beingHired}` : 'Vacant');
+  // With a hiring open the row says where it stands, in the server's words, not "Vacant".
+  const beingHired = !name && !coming && hiring ? hiring.statusLine?.trim() || hiring.candidateName?.trim() || 'Hiring' : null;
+  const said = name ?? (coming ? `Vacant, ${coming}` : beingHired ? `Vacant, ${beingHired}` : 'Vacant');
   const label = `${said}${shift ? `, ${shift} shift` : ''}${code ? `, position ${code}` : ''}. Open this position.`;
   return (
     <Box
@@ -157,14 +160,7 @@ export function PositionListRow({
           {noticeLabel(notice)}
         </Box>
       )}
-      {beingHired && beingHired !== 'Hiring' && (
-        <Box
-          data-hiringlabel=""
-          sx={{ fontSize: 11, px: 0.75, borderRadius: 'var(--r-sm)', background: 'var(--c-surface-3)', color: 'var(--c-text-2)', flexShrink: 0 }}
-        >
-          Hiring
-        </Box>
-      )}
+
       {shift && <Box sx={{ fontSize: 12, color: 'var(--c-text-2)', flexShrink: 0 }}>{shift}</Box>}
       {code && <Mono sx={{ fontSize: 11.5, flexShrink: 0 }}>{code}</Mono>}
       <ChevronRightRounded aria-hidden sx={{ fontSize: 18, color: 'var(--c-text-3)', flexShrink: 0 }} />
@@ -208,6 +204,8 @@ export function PositionFacts({
     (node ? { id: null, code: node.shiftPattern, name: shiftNameOf(node) } : null);
   const occupant = node?.occupants?.[0]?.name ?? card?.occupants?.[0]?.name ?? null;
 
+  const canSeeLeave = useIsPermitted()(LEAVE_VIEW);
+  const companySlug = useCompanySlug();
   const facts: { label: string; value: ReactNode }[] = [
     {
       label: 'Position',
@@ -253,6 +251,10 @@ export function PositionFacts({
     },
     { label: 'Department', value: node?.departmentName ?? card?.departmentName ?? '—' },
     { label: 'Location', value: node?.locationName ?? card?.locationName ?? '—' },
+    // Read-only here: a position's leave policy is decided by its role, its location or the company.
+    ...(canSeeLeave
+      ? [{ label: 'Leave policy', value: <PositionLeavePolicy positionId={positionId} effective={card?.leavePolicy} company={companySlug} /> }]
+      : []),
     { label: 'As at', value: asOf },
   ];
   return (

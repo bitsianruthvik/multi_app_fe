@@ -12,6 +12,7 @@
  * employee cannot open. This is the only module `MyPlace.tsx` may import.
  */
 import { api } from './client';
+import type { Effective, Rule } from './leave';
 
 /** How this line should be drawn. `is_formal` on the relationship type decides. */
 export type LineStyle = 'SOLID' | 'DOTTED';
@@ -173,6 +174,8 @@ export interface SelfSeat {
     startTime: string | null;
     endTime: string | null;
     crossesMidnight: boolean;
+    /** The shift's days and hours in one line (§6.2). Absent from an older server. */
+    summary?: string | null;
   } | null;
   workContexts: { id: number; name: string; contextType: string; isPrimary: boolean }[];
   reportsTo: SelfReportingLine[];
@@ -224,6 +227,13 @@ export interface MyPlace {
     responsibilityCount: number;
   };
   pii: { included: boolean; note: string | null };
+  /**
+   * The signed-in person's own leave policy (§8.3): which one, from where, and
+   * what it grants. The contract says "plus the policy's rules with their
+   * summaries" without naming the field, so both likely places are read.
+   */
+  leavePolicy?: (Effective & { rules?: Pick<Rule, 'leaveTypeName' | 'summary' | 'isPaid'>[] }) | null;
+  leaveRules?: Pick<Rule, 'leaveTypeName' | 'summary' | 'isPaid'>[];
 }
 
 /** The signed-in person's own place. The only call this screen makes. */
@@ -295,7 +305,22 @@ export interface SliceNode {
   contexts: { name: string; contextType: string | null; isPrimary: boolean }[];
   occupants: SliceOccupant[];
   relation: SliceRelation;
+  /**
+   * True only for a position BELOW the signed-in person (§7.2): they may change
+   * its responsibilities, KPIs and shift. The server decides and checks again
+   * on every write; absent from an older server, read as false.
+   */
+  canEdit?: boolean;
 }
+
+/** A shift a manager may put a team position on (§7.2). */
+export interface TeamShift { id: number; code: string | null; name: string; summary?: string | null }
+
+/** The company's active shifts, for a manager changing a team position's shift. */
+export const getTeamShifts = () => api.get<{ shifts: TeamShift[] }>('/user/me/team/shifts').then((r) => r.shifts ?? []);
+/** Changes the shift of a position below the signed-in person. 403 NOT_YOUR_TEAM for any other. */
+export const setTeamPositionShift = (positionId: number, shiftId: number) =>
+  api.put<unknown>(`/user/me/team/positions/${positionId}/shift`, { shiftId });
 
 export interface SliceEdge {
   /** The subordinate seat. */

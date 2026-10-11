@@ -3,7 +3,8 @@ import { Box, Stack, Tooltip, Typography } from '@mui/material';
 import { DataTable, EmptyState, Mono, StatusBadge } from '@shared/ui';
 import type { DataColumn } from '@shared/ui';
 import type { OrgChartEdge } from '../api/orgchart';
-import { rowsOf, vacantRowText, type ChartModel, type ShiftFilter } from './orgChartLayout';
+import { rowsOf, type ChartModel, type ShiftFilter } from './orgChartLayout';
+import { vacantLabel } from '../api/hiring';
 import { noticeLabel } from '../api/people';
 
 /**
@@ -26,7 +27,7 @@ interface Row {
   role: string;
   person: string;
   vacant: boolean;
-  /** Vacant, with a hiring open: the candidate, or "Hiring". Empty otherwise. */
+  /** Vacant, with a hiring open: the server's status line; or who is joining and when. Empty otherwise. */
   hiring: string;
   /** That text is "Joins 23 Oct · name", which says it all and needs no label. */
   joining: boolean;
@@ -92,7 +93,7 @@ export function OrgChartTable({
             role: card.displayTitle || card.title,
             person: r.occupant ? r.occupant.name?.trim() || 'Name not recorded' : '',
             vacant: !r.occupant,
-            hiring: !r.occupant && (r.hiring || r.joining) ? vacantRowText(r) : '',
+            hiring: !r.occupant ? (vacantLabel(r) ?? '') : '',
             joining: !r.occupant && !!r.joining,
             notice: r.occupant?.notice ? noticeLabel(r.occupant.notice) : '',
             shift: r.shiftName,
@@ -156,14 +157,7 @@ export function OrgChartTable({
         render: (r) =>
           r.hiring ? (
             // Still vacant — only quieter than a person, with one small word saying why.
-            <Stack direction="row" spacing={0.75} alignItems="center" sx={{ minWidth: 0 }}>
-              <Typography sx={{ fontSize: 13.5, color: 'var(--c-text-2)', fontStyle: 'italic' }}>{r.hiring}</Typography>
-              {r.hiring !== 'Hiring' && !r.joining && (
-                <Box component="span" sx={{ fontSize: 11, px: 0.75, borderRadius: 'var(--r-sm)', background: 'var(--c-surface-3)', color: 'var(--c-text-2)' }}>
-                  Hiring
-                </Box>
-              )}
-            </Stack>
+            <Typography sx={{ fontSize: 13.5, color: 'var(--c-text-2)', fontStyle: 'italic' }}>{r.hiring}</Typography>
           ) : r.vacant ? (
             // A vacancy is a fact, not an alarm: muted, never a warning colour.
             <Typography sx={{ fontSize: 13.5, color: 'var(--c-text-2)', fontStyle: 'italic' }}>Vacant</Typography>
@@ -179,7 +173,7 @@ export function OrgChartTable({
           ),
         // Vacant rows sort together, after the names.
         sortValue: (r) => (r.vacant ? '￿' : r.person),
-        exportValue: (r) => (r.joining ? `Vacant (${r.hiring})` : r.hiring ? (r.hiring === 'Hiring' ? 'Vacant (hiring)' : `Vacant (hiring ${r.hiring})`) : r.vacant ? 'Vacant' : r.notice ? `${r.person} (${r.notice})` : r.person),
+        exportValue: (r) => (r.hiring ? `Vacant (${r.hiring})` : r.vacant ? 'Vacant' : r.notice ? `${r.person} (${r.notice})` : r.person),
       },
       {
         key: 'shift',

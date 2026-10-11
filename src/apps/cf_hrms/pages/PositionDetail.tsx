@@ -25,6 +25,8 @@ import { PositionShiftControl } from '../components/PositionShiftControl';
 import { HiringEntry } from '../components/HiringEntry';
 import { joiningSentence, vacantLabel } from '../api/hiring';
 import { NoticeChip } from '../components/Leaving';
+import { LEAVE_VIEW } from '../api/leave';
+import { PositionLeavePolicy } from '../components/LeavePolicyLine';
 import { PositionReportingDialog } from '../components/ReportingDialogs';
 import { ReportingRowList } from '../components/ReportingRows';
 import { usePositionRemoval } from '../components/usePositionRemoval';
@@ -219,6 +221,10 @@ export default function PositionDetail() {
               <FactItem label="Location" value={position.locationName ?? 'Not set'} />
               <FactItem label="Person" value={personFact} />
               <FactItem label="Shift" value={shiftFact} />
+              {/* Decided by the role, the location or the company — shown here, changed there. */}
+              {can(LEAVE_VIEW) && (
+                <FactItem label="Leave policy" value={<PositionLeavePolicy positionId={position.id} effective={position.leavePolicy} company={company} />} />
+              )}
               <FactItem label="Status" value={<StatusBadge status={position.status} map={STATUS_TONES} />} />
               <FactItem label="Effective" value={<Mono>{position.effectiveFrom ?? '—'}{position.effectiveTo ? ` → ${position.effectiveTo}` : ''}</Mono>} />
             </Stack>

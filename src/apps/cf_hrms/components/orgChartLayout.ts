@@ -39,6 +39,8 @@ export const TLH = 16;
 export const CAPH = 13;
 export const ROWH = 19;
 export const ROWG = 2;
+/** The extra height of a row that carries a second line (notice, hiring status, joining date). */
+export const SUBH = 12;
 export const HG = 26;
 export const VG = 52;
 export const IND = 24;
@@ -515,11 +517,34 @@ export interface BoxRow {
   joining?: JoiningRef | null;
 }
 
-/** What a row with nobody in it says: who joins and when, the candidate being hired, "Hiring", or "Vacant". */
+/**
+ * The FIRST line of a row with nobody in it: who is joining, who is being
+ * hired ("Hiring" until a candidate is named), or "Vacant". What is happening
+ * to the position is the row's second line (`rowSub`).
+ */
 export function vacantRowText(r: { hiring?: HiringRef | null; joining?: JoiningRef | null }, vacantWord = 'Vacant'): string {
-  if (r.joining) return joiningLabel(r.joining);
+  if (r.joining) return r.joining.name;
   if (!r.hiring) return vacantWord;
   return r.hiring.candidateName?.trim() || 'Hiring';
+}
+
+/**
+ * A row's SECOND line, when it has something to say besides who is in it:
+ *
+ *   on notice      "Notice · 10 Nov"                 (warning tone; the person is still here)
+ *   being hired    the server's status line, whole   ("Offer sent to Pabitra Kumar Panda")
+ *   joining        "Joins 23 Oct"
+ *
+ * It has its own line so the name above keeps the row's full width — beside
+ * the name it cut "Abhishek Dubey" to "Abhishe…". The hiring line is the
+ * server's sentence, never rebuilt here; the canvas shortens it with an
+ * ellipsis and the row's tooltip and accessible name carry it whole.
+ */
+export function rowSub(r: BoxRow): { text: string; tone: 'notice' | 'quiet' } | null {
+  if (r.occupant) return r.occupant.notice ? { text: noticeLabel(r.occupant.notice), tone: 'notice' } : null;
+  if (r.joining) return { text: joiningLabel(r.joining).split(' · ')[0], tone: 'quiet' };
+  if (r.hiring?.statusLine) return { text: r.hiring.statusLine, tone: 'quiet' };
+  return null;
 }
 
 function inShift(n: OrgChartNode, filter: ShiftFilter): boolean {
@@ -661,6 +686,11 @@ export interface BoxInfo {
   rows: BoxRow[];
   /** Width of the shift column at the left of every row (0 when there are no rows). */
   shiftW: number;
+  /**
+   * The height of EVERY row of this card: taller when any of them has a second
+   * line, so the rows of one card stay the same height and line up.
+   */
+  rowH: number;
   h: number;
 }
 
@@ -706,9 +736,10 @@ export function boxInfo(
 
   let h = PAD + titleLines.length * TLH + captions.length * CAPH + chips.length * CHIPH;
   const top = titleLines.length + captions.length + chips.length > 0;
-  if (rows.length) h += (top ? 7 : 0) + rows.length * (ROWH + ROWG) - ROWG;
+  const rowH = rows.some((r) => rowSub(r)) ? ROWH + SUBH : ROWH;
+  if (rows.length) h += (top ? 7 : 0) + rows.length * (rowH + ROWG) - ROWG;
   h += PAD + 2;
-  return { titleLines, captions, chips, rows, shiftW, h };
+  return { titleLines, captions, chips, rows, shiftW, rowH, h };
 }
 
 // ── Layout: two passes ──────────────────────────────────────────────────────
@@ -1955,17 +1986,9 @@ export interface SceneOptions extends LayoutOptions {
 function rowTone(
   r: BoxRow,
   p: ChartPalette,
-): { bar: string; fill: string; text: string; status: string; statusFill?: string } {
-  // On notice: the row keeps its own colours — the person is still here — and the
-  // word at its end becomes "Notice · 10 Nov", in the warning tone, colours on or off.
-  const notice = r.occupant?.notice ? { status: noticeLabel(r.occupant.notice), statusFill: p.noticeText } : null;
-  if (notice && r.occupant) {
-    if (r.occupant.attendanceStatus === 'ABSENT') return { bar: p.absent, fill: p.absentFill, text: p.absentText, ...notice };
-    if (r.occupant.attendanceStatus === 'PRESENT') return { bar: p.present, fill: p.presentFill, text: p.presentText, ...notice };
-    return { bar: p.faint, fill: p.surface2, text: p.ink, ...notice };
-  }
+): { bar: string; fill: string; text: string; status: string } {
   // Being hired for: still the vacancy's colours — it IS vacant — with one small word.
-  if (!r.occupant) return { bar: p.vacant, fill: p.vacantFill, text: p.vacantText, status: r.hiring && !r.joining ? 'Hiring' : '' };
+  if (!r.occupant) return { bar: p.vacant, fill: p.vacantFill, text: p.vacantText, status: '' };
   if (r.occupant.attendanceStatus === 'ABSENT')
     return { bar: p.absent, fill: p.absentFill, text: p.absentText, status: 'Absent' };
   if (r.occupant.attendanceStatus === 'PRESENT')
@@ -2446,14 +2469,15 @@ export function buildScene(model: ChartModel, opts: SceneOptions): ChartScene {
             : r.joining
               ? `Vacant, ${joiningLabel(r.joining)}`
               : r.hiring
-                ? `Vacant, hiring${r.hiring.candidateName?.trim() ? ` ${r.hiring.candidateName.trim()}` : ' in progress'}`
+                // The whole status line, however the canvas had to shorten it.
+                ? `Vacant, ${r.hiring.statusLine || 'hiring in progress'}`
                 : 'Vacant';
           rowHits.push({
             positionId: r.positionId,
             x: x + PAD,
             y: cy,
             w: W - 2 * PAD,
-            h: ROWH,
+            h: I.rowH,
             label: `${who}, ${r.shiftName} shift${r.positionCode ? `, position ${r.positionCode}` : ''}. Open this position.`,
           });
         }
@@ -2461,15 +2485,15 @@ export function buildScene(model: ChartModel, opts: SceneOptions): ChartScene {
         const rw = W - 2 * PAD;
         const base = cy + 13.5;
         if (opts.colours) {
-          prims.push({ k: 'rect', x: rx, y: cy, w: rw, h: ROWH, r: 4, fill: tone.fill });
-          prims.push({ k: 'rect', x: rx, y: cy, w: 3.5, h: ROWH, fill: tone.bar });
+          prims.push({ k: 'rect', x: rx, y: cy, w: rw, h: I.rowH, r: 4, fill: tone.fill });
+          prims.push({ k: 'rect', x: rx, y: cy, w: 3.5, h: I.rowH, fill: tone.bar });
         } else {
           prims.push({
             k: 'rect',
             x: rx,
             y: cy,
             w: rw,
-            h: ROWH,
+            h: I.rowH,
             r: 4,
             fill: r.occupant ? p.surface2 : 'none',
             stroke: r.occupant ? undefined : p.border,
@@ -2503,13 +2527,26 @@ export function buildScene(model: ChartModel, opts: SceneOptions): ChartScene {
         if (r.occupant) {
           const who = r.occupant.sameAs ?? (r.occupant.employeeId > 0 ? `e${r.occupant.employeeId}` : null);
           if (who) {
-            const at = { id, x, y: cy + ROWH / 2 };
+            const at = { id, x, y: cy + I.rowH / 2 };
             const list = rowsOfPerson.get(who);
             if (list) list.push(at);
             else rowsOfPerson.set(who, [at]);
           }
         }
-        const statusW = tone.status ? Math.max(48, Math.ceil(textWidth(tone.status, f.rowSmall)) + 12) : 4;
+        const statusW = tone.status ? 48 : 4;
+        // The second line: under the name, starting where the name starts, the row's full width.
+        const sub = rowSub(r);
+        if (sub) {
+          prims.push({
+            k: 'text',
+            x: tx,
+            y: base + SUBH,
+            text: fitText(sub.text, f.rowSmall, rx + rw - tx - 5),
+            size: 11,
+            weight: sub.tone === 'notice' ? 500 : 400,
+            fill: sub.tone === 'notice' ? p.noticeText : opts.colours ? tone.text : p.muted,
+          });
+        }
         prims.push({
           k: 'text',
           x: tx,
@@ -2528,11 +2565,11 @@ export function buildScene(model: ChartModel, opts: SceneOptions): ChartScene {
             text: tone.status,
             size: 11,
             weight: 500,
-            fill: tone.statusFill ?? (opts.colours ? tone.text : p.muted),
+            fill: opts.colours ? tone.text : p.muted,
             anchor: 'end',
           });
         }
-        cy += ROWH + ROWG;
+        cy += I.rowH + ROWG;
       }
     }
 

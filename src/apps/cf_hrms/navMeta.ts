@@ -161,6 +161,9 @@ export const SECTIONS: NavSection[] = [
       { key: 'attendance', label: 'Attendance', path: 'attendance', permission: ATTENDANCE, countKey: 'attendanceToMark', keywords: ['present', 'absent', 'regularisation', 'muster'] },
       { key: 'roster', label: 'Roster', path: 'roster', permission: ATTENDANCE, keywords: ['shift allocation', 'duty', 'day night'] },
       { key: 'leave-requests', label: 'Leave', path: 'leave-requests', hasDetail: true, permission: LEAVE, countKey: 'pendingLeave', keywords: ['apply', 'approval', 'absence', 'requests'] },
+      // What leave people get, and who gets which policy. A settings screen, but it sits with
+      // Leave because that is where somebody looks for "how many days do they get".
+      { key: 'leave-policies', label: 'Leave policies', path: 'leave-policies', hasDetail: true, permission: LEAVE, keywords: ['casual leave', 'sick leave', 'earned leave', 'entitlement', 'carry forward', 'encash', 'maternity', 'days a year', 'policy'] },
       { key: 'leave-balances', label: 'Leave balances', path: 'leave-balances', permission: LEAVE, keywords: ['entitlement', 'accrued', 'used'] },
       { key: 'manpower', label: 'Manpower', path: 'manpower', permission: ATTENDANCE, keywords: ['requirement', 'shortage', 'gap', 'required count'] },
     ],

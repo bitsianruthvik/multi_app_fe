@@ -15,6 +15,7 @@ import {
   type CloseReason, type Hiring, type HiringFile, type HiringInput, type HiringStage, type LetterMeta,
 } from '../api/hiring';
 import { HiringCloseDialog } from './HiringCloseDialog';
+import { HiringSignedCopy } from './HiringSignedCopy';
 import { HiringJobDescription } from './HiringJobDescription';
 import { usePositionRemoval } from './usePositionRemoval';
 
@@ -757,6 +758,13 @@ export function HiringFlow({
                 onDownload={() => void download(`letter-${appointmentLetter.id}`, () => hiringApi.letterFile(hiring.id, appointmentLetter.id))}
               />
             )}
+            <HiringSignedCopy
+              hiringId={hiring.id}
+              kind="appointment"
+              signed={hiring.signed?.appointment ?? null}
+              canUpload={!!hiring.can.uploadSignedAppointment}
+              onChanged={(h) => adopt(h)}
+            />
             <Unfilled items={unfilled.APPOINTMENT} />
             <Typography data-annexure="" sx={{ fontSize: 13.5, color: 'var(--c-text-2)' }}>
               Attach the compensation annexure (Annexure-A) by hand.
@@ -994,6 +1002,16 @@ export function HiringFlow({
                   ))}
                 </Stack>
               )}
+              {/* The offer as the candidate signed it. A file on record; it accepts nothing by itself. */}
+              {offerLetters.length > 0 && (
+                <HiringSignedCopy
+                  hiringId={hiring.id}
+                  kind="offer"
+                  signed={hiring.signed?.offer ?? null}
+                  canUpload={!!hiring.can.uploadSignedOffer}
+                  onChanged={(h) => adopt(h)}
+                />
+              )}
               <Unfilled items={unfilled.OFFER} />
 
               {(hiring.can.generateOffer || (hiring.can.edit && !hiring.offerAccepted && states.offer === 'current')) && (
@@ -1016,6 +1034,12 @@ export function HiringFlow({
               {(hiring.can.acceptOffer || (hiring.can.close && currentOffer)) && (
                 <Box sx={{ pt: 1.5, borderTop: '1px solid var(--c-divider)' }}>
                   <Typography sx={{ ...groupLabel, mb: 1 }}>What did the candidate say?</Typography>
+                  {hiring.signed?.offer && hiring.can.acceptOffer && (
+                    <Typography data-signedhint="" sx={{ fontSize: 13, color: 'var(--c-text-2)', lineHeight: 1.5, mb: 1 }}>
+                      A signed copy of the offer is on file. If that is their yes, record it here — the upload alone
+                      does not accept the offer.
+                    </Typography>
+                  )}
                   <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
                     {hiring.can.acceptOffer && (
                       <Button
@@ -1069,6 +1093,20 @@ export function HiringFlow({
             </Typography>
           ) : (
             <Stack spacing={1.5} sx={{ pt: 1.5 }}>
+              {/* The wait between the yes and the first day can be weeks. Nothing happens in it
+                  by itself: no employee, no code, no letter — until the button below is pressed
+                  and confirmed. Opening this screen or changing a date sends nothing. */}
+              <Box data-waiting="" sx={{ borderLeft: '3px solid var(--c-info-600)', background: 'var(--c-info-50)', px: 1.5, py: 1 }}>
+                <Typography sx={{ fontSize: 14, fontWeight: 600, color: 'var(--c-info-800)' }}>
+                  Nothing has been created yet. Come back here on the day they join.
+                </Typography>
+                <Typography sx={{ fontSize: 13, lineHeight: 1.55 }}>
+                  {candidate ?? 'The candidate'} accepted
+                  {hiring.offerAcceptedOn ? ` on ${niceDate(hiring.offerAcceptedOn)}` : ''} and is not an employee yet.
+                  The employee, the employee code and the appointment letter are made only when you press the button
+                  below and confirm. The dates here are not saved until then.
+                </Typography>
+              </Box>
               <Box sx={{ ...fieldGrid, maxWidth: 520 }}>
                 <TextField
                   size="small"
