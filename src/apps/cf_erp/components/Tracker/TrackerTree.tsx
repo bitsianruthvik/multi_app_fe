@@ -11,6 +11,7 @@ import {
   type TreeState, type VisibleRow,
 } from '../../lib/trackerTree';
 import { EmptyState, ErrorNotice, Mono, SkeletonRows, Surface } from '../ui';
+import { ViewDrawingButton } from '../Drawings/RowDrawingViewer';
 import { FilterBar } from '../FilterBar';
 import { BlockedMark, CompletionBar, OpLegend, OpStrip } from './TreeParts';
 import { PieceDrawer } from './PieceDrawer';
@@ -93,6 +94,9 @@ function Row({ row, parent, wide, height, busy, names, onToggle, onOpen }: {
               {node.name}{node.kind === 'piece' && node.qty && node.qty !== 1 ? ` ×${node.qty}` : ''}
               {hasChildren && node.kind === 'piece' ? ` · ${node.childCount}` : ''}
             </Typography>
+          )}
+          {node.kind === 'piece' && node.orderId != null && node.lineId != null && node.itemId != null && (
+            <ViewDrawingButton icon label="View drawing" target={{ orderId: node.orderId, lineId: node.lineId, rowId: node.itemId, label: node.code }} />
           )}
         </Box>
       </Box>

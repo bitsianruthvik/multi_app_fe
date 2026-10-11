@@ -51,6 +51,8 @@ import { NestMoney } from './NestMoney';
 import { CutPiecesButton } from './CutPiecesDialog';
 import { NestRunCard, NestRunLog } from './NestRunCard';
 import { SectionNestingPanel } from './SectionNestingPanel';
+import { CutPlateDrawingButton } from '../Drawings/RowDrawingViewer';
+import { LineDrawingContext } from '../../hooks/lineDrawingContext';
 
 /**
  * THE NESTING SCREEN — a sales order line's rectangles laid out on real plates.
@@ -271,6 +273,7 @@ function PlateCard({ nest, group, colourOf, onCnc, onRemove, onCustomerFile, fre
                   {colourOf && <Box sx={{ width: 10, height: 10, borderRadius: '3px', background: colourOf(k.cutPlateId), flexShrink: 0 }} />}
                   <Mono sx={{ overflowWrap: 'anywhere' }}>{k.cutPlateCode}</Mono>
                   <Box sx={{ fontSize: 12, color: 'var(--c-text-2)', flexShrink: 0 }}>{`×${k.count}`}</Box>
+                  <CutPlateDrawingButton cutPlateId={k.cutPlateId} label={k.cutPlateCode} />
                 </Box>
               ))}
             </Box>
@@ -1116,6 +1119,7 @@ function PlateNestingPanel({ orderId, lineId, canManage, canEditCatalog = false,
                       <Box sx={{ display: 'flex', gap: 0.75, alignItems: 'center', minWidth: 0 }}>
                         <Box sx={{ width: 10, height: 10, borderRadius: '3px', background: colourOf(cp.id), flexShrink: 0 }} />
                         <Mono sx={{ overflowWrap: 'anywhere' }}>{cp.code ?? cp.name}</Mono>
+                        <CutPlateDrawingButton cutPlateId={cp.id} label={cp.code ?? cp.name} />
                       </Box>
                       <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)', overflowWrap: 'anywhere' }}>
                         {`${mmPair(cp.length, cp.width)} · ${mm(cp.thickness)} mm ${cp.grade ?? ''} ${cp.material ?? ''}`.trim()}
@@ -1226,7 +1230,9 @@ export function NestingPanel(props: {
 }) {
   return (
     <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 2, minWidth: 0 }}>
-      <PlateNestingPanel {...props} />
+      <LineDrawingContext.Provider value={{ orderId: props.orderId, lineId: props.lineId }}>
+        <PlateNestingPanel {...props} />
+      </LineDrawingContext.Provider>
       <SectionNestingPanel orderId={props.orderId} lineId={props.lineId} canManage={props.canManage} onChanged={props.onChanged} />
     </Box>
   );

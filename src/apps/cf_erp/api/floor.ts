@@ -32,6 +32,7 @@ export const toStep = (r: Loose): FloorStep => {
     id: num(r.stepId ?? r.step?.id ?? r.id), pieceCode: String(s.pieceCode ?? ''), pieceName: String(s.pieceName ?? s.pieceCode ?? ''),
     operation: String(s.operation ?? s.operationName ?? ''), qtyLeft: num(s.qtyLeft), qtyTotal: num(s.qtyTotal), orderCode: str(s.orderCode),
     state: str(s.state), ready: s.ready !== false, why: str(s.why), pausedSessionId: numOrNull(s.pausedSessionId),
+    orderId: numOrNull(s.orderId), lineId: numOrNull(s.lineId), itemId: numOrNull(s.itemId),
   };
 };
 export const toRunning = (r: Loose): FloorRunning => {

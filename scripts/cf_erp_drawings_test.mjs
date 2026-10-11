@@ -212,6 +212,7 @@ await writeFile(stub, [
   'export const uploadDrawings = async (o, l, files, dryRun) => { (globalThis.__calls ??= []).push({ o, l, files, dryRun }); return globalThis.__reply(files, dryRun); };',
   'export const deleteDrawing = async () => null; export const startDrawing = async () => null;',
   'export const downloadDrawing = async () => {}; export const downloadRegisterFile = async () => {};',
+  'export const fetchDrawingBlob = async () => new Blob([]); export const blobAsText = async () => "";',
 ].join('\n'));
 const domBuilt = await build({
   alias: { '@shared/ui': resolve('src/shared/ui/SheetGrid.tsx') },

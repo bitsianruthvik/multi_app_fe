@@ -18,6 +18,7 @@ import { ProgressDialog, StartStepDialog } from '../TrackerDialogs';
 import { PromptDialog } from '../PromptDialog';
 import { useToast } from '../toastContext';
 import { OpStrip } from './TreeParts';
+import { ViewDrawingButton } from '../Drawings/RowDrawingViewer';
 
 const linkSx = { color: 'inherit', textDecoration: 'none', '&:hover': { color: 'var(--c-primary-700)', textDecoration: 'underline' } };
 const refusal = (e: unknown) => (e instanceof CfApiError ? [e.message, ...e.problems].join(' ') : e instanceof Error ? e.message : String(e));
@@ -125,6 +126,9 @@ export function PieceDrawer({ nodeId, basisNote, onClose, onChanged, focusStepId
             )}
             {data.steps.length === 0 && <Typography sx={{ fontSize: 13, color: 'var(--c-text-3)' }}>This piece has no steps of its own.</Typography>}
             {data.steps.map((s) => <StepCard key={s.id} step={s} canProduce={canProduce} focused={!!focusStepIds?.includes(s.id)} onAct={act} />)}
+            {node.kind === 'piece' && data.order && data.line && node.itemId != null && (
+              <Box><ViewDrawingButton label="View drawing" target={{ orderId: data.order.id, lineId: data.line.id, rowId: node.itemId, label: node.code }} /></Box>
+            )}
             {node.itemId && (
               <Typography sx={{ fontSize: 12.5 }}>
                 <Box component={Link} to={appPath(company, `items/${node.itemId}`)} sx={{ ...linkSx, color: 'var(--c-primary-700)' }}>Open the item</Box>

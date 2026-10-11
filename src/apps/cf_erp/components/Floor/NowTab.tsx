@@ -9,7 +9,8 @@ import { endStop, finishWork, pauseWork, resumeWork, startWork, stopMachine } fr
 import type { FloorDay, FloorMachine, FloorOperator, FloorQueue, FloorReason, FloorRunning, FloorStep, FloorStop } from '../../api/types';
 import { BigButton, Calm, Choice, ChoiceRow, Sheet, Stepper, TapCard } from './floorUi';
 import { useNow } from './useNow';
-import { duration, errText, pieceLine, hhmm, idleSince, at, PRIMARY_H, timer } from './floorModel';
+import { drawingTarget, duration, errText, pieceLine, hhmm, idleSince, at, PRIMARY_H, timer } from './floorModel';
+import { ViewDrawingButton } from '../Drawings/RowDrawingViewer';
 import { ReasonSheet } from './ReasonSheet';
 
 export interface TabProps {
@@ -48,6 +49,7 @@ function RunningCard({ job, busy, onPause, onDone }: { job: FloorRunning; busy: 
           <Box sx={{ fontSize: 17, fontWeight: 600, color: 'var(--c-text-2)' }}>{job.qtyLeft} left</Box>
         </Box>
       </Box>
+      <ViewDrawingButton large target={drawingTarget(job)} sx={{ alignSelf: 'flex-start' }} />
       <Box sx={{ display: 'flex', gap: 1.5 }}>
         <BigButton variant="outlined" startIcon={<PauseRounded />} onClick={onPause} disabled={busy} fullWidth label={`Pause ${job.operation} ${job.pieceName}`}>Pause</BigButton>
         <BigButton tone="success" startIcon={<CheckRounded />} onClick={onDone} disabled={busy} fullWidth label={`Done ${job.operation} ${job.pieceName}`}>Done</BigButton>
@@ -159,7 +161,8 @@ export function NowTab({ machine, operator, reasons, queue, day, refresh, say, s
         {visible.map((s) => {
           const on = selected.includes(s.id);
           return (
-            <TapCard key={s.id} checked={on} selected={on} onClick={() => toggle(s.id)} ariaLabel={`${s.operation} ${s.pieceName}`}>
+            <Box key={s.id} sx={{ display: 'flex', alignItems: 'stretch', gap: 1 }}>
+            <TapCard checked={on} selected={on} onClick={() => toggle(s.id)} ariaLabel={`${s.operation} ${s.pieceName}`}>
               {on ? <CheckBoxRounded sx={{ fontSize: 32, color: 'var(--c-primary-600)' }} /> : <CheckBoxOutlineBlankRounded sx={{ fontSize: 32, color: 'var(--c-text-3)' }} />}
               <Box sx={{ flex: 1, minWidth: 0 }}>
                 <Box sx={{ fontSize: 20, fontWeight: 700, overflowWrap: 'anywhere' }}>{s.operation || s.pieceName}</Box>
@@ -172,6 +175,9 @@ export function NowTab({ machine, operator, reasons, queue, day, refresh, say, s
                 <Box sx={{ fontSize: 15, color: 'var(--c-text-2)' }}>left</Box>
               </Box>
             </TapCard>
+            {/* Beside the card, not inside it: a button in a button is invalid, and a tap here must not pick the job. */}
+            <ViewDrawingButton large icon target={drawingTarget(s)} sx={{ alignSelf: 'center', flexShrink: 0 }} />
+            </Box>
           );
         })}
         {queue && next.length === 0 && <Calm>{search ? 'No job matches.' : 'Nothing waiting for this machine.'}</Calm>}

@@ -14,6 +14,7 @@ import { ConfirmDialog } from '../components/ConfirmDialog';
 import { WorkOrderStatusBadge } from '../components/Production/workOrderUi';
 import { useDetailTitle } from '../components/shell/detailTitle';
 import { useToast } from '../components/toastContext';
+import { ViewDrawingButton } from '../components/Drawings/RowDrawingViewer';
 
 /** The one forward step from each state, and what to call it. */
 const NEXT: Partial<Record<WorkOrderStatus, { to: WorkOrderStatus; label: string; done: string }>> = {
@@ -91,7 +92,10 @@ export default function WorkOrderDetail() {
             {w.scope.map((s) => (
               <Box key={s.pieceCode} sx={{ display: 'flex', gap: 2, py: 0.5, borderTop: '1px solid var(--c-divider)', '&:first-of-type': { borderTop: 0 } }}>
                 <Mono sx={{ minWidth: 140 }}>{s.pieceCode}</Mono>
-                <Box sx={{ fontSize: 13.5, color: 'var(--c-text-2)' }}>{s.operations.join(' · ')}</Box>
+                <Box sx={{ fontSize: 13.5, color: 'var(--c-text-2)', flex: 1 }}>{s.operations.join(' · ')}</Box>
+                {w.orderId != null && w.lineId != null && s.itemId != null && (
+                  <ViewDrawingButton icon target={{ orderId: w.orderId, lineId: w.lineId, rowId: s.itemId, label: s.pieceCode }} />
+                )}
               </Box>
             ))}
           </Box>}

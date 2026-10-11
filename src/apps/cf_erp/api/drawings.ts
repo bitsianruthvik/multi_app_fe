@@ -138,3 +138,36 @@ export const downloadDrawing = (orderId: number, lineId: number, d: { id: number
 /** The file of one register revision (works for earlier, superseded revisions too). */
 export const downloadRegisterFile = (drawingId: number, fileName: string): Promise<void> =>
   saveBlob(`/drawings/${drawingId}/file`, fileName);
+
+/** The saved file as a Blob, for the viewer (the same route as the download, so the JWT goes with it). */
+export const fetchDrawingBlob = (orderId: number, lineId: number, d: { id: number }): Promise<Blob> =>
+  cfApi.getBlob(`${base(orderId, lineId)}/${d.id}/file`, { timeoutMs: LONG_WRITE_MS });
+
+/** A DXF Blob as text. The server stores the file text as latin1, so that is how it is read back (not UTF-8). */
+export async function blobAsText(blob: Blob): Promise<string> {
+  const buf: ArrayBuffer = typeof blob.arrayBuffer === 'function'
+    ? await blob.arrayBuffer()
+    : await new Promise<ArrayBuffer>((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => resolve(r.result as ArrayBuffer);
+      r.onerror = () => reject(r.error ?? new Error('Could not read the file.'));
+      r.readAsArrayBuffer(blob);
+    });
+  return new TextDecoder('windows-1252').decode(buf);
+}
+
+/** One row of an order line in the drawing tree: where it sits and the drawing that covers it, if any. */
+export interface DrawingTreeRow {
+  rowId: number; parentId: number | null; code: string | null; name: string; level: string; depth: number; seq: number; mark: string | null;
+  hasDrawing: boolean;
+  /** the file's id, for `GET …/drawings/:id/file` */
+  drawingId: number | null;
+  fileKind: 'dxf' | 'pdf' | null; fileName: string | null;
+  number: string | null; revision: string | null; status: RegisterRef['status'] | null;
+  isPlatePart: boolean; cutPlateIds: number[];
+}
+export interface DrawingTree { line: DrawingsView['line']; rows: DrawingTreeRow[] }
+
+/** Every row of the line with its parent and drawing — one read (view permission), for the viewer's levels. */
+export const getDrawingTree = (orderId: number, lineId: number) =>
+  cfApi.get<DrawingTree>(`${base(orderId, lineId)}/tree`);

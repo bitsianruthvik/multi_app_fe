@@ -1873,7 +1873,7 @@ export interface WorkOrderDetail extends WorkOrderRow {
   startDate: string | null;
   dueDate: string | null;
   notes: string | null;
-  scope: { pieceCode: string; operations: string[] }[];
+  scope: { pieceCode: string; operations: string[]; /** the BOM row the piece is of, for "View drawing" */ itemId?: number }[];
 }
 
 /* ── Machine log (the floor screens; CF_ERP_FLOOR_LOG_PLAN.md §2) ── */
@@ -1913,6 +1913,10 @@ export interface FloorStep {
   why: string | null;
   /** A paused session of this step on this machine, when there is one (Start resumes it). */
   pausedSessionId: number | null;
+  /** Where the piece sits on the order — the line and the BOM row it is a piece of — for "View drawing". Older servers omit them. */
+  orderId?: number | null;
+  lineId?: number | null;
+  itemId?: number | null;
 }
 
 /** A job running on the machine right now. */

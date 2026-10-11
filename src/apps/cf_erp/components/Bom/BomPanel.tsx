@@ -205,6 +205,8 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
   const [flowPick, setFlowPick] = useState<{ anchor: HTMLElement; row: BomRow } | null>(null);
   const [rowMenu, setRowMenu] = useState<{ anchor: HTMLElement; row: BomRow } | null>(null);
   const [drawingRow, setDrawingRow] = useState<{ id: number; name: string } | null>(null);
+  /** The row whose drawing the viewer shows (a row that has a file opens the viewer, not the upload dialog). */
+  const [viewRow, setViewRow] = useState<{ id: number; name: string } | null>(null);
   /** "Why these values…" for one row: the record whose reasons are open. */
   const [whyRow, setWhyRow] = useState<{ id: number; name: string } | null>(null);
   // Quiet switches for the order's grid: the automatic cut pieces are out of sight, and so are the columns no row uses.
@@ -673,7 +675,7 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
   const flowRows = rows.filter((r) => !r.paste && flowEditable(r) && !removedKeys.has(r.node.key) && canHaveFlow(r.node));
 
   /** A made row of an order line that can have a drawing — the same rows the "Drawings for this row…" menu item is on. */
-  const drawingRowOk = (row: BomRow) => gridLineId != null && !!state?.order && row.parent != null && isMade(row.node) && row.node.kind !== 'selection'
+  const drawingRowOk = (row: BomRow) => gridLineId != null && !!state?.order && isMade(row.node) && row.node.kind !== 'selection'
     && !row.paste && !goneKeys.has(row.node.key) && !removedKeys.has(row.node.key);
   const canManageDrawings = isPermitted('cf_erp_orders_manage');
   const drawingWhy = (row: BomRow): string | null => {
@@ -689,7 +691,7 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
       return null;
     }
     const name = codeOrName(row.node);
-    return <RowDrawingCell name={name} state={rowDrawing(drawings.data, row.node.id)} why={drawingWhy(row)} onClick={() => setDrawingRow(drawingRowOf(row))} />;
+    return <RowDrawingCell name={name} state={rowDrawing(drawings.data, row.node.id)} why={drawingWhy(row)} onClick={() => setDrawingRow(drawingRowOf(row))} onView={() => setViewRow(drawingRowOf(row))} />;
   };
   const fileDrop = {
     canDrop: (row: BomRow) => drawingRowOk(row) && drawingWhy(row) == null,
@@ -980,7 +982,7 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
           <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center', '& > *': { whiteSpace: 'nowrap' } }}>
             {/* Drawings for any row of this line (DXF or PDF), by drawing mark. Order lines only. */}
             {gridLineId != null && state.order && <DrawingsButton size="small" orderId={state.order.id} lineId={gridLineId} canManage={canManageDrawings}
-              drawings={drawings} focusRow={drawingRow} onFocusDone={() => setDrawingRow(null)} incoming={dropped} onIncomingDone={() => setDropped(null)}
+              drawings={drawings} focusRow={drawingRow} onFocusDone={() => setDrawingRow(null)} viewRow={viewRow} onViewDone={() => setViewRow(null)} onUploadRevision={setDrawingRow} incoming={dropped} onIncomingDone={() => setDropped(null)}
               onChanged={() => { gridValues.reload(); drawings.reload(); }} />}
             {narrowBar ? (
               <>

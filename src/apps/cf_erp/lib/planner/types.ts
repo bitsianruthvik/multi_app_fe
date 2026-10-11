@@ -199,6 +199,8 @@ export interface PlannerUnit {
   splittable?: boolean;
   /** The BOM row, for PUT /planner/lines/:id/splits. */
   bomLineId?: Id | null;
+  /** The row (item) this card is, for "View drawing". */
+  itemId?: Id | null;
   tonnes: number;
   /** minutes per function key, for the whole subtree. */
   work: Record<string, number>;

@@ -221,3 +221,7 @@ export function machineFilter(machines: FloorMachine[], chosen: (number | null)[
   }
   return { levels, shown: pool };
 }
+
+/** Where a step's piece is on the order, when the server said (older ones do not): what "View drawing" needs. */
+export const drawingTarget = (s: FloorStep): { orderId: number; lineId: number; rowId: number; label: string } | null =>
+  (s.orderId != null && s.lineId != null && s.itemId != null ? { orderId: s.orderId, lineId: s.lineId, rowId: s.itemId, label: s.pieceCode } : null);

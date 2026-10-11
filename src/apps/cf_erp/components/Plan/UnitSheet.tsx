@@ -5,6 +5,7 @@ import { SideSheet } from '@shared/ui';
 import { fastest } from '../../lib/planner';
 import type { Evaluation, Plan, PlannerSnapshot, PlannerUnit } from '../../lib/planner/types';
 import { WorkBar } from './WorkBar';
+import { ViewDrawingButton } from '../Drawings/RowDrawingViewer';
 import { copyText, mins, shortDate, splitAction, tonnes } from './model';
 
 const Row = ({ k, children }: { k: string; children: React.ReactNode }) => (
@@ -52,6 +53,9 @@ export function UnitSheet({ unit, snapshot, evaluation, plan, periodLabel, canEd
       ) : undefined}>
       {unit && (
         <Box>
+          {unit.itemId != null && unit.lineId != null && unit.orderId != null && (
+            <Box sx={{ mb: 1 }}><ViewDrawingButton target={{ orderId: Number(unit.orderId), lineId: Number(unit.lineId), rowId: Number(unit.itemId), label: unit.code }} /></Box>
+          )}
           <Row k="Ships">{ev?.period ? periodLabel(ev.period) : 'Not planned'}{ev?.pinned ? ' (pinned)' : ''}</Row>
           {ev?.period && ev.leadStart && <Row k="Work">{periodLabel(ev.leadStart)} → {periodLabel(ev.period)} · {weeks(Math.max(1, ev.lead))}</Row>}
           <Row k="Shortest">{ev?.minWeeks != null ? weeks(ev.minWeeks) : 'Cannot finish inside this plan'}</Row>

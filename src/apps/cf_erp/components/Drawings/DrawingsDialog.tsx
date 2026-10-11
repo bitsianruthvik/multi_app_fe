@@ -3,6 +3,7 @@ import { Autocomplete, Box, Button, CircularProgress, Collapse, Dialog, DialogAc
 import AddRounded from '@mui/icons-material/AddRounded';
 import AttachFileRounded from '@mui/icons-material/AttachFileRounded';
 import DownloadRounded from '@mui/icons-material/DownloadRounded';
+import VisibilityOutlined from '@mui/icons-material/VisibilityOutlined';
 import DrawRounded from '@mui/icons-material/DrawRounded';
 import UploadFileRounded from '@mui/icons-material/UploadFileRounded';
 import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
@@ -24,6 +25,7 @@ import {
 import { NO_MANAGE } from '../../lib/nesting';
 import { Badge, CapsLabel, EmptyState, ErrorNotice, Fact, Mono, SectionCard, SkeletonRows } from '../ui';
 import { ConfirmDialog } from '../ConfirmDialog';
+import { DrawingViewer } from './DrawingViewer';
 import { DialogHeader, FormDialog } from '../FormDialog';
 
 /**
@@ -205,8 +207,8 @@ function PreviewTable({ upload, choices, picking, onPick }: { upload: DrawingsUp
   );
 }
 
-function DrawingsTable({ drawings, canManage, released, onEnlarge, onDelete, onDownload, onDownloadEarlier }: {
-  drawings: Drawing[]; canManage: boolean; released: boolean; onEnlarge: (d: Drawing) => void; onDelete: (d: Drawing) => void; onDownload: (d: Drawing) => void;
+function DrawingsTable({ drawings, canManage, released, onEnlarge, onOpen, onDelete, onDownload, onDownloadEarlier }: {
+  drawings: Drawing[]; canManage: boolean; released: boolean; onEnlarge: (d: Drawing) => void; onOpen: (d: Drawing) => void; onDelete: (d: Drawing) => void; onDownload: (d: Drawing) => void;
   onDownloadEarlier: (id: number, name: string) => void;
 }) {
   return (
@@ -215,7 +217,7 @@ function DrawingsTable({ drawings, canManage, released, onEnlarge, onDelete, onD
         <thead>
           <tr>
             <th /><th>Mark</th><th>Drawing</th><th>File</th><th>Level</th><th>Rows</th><th className="n">Rectangle</th><th className="n">Use</th>
-            <th className="n">Cut length</th><th className="n">Piercings</th><th className="n">Holes</th><th /><th /><th />
+            <th className="n">Cut length</th><th className="n">Piercings</th><th className="n">Holes</th><th /><th /><th /><th />
           </tr>
         </thead>
         <tbody>
@@ -226,7 +228,12 @@ function DrawingsTable({ drawings, canManage, released, onEnlarge, onDelete, onD
                 <td><Thumb drawing={d} onEnlarge={() => onEnlarge(d)} /></td>
                 <td><Mono>{d.mark}</Mono></td>
                 <td><RegisterCell drawing={d.drawing} fileKind={d.fileKind} onDownloadEarlier={onDownloadEarlier} /></td>
-                <td style={{ overflowWrap: 'anywhere' }}>{d.fileName}</td>
+                <td style={{ overflowWrap: 'anywhere' }}>
+                  <Box component="button" type="button" onClick={() => onOpen(d)} data-testid="drawing-open" aria-label={`View ${d.fileName}`}
+                    sx={{ all: 'unset', cursor: 'pointer', color: 'var(--c-primary-700)', '&:hover': { textDecoration: 'underline' }, '&:focus-visible': { outline: '2px solid var(--c-primary-500)', borderRadius: 'var(--r-sm)' } }}>
+                    {d.fileName}
+                  </Box>
+                </td>
                 <td>{levelText(d.levels)}</td>
                 <td><Rows rows={d.rows} geometry={g} /></td>
                 <td className="n">{g ? sizeText(g.lengthMm, g.widthMm) : '—'}</td>
@@ -240,6 +247,11 @@ function DrawingsTable({ drawings, canManage, released, onEnlarge, onDelete, onD
                       <WarningAmberRounded fontSize="small" sx={{ color: 'var(--c-warning-600)', display: 'block' }} aria-label={d.warnings.join(' · ')} />
                     </Tooltip>
                   )}
+                </td>
+                <td>
+                  <Tooltip title="View this drawing">
+                    <IconButton size="small" aria-label={`View drawing ${d.mark}`} data-testid="drawing-view" onClick={() => onOpen(d)}><VisibilityOutlined fontSize="small" /></IconButton>
+                  </Tooltip>
                 </td>
                 <td>
                   <Tooltip title="Download this drawing">
@@ -357,9 +369,9 @@ function StartDrawingForm({ choices, initialIds, onClose, onStart }: {
 }
 
 /** Opened from a row: the drawings that cover just this row, each with its action. */
-function FocusCard({ view, row, mayAttach, canManage, onDownload, onAttach, onStart, onUploadHere }: {
+function FocusCard({ view, row, mayAttach, canManage, onView, onDownload, onAttach, onStart, onUploadHere }: {
   view: DrawingsView; row: { id: number; name: string }; mayAttach: boolean; canManage: boolean;
-  onDownload: (d: Drawing) => void; onAttach: (d: RegisterRef) => void; onStart: () => void; onUploadHere: () => void;
+  onView: (d: Drawing) => void; onDownload: (d: Drawing) => void; onAttach: (d: RegisterRef) => void; onStart: () => void; onUploadHere: () => void;
 }) {
   const { saved, waiting } = coveringRow(view, row.id);
   return (
@@ -369,6 +381,7 @@ function FocusCard({ view, row, mayAttach, canManage, onDownload, onAttach, onSt
           <Box key={d.id} sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', fontSize: 13 }}>
             {d.drawing ? <><Mono>{d.drawing.number}</Mono><span>rev {d.drawing.revision}</span><RegisterBadge status={d.drawing.status} /></> : <Mono>{d.mark}</Mono>}
             <Box component="span" sx={{ color: 'var(--c-text-2)', overflowWrap: 'anywhere' }}>{d.fileName}</Box>
+            <Button size="small" startIcon={<VisibilityOutlined />} onClick={() => onView(d)} data-testid="focus-view">View</Button>
             <Button size="small" startIcon={<DownloadRounded />} onClick={() => onDownload(d)}>Download</Button>
           </Box>
         ))}
@@ -437,6 +450,7 @@ export function DrawingsDialog({ open, onClose, orderId, lineId, canManage, view
   const [skipped, setSkipped] = useState<string[]>([]);
   const [pending, setPending] = useState<{ files: DrawingFileBody[]; upload: DrawingsUpload } | null>(null);
   const [enlarged, setEnlarged] = useState<Drawing | null>(null);
+  const [viewing, setViewing] = useState<Drawing | null>(null);
   const [toDelete, setToDelete] = useState<Drawing | null>(null);
   const [withoutOpen, setWithoutOpen] = useState(false);
   const [tooBig, setTooBig] = useState<string[]>([]);
@@ -552,7 +566,7 @@ export function DrawingsDialog({ open, onClose, orderId, lineId, canManage, view
 
           {view && focusRow && (
             <FocusCard view={view} row={focusRow} mayAttach={mayUpload && busy == null} canManage={canManage}
-              onDownload={download} onAttach={startAttach} onStart={() => setStarting([focusRow.id])} onUploadHere={() => hereInput.current?.click()} />
+              onView={setViewing} onDownload={download} onAttach={startAttach} onStart={() => setStarting([focusRow.id])} onUploadHere={() => hereInput.current?.click()} />
           )}
 
           {view && (
@@ -625,7 +639,7 @@ export function DrawingsDialog({ open, onClose, orderId, lineId, canManage, view
           {view && view.drawings.length > 0 && (
             <SectionCard title="Saved drawings" subtitle={`${view.drawings.length} on this line`} flush>
               <Box sx={{ p: 1.5 }}>
-                <DrawingsTable drawings={view.drawings} canManage={canManage} released={released} onEnlarge={setEnlarged} onDelete={setToDelete} onDownload={download} onDownloadEarlier={downloadEarlier} />
+                <DrawingsTable drawings={view.drawings} canManage={canManage} released={released} onEnlarge={setEnlarged} onOpen={setViewing} onDelete={setToDelete} onDownload={download} onDownloadEarlier={downloadEarlier} />
               </Box>
             </SectionCard>
           )}
@@ -692,6 +706,18 @@ export function DrawingsDialog({ open, onClose, orderId, lineId, canManage, view
         )}
       </Dialog>
 
+      {viewing && (
+        <DrawingViewer orderId={orderId} lineId={lineId} drawing={viewing} onClose={() => setViewing(null)}
+          onUploadRevision={mayUpload && busy == null ? () => {
+            const d = viewing;
+            // The file picker must open inside this click, so it opens before the viewer goes.
+            if (d.drawing) startAttach(d.drawing);
+            else if (focusRow) hereInput.current?.click();
+            else input.current?.click();
+            setViewing(null);
+          } : undefined} />
+      )}
+
       <StartDrawingDialog open={starting != null && !!view} choices={view ? rowChoices(view) : []} initialIds={starting ?? []}
         onClose={() => setStarting(null)} onStart={start} />
 
@@ -712,7 +738,7 @@ export function DrawingsDialog({ open, onClose, orderId, lineId, canManage, view
  * The toolbar button for an order line's Structure tab: "Upload drawings" until a row has one, then "Drawings · n of m".
  * The drawings are loaded by the panel (the row icons need them too) and handed in.
  */
-export function DrawingsButton({ orderId, lineId, canManage, onChanged, size, focusRow, onFocusDone, drawings, incoming, onIncomingDone }: {
+export function DrawingsButton({ orderId, lineId, canManage, onChanged, size, focusRow, onFocusDone, drawings, incoming, onIncomingDone, viewRow, onViewDone, onUploadRevision }: {
   orderId: number; lineId: number; canManage: boolean; onChanged?: () => void; size?: 'small' | 'medium';
   /** A row to open the dialog for; the dialog opens while it is set. */
   focusRow?: { id: number; name: string; mark?: string | null } | null;
@@ -721,11 +747,17 @@ export function DrawingsButton({ orderId, lineId, canManage, onChanged, size, fo
   /** Files dropped on the tab: the dialog opens with them read. */
   incoming?: { files: File[]; rowId: number | null; seq: number } | null;
   onIncomingDone?: () => void;
+  /** A row whose drawing to look at: the viewer opens on the newest file covering it (no manage permission needed). */
+  viewRow?: { id: number; name: string; mark?: string | null } | null;
+  onViewDone?: () => void;
+  /** The viewer's "Upload a new revision": the parent opens the dialog for this row. Absent = the action is not offered. */
+  onUploadRevision?: (row: { id: number; name: string; mark?: string | null }) => void;
 }) {
   const [open, setOpen] = useState(false);
   const shown = open || !!focusRow || !!incoming;
   const close = () => { setOpen(false); onFocusDone?.(); onIncomingDone?.(); };
   const { data, error, loading, setData } = drawings;
+  const viewing = viewRow && data ? coveringRow(data, viewRow.id).saved.slice(-1)[0] ?? null : null;
   return (
     <>
       <Tooltip title="Upload a DXF or PDF for any row of this line. Each file goes to the row whose drawing mark is its name, or drop a file on a row to aim it there. A plate part's DXF also gives its true shape and the CNC cut length.">
@@ -733,6 +765,10 @@ export function DrawingsButton({ orderId, lineId, canManage, onChanged, size, fo
           {buttonLabel(data?.summary)}
         </Button>
       </Tooltip>
+      {viewing && viewRow && (
+        <DrawingViewer orderId={orderId} lineId={lineId} drawing={viewing} onClose={() => onViewDone?.()}
+          onUploadRevision={canManage && !data?.line.released && onUploadRevision ? () => { onUploadRevision(viewRow); onViewDone?.(); } : undefined} />
+      )}
       {shown && (
         <DrawingsDialog open onClose={close} orderId={orderId} lineId={lineId} canManage={canManage}
           view={data} error={error} loading={loading} onView={(v) => setData(v)} onChanged={onChanged} focusRow={focusRow} incoming={incoming} />
