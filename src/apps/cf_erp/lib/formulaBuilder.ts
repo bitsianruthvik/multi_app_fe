@@ -73,7 +73,9 @@ export function numberText(n: number | null | undefined): string {
 export type TokKind = 'num' | 'str' | 'item' | 'machine' | 'children' | 'name' | 'func' | 'op' | 'paren' | 'comma' | 'space' | 'bad';
 export interface Tok { kind: TokKind; text: string; start: number; end: number; code?: string }
 
-export const FUNCTIONS = ['MIN', 'MAX', 'ROUND', 'IF', 'LOOKUP', 'ABS', 'SQRT', 'CEIL', 'FLOOR', 'SUM', 'COUNT', 'AVG'];
+export const FUNCTIONS = ['MIN', 'MAX', 'ROUND', 'IF', 'LOOKUP', 'ABS', 'SQRT', 'CEIL', 'FLOOR', 'SUM', 'COUNT', 'AVG',
+  // 2026-10-12 (formulaEngine): a value that may be absent, a count that may find nothing, and children told by words.
+  'FIRST', 'NONZERO', 'CONTAINS', 'AND', 'OR', 'NOT'];
 
 /** Every character of the source lands in exactly one token, so the colouring layer lines up with the text. */
 export function tokenize(src: string): Tok[] {
@@ -244,6 +246,12 @@ function words(n: Ast, idx: FieldIndex | null): string {
         case 'SUM': return `the sum over the children of ${a[0]}`;
         case 'COUNT': return a[0] ? `the number of children with ${a[0]}` : 'the number of child pieces';
         case 'AVG': return `the average over the children of ${a[0]}`;
+        case 'FIRST': return a.length > 1 ? `${a[0]} where there is one, else ${a.slice(1).join(', else ')}` : a[0];
+        case 'NONZERO': return `${a[0]} (nothing when that is 0)`;
+        case 'CONTAINS': return `${a[0]} contains ${a[1]}`;
+        case 'AND': return `(${a.join(' and ')})`;
+        case 'OR': return `(${a.join(' or ')})`;
+        case 'NOT': return `not ${a[0]}`;
         default: return `${n.name}(${a.join(', ')})`;
       }
     }

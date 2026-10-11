@@ -17,8 +17,13 @@ export type ValueReason =
   | { kind: 'flow'; flow: ReasonFlow | null; operations: ReasonOperation[] }
   /** Set by hand at `at`. `readBy` empty = nothing in its flow reads it. */
   | { kind: 'manual'; at: ReasonLevel; readBy: ReasonOperation[] }
-  /** Comes by itself. */
-  | { kind: 'derived'; how: 'calculated' | 'rollup' | 'inherited' | 'fixed' | 'defaulted'; at: ReasonLevel; readBy?: ReasonOperation[]; note?: string; formula?: { code: string; name: string } };
+  /** Comes by itself. `how` 'drawing': worked out from the part's drawing. `overridable`: a person may type over it. */
+  | { kind: 'derived'; how: 'calculated' | 'rollup' | 'inherited' | 'fixed' | 'defaulted' | 'drawing'; at: ReasonLevel; readBy?: ReasonOperation[]; note?: string; formula?: { code: string; name: string }; overridable?: boolean }
+  /**
+   * Typed by hand over a calculated value: `value` is what was typed, `calculated` the answer it
+   * replaced (null when there is none yet — `waiting` / `problem` say why), `from` what that answer is.
+   */
+  | { kind: 'typedOver'; value: string | null; calculated: string | null; from: 'calculated' | 'drawing' | null; waiting?: string[] | null; problem?: string | null; at: ReasonLevel; readBy?: ReasonOperation[]; formula?: { code: string; name: string } };
 
 export interface AskedValue {
   code: string;

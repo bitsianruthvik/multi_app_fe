@@ -35,3 +35,45 @@ export function refusedUnits(e: unknown): MaterialRefusal[] {
   const err = e as { code?: string; detail?: { units?: MaterialRefusal[] } } | null;
   return err?.code === MATERIAL_NOT_READY && Array.isArray(err.detail?.units) ? err.detail!.units! : [];
 }
+
+/* ── A card's machines (§58: a machine's own chart counts) ───────────────────────────────────────── */
+
+/** One machine of a machine type, for one card: what the card's open steps would take on it. */
+export interface UnitMachineOption {
+  id: number; code: string; name: string;
+  /** A value was entered on the machine itself — its time differs from the standard. */
+  ownChart: boolean;
+  /** false = its chart has no answer for a piece of this card; `reason` says which, in words. */
+  available: boolean;
+  /** minutes of the card's open steps on this machine (null when not available) */
+  minutes: number | null;
+  /** minutes − what the steps take now */
+  change: number | null;
+  reason: string | null;
+  /** how many of those steps are on it now */
+  stepsHere: number;
+}
+export interface UnitMachineFunction {
+  /** the machine type (a planner function key) */
+  key: string; name: string;
+  steps: number; stepIds: number[];
+  minutesNow: number; standardMinutes: number;
+  /** the one machine every step is on; null = none, or several (`mixed`) */
+  machineId: number | null; mixed: boolean;
+  machines: UnitMachineOption[];
+}
+export interface UnitMachines {
+  unitKey: string;
+  /** false = the line is not released (or nothing is left to start): no machine can be picked yet */
+  released: boolean;
+  sharedRow: boolean;
+  note?: string;
+  functions: UnitMachineFunction[];
+}
+export interface UnitMachineMove { unitKey: string; functionKey: string; machineId: number | null; steps: number; changed: number; before: number; after: number; change: number; machines: UnitMachines }
+
+/** GET /planner/units/:unitKey/machines */
+export const getUnitMachines = (unitKey: string) => cfApi.get<UnitMachines>(`/planner/units/${encodeURIComponent(unitKey)}/machines`);
+/** PUT /planner/units/:unitKey/machine — machineId null = off any machine (the standard time). Refused 422 MACHINE_CANNOT, in words. */
+export const putUnitMachine = (unitKey: string, functionKey: string, machineId: number | null) =>
+  cfApi.put<UnitMachineMove>(`/planner/units/${encodeURIComponent(unitKey)}/machine`, { functionKey, machineId });

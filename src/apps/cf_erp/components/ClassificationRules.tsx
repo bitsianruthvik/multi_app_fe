@@ -44,7 +44,7 @@ export function ClassificationRules({ node, canManage, onChanged }: { node: Tree
                   <Box sx={{ fontWeight: 500 }}>{r.specName} <Mono muted>{r.specCode}</Mono></Box>
                   <Typography sx={{ fontSize: 12, color: 'var(--c-text-2)' }}>
                     {r.isApplicable
-                      ? `${r.captureAt === 'item' ? 'On each item' : r.captureAt === 'batch' ? 'On each batch' : 'On each unit'}${r.isRequired ? ' · required' : ''}${r.formulaCode ? ` · ${r.formulaCode}` : ''}${r.optionValues.length ? ` · only ${r.optionValues.join(', ')}` : ''}`
+                      ? `${r.captureAt === 'item' ? 'On each item' : r.captureAt === 'batch' ? 'On each batch' : 'On each unit'}${r.isRequired ? ' · required' : ''}${r.formulaCode ? ` · ${r.formulaCode}` : ''}${r.valueRule === 'defaulted' && r.formulaCode ? ' · can be typed over' : ''}${r.origin === 'flow' ? ' · only for rows whose flow reads it' : ''}${r.optionValues.length ? ` · only ${r.optionValues.join(', ')}` : ''}`
                       : 'Switched off from here down'}
                   </Typography>
                 </Box>

@@ -5,6 +5,7 @@ import EditRounded from '@mui/icons-material/EditRounded';
 import { CfApiError } from '../api/client';
 import type { Resolution, ResolvedSpec } from '../api/types';
 import { DangerBadge, ErrorNotice, Mono, RuleBadge, SourceBadge, WarnBadge, EmptyState } from './ui';
+import { sourceMark, sourceOfDerived } from '../lib/valueSource';
 import { SpecValueInput } from './SpecValueInput';
 import { toInputString } from '../lib/tree';
 
@@ -188,6 +189,8 @@ export function SpecsTable({
                       {s.captureAt !== 'item' && <Typography component="span" sx={{ fontSize: 12, color: 'var(--c-text-2)' }}>· {CAPTURE_LABEL[s.captureAt]}</Typography>}
                       {s.rule.formula && <Tooltip title={s.rule.formula.expression}><Box component="span"><Mono muted>{s.rule.formula.code} v{s.rule.formula.version}</Mono></Box></Tooltip>}
                       {s.rule.workedOut && <Tooltip title={s.rule.workedOut}><Box component="span"><Mono muted>from cutting and nesting</Mono></Box></Tooltip>}
+                      {/* A formula's value: worked out · from the drawing · typed by hand over it (with the calculated value). */}
+                      {(() => { const mark = sourceMark(sourceOfDerived(s.derived), false); return mark ? <Tooltip title={mark.title}><Box component="span" data-testid="spec-source" data-source={mark.from}><Mono muted>{mark.label}</Mono></Box></Tooltip> : null; })()}
                     </Box>
                   </TableCell>
                   <TableCell>

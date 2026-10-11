@@ -81,7 +81,8 @@ export function viewCell(view: ValuesView, info: ViewRecord | undefined, code: s
   if (!info || !actual || !raw) return null;
   const c = effectiveCell(view, actual, info.row, raw, canEdit);
   const input = pending ?? c.input;
-  const text = input === '' ? c.defaultDisplay ?? c.display ?? ''
+  // (A number typed over a calculated value, emptied and not saved yet: the calculated value shows at once — it is what the save brings back.)
+  const text = input === '' ? c.defaultDisplay ?? c.display ?? (pending !== undefined ? c.calculated : null) ?? ''
     : actual.dataType === 'option' ? c.options?.find((o) => String(o.id) === input)?.label || c.options?.find((o) => String(o.id) === input)?.value || input
       : actual.dataType === 'boolean' ? input === 'true' ? 'Yes' : 'No' : input;
   return { text, input, saved: c.input, editable: c.editable, type: actual.dataType, options: c.options, cell: c };

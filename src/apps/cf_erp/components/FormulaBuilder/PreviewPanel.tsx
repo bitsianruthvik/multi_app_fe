@@ -10,9 +10,14 @@ import { CapsLabel } from '../ui';
 const FROM_LABEL: Record<string, string> = { piece: 'from the piece', machine: 'from the machine', typed: 'typed' };
 
 /**
- * LIVE PREVIEW: the formula on a real piece and a real machine of the rule's
- * type (or on typed values), checked by the backend as you type — minutes, the
- * formula in words, what each name read, unit slips and problems.
+ * LIVE PREVIEW: the formula on a real piece (or on typed values), checked by the
+ * backend as you type — minutes, the formula in words, what each name read, unit
+ * slips and problems.
+ *
+ * WHICH MACHINE (§58). It opens on the STANDARD — the machine TYPE's values, the
+ * time a step is released with. The picker lists the type's machines and marks the
+ * ones with their OWN chart; pick one and the panel shows the standard and that
+ * machine side by side, because a step put on that machine takes the machine's time.
  */
 export function PreviewPanel({ expression, ctx, idx, which, onCheck }: {
   expression: string | null;
@@ -27,7 +32,10 @@ export function PreviewPanel({ expression, ctx, idx, which, onCheck }: {
   const [machineId, setMachineId] = useState<number | null>(null);
   const [typed, setTyped] = useState<Record<string, string>>({});
   const [check, setCheck] = useState<BuilderCheck | null>(null);
+  /** The standard's result, kept beside a machine's so the two can be compared. */
+  const [standardCheck, setStandardCheck] = useState<BuilderCheck | null>(null);
   const [checking, setChecking] = useState(false);
+  const standard = ctx?.standard ?? null;
 
   const expr = (expression ?? '').trim();
   // Until someone picks a piece, show the formula on a real piece that HAS the
@@ -41,24 +49,29 @@ export function PreviewPanel({ expression, ctx, idx, which, onCheck }: {
       ?? [...pieces].sort((a, b) => codes.filter((c) => b.values[c] != null).length - codes.filter((c) => a.values[c] != null).length)[0];
     if (best && best.id !== pieceId) setPieceId(best.id);
   }, [pieces, itemCodes, picked, pieceId]);
-  useEffect(() => { if (machineId == null && machines.length) setMachineId(machines[0].id); }, [machines, machineId]);
+  // With no machine type to stand on (an old backend), the first machine is shown, as before.
+  useEffect(() => { if (machineId == null && !standard && machines.length) setMachineId(machines[0].id); }, [machines, machineId, standard]);
 
   useEffect(() => {
-    if (!expr) { setCheck(null); onCheck?.(null); return undefined; }
+    if (!expr) { setCheck(null); setStandardCheck(null); onCheck?.(null); return undefined; }
     const sample: Record<string, number> = {};
     for (const [k, v] of Object.entries(typed)) if (v.trim() !== '' && Number.isFinite(Number(v))) sample[k] = Number(v);
     let alive = true;
     const t = window.setTimeout(() => {
       setChecking(true);
-      checkOnSample({ expression: expr, itemId: pieceId, machineId, sample })
-        .then((c) => { if (alive) { setCheck(c); onCheck?.(c); } })
-        .catch(() => { if (alive) { setCheck(null); onCheck?.(null); } })
+      const onStandard = () => checkOnSample({ expression: expr, itemId: pieceId, machineTypeId: standard?.typeId ?? null, sample });
+      // No machine picked: the standard IS the result. A machine picked: both, side by side.
+      const main = machineId != null ? checkOnSample({ expression: expr, itemId: pieceId, machineId, sample }) : onStandard();
+      const beside = machineId != null && standard ? onStandard() : Promise.resolve(null);
+      Promise.all([main, beside.catch(() => null)])
+        .then(([c, s]) => { if (alive) { setCheck(c); setStandardCheck(s); onCheck?.(c); } })
+        .catch(() => { if (alive) { setCheck(null); setStandardCheck(null); onCheck?.(null); } })
         .finally(() => { if (alive) setChecking(false); });
     }, 300);
     return () => { alive = false; window.clearTimeout(t); };
     // onCheck is the parent's setter; re-running on its identity would loop.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [expr, pieceId, machineId, typed]);
+  }, [expr, pieceId, machineId, typed, standard?.typeId]);
 
   // A rate formula reads as a rate ("1.2 min per m of SAW weld length"), anything else in words.
   const words = expr && tryParse(expr) ? timeInWords({ minutes: null, formula: { code: '', expression: expr } }, which, idx) : null;
@@ -68,6 +81,10 @@ export function PreviewPanel({ expression, ctx, idx, which, onCheck }: {
   const refs = refsIn(tryParse(expr));
   const inputFor = (role: FieldRole, code: string) => check?.inputs?.find((i) => i.ref === `${role}.${code}`) ?? null;
   const piece = pieces.find((p) => p.id === pieceId) ?? null;
+  const machine = machines.find((m) => m.id === machineId) ?? null;
+  const standardLabel = standard ? `Standard (machine type ${standard.typeName})` : 'Standard';
+  const standardValue = standardCheck?.result?.value ?? null;
+  const differs = machine != null && value != null && standardValue != null && Math.abs(value - standardValue) > 1e-9;
 
   return (
     <Box sx={{ display: 'grid', gap: 1.5 }} data-testid="preview-panel" aria-live="polite" aria-busy={checking}>
@@ -84,9 +101,18 @@ export function PreviewPanel({ expression, ctx, idx, which, onCheck }: {
         )}
         noOptionsText="No pieces yet — type values below"
         renderInput={(p) => <TextField {...p} label="Try it on a piece" helperText={pieces.length && !pieces[0].fromOperation ? 'Nothing goes through this operation yet — these are recent order pieces' : 'Real pieces whose flow has this operation; or clear it and type values'} />} />
-      <TextField select size="small" label="On machine" value={machineId ?? ''} onChange={(e) => setMachineId(Number(e.target.value) || null)}
-        helperText={machines.length ? undefined : 'No active machine is under this rule'} inputProps={{ 'data-testid': 'preview-machine' }}>
-        {machines.map((m) => <MenuItem key={m.id} value={m.id}>{m.code} · {m.name}</MenuItem>)}
+      <TextField select size="small" label="On machine" value={machineId ?? (standard ? 'standard' : '')}
+        onChange={(e) => setMachineId(e.target.value === 'standard' ? null : Number(e.target.value) || null)}
+        helperText={!machines.length ? 'No active machine is under this rule'
+          : machine ? (machine.ownChart ? `${machine.code} has its own chart: a step put on it takes this time, not the standard.` : `${machine.code} has no chart of its own: it runs at the standard.`)
+            : 'The time a step is released with. Pick a machine to see its own time.'}
+        inputProps={{ 'data-testid': 'preview-machine' }}>
+        {standard && <MenuItem value="standard" data-testid="preview-machine-standard">{standardLabel}</MenuItem>}
+        {machines.map((m) => (
+          <MenuItem key={m.id} value={m.id} data-testid={`preview-machine-${m.id}`} data-own={m.ownChart ? 'yes' : 'no'}>
+            {m.code} · {m.name}{m.ownChart ? ' · own chart' : ''}
+          </MenuItem>
+        ))}
       </TextField>
 
       <Box sx={{ p: 2, borderRadius: 'var(--r-md)', background: 'var(--c-surface-2)', border: '1px solid var(--c-border)' }} data-testid="preview-result">
@@ -108,6 +134,29 @@ export function PreviewPanel({ expression, ctx, idx, which, onCheck }: {
           <Typography sx={{ color: 'var(--c-danger-800)' }}>{check.result.error}</Typography>
         ) : (
           <Typography sx={{ color: 'var(--c-text-3)' }}>{checking ? 'Working it out…' : '—'}</Typography>
+        )}
+        {expr && (
+          <Typography sx={{ mt: 0.75, fontSize: 13, color: 'var(--c-text-2)' }} data-testid="preview-basis">
+            {machine ? `On ${machine.code}${machine.ownChart ? ' (own chart)' : ''}` : standardLabel}
+          </Typography>
+        )}
+        {machine && standard && standardCheck && (
+          <Box data-testid="preview-compare" data-differs={differs ? 'yes' : 'no'}
+            sx={{ mt: 1, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1, fontSize: 13, p: 1, borderRadius: 'var(--r-sm)', border: '1px solid var(--c-border)', background: differs ? 'var(--c-warning-50, var(--c-surface))' : 'var(--c-surface)' }}>
+            <Box>
+              <Box sx={{ color: 'var(--c-text-3)', fontSize: 12 }}>{standardLabel}</Box>
+              <Box sx={{ fontFamily: 'var(--font-mono)' }} data-testid="preview-standard-minutes">{standardValue != null ? `${numberText(standardValue)} min` : 'no answer'}</Box>
+            </Box>
+            <Box>
+              <Box sx={{ color: 'var(--c-text-3)', fontSize: 12 }}>{machine.code}{machine.ownChart ? ' · own chart' : ''}</Box>
+              <Box sx={{ fontFamily: 'var(--font-mono)' }} data-testid="preview-machine-minutes">{value != null ? `${numberText(value)} min` : 'no answer'}</Box>
+            </Box>
+            <Box sx={{ gridColumn: '1 / -1', color: 'var(--c-text-2)' }}>
+              {value == null && standardValue != null ? `${machine.code} has no answer for this piece — a step like it cannot be put on ${machine.code}.`
+                : differs ? 'They differ: plans are made on the standard and follow the machine once one is picked.'
+                  : 'The same as the standard.'}
+            </Box>
+          </Box>
         )}
         {words && <Typography sx={{ mt: 1, color: 'var(--c-text-2)', fontSize: 14 }} data-testid="preview-words">{words}</Typography>}
       </Box>

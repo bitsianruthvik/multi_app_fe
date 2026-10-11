@@ -1,4 +1,5 @@
 import type { DataType, Kind, OrderStatus, RecordStatus, SpecOption, ValueRule } from '../../api/types';
+import type { ValueFrom } from '../../lib/valueSource';
 /**
  * The Values stage's data: `GET /order-lines/:id/values` and what
  * `PUT /order-lines/:id/values` answers (apps/cf_erp/services/orderValuesService.js).
@@ -23,6 +24,8 @@ export interface ValuesColumn {
   why?: string | null;
   /** Key into `optionLists`, for an option spec. */
   options?: string | null;
+  /** Where a formula value comes from, when that is the same for most rows (a cell says so when it differs). */
+  from?: ValueFrom | null;
   /** Some row of the group may type it. */
   editable: boolean;
 }
@@ -41,6 +44,12 @@ export interface ValuesCell {
   problem?: string;
   note?: string;
   options?: string | null;
+  /** Where a formula value comes from: worked out, from the drawing, or typed by hand over the calculated one. */
+  from?: ValueFrom | null;
+  /** On a 'typed' cell: the calculated value it replaced, in words. */
+  calculated?: string;
+  /** On a cell a formula could not fill: what it waits for, or why it has no answer. */
+  noCalc?: string;
 }
 
 export interface ValuesRow {
@@ -100,6 +109,11 @@ export interface EffectiveCell {
   missing: boolean;
   problem: string | null;
   note: string | null;
+  /** Where a formula value comes from (lib/valueSource); null for a value no formula gives. */
+  from: ValueFrom | null;
+  /** Typed over a calculated value: that value, in words (null when there is none yet). */
+  calculated: string | null;
+  noCalc: string | null;
   /** entered or defaulted — what valueService.setValues lets a person type. */
   typeable: boolean;
   editable: boolean;
@@ -125,6 +139,9 @@ export function effectiveCell(view: ValuesView, col: ValuesColumn, row: ValuesRo
     missing: !!cell.missing,
     problem: cell.problem ?? null,
     note: cell.note ?? null,
+    from: ('from' in cell ? cell.from : col.from) ?? null,
+    calculated: cell.calculated ?? null,
+    noCalc: cell.noCalc ?? null,
     typeable,
     editable: canEdit && view.editable && !row.readOnly && typeable,
   };

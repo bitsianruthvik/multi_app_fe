@@ -64,5 +64,27 @@ export const addChart = (s: ChartSubject, body: ChartInput) =>
 export const putChartValue = (s: ChartSubject, specId: number, value: ChartRow[] | null) =>
   cfApi.put<Chart[]>(`${root(s)}/charts/${specId}/values`, { value });
 export const updateChart = (specId: number, body: ChartChanges) => cfApi.put<unknown>(`/charts/${specId}`, body);
+
+/**
+ * §58 — what a machine's own chart means for the plan: the steps planned on it that have not
+ * started, their minutes now and with the chart (or value) in question.
+ */
+export interface MachineTimeImpact {
+  /** not-started steps planned on the machine */
+  steps: number;
+  /** how many of them change their time */
+  changed: number;
+  minutesBefore: number;
+  minutesAfter: number;
+  minutesChange: number;
+  /** steps that would come OFF the machine: its chart has no answer for them */
+  dropped: number;
+  cannot: string[];
+}
+/** GET /machines/:id/time-impact — as things stand. */
+export const getMachineTimeImpact = (machineId: number) => cfApi.get<MachineTimeImpact>(`/machines/${machineId}/time-impact`);
+/** POST /machines/:id/charts/:specId/impact — a DRY RUN of saving those rows (null = back to the type's chart). Nothing is written. */
+export const chartValueImpact = (machineId: number, specId: number, value: ChartRow[] | null) =>
+  cfApi.post<MachineTimeImpact>(`/machines/${machineId}/charts/${specId}/impact`, { value });
 /** Refused, in words, while a time or formula reads the chart. */
 export const deleteChart = (specId: number) => cfApi.del<{ ok: boolean }>(`/charts/${specId}`);

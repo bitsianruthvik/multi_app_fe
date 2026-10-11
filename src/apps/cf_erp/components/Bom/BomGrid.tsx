@@ -13,12 +13,14 @@ import type { SpecValues } from './useSpecValues';
 import type { RowMark } from './BomTree';
 import type { DropPosition } from './bomArrangement';
 import { isDimension, sheetLabel } from '../../lib/stripLayout';
-import { CODE_NUMBERS_TITLE, codeWithNumbers, hasNumbers, type CodeSegment } from '../../lib/codeSegments';
+import { CODE_NUMBERS_TITLE, codeWithNumbers, hasNumbers, ownCodePart, type CodeSegment } from '../../lib/codeSegments';
 import { rowColumnCodes, shownColumns, sortColumns, viewCatalog, viewCell, viewUses } from '../../lib/bomGridLayout';
 import { codeOrName, displayCode } from '../../lib/displayCode';
+import { sourceMark, sourceOfDerived, type ValueSource } from '../../lib/valueSource';
+import { ValueSourceMark } from './ValueSourceMark';
 
 export interface GridWrite { row: BomRow; code: string; text: string; saved: string }
-type Cell = { text: string; input: string; saved: string; editable: boolean; why?: string; applies?: boolean; type?: string; options?: { id: number; value: string; label?: string | null }[] };
+type Cell = { text: string; input: string; saved: string; editable: boolean; why?: string; applies?: boolean; type?: string; /** Where a formula value comes from (lib/valueSource). */ source?: ValueSource | null; options?: { id: number; value: string; label?: string | null }[] };
 
 /** The BOM around the shared SheetGrid: SheetGrid owns selection, clipboard and
  * the editor; this owns what a BOM cell means, plus row drag/drop and moving. */
@@ -31,7 +33,7 @@ function CodeText({ code, itemCode, segments }: { code: string; itemCode: string
   return <><Box component="span" data-testid="row-code" sx={{ fontFamily: 'var(--font-mono)', whiteSpace: 'normal', overflowWrap: 'break-word' }}>{parts.map((t, i) => <span key={i}>{t}{i < parts.length - 1 ? <wbr /> : null}</span>)}</Box>{itemCode && itemCode !== code ? <Box component="span" sx={{ fontFamily: 'var(--font-mono)' }}> · {itemCode}</Box> : null}</>;
 }
 
-export function BomGrid({ rows, view, records: recordValues, recordIds, pending, busy, canEdit, canEditValues, onToggle, onWrites, onMove, dropRefusal, trailingCell, flowCell, choiceCell, markOf, placeholderOf, roleOf, canEditRole, onRole, onlyMissing, footer, gaps, handleRef, fileDrop }: {
+export function BomGrid({ rows, view, records: recordValues, recordIds, pending, busy, canEdit, canEditValues, onToggle, onWrites, onMove, dropRefusal, trailingCell, flowCell, choiceCell, markOf, placeholderOf, roleOf, canEditRole, onRole, onlyMissing, footer, gaps, handleRef, fileDrop, orderCode }: {
   rows: BomRow[]; view: ValuesView | null; pending: Pending; busy: boolean; canEdit: (row: BomRow) => boolean;
   records?: SpecValues; recordIds?: number[]; canEditValues: (row: BomRow) => boolean;
   onToggle: (key: string) => void; onWrites: (writes: GridWrite[]) => void;
@@ -57,6 +59,8 @@ export function BomGrid({ rows, view, records: recordValues, recordIds, pending,
   /** The grid's handle, for a screen that jumps to a cell. */
   handleRef?: RefObject<SheetGridHandle | null>;
   /** Drawing files dropped on a row: which rows take them, and what to do with them. Row moves (the drag handle) are unaffected. */
+  /** The order's own code, when the top row's code starts with it (so the top row shows only what it adds). */
+  orderCode?: string | null;
   fileDrop?: { canDrop: (row: BomRow) => boolean; onDrop: (row: BomRow, files: File[]) => void };
 }) {
   const ownHandle = useRef<SheetGridHandle>(null);
@@ -109,6 +113,15 @@ export function BomGrid({ rows, view, records: recordValues, recordIds, pending,
   const company = location.pathname.split('/').filter(Boolean)[0] ?? '';
   const top = rows.find((r) => !r.parent)?.node;
   const back: BackState = { backTo: { label: `${top ? codeOrName(top) : 'the'} BOM`, path: location.pathname + location.search } };
+  /** The part of the code this row adds to its parent's (data first, strings as the fallback); a code-less catalog row shows its item code. */
+  const ownCode = (row: BomRow): string => {
+    if (row.paste) return '';
+    const ph = placeholderOf(row), n = row.node;
+    if (!ph?.code) return n.kind === 'catalog' ? n.code ?? '' : '';
+    const pr = row.parent ? rowByKey.get(row.parent.key) : null, pp = pr ? placeholderOf(pr) : null;
+    const parent = row.parent ? pp : orderCode ? { code: orderCode, segments: [{ text: orderCode }] as CodeSegment[] } : null;
+    return ownCodePart(ph.code, ph.segments, parent?.code, parent?.segments) || (row.parent ? '' : codeWithNumbers(ph.code, ph.segments));
+  };
   const notOf = (row: BomRow) => `Not a value of ${row.node.name}`;
   const cellAt = (row: BomRow, col: { code: string }): Cell => {
     if (col.code === '$total') return { text: String(row.node.total), input: String(row.node.total), saved: '', editable: false, why: 'Calculated from the quantities above this row.' };
@@ -126,7 +139,7 @@ export function BomGrid({ rows, view, records: recordValues, recordIds, pending,
       const text = input === '' ? (saved !== '' && pending.values?.[row.node.id]?.[col.code] !== undefined ? '' : s.value?.display ?? '') : s.spec.dataType === 'option'
         ? s.options?.find((o) => String(o.id) === input)?.label || s.options?.find((o) => String(o.id) === input)?.value || input
         : s.spec.dataType === 'boolean' ? input === 'true' ? 'Yes' : 'No' : input;
-      return { text, input, saved, editable, type: s.spec.dataType, options: s.options,
+      return { text, input, saved, editable, type: s.spec.dataType, options: s.options, source: sourceOfDerived(s.derived),
         why: !canEditValues(row) ? 'Shared values: open this item or definition to edit them.' : editable ? undefined : `${s.rule.valueRule} value — read-only here.` };
     }
     const info = catalog.records.get(row.node.id);
@@ -134,6 +147,7 @@ export function BomGrid({ rows, view, records: recordValues, recordIds, pending,
     if (view && info && !vc) return { text: '', input: '', saved: '', editable: false, applies: false, why: notOf(row) };
     if (!view || !info || !vc) return { text: '', input: '', saved: '', editable: false, why: view ? 'This variable does not apply to this row.' : 'Loading values…' };
     return { text: vc.text, input: vc.input, saved: vc.saved, editable: vc.editable, type: vc.type, options: vc.options,
+      source: vc.cell.from ? { from: vc.cell.from, calculated: vc.cell.calculated, noCalc: vc.cell.noCalc } : null,
       why: row.paste ? 'Save this copy to edit its own values.' : info.row.readOnly ?? vc.cell.why ?? (vc.cell.missing ? 'Required value is missing.' : undefined) };
   };
   const sheetCell = (row: BomRow, col: { code: string }): SheetCell => {
@@ -142,9 +156,18 @@ export function BomGrid({ rows, view, records: recordValues, recordIds, pending,
     if (c.applies === false) return { text: '', applies: false, editable: false, why: c.why, title: c.why };
     const changed = col.code === '$quantity' ? !!row.paste || (n.lineId != null && n.lineId in pending.quantity) : col.code in (pending.values?.[n.id] ?? {});
     const gap = !!gaps?.get(n.id)?.includes(col.code);
-    return { text: c.text, input: c.input, editable: c.editable, why: gap ? (c.why ?? 'Required value is missing.') : c.why, tone: changed ? 'warning' : 'normal', tint: gap && !changed ? 'var(--c-warning-200)' : undefined,
+    // A formula's value says where it comes from (worked out · from the drawing · typed by hand over it); a cell being changed says "changed" instead.
+    const src = changed ? null : sourceMark(c.source, c.editable);
+    const typed = src?.from === 'typed';
+    return { text: c.text, input: c.input, editable: c.editable, why: gap ? (c.why ?? 'Required value is missing.') : c.why, tone: changed ? 'warning' : typed ? 'strong' : 'normal', tint: gap && !changed ? 'var(--c-warning-200)' : undefined,
       kind: c.type === 'number' ? 'number' : c.type === 'option' ? 'option' : c.type === 'boolean' ? 'bool' : c.type === 'date' ? 'date' : 'text',
-      options: c.options?.map((o) => ({ value: String(o.id), label: o.label || o.value })), title: gap ? `Missing — ${c.why ?? 'a required value'}` : c.why ?? c.text };
+      options: c.options?.map((o) => ({ value: String(o.id), label: o.label || o.value })),
+      // One click on a typed-over marker empties the cell: the calculated value comes back with the next save.
+      mark: src ? <ValueSourceMark mark={src} label={`${colByKey.get(col.code)?.name ?? col.code} of ${n.name}`} onGoBack={() => onWrites([{ row, code: col.code, text: '', saved: c.saved }])} /> : undefined,
+      state: src?.from,
+      // Undo of a number typed over a calculated value empties the cell again, rather than typing the calculated one.
+      restore: src && !typed && c.editable && c.input === '' ? '' : undefined,
+      title: gap ? `Missing — ${c.why ?? 'a required value'}` : src && (typed || !c.why) ? src.title : c.why ?? c.text };
   };
   const onSheetWrites = (writes: SheetWrite[]) => onWrites(writes.flatMap((w) => {
     const row = rowByKey.get(w.rowKey), col = colByKey.get(w.colKey);
@@ -186,7 +209,7 @@ export function BomGrid({ rows, view, records: recordValues, recordIds, pending,
                 onCopy={(e: ClipboardEvent) => e.stopPropagation()} onPaste={(e: ClipboardEvent) => e.stopPropagation()}
                 sx={{ width: '100%', font: 'inherit', fontSize: 12, p: '1px 4px', border: '1px solid var(--c-primary-400)', borderRadius: 'var(--r-sm)', background: 'var(--c-surface)', color: 'var(--c-text)' }} />
             ) : (
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, minWidth: 0 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', columnGap: 0.75, rowGap: 0.25, minWidth: 0 }}>
                 {/* The name only; the line's own description is its tooltip (it is edited under ⋯ → Edit line details). */}
                 <Box onDoubleClick={roleEditable ? () => startRole(row) : undefined} title={`${rowLabel(n.name, roleText)}${roleEditable ? ' — double-click to change the description' : ''}`}
                   sx={{ fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0, flexShrink: 1 }}>
@@ -196,6 +219,8 @@ export function BomGrid({ rows, view, records: recordValues, recordIds, pending,
                       title={`Open ${codeOrName(n)}`} style={{ color: 'inherit' }}>{n.name}</Link>
                   ) : n.name}
                 </Box>
+                {ownCode(row) && <Box component="span" data-testid="row-own-code" title="This row's own part of the code."
+                  sx={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, px: 0.75, borderRadius: 'var(--r-sm)', background: 'var(--c-surface-2)', color: 'var(--c-text-2)', whiteSpace: 'nowrap', flexShrink: 0 }}>{ownCode(row)}</Box>}
                 {flowCell(row)}
                 {choiceCell?.(row)}
                 {(gaps?.get(n.id)?.length ?? 0) > 0 && <Box component="span" data-testid="row-gaps" title={`Required values still empty: ${gaps?.get(n.id)?.join(', ')}`}

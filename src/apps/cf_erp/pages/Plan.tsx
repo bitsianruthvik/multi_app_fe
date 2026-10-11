@@ -496,7 +496,7 @@ export default function Plan() {
         )} />
 
       <UnitSheet unit={open} snapshot={view} evaluation={shown} plan={present.plan} busy={splitBusy} onStretch={onStretch} onEarliest={onEarliest} onSplit={onSplit} periodLabel={(k) => periodLabels.get(k) ?? k} canEdit={editable}
-        buyListPath={appPath(company, 'purchase')} onClose={() => setOpenKey(null)}
+        buyListPath={appPath(company, 'purchase')} onClose={() => setOpenKey(null)} onMachinesChanged={load.reload}
         onUnplan={(key) => putPlan(unplan(present.plan, [key]))}
         onPin={(key, pinned) => { if (present.plan[key]) putPlan({ ...present.plan, [key]: { ...present.plan[key], pinned } }); }} />
     </Box>

@@ -79,3 +79,5 @@ export function activeUnitKeys(snapshot: PlannerSnapshot, plan: Plan, opts?: Eng
   const m = getModel(snapshot);
   return activeUnits(m, plan, opts).map((i) => m.units[i].key);
 }
+export { machineWhatIf, unitWithChange } from './machines';
+export type { MachineWhatIf } from './machines';

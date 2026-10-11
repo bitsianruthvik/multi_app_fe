@@ -336,6 +336,54 @@ await check('Each # shows the numbers it takes, in brackets: (1,2,3), (5,6), (1�
   assert.equal(cell(2, 0).querySelector('[data-testid="row-code-line"]').getAttribute('title'), m.CODE_NUMBERS_TITLE);
   assert.equal(m.CODE_NUMBERS_TITLE, 'Codes are given when the design is frozen. The numbers in brackets are the copies this row stands for.');
 });
+// ── line 1: the row's own part of the code, beside its name ─────────────────────
+const hl = (from, to, values) => ({ from, to, ...(values ? { values } : {}) });
+const T = (text) => ({ text });
+const CG = [T('SO260002-CG'), hl(1, 3, [1, 2, 3])];
+const L1 = [...CG, T('-L1')], L12 = [...L1, T('-2')], IS = [...L12, T('-IS'), hl(1, 12)];
+const EDP = [...CG, T('-EDP'), hl(1, 2, [1, 2])], SFP = [...CG, T('-L2-STP1-SFP'), hl(1, 4)];
+const ownChips = () => [...document.querySelectorAll('[data-testid="row-own-code"]')].map((e) => e.textContent);
+const chain = (specs, over = {}) => {
+  // specs: [name, placeholder, parentNumber]; the parent defaults to the top row.
+  const rowsOf = specs.map(([name, ph, parent], i) => ({ id: i + 1, name, ph, parent: parent ?? 1 }));
+  const build = (r) => node(r.id, rowsOf.filter((c) => c.id !== 1 && c.parent === r.id).map(build), { name: r.name, kind: 'template', ...(r.id === 1 ? { lineId: null, depth: 0 } : {}) });
+  const top = build(rowsOf[0]);
+  const by = new Map(rowsOf.map((r) => [r.id, r.ph]));
+  return { ...codeGrid({}, { placeholderOf: (r) => by.get(r.node.id) ?? null, ...over }), rows: m.arrangedRows(top, new Set(rowsOf.map((r) => 'k' + r.id)), m.NO_PENDING) };
+};
+const ph = (code, segments) => ({ code, title: 't', segments });
+await check('Own part of the code beside the name: CG(1,2,3), L1, 2, IS(1–12), EDP(1,2), SFP(1–4)', async () => {
+  await render(chain([
+    ['Composite girder span', ph('SO260002-CG#', CG)], ['Girder line', ph('SO260002-CG#-L1', L1), 1], ['Girder segment', ph('SO260002-CG#-L1-2', L12), 2],
+    ['Intermediate stiffener', ph('SO260002-CG#-L1-2-IS#', IS), 3], ['End diaphragm', ph('SO260002-CG#-EDP#', EDP), 1],
+    ['Girder line 2', ph('SO260002-CG#-L2', [...CG, T('-L2')]), 1], ['Stiffener', ph('SO260002-CG#-L2-STP1', [...CG, T('-L2-STP1')]), 6], ['Stiffener plate', ph('SO260002-CG#-L2-STP1-SFP#', SFP), 7]], { orderCode: 'SO260002' }));
+  assert.deepEqual(ownChips(), ['CG(1,2,3)', 'L1', '2', 'IS(1–12)', 'EDP(1,2)', 'L2', 'STP1', 'SFP(1–4)']);
+  const chip = document.querySelector('[data-testid="row-own-code"]');
+  assert.equal(chip.getAttribute('title'), "This row's own part of the code.");
+  assert.equal(window.getComputedStyle(chip).fontFamily.includes('mono'), true);
+  const line1 = chip.parentElement;
+  const kids = [...line1.children].map((e) => e.getAttribute('data-testid') ?? e.tagName);
+  assert.ok(kids.indexOf('row-own-code') > 0 && kids.indexOf('row-own-code') < kids.indexOf('flow-chip'), kids.join());
+  assert.equal(window.getComputedStyle(line1).flexWrap, 'wrap', 'the flow chip wraps before anything is cut');
+  const fulls = [...document.querySelectorAll('[data-testid="row-code"]')].map((e) => e.textContent);
+  assert.equal(fulls[3], 'SO260002-CG(1,2,3)-L1-2-IS(1–12)', 'the full code below is unchanged');
+});
+await check('Own part falls back to the code minus the parent code when segments are missing; nothing when that fails', async () => {
+  await render(chain([['Top', ph('SO1-A', null)], ['Kid', ph('SO1-A-B2', null)], ['Odd', ph('ZZZ', null)]]));
+  assert.deepEqual(ownChips(), ['SO1-A', 'B2'], 'the top row has no order code so its whole code shows; Odd shows nothing');
+});
+await check('Top row without a known order prefix shows its whole code; with a known one only what follows', async () => {
+  await render(chain([['Top', ph('SO260002-CG#', CG)]]));
+  assert.deepEqual(ownChips(), ['SO260002-CG(1,2,3)']);
+  await render(chain([['Top', ph('SO260002-CG#', CG)]], { orderCode: 'SO260002' }));
+  assert.deepEqual(ownChips(), ['CG(1,2,3)']);
+});
+await check('A catalog row with no code shows its item code (STUD-002)', async () => {
+  const g = chain([['Girder line', ph('SO260002-CG#-L1', L1)], ['Shear stud', null]]);
+  g.rows[1].node.kind = 'catalog'; g.rows[1].node.code = 'STUD-002';
+  await render(g);
+  assert.ok(ownChips().includes('STUD-002'), ownChips().join());
+});
 await check('The action buttons keep their labels exactly (the grid does not rename them)', async () => {
   await render(codeGrid({}, { canEdit: () => true }));
   assert.ok(document.querySelector('[aria-label="Move Row 4"]'));

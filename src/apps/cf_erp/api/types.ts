@@ -161,6 +161,8 @@ export interface Rule {
   sortOrder: number;
   optionIds: number[];
   optionValues: string[];
+  /** 'flow' on a classification node: a recipe — how a value is worked out for the rows whose flow reads it (flowSpecService). */
+  origin?: 'manual' | 'flow';
 }
 
 export interface ValueView {
@@ -202,6 +204,22 @@ export interface ResolvedSpec {
   conflict?: string;
   note?: string;
   missingInputs?: string[];
+  /**
+   * Where a formula value comes from (resolutionService.workOutFormulas): worked out, from the
+   * part's drawing, or typed by hand over the calculated one — then `calculated` is the answer it
+   * replaced. `overridable`: a Defaulted rule that names the formula, so a person may type over it.
+   */
+  derived?: {
+    source: 'calculated' | 'drawing' | 'typed';
+    overridable: boolean;
+    rollup?: boolean;
+    calculated?: { raw: number; display: string } | null;
+    calculatedFrom?: 'calculated' | 'drawing';
+    held?: boolean;
+    frozen?: boolean;
+    waiting?: string[] | null;
+    problem?: string | null;
+  };
 }
 
 export interface Resolution {

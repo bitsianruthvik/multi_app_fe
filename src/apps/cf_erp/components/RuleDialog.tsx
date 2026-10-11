@@ -11,7 +11,7 @@ import { DialogHeader } from './FormDialog';
 const RULE_HELP: Record<ValueRule, string> = {
   entered: 'Typed in on each item.',
   fixed: 'One value set higher up (here or above); items cannot change it.',
-  defaulted: 'A value set higher up that items start with and may override.',
+  defaulted: 'A value set higher up that items start with and may override — or, with a formula, a value the formula works out and a person may type over.',
   calculated: 'Worked out by a formula from the same item’s other values.',
   rollup: 'Added up from BOM children (each × its BOM quantity). Works once BOMs exist.',
   inherited: 'Taken from the BOM parent, e.g. a web takes its girder’s grade. Works once BOMs exist.',
@@ -70,19 +70,21 @@ export function RuleDialog({
 
   const spec = useMemo(() => specs.find((s) => s.id === specId) ?? null, [specs, specId]);
   const needsFormula = valueRule === 'calculated' || valueRule === 'rollup';
+  // A Defaulted rule on an item's number may name a formula: the formula gives the default and a typed value replaces it.
+  const mayFormula = valueRule === 'defaulted' && captureAt === 'item' && (!spec || spec.dataType === 'number');
   const ruleChoices: ValueRule[] = forMachines ? ['entered', 'fixed', 'defaulted', 'calculated']
     : captureAt === 'item' ? ['entered', 'fixed', 'defaulted', 'calculated', 'rollup', 'inherited'] : ['entered', 'calculated'];
   // A calculated rule takes a formula of plain codes, a roll-up one reading children.X; timing formulas belong to operations.
   // The rule's own formula stays on the list even if it has since been retired,
   // so editing the rule does not quietly blank it.
-  const formulaChoices = formulas.filter((f) => (f.status === 'active' && (f.kind ?? 'value') === (valueRule === 'rollup' ? 'rollup' : 'value')) || f.id === formulaId);
+  const formulaChoices = formulas.filter((f) => (f.status === 'active' && (mayFormula ? (f.kind ?? 'value') !== 'timing' : (f.kind ?? 'value') === (valueRule === 'rollup' ? 'rollup' : 'value'))) || f.id === formulaId);
 
   const save = async () => {
     setBusy(true);
     setError(null);
     const body = {
       captureAt, valueRule, isRequired: switchedOff ? false : isRequired, isApplicable: !switchedOff,
-      formulaId: needsFormula && !switchedOff ? formulaId : null,
+      formulaId: (needsFormula || mayFormula) && !switchedOff ? formulaId : null,
       optionIds: spec?.dataType === 'option' && !switchedOff ? optionIds : [],
     };
     try {
@@ -137,6 +139,13 @@ export function RuleDialog({
                 <TextField select label="Formula" required value={formulaId ?? ''} error={!formulaId} onChange={(e) => setFormulaId(Number(e.target.value) || null)}
                   helperText={formulas.find((f) => f.id === formulaId)?.expression
                     ?? (formulaChoices.length ? 'Pick the formula that works this value out.' : `No ${valueRule === 'rollup' ? 'roll-up' : 'value'} formula exists yet — add one under Setup › Value formulas.`)}>
+                  {formulaChoices.map((f) => <MenuItem key={f.id} value={f.id}>{f.name} ({f.code})</MenuItem>)}
+                </TextField>
+              )}
+              {mayFormula && (
+                <TextField select label="Worked out by (optional)" value={formulaId ?? ''} onChange={(e) => setFormulaId(Number(e.target.value) || null)}
+                  helperText={formulas.find((f) => f.id === formulaId)?.expression ?? 'No formula: the default is the value set above. With one, the formula works the value out and a person may type over it.'}>
+                  <MenuItem value="">No formula — the default comes from above</MenuItem>
                   {formulaChoices.map((f) => <MenuItem key={f.id} value={f.id}>{f.name} ({f.code})</MenuItem>)}
                 </TextField>
               )}

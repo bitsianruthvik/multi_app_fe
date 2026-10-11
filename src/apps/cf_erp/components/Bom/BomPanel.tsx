@@ -998,7 +998,7 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
               onToggle={(key) => { const next = new Set(expanded); if (next.has(key)) next.delete(key); else next.add(key); setOpen(next); }}
               roleOf={roleOf} canEditRole={canEditRole} onRole={onRole}
               gaps={liveGaps ?? undefined} handleRef={gridHandle} onlyMissing={gapsOn && onlyMissing ? savedGaps ?? undefined : undefined}
-              onWrites={onGridWrites} onMove={onGridMove} dropRefusal={dropRefusal} trailingCell={trailingCell} fileDrop={orderGrid ? fileDrop : undefined} flowCell={flowCell} choiceCell={choiceCell} markOf={markOf} placeholderOf={placeholderOf}
+              onWrites={onGridWrites} onMove={onGridMove} dropRefusal={dropRefusal} trailingCell={trailingCell} fileDrop={orderGrid ? fileDrop : undefined} flowCell={flowCell} choiceCell={choiceCell} markOf={markOf} placeholderOf={placeholderOf} orderCode={state.order?.code ?? null}
               footer={gapsOn && onlyMissing
                 ? rows.length === 0 && !!gridValues.data && <EmptyState title={onlyMissing ? 'Nothing is missing' : 'Nothing below it yet'} hint={onlyMissing ? 'Every required value on this line is filled.' : undefined} />
                 : root.children.length === 0 && pending.pastes.length === 0 && <EmptyState title="Nothing below it yet" action={canAddToRoot && addButton('contained')} />} />

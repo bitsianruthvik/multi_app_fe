@@ -1,12 +1,12 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Box, Button, Typography } from '@mui/material';
 import AddRounded from '@mui/icons-material/AddRounded';
 import EditRounded from '@mui/icons-material/EditRounded';
 import TableChartOutlined from '@mui/icons-material/TableChartOutlined';
 import { CfApiError } from '../../api/client';
-import { getCharts, putChartValue, type Chart, type ChartRow, type ChartSubject } from '../../api/charts';
+import { chartValueImpact, getCharts, getMachineTimeImpact, putChartValue, type Chart, type ChartRow, type ChartSubject, type MachineTimeImpact } from '../../api/charts';
 import { useLoad } from '../../hooks/useLoad';
-import { byText, chartRows, formulaNameText, modeText, previewTable, resultHeading, valueSourceText } from '../../lib/charts';
+import { byText, chartRows, formulaNameText, impactText, modeText, previewTable, resultHeading, valueSourceText } from '../../lib/charts';
 import { EmptyState, ErrorNotice, Mono, SectionCard, SkeletonRows } from '../ui';
 import { ConfirmDialog } from '../ConfirmDialog';
 import { ChartRowsDialog } from './ChartRowsDialog';
@@ -57,15 +57,44 @@ export function ChartsPanel({ subject, canManage, onChanged }: { subject: ChartS
   const onMachine = subject.type === 'machine';
   const gridChart = charts.find((c) => c.specId === editingValues) ?? null;
 
-  const changed = () => { onChanged?.(); };
+  // §58 — A MACHINE'S OWN CHART COUNTS: a step put on this machine takes the machine's time. So the
+  // tab says how many planned (not started) steps are on it, and every change says, from a dry run
+  // on the server, how many of them change and by how much — before and after it is saved.
+  const [onIt, setOnIt] = useState<MachineTimeImpact | null>(null);
+  const [backImpact, setBackImpact] = useState<MachineTimeImpact | null>(null);
+  const [tick, setTick] = useState(0);
+  /** A save waiting for its "these planned steps change" question. */
+  const [askSave, setAskSave] = useState<{ chart: Chart; impact: MachineTimeImpact; resolve: () => void; reject: (e: Error) => void } | null>(null);
+  useEffect(() => {
+    if (!onMachine) return undefined;
+    let alive = true;
+    getMachineTimeImpact(subject.id).then((i) => { if (alive) setOnIt(i); }).catch(() => { if (alive) setOnIt(null); });
+    return () => { alive = false; };
+  }, [onMachine, subject.id, tick]);
+  useEffect(() => {
+    setBackImpact(null);
+    if (!giveBack || !onMachine) return undefined;
+    let alive = true;
+    chartValueImpact(subject.id, giveBack.specId, null).then((i) => { if (alive) setBackImpact(i); }).catch(() => undefined);
+    return () => { alive = false; };
+  }, [giveBack, onMachine, subject.id]);
+  /** The dry run of saving these rows on this machine; null when it cannot be worked out (the save still goes on). */
+  const dryRun = (chart: Chart, rows: ChartRow[] | null) => (onMachine ? chartValueImpact(subject.id, chart.specId, rows).catch(() => null) : Promise.resolve(null));
+
+  const changed = () => { setTick((t) => t + 1); onChanged?.(); };
   const refreshed = (next: Chart[] | null) => { if (next) list.setData(next); else list.reload(); changed(); };
 
   /** Saves the rows; an error goes back to the rows dialog, which shows the server's words. */
   const saveValues = async (chart: Chart, rows: ChartRow[] | null) => {
+    const impact = await dryRun(chart, rows);
+    // Planned steps would change: say how many and by how much, and ask, BEFORE anything is saved.
+    if (impact && (impact.changed > 0 || impact.dropped > 0)) {
+      await new Promise<void>((resolve, reject) => { setAskSave({ chart, impact, resolve, reject }); });
+    }
     const next = await putChartValue(subject, chart.specId, rows);
     list.setData(next);
     changed();
-    toast.success('Chart saved.');
+    toast.success(impact?.steps ? `Chart saved. ${impactText(impact)}` : 'Chart saved.');
   };
 
   /** A machine takes the values it shows as its own, then opens them to edit. */
@@ -76,6 +105,8 @@ export function ChartsPanel({ subject, canManage, onChanged }: { subject: ChartS
       list.setData(next);
       changed();
       setEditingValues(chart.specId);
+      // The same rows as the type's change nothing yet — what counts is what is typed next.
+      toast.info(onIt?.steps ? `This machine has its own chart now. ${onIt.steps} planned ${onIt.steps === 1 ? 'step is' : 'steps are'} on it: change the rows and ${onIt.steps === 1 ? 'its time follows' : 'their times follow'}.` : 'This machine has its own chart now.');
     } catch (e) {
       setError(e instanceof CfApiError ? e : new CfApiError(0, String(e)));
     }
@@ -87,6 +118,14 @@ export function ChartsPanel({ subject, canManage, onChanged }: { subject: ChartS
         ? 'Lookup tables a time can read, e.g. cutting speed by thickness. A machine uses its type’s chart unless it has its own.'
         : 'Lookup tables a time can read, e.g. cutting speed by thickness. Every machine of this type uses them unless it has its own.'}
       actions={canManage && <Button startIcon={<AddRounded />} onClick={() => setAdding(true)}>Add chart</Button>}>
+      {onMachine && onIt && (
+        <Typography data-testid="charts-impact" sx={{ fontSize: 13, color: 'var(--c-text-2)', pb: 1 }}>
+          {onIt.steps
+            ? `${onIt.steps} planned ${onIt.steps === 1 ? 'step is' : 'steps are'} on this machine and not started (${Math.round(onIt.minutesBefore).toLocaleString()} min). A chart of its own changes ${onIt.steps === 1 ? 'its time' : 'their times'} — you are told by how much before it is saved.`
+            : impactText(onIt)}
+          {onIt.changed > 0 && <Box component="span" data-testid="charts-impact-stale" sx={{ display: 'block', color: 'var(--c-warning-800)' }}>{impactText(onIt)}</Box>}
+        </Typography>
+      )}
       <ErrorNotice error={list.error} onRetry={list.reload} />
       <ErrorNotice error={error} />
       {list.loading && !list.data ? <SkeletonRows rows={3} /> : charts.length === 0 ? (
@@ -127,7 +166,14 @@ export function ChartsPanel({ subject, canManage, onChanged }: { subject: ChartS
                 {canManage && (
                   <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', pt: 0.5 }}>
                     {inherited ? (
-                      <Button size="small" variant="outlined" onClick={() => void giveOwn(c)}>Give this machine its own chart</Button>
+                      <>
+                        <Button size="small" variant="outlined" onClick={() => void giveOwn(c)}>Give this machine its own chart</Button>
+                        {onIt && (
+                          <Typography data-testid={`chart-impact-${c.code}`} sx={{ fontSize: 12.5, color: 'var(--c-text-2)', alignSelf: 'center' }}>
+                            {onIt.steps ? `${onIt.steps} planned ${onIt.steps === 1 ? 'step' : 'steps'} would follow it` : 'no planned step is on this machine yet'}
+                          </Typography>
+                        )}
+                      </>
                     ) : (
                       <Button size="small" variant="outlined" startIcon={<TableChartOutlined fontSize="small" />} onClick={() => setEditingValues(c.specId)}>
                         {chartRows(c) ? 'Edit rows' : 'Add rows'}
@@ -150,8 +196,18 @@ export function ChartsPanel({ subject, canManage, onChanged }: { subject: ChartS
         <ChartRowsDialog open onClose={() => setEditingValues(null)} title={gridChart.name} axes={gridChart.axes} resultLabel={resultHeading(gridChart)}
           rows={chartRows(gridChart)} nodes={gridChart.nodes} onSave={(rows) => saveValues(gridChart, rows)} />
       )}
+      <ConfirmDialog open={!!askSave} title="Save this machine’s chart?" confirmLabel="Save" entityName={askSave ? `${askSave.chart.name} · ${askSave.chart.code}` : undefined}
+        body={(
+          <Box data-testid="chart-save-impact">
+            {askSave ? impactText(askSave.impact) : ''}
+            {askSave?.impact.cannot.slice(0, 3).map((s) => <Box key={s} sx={{ mt: 0.5, fontSize: 12.5 }}>{s}</Box>)}
+            <Box sx={{ mt: 0.5 }}>Steps that have started keep the time they started with.</Box>
+          </Box>
+        )}
+        onClose={() => { askSave?.reject(new CfApiError(0, 'Not saved — the chart is as it was.')); setAskSave(null); }}
+        onConfirm={async () => { askSave?.resolve(); setAskSave(null); }} />
       <ConfirmDialog open={!!giveBack} title="Go back to the type’s chart?" confirmLabel="Go back" entityName={giveBack ? `${giveBack.name} · ${giveBack.code}` : undefined}
-        body="This machine’s own values for this chart are dropped. It reads the machine type’s chart again."
+        body={`This machine’s own values for this chart are dropped. It reads the machine type’s chart again.${backImpact?.steps ? ` ${impactText(backImpact)}` : ''}`}
         onClose={() => setGiveBack(null)}
         onConfirm={async () => {
           if (!giveBack) return;

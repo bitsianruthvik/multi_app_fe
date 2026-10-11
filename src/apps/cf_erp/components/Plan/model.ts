@@ -77,3 +77,12 @@ export function copyText(units: PlannerUnit[], u: PlannerUnit): string | null {
   const n = units.filter((x) => x.pieceId === u.pieceId && x.copy != null).length;
   return n > 1 ? `${u.copy} of ${n}` : null;
 }
+
+/** "+600 min" / "−600 min" / "0 min" — a change of minutes (§58: a card moved to another machine). */
+export const signedMins = (n: number) => `${n > 0 ? '+' : n < 0 ? '−' : ''}${Math.abs(Math.round(n)).toLocaleString()} min`;
+
+/** "MC-2 · own chart · 1,400 min (+600 min)" — one machine of a type, for one card (GET /planner/units/:key/machines). */
+export function machineLine(m: { code: string; ownChart: boolean; available: boolean; minutes: number | null; change: number | null }): string {
+  if (!m.available) return `${m.code} — not available for this card`;
+  return `${m.code}${m.ownChart ? ' · own chart' : ''} · ${mins(m.minutes ?? 0)}${m.change ? ` (${signedMins(m.change)})` : ''}`;
+}

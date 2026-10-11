@@ -8,7 +8,7 @@ import type { AskedValue, ReasonLevel, ReasonOperation, ValueReasons } from '../
  * flow reads. It is the candidate for removal when the list has to stay the smallest that can be filled.
  */
 
-export type ReasonGroupKey = 'flow' | 'manual' | 'derived' | 'notAsked';
+export type ReasonGroupKey = 'flow' | 'manual' | 'typedOver' | 'derived' | 'notAsked';
 export interface ReasonRow {
   code: string;
   name: string;
@@ -23,6 +23,7 @@ export interface ReasonGroup { key: ReasonGroupKey; title: string; hint: string;
 export const GROUP_TITLE: Record<ReasonGroupKey, string> = {
   flow: 'From its flow',
   manual: 'Set by hand',
+  typedOver: 'Typed over a calculated value',
   derived: 'Worked out',
   notAsked: 'No longer asked for',
 };
@@ -30,6 +31,7 @@ export const GROUP_TITLE: Record<ReasonGroupKey, string> = {
 const GROUP_HINT: Record<ReasonGroupKey, string> = {
   flow: 'Asked because an operation’s time reads it. These look after themselves: one goes when nothing reads it any more.',
   manual: 'A rule somebody added. One that nothing reads is worth a second look.',
+  typedOver: 'A formula gives these, and somebody typed a different number by hand. Empty the cell on the Structure tab to go back to the calculated value.',
   derived: 'Nobody fills these in.',
   notAsked: 'Still stored on the record, but nothing asks for it any more.',
 };
@@ -59,7 +61,15 @@ const HOW: Record<string, (at: ReasonLevel) => string> = {
   inherited: () => 'inherited from the row above it',
   fixed: (at) => `fixed on ${levelText(at)}`,
   defaulted: (at) => `defaulted on ${levelText(at)}`,
+  drawing: () => 'from its drawing',
 };
+
+/** "the calculated value is 11.870 kg (from its drawing)" — or why there is none yet. */
+function calculatedText(r: Extract<AskedValue['reason'], { kind: 'typedOver' }>): string {
+  if (r.calculated != null) return `the calculated value is ${r.calculated}${r.from === 'drawing' ? ' (from its drawing)' : ''}`;
+  const waiting = r.waiting?.length ? `waiting for ${listText(r.waiting.slice(0, 3))}${r.waiting.length > 3 ? ` and ${r.waiting.length - 3} more` : ''}` : r.problem ?? null;
+  return `nothing is calculated yet${waiting ? ` (${waiting})` : ''}`;
+}
 
 /** The sentence for one asked value, and whether it is the case worth a warning. */
 export function reasonText(v: AskedValue, ctx: Pick<ValueReasons, 'flow' | 'frozen'>): { text: string; warn: boolean } {
@@ -77,14 +87,18 @@ export function reasonText(v: AskedValue, ctx: Pick<ValueReasons, 'flow' | 'froz
     if (!ctx.flow) return { text: `${where} — it has no flow, so no operation reads it`, warn: false };
     return { text: `${where} — nothing in its flow reads it`, warn: true };
   }
+  if (r.kind === 'typedOver') {
+    const readers = r.readBy?.length ? ` — read by ${operationsText(r.readBy)}` : '';
+    return { text: `Typed by hand${r.value ? `: ${r.value}` : ''} — ${calculatedText(r)}${readers}`, warn: false };
+  }
   const how = r.note ? 'by cutting and nesting' : (HOW[r.how] ?? (() => r.how))(r.at);
   const readers = r.readBy?.length ? ` — read by ${operationsText(r.readBy)}` : '';
-  return { text: `Worked out (${how})${readers}`, warn: false };
+  return { text: `Worked out (${how})${r.overridable ? ' — it can be typed over' : ''}${readers}`, warn: false };
 }
 
 /** The four lists, in the order the screen shows them; an empty one is left out. */
 export function reasonGroups(data: ValueReasons): ReasonGroup[] {
-  const rows: Record<ReasonGroupKey, ReasonRow[]> = { flow: [], manual: [], derived: [], notAsked: [] };
+  const rows: Record<ReasonGroupKey, ReasonRow[]> = { flow: [], manual: [], typedOver: [], derived: [], notAsked: [] };
   for (const v of data.values) {
     const { text, warn } = reasonText(v, data);
     rows[v.reason.kind].push({ code: v.code, name: v.name, text, warn, required: v.required });
@@ -92,7 +106,7 @@ export function reasonGroups(data: ValueReasons): ReasonGroup[] {
   // What nothing reads comes first among the hand-made ones: it is what the person came for.
   rows.manual.sort((a, b) => Number(b.warn) - Number(a.warn));
   for (const n of data.notAsked) rows.notAsked.push({ code: n.code, name: n.name, text: `Holds ${n.display}`, warn: false, required: false });
-  return (['flow', 'manual', 'derived', 'notAsked'] as ReasonGroupKey[])
+  return (['flow', 'manual', 'typedOver', 'derived', 'notAsked'] as ReasonGroupKey[])
     .filter((key) => rows[key].length > 0)
     .map((key) => ({ key, title: GROUP_TITLE[key], hint: GROUP_HINT[key], rows: rows[key] }));
 }
@@ -108,6 +122,7 @@ export function reasonSummary(data: ValueReasons): string {
   const bits = [
     of('flow').length ? `${of('flow').length} from its flow` : '',
     of('manual').length ? `${of('manual').length} set by hand${unread ? ` (${unread} nothing reads)` : ''}` : '',
+    of('typedOver').length ? `${of('typedOver').length} typed over a calculated value` : '',
     of('derived').length ? `${of('derived').length} worked out` : '',
   ].filter(Boolean);
   return `${count(data.values.length, 'value', 'values')} asked: ${bits.join(', ')}.`;

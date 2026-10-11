@@ -84,6 +84,7 @@ export function FormulaDialog({ open, onClose, onSaved, existing, canManage }: {
             <FormulaEditor value={expression} onChange={setExpression} idx={idx} itemFields={fields} machineFields={fields} plainFields={fields} timingOnly={false} label="Expression" />
             <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)', mt: 0.75 }}>
               Specification codes, numbers, + − × ÷ % ^, MIN, MAX, ROUND(x, n), ABS, SQRT, CEIL, FLOOR, IF(a &gt; b, x, y). Roll-ups: SUM(children.WEIGHT).
+              A value that may be absent: FIRST(TRUE_AREA, LENGTH * WIDTH). Children by kind: SUM(IF(CONTAINS(children.name, &quot;stiffener&quot;), 1, 0)); NONZERO(x) is nothing when a count finds none.
             </Typography>
             {expression.trim() && formulaInWords(expression, idx) && <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)', mt: 0.5 }} data-testid="formula-words">In words: {formulaInWords(expression, idx)}</Typography>}
             {unitWarnings(expression, idx).map((w) => <Typography key={w} sx={{ fontSize: 12.5, color: 'var(--c-info-800)', mt: 0.5 }}>{w}</Typography>)}

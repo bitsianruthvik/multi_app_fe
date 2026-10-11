@@ -8,6 +8,18 @@
  */
 import type { Chart, ChartAxis, ChartCell, ChartInputSpec, ChartLevel, ChartMode, ChartRow } from '../api/charts';
 
+/** "12 planned steps follow it: +36 min in total" — what a machine's own chart does to the plan (§58). */
+export function impactText(i: { steps: number; changed: number; minutesChange: number; dropped: number } | null | undefined): string {
+  if (!i) return '';
+  if (!i.steps) return 'No planned step is on this machine yet — its own chart counts from the first one put on it.';
+  const n = (k: number, one: string, many: string) => `${k} ${k === 1 ? one : many}`;
+  const by = Math.round(Math.abs(i.minutesChange));
+  const total = i.minutesChange > 0 ? `+${by.toLocaleString()} min in total` : i.minutesChange < 0 ? `−${by.toLocaleString()} min in total` : 'no change in total';
+  const off = i.dropped ? ` ${n(i.dropped, 'step comes', 'steps come')} off this machine: its chart has no answer for ${i.dropped === 1 ? 'it' : 'them'}.` : '';
+  if (!i.changed) return `${n(i.steps, 'planned step is', 'planned steps are')} on this machine and not started; ${i.steps === 1 ? 'its time does' : 'their times do'} not change.${off}`;
+  return `${n(i.changed, 'planned step changes', 'planned steps change')} (of ${i.steps} not started on this machine): ${total}.${off}`;
+}
+
 /** "Thickness (mm)"; no unit, no brackets. */
 export const withUnit = (label: string, unit: string | null | undefined) => (unit && unit.trim() ? `${label} (${unit.trim()})` : label);
 

@@ -5,6 +5,7 @@ import { SideSheet } from '@shared/ui';
 import { fastest } from '../../lib/planner';
 import type { Evaluation, Plan, PlannerSnapshot, PlannerUnit } from '../../lib/planner/types';
 import { WorkBar } from './WorkBar';
+import { UnitMachines } from './UnitMachines';
 import { ViewDrawingButton } from '../Drawings/RowDrawingViewer';
 import { copyText, mins, shortDate, splitAction, tonnes } from './model';
 
@@ -17,7 +18,7 @@ const Row = ({ k, children }: { k: string; children: React.ReactNode }) => (
 const weeks = (n: number) => `${n} ${n === 1 ? 'week' : 'weeks'}`;
 
 /** One card in detail: when its work runs, what is in it, how long each function needs, what material it waits for. */
-export function UnitSheet({ unit, snapshot, evaluation, plan, periodLabel, canEdit, busy, buyListPath, onClose, onUnplan, onPin, onStretch, onEarliest, onSplit }: {
+export function UnitSheet({ unit, snapshot, evaluation, plan, periodLabel, canEdit, busy, buyListPath, onClose, onUnplan, onPin, onStretch, onEarliest, onSplit, onMachinesChanged }: {
   unit: PlannerUnit | null;
   snapshot: PlannerSnapshot;
   evaluation: Evaluation;
@@ -36,6 +37,8 @@ export function UnitSheet({ unit, snapshot, evaluation, plan, periodLabel, canEd
   /** place it in the earliest week it can ship */
   onEarliest: (key: string, week: string) => void;
   onSplit: (target: PlannerUnit, split: boolean) => void;
+  /** its steps were put on another machine: re-read the plan */
+  onMachinesChanged?: () => void;
 }) {
   const ev = unit ? evaluation.units[unit.key] : undefined;
   const fns = snapshot.functions.map((f) => ({ f, m: unit?.work[f.key] ?? 0 })).filter((x) => x.m > 0);
@@ -89,6 +92,9 @@ export function UnitSheet({ unit, snapshot, evaluation, plan, periodLabel, canEd
           {fns.length === 0 ? <Typography sx={{ fontSize: 13, color: 'var(--c-text-3)' }}>No times set.</Typography> : fns.map((x) => <Row key={x.f.key} k={x.f.name}>{mins(x.m)}</Row>)}
           <WorkBar unit={unit} fns={snapshot.functions} height={6} />
           {unit.noRate > 0 && <Typography sx={{ fontSize: 12.5, color: 'var(--c-warning-800)', mt: 0.5 }}>{unit.noRate} {unit.noRate === 1 ? 'step has' : 'steps have'} no time set.</Typography>}
+
+          {/* §58 — which machine its open steps are on, and what each machine of the type would take. */}
+          {fns.length > 0 && <UnitMachines unit={unit} snapshot={snapshot} plan={plan} periodLabel={periodLabel} canEdit={canEdit} onChanged={onMachinesChanged} />}
 
           <Typography sx={{ fontWeight: 600, fontSize: 13, mt: 2, mb: 0.5 }}>Material</Typography>
           {unit.material
