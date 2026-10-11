@@ -17,6 +17,7 @@
  */
 import { api } from './client';
 import type { HiringRef, JoiningRef } from './hiring';
+import type { NoticeRef } from './people';
 import { pretty, targetText, type ContentRow, type KraGroup, type RoleContent } from './roles';
 import type { SelfResponsibilities } from './self';
 
@@ -148,7 +149,7 @@ export interface StaffingPosition {
   filled: number;
   vacant: number;
   overFilled: boolean;
-  occupants: { employeeId: number; name: string; employeeCode: string | null }[];
+  occupants: { employeeId: number; name: string; employeeCode: string | null; notice?: NoticeRef | null }[];
   /** The OPEN hiring on this position, or null. */
   hiring?: HiringRef | null;
   /** Someone appointed here who joins on a later day. */

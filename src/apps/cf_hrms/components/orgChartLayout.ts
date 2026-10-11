@@ -6,6 +6,7 @@ import type {
   OrgChartOccupant,
 } from '../api/orgchart';
 import { joiningLabel, type HiringRef, type JoiningRef } from '../api/hiring';
+import { noticeLabel } from '../api/people';
 
 /**
  * The org chart's layout engine — a faithful port of `Org_Chart_V12.html`'s
@@ -99,6 +100,8 @@ export interface ChartPalette {
   vacant: string;
   vacantFill: string;
   vacantText: string;
+  /** The "Notice · 10 Nov" label on a row: someone still here, who is leaving. */
+  noticeText: string;
   fontUi: string;
 }
 
@@ -125,6 +128,7 @@ const TOKEN_MAP: Record<keyof Omit<ChartPalette, 'fontUi'>, string> = {
   vacant: '--c-neutral-600',
   vacantFill: '--c-neutral-50',
   vacantText: '--c-neutral-800',
+  noticeText: '--c-warning-800',
 };
 
 /**
@@ -558,6 +562,8 @@ export interface VisibleCounts {
   hiring: number;
   /** Vacant positions somebody is appointed to and has not joined yet. Part of `vacant`. */
   joining: number;
+  /** People on notice. Still in their positions: part of `filled`. */
+  onNotice: number;
 }
 
 /** "149 vacant · 3 hiring · 1 joining" — only the parts that are not zero after the first. */
@@ -589,7 +595,7 @@ export function vacantLine(c: { vacant: number; hiring?: number; joining?: numbe
  * would report an attendance figure the system does not have.
  */
 export function countPositions(nodes: Iterable<OrgChartNode>, filter: ShiftFilter = 'all'): VisibleCounts {
-  const c: VisibleCounts = { cards: 0, positions: 0, filled: 0, present: 0, absent: 0, unmarked: 0, vacant: 0, hiring: 0, joining: 0 };
+  const c: VisibleCounts = { cards: 0, positions: 0, filled: 0, present: 0, absent: 0, unmarked: 0, vacant: 0, hiring: 0, joining: 0, onNotice: 0 };
   for (const n of nodes) {
     if (!inShift(n, filter)) continue;
     c.positions += 1;
@@ -601,6 +607,7 @@ export function countPositions(nodes: Iterable<OrgChartNode>, filter: ShiftFilte
       continue;
     }
     c.filled += 1;
+    if (o.notice) c.onNotice += 1;
     if (o.attendanceStatus === 'ABSENT') c.absent += 1;
     else if (o.attendanceStatus === 'PRESENT') c.present += 1;
     else c.unmarked += 1;
@@ -1948,7 +1955,15 @@ export interface SceneOptions extends LayoutOptions {
 function rowTone(
   r: BoxRow,
   p: ChartPalette,
-): { bar: string; fill: string; text: string; status: string } {
+): { bar: string; fill: string; text: string; status: string; statusFill?: string } {
+  // On notice: the row keeps its own colours — the person is still here — and the
+  // word at its end becomes "Notice · 10 Nov", in the warning tone, colours on or off.
+  const notice = r.occupant?.notice ? { status: noticeLabel(r.occupant.notice), statusFill: p.noticeText } : null;
+  if (notice && r.occupant) {
+    if (r.occupant.attendanceStatus === 'ABSENT') return { bar: p.absent, fill: p.absentFill, text: p.absentText, ...notice };
+    if (r.occupant.attendanceStatus === 'PRESENT') return { bar: p.present, fill: p.presentFill, text: p.presentText, ...notice };
+    return { bar: p.faint, fill: p.surface2, text: p.ink, ...notice };
+  }
   // Being hired for: still the vacancy's colours — it IS vacant — with one small word.
   if (!r.occupant) return { bar: p.vacant, fill: p.vacantFill, text: p.vacantText, status: r.hiring && !r.joining ? 'Hiring' : '' };
   if (r.occupant.attendanceStatus === 'ABSENT')
@@ -2427,7 +2442,7 @@ export function buildScene(model: ChartModel, opts: SceneOptions): ChartScene {
         const tone = rowTone(r, p);
         if (r.positionId != null) {
           const who = r.occupant
-            ? r.occupant.name?.trim() || 'Name not recorded'
+            ? `${r.occupant.name?.trim() || 'Name not recorded'}${r.occupant.notice ? `, on notice, last working day ${r.occupant.notice.lastWorkingDay}` : ''}`
             : r.joining
               ? `Vacant, ${joiningLabel(r.joining)}`
               : r.hiring
@@ -2494,7 +2509,7 @@ export function buildScene(model: ChartModel, opts: SceneOptions): ChartScene {
             else rowsOfPerson.set(who, [at]);
           }
         }
-        const statusW = tone.status ? 48 : 4;
+        const statusW = tone.status ? Math.max(48, Math.ceil(textWidth(tone.status, f.rowSmall)) + 12) : 4;
         prims.push({
           k: 'text',
           x: tx,
@@ -2513,7 +2528,7 @@ export function buildScene(model: ChartModel, opts: SceneOptions): ChartScene {
             text: tone.status,
             size: 11,
             weight: 500,
-            fill: opts.colours ? tone.text : p.muted,
+            fill: tone.statusFill ?? (opts.colours ? tone.text : p.muted),
             anchor: 'end',
           });
         }

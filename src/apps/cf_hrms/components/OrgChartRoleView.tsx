@@ -8,6 +8,7 @@ import { positionsApi, type LookupRow } from '../api/positions';
 import { cardCount, rowsOf, vacantLine, type ChartCard, type ChartModel } from './orgChartLayout';
 import { OrgChartJobSection } from './OrgChartJobSection';
 import { PositionListRow, SectionTitle } from './OrgChartPositionParts';
+import { usePositionRemoval } from './usePositionRemoval';
 import { shiftWord } from './usePositionCard';
 import { inPanelLink, positionView, smallLabel, type PanelNav, type PanelView } from './orgChartPanelNav';
 
@@ -150,6 +151,7 @@ export function OrgChartRoleView({
 }) {
   const can = useIsPermitted();
   const canManage = can('cf_hrms_org_manage');
+  const removal = usePositionRemoval({ onDone: () => onChanged?.() });
   const [role, setRole] = useState<Role | null>(null);
   const [error, setError] = useState<unknown>(null);
 
@@ -239,15 +241,34 @@ export function OrgChartRoleView({
           <Stack spacing={0.5}>
             {rows.map((r) =>
               r.positionId == null ? null : (
-                <PositionListRow
-                  key={r.positionId}
-                  name={r.occupant ? r.occupant.name?.trim() || 'Name not recorded' : null}
-                  shift={r.shiftName}
-                  code={r.positionCode}
-                  hiring={r.hiring}
-                  joining={r.joining}
-                  onClick={() => nav.push(positionView(model, r.positionId!))}
-                />
+                <Box key={r.positionId} sx={{ display: 'flex', alignItems: 'center', gap: 0.5, minWidth: 0 }}>
+                  <Box sx={{ flex: 1, minWidth: 0 }}>
+                    <PositionListRow
+                      name={r.occupant ? r.occupant.name?.trim() || 'Name not recorded' : null}
+                      shift={r.shiftName}
+                      code={r.positionCode}
+                      hiring={r.hiring}
+                      joining={r.joining}
+                      notice={r.occupant?.notice}
+                      onClick={() => nav.push(positionView(model, r.positionId!))}
+                    />
+                  </Box>
+                  {/* Beside "Add a position": taking one away. Always through the dialog,
+                      which reads what it would do first and says why when it cannot. */}
+                  {canManage && (
+                    <Button
+                      size="small"
+                      color="inherit"
+                      data-removeposition={r.positionId}
+                      disabled={removal.busyId === r.positionId}
+                      aria-label={`Remove position${r.positionCode ? ` ${r.positionCode}` : ''}${r.occupant ? `, held by ${r.occupant.name}` : ', vacant'}`}
+                      onClick={() => void removal.start(r.positionId!)}
+                      sx={{ flexShrink: 0, minWidth: 0, color: 'var(--c-text-2)' }}
+                    >
+                      Remove
+                    </Button>
+                  )}
+                </Box>
               ),
             )}
             {canManage && <AddPosition card={card} onAdded={() => onChanged?.()} />}

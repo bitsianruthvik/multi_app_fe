@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Box, Stack, Typography } from '@mui/material';
-import { EmptyState, ErrorNotice, ListSkeleton, Mono, SectionCard, Surface, ToneBadge } from '@shared/ui';
+import { Box, Button, Stack, Typography } from '@mui/material';
+import { EmptyState, ErrorNotice, ListSkeleton, Mono, SectionCard, Surface, ToneBadge, useIsPermitted } from '@shared/ui';
 import { positionsApi, type PositionRow } from '../api/positions';
 import { vacantLabel } from '../api/hiring';
+import { NoticeChip } from './Leaving';
+import { usePositionRemoval } from './usePositionRemoval';
 
 const isVacant = (p: PositionRow) => p.occupant === null || (p.occupant === undefined && p.filledCount === 0);
 
@@ -19,6 +21,9 @@ export function RolePositionsTab({ roleId, company }: { roleId: number; company:
       .catch((e) => { setError(e); setRows([]); });
   }, [roleId]);
   useEffect(() => { load(); }, [load]);
+  const canManage = useIsPermitted()('cf_hrms_org_manage');
+  // Remove goes through the one dialog, which reads what it would do before it offers anything.
+  const removal = usePositionRemoval({ onDone: () => load() });
 
   if (rows === null) return <ListSkeleton rows={4} />;
   const vacant = rows.filter(isVacant).length;
@@ -43,11 +48,26 @@ export function RolePositionsTab({ roleId, company }: { roleId: number; company:
               <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-3)', flex: 1 }}>
                 {[p.departmentName, p.locationName].filter(Boolean).join(' · ')}
               </Typography>
+              {p.occupant?.notice && <NoticeChip notice={p.occupant.notice} />}
               {(p.shift?.name ?? p.shiftName) && <ToneBadge tone="neutral" noIcon label={p.shift?.name ?? p.shiftName ?? ''} />}
+              {canManage && (
+                <Button
+                  size="small"
+                  color="inherit"
+                  data-removeposition={p.id}
+                  disabled={removal.busyId === p.id}
+                  aria-label={`Remove position ${p.positionCode ?? p.displayTitle}`}
+                  onClick={() => void removal.start(p.id)}
+                  sx={{ color: 'var(--c-text-2)' }}
+                >
+                  Remove
+                </Button>
+              )}
             </Surface>
           ))}
         </Stack>
       )}
+      {removal.dialog}
     </SectionCard>
   );
 }

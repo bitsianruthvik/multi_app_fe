@@ -31,7 +31,18 @@ import { EmployeeFormDialog } from '../components/EmployeeFormDialog';
  * always agree with the filtered list underneath.
  */
 
-type StatusFilter = 'ALL' | 'ACTIVE' | 'NOTICE' | 'INACTIVE' | 'EXITED';
+type StatusFilter = 'ACTIVE' | 'NOTICE' | 'INACTIVE' | 'EXITED';
+/**
+ * Working and on notice are who is here today, and that is what the list opens
+ * on. People who have left are kept — an employee is never deleted — and are
+ * one chip away. (CF_HRMS_HIRING_SPEC.md §4.6)
+ */
+const DEFAULT_STATUSES: StatusFilter[] = ['ACTIVE', 'NOTICE'];
+const STATUS_CHIPS: { key: StatusFilter; label: string }[] = [
+  { key: 'ACTIVE', label: 'Working' },
+  { key: 'NOTICE', label: 'On notice' },
+  { key: 'EXITED', label: 'Left' },
+];
 type TypeFilter = 'ALL' | 'EMPLOYEE' | 'CONTRACT' | 'TRAINEE' | 'CONSULTANT' | 'OTHER';
 
 export default function Employees() {
@@ -48,7 +59,9 @@ export default function Employees() {
   const [error, setError] = useState<unknown>(null);
 
   const [search, setSearch] = useState('');
-  const [status, setStatus] = useState<StatusFilter>('ALL');
+  const [statuses, setStatuses] = useState<StatusFilter[]>(DEFAULT_STATUSES);
+  const toggleStatus = (s: StatusFilter) =>
+    setStatuses((cur) => (cur.includes(s) ? cur.filter((x) => x !== s) : [...cur, s]));
   const [type, setType] = useState<TypeFilter>('ALL');
   const [contractorId, setContractorId] = useState<number | 'ALL'>('ALL');
 
@@ -59,7 +72,13 @@ export default function Employees() {
     setLoading(true);
     setError(null);
     try {
-      const [list, picks] = await Promise.all([peopleApi.list(), peopleApi.pickers()]);
+      // Everyone, including people who have left: the chips below choose who is shown,
+      // and their counts are only right when every status is loaded. (The server's own
+      // default is working + on notice.)
+      const [list, picks] = await Promise.all([
+        peopleApi.list({ status: 'ACTIVE,NOTICE,INACTIVE,EXITED' }).catch(() => peopleApi.list()),
+        peopleApi.pickers(),
+      ]);
       setRows(list.items);
       setPickers(picks);
     } catch (err) {
@@ -88,14 +107,15 @@ export default function Employees() {
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return rows.filter((r) => {
-      if (status !== 'ALL' && r.employmentStatus !== status) return false;
+      // No chip chosen means no narrowing, rather than an empty list.
+      if (statuses.length > 0 && !statuses.includes(r.employmentStatus)) return false;
       if (type !== 'ALL' && r.employmentType !== type) return false;
       if (contractorId !== 'ALL' && r.contractorId !== contractorId) return false;
       if (!q) return true;
       return [r.employeeCode, r.fullName, r.phone, r.email, r.departmentName, r.primaryRoleTitle]
         .some((v) => String(v ?? '').toLowerCase().includes(q));
     });
-  }, [rows, search, status, type, contractorId]);
+  }, [rows, search, statuses, type, contractorId]);
 
   const stats: Stat[] = useMemo(() => {
     const onNotice = filtered.filter((r) => r.employmentStatus === 'NOTICE').length;
@@ -150,6 +170,15 @@ export default function Employees() {
             <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>
               {r.primaryRoleTitle}
               {r.activeAssignmentCount > 1 && ` +${r.activeAssignmentCount - 1} more`}
+            </Typography>
+          )}
+          {/* Leaving, in the server's words: "On notice · last day 10 Nov 2026" / "Left on … · resigned". */}
+          {r.exit && r.employmentStatus !== 'ACTIVE' && (
+            <Typography
+              data-rowleaving=""
+              sx={{ fontSize: 12, color: r.employmentStatus === 'NOTICE' ? 'var(--c-warning-800)' : 'var(--c-text-2)' }}
+            >
+              {r.exit.statusLine}
             </Typography>
           )}
         </Box>
@@ -290,13 +319,17 @@ export default function Employees() {
           onSearch={setSearch}
           placeholder="Search name, code, phone, email, department…"
         >
-          {(['ALL', 'ACTIVE', 'NOTICE', 'INACTIVE', 'EXITED'] as StatusFilter[]).map((s) => (
+          {[
+            ...STATUS_CHIPS,
+            // Shown only where a company uses it: it is not part of leaving.
+            ...(rows.some((r) => r.employmentStatus === 'INACTIVE') ? [{ key: 'INACTIVE' as StatusFilter, label: EMPLOYMENT_STATUS_LABEL.INACTIVE }] : []),
+          ].map((s) => (
             <FacetChip
-              key={s}
-              label={s === 'ALL' ? 'All statuses' : EMPLOYMENT_STATUS_LABEL[s]}
-              active={status === s}
-              onClick={() => setStatus(s)}
-              count={s === 'ALL' ? undefined : rows.filter((r) => r.employmentStatus === s).length}
+              key={s.key}
+              label={s.label}
+              active={statuses.includes(s.key)}
+              onClick={() => toggleStatus(s.key)}
+              count={rows.filter((r) => r.employmentStatus === s.key).length}
             />
           ))}
 
@@ -361,7 +394,7 @@ export default function Employees() {
               action={(
                 <Button
                   size="small"
-                  onClick={() => { setSearch(''); setStatus('ALL'); setType('ALL'); setContractorId('ALL'); }}
+                  onClick={() => { setSearch(''); setStatuses([]); setType('ALL'); setContractorId('ALL'); }}
                 >
                   Clear filters
                 </Button>

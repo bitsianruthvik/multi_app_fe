@@ -1,5 +1,5 @@
 import { api, type ApiProblem } from './client';
-import { saveBlob } from './documents';
+import { saveBlob, type PreviewResult } from './documents';
 
 /**
  * Hiring on a vacant position — the client side of CF_HRMS_HIRING_SPEC.md §2.4.
@@ -25,6 +25,8 @@ export interface HiringSummary {
   candidateName: string | null; offerAccepted: boolean;
   proposedJoiningDate: string | null; createdAt: string; updatedAt: string;
   employee: { id: number; employeeCode: string; fullName: string } | null;
+  /** §3.4: the close reason in words, on rows too. */
+  closeReasonLabel?: string | null;
   /** One short line for a row: "Offer sent to Pabitra Kumar Panda" / "Job description to confirm". */
   statusLine: string;
 }
@@ -38,6 +40,8 @@ export interface Hiring extends HiringSummary {
            probationMonths: number; noticeDaysProbation: number; noticeDaysConfirmed: number;
            signatoryName: string | null; signatoryDesignation: string | null };
   offerAcceptedOn: string | null; joiningDate: string | null; appointmentDate: string | null;
+  /** §3.4: the reason in words. `closeReason` is the code. */
+  closeReasonLabel?: string | null;
   /** Not in §2.4: the note typed when the hiring was closed. The backend sends it; shown when present. */
   closeNote?: string | null;
   jd: { documentId: number; generatedAt: string } | null;
@@ -96,6 +100,21 @@ export const vacantLabel = (p: { hiring?: HiringRef | null; joining?: JoiningRef
 
 /** A placeholder as it is typed into the Word file. The server sends the bare key. */
 export const braced = (key: string): string => (key.startsWith('{') ? key : `{${key}}`);
+
+/** What to offer right after a hiring is closed (§3.4). */
+export type CloseNext = 'REHIRE' | 'MOVE_EMPLOYEE' | 'REMOVE_POSITION' | null;
+export interface CloseReasonOption { code: string; label: string; hint: string | null; noteRequired: boolean; next: CloseNext }
+export interface CloseReasonGroup { label: string; reasons: CloseReasonOption[] }
+/** The three reasons of the first version, used only when the server has no reason list yet. */
+export const LEGACY_CLOSE_GROUPS: CloseReasonGroup[] = [
+  { label: 'The candidate', reasons: [
+    { code: 'DECLINED', label: 'Candidate declined the offer', hint: null, noteRequired: false, next: 'REHIRE' },
+    { code: 'LAPSED', label: 'Candidate did not reply; the offer lapsed', hint: null, noteRequired: false, next: 'REHIRE' },
+  ] },
+  { label: 'The company', reasons: [
+    { code: 'CANCELLED', label: 'Something else', hint: null, noteRequired: false, next: null },
+  ] },
+];
 
 export type CloseReason = 'DECLINED' | 'LAPSED' | 'CANCELLED';
 export const CLOSE_REASON_LABEL: Record<CloseReason, string> = {
@@ -192,11 +211,17 @@ export const hiringApi = {
   /** ONE transaction: the appointment letter, the employee, the employee code, the assignment. */
   appoint: (id: number, body: { joiningDate: string; appointmentDate?: string }) =>
     api.post<AppointResult>(`/hirings/${id}/appoint`, body),
-  close: (id: number, body: { reason: CloseReason; note?: string }) =>
+  close: (id: number, body: { reason: string; note?: string }) =>
     api.post<{ hiring: Hiring }>(`/hirings/${id}/close`, body),
 
   letterFile: (id: number, letterId: number) => api.get<HiringFile>(`/hirings/${id}/letters/${letterId}/file`),
-  jdFile: (id: number) => api.get<HiringFile>(`/hirings/${id}/jd/file`),
+  /** Works in every stage: before confirmation from the system as it is now, afterwards the frozen copy. */
+  jdFile: (id: number, format: 'docx' | 'pdf' = 'docx') => api.get<HiringFile>(`/hirings/${id}/jd/file?format=${format}`),
+  /** Everything the job description prints, as the Documents preview returns it, and what it still lacks. */
+  jdPreview: (id: number) =>
+    api.get<{ preview: PreviewResult; readiness: { ready: boolean; missing: string[] } }>(`/hirings/${id}/jd/preview`),
+  closeReasons: (hiringId: number) =>
+    api.get<{ groups: CloseReasonGroup[] }>(`/hiring/close-reasons?hiringId=${hiringId}`),
 
   settings: () => api.get<{ settings: HiringSettings }>('/hiring/settings'),
   saveSettings: (body: Partial<HiringSettings>) => api.put<{ settings: HiringSettings }>('/hiring/settings', body),

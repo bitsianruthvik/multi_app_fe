@@ -1,6 +1,7 @@
 import { api } from './client';
 import type { ReportingSummary, ResolvedRelationship } from './assignments';
 import type { HiringRef, JoiningRef } from './hiring';
+import type { NoticeRef } from './people';
 
 /**
  * Positions — the sanctioned seats, their work contexts, their FORMAL reporting
@@ -48,7 +49,9 @@ export interface PositionRow {
   /** The same shift as one object (contract of 2026-10-10). Absent from an older server. */
   shift?: PositionShift | null;
   /** The one person in the position; null when it is vacant. Absent from an older server. */
-  occupant?: { employeeId: number; name: string; employeeCode: string | null } | null;
+  occupant?: { employeeId: number; name: string; employeeCode: string | null; notice?: NoticeRef | null } | null;
+  /** The occupant is on notice, so a replacement may be hired before they leave. */
+  canHireReplacement?: boolean;
   /** The OPEN hiring on this position, or null. It is still vacant while one is open. */
   hiring?: HiringRef | null;
   /** Someone appointed here who joins on a later day. The position is vacant until then. */

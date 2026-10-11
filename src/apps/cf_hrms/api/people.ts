@@ -16,7 +16,58 @@ import { api } from './client';
  *     from the primary active assignment, which is the only place they are true.
  */
 
+/**
+ * A leaving record (CF_HRMS_HIRING_SPEC.md §4.4). An employee is never deleted:
+ * leaving is ACTIVE -> NOTICE -> EXITED, and this is the record of it.
+ * `statusLine` is the server's sentence and is shown as written.
+ */
+export interface Exit {
+  id: number; exitType: 'RESIGNED' | 'REMOVED'; typeLabel: string; reasonCode: string; reasonLabel: string;
+  note: string | null; noticeDate: string; lastWorkingDay: string; status: 'OPEN' | 'WITHDRAWN' | 'CLOSED';
+  closedOn: string | null; daysLeft: number | null;
+  /** "On notice · last day 10 Nov 2026" / "Left on 10 Nov 2026 · resigned" */ statusLine: string;
+}
+
+/** What chart and position reads carry on an occupant who is on notice (§4.5). Still filled. */
+export interface NoticeRef {
+  exitId: number;
+  exitType: 'RESIGNED' | 'REMOVED';
+  lastWorkingDay: string;
+  daysLeft: number;
+}
+
+const SHORT_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+/** "Notice · 10 Nov" — the small label on a chart row, a list row and a position row. */
+export function noticeLabel(n: { lastWorkingDay: string }): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(n.lastWorkingDay ?? '');
+  return m ? `Notice · ${Number(m[3])} ${SHORT_MONTHS[Number(m[2]) - 1] ?? m[2]}` : 'Notice';
+}
+
+export interface ExitReasonType {
+  type: 'RESIGNED' | 'REMOVED';
+  label: string;
+  reasons: { code: string; label: string; noteRequired: boolean }[];
+}
+
+export interface ExitInput {
+  exitType: 'RESIGNED' | 'REMOVED';
+  reasonCode: string;
+  note?: string | null;
+  noticeDate: string;
+  lastWorkingDay: string;
+}
+
+export interface ExitCloseResult {
+  employee: Employee;
+  exit: Exit;
+  endedAssignments: number;
+  vacatedPositions: { positionId: number; positionCode: string | null; roleTitle: string | null }[];
+  loginDisabled: boolean;
+}
+
 export interface EmployeeRow {
+  /** The OPEN leaving record, or the CLOSED one of someone who has left. Absent from an older server. */
+  exit?: Exit | null;
   id: number;
   employeeCode: string;
   fullName: string;
@@ -245,6 +296,21 @@ export const peopleApi = {
   update: (id: number, body: EmployeeInput) => api.put<EmployeeDetail>(`/people/employees/${id}`, body),
   remove: (id: number) => api.del<{ id: number }>(`/people/employees/${id}`),
 
+  // ── leaving (§4.4) ────────────────────────────────────────────────────────
+  exitReasons: () => api.get<{ types: ExitReasonType[] }>('/people/exit-reasons'),
+  /** Puts the employee on notice. 409 EXIT_OPEN · 409 ALREADY_LEFT · 422 INVALID with problems[]. */
+  startExit: (id: number, body: ExitInput) =>
+    api.post<{ employee: Employee; exit: Exit }>(`/people/employees/${id}/exit`, body),
+  updateExit: (id: number, body: Partial<ExitInput>) =>
+    api.put<{ employee: Employee; exit: Exit }>(`/people/employees/${id}/exit`, body),
+  /** Takes the notice back: the employee is working again and the record is kept as withdrawn. */
+  withdrawExit: (id: number, note?: string) =>
+    api.post<{ employee: Employee; exit: Exit }>(`/people/employees/${id}/exit/withdraw`, note ? { note } : {}),
+  /** Ends the notice: assignments end, the position becomes vacant, the login stops working. */
+  closeExit: (id: number, body: { lastWorkingDay?: string; note?: string } = {}) =>
+    api.post<ExitCloseResult>(`/people/employees/${id}/exit/close`, body),
+  exits: (id: number) => api.get<{ exits: Exit[] }>(`/people/employees/${id}/exits`),
+
   assignments: (id: number) =>
     api.get<{ asOf: string; items: AssignmentSummary[]; activeCount: number; totalAllocationPercent: number }>(
       `/people/employees/${id}/assignments`,
@@ -332,11 +398,12 @@ export const EMPLOYMENT_STATUS_TONE = {
   EXITED: 'neutral',
 } as const;
 
+/** The words of §4.6: working, on notice, left. Nobody is "exited" or "terminated" on a screen. */
 export const EMPLOYMENT_STATUS_LABEL = {
-  ACTIVE: 'Active',
+  ACTIVE: 'Working',
   NOTICE: 'On notice',
   INACTIVE: 'Inactive',
-  EXITED: 'Exited',
+  EXITED: 'Left',
 } as const;
 
 export const EMPLOYMENT_TYPE_LABEL: Record<string, string> = {

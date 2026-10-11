@@ -19,6 +19,8 @@ import type { PositionShift } from '../api/positions';
 import { PositionShiftControl } from './PositionShiftControl';
 import { HiringEntry } from './HiringEntry';
 import { joiningSentence, vacantLabel, type HiringRef, type JoiningRef } from '../api/hiring';
+import { NoticeChip } from './Leaving';
+import { usePositionRemoval } from './usePositionRemoval';
 import type { DepartmentStaffing, StaffingPosition, StaffingRole } from '../api/jobContent';
 import { JobContentPanel } from './JobContentPanel';
 
@@ -72,13 +74,19 @@ export function DepartmentStaffingPanel({
   staffing,
   hasChildren,
   onPeek,
+  onRemoved,
 }: {
   name: string;
   staffing: DepartmentStaffing | null;
   /** It has sub-departments — said when it has no positions of its own. */
   hasChildren: boolean;
   onPeek: (peek: JobPeek) => void;
+  /** After a position was closed or deleted from a row here, so the list can reload. */
+  onRemoved?: () => void;
 }) {
+  const canManage = useIsPermitted()('cf_hrms_org_manage');
+  // "Remove" on a row goes through the one dialog, which checks what it would do first.
+  const removal = usePositionRemoval({ onDone: () => onRemoved?.() });
   const roles = staffing?.roles ?? [];
   const peekRole = (r: StaffingRole) => {
     if (r.roleId == null) return;
@@ -199,7 +207,21 @@ export function DepartmentStaffingPanel({
                       <Typography sx={{ fontSize: 12, color: 'var(--c-text-2)' }}>
                         {shiftOf(p) || 'No shift'}
                       </Typography>
+                      {p.occupants[0]?.notice && <NoticeChip notice={p.occupants[0].notice} />}
                       {p.hasSeatChanges && <ToneBadge tone="warning" noIcon label="Differs from its role" />}
+                      {canManage && (
+                        <Box
+                          component="button"
+                          type="button"
+                          data-removeposition={p.positionId}
+                          disabled={removal.busyId === p.positionId}
+                          aria-label={`Remove position ${p.positionCode ?? p.title}`}
+                          onClick={() => void removal.start(p.positionId)}
+                          sx={{ ...linkButton, fontSize: 12.5, color: 'var(--c-text-2)', ml: 'auto' }}
+                        >
+                          Remove
+                        </Box>
+                      )}
                     </Box>
                   ))}
                 </Box>
@@ -208,6 +230,7 @@ export function DepartmentStaffingPanel({
           </Stack>
         </>
       )}
+      {removal.dialog}
     </Box>
   );
 }

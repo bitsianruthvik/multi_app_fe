@@ -96,9 +96,7 @@ export default function Hiring() {
         header: 'Where it stands',
         render: (r) => (
           <Typography sx={{ fontSize: 13.5, color: 'var(--c-text)' }}>
-            {r.stage === 'CLOSED' && r.closeReason
-              ? `${r.statusLine}${r.statusLine.toLowerCase().includes(r.closeReason.toLowerCase()) ? '' : ` — ${CLOSE_REASON_LABEL[r.closeReason as CloseReason] ?? r.closeReason}`}`
-              : r.statusLine}
+            {r.statusLine}
           </Typography>
         ),
         sortValue: (r) => r.statusLine,
@@ -127,6 +125,14 @@ export default function Hiring() {
         render: (r) => r.shift?.name ?? '—',
         sortValue: (r) => r.shift?.name ?? '',
         exportValue: (r) => r.shift?.name ?? '',
+      },
+      // Why a hiring was closed, in the server's words (§3.4). Empty on the other two tabs.
+      {
+        key: 'reason',
+        header: 'Why it closed',
+        render: (r) => (r.stage === 'CLOSED' ? r.closeReasonLabel ?? CLOSE_REASON_LABEL[r.closeReason as CloseReason] ?? r.closeReason ?? '—' : '—'),
+        sortValue: (r) => r.closeReasonLabel ?? r.closeReason ?? '',
+        exportValue: (r) => r.closeReasonLabel ?? r.closeReason ?? '',
       },
       {
         key: 'ref',

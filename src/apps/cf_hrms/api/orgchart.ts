@@ -1,5 +1,6 @@
 import { api } from './client';
 import type { HiringRef, JoiningRef } from './hiring';
+import type { NoticeRef } from './people';
 
 /**
  * Org chart read model — the client side of CF_HRMS_ORG_CHART_SPEC.md §9.
@@ -47,6 +48,8 @@ export interface OrgChartOccupant {
   shiftCode: string | null;
   /** null when there is no attendance record on the view date. */
   attendanceStatus: string | null;
+  /** The person is on notice: still in the position and still counted as filled. */
+  notice?: NoticeRef | null;
   /**
    * Set where the payload has no employee id to compare (the employee slice):
    * occupants carrying the same key are ONE person in two seats (spec §16).
@@ -183,6 +186,8 @@ export interface OrgChartGraph {
     hiring?: number;
     /** Vacant positions somebody is appointed to and has not joined yet. Also part of `vacant`. */
     joining?: number;
+    /** People on notice. They are still in their positions, so this is part of `filled`. */
+    onNotice?: number;
     /** Role cards. */
     cards?: number;
     /** Per shift code. */
@@ -291,6 +296,8 @@ export interface PositionCard {
   vacancies: number;
   contexts: OrgChartContext[];
   occupants: CardOccupant[];
+  /** The occupant is on notice, so a replacement may be hired before they leave. */
+  canHireReplacement?: boolean;
   /** The open hiring on this position, or null. */
   hiring?: HiringRef | null;
   joining?: JoiningRef | null;

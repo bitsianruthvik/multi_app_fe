@@ -14,6 +14,7 @@ import { positionsApi } from '../api/positions';
 import { PositionFormDialog } from '../components/PositionDialogs';
 import { usePositionRemoval } from '../components/usePositionRemoval';
 import { vacantLabel } from '../api/hiring';
+import { NoticeChip } from '../components/Leaving';
 
 /**
  * Positions — one chair for one person on one shift (DESIGN_SYSTEM.md §4.2 Collection).
@@ -118,7 +119,12 @@ export default function Positions() {
       // A hiring in progress is still a vacancy: the same quiet colour, with the candidate named.
       render: (p) => (isVacantRow(p)
         ? <Typography component="span" sx={{ fontSize: 13.5, color: 'var(--c-text-3)' }}>{vacantLabel(p) ?? 'Vacant'}</Typography>
-        : <Typography component="span" sx={{ fontSize: 13.5 }}>{p.occupant?.name ?? 'Filled'}</Typography>),
+        : (
+          <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.75, flexWrap: 'wrap' }}>
+            <Typography component="span" sx={{ fontSize: 13.5 }}>{p.occupant?.name ?? 'Filled'}</Typography>
+            {p.occupant?.notice && <NoticeChip notice={p.occupant.notice} />}
+          </Box>
+        )),
       sortValue: (p) => (isVacantRow(p) ? '' : p.occupant?.name ?? ''),
       exportValue: (p) => (isVacantRow(p) ? (vacantLabel(p) ? `Vacant (${vacantLabel(p)})` : 'Vacant') : p.occupant?.name ?? 'Filled'),
     },

@@ -9,6 +9,8 @@ import ChevronRightRounded from '@mui/icons-material/ChevronRightRounded';
 import ExpandMoreRounded from '@mui/icons-material/ExpandMoreRounded';
 import type { OrgChartNode } from '../api/orgchart';
 import { OrgChartJobSection } from './OrgChartJobSection';
+import { LeavingBand, NoticeChip } from './Leaving';
+import { HiringEntry } from './HiringEntry';
 import {
   FactsGrid,
   PositionFacts,
@@ -252,13 +254,17 @@ export function OrgChartPersonView({
   const [reporting, setReporting] = useState<Record<number, ResolvedRelationship[]>>({});
   const [error, setError] = useState<unknown>(null);
   const [loading, setLoading] = useState(canRead);
+  /** Bumped after a leaving step, so the person is read again. */
+  const [tick, setTick] = useState(0);
+  const canLeave = can('cf_hrms_people_manage');
 
   useEffect(() => {
     if (!canRead) return;
     let live = true;
     setLoading(true);
     setError(null);
-    setDetail(null);
+    // Kept on a re-read after a leaving step, so the panel does not blink empty.
+    if (tick === 0) setDetail(null);
     setReporting({});
     peopleApi
       .getForPanel(view.employeeId, asOf)
@@ -287,9 +293,16 @@ export function OrgChartPersonView({
     return () => {
       live = false;
     };
-  }, [canRead, view.employeeId, asOf]);
+  }, [canRead, view.employeeId, asOf, tick]);
 
   const e = detail?.employee ?? null;
+  const leavingChanged = () => {
+    setTick((t) => t + 1);
+    onChanged?.();
+  };
+  // On notice: a replacement may be hired before they go. The server says when.
+  const notice = node?.occupants?.[0]?.notice ?? null;
+  const canHireReplacement = view.positionId != null && (card?.canHireReplacement ?? !!notice);
   const jobs: AssignmentSummary[] = useMemo(() => (detail?.assignments ?? []).filter((a) => a.isActive), [detail]);
   const many = jobs.length > 1;
 
@@ -312,6 +325,10 @@ export function OrgChartPersonView({
       .sort((a, b) => Number(b.positionId === view.positionId) - Number(a.positionId === view.positionId));
   }, [jobs, view.positionId, titleOf, canRead, detail]);
 
+  const here = jobs.find((a) => a.positionId === view.positionId) ?? jobs.find((a) => a.isPrimary) ?? jobs[0];
+  const positionWords = here
+    ? [here.positionTitle ?? here.roleTitle, here.positionCode].filter(Boolean).join(' · ') || null
+    : null;
   const facts: { label: string; value: React.ReactNode }[] = [];
   const code = e?.employeeCode ?? view.employeeCode;
   if (code) facts.push({ label: 'Employee code', value: <Mono sx={{ fontSize: 12.5 }}>{code}</Mono> });
@@ -354,7 +371,51 @@ export function OrgChartPersonView({
       )}
       {!!error && <ErrorNotice error={error} fallback="That person could not be loaded." />}
 
+      {/* Leaving: the band while on notice or after; the button while working. */}
+      {e && e.employmentStatus !== 'ACTIVE' && (
+        <LeavingBand
+          person={e}
+          status={e.employmentStatus}
+          exit={e.exit}
+          exitDate={e.exitDate}
+          positionWords={positionWords}
+          canManage={canLeave}
+          showStart={false}
+          dense
+          onChanged={leavingChanged}
+        />
+      )}
+      {!e && notice && (
+        <Box sx={{ mb: 1 }}>
+          <NoticeChip notice={notice} />
+        </Box>
+      )}
+
       <FactsGrid facts={facts} />
+
+      {canHireReplacement && view.positionId != null && (
+        <Box
+          data-replacement=""
+          sx={{ mt: 1.25, border: '1px solid var(--c-border)', borderRadius: 'var(--r-sm)', p: 1.25, display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 1 }}
+        >
+          <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)', lineHeight: 1.5, flex: '1 1 180px' }}>
+            They are leaving. The next person can be hired now and join after their last working day.
+          </Typography>
+          <HiringEntry
+            positionId={view.positionId}
+            positionCode={node?.positionCode ?? card?.positionCode ?? null}
+            roleTitle={node?.roleTitle ?? card?.roleTitle ?? null}
+            hiring={node?.hiring ?? card?.hiring ?? null}
+            label="Hire a replacement"
+            onChanged={() => onChanged?.()}
+          />
+        </Box>
+      )}
+      {e && e.employmentStatus === 'ACTIVE' && canLeave && (
+        <Box sx={{ mt: 1.25 }}>
+          <LeavingBand person={e} status={e.employmentStatus} exit={e.exit} positionWords={positionWords} canManage onChanged={leavingChanged} />
+        </Box>
+      )}
 
       {/* The position they were opened on: its code, shift, role — and who it reports to. */}
       {view.positionId != null && (

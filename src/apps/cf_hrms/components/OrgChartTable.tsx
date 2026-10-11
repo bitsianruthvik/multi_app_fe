@@ -4,6 +4,7 @@ import { DataTable, EmptyState, Mono, StatusBadge } from '@shared/ui';
 import type { DataColumn } from '@shared/ui';
 import type { OrgChartEdge } from '../api/orgchart';
 import { rowsOf, vacantRowText, type ChartModel, type ShiftFilter } from './orgChartLayout';
+import { noticeLabel } from '../api/people';
 
 /**
  * The chart as a table — and the reason this screen passes DESIGN_SYSTEM.md
@@ -29,6 +30,8 @@ interface Row {
   hiring: string;
   /** That text is "Joins 23 Oct · name", which says it all and needs no label. */
   joining: boolean;
+  /** "Notice · 10 Nov" for a person who is on notice; empty otherwise. */
+  notice: string;
   shift: string;
   manager: string;
   contexts: string;
@@ -91,6 +94,7 @@ export function OrgChartTable({
             vacant: !r.occupant,
             hiring: !r.occupant && (r.hiring || r.joining) ? vacantRowText(r) : '',
             joining: !r.occupant && !!r.joining,
+            notice: r.occupant?.notice ? noticeLabel(r.occupant.notice) : '',
             shift: r.shiftName,
             manager: mgr ? mgr.displayTitle || mgr.title : '—',
             contexts: (p?.contexts ?? card.contexts ?? []).map((c) => c.name).join(', '),
@@ -164,11 +168,18 @@ export function OrgChartTable({
             // A vacancy is a fact, not an alarm: muted, never a warning colour.
             <Typography sx={{ fontSize: 13.5, color: 'var(--c-text-2)', fontStyle: 'italic' }}>Vacant</Typography>
           ) : (
-            <Typography sx={{ fontSize: 13.5 }}>{r.person}</Typography>
+            <Stack direction="row" spacing={0.75} alignItems="center" sx={{ minWidth: 0 }}>
+              <Typography sx={{ fontSize: 13.5 }}>{r.person}</Typography>
+              {r.notice && (
+                <Box component="span" sx={{ fontSize: 11, px: 0.75, borderRadius: 'var(--r-sm)', background: 'var(--c-warning-50)', color: 'var(--c-warning-800)', whiteSpace: 'nowrap' }}>
+                  {r.notice}
+                </Box>
+              )}
+            </Stack>
           ),
         // Vacant rows sort together, after the names.
         sortValue: (r) => (r.vacant ? '￿' : r.person),
-        exportValue: (r) => (r.joining ? `Vacant (${r.hiring})` : r.hiring ? (r.hiring === 'Hiring' ? 'Vacant (hiring)' : `Vacant (hiring ${r.hiring})`) : r.vacant ? 'Vacant' : r.person),
+        exportValue: (r) => (r.joining ? `Vacant (${r.hiring})` : r.hiring ? (r.hiring === 'Hiring' ? 'Vacant (hiring)' : `Vacant (hiring ${r.hiring})`) : r.vacant ? 'Vacant' : r.notice ? `${r.person} (${r.notice})` : r.person),
       },
       {
         key: 'shift',

@@ -9,6 +9,7 @@ import PersonOutlineRounded from '@mui/icons-material/PersonOutlineRounded';
 import { ErrorNotice, Mono, StatusBadge, ToneBadge, useIsPermitted } from '@shared/ui';
 import type { CardReportingRow, OrgChartNode, PositionCard } from '../api/orgchart';
 import { joiningLabel, type JoiningRef } from '../api/hiring';
+import { noticeLabel } from '../api/people';
 import { shiftNameOf } from './orgChartLayout';
 import { PositionShiftControl } from './PositionShiftControl';
 import { usePositionRemoval } from './usePositionRemoval';
@@ -81,6 +82,7 @@ export function PositionListRow({
   current,
   hiring,
   joining,
+  notice,
   onClick,
 }: {
   /** The person in it; null = vacant. */
@@ -89,6 +91,8 @@ export function PositionListRow({
   hiring?: { candidateName: string | null } | null;
   /** A vacant position somebody is appointed to and has not joined yet. */
   joining?: JoiningRef | null;
+  /** The person in it is on notice: still here, with a last working day. */
+  notice?: { lastWorkingDay: string } | null;
   shift: string | null;
   code: string | null;
   /** This is the position the panel was opened on. */
@@ -145,6 +149,14 @@ export function PositionListRow({
           {name ?? coming ?? beingHired ?? 'Vacant'}
         </Box>
       </Box>
+      {name && notice && (
+        <Box
+          data-notice=""
+          sx={{ fontSize: 11, px: 0.75, borderRadius: 'var(--r-sm)', background: 'var(--c-warning-50)', color: 'var(--c-warning-800)', flexShrink: 0, whiteSpace: 'nowrap' }}
+        >
+          {noticeLabel(notice)}
+        </Box>
+      )}
       {beingHired && beingHired !== 'Hiring' && (
         <Box
           data-hiringlabel=""

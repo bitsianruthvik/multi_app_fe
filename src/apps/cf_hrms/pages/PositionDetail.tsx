@@ -24,6 +24,7 @@ import { SeatJobContentEditor } from '../components/SeatJobContentEditor';
 import { PositionShiftControl } from '../components/PositionShiftControl';
 import { HiringEntry } from '../components/HiringEntry';
 import { joiningSentence, vacantLabel } from '../api/hiring';
+import { NoticeChip } from '../components/Leaving';
 import { PositionReportingDialog } from '../components/ReportingDialogs';
 import { ReportingRowList } from '../components/ReportingRows';
 import { usePositionRemoval } from '../components/usePositionRemoval';
@@ -222,6 +223,25 @@ export default function PositionDetail() {
               <FactItem label="Effective" value={<Mono>{position.effectiveFrom ?? '—'}{position.effectiveTo ? ` → ${position.effectiveTo}` : ''}</Mono>} />
             </Stack>
             {vacantPaths}
+            {/* The person here is on notice: the next one can be hired before they go. */}
+            {!isVacant && canManage && (position.canHireReplacement ?? !!position.occupant?.notice) && (
+              <Stack data-replacement="" spacing={1} sx={{ mt: 1.5 }}>
+                <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" alignItems="center">
+                  <Typography sx={{ fontSize: 13, fontWeight: 500 }}>{position.occupant?.name ?? 'The person here'} is leaving</Typography>
+                  {position.occupant?.notice && <NoticeChip notice={position.occupant.notice} />}
+                </Stack>
+                <Box>
+                  <HiringEntry
+                    positionId={position.id}
+                    positionCode={position.positionCode}
+                    roleTitle={position.roleTitle}
+                    hiring={position.hiring ?? null}
+                    label="Hire a replacement"
+                    onChanged={() => load()}
+                  />
+                </Box>
+              </Stack>
+            )}
             <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-3)', mt: 2 }}>
               A vacancy here is a fact to plan against, not an error. A position with no occupant is
               still a real part of the organisation's design, and its formal reporting still stands.

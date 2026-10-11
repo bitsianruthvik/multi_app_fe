@@ -313,6 +313,7 @@ export default function Departments() {
                     staffing={staffingOf.get(row.id) ?? null}
                     hasChildren={row.childCount > 0}
                     onPeek={setPeek}
+                    onRemoved={() => void reload()}
                   />
                 ) : null
               }
@@ -379,7 +380,7 @@ export default function Departments() {
             {unplaced.counts.positions} position{unplaced.counts.positions === 1 ? ' is' : 's are'} not in any department
           </Button>
           {openId === 0 && (
-            <DepartmentStaffingPanel name="no department" staffing={unplaced} hasChildren={false} onPeek={setPeek} />
+            <DepartmentStaffingPanel name="no department" staffing={unplaced} hasChildren={false} onPeek={setPeek} onRemoved={() => void reload()} />
           )}
         </Box>
       )}

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { Box, Button, IconButton, Tooltip, Typography } from '@mui/material';
+import { Box, Button, IconButton, Tooltip, Typography, Stack } from '@mui/material';
 import ApartmentRounded from '@mui/icons-material/ApartmentRounded';
 import ArrowBackRounded from '@mui/icons-material/ArrowBackRounded';
 import BusinessCenterRounded from '@mui/icons-material/BusinessCenterRounded';
@@ -18,6 +18,8 @@ import {
   type EmployeeDetail as EmployeeDetailData, type PeoplePickers,
 } from '../api/people';
 import { EmployeeFormDialog } from '../components/EmployeeFormDialog';
+import { LeavingBand } from '../components/Leaving';
+import { HiringEntry } from '../components/HiringEntry';
 import { EmployeeOverviewTab } from '../components/EmployeeOverviewTab';
 import { EmployeeWorkTab } from '../components/EmployeeWorkTab';
 import { EmployeeIdentifiersTab } from '../components/EmployeeIdentifiersTab';
@@ -188,6 +190,15 @@ export default function EmployeeDetail() {
   ];
 
   const primary = assignments.find((a) => a.isActive && a.isPrimary) ?? assignments.find((a) => a.isActive);
+  const positionWords = primary
+    ? [primary.positionTitle ?? primary.roleTitle, primary.positionCode].filter(Boolean).join(' · ') || null
+    : null;
+  // The position somebody who has left was last in — where "Hire for the position they left" starts.
+  const leftPosition = employee.employmentStatus === 'EXITED'
+    ? [...assignments]
+        .filter((a) => a.positionId != null)
+        .sort((a, b) => Number(b.isPrimary) - Number(a.isPrimary) || (b.effectiveTo ?? '').localeCompare(a.effectiveTo ?? ''))[0] ?? null
+    : null;
 
   return (
     <>
@@ -222,10 +233,23 @@ export default function EmployeeDetail() {
                       ? primary?.roleTitle ?? '1 active work assignment'
                       : `${counts.activeAssignments} concurrent jobs — ${assignments.filter((a) => a.isActive).map((a) => `${a.roleTitle} ${a.allocationPercent ?? 0}%`).join(' · ')}`
                 }
-                actions={canManage && (
-                  <Button size="small" variant="outlined" startIcon={<EditRounded />} onClick={() => setEditOpen(true)}>
-                    Edit
-                  </Button>
+                // Someone who has left is read-only apart from their documents.
+                actions={canManage && employee.employmentStatus !== 'EXITED' && (
+                  <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
+                    <Button size="small" variant="outlined" startIcon={<EditRounded />} onClick={() => setEditOpen(true)}>
+                      Edit
+                    </Button>
+                    {employee.employmentStatus === 'ACTIVE' && (
+                      <LeavingBand
+                        person={employee}
+                        status={employee.employmentStatus}
+                        exit={employee.exit}
+                        positionWords={positionWords}
+                        canManage={canManage}
+                        onChanged={() => void load()}
+                      />
+                    )}
+                  </Stack>
                 )}
                 facts={(
                   <>
@@ -268,6 +292,27 @@ export default function EmployeeDetail() {
               <CrossLink icon={<BusinessCenterRounded />} label={employee.contractorName} to={`/${company}/cf_hrms/contractors`} />
             )}
           </>
+        )}
+        beforeTabs={employee.employmentStatus !== 'ACTIVE' && (
+          <LeavingBand
+            person={employee}
+            status={employee.employmentStatus}
+            exit={employee.exit}
+            exitDate={employee.exitDate}
+            positionWords={positionWords}
+            canManage={canManage}
+            showStart={false}
+            onChanged={() => void load()}
+            afterLeft={leftPosition && (
+              <HiringEntry
+                positionId={leftPosition.positionId!}
+                positionCode={leftPosition.positionCode}
+                roleTitle={leftPosition.roleTitle}
+                label="Hire for the position they left"
+                onChanged={() => void load()}
+              />
+            )}
+          />
         )}
         tabs={tabs}
         active={tab}

@@ -409,6 +409,7 @@ export default function OrgChart() {
           `Positions ${counts.positions}     Filled ${counts.filled}     Vacant ${counts.vacant}` +
           (counts.hiring ? `     Hiring ${counts.hiring}` : '') +
           (counts.joining ? `     Joining ${counts.joining}` : '') +
+          (counts.onNotice ? `     On notice ${counts.onNotice}` : '') +
           (counts.present || counts.absent
             ? `     Present ${counts.present}     Absent ${counts.absent}`
             : ''),
@@ -874,6 +875,8 @@ export default function OrgChart() {
                 facts={[
                   { label: 'Positions', value: counts.positions },
                   { label: 'Filled', value: counts.filled },
+                  // Still in their positions, so part of Filled — said beside it.
+                  ...(counts.onNotice ? [{ label: 'On notice', value: counts.onNotice }] : []),
                   { label: 'Vacant', value: counts.vacant },
                   // Part of the vacant count, said quietly beside it: "149 vacant · 3 hiring".
                   ...(counts.hiring ? [{ label: 'Hiring', value: counts.hiring }] : []),

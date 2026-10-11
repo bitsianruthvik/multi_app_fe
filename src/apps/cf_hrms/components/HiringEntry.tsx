@@ -5,6 +5,7 @@ import PersonAddAltRounded from '@mui/icons-material/PersonAddAltRounded';
 import ArrowForwardRounded from '@mui/icons-material/ArrowForwardRounded';
 import { errorMessage, useCompanySlug, useIsPermitted, useToast } from '@shared/ui';
 import { hiringApi, openHiringIdOf, type HiringRef } from '../api/hiring';
+import { useHiringDialog } from './hiringDialogContext';
 
 /**
  * "Hire a new person" for a VACANT position — the one door into hiring.
@@ -17,10 +18,14 @@ import { hiringApi, openHiringIdOf, type HiringRef } from '../api/hiring';
  *
  * Every screen that offers hiring goes through this component (the org chart
  * panel's vacant position, the position page, the Departments side sheet). It
- * does one of two things and then goes to the hiring's own screen:
+ * does one of two things and then opens the hiring AS A POP-UP over the screen
+ * it was started from (`HiringDialog`), so the chart keeps its place:
  *
  *   no open hiring   "Hire a new person" starts one (`POST /positions/:id/hiring`).
  *   an open hiring   "Continue hiring", with the status line beside it.
+ *
+ * `onChanged` is called when the pop-up CLOSES, not while it is open: the
+ * screen behind reloads once, with whatever the hiring did to the position.
  *
  * ONE OPEN HIRING PER POSITION is the server's rule. A caller that knows about
  * the open one passes `hiring`; one that does not still ends up in the right
@@ -33,6 +38,7 @@ export function HiringEntry({
   roleTitle,
   onChanged,
   hiring,
+  label = 'Hire a new person',
 }: {
   positionId: number;
   positionCode: string | null;
@@ -41,6 +47,8 @@ export function HiringEntry({
   onChanged: () => void;
   /** The open hiring on this position, where the call site already has it. */
   hiring?: HiringRef | null;
+  /** "Hire a replacement", on a position whose person is on notice. */
+  label?: string;
 }) {
   const company = useCompanySlug();
   const navigate = useNavigate();
@@ -50,14 +58,20 @@ export function HiringEntry({
   const canRead = can('cf_hrms_people_view');
   const [busy, setBusy] = useState(false);
 
-  const open = (id: number) => navigate(`/${company}/cf_hrms/hiring/${id}`);
+  const dialog = useHiringDialog();
+  const open = (id: number) => {
+    if (dialog) dialog.open(id, onChanged);
+    else {
+      onChanged();
+      navigate(`/${company}/cf_hrms/hiring/${id}`);
+    }
+  };
   const what = [roleTitle, positionCode].filter(Boolean).join(' · ');
 
   const start = async () => {
     setBusy(true);
     try {
       const { hiring: started } = await hiringApi.start(positionId);
-      onChanged();
       open(started.id);
     } catch (e) {
       // Someone started one meanwhile: go to it rather than report a refusal.
@@ -69,7 +83,6 @@ export function HiringEntry({
           .catch(() => null);
       }
       if (existing != null) {
-        onChanged();
         open(existing);
         return;
       }
@@ -118,9 +131,9 @@ export function HiringEntry({
       data-hiringentry={positionId}
       disabled={busy}
       onClick={() => void start()}
-      aria-label={`Hire a new person${what ? ` for ${what}` : ''}`}
+      aria-label={`${label}${what ? ` for ${what}` : ''}`}
     >
-      {busy ? 'Starting…' : 'Hire a new person'}
+      {busy ? 'Starting…' : label}
     </Button>
   );
 }

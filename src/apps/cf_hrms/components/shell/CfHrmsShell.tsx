@@ -6,6 +6,7 @@ import {
   AppShell, ThemeScope, ToastProvider, CommandPaletteProvider, useIsPermitted,
   type Can, type PaletteAction, type PaletteRecord,
 } from '@shared/ui';
+import { HiringDialogProvider } from '../HiringDialog';
 import { SECTIONS, COUNT_META, PLATFORM_ADMIN, SELF_ONLY, isSelfOnly } from '../../navMeta';
 import { fetchNavCounts } from '../../api/client';
 import { useIsPlatformAdmin } from '../../api/access';
@@ -177,7 +178,7 @@ export function CfHrmsShell({ children }: { children: ReactNode }) {
             quickCreate={QUICK_CREATE}
             can={can}
           >
-            {children}
+            <HiringDialogProvider>{children}</HiringDialogProvider>
           </AppShell>
         </CommandPaletteProvider>
       </ToastProvider>
