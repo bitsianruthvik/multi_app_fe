@@ -4,7 +4,10 @@ import {
   FormControlLabel, MenuItem, Switch, TextField, Typography,
 } from '@mui/material';
 import { cfApi, CfApiError } from '../api/client';
-import type { CaptureAt, Formula, Rule, Specification, ValueRule } from '../api/types';
+import type { CaptureAt, Formula, Meta, Rule, Specification, ValueRule } from '../api/types';
+import AddRounded from '@mui/icons-material/AddRounded';
+import { useIsPermitted } from '../hooks/useIsPermitted';
+import { SpecDialog } from './SpecDialog';
 import { ErrorNotice, Mono } from './ui';
 import { DialogHeader } from './FormDialog';
 
@@ -52,6 +55,10 @@ export function RuleDialog({
   const [optionIds, setOptionIds] = useState<number[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<CfApiError | null>(null);
+  // A specification that does not exist yet is made right here (user, 2026-10-12) — the setup grant decides.
+  const canMakeSpec = useIsPermitted()('cf_erp_setup_manage');
+  const [makingSpec, setMakingSpec] = useState(false);
+  const [meta, setMeta] = useState<Meta | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -59,6 +66,7 @@ export function RuleDialog({
     Promise.all([cfApi.get<Specification[]>('/specifications'), cfApi.get<Formula[]>('/formulas')])
       .then(([s, f]) => { setSpecs(s); setFormulas(f); })
       .catch((e) => setError(e));
+    cfApi.get<Meta>('/meta').then(setMeta).catch(() => undefined);
     setSpecId(existing?.specificationId ?? null);
     setCaptureAt(existing?.captureAt ?? 'item');
     setValueRule(existing?.valueRule ?? 'entered');
@@ -119,8 +127,14 @@ export function RuleDialog({
               </li>
             )}
             onChange={(_, s) => { setSpecId(s?.id ?? null); setOptionIds([]); }}
+            noOptionsText={canMakeSpec ? 'No specification by that name — make it with the button below.' : 'No specification by that name.'}
             renderInput={(p) => <TextField {...p} label="Specification" required={!existing} autoFocus={!existing} />}
           />
+          {!existing && canMakeSpec && (
+            <Box sx={{ mt: -1 }}>
+              <Button size="small" startIcon={<AddRounded fontSize="small" />} onClick={() => setMakingSpec(true)} data-testid="rule-new-spec">New specification</Button>
+            </Box>
+          )}
           <TextField select label="Captured at" value={captureAt} disabled={!!existing || forMachines}
             helperText={forMachines ? 'A machine keeps its values on itself.' : CAPTURE_HELP[captureAt]}
             onChange={(e) => { const v = e.target.value as CaptureAt; setCaptureAt(v); if (v !== 'item' && !['entered', 'calculated'].includes(valueRule)) setValueRule('entered'); }}>
@@ -172,6 +186,13 @@ export function RuleDialog({
           {busy ? 'Saving…' : existing ? 'Save rule' : 'Add rule'}
         </Button>
       </DialogActions>
+      {makingSpec && (
+        <SpecDialog open existing={null} meta={meta} canManage onClose={() => setMakingSpec(false)}
+          onSaved={(made) => {
+            // The new one joins the list and is picked at once.
+            cfApi.get<Specification[]>('/specifications').then((list) => { setSpecs(list); if (made) { setSpecId(made.id); setOptionIds([]); } }).catch((e) => setError(e));
+          }} />
+      )}
     </Dialog>
   );
 }
