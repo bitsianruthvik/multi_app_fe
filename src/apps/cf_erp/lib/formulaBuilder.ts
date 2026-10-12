@@ -29,6 +29,8 @@ export interface BuilderField {
   /** What the suggestion says it is, when that is not just the code ("the piece's family"). */
   hint?: string;
   tableConfig?: { axes?: TableAxisLike[]; mode?: string; version?: number } | null;
+  /** A pick-list’s choices, for the preview’s dropdown. */
+  options?: { value: string; label: string }[];
   /** A real value from a piece / machine, when one has it. */
   example?: number | null;
   exampleFrom?: string | null;

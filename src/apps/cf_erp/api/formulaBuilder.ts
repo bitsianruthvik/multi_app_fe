@@ -25,6 +25,8 @@ export interface BuilderContext {
   machines: BuilderMachine[];
   machineFields: BuilderField[];
   itemFields: BuilderField[];
+  /** The pieces’ tree at each level (FAMILY / SUBFAMILY / VARIANT), for item.variant and its like. */
+  levels?: Record<string, { id: number; code: string | null; name: string }[]>;
   samplePieces: SamplePiece[];
 }
 

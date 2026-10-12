@@ -2,12 +2,12 @@ import { useEffect, useMemo, useState } from 'react';
 import { Alert, Autocomplete, Box, MenuItem, TextField, Typography } from '@mui/material';
 import { checkOnSample, type BuilderCheck, type BuilderContext } from '../../api/formulaBuilder';
 import {
-  fieldFor, numberText, refsIn, resultWarning, timeInWords, tryParse, unitText, unitWarnings, type FieldIndex, type FieldRole,
+  fieldFor, isLevelCode, LEVEL_FIELDS, numberText, refsIn, resultWarning, timeInWords, tryParse, unitText, unitWarnings, type FieldIndex, type FieldRole,
 } from '../../lib/formulaBuilder';
 import { minutesText } from '../../lib/production';
 import { CapsLabel } from '../ui';
 
-const FROM_LABEL: Record<string, string> = { piece: 'from the piece', machine: 'from the machine', typed: 'typed' };
+const FROM_LABEL: Record<string, string> = { piece: 'from the piece', machine: 'from the machine', typed: 'tried here' };
 
 /**
  * LIVE PREVIEW: the formula on a real piece (or on typed values), checked by the
@@ -41,11 +41,12 @@ export function PreviewPanel({ expression, ctx, idx, which, onCheck }: {
   // Until someone picks a piece, show the formula on a real piece that HAS the
   // values it reads (the newest piece often has none of them yet).
   const [picked, setPicked] = useState(false);
+  const levels = ctx?.levels ?? {};
   // A chart named bare (machine.CUT_SPEED) is read by an item value the formula does not
   // spell out; the backend's expanded text does (LOOKUP(machine.CUT_SPEED, item.THICKNESS)).
   // The inputs are listed from THAT, so the preview asks for the thickness, not the chart.
   const readAs = check?.expanded && tryParse(check.expanded) ? check.expanded : expr;
-  const itemCodes = refsIn(tryParse(readAs)).filter((r) => r.role === 'item' && !r.table).map((r) => r.code).join(',');
+  const itemCodes = refsIn(tryParse(readAs)).filter((r) => r.role === 'item' && !r.table && !isLevelCode(r.code)).map((r) => r.code).join(',');
   useEffect(() => {
     if (picked || !pieces.length) return;
     const codes = itemCodes ? itemCodes.split(',') : [];
@@ -56,10 +57,24 @@ export function PreviewPanel({ expression, ctx, idx, which, onCheck }: {
   // With no machine type to stand on (an old backend), the first machine is shown, as before.
   useEffect(() => { if (machineId == null && !standard && machines.length) setMachineId(machines[0].id); }, [machines, machineId, standard]);
 
+  /** How a name is tried: a tree level and a pick-list from their choices, text as a word, the rest as a number. */
+  const kindOf = (role: FieldRole, code: string): 'level' | 'option' | 'text' | 'number' => {
+    if (role === 'item' && isLevelCode(code)) return 'level';
+    const t = fieldFor(idx, role, code)?.dataType;
+    return t === 'option' ? 'option' : t === 'text' || t === 'word' ? 'text' : 'number';
+  };
+  const wordKeyList = refsIn(tryParse(readAs)).filter((r) => (r.role === 'item' || r.role === 'machine') && ['option', 'text'].includes(kindOf(r.role, r.code))).map((r) => `${r.role}.${r.code}`).join(',');
+  const wordKeys = useMemo(() => new Set(wordKeyList ? wordKeyList.split(',') : []), [wordKeyList]);
+
   useEffect(() => {
     if (!expr) { setCheck(null); setStandardCheck(null); onCheck?.(null); return undefined; }
-    const sample: Record<string, number> = {};
-    for (const [k, v] of Object.entries(typed)) if (v.trim() !== '' && Number.isFinite(Number(v))) sample[k] = Number(v);
+    const sample: Record<string, number | string> = {};
+    // A number is sent as a number; a pick-list or text value as the word; a tree level as its node id.
+    for (const [k, v] of Object.entries(typed)) {
+      if (v.trim() === '') continue;
+      if (wordKeys.has(k)) sample[k] = v.trim();
+      else if (Number.isFinite(Number(v))) sample[k] = Number(v);
+    }
     let alive = true;
     const t = window.setTimeout(() => {
       setChecking(true);
@@ -75,7 +90,7 @@ export function PreviewPanel({ expression, ctx, idx, which, onCheck }: {
     return () => { alive = false; window.clearTimeout(t); };
     // onCheck is the parent's setter; re-running on its identity would loop.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [expr, pieceId, machineId, typed, standard?.typeId]);
+  }, [expr, pieceId, machineId, typed, standard?.typeId, wordKeyList]);
 
   // A rate formula reads as a rate ("1.2 min per m of SAW weld length"), anything else in words.
   const words = expr && tryParse(expr) ? timeInWords({ minutes: null, formula: { code: '', expression: expr } }, which, idx) : null;
@@ -83,7 +98,15 @@ export function PreviewPanel({ expression, ctx, idx, which, onCheck }: {
   const value = check?.result?.value ?? null;
   const sanity = resultWarning(value);
   const refs = refsIn(tryParse(readAs));
-  const inputFor = (role: FieldRole, code: string) => check?.inputs?.find((i) => i.ref === `${role}.${code}`) ?? null;
+  // The backend names a tree level in capitals (item.VARIANT) however it was written.
+  const inputFor = (role: FieldRole, code: string) => check?.inputs?.find((i) => i.ref.toLowerCase() === `${role}.${code}`.toLowerCase()) ?? null;
+  /** "item · COATS" → "Coats": what is missing, by the name people know. */
+  const missingName = (m: string) => {
+    const hit = /^(item|machine) · (.+)$/.exec(m);
+    if (!hit) return m;
+    const lv = LEVEL_FIELDS.find((f) => f.code === hit[2].toLowerCase());
+    return lv && hit[1] === 'item' ? lv.name : fieldFor(idx, hit[1] as FieldRole, hit[2])?.name ?? hit[2];
+  };
   const piece = pieces.find((p) => p.id === pieceId) ?? null;
   const machine = machines.find((m) => m.id === machineId) ?? null;
   const standardLabel = standard ? `Standard (machine type ${standard.typeName})` : 'Standard';
@@ -133,7 +156,7 @@ export function PreviewPanel({ expression, ctx, idx, which, onCheck }: {
             ))}
           </>
         ) : check?.result?.missing?.length ? (
-          <Typography sx={{ color: 'var(--c-warning-800)' }}>Needs {check.result.missing.map((m) => m.replace(/^(item|machine) · /, '')).join(', ')} — {piece ? 'not on this piece or machine; ' : ''}type a value below to try.</Typography>
+          <Typography sx={{ color: 'var(--c-warning-800)' }}>Needs {check.result.missing.map(missingName).join(', ')} — {piece ? 'not on this piece or machine; ' : ''}type a value below to try.</Typography>
         ) : check?.result?.error ? (
           <Typography sx={{ color: 'var(--c-danger-800)' }}>{check.result.error}</Typography>
         ) : (
@@ -168,21 +191,40 @@ export function PreviewPanel({ expression, ctx, idx, which, onCheck }: {
       {refs.length > 0 && (
         <Box sx={{ display: 'grid', gap: 0.75 }}>
           {refs.filter((r) => r.role === 'item' || r.role === 'machine').map((r) => {
-            const f = fieldFor(idx, r.role, r.code);
+            const kind = kindOf(r.role, r.code);
+            const f = kind === 'level' ? LEVEL_FIELDS.find((x) => x.code === r.code.toLowerCase()) ?? null : fieldFor(idx, r.role, r.code);
             const inp = inputFor(r.role, r.code);
             const key = `${r.role}.${r.code}`;
+            const label = f?.name ?? r.code;
+            // What to choose from: the tree's nodes at that level, or the pick-list's options.
+            const choices = kind === 'level' ? (levels[r.code.toUpperCase()] ?? []).map((n) => ({ value: String(n.id), label: n.name }))
+              : kind === 'option' ? (f?.options ?? []).map((o) => ({ value: o.value, label: o.label })) : null;
+            // A pick-list's value comes back as its stored word; it is shown by its label.
+            const shownValue = typeof inp?.value === 'number' ? numberText(inp.value)
+              : inp?.value != null ? `“${choices?.find((c) => c.value.toLowerCase() === String(inp.value).toLowerCase())?.label ?? inp.value}”` : null;
+            const set = (v: string) => setTyped((t) => ({ ...t, [key]: v }));
+            const aria = { 'aria-label': `Try another ${label}`, 'data-testid': `typed-${key}` };
             return (
-              <Box key={key} sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 120px', gap: 1, alignItems: 'center' }}>
+              <Box key={key} sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 150px', gap: 1, alignItems: 'center' }}>
                 <Box sx={{ minWidth: 0 }}>
-                  <Box sx={{ fontSize: 13, fontWeight: 500 }}>{f?.name ?? r.code}{f?.unit ? <Box component="span" sx={{ color: 'var(--c-text-3)', fontWeight: 400 }}> · {unitText(f.unit)}</Box> : null}</Box>
+                  <Box sx={{ fontSize: 13, fontWeight: 500 }}>{label}{f?.unit ? <Box component="span" sx={{ color: 'var(--c-text-3)', fontWeight: 400 }}> · {unitText(f.unit)}</Box> : null}</Box>
                   <Box sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>
-                    {r.table ? (inp?.chart ? `chart: ${inp.chart}` : 'chart — none on this machine') : inp?.value != null ? `${typeof inp.value === 'number' ? numberText(inp.value) : `“${inp.value}”`} ${inp.from ? FROM_LABEL[inp.from] : ''}` : 'no value'}
+                    {r.table ? (inp?.chart ? `chart: ${inp.chart}` : 'chart — none on this machine') : shownValue != null ? `${shownValue} ${inp?.from ? FROM_LABEL[inp.from] : ''}` : 'no value'}
                   </Box>
                 </Box>
-                {!r.table && (
+                {r.table ? null : choices && choices.length ? (
+                  <TextField select size="small" value={typed[key] ?? ''} onChange={(e) => set(e.target.value)}
+                    SelectProps={{ displayEmpty: true, renderValue: (v) => (v ? choices.find((c) => c.value === v)?.label ?? String(v) : <Box component="span" sx={{ color: 'var(--c-text-3)' }}>{piece ? 'as on the piece' : 'choose'}</Box>) }}
+                    inputProps={aria}>
+                    <MenuItem value=""><em>{piece ? 'As on the piece' : 'None'}</em></MenuItem>
+                    {choices.map((c) => <MenuItem key={c.value} value={c.value}>{c.label}</MenuItem>)}
+                  </TextField>
+                ) : kind === 'number' ? (
                   <TextField size="small" type="number" placeholder={inp?.value != null ? String(inp.value) : 'value'} value={typed[key] ?? ''}
-                    onChange={(e) => setTyped((t) => ({ ...t, [key]: e.target.value }))}
-                    inputProps={{ step: 'any', 'aria-label': `Try another ${f?.name ?? r.code}`, 'data-testid': `typed-${key}` }} />
+                    onChange={(e) => set(e.target.value)} inputProps={{ step: 'any', ...aria }} />
+                ) : kind === 'level' ? null : (
+                  <TextField size="small" placeholder={inp?.value != null ? String(inp.value) : 'word'} value={typed[key] ?? ''}
+                    onChange={(e) => set(e.target.value)} inputProps={aria} />
                 )}
               </Box>
             );
