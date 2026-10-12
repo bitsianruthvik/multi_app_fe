@@ -321,7 +321,7 @@ export default function FlowDetail() {
             : picking?.beforeSplit ? 'It comes before the lanes split off; they then split off after it.'
               : `It goes into lane ${pickLane} at this place and waits for the step above it.`}
         note={picking?.mode === 'replace'
-          ? 'On Save, time overrides and contractor assignments of orders not yet released move to the new operation. A step already in production cannot change its operation — add a new step instead.'
+          ? 'On Save, time overrides and contractor assignments of orders not yet released move to the new operation. Steps already released keep the operation they were released with; what is released from now on takes the new one.'
           : picking?.mode === 'split' ? 'Every lane you open has to meet another again (Merge) before the flow can be saved.' : undefined}
         confirmLabel={picking?.mode === 'replace' ? 'Replace' : picking?.mode === 'split' ? 'Split' : 'Add step'} onClose={() => setPicking(null)} onPick={picked} />
       <MergeDialog open={!!merging} draft={draft} gap={merging} options={allOps} loading={ops.loading} onClose={() => setMerging(null)}
