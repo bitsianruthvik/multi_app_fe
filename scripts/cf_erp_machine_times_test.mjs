@@ -213,7 +213,7 @@ const answer = (value) => ({ ok: true, problems: [], names: [], result: { value,
 globalThis.__routes = [['POST', /^\/formulas\/check$/, (c) => { checks.push(c.body); return answer(c.body.machineId === 8 ? 2 : 1); }]];
 const idx = m.fieldIndex(ctx.itemFields, ctx.machineFields);
 const pickMachine = async (testid) => {
-  await click(document.querySelector('.MuiSelect-select'));
+  await click(q('preview-machine'));   // a searchable list since 2026-10-12
   const opt = document.querySelector(`[data-testid="${testid}"]`);
   await click(opt);
   await settle(400);
@@ -229,7 +229,7 @@ await check('the preview opens on the STANDARD: the machine type is asked, no ma
   assert.equal(q('preview-compare'), null, 'nothing to compare with yet');
 });
 await check('the machine picker lists the standard first and marks the machines with their own chart', async () => {
-  await click(document.querySelector('.MuiSelect-select'));
+  await click(q('preview-machine'));   // a searchable list since 2026-10-12
   const opts = [...document.querySelectorAll('[role="option"]')];
   assert.deepEqual(opts.map((o) => o.textContent), ['Standard (machine type CNC plasma)', 'MC-1 · Plasma 1', 'MC-2 · Plasma 2 (old) · own chart']);
   assert.equal(q('preview-machine-8').dataset.own, 'yes');

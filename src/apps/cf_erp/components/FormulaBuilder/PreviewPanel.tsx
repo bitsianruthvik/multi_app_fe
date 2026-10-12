@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Alert, Autocomplete, Box, MenuItem, TextField, Typography } from '@mui/material';
+import { Alert, Autocomplete, Box, TextField, Typography } from '@mui/material';
 import { checkOnSample, type BuilderCheck, type BuilderContext } from '../../api/formulaBuilder';
 import {
   fieldFor, isLevelCode, LEVEL_FIELDS, numberText, refsIn, resultWarning, timeInWords, tryParse, unitText, unitWarnings, type FieldIndex, type FieldRole,
@@ -111,6 +111,11 @@ export function PreviewPanel({ expression, ctx, idx, which, onCheck }: {
   const machine = machines.find((m) => m.id === machineId) ?? null;
   const standardLabel = standard ? `Standard (machine type ${standard.typeName})` : 'Standard';
   const standardValue = standardCheck?.result?.value ?? null;
+  /** The machine picker's list: the standard first, then the type's machines — searchable. */
+  const machineChoices: { id: number | null; label: string; own: boolean }[] = [
+    ...(standard ? [{ id: null, label: standardLabel, own: false }] : []),
+    ...machines.map((m) => ({ id: m.id as number | null, label: `${m.code} · ${m.name}${m.ownChart ? ' · own chart' : ''}`, own: !!m.ownChart })),
+  ];
   const differs = machine != null && value != null && standardValue != null && Math.abs(value - standardValue) > 1e-9;
 
   return (
@@ -128,19 +133,16 @@ export function PreviewPanel({ expression, ctx, idx, which, onCheck }: {
         )}
         noOptionsText="No pieces yet — type values below"
         renderInput={(p) => <TextField {...p} label="Try it on a piece" helperText={pieces.length && !pieces[0].fromOperation ? 'Nothing goes through this operation yet — these are recent order pieces' : 'Real pieces whose flow has this operation; or clear it and type values'} />} />
-      <TextField select size="small" label="On machine" value={machineId ?? (standard ? 'standard' : '')}
-        onChange={(e) => setMachineId(e.target.value === 'standard' ? null : Number(e.target.value) || null)}
-        helperText={!machines.length ? 'No active machine is under this rule'
-          : machine ? (machine.ownChart ? `${machine.code} has its own chart: a step put on it takes this time, not the standard.` : `${machine.code} has no chart of its own: it runs at the standard.`)
-            : 'The time a step is released with. Pick a machine to see its own time.'}
-        inputProps={{ 'data-testid': 'preview-machine' }}>
-        {standard && <MenuItem value="standard" data-testid="preview-machine-standard">{standardLabel}</MenuItem>}
-        {machines.map((m) => (
-          <MenuItem key={m.id} value={m.id} data-testid={`preview-machine-${m.id}`} data-own={m.ownChart ? 'yes' : 'no'}>
-            {m.code} · {m.name}{m.ownChart ? ' · own chart' : ''}
-          </MenuItem>
-        ))}
-      </TextField>
+      <Autocomplete size="small" disableClearable={!!standard} options={machineChoices} value={machineChoices.find((m) => m.id === machineId) ?? machineChoices[0] ?? null}
+        onChange={(_, m) => setMachineId(m?.id ?? null)} getOptionLabel={(m) => m.label} isOptionEqualToValue={(a, b) => a.id === b.id}
+        autoHighlight noOptionsText="No machine by that name"
+        renderOption={({ key, ...props }, m) => <Box component="li" key={key} {...props} data-testid={m.id == null ? 'preview-machine-standard' : `preview-machine-${m.id}`} data-own={m.own ? 'yes' : 'no'}>{m.label}</Box>}
+        renderInput={(p) => (
+          <TextField {...p} label="On machine" inputProps={{ ...p.inputProps, 'data-testid': 'preview-machine' }}
+            helperText={!machines.length ? 'No active machine is under this rule'
+              : machine ? (machine.ownChart ? `${machine.code} has its own chart: a step put on it takes this time, not the standard.` : `${machine.code} has no chart of its own: it runs at the standard.`)
+                : 'The time a step is released with. Pick a machine to see its own time.'} />
+        )} />
 
       <Box sx={{ p: 2, borderRadius: 'var(--r-md)', background: 'var(--c-surface-2)', border: '1px solid var(--c-border)' }} data-testid="preview-result">
         {!expr ? (
@@ -205,7 +207,7 @@ export function PreviewPanel({ expression, ctx, idx, which, onCheck }: {
             const set = (v: string) => setTyped((t) => ({ ...t, [key]: v }));
             const aria = { 'aria-label': `Try another ${label}`, 'data-testid': `typed-${key}` };
             return (
-              <Box key={key} sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 150px', gap: 1, alignItems: 'center' }}>
+              <Box key={key} sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 180px', gap: 1, alignItems: 'center' }}>
                 <Box sx={{ minWidth: 0 }}>
                   <Box sx={{ fontSize: 13, fontWeight: 500 }}>{label}{f?.unit ? <Box component="span" sx={{ color: 'var(--c-text-3)', fontWeight: 400 }}> · {unitText(f.unit)}</Box> : null}</Box>
                   <Box sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>
@@ -213,12 +215,10 @@ export function PreviewPanel({ expression, ctx, idx, which, onCheck }: {
                   </Box>
                 </Box>
                 {r.table ? null : choices && choices.length ? (
-                  <TextField select size="small" value={typed[key] ?? ''} onChange={(e) => set(e.target.value)}
-                    SelectProps={{ displayEmpty: true, renderValue: (v) => (v ? choices.find((c) => c.value === v)?.label ?? String(v) : <Box component="span" sx={{ color: 'var(--c-text-3)' }}>{piece ? 'as on the piece' : 'choose'}</Box>) }}
-                    inputProps={aria}>
-                    <MenuItem value=""><em>{piece ? 'As on the piece' : 'None'}</em></MenuItem>
-                    {choices.map((c) => <MenuItem key={c.value} value={c.value}>{c.label}</MenuItem>)}
-                  </TextField>
+                  <Autocomplete size="small" options={choices} value={choices.find((c) => c.value === typed[key]) ?? null}
+                    onChange={(_, c) => set(c?.value ?? '')} getOptionLabel={(c) => c.label} isOptionEqualToValue={(a, b) => a.value === b.value}
+                    autoHighlight noOptionsText="Nothing by that name" slotProps={{ paper: { sx: { minWidth: 220 } } }}
+                    renderInput={(p) => <TextField {...p} placeholder={piece && shownValue != null ? 'as on the piece' : 'search…'} inputProps={{ ...p.inputProps, ...aria }} />} />
                 ) : kind === 'number' ? (
                   <TextField size="small" type="number" placeholder={inp?.value != null ? String(inp.value) : 'value'} value={typed[key] ?? ''}
                     onChange={(e) => set(e.target.value)} inputProps={{ step: 'any', ...aria }} />
