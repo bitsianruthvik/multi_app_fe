@@ -513,7 +513,7 @@ export default function RecordDetail({ recordKind }: { recordKind: 'item' | 'def
             subtitle={isDefinition
               ? 'What every item created from it must capture, on top of its classification. These override the classification’s rules for the same specification.'
               : 'Rarely needed — rules usually belong on the classification so every similar item shares them.'}
-            actions={rulesEditable && <Button startIcon={<AddRounded />} onClick={() => setRuleDialog({ open: true, rule: null })}>Add rule</Button>}>
+            actions={rulesEditable && <Button startIcon={<AddRounded />} onClick={() => setRuleDialog({ open: true, rule: null })}>Add specification</Button>}>
             <ErrorNotice error={rules.error} onRetry={rules.reload} />
             {ruleCount === 0 ? (
               <Typography sx={{ color: 'var(--c-text-2)', fontSize: 13 }}>

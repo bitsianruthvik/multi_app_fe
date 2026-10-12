@@ -124,7 +124,7 @@ export default function MachineDetail() {
             )}
           </SectionCard>
           <SectionCard title="Rules on this machine only" subtitle="Rarely needed — rules usually belong on the machine type so every similar machine shares them."
-            actions={canSetup && <Button startIcon={<AddRounded />} onClick={() => setRuleDialog({ open: true, rule: null })}>Add rule</Button>}>
+            actions={canSetup && <Button startIcon={<AddRounded />} onClick={() => setRuleDialog({ open: true, rule: null })}>Add specification</Button>}>
             <ErrorNotice error={rules.error} onRetry={rules.reload} />
             {(rules.data ?? []).length === 0 ? <Typography sx={{ color: 'var(--c-text-3)', fontSize: 13 }}>None.</Typography> : (
               <EntityList>
