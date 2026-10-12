@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent, type ReactNode } from 'react';
-import { Alert, Box, Button, CircularProgress, FormControlLabel, IconButton, Menu, MenuItem, Popover, Switch, Tooltip, Typography, useMediaQuery } from '@mui/material';
+import { Alert, Box, Button, CircularProgress, FormControlLabel, IconButton, Menu, MenuItem, Popover, Snackbar, Switch, Tooltip, Typography, useMediaQuery } from '@mui/material';
 import { Link } from 'react-router-dom';
 import AddRounded from '@mui/icons-material/AddRounded';
 import ArchiveRounded from '@mui/icons-material/ArchiveRounded';
@@ -18,7 +18,8 @@ import UndoRounded from '@mui/icons-material/UndoRounded';
 import UnfoldLessRounded from '@mui/icons-material/UnfoldLessRounded';
 import UnfoldMoreRounded from '@mui/icons-material/UnfoldMoreRounded';
 import type { BomType, Flow, StructureNode } from '../../api/types';
-import type { BomChangesResponse } from '../../api/bomChanges';
+import type { BomChange, BomChangesResponse } from '../../api/bomChanges';
+import type { LinkChoiceValue } from '../../api/links';
 import { placeholderTitle, positionCodeTitle } from '../../api/placeholders';
 import { cutPiecesNote } from '../../api/cutPieces';
 import { saveCutOnRecord } from '../../api/cutting';
@@ -47,7 +48,7 @@ import { useToast } from '../toastContext';
 import {
   allowedChildren, bomTypeOfKind, hasOwnFlow, keysBelow, lineFlowId, nodesByLine, nodesByRecord, openableKeys, ownFlowId,
   parseQuantity, pasteRefusal, pendingChanges, temporaryCount, walkNodes, withDefinitionFlow, withFlowChoice,
-  NO_PENDING, VALUES_PERMISSION, isCutPiece, withoutCutPieces, type BomRow, type Pending,
+  NO_PENDING, VALUES_PERMISSION, isCutPiece, withoutCutPieces, ancestorKeys, type BomRow, type Pending,
 } from './bomModel';
 import type { BomAction, RowMark } from './BomTree';
 import { BomSheetDialog } from './BomSheetDialog';
@@ -61,6 +62,10 @@ import { computeGaps, gapSentence, keepGapRows, type ValuesView } from '../Value
 import type { SheetGridHandle } from '@shared/ui';
 import { codeOrName, displayCode, isDefinitionKind } from '../../lib/displayCode';
 import { ValueReasonsDialog } from '../ValueReasonsDialog';
+import { breakWords, brokenSentence, linkedFrom, linkState, touchedByPending, undecided, valueReader, type LinkAbove } from '../../lib/links';
+import { LinkChip } from './LinkChip';
+import { LinkChoiceDialog } from './LinkChoiceDialog';
+import { LinkMembersPopover, type LinkMember } from './LinkMembersPopover';
 
 const TYPE_TEXT: Record<BomType, { title: string; body: string; empty: string }> = {
   standard: {
@@ -209,6 +214,16 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
   const [viewRow, setViewRow] = useState<{ id: number; name: string } | null>(null);
   /** "Why these values…" for one row: the record whose reasons are open. */
   const [whyRow, setWhyRow] = useState<{ id: number; name: string } | null>(null);
+  // ── linked copies ("same design") ──
+  /** Save or Check is waiting for the one question about copies. */
+  const [linkAsk, setLinkAsk] = useState<'save' | 'check' | null>(null);
+  /** The members list of one row's copies. */
+  const [linkPop, setLinkPop] = useState<{ anchor: HTMLElement; recordId: number } | null>(null);
+  /** An immediate action that would make a row differ from its copies, waiting for a yes. */
+  const [breakAsk, setBreakAsk] = useState<{ rows: LinkAbove[]; go: () => void | Promise<void>; no?: () => void } | null>(null);
+  /** After a save: the rows that stopped matching their copies, and what Undo sends. */
+  const [broken, setBroken] = useState<{ n: number; undo: BomChange[] } | null>(null);
+  const [sheetLinks, setSheetLinks] = useState<LinkChoiceValue>('all');
   const errorAt = useRef<HTMLDivElement>(null);
   // Structure and Values are ONE tab (user, 2026-10-02: "same things are there so no point having two tabs"):
   // an order line's grid carries the values too — required ones still empty are amber, with a
@@ -297,6 +312,10 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
   const savedGaps = useMemo(() => (gapsOn ? computeGaps(gridValues.data ?? null, undefined, gapScope) : null), [gapsOn, gridValues.data, gapScope]);
   const savedGapIds = useMemo(() => (savedGaps ? new Set(savedGaps.keys()) : null), [savedGaps]);
   const rows = useMemo(() => (gapsOn && onlyMissing && savedGapIds && gridValues.data ? keepGapRows(treeRows, savedGapIds) : treeRows), [gapsOn, onlyMissing, savedGapIds, gridValues.data, treeRows]);
+  // Linked copies: the server's block, what the waiting changes reach, and how a value reads.
+  const links = orderGrid ? gridValues.data?.links ?? null : null;
+  const reader = useMemo(() => valueReader(gridValues.data), [gridValues.data]);
+  const touchInfo = useMemo(() => touchedByPending(pending, { links, flat, byLine, describeValue: reader.describe }), [pending, links, flat, byLine, reader]);
   // A jump to a row still to choose lands once that row is drawn (its branch may have just been opened).
   useEffect(() => {
     if (!pendingJump || !rows.some((r) => r.node.key === pendingJump)) return;
@@ -373,10 +392,21 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
     }
     return list;
   };
+  /** Run an action that changes a row's design at once — after a yes, when that row or one above it has copies. */
+  const guardBreak = (startKey: string | null | undefined, go: () => void | Promise<void>) => {
+    const hit = startKey ? linkedFrom(flat, startKey, links) : [];
+    if (hit.length) setBreakAsk({ rows: hit, go }); else void go();
+  };
+  const startAdd = (node: StructureNode) => guardBreak(node.key, () => setAdding(node));
+  /** Choosing an item for a selection changes the row it sits in. */
+  const startChoose = (lineId: number | null) => {
+    const line = lineId == null ? null : byLine.get(lineId);
+    guardBreak(line ? flat.find((f) => f.node.key === line.key)?.parentKey : null, () => setChoosing(lineId));
+  };
   const drawingRowOf = (row: BomRow) => ({ id: row.node.id, name: row.node.shortName ?? row.node.code ?? row.node.name });
   const onAction = (action: BomAction, row: BomRow) => {
-    if (action === 'add') setAdding(row.node);
-    else if (action === 'choose') setChoosing(row.node.lineId);
+    if (action === 'add') startAdd(row.node);
+    else if (action === 'choose') startChoose(row.node.lineId);
     else if (action === 'change') setEditing(row);
     else setRemoving(row);
   };
@@ -466,6 +496,13 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
     if (busy) return;
     if (Object.keys(pending.remove).length) { toast.info('Save or discard removals before copying rows.'); return; }
     if (Object.keys(pending.arrangement ?? {}).length) { toast.info('Save or discard the row moves first, then copy.'); return; }
+    if (!row.parent || row.node.lineId == null) return;
+    // A copy inside a row that has copies makes that row differ from them: say so before it is done.
+    const hit = linkedFrom(flat, row.parent.key, links);
+    if (hit.length) { setBreakAsk({ rows: hit, go: () => doDuplicate(row) }); return; }
+    await doDuplicate(row);
+  };
+  const doDuplicate = async (row: BomRow) => {
     if (!row.parent || row.node.lineId == null) return;
     setBusy('save');
     const lineId = row.node.lineId as number;
@@ -581,9 +618,26 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
   const doomedTemporary = removals.reduce((n, node) => n + temporaryCount(node), 0);
   const checkedNow = checked && checked.for === pending ? checked.out : null;
 
-  const save = async () => {
+  /** The changes as Save sends them for a pending state: every answer about copies rides on them, and a value given to every copy goes to all. */
+  const changesFor = (p: Pending): BomChange[] => pendingChanges(pruneArrangement({ ...p, linkChoice: { ...Object.fromEntries(touchInfo.unanimous.map((k) => [k, 'all' as const])), ...p.linkChoice } }, state.root), byLine, byRecord).changes;
+  /** What Undo sends after a save that left rows apart from their copies: the old values back on those rows, then the link. */
+  const undoPlanFor = (p: Pending): BomChange[] => {
+    const apart = touchInfo.touches.filter((t) => p.linkChoice?.[t.key] !== 'all');
+    if (!apart.length) return [];
+    const back: BomChange[] = [];
+    const writes = apart.flatMap((t) => (t.kind === 'value' && t.specCode ? [{ recordId: t.recordId, specCode: t.specCode, value: reader.saved(t.recordId, t.specCode).trim() || null }] : []));
+    if (writes.length) back.push({ op: 'values', links: 'one', writes });
+    for (const t of apart) if (t.kind === 'quantity' && t.lineId != null) { const q = byLine.get(t.lineId)?.quantity; if (q != null) back.push({ op: 'quantity', lineId: t.lineId, quantity: q }); }
+    const sets = new Map<string, number[]>();
+    for (const t of apart) sets.set(t.group, t.members);
+    for (const a of touchInfo.above) { const st = linkState(links, a.recordId); if (st.kind === 'linked') sets.set(st.group, st.members); }
+    return [...back, ...[...sets.values()].map((recordIds) => ({ op: 'link' as const, recordIds }))];
+  };
+
+  const save = async (p: Pending = pending) => {
+    const sent = changesFor(p), undo = undoPlanFor(p);
     setBusy('save');
-    const out = await bom.saveChanges(changes);
+    const out = await bom.saveChanges(sent);
     setBusy(null);
     if (!out) {
       showError();
@@ -598,15 +652,60 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
     if (notes.length) toast.info(notes[0]);
     const cut = cutPiecesNote(out.cutPieces);
     if (cut) toast[cut.tone](cut.text);
+    // Rows that no longer match their copies: said once, with a way back.
+    const apart = out.links?.breaks?.length ?? 0;
+    if (apart > 0) setBroken({ n: apart, undo });
   };
-  const onSave = () => { if (doomedTemporary > 0) setConfirming('save'); else void save(); };
-  const check = async () => {
+  /** The one question about copies — asked only when a waiting change reaches rows that have copies and has not been answered. */
+  const askLinks = (intent: 'save' | 'check'): boolean => {
+    if (!undecided(touchInfo.touches, pending.linkChoice).length) return false;
+    setLinkAsk(intent);
+    return true;
+  };
+  const proceedSave = (p: Pending) => { if (doomedTemporary > 0) setConfirming('save'); else void save(p); };
+  const onSave = () => { if (!askLinks('save')) proceedSave(pending); };
+  const check = async (p: Pending = pending) => {
     setBusy('check');
-    const snapshot = pending;
-    const out = await bom.saveChanges(changes, { dryRun: true });
+    const snapshot = p;
+    const out = await bom.saveChanges(changesFor(p), { dryRun: true });
     setBusy(null);
     if (out) setChecked({ for: snapshot, out });
     else showError();
+  };
+  const onCheck = () => { if (!askLinks('check')) void check(pending); };
+  const answerLinks = (choice: Record<string, LinkChoiceValue>) => {
+    const intent = linkAsk;
+    setLinkAsk(null);
+    const next: Pending = { ...pending, linkChoice: { ...pending.linkChoice, ...choice } };
+    setPending(next);
+    if (intent === 'check') void check(next); else proceedSave(next);
+  };
+  /** Link or unlink at once (never while changes wait: they would be read against the old structure). */
+  const runLinkOp = async (change: BomChange, done: string) => {
+    setBusy('save');
+    const out = await bom.saveChanges([change]);
+    setBusy(null);
+    if (!out) { showError(); return; }
+    if (orderGrid) gridValues.reload();
+    toast.success(done);
+  };
+  const undoBreak = async () => {
+    const b = broken;
+    setBroken(null);
+    if (!b?.undo.length) return;
+    setBusy('save');
+    const out = await bom.saveChanges(b.undo);
+    setBusy(null);
+    if (!out) { showError(); return; }
+    if (orderGrid) gridValues.reload();
+    toast.success('Back to the same design as their copies.');
+  };
+  const goTo = (recordId: number) => {
+    const n = byRecord.get(recordId);
+    if (!n) return;
+    setOpen(new Set([...expanded, ...ancestorKeys(flat, n.key)]));
+    if (onlyMissing) setOnlyMissing(false);
+    setPendingJump(n.key);
   };
   // A row has no code until its line is locked: the code its pieces will get stands in.
   // A catalog item's or definition's row: the code its POSITION gives it, by the
@@ -619,6 +718,25 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
     const p = bom.placeholderOf(row.node);
     return p?.code ? { code: p.code, title: `${placeholderTitle(p)} # = numbered when the design is frozen; a row with quantity 3 covers 2–4, so its code changes with the quantity (L1-1 becomes L1-#).`, segments: p.segments ?? null } : null;
   };
+
+  // ── linked copies on the rows ──
+  /** One row of a group as the popover lists it: where it sits, its code, its pieces. */
+  const memberOf = (recordId: number, self: boolean): LinkMember | null => {
+    const node = byRecord.get(recordId);
+    if (!node) return null;
+    const names = ancestorKeys(flat, node.key).map((k) => flat.find((f) => f.node.key === k)?.node.name ?? '').filter(Boolean).reverse();
+    const ph = placeholderOf({ node } as BomRow);
+    return { recordId, label: node.name, where: names.length ? `in ${(names.length > 1 ? names.slice(1) : names).join(' › ')}` : '', code: ph?.code ?? displayCode(node) ?? '', segments: ph?.segments ?? null, pieces: Math.round(node.total * 1e6) / 1e6, self };
+  };
+  const linkCell = (row: BomRow) => {
+    if (!links || row.paste || !row.parent) return null;
+    const st = linkState(links, row.node.id);
+    const changing = st.kind === 'linked' && touchInfo.touches.some((t) => t.group === st.group);
+    return <LinkChip state={st} changing={changing} name={codeOrName(row.node)} onOpen={(anchor) => setLinkPop({ anchor, recordId: row.node.id })} />;
+  };
+  const popState = linkPop ? linkState(links, linkPop.recordId) : null;
+  const popMembers: LinkMember[] = !linkPop || !popState ? [] : (popState.kind === 'linked' ? popState.members : popState.kind === 'suggest' ? [linkPop.recordId, ...popState.others] : [])
+    .map((id) => memberOf(id, id === linkPop.recordId)).filter((m): m is LinkMember => !!m);
 
   const markOf = (row: BomRow): RowMark | null => {
     if (row.paste) {
@@ -751,7 +869,7 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
   const removingNode = removing?.node;
   const run = async (done: string, change: Promise<boolean>) => { if (await change) toast.success(done); };
   const addButton = (variant?: 'contained') => (
-    <Button variant={variant} startIcon={<AddRounded />} onClick={() => setAdding(root)}>Add line</Button>
+    <Button variant={variant} startIcon={<AddRounded />} onClick={() => startAdd(root)}>Add line</Button>
   );
   // Only worth offering once something below the first level can be folded away.
   const deep = state.stats.maxDepth > 1;
@@ -791,7 +909,7 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
   const choiceCell = (row: BomRow) => {
     const editable = !row.paste && !dirty && !busy && !removedKeys.has(row.node.key) && !goneKeys.has(row.node.key) && mayEdit(row.parent, row.bomType);
     const why = row.paste ? undefined : dirty ? 'Save or cancel the changes first, then choose.' : flowsOnly ? 'The design is frozen.' : whyNotLine(row) || undefined;
-    return <><ChoiceCell node={row.node} editable={editable} why={why} onChoose={setChoosing} />{cutCell(row)}</>;
+    return <><ChoiceCell node={row.node} editable={editable} why={why} onChoose={startChoose} />{cutCell(row)}</>;
   };
   /**
    * HOW A PART IS CUT, on its row (CF_ERP_CUT_FROM_PLAN.md §7): a quiet "Plate" tag, or for a section part the
@@ -809,6 +927,9 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
     return (
       <SectionCell value={n.cutStock ?? null} editable={editable} why={why}
         onPick={async (picked) => {
+          // A section is part of the row's own design: copies of the row (or of a row above) stop matching.
+          const hit = linkedFrom(flat, n.key, links);
+          if (hit.length && !(await new Promise<boolean>((yes) => setBreakAsk({ rows: hit, go: () => yes(true), no: () => yes(false) })))) return;
           try {
             await saveCutOnRecord(n.id, { cutStockId: picked?.id ?? null });
             toast.success(picked ? `Section set to ${picked.code ?? picked.name}.` : 'Section cleared.');
@@ -837,6 +958,7 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
     try {
       const base64 = await fileToBase64(file);
       const result = await previewBomSheet(source, base64);
+      setSheetLinks('all');
       setSheet({ file, base64, result });
     } catch (e) {
       toast.error(e instanceof CfApiError ? e.message : 'Could not read that workbook.');
@@ -846,7 +968,7 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
     if (!sheet) return;
     setSheetBusy('apply');
     try {
-      const result = await applyBomSheet(source, sheet.base64);
+      const result = await applyBomSheet(source, sheet.base64, sheet.result.links?.needsChoice ? sheetLinks : undefined);
       setSheet(null);
       toast.success(`Excel changes applied: ${result.summary.sentence}.`);
       bom.reload();
@@ -986,7 +1108,7 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
               </>
             )}
             {canSheetEdit && <input ref={sheetInput} type="file" accept={orderGrid ? '.xlsx' : '.xlsx,.csv'} hidden onChange={chooseSheet} />}
-            {!dirty && !busy && canAddToRoot && <Button size="small" variant="contained" startIcon={<AddRounded />} onClick={() => setAdding(root)}>Add line</Button>}
+            {!dirty && !busy && canAddToRoot && <Button size="small" variant="contained" startIcon={<AddRounded />} onClick={() => startAdd(root)}>Add line</Button>}
           </Box>
         )}
         </Box>
@@ -997,7 +1119,7 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
               canEditValues={(row) => !removedKeys.has(row.node.key) && !goneKeys.has(row.node.key) && (orderGrid ? editOn && mine(row.node) : mayEditValues(row.node))}
               onToggle={(key) => { const next = new Set(expanded); if (next.has(key)) next.delete(key); else next.add(key); setOpen(next); }}
               roleOf={roleOf} canEditRole={canEditRole} onRole={onRole}
-              gaps={liveGaps ?? undefined} handleRef={gridHandle} onlyMissing={gapsOn && onlyMissing ? savedGaps ?? undefined : undefined}
+              gaps={liveGaps ?? undefined} handleRef={gridHandle} linkCell={linkCell} onlyMissing={gapsOn && onlyMissing ? savedGaps ?? undefined : undefined}
               onWrites={onGridWrites} onMove={onGridMove} dropRefusal={dropRefusal} trailingCell={trailingCell} fileDrop={orderGrid ? fileDrop : undefined} flowCell={flowCell} choiceCell={choiceCell} markOf={markOf} placeholderOf={placeholderOf} orderCode={state.order?.code ?? null}
               footer={gapsOn && onlyMissing
                 ? rows.length === 0 && !!gridValues.data && <EmptyState title={onlyMissing ? 'Nothing is missing' : 'Nothing below it yet'} hint={onlyMissing ? 'Every required value on this line is filled.' : undefined} />
@@ -1013,7 +1135,7 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
       </SectionCard>
 
       <BomSheetDialog open={!!sheet} fileName={sheet?.file.name ?? ''} result={sheet?.result ?? null}
-        busy={sheetBusy === 'apply'} onClose={() => setSheet(null)} onApply={applySheet} />
+        busy={sheetBusy === 'apply'} onClose={() => setSheet(null)} onApply={applySheet} links={sheetLinks} onLinks={setSheetLinks} />
 
       {/* What is waiting, and the one way to save it. Sticky, so it is at hand
           wherever in a long tree the last change was made. */}
@@ -1035,6 +1157,8 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
                 <Typography sx={{ fontSize: 12, color: 'var(--c-success-800)', mt: 0.25, overflowWrap: 'anywhere' }}>
                   Checked, nothing refused. Save would do this: {checkedNow.summary.sentence}.
                   {firstNewCode && <> First new code: <Mono>{firstNewCode}</Mono>.</>}
+                  {checkedNow.links && checkedNow.links.touched.some((t) => t.choice === 'all') && <span data-testid="check-links-all"> It also changes the copies of {checkedNow.links.touched.filter((t) => t.choice === 'all').map((t) => t.label).join(', ')}.</span>}
+                  {checkedNow.links && checkedNow.links.breaks.length > 0 && <span data-testid="check-links-breaks"> {brokenSentence(checkedNow.links.breaks.length)} ({checkedNow.links.breaks.map((b) => b.label).join(', ')})</span>}
                 </Typography>
               )}
             </Box>
@@ -1043,7 +1167,7 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
               <Button onClick={discard} disabled={!dirty || !!busy}>Cancel</Button>
               <Tooltip title="Runs the save and takes it back — every problem it would meet, and what it would make.">
                 <span>
-                  <Button onClick={check} disabled={!changes.length || invalid.length > 0 || !!busy}
+                  <Button onClick={onCheck} disabled={!changes.length || invalid.length > 0 || !!busy}
                     startIcon={busy === 'check' ? <CircularProgress size={14} color="inherit" /> : undefined}>
                     {busy === 'check' ? 'Checking…' : 'Check'}
                   </Button>
@@ -1067,11 +1191,25 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
         {rowMenu && gridLineId != null && state.order && rowMenu.row.parent != null && (
           <MenuItem onClick={() => { setDrawingRow(drawingRowOf(rowMenu.row)); setRowMenu(null); }}>Drawings for this row…</MenuItem>
         )}
+        {rowMenu && orderGrid && rowMenu.row.parent != null && rowMenu.row.node.kind === 'temporary' && !!links && (
+          <MenuItem data-testid="row-link-menu" onClick={() => { setLinkPop({ anchor: rowMenu.anchor, recordId: rowMenu.row.node.id }); setRowMenu(null); }}>Link to identical rows…</MenuItem>
+        )}
         {/* Why each value on this row is asked: its flow reads it, somebody set it by hand, or it is worked out. */}
         {rowMenu && rowMenu.row.node.kind !== 'selection' && (
           <MenuItem data-testid="row-why-values" onClick={() => { setWhyRow({ id: rowMenu.row.node.id, name: codeOrName(rowMenu.row.node) }); setRowMenu(null); }}>Why these values…</MenuItem>
         )}
       </Menu>
+      <LinkMembersPopover anchor={linkPop?.anchor ?? null} onClose={() => setLinkPop(null)} state={popState ?? { kind: 'none' }}
+        name={linkPop ? codeOrName(byRecord.get(linkPop.recordId) ?? root) : ''} members={popMembers} dirty={dirty} busy={!!busy} canEdit={editOn && !flowsOnly}
+        onGoTo={goTo}
+        onUnlink={(keepApart) => { const id = linkPop?.recordId; setLinkPop(null); if (id != null) void runLinkOp({ op: 'unlink', recordId: id, ...(keepApart ? { keepApart: true } : {}) }, keepApart ? 'Kept apart.' : 'Unlinked.'); }}
+        onLink={() => { const rid = linkPop?.recordId; setLinkPop(null); if (rid != null && popState?.kind === 'suggest') void runLinkOp({ op: 'link', recordIds: [rid, ...popState.others] }, 'Linked.'); }} />
+      <LinkChoiceDialog open={linkAsk != null} touches={touchInfo.touches} above={touchInfo.above} intent={linkAsk ?? 'save'} onChoose={answerLinks} onClose={() => setLinkAsk(null)} />
+      <ConfirmDialog open={!!breakAsk} danger confirmLabel="Go on" title="Stop matching its copies?" body={breakAsk ? breakWords(breakAsk.rows) : ''}
+        onClose={() => { breakAsk?.no?.(); setBreakAsk(null); }}
+        onConfirm={async () => { const a = breakAsk; setBreakAsk(null); await a?.go(); }} />
+      <Snackbar open={!!broken} autoHideDuration={12000} onClose={(_, reason) => { if (reason !== 'clickaway') setBroken(null); }} message={<span data-testid="links-broken">{broken ? brokenSentence(broken.n) : ''}</span>}
+        action={broken?.undo.length ? <Button size="small" color="inherit" data-testid="links-undo" onClick={() => void undoBreak()}>Undo</Button> : undefined} />
       <ValueReasonsDialog open={!!whyRow} recordId={whyRow?.id ?? null} label={whyRow?.name ?? ''} onClose={() => setWhyRow(null)} />
 
 

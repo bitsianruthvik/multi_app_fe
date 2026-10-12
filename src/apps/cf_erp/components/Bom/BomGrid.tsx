@@ -18,28 +18,22 @@ import { rowColumnCodes, shownColumns, sortColumns, viewCatalog, viewCell, viewU
 import { codeOrName, displayCode } from '../../lib/displayCode';
 import { sourceMark, sourceOfDerived, type ValueSource } from '../../lib/valueSource';
 import { ValueSourceMark } from './ValueSourceMark';
+import { CodeText } from './CodeText';
 
 export interface GridWrite { row: BomRow; code: string; text: string; saved: string }
 type Cell = { text: string; input: string; saved: string; editable: boolean; why?: string; applies?: boolean; type?: string; /** Where a formula value comes from (lib/valueSource). */ source?: ValueSource | null; options?: { id: number; value: string; label?: string | null }[] };
 
 /** The BOM around the shared SheetGrid: SheetGrid owns selection, clipboard and
  * the editor; this owns what a BOM cell means, plus row drag/drop and moving. */
-/** A row's code in mono — a catalog row's position code with the item's own code beside it. */
-function CodeText({ code, itemCode, segments }: { code: string; itemCode: string | null; segments?: CodeSegment[] | null }) {
-  if (!code) return null;
-  const shown = codeWithNumbers(code, segments);
-  // The whole code, always: it wraps after a hyphen rather than being cut, and runs under the row's buttons.
-  const parts = shown.split('-').map((t, i, all) => (i < all.length - 1 ? `${t}-` : t));
-  return <><Box component="span" data-testid="row-code" sx={{ fontFamily: 'var(--font-mono)', whiteSpace: 'normal', overflowWrap: 'break-word' }}>{parts.map((t, i) => <span key={i}>{t}{i < parts.length - 1 ? <wbr /> : null}</span>)}</Box>{itemCode && itemCode !== code ? <Box component="span" sx={{ fontFamily: 'var(--font-mono)' }}> · {itemCode}</Box> : null}</>;
-}
-
-export function BomGrid({ rows, view, records: recordValues, recordIds, pending, busy, canEdit, canEditValues, onToggle, onWrites, onMove, dropRefusal, trailingCell, flowCell, choiceCell, markOf, placeholderOf, roleOf, canEditRole, onRole, onlyMissing, footer, gaps, handleRef, fileDrop, orderCode }: {
+export function BomGrid({ rows, view, records: recordValues, recordIds, pending, busy, canEdit, canEditValues, onToggle, onWrites, onMove, dropRefusal, trailingCell, flowCell, linkCell, choiceCell, markOf, placeholderOf, roleOf, canEditRole, onRole, onlyMissing, footer, gaps, handleRef, fileDrop, orderCode }: {
   rows: BomRow[]; view: ValuesView | null; pending: Pending; busy: boolean; canEdit: (row: BomRow) => boolean;
   records?: SpecValues; recordIds?: number[]; canEditValues: (row: BomRow) => boolean;
   onToggle: (key: string) => void; onWrites: (writes: GridWrite[]) => void;
   onMove: (row: BomRow, target: BomRow, position: DropPosition) => void;
   dropRefusal: (row: BomRow, target: BomRow, position: DropPosition) => string | null;
   trailingCell: (row: BomRow) => ReactNode; flowCell: (row: BomRow) => ReactNode;
+  /** Linked copies: the row's "same design" chip, after the own-code chip and before the flow chip. */
+  linkCell?: (row: BomRow) => ReactNode;
   /** A selection row's item, on the row itself: an amber "Choose item" while unchosen, "default · change" when the system chose it, "Change" otherwise. */
   choiceCell?: (row: BomRow) => ReactNode;
   markOf: (row: BomRow) => RowMark | null;
@@ -221,6 +215,7 @@ export function BomGrid({ rows, view, records: recordValues, recordIds, pending,
                 </Box>
                 {ownCode(row) && <Box component="span" data-testid="row-own-code" title="This row's own part of the code."
                   sx={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, px: 0.75, borderRadius: 'var(--r-sm)', background: 'var(--c-surface-2)', color: 'var(--c-text-2)', whiteSpace: 'nowrap', flexShrink: 0 }}>{ownCode(row)}</Box>}
+                {linkCell?.(row)}
                 {flowCell(row)}
                 {choiceCell?.(row)}
                 {(gaps?.get(n.id)?.length ?? 0) > 0 && <Box component="span" data-testid="row-gaps" title={`Required values still empty: ${gaps?.get(n.id)?.join(', ')}`}

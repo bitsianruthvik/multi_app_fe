@@ -1,5 +1,6 @@
 import { cfApi, LONG_WRITE_MS } from './client';
 import type { CutPiecesFollowUp } from './cutPieces';
+import type { LinkChoiceValue, LinksAnswer } from './links';
 
 /**
  * Edit mode's one request: many changes to the structure on one BOM screen,
@@ -15,7 +16,8 @@ import type { CutPiecesFollowUp } from './cutPieces';
 export type BomChangeScope = { recordId: number } | { orderLineId: number };
 
 export type BomChange =
-  | { op: 'quantity'; lineId: number; quantity: number }
+  /** `links: 'all'` repeats the change on the matching line of every copy of the row above (linked copies). Left out = only this line. */
+  | { op: 'quantity'; lineId: number; quantity: number; links?: 'all' }
   /** null goes back to the way the child is usually made. */
   | { op: 'flow'; lineId: number; flowId: number | null }
   /**
@@ -25,9 +27,14 @@ export type BomChange =
   | { op: 'ownFlow'; recordId: number; flowId: number | null }
   /** The row's description (the text after the dot). null / empty clears it. Only before the line is locked. */
   | { op: 'role'; lineId: number; role: string | null }
-  | { op: 'remove'; lineId: number }
+  | { op: 'remove'; lineId: number; links?: 'all' }
   | { op: 'arrange'; groups: { parentId: number; lineIds: (number | string)[] }[] }
-  | { op: 'values'; writes: { recordId: number; specCode: string; value: string | null }[] }
+  /** `links` says what happens to the copies of the rows written: 'all' writes them too, 'one' leaves them (and they stop being copies). A write may say its own. */
+  | { op: 'values'; links?: LinkChoiceValue; writes: { recordId: number; specCode: string; value: string | null; links?: LinkChoiceValue }[] }
+  /** Make rows copies of each other ("same design"). They must be identical. */
+  | { op: 'link'; recordIds: number[] }
+  /** Take a row out of its group. `keepApart` = never offer to link it again. */
+  | { op: 'unlink'; recordId: number; keepApart?: boolean }
   /**
    * Into a Custom BOM (an order's temporary items) a deep copy: new temporary
    * items with their values, lines and flows; catalog items, templates,
@@ -65,13 +72,17 @@ export interface BomChangeCounts {
 export interface BomChangeCopy { id: number | null; code: string | null; name: string; depth: number }
 
 export type BomChangeResult =
-  | { op: 'quantity'; lineId: number; from: number; to: number; changed: boolean }
+  /** `fanned` = repeated on a copy's line (8.8): such results are appended after the ones for the changes sent. */
+  | { op: 'quantity'; lineId: number; from: number; to: number; changed: boolean; fanned?: boolean }
   | { op: 'flow'; lineId: number; from: number | null; to: number | null; changed: boolean }
   | { op: 'ownFlow'; recordId: number; from: number | null; to: number | null; changed: boolean }
   | { op: 'role'; lineId: number; from: string | null; to: string | null; changed: boolean }
-  | { op: 'remove'; lineId: number; beneath: number; withParent: boolean }
+  | { op: 'remove'; lineId: number; beneath: number; withParent: boolean; fanned?: boolean }
   | { op: 'arrange'; moved: number; reordered: number }
-  | { op: 'values'; changed: number; records: number }
+  | { op: 'values'; changed: number; records: number; fanned?: number }
+  /** 8.9: every member of the group after linking. */
+  | { op: 'link'; group: string; recordIds: number[] }
+  | { op: 'unlink'; recordId: number; was: string | null; keepApart: boolean }
   | {
     op: 'paste'; sourceLineId: number; parentId: number; mode: 'copy' | 'line' | 'reference';
     /** Null on a dry run — the row was never kept. */
@@ -90,6 +101,8 @@ export interface BomChangesResponse {
   results: (BomChangeResult | null)[];
   /** What the line's cut pieces did after a save on an order's structure (absent on a dry run). */
   cutPieces?: CutPiecesFollowUp | null;
+  /** Rows with copies that the changes reached, the rows that stopped matching their copies, and what the line looks like now. */
+  links?: LinksAnswer;
 }
 
 /**

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ChangeEvent } from 'react';
-import { Autocomplete, Box, Button, CircularProgress, Collapse, Dialog, DialogActions, DialogContent, IconButton, MenuItem, TextField, Tooltip, Typography } from '@mui/material';
+import { Autocomplete, Box, Button, CircularProgress, Collapse, Dialog, DialogActions, DialogContent, FormControlLabel, IconButton, MenuItem, Switch, TextField, Tooltip, Typography } from '@mui/material';
 import AddRounded from '@mui/icons-material/AddRounded';
 import AttachFileRounded from '@mui/icons-material/AttachFileRounded';
 import DownloadRounded from '@mui/icons-material/DownloadRounded';
@@ -18,8 +18,8 @@ import {
   type Drawing, type DrawingFileBody, type DrawingGeometry, type DrawingRow, type DrawingsUpload, type DrawingsView, type RegisterRef,
 } from '../../api/drawings';
 import {
-  buttonLabel, coveringRow, deleteBody, fmtCutM, fmtMm, fmtPct, groupByLevel, holesTitle, INTRO, levelText, levelsOfRows, NO_DRAWINGS, NO_MARK_HINT, outlineShape,
-  aimFile, prefillNumber, refText, REGISTER_STATUS_FAMILY, registerWords, rowChoices, rowCodes, savable, sizeCheck, sizeText, sortPicked, STATUS_WORDS, summaryWords, WAITING_HINT,
+  buttonLabel, countOf, coveringRow, deleteBody, fmtCutM, fmtMm, fmtPct, groupByLevel, holesTitle, INTRO, levelText, levelsOfRows, NO_DRAWINGS, NO_MARK_HINT, outlineShape,
+  aimFile, conflictWords, goesToWords, keptWords, prefillNumber, skippedWords, valuesWords, withOnlyThisRow, withReplace, refText, REGISTER_STATUS_FAMILY, registerWords, rowChoices, savable, sizeCheck, sizeText, sortPicked, STATUS_WORDS, summaryWords, WAITING_HINT,
   type RowChoice,
 } from '../../lib/drawings';
 import { NO_MANAGE } from '../../lib/nesting';
@@ -98,7 +98,7 @@ function Rows({ rows, geometry }: { rows: DrawingRow[]; geometry: DrawingGeometr
 }
 
 function StatusBadge({ status }: { status: DrawingsUpload['files'][number]['status'] }) {
-  const family = status === 'new' ? 'success' : status === 'replaces' ? 'info' : status === 'unmatched' ? 'warning' : 'danger';
+  const family = status === 'new' ? 'success' : status === 'replaces' ? 'info' : status === 'unmatched' || status === 'conflict' ? 'warning' : 'danger';
   return <Badge family={family} label={STATUS_WORDS[status]} noIcon />;
 }
 
@@ -161,13 +161,38 @@ function RowPicker({ file, choices, disabled, onPick }: { file: string; choices:
   );
 }
 
-function PreviewTable({ upload, choices, picking, onPick }: { upload: DrawingsUpload; choices: RowChoice[]; picking: boolean; onPick: (file: string, rowId: number) => void }) {
+/** Where a file goes: how many rows (and that they are linked copies), how it found them, and — on demand — which. */
+function GoesTo({ file, bodies, picking, onOnly }: { file: DrawingsUpload['files'][number]; bodies: DrawingFileBody[]; picking: boolean; onOnly: (name: string, only: boolean) => void }) {
+  const [open, setOpen] = useState(false);
+  if (!file.rows.length) return <>{'—'}</>;
+  const only = bodies.find((b) => b.name === file.name)?.links === 'one';
+  const aimed = file.targetRowId != null;
+  const skipped = skippedWords(file);
+  return (
+    <Box sx={{ display: 'grid', gap: 0.5, justifyItems: 'start', minWidth: 160 }} data-testid="drawing-goes-to">
+      <span data-testid="goes-to-words">{goesToWords(file)}</span>
+      {file.pattern && <Box component="span" sx={{ color: 'var(--c-text-3)', fontSize: 12 }}>name says <Mono>{file.pattern}</Mono></Box>}
+      <Button size="small" sx={{ p: 0, minWidth: 0, fontSize: 12 }} aria-expanded={open} data-testid="goes-to-toggle" onClick={() => setOpen((o) => !o)}>{open ? 'Hide rows' : 'Show rows'}</Button>
+      {open && <Rows rows={file.rows} geometry={file.geometry} />}
+      {skipped && <Box component="span" data-testid="goes-to-skipped" sx={{ color: 'var(--c-warning-800)', fontSize: 12 }}>{skipped}</Box>}
+      {aimed && (only || countOf(file.fanOut?.added) > 0 || countOf(file.fanOut?.skipped) > 0) && (
+        <FormControlLabel sx={{ m: 0, '& .MuiFormControlLabel-label': { fontSize: 12 } }} label="Only this row (stops being a copy)"
+          control={<Switch size="small" checked={only} disabled={picking} onChange={(e) => onOnly(file.name, e.target.checked)} slotProps={{ input: { 'aria-label': 'Only this row', 'data-testid': 'only-this-row' } as object }} />} />
+      )}
+    </Box>
+  );
+}
+
+function PreviewTable({ upload, bodies, choices, picking, onPick, onReplace, onOnly }: {
+  upload: DrawingsUpload; bodies: DrawingFileBody[]; choices: RowChoice[]; picking: boolean; onPick: (file: string, rowId: number) => void;
+  onReplace: (name: string) => void; onOnly: (name: string, only: boolean) => void;
+}) {
   return (
     <Box sx={{ overflowX: 'auto' }} data-testid="drawings-preview">
       <Box component="table" sx={TABLE_SX}>
         <thead>
           <tr>
-            <th>File</th><th>Type</th><th>Mark</th><th>Drawing</th><th>Result</th><th>Rows matched</th><th>Level</th><th>Size</th>
+            <th>File</th><th>Type</th><th>Mark</th><th>Drawing</th><th>Result</th><th>Goes to</th><th>Level</th><th>Size</th>
             <th className="n">Use</th><th className="n">Cut length</th><th className="n">Piercings</th><th className="n">Holes</th><th>Notes</th>
           </tr>
         </thead>
@@ -185,8 +210,10 @@ function PreviewTable({ upload, choices, picking, onPick }: { upload: DrawingsUp
                 <td>
                   <StatusBadge status={f.status} />
                   {f.status === 'unmatched' && choices.length > 0 && <Box sx={{ mt: 0.5 }}><RowPicker file={f.name} choices={choices} disabled={picking} onPick={(id) => onPick(f.name, id)} /></Box>}
+                  {f.status === 'conflict' && conflictWords(f).length > 0 && <Box data-testid="conflict-words" sx={{ mt: 0.5, fontSize: 12, color: 'var(--c-warning-800)' }}>{conflictWords(f).slice(0, 4).join(' · ')}{conflictWords(f).length > 4 ? ` · and ${conflictWords(f).length - 4} more` : ''}</Box>}
+                  {f.status === 'conflict' && <Box sx={{ mt: 0.5 }}><Button size="small" variant="outlined" disabled={picking} data-testid="replace-on-all" onClick={() => onReplace(f.name)}>Replace on all</Button></Box>}
                 </td>
-                <td>{f.rows.length ? rowCodes(f.rows) : '—'}</td>
+                <td><GoesTo file={f} bodies={bodies} picking={picking} onOnly={onOnly} /></td>
                 <td>{levelText(levelsOfRows(f.rows))}</td>
                 <td>
                   {!f.rows.length || !shaped ? '—' : wrong
@@ -197,7 +224,11 @@ function PreviewTable({ upload, choices, picking, onPick }: { upload: DrawingsUp
                 <td className="n">{g ? fmtCutM(g.cutLengthMm) : '—'}</td>
                 <td className="n">{g ? g.piercings : '—'}</td>
                 <td className="n">{g ? <Tooltip title={holesTitle(g)}><span>{g.holes}</span></Tooltip> : '—'}</td>
-                <td><Notes problems={f.problems} warnings={f.warnings} notes={f.notes} /></td>
+                <td>
+                  <Notes problems={f.problems} warnings={f.warnings} notes={f.notes} />
+                  {valuesWords(f.values) && <Box data-testid="drawing-values" sx={{ mt: 0.5, color: 'var(--c-text)' }}>{valuesWords(f.values)}</Box>}
+                  {keptWords(f.values) && <Box data-testid="drawing-kept" sx={{ color: 'var(--c-text-3)' }}>{keptWords(f.values)}</Box>}
+                </td>
               </tr>
             );
           })}
@@ -505,15 +536,18 @@ export function DrawingsDialog({ open, onClose, orderId, lineId, canManage, view
   }, [incoming]);
 
   /** "Choose row…": the same files again, with this one aimed at the chosen row. */
-  const aim = async (name: string, rowId: number) => {
-    if (!pending) return;
-    const files = aimFile(pending.files, name, rowId);
+  const rerun = async (files: DrawingFileBody[]) => {
     setBusy('read'); setActionError(null);
     try {
       const upload = await uploadDrawings(orderId, lineId, files, true);
       setPending({ files, upload });
     } catch (e) { setActionError(wrap(e)); } finally { setBusy(null); }
   };
+  const aim = (name: string, rowId: number) => { if (pending) void rerun(aimFile(pending.files, name, rowId)); };
+  /** A copy has another file: the same files again, this one told to replace it on every row it goes to. */
+  const replaceOnAll = (name: string) => { if (pending) void rerun(withReplace(pending.files, name)); };
+  /** A file dropped on one row: keep it off the row's copies (or give it to them again). */
+  const onlyThisRow = (name: string, only: boolean) => { if (pending) void rerun(withOnlyThisRow(pending.files, name, only)); };
 
   const startAttach = (d: RegisterRef) => { attachTo.current = d; attachInput.current?.click(); };
 
@@ -611,7 +645,7 @@ export function DrawingsDialog({ open, onClose, orderId, lineId, canManage, view
               flush
             >
               <Box sx={{ p: 1.5, display: 'grid', gap: 1.5, gridTemplateColumns: 'minmax(0, 1fr)' }}>
-                <PreviewTable upload={pending.upload} choices={view ? rowChoices(view) : []} picking={busy != null} onPick={aim} />
+                <PreviewTable upload={pending.upload} bodies={pending.files} choices={view ? rowChoices(view) : []} picking={busy != null} onPick={aim} onReplace={replaceOnAll} onOnly={onlyThisRow} />
                 {unsaved > 0 && (
                   <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)' }}>
                     {unsaved} {unsaved === 1 ? 'file is' : 'files are'} not saved: a file with no matching row has nothing to attach to, and a file that cannot be read cannot be used.

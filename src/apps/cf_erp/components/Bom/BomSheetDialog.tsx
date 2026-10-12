@@ -1,8 +1,9 @@
-import { Alert, Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, Divider, Typography } from '@mui/material';
+import { Alert, Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, Divider, FormControlLabel, Radio, RadioGroup, Typography } from '@mui/material';
 import type { BomSheetResult } from '../../api/bomSheet';
+import type { LinkChoiceValue } from '../../api/links';
 
 export function BomSheetDialog({
-  open, fileName, result, busy, onClose, onApply,
+  open, fileName, result, busy, onClose, onApply, links = 'all', onLinks,
 }: {
   open: boolean;
   fileName: string;
@@ -10,8 +11,13 @@ export function BomSheetDialog({
   busy: boolean;
   onClose: () => void;
   onApply: () => void;
+  /** Linked copies: the answer for the whole file, asked only when the preview says a change is not the same across copies. */
+  links?: LinkChoiceValue;
+  onLinks?: (v: LinkChoiceValue) => void;
 }) {
   const problems = result?.problems ?? [];
+  const asks = !!result?.links?.needsChoice && !problems.length && !!onLinks;
+  const copies = result?.links?.touched ?? [];
   return (
     <Dialog open={open} onClose={busy ? undefined : onClose} fullWidth maxWidth="sm">
       <DialogTitle>Review Excel changes</DialogTitle>
@@ -32,6 +38,16 @@ export function BomSheetDialog({
             {problems.length > 0 && (
               <Box component="ul" sx={{ mt: 1, mb: 0, pl: 2.5, color: 'var(--c-danger-800)' }}>
                 {problems.map((problem) => <li key={problem}><Typography sx={{ fontSize: 13 }}>{problem}</Typography></li>)}
+              </Box>
+            )}
+            {asks && (
+              <Box data-testid="sheet-links" sx={{ mt: 2, p: 1.5, borderRadius: 'var(--r-sm)', background: 'var(--c-surface-2)' }}>
+                <Typography sx={{ fontSize: 13, fontWeight: 600 }}>Some changes are not the same across rows that are copies of each other</Typography>
+                {copies.length > 0 && <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)', mb: 0.5 }}>{copies.slice(0, 6).map((t) => t.label).join(', ')}{copies.length > 6 ? ` and ${copies.length - 6} more` : ''}.</Typography>}
+                <RadioGroup value={links} onChange={(e) => onLinks?.(e.target.value as LinkChoiceValue)} aria-label="What the copies do">
+                  <FormControlLabel value="all" control={<Radio size="small" slotProps={{ input: { 'data-testid': 'sheet-links-all' } as object }} />} label="Apply to all copies — they stay the same design" />
+                  <FormControlLabel value="one" control={<Radio size="small" slotProps={{ input: { 'data-testid': 'sheet-links-one' } as object }} />} label="Only the rows in the file — they stop being copies" />
+                </RadioGroup>
               </Box>
             )}
             {!problems.length && result.changes.length > 0 && (

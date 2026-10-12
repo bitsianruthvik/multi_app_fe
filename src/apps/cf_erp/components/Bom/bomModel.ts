@@ -2,6 +2,8 @@ import type { BomType, BomView, Explosion, Kind, Resolution, ResolvedSpec, Struc
 import type { BomChange } from '../../api/bomChanges';
 import { toInputString } from '../../lib/tree';
 import type { CutPiecesFollowUp } from '../../api/cutPieces';
+import type { LinkChoiceValue } from '../../api/links';
+import { quantityKey, removeKey, valueKey } from '../../lib/links';
 
 /**
  * One shape for every BOM on screen. A record's BOM tab reads its own lines and
@@ -277,6 +279,11 @@ export interface Pending {
   role?: Record<number, string>;
   remove: Record<number, true>;
   pastes: PendingPaste[];
+  /**
+   * Linked copies: what was chosen for each waiting change that reaches rows with copies (lib/links keys —
+   * a value, a quantity, a removal). Asked once at Save or Check; a change not in here has not been asked about.
+   */
+  linkChoice?: Record<string, LinkChoiceValue>;
 }
 
 export const NO_PENDING: Pending = { quantity: {}, flow: {}, remove: {}, pastes: [] };
@@ -377,7 +384,7 @@ export function pendingChanges(p: Pending, byLine: Map<number, StructureNode>, b
     if (!node) continue;
     const q = parseQuantity(text);
     if (q == null) { invalid.push(node.key); continue; }
-    if (!sameNumber(q, node.quantity)) changes.push({ op: 'quantity', lineId: Number(id), quantity: q });
+    if (!sameNumber(q, node.quantity)) changes.push({ op: 'quantity', lineId: Number(id), quantity: q, ...(p.linkChoice?.[quantityKey(Number(id))] === 'all' ? { links: 'all' as const } : {}) });
   }
   for (const [id, flowId] of Object.entries(p.flow)) {
     const node = byLine.get(Number(id));
@@ -392,11 +399,17 @@ export function pendingChanges(p: Pending, byLine: Map<number, StructureNode>, b
     const node = byLine.get(Number(id));
     if (node && text.trim() !== (node.role ?? '')) changes.push({ op: 'role', lineId: Number(id), role: text.trim() || null });
   }
-  for (const id of Object.keys(p.remove)) if (byLine.has(Number(id))) changes.push({ op: 'remove', lineId: Number(id) });
+  for (const id of Object.keys(p.remove)) if (byLine.has(Number(id))) changes.push({ op: 'remove', lineId: Number(id), ...(p.linkChoice?.[removeKey(Number(id))] === 'all' ? { links: 'all' as const } : {}) });
   const groups = Object.entries(p.arrangement ?? {}).map(([parentId, refs]) => ({ parentId: Number(parentId), lineIds: refs.filter((ref) => !p.remove[Number(ref)]).map((ref) => ref.startsWith('copy-') ? ref : Number(ref)) }));
   if (groups.length) changes.push({ op: 'arrange', groups });
-  const writes = Object.entries(p.values ?? {}).flatMap(([id, cells]) => Object.entries(cells).map(([specCode, value]) => ({ recordId: Number(id), specCode, value: value.trim() || null })));
-  if (writes.length) changes.push({ op: 'values', writes });
+  const writes = Object.entries(p.values ?? {}).flatMap(([id, cells]) => Object.entries(cells).map(([specCode, value]) => ({ recordId: Number(id), specCode, value: value.trim() || null, choice: p.linkChoice?.[valueKey(Number(id), specCode)] })));
+  if (writes.length) {
+    // Linked copies: one answer for the whole op when every answered write agrees, else the op leaves copies alone and the 'all' writes say so.
+    const answers = new Set(writes.flatMap((w) => (w.choice ? [w.choice] : [])));
+    const opLevel: LinkChoiceValue | null = answers.size === 1 ? [...answers][0] : answers.size > 1 ? 'one' : null;
+    changes.push({ op: 'values', ...(opLevel ? { links: opLevel } : {}),
+      writes: writes.map(({ choice, ...w }) => (choice && choice !== opLevel ? { ...w, links: choice } : w)) });
+  }
   return { changes, invalid };
 }
 

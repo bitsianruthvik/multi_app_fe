@@ -834,5 +834,71 @@ await checkAsync('layer toggles list a girder file\'s OUTLINE, HOLES, CENTRE, DI
   await unmount();
 });
 
+// ── linked copies: "Used by N pieces" ─────────────────────────────────────────────────────────────────────────────────
+const uses = (over = {}) => ({
+  rows: [{ recordId: 8, label: 'Top flange A', code: 'SO1-G1-TFL1', segments: [{ text: 'SO1-G1-TFL' }, { from: 1, to: 1 }], pieces: 1 }, { recordId: 9, label: 'Top flange B', code: 'SO1-G2-TFL', segments: [{ text: 'SO1-G2-TFL' }, { from: 1, to: 4 }], pieces: 4 }],
+  pieces: [1, 2, 3, 4, 5].map((i) => ({ code: `SO1-G${i}-TFL1`, recordId: 8 })), total: 5, frozen: true, ...over,
+});
+const withUses = (u) => (path) => (/design-uses/.test(path) ? u : dxfBlob());
+await checkAsync('"Used by N pieces" is read for the drawing (GET /order-lines/:id/design-uses?drawingId=) and shown under the file name', async () => {
+  reply(withUses(uses()));
+  await mount();
+  const used = calls.map((c) => c.path).find((p) => /design-uses/.test(p));
+  assert.ok(used.endsWith('/cf_erp/order-lines/5/design-uses?drawingId=41'), used);
+  assert.equal(q('[data-testid="viewer-used-by"]').textContent.trim(), 'Used by 5 pieces');
+  assert.ok(calls.at(-1).path.endsWith('/drawings/41/file'), 'the file is still fetched last, as before');
+  await unmount();
+});
+await checkAsync('clicking it opens the list: the rows with their codes and pieces, and the piece codes once the line is locked', async () => {
+  reply(withUses(uses()));
+  await mount();
+  await act(async () => { q('[data-testid="viewer-used-by"]').click(); });
+  const dlg = q('[data-testid="design-uses"]');
+  assert.ok(dlg);
+  assert.match(dlg.textContent, /Used by 5 pieces/);
+  const rows = [...dlg.querySelectorAll('[data-testid="design-uses-rows"] li')].map((li) => li.textContent);
+  assert.match(rows[0], /Top flange A.*SO1-G1-TFL\(1\).*1 piece$/);
+  assert.match(rows[1], /Top flange B.*SO1-G2-TFL\(1–4\).*4 pieces$/);
+  assert.deepEqual([...dlg.querySelectorAll('[data-testid="design-uses-pieces"] span')].map((s) => s.textContent), ['SO1-G1-TFL1', 'SO1-G2-TFL1', 'SO1-G3-TFL1', 'SO1-G4-TFL1', 'SO1-G5-TFL1']);
+  assert.match(dlg.textContent, /Each keeps its own code/);
+  await unmount();
+});
+await checkAsync('before the line is locked it lists the rows and says the pieces get codes when the design is frozen', async () => {
+  reply(withUses(uses({ frozen: false, pieces: [] })));
+  await mount();
+  await act(async () => { q('[data-testid="viewer-used-by"]').click(); });
+  const dlg = q('[data-testid="design-uses"]');
+  assert.equal(dlg.querySelector('[data-testid="design-uses-pieces"]'), null);
+  assert.match(dlg.textContent, /Their pieces get codes when the design is frozen/);
+  await unmount();
+});
+await checkAsync('after the freeze the rows carry no code and the real piece codes are listed (8.20)', async () => {
+  reply(withUses(uses({ rows: [{ recordId: 8, label: 'Top flange A', code: null, segments: null, pieces: 2 }], pieces: [{ code: 'SO1-G1-TFL1', recordId: 8 }, { code: 'SO1-G1-TFL2', recordId: 8 }], total: 2 })));
+  await mount();
+  await act(async () => { q('[data-testid="viewer-used-by"]').click(); });
+  const dlg = q('[data-testid="design-uses"]');
+  assert.match(dlg.querySelector('[data-testid="design-uses-rows"]').textContent, /Top flange A2 pieces/);
+  assert.deepEqual([...dlg.querySelectorAll('[data-testid="design-uses-pieces"] span')].map((s) => s.textContent), ['SO1-G1-TFL1', 'SO1-G1-TFL2']);
+  await unmount();
+});
+await checkAsync('one piece reads "1 piece"; a drawing used by nothing, a failed read or an odd answer shows nothing and the viewer still draws', async () => {
+  reply(withUses(uses({ total: 1, rows: [uses().rows[0]], pieces: [] })));
+  await mount();
+  assert.equal(q('[data-testid="viewer-used-by"]').textContent.trim(), 'Used by 1 piece');
+  await unmount();
+  for (const answer of [uses({ total: 0, rows: [], pieces: [] }), 'nonsense', null]) {
+    reply((path) => (/design-uses/.test(path) ? answer : dxfBlob()));
+    await mount();
+    assert.equal(q('[data-testid="viewer-used-by"]'), null);
+    assert.ok(q('[data-testid="viewer-svg"]'), 'the drawing is drawn');
+    await unmount();
+  }
+  reply((path) => { if (/design-uses/.test(path)) throw new Error('API request failed: 404 Not Found - {"message":"no route"}'); return dxfBlob(); });
+  await mount();
+  assert.equal(q('[data-testid="viewer-used-by"]'), null);
+  assert.ok(q('[data-testid="viewer-svg"]'));
+  await unmount();
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

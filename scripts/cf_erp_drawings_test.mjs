@@ -340,5 +340,114 @@ await checkAsync('an unmatched file gets a "Choose row…" picker; choosing a ro
   assert.equal(document.querySelector('[data-testid="choose-row"]'), null, 'no longer unmatched');
 });
 
+// ── linked copies: where a file goes, what it fills in, conflicts, "only this row" ───────────────────────────────────
+check('goesToWords: how many rows, that they are linked, and how the name found them', () => {
+  const r = (n) => Array.from({ length: n }, (_, i) => row({ id: i + 1 }));
+  assert.equal(m.goesToWords({ rows: r(5), matchedBy: 'code', fanOut: { added: 4 } }), '5 linked rows · matched by file-name code');
+  assert.equal(m.goesToWords({ rows: r(1), matchedBy: 'mark' }), '1 row · matched by drawing mark');
+  assert.equal(m.goesToWords({ rows: r(2), matchedBy: 'row', fanOut: { added: [{ id: 2 }] } }), '2 linked rows · matched by the row you chose');
+  assert.equal(m.goesToWords({ rows: r(3) }), '3 rows', 'an older server says nothing of how');
+  assert.equal(m.goesToWords({ rows: [], matchedBy: 'none' }), '—');
+});
+check('valuesWords: the values line, grouped by where each came from, with the rows it fills', () => {
+  const v = (specCode, value, from, rows = 5, kept = false) => ({ specCode, value, from, rows, kept });
+  assert.equal(m.valuesWords([v('LENGTH', 11650, 'drawing'), v('WIDTH', 500, 'drawing'), v('THICKNESS', 25, 'name'), v('GRADE', 'E350', 'name')]),
+    'Length 11,650 · Width 500 from the drawing; Thickness 25 · Grade E350 from the file name → 5 rows');
+  assert.equal(m.valuesWords([v('TRUE_AREA', 1.5, 'drawing', [1])]), 'True area 1.50 from the drawing → 1 row');
+  assert.equal(m.valuesWords([v('THICKNESS', 25, 'name', 5, true)]), '', 'a value the row already had is kept, not given');
+  assert.equal(m.keptWords([v('THICKNESS', 25, 'name', 5, true)]), 'Thickness kept as it was.');
+  // The server's shape (8.15): ids written, ids that keep their own value, and a title as a source.
+  const mixed = [{ specCode: 'THICKNESS', value: 25, from: 'title', rows: [1, 2, 3], kept: [4, 5] }];
+  assert.equal(m.valuesWords(mixed), 'Thickness 25 from the drawing’s title → 3 rows');
+  assert.equal(m.keptWords(mixed), 'Thickness (2 rows) kept as it was.');
+  assert.equal(m.valuesWords([{ specCode: 'GRADE', value: 'E350', from: 'name', rows: [], kept: [1] }]), '', 'written to no row');
+  assert.equal(m.valuesWords(undefined), '');
+});
+check('skippedWords and the files with a switch or a replace flag', () => {
+  assert.equal(m.skippedWords({ fanOut: { skipped: 2 } }), '2 copies have a drawing of their own and were left out.');
+  assert.equal(m.skippedWords({ fanOut: { skipped: [1] } }), '1 copy has a drawing of its own and was left out.');
+  assert.equal(m.skippedWords({}), '');
+  const files = [{ name: 'a.dxf', rowId: 7 }, { name: 'b.dxf' }];
+  assert.deepEqual(m.withOnlyThisRow(files, 'a.dxf', true), [{ name: 'a.dxf', rowId: 7, links: 'one' }, { name: 'b.dxf' }]);
+  assert.deepEqual(m.withOnlyThisRow(m.withOnlyThisRow(files, 'a.dxf', true), 'a.dxf', false), files);
+  assert.deepEqual(m.withReplace(files, 'b.dxf'), [{ name: 'a.dxf', rowId: 7 }, { name: 'b.dxf', replaceOnMembers: true }]);
+  assert.equal(m.STATUS_WORDS.conflict, 'Conflict');
+  assert.deepEqual(m.savable([{ status: 'conflict' }, { status: 'new' }].map((x) => ({ ...x, name: x.status }))).map((x) => x.status), ['new'], 'a conflict is saved only after "Replace on all" makes it a replacement');
+});
+
+const copiesRows = [7, 8, 9, 10, 11].map((id) => ({ id, code: `L(${id})-TFL`, name: 'Top flange', level: 'Plate part', isPlatePart: false, pieces: 1, lengthMm: null, widthMm: null, thicknessMm: null, sizeMatches: null }));
+const upFile = (f, over = {}) => ({ name: f.name, mark: f.name.replace(/\.[^.]+$/, ''), fileKind: 'dxf', status: 'new', rows: copiesRows, geometry: null, problems: [], warnings: [], notes: [], register: null,
+  matchedBy: 'code', pattern: 'L(7-11)-TFL', fanOut: { fromRowIds: [7], added: 4, skipped: 0 },
+  values: [{ specCode: 'LENGTH', value: 11650, from: 'drawing', rows: [7, 8, 9, 10, 11], kept: [] }, { specCode: 'WIDTH', value: 500, from: 'drawing', rows: [7, 8, 9, 10, 11], kept: [] }, { specCode: 'THICKNESS', value: 25, from: 'name', rows: [7, 8, 9, 10, 11], kept: [] }, { specCode: 'GRADE', value: 'E350', from: 'name', rows: [7, 8, 9, 10, 11], kept: [] }],
+  ...over });
+const drop = async (name, rowId, seq) => {
+  globalThis.__calls = [];
+  const file = new File(['0\nEOF'], name, { type: 'application/dxf' });
+  await act(() => root.render(dialog({ focusRow: rowId != null ? { id: rowId, name: 'L(7)-TFL' } : null, incoming: { files: [file], rowId: rowId ?? null, seq } })));
+  await flush();
+};
+await checkAsync('"Goes to": rows, linked, how it was found; the rows open on demand; the values line says what the file fills in', async () => {
+  globalThis.__reply = (files, dryRun) => ({ dryRun, saved: false, view: null, files: files.map((f) => upFile(f)) });
+  await drop('L(7-11)-TFL.dxf', null, 10);
+  assert.ok([...document.querySelectorAll('th')].some((t) => t.textContent === 'Goes to'), 'the column is there');
+  assert.equal(document.querySelector('[data-testid="goes-to-words"]').textContent, '5 linked rows · matched by file-name code');
+  assert.match(document.querySelector('[data-testid="drawing-goes-to"]').textContent, /name says\s*L\(7-11\)-TFL/);
+  assert.equal(document.querySelector('[data-testid="drawing-goes-to"]').textContent.includes('L(9)-TFL'), false, 'rows are hidden until asked for');
+  await act(async () => { document.querySelector('[data-testid="goes-to-toggle"]').click(); });
+  assert.match(document.querySelector('[data-testid="drawing-goes-to"]').textContent, /L\(7\)-TFL.*L\(11\)-TFL/);
+  assert.equal(document.querySelector('[data-testid="drawing-values"]').textContent, 'Length 11,650 · Width 500 from the drawing; Thickness 25 · Grade E350 from the file name → 5 rows');
+  assert.equal(document.querySelector('[data-testid="only-this-row"]'), null, 'no row was aimed at, so there is no switch');
+  assert.equal(document.querySelector('[data-testid="replace-on-all"]'), null);
+});
+await checkAsync('a copy with a file of its own is a conflict: "Replace on all" reads again with replaceOnMembers, and only then can it be saved', async () => {
+  globalThis.__reply = (files, dryRun) => ({ dryRun, saved: false, view: null, files: files.map((f) => (f.replaceOnMembers
+    ? upFile(f, { status: 'replaces' })
+    : upFile(f, { status: 'conflict', problems: ['L(9)-TFL already has another drawing.'], conflicts: [{ rowId: 9, label: 'L(9)-TFL', drawingId: 33, fileName: 'OLD-9.dxf', mark: 'OLD-9' }] }))) });
+  await drop('L(7-11)-TFL.dxf', null, 11);
+  assert.match(document.querySelector('[data-testid="drawings-preview"]').textContent, /Conflict/);
+  assert.match(document.querySelector('[data-testid="drawings-preview"]').textContent, /already has another drawing/);
+  assert.equal(document.querySelector('[data-testid="conflict-words"]').textContent, 'L(9)-TFL already has OLD-9.dxf');
+  const save = () => [...document.querySelectorAll('button')].find((b) => /^Save \d+ drawings?$/.test(b.textContent.trim()));
+  assert.ok(save().disabled, 'nothing can be saved while the only file is a conflict');
+  await act(async () => { document.querySelector('[data-testid="replace-on-all"]').click(); });
+  await flush();
+  assert.equal(globalThis.__calls.length, 2);
+  assert.equal(globalThis.__calls[1].dryRun, true);
+  assert.equal(globalThis.__calls[1].files[0].replaceOnMembers, true);
+  assert.equal(document.querySelector('[data-testid="replace-on-all"]'), null);
+  assert.match(document.querySelector('[data-testid="drawings-preview"]').textContent, /Replaces/);
+  assert.equal(save().textContent.trim(), 'Save 1 drawing');
+  await act(async () => { save().click(); });
+  await flush();
+  assert.equal(globalThis.__calls.at(-1).dryRun, false);
+  assert.equal(globalThis.__calls.at(-1).files[0].replaceOnMembers, true, 'the save carries the flag');
+});
+await checkAsync('a file dropped on a row that has copies: the switch "Only this row (stops being a copy)" keeps it off the copies', async () => {
+  globalThis.__reply = (files, dryRun) => ({ dryRun, saved: false, view: null, files: files.map((f) => (f.links === 'one'
+    ? upFile(f, { rows: copiesRows.slice(0, 1), fanOut: { fromRowIds: [7], added: 0, skipped: 0 }, targetRowId: 7, matchedBy: 'row', pattern: null })
+    : upFile(f, { targetRowId: 7, matchedBy: 'row', pattern: null }))) });
+  await drop('sheet.dxf', 7, 12);
+  const sw = document.querySelector('[data-testid="only-this-row"]');
+  assert.ok(sw, 'the switch is offered');
+  assert.equal(sw.checked, false);
+  assert.match(document.querySelector('[data-testid="goes-to-words"]').textContent, /^5 linked rows/);
+  assert.match(document.querySelector('[data-testid="drawings-preview"]').textContent, /Only this row \(stops being a copy\)/);
+  await act(async () => { sw.click(); });
+  await flush();
+  assert.equal(globalThis.__calls.at(-1).files[0].links, 'one');
+  assert.equal(globalThis.__calls.at(-1).files[0].rowId, 7, 'still aimed at the row');
+  assert.equal(document.querySelector('[data-testid="goes-to-words"]').textContent, '1 row · matched by the row you chose');
+  assert.equal(document.querySelector('[data-testid="only-this-row"]').checked, true, 'the switch stays so it can be turned back');
+  await act(async () => { document.querySelector('[data-testid="only-this-row"]').click(); });
+  await flush();
+  assert.equal('links' in globalThis.__calls.at(-1).files[0], false, 'back to every copy');
+});
+await checkAsync('a row with no copies has no switch', async () => {
+  globalThis.__reply = (files, dryRun) => ({ dryRun, saved: false, view: null, files: files.map((f) => upFile(f, { rows: copiesRows.slice(0, 1), fanOut: { fromRowIds: [7], added: 0, skipped: 0 }, targetRowId: 7, matchedBy: 'row', pattern: null, values: [] })) });
+  await drop('alone.dxf', 7, 13);
+  assert.equal(document.querySelector('[data-testid="only-this-row"]'), null);
+  assert.equal(document.querySelector('[data-testid="drawing-values"]'), null);
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

@@ -1,4 +1,5 @@
 import { cfApi, LONG_WRITE_MS } from './client';
+import type { LinkChoiceValue, LinksAnswer } from './links';
 
 export type BomSheetSource =
   | { kind: 'record'; recordId: number }
@@ -31,6 +32,8 @@ export interface BomSheetResult {
   summary: BomSheetSummary;
   changes: Array<{ action: string; field?: string; rowId?: string | null; path?: string; detail?: string; from?: unknown; to?: unknown }>;
   problems: string[];
+  /** Linked copies: set when a change in the file is not the same across rows that are copies of each other — the whole file then gets one answer (`links` on the request). */
+  links?: LinksAnswer;
 }
 
 const pathFor = (source: BomSheetSource) => source.kind === 'record'
@@ -62,10 +65,11 @@ export function fileToBase64(file: File): Promise<string> {
   });
 }
 
-export function previewBomSheet(source: BomSheetSource, fileBase64: string): Promise<BomSheetResult> {
-  return cfApi.post<BomSheetResult>(pathFor(source), { fileBase64, dryRun: true }, { timeoutMs: LONG_WRITE_MS });
+export function previewBomSheet(source: BomSheetSource, fileBase64: string, links?: LinkChoiceValue): Promise<BomSheetResult> {
+  return cfApi.post<BomSheetResult>(pathFor(source), { fileBase64, dryRun: true, ...(links ? { links } : {}) }, { timeoutMs: LONG_WRITE_MS });
 }
 
-export function applyBomSheet(source: BomSheetSource, fileBase64: string): Promise<BomSheetResult> {
-  return cfApi.post<BomSheetResult>(pathFor(source), { fileBase64 }, { timeoutMs: LONG_WRITE_MS });
+/** `links` = what the copies of a changed row do: 'all' changes them too, 'one' leaves them (they stop being copies). Only sent when the preview asked. */
+export function applyBomSheet(source: BomSheetSource, fileBase64: string, links?: LinkChoiceValue): Promise<BomSheetResult> {
+  return cfApi.post<BomSheetResult>(pathFor(source), { fileBase64, ...(links ? { links } : {}) }, { timeoutMs: LONG_WRITE_MS });
 }

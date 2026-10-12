@@ -167,7 +167,10 @@ export function useBom(source: BomSource, { whereUsed = false, onChanged }: { wh
       if (!dryRun) reload();
       return out;
     } catch (e) {
-      const err = e instanceof CfApiError ? e : new CfApiError(0, String(e));
+      let err = e instanceof CfApiError ? e : new CfApiError(0, String(e));
+      // "They are not the same" says HOW they differ (8.10) — those differences are the useful part.
+      const diffs = (err.detail as { differences?: unknown } | undefined)?.differences;
+      if (err.code === 'LINK_NOT_EQUAL' && Array.isArray(diffs)) err = new CfApiError(err.status, err.message, err.code, [...err.problems, ...diffs.map(String)], err.detail);
       setActionError(err);
       if (err.status === 409) reload();
       return null;

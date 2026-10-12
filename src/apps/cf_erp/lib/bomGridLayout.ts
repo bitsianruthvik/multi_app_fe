@@ -14,6 +14,32 @@ import { DIMENSION_CODES, dimensionsFirst, hiddenOnGrid, isDimension, rollupsLas
 export interface GridColumn { code: string; name: string; unit?: string | null; dataType?: string }
 export interface ViewRecord { row: ValuesRow; columns: Map<string, ValuesColumn> }
 
+/**
+ * LINKED COPIES ("same design"). On screen a linked row carries a link chip; the order-line Excel
+ * says the same in words, in one grey cell at the END of the row's fields: "Same as". Its text is
+ * the twin of the backend's orderSheetLayout.sameAsText — keep the two word for word:
+ * how many other rows are the same design, and the first three by the code they show
+ * ("2 others: L(2)-1-TFL1, L(3)-1-TFL1"; past three, "+2 more"). '' for a row that is not linked —
+ * a suggestion or a row kept apart is not a link, and the sheet says nothing of it.
+ */
+export const SAME = '$same';
+export const SAME_LABEL = 'Same as';
+export const SAME_LISTED = 3;
+export interface LinksBlockLike {
+  rows?: Record<string, { g?: string; n?: number; same?: number[]; apart?: boolean } | undefined>;
+  groups?: Record<string, number[] | undefined>;
+}
+export function sameAsText(links: LinksBlockLike | null | undefined, recordId: number, shownOf: (recordId: number) => string | null | undefined): string {
+  const mine = links?.rows?.[String(recordId)];
+  const members = mine?.g ? links?.groups?.[mine.g] ?? [] : [];
+  const others = members.filter((id) => Number(id) !== Number(recordId));
+  if (!others.length) return '';
+  const named = others.slice(0, SAME_LISTED).map((id) => String(shownOf(Number(id)) ?? '').trim()).filter(Boolean);
+  const more = others.length - named.length;
+  const head = `${others.length} ${others.length === 1 ? 'other' : 'others'}`;
+  return named.length ? `${head}: ${named.join(', ')}${more > 0 ? ` +${more} more` : ''}` : head;
+}
+
 /** Every column of the values view (a column some group may type is typeable), and each record's own row and columns. */
 export function viewCatalog(view: ValuesView | null): { cols: Map<string, ValuesColumn>; records: Map<number, ViewRecord> } {
   const cols = new Map<string, ValuesColumn>();

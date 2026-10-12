@@ -1,4 +1,4 @@
-import type { Drawing, DrawingGeometry, DrawingRow, DrawingsSummary, DrawingsUploadFile, DrawingsView, RegisterRef, UploadRegister } from '../api/drawings';
+import type { CountOrList, Drawing, DrawingGeometry, DrawingValue, DrawingRow, DrawingsSummary, DrawingsUploadFile, DrawingsView, RegisterRef, UploadRegister } from '../api/drawings';
 
 /** Pure helpers for the Drawings dialog: numbers, the outline as an SVG path, and the sentences. */
 
@@ -54,7 +54,7 @@ export function holesTitle(g: DrawingGeometry): string {
 }
 
 export const STATUS_WORDS: Record<DrawingsUploadFile['status'], string> = {
-  new: 'New', replaces: 'Replaces', unmatched: 'No matching row', error: 'Cannot read',
+  new: 'New', replaces: 'Replaces', unmatched: 'No matching row', error: 'Cannot read', conflict: 'Conflict',
 };
 
 /** Files a non-dry run would save: not unmatched, not in error. */
@@ -201,4 +201,72 @@ export const dragHasFiles = (dt: Pick<DataTransfer, 'types'> | null | undefined)
 /** The same upload with one file (by name) aimed at a row — what "Choose row…" does. */
 export function aimFile<T extends { name: string }>(files: T[], name: string, rowId: number): (T & { rowId: number })[] {
   return files.map((f) => (f.name === name ? { ...f, rowId } : f)) as (T & { rowId: number })[];
+}
+
+// ── linked copies: where a file goes, what it fills in ────────────────────────
+
+/** How many a count-or-list says. */
+export const countOf = (x: CountOrList | null | undefined): number => (Array.isArray(x) ? x.length : Number(x) || 0);
+
+const MATCHED_BY: Record<string, string> = { row: 'the row you chose', register: 'the register drawing', code: 'file-name code', mark: 'drawing mark' };
+/** "file-name code", "drawing mark", "the row you chose" — or nothing when the server did not say. */
+export const matchedByWords = (f: Pick<DrawingsUploadFile, 'matchedBy'>): string => (f.matchedBy ? MATCHED_BY[f.matchedBy] ?? '' : '');
+
+/** "5 linked rows · matched by file-name code": where a file goes. A dash when it goes nowhere. */
+export function goesToWords(f: Pick<DrawingsUploadFile, 'rows' | 'matchedBy' | 'fanOut'>): string {
+  const n = f.rows.length;
+  if (!n) return '—';
+  const linked = countOf(f.fanOut?.added) > 0;
+  const by = matchedByWords(f);
+  return `${n} ${linked ? 'linked ' : ''}${n === 1 ? 'row' : 'rows'}${by ? ` · matched by ${by}` : ''}`;
+}
+
+/** The copies a file was NOT given to because they have a file of their own, in words — empty when none. */
+export const skippedWords = (f: Pick<DrawingsUploadFile, 'fanOut'>): string => {
+  const n = countOf(f.fanOut?.skipped);
+  return n > 0 ? `${n} ${n === 1 ? 'copy has' : 'copies have'} a drawing of ${n === 1 ? 'its' : 'their'} own and ${n === 1 ? 'was' : 'were'} left out.` : '';
+};
+
+const FROM_WORDS: Record<string, string> = { title: 'from the drawing’s title', drawing: 'from the drawing', name: 'from the file name', file: 'from the file name', filename: 'from the file name', text: 'from the text in the drawing' };
+/** TRUE_AREA → "True area". */
+export const specLabel = (code: string): string => { const t = code.toLowerCase().replace(/_/g, ' '); return t.charAt(0).toUpperCase() + t.slice(1); };
+const valueText = (v: string | number | null): string => (typeof v === 'number' ? group(v, Number.isInteger(v) ? 0 : 2) : v == null ? 'empty' : String(v));
+
+/**
+ * What a file fills in, in one line: "Length 11,650 · Width 500 from the drawing; Thickness 25 · Grade E350
+ * from the file name → 5 rows". Values a row already had are not in it (they are kept, and said apart).
+ */
+export function valuesWords(values: DrawingValue[] | null | undefined): string {
+  const given = (values ?? []).filter((v) => v.kept !== true && countOf(v.rows) > 0);
+  if (!given.length) return '';
+  const byFrom = new Map<string, string[]>();
+  for (const v of given) { const k = FROM_WORDS[v.from] ?? `from ${v.from}`; byFrom.set(k, [...(byFrom.get(k) ?? []), `${specLabel(v.specCode)} ${valueText(v.value)}`]); }
+  const rows = Math.max(0, ...given.map((v) => countOf(v.rows)));
+  return `${[...byFrom].map(([k, items]) => `${items.join(' · ')} ${k}`).join('; ')}${rows > 0 ? ` → ${rows} ${rows === 1 ? 'row' : 'rows'}` : ''}`;
+}
+
+/** The values a row already had and kept: "Thickness kept". */
+export const keptWords = (values: DrawingValue[] | null | undefined): string => {
+  const kept = (values ?? []).filter((v) => v.kept === true || (typeof v.kept !== 'boolean' && countOf(v.kept) > 0));
+  if (!kept.length) return '';
+  const labels = kept.map((v) => `${specLabel(v.specCode)}${typeof v.kept === 'boolean' ? '' : ` (${countOf(v.kept)} ${countOf(v.kept) === 1 ? 'row' : 'rows'})`}`);
+  return `${labels.join(', ')} kept as ${kept.length === 1 ? 'it was' : 'they were'}.`;
+};
+
+/** The files in the way of a conflict: "L(9)-TFL already has W9.dxf". */
+export const conflictWords = (f: Pick<DrawingsUploadFile, 'conflicts'>): string[] => (f.conflicts ?? []).map((c) => `${c.label} already has ${c.fileName}`);
+
+/** The same files with one told to replace the other file on every row it goes to. */
+export function withReplace<T extends { name: string }>(files: T[], name: string): (T & { replaceOnMembers: true })[] {
+  return files.map((f) => (f.name === name ? { ...f, replaceOnMembers: true } : f)) as (T & { replaceOnMembers: true })[];
+}
+
+/** The same files with one aimed at its row only ("stops being a copy"), or back to going to every copy. */
+export function withOnlyThisRow<T extends { name: string; links?: 'one' }>(files: T[], name: string, only: boolean): T[] {
+  return files.map((f) => {
+    if (f.name !== name) return f;
+    const next = { ...f };
+    delete next.links;
+    return (only ? { ...next, links: 'one' } : next) as T;
+  });
 }

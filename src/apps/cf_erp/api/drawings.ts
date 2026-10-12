@@ -67,10 +67,38 @@ export interface UploadRegister {
   action: RegisterAction; drawingId: number | null; code: string | null; number: string; revision: string; fromRevision: string | null;
 }
 
+/** How a file found its rows: the row it was aimed at, the register drawing it was put on, a code in its name (`L(1,5)-1-TFL1`), or its drawing mark. */
+export type MatchedBy = 'row' | 'register' | 'code' | 'mark' | 'none';
+
+/** A number or a list — the server may say "3" or give the rows themselves. */
+export type CountOrList = number | unknown[];
+
+/** One value read from a file (or its name) and written to the rows it goes to. */
+export interface DrawingValue {
+  specCode: string;
+  value: string | number | null;
+  /** 'drawing' (its shape), 'name' (the file name), 'text' (a note in the drawing). */
+  from: string;
+  /** The rows it was written to (their ids, or a count). */
+  rows: CountOrList;
+  /** The rows that keep a value of their own (ids or a count). A plain `true` = all of them. */
+  kept?: CountOrList | boolean;
+}
+
 export interface DrawingsUploadFile {
   name: string; mark: string;
   fileKind: 'dxf' | 'pdf' | null;
-  status: 'new' | 'replaces' | 'unmatched' | 'error';
+  /** 'conflict': a copy of a matched row already has another file — it is saved only with "Replace on all". */
+  status: 'new' | 'replaces' | 'unmatched' | 'error' | 'conflict';
+  matchedBy?: MatchedBy;
+  /** The bracket code the name carried, when it did. */
+  pattern?: string | null;
+  hints?: { thicknessMm?: number | null; grade?: string | null } | null;
+  /** The copies the file also goes to (linked copies): the rows it started from, those added, those left out. */
+  fanOut?: { fromRowIds?: number[]; added?: CountOrList; skipped?: CountOrList } | null;
+  values?: DrawingValue[];
+  /** status 'conflict': the other files on rows this one goes to. */
+  conflicts?: { rowId: number; label: string; drawingId: number; fileName: string; mark: string }[];
   rows: DrawingRow[];
   geometry: DrawingGeometry | null;
   problems: string[];
@@ -92,11 +120,19 @@ export interface DrawingsUpload {
 
 /** `drawingId` puts the file on that register drawing by hand — the file name then does not matter. */
 /** `rowId` aims the file at that row: no drawing mark is needed (a markless row takes the file name as its mark). */
-export interface DrawingFileBody { name: string; content: string; drawingId?: number; rowId?: number }
+export interface DrawingFileBody {
+  name: string; content: string; drawingId?: number; rowId?: number;
+  /** Aimed at one row (rowId): 'one' keeps the file off its copies, and the row stops being a copy. Left out = every copy gets it. */
+  links?: 'one';
+  /** A copy has another file: replace it on every row this file goes to. */
+  replaceOnMembers?: boolean;
+}
 
 export interface StartDrawingBody {
   rowIds: number[]; number: string; revision?: string; title?: string;
   source?: 'shop' | 'customer'; status?: 'draft' | 'issued'; notes?: string;
+  /** 'one' keeps the new register drawing to these rows only (no copies). */
+  links?: 'one' | 'all';
 }
 export interface StartDrawingResult {
   drawing: { id: number; code: string | null; number: string; revision: string; status: string };

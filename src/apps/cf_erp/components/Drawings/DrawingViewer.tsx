@@ -13,6 +13,9 @@ import ZoomInRounded from '@mui/icons-material/ZoomInRounded';
 import ZoomOutRounded from '@mui/icons-material/ZoomOutRounded';
 import { CfApiError } from '../../api/client';
 import { blobAsText, downloadDrawing, fetchDrawingBlob, type Drawing } from '../../api/drawings';
+import { getDesignUses, type DesignUses } from '../../api/links';
+import { piecesWords } from '../../lib/links';
+import { DesignUsesDialog } from './DesignUsesDialog';
 import { useDialogFullscreen } from '../../hooks/useDialogFullscreen';
 import { usePanZoom } from '../../hooks/usePanZoom';
 import { fmtCutM, fmtM2, fmtMm, fmtPct, holesTitle, REGISTER_STATUS_FAMILY, rowCodes, sizeText } from '../../lib/drawings';
@@ -207,6 +210,15 @@ export function DrawingViewer({ onClose, orderId, lineId, drawing, onUploadRevis
   const [hidden, setHidden] = useState<ReadonlySet<string>>(new Set());
   const [strip, setStrip] = useState(!large);
   const urlRef = useRef<string | null>(null);
+  // Linked copies: how many pieces are made to this drawing. Quiet on any failure — the viewer works without it.
+  const [uses, setUses] = useState<DesignUses | null>(null);
+  const [usesOpen, setUsesOpen] = useState(false);
+  useEffect(() => {
+    let live = true;
+    setUses(null);
+    getDesignUses(lineId, { drawingId: drawing.id }).then((r) => { if (live && r && Array.isArray(r.rows) && r.total > 0) setUses(r); }).catch(() => {});
+    return () => { live = false; };
+  }, [lineId, drawing.id]);
 
   // Fetch with the app's client (the JWT goes with it), then parse or hand the PDF to the browser.
   useEffect(() => {
@@ -288,6 +300,12 @@ export function DrawingViewer({ onClose, orderId, lineId, drawing, onUploadRevis
         <Box sx={{ minWidth: 0, flex: 1 }}>
           <Typography id="drawing-viewer-title" component="h2" sx={{ fontSize: large ? 20 : 16, fontWeight: 600, overflowWrap: 'anywhere' }}>{title}</Typography>
           <Box sx={{ fontSize: large ? 15 : 13, fontWeight: 400, color: 'var(--c-text-2)', mt: 0.25, overflowWrap: 'anywhere' }}>{drawing.fileName}</Box>
+          {uses && (
+            <Box component="button" type="button" data-testid="viewer-used-by" onClick={() => setUsesOpen(true)}
+              sx={{ all: 'unset', cursor: 'pointer', mt: 0.25, fontSize: large ? 15 : 13, color: 'var(--c-primary-700)', '&:hover': { textDecoration: 'underline' }, '&:focus-visible': { outline: '2px solid var(--c-primary-500)', borderRadius: 'var(--r-sm)' } }}>
+              Used by {piecesWords(uses.total)}
+            </Box>
+          )}
           {note && <Box data-testid="viewer-inherited" sx={{ fontSize: large ? 15 : 13, fontWeight: 600, color: 'var(--c-warning-800)', mt: 0.25 }}>{note}</Box>}
         </Box>
         {onUploadRevision && (
@@ -383,6 +401,7 @@ export function DrawingViewer({ onClose, orderId, lineId, drawing, onUploadRevis
         </Box>
         {strip && <SideStrip drawing={drawing} view={view} hidden={hidden} onToggle={toggle} onAll={showAll} levels={levels} />}
       </Box>
+      {usesOpen && uses && <DesignUsesDialog uses={uses} onClose={() => setUsesOpen(false)} />}
     </Dialog>
   );
 }

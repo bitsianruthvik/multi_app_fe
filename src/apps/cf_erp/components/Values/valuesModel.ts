@@ -1,5 +1,6 @@
 import type { DataType, Kind, OrderStatus, RecordStatus, SpecOption, ValueRule } from '../../api/types';
 import type { ValueFrom } from '../../lib/valueSource';
+import type { LinksBlock } from '../../api/links';
 /**
  * The Values stage's data: `GET /order-lines/:id/values` and what
  * `PUT /order-lines/:id/values` answers (apps/cf_erp/services/orderValuesService.js).
@@ -95,6 +96,8 @@ export interface ValuesView {
   };
   optionLists: Record<string, SpecOption[]>;
   groups: ValuesGroup[];
+  /** Which rows are copies of each other ("same design"), by record id. Absent on an older server. */
+  links?: LinksBlock;
 }
 
 /** A cell with its column's shared fields put back, and whether it can be typed right now. */

@@ -17,7 +17,7 @@ Object.defineProperty(globalThis, 'localStorage', { value: dom.window.localStora
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const React = await import('react');
 const { createRoot } = await import('react-dom/client');
-const built = await build({ alias: { '@shared/ui': resolve('src/shared/ui/SheetGrid.tsx') }, stdin: { contents: `export * from './src/apps/cf_erp/components/Bom/BomGrid'; export * from './src/apps/cf_erp/components/Bom/bomArrangement'; export * from './src/apps/cf_erp/components/Bom/bomModel'; export * from './src/apps/cf_erp/lib/stripLayout'; export * from './src/apps/cf_erp/lib/codeSegments'; export * from './src/apps/cf_erp/components/Bom/FlowChoice'; export * from './src/apps/cf_erp/components/Bom/flowShown'; export * from './src/apps/cf_erp/components/Bom/ChoiceCell'; export * from './src/apps/cf_erp/components/Bom/selectionChoice';`, resolveDir: process.cwd(), loader: 'tsx' }, bundle: true, write: false, format: 'esm', platform: 'node', packages: 'external', jsx: 'automatic' });
+const built = await build({ alias: { '@shared/ui': resolve('src/shared/ui/SheetGrid.tsx') }, stdin: { contents: `export * from './src/apps/cf_erp/components/Bom/BomGrid'; export * from './src/apps/cf_erp/components/Bom/bomArrangement'; export * from './src/apps/cf_erp/components/Bom/bomModel'; export * from './src/apps/cf_erp/lib/stripLayout'; export * from './src/apps/cf_erp/lib/codeSegments'; export * from './src/apps/cf_erp/components/Bom/FlowChoice'; export * from './src/apps/cf_erp/components/Bom/flowShown'; export * from './src/apps/cf_erp/components/Bom/ChoiceCell'; export * from './src/apps/cf_erp/components/Bom/selectionChoice'; export { LinkChip } from './src/apps/cf_erp/components/Bom/LinkChip'; export * from './src/apps/cf_erp/lib/links';`, resolveDir: process.cwd(), loader: 'tsx' }, bundle: true, write: false, format: 'esm', platform: 'node', packages: 'external', jsx: 'automatic' });
 const cache = resolve('node_modules/.cache');
 await mkdir(cache, { recursive: true });
 const artifact = resolve(cache, `bom-grid-test-${process.pid}.mjs`);
@@ -694,6 +694,40 @@ await check('"N to choose" walks the rows still to choose in tree order (folded 
   assert.deepEqual(targets.map((x) => x.key), ['k61', 'k71', 'k72'], 'the plate and the chosen rows are skipped');
   assert.deepEqual(targets[1].ancestors, ['k1', 'k70'], 'a jump opens the branch above the row');
   assert.deepEqual([m.nextTarget(3, -1), m.nextTarget(3, 0), m.nextTarget(3, 2), m.nextTarget(0, -1)], [0, 1, 0, -1]);
+});
+// ── linked copies: the chip's place on a row, and its states ────────────────────────────────────────────────────────
+const phOf = (r) => (r.node.id === 4 ? { code: 'SO1-G(1)-W(1,2)', title: 'code', segments: [{ text: 'SO1-G' }, { from: 1, to: 1 }, { text: '-W' }, { from: 1, to: 2 }] } : r.node.id === 2 ? { code: 'SO1-G(1)', title: 'code', segments: [{ text: 'SO1-G' }, { from: 1, to: 1 }] } : null);
+const linkProps = { ...props, view, rows: m.arrangedRows(tree, expanded, m.NO_PENDING), placeholderOf: phOf, flowCell: (r) => React.createElement('span', { 'data-testid': 'flow-x', 'data-row': r.node.id }, 'FLOW'),
+  linkCell: (r) => (r.node.id === 4 ? React.createElement(m.LinkChip, { state: { kind: 'linked', group: 'G', members: [4, 5], others: 3 }, name: 'Row 4', onOpen: () => {} }) : r.node.id === 5 ? React.createElement(m.LinkChip, { state: { kind: 'suggest', others: [2, 4] }, name: 'Row 5', onOpen: () => {} }) : null) };
+await check('the link chip sits after the own-code chip and before the flow chip on line 1; a row with no copies shows none', async () => {
+  await render(linkProps);
+  const chip4 = document.querySelector('[data-testid="row-link"][aria-label^="Row 4:"]');
+  assert.ok(chip4, 'the chip is drawn');
+  const line1 = chip4.parentElement;
+  const order = [...line1.children].map((c) => c.getAttribute('data-testid') || (c.tagName === 'DIV' ? 'name' : c.tagName));
+  assert.deepEqual(order.filter((t) => ['name', 'row-own-code', 'row-link', 'flow-x'].includes(t)), ['name', 'row-own-code', 'row-link', 'flow-x']);
+  assert.equal(document.querySelectorAll('[data-testid="row-link"]').length, 2);
+  assert.equal(document.querySelector('[data-testid="row-link"][aria-label^="Row 2:"]'), null);
+});
+await check('chip states: linked ⧉ n (solid), an offer = n (dashed), changing (amber); plural and singular titles', async () => {
+  const linked = document.querySelector('[data-testid="row-link"][data-state="linked"]');
+  assert.equal(linked.textContent, '⧉ 3');
+  assert.equal(linked.getAttribute('title'), 'Same design as 3 other rows — click to see them');
+  const offer = document.querySelector('[data-testid="row-link"][data-state="suggest"]');
+  assert.equal(offer.textContent, '= 2');
+  assert.equal(offer.getAttribute('title'), 'Identical to 2 other rows — link them');
+  assert.equal(m.linkedTitle(1), 'Same design as 1 other row — click to see them');
+  await render({ ...linkProps, linkCell: (r) => (r.node.id === 4 ? React.createElement(m.LinkChip, { state: { kind: 'linked', group: 'G', members: [4, 5], others: 1 }, changing: true, name: 'Row 4', onOpen: () => {} }) : null) });
+  const changing = document.querySelector('[data-testid="row-link"]');
+  assert.equal(changing.getAttribute('data-state'), 'changing');
+  assert.match(changing.getAttribute('title'), /you choose whether its copies change too/);
+});
+await check('clicking the chip opens its list and does not select the cell or start a drag', async () => {
+  let opened = null;
+  await render({ ...linkProps, linkCell: (r) => (r.node.id === 4 ? React.createElement(m.LinkChip, { state: { kind: 'linked', group: 'G', members: [4, 5], others: 1 }, name: 'Row 4', onOpen: (a) => { opened = a; } }) : null) });
+  await fire(document.querySelector('[data-testid="row-link"]'), 'click');
+  assert.ok(opened, 'onOpen got the chip as its anchor');
+  assert.equal(document.querySelectorAll('[aria-selected="true"]').length, 0);
 });
 await React.act(() => root.render(null));
 await React.act(() => root.unmount());
