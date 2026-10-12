@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Box, Button, CircularProgress, IconButton, Tooltip, Typography } from '@mui/material';
 import { useNavigate, useParams } from 'react-router-dom';
 import AddRounded from '@mui/icons-material/AddRounded';
@@ -73,6 +73,9 @@ export default function FlowDetail() {
   const [waitFor, setWaitFor] = useState<{ stepKey: string } | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<CfApiError | null>(null);
+  const [savedOnce, setSavedOnce] = useState(false);
+  /** The flow that was opened straight into the editor because it had no steps — once, not after every Done. */
+  const autoOpened = useRef<number | null>(null);
   const stepEdit = draft != null;
   // The operations on offer, read once a flow is being edited; their main rule gives a new step's times.
   const ops = useLoad<Operation[] | null>(() => (stepEdit ? cfApi.get<Operation[]>('/operations?status=active') : Promise.resolve(null)), [stepEdit]);
@@ -96,6 +99,13 @@ export default function FlowDetail() {
     for (const s of f?.steps ?? []) if (s.time) m.set(s.operation.id, s.time);
     return m;
   }, [f, ops.data]);
+
+  // A flow with no steps has nothing to look at: it opens ready to add the first one.
+  useEffect(() => {
+    if (!f || !canManage || f.status === 'obsolete' || f.steps.length > 0 || draft != null || autoOpened.current === f.id) return;
+    autoOpened.current = f.id;
+    setDraft(draftOf(f.steps));
+  }, [f, canManage, draft]);
 
   if (fl.error) return <ErrorNotice error={fl.error} onRetry={fl.reload} />;
   if (!f || !saved || !shown || !layout) return <DetailSkeleton />;
@@ -131,7 +141,7 @@ export default function FlowDetail() {
     return null;
   };
   const undo = () => { if (past.length) { setDraft(past[past.length - 1]); setPast(past.slice(0, -1)); setSaveError(null); setTyping(null); } };
-  const startEdit = () => { setSaveError(null); setPast([]); setDraft(draftOf(f.steps)); setTab('steps'); };
+  const startEdit = () => { setSaveError(null); setPast([]); setSavedOnce(false); setDraft(draftOf(f.steps)); setTab('steps'); };
   const leaveEdit = () => { setDraft(null); setPast([]); setSaveError(null); setPicking(null); setMerging(null); setWaitFor(null); };
   const cancelEdit = () => (pending > 0 ? setConfirm('discard') : leaveEdit());
   const save = async () => {
@@ -139,7 +149,10 @@ export default function FlowDetail() {
     setSaving(true); setSaveError(null);
     try {
       const r = await cfApi.put<FlowStepsSaved>(`/flows/${id}/steps`, payloadOf(draft));
-      fl.setData(r.flow); leaveEdit(); invalidateNavCounts(); toast.success(r.summary);
+      // Save keeps the editor open on what was just saved (user, 2026-10-12: adding step after step meant
+      // pressing Edit steps again each time). Done leaves it.
+      fl.setData(r.flow); setDraft(draftOf(r.flow.steps)); setPast([]); setTyping(null); setSavedOnce(true);
+      invalidateNavCounts(); toast.success(r.summary);
     } catch (e) {
       setSaveError(e instanceof CfApiError ? e : new CfApiError(0, String(e)));
     } finally { setSaving(false); }
@@ -292,14 +305,14 @@ export default function FlowDetail() {
             <Box sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 1.5 }}>
               <Box sx={{ flex: '1 1 260px', minWidth: 0 }}>
                 <Typography sx={{ fontSize: 13.5, fontWeight: 600, color: 'var(--c-text)' }} aria-live="polite">
-                  {pending ? pendingText : 'No changes yet'}
+                  {pending ? pendingText : savedOnce ? 'Saved — add more, or choose Done' : 'No changes yet'}
                   {changes?.words && <Box component="span" sx={{ fontWeight: 400, color: 'var(--c-text-2)' }}>{` · ${changes.words}`}</Box>}
                 </Typography>
                 <Typography sx={{ fontSize: 12, color: 'var(--c-text-2)', mt: 0.25 }}>The flow stays as it was until you save.</Typography>
               </Box>
               <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
                 <Button onClick={undo} disabled={!past.length || saving} startIcon={<UndoRounded />} data-testid="undo-step">Undo</Button>
-                <Button onClick={cancelEdit} disabled={saving}>Cancel</Button>
+                <Button onClick={cancelEdit} disabled={saving} data-testid="leave-edit">{pending ? 'Cancel' : 'Done'}</Button>
                 <Tooltip title={problems.length ? 'Close every open lane first — see above.' : SAVE_REACH}>
                   <span>
                     <Button variant="contained" onClick={save} disabled={!pending || saving || problems.length > 0} data-testid="save-steps"

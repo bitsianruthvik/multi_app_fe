@@ -269,13 +269,19 @@ await check('Save sends the whole picture once; a refusal shows every problem an
   assert.match(bar(), /3 changes not saved/, 'still in edit mode, nothing lost');
   assert.equal(toasts.length, 0);
 });
-await check('Save again: one more request, the summary is toasted and the page is back in view mode — lanes drawn read-only', async () => {
+await check('Save again: one more request, the summary is toasted, the editor STAYS OPEN on what was saved; Done goes back to view mode — lanes drawn read-only', async () => {
   refuseSave = false;
   await click(testId('save-steps'));
   await settle(50);
   assert.equal(writes().length, 2);
   assert.equal(writes().every((c) => c.method === 'PUT' && c.path === '/flows/7/steps'), true, 'the per-step routes are never called');
   assert.deepEqual(toasts, ['2 steps added, 1 operation replaced.']);
+  // 2026-10-12: Save keeps the editor open, with nothing pending, so the next step can be added at once.
+  assert.match(bar(), /Saved — add more, or choose Done/);
+  assert.equal(testId('save-steps').disabled, true, 'nothing pending after a save');
+  assert.equal(testId('leave-edit').textContent, 'Done');
+  await click(testId('leave-edit'));
+  await settle(50);
   assert.equal(testId('flow-edit-bar'), null);
   assert.deepEqual(numbersShown(), ['10', '20', '30']);
   assert.equal(drawn(), '1/1 CUT · 2/1 QC · 2/2 CUT · 3/1 PNCH');
@@ -301,10 +307,10 @@ await check('removing a lane\'s only step removes the lane; the step is listed a
   assert.equal(drawn(), '1/1 CUT · 2/1 QC · 2/2 CUT · 3/1 PNCH');
   assert.equal(writes().length, 2, 'cancel sends nothing');
 });
-await check('Cancel with no changes leaves edit mode at once', async () => {
+await check('with no changes the button reads Done and leaves edit mode at once', async () => {
   await click(testId('edit-steps'));
   await settle();
-  await click(button('Cancel'));
+  await click(button('Done'));
   await settle(50);
   assert.equal(testId('flow-edit-bar'), null);
 });
