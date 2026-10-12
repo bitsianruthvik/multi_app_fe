@@ -48,7 +48,7 @@ const emptyLevels = (): Record<ChartLevel, LevelNode[]> => ({ FAMILY: [], SUBFAM
  * `onSave` gets the rows to send (it may throw a CfApiError, which is shown here);
  * `null` means "clear".
  */
-export function ChartRowsDialog({ open, onClose, title, axes, resultLabel, rows, nodes, onSave, disabled, canClear = true }: {
+export function ChartRowsDialog({ open, onClose, title, axes, resultLabel, rows, nodes, onSave, disabled, canClear = true, clearLabel = 'Clear chart' }: {
   open: boolean;
   onClose: () => void;
   title: string;
@@ -61,6 +61,8 @@ export function ChartRowsDialog({ open, onClose, title, axes, resultLabel, rows,
   onSave: (rows: ChartRow[] | null) => Promise<void> | void;
   disabled?: boolean;
   canClear?: boolean;
+  /** What emptying it means here — on a machine with a type's chart behind it, the rows do not go blank: the type's come back. */
+  clearLabel?: string;
 }) {
   const needsTree = axes.some((a) => a.kind === 'level');
   const needsSpecs = axes.some((a) => a.kind === 'spec' && a.dataType === 'option');
@@ -228,7 +230,7 @@ export function ChartRowsDialog({ open, onClose, title, axes, resultLabel, rows,
         )}
       </DialogContent>
       <DialogActions>
-        {canClear && <Button color="error" onClick={() => void save(true)} disabled={locked || !rows?.length}>Clear chart</Button>}
+        {canClear && <Button color="error" onClick={() => void save(true)} disabled={locked || !rows?.length}  data-testid="chart-clear">{clearLabel}</Button>}
         <Box sx={{ flex: 1 }} />
         <Button onClick={onClose} disabled={busy}>Cancel</Button>
         <Button variant="contained" onClick={() => void save()} disabled={locked || result.problems.length > 0 || !result.rows.length}

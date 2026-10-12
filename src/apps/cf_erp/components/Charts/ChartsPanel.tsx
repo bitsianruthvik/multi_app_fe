@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import { Box, Button, Typography } from '@mui/material';
 import AddRounded from '@mui/icons-material/AddRounded';
+import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
 import EditRounded from '@mui/icons-material/EditRounded';
 import TableChartOutlined from '@mui/icons-material/TableChartOutlined';
 import { CfApiError } from '../../api/client';
-import { chartValueImpact, getCharts, getMachineTimeImpact, putChartValue, type Chart, type ChartRow, type ChartSubject, type MachineTimeImpact } from '../../api/charts';
+import { chartValueImpact, deleteChart, getCharts, getMachineTimeImpact, putChartValue, type Chart, type ChartRow, type ChartSubject, type MachineTimeImpact } from '../../api/charts';
 import { useLoad } from '../../hooks/useLoad';
 import { byText, chartRows, formulaNameText, impactText, modeText, previewTable, resultHeading, valueSourceText } from '../../lib/charts';
 import { EmptyState, ErrorNotice, Mono, SectionCard, SkeletonRows } from '../ui';
@@ -52,6 +53,7 @@ export function ChartsPanel({ subject, canManage, onChanged }: { subject: ChartS
   const [editingChart, setEditingChart] = useState<Chart | null>(null);
   const [editingValues, setEditingValues] = useState<number | null>(null);
   const [giveBack, setGiveBack] = useState<Chart | null>(null);
+  const [deleting, setDeleting] = useState<Chart | null>(null);
   const [error, setError] = useState<CfApiError | null>(null);
   const charts = list.data ?? [];
   const onMachine = subject.type === 'machine';
@@ -94,8 +96,16 @@ export function ChartsPanel({ subject, canManage, onChanged }: { subject: ChartS
     const next = await putChartValue(subject, chart.specId, rows);
     list.setData(next);
     changed();
-    toast.success(impact?.steps ? `Chart saved. ${impactText(impact)}` : 'Chart saved.');
+    // Emptied on a machine that has a type's chart behind it: the type's rows show again, so say so.
+    const back = rows == null && backsOntoType(chart);
+    const done = back ? 'Back on the type’s chart.' : rows == null ? 'Chart cleared.' : 'Chart saved.';
+    toast.success(impact?.steps ? `${done} ${impactText(impact)}` : done);
   };
+
+  /** This machine's own copy of a chart its TYPE defines: emptying it brings the type's rows back. */
+  const backsOntoType = (c: Chart) => onMachine && c.own && c.definedAt?.type === 'classification';
+  /** The chart is deleted where it is set up: on the type's tab, or on the machine that made it. */
+  const deletableHere = (c: Chart) => !onMachine || c.definedAt?.type === 'machine';
 
   /** A machine takes the values it shows as its own, then opens them to edit. */
   const giveOwn = async (chart: Chart) => {
@@ -182,6 +192,15 @@ export function ChartsPanel({ subject, canManage, onChanged }: { subject: ChartS
                     {onMachine && c.own && c.definedAt?.type === 'classification' && (
                       <Button size="small" color="inherit" onClick={() => setGiveBack(c)}>Go back to the type’s chart</Button>
                     )}
+                    {deletableHere(c) && (
+                      <Button size="small" color="error" startIcon={<DeleteOutlineRounded fontSize="small" />} data-testid={`chart-delete-${c.code}`}
+                        disabled={c.usedBy.length > 0} onClick={() => setDeleting(c)}>Delete chart</Button>
+                    )}
+                    {deletableHere(c) && c.usedBy.length > 0 && (
+                      <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)', alignSelf: 'center' }}>
+                        Read by {c.usedBy.join(', ')} — change {c.usedBy.length === 1 ? 'that time' : 'those times'} first, then it can be deleted.
+                      </Typography>
+                    )}
                   </Box>
                 )}
               </Box>
@@ -194,7 +213,8 @@ export function ChartsPanel({ subject, canManage, onChanged }: { subject: ChartS
       {editingChart && <ChartDialog open subject={subject} existing={editingChart} onClose={() => setEditingChart(null)} onSaved={(next) => { toast.success('Chart saved.'); refreshed(next); }} />}
       {gridChart && (
         <ChartRowsDialog open onClose={() => setEditingValues(null)} title={gridChart.name} axes={gridChart.axes} resultLabel={resultHeading(gridChart)}
-          rows={chartRows(gridChart)} nodes={gridChart.nodes} onSave={(rows) => saveValues(gridChart, rows)} />
+          rows={chartRows(gridChart)} nodes={gridChart.nodes} onSave={(rows) => saveValues(gridChart, rows)}
+          clearLabel={backsOntoType(gridChart) ? 'Go back to the type’s chart' : 'Clear chart'} />
       )}
       <ConfirmDialog open={!!askSave} title="Save this machine’s chart?" confirmLabel="Save" entityName={askSave ? `${askSave.chart.name} · ${askSave.chart.code}` : undefined}
         body={(
@@ -206,6 +226,15 @@ export function ChartsPanel({ subject, canManage, onChanged }: { subject: ChartS
         )}
         onClose={() => { askSave?.reject(new CfApiError(0, 'Not saved — the chart is as it was.')); setAskSave(null); }}
         onConfirm={async () => { askSave?.resolve(); setAskSave(null); }} />
+      <ConfirmDialog open={!!deleting} title="Delete this chart?" danger confirmLabel="Delete" entityName={deleting ? `${deleting.name} · ${deleting.code}` : undefined}
+        body={`The chart and its rows go — on ${deleting?.definedAt?.name ?? 'its machine type'} and on every machine that had its own.`}
+        onClose={() => setDeleting(null)}
+        onConfirm={async () => {
+          if (!deleting) return;
+          await deleteChart(deleting.specId);
+          refreshed(null);
+          toast.success('Chart deleted.');
+        }} />
       <ConfirmDialog open={!!giveBack} title="Go back to the type’s chart?" confirmLabel="Go back" entityName={giveBack ? `${giveBack.name} · ${giveBack.code}` : undefined}
         body={`This machine’s own values for this chart are dropped. It reads the machine type’s chart again.${backImpact?.steps ? ` ${impactText(backImpact)}` : ''}`}
         onClose={() => setGiveBack(null)}
