@@ -41,7 +41,11 @@ export function PreviewPanel({ expression, ctx, idx, which, onCheck }: {
   // Until someone picks a piece, show the formula on a real piece that HAS the
   // values it reads (the newest piece often has none of them yet).
   const [picked, setPicked] = useState(false);
-  const itemCodes = refsIn(tryParse(expr)).filter((r) => r.role === 'item' && !r.table).map((r) => r.code).join(',');
+  // A chart named bare (machine.CUT_SPEED) is read by an item value the formula does not
+  // spell out; the backend's expanded text does (LOOKUP(machine.CUT_SPEED, item.THICKNESS)).
+  // The inputs are listed from THAT, so the preview asks for the thickness, not the chart.
+  const readAs = check?.expanded && tryParse(check.expanded) ? check.expanded : expr;
+  const itemCodes = refsIn(tryParse(readAs)).filter((r) => r.role === 'item' && !r.table).map((r) => r.code).join(',');
   useEffect(() => {
     if (picked || !pieces.length) return;
     const codes = itemCodes ? itemCodes.split(',') : [];
@@ -78,7 +82,7 @@ export function PreviewPanel({ expression, ctx, idx, which, onCheck }: {
   const units = expr ? unitWarnings(expr, idx) : [];
   const value = check?.result?.value ?? null;
   const sanity = resultWarning(value);
-  const refs = refsIn(tryParse(expr));
+  const refs = refsIn(tryParse(readAs));
   const inputFor = (role: FieldRole, code: string) => check?.inputs?.find((i) => i.ref === `${role}.${code}`) ?? null;
   const piece = pieces.find((p) => p.id === pieceId) ?? null;
   const machine = machines.find((m) => m.id === machineId) ?? null;
