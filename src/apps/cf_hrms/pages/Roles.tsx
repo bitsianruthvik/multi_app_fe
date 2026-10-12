@@ -259,8 +259,8 @@ export default function Roles() {
           />
 
           <Stack sx={{ mt: 2, fontSize: 12.5, color: 'var(--c-text-3)', maxWidth: 760, lineHeight: 1.6 }}>
-            A role says what the work is. Where it sits is a Position, and who does it is a Work
-            Assignment — one person can hold several at once.
+            A role says what the work is. Where it sits is a Position, and who does it is a person who
+            holds it — one person can hold several at once.
           </Stack>
         </>
       )}

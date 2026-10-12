@@ -29,6 +29,7 @@ import { LEAVE_VIEW } from '../api/leave';
 import { PositionLeavePolicy } from '../components/LeavePolicyLine';
 import { PositionReportingDialog } from '../components/ReportingDialogs';
 import { ReportingRowList } from '../components/ReportingRows';
+import { MOVE_PERMISSION, MoveEmployeeHereButton } from '../components/MoveEmployee';
 import { usePositionRemoval } from '../components/usePositionRemoval';
 
 /**
@@ -131,11 +132,14 @@ export default function PositionDetail() {
       <Typography sx={{ fontSize: 13, fontWeight: 500 }}>Fill this position</Typography>
       <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" alignItems="center">
         {/* While a hiring is open nobody else can be moved in; the reason is said, not hidden. */}
-        <Tooltip title={hiring ? 'A hiring is open for this position. Close it first.' : ''}>
-          <Box component="span">
-            <Button size="small" variant="outlined" disabled={!!hiring} onClick={() => navigate(`/${company}/cf_hrms/assignments?new=1&positionId=${position.id}`)}>Move an existing employee here</Button>
-          </Box>
-        </Tooltip>
+        {can(MOVE_PERMISSION) && can('cf_hrms_people_view') && (
+          <MoveEmployeeHereButton
+            positionId={position.id}
+            positionLabel={[position.roleTitle, position.positionCode].filter(Boolean).join(' · ')}
+            blocked={hiring ? 'A hiring is open for this position. Close it first.' : null}
+            onDone={() => load()}
+          />
+        )}
         <HiringEntry positionId={position.id} positionCode={position.positionCode} roleTitle={position.roleTitle} hiring={hiring} onChanged={() => load()} />
       </Stack>
       {hiring && (
@@ -202,11 +206,6 @@ export default function PositionDetail() {
             {position.departmentId && <CrossLink label={position.departmentName ?? 'Department'} to={`/${company}/cf_hrms/departments`} />}
             {position.locationId && <CrossLink label={position.locationName ?? 'Location'} to={`/${company}/cf_hrms/locations`} />}
             <CrossLink label="Org chart" to={`/${company}/cf_hrms/org-chart`} />
-            <CrossLink
-              label="Work assignments"
-              count={occupants.length}
-              to={`/${company}/cf_hrms/assignments?positionId=${position.id}`}
-            />
           </>
         }
         tabs={tabs}
@@ -360,7 +359,9 @@ export default function PositionDetail() {
                       {o.allocationPercent != null ? ` · ${o.allocationPercent}%` : ''}
                     </Typography>
                     <StatusBadge status={o.status} map={STATUS_TONES} />
-                    <CrossLink label="Open assignment" to={`/${company}/cf_hrms/assignments/${o.id}`} />
+                    <Mono sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>
+                      {o.effectiveFrom ?? '—'}{o.effectiveTo ? ` → ${o.effectiveTo}` : ''}
+                    </Mono>
                   </Surface>
                 ))}
               </Stack>

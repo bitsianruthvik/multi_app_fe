@@ -129,7 +129,7 @@ export default function Employees() {
     return [
       { label: 'People', value: filtered.length, hint: 'Matching the filters below' },
       { label: 'On notice', value: onNotice, tone: 'warning', hint: 'Leaving — their work needs rehoming' },
-      { label: 'No active assignment', value: noWork, tone: 'warning', hint: 'Employed, but doing no recorded work' },
+      { label: 'No position held', value: noWork, tone: 'warning', hint: 'Employed, but doing no recorded work' },
       { label: 'Expired documents', value: expiredDocs, tone: 'danger', hint: 'People with at least one expired document' },
     ];
   }, [filtered]);
@@ -218,7 +218,7 @@ export default function Employees() {
       exportValue: (r) => r.departmentName ?? '',
       render: (r) => (r.departmentName
         ? <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>{r.departmentName}</Typography>
-        : <ToneBadge tone="warning" label="No assignment" noIcon title="This person holds no active work assignment" />),
+        : <ToneBadge tone="warning" label="No position" noIcon title="This person holds no active position" />),
     },
     {
       key: 'location',
@@ -272,7 +272,7 @@ export default function Employees() {
   const header = (
     <PageHeader
       title="Employees"
-      subtitle="One record per person — what they do lives in their work assignments"
+      subtitle="One record per person — what they do lives in the positions they hold"
       actions={canManage && (
         <Button
           variant="contained"
@@ -379,7 +379,7 @@ export default function Employees() {
             <EmptyState
               icon={<PeopleAltRounded />}
               title="No employees yet"
-              body="An employee is one record per person, however many jobs they do. Add the person first; their work assignments come next."
+              body="An employee is one record per person, however many jobs they do. Add the person first; the positions they hold come next."
               action={canManage && (
                 <Button variant="contained" size="small" startIcon={<AddRounded />} onClick={openCreate}>
                   New employee

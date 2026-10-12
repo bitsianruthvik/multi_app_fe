@@ -20,7 +20,7 @@ import EditRounded from '@mui/icons-material/EditRounded';
 import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
 import GroupWorkRounded from '@mui/icons-material/GroupWorkRounded';
 import {
-  PageHeader, FilterBar, FacetChip, DataTable, EmptyState, StatStrip, StatusBadge, ToneBadge, Mono,
+  FilterBar, FacetChip, DataTable, EmptyState, StatStrip, StatusBadge, ToneBadge, Mono,
   FormDialog, ConfirmDialog, ErrorNotice, SideSheet, ListSkeleton, Callout, useToast, useIsPermitted,
   useCompanySlug, type DataColumn, type Stat,
 } from '@shared/ui';
@@ -29,6 +29,7 @@ import {
   pretty,
   type MasterKind, type MasterItem, type MasterUsage, type HrmsMeta,
 } from '../api/roles';
+import { ScreenHeader } from './TabbedScreen';
 
 // ---------------------------------------------------------------------------
 // What makes each vocabulary itself
@@ -132,7 +133,7 @@ const MASTERS: Record<MasterKind, MasterDef> = {
     ],
     extraStat: (rows) => {
       const n = rows.filter((r) => !r.usageCount).length;
-      return { label: 'Used by no role', value: n, tone: 'warning', hint: 'A duty nobody carries is either missing an assignment or was written twice.' };
+      return { label: 'Used by no role', value: n, tone: 'warning', hint: 'A duty nobody carries is either missing from a role or was written twice.' };
     },
     emptyHint: 'Responsibilities are phrased as activities — "Maintain the stock of critical spares", not "Spares".',
   },
@@ -431,7 +432,7 @@ export function RoleMasterScreen({ kind }: { kind: MasterKind }) {
 
   return (
     <>
-      <PageHeader
+      <ScreenHeader
         title={def.title}
         subtitle={def.subtitle}
         actions={

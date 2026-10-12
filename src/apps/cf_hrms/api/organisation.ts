@@ -61,32 +61,15 @@ export interface OrgLocation extends TreeMeta {
   status: OrgStatus;
 }
 
-export interface WorkContext extends TreeMeta {
-  code: string | null;
-  contextType: ContextType;
-  locationId: number | null;
-  locationName: string | null;
-  departmentId: number | null;
-  departmentName: string | null;
-  externalRef: string | null;
-  status: OrgStatus;
-}
-
-export interface Contact {
-  contactPerson?: string;
-  phone?: string;
-  email?: string;
-  address?: string;
-  notes?: string;
-}
-
-export interface Contractor {
+/**
+ * One of the company's department labels (spec §9): Department, Section,
+ * Machine to begin with. A department's `type` is one of these names.
+ */
+export interface DepartmentLabel {
   id: number;
-  code: string | null;
   name: string;
-  contact: Contact | null;
-  status: OrgStatus;
-  employeeCount: number;
+  sortOrder: number;
+  departmentCount: number;
 }
 
 export interface Shift {
@@ -164,18 +147,20 @@ export const orgApi = {
     remove: (id: number) => api.del<{ ok: true }>(`/organisation/locations/${id}`),
   },
 
-  workContexts: {
-    list: () => list<WorkContext>('/organisation/work-contexts'),
-    create: (body: unknown) => api.post<WorkContext>('/organisation/work-contexts', body),
-    update: (id: number, body: unknown) => api.put<WorkContext>(`/organisation/work-contexts/${id}`, body),
-    remove: (id: number) => api.del<{ ok: true }>(`/organisation/work-contexts/${id}`),
-  },
-
-  contractors: {
-    list: () => list<Contractor>('/organisation/contractors'),
-    create: (body: unknown) => api.post<Contractor>('/organisation/contractors', body),
-    update: (id: number, body: unknown) => api.put<Contractor>(`/organisation/contractors/${id}`, body),
-    remove: (id: number) => api.del<{ ok: true }>(`/organisation/contractors/${id}`),
+  /**
+   * The company's own short list of department labels. A rename also renames
+   * it on every department that uses it. Removing one in use is refused (409
+   * `IN_USE`, `detail.departmentCount`) unless `moveTo` says where they go.
+   */
+  departmentLabels: {
+    list: () =>
+      api.get<{ labels: DepartmentLabel[] }>('/organisation/department-labels').then((r) => r.labels ?? []),
+    create: (name: string) => api.post<DepartmentLabel>('/organisation/department-labels', { name }),
+    rename: (id: number, name: string) => api.put<DepartmentLabel>(`/organisation/department-labels/${id}`, { name }),
+    reorder: (ids: number[]) =>
+      api.put<{ labels: DepartmentLabel[] }>('/organisation/department-labels/order', { ids }),
+    remove: (id: number, moveTo?: number) =>
+      api.del<{ ok: true }>(`/organisation/department-labels/${id}${moveTo ? `?moveTo=${moveTo}` : ''}`),
   },
 
   shifts: {

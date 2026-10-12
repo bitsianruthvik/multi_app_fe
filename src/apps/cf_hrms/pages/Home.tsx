@@ -1,5 +1,5 @@
 /**
- * Home — the cockpit (DESIGN_SYSTEM.md §4.1, appendix §A4).
+ * Home (DESIGN_SYSTEM.md §4.1, appendix §A4).
  *
  * It answers one question: **what needs me today.** Three bands, in the order
  * intent arrives:
@@ -15,9 +15,9 @@
  * to be told what to fix. Every number on this page links to the screen that
  * fixes it.
  *
- * This replaces a stub that said "Not built yet", which meant the app opened
- * onto an empty page and then a menu of tables — principle #1 exactly
- * inverted. See the appendix's header for the whole story.
+ * Only screens that are in the menu appear here (clean-up of 2026-10-12): the
+ * cards for open points, leave to approve and attendance to mark went with
+ * their screens, and come back when those screens are built.
  *
  * ONE REQUEST. Everything comes from `GET /overview/home`; the counts are real
  * queries, not derived from a list the page happened to load. A permission the
@@ -31,16 +31,12 @@ import RefreshRounded from '@mui/icons-material/RefreshRounded';
 import ArrowForwardRounded from '@mui/icons-material/ArrowForwardRounded';
 import CheckCircleRounded from '@mui/icons-material/CheckCircleRounded';
 import RadioButtonUncheckedRounded from '@mui/icons-material/RadioButtonUncheckedRounded';
-import HelpOutlineRounded from '@mui/icons-material/HelpOutlineRounded';
 import NotesRounded from '@mui/icons-material/NotesRounded';
 import EventSeatRounded from '@mui/icons-material/EventSeatRounded';
 import PersonSearchRounded from '@mui/icons-material/PersonSearchRounded';
-import EventAvailableRounded from '@mui/icons-material/EventAvailableRounded';
-import FactCheckRounded from '@mui/icons-material/FactCheckRounded';
 import DescriptionRounded from '@mui/icons-material/DescriptionRounded';
 import GroupsRounded from '@mui/icons-material/GroupsRounded';
 import BadgeRounded from '@mui/icons-material/BadgeRounded';
-import AccountTreeRounded from '@mui/icons-material/AccountTreeRounded';
 import {
   PageHeader, StatStrip, SectionCard, EmptyState, ErrorNotice, EntityList, EntityRow,
   Mono, CapsLabel, StatSkeleton, CardGridSkeleton, useIsPermitted, useCompanySlug,
@@ -53,8 +49,6 @@ import { HomeQueueCard, type QueueTone } from '../components/HomeQueueCard';
 const ORG = 'cf_hrms_org_view';
 const PEOPLE = 'cf_hrms_people_view';
 const ROLES = 'cf_hrms_roles_manage';
-const ATTENDANCE = 'cf_hrms_attendance_view';
-const LEAVE = 'cf_hrms_leave_view';
 
 interface Queue {
   key: string;
@@ -71,10 +65,8 @@ interface Queue {
 }
 
 /**
- * The seven queues of appendix §A4, in the order the appendix puts them —
- * which is the order of what goes wrong if they are ignored. An unanswered
- * question about the organisation blocks every role written from it; a role
- * with no purpose produces a JD that opens on a blank line; an empty seat is
+ * The queues, in the order of what goes wrong if they are ignored: a role with
+ * no purpose produces a JD that opens on a blank line; an empty position is
  * felt on the floor every shift; and so on down to a document that expires
  * next month.
  *
@@ -83,20 +75,6 @@ interface Queue {
  */
 function queuesFor(c: OverviewCounts): Queue[] {
   return [
-    {
-      key: 'openPoints',
-      permission: ORG,
-      icon: <HelpOutlineRounded />,
-      title: 'Open points',
-      count: c.openPoints,
-      unit: 'unresolved',
-      description:
-        'Questions the org chart raised and nobody has answered. Each one is a position, a role or a reporting line that is still a guess.',
-      clearNote: 'Every question the org chart raised has been answered.',
-      actionLabel: 'Resolve',
-      path: 'org-chart',
-      tone: 'warning',
-    },
     {
       key: 'rolesNoPurpose',
       permission: ROLES,
@@ -129,43 +107,15 @@ function queuesFor(c: OverviewCounts): Queue[] {
       key: 'employeesNoAssignment',
       permission: PEOPLE,
       icon: <PersonSearchRounded />,
-      title: 'People with no assignment',
+      title: 'People with no position',
       count: c.employeesNoAssignment,
-      unit: 'unassigned',
+      unit: 'not placed',
       description:
-        'On the payroll, doing no recorded work. They have no role, so no responsibilities, no reporting line and nothing to appear on a profile.',
-      clearNote: 'Everybody on the payroll has work recorded against them.',
-      actionLabel: 'Assign',
+        'On the payroll, but not in any position. They have no role, so no responsibilities, no reporting line and nothing to appear on a profile.',
+      clearNote: 'Everybody on the payroll holds a position.',
+      actionLabel: 'See them',
       path: 'employees',
       tone: 'danger',
-    },
-    {
-      key: 'leavePending',
-      permission: LEAVE,
-      icon: <EventAvailableRounded />,
-      title: 'Leave awaiting approval',
-      count: c.leavePending,
-      unit: 'to review',
-      description:
-        'Requests nobody has decided. An approval also writes the attendance days it covers, so an unanswered request leaves the muster wrong too.',
-      clearNote: 'No leave request is waiting on a decision.',
-      actionLabel: 'Review',
-      path: 'leave-requests',
-      tone: 'warning',
-    },
-    {
-      key: 'attendanceUnmarked',
-      permission: ATTENDANCE,
-      icon: <FactCheckRounded />,
-      title: 'Attendance not marked',
-      count: c.attendanceUnmarked,
-      unit: `of ${c.attendanceExpected ?? 0} today`,
-      description:
-        'People with live work and no attendance row for today. A day that is never marked cannot be corrected later — there is nothing to correct.',
-      clearNote: 'Everybody working today has been marked.',
-      actionLabel: 'Mark',
-      path: 'attendance',
-      tone: 'warning',
     },
     {
       key: 'documentsExpiring',
@@ -242,13 +192,6 @@ export default function Home() {
       hint: 'The kinds of work defined, whatever their status',
       onClick: () => go('roles'),
     },
-    c.activeAssignments !== undefined && can(PEOPLE) && {
-      label: 'Work assignments',
-      value: c.activeAssignments,
-      icon: <AccountTreeRounded />,
-      hint: 'Live person-to-role links. One person can hold several.',
-      onClick: () => go('assignments'),
-    },
   ].filter(Boolean) as Stat[];
 
   /* ── band 2: the queues ────────────────────────────────────────────────── */
@@ -267,7 +210,6 @@ export default function Home() {
         { label: 'Roles', n: c.rolesTotal, path: 'roles', hint: 'The kinds of work' },
         { label: 'Positions', n: c.positions, path: 'positions', hint: 'One person each, on one shift' },
         { label: 'Employees', n: c.employees, path: 'employees', hint: 'People on the payroll' },
-        { label: 'Leave types', n: c.leaveTypes, path: 'leave-types', hint: 'What people can apply for' },
       ].filter((s) => s.n !== undefined)
     : [];
   const setupDone = setup.filter((s) => (s.n ?? 0) > 0).length;
@@ -293,7 +235,7 @@ export default function Home() {
 
       {loading && !data ? (
         <>
-          <StatSkeleton count={4} />
+          <StatSkeleton count={3} />
           <CardGridSkeleton count={6} />
         </>
       ) : data ? (
@@ -314,7 +256,7 @@ export default function Home() {
             <EmptyState
               icon={<CheckCircleRounded />}
               title="Nothing is waiting on you"
-              hint="Open points, roles without a purpose, vacant positions, unassigned people, leave to approve, attendance to mark and documents about to expire all show up here."
+              hint="Roles without a purpose, vacant positions, people with no position and documents about to expire all show up here."
             />
           ) : (
             <Box
@@ -372,7 +314,7 @@ export default function Home() {
                         onClick={() => go(`employees/${p.id}`)}
                         code={<Mono chip>{p.employeeCode}</Mono>}
                         primary={p.fullName}
-                        secondary={p.roleTitle ?? 'No assignment yet'}
+                        secondary={p.roleTitle ?? 'No position yet'}
                         trailing={
                           <Mono muted tabular>
                             {p.dateOfJoining ?? '—'}

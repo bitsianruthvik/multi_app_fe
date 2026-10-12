@@ -8,17 +8,17 @@
  */
 import { useEffect, useState } from 'react';
 import { MenuItem, Stack, TextField, Typography } from '@mui/material';
+import { CodeNote } from './CodeNote';
 import { FormDialog } from '@shared/ui';
 import { createRole, updateRole, listDepartments, type Role } from '../api/roles';
 
 const STATUSES: { value: string; label: string; hint: string }[] = [
   { value: 'DRAFT', label: 'Draft', hint: 'Being written. Not yet something to staff against.' },
-  { value: 'ACTIVE', label: 'Active', hint: 'In use — positions and work assignments may reference it.' },
+  { value: 'ACTIVE', label: 'Active', hint: 'In use — positions can be created for it.' },
   { value: 'RETIRED', label: 'Retired', hint: 'No longer assigned. Kept so old documents stay explicable.' },
 ];
 
 interface FormState {
-  roleCode: string;
   title: string;
   defaultDepartmentId: string;
   status: string;
@@ -29,7 +29,7 @@ interface FormState {
 }
 
 const EMPTY: FormState = {
-  roleCode: '', title: '', defaultDepartmentId: '', status: 'DRAFT',
+  title: '', defaultDepartmentId: '', status: 'DRAFT',
   rolePurpose: '', roleSummary: '', effectiveFrom: '', effectiveTo: '',
 };
 
@@ -53,7 +53,6 @@ export function RoleFormDialog({
     setForm(
       role
         ? {
-            roleCode: role.roleCode ?? '',
             title: role.title,
             defaultDepartmentId: role.defaultDepartmentId ? String(role.defaultDepartmentId) : '',
             status: role.status,
@@ -79,12 +78,12 @@ export function RoleFormDialog({
       subtitle={
         role
           ? role.title
-          : 'A role is a reusable kind of work — "Printing Operator". Where it sits and who does it are a Position and a Work Assignment, not this.'
+          : 'A role is a reusable kind of work — "Printing Operator". Where it sits is a position, and who does it is the person in that position.'
       }
       onClose={onClose}
       onSubmit={async () => {
         const body = {
-          roleCode: form.roleCode || null,
+          // No code: the server issues it on create and never changes it (spec §11).
           title: form.title,
           defaultDepartmentId: form.defaultDepartmentId ? Number(form.defaultDepartmentId) : null,
           status: form.status,
@@ -100,15 +99,9 @@ export function RoleFormDialog({
       maxWidth="md"
     >
       <Stack spacing={2} sx={{ mt: 0.5 }}>
+        <CodeNote code={role?.roleCode} isNew={!role} />
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-          <TextField
-            label="Role code"
-            value={form.roleCode}
-            onChange={set('roleCode')}
-            size="small"
-            sx={{ width: { sm: 180 } }}
-            helperText="Optional."
-          />
+
           <TextField
             label="Title"
             value={form.title}

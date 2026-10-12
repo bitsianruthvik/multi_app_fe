@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Alert, MenuItem, Stack, TextField, Typography } from '@mui/material';
+import { CodeNote } from './CodeNote';
 import { FormDialog } from '@shared/ui';
 import type { LookupRow, PositionOptions, PositionRow } from '../api/positions';
 import { positionsApi } from '../api/positions';
@@ -31,7 +32,7 @@ export function PositionFormDialog({
   position: PositionRow | null;
 }) {
   const [roleId, setRoleId] = useState<number | ''>('');
-  const [positionCode, setPositionCode] = useState('');
+
   const [positionTitle, setPositionTitle] = useState('');
   const [departmentId, setDepartmentId] = useState<number | ''>('');
   const [locationId, setLocationId] = useState<number | ''>('');
@@ -46,7 +47,7 @@ export function PositionFormDialog({
   useEffect(() => {
     if (!open) return;
     setRoleId(position?.roleId ?? '');
-    setPositionCode(position?.positionCode ?? '');
+
     setPositionTitle(position?.positionTitle ?? '');
     setDepartmentId(position?.departmentId ?? '');
     setLocationId(position?.locationId ?? '');
@@ -69,7 +70,7 @@ export function PositionFormDialog({
           const closing = position != null && status === 'CLOSED' && position.status !== 'CLOSED';
           const body = {
             roleId,
-            positionCode: positionCode || null,
+            // No code: the server issues it on create and never changes it (spec §11).
             positionTitle: positionTitle || null,
             departmentId: departmentId === '' ? null : departmentId,
             locationId: locationId === '' ? null : locationId,
@@ -96,8 +97,9 @@ export function PositionFormDialog({
             ))}
           </TextField>
 
+          <CodeNote code={position?.positionCode} isNew={!position} />
+
           <Stack direction="row" spacing={2}>
-            <TextField size="small" label="Position code" fullWidth value={positionCode} onChange={(e) => setPositionCode(e.target.value)} />
             <TextField
               size="small" label="Title override" fullWidth value={positionTitle}
               onChange={(e) => setPositionTitle(e.target.value)}

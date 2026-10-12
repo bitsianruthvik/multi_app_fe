@@ -665,7 +665,7 @@ export const ORIGIN_SHORT: Record<Origin, string> = {
 export const ORIGIN_HINT: Record<Origin, string> = {
   ROLE: 'Part of the role wherever it is held.',
   POSITION: 'Added by this position — it does not apply to the role everywhere.',
-  ASSIGNMENT: 'Added for this person on this assignment only.',
+  ASSIGNMENT: 'Added for this person only.',
 };
 
 /** Sentence case for the SHOUTING enums, with acronyms kept as acronyms. */

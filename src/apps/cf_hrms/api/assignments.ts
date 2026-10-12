@@ -1,5 +1,5 @@
 import { api } from './client';
-import type { ContentOverrideRow, LookupRow, PositionLookup, RelationshipTypeRow, ReportingScope } from './positions';
+import type { LookupRow, PositionLookup, RelationshipTypeRow, ReportingScope } from './positions';
 
 /**
  * Work assignments — the centre of the model. (Backend:
@@ -11,73 +11,8 @@ import type { ContentOverrideRow, LookupRow, PositionLookup, RelationshipTypeRow
  * "the manager" has to choose which row it means, in front of the user.
  */
 
-export interface AssignmentRow {
-  id: number;
-  employeeId: number;
-  employeeCode: string | null;
-  employeeName: string;
-  employmentStatus: string | null;
-  roleId: number;
-  roleCode: string | null;
-  roleTitle: string | null;
-  /** null is normal and correct — Position is optional, Role is required. */
-  positionId: number | null;
-  positionCode: string | null;
-  positionTitle: string | null;
-  roleDiffersFromPosition: boolean;
-  departmentId: number | null;
-  departmentName: string | null;
-  locationId: number | null;
-  locationName: string | null;
-  assignmentTitle: string | null;
-  /** Advisory. Shown and flagged when a person is over-committed; never blocked. */
-  allocationPercent: number | null;
-  isPrimary: boolean;
-  defaultShiftId: number | null;
-  shiftCode: string | null;
-  shiftName: string | null;
-  status: string;
-  effectiveFrom: string | null;
-  effectiveTo: string | null;
-  reason: string | null;
-  actualManagerCount: number;
-  inheritedManagerCount: number;
-  managerCount: number;
-  hasNoManager: boolean;
-  contextCount: number;
-  overrideCount: number;
-  liveOnDate: boolean;
-  employeeAllocationTotal?: number;
-  employeeAssignmentCount?: number;
-  employeeOverAllocated?: boolean;
-}
 
-export interface AssignmentListResult {
-  asOf: string;
-  items: AssignmentRow[];
-  total: number;
-  totals: {
-    assignments: number;
-    live: number;
-    noManager: number;
-    noPosition: number;
-    overAllocatedEmployees: number;
-    roleDiffersFromPosition: number;
-  };
-}
 
-export interface SiblingAssignment {
-  id: number;
-  roleId: number;
-  roleTitle: string | null;
-  positionId: number | null;
-  assignmentTitle: string | null;
-  allocationPercent: number | null;
-  isPrimary: boolean;
-  status: string;
-  effectiveFrom: string | null;
-  effectiveTo: string | null;
-}
 
 export interface AssignmentContextRow {
   id: number;
@@ -167,13 +102,6 @@ export interface ReportingSummary {
   hasAnyManager: boolean;
 }
 
-export interface RelationshipsResult {
-  asOf: string;
-  includeEnded: boolean;
-  assignment: AssignmentHead;
-  relationships: ResolvedRelationship[];
-  summary: ReportingSummary;
-}
 
 export interface ResolvedReportingResult {
   asOf: string;
@@ -215,16 +143,6 @@ export interface ManagerAssignmentOption {
   effectiveTo: string | null;
 }
 
-export interface AssignmentFilters {
-  on?: string;
-  status?: string;
-  employeeId?: number | '';
-  roleId?: number | '';
-  positionId?: number | '';
-  search?: string;
-  noPosition?: boolean;
-  liveOnly?: boolean;
-}
 
 function qs(params: object): string {
   const sp = new URLSearchParams();
@@ -237,37 +155,18 @@ function qs(params: object): string {
 }
 
 export const assignmentsApi = {
+  /** The pick lists the "Add a manager" dialog needs. */
   options: (on?: string) => api.get<AssignmentOptions>(`/assignments/options${qs({ on })}`),
-  list: (f: AssignmentFilters = {}) => api.get<AssignmentListResult>(`/assignments${qs(f)}`),
-  get: (id: number, on?: string) =>
-    api.get<{ asOf: string; assignment: AssignmentRow; siblingAssignments: SiblingAssignment[] }>(`/assignments/${id}${qs({ on })}`),
-  create: (body: Record<string, unknown>) => api.post<{ assignment: AssignmentRow }>('/assignments', body),
-  update: (id: number, body: Record<string, unknown>) => api.put<{ assignment: AssignmentRow }>(`/assignments/${id}`, body),
-  setStatus: (id: number, status: string) => api.post<{ assignment: AssignmentRow }>(`/assignments/${id}/status`, { status }),
+  /** Ends one position held. Its own reporting lines end with it. */
   end: (id: number, effectiveTo?: string) =>
     api.post<{ ok: true; endedReportingRows: number; endedContextLinks: number }>(`/assignments/${id}/end`, { effectiveTo }),
-  remove: (id: number) => api.del<{ ok: true }>(`/assignments/${id}`),
 
-  contexts: (id: number) => api.get<{ items: AssignmentContextRow[]; total: number }>(`/assignments/${id}/contexts`),
-  addContext: (id: number, body: Record<string, unknown>) => api.post<{ id: number }>(`/assignments/${id}/contexts`, body),
-  removeContext: (rowId: number) => api.del<{ ok: true }>(`/work-assignment-contexts/${rowId}`),
-
-  /** v1.1 §13.5 — ALL active relationships with their scopes. Never one manager. */
-  relationships: (id: number, on?: string, includeEnded?: boolean) =>
-    api.get<RelationshipsResult>(`/assignments/${id}/reporting-relationships${qs({ on, includeEnded })}`),
-  /** v1.1 §13.5 — the position's formal defaults plus this assignment's additions/narrowings. */
+  /** The position's formal lines plus the ones added for this person. Never one manager. */
   resolvedReporting: (id: number, on?: string) =>
     api.get<ResolvedReportingResult>(`/assignments/${id}/resolved-reporting${qs({ on })}`),
-
   addReporting: (id: number, body: Record<string, unknown>) => api.post<{ id: number }>(`/assignments/${id}/reporting-relationships`, body),
-  updateReporting: (rowId: number, body: Record<string, unknown>) => api.put<{ ok: true }>(`/assignment-reporting-relationships/${rowId}`, body),
   endReporting: (rowId: number, effectiveTo?: string) => api.post<{ ok: true }>(`/assignment-reporting-relationships/${rowId}/end`, { effectiveTo }),
-  removeReporting: (rowId: number) => api.del<{ ok: true }>(`/assignment-reporting-relationships/${rowId}`),
 
   managerAssignments: (employeeId: number) =>
     api.get<{ asOf: string; items: ManagerAssignmentOption[] }>(`/assignment-managers/${employeeId}/assignments`),
-
-  overrides: (id: number) => api.get<{ items: ContentOverrideRow[]; total: number }>(`/assignments/${id}/overrides`),
-  addOverride: (id: number, body: Record<string, unknown>) => api.post<{ id: number }>(`/assignments/${id}/overrides`, body),
-  removeOverride: (rowId: number) => api.del<{ ok: true }>(`/work-assignment-content-overrides/${rowId}`),
 };

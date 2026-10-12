@@ -36,14 +36,14 @@ export function OriginBadge({ origin }: { origin: 'POSITION' | 'ASSIGNMENT' }) {
       title={
         origin === 'POSITION'
           ? 'Inherited from the position. This is the formal organisation design — it survives a vacancy and a change of people.'
-          : 'Added on this work assignment. It is true for this person doing this work.'
+          : 'Added for this person. It is true for this person doing this work.'
       }
     >
       <span>
         <ToneBadge
           tone={origin === 'POSITION' ? 'info' : 'neutral'}
           noIcon
-          label={origin === 'POSITION' ? 'From the position' : 'On this assignment'}
+          label={origin === 'POSITION' ? 'From the position' : 'For this person'}
         />
       </span>
     </Tooltip>
@@ -102,10 +102,9 @@ export function ReportingRow({
                 to={`/${companySlug}/cf_hrms/employees/${row.manager.employeeId}`}
               />
               {row.manager.workAssignmentId && (
-                <CrossLink
-                  label={`as ${row.manager.workAssignmentTitle ?? row.manager.roleTitle ?? 'their assignment'}`}
-                  to={`/${companySlug}/cf_hrms/assignments/${row.manager.workAssignmentId}`}
-                />
+                <Typography component="span" sx={{ fontSize: 12.5, color: 'var(--c-text-2)' }}>
+                  as {row.manager.workAssignmentTitle ?? row.manager.roleTitle ?? 'their position'}
+                </Typography>
               )}
               {row.managerPosition && (
                 <CrossLink
@@ -176,7 +175,7 @@ export function ReportingRowList({
       <EmptyState
         icon={<AccountTreeRounded />}
         title={emptyTitle}
-        hint={emptyHint ?? 'Nobody has authority over this work yet. Add a manager — it needs no second role and no second assignment.'}
+        hint={emptyHint ?? 'Nobody has authority over this work yet. Add a manager — it needs no second role and no second position held.'}
         action={emptyAction}
       />
     );

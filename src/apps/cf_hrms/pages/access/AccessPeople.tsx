@@ -12,7 +12,6 @@ import {
   FilterBar,
   FormDialog,
   Mono,
-  PageHeader,
   StatSkeleton,
   StatStrip,
   useCompanySlug,
@@ -28,6 +27,7 @@ import {
   type PlatformUser,
 } from '../../api/access';
 import { peopleApi, type EmployeeRow } from '../../api/people';
+import { ScreenHeader } from '../../components/TabbedScreen';
 
 /**
  * People with logins — the platform accounts that can sign in (§4.2).
@@ -253,7 +253,7 @@ export default function AccessPeople() {
 
   return (
     <>
-      <PageHeader
+      <ScreenHeader
         title="People with logins"
         subtitle="Accounts that can sign in to this company's apps"
         actions={

@@ -161,6 +161,65 @@ export interface AssignmentSummary {
   contexts: { id: number; name: string; type: string; isPrimary: boolean }[];
 }
 
+/**
+ * One row of "Positions held" (`GET /people/employees/:id/positions`).
+ *
+ * `id` is the id of the holding itself (the work assignment row), which is what
+ * ending it and its reporting lines are addressed by. `endedHow` is the
+ * server's sentence and is never rebuilt here.
+ */
+export interface PositionHeld {
+  id: number;
+  positionId: number | null;
+  positionCode: string | null;
+  roleTitle: string | null;
+  departmentName: string | null;
+  shiftCode: string | null;
+  shiftName: string | null;
+  effectiveFrom: string | null;
+  effectiveTo: string | null;
+  /** Held today. */
+  isCurrent: boolean;
+  /** Recorded, but it starts on a later day. */
+  startsLater: boolean;
+  isPrimary: boolean;
+  endedHow: string | null;
+}
+
+/** The wire row, as the server sends it (employeePositionsService.positionsHeld). */
+interface RawPositionHeld {
+  assignmentId: number;
+  positionId: number | null;
+  positionCode: string | null;
+  roleTitle: string | null;
+  departmentName: string | null;
+  shift: { id: number | null; code: string | null; name: string | null } | null;
+  from: string | null;
+  to: string | null;
+  isMain: boolean;
+  state: 'CURRENT' | 'COMING' | 'ENDED';
+  /** How it ended: the server's words in its label ("Moved to P0102", "Left the company", "Ended"). */
+  ended: { how: string; label: string; on: string | null } | null;
+}
+
+function toPositionHeld(r: RawPositionHeld): PositionHeld {
+  return {
+    id: r.assignmentId,
+    positionId: r.positionId ?? null,
+    positionCode: r.positionCode ?? null,
+    roleTitle: r.roleTitle ?? null,
+    departmentName: r.departmentName ?? null,
+    shiftCode: r.shift?.code ?? null,
+    shiftName: r.shift?.name ?? null,
+    effectiveFrom: r.from ?? null,
+    effectiveTo: r.to ?? null,
+    isCurrent: r.state === 'CURRENT',
+    startsLater: r.state === 'COMING',
+    isPrimary: !!r.isMain,
+    endedHow: r.ended?.label ?? null,
+  };
+}
+
 export interface EmployeeDetail {
   asOf: string;
   employee: Employee;
@@ -316,6 +375,20 @@ export const peopleApi = {
       `/people/employees/${id}/assignments`,
     ),
 
+  /** Every position the person has held, newest first (spec §10). */
+  positionsHeld: (id: number) =>
+    api
+      .get<{ positions: RawPositionHeld[] }>(`/people/employees/${id}/positions`)
+      .then((r) => (r.positions ?? []).map(toPositionHeld)),
+
+  /**
+   * Puts the person in a vacant position. Their current position ends the day
+   * before, in the same step, unless `keepCurrent` (a second position).
+   * 409 `POSITION_FILLED`, `HIRING_OPEN`, `EMPLOYEE_LEFT`.
+   */
+  move: (id: number, body: { positionId: number; effectiveFrom: string; keepCurrent?: boolean }) =>
+    api.post<unknown>(`/people/employees/${id}/move`, body),
+
   /**
    * Masked. Call this for the tab.
    *
@@ -423,7 +496,7 @@ export const VERIFICATION_TONE = {
 export const EVENT_TYPE_LABEL: Record<string, string> = {
   JOIN: 'Joined',
   TRANSFER: 'Transfer',
-  ASSIGNMENT_CHANGE: 'Assignment change',
+  ASSIGNMENT_CHANGE: 'Position change',
   DEPARTMENT_CHANGE: 'Department change',
   CONTRACTOR_CHANGE: 'Contractor change',
   EXIT: 'Exit',

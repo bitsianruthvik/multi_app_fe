@@ -11,7 +11,6 @@ import {
   FormDialog,
   ListSkeleton,
   Mono,
-  PageHeader,
   SectionCard,
   ToneBadge,
   useToast,
@@ -26,6 +25,7 @@ import {
   type PlatformFeature,
   type RoleGrant,
 } from '../../api/access';
+import { ScreenHeader } from '../../components/TabbedScreen';
 
 /**
  * Capabilities and features — the platform's permission vocabulary (§4.10).
@@ -299,7 +299,7 @@ export default function AccessCapabilities() {
 
   return (
     <>
-      <PageHeader
+      <ScreenHeader
         title="Capabilities and features"
         subtitle="The vocabulary every permission on the platform is written in"
       />

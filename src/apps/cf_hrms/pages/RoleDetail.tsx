@@ -22,7 +22,6 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { Box, Button, ListItemIcon, ListItemText, Menu, MenuItem, Stack, TextField, Typography } from '@mui/material';
 import ApartmentRounded from '@mui/icons-material/ApartmentRounded';
 import WorkOutlineRounded from '@mui/icons-material/WorkOutlineRounded';
-import AssignmentIndRounded from '@mui/icons-material/AssignmentIndRounded';
 import FlagRounded from '@mui/icons-material/FlagRounded';
 import EditRounded from '@mui/icons-material/EditRounded';
 import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
@@ -180,8 +179,7 @@ export default function RoleDetail() {
         <CrossLink icon={<ApartmentRounded />} label={role.departmentName} to={`/${company}/cf_hrms/departments`} />
       )}
       <CrossLink icon={<WorkOutlineRounded />} label="Positions" count={role.positionCount} to={`/${company}/cf_hrms/positions`} />
-      <CrossLink icon={<AssignmentIndRounded />} label="Work assignments" to={`/${company}/cf_hrms/assignments`} />
-      <CrossLink icon={<FlagRounded />} label="KRA master" to={`/${company}/cf_hrms/kras`} />
+      <CrossLink icon={<FlagRounded />} label="KRA library" to={`/${company}/cf_hrms/libraries?tab=kras`} />
     </>
   );
 
@@ -190,7 +188,7 @@ export default function RoleDetail() {
     <Surface e={1} sx={{ p: 1.25, mb: 2, display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
       <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>
         {scope === 'all'
-          ? 'Showing every assignment on this role, including ones dated to start later.'
+          ? 'Showing every position held on this role, including ones dated to start later.'
           : `Showing the content in force on ${content.on}.`}
       </Typography>
       <Box sx={{ flex: 1 }} />
@@ -267,7 +265,7 @@ export default function RoleDetail() {
               </Stack>
               <Box sx={{ mt: 2, fontSize: 12.5, color: 'var(--c-text-3)', maxWidth: 720, lineHeight: 1.6 }}>
                 A department here is a default, not a placement. The actual department and location belong to the
-                Position, and the person doing the work belongs to a Work Assignment.
+                Position, and the person doing the work holds that position.
               </Box>
             </SectionCard>
 
@@ -352,8 +350,8 @@ export default function RoleDetail() {
           <Stack spacing={2}>
             <Callout label="Read this first" title="These are expectations, not reporting lines" tone="info">
               Who this kind of work coordinates with, inside the company and outside it — the paragraph a job
-              description ends with. Who <em>manages</em> the person doing this work is recorded on their Position and
-              Work Assignment, where one assignment can carry a primary manager and a dotted manager at the same time.
+              description ends with. Who <em>manages</em> the person doing this work is recorded on their Position,
+              where one person can have a primary manager and a dotted manager at the same time.
               Nothing on this tab ever becomes a manager.
             </Callout>
             <RoleContentSection
@@ -432,7 +430,7 @@ export default function RoleDetail() {
         open={removing}
         title="Delete this role?"
         entityName={role.title}
-        body="Its content is removed with it. If a position or a work assignment still uses the role, the server will refuse — retire it instead, which keeps the definition readable for the work already attached to it."
+        body="Its content is removed with it. If a position or a person still holds the role, the server will refuse — retire it instead, which keeps the definition readable for the work already attached to it."
         confirmLabel="Delete"
         danger
         onClose={() => setRemoving(false)}

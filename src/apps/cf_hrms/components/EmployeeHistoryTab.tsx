@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Box, Button, MenuItem, TextField, Typography } from '@mui/material';
-import { Link } from 'react-router-dom';
 import AddRounded from '@mui/icons-material/AddRounded';
 import HistoryRounded from '@mui/icons-material/HistoryRounded';
 import {
@@ -80,14 +79,12 @@ function Details({ details }: { details: Record<string, unknown> }) {
 export function EmployeeHistoryTab({
   employeeId,
   employeeName,
-  companySlug,
   canManage,
   pickers,
   onCountChange,
 }: {
   employeeId: number;
   employeeName: string;
-  companySlug: string;
   canManage: boolean;
   /** Passed down rather than fetched — the record screen already has it. */
   pickers: PeoplePickers | null;
@@ -192,14 +189,9 @@ export function EmployeeHistoryTab({
                     noIcon
                   />
                   {e.workAssignmentId && (
-                    <Button
-                      component={Link}
-                      to={`/${companySlug}/cf_hrms/assignments/${e.workAssignmentId}`}
-                      size="small"
-                      sx={{ minWidth: 0, fontSize: 12 }}
-                    >
-                      {e.assignmentRoleTitle ?? `Assignment ${e.workAssignmentId}`}
-                    </Button>
+                    <Typography component="span" sx={{ fontSize: 12, color: 'var(--c-text-2)' }}>
+                      {e.assignmentRoleTitle ?? 'A position held'}
+                    </Typography>
                   )}
                 </Box>
                 <Typography sx={{ fontSize: 14, color: 'var(--c-text)', mt: 0.4 }}>

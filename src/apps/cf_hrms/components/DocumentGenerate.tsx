@@ -71,9 +71,9 @@ function summaryFor(
       : '';
     return `Resolves ${role.title} ${where}, as at ${on}.${thin}`;
   }
-  if (!employee) return 'Pick a person. Their profile covers every work assignment they hold.';
+  if (!employee) return 'Pick a person. Their profile covers every position they hold.';
   const n = employee.activeAssignmentCount;
-  return `Resolves every work assignment ${employee.fullName} holds on ${on}${
+  return `Resolves every position ${employee.fullName} holds on ${on}${
     n ? ` — ${n} of them` : ''
   }, each with its own role, its own managers and its own responsibilities.`;
 }
@@ -197,7 +197,7 @@ export function DocumentGeneratePanel({
         onRun={() => void preview()}
         runLabel="Preview"
         runningLabel="Resolving…"
-        busyMessage="Resolving role content, then the position and assignment overlays…"
+        busyMessage="Resolving role content, then the position and person overlays…"
         disabled={!ready}
         commit={
           canGenerate ? (
@@ -316,8 +316,8 @@ export function DocumentGeneratePanel({
                       <Box sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>
                         {o.employeeCode} ·{' '}
                         {o.activeAssignmentCount === 1
-                          ? '1 assignment'
-                          : `${o.activeAssignmentCount} assignments`}
+                          ? '1 position held'
+                          : `${o.activeAssignmentCount} positions held`}
                         {o.primaryRoleTitle ? ` · ${o.primaryRoleTitle}` : ''}
                       </Box>
                     </Box>

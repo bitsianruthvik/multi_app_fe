@@ -18,21 +18,11 @@ import FitScreenRounded from '@mui/icons-material/FitScreenRounded';
 import UnfoldMoreRounded from '@mui/icons-material/UnfoldMoreRounded';
 import FullscreenRounded from '@mui/icons-material/FullscreenRounded';
 import FullscreenExitRounded from '@mui/icons-material/FullscreenExitRounded';
-import { DetailTabs, Surface } from '@shared/ui';
+import { Surface } from '@shared/ui';
 import type { ChartShow, ShiftFilter } from './orgChartLayout';
 
-/** The four ways to read the organisation, as peer tabs (spec §13). */
-export type OrgChartView = 'chart' | 'table' | 'departments' | 'doubts';
-
 /**
- * Every control that changes what the chart shows (spec §4), on one solid bar,
- * under the tabs that pick the view.
- *
- * Chart / Table / Departments / Doubts are PEERS, the way the client's own tool
- * lays out Chart / Departments / Doubts: four answers to four questions about
- * one organisation, not a chart with modes. The chart controls below the tabs
- * belong to Chart and Table only — a zoom or a shift filter on the Departments
- * view would be a control that does nothing, which reads as a broken one.
+ * Every control that changes what the chart shows (spec §4), on one solid bar.
  *
  * None of it is org data. Zoom, the folded set, the arrangement overrides, the
  * shift filter and the attendance tint are one viewer's way of reading a chart
@@ -88,8 +78,6 @@ export function ShowSwitches({ show, onShow }: { show: ChartShow; onShow: (s: Ch
 }
 
 export function OrgChartToolbar({
-  view,
-  onView,
   rootOptions,
   root,
   onRoot,
@@ -110,10 +98,7 @@ export function OrgChartToolbar({
   onFullscreen,
   asOf,
   onAsOf,
-  doubtsCount,
 }: {
-  view: OrgChartView;
-  onView: (v: OrgChartView) => void;
   rootOptions: RootOption[];
   root: number | '';
   onRoot: (id: number | '') => void;
@@ -123,7 +108,7 @@ export function OrgChartToolbar({
   shifts: { code: string; name: string }[];
   colours: boolean;
   onColours: (v: boolean) => void;
-  /** What is drawn (spec §16). Chart only — the table always lists everything. */
+  /** What is drawn (spec §16). */
   show: ChartShow;
   onShow: (s: ChartShow) => void;
   /** "3 departments closed" / "2 branches folded" — which fold is in force depends on `show`. */
@@ -137,38 +122,11 @@ export function OrgChartToolbar({
   onFullscreen: (v: boolean) => void;
   asOf: string;
   onAsOf: (d: string) => void;
-  /** Open points. Undefined while they load, so the tab never flashes a wrong 0. */
-  doubtsCount?: number;
 }) {
   const selected = rootOptions.find((o) => o.id === root) ?? null;
-  const chartControls = view === 'chart' || view === 'table';
 
   return (
     <Surface e={1} sx={{ overflow: 'hidden' }}>
-      <Box
-        sx={{
-          px: 1,
-          // The kit's tab strip carries its own gap and rule for a detail page;
-          // inside this bar the rule is only wanted when controls follow it.
-          '& > [role=tablist]': {
-            mb: 0,
-            borderBottom: chartControls ? '1px solid var(--c-border)' : 'none',
-          },
-        }}
-      >
-        <DetailTabs
-          active={view}
-          onTab={(v) => onView(v as OrgChartView)}
-          tabs={[
-            { value: 'chart', label: 'Chart' },
-            { value: 'table', label: 'Table' },
-            { value: 'departments', label: 'Departments' },
-            { value: 'doubts', label: 'Doubts', count: doubtsCount },
-          ]}
-        />
-      </Box>
-
-      {chartControls && (
         <Box
           sx={{
             p: 1.5,
@@ -232,7 +190,7 @@ export function OrgChartToolbar({
               ))}
           </ToggleButtonGroup>
 
-          {view === 'chart' && <ShowSwitches show={show} onShow={onShow} />}
+          <ShowSwitches show={show} onShow={onShow} />
 
           <FormControlLabel
             control={
@@ -311,7 +269,6 @@ export function OrgChartToolbar({
             </Tooltip>
           )}
         </Box>
-      )}
     </Surface>
   );
 }

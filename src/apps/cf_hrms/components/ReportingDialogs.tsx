@@ -53,7 +53,7 @@ function ScopeFields({
         helperText={SCOPE_HELP[scopeType] ?? ''}
       >
         {Object.keys(SCOPE_HELP).map((s) => (
-          <MenuItem key={s} value={s}>{s === 'GENERAL' ? 'All of this work (GENERAL)' : s}</MenuItem>
+          <MenuItem key={s} value={s}>{s === 'GENERAL' ? 'All of this work (GENERAL)' : s === 'WORK_CONTEXT' ? 'DEPARTMENT' : s}</MenuItem>
         ))}
       </TextField>
       {scopeType !== 'GENERAL' && (
@@ -70,12 +70,12 @@ function ScopeFields({
         <TextField
           select
           size="small"
-          label="Work context"
+          label="Department"
           value={scopeWorkContextId}
           onChange={(e) => setScopeWorkContextId(e.target.value === '' ? '' : Number(e.target.value))}
           helperText="The machine, line, area or project this applies to."
         >
-          <MenuItem value="">Not a recorded context</MenuItem>
+          <MenuItem value="">Not a recorded department</MenuItem>
           {workContexts.map((c) => (
             <MenuItem key={c.id} value={c.id}>{c.name} · {c.contextType}</MenuItem>
           ))}
@@ -137,7 +137,7 @@ export function AssignmentReportingDialog({
     <FormDialog
       open={open}
       title="Add a manager"
-      subtitle="A second manager needs no second role, no second position and no second assignment."
+      subtitle="A second manager needs no second role, no second position and no second position held."
       onClose={onClose}
       submitLabel="Add manager"
       submitDisabled={managerEmployeeId === '' || relationshipTypeId === ''}
@@ -164,7 +164,7 @@ export function AssignmentReportingDialog({
           label="Manager"
           value={managerEmployeeId}
           onChange={(e) => { setManagerEmployeeId(Number(e.target.value)); setManagerWorkAssignmentId(''); }}
-          helperText="A person. Machines and areas are work contexts, never managers."
+          helperText="A person. Machines and areas are departments, never managers."
         >
           {(options?.employees ?? [])
             .filter((e) => e.id !== subjectEmployeeId)
@@ -175,7 +175,7 @@ export function AssignmentReportingDialog({
           <TextField
             select
             size="small"
-            label="Which of their assignments"
+            label="Which of their positions"
             value={managerWorkAssignmentId}
             onChange={(e) => setManagerWorkAssignmentId(e.target.value === '' ? '' : Number(e.target.value))}
             helperText="Optional, but it records which hat they wear here."
@@ -241,7 +241,7 @@ export function AssignmentReportingDialog({
         />
         {type && !type.allowMultiple && (
           <Alert severity="info" sx={{ fontSize: 13 }}>
-            One live {type.name} per assignment. Other kinds of manager sit beside it — a dotted or
+            One live {type.name} per position held. Other kinds of manager sit beside it — a dotted or
             project line is not blocked by this.
           </Alert>
         )}

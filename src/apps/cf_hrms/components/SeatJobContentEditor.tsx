@@ -390,7 +390,7 @@ export function SeatJobContentEditor({
           {(data.kraExceptions?.length ?? 0) > 0 && (
             <Callout tone="warning" title={t('This position has an older exception on a KRA')}>
               <Box sx={{ fontSize: 13, lineHeight: 1.6 }}>
-                {t('It was recorded before KRAs were fixed at the role. Remove it to bring this seat’s KRAs back in line')}
+                {t('It was recorded before KRAs were fixed at the role. Remove it to bring this position’s KRAs back in line')}
                 with the role.
               </Box>
               <Stack spacing={0.5} sx={{ mt: 1 }}>
@@ -460,7 +460,7 @@ export function SeatJobContentEditor({
               setMenu(null);
             }}
           >
-            <ListItemText primary={t('Switch off for this seat…')} secondary={t('The role keeps it; this position does not do it')} />
+            <ListItemText primary={t('Switch off for this position…')} secondary={t('The role keeps it; this position does not do it')} />
           </MenuItem>
         )}
         {menu && menu.line.mark != null && (
@@ -538,7 +538,7 @@ export function SeatJobContentEditor({
               onChange={(e) => setReason(e.target.value)}
               fullWidth
               size="small"
-              helperText={t('Printed beside the line, and in the seat’s job description.')}
+              helperText={t('Printed beside the line, and in the position’s job description.')}
             />
           </>
         )}

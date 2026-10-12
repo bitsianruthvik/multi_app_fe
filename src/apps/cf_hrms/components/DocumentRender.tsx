@@ -579,10 +579,10 @@ function AssignmentBlock({
         }}
       >
         <CapsLabel sx={{ color: 'var(--c-primary-700)' }}>
-          Assignment {index} of {total}
+          Position {index} of {total}
         </CapsLabel>
         <Typography sx={{ fontSize: 15.5, fontWeight: 600, color: 'var(--c-text)' }}>
-          {a.assignmentTitle ?? a.roleTitle ?? 'Untitled assignment'}
+          {a.assignmentTitle ?? a.roleTitle ?? 'Untitled position'}
         </Typography>
         {a.isPrimary && <ToneBadge tone="info" label="Primary" noIcon />}
         {a.status && <StatusBadge status={a.status} />}
@@ -730,12 +730,12 @@ function ProfileBody({
 
       {assignments.length === 0 ? (
         <Box sx={{ mt: 2 }}>
-          <SectionCard title={look('assignments')?.heading ?? 'Work assignments'}>
+          <SectionCard title={look('assignments')?.heading ?? 'Positions held'}>
             <EmptySectionNote
               note={look('assignments')?.note}
-              what="work assignments in force on this date"
-              to={`/${companySlug}/cf_hrms/assignments`}
-              linkLabel="Assign work"
+              what="positions held on this date"
+              to={`/${companySlug}/cf_hrms/employees`}
+              linkLabel="Put them in a position"
             />
           </SectionCard>
         </Box>
@@ -746,10 +746,10 @@ function ProfileBody({
               as though it were the only one. */}
           <Box sx={{ mt: 2, fontSize: 13.5, color: 'var(--c-text-2)', lineHeight: 1.6 }}>
             {assignments.length === 1 ? (
-              <>One work assignment, described in full below.</>
+              <>One position held, described in full below.</>
             ) : (
               <>
-                <strong>{assignments.length} separate work assignments</strong>, each with its own
+                <strong>{assignments.length} positions held</strong>, each with its own
                 role, its own managers and its own responsibilities. All are listed in full — none of
                 them is a footnote to another.
               </>
@@ -785,7 +785,7 @@ function ProfileBody({
                 sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'baseline' }}
               >
                 <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>
-                  {x.roleTitle ?? `Assignment ${x.id}`}
+                  {x.roleTitle ?? `Position ${x.id}`}
                 </Typography>
                 <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>{x.why}</Typography>
               </Box>

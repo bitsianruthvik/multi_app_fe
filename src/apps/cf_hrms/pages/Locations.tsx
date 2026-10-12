@@ -42,6 +42,7 @@ import {
   useTreeCollapse,
 } from '../components/OrgData';
 import { OrgCode, OrgTreeView } from '../components/OrgTree';
+import { CodeNote } from '../components/CodeNote';
 
 /**
  * Locations — where work physically happens, as a tree (§4.7).
@@ -81,7 +82,8 @@ const oneLineAddress = (a: Address | null) =>
 interface DraftState {
   id: number | null;
   name: string;
-  code: string;
+  /** Shown as text on edit; never sent. */
+  code: string | null;
   locationType: LocationType;
   parentId: number | '';
   status: 'ACTIVE' | 'INACTIVE';
@@ -91,7 +93,7 @@ interface DraftState {
 const emptyDraft = (parentId: number | null): DraftState => ({
   id: null,
   name: '',
-  code: '',
+  code: null,
   locationType: 'PLANT',
   parentId: parentId ?? '',
   status: 'ACTIVE',
@@ -131,7 +133,6 @@ export default function Locations() {
 
   const stats: Stat[] = useMemo(() => {
     const noAddress = rows.filter((r) => !hasAddress(r.address)).length;
-    const noCode = rows.filter((r) => !r.code).length;
     const inactive = rows.filter((r) => r.status === 'INACTIVE').length;
     return [
       { label: 'Locations', value: rows.length },
@@ -140,12 +141,6 @@ export default function Locations() {
         value: noAddress,
         tone: 'warning',
         hint: 'Statutory registers, payslips and letters all print an address. Fill it once here.',
-      },
-      {
-        label: 'Without a code',
-        value: noCode,
-        tone: 'warning',
-        hint: 'Imports and exports match on the code. Without one they have to match on the name.',
       },
       { label: 'Inactive', value: inactive, tone: 'warning', hint: 'Kept for history; hidden from new pickers.' },
     ];
@@ -162,7 +157,7 @@ export default function Locations() {
     setDraft({
       id: row.id,
       name: row.name,
-      code: row.code ?? '',
+      code: row.code ?? null,
       locationType: row.locationType,
       parentId: row.parentId ?? '',
       status: row.status,
@@ -172,8 +167,8 @@ export default function Locations() {
   const save = async () => {
     if (!draft) return;
     const body = {
+      // No code: the server issues it on create and never changes it (spec §11).
       name: draft.name,
-      code: draft.code,
       locationType: draft.locationType,
       parentId: draft.parentId === '' ? null : draft.parentId,
       status: draft.status,
@@ -224,7 +219,7 @@ export default function Locations() {
 
       {loading ? (
         <>
-          <StatSkeleton count={4} />
+          <StatSkeleton count={3} />
           <Box sx={{ mt: 2 }}>
             <ListSkeleton rows={6} />
           </Box>
@@ -256,7 +251,7 @@ export default function Locations() {
             <EmptyState
               icon={<PlaceRounded />}
               title="No locations yet"
-              hint="Start with the company's own site, then add the units, offices and branches inside it. Holidays, positions and assignments all point at a location."
+              hint="Start with the company's own site, then add the units, offices and branches inside it. Holidays, positions and people all point at a location."
               action={
                 canManage ? (
                   <Button variant="contained" startIcon={<AddRounded />} onClick={() => openNew(null)}>
@@ -344,6 +339,7 @@ export default function Locations() {
       >
         {draft && (
           <>
+            <CodeNote code={draft.code} isNew={!draft.id} />
             <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
               <TextField
                 label="Name"
@@ -354,14 +350,7 @@ export default function Locations() {
                 size="small"
                 sx={{ flex: '2 1 240px' }}
               />
-              <TextField
-                label="Code"
-                value={draft.code}
-                onChange={(e) => setDraft({ ...draft, code: e.target.value })}
-                size="small"
-                sx={{ flex: '1 1 140px' }}
-                helperText="Optional, matched without case"
-              />
+
               <TextField
                 select
                 label="Type"
@@ -443,7 +432,7 @@ export default function Locations() {
         danger
         title="Delete this location?"
         entityName={doomed?.path}
-        body="Work contexts, holidays, positions and assignments that point at it will block the delete and say how many. Set it inactive if you only want it out of the pickers."
+        body="Departments, holidays, positions and people that point at it will block the delete and say how many. Set it inactive if you only want it out of the pickers."
         confirmLabel="Delete"
         onConfirm={remove}
         onClose={() => setDoomed(null)}

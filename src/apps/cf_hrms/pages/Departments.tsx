@@ -18,14 +18,17 @@ import SubdirectoryArrowRightRounded from '@mui/icons-material/SubdirectoryArrow
 import UnfoldLessRounded from '@mui/icons-material/UnfoldLessRounded';
 import UnfoldMoreRounded from '@mui/icons-material/UnfoldMoreRounded';
 import AccountTreeRounded from '@mui/icons-material/AccountTreeRounded';
+import LabelOutlined from '@mui/icons-material/LabelOutlined';
 import {
   ConfirmDialog,
   EmptyState,
   ErrorNotice,
+  FacetChip,
   FilterBar,
   FormDialog,
   ListSkeleton,
   PageHeader,
+  SideSheet,
   StatStrip,
   StatSkeleton,
   StatusBadge,
@@ -35,7 +38,9 @@ import {
   type Stat,
 } from '@shared/ui';
 import { useCompanySlug } from '@shared/ui';
-import { orgApi, ORG_MANAGE, type Department } from '../api/organisation';
+import { orgApi, ORG_MANAGE, type Department, type DepartmentLabel } from '../api/organisation';
+import { EditableList } from '../components/EditableList';
+import { CodeNote } from '../components/CodeNote';
 import { getDepartmentStaffing } from '../api/jobContent';
 import { DepartmentStaffingPanel, JobPeekSheet, type JobPeek } from '../components/DepartmentStaffing';
 import {
@@ -62,30 +67,39 @@ import { OrgCode, OrgTreeView } from '../components/OrgTree';
  * department's roles and positions under its row — positions grouped by role,
  * with positions, filled, vacant and who is in each. Clicking a role or a position
  * opens its KRAs, responsibilities and KPIs in a side sheet, with Edit going to
- * the role's Content tab or the position's job-content editor. Two requests for
- * the whole screen: the tree, and every department's staffing in one answer.
+ * the role's Content tab or the position's job-content editor.
+ *
+ * LABELS (2026-10-12, spec §9). Everything is a department; what kind it is —
+ * Department, Section, Machine — is a LABEL from the company's own short list,
+ * edited in the "Labels" side sheet with the inline `EditableList`. Whether a
+ * department is SHARED (its people serve other departments) is a separate fact
+ * with its own switch, not a label. The label's words are never branched on.
+ *
+ * THE CODE IS NOT TYPED (spec §11). It is issued by Setup › Code formats when
+ * the department is created and never changes.
  */
 
 interface DraftState {
   id: number | null;
   name: string;
-  code: string;
+  /** Shown as text on edit; never sent. */
+  code: string | null;
   parentId: number | '';
   status: 'ACTIVE' | 'INACTIVE';
-  /** A label, free text; the labels already in use are offered. */
+  /** One of the company's labels, by name. */
   type: string;
-  /** A shared crew — one box on the org chart, pointing at what it serves. */
+  /** Its people serve other departments — one box on the org chart, pointing at what it serves. */
   isShared: boolean;
   serves: number[];
 }
 
-const emptyDraft = (parentId: number | null): DraftState => ({
+const emptyDraft = (parentId: number | null, label: string): DraftState => ({
   id: null,
   name: '',
-  code: '',
+  code: null,
   parentId: parentId ?? '',
   status: 'ACTIVE',
-  type: '',
+  type: label,
   isShared: false,
   serves: [],
 });
@@ -102,10 +116,9 @@ export default function Departments() {
   const company = useCompanySlug();
   const load = useCallback(
     () =>
-      Promise.all([orgApi.departments.listWithTypes(), getDepartmentStaffing()]).then(([tree, staffing]) => ({
-        ...tree,
-        staffing,
-      })),
+      Promise.all([orgApi.departments.listWithTypes(), getDepartmentStaffing(), orgApi.departmentLabels.list()]).then(
+        ([tree, staffing, labels]) => ({ ...tree, staffing, labels }),
+      ),
     [],
   );
   const { data, error, loading, reload } = useOrgLoad(load);
@@ -118,14 +131,34 @@ export default function Departments() {
   const [peek, setPeek] = useState<JobPeek | null>(null);
   const unplaced = staffingOf.get(0) ?? null;
   const rows = useMemo(() => data?.rows ?? [], [data]);
-  const types = useMemo(() => data?.types ?? [], [data]);
+  const labels: DepartmentLabel[] = useMemo(() => data?.labels ?? [], [data]);
+  const labelItems = useMemo(() => labels.map((l) => ({ id: l.id, name: l.name, count: l.departmentCount })), [labels]);
   const nameOf = useMemo(() => new Map(rows.map((r) => [r.id, r.name])), [rows]);
 
   const [query, setQuery] = useState('');
-  const filtered = useMemo(
-    () => filterTree(rows, query, (r) => `${r.name} ${r.code ?? ''} ${r.path} ${r.type ?? ''}`),
-    [rows, query],
-  );
+  /** The label the list is narrowed to, by name; '' = every label. */
+  const [labelFilter, setLabelFilter] = useState('');
+  const [labelsOpen, setLabelsOpen] = useState(false);
+  const filtered = useMemo(() => {
+    // A label that was renamed or removed while it was the filter stops filtering.
+    const want = labels.some((l) => l.name === labelFilter) ? labelFilter : '';
+    let pool = rows;
+    if (want) {
+      // The departments with that label, plus the ones above them so the tree still reads.
+      const keep = new Set<number>();
+      const above: number[] = [];
+      for (const r of rows) {
+        above.length = r.depth;
+        if (r.type === want) {
+          keep.add(r.id);
+          for (const id of above) keep.add(id);
+        }
+        above[r.depth] = r.id;
+      }
+      pool = rows.filter((r) => keep.has(r.id));
+    }
+    return filterTree(pool, query, (r) => `${r.name} ${r.code ?? ''} ${r.path} ${r.type ?? ''}`);
+  }, [rows, query, labelFilter, labels]);
   const { collapsed, toggle, expandAll, collapseAll, anyCollapsed } = useTreeCollapse(rows);
 
   const [draft, setDraft] = useState<DraftState | null>(null);
@@ -135,7 +168,6 @@ export default function Departments() {
   // always agree with the list beneath (§4.2). Each names something fixable
   // rather than restating the row count.
   const stats: Stat[] = useMemo(() => {
-    const noCode = rows.filter((r) => !r.code).length;
     const inactive = rows.filter((r) => r.status === 'INACTIVE').length;
     const roots = rows.filter((r) => r.depth === 0).length;
     const totals = data?.staffing.counts;
@@ -156,12 +188,6 @@ export default function Departments() {
         hint: 'Departments with no parent. More than a handful usually means a level is missing.',
       },
       {
-        label: 'Without a code',
-        value: noCode,
-        tone: 'warning',
-        hint: 'Imports, exports and spreadsheets match on the code. A department with none has to be matched by name.',
-      },
-      {
         label: 'Inactive',
         value: inactive,
         tone: 'warning',
@@ -170,12 +196,13 @@ export default function Departments() {
     ];
   }, [rows, data]);
 
-  const openNew = (parentId: number | null) => setDraft(emptyDraft(parentId));
+  // A new department takes the first label of the list — "Department" unless the company reordered it.
+  const openNew = (parentId: number | null) => setDraft(emptyDraft(parentId, labels[0]?.name ?? ''));
   const openEdit = (row: Department) =>
     setDraft({
       id: row.id,
       name: row.name,
-      code: row.code ?? '',
+      code: row.code ?? null,
       parentId: row.parentId ?? '',
       status: row.status,
       type: row.type ?? '',
@@ -185,12 +212,12 @@ export default function Departments() {
 
   const save = async () => {
     if (!draft) return;
+    // No code: the server issues it on create and never changes it.
     const body = {
       name: draft.name,
-      code: draft.code,
       parentId: draft.parentId === '' ? null : draft.parentId,
       status: draft.status,
-      type: draft.type.trim() || null,
+      type: draft.type || null,
       isShared: draft.isShared,
       // Only a shared department serves others; un-sharing one clears its list.
       serves: draft.isShared ? draft.serves : [],
@@ -218,7 +245,10 @@ export default function Departments() {
         title="Departments"
         subtitle="The functional units — and what sits under them"
         actions={
-          <Box sx={{ display: 'flex', gap: 1 }}>
+          <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+            <Button size="small" variant="outlined" startIcon={<LabelOutlined />} onClick={() => setLabelsOpen(true)}>
+              Labels
+            </Button>
             {rows.length > 0 && (
               <Button
                 size="small"
@@ -242,7 +272,7 @@ export default function Departments() {
 
       {loading ? (
         <>
-          <StatSkeleton count={5} />
+          <StatSkeleton count={4} />
           <Box sx={{ mt: 2 }}>
             <ListSkeleton rows={6} />
           </Box>
@@ -254,8 +284,23 @@ export default function Departments() {
             <FilterBar
               search={query}
               onSearch={setQuery}
-              placeholder="Search departments by name, code or type"
-            />
+              placeholder="Search departments by name, code or label"
+            >
+              {labels.length > 0 && (
+                <>
+                  <FacetChip label="All" active={!labelFilter} onClick={() => setLabelFilter('')} />
+                  {labels.map((l) => (
+                    <FacetChip
+                      key={l.id}
+                      label={l.name}
+                      count={l.departmentCount}
+                      active={labelFilter === l.name}
+                      onClick={() => setLabelFilter((cur) => (cur === l.name ? '' : l.name))}
+                    />
+                  ))}
+                </>
+              )}
+            </FilterBar>
           </Box>
 
           {rows.length === 0 ? (
@@ -273,9 +318,9 @@ export default function Departments() {
             />
           ) : filtered.length === 0 ? (
             <EmptyState
-              title={`Nothing matches “${query}”`}
-              hint="Search covers the name, the code and the full path."
-              action={<Button onClick={() => setQuery('')}>Clear the search</Button>}
+              title={query ? `Nothing matches “${query}”` : `No department is labelled “${labelFilter}”`}
+              hint="Search covers the name, the code, the label and the full path."
+              action={<Button onClick={() => { setQuery(''); setLabelFilter(''); }}>Show every department</Button>}
             />
           ) : (
             <OrgTreeView
@@ -326,7 +371,7 @@ export default function Departments() {
               renderTrailing={(row) => (
                 <>
                   {staffingOf.get(row.id) && <ToneBadge tone="neutral" noIcon label={staffLabel(staffingOf.get(row.id)!.counts)} />}
-                  {row.isShared && <ToneBadge tone="info" noIcon label="Shared crew" />}
+                  {row.isShared && <ToneBadge tone="info" noIcon label="Shared" />}
                   {row.childCount > 0 && (
                     <ToneBadge
                       tone="neutral"
@@ -419,14 +464,8 @@ export default function Departments() {
               fullWidth
               size="small"
             />
-            <TextField
-              label="Code"
-              value={draft.code}
-              onChange={(e) => setDraft({ ...draft, code: e.target.value })}
-              fullWidth
-              size="small"
-              helperText="Optional. Letters, digits, _ - . — matched without case, so PROD and prod are the same code."
-            />
+            {/* The code is never typed (spec §11): issued on create, fixed afterwards. */}
+            <CodeNote code={draft.code} isNew={!draft.id} />
             <TextField
               select
               label="Parent department"
@@ -448,21 +487,21 @@ export default function Departments() {
                   </MenuItem>
                 ))}
             </TextField>
-            <Autocomplete
-              freeSolo
+            <TextField
+              select
+              label="Label"
+              value={labels.some((l) => l.name === draft.type) ? draft.type : ''}
+              onChange={(e) => setDraft({ ...draft, type: e.target.value })}
+              fullWidth
               size="small"
-              options={types}
-              value={draft.type}
-              onChange={(_, v) => setDraft({ ...draft, type: v ?? '' })}
-              onInputChange={(_, v) => setDraft((d) => (d ? { ...d, type: v } : d))}
-              renderInput={(p) => (
-                <TextField
-                  {...p}
-                  label="Type"
-                  helperText="A label shown under the name on the org chart — Department, Section, Machine / area. Pick one in use or type a new one."
-                />
-              )}
-            />
+              helperText="What kind of department this is. It is shown under the name on the org chart. The list is yours: change it with the Labels button."
+            >
+              {labels.map((l) => (
+                <MenuItem key={l.id} value={l.name}>
+                  {l.name}
+                </MenuItem>
+              ))}
+            </TextField>
             <Box>
               <FormControlLabel
                 control={
@@ -472,11 +511,11 @@ export default function Departments() {
                     onChange={(e) => setDraft({ ...draft, isShared: e.target.checked })}
                   />
                 }
-                label={<Typography sx={{ fontSize: 14 }}>Shared crew</Typography>}
+                label={<Typography sx={{ fontSize: 14 }}>Shared — serves other departments</Typography>}
               />
               <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)', ml: 0.25 }}>
                 Its people work for several departments. The org chart draws it as one box with an
-                arrow to each department it serves.
+                arrow to each department it serves. This is separate from the label.
               </Typography>
             </Box>
             {draft.isShared && (
@@ -500,8 +539,8 @@ export default function Departments() {
                   <TextField
                     {...p}
                     label="Serves"
-                    placeholder={draft.serves.length ? '' : 'Pick the departments this crew works for'}
-                    helperText="Two or more makes it a shared crew in the picture; none draws it as an ordinary box with a dashed frame."
+                    placeholder={draft.serves.length ? '' : 'Pick the departments its people work for'}
+                    helperText="Two or more draws it as one shared box with an arrow to each; none draws it as an ordinary box with a dashed frame."
                   />
                 )}
               />
@@ -523,6 +562,43 @@ export default function Departments() {
           </>
         )}
       </FormDialog>
+
+      <SideSheet
+        open={labelsOpen}
+        onClose={() => setLabelsOpen(false)}
+        title="Labels"
+        subtitle="What kinds of department this company has"
+        width={420}
+      >
+        <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)', mb: 1.5, lineHeight: 1.55 }}>
+          Everything on this screen is a department. The label says what kind — it is shown under the
+          name on the org chart and can be filtered on here. Renaming a label renames it on every
+          department that uses it.
+        </Typography>
+        <EditableList
+          items={labelItems}
+          canEdit={canManage}
+          noun="label"
+          usage={(n) => `${n} department${n === 1 ? '' : 's'}`}
+          minItems={1}
+          onAdd={async (name) => {
+            await orgApi.departmentLabels.create(name);
+            reload();
+          }}
+          onRename={async (id, name) => {
+            await orgApi.departmentLabels.rename(id, name);
+            reload();
+          }}
+          onReorder={async (ids) => {
+            await orgApi.departmentLabels.reorder(ids);
+            reload();
+          }}
+          onRemove={async (id, moveTo) => {
+            await orgApi.departmentLabels.remove(id, moveTo);
+            reload();
+          }}
+        />
+      </SideSheet>
 
       <ConfirmDialog
         open={!!doomed}

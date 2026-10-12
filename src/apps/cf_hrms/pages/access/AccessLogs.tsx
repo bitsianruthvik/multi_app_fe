@@ -6,11 +6,11 @@ import {
   EmptyState,
   ErrorNotice,
   Mono,
-  PageHeader,
   StatusBadge,
   type DataColumn,
 } from '@shared/ui';
 import { accessApi, type ErrorLogRow } from '../../api/access';
+import { ScreenHeader } from '../../components/TabbedScreen';
 
 /**
  * Error logs — recent server-side failures (DESIGN_SYSTEM.md §4.2).
@@ -112,7 +112,7 @@ export default function AccessLogs() {
 
   return (
     <>
-      <PageHeader
+      <ScreenHeader
         title="Error logs"
         subtitle="Server-side failures recorded for this company"
       />

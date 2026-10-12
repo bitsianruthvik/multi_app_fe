@@ -74,7 +74,7 @@ function choicesFor(impact: PositionRemovalImpact): ChoiceView[] {
     let d = 'Keeps its history. The chart stops showing it.';
     d += moves('move');
     if (ownAssignments > 0) {
-      d += ` The ${plural(ownAssignments, 'work assignment')} stay${ownAssignments === 1 ? 's' : ''}, but the chart no longer shows the position.`;
+      d += ` The ${plural(ownAssignments, 'person', 'people')} holding it stay${ownAssignments === 1 ? 's' : ''}, but the chart no longer shows the position.`;
     }
     list.push({ value: 'CLOSE', label: 'Close this position', description: d, allowed: o.close.allowed, reason: o.close.reason, code: o.close.code, destructive: false });
   }
@@ -179,7 +179,7 @@ function ChoiceRow({
                 >
                   {blockers.map((b) => (
                     <li key={b.id}>
-                      {b.title} {b.positionCode && <Mono sx={{ fontSize: 12 }}>{b.positionCode}</Mono>} — {plural(b.assignments, 'assignment')}
+                      {b.title} {b.positionCode && <Mono sx={{ fontSize: 12 }}>{b.positionCode}</Mono>} — {b.assignments} {b.assignments === 1 ? 'position held' : 'positions held'}
                     </li>
                   ))}
                 </Box>
@@ -267,7 +267,7 @@ export function PositionRemoveDialog({
         {direct > 0
           ? `${plural(direct, 'position')} ${direct === 1 ? 'reports' : 'report'} to it directly${team.count > direct ? `; ${team.count} sit under it in all` : ''}.`
           : 'Nobody reports to it.'}
-        {impact.ownAssignments > 0 && ` ${plural(impact.ownAssignments, 'work assignment')} ${impact.ownAssignments === 1 ? 'is' : 'are'} held in this position.`}
+        {impact.ownAssignments > 0 && ` ${plural(impact.ownAssignments, 'person', 'people')} ${impact.ownAssignments === 1 ? 'holds' : 'hold'} this position.`}
       </Typography>
       <RadioGroup value={choice ?? ''} onChange={(e) => setChoice(e.target.value as Choice)} aria-label="What to do with this position">
         {choices.map((c) => (

@@ -6,7 +6,6 @@ import ArrowBackRounded from '@mui/icons-material/ArrowBackRounded';
 import BusinessCenterRounded from '@mui/icons-material/BusinessCenterRounded';
 import EditRounded from '@mui/icons-material/EditRounded';
 import PhotoCameraRounded from '@mui/icons-material/PhotoCameraRounded';
-import WorkOutlineRounded from '@mui/icons-material/WorkOutlineRounded';
 import {
   DetailLayout, DetailHeader, CrossLink, FactItem, StatusBadge, ToneBadge, Mono,
   DetailSkeleton, ErrorNotice, useDetailTitle, useIsPermitted, useToast,
@@ -21,7 +20,7 @@ import { EmployeeFormDialog } from '../components/EmployeeFormDialog';
 import { LeavingBand } from '../components/Leaving';
 import { HiringEntry } from '../components/HiringEntry';
 import { EmployeeOverviewTab } from '../components/EmployeeOverviewTab';
-import { EmployeeWorkTab } from '../components/EmployeeWorkTab';
+import { EmployeePositionsTab } from '../components/EmployeePositionsTab';
 import { EmployeeIdentifiersTab } from '../components/EmployeeIdentifiersTab';
 import { EmployeeDocumentsTab } from '../components/EmployeeDocumentsTab';
 import { EmployeeHistoryTab } from '../components/EmployeeHistoryTab';
@@ -130,7 +129,7 @@ export default function EmployeeDetail() {
   }
   if (!data) return null;
 
-  const { employee, counts, assignments, totalAllocationPercent } = data;
+  const { employee, counts, assignments } = data;
   const initials = employee.fullName.split(/\s+/).slice(0, 2).map((p) => p[0]).join('').toUpperCase();
 
   const photo = (
@@ -183,7 +182,7 @@ export default function EmployeeDetail() {
 
   const tabs: DetailTab[] = [
     { value: 'overview', label: 'Overview' },
-    { value: 'work', label: 'Work', count: counts.activeAssignments },
+    { value: 'work', label: 'Positions held', count: counts.activeAssignments },
     { value: 'identifiers', label: 'Identifiers', count: counts.identifiers },
     { value: 'documents', label: 'Documents', count: counts.documents },
     { value: 'history', label: 'History', count: counts.events },
@@ -228,10 +227,10 @@ export default function EmployeeDetail() {
                 )}
                 subtitle={
                   counts.activeAssignments === 0
-                    ? 'No active work assignment — this person is doing no recorded work'
+                    ? 'Not in a position'
                     : counts.activeAssignments === 1
-                      ? primary?.roleTitle ?? '1 active work assignment'
-                      : `${counts.activeAssignments} concurrent jobs — ${assignments.filter((a) => a.isActive).map((a) => `${a.roleTitle} ${a.allocationPercent ?? 0}%`).join(' · ')}`
+                      ? primary?.roleTitle ?? 'In 1 position'
+                      : `Holds ${counts.activeAssignments} positions — ${assignments.filter((a) => a.isActive).map((a) => a.roleTitle).filter(Boolean).join(' · ')}`
                 }
                 // Someone who has left is read-only apart from their documents.
                 actions={canManage && employee.employmentStatus !== 'EXITED' && (
@@ -266,9 +265,6 @@ export default function EmployeeDetail() {
                     {employee.employmentType === 'CONTRACT' && (
                       <FactItem label="Contractor" value={employee.contractorName ?? '—'} />
                     )}
-                    <FactItem label="Allocated">
-                      <Mono sx={{ fontSize: 14 }}>{totalAllocationPercent}%</Mono>
-                    </FactItem>
                   </>
                 )}
               />
@@ -279,12 +275,7 @@ export default function EmployeeDetail() {
           <>
             {/* Principle #4: always render these. A record with no way sideways
                 sends people back to a list to search again. */}
-            <CrossLink
-              icon={<WorkOutlineRounded />}
-              label="Work assignments"
-              count={counts.assignments}
-              to={`/${company}/cf_hrms/assignments?employee=${employee.id}`}
-            />
+
             {primary?.departmentName && (
               <CrossLink icon={<ApartmentRounded />} label={primary.departmentName} to={`/${company}/cf_hrms/departments`} />
             )}
@@ -321,11 +312,12 @@ export default function EmployeeDetail() {
         {tab === 'overview' && <EmployeeOverviewTab employee={employee} />}
 
         {tab === 'work' && (
-          <EmployeeWorkTab
-            assignments={assignments}
-            totalAllocationPercent={totalAllocationPercent}
-            companySlug={company ?? ''}
+          <EmployeePositionsTab
+            employeeId={employee.id}
             employeeName={employee.fullName}
+            employmentStatus={employee.employmentStatus}
+            companySlug={company ?? ''}
+            onChanged={() => void load()}
           />
         )}
 
@@ -341,7 +333,6 @@ export default function EmployeeDetail() {
           <EmployeeHistoryTab
             employeeId={employee.id}
             employeeName={employee.fullName}
-            companySlug={company ?? ''}
             canManage={canManage}
             pickers={pickers}
           />

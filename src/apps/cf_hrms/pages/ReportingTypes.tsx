@@ -166,7 +166,7 @@ export default function ReportingTypes() {
               tone="neutral"
               icon={<LinearScaleRounded fontSize="small" />}
               label="Informal"
-              title="Lives on the work assignment. Real, but not part of the sanctioned structure."
+              title="Lives with the person. Real, but not part of the formal structure."
             />
           ),
         sortValue: (r) => (r.isFormal ? 0 : 1),
@@ -232,7 +232,7 @@ export default function ReportingTypes() {
         <strong>Formal</strong> means the relationship belongs to the <em>position</em>, not to the
         person filling it. A formal line survives a vacancy: when the Production Manager leaves, the
         shift in-charges still report to that post, and the org chart still draws the line. An
-        informal one lives on the work assignment and leaves with the person — a dotted line to a
+        informal one lives with the person and leaves with the person — a dotted line to a
         project lead exists while the project does.
         <br />
         <strong>Several allowed</strong> says whether a person can hold more than one active

@@ -1424,7 +1424,7 @@ export function layoutDepartments(model: ChartModel, opts: LayoutOptions): Layou
     if (!own.length && !kidsAll.length) {
       const by = servedBy(d);
       // The arrows say WHICH crew; the words only say why the box is empty.
-      notes.push(by === 1 ? 'Worked by a shared crew' : by ? `Worked by ${by} shared crews` : 'No positions of its own');
+      notes.push(by === 1 ? 'Worked by a shared department' : by ? `Worked by ${by} shared departments` : 'No positions of its own');
     } else if (!open || !cards) {
       notes.push(counts.positions ? positionsLine(counts) : 'No positions of its own');
       if (!open && below) notes.push(`${below} department${below === 1 ? '' : 's'} inside`);
@@ -2002,7 +2002,7 @@ function boxLabel(p: PlacedNode, filter: ShiftFilter, shiftName: string | null):
   const bits = [`Role ${n.displayTitle || n.title}`];
   if (n.departmentName) bits.push(n.departmentName);
   bits.push(`${c.positions} position${c.positions === 1 ? '' : 's'}, ${c.filled} filled, ${c.vacant} vacant`);
-  if (n.contexts?.length) bits.push(`work context ${n.contexts.map((c) => c.name).join(', ')}`);
+  if (n.contexts?.length) bits.push(`department ${n.contexts.map((c) => c.name).join(', ')}`);
   const kids = p.kids.length + p.hidden;
   if (kids) bits.push(p.collapsed ? `${p.hidden} reports hidden` : `${p.kids.length} direct reports`);
   if (filter !== 'all') bits.push(`${shiftName ?? filter} shift only`);

@@ -211,7 +211,7 @@ export default function Positions() {
               hint={
                 search || status || departmentId
                   ? 'Clear the filter to see every position.'
-                  : 'A position is one chair for one person on one shift. It is optional — people can hold work assignments without one — but it is what makes vacancies countable.'
+                  : 'A position is one chair for one person on one shift. It is optional — people can do work without one — but it is what makes vacancies countable.'
               }
               action={canManage && !search ? <Button variant="contained" size="small" onClick={() => setCreating(true)}>New position</Button> : undefined}
             />

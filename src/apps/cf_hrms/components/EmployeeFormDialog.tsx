@@ -128,7 +128,7 @@ export function EmployeeFormDialog({
     <FormDialog
       open={open}
       title={employee ? `Edit ${employee.fullName}` : 'New employee'}
-      subtitle={employee ? undefined : 'One record per person. Their jobs are added afterwards, as work assignments.'}
+      subtitle={employee ? undefined : 'One record per person. Their position is set afterwards, on their page or on the position.'}
       onClose={onClose}
       onSubmit={submit}
       submitLabel={employee ? 'Save' : 'Create employee'}

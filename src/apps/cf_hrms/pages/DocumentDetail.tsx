@@ -266,7 +266,7 @@ export default function DocumentDetail() {
         >
           Everything below was resolved on{' '}
           <strong>{snapshot.asOf ?? doc.asOf ?? 'the generation date'}</strong> and stored with the
-          document. The role, the position and the assignment may all have changed since; this page
+          document. The role, the position and the person’s job may all have changed since; this page
           deliberately does not follow them.{' '}
           {doc.isCurrent
             ? 'Generate a new one to see today’s model.'
@@ -279,7 +279,7 @@ export default function DocumentDetail() {
       <Box sx={{ mb: 1.5 }}>
         <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>
           {snapshot.documentType === 'EMPLOYEE_RESPONSIBILITY_PROFILE'
-            ? 'Every work assignment this person held on that date, each with its own managers and its own resolved content.'
+            ? 'Every position this person held on that date, each with its own managers and its own resolved content.'
             : 'The role’s content, resolved through any position overlay that applied.'}
         </Typography>
       </Box>

@@ -48,7 +48,7 @@ const DEFINITION_FIELD: Partial<Record<ContentKind, string>> = {
 };
 
 const TITLES: Record<ContentKind, { add: string; edit: string; noun: string }> = {
-  kras: { add: 'Assign a KRA', edit: 'Edit KRA assignment', noun: 'KRA' },
+  kras: { add: 'Assign a KRA', edit: 'Edit KRA', noun: 'KRA' },
   responsibilities: { add: 'Assign a responsibility', edit: 'Edit responsibility', noun: 'responsibility' },
   kpis: { add: 'Assign a KPI', edit: 'Edit KPI', noun: 'KPI' },
   skills: { add: 'Require a skill', edit: 'Edit skill requirement', noun: 'skill' },

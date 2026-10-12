@@ -18,6 +18,7 @@ import { HiringCloseDialog } from './HiringCloseDialog';
 import { HiringSignedCopy } from './HiringSignedCopy';
 import { HiringJobDescription } from './HiringJobDescription';
 import { usePositionRemoval } from './usePositionRemoval';
+import { MoveEmployeeHereButton } from './MoveEmployee';
 
 /**
  * One hiring — the whole flow on ONE resumable screen (CF_HRMS_HIRING_SPEC.md §2.6).
@@ -700,14 +701,12 @@ export function HiringFlow({
                 </Button>
               )}
               {afterClose === 'MOVE_EMPLOYEE' && (
-                <Button
-                  component={RouterLink}
-                  to={`/${company}/cf_hrms/assignments?new=1&positionId=${hiring.positionId}`}
+                <MoveEmployeeHereButton
+                  positionId={hiring.positionId}
+                  positionLabel={[hiring.roleTitle, hiring.positionCode].filter(Boolean).join(' · ')}
                   variant="contained"
-                  size="small"
-                >
-                  Move an existing employee here
-                </Button>
+                  onDone={() => load()}
+                />
               )}
               {afterClose === 'REMOVE_POSITION' && canRemovePosition && (
                 <Button

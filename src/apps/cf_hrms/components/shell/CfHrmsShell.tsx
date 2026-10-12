@@ -37,13 +37,12 @@ import '../../statusMap';
  */
 const QUICK_CREATE = [
   { label: 'Employee', path: 'employees?new=1', permission: 'cf_hrms_people_manage' },
-  { label: 'Work assignment', path: 'assignments?new=1', permission: 'cf_hrms_assignments_manage' },
   { label: 'Role', path: 'roles?new=1', permission: 'cf_hrms_roles_manage' },
   { label: 'Position', path: 'positions?new=1', permission: 'cf_hrms_org_manage' },
 ];
 
 /**
- * The palette's "Actions" group. Deliberately the same four as QUICK_CREATE and
+ * The palette's "Actions" group. Deliberately the same three as QUICK_CREATE and
  * gated on the same tags — two lists that disagree about what you can create is
  * worse than one list in two places.
  */
@@ -72,8 +71,8 @@ export function CfHrmsShell({ children }: { children: ReactNode }) {
    * The nav's permission predicate.
    *
    * Every cf_hrms screen is gated by a feature tag, which `useIsPermitted`
-   * answers on its own — so this exists for exactly one case: the four Access
-   * screens under Setup, which administer the PLATFORM's accounts and
+   * answers on its own — so this exists for one screen: Logins and access under
+   * Setup, which administers the PLATFORM's accounts and
    * permissions rather than anything in HR. There is no feature tag for that
    * (see api/access.ts), and the platform's existing answer to "may this person
    * administer the tenant" is the admin role name, which is what App.tsx
@@ -81,7 +80,7 @@ export function CfHrmsShell({ children }: { children: ReactNode }) {
    *
    * Passing it to both the palette and the shell is the point: navMeta stays
    * the single nav source, and the top nav, the section row, the mobile sheet
-   * and ⌘K all hide the same four entries from the same person.
+   * and ⌘K all hide the same entry from the same person.
    */
   const permitted = useIsPermitted();
   const isPlatformAdmin = useIsPlatformAdmin();

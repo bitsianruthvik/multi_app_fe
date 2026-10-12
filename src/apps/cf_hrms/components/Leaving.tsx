@@ -438,7 +438,7 @@ function EndNoticeDialog({
           }
         />
         <Typography data-endnotice-effect="" sx={{ fontSize: 14, lineHeight: 1.55 }}>
-          Their assignment ends, the position becomes vacant and their login stops working.
+          They leave their position, it becomes vacant and their login stops working.
         </Typography>
         <Typography sx={{ fontSize: 13, lineHeight: 1.55, color: 'var(--c-text-2)' }}>
           Their record, documents and employee code are kept, under Employees › Left. This cannot be undone from here.

@@ -12,7 +12,7 @@
  * chart's numbers by construction. One request serves every department.
  */
 import { Link as RouterLink, useNavigate } from 'react-router-dom';
-import { Box, Button, Stack, Tooltip, Typography } from '@mui/material';
+import { Box, Button, Stack, Typography } from '@mui/material';
 import EditRounded from '@mui/icons-material/EditRounded';
 import { Mono, SideSheet, ToneBadge, useIsPermitted } from '@shared/ui';
 import type { PositionShift } from '../api/positions';
@@ -21,6 +21,7 @@ import { HiringEntry } from './HiringEntry';
 import { joiningSentence, vacantLabel, type HiringRef, type JoiningRef } from '../api/hiring';
 import { NoticeChip } from './Leaving';
 import { usePositionRemoval } from './usePositionRemoval';
+import { MOVE_PERMISSION, MoveEmployeeHereButton } from './MoveEmployee';
 import type { DepartmentStaffing, StaffingPosition, StaffingRole } from '../api/jobContent';
 import { JobContentPanel } from './JobContentPanel';
 
@@ -303,19 +304,14 @@ export function JobPeekSheet({
               {can('cf_hrms_org_manage') && (
                 <>
                   {/* While a hiring is open nobody else can be moved in; the reason is on the button. */}
-                  <Tooltip title={peek.hiring ? 'A hiring is open for this position. Close it first.' : ''}>
-                    <Box component="span">
-                      <Button
-                        component={RouterLink}
-                        to={`/${company}/cf_hrms/assignments?new=1&positionId=${peek.id}`}
-                        size="small"
-                        variant="outlined"
-                        disabled={!!peek.hiring}
-                      >
-                        Move an existing employee here
-                      </Button>
-                    </Box>
-                  </Tooltip>
+                  {can(MOVE_PERMISSION) && can('cf_hrms_people_view') && (
+                    <MoveEmployeeHereButton
+                      positionId={peek.id}
+                      positionLabel={[peek.roleTitle, peek.positionCode].filter(Boolean).join(' · ')}
+                      blocked={peek.hiring ? 'A hiring is open for this position. Close it first.' : null}
+                      onDone={() => onChanged?.(peek.shift as PositionShift)}
+                    />
+                  )}
                   <HiringEntry positionId={peek.id} positionCode={peek.positionCode ?? null} roleTitle={peek.roleTitle ?? null} hiring={peek.hiring} onChanged={() => onChanged?.(peek.shift as PositionShift)} />
                 </>
               )}

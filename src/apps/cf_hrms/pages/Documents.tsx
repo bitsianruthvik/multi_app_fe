@@ -303,7 +303,7 @@ export default function Documents() {
       <>
         <PageHeader
           title="Generate a document"
-          subtitle="resolve the role, its position overlay and the assignment — read it, then freeze it"
+          subtitle="resolve the role, its position overlay and the person — read it, then freeze it"
         />
         <DocumentGeneratePanel
           companySlug={company}
@@ -347,7 +347,7 @@ export default function Documents() {
         </Callout>
       )}
 
-      <FilterBar search={search} onSearch={setSearch} placeholder="Search role, person or seat…">
+      <FilterBar search={search} onSearch={setSearch} placeholder="Search role, person or position…">
         <FacetChip label="All" active={!type} onClick={() => setType('')} count={all.length} />
         {DOCUMENT_TYPES.map((d) => (
           <FacetChip
@@ -395,7 +395,7 @@ export default function Documents() {
               hint={
                 filtering
                   ? 'Clear the filter to see every generated document.'
-                  : 'A document is a frozen copy of what a job was on the day it was generated — the role’s content, the position’s overlay and the person’s assignment, resolved and stored. Nothing here is computed on the fly.'
+                  : 'A document is a frozen copy of what a job was on the day it was generated — the role’s content, the position’s overlay and the person’s own changes, resolved and stored. Nothing here is computed on the fly.'
               }
               action={
                 canGenerate && !filtering ? (

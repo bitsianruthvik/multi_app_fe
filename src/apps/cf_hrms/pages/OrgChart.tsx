@@ -10,14 +10,10 @@ import {
   EmptyState,
   ErrorNotice,
   PageHeader,
-  StatStrip,
-  Surface,
   readPref,
-  useIsPermitted,
   useToast,
   writePref,
 } from '@shared/ui';
-import type { Stat } from '@shared/ui';
 import type { OrgChartGraph } from '../api/orgchart';
 import { orgChartApi } from '../api/orgchart';
 import {
@@ -40,12 +36,7 @@ import {
   type ShiftFilter,
 } from '../components/orgChartLayout';
 import { OrgChartCanvas, type NavDirection } from '../components/OrgChartCanvas';
-import { OrgChartTable } from '../components/OrgChartTable';
-import {
-  OrgChartToolbar,
-  type OrgChartView,
-  type RootOption,
-} from '../components/OrgChartToolbar';
+import { OrgChartToolbar, type RootOption } from '../components/OrgChartToolbar';
 import { OrgChartPanelViews } from '../components/OrgChartPanelViews';
 import { OrgChartViewOptions } from '../components/OrgChartViewOptions';
 import { OrgChartTitleStrip } from '../components/OrgChartTitleStrip';
@@ -61,9 +52,6 @@ import {
   type FloatingPanelHandle,
 } from '../components/OrgChartFloatingPanel';
 import { useFullscreen } from '../components/useFullscreen';
-import { OpenPointsList } from '../components/OrgChartOpenPoints';
-import { useOpenPoints } from '../components/useOpenPoints';
-import { OrgChartDepartments } from '../components/OrgChartDepartments';
 import { OrgChartSearch } from '../components/OrgChartSearch';
 import { exportPdf, exportPng } from '../components/OrgChartExport';
 
@@ -72,9 +60,8 @@ import { exportPdf, exportPng } from '../components/OrgChartExport';
  * the client prints and puts on a wall.
  *
  * DESIGN_SYSTEM.md §4.5 Canvas / Builder: a full-bleed canvas with solid
- * floating panels, and a keyboard/list alternative that is not optional. The
- * Table toggle *is* that alternative and carries the same rows under the same
- * filters — §6.4.
+ * floating panels, and a keyboard alternative that is not optional: arrow keys
+ * walk the chart and the text alternative describes it — §6.4.
  *
  * WHAT IS DRAWN (2026-10-10): a card per ROLE in a department, a row per
  * POSITION in it — one chair, one person, one shift. The card's headline opens
@@ -82,7 +69,7 @@ import { exportPdf, exportPng } from '../components/OrgChartExport';
  *
  * THE NUMBERS THIS SCREEN EXISTS FOR ARE THE VACANCIES. Vacant positions are
  * drawn as rows that say Vacant rather than omitted, and every count on the
- * page — the stat strip, the fixed strip, a closed department — comes from one
+ * page — the title strip, a closed department — comes from one
  * rule (`countPositions`), so the summary can never flatter the picture
  * beneath it: positions = filled + vacant.
  *
@@ -90,19 +77,11 @@ import { exportPdf, exportPng } from '../components/OrgChartExport';
  * shift filter and the attendance tint are per-person preferences in
  * localStorage. None of it is org data and there is no `chart_arrange` column
  * (spec §9, "What is NOT in the API").
- *
- * FOUR VIEWS, ONE SCREEN (spec §13). Chart and Table draw the same rows under
- * the same filters. Departments answers "what is this unit accountable for"
- * from `GET /orgchart/departments`, borrowing this page's graph for titles and
- * position counts. Doubts is the open-points list, fetched here rather than in the
- * tab so the tab can carry its count before anyone opens it.
  */
 
 const SHIFT_ORDER: Record<string, number> = { G: 0, D: 1, N: 2 };
 
 /** Preference keys are per company: a root id from another tenant is meaningless. */
-const ORG_CHART_VIEWS: OrgChartView[] = ['chart', 'table', 'departments', 'doubts'];
-
 const prefKey = (company: string, suffix: string) => `orgchart:${company}:${suffix}`;
 
 function today(): string {
@@ -114,8 +93,6 @@ function today(): string {
 export default function OrgChart() {
   const { company = '' } = useParams<{ company: string }>();
   const theme = useTheme();
-  const can = useIsPermitted();
-  const canManage = can('cf_hrms_org_manage');
   const toast = useToast();
   const [params, setParams] = useSearchParams();
 
@@ -132,13 +109,6 @@ export default function OrgChart() {
   });
   const [shift, setShift] = useState<ShiftFilter>(() => readPref<ShiftFilter>(key('shift'), 'all'));
   const [colours, setColours] = useState<boolean>(() => readPref<boolean>(key('colours'), true));
-  // The URL wins over the stored preference, so a link to ?view=departments
-  // opens on Departments whatever this viewer last looked at.
-  const [view, setView] = useState<OrgChartView>(() => {
-    const wanted = params.get('view') || readPref<string>(key('view'), 'chart');
-    return ORG_CHART_VIEWS.includes(wanted as OrgChartView) ? (wanted as OrgChartView) : 'chart';
-  });
-  const chartLike = view === 'chart' || view === 'table';
   const [collapsed, setCollapsed] = useState<Set<number>>(
     () => new Set(readPref<number[]>(key('collapsed'), [])),
   );
@@ -179,8 +149,6 @@ export default function OrgChart() {
   const [searchOpen, setSearchOpen] = useState(false);
   const fullscreen = useFullscreen();
 
-  // Fetched on arrival, not when the tab opens: the tab shows the count.
-  const points = useOpenPoints();
   const [exporting, setExporting] = useState(false);
 
   // A callback ref, not useRef: the stage only exists once the graph has
@@ -189,8 +157,8 @@ export default function OrgChart() {
   const [stageEl, setStageEl] = useState<HTMLDivElement | null>(null);
   const [stage, setStage] = useState({ w: 0, h: 0 });
   const stageWidth = stage.w;
-  // The region = toolbar + chart. A fixed-height panel on Chart and Table, so
-  // the PAGE never scrolls there and the wheel is free to zoom (spec §14).
+  // The region = toolbar + chart. A fixed-height panel, so
+  // the PAGE never scrolls and the wheel is free to zoom (spec §14).
   const [pageEl, setPageEl] = useState<HTMLDivElement | null>(null);
   const [regionEl, setRegionEl] = useState<HTMLDivElement | null>(null);
   const [regionH, setRegionH] = useState<number | null>(null);
@@ -227,6 +195,8 @@ export default function OrgChart() {
         const next = new URLSearchParams(prev);
         if (root) next.set('root', String(root));
         else next.delete('root');
+        // An old link's ?view= names a screen that no longer exists.
+        next.delete('view');
         return next;
       },
       { replace: true },
@@ -235,18 +205,6 @@ export default function OrgChart() {
 
   useEffect(() => writePref(prefKey(company, 'shift'), shift), [shift, company]);
   useEffect(() => writePref(prefKey(company, 'colours'), colours), [colours, company]);
-  useEffect(() => {
-    writePref(prefKey(company, 'view'), view);
-    setParams(
-      (prev) => {
-        const next = new URLSearchParams(prev);
-        if (view === 'chart') next.delete('view');
-        else next.set('view', view);
-        return next;
-      },
-      { replace: true },
-    );
-  }, [view, company, setParams]);
   useEffect(() => writePref(prefKey(company, 'collapsed'), [...collapsed]), [collapsed, company]);
   useEffect(() => writePref(prefKey(company, 'foldTouched'), foldTouched), [foldTouched, company]);
   useEffect(() => writePref(prefKey(company, 'arrange'), arrange), [arrange, company]);
@@ -272,7 +230,7 @@ export default function OrgChart() {
    *
    * The shell scrolls its <main>, not the document. So the region's height is
    * main's visible height minus everything above the region and main's own
-   * bottom padding — measured, because the stat strip and the toolbar wrap to a
+   * bottom padding — measured, because the title strip and the toolbar wrap to a
    * different height at every width. Re-measured whenever main or the page
    * resizes; the result does not depend on the region's own height, so setting
    * it cannot feed back into another measurement.
@@ -287,7 +245,7 @@ export default function OrgChart() {
   useLayoutEffect(() => {
     // Not while full screen: the region is fixed then, and measuring it would
     // store a height for a layout it is not in.
-    if (!regionEl || !scrollEl || !chartLike || isFull) return;
+    if (!regionEl || !scrollEl || isFull) return;
     const measure = () => {
       const mainRect = scrollEl.getBoundingClientRect();
       const top = regionEl.getBoundingClientRect().top - mainRect.top + scrollEl.scrollTop;
@@ -308,12 +266,7 @@ export default function OrgChart() {
       window.removeEventListener('resize', measure);
       ro?.disconnect();
     };
-  }, [regionEl, scrollEl, pageEl, chartLike, isFull]);
-
-  // Full screen belongs to Chart and Table; Departments and Doubts read as pages.
-  useEffect(() => {
-    if (isFull && !chartLike) exitFull();
-  }, [isFull, chartLike, exitFull]);
+  }, [regionEl, scrollEl, pageEl, isFull]);
 
   // ── Model and scene ─────────────────────────────────────────────────────
   const model = useMemo(() => (graph ? buildModel(graph) : null), [graph]);
@@ -571,55 +524,6 @@ export default function OrgChart() {
     });
   }, [model]);
 
-  const stats: Stat[] = useMemo(() => {
-    const c = counts;
-    const folded = [...collapsed].filter((id) => visibleIds.includes(id)).length;
-    return [
-      {
-        label: 'Positions',
-        value: c?.positions ?? 0,
-        hint: rootCard
-          ? 'Positions in the branch you started from. One position is one chair for one person, on one shift.'
-          : 'Every position in the organisation. One position is one chair for one person, on one shift.',
-      },
-      {
-        label: 'Filled',
-        value: c?.filled ?? 0,
-        tone: 'success',
-        hint: 'Positions with a person in them.',
-      },
-      {
-        label: 'Present',
-        value: c?.present ?? 0,
-        // Present and filled are separate on purpose: no attendance record for
-        // the date means unmarked, and reporting that as present would invent a
-        // figure the system does not hold.
-        hint:
-          c && c.unmarked > 0
-            ? `Marked present on ${asOf}. ${c.unmarked} filled position${c.unmarked === 1 ? ' has' : 's have'} no attendance recorded for this date.`
-            : `People marked present on ${asOf}.`,
-      },
-      {
-        label: 'Absent',
-        value: c?.absent ?? 0,
-        tone: 'danger',
-        hint: `People marked absent on ${asOf}.`,
-      },
-      {
-        // Deliberately toneless. Most positions are empty; painting that red
-        // every day is how a screen stops being read (statusMap.ts).
-        label: 'Vacant positions',
-        value: c?.vacant ?? 0,
-        hint:
-          `Positions with nobody in them${shift === 'all' ? '' : `, ${shiftLabel.toLowerCase()} only`}. ` +
-          'Positions = filled + vacant.' +
-          (c?.hiring ? ` A hiring is open for ${c.hiring} of them; they stay vacant until the employee is created.` : '') +
-          (c?.joining ? ` Somebody is appointed to ${c.joining} and has not joined yet.` : '') +
-          (folded ? ` Includes ${folded} folded branch${folded === 1 ? '' : 'es'}.` : ''),
-      },
-    ];
-  }, [counts, rootCard, asOf, shift, shiftLabel, collapsed, visibleIds]);
-
   const doExport = async (kind: 'png' | 'pdf') => {
     if (!model || !sceneOptions) return;
     setExporting(true);
@@ -659,8 +563,8 @@ export default function OrgChart() {
   );
 
   /**
-   * Open a POSITION from anywhere — a row of a card, a table row, a search hit,
-   * a doubt. It sits on top of its card's role, so Back shows the role and the
+   * Open a POSITION from anywhere — a row of a card, a search hit,
+   * a search hit. It sits on top of its card's role, so Back shows the role and the
    * other positions beside it. One that is not on the chart opens on its own.
    */
   const openPosition = useCallback(
@@ -685,11 +589,11 @@ export default function OrgChart() {
     setViews([]);
     // Hand the keyboard back to the card the panel described, so Esc in the
     // panel lands the viewer where they were in the chart.
-    if (cardId != null && view === 'chart') {
+    if (cardId != null) {
       const el = document.getElementById(`orgchart-node-${cardId}`) as unknown as HTMLElement | null;
       el?.focus({ preventScroll: true });
     }
-  }, [cardId, view]);
+  }, [cardId]);
 
   // A card: Enter (or a click) opens the panel and LEAVES FOCUS ON THE CARD, so
   // the arrow keys keep walking the chart; the panel follows the selection
@@ -756,41 +660,34 @@ export default function OrgChart() {
             <Button size="small" startIcon={<SearchRounded />} onClick={() => setSearchOpen(true)}>
               Search KRAs
             </Button>
-            {/* The exports draw the chart, so they belong to the views that are the chart. */}
-            {chartLike && (
-              <>
-                <Button
-                  size="small"
-                  variant="outlined"
-                  startIcon={<ImageRounded />}
-                  disabled={!scene || exporting}
-                  onClick={() => doExport('png')}
-                >
-                  PNG
-                </Button>
-                <Button
-                  size="small"
-                  variant="contained"
-                  startIcon={<PictureAsPdfRounded />}
-                  disabled={!scene || exporting}
-                  onClick={() => doExport('pdf')}
-                >
-                  PDF
-                </Button>
-              </>
-            )}
+            <Button
+              size="small"
+              variant="outlined"
+              startIcon={<ImageRounded />}
+              disabled={!scene || exporting}
+              onClick={() => doExport('png')}
+            >
+              PNG
+            </Button>
+            <Button
+              size="small"
+              variant="contained"
+              startIcon={<PictureAsPdfRounded />}
+              disabled={!scene || exporting}
+              onClick={() => doExport('pdf')}
+            >
+              PDF
+            </Button>
           </Stack>
         }
       />
 
-      {chartLike && <StatStrip stats={stats} />}
-
       {!!error && <ErrorNotice error={error} onRetry={() => load()} />}
 
       {/*
-        THE REGION: toolbar + chart. On Chart and Table it is a fixed-height
-        panel filling the rest of the window (measured above), so the page does
-        not scroll and the wheel zooms. In full screen it is fixed over the
+        THE REGION: toolbar + chart. It is a fixed-height panel filling the
+        rest of the window (measured above), so the page does not scroll and
+        the wheel zooms. In full screen it is fixed over the
         whole viewport while the DOCUMENT is the browser's full-screen element
         (useFullscreen explains why not this element).
       */}
@@ -812,24 +709,17 @@ export default function OrgChart() {
                 flexDirection: 'column',
                 gap: 1.5,
               }
-            : chartLike
-              ? {
-                  height: regionH ?? 560,
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: 2,
-                }
-              : { display: 'flex', flexDirection: 'column', gap: 2 }
+            : {
+                height: regionH ?? 560,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 2,
+              }
         }
       >
         {model && scene && (
           <Box sx={{ flexShrink: 0 }}>
             <OrgChartToolbar
-              view={view}
-              onView={setView}
-              // No number until there is one: a "0" while loading, or after a failed
-              // load, would say there is nothing to answer.
-              doubtsCount={points.error || (points.loading && !points.groups.length) ? undefined : points.total}
               rootOptions={rootOptions}
               root={rootCard}
               onRoot={setRoot}
@@ -857,18 +747,18 @@ export default function OrgChart() {
           </Box>
         )}
 
-        {loading && (chartLike || !model) && <ChartSkeleton />}
+        {loading && <ChartSkeleton />}
 
-        {chartLike && !loading && !error && model && model.byId.size === 0 && (
+        {!loading && !error && model && model.byId.size === 0 && (
           <EmptyState
             title="No positions yet"
             hint="Import the organisation chart, or create positions, and they will appear here."
           />
         )}
 
-        {chartLike && !loading && model && scene && model.byId.size > 0 && (
+        {!loading && model && scene && model.byId.size > 0 && (
           <Box sx={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-            {view === 'chart' && counts && (
+            {counts && (
               <OrgChartTitleStrip
                 title={rootNode ? `${rootNode.displayTitle || rootNode.title} — and below` : 'Organisation chart'}
                 meta={`As at ${asOf} · ${shiftLabel}`}
@@ -895,8 +785,7 @@ export default function OrgChart() {
               ref={setStageEl}
               sx={{ flex: 1, minHeight: 0, minWidth: 0, display: 'flex', flexDirection: 'column' }}
             >
-              {view === 'chart' ? (
-                <OrgChartCanvas
+              <OrgChartCanvas
                   scene={scene}
                   zoom={zoom ?? 1}
                   fontFamily={palette.fontUi}
@@ -912,23 +801,11 @@ export default function OrgChart() {
                   onNavigate={navigate}
                   onZoom={setZoomClamped}
                 />
-              ) : (
-                <Box sx={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
-                  <OrgChartTable
-                    model={model}
-                    ids={visibleIds}
-                    filter={shift}
-                    secondaryEdges={model.secondary}
-                    onOpen={openPosition}
-                  />
-                </Box>
-              )}
             </Box>
-            {view === 'chart' && (
-              // One line, truncated: every pixel of this region's height is chart.
-              // The whole sentence is the title, and the keys are in the panel's
-              // own labels and the box's accessible name.
-              <Typography
+            {/* One line, truncated: every pixel of this region's height is chart.
+                The whole sentence is the title, and the keys are in the panel's
+                own labels and the box's accessible name. */}
+            <Typography
                 title={
                   'Scroll to zoom; drag, Shift + scroll or a sideways swipe to pan. Click a card for its role, or a row in it for that position, ' +
                   'or tab into the chart and use the arrow keys: Enter opens the panel, Enter again moves into it, ' +
@@ -951,8 +828,7 @@ export default function OrgChart() {
                 {boxed ? ' · click a department name to open or close it' : ' · Space folds a branch'} · arrows walk
                 the chart, Enter opens the panel
                 {secondaryCount > 0 && ` · ${secondaryCount} dashed lines are non-primary reporting`}
-              </Typography>
-            )}
+            </Typography>
           </Box>
         )}
 
@@ -997,10 +873,9 @@ export default function OrgChart() {
           onClose={closePanel}
           // Esc goes back one view; from the first it closes the panel.
           onEscape={views.length > 1 ? panelNav.back : closePanel}
-          // Over the chart on Chart and Table; over the app's scrolling main
-          // region on Departments and Doubts, which read as ordinary pages.
-          boundsEl={chartLike ? stageEl : scrollEl}
-          relayout={`${isFull}:${view}`}
+          // Over the chart.
+          boundsEl={stageEl}
+          relayout={`${isFull}`}
           storageKey={key('panelPos')}
         >
           {topView && (
@@ -1015,14 +890,11 @@ export default function OrgChart() {
               onOpenCard={openCard}
               onStartFrom={(positionId) => {
                 setRoot(model ? (cardIdOf(model, positionId) ?? '') : '');
-                // "Start from here" is a chart instruction; from Departments or
-                // Doubts it would otherwise change nothing the viewer can see.
-                if (!chartLike) setView('chart');
               }}
               // The viewer's own drawing options, for the card the panel was
-              // opened on and only while the chart is what is on screen.
+              // opened on.
               viewOptions={(id) =>
-                view === 'chart' && id === cardId ? (
+                id === cardId ? (
                   <OrgChartViewOptions
                     teamSize={panelTeam}
                     arrange={arrange[id] || 'auto'}
@@ -1046,35 +918,6 @@ export default function OrgChart() {
           )}
         </OrgChartFloatingPanel>
       </Box>
-
-      {view === 'departments' && model && (
-        <OrgChartDepartments
-          company={company}
-          asOf={asOf}
-          onAsOf={setAsOf}
-          model={model}
-          onOpenCard={openPosition}
-        />
-      )}
-
-      {view === 'doubts' && (
-        <Surface e={1} sx={{ p: { xs: 1.75, sm: 2.25 } }}>
-          {!points.error && !(points.loading && !points.groups.length) && points.total > 0 && (
-            <Typography sx={{ fontSize: 14, color: 'var(--c-text-2)', mb: 1.5 }}>
-              {points.total} question{points.total === 1 ? '' : 's'} the chart cannot answer by itself.
-            </Typography>
-          )}
-          <OpenPointsList
-            groups={points.groups}
-            loading={points.loading}
-            error={points.error}
-            onRetry={points.reload}
-            onChanged={points.reload}
-            canManage={canManage}
-            onPick={openPosition}
-          />
-        </Surface>
-      )}
 
       <OrgChartSearch
         open={searchOpen}

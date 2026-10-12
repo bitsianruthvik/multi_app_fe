@@ -147,7 +147,7 @@ export function OriginLegend({
           {inert.length > 0 && (
             <>
               {' '}
-              The {inert.map((l) => (l === 'POSITION' ? 'position' : 'assignment')).join(' and the ')}{' '}
+              The {inert.map((l) => (l === 'POSITION' ? 'position' : 'person')).join(' and the ')}{' '}
               {inert.length > 1 ? 'were' : 'was'} resolved too and{' '}
               {inert.length > 1 ? 'add' : 'adds'}, {inert.length > 1 ? 'change' : 'changes'} and{' '}
               {inert.length > 1 ? 'remove' : 'removes'} nothing.
@@ -303,7 +303,7 @@ export function SuppressedList({
               </Box>
             )}
             <Box component="span" sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>
-              removed by the {s.byLayer === 'ASSIGNMENT' ? 'assignment' : 'position'}
+              removed by the {s.byLayer === 'ASSIGNMENT' ? 'person' : 'position'}
               {s.reason ? ` — ${s.reason}` : ''}
             </Box>
             {/* A suppressed KRA orphans its children. They move to "Additional"
@@ -361,7 +361,7 @@ export function IgnoredOverrides({ items }: { items: IgnoredOverride[] }) {
                 {g.name ?? `${pretty(g.contentType ?? '')} ${g.definitionId ?? ''}`.trim()}
               </Typography>
               <Box component="span" sx={{ fontSize: 11.5, color: 'var(--c-text-3)' }}>
-                on the {g.layer === 'ASSIGNMENT' ? 'assignment' : 'position'}
+                {g.layer === 'ASSIGNMENT' ? 'for this person' : 'on the position'}
               </Box>
             </Box>
             <Typography sx={{ fontSize: 12, color: 'var(--c-text-2)', mt: 0.25 }}>{g.why}</Typography>
@@ -554,7 +554,7 @@ export function ManagerLines({
     return (
       <EmptySectionNote
         note={emptyNote}
-        what="managers for this work — neither a formal line on the position nor an actual one on the assignment"
+        what="managers for this work — neither a formal line on the position nor an actual one for this person"
       />
     );
   }

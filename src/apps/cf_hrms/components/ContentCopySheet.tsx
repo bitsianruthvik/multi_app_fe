@@ -784,7 +784,7 @@ function describe(plan: CopyPlan, names: string[]) {
       confirmLabel: `Add ${lines} — affects ${plural(t.seats, 'position')}`,
     };
   }
-  const moved = t.assignmentsMoved ? ` ${plural(t.assignmentsMoved, 'person', 'people')}’s work ${t.assignmentsMoved === 1 ? 'assignment moves' : 'assignments move'} with ${one ? 'it' : 'them'}.` : '';
+  const moved = t.assignmentsMoved ? ` ${plural(t.assignmentsMoved, 'person', 'people')}’s ${t.assignmentsMoved === 1 ? 'position moves' : 'positions move'} with ${one ? 'it' : 'them'}.` : '';
   return {
     reach: one
       ? `This creates the role “${first.fork?.newRoleTitle ?? ''}” and moves 1 position onto it.${moved}`
@@ -924,7 +924,7 @@ function Done({ result, company, go }: { result: CopyPlan; company: string; go: 
         <Count status="COPY_BLOCKED" n={t.blocked} verb="not added" />
       </Stack>
       {t.assignmentsMoved > 0 && (
-        <Box sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>{plural(t.assignmentsMoved, 'work assignment')} moved onto the new role with the position.</Box>
+        <Box sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>{plural(t.assignmentsMoved, 'person', 'people')} moved onto the new role with the position.</Box>
       )}
       <Stack spacing={0.75}>
         <CapsLabel>Where</CapsLabel>

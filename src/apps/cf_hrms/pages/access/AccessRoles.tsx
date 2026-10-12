@@ -9,7 +9,6 @@ import {
   ErrorNotice,
   ListSkeleton,
   Mono,
-  PageHeader,
   SectionCard,
   StickyActionBar,
   ToneBadge,
@@ -27,6 +26,7 @@ import {
   type PlatformRole,
   type RoleGrant,
 } from '../../api/access';
+import { ScreenHeader } from '../../components/TabbedScreen';
 
 /**
  * Roles and access — pick a role, see and set what it may do (§4.10).
@@ -215,7 +215,7 @@ export default function AccessRoles() {
 
   return (
     <Box sx={{ maxWidth: 880 }}>
-      <PageHeader
+      <ScreenHeader
         title="Roles and access"
         subtitle="What a role is allowed to do, across every app this company uses"
       />
