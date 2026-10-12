@@ -25,14 +25,18 @@ export function ClassificationRules({ node, canManage, onChanged }: { node: Tree
   const [ruleDialog, setRuleDialog] = useState<{ open: boolean; rule: Rule | null }>({ open: false, rule: null });
   const [deleteRule, setDeleteRule] = useState<Rule | null>(null);
   const refresh = () => { rules.reload(); resolved.reload(); onChanged?.(); };
+  // On a machine type people look for "add a specification", not "add a rule" (user, 2026-10-12).
+  const forMachines = node.scope === 'machine';
 
   return (
     // minmax(0, 1fr) stops the column growing to the specs table's minimum
     // width, so the table's own horizontal scroll engages instead of the page's.
     <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 2, minWidth: 0 }}>
-      <SectionCard title="Specification rules set here"
-        subtitle="Rules apply to everything below this node. A more specific level can override a rule or switch it off."
-        actions={canManage && <Button variant="contained" startIcon={<AddRounded />} onClick={() => setRuleDialog({ open: true, rule: null })}>Add rule</Button>}>
+      <SectionCard title={forMachines ? 'Specifications set on this machine type' : 'Specification rules set here'}
+        subtitle={forMachines
+          ? 'Every machine of this type gets these. Pick one from the list; a brand-new specification is made first in Setup › Specifications.'
+          : 'Rules apply to everything below this node. A more specific level can override a rule or switch it off.'}
+        actions={canManage && <Button variant="contained" startIcon={<AddRounded />} onClick={() => setRuleDialog({ open: true, rule: null })}>{forMachines ? 'Add specification' : 'Add rule'}</Button>}>
         <ErrorNotice error={rules.error} onRetry={rules.reload} />
         {rules.loading && !rules.data ? <SkeletonRows rows={3} /> : (rules.data ?? []).length === 0 ? (
           <Typography sx={{ color: 'var(--c-text-2)' }}>No rules at this level{node.depth > 0 ? ' — rules from above still apply (see below).' : '.'}</Typography>
