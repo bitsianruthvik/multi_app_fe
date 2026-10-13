@@ -52,6 +52,7 @@ import {
   OriginLegend,
   SuppressedList,
 } from './DocumentParts';
+import { useCan } from '../access/can';
 
 type SectionLookup = (key: string) => DocumentSection | undefined;
 
@@ -159,6 +160,7 @@ function ContentSection({
   children: ReactNode;
   sx?: object;
 }) {
+  const canRoles = useCan().roles.view;
   const s = look(sectionKey);
   const empty = count === 0;
   return (
@@ -168,7 +170,7 @@ function ContentSection({
       sx={sx}
     >
       {empty ? (
-        <EmptySectionNote note={s?.note} what={fallbackWhat} to={roleHref} linkLabel={linkLabel} />
+        <EmptySectionNote note={s?.note} what={fallbackWhat} to={canRoles ? roleHref : undefined} linkLabel={linkLabel} />
       ) : (
         children
       )}
@@ -456,6 +458,7 @@ function RoleJdBody({
 }) {
   const role = snapshot.role ?? null;
   const ctx = snapshot.positionContext ?? null;
+  const canPositions = useCan().positions.view;
   const roleHref = role ? `/${companySlug}/cf_hrms/roles/${role.id}` : undefined;
   const look = sectionMap(snapshot.sections);
 
@@ -496,7 +499,7 @@ function RoleJdBody({
             facts={[
               {
                 label: 'Position',
-                value: (
+                value: canPositions ? (
                   <Box
                     component={Link}
                     to={`/${companySlug}/cf_hrms/positions/${ctx.position.id}`}
@@ -508,6 +511,8 @@ function RoleJdBody({
                   >
                     {ctx.position.positionCode ?? ctx.position.displayTitle}
                   </Box>
+                ) : (
+                  (ctx.position.positionCode ?? ctx.position.displayTitle)
                 ),
               },
               { label: 'Title', value: ctx.position.positionTitle ?? ctx.position.displayTitle },
@@ -562,7 +567,8 @@ function AssignmentBlock({
 }) {
   const a = block.assignment;
   const look = sectionMap(block.sections);
-  const roleHref = a.roleId ? `/${companySlug}/cf_hrms/roles/${a.roleId}` : undefined;
+  const can = useCan();
+  const roleHref = a.roleId && can.roles.view ? `/${companySlug}/cf_hrms/roles/${a.roleId}` : undefined;
   const managers = block.reporting?.relationships ?? [];
 
   return (
@@ -613,7 +619,9 @@ function AssignmentBlock({
                §2 rule 5). "No position" is normal, not a gap — say so rather
                than printing an em dash that reads like missing data. */
             label: 'Position',
-            value: a.positionId ? (
+            value: a.positionId && !can.positions.view ? (
+              (a.positionCode ?? a.positionTitle ?? `#${a.positionId}`)
+            ) : a.positionId ? (
               <Box
                 component={Link}
                 to={`/${companySlug}/cf_hrms/positions/${a.positionId}`}
@@ -685,6 +693,7 @@ function ProfileBody({
   snapshot: DocumentSnapshot;
   companySlug: string;
 }) {
+  const can = useCan();
   const e = snapshot.employee ?? null;
   const assignments = snapshot.assignments ?? [];
   const excluded = snapshot.excludedAssignments ?? [];
@@ -700,7 +709,7 @@ function ProfileBody({
           facts={[
             {
               label: 'Name',
-              value: e?.id ? (
+              value: e?.id && can.employees.view ? (
                 <Box
                   component={Link}
                   to={`/${companySlug}/cf_hrms/employees/${e.id}`}
@@ -734,7 +743,7 @@ function ProfileBody({
             <EmptySectionNote
               note={look('assignments')?.note}
               what="positions held on this date"
-              to={`/${companySlug}/cf_hrms/employees`}
+              to={can.employees.view ? `/${companySlug}/cf_hrms/employees` : undefined}
               linkLabel="Put them in a position"
             />
           </SectionCard>

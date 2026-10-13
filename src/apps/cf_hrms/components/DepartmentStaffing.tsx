@@ -14,14 +14,15 @@
 import { Link as RouterLink, useNavigate } from 'react-router-dom';
 import { Box, Button, Stack, Typography } from '@mui/material';
 import EditRounded from '@mui/icons-material/EditRounded';
-import { Mono, SideSheet, ToneBadge, useIsPermitted } from '@shared/ui';
+import { Mono, SideSheet, ToneBadge } from '@shared/ui';
+import { useCan } from '../access/can';
 import type { PositionShift } from '../api/positions';
 import { PositionShiftControl } from './PositionShiftControl';
 import { HiringEntry } from './HiringEntry';
 import { joiningSentence, vacantLabel, type HiringRef, type JoiningRef } from '../api/hiring';
 import { NoticeChip } from './Leaving';
 import { usePositionRemoval } from './usePositionRemoval';
-import { MOVE_PERMISSION, MoveEmployeeHereButton } from './MoveEmployee';
+import { MoveEmployeeHereButton } from './MoveEmployee';
 import type { DepartmentStaffing, StaffingPosition, StaffingRole } from '../api/jobContent';
 import { JobContentPanel } from './JobContentPanel';
 
@@ -85,7 +86,7 @@ export function DepartmentStaffingPanel({
   /** After a position was closed or deleted from a row here, so the list can reload. */
   onRemoved?: () => void;
 }) {
-  const canManage = useIsPermitted()('cf_hrms_org_manage');
+  const can = useCan();
   // "Remove" on a row goes through the one dialog, which checks what it would do first.
   const removal = usePositionRemoval({ onDone: () => onRemoved?.() });
   const roles = staffing?.roles ?? [];
@@ -164,7 +165,7 @@ export function DepartmentStaffingPanel({
                   >
                     Role
                   </Typography>
-                  {r.roleId != null ? (
+                  {r.roleId != null && can.roles.view ? (
                     <Box
                       component="button"
                       type="button"
@@ -210,7 +211,7 @@ export function DepartmentStaffingPanel({
                       </Typography>
                       {p.occupants[0]?.notice && <NoticeChip notice={p.occupants[0].notice} />}
                       {p.hasSeatChanges && <ToneBadge tone="warning" noIcon label="Differs from its role" />}
-                      {canManage && (
+                      {can.positions.remove && (
                         <Box
                           component="button"
                           type="button"
@@ -240,7 +241,7 @@ export function DepartmentStaffingPanel({
  * The peek: a role's or a position's job content beside the department list,
  * with Edit going to the screen that owns the edit — the role's Content tab, or
  * the position's job-content editor. Edit is hidden from a login that cannot
- * use it (`cf_hrms_roles_manage` for a role, `cf_hrms_org_manage` for a position).
+ * use it (the roles edit right for a role, the positions edit right for a position).
  */
 export function JobPeekSheet({
   peek,
@@ -254,13 +255,17 @@ export function JobPeekSheet({
   /** After the shift of the peeked position changed, so the list behind can reload. */
   onChanged?: (shift: PositionShift) => void;
 }) {
-  const can = useIsPermitted();
+  const can = useCan();
   const navigate = useNavigate();
   const isRole = peek?.type === 'role';
   const full = peek ? `/${company}/cf_hrms/${isRole ? 'roles' : 'positions'}/${peek.id}` : '';
   const edit = peek ? `${full}${isRole ? '?tab=content' : '?tab=job&edit=1'}` : '';
-  const canEdit = isRole ? can('cf_hrms_roles_manage') : can('cf_hrms_org_manage');
-  const roleHref = peek?.roleId ? `/${company}/cf_hrms/roles/${peek.roleId}?tab=content` : null;
+  const canEdit = isRole ? can.roles.edit : can.positions.edit;
+  const roleHref = peek?.roleId && can.roles.view ? `/${company}/cf_hrms/roles/${peek.roleId}?tab=content` : null;
+  // Moving a person changes a position and lists employees to pick from: both rights.
+  const canMove = can.positions.edit && can.employees.view;
+  // A hiring is shown with `view` and started with `edit`.
+  const showHiring = can.hiring.edit || (!!peek?.hiring && can.hiring.view);
 
   return (
     <SideSheet
@@ -269,10 +274,10 @@ export function JobPeekSheet({
       title={peek?.title ?? ''}
       subtitle={peek?.subtitle}
       width={520}
-      onExpand={peek ? () => navigate(full) : undefined}
+      onExpand={peek && (!isRole || can.roles.view) ? () => navigate(full) : undefined}
       expandLabel={isRole ? 'Open the role' : 'Open the position'}
       actions={
-        peek && canEdit ? (
+        peek && canEdit && (!isRole || can.roles.view) ? (
           <Button component={RouterLink} to={edit} variant="contained" size="small" startIcon={<EditRounded />}>
             {isRole ? 'Edit the role’s content' : 'Edit for this position'}
           </Button>
@@ -292,19 +297,23 @@ export function JobPeekSheet({
           </Stack>
           {!peek.occupantName && peek.joining && (
             <Typography data-joining="" sx={{ fontSize: 13, color: 'var(--c-text-2)', lineHeight: 1.5 }}>
-              <Box component={RouterLink} to={`/${company}/cf_hrms/employees/${peek.joining.employeeId}`} sx={{ color: 'var(--c-primary-700)' }}>
-                {peek.joining.name}
-              </Box>
+              {can.employees.view ? (
+                <Box component={RouterLink} to={`/${company}/cf_hrms/employees/${peek.joining.employeeId}`} sx={{ color: 'var(--c-primary-700)' }}>
+                  {peek.joining.name}
+                </Box>
+              ) : (
+                <Box component="span">{peek.joining.name}</Box>
+              )}
               {joiningSentence(peek.joining).slice(peek.joining.name.length)}. Vacant until then.
             </Typography>
           )}
           {!peek.occupantName && !peek.joining && (
             <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" alignItems="center">
               <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-3)' }}>{vacantLabel(peek) ?? 'Vacant'}</Typography>
-              {can('cf_hrms_org_manage') && (
+              {(canMove || showHiring) && (
                 <>
                   {/* While a hiring is open nobody else can be moved in; the reason is on the button. */}
-                  {can(MOVE_PERMISSION) && can('cf_hrms_people_view') && (
+                  {canMove && (
                     <MoveEmployeeHereButton
                       positionId={peek.id}
                       positionLabel={[peek.roleTitle, peek.positionCode].filter(Boolean).join(' · ')}
@@ -312,7 +321,9 @@ export function JobPeekSheet({
                       onDone={() => onChanged?.(peek.shift as PositionShift)}
                     />
                   )}
-                  <HiringEntry positionId={peek.id} positionCode={peek.positionCode ?? null} roleTitle={peek.roleTitle ?? null} hiring={peek.hiring} onChanged={() => onChanged?.(peek.shift as PositionShift)} />
+                  {showHiring && (
+                    <HiringEntry positionId={peek.id} positionCode={peek.positionCode ?? null} roleTitle={peek.roleTitle ?? null} hiring={peek.hiring} onChanged={() => onChanged?.(peek.shift as PositionShift)} />
+                  )}
                 </>
               )}
             </Stack>
@@ -326,7 +337,7 @@ export function JobPeekSheet({
           noKrasAction={
             roleHref ? (
               <Box component={RouterLink} to={roleHref} sx={{ color: 'var(--c-primary-700)' }}>
-                {can('cf_hrms_roles_manage') ? 'Write them on the role' : 'Open the role'}
+                {can.roles.edit ? 'Write them on the role' : 'Open the role'}
               </Box>
             ) : undefined
           }

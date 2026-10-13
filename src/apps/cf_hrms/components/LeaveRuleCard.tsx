@@ -99,17 +99,19 @@ export function LeaveRuleCard({
   rule,
   onChange,
   onRemove,
-  canManage,
+  canEdit,
+  canRemove,
 }: {
   rule: Rule;
   onChange: (next: Rule) => void;
   onRemove: () => void;
-  canManage: boolean;
+  canEdit: boolean;
+  canRemove: boolean;
 }) {
   const [summary, setSummary] = useState(rule.summary ?? '');
   const [problems, setProblems] = useState<string[]>([]);
   const [pending, setPending] = useState(false);
-  const disabled = !canManage;
+  const disabled = !canEdit;
 
   // The sentence, from the server, a moment after the rule stops changing. A
   // reply that arrives after a newer question is dropped.
@@ -195,7 +197,7 @@ export function LeaveRuleCard({
             </Box>
           )}
         </Box>
-        {canManage && (
+        {canRemove && (
           <Tooltip title="Take this leave type out of the policy">
             <IconButton size="small" aria-label={`Remove ${rule.leaveTypeName} from this policy`} onClick={onRemove}>
               <DeleteOutlineRounded fontSize="small" />

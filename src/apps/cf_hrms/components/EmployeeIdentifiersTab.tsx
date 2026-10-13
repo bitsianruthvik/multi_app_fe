@@ -12,6 +12,7 @@ import {
   ToneBadge, Mono, useToast,
 } from '@shared/ui';
 import { peopleApi, type IdentifierList, type PeoplePickers } from '../api/people';
+import { useCan } from '../access/can';
 
 /**
  * Identifiers — Aadhaar, PAN, UAN, ESI and the rest.
@@ -19,7 +20,7 @@ import { peopleApi, type IdentifierList, type PeoplePickers } from '../api/peopl
  * THE PII CONTRACT, ON THE SCREEN SIDE.
  *
  * The server masks every value unless the caller both asks (`?reveal=1`) and
- * holds `cf_hrms_people_pii`, and an honoured reveal writes an audit row naming
+ * holds `the contact-details right`, and an honoured reveal writes an audit row naming
  * who read whose identifiers. This component holds up its half:
  *
  *  - Masked values are what loads. Nothing reveals on mount.
@@ -38,17 +39,18 @@ const AUTO_HIDE_MS = 90_000;
 
 export function EmployeeIdentifiersTab({
   employeeId,
-  canManage,
+  canEdit,
   pickers,
   onCountChange,
 }: {
   employeeId: number;
-  canManage: boolean;
+  canEdit: boolean;
   /** Passed down rather than fetched — the record screen already has it. */
   pickers: PeoplePickers | null;
   onCountChange?: (n: number) => void;
 }) {
   const toast = useToast();
+  const canContact = useCan().named.contactView;
   const [masked, setMasked] = useState<IdentifierList | null>(null);
   /** The only place unmasked values ever sit. Cleared, never persisted. */
   const [revealed, setRevealed] = useState<IdentifierList | null>(null);
@@ -153,7 +155,7 @@ export function EmployeeIdentifiersTab({
         }
         actions={(
           <Box sx={{ display: 'flex', gap: 1 }}>
-            {masked.canSeePii && shown.items.length > 0 && (
+            {canContact && shown.items.length > 0 && (
               <Button
                 size="small"
                 variant={isRevealed ? 'outlined' : 'contained'}
@@ -164,7 +166,7 @@ export function EmployeeIdentifiersTab({
                 {isRevealed ? 'Hide numbers' : 'Reveal numbers'}
               </Button>
             )}
-            {canManage && (
+            {canEdit && (
               <Button size="small" startIcon={<AddRounded />} onClick={() => setAddOpen(true)}>
                 Add
               </Button>
@@ -177,7 +179,7 @@ export function EmployeeIdentifiersTab({
             icon={<BadgeRounded />}
             title="No identifiers recorded"
             hint="Aadhaar, PAN, UAN, ESI — whatever statute requires for this person."
-            action={canManage && (
+            action={canEdit && (
               <Button size="small" variant="contained" startIcon={<AddRounded />} onClick={() => setAddOpen(true)}>
                 Add an identifier
               </Button>
@@ -234,7 +236,7 @@ export function EmployeeIdentifiersTab({
                     {i.validTo ?? '—'}
                   </Box>
                   <Box component="td" sx={{ py: 1.25, borderBottom: '1px solid var(--c-border)', textAlign: 'right' }}>
-                    {canManage && (
+                    {canEdit && (
                       <Tooltip title={`Remove ${i.identifierType}`}>
                         <IconButton
                           size="small"
@@ -252,14 +254,14 @@ export function EmployeeIdentifiersTab({
           </Box>
         )}
 
-        {!masked.canSeePii && shown.items.length > 0 && (
+        {!canContact && shown.items.length > 0 && (
           <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-3)', mt: 1.5 }}>
             The full numbers need the “read unmasked statutory identifiers” permission.
           </Typography>
         )}
       </SectionCard>
 
-      {canManage && (
+      {canEdit && (
         <FormDialog
           open={addOpen}
           title="Add an identifier"

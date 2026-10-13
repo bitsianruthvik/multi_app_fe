@@ -8,7 +8,7 @@ import EditRounded from '@mui/icons-material/EditRounded';
 import PhotoCameraRounded from '@mui/icons-material/PhotoCameraRounded';
 import {
   DetailLayout, DetailHeader, CrossLink, FactItem, StatusBadge, ToneBadge, Mono,
-  DetailSkeleton, ErrorNotice, useDetailTitle, useIsPermitted, useToast,
+  DetailSkeleton, ErrorNotice, useDetailTitle, useToast,
   type DetailTab,
 } from '@shared/ui';
 import {
@@ -16,6 +16,7 @@ import {
   EMPLOYMENT_STATUS_LABEL, EMPLOYMENT_STATUS_TONE, EMPLOYMENT_TYPE_LABEL,
   type EmployeeDetail as EmployeeDetailData, type PeoplePickers,
 } from '../api/people';
+import { useCan } from '../access/can';
 import { EmployeeFormDialog } from '../components/EmployeeFormDialog';
 import { LeavingBand } from '../components/Leaving';
 import { HiringEntry } from '../components/HiringEntry';
@@ -45,9 +46,9 @@ export default function EmployeeDetail() {
   const { company, id } = useParams<{ company: string; id: string }>();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const can = useIsPermitted();
+  const can = useCan();
   const toast = useToast();
-  const canManage = can('cf_hrms_people_manage');
+  const canEdit = can.employees.edit;
   const employeeId = Number(id);
 
   const [data, setData] = useState<EmployeeDetailData | null>(null);
@@ -155,7 +156,7 @@ export default function EmployeeDetail() {
             </Typography>
           )}
       </Box>
-      {canManage && (
+      {canEdit && (
         <>
           <input ref={photoInput} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={(e) => void uploadPhoto(e.target.files?.[0])} />
           <Tooltip title={photoUrl ? 'Replace photo' : 'Add a photo'}>
@@ -233,18 +234,19 @@ export default function EmployeeDetail() {
                       : `Holds ${counts.activeAssignments} positions — ${assignments.filter((a) => a.isActive).map((a) => a.roleTitle).filter(Boolean).join(' · ')}`
                 }
                 // Someone who has left is read-only apart from their documents.
-                actions={canManage && employee.employmentStatus !== 'EXITED' && (
+                actions={(canEdit || can.named.employeeClose) && employee.employmentStatus !== 'EXITED' && (
                   <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
-                    <Button size="small" variant="outlined" startIcon={<EditRounded />} onClick={() => setEditOpen(true)}>
-                      Edit
-                    </Button>
+                    {canEdit && (
+                      <Button size="small" variant="outlined" startIcon={<EditRounded />} onClick={() => setEditOpen(true)}>
+                        Edit
+                      </Button>
+                    )}
                     {employee.employmentStatus === 'ACTIVE' && (
                       <LeavingBand
                         person={employee}
                         status={employee.employmentStatus}
                         exit={employee.exit}
                         positionWords={positionWords}
-                        canManage={canManage}
                         onChanged={() => void load()}
                       />
                     )}
@@ -276,7 +278,7 @@ export default function EmployeeDetail() {
             {/* Principle #4: always render these. A record with no way sideways
                 sends people back to a list to search again. */}
 
-            {primary?.departmentName && (
+            {primary?.departmentName && can.org.view && (
               <CrossLink icon={<ApartmentRounded />} label={primary.departmentName} to={`/${company}/cf_hrms/departments`} />
             )}
             {employee.contractorName && (
@@ -291,7 +293,6 @@ export default function EmployeeDetail() {
             exit={employee.exit}
             exitDate={employee.exitDate}
             positionWords={positionWords}
-            canManage={canManage}
             showStart={false}
             onChanged={() => void load()}
             afterLeft={leftPosition && (
@@ -322,24 +323,24 @@ export default function EmployeeDetail() {
         )}
 
         {tab === 'identifiers' && (
-          <EmployeeIdentifiersTab employeeId={employee.id} canManage={canManage} pickers={pickers} />
+          <EmployeeIdentifiersTab employeeId={employee.id} canEdit={canEdit} pickers={pickers} />
         )}
 
         {tab === 'documents' && (
-          <EmployeeDocumentsTab employeeId={employee.id} canManage={canManage} pickers={pickers} />
+          <EmployeeDocumentsTab employeeId={employee.id} canEdit={canEdit} pickers={pickers} />
         )}
 
         {tab === 'history' && (
           <EmployeeHistoryTab
             employeeId={employee.id}
             employeeName={employee.fullName}
-            canManage={canManage}
+            canEdit={canEdit}
             pickers={pickers}
           />
         )}
       </DetailLayout>
 
-      {canManage && (
+      {canEdit && (
         <EmployeeFormDialog
           open={editOpen}
           onClose={() => setEditOpen(false)}

@@ -39,7 +39,6 @@ import {
   errorMessage,
   useCompanySlug,
   useDetailTitle,
-  useIsPermitted,
   useToast,
 } from '@shared/ui';
 import {
@@ -51,6 +50,7 @@ import {
   type DocumentRecordResult,
 } from '../api/documents';
 import { DocumentSnapshotView } from '../components/DocumentRender';
+import { useCan } from '../access/can';
 
 function whenText(iso: string | null | undefined): string {
   if (!iso) return '—';
@@ -71,8 +71,8 @@ export default function DocumentDetail() {
   const company = useCompanySlug();
   const navigate = useNavigate();
   const toast = useToast();
-  const can = useIsPermitted();
-  const canGenerate = can('cf_hrms_documents_generate');
+  const can = useCan();
+  const canGenerate = can.documents.edit;
 
   const [result, setResult] = useState<DocumentRecordResult | null>(null);
   const [loading, setLoading] = useState(true);
@@ -222,14 +222,14 @@ export default function DocumentDetail() {
 
   const crossLinks = (
     <>
-      {doc.target?.roleId ? (
+      {doc.target?.roleId && can.roles.view ? (
         <CrossLink
           icon={<WorkOutlineRounded />}
           label={snapshot.role?.title ?? doc.target.roleTitle ?? 'Role'}
           to={`/${company}/cf_hrms/roles/${doc.target.roleId}`}
         />
       ) : null}
-      {doc.target?.positionId ? (
+      {doc.target?.positionId && can.positions.view ? (
         <CrossLink
           icon={<EventSeatRounded />}
           label={
@@ -238,7 +238,7 @@ export default function DocumentDetail() {
           to={`/${company}/cf_hrms/positions/${doc.target.positionId}`}
         />
       ) : null}
-      {doc.target?.employeeId ? (
+      {doc.target?.employeeId && can.employees.view ? (
         <CrossLink
           icon={<BadgeRounded />}
           label={snapshot.employee?.fullName ?? doc.target.employeeName ?? 'Employee'}

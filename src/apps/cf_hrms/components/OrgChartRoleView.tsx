@@ -2,7 +2,9 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import { Box, Button, MenuItem, Stack, TextField, Typography } from '@mui/material';
 import AddRounded from '@mui/icons-material/AddRounded';
-import { ErrorNotice, Mono, StatusBadge, ToneBadge, useIsPermitted, useToast } from '@shared/ui';
+import { ErrorNotice, Mono, StatusBadge, ToneBadge, useToast } from '@shared/ui';
+import { useCan } from '../access/can';
+import { NoAccessNote } from '../access/Guard';
 import { getRole, type Role } from '../api/roles';
 import { positionsApi, type LookupRow } from '../api/positions';
 import { cardCount, rowsOf, vacantLine, type ChartCard, type ChartModel } from './orgChartLayout';
@@ -149,14 +151,14 @@ export function OrgChartRoleView({
   /** The viewer's own drawing options for this card, at the very bottom. */
   children?: ReactNode;
 }) {
-  const can = useIsPermitted();
-  const canManage = can('cf_hrms_org_manage');
+  const can = useCan();
   const removal = usePositionRemoval({ onDone: () => onChanged?.() });
   const [role, setRole] = useState<Role | null>(null);
   const [error, setError] = useState<unknown>(null);
 
   useEffect(() => {
-    if (view.roleId == null) return;
+    // The role itself is the roles area's: only asked for with its view right.
+    if (view.roleId == null || !can.roles.view) return;
     let live = true;
     setRole(null);
     setError(null);
@@ -170,7 +172,7 @@ export function OrgChartRoleView({
     return () => {
       live = false;
     };
-  }, [view.roleId]);
+  }, [view.roleId, can.roles.view]);
 
   const card = view.cardId != null ? (model?.byId.get(view.cardId) ?? null) : null;
   // Every OTHER card holding this role — the places an edit here also reaches.
@@ -255,7 +257,7 @@ export function OrgChartRoleView({
                   </Box>
                   {/* Beside "Add a position": taking one away. Always through the dialog,
                       which reads what it would do first and says why when it cannot. */}
-                  {canManage && (
+                  {can.positions.remove && (
                     <Button
                       size="small"
                       color="inherit"
@@ -271,13 +273,13 @@ export function OrgChartRoleView({
                 </Box>
               ),
             )}
-            {canManage && <AddPosition card={card} onAdded={() => onChanged?.()} />}
+            {can.positions.edit && <AddPosition card={card} onAdded={() => onChanged?.()} />}
           </Stack>
         </Box>
       )}
 
       {/* 3 ── what the job is for */}
-      {role && (
+      {role && can.roles.view && (
         <Typography
           data-purpose=""
           sx={{ fontSize: 13, lineHeight: 1.55, mt: 1.75, color: role.rolePurpose ? 'var(--c-text)' : 'var(--c-text-2)' }}
@@ -290,7 +292,7 @@ export function OrgChartRoleView({
       )}
 
       {/* 4 ── the role's content, edited at role level */}
-      {view.roleId != null ? (
+      {view.roleId != null && can.roles.view ? (
         <Box sx={{ mt: 1.75 }}>
           <SectionTitle>KRAs, responsibilities and KPIs</SectionTitle>
           {others.length > 0 && (
@@ -326,13 +328,17 @@ export function OrgChartRoleView({
             onChanged={onChanged}
           />
         </Box>
+      ) : view.roleId != null ? (
+        <Box sx={{ mt: 1.75 }}>
+          <NoAccessNote>The role&apos;s KRAs, responsibilities and KPIs are not open to your access.</NoAccessNote>
+        </Box>
       ) : (
         <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)', mt: 1.75 }}>
           The role&apos;s KRAs, responsibilities and KPIs are not part of this view.
         </Typography>
       )}
 
-      {view.roleId != null && (
+      {view.roleId != null && can.roles.view && (
         <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap sx={{ mt: 2 }}>
           <Button size="small" variant="outlined" component={RouterLink} to={`/${company}/cf_hrms/roles/${view.roleId}`}>
             Role page

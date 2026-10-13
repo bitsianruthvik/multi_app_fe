@@ -29,6 +29,7 @@ import FlagRounded from '@mui/icons-material/FlagRounded';
 import MoreVertRounded from '@mui/icons-material/MoreVertRounded';
 import DriveFileMoveRounded from '@mui/icons-material/DriveFileMoveRounded';
 import { ConfirmDialog, EmptyState, FormDialog, Surface, useToast } from '@shared/ui';
+import { useCan } from '../access/can';
 import {
   masterUsage, removeContent, reorderContent, regroupContent,
   type ContentKind, type ContentRow, type KraGroup, type RoleContent,
@@ -44,13 +45,11 @@ const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? o
 
 export function RoleContentTab({
   content,
-  canManage,
   onChanged: notifyChanged,
   dense = false,
   reach,
 }: {
   content: RoleContent;
-  canManage: boolean;
   onChanged: () => void;
   /** The 500px org chart panel: tighter lines, sections folded until opened. */
   dense?: boolean;
@@ -62,6 +61,11 @@ export function RoleContentTab({
   reach?: string;
 }) {
   const toast = useToast();
+  // Add / edit / move / reorder = roles.edit. Unassigning a line and deleting a KRA = roles.remove.
+  const can = useCan();
+  const canEdit = can.roles.edit;
+  const canRemove = can.roles.remove;
+  const canAct = canEdit || canRemove;
   // A role edit reaches every position holding the role: forget what was read
   // of any job, so no other view shows the role as it was.
   const onChanged = () => {
@@ -184,7 +188,7 @@ export function RoleContentTab({
   };
 
   const lineActions = (line: JobLine, kra: JobKra | null) => (
-    <Tooltip title="Edit, move or unassign">
+    <Tooltip title={canEdit ? (canRemove ? 'Edit, move or unassign' : 'Edit or move') : 'Unassign'}>
       <IconButton
         size="small"
         aria-label={`Actions for: ${line.name}`}
@@ -200,7 +204,7 @@ export function RoleContentTab({
     const group = rows.kra.get(kra.roleRowId ?? -1);
     if (!group) return null;
     return (
-      <Tooltip title="Rename, reorder or delete this KRA">
+      <Tooltip title={canEdit ? (canRemove ? 'Rename, reorder or delete this KRA' : 'Rename or reorder this KRA') : 'Delete this KRA'}>
         <IconButton
           size="small"
           aria-label={`Actions for the KRA: ${kra.name}`}
@@ -267,7 +271,7 @@ export function RoleContentTab({
             {!weights.kraBalanced && ' — these do not add up to 100'}
           </Box>
         )}
-        {canManage && (
+        {canEdit && (
           <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
             <Button size="small" onClick={() => setAssign({ kind: 'kras', row: null })} sx={{ textTransform: 'none' }}>
               Use an existing KRA
@@ -285,7 +289,7 @@ export function RoleContentTab({
           title="No KRAs written for this role yet"
           hint="A role's content is three separate things: KRAs are the outcome areas it is accountable for, responsibilities are the tasks under each, and KPIs are the measures it is judged by. Start with the KRAs — the rest hangs under them."
           action={
-            canManage ? (
+            canEdit ? (
               <Button variant="contained" startIcon={<AddRounded />} onClick={() => setKraForm({ kra: null })}>
                 New KRA
               </Button>
@@ -298,11 +302,11 @@ export function RoleContentTab({
           initiallyOpen={dense ? 'auto' : 'all'}
           dense={dense}
           summary={false}
-          lineActions={canManage ? lineActions : undefined}
-          kraActions={canManage ? kraActions : undefined}
-          sectionFooter={canManage ? sectionFooter : undefined}
+          lineActions={canAct ? lineActions : undefined}
+          kraActions={canAct ? kraActions : undefined}
+          sectionFooter={canEdit ? sectionFooter : undefined}
           selection={
-            canManage
+            canEdit
               ? {
                   selected,
                   toggle: (line) =>
@@ -316,7 +320,7 @@ export function RoleContentTab({
               : undefined
           }
           noKrasAction={
-            canManage ? (
+            canEdit ? (
               <Box
                 component="button"
                 type="button"
@@ -331,7 +335,7 @@ export function RoleContentTab({
       )}
 
       {/* Sticks to the bottom of the view, so it is in reach wherever the ticks were made. */}
-      {canManage && selected.size > 0 && (
+      {canEdit && selected.size > 0 && (
         <Surface
           e={2}
           data-selectionbar=""
@@ -361,6 +365,7 @@ export function RoleContentTab({
       {/* ── one line's menu ─────────────────────────────────────────────── */}
       <Menu anchorEl={lineMenu?.anchor} open={!!lineMenu} onClose={() => setLineMenu(null)}>
         {menuRow && menuLine && [
+          ...(canEdit ? [
           <MenuItem
             key="edit"
             onClick={() => {
@@ -428,7 +433,9 @@ export function RoleContentTab({
           >
             <ListItemText primary="Move down" />
           </MenuItem>,
-          <Divider key="d3" />,
+          ] : []),
+          ...(canEdit && canRemove ? [<Divider key="d3" />] : []),
+          ...(canRemove ? [
           <MenuItem
             key="remove"
             onClick={() => {
@@ -438,12 +445,14 @@ export function RoleContentTab({
           >
             <ListItemText primary="Unassign from this role…" />
           </MenuItem>,
+          ] : []),
         ]}
       </Menu>
 
       {/* ── one KRA's menu ──────────────────────────────────────────────── */}
       <Menu anchorEl={kraMenu?.anchor} open={!!kraMenu} onClose={() => setKraMenu(null)}>
         {kraMenu && [
+          ...(canEdit ? [
           <MenuItem
             key="rename"
             onClick={() => {
@@ -485,7 +494,9 @@ export function RoleContentTab({
           >
             <ListItemText primary="Move down" />
           </MenuItem>,
-          <Divider key="d2" />,
+          ] : []),
+          ...(canEdit && canRemove ? [<Divider key="d2" />] : []),
+          ...(canRemove ? [
           <MenuItem
             key="delete"
             onClick={() => {
@@ -495,6 +506,7 @@ export function RoleContentTab({
           >
             <ListItemText primary="Delete this KRA…" secondary="Its lines stay on the role" />
           </MenuItem>,
+          ] : []),
         ]}
       </Menu>
 

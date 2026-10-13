@@ -5,6 +5,7 @@ import {
   peopleApi, EMPLOYMENT_TYPE_LABEL, EMPLOYMENT_STATUS_LABEL,
   type Employee, type EmployeeDetail, type EmployeeInput, type PeoplePickers,
 } from '../api/people';
+import { useCan } from '../access/can';
 
 /**
  * Create or edit one employee.
@@ -53,6 +54,9 @@ export function EmployeeFormDialog({
     exitDate: '',
   }), []);
 
+  // Without the contact right the server leaves phone, email, address and the emergency
+  // contact out of what it sends. They are not offered here and not sent, so a save can never blank them.
+  const canContact = useCan().named.contactView;
   const [form, setForm] = useState<EmployeeInput>(blank);
   const [address, setAddress] = useState({ line1: '', line2: '', city: '', state: '', postalCode: '', country: '' });
   const [emergency, setEmergency] = useState({ name: '', relationship: '', phone: '' });
@@ -114,6 +118,14 @@ export function EmployeeFormDialog({
       address: hasAddress ? address : null,
       emergencyContact: hasEmergency ? emergency : null,
     };
+    if (!canContact) {
+      delete payload.phone;
+      delete payload.email;
+      delete payload.address;
+      delete payload.emergencyContact;
+      // The date of birth travels with the contact details: leave it out unless it was changed.
+      if ((form.dateOfBirth ?? '') === (employee?.dateOfBirth ?? '')) delete payload.dateOfBirth;
+    }
     const detail = employee
       ? await peopleApi.update(employee.id, payload)
       : await peopleApi.create(payload);
@@ -232,10 +244,17 @@ export function EmployeeFormDialog({
           slotProps={{ inputLabel: { shrink: true } }}
         />
         <TextField label="Gender" value={form.gender ?? ''} onChange={(e) => set('gender', e.target.value)} size="small" />
-        <TextField label="Phone" value={form.phone ?? ''} onChange={(e) => set('phone', e.target.value)} size="small" />
-        <TextField label="Email" value={form.email ?? ''} onChange={(e) => set('email', e.target.value)} size="small" />
+        {canContact && <TextField label="Phone" value={form.phone ?? ''} onChange={(e) => set('phone', e.target.value)} size="small" />}
+        {canContact && <TextField label="Email" value={form.email ?? ''} onChange={(e) => set('email', e.target.value)} size="small" />}
       </Box>
+      {!canContact && (
+        <Typography sx={{ fontSize: 13, color: 'var(--c-text-3)', mt: 1 }}>
+          Phone, email, address and emergency contact are not shown here: you do not have access to contact details.
+        </Typography>
+      )}
 
+      {canContact && (
+      <>
       <Typography sx={label}>Address</Typography>
       <Box sx={grid}>
         <TextField label="Line 1" value={address.line1} onChange={(e) => setAddress((a) => ({ ...a, line1: e.target.value }))} size="small" />
@@ -252,6 +271,8 @@ export function EmployeeFormDialog({
         <TextField label="Relationship" value={emergency.relationship} onChange={(e) => setEmergency((c) => ({ ...c, relationship: e.target.value }))} size="small" />
         <TextField label="Phone" value={emergency.phone} onChange={(e) => setEmergency((c) => ({ ...c, phone: e.target.value }))} size="small" />
       </Box>
+      </>
+      )}
     </FormDialog>
   );
 }

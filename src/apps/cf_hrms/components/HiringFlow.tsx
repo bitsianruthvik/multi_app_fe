@@ -8,8 +8,10 @@ import ChevronRightRounded from '@mui/icons-material/ChevronRightRounded';
 import CheckCircleRounded from '@mui/icons-material/CheckCircleRounded';
 import {
   Callout, ConfirmDialog, DetailSkeleton, ErrorNotice, FactItem, FormDialog, Mono, StageIcon, Surface,
-  ToneBadge, errorMessage, useIsPermitted, useToast,
+  ToneBadge, errorMessage, useToast,
 } from '@shared/ui';
+import { useCan, HIDDEN_PAY } from '../access/can';
+import { NoAccessNote } from '../access/Guard';
 import {
   CLOSE_REASON_LABEL, braced, hiringApi, niceDate, saveHiringFile, todayIso, type CloseNext,
   type CloseReason, type Hiring, type HiringFile, type HiringInput, type HiringStage, type LetterMeta,
@@ -84,7 +86,22 @@ const num = (v: string) => {
   return cleaned === '' ? null : Number(cleaned);
 };
 
-const toInput = (f: OfferForm): HiringInput => ({
+/**
+ * What a save sends. A field the person cannot see (pay, contact) is LEFT OUT, not sent empty,
+ * so a save by somebody without the right can never blank what the server holds.
+ */
+const toInput = (f: OfferForm, hide: { pay: boolean; contact: boolean }): HiringInput => {
+  const body = toFullInput(f);
+  if (hide.pay) delete body.annualCtc;
+  if (hide.contact) {
+    delete body.candidatePhone;
+    delete body.candidateEmail;
+    delete body.candidateAddress;
+  }
+  return body;
+};
+
+const toFullInput = (f: OfferForm): HiringInput => ({
   candidateSalutation: text(f.salutation),
   candidateName: text(f.name),
   candidatePhone: text(f.phone),
@@ -354,10 +371,12 @@ export function HiringFlow({
   onPositionRemoved?: () => void;
 }) {
   const toast = useToast();
-  const can = useIsPermitted();
-  const canOpenRole = can('cf_hrms_roles_manage');
-  const canHire = can('cf_hrms_people_manage');
-  const canRemovePosition = can('cf_hrms_org_manage');
+  const can = useCan();
+  // Links to another area's screen are offered only with that area's view right.
+  const canOpenRole = can.roles.view;
+  const canOpenPosition = can.positions.view;
+  const canHire = can.hiring.edit;
+  const canRemovePosition = can.positions.remove;
 
   const [hiring, setHiring] = useState<Hiring | null>(null);
   const [loadError, setLoadError] = useState<unknown>(null);
@@ -456,6 +475,9 @@ export function HiringFlow({
   if (loading && !hiring) return <DetailSkeleton />;
   if (!hiring || !form || !states) return <ErrorNotice error={loadError} fallback="That hiring could not be loaded." onRetry={load} />;
 
+  // Pay: the server marks it with payHidden; without the flag the person's own right decides.
+  const payHidden = hiring.payHidden === true || !can.named.payView;
+  const contactHidden = !can.named.contactView;
   const closed = hiring.stage === 'CLOSED';
   const done = hiring.stage === 'DONE';
   const candidate = hiring.candidateName?.trim() || form.name.trim() || null;
@@ -506,7 +528,7 @@ export function HiringFlow({
 
   /** Saves the form. On a refusal the typed text stays exactly as it is. */
   const save = async (): Promise<Hiring | null> => {
-    const r = await run('save', 'offer', () => hiringApi.update(hiring.id, toInput(form)));
+    const r = await run('save', 'offer', () => hiringApi.update(hiring.id, toInput(form, { pay: payHidden, contact: contactHidden })));
     if (!r) return null;
     adopt(r.hiring, { resetForm: true });
     return r.hiring;
@@ -567,7 +589,20 @@ export function HiringFlow({
     toast.success(`${r.employee.fullName} is now an employee — ${r.employee.employeeCode}.`);
   };
 
-  const readOnly = !hiring.can.edit;
+  // What the server says may be done, narrowed by what this person's rights allow.
+  const editor = can.hiring.edit;
+  const hcan = {
+    edit: hiring.can.edit && editor,
+    confirmJd: hiring.can.confirmJd && editor,
+    generateOffer: hiring.can.generateOffer && editor && !payHidden,
+    acceptOffer: hiring.can.acceptOffer && editor,
+    close: hiring.can.close && editor,
+    // The final step is its own right (employeeCreate); its button is replaced by a line when it is missing.
+    appoint: hiring.can.appoint,
+    uploadSignedOffer: !!hiring.can.uploadSignedOffer && editor && !payHidden,
+    uploadSignedAppointment: !!hiring.can.uploadSignedAppointment && editor && !payHidden,
+  };
+  const readOnly = !hcan.edit;
   const field = { size: 'small' as const, disabled: readOnly };
 
   const jdSummary = hiring.jd
@@ -596,7 +631,7 @@ export function HiringFlow({
     <Box id="hiring-top" sx={{ maxWidth: 980, scrollMarginTop: '140px' }}>
       {/* ── The position this hiring is for, and where it stands ───────────── */}
       <Surface e={2} sx={{ p: { xs: 2, sm: 2.5 }, mb: 2 }}>
-        {shell === 'page' && (
+        {shell === 'page' && canOpenPosition && (
           <Button
             component={RouterLink}
             to={positionHref}
@@ -625,7 +660,7 @@ export function HiringFlow({
               {hiring.statusLine}
             </Typography>
           </Box>
-          {hiring.can.close && (
+          {hcan.close && (
             <Button size="small" variant="outlined" color="inherit" onClick={() => setClosing(true)}>
               Close hiring
             </Button>
@@ -656,9 +691,13 @@ export function HiringFlow({
           <FactItem
             label="Position"
             value={
-              <Box component={RouterLink} to={positionHref} sx={{ color: 'var(--c-primary-700)' }}>
+              canOpenPosition ? (
+                <Box component={RouterLink} to={positionHref} sx={{ color: 'var(--c-primary-700)' }}>
+                  <Mono>{hiring.positionCode ?? `#${hiring.positionId}`}</Mono>
+                </Box>
+              ) : (
                 <Mono>{hiring.positionCode ?? `#${hiring.positionId}`}</Mono>
-              </Box>
+              )
             }
           />
           <FactItem label="Department" value={hiring.departmentName ?? 'Not set'} />
@@ -687,9 +726,13 @@ export function HiringFlow({
           )}
           <Typography sx={{ fontSize: 13.5, lineHeight: 1.55 }}>
             Nothing here can be changed any more and no employee was created. The position is{' '}
-            <Box component={RouterLink} to={positionHref} {...away} sx={{ color: 'var(--c-primary-700)' }}>
-              vacant again
-            </Box>
+            {canOpenPosition ? (
+              <Box component={RouterLink} to={positionHref} {...away} sx={{ color: 'var(--c-primary-700)' }}>
+                vacant again
+              </Box>
+            ) : (
+              'vacant again'
+            )}
             .
           </Typography>
           {/* What the chosen reason says comes next. A reason with no next step offers nothing. */}
@@ -700,7 +743,7 @@ export function HiringFlow({
                   {starting ? 'Starting…' : 'Start a new hiring for this position'}
                 </Button>
               )}
-              {afterClose === 'MOVE_EMPLOYEE' && (
+              {afterClose === 'MOVE_EMPLOYEE' && can.positions.edit && (
                 <MoveEmployeeHereButton
                   positionId={hiring.positionId}
                   positionLabel={[hiring.roleTitle, hiring.positionCode].filter(Boolean).join(' · ')}
@@ -749,7 +792,10 @@ export function HiringFlow({
             In this position{hiring.joiningDate ? ` from ${niceDate(hiring.joiningDate)}` : ''}.
           </Typography>
           <Stack spacing={1} sx={{ mt: 1.5 }}>
-            {appointmentLetter && (
+            {payHidden && (appointmentLetter || hcan.uploadSignedAppointment || hiring.signed?.appointment) && (
+              <NoAccessNote>Letters need access to pay.</NoAccessNote>
+            )}
+            {!payHidden && appointmentLetter && (
               <LetterRow
                 letter={appointmentLetter}
                 refNo={hiring.refNo}
@@ -757,25 +803,31 @@ export function HiringFlow({
                 onDownload={() => void download(`letter-${appointmentLetter.id}`, () => hiringApi.letterFile(hiring.id, appointmentLetter.id))}
               />
             )}
-            <HiringSignedCopy
-              hiringId={hiring.id}
-              kind="appointment"
-              signed={hiring.signed?.appointment ?? null}
-              canUpload={!!hiring.can.uploadSignedAppointment}
-              onChanged={(h) => adopt(h)}
-            />
+            {!payHidden && (
+              <HiringSignedCopy
+                hiringId={hiring.id}
+                kind="appointment"
+                signed={hiring.signed?.appointment ?? null}
+                canUpload={hcan.uploadSignedAppointment}
+                onChanged={(h) => adopt(h)}
+              />
+            )}
             <Unfilled items={unfilled.APPOINTMENT} />
             <Typography data-annexure="" sx={{ fontSize: 13.5, color: 'var(--c-text-2)' }}>
               Attach the compensation annexure (Annexure-A) by hand.
             </Typography>
           </Stack>
           <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ mt: 1.5 }}>
-            <Button component={RouterLink} to={`/${company}/cf_hrms/employees/${hiring.employee.id}`} size="small" variant="contained">
-              Open the employee
-            </Button>
-            <Button component={RouterLink} to={`/${company}/cf_hrms/org-chart?root=${hiring.positionId}`} size="small" variant="outlined">
-              See the position on the chart
-            </Button>
+            {can.employees.view && (
+              <Button component={RouterLink} to={`/${company}/cf_hrms/employees/${hiring.employee.id}`} size="small" variant="contained">
+                Open the employee
+              </Button>
+            )}
+            {can.positions.view && (
+              <Button component={RouterLink} to={`/${company}/cf_hrms/org-chart?root=${hiring.positionId}`} size="small" variant="outlined">
+                See the position on the chart
+              </Button>
+            )}
           </Stack>
         </Surface>
       )}
@@ -836,7 +888,7 @@ export function HiringFlow({
               onDownload={(format) => void download(`jd-${format}`, () => hiringApi.jdFile(hiring.id, format))}
             />
             {!!failed('jd') && <ErrorNotice error={failed('jd')} fallback="The job description could not be confirmed." />}
-            {hiring.can.confirmJd && (
+            {hcan.confirmJd && (
               <Box>
                 <Button variant="contained" disabled={busy != null} onClick={() => void confirmJd()}>
                   {busy === 'confirm-jd' ? 'Confirming…' : 'Confirm job description'}
@@ -864,8 +916,8 @@ export function HiringFlow({
                     ))}
                   </TextField>
                   <TextField {...field} label="Full name" value={form.name} onChange={(e) => set('name', e.target.value)} />
-                  <TextField {...field} label="Phone" value={form.phone} onChange={(e) => set('phone', e.target.value)} />
-                  <TextField {...field} label="Email" type="email" value={form.email} onChange={(e) => set('email', e.target.value)} />
+                  {!contactHidden && <TextField {...field} label="Phone" value={form.phone} onChange={(e) => set('phone', e.target.value)} />}
+                  {!contactHidden && <TextField {...field} label="Email" type="email" value={form.email} onChange={(e) => set('email', e.target.value)} />}
                   <TextField {...field} select label="Gender (optional)" value={form.gender} onChange={(e) => set('gender', e.target.value)}>
                     <MenuItem value="">Not recorded</MenuItem>
                     {[...new Set([...GENDERS, form.gender].filter(Boolean))].map((g) => (
@@ -881,17 +933,25 @@ export function HiringFlow({
                     slotProps={shrink}
                   />
                 </Box>
-                <TextField
-                  {...field}
-                  label="Address"
-                  multiline
-                  minRows={3}
-                  fullWidth
-                  value={form.address}
-                  onChange={(e) => set('address', e.target.value)}
-                  helperText="As it should print on the letter — one line of the address per line."
-                  sx={{ mt: 1.5 }}
-                />
+                {contactHidden ? (
+                  <Box sx={{ mt: 1.5 }}>
+                    <NoAccessNote>
+                      Phone, email and address are not shown here: you do not have access to contact details.
+                    </NoAccessNote>
+                  </Box>
+                ) : (
+                  <TextField
+                    {...field}
+                    label="Address"
+                    multiline
+                    minRows={3}
+                    fullWidth
+                    value={form.address}
+                    onChange={(e) => set('address', e.target.value)}
+                    helperText="As it should print on the letter — one line of the address per line."
+                    sx={{ mt: 1.5 }}
+                  />
+                )}
               </Box>
 
               <Box>
@@ -922,15 +982,25 @@ export function HiringFlow({
                     onChange={(e) => set('proposedJoiningDate', e.target.value)}
                     slotProps={shrink}
                   />
-                  <TextField
-                    {...field}
-                    label="Annual CTC (₹)"
-                    value={form.annualCtc}
-                    onChange={(e) => set('annualCtc', e.target.value)}
-                    error={ctcBad}
-                    helperText={ctcBad ? 'Type the amount as a number, for example 900000.' : ctcWords ? `Prints as ${ctcWords}` : 'For the whole year'}
-                    slotProps={{ htmlInput: { inputMode: 'decimal' } }}
-                  />
+                  {payHidden ? (
+                    <TextField
+                      size="small"
+                      label="Annual CTC (₹)"
+                      value={HIDDEN_PAY}
+                      disabled
+                      helperText="The amount is kept as it is; you cannot see or change it."
+                    />
+                  ) : (
+                    <TextField
+                      {...field}
+                      label="Annual CTC (₹)"
+                      value={form.annualCtc}
+                      onChange={(e) => set('annualCtc', e.target.value)}
+                      error={ctcBad}
+                      helperText={ctcBad ? 'Type the amount as a number, for example 900000.' : ctcWords ? `Prints as ${ctcWords}` : 'For the whole year'}
+                      slotProps={{ htmlInput: { inputMode: 'decimal' } }}
+                    />
+                  )}
                   <TextField {...field} label="Offer date" type="date" value={form.offerDate} onChange={(e) => set('offerDate', e.target.value)} slotProps={shrink} />
                   <TextField
                     {...field}
@@ -973,7 +1043,7 @@ export function HiringFlow({
 
               {!!failed('offer') && <ErrorNotice error={failed('offer')} fallback="That could not be saved. What you typed is still here." />}
 
-              {hiring.can.edit && (
+              {hcan.edit && (
                 <Box sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 1.5 }}>
                   <Button variant="outlined" disabled={!dirty || ctcBad || busy != null} onClick={() => void saveOnly()}>
                     {busy === 'save' ? 'Saving…' : 'Save'}
@@ -988,7 +1058,10 @@ export function HiringFlow({
                 <Missing title="Still needed for the offer letter" items={hiring.missing.offerLetter} />
               )}
 
-              {offerLetters.length > 0 && (
+              {payHidden && (offerLetters.length > 0 || !closed) && (
+                <NoAccessNote>Letters need access to pay, so they cannot be made or downloaded by you.</NoAccessNote>
+              )}
+              {!payHidden && offerLetters.length > 0 && (
                 <Stack spacing={0.75}>
                   {offerLetters.map((l) => (
                     <LetterRow
@@ -1002,22 +1075,22 @@ export function HiringFlow({
                 </Stack>
               )}
               {/* The offer as the candidate signed it. A file on record; it accepts nothing by itself. */}
-              {offerLetters.length > 0 && (
+              {!payHidden && offerLetters.length > 0 && (
                 <HiringSignedCopy
                   hiringId={hiring.id}
                   kind="offer"
                   signed={hiring.signed?.offer ?? null}
-                  canUpload={!!hiring.can.uploadSignedOffer}
+                  canUpload={hcan.uploadSignedOffer}
                   onChanged={(h) => adopt(h)}
                 />
               )}
               <Unfilled items={unfilled.OFFER} />
 
-              {(hiring.can.generateOffer || (hiring.can.edit && !hiring.offerAccepted && states.offer === 'current')) && (
+              {!payHidden && (hcan.generateOffer || (hcan.edit && !hiring.offerAccepted && states.offer === 'current')) && (
                 <Box sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 1.5 }}>
                   <Button
                     variant={currentOffer ? 'outlined' : 'contained'}
-                    disabled={busy != null || ctcBad || (!hiring.can.generateOffer && !dirty)}
+                    disabled={busy != null || ctcBad || (!hcan.generateOffer && !dirty)}
                     onClick={() => void generateOffer()}
                   >
                     {busy === 'offer-letter' ? 'Generating…' : currentOffer ? 'Generate again' : 'Generate offer letter'}
@@ -1030,17 +1103,17 @@ export function HiringFlow({
                 </Box>
               )}
 
-              {(hiring.can.acceptOffer || (hiring.can.close && currentOffer)) && (
+              {(hcan.acceptOffer || (hcan.close && currentOffer)) && (
                 <Box sx={{ pt: 1.5, borderTop: '1px solid var(--c-divider)' }}>
                   <Typography sx={{ ...groupLabel, mb: 1 }}>What did the candidate say?</Typography>
-                  {hiring.signed?.offer && hiring.can.acceptOffer && (
+                  {hiring.signed?.offer && hcan.acceptOffer && (
                     <Typography data-signedhint="" sx={{ fontSize: 13, color: 'var(--c-text-2)', lineHeight: 1.5, mb: 1 }}>
                       A signed copy of the offer is on file. If that is their yes, record it here — the upload alone
                       does not accept the offer.
                     </Typography>
                   )}
                   <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
-                    {hiring.can.acceptOffer && (
+                    {hcan.acceptOffer && (
                       <Button
                         variant="contained"
                         disabled={busy != null}
@@ -1052,7 +1125,7 @@ export function HiringFlow({
                         Offer accepted
                       </Button>
                     )}
-                    {hiring.can.close && (
+                    {hcan.close && (
                       <Button variant="outlined" color="inherit" disabled={busy != null} onClick={() => setClosing(true)}>
                         Close hiring
                       </Button>
@@ -1112,7 +1185,7 @@ export function HiringFlow({
                   label="Joining date"
                   type="date"
                   value={joining}
-                  disabled={!hiring.can.appoint && hiring.missing.appoint.length === 0}
+                  disabled={!hcan.appoint && hiring.missing.appoint.length === 0}
                   onChange={(e) => {
                     setJoining(e.target.value);
                     if (!apptTouched) setApptDate(e.target.value);
@@ -1124,7 +1197,7 @@ export function HiringFlow({
                   label="Appointment letter date"
                   type="date"
                   value={apptDate}
-                  disabled={!hiring.can.appoint && hiring.missing.appoint.length === 0}
+                  disabled={!hcan.appoint && hiring.missing.appoint.length === 0}
                   onChange={(e) => {
                     setApptDate(e.target.value);
                     setApptTouched(true);
@@ -1151,15 +1224,19 @@ export function HiringFlow({
                   The Offer step has changes that are not saved. Save them first, so the letter prints them.
                 </Typography>
               )}
-              <Box>
-                <Button
-                  variant="contained"
-                  disabled={!hiring.can.appoint || !joining || dirty || busy != null}
-                  onClick={() => setConfirmingAppoint(true)}
-                >
-                  Generate appointment letter and create employee
-                </Button>
-              </Box>
+              {can.named.employeeCreate ? (
+                <Box>
+                  <Button
+                    variant="contained"
+                    disabled={!hcan.appoint || !joining || dirty || busy != null}
+                    onClick={() => setConfirmingAppoint(true)}
+                  >
+                    Generate appointment letter and create employee
+                  </Button>
+                </Box>
+              ) : (
+                <NoAccessNote>Creating the employee needs a right you do not have.</NoAccessNote>
+              )}
             </Stack>
           )}
         </StepCard>

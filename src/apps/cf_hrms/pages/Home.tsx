@@ -39,19 +39,17 @@ import GroupsRounded from '@mui/icons-material/GroupsRounded';
 import BadgeRounded from '@mui/icons-material/BadgeRounded';
 import {
   PageHeader, StatStrip, SectionCard, EmptyState, ErrorNotice, EntityList, EntityRow,
-  Mono, CapsLabel, StatSkeleton, CardGridSkeleton, useIsPermitted, useCompanySlug,
+  Mono, CapsLabel, StatSkeleton, CardGridSkeleton, useCompanySlug,
   type Stat,
 } from '@shared/ui';
 import { useAuth } from '@core/contexts/AuthContext';
 import { getHomeOverview, type HomeOverview, type OverviewCounts } from '../api/overview';
 import { HomeQueueCard, type QueueTone } from '../components/HomeQueueCard';
-
-const ORG = 'cf_hrms_org_view';
-const PEOPLE = 'cf_hrms_people_view';
-const ROLES = 'cf_hrms_roles_manage';
+import { TAG, useCan, type Area } from '../access/can';
 
 interface Queue {
   key: string;
+  /** The view tag of the area the card points at; the card is shown only with it. */
   permission: string;
   icon: ReactNode;
   title: string;
@@ -77,7 +75,7 @@ function queuesFor(c: OverviewCounts): Queue[] {
   return [
     {
       key: 'rolesNoPurpose',
-      permission: ROLES,
+      permission: TAG.roles.view,
       icon: <NotesRounded />,
       title: 'Roles with no purpose',
       count: c.rolesNoPurpose,
@@ -91,7 +89,7 @@ function queuesFor(c: OverviewCounts): Queue[] {
     },
     {
       key: 'vacantSeats',
-      permission: ORG,
+      permission: TAG.positions.view,
       icon: <EventSeatRounded />,
       title: 'Vacant positions',
       count: c.vacantSeats,
@@ -105,7 +103,7 @@ function queuesFor(c: OverviewCounts): Queue[] {
     },
     {
       key: 'employeesNoAssignment',
-      permission: PEOPLE,
+      permission: TAG.employees.view,
       icon: <PersonSearchRounded />,
       title: 'People with no position',
       count: c.employeesNoAssignment,
@@ -119,7 +117,7 @@ function queuesFor(c: OverviewCounts): Queue[] {
     },
     {
       key: 'documentsExpiring',
-      permission: PEOPLE,
+      permission: TAG.employees.view,
       icon: <DescriptionRounded />,
       title: 'Documents expiring',
       count: c.documentsExpiring,
@@ -138,7 +136,7 @@ export default function Home() {
   const navigate = useNavigate();
   const company = useCompanySlug();
   const { user } = useAuth();
-  const can = useIsPermitted();
+  const can = useCan();
   const go = (path: string) => navigate(`/${company}/cf_hrms/${path}`);
   const to = (path: string) => `/${company}/cf_hrms/${path}`;
 
@@ -169,14 +167,14 @@ export default function Home() {
 
   /* ── band 1: the shape of the organisation, each figure a door ─────────── */
   const stats: Stat[] = [
-    c.employees !== undefined && can(PEOPLE) && {
+    c.employees !== undefined && can.employees.view && {
       label: 'People',
       value: c.employees,
       icon: <GroupsRounded />,
       hint: 'Everyone on the payroll who has not exited',
       onClick: () => go('employees'),
     },
-    c.sanctioned !== undefined && can(ORG) && {
+    c.sanctioned !== undefined && can.positions.view && {
       label: 'Positions filled',
       value: c.filled ?? 0,
       // A bare "13" says nothing; 13 of 169 is the whole story of this plant.
@@ -185,7 +183,7 @@ export default function Home() {
       hint: 'Positions with somebody in them, counted the way the org chart counts them',
       onClick: () => go('positions'),
     },
-    c.rolesTotal !== undefined && can(ROLES) && {
+    c.rolesTotal !== undefined && can.roles.view && {
       label: 'Roles',
       value: c.rolesTotal,
       icon: <BadgeRounded />,
@@ -195,23 +193,23 @@ export default function Home() {
   ].filter(Boolean) as Stat[];
 
   /* ── band 2: the queues ────────────────────────────────────────────────── */
-  const queues = queuesFor(c).filter((q) => q.count !== undefined && can(q.permission));
+  const queues = queuesFor(c).filter((q) => q.count !== undefined && can.has(q.permission));
   // Non-empty first, each group keeping the appendix's consequence order. A
   // queue with nothing in it cannot go wrong, so it sorts below one that can.
   const ordered = [...queues.filter((q) => (q.count ?? 0) > 0), ...queues.filter((q) => !q.count)];
   const allClear = queues.length > 0 && ordered.every((q) => !q.count);
 
   /* ── band 3b: how much of the model is in place (§4.8, in miniature) ───── */
-  const setup = can(ORG)
-    ? [
-        { label: 'Locations', n: c.locations, path: 'locations', hint: 'Plants, offices and sites' },
-        { label: 'Departments', n: c.departments, path: 'departments', hint: 'Functions and divisions' },
-        { label: 'Shifts', n: c.shifts, path: 'shifts', hint: 'General, day, night' },
-        { label: 'Roles', n: c.rolesTotal, path: 'roles', hint: 'The kinds of work' },
-        { label: 'Positions', n: c.positions, path: 'positions', hint: 'One person each, on one shift' },
-        { label: 'Employees', n: c.employees, path: 'employees', hint: 'People on the payroll' },
-      ].filter((s) => s.n !== undefined)
-    : [];
+  // Each row is its own area's: it appears only with that area's view right.
+  const setupRows: { label: string; n: number | undefined; path: string; hint: string; area: Area }[] = [
+    { label: 'Locations', n: c.locations, path: 'locations', hint: 'Plants, offices and sites', area: 'org' },
+    { label: 'Departments', n: c.departments, path: 'departments', hint: 'Functions and divisions', area: 'org' },
+    { label: 'Shifts', n: c.shifts, path: 'shifts', hint: 'General, day, night', area: 'time' },
+    { label: 'Roles', n: c.rolesTotal, path: 'roles', hint: 'The kinds of work', area: 'roles' },
+    { label: 'Positions', n: c.positions, path: 'positions', hint: 'One person each, on one shift', area: 'positions' },
+    { label: 'Employees', n: c.employees, path: 'employees', hint: 'People on the payroll', area: 'employees' },
+  ];
+  const setup = setupRows.filter((s) => s.n !== undefined && can[s.area].view);
   const setupDone = setup.filter((s) => (s.n ?? 0) > 0).length;
 
   return (
@@ -292,7 +290,7 @@ export default function Home() {
               mt: 3,
             }}
           >
-            {data.recentPeople && (
+            {data.recentPeople && can.employees.view && (
               <SectionCard
                 title="Recently joined"
                 subtitle="The newest people on the payroll, and the role they actually do."

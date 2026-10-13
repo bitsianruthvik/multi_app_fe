@@ -11,7 +11,7 @@ import GroupsRounded from '@mui/icons-material/GroupsRounded';
 import {
   CrossLink, DetailHeader, DetailLayout, DetailSkeleton, EmptyState, ErrorNotice,
   FactItem, Mono, SectionCard, StatusBadge, Surface, ToneBadge,
-  useDetailTitle, useIsPermitted, useToast,
+  useDetailTitle, useToast,
 } from '@shared/ui';
 import type { DetailTab, StatusTone } from '@shared/ui';
 import type {
@@ -25,11 +25,12 @@ import { PositionShiftControl } from '../components/PositionShiftControl';
 import { HiringEntry } from '../components/HiringEntry';
 import { joiningSentence, vacantLabel } from '../api/hiring';
 import { NoticeChip } from '../components/Leaving';
-import { LEAVE_VIEW } from '../api/leave';
+import { useCan } from '../access/can';
+import { NoAccessNote } from '../access/Guard';
 import { PositionLeavePolicy } from '../components/LeavePolicyLine';
 import { PositionReportingDialog } from '../components/ReportingDialogs';
 import { ReportingRowList } from '../components/ReportingRows';
-import { MOVE_PERMISSION, MoveEmployeeHereButton } from '../components/MoveEmployee';
+import { MoveEmployeeHereButton } from '../components/MoveEmployee';
 import { usePositionRemoval } from '../components/usePositionRemoval';
 
 /**
@@ -56,8 +57,7 @@ const STATUS_TONES: Record<string, StatusTone> = {
 export default function PositionDetail() {
   const { company = '', id = '' } = useParams<{ company: string; id: string }>();
   const positionId = Number(id);
-  const can = useIsPermitted();
-  const canManage = can('cf_hrms_org_manage');
+  const can = useCan();
   const toast = useToast();
   const navigate = useNavigate();
 
@@ -122,17 +122,22 @@ export default function PositionDetail() {
   );
   // Somebody is appointed and joins later: vacant until then, and nothing else may fill it.
   const joining = isVacant ? (position.joining ?? null) : null;
+  // Moving somebody in lists employees, so it needs both rights. A hiring is shown with `view`, started with `edit`.
+  const canMoveHere = can.positions.edit && can.employees.view;
+  const showHiringEntry = can.hiring.edit || (!!hiring && can.hiring.view);
   const vacantPaths = joining ? (
     <Typography data-joining="" sx={{ fontSize: 13.5, mt: 1.5, lineHeight: 1.55 }}>
-      <CrossLink label={joining.name} to={`/${company}/cf_hrms/employees/${joining.employeeId}`} />
+      {can.employees.view
+        ? <CrossLink label={joining.name} to={`/${company}/cf_hrms/employees/${joining.employeeId}`} />
+        : joining.name}
       {joiningSentence(joining).slice(joining.name.length)}. The position is vacant until that day.
     </Typography>
-  ) : isVacant && canManage ? (
+  ) : isVacant && (canMoveHere || showHiringEntry) ? (
     <Stack spacing={1} sx={{ mt: 1.5 }}>
       <Typography sx={{ fontSize: 13, fontWeight: 500 }}>Fill this position</Typography>
       <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" alignItems="center">
         {/* While a hiring is open nobody else can be moved in; the reason is said, not hidden. */}
-        {can(MOVE_PERMISSION) && can('cf_hrms_people_view') && (
+        {canMoveHere && (
           <MoveEmployeeHereButton
             positionId={position.id}
             positionLabel={[position.roleTitle, position.positionCode].filter(Boolean).join(' · ')}
@@ -140,9 +145,11 @@ export default function PositionDetail() {
             onDone={() => load()}
           />
         )}
-        <HiringEntry positionId={position.id} positionCode={position.positionCode} roleTitle={position.roleTitle} hiring={hiring} onChanged={() => load()} />
+        {showHiringEntry && (
+          <HiringEntry positionId={position.id} positionCode={position.positionCode} roleTitle={position.roleTitle} hiring={hiring} onChanged={() => load()} />
+        )}
       </Stack>
-      {hiring && (
+      {hiring && canMoveHere && (
         <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)' }}>
           A hiring is open for this position. Close it first to move an existing employee here.
         </Typography>
@@ -152,7 +159,9 @@ export default function PositionDetail() {
   const personFact = isVacant
     ? vacantLabel({ hiring, joining: position.joining }) ?? 'Vacant'
     : position.occupant
-      ? <CrossLink label={position.occupant.name} to={`/${company}/cf_hrms/employees/${position.occupant.employeeId}`} />
+      ? (can.employees.view
+        ? <CrossLink label={position.occupant.name} to={`/${company}/cf_hrms/employees/${position.occupant.employeeId}`} />
+        : position.occupant.name)
       : 'Filled';
 
   const tabs: DetailTab[] = [
@@ -184,11 +193,11 @@ export default function PositionDetail() {
             }
             subtitle={position.roleTitle ? `The role is ${position.roleTitle}` : undefined}
             actions={
-              canManage && (
+              (can.positions.edit || can.positions.remove) && (
                 <Stack direction="row" spacing={1}>
-                  <Button size="small" variant="outlined" startIcon={<ContentCopyRounded />} onClick={() => setAdding(true)}>Add a position like this</Button>
-                  <Button size="small" variant="outlined" startIcon={<EditRounded />} onClick={() => setEditing(true)}>Edit</Button>
-                  <Button size="small" variant="outlined" color="inherit" startIcon={<DeleteOutlineRounded />} disabled={removal.busyId === position.id} onClick={() => { void removal.start(position.id); }}>Close or delete…</Button>
+                  {can.positions.edit && <Button size="small" variant="outlined" startIcon={<ContentCopyRounded />} onClick={() => setAdding(true)}>Add a position like this</Button>}
+                  {can.positions.edit && <Button size="small" variant="outlined" startIcon={<EditRounded />} onClick={() => setEditing(true)}>Edit</Button>}
+                  {can.positions.remove && <Button size="small" variant="outlined" color="inherit" startIcon={<DeleteOutlineRounded />} disabled={removal.busyId === position.id} onClick={() => { void removal.start(position.id); }}>Close or delete…</Button>}
                 </Stack>
               )
             }
@@ -202,9 +211,9 @@ export default function PositionDetail() {
         }
         crossLinks={
           <>
-            <CrossLink label={position.roleTitle ?? 'Role'} to={`/${company}/cf_hrms/roles/${position.roleId}`} />
-            {position.departmentId && <CrossLink label={position.departmentName ?? 'Department'} to={`/${company}/cf_hrms/departments`} />}
-            {position.locationId && <CrossLink label={position.locationName ?? 'Location'} to={`/${company}/cf_hrms/locations`} />}
+            {can.roles.view && <CrossLink label={position.roleTitle ?? 'Role'} to={`/${company}/cf_hrms/roles/${position.roleId}`} />}
+            {can.org.view && position.departmentId && <CrossLink label={position.departmentName ?? 'Department'} to={`/${company}/cf_hrms/departments`} />}
+            {can.org.view && position.locationId && <CrossLink label={position.locationName ?? 'Location'} to={`/${company}/cf_hrms/locations`} />}
             <CrossLink label="Org chart" to={`/${company}/cf_hrms/org-chart`} />
           </>
         }
@@ -215,13 +224,13 @@ export default function PositionDetail() {
         {tab === 'overview' && (
           <SectionCard title="The position">
             <Stack spacing={1.25}>
-              <FactItem label="Role" value={<CrossLink label={position.roleTitle ?? '—'} to={`/${company}/cf_hrms/roles/${position.roleId}`} />} />
+              <FactItem label="Role" value={can.roles.view ? <CrossLink label={position.roleTitle ?? '—'} to={`/${company}/cf_hrms/roles/${position.roleId}`} /> : (position.roleTitle ?? '—')} />
               <FactItem label="Department" value={position.departmentName ?? 'Not set'} />
               <FactItem label="Location" value={position.locationName ?? 'Not set'} />
               <FactItem label="Person" value={personFact} />
               <FactItem label="Shift" value={shiftFact} />
               {/* Decided by the role, the location or the company — shown here, changed there. */}
-              {can(LEAVE_VIEW) && (
+              {can.leave.view && (
                 <FactItem label="Leave policy" value={<PositionLeavePolicy positionId={position.id} effective={position.leavePolicy} company={company} />} />
               )}
               <FactItem label="Status" value={<StatusBadge status={position.status} map={STATUS_TONES} />} />
@@ -229,7 +238,7 @@ export default function PositionDetail() {
             </Stack>
             {vacantPaths}
             {/* The person here is on notice: the next one can be hired before they go. */}
-            {!isVacant && canManage && (position.canHireReplacement ?? !!position.occupant?.notice) && (
+            {!isVacant && showHiringEntry && (position.canHireReplacement ?? !!position.occupant?.notice) && (
               <Stack data-replacement="" spacing={1} sx={{ mt: 1.5 }}>
                 <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" alignItems="center">
                   <Typography sx={{ fontSize: 13, fontWeight: 500 }}>{position.occupant?.name ?? 'The person here'} is leaving</Typography>
@@ -258,14 +267,14 @@ export default function PositionDetail() {
           <SectionCard
             title="Work contexts"
             subtitle="The machines, lines, areas or projects this position covers — linked, never cloned per machine."
-            action={canManage && <Button size="small" startIcon={<AddRounded />} onClick={() => setAddingContext(true)}>Add context</Button>}
+            action={can.positions.edit && <Button size="small" startIcon={<AddRounded />} onClick={() => setAddingContext(true)}>Add context</Button>}
           >
             {contexts.length === 0 ? (
               <EmptyState
                 icon={<PrecisionManufacturingRounded />}
                 title="No work contexts linked"
                 hint="A shared position — one helper serving four machines — is this one position with four context links."
-                action={canManage ? <Button size="small" variant="contained" onClick={() => setAddingContext(true)}>Add context</Button> : undefined}
+                action={can.positions.edit ? <Button size="small" variant="contained" onClick={() => setAddingContext(true)}>Add context</Button> : undefined}
               />
             ) : (
               <Stack spacing={1}>
@@ -274,7 +283,7 @@ export default function PositionDetail() {
                     <Typography sx={{ fontSize: 14, fontWeight: 500, flex: 1 }}>{c.workContextName}</Typography>
                     <ToneBadge tone="neutral" noIcon label={c.contextType ?? '—'} />
                     {c.isPrimary && <ToneBadge tone="success" noIcon label="Primary" />}
-                    {canManage && (
+                    {can.positions.edit && (
                       <Tooltip title="Remove this link">
                         <IconButton
                           size="small"
@@ -297,15 +306,15 @@ export default function PositionDetail() {
             <SectionCard
               title="Formal reporting"
               subtitle="Position to position. This is the design that survives a vacancy and a change of people — several rows are normal."
-              action={canManage && <Button size="small" startIcon={<AddRounded />} onClick={() => setAddingReporting(true)}>Add line</Button>}
+              action={can.positions.edit && <Button size="small" startIcon={<AddRounded />} onClick={() => setAddingReporting(true)}>Add line</Button>}
             >
               <ReportingRowList
                 rows={reporting}
                 companySlug={company}
                 emptyTitle="No formal reporting line"
                 emptyHint="This position has no manager in the organisation's design yet. A primary line plus a scoped functional or dotted line are separate rows on this one position."
-                emptyAction={canManage ? <Button size="small" variant="contained" onClick={() => setAddingReporting(true)}>Add line</Button> : undefined}
-                rowActions={(r) => canManage ? (
+                emptyAction={can.positions.edit ? <Button size="small" variant="contained" onClick={() => setAddingReporting(true)}>Add line</Button> : undefined}
+                rowActions={(r) => can.positions.edit ? (
                   <Stack direction="row" spacing={0.5}>
                     <Tooltip title="End this line today. History keeps it.">
                       <IconButton
@@ -353,7 +362,9 @@ export default function PositionDetail() {
               <Stack spacing={1}>
                 {occupants.map((o) => (
                   <Surface key={o.id} e={1} bordered sx={{ p: 1.5, display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap' }}>
-                    <CrossLink label={o.employeeName} to={`/${company}/cf_hrms/employees/${o.employeeId}`} />
+                    {can.employees.view
+                      ? <CrossLink label={o.employeeName} to={`/${company}/cf_hrms/employees/${o.employeeId}`} />
+                      : <Typography sx={{ fontSize: 14 }}>{o.employeeName}</Typography>}
                     <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-3)', flex: 1 }}>
                       {o.assignmentTitle ?? o.roleTitle ?? '—'}
                       {o.allocationPercent != null ? ` · ${o.allocationPercent}%` : ''}
@@ -373,7 +384,7 @@ export default function PositionDetail() {
           <SeatJobContentEditor
             positionId={position.id}
             company={company}
-            canManage={canManage}
+            canManage={can.positions.edit}
             startEditing={search.get('edit') === '1'}
           />
         )}
@@ -409,10 +420,10 @@ export default function PositionDetail() {
         options={options}
       />
       {error && <ErrorNotice error={error} onRetry={load} sx={{ mt: 2 }} />}
-      {!canManage && (
-        <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)', mt: 2 }}>
-          Read-only: you do not hold <Mono>cf_hrms_org_manage</Mono>.
-        </Typography>
+      {!can.positions.edit && (
+        <Box sx={{ mt: 2 }}>
+          <NoAccessNote>You can see this but not change it.</NoAccessNote>
+        </Box>
       )}
     </>
   );

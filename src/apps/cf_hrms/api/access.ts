@@ -1,98 +1,102 @@
-import { query, mutate } from '@core/api-builder';
-import { send } from '@core/api-builder/client';
 import { useAuth } from '@core/contexts/AuthContext';
-import { isAdminRole } from '@core/utils/roles';
-import { api } from './client';
+import { api, type ApiProblem } from './client';
 
 /**
- * The Access area's data layer — the PLATFORM's own tables, not cf_hrms's.
+ * Setup › Logins and access — the typed client for cf_hrms's own `/access/*`
+ * routes (CF_HRMS_HIRING_SPEC.md §12.5).
  *
- * Everything here goes through the generic query API (`@core/api-builder`),
- * which is the only read/write path the nine core tables have. cf_hrms's own 46
- * resources deliberately declare no `writable`, so they cannot be reached this
- * way; these nine can, and that is the whole reason this area exists.
+ * Every route here needs the right "manage logins and access roles"; the server
+ * checks it again on each call. Nothing in this file talks to the platform's
+ * generic query API any more: an access role, its rights and a login are read
+ * and written only through these routes.
  *
- * FOUR FACTS ABOUT THAT API THAT THE SCREENS ARE BUILT AROUND
- *
- *  1. **A failed query answers 200.** `{ success: false, error }` with an HTTP
- *     200 is the normal shape of a broken read here, so every call below checks
- *     `success` rather than trusting the status code. A screen that only caught
- *     throws showed an empty table and called it "no rows".
- *
- *  2. **The requested `fields` list does not narrow the response.** The backend
- *     projects every field its own resourceDef declares and drops the ones the
- *     table does not actually have. `fields` is validated client-side only
- *     (`validateFields` against `manifest.json`) — so asking for a field the
- *     manifest lacks fails BEFORE any request, with a generic failure on screen
- *     and nothing in the network tab.
- *
- *  3. **`users` exposes no `role_id`.** The core resourceDef projects
- *     id · name · email · company_id and a team join, and nothing else survives
- *     the schema filter (`age` and `status` are not columns on this schema at
- *     all). A login's role can therefore be WRITTEN here but not READ back, and
- *     the People screen says so rather than showing a column of dashes. Fixing
- *     it is one line in `multi_app_be/resourceDef.json`.
- *
- *  4. **Scoping is per-table, from the JWT.** `users`, `roles`, `teams` and
- *     `role_capability` carry a company_id and are scoped to the caller's
- *     tenant automatically. `features` and `features_capability` do NOT — they
- *     are global vocabulary, shared by every tenant on the platform. That is
- *     why the Capabilities screen is read-mostly and says out loud that a new
- *     row there is visible to everyone.
+ * PASSWORDS. `createLogin` and `resetPassword` answer with a generated password
+ * exactly once. This module hands it straight to the caller and keeps nothing;
+ * the only caller is the dialog that shows it (`LoginPasswordDialog`).
  */
 
-/** A platform login. `teamName` arrives via the resource's join, not a column. */
-export interface PlatformUser {
-  id: number;
+export type AccessRight = 'view' | 'edit' | 'remove' | 'upload';
+export type AccessScope = 'COMPANY' | 'DEPARTMENT';
+
+/** One row of the tick-box table: an area and the rights that exist for it. */
+export interface CatalogArea {
+  key: string;
+  label: string;
+  screens: string[];
+  rights: { right: AccessRight; tag: string; label: string }[];
+}
+
+/** A right that stands on its own, outside the table. */
+export interface CatalogNamed {
+  tag: string;
+  label: string;
+  hint?: string | null;
+  sensitive?: boolean;
+}
+
+/** A ready-made role a new one can start from. */
+export interface CatalogTemplate {
+  key: string;
+  label: string;
+  scope: AccessScope;
+  tags: string[];
+  description?: string | null;
+}
+
+export interface AccessCatalog {
+  areas: CatalogArea[];
+  named: CatalogNamed[];
+  templates: CatalogTemplate[];
+}
+
+export interface AccessRole {
+  roleId: number;
+  label: string;
+  platformName: string;
+  description: string | null;
+  scope: AccessScope;
+  templateKey: string | null;
+  locked: boolean;
+  tags: string[];
+  loginCount: number;
+  /** One sentence written by the server. Shown as it comes, never rebuilt here. */
+  summary: string;
+}
+
+export interface Login {
+  userId: number;
   name: string;
   email: string;
-  teamName: string | null;
-  company_id: number | null;
+  role: { id: number; label: string };
+  state: 'ACTIVE' | 'DISABLED';
+  employee: {
+    id: number;
+    employeeCode: string;
+    fullName: string;
+    positionCode: string | null;
+    departmentName: string | null;
+  } | null;
+  isYou: boolean;
 }
 
-export interface PlatformRole {
-  id: number;
+export interface PersonWithoutLogin {
+  employeeId: number;
+  employeeCode: string;
   name: string;
-  role_tag: string | null;
+  positionCode: string | null;
+  roleTitle: string | null;
 }
 
-export interface PlatformTeam {
-  id: number;
-  name: string;
+export interface LoginsAnswer {
+  logins: Login[];
+  withoutLogin: PersonWithoutLogin[];
 }
 
-export interface PlatformFeature {
-  id: number;
-  feature_name: string;
-  feature_tag: string | null;
-  type: 'frontend' | 'backend';
-}
-
-/**
- * A capability — a named bundle of features. `features_json` is a MySQL JSON
- * column of feature ids; it comes back parsed, and it is genuinely null on the
- * rows a historical bug left behind (a capability that grants nothing).
- */
-export interface PlatformCapability {
-  capability_id: number;
-  name: string;
-  features_json: number[] | null;
-}
-
-/**
- * One grant: this role, in this company, holds this capability.
- *
- * `app_id` is real in the table but absent from the core resourceDef, so it can
- * neither be read nor written here. A grant made from this screen is therefore
- * app-wide (NULL = wildcard) — which the Roles screen states in its helper text
- * rather than leaving someone to discover it.
- */
-export interface RoleGrant {
-  id: number;
-  role_id: number | null;
-  team_id: number | null;
-  company_id: number | null;
-  capability_id: number | null;
+/** A login as a 409 `IN_USE` lists it. Only the name and email are relied on. */
+export interface LoginHoldingRole {
+  userId?: number;
+  name?: string;
+  email?: string;
 }
 
 export interface ErrorLogRow {
@@ -103,263 +107,78 @@ export interface ErrorLogRow {
   created_at?: string | null;
 }
 
-/* ─────────────────────────────────────────────────────────────────────────── */
-
-/* eslint-disable @typescript-eslint/no-explicit-any */
-
-/**
- * Unwraps the generic API's envelope. See fact 1 above: `success: false` comes
- * back with a 200, so this is the only place that decides whether a read
- * worked, and it raises the backend's own words instead of "Something failed".
- */
-function rows<T>(res: any, what: string): T[] {
-  if (res && res.success === false) {
-    throw new Error(res.error || `Could not load ${what}.`);
-  }
-  return (res?.data ?? []) as T[];
-}
-
-/**
- * The same check for a write — and it is the one that actually bites. A refused
- * insert comes back as `{ success: false }` with a 200, so a caller that only
- * awaited the promise would close its dialog, show a success toast and reload a
- * list that has not changed. Everything that writes goes through here.
- */
-async function written<T>(p: Promise<T>, what: string): Promise<T> {
-  const res: any = await p;
-  if (res && res.success === false) throw new Error(res.error || `Could not ${what}.`);
-  return res as T;
-}
-
-/**
- * `features_json` is a MySQL JSON column. The driver normally hands it back
- * parsed, but a string is a legal thing to receive from a JSON column and one
- * `JSON.parse` in the wrong place would take the whole permissions screen down.
- * Normalised once, here, so no screen has to think about it.
- */
-function toIdList(value: unknown): number[] | null {
-  if (value == null) return null;
-  const raw = typeof value === 'string' ? safeParse(value) : value;
-  if (!Array.isArray(raw)) return null;
-  const ids = raw.map((v) => Number(v)).filter((n) => Number.isFinite(n));
-  return ids.length ? ids : null;
-}
-
-function safeParse(text: string): unknown {
-  try {
-    return JSON.parse(text);
-  } catch {
-    return null;
-  }
-}
-
-const USER_FIELDS = ['id', 'name', 'email', 'teamName', 'company_id'];
+export const SCOPE_LABEL: Record<AccessScope, string> = {
+  COMPANY: 'Whole company',
+  DEPARTMENT: 'Only their department and below',
+};
 
 export const accessApi = {
-  users: async (): Promise<PlatformUser[]> =>
-    rows<PlatformUser>(
-      await query({ resource: 'users', fields: USER_FIELDS, sort: { name: 'asc' } }),
-      'the people with logins',
-    ),
-
-  roles: async (): Promise<PlatformRole[]> =>
-    rows<PlatformRole>(
-      await query({ resource: 'roles', fields: ['id', 'name', 'role_tag'], sort: { name: 'asc' } }),
-      'the roles',
-    ),
-
-  teams: async (): Promise<PlatformTeam[]> =>
-    rows<PlatformTeam>(await query({ resource: 'teams', fields: ['id', 'name'] }), 'the teams'),
-
-  features: async (): Promise<PlatformFeature[]> =>
-    rows<PlatformFeature>(
-      await query({ resource: 'features', fields: ['id', 'feature_name', 'feature_tag', 'type'] }),
-      'the features',
-    ),
-
-  capabilities: async (): Promise<PlatformCapability[]> => {
-    const raw = rows<PlatformCapability & { features_json: unknown }>(
-      await query({
-        resource: 'features_capability',
-        fields: ['capability_id', 'name', 'features_json'],
-      }),
-      'the capabilities',
-    );
-    return raw.map((c) => ({ ...c, features_json: toIdList(c.features_json) }));
+  catalog: async (): Promise<AccessCatalog> => {
+    const c = await api.get<Partial<AccessCatalog>>('/access/catalog');
+    return { areas: c.areas ?? [], named: c.named ?? [], templates: c.templates ?? [] };
   },
 
-  /** Every grant in this company. Scoped to the tenant by the backend, not here. */
-  grants: async (): Promise<RoleGrant[]> =>
-    rows<RoleGrant>(
-      await query({
-        resource: 'role_capability',
-        fields: ['id', 'role_id', 'team_id', 'company_id', 'capability_id'],
-      }),
-      'the current access',
-    ),
+  roles: async (): Promise<AccessRole[]> => (await api.get<{ roles: AccessRole[] }>('/access/roles')).roles ?? [],
 
-  /**
-   * Creates a login. company_id is injected from the caller's JWT by the
-   * backend — deliberately NOT a field on the form. The screen this replaced
-   * had a Company picker listing every tenant on the platform, which let an
-   * admin create an account in somebody else's company.
-   */
-  createUser: (input: { name: string; email: string; password: string; roleId: number; teamId: number | null }) =>
-    written(
-      mutate({
-        resource: 'users',
-        fields: ['id', 'name', 'email'],
-        data: {
-          name: input.name,
-          email: input.email,
-          password: input.password,
-          role_id: input.roleId,
-          ...(input.teamId ? { team_id: input.teamId } : {}),
-        },
-      }),
-      'create that login',
-    ),
+  /** `copyFrom` is a ready-made role's key, or the id of an existing role. */
+  createRole: async (body: { label: string; description?: string; scope: AccessScope; copyFrom?: number | string }) =>
+    (await api.post<{ role: AccessRole }>('/access/roles', body)).role,
 
-  grant: (roleId: number, capabilityId: number) =>
-    written(
-      mutate({
-        resource: 'role_capability',
-        fields: ['id', 'role_id', 'capability_id'],
-        data: { role_id: roleId, capability_id: capabilityId },
-      }),
-      'grant that capability',
-    ),
+  /** `tags`, when sent, REPLACES the role's rights. */
+  updateRole: (roleId: number, body: { label?: string; description?: string | null; scope?: AccessScope; tags?: string[] }) =>
+    api.put<{ role: AccessRole; loginsAffected: number }>(`/access/roles/${roleId}`, body),
 
-  /**
-   * Revokes a grant. A soft delete, scoped to the caller's company by the
-   * backend. `@core/api-builder` exposes query and insert/update but no delete,
-   * so this speaks to the same endpoint directly rather than adding a helper to
-   * a shared module this work is not allowed to touch.
-   */
-  revoke: async (grantId: number) => {
-    const res: any = await send({
-      method: 'POST',
-      url: '/api/query/v1/base_resource',
-      body: { operation: 'delete', resource: 'role_capability', data: { id: grantId } },
-    });
-    if (res && res.success === false) throw new Error(res.error || 'Could not revoke that capability.');
-    return res;
+  deleteRole: (roleId: number) => api.del<unknown>(`/access/roles/${roleId}`),
+
+  logins: async (): Promise<LoginsAnswer> => {
+    const res = await api.get<Partial<LoginsAnswer>>('/access/logins');
+    return { logins: res.logins ?? [], withoutLogin: res.withoutLogin ?? [] };
   },
 
-  createFeature: (input: { featureName: string; featureTag: string; type: 'frontend' | 'backend' }) =>
-    written(
-      mutate({
-        resource: 'features',
-        fields: ['id', 'feature_name', 'feature_tag', 'type'],
-        data: { feature_name: input.featureName, feature_tag: input.featureTag, type: input.type },
-      }),
-      'add that feature',
-    ),
+  /** Answers with the generated password ONCE. Hand it to the dialog and nowhere else. */
+  createLogin: (body: { employeeId: number; email: string; roleId: number }) =>
+    api.post<{ login: Login; password: string }>('/access/logins', body),
+
+  updateLogin: async (userId: number, body: { roleId?: number; email?: string }) =>
+    (await api.put<{ login: Login }>(`/access/logins/${userId}`, body)).login,
+
+  disableLogin: async (userId: number) => (await api.post<{ login: Login }>(`/access/logins/${userId}/disable`)).login,
+
+  enableLogin: async (userId: number) => (await api.post<{ login: Login }>(`/access/logins/${userId}/enable`)).login,
+
+  /** Answers with a new generated password ONCE. */
+  resetPassword: (userId: number) => api.post<{ password: string }>(`/access/logins/${userId}/reset-password`),
 
   /**
-   * Creates a capability from a set of features.
-   *
-   * `features_json` goes over as a JSON *string*: the driver expands a raw JS
-   * array into a SQL value list, which is not what a JSON column wants. The
-   * screen this replaced wrote one row per feature with a `feature_id` column
-   * that does not exist on this table and a client-invented `capability_id`
-   * over an auto-increment primary key — so it never created a working
-   * capability at all.
-   */
-  createCapability: (input: { name: string; featureIds: number[] }) =>
-    written(
-      mutate({
-        resource: 'features_capability',
-        fields: ['name', 'features_json'],
-        data: { name: input.name, features_json: JSON.stringify(input.featureIds) },
-      }),
-      'add that capability',
-    ),
-
-  /**
-   * Recent error log entries.
+   * Recent error log entries (platform admin only).
    *
    * The endpoint is real and authenticated, and it currently answers `[]` on
    * every call because no log table is configured on this platform. The screen
-   * says that in its empty state instead of implying the system has had no
-   * errors.
+   * says that in its empty state instead of implying there were no errors.
    */
   errorLogs: () => api.get<ErrorLogRow[]>('/admin/error-logs'),
 };
 
-/* ─────────────────────────────────────────────────────────────────────────── */
-
-/**
- * Which app a capability belongs to.
- *
- * The platform has no column for this: a capability is a name and a list of
- * feature ids, and the only honest signal of ownership is the tag prefix the
- * apps have used consistently since the first one shipped. So it is read from
- * the capability's own name first, then from the tags of the features it
- * grants — which catches the handful of early capabilities that were named in
- * prose ("Record Audio", "Sales Basic") before the convention existed.
- *
- * Grouping matters because the screen it replaced listed all ~80 in one
- * undifferentiated wall of chips: an HRMS administrator scrolling past
- * `fab_erp_buffer_config` to find `cf_hrms_leave_manage` is being asked to do
- * the product's filing for it.
- */
-export type CapabilityApp = 'cf_hrms' | 'cf_erp' | 'fab_erp' | 'fab_flow' | 'audio_intelligence' | 'sales_control' | 'other';
-
-export const APP_LABEL: Record<CapabilityApp, string> = {
-  cf_hrms: 'CF HRMS',
-  cf_erp: 'CF ERP',
-  fab_erp: 'Fab ERP',
-  fab_flow: 'Fab Flow',
-  audio_intelligence: 'Audio Intelligence',
-  sales_control: 'Sales Control',
-  other: 'Other',
-};
-
-/** cf_hrms first — it is what an HRMS administrator came here to change. */
-export const APP_ORDER: CapabilityApp[] = [
-  'cf_hrms',
-  'cf_erp',
-  'fab_erp',
-  'fab_flow',
-  'audio_intelligence',
-  'sales_control',
-  'other',
-];
-
-function appFromTag(tag: string): CapabilityApp | null {
-  const t = tag.toLowerCase();
-  if (t.startsWith('cf_hrms')) return 'cf_hrms';
-  if (t.startsWith('cf_erp')) return 'cf_erp';
-  if (t.startsWith('fab_erp')) return 'fab_erp';
-  if (t.startsWith('fab_')) return 'fab_flow';
-  if (t.startsWith('audio') || t.includes('record') || t.includes('transcri')) return 'audio_intelligence';
-  if (t.startsWith('sales')) return 'sales_control';
-  return null;
+/** The server's refusal code (`LOCKED`, `IN_USE`, `LAST_OWNER`, `INVALID`), if it sent one. */
+export function refusalCode(e: unknown): string | undefined {
+  return (e as Partial<ApiProblem> | null)?.code;
 }
 
-export function capabilityApp(capability: PlatformCapability, featureById: Map<number, PlatformFeature>): CapabilityApp {
-  const byName = appFromTag(capability.name ?? '');
-  if (byName) return byName;
-  for (const id of capability.features_json ?? []) {
-    const f = featureById.get(id);
-    const byFeature = f && appFromTag(f.feature_tag ?? f.feature_name ?? '');
-    if (byFeature) return byFeature;
-  }
-  return 'other';
+/** The logins a 409 `IN_USE` names — empty when the server sent none. */
+export function loginsHolding(e: unknown): LoginHoldingRole[] {
+  // The server sends them under `detail.logins` (accessService.deleteRole).
+  const body = (e as Partial<ApiProblem> | null)?.body as { detail?: { logins?: unknown }; logins?: unknown } | undefined;
+  const raw = body?.detail?.logins ?? body?.logins;
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((l): l is LoginHoldingRole => !!l && typeof l === 'object');
 }
 
-/* ─────────────────────────────────────────────────────────────────────────── */
-
 /**
- * Who may change the platform's access model.
- *
- * Deliberately NOT a cf_hrms feature tag — see `PLATFORM_ADMIN` in navMeta.ts
- * for why, and for how the shell resolves it. The screens use this directly to
- * gate their writes, so a reader who reaches one by URL gets a read-only page
- * rather than a crash or a button that fails.
+ * The platform admin — the only person the Error logs tab is listed for. Not a
+ * cf_hrms right: the log belongs to the platform, not to this app.
  */
 export function useIsPlatformAdmin(): boolean {
   const { user } = useAuth();
-  return isAdminRole(user?.role);
+  // Exactly the name the server bypasses on — not "administrator", not a role that merely contains it.
+  return String(user?.role ?? '').toLowerCase() === 'admin';
 }

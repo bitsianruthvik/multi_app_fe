@@ -4,6 +4,7 @@ import LogoutRounded from '@mui/icons-material/LogoutRounded';
 import { ConfirmDialog, FormDialog, useToast } from '@shared/ui';
 import { noticeLabel, peopleApi, type Exit, type ExitReasonType, type NoticeRef } from '../api/people';
 import { hiringApi, niceDate, todayIso } from '../api/hiring';
+import { useCan } from '../access/can';
 
 /**
  * Leaving — notice, and then closing the employee (CF_HRMS_HIRING_SPEC.md §4).
@@ -461,7 +462,6 @@ export function LeavingBand({
   exit,
   exitDate,
   positionWords,
-  canManage,
   showStart = true,
   dense = false,
   afterLeft,
@@ -474,7 +474,8 @@ export function LeavingBand({
   /** The employee's own exit date, for someone who left before leaving records existed. */
   exitDate?: string | null;
   positionWords?: string | null;
-  canManage: boolean;
+  /** Ignored: the band asks for the leaving right itself. Kept so older callers still compile. */
+  canManage?: boolean;
   /** Off where the page puts "Start leaving" among its own header buttons. */
   showStart?: boolean;
   /** The org chart panel: tighter. */
@@ -484,6 +485,8 @@ export function LeavingBand({
   onChanged: () => void;
 }) {
   const toast = useToast();
+  // Start, change, cancel and end a leaving are one right; reading the band is not gated here.
+  const canClose = useCan().named.employeeClose;
   const [dialog, setDialog] = useState<'start' | 'edit' | 'end' | 'cancel' | null>(null);
   const open = exit && exit.status === 'OPEN' ? exit : null;
   const onNotice = status === 'NOTICE';
@@ -501,7 +504,7 @@ export function LeavingBand({
   );
 
   if (!onNotice && !left) {
-    if (!showStart || !canManage || status !== 'ACTIVE') return null;
+    if (!showStart || !canClose || status !== 'ACTIVE') return null;
     return (
       <>
         <Button size="small" variant="outlined" color="inherit" startIcon={<LogoutRounded />} data-startleaving="" onClick={() => setDialog('start')}>
@@ -547,7 +550,7 @@ export function LeavingBand({
         </Typography>
       )}
 
-      {onNotice && open && canManage && (
+      {onNotice && open && canClose && (
         <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ mt: 1 }}>
           <Button size="small" variant="contained" color="error" data-endnotice="" onClick={() => setDialog('end')}>
             End notice and close employee

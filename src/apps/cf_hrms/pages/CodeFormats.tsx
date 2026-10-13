@@ -7,14 +7,15 @@ import AddRounded from '@mui/icons-material/AddRounded';
 import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
 import {
   CapsLabel, ConfirmDialog, DialogHeader, EmptyState, ErrorNotice, Mono, PageHeader, SectionCard, SkeletonRows,
-  StatusBadge, Surface, useIsPermitted, useToast,
+  StatusBadge, Surface, useToast,
 } from '@shared/ui';
+import { useCan } from '../access/can';
 import {
   codegenApi,
   type CodeScheme, type CodegenEntity, type CodegenExplain, type CodegenConditionToken, type Condition, type Generated,
   type RuleSelection, type SchemeInput, type Segment,
 } from '../api/codegen';
-import { orgApi, ORG_MANAGE } from '../api/organisation';
+import { orgApi } from '../api/organisation';
 import { listRoles } from '../api/roles';
 import { PatternParts } from '../components/CodingRules/PatternParts';
 import { SamplePicker, type SampleRow } from '../components/CodingRules/SamplePicker';
@@ -69,12 +70,15 @@ const idsOf = (v: string) => v.split(',').map((x) => x.trim()).filter(Boolean);
 
 /** The value box of one condition, by what kind of value the thing being tested holds. */
 function ConditionValue({
-  token, c, index, lookups, disabled, onChange,
+  token, c, index, lookups, allowed, disabled, onChange,
 }: {
-  token: CodegenConditionToken | undefined; c: Condition; index: number; lookups: Lookups; disabled: boolean; onChange: (value: string) => void;
+  token: CodegenConditionToken | undefined; c: Condition; index: number; lookups: Lookups; allowed: Record<LookupKind, boolean>; disabled: boolean; onChange: (value: string) => void;
 }) {
   const many = c.operator === 'in';
   const kind = token?.valueKind;
+  if (isLookupKind(kind) && !allowed[kind]) {
+    return <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>You cannot see these records.</Typography>;
+  }
   if (isLookupKind(kind)) {
     const options = lookups[kind];
     return many ? (
@@ -113,9 +117,9 @@ function ConditionValue({
 }
 
 function SchemeEditor({
-  open, onClose, onSaved, existing, entities, lookups, names, canManage,
+  open, onClose, onSaved, existing, entities, lookups, allowed, names, canManage,
 }: {
-  open: boolean; onClose: () => void; onSaved: () => void; existing: CodeScheme | null; entities: CodegenEntity[]; lookups: Lookups; names: NameMaps; canManage: boolean;
+  open: boolean; onClose: () => void; onSaved: () => void; existing: CodeScheme | null; entities: CodegenEntity[]; lookups: Lookups; allowed: Record<LookupKind, boolean>; names: NameMaps; canManage: boolean;
 }) {
   const theme = useTheme();
   const phone = useMediaQuery(theme.breakpoints.down('sm'), { noSsr: true });
@@ -290,7 +294,7 @@ function SchemeEditor({
                       {(token?.operators ?? ['eq']).map((o) => <MenuItem key={o} value={o}>{OPERATOR_LABEL[o] ?? o}</MenuItem>)}
                     </TextField>
                     <Box sx={{ gridArea: 'val', minWidth: 0 }}>
-                      <ConditionValue token={token} c={c} index={i} lookups={lookups} disabled={ro} onChange={(value) => setCond(i, { value })} />
+                      <ConditionValue token={token} c={c} index={i} lookups={lookups} allowed={allowed} disabled={ro} onChange={(value) => setCond(i, { value })} />
                     </Box>
                     {!ro && <IconButton aria-label={`Remove condition ${i + 1}`} sx={{ gridArea: 'del' }} onClick={() => set({ conditions: d.conditions.filter((_, j) => j !== i) })}><DeleteOutlineRounded /></IconButton>}
                   </Box>
@@ -331,8 +335,14 @@ function SchemeEditor({
  */
 export default function CodeFormats() {
   const toast = useToast();
-  const can = useIsPermitted();
-  const canManage = can(ORG_MANAGE);
+  const can = useCan();
+  const canManage = can.setup.edit;
+  const canRemove = can.setup.remove;
+  // Departments, locations and roles belong to other areas: each list is read only with that area's view.
+  const allowed = useMemo<Record<LookupKind, boolean>>(
+    () => ({ department: can.org.view, location: can.org.view, role: can.roles.view }),
+    [can.org.view, can.roles.view],
+  );
 
   const [schemes, setSchemes] = useState<CodeScheme[] | null>(null);
   const [entities, setEntities] = useState<CodegenEntity[] | null>(null);
@@ -357,10 +367,10 @@ export default function CodeFormats() {
   const [lookups, setLookups] = useState<Lookups>({ department: [], location: [], role: [] });
   useEffect(() => {
     const put = (kind: LookupKind, rows: Lookup[]) => setLookups((cur) => ({ ...cur, [kind]: rows }));
-    if (kindsUsed.has('department')) orgApi.departments.list().then((r) => put('department', r.map((x) => ({ id: x.id, name: x.path || x.name })))).catch(() => put('department', []));
-    if (kindsUsed.has('location')) orgApi.locations.list().then((r) => put('location', r.map((x) => ({ id: x.id, name: x.path || x.name })))).catch(() => put('location', []));
-    if (kindsUsed.has('role')) listRoles().then((r) => put('role', r.items.map((x) => ({ id: x.id, name: x.title })))).catch(() => put('role', []));
-  }, [kindsUsed]);
+    if (kindsUsed.has('department') && allowed.department) orgApi.departments.list().then((r) => put('department', r.map((x) => ({ id: x.id, name: x.path || x.name })))).catch(() => put('department', []));
+    if (kindsUsed.has('location') && allowed.location) orgApi.locations.list().then((r) => put('location', r.map((x) => ({ id: x.id, name: x.path || x.name })))).catch(() => put('location', []));
+    if (kindsUsed.has('role') && allowed.role) listRoles().then((r) => put('role', r.items.map((x) => ({ id: x.id, name: x.title })))).catch(() => put('role', []));
+  }, [kindsUsed, allowed]);
   const names = useMemo(() => {
     const m = emptyNames();
     for (const k of ['department', 'location', 'role'] as const) for (const x of lookups[k]) m[k].set(String(x.id), x.name);
@@ -410,7 +420,7 @@ export default function CodeFormats() {
                       </Tooltip>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }} onClick={(e) => e.stopPropagation()}>
                         <StatusBadge status={s.status} />
-                        {canManage && <IconButton size="small" aria-label={`Delete ${s.code}`} onClick={() => setToDelete(s)}><DeleteOutlineRounded fontSize="small" /></IconButton>}
+                        {canRemove && <IconButton size="small" aria-label={`Delete ${s.code}`} onClick={() => setToDelete(s)}><DeleteOutlineRounded fontSize="small" /></IconButton>}
                       </Box>
                     </Box>
                   ))}
@@ -424,7 +434,7 @@ export default function CodeFormats() {
       )}
       <SchemeEditor open={editor.open} existing={editor.scheme} canManage={canManage} onClose={() => setEditor({ open: false, scheme: null })}
         onSaved={() => { toast.success('Code rule saved.'); load(); }}
-        entities={entities ?? []} lookups={lookups} names={names} />
+        entities={entities ?? []} lookups={lookups} allowed={allowed} names={names} />
       <ConfirmDialog open={!!toDelete} title={`Delete ${toDelete?.code}?`} danger confirmLabel="Delete"
         body="Records keep the codes they already have. Its counters are kept, so no number is ever handed out twice."
         onClose={() => setToDelete(null)} onConfirm={async () => { if (!toDelete) return; await codegenApi.remove(toDelete.id); toast.success('Deleted.'); load(); }} />

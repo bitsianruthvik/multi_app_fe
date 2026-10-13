@@ -4,6 +4,7 @@ import PersonRounded from '@mui/icons-material/PersonRounded';
 import { EmptyState, Mono, Surface, ToneBadge, CrossLink } from '@shared/ui';
 import type { StatusTone } from '@shared/ui';
 import type { ResolvedRelationship } from '../api/assignments';
+import { useCan } from '../access/can';
 
 /**
  * The reporting SET, rendered.
@@ -68,6 +69,7 @@ export function ReportingRow({
   actions?: React.ReactNode;
   muted?: boolean;
 }) {
+  const can = useCan();
   const scoped = row.scope.type !== 'GENERAL';
   return (
     <Surface
@@ -97,21 +99,29 @@ export function ReportingRow({
           {row.manager ? (
             <Stack direction="row" spacing={0.75} alignItems="center" flexWrap="wrap">
               <PersonRounded sx={{ fontSize: 16, color: 'var(--c-text-3)' }} aria-hidden />
-              <CrossLink
-                label={row.manager.name}
-                to={`/${companySlug}/cf_hrms/employees/${row.manager.employeeId}`}
-              />
+              {can.employees.view ? (
+                <CrossLink
+                  label={row.manager.name}
+                  to={`/${companySlug}/cf_hrms/employees/${row.manager.employeeId}`}
+                />
+              ) : (
+                <Typography component="span" sx={{ fontSize: 14 }}>{row.manager.name}</Typography>
+              )}
               {row.manager.workAssignmentId && (
                 <Typography component="span" sx={{ fontSize: 12.5, color: 'var(--c-text-2)' }}>
                   as {row.manager.workAssignmentTitle ?? row.manager.roleTitle ?? 'their position'}
                 </Typography>
               )}
-              {row.managerPosition && (
+              {row.managerPosition && (can.positions.view ? (
                 <CrossLink
                   label={row.managerPosition.code ?? row.managerPosition.title ?? 'position'}
                   to={`/${companySlug}/cf_hrms/positions/${row.managerPosition.id}`}
                 />
-              )}
+              ) : (
+                <Typography component="span" sx={{ fontSize: 12.5, color: 'var(--c-text-2)' }}>
+                  {row.managerPosition.code ?? row.managerPosition.title ?? 'position'}
+                </Typography>
+              ))}
             </Stack>
           ) : (
             <Stack direction="row" spacing={0.75} alignItems="center">

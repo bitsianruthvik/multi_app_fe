@@ -6,6 +6,7 @@ import {
   DataTable, DateCell, EmptyState, ErrorNotice, FacetChip, FilterBar, ListSkeleton, Mono, PageHeader,
   type DataColumn,
 } from '@shared/ui';
+import { useCan } from '../access/can';
 import { CLOSE_REASON_LABEL, hiringApi, niceDate, type CloseReason, type HiringSummary } from '../api/hiring';
 
 /**
@@ -30,6 +31,7 @@ const TABS: { key: Tab; label: string }[] = [
 export default function Hiring() {
   const { company = '' } = useParams<{ company: string }>();
   const navigate = useNavigate();
+  const can = useCan();
   const [tab, setTab] = useState<Tab>('open');
   const [search, setSearch] = useState('');
   const [rows, setRows] = useState<HiringSummary[] | null>(null);
@@ -178,9 +180,12 @@ export default function Hiring() {
         title="Hiring"
         subtitle="one hiring per vacant position — job description, offer, appointment, and then the employee"
         actions={
-          <Button size="small" variant="outlined" onClick={() => navigate(`/${company}/cf_hrms/positions`)}>
-            Find a vacant position
-          </Button>
+          // A shortcut to another area's screen: only for someone who may open it.
+          can.positions.view && (
+            <Button size="small" variant="outlined" onClick={() => navigate(`/${company}/cf_hrms/positions`)}>
+              Find a vacant position
+            </Button>
+          )
         }
       />
 
@@ -217,7 +222,7 @@ export default function Hiring() {
                 title={search ? 'No hiring matches this search' : emptyTitle}
                 hint={search ? 'Clear the search to see every hiring in this list.' : emptyHint}
                 action={
-                  !search && tab === 'open' ? (
+                  !search && tab === 'open' && can.positions.view ? (
                     <Button size="small" variant="contained" onClick={() => navigate(`/${company}/cf_hrms/positions`)}>
                       Find a vacant position
                     </Button>

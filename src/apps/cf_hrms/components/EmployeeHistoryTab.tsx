@@ -79,13 +79,13 @@ function Details({ details }: { details: Record<string, unknown> }) {
 export function EmployeeHistoryTab({
   employeeId,
   employeeName,
-  canManage,
+  canEdit,
   pickers,
   onCountChange,
 }: {
   employeeId: number;
   employeeName: string;
-  canManage: boolean;
+  canEdit: boolean;
   /** Passed down rather than fetched — the record screen already has it. */
   pickers: PeoplePickers | null;
   onCountChange?: (n: number) => void;
@@ -140,7 +140,7 @@ export function EmployeeHistoryTab({
       <SectionCard
         title="Employment history"
         subtitle="Joining, transfers, changes and exit — newest first"
-        actions={canManage && (
+        actions={canEdit && (
           <Button size="small" startIcon={<AddRounded />} onClick={() => setAddOpen(true)}>
             Record an event
           </Button>
@@ -204,7 +204,7 @@ export function EmployeeHistoryTab({
         )}
       </SectionCard>
 
-      {canManage && (
+      {canEdit && (
         <FormDialog
           open={addOpen}
           title={`Record an event for ${employeeName}`}

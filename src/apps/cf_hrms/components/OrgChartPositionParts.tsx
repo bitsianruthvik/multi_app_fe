@@ -6,8 +6,8 @@ import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
 import OpenInNewRounded from '@mui/icons-material/OpenInNewRounded';
 import PersonRounded from '@mui/icons-material/PersonRounded';
 import PersonOutlineRounded from '@mui/icons-material/PersonOutlineRounded';
-import { ErrorNotice, Mono, StatusBadge, ToneBadge, useCompanySlug, useIsPermitted } from '@shared/ui';
-import { LEAVE_VIEW } from '../api/leave';
+import { ErrorNotice, Mono, StatusBadge, ToneBadge, useCompanySlug } from '@shared/ui';
+import { useCan } from '../access/can';
 import { PositionLeavePolicy } from './LeavePolicyLine';
 import type { CardReportingRow, OrgChartNode, PositionCard } from '../api/orgchart';
 import { joiningLabel, type JoiningRef } from '../api/hiring';
@@ -204,7 +204,8 @@ export function PositionFacts({
     (node ? { id: null, code: node.shiftPattern, name: shiftNameOf(node) } : null);
   const occupant = node?.occupants?.[0]?.name ?? card?.occupants?.[0]?.name ?? null;
 
-  const canSeeLeave = useIsPermitted()(LEAVE_VIEW);
+  const can = useCan();
+  const canSeeLeave = can.leave.view;
   const companySlug = useCompanySlug();
   const facts: { label: string; value: ReactNode }[] = [
     {
@@ -233,7 +234,7 @@ export function PositionFacts({
     {
       label: 'Role',
       value:
-        roleId != null ? (
+        roleId != null && can.roles.view ? (
           <Box
             component="button"
             type="button"
@@ -400,8 +401,7 @@ export function PositionFooter({
   onChanged?: () => void;
   extraActions?: ReactNode;
 }) {
-  const can = useIsPermitted();
-  const canManage = can('cf_hrms_org_manage');
+  const can = useCan();
   const removal = usePositionRemoval({
     onDone: () => {
       onClose?.();
@@ -448,7 +448,7 @@ export function PositionFooter({
             Start the chart here
           </Button>
         )}
-        {canManage && (
+        {can.positions.remove && (
           <Button
             size="small"
             variant="outlined"

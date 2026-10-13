@@ -42,8 +42,10 @@ import CheckBoxRounded from '@mui/icons-material/CheckBoxRounded';
 import ContentCopyRounded from '@mui/icons-material/ContentCopyRounded';
 import {
   SideSheet, ConfirmDialog, ErrorNotice, Callout, StatusBadge, ToneBadge, Mono, CapsLabel, Surface, FacetChip,
-  useToast, useIsPermitted, useCompanySlug,
+  useToast, useCompanySlug,
 } from '@shared/ui';
+import { useCan } from '../access/can';
+import { NoAccessNote } from '../access/Guard';
 import {
   getCopySource, previewCopy, runCopy, listRoles,
   type ContentKind, type CopyLine, type CopyMode, type CopyPlan, type CopyRef, type CopyRequest, type CopySource, type Role,
@@ -77,8 +79,6 @@ const KIND: Record<ContentKind, { one: string; many: string; overlay: boolean }>
 const KIND_ORDER: ContentKind[] = ['kras', 'responsibilities', 'kpis', 'qualifications', 'skills', 'authorities', 'experience', 'relationships', 'conditions'];
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
-const SEAT_PERM = 'cf_hrms_org_manage';
-const ROLE_PERM = 'cf_hrms_roles_manage';
 
 interface Opt {
   type: 'role' | 'position';
@@ -120,9 +120,13 @@ export function ContentCopySheet({
   const toast = useToast();
   const navigate = useNavigate();
   const company = useCompanySlug();
-  const can = useIsPermitted();
-  const mayOrg = can(SEAT_PERM);
-  const mayRoles = can(ROLE_PERM);
+  const can = useCan();
+  // A position target needs positions.edit, a role target roles.edit. Only the
+  // target kinds the person may change are offered.
+  const mayOrg = can.positions.edit;
+  const mayRoles = can.roles.edit;
+  const seeRoles = can.roles.view;
+  const seePositions = can.positions.view;
 
   // ── what the pickers are made from ──────────────────────────────────────
   const [roles, setRoles] = useState<Role[]>([]);
@@ -159,8 +163,12 @@ export function ContentCopySheet({
     setSrcError(null);
     setPicked(new Set());
     setFilter('');
-    setToType(start?.toType ?? (start?.to?.[0]?.type ?? 'position'));
-    setTargets(start?.to ?? []);
+    const wanted: 'role' | 'position' = start?.toType ?? (start?.to?.[0]?.type ?? 'position');
+    const allowed = (k: 'role' | 'position') => (k === 'role' ? mayRoles : mayOrg);
+    const other = wanted === 'role' ? 'position' : 'role';
+    const first = allowed(wanted) ? wanted : allowed(other) ? other : wanted;
+    setToType(first);
+    setTargets(first === wanted ? start?.to ?? [] : []);
     setMode(null);
     setForkTitle('');
     setAppliesFrom('');
@@ -170,7 +178,11 @@ export function ContentCopySheet({
     setShowAllExceptions(false);
     setCatalogError(null);
     let live = true;
-    Promise.all([listRoles(), positionsApi.list()])
+    // Each list is asked for only when the person may see that area.
+    Promise.all([
+      seeRoles ? listRoles() : Promise.resolve({ items: [] as Role[] }),
+      seePositions ? positionsApi.list() : Promise.resolve({ items: [] as PositionRow[] }),
+    ])
       .then(([r, p]) => {
         if (!live) return;
         setRoles(r.items);
@@ -180,7 +192,7 @@ export function ContentCopySheet({
     return () => {
       live = false;
     };
-  }, [open, start]);
+  }, [open, start, mayRoles, mayOrg, seeRoles, seePositions]);
 
   // ── read the source whenever it changes ─────────────────────────────────
   useEffect(() => {
@@ -208,6 +220,8 @@ export function ContentCopySheet({
   const roleOptions = useMemo(() => roles.map(roleOpt), [roles]);
   const seatOptions = useMemo(() => positions.map(seatOpt), [positions]);
   const sourceOptions = useMemo(() => [...roleOptions, ...seatOptions.map((o) => ({ ...o, group: 'Positions' }))], [roleOptions, seatOptions]);
+  // Which ways of copying this person may use at all; the rest are not shown.
+  const modeOpen: Record<CopyMode, boolean> = { SEAT: mayOrg, ROLE: mayRoles, FORK: mayOrg && mayRoles };
   const targetOptions = toType === 'role' ? roleOptions : seatOptions;
   const optionOf = useCallback(
     (ref: CopyRef | null) => (ref ? (ref.type === 'role' ? roleOptions : seatOptions).find((o) => o.id === ref.id) ?? null : null),
@@ -243,11 +257,11 @@ export function ContentCopySheet({
   // ── which ways of copying are open to this person, for this selection ───
   const why = useMemo(() => {
     const seatOnly = toType !== 'position' ? 'Needs positions to copy to.'
-      : !mayOrg ? 'Needs permission to manage the organisation.'
+      : !mayOrg ? 'You cannot change positions.'
         : offSeat.length ? `${offSeat.map((k) => KIND[k].many).join(' and ')} can't be added to a single position — only KRAs, responsibilities and KPIs have a layer below the role. Untick them, or choose another way.`
           : null;
-    const role = !mayRoles ? 'Needs permission to manage roles.' : null;
-    const fork = toType !== 'position' ? 'Needs positions to copy to.' : !(mayOrg && mayRoles) ? 'Needs permission to manage both roles and the organisation.' : null;
+    const role = !mayRoles ? 'You cannot change roles.' : null;
+    const fork = toType !== 'position' ? 'Needs positions to copy to.' : !(mayOrg && mayRoles) ? 'You cannot change both roles and positions.' : null;
     return { SEAT: seatOnly, ROLE: role, FORK: fork } as Record<CopyMode, string | null>;
   }, [toType, mayOrg, mayRoles, offSeat]);
 
@@ -372,8 +386,15 @@ export function ContentCopySheet({
     },
   ];
 
-  const body: ReactNode = result ? (
-    <Done result={result} company={company} go={(to) => { onClose(); navigate(to); }} />
+  const body: ReactNode = !mayOrg && !mayRoles ? (
+    <NoAccessNote>You can see this but not change it.</NoAccessNote>
+  ) : result ? (
+    <Done
+      result={result}
+      company={company}
+      canOpen={{ role: can.roles.view, position: can.positions.view }}
+      go={(to) => { onClose(); navigate(to); }}
+    />
   ) : (
     <Stack spacing={3}>
       {catalogError ? <ErrorNotice error={catalogError} fallback="The roles and positions could not be loaded." /> : null}
@@ -467,8 +488,8 @@ export function ContentCopySheet({
           }}
           aria-label="What to copy to"
         >
-          <ToggleButton value="position">Positions</ToggleButton>
-          <ToggleButton value="role">Roles</ToggleButton>
+          {mayOrg && <ToggleButton value="position">Positions</ToggleButton>}
+          {mayRoles && <ToggleButton value="role">Roles</ToggleButton>}
         </ToggleButtonGroup>
 
         <Autocomplete
@@ -534,7 +555,7 @@ export function ContentCopySheet({
           <RadioGroup value={mode ?? ''} onChange={(e) => setMode(e.target.value as CopyMode)} aria-label="How widely it should apply">
             <Stack spacing={1}>
               {modeCards
-                .filter((m) => toType === 'position' || m.value === 'ROLE')
+                .filter((m) => (toType === 'position' || m.value === 'ROLE') && modeOpen[m.value])
                 .map((m) => {
                   const blocked = why[m.value];
                   const on = mode === m.value;
@@ -903,7 +924,18 @@ function LineRow({ line, on, toggle }: { line: CopyLine; on: boolean; toggle: ()
 }
 
 /** The result, in the same words the review used, with a way to see it. */
-function Done({ result, company, go }: { result: CopyPlan; company: string; go: (to: string) => void }) {
+function Done({
+  result,
+  company,
+  canOpen,
+  go,
+}: {
+  result: CopyPlan;
+  company: string;
+  /** Opening a role or a position needs that area's view. */
+  canOpen: { role: boolean; position: boolean };
+  go: (to: string) => void;
+}) {
   const t = result.totals;
   const target = (x: CopyPlan['targets'][number]) => (x.type === 'role' ? `/${company}/cf_hrms/roles/${x.id}` : `/${company}/cf_hrms/positions/${x.id}`);
   return (
@@ -938,9 +970,11 @@ function Done({ result, company, go }: { result: CopyPlan; company: string; go: 
                   {' · '}{plural(k, 'line')} added{x.fork?.newRoleTitle ? ` · new role “${x.fork.newRoleTitle}”` : ''}
                 </Box>
               </Box>
-              <Button size="small" onClick={() => go(x.fork?.newRoleId ? `/${company}/cf_hrms/roles/${x.fork.newRoleId}` : target(x))}>
-                Open
-              </Button>
+              {(x.fork?.newRoleId ? canOpen.role : x.type === 'role' ? canOpen.role : canOpen.position) && (
+                <Button size="small" onClick={() => go(x.fork?.newRoleId ? `/${company}/cf_hrms/roles/${x.fork.newRoleId}` : target(x))}>
+                  Open
+                </Button>
+              )}
             </Stack>
           );
         })}

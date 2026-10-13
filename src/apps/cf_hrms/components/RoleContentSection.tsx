@@ -14,6 +14,7 @@ import AddRounded from '@mui/icons-material/AddRounded';
 import EditRounded from '@mui/icons-material/EditRounded';
 import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
 import { SectionCard, EntityRow, ToneBadge, ConfirmDialog, useToast } from '@shared/ui';
+import { useCan } from '../access/can';
 import {
   removeContent, pretty, limitText,
   type ContentKind, type ContentRow, type KraGroup,
@@ -81,7 +82,6 @@ export function RoleContentSection({
   subtitle,
   addLabel,
   emptyHint,
-  canManage,
   onChanged,
 }: {
   roleId: number;
@@ -92,10 +92,13 @@ export function RoleContentSection({
   subtitle?: string;
   addLabel: string;
   emptyHint: string;
-  canManage: boolean;
   onChanged: () => void;
 }) {
   const toast = useToast();
+  // Add / edit a line = roles.edit; remove a line = roles.remove.
+  const can = useCan();
+  const canEdit = can.roles.edit;
+  const canRemove = can.roles.remove;
   const present = PRESENT[kind];
   const [assign, setAssign] = useState<{ row: ContentRow | null } | null>(null);
   const [removing, setRemoving] = useState<ContentRow | null>(null);
@@ -106,7 +109,7 @@ export function RoleContentSection({
         title={title}
         subtitle={subtitle}
         actions={
-          canManage ? (
+          canEdit ? (
             <Button size="small" startIcon={<AddRounded sx={{ fontSize: 16 }} />} onClick={() => setAssign({ row: null })}>
               {addLabel}
             </Button>
@@ -140,18 +143,22 @@ export function RoleContentSection({
                   </Stack>
                 }
                 actions={
-                  canManage ? (
+                  canEdit || canRemove ? (
                     <Stack direction="row" spacing={0.25}>
-                      <Tooltip title="Edit">
-                        <IconButton size="small" aria-label="Edit" onClick={() => setAssign({ row: r })}>
-                          <EditRounded sx={{ fontSize: 16 }} />
-                        </IconButton>
-                      </Tooltip>
-                      <Tooltip title="Remove">
-                        <IconButton size="small" aria-label="Remove" onClick={() => setRemoving(r)}>
-                          <DeleteOutlineRounded sx={{ fontSize: 16 }} />
-                        </IconButton>
-                      </Tooltip>
+                      {canEdit && (
+                        <Tooltip title="Edit">
+                          <IconButton size="small" aria-label="Edit" onClick={() => setAssign({ row: r })}>
+                            <EditRounded sx={{ fontSize: 16 }} />
+                          </IconButton>
+                        </Tooltip>
+                      )}
+                      {canRemove && (
+                        <Tooltip title="Remove">
+                          <IconButton size="small" aria-label="Remove" onClick={() => setRemoving(r)}>
+                            <DeleteOutlineRounded sx={{ fontSize: 16 }} />
+                          </IconButton>
+                        </Tooltip>
+                      )}
                     </Stack>
                   ) : undefined
                 }

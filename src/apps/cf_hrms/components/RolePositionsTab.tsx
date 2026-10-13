@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Box, Button, Stack, Typography } from '@mui/material';
-import { EmptyState, ErrorNotice, ListSkeleton, Mono, SectionCard, Surface, ToneBadge, useIsPermitted } from '@shared/ui';
+import { EmptyState, ErrorNotice, ListSkeleton, Mono, SectionCard, Surface, ToneBadge } from '@shared/ui';
+import { useCan } from '../access/can';
+import { NoAccessNote } from '../access/Guard';
 import { positionsApi, type PositionRow } from '../api/positions';
 import { vacantLabel } from '../api/hiring';
 import { NoticeChip } from './Leaving';
@@ -13,18 +15,23 @@ const isVacant = (p: PositionRow) => p.occupant === null || (p.occupant === unde
 export function RolePositionsTab({ roleId, company }: { roleId: number; company: string }) {
   const [rows, setRows] = useState<PositionRow[] | null>(null);
   const [error, setError] = useState<unknown>(null);
+  const can = useCan();
+  // Positions are another area: listed and linked only with positions.view; removing one is positions.remove.
+  const seePositions = can.positions.view;
+  const canRemove = can.positions.remove;
 
   const load = useCallback(() => {
+    if (!seePositions) return;
     setError(null);
     positionsApi.list({ roleId })
       .then((r) => setRows(r.items))
       .catch((e) => { setError(e); setRows([]); });
-  }, [roleId]);
+  }, [roleId, seePositions]);
   useEffect(() => { load(); }, [load]);
-  const canManage = useIsPermitted()('cf_hrms_org_manage');
   // Remove goes through the one dialog, which reads what it would do before it offers anything.
   const removal = usePositionRemoval({ onDone: () => load() });
 
+  if (!seePositions) return <NoAccessNote>You do not have access to positions.</NoAccessNote>;
   if (rows === null) return <ListSkeleton rows={4} />;
   const vacant = rows.filter(isVacant).length;
   const plural = (n: number) => `${n} position${n === 1 ? '' : 's'}`;
@@ -50,7 +57,7 @@ export function RolePositionsTab({ roleId, company }: { roleId: number; company:
               </Typography>
               {p.occupant?.notice && <NoticeChip notice={p.occupant.notice} />}
               {(p.shift?.name ?? p.shiftName) && <ToneBadge tone="neutral" noIcon label={p.shift?.name ?? p.shiftName ?? ''} />}
-              {canManage && (
+              {canRemove && (
                 <Button
                   size="small"
                   color="inherit"

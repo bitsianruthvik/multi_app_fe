@@ -16,9 +16,10 @@ import BadgeRounded from '@mui/icons-material/BadgeRounded';
 import ContentCopyRounded from '@mui/icons-material/ContentCopyRounded';
 import {
   PageHeader, FilterBar, FacetChip, DataTable, EmptyState, StatStrip, StatusBadge, ToneBadge,
-  Mono, ErrorNotice, ListSkeleton, useIsPermitted, useCompanySlug,
+  Mono, ErrorNotice, ListSkeleton, useCompanySlug,
   type DataColumn, type Stat,
 } from '@shared/ui';
+import { useCan } from '../access/can';
 import { listRoles, pretty, type Role } from '../api/roles';
 import { RoleFormDialog } from '../components/RoleFormDialog';
 import { ContentCopySheet, type ContentCopyStart } from '../components/ContentCopySheet';
@@ -28,8 +29,10 @@ type Gap = 'purpose' | 'kras';
 export default function Roles() {
   const navigate = useNavigate();
   const company = useCompanySlug();
-  const can = useIsPermitted();
-  const mayManage = can('cf_hrms_roles_manage');
+  const can = useCan();
+  // New role and copying content into roles = roles.edit. The department link needs org.view.
+  const mayEdit = can.roles.edit;
+  const seeDepartments = can.org.view;
   const [params, setParams] = useSearchParams();
 
   const [rows, setRows] = useState<Role[]>([]);
@@ -124,7 +127,9 @@ export default function Roles() {
         key: 'department',
         header: 'Department',
         render: (r) =>
-          r.departmentName ? (
+          r.departmentName && !seeDepartments ? (
+            <Box sx={{ fontSize: 13 }}>{r.departmentName}</Box>
+          ) : r.departmentName ? (
             <Box
               component="button"
               type="button"
@@ -167,7 +172,7 @@ export default function Roles() {
         sortValue: (r) => r.status,
       },
     ],
-    [company, navigate],
+    [company, navigate, seeDepartments],
   );
 
   return (
@@ -176,7 +181,7 @@ export default function Roles() {
         title="Roles"
         subtitle="reusable kinds of work — what a JD is generated from"
         actions={
-          mayManage ? (
+          mayEdit ? (
             <Button variant="contained" startIcon={<AddRounded />} onClick={() => setCreating(true)}>
               New role
             </Button>
@@ -220,7 +225,7 @@ export default function Roles() {
             columns={columns}
             getRowId={(r) => r.id}
             storageKey="cf_hrms:roles"
-            selectable={mayManage}
+            selectable={mayEdit}
             bulkActions={(selected, clear) => (
               <Button
                 size="small"
@@ -248,7 +253,7 @@ export default function Roles() {
                     : 'A role is a kind of work — "Printing Operator". Create one, give it a purpose, then assign KRAs, responsibilities and KPIs from the masters.'
                 }
                 action={
-                  mayManage && !rows.length ? (
+                  mayEdit && !rows.length ? (
                     <Button variant="contained" startIcon={<AddRounded />} onClick={() => setCreating(true)}>
                       New role
                     </Button>

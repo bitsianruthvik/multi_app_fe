@@ -30,6 +30,7 @@ import BlockRounded from '@mui/icons-material/BlockRounded';
 import EditNoteRounded from '@mui/icons-material/EditNoteRounded';
 import ReportProblemOutlined from '@mui/icons-material/ReportProblemOutlined';
 import { CapsLabel, Mono, Surface } from '@shared/ui';
+import { useCan } from '../access/can';
 import {
   ORIGIN_HINT,
   ORIGIN_LABEL,
@@ -550,6 +551,8 @@ export function ManagerLines({
   /** The snapshot's own sentence for "no manager recorded". */
   emptyNote?: string | null;
 }) {
+  // A manager's page is the Employees area's: linked only for somebody who may open it.
+  const canSeePeople = useCan().employees.view;
   if (managers.length === 0) {
     return (
       <EmptySectionNote
@@ -587,7 +590,7 @@ export function ManagerLines({
             <Box sx={{ minWidth: 0, flex: 1 }}>
               <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1, flexWrap: 'wrap' }}>
                 {name ? (
-                  m.manager?.employeeId ? (
+                  m.manager?.employeeId && canSeePeople ? (
                     <Box
                       component={Link}
                       to={`/${companySlug}/cf_hrms/employees/${m.manager.employeeId}`}

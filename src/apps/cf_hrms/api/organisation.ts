@@ -186,7 +186,3 @@ export const orgApi = {
 };
 
 /** Permission tags these screens gate on (plan §6). */
-export const ORG_VIEW = 'cf_hrms_org_view';
-export const ORG_MANAGE = 'cf_hrms_org_manage';
-export const PEOPLE_VIEW = 'cf_hrms_people_view';
-export const PEOPLE_MANAGE = 'cf_hrms_people_manage';

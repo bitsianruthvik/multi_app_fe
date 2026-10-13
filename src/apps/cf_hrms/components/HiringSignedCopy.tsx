@@ -7,6 +7,7 @@ import {
   hiringApi, niceDate, readFileBase64, saveHiringFile,
   type Hiring, type SignedKind, type SignedMeta,
 } from '../api/hiring';
+import { useCan } from '../access/can';
 
 /**
  * The signed copy of a letter (CF_HRMS_HIRING_SPEC.md §5.3): the offer the
@@ -48,9 +49,11 @@ export function HiringSignedCopy({
   const [busy, setBusy] = useState<'upload' | 'download' | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [removing, setRemoving] = useState(false);
+  // A signed letter carries the pay figures: upload and download both need the pay right.
+  const canSeePay = useCan().named.payView;
 
   // Nothing on file and nothing may be added: the row would only be noise.
-  if (!signed && !canUpload) return null;
+  if (!canSeePay || (!signed && !canUpload)) return null;
 
   const upload = async (file: File | undefined) => {
     if (!file) return;

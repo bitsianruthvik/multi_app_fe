@@ -31,15 +31,15 @@ import CallMadeRounded from '@mui/icons-material/CallMadeRounded';
 import CallReceivedRounded from '@mui/icons-material/CallReceivedRounded';
 import {
   DetailLayout, DetailHeader, CrossLink, FactItem, SectionCard, StatusBadge, ToneBadge, Mono,
-  Surface, Callout, ErrorNotice, DetailSkeleton, ConfirmDialog, useToast, useIsPermitted, useCompanySlug,
+  Surface, Callout, ErrorNotice, DetailSkeleton, ConfirmDialog, useToast, useCompanySlug,
   useDetailTitle, type DetailTab,
 } from '@shared/ui';
+import { useCan } from '../access/can';
 import {
   getRoleContent, deleteRole, pretty, type RoleContent,
 } from '../api/roles';
 import { RoleFormDialog } from '../components/RoleFormDialog';
 import { RolePositionsTab } from '../components/RolePositionsTab';
-import { LEAVE_VIEW } from '../api/leave';
 import { RoleLeavePolicy } from '../components/LeavePolicyLine';
 import { RoleContentTab } from '../components/RoleContentTab';
 import { RoleContentSection } from '../components/RoleContentSection';
@@ -53,12 +53,16 @@ export default function RoleDetail() {
   const company = useCompanySlug();
   const navigate = useNavigate();
   const toast = useToast();
-  const can = useIsPermitted();
-  const canManage = can('cf_hrms_roles_manage');
-  // Copying is the one thing here two different tags can do: a position-only copy
-  // needs org_manage, a role-wide one roles_manage. The sheet turns off whichever
-  // way is not open to this person, and says why.
-  const canCopy = canManage || can('cf_hrms_org_manage');
+  const can = useCan();
+  // Edit the role and its content = roles.edit; delete the role = roles.remove.
+  const canEdit = can.roles.edit;
+  const canRemove = can.roles.remove;
+  // Copying is the one thing here two rights can do: a position-only copy
+  // needs positions.edit, a role-wide one roles.edit. The sheet offers only
+  // the targets that are open to this person.
+  const canCopy = canEdit || can.positions.edit;
+  const seePositions = can.positions.view;
+  const seeDepartments = can.org.view;
 
   const [content, setContent] = useState<RoleContent | null>(null);
   const [loading, setLoading] = useState(true);
@@ -105,9 +109,9 @@ export default function RoleDetail() {
       { value: 'authority', label: 'Authority', count: c.authorities ?? 0 },
       { value: 'relationships', label: 'Relationships', count: c.relationships ?? 0 },
       { value: 'conditions', label: 'Conditions', count: c.conditions ?? 0 },
-      { value: 'positions', label: 'Positions', count: role?.positionCount },
+      ...(seePositions ? [{ value: 'positions', label: 'Positions', count: role?.positionCount }] : []),
     ];
-  }, [content, role?.positionCount]);
+  }, [content, role?.positionCount, seePositions]);
 
   if (loading) return <DetailSkeleton />;
   if (error || !content || !role) {
@@ -130,27 +134,29 @@ export default function RoleDetail() {
       }
       subtitle={role.roleSummary ?? undefined}
       actions={
-        canCopy ? (
+        canCopy || canEdit || canRemove ? (
           <Stack direction="row" spacing={1}>
-            <Button
-              size="small"
-              startIcon={<ContentCopyRounded />}
-              endIcon={<ArrowDropDownRounded />}
-              onClick={(e) => setCopyMenu(e.currentTarget)}
-              aria-haspopup="menu"
-              aria-expanded={!!copyMenu}
-            >
-              Copy content
-            </Button>
-            {canManage && (
-              <>
-                <Button size="small" startIcon={<EditRounded />} onClick={() => setEditing(true)}>
-                  Edit
-                </Button>
-                <Button size="small" color="error" startIcon={<DeleteOutlineRounded />} onClick={() => setRemoving(true)}>
-                  Delete
-                </Button>
-              </>
+            {canCopy && (
+              <Button
+                size="small"
+                startIcon={<ContentCopyRounded />}
+                endIcon={<ArrowDropDownRounded />}
+                onClick={(e) => setCopyMenu(e.currentTarget)}
+                aria-haspopup="menu"
+                aria-expanded={!!copyMenu}
+              >
+                Copy content
+              </Button>
+            )}
+            {canEdit && (
+              <Button size="small" startIcon={<EditRounded />} onClick={() => setEditing(true)}>
+                Edit
+              </Button>
+            )}
+            {canRemove && (
+              <Button size="small" color="error" startIcon={<DeleteOutlineRounded />} onClick={() => setRemoving(true)}>
+                Delete
+              </Button>
             )}
           </Stack>
         ) : undefined
@@ -163,7 +169,7 @@ export default function RoleDetail() {
           <FactItem label="KPIs" value={role.kpiCount} />
           <FactItem label="Positions using it" value={role.positionCount} />
           {/* The role's own leave policy, or that it follows the location; changed from here. */}
-          {can(LEAVE_VIEW) && <FactItem label="Leave policy" value={<RoleLeavePolicy roleId={role.id} roleTitle={role.title} company={company} />} />}
+          {can.leave.view &&<FactItem label="Leave policy" value={<RoleLeavePolicy roleId={role.id} roleTitle={role.title} company={company} />} />}
           <FactItem
             label="Effective"
             value={role.effectiveFrom ? `${role.effectiveFrom}${role.effectiveTo ? ` → ${role.effectiveTo}` : ''}` : '—'}
@@ -175,10 +181,12 @@ export default function RoleDetail() {
 
   const crossLinks = (
     <>
-      {role.departmentName && (
+      {role.departmentName && seeDepartments && (
         <CrossLink icon={<ApartmentRounded />} label={role.departmentName} to={`/${company}/cf_hrms/departments`} />
       )}
-      <CrossLink icon={<WorkOutlineRounded />} label="Positions" count={role.positionCount} to={`/${company}/cf_hrms/positions`} />
+      {seePositions && (
+        <CrossLink icon={<WorkOutlineRounded />} label="Positions" count={role.positionCount} to={`/${company}/cf_hrms/positions`} />
+      )}
       <CrossLink icon={<FlagRounded />} label="KRA library" to={`/${company}/cf_hrms/libraries?tab=kras`} />
     </>
   );
@@ -220,14 +228,14 @@ export default function RoleDetail() {
   return (
     <>
       <DetailLayout header={header} crossLinks={crossLinks} beforeTabs={tab === 'overview' || tab === 'positions' ? undefined : dateBand} tabs={tabs} active={tab} onTab={setTab}>
-        {tab === 'positions' && <RolePositionsTab roleId={roleId} company={company} />}
+        {tab === 'positions' && seePositions && <RolePositionsTab roleId={roleId} company={company} />}
 
         {tab === 'overview' && (
           <Stack spacing={2}>
             <SectionCard
               title="Purpose"
               subtitle="Why this role exists. It is the opening paragraph of every job description generated from it."
-              actions={canManage ? <Button size="small" startIcon={<EditRounded />} onClick={() => setEditing(true)}>Edit</Button> : undefined}
+              actions={canEdit ? <Button size="small" startIcon={<EditRounded />} onClick={() => setEditing(true)}>Edit</Button> : undefined}
             >
               {role.rolePurpose ? (
                 <Typography sx={{ fontSize: 15, lineHeight: 1.7, maxWidth: 760 }}>{role.rolePurpose}</Typography>
@@ -250,7 +258,9 @@ export default function RoleDetail() {
                 <FactItem
                   label="Default department"
                   value={
-                    role.departmentName ? (
+                    role.departmentName && !seeDepartments ? (
+                      role.departmentName
+                    ) : role.departmentName ? (
                       <Box component={Link} to={`/${company}/cf_hrms/departments`} sx={{ color: 'var(--c-primary-700)', textDecoration: 'none' }}>
                         {role.departmentName}
                       </Box>
@@ -288,7 +298,7 @@ export default function RoleDetail() {
           </Stack>
         )}
 
-        {tab === 'content' && <RoleContentTab content={content} canManage={canManage} onChanged={() => void load()} />}
+        {tab === 'content' && <RoleContentTab content={content} onChanged={() => void load()} />}
 
         {tab === 'requirements' && (
           <Stack spacing={2}>
@@ -301,7 +311,6 @@ export default function RoleDetail() {
               subtitle="What someone must be able to do. Assigned from the skill master, marked required or preferred."
               addLabel="Require a skill"
               emptyHint="No skills required yet."
-              canManage={canManage}
               onChanged={() => void load()}
             />
             <RoleContentSection
@@ -313,7 +322,6 @@ export default function RoleDetail() {
               subtitle="Education, certification and licences."
               addLabel="Require a qualification"
               emptyHint="No qualifications required yet."
-              canManage={canManage}
               onChanged={() => void load()}
             />
             <RoleContentSection
@@ -325,7 +333,6 @@ export default function RoleDetail() {
               subtitle="Years and the area they should be in. Written here rather than assigned — no other role reuses this sentence."
               addLabel="Add experience"
               emptyHint="No experience requirement recorded."
-              canManage={canManage}
               onChanged={() => void load()}
             />
           </Stack>
@@ -341,7 +348,6 @@ export default function RoleDetail() {
             subtitle="What this role may decide, approve or stop without asking — and the limit it holds that within."
             addLabel="Grant an authority"
             emptyHint="No authority recorded. Until one is, this role decides nothing on its own."
-            canManage={canManage}
             onChanged={() => void load()}
           />
         )}
@@ -362,7 +368,6 @@ export default function RoleDetail() {
               title="Relationship expectations"
               addLabel="Add a relationship"
               emptyHint="No relationships recorded yet."
-              canManage={canManage}
               onChanged={() => void load()}
             />
           </Stack>
@@ -378,7 +383,6 @@ export default function RoleDetail() {
             subtitle="Shift pattern, physical demands, environment, PPE and travel — what someone taking this role should expect."
             addLabel="Add a condition"
             emptyHint="No working conditions recorded."
-            canManage={canManage}
             onChanged={() => void load()}
           />
         )}
@@ -396,21 +400,22 @@ export default function RoleDetail() {
           </ListItemIcon>
           <ListItemText primary="Copy this role's content to…" secondary="Other positions or roles. A single position is the safe default." />
         </MenuItem>
-        <MenuItem
-          disabled={!canManage}
-          onClick={() => {
-            setCopyMenu(null);
-            setCopyStart({ to: [{ type: 'role', id: roleId }], toType: 'role' });
-          }}
-        >
-          <ListItemIcon>
-            <CallReceivedRounded fontSize="small" />
-          </ListItemIcon>
-          <ListItemText
-            primary="Copy content into this role from…"
-            secondary={`Changes the role itself — all ${role.positionCount} position${role.positionCount === 1 ? '' : 's'} holding it.`}
-          />
-        </MenuItem>
+        {canEdit && (
+          <MenuItem
+            onClick={() => {
+              setCopyMenu(null);
+              setCopyStart({ to: [{ type: 'role', id: roleId }], toType: 'role' });
+            }}
+          >
+            <ListItemIcon>
+              <CallReceivedRounded fontSize="small" />
+            </ListItemIcon>
+            <ListItemText
+              primary="Copy content into this role from…"
+              secondary={`Changes the role itself — all ${role.positionCount} position${role.positionCount === 1 ? '' : 's'} holding it.`}
+            />
+          </MenuItem>
+        )}
       </Menu>
 
       <ContentCopySheet open={!!copyStart} start={copyStart} onClose={() => setCopyStart(null)} onDone={() => void load()} />

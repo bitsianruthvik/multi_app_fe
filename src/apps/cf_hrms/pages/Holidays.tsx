@@ -6,10 +6,10 @@ import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
 import EventRounded from '@mui/icons-material/EventRounded';
 import {
   Callout, ConfirmDialog, EmptyState, ErrorNotice, FormDialog, ListSkeleton, Mono, PageHeader, SectionCard, ToneBadge,
-  errorMessage, useIsPermitted, useToast,
+  errorMessage, useToast,
 } from '@shared/ui';
 import type { ApiProblem } from '../api/client';
-import { ORG_MANAGE } from '../api/organisation';
+import { useCan } from '../access/can';
 import { niceDate } from '../api/hiring';
 import { NATIONAL_HOLIDAYS, calendarsApi, type CopyYearResult, type Holiday, type HolidayCalendar } from '../api/shifts';
 
@@ -39,8 +39,9 @@ interface CalendarDraft { id: number | null; name: string; description: string }
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 export default function Holidays() {
-  const can = useIsPermitted();
-  const canManage = can(ORG_MANAGE);
+  const can = useCan();
+  const canManage = can.time.edit;
+  const canRemove = can.time.remove;
   const toast = useToast();
 
   const [calendars, setCalendars] = useState<HolidayCalendar[] | null>(null);
@@ -255,18 +256,22 @@ export default function Holidays() {
           title={open.name}
           subtitle={`Holidays in ${year}${holidays ? ` · ${holidays.length}` : ''}`}
           action={
-            canManage && (
+            (canManage || canRemove) && (
               <Stack direction="row" spacing={0.5}>
-                <Tooltip title="Rename this calendar">
-                  <IconButton size="small" aria-label={`Rename ${open.name}`} onClick={() => setCalendarDraft({ id: open.id, name: open.name, description: open.description ?? '' })}>
-                    <EditRounded fontSize="small" />
-                  </IconButton>
-                </Tooltip>
-                <Tooltip title="Delete this calendar…">
-                  <IconButton size="small" aria-label={`Delete ${open.name}`} onClick={() => setDoomedCalendar(open)}>
-                    <DeleteOutlineRounded fontSize="small" />
-                  </IconButton>
-                </Tooltip>
+                {canManage && (
+                  <Tooltip title="Rename this calendar">
+                    <IconButton size="small" aria-label={`Rename ${open.name}`} onClick={() => setCalendarDraft({ id: open.id, name: open.name, description: open.description ?? '' })}>
+                      <EditRounded fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                )}
+                {canRemove && (
+                  <Tooltip title="Delete this calendar…">
+                    <IconButton size="small" aria-label={`Delete ${open.name}`} onClick={() => setDoomedCalendar(open)}>
+                      <DeleteOutlineRounded fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                )}
               </Stack>
             )
           }
@@ -369,14 +374,18 @@ export default function Holidays() {
                     <Typography sx={{ fontSize: 14, fontWeight: 500, overflowWrap: 'anywhere' }}>{h.name}</Typography>
                     {h.isOptional && <ToneBadge tone="neutral" noIcon label="Optional" />}
                   </Box>
-                  {canManage && (
+                  {(canManage || canRemove) && (
                     <Box sx={{ gridArea: 'act', display: 'flex' }}>
-                      <IconButton size="small" aria-label={`Edit ${h.name}`} onClick={() => setHolidayDraft({ id: h.id, date: h.date.slice(0, 10), name: h.name, isOptional: h.isOptional })}>
-                        <EditRounded fontSize="small" />
-                      </IconButton>
-                      <IconButton size="small" aria-label={`Remove ${h.name}`} onClick={() => setDoomedHoliday(h)}>
-                        <DeleteOutlineRounded fontSize="small" />
-                      </IconButton>
+                      {canManage && (
+                        <IconButton size="small" aria-label={`Edit ${h.name}`} onClick={() => setHolidayDraft({ id: h.id, date: h.date.slice(0, 10), name: h.name, isOptional: h.isOptional })}>
+                          <EditRounded fontSize="small" />
+                        </IconButton>
+                      )}
+                      {canRemove && (
+                        <IconButton size="small" aria-label={`Remove ${h.name}`} onClick={() => setDoomedHoliday(h)}>
+                          <DeleteOutlineRounded fontSize="small" />
+                        </IconButton>
+                      )}
                     </Box>
                   )}
                 </Box>

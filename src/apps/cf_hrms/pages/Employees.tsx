@@ -6,7 +6,7 @@ import PeopleAltRounded from '@mui/icons-material/PeopleAltRounded';
 import {
   PageHeader, FilterBar, FacetChip, DataTable, StatStrip, StatusBadge, ToneBadge,
   EmptyState, ErrorNotice, ListSkeleton, StatSkeleton, Mono, DateCell,
-  useIsPermitted, useToast,
+  useToast,
   type DataColumn, type Stat,
 } from '@shared/ui';
 import {
@@ -14,6 +14,7 @@ import {
   type EmployeeRow, type PeoplePickers,
 } from '../api/people';
 import { EmployeeFormDialog } from '../components/EmployeeFormDialog';
+import { useCan } from '../access/can';
 
 /**
  * Employees — the people (DESIGN_SYSTEM.md §4.2 Collection).
@@ -49,9 +50,10 @@ export default function Employees() {
   const navigate = useNavigate();
   const { company } = useParams<{ company: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
-  const can = useIsPermitted();
+  const can = useCan();
   const toast = useToast();
-  const canManage = can('cf_hrms_people_manage');
+  // "New employee" outside hiring needs both the edit right and the named create right.
+  const canCreate = can.employees.edit && can.named.employeeCreate;
 
   const [rows, setRows] = useState<EmployeeRow[]>([]);
   const [pickers, setPickers] = useState<PeoplePickers | null>(null);
@@ -273,7 +275,7 @@ export default function Employees() {
     <PageHeader
       title="Employees"
       subtitle="One record per person — what they do lives in the positions they hold"
-      actions={canManage && (
+      actions={canCreate && (
         <Button
           variant="contained"
           size="small"
@@ -380,7 +382,7 @@ export default function Employees() {
               icon={<PeopleAltRounded />}
               title="No employees yet"
               body="An employee is one record per person, however many jobs they do. Add the person first; the positions they hold come next."
-              action={canManage && (
+              action={canCreate && (
                 <Button variant="contained" size="small" startIcon={<AddRounded />} onClick={openCreate}>
                   New employee
                 </Button>
@@ -404,7 +406,7 @@ export default function Employees() {
         />
       </Box>
 
-      {canManage && (
+      {canCreate && (
         <EmployeeFormDialog
           open={createOpen}
           onClose={() => setCreateOpen(false)}

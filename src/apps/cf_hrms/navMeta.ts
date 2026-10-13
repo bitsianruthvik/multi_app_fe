@@ -18,62 +18,52 @@
  */
 import type { NavSection, CountMetaMap } from '@shared/ui';
 
-const ORG = 'cf_hrms_org_view';
-/** Settings only the people who can change them have a use for (the letter templates). */
-const ORG_MANAGE = 'cf_hrms_org_manage';
-const PEOPLE = 'cf_hrms_people_view';
-/**
- * The self view (appendix §A3, last row: "Employee · self only"). It is the one
- * tag that grants a person something about THEMSELVES, and for a shop-floor
- * employee it is the only tag they hold — so "My place" is the only entry they
- * see anywhere in this file, and every section below disappears for them
- * (`TopNav` shows a section only when the user can reach at least one screen in
- * it). `routes.tsx` sends such a login straight here instead of to Home.
- */
-const SELF = 'cf_hrms_self_view';
-const ROLES = 'cf_hrms_roles_manage';
-const LEAVE = 'cf_hrms_leave_view';
-const DOCS = 'cf_hrms_documents_generate';
+import { TAG, SCREEN_TAGS } from './access/can';
 
 /**
- * The gate on the Access screens — and the one entry here that is NOT a
- * feature tag.
+ * Every entry is gated by the `view` right of its area (CF_HRMS_HIRING_SPEC.md
+ * §12.1). The tags live in `access/can.ts`; this file only says which screen
+ * belongs to which area:
  *
- * All thirteen cf_hrms tags describe HR work: employees, leave, the org chart.
- * None of them means "administer this tenant's accounts and permissions", and
- * a fourteenth would need a backend seed — where a tag nobody has been granted
- * resolves to false and hides the area from the very person who needs it. The
- * platform's existing answer to that question is the admin role name, which is
- * what App.tsx already uses to route an admin after login.
+ *   org        Departments, Locations
+ *   roles      Roles, Libraries
+ *   positions  Org chart, Positions
+ *   employees  Employees          hiring     Hiring          documents  Documents
+ *   time       Shifts, Holidays   leave      Leave policies
+ *   setup      Code formats, Letters, Reporting types
  *
- * So this is a sentinel: `CfHrmsShell` gives the shell a `can` predicate that
- * answers it from the role, and passes everything else through to the normal
- * feature-tag check. navMeta stays the single nav source, and the top nav, the
- * section row, the mobile sheet and ⌘K all hide the same four entries from the
- * same person. It is declared here, with no imports, so this file stays a plain
- * data module.
+ * A screen without its `view` is in neither the menu nor the command palette,
+ * and `routes.tsx` answers its address with "You do not have access to this
+ * screen".
  */
-export const PLATFORM_ADMIN = 'platform_admin';
+const ORG = TAG.org.view;
+const ROLES = TAG.roles.view;
+const POSITIONS = TAG.positions.view;
+const PEOPLE = TAG.employees.view;
+const HIRING = TAG.hiring.view;
+const DOCS = TAG.documents.view;
+const TIME = TAG.time.view;
+const LEAVE = TAG.leave.view;
+const SETUP = TAG.setup.view;
+/** Logins and access roles. The Owner (platform role `admin`) holds it by name. */
+const ACCESS = TAG.named.accessManage;
+/**
+ * The self view: the one tag that grants a person something about THEMSELVES.
+ * For a shop-floor employee it is the only tag they hold, so "My place" and
+ * their own Org chart are the only entries they see.
+ */
+const SELF = TAG.named.selfView;
 
 /**
- * The second sentinel (2026-10-09): "this person holds the self view and NO HR
- * screen" — a shop-floor employee. It gates the employee's own Org chart
- * entry, so an admin or HR user (who also holds cf_hrms_self_view) never sees a
- * second "Org chart" beside the company one. CfHrmsShell answers it with
- * `isSelfOnly`, and routes.tsx uses the same function to pick the landing page.
+ * A sentinel, not a tag: "this person holds the self view and NO HR screen" — a
+ * shop-floor employee. It gates the employee's own Org chart entry, so an HR
+ * user (who also holds the self view) never sees a second "Org chart" beside
+ * the company one. CfHrmsShell answers it from `useCan().selfOnly`.
  */
 export const SELF_ONLY = 'cf_hrms_self_only';
 
-/** Every tag that gates an HR screen in this file. Holding any of them = not self-only. */
-export const HR_SCREEN_TAGS = [
-  'cf_hrms_org_view',
-  'cf_hrms_people_view',
-  'cf_hrms_roles_manage',
-  'cf_hrms_attendance_view',
-  'cf_hrms_leave_view',
-  'cf_hrms_documents_generate',
-  'cf_hrms_import_manage',
-];
+/** Every tag that opens an HR screen. Holding any of them = not self-only. */
+export const HR_SCREEN_TAGS = SCREEN_TAGS;
 
 /** True for a login that holds the self view and no HR screen at all. */
 export function isSelfOnly(permitted: (tag?: string) => boolean): boolean {
@@ -107,10 +97,10 @@ export const SECTIONS: NavSection[] = [
     key: 'organisation',
     label: 'Organisation',
     screens: [
-      { key: 'org-chart', label: 'Org chart', path: 'org-chart', permission: ORG, keywords: ['chart', 'hierarchy', 'tree', 'reporting', 'structure', 'vacancies'] },
+      { key: 'org-chart', label: 'Org chart', path: 'org-chart', permission: POSITIONS, keywords: ['chart', 'hierarchy', 'tree', 'reporting', 'structure', 'vacancies'] },
       { key: 'departments', label: 'Departments', path: 'departments', permission: ORG, countKey: 'departments', keywords: ['function', 'division', 'section', 'machine', 'line', 'area', 'labels'] },
       { key: 'roles', label: 'Roles', path: 'roles', hasDetail: true, permission: ROLES, countKey: 'roles', keywords: ['job', 'title', 'jd', 'kind of work', 'purpose', 'kra'] },
-      { key: 'positions', label: 'Positions', path: 'positions', hasDetail: true, permission: ORG, countKey: 'vacancies', keywords: ['headcount', 'vacancy', 'vacant', 'strength'] },
+      { key: 'positions', label: 'Positions', path: 'positions', hasDetail: true, permission: POSITIONS, countKey: 'vacancies', keywords: ['headcount', 'vacancy', 'vacant', 'strength'] },
       { key: 'locations', label: 'Locations', path: 'locations', permission: ORG, countKey: 'locations', keywords: ['plant', 'unit', 'site', 'branch', 'office'] },
     ],
   },
@@ -126,7 +116,7 @@ export const SECTIONS: NavSection[] = [
       // A hiring STARTS on a vacant position (Organisation); this is where the
       // ones in progress are found again. The candidate is not an employee yet,
       // which is why it is its own entry and not a filter on Employees.
-      { key: 'hiring', label: 'Hiring', path: 'hiring', hasDetail: true, permission: PEOPLE, keywords: ['recruit', 'candidate', 'offer letter', 'appointment letter', 'new joiner', 'vacancy', 'job description', 'onboarding'] },
+      { key: 'hiring', label: 'Hiring', path: 'hiring', hasDetail: true, permission: HIRING, keywords: ['recruit', 'candidate', 'offer letter', 'appointment letter', 'new joiner', 'vacancy', 'job description', 'onboarding'] },
       { key: 'documents', label: 'Documents', path: 'documents', hasDetail: true, permission: DOCS, countKey: 'documents', keywords: ['jd', 'job description', 'responsibility profile', 'snapshot', 'pdf', 'docx', 'generated'] },
     ],
   },
@@ -138,8 +128,8 @@ export const SECTIONS: NavSection[] = [
     key: 'time',
     label: 'Time and leave',
     screens: [
-      { key: 'shifts', label: 'Shifts', path: 'shifts', permission: ORG, keywords: ['general', 'day', 'night', 'timing', 'weekly off', 'working days'] },
-      { key: 'holidays', label: 'Holidays', path: 'holidays', permission: ORG, keywords: ['calendar', 'festival', 'off'] },
+      { key: 'shifts', label: 'Shifts', path: 'shifts', permission: TIME, keywords: ['general', 'day', 'night', 'timing', 'weekly off', 'working days'] },
+      { key: 'holidays', label: 'Holidays', path: 'holidays', permission: TIME, keywords: ['calendar', 'festival', 'off'] },
       // Leave types are managed inside a policy, so "casual", "sick" and the rest find this.
       { key: 'leave-policies', label: 'Leave policies', path: 'leave-policies', hasDetail: true, permission: LEAVE, keywords: ['casual leave', 'sick leave', 'earned leave', 'leave types', 'entitlement', 'carry forward', 'encash', 'maternity', 'days a year', 'policy'] },
     ],
@@ -152,14 +142,13 @@ export const SECTIONS: NavSection[] = [
     screens: [
       // How every code is built — departments, roles, positions, locations,
       // employees and letter reference numbers. Nobody types a code.
-      { key: 'code-formats', label: 'Code formats', path: 'code-formats', permission: ORG, keywords: ['employee code', 'position code', 'department code', 'role code', 'numbering', 'prefix', 'running number', 'reference number', 'sequence', 'coding rules'] },
-      { key: 'letters', label: 'Letters', path: 'letters', permission: ORG_MANAGE, keywords: ['offer letter', 'appointment letter', 'template', 'docx', 'placeholder', 'signatory', 'probation', 'notice period', 'letterhead'] },
+      { key: 'code-formats', label: 'Code formats', path: 'code-formats', permission: SETUP, keywords: ['employee code', 'position code', 'department code', 'role code', 'numbering', 'prefix', 'running number', 'reference number', 'sequence', 'coding rules'] },
+      { key: 'letters', label: 'Letters', path: 'letters', permission: SETUP, keywords: ['offer letter', 'appointment letter', 'template', 'docx', 'placeholder', 'signatory', 'probation', 'notice period', 'letterhead'] },
       // Six word lists a role is written from, one screen with a tab each.
       { key: 'libraries', label: 'Libraries', path: 'libraries', permission: ROLES, keywords: ['kra', 'key result area', 'responsibilities', 'duty', 'kpi', 'indicator', 'measure', 'skills', 'competency', 'qualifications', 'education', 'certification', 'authorities', 'approve', 'limit'] },
-      { key: 'reporting-types', label: 'Reporting types', path: 'reporting-types', permission: ORG, keywords: ['primary', 'functional', 'dotted', 'project', 'admin'] },
+      { key: 'reporting-types', label: 'Reporting types', path: 'reporting-types', permission: SETUP, keywords: ['primary', 'functional', 'dotted', 'project', 'admin'] },
       // Who can sign in and what their role may do — one screen with tabs.
-      // PLATFORM_ADMIN is not a feature tag; CfHrmsShell answers it from the role.
-      { key: 'access', label: 'Logins and access', path: 'access', permission: PLATFORM_ADMIN, keywords: ['user', 'account', 'login', 'sign in', 'invite', 'password', 'permission', 'capability', 'feature', 'grant', 'what can they do', 'error log', 'diagnostic'] },
+      { key: 'access', label: 'Logins and access', path: 'access', permission: ACCESS, keywords: ['user', 'account', 'login', 'sign in', 'invite', 'password', 'permission', 'capability', 'feature', 'grant', 'what can they do', 'error log', 'diagnostic'] },
     ],
   },
 ];

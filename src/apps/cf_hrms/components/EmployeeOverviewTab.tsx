@@ -4,6 +4,7 @@ import {
   EMPLOYMENT_STATUS_LABEL, EMPLOYMENT_STATUS_TONE, EMPLOYMENT_TYPE_LABEL,
   type Employee,
 } from '../api/people';
+import { useCan, HIDDEN_CONTACT } from '../access/can';
 
 const grid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 2.5 };
 
@@ -16,6 +17,8 @@ function lines(...parts: (string | null | undefined)[]) {
 export function EmployeeOverviewTab({ employee }: { employee: Employee }) {
   const address = employee.addressJson;
   const emergency = employee.emergencyContactJson;
+  // The server leaves contact details out for a person without the right; say so instead of showing a dash.
+  const contactHidden = !useCan().named.contactView;
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
@@ -29,6 +32,9 @@ export function EmployeeOverviewTab({ employee }: { employee: Employee }) {
       </SectionCard>
 
       <SectionCard title="Contact">
+        {contactHidden ? (
+          <Typography sx={{ fontSize: 13.5, color: 'var(--c-text-3)' }}>{HIDDEN_CONTACT}</Typography>
+        ) : (
         <Box sx={grid}>
           <FactItem label="Phone" value={employee.phone ?? '—'} />
           <FactItem label="Email" value={employee.email ?? '—'} />
@@ -44,13 +50,16 @@ export function EmployeeOverviewTab({ employee }: { employee: Employee }) {
               : <Typography sx={{ fontSize: 14, color: 'var(--c-text-3)' }}>—</Typography>}
           </FactItem>
         </Box>
+        )}
       </SectionCard>
 
       <SectionCard
         title="Emergency contact"
         subtitle="Who to call, and on which number, when something happens on shift"
       >
-        {emergency ? (
+        {contactHidden ? (
+          <Typography sx={{ fontSize: 13.5, color: 'var(--c-text-3)' }}>{HIDDEN_CONTACT}</Typography>
+        ) : emergency ? (
           <Box sx={grid}>
             <FactItem label="Name" value={emergency.name ?? '—'} />
             <FactItem label="Relationship" value={emergency.relationship ?? '—'} />

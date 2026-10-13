@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import { Box, Button, Skeleton, Stack, Typography } from '@mui/material';
-import { ErrorNotice, Mono, StatusBadge, ToneBadge, useIsPermitted } from '@shared/ui';
+import { ErrorNotice, Mono, StatusBadge, ToneBadge } from '@shared/ui';
+import { HIDDEN_CONTACT, useCan } from '../access/can';
 import { peopleApi, type AssignmentSummary, type EmployeeDetail } from '../api/people';
 import { assignmentsApi, type ResolvedRelationship } from '../api/assignments';
 import { pretty } from '../api/roles';
@@ -39,9 +40,9 @@ import { inPanelLink, smallLabel, type PanelNav, type PanelView } from './orgCha
  *
  * CONTACT DETAILS ARE FOR PEOPLE ALLOWED TO SEE PERSONAL DATA. The read goes
  * through `GET /people/employees/:id?contact=1`: for a viewer holding
- * `cf_hrms_people_pii` it returns phone and email and writes an audit row; for
+ * the contact-details right it returns phone and email and writes an audit row; for
  * anyone else the server removes them, and this view says so in a sentence
- * rather than showing blanks. A viewer without `cf_hrms_people_view` cannot
+ * rather than showing blanks. A viewer without the employees view right cannot
  * read an employee record at all — they see what the chart itself shows.
  */
 
@@ -246,8 +247,8 @@ export function OrgChartPersonView({
   /** After the position's content or shift is edited from here. */
   onChanged?: () => void;
 }) {
-  const can = useIsPermitted();
-  const canRead = can('cf_hrms_people_view');
+  const can = useCan();
+  const canRead = can.employees.view;
   // The position they were opened on: its reporting, reports and open points.
   const { card, error: cardError } = usePositionCard(view.positionId, asOf, node?.defaultShift?.code ?? '');
   const [detail, setDetail] = useState<Detail | null>(null);
@@ -256,7 +257,7 @@ export function OrgChartPersonView({
   const [loading, setLoading] = useState(canRead);
   /** Bumped after a leaving step, so the person is read again. */
   const [tick, setTick] = useState(0);
-  const canLeave = can('cf_hrms_people_manage');
+  const canLeave = can.named.employeeClose;
 
   useEffect(() => {
     if (!canRead) return;
@@ -308,7 +309,7 @@ export function OrgChartPersonView({
 
   // The positions whose job content is shown: every position they hold today,
   // the one they were opened from first. Without an employee record to read
-  // (no cf_hrms_people_view) that is just the position they were opened from.
+  // (no employees view right) that is just the position they were opened from.
   const heldPositions = useMemo(() => {
     const list = jobs
       .filter((a) => a.positionId != null)
@@ -393,7 +394,7 @@ export function OrgChartPersonView({
 
       <FactsGrid facts={facts} />
 
-      {canHireReplacement && view.positionId != null && (
+      {canHireReplacement && view.positionId != null && (can.hiring.edit || (!!(node?.hiring ?? card?.hiring) && can.hiring.view)) && (
         <Box
           data-replacement=""
           sx={{ mt: 1.25, border: '1px solid var(--c-border)', borderRadius: 'var(--r-sm)', p: 1.25, display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 1 }}
@@ -503,7 +504,7 @@ export function OrgChartPersonView({
         <Box sx={{ mt: 1.75 }} data-contact={detail.contact}>
           <SectionTitle>Contact details</SectionTitle>
           {detail.contact === 'HIDDEN' ? (
-            <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>Contact details are hidden for your access.</Typography>
+            <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>{HIDDEN_CONTACT}</Typography>
           ) : !e?.phone && !e?.email ? (
             <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>No phone number or email is on file for them.</Typography>
           ) : (

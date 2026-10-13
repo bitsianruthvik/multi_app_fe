@@ -5,6 +5,7 @@ import DownloadRounded from '@mui/icons-material/DownloadRounded';
 import RefreshRounded from '@mui/icons-material/RefreshRounded';
 import type { DocumentSnapshot } from '../api/documents';
 import { hiringApi, niceDate, type Hiring } from '../api/hiring';
+import { useCan } from '../access/can';
 import { DocumentSnapshotView } from './DocumentRender';
 import { JobContentPanel } from './JobContentPanel';
 
@@ -42,6 +43,8 @@ export function HiringJobDescription({
   downloading: 'docx' | 'pdf' | null;
   onDownload: (format: 'docx' | 'pdf') => void;
 }) {
+  // The position page is another area's screen: linked only with that area's view right.
+  const canOpenPosition = useCan().positions.view;
   const [snapshot, setSnapshot] = useState<DocumentSnapshot | null>(null);
   const [missing, setMissing] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
@@ -120,9 +123,11 @@ export function HiringJobDescription({
       {!frozen && (
         <Box sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', columnGap: 2, rowGap: 0.5, fontSize: 13 }}>
           <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>Nothing is edited here.</Typography>
-          <Box component={RouterLink} to={positionHref} {...away} sx={link}>
-            Change this on the position
-          </Box>
+          {canOpenPosition && (
+            <Box component={RouterLink} to={positionHref} {...away} sx={link}>
+              Change this on the position
+            </Box>
+          )}
           {canOpenRole && (
             <Box component={RouterLink} to={roleHref} {...away} sx={link}>
               Change this on the role

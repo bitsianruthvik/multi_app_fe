@@ -39,6 +39,7 @@ import { listRoles, type Role } from '../api/roles';
 import { peopleApi, type EmployeeRow } from '../api/people';
 import { positionsApi, type PositionRow } from '../api/positions';
 import { DocumentSnapshotView } from './DocumentRender';
+import { useCan } from '../access/can';
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
 
@@ -90,8 +91,15 @@ export function DocumentGeneratePanel({
   onGenerated: (id: number) => void;
 }) {
   const toast = useToast();
+  // Each source is offered only to somebody who may read that area: roles and positions for a
+  // job description, employees for a responsibility profile.
+  const can = useCan();
+  const canRoles = can.roles.view;
+  const canPositions = can.positions.view;
+  const canEmployees = can.employees.view;
+  const types = DOCUMENT_TYPES.filter((d) => (d.value === 'ROLE_JD' ? canRoles : canEmployees));
 
-  const [type, setType] = useState<DocumentType>('ROLE_JD');
+  const [type, setType] = useState<DocumentType>(canRoles ? 'ROLE_JD' : 'EMPLOYEE_RESPONSIBILITY_PROFILE');
   const [on, setOn] = useState(todayIso());
   const [role, setRole] = useState<Role | null>(null);
   const [position, setPosition] = useState<PositionRow | null>(null);
@@ -107,21 +115,25 @@ export function DocumentGeneratePanel({
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    listRoles()
-      .then((r) => setRoles(r.items))
-      .catch(() => setRoles([]));
-    peopleApi
-      .list()
-      .then((r) => setEmployees(r.items))
-      .catch(() => setEmployees([]));
-  }, []);
+    if (canRoles) {
+      listRoles()
+        .then((r) => setRoles(r.items))
+        .catch(() => setRoles([]));
+    }
+    if (canEmployees) {
+      peopleApi
+        .list()
+        .then((r) => setEmployees(r.items))
+        .catch(() => setEmployees([]));
+    }
+  }, [canRoles, canEmployees]);
 
   // The position picker is narrowed to the chosen role: a position-specific JD
   // is a version of THAT role, and offering every position in the company would
   // invite a combination the resolver would reject.
   useEffect(() => {
     setPosition(null);
-    if (!role) {
+    if (!role || !canPositions) {
       setPositions([]);
       return;
     }
@@ -129,7 +141,7 @@ export function DocumentGeneratePanel({
       .list({ roleId: role.id })
       .then((r) => setPositions(r.items))
       .catch(() => setPositions([]));
-  }, [role]);
+  }, [role, canPositions]);
 
   // Any change to the params invalidates the drawn document. Leaving a stale
   // preview on screen beside a changed date is how someone commits the wrong one.
@@ -217,7 +229,7 @@ export function DocumentGeneratePanel({
             </Stack>
           ) : (
             <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)' }}>
-              You can preview this but not save it — saving needs the documents permission.
+              You can preview this but not save it — you do not have the right to generate documents.
             </Typography>
           )
         }
@@ -236,7 +248,7 @@ export function DocumentGeneratePanel({
               sx={{ minWidth: 240 }}
               InputLabelProps={{ shrink: true }}
             >
-              {DOCUMENT_TYPES.map((d) => (
+              {types.map((d) => (
                 <MenuItem key={d.value} value={d.value}>
                   {d.label}
                 </MenuItem>
@@ -266,6 +278,7 @@ export function DocumentGeneratePanel({
                   )}
                   renderInput={(p) => <TextField {...p} label="Role" size="small" required />}
                 />
+                {canPositions && (
                 <Autocomplete
                   options={positions}
                   value={position}
@@ -300,6 +313,7 @@ export function DocumentGeneratePanel({
                     />
                   )}
                 />
+                )}
               </>
             ) : (
               <Autocomplete

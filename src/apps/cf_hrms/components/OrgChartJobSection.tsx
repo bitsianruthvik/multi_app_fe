@@ -30,7 +30,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { Box, Button, Skeleton, Stack, Typography } from '@mui/material';
 import EditRounded from '@mui/icons-material/EditRounded';
 import DoneRounded from '@mui/icons-material/DoneRounded';
-import { ErrorNotice, useIsPermitted } from '@shared/ui';
+import { ErrorNotice } from '@shared/ui';
+import { useCan } from '../access/can';
 import { getRoleContent, type RoleContent } from '../api/roles';
 import { JobContentPanel } from './JobContentPanel';
 import { RoleContentTab } from './RoleContentTab';
@@ -55,9 +56,9 @@ export function OrgChartJobSection({
   /** After a role edit — other boxes holding the role count their content from it. */
   onChanged?: () => void;
 }) {
-  const can = useIsPermitted();
-  const canEditRole = can('cf_hrms_roles_manage') && roleId != null;
-  const canEditSeat = can('cf_hrms_org_manage');
+  const can = useCan();
+  const canEditRole = can.roles.edit && roleId != null;
+  const canEditSeat = can.positions.edit;
   const [editing, setEditing] = useState(false);
   const [content, setContent] = useState<RoleContent | null>(null);
   const [error, setError] = useState<unknown>(null);
@@ -150,7 +151,6 @@ export function OrgChartJobSection({
         {content && reach && (
           <RoleContentTab
             content={content}
-            canManage
             dense
             reach={reach}
             onChanged={() => {

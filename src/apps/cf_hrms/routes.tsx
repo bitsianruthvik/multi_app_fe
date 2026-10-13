@@ -1,10 +1,10 @@
 import React, { lazy } from 'react';
 import { Navigate, useParams } from 'react-router-dom';
 import type { RouteObject } from 'react-router-dom';
-import { useIsPermitted } from '@shared/ui';
 import { RequireAppAccess } from '@core/components/RequireAppAccess';
 import { CfHrmsShell } from './components/shell/CfHrmsShell';
-import { isSelfOnly } from './navMeta';
+import { TAG, useCan } from './access/can';
+import { Guard } from './access/Guard';
 
 const Home = lazy(() => import('./pages/Home'));
 
@@ -78,16 +78,19 @@ export function getCfHrmsRoutes(
    * Where a login should land.
    *
    * `Home` carries NO permission tag, so without this an employee holding only
-   * `cf_hrms_self_view` would land on it: a page of cards, every one of them
+   * the self view would land on it: a page of cards, every one of them
    * permission-gated away, under a nav with nothing in it.
    *
    * The test is "does this person have any HR screen to land on at all", not
    * "are they an employee": an HR executive who also holds the self view still
    * belongs on Home.
    */
+  /** A screen behind the `view` right of its area (spec §12.7). */
+  const guarded = (tag: string, el: React.ReactElement) => wrap(<Guard tag={tag}>{el}</Guard>);
+
   function useSelfOnly(): boolean {
-    // One definition, shared with the nav's SELF_ONLY sentinel (navMeta.ts).
-    return isSelfOnly(useIsPermitted());
+    // One definition, shared with the nav's SELF_ONLY sentinel (access/can.ts).
+    return useCan().selfOnly;
   }
 
   /** Since 2026-10-09 an employee lands on their own slice of the org chart. */
@@ -142,47 +145,47 @@ export function getCfHrmsRoutes(
     // The signed-in person's own place. Inside the same shell as everything
     // else — an employee gets the real app with two entries in it, not a
     // stripped-down variant.
-    { path: '/:company/cf_hrms/my-place', element: wrap(<MyPlace />) },
+    { path: '/:company/cf_hrms/my-place', element: guarded(TAG.named.selfView, <MyPlace />) },
     // The employee's own org chart slice. Anyone with the company chart is sent
     // there instead, so an admin following an employee's link sees the full chart.
     { path: '/:company/cf_hrms/my-org-chart', element: wrap(<MyOrgChartOrCompany />) },
 
     // Organisation
-    { path: '/:company/cf_hrms/org-chart', element: wrap(<OrgChart />) },
-    { path: '/:company/cf_hrms/departments', element: wrap(<Departments />) },
-    { path: '/:company/cf_hrms/roles', element: wrap(<Roles />) },
-    { path: '/:company/cf_hrms/roles/:id', element: wrap(<RoleDetail />) },
-    { path: '/:company/cf_hrms/positions', element: wrap(<Positions />) },
-    { path: '/:company/cf_hrms/positions/:id', element: wrap(<PositionDetail />) },
-    { path: '/:company/cf_hrms/locations', element: wrap(<Locations />) },
+    { path: '/:company/cf_hrms/org-chart', element: guarded(TAG.positions.view, <OrgChart />) },
+    { path: '/:company/cf_hrms/departments', element: guarded(TAG.org.view, <Departments />) },
+    { path: '/:company/cf_hrms/roles', element: guarded(TAG.roles.view, <Roles />) },
+    { path: '/:company/cf_hrms/roles/:id', element: guarded(TAG.roles.view, <RoleDetail />) },
+    { path: '/:company/cf_hrms/positions', element: guarded(TAG.positions.view, <Positions />) },
+    { path: '/:company/cf_hrms/positions/:id', element: guarded(TAG.positions.view, <PositionDetail />) },
+    { path: '/:company/cf_hrms/locations', element: guarded(TAG.org.view, <Locations />) },
 
     // People — including the documents that come out of a person's record
-    { path: '/:company/cf_hrms/employees', element: wrap(<Employees />) },
-    { path: '/:company/cf_hrms/employees/:id', element: wrap(<EmployeeDetail />) },
-    { path: '/:company/cf_hrms/hiring', element: wrap(<Hiring />) },
-    { path: '/:company/cf_hrms/hiring/:id', element: wrap(<HiringDetail />) },
-    { path: '/:company/cf_hrms/documents', element: wrap(<Documents />) },
-    { path: '/:company/cf_hrms/documents/:id', element: wrap(<DocumentDetail />) },
+    { path: '/:company/cf_hrms/employees', element: guarded(TAG.employees.view, <Employees />) },
+    { path: '/:company/cf_hrms/employees/:id', element: guarded(TAG.employees.view, <EmployeeDetail />) },
+    { path: '/:company/cf_hrms/hiring', element: guarded(TAG.hiring.view, <Hiring />) },
+    { path: '/:company/cf_hrms/hiring/:id', element: guarded(TAG.hiring.view, <HiringDetail />) },
+    { path: '/:company/cf_hrms/documents', element: guarded(TAG.documents.view, <Documents />) },
+    { path: '/:company/cf_hrms/documents/:id', element: guarded(TAG.documents.view, <DocumentDetail />) },
 
     // Time and leave
-    { path: '/:company/cf_hrms/shifts', element: wrap(<Shifts />) },
-    { path: '/:company/cf_hrms/holidays', element: wrap(<Holidays />) },
-    { path: '/:company/cf_hrms/leave-policies', element: wrap(<LeavePolicies />) },
-    { path: '/:company/cf_hrms/leave-policies/:id', element: wrap(<LeavePolicyDetail />) },
+    { path: '/:company/cf_hrms/shifts', element: guarded(TAG.time.view, <Shifts />) },
+    { path: '/:company/cf_hrms/holidays', element: guarded(TAG.time.view, <Holidays />) },
+    { path: '/:company/cf_hrms/leave-policies', element: guarded(TAG.leave.view, <LeavePolicies />) },
+    { path: '/:company/cf_hrms/leave-policies/:id', element: guarded(TAG.leave.view, <LeavePolicyDetail />) },
 
     // Time and leave — not built yet. Reachable by address only.
-    { path: '/:company/cf_hrms/attendance', element: wrap(<Attendance />) },
-    { path: '/:company/cf_hrms/roster', element: wrap(<Roster />) },
-    { path: '/:company/cf_hrms/leave-requests', element: wrap(<LeaveRequests />) },
-    { path: '/:company/cf_hrms/leave-requests/:id', element: wrap(<LeaveRequestDetail />) },
-    { path: '/:company/cf_hrms/leave-balances', element: wrap(<LeaveBalances />) },
+    { path: '/:company/cf_hrms/attendance', element: guarded(TAG.time.view, <Attendance />) },
+    { path: '/:company/cf_hrms/roster', element: guarded(TAG.time.view, <Roster />) },
+    { path: '/:company/cf_hrms/leave-requests', element: guarded(TAG.leave.view, <LeaveRequests />) },
+    { path: '/:company/cf_hrms/leave-requests/:id', element: guarded(TAG.leave.view, <LeaveRequestDetail />) },
+    { path: '/:company/cf_hrms/leave-balances', element: guarded(TAG.leave.view, <LeaveBalances />) },
 
     // Setup
-    { path: '/:company/cf_hrms/code-formats', element: wrap(<CodeFormats />) },
-    { path: '/:company/cf_hrms/letters', element: wrap(<HiringSettings />) },
-    { path: '/:company/cf_hrms/libraries', element: wrap(<Libraries />) },
-    { path: '/:company/cf_hrms/reporting-types', element: wrap(<ReportingTypes />) },
-    { path: '/:company/cf_hrms/access', element: wrap(<Access />) },
+    { path: '/:company/cf_hrms/code-formats', element: guarded(TAG.setup.view, <CodeFormats />) },
+    { path: '/:company/cf_hrms/letters', element: guarded(TAG.setup.view, <HiringSettings />) },
+    { path: '/:company/cf_hrms/libraries', element: guarded(TAG.roles.view, <Libraries />) },
+    { path: '/:company/cf_hrms/reporting-types', element: guarded(TAG.setup.view, <ReportingTypes />) },
+    { path: '/:company/cf_hrms/access', element: guarded(TAG.named.accessManage, <Access />) },
 
     // ── Old addresses (clean-up of 2026-10-12, spec §10) ─────────────────
     // A person's positions are on the employee's own page now.

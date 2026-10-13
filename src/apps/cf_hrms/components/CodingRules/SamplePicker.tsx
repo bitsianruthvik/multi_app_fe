@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Autocomplete, Box, TextField } from '@mui/material';
-import { useIsPermitted } from '@shared/ui';
+import { useCan } from '../../access/can';
 import { orgApi } from '../../api/organisation';
 import { listRoles } from '../../api/roles';
 import { positionsApi } from '../../api/positions';
@@ -15,13 +15,11 @@ export interface SampleRow { id: number; code: string | null; name: string }
  * lists are short, so the person's typing filters them in the browser. An
  * entity this screen does not know yet simply has nothing to try the rule on.
  */
-async function loadSamples(entityType: string, canSeePeople: boolean): Promise<SampleRow[]> {
+async function loadSamples(entityType: string): Promise<SampleRow[]> {
   switch (entityType) {
     case 'hrms_employee':
-      if (!canSeePeople) return [];
       return (await peopleApi.list()).items.map((p) => ({ id: p.id, code: p.employeeCode ?? null, name: p.fullName }));
     case 'hrms_hiring':
-      if (!canSeePeople) return [];
       return (await hiringApi.list({ status: 'all' })).hirings.map((h) => ({
         id: h.id,
         code: h.refNo ?? null,
@@ -44,15 +42,27 @@ const label = (o: SampleRow) => `${o.code ?? '—'} · ${o.name}`;
 
 /** Picks the real record every part of the builder is shown against. Nothing is saved and no number is taken. */
 export function SamplePicker({ entityType, value, onChange }: { entityType: string; value: SampleRow | null; onChange: (row: SampleRow | null) => void }) {
-  const canSeePeople = useIsPermitted()('cf_hrms_people_view');
+  const can = useCan();
+  // Each kind of record belongs to another area, and is asked for only with that area's view.
+  const allowed =
+    entityType === 'hrms_employee' ? can.employees.view
+      : entityType === 'hrms_hiring' ? can.hiring.view
+        : entityType === 'hrms_department' || entityType === 'hrms_location' ? can.org.view
+          : entityType === 'hrms_role' ? can.roles.view
+            : entityType === 'hrms_position' ? can.positions.view
+              : true;
   const [rows, setRows] = useState<SampleRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let live = true;
-    setRows(null);
     setError(null);
-    loadSamples(entityType, canSeePeople)
+    if (!allowed) {
+      setRows([]);
+      return undefined;
+    }
+    setRows(null);
+    loadSamples(entityType)
       .then((r) => { if (live) setRows(r); })
       .catch((e: unknown) => {
         if (!live) return;
@@ -60,12 +70,11 @@ export function SamplePicker({ entityType, value, onChange }: { entityType: stri
         setError(e instanceof Error ? e.message : 'Could not load records to try this on');
       });
     return () => { live = false; };
-  }, [entityType, canSeePeople]);
+  }, [entityType, allowed]);
 
   const options = rows ?? [];
-  const needsPeople = (entityType === 'hrms_employee' || entityType === 'hrms_hiring') && !canSeePeople;
   const nothing = error ? 'Could not load records to try this on'
-    : needsPeople ? 'You cannot see people, so there is nothing to try this on'
+    : !allowed ? 'You cannot see these records'
       : rows === null ? 'Loading…' : 'Nothing to try this on yet';
 
   return (
@@ -86,7 +95,7 @@ export function SamplePicker({ entityType, value, onChange }: { entityType: stri
             {...p}
             label="Try it on a record"
             placeholder="Choose a record"
-            helperText={error ?? 'Nothing is saved and no number is taken.'}
+            helperText={error ?? (allowed ? 'Nothing is saved and no number is taken.' : 'You cannot see these records.')}
             error={!!error}
           />
         )}

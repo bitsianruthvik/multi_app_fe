@@ -10,6 +10,7 @@ import { useEffect, useState } from 'react';
 import { MenuItem, Stack, TextField, Typography } from '@mui/material';
 import { CodeNote } from './CodeNote';
 import { FormDialog } from '@shared/ui';
+import { useCan } from '../access/can';
 import { createRole, updateRole, listDepartments, type Role } from '../api/roles';
 
 const STATUSES: { value: string; label: string; hint: string }[] = [
@@ -45,6 +46,12 @@ export function RoleFormDialog({
   onClose: () => void;
   onSaved: (role: Role) => void;
 }) {
+  const can = useCan();
+  // Departments belong to the org area: asked for only with its view.
+  const seeDepartments = can.org.view;
+  // Retiring a role is a removal (roles.remove); without it the option is not offered
+  // (a role that is already retired keeps showing it).
+  const mayRetire = can.roles.remove;
   const [form, setForm] = useState<FormState>(EMPTY);
   const [departments, setDepartments] = useState<{ id: number; name: string; code: string | null }[]>([]);
 
@@ -63,10 +70,14 @@ export function RoleFormDialog({
           }
         : EMPTY,
     );
+    if (!seeDepartments) {
+      setDepartments([]);
+      return;
+    }
     listDepartments()
       .then((r) => setDepartments(r.items))
       .catch(() => setDepartments([]));
-  }, [open, role]);
+  }, [open, role, seeDepartments]);
 
   const set = (k: keyof FormState) => (e: { target: { value: string } }) =>
     setForm((s) => ({ ...s, [k]: e.target.value }));
@@ -136,25 +147,27 @@ export function RoleFormDialog({
         />
 
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-          <TextField
-            label="Default department"
-            value={form.defaultDepartmentId}
-            onChange={set('defaultDepartmentId')}
-            select
-            size="small"
-            fullWidth
-            helperText="Where this kind of work usually sits. A position may place it elsewhere."
-          >
-            <MenuItem value="">—</MenuItem>
-            {departments.map((d) => (
-              <MenuItem key={d.id} value={String(d.id)}>
-                {d.name}
-                {d.code ? ` (${d.code})` : ''}
-              </MenuItem>
-            ))}
-          </TextField>
+          {seeDepartments && (
+            <TextField
+              label="Default department"
+              value={form.defaultDepartmentId}
+              onChange={set('defaultDepartmentId')}
+              select
+              size="small"
+              fullWidth
+              helperText="Where this kind of work usually sits. A position may place it elsewhere."
+            >
+              <MenuItem value="">—</MenuItem>
+              {departments.map((d) => (
+                <MenuItem key={d.id} value={String(d.id)}>
+                  {d.name}
+                  {d.code ? ` (${d.code})` : ''}
+                </MenuItem>
+              ))}
+            </TextField>
+          )}
           <TextField label="Status" value={form.status} onChange={set('status')} select size="small" fullWidth>
-            {STATUSES.map((s) => (
+            {STATUSES.filter((s) => s.value !== 'RETIRED' || mayRetire || form.status === 'RETIRED').map((s) => (
               <MenuItem key={s.value} value={s.value}>
                 <Stack>
                   <Typography sx={{ fontSize: 14 }}>{s.label}</Typography>

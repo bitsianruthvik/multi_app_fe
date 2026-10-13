@@ -3,6 +3,7 @@ import { Alert, FormControlLabel, MenuItem, Stack, Switch, TextField, Typography
 import { FormDialog } from '@shared/ui';
 import type { AssignmentOptions, ManagerAssignmentOption } from '../api/assignments';
 import { assignmentsApi } from '../api/assignments';
+import { useCan } from '../access/can';
 import type { PositionOptions } from '../api/positions';
 import { positionsApi } from '../api/positions';
 
@@ -96,6 +97,7 @@ export function AssignmentReportingDialog({
   options: AssignmentOptions | null;
   subjectEmployeeId: number;
 }) {
+  const can = useCan();
   const [managerEmployeeId, setManagerEmployeeId] = useState<number | ''>('');
   const [managerWorkAssignmentId, setManagerWorkAssignmentId] = useState<number | ''>('');
   const [managerHats, setManagerHats] = useState<ManagerAssignmentOption[]>([]);
@@ -120,13 +122,14 @@ export function AssignmentReportingDialog({
   // the model: "reports to Ram Babu as Admin Manager" says more than "reports
   // to Ram Babu", and the matrix is made of that difference.
   useEffect(() => {
-    if (managerEmployeeId === '') { setManagerHats([]); return; }
+    // Another person's positions are employee data: only asked for with the right to see employees.
+    if (managerEmployeeId === '' || !can.employees.view) { setManagerHats([]); return; }
     let live = true;
     assignmentsApi.managerAssignments(managerEmployeeId)
       .then((r) => { if (live) setManagerHats(r.items); })
       .catch(() => { if (live) setManagerHats([]); });
     return () => { live = false; };
-  }, [managerEmployeeId]);
+  }, [managerEmployeeId, can.employees.view]);
 
   const type = useMemo(
     () => options?.relationshipTypes.find((t) => t.id === relationshipTypeId) ?? null,

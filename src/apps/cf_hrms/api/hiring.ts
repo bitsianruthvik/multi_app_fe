@@ -59,6 +59,8 @@ export interface Hiring extends HiringSummary {
          uploadSignedOffer?: boolean; uploadSignedAppointment?: boolean };
   /** §5.3 — the signed copies on file. Absent from an older server. */
   signed?: { offer: SignedMeta | null; appointment: SignedMeta | null };
+  /** The caller lacks the pay right: `terms.annualCtc` is null, not "not set yet". */
+  payHidden?: boolean;
 }
 
 export interface LetterMeta { id: number; kind: 'OFFER' | 'APPOINTMENT'; version: number; isCurrent: boolean;

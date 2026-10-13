@@ -25,7 +25,7 @@ export type ScopeType =
 
 /**
  * Contact details. Present on the caller's own record always; present on
- * anybody else only when the caller holds `cf_hrms_people_pii`. An absent
+ * anybody else only when the caller holds the contact-details right. An absent
  * `contact` key means "not yours to see" — which is why it is optional rather
  * than a block of nulls.
  */
@@ -241,7 +241,6 @@ export const getMyPlace = (on?: string) =>
   api.get<MyPlace>(`/user/me/place${on ? `?on=${encodeURIComponent(on)}` : ''}`);
 
 /** The one tag the self view is gated on. Exported so nav and routes agree with the backend. */
-export const SELF_VIEW = 'cf_hrms_self_view';
 
 /* ── My slice of the org chart (GET /user/me/orgchart, 2026-10-09) ──────────
  *

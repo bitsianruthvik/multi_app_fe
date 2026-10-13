@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Box, Stack, Typography } from '@mui/material';
-import { useIsPermitted } from '@shared/ui';
+import { useCan } from '../access/can';
+import { NoAccessNote } from '../access/Guard';
 import type { OrgChartNode } from '../api/orgchart';
 import { positionsApi, type PositionOccupant } from '../api/positions';
-import { MOVE_PERMISSION, MoveEmployeeHere } from './MoveEmployee';
+import { MoveEmployeeHere } from './MoveEmployee';
 import { Link as RouterLink } from 'react-router-dom';
 import { joiningSentence } from '../api/hiring';
 import { HiringEntry } from './HiringEntry';
@@ -64,8 +65,9 @@ export function OrgChartVacantPositionView({
   /** After a person is assigned or the shift changes: the page reloads the chart. */
   onChanged?: () => void;
 }) {
-  const can = useIsPermitted();
-  const canAssign = can(MOVE_PERMISSION) && can('cf_hrms_people_view');
+  const can = useCan();
+  // Moving a person changes a position and lists employees to pick from: both rights.
+  const canAssign = can.positions.edit && can.employees.view;
 
   const { card, error: cardError } = usePositionCard(positionId, asOf, node?.defaultShift?.code ?? '');
   const [past, setPast] = useState<PositionOccupant[] | null>(null);
@@ -94,6 +96,8 @@ export function OrgChartVacantPositionView({
   // The open hiring, if there is one. While it is open the position is still
   // vacant, but nobody else can be moved into it: the hiring is closed first.
   const hiring = node?.hiring ?? card?.hiring ?? null;
+  // A hiring is shown with `view` and started with `edit`.
+  const showHiring = can.hiring.edit || (!!hiring && can.hiring.view);
   // Somebody is appointed and joins on a later day: nothing else can fill the position.
   const joining = node?.joining ?? card?.joining ?? null;
 
@@ -120,19 +124,21 @@ export function OrgChartVacantPositionView({
         <SectionTitle>{joining ? 'Who is coming' : 'Put a person in this position'}</SectionTitle>
         {joining ? (
           <Typography data-joining="" sx={{ fontSize: 13.5, lineHeight: 1.55 }}>
-            <Box component={RouterLink} to={`/${company}/cf_hrms/employees/${joining.employeeId}`} sx={{ color: 'var(--c-primary-700)', fontWeight: 500 }}>
-              {joining.name}
-            </Box>
+            {can.employees.view ? (
+              <Box component={RouterLink} to={`/${company}/cf_hrms/employees/${joining.employeeId}`} sx={{ color: 'var(--c-primary-700)', fontWeight: 500 }}>
+                {joining.name}
+              </Box>
+            ) : (
+              <Box component="span" sx={{ fontWeight: 500 }}>{joining.name}</Box>
+            )}
             {joiningSentence(joining).slice(joining.name.length)}. The position is vacant until that day, and nobody else can be put in it.
           </Typography>
-        ) : !canAssign ? (
-          <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>
-            You do not have the permission to put a person in a position.
-          </Typography>
+        ) : !canAssign && !showHiring ? (
+          <NoAccessNote>You can see this but not change it.</NoAccessNote>
         ) : (
           <Stack spacing={1.25}>
             {/* Path 1 — someone already employed */}
-            <Box
+            {canAssign && <Box
               data-fill-move=""
               sx={{ border: '1px solid var(--c-border)', borderRadius: 'var(--r-sm)', p: 1.25 }}
             >
@@ -144,10 +150,10 @@ export function OrgChartVacantPositionView({
               ) : (
                 <MoveEmployeeHere positionId={positionId} onDone={() => onChanged?.()} onRefused={() => onChanged?.()} />
               )}
-            </Box>
+            </Box>}
 
             {/* Path 2 — someone who is not an employee yet */}
-            <Box
+            {showHiring && <Box
               data-fill-hire=""
               sx={{
                 border: '1px solid var(--c-border)',
@@ -176,7 +182,7 @@ export function OrgChartVacantPositionView({
                 hiring={hiring}
                 onChanged={() => onChanged?.()}
               />
-            </Box>
+            </Box>}
           </Stack>
         )}
       </Box>

@@ -43,7 +43,6 @@ import {
   StatStrip,
   ToneBadge,
   useCompanySlug,
-  useIsPermitted,
   type DataColumn,
   type Stat,
 } from '@shared/ui';
@@ -58,6 +57,7 @@ import {
 import { listRoles, rolesOverview, type RolesOverview } from '../api/roles';
 import { peopleApi } from '../api/people';
 import { DocumentGeneratePanel } from '../components/DocumentGenerate';
+import { useCan } from '../access/can';
 
 /** Date and time, because two versions of one document are often minutes apart. */
 function whenText(iso: string | null | undefined): string {
@@ -76,10 +76,11 @@ function whenText(iso: string | null | undefined): string {
 export default function Documents() {
   const company = useCompanySlug();
   const navigate = useNavigate();
-  const can = useIsPermitted();
-  const canGenerate = can('cf_hrms_documents_generate');
+  const can = useCan();
+  const canGenerate = can.documents.edit;
   const [params, setParams] = useSearchParams();
-  const generating = params.get('generate') === '1';
+  // The generate screen is for somebody who may generate; an address typed by hand does not open it.
+  const generating = params.get('generate') === '1' && canGenerate;
 
   const [rows, setRows] = useState<DocumentRow[] | null>(null);
   const [notBuilt, setNotBuilt] = useState(false);
@@ -92,8 +93,11 @@ export default function Documents() {
   // Coverage needs the model, not just the documents: how many roles and people
   // there are to cover. Both endpoints are live today, so the strip is honest
   // even before the documents route answers.
-  const [coverage, setCoverage] = useState<{ roles: number; people: number } | null>(null);
+  // Each count is asked for only by someone who may open that area; the others stay null ("—").
+  const [coverage, setCoverage] = useState<{ roles: number | null; people: number | null } | null>(null);
   const [overview, setOverview] = useState<RolesOverview | null>(null);
+  const canSeeRoles = can.roles.view;
+  const canSeePeople = can.employees.view;
 
   const load = useCallback(() => {
     setLoading(true);
@@ -116,13 +120,18 @@ export default function Documents() {
   }, [load]);
 
   useEffect(() => {
-    Promise.all([listRoles(), peopleApi.list()])
-      .then(([r, p]) => setCoverage({ roles: r.items.length, people: p.items.length }))
+    Promise.all([
+      canSeeRoles ? listRoles().then((r) => r.items.length) : Promise.resolve(null),
+      canSeePeople ? peopleApi.list().then((p) => p.items.length) : Promise.resolve(null),
+    ])
+      .then(([roles, people]) => setCoverage({ roles, people }))
       .catch(() => setCoverage(null));
-    rolesOverview()
-      .then(setOverview)
-      .catch(() => setOverview(null));
-  }, []);
+    if (canSeeRoles) {
+      rolesOverview()
+        .then(setOverview)
+        .catch(() => setOverview(null));
+    }
+  }, [canSeeRoles, canSeePeople]);
 
   // Memoised so the strip and the filter do not recompute on every render just
   // because `rows ?? []` minted a new array.
@@ -164,13 +173,15 @@ export default function Documents() {
     );
     const rolesWithout = Math.max((coverage?.roles ?? 0) - currentJdRoles.size, 0);
     const peopleWithout = Math.max((coverage?.people ?? 0) - profiledPeople.size, 0);
+    const roleTotal = coverage?.roles ?? null;
+    const peopleTotal = coverage?.people ?? null;
     const superseded = all.filter((r) => !r.isCurrent).length;
 
     return [
       {
         label: 'Roles with no JD',
         value: rolesWithout,
-        display: coverage ? `${rolesWithout} of ${coverage.roles}` : '—',
+        display: roleTotal != null ? `${rolesWithout} of ${roleTotal}` : '—',
         tone: 'warning',
         icon: <DescriptionRounded />,
         hint: 'Roles with no current job description generated. Counts every role in the company, not the filtered rows.',
@@ -179,7 +190,7 @@ export default function Documents() {
       {
         label: 'People with no profile',
         value: peopleWithout,
-        display: coverage ? `${peopleWithout} of ${coverage.people}` : '—',
+        display: peopleTotal != null ? `${peopleWithout} of ${peopleTotal}` : '—',
         tone: 'warning',
         icon: <BadgeRounded />,
         hint: 'Employees with no current responsibility profile. This is the document an SME actually hands to a person.',
@@ -194,7 +205,7 @@ export default function Documents() {
         tone: 'warning',
         icon: <EditNoteRounded />,
         hint: 'A JD generated from one of these is a title and a list of duties. Write the purpose on the role and regenerate.',
-        onClick: () => navigate(`/${company}/cf_hrms/roles`),
+        onClick: canSeeRoles ? () => navigate(`/${company}/cf_hrms/roles`) : undefined,
       },
       {
         label: 'Superseded copies',
@@ -203,7 +214,7 @@ export default function Documents() {
         hint: 'Older generations kept as evidence. Each still renders from its own snapshot, not from today’s role.',
       },
     ];
-  }, [all, coverage, overview, canGenerate, setParams, navigate, company]);
+  }, [all, coverage, overview, canGenerate, canSeeRoles, setParams, navigate, company]);
 
   const columns: DataColumn<DocumentRow>[] = useMemo(
     () => [

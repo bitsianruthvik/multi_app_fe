@@ -7,13 +7,14 @@ import EventBusyRounded from '@mui/icons-material/EventBusyRounded';
 import ExpandMoreRounded from '@mui/icons-material/ExpandMoreRounded';
 import WorkOutlineRounded from '@mui/icons-material/WorkOutlineRounded';
 import {
-  ConfirmDialog, EmptyState, ErrorNotice, ListSkeleton, Mono, SectionCard, ToneBadge, useIsPermitted, useToast,
+  ConfirmDialog, EmptyState, ErrorNotice, ListSkeleton, Mono, SectionCard, ToneBadge, useToast,
 } from '@shared/ui';
 import { peopleApi, type PositionHeld } from '../api/people';
 import { assignmentsApi, type AssignmentOptions, type ResolvedReportingResult } from '../api/assignments';
 import { AssignmentReportingDialog } from './ReportingDialogs';
 import { ReportingRowList } from './ReportingRows';
-import { MOVE_PERMISSION, MoveToPositionDialog } from './MoveEmployee';
+import { MoveToPositionDialog } from './MoveEmployee';
+import { useCan } from '../access/can';
 
 /**
  * Positions held — every position this person has been in, newest first
@@ -33,20 +34,18 @@ import { MOVE_PERMISSION, MoveToPositionDialog } from './MoveEmployee';
  * How a position ended is the server's sentence and is shown as it comes.
  */
 
-const ASSIGN_MANAGE = 'cf_hrms_assignments_manage';
-
 const cell = { fontSize: 13, color: 'var(--c-text-2)' } as const;
 
 function ReportsTo({
   held,
   company,
   employeeId,
-  canManage,
+  canEditLines,
 }: {
   held: PositionHeld;
   company: string;
   employeeId: number;
-  canManage: boolean;
+  canEditLines: boolean;
 }) {
   const toast = useToast();
   const [data, setData] = useState<ResolvedReportingResult | null>(null);
@@ -82,7 +81,7 @@ function ReportsTo({
         <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)' }}>
           Who they report to in this position. The position&rsquo;s own lines come first; a line added for this person is marked.
         </Typography>
-        {canManage && (
+        {canEditLines && (
           <Button size="small" startIcon={<AddRounded />} onClick={openAdd} sx={{ flexShrink: 0 }}>
             Add a manager
           </Button>
@@ -94,7 +93,7 @@ function ReportsTo({
         emptyTitle="Nobody is recorded as their manager"
         emptyHint="Neither the position nor this person has a reporting line."
         rowActions={(r) =>
-          canManage && r.origin === 'ASSIGNMENT' ? (
+          canEditLines && r.origin === 'ASSIGNMENT' ? (
             <Tooltip title="End this line today. It is kept in history.">
               <IconButton
                 size="small"
@@ -144,7 +143,7 @@ function HeldRow({
   employeeId,
   showMain,
   canEnd,
-  canManageLines,
+  canEditLines,
   onEnd,
 }: {
   held: PositionHeld;
@@ -153,10 +152,11 @@ function HeldRow({
   /** Only said when the person holds more than one now. */
   showMain: boolean;
   canEnd: boolean;
-  canManageLines: boolean;
+  canEditLines: boolean;
   onEnd: () => void;
 }) {
   const [open, setOpen] = useState(false);
+  const canSeePosition = useCan().positions.view;
   const shift = held.shiftName ? `${held.shiftName} shift` : held.shiftCode;
 
   return (
@@ -168,7 +168,9 @@ function HeldRow({
       <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.5, flexWrap: 'wrap' }}>
         <Box sx={{ flex: '1 1 260px', minWidth: 0 }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
-            {held.positionId ? (
+            {held.positionId && !canSeePosition ? (
+              <Mono sx={{ fontSize: 13 }}>{held.positionCode ?? 'Position'}</Mono>
+            ) : held.positionId ? (
               <Box
                 component={Link}
                 to={`/${company}/cf_hrms/positions/${held.positionId}`}
@@ -225,7 +227,7 @@ function HeldRow({
       {held.isCurrent && (
         <Collapse in={open} unmountOnExit>
           <Box sx={{ mt: 1.5, p: 1.5, background: 'var(--c-surface-2)', borderRadius: 'var(--r-sm)' }}>
-            <ReportsTo held={held} company={company} employeeId={employeeId} canManage={canManageLines} />
+            <ReportsTo held={held} company={company} employeeId={employeeId} canEditLines={canEditLines} />
           </Box>
         </Collapse>
       )}
@@ -247,12 +249,12 @@ export function EmployeePositionsTab({
   /** After a move, a second position or an end: the page reloads its header. */
   onChanged: () => void;
 }) {
-  const can = useIsPermitted();
+  const can = useCan();
   const toast = useToast();
   const hasLeft = employmentStatus === 'EXITED';
-  const canMove = can(MOVE_PERMISSION) && can('cf_hrms_org_view') && !hasLeft;
-  const canEnd = can(ASSIGN_MANAGE) && !hasLeft;
-  const canManageLines = can(ASSIGN_MANAGE);
+  const canMove = can.positions.edit && can.positions.view && !hasLeft;
+  const canEnd = can.positions.edit && !hasLeft;
+  const canEditLines = can.positions.edit;
 
   const [rows, setRows] = useState<PositionHeld[] | null>(null);
   const [error, setError] = useState<unknown>(null);
@@ -327,7 +329,7 @@ export function EmployeePositionsTab({
                 employeeId={employeeId}
                 showMain={current.length > 1}
                 canEnd={canEnd}
-                canManageLines={canManageLines}
+                canEditLines={canEditLines}
                 onEnd={() => setEnding(r)}
               />
             ))}

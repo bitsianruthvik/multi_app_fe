@@ -36,6 +36,8 @@ export interface EditableListProps {
   items: EditableListItem[];
   /** False shows the list read-only: no handles, no icons, names are plain text. */
   canEdit: boolean;
+  /** Removing is its own right. Absent = follows `canEdit`. */
+  canRemove?: boolean;
   /** "label" — used in the aria labels and the placeholder: "New label". */
   noun: string;
   /** "3 departments" for a count, in the caller's words. */
@@ -62,6 +64,7 @@ function words(e: unknown): string {
 export function EditableList({
   items,
   canEdit,
+  canRemove = canEdit,
   noun,
   usage,
   onAdd,
@@ -371,7 +374,7 @@ export function EditableList({
                   </Typography>
                 )}
 
-                {canEdit && !isEditing && (
+                {canRemove && !isEditing && (
                   <Tooltip title={cannotRemove ? `Keep at least ${minItems === 1 ? 'one' : minItems}` : 'Remove'}>
                     <Box component="span" sx={{ flexShrink: 0 }}>
                       <IconButton

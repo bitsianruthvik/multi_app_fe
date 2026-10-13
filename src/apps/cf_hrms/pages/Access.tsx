@@ -1,31 +1,38 @@
+import { useMemo } from 'react';
 import { TabbedScreen, type ScreenTab } from '../components/TabbedScreen';
-import AccessPeople from './access/AccessPeople';
+import { useIsPlatformAdmin } from '../api/access';
 import AccessRoles from './access/AccessRoles';
-import AccessCapabilities from './access/AccessCapabilities';
+import AccessLogins from './access/AccessLogins';
 import AccessLogs from './access/AccessLogs';
 
 /**
- * Setup › Logins and access — who can sign in, what their role may do, the
- * permission words behind it, and the error log. Four menu entries until
- * 2026-10-12, one screen with four tabs since (CF_HRMS_HIRING_SPEC.md §10).
+ * Setup › Logins and access (CF_HRMS_HIRING_SPEC.md §12.7).
  *
- * Platform-admin only, gated in navMeta.ts by the PLATFORM_ADMIN sentinel; each
- * tab is the same component it was as a page and still answers its own
- * permission question.
+ *   Access roles   what each access role may do — the tick-box table
+ *   Logins         who can sign in, with which access role
+ *   Error logs     the platform's log; listed only for the platform admin
+ *
+ * The route is guarded by the right to manage logins and access roles. The tab
+ * is in the address (`?tab=logins`); an address that names a tab which is not
+ * listed — the old `?tab=capabilities`, or `?tab=logs` for anyone but the
+ * platform admin — lands on Access roles.
  */
-const TABS: ScreenTab[] = [
-  { value: 'logins', label: 'Logins', render: () => <AccessPeople /> },
-  { value: 'roles', label: 'What a role can do', render: () => <AccessRoles /> },
-  { value: 'capabilities', label: 'Capabilities and features', render: () => <AccessCapabilities /> },
-  { value: 'logs', label: 'Error logs', render: () => <AccessLogs /> },
-];
-
 export default function Access() {
+  const platformAdmin = useIsPlatformAdmin();
+  const tabs = useMemo<ScreenTab[]>(
+    () => [
+      { value: 'roles', label: 'Access roles', render: () => <AccessRoles /> },
+      { value: 'logins', label: 'Logins', render: () => <AccessLogins /> },
+      ...(platformAdmin ? [{ value: 'logs', label: 'Error logs', render: () => <AccessLogs /> }] : []),
+    ],
+    [platformAdmin],
+  );
+
   return (
     <TabbedScreen
       title="Logins and access"
-      subtitle="Accounts that can sign in to this company's apps, and what each role is allowed to do."
-      tabs={TABS}
+      subtitle="Who can sign in to HRMS, and what each access role may do."
+      tabs={tabs}
     />
   );
 }

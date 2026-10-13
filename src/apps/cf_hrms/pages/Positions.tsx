@@ -6,13 +6,14 @@ import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
 import BadgeRounded from '@mui/icons-material/BadgeRounded';
 import {
   DataTable, EmptyState, ErrorNotice, FilterBar, ListSkeleton, Mono, PageHeader,
-  StatStrip, StatusBadge, useIsPermitted,
+  StatStrip, StatusBadge,
 } from '@shared/ui';
 import type { DataColumn, Stat, StatusTone } from '@shared/ui';
 import type { PositionListResult, PositionOptions, PositionRow } from '../api/positions';
 import { positionsApi } from '../api/positions';
 import { PositionFormDialog } from '../components/PositionDialogs';
 import { usePositionRemoval } from '../components/usePositionRemoval';
+import { useCan } from '../access/can';
 import { vacantLabel } from '../api/hiring';
 import { NoticeChip } from '../components/Leaving';
 
@@ -40,8 +41,7 @@ const STATUS_TONES: Record<string, StatusTone> = {
 export default function Positions() {
   const { company = '' } = useParams<{ company: string }>();
   const navigate = useNavigate();
-  const can = useIsPermitted();
-  const canManage = can('cf_hrms_org_manage');
+  const can = useCan();
   const [params, setParams] = useSearchParams();
 
   const [data, setData] = useState<PositionListResult | null>(null);
@@ -68,12 +68,12 @@ export default function Positions() {
 
   // The shell's quick-create sends people here with ?new=1.
   useEffect(() => {
-    if (params.get('new') === '1' && canManage) {
+    if (params.get('new') === '1' && can.positions.edit) {
       setCreating(true);
       params.delete('new');
       setParams(params, { replace: true });
     }
-  }, [params, setParams, canManage]);
+  }, [params, setParams, can.positions.edit]);
 
   const stats: Stat[] = useMemo(() => {
     const items = data?.items ?? [];
@@ -143,7 +143,7 @@ export default function Positions() {
         title="Positions"
         subtitle="one chair for one person, on one shift — the organisation's design, independent of who fills it"
         actions={
-          canManage && (
+          can.positions.edit && (
             <Button size="small" variant="contained" startIcon={<AddRounded />} onClick={() => setCreating(true)}>
               New position
             </Button>
@@ -182,7 +182,7 @@ export default function Positions() {
           getRowId={(p) => p.id}
           onRowClick={(p) => navigate(`/${company}/cf_hrms/positions/${p.id}`)}
           rowActions={
-            canManage
+            can.positions.remove
               ? (p) => (
                   <Tooltip title="Close or delete this position…">
                     {/* A disabled IconButton fires no events, so the tooltip needs a wrapper to hover. */}
@@ -213,7 +213,7 @@ export default function Positions() {
                   ? 'Clear the filter to see every position.'
                   : 'A position is one chair for one person on one shift. It is optional — people can do work without one — but it is what makes vacancies countable.'
               }
-              action={canManage && !search ? <Button variant="contained" size="small" onClick={() => setCreating(true)}>New position</Button> : undefined}
+              action={can.positions.edit && !search ? <Button variant="contained" size="small" onClick={() => setCreating(true)}>New position</Button> : undefined}
             />
           }
         />

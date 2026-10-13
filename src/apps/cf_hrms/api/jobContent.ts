@@ -102,7 +102,7 @@ const on = (date?: string) => (date ? `?on=${date}` : '');
 
 /**
  * Which door a POSITION's job content goes through.
- *   `hr`    the organisation routes (`cf_hrms_org_view` / `cf_hrms_org_manage`);
+ *   `hr`    the position routes (positions view / positions edit);
  *   `team`  a manager's own team (`/user/me/team/…`, CF_HRMS_HIRING_SPEC.md §7.2) —
  *           the same services behind them, refused with 403 NOT_YOUR_TEAM for
  *           any position that is not below the signed-in person.

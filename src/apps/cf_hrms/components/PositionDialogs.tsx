@@ -4,6 +4,7 @@ import { CodeNote } from './CodeNote';
 import { FormDialog } from '@shared/ui';
 import type { LookupRow, PositionOptions, PositionRow } from '../api/positions';
 import { positionsApi } from '../api/positions';
+import { useCan } from '../access/can';
 import { usePositionRemoval } from './usePositionRemoval';
 
 /**
@@ -31,6 +32,7 @@ export function PositionFormDialog({
   /** null = create. */
   position: PositionRow | null;
 }) {
+  const can = useCan();
   const [roleId, setRoleId] = useState<number | ''>('');
 
   const [positionTitle, setPositionTitle] = useState('');
@@ -132,7 +134,10 @@ export function PositionFormDialog({
 
           <Stack direction="row" spacing={2}>
             <TextField select size="small" label="Status" fullWidth value={status} onChange={(e) => setStatus(e.target.value)}>
-              {(options?.positionStatuses ?? ['DRAFT', 'ACTIVE', 'FROZEN', 'CLOSED']).map((s) => <MenuItem key={s} value={s}>{s}</MenuItem>)}
+              {(options?.positionStatuses ?? ['DRAFT', 'ACTIVE', 'FROZEN', 'CLOSED'])
+                // Closing a position is a remove (it hands over to the close dialog); keep it only where it is the current value.
+                .filter((s) => s !== 'CLOSED' || can.positions.remove || position?.status === 'CLOSED')
+                .map((s) => <MenuItem key={s} value={s}>{s}</MenuItem>)}
             </TextField>
             <TextField size="small" type="date" label="From" fullWidth InputLabelProps={{ shrink: true }} value={effectiveFrom} onChange={(e) => setEffectiveFrom(e.target.value)} />
             <TextField size="small" type="date" label="Until" fullWidth InputLabelProps={{ shrink: true }} value={effectiveTo} onChange={(e) => setEffectiveTo(e.target.value)} />

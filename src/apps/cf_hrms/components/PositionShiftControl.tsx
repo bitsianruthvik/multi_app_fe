@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { Box, Button, ListItemText, Menu, MenuItem } from '@mui/material';
 import CheckRounded from '@mui/icons-material/CheckRounded';
-import { useIsPermitted, useToast } from '@shared/ui';
+import { useToast } from '@shared/ui';
+import { useCan } from '../access/can';
 import { positionsApi, type PositionShift } from '../api/positions';
 import { shiftsApi } from '../api/shifts';
 import { shiftWord } from './usePositionCard';
@@ -22,12 +23,12 @@ const SHIFT_ORDER: Record<string, number> = { G: 0, D: 1, N: 2 };
 /** A shift as the menu lists it: its name, and its days and hours so two shifts can be told apart. */
 interface ShiftChoice { id: number; code?: string | null; name: string; status?: string | null; summary?: string | null }
 let shiftsOnce: Promise<ShiftChoice[]> | null = null;
-function loadShifts(): Promise<ShiftChoice[]> {
+function loadShifts(fromTimeArea: boolean): Promise<ShiftChoice[]> {
   if (!shiftsOnce) {
     // The shifts themselves carry the summary line; the position options are the fallback
     // (names only) for a server that does not have it.
-    shiftsOnce = shiftsApi
-      .list()
+    // The Shifts screen's list carries the summary line, but it is the time area's; without its view right ask the position options only.
+    shiftsOnce = (fromTimeArea ? shiftsApi.list() : Promise.reject(new Error('no time access')))
       .then((list): ShiftChoice[] => list)
       .catch(() => positionsApi.options().then((o): ShiftChoice[] => o.shifts))
       .then((list) =>
@@ -60,16 +61,15 @@ export function PositionShiftControl({
   /** False where the caller already prints the shift and wants only the button. */
   showName?: boolean;
 }) {
-  const can = useIsPermitted();
+  const can = useCan();
   const toast = useToast();
-  const canManage = can('cf_hrms_org_manage');
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   const [shifts, setShifts] = useState<ShiftChoice[] | null>(null);
   const [busy, setBusy] = useState(false);
 
   const open = (el: HTMLElement) => {
     setAnchor(el);
-    loadShifts()
+    loadShifts(can.time.view)
       .then(setShifts)
       .catch((e) => {
         setAnchor(null);
@@ -104,7 +104,7 @@ export function PositionShiftControl({
       sx={{ display: 'inline-flex', alignItems: 'baseline', flexWrap: 'wrap', columnGap: 0.75 }}
     >
       {showName && <span>{name}</span>}
-      {canManage && (
+      {can.positions.edit && (
         <>
           <Button
             size="small"

@@ -20,13 +20,12 @@ import {
   StatStrip,
   StatusBadge,
   ToneBadge,
-  useIsPermitted,
   useToast,
   type Stat,
 } from '@shared/ui';
+import { useCan } from '../access/can';
 import {
   orgApi,
-  ORG_MANAGE,
   type Address,
   type LocationType,
   type OrgLocation,
@@ -101,8 +100,7 @@ const emptyDraft = (parentId: number | null): DraftState => ({
 });
 
 export default function Locations() {
-  const can = useIsPermitted();
-  const canManage = can(ORG_MANAGE);
+  const can = useCan();
   const { success } = useToast();
 
   const load = useCallback(() => orgApi.locations.list(), []);
@@ -206,7 +204,7 @@ export default function Locations() {
                 {anyCollapsed ? 'Expand all' : 'Collapse all'}
               </Button>
             )}
-            {canManage && (
+            {can.org.edit && (
               <Button variant="contained" startIcon={<AddRounded />} onClick={() => openNew(null)}>
                 New location
               </Button>
@@ -253,7 +251,7 @@ export default function Locations() {
               title="No locations yet"
               hint="Start with the company's own site, then add the units, offices and branches inside it. Holidays, positions and people all point at a location."
               action={
-                canManage ? (
+                can.org.edit ? (
                   <Button variant="contained" startIcon={<AddRounded />} onClick={() => openNew(null)}>
                     Add the first location
                   </Button>
@@ -300,24 +298,30 @@ export default function Locations() {
                 </>
               )}
               renderActions={
-                canManage
+                can.org.edit || can.org.remove
                   ? (row) => (
                       <>
-                        <Tooltip title="Add a location inside this one">
-                          <IconButton size="small" onClick={() => openNew(row.id)} aria-label={`Add a location inside ${row.name}`}>
-                            <SubdirectoryArrowRightRounded fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                        <Tooltip title="Edit">
-                          <IconButton size="small" onClick={() => openEdit(row)} aria-label={`Edit ${row.name}`}>
-                            <EditRounded fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                        <Tooltip title="Delete">
-                          <IconButton size="small" onClick={() => setDoomed(row)} aria-label={`Delete ${row.name}`}>
-                            <DeleteOutlineRounded fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
+                        {can.org.edit && (
+                          <Tooltip title="Add a location inside this one">
+                            <IconButton size="small" onClick={() => openNew(row.id)} aria-label={`Add a location inside ${row.name}`}>
+                              <SubdirectoryArrowRightRounded fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        )}
+                        {can.org.edit && (
+                          <Tooltip title="Edit">
+                            <IconButton size="small" onClick={() => openEdit(row)} aria-label={`Edit ${row.name}`}>
+                              <EditRounded fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        )}
+                        {can.org.remove && (
+                          <Tooltip title="Delete">
+                            <IconButton size="small" onClick={() => setDoomed(row)} aria-label={`Delete ${row.name}`}>
+                              <DeleteOutlineRounded fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        )}
                       </>
                     )
                   : undefined

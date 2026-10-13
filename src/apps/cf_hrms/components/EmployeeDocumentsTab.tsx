@@ -33,12 +33,12 @@ const fmtSize = (n: number) => (n < 1024 ? `${n} B` : n < 1024 * 1024 ? `${(n / 
 
 export function EmployeeDocumentsTab({
   employeeId,
-  canManage,
+  canEdit,
   pickers,
   onCountChange,
 }: {
   employeeId: number;
-  canManage: boolean;
+  canEdit: boolean;
   /** Passed down rather than fetched — the record screen already has it. */
   pickers: PeoplePickers | null;
   onCountChange?: (n: number) => void;
@@ -160,7 +160,7 @@ export function EmployeeDocumentsTab({
             ].filter(Boolean).join(' · ')
             : 'Joining letters, statutory forms, certificates and licences'
         }
-        actions={canManage && (
+        actions={canEdit && (
           <Button size="small" startIcon={<AddRounded />} onClick={() => setAddOpen(true)}>
             Attach
           </Button>
@@ -171,7 +171,7 @@ export function EmployeeDocumentsTab({
             icon={<DescriptionRounded />}
             title="No documents attached"
             hint="Anything with an expiry — a licence, a medical clearance — is worth putting here so it can be chased before it lapses."
-            action={canManage && (
+            action={canEdit && (
               <Button size="small" variant="contained" startIcon={<AddRounded />} onClick={() => setAddOpen(true)}>
                 Attach a document
               </Button>
@@ -223,7 +223,7 @@ export function EmployeeDocumentsTab({
                     )}
                   </Box>
 
-                  {canManage && (
+                  {canEdit && (
                     <TextField
                       select
                       size="small"
@@ -243,7 +243,7 @@ export function EmployeeDocumentsTab({
                       <DownloadRounded sx={{ fontSize: 18 }} />
                     </IconButton>
                   </Tooltip>
-                  {canManage && (
+                  {canEdit && (
                     <Tooltip title="Remove">
                       <IconButton size="small" aria-label={`Remove ${d.title || d.documentType}`} onClick={() => setConfirmDelete(d)}>
                         <DeleteOutlineRounded sx={{ fontSize: 18 }} />
@@ -257,7 +257,7 @@ export function EmployeeDocumentsTab({
         )}
       </SectionCard>
 
-      {canManage && (
+      {canEdit && (
         <FormDialog
           open={addOpen}
           title="Attach a document"

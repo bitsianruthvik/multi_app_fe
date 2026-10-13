@@ -33,6 +33,7 @@ import {
   jobContentApi, type JobContentData, type JobContentScope, type JobKra, type JobLine, type JobLineKind, type TargetInput,
 } from '../api/jobContent';
 import { positionsApi } from '../api/positions';
+import { useCan } from '../access/can';
 import { JobContent } from './JobContent';
 import { useJobContent } from './useJobContent';
 
@@ -173,7 +174,7 @@ function Shell({ embedded, action, children }: { embedded: boolean; action: Reac
 export function SeatJobContentEditor({
   positionId,
   company,
-  canManage,
+  canManage: canManageProp,
   startEditing = false,
   onChanged,
   embedded = false,
@@ -198,7 +199,12 @@ export function SeatJobContentEditor({
   asOf?: string;
   positionId: number;
   company: string;
-  /** Holds `cf_hrms_org_manage`. Without it the tab is the read-only view. */
+  /**
+   * The caller says the person may change this position's content. On the HR
+   * screens that also needs `can.positions.edit`, checked again here; on the
+   * `team` scope it is the employee's own team rule (spec §7), not an HR right.
+   * Without it the tab is the read-only view.
+   */
   canManage: boolean;
   /** Arrive in edit mode (the Departments screen's Edit button). */
   startEditing?: boolean;
@@ -210,6 +216,9 @@ export function SeatJobContentEditor({
   const toast = useToast();
   const { data, error, loading, reload, setData } = useJobContent({ type: 'position', id: positionId }, asOf, scope);
   const team = scope === 'team';
+  const can = useCan();
+  // HR scope: positions.edit. Team scope: untouched (the server's team rule decides).
+  const canManage = canManageProp && (team || can.positions.edit);
   const [editing, setEditing] = useState(startEditing && canManage);
   const [dialog, setDialog] = useState<DialogState>(null);
   const [menu, setMenu] = useState<{ anchor: HTMLElement; line: JobLine } | null>(null);
@@ -326,7 +335,8 @@ export function SeatJobContentEditor({
     </Stack>
   );
 
-  const roleLink = team ? null : data?.roleId && onOpenRole ? (
+  // A link to the role is a link to another area: only with roles.view.
+  const roleLink = team || !can.roles.view ? null : data?.roleId && onOpenRole ? (
     <Box
       component="button"
       type="button"

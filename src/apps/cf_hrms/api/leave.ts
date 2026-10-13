@@ -62,8 +62,6 @@ export interface Assignments {
 
 export type AssignmentScope = 'COMPANY' | 'LOCATION' | 'ROLE';
 
-export const LEAVE_VIEW = 'cf_hrms_leave_view';
-export const LEAVE_MANAGE = 'cf_hrms_leave_manage';
 
 export const ruleInputOf = (r: Rule, sortOrder: number): RuleInput => ({
   leaveTypeId: r.leaveTypeId, sortOrder,

@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import { Box, Button, MenuItem, TextField, Typography } from '@mui/material';
-import { FormDialog, useIsPermitted, useToast } from '@shared/ui';
-import { LEAVE_MANAGE, LEAVE_VIEW, leaveApi, type Effective, type PolicySummary, type Ref } from '../api/leave';
+import { FormDialog, useToast } from '@shared/ui';
+import { useCan } from '../access/can';
+import { leaveApi, type Effective, type PolicySummary, type Ref } from '../api/leave';
 
 /**
  * Where a leave policy is SHOWN outside its own screen (CF_HRMS_HIRING_SPEC.md §8.4):
@@ -28,8 +29,7 @@ export function PositionLeavePolicy({
   effective?: Effective | null;
   company: string;
 }) {
-  const can = useIsPermitted();
-  const canView = can(LEAVE_VIEW);
+  const canView = useCan().leave.view;
   const [asked, setAsked] = useState<Effective | null>(null);
 
   useEffect(() => {
@@ -48,7 +48,7 @@ export function PositionLeavePolicy({
   }, [positionId, effective, canView]);
 
   const e = effective ?? asked;
-  if (!e) return null;
+  if (!canView || !e) return null;
   return (
     <Box component="span" data-leavepolicy="" sx={{ overflowWrap: 'anywhere' }}>
       {e.policy && canView ? (
@@ -64,9 +64,10 @@ export function PositionLeavePolicy({
 
 /** A role's own leave policy, with "Change". Null for someone who cannot read leave policies. */
 export function RoleLeavePolicy({ roleId, roleTitle, company }: { roleId: number; roleTitle: string; company: string }) {
-  const can = useIsPermitted();
-  const canView = can(LEAVE_VIEW);
-  const canManage = can(LEAVE_MANAGE);
+  const can = useCan();
+  const canView = can.leave.view;
+  const canManage = can.leave.edit;
+  const canRemove = can.leave.remove;
   const toast = useToast();
   const [own, setOwn] = useState<Ref | null | undefined>(undefined);
   const [policies, setPolicies] = useState<PolicySummary[] | null>(null);
@@ -131,7 +132,7 @@ export function RoleLeavePolicy({ roleId, roleTitle, company }: { roleId: number
           sx={{ mt: 0.75 }}
           helperText="A role’s own policy applies to every position of the role, whatever its location."
         >
-          <MenuItem value="">Follows the location</MenuItem>
+          {(canRemove || !own) && <MenuItem value="">Follows the location</MenuItem>}
           {(policies ?? []).filter((p) => p.status !== 'ARCHIVED' || p.id === own?.id).map((p) => (
             <MenuItem key={p.id} value={p.id} disabled={p.status !== 'ACTIVE' && p.id !== own?.id}>
               {p.name}{p.status !== 'ACTIVE' ? ' — a draft; make it active first' : ''}

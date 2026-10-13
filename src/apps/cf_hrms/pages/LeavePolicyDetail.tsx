@@ -6,10 +6,11 @@ import ArrowBackRounded from '@mui/icons-material/ArrowBackRounded';
 import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
 import {
   ConfirmDialog, DetailSkeleton, ErrorNotice, FormDialog, StickyActionBar, Surface, ToneBadge,
-  useDetailTitle, useIsPermitted, useToast,
+  useDetailTitle, useToast,
 } from '@shared/ui';
+import { useCan } from '../access/can';
 import {
-  LEAVE_MANAGE, POLICY_STATUS_LABEL, POLICY_STATUS_TONE, blankRule, leaveApi, ruleInputOf, usedByLine,
+  POLICY_STATUS_LABEL, POLICY_STATUS_TONE, blankRule, leaveApi, ruleInputOf, usedByLine,
   type LeaveType, type Policy, type Rule,
 } from '../api/leave';
 import { LeaveRuleCard } from '../components/LeaveRuleCard';
@@ -62,7 +63,9 @@ export default function LeavePolicyDetail() {
   const policyId = Number(id);
   const navigate = useNavigate();
   const toast = useToast();
-  const canManage = useIsPermitted()(LEAVE_MANAGE);
+  const can = useCan();
+  const canManage = can.leave.edit;
+  const canRemove = can.leave.remove;
 
   const [policy, setPolicy] = useState<Policy | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
@@ -150,7 +153,7 @@ export default function LeavePolicyDetail() {
           <Typography component="h1" sx={{ fontSize: 20, fontWeight: 600, overflowWrap: 'anywhere' }}>{draft.name || 'Leave policy'}</Typography>
           <ToneBadge tone={POLICY_STATUS_TONE[draft.status] ?? 'neutral'} noIcon label={POLICY_STATUS_LABEL[draft.status] ?? draft.status} />
           <Box sx={{ flex: 1 }} />
-          {canManage && (
+          {canRemove && (
             <Button size="small" color="inherit" startIcon={<DeleteOutlineRounded />} onClick={() => setDeleting(true)}>
               Delete
             </Button>
@@ -241,7 +244,8 @@ export default function LeavePolicyDetail() {
             <LeaveRuleCard
               key={r.leaveTypeId}
               rule={r}
-              canManage={canManage}
+              canEdit={canManage}
+              canRemove={canRemove && canManage}
               onChange={(next) => setRule(i, next)}
               onRemove={() => set({ rules: draft.rules.filter((_, j) => j !== i) })}
             />

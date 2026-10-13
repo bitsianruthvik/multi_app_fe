@@ -18,12 +18,12 @@ import {
   StatStrip,
   StatusBadge,
   ToneBadge,
-  useIsPermitted,
   useToast,
   type DataColumn,
   type Stat,
 } from '@shared/ui';
-import { orgApi, ORG_MANAGE, type ReportingType } from '../api/organisation';
+import { useCan } from '../access/can';
+import { orgApi, type ReportingType } from '../api/organisation';
 import { ORG_STATUS_LABELS, ORG_STATUS_TONES, useOrgLoad } from '../components/OrgData';
 import { OrgNote } from '../components/OrgNote';
 
@@ -63,8 +63,9 @@ const emptyDraft = (nextOrder: number): DraftState => ({
 });
 
 export default function ReportingTypes() {
-  const can = useIsPermitted();
-  const canManage = can(ORG_MANAGE);
+  const can = useCan();
+  const canManage = can.setup.edit;
+  const canRemove = can.setup.remove;
   const { success } = useToast();
 
   const load = useCallback(() => orgApi.reportingTypes.list(), []);
@@ -262,29 +263,33 @@ export default function ReportingTypes() {
               exportName="reporting-types"
               defaultSortKey="sortOrder"
               rowActions={
-                canManage
+                canManage || canRemove
                   ? (row) => (
                       <>
-                        <Tooltip title="Edit">
-                          <IconButton size="small" onClick={() => openEdit(row)} aria-label={`Edit ${row.name}`}>
-                            <EditRounded fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                        <Tooltip
-                          title={row.inUse ? 'In use by existing reporting lines' : 'Delete'}
-                        >
-                          {/* A disabled IconButton fires no events, so the tooltip needs a wrapper to hover. */}
-                          <Box component="span">
-                            <IconButton
-                              size="small"
-                              disabled={row.inUse > 0}
-                              onClick={() => setDoomed(row)}
-                              aria-label={`Delete ${row.name}`}
-                            >
-                              <DeleteOutlineRounded fontSize="small" />
+                        {canManage && (
+                          <Tooltip title="Edit">
+                            <IconButton size="small" onClick={() => openEdit(row)} aria-label={`Edit ${row.name}`}>
+                              <EditRounded fontSize="small" />
                             </IconButton>
-                          </Box>
-                        </Tooltip>
+                          </Tooltip>
+                        )}
+                        {canRemove && (
+                          <Tooltip
+                            title={row.inUse ? 'In use by existing reporting lines' : 'Delete'}
+                          >
+                            {/* A disabled IconButton fires no events, so the tooltip needs a wrapper to hover. */}
+                            <Box component="span">
+                              <IconButton
+                                size="small"
+                                disabled={row.inUse > 0}
+                                onClick={() => setDoomed(row)}
+                                aria-label={`Delete ${row.name}`}
+                              >
+                                <DeleteOutlineRounded fontSize="small" />
+                              </IconButton>
+                            </Box>
+                          </Tooltip>
+                        )}
                       </>
                     )
                   : undefined

@@ -9,7 +9,7 @@ import { api } from './client';
  *  1. **Identifiers cannot be reached any other way.** `identifier_value` is
  *     deliberately absent from resourceDef.json, so the generic API cannot
  *     select it under any filter. That route is the only read path, and it masks
- *     unless the caller holds `cf_hrms_people_pii`.
+ *     unless the caller holds the contact-details right.
  *  2. **Department and location are two hops away.** They belong to the WORK, not
  *     to the person — employee → work assignment → department — and the query
  *     engine's relation joins are single-hop. The list endpoint resolves them
@@ -252,7 +252,7 @@ export interface IdentifierList {
   employeeId: number;
   /** True when the values below are masked — which is the default for everyone. */
   masked: boolean;
-  /** Whether this caller holds cf_hrms_people_pii at all. Drives whether "Reveal" is offered. */
+  /** Whether this caller holds the contact-details right at all. Drives whether "Reveal" is offered. */
   canSeePii: boolean;
   items: Identifier[];
 }
@@ -344,7 +344,7 @@ export const peopleApi = {
   /**
    * The org chart panel's read. Contact details (phone, email, date of birth,
    * address, emergency contact) come back ONLY for a caller holding
-   * cf_hrms_people_pii — and that read is audited on the server. For anyone
+   * the contact-details right — and that read is audited on the server. For anyone
    * else they are removed on the server and `contact` says 'HIDDEN'.
    */
   getForPanel: (id: number, asOf?: string) =>
@@ -393,7 +393,7 @@ export const peopleApi = {
    * Masked. Call this for the tab.
    *
    * `reveal` asks for the real numbers and is honoured only for a caller holding
-   * cf_hrms_people_pii; for anyone else the response comes back masked with
+   * the contact-details right; for anyone else the response comes back masked with
    * `masked: true` rather than as an error. An honoured reveal writes an audit
    * row on the server. The values it returns are held only by the component that
    * displays them and are dropped when it unmounts — they are never stored, never

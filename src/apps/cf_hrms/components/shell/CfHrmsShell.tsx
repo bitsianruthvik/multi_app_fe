@@ -3,13 +3,14 @@ import PersonRounded from '@mui/icons-material/PersonRounded';
 import WorkOutlineRounded from '@mui/icons-material/WorkOutlineRounded';
 import AccountTreeRounded from '@mui/icons-material/AccountTreeRounded';
 import {
-  AppShell, ThemeScope, ToastProvider, CommandPaletteProvider, useIsPermitted,
+  AppShell, ThemeScope, ToastProvider, CommandPaletteProvider,
   type Can, type PaletteAction, type PaletteRecord,
 } from '@shared/ui';
 import { HiringDialogProvider } from '../HiringDialog';
-import { SECTIONS, COUNT_META, PLATFORM_ADMIN, SELF_ONLY, isSelfOnly } from '../../navMeta';
+import { SECTIONS, COUNT_META, SELF_ONLY } from '../../navMeta';
+import { TAG, useAccessWatch, useCan } from '../../access/can';
+import { MyAccessLine } from '../../access/Guard';
 import { fetchNavCounts } from '../../api/client';
-import { useIsPlatformAdmin } from '../../api/access';
 import { peopleApi } from '../../api/people';
 import { orgChartApi } from '../../api/orgchart';
 // Side effect: registers every cf_hrms status with its tone and label, so a
@@ -36,9 +37,9 @@ import '../../statusMap';
  * working, look here first.
  */
 const QUICK_CREATE = [
-  { label: 'Employee', path: 'employees?new=1', permission: 'cf_hrms_people_manage' },
-  { label: 'Role', path: 'roles?new=1', permission: 'cf_hrms_roles_manage' },
-  { label: 'Position', path: 'positions?new=1', permission: 'cf_hrms_org_manage' },
+  { label: 'Employee', path: 'employees?new=1', permission: TAG.employees.edit },
+  { label: 'Role', path: 'roles?new=1', permission: TAG.roles.edit },
+  { label: 'Position', path: 'positions?new=1', permission: TAG.positions.edit },
 ];
 
 /**
@@ -68,30 +69,24 @@ export function CfHrmsShell({ children }: { children: ReactNode }) {
   const [counts, setCounts] = useState<Record<string, number>>({});
 
   /**
-   * The nav's permission predicate.
+   * The nav's permission predicate — the same answer every button on every
+   * screen gets (`access/can.ts`). Passing it to both the palette and the shell
+   * is the point: the top nav, the section row, the mobile sheet and ⌘K all
+   * hide the same entries from the same person.
    *
-   * Every cf_hrms screen is gated by a feature tag, which `useIsPermitted`
-   * answers on its own — so this exists for one screen: Logins and access under
-   * Setup, which administers the PLATFORM's accounts and
-   * permissions rather than anything in HR. There is no feature tag for that
-   * (see api/access.ts), and the platform's existing answer to "may this person
-   * administer the tenant" is the admin role name, which is what App.tsx
-   * already uses to route an admin after login.
-   *
-   * Passing it to both the palette and the shell is the point: navMeta stays
-   * the single nav source, and the top nav, the section row, the mobile sheet
-   * and ⌘K all hide the same entry from the same person.
+   * `useAccessWatch` re-reads the person's rights from the server on load and
+   * whenever the tab comes back into view, so a change of access role reaches
+   * an open tab without signing out.
    */
-  const permitted = useIsPermitted();
-  const isPlatformAdmin = useIsPlatformAdmin();
+  useAccessWatch();
+  const access = useCan();
   const can = useCallback<Can>(
     (tag?: string) => {
-      if (tag === PLATFORM_ADMIN) return isPlatformAdmin;
       // The employee's own Org chart entry: self view and no HR screen (navMeta.ts).
-      if (tag === SELF_ONLY) return isSelfOnly(permitted);
-      return permitted(tag);
+      if (tag === SELF_ONLY) return access.selfOnly;
+      return access.has(tag);
     },
-    [permitted, isPlatformAdmin],
+    [access],
   );
 
   // Advisory by contract: fetchNavCounts swallows its own failures and returns
@@ -176,6 +171,7 @@ export function CfHrmsShell({ children }: { children: ReactNode }) {
             countMeta={COUNT_META}
             quickCreate={QUICK_CREATE}
             can={can}
+            accountItems={<MyAccessLine />}
           >
             <HiringDialogProvider>{children}</HiringDialogProvider>
           </AppShell>

@@ -4,13 +4,13 @@ import DownloadRounded from '@mui/icons-material/DownloadRounded';
 import UploadFileRounded from '@mui/icons-material/UploadFileRounded';
 import ContentCopyRounded from '@mui/icons-material/ContentCopyRounded';
 import {
-  Callout, ErrorNotice, ListSkeleton, Mono, PageHeader, SectionCard, ToneBadge, errorMessage, useIsPermitted, useToast,
+  Callout, ErrorNotice, ListSkeleton, Mono, PageHeader, SectionCard, ToneBadge, errorMessage, useToast,
 } from '@shared/ui';
+import { useCan } from '../access/can';
 import {
   hiringApi, niceDate, readFileBase64, saveHiringFile,
   type HiringSettings as Settings, type LetterKind, type LetterPlaceholder, type LetterTemplate,
 } from '../api/hiring';
-import { ORG_MANAGE } from '../api/organisation';
 
 /**
  * Letters — what the offer and appointment letters print, and the two Word
@@ -60,11 +60,14 @@ function TemplateRow({
   kind,
   template,
   canManage,
+  canDownload,
   onUploaded,
 }: {
   kind: LetterKind;
   template: LetterTemplate | null;
   canManage: boolean;
+  /** Template files are pay-related on the server: downloading needs access to pay. */
+  canDownload: boolean;
   onUploaded: () => void;
 }) {
   const toast = useToast();
@@ -123,9 +126,11 @@ function TemplateRow({
           </Typography>
         </Box>
         <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
-          <Button size="small" variant="outlined" startIcon={<DownloadRounded />} disabled={busy != null} onClick={() => void download()}>
-            {busy === 'download' ? 'Downloading…' : 'Download'}
-          </Button>
+          {canDownload && (
+            <Button size="small" variant="outlined" startIcon={<DownloadRounded />} disabled={busy != null} onClick={() => void download()}>
+              {busy === 'download' ? 'Downloading…' : 'Download'}
+            </Button>
+          )}
           {canManage && (
             <>
               <Button size="small" variant="outlined" startIcon={<UploadFileRounded />} disabled={busy != null} onClick={() => input.current?.click()}>
@@ -182,8 +187,9 @@ function TemplateRow({
 }
 
 export default function HiringSettings() {
-  const can = useIsPermitted();
-  const canManage = can(ORG_MANAGE);
+  const can = useCan();
+  const canManage = can.setup.edit;
+  const canDownload = can.named.payView;
   const toast = useToast();
 
   const [saved, setSaved] = useState<Settings | null>(null);
@@ -350,7 +356,7 @@ export default function HiringSettings() {
                 </Box>
               ) : (
                 <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-3)' }}>
-                  Read-only: changing these needs the permission to manage the organisation.
+                  You can see these but not change them.
                 </Typography>
               )}
             </Stack>
@@ -361,12 +367,18 @@ export default function HiringSettings() {
             subtitle="A Word file (.docx) with placeholders in braces, such as {candidate_name}. The letterhead and the wording stay exactly as they are in the file."
           >
             <Stack spacing={1.25}>
+              {!canDownload && (
+                <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-3)' }}>
+                  Template files need access to pay, so they cannot be downloaded here.
+                </Typography>
+              )}
               {KINDS.map((k) => (
                 <TemplateRow
                   key={k}
                   kind={k}
                   template={(templates ?? []).find((t) => t.kind === k) ?? null}
                   canManage={canManage}
+                  canDownload={canDownload}
                   onUploaded={loadTemplates}
                 />
               ))}

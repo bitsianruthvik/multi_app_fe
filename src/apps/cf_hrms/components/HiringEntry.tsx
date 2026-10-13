@@ -3,7 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { Box, Button, Typography } from '@mui/material';
 import PersonAddAltRounded from '@mui/icons-material/PersonAddAltRounded';
 import ArrowForwardRounded from '@mui/icons-material/ArrowForwardRounded';
-import { errorMessage, useCompanySlug, useIsPermitted, useToast } from '@shared/ui';
+import { errorMessage, useCompanySlug, useToast } from '@shared/ui';
+import { useCan } from '../access/can';
 import { hiringApi, openHiringIdOf, type HiringRef } from '../api/hiring';
 import { useHiringDialog } from './hiringDialogContext';
 
@@ -53,9 +54,9 @@ export function HiringEntry({
   const company = useCompanySlug();
   const navigate = useNavigate();
   const toast = useToast();
-  const can = useIsPermitted();
-  const canStart = can('cf_hrms_people_manage');
-  const canRead = can('cf_hrms_people_view');
+  const can = useCan();
+  const canStart = can.hiring.edit;
+  const canRead = can.hiring.view;
   const [busy, setBusy] = useState(false);
 
   const dialog = useHiringDialog();
@@ -93,6 +94,8 @@ export function HiringEntry({
   };
 
   if (hiring) {
+    // Seeing a hiring needs its view right; without it there is nothing to show or open.
+    if (!canRead) return null;
     return (
       <Box
         data-hiringentry={positionId}
@@ -102,7 +105,6 @@ export function HiringEntry({
           size="small"
           variant="contained"
           endIcon={<ArrowForwardRounded />}
-          disabled={!canRead}
           onClick={() => open(hiring.id)}
           aria-label={`Continue hiring${what ? ` for ${what}` : ''}`}
         >
@@ -116,9 +118,10 @@ export function HiringEntry({
   }
 
   if (!canStart) {
+    if (!canRead) return null;
     return (
       <Typography data-hiringentry={positionId} sx={{ fontSize: 12.5, color: 'var(--c-text-2)' }}>
-        Hiring needs the permission to manage people.
+        You do not have the right to start a hiring.
       </Typography>
     );
   }

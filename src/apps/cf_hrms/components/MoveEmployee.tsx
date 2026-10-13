@@ -30,9 +30,6 @@ import { todayIso } from '../api/hiring';
  * meanwhile, a hiring is open for it, or the person has left.
  */
 
-/** May this login put people in positions. The server checks again. */
-export const MOVE_PERMISSION = 'cf_hrms_people_manage';
-
 const fieldDate = { inputLabel: { shrink: true } } as const;
 
 /** The form, with the position already known. */

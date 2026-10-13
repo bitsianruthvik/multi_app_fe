@@ -15,7 +15,7 @@
 import { api } from './client';
 
 export interface OverviewCounts {
-  // Organisation (cf_hrms_org_view)
+  // Organisation
   openPoints?: number;
   departments?: number;
   locations?: number;
@@ -32,7 +32,7 @@ export interface OverviewCounts {
   rolesNoPurpose?: number;
   rolesNoKras?: number;
 
-  // People (cf_hrms_people_view)
+  // People
   employees?: number;
   employeesNoAssignment?: number;
   activeAssignments?: number;
@@ -40,7 +40,7 @@ export interface OverviewCounts {
   documentsExpiring?: number;
   documentsExpired?: number;
 
-  // Work (cf_hrms_attendance_view / cf_hrms_leave_view)
+  // Time and leave
   attendanceExpected?: number;
   attendanceMarked?: number;
   attendanceUnmarked?: number;
@@ -48,7 +48,7 @@ export interface OverviewCounts {
   leavePending?: number;
   leaveTypes?: number;
 
-  // Documents (cf_hrms_documents_generate)
+  // Documents
   generatedDocuments?: number;
 }
 

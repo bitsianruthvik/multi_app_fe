@@ -33,12 +33,12 @@ import {
   StatSkeleton,
   StatusBadge,
   ToneBadge,
-  useIsPermitted,
   useToast,
   type Stat,
 } from '@shared/ui';
 import { useCompanySlug } from '@shared/ui';
-import { orgApi, ORG_MANAGE, type Department, type DepartmentLabel } from '../api/organisation';
+import { useCan } from '../access/can';
+import { orgApi, type Department, type DepartmentLabel } from '../api/organisation';
 import { EditableList } from '../components/EditableList';
 import { CodeNote } from '../components/CodeNote';
 import { getDepartmentStaffing } from '../api/jobContent';
@@ -109,8 +109,7 @@ const staffLabel = (c: { roles: number; positions: number }) =>
   `${c.roles} role${c.roles === 1 ? '' : 's'} · ${c.positions} position${c.positions === 1 ? '' : 's'}`;
 
 export default function Departments() {
-  const can = useIsPermitted();
-  const canManage = can(ORG_MANAGE);
+  const can = useCan();
   const { success } = useToast();
 
   const company = useCompanySlug();
@@ -259,7 +258,7 @@ export default function Departments() {
                 {anyCollapsed ? 'Expand all' : 'Collapse all'}
               </Button>
             )}
-            {canManage && (
+            {can.org.edit && (
               <Button variant="contained" startIcon={<AddRounded />} onClick={() => openNew(null)}>
                 New department
               </Button>
@@ -309,7 +308,7 @@ export default function Departments() {
               title="No departments yet"
               hint="A department is a functional unit — Production, Quality, Accounts. Nest the specific ones under the broad ones, so a role can name the deepest that is true."
               action={
-                canManage ? (
+                can.org.edit ? (
                   <Button variant="contained" startIcon={<AddRounded />} onClick={() => openNew(null)}>
                     Add the first department
                   </Button>
@@ -387,24 +386,30 @@ export default function Departments() {
                 </>
               )}
               renderActions={
-                canManage
+                can.org.edit || can.org.remove
                   ? (row) => (
                       <>
-                        <Tooltip title="Add a department under this one">
-                          <IconButton size="small" onClick={() => openNew(row.id)} aria-label={`Add a department under ${row.name}`}>
-                            <SubdirectoryArrowRightRounded fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                        <Tooltip title="Edit">
-                          <IconButton size="small" onClick={() => openEdit(row)} aria-label={`Edit ${row.name}`}>
-                            <EditRounded fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                        <Tooltip title="Delete">
-                          <IconButton size="small" onClick={() => setDoomed(row)} aria-label={`Delete ${row.name}`}>
-                            <DeleteOutlineRounded fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
+                        {can.org.edit && (
+                          <Tooltip title="Add a department under this one">
+                            <IconButton size="small" onClick={() => openNew(row.id)} aria-label={`Add a department under ${row.name}`}>
+                              <SubdirectoryArrowRightRounded fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        )}
+                        {can.org.edit && (
+                          <Tooltip title="Edit">
+                            <IconButton size="small" onClick={() => openEdit(row)} aria-label={`Edit ${row.name}`}>
+                              <EditRounded fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        )}
+                        {can.org.remove && (
+                          <Tooltip title="Delete">
+                            <IconButton size="small" onClick={() => setDoomed(row)} aria-label={`Delete ${row.name}`}>
+                              <DeleteOutlineRounded fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        )}
                       </>
                     )
                   : undefined
@@ -577,7 +582,8 @@ export default function Departments() {
         </Typography>
         <EditableList
           items={labelItems}
-          canEdit={canManage}
+          canEdit={can.org.edit}
+          canRemove={can.org.remove}
           noun="label"
           usage={(n) => `${n} department${n === 1 ? '' : 's'}`}
           minItems={1}

@@ -6,9 +6,9 @@ import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
 import ScheduleRounded from '@mui/icons-material/ScheduleRounded';
 import {
   ConfirmDialog, DataTable, EmptyState, ErrorNotice, FormDialog, ListSkeleton, Mono, PageHeader, StatusBadge,
-  useIsPermitted, useToast, type DataColumn,
+  useToast, type DataColumn,
 } from '@shared/ui';
-import { ORG_MANAGE } from '../api/organisation';
+import { useCan } from '../access/can';
 import {
   WEEKDAYS, WEEKDAY_NAMES, calendarsApi, dayFigures, hhmm, hoursText, shiftsApi,
   type HolidayCalendar, type Shift, type ShiftInput, type Weekday,
@@ -108,8 +108,9 @@ const shrink = { inputLabel: { shrink: true } };
 
 export default function Shifts() {
   const { company = '' } = useParams<{ company: string }>();
-  const can = useIsPermitted();
-  const canManage = can(ORG_MANAGE);
+  const can = useCan();
+  const canManage = can.time.edit;
+  const canRemove = can.time.remove;
   const toast = useToast();
 
   const [rows, setRows] = useState<Shift[] | null>(null);
@@ -258,7 +259,7 @@ export default function Shifts() {
           getRowId={(s) => s.id}
           onRowClick={(s) => setDraft(draftOf(s))}
           rowActions={
-            canManage
+            canRemove
               ? (s) => (
                   <Tooltip title="Delete this shift…">
                     <IconButton size="small" aria-label={`Delete ${s.name}`} onClick={() => setDoomed(s)}>
@@ -425,7 +426,7 @@ export default function Shifts() {
                 slotProps={{ select: { displayEmpty: true }, inputLabel: { shrink: true } }}
                 helperText={
                   <Box component={RouterLink} to={`/${company}/cf_hrms/holidays`} sx={{ color: 'var(--c-primary-700)' }}>
-                    Manage holiday calendars
+                    {canManage ? 'Manage holiday calendars' : 'See holiday calendars'}
                   </Box>
                 }
               >

@@ -6,10 +6,11 @@ import CloseRounded from '@mui/icons-material/CloseRounded';
 import EventAvailableRounded from '@mui/icons-material/EventAvailableRounded';
 import {
   Callout, EmptyState, ErrorNotice, FormDialog, ListSkeleton, PageHeader, SectionCard, ToneBadge,
-  errorMessage, useIsPermitted, useToast,
+  errorMessage, useToast,
 } from '@shared/ui';
+import { useCan } from '../access/can';
 import {
-  LEAVE_MANAGE, POLICY_STATUS_LABEL, POLICY_STATUS_TONE, leaveApi, usedByLine,
+  POLICY_STATUS_LABEL, POLICY_STATUS_TONE, leaveApi, usedByLine,
   type Assignments, type AssignmentScope, type PolicySummary, type PolicyTemplate,
 } from '../api/leave';
 import { listRoles, type Role } from '../api/roles';
@@ -47,7 +48,11 @@ export default function LeavePolicies() {
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const toast = useToast();
-  const canManage = useIsPermitted()(LEAVE_MANAGE);
+  const can = useCan();
+  const canManage = can.leave.edit;
+  const canRemove = can.leave.remove;
+  // The role list belongs to Roles: it is only asked for by someone who may see it.
+  const canPickRole = canManage && can.roles.view;
   const tab: TabKey = params.get('tab') === 'applies' ? 'applies' : 'policies';
 
   const [policies, setPolicies] = useState<PolicySummary[] | null>(null);
@@ -134,7 +139,8 @@ export default function LeavePolicies() {
       slotProps={{ select: { displayEmpty: true }, htmlInput: { 'aria-label': label } }}
       sx={{ minWidth: 220, flex: '0 1 280px' }}
     >
-      <MenuItem value="">{emptyLabel}</MenuItem>
+      {/* Going back to "follows the parent" removes an assignment, which is its own right. */}
+      {(value === '' || canRemove) && <MenuItem value="">{emptyLabel}</MenuItem>}
       {/* Only an active policy can be applied; a draft is listed so it is not a mystery where it went. */}
       {usable.map((p) => (
         <MenuItem key={p.id} value={p.id} disabled={p.status !== 'ACTIVE'}>
@@ -270,7 +276,7 @@ export default function LeavePolicies() {
               <SectionCard
                 title="Roles with their own policy"
                 subtitle="A role’s policy wins over its location’s — for every position of that role."
-                action={canManage && usable.length > 0 ? <Button size="small" startIcon={<AddRounded />} onClick={openRoleDraft}>Give a role its own policy</Button> : undefined}
+                action={canPickRole && usable.length > 0 ? <Button size="small" startIcon={<AddRounded />} onClick={openRoleDraft}>Give a role its own policy</Button> : undefined}
               >
                 {assignments.roles.length === 0 ? (
                   <Typography sx={{ fontSize: 13.5, color: 'var(--c-text-2)' }}>No role has its own policy. Every position follows its location or the company.</Typography>
@@ -283,7 +289,7 @@ export default function LeavePolicies() {
                           <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)' }}>{r.positionCount} position{r.positionCount === 1 ? '' : 's'}</Typography>
                         </Box>
                         {policySelect(r.policy?.id ?? '', (policyId) => void assign(`r${r.roleId}`, { scope: 'ROLE', roleId: r.roleId, policyId }), 'Follows the location', `r${r.roleId}`, `Leave policy for ${r.title}`)}
-                        {canManage && (
+                        {canRemove && (
                           <Tooltip title="Back to following the location">
                             <IconButton size="small" aria-label={`Remove the policy of ${r.title}`} disabled={busy === `r${r.roleId}`} onClick={() => void assign(`r${r.roleId}`, { scope: 'ROLE', roleId: r.roleId, policyId: null })}>
                               <CloseRounded fontSize="small" />

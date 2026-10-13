@@ -3,7 +3,7 @@
  * `JobContent` that the org chart panel and the Departments side sheet share.
  *
  * It asks `GET /roles/:id/job-content` or `GET /positions/:id/job-content`
- * (both `cf_hrms_org_view`), which read the one content resolver. The seat read
+ * (reads: the role's or position's area `view`; the caller decides whether to show the panel), which read the one content resolver. The seat read
  * is the role's content with that seat's own changes applied and marked.
  */
 import type { ReactNode } from 'react';

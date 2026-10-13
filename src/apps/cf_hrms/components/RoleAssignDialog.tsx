@@ -23,6 +23,7 @@ import {
   Autocomplete, Box, Checkbox, FormControlLabel, MenuItem, Stack, TextField, Typography,
 } from '@mui/material';
 import { FormDialog, Mono, useCompanySlug } from '@shared/ui';
+import { useCan } from '../access/can';
 import {
   addContent, updateContent, listMaster, getMeta, pretty,
   type ContentKind, type ContentRow, type KraGroup, type MasterItem, type HrmsMeta, type MasterKind,
@@ -162,6 +163,7 @@ export function RoleAssignDialog({
   notice?: React.ReactNode;
 }) {
   const company = useCompanySlug();
+  const can = useCan();
   const masterKind = MASTER_FOR[kind];
   const [form, setForm] = useState<State>(EMPTY);
   const [master, setMaster] = useState<MasterItem[]>([]);
@@ -343,13 +345,15 @@ export function RoleAssignDialog({
               renderInput={(p) => <TextField {...p} label={pretty(titles.noun)} size="small" required />}
               fullWidth
             />
-            <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)', mt: -1 }}>
-              Not in the list?{' '}
-              <Box component={Link} to={`/${company}/cf_hrms/${masterKind}`} sx={{ color: 'var(--c-primary-700)' }}>
-                Add it to the {masterKind === 'kras' ? 'KRA' : titles.noun} master
-              </Box>{' '}
-              first — then it is available to every role.
-            </Typography>
+            {can.roles.edit && (
+              <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)', mt: -1 }}>
+                Not in the list?{' '}
+                <Box component={Link} to={`/${company}/cf_hrms/${masterKind}`} sx={{ color: 'var(--c-primary-700)' }}>
+                  Add it to the {masterKind === 'kras' ? 'KRA' : titles.noun} master
+                </Box>{' '}
+                first — then it is available to every role.
+              </Typography>
+            )}
           </>
         )}
 

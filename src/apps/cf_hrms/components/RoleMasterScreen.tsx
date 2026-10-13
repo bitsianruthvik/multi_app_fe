@@ -21,7 +21,7 @@ import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
 import GroupWorkRounded from '@mui/icons-material/GroupWorkRounded';
 import {
   FilterBar, FacetChip, DataTable, EmptyState, StatStrip, StatusBadge, ToneBadge, Mono,
-  FormDialog, ConfirmDialog, ErrorNotice, SideSheet, ListSkeleton, Callout, useToast, useIsPermitted,
+  FormDialog, ConfirmDialog, ErrorNotice, SideSheet, ListSkeleton, Callout, useToast,
   useCompanySlug, type DataColumn, type Stat,
 } from '@shared/ui';
 import {
@@ -30,6 +30,7 @@ import {
   type MasterKind, type MasterItem, type MasterUsage, type HrmsMeta,
 } from '../api/roles';
 import { ScreenHeader } from './TabbedScreen';
+import { useCan } from '../access/can';
 
 // ---------------------------------------------------------------------------
 // What makes each vocabulary itself
@@ -263,8 +264,10 @@ function toForm(def: MasterDef, item: MasterItem): Record<string, string> {
 
 export function RoleMasterScreen({ kind }: { kind: MasterKind }) {
   const def = MASTERS[kind];
-  const can = useIsPermitted();
-  const mayManage = can('cf_hrms_roles_manage');
+  const can = useCan();
+  // New / edit = roles.edit; delete = roles.remove.
+  const mayEdit = can.roles.edit;
+  const mayRemove = can.roles.remove;
   const toast = useToast();
   const company = useCompanySlug();
 
@@ -436,7 +439,7 @@ export function RoleMasterScreen({ kind }: { kind: MasterKind }) {
         title={def.title}
         subtitle={def.subtitle}
         actions={
-          mayManage ? (
+          mayEdit ? (
             <Button variant="contained" startIcon={<AddRounded />} onClick={openCreate}>
               {def.newLabel}
             </Button>
@@ -487,27 +490,31 @@ export function RoleMasterScreen({ kind }: { kind: MasterKind }) {
             storageKey={`cf_hrms:master:${kind}`}
             exportName={`cf_hrms-${kind}`}
             defaultSortKey="name"
-            onRowClick={mayManage ? openEdit : undefined}
+            onRowClick={mayEdit ? openEdit : undefined}
             rowActions={
-              mayManage
+              mayEdit || mayRemove
                 ? (r) => (
                     <Stack direction="row" spacing={0.5}>
-                      <Tooltip title="Edit">
-                        <IconButton size="small" aria-label={`Edit ${r.name}`} onClick={(e) => { e.stopPropagation(); openEdit(r); }}>
-                          <EditRounded fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
-                      <Tooltip title={r.usageCount ? 'In use — unassign it first' : 'Delete'}>
-                        <span>
-                          <IconButton
-                            size="small"
-                            aria-label={`Delete ${r.name}`}
-                            onClick={(e) => { e.stopPropagation(); setRemoving(r); }}
-                          >
-                            <DeleteOutlineRounded fontSize="small" />
+                      {mayEdit && (
+                        <Tooltip title="Edit">
+                          <IconButton size="small" aria-label={`Edit ${r.name}`} onClick={(e) => { e.stopPropagation(); openEdit(r); }}>
+                            <EditRounded fontSize="small" />
                           </IconButton>
-                        </span>
-                      </Tooltip>
+                        </Tooltip>
+                      )}
+                      {mayRemove && (
+                        <Tooltip title={r.usageCount ? 'In use — unassign it first' : 'Delete'}>
+                          <span>
+                            <IconButton
+                              size="small"
+                              aria-label={`Delete ${r.name}`}
+                              onClick={(e) => { e.stopPropagation(); setRemoving(r); }}
+                            >
+                              <DeleteOutlineRounded fontSize="small" />
+                            </IconButton>
+                          </span>
+                        </Tooltip>
+                      )}
                     </Stack>
                   )
                 : undefined
@@ -518,7 +525,7 @@ export function RoleMasterScreen({ kind }: { kind: MasterKind }) {
                 title={rows.length ? 'Nothing matches those filters' : `No ${def.title.toLowerCase()} yet`}
                 hint={rows.length ? 'Clear the search or the facet to see everything.' : def.emptyHint}
                 action={
-                  mayManage && !rows.length ? (
+                  mayEdit && !rows.length ? (
                     <Button variant="contained" startIcon={<AddRounded />} onClick={openCreate}>
                       {def.newLabel}
                     </Button>
