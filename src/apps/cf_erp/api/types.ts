@@ -520,6 +520,8 @@ export interface LineStructure extends Explosion {
     locked?: boolean; released?: boolean;
     /** How each row is made still changes: open, or locked but not released (2026-09-30). */
     flowsEditable?: boolean;
+    /** Locked (design frozen), not released: only a row with NO flow may still be given one (2026-10-12). */
+    flowsFillOnly?: boolean;
   };
 }
 

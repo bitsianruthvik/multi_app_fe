@@ -274,9 +274,13 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
   /**
    * A LOCKED line, not yet released: only how each of the order's own rows is
    * made (its flow) may change (user, 2026-09-30). Edit mode opens for that
-   * alone — every other cell, copy, move and removal stays read-only.
+   * alone — every other cell, copy, move and removal stays read-only. Since
+   * 2026-10-12 only a row with NO flow may be given one (flowFrozen below).
    */
   const flowsOnly = !!state?.flowsOnly;
+  /** On a frozen line a row that HAS a flow keeps it — the backend refuses a change (FLOW_FROZEN). */
+  const flowFrozen = (row: BomRow) => !!state?.flowsFillOnly && !!row.node.flow;
+  const FLOW_FROZEN_WHY = 'The design is frozen, so this flow no longer changes. Make a new revision of the order to change it.';
   const canChangeFlowsHere = flowsOnly && isPermitted(bomPermission(true)) && flat.some(({ node }) => node.kind === 'temporary');
   const canSheetEdit = !!state && !frozen && (source.kind === 'record'
     ? ownsBom && isPermitted(bomPermission(state.bomType === 'custom'))
@@ -423,7 +427,7 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
     : state.order && LOCKED_ORDER.includes(state.order.status)
       ? `Order ${state.order.code} is ${ORDER_STATUS_LABEL[state.order.status].toLowerCase()}, so everything made for it is frozen.`
       : state.flowsOnly
-        ? `${state.line ? `Line ${state.line.lineNo}` : 'Its line'} is frozen, so its structure, quantities and values no longer change.${canChangeFlowsHere ? ' How each row is made can still change until the line is released: click the flow under a row’s name, then Save.' : ''}`
+        ? `${state.line ? `Line ${state.line.lineNo}` : 'Its line'} is frozen, so its structure, quantities, values and flows no longer change.${canChangeFlowsHere ? ' A row that has no flow yet can still be given one until the line is released: click “no flow” under its name, then Save.' : ''}`
       : state.released
         ? `Released to production${state.order ? ` on order ${state.order.code}` : ''}${state.line ? `, line ${state.line.lineNo}` : ''}, so its structure is frozen. Take the release back — while nothing has started — to change it.`
         : !isPermitted(bomPermission(custom))
@@ -452,8 +456,8 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
   const ownFlowEditable = (row: BomRow) => !row.paste && row.parent == null && hasOwnFlow(row.node)
     && isPermitted(bomPermission(true)) && (mine(row.node) || canChangeFlowsHere);
   /** A row whose flow may change: any line this screen may change, on a frozen line an order row's line, and the top row. */
-  const flowEditable = (row: BomRow) => lineEditable(row) || ownFlowEditable(row)
-    || (canChangeFlowsHere && !row.paste && row.node.lineId != null && row.parent?.kind === 'temporary' && !goneKeys.has(row.node.key));
+  const flowEditable = (row: BomRow) => !flowFrozen(row) && (lineEditable(row) || ownFlowEditable(row)
+    || (canChangeFlowsHere && !row.paste && row.node.lineId != null && row.parent?.kind === 'temporary' && !goneKeys.has(row.node.key)));
   /** "Take the definition's flow again" writes the row's OWN flow: an order's own row, with the order grant. */
   const mayTakeAgain = (row: BomRow) => hasOwnFlow(row.node) && isPermitted(bomPermission(true));
   /** A flow is how a thing is made in its parent; a selection takes its chosen item's (EditLineDialog's rule). */
@@ -464,7 +468,7 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
     const pl = p ? codeOrName(p) : '';
     if (!p) return '';
     if (goneKeys.has(row.node.key)) return 'It goes with the line above it that is being removed.';
-    if (flowsOnly && p.kind === 'temporary') return 'The design is frozen. Only how it is made can change, until the line is released.';
+    if (flowsOnly && p.kind === 'temporary') return 'The design is frozen. Only a row with no flow can still be given one, until the line is released.';
     if (p.kind === 'catalog') return `${pl}’s Standard BOM is shared by everything that uses it — change it on ${pl} itself.`;
     if (p.kind === 'template') return `${pl}’s Template BOM is changed on the template itself.`;
     return `${pl} is not this screen’s to change.`;
@@ -766,7 +770,7 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
   const flowCell = (row: BomRow) => {
     const n = row.node;
     if (row.paste || !flowEditable(row) || removedKeys.has(n.key) || !canHaveFlow(n)) {
-      const why = !row.paste && !removedKeys.has(n.key) && canHaveFlow(n) && n.flow && row.parent ? flowReadOnlyWhy(row) : undefined;
+      const why = !row.paste && !removedKeys.has(n.key) && canHaveFlow(n) && n.flow && (row.parent || flowFrozen(row)) ? flowReadOnlyWhy(row) : undefined;
       return <FlowTag flow={n.flow} note={why} />;
     }
     const shown = flowShown(n, pending.flow, flowLookup, pending.ownFlow);
@@ -781,6 +785,7 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
   const flowReadOnlyWhy = (row: BomRow): string => {
     if (state?.released) return 'The line is released, so how it is made no longer changes.';
     if (state?.frozen && !flowsOnly) return 'This order is closed, so how it is made no longer changes.';
+    if (flowFrozen(row)) return FLOW_FROZEN_WHY;
     return whyNotLine(row);
   };
 
@@ -1013,7 +1018,7 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
         {orderGrid && (
           <Box component="h2" sx={{ m: 0, fontSize: 14, fontWeight: 600, color: 'var(--c-text)', display: 'flex', alignItems: 'center', gap: 0.5, whiteSpace: 'nowrap' }}>
             {type.title}
-            <Tooltip title={`${type.body} Each row shows its own values beside it; amber cells are required and still empty. ${flowsOnly ? 'Only flows can change · changes wait for Save' : 'Type in a cell · an arrow, Enter or Tab keeps it · copy adds a row below at once · drag to rearrange · changes wait for Save'}`}><InfoOutlined aria-label="About this grid" sx={{ fontSize: 16, color: 'var(--c-text-3)' }} /></Tooltip>
+            <Tooltip title={`${type.body} Each row shows its own values beside it; amber cells are required and still empty. ${flowsOnly ? 'Only a missing flow can be filled in · changes wait for Save' : 'Type in a cell · an arrow, Enter or Tab keeps it · copy adds a row below at once · drag to rearrange · changes wait for Save'}`}><InfoOutlined aria-label="About this grid" sx={{ fontSize: 16, color: 'var(--c-text-3)' }} /></Tooltip>
           </Box>
         )}
         {gapsOn && gridValues.data && (
@@ -1080,7 +1085,7 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
           {orderGrid
             ? null
             : <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>
-              {flowsOnly ? 'Only flows can change · changes wait for Save' : 'Type in a cell · an arrow, Enter or Tab keeps it · copy adds a row below at once · drag to rearrange · changes wait for Save'}
+              {flowsOnly ? 'Only a missing flow can be filled in · changes wait for Save' : 'Type in a cell · an arrow, Enter or Tab keeps it · copy adds a row below at once · drag to rearrange · changes wait for Save'}
             </Typography>}
         </Box>
         {orderGrid && (

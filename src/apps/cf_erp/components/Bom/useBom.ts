@@ -37,6 +37,11 @@ export interface BomState {
    * until the line is released (user, 2026-09-30) — and nothing else does.
    */
   flowsOnly: boolean;
+  /**
+   * …and since 2026-10-12 ("once the order passes through freeze design nothing should change") only
+   * to FILL IN a missing one: a row that has a flow keeps it, a row with none may still be given one.
+   */
+  flowsFillOnly: boolean;
 }
 
 /**
@@ -125,6 +130,8 @@ export function useBom(source: BomSource, { whereUsed = false, onChanged }: { wh
       ...common,
       frozen: closed || common.locked,
       flowsOnly: !closed && common.locked,
+      // The server says so on the order's structure; a record's own BOM read has no such flag, and there locked means the same.
+      flowsFillOnly: !closed && (s?.order.flowsFillOnly ?? common.locked),
     };
   }, [v, s, tree.data]);
 
