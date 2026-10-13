@@ -61,6 +61,7 @@ function normalise(out: Partial<NestSheetResult> | null | undefined): NestSheetR
 }
 
 /**
+ * (The Excel sheet UPLOAD was retired from the Nesting screen on 2026-10-13; this helper and saveNestingSheet are unused and can be put back.)
  * Read the sheet without writing anything. `file` is the contract's name; the
  * backend deployed before it reads `fileBase64`, so both are sent.
  */
@@ -140,7 +141,7 @@ export interface PieceExtras {
   placedBy?: 'customer' | 'ours';
   area?: number;
   rings?: PieceRings;
-  /** 'nesting file': a part with no drawing keeps the customer's outline. */
+  /** Where its shape comes from: 'drawing' | 'nesting file' | 'dimensions'. Sent on every piece since 2026-10-13. */
   shapeFrom?: string | null;
   /** The file puts it across the plate's edge (preview only): drawn in the error colour. */
   outside?: boolean;
@@ -148,8 +149,14 @@ export interface PieceExtras {
 
 /** What a plate gained in v2 (§7). */
 export interface NestExtras {
-  sourceKind?: 'dxf' | 'sheet' | 'shape' | null;
+  sourceKind?: 'dxf' | 'pronest' | 'sheet' | 'shape' | null;
+  /** The file as uploaded. For a ProNest plate: the job's .nif, shared by every plate of the job. */
   sourceFile?: string | null;
+  /** A drawing changed after the plate was saved (GET …/nesting only), with the reason as a sentence. */
+  stale?: boolean;
+  staleReason?: string | null;
+  /** Today's shapes no longer fit the saved layout: the reason ends "Nest the line again." */
+  staleInvalid?: boolean;
   layoutOrigin?: 'customer' | 'ours' | null;
   layout?: 'free' | null;
   /** Closed areas between common-cut parts that are no part (preview only). */
@@ -181,11 +188,13 @@ export interface NestFilesInfo {
   line: NestLineState;
   canUpload: boolean;
   readOnlyReason: string | null;
-  limits: { maxFiles: number; maxFileBytes: number; kinds: string[] };
+  /** `kinds` are the file kinds the upload reads ('dxf', 'nif'); `maxPlates` is the most one upload may make. */
+  limits: { maxFiles: number; maxFileBytes: number; kinds: string[]; maxPlates?: number };
   plates: {
     lotId: number; lotNo: string | null; origin: 'imported' | 'auto'; sourceKind: string | null; layoutOrigin: string | null;
     plateCode: string | null; length: number; width: number; pieces: number; customerPieces: number; ourPieces: number;
-    file: { id: number; filename: string; nestNo: string | null } | null;
+    /** For a ProNest plate `nestNo` is the JOB's name and `id` is shared by the job's plates. */
+    file: { id: number; filename: string; nestNo: string | null; kind?: 'dxf' | 'pronest' } | null;
     parts: { cutPlateId: number; cutPlateCode: string; qty: number }[];
   }[];
   coverage: NestFileCoverage[];
@@ -196,6 +205,8 @@ export interface NestFilesInfo {
 export interface NestProblem {
   code: string; message: string; partId?: string; otherPartId?: string; cutPlateId?: number; cutPlateCode?: string; needsForce?: boolean;
   pairs?: { a: string; b: string; distance: number; text: string }[]; parts?: string[]; surplus?: number;
+  /** A ProNest part problem is said once per part and nest: the shop's name of the part, every piece it stands for, how many. */
+  partName?: string; partIds?: string[]; count?: number;
   /** PART_AMBIGUOUS: objects. PLATE_AMBIGUOUS: plate codes. */
   choices?: (string | { key: string; cutPlateId: number; code: string; thickness?: number | null; grade?: string | null })[];
 }
@@ -204,7 +215,13 @@ export interface NestFilePlacement {
   partId?: string; cutPlateId: number; cutPlateCode: string;
   x: number; y: number; length: number; width: number;
   rotationDeg?: number; mirrored?: boolean; placedBy?: 'customer' | 'ours'; area?: number; rings?: PieceRings;
+  /** label | shape | size | name size | steel | quantity | choice */
   by?: string; confidence?: number; shapeFrom?: string | null;
+  /** ProNest: the shop's own name of the part. */
+  partName?: string;
+  /** Matched through the size in its name: what the nest draws and what the cut piece is (longer side first). */
+  outlineDiffers?: { drawn: [number, number]; cutPiece: [number, number] };
+  alternatives?: { key: string; cutPlateId: number; code: string }[];
 }
 
 export interface NestFileMetrics {
@@ -213,8 +230,24 @@ export interface NestFileMetrics {
   offcuts?: number; offcutKg?: number;
 }
 
+/** One plate of a ProNest nest that is cut on several identical plates. */
+export interface NestFileCopy {
+  copy: number; lotNo: string; action: 'add' | 'replace' | 'unchanged' | null; status?: string;
+  counts?: { cutPlateId: number; cutPlateCode: string; qty: number }[]; lotId?: number;
+}
+
+/**
+ * One layout of the answer: a DXF file, or ONE NEST of a ProNest job (then
+ * `filename` is "<file> nest <n>" and `sourceFile` is the .nif). A job that
+ * could not be read is one entry with no `jobNestNo`.
+ */
 export interface NestFileRead {
   filename: string; bytes?: number; nestNo?: string | null; lotNo?: string | null;
+  sourceKind?: 'dxf' | 'pronest'; sourceFile?: string;
+  jobName?: string | null; program?: string | null; version?: string | null;
+  jobNestNo?: number; jobNests?: number;
+  /** On how many identical plates the nest is cut, with every plate's lot number. */
+  nestQuantity?: number; lotNos?: string[]; copies?: NestFileCopy[];
   status: 'ok' | 'warning' | 'error';
   action: 'add' | 'replace' | 'unchanged' | null;
   plate: {
@@ -232,6 +265,24 @@ export interface NestFileRead {
   lotId?: number;
 }
 
+/** One ProNest job file (.nif) of the answer: every nest of one plate thickness. */
+export interface NestJob {
+  filename: string; sourceKind?: 'pronest'; bytes?: number;
+  program?: string | null; version?: string | null; jobName?: string | null; lotPrefix?: string | null;
+  /** The worst of its entries. */
+  status: 'ok' | 'warning' | 'error';
+  nests: number; plates: number; parts: number;
+  /** Pieces the job nests over all its plates, and how many of them are cut pieces of this line. */
+  placed: number; matched: number;
+  /** How the pieces were recognised: label | shape | size | name size | steel | quantity | choice → count. */
+  matchedBy: Record<string, number>;
+  /** The job's own left-over, in the shop's part names. */
+  notNested: { name: string; required: number; nested: number; notNested: number }[];
+  notes: string[];
+  /** Why the whole job could not be read. */
+  error?: { code: string; message: string } | null;
+}
+
 export interface NestDiffParts { cutPlateCode: string; qty?: number; was?: number; now?: number; change?: number }
 
 export interface NestDiff {
@@ -243,7 +294,7 @@ export interface NestDiff {
     droppedOurs?: { cutPlateCode: string; qty: number }[];
   }[];
   unchanged: { lotId: number; lotNo: string; filename: string; plateCode: string; pieces: number }[];
-  removed: { lotId: number; lotNo: string; origin: string; filename: string | null; plateCode: string; pieces: number; parts: NestDiffParts[] }[];
+  removed: { lotId: number; lotNo: string; origin: string; filename: string | null; plateCode: string; pieces: number; parts: NestDiffParts[]; because?: string }[];
   droppedAuto: { lotId: number; lotNo: string; pieces: number; because: string[] }[];
   droppedOurs: { lotId: number; lotNo: string; parts: NestDiffParts[]; because: string }[];
   renumbered: { lotId: number; from: string; to: string }[];
@@ -254,6 +305,8 @@ export interface NestFilesResult {
   dryRun: boolean; applied: boolean; mode: 'merge' | 'replace';
   canSave: boolean; needsForce: boolean;
   files: NestFileRead[];
+  /** One per ProNest job file; empty without a .nif. */
+  jobs: NestJob[];
   problems: string[]; problemList: NestProblem[];
   warnings: string[]; warningList: NestProblem[];
   diff: NestDiff;
@@ -291,6 +344,7 @@ function normaliseFiles(out: Partial<NestFilesResult> | null | undefined): NestF
       ...f, placements: arr(f.placements), counts: arr(f.counts), errors: arr(f.errors), warnings: arr(f.warnings), notes: arr(f.notes),
       metrics: f.metrics ?? null, plate: f.plate ?? null,
     })),
+    jobs: arr<NestJob>(o.jobs).map((j) => ({ ...j, matchedBy: j.matchedBy ?? {}, notNested: arr(j.notNested), notes: arr(j.notes) })),
     problems: arr<string>(o.problems), problemList: arr<NestProblem>(o.problemList),
     warnings: arr<string>(o.warnings), warningList: arr<NestProblem>(o.warningList),
     diff: {
@@ -309,7 +363,8 @@ export function getNestFiles(orderId: number, lineId: number): Promise<NestFiles
     line: o.line as NestLineState,
     canUpload: o.canUpload !== false,
     readOnlyReason: o.readOnlyReason ?? null,
-    limits: o.limits ?? { maxFiles: 200, maxFileBytes: 4194304, kinds: ['dxf'] },
+    // An API that does not say which kinds it reads is taken to read both.
+    limits: { maxFiles: 200, maxFileBytes: 4194304, ...(o.limits ?? {}), kinds: o.limits?.kinds?.length ? o.limits.kinds : ['dxf', 'nif'] },
     plates: arr(o.plates), coverage: arr(o.coverage), leftOver: arr(o.leftOver), totals: o.totals ?? null,
   }));
 }
@@ -336,7 +391,7 @@ export function removeNestLot(orderId: number, lineId: number, lotId: number): P
   return cfApi.del<NestLotRemoved>(`${base(orderId, lineId)}/lots/${lotId}`, { timeoutMs: LONG_WRITE_MS });
 }
 
-/** The customer's file of one plate, as a download. */
+/** The customer's file of one plate, as a download. For a ProNest plate that is the whole job file (.nif). */
 export async function downloadCustomerFile(orderId: number, lineId: number, lotId: number, filename: string | null): Promise<void> {
   const blob = await cfApi.getBlob(`${base(orderId, lineId)}/files/${lotId}`, { timeoutMs: LONG_WRITE_MS });
   save(blob, safe(filename || `plate_${lotId}.dxf`));
@@ -366,17 +421,18 @@ export function stopNestRun(orderId: number, lineId: number): Promise<RunV2> {
   return cfApi.post<RunV2>(`${base(orderId, lineId)}/runs/current/stop`, {});
 }
 
-/** The same for a comparison run. */
+/** The same for a comparison run. (Compare: retired from the screen on 2026-10-13 (user: will be added back later).) */
 export function stopNestCompare(orderId: number, lineId: number): Promise<RunV2> {
   return cfApi.post<RunV2>(`${base(orderId, lineId)}/compare/stop`, {});
 }
 
-/** Cancel a comparison run: it is gone at once. */
+/** Cancel a comparison run: it is gone at once. (Compare: retired from the screen on 2026-10-13 (user: will be added back later).) */
 export function cancelNestCompare(orderId: number, lineId: number): Promise<{ ok: boolean; cancelled?: boolean; runId?: string }> {
   return cfApi.del(`${base(orderId, lineId)}/compare`);
 }
 
-/* ---- Compare (§6) ---------------------------------------------------------- */
+/* ---- Compare (§6) ----------------------------------------------------------
+ * Retired from the screen on 2026-10-13 (user: will be added back later). */
 
 export interface CompareCost { value: number | null; currency?: string; basis?: string; customerPlates?: number; reason: string | null }
 

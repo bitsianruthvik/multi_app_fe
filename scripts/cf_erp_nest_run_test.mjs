@@ -140,8 +140,8 @@ await check('opening the page mid-run shows the running card, its log, a progres
   const log = document.querySelector('[data-testid=nest-run-log]');
   assert.ok(log.textContent.includes('Grouping by steel: 2 groups'));
   assert.ok(text().includes('you can leave this page') && text().includes('of 5:00 used') && text().includes('Started by Asha'));
-  await waitFor(() => find('Nest everything'), 'the toolbar');
-  assert.equal(find('Nest everything').disabled, true);
+  assert.equal(document.querySelector('[data-testid=nest-doors]'), null, 'the two doors are away while a run is going');
+  assert.ok(document.querySelector('[data-testid=nest-waiting]'), 'the step says the layout is on its way');
 });
 
 await check('while it runs the page polls, and polling stops when the page is left', async () => {
@@ -174,12 +174,15 @@ await check('a run refused up front shows the service words and its problems', a
   server.current = { status: 'none' };
   server.start = snap('failed', { phase: 'failed', error: { code: 'NOT_FROZEN', message: 'Freeze the design first.', problems: ['Line 1 is not frozen'] } });
   await mount();
-  await waitFor(() => find('Nest everything'), 'the toolbar');
-  await click(find('Nest everything'), 'nest');
+  await waitFor(() => find('Nest it ourselves'), 'door 1');
+  await click(find('Nest it ourselves'), 'door 1');
+  await waitFor(() => find('Start nesting'), 'the start dialog');
+  await click(find('Start nesting'), 'Start');
   await waitFor(() => text().includes('Freeze the design first.'), 'the message');
   assert.ok(text().includes('Line 1 is not frozen'));
   assert.equal(document.querySelector('[data-testid=nest-run-card]'), null);
-  assert.equal(find('Nest everything').disabled, false, 'the run can be started again');
+  await waitFor(() => find('Nest it ourselves') && !find('Start nesting'), 'back at the two doors');
+  assert.equal(find('Nest it ourselves').disabled, false, 'the run can be started again');
   server.start = undefined;
   await unmount();
 });
@@ -272,16 +275,17 @@ const resumedRun = (extra = {}) => rich({
 await check('the effort picker reads 5 min / 10 min / 20 min / 1 hour, with the long-run line; 1 hour sends long', async () => {
   server.current = { status: 'none' };
   await mount();
-  await waitFor(() => document.querySelector('button[aria-label=Effort]'), 'the chip');
-  await click(document.querySelector('button[aria-label=Effort]'), 'chip');
-  await waitFor(() => document.querySelector('[data-testid=effort-long-line]'), 'menu');
-  const items = [...document.querySelectorAll('[role=menuitem]')].map((m) => m.textContent.trim().replace(/Up to.*/, ''));
-  assert.deepEqual(items, ['5 min', '10 min', '20 min', '1 hour']);
+  await waitFor(() => find('Nest it ourselves'), 'door 1');
+  await click(find('Nest it ourselves'), 'door 1');
+  await waitFor(() => document.querySelector('[data-testid=effort-long-line]'), 'the start dialog');
+  const items = [...document.querySelectorAll('[data-testid=effort-choice] button')].map((m) => m.textContent.trim());
+  assert.deepEqual(items, ['Quickup to 5 min', 'Standardup to 10 min', 'Deepup to 20 min', 'Longup to 1 hour']);
+  assert.equal(document.querySelector('[data-effort=standard]').getAttribute('aria-pressed'), 'true', 'Standard is the one picked to begin with');
   assert.equal(document.querySelector('[data-testid=effort-long-line]').textContent, 'A long run keeps going on the server if you close this page. Come back later for the result.');
-  await click([...document.querySelectorAll('[role=menuitem]')].find((m) => m.textContent.startsWith('1 hour')), '1 hour');
-  assert.ok(document.querySelector('button[aria-label=Effort]').textContent.includes('1 hour'));
+  await click(document.querySelector('[data-effort=long]'), '1 hour');
+  assert.equal(document.querySelector('[data-effort=long]').getAttribute('aria-pressed'), 'true');
   server.start = snap('running');
-  await click(find('Nest everything'), 'nest');
+  await click(find('Start nesting'), 'Start');
   await waitFor(() => server.lastBody, 'the start');
   assert.equal(server.lastBody.effort, 'long');
   server.start = undefined;
@@ -318,14 +322,14 @@ await check('a run never picked up shows no resumed line, no checkpoint line and
   await unmount();
 });
 
-await check('a failed run shows the backend reason and Start again starts a new run', async () => {
+await check('a failed run shows the backend reason and Try again starts a new run', async () => {
   server.current = snap('failed', { phase: 'failed', error: { code: 'DEMAND_CHANGED', message: 'The line changed while the run slept, so its checkpoint no longer fits. Start it again.', problems: null } });
   server.start = snap('running');
   server.lastBody = null;
   await mount();
   await waitFor(() => document.querySelector('[data-testid=nest-run-failed]'), 'the failed note');
   assert.ok(document.querySelector('[data-testid=nest-run-failed]').textContent.includes('The line changed while the run slept'));
-  await click(find('Start again'), 'Start again');
+  await click(find('Try again'), 'Try again');
   await waitFor(() => server.lastBody, 'a new run');
   server.start = undefined;
   await unmount();
@@ -337,7 +341,7 @@ await check('a finished run from the offline runner says where it was nested, an
   await waitFor(() => document.querySelector('[data-testid=nest-run-done]'), 'the done note');
   assert.match(document.querySelector('[data-testid=nest-run-offline]').textContent, /^Nested on a computer, 10 Oct 2026/);
   assert.ok(text().includes('Nothing here is written down yet'));
-  assert.ok(find('Accept this layout'));
+  assert.ok(find('Use this nesting') && find('Discard'), 'one primary and one way back');
   await unmount();
 });
 

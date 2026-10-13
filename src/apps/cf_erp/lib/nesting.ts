@@ -45,7 +45,7 @@ export function basisWord(plan: NestingPlan): { label: string; family: 'success'
     return {
       label: 'Proposal',
       family: 'info',
-      help: 'Nothing here is written down yet. Accept it to make it the plan the shop cuts to.',
+      help: 'Nothing here is written down yet. Use it to make it the plan the shop cuts to.',
     };
   }
   if (plan.saved) {
@@ -64,10 +64,10 @@ export function basisWord(plan: NestingPlan): { label: string; family: 'success'
 
 /** How hard the packer may look. The floor is deterministic, so more is never worse. */
 export const EFFORTS = [
-  { value: 'quick', label: '5 min', help: 'Up to 5 minutes.', bound: '5 minutes' },
-  { value: 'standard', label: '10 min', help: 'Up to 10 minutes.', bound: '10 minutes' },
-  { value: 'deep', label: '20 min', help: 'Up to 20 minutes.', bound: '20 minutes' },
-  { value: 'long', label: '1 hour', help: 'Up to 1 hour.', bound: '1 hour' },
+  { value: 'quick', name: 'Quick', label: '5 min', help: 'Up to 5 minutes.', bound: '5 minutes' },
+  { value: 'standard', name: 'Standard', label: '10 min', help: 'Up to 10 minutes.', bound: '10 minutes' },
+  { value: 'deep', name: 'Deep', label: '20 min', help: 'Up to 20 minutes.', bound: '20 minutes' },
+  { value: 'long', name: 'Long', label: '1 hour', help: 'Up to 1 hour.', bound: '1 hour' },
 ] as const;
 
 /** Said once under every time picker. */
@@ -118,6 +118,28 @@ export function progressLine(pieces: number | null, seconds: number, effort: Eff
   const e = EFFORTS.find((x) => x.value === effort) ?? EFFORTS[1];
   const what = pieces ? `Packing ${pieces.toLocaleString('en-US')} pieces…` : 'Packing…';
   return `${what} ${clock(seconds)} — up to ${e.bound}`;
+}
+
+// ── Starting a run ("Nest it ourselves") ─────────────────────────────────────
+
+/** The three runs one dialog starts: the whole line, what the customer's files left over, the whole line over again. */
+export type StartMode = 'all' | 'rest' | 'again';
+
+export const PLATES_NOT_CHOSEN = 'Choose which plates to use before nesting.';
+export const STEEL_BLOCKED = 'Nesting is blocked until each steel has a plate ticked.';
+
+export const START_HEAD: Record<StartMode, string> = { all: 'Nest it ourselves', rest: 'Nest the rest ourselves', again: 'Start again' };
+
+/** What the run will do, in the sentence the button's tooltip always carried. */
+export function startSentence(mode: StartMode, imported: boolean): string {
+  if (mode === 'again') {
+    return imported
+      ? 'Lays out the whole line again, automatically. Accepting it replaces the imported nests too.'
+      : 'Lays out the whole line again, automatically. Using the result replaces the plates saved now.';
+  }
+  return imported
+    ? 'Lays out what the imported nests do not cover. Imported plates stay. Nothing is written until you use the result.'
+    : 'Lays out every cut piece on the line. Nothing is written until you use the result.';
 }
 
 export const CAPPED_LINE = 'Stopped at the time limit — a longer run may find a little less waste.';
@@ -353,7 +375,7 @@ export const ACCEPT_AGAIN = 'Accepting again replaces the automatic plates — t
 /** Said in place of hiding the buttons, so a read-only role learns why it cannot act. */
 export const NO_MANAGE = 'You can see this layout, but your role cannot change the order. Ask an administrator for the sales-order permission.';
 
-export const MANUAL_HELP = 'Bring these in with the Excel sheet.';
+export const MANUAL_HELP = 'Automatic nesting leaves these alone. Bring them in with nesting files.';
 
 export const LOOK_IS_A_LOOK = 'Opening this reads the saved plan. It never re-packs, so what you see is what was agreed.';
 
@@ -516,18 +538,85 @@ export function runSummary(run: Pick<NestRunSnapshot, 'summary'>): string {
 
 type V2Nest = Nest & NestExtras;
 
-/** True for a plate that came from the customer's own DXF (the layout is theirs). */
+/** True for a plate whose layout is the customer's own: a DXF of theirs, or a nest of their ProNest job. */
 export const isCustomerPlate = (n: object): boolean => {
   const v = n as NestExtras;
-  return v.layoutOrigin === 'customer' || v.sourceKind === 'dxf';
+  return v.layoutOrigin === 'customer' || v.sourceKind === 'dxf' || v.sourceKind === 'pronest';
 };
+
+/** True for a plate saved from a ProNest job file (.nif). */
+export const isProNestPlate = (n: object): boolean => (n as NestExtras).sourceKind === 'pronest';
 
 /** Where a plate's layout came from, in the words the card shows. */
 export function originLine(n: Nest): string {
   const v = n as V2Nest;
+  if (isProNestPlate(v)) return `ProNest job${v.sourceFile ? ` · ${v.sourceFile}` : ''}`;
   if (isCustomerPlate(v)) return `Customer's layout${v.sourceFile ? ` · ${v.sourceFile}` : ''}`;
   if (v.sourceKind === 'sheet') return 'From the Excel sheet';
   return 'Nested here';
+}
+
+/**
+ * A ProNest plate's nest number, read off its lot number. The backend numbers
+ * a job's plates "<job>-N<nn>", and "-<k>" when the nest is cut on several
+ * plates (CF_ERP_NESTING_V2.md, "ProNest job files" §C). null when the lot
+ * number is not of that form — the badge then names the job only.
+ */
+export function proNestNumber(lotNo: string | null | undefined): { nest: number; plate: number | null } | null {
+  const m = /-N(\d+)(?:-(\d+))?$/.exec(lotNo ?? '');
+  return m ? { nest: Number(m[1]), plate: m[2] ? Number(m[2]) : null } : null;
+}
+
+/** THE BADGE THAT SAYS WHERE A PLATE CAME FROM: ProNest / DXF / Excel sheet / Ours. `jobName` is the files route's, when it is loaded. */
+export function plateSource(n: Nest, jobName?: string | null): { kind: 'pronest' | 'dxf' | 'sheet' | 'ours'; label: string; help: string } {
+  const v = n as V2Nest;
+  if (isProNestPlate(v)) {
+    const no = proNestNumber(n.lotNo);
+    const job = jobName || (v.sourceFile ?? '').replace(/\.nif$/i, '');
+    return {
+      kind: 'pronest', label: 'ProNest',
+      help: `Copied from a ProNest job${job ? `: ${job}` : ''}${no ? `, nest ${no.nest}${no.plate ? ` (plate ${no.plate} of that nest)` : ''}` : ''}.`,
+    };
+  }
+  if (isCustomerPlate(v)) return { kind: 'dxf', label: 'DXF', help: `Copied from a DXF nesting file${v.sourceFile ? `: ${v.sourceFile}` : ''}.` };
+  if (isImported(n)) return { kind: 'sheet', label: 'Excel sheet', help: 'Brought in from the Excel sheet.' };
+  return { kind: 'ours', label: 'Ours', help: 'Laid out by our packer.' };
+}
+
+/**
+ * WHERE A CUT PIECE'S SHAPE CAME FROM. The server says it (`shapeFrom`,
+ * 2026-10-13) on every cut plate and every piece: the part drawing's outline,
+ * the customer's own outline on that plate, or the rectangle LENGTH × WIDTH.
+ * Anything else — an older API, a value this screen does not know — is null,
+ * and the screen then says nothing rather than guess.
+ */
+export type ShapeSource = 'nesting file' | 'drawing' | 'dimensions';
+
+export const SHAPE_SOURCE_WORDS: Record<ShapeSource, string> = {
+  'nesting file': 'from nesting file', drawing: 'from drawing', dimensions: 'from dimensions',
+};
+
+/** The field's value when it is one of the three; null otherwise. Test for the VALUE: the field is on everything now. */
+export const shapeSourceOf = (value: unknown): ShapeSource | null =>
+  (value === 'nesting file' || value === 'drawing' || value === 'dimensions' ? value : null);
+
+export const shapeSourceOfPiece = (piece: object): ShapeSource | null => shapeSourceOf((piece as PieceExtras).shapeFrom);
+
+/** Per cut piece of the plan, from its cut-plate entry: the source, and the note when it is its rectangle although a drawing exists. */
+export function shapeSources(plan: Pick<NestingPlan, 'groups'>): Map<number, { from: ShapeSource; note: string | null }> {
+  const out = new Map<number, { from: ShapeSource; note: string | null }>();
+  for (const g of plan.groups) for (const cp of g.cutPlates) {
+    const src = shapeSourceOf(cp.shapeFrom);
+    if (src && !out.has(cp.id)) out.set(cp.id, { from: src, note: cp.shapeNote ?? null });
+  }
+  return out;
+}
+
+/** The pieces of one cut plate on one plate: the source they agree on, else null. */
+export function shapeSourceOnPlate(pieces: { cutPlateId: number }[], cutPlateId: number): ShapeSource | null {
+  const seen = new Set(pieces.filter((p) => p.cutPlateId === cutPlateId).map(shapeSourceOfPiece));
+  const [only] = [...seen];
+  return seen.size === 1 ? only : null;
 }
 
 /** A plate drawn by true shape has no rows or sequences, so it is coloured by part. */
@@ -551,7 +640,7 @@ export function fileNest(f: NestFileRead): Nest {
     rotationDeg: p.rotationDeg, mirrored: p.mirrored, placedBy: p.placedBy ?? 'customer', area: p.area, rings: p.rings,
     shapeFrom: p.shapeFrom, outside: !!p.partId && outside.has(p.partId),
   }));
-  const v2: NestExtras = { layoutOrigin: 'customer', sourceKind: 'dxf', sourceFile: f.filename, layout: 'free', scrap: f.scrap };
+  const v2: NestExtras = { layoutOrigin: 'customer', sourceKind: f.sourceKind ?? 'dxf', sourceFile: f.sourceFile ?? f.filename, layout: 'free', scrap: f.scrap };
   return {
     lotNo: f.lotNo ?? f.nestNo ?? f.filename, plateItemId: f.plate?.itemId ?? null, plateCode: f.plate?.code ?? null, plateName: f.plate?.code ?? null,
     source: 'catalog', thickness: f.plate?.thickness ?? 0, grade: f.plate?.grade ?? null, material: null, density: null,
@@ -667,5 +756,36 @@ export function ranAgo(iso: string | null | undefined, now = Date.now()): string
   return `ran ${Math.round(s / 86400)} days ago`;
 }
 
-export const DROP_ONLY_DXF = 'Drop DXF files here. For an Excel sheet, use Upload Excel.';
+/** The file kinds the upload reads, as the files route names them ('dxf', 'nif'). An API that does not say reads both. */
+export const nestKinds = (kinds: string[] | null | undefined): string[] => {
+  const known = (kinds ?? []).map((k) => k.toLowerCase().replace(/^\./, '')).filter(Boolean);
+  return known.length ? known : ['dxf', 'nif'];
+};
+/** The picker's `accept`: ".nif,.dxf", ProNest first. */
+export const nestAccept = (kinds: string[]): string => [...kinds].sort((a, b) => Number(b === 'nif') - Number(a === 'nif')).map((k) => `.${k}`).join(',');
+export const isNestFile = (name: string, kinds: string[]): boolean => kinds.some((k) => name.toLowerCase().endsWith(`.${k}`));
+/** Said when what was dropped holds no file the upload reads. */
+export const dropOnly = (kinds: string[]): string => (kinds.includes('nif')
+  ? 'Drop ProNest job files (.nif) or DXF files here — one job file per thickness, or one DXF per plate.'
+  : 'Drop DXF files here — one DXF per plate.');
+
+/** How a ProNest part was recognised as a cut piece of the line, in plain words (`jobs[].matchedBy`). */
+const MATCHED_BY_WORDS: Record<string, string> = {
+  label: 'by mark', shape: 'by shape', size: 'by size', 'name size': 'by the size in its name',
+  steel: 'by its steel', quantity: 'shared out by quantity', choice: 'by your choice',
+};
+const MATCHED_BY_ORDER = ['label', 'shape', 'size', 'name size', 'steel', 'quantity', 'choice'];
+
+/** "by mark 109 · by shape 14 · …" — a way this screen does not know is still said, by its own name. */
+export function matchedByLine(by: Record<string, number> | null | undefined): string {
+  const keys = Object.keys(by ?? {}).filter((k) => (by?.[k] ?? 0) > 0);
+  keys.sort((a, b) => (MATCHED_BY_ORDER.indexOf(a) + 1 || 99) - (MATCHED_BY_ORDER.indexOf(b) + 1 || 99));
+  return keys.map((k) => `${MATCHED_BY_WORDS[k] ?? `by ${k}`} ${by?.[k]}`).join(' · ');
+}
+
+/** "ProNest LT 16.2" from the job's program and its full version. */
+export function programWord(program: string | null | undefined, version: string | null | undefined): string {
+  const short = (version ?? '').split('.').slice(0, 2).join('.');
+  return [program || 'ProNest', short].filter(Boolean).join(' ');
+}
 export const REPLACE_WARNING = 'Plates you uploaded before that are not in these files will be removed. Their pieces go back to left over.';

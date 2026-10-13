@@ -1,3 +1,4 @@
+// Retired from the screen on 2026-10-13 (user: will be added back later). Nothing mounts this dialog now.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert, Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, ToggleButton, ToggleButtonGroup, Tooltip, Typography,

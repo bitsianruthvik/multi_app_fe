@@ -519,12 +519,18 @@ await check('the compare picker has 1 hour and the long-run line; a run made off
   await unmount();
 });
 
-await check('the panel offers Compare when uploaded plates exist, and opens the dialog', async () => {
+// Compare was retired from the SCREEN on 2026-10-13 (user: will be added back later). The dialog itself is kept and
+// every check above still drives it directly; this one used to open it through the panel and now proves it cannot be.
+await check('the panel no longer offers Compare, and never asks the comparison route (retired 2026-10-13)', async () => {
   reset();
   await mountEl(React.createElement(MemoryRouter, null, React.createElement(NestingPanel, { orderId: 1, lineId: 1, canManage: true })));
-  await waitFor(() => find('Compare with auto nesting'), 'the button');
-  await click(find('Compare with auto nesting'), 'Compare');
-  await waitFor(() => document.querySelector('[data-testid=compare-table]'), 'the dialog');
+  await waitFor(() => document.querySelector('[data-testid=nest-more]'), 'More');
+  await click(document.querySelector('[data-testid=nest-more]'), 'More');
+  await waitFor(() => document.querySelector('[data-testid=more-again]'), 'the menu');
+  assert.equal(document.querySelector('[data-testid=more-compare]'), null);
+  assert.ok(!/compare/i.test(document.body.textContent), 'no word of it on the screen');
+  assert.equal(document.querySelector('[data-testid=compare-table]'), null);
+  assert.ok(!calls.some((c) => c.includes('/nesting/compare')), 'and the screen does not read the comparison');
   await unmount();
 });
 

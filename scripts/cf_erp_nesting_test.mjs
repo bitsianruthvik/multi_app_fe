@@ -151,7 +151,52 @@ const click = async (el, what) => { assert.ok(el, `no ${what}`); await React.act
 
 const root = createRoot(document.getElementById('app'));
 await React.act(async () => { root.render(inRouter(React.createElement(NestingPanel, { orderId: 1, lineId: 1, canManage: true }))); await sleep(0); });
-await waitFor(() => find('Nest everything'), 'the panel');
+await waitFor(() => find('Nest it ourselves'), 'the panel');
+const q = (sel) => document.querySelector(sel);
+const esc = async () => { await click(document.querySelector('#nest-more-menu .MuiBackdrop-root'), 'the menu backdrop'); await settle(60); };
+
+await check('nothing nested: the step is two doors, each with one sentence and one button, and nothing else to choose', async () => {
+  const doors = q('[data-testid=nest-doors]');
+  assert.ok(doors, 'the doors');
+  assert.equal(doors.querySelectorAll('button').length, 2, 'one button per door');
+  const ours = q('[data-testid=door-ours]').textContent;
+  const up = q('[data-testid=door-upload]').textContent;
+  // UPLOAD IS THE MAIN DOOR (2026-10-13): it comes first and its button is the filled one; ours is the fallback.
+  assert.deepEqual([...doors.children].map((d) => d.getAttribute('data-testid')), ['door-upload', 'door-ours'], 'upload first');
+  assert.deepEqual([...doors.querySelectorAll('button')].map((b) => b.textContent), ['Upload nesting files', 'Nest it ourselves']);
+  assert.equal(q('[data-testid=door-upload]').getAttribute('data-primary'), 'true');
+  assert.equal(q('[data-testid=door-ours]').getAttribute('data-primary'), 'false');
+  assert.ok(find('Upload nesting files').className.includes('MuiButton-contained'), 'the upload button is the primary one');
+  assert.ok(find('Nest it ourselves').className.includes('MuiButton-outlined'), 'ours is outlined');
+  assert.ok(ours.includes('Nest it ourselves') && ours.includes('No nesting of your own? We lay the cut pieces out on plates from your catalog.'));
+  assert.ok(up.includes('Upload your nesting') && up.includes("Drop the ProNest job files (.nif, one per thickness) or one DXF per plate. We match the parts to this order line's cut pieces."));
+  // The picker takes both kinds together (this API does not say which it reads: both).
+  assert.equal(q('[data-testid=nest-files-input]').getAttribute('accept'), '.nif,.dxf');
+  assert.equal(find('Nest it ourselves').disabled, false);
+  assert.equal(find('Upload nesting files').disabled, false);
+  // What used to sit above and around them is behind door 1 or in More.
+  assert.ok(!q('[data-testid=plates-to-use]') && !q('[data-testid=choices-summary]') && !q('[data-testid=nest-summary]'));
+  assert.ok(!text().includes('Nothing is laid out yet') && !/rectangle/i.test(text()));
+});
+
+await check('More holds CNC, the Excel sheet download and Start again; compare and the Excel upload are gone', async () => {
+  assert.ok(!find('Upload Excel') && !find('Download Excel') && !q('input[accept=".xlsx"]'), 'no Excel buttons on the screen');
+  await click(q('[data-testid=nest-more]'), 'More');
+  await waitFor(() => q('[data-testid=more-again]'), 'the menu');
+  const items = [...document.querySelectorAll('#nest-more-menu [role=menuitem]')];
+  assert.deepEqual(items.map((m) => m.getAttribute('data-testid')), ['more-cnc', 'more-sheet', 'more-again']);
+  assert.ok(!q('[data-testid=more-compare]') && !/compare/i.test(text()), 'the comparison is off the screen (2026-10-13)');
+  assert.ok(q('[data-testid=more-cnc]').textContent.includes('Download CNC files (zip)'));
+  assert.ok(q('[data-testid=more-sheet]').textContent.includes('Download nesting sheet') && q('[data-testid=more-sheet]').textContent.includes('For reference only.'));
+  assert.ok(q('[data-testid=more-again]').textContent.includes('Start again'));
+  // Nothing is nested, so two of them cannot be used — and each says why.
+  assert.equal(q('[data-testid=more-cnc-why]').textContent, 'Nothing is nested yet.');
+  assert.equal(q('[data-testid=more-again-why]').textContent, 'Nothing is nested yet.');
+  assert.notEqual(q('[data-testid=more-sheet]').getAttribute('aria-disabled'), 'true', 'the sheet can always be downloaded');
+  assert.ok(!text().includes('Upload Excel') && !text().includes('Upload sheet'), 'no upload of any sheet in the menu');
+  await esc();
+  await waitFor(() => !q('[data-testid=more-again]'), 'the menu shut');
+});
 
 await check('the toolbar has a "Cut pieces (N)" button (the cut pieces are not a stage any more)', async () => {
   const b = find('Cut pieces (');
@@ -159,24 +204,26 @@ await check('the toolbar has a "Cut pieces (N)" button (the cut pieces are not a
   assert.match(b.textContent.trim(), /^Cut pieces \(\d+\)$/);
 });
 
-await check('the effort chip shows 10 min and opens three time choices with one plain line', async () => {
-  const chip = find('Effort');
-  assert.ok(chip.textContent.includes('10 min'));
-  assert.ok(!find('More'), 'the ... menu is gone');
-  await click(chip, 'chip');
-  await waitFor(() => document.querySelector('[data-testid=effort-line]'), 'menu');
-  assert.ok(text().includes('Up to 5 minutes') && text().includes('Up to 10 minutes') && text().includes('Up to 20 minutes'));
-  assert.equal(document.querySelector('[data-testid=effort-line]').textContent, 'These are ceilings. A small line finishes early.');
-  await click(find('20 min'), '20 min');
-  assert.ok(find('Effort').textContent.includes('20 min'));
+await check('door 1 asks how hard to try (Standard picked), with the plain line, and says what the run will do', async () => {
+  await click(find('Nest it ourselves'), 'door 1');
+  await waitFor(() => q('[data-testid=effort-line]'), 'the start dialog');
+  const choice = q('[data-testid=effort-choice]');
+  assert.deepEqual([...choice.querySelectorAll('button')].map((b) => b.textContent), ['Quickup to 5 min', 'Standardup to 10 min', 'Deepup to 20 min', 'Longup to 1 hour']);
+  assert.equal(q('[data-effort=standard]').getAttribute('aria-pressed'), 'true');
+  assert.equal(q('[data-testid=effort-line]').textContent, 'These are ceilings. A small line finishes early.');
+  assert.equal(q('[data-testid=nest-start-sentence]').textContent, 'Lays out every cut piece on the line. Nothing is written until you use the result.');
+  assert.ok(q('[data-testid=choices-summary]'), 'the pieces and plates to nest are reachable from here');
+  await click(q('[data-effort=deep]'), '20 min');
+  assert.equal(q('[data-effort=deep]').getAttribute('aria-pressed'), 'true');
 });
 
 await check('a run shows the running card, sends the effort, and locks the run buttons', async () => {
-  await click(find('Nest everything'), 'nest');
+  await click(find('Start nesting'), 'Start');
   await waitFor(() => document.querySelector('[data-testid=nest-run-card]'), 'running card');
   assert.deepEqual(posts[0].effort, 'deep');
   assert.ok(text().includes('Packing plates (3/10 tries)') && text().includes('of 10:00 used'));
-  assert.equal(find('Nest everything').disabled, true);
+  await waitFor(() => !find('Start nesting'), 'the start dialog shut');
+  assert.ok(!q('[data-testid=nest-doors]'), 'no second run can be started while one is going');
   assert.ok(text().includes('you can leave this page'));
   await waitFor(() => text().includes('0:05'), 'the timer tick', 2500);
 });
@@ -186,6 +233,8 @@ await check('when the server finishes, the proposal appears once, with its cappe
   await waitFor(() => text().includes('Nothing here is written down yet'), 'proposal', 5000);
   assert.equal(text().split('Stopped at the time limit').length - 1, 1);
   assert.ok(find('Discard') && !find('Cancel'));
+  assert.ok(find('Use this nesting'), 'the one primary');
+  assert.ok(!q('[data-testid=nest-doors]'), 'the doors are away while a proposal waits');
 });
 
 const boxes = (sel) => [...document.querySelectorAll(sel)];
@@ -193,7 +242,9 @@ const tickOf = (row) => row.querySelector('input[type=checkbox]');
 const toggle = async (input, what) => { assert.ok(input, `no ${what}`); await React.act(async () => { input.click(); await sleep(0); }); await settle(40); };
 
 await check('Step A lists the pieces by steel, all ticked, NEST_MANUAL unticked and explained', async () => {
-  // A proposal is on screen from the tests above, so the steps are folded to one line.
+  // The pieces and plates live behind door 1; from a proposal that is "Nest again". They open folded to one line.
+  await click(find('Nest again'), 'Nest again');
+  await waitFor(() => q('[data-testid=choices-summary]'), 'the start dialog');
   assert.ok(text().includes('0 pieces left out · 0 plates excluded') && !text().includes('What to nest'));
   await click(find('Choose pieces and plates'), 'open the steps');
   await waitFor(() => boxes('[data-testid=choice-piece]').length === 3, 'piece rows');
@@ -231,7 +282,10 @@ await check('Step B lists the candidate plates with stock and prices; unticking 
   await toggle(tickOf(boxes('[data-testid=choice-plate]')[1]), 'PL-2000');
   await waitFor(() => document.querySelector('[data-testid=nest-blocked]'), 'the block');
   assert.ok(text().includes('every plate it could be cut from is unticked'));
-  assert.equal(find('Nest everything').disabled, true, 'Nest is disabled while blocked');
+  assert.equal(find('Start nesting').disabled, true, 'Start is disabled while blocked');
+  assert.equal(q('[data-testid=nest-start-why]').textContent, 'Nesting is blocked until each steel has a plate ticked.');
+  assert.ok(q('[data-testid=door-steel-blocked]'), 'and door 1 says so too, with the proposal gone');
+  assert.equal(find('Nest it ourselves').disabled, false, 'the door stays open: the plates are ticked behind it');
 });
 
 await check('Reset clears both lists and unblocks Nest', async () => {
@@ -239,8 +293,11 @@ await check('Reset clears both lists and unblocks Nest', async () => {
   await waitFor(() => puts.length === 4, 'the reset PUT');
   assert.deepEqual(puts.at(-1), { excludedCutPlateIds: [], excludedPlateIds: [] });
   await waitFor(() => text().includes('0 pieces left out · 0 plates excluded'), 'reset summary');
-  assert.equal(find('Nest everything').disabled, false);
-  assert.ok(!document.querySelector('[data-testid=nest-blocked]'));
+  assert.equal(find('Start nesting').disabled, false);
+  assert.ok(!document.querySelector('[data-testid=nest-blocked]') && !q('[data-testid=door-steel-blocked]'));
+  await click(find('Cancel'), 'Cancel');
+  await waitFor(() => !find('Start nesting'), 'the start dialog shut');
+  assert.ok(q('[data-testid=nest-doors]'), 'back at the two doors');
 });
 
 // ---- the plate diagram ----------------------------------------------------
@@ -251,9 +308,10 @@ const nestFx = {
   origin: 'auto', verdict: null, forced: false, reasons: [], hasLayout: true,
   sequences: [{ seqNo: 1, rows: 1, rowsAllowed: 3, pieces: 2, size: 'big' }, { seqNo: 2, rows: 1, rowsAllowed: 3, pieces: 1, size: 'big' }],
   pieces: [
-    { cutPlateId: 11, cutPlateCode: 'CP-A', seqNo: 1, rowNo: 1, posNo: 1, x: 700, y: 300, length: 500, width: 300, rotated: false },
-    { cutPlateId: 11, cutPlateCode: 'CP-A', seqNo: 1, rowNo: 1, posNo: 2, x: 1203, y: 300, length: 500, width: 300, rotated: false },
-    { cutPlateId: 12, cutPlateCode: 'CP-B', seqNo: 2, rowNo: 1, posNo: 1, x: 700, y: 606, length: 400, width: 200, rotated: false },
+    { cutPlateId: 11, cutPlateCode: 'CP-A', seqNo: 1, rowNo: 1, posNo: 1, x: 700, y: 300, length: 500, width: 300, rotated: false, shapeFrom: 'dimensions' },
+    { cutPlateId: 11, cutPlateCode: 'CP-A', seqNo: 1, rowNo: 1, posNo: 2, x: 1203, y: 300, length: 500, width: 300, rotated: false, shapeFrom: 'dimensions' },
+    // No rings on it and lying square: this morning's inference would have called it "from dimensions". The field says drawing.
+    { cutPlateId: 12, cutPlateCode: 'CP-B', seqNo: 2, rowNo: 1, posNo: 1, x: 700, y: 606, length: 400, width: 200, rotated: false, shapeFrom: 'drawing' },
   ],
   offcuts: [{ offcutNo: 'N-001-A', area: 500000, weightKg: 39, rect: { x: 3, y: 3, length: 600, width: 900 }, bbox: { x: 3, y: 3, length: 600, width: 900 }, outline: [[[3, 3], [603, 3], [603, 903], [3, 903]]] }],
   rules: {
@@ -266,9 +324,19 @@ const nestFx = {
 };
 const savedPlan = plan({
   saved: true, basis: 'saved plan',
-  groups: [{ key: 'g1', thickness: 10, grade: 'E250', material: 'MS', nests: [nestFx], unplaced: [], candidates: [], metrics: { ...metrics, lots: 1, plates: 1, pieces: 3 }, kerfMm: 3, seqGapMinMm: 5, seqGapMaxMm: 8, settingsBasis: '', cutPlates: [], orderMarginLengthMm: null, orderMarginWidthMm: null, guillotine: false, deterministic: null, elapsedMs: null }],
+  groups: [{ key: 'g1', thickness: 10, grade: 'E250', material: 'MS', nests: [nestFx], unplaced: [], candidates: [], metrics: { ...metrics, lots: 1, plates: 1, pieces: 3 }, kerfMm: 3, seqGapMinMm: 5, seqGapMaxMm: 8, settingsBasis: '', cutPlates: [
+      { id: 11, code: 'CP-A', name: 'A', pieces: 2, length: 500, width: 300, thickness: 10, grade: 'E250', material: 'MS', shapeFrom: 'dimensions', shapeNote: 'Its rows have 2 different drawings, so it is nested as its rectangle.' },
+      { id: 12, code: 'CP-B', name: 'B', pieces: 1, length: 400, width: 200, thickness: 10, grade: 'E250', material: 'MS', shapeFrom: 'drawing', shapeNote: null },
+    ], orderMarginLengthMm: null, orderMarginWidthMm: null, guillotine: false, deterministic: null, elapsedMs: null }],
   choices: { cutPlatesLeftOut: 1, piecesLeftOut: 2, kgLeftOut: 12.56, platesExcluded: 1, leftOut: [], excludedPlates: [] },
   drift: [],
+  totals: { ...metrics, plates: 1, pieces: 3, weightKg: 157, groups: 1, unplaced: 0 },
+  // What the line needs against what is on a plate: CP-B is one short, and CP-M (held back by hand) three.
+  coverage: [
+    { cutPlateId: 11, cutPlateCode: 'CP-A', needed: 2, nested: 2, diff: 0, manual: false, leftOut: false },
+    { cutPlateId: 12, cutPlateCode: 'CP-B', needed: 2, nested: 1, diff: -1, manual: false, leftOut: false },
+    { cutPlateId: 13, cutPlateCode: 'CP-M', needed: 3, nested: 0, diff: -3, manual: true, leftOut: false },
+  ],
 });
 
 await check('the diagram helpers find the shared cut and keep dimensions off below the zoom threshold', async () => {
@@ -299,8 +367,61 @@ await waitFor(() => find('Draw the 1 plate'), 'the saved plan');
 
 await check('a saved plan says what its choices left out, and folds the steps away', async () => {
   assert.ok(document.querySelector('[data-testid=plan-choices]')?.textContent.includes('2 pieces left out · 1 plate excluded'));
-  assert.ok(!text().includes('What to nest'), 'the steps are folded when a plan is saved');
-  assert.ok(find('Choose pieces and plates'), 'one click opens them');
+  assert.ok(!text().includes('What to nest'), 'the steps are not on the screen when a plan is saved');
+  assert.ok(!document.querySelector('[data-testid=nest-doors]'), 'nor are the two doors');
+  await click(document.querySelector('[data-testid=nest-more]'), 'More');
+  await waitFor(() => document.querySelector('[data-testid=more-again]'), 'the menu');
+  assert.ok(document.querySelector('[data-testid=more-again]').textContent.includes('Lays out the whole line again'));
+  await click(document.querySelector('[data-testid=more-again]'), 'Start again');
+  await waitFor(() => find('Choose pieces and plates'), 'the steps, behind Start again');
+  assert.equal(document.querySelector('#nest-start-title').textContent, 'Start again');
+  await click(find('Cancel'), 'Cancel');
+  await waitFor(() => !find('Start nesting'), 'the start dialog shut');
+});
+
+await check('after nesting: one summary strip, and a banner with two buttons for what is left over', async () => {
+  const strip = document.querySelector('[data-testid=nest-summary]');
+  assert.ok(strip, 'the strip');
+  assert.equal(document.querySelector('[data-testid=summary-plates]').textContent, 'Plates1');
+  assert.ok(document.querySelector('[data-testid=summary-steel]').textContent.endsWith(' t'));
+  assert.ok(document.querySelector('[data-testid=summary-waste]').textContent.includes('%'));
+  assert.equal(document.querySelector('[data-testid=summary-pieces]').textContent, 'Cut pieces nested3 of 7');
+  const banner = document.querySelector('[data-testid=nest-left-over]');
+  assert.ok(banner.textContent.includes('4 cut pieces are not nested yet'));
+  assert.ok(banner.textContent.includes('CP-B') && banner.textContent.includes('×1') && banner.textContent.includes('CP-M') && banner.textContent.includes('×3'));
+  assert.ok(document.querySelector('[data-testid=left-over-held]').textContent.startsWith('3 of them are held back from automatic nesting'));
+  // More files first and primary; ours second.
+  const [more, ours] = [...banner.querySelectorAll('button')];
+  assert.equal(banner.querySelectorAll('button').length, 2);
+  assert.ok(more.className.includes('MuiButton-contained') && ours.className.includes('MuiButton-outlined'));
+  // Nothing on this line was uploaded, so a run of ours lays the WHOLE line out again — and the button says that.
+  assert.equal(ours.textContent, 'Nest the line again ourselves');
+  assert.equal(more.textContent, 'Upload more files');
+  assert.equal(ours.disabled, false); assert.equal(more.disabled, false);
+  await click(ours, 'nest ourselves');
+  await waitFor(() => find('Start nesting'), 'the start dialog');
+  assert.equal(document.querySelector('#nest-start-title').textContent, 'Start again');
+  await click(find('Cancel'), 'Cancel');
+  await waitFor(() => !find('Start nesting'), 'the start dialog shut');
+});
+
+await check('a cut piece on a plate says where its shape came from, quietly', async () => {
+  await click(find('Draw the 1 plate'), 'open the group');
+  await waitFor(() => find('Details'), 'the plate card');
+  await click(find('Details'), 'Details');
+  await waitFor(() => document.querySelector('[data-testid=shape-from]'), 'the marker');
+  // Driven by the answer's `shapeFrom`, not by what the pieces look like.
+  const marks = [...document.querySelectorAll('[data-testid=shape-from]')];
+  assert.deepEqual(marks.map((e) => e.textContent), ['from dimensions', 'from drawing']);
+  assert.deepEqual(marks.map((e) => e.getAttribute('data-shape')), ['dimensions', 'drawing']);
+  // `shapeNote` is the marker's tooltip: only where the server sent one.
+  assert.equal(marks[0].getAttribute('title'), 'Its rows have 2 different drawings, so it is nested as its rectangle.');
+  assert.equal(marks[0].getAttribute('tabindex'), '0', 'the note can be reached by keyboard');
+  assert.equal(marks[1].getAttribute('title'), null);
+  // An automatic plate says so.
+  assert.equal(document.querySelector('[data-testid=plate-source]').textContent, 'Ours');
+  assert.equal(document.querySelector('[data-testid=plate-stale-chip]'), null, 'nothing is stale here');
+  await click(find('Hide the plates'), 'shut the group');
 });
 
 await check('the open plate shows thumbnails, the rule badge with reasons, and a legend', async () => {

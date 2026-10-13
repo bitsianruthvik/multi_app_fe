@@ -61,7 +61,10 @@ await check('setPlateKind PUTs /records/:id/values with PLATE_KIND', async () =>
   assert.deepEqual(c.body, { values: [{ specCode: 'PLATE_KIND', value: 'STANDARD' }] });
 });
 
-const panel = await readFile('src/apps/cf_erp/components/Nesting/NestingPanel.tsx', 'utf8');
+// The plate choice sits behind door 1 since 2026-10-13: the start dialog holds the control, the lib its words.
+const panel = (await readFile('src/apps/cf_erp/components/Nesting/NestingPanel.tsx', 'utf8'))
+  + (await readFile('src/apps/cf_erp/components/Nesting/NestStartDialog.tsx', 'utf8'))
+  + (await readFile('src/apps/cf_erp/lib/nesting.ts', 'utf8'));
 const choices = await readFile('src/apps/cf_erp/components/Nesting/NestChoices.tsx', 'utf8');
 
 await check('the Plates to use control has both options and saves through setNestPlates', () => {
@@ -74,7 +77,8 @@ await check('the Plates to use control has both options and saves through setNes
 await check('every run button waits for the choice, with an amber note', () => {
   assert.ok(panel.includes('Choose which plates to use before nesting.'));
   assert.ok(panel.includes('plateChoice === null'));
-  assert.equal((panel.match(/\|\| platesUnset/g) ?? []).length, 4, 'main, redo-all, short-pieces and start-again buttons');
+  assert.equal((panel.match(/\|\| platesUnset\}/g) ?? []).length, 2, 'the one Start button (every run starts there) and Try again');
+  assert.ok(panel.includes('door-plates-not-chosen'), 'and door 1 says it before it is opened');
 });
 
 await check('PLATES_NOT_CHOSEN shows the server message in place', () => {

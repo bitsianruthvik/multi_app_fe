@@ -5,6 +5,7 @@ import type { NestSheetResult } from '../../api/types';
 import { NO_LAYOUT, verdictOf } from '../../lib/nesting';
 import { Badge, CapsLabel, Mono } from '../ui';
 
+// Retired from the Nesting screen on 2026-10-13 (the Excel sheet upload); unused, and can be put back.
 /**
  * WHAT THE UPLOADED SHEET WOULD DO — read, never written, until Save.
  *

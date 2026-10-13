@@ -1630,6 +1630,10 @@ export interface NestCutPlate {
   material: string | null;
   /** Only on the `manual` list: why the packer left it alone. */
   reason?: string;
+  /** Where its shape comes from: 'drawing' | 'nesting file' | 'dimensions' (since 2026-10-13). */
+  shapeFrom?: string | null;
+  /** Said only when it is nested as its rectangle ALTHOUGH a drawing exists on its rows. */
+  shapeNote?: string | null;
 }
 
 /** One steel — thickness, grade and material together. Never thickness alone. */

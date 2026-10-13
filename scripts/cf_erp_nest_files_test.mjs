@@ -2,6 +2,9 @@
 // Nesting v2, the customer's files (CF_ERP_NESTING_V2.md): the upload preview dialog (diff, blockers, force,
 // ambiguous parts, plate picker, replace mode, left over), drop of many files, Remove plate, the plate card's
 // origin line, the true-shape diagram, Nest the rest (summary + additions sent back), permission and locked states.
+// Second pass, 2026-10-13: upload is the main door; ProNest job files (.nif) beside the DXFs — a header per job with its
+// nests, × N plates, how the pieces were matched, what the job leaves un-nested, one pick list per part NAME; Save counts
+// plates; the shape marker follows `shapeFrom`; a saved plate says ProNest / DXF / Ours; compare is off the screen.
 import assert from 'node:assert/strict';
 import { mkdir, writeFile, unlink } from 'node:fs/promises';
 import { resolve } from 'node:path';
@@ -128,7 +131,7 @@ const planWith = (nests, extra = {}) => ({
   totals: { ...metrics, plates: nests.length, pieces: 2, groups: 1, unplaced: 0 }, ...extra,
 });
 const info = (o = {}) => ({
-  line: { id: 1, lineNo: 1, orderId: 1, orderCode: 'SO-1' }, canUpload: true, readOnlyReason: null, limits: { maxFiles: 200, maxFileBytes: 4194304, kinds: ['dxf'] },
+  line: { id: 1, lineNo: 1, orderId: 1, orderCode: 'SO-1' }, canUpload: true, readOnlyReason: null, limits: { maxFiles: 200, maxFileBytes: 4194304, kinds: ['dxf', 'nif'], maxPlates: 600 },
   plates: [{ lotId: 5928, lotNo: 'N12', origin: 'imported', sourceKind: 'dxf', layoutOrigin: 'customer', plateCode: 'NVX-PS', length: 3000, width: 1500, pieces: 2, customerPieces: 2, ourPieces: 0, file: { id: 1, filename: 'N12.dxf', nestNo: 'N12' }, parts: [] }],
   coverage: [], leftOver, totals, ...o,
 });
@@ -159,7 +162,7 @@ const dialog = (over = {}) => React.createElement(NestFilesDialog, {
 });
 const mountPanel = async (props = {}) => mountEl(inRouter(React.createElement(NestingPanel, { orderId: 1, lineId: 1, canManage: true, ...props })));
 const reset = () => { posts.length = 0; calls.length = 0; next = () => answer(); infoNow = null; planNow = null; runNow = { status: 'none' }; delPayload = null; };
-const saveBtn = () => buttons().find((b) => ['Save', 'Save anyway'].includes(b.textContent.trim()));
+const saveBtn = () => document.querySelector('[data-testid=nest-files-save]');
 
 await check('the preview is a dry run, and shows the diff: added, replaced, unchanged, removed', async () => {
   reset();
@@ -178,8 +181,9 @@ await check('the preview is a dry run, and shows the diff: added, replaced, unch
   assert.ok(diff.includes('NVX-CR 5 → 3'), 'what changed on the replaced plate');
   assert.ok(diff.includes('Our additions on this plate are dropped: NVX-CA ×4'));
   assert.ok(document.querySelector('[data-testid=nest-files-status]').textContent.includes('5 files read; plates: 5 added, 2 removed.'));
-  assert.equal(saveBtn().textContent.trim(), 'Save');
+  assert.equal(saveBtn().textContent.trim(), 'Save 2 plates', 'the button says how many plates it writes (1 added + 1 replaced)');
   assert.equal(saveBtn().disabled, false);
+  assert.equal(document.querySelector('[data-testid=save-why]'), null);
   await unmount();
 });
 
@@ -190,6 +194,7 @@ await check('each file shows its plate, parts matched and notes; the layout open
   const row = document.querySelector('[data-testid=nest-file]').textContent;
   assert.ok(row.includes('NVX-PS') && row.includes('3,000 × 1,500') && row.includes('found by size'));
   assert.ok(row.includes('Parts matched 6 of 6') && row.includes('New plate'));
+  assert.ok(document.querySelector('[data-testid=nest-file] [data-testid=file-thumb] svg'), 'the plate picture is in the row without asking');
   assert.ok(row.includes('The file does not draw the plate'));
   await click(find('Show the layout'), 'layout toggle');
   assert.ok(document.querySelector('[data-testid=nest-file] svg[role=img] path[data-part=shape]'), 'the customer part is drawn by its true shape');
@@ -207,11 +212,13 @@ await check('a blocker disables Save and shows the backend sentence under its fi
   await waitFor(() => document.querySelector('[data-testid=nest-files-blocked]'), 'the blocked note');
   assert.ok(text().includes(sentence), 'the sentence as given');
   assert.equal(saveBtn().disabled, true, 'Save is disabled while blocked');
+  assert.equal(document.querySelector('[data-testid=save-why]').textContent, 'Nothing can be saved until the problems listed under each file are fixed.');
+  assert.ok(document.querySelector('[data-testid=nest-files-blocked]').textContent.includes('1 of 1 file needs attention.'));
   assert.ok(find('Close'));
   await unmount();
 });
 
-await check('a warning that needs force turns Save into Save anyway, and the save sends force', async () => {
+await check('a warning that needs force asks ONE Save anyway confirmation listing it, and the save sends force', async () => {
   reset();
   const w = 'NVX-X2.dxf, plate NVX-PS: NVX-CH at (1300, 100) and NVX-CH at (1601.5, 100) are 1.5 mm apart — closer than the 3 mm kerf we cut 14.137 mm plate with. The customer’s program may use another kerf — save anyway to keep the layout as drawn.';
   let saved = false;
@@ -221,18 +228,24 @@ await check('a warning that needs force turns Save into Save anyway, and the sav
   };
   const got = [];
   await mountEl(dialog({ uploads: uploads('NVX-X2.dxf'), onSaved: (r) => got.push(r) }));
-  await waitFor(() => saveBtn(), 'Save anyway');
-  assert.equal(saveBtn().textContent.trim(), 'Save anyway');
-  assert.equal(saveBtn().disabled, false);
+  await waitFor(() => saveBtn() && !saveBtn().disabled, 'Save');
+  assert.equal(saveBtn().textContent.trim(), 'Save 2 plates');
   assert.ok(text().includes(w), 'the warning sentence');
-  await click(saveBtn(), 'Save anyway');
+  assert.ok(!find('Save anyway'), 'no Save anyway before Save is pressed');
+  await click(saveBtn(), 'Save');
+  await waitFor(() => document.querySelector('[data-testid=save-anyway-list]'), 'the confirmation');
+  assert.equal(saved, false, 'nothing is written before the confirmation');
+  assert.ok(document.querySelector('[data-testid=save-anyway-list]').textContent.includes(w), 'the confirmation lists the warning in the backend words');
+  await click(find('Save anyway'), 'Save anyway');
   await waitFor(() => saved, 'the save');
   const last = posts[posts.length - 1];
   assert.equal(last.dryRun, false);
   assert.equal(last.force, true);
   await waitFor(() => document.querySelector('[data-testid=nest-files-saved]'), 'the saved note');
   assert.equal(got.length, 1);
-  assert.ok(find('Compare with auto nesting'), 'the comparison is offered right after the save');
+  // Compare is off the screen (2026-10-13): the saved view says what was saved and offers Done, nothing else.
+  assert.ok(!find('Compare with our nesting') && !/compare|would do better/i.test(text()), 'no comparison after the save');
+  assert.ok(find('Done'));
   await unmount();
 });
 
@@ -329,15 +342,15 @@ await check('the left-over list names the cut plate and quantity, and says Nest 
   await mountEl(dialog());
   await waitFor(() => document.querySelector('[data-testid=nest-leftover]'), 'left over');
   const t = document.querySelector('[data-testid=nest-leftover]').textContent;
-  assert.ok(t.includes('Left over (4)') && t.includes('NVX-CA') && t.includes('×4'));
-  assert.ok(t.includes('Nest the rest will place them (4 of them)'));
+  assert.ok(t.includes('Left over on this line (4)') && t.includes('NVX-CA') && t.includes('×4'));
+  assert.ok(t.includes('“Nest the rest ourselves” will place them (4 of them)'));
   await unmount();
 });
 
 await check('dropping 3 DXF files on the panel sends them in ONE request (a dry run first)', async () => {
   reset();
   await mountPanel();
-  await waitFor(() => document.querySelector('[data-testid=nest-drop-zone]') && find('Upload nesting files'), 'the panel');
+  await waitFor(() => document.querySelector('[data-testid=nest-drop-zone]') && find('Upload more files'), 'the panel');
   const zone = document.querySelector('[data-testid=nest-drop-zone]');
   const files = [1, 2, 3].map((i) => new dom.window.File([`0\nSECTION ${i}`], `N${i}.dxf`));
   const ev = new dom.window.Event('drop', { bubbles: true, cancelable: true });
@@ -350,15 +363,26 @@ await check('dropping 3 DXF files on the panel sends them in ONE request (a dry 
   await unmount();
 });
 
-await check('dropping something that is not a DXF says so and sends nothing', async () => {
+await check('dropping something that is not a nesting file says so and sends nothing', async () => {
   reset();
   await mountPanel();
-  await waitFor(() => find('Upload nesting files'), 'the panel');
+  await waitFor(() => find('Upload more files'), 'the panel');
   const zone = document.querySelector('[data-testid=nest-drop-zone]');
   const ev = new dom.window.Event('drop', { bubbles: true, cancelable: true });
   ev.dataTransfer = { types: ['Files'], files: [new dom.window.File(['x'], 'sheet.xlsx')] };
   await React.act(async () => { zone.dispatchEvent(ev); await sleep(0); });
-  await waitFor(() => text().includes('Drop DXF files here. For an Excel sheet, use Upload Excel.'), 'the hint');
+  await waitFor(() => text().includes('Drop ProNest job files (.nif) or DXF files here — one job file per thickness, or one DXF per plate.'), 'the hint');
+  assert.equal(posts.length, 0);
+  await unmount();
+  // An API that reads DXF only keeps the old words.
+  infoNow = info({ limits: { maxFiles: 200, maxFileBytes: 4194304, kinds: ['dxf'] } });
+  await mountPanel();
+  await waitFor(() => find('Upload more files'), 'the panel');
+  assert.equal(document.querySelector('[data-testid=nest-files-input]').getAttribute('accept'), '.dxf');
+  const ev2 = new dom.window.Event('drop', { bubbles: true, cancelable: true });
+  ev2.dataTransfer = { types: ['Files'], files: [new dom.window.File(['x'], 'job.nif')] };
+  await React.act(async () => { document.querySelector('[data-testid=nest-drop-zone]').dispatchEvent(ev2); await sleep(0); });
+  await waitFor(() => text().includes('Drop DXF files here — one DXF per plate.'), 'the DXF-only hint');
   assert.equal(posts.length, 0);
   await unmount();
 });
@@ -369,8 +393,46 @@ await check('the button takes many files at once', async () => {
   await waitFor(() => document.querySelector('[data-testid=nest-files-input]'), 'the input');
   const input = document.querySelector('[data-testid=nest-files-input]');
   assert.equal(input.multiple, true);
-  assert.equal(input.getAttribute('accept'), '.dxf');
-  assert.ok(find('Upload Excel'), 'Excel upload is kept');
+  assert.equal(input.getAttribute('accept'), '.nif,.dxf', 'ProNest job files and DXFs together, from limits.kinds');
+  assert.equal(input.getAttribute('aria-label'), 'Nesting files (ProNest job files or DXF)');
+  assert.ok(!find('Upload Excel') && !document.querySelector('input[accept=".xlsx"]'), 'the Excel sheet upload is retired from the screen');
+  await unmount();
+});
+
+await check('a line nested by upload with pieces left over says so, with Nest the rest ourselves and Upload more files', async () => {
+  reset();
+  await mountPanel();
+  await waitFor(() => document.querySelector('[data-testid=nest-left-over]'), 'the banner');
+  const banner = document.querySelector('[data-testid=nest-left-over]');
+  assert.ok(banner.textContent.includes('4 cut pieces are not nested yet') && banner.textContent.includes('NVX-CA') && banner.textContent.includes('×4'));
+  // More files first and primary (the team nests in its own program); ours second.
+  assert.deepEqual([...banner.querySelectorAll('button')].map((b) => b.textContent), ['Upload more files', 'Nest the rest ourselves']);
+  assert.ok(find('Upload more files').className.includes('MuiButton-contained') && find('Nest the rest ourselves').className.includes('MuiButton-outlined'));
+  assert.equal(document.querySelector('[data-testid=nest-doors]'), null, 'the doors are for a line with nothing nested');
+  assert.equal(document.querySelector('[data-testid=summary-pieces]').textContent, 'Cut pieces nested39 of 43');
+  await click(find('Nest the rest ourselves'), 'nest the rest');
+  await waitFor(() => find('Start nesting'), 'the start dialog');
+  assert.equal(document.querySelector('#nest-start-title').textContent, 'Nest the rest ourselves');
+  assert.equal(document.querySelector('[data-testid=nest-start-sentence]').textContent, 'Lays out what the imported nests do not cover. Imported plates stay. Nothing is written until you use the result.');
+  await click(find('Start nesting'), 'Start');
+  await waitFor(() => calls.some((c) => c.startsWith('POST') && c.endsWith('/nesting/runs')), 'the run');
+  const sent = calls.findIndex((c) => c.startsWith('POST') && c.endsWith('/nesting/runs'));
+  assert.ok(sent >= 0);
+  await unmount();
+});
+
+await check('the More menu of an uploaded line offers the upload again, the downloads and Start again with its warning — no comparison', async () => {
+  reset();
+  await mountPanel();
+  await waitFor(() => document.querySelector('[data-testid=nest-more]'), 'More');
+  await click(document.querySelector('[data-testid=nest-more]'), 'More');
+  await waitFor(() => document.querySelector('[data-testid=more-again]'), 'the menu');
+  const ids = [...document.querySelectorAll('#nest-more-menu [role=menuitem]')].map((m) => m.getAttribute('data-testid'));
+  assert.deepEqual(ids, ['more-upload', 'more-cnc', 'more-sheet', 'more-again']);
+  assert.ok(!/compare/i.test(text()), 'the comparison is off the screen');
+  const up = document.querySelector('[data-testid=more-upload]').textContent;
+  assert.ok(up.includes('ProNest job files (.nif) or one DXF per plate, up to 600 plates in one go.') && up.includes('A file uploaded again replaces its own plates.'));
+  assert.ok(document.querySelector('[data-testid=more-again]').textContent.includes('Lays out the whole line again, automatically. Accepting it replaces the imported nests too.'));
   await unmount();
 });
 
@@ -382,6 +444,7 @@ await check('a saved plate says where its layout came from, shows our additions 
   await click(find('Draw the 2 plates'), 'open group');
   await waitFor(() => document.querySelector('[data-testid=plate-origin]'), 'the origin line');
   assert.equal(document.querySelector('[data-testid=plate-origin]').textContent, "Customer's layout · N12.dxf");
+  assert.equal(document.querySelector('[data-testid=plate-source]').textContent, 'DXF', 'the badge says which kind of file it came from');
   assert.ok(text().includes('1 added by us'));
   assert.ok(document.querySelector('svg[role=img] [data-by=ours]'), 'our part is marked');
   assert.ok(document.querySelector('svg[role=img] [data-by=customer]'));
@@ -391,6 +454,7 @@ await check('a saved plate says where its layout came from, shows our additions 
   const thumbs = [...document.querySelectorAll('[data-testid=plate-thumbs] button')];
   await click(thumbs[1], 'the automatic plate');
   await waitFor(() => document.querySelector('[data-testid=plate-origin]').textContent === 'Nested here', 'Nested here');
+  assert.equal(document.querySelector('[data-testid=plate-source]').textContent, 'Ours');
   assert.ok(!find('Remove plate'), 'an automatic plate has no Remove');
   await unmount();
 });
@@ -465,7 +529,7 @@ await check('Nest the rest says where each piece went, marks the plates, and Acc
   await click(find('Where each piece goes'), 'details');
   assert.ok(text().includes("1 on the customer's N12") && text().includes('4 on the customer’s N13'.replace('’', "'")) && text().includes('1 on new plate N-001'));
   assert.ok(document.querySelector('[data-testid=nest-addition]').textContent.includes('Gets more pieces'));
-  await click(find('Accept this layout'), 'accept');
+  await click(find('Use this nesting'), 'use this nesting');
   await waitFor(() => posts.some((p) => p.accept), 'the accept');
   const body = posts.find((p) => p.accept).accept;
   assert.equal(body.additions.length, 1);
@@ -483,11 +547,15 @@ await check('helpers: acceptBody carries no additions when there are none; restL
 
 await check('without the sales-order grant the upload is disabled and says why', async () => {
   reset();
+  planNow = planWith([]);          // nothing nested: the two doors
+  infoNow = info({ plates: [], leftOver: [], totals: null });
   await mountPanel({ canManage: false });
-  await waitFor(() => find('Upload nesting files'), 'the button');
+  await waitFor(() => find('Upload nesting files'), 'door 2');
   const b = find('Upload nesting files');
   assert.equal(b.disabled, true);
   assert.ok(b.parentElement.getAttribute('aria-label').includes('your role cannot change the order'));
+  assert.ok(document.querySelector('[data-testid=door-upload-blocked]').textContent.includes('your role cannot change the order'), 'the blocked door says why, in words on the door');
+  assert.equal(find('Nest it ourselves').disabled, false, 'looking at a layout of ours is still allowed');
   await unmount();
 });
 
@@ -495,8 +563,21 @@ await check('a locked, released or unfrozen line uses the reason the backend giv
   reset();
   infoNow = info({ canUpload: false, readOnlyReason: 'This line is released. Nesting cannot change now.' });
   await mountPanel();
-  await waitFor(() => find('Upload nesting files') && find('Upload nesting files').disabled, 'a disabled button');
-  assert.equal(find('Upload nesting files').parentElement.getAttribute('aria-label'), 'This line is released. Nesting cannot change now.');
+  await waitFor(() => find('Upload more files') && find('Upload more files').disabled, 'a disabled button');
+  assert.equal(find('Upload more files').parentElement.getAttribute('aria-label'), 'This line is released. Nesting cannot change now.');
+  assert.equal(document.querySelector('[data-testid=left-over-upload-why]').textContent, 'This line is released. Nesting cannot change now.');
+  await unmount();
+  // The same on a line with nothing nested: the door is shut, and says so in the same words.
+  planNow = planWith([]);
+  infoNow = info({ canUpload: false, readOnlyReason: 'This line is released. Nesting cannot change now.', plates: [], leftOver: [], totals: null });
+  await mountPanel();
+  await waitFor(() => document.querySelector('[data-testid=door-upload-blocked]'), 'the shut door');
+  assert.equal(document.querySelector('[data-testid=door-upload-blocked]').textContent, 'This line is released. Nesting cannot change now.');
+  assert.equal(find('Upload nesting files').disabled, true);
+  await unmount();
+  planNow = null;
+  infoNow = info({ canUpload: false, readOnlyReason: 'This line is released. Nesting cannot change now.' });
+  await mountPanel();
   await waitFor(() => find('Draw the 1 plate'), 'the group');
   await click(find('Draw the 1 plate'), 'open group');
   assert.ok(!find('Remove plate'), 'no Remove on a locked line');
@@ -578,6 +659,8 @@ await check('scrap between parts is drawn and said; a shape taken from the nesti
   await waitFor(() => document.querySelector('[data-testid=file-scrap]'), 'the scrap line');
   assert.ok(document.querySelector('[data-testid=file-scrap]').textContent.includes('1 area between parts is scrap, not a part.'));
   assert.ok(document.querySelector('[data-testid=file-shape-kept]').textContent.includes('1 part keeps the shape taken from the nesting file.'));
+  // Two pieces of one cut piece disagree (one has no shapeFrom at all), so its chip says nothing rather than guess.
+  assert.equal(document.querySelector('[data-testid=nest-file] [data-testid=shape-from]'), null);
   await click(find('Show the layout'), 'layout');
   assert.equal(document.querySelectorAll('svg[role=img] rect[data-scrap]').length, 1);
   assert.ok(text().includes('Scrap between parts'));
@@ -659,6 +742,379 @@ await check('a 422 for the whole request (too many files) is shown in the dialog
   await waitFor(() => document.querySelector('[data-testid=nest-files-error]'), 'the error');
   assert.ok(text().includes('At most 200 files at a time.'));
   globalThis.fetch = orig;
+  await unmount();
+});
+
+/* ==== ProNest job files (.nif), second pass 2026-10-13 ============================================== */
+const J12 = '12MM-NECL-PATNA.nif';
+const fromFile = (o = {}) => ({ ...ringPlacement, shapeFrom: 'nesting file', ...o });
+const nestEntry = (file, n, of, o = {}) => fileRead(`${file} nest ${n}`, {
+  sourceKind: 'pronest', sourceFile: file, jobName: file.replace(/\.nif$/, ''), program: 'ProNest LT', version: '16.2.1.9298',
+  jobNestNo: n, jobNests: of, nestQuantity: 1, units: 'in', notes: [],
+  nestNo: `${file.replace(/\.nif$/, '')}-N0${n}`, lotNo: `${file.replace(/\.nif$/, '')}-N0${n}`, lotNos: [`${file.replace(/\.nif$/, '')}-N0${n}`],
+  copies: [{ copy: 1, lotNo: `${file.replace(/\.nif$/, '')}-N0${n}`, action: 'add', status: 'ok', counts: [] }],
+  placements: [fromFile({ partName: '12MM-GUSSET-300X300- 8' })], ...o,
+});
+const jobLine = (file, o = {}) => ({
+  filename: file, sourceKind: 'pronest', bytes: 1781211, program: 'ProNest LT', version: '16.2.1.9298', jobName: file.replace(/\.nif$/, ''), status: 'ok',
+  lotPrefix: file.replace(/\.nif$/, ''), nests: 4, plates: 7, parts: 16, placed: 257, matched: 255,
+  matchedBy: { label: 109, shape: 14, size: 25, 'name size': 8, quantity: 12 }, notNested: [], notes: [], ...o,
+});
+const added = (n) => Array.from({ length: n }, (_, i) => ({ lotNo: `L${i + 1}`, filename: 'x', plateCode: 'NVX-PS', pieces: 6, parts: [] }));
+const jobAnswer = (o = {}) => answer({
+  jobs: [jobLine(J12, {
+    notNested: [
+      { name: '12MM-ID PACK PL2-125X125- 144', required: 144, nested: 0, notNested: 144 },
+      { name: '12MM-STIFF-90X400- 12', required: 12, nested: 10, notNested: 2 },
+      { name: '12MM-END PL-200X600- 4', required: 4, nested: 3, notNested: 1 },
+    ],
+    notes: ['31 common-line-cut groups were opened into their pieces.'],
+  })],
+  files: [
+    nestEntry(J12, 1, 4, {
+      nestQuantity: 4, lotNo: '12MM-NECL-PATNA-N01-1', lotNos: [1, 2, 3, 4].map((k) => `12MM-NECL-PATNA-N01-${k}`),
+      copies: [1, 2, 3, 4].map((k) => ({ copy: k, lotNo: `12MM-NECL-PATNA-N01-${k}`, action: k === 4 ? 'unchanged' : 'add', status: 'ok', counts: [] })),
+    }),
+    nestEntry(J12, 2, 4, {
+      placements: [fromFile({ partId: 'P1', partName: '16MM-WEB PL1-2150X6130- 4', by: 'name size', outlineDiffers: { drawn: [6130, 2275.1], cutPiece: [6130, 2150] } }),
+        fromFile({ partId: 'P2', partName: '16MM-WEB PL1-2150X6130- 4', by: 'name size', outlineDiffers: { drawn: [6130, 2275.1], cutPiece: [6130, 2150] } })],
+    }),
+    nestEntry(J12, 3, 4), nestEntry(J12, 4, 4),
+  ],
+  diff: { added: added(7), replaced: [], unchanged: [], removed: [], droppedAuto: [], droppedOurs: [], renumbered: [] },
+  message: '1 file read (1 ProNest job: 4 nests, 7 plates); plates: 7 added.', ...o,
+});
+const jobOf = (file) => [...document.querySelectorAll('[data-testid=nest-job]')].find((j) => j.getAttribute('data-job') === file);
+const nif = (...names) => uploads(...names);
+
+await check('a ProNest job is ONE header with its nests under it; a nest cut on 4 plates says × 4 plates, lot numbers on demand', async () => {
+  reset();
+  next = () => jobAnswer();
+  await mountEl(dialog({ uploads: nif(J12) }));
+  await waitFor(() => document.querySelector('[data-testid=nest-job]'), 'the job');
+  assert.equal(document.querySelectorAll('[data-testid=nest-job]').length, 1);
+  const head = document.querySelector('[data-testid=job-header]');
+  assert.equal(head.tagName, 'BUTTON', 'the header is a button: keyboard reachable');
+  assert.equal(head.getAttribute('aria-expanded'), 'true', 'four nests: the job starts open');
+  assert.ok(head.textContent.includes('12MM-NECL-PATNA'));
+  assert.equal(document.querySelector('[data-testid=job-counts]').textContent, 'ProNest LT 16.2 · 4 nests · 7 plates · 257 pieces, 255 matched');
+  const rows = [...jobOf(J12).querySelectorAll('[data-testid=nest-file]')];
+  assert.deepEqual(rows.map((r) => r.querySelector('[data-testid=file-title]').textContent), ['Nest 1 of 4', 'Nest 2 of 4', 'Nest 3 of 4', 'Nest 4 of 4']);
+  assert.ok(rows.every((r) => r.getAttribute('data-kind') === 'pronest'));
+  assert.ok(rows[0].querySelector('[data-testid=file-thumb] svg'), 'each nest has its plate picture');
+  assert.ok(rows[0].textContent.includes('Parts matched 6 of 6') && rows[0].textContent.includes('NVX-PS'));
+  // × N plates, only on the nest that has N > 1; the lot numbers wait behind it.
+  const qty = rows[0].querySelector('[data-testid=nest-quantity]');
+  assert.equal(qty.textContent, '× 4 plates');
+  assert.equal(rows[1].querySelector('[data-testid=nest-quantity]'), null);
+  assert.ok(rows[1].textContent.includes('12MM-NECL-PATNA-N02'), 'a nest on one plate shows its lot number');
+  assert.ok(!text().includes('12MM-NECL-PATNA-N01-3'), 'not shown until asked');
+  assert.ok(rows[0].textContent.includes('3 new plates') && rows[0].textContent.includes('Unchanged'), 'one plate of the four may differ in what it does');
+  await click(qty, '× 4 plates');
+  await waitFor(() => document.querySelector('[data-testid=nest-lots]'), 'the lot numbers');
+  assert.ok(document.querySelector('[data-testid=nest-lots]').textContent.includes('12MM-NECL-PATNA-N01-1, 12MM-NECL-PATNA-N01-2, 12MM-NECL-PATNA-N01-3, 12MM-NECL-PATNA-N01-4'));
+  // No DXF group when there is no DXF, and the job's notes sit under its nests.
+  assert.equal(document.querySelector('[data-testid=nest-dxf-files]'), null);
+  assert.ok(document.querySelector('[data-testid=job-notes]').textContent.includes('31 common-line-cut groups'));
+  await unmount();
+});
+
+await check('Save counts PLATES (a ×4 nest is 4), not nests or files', async () => {
+  reset();
+  next = () => jobAnswer();
+  await mountEl(dialog({ uploads: nif(J12) }));
+  await waitFor(() => saveBtn() && !saveBtn().disabled, 'Save');
+  assert.equal(saveBtn().textContent.trim(), 'Save 7 plates', '4 nests, 1 file, 7 plates');
+  assert.ok(document.querySelector('[data-testid=nest-diff]').textContent.includes('Added 7'));
+  await unmount();
+});
+
+await check('how the pieces were matched is one quiet line per job, in plain words', async () => {
+  reset();
+  next = () => jobAnswer({ jobs: [jobLine(J12, { matchedBy: { quantity: 12, 'name size': 8, label: 109, shape: 14, size: 25, steel: 0, 'something new': 3 } })] });
+  await mountEl(dialog({ uploads: nif(J12) }));
+  await waitFor(() => document.querySelector('[data-testid=job-matched-by]'), 'the line');
+  assert.equal(document.querySelector('[data-testid=job-matched-by]').textContent,
+    'Pieces matched by mark 109 · by shape 14 · by size 25 · by the size in its name 8 · shared out by quantity 12 · by something new 3');
+  await unmount();
+});
+
+await check('a part matched by the size in its name is a NOTE with both sizes, said once per part — not an error', async () => {
+  reset();
+  next = () => jobAnswer();
+  await mountEl(dialog({ uploads: nif(J12) }));
+  await waitFor(() => document.querySelector('[data-testid=file-name-size]'), 'the note');
+  const notes = [...document.querySelectorAll('[data-testid=file-name-size] li')];
+  assert.equal(notes.length, 1, 'two pieces of one part: said once');
+  assert.ok(notes[0].textContent.includes('“16MM-WEB PL1-2150X6130- 4”'));
+  assert.ok(notes[0].textContent.includes('was matched by the size in its name: drawn 6,130 × 2,275.1, the cut piece is 6,130 × 2,150.'));
+  assert.equal(document.querySelector('[data-testid=file-errors]'), null);
+  assert.equal(document.querySelector('[data-testid=nest-files-blocked]'), null);
+  await unmount();
+});
+
+await check('what the JOB does not nest is its own collapsible list, apart from the line’s left over', async () => {
+  reset();
+  next = () => jobAnswer();
+  await mountEl(dialog({ uploads: nif(J12) }));
+  await waitFor(() => document.querySelector('[data-testid=job-not-nested]'), 'the list');
+  const box = document.querySelector('[data-testid=job-not-nested]');
+  const toggle = box.querySelector('button');
+  assert.equal(toggle.textContent, '3 parts of this job are not fully nested (147 pieces)');
+  assert.equal(toggle.getAttribute('aria-expanded'), 'false');
+  assert.ok(!text().includes('12MM-ID PACK PL2-125X125- 144'), 'shut until asked');
+  await click(toggle, 'the not-nested list');
+  await waitFor(() => box.textContent.includes('12MM-ID PACK PL2-125X125- 144'), 'the names');
+  assert.ok(box.textContent.includes('12MM-ID PACK PL2-125X125- 144 — needs 144, nested 0, 144 not nested'));
+  assert.ok(box.textContent.includes('12MM-STIFF-90X400- 12 — needs 12, nested 10, 2 not nested'));
+  // The line's own left over stays where it was, in the line's cut-piece codes.
+  const left = document.querySelector('[data-testid=nest-leftover]');
+  assert.ok(left.textContent.includes('Left over on this line (4)') && left.textContent.includes('NVX-CA'));
+  assert.ok(!left.textContent.includes('ID PACK') && !box.contains(left));
+  await unmount();
+});
+
+await check('six jobs, 34 nests: every job is one line, shut; a job with a problem opens by itself; a click opens another', async () => {
+  reset();
+  const names = ['8MM', '10MM', '12MM', '16MM', '20MM', '36MM'].map((t) => `${t}-NECL-PATNA.nif`);
+  const sizes = [6, 6, 6, 6, 5, 5];
+  const bad = 'NF-CTOP is 36 mm and the plate is 40 mm, so it cannot be cut from it. The same goes for 3 more pieces of this part on the nest.';
+  next = () => answer({
+    canSave: false, problems: [bad], problemList: [{ code: 'PART_WRONG_THICKNESS', message: bad }],
+    jobs: names.map((f, i) => jobLine(f, { nests: sizes[i], plates: sizes[i], status: i === 5 ? 'error' : 'ok' })),
+    files: names.flatMap((f, i) => Array.from({ length: sizes[i] }, (_, k) => nestEntry(f, k + 1, sizes[i],
+      i === 5 && k === 1 ? { status: 'error', errors: [{ code: 'PART_WRONG_THICKNESS', message: bad, partId: 'P1', partName: '36MM-TOP FL2-770X11950- 4', partIds: ['P1', 'P2', 'P3', 'P4'], count: 4 }] } : {}))),
+  });
+  await mountEl(dialog({ uploads: nif(...names) }));
+  await waitFor(() => document.querySelectorAll('[data-testid=nest-job]').length === 6, 'six jobs');
+  const heads = [...document.querySelectorAll('[data-testid=job-header]')];
+  assert.deepEqual(heads.map((h) => h.getAttribute('aria-expanded')), ['false', 'false', 'false', 'false', 'false', 'true'], 'only the job with a problem is open');
+  assert.equal(document.querySelectorAll('[data-testid=nest-file]').length, 5, 'only its nests are drawn');
+  assert.ok(heads[5].textContent.includes('1 problem') && heads[0].textContent.includes('Read'));
+  // A part problem comes once per part and nest, and is shown once.
+  assert.equal(document.querySelectorAll('[data-testid=file-errors] li').length, 1);
+  assert.equal(document.querySelector('[data-testid=file-errors] li').textContent, bad);
+  assert.ok(document.querySelector('[data-testid=nest-files-blocked]').textContent.includes('1 of 34 nests need attention.'));
+  assert.equal(saveBtn().disabled, true);
+  assert.equal(document.querySelector('[data-testid=save-why]').textContent, 'Nothing can be saved until the problems listed above are fixed.');
+  // Each shut job still says how it went, and can be opened.
+  assert.equal(document.querySelectorAll('[data-testid=job-matched-by]').length, 6);
+  await click(heads[0], 'the first job');
+  await waitFor(() => document.querySelectorAll('[data-testid=nest-file]').length === 11, 'its 6 nests');
+  assert.equal(heads[0].getAttribute('aria-expanded'), 'true');
+  await click(heads[0], 'the first job again');
+  await waitFor(() => document.querySelectorAll('[data-testid=nest-file]').length === 5, 'shut again');
+  await unmount();
+});
+
+await check('a job that cannot be read says the backend sentence in its header and has no nests (UNSUPPORTED_VERSION, NEST_CHECK_FAILED)', async () => {
+  reset();
+  const old = 'old.nif: it was written by ProNest LT 15.1 (15.1.0.0000) — this reads ProNest 2025 LT (16.2). Export the nests as DXF, or send us a sample job so it can be added.';
+  const broken = 'broken.nif: it does not agree with itself, so nothing of it is taken — nest 1, "36MM-TOP FL2-770X11950- 4" at (24.8, 5.2): its outline, put where the nest places it, is not the box the file stores for it (50.8 mm off) (check: placement box). Export the nests as DXF, or send us a sample job so it can be added.';
+  const dead = (file, code, message) => ({ filename: file, sourceKind: 'pronest', sourceFile: file, status: 'error', action: null, lotNo: null, plate: null, parts: 0, placed: 0, placements: [], counts: [], errors: [{ code, message }], warnings: [], notes: [], metrics: null });
+  const deadJob = (file, code, message, o = {}) => ({ filename: file, sourceKind: 'pronest', status: 'error', program: 'ProNest LT', version: '15.1.0.0000', jobName: null, lotPrefix: null, nests: 0, plates: 0, parts: 0, placed: 0, matched: 0, matchedBy: {}, notNested: [], notes: [], error: { code, message }, ...o });
+  next = () => jobAnswer({
+    canSave: false, problems: [old, broken], problemList: [{ code: 'UNSUPPORTED_VERSION', message: old }, { code: 'NEST_CHECK_FAILED', message: broken }],
+    jobs: [jobLine(J12), deadJob('old.nif', 'UNSUPPORTED_VERSION', old), deadJob('broken.nif', 'NEST_CHECK_FAILED', broken, { version: '16.2.1.9298' })],
+    files: [nestEntry(J12, 1, 1), dead('old.nif', 'UNSUPPORTED_VERSION', old), dead('broken.nif', 'NEST_CHECK_FAILED', broken)],
+  });
+  await mountEl(dialog({ uploads: nif(J12, 'old.nif', 'broken.nif') }));
+  await waitFor(() => document.querySelectorAll('[data-testid=nest-job]').length === 3, 'three jobs');
+  for (const [file, sentence] of [['old.nif', old], ['broken.nif', broken]]) {
+    const job = jobOf(file);
+    assert.equal(job.getAttribute('data-status'), 'error');
+    assert.ok(job.querySelector('[data-testid=job-header]').textContent.includes(file) && job.querySelector('[data-testid=job-header]').textContent.includes('Cannot be read'));
+    const alert = job.querySelector('[data-testid=job-error]');
+    assert.equal(alert.getAttribute('role'), 'alert', 'said as an alert, not a footnote');
+    assert.ok(alert.textContent.includes('Nothing of this job file is taken.') && alert.textContent.includes(sentence), 'the sentence as the backend wrote it');
+    assert.equal(alert.textContent.split(sentence).length, 2, 'once: the job line and its one entry say the same thing');
+    assert.equal(job.querySelectorAll('[data-testid=nest-file]').length, 0, 'no nests under it');
+    assert.equal(job.querySelector('[data-testid=job-header]').disabled, true, 'nothing to open');
+  }
+  // The good job is still shown, and the top of the dialog names the files that failed.
+  assert.equal(jobOf(J12).querySelectorAll('[data-testid=nest-file]').length, 1);
+  const top = document.querySelector('[data-testid=nest-files-blocked]').textContent;
+  assert.ok(top.includes('Nothing is saved. 2 job files cannot be read (old.nif, broken.nif).'), top);
+  assert.ok(!top.includes('need attention'), 'the one good nest needs none');
+  assert.equal(saveBtn().disabled, true);
+  await unmount();
+});
+
+await check('.nif and DXF together: jobs first, the DXFs in their own group; dropping both sends both in one request', async () => {
+  reset();
+  next = () => jobAnswer({ files: [nestEntry(J12, 1, 2), fileRead('NVX-B4.dxf', { sourceKind: 'dxf', sourceFile: 'NVX-B4.dxf' }), nestEntry(J12, 2, 2), fileRead('NVX-B5.dxf')], jobs: [jobLine(J12, { nests: 2, plates: 2 })] });
+  await mountPanel();
+  await waitFor(() => find('Upload more files'), 'the panel');
+  const ev = new dom.window.Event('drop', { bubbles: true, cancelable: true });
+  ev.dataTransfer = { types: ['Files'], files: [new dom.window.File(['\u0000NIF'], J12), new dom.window.File(['0\nSECTION'], 'NVX-B4.dxf'), new dom.window.File(['0\nSECTION'], 'NVX-B5.DXF'), new dom.window.File(['x'], 'notes.txt')] };
+  await React.act(async () => { document.querySelector('[data-testid=nest-drop-zone]').dispatchEvent(ev); await sleep(0); });
+  await waitFor(() => posts.length >= 1, 'the upload request', 5000);
+  assert.equal(posts.length, 1, 'one request');
+  assert.deepEqual(posts[0].files.map((f) => f.filename), [J12, 'NVX-B4.dxf', 'NVX-B5.DXF'], 'whatever kind is dropped is used; the rest is left out');
+  await waitFor(() => document.querySelector('[data-testid=nest-dxf-files]'), 'the review');
+  const jobs = document.querySelector('[data-testid=nest-jobs]');
+  const dxf = document.querySelector('[data-testid=nest-dxf-files]');
+  assert.ok(jobs.textContent.includes('ProNest jobs (1)') && dxf.textContent.includes('DXF files (2)'));
+  assert.ok(jobs.compareDocumentPosition(dxf) & dom.window.Node.DOCUMENT_POSITION_FOLLOWING, 'jobs first');
+  assert.equal(jobs.querySelectorAll('[data-testid=nest-file]').length, 2);
+  assert.deepEqual([...dxf.querySelectorAll('[data-testid=file-title]')].map((e) => e.textContent), ['NVX-B4.dxf', 'NVX-B5.dxf']);
+  assert.ok(dxf.textContent.includes('Nest NVX-B4'), 'a DXF row is as it was');
+  await unmount();
+});
+
+await check('an ambiguous part of a job is asked ONCE per part name, and the answer goes by file name and part name', async () => {
+  reset();
+  const part = '16MM-WEB PL2-2128X11944- 4';
+  const opts = [{ key: 'cp116552', cutPlateId: 116552, code: 'NF-CWEBA', thickness: 16, grade: 'E350' }, { key: 'cp116553', cutPlateId: 116553, code: 'NF-CWEBB', thickness: 16, grade: 'E350' }];
+  const msg = (n) => `${J12} nest ${n}, plate NVX-PS, part P1 ("${part}"): it could be NF-CWEBA and NF-CWEBB — they are the same shape. Say which (choices), or label the part in the file. The same goes for 3 more pieces of this part on the nest.`;
+  const amb = (n) => ({ status: 'error', errors: [{ code: 'PART_AMBIGUOUS', message: msg(n), partId: 'P1', partName: part, partIds: ['P1', 'P2', 'P3', 'P4'], count: 4, choices: n === 1 ? opts : opts.slice(0, 1) }] });
+  next = (body) => (body.choices?.[J12]?.[part]
+    ? jobAnswer()
+    : jobAnswer({ canSave: false, problems: [1, 2, 3].map(msg), jobs: [jobLine(J12, { status: 'error' })],
+      files: [nestEntry(J12, 1, 4, amb(1)), nestEntry(J12, 2, 4, amb(2)), nestEntry(J12, 3, 4, amb(3)), nestEntry(J12, 4, 4)] }));
+  await mountEl(dialog({ uploads: nif(J12) }));
+  await waitFor(() => document.querySelector('[data-testid=part-chooser] select'), 'the chooser');
+  const choosers = [...document.querySelectorAll('[data-testid=part-chooser]')];
+  assert.equal(choosers.length, 1, 'three nests, twelve pieces, ONE question');
+  assert.equal(choosers[0].getAttribute('data-part'), part);
+  assert.ok(choosers[0].textContent.includes(`Which cut piece is “${part}”?`));
+  assert.ok(choosers[0].textContent.includes('One answer settles every piece of this part, on every nest of the job.'));
+  assert.equal(document.querySelector('[data-testid=nest-file] [data-testid=part-chooser]'), null, 'asked on the job, not on a nest row');
+  const sel = choosers[0].querySelector('select');
+  assert.deepEqual([...sel.options].map((o) => o.value), ['', 'cp116552', 'cp116553'], 'every option any nest offered, each once');
+  const before = posts.length;
+  await setSelect(sel, 'cp116553');
+  await waitFor(() => posts.length > before, 'a second dry run');
+  assert.deepEqual(posts[posts.length - 1].choices, { [J12]: { [part]: 'cp116553' } });
+  await waitFor(() => saveBtn() && !saveBtn().disabled, 'Save enabled once settled');
+  assert.equal(document.querySelectorAll('[data-testid=part-chooser]').length, 1, 'the chooser stays, so the choice can be changed');
+  assert.equal(document.querySelector('[data-testid=job-header]').getAttribute('aria-expanded'), 'true', 'and the job does not shut under the hand');
+  await unmount();
+});
+
+await check('a plate choice on a job is asked once, says it applies to every nest, and goes on the .nif', async () => {
+  reset();
+  const msg = (n) => `${J12} nest ${n}: 2500 × 6300 is 2 catalog plates (PL-12-A, PL-12-B) — name the one you mean (plateCode).`;
+  const amb = (n) => ({ status: 'error', plate: null, placed: 0, placements: [], errors: [{ code: 'PLATE_AMBIGUOUS', message: msg(n), choices: ['PL-12-A', 'PL-12-B'] }] });
+  next = (body) => (body.files[0].plateCode ? jobAnswer() : jobAnswer({ canSave: false, problems: [msg(1), msg(2)], jobs: [jobLine(J12, { status: 'error' })], files: [nestEntry(J12, 1, 2, amb(1)), nestEntry(J12, 2, 2, amb(2))] }));
+  await mountEl(dialog({ uploads: nif(J12) }));
+  await waitFor(() => document.querySelector('[data-testid=plate-picker] select'), 'the picker');
+  assert.equal(document.querySelectorAll('[data-testid=plate-picker]').length, 1);
+  assert.ok(document.querySelector('[data-testid=plate-picker]').textContent.includes('The plate you name is used for every nest of this job.'));
+  assert.ok(text().includes(msg(1)) && text().includes(msg(2)), 'each nest still says its own sentence');
+  await setSelect(document.querySelector('[data-testid=plate-picker] select'), 'PL-12-B');
+  await waitFor(() => posts.some((p) => p.files[0].plateCode === 'PL-12-B'), 'the re-run');
+  assert.equal(posts[posts.length - 1].files[0].filename, J12);
+  await unmount();
+});
+
+await check('every warning and blocker is shown by its sentence — a code this screen never heard of too — and all are in the ONE Save anyway', async () => {
+  reset();
+  const thin = `${J12} nest 1, plate NVX-PS: NF-CCOV is 9 mm and is nested on 10 mm plate (24 pieces). A piece may be cut from the next plate up — it is then 10 mm thick, not 9 — so check that is meant, then save anyway.`;
+  const curve = 'NVX-B4.dxf, plate NVX-PS: 1 curve is a spline given only by control points — the outline is approximate. Export the nest with its curves as arcs or polylines, or save anyway.';
+  const unknown = 'NVX-B4.dxf, plate NVX-PS: something this screen has never heard of — save anyway.';
+  const warn = (code, message) => ({ code, needsForce: true, message });
+  let forced = null;
+  next = (body) => {
+    if (body.dryRun === false) { forced = body.force; return jobAnswer({ dryRun: false, applied: true, message: 'Saved.' }); }
+    return jobAnswer({
+      needsForce: true, warnings: [thin, curve, unknown, thin], warningList: [warn('PART_THINNER_THAN_PLATE', thin), warn('CURVE_APPROXIMATE', curve), warn('BRAND_NEW_CODE', unknown)],
+      jobs: [jobLine(J12, { status: 'warning', nests: 1, plates: 1 })],
+      files: [nestEntry(J12, 1, 1, { status: 'warning', warnings: [{ ...warn('PART_THINNER_THAN_PLATE', thin), cutPlateCode: 'NF-CCOV', cutPlateThickness: 9, plateThickness: 10 }] }),
+        fileRead('NVX-B4.dxf', { status: 'warning', warnings: [warn('CURVE_APPROXIMATE', curve), warn('BRAND_NEW_CODE', unknown)] })],
+    });
+  };
+  await mountEl(dialog({ uploads: nif(J12, 'NVX-B4.dxf') }));
+  await waitFor(() => saveBtn() && !saveBtn().disabled, 'Save');
+  const shown = [...document.querySelectorAll('[data-testid=file-warnings] li')].map((e) => e.textContent);
+  assert.deepEqual(shown, [thin, curve, unknown], 'each on its own row, in the backend words; the unknown one is not swallowed');
+  assert.ok(document.querySelector('[data-testid=job-header]').textContent.includes('1 warning'));
+  await click(saveBtn(), 'Save');
+  await waitFor(() => document.querySelector('[data-testid=save-anyway-list]'), 'the confirmation');
+  assert.equal(document.querySelector('#nest-files-confirm-title').textContent, 'Save with these 3 warnings?', 'counted once each');
+  assert.deepEqual([...document.querySelectorAll('[data-testid=save-anyway-list] li')].map((e) => e.textContent), [thin, curve, unknown]);
+  await click(find('Save anyway'), 'Save anyway');
+  await waitFor(() => forced != null, 'the save');
+  assert.equal(forced, true);
+  // A blocker of a code nobody listed here is shown the same way.
+  reset();
+  const open = 'NVX-B4.dxf: a shape about 1200 x 400 at (645, 20) is not a closed outline: its ends are 4.2 mm apart at (1245, 20). Close it in the nesting program and export again.';
+  const odd = 'NVX-B4.dxf: a brand new kind of problem.';
+  next = () => answer({ canSave: false, problems: [open, odd], files: [fileRead('NVX-B4.dxf', { status: 'error', action: null, errors: [{ code: 'OPEN_CONTOUR', message: open, at: [1245, 20], gapMm: 4.2 }, { code: 'NEVER_SEEN', message: odd }] })] });
+  await unmount();
+  await mountEl(dialog({ uploads: uploads('NVX-B4.dxf') }));
+  await waitFor(() => document.querySelector('[data-testid=file-errors]'), 'the errors');
+  assert.deepEqual([...document.querySelectorAll('[data-testid=file-errors] li')].map((e) => e.textContent), [open, odd]);
+  await unmount();
+});
+
+await check('the shape marker in the review follows shapeFrom, by its value', async () => {
+  reset();
+  const p = (id, code, shapeFrom) => ({ ...ringPlacement, partId: `P${id}`, cutPlateId: id, cutPlateCode: code, ...(shapeFrom === undefined ? {} : { shapeFrom }) });
+  next = () => answer({ files: [fileRead('NVX-M.dxf', {
+    placements: [p(1, 'CP-DRAWN', 'drawing'), p(2, 'CP-FILE', 'nesting file'), p(3, 'CP-RECT', 'dimensions'), p(4, 'CP-ODD', 'somewhere else'), p(5, 'CP-OLD', undefined)],
+    counts: [1, 2, 3, 4, 5].map((id) => ({ cutPlateId: id, cutPlateCode: `C${id}`, qty: 1 })),
+  })] });
+  await mountEl(dialog({ uploads: uploads('NVX-M.dxf') }));
+  await waitFor(() => document.querySelector('[data-testid=shape-from]'), 'the markers');
+  const marks = [...document.querySelectorAll('[data-testid=nest-file] [data-testid=shape-from]')];
+  assert.deepEqual(marks.map((m) => m.textContent), ['from drawing', 'from nesting file', 'from dimensions'], 'an unknown value and a missing field say nothing');
+  assert.ok(document.querySelector('[data-testid=file-shape-kept]').textContent.startsWith('1 part keeps'), 'only the one whose value is "nesting file" — the field is on everything now');
+  await unmount();
+});
+
+await check('a plate saved from a ProNest job wears the ProNest badge, offers the job file, and its pieces say from nesting file', async () => {
+  reset();
+  planNow = planWith([customerNest({
+    id: 6001, lotNo: '16MM-NECL-PATNA-N07-2', sourceKind: 'pronest', sourceFile: '16MM-NECL-PATNA SPAN1.nif',
+    pieces: [piece(1, 'NVX-CR', 20, 20, 1200, 400, { shapeFrom: 'nesting file' }), piece(2, 'NVX-CR', 20, 450, 1200, 400, { shapeFrom: 'nesting file' })],
+  })]);
+  // The cut piece itself has a drawing; on this plate the nesting file's outline is what is cut.
+  planNow.groups[0].cutPlates[0].shapeFrom = 'drawing';
+  infoNow = info({ plates: [{ lotId: 6001, lotNo: '16MM-NECL-PATNA-N07-2', origin: 'imported', sourceKind: 'pronest', layoutOrigin: 'customer', plateCode: 'NVX-PS', length: 3000, width: 1500, pieces: 2, customerPieces: 2, ourPieces: 0,
+    file: { id: 9, filename: '16MM-NECL-PATNA SPAN1.nif', nestNo: '16MM-NECL-PATNA', kind: 'pronest' }, parts: [] }] });
+  await mountPanel();
+  await waitFor(() => find('Draw the 1 plate'), 'the group');
+  await click(find('Draw the 1 plate'), 'open group');
+  await waitFor(() => document.querySelector('[data-testid=plate-source]'), 'the badge');
+  const badge = document.querySelector('[data-testid=plate-source]');
+  assert.equal(badge.textContent, 'ProNest');
+  assert.equal(badge.getAttribute('data-source'), 'pronest');
+  assert.equal(badge.firstElementChild.getAttribute('aria-label'), 'Copied from a ProNest job: 16MM-NECL-PATNA, nest 7 (plate 2 of that nest).', 'job name and nest number in the tooltip');
+  assert.equal(document.querySelector('[data-testid=plate-origin]').textContent, 'ProNest job · 16MM-NECL-PATNA SPAN1.nif');
+  assert.equal(document.querySelector('[data-testid=plate-source-file]').textContent, 'Download job file (.nif)');
+  assert.ok(find('Remove plate'), 'a ProNest plate is an uploaded plate like any other');
+  await click(find('Details'), 'Details');
+  await waitFor(() => document.querySelector('[data-testid=shape-from]'), 'the marker');
+  assert.equal(document.querySelector('[data-testid=shape-from]').textContent, 'from nesting file');
+  await click(find('Download job file (.nif)'), 'the job file');
+  await waitFor(() => calls.some((c) => c === 'GET /api/testco/cf_erp/orders/1/lines/1/nesting/files/6001' || c.endsWith('/nesting/files/6001')), 'the download of the whole .nif');
+  await unmount();
+});
+
+await check('a plate nested before a drawing changed says so, with the reason; staleInvalid says Nest again', async () => {
+  reset();
+  const why = 'The drawing of NVX-CR was replaced after this plate was saved; its figures are worked out on the shape as it is now.';
+  const gone = 'The drawing of NVX-CR was removed after this plate was saved, and its pieces no longer fit the saved layout. Nest the line again.';
+  planNow = planWith([
+    { ...autoNest(), id: 7001, lotNo: 'N-001', stale: true, staleReason: why },
+    { ...autoNest(), id: 7002, lotNo: 'N-002', stale: true, staleInvalid: true, staleReason: gone },
+    { ...autoNest(), id: 7003, lotNo: 'N-003', stale: false, staleReason: null },
+  ]);
+  await mountPanel();
+  await waitFor(() => find('Draw the 3 plates'), 'the group');
+  await click(find('Draw the 3 plates'), 'open group');
+  await waitFor(() => document.querySelector('[data-testid=plate-stale]'), 'the stale note');
+  assert.equal(document.querySelector('[data-testid=group-stale]').textContent, '· 2 nested before a drawing changed');
+  assert.equal(document.querySelector('[data-testid=plate-stale-chip]').textContent, 'Drawing changed');
+  assert.equal(document.querySelector('[data-testid=plate-stale]').textContent, why);
+  const thumbs = [...document.querySelectorAll('[data-testid=plate-thumbs] button')];
+  await click(thumbs[1], 'the second plate');
+  await waitFor(() => document.querySelector('[data-testid=plate-stale]').textContent === gone, 'its reason');
+  assert.equal(document.querySelector('[data-testid=plate-stale-chip]').textContent, 'Nest again');
+  await click(thumbs[2], 'the third plate');
+  await waitFor(() => !document.querySelector('[data-testid=plate-stale]'), 'no note');
+  assert.equal(document.querySelector('[data-testid=plate-stale-chip]'), null, 'stale: false lights nothing up');
   await unmount();
 });
 

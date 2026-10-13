@@ -226,7 +226,7 @@ export function BlanksPanel({ lineId, canManage, onChanged, onGoValues, embedded
           icon={<ContentCutRounded />}
           title="No cut pieces yet"
           hint={waiting
-            ? 'Parts of the same thickness, length, width and grade are cut as one batch off one plate. Those rectangles appear here by themselves once the line\'s values are complete.'
+            ? 'Parts of the same thickness, length, width and grade are cut as one batch off one plate. Those cut pieces appear here by themselves once the line\'s values are complete.'
             : 'Parts of the same thickness, length, width and grade are cut as one batch off one plate. They are made from the line\'s values by themselves; if they have not appeared, make them now.'}
         />
       ) : null}
@@ -236,7 +236,7 @@ export function BlanksPanel({ lineId, canManage, onChanged, onGoValues, embedded
           {sections.length > 0 && <Typography component="h3" sx={{ fontSize: 14, fontWeight: 600, mb: 1 }} data-testid="plate-blanks-title">Cut from plates</Typography>}
           <Stack direction="row" spacing={3} useFlexGap sx={{ mb: 2, flexWrap: 'wrap', rowGap: 1, alignItems: 'center' }}>
             <Typography variant="body2" color="text.secondary">
-              <Mono>{plates.length}</Mono> rectangles pooled from <Mono>{parts}</Mono> parts
+              <Mono>{plates.length}</Mono> cut pieces pooled from <Mono>{parts}</Mono> parts
             </Typography>
             {view?.lastMadeAt && (
               <Typography variant="body2" color="text.secondary" title={new Date(view.lastMadeAt).toLocaleString()}>
@@ -259,9 +259,9 @@ export function BlanksPanel({ lineId, canManage, onChanged, onGoValues, embedded
                 <Box component="th">Length</Box>
                 <Box component="th">Width</Box>
                 <Box component="th">Grade</Box>
-                <Box component="th" sx={{ textAlign: 'right' }} title="How many different parts are cut to this rectangle">Parts</Box>
+                <Box component="th" sx={{ textAlign: 'right' }} title="How many different parts are cut to this cut piece">Parts</Box>
                 <Box component="th" sx={{ pl: 2 }}>Cut from</Box>
-                <Box component="th" sx={{ textAlign: 'right' }} title="Plates per rectangle">Plate qty</Box>
+                <Box component="th" sx={{ textAlign: 'right' }} title="Plates per cut piece">Plate qty</Box>
               </Box>
             </Box>
             <Box component="tbody">
