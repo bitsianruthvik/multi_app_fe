@@ -1,11 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { Box, Button, IconButton, MenuItem, Stack, TextField, Tooltip, Typography } from '@mui/material';
-import AddRounded from '@mui/icons-material/AddRounded';
-import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
+import { Box, Button, Stack, Typography } from '@mui/material';
 import BadgeRounded from '@mui/icons-material/BadgeRounded';
 import {
-  DataTable, EmptyState, ErrorNotice, FilterBar, ListSkeleton, Mono, PageHeader,
+  DataTable, EmptyState, ErrorNotice, ListSkeleton, Mono, PageHeader,
   StatStrip, StatusBadge,
 } from '@shared/ui';
 import type { DataColumn, Stat, StatusTone } from '@shared/ui';
@@ -16,6 +14,10 @@ import { usePositionRemoval } from '../components/usePositionRemoval';
 import { useCan } from '../access/can';
 import { vacantLabel } from '../api/hiring';
 import { NoticeChip } from '../components/Leaving';
+import { ListToolbar, type FilterDef } from '../components/list/ListToolbar';
+import { useListFilters } from '../components/list/useListFilters';
+import { RowActions } from '../components/list/RowActions';
+import { ExcelButtons } from '../components/excel/ExcelButtons';
 
 /**
  * Positions — one chair for one person on one shift (DESIGN_SYSTEM.md §4.2 Collection).
@@ -48,18 +50,23 @@ export default function Positions() {
   const [options, setOptions] = useState<PositionOptions | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState('');
-  const [status, setStatus] = useState('');
-  const [departmentId, setDepartmentId] = useState<number | ''>('');
   const [creating, setCreating] = useState(false);
+  const [editing, setEditing] = useState<PositionRow | null>(null);
+  const filters = useListFilters(['department', 'role', 'shift', 'state', 'status', 'location']);
 
+  // The server does the filtering (GET /positions takes the same parameters the Excel
+  // download does) and answers `total` (before the filters) and `count` (after), so
+  // the count line, the table and the file can never disagree. The address settles
+  // ~250 ms after the last keystroke, so a search does not ask on every key.
+  const query = filters.params;
+  const querySig = JSON.stringify(query);
   const load = useCallback(() => {
     setLoading(true);
-    positionsApi.list({ search, status, departmentId })
+    positionsApi.list(JSON.parse(querySig) as Record<string, string>)
       .then((r) => { setData(r); setError(null); })
       .catch(setError)
       .finally(() => setLoading(false));
-  }, [search, status, departmentId]);
+  }, [querySig]);
 
   useEffect(() => { load(); }, [load]);
   // Close or delete a position. The dialog reads what it would do to the team BEFORE it offers anything.
@@ -75,16 +82,32 @@ export default function Positions() {
     }
   }, [params, setParams, can.positions.edit]);
 
+  const items = useMemo(() => data?.items ?? [], [data]);
+  const filterDefs: FilterDef[] = useMemo(() => [
+    { key: 'department', label: 'Department (and below)', searchable: true, options: (options?.departments ?? []).map((d) => ({ value: String(d.id), label: d.name })) },
+    { key: 'role', label: 'Role', searchable: true, options: (options?.roles ?? []).map((r) => ({ value: String(r.id), label: r.name })) },
+    { key: 'shift', label: 'Shift', options: (options?.shifts ?? []).map((s) => ({ value: String(s.id), label: s.name })) },
+    {
+      key: 'state', label: 'State',
+      options: [
+        { value: 'filled', label: 'Filled' },
+        { value: 'vacant', label: 'Vacant' },
+        { value: 'hiring', label: 'Hiring open' },
+        { value: 'notice', label: 'On notice' },
+      ],
+    },
+    { key: 'status', label: 'Status', options: (options?.positionStatuses ?? []).map((s) => ({ value: s, label: s.charAt(0) + s.slice(1).toLowerCase() })) },
+    { key: 'location', label: 'Location', options: (options?.locations ?? []).map((l) => ({ value: String(l.id), label: l.name })) },
+  ], [options]);
+
   const stats: Stat[] = useMemo(() => {
-    const items = data?.items ?? [];
     const vacant = items.filter(isVacantRow).length;
     return [
-      { label: 'Positions', value: data?.total ?? items.length, hint: 'One person each, on one shift, across the rows below.' },
       { label: 'Filled', value: items.length - vacant, tone: 'success', hint: 'Positions with somebody in them today.' },
       // Deliberately toneless: a vacancy is a fact, not an error.
       { label: 'Vacant', value: vacant, hint: 'Positions with nobody in them. A fact to plan against, not a failure.' },
     ];
-  }, [data]);
+  }, [items]);
 
   const columns: DataColumn<PositionRow>[] = useMemo(() => [
     {
@@ -142,34 +165,32 @@ export default function Positions() {
       <PageHeader
         title="Positions"
         subtitle="one chair for one person, on one shift — the organisation's design, independent of who fills it"
-        actions={
-          can.positions.edit && (
-            <Button size="small" variant="contained" startIcon={<AddRounded />} onClick={() => setCreating(true)}>
-              New position
-            </Button>
-          )
-        }
       />
 
       <StatStrip stats={stats} />
 
-      <FilterBar search={search} onSearch={setSearch} placeholder="Search code, title or role…">
-        <TextField
-          select size="small" value={status} onChange={(e) => setStatus(e.target.value)}
-          sx={{ minWidth: 150 }} label="Status" SelectProps={{ displayEmpty: true }} InputLabelProps={{ shrink: true }}
-        >
-          <MenuItem value="">Any status</MenuItem>
-          {(options?.positionStatuses ?? []).map((s) => <MenuItem key={s} value={s}>{s}</MenuItem>)}
-        </TextField>
-        <TextField
-          select size="small" value={departmentId}
-          onChange={(e) => setDepartmentId(e.target.value === '' ? '' : Number(e.target.value))}
-          sx={{ minWidth: 180 }} label="Department" SelectProps={{ displayEmpty: true }} InputLabelProps={{ shrink: true }}
-        >
-          <MenuItem value="">Any department</MenuItem>
-          {(options?.departments ?? []).map((d) => <MenuItem key={d.id} value={d.id}>{d.name}</MenuItem>)}
-        </TextField>
-      </FilterBar>
+      <Box sx={{ mt: 2 }}>
+        <ListToolbar
+          filters={filters}
+          defs={filterDefs}
+          shown={data?.count ?? items.length}
+          total={data?.total ?? items.length}
+          noun={['position', 'positions']}
+          searchPlaceholder="Search by code, title, role or person"
+          add={can.positions.edit ? { label: 'New position', onClick: () => setCreating(true) } : undefined}
+          excel={
+            <ExcelButtons
+              entity="positions"
+              noun={['position', 'positions']}
+              filters={filters.params}
+              count={data?.count ?? items.length}
+              canDownload={can.positions.view}
+              canUpload={can.positions.upload}
+              onApplied={load}
+            />
+          }
+        />
+      </Box>
 
       {error && <ErrorNotice error={error} onRetry={load} sx={{ mb: 2 }} />}
 
@@ -177,26 +198,19 @@ export default function Positions() {
         <ListSkeleton rows={6} />
       ) : (
         <DataTable
-          rows={data?.items ?? []}
+          rows={items}
           columns={columns}
           getRowId={(p) => p.id}
           onRowClick={(p) => navigate(`/${company}/cf_hrms/positions/${p.id}`)}
           rowActions={
-            can.positions.remove
+            can.positions.edit || can.positions.remove
               ? (p) => (
-                  <Tooltip title="Close or delete this position…">
-                    {/* A disabled IconButton fires no events, so the tooltip needs a wrapper to hover. */}
-                    <Box component="span">
-                      <IconButton
-                        size="small"
-                        disabled={removal.busyId === p.id}
-                        onClick={() => { void removal.start(p.id); }}
-                        aria-label={`Close or delete ${p.displayTitle}`}
-                      >
-                        <DeleteOutlineRounded fontSize="small" />
-                      </IconButton>
-                    </Box>
-                  </Tooltip>
+                  <RowActions
+                    name={p.displayTitle}
+                    onEdit={can.positions.edit ? () => setEditing(p) : undefined}
+                    onRemove={can.positions.remove && removal.busyId !== p.id ? () => { void removal.start(p.id); } : undefined}
+                    removeLabel="Close"
+                  />
                 )
               : undefined
           }
@@ -207,13 +221,17 @@ export default function Positions() {
           empty={
             <EmptyState
               icon={<BadgeRounded />}
-              title={search || status || departmentId ? 'No positions match this filter' : 'No positions yet'}
+              title={(data?.total ?? 0) > 0 ? 'No positions match this filter' : 'No positions yet'}
               hint={
-                search || status || departmentId
+                (data?.total ?? 0) > 0
                   ? 'Clear the filter to see every position.'
                   : 'A position is one chair for one person on one shift. It is optional — people can do work without one — but it is what makes vacancies countable.'
               }
-              action={can.positions.edit && !search ? <Button variant="contained" size="small" onClick={() => setCreating(true)}>New position</Button> : undefined}
+              action={
+                (data?.total ?? 0) > 0
+                  ? <Button size="small" onClick={filters.clear}>Clear the filters</Button>
+                  : can.positions.edit ? <Button variant="contained" size="small" onClick={() => setCreating(true)}>New position</Button> : undefined
+              }
             />
           }
         />
@@ -222,11 +240,15 @@ export default function Positions() {
       {removal.dialog}
 
       <PositionFormDialog
-        open={creating}
-        onClose={() => setCreating(false)}
-        onDone={(id) => { setCreating(false); navigate(`/${company}/cf_hrms/positions/${id}`); }}
+        open={creating || !!editing}
+        onClose={() => { setCreating(false); setEditing(null); }}
+        onDone={(id) => {
+          if (editing) { setEditing(null); load(); return; }
+          setCreating(false);
+          navigate(`/${company}/cf_hrms/positions/${id}`);
+        }}
         options={options}
-        position={null}
+        position={editing}
       />
     </>
   );

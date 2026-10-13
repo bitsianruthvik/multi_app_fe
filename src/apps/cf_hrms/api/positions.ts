@@ -72,7 +72,10 @@ export interface PositionRow {
 export interface PositionListResult {
   asOf: string;
   items: PositionRow[];
+  /** Rows this login holds before the filters. */
   total: number;
+  /** Rows left after the filters ("count of total"). */
+  count?: number;
   totals: { sanctioned: number; filled: number; vacant: number; overFilled: number };
 }
 
@@ -194,6 +197,13 @@ export interface PositionFilters {
   departmentId?: number | '';
   locationId?: number | '';
   search?: string;
+  /** The list screen's filters (§13.6): `q`, `department` (and below), `role`, `shift`, `location`, `state`. */
+  q?: string;
+  department?: string;
+  role?: string;
+  shift?: string;
+  location?: string;
+  state?: string;
 }
 
 /**

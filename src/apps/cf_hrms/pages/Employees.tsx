@@ -4,16 +4,24 @@ import { Box, Button, Typography } from '@mui/material';
 import AddRounded from '@mui/icons-material/AddRounded';
 import PeopleAltRounded from '@mui/icons-material/PeopleAltRounded';
 import {
-  PageHeader, FilterBar, FacetChip, DataTable, StatStrip, StatusBadge, ToneBadge,
+  PageHeader, DataTable, StatStrip, StatusBadge, ToneBadge,
   EmptyState, ErrorNotice, ListSkeleton, StatSkeleton, Mono, DateCell,
   useToast,
   type DataColumn, type Stat,
 } from '@shared/ui';
 import {
   peopleApi, EMPLOYMENT_STATUS_TONE, EMPLOYMENT_STATUS_LABEL, EMPLOYMENT_TYPE_LABEL,
-  type EmployeeRow, type PeoplePickers,
+  type Employee, type EmployeeRow, type PeoplePickers,
 } from '../api/people';
+import { orgApi, type Department } from '../api/organisation';
+import { positionsApi, type PositionOptions } from '../api/positions';
+import { shiftsApi } from '../api/shifts';
 import { EmployeeFormDialog } from '../components/EmployeeFormDialog';
+import { StartLeavingDialog } from '../components/Leaving';
+import { ListToolbar, type FilterDef } from '../components/list/ListToolbar';
+import { RowActions } from '../components/list/RowActions';
+import { useListFilters, YES_NO_OPTIONS } from '../components/list/useListFilters';
+import { ExcelButtons } from '../components/excel/ExcelButtons';
 import { useCan } from '../access/can';
 
 /**
@@ -32,19 +40,23 @@ import { useCan } from '../access/can';
  * always agree with the filtered list underneath.
  */
 
-type StatusFilter = 'ACTIVE' | 'NOTICE' | 'INACTIVE' | 'EXITED';
 /**
  * Working and on notice are who is here today, and that is what the list opens
  * on. People who have left are kept — an employee is never deleted — and are
- * one chip away. (CF_HRMS_HIRING_SPEC.md §4.6)
+ * one choice away in the Status filter. (CF_HRMS_HIRING_SPEC.md §4.6)
+ *
+ * The default is EXPLICIT: with no `status` in the address, the list request and
+ * the Excel download both send `status=ACTIVE,NOTICE`, so the file holds exactly
+ * the people the screen shows.
  */
-const DEFAULT_STATUSES: StatusFilter[] = ['ACTIVE', 'NOTICE'];
-const STATUS_CHIPS: { key: StatusFilter; label: string }[] = [
-  { key: 'ACTIVE', label: 'Working' },
-  { key: 'NOTICE', label: 'On notice' },
-  { key: 'EXITED', label: 'Left' },
-];
-type TypeFilter = 'ALL' | 'EMPLOYEE' | 'CONTRACT' | 'TRAINEE' | 'CONSULTANT' | 'OTHER';
+const HERE = 'ACTIVE,NOTICE';
+const DEFAULTS = { status: HERE };
+// `employmentType` and `contractorId` are the names the people route has always
+// taken; the download reads the same ones.
+const FILTER_KEYS = [
+  'status', 'department', 'role', 'shift', 'location', 'joinedFrom', 'joinedTo', 'hasLogin',
+  'employmentType', 'contractorId',
+] as const;
 
 export default function Employees() {
   const navigate = useNavigate();
@@ -55,44 +67,66 @@ export default function Employees() {
   // "New employee" outside hiring needs both the edit right and the named create right.
   const canCreate = can.employees.edit && can.named.employeeCreate;
 
+  const filters = useListFilters(FILTER_KEYS, { defaults: DEFAULTS });
+
   const [rows, setRows] = useState<EmployeeRow[]>([]);
+  // Rows the chosen status holds / rows the other filters leave — the server's `total` and `count`.
+  const [counts, setCounts] = useState<{ total: number; count: number } | null>(null);
   const [pickers, setPickers] = useState<PeoplePickers | null>(null);
+  const [departments, setDepartments] = useState<Department[]>([]);
+  const [lookups, setLookups] = useState<{
+    roles: { id: number; name: string }[];
+    shifts: { id: number; name: string }[];
+    locations: { id: number; name: string }[];
+  } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<unknown>(null);
 
-  const [search, setSearch] = useState('');
-  const [statuses, setStatuses] = useState<StatusFilter[]>(DEFAULT_STATUSES);
-  const toggleStatus = (s: StatusFilter) =>
-    setStatuses((cur) => (cur.includes(s) ? cur.filter((x) => x !== s) : [...cur, s]));
-  const [type, setType] = useState<TypeFilter>('ALL');
-  const [contractorId, setContractorId] = useState<number | 'ALL'>('ALL');
-
   // The shell's quick-create sends people here with ?new=1 (see CfHrmsShell).
   const [createOpen, setCreateOpen] = useState(searchParams.get('new') === '1');
+  const [editing, setEditing] = useState<Employee | null>(null);
+  const [leaving, setLeaving] = useState<EmployeeRow | null>(null);
 
+  // The server filters (GET /people/employees takes the same parameters the Excel
+  // download does) and answers `total` and `count`. The address settles ~250 ms
+  // after the last keystroke, so a search does not ask on every key.
+  const querySig = JSON.stringify(filters.params);
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      // Everyone, including people who have left: the chips below choose who is shown,
-      // and their counts are only right when every status is loaded. (The server's own
-      // default is working + on notice.)
-      const [list, picks] = await Promise.all([
-        peopleApi.list({ status: 'ACTIVE,NOTICE,INACTIVE,EXITED' }).catch(() => peopleApi.list()),
-        peopleApi.pickers(),
-      ]);
+      const list = await peopleApi.list(JSON.parse(querySig) as Record<string, string>);
       setRows(list.items);
-      setPickers(picks);
+      setCounts({ total: list.total, count: list.count ?? list.items.length });
     } catch (err) {
       setError(err);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [querySig]);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  // The pickers behind the filters and the form: read once.
+  useEffect(() => {
+    void (async () => {
+      const [picks, deps, options] = await Promise.all([
+        peopleApi.pickers().catch(() => null),
+        orgApi.departments.list().catch(() => [] as Department[]),
+        positionsApi.options().catch(() => null as PositionOptions | null),
+      ]);
+      setPickers(picks);
+      setDepartments(deps);
+      if (options) {
+        setLookups({ roles: options.roles, shifts: options.shifts, locations: options.locations });
+      } else {
+        const shifts = await shiftsApi.list().catch(() => []);
+        setLookups({ roles: [], shifts: shifts.map((x) => ({ id: x.id, name: x.name })), locations: [] });
+      }
+    })();
+  }, []);
 
   const openCreate = () => {
     setCreateOpen(true);
@@ -103,21 +137,71 @@ export default function Employees() {
     }
   };
 
-  // Filtering is client-side because the whole workforce is a few hundred rows
-  // and a round trip per chip makes the facets feel broken. The endpoint takes
-  // the same filters for when a company outgrows that.
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return rows.filter((r) => {
-      // No chip chosen means no narrowing, rather than an empty list.
-      if (statuses.length > 0 && !statuses.includes(r.employmentStatus)) return false;
-      if (type !== 'ALL' && r.employmentType !== type) return false;
-      if (contractorId !== 'ALL' && r.contractorId !== contractorId) return false;
-      if (!q) return true;
-      return [r.employeeCode, r.fullName, r.phone, r.email, r.departmentName, r.primaryRoleTitle]
-        .some((v) => String(v ?? '').toLowerCase().includes(q));
-    });
-  }, [rows, search, statuses, type, contractorId]);
+  const openEdit = (r: EmployeeRow) => {
+    peopleApi
+      .get(r.id)
+      .then((d) => setEditing(d.employee))
+      .catch((err) => toast.error(err instanceof Error ? err.message : 'Could not open this person.'));
+  };
+
+  const filtered = rows;
+  const total = counts?.total ?? rows.length;
+
+  const defs: FilterDef[] = useMemo(() => {
+    // Roles and locations fall back to what the loaded rows carry when the login
+    // may not read the lists; the contractor list is the company's own.
+    const roleOpts = new Map<number, string>(lookups?.roles.map((x) => [x.id, x.name]));
+    const locOpts = new Map<number, string>(lookups?.locations.map((x) => [x.id, x.name]));
+    for (const r of rows) {
+      if (r.roleId != null && r.primaryRoleTitle && !roleOpts.has(r.roleId)) roleOpts.set(r.roleId, r.primaryRoleTitle);
+      if (r.locationId != null && r.locationName && !locOpts.has(r.locationId)) locOpts.set(r.locationId, r.locationName);
+    }
+    const byName = (a: [number, string], b: [number, string]) => a[1].localeCompare(b[1]);
+    const idOptions = (m: Map<number, string>) =>
+      [...m.entries()].sort(byName).map(([id, n]) => ({ value: String(id), label: n }));
+    const out: FilterDef[] = [
+      {
+        key: 'status',
+        label: 'Status',
+        defaultValue: HERE,
+        options: [
+          { value: HERE, label: 'Working and on notice' },
+          { value: 'ACTIVE', label: EMPLOYMENT_STATUS_LABEL.ACTIVE },
+          { value: 'NOTICE', label: EMPLOYMENT_STATUS_LABEL.NOTICE },
+          { value: 'INACTIVE', label: EMPLOYMENT_STATUS_LABEL.INACTIVE },
+          { value: 'EXITED', label: EMPLOYMENT_STATUS_LABEL.EXITED },
+          { value: 'ALL', label: 'Everyone' },
+        ],
+      },
+      {
+        key: 'department',
+        label: 'Department (and below)',
+        searchable: true,
+        options: departments.map((d) => ({ value: String(d.id), label: d.path || d.name })),
+      },
+      { key: 'role', label: 'Role', searchable: true, options: idOptions(roleOpts) },
+      { key: 'shift', label: 'Shift', options: (lookups?.shifts ?? []).map((x) => ({ value: String(x.id), label: x.name })) },
+      { key: 'location', label: 'Location', options: idOptions(locOpts) },
+      { key: 'joinedFrom', label: 'Joined from', kind: 'date' },
+      { key: 'joinedTo', label: 'Joined to', kind: 'date' },
+      { key: 'hasLogin', label: 'Has a login', options: YES_NO_OPTIONS },
+      {
+        key: 'employmentType',
+        label: 'Type',
+        options: (['EMPLOYEE', 'CONTRACT', 'TRAINEE', 'CONSULTANT', 'OTHER'] as const)
+          .map((t) => ({ value: t, label: EMPLOYMENT_TYPE_LABEL[t] })),
+      },
+    ];
+    const cons = pickers?.contractors ?? [];
+    if (cons.length > 0) {
+      out.push({
+        key: 'contractorId',
+        label: 'Contractor',
+        options: cons.map((c) => ({ value: String(c.id), label: c.name })),
+      });
+    }
+    return out;
+  }, [rows, departments, lookups, pickers]);
 
   const stats: Stat[] = useMemo(() => {
     const onNotice = filtered.filter((r) => r.employmentStatus === 'NOTICE').length;
@@ -135,17 +219,6 @@ export default function Employees() {
       { label: 'Expired documents', value: expiredDocs, tone: 'danger', hint: 'People with at least one expired document' },
     ];
   }, [filtered]);
-
-  const contractorFacets = useMemo(() => {
-    const seen = new Map<number, { name: string; count: number }>();
-    for (const r of rows) {
-      if (!r.contractorId) continue;
-      const cur = seen.get(r.contractorId);
-      if (cur) cur.count += 1;
-      else seen.set(r.contractorId, { name: r.contractorName ?? `Contractor ${r.contractorId}`, count: 1 });
-    }
-    return [...seen.entries()].sort((a, b) => a[1].name.localeCompare(b[1].name));
-  }, [rows]);
 
   const columns: DataColumn<EmployeeRow>[] = useMemo(() => [
     {
@@ -269,26 +342,32 @@ export default function Employees() {
         ? <ToneBadge tone="danger" label={`${r.expiredDocumentCount} expired`} />
         : <Typography sx={{ fontSize: 13, color: 'var(--c-text-3)', fontFamily: 'var(--font-mono)' }}>{r.documentCount}</Typography>),
     },
-  ], []);
+    {
+      key: 'actions',
+      header: '',
+      alwaysVisible: true,
+      width: 110,
+      align: 'right',
+      render: (r) => (
+        <RowActions
+          name={r.fullName}
+          onEdit={can.employees.edit ? () => openEdit(r) : undefined}
+          onRemove={can.named.employeeClose && r.employmentStatus === 'ACTIVE' ? () => setLeaving(r) : undefined}
+          removeLabel="Start leaving"
+        />
+      ),
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  ], [can.employees.edit, can.named.employeeClose]);
 
   const header = (
     <PageHeader
       title="Employees"
       subtitle="One record per person — what they do lives in the positions they hold"
-      actions={canCreate && (
-        <Button
-          variant="contained"
-          size="small"
-          startIcon={<AddRounded />}
-          onClick={openCreate}
-        >
-          New employee
-        </Button>
-      )}
     />
   );
 
-  if (loading) {
+  if (loading && counts === null) {
     return (
       <>
         {header}
@@ -300,7 +379,7 @@ export default function Employees() {
     );
   }
 
-  if (error) {
+  if (error && counts === null) {
     return (
       <>
         {header}
@@ -316,58 +395,30 @@ export default function Employees() {
       <StatStrip stats={stats} />
 
       <Box sx={{ mt: 2 }}>
-        <FilterBar
-          search={search}
-          onSearch={setSearch}
-          placeholder="Search name, code, phone, email, department…"
-        >
-          {[
-            ...STATUS_CHIPS,
-            // Shown only where a company uses it: it is not part of leaving.
-            ...(rows.some((r) => r.employmentStatus === 'INACTIVE') ? [{ key: 'INACTIVE' as StatusFilter, label: EMPLOYMENT_STATUS_LABEL.INACTIVE }] : []),
-          ].map((s) => (
-            <FacetChip
-              key={s.key}
-              label={s.label}
-              active={statuses.includes(s.key)}
-              onClick={() => toggleStatus(s.key)}
-              count={rows.filter((r) => r.employmentStatus === s.key).length}
+        <ListToolbar
+          filters={filters}
+          defs={defs}
+          shown={counts?.count ?? filtered.length}
+          total={total}
+          noun={['person', 'people']}
+          searchPlaceholder="Search by name or code"
+          add={canCreate ? { label: 'New employee', onClick: openCreate } : undefined}
+          excel={(
+            <ExcelButtons
+              entity="employees"
+              noun={['employee', 'employees']}
+              filters={filters.params}
+              defaults={DEFAULTS}
+              count={counts?.count ?? filtered.length}
+              canDownload={can.employees.view}
+              canUpload={can.employees.upload}
+              canBulkAdd={can.named.employeeBulkAdd}
+              onApplied={() => void load()}
             />
-          ))}
-
-          <Box sx={{ width: 1, alignSelf: 'stretch', background: 'var(--c-border)', mx: 0.5 }} />
-
-          {(['ALL', 'EMPLOYEE', 'CONTRACT', 'TRAINEE', 'CONSULTANT', 'OTHER'] as TypeFilter[]).map((t) => (
-            <FacetChip
-              key={t}
-              label={t === 'ALL' ? 'All types' : EMPLOYMENT_TYPE_LABEL[t]}
-              active={type === t}
-              onClick={() => setType(t)}
-              count={t === 'ALL' ? undefined : rows.filter((r) => r.employmentType === t).length}
-            />
-          ))}
-
-          {/* Contractor facets only exist where contract labour does. */}
-          {contractorFacets.length > 0 && (
-            <>
-              <Box sx={{ width: 1, alignSelf: 'stretch', background: 'var(--c-border)', mx: 0.5 }} />
-              <FacetChip
-                label="Any contractor"
-                active={contractorId === 'ALL'}
-                onClick={() => setContractorId('ALL')}
-              />
-              {contractorFacets.map(([cid, info]) => (
-                <FacetChip
-                  key={cid}
-                  label={info.name}
-                  count={info.count}
-                  active={contractorId === cid}
-                  onClick={() => setContractorId(cid)}
-                />
-              ))}
-            </>
           )}
-        </FilterBar>
+        />
+
+        {!!error && <ErrorNotice error={error} onRetry={() => void load()} sx={{ mb: 2 }} />}
 
         <DataTable
           rows={filtered}
@@ -377,7 +428,7 @@ export default function Employees() {
           storageKey="cf_hrms.employees"
           exportName="employees"
           defaultSortKey="fullName"
-          empty={rows.length === 0 ? (
+          empty={total === 0 ? (
             <EmptyState
               icon={<PeopleAltRounded />}
               title="No employees yet"
@@ -393,17 +444,15 @@ export default function Employees() {
               icon={<PeopleAltRounded />}
               title="Nothing matches these filters"
               hint="Clear the search or pick a different status."
-              action={(
-                <Button
-                  size="small"
-                  onClick={() => { setSearch(''); setStatuses([]); setType('ALL'); setContractorId('ALL'); }}
-                >
-                  Clear filters
-                </Button>
-              )}
+              action={<Button size="small" onClick={filters.clear}>Clear</Button>}
             />
           )}
         />
+        {!can.named.employeeClose && (
+          <Typography sx={{ mt: 1, px: 0.5, fontSize: 13, color: 'var(--c-text-2)' }}>
+            An employee is never deleted. When someone leaves, their record stays.
+          </Typography>
+        )}
       </Box>
 
       {canCreate && (
@@ -414,6 +463,33 @@ export default function Employees() {
           onSaved={(detail) => {
             toast.success(`${detail.employee.fullName} added.`);
             navigate(`/${company}/cf_hrms/employees/${detail.employee.id}`);
+          }}
+        />
+      )}
+
+      {can.employees.edit && editing && (
+        <EmployeeFormDialog
+          open
+          onClose={() => setEditing(null)}
+          employee={editing}
+          pickers={pickers}
+          onSaved={() => {
+            setEditing(null);
+            toast.success('Saved.');
+            void load();
+          }}
+        />
+      )}
+
+      {can.named.employeeClose && leaving && (
+        <StartLeavingDialog
+          open
+          person={{ id: leaving.id, fullName: leaving.fullName }}
+          positionWords={leaving.primaryRoleTitle}
+          onClose={() => setLeaving(null)}
+          onDone={() => {
+            setLeaving(null);
+            void load();
           }}
         />
       )}

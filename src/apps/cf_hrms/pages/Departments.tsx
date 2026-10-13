@@ -4,16 +4,12 @@ import {
   Box,
   Button,
   FormControlLabel,
-  IconButton,
   MenuItem,
   Switch,
   TextField,
-  Tooltip,
   Typography,
 } from '@mui/material';
 import AddRounded from '@mui/icons-material/AddRounded';
-import EditRounded from '@mui/icons-material/EditRounded';
-import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
 import SubdirectoryArrowRightRounded from '@mui/icons-material/SubdirectoryArrowRightRounded';
 import UnfoldLessRounded from '@mui/icons-material/UnfoldLessRounded';
 import UnfoldMoreRounded from '@mui/icons-material/UnfoldMoreRounded';
@@ -23,8 +19,6 @@ import {
   ConfirmDialog,
   EmptyState,
   ErrorNotice,
-  FacetChip,
-  FilterBar,
   FormDialog,
   ListSkeleton,
   PageHeader,
@@ -47,13 +41,17 @@ import {
   ORG_STATUS_LABELS,
   ORG_STATUS_TONES,
   descendantIds,
-  filterTree,
+  filterTreeBy,
   indentedLabel,
   parentPath,
   useOrgLoad,
   useTreeCollapse,
 } from '../components/OrgData';
 import { OrgCode, OrgTreeView } from '../components/OrgTree';
+import { ListToolbar, type FilterDef } from '../components/list/ListToolbar';
+import { matchesQuery, useListFilters } from '../components/list/useListFilters';
+import { RowActions } from '../components/list/RowActions';
+import { ExcelButtons } from '../components/excel/ExcelButtons';
 
 /**
  * Departments — the functional units, as a tree (DESIGN_SYSTEM.md §4.7).
@@ -134,44 +132,69 @@ export default function Departments() {
   const labelItems = useMemo(() => labels.map((l) => ({ id: l.id, name: l.name, count: l.departmentCount })), [labels]);
   const nameOf = useMemo(() => new Map(rows.map((r) => [r.id, r.name])), [rows]);
 
-  const [query, setQuery] = useState('');
-  /** The label the list is narrowed to, by name; '' = every label. */
-  const [labelFilter, setLabelFilter] = useState('');
+  const filters = useListFilters(['label', 'shared', 'status', 'parent']);
   const [labelsOpen, setLabelsOpen] = useState(false);
+  const labelFilter = filters.values.label;
+  const sharedOnly = filters.values.shared === '1';
+  const statusFilter = filters.values.status;
+  const underId = Number(filters.values.parent) || 0;
+  const search = filters.params.q ?? '';
+  // The server's rules for GET /organisation/departments: "Under" is everything
+  // below the chosen department at any depth, NOT the department itself; the
+  // search is in the name or the code.
+  const matched = useMemo(() => {
+    const below = underId ? descendantIds(rows, underId) : null;
+    return rows.filter(
+      (r) =>
+        (!labelFilter || (r.type ?? '').toLowerCase() === labelFilter.toLowerCase()) &&
+        (!sharedOnly || !!r.isShared) &&
+        (!statusFilter || r.status.toLowerCase() === statusFilter.toLowerCase()) &&
+        (!below || (r.id !== underId && below.has(r.id))) &&
+        matchesQuery([r.name, r.code], search),
+    );
+  }, [rows, labelFilter, sharedOnly, statusFilter, underId, search]);
+  // Every match keeps its ancestors in the tree (so the chosen department still
+  // shows as the visible ancestor of what is under it); the count is of the matches.
   const filtered = useMemo(() => {
-    // A label that was renamed or removed while it was the filter stops filtering.
-    const want = labels.some((l) => l.name === labelFilter) ? labelFilter : '';
-    let pool = rows;
-    if (want) {
-      // The departments with that label, plus the ones above them so the tree still reads.
-      const keep = new Set<number>();
-      const above: number[] = [];
-      for (const r of rows) {
-        above.length = r.depth;
-        if (r.type === want) {
-          keep.add(r.id);
-          for (const id of above) keep.add(id);
-        }
-        above[r.depth] = r.id;
-      }
-      pool = rows.filter((r) => keep.has(r.id));
-    }
-    return filterTree(pool, query, (r) => `${r.name} ${r.code ?? ''} ${r.path} ${r.type ?? ''}`);
-  }, [rows, query, labelFilter, labels]);
+    const ids = new Set(matched.map((r) => r.id));
+    return filterTreeBy(rows, (r) => ids.has(r.id));
+  }, [rows, matched]);
+  const filterDefs: FilterDef[] = useMemo(
+    () => [
+      {
+        key: 'label',
+        label: 'Label',
+        options: labels.map((l) => ({ value: l.name, label: l.name, count: l.departmentCount })),
+      },
+      { key: 'shared', label: 'Shared', kind: 'toggle' },
+      {
+        key: 'status',
+        label: 'Status',
+        options: [
+          { value: 'ACTIVE', label: 'Active' },
+          { value: 'INACTIVE', label: 'Inactive' },
+        ],
+      },
+      {
+        key: 'parent',
+        label: 'Under',
+        searchable: true,
+        options: rows.map((r) => ({ value: String(r.id), label: r.path })),
+      },
+    ],
+    [labels, rows],
+  );
   const { collapsed, toggle, expandAll, collapseAll, anyCollapsed } = useTreeCollapse(rows);
 
   const [draft, setDraft] = useState<DraftState | null>(null);
   const [doomed, setDoomed] = useState<Department | null>(null);
 
-  // Derived from the rows already loaded — no second request, and the numbers
-  // always agree with the list beneath (§4.2). Each names something fixable
-  // rather than restating the row count.
+  // Derived from the rows already loaded — no second request. The count line
+  // under the toolbar says how many departments; these say what it does not.
   const stats: Stat[] = useMemo(() => {
-    const inactive = rows.filter((r) => r.status === 'INACTIVE').length;
     const roots = rows.filter((r) => r.depth === 0).length;
     const totals = data?.staffing.counts;
     return [
-      { label: 'Departments', value: rows.length },
       ...(totals
         ? [
             {
@@ -185,12 +208,6 @@ export default function Departments() {
         label: 'Top level',
         value: roots,
         hint: 'Departments with no parent. More than a handful usually means a level is missing.',
-      },
-      {
-        label: 'Inactive',
-        value: inactive,
-        tone: 'warning',
-        hint: 'Kept for history; hidden from new pickers.',
       },
     ];
   }, [rows, data]);
@@ -230,7 +247,7 @@ export default function Departments() {
   const remove = async () => {
     if (!doomed) return;
     await orgApi.departments.remove(doomed.id);
-    success(`${doomed.name} deleted.`);
+    success(`${doomed.name} removed.`);
     reload();
   };
 
@@ -243,28 +260,6 @@ export default function Departments() {
       <PageHeader
         title="Departments"
         subtitle="The functional units — and what sits under them"
-        actions={
-          <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-            <Button size="small" variant="outlined" startIcon={<LabelOutlined />} onClick={() => setLabelsOpen(true)}>
-              Labels
-            </Button>
-            {rows.length > 0 && (
-              <Button
-                size="small"
-                variant="outlined"
-                startIcon={anyCollapsed ? <UnfoldMoreRounded /> : <UnfoldLessRounded />}
-                onClick={anyCollapsed ? expandAll : collapseAll}
-              >
-                {anyCollapsed ? 'Expand all' : 'Collapse all'}
-              </Button>
-            )}
-            {can.org.edit && (
-              <Button variant="contained" startIcon={<AddRounded />} onClick={() => openNew(null)}>
-                New department
-              </Button>
-            )}
-          </Box>
-        }
       />
 
       <ErrorNotice error={error} fallback="Could not load departments." onRetry={reload} />
@@ -279,27 +274,51 @@ export default function Departments() {
       ) : (
         <>
           <StatStrip stats={stats} />
-          <Box sx={{ mt: 2, mb: 2 }}>
-            <FilterBar
-              search={query}
-              onSearch={setQuery}
-              placeholder="Search departments by name, code or label"
-            >
-              {labels.length > 0 && (
+          <Box sx={{ mt: 2 }}>
+            <ListToolbar
+              filters={filters}
+              defs={filterDefs}
+              shown={matched.length}
+              total={rows.length}
+              noun={['department', 'departments']}
+              searchPlaceholder="Search departments by name or code"
+              add={can.org.edit ? { label: 'New department', onClick: () => openNew(null) } : undefined}
+              excel={
+                <ExcelButtons
+                  entity="departments"
+                  noun={['department', 'departments']}
+                  filters={filters.params}
+                  count={matched.length}
+                  canDownload={can.org.view}
+                  canUpload={can.org.upload}
+                  onApplied={reload}
+                />
+              }
+              extra={
                 <>
-                  <FacetChip label="All" active={!labelFilter} onClick={() => setLabelFilter('')} />
-                  {labels.map((l) => (
-                    <FacetChip
-                      key={l.id}
-                      label={l.name}
-                      count={l.departmentCount}
-                      active={labelFilter === l.name}
-                      onClick={() => setLabelFilter((cur) => (cur === l.name ? '' : l.name))}
-                    />
-                  ))}
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    startIcon={<LabelOutlined />}
+                    onClick={() => setLabelsOpen(true)}
+                    sx={{ height: 36, whiteSpace: 'nowrap', flexShrink: 0 }}
+                  >
+                    Labels
+                  </Button>
+                  {rows.length > 0 && (
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      startIcon={anyCollapsed ? <UnfoldMoreRounded /> : <UnfoldLessRounded />}
+                      onClick={anyCollapsed ? expandAll : collapseAll}
+                      sx={{ height: 36, whiteSpace: 'nowrap', flexShrink: 0 }}
+                    >
+                      {anyCollapsed ? 'Expand all' : 'Collapse all'}
+                    </Button>
+                  )}
                 </>
-              )}
-            </FilterBar>
+              }
+            />
           </Box>
 
           {rows.length === 0 ? (
@@ -315,11 +334,11 @@ export default function Departments() {
                 ) : undefined
               }
             />
-          ) : filtered.length === 0 ? (
+          ) : matched.length === 0 ? (
             <EmptyState
-              title={query ? `Nothing matches “${query}”` : `No department is labelled “${labelFilter}”`}
-              hint="Search covers the name, the code, the label and the full path."
-              action={<Button onClick={() => { setQuery(''); setLabelFilter(''); }}>Show every department</Button>}
+              title="Nothing matches those filters"
+              hint="Search covers the name and the code."
+              action={<Button onClick={filters.clear}>Clear the filters</Button>}
             />
           ) : (
             <OrgTreeView
@@ -388,29 +407,23 @@ export default function Departments() {
               renderActions={
                 can.org.edit || can.org.remove
                   ? (row) => (
-                      <>
-                        {can.org.edit && (
-                          <Tooltip title="Add a department under this one">
-                            <IconButton size="small" onClick={() => openNew(row.id)} aria-label={`Add a department under ${row.name}`}>
-                              <SubdirectoryArrowRightRounded fontSize="small" />
-                            </IconButton>
-                          </Tooltip>
-                        )}
-                        {can.org.edit && (
-                          <Tooltip title="Edit">
-                            <IconButton size="small" onClick={() => openEdit(row)} aria-label={`Edit ${row.name}`}>
-                              <EditRounded fontSize="small" />
-                            </IconButton>
-                          </Tooltip>
-                        )}
-                        {can.org.remove && (
-                          <Tooltip title="Delete">
-                            <IconButton size="small" onClick={() => setDoomed(row)} aria-label={`Delete ${row.name}`}>
-                              <DeleteOutlineRounded fontSize="small" />
-                            </IconButton>
-                          </Tooltip>
-                        )}
-                      </>
+                      <RowActions
+                        name={row.name}
+                        more={
+                          can.org.edit
+                            ? [
+                                {
+                                  key: 'add-under',
+                                  label: 'Add under this',
+                                  icon: <SubdirectoryArrowRightRounded fontSize="small" />,
+                                  onClick: () => openNew(row.id),
+                                },
+                              ]
+                            : undefined
+                        }
+                        onEdit={can.org.edit ? () => openEdit(row) : undefined}
+                        onRemove={can.org.remove ? () => setDoomed(row) : undefined}
+                      />
                     )
                   : undefined
               }
@@ -609,10 +622,10 @@ export default function Departments() {
       <ConfirmDialog
         open={!!doomed}
         danger
-        title="Delete this department?"
+        title="Remove this department?"
         entityName={doomed?.path}
-        body="Anything already pointing at it — a role, a position, a sub-department — will block the delete and say so. Set it inactive instead if you only want it out of the pickers."
-        confirmLabel="Delete"
+        body="Anything already pointing at it — a role, a position, a sub-department — will block the removal and say so. Set it inactive instead if you only want it out of the pickers."
+        confirmLabel="Remove"
         onConfirm={remove}
         onClose={() => setDoomed(null)}
       />

@@ -3,11 +3,19 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { Box, Button, Stack, Typography } from '@mui/material';
 import PersonSearchRounded from '@mui/icons-material/PersonSearchRounded';
 import {
-  DataTable, DateCell, EmptyState, ErrorNotice, FacetChip, FilterBar, ListSkeleton, Mono, PageHeader,
+  DataTable, DateCell, EmptyState, ErrorNotice, ListSkeleton, Mono, PageHeader, useToast,
   type DataColumn,
 } from '@shared/ui';
 import { useCan } from '../access/can';
-import { CLOSE_REASON_LABEL, hiringApi, niceDate, type CloseReason, type HiringSummary } from '../api/hiring';
+import {
+  CLOSE_REASON_LABEL, hiringApi, niceDate,
+  type CloseReason, type Hiring as HiringFull, type HiringSummary,
+} from '../api/hiring';
+import { ListToolbar, type FilterDef } from '../components/list/ListToolbar';
+import { RowActions } from '../components/list/RowActions';
+import { useListFilters } from '../components/list/useListFilters';
+import { positionsApi, type PositionOptions } from '../api/positions';
+import { HiringCloseDialog } from '../components/HiringCloseDialog';
 
 /**
  * Hiring — every hiring, open first (DESIGN_SYSTEM.md §4.2 Collection).
@@ -20,30 +28,50 @@ import { CLOSE_REASON_LABEL, hiringApi, niceDate, type CloseReason, type HiringS
  * The status line on each row is the server's sentence, shown as written.
  */
 
-type Tab = 'open' | 'done' | 'closed';
+// Without a `status` in the address the list is the hirings in progress, and says so
+// to the server (and to the toolbar) rather than leaving it to be guessed.
+const DEFAULTS = { status: 'open' };
 
-const TABS: { key: Tab; label: string }[] = [
-  { key: 'open', label: 'Open' },
-  { key: 'done', label: 'Done' },
-  { key: 'closed', label: 'Closed' },
+const STAGES: { value: string; label: string }[] = [
+  { value: 'JD', label: 'Job description' },
+  { value: 'OFFER', label: 'Offer' },
+  { value: 'APPOINTMENT', label: 'Appointment' },
+  { value: 'DONE', label: 'Done' },
+  { value: 'CLOSED', label: 'Closed' },
 ];
 
 export default function Hiring() {
   const { company = '' } = useParams<{ company: string }>();
   const navigate = useNavigate();
   const can = useCan();
-  const [tab, setTab] = useState<Tab>('open');
-  const [search, setSearch] = useState('');
+  const toast = useToast();
+  const filters = useListFilters(['status', 'stage', 'department', 'role'], { defaults: DEFAULTS });
+  const tab = filters.params.status ?? 'open';
   const [rows, setRows] = useState<HiringSummary[] | null>(null);
+  const [counts, setCounts] = useState<{ total: number; count: number } | null>(null);
+  const [options, setOptions] = useState<PositionOptions | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [loading, setLoading] = useState(true);
+  const [closing, setClosing] = useState<HiringFull | null>(null);
 
+  const openClose = (id: number) => {
+    hiringApi
+      .get(id)
+      .then((r) => setClosing(r.hiring))
+      .catch((e) => toast.error(e instanceof Error ? e.message : 'Could not open this hiring.'));
+  };
+
+  // The server filters (GET /hirings takes the same parameters as the list) and
+  // answers `total` (the chosen status) and `count` (what is left).
+  const querySig = JSON.stringify(filters.params);
   const load = useCallback(() => {
     setLoading(true);
     hiringApi
-      .list({ status: tab })
+      .list(JSON.parse(querySig) as Record<string, string>)
       .then((r) => {
-        setRows(r.hirings ?? []);
+        const list = r.hirings ?? [];
+        setRows(list);
+        setCounts({ total: r.total ?? list.length, count: r.count ?? list.length });
         setError(null);
       })
       .catch((e) => {
@@ -51,23 +79,46 @@ export default function Hiring() {
         setRows([]);
       })
       .finally(() => setLoading(false));
-  }, [tab]);
+  }, [querySig]);
 
   useEffect(() => {
     load();
   }, [load]);
 
-  const shown = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    if (!q) return rows ?? [];
-    return (rows ?? []).filter((r) =>
-      [r.candidateName, r.roleTitle, r.positionCode, r.departmentName, r.refNo, r.employee?.employeeCode]
-        .filter(Boolean)
-        .join(' ')
-        .toLowerCase()
-        .includes(q),
-    );
-  }, [rows, search]);
+  useEffect(() => {
+    positionsApi.options().then(setOptions).catch(() => setOptions(null));
+  }, []);
+
+  const shown = rows ?? [];
+
+  const defs: FilterDef[] = useMemo(() => {
+    // The company's own lists when this login may read them, else what the rows carry.
+    const depts = new Map<number, string>((options?.departments ?? []).map((d) => [d.id, d.name]));
+    const roles = new Map<number, string>((options?.roles ?? []).map((x) => [x.id, x.name]));
+    for (const r of rows ?? []) {
+      if (r.departmentId != null && r.departmentName && !depts.has(r.departmentId)) depts.set(r.departmentId, r.departmentName);
+      if (!roles.has(r.roleId)) roles.set(r.roleId, r.roleTitle);
+    }
+    const byName = (x: [number, string], y: [number, string]) => x[1].localeCompare(y[1]);
+    const asOptions = (m: Map<number, string>) =>
+      [...m.entries()].sort(byName).map(([id, t]) => ({ value: String(id), label: t }));
+    return [
+      {
+        key: 'status',
+        label: 'Show',
+        defaultValue: 'open',
+        options: [
+          { value: 'open', label: 'Open (in progress)' },
+          { value: 'done', label: 'Done' },
+          { value: 'closed', label: 'Closed' },
+          { value: 'all', label: 'All' },
+        ],
+      },
+      { key: 'stage', label: 'Stage', options: STAGES },
+      { key: 'department', label: 'Department (and below)', searchable: true, options: asOptions(depts) },
+      { key: 'role', label: 'Role', searchable: true, options: asOptions(roles) },
+    ];
+  }, [rows, options]);
 
   const columns: DataColumn<HiringSummary>[] = useMemo(
     () => [
@@ -161,45 +212,73 @@ export default function Hiring() {
         sortValue: (r) => r.updatedAt,
         exportValue: (r) => r.updatedAt,
       },
+      {
+        key: 'actions',
+        header: '',
+        alwaysVisible: true,
+        width: 110,
+        align: 'right',
+        render: (r) => {
+          const inProgress = r.stage !== 'DONE' && r.stage !== 'CLOSED';
+          const who = r.candidateName?.trim() || `${r.roleTitle} hiring`;
+          return (
+            <RowActions
+              name={who}
+              onEdit={() => navigate(`/${company}/cf_hrms/hiring/${r.id}`)}
+              editLabel={inProgress ? 'Continue' : 'Open'}
+              onRemove={can.hiring.edit && inProgress ? () => openClose(r.id) : undefined}
+              removeLabel="Close"
+            />
+          );
+        },
+      },
     ],
-    [],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [can.hiring.edit, company],
   );
 
   const emptyTitle =
-    tab === 'open' ? 'No hiring in progress' : tab === 'done' ? 'Nobody has been hired through here yet' : 'No closed hirings';
+    tab === 'open' ? 'No hiring in progress' : tab === 'done' ? 'Nobody has been hired through here yet' : tab === 'closed' ? 'No closed hirings' : 'No hirings yet';
   const emptyHint =
     tab === 'open'
       ? 'A hiring starts from a position. Open a vacant position and choose Hire a new person.'
       : tab === 'done'
         ? 'A hiring is done when the appointment letter is generated and the employee is created.'
-        : 'A hiring that ended without an employee — declined, lapsed or cancelled — is listed here.';
+        : tab === 'closed'
+          ? 'A hiring that ended without an employee — declined, lapsed or cancelled — is listed here.'
+          : 'A hiring starts from a vacant position.';
 
   return (
     <>
       <PageHeader
         title="Hiring"
         subtitle="one hiring per vacant position — job description, offer, appointment, and then the employee"
-        actions={
-          // A shortcut to another area's screen: only for someone who may open it.
-          can.positions.view && (
-            <Button size="small" variant="outlined" onClick={() => navigate(`/${company}/cf_hrms/positions`)}>
-              Find a vacant position
-            </Button>
-          )
-        }
       />
 
-      <FilterBar search={search} onSearch={setSearch} placeholder="Search candidate, role or position…">
-        {TABS.map((t) => (
-          <FacetChip
-            key={t.key}
-            label={t.label}
-            active={tab === t.key}
-            onClick={() => setTab(t.key)}
-            count={tab === t.key && rows ? rows.length : undefined}
-          />
-        ))}
-      </FilterBar>
+      <ListToolbar
+        filters={filters}
+        defs={defs}
+        shown={counts?.count ?? shown.length}
+        total={counts?.total}
+        noun={['hiring', 'hirings']}
+        searchPlaceholder="Search candidate, role, position or reference"
+        extra={
+          // A shortcut to another area's screen: only for someone who may open it.
+          can.positions.view ? (
+            <Button
+              size="small"
+              variant="outlined"
+              onClick={() => navigate(`/${company}/cf_hrms/positions`)}
+              sx={{ height: 36, whiteSpace: 'nowrap', flexShrink: 0 }}
+            >
+              Find a vacant position
+            </Button>
+          ) : undefined
+        }
+      />
+      <Typography sx={{ mt: -1, mb: 2, px: 0.5, fontSize: 13, color: 'var(--c-text-2)' }}>
+        A hiring starts on a vacant position.
+      </Typography>
 
       {!!error && <ErrorNotice error={error} onRetry={load} sx={{ mb: 2 }} />}
 
@@ -219,10 +298,12 @@ export default function Hiring() {
             empty={
               <EmptyState
                 icon={<PersonSearchRounded />}
-                title={search ? 'No hiring matches this search' : emptyTitle}
-                hint={search ? 'Clear the search to see every hiring in this list.' : emptyHint}
+                title={filters.isFiltered ? 'No hiring matches these filters' : emptyTitle}
+                hint={filters.isFiltered ? 'Clear the search and filters to see every hiring in this list.' : emptyHint}
                 action={
-                  !search && tab === 'open' && can.positions.view ? (
+                  filters.isFiltered ? (
+                    <Button size="small" onClick={filters.clear}>Clear</Button>
+                  ) : tab === 'open' && can.positions.view ? (
                     <Button size="small" variant="contained" onClick={() => navigate(`/${company}/cf_hrms/positions`)}>
                       Find a vacant position
                     </Button>
@@ -232,6 +313,19 @@ export default function Hiring() {
             }
           />
         </Box>
+      )}
+
+      {closing && (
+        <HiringCloseDialog
+          open
+          hiring={closing}
+          onClose={() => setClosing(null)}
+          onClosed={() => {
+            setClosing(null);
+            toast.success('Hiring closed. The position is vacant again.');
+            load();
+          }}
+        />
       )}
     </>
   );

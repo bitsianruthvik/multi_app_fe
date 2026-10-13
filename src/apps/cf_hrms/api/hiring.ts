@@ -21,6 +21,7 @@ export type HiringStage = 'JD' | 'OFFER' | 'APPOINTMENT' | 'DONE' | 'CLOSED';
 export interface HiringSummary {
   id: number; stage: HiringStage; closeReason: string | null; refNo: string | null;
   positionId: number; positionCode: string | null; roleId: number; roleTitle: string;
+  departmentId?: number | null;
   departmentName: string | null; shift: { id: number; code: string; name: string } | null;
   candidateName: string | null; offerAccepted: boolean;
   proposedJoiningDate: string | null; createdAt: string; updatedAt: string;
@@ -215,8 +216,12 @@ function qs(params: Record<string, string | number | undefined | null>): string 
 }
 
 export const hiringApi = {
-  list: (f: { status?: 'open' | 'done' | 'closed' | 'all'; positionId?: number } = {}) =>
-    api.get<{ hirings: HiringSummary[] }>(`/hirings${qs(f)}`),
+  /**
+   * The list's address parameters (§13.6): `q`, `status` (open, done, closed, all), `stage`,
+   * `department` (and below), `role`. `total` is the rows in the chosen status; `count` what is left.
+   */
+  list: (f: { status?: string; positionId?: number; q?: string; stage?: string; department?: string; role?: string } = {}) =>
+    api.get<{ hirings: HiringSummary[]; total?: number; count?: number }>(`/hirings${qs(f)}`),
   get: (id: number) => api.get<{ hiring: Hiring }>(`/hirings/${id}`),
   /** Starts at stage JD. 409 POSITION_FILLED · HIRING_OPEN (names the open one) · POSITION_CLOSED. */
   start: (positionId: number) => api.post<{ hiring: Hiring }>(`/positions/${positionId}/hiring`, {}),

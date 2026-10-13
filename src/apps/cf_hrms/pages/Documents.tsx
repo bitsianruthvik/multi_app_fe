@@ -35,8 +35,6 @@ import {
   DataTable,
   EmptyState,
   ErrorNotice,
-  FacetChip,
-  FilterBar,
   ListSkeleton,
   Mono,
   PageHeader,
@@ -52,10 +50,11 @@ import {
   documentTypeShort,
   documentsApi,
   type DocumentRow,
-  type DocumentType,
 } from '../api/documents';
 import { listRoles, rolesOverview, type RolesOverview } from '../api/roles';
 import { peopleApi } from '../api/people';
+import { ListToolbar, type FilterDef } from '../components/list/ListToolbar';
+import { useListFilters, matchesQuery } from '../components/list/useListFilters';
 import { DocumentGeneratePanel } from '../components/DocumentGenerate';
 import { useCan } from '../access/can';
 
@@ -86,9 +85,8 @@ export default function Documents() {
   const [notBuilt, setNotBuilt] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState('');
-  const [type, setType] = useState<DocumentType | ''>('');
-  const [currentOnly, setCurrentOnly] = useState(false);
+  const filters = useListFilters(['type', 'role', 'from', 'to', 'currentOnly']);
+  const fv = filters.values;
 
   // Coverage needs the model, not just the documents: how many roles and people
   // there are to cover. Both endpoints are live today, so the strip is honest
@@ -137,24 +135,49 @@ export default function Documents() {
   // because `rows ?? []` minted a new array.
   const all = useMemo(() => rows ?? [], [rows]);
 
+  // Filtered in the browser (the strip above needs every document), by the
+  // server's own rules for GET /documents: the search is in the title, the
+  // target's label, role title, position code or person's name; `role` is an
+  // id; `from` / `to` are the day it was generated (as the server writes the date).
+  const search = filters.params.q ?? '';
   const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
     return all.filter((r) => {
-      if (type && r.documentType !== type) return false;
-      if (currentOnly && !r.isCurrent) return false;
-      if (!q) return true;
-      return [
-        documentTargetLabel(r),
-        documentTypeShort(r.documentType),
-        r.target?.roleCode,
-        r.target?.positionCode,
-        r.target?.employeeCode,
-        r.generatedBy?.name,
-      ]
-        .filter(Boolean)
-        .some((v) => String(v).toLowerCase().includes(q));
+      if (fv.type && r.documentType !== fv.type) return false;
+      if (fv.role && String(r.target?.roleId ?? '') !== fv.role) return false;
+      if (fv.currentOnly && !r.isCurrent) return false;
+      if (fv.from || fv.to) {
+        const day = String(r.generatedAt ?? '').slice(0, 10);
+        if (fv.from && day < fv.from) return false;
+        if (fv.to && day > fv.to) return false;
+      }
+      return matchesQuery(
+        [r.title, r.target?.label, r.target?.roleTitle, r.target?.positionCode, r.target?.employeeName],
+        search,
+      );
     });
-  }, [all, search, type, currentOnly]);
+  }, [all, fv, search]);
+
+  const defs: FilterDef[] = useMemo(() => {
+    const roles = new Map<number, string>();
+    for (const r of all) {
+      const id = r.target?.roleId;
+      if (id) roles.set(id, r.target.roleTitle || r.target.roleCode || `Role ${id}`);
+    }
+    return [
+      { key: 'type', label: 'Type', options: DOCUMENT_TYPES.map((d) => ({ value: d.value, label: d.short })) },
+      {
+        key: 'role',
+        label: 'Role',
+        searchable: true,
+        options: [...roles.entries()]
+          .sort((x, y) => x[1].localeCompare(y[1]))
+          .map(([id, t]) => ({ value: String(id), label: t })),
+      },
+      { key: 'from', label: 'Generated from', kind: 'date' },
+      { key: 'to', label: 'Generated to', kind: 'date' },
+      { key: 'currentOnly', label: 'Current only', kind: 'toggle' },
+    ];
+  }, [all]);
 
   const stats: Stat[] = useMemo(() => {
     // A role is covered only by a CURRENT JD. A superseded one means the role has
@@ -328,25 +351,13 @@ export default function Documents() {
     );
   }
 
-  const filtering = !!search || !!type || currentOnly;
+  const filtering = filters.isFiltered;
 
   return (
     <>
       <PageHeader
         title="Documents"
         subtitle="job descriptions and responsibility profiles, each frozen as it was generated"
-        actions={
-          canGenerate && (
-            <Button
-              size="small"
-              variant="contained"
-              startIcon={<AutoAwesomeRounded />}
-              onClick={() => setParams({ generate: '1' })}
-            >
-              Generate
-            </Button>
-          )
-        }
       />
 
       <StatStrip stats={stats} />
@@ -358,24 +369,18 @@ export default function Documents() {
         </Callout>
       )}
 
-      <FilterBar search={search} onSearch={setSearch} placeholder="Search role, person or position…">
-        <FacetChip label="All" active={!type} onClick={() => setType('')} count={all.length} />
-        {DOCUMENT_TYPES.map((d) => (
-          <FacetChip
-            key={d.value}
-            label={d.short}
-            active={type === d.value}
-            onClick={() => setType(type === d.value ? '' : d.value)}
-            count={all.filter((r) => r.documentType === d.value).length}
-          />
-        ))}
-        <FacetChip
-          label="Current only"
-          active={currentOnly}
-          onClick={() => setCurrentOnly((v) => !v)}
-          count={all.filter((r) => r.isCurrent).length}
-        />
-      </FilterBar>
+      <ListToolbar
+        filters={filters}
+        defs={defs}
+        shown={filtered.length}
+        total={all.length}
+        noun={['document', 'documents']}
+        searchPlaceholder="Search by title, role, position or person"
+        add={canGenerate ? { label: 'Generate', onClick: () => setParams({ generate: '1' }) } : undefined}
+      />
+      <Typography sx={{ mt: -1, mb: 2, px: 0.5, fontSize: 13, color: 'var(--c-text-2)' }}>
+        Documents are generated from a role or a person, and are not edited afterwards; generate a new one instead.
+      </Typography>
 
       {error ? (
         <ErrorNotice
@@ -402,14 +407,16 @@ export default function Documents() {
           empty={
             <EmptyState
               icon={<DescriptionRounded />}
-              title={filtering ? 'No documents match this filter' : 'Nothing generated yet'}
+              title={filtering ? 'No documents match these filters' : 'Nothing generated yet'}
               hint={
                 filtering
-                  ? 'Clear the filter to see every generated document.'
+                  ? 'Clear the search and filters to see every generated document.'
                   : 'A document is a frozen copy of what a job was on the day it was generated — the role’s content, the position’s overlay and the person’s own changes, resolved and stored. Nothing here is computed on the fly.'
               }
               action={
-                canGenerate && !filtering ? (
+                filtering ? (
+                  <Button size="small" onClick={filters.clear}>Clear</Button>
+                ) : canGenerate ? (
                   <Button
                     variant="contained"
                     size="small"

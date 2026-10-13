@@ -5,9 +5,12 @@ import AddRounded from '@mui/icons-material/AddRounded';
 import CloseRounded from '@mui/icons-material/CloseRounded';
 import EventAvailableRounded from '@mui/icons-material/EventAvailableRounded';
 import {
-  Callout, EmptyState, ErrorNotice, FormDialog, ListSkeleton, PageHeader, SectionCard, ToneBadge,
+  Callout, ConfirmDialog, EmptyState, ErrorNotice, FormDialog, ListSkeleton, PageHeader, SectionCard, ToneBadge,
   errorMessage, useToast,
 } from '@shared/ui';
+import { ListToolbar, type FilterDef } from '../components/list/ListToolbar';
+import { RowActions } from '../components/list/RowActions';
+import { matchesFlag, matchesQuery, useListFilters, YES_NO_OPTIONS } from '../components/list/useListFilters';
 import { useCan } from '../access/can';
 import {
   POLICY_STATUS_LABEL, POLICY_STATUS_TONE, leaveApi, usedByLine,
@@ -112,6 +115,43 @@ export default function LeavePolicies() {
 
   const usable = useMemo(() => (policies ?? []).filter((p) => p.status !== 'ARCHIVED'), [policies]);
 
+  const filters = useListFilters(['status', 'used']);
+  const [doomed, setDoomed] = useState<PolicySummary | null>(null);
+  // Applied somewhere = the company default, a location or a role (the same test as the policy page).
+  const appliedAnywhere = (p: PolicySummary) => !!p.usedBy && (p.usedBy.company || p.usedBy.locations > 0 || p.usedBy.roles > 0);
+  const defs: FilterDef[] = useMemo(
+    () => [
+      {
+        key: 'status',
+        label: 'Status',
+        options: [
+          { value: 'DRAFT', label: POLICY_STATUS_LABEL.DRAFT ?? 'Draft' },
+          { value: 'ACTIVE', label: POLICY_STATUS_LABEL.ACTIVE ?? 'Active' },
+          { value: 'ARCHIVED', label: POLICY_STATUS_LABEL.ARCHIVED ?? 'Archived' },
+        ],
+      },
+      {
+        key: 'used',
+        label: 'Applied somewhere',
+        options: YES_NO_OPTIONS,
+      },
+    ],
+    [],
+  );
+  const searchText = filters.params.q ?? '';
+  const statusParam = filters.values.status;
+  const usedParam = filters.values.used;
+  const shown = useMemo(
+    () =>
+      (policies ?? []).filter((p) => {
+        // The server's rules for GET /leave/policies: the search is in the name or the code.
+        if (statusParam && p.status.toLowerCase() !== statusParam.toLowerCase()) return false;
+        if (!matchesFlag(usedParam, appliedAnywhere(p))) return false;
+        return matchesQuery([p.name, p.code], searchText);
+      }),
+    [policies, statusParam, usedParam, searchText],
+  );
+
   const assign = async (key: string, body: { scope: AssignmentScope; locationId?: number; roleId?: number; policyId: number | null }) => {
     setBusy(key);
     try {
@@ -157,23 +197,38 @@ export default function LeavePolicies() {
       <PageHeader
         title="Leave policies"
         subtitle="what leave people get, and who gets which policy"
-        actions={
-          canManage && (
-            <Button size="small" variant="contained" startIcon={<AddRounded />} onClick={openCreate}>
-              New policy
-            </Button>
-          )
-        }
       />
 
       <Tabs
         value={tab}
-        onChange={(_, v: TabKey) => setParams(v === 'applies' ? { tab: 'applies' } : {}, { replace: true })}
+        onChange={(_, v: TabKey) =>
+          setParams(
+            (prev) => {
+              const next = new URLSearchParams(prev);
+              if (v === 'applies') next.set('tab', 'applies');
+              else next.delete('tab');
+              return next;
+            },
+            { replace: true },
+          )
+        }
         sx={{ mb: 2, borderBottom: '1px solid var(--c-divider)' }}
       >
         <Tab value="policies" label={`Policies${policies ? ` · ${policies.length}` : ''}`} />
         <Tab value="applies" label="Where it applies" />
       </Tabs>
+
+      {tab === 'policies' && (
+        <ListToolbar
+          filters={filters}
+          defs={defs}
+          shown={shown.length}
+          total={(policies ?? []).length}
+          noun={['policy', 'policies']}
+          searchPlaceholder="Search policies by name or code"
+          add={canManage ? { label: 'New policy', onClick: openCreate } : undefined}
+        />
+      )}
 
       {!!error && <ErrorNotice error={error} onRetry={load} sx={{ mb: 2 }} />}
 
@@ -187,10 +242,35 @@ export default function LeavePolicies() {
             hint="A leave policy says what leave people get — how many days of each kind, how it is earned, what happens to what is left. Start from a ready-made one and change it."
             action={canManage ? <Button size="small" variant="contained" onClick={openCreate}>New policy</Button> : undefined}
           />
+        ) : shown.length === 0 ? (
+          <EmptyState
+            icon={<EventAvailableRounded />}
+            title="No policy matches"
+            hint="Nothing fits the search and filters."
+            action={<Button size="small" onClick={filters.clear}>Clear</Button>}
+          />
         ) : (
           <Box component="ul" sx={{ listStyle: 'none', m: 0, p: 0, display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 1.5 }}>
-            {policies.map((p) => (
-              <Box component="li" key={p.id} sx={{ minWidth: 0 }}>
+            {shown.map((p) => (
+              <Box
+                component="li"
+                key={p.id}
+                sx={{
+                  minWidth: 0,
+                  position: 'relative',
+                  borderRadius: 'var(--r-md)',
+                  border: '1px solid var(--c-border)',
+                  background: 'var(--c-surface)',
+                  '&:hover': { borderColor: 'var(--c-primary-500)' },
+                }}
+              >
+                <Box sx={{ position: 'absolute', top: 6, right: 6, zIndex: 1 }}>
+                  <RowActions
+                    name={p.name}
+                    onEdit={canManage ? () => navigate(`/${company}/cf_hrms/leave-policies/${p.id}`) : undefined}
+                    onRemove={canRemove ? () => setDoomed(p) : undefined}
+                  />
+                </Box>
                 <Box
                   component="button"
                   type="button"
@@ -204,10 +284,10 @@ export default function LeavePolicies() {
                     color: 'inherit',
                     cursor: 'pointer',
                     p: 2,
+                    pr: 10,
+                    border: 0,
                     borderRadius: 'var(--r-md)',
-                    border: '1px solid var(--c-border)',
-                    background: 'var(--c-surface)',
-                    '&:hover': { borderColor: 'var(--c-primary-500)' },
+                    background: 'transparent',
                     '&:focus-visible': { outline: '2px solid var(--c-primary-500)', outlineOffset: 1 },
                   }}
                 >
@@ -305,6 +385,26 @@ export default function LeavePolicies() {
           )}
         </>
       )}
+
+      <ConfirmDialog
+        open={!!doomed}
+        title={`Delete ${doomed?.name ?? 'this policy'}?`}
+        danger
+        confirmLabel="Delete"
+        body={
+          doomed && appliedAnywhere(doomed)
+            ? `${usedByLine(doomed.usedBy)}. A policy that applies somewhere cannot be deleted — choose another policy there first, under Where it applies.`
+            : 'It is not applied anywhere. This cannot be undone.'
+        }
+        onClose={() => setDoomed(null)}
+        onConfirm={async () => {
+          if (!doomed) return;
+          // The server refuses a policy that is still applied, and says where.
+          await leaveApi.removePolicy(doomed.id);
+          toast.success('Leave policy deleted.');
+          load();
+        }}
+      />
 
       {/* ── New policy: choose where to start ──────────────────────────────── */}
       <FormDialog

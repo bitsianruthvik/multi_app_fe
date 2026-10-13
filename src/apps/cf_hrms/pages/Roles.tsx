@@ -11,38 +11,41 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Box, Button, Stack } from '@mui/material';
-import AddRounded from '@mui/icons-material/AddRounded';
 import BadgeRounded from '@mui/icons-material/BadgeRounded';
 import ContentCopyRounded from '@mui/icons-material/ContentCopyRounded';
 import {
-  PageHeader, FilterBar, FacetChip, DataTable, EmptyState, StatStrip, StatusBadge, ToneBadge,
-  Mono, ErrorNotice, ListSkeleton, useCompanySlug,
-  type DataColumn, type Stat,
+  PageHeader, DataTable, EmptyState, StatusBadge, ToneBadge,
+  Mono, ErrorNotice, ListSkeleton, ConfirmDialog, useToast, useCompanySlug,
+  type DataColumn,
 } from '@shared/ui';
 import { useCan } from '../access/can';
-import { listRoles, pretty, type Role } from '../api/roles';
+import { listRoles, deleteRole, pretty, type Role } from '../api/roles';
 import { RoleFormDialog } from '../components/RoleFormDialog';
 import { ContentCopySheet, type ContentCopyStart } from '../components/ContentCopySheet';
-
-type Gap = 'purpose' | 'kras';
+import { useListFilters, matchesQuery, matchesFlag, YES_NO_OPTIONS as YES_NO } from '../components/list/useListFilters';
+import { ListToolbar, type FilterDef } from '../components/list/ListToolbar';
+import { RowActions } from '../components/list/RowActions';
+import { ExcelButtons } from '../components/excel/ExcelButtons';
 
 export default function Roles() {
   const navigate = useNavigate();
   const company = useCompanySlug();
+  const toast = useToast();
   const can = useCan();
   // New role and copying content into roles = roles.edit. The department link needs org.view.
   const mayEdit = can.roles.edit;
+  const mayRemove = can.roles.remove;
   const seeDepartments = can.org.view;
   const [params, setParams] = useSearchParams();
+  const filters = useListFilters(['status', 'hasPositions', 'hasPurpose', 'jdReady']);
 
   const [rows, setRows] = useState<Role[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<unknown>(null);
-  const [search, setSearch] = useState('');
-  const [status, setStatus] = useState<string | null>(null);
-  const [gap, setGap] = useState<Gap | null>(null);
   // The shell's quick-create sends ?new=1 here.
   const [creating, setCreating] = useState(params.get('new') === '1');
+  const [editing, setEditing] = useState<Role | null>(null);
+  const [removing, setRemoving] = useState<Role | null>(null);
   const [copyStart, setCopyStart] = useState<ContentCopyStart | null>(null);
 
   const load = useCallback(async () => {
@@ -61,41 +64,40 @@ export default function Roles() {
     void load();
   }, [load]);
 
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return rows.filter((r) => {
-      if (status && r.status !== status) return false;
-      if (gap === 'purpose' && r.hasPurpose) return false;
-      if (gap === 'kras' && r.kraCount > 0) return false;
-      if (!q) return true;
-      return [r.title, r.roleCode, r.departmentName, r.rolePurpose]
-        .filter(Boolean)
-        .some((v) => String(v).toLowerCase().includes(q));
-    });
-  }, [rows, search, status, gap]);
+  // The same rules as the server's GET /roles (lib/listFilters.js), so the count
+  // line and the Excel download agree.
+  const { status, hasPositions, hasPurpose, jdReady } = filters.values;
+  const search = filters.params.q ?? '';
+  const filtered = useMemo(
+    () =>
+      rows.filter(
+        (r) =>
+          (!status || r.status.toLowerCase() === status.toLowerCase()) &&
+          matchesFlag(hasPositions, r.positionCount > 0) &&
+          matchesFlag(hasPurpose, r.hasPurpose) &&
+          matchesFlag(jdReady, r.jdReady) &&
+          matchesQuery([r.title, r.roleCode], search),
+      ),
+    [rows, status, hasPositions, hasPurpose, jdReady, search],
+  );
 
-  const stats = useMemo<Stat[]>(() => {
-    const noPurpose = filtered.filter((r) => !r.hasPurpose).length;
-    const noKras = filtered.filter((r) => r.kraCount === 0).length;
-    return [
-      { label: 'Roles', value: filtered.length, hint: 'In this list' },
-      { label: 'Active', value: filtered.filter((r) => r.status === 'ACTIVE').length, tone: 'primary' },
+  const defs = useMemo<FilterDef[]>(
+    () => [
       {
-        label: 'No purpose',
-        value: noPurpose,
-        tone: 'warning',
-        hint: 'A JD opens with the purpose. Click to see them.',
-        onClick: () => setGap(gap === 'purpose' ? null : 'purpose'),
+        key: 'status',
+        label: 'Status',
+        options: ['ACTIVE', 'DRAFT', 'RETIRED'].map((s) => ({
+          value: s,
+          label: pretty(s),
+          count: rows.filter((r) => r.status === s).length,
+        })),
       },
-      {
-        label: 'No KRAs',
-        value: noKras,
-        tone: 'warning',
-        hint: 'Duties with no outcome area to sit under. Click to see them.',
-        onClick: () => setGap(gap === 'kras' ? null : 'kras'),
-      },
-    ];
-  }, [filtered, gap]);
+      { key: 'hasPositions', label: 'Has positions', options: YES_NO },
+      { key: 'hasPurpose', label: 'Has a purpose', options: YES_NO },
+      { key: 'jdReady', label: 'JD ready (purpose and a KRA)', options: YES_NO },
+    ],
+    [rows],
+  );
 
   const columns = useMemo<DataColumn<Role>[]>(
     () => [
@@ -180,13 +182,6 @@ export default function Roles() {
       <PageHeader
         title="Roles"
         subtitle="reusable kinds of work — what a JD is generated from"
-        actions={
-          mayEdit ? (
-            <Button variant="contained" startIcon={<AddRounded />} onClick={() => setCreating(true)}>
-              New role
-            </Button>
-          ) : null
-        }
       />
 
       {error ? (
@@ -195,30 +190,26 @@ export default function Roles() {
         <ListSkeleton rows={7} />
       ) : (
         <>
-          <StatStrip stats={stats} />
-
-          <Box sx={{ mt: 2, mb: 2 }}>
-            <FilterBar search={search} onSearch={setSearch} placeholder="Search roles, codes, purpose…">
-              <FacetChip label="All" active={!status && !gap} onClick={() => { setStatus(null); setGap(null); }} count={rows.length} />
-              {['ACTIVE', 'DRAFT', 'RETIRED'].map((s) => (
-                <FacetChip
-                  key={s}
-                  label={pretty(s)}
-                  active={status === s}
-                  onClick={() => setStatus(status === s ? null : s)}
-                  count={rows.filter((r) => r.status === s).length}
-                />
-              ))}
-              {gap && (
-                <FacetChip
-                  label={gap === 'purpose' ? 'No purpose' : 'No KRAs'}
-                  active
-                  onClick={() => setGap(null)}
-                  count={filtered.length}
-                />
-              )}
-            </FilterBar>
-          </Box>
+          <ListToolbar
+            filters={filters}
+            defs={defs}
+            shown={filtered.length}
+            total={rows.length}
+            noun={['role', 'roles']}
+            searchPlaceholder="Search roles by title or code"
+            add={mayEdit ? { label: 'New role', onClick: () => setCreating(true) } : undefined}
+            excel={
+              <ExcelButtons
+                entity="roles"
+                noun={['role', 'roles']}
+                filters={filters.params}
+                count={filtered.length}
+                canDownload={can.roles.view}
+                canUpload={can.roles.upload}
+                onApplied={() => void load()}
+              />
+            }
+          />
 
           <DataTable
             rows={filtered}
@@ -243,22 +234,27 @@ export default function Roles() {
             exportName="cf_hrms-roles"
             defaultSortKey="title"
             onRowClick={(r) => navigate(`/${company}/cf_hrms/roles/${r.id}`)}
+            rowActions={
+              mayEdit || mayRemove
+                ? (r) => (
+                    <RowActions
+                      name={r.title}
+                      onEdit={mayEdit ? () => setEditing(r) : undefined}
+                      onRemove={mayRemove ? () => setRemoving(r) : undefined}
+                    />
+                  )
+                : undefined
+            }
             empty={
               <EmptyState
                 icon={<BadgeRounded />}
                 title={rows.length ? 'Nothing matches those filters' : 'No roles yet'}
                 hint={
                   rows.length
-                    ? 'Clear the search or the chips to see every role.'
+                    ? 'Clear the search or the filters to see every role.'
                     : 'A role is a kind of work — "Printing Operator". Create one, give it a purpose, then assign KRAs, responsibilities and KPIs from the masters.'
                 }
-                action={
-                  mayEdit && !rows.length ? (
-                    <Button variant="contained" startIcon={<AddRounded />} onClick={() => setCreating(true)}>
-                      New role
-                    </Button>
-                  ) : undefined
-                }
+                action={rows.length ? <Button onClick={filters.clear}>Clear</Button> : undefined}
               />
             }
           />
@@ -271,6 +267,38 @@ export default function Roles() {
       )}
 
       <ContentCopySheet open={!!copyStart} start={copyStart} onClose={() => setCopyStart(null)} onDone={() => void load()} />
+
+      <RoleFormDialog
+        open={!!editing}
+        role={editing}
+        onClose={() => setEditing(null)}
+        onSaved={() => {
+          setEditing(null);
+          toast.success('Role saved.');
+          void load();
+        }}
+      />
+
+      <ConfirmDialog
+        open={!!removing}
+        title="Remove this role?"
+        entityName={removing?.title}
+        body={
+          removing && removing.positionCount > 0
+            ? `${removing.positionCount} position${removing.positionCount === 1 ? '' : 's'} still hold this role, so the server will refuse and say so. Retire the role instead, or move those positions first.`
+            : 'Its content is removed with it. If a position or a person still holds the role, the server will refuse — retire it instead, which keeps the definition readable for the work already attached to it.'
+        }
+        confirmLabel="Remove"
+        danger
+        onClose={() => setRemoving(null)}
+        onConfirm={async () => {
+          if (!removing) return;
+          await deleteRole(removing.id);
+          toast.success(`${removing.title} removed.`);
+          setRemoving(null);
+          await load();
+        }}
+      />
 
       <RoleFormDialog
         open={creating}

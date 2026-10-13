@@ -14,13 +14,10 @@
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Box, Button, IconButton, MenuItem, Stack, TextField, Tooltip, Typography } from '@mui/material';
-import AddRounded from '@mui/icons-material/AddRounded';
-import EditRounded from '@mui/icons-material/EditRounded';
-import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
+import { Box, Button, MenuItem, Stack, TextField, Typography } from '@mui/material';
 import GroupWorkRounded from '@mui/icons-material/GroupWorkRounded';
 import {
-  FilterBar, FacetChip, DataTable, EmptyState, StatStrip, StatusBadge, ToneBadge, Mono,
+  DataTable, EmptyState, StatStrip, StatusBadge, ToneBadge, Mono,
   FormDialog, ConfirmDialog, ErrorNotice, SideSheet, ListSkeleton, Callout, useToast,
   useCompanySlug, type DataColumn, type Stat,
 } from '@shared/ui';
@@ -31,6 +28,11 @@ import {
 } from '../api/roles';
 import { ScreenHeader } from './TabbedScreen';
 import { useCan } from '../access/can';
+import type { ExcelEntity } from '../api/excel';
+import { useListFilters, matchesQuery, matchesFlag, YES_NO_OPTIONS } from './list/useListFilters';
+import { ListToolbar, type FilterDef } from './list/ListToolbar';
+import { RowActions } from './list/RowActions';
+import { ExcelButtons } from './excel/ExcelButtons';
 
 // ---------------------------------------------------------------------------
 // What makes each vocabulary itself
@@ -56,8 +58,6 @@ interface MasterDef {
   newLabel: string;
   hasCode: boolean;
   columns: DataColumn<MasterItem>[];
-  facetField?: keyof MasterItem;
-  facets?: (meta: HrmsMeta | null) => string[];
   fields: FieldDef[];
   /** The failure mode worth naming at the top of the screen. */
   extraStat?: (rows: MasterItem[]) => Stat | null;
@@ -96,7 +96,6 @@ const MASTERS: Record<MasterKind, MasterDef> = {
       { key: 'category', header: 'Category', render: (r) => (r.category ? <Box sx={{ fontSize: 13 }}>{r.category}</Box> : <Box sx={{ color: 'var(--c-text-3)' }}>—</Box>), sortValue: (r) => r.category ?? null },
       descriptionColumn,
     ],
-    facetField: 'category',
     fields: [
       { name: 'code', label: 'Code', type: 'text', helper: 'Optional short key, e.g. KRA-PROD.' },
       { name: 'name', label: 'Name', type: 'text', required: true, helper: 'The outcome area, as a noun phrase — "Production efficiency".' },
@@ -123,8 +122,6 @@ const MASTERS: Record<MasterKind, MasterDef> = {
       descriptionColumn,
       typeColumn('responsibilityClass', 'Class'),
     ],
-    facetField: 'responsibilityClass',
-    facets: (m) => m?.responsibilityClasses ?? [],
     fields: [
       { name: 'code', label: 'Code', type: 'text' },
       { name: 'name', label: 'Short label', type: 'text', required: true, helper: 'What the JD lists — "Review machine-wise output".' },
@@ -161,8 +158,6 @@ const MASTERS: Record<MasterKind, MasterDef> = {
         exportValue: (r) => r.formulaText ?? '',
       },
     ],
-    facetField: 'measurementType',
-    facets: (m) => m?.measurementTypes ?? [],
     fields: [
       { name: 'code', label: 'Code', type: 'text' },
       { name: 'name', label: 'Name', type: 'text', required: true, helper: 'Name the indicator, not the target — "Rejection rate %", not "Rejection under 2%".' },
@@ -190,8 +185,6 @@ const MASTERS: Record<MasterKind, MasterDef> = {
     newLabel: 'New skill',
     hasCode: false,
     columns: [typeColumn('skillType', 'Type'), descriptionColumn],
-    facetField: 'skillType',
-    facets: (m) => m?.skillTypes ?? [],
     fields: [
       { name: 'name', label: 'Name', type: 'text', required: true },
       { name: 'skillType', label: 'Type', type: 'select', required: true, options: (m) => m?.skillTypes ?? [] },
@@ -209,8 +202,6 @@ const MASTERS: Record<MasterKind, MasterDef> = {
     newLabel: 'New qualification',
     hasCode: false,
     columns: [typeColumn('qualificationType', 'Type'), descriptionColumn],
-    facetField: 'qualificationType',
-    facets: (m) => m?.qualificationTypes ?? [],
     fields: [
       { name: 'name', label: 'Name', type: 'text', required: true },
       { name: 'qualificationType', label: 'Type', type: 'select', required: true, options: (m) => m?.qualificationTypes ?? [] },
@@ -229,8 +220,6 @@ const MASTERS: Record<MasterKind, MasterDef> = {
     newLabel: 'New authority',
     hasCode: false,
     columns: [typeColumn('authorityType', 'Type'), descriptionColumn],
-    facetField: 'authorityType',
-    facets: (m) => m?.authorityTypes ?? [],
     fields: [
       { name: 'name', label: 'Name', type: 'text', required: true, helper: '"Approve consumable purchase", "Stop the machine".' },
       { name: 'authorityType', label: 'Type', type: 'select', required: true, options: (m) => m?.authorityTypes ?? [] },
@@ -239,6 +228,15 @@ const MASTERS: Record<MasterKind, MasterDef> = {
     ],
     emptyHint: 'An authority says what someone may do without asking. The limit is set per role.',
   },
+};
+
+const EXCEL_ENTITY: Record<MasterKind, ExcelEntity> = {
+  kras: 'library-kras',
+  responsibilities: 'library-responsibilities',
+  kpis: 'library-kpis',
+  skills: 'library-skills',
+  qualifications: 'library-qualifications',
+  authorities: 'library-authorities',
 };
 
 // ---------------------------------------------------------------------------
@@ -275,8 +273,10 @@ export function RoleMasterScreen({ kind }: { kind: MasterKind }) {
   const [meta, setMeta] = useState<HrmsMeta | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<unknown>(null);
-  const [search, setSearch] = useState('');
-  const [facet, setFacet] = useState<string | null>(null);
+  // The tabs reset the address to `?tab=x` on a switch, and each tab is keyed,
+  // so one kind's filters never reach the next. Only what GET /role-masters/:kind
+  // takes is offered (search, status, used): the Excel download reads the same.
+  const filters = useListFilters(['status', 'used']);
 
   const [editing, setEditing] = useState<MasterItem | null>(null);
   const [creating, setCreating] = useState(false);
@@ -306,42 +306,42 @@ export function RoleMasterScreen({ kind }: { kind: MasterKind }) {
     getMeta().then(setMeta).catch(() => setMeta(null));
   }, []);
 
-  useEffect(() => {
-    setSearch('');
-    setFacet(null);
-  }, [kind]);
-
+  const { status: statusF, used: usedF } = filters.values;
+  const search = filters.params.q ?? '';
+  // The server's rules: the search is in the name, code or description; `used` is 1 / 0.
   const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return rows.filter((r) => {
-      if (facet && def.facetField && String(r[def.facetField] ?? '') !== facet) return false;
-      if (!q) return true;
-      return [r.name, r.code, r.description, r.category]
-        .filter(Boolean)
-        .some((v) => String(v).toLowerCase().includes(q));
-    });
-  }, [rows, search, facet, def.facetField]);
+    return rows.filter(
+      (r) =>
+        (!statusF || r.status.toLowerCase() === statusF.toLowerCase()) &&
+        matchesFlag(usedF, (r.usageCount ?? 0) > 0) &&
+        matchesQuery([r.name, r.code, r.description], search),
+    );
+  }, [rows, statusF, usedF, search]);
 
-  const facetValues = useMemo(() => {
-    if (!def.facetField) return [];
-    const fromMeta = def.facets?.(meta) ?? [];
-    const present = new Set(rows.map((r) => String(r[def.facetField!] ?? '')).filter(Boolean));
-    const all = fromMeta.length ? fromMeta.filter((v) => present.has(v)) : [...present].sort();
-    return all;
-  }, [rows, meta, def]);
-
-  /** Metrics describe the FILTERED set, so they always agree with the list below. */
-  const stats = useMemo<Stat[]>(() => {
-    const unused = filtered.filter((r) => !r.usageCount).length;
-    const base: Stat[] = [
-      { label: def.title, value: filtered.length, hint: 'In this list' },
-      { label: 'Assigned to a role', value: filtered.filter((r) => r.usageCount > 0).length, tone: 'primary' },
-      { label: 'Used by no role', value: unused, tone: unused ? 'warning' : 'default', hint: 'Defined, but no role carries it yet.' },
+  const defs = useMemo<FilterDef[]>(() => {
+    const out: FilterDef[] = [
+      {
+        key: 'status',
+        label: 'Status',
+        options: ['ACTIVE', 'INACTIVE'].map((s) => ({
+          value: s,
+          label: pretty(s),
+          count: rows.filter((r) => r.status === s).length,
+        })),
+      },
+      {
+        key: 'used',
+        label: 'Used by roles',
+        options: YES_NO_OPTIONS,
+      },
     ];
-    const extra = def.extraStat?.(filtered);
-    // The generic "unused" stat is already there; a descriptor that repeats it wins nothing.
-    if (extra && extra.label !== 'Used by no role') base.push(extra);
-    return base;
+    return out;
+  }, [rows]);
+
+  // The generic "unused" count is now a filter; only a kind's own failure mode stays a card.
+  const extraStat = useMemo(() => {
+    const s = def.extraStat?.(filtered);
+    return s && s.label !== 'Used by no role' ? s : null;
   }, [filtered, def]);
 
   const columns = useMemo<DataColumn<MasterItem>[]>(() => {
@@ -438,13 +438,6 @@ export function RoleMasterScreen({ kind }: { kind: MasterKind }) {
       <ScreenHeader
         title={def.title}
         subtitle={def.subtitle}
-        actions={
-          mayEdit ? (
-            <Button variant="contained" startIcon={<AddRounded />} onClick={openCreate}>
-              {def.newLabel}
-            </Button>
-          ) : null
-        }
       />
 
       {/* The one sentence that keeps the three vocabularies apart. A screen
@@ -460,27 +453,29 @@ export function RoleMasterScreen({ kind }: { kind: MasterKind }) {
         <ListSkeleton rows={6} />
       ) : (
         <>
-          <StatStrip stats={stats} />
+          {extraStat && <StatStrip stats={[extraStat]} />}
 
-          <Box sx={{ mt: 2, mb: 2 }}>
-            <FilterBar search={search} onSearch={setSearch} placeholder={`Search ${def.title.toLowerCase()}…`}>
-              {facetValues.length > 0 && (
-                <>
-                  <FacetChip label="All" active={!facet} onClick={() => setFacet(null)} count={rows.length} />
-                  {facetValues.map((v) => (
-                    <FacetChip
-                      key={v}
-                      // Enum facets are prettified; a free-text one (a KRA
-                      // category) is shown as typed — "EHS" is not "Ehs".
-                      label={def.facets ? pretty(v) : v}
-                      active={facet === v}
-                      onClick={() => setFacet(facet === v ? null : v)}
-                      count={rows.filter((r) => String(r[def.facetField!] ?? '') === v).length}
-                    />
-                  ))}
-                </>
-              )}
-            </FilterBar>
+          <Box sx={{ mt: extraStat ? 2 : 0 }}>
+            <ListToolbar
+              filters={filters}
+              defs={defs}
+              shown={filtered.length}
+              total={rows.length}
+              noun={[def.singular, def.title.toLowerCase()]}
+              searchPlaceholder={`Search ${def.title.toLowerCase()} by name, code or description`}
+              add={mayEdit ? { label: def.newLabel, onClick: openCreate } : undefined}
+              excel={
+                <ExcelButtons
+                  entity={EXCEL_ENTITY[kind]}
+                  noun={[def.singular, def.title.toLowerCase()]}
+                  filters={filters.params}
+                  count={filtered.length}
+                  canDownload={can.roles.view}
+                  canUpload={can.roles.upload}
+                  onApplied={() => void load()}
+                />
+              }
+            />
           </Box>
 
           <DataTable
@@ -494,28 +489,11 @@ export function RoleMasterScreen({ kind }: { kind: MasterKind }) {
             rowActions={
               mayEdit || mayRemove
                 ? (r) => (
-                    <Stack direction="row" spacing={0.5}>
-                      {mayEdit && (
-                        <Tooltip title="Edit">
-                          <IconButton size="small" aria-label={`Edit ${r.name}`} onClick={(e) => { e.stopPropagation(); openEdit(r); }}>
-                            <EditRounded fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                      )}
-                      {mayRemove && (
-                        <Tooltip title={r.usageCount ? 'In use — unassign it first' : 'Delete'}>
-                          <span>
-                            <IconButton
-                              size="small"
-                              aria-label={`Delete ${r.name}`}
-                              onClick={(e) => { e.stopPropagation(); setRemoving(r); }}
-                            >
-                              <DeleteOutlineRounded fontSize="small" />
-                            </IconButton>
-                          </span>
-                        </Tooltip>
-                      )}
-                    </Stack>
+                    <RowActions
+                      name={r.name}
+                      onEdit={mayEdit ? () => openEdit(r) : undefined}
+                      onRemove={mayRemove ? () => setRemoving(r) : undefined}
+                    />
                   )
                 : undefined
             }
@@ -523,14 +501,8 @@ export function RoleMasterScreen({ kind }: { kind: MasterKind }) {
               <EmptyState
                 icon={<GroupWorkRounded />}
                 title={rows.length ? 'Nothing matches those filters' : `No ${def.title.toLowerCase()} yet`}
-                hint={rows.length ? 'Clear the search or the facet to see everything.' : def.emptyHint}
-                action={
-                  mayEdit && !rows.length ? (
-                    <Button variant="contained" startIcon={<AddRounded />} onClick={openCreate}>
-                      {def.newLabel}
-                    </Button>
-                  ) : undefined
-                }
+                hint={rows.length ? 'Clear the search or the filters to see everything.' : def.emptyHint}
+                action={rows.length ? <Button onClick={filters.clear}>Clear</Button> : undefined}
               />
             }
           />
@@ -578,20 +550,20 @@ export function RoleMasterScreen({ kind }: { kind: MasterKind }) {
 
       <ConfirmDialog
         open={!!removing}
-        title={`Delete this ${def.singular}?`}
+        title={`Remove this ${def.singular}?`}
         entityName={removing?.name}
         body={
           removing?.usageCount
-            ? 'This one is assigned to roles. The server will refuse and name them — unassign it there, or set it inactive so it stops appearing in pickers while the roles that carry it keep their content.'
+            ? `${removing.usageCount} role${removing.usageCount === 1 ? '' : 's'} carry${removing.usageCount === 1 ? 's' : ''} this one. The server will refuse and name them — unassign it there, or set it inactive so it stops appearing in pickers while the roles that carry it keep their content.`
             : 'It disappears from the pickers. Nothing that already refers to it is affected, because nothing does.'
         }
-        confirmLabel="Delete"
+        confirmLabel="Remove"
         danger
         onClose={() => setRemoving(null)}
         onConfirm={async () => {
           if (!removing) return;
           await deleteMaster(kind, removing.id);
-          toast.success(`${removing.name} deleted.`);
+          toast.success(`${removing.name} removed.`);
           setRemoving(null);
           await load();
         }}

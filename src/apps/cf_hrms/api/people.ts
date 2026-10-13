@@ -92,6 +92,11 @@ export interface EmployeeRow {
   totalAllocationPercent: number;
   primaryAssignmentId: number | null;
   primaryRoleTitle: string | null;
+  /** Role, position and shift of the MAIN position — what the list filters on. */
+  roleId: number | null;
+  positionId: number | null;
+  positionCode: string | null;
+  shiftId: number | null;
   departmentId: number | null;
   departmentName: string | null;
   locationId: number | null;
@@ -119,7 +124,8 @@ export interface EmergencyContact {
 
 export interface Employee extends Omit<EmployeeRow,
   'activeAssignmentCount' | 'openAssignmentCount' | 'assignmentCount' | 'totalAllocationPercent'
-  | 'primaryAssignmentId' | 'primaryRoleTitle' | 'departmentId' | 'departmentName'
+  | 'primaryAssignmentId' | 'primaryRoleTitle' | 'roleId' | 'positionId' | 'positionCode' | 'shiftId'
+  | 'departmentId' | 'departmentName'
   | 'locationId' | 'locationName' | 'documentCount' | 'expiredDocumentCount' | 'expiringDocumentCount'> {
   addressJson: Address | null;
   emergencyContactJson: EmergencyContact | null;
@@ -337,8 +343,14 @@ const qs = (params: Record<string, string | undefined>) => {
 export const peopleApi = {
   pickers: () => api.get<PeoplePickers>('/people/pickers'),
 
-  list: (filters: { status?: string; employmentType?: string; contractorId?: string; search?: string } = {}) =>
-    api.get<{ asOf: string; total: number; items: EmployeeRow[] }>(`/people/employees${qs(filters)}`),
+  /**
+   * `filters` are the list's address parameters (§13.6): `q`, `status` (`ACTIVE,NOTICE`
+   * when absent), `department` (and below), `role`, `shift`, `location`,
+   * `joinedFrom`, `joinedTo`, `hasLogin` (1/0), and `employmentType`, `contractorId`.
+   * `total` is the rows in the chosen status; `count` what is left after the rest.
+   */
+  list: (filters: Record<string, string | undefined> = {}) =>
+    api.get<{ asOf: string; total: number; count?: number; items: EmployeeRow[] }>(`/people/employees${qs(filters)}`),
 
   get: (id: number) => api.get<EmployeeDetail>(`/people/employees/${id}`),
   /**

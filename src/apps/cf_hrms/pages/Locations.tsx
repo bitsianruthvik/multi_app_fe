@@ -1,8 +1,6 @@
 import { useCallback, useMemo, useState } from 'react';
-import { Box, Button, IconButton, MenuItem, TextField, Tooltip } from '@mui/material';
+import { Box, Button, MenuItem, TextField } from '@mui/material';
 import AddRounded from '@mui/icons-material/AddRounded';
-import EditRounded from '@mui/icons-material/EditRounded';
-import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
 import SubdirectoryArrowRightRounded from '@mui/icons-material/SubdirectoryArrowRightRounded';
 import UnfoldLessRounded from '@mui/icons-material/UnfoldLessRounded';
 import UnfoldMoreRounded from '@mui/icons-material/UnfoldMoreRounded';
@@ -11,8 +9,6 @@ import {
   ConfirmDialog,
   EmptyState,
   ErrorNotice,
-  FacetChip,
-  FilterBar,
   FormDialog,
   ListSkeleton,
   PageHeader,
@@ -34,7 +30,7 @@ import {
   ORG_STATUS_LABELS,
   ORG_STATUS_TONES,
   descendantIds,
-  filterTree,
+  filterTreeBy,
   indentedLabel,
   parentPath,
   useOrgLoad,
@@ -42,6 +38,10 @@ import {
 } from '../components/OrgData';
 import { OrgCode, OrgTreeView } from '../components/OrgTree';
 import { CodeNote } from '../components/CodeNote';
+import { ListToolbar, type FilterDef } from '../components/list/ListToolbar';
+import { matchesQuery, useListFilters } from '../components/list/useListFilters';
+import { RowActions } from '../components/list/RowActions';
+import { ExcelButtons } from '../components/excel/ExcelButtons';
 
 /**
  * Locations — where work physically happens, as a tree (§4.7).
@@ -107,23 +107,34 @@ export default function Locations() {
   const { data, error, loading, reload } = useOrgLoad(load);
   const rows = useMemo(() => data ?? [], [data]);
 
-  const [query, setQuery] = useState('');
-  const [typeFacet, setTypeFacet] = useState<LocationType | null>(null);
-  const searched = useMemo(
+  const filters = useListFilters(['status']);
+  const statusFilter = filters.values.status;
+  const search = filters.params.q ?? '';
+  // The server's rule for GET /organisation/locations: status, and the search in the name or the code.
+  const matched = useMemo(
     () =>
-      filterTree(
-        rows,
-        query,
-        (r) => `${r.name} ${r.code ?? ''} ${r.path} ${oneLineAddress(r.address)}`,
+      rows.filter(
+        (r) =>
+          (!statusFilter || r.status.toLowerCase() === statusFilter.toLowerCase()) &&
+          matchesQuery([r.name, r.code], search),
       ),
-    [rows, query],
+    [rows, statusFilter, search],
   );
-  // A type facet on a tree is a filter on the ROWS, not on the branches — so it
-  // flattens to a plain list, which is honest: "every SITE" is not a tree.
-  const filtered = useMemo(
-    () => (typeFacet ? searched.filter((r) => r.locationType === typeFacet) : searched),
-    [searched, typeFacet],
-  );
+  // Every match keeps its ancestors in the tree so it still reads; the count is of the matches.
+  const filtered = useMemo(() => {
+    const ids = new Set(matched.map((r) => r.id));
+    return filterTreeBy(rows, (r) => ids.has(r.id));
+  }, [rows, matched]);
+  const filterDefs: FilterDef[] = [
+    {
+      key: 'status',
+      label: 'Status',
+      options: [
+        { value: 'ACTIVE', label: 'Active' },
+        { value: 'INACTIVE', label: 'Inactive' },
+      ],
+    },
+  ];
   const { collapsed, toggle, expandAll, collapseAll, anyCollapsed } = useTreeCollapse(rows);
 
   const [draft, setDraft] = useState<DraftState | null>(null);
@@ -131,23 +142,14 @@ export default function Locations() {
 
   const stats: Stat[] = useMemo(() => {
     const noAddress = rows.filter((r) => !hasAddress(r.address)).length;
-    const inactive = rows.filter((r) => r.status === 'INACTIVE').length;
     return [
-      { label: 'Locations', value: rows.length },
       {
         label: 'No address',
         value: noAddress,
         tone: 'warning',
         hint: 'Statutory registers, payslips and letters all print an address. Fill it once here.',
       },
-      { label: 'Inactive', value: inactive, tone: 'warning', hint: 'Kept for history; hidden from new pickers.' },
     ];
-  }, [rows]);
-
-  const typeCounts = useMemo(() => {
-    const out = new Map<LocationType, number>();
-    for (const r of rows) out.set(r.locationType, (out.get(r.locationType) ?? 0) + 1);
-    return out;
   }, [rows]);
 
   const openNew = (parentId: number | null) => setDraft(emptyDraft(parentId));
@@ -181,7 +183,7 @@ export default function Locations() {
   const remove = async () => {
     if (!doomed) return;
     await orgApi.locations.remove(doomed.id);
-    success(`${doomed.name} deleted.`);
+    success(`${doomed.name} removed.`);
     reload();
   };
 
@@ -192,25 +194,6 @@ export default function Locations() {
       <PageHeader
         title="Locations"
         subtitle="Plants, units, offices and sites — and what sits inside them"
-        actions={
-          <Box sx={{ display: 'flex', gap: 1 }}>
-            {rows.length > 0 && (
-              <Button
-                size="small"
-                variant="outlined"
-                startIcon={anyCollapsed ? <UnfoldMoreRounded /> : <UnfoldLessRounded />}
-                onClick={anyCollapsed ? expandAll : collapseAll}
-              >
-                {anyCollapsed ? 'Expand all' : 'Collapse all'}
-              </Button>
-            )}
-            {can.org.edit && (
-              <Button variant="contained" startIcon={<AddRounded />} onClick={() => openNew(null)}>
-                New location
-              </Button>
-            )}
-          </Box>
-        }
       />
 
       <ErrorNotice error={error} fallback="Could not load locations." onRetry={reload} />
@@ -225,24 +208,40 @@ export default function Locations() {
       ) : (
         <>
           <StatStrip stats={stats} />
-          <Box sx={{ mt: 2, mb: 2 }}>
-            <FilterBar
-              search={query}
-              onSearch={setQuery}
-              placeholder="Search locations by name, code or address"
-            >
-              {(Object.keys(TYPE_LABELS) as LocationType[])
-                .filter((t) => typeCounts.get(t))
-                .map((t) => (
-                  <FacetChip
-                    key={t}
-                    label={TYPE_LABELS[t]}
-                    count={typeCounts.get(t)}
-                    active={typeFacet === t}
-                    onClick={() => setTypeFacet(typeFacet === t ? null : t)}
-                  />
-                ))}
-            </FilterBar>
+          <Box sx={{ mt: 2 }}>
+            <ListToolbar
+              filters={filters}
+              defs={filterDefs}
+              shown={matched.length}
+              total={rows.length}
+              noun={['location', 'locations']}
+              searchPlaceholder="Search locations by name or code"
+              add={can.org.edit ? { label: 'New location', onClick: () => openNew(null) } : undefined}
+              excel={
+                <ExcelButtons
+                  entity="locations"
+                  noun={['location', 'locations']}
+                  filters={filters.params}
+                  count={matched.length}
+                  canDownload={can.org.view}
+                  canUpload={can.org.upload}
+                  onApplied={reload}
+                />
+              }
+              extra={
+                rows.length > 0 ? (
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    startIcon={anyCollapsed ? <UnfoldMoreRounded /> : <UnfoldLessRounded />}
+                    onClick={anyCollapsed ? expandAll : collapseAll}
+                    sx={{ height: 36, whiteSpace: 'nowrap', flexShrink: 0 }}
+                  >
+                    {anyCollapsed ? 'Expand all' : 'Collapse all'}
+                  </Button>
+                ) : undefined
+              }
+            />
           </Box>
 
           {rows.length === 0 ? (
@@ -258,20 +257,11 @@ export default function Locations() {
                 ) : undefined
               }
             />
-          ) : filtered.length === 0 ? (
+          ) : matched.length === 0 ? (
             <EmptyState
               title="Nothing matches those filters"
-              hint="The search covers the name, the code, the path and the address."
-              action={
-                <Button
-                  onClick={() => {
-                    setQuery('');
-                    setTypeFacet(null);
-                  }}
-                >
-                  Clear the filters
-                </Button>
-              }
+              hint="The search covers the name and the code."
+              action={<Button onClick={filters.clear}>Clear the filters</Button>}
             />
           ) : (
             <OrgTreeView
@@ -300,29 +290,23 @@ export default function Locations() {
               renderActions={
                 can.org.edit || can.org.remove
                   ? (row) => (
-                      <>
-                        {can.org.edit && (
-                          <Tooltip title="Add a location inside this one">
-                            <IconButton size="small" onClick={() => openNew(row.id)} aria-label={`Add a location inside ${row.name}`}>
-                              <SubdirectoryArrowRightRounded fontSize="small" />
-                            </IconButton>
-                          </Tooltip>
-                        )}
-                        {can.org.edit && (
-                          <Tooltip title="Edit">
-                            <IconButton size="small" onClick={() => openEdit(row)} aria-label={`Edit ${row.name}`}>
-                              <EditRounded fontSize="small" />
-                            </IconButton>
-                          </Tooltip>
-                        )}
-                        {can.org.remove && (
-                          <Tooltip title="Delete">
-                            <IconButton size="small" onClick={() => setDoomed(row)} aria-label={`Delete ${row.name}`}>
-                              <DeleteOutlineRounded fontSize="small" />
-                            </IconButton>
-                          </Tooltip>
-                        )}
-                      </>
+                      <RowActions
+                        name={row.name}
+                        more={
+                          can.org.edit
+                            ? [
+                                {
+                                  key: 'add-inside',
+                                  label: 'Add inside this',
+                                  icon: <SubdirectoryArrowRightRounded fontSize="small" />,
+                                  onClick: () => openNew(row.id),
+                                },
+                              ]
+                            : undefined
+                        }
+                        onEdit={can.org.edit ? () => openEdit(row) : undefined}
+                        onRemove={can.org.remove ? () => setDoomed(row) : undefined}
+                      />
                     )
                   : undefined
               }
@@ -434,10 +418,10 @@ export default function Locations() {
       <ConfirmDialog
         open={!!doomed}
         danger
-        title="Delete this location?"
+        title="Remove this location?"
         entityName={doomed?.path}
-        body="Departments, holidays, positions and people that point at it will block the delete and say how many. Set it inactive if you only want it out of the pickers."
-        confirmLabel="Delete"
+        body="Departments, holidays, positions and people that point at it will block the removal and say how many. Set it inactive if you only want it out of the pickers."
+        confirmLabel="Remove"
         onConfirm={remove}
         onClose={() => setDoomed(null)}
       />

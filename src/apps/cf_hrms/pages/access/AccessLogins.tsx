@@ -1,14 +1,16 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Box, Button, MenuItem, TextField } from '@mui/material';
 import KeyRounded from '@mui/icons-material/KeyRounded';
 import {
-  ConfirmDialog, EmptyState, ErrorNotice, FacetChip, FilterBar, ListSkeleton, Mono, SectionCard, Surface, ToneBadge,
+  ConfirmDialog, EmptyState, ErrorNotice, ListSkeleton, Mono, SectionCard, Surface, ToneBadge,
   errorMessage, useToast,
 } from '@shared/ui';
-import { refreshAccess } from '../../access/can';
+import { refreshAccess, useCan } from '../../access/can';
 import { accessApi, type AccessRole, type Login, type LoginsAnswer, type PersonWithoutLogin } from '../../api/access';
 import { ScreenHeader } from '../../components/TabbedScreen';
+import { ListToolbar, type FilterDef } from '../../components/list/ListToolbar';
+import { RowActions } from '../../components/list/RowActions';
+import { useListFilters, matchesQuery } from '../../components/list/useListFilters';
 import { LoginPasswordDialog, type PasswordJob } from '../../components/access/LoginPasswordDialog';
 
 /**
@@ -27,8 +29,6 @@ import { LoginPasswordDialog, type PasswordJob } from '../../components/access/L
  * The role filter lives in the address (`?tab=logins&roleId=7`), so "show me
  * who holds this role" can be a link from the Access roles tab.
  */
-
-type StateFilter = 'all' | 'ACTIVE' | 'DISABLED';
 
 /** How many people without a login are listed before "Show all". */
 const FIRST_PEOPLE = 50;
@@ -64,16 +64,19 @@ function suggestEmail(name: string, logins: Login[]): string {
 const matches = (needle: string, ...hay: (string | null | undefined)[]) =>
   hay.some((h) => !!h && h.toLowerCase().includes(needle));
 
+
 export default function AccessLogins() {
   const toast = useToast();
-  const [params, setParams] = useSearchParams();
-  const roleFilter = Number(params.get('roleId')) || null;
+  const can = useCan();
+  // `roleId` is the key links from the Access roles tab already use; `tab` is left alone.
+  const filters = useListFilters(['roleId', 'state']);
+  const roleFilter = Number(filters.values.roleId) || null;
+  const stateFilter = filters.values.state;
+  const peopleRef = useRef<HTMLElement | null>(null);
 
   const [data, setData] = useState<LoginsAnswer | null>(null);
   const [roles, setRoles] = useState<AccessRole[]>([]);
   const [error, setError] = useState<unknown>(null);
-  const [q, setQ] = useState('');
-  const [stateFilter, setStateFilter] = useState<StateFilter>('all');
   const [rowBusy, setRowBusy] = useState<number | null>(null);
   const [rowError, setRowError] = useState<Record<number, string>>({});
   const [toggling, setToggling] = useState<Login | null>(null);
@@ -105,40 +108,37 @@ export default function AccessLogins() {
     load();
   }, [load]);
 
-  const setRoleFilter = (roleId: number | null) =>
-    setParams(roleId ? { tab: 'logins', roleId: String(roleId) } : { tab: 'logins' }, { replace: true });
-
   const logins = useMemo(() => data?.logins ?? [], [data]);
   const people = useMemo(() => data?.withoutLogin ?? [], [data]);
 
-  const needle = q.trim().toLowerCase();
-  const searched = useMemo(
-    () =>
-      needle
-        ? logins.filter((l) =>
-            matches(needle, l.name, l.email, l.role.label, l.employee?.employeeCode, l.employee?.fullName, l.employee?.positionCode, l.employee?.departmentName),
-          )
-        : logins,
-    [logins, needle],
-  );
+  const search = filters.params.q ?? '';
   const shown = useMemo(
-    () => searched.filter((l) => (stateFilter === 'all' || l.state === stateFilter) && (!roleFilter || l.role.id === roleFilter)),
-    [searched, stateFilter, roleFilter],
+    () =>
+      logins.filter((l) => {
+        if (stateFilter && l.state !== stateFilter) return false;
+        if (roleFilter && l.role.id !== roleFilter) return false;
+        // The server's search for GET /access/logins: name, email, employee code or employee name.
+        return matchesQuery([l.name, l.email, l.employee?.employeeCode, l.employee?.fullName], search);
+      }),
+    [logins, stateFilter, roleFilter, search],
   );
 
-  /** Role chips: every role a login holds, plus the one the address asks for. */
-  const roleChips = useMemo(() => {
-    const byId = new Map<number, { id: number; label: string; count: number }>();
-    for (const l of logins) {
-      const cur = byId.get(l.role.id);
-      if (cur) cur.count += 1;
-      else byId.set(l.role.id, { id: l.role.id, label: l.role.label, count: 1 });
+  const defs: FilterDef[] = useMemo(() => {
+    const opts = roles.map((r) => ({ value: String(r.roleId), label: r.label }));
+    // A role in the address that this list does not carry still has to be named.
+    if (roleFilter && !opts.some((o) => o.value === String(roleFilter))) {
+      const held = logins.find((l) => l.role.id === roleFilter)?.role.label;
+      opts.push({ value: String(roleFilter), label: held ?? 'This role' });
     }
-    if (roleFilter && !byId.has(roleFilter)) {
-      byId.set(roleFilter, { id: roleFilter, label: roles.find((r) => r.roleId === roleFilter)?.label ?? 'This role', count: 0 });
-    }
-    return [...byId.values()].sort((a, b) => a.label.localeCompare(b.label));
-  }, [logins, roles, roleFilter]);
+    return [
+      { key: 'roleId', label: 'Access role', options: opts },
+      {
+        key: 'state',
+        label: 'State',
+        options: [{ value: 'ACTIVE', label: 'Active' }, { value: 'DISABLED', label: 'Disabled' }],
+      },
+    ];
+  }, [roles, logins, roleFilter]);
 
   const replaceLogin = (updated: Login) =>
     setData((cur) => (cur ? { ...cur, logins: cur.logins.map((l) => (l.userId === updated.userId ? { ...l, ...updated } : l)) } : cur));
@@ -185,11 +185,10 @@ export default function AccessLogins() {
   const startCreate = (person: PersonWithoutLogin) =>
     setJob({ kind: 'create', person, roles, suggestedEmail: suggestEmail(person.name, logins) });
 
-  const filtered = !!needle || stateFilter !== 'all' || !!roleFilter;
-  const clearFilters = () => {
-    setQ('');
-    setStateFilter('all');
-    if (roleFilter) setRoleFilter(null);
+  /** "Create login": opens the people-without-a-login list below and brings it into view. */
+  const openCreate = () => {
+    setShowPeople(true);
+    window.setTimeout(() => peopleRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
   };
 
   return (
@@ -205,31 +204,15 @@ export default function AccessLogins() {
         <ListSkeleton rows={6} />
       ) : (
         <>
-          <FilterBar search={q} onSearch={setQ} placeholder="Search name, email, employee code…">
-            <FacetChip label="All" count={searched.length} active={stateFilter === 'all'} onClick={() => setStateFilter('all')} />
-            <FacetChip
-              label="Active"
-              count={searched.filter((l) => l.state === 'ACTIVE').length}
-              active={stateFilter === 'ACTIVE'}
-              onClick={() => setStateFilter(stateFilter === 'ACTIVE' ? 'all' : 'ACTIVE')}
-            />
-            <FacetChip
-              label="Disabled"
-              count={searched.filter((l) => l.state === 'DISABLED').length}
-              active={stateFilter === 'DISABLED'}
-              onClick={() => setStateFilter(stateFilter === 'DISABLED' ? 'all' : 'DISABLED')}
-            />
-            {roleChips.length > 0 && <Box aria-hidden sx={{ width: '1px', alignSelf: 'stretch', background: 'var(--c-divider)', mx: 0.5 }} />}
-            {roleChips.map((r) => (
-              <FacetChip
-                key={r.id}
-                label={r.label}
-                count={r.count}
-                active={roleFilter === r.id}
-                onClick={() => setRoleFilter(roleFilter === r.id ? null : r.id)}
-              />
-            ))}
-          </FilterBar>
+          <ListToolbar
+            filters={filters}
+            defs={defs}
+            shown={shown.length}
+            total={logins.length}
+            noun={['login', 'logins']}
+            searchPlaceholder="Search by name, email or employee"
+            add={can.named.accessManage && people.length > 0 ? { label: 'Create login', onClick: openCreate } : undefined}
+          />
 
           {logins.length === 0 && !error ? (
             <EmptyState
@@ -243,9 +226,9 @@ export default function AccessLogins() {
               title="No login matches"
               hint="Nothing fits the search and the filters you chose."
               action={
-                filtered ? (
-                  <Button size="small" variant="outlined" onClick={clearFilters}>
-                    Clear search and filters
+                filters.isFiltered ? (
+                  <Button size="small" variant="outlined" onClick={filters.clear}>
+                    Clear
                   </Button>
                 ) : undefined
               }
@@ -327,20 +310,19 @@ export default function AccessLogins() {
                     </Box>
 
                     <Box sx={{ gridArea: 'actions', display: 'flex', gap: 0.5, flexWrap: 'wrap', justifyContent: { xs: 'flex-start', md: 'flex-end' }, ml: { xs: -0.75, md: 0 } }}>
-                      <Button size="small" onClick={() => setJob({ kind: 'reset', login: l })} disabled={busy}>
-                        Reset password
-                      </Button>
                       {/* Nobody disables their own login: they would lock themselves out. */}
-                      {!l.isYou &&
-                        (l.state === 'ACTIVE' ? (
-                          <Button size="small" color="error" onClick={() => setToggling(l)} disabled={busy}>
-                            Disable
-                          </Button>
-                        ) : (
-                          <Button size="small" onClick={() => setToggling(l)} disabled={busy}>
-                            Enable
-                          </Button>
-                        ))}
+                      <RowActions
+                        name={l.name}
+                        more={[
+                          { key: 'reset', label: 'Reset password', onClick: () => setJob({ kind: 'reset', login: l }), disabledReason: busy ? 'Saving…' : null },
+                          ...(!l.isYou && l.state !== 'ACTIVE'
+                            ? [{ key: 'enable', label: 'Enable', onClick: () => setToggling(l), disabledReason: busy ? 'Saving…' : null }]
+                            : []),
+                        ]}
+                        onRemove={!l.isYou && l.state === 'ACTIVE' ? () => setToggling(l) : undefined}
+                        removeLabel="Disable"
+                        removeDisabledReason={busy ? 'Saving…' : null}
+                      />
                     </Box>
 
                     {rowError[l.userId] && (
@@ -354,6 +336,7 @@ export default function AccessLogins() {
             </Surface>
           )}
 
+          <Box ref={peopleRef} sx={{ scrollMarginTop: 16 }} />
           <SectionCard
             sx={{ mt: 3 }}
             flush

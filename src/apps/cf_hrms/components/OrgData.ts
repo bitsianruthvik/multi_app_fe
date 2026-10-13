@@ -107,6 +107,25 @@ export function filterTree<T extends TreeMeta>(
 }
 
 /**
+ * Filter a tree by a predicate without breaking it: every row that passes, plus
+ * the ancestors that lead to it, so the indentation still reads. Unlike
+ * `filterTree` it does not pull in the descendants of a match.
+ */
+export function filterTreeBy<T extends TreeMeta>(rows: T[], pass: (row: T) => boolean): T[] {
+  const keep = new Set<number>();
+  const above: number[] = [];
+  for (const r of rows) {
+    above.length = r.depth;
+    if (pass(r)) {
+      keep.add(r.id);
+      for (const id of above) keep.add(id);
+    }
+    above[r.depth] = r.id;
+  }
+  return rows.filter((r) => keep.has(r.id));
+}
+
+/**
  * The rows that are actually on screen: everything except what sits under a
  * collapsed ancestor. One pass over the pre-order array — a row is hidden while
  * its depth is greater than the depth of the nearest collapsed row above it.

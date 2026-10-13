@@ -1,24 +1,28 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Box, Button, Checkbox, FormControlLabel, IconButton, MenuItem, Stack, TextField, Tooltip, Typography } from '@mui/material';
-import AddRounded from '@mui/icons-material/AddRounded';
-import EditRounded from '@mui/icons-material/EditRounded';
-import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
+import { Box, Button, Checkbox, FormControlLabel, Menu, MenuItem, Stack, TextField, Typography } from '@mui/material';
+import ArrowDropDownRounded from '@mui/icons-material/ArrowDropDownRounded';
 import EventRounded from '@mui/icons-material/EventRounded';
 import {
-  Callout, ConfirmDialog, EmptyState, ErrorNotice, FormDialog, ListSkeleton, Mono, PageHeader, SectionCard, ToneBadge,
+  Callout, ConfirmDialog, EmptyState, ErrorNotice, FormDialog, ListSkeleton, Mono, PageHeader, ToneBadge,
   errorMessage, useToast,
 } from '@shared/ui';
 import type { ApiProblem } from '../api/client';
 import { useCan } from '../access/can';
 import { niceDate } from '../api/hiring';
 import { NATIONAL_HOLIDAYS, calendarsApi, type CopyYearResult, type Holiday, type HolidayCalendar } from '../api/shifts';
+import { ExcelButtons } from '../components/excel/ExcelButtons';
+import { ListToolbar, type FilterDef } from '../components/list/ListToolbar';
+import { RowActions } from '../components/list/RowActions';
+import { matchesFlag, matchesQuery, useListFilters, YES_NO_OPTIONS } from '../components/list/useListFilters';
 
 /**
  * Holidays — the company's holiday calendars (CF_HRMS_HIRING_SPEC.md §6.3).
  *
  * A CALENDAR IS A NAMED LIST OF DATED HOLIDAYS, and a shift picks one (on
- * Setup › Shifts). So "the office calendar" and "the plant calendar" are two
- * cards here, each used by the shifts that say so.
+ * Setup › Shifts). The list here is the HOLIDAYS of one calendar in one year;
+ * the calendar and the year are filters in the toolbar (and so in the address).
+ * Calendar-level actions — new, rename, copy to next year, the three national
+ * holidays, delete — sit in the toolbar's "Calendar" menu.
  *
  * NO LIST IS INVENTED. Festival dates differ by state, by faith and by year, so
  * a new calendar starts empty and the company enters its own. The one thing
@@ -46,8 +50,14 @@ export default function Holidays() {
 
   const [calendars, setCalendars] = useState<HolidayCalendar[] | null>(null);
   const [error, setError] = useState<unknown>(null);
-  const [openId, setOpenId] = useState<number | null>(null);
-  const [year, setYear] = useState(thisYear());
+  // The calendar and the year are filters, kept in the address.
+  const filters = useListFilters(['calendar', 'year', 'optional']);
+  const { setMany } = filters;
+  const calendarParam = filters.values.calendar;
+  const yearParam = filters.values.year;
+  const openId = calendars?.some((c) => String(c.id) === calendarParam) ? Number(calendarParam) : null;
+  const year = Number(yearParam) || thisYear();
+  const [menuAt, setMenuAt] = useState<HTMLElement | null>(null);
   const [holidays, setHolidays] = useState<Holiday[] | null>(null);
   const [years, setYears] = useState<number[]>([]);
   const [detailError, setDetailError] = useState<unknown>(null);
@@ -57,7 +67,9 @@ export default function Holidays() {
   const [doomedCalendar, setDoomedCalendar] = useState<HolidayCalendar | null>(null);
   const [doomedHoliday, setDoomedHoliday] = useState<Holiday | null>(null);
   const [copying, setCopying] = useState(false);
-  const [copied, setCopied] = useState<(CopyYearResult & { toYear: number }) | null>(null);
+  const [copiedRaw, setCopied] = useState<(CopyYearResult & { toYear: number; at: string }) | null>(null);
+  // The note belongs to the calendar and year it was made on.
+  const copied = copiedRaw && copiedRaw.at === `${openId}-${year}` ? copiedRaw : null;
   const [addingNational, setAddingNational] = useState(false);
 
   const loadCalendars = useCallback(
@@ -78,9 +90,17 @@ export default function Holidays() {
   );
 
   useEffect(() => {
-    // The only calendar is opened straight away: one card with nothing under it is a wasted click.
-    void loadCalendars().then((list) => setOpenId((cur) => cur ?? (list.length === 1 ? list[0].id : null)));
+    void loadCalendars();
   }, [loadCalendars]);
+
+  // A calendar and a year are always chosen: the first calendar and this year until the person picks.
+  useEffect(() => {
+    if (!calendars || calendars.length === 0) return;
+    const patch: Record<string, string> = {};
+    if (!calendars.some((c) => String(c.id) === calendarParam)) patch.calendar = String(calendars[0].id);
+    if (!yearParam) patch.year = String(thisYear());
+    if (Object.keys(patch).length > 0) setMany(patch);
+  }, [calendars, calendarParam, yearParam, setMany]);
 
   const loadHolidays = useCallback(() => {
     if (openId == null) return;
@@ -114,16 +134,52 @@ export default function Holidays() {
     [years, year],
   );
 
+  const defs: FilterDef[] = useMemo(
+    () => [
+      { key: 'calendar', label: 'Calendar', options: (calendars ?? []).map((c) => ({ value: String(c.id), label: c.name })) },
+      { key: 'year', label: 'Year', options: yearOptions.map((y) => ({ value: String(y), label: String(y) })) },
+      {
+        key: 'optional',
+        label: 'Optional',
+        options: YES_NO_OPTIONS,
+      },
+    ],
+    [calendars, yearOptions],
+  );
+
+  const optionalParam = filters.values.optional;
+  const searchText = filters.params.q ?? '';
+  // The server's rules for GET /organisation/holidays: the search is in the name,
+  // `optional` is 1 / 0; the calendar and the year are what `holidays` already is.
+  const shownHolidays = useMemo(
+    () =>
+      (holidays ?? []).filter(
+        (h) => matchesFlag(optionalParam, h.isOptional) && matchesQuery([h.name], searchText),
+      ),
+    [holidays, optionalParam, searchText],
+  );
+  // The file holds the open calendar's year, even in the moment before the address says so.
+  const downloadFilters = useMemo(
+    () => ({
+      ...filters.params,
+      ...(openId != null ? { calendar: String(openId) } : {}),
+      year: String(year),
+    }),
+    [filters.params, openId, year],
+  );
+
   const saveCalendar = async () => {
     if (!calendarDraft) return;
     const body = { name: calendarDraft.name.trim(), description: calendarDraft.description.trim() || null };
     if (calendarDraft.id) await calendarsApi.update(calendarDraft.id, body);
     else {
       const { calendar } = await calendarsApi.create(body);
-      if (calendar?.id) setOpenId(calendar.id);
+      // The list must know the new calendar before the address points at it.
+      await loadCalendars();
+      if (calendar?.id) filters.set('calendar', String(calendar.id));
     }
     toast.success(calendarDraft.id ? 'Calendar saved.' : 'Calendar added. It has no holidays yet.');
-    void loadCalendars();
+    if (calendarDraft.id) void loadCalendars();
   };
 
   const saveHoliday = async () => {
@@ -134,7 +190,7 @@ export default function Holidays() {
     toast.success(holidayDraft.id ? 'Holiday saved.' : 'Holiday added.');
     // A holiday entered for another year is shown by going to that year.
     const y = Number(holidayDraft.date.slice(0, 4));
-    if (y && y !== year) setYear(y);
+    if (y && y !== year) filters.set('year', String(y));
     else loadHolidays();
     void loadCalendars();
   };
@@ -164,25 +220,59 @@ export default function Holidays() {
   const copyYear = async () => {
     if (openId == null) return;
     const r = await calendarsApi.copyYear(openId, { fromYear: year, toYear: year + 1 });
-    setCopied({ ...r, toYear: year + 1 });
+    setCopied({ ...r, toYear: year + 1, at: `${openId}-${year}` });
     refresh();
   };
 
   const hasNational = (holidays ?? []).filter((h) => NATIONAL_HOLIDAYS.some((n) => h.date.slice(5) === `${pad(n.month)}-${pad(n.day)}`)).length;
 
+  const newCalendar = () => setCalendarDraft({ id: null, name: '', description: '' });
+  const menuItems: { key: string; label: string; danger?: boolean; disabled?: boolean; onClick: () => void }[] = [];
+  if (canManage) menuItems.push({ key: 'new', label: 'New calendar', onClick: newCalendar });
+  if (canManage && open) {
+    menuItems.push({ key: 'rename', label: 'Rename this calendar', onClick: () => setCalendarDraft({ id: open.id, name: open.name, description: open.description ?? '' }) });
+    if ((holidays?.length ?? 0) > 0) menuItems.push({ key: 'copy', label: `Copy to ${year + 1}`, onClick: () => setCopying(true) });
+    if (hasNational < NATIONAL_HOLIDAYS.length) {
+      menuItems.push({ key: 'national', label: `Add the three national holidays for ${year}`, disabled: addingNational, onClick: () => void addNational() });
+    }
+  }
+  if (canRemove && open) menuItems.push({ key: 'delete', label: 'Delete this calendar…', danger: true, onClick: () => setDoomedCalendar(open) });
+
+  const calendarMenu =
+    menuItems.length > 0 ? (
+      <>
+        <Button
+          variant="outlined"
+          size="small"
+          endIcon={<ArrowDropDownRounded />}
+          aria-haspopup="menu"
+          aria-expanded={menuAt ? true : undefined}
+          onClick={(e) => setMenuAt(e.currentTarget)}
+          sx={{ height: 36, whiteSpace: 'nowrap', flexShrink: 0 }}
+        >
+          Calendar
+        </Button>
+        <Menu anchorEl={menuAt} open={!!menuAt} onClose={() => setMenuAt(null)}>
+          {menuItems.map((m) => (
+            <MenuItem
+              key={m.key}
+              disabled={m.disabled}
+              onClick={() => {
+                setMenuAt(null);
+                m.onClick();
+              }}
+              sx={{ fontSize: 14, color: m.danger ? 'var(--c-danger-600)' : 'var(--c-text)' }}
+            >
+              {m.label}
+            </MenuItem>
+          ))}
+        </Menu>
+      </>
+    ) : undefined;
+
   return (
     <Box sx={{ maxWidth: 1100 }}>
-      <PageHeader
-        title="Holidays"
-        subtitle="the company's holiday calendars — each shift picks the one that applies to it"
-        actions={
-          canManage && (
-            <Button size="small" variant="contained" startIcon={<AddRounded />} onClick={() => setCalendarDraft({ id: null, name: '', description: '' })}>
-              New calendar
-            </Button>
-          )
-        }
-      />
+      <PageHeader title="Holidays" subtitle="the company's holiday calendars — each shift picks the one that applies to it" />
 
       {!!error && <ErrorNotice error={error} onRetry={() => void loadCalendars()} sx={{ mb: 2 }} />}
 
@@ -195,121 +285,42 @@ export default function Holidays() {
           hint="A calendar is a named list of the days the company is closed. Add one, enter its holidays, then pick it on a shift."
           action={
             canManage ? (
-              <Button size="small" variant="contained" onClick={() => setCalendarDraft({ id: null, name: '', description: '' })}>
+              <Button size="small" variant="contained" onClick={newCalendar}>
                 New calendar
               </Button>
             ) : undefined
           }
         />
       ) : (
-        <Box
-          component="ul"
-          aria-label="Holiday calendars"
-          sx={{ listStyle: 'none', m: 0, mb: 2, p: 0, display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: 1.5 }}
-        >
-          {calendars.map((c) => {
-            const on = c.id === openId;
-            return (
-              <Box component="li" key={c.id} sx={{ minWidth: 0 }}>
-                <Box
-                  component="button"
-                  type="button"
-                  data-calendar={c.id}
-                  aria-pressed={on}
-                  onClick={() => {
-                    setOpenId(c.id);
-                    setCopied(null);
-                  }}
-                  sx={{
-                    width: '100%',
-                    height: '100%',
-                    textAlign: 'left',
-                    font: 'inherit',
-                    color: 'inherit',
-                    cursor: 'pointer',
-                    p: 1.75,
-                    borderRadius: 'var(--r-md)',
-                    border: '1px solid',
-                    borderColor: on ? 'var(--c-primary-500)' : 'var(--c-border)',
-                    background: on ? 'var(--c-primary-50)' : 'var(--c-surface)',
-                    '&:hover': { borderColor: 'var(--c-primary-500)' },
-                    '&:focus-visible': { outline: '2px solid var(--c-primary-500)', outlineOffset: 1 },
-                  }}
-                >
-                  <Typography sx={{ fontSize: 15, fontWeight: 600, overflowWrap: 'anywhere' }}>{c.name}</Typography>
-                  {c.description && <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)', overflowWrap: 'anywhere' }}>{c.description}</Typography>}
-                  <Typography sx={{ fontSize: 13, mt: 0.75 }}>
-                    {plural(c.holidayCount ?? 0, 'holiday')} · {c.shiftCount ? `used by ${plural(c.shiftCount, 'shift')}` : 'no shift uses it yet'}
-                  </Typography>
-                  <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)' }}>
-                    {c.nextHoliday ? `Next: ${c.nextHoliday.name}, ${niceDate(c.nextHoliday.date)}` : 'No holiday coming up'}
-                  </Typography>
-                </Box>
-              </Box>
-            );
-          })}
-        </Box>
-      )}
+        <>
+          <ListToolbar
+            filters={filters}
+            defs={defs}
+            shown={shownHolidays.length}
+            noun={['holiday', 'holidays']}
+            searchPlaceholder="Search holidays by name"
+            extra={calendarMenu}
+            add={canManage && open ? { label: 'Add a holiday', onClick: () => setHolidayDraft({ id: null, date: `${year}-01-01`, name: '', isOptional: false }) } : undefined}
+            excel={
+              <ExcelButtons
+                entity="holidays"
+                noun={['holiday', 'holidays']}
+                filters={downloadFilters}
+                count={shownHolidays.length}
+                canDownload={can.time.view}
+                canUpload={can.time.upload}
+                onApplied={refresh}
+              />
+            }
+          />
 
-      {open && (
-        <SectionCard
-          title={open.name}
-          subtitle={`Holidays in ${year}${holidays ? ` · ${holidays.length}` : ''}`}
-          action={
-            (canManage || canRemove) && (
-              <Stack direction="row" spacing={0.5}>
-                {canManage && (
-                  <Tooltip title="Rename this calendar">
-                    <IconButton size="small" aria-label={`Rename ${open.name}`} onClick={() => setCalendarDraft({ id: open.id, name: open.name, description: open.description ?? '' })}>
-                      <EditRounded fontSize="small" />
-                    </IconButton>
-                  </Tooltip>
-                )}
-                {canRemove && (
-                  <Tooltip title="Delete this calendar…">
-                    <IconButton size="small" aria-label={`Delete ${open.name}`} onClick={() => setDoomedCalendar(open)}>
-                      <DeleteOutlineRounded fontSize="small" />
-                    </IconButton>
-                  </Tooltip>
-                )}
-              </Stack>
-            )
-          }
-        >
-          <Box sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 1, mb: 1.5 }}>
-            <TextField
-              select
-              size="small"
-              label="Year"
-              value={year}
-              onChange={(e) => {
-                setYear(Number(e.target.value));
-                setCopied(null);
-              }}
-              sx={{ width: 120 }}
-            >
-              {yearOptions.map((y) => (
-                <MenuItem key={y} value={y}>{y}</MenuItem>
-              ))}
-            </TextField>
-            {canManage && (
-              <>
-                <Button size="small" variant="contained" startIcon={<AddRounded />} onClick={() => setHolidayDraft({ id: null, date: `${year}-01-01`, name: '', isOptional: false })}>
-                  Add a holiday
-                </Button>
-                {hasNational < NATIONAL_HOLIDAYS.length && (
-                  <Button size="small" variant="outlined" disabled={addingNational} data-addnational="" onClick={() => void addNational()}>
-                    {addingNational ? 'Adding…' : `Add the three national holidays for ${year}`}
-                  </Button>
-                )}
-                {(holidays?.length ?? 0) > 0 && (
-                  <Button size="small" onClick={() => setCopying(true)} data-copyyear="">
-                    Copy to {year + 1}
-                  </Button>
-                )}
-              </>
-            )}
-          </Box>
+          {open && (
+            <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)', mb: 1.5, overflowWrap: 'anywhere' }}>
+              {open.name}
+              {open.description ? ` — ${open.description}` : ''} · {open.shiftCount ? `used by ${plural(open.shiftCount, 'shift')}` : 'no shift uses it yet'}
+              {open.nextHoliday ? ` · Next: ${open.nextHoliday.name}, ${niceDate(open.nextHoliday.date)}` : ''}
+            </Typography>
+          )}
 
           {!!detailError && <ErrorNotice error={detailError} onRetry={loadHolidays} sx={{ mb: 1.5 }} />}
 
@@ -334,7 +345,7 @@ export default function Holidays() {
                   </Box>
                 </Box>
               )}
-              <Button size="small" sx={{ mt: 0.75, ml: -0.5 }} onClick={() => { setYear(copied.toYear); setCopied(null); }}>
+              <Button size="small" sx={{ mt: 0.75, ml: -0.5 }} onClick={() => { filters.set('year', String(copied.toYear)); setCopied(null); }}>
                 Open {copied.toYear}
               </Button>
             </Callout>
@@ -346,9 +357,14 @@ export default function Holidays() {
             <Typography sx={{ fontSize: 13.5, color: 'var(--c-text-2)' }}>
               No holidays entered for {year}. Nothing is filled in for you — festival dates differ by place and by year.
             </Typography>
+          ) : shownHolidays.length === 0 ? (
+            <Box sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 1 }}>
+              <Typography sx={{ fontSize: 13.5, color: 'var(--c-text-2)' }}>No holiday matches the search and filters.</Typography>
+              <Button size="small" onClick={filters.clear}>Clear</Button>
+            </Box>
           ) : (
             <Box component="ul" data-holidays="" sx={{ listStyle: 'none', m: 0, p: 0, display: 'grid', gap: 0.5 }}>
-              {holidays.map((h) => (
+              {shownHolidays.map((h) => (
                 <Box
                   component="li"
                   key={h.id}
@@ -376,23 +392,18 @@ export default function Holidays() {
                   </Box>
                   {(canManage || canRemove) && (
                     <Box sx={{ gridArea: 'act', display: 'flex' }}>
-                      {canManage && (
-                        <IconButton size="small" aria-label={`Edit ${h.name}`} onClick={() => setHolidayDraft({ id: h.id, date: h.date.slice(0, 10), name: h.name, isOptional: h.isOptional })}>
-                          <EditRounded fontSize="small" />
-                        </IconButton>
-                      )}
-                      {canRemove && (
-                        <IconButton size="small" aria-label={`Remove ${h.name}`} onClick={() => setDoomedHoliday(h)}>
-                          <DeleteOutlineRounded fontSize="small" />
-                        </IconButton>
-                      )}
+                      <RowActions
+                        name={h.name}
+                        onEdit={canManage ? () => setHolidayDraft({ id: h.id, date: h.date.slice(0, 10), name: h.name, isOptional: h.isOptional }) : undefined}
+                        onRemove={canRemove ? () => setDoomedHoliday(h) : undefined}
+                      />
                     </Box>
                   )}
                 </Box>
               ))}
             </Box>
           )}
-        </SectionCard>
+        </>
       )}
 
       {/* ── Dialogs ────────────────────────────────────────────────────────── */}
@@ -514,10 +525,7 @@ export default function Holidays() {
           // The server refuses a calendar a shift still selects, in its own words.
           await calendarsApi.remove(doomedCalendar.id);
           toast.success('Calendar deleted.');
-          if (openId === doomedCalendar.id) {
-            setOpenId(null);
-            setHolidays(null);
-          }
+          // The address then points at a calendar that is gone, and the first one is chosen.
           void loadCalendars();
         }}
       />

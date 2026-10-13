@@ -1,8 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link as RouterLink, useParams } from 'react-router-dom';
-import { Box, Button, IconButton, MenuItem, Switch, TextField, Tooltip, Typography } from '@mui/material';
-import AddRounded from '@mui/icons-material/AddRounded';
-import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
+import { Box, Button, MenuItem, Switch, TextField, Typography } from '@mui/material';
 import ScheduleRounded from '@mui/icons-material/ScheduleRounded';
 import {
   ConfirmDialog, DataTable, EmptyState, ErrorNotice, FormDialog, ListSkeleton, Mono, PageHeader, StatusBadge,
@@ -14,6 +12,10 @@ import {
   type HolidayCalendar, type Shift, type ShiftInput, type Weekday,
 } from '../api/shifts';
 import { ORG_STATUS_LABELS, ORG_STATUS_TONES } from '../components/OrgData';
+import { ExcelButtons } from '../components/excel/ExcelButtons';
+import { ListToolbar, type FilterDef } from '../components/list/ListToolbar';
+import { RowActions } from '../components/list/RowActions';
+import { matchesQuery, useListFilters } from '../components/list/useListFilters';
 
 /**
  * Shifts — the hours a position works, day by day (CF_HRMS_HIRING_SPEC.md §6.3).
@@ -119,6 +121,42 @@ export default function Shifts() {
   const [loading, setLoading] = useState(true);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [doomed, setDoomed] = useState<Shift | null>(null);
+  const filters = useListFilters(['calendar', 'status']);
+
+  // Calendars for the filter: the company's own, plus any a shift uses that the list could not read.
+  const calendarOptions = useMemo(() => {
+    const seen = new Map<number, string>();
+    for (const c of calendars) seen.set(c.id, c.name);
+    for (const s of rows ?? []) if (s.holidayCalendar && !seen.has(s.holidayCalendar.id)) seen.set(s.holidayCalendar.id, s.holidayCalendar.name);
+    return [...seen.entries()].map(([id, name]) => ({ value: String(id), label: name }));
+  }, [calendars, rows]);
+
+  const defs: FilterDef[] = useMemo(
+    () => [
+      { key: 'calendar', label: 'Holiday calendar', options: calendarOptions },
+      {
+        key: 'status',
+        label: 'Status',
+        options: [
+          { value: 'ACTIVE', label: ORG_STATUS_LABELS.ACTIVE ?? 'Active' },
+          { value: 'INACTIVE', label: ORG_STATUS_LABELS.INACTIVE ?? 'Inactive' },
+        ],
+      },
+    ],
+    [calendarOptions],
+  );
+
+  // The server's rules for GET /organisation/shifts: the search is in the name or
+  // the code, `calendar` is a holiday calendar id, `status` the shift's status.
+  const shownRows = useMemo(() => {
+    const { calendar, status } = filters.values;
+    const q = filters.params.q ?? '';
+    return (rows ?? []).filter((s) => {
+      if (calendar && String(s.holidayCalendar?.id ?? '') !== calendar) return false;
+      if (status && s.status.toLowerCase() !== status.toLowerCase()) return false;
+      return matchesQuery([s.name, s.code], q);
+    });
+  }, [rows, filters.values, filters.params.q]);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -239,12 +277,26 @@ export default function Shifts() {
       <PageHeader
         title="Shifts"
         subtitle="the hours a position works, day by day — and the holiday calendar that goes with them"
-        actions={
-          canManage && (
-            <Button size="small" variant="contained" startIcon={<AddRounded />} onClick={() => setDraft(blankDraft())}>
-              New shift
-            </Button>
-          )
+      />
+
+      <ListToolbar
+        filters={filters}
+        defs={defs}
+        shown={shownRows.length}
+        total={(rows ?? []).length}
+        noun={['shift', 'shifts']}
+        searchPlaceholder="Search shifts by name or code"
+        add={canManage ? { label: 'New shift', onClick: () => setDraft(blankDraft()) } : undefined}
+        excel={
+          <ExcelButtons
+            entity="shifts"
+            noun={['shift', 'shifts']}
+            filters={filters.params}
+            count={shownRows.length}
+            canDownload={can.time.view}
+            canUpload={can.time.upload}
+            onApplied={load}
+          />
         }
       />
 
@@ -254,18 +306,18 @@ export default function Shifts() {
         <ListSkeleton rows={4} />
       ) : (
         <DataTable
-          rows={rows ?? []}
+          rows={shownRows}
           columns={columns}
           getRowId={(s) => s.id}
           onRowClick={(s) => setDraft(draftOf(s))}
           rowActions={
-            canRemove
+            canManage || canRemove
               ? (s) => (
-                  <Tooltip title="Delete this shift…">
-                    <IconButton size="small" aria-label={`Delete ${s.name}`} onClick={() => setDoomed(s)}>
-                      <DeleteOutlineRounded fontSize="small" />
-                    </IconButton>
-                  </Tooltip>
+                  <RowActions
+                    name={s.name}
+                    onEdit={canManage ? () => setDraft(draftOf(s)) : undefined}
+                    onRemove={canRemove ? () => setDoomed(s) : undefined}
+                  />
                 )
               : undefined
           }
@@ -274,12 +326,21 @@ export default function Shifts() {
           exportName="shifts"
           defaultSortKey="name"
           empty={
-            <EmptyState
-              icon={<ScheduleRounded />}
-              title="No shifts yet"
-              hint="A shift says which days of the week are worked and from when to when. Every position is on one shift."
-              action={canManage ? <Button size="small" variant="contained" onClick={() => setDraft(blankDraft())}>New shift</Button> : undefined}
-            />
+            filters.isFiltered && (rows ?? []).length > 0 ? (
+              <EmptyState
+                icon={<ScheduleRounded />}
+                title="No shift matches"
+                hint="Nothing fits the search and filters."
+                action={<Button size="small" onClick={filters.clear}>Clear</Button>}
+              />
+            ) : (
+              <EmptyState
+                icon={<ScheduleRounded />}
+                title="No shifts yet"
+                hint="A shift says which days of the week are worked and from when to when. Every position is on one shift."
+                action={canManage ? <Button size="small" variant="contained" onClick={() => setDraft(blankDraft())}>New shift</Button> : undefined}
+              />
+            )
           }
         />
       )}

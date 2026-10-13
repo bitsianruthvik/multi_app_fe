@@ -1,8 +1,5 @@
 import { useCallback, useMemo, useState } from 'react';
-import { Box, Button, FormControlLabel, IconButton, MenuItem, Switch, TextField, Tooltip } from '@mui/material';
-import AddRounded from '@mui/icons-material/AddRounded';
-import EditRounded from '@mui/icons-material/EditRounded';
-import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
+import { Box, Button, FormControlLabel, MenuItem, Switch, TextField } from '@mui/material';
 import HubRounded from '@mui/icons-material/HubRounded';
 import LinearScaleRounded from '@mui/icons-material/LinearScaleRounded';
 import {
@@ -26,6 +23,9 @@ import { useCan } from '../access/can';
 import { orgApi, type ReportingType } from '../api/organisation';
 import { ORG_STATUS_LABELS, ORG_STATUS_TONES, useOrgLoad } from '../components/OrgData';
 import { OrgNote } from '../components/OrgNote';
+import { useListFilters, matchesQuery } from '../components/list/useListFilters';
+import { ListToolbar, type FilterDef } from '../components/list/ListToolbar';
+import { RowActions } from '../components/list/RowActions';
 
 /**
  * Reporting types — the catalogue of ways one person can answer to another.
@@ -71,6 +71,33 @@ export default function ReportingTypes() {
   const load = useCallback(() => orgApi.reportingTypes.list(), []);
   const { data, error, loading, reload } = useOrgLoad(load);
   const rows = useMemo(() => data ?? [], [data]);
+  // The server's filters for GET /organisation/reporting-types are the search (name or
+  // code) and the status — nothing else, so nothing else is offered here.
+  const filters = useListFilters(['status']);
+  const statusF = filters.values.status;
+  const search = filters.params.q ?? '';
+  const filtered = useMemo(
+    () =>
+      rows.filter(
+        (r) =>
+          (!statusF || r.status.toLowerCase() === statusF.toLowerCase()) &&
+          matchesQuery([r.name, r.code], search),
+      ),
+    [rows, statusF, search],
+  );
+  const defs = useMemo<FilterDef[]>(
+    () => [
+      {
+        key: 'status',
+        label: 'Status',
+        options: [
+          { value: 'ACTIVE', label: 'Active', count: rows.filter((r) => r.status === 'ACTIVE').length },
+          { value: 'INACTIVE', label: 'Inactive', count: rows.filter((r) => r.status === 'INACTIVE').length },
+        ],
+      },
+    ],
+    [rows],
+  );
 
   const [draft, setDraft] = useState<DraftState | null>(null);
   const [doomed, setDoomed] = useState<ReportingType | null>(null);
@@ -132,7 +159,7 @@ export default function ReportingTypes() {
   const remove = async () => {
     if (!doomed) return;
     await orgApi.reportingTypes.remove(doomed.id);
-    success(`${doomed.name} deleted.`);
+    success(`${doomed.name} removed.`);
     reload();
   };
 
@@ -216,17 +243,6 @@ export default function ReportingTypes() {
       <PageHeader
         title="Reporting types"
         subtitle="The ways one person can answer to another"
-        actions={
-          canManage ? (
-            <Button
-              variant="contained"
-              startIcon={<AddRounded />}
-              onClick={() => setDraft(emptyDraft(nextOrder))}
-            >
-              New type
-            </Button>
-          ) : undefined
-        }
       />
 
       <OrgNote label="What the two flags mean" title="Formal, and how many.">
@@ -255,8 +271,17 @@ export default function ReportingTypes() {
         <>
           <StatStrip stats={stats} />
           <Box sx={{ mt: 2 }}>
+            <ListToolbar
+              filters={filters}
+              defs={defs}
+              shown={filtered.length}
+              total={rows.length}
+              noun={['type', 'types']}
+              searchPlaceholder="Search reporting types by name or code"
+              add={canManage ? { label: 'New type', onClick: () => setDraft(emptyDraft(nextOrder)) } : undefined}
+            />
             <DataTable
-              rows={rows}
+              rows={filtered}
               columns={columns}
               getRowId={(r) => r.id}
               storageKey="cf_hrms_reporting_types"
@@ -265,51 +290,29 @@ export default function ReportingTypes() {
               rowActions={
                 canManage || canRemove
                   ? (row) => (
-                      <>
-                        {canManage && (
-                          <Tooltip title="Edit">
-                            <IconButton size="small" onClick={() => openEdit(row)} aria-label={`Edit ${row.name}`}>
-                              <EditRounded fontSize="small" />
-                            </IconButton>
-                          </Tooltip>
-                        )}
-                        {canRemove && (
-                          <Tooltip
-                            title={row.inUse ? 'In use by existing reporting lines' : 'Delete'}
-                          >
-                            {/* A disabled IconButton fires no events, so the tooltip needs a wrapper to hover. */}
-                            <Box component="span">
-                              <IconButton
-                                size="small"
-                                disabled={row.inUse > 0}
-                                onClick={() => setDoomed(row)}
-                                aria-label={`Delete ${row.name}`}
-                              >
-                                <DeleteOutlineRounded fontSize="small" />
-                              </IconButton>
-                            </Box>
-                          </Tooltip>
-                        )}
-                      </>
+                      <RowActions
+                        name={row.name}
+                        onEdit={canManage ? () => openEdit(row) : undefined}
+                        onRemove={canRemove ? () => setDoomed(row) : undefined}
+                        removeDisabledReason={
+                          row.inUse > 0
+                            ? `${row.inUse} reporting line${row.inUse === 1 ? '' : 's'} use it`
+                            : null
+                        }
+                      />
                     )
                   : undefined
               }
               empty={
                 <EmptyState
                   icon={<HubRounded />}
-                  title="No reporting types"
-                  hint="The six standard types are seeded with the app. If this list is empty, the seed has not run for this company — add them back with the same codes, starting with PRIMARY_MANAGER."
-                  action={
-                    canManage ? (
-                      <Button
-                        variant="contained"
-                        startIcon={<AddRounded />}
-                        onClick={() => setDraft(emptyDraft(nextOrder))}
-                      >
-                        Add a type
-                      </Button>
-                    ) : undefined
+                  title={rows.length ? 'Nothing matches those filters' : 'No reporting types'}
+                  hint={
+                    rows.length
+                      ? 'Clear the search or the filters to see every type.'
+                      : 'The six standard types are seeded with the app. If this list is empty, the seed has not run for this company — add them back with the same codes, starting with PRIMARY_MANAGER.'
                   }
+                  action={rows.length ? <Button onClick={filters.clear}>Clear</Button> : undefined}
                 />
               }
             />
@@ -417,10 +420,10 @@ export default function ReportingTypes() {
       <ConfirmDialog
         open={!!doomed}
         danger
-        title="Delete this reporting type?"
+        title="Remove this reporting type?"
         entityName={doomed ? `${doomed.code} — ${doomed.name}` : undefined}
-        body="Nothing uses it yet, so this is safe. If it is one of the six standard types, deleting it will make the org-chart import fall back to creating it again."
-        confirmLabel="Delete"
+        body="Nothing uses it yet, so this is safe. If it is one of the six standard types, removing it will make the org-chart import fall back to creating it again. If a reporting line starts using it first, the server will refuse and say so."
+        confirmLabel="Remove"
         onConfirm={remove}
         onClose={() => setDoomed(null)}
       />
