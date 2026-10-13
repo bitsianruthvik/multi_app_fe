@@ -159,7 +159,9 @@ export function OrderLinesPanel({ order, onSaved, onOpenStructure, onRelease, on
               ? <Box component={Link} to={to(recordPath(l.item.kind, l.item.id))} sx={{ ...linkSx, fontSize: 14, fontWeight: 600 }}>{l.item.name ?? l.item.code ?? 'Unnamed item'}</Box>
               : <Mono muted>—</Mono>}
             {l.item && l.lineType !== 'custom' && <KindChip kind={l.item.kind} />}
-            {l.item && l.item.status !== 'active' && <StatusBadge status={l.item.status} />}
+            {l.item && l.item.status !== 'active' && (l.lineType === 'custom' && l.item.status === 'draft'
+              ? <Badge family="neutral" label="Not frozen" title="Its design is not frozen yet. Freeze design gives it its code and makes it active." noIcon />
+              : <StatusBadge status={l.item.status} />)}
           </Box>
           <Typography component="div" sx={{ fontSize: 13, color: 'var(--c-text-2)', whiteSpace: 'normal' }}>
             {l.lineType === 'custom'

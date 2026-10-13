@@ -430,7 +430,10 @@ export function StageBody({
       {line && !stage.applies && <NotForThisLine view={view} stage={stage} line={line} onPickLine={onPickLine} />}
       {line?.item && line.item.status !== 'active' && stage.stageKey === 'lines' && (
         <Note tone="warning">
-          <Box>Line {line.lineNo} sells <Mono>{line.item.code ?? line.item.name}</Mono>, which is <StatusBadge status={line.item.status} />.</Box>
+          {/* A made-to-order item is a draft only because its design is not frozen yet — say that, not "Draft" (user, 2026-10-13). */}
+          {line.item.status === 'draft' && line.stages.some((st) => st.stageKey === 'lock' && st.applies)
+            ? <Box>Line {line.lineNo}’s design is not frozen yet. <Mono>{line.item.code ?? line.item.name}</Mono> gets its code and becomes active when you freeze the design.</Box>
+            : <Box>Line {line.lineNo} sells <Mono>{line.item.code ?? line.item.name}</Mono>, which is <StatusBadge status={line.item.status} />.</Box>}
         </Note>
       )}
       {line && <WaitingOn stage={stage} label={view.stages.find((x) => x.stageKey === tabFor(stage.waitingOn?.stageKey ?? '', view.stages))?.label ?? null} order={order}
