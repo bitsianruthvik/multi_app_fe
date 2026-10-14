@@ -10,11 +10,14 @@ import {
   sendNestFiles, type NestFileRead, type NestFileUpload, type NestFilesResult, type NestJob, type NestLeftOver, type NestPartRow, type NestPlatesAdded, type NestProblem,
 } from '../../api/nesting';
 import {
-  REPLACE_WARNING, SHAPE_SOURCE_WORDS, fileNest, kg, matchedByLine, mm, mmPair, needsPick, programWord, shapeSourceOnPlate,
+  REPLACE_WARNING, SHAPE_JOB_WORDS, SHAPE_SOURCE_WORDS, fileNest, kg, matchedByLine, mm, mmPair, needsPick, programWord, shapeSourceOfPiece, shapeSourceOnPlate,
+  type ShapeSource,
 } from '../../lib/nesting';
 import { Badge, CapsLabel, Mono } from '../ui';
 import { MissingAdded, NestMissingPlates } from './NestMissingPlates';
 import { PartsTable, type PartSettle } from './NestPartsTable';
+import { checkLines, reviewNames, reviewOf, type ReviewNames } from '../../lib/nestReview';
+import { ReviewSections } from './NestReview';
 import { PlateDiagram, PlateThumb } from './PlateDiagram';
 
 /**
@@ -37,11 +40,19 @@ import { PlateDiagram, PlateThumb } from './PlateDiagram';
  * distinct part, the cut piece it went to and how. Any part can be given another cut
  * piece from a ranked list; that choice goes in the request like a plate choice does.
  *
+ * The top reads by urgency (2026-10-14, NestReview.tsx): ONE headline ("Ready to
+ * save 43 plates · 2 things to check"), a small line for what is left over, then
+ * Must fix / Check / For information — a thing said on many nests is one line
+ * with its nests, its sentences a click away. Cut pieces go by their short name
+ * ("12 × 380 × 1400" and the part it is for), the full code on hover and under a
+ * nest's Details. A nest row is two lines; its sentences are under Details.
+ *
  * A blocker disables Save and the reason is said beside it; a warning that
  * needs force is listed once more in ONE confirmation, whose button is "Save
  * anyway". Choosing a plate or settling an ambiguous part changes the request,
  * so the dry run is sent again. Nothing here invents a sentence the server did
  * not say — a code this screen has never heard of is still shown, by its sentence.
+ * Nothing in it is wider than the dialog: long codes wrap, tables wrap their cells.
  */
 
 /** Above this many layouts the jobs start shut. */
@@ -67,14 +78,8 @@ const ownerOf = (f: NestFileRead) => (isJobEntry(f) ? f.sourceFile ?? f.filename
 const uniq = <T,>(list: T[]): T[] => [...new Set(list)];
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
-/** Request-level sentences nothing below lists (a line state, a surplus across files). */
-function looseSentences(list: string[], result: NestFilesResult): string[] {
-  const own = new Set([
-    ...result.files.flatMap((f) => [...f.errors, ...f.warnings].map((p) => p.message)),
-    ...result.jobs.flatMap((j) => (j.error?.message ? [j.error.message] : [])),
-  ]);
-  return uniq(list.filter((x) => !own.has(x)));
-}
+/** How many DXF plates the answer holds. */
+const groupsDxf = (r: NestFilesResult) => r.files.filter((f) => !isJobEntry(f)).length;
 
 function DiffBlock({ result }: { result: NestFilesResult }) {
   const d = result.diff;
@@ -152,7 +157,7 @@ function DiffBlock({ result }: { result: NestFilesResult }) {
   );
 }
 
-function LeftOver({ leftOver, toNest }: { leftOver: NestLeftOver[]; toNest: number | null }) {
+function LeftOver({ leftOver, toNest, names = null }: { leftOver: NestLeftOver[]; toNest: number | null; names?: ReviewNames | null }) {
   const total = leftOver.reduce((a, l) => a + l.qty, 0);
   return (
     <Box data-testid="nest-leftover" sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 0.5, minWidth: 0 }}>
@@ -164,16 +169,25 @@ function LeftOver({ leftOver, toNest }: { leftOver: NestLeftOver[]; toNest: numb
             <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>
               {`These cut pieces of the line are not on any plate yet. Upload more files for them, or “Nest the rest ourselves” will place them${toNest != null ? ` (${toNest} of them)` : ''}.`}
             </Typography>
-            <Box component="ul" sx={{ m: 0, pl: 2.5, display: 'grid', gap: 0.3, fontSize: 13 }}>
-              {leftOver.map((l) => (
-                <li key={l.cutPlateId}>
-                  <Mono>{l.cutPlateCode}</Mono>{` ×${l.qty}`}
-                  <Box component="span" sx={{ color: 'var(--c-text-2)' }}>
-                    {l.length && l.width ? ` · ${mmPair(l.length, l.width)}` : ''}{l.thickness ? ` · ${mm(l.thickness)} mm` : ''}{l.grade ? ` ${l.grade}` : ''}
-                    {l.manual ? ' · held back by hand' : ''}{l.leftOut ? ' · left out of nesting' : ''}
-                  </Box>
-                </li>
-              ))}
+            <Box component="ul" sx={{ m: 0, pl: 2.5, display: 'grid', gap: 0.3, fontSize: 13, overflowWrap: 'anywhere' }}>
+              {leftOver.map((l) => {
+                const n = names?.name(l.cutPlateCode);
+                // A short name already is the size: the size is then not said twice.
+                const short = !!n && n.short !== l.cutPlateCode;
+                return (
+                  <li key={l.cutPlateId}>
+                    {short
+                      ? <Tooltip title={n.title}><Box component="span" data-testid="cut-piece-name" data-code={l.cutPlateCode}>{n.short}</Box></Tooltip>
+                      : <Mono>{l.cutPlateCode}</Mono>}
+                    {` ×${l.qty}`}
+                    <Box component="span" sx={{ color: 'var(--c-text-2)' }}>
+                      {n?.part ? ` · ${n.part}` : ''}
+                      {!short && l.length && l.width ? ` · ${mmPair(l.length, l.width)}` : ''}{!short && l.thickness ? ` · ${mm(l.thickness)} mm` : ''}{l.grade ? ` ${short ? '· ' : ''}${l.grade}` : ''}
+                      {l.manual ? ' · held back by hand' : ''}{l.leftOut ? ' · left out of nesting' : ''}
+                    </Box>
+                  </li>
+                );
+              })}
             </Box>
           </>
         )}
@@ -247,10 +261,24 @@ function actionWords(file: NestFileRead): string | null {
   return [...by].map(([a, n]) => word(a, n)).filter(Boolean).join(' · ') || null;
 }
 
-/** One layout: a DXF file, or one nest of a ProNest job. */
-function FileRow({ file, settle }: { file: NestFileRead; settle: Settle }) {
+/** The impact class a plate was picked by, read off the server's note — the note itself stays the tooltip. */
+const IMPACT_NOTE = /was chosen among plates of this size, thickness and grade because the cut pieces on the nest are (\S+)\.$/;
+
+/** A small fact on a nest row; its sentence on hover. */
+function Fact({ label, title, family = 'neutral', testId }: { label: string; title?: string; family?: 'neutral' | 'warning' | 'danger' | 'info'; testId?: string }) {
+  return <Box component="span" data-testid={testId ?? 'nest-fact'}><Badge family={family} noIcon label={label} title={title} /></Box>;
+}
+
+/**
+ * One layout: a DXF file, or one nest of a ProNest job. At most two lines — what
+ * it is and its facts, then its cut pieces by short name — plus what blocks it.
+ * Everything else (the plate's sentences, its warnings, the full codes) is under
+ * "Details", which is folded, not left out.
+ */
+function FileRow({ file, settle, names, sharedShape }: { file: NestFileRead; settle: Settle; names: ReviewNames | null; sharedShape: ShapeSource | null }) {
   const [layout, setLayout] = useState(false);
   const [lots, setLots] = useState(false);
+  const [more, setMore] = useState(false);
   const inJob = isJobEntry(file);
   const { errors, warnings } = file;
   const outside = errors.filter((e) => e.code === 'OUTSIDE_PLATE');
@@ -258,101 +286,130 @@ function FileRow({ file, settle }: { file: NestFileRead; settle: Settle }) {
   // The plate as the file drew it: a small picture always, the full drawing on request.
   const nest = useMemo(() => (file.plate && file.placements.length > 0 ? fileNest(file) : null), [file]);
   const allMatched = file.parts > 0 && file.placed === file.parts;
-  const family = file.status === 'error' ? 'danger' : file.status === 'warning' ? 'warning' : 'success';
   const action = actionWords(file);
   const qty = file.nestQuantity ?? 1;
   const lotNos = file.lotNos?.length ? file.lotNos : (file.copies ?? []).map((c) => c.lotNo);
-  const lotsId = `nest-lots-${file.filename.replace(/[^\w-]/g, '_')}`;
+  const safeId = file.filename.replace(/[^\w-]/g, '_');
   const title = inJob && file.jobNestNo != null ? `Nest ${file.jobNestNo}${file.jobNests ? ` of ${file.jobNests}` : ''}` : file.filename;
+  const warned = uniq(warnings.map((w) => w.message || w.code));
+  const failed = uniq(errors.map((e) => e.message || e.code));
+  const impact = file.notes.map((n) => ({ n, m: IMPACT_NOTE.exec(n) })).find((x) => x.m);
+  const name = (code: string) => names?.name(code) ?? { code, short: code, part: null, parts: [], title: code };
+  const plateSize = file.plate ? `${mm(Math.min(file.plate.length, file.plate.width))} × ${mm(Math.max(file.plate.length, file.plate.width))}` : '';
+  const dot = <Box component="span" aria-hidden sx={{ color: 'var(--c-text-3)' }}>·</Box>;
   return (
     <Box data-testid="nest-file" data-file={file.filename} data-kind={inJob ? 'pronest' : 'dxf'} sx={{
-      py: 1.25, borderBottom: '1px solid var(--c-divider)', display: 'grid', columnGap: 1.5, alignItems: 'start', minWidth: 0,
-      gridTemplateColumns: { xs: 'minmax(0, 1fr)', sm: nest ? '132px minmax(0, 1fr)' : 'minmax(0, 1fr)' },
+      py: 1, borderBottom: '1px solid var(--c-divider)', display: 'grid', columnGap: 1.5, alignItems: 'start', minWidth: 0,
+      gridTemplateColumns: { xs: 'minmax(0, 1fr)', sm: nest ? '96px minmax(0, 1fr)' : 'minmax(0, 1fr)' },
     }}>
       {nest && (
         <Box data-testid="file-thumb" sx={{ display: { xs: 'none', sm: 'block' }, border: '1px solid var(--c-border)', borderRadius: 'var(--r-sm)', overflow: 'hidden', mt: 0.25 }}>
-          <PlateThumb nest={nest} width={130} />
+          <PlateThumb nest={nest} width={94} />
         </Box>
       )}
-      <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 0.75, minWidth: 0 }}>
-        <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap', minWidth: 0 }}>
-          <Box data-testid="file-title" sx={{ fontSize: 13.5, fontWeight: 600, overflowWrap: 'anywhere', minWidth: 0 }}>{title}</Box>
+      <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 0.5, minWidth: 0 }}>
+        {/* Line 1: what it is, and its own facts. */}
+        <Box data-testid="file-line" sx={{ display: 'flex', columnGap: 0.75, rowGap: 0.25, alignItems: 'center', flexWrap: 'wrap', minWidth: 0, fontSize: 13, color: 'var(--c-text-2)' }}>
+          <Box component="span" data-testid="file-title" sx={{ fontSize: 13.5, fontWeight: 600, color: 'var(--c-text)', overflowWrap: 'anywhere', minWidth: 0 }}>{title}</Box>
           {inJob && qty > 1 && (
             // The lot numbers are there on demand: four of them on every row would bury the row.
-            <Button size="small" variant="outlined" data-testid="nest-quantity" aria-expanded={lots} aria-controls={lotsId}
+            <Button size="small" variant="outlined" data-testid="nest-quantity" aria-expanded={lots} aria-controls={`nest-lots-${safeId}`}
               onClick={() => setLots((o) => !o)} sx={{ minWidth: 0, py: 0, px: 0.75, fontSize: 12.5 }}>
               {`× ${qty} plates`}
             </Button>
           )}
-          {inJob && qty <= 1 && file.lotNo && <Mono chip>{file.lotNo}</Mono>}
-          <Badge family={family} noIcon label={file.status === 'error' ? 'Problem' : file.status === 'warning' ? 'Warning' : 'Read'} />
-          {action && <Badge family="neutral" noIcon label={action} />}
+          {inJob && qty <= 1 && file.lotNo && <>{dot}<Mono sx={{ overflowWrap: 'anywhere' }}>{file.lotNo}</Mono></>}
+          {!inJob && file.nestNo && <>{dot}<span>{`Nest ${file.nestNo}`}</span></>}
+          {dot}
+          {file.plate
+            ? <Box component="span" data-testid="file-plate" sx={{ overflowWrap: 'anywhere', minWidth: 0 }}><Mono>{file.plate.code}</Mono>{` (${plateSize})`}</Box>
+            : <span>No plate found yet</span>}
+          {dot}
+          <Box component="span" data-testid="file-matched" sx={{ fontWeight: 500, color: allMatched ? 'var(--c-success-800)' : 'var(--c-warning-800)' }}>{`${file.placed} of ${file.parts} matched`}</Box>
+          {file.metrics?.wastePct != null && <>{dot}<span>{`${file.metrics.wastePct.toFixed(1)}% waste`}</span></>}
+          {failed.length > 0 && <Fact family="danger" label={`${failed.length} to fix`} testId="nest-fact-fix" />}
+          {warned.length > 0 && <Fact family="warning" label={`${warned.length} to check`} title={warned.join(' · ')} testId="nest-fact-check" />}
+          {impact && <Fact label={`${impact.m?.[1]} plate — from cut pieces`} title={impact.n} testId="nest-fact-impact" />}
+          {action && <Fact label={action} testId="nest-fact-action" />}
         </Box>
         {inJob && qty > 1 && (
           <Collapse in={lots} unmountOnExit>
-            <Box id={lotsId} data-testid="nest-lots" sx={{ fontSize: 12.5, color: 'var(--c-text-2)', overflowWrap: 'anywhere' }}>
+            <Box id={`nest-lots-${safeId}`} data-testid="nest-lots" sx={{ fontSize: 12.5, color: 'var(--c-text-2)', overflowWrap: 'anywhere' }}>
               {`This nest is cut on ${qty} identical plates: `}<Mono>{lotNos.join(', ')}</Mono>
             </Box>
           </Collapse>
         )}
-        <Box sx={{ display: 'flex', columnGap: 2, rowGap: 0.25, flexWrap: 'wrap', fontSize: 13, color: 'var(--c-text-2)' }}>
-          <span>
-            {file.plate
-              ? <>Plate <Mono>{file.plate.code}</Mono>{` · ${mmPair(file.plate.length, file.plate.width)}`}{file.plate.resolvedBy ? ` · found by ${file.plate.resolvedBy}` : ''}</>
-              : 'No plate found yet'}
-          </span>
-          <Box component="span" data-testid="file-matched" sx={{ fontWeight: 500, color: allMatched ? 'var(--c-success-800)' : 'var(--c-warning-800)' }}>{`Parts matched ${file.placed} of ${file.parts}`}</Box>
-          {!inJob && file.nestNo && <span>{`Nest ${file.nestNo}`}</span>}
-          {file.metrics?.wastePct != null && <span>{`${file.metrics.wastePct.toFixed(1)}% waste · ${kg(file.metrics.wasteKgTotal)} kg`}</span>}
-        </Box>
+        {/* Line 2: its cut pieces, by short name; the full code on hover and under Details. */}
         {file.counts.length > 0 && (
-          <Box sx={{ display: 'flex', gap: 0.6, flexWrap: 'wrap' }}>
+          <Box data-testid="file-pieces" sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', minWidth: 0 }}>
             {file.counts.map((c) => {
-              // Where the shape comes from, as the server says it on the placements. Tested for its VALUE.
+              // Where the shape comes from, as the server says it on the placements — said here only when the job's header does not say it for all.
               const from = shapeSourceOnPlate(file.placements, c.cutPlateId);
+              const n = name(c.cutPlateCode);
               return (
-                <Box key={c.cutPlateId} sx={{ display: 'inline-flex', gap: 0.5, fontSize: 12, background: 'var(--c-surface-2)', border: '1px solid var(--c-border)', borderRadius: 'var(--r-sm)', px: 0.75, py: 0.15 }}>
-                  <Mono>{c.cutPlateCode}</Mono><span>{`×${c.qty}`}</span>
-                  {from && <Box component="span" data-testid="shape-from" data-shape={from} sx={{ color: 'var(--c-text-3)' }}>{SHAPE_SOURCE_WORDS[from]}</Box>}
-                </Box>
+                <Tooltip key={c.cutPlateId} title={n.title}>
+                  <Box component="span" data-testid="cut-piece-chip" data-code={c.cutPlateCode} sx={{
+                    display: 'inline-flex', gap: 0.5, flexWrap: 'wrap', maxWidth: '100%', minWidth: 0, overflowWrap: 'anywhere', fontSize: 12,
+                    background: 'var(--c-surface-2)', border: '1px solid var(--c-border)', borderRadius: 'var(--r-sm)', px: 0.75, py: 0.15,
+                  }}>
+                    <span>{n.short}</span>
+                    {n.part && <Box component="span" sx={{ color: 'var(--c-text-2)' }}>{n.part}</Box>}
+                    <span>{`×${c.qty}`}</span>
+                    {from && from !== sharedShape && <Box component="span" data-testid="shape-from" data-shape={from} sx={{ color: 'var(--c-text-3)' }}>{SHAPE_SOURCE_WORDS[from]}</Box>}
+                  </Box>
+                </Tooltip>
               );
             })}
           </Box>
         )}
+        {/* What blocks the save is never folded away. */}
         <ProblemList list={errors} tone="danger" />
-        <ProblemList list={warnings} tone="warning" />
-
         <Choosers list={settle.seen.filter((s) => s.row === file.filename)} settle={settle} />
-
         {outside.length > 0 && (
           <Typography data-testid="file-outside" sx={{ fontSize: 12.5, color: 'var(--c-danger-700, var(--c-danger-800))' }}>
             {`${outside.length} ${outside.length === 1 ? 'part runs' : 'parts run'} off the plate and ${outside.length === 1 ? 'is' : 'are'} not counted as nested: ${outside.map((e) => e.cutPlateCode ?? e.partId ?? 'a part').join(', ')}.`}
           </Typography>
         )}
-        {file.scrap && file.scrap.length > 0 && (
-          <Typography data-testid="file-scrap" sx={{ fontSize: 12.5, color: 'var(--c-text-2)' }}>
-            {`${file.scrap.length} ${file.scrap.length === 1 ? 'area' : 'areas'} between parts ${file.scrap.length === 1 ? 'is' : 'are'} scrap, not a part.`}
-          </Typography>
-        )}
-        {/* On a ProNest nest EVERY part keeps the nesting file's outline, so the line would say nothing there. */}
-        {!inJob && kept > 0 && (
-          <Typography data-testid="file-shape-kept" sx={{ fontSize: 12.5, color: 'var(--c-text-2)' }}>
-            {`${kept} ${kept === 1 ? 'part keeps' : 'parts keep'} the shape taken from the nesting file.`}
-          </Typography>
-        )}
-        {file.notes.length > 0 && (
-          <Box component="ul" sx={{ m: 0, pl: 2.5, fontSize: 12.5, color: 'var(--c-text-3)', overflowWrap: 'anywhere' }}>
-            {file.notes.map((n) => <li key={n}>{n}</li>)}
-          </Box>
-        )}
-        {file.plate && file.placements.length > 0 && (
-          <Box sx={{ minWidth: 0 }}>
+
+        <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
+          <Button size="small" data-testid="file-details-toggle" aria-expanded={more} aria-controls={`nest-more-${safeId}`} onClick={() => setMore((o) => !o)}
+            endIcon={more ? <ExpandMoreRounded /> : <ChevronRightRounded />}>
+            Details
+          </Button>
+          {file.plate && file.placements.length > 0 && (
             <Button size="small" aria-expanded={layout} onClick={() => setLayout((o) => !o)}>{layout ? 'Hide the layout' : 'Show the layout'}</Button>
-            <Collapse in={layout} unmountOnExit>
-              {layout && nest && <PlateDiagram nest={nest} kerfMm={file.plate.kerfMm} title={`${title}: ${file.placed} parts`} />}
-            </Collapse>
+          )}
+        </Box>
+        {/* Folded, not left out: every sentence of the row is here. */}
+        <Collapse in={more}>
+          <Box id={`nest-more-${safeId}`} data-testid="file-details" sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 0.5, minWidth: 0, fontSize: 12.5, color: 'var(--c-text-2)', overflowWrap: 'anywhere' }}>
+            <Box>
+              {file.plate
+                ? <>{`Plate ${file.plate.code} · ${mmPair(file.plate.length, file.plate.width)} as drawn`}{file.plate.resolvedBy ? ` · found by ${file.plate.resolvedBy}` : ''}</>
+                : 'No plate found yet'}
+              {file.metrics?.wastePct != null ? ` · ${file.metrics.wastePct.toFixed(1)}% waste · ${kg(file.metrics.wasteKgTotal)} kg` : ''}
+            </Box>
+            {file.counts.length > 0 && (
+              <Box data-testid="file-codes">{`Cut pieces: ${file.counts.map((c) => `${c.cutPlateCode} ×${c.qty}`).join(', ')}`}</Box>
+            )}
+            <ProblemList list={warnings} tone="warning" />
+            {file.scrap && file.scrap.length > 0 && (
+              <Box data-testid="file-scrap">
+                {`${file.scrap.length} ${file.scrap.length === 1 ? 'area' : 'areas'} between parts ${file.scrap.length === 1 ? 'is' : 'are'} scrap, not a part.`}
+              </Box>
+            )}
+            {/* On a ProNest nest EVERY part keeps the nesting file's outline: the job's header says it once. */}
+            {!inJob && kept > 0 && (
+              <Box data-testid="file-shape-kept">{`${kept} ${kept === 1 ? 'part keeps' : 'parts keep'} the shape taken from the nesting file.`}</Box>
+            )}
+            {file.notes.length > 0 && (
+              <Box component="ul" data-testid="file-notes" sx={{ m: 0, pl: 2.5, color: 'var(--c-text-3)' }}>
+                {file.notes.map((n) => <li key={n}>{n}</li>)}
+              </Box>
+            )}
           </Box>
-        )}
+        </Collapse>
+        {layout && nest && file.plate && <PlateDiagram nest={nest} kerfMm={file.plate.kerfMm} title={`${title}: ${file.placed} parts`} />}
       </Box>
     </Box>
   );
@@ -372,8 +429,8 @@ function jobFromNests(filename: string, nests: NestFileRead[]): NestJob {
 }
 
 /** One ProNest job file: its header line, what could not be read or is not nested, and its nests. */
-function JobBlock({ job, entries, open, onToggle, settle }: {
-  job: NestJob; entries: NestFileRead[]; open: boolean; onToggle: () => void; settle: Settle;
+function JobBlock({ job, entries, open, onToggle, settle, names }: {
+  job: NestJob; entries: NestFileRead[]; open: boolean; onToggle: () => void; settle: Settle; names: ReviewNames | null;
 }) {
   const [notNestedOpen, setNotNestedOpen] = useState(false);
   const nests = entries.filter((f) => f.jobNestNo != null);
@@ -389,7 +446,10 @@ function JobBlock({ job, entries, open, onToggle, settle }: {
   const matchedBy = matchedByLine(job.matchedBy);
   const short = job.notNested.reduce((a, p) => a + p.notNested, 0);
   const mine = settle.seen.filter((s) => s.job === job.filename);
-  const canOpen = nests.length > 0 || job.notes.length > 0 || job.partRows.length > 0;
+  // Where the job's shapes come from, said once here when every piece agrees (a ProNest nest is always "nesting file").
+  const sources = new Set(nests.flatMap((f) => f.placements.map(shapeSourceOfPiece)));
+  const sharedShape = sources.size === 1 ? [...sources][0] : null;
+  const canOpen = nests.length > 0 || job.partRows.length > 0;
   return (
     <Box data-testid="nest-job" data-job={job.filename} data-status={unreadable ? 'error' : job.status} sx={{
       border: '1px solid', borderColor: unreadable ? 'var(--c-danger-200, var(--c-border))' : 'var(--c-border)', borderRadius: 'var(--r-md)', minWidth: 0, overflow: 'hidden',
@@ -421,7 +481,7 @@ function JobBlock({ job, entries, open, onToggle, settle }: {
         </Box>
       </Box>
 
-      {(unreadable || jobWarnings.length > 0 || matchedBy || mine.length > 0 || job.notNested.length > 0) && (
+      {(unreadable || jobWarnings.length > 0 || matchedBy || sharedShape || mine.length > 0 || job.notNested.length > 0) && (
         <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 0.75, px: 1.25, py: 1, minWidth: 0, borderTop: '1px solid var(--c-divider)' }}>
           {/* Why the whole job is refused, and what to do, in the server's sentence. Never behind a click. */}
           {unreadable && (
@@ -434,6 +494,9 @@ function JobBlock({ job, entries, open, onToggle, settle }: {
             <Box component="ul" sx={{ m: 0, pl: 2.5, display: 'grid', gap: 0.3, fontSize: 12.5, color: 'var(--c-warning-800)', overflowWrap: 'anywhere' }}>
               {jobWarnings.map((m) => <li key={m}>{m}</li>)}
             </Box>
+          )}
+          {sharedShape && (
+            <Box data-testid="job-shape-from" data-shape={sharedShape} sx={{ fontSize: 12.5, color: 'var(--c-text-2)' }}>{SHAPE_JOB_WORDS[sharedShape]}</Box>
           )}
           {matchedBy && (
             <Box data-testid="job-matched-by" sx={{ fontSize: 12.5, color: 'var(--c-text-2)', overflowWrap: 'anywhere' }}>{`Pieces matched ${matchedBy}`}</Box>
@@ -468,15 +531,11 @@ function JobBlock({ job, entries, open, onToggle, settle }: {
           <Box id={id} sx={{ px: 1.25, pb: 0.5, minWidth: 0, borderTop: '1px solid var(--c-divider)' }}>
             {job.partRows.length > 0 && (
               <Box sx={{ pt: 1, pb: 0.5, minWidth: 0 }}>
-                <PartsTable rows={job.partRows} job={job.filename} settle={settle} label={`Parts of ${name}`} />
+                <PartsTable rows={job.partRows} job={job.filename} settle={settle} label={`Parts of ${name}`} names={names?.name} />
               </Box>
             )}
-            {nests.map((f) => <FileRow key={f.filename} file={f} settle={settle} />)}
-            {job.notes.length > 0 && (
-              <Box component="ul" data-testid="job-notes" sx={{ m: 0, py: 1, pl: 2.5, display: 'grid', gap: 0.3, fontSize: 12.5, color: 'var(--c-text-3)', overflowWrap: 'anywhere' }}>
-                {job.notes.map((n) => <li key={n}>{n}</li>)}
-              </Box>
-            )}
+            {/* The job's notes are said once, under "For information" at the top. */}
+            {nests.map((f) => <FileRow key={f.filename} file={f} settle={settle} names={names} sharedShape={sharedShape} />)}
           </Box>
         </Collapse>
       )}
@@ -624,13 +683,33 @@ export function NestFilesDialog({
   const blocked = !!result && !result.canSave;
   const force = !!result && result.canSave && result.needsForce;
   const changes = result ? result.diff.added.length + result.diff.replaced.length + result.diff.removed.length : 0;
-  const looseProblems = result ? looseSentences(result.problems, result) : [];
-  const looseWarnings = result ? looseSentences(result.warnings, result) : [];
-  const forceList = uniq(result?.warnings ?? []);
+  // The names, places and groups of the review: worked out once per answer.
+  const names = useMemo(() => (result ? reviewNames(result) : null), [result]);
+  const review = useMemo(() => (result && names ? reviewOf(result, names) : null), [result, names]);
+  // The Save-anyway confirmation lists the "Check" lines in the same short form.
+  const checked = result && names && review ? uniq(checkLines(review, result, names)) : [];
+  const forceList = checked.length ? checked : uniq(result?.warnings ?? []);
   const fileWord = plural(uploads.length, 'file', 'files');
   // What Save writes, in PLATES: the diff counts a nest cut on four plates as four.
   const plates = result ? result.diff.added.length + result.diff.replaced.length : 0;
   const saveLabel = plates > 0 ? `Save ${plural(plates, 'plate', 'plates')}` : 'Save';
+  // ONE headline: can it be saved, and how many kinds of thing to fix or check.
+  const toFix = review?.fix.length ?? 0;
+  const toCheck = review?.check.length ?? 0;
+  const cannot = blocked && (toFix > 0 || changes > 0);
+  const headline = !result ? ''
+    : cannot ? `Can't save yet${toFix ? ` · ${plural(toFix, 'thing', 'things')} to fix` : ''}`
+      : changes === 0 ? 'Nothing to save — these files change nothing on the line'
+        : `Ready to save ${plural(plates, 'plate', 'plates')}${toCheck ? ` · ${plural(toCheck, 'thing', 'things')} to check` : ''}`;
+  // Left over is its own small line, not part of the headline.
+  const leftPieces = result ? result.leftOver.filter((l) => !l.manual && !l.leftOut).reduce((a, l) => a + l.qty, 0) : 0;
+  const nestCount = (result?.jobs ?? []).reduce((a, j) => a + j.nests, 0);
+  const jobPlates = (result?.jobs ?? []).reduce((a, j) => a + j.plates, 0);
+  const readLine = !result ? '' : [
+    `${fileWord} read`,
+    ...((result.jobs.length) ? [`${plural(result.jobs.length, 'ProNest job', 'ProNest jobs')}: ${plural(nestCount, 'nest', 'nests')}, ${plural(jobPlates, 'plate', 'plates')}`] : []),
+    ...(groupsDxf(result) ? [plural(groupsDxf(result), 'DXF plate', 'DXF plates')] : []),
+  ].join(' · ');
   const hasJobs = groups.jobs.length > 0;
   // Said beside the button, not only on hover: why it cannot be pressed.
   const saveWhy = !result ? null
@@ -673,25 +752,15 @@ export function NestFilesDialog({
                 <Button color="inherit" size="small" onClick={() => setTick((t) => t + 1)}>Reload</Button>
               ) : undefined}>{error.message}</Alert>
             )}
-            {result && blocked && (
-              <Alert severity="error" data-testid="nest-files-blocked">
-                <Box sx={{ fontWeight: 600, overflowWrap: 'anywhere' }}>{blockedLine}</Box>
-                {looseProblems.length > 0 && (
-                  <Box component="ul" sx={{ m: 0, mt: 0.5, pl: 2.5, display: 'grid', gap: 0.4, overflowWrap: 'anywhere' }}>
-                    {looseProblems.map((p) => <li key={p}>{p}</li>)}
-                  </Box>
-                )}
-              </Alert>
-            )}
-            {result && !blocked && (
-              <Alert severity={force ? 'warning' : 'success'} data-testid="nest-files-status">
-                <Box sx={{ fontWeight: 600 }}>
-                  {force ? 'There are warnings. You can still save.' : 'These files can be saved.'}
-                  {result.message ? ` ${result.message}` : ''}
-                </Box>
-                {looseWarnings.length > 0 && (
-                  <Box component="ul" sx={{ m: 0, mt: 0.5, pl: 2.5, display: 'grid', gap: 0.4, overflowWrap: 'anywhere' }}>
-                    {looseWarnings.map((p) => <li key={p}>{p}</li>)}
+            {/* ONE headline, then what it rests on, by urgency. Every sentence of the answer is below it — grouped, or folded. */}
+            {result && (
+              <Alert severity={cannot ? 'error' : blocked ? 'info' : force ? 'warning' : 'success'} data-testid={blocked ? 'nest-files-blocked' : 'nest-files-status'}
+                sx={{ overflowWrap: 'anywhere' }}>
+                <Box data-testid="nest-headline" sx={{ fontWeight: 600, fontSize: 14.5 }}>{headline}</Box>
+                <Box data-testid="nest-files-read" sx={{ fontSize: 13 }}>{blocked ? blockedLine : readLine}</Box>
+                {leftPieces > 0 && (
+                  <Box data-testid="nest-leftover-line" sx={{ fontSize: 13 }}>
+                    {`${plural(leftPieces, 'piece is', 'pieces are')} not in these files — nest the rest after saving`}
                   </Box>
                 )}
               </Alert>
@@ -702,6 +771,8 @@ export function NestFilesDialog({
               <NestMissingPlates plates={result.missingPlates} orderId={orderId} lineId={lineId} canEditCatalog={canEditCatalog}
                 onAdded={(out) => { setAdded(out); setTick((t) => t + 1); }} />
             )}
+
+            {result && review && names && <ReviewSections review={review} result={result} names={names} />}
 
             {result && <DiffBlock result={result} />}
 
@@ -723,7 +794,7 @@ export function NestFilesDialog({
               <Box data-testid="nest-jobs" sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 1, minWidth: 0 }}>
                 <CapsLabel>{`ProNest jobs (${groups.jobs.length})`}</CapsLabel>
                 {groups.jobs.map(({ job, entries }) => (
-                  <JobBlock key={job.filename} job={job} entries={entries} settle={settle}
+                  <JobBlock key={job.filename} job={job} entries={entries} settle={settle} names={names}
                     open={jobsOpen[job.filename] ?? !manyRows}
                     onToggle={() => setJobsOpen((o) => ({ ...o, [job.filename]: !(o[job.filename] ?? !manyRows) }))} />
                 ))}
@@ -734,13 +805,13 @@ export function NestFilesDialog({
               <Box data-testid="nest-dxf-files" sx={{ minWidth: 0 }}>
                 <CapsLabel>{`DXF files (${groups.dxf.length})`}</CapsLabel>
                 {(result?.dxfPartRows.length ?? 0) > 0 && (
-                  <Box sx={{ py: 1 }}><PartsTable rows={result?.dxfPartRows ?? []} job={null} settle={settle} label="Parts of the DXF files" /></Box>
+                  <Box sx={{ py: 1 }}><PartsTable rows={result?.dxfPartRows ?? []} job={null} settle={settle} label="Parts of the DXF files" names={names?.name} /></Box>
                 )}
-                {groups.dxf.map((f) => <FileRow key={f.filename} file={f} settle={settle} />)}
+                {groups.dxf.map((f) => <FileRow key={f.filename} file={f} settle={settle} names={names} sharedShape={null} />)}
               </Box>
             )}
 
-            {result && <LeftOver leftOver={result.leftOver} toNest={result.totals?.leftOverToNest ?? null} />}
+            {result && <LeftOver leftOver={result.leftOver} toNest={result.totals?.leftOverToNest ?? null} names={names} />}
           </Box>
         )}
       </DialogContent>
@@ -764,7 +835,7 @@ export function NestFilesDialog({
         )}
       </DialogActions>
 
-      {/* ONE confirmation for everything that needs force, whatever its code, listed in the server's own sentences. */}
+      {/* ONE confirmation for everything that needs force, whatever its code: the "Check" lines, in the same short form (the sentences are in the review). */}
       <Dialog open={confirm && force} onClose={() => setConfirm(false)} maxWidth="sm" fullWidth aria-labelledby="nest-files-confirm-title">
         <DialogTitle id="nest-files-confirm-title">{forceList.length === 1 ? 'Save with this warning?' : `Save with these ${forceList.length} warnings?`}</DialogTitle>
         <DialogContent>

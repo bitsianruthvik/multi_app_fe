@@ -8,6 +8,8 @@
 // Third pass, 2026-10-14: the PARTS TABLE per job and for the DXFs (what each part went to and how), the 25 mm cutting allowance
 // called out, and Choose / Change / Undo a part's cut piece from a ranked, searchable list (choices keyed by job file + part name,
 // or by DXF file + part ids).
+// Fourth pass, 2026-10-14 (review wording): one headline, Must fix / Check / For information, the surplus as a table, a thing said on
+// many nests as one line, short cut-piece names with the full code on hover, two-line nest rows, and nothing wider than the dialog.
 import assert from 'node:assert/strict';
 import { mkdir, writeFile, unlink } from 'node:fs/promises';
 import { resolve } from 'node:path';
@@ -38,7 +40,7 @@ const built = await build({
       export { NestingPanel } from './src/apps/cf_erp/components/Nesting/NestingPanel';
       export { NestFilesDialog } from './src/apps/cf_erp/components/Nesting/NestFilesDialog';
       export { PlateDiagram } from './src/apps/cf_erp/components/Nesting/PlateDiagram';
-      export { acceptBody, restLine } from './src/apps/cf_erp/lib/nesting';`,
+      export { acceptBody, restLine, cutPieceNamer, compactNests } from './src/apps/cf_erp/lib/nesting';`,
     resolveDir: process.cwd(), loader: 'tsx',
   },
   plugins: [{ name: 'stub-api', setup(b) {
@@ -52,7 +54,8 @@ const cache = resolve('node_modules/.cache');
 await mkdir(cache, { recursive: true });
 const artifact = resolve(cache, `nest-files-test-${process.pid}.mjs`);
 await writeFile(artifact, built.outputFiles[0].text);
-const { React, createRoot, MemoryRouter, NestingPanel, NestFilesDialog, PlateDiagram, acceptBody, restLine } = await import(pathToFileURL(artifact));
+const { React, createRoot, MemoryRouter, NestingPanel, NestFilesDialog, PlateDiagram, acceptBody, restLine, cutPieceNamer, compactNests } = await import(pathToFileURL(artifact));
+const helpers = { cutPieceNamer, compactNests };
 await unlink(artifact);
 const inRouter = (el) => React.createElement(MemoryRouter, null, el);
 
@@ -208,7 +211,9 @@ await check('the preview is a dry run, and shows the diff: added, replaced, unch
   assert.ok(diff.includes('was 20 pieces, now 14') && diff.includes('13 moved'));
   assert.ok(diff.includes('NVX-CR 5 → 3'), 'what changed on the replaced plate');
   assert.ok(diff.includes('Our additions on this plate are dropped: NVX-CA ×4'));
-  assert.ok(document.querySelector('[data-testid=nest-files-status]').textContent.includes('5 files read; plates: 5 added, 2 removed.'));
+  // One headline; the server's own summary is kept, under For information (2026-10-14).
+  assert.equal(document.querySelector('[data-testid=nest-headline]').textContent, 'Ready to save 2 plates');
+  assert.ok(document.querySelector('[data-testid=nest-files-message]').textContent.includes('5 files read; plates: 5 added, 2 removed.'));
   assert.equal(saveBtn().textContent.trim(), 'Save 2 plates', 'the button says how many plates it writes (1 added + 1 replaced)');
   assert.equal(saveBtn().disabled, false);
   assert.equal(document.querySelector('[data-testid=save-why]'), null);
@@ -220,8 +225,10 @@ await check('each file shows its plate, parts matched and notes; the layout open
   await mountEl(dialog());
   await waitFor(() => document.querySelector('[data-testid=nest-file]'), 'a file row');
   const row = document.querySelector('[data-testid=nest-file]').textContent;
-  assert.ok(row.includes('NVX-PS') && row.includes('3,000 × 1,500') && row.includes('found by size'));
-  assert.ok(row.includes('Parts matched 6 of 6') && row.includes('New plate'));
+  // Line 1 says the plate short side first; Details keeps it as drawn and how it was found.
+  const line = document.querySelector('[data-testid=file-line]').textContent;
+  assert.ok(line.includes('NVX-PS (1,500 × 3,000)') && line.includes('6 of 6 matched') && line.includes('81.7% waste') && line.includes('New plate'), line);
+  assert.ok(row.includes('3,000 × 1,500 mm as drawn') && row.includes('found by size') && row.includes('408 kg'), 'the rest is under Details');
   assert.ok(document.querySelector('[data-testid=nest-file] [data-testid=file-thumb] svg'), 'the plate picture is in the row without asking');
   assert.ok(row.includes('The file does not draw the plate'));
   await click(find('Show the layout'), 'layout toggle');
@@ -673,7 +680,7 @@ await check('a part across the plate edge is drawn in the error colour, listed, 
   await waitFor(() => document.querySelector('[data-testid=file-outside]'), 'the outside line');
   assert.ok(text().includes(msg), 'the sentence as given');
   assert.ok(document.querySelector('[data-testid=file-outside]').textContent.includes('1 part runs off the plate and is not counted as nested: NVX-CR.'));
-  assert.ok(text().includes('Parts matched 6 of 7'));
+  assert.ok(text().includes('6 of 7 matched'));
   await click(find('Show the layout'), 'layout');
   const bad = document.querySelector('svg[role=img] [data-part=rect]');
   assert.ok(bad && bad.getAttribute('fill').includes('danger'), 'drawn in the error colour');
@@ -835,7 +842,7 @@ await check('a ProNest job is ONE header with its nests under it; a nest cut on 
   assert.deepEqual(rows.map((r) => r.querySelector('[data-testid=file-title]').textContent), ['Nest 1 of 4', 'Nest 2 of 4', 'Nest 3 of 4', 'Nest 4 of 4']);
   assert.ok(rows.every((r) => r.getAttribute('data-kind') === 'pronest'));
   assert.ok(rows[0].querySelector('[data-testid=file-thumb] svg'), 'each nest has its plate picture');
-  assert.ok(rows[0].textContent.includes('Parts matched 6 of 6') && rows[0].textContent.includes('NVX-PS'));
+  assert.ok(rows[0].textContent.includes('6 of 6 matched') && rows[0].textContent.includes('NVX-PS'));
   // × N plates, only on the nest that has N > 1; the lot numbers wait behind it.
   const qty = rows[0].querySelector('[data-testid=nest-quantity]');
   assert.equal(qty.textContent, '× 4 plates');
@@ -1253,12 +1260,16 @@ await check('every warning and blocker is shown by its sentence — a code this 
   await mountEl(dialog({ uploads: nif(J12, 'NVX-B4.dxf') }));
   await waitFor(() => saveBtn() && !saveBtn().disabled, 'Save');
   const shown = [...document.querySelectorAll('[data-testid=file-warnings] li')].map((e) => e.textContent);
-  assert.deepEqual(shown, [thin, curve, unknown], 'each on its own row, in the backend words; the unknown one is not swallowed');
+  assert.deepEqual(shown, [thin, curve, unknown], 'each under its own row’s Details, in the backend words; the unknown one is not swallowed');
   assert.ok(document.querySelector('[data-testid=job-header]').textContent.includes('1 warning'));
+  // The Check section: one line per thing, the thicker-plate one in short words, the others in the backend's sentence.
+  const checkLinesNow = [...document.querySelectorAll('[data-section=check] [data-testid=review-line-text]')].map((e) => e.textContent);
+  assert.deepEqual(checkLinesNow, ['NF-CCOV — 9 mm, cut from 10 mm plate · 1 nest', curve, unknown], 'a code this screen does not know is still said, by its sentence');
+  assert.equal(document.querySelector('[data-testid=nest-headline]').textContent, 'Ready to save 7 plates · 3 things to check');
   await click(saveBtn(), 'Save');
   await waitFor(() => document.querySelector('[data-testid=save-anyway-list]'), 'the confirmation');
   assert.equal(document.querySelector('#nest-files-confirm-title').textContent, 'Save with these 3 warnings?', 'counted once each');
-  assert.deepEqual([...document.querySelectorAll('[data-testid=save-anyway-list] li')].map((e) => e.textContent), [thin, curve, unknown]);
+  assert.deepEqual([...document.querySelectorAll('[data-testid=save-anyway-list] li')].map((e) => e.textContent), ['NF-CCOV — 9 mm, cut from 10 mm plate · 1 nest', curve, unknown], 'the Check lines, in the same short form');
   await click(find('Save anyway'), 'Save anyway');
   await waitFor(() => forced != null, 'the save');
   assert.equal(forced, true);
@@ -1488,6 +1499,223 @@ await check('a 422 from the route shows the message and its problems inside the 
   assert.ok(tid('missing-dialog').contains(err), 'inside the dialog');
   assert.equal(tid('missing-dialog-add').disabled, false, 'can try again');
   assert.equal(tid('missing-added'), null);
+  await unmount();
+});
+
+/* ==== Review wording, 2026-10-14: one headline, sections by urgency, tables, short names ============= */
+const SO = (size) => `SO260009-1-${size}-E350`;
+const CCP = SO('12X380X1400');
+const SPL = SO('11X225X490');
+const BRG = SO('16X212.5X654');
+const J12S = '12MM-NECL-PATNA SPAN1.nif';
+const J16 = '16MM-NECL-PATNA.nif';
+const BO = 'PL-12X2500X12000-E350BO was chosen among plates of this size, thickness and grade because the cut pieces on the nest are BO.';
+const plate12 = { itemId: 1, code: 'PL-12X2500X12000-E350BO', thickness: 12, grade: 'E350', length: 12000, width: 2500, drawn: true, resolvedBy: 'size', kerfMm: 3 };
+const plate16 = { ...plate12, code: 'PL-16X2500X12000-E350', thickness: 16 };
+const soPieces = [
+  { cutPlateId: 1, code: CCP, thickness: 12, length: 1400, width: 380, grade: 'E350', needed: 8, parts: [{ name: 'Cross girder cover plate', mark: 'CGCP1' }] },
+  { cutPlateId: 2, code: SPL, thickness: 11, length: 490, width: 225, grade: 'E350', needed: 6, parts: [{ name: 'Splice top packing', mark: 'SP1' }] },
+  { cutPlateId: 3, code: BRG, thickness: 16, length: 654, width: 212.5, grade: 'E350', needed: 24, parts: [{ name: 'Bearing stiffener', mark: 'BS1' }] },
+];
+const thinMsg = (n, pieces) => `${J12S} nest ${n}, plate ${plate12.code}: ${SPL} is 11 mm and is nested on 12 mm plate (${pieces === 1 ? '1 piece' : `${pieces} pieces`}). A piece may be cut from the next plate up — it is then 12 mm thick, not 11 — so check that is meant, then save anyway. The cut piece keeps its own thickness and weight.`;
+const thinWarn = (n, parts) => ({ code: 'PART_THINNER_THAN_PLATE', needsForce: true, message: thinMsg(n, parts.length), cutPlateId: 2, cutPlateCode: SPL, cutPlateThickness: 11, plateThickness: 12, parts });
+const oddMsg = `${J12S} nest 2, plate ${plate12.code}: something new the server learned to say — save anyway.`;
+const overMsg = `${BRG}: the files nest 43 and the line needs only 24 — 19 pieces too many (1 on ${J16} nest 4, 1 on ${J16} nest 5, 3 on ${J16} nest 7, 10 on ${J16} nest 8, plate 1 of 2, 9 on ${J16} nest 8, plate 2 of 2, 19 on ${J16} nest 10). Take the extra off a file, or save anyway.`;
+const soNest = (file, n, of, o = {}) => nestEntry(file, n, of, {
+  plate: file === J12S ? plate12 : plate16, placements: [fromFile({ cutPlateId: 1, cutPlateCode: CCP })], counts: [{ cutPlateId: 1, cutPlateCode: CCP, qty: 8 }], ...o,
+});
+const realAnswer = (o = {}) => answer({
+  needsForce: true,
+  jobs: [jobLine(J12S, { jobName: '12MM-NECL-PATNA SPAN1', nests: 4, plates: 5, notes: ['31 common-line-cut groups were opened into their pieces.'] }), jobLine(J16, { nests: 11, plates: 12 })],
+  files: [
+    soNest(J12S, 1, 4, { status: 'warning', notes: [BO], nestQuantity: 2, lotNos: ['A-1', 'A-2'], copies: [1, 2].map((k) => ({ copy: k, lotNo: `A-${k}`, action: 'add' })), warnings: [thinWarn(1, ['P1'])] }),
+    soNest(J12S, 2, 4, { status: 'warning', notes: [BO], warnings: [thinWarn(2, ['P1', 'P2']), { code: 'ODD_NEW', needsForce: true, message: oddMsg }] }),
+    soNest(J12S, 3, 4, { status: 'warning', notes: [BO], warnings: [thinWarn(3, ['P1'])] }),
+    soNest(J12S, 4, 4, { status: 'warning', notes: [BO], warnings: [thinWarn(4, ['P1'])] }),
+    ...[4, 5, 7, 8, 10].map((n) => soNest(J16, n, 11, n === 8 ? { nestQuantity: 2, lotNos: ['B-1', 'B-2'], copies: [1, 2].map((k) => ({ copy: k, lotNo: `B-${k}`, action: 'add' })) } : {})),
+  ],
+  warnings: [overMsg], warningList: [{ code: 'OVER_COVERAGE', needsForce: true, message: overMsg, cutPlateId: 3, cutPlateCode: BRG, surplus: 19 }],
+  surplus: [{ cutPlateId: 3, cutPlateCode: BRG, needed: 24, nested: 43, surplus: 19, on: [
+    { name: `${J16} nest 4`, qty: 1 }, { name: `${J16} nest 5`, qty: 1 }, { name: `${J16} nest 7`, qty: 3 },
+    { name: `${J16} nest 8, plate 1 of 2`, qty: 10 }, { name: `${J16} nest 8, plate 2 of 2`, qty: 9 }, { name: `${J16} nest 10`, qty: 19 }] }],
+  leftOver: [{ cutPlateId: 1, cutPlateCode: CCP, qty: 170, thickness: 12, length: 1400, width: 380, grade: 'E350' }, { cutPlateId: 2, cutPlateCode: SPL, qty: 3, thickness: 11, length: 490, width: 225, grade: 'E350' }],
+  cutPieces: soPieces,
+  diff: { added: added(43), replaced: [], unchanged: [], removed: [], droppedAuto: [], droppedOurs: [], renumbered: [] },
+  message: '2 files read (2 ProNest jobs: 15 nests, 17 plates); plates: 43 added; 1 cut plate is nested more often than the line needs; 173 pieces are left over — nest the rest afterwards.',
+  ...o,
+});
+const section = (id) => document.querySelector(`[data-testid=review-section][data-section=${id}]`);
+
+await check('review: ONE headline in the three cases — ready, ready with things to check, cannot save yet', async () => {
+  reset();
+  next = () => answer();
+  await mountEl(dialog());
+  await waitFor(() => tid('nest-headline'), 'the headline');
+  assert.equal(tid('nest-headline').textContent, 'Ready to save 2 plates');
+  assert.equal(section('check'), null, 'nothing to check: no Check section');
+  await unmount();
+  next = () => realAnswer();
+  await mountEl(dialog({ uploads: nif(J12S, J16) }));
+  await waitFor(() => tid('nest-headline'), 'the headline');
+  assert.equal(tid('nest-headline').textContent, 'Ready to save 43 plates · 3 things to check', 'kinds: over the need, thicker plate, a code this screen does not know');
+  assert.ok(!tid('nest-headline').textContent.includes('left over'), 'left over is not in the headline');
+  assert.equal(tid('nest-leftover-line').textContent, '173 pieces are not in these files — nest the rest after saving');
+  assert.equal(tid('nest-files-read').textContent, '2 files read · 2 ProNest jobs: 15 nests, 17 plates');
+  await unmount();
+  const a = 'NVX-A.dxf, plate NVX-PS: NVX-CR at (100, 100) and NVX-CR at (700, 300) overlap — two parts cannot be cut from the same steel.';
+  const b = 'NVX-A.dxf: no catalog plate is 2750 × 1300. Add it to the catalog, or name the plate you mean (plateCode).';
+  const c = 'NVX-B.dxf, plate NVX-PS: NVX-CR at (5, 5) and NVX-CR at (900, 300) overlap — two parts cannot be cut from the same steel.';
+  next = () => answer({ canSave: false, problems: [a, b, c, 'Line 1 of SO-1 is released — nothing on it can be nested again.'],
+    problemList: [{ code: 'RELEASED', message: 'Line 1 of SO-1 is released — nothing on it can be nested again.' }],
+    files: [fileRead('NVX-A.dxf', { status: 'error', errors: [{ code: 'OVERLAP', message: a }, { code: 'PLATE_NOT_FOUND', message: b }] }), fileRead('NVX-B.dxf', { status: 'error', errors: [{ code: 'OVERLAP', message: c }] })] });
+  await mountEl(dialog({ uploads: uploads('NVX-A.dxf', 'NVX-B.dxf') }));
+  await waitFor(() => tid('nest-headline'), 'the headline');
+  assert.equal(tid('nest-headline').textContent, "Can't save yet · 3 things to fix", 'overlap, plate, the line itself');
+  assert.equal(section('fix').getAttribute('data-open'), 'true', 'Must fix starts open');
+  const fixText = section('fix').textContent;
+  for (const s of [a, b, c, 'Line 1 of SO-1 is released']) assert.ok(fixText.includes(s), `said in Must fix: ${s}`);
+  assert.ok(fixText.includes('Parts that overlap · 2') && fixText.includes('Plates not in the catalog · 1'), fixText);
+  await unmount();
+});
+
+await check('review: Check and For information are sections — Check open, For information shut but holding every note, grouped', async () => {
+  reset();
+  next = () => realAnswer();
+  await mountEl(dialog({ uploads: nif(J12S, J16) }));
+  await waitFor(() => section('check'), 'the sections');
+  assert.deepEqual([...document.querySelectorAll('[data-testid=review-section]')].map((s) => [s.getAttribute('data-section'), s.getAttribute('data-open')]), [['check', 'true'], ['info', 'false']]);
+  assert.equal(section('check').querySelector('[data-testid=review-section-toggle]').textContent, 'Check (3)');
+  const toggle = section('info').querySelector('[data-testid=review-section-toggle]');
+  assert.equal(toggle.getAttribute('aria-expanded'), 'false');
+  // Shut, not left out: the BO note said on four nests is ONE line naming them, the job's note and the server's summary are there.
+  const info = section('info').textContent;
+  assert.ok(info.includes(`${BO} — on 12 mm: 1, 2, 3, 4`), info);
+  assert.equal(info.split('was chosen among plates').length, 2, 'the note once, not four times');
+  assert.ok(tid('job-notes').textContent.includes('31 common-line-cut groups'));
+  assert.ok(tid('nest-files-message').textContent.includes('173 pieces are left over'));
+  await click(toggle, 'For information');
+  assert.equal(section('info').getAttribute('data-open'), 'true');
+  await unmount();
+});
+
+await check('review: nested more than the line needs is a table — short cut piece, part, needs, in files, extra, nests compact with a per-nest tooltip', async () => {
+  reset();
+  next = () => realAnswer();
+  await mountEl(dialog({ uploads: nif(J12S, J16) }));
+  await waitFor(() => tid('surplus-table'), 'the table');
+  assert.deepEqual([...tid('surplus-table').querySelectorAll('th')].map((h) => h.textContent), ['Cut piece', 'Part', 'Needs', 'In files', 'Extra', 'On nests']);
+  const rows = [...document.querySelectorAll('[data-testid=surplus-row]')];
+  assert.equal(rows.length, 1);
+  assert.deepEqual([...rows[0].querySelectorAll('td')].map((td) => td.textContent), ['16 × 212.5 × 654', 'Bearing stiffener', '24', '43', '19', '16 mm: 4, 5, 7, 8, 10']);
+  assert.ok(rows[0].querySelector('[data-testid=cut-piece-name]').getAttribute('aria-label').startsWith(BRG), 'the full code on hover');
+  assert.equal(rows[0].querySelector('[data-testid=surplus-nests]').getAttribute('aria-label'), '16 mm nest 4: 1 · 16 mm nest 5: 1 · 16 mm nest 7: 3 · 16 mm nest 8: 19 · 16 mm nest 10: 19', 'a nest on two plates is one entry');
+  assert.ok(!section('check').textContent.includes('19 pieces too many'), 'the sentence the table says is not said again');
+  // The kind says how many rows it has; the confirmation lists the row in the same short form.
+  assert.ok(section('check').textContent.includes('Nested more than the line needs · 1'));
+  await click(saveBtn(), 'Save');
+  await waitFor(() => tid('save-anyway-list'), 'the confirmation');
+  const confirmLines = [...document.querySelectorAll('[data-testid=save-anyway-list] li')].map((e) => e.textContent);
+  assert.deepEqual(confirmLines, [
+    '16 × 212.5 × 654 · Bearing stiffener: nested 43, the line needs 24 — 19 extra',
+    '11 × 225 × 490 · Splice top packing — 11 mm, cut from 12 mm plate · 4 nests, 6 pieces',
+    oddMsg,
+  ]);
+  await unmount();
+});
+
+await check('review: cut from a thicker plate on 4 nests is ONE line, its pieces counted over the plates, its sentences one click away', async () => {
+  reset();
+  next = () => realAnswer();
+  await mountEl(dialog({ uploads: nif(J12S, J16) }));
+  await waitFor(() => section('check'), 'the sections');
+  const lines = [...section('check').querySelectorAll('[data-testid=review-line][data-code=PART_THINNER_THAN_PLATE]')];
+  assert.equal(lines.length, 1, 'four nests, one line');
+  const textEl = lines[0].querySelector('[data-testid=review-line-text]');
+  assert.equal(textEl.textContent, '11 × 225 × 490 · Splice top packing — 11 mm, cut from 12 mm plate · 4 nests, 6 pieces', 'nest 1 is cut on 2 plates: 2 + 2 + 1 + 1');
+  assert.equal(textEl.getAttribute('aria-label'), '12 mm nest 1: 2 pieces · 12 mm nest 2: 2 pieces · 12 mm nest 3: 1 piece · 12 mm nest 4: 1 piece');
+  const more = lines[0].querySelector('[data-testid=review-line-more]');
+  assert.equal(more.textContent, 'The 4 sentences');
+  await click(more, 'the sentences');
+  assert.deepEqual([...lines[0].querySelectorAll('[data-testid=review-line-detail] li')].map((l) => l.textContent), [thinMsg(1, 1), thinMsg(2, 2), thinMsg(3, 1), thinMsg(4, 1)]);
+  // The code this screen has never heard of: shown, by its sentence.
+  assert.equal(section('check').querySelector('[data-testid=review-line][data-code=ODD_NEW] [data-testid=review-line-text]').textContent, oddMsg);
+  await unmount();
+});
+
+await check('review: a nest row is two lines — facts and chips; short names with the full code on hover; "from nesting file" once per job', async () => {
+  reset();
+  next = () => realAnswer();
+  await mountEl(dialog({ uploads: nif(J12S, J16) }));
+  // Nine nests: the jobs start shut, one line each.
+  await waitFor(() => jobOf(J12S), 'the job');
+  await click(jobOf(J12S).querySelector('[data-testid=job-header]'), 'open the 12 mm job');
+  await waitFor(() => jobOf(J12S)?.querySelector('[data-testid=nest-file]'), 'the nests');
+  const row = jobOf(J12S).querySelector('[data-testid=nest-file]');
+  const line = row.querySelector('[data-testid=file-line]').textContent;
+  assert.ok(line.startsWith('Nest 1 of 4') && line.includes('× 2 plates') && line.includes('PL-12X2500X12000-E350BO (2,500 × 12,000)') && line.includes('6 of 6 matched') && line.includes('81.7% waste'), line);
+  assert.equal(row.querySelector('[data-testid=nest-fact-impact]').textContent, 'BO plate — from cut pieces');
+  assert.equal(row.querySelector('[data-testid=nest-fact-impact] span').getAttribute('aria-label'), BO, 'the note on hover');
+  assert.equal(row.querySelector('[data-testid=nest-fact-check]').textContent, '1 to check');
+  assert.equal(row.querySelector('[data-testid=nest-fact-action]').textContent, '2 new plates');
+  const chip = row.querySelector('[data-testid=cut-piece-chip]');
+  assert.equal(chip.textContent, '12 × 380 × 1400Cross girder cover plate×8');
+  assert.ok(chip.getAttribute('aria-label').startsWith(CCP) && chip.getAttribute('aria-label').includes('Cross girder cover plate (CGCP1)'), 'the full code and the mark on hover');
+  assert.ok(!row.querySelector('[data-testid=file-line]').textContent.includes('SO260009'), 'no order prefix on the row');
+  // Copyable in full under Details; the warning sentence too.
+  assert.equal(row.querySelector('[data-testid=file-codes]').textContent, `Cut pieces: ${CCP} ×8`);
+  assert.equal(row.querySelector('[data-testid=file-details-toggle]').getAttribute('aria-expanded'), 'false');
+  assert.ok(row.querySelector('[data-testid=file-details] [data-testid=file-warnings]').textContent.includes(thinMsg(1, 1)));
+  // Said once per job, not on every chip.
+  assert.equal(document.querySelectorAll('[data-testid=shape-from]').length, 0);
+  assert.deepEqual([...document.querySelectorAll('[data-testid=job-shape-from]')].map((e) => e.textContent), ['Shapes as nested in the file', 'Shapes as nested in the file']);
+  assert.ok(!text().includes('from nesting file'));
+  // The left-over list uses the short names as well.
+  assert.ok(tid('nest-leftover').textContent.includes('12 × 380 × 1400 ×170 · Cross girder cover plate · E350'), tid('nest-leftover').textContent);
+  await unmount();
+});
+
+await check('review: short names are derived — the prefix or grade stays when the cut pieces do not all share it; codes with no size stay as they are', async () => {
+  const { cutPieceNamer, compactNests } = helpers;
+  const same = cutPieceNamer([CCP, SPL, BRG]);
+  assert.equal(same(CCP).short, '12 × 380 × 1400');
+  const grades = cutPieceNamer([CCP, 'SO260009-1-12X380X1400-E250']);
+  assert.equal(grades(CCP).short, '12 × 380 × 1400 E350', 'the grade differs: it is kept');
+  const orders = cutPieceNamer([CCP, 'SO260010-2-10X100X200-E350']);
+  assert.equal(orders(CCP).short, 'SO260009-1 12 × 380 × 1400', 'two orders: the order is kept');
+  assert.equal(cutPieceNamer([CCP, 'NF-CTF'])(CCP).short, CCP, 'one code has no size: nothing is dropped');
+  assert.equal(cutPieceNamer(['S-12x1-E', 'S-12X1-E'])('S-12x1-E').short, 'S-12x1-E', 'two would read the same: the code');
+  assert.equal(compactNests([{ group: '16 mm', nest: 8 }, { group: '16 mm', nest: 4 }, { group: 'N12 (saved)', nest: null }, { group: '16 mm', nest: 8 }]), '16 mm: 4, 8; N12 (saved)');
+});
+
+await check('review: nothing in the dialog is wider than it — no fixed minimum width over 400 px, no long text kept on one line (34 nests open)', async () => {
+  reset();
+  // Every job open: all 34 nests and both tables in the page.
+  const names = ['8MM', '10MM', '12MM', '16MM', '20MM', '36MM'].map((t) => `${t}-NECL-PATNA.nif`);
+  const sizes = [6, 6, 6, 6, 5, 5];
+  next = () => realAnswer({
+    jobs: names.map((f, i) => jobLine(f, { nests: sizes[i], plates: sizes[i], partRows: [partRow({ key: `P${i}`, partName: `P${i}` })] })),
+    files: names.flatMap((f, i) => Array.from({ length: sizes[i] }, (_, k) => soNest(f, k + 1, sizes[i], { notes: [BO] }))),
+  });
+  await mountEl(dialog({ uploads: nif(...names) }));
+  await waitFor(() => document.querySelectorAll('[data-testid=nest-job]').length === 6, 'six jobs');
+  for (const h of document.querySelectorAll('[data-testid=job-header]')) if (h.getAttribute('aria-expanded') === 'false') await click(h, 'open a job');
+  await waitFor(() => document.querySelectorAll('[data-testid=nest-file]').length === 34, '34 nests');
+  const content = document.querySelector('.MuiDialogContent-root');
+  assert.ok(content, 'the dialog content');
+  const px = (v) => (/^-?\d+(\.\d+)?px$/.test(v) ? parseFloat(v) : 0);
+  const wide = [];
+  const nowrap = [];
+  for (const el of content.querySelectorAll('*')) {
+    const cs = dom.window.getComputedStyle(el);
+    if (px(cs.minWidth) > 400 || px(cs.width) > 1000) wide.push(`${el.tagName}.${el.className} min-width ${cs.minWidth} width ${cs.width}`);
+    if (cs.whiteSpace === 'nowrap' && el.textContent.length > 40) nowrap.push(el.textContent.slice(0, 60));
+  }
+  assert.deepEqual(wide, [], 'nothing has a fixed width that would push the dialog sideways');
+  assert.deepEqual(nowrap, [], 'no long text is held on one line');
+  // The parts table no longer insists on 640 px.
+  for (const t of content.querySelectorAll('[data-testid=parts-table] table, [data-testid=surplus-table]')) assert.notEqual(dom.window.getComputedStyle(t).minWidth, '640px');
+  // A sanity check that the scan sees the page's styles at all: the job box clips, as styled.
+  assert.equal(dom.window.getComputedStyle(document.querySelector('[data-testid=nest-job]')).overflow, 'hidden');
   await unmount();
 });
 

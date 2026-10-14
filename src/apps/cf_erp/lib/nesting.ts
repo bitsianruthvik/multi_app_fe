@@ -596,6 +596,11 @@ export const SHAPE_SOURCE_WORDS: Record<ShapeSource, string> = {
   'nesting file': 'from nesting file', drawing: 'from drawing', dimensions: 'from dimensions',
 };
 
+/** Said ONCE on a job's header when every piece of it agrees — not on every chip (2026-10-14). */
+export const SHAPE_JOB_WORDS: Record<ShapeSource, string> = {
+  'nesting file': 'Shapes as nested in the file', drawing: 'Shapes from the part drawings', dimensions: 'Shapes as rectangles, from the dimensions',
+};
+
 /** The field's value when it is one of the three; null otherwise. Test for the VALUE: the field is on everything now. */
 export const shapeSourceOf = (value: unknown): ShapeSource | null =>
   (value === 'nesting file' || value === 'drawing' || value === 'dimensions' ? value : null);
@@ -803,6 +808,100 @@ export function partHow(status: string, m: { by: string; allowanceMm?: number | 
   if (m.allowanceMm) return `with a ${m.allowanceMm} mm cutting allowance`;
   if (m.by === 'quantity') return matchedTo.length > 1 ? `shared out by quantity between ${matchedTo.map((x) => x.code).join(', ')}` : 'shared out by quantity';
   return MATCHED_BY_WORDS[m.by] ?? `by ${m.by}`;
+}
+
+// ── The upload review's short names (2026-10-14) ─────────────────────────────
+
+/** The size inside a cut piece's code: 12X380X1400, 16X212.5X654. */
+const SIZE_TOKEN = /^\d+(?:\.\d+)?(?:X\d+(?:\.\d+)?){1,2}$/i;
+
+const splitCode = (code: string): { pre: string; size: string; post: string } | null => {
+  const t = code.split('-');
+  const i = t.findIndex((x) => SIZE_TOKEN.test(x));
+  return i < 0 ? null : { pre: t.slice(0, i).join('-'), size: t[i], post: t.slice(i + 1).join('-') };
+};
+
+export interface CutPieceName {
+  code: string;
+  /** "12 × 380 × 1400", or the code itself when it cannot be shortened safely. */
+  short: string;
+  /** The part names, two at most ("Cross girder cover plate"); null when the answer carries none. */
+  part: string | null;
+  /** Every part, with its mark: "Cross girder cover plate (CGCP1)". */
+  parts: string[];
+  /** For the tooltip: the full code, then every part. */
+  title: string;
+}
+
+/**
+ * SHORT NAMES FOR CUT PIECES. A code like SO260009-1-12X380X1400-E350 is read as
+ * its size, "12 × 380 × 1400": the order / line before the size and the grade
+ * after it are dropped ONLY when every cut piece of the line carries the same
+ * ones — never a hard-coded order. A code with no size in it, or two codes that
+ * would come out the same, keep the code. The part names come from the answer's
+ * `cutPieces` (the rows the cut piece is cut for).
+ */
+export function cutPieceNamer(
+  codes: Iterable<string>,
+  pieces: { code: string; parts?: { name: string | null; mark: string | null }[] }[] = [],
+): (code: string) => CutPieceName {
+  const all = [...new Set([...codes, ...pieces.map((p) => p.code)].filter(Boolean))];
+  const split = all.map(splitCode);
+  const every = split.length > 0 && split.every(Boolean);
+  const dropPre = every && split.every((s) => s?.pre === split[0]?.pre);
+  const dropPost = every && split.every((s) => s?.post === split[0]?.post);
+  const shorten = (code: string): string => {
+    const s = splitCode(code);
+    if (!s || (!dropPre && !dropPost)) return code;
+    const size = s.size.split(/x/i).join(' × ');
+    return [dropPre ? '' : s.pre, size, dropPost ? '' : s.post].filter(Boolean).join(' ');
+  };
+  const seen = new Map<string, number>();
+  for (const c of all) { const s = shorten(c); seen.set(s, (seen.get(s) ?? 0) + 1); }
+  const partsOf = new Map(pieces.map((p) => [p.code, p.parts ?? []]));
+  return (code: string) => {
+    const s = shorten(code);
+    const short = (seen.get(s) ?? 0) > 1 ? code : s;
+    const rows = partsOf.get(code) ?? [];
+    const names = [...new Set(rows.map((r) => r.name || r.mark).filter((x): x is string => !!x))];
+    const parts = [...new Set(rows.map((r) => (r.name && r.mark ? `${r.name} (${r.mark})` : r.name || r.mark)).filter((x): x is string => !!x))];
+    const part = names.length === 0 ? null : names.length <= 2 ? names.join(', ') : `${names.slice(0, 2).join(', ')} +${names.length - 2} more`;
+    return { code, short, part, parts, title: [code, ...parts].join(' — ') };
+  };
+}
+
+/** Where a nest is, for a compact list: its job's word ("16 mm") and its number; a DXF or a saved plate by its name. */
+export interface NestPlace { group: string; nest: number | null }
+
+/** "16 mm: 4, 5, 7, 8, 10; N12.dxf" — the nests of one job together, in order. */
+export function compactNests(places: NestPlace[]): string {
+  const by = new Map<string, Set<number>>();
+  for (const p of places) {
+    if (!by.has(p.group)) by.set(p.group, new Set());
+    if (p.nest != null) by.get(p.group)?.add(p.nest);
+  }
+  return [...by].map(([g, n]) => (n.size ? `${g}: ${[...n].sort((a, b) => a - b).join(', ')}` : g)).join('; ');
+}
+
+/**
+ * The word a job goes by in those lists: its thickness ("16 mm") when no other
+ * job of the upload has that thickness, else its own name.
+ */
+export function jobWords(jobs: { filename: string; jobName?: string | null }[], files: NestFileRead[]): Map<string, string> {
+  const thickness = (j: { filename: string; jobName?: string | null }): number | null => {
+    const f = files.find((x) => (x.sourceFile ?? x.filename) === j.filename && x.plate?.thickness);
+    if (f?.plate?.thickness) return f.plate.thickness;
+    const m = /^(\d+(?:\.\d+)?)\s*MM/i.exec(j.jobName ?? j.filename);
+    return m ? Number(m[1]) : null;
+  };
+  const t = new Map(jobs.map((j) => [j.filename, thickness(j)]));
+  const out = new Map<string, string>();
+  for (const j of jobs) {
+    const mine = t.get(j.filename);
+    const alone = mine != null && jobs.filter((o) => t.get(o.filename) === mine).length === 1;
+    out.set(j.filename, alone ? `${mm(mine)} mm` : (j.jobName || j.filename.replace(/\.nif$/i, '')));
+  }
+  return out;
 }
 
 /** "ProNest LT 16.2" from the job's program and its full version. */

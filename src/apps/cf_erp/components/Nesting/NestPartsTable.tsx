@@ -1,9 +1,9 @@
 import { useMemo, useState } from 'react';
-import { Autocomplete, Box, Button, TextField, Typography, createFilterOptions } from '@mui/material';
+import { Autocomplete, Box, Button, TextField, Tooltip, Typography, createFilterOptions } from '@mui/material';
 import ChevronRightRounded from '@mui/icons-material/ChevronRightRounded';
 import ExpandMoreRounded from '@mui/icons-material/ExpandMoreRounded';
 import type { NestCandidate, NestPartRow } from '../../api/nesting';
-import { mm, needsPick, partHow, partName } from '../../lib/nesting';
+import { mm, needsPick, partHow, partName, type CutPieceName } from '../../lib/nesting';
 import { Badge, CapsLabel, Mono } from '../ui';
 
 /**
@@ -80,8 +80,8 @@ function PartPicker({ row, onPick, onCancel }: { row: NestPartRow; onPick: (c: N
   );
 }
 
-function PartRowLine({ row, job, settle, editing, onEdit }: {
-  row: NestPartRow; job: string | null; settle: PartSettle; editing: boolean; onEdit: (open: boolean) => void;
+function PartRowLine({ row, job, settle, editing, onEdit, names }: {
+  row: NestPartRow; job: string | null; settle: PartSettle; editing: boolean; onEdit: (open: boolean) => void; names?: (code: string) => CutPieceName;
 }) {
   const name = partName(row);
   const m = row.matched;
@@ -92,6 +92,13 @@ function PartRowLine({ row, job, settle, editing, onEdit }: {
   const shared = (row.matchedTo ?? []).length > 1 ? row.matchedTo ?? [] : [];
   const differs = m?.outlineDiffers;
   const cell = { py: 1, px: 1, verticalAlign: 'top', borderBottom: '1px solid var(--c-divider)', overflowWrap: 'anywhere', fontSize: 13 } as const;
+  // A cut piece by its short name and part, the code on hover; a code that does not shorten is shown as it is, with its size.
+  const piece = (code: string) => {
+    const n = names?.(code);
+    return n && n.short !== code
+      ? <Tooltip title={n.title}><Box component="span" data-testid="cut-piece-name" data-code={code}>{n.short}{n.part && <Box component="span" sx={{ color: 'var(--c-text-2)' }}>{` · ${n.part}`}</Box>}</Box></Tooltip>
+      : null;
+  };
   return (
     <>
       <Box component="tr" data-testid="part-row" data-part={row.key} data-status={row.status} sx={{ background: pick ? 'var(--c-warning-50)' : 'transparent' }}>
@@ -99,13 +106,13 @@ function PartRowLine({ row, job, settle, editing, onEdit }: {
           {name}
           {row.partName == null && row.thickness != null && <Box component="span" sx={{ color: 'var(--c-text-2)', fontWeight: 400 }}>{` · ${mm(row.thickness)} mm`}</Box>}
         </Box>
-        <Box component="td" sx={{ ...cell, whiteSpace: 'nowrap' }}>{`${mm(row.drawn?.[0])} × ${mm(row.drawn?.[1])}`}</Box>
+        <Box component="td" sx={cell}>{`${mm(row.drawn?.[0])} × ${mm(row.drawn?.[1])}`}</Box>
         <Box component="td" sx={{ ...cell, textAlign: 'right' }}>{row.pieces}</Box>
         <Box component="td" data-testid="part-matched-to" sx={cell}>
           {shared.length > 0
-            ? shared.map((x, i) => <span key={x.cutPlateId}>{i > 0 ? ', ' : ''}<Mono>{x.code}</Mono>{` ×${x.pieces}`}</span>)
+            ? shared.map((x, i) => <span key={x.cutPlateId}>{i > 0 ? ', ' : ''}{piece(x.code) ?? <Mono>{x.code}</Mono>}{` ×${x.pieces}`}</span>)
             : m
-              ? <><Mono>{m.code}</Mono>{cutPiece && <Box component="span" sx={{ color: 'var(--c-text-2)' }}>{` · ${mm(cutPiece.length)} × ${mm(cutPiece.width)}`}</Box>}</>
+              ? piece(m.code) ?? <><Mono>{m.code}</Mono>{cutPiece && <Box component="span" sx={{ color: 'var(--c-text-2)' }}>{` · ${mm(cutPiece.length)} × ${mm(cutPiece.width)}`}</Box>}</>
               : <Box component="span" sx={{ color: 'var(--c-warning-800)', fontWeight: 500 }}>Not matched</Box>}
           {allowance > 0 && (
             <Box component="span" data-testid="part-allowance-badge" sx={{ ml: 0.75 }}>
@@ -129,7 +136,7 @@ function PartRowLine({ row, job, settle, editing, onEdit }: {
             </Box>
           )}
         </Box>
-        <Box component="td" sx={{ ...cell, whiteSpace: 'nowrap', textAlign: 'right' }}>
+        <Box component="td" sx={{ ...cell, textAlign: 'right' }}>
           {pick
             ? (
               <Button size="small" variant="contained" data-testid="part-choose" aria-label={`Choose cut piece for ${name}`} aria-expanded={editing}
@@ -163,7 +170,9 @@ function PartRowLine({ row, job, settle, editing, onEdit }: {
 }
 
 /** The parts of one ProNest job (`job` = its file name), or of the DXFs together (`job` null). */
-export function PartsTable({ rows, job, settle, label }: { rows: NestPartRow[]; job: string | null; settle: PartSettle; label: string }) {
+export function PartsTable({ rows, job, settle, label, names }: {
+  rows: NestPartRow[]; job: string | null; settle: PartSettle; label: string; names?: (code: string) => CutPieceName;
+}) {
   const [all, setAll] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
   const matchedRows = useMemo(() => rows.filter((r) => r.status === 'matched').length, [rows]);
@@ -178,8 +187,9 @@ export function PartsTable({ rows, job, settle, label }: { rows: NestPartRow[]; 
         <CapsLabel>{`Parts (${rows.length})`}</CapsLabel>
         {toAsk > 0 && <Badge family="warning" noIcon label={`${toAsk} to choose`} />}
       </Box>
-      <Box sx={{ overflowX: 'auto', minWidth: 0 }}>
-        <Box component="table" aria-label={label} sx={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed', minWidth: 640 }}>
+      {/* No minimum width: the cells wrap, so the table never pushes the dialog sideways (it used to be 640 px at least). */}
+      <Box sx={{ minWidth: 0 }}>
+        <Box component="table" aria-label={label} sx={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
           <colgroup>
             <col style={{ width: '27%' }} /><col style={{ width: '11%' }} /><col style={{ width: '7%' }} /><col style={{ width: '20%' }} /><col style={{ width: '20%' }} /><col style={{ width: '15%' }} />
           </colgroup>
@@ -195,7 +205,7 @@ export function PartsTable({ rows, job, settle, label }: { rows: NestPartRow[]; 
           </thead>
           <tbody>
             {shown.map((r) => (
-              <PartRowLine key={r.key} row={r} job={job} settle={settle} editing={editing === r.key} onEdit={(open) => setEditing(open ? r.key : null)} />
+              <PartRowLine key={r.key} row={r} job={job} settle={settle} names={names} editing={editing === r.key} onEdit={(open) => setEditing(open ? r.key : null)} />
             ))}
           </tbody>
         </Box>

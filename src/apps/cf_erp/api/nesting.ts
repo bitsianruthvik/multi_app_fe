@@ -349,6 +349,14 @@ export interface NestMissingPlate {
   canCreate: boolean; why?: string; note?: string;
 }
 
+/** One cut piece of the line, as the upload answer lists them all once (2026-10-14): what the review calls it. */
+export interface NestCutPiece {
+  cutPlateId: number; code: string; name?: string | null;
+  thickness: number | null; length: number | null; width: number | null; grade?: string | null; needed: number;
+  /** The parts (rows of the structure) cut from it, by name and drawing mark. */
+  parts: { name: string | null; mark: string | null }[];
+}
+
 /** Answer of POST …/nesting/files, for a preview and for a save. */
 export interface NestFilesResult {
   dryRun: boolean; applied: boolean; mode: 'merge' | 'replace';
@@ -366,6 +374,8 @@ export interface NestFilesResult {
   coverage: NestFileCoverage[];
   leftOver: NestLeftOver[];
   surplus: { cutPlateId: number; cutPlateCode: string; needed: number; nested: number; surplus: number; on: { name: string; qty: number }[] }[];
+  /** Every cut piece of the line with the parts cut from it; empty from an older API. */
+  cutPieces: NestCutPiece[];
   totals: NestFilesTotals | null;
   message: string;
   saved?: { lots: number; pieces: number; offcuts: number; removedLots: number };
@@ -410,7 +420,8 @@ function normaliseFiles(out: Partial<NestFilesResult> | null | undefined): NestF
       added: arr(d.added), replaced: arr(d.replaced), unchanged: arr(d.unchanged), removed: arr(d.removed),
       droppedAuto: arr(d.droppedAuto), droppedOurs: arr(d.droppedOurs), renumbered: arr(d.renumbered),
     },
-    coverage: arr(o.coverage), leftOver: arr(o.leftOver), surplus: arr(o.surplus),
+    coverage: arr(o.coverage), leftOver: arr(o.leftOver), surplus: arr<NestFilesResult['surplus'][number]>(o.surplus).map((s) => ({ ...s, on: arr(s.on) })),
+    cutPieces: arr<NestCutPiece>(o.cutPieces).map((c) => ({ ...c, parts: arr(c.parts) })),
     totals: o.totals ?? null,
     message: o.message ?? '',
     saved: o.saved,
