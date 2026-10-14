@@ -7,12 +7,13 @@ import ExpandMoreRounded from '@mui/icons-material/ExpandMoreRounded';
 import ChevronRightRounded from '@mui/icons-material/ChevronRightRounded';
 import { CfApiError } from '../../api/client';
 import {
-  sendNestFiles, type NestFileRead, type NestFileUpload, type NestFilesResult, type NestJob, type NestLeftOver, type NestProblem,
+  sendNestFiles, type NestFileRead, type NestFileUpload, type NestFilesResult, type NestJob, type NestLeftOver, type NestPartRow, type NestProblem,
 } from '../../api/nesting';
 import {
-  REPLACE_WARNING, SHAPE_SOURCE_WORDS, fileNest, kg, matchedByLine, mm, mmPair, programWord, shapeSourceOnPlate,
+  REPLACE_WARNING, SHAPE_SOURCE_WORDS, fileNest, kg, matchedByLine, mm, mmPair, needsPick, programWord, shapeSourceOnPlate,
 } from '../../lib/nesting';
 import { Badge, CapsLabel, Mono } from '../ui';
+import { PartsTable, type PartSettle } from './NestPartsTable';
 import { PlateDiagram, PlateThumb } from './PlateDiagram';
 
 /**
@@ -31,6 +32,10 @@ import { PlateDiagram, PlateThumb } from './PlateDiagram';
  * so six jobs still fit on a screen; a job with a problem starts open. A job
  * that cannot be read says why in its header and has no nests.
  *
+ * Matching is read in ONE place, a parts table per job (and one for the DXFs): each
+ * distinct part, the cut piece it went to and how. Any part can be given another cut
+ * piece from a ranked list; that choice goes in the request like a plate choice does.
+ *
  * A blocker disables Save and the reason is said beside it; a warning that
  * needs force is listed once more in ONE confirmation, whose button is "Save
  * anyway". Choosing a plate or settling an ambiguous part changes the request,
@@ -43,7 +48,7 @@ const OPEN_ALL_UP_TO = 8;
 /** Above this many lines the list of changes waits behind a button. */
 const DIFF_LINES_SHOWN = 12;
 
-/** Something the user has to settle before the files can be saved: which plate, or which cut piece a part is. */
+/** Something the user has to settle before the files can be saved: which plate. (Which cut piece a part is has its own table.) */
 interface Seen {
   key: string;
   /** The request's key: the uploaded file's name, for `plateCode` and for `choices`. */
@@ -51,10 +56,7 @@ interface Seen {
   /** Asked under one row (its entry's `filename`) — or, for a job, ONCE on the job (`job` = the .nif's name). */
   row?: string;
   job?: string;
-  kind: 'part' | 'plate';
-  /** The key inside `choices[owner]`: a DXF's part id, or the shop's part NAME (one answer for every piece of that part). */
-  part?: string;
-  byName?: boolean;
+  kind: 'plate';
   options: { value: string; label: string }[];
 }
 
@@ -192,26 +194,20 @@ function ProblemList({ list, tone }: { list: NestProblem[]; tone: 'danger' | 'wa
   );
 }
 
-/** One thing to settle: a pick list, or — for a plate the catalog could not offer — a typed plate code. */
+/** One plate to settle: a pick list, or — for a plate the catalog could not offer — a typed plate code. */
 function Chooser({ seen, value, onChange, disabled }: { seen: Seen; value: string; onChange: (value: string) => void; disabled: boolean }) {
   const [typed, setTyped] = useState(value);
-  const forJob = !!seen.job;
-  const label = seen.kind === 'plate' ? 'Which plate?' : seen.byName ? `Which cut piece is “${seen.part}”?` : `Which part is ${seen.part}?`;
-  const help = seen.kind === 'plate'
-    ? (forJob ? 'The plate you name is used for every nest of this job.' : undefined)
-    : (seen.byName ? 'One answer settles every piece of this part, on every nest of the job.' : undefined);
+  const help = seen.job ? 'The plate you name is used for every nest of this job.' : undefined;
   return (
-    <Box data-testid={seen.kind === 'plate' ? 'plate-picker' : 'part-chooser'} data-part={seen.kind === 'part' ? seen.part : undefined}
-      sx={{ display: 'flex', gap: 1, alignItems: 'flex-start', flexWrap: 'wrap', minWidth: 0 }}>
-      {seen.kind === 'plate' && seen.options.length === 0 ? (
+    <Box data-testid="plate-picker" sx={{ display: 'flex', gap: 1, alignItems: 'flex-start', flexWrap: 'wrap', minWidth: 0 }}>
+      {seen.options.length === 0 ? (
         <>
           <TextField size="small" label="Plate code" value={typed} onChange={(e) => setTyped(e.target.value)} helperText={help} sx={{ minWidth: 180 }} />
           <Button size="small" variant="outlined" disabled={!typed.trim() || disabled} onClick={() => onChange(typed.trim())} sx={{ mt: 0.25 }}>Use this plate</Button>
         </>
       ) : (
-        // A shop's part name is long: its question gets the room to be read whole.
-        <TextField select size="small" sx={{ minWidth: seen.byName ? 'min(100%, 460px)' : 240, maxWidth: '100%' }} slotProps={{ select: { native: true }, inputLabel: { shrink: true } }}
-          label={label} helperText={help} value={value} onChange={(e) => onChange(e.target.value)}>
+        <TextField select size="small" sx={{ minWidth: 240, maxWidth: '100%' }} slotProps={{ select: { native: true }, inputLabel: { shrink: true } }}
+          label="Which plate?" helperText={help} value={value} onChange={(e) => onChange(e.target.value)}>
           <option value="">Choose…</option>
           {seen.options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
         </TextField>
@@ -220,13 +216,10 @@ function Chooser({ seen, value, onChange, disabled }: { seen: Seen; value: strin
   );
 }
 
-interface Settle {
+interface Settle extends PartSettle {
   seen: Seen[];
   plateCodes: Record<string, string>;
-  choices: Record<string, Record<string, string>>;
-  busy: boolean;
   onPlate: (owner: string, code: string) => void;
-  onPick: (owner: string, part: string, value: string) => void;
 }
 
 function Choosers({ list, settle }: { list: Seen[]; settle: Settle }) {
@@ -234,8 +227,7 @@ function Choosers({ list, settle }: { list: Seen[]; settle: Settle }) {
     <>
       {list.map((s) => (
         <Chooser key={s.key} seen={s} disabled={settle.busy}
-          value={s.kind === 'plate' ? (settle.plateCodes[s.owner] ?? '') : (settle.choices[s.owner]?.[s.part ?? ''] ?? '')}
-          onChange={(v) => (s.kind === 'plate' ? settle.onPlate(s.owner, v) : settle.onPick(s.owner, s.part ?? '', v))} />
+          value={settle.plateCodes[s.owner] ?? ''} onChange={(v) => settle.onPlate(s.owner, v)} />
       ))}
     </>
   );
@@ -270,9 +262,6 @@ function FileRow({ file, settle }: { file: NestFileRead; settle: Settle }) {
   const qty = file.nestQuantity ?? 1;
   const lotNos = file.lotNos?.length ? file.lotNos : (file.copies ?? []).map((c) => c.lotNo);
   const lotsId = `nest-lots-${file.filename.replace(/[^\w-]/g, '_')}`;
-  // Matched through the size in its name: the nest draws it another size. Said once per part, as a note.
-  const differs = file.placements.filter((p) => p.by === 'name size' && p.outlineDiffers)
-    .filter((p, i, all) => all.findIndex((x) => x.cutPlateId === p.cutPlateId && x.partName === p.partName) === i);
   const title = inJob && file.jobNestNo != null ? `Nest ${file.jobNestNo}${file.jobNests ? ` of ${file.jobNests}` : ''}` : file.filename;
   return (
     <Box data-testid="nest-file" data-file={file.filename} data-kind={inJob ? 'pronest' : 'dxf'} sx={{
@@ -350,16 +339,6 @@ function FileRow({ file, settle }: { file: NestFileRead; settle: Settle }) {
             {`${kept} ${kept === 1 ? 'part keeps' : 'parts keep'} the shape taken from the nesting file.`}
           </Typography>
         )}
-        {differs.length > 0 && (
-          <Box component="ul" data-testid="file-name-size" sx={{ m: 0, pl: 2.5, display: 'grid', gap: 0.3, fontSize: 12.5, color: 'var(--c-text-2)', overflowWrap: 'anywhere' }}>
-            {differs.map((p) => (
-              <li key={`${p.cutPlateId}|${p.partName ?? p.partId}`}>
-                <Mono>{p.cutPlateCode}</Mono>{p.partName ? ` (“${p.partName}”)` : ''}
-                {` was matched by the size in its name: drawn ${mm(p.outlineDiffers?.drawn[0])} × ${mm(p.outlineDiffers?.drawn[1])}, the cut piece is ${mm(p.outlineDiffers?.cutPiece[0])} × ${mm(p.outlineDiffers?.cutPiece[1])}.`}
-              </li>
-            ))}
-          </Box>
-        )}
         {file.notes.length > 0 && (
           <Box component="ul" sx={{ m: 0, pl: 2.5, fontSize: 12.5, color: 'var(--c-text-3)', overflowWrap: 'anywhere' }}>
             {file.notes.map((n) => <li key={n}>{n}</li>)}
@@ -387,7 +366,7 @@ function jobFromNests(filename: string, nests: NestFileRead[]): NestJob {
     status: nests.some((f) => f.status === 'error') ? 'error' : nests.some((f) => f.status === 'warning') ? 'warning' : 'ok',
     nests: nests.filter((f) => f.jobNestNo != null).length, plates: nests.reduce((a, f) => a + (f.jobNestNo != null ? times(f) : 0), 0), parts: 0,
     placed: nests.reduce((a, f) => a + f.parts * times(f), 0), matched: nests.reduce((a, f) => a + f.placed * times(f), 0),
-    matchedBy: {}, notNested: [], notes: [],
+    matchedBy: {}, partRows: [], notNested: [], notes: [],
   };
 }
 
@@ -409,7 +388,7 @@ function JobBlock({ job, entries, open, onToggle, settle }: {
   const matchedBy = matchedByLine(job.matchedBy);
   const short = job.notNested.reduce((a, p) => a + p.notNested, 0);
   const mine = settle.seen.filter((s) => s.job === job.filename);
-  const canOpen = nests.length > 0 || job.notes.length > 0;
+  const canOpen = nests.length > 0 || job.notes.length > 0 || job.partRows.length > 0;
   return (
     <Box data-testid="nest-job" data-job={job.filename} data-status={unreadable ? 'error' : job.status} sx={{
       border: '1px solid', borderColor: unreadable ? 'var(--c-danger-200, var(--c-border))' : 'var(--c-border)', borderRadius: 'var(--r-md)', minWidth: 0, overflow: 'hidden',
@@ -486,6 +465,11 @@ function JobBlock({ job, entries, open, onToggle, settle }: {
       {canOpen && (
         <Collapse in={open} unmountOnExit>
           <Box id={id} sx={{ px: 1.25, pb: 0.5, minWidth: 0, borderTop: '1px solid var(--c-divider)' }}>
+            {job.partRows.length > 0 && (
+              <Box sx={{ pt: 1, pb: 0.5, minWidth: 0 }}>
+                <PartsTable rows={job.partRows} job={job.filename} settle={settle} label={`Parts of ${name}`} />
+              </Box>
+            )}
             {nests.map((f) => <FileRow key={f.filename} file={f} settle={settle} />)}
             {job.notes.length > 0 && (
               <Box component="ul" data-testid="job-notes" sx={{ m: 0, py: 1, pl: 2.5, display: 'grid', gap: 0.3, fontSize: 12.5, color: 'var(--c-text-3)', overflowWrap: 'anywhere' }}>
@@ -499,7 +483,7 @@ function JobBlock({ job, entries, open, onToggle, settle }: {
   );
 }
 
-/** What in an answer needs a choice. One entry per plate of a DXF / per job, and per part — a job's part by its NAME, once. */
+/** Which plate an answer needs named. One entry per plate of a DXF / per job. (A part's cut piece is asked in the parts table.) */
 function findChoices(r: NestFilesResult): Seen[] {
   const found = new Map<string, Seen>();
   const add = (s: Seen) => {
@@ -512,13 +496,7 @@ function findChoices(r: NestFilesResult): Seen[] {
     const owner = ownerOf(f);
     const where = isJobEntry(f) ? { job: owner } : { row: f.filename };
     for (const p of f.errors) {
-      if (p.code === 'PART_AMBIGUOUS' && (p.partName || p.partId)) {
-        const options = (p.choices ?? []).map((c) => (typeof c === 'string' ? { value: c, label: c }
-          : { value: c.key, label: `${c.code}${c.thickness ? ` · ${c.thickness} mm` : ''}${c.grade ? ` ${c.grade}` : ''}` }));
-        if (isJobEntry(f) && p.partName) add({ key: `${owner}|part|${p.partName}`, owner, job: owner, kind: 'part', part: p.partName, byName: true, options });
-        // A part with no name is settled by its id, under the entry's own name, on its own row.
-        else if (p.partId) add({ key: `${f.filename}|part|${p.partId}`, owner: f.filename, row: f.filename, kind: 'part', part: p.partId, options });
-      } else if (p.code === 'PLATE_AMBIGUOUS' || p.code === 'PLATE_NOT_FOUND' || p.code === 'PLATE_NOT_DRAWN') {
+      if (p.code === 'PLATE_AMBIGUOUS' || p.code === 'PLATE_NOT_FOUND' || p.code === 'PLATE_NOT_DRAWN') {
         add({ key: `${owner}|plate`, owner, ...where, kind: 'plate',
           options: (p.choices ?? []).filter((c): c is string => typeof c === 'string').map((c) => ({ value: c, label: c })) });
       }
@@ -582,7 +560,8 @@ export function NestFilesDialog({
         const found = findChoices(r);
         if (found.length) setSeen((old) => [...old.filter((o) => !found.some((f) => f.key === o.key)), ...found]);
         // A job with a problem opens by itself; what the user already set wins.
-        const bad = r.files.filter((f) => isJobEntry(f) && f.status === 'error').map(ownerOf);
+        const bad = [...r.files.filter((f) => isJobEntry(f) && f.status === 'error').map(ownerOf),
+          ...r.jobs.filter((j) => j.partRows.some(needsPick)).map((j) => j.filename)];
         if (bad.length) setJobsOpen((old) => ({ ...Object.fromEntries(bad.map((b) => [b, true])), ...old }));
       })
       .catch((e) => { if (mine === ticket.current) { setResult(null); setError(e as CfApiError); } })
@@ -616,11 +595,26 @@ export function NestFilesDialog({
   const rows = result ? result.files.filter((f) => !isJobEntry(f) || f.jobNestNo != null) : [];
   const unreadJobs = groups.jobs.filter((g) => g.job.error || g.entries.some((f) => f.jobNestNo == null && f.status === 'error'));
   const manyRows = rows.length > OPEN_ALL_UP_TO;
+  // A part's cut piece goes in `choices`: a job's under the job file and the part NAME, a DXF part under its file and each of its part ids.
+  const slots = (job: string | null, row: NestPartRow): [string, string][] => (job != null
+    ? [[job, row.partName ?? row.key]]
+    : (row.files ?? []).flatMap((f) => f.partIds.map((id): [string, string] => [f.filename, id])));
   const settle: Settle = {
-    seen, plateCodes, choices, busy: busy != null,
+    seen, plateCodes, busy: busy != null,
     onPlate: (owner, code) => setPlateCodes((o) => ({ ...o, [owner]: code })),
-    onPick: (owner, part, value) => setChoices((o) => ({ ...o, [owner]: { ...(o[owner] ?? {}), [part]: value } })),
+    hasChoice: (job, row) => slots(job, row).some(([f, k]) => !!choices[f]?.[k]),
+    choose: (job, row, cutPlateId) => setChoices((old) => {
+      const next: Record<string, Record<string, string>> = Object.fromEntries(Object.entries(old).map(([f, m]) => [f, { ...m }]));
+      for (const [f, k] of slots(job, row)) {
+        if (cutPlateId == null) { delete next[f]?.[k]; if (next[f] && !Object.keys(next[f]).length) delete next[f]; }
+        else next[f] = { ...(next[f] ?? {}), [k]: `cp${cutPlateId}` };
+      }
+      return next;
+    }),
   };
+  // Parts with no cut piece yet, over every job and the DXFs: what Save is waiting for.
+  const toChoose = (result?.dxfPartRows ?? []).filter(needsPick).length + (result?.jobs ?? []).reduce((a, j) => a + j.partRows.filter(needsPick).length, 0);
+  const fromJobs = (result?.jobs ?? []).some((j) => j.partRows.some(needsPick));
 
   const blocked = !!result && !result.canSave;
   const force = !!result && result.canSave && result.needsForce;
@@ -635,6 +629,9 @@ export function NestFilesDialog({
   const hasJobs = groups.jobs.length > 0;
   // Said beside the button, not only on hover: why it cannot be pressed.
   const saveWhy = !result ? null
+    : blocked && toChoose > 0 ? (toChoose === 1
+      ? `1 part is not matched to a cut piece — choose one, or remove it from the ${fromJobs ? 'job' : 'upload'}`
+      : `${toChoose} parts are not matched to a cut piece — choose one for each, or remove them from the ${fromJobs ? 'job' : 'upload'}`)
     : blocked ? (hasJobs ? 'Nothing can be saved until the problems listed above are fixed.' : 'Nothing can be saved until the problems listed under each file are fixed.')
       : changes === 0 ? 'Nothing would change on the line.' : null;
   const waiting = rows.filter((f) => f.status === 'error').length;
@@ -725,6 +722,9 @@ export function NestFilesDialog({
             {groups.dxf.length > 0 && (
               <Box data-testid="nest-dxf-files" sx={{ minWidth: 0 }}>
                 <CapsLabel>{`DXF files (${groups.dxf.length})`}</CapsLabel>
+                {(result?.dxfPartRows.length ?? 0) > 0 && (
+                  <Box sx={{ py: 1 }}><PartsTable rows={result?.dxfPartRows ?? []} job={null} settle={settle} label="Parts of the DXF files" /></Box>
+                )}
                 {groups.dxf.map((f) => <FileRow key={f.filename} file={f} settle={settle} />)}
               </Box>
             )}

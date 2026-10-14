@@ -207,12 +207,16 @@ export interface NestProblem {
   pairs?: { a: string; b: string; distance: number; text: string }[]; parts?: string[]; surplus?: number;
   /** A ProNest part problem is said once per part and nest: the shop's name of the part, every piece it stands for, how many. */
   partName?: string; partIds?: string[]; count?: number;
+  /** The parts-table row this problem is about (NestPartRow.key). */
+  partKey?: string;
   /** PART_AMBIGUOUS: objects. PLATE_AMBIGUOUS: plate codes. */
   choices?: (string | { key: string; cutPlateId: number; code: string; thickness?: number | null; grade?: string | null })[];
 }
 
 export interface NestFilePlacement {
   partId?: string; cutPlateId: number; cutPlateCode: string;
+  /** The parts-table row of the part, and whether the user chose its cut piece. */
+  partKey?: string; chosen?: boolean; allowanceMm?: number;
   x: number; y: number; length: number; width: number;
   rotationDeg?: number; mirrored?: boolean; placedBy?: 'customer' | 'ours'; area?: number; rings?: PieceRings;
   /** label | shape | size | name size | steel | quantity | choice */
@@ -276,11 +280,41 @@ export interface NestJob {
   placed: number; matched: number;
   /** How the pieces were recognised: label | shape | size | name size | steel | quantity | choice → count. */
   matchedBy: Record<string, number>;
+  /** One row per part name of the job. `parts` above stays a NUMBER. */
+  partRows: NestPartRow[];
   /** The job's own left-over, in the shop's part names. */
   notNested: { name: string; required: number; nested: number; notNested: number }[];
   notes: string[];
   /** Why the whole job could not be read. */
   error?: { code: string; message: string } | null;
+}
+
+/** Which cut piece a part went to, and how. */
+export interface NestPartMatch {
+  cutPlateId: number; code: string; by: string; pieces: number; allowanceMm?: number | null;
+  outlineDiffers?: { drawn: [number, number]; cutPiece: [number, number] } | null;
+}
+
+/** One cut piece of the line the part could be given, as ranked for that part (best fit first). */
+export interface NestCandidate {
+  cutPlateId: number; code: string; name?: string | null; thickness: number; length: number; width: number; grade?: string | null;
+  needed: number; fit: number; why: string; possible: boolean;
+}
+
+export type NestPartStatus = 'matched' | 'allowance' | 'ambiguous' | 'unmatched' | 'chosen';
+
+/**
+ * One row of the parts table: a DISTINCT part. A ProNest row has `partName` and `nests` (answer under
+ * choices[<job file>][partName]); a DXF row has `label`, `thickness` and `files` (answer under
+ * choices[filename][partId] for each part id).
+ */
+export interface NestPartRow {
+  key: string; partName?: string; nests?: number[]; label?: string | null; thickness?: number | null;
+  files?: { filename: string; partIds: string[] }[];
+  pieces: number; open: number; drawn: [number, number]; nameSize?: [number, number] | null;
+  matched: NestPartMatch | null; matchedTo?: NestPartMatch[];
+  status: NestPartStatus;
+  candidates: NestCandidate[];
 }
 
 export interface NestDiffParts { cutPlateCode: string; qty?: number; was?: number; now?: number; change?: number }
@@ -307,6 +341,8 @@ export interface NestFilesResult {
   files: NestFileRead[];
   /** One per ProNest job file; empty without a .nif. */
   jobs: NestJob[];
+  /** One row per distinct DXF part over all DXF files; empty without a DXF part. */
+  dxfPartRows: NestPartRow[];
   problems: string[]; problemList: NestProblem[];
   warnings: string[]; warningList: NestProblem[];
   diff: NestDiff;
@@ -331,6 +367,10 @@ export interface NestFilesRequest {
 const arr = <T,>(v: unknown): T[] => (Array.isArray(v) ? (v as T[]) : []);
 
 /** Fill in what an answer lacks, so a partial one renders instead of throwing. */
+function normalisePartRow(r: NestPartRow): NestPartRow {
+  return { ...r, candidates: arr(r.candidates), matched: r.matched ?? null, matchedTo: arr(r.matchedTo), files: r.files ? arr(r.files) : undefined, open: r.open ?? 0 };
+}
+
 function normaliseFiles(out: Partial<NestFilesResult> | null | undefined): NestFilesResult {
   const o = out ?? {};
   const d = (o.diff ?? {}) as Partial<NestDiff>;
@@ -344,7 +384,8 @@ function normaliseFiles(out: Partial<NestFilesResult> | null | undefined): NestF
       ...f, placements: arr(f.placements), counts: arr(f.counts), errors: arr(f.errors), warnings: arr(f.warnings), notes: arr(f.notes),
       metrics: f.metrics ?? null, plate: f.plate ?? null,
     })),
-    jobs: arr<NestJob>(o.jobs).map((j) => ({ ...j, matchedBy: j.matchedBy ?? {}, notNested: arr(j.notNested), notes: arr(j.notes) })),
+    jobs: arr<NestJob>(o.jobs).map((j) => ({ ...j, matchedBy: j.matchedBy ?? {}, notNested: arr(j.notNested), notes: arr(j.notes), partRows: arr<NestPartRow>(j.partRows).map(normalisePartRow) })),
+    dxfPartRows: arr<NestPartRow>(o.dxfPartRows).map(normalisePartRow),
     problems: arr<string>(o.problems), problemList: arr<NestProblem>(o.problemList),
     warnings: arr<string>(o.warnings), warningList: arr<NestProblem>(o.warningList),
     diff: {

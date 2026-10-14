@@ -5,6 +5,9 @@
 // Second pass, 2026-10-13: upload is the main door; ProNest job files (.nif) beside the DXFs — a header per job with its
 // nests, × N plates, how the pieces were matched, what the job leaves un-nested, one pick list per part NAME; Save counts
 // plates; the shape marker follows `shapeFrom`; a saved plate says ProNest / DXF / Ours; compare is off the screen.
+// Third pass, 2026-10-14: the PARTS TABLE per job and for the DXFs (what each part went to and how), the 25 mm cutting allowance
+// called out, and Choose / Change / Undo a part's cut piece from a ranked, searchable list (choices keyed by job file + part name,
+// or by DXF file + part ids).
 import assert from 'node:assert/strict';
 import { mkdir, writeFile, unlink } from 'node:fs/promises';
 import { resolve } from 'node:path';
@@ -20,6 +23,8 @@ for (const key of Object.getOwnPropertyNames(dom.window)) {
 globalThis.window = dom.window;
 globalThis.document = dom.window.document;
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+// jsdom has no layout; MUI's popper warns about an anchor with no size.
+dom.window.HTMLElement.prototype.getBoundingClientRect = () => ({ x: 0, y: 0, top: 0, left: 0, right: 100, bottom: 20, width: 100, height: 20, toJSON() { return {}; } });
 
 const stub = `export async function apiFetch(url, o = {}) {
   const res = await globalThis.fetch(url, { method: o.method || 'GET', body: o.body === undefined ? undefined : JSON.stringify(o.body) });
@@ -164,6 +169,21 @@ const mountPanel = async (props = {}) => mountEl(inRouter(React.createElement(Ne
 const reset = () => { posts.length = 0; calls.length = 0; next = () => answer(); infoNow = null; planNow = null; runNow = { status: 'none' }; delPayload = null; };
 const saveBtn = () => document.querySelector('[data-testid=nest-files-save]');
 
+const cand = (id, code, o = {}) => ({ cutPlateId: id, code, name: code, thickness: 25, length: 6120, width: 500, grade: 'E350', needed: 4, fit: 11000000 + id, why: 'same size', possible: true, ...o });
+const partRow = (o = {}) => ({
+  key: 'PART', partName: 'PART', nests: [1], pieces: 8, open: 0, drawn: [6135, 500], nameSize: [6135, 500],
+  matched: { cutPlateId: 9, code: 'NF-CTF', by: 'name size', pieces: 8 }, status: 'matched',
+  candidates: [cand(9, 'NF-CTF'), cand(12, 'NF-CX', { length: 6135 }), cand(15, 'NF-CWEB', { length: 2150, width: 750, why: '15 mm longer, 250 mm narrower', fit: 11300000 }), cand(18, 'NF-C16', { thickness: 16, why: 'other thickness (16 mm)', possible: false, fit: 20000000 })],
+  ...o,
+});
+const optionCodes = () => [...document.querySelectorAll('[data-testid=part-option]')].map((o) => o.getAttribute('data-code'));
+const pickOption = async (code) => click([...document.querySelectorAll('[data-testid=part-option]')].find((o) => o.getAttribute('data-code') === code), `option ${code}`);
+const typeInto = async (input, value) => {
+  const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value').set;
+  await React.act(async () => { setter.call(input, value); input.dispatchEvent(new dom.window.Event('input', { bubbles: true })); await sleep(0); });
+  await settle();
+};
+
 await check('the preview is a dry run, and shows the diff: added, replaced, unchanged, removed', async () => {
   reset();
   await mountEl(dialog());
@@ -261,27 +281,32 @@ await check('a plain Save sends no force', async () => {
   await unmount();
 });
 
-await check('an ambiguous part gets a chooser; choosing re-sends the dry run with choices', async () => {
+await check('an ambiguous DXF part is a row of the parts table; Choose cut piece re-sends the dry run with the choice on every part id of the row', async () => {
   reset();
   const msg = 'NVX-X5.dxf, plate NVX-PS, part P2 at (1500, 100): it could be NVX-CX1 (14.137 mm NVX-GA) and NVX-CX2 (14.137 mm NVX-GA) — they are the same shape. Say which (choices), or label the part in the file.';
-  const choices = [{ key: 'cp116552', cutPlateId: 116552, code: 'NVX-CX1', thickness: 14.137, grade: 'NVX-GA' }, { key: 'cp116553', cutPlateId: 116553, code: 'NVX-CX2', thickness: 14.137, grade: 'NVX-GA' }];
+  const dxfRow = (o) => partRow({ key: '14.137 mm | 1200 x 400 | -', partName: undefined, nests: undefined, label: null, thickness: 14.137, files: [{ filename: 'NVX-X5.dxf', partIds: ['P2', 'P3'] }], pieces: 2, drawn: [1200, 400], matched: null, status: 'ambiguous', open: 2,
+    candidates: [cand(116552, 'NVX-CX1', { thickness: 14.137, length: 1200, width: 400, why: 'same shape' }), cand(116553, 'NVX-CX2', { thickness: 14.137, length: 1200, width: 400, why: 'same shape' })], ...o });
   next = (body) => {
-    if (body.choices?.['NVX-X5.dxf']?.P2) return answer({ files: [fileRead('NVX-X5.dxf')] });
-    return answer({ canSave: false, problems: [msg], problemList: [{ code: 'PART_AMBIGUOUS', message: msg, partId: 'P2', choices }],
-      files: [fileRead('NVX-X5.dxf', { status: 'error', errors: [{ code: 'PART_AMBIGUOUS', message: msg, partId: 'P2', choices }] })] });
+    if (body.choices?.['NVX-X5.dxf']?.P2) return answer({ files: [fileRead('NVX-X5.dxf')], dxfPartRows: [dxfRow({ status: 'chosen', open: 0, matched: { cutPlateId: 116553, code: 'NVX-CX2', by: 'choice', pieces: 2 } })] });
+    return answer({ canSave: false, problems: [msg], problemList: [{ code: 'PART_AMBIGUOUS', message: msg, partId: 'P2' }],
+      files: [fileRead('NVX-X5.dxf', { status: 'error', errors: [{ code: 'PART_AMBIGUOUS', message: msg, partId: 'P2' }] })], dxfPartRows: [dxfRow()] });
   };
   await mountEl(dialog({ uploads: uploads('NVX-X5.dxf') }));
-  await waitFor(() => document.querySelector('[data-testid=part-chooser] select'), 'the chooser');
+  await waitFor(() => document.querySelector('[data-testid=part-choose]'), 'the parts table');
   assert.ok(text().includes(msg));
-  const sel = document.querySelector('[data-testid=part-chooser] select');
-  assert.ok([...sel.options].some((o) => o.textContent.startsWith('NVX-CX2')));
+  assert.ok(document.querySelector('[data-testid=nest-dxf-files] [data-testid=parts-table]'), 'the DXF parts table sits in the DXF group');
+  assert.equal(document.querySelector('[data-testid=part-chooser]'), null, 'the old one-select-per-part chooser is gone');
+  assert.equal(document.querySelector('[data-testid=part-choose]').getAttribute('aria-label'), 'Choose cut piece for part 1,200 × 400');
   const before = posts.length;
-  await setSelect(sel, 'cp116553');
+  await click(document.querySelector('[data-testid=part-choose]'), 'Choose cut piece');
+  await waitFor(() => document.querySelector('[data-testid=part-picker]'), 'the picker');
+  await pickOption('NVX-CX2');
   await waitFor(() => posts.length > before, 'a second dry run');
   assert.equal(posts[posts.length - 1].dryRun, true);
-  assert.deepEqual(posts[posts.length - 1].choices, { 'NVX-X5.dxf': { P2: 'cp116553' } });
-  await waitFor(() => saveBtn(), 'Save enabled once settled');
-  assert.ok(document.querySelector('[data-testid=part-chooser] select'), 'the chooser stays, so the choice can be changed');
+  assert.deepEqual(posts[posts.length - 1].choices, { 'NVX-X5.dxf': { P2: 'cp116553', P3: 'cp116553' } }, 'every part id of the row');
+  await waitFor(() => saveBtn() && !saveBtn().disabled, 'Save enabled once settled');
+  assert.equal(document.querySelector('[data-testid=part-how]').textContent, 'you chose it');
+  assert.ok(document.querySelector('[data-testid=part-undo]') && document.querySelector('[data-testid=part-change]'), 'a chosen row can be undone or changed');
   await unmount();
 });
 
@@ -839,15 +864,20 @@ await check('how the pieces were matched is one quiet line per job, in plain wor
   await unmount();
 });
 
-await check('a part matched by the size in its name is a NOTE with both sizes, said once per part — not an error', async () => {
+await check('a part matched by the size in its name says both sizes in the parts table — the per-nest note is gone — and it is not an error', async () => {
   reset();
-  next = () => jobAnswer();
+  const name = '16MM-WEB PL1-2150X6130- 4';
+  next = () => jobAnswer({ jobs: [jobLine(J12, { partRows: [partRow({ key: name, partName: name, pieces: 8, drawn: [6130, 2275.1], matched: { cutPlateId: 9, code: 'NF-CWEB', by: 'name size', pieces: 8, outlineDiffers: { drawn: [6130, 2275.1], cutPiece: [6130, 2150] } },
+    candidates: [cand(9, 'NF-CWEB', { length: 6130, width: 2150 })] })] })] });
   await mountEl(dialog({ uploads: nif(J12) }));
-  await waitFor(() => document.querySelector('[data-testid=file-name-size]'), 'the note');
-  const notes = [...document.querySelectorAll('[data-testid=file-name-size] li')];
-  assert.equal(notes.length, 1, 'two pieces of one part: said once');
-  assert.ok(notes[0].textContent.includes('“16MM-WEB PL1-2150X6130- 4”'));
-  assert.ok(notes[0].textContent.includes('was matched by the size in its name: drawn 6,130 × 2,275.1, the cut piece is 6,130 × 2,150.'));
+  await waitFor(() => document.querySelector('[data-testid=parts-table]'), 'the parts table');
+  assert.equal(document.querySelector('[data-testid=file-name-size]'), null, 'no scattered per-nest line any more');
+  const row = document.querySelector('[data-testid=part-row]');
+  assert.equal(row.getAttribute('data-status'), 'matched');
+  assert.equal(row.querySelector('[data-testid=part-how]').textContent, 'by the size in its name');
+  assert.equal(row.querySelector('[data-testid=part-sizes]').textContent, 'drawn 6,130 × 2,275.1, the cut piece is 6,130 × 2,150');
+  assert.equal(row.querySelector('[data-testid=part-matched-to]').textContent, 'NF-CWEB · 6,130 × 2,150');
+  assert.ok(row.querySelector('[data-testid=part-change]') && !row.querySelector('[data-testid=part-choose]'));
   assert.equal(document.querySelector('[data-testid=file-errors]'), null);
   assert.equal(document.querySelector('[data-testid=nest-files-blocked]'), null);
   await unmount();
@@ -962,32 +992,31 @@ await check('.nif and DXF together: jobs first, the DXFs in their own group; dro
   await unmount();
 });
 
-await check('an ambiguous part of a job is asked ONCE per part name, and the answer goes by file name and part name', async () => {
+await check('an ambiguous part of a job is ONE row of the parts table (not one per nest), and the answer goes by file name and part name', async () => {
   reset();
   const part = '16MM-WEB PL2-2128X11944- 4';
-  const opts = [{ key: 'cp116552', cutPlateId: 116552, code: 'NF-CWEBA', thickness: 16, grade: 'E350' }, { key: 'cp116553', cutPlateId: 116553, code: 'NF-CWEBB', thickness: 16, grade: 'E350' }];
   const msg = (n) => `${J12} nest ${n}, plate NVX-PS, part P1 ("${part}"): it could be NF-CWEBA and NF-CWEBB — they are the same shape. Say which (choices), or label the part in the file. The same goes for 3 more pieces of this part on the nest.`;
-  const amb = (n) => ({ status: 'error', errors: [{ code: 'PART_AMBIGUOUS', message: msg(n), partId: 'P1', partName: part, partIds: ['P1', 'P2', 'P3', 'P4'], count: 4, choices: n === 1 ? opts : opts.slice(0, 1) }] });
+  const row = (o) => partRow({ key: part, partName: part, nests: [1, 2, 3], pieces: 12, open: 12, drawn: [11944, 2128], matched: null, status: 'ambiguous',
+    candidates: [cand(116552, 'NF-CWEBA', { thickness: 16, why: 'same shape' }), cand(116553, 'NF-CWEBB', { thickness: 16, why: 'same shape' })], ...o });
+  const amb = (n) => ({ status: 'error', errors: [{ code: 'PART_AMBIGUOUS', message: msg(n), partId: 'P1', partName: part, partIds: ['P1', 'P2', 'P3', 'P4'], count: 4, partKey: part }] });
   next = (body) => (body.choices?.[J12]?.[part]
-    ? jobAnswer()
-    : jobAnswer({ canSave: false, problems: [1, 2, 3].map(msg), jobs: [jobLine(J12, { status: 'error' })],
+    ? jobAnswer({ jobs: [jobLine(J12, { partRows: [row({ status: 'chosen', open: 0, matched: { cutPlateId: 116553, code: 'NF-CWEBB', by: 'choice', pieces: 12 } })] })] })
+    : jobAnswer({ canSave: false, problems: [1, 2, 3].map(msg), jobs: [jobLine(J12, { status: 'error', partRows: [row()] })],
       files: [nestEntry(J12, 1, 4, amb(1)), nestEntry(J12, 2, 4, amb(2)), nestEntry(J12, 3, 4, amb(3)), nestEntry(J12, 4, 4)] }));
   await mountEl(dialog({ uploads: nif(J12) }));
-  await waitFor(() => document.querySelector('[data-testid=part-chooser] select'), 'the chooser');
-  const choosers = [...document.querySelectorAll('[data-testid=part-chooser]')];
-  assert.equal(choosers.length, 1, 'three nests, twelve pieces, ONE question');
-  assert.equal(choosers[0].getAttribute('data-part'), part);
-  assert.ok(choosers[0].textContent.includes(`Which cut piece is “${part}”?`));
-  assert.ok(choosers[0].textContent.includes('One answer settles every piece of this part, on every nest of the job.'));
-  assert.equal(document.querySelector('[data-testid=nest-file] [data-testid=part-chooser]'), null, 'asked on the job, not on a nest row');
-  const sel = choosers[0].querySelector('select');
-  assert.deepEqual([...sel.options].map((o) => o.value), ['', 'cp116552', 'cp116553'], 'every option any nest offered, each once');
+  await waitFor(() => document.querySelector('[data-testid=part-choose]'), 'the parts table');
+  assert.equal(document.querySelectorAll('[data-testid=part-row]').length, 1, 'three nests, twelve pieces, ONE row');
+  assert.equal(document.querySelector('[data-testid=part-chooser]'), null);
+  assert.equal(document.querySelector('[data-testid=nest-file] [data-testid=parts-table]'), null, 'asked on the job, not on a nest row');
+  assert.equal(document.querySelector('[data-testid=part-how]').textContent, 'It could be more than one cut piece');
   const before = posts.length;
-  await setSelect(sel, 'cp116553');
+  await click(document.querySelector('[data-testid=part-choose]'), 'Choose cut piece');
+  await waitFor(() => document.querySelector('[data-testid=part-picker]'), 'the picker');
+  await pickOption('NF-CWEBB');
   await waitFor(() => posts.length > before, 'a second dry run');
   assert.deepEqual(posts[posts.length - 1].choices, { [J12]: { [part]: 'cp116553' } });
   await waitFor(() => saveBtn() && !saveBtn().disabled, 'Save enabled once settled');
-  assert.equal(document.querySelectorAll('[data-testid=part-chooser]').length, 1, 'the chooser stays, so the choice can be changed');
+  assert.equal(document.querySelectorAll('[data-testid=part-row]').length, 1);
   assert.equal(document.querySelector('[data-testid=job-header]').getAttribute('aria-expanded'), 'true', 'and the job does not shut under the hand');
   await unmount();
 });
@@ -1005,6 +1034,195 @@ await check('a plate choice on a job is asked once, says it applies to every nes
   await setSelect(document.querySelector('[data-testid=plate-picker] select'), 'PL-12-B');
   await waitFor(() => posts.some((p) => p.files[0].plateCode === 'PL-12-B'), 'the re-run');
   assert.equal(posts[posts.length - 1].files[0].filename, J12);
+  await unmount();
+});
+
+/* ---- the parts table, 2026-10-14 ------------------------------------------------------------------ */
+const GUSSET = '25MM-GUSSET-300X300- 6';
+const FLANGE = '25MM-EG1-IG1 TOP FL1-500X6135- 8';
+const STIFF = '25MM-STIFF-90X400- 12';
+const allowanceRow = () => partRow({ key: FLANGE, partName: FLANGE, nests: [1, 2], pieces: 8, status: 'allowance',
+  matched: { cutPlateId: 9, code: 'NF-CTF', by: 'name size', pieces: 8, allowanceMm: 15, outlineDiffers: { drawn: [6135, 500], cutPiece: [6120, 500] } } });
+const gussetRow = (o = {}) => partRow({ key: GUSSET, partName: GUSSET, nests: [1], pieces: 6, open: 6, drawn: [300, 300], nameSize: [300, 300], matched: null, status: 'unmatched',
+  candidates: [cand(21, 'NF-CG', { length: 300, width: 300 }), cand(22, 'NF-CG2', { length: 320, width: 300, why: '20 mm longer, same width', fit: 12000000 }), cand(23, 'NF-C16G', { thickness: 16, length: 300, width: 300, why: 'other thickness (16 mm)', possible: false, fit: 20000000 })], ...o });
+const stiffRow = () => partRow({ key: STIFF, partName: STIFF, pieces: 12, drawn: [400, 90], matched: { cutPlateId: 30, code: 'NF-CST', by: 'label', pieces: 12 } });
+const tableAnswer = (chosen) => jobAnswer({
+  canSave: !!chosen, problems: chosen ? [] : ['3 parts of the job are not matched.'],
+  jobs: [jobLine(J12, { status: chosen ? 'ok' : 'error', matchedBy: { 'name size': 8, size: 4, allowance: 8 },
+    partRows: [chosen ? gussetRow({ status: 'chosen', open: 0, matched: { cutPlateId: 21, code: 'NF-CG', by: 'choice', pieces: 6 } }) : gussetRow(), allowanceRow(), stiffRow()] })],
+});
+const rowOf = (name) => [...document.querySelectorAll('[data-testid=part-row]')].find((r) => r.getAttribute('data-part') === name);
+
+await check('a job shows a parts table: the part that matched nothing first and amber, the allowance called out, matched ones with Change', async () => {
+  reset();
+  next = () => tableAnswer(false);
+  await mountEl(dialog({ uploads: nif(J12) }));
+  await waitFor(() => jobOf(J12)?.querySelector('[data-testid=parts-table]'), 'the parts table');
+  const table = jobOf(J12).querySelector('[data-testid=parts-table]');
+  assert.equal(table.querySelector('table').getAttribute('aria-label'), 'Parts of 12MM-NECL-PATNA');
+  assert.deepEqual([...table.querySelectorAll('th[scope=col]')].map((h) => h.textContent), ['Part', 'Drawn', 'Pieces', 'Matched to', 'How', 'Change'], 'a real table with column headers');
+  const rows = [...table.querySelectorAll('[data-testid=part-row]')];
+  assert.deepEqual(rows.map((r) => r.getAttribute('data-status')), ['unmatched', 'allowance', 'matched']);
+  // The part that matched nothing.
+  assert.ok(rows[0].textContent.startsWith(GUSSET) && rows[0].textContent.includes('300 × 300'));
+  assert.equal(rows[0].querySelector('[data-testid=part-matched-to]').textContent, 'Not matched');
+  assert.equal(rows[0].querySelector('[data-testid=part-how]').textContent, 'No cut piece found for it');
+  const choose = rows[0].querySelector('[data-testid=part-choose]');
+  assert.equal(choose.textContent, 'Choose cut piece');
+  assert.equal(choose.getAttribute('aria-label'), `Choose cut piece for ${GUSSET}`);
+  assert.ok(choose.className.includes('MuiButton-contained'), 'the primary action of an amber row');
+  assert.equal(rows[0].querySelector('[data-testid=part-change]'), null);
+  assert.equal(rows[0].querySelector('[data-testid=part-undo]'), null, 'nothing to undo');
+  // The allowance is called out three ways: a badge, a sentence, and the way it was matched.
+  assert.equal(rows[1].querySelector('[data-testid=part-allowance-badge]').textContent, '+15 mm');
+  assert.equal(rows[1].querySelector('[data-testid=part-allowance]').textContent, 'nested 15 mm longer than the cut piece — taken as the cutting allowance');
+  assert.equal(rows[1].querySelector('[data-testid=part-how]').textContent, 'with a 15 mm cutting allowance');
+  assert.equal(rows[1].querySelector('[data-testid=part-matched-to]').textContent, 'NF-CTF · 6,120 × 500+15 mm');
+  assert.equal(rows[1].querySelector('[data-testid=part-sizes]'), null, 'the allowance sentence is the sizes');
+  assert.equal(rows[1].querySelector('[data-testid=part-change]').getAttribute('aria-label'), `Change the cut piece for ${FLANGE}`);
+  // A part matched by its mark.
+  assert.equal(rows[2].querySelector('[data-testid=part-how]').textContent, 'by mark');
+  assert.equal(rows[2].querySelector('[data-testid=part-matched-to]').textContent, 'NF-CST');
+  // The job's matched-by line counts the allowance as an "of which" and adds nothing to the total.
+  assert.equal(document.querySelector('[data-testid=job-matched-by]').textContent, 'Pieces matched by size 4 · by the size in its name 8 · of which 8 with a cutting allowance');
+  assert.equal(document.querySelector('[data-testid=job-counts]').textContent, 'ProNest LT 16.2 · 4 nests · 7 plates · 257 pieces, 255 matched');
+  // Save says why, in words that name the parts.
+  assert.equal(saveBtn().disabled, true);
+  assert.equal(document.querySelector('[data-testid=save-why]').textContent, '1 part is not matched to a cut piece — choose one, or remove it from the job');
+  await unmount();
+});
+
+await check('Choose cut piece: a ranked, searchable list; the choice goes by job file + part name; the row says you chose it; Undo takes it away', async () => {
+  reset();
+  next = (body) => (body.dryRun === false ? { ...tableAnswer(true), dryRun: false, applied: true, message: 'Saved.' } : tableAnswer(!!body.choices?.[J12]?.[GUSSET]));
+  await mountEl(dialog({ uploads: nif(J12) }));
+  await waitFor(() => rowOf(GUSSET), 'the parts table');
+  assert.equal(document.querySelector('[data-testid=part-picker]'), null, 'no picker is open until asked (45 parts, not 45 pickers)');
+  await click(rowOf(GUSSET).querySelector('[data-testid=part-choose]'), 'Choose cut piece');
+  await waitFor(() => document.querySelector('[data-testid=part-picker]'), 'the picker');
+  const picker = document.querySelector('[data-testid=part-picker]');
+  assert.ok(picker.textContent.includes('Best fit first. The words say how the nested part compares with each cut piece.'));
+  assert.deepEqual(optionCodes(), ['NF-CG', 'NF-CG2', 'NF-C16G'], 'the backend order, not re-sorted');
+  const opts = [...document.querySelectorAll('[data-testid=part-option]')];
+  assert.deepEqual(opts.map((o) => o.getAttribute('data-possible')), ['true', 'true', 'false'], 'the cut piece of another thickness is last');
+  assert.equal(opts[0].textContent, 'NF-CG · 25 × 300 × 300 · E350 · needs 4same size', 'code, thickness × width × length, grade, needs — then the words');
+  assert.equal(opts[1].textContent.endsWith('20 mm longer, same width'), true);
+  assert.equal(opts[2].textContent.endsWith('other thickness (16 mm)'), true, 'the impossible one says why');
+  // Search by size and by code; the order is kept.
+  const input = picker.querySelector('input');
+  await typeInto(input, '320');
+  assert.deepEqual(optionCodes(), ['NF-CG2'], 'a size finds it');
+  await typeInto(input, 'nf-c');
+  assert.deepEqual(optionCodes(), ['NF-CG', 'NF-CG2', 'NF-C16G'], 'a code finds them, in the server order');
+  const before = posts.length;
+  await pickOption('NF-CG');
+  await waitFor(() => posts.length > before, 'a re-preview');
+  assert.equal(posts[posts.length - 1].dryRun, true);
+  assert.deepEqual(posts[posts.length - 1].choices, { [J12]: { [GUSSET]: 'cp21' } });
+  await waitFor(() => rowOf(GUSSET)?.getAttribute('data-status') === 'chosen', 'the row reads chosen');
+  assert.equal(document.querySelector('[data-testid=part-picker]'), null, 'the picker closes');
+  assert.equal(rowOf(GUSSET).querySelector('[data-testid=part-how]').textContent, 'you chose it');
+  assert.equal(rowOf(GUSSET).querySelector('[data-testid=part-matched-to]').textContent, 'NF-CG · 300 × 300');
+  assert.ok(rowOf(GUSSET).querySelector('[data-testid=part-change]') && !rowOf(GUSSET).querySelector('[data-testid=part-choose]'));
+  assert.equal(document.querySelector('[data-testid=save-why]'), null);
+  // Undo takes the choice away and reads the files again without it.
+  const before2 = posts.length;
+  await click(rowOf(GUSSET).querySelector('[data-testid=part-undo]'), 'Undo');
+  await waitFor(() => posts.length > before2, 'a re-preview without it');
+  assert.equal(posts[posts.length - 1].choices, undefined, 'no choice is sent');
+  await waitFor(() => rowOf(GUSSET)?.getAttribute('data-status') === 'unmatched', 'the row is open again');
+  assert.equal(rowOf(GUSSET).querySelector('[data-testid=part-undo]'), null);
+  // Choose again; the choice survives re-previews and goes with Save.
+  await click(rowOf(GUSSET).querySelector('[data-testid=part-choose]'), 'Choose cut piece');
+  await waitFor(() => document.querySelector('[data-testid=part-option]'), 'the list');
+  await pickOption('NF-CG');
+  await waitFor(() => rowOf(GUSSET)?.getAttribute('data-status') === 'chosen', 'chosen again');
+  await waitFor(() => saveBtn() && !saveBtn().disabled, 'Save');
+  await click(saveBtn(), 'Save');
+  await waitFor(() => posts.some((p) => p.dryRun === false), 'the save');
+  assert.deepEqual(posts[posts.length - 1].choices, { [J12]: { [GUSSET]: 'cp21' } }, 'Save sends the choices');
+  await unmount();
+});
+
+await check('Change on a matched part opens the same list; only one picker is open at a time; Cancel closes it', async () => {
+  reset();
+  next = (body) => tableAnswer(!!body.choices?.[J12]?.[GUSSET]);
+  await mountEl(dialog({ uploads: nif(J12) }));
+  await waitFor(() => rowOf(STIFF), 'the parts table');
+  await click(rowOf(STIFF).querySelector('[data-testid=part-change]'), 'Change');
+  await waitFor(() => document.querySelector('[data-testid=part-picker]'), 'the picker');
+  assert.deepEqual(optionCodes(), ['NF-CTF', 'NF-CX', 'NF-CWEB', 'NF-C16'], 'every cut piece, best fit first, the other thickness last');
+  await click(rowOf(GUSSET).querySelector('[data-testid=part-choose]'), 'Choose cut piece on another row');
+  await waitFor(() => optionCodes().includes('NF-CG'), 'the other list');
+  assert.equal(document.querySelectorAll('[data-testid=part-picker]').length, 1, 'one picker at a time');
+  await click(find('Cancel'), 'Cancel');
+  assert.equal(document.querySelector('[data-testid=part-picker]'), null);
+  // Change a matched part: the choice is for that part name and rides along with the others.
+  const before = posts.length;
+  await click(rowOf(STIFF).querySelector('[data-testid=part-change]'), 'Change');
+  await waitFor(() => document.querySelector('[data-testid=part-picker]'), 'the picker');
+  await pickOption('NF-CX');
+  await waitFor(() => posts.length > before, 'a re-preview');
+  assert.deepEqual(posts[posts.length - 1].choices, { [J12]: { [STIFF]: 'cp12' } });
+  await unmount();
+});
+
+await check('quantity sharing names its cut pieces; a part with some pieces open says n of m; a chosen part of another size says both sizes; DXF rows are named by mark or size', async () => {
+  reset();
+  const shared = partRow({ key: 'SHARED', partName: 'SHARED', pieces: 8, matched: { cutPlateId: 9, code: 'NF-A', by: 'quantity', pieces: 5 }, matchedTo: [{ cutPlateId: 9, code: 'NF-A', by: 'quantity', pieces: 5 }, { cutPlateId: 12, code: 'NF-B', by: 'quantity', pieces: 3 }] });
+  const some = gussetRow({ key: 'SOME', partName: 'SOME', pieces: 6, open: 2, matched: { cutPlateId: 21, code: 'NF-CG', by: 'size', pieces: 4 } });
+  const dxfLabel = partRow({ key: '25 mm | 6200 x 500 | TF1', partName: undefined, nests: undefined, label: 'TF1', thickness: 25, files: [{ filename: 'N1.dxf', partIds: ['P1'] }], pieces: 2, drawn: [6200, 500], status: 'chosen',
+    matched: { cutPlateId: 9, code: 'NF-CTF', by: 'choice', pieces: 2, outlineDiffers: { drawn: [6200, 500], cutPiece: [6120, 500] } } });
+  const dxfBare = partRow({ key: '25 mm | 700 x 400 | -', partName: undefined, nests: undefined, label: null, thickness: 25, files: [{ filename: 'N1.dxf', partIds: ['P2'] }], pieces: 1, drawn: [700, 400], matched: { cutPlateId: 12, code: 'NF-CX', by: 'shape', pieces: 1 } });
+  next = () => jobAnswer({ jobs: [jobLine(J12, { partRows: [some, shared] })], files: [nestEntry(J12, 1, 1), fileRead('N1.dxf')], dxfPartRows: [dxfLabel, dxfBare] });
+  await mountEl(dialog({ uploads: nif(J12, 'N1.dxf') }));
+  await waitFor(() => rowOf('SHARED'), 'the table');
+  assert.equal(rowOf('SHARED').querySelector('[data-testid=part-how]').textContent, 'shared out by quantity between NF-A, NF-B');
+  assert.equal(rowOf('SHARED').querySelector('[data-testid=part-matched-to]').textContent, 'NF-A ×5, NF-B ×3');
+  assert.equal(rowOf('SOME').querySelector('[data-testid=part-open]').textContent, '2 of 6 pieces not matched');
+  const dxfRows = [...document.querySelector('[data-testid=nest-dxf-files]').querySelectorAll('[data-testid=part-row]')];
+  assert.equal(dxfRows.length, 2);
+  assert.ok(dxfRows[0].textContent.startsWith('TF1 · 25 mm'), 'a DXF part is named by its mark');
+  assert.equal(dxfRows[0].querySelector('[data-testid=part-how]').textContent, 'you chose it');
+  assert.equal(dxfRows[0].querySelector('[data-testid=part-sizes]').textContent, 'drawn 6,200 × 500, the cut piece is 6,120 × 500');
+  assert.ok(dxfRows[1].textContent.startsWith('part 700 × 400 · 25 mm'), 'else by "part" and its size');
+  assert.equal(dxfRows[1].querySelector('[data-testid=part-how]').textContent, 'by shape');
+  await unmount();
+});
+
+await check('many matched parts fold away behind “Show all n parts”; the rows that need a look always show', async () => {
+  reset();
+  const many = Array.from({ length: 9 }, (_, i) => partRow({ key: `OK${i}`, partName: `OK${i}`, matched: { cutPlateId: 9, code: 'NF-CTF', by: 'label', pieces: 8 } }));
+  const mk = (matched) => () => jobAnswer({ canSave: false, problems: ['x'], jobs: [jobLine(J12, { status: 'error', partRows: [gussetRow(), allowanceRow(), ...many.slice(0, matched)] })] });
+  next = mk(9);
+  await mountEl(dialog({ uploads: nif(J12) }));
+  await waitFor(() => document.querySelector('[data-testid=parts-table]'), 'the table');
+  assert.deepEqual([...document.querySelectorAll('[data-testid=part-row]')].map((r) => r.getAttribute('data-status')), ['unmatched', 'allowance'], 'the matched ones are folded');
+  const toggle = document.querySelector('[data-testid=parts-show-all]');
+  assert.equal(toggle.textContent, 'Show all 11 parts');
+  assert.equal(toggle.getAttribute('aria-expanded'), 'false');
+  await click(toggle, 'Show all');
+  assert.equal(document.querySelectorAll('[data-testid=part-row]').length, 11);
+  assert.equal(document.querySelector('[data-testid=parts-show-all]').textContent, 'Show fewer parts');
+  await unmount();
+  // Six matched parts or fewer are all shown; there is nothing to fold.
+  next = mk(6);
+  await mountEl(dialog({ uploads: nif(J12) }));
+  await waitFor(() => document.querySelector('[data-testid=parts-table]'), 'the table');
+  assert.equal(document.querySelectorAll('[data-testid=part-row]').length, 8);
+  assert.equal(document.querySelector('[data-testid=parts-show-all]'), null);
+  await unmount();
+});
+
+await check('Save names the parts still unmatched, over every job and the DXFs, singular and plural', async () => {
+  reset();
+  const dxfAmb = partRow({ key: 'D1', partName: undefined, nests: undefined, label: 'D1', files: [{ filename: 'N1.dxf', partIds: ['P1'] }], matched: null, status: 'ambiguous', open: 1, pieces: 1 });
+  next = () => jobAnswer({ canSave: false, problems: ['x'], jobs: [jobLine(J12, { status: 'error', partRows: [gussetRow(), gussetRow({ key: 'G2', partName: 'G2' })] })], files: [nestEntry(J12, 1, 1), fileRead('N1.dxf')], dxfPartRows: [dxfAmb] });
+  await mountEl(dialog({ uploads: nif(J12, 'N1.dxf') }));
+  await waitFor(() => document.querySelector('[data-testid=save-why]'), 'the reason');
+  assert.equal(document.querySelector('[data-testid=save-why]').textContent, '3 parts are not matched to a cut piece — choose one for each, or remove them from the job');
+  assert.equal(saveBtn().disabled, true);
+  assert.equal(saveBtn().getAttribute('aria-describedby'), 'nest-files-save-why');
   await unmount();
 });
 

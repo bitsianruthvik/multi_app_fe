@@ -778,9 +778,31 @@ const MATCHED_BY_ORDER = ['label', 'shape', 'size', 'name size', 'steel', 'quant
 
 /** "by mark 109 · by shape 14 · …" — a way this screen does not know is still said, by its own name. */
 export function matchedByLine(by: Record<string, number> | null | undefined): string {
-  const keys = Object.keys(by ?? {}).filter((k) => (by?.[k] ?? 0) > 0);
+  // `allowance` is an "of which": those pieces are also counted under the way that found them, so it never adds up.
+  const keys = Object.keys(by ?? {}).filter((k) => k !== 'allowance' && (by?.[k] ?? 0) > 0);
   keys.sort((a, b) => (MATCHED_BY_ORDER.indexOf(a) + 1 || 99) - (MATCHED_BY_ORDER.indexOf(b) + 1 || 99));
-  return keys.map((k) => `${MATCHED_BY_WORDS[k] ?? `by ${k}`} ${by?.[k]}`).join(' · ');
+  const words = keys.map((k) => `${MATCHED_BY_WORDS[k] ?? `by ${k}`} ${by?.[k]}`);
+  const allowed = by?.allowance ?? 0;
+  if (allowed > 0) words.push(`of which ${allowed} with a cutting allowance`);
+  return words.join(' · ');
+}
+
+/** A part of the parts table that has no cut piece yet (or could be several). */
+export const needsPick = (r: { status: string }): boolean => r.status === 'unmatched' || r.status === 'ambiguous';
+
+/** The part's name as the shop knows it: a ProNest part name, a DXF mark, else "part" and its size. */
+export function partName(r: { partName?: string; label?: string | null; drawn?: [number, number] }): string {
+  if (r.partName) return r.partName;
+  return r.label ? r.label : `part ${mm(r.drawn?.[0])} × ${mm(r.drawn?.[1])}`;
+}
+
+/** How a part of the parts table was matched, in plain words. */
+export function partHow(status: string, m: { by: string; allowanceMm?: number | null } | null, matchedTo: { code: string }[] = []): string {
+  if (!m) return status === 'ambiguous' ? 'It could be more than one cut piece' : 'No cut piece found for it';
+  if (status === 'chosen' || m.by === 'choice') return 'you chose it';
+  if (m.allowanceMm) return `with a ${m.allowanceMm} mm cutting allowance`;
+  if (m.by === 'quantity') return matchedTo.length > 1 ? `shared out by quantity between ${matchedTo.map((x) => x.code).join(', ')}` : 'shared out by quantity';
+  return MATCHED_BY_WORDS[m.by] ?? `by ${m.by}`;
 }
 
 /** "ProNest LT 16.2" from the job's program and its full version. */
