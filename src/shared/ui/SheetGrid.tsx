@@ -110,6 +110,8 @@ export interface SheetGridHandle {
   clearSelection: () => void;
   /** Select one cell and scroll it into view. Returns false when the row or column is not on screen. */
   selectCell: (rowKey: string, colKey: string) => boolean;
+  /** The cell the selection starts at, by its keys — null when nothing is selected. */
+  selected: () => { rowKey: string; colKey: string } | null;
   /** Undo / redo the last write batch (same as Ctrl+Z / Ctrl+Y). Return whether anything was applied. */
   undo: () => boolean;
   redo: () => boolean;
@@ -340,7 +342,15 @@ export function SheetGrid({
     setTimeout(() => focus({ row: r, col: c }), 0);
     return true;
   };
+  // The handle is made once: it reads the selection through this, which every render refreshes.
+  const selectedNow = useRef<() => { rowKey: string; colKey: string } | null>(() => null);
+  selectedNow.current = () => {
+    if (!anchor || !rows[anchor.row]) return null;
+    const colKey = keysOf(anchor.row)[anchor.col];
+    return colKey ? { rowKey: rows[anchor.row].key, colKey } : null;
+  };
   useImperativeHandle(ref, () => ({
+    selected: () => selectedNow.current(),
     clearSelection: () => { setAnchor(null); setExtent(null); },
     selectCell: (rowKey, colKey) => goTo.current(rowKey, colKey),
     undo: () => live.current.undo(), redo: () => live.current.redo(),

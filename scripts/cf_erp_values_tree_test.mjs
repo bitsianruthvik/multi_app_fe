@@ -70,6 +70,15 @@ await check('summary sentence: values and rows, or the all-clear', () => {
 await check('only-missing keeps the gap rows and every ancestor, drops the rest', () => {
   assert.deepEqual(m.keepGapRows(rows, new Set([4, 6])).map((r) => r.node.key), ['k1', 'k2', 'k4', 'k3', 'k6']);
 });
+await check('switching to only-missing: the selection goes to the cell itself when it is missing, else that row\x27s first gap, else the next row down with one, wrapping', () => {
+  const gaps = [{ key: 'k4', code: 'LENGTH', at: 3 }, { key: 'k4', code: 'WIDTH', at: 3 }, { key: 'k6', code: 'LENGTH', at: 5 }];
+  assert.deepEqual(m.nextGapTarget(gaps, { key: 'k4', at: 3, col: 'WIDTH' }), gaps[1], 'the same cell, it is missing');
+  assert.deepEqual(m.nextGapTarget(gaps, { key: 'k4', at: 3, col: 'GRADE' }), gaps[0], 'same row, its first gap');
+  assert.deepEqual(m.nextGapTarget(gaps, { key: 'k5', at: 4, col: 'LENGTH' }), gaps[2], 'a complete row: the next row down');
+  assert.deepEqual(m.nextGapTarget(gaps, { key: 'k1', at: 0, col: '$quantity' }), gaps[0], 'from the top');
+  assert.deepEqual(m.nextGapTarget(gaps, { key: 'k7', at: 6, col: 'LENGTH' }), gaps[0], 'past the last gap: wraps to the first');
+  assert.equal(m.nextGapTarget([], { key: 'k1', at: 0, col: 'LENGTH' }), null);
+});
 await check('only-missing with no gap shows nothing', () => assert.equal(m.keepGapRows(rows, new Set()).length, 0));
 
 const props = (shown, gaps) => ({ rows: shown, view, pending: m.NO_PENDING, busy: false, canEdit: () => false, canEditValues: () => true, gaps,

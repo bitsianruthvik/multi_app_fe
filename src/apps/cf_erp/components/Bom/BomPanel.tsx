@@ -47,7 +47,7 @@ import { FlowTag } from '../FlowTag';
 import { useToast } from '../toastContext';
 import {
   allowedChildren, bomTypeOfKind, hasOwnFlow, keysBelow, lineFlowId, nodesByLine, nodesByRecord, openableKeys, ownFlowId,
-  parseQuantity, pasteRefusal, pendingChanges, temporaryCount, walkNodes, withDefinitionFlow, withFlowChoice,
+  nextGapTarget, parseQuantity, pasteRefusal, pendingChanges, temporaryCount, walkNodes, withDefinitionFlow, withFlowChoice,
   NO_PENDING, VALUES_PERMISSION, isCutPiece, withoutCutPieces, ancestorKeys, type BomRow, type Pending,
 } from './bomModel';
 import type { BomAction, RowMark } from './BomTree';
@@ -235,6 +235,8 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
   /** "N to choose": the last row jumped to, and a jump waiting for its row to be drawn (a folded branch opens first). */
   const chooseAt = useRef(-1);
   const [pendingJump, setPendingJump] = useState<string | null>(null);
+  /** The cell to land on once the grid has redrawn after "Only what’s missing" was switched (see switchMissing). */
+  const [pendingCell, setPendingCell] = useState<{ mode: 'same' | 'nextGap'; key: string; col: string } | null>(null);
   // A refusal lands at the top of the panel while the person is at the bar
   // below a long tree — so it is brought into view, once it has rendered. A
   // jump, not an animation: it is the answer to what they just pressed.
@@ -326,6 +328,40 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
     gridHandle.current?.selectCell(pendingJump, '$quantity');
     setPendingJump(null);
   }, [pendingJump, rows]);
+
+  // "Only what’s missing" switched: the selection follows (user, 2026-10-14). Back to ALL values → the same
+  // cell, selected and in view. To MISSING only → that cell if it is itself missing, else the next missing cell
+  // after it in the order the rows are drawn (wrapping round). Lands once the rows are drawn.
+  useEffect(() => {
+    if (!pendingCell) return;
+    if (pendingCell.mode === 'same') {
+      if (!rows.some((r) => r.node.key === pendingCell.key)) return;   // its branch is still opening
+      if (!gridHandle.current?.selectCell(pendingCell.key, pendingCell.col)) gridHandle.current?.selectCell(pendingCell.key, '$quantity');
+      setPendingCell(null);
+      return;
+    }
+    if (!savedGaps || !gridValues.data) return;
+    const order = new Map(flat.map((n, i) => [n.node.key, i]));
+    const from = order.get(pendingCell.key) ?? -1;
+    const seq = rows.flatMap((r) => (savedGaps.get(r.node.id) ?? []).map((code) => ({ key: r.node.key, code, at: order.get(r.node.key) ?? 0 })));
+    setPendingCell(null);
+    const target = nextGapTarget(seq, { key: pendingCell.key, at: from, col: pendingCell.col });
+    if (!target) return;
+    gridHandle.current?.selectCell(target.key, target.code);
+    jumpAt.current = seq.indexOf(target);
+  }, [pendingCell, rows, savedGaps, gridValues.data, flat]);
+  const switchMissing = (on: boolean) => {
+    const cur = gridHandle.current?.selected() ?? null;
+    setOnlyMissing(on); jumpAt.current = -1;
+    if (!cur) return;
+    if (!on) {
+      // The row may sit in a branch that is folded in the full view: open the way down to it.
+      const path: string[] = [];
+      const find = (n: StructureNode, up: string[]): boolean => { if (n.key === cur.rowKey) { path.push(...up); return true; } return n.children.some((k) => find(k, [...up, n.key])); };
+      if (state && find(state.root, []) && path.some((k) => !expanded.has(k))) setOpen(new Set([...expanded, ...path]));
+    }
+    setPendingCell({ mode: on ? 'nextGap' : 'same', key: cur.rowKey, col: cur.colKey });
+  };
 
   // A flow's code for a chosen id — read once, only while editing.
   const flows = useLoad(() => (editOn ? cfApi.get<Flow[]>('/flows') : Promise.resolve(null)), [editOn]);
@@ -1079,7 +1115,7 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
           <Box sx={{ flex: 1 }} />
           {gapsOn && (
             <FormControlLabel sx={{ m: 0, '& .MuiFormControlLabel-label': { fontSize: 12, color: 'var(--c-text-3)' } }}
-              control={<Switch size="small" checked={onlyMissing} onChange={(e) => { setOnlyMissing(e.target.checked); jumpAt.current = -1; }} />}
+              control={<Switch size="small" checked={onlyMissing} onChange={(e) => switchMissing(e.target.checked)} />}
               label="Only what’s missing" />
           )}
           {orderGrid

@@ -519,3 +519,16 @@ export const isCutPiece = (n: StructureNode): boolean => n.role === 'Cut from' |
 export function withoutCutPieces(rows: BomRow[]): BomRow[] {
   return rows.filter((r) => !isCutPiece(r.node)).map((r) => (r.hasChildren && r.node.children.every(isCutPiece) ? { ...r, hasChildren: false } : r));
 }
+
+/**
+ * Where the selection goes when "Only what’s missing" is switched ON: the cell it was on if that
+ * cell is itself missing; else the first missing cell of the same row; else the first missing cell
+ * of the next row down that has one (tree order, wrapping round to the top). null = nothing is missing.
+ *   gaps   the missing cells in the order they are drawn, each with its row’s place in the tree (`at`)
+ *   from   the row the selection was on (its place in the tree; -1 when unknown) and the column
+ */
+export function nextGapTarget<T extends { key: string; code: string; at: number }>(gaps: T[], from: { key: string; at: number; col: string }): T | null {
+  if (!gaps.length) return null;
+  const here = gaps.filter((g) => g.key === from.key);
+  return here.find((g) => g.code === from.col) ?? here[0] ?? gaps.find((g) => g.at > from.at) ?? gaps[0];
+}
