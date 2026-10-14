@@ -35,7 +35,7 @@ import {
   marginSentence, mm, mmPair, RUN_INTERRUPTED, runSummary, pct, pieceColour, platePieceKinds, sequenceOver, steelWord, tonnes,
   NO_LAYOUT, isFreeLayout, anyImported, hasLayout, isImported, lineOffcuts, verdictOf, wasteBreakdown, wasteTotalKg, wasteShown, wasteShownWord, WASTE_SHOWN_HELP,
   dropOnly, isCustomerPlate, isNestFile, isProNestPlate, nestAccept, nestKinds, originLine, ourPieceCount, pieceCounts, plateSource, restOf,
-  SHAPE_SOURCE_WORDS, shapeSourceOnPlate, shapeSources, startSentence,
+  SHAPE_SOURCE_WORDS, shapeSourceOnPlate, shapeSources, startSentence, leftOverOf,
   type Effort, type NestingBudget, type ShapeSource, type StartMode,
 } from '../../lib/nesting';
 import {
@@ -55,6 +55,7 @@ import { NestStartDialog, PlatesToUse } from './NestStartDialog';
 import { NestMoreMenu, type MoreAction } from './NestMoreMenu';
 import { LeftOverBanner, NestSummaryStrip, type LeftOverRow, type SummaryFigure } from './NestSummary';
 import { SectionNestingPanel } from './SectionNestingPanel';
+import { NestUntrackedDialog, UntrackedStrip } from './NestUntrackedDialog';
 import { CutPlateDrawingButton } from '../Drawings/RowDrawingViewer';
 import { LineDrawingContext } from '../../hooks/lineDrawingContext';
 
@@ -538,6 +539,8 @@ function PlateNestingPanel({ orderId, lineId, canManage, canEditCatalog = false,
   }, [running, orderId, lineId, settle]);
   const [leaveOpen, setLeaveOpen] = useState(false);
   const [offcutsOpen, setOffcutsOpen] = useState(false);
+  // §61: "Mark the rest as cut from offcuts".
+  const [untrackedOpen, setUntrackedOpen] = useState(false);
 
   const plan = proposal ?? saved.data;
   // While the server runs nesting nothing else on the screen may change what it is reading.
@@ -763,9 +766,12 @@ function PlateNestingPanel({ orderId, lineId, canManage, canEditCatalog = false,
   // WHAT IS LEFT OVER. The saved plan counts needed against nested per cut piece; an API
   // without that answers through the files route instead. Never from a proposal.
   const covered = ((saved.data as (NestingPlan & { coverage?: NestFileCoverage[] }) | null)?.coverage ?? []);
+  // A piece marked as cut from untracked offcuts (§61) is not left over.
   const leftRows: LeftOverRow[] = covered.length
-    ? covered.filter((c) => c.diff < 0).map((c) => ({ cutPlateId: c.cutPlateId, code: c.cutPlateCode, qty: -c.diff, heldBack: !!c.manual || !!c.leftOut }))
+    ? covered.filter((c) => leftOverOf(c) > 0).map((c) => ({ cutPlateId: c.cutPlateId, code: c.cutPlateCode, qty: leftOverOf(c), heldBack: !!c.manual || !!c.leftOut }))
     : (filesInfo?.leftOver ?? []).map((l) => ({ cutPlateId: l.cutPlateId, code: l.cutPlateCode, qty: l.qty, heldBack: !!l.manual || !!l.leftOut }));
+  // §61: on no plate, so said apart from every plate and waste figure (null from an older API).
+  const untracked = saved.data?.untracked ?? null;
   const leftPieces = leftRows.reduce((a, r) => a + r.qty, 0);
   const heldBack = leftRows.reduce((a, r) => a + (r.heldBack ? r.qty : 0), 0);
   const showLeft = !proposal && hasPlates && leftPieces > 0;
@@ -783,7 +789,10 @@ function PlateNestingPanel({ orderId, lineId, canManage, canEditCatalog = false,
       hint: `${kg(wasteKgNow)} kg. ${waste.offcutKg >= 0.5 ? `${kg(waste.offcutKg)} kg of it offcut. ` : ''}${WASTE_SHOWN_HELP}`,
     },
     !proposal && needPieces > 0
-      ? { key: 'pieces', label: 'Cut pieces nested', value: `${gotPieces} of ${needPieces}`, warn: gotPieces < needPieces, hint: 'Pieces on a plate, of the pieces this line needs.' }
+      ? {
+        key: 'pieces', label: 'Cut pieces nested', value: `${gotPieces} of ${needPieces}`, warn: leftPieces > 0,
+        hint: `Pieces on a plate, of the pieces this line needs.${untracked?.pieces ? ` Another ${untracked.pieces} are cut from untracked offcuts.` : ''}`,
+      }
       : { key: 'pieces', label: proposal ? 'Pieces on these plates' : 'Cut pieces nested', value: `${t.pieces}` },
   ];
 
@@ -1000,7 +1009,9 @@ function PlateNestingPanel({ orderId, lineId, canManage, canEditCatalog = false,
           oursLabel={imported ? 'Nest the rest ourselves' : 'Nest the line again ourselves'}
           oursWhy={!canManage ? NO_MANAGE : null} oursBusy={waiting}
           onOurs={() => openStart(imported ? 'rest' : 'again')}
-          uploadWhy={uploadWhy} uploadBusy={waiting} onUpload={pickFiles} />
+          uploadWhy={uploadWhy} uploadBusy={waiting} onUpload={pickFiles}
+          onUntracked={() => { setActionError(null); setUntrackedOpen(true); }}
+          untrackedWhy={!canManage ? NO_MANAGE : filesInfo?.canUpload === false ? (filesInfo.readOnlyReason ?? 'This line cannot be changed now.') : waitWhy} />
       )}
 
       {showPlan && (
@@ -1016,7 +1027,11 @@ function PlateNestingPanel({ orderId, lineId, canManage, canEditCatalog = false,
               <Box component="span" data-testid="plan-choices">{` · ${choicesLine({ summary: plan.choices })}`}</Box>
             )}
           </Box>
-          {plan.saved && !proposal && <NestMoney key={`${t.plates}-${t.weightKg}`} orderId={orderId} lineId={lineId} />}
+          {plan.saved && !proposal && (
+            <UntrackedStrip summary={untracked} orderId={orderId} lineId={lineId} canUndo={canManage && !uploadWhy && !waiting}
+              onUndone={(out) => { reloadAll(); toast.success(out.message ?? 'Undone.'); }} />
+          )}
+          {plan.saved && !proposal && <NestMoney key={`${t.plates}-${t.weightKg}-${untracked?.pieces ?? 0}`} orderId={orderId} lineId={lineId} />}
           {breakdown && <WasteBar parts={breakdown} />}
           {allOffcuts.length > 0 && (
             <Box sx={{ minWidth: 0 }}>
@@ -1203,6 +1218,8 @@ function PlateNestingPanel({ orderId, lineId, canManage, canEditCatalog = false,
         onClose={() => setUploads(null)}
         onSaved={(out: NestFilesResult) => { setProposal(null); setRun(null); reloadAll(); toast.success(out.message || 'The nesting is saved.'); }} />
 
+      <NestUntrackedDialog open={untrackedOpen} orderId={orderId} lineId={lineId} onClose={() => setUntrackedOpen(false)}
+        onSaved={(out) => { setUntrackedOpen(false); reloadAll(); toast.success(out.message ?? 'Marked as cut from untracked offcuts.'); }} />
       <Dialog open={!!removing} onClose={removeBusy ? undefined : () => setRemoving(null)} maxWidth="sm" fullWidth>
         <DialogTitle>{`Remove ${removing?.lotNo ?? 'this plate'}?`}</DialogTitle>
         <DialogContent>

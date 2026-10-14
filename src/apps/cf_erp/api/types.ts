@@ -1715,7 +1715,16 @@ export interface NestingPlan {
   drift?: NestDrift[];
   /** What the line's nesting choices leave out (§40). */
   choices?: NestChoiceSummary;
+  /** §61, only on the saved plan: pieces cut from untracked offcuts — on no plate, so in no plate or waste figure. */
+  untracked?: NestUntrackedSummary;
   totals: NestMetrics & { groups: number; unplaced: number };
+}
+
+/** "n pieces · x kg cut from untracked offcuts" (GET …/nesting `untracked`). */
+export interface NestUntrackedSummary {
+  pieces: number;
+  kg: number;
+  cutPieces: { cutPlateId: number; code: string | null; name: string | null; qty: number; kgEach: number | null; kg: number | null }[];
 }
 
 /** What `POST …/nesting/accept` reports back. */

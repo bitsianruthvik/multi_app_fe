@@ -44,13 +44,21 @@ export interface OrderCostLine {
   issued: { value: number; quantity: number; uncostedRows: number };
   customerIssued: { value: number; quantity: number; uncostedRows: number };
   scrap: { value: number; uncostedRows: number };
-  nest: { lots: number; customerLots: number; plateValue: number; wastageKg: number; wastageValue: number; offcutKg: number; offcutValue: number; uncostedLots: number };
+  nest: {
+    lots: number; customerLots: number; plateValue: number; wastageKg: number; wastageValue: number; offcutKg: number; offcutValue: number; uncostedLots: number;
+    /** §61: pieces cut from untracked offcuts — their steel at the plate rate per kg, apart from the plates. Absent from an older API. */
+    untracked?: { pieces: number; kg: number; value: number; uncostedPieces: number };
+  };
 }
 export interface OrderCosts {
   order: { id: number; code: string; revision: number; customer: { id: number; code: string | null; name: string | null } | null };
   lines: OrderCostLine[];
   notOnALine: { issued: { value: number }; customerIssued: { value: number }; scrap: { value: number } };
-  totals: { issuedValue: number; customerIssuedValue: number; scrapValue: number; plateValue: number; wastageValue: number; offcutValue: number; uncostedRows: number };
+  totals: {
+    issuedValue: number; customerIssuedValue: number; scrapValue: number; plateValue: number; wastageValue: number; offcutValue: number; uncostedRows: number;
+    /** §61: steel cut from untracked offcuts, at the plate rate. Absent from an older API. */
+    untrackedValue?: number; untrackedKg?: number;
+  };
 }
 
 export interface KgQty { qty: number; kg: number | null }

@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { Box, Button, CircularProgress, Tooltip } from '@mui/material';
 import AutoAwesomeRounded from '@mui/icons-material/AutoAwesomeRounded';
 import UploadFileRounded from '@mui/icons-material/UploadFileRounded';
+import ContentCutRounded from '@mui/icons-material/ContentCutRounded';
 import { CapsLabel, Mono, Surface } from '../ui';
 
 /**
@@ -11,7 +12,9 @@ import { CapsLabel, Mono, Surface } from '../ui';
  * how much of it is waste, and how many of the line's pieces are on a plate.
  * The banner under it is the only call to action once a line is nested: pieces
  * are left over, and here are the two ways to nest them — more files first
- * (the team nests in its own program), ours second.
+ * (the team nests in its own program), ours second. A third way closes the line
+ * without nesting (§61, 2026-10-14): the pieces the shop cuts from loose offcuts
+ * in the yard are marked as cut from untracked offcuts.
  */
 
 export interface SummaryFigure { key: string; label: string; value: string; hint?: string; warn?: boolean }
@@ -43,7 +46,7 @@ export interface LeftOverRow { cutPlateId: number; code: string; qty: number; he
 /** How many left-over pieces the banner names before it says "more". */
 const SHOWN_LEFT_OVER = 12;
 
-export function LeftOverBanner({ pieces, rows, heldBack, oursLabel, oursWhy, onOurs, oursBusy, uploadWhy, onUpload, uploadBusy }: {
+export function LeftOverBanner({ pieces, rows, heldBack, oursLabel, oursWhy, onOurs, oursBusy, uploadWhy, onUpload, uploadBusy, onUntracked, untrackedWhy = null }: {
   /** Pieces the line needs that are on no plate. */
   pieces: number;
   rows: LeftOverRow[];
@@ -56,6 +59,9 @@ export function LeftOverBanner({ pieces, rows, heldBack, oursLabel, oursWhy, onO
   uploadWhy: string | null;
   onUpload: () => void;
   uploadBusy: boolean;
+  /** §61: opens "Mark the rest as cut from offcuts". Left out = no such button (an older API). */
+  onUntracked?: () => void;
+  untrackedWhy?: string | null;
 }) {
   const shown = rows.slice(0, SHOWN_LEFT_OVER);
   return (
@@ -84,6 +90,16 @@ export function LeftOverBanner({ pieces, rows, heldBack, oursLabel, oursWhy, onO
               </Button>
             </span>
           </Tooltip>
+          {onUntracked && (
+            <Tooltip title={untrackedWhy ?? 'For pieces the shop cuts from loose offcuts in the yard: no plate, no heat number, charged at the plate rate.'}>
+              <span>
+                <Button variant="outlined" color="warning" data-testid="left-over-untracked" disabled={!!untrackedWhy || oursBusy} onClick={onUntracked}
+                  startIcon={<ContentCutRounded />}>
+                  Mark the rest as cut from offcuts
+                </Button>
+              </span>
+            </Tooltip>
+          )}
         </Box>
       </Box>
       {shown.length > 0 && (

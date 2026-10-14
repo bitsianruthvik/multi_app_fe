@@ -157,6 +157,22 @@ function DiffBlock({ result }: { result: NestFilesResult }) {
   );
 }
 
+/**
+ * §61: pieces marked as cut from untracked offcuts that these files nest are COVERED by them — the
+ * mark shrinks. Said on the headline, never silent: "2 pieces cut from offcuts are in these files
+ * now — the mark drops: 12 × 380 × 1400 6 → 4."
+ */
+function UntrackedShrinks({ untracked, names, done = false }: { untracked: NestFilesResult['untracked']; names: ReviewNames | null; done?: boolean }) {
+  if (!untracked?.shrinks.length) return null;
+  const covered = untracked.shrinks.reduce((a, x) => a + x.was - x.now, 0);
+  const each = untracked.shrinks.map((x) => `${names?.name(x.cutPlateCode).short ?? x.cutPlateCode} ${x.was} → ${x.now}`).join(', ');
+  return (
+    <Box data-testid="nest-untracked-shrinks" sx={{ fontSize: 13 }} title={untracked.message ?? undefined}>
+      {`${plural(covered, 'piece marked as cut from offcuts is', 'pieces marked as cut from offcuts are')} in these files now — the mark ${done ? 'dropped' : 'drops'}: ${each}.`}
+    </Box>
+  );
+}
+
 function LeftOver({ leftOver, toNest, names = null }: { leftOver: NestLeftOver[]; toNest: number | null; names?: ReviewNames | null }) {
   const total = leftOver.reduce((a, l) => a + l.qty, 0);
   return (
@@ -737,6 +753,7 @@ export function NestFilesDialog({
         {done ? (
           <Box sx={{ display: 'grid', gap: 1.5 }}>
             <Alert severity="success" data-testid="nest-files-saved">{done.message || 'Saved.'}</Alert>
+            <UntrackedShrinks untracked={done.untracked} names={null} done />
             {done.leftOver.length > 0 && <LeftOver leftOver={done.leftOver} toNest={done.totals?.leftOverToNest ?? null} />}
           </Box>
         ) : (
@@ -763,6 +780,7 @@ export function NestFilesDialog({
                     {`${plural(leftPieces, 'piece is', 'pieces are')} not in these files — nest the rest after saving`}
                   </Box>
                 )}
+                <UntrackedShrinks untracked={result.untracked} names={names} />
               </Alert>
             )}
 

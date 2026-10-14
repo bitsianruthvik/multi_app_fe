@@ -390,9 +390,10 @@ await check('after nesting: one summary strip, and a banner with two buttons for
   assert.ok(banner.textContent.includes('4 cut pieces are not nested yet'));
   assert.ok(banner.textContent.includes('CP-B') && banner.textContent.includes('×1') && banner.textContent.includes('CP-M') && banner.textContent.includes('×3'));
   assert.ok(document.querySelector('[data-testid=left-over-held]').textContent.startsWith('3 of them are held back from automatic nesting'));
-  // More files first and primary; ours second.
-  const [more, ours] = [...banner.querySelectorAll('button')];
-  assert.equal(banner.querySelectorAll('button').length, 2);
+  // More files first and primary; ours second; third (§61, 2026-10-14) the pieces cut from untracked offcuts.
+  const [more, ours, loose] = [...banner.querySelectorAll('button')];
+  assert.equal(banner.querySelectorAll('button').length, 3);
+  assert.equal(loose.textContent, 'Mark the rest as cut from offcuts');
   assert.ok(more.className.includes('MuiButton-contained') && ours.className.includes('MuiButton-outlined'));
   // Nothing on this line was uploaded, so a run of ours lays the WHOLE line out again — and the button says that.
   assert.equal(ours.textContent, 'Nest the line again ourselves');

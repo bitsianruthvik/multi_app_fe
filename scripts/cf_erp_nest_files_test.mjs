@@ -446,7 +446,7 @@ await check('a line nested by upload with pieces left over says so, with Nest th
   const banner = document.querySelector('[data-testid=nest-left-over]');
   assert.ok(banner.textContent.includes('4 cut pieces are not nested yet') && banner.textContent.includes('NVX-CA') && banner.textContent.includes('×4'));
   // More files first and primary (the team nests in its own program); ours second.
-  assert.deepEqual([...banner.querySelectorAll('button')].map((b) => b.textContent), ['Upload more files', 'Nest the rest ourselves']);
+  assert.deepEqual([...banner.querySelectorAll('button')].map((b) => b.textContent), ['Upload more files', 'Nest the rest ourselves', 'Mark the rest as cut from offcuts']);
   assert.ok(find('Upload more files').className.includes('MuiButton-contained') && find('Nest the rest ourselves').className.includes('MuiButton-outlined'));
   assert.equal(document.querySelector('[data-testid=nest-doors]'), null, 'the doors are for a line with nothing nested');
   assert.equal(document.querySelector('[data-testid=summary-pieces]').textContent, 'Cut pieces nested39 of 43');

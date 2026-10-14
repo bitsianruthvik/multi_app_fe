@@ -176,11 +176,15 @@ export interface NestLeftOver {
 export interface NestFileCoverage {
   cutPlateId: number; cutPlateCode: string; needed: number; nested: number;
   customer?: number; ours?: number; diff: number; manual?: boolean; leftOut?: boolean;
+  /** §61: pieces marked as cut from untracked offcuts (never more than are left). The saved plan also says `leftOver`. */
+  untracked?: number; leftOver?: number;
 }
 
 export interface NestFilesTotals {
   plates: number; uploadedPlates: number; automaticPlates: number; pieces: number;
   piecesAddedByUs: number; leftOverPieces: number; leftOverToNest: number;
+  /** §61: on no plate, so in no plate figure. */
+  untrackedPieces?: number;
 }
 
 /** GET …/nesting/files */
@@ -374,6 +378,8 @@ export interface NestFilesResult {
   coverage: NestFileCoverage[];
   leftOver: NestLeftOver[];
   surplus: { cutPlateId: number; cutPlateCode: string; needed: number; nested: number; surplus: number; on: { name: string; qty: number }[] }[];
+  /** §61: pieces marked as cut from untracked offcuts after this upload, and the marks it shrinks (null from an older API). */
+  untracked: NestUploadUntracked | null;
   /** Every cut piece of the line with the parts cut from it; empty from an older API. */
   cutPieces: NestCutPiece[];
   totals: NestFilesTotals | null;
@@ -421,6 +427,7 @@ function normaliseFiles(out: Partial<NestFilesResult> | null | undefined): NestF
       droppedAuto: arr(d.droppedAuto), droppedOurs: arr(d.droppedOurs), renumbered: arr(d.renumbered),
     },
     coverage: arr(o.coverage), leftOver: arr(o.leftOver), surplus: arr<NestFilesResult['surplus'][number]>(o.surplus).map((s) => ({ ...s, on: arr(s.on) })),
+    untracked: o.untracked ? { ...o.untracked, shrinks: arr(o.untracked.shrinks) } : null,
     cutPieces: arr<NestCutPiece>(o.cutPieces).map((c) => ({ ...c, parts: arr(c.parts) })),
     totals: o.totals ?? null,
     message: o.message ?? '',
@@ -592,4 +599,69 @@ export interface CompareAccepted { decision: 'uploaded' | 'auto'; message: strin
 
 export function acceptNestCompare(orderId: number, lineId: number, side: 'uploaded' | 'auto', runId: string): Promise<CompareAccepted> {
   return cfApi.post<CompareAccepted>(`${base(orderId, lineId)}/compare/accept`, { side, runId }, { timeoutMs: LONG_WRITE_MS });
+}
+
+/* ───────── §61: cut from untracked offcuts (2026-10-14) ───────── */
+
+/** What an upload does to the marks: the pieces still marked after it, and the marks it covers (they shrink). */
+export interface NestUploadUntracked {
+  pieces: number; cutPieces: number;
+  shrinks: { cutPlateId: number; cutPlateCode: string; was: number; now: number }[];
+  /** "2 pieces marked as cut from untracked offcuts are nested in these files now, so the mark shrinks (… 6 → 4)." */
+  message: string | null;
+}
+
+/** One cut piece of GET …/nesting/untracked: left over, or marked. `cost` is kg × the plate rate; null = no rate (not costed). */
+export interface UntrackedPiece {
+  cutPlateId: number; code: string | null; name: string | null;
+  thickness: number | null; length: number | null; width: number | null; grade: string | null;
+  parts: { name: string | null; mark: string | null }[];
+  needed: number; nested: number; untracked: number;
+  qty: number; kgEach: number | null; kg: number | null;
+  ratePlate: { id: number; code: string | null; name: string | null } | null;
+  rate: { perKg: number; basis: string } | null;
+  cost: number | null;
+  heldBack: boolean;
+}
+
+export interface UntrackedTotals { pieces: number; kg: number; cost: number; uncostedPieces: number }
+
+export interface UntrackedState {
+  line: NestLineState;
+  canMark: boolean; readOnlyReason: string | null;
+  leftOver: UntrackedPiece[];
+  marked: UntrackedPiece[];
+  totals: { leftOver: UntrackedTotals; marked: UntrackedTotals };
+  /** "n pieces · x kg cut from untracked offcuts", or null when nothing is marked. */
+  summary: string | null;
+  message?: string;
+}
+
+const NO_TOTALS: UntrackedTotals = { pieces: 0, kg: 0, cost: 0, uncostedPieces: 0 };
+function normaliseUntracked(o: Partial<UntrackedState> | null | undefined): UntrackedState {
+  const x = o ?? {};
+  const rows = (v: unknown) => arr<UntrackedPiece>(v).map((r) => ({ ...r, parts: arr<UntrackedPiece['parts'][number]>(r.parts) }));
+  return {
+    line: x.line as NestLineState, canMark: x.canMark !== false, readOnlyReason: x.readOnlyReason ?? null,
+    leftOver: rows(x.leftOver), marked: rows(x.marked),
+    totals: { leftOver: x.totals?.leftOver ?? NO_TOTALS, marked: x.totals?.marked ?? NO_TOTALS },
+    summary: x.summary ?? null, message: x.message,
+  };
+}
+
+/** What is left over (with kg and cost at the plate rate) and what is marked as cut from untracked offcuts. */
+export function getUntracked(orderId: number, lineId: number): Promise<UntrackedState> {
+  return cfApi.get<Partial<UntrackedState>>(`${base(orderId, lineId)}/untracked`).then(normaliseUntracked);
+}
+
+/** Mark left-over pieces as cut from untracked offcuts: the ones named (quantity left out = all of it), or every one. */
+export function markUntracked(orderId: number, lineId: number, pieces: { cutPlateId: number; quantity?: number }[] | 'all'): Promise<UntrackedState> {
+  const body = pieces === 'all' ? { all: true } : { pieces };
+  return cfApi.post<Partial<UntrackedState>>(`${base(orderId, lineId)}/untracked`, body, { timeoutMs: LONG_WRITE_MS }).then(normaliseUntracked);
+}
+
+/** Undo: the marks go and their pieces are left over again (none named = every mark). */
+export function unmarkUntracked(orderId: number, lineId: number, cutPlateIds?: number[]): Promise<UntrackedState> {
+  const q = cutPlateIds?.length ? `?cutPlateIds=${cutPlateIds.join(',')}` : '';
+  return cfApi.del<Partial<UntrackedState>>(`${base(orderId, lineId)}/untracked${q}`, { timeoutMs: LONG_WRITE_MS }).then(normaliseUntracked);
 }

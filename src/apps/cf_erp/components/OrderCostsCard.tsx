@@ -23,7 +23,10 @@ export function OrderCostsCard({ order }: { order: SalesOrder }) {
   const c = costs.data;
   if (!c) return null;
   const t = c.totals;
-  const anything = t.issuedValue > 0 || t.scrapValue > 0 || t.plateValue > 0 || c.lines.some((l) => l.nest.lots > 0 || l.issued.uncostedRows > 0 || l.issued.quantity > 0);
+  // §61: steel cut from untracked offcuts is never issued from stock — it is its own column, and part of the material.
+  const loose = t.untrackedValue ?? 0;
+  const anyLoose = c.lines.some((l) => (l.nest.untracked?.pieces ?? 0) > 0);
+  const anything = t.issuedValue > 0 || t.scrapValue > 0 || t.plateValue > 0 || anyLoose || c.lines.some((l) => l.nest.lots > 0 || l.issued.uncostedRows > 0 || l.issued.quantity > 0);
   if (!anything) {
     return (
       <SectionCard title="Costs" subtitle="Material at cost, once stock is issued to this order.">
@@ -54,12 +57,21 @@ export function OrderCostsCard({ order }: { order: SalesOrder }) {
       key: 'offcut', header: 'Offcuts', numeric: true, sortValue: (l) => l.nest.offcutValue,
       render: (l) => (l.nest.plateValue > 0 ? <><Money value={l.nest.offcutValue} /><Mono muted> · {kgText(l.nest.offcutKg)}</Mono></> : <Mono muted>—</Mono>),
     },
+    ...(anyLoose ? [{
+      key: 'untracked', header: 'From offcuts', numeric: true, sortValue: (l: Row) => l.nest.untracked?.value ?? 0,
+      render: (l: Row) => {
+        const u = l.nest.untracked;
+        if (!u?.pieces) return <Mono muted>—</Mono>;
+        return <span title={`${u.pieces} piece${u.pieces === 1 ? '' : 's'} cut from untracked offcuts, at the plate rate`}><Money value={u.value === 0 && u.uncostedPieces > 0 ? null : u.value} /><Mono muted> · {kgText(u.kg)}</Mono></span>;
+      },
+    }] : []),
   ];
   const total = order.total;
-  const m = materialMargin(total?.amount, t.issuedValue);
-  const nothingCosted = t.issuedValue === 0 && t.uncostedRows > 0;
+  const material = t.issuedValue + loose;
+  const m = materialMargin(total?.amount, material);
+  const nothingCosted = material === 0 && t.uncostedRows > 0;
   // Before anything is issued there is no margin to show — a 100% would read as a result.
-  const nothingIssued = t.issuedValue === 0 && t.uncostedRows === 0;
+  const nothingIssued = material === 0 && t.uncostedRows === 0;
   return (
     <SectionCard flush title="Costs" subtitle="What stock has cost on this order so far, at cost. Labour is not in it.">
       <DataTable bare rows={c.lines} columns={columns} getRowId={(l) => l.line.id} storageKey="order-costs" />
@@ -68,18 +80,19 @@ export function OrderCostsCard({ order }: { order: SalesOrder }) {
           <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>Order total {total && !total.complete ? '(not complete)' : ''}</Typography>
           {total && total.amount > 0 ? <Mono>{rupeeText(total.amount)}</Mono> : <Money value={null} missing="not priced" />}
           <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>less material</Typography>
-          <Money value={nothingCosted ? null : t.issuedValue} />
+          <Money value={nothingCosted ? null : material} />
         </Box>
         <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'baseline', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
           <Typography sx={{ fontSize: 13, fontWeight: 600 }}>Material margin (before labour)</Typography>
           {nothingIssued ? <Money value={null} missing="no material issued yet" /> : m && !nothingCosted ? <Mono sx={{ fontWeight: 600, fontSize: 14 }}>{rupeeText(m.margin)}{m.pct != null ? ` · ${m.pct}%` : ''}</Mono> : <Money value={null} missing="not worked out" />}
         </Box>
-        {(t.uncostedRows > 0 || (total && !total.complete) || t.customerIssuedValue > 0) && (
+        {(t.uncostedRows > 0 || (total && !total.complete) || t.customerIssuedValue > 0 || loose > 0) && (
           <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)', textAlign: 'right' }}>
             {[
               t.uncostedRows > 0 ? `${t.uncostedRows} issue${t.uncostedRows === 1 ? '' : 's'} had no cost and ${t.uncostedRows === 1 ? 'is' : 'are'} left out, so the margin reads high` : null,
               total && !total.complete ? 'the order total is missing some lines' : null,
               t.customerIssuedValue > 0 ? 'the customer’s own material is not counted' : null,
+              loose > 0 ? `material includes ${rupeeText(loose)} of steel cut from untracked offcuts, at the plate rate` : null,
             ].filter(Boolean).join(' · ')}.
           </Typography>
         )}

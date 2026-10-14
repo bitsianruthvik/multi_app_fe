@@ -932,3 +932,28 @@ export function programWord(program: string | null | undefined, version: string 
   return [program || 'ProNest', short].filter(Boolean).join(' ');
 }
 export const REPLACE_WARNING = 'Plates you uploaded before that are not in these files will be removed. Their pieces go back to left over.';
+
+/* ───────── §61: cut from untracked offcuts (2026-10-14) ───────── */
+
+/** The words, once — the same the server uses. */
+export const UNTRACKED_WORDS = 'cut from untracked offcuts';
+
+/**
+ * What is still to place of one cut piece: the saved plan says it (`leftOver`); an older answer is
+ * needed − nested, less what is marked as cut from untracked offcuts.
+ */
+export function leftOverOf(c: { needed: number; nested: number; untracked?: number; leftOver?: number }): number {
+  if (c.leftOver != null) return Math.max(0, c.leftOver);
+  return Math.max(0, c.needed - c.nested - (c.untracked ?? 0));
+}
+
+/** "6 pieces · 111 kg cut from untracked offcuts" — null when nothing is marked. */
+export function untrackedLine(u: { pieces: number; kg: number } | null | undefined): string | null {
+  if (!u || !(u.pieces > 0)) return null;
+  return `${u.pieces} ${u.pieces === 1 ? 'piece' : 'pieces'} · ${kg(u.kg)} kg ${UNTRACKED_WORDS}`;
+}
+
+/** Ticked rows of the dialog, as the request names them: every piece of each ticked cut piece. */
+export function untrackedRequest(rows: { cutPlateId: number; qty: number }[], ticked: ReadonlySet<number>): { cutPlateId: number; quantity: number }[] {
+  return rows.filter((r) => ticked.has(r.cutPlateId) && r.qty > 0).map((r) => ({ cutPlateId: r.cutPlateId, quantity: r.qty }));
+}
