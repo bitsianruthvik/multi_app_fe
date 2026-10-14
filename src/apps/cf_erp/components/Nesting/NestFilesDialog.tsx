@@ -7,12 +7,13 @@ import ExpandMoreRounded from '@mui/icons-material/ExpandMoreRounded';
 import ChevronRightRounded from '@mui/icons-material/ChevronRightRounded';
 import { CfApiError } from '../../api/client';
 import {
-  sendNestFiles, type NestFileRead, type NestFileUpload, type NestFilesResult, type NestJob, type NestLeftOver, type NestPartRow, type NestProblem,
+  sendNestFiles, type NestFileRead, type NestFileUpload, type NestFilesResult, type NestJob, type NestLeftOver, type NestPartRow, type NestPlatesAdded, type NestProblem,
 } from '../../api/nesting';
 import {
   REPLACE_WARNING, SHAPE_SOURCE_WORDS, fileNest, kg, matchedByLine, mm, mmPair, needsPick, programWord, shapeSourceOnPlate,
 } from '../../lib/nesting';
 import { Badge, CapsLabel, Mono } from '../ui';
+import { MissingAdded, NestMissingPlates } from './NestMissingPlates';
 import { PartsTable, type PartSettle } from './NestPartsTable';
 import { PlateDiagram, PlateThumb } from './PlateDiagram';
 
@@ -506,7 +507,7 @@ function findChoices(r: NestFilesResult): Seen[] {
 }
 
 export function NestFilesDialog({
-  open, orderId, lineId, uploads, onClose, onSaved,
+  open, orderId, lineId, uploads, onClose, onSaved, canEditCatalog = false,
 }: {
   open: boolean;
   orderId: number;
@@ -515,6 +516,8 @@ export function NestFilesDialog({
   onClose: () => void;
   /** The server wrote the plates: the panel reloads. The dialog stays open to say what was saved. */
   onSaved: (result: NestFilesResult) => void;
+  /** May add plate sizes to the catalog (cf_erp_catalog_manage). */
+  canEditCatalog?: boolean;
 }) {
   const [mode, setMode] = useState<'merge' | 'replace'>('merge');
   const [plateCodes, setPlateCodes] = useState<Record<string, string>>({});
@@ -528,6 +531,8 @@ export function NestFilesDialog({
   const [done, setDone] = useState<NestFilesResult | null>(null);
   // The one confirmation a save with warnings asks for.
   const [confirm, setConfirm] = useState(false);
+  // What was just added to the catalog: kept while the preview runs again, dropped when new files come in.
+  const [added, setAdded] = useState<NestPlatesAdded | null>(null);
   const ticket = useRef(0);
   const [tick, setTick] = useState(0);
 
@@ -542,7 +547,7 @@ export function NestFilesDialog({
   // A new set of files starts over.
   useEffect(() => {
     if (!open) return;
-    setMode('merge'); setPlateCodes({}); setChoices({}); setResult(null); setSeen([]); setJobsOpen({}); setError(null); setDone(null); setConfirm(false);
+    setMode('merge'); setPlateCodes({}); setChoices({}); setResult(null); setSeen([]); setJobsOpen({}); setError(null); setDone(null); setConfirm(false); setAdded(null);
   }, [open, uploads]);
 
   // THE DRY RUN: on open, and again whenever a choice changes the request.
@@ -690,6 +695,12 @@ export function NestFilesDialog({
                   </Box>
                 )}
               </Alert>
+            )}
+
+            {added && <MissingAdded added={added} />}
+            {result && result.missingPlates.length > 0 && (
+              <NestMissingPlates plates={result.missingPlates} orderId={orderId} lineId={lineId} canEditCatalog={canEditCatalog}
+                onAdded={(out) => { setAdded(out); setTick((t) => t + 1); }} />
             )}
 
             {result && <DiffBlock result={result} />}

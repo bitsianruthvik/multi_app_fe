@@ -117,6 +117,9 @@ const posts = [];
 const calls = [];
 let next = () => answer();
 let delPayload = null;
+const platePosts = [];
+const platesDefault = (body) => ({ created: body.plates.map((p, i) => ({ key: p.key, itemId: 900 + i, code: p.code ?? `PL-${i + 1}`, name: `Plate ${i + 1}`, kind: p.kind })), skipped: [], message: 'Added.' });
+let platesNow = platesDefault;
 let infoNow = null;
 let planNow = null;
 let runNow = { status: 'none' };
@@ -147,6 +150,11 @@ globalThis.fetch = async (url, o = {}) => {
   calls.push(`${method} ${u}`);
   const body = o.body ? JSON.parse(o.body) : null;
   if (u.endsWith('/nesting/files') && method === 'POST') { posts.push(body); return reply(next(body)); }
+  if (u.endsWith('/nesting/plates') && method === 'POST') {
+    platePosts.push(body);
+    const out = platesNow(body);
+    return out && out.ok === false ? out : reply(out);
+  }
   if (u.endsWith('/nesting/files')) return reply(infoNow ?? info());
   if (/\/nesting\/lots\/\d+$/.test(u) && method === 'DELETE') return reply(delPayload);
   if (u.includes('/nesting/runs/current')) return reply(runNow);
@@ -166,7 +174,7 @@ const dialog = (over = {}) => React.createElement(NestFilesDialog, {
   open: true, orderId: 1, lineId: 1, uploads: uploads('NVX-B4_14.137mm_3000x1500.dxf'), onClose: () => {}, onSaved: () => {}, onCompare: () => {}, ...over,
 });
 const mountPanel = async (props = {}) => mountEl(inRouter(React.createElement(NestingPanel, { orderId: 1, lineId: 1, canManage: true, ...props })));
-const reset = () => { posts.length = 0; calls.length = 0; next = () => answer(); infoNow = null; planNow = null; runNow = { status: 'none' }; delPayload = null; };
+const reset = () => { platePosts.length = 0; platesNow = platesDefault; posts.length = 0; calls.length = 0; next = () => answer(); infoNow = null; planNow = null; runNow = { status: 'none' }; delPayload = null; };
 const saveBtn = () => document.querySelector('[data-testid=nest-files-save]');
 
 const cand = (id, code, o = {}) => ({ cutPlateId: id, code, name: code, thickness: 25, length: 6120, width: 500, grade: 'E350', needed: 4, fit: 11000000 + id, why: 'same size', possible: true, ...o });
@@ -1333,6 +1341,153 @@ await check('a plate nested before a drawing changed says so, with the reason; s
   await click(thumbs[2], 'the third plate');
   await waitFor(() => !document.querySelector('[data-testid=plate-stale]'), 'no note');
   assert.equal(document.querySelector('[data-testid=plate-stale-chip]'), null, 'stale: false lights nothing up');
+  await unmount();
+});
+
+/* ---- missing plate sizes: the banner, Add all, Choose… ------------------------------------------------ */
+const missing = (key, o = {}) => ({
+  key, thickness: 10, length: 6000, width: 2000, grade: 'E350', impactClass: 'BO', material: 'MS', density: 7850,
+  nests: [{ filename: 'a.nif', nestNo: 1 }], plates: 1, suggestedCode: 'PL-10X2000X6000-E350BO', suggestedName: 'Plate 10 mm', kind: 'custom',
+  similarTo: null, canCreate: true, ...o,
+});
+const miss2 = () => [missing('10|6000|2000|E350|BO'), missing('12|3000|1500|E250|', { thickness: 12, length: 3000, width: 1500, grade: 'E250', impactClass: null, plates: 3, suggestedCode: 'PL-12X1500X3000-E250' })];
+// The first preview lists the missing sizes; every one after it (the re-run) lists none.
+const withMissing = (list) => { let first = true; next = () => { const had = first; first = false; return answer(had ? { missingPlates: list } : {}); }; };
+const rowsOf = () => [...document.querySelectorAll('[data-testid=missing-row]')];
+const newPreviews = () => posts.filter((b) => b.dryRun === true).length;
+const tid = (id) => document.querySelector(`[data-testid=${id}]`);
+
+await check('missing plate sizes: a banner with a title and one line per plate', async () => {
+  reset();
+  next = () => answer({ missingPlates: miss2() });
+  await mountEl(dialog({ canEditCatalog: true }));
+  await waitFor(() => tid('missing-plates'), 'the banner');
+  assert.ok(tid('missing-plates').textContent.includes('2 plate sizes in these files are not in your catalog'));
+  const lines = [...document.querySelectorAll('[data-testid=missing-plate]')].map((l) => l.textContent);
+  assert.equal(lines.length, 2);
+  assert.ok(lines[0].includes('10 mm × 6,000 × 2,000 · E350 BO · used by 1 plate'), lines[0]);
+  assert.ok(lines[1].includes('12 mm × 3,000 × 1,500 · E250 · used by 3 plates'), lines[1]);
+  assert.equal(tid('missing-add-all').textContent.trim(), 'Add all 2 to the catalog');
+  assert.ok(tid('missing-choose'));
+  await unmount();
+});
+
+await check('Add all: confirm names the codes, one call with every plate as custom, preview runs again, the success line stays', async () => {
+  reset();
+  withMissing(miss2());
+  platesNow = (body) => ({ created: body.plates.map((p, i) => ({ key: p.key, itemId: 900 + i, code: i ? 'PL-B' : 'PL-A', name: 'x', kind: p.kind })), skipped: [], message: 'ok' });
+  await mountEl(dialog({ canEditCatalog: true }));
+  await waitFor(() => tid('missing-add-all'), 'Add all');
+  await click(tid('missing-add-all'), 'Add all');
+  await waitFor(() => tid('missing-confirm'), 'the confirmation');
+  assert.ok(document.body.textContent.includes('Add 2 plate sizes to the catalog?'));
+  const conf = tid('missing-confirm').textContent;
+  assert.ok(conf.includes('PL-10X2000X6000-E350BO') && conf.includes('PL-12X1500X3000-E250') && conf.includes('as a custom size'));
+  assert.equal(platePosts.length, 0, 'nothing is sent before the confirmation');
+  const before = newPreviews();
+  await click(tid('missing-confirm-add'), 'confirm');
+  await waitFor(() => tid('missing-added'), 'the success line');
+  assert.equal(platePosts.length, 1);
+  assert.deepEqual(platePosts[0], { plates: [{ key: '10|6000|2000|E350|BO', kind: 'custom' }, { key: '12|3000|1500|E250|', kind: 'custom' }] });
+  await waitFor(() => newPreviews() === before + 1, 'the preview posted again');
+  await waitFor(() => !tid('missing-plates'), 'the banner gone');
+  assert.equal(tid('missing-added').textContent, 'Added PL-A and PL-B to the catalog as custom sizes.');
+  assert.equal(tid('missing-confirm'), null, 'the confirmation closed');
+  await unmount();
+});
+
+await check('Choose…: untick one, make one standard, edit one code — the body has the ticked plates, kind, and code only where edited', async () => {
+  reset();
+  withMissing([...miss2(), missing('16|6000|2000|E350|', { thickness: 16, impactClass: null, suggestedCode: 'PL-16' })]);
+  await mountEl(dialog({ canEditCatalog: true }));
+  await waitFor(() => tid('missing-choose'), 'Choose');
+  await click(tid('missing-choose'), 'Choose');
+  await waitFor(() => rowsOf().length === 3, 'three rows');
+  assert.equal(tid('missing-dialog').querySelector('[role=dialog]').getAttribute('aria-labelledby'), 'missing-dialog-title');
+  assert.equal(tid('missing-dialog-add').textContent.trim(), 'Add 3 plates');
+  await click(tid('missing-none'), 'none');
+  assert.equal(tid('missing-dialog-add').disabled, true, 'nothing ticked');
+  await click(tid('missing-all'), 'all');
+  const [r1, r2, r3] = rowsOf();
+  await click(r2.querySelector('input[type=checkbox]'), 'untick the second');
+  await click([...r1.querySelectorAll('button')].find((b) => b.textContent === 'Standard'), 'Standard');
+  await typeInto(r3.querySelector('input[aria-label^="Code for"]'), 'MY-16');
+  assert.equal(tid('missing-dialog-add').textContent.trim(), 'Add 2 plates');
+  await click(tid('missing-dialog-add'), 'add');
+  await waitFor(() => platePosts.length === 1, 'the call');
+  assert.deepEqual(platePosts[0], { plates: [{ key: '10|6000|2000|E350|BO', kind: 'standard' }, { key: '16|6000|2000|E350|', kind: 'custom', code: 'MY-16' }] });
+  await waitFor(() => !tid('missing-dialog'), 'the dialog closed');
+  await unmount();
+});
+
+await check('a plate that cannot be created is listed with its reason, has no checkbox, and is not sent or counted', async () => {
+  reset();
+  const why = 'The grade E999 is not one of the grade options.';
+  withMissing([missing('a'), missing('b', { canCreate: false, why, suggestedCode: null, thickness: 20 })]);
+  await mountEl(dialog({ canEditCatalog: true }));
+  await waitFor(() => tid('missing-add-all'), 'Add all');
+  assert.ok(tid('missing-plates').textContent.includes(`— cannot be added here: ${why}`));
+  assert.equal(tid('missing-add-all').textContent.trim(), 'Add it to the catalog');
+  await click(tid('missing-choose'), 'Choose');
+  await waitFor(() => rowsOf().length === 2, 'rows');
+  const bad = rowsOf().find((r) => r.getAttribute('data-key') === 'b');
+  assert.equal(bad.querySelector('input'), null, 'no checkbox, code box or kind control');
+  assert.ok(bad.textContent.includes(why));
+  assert.equal(tid('missing-dialog-add').textContent.trim(), 'Add 1 plate');
+  await click([...tid('missing-dialog').querySelectorAll('button')].find((b) => b.textContent === 'Cancel'), 'Cancel');
+  await waitFor(() => !tid('missing-dialog'), 'closed');
+  await click(tid('missing-add-all'), 'Add all');
+  await waitFor(() => tid('missing-confirm'), 'confirm');
+  assert.ok(document.body.textContent.includes('Add this plate size to the catalog?'));
+  await click(tid('missing-confirm-add'), 'confirm');
+  await waitFor(() => platePosts.length === 1, 'the call');
+  assert.deepEqual(platePosts[0], { plates: [{ key: 'a', kind: 'custom' }] });
+  await unmount();
+});
+
+await check('without the catalog right: the banner and the ask line, no buttons', async () => {
+  reset();
+  next = () => answer({ missingPlates: miss2() });
+  await mountEl(dialog());
+  await waitFor(() => tid('missing-plates'), 'the banner');
+  assert.equal(tid('missing-ask').textContent, 'Ask someone who manages the catalog to add them.');
+  assert.equal(tid('missing-add-all'), null);
+  assert.equal(tid('missing-choose'), null);
+  await unmount();
+});
+
+await check('a partial result says what was added and what was not, in the backend words', async () => {
+  reset();
+  withMissing(miss2());
+  const why = 'PL-12X1500X3000-E250 is already in the catalog as item 77.';
+  platesNow = () => ({ created: [{ key: '10|6000|2000|E350|BO', itemId: 1, code: 'PL-A', name: 'x', kind: 'custom' }], skipped: [{ key: '12|3000|1500|E250|', why, itemId: 77 }], message: 'm' });
+  await mountEl(dialog({ canEditCatalog: true }));
+  await waitFor(() => tid('missing-add-all'), 'Add all');
+  await click(tid('missing-add-all'), 'Add all');
+  await waitFor(() => tid('missing-confirm-add'), 'confirm');
+  await click(tid('missing-confirm-add'), 'confirm');
+  await waitFor(() => tid('missing-added'), 'the line');
+  const said = tid('missing-added').textContent;
+  assert.ok(said.includes('Added PL-A to the catalog as a custom size.'), said);
+  assert.ok(said.includes('Not added:') && said.includes(why), said);
+  await unmount();
+});
+
+await check('a 422 from the route shows the message and its problems inside the Choose dialog, which stays open', async () => {
+  reset();
+  next = () => answer({ missingPlates: miss2() });
+  platesNow = () => ({ ok: false, status: 422, text: async () => JSON.stringify({ code: 'INVALID', message: 'Some plates could not be added.', problems: ['The code PL-A is already taken.', 'E999 is not a grade.'] }) });
+  await mountEl(dialog({ canEditCatalog: true }));
+  await waitFor(() => tid('missing-choose'), 'Choose');
+  await click(tid('missing-choose'), 'Choose');
+  await waitFor(() => rowsOf().length === 2, 'rows');
+  await click(tid('missing-dialog-add'), 'add');
+  await waitFor(() => tid('missing-error'), 'the error');
+  const err = tid('missing-error');
+  assert.ok(err.textContent.includes('Some plates could not be added.') && err.textContent.includes('The code PL-A is already taken.') && err.textContent.includes('E999 is not a grade.'));
+  assert.ok(tid('missing-dialog').contains(err), 'inside the dialog');
+  assert.equal(tid('missing-dialog-add').disabled, false, 'can try again');
+  assert.equal(tid('missing-added'), null);
   await unmount();
 });
 

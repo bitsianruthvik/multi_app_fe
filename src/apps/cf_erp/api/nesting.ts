@@ -334,6 +334,21 @@ export interface NestDiff {
   renumbered: { lotId: number; from: string; to: string }[];
 }
 
+/** A plate size the files use that the catalog does not have. The key is the server’s; send it back as it is. */
+export interface NestMissingPlate {
+  key: string;
+  thickness: number | null; length: number; width: number;
+  grade: string | null; impactClass: string | null; material: string | null; density: number | null;
+  nests: { filename: string; nestNo?: string | number | null }[];
+  /** How many physical plates of this size the upload uses. */
+  plates: number;
+  suggestedCode: string | null; suggestedName: string | null;
+  kind: 'custom';
+  similarTo: { itemId: number; code: string | null } | null;
+  /** Why it cannot be added here, and something worth saying (grades were mixed, say). */
+  canCreate: boolean; why?: string; note?: string;
+}
+
 /** Answer of POST …/nesting/files, for a preview and for a save. */
 export interface NestFilesResult {
   dryRun: boolean; applied: boolean; mode: 'merge' | 'replace';
@@ -345,6 +360,8 @@ export interface NestFilesResult {
   dxfPartRows: NestPartRow[];
   problems: string[]; problemList: NestProblem[];
   warnings: string[]; warningList: NestProblem[];
+  /** Plate sizes the files use that are not in the catalog; empty when none. */
+  missingPlates: NestMissingPlate[];
   diff: NestDiff;
   coverage: NestFileCoverage[];
   leftOver: NestLeftOver[];
@@ -388,6 +405,7 @@ function normaliseFiles(out: Partial<NestFilesResult> | null | undefined): NestF
     dxfPartRows: arr<NestPartRow>(o.dxfPartRows).map(normalisePartRow),
     problems: arr<string>(o.problems), problemList: arr<NestProblem>(o.problemList),
     warnings: arr<string>(o.warnings), warningList: arr<NestProblem>(o.warningList),
+    missingPlates: arr<NestMissingPlate>(o.missingPlates),
     diff: {
       added: arr(d.added), replaced: arr(d.replaced), unchanged: arr(d.unchanged), removed: arr(d.removed),
       droppedAuto: arr(d.droppedAuto), droppedOurs: arr(d.droppedOurs), renumbered: arr(d.renumbered),
@@ -419,6 +437,20 @@ export async function sendNestFiles(orderId: number, lineId: number, req: NestFi
   };
   const out = await cfApi.post<Partial<NestFilesResult>>(`${base(orderId, lineId)}/files`, body, { timeoutMs: LONG_WRITE_MS });
   return normaliseFiles(out);
+}
+
+/** One missing plate to add: `code` only when the user changed the suggested one. */
+export interface NestPlateToAdd { key: string; kind: 'custom' | 'standard'; code?: string; name?: string }
+export interface NestPlatesAdded {
+  created: { key: string; itemId: number; code: string; name: string; kind: 'custom' | 'standard' }[];
+  skipped: { key: string; why: string; itemId?: number; code?: string }[];
+  message: string;
+}
+
+/** Add plate sizes the files use to the catalog. A bad code or grade is a 422 with `problems`. */
+export function addNestPlates(orderId: number, lineId: number, plates: NestPlateToAdd[]): Promise<NestPlatesAdded> {
+  return cfApi.post<Partial<NestPlatesAdded>>(`${base(orderId, lineId)}/plates`, { plates }, { timeoutMs: LONG_WRITE_MS })
+    .then((o) => ({ created: arr(o.created), skipped: arr(o.skipped), message: o.message ?? '' }));
 }
 
 export interface NestLotRemoved {

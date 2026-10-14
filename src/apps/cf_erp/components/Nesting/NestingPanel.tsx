@@ -1207,7 +1207,7 @@ function PlateNestingPanel({ orderId, lineId, canManage, canEditCatalog = false,
         ) : undefined} />
 
       {/* THE UPLOAD DOOR: the shop's own files, checked before anything is saved. */}
-      <NestFilesDialog open={!!uploads} orderId={orderId} lineId={lineId} uploads={uploads ?? []}
+      <NestFilesDialog open={!!uploads} orderId={orderId} lineId={lineId} uploads={uploads ?? []} canEditCatalog={canEditCatalog}
         onClose={() => setUploads(null)}
         onSaved={(out: NestFilesResult) => { setProposal(null); setRun(null); reloadAll(); toast.success(out.message || 'The nesting is saved.'); }} />
 
