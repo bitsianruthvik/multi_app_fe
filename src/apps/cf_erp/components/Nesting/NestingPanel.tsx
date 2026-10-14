@@ -33,7 +33,7 @@ import {
   ACCEPT_AGAIN, ACCEPT_WHAT_HAPPENS, CAPPED_LINE, offlineLine, LOOK_IS_A_LOOK, MANUAL_HELP, NO_MANAGE, PLATES_NOT_CHOSEN, STEEL_BLOCKED,
   acceptBody, adviceSentence, choicesLine, adviceTitle, basisWord, colourIndex, cutOrderSentence, dedupeAdvice, driftWords, kg, marginOf,
   marginSentence, mm, mmPair, RUN_INTERRUPTED, runSummary, pct, pieceColour, platePieceKinds, sequenceOver, steelWord, tonnes,
-  NO_LAYOUT, isFreeLayout, anyImported, hasLayout, isImported, lineOffcuts, verdictOf, wasteBreakdown, wasteTotalKg,
+  NO_LAYOUT, isFreeLayout, anyImported, hasLayout, isImported, lineOffcuts, verdictOf, wasteBreakdown, wasteTotalKg, wasteShown, wasteShownWord, WASTE_SHOWN_HELP,
   dropOnly, isCustomerPlate, isNestFile, isProNestPlate, nestAccept, nestKinds, originLine, ourPieceCount, pieceCounts, plateSource, restOf,
   SHAPE_SOURCE_WORDS, shapeSourceOnPlate, shapeSources, startSentence,
   type Effort, type NestingBudget, type ShapeSource, type StartMode,
@@ -163,7 +163,7 @@ function PlateCard({ nest, group, colourOf, shapeOf, jobName, onCnc, onRemove, o
   const verdict = verdictOf(nest.verdict);
   const laidOut = hasLayout(nest);
   const breakdown = laidOut ? wasteBreakdown(nest, nest.sheetArea) : null;
-  const wastage = breakdown?.find((b) => b.key === 'wastage');
+  const waste = wasteShown(breakdown, { kg: wasteTotalKg(nest), pct: nest.wastePct });
   const offcuts = nest.offcuts ?? [];
   const reasons = nest.reasons ?? [];
   // Where the plate came from, and whether a drawing changed under it since it was saved.
@@ -251,17 +251,9 @@ function PlateCard({ nest, group, colourOf, shapeOf, jobName, onCnc, onRemove, o
             </Box>
           )}
         </Cell>
-        {wastage
-          ? (
-            <Cell label="Wastage" title="Scrap: what is left after the parts, kerf, sequence gaps, rim and offcuts.">
-              <Mono>{`${kg(wastage.kg)} kg · ${pct(wastage.pct)}`}</Mono>
-            </Cell>
-          )
-          : (
-            <Cell label="Wastage" title="The plate bought, less the cut pieces on it.">
-              <Mono>{`${kg(wasteTotalKg(nest))} kg · ${pct(nest.wastePct)}`}</Mono>
-            </Cell>
-          )}
+        <Cell label="Wastage" title={WASTE_SHOWN_HELP}>
+          <Mono>{wasteShownWord(waste)}</Mono>
+        </Cell>
       </Box>
 
       {breakdown && <WasteBar parts={breakdown} />}
@@ -343,7 +335,7 @@ function GroupCard({ group, open, onToggle, cncFor, removeFor, fileFor, shapeOf,
   const [picked, setPicked] = useState(0);
   const m = group.metrics;
   const breakdown = wasteBreakdown(m, m.areaBought);
-  const wastage = breakdown?.find((b) => b.key === 'wastage');
+  const waste = wasteShown(breakdown, { kg: wasteTotalKg(m), pct: m.wastePct });
   const thumbs = group.nests.slice(0, open ? shown : 0);
   const current = group.nests[Math.min(picked, Math.max(0, group.nests.length - 1))] ?? null;
   const warned = group.nests.filter((n) => n.rules?.status === 'warn').length;
@@ -371,8 +363,8 @@ function GroupCard({ group, open, onToggle, cncFor, removeFor, fileFor, shapeOf,
           gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', sm: 'repeat(4, minmax(0, 1fr))' },
         }}>
           <Cell label="Steel bought"><Mono>{`${tonnes(m.weightKg)} t`}</Mono></Cell>
-          <Cell label="Wastage" title="Every plate of this steel, added up.">
-            <Mono>{wastage ? `${kg(wastage.kg)} kg · ${pct(wastage.pct)}` : `${kg(wasteTotalKg(m))} kg · ${pct(m.wastePct)}`}</Mono>
+          <Cell label="Wastage" title={`Every plate of this steel, added up. ${WASTE_SHOWN_HELP}`}>
+            <Mono>{wasteShownWord(waste)}</Mono>
           </Cell>
           <Cell label="Cut pieces"><Mono>{group.cutPlates.length}</Mono></Cell>
           {/* Which plates the catalog offered is a fact about the RUN, not about
@@ -762,11 +754,11 @@ function PlateNestingPanel({ orderId, lineId, canManage, canEditCatalog = false,
   // The CNC routes arrived with hasLayout; an API that does not send it has neither.
   const cncKnown = plan.groups.some((g) => g.nests.some((n) => n.hasLayout != null));
   const breakdown = wasteBreakdown(t, t.areaBought);
-  const wastage = breakdown?.find((b) => b.key === 'wastage');
+  const waste = wasteShown(breakdown, { kg: wasteTotalKg(t), pct: t.wastePct });
   const cuts = lineOffcuts(plan);
   const allOffcuts = plan.groups.flatMap((g) => g.nests.flatMap((n) => (n.offcuts ?? []).map((o) => ({ ...o, lotNo: n.lotNo }))));
-  const wasteKgNow = wastage ? wastage.kg : wasteTotalKg(t);
-  const wastePctNow = wastage ? wastage.pct : t.wastePct;
+  const wasteKgNow = waste.kg;
+  const wastePctNow = waste.pct;
 
   // WHAT IS LEFT OVER. The saved plan counts needed against nested per cut piece; an API
   // without that answers through the files route instead. Never from a proposal.
@@ -788,7 +780,7 @@ function PlateNestingPanel({ orderId, lineId, canManage, canEditCatalog = false,
     { key: 'steel', label: 'Steel bought', value: `${tonnes(t.weightKg)} t` },
     {
       key: 'waste', label: 'Waste', value: pct(wastePctNow),
-      hint: `${kg(wasteKgNow)} kg. ${breakdown ? 'Scrap: what is left after the parts, kerf, sequence gaps, rim and offcuts.' : 'The plates bought, less the cut pieces on them.'}`,
+      hint: `${kg(wasteKgNow)} kg. ${waste.offcutKg >= 0.5 ? `${kg(waste.offcutKg)} kg of it offcut. ` : ''}${WASTE_SHOWN_HELP}`,
     },
     !proposal && needPieces > 0
       ? { key: 'pieces', label: 'Cut pieces nested', value: `${gotPieces} of ${needPieces}`, warn: gotPieces < needPieces, hint: 'Pieces on a plate, of the pieces this line needs.' }
@@ -1016,7 +1008,7 @@ function PlateNestingPanel({ orderId, lineId, canManage, canEditCatalog = false,
           <Box sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>
             {[
               `${t.pieces} ${t.pieces === 1 ? 'piece' : 'pieces'} on ${t.plates} ${t.plates === 1 ? 'plate' : 'plates'}`,
-              `${kg(wasteKgNow)} kg wastage`,
+              `${kg(wasteKgNow)} kg wastage${waste.offcutKg >= 0.5 ? `, ${kg(waste.offcutKg)} kg of it offcut` : ''}`,
               ...(breakdown ? [`${cuts.count} ${cuts.count === 1 ? 'offcut' : 'offcuts'}`] : []),
             ].join(' · ')}
             {t.unplaced > 0 && <Box component="span" sx={{ color: 'var(--c-warning-800)' }}>{` · ${t.unplaced} not placed`}</Box>}

@@ -469,6 +469,28 @@ export function wasteBreakdown(
   }));
 }
 
+/**
+ * The waste the screen quotes: everything bought that is not a part — kerf, gaps, rim, scrap AND
+ * offcuts. Offcuts count as waste (2026-10-14, the user): leaving them out made heavily cut-down
+ * plates look efficient. `offcutKg` is the share of it that is offcut, said beside it.
+ */
+export function wasteShown(
+  breakdown: WastePart[] | null, fallback: { kg: number; pct: number | null | undefined },
+): { kg: number; pct: number; offcutKg: number } {
+  if (!breakdown) return { kg: fallback.kg, pct: fallback.pct ?? 0, offcutKg: 0 };
+  const lost = breakdown.filter((b) => b.key !== 'parts' && b.key !== 'noLayout');
+  return {
+    kg: lost.reduce((a, b) => a + b.kg, 0), pct: lost.reduce((a, b) => a + b.pct, 0),
+    offcutKg: breakdown.find((b) => b.key === 'offcut')?.kg ?? 0,
+  };
+}
+
+/** "1,794 kg · 52% (1,656 kg of it offcut)" — the offcut share only when there is one. */
+export const wasteShownWord = (w: { kg: number; pct: number; offcutKg: number }) =>
+  `${kg(w.kg)} kg · ${pct(w.pct)}${w.offcutKg >= 0.5 ? ` (${kg(w.offcutKg)} kg of it offcut)` : ''}`;
+
+export const WASTE_SHOWN_HELP = 'Everything bought that is not a part: kerf, gaps, rim, scrap and offcuts. Offcuts are counted as waste even though they go back to stock.';
+
 /** The line's offcuts, counted from its plates. */
 export function lineOffcuts(plan: NestingPlan): { count: number; kg: number } {
   const all = plan.groups.flatMap((g) => g.nests.flatMap((n) => n.offcuts ?? []));
