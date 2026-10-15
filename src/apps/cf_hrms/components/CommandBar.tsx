@@ -128,6 +128,46 @@ function FieldChip({
     );
   }
 
+  if (def.kind === 'labels') {
+    // The labels of the company's other groups (spec §15.3): one small choice per group.
+    // The field holds their ids, comma-separated.
+    const others = (opts?.labelGroups ?? []).filter((g) => !g.isKind && g.labels.length > 0);
+    if (!others.length) return null;
+    const ids = String(field?.value ?? '').split(',').map((v) => Number(v)).filter((n) => n > 0);
+    const setGroup = (groupId: number, labelId: number | '') => {
+      const mine = new Set(others.find((g) => g.id === groupId)?.labels.map((l) => l.id));
+      const next = [...ids.filter((id) => !mine.has(id)), ...(labelId === '' ? [] : [labelId])];
+      onChange(next.length ? { ...(field ?? blankField()), value: next.join(','), confidence: 1 } : null);
+    };
+    return (
+      <>
+        {others.map((g) => {
+          const value = g.labels.find((l) => ids.includes(l.id))?.id ?? '';
+          return (
+            <TextField
+              key={g.id}
+              select
+              variant="standard"
+              size="small"
+              value={value}
+              onChange={(e) => setGroup(g.id, e.target.value === '' ? '' : Number(e.target.value))}
+              SelectProps={{ native: false, displayEmpty: true }}
+              inputProps={{ 'aria-label': g.name }}
+              sx={{ mx: 0.5, '& .MuiInputBase-input': { fontSize: 14, fontWeight: 600, py: 0.25 } }}
+            >
+              <MenuItem value="">
+                <em>{g.isRequired ? `${g.name.toLowerCase()}: choose…` : `${g.name.toLowerCase()} (optional)`}</em>
+              </MenuItem>
+              {g.labels.map((l) => (
+                <MenuItem key={l.id} value={l.id}>{g.name}: {l.name}</MenuItem>
+              ))}
+            </TextField>
+          );
+        })}
+      </>
+    );
+  }
+
   if (def.kind === 'label') {
     const value = field?.value == null ? '' : String(field.value);
     return (

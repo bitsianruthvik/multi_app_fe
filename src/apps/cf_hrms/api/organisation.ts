@@ -43,6 +43,16 @@ export interface Department extends TreeMeta {
   /** A shared crew: its people work for the departments in `serves`. */
   isShared?: boolean;
   serves?: number[];
+  /** Its label in each group, group order, Kind first (spec §15.2). Its own — never its parent's. */
+  labels?: DepartmentLabelRef[];
+}
+
+/** A department's label in one group. */
+export interface DepartmentLabelRef {
+  groupId: number;
+  groupName: string;
+  labelId: number;
+  name: string;
 }
 
 export interface Address {
@@ -70,6 +80,26 @@ export interface DepartmentLabel {
   name: string;
   sortOrder: number;
   departmentCount: number;
+  /** The group it belongs to (spec §15). */
+  groupId?: number;
+}
+
+/**
+ * A named group of labels (spec §15): Kind (always there, always required,
+ * cannot be removed) and the company's own — "Unit", "Area"… A department has
+ * at most one label of each group; a required group must give it one.
+ */
+export interface LabelGroup {
+  id: number;
+  name: string;
+  sortOrder: number;
+  isRequired: boolean;
+  isKind: boolean;
+  /** Kind: cannot be removed, always required. */
+  locked: boolean;
+  /** How many departments have no label of this group. */
+  departmentsWithout: number;
+  labels: DepartmentLabel[];
 }
 
 export interface Shift {
@@ -153,14 +183,30 @@ export const orgApi = {
    * `IN_USE`, `detail.departmentCount`) unless `moveTo` says where they go.
    */
   departmentLabels: {
-    list: () =>
-      api.get<{ labels: DepartmentLabel[] }>('/organisation/department-labels').then((r) => r.labels ?? []),
-    create: (name: string) => api.post<DepartmentLabel>('/organisation/department-labels', { name }),
+    /** Without a group: the Kind labels. */
+    list: (groupId?: number) =>
+      api
+        .get<{ labels: DepartmentLabel[] }>(`/organisation/department-labels${groupId ? `?groupId=${groupId}` : ''}`)
+        .then((r) => r.labels ?? []),
+    create: (name: string, groupId?: number) =>
+      api.post<DepartmentLabel>('/organisation/department-labels', groupId ? { name, groupId } : { name }),
     rename: (id: number, name: string) => api.put<DepartmentLabel>(`/organisation/department-labels/${id}`, { name }),
-    reorder: (ids: number[]) =>
-      api.put<{ labels: DepartmentLabel[] }>('/organisation/department-labels/order', { ids }),
-    remove: (id: number, moveTo?: number) =>
+    reorder: (ids: number[], groupId?: number) =>
+      api.put<{ labels: DepartmentLabel[] }>('/organisation/department-labels/order', groupId ? { ids, groupId } : { ids }),
+    /** `moveTo`: another label of the same group; `'none'` (optional groups) takes the label off its departments. */
+    remove: (id: number, moveTo?: number | 'none') =>
       api.del<{ ok: true }>(`/organisation/department-labels/${id}${moveTo ? `?moveTo=${moveTo}` : ''}`),
+  },
+
+  /** The label groups (spec §15). Removing a group in use needs `force`; Kind is never removed (409 LOCKED). */
+  labelGroups: {
+    list: () => api.get<{ groups: LabelGroup[] }>('/organisation/label-groups').then((r) => r.groups ?? []),
+    create: (name: string, isRequired = false) => api.post<LabelGroup>('/organisation/label-groups', { name, isRequired }),
+    update: (id: number, body: { name?: string; isRequired?: boolean; sortOrder?: number }) =>
+      api.put<LabelGroup>(`/organisation/label-groups/${id}`, body),
+    reorder: (ids: number[]) => api.put<{ groups: LabelGroup[] }>('/organisation/label-groups/order', { ids }),
+    remove: (id: number, force = false) =>
+      api.del<{ ok: true }>(`/organisation/label-groups/${id}${force ? '?force=1' : ''}`),
   },
 
   shifts: {

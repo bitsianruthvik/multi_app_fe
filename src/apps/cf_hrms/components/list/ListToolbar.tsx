@@ -20,6 +20,7 @@ import TuneRounded from '@mui/icons-material/TuneRounded';
 import AddRounded from '@mui/icons-material/AddRounded';
 import { Surface } from '@shared/ui';
 import type { ListFilters } from './useListFilters';
+import { filterPatch, filterValue } from './filterParts';
 
 export interface FilterOption {
   value: string;
@@ -45,6 +46,14 @@ export interface FilterDef {
    * The screen sends the same value to the server — see `useListFilters` `defaults`.
    */
   defaultValue?: string;
+  /**
+   * Several filters sharing ONE address param, each owning some of its
+   * comma-separated values — the label groups (spec §15.3): `label=12,31` is
+   * the "Unit" filter holding 12 and the "Area" filter holding 31. `key` is then
+   * only this filter's name on screen; `param` is what the address and the
+   * server read, and `values` the ones this filter owns.
+   */
+  partOf?: { param: string; values: string[] };
 }
 
 function fmtCount(n: number): string {
@@ -107,7 +116,8 @@ function ActiveChip({ text, onRemove }: { text: string; onRemove: () => void }) 
 
 function FilterControl({ def, filters }: { def: FilterDef; filters: ListFilters }) {
   const kind = def.kind ?? 'select';
-  const value = filters.values[def.key] ?? '';
+  const value = filterValue(def, filters);
+  const setValue = (v: string | null) => filters.setMany(filterPatch(def, filters, v));
   const options = def.options ?? [];
   const shownValue = value || def.defaultValue || '';
 
@@ -118,7 +128,7 @@ function FilterControl({ def, filters }: { def: FilterDef; filters: ListFilters 
           <Switch
             size="small"
             checked={value !== ''}
-            onChange={(e) => filters.set(def.key, e.target.checked ? '1' : null)}
+            onChange={(e) => setValue(e.target.checked ? '1' : null)}
           />
         }
         label={def.label}
@@ -135,7 +145,7 @@ function FilterControl({ def, filters }: { def: FilterDef; filters: ListFilters 
         type="date"
         label={def.label}
         value={value}
-        onChange={(e) => filters.set(def.key, e.target.value || null)}
+        onChange={(e) => setValue(e.target.value || null)}
         slotProps={{ inputLabel: { shrink: true } }}
       />
     );
@@ -148,7 +158,7 @@ function FilterControl({ def, filters }: { def: FilterDef; filters: ListFilters 
         fullWidth
         options={options}
         value={options.find((o) => o.value === shownValue) ?? null}
-        onChange={(_, opt) => filters.set(def.key, opt?.value ?? null)}
+        onChange={(_, opt) => setValue(opt?.value ?? null)}
         getOptionLabel={(o) => o.label}
         getOptionKey={(o) => o.value}
         isOptionEqualToValue={(a, b) => a.value === b.value}
@@ -169,7 +179,7 @@ function FilterControl({ def, filters }: { def: FilterDef; filters: ListFilters 
       label={def.label}
       value={shownValue}
       onChange={(e) =>
-        filters.set(def.key, e.target.value && e.target.value !== def.defaultValue ? e.target.value : null)
+        setValue(e.target.value && e.target.value !== def.defaultValue ? e.target.value : null)
       }
       slotProps={{
         inputLabel: { shrink: true },
@@ -235,9 +245,11 @@ export function ListToolbar({
 
   const list = defs ?? [];
   const active = list.filter((d) => {
-    const v = filters.values[d.key] ?? '';
+    const v = filterValue(d, filters);
     return v !== '' && v !== d.defaultValue;
   });
+  // A shared param counts once in `activeCount`; on the button each filter that is set counts.
+  const setCount = active.length;
   const search = filters.q.trim();
 
   const word = (n: number) => (n === 1 ? noun[0] : noun[1]);
@@ -267,10 +279,10 @@ export function ListToolbar({
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
         <Button
           size="small"
-          disabled={filters.activeCount === 0}
+          disabled={setCount === 0}
           onClick={() => {
             const patch: Record<string, null> = {};
-            for (const d of list) patch[d.key] = null;
+            for (const d of list) patch[d.partOf?.param ?? d.key] = null;
             filters.setMany(patch);
           }}
         >
@@ -346,12 +358,12 @@ export function ListToolbar({
             aria-haspopup="dialog"
             aria-expanded={anchor ? true : undefined}
             aria-label={
-              filters.activeCount > 0 ? `Filters, ${filters.activeCount} set` : 'Filters'
+              setCount > 0 ? `Filters, ${setCount} set` : 'Filters'
             }
             onClick={(e) => setAnchor(e.currentTarget)}
             sx={{ height: 36, whiteSpace: 'nowrap', flexShrink: 0 }}
           >
-            {filters.activeCount > 0 ? `Filters · ${filters.activeCount}` : 'Filters'}
+            {setCount > 0 ? `Filters · ${setCount}` : 'Filters'}
           </Button>
         )}
 
@@ -429,8 +441,8 @@ export function ListToolbar({
         {active.map((d) => (
           <ActiveChip
             key={d.key}
-            text={activeText(d, filters.values[d.key])}
-            onRemove={() => filters.set(d.key, null)}
+            text={activeText(d, filterValue(d, filters))}
+            onRemove={() => filters.setMany(filterPatch(d, filters, null))}
           />
         ))}
         {filters.isFiltered && (

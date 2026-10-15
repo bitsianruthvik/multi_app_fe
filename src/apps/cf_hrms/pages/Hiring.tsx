@@ -16,6 +16,7 @@ import { RowActions } from '../components/list/RowActions';
 import { useListFilters } from '../components/list/useListFilters';
 import { positionsApi, type PositionOptions } from '../api/positions';
 import { HiringCloseDialog } from '../components/HiringCloseDialog';
+import { labelFilterDefs, useLabelGroups } from '../components/labelGroups';
 
 /**
  * Hiring — every hiring, open first (DESIGN_SYSTEM.md §4.2 Collection).
@@ -45,7 +46,9 @@ export default function Hiring() {
   const navigate = useNavigate();
   const can = useCan();
   const toast = useToast();
-  const filters = useListFilters(['status', 'stage', 'department', 'role'], { defaults: DEFAULTS });
+  // `label`: one filter per label group — the labels of the position's department (spec §15.3).
+  const filters = useListFilters(['status', 'stage', 'department', 'label', 'role'], { defaults: DEFAULTS });
+  const { groups } = useLabelGroups(can.org.view || can.positions.view);
   const tab = filters.params.status ?? 'open';
   const [rows, setRows] = useState<HiringSummary[] | null>(null);
   const [counts, setCounts] = useState<{ total: number; count: number } | null>(null);
@@ -116,9 +119,10 @@ export default function Hiring() {
       },
       { key: 'stage', label: 'Stage', options: STAGES },
       { key: 'department', label: 'Department (and below)', searchable: true, options: asOptions(depts) },
+      ...labelFilterDefs(groups),
       { key: 'role', label: 'Role', searchable: true, options: asOptions(roles) },
     ];
-  }, [rows, options]);
+  }, [rows, options, groups]);
 
   const columns: DataColumn<HiringSummary>[] = useMemo(
     () => [

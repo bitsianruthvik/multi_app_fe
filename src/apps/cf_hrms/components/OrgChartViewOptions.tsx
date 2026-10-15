@@ -1,7 +1,9 @@
 import { useState } from 'react';
-import { Box, Button, Stack, ToggleButton, ToggleButtonGroup, Typography } from '@mui/material';
+import { Box, Button, MenuItem, Popover, Stack, TextField, ToggleButton, ToggleButtonGroup, Typography } from '@mui/material';
 import ChevronRightRounded from '@mui/icons-material/ChevronRightRounded';
 import ExpandMoreRounded from '@mui/icons-material/ExpandMoreRounded';
+import LabelOutlined from '@mui/icons-material/LabelOutlined';
+import type { LabelGroup } from '../api/organisation';
 import type { Arrange } from './orgChartLayout';
 
 /**
@@ -79,3 +81,111 @@ export function OrgChartViewOptions({
 }
 
 export default OrgChartViewOptions;
+
+/**
+ * The chart's label options (CF_HRMS_HIRING_SPEC.md §15.4), one compact
+ * "Labels" button on the toolbar that opens:
+ *
+ *   Colour by   None · each label group — department boxes take a soft colour
+ *               per label of that group; the key is in the strip above the chart.
+ *   Show only   a label per group — positions outside are drawn faint, never
+ *               removed; the strip says how many are inside.
+ *
+ * Yours only — kept in this browser. Nothing here moves a box.
+ */
+export function LabelViewOptions({
+  groups,
+  colourBy,
+  onColourBy,
+  filter,
+  onFilter,
+}: {
+  groups: LabelGroup[];
+  colourBy: number | null;
+  onColourBy: (groupId: number | null) => void;
+  /** The label ids chosen, comma-separated (the lists' `label` rule). */
+  filter: string;
+  onFilter: (value: string) => void;
+}) {
+  const [anchor, setAnchor] = useState<HTMLElement | null>(null);
+  const usable = groups.filter((g) => g.labels.length > 0);
+  if (!usable.length) return null;
+  const chosen = new Set(filter.split(',').map((v) => Number(v)).filter((n) => n > 0));
+  const set = colourBy != null || chosen.size > 0;
+  const pick = (g: LabelGroup, labelId: number | '') => {
+    const mine = new Set(g.labels.map((l) => l.id));
+    const rest = [...chosen].filter((id) => !mine.has(id));
+    onFilter([...rest, ...(labelId === '' ? [] : [labelId])].join(','));
+  };
+  return (
+    <>
+      <Button
+        size="small"
+        variant={set ? 'contained' : 'outlined'}
+        startIcon={<LabelOutlined />}
+        aria-haspopup="dialog"
+        aria-expanded={anchor ? true : undefined}
+        onClick={(e) => setAnchor(e.currentTarget)}
+        sx={{ whiteSpace: 'nowrap', flexShrink: 0 }}
+      >
+        Labels
+      </Button>
+      <Popover
+        open={!!anchor}
+        anchorEl={anchor}
+        onClose={() => setAnchor(null)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+        slotProps={{ paper: { sx: { width: 320, maxWidth: 'calc(100vw - 32px)', p: 2 } } }}
+      >
+        <Stack spacing={1.5} role="dialog" aria-label="Labels on the chart">
+          <TextField
+            select
+            size="small"
+            label="Colour by"
+            value={colourBy ?? ''}
+            onChange={(e) => onColourBy(e.target.value === '' ? null : Number(e.target.value))}
+            slotProps={{ select: { displayEmpty: true }, inputLabel: { shrink: true } }}
+            helperText="Each department box takes the colour of its label in that group."
+          >
+            <MenuItem value="">None</MenuItem>
+            {usable.map((g) => (
+              <MenuItem key={g.id} value={g.id}>{g.name}</MenuItem>
+            ))}
+          </TextField>
+          <Typography sx={{ fontSize: 13, fontWeight: 600, color: 'var(--c-text)' }}>Show only</Typography>
+          {usable.map((g) => {
+            const value = g.labels.find((l) => chosen.has(l.id))?.id ?? '';
+            return (
+              <TextField
+                key={g.id}
+                select
+                size="small"
+                label={g.name}
+                value={value}
+                onChange={(e) => pick(g, e.target.value === '' ? '' : Number(e.target.value))}
+                slotProps={{ select: { displayEmpty: true }, inputLabel: { shrink: true } }}
+              >
+                <MenuItem value="">Any</MenuItem>
+                {g.labels.map((l) => (
+                  <MenuItem key={l.id} value={l.id}>{l.name}</MenuItem>
+                ))}
+              </TextField>
+            );
+          })}
+          <Typography sx={{ fontSize: 12, color: 'var(--c-text-2)' }}>
+            Positions outside the chosen labels are drawn faint, not removed. A department&apos;s own labels count — not
+            the labels of the departments above it. Yours only — kept in this browser.
+          </Typography>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+            <Button size="small" disabled={!set} onClick={() => { onColourBy(null); onFilter(''); }}>
+              Clear
+            </Button>
+            <Button size="small" variant="contained" onClick={() => setAnchor(null)}>
+              Done
+            </Button>
+          </Box>
+        </Stack>
+      </Popover>
+    </>
+  );
+}

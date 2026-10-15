@@ -477,7 +477,8 @@ export function OrgChartCanvas({
         )}
         <g role="tree" aria-label="Roles and their positions">
           {scene.boxes.map((box) => (
-            <g key={box.id}>
+            // Outside the label filter: drawn faint, still there and still clickable (spec §15.4).
+            <g key={box.id} opacity={box.dimmed ? 0.28 : undefined} data-dimmed={box.dimmed ? '' : undefined}>
               <g
                 id={`orgchart-node-${box.id}`}
                 data-orgnode={box.id}

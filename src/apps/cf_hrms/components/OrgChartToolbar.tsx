@@ -18,6 +18,7 @@ import FitScreenRounded from '@mui/icons-material/FitScreenRounded';
 import UnfoldMoreRounded from '@mui/icons-material/UnfoldMoreRounded';
 import FullscreenRounded from '@mui/icons-material/FullscreenRounded';
 import FullscreenExitRounded from '@mui/icons-material/FullscreenExitRounded';
+import type { ReactNode } from 'react';
 import { Surface } from '@shared/ui';
 import type { ChartShow, ShiftFilter } from './orgChartLayout';
 
@@ -98,6 +99,7 @@ export function OrgChartToolbar({
   onFullscreen,
   asOf,
   onAsOf,
+  labels,
 }: {
   rootOptions: RootOption[];
   root: number | '';
@@ -122,6 +124,8 @@ export function OrgChartToolbar({
   onFullscreen: (v: boolean) => void;
   asOf: string;
   onAsOf: (d: string) => void;
+  /** The chart's label options (Colour by, Show only) — spec §15.4. Absent when the company has no labels to offer. */
+  labels?: ReactNode;
 }) {
   const selected = rootOptions.find((o) => o.id === root) ?? null;
 
@@ -199,6 +203,8 @@ export function OrgChartToolbar({
             title="Colour each position by attendance on this date"
             label={<Typography sx={{ fontSize: 13 }}>Attendance</Typography>}
           />
+
+          {labels}
 
           <Box sx={{ flex: 1 }} />
 

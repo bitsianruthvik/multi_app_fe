@@ -47,7 +47,8 @@ interface Draft {
   segments: Segment[];
 }
 
-interface Lookup { id: number; name: string }
+/** `groupId` / `kind`: for a department label — the group it belongs to, and whether that is Kind. */
+interface Lookup { id: number; name: string; groupId?: number; kind?: boolean }
 type Lookups = Record<LookupKind, Lookup[]>;
 
 /** Under "This rule would make": whether the chosen record really gets this rule's code, in words. */
@@ -80,7 +81,10 @@ function ConditionValue({
     return <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>You cannot see these records.</Typography>;
   }
   if (isLookupKind(kind)) {
-    const options = lookups[kind];
+    // A label condition offers the labels of ITS group: `label.<groupId>` that group, `label` Kind's.
+    const options = kind === 'departmentLabel'
+      ? lookups.departmentLabel.filter((o) => (token?.groupId != null ? o.groupId === token.groupId : o.kind))
+      : lookups[kind];
     return many ? (
       <Autocomplete
         multiple size="small" disabled={disabled} options={options} getOptionLabel={(o) => o.name} isOptionEqualToValue={(a, b) => a.id === b.id}
@@ -340,8 +344,8 @@ export default function CodeFormats() {
   const canRemove = can.setup.remove;
   // Departments, locations and roles belong to other areas: each list is read only with that area's view.
   const allowed = useMemo<Record<LookupKind, boolean>>(
-    () => ({ department: can.org.view, location: can.org.view, role: can.roles.view }),
-    [can.org.view, can.roles.view],
+    () => ({ department: can.org.view, location: can.org.view, role: can.roles.view, departmentLabel: can.org.view || can.positions.view }),
+    [can.org.view, can.roles.view, can.positions.view],
   );
 
   const [schemes, setSchemes] = useState<CodeScheme[] | null>(null);
@@ -364,16 +368,21 @@ export default function CodeFormats() {
     for (const e of entities ?? []) for (const t of e.conditionTokens) if (isLookupKind(t.valueKind)) out.add(t.valueKind);
     return out;
   }, [entities]);
-  const [lookups, setLookups] = useState<Lookups>({ department: [], location: [], role: [] });
+  const [lookups, setLookups] = useState<Lookups>({ department: [], location: [], role: [], departmentLabel: [] });
   useEffect(() => {
     const put = (kind: LookupKind, rows: Lookup[]) => setLookups((cur) => ({ ...cur, [kind]: rows }));
     if (kindsUsed.has('department') && allowed.department) orgApi.departments.list().then((r) => put('department', r.map((x) => ({ id: x.id, name: x.path || x.name })))).catch(() => put('department', []));
     if (kindsUsed.has('location') && allowed.location) orgApi.locations.list().then((r) => put('location', r.map((x) => ({ id: x.id, name: x.path || x.name })))).catch(() => put('location', []));
     if (kindsUsed.has('role') && allowed.role) listRoles().then((r) => put('role', r.items.map((x) => ({ id: x.id, name: x.title })))).catch(() => put('role', []));
+    if (kindsUsed.has('departmentLabel') && allowed.departmentLabel) {
+      orgApi.labelGroups.list()
+        .then((gs) => put('departmentLabel', gs.flatMap((g) => g.labels.map((l) => ({ id: l.id, name: l.name, groupId: g.id, kind: g.isKind })))))
+        .catch(() => put('departmentLabel', []));
+    }
   }, [kindsUsed, allowed]);
   const names = useMemo(() => {
     const m = emptyNames();
-    for (const k of ['department', 'location', 'role'] as const) for (const x of lookups[k]) m[k].set(String(x.id), x.name);
+    for (const k of ['department', 'location', 'role', 'departmentLabel'] as const) for (const x of lookups[k]) m[k].set(String(x.id), x.name);
     return m;
   }, [lookups]);
 

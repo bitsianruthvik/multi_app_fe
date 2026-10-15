@@ -46,14 +46,24 @@ export interface EditableListProps {
   onRename: (id: number, name: string) => Promise<void>;
   /** Present = the order matters and rows can be dragged. */
   onReorder?: (ids: number[]) => Promise<void>;
-  /** `moveTo` is set when the item was in use and the user chose where its records go. */
-  onRemove: (id: number, moveTo?: number) => Promise<void>;
+  /**
+   * `moveTo` is set when the item was in use and the user chose where its records go;
+   * `'none'` when they chose `clearChoice` instead.
+   */
+  onRemove: (id: number, moveTo?: number | 'none') => Promise<void>;
+  /**
+   * Offered beside "move them to…" when records may be left without an item
+   * (an optional label group: "Take it off them"). Absent = they must move.
+   */
+  clearChoice?: string;
   /** The list may not be emptied below this many rows. */
   minItems?: number;
   maxLength?: number;
 }
 
 const NEW = -1;
+/** The "take it off them" choice in the move-to select. */
+const CLEAR = -2;
 
 function words(e: unknown): string {
   const err = e as { message?: string; problems?: string[] } | null;
@@ -73,6 +83,7 @@ export function EditableList({
   onRemove,
   minItems = 0,
   maxLength = 40,
+  clearChoice,
 }: EditableListProps) {
   /** The row being typed in: an item id, NEW for the appended row, or null. */
   const [editing, setEditing] = useState<number | null>(null);
@@ -168,7 +179,7 @@ export function EditableList({
     setBusy(item.id);
     setProblem(null);
     try {
-      await onRemove(item.id, moveTo === '' ? undefined : moveTo);
+      await onRemove(item.id, moveTo === '' ? undefined : moveTo === CLEAR ? 'none' : moveTo);
       setRemoving(null);
     } catch (e) {
       setProblem({ id: item.id, text: words(e) });
@@ -427,6 +438,11 @@ export function EditableList({
                             {o.name}
                           </MenuItem>
                         ))}
+                        {clearChoice && (
+                          <MenuItem value={CLEAR}>
+                            <em>{clearChoice}</em>
+                          </MenuItem>
+                        )}
                       </TextField>
                       <Button size="small" variant="contained" color="error" disabled={moveTo === '' || busy === item.id} onClick={() => void doRemove(item)}>
                         Move and remove

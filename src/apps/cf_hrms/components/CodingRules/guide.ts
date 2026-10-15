@@ -21,11 +21,13 @@ export interface NameMaps {
   department: Map<string, string>;
   location: Map<string, string>;
   role: Map<string, string>;
+  /** Department labels of every group (spec §15.3). */
+  departmentLabel: Map<string, string>;
 }
-export const emptyNames = (): NameMaps => ({ department: new Map(), location: new Map(), role: new Map() });
+export const emptyNames = (): NameMaps => ({ department: new Map(), location: new Map(), role: new Map(), departmentLabel: new Map() });
 
 /** The kinds of condition value that are ids of something the company holds. */
-export const LOOKUP_KINDS = ['department', 'location', 'role'] as const;
+export const LOOKUP_KINDS = ['department', 'location', 'role', 'departmentLabel'] as const;
 export type LookupKind = (typeof LOOKUP_KINDS)[number];
 export const isLookupKind = (k: string | undefined): k is LookupKind => !!k && (LOOKUP_KINDS as readonly string[]).includes(k);
 
