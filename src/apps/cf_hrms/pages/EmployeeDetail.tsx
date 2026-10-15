@@ -25,6 +25,7 @@ import { EmployeePositionsTab } from '../components/EmployeePositionsTab';
 import { EmployeeIdentifiersTab } from '../components/EmployeeIdentifiersTab';
 import { EmployeeDocumentsTab } from '../components/EmployeeDocumentsTab';
 import { EmployeeHistoryTab } from '../components/EmployeeHistoryTab';
+import { EmployeePerformanceTab } from '../components/EmployeePerformanceTab';
 import { SeatJobContentEditor } from '../components/SeatJobContentEditor';
 import { AsOnBar, JobHistoryList } from '../components/JobDating';
 import { todayIso } from '../components/jobDates';
@@ -42,8 +43,8 @@ import { todayIso } from '../components/jobDates';
  * "the manager" field would have to pick one of them and be wrong twice.
  */
 
-type TabKey = 'overview' | 'work' | 'job' | 'identifiers' | 'documents' | 'history';
-const TAB_KEYS: TabKey[] = ['overview', 'work', 'job', 'identifiers', 'documents', 'history'];
+type TabKey = 'overview' | 'work' | 'job' | 'performance' | 'identifiers' | 'documents' | 'history';
+const TAB_KEYS: TabKey[] = ['overview', 'work', 'job', 'performance', 'identifiers', 'documents', 'history'];
 
 export default function EmployeeDetail() {
   const { company, id } = useParams<{ company: string; id: string }>();
@@ -66,7 +67,8 @@ export default function EmployeeDetail() {
 
   // Tab lives in the URL so a link to somebody's documents is a link that works.
   const tabParam = searchParams.get('tab') as TabKey | null;
-  const tab: TabKey = tabParam && TAB_KEYS.includes(tabParam) ? tabParam : 'overview';
+  // Performance is a tab only for a login that may see plans (spec §18.3).
+  const tab: TabKey = tabParam && TAB_KEYS.includes(tabParam) && (tabParam !== 'performance' || can.performance.view) ? tabParam : 'overview';
   const setTab = (v: string) => {
     const next = new URLSearchParams(searchParams);
     next.set('tab', v);
@@ -190,6 +192,7 @@ export default function EmployeeDetail() {
     { value: 'overview', label: 'Overview' },
     { value: 'work', label: 'Positions held', count: counts.activeAssignments },
     { value: 'job', label: 'Job' },
+    ...(can.performance.view ? [{ value: 'performance', label: 'Performance' }] : []),
     { value: 'identifiers', label: 'Identifiers', count: counts.identifiers },
     { value: 'documents', label: 'Documents', count: counts.documents },
     { value: 'history', label: 'History', count: counts.events },
@@ -338,6 +341,10 @@ export default function EmployeeDetail() {
               <JobHistoryList subject={{ type: 'person', id: employee.id }} />
             </SectionCard>
           </Stack>
+        )}
+
+        {tab === 'performance' && can.performance.view && (
+          <EmployeePerformanceTab employeeId={employee.id} company={company ?? ''} canEdit={can.performance.edit} />
         )}
 
         {tab === 'identifiers' && (

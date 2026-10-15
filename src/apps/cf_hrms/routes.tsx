@@ -32,6 +32,10 @@ const HiringDetail = lazy(() => import('./pages/HiringDetail'));
 const Documents = lazy(() => import('./pages/Documents'));
 const DocumentDetail = lazy(() => import('./pages/DocumentDetail'));
 
+// Performance
+const PerformancePlans = lazy(() => import('./pages/PerformancePlans'));
+const PerformancePlan = lazy(() => import('./pages/PerformancePlan'));
+
 // Time and leave
 const Shifts = lazy(() => import('./pages/Shifts'));
 const Holidays = lazy(() => import('./pages/Holidays'));
@@ -51,6 +55,7 @@ const CodeFormats = lazy(() => import('./pages/CodeFormats'));
 const HiringSettings = lazy(() => import('./pages/HiringSettings'));
 const Libraries = lazy(() => import('./pages/Libraries'));
 const ReportingTypes = lazy(() => import('./pages/ReportingTypes'));
+const PerformanceSettings = lazy(() => import('./pages/PerformanceSettings'));
 const Access = lazy(() => import('./pages/Access'));
 
 /**
@@ -59,7 +64,7 @@ const Access = lazy(() => import('./pages/Access'));
  * means adding it in both files, or it will render without nav.
  *
  * The blocks below are in navMeta's group order (Home · Organisation · People ·
- * Time and leave · Setup) so the two files can be read side by side. After them
+ * Performance · Time and leave · Setup) so the two files can be read side by side. After them
  * come the old addresses: every screen the 2026-10-12 clean-up removed or
  * merged redirects to where that work is done now, so a bookmark never 404s.
  */
@@ -149,6 +154,9 @@ export function getCfHrmsRoutes(
     // The employee's own org chart slice. Anyone with the company chart is sent
     // there instead, so an admin following an employee's link sees the full chart.
     { path: '/:company/cf_hrms/my-org-chart', element: wrap(<MyOrgChartOrCompany />) },
+    // A manager on a team member's plan (spec §18.2: drafts only, never activate
+    // or cancel). Under my-place so the shell's breadcrumb reads "My place › …".
+    { path: '/:company/cf_hrms/my-place/team-plans/:id', element: guarded(TAG.named.selfView, <PerformancePlan mode="team" />) },
 
     // Organisation
     { path: '/:company/cf_hrms/org-chart', element: guarded(TAG.positions.view, <OrgChart />) },
@@ -166,6 +174,10 @@ export function getCfHrmsRoutes(
     { path: '/:company/cf_hrms/hiring/:id', element: guarded(TAG.hiring.view, <HiringDetail />) },
     { path: '/:company/cf_hrms/documents', element: guarded(TAG.documents.view, <Documents />) },
     { path: '/:company/cf_hrms/documents/:id', element: guarded(TAG.documents.view, <DocumentDetail />) },
+
+    // Performance (spec §18.3)
+    { path: '/:company/cf_hrms/plans', element: guarded(TAG.performance.view, <PerformancePlans />) },
+    { path: '/:company/cf_hrms/plans/:id', element: guarded(TAG.performance.view, <PerformancePlan mode="hr" />) },
 
     // Time and leave
     { path: '/:company/cf_hrms/shifts', element: guarded(TAG.time.view, <Shifts />) },
@@ -185,9 +197,13 @@ export function getCfHrmsRoutes(
     { path: '/:company/cf_hrms/letters', element: guarded(TAG.setup.view, <HiringSettings />) },
     { path: '/:company/cf_hrms/libraries', element: guarded(TAG.roles.view, <Libraries />) },
     { path: '/:company/cf_hrms/reporting-types', element: guarded(TAG.setup.view, <ReportingTypes />) },
+    { path: '/:company/cf_hrms/performance-settings', element: guarded(TAG.setup.view, <PerformanceSettings />) },
     { path: '/:company/cf_hrms/access', element: guarded(TAG.named.accessManage, <Access />) },
 
     // ── Old addresses (clean-up of 2026-10-12, spec §10) ─────────────────
+    // The plans list is one segment (navMeta.ts says why); the longer spelling still lands there.
+    old('performance', 'plans'),
+    old('performance/plans', 'plans'),
     // A person's positions are on the employee's own page now.
     old('assignments', 'employees'),
     old('assignments/:id', 'employees'),

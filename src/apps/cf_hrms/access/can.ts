@@ -6,6 +6,7 @@
  *   can.positions.edit        // may change a position, its job content, its shift, move a person
  *   can.employees.view        // may open Employees
  *   can.named.payView         // may see CTC and the letters
+ *   can.performance.edit      // may make, change and activate performance plans
  *
  * No other file spells a `cf_hrms_…` tag. A button, a row action, a tab or a
  * menu entry is shown only when the matching flag is true; the server checks
@@ -29,7 +30,7 @@ import { api } from '../api/client';
 
 /* ── the tags ─────────────────────────────────────────────────────────── */
 
-const AREAS = ['org', 'roles', 'positions', 'employees', 'hiring', 'documents', 'time', 'leave', 'setup'] as const;
+const AREAS = ['org', 'roles', 'positions', 'employees', 'hiring', 'documents', 'performance', 'time', 'leave', 'setup'] as const;
 export type Area = (typeof AREAS)[number];
 export type Right = 'view' | 'edit' | 'remove' | 'upload';
 
@@ -41,6 +42,11 @@ const AREA_RIGHTS: Record<Area, readonly Right[]> = {
   employees: ['view', 'edit', 'upload'],
   hiring: ['view', 'edit'],
   documents: ['view', 'edit', 'remove'],
+  /**
+   * Performance plans (spec §18.2): make, change and activate a plan, close a
+   * period (edit); cancel a plan (remove); upload arrives with actuals.
+   */
+  performance: ['view', 'edit', 'remove', 'upload'],
   time: ['view', 'edit', 'remove', 'upload'],
   leave: ['view', 'edit', 'remove'],
   setup: ['view', 'edit', 'remove'],

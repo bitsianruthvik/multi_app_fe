@@ -4,9 +4,11 @@
  * this one array — a second definition is how a nav and a breadcrumb drift
  * apart. See DESIGN_SYSTEM.md §3 and DESIGN_SYSTEM_APPENDIX.md §A5.
  *
- * FOUR GROUPS, ONE HOME FOR EACH THING (CF_HRMS_HIRING_SPEC.md §10, 2026-10-12).
+ * FOUR GROUPS, ONE HOME FOR EACH THING (CF_HRMS_HIRING_SPEC.md §10, 2026-10-12),
+ * and since 2026-10-15 a fifth, Performance (§18.3), between People and Time
+ * and leave:
  *
- *   Home │ Organisation │ People │ Time and leave │ Setup
+ *   Home │ Organisation │ People │ Performance │ Time and leave │ Setup
  *
  * The clean-up removed every screen that was a second way to do something
  * (Work assignments, Work contexts, Manpower, Open points, Import, Leave types,
@@ -29,8 +31,14 @@ import { TAG, SCREEN_TAGS } from './access/can';
  *   roles      Roles, Libraries
  *   positions  Org chart, Positions
  *   employees  Employees          hiring     Hiring          documents  Documents
+ *   performance  Plans
  *   time       Shifts, Holidays   leave      Leave policies
- *   setup      Code formats, Letters, Reporting types
+ *   setup      Code formats, Letters, Reporting types, Performance settings
+ *
+ * The plans path is ONE segment (`plans`, `plans/:id`): the shell matches a
+ * screen on the first segment after the app slug, so a two-segment path would
+ * lose its menu highlight and breadcrumb. A manager's view of a team member's
+ * plan lives under My place (`my-place/team-plans/:id`) for the same reason.
  *
  * A screen without its `view` is in neither the menu nor the command palette,
  * and `routes.tsx` answers its address with "You do not have access to this
@@ -42,6 +50,7 @@ const POSITIONS = TAG.positions.view;
 const PEOPLE = TAG.employees.view;
 const HIRING = TAG.hiring.view;
 const DOCS = TAG.documents.view;
+const PERFORMANCE = TAG.performance.view;
 const TIME = TAG.time.view;
 const LEAVE = TAG.leave.view;
 const SETUP = TAG.setup.view;
@@ -121,6 +130,17 @@ export const SECTIONS: NavSection[] = [
     ],
   },
 
+  // ── What each person is measured on, period by period (spec §18) ─────────
+  // A plan copies the KRAs and KPIs of the person's job as it stood on the
+  // period's start; the job itself stays on Roles and Positions.
+  {
+    key: 'performance',
+    label: 'Performance',
+    screens: [
+      { key: 'plans', label: 'Plans', path: 'plans', hasDetail: true, permission: PERFORMANCE, keywords: ['plan', 'period', 'kpi', 'kra', 'target', 'weight', 'quarter', 'month', 'performance', 'measure', 'activate'] },
+    ],
+  },
+
   // ── When people work, and the leave they get ─────────────────────────────
   // Attendance, Roster, Leave requests and Leave balances are not built yet.
   // Their routes exist (routes.tsx) but they have no entry here on purpose.
@@ -146,6 +166,8 @@ export const SECTIONS: NavSection[] = [
       { key: 'letters', label: 'Letters', path: 'letters', permission: SETUP, keywords: ['offer letter', 'appointment letter', 'template', 'docx', 'placeholder', 'signatory', 'probation', 'notice period', 'letterhead'] },
       // Six word lists a role is written from, one screen with a tab each.
       { key: 'libraries', label: 'Libraries', path: 'libraries', permission: ROLES, keywords: ['kra', 'key result area', 'responsibilities', 'duty', 'kpi', 'indicator', 'measure', 'skills', 'competency', 'qualifications', 'education', 'certification', 'authorities', 'approve', 'limit'] },
+      // The performance year, the default plan frequency, the rating scale and each role's frequency.
+      { key: 'performance-settings', label: 'Performance settings', path: 'performance-settings', permission: SETUP, keywords: ['performance year', 'year start', 'april', 'frequency', 'monthly', 'quarterly', 'half-yearly', 'yearly', 'rating scale', 'plan', 'period'] },
       { key: 'reporting-types', label: 'Reporting types', path: 'reporting-types', permission: SETUP, keywords: ['primary', 'functional', 'dotted', 'project', 'admin'] },
       // Who can sign in and what their role may do — one screen with tabs.
       { key: 'access', label: 'Logins and access', path: 'access', permission: ACCESS, keywords: ['user', 'account', 'login', 'sign in', 'invite', 'password', 'permission', 'capability', 'feature', 'grant', 'what can they do', 'error log', 'diagnostic'] },
