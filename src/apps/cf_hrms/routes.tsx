@@ -36,6 +36,9 @@ const DocumentDetail = lazy(() => import('./pages/DocumentDetail'));
 const PerformancePlans = lazy(() => import('./pages/PerformancePlans'));
 const PerformancePlan = lazy(() => import('./pages/PerformancePlan'));
 const PerformanceActuals = lazy(() => import('./pages/PerformanceActuals'));
+const PerformanceReviews = lazy(() => import('./pages/PerformanceReviews'));
+const PerformanceReview = lazy(() => import('./pages/PerformanceReview'));
+const PerformanceActions = lazy(() => import('./pages/PerformanceActions'));
 
 // Time and leave
 const Shifts = lazy(() => import('./pages/Shifts'));
@@ -160,6 +163,9 @@ export function getCfHrmsRoutes(
     { path: '/:company/cf_hrms/my-place/team-plans/:id', element: guarded(TAG.named.selfView, <PerformancePlan mode="team" />) },
     // …and enters actuals for the people below them (spec §19.2).
     { path: '/:company/cf_hrms/my-place/team-actuals', element: guarded(TAG.named.selfView, <PerformanceActuals mode="team" />) },
+    // Reviews (spec §20.3): my own (I write my part), and a manager's on someone below them.
+    { path: '/:company/cf_hrms/my-place/reviews/:id', element: guarded(TAG.named.selfView, <PerformanceReview mode="self" />) },
+    { path: '/:company/cf_hrms/my-place/team-reviews/:id', element: guarded(TAG.named.selfView, <PerformanceReview mode="team" />) },
 
     // Organisation
     { path: '/:company/cf_hrms/org-chart', element: guarded(TAG.positions.view, <OrgChart />) },
@@ -183,6 +189,10 @@ export function getCfHrmsRoutes(
     { path: '/:company/cf_hrms/plans/:id', element: guarded(TAG.performance.view, <PerformancePlan mode="hr" />) },
     // Actuals (spec §19.3)
     { path: '/:company/cf_hrms/actuals', element: guarded(TAG.performance.view, <PerformanceActuals mode="hr" />) },
+    // Reviews and actions (spec §20.3)
+    { path: '/:company/cf_hrms/reviews', element: guarded(TAG.performance.view, <PerformanceReviews />) },
+    { path: '/:company/cf_hrms/reviews/:id', element: guarded(TAG.performance.view, <PerformanceReview mode="hr" />) },
+    { path: '/:company/cf_hrms/actions', element: guarded(TAG.performance.view, <PerformanceActions />) },
 
     // Time and leave
     { path: '/:company/cf_hrms/shifts', element: guarded(TAG.time.view, <Shifts />) },

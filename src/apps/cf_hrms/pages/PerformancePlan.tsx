@@ -31,6 +31,7 @@ import { KpiActualsBlock, ScoreLine, type ActualCellValue } from '../components/
 import { KpiFormDialog, TargetChangeDialog } from '../components/performance/KpiDialogs';
 import { periodDates, weightWord } from '../components/performance/planWords';
 import { longDay } from '../components/jobDates';
+import { PlanReviewsSection } from '../components/performance/PlanReviewsSection';
 
 export type PlanMode = 'hr' | 'team';
 
@@ -377,6 +378,9 @@ export default function PerformancePlan({ mode = 'hr' }: { mode?: PlanMode }) {
               )}
             </SectionCard>
           ))}
+
+          {/* Its check-ins, final review and actions (spec §20.3) — once the plan is active. */}
+          {p.status !== 'DRAFT' && <PlanReviewsSection planId={planId} company={company} mode={mode} />}
         </Stack>
       </DetailLayout>
 

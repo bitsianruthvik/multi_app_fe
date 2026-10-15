@@ -21,6 +21,7 @@ import {
 } from './OrgChartPositionParts';
 import { usePositionCard } from './usePositionCard';
 import { inPanelLink, smallLabel, type PanelNav, type PanelView } from './orgChartPanelNav';
+import { ChartReviewSummary } from './performance/ChartReviewSummary';
 
 /**
  * A person, in the org chart's floating panel — which is what a FILLED
@@ -435,6 +436,8 @@ export function OrgChartPersonView({
             onChanged={onChanged}
           />
           {card && <PositionReportsTo card={card} nav={nav} titleOf={titleOf} />}
+          {/* The latest rating and open actions (spec §20.3) — performance view only. */}
+          {can.performance.view && <ChartReviewSummary employeeId={view.employeeId} company={company} />}
         </Box>
       )}
 

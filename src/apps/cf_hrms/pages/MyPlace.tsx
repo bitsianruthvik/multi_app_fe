@@ -68,6 +68,7 @@ import {
 import { fromSelfResponsibilities } from '../api/jobContent';
 import { JobContent } from '../components/JobContent';
 import { MyPlanSection } from '../components/performance/MyPlanSection';
+import { MyReviewsSection } from '../components/performance/MyReviewsSection';
 
 /**
  * Relationship type → badge tone. A KIND OF AUTHORITY, not a lifecycle state,
@@ -566,6 +567,8 @@ export default function MyPlace() {
       <Stack spacing={1.5} sx={{ mt: 2 }}>
         {/* Their plan for this period, read-only; and, for a manager, their team's plans (spec §18.3). */}
         <MyPlanSection company={company} />
+        {/* Their reviews (write their part) and the actions they own (mark done); a manager's team's open reviews (spec §20.3). */}
+        <MyReviewsSection company={company} />
         {/* Their own leave: the policy that applies to them and, in a sentence each, what it gives. */}
         {data.leavePolicy && (
           <SectionCard

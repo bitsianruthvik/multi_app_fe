@@ -42,6 +42,7 @@ export interface PerformanceSettings {
   yearStartMonth: number; yearStartMonthName: string; defaultFrequency: Frequency; ratingScale: RatingStep[]; saved: boolean;
   /** The achievement a plan needs to be "on track" / "at risk"; below that it is "behind". */
   bands: Bands; bandWords: Record<Band, string>;
+  /** Days after a period ends that its FINAL reviews are due (spec §20.1). */ reviewGraceDays: number;
   frequencies: Option<Frequency>[]; roles: RoleFrequency[];
 }
 
@@ -215,7 +216,7 @@ const q = (params: Record<string, string | number | null | undefined>) => {
 /** HR routes (`/performance/…`). */
 export const performanceApi = {
   settings: () => api.get<PerformanceSettings>('/performance/settings'),
-  saveSettings: (body: { yearStartMonth?: number; defaultFrequency?: Frequency; ratingScale?: (string | RatingStep)[]; bands?: Bands }) =>
+  saveSettings: (body: { yearStartMonth?: number; defaultFrequency?: Frequency; ratingScale?: (string | RatingStep)[]; bands?: Bands; reviewGraceDays?: number }) =>
     api.put<PerformanceSettings>('/performance/settings', body),
   setRoleFrequencies: (roleIds: number[], frequency: Frequency | null) =>
     api.put<PerformanceSettings & { changed: number }>('/performance/role-frequencies', { roleIds, frequency }),

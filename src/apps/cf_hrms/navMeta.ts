@@ -31,7 +31,7 @@ import { TAG, SCREEN_TAGS } from './access/can';
  *   roles      Roles, Libraries
  *   positions  Org chart, Positions
  *   employees  Employees          hiring     Hiring          documents  Documents
- *   performance  Plans, Actuals
+ *   performance  Plans, Actuals, Reviews, Actions
  *   time       Shifts, Holidays   leave      Leave policies
  *   setup      Code formats, Letters, Reporting types, Performance settings
  *
@@ -140,6 +140,9 @@ export const SECTIONS: NavSection[] = [
       { key: 'plans', label: 'Plans', path: 'plans', hasDetail: true, permission: PERFORMANCE, keywords: ['plan', 'period', 'kpi', 'kra', 'target', 'weight', 'quarter', 'month', 'performance', 'measure', 'activate', 'score'] },
       // What each person achieved, slot by slot (spec §19.3).
       { key: 'actuals', label: 'Actuals', path: 'actuals', permission: PERFORMANCE, keywords: ['actual', 'achievement', 'enter', 'result', 'on track', 'at risk', 'behind', 'kpi', 'month', 'slot', 'missing'] },
+      // Check-ins and final reviews; what was agreed in them (spec §20.3).
+      { key: 'reviews', label: 'Reviews', path: 'reviews', hasDetail: true, permission: PERFORMANCE, keywords: ['review', 'check-in', 'final review', 'rating', 'due', 'overdue', 'comment', 'blockers', 'close'] },
+      { key: 'actions', label: 'Actions', path: 'actions', permission: PERFORMANCE, keywords: ['action', 'follow-up', 'owner', 'due', 'overdue', 'done', 'drop', 'agreed'] },
     ],
   },
 

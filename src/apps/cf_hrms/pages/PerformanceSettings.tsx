@@ -73,6 +73,7 @@ export default function PerformanceSettings() {
   const [scale, setScale] = useState<EditableListItem[]>([]);
   const [onTrack, setOnTrack] = useState('90');
   const [atRisk, setAtRisk] = useState('70');
+  const [grace, setGrace] = useState('7');
   const nextId = useRef(1);
 
   const filters = useListFilters([]);
@@ -84,6 +85,7 @@ export default function PerformanceSettings() {
     setScale(s.ratingScale.map((r) => ({ id: nextId.current++, name: r.label })));
     setOnTrack(String(s.bands?.onTrack ?? 90));
     setAtRisk(String(s.bands?.atRisk ?? 70));
+    setGrace(String(s.reviewGraceDays ?? 7));
   }, []);
 
   const load = useCallback(() => {
@@ -96,16 +98,18 @@ export default function PerformanceSettings() {
     month !== data.yearStartMonth
     || freq !== data.defaultFrequency
     || Number(onTrack) !== data.bands?.onTrack || Number(atRisk) !== data.bands?.atRisk
+    || Number(grace) !== (data.reviewGraceDays ?? 7)
     || scale.map((s) => s.name).join('\u0000') !== data.ratingScale.map((r) => r.label).join('\u0000')
   );
 
+  const badGrace = !(/^\d+$/.test(grace.trim()) && Number(grace) <= 90);
   const badBands = !(Number(onTrack) > 0 && Number(onTrack) <= 120 && Number(atRisk) > 0 && Number(atRisk) < Number(onTrack));
 
   const save = async () => {
     setSaving(true);
     setSaveError(null);
     try {
-      const s = await performanceApi.saveSettings({ yearStartMonth: month, defaultFrequency: freq, ratingScale: scale.map((x) => x.name), bands: { onTrack: Number(onTrack), atRisk: Number(atRisk) } });
+      const s = await performanceApi.saveSettings({ yearStartMonth: month, defaultFrequency: freq, ratingScale: scale.map((x) => x.name), bands: { onTrack: Number(onTrack), atRisk: Number(atRisk) }, reviewGraceDays: Number(grace) });
       fill(s);
       toast.success('Performance settings saved.');
     } catch (e) {
@@ -263,11 +267,26 @@ export default function PerformanceSettings() {
             </Box>
           </Box>
 
+          <Box sx={{ mt: 3, maxWidth: 640 }} data-grace="">
+            <Typography sx={{ fontSize: 14, fontWeight: 600 }}>Final reviews</Typography>
+            <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)', mb: 1.5 }}>
+              Each active plan gets a final review when its period&rsquo;s last month begins. It is due this many days after the period ends.
+            </Typography>
+            <TextField
+              size="small" label="Due after the period ends" value={grace} disabled={!mayEdit}
+              onChange={(e) => setGrace(e.target.value)}
+              error={badGrace}
+              helperText={badGrace ? 'A whole number of days, 0 to 90.' : undefined}
+              sx={{ width: 240 }}
+              slotProps={{ htmlInput: { inputMode: 'numeric' }, input: { endAdornment: <InputAdornment position="end">days</InputAdornment> } }}
+            />
+          </Box>
+
           {saveError != null && <ErrorNotice error={saveError} sx={{ mt: 2 }} />}
 
           {mayEdit && (
             <Stack direction="row" spacing={1} sx={{ mt: 2 }} alignItems="center" useFlexGap flexWrap="wrap">
-              <Button variant="contained" size="small" disabled={!dirty || saving || badBands} onClick={() => void save()}>
+              <Button variant="contained" size="small" disabled={!dirty || saving || badBands || badGrace} onClick={() => void save()}>
                 {saving ? 'Saving…' : 'Save'}
               </Button>
               {dirty && (
