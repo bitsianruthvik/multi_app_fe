@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Alert, MenuItem, Stack, TextField, Typography } from '@mui/material';
 import { CodeNote } from './CodeNote';
 import { FormDialog } from '@shared/ui';
-import type { LookupRow, PositionOptions, PositionRow } from '../api/positions';
+import type { LookupRow, NewShiftSuggestion, PositionOptions, PositionRow } from '../api/positions';
 import { positionsApi } from '../api/positions';
 import { useCan } from '../access/can';
 import { usePositionRemoval } from './usePositionRemoval';
@@ -39,6 +39,9 @@ export function PositionFormDialog({
   const [departmentId, setDepartmentId] = useState<number | ''>('');
   const [locationId, setLocationId] = useState<number | ''>('');
   const [defaultShiftId, setDefaultShiftId] = useState<number | ''>('');
+  // A NEW position: the shift it would start on, and why (spec §17.2) — taken until the person picks one.
+  const [suggestion, setSuggestion] = useState<NewShiftSuggestion | null>(null);
+  const [shiftPicked, setShiftPicked] = useState(false);
   const [status, setStatus] = useState('DRAFT');
   const [effectiveFrom, setEffectiveFrom] = useState(today());
   const [effectiveTo, setEffectiveTo] = useState('');
@@ -57,7 +60,30 @@ export function PositionFormDialog({
     setStatus(position?.status ?? 'DRAFT');
     setEffectiveFrom(position?.effectiveFrom ?? today());
     setEffectiveTo(position?.effectiveTo ?? '');
+    setShiftPicked(false);
+    setSuggestion(null);
   }, [open, position, options]);
+
+  // New position: ask the server what it would start on for the chosen department (its label's default, else General).
+  useEffect(() => {
+    if (!open || position) return undefined;
+    let live = true;
+    positionsApi
+      .newShift({ departmentId: departmentId === '' ? null : departmentId })
+      .then((s) => {
+        if (!live) return;
+        setSuggestion(s);
+        if (!shiftPicked && s.shift) setDefaultShiftId(s.shift.id);
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+    // shiftPicked is read, not watched: picking a shift must not ask again.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, position, departmentId]);
+
+  const suggested = !position && suggestion?.shift && defaultShiftId === suggestion.shift.id;
 
   return (
     <>
@@ -123,10 +149,12 @@ export function PositionFormDialog({
           <Stack direction="row" spacing={2}>
             <TextField
               select size="small" label="Shift" fullWidth required value={defaultShiftId}
-              onChange={(e) => setDefaultShiftId(Number(e.target.value))}
+              onChange={(e) => { setDefaultShiftId(Number(e.target.value)); setShiftPicked(true); }}
               helperText={position && (position.occupant || position.filledCount > 0)
                 ? 'Required. Changing it also moves the person in this position to the new shift.'
-                : 'Required. The shift this position works.'}
+                : suggested
+                  ? `${suggestion?.line}. You can change it before saving.`
+                  : 'Required. The shift this position works.'}
             >
               {(options?.shifts ?? []).map((s) => <MenuItem key={s.id} value={s.id}>{s.name}{s.code ? ` · ${s.code}` : ''}</MenuItem>)}
             </TextField>
@@ -312,9 +340,24 @@ export function PositionSiblingDialog({
   options: PositionOptions | null;
 }) {
   const [shiftId, setShiftId] = useState<number | ''>('');
+  const [suggestion, setSuggestion] = useState<NewShiftSuggestion | null>(null);
   useEffect(() => {
-    if (!open) return;
+    if (!open) return undefined;
     setShiftId(position.defaultShiftId ?? position.shift?.id ?? generalShiftId(options?.shifts));
+    setSuggestion(null);
+    let live = true;
+    // What it would start on (spec §17.2): its department's label default, else this position's shift.
+    positionsApi
+      .newShift({ likePositionId: position.id })
+      .then((s) => {
+        if (!live) return;
+        setSuggestion(s);
+        if (s.shift) setShiftId(s.shift.id);
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
   }, [open, position, options]);
 
   return (
@@ -334,7 +377,9 @@ export function PositionSiblingDialog({
         <TextField
           select size="small" label="Shift" required value={shiftId}
           onChange={(e) => setShiftId(Number(e.target.value))}
-          helperText="The new position is vacant. Pick the shift it works."
+          helperText={suggestion?.shift && shiftId === suggestion.shift.id
+            ? `The new position is vacant. ${suggestion.line}.`
+            : 'The new position is vacant. Pick the shift it works.'}
         >
           {(options?.shifts ?? []).map((s) => <MenuItem key={s.id} value={s.id}>{s.name}{s.code ? ` · ${s.code}` : ''}</MenuItem>)}
         </TextField>

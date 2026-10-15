@@ -296,15 +296,27 @@ function qs(params: object): string {
   return s ? `?${s}` : '';
 }
 
+/** The shift a new position would start on, and why (spec §17.2). */
+export interface NewShiftSuggestion {
+  shift: { id: number; code: string | null; name: string } | null;
+  from: 'LABEL' | 'LIKE' | 'GENERAL' | null;
+  label: { id: number; name: string; groupName: string | null } | null;
+  /** "Starts on Day shift (from the label Machine)" */
+  line: string;
+}
+
 export const positionsApi = {
   options: () => api.get<PositionOptions>('/positions/options'),
+  /** What a new position in this department (or added beside `likePositionId`) would start on. Reads only. */
+  newShift: (q: { departmentId?: number | null; likePositionId?: number | null }) =>
+    api.get<{ suggestion: NewShiftSuggestion }>(`/positions/new-shift${qs({ departmentId: q.departmentId ?? undefined, likePositionId: q.likePositionId ?? undefined })}`).then((r) => r.suggestion),
   list: (f: PositionFilters = {}) => api.get<PositionListResult>(`/positions${qs(f)}`),
   get: (id: number, on?: string) => api.get<{ asOf: string; position: PositionRow }>(`/positions/${id}${qs({ on })}`),
   create: (body: Record<string, unknown>) => api.post<{ position: PositionRow }>('/positions', body),
   update: (id: number, body: Record<string, unknown>) => api.put<{ position: PositionRow }>(`/positions/${id}`, body),
   /**
    * One more VACANT position in the same card: same role, department and
-   * manager as `id`; its shift is `shiftId`, or the source's when omitted.
+   * manager as `id`; its shift is `shiftId`, or (omitted) its department's label default, else the source's.
    */
   addSibling: (id: number, body: { shiftId?: number } = {}) =>
     api.post<{ position: PositionRow }>(`/positions/${id}/add-sibling`, body),

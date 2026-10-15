@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Autocomplete, Box, Button, IconButton, MenuItem, Stack, Tab, Tabs, TextField, Tooltip, Typography } from '@mui/material';
 import AddRounded from '@mui/icons-material/AddRounded';
@@ -14,7 +14,7 @@ import { matchesFlag, matchesQuery, useListFilters, YES_NO_OPTIONS } from '../co
 import { useCan } from '../access/can';
 import {
   POLICY_STATUS_LABEL, POLICY_STATUS_TONE, leaveApi, usedByLine,
-  type Assignments, type AssignmentScope, type PolicySummary, type PolicyTemplate,
+  type AssignmentLabel, type Assignments, type AssignmentScope, type PolicySummary, type PolicyTemplate,
 } from '../api/leave';
 import { listRoles, type Role } from '../api/roles';
 
@@ -24,8 +24,9 @@ import { listRoles, type Role } from '../api/roles';
  *   Policies           WHAT leave there is: each policy as a card, with the
  *                      leave it grants in one line and where it is used.
  *   Where it applies   WHO gets which policy: the company default, then any
- *                      location that differs, then any role that differs.
- *                      The most specific wins.
+ *                      location that differs, then any department label that
+ *                      differs (spec §17), then any role that differs.
+ *                      The most specific wins: role, label, location, company.
  *
  * A NEW POLICY STARTS FROM SOMETHING: one of the ready-made starting points,
  * a copy of a policy the company already has, or blank. The starting points
@@ -45,6 +46,87 @@ interface NewPolicy {
   from: string;
 }
 
+
+/**
+ * By label (spec §17.1): per group, each label with its own policy select, the
+ * positions it reaches (their policy comes from it), and the positions whose
+ * department carries two labels pointing to different policies — the label of
+ * the group that comes first wins, and the server's line says so.
+ * A label does not pass to the departments under one that carries it.
+ */
+function LabelAssignments({
+  assignments, busy, policySelect, canRemove, onAssign,
+}: {
+  assignments: Assignments;
+  busy: string | null;
+  policySelect: (value: number | '', onChange: (v: number | null) => void, emptyLabel: string, key: string, label: string) => ReactNode;
+  canRemove: boolean;
+  onAssign: (labelId: number, policyId: number | null) => void;
+}) {
+  const labels = assignments.labels ?? [];
+  const groups: { groupId: number; groupName: string; labels: AssignmentLabel[] }[] = [];
+  for (const l of labels) {
+    let g = groups.find((x) => x.groupId === l.groupId);
+    if (!g) { g = { groupId: l.groupId, groupName: l.groupName, labels: [] }; groups.push(g); }
+    g.labels.push(l);
+  }
+  // One position is listed once, however many of its labels are in the conflict.
+  const conflicts = new Map<number, AssignmentLabel['conflicts'][number]>();
+  for (const l of labels) for (const c of l.conflicts) conflicts.set(c.positionId, c);
+  return (
+    <SectionCard
+      title="By label"
+      subtitle="A department label can have its own policy: every position in a department carrying it gets it, unless its role has one. Departments under it do not."
+    >
+      {groups.length === 0 ? (
+        <Typography sx={{ fontSize: 13.5, color: 'var(--c-text-2)' }}>The company has no department labels.</Typography>
+      ) : (
+        <Stack spacing={2}>
+          {conflicts.size > 0 && (
+            <Callout tone="warning" title={`${conflicts.size} position${conflicts.size === 1 ? ' is' : 's are'} in a department whose labels point to different policies`} sx={{ mb: 0 }}>
+              <Typography sx={{ fontSize: 13, lineHeight: 1.55, mb: 0.75 }}>
+                The label whose group comes first in the group order wins. Change the group order under Departments › Labels, or give these labels the same policy.
+              </Typography>
+              <Stack component="ul" spacing={0.25} sx={{ m: 0, pl: 2.5 }} data-label-conflicts="">
+                {[...conflicts.values()].slice(0, 30).map((c) => (
+                  <Typography component="li" key={c.positionId} sx={{ fontSize: 13, overflowWrap: 'anywhere' }}>
+                    <b>{c.positionCode ?? c.title}</b>{c.title && c.positionCode ? ` ${c.title}` : ''}{c.departmentName ? ` · ${c.departmentName}` : ''} — {c.line}
+                  </Typography>
+                ))}
+                {conflicts.size > 30 && <Typography component="li" sx={{ fontSize: 13 }}>and {conflicts.size - 30} more</Typography>}
+              </Stack>
+            </Callout>
+          )}
+          {groups.map((g) => (
+            <Box key={g.groupId} data-assign-group={g.groupId}>
+              <Typography sx={{ fontSize: 12, fontWeight: 600, letterSpacing: '.04em', textTransform: 'uppercase', color: 'var(--c-text-2)', mb: 0.75 }}>{g.groupName}</Typography>
+              <Stack spacing={1}>
+                {g.labels.map((l) => (
+                  <Box key={l.labelId} data-assign={`label-${l.labelId}`} sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', columnGap: 1.5, rowGap: 0.75 }}>
+                    <Typography sx={{ fontSize: 14, fontWeight: 500, flex: '1 1 160px', minWidth: 0, overflowWrap: 'anywhere' }}>{l.name}</Typography>
+                    {policySelect(l.policy?.id ?? '', (policyId) => onAssign(l.labelId, policyId), 'No policy of its own', `b${l.labelId}`, `Leave policy for the label ${l.name}`)}
+                    {canRemove && l.policy && (
+                      <Tooltip title="Take the policy off this label">
+                        <IconButton size="small" aria-label={`Remove the policy of the label ${l.name}`} disabled={busy === `b${l.labelId}`} onClick={() => onAssign(l.labelId, null)}>
+                          <CloseRounded fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    )}
+                    <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)', flex: '1 1 200px', minWidth: 0 }}>
+                      {l.policy
+                        ? `Reaches ${l.positionCount} position${l.positionCount === 1 ? '' : 's'}${l.conflicts.length ? ` · ${l.conflicts.length} with a label conflict` : ''}`
+                        : 'Positions follow their location or the company'}
+                    </Typography>
+                  </Box>
+                ))}
+              </Stack>
+            </Box>
+          ))}
+        </Stack>
+      )}
+    </SectionCard>
+  );
+}
 
 export default function LeavePolicies() {
   const { company = '' } = useParams<{ company: string }>();
@@ -118,7 +200,7 @@ export default function LeavePolicies() {
   const filters = useListFilters(['status', 'used']);
   const [doomed, setDoomed] = useState<PolicySummary | null>(null);
   // Applied somewhere = the company default, a location or a role (the same test as the policy page).
-  const appliedAnywhere = (p: PolicySummary) => !!p.usedBy && (p.usedBy.company || p.usedBy.locations > 0 || p.usedBy.roles > 0);
+  const appliedAnywhere = (p: PolicySummary) => !!p.usedBy && (p.usedBy.company || p.usedBy.locations > 0 || (p.usedBy.labels ?? 0) > 0 || p.usedBy.roles > 0);
   const defs: FilterDef[] = useMemo(
     () => [
       {
@@ -152,7 +234,7 @@ export default function LeavePolicies() {
     [policies, statusParam, usedParam, searchText],
   );
 
-  const assign = async (key: string, body: { scope: AssignmentScope; locationId?: number; roleId?: number; policyId: number | null }) => {
+  const assign = async (key: string, body: { scope: AssignmentScope; locationId?: number; roleId?: number; labelId?: number; policyId: number | null }) => {
     setBusy(key);
     try {
       setAssignments(await leaveApi.assign(body));
@@ -313,20 +395,21 @@ export default function LeavePolicies() {
           ) : (
             <Stack spacing={2}>
               <Typography sx={{ fontSize: 13.5, color: 'var(--c-text-2)', lineHeight: 1.55, maxWidth: 760 }}>
-                A position gets the policy of its role if the role has one of its own; otherwise the policy of its
-                location; otherwise the company’s. The most specific one wins.
+                A position gets the policy of its role if the role has one of its own; otherwise the policy of a label
+                its department carries; otherwise the policy of its location; otherwise the company’s. The most specific
+                one wins.
               </Typography>
 
               {assignments.unassignedPositions > 0 && (
                 <Callout tone="warning" title={`${assignments.unassignedPositions} position${assignments.unassignedPositions === 1 ? ' has' : 's have'} no leave policy`} sx={{ mb: 0 }}>
                   <Typography sx={{ fontSize: 13, lineHeight: 1.55 }}>
-                    Nothing covers them: no company policy is chosen, and neither their location nor their role has one.
+                    Nothing covers them: no company policy is chosen, and neither their location, their department’s labels nor their role has one.
                     Choosing a company policy covers everyone who is not covered more specifically.
                   </Typography>
                 </Callout>
               )}
 
-              <SectionCard title="The company" subtitle="For everyone, unless their location or their role says otherwise.">
+              <SectionCard title="The company" subtitle="For everyone, unless their location, a label of their department or their role says otherwise.">
                 <Box data-assign="company" sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 1.5 }}>
                   {policySelect(assignments.company.policy?.id ?? '', (policyId) => void assign('company', { scope: 'COMPANY', policyId }), 'No company policy', 'company', 'The company’s leave policy')}
                 </Box>
@@ -353,9 +436,12 @@ export default function LeavePolicies() {
                 )}
               </SectionCard>
 
+              <LabelAssignments assignments={assignments} busy={busy} policySelect={policySelect} canRemove={canRemove}
+                onAssign={(labelId, policyId) => void assign(`b${labelId}`, { scope: 'LABEL', labelId, policyId })} />
+
               <SectionCard
                 title="Roles with their own policy"
-                subtitle="A role’s policy wins over its location’s — for every position of that role."
+                subtitle="A role’s policy wins over a label’s and a location’s — for every position of that role."
                 action={canPickRole && usable.length > 0 ? <Button size="small" startIcon={<AddRounded />} onClick={openRoleDraft}>Give a role its own policy</Button> : undefined}
               >
                 {assignments.roles.length === 0 ? (
@@ -368,7 +454,7 @@ export default function LeavePolicies() {
                           <Typography sx={{ fontSize: 14, fontWeight: 500, overflowWrap: 'anywhere' }}>{r.title}</Typography>
                           <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)' }}>{r.positionCount} position{r.positionCount === 1 ? '' : 's'}</Typography>
                         </Box>
-                        {policySelect(r.policy?.id ?? '', (policyId) => void assign(`r${r.roleId}`, { scope: 'ROLE', roleId: r.roleId, policyId }), 'Follows the location', `r${r.roleId}`, `Leave policy for ${r.title}`)}
+                        {policySelect(r.policy?.id ?? '', (policyId) => void assign(`r${r.roleId}`, { scope: 'ROLE', roleId: r.roleId, policyId }), 'Follows its label or location', `r${r.roleId}`, `Leave policy for ${r.title}`)}
                         {canRemove && (
                           <Tooltip title="Back to following the location">
                             <IconButton size="small" aria-label={`Remove the policy of ${r.title}`} disabled={busy === `r${r.roleId}`} onClick={() => void assign(`r${r.roleId}`, { scope: 'ROLE', roleId: r.roleId, policyId: null })}>

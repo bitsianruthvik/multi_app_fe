@@ -60,6 +60,8 @@ export interface Preview {
   positions: {
     key: string; title: string; roleKey: string | null; departmentId: number | null; departmentKey: string | null;
     departmentName: string | null; path: PathPart[]; shiftName: string | null; reportsToName: string | null;
+    /** The shift it will start on, and why (spec §17.2): "Starts on Day shift (from the label Machine)". */
+    shiftFrom?: 'NAMED' | 'LABEL' | 'GENERAL' | 'LIKE' | null; shiftLine?: string | null;
   }[];
   lines: { key: string; kind: string; text: string; target: string | null; on: 'role' | 'position' | 'person'; targetName: string; kraName: string | null }[];
   moves: { key: string; employeeName: string | null; fromName: string | null; toName: string | null; toKey: string | null; toPath: PathPart[]; from: string | null }[];

@@ -25,8 +25,13 @@ export type CarryForward = 'NONE' | 'CAPPED' | 'ALL';
 export type AppliesTo = 'ANYONE' | 'WOMEN' | 'MEN';
 
 export interface Ref { id: number; name: string; status: string }
-export interface Effective { policy: Ref | null; from: 'ROLE' | 'LOCATION' | 'COMPANY' | null;
-  /** "Office staff — from the role" / "Shop floor — from Unit 2" / "No leave policy" */ line: string }
+export interface LabelRef { id: number; name: string; groupName: string }
+export interface Effective { policy: Ref | null; from: 'ROLE' | 'LABEL' | 'LOCATION' | 'COMPANY' | null;
+  /** The label it came from (spec §17), when `from` is LABEL. */
+  label?: LabelRef | null;
+  /** The department's other labels that point to a DIFFERENT policy (the first group in the group order won). */
+  conflict?: { label: LabelRef; policy: Ref }[] | null;
+  /** "Office staff — from the role" / "Shop floor — from the label Plant (Unit 2 points to Office staff; Plant comes first)" / "No leave policy" */ line: string }
 
 export interface Rule { id?: number; leaveTypeId: number; leaveTypeCode: string; leaveTypeName: string; isPaid: boolean; sortOrder: number;
   basis: LeaveBasis; days: number | null;
@@ -45,7 +50,7 @@ export type RuleInput = Omit<Rule, 'id' | 'leaveTypeCode' | 'leaveTypeName' | 'i
 export interface PolicySummary { id: number; code: string | null; name: string; description: string | null; status: string; yearStartsMonth: number;
   leaveTypes: { code: string; name: string; days: number | null; basis: string }[];
   /** "Casual 12 · Sick 12 · Earned 15 · Maternity · Paternity" */ headline: string;
-  usedBy: { company: boolean; locations: number; roles: number; positions: number } }
+  usedBy: { company: boolean; locations: number; roles: number; labels?: number; positions: number } }
 export interface Policy extends PolicySummary { rules: Rule[] }
 
 export interface LeaveType { id: number; code: string; name: string; unit?: string | null; isPaid: boolean; status: string }
@@ -55,12 +60,17 @@ export interface PolicyTemplate { key: string; name: string; description: string
 export interface Assignments {
   company: { policy: Ref | null };
   locations: { locationId: number; name: string; policy: Ref | null; effective: Effective }[];
+  /** Every label of every group, group order (spec §17). positionCount = positions whose policy comes from this label. */
+  labels?: AssignmentLabel[];
   /** Only roles WITH an assignment of their own. */
   roles: { roleId: number; title: string; positionCount: number; policy: Ref | null }[];
   unassignedPositions: number;
 }
 
-export type AssignmentScope = 'COMPANY' | 'LOCATION' | 'ROLE';
+export interface LabelConflict { positionId: number; positionCode: string | null; title: string | null; departmentName: string | null; line: string }
+export interface AssignmentLabel { groupId: number; groupName: string; labelId: number; name: string; policy: Ref | null; positionCount: number; conflicts: LabelConflict[] }
+
+export type AssignmentScope = 'COMPANY' | 'LOCATION' | 'ROLE' | 'LABEL';
 
 
 export const ruleInputOf = (r: Rule, sortOrder: number): RuleInput => ({
@@ -111,7 +121,7 @@ export const leaveApi = {
 
   assignments: () => api.get<Assignments>('/leave/assignments'),
   /** `policyId: null` removes the assignment at that level. */
-  assign: (body: { scope: AssignmentScope; locationId?: number; roleId?: number; policyId: number | null }) =>
+  assign: (body: { scope: AssignmentScope; locationId?: number; roleId?: number; labelId?: number; policyId: number | null }) =>
     api.put<{ assignments: Assignments }>('/leave/assignments', body).then((r) => r.assignments),
   policyFor: (q: { positionId?: number; roleId?: number; locationId?: number }) => {
     const p = new URLSearchParams();
@@ -129,6 +139,7 @@ export function usedByLine(u: PolicySummary['usedBy'] | undefined): string {
   const bits = [
     u.company ? 'company default' : null,
     u.locations ? `${u.locations} location${u.locations === 1 ? '' : 's'}` : null,
+    u.labels ? `${u.labels} label${u.labels === 1 ? '' : 's'}` : null,
     u.roles ? `${u.roles} role${u.roles === 1 ? '' : 's'}` : null,
   ].filter(Boolean);
   if (!bits.length) return 'Not applied anywhere yet';

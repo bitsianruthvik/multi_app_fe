@@ -401,7 +401,9 @@ function buildTree(preview: Preview): TreeNode[] {
   }
   for (const p of preview.positions) {
     const parent = p.departmentKey ? byKey.get(`new:${p.departmentKey}`) ?? null : pathNode(p.path);
-    const n = node(`new:${p.key}`, p.title || 'New position', true, parent, ['vacant position', p.shiftName ? `${p.shiftName} shift` : null].filter(Boolean).join(' · '));
+    const n = node(`new:${p.key}`, p.title || 'New position', true, parent, ['vacant position', p.shiftName && !p.shiftLine ? `${p.shiftName} shift` : null].filter(Boolean).join(' · '));
+    // The shift it will use, and why — the label default, the general shift, or the one asked for (spec §17.2).
+    if (p.shiftLine) n.notes.push(p.shiftLine);
     if (p.reportsToName) n.notes.push(`reports to ${p.reportsToName}`);
   }
   for (const m of preview.moves) {

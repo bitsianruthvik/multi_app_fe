@@ -41,6 +41,7 @@ function AddPosition({ card, onAdded }: { card: ChartCard; onAdded: () => void }
   const [open, setOpen] = useState(false);
   const [shifts, setShifts] = useState<LookupRow[] | null>(null);
   const [shiftId, setShiftId] = useState<number | ''>('');
+  const [why, setWhy] = useState<{ shiftId: number; line: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
 
@@ -48,6 +49,17 @@ function AddPosition({ card, onAdded }: { card: ChartCard; onAdded: () => void }
   const start = () => {
     setOpen(true);
     setError(null);
+    // What it would start on (spec §17.2): its department's label default, else the shift of the position it is like.
+    if (source) {
+      positionsApi
+        .newShift({ likePositionId: source.id })
+        .then((s) => {
+          if (!s.shift) return;
+          setWhy({ shiftId: s.shift.id, line: s.line });
+          setShiftId(s.shift.id);
+        })
+        .catch(() => undefined);
+    }
     if (shifts) return;
     positionsApi
       .options()
@@ -59,7 +71,7 @@ function AddPosition({ card, onAdded }: { card: ChartCard; onAdded: () => void }
         setShifts(list);
         // Start on the source position's shift; the person adding picks.
         const own = source?.defaultShift?.id;
-        setShiftId(list.some((s) => s.id === own) ? own! : (list[0]?.id ?? ''));
+        setShiftId((cur) => (cur !== '' ? cur : list.some((s) => s.id === own) ? own! : (list[0]?.id ?? '')));
       })
       .catch(setError);
   };
@@ -126,6 +138,9 @@ function AddPosition({ card, onAdded }: { card: ChartCard; onAdded: () => void }
           Cancel
         </Button>
       </Stack>
+      {why && why.shiftId === shiftId && (
+        <Typography data-shift-suggestion="" sx={{ fontSize: 12, color: 'var(--c-text-2)', mt: 0.75 }}>{why.line}</Typography>
+      )}
     </Box>
   );
 }

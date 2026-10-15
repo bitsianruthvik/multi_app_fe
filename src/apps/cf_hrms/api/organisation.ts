@@ -82,6 +82,8 @@ export interface DepartmentLabel {
   departmentCount: number;
   /** The group it belongs to (spec §15). */
   groupId?: number;
+  /** "New positions start on" (spec §17.2): the shift a new position in a department carrying it starts on. */
+  defaultShiftId?: number | null;
 }
 
 /**
@@ -191,6 +193,9 @@ export const orgApi = {
     create: (name: string, groupId?: number) =>
       api.post<DepartmentLabel>('/organisation/department-labels', groupId ? { name, groupId } : { name }),
     rename: (id: number, name: string) => api.put<DepartmentLabel>(`/organisation/department-labels/${id}`, { name }),
+    /** "New positions start on": a shift id, or null for no default. Existing positions never change. */
+    setDefaultShift: (id: number, defaultShiftId: number | null) =>
+      api.put<DepartmentLabel>(`/organisation/department-labels/${id}`, { defaultShiftId }),
     reorder: (ids: number[], groupId?: number) =>
       api.put<{ labels: DepartmentLabel[] }>('/organisation/department-labels/order', groupId ? { ids, groupId } : { ids }),
     /** `moveTo`: another label of the same group; `'none'` (optional groups) takes the label off its departments. */
@@ -201,6 +206,9 @@ export const orgApi = {
   /** The label groups (spec §15). Removing a group in use needs `force`; Kind is never removed (409 LOCKED). */
   labelGroups: {
     list: () => api.get<{ groups: LabelGroup[] }>('/organisation/label-groups').then((r) => r.groups ?? []),
+    /** The company's active shifts, as the Labels sheet offers them for "New positions start on". */
+    shifts: () =>
+      api.get<{ shifts?: { id: number; code: string | null; name: string }[] }>('/organisation/label-groups').then((r) => r.shifts ?? []),
     create: (name: string, isRequired = false) => api.post<LabelGroup>('/organisation/label-groups', { name, isRequired }),
     update: (id: number, body: { name?: string; isRequired?: boolean; sortOrder?: number }) =>
       api.put<LabelGroup>(`/organisation/label-groups/${id}`, body),

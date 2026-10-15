@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Box, Button, Checkbox, FormControlLabel, IconButton, TextField, Tooltip, Typography } from '@mui/material';
+import { useEffect, useState } from 'react';
+import { Box, Button, Checkbox, FormControlLabel, IconButton, MenuItem, TextField, Tooltip, Typography } from '@mui/material';
 import AddRounded from '@mui/icons-material/AddRounded';
 import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
 import EditOutlined from '@mui/icons-material/EditOutlined';
@@ -18,9 +18,66 @@ import { EditableList } from './EditableList';
  *   - Removing a group that departments use asks once more, naming how many,
  *     and then takes its labels off them.
  *
- * Every control follows the rights: org edit adds / renames / reorders,
- * org remove removes.
+ * Every control follows the rights: org edit adds / renames / reorders and
+ * sets "New positions start on", org remove removes.
+ *
+ * NEW POSITIONS START ON (spec §17.2): each label may carry a default shift. A
+ * position created without a shift, in a department carrying the label, starts
+ * on it — the first label in group order that has one; else General. Existing
+ * positions never change.
  */
+
+type ShiftChoice = { id: number; code: string | null; name: string };
+
+function StartsOn({ group, shifts, canEdit, onChanged, onProblem }: {
+  group: LabelGroup;
+  shifts: ShiftChoice[];
+  canEdit: boolean;
+  onChanged: () => void;
+  onProblem: (text: string) => void;
+}) {
+  const [busy, setBusy] = useState<number | null>(null);
+  if (!group.labels.length || (!canEdit && !group.labels.some((l) => l.defaultShiftId))) return null;
+  const nameOf = (id: number | null | undefined) => shifts.find((s) => s.id === id)?.name ?? null;
+  return (
+    <Box data-starts-on={group.id} sx={{ mt: 1 }}>
+      <Typography sx={{ fontSize: 12, fontWeight: 600, color: 'var(--c-text-2)', mb: 0.5 }}>New positions start on</Typography>
+      {group.labels.map((l) => (
+        <Box key={l.id} sx={{ display: 'flex', alignItems: 'center', gap: 1, py: 0.25 }}>
+          <Typography sx={{ fontSize: 13, flex: '1 1 120px', minWidth: 0, overflowWrap: 'anywhere' }}>{l.name}</Typography>
+          {canEdit ? (
+            <TextField
+              select
+              size="small"
+              value={l.defaultShiftId ?? ''}
+              disabled={busy === l.id}
+              onChange={async (e) => {
+                const v = e.target.value === '' ? null : Number(e.target.value);
+                setBusy(l.id);
+                try {
+                  await orgApi.departmentLabels.setDefaultShift(l.id, v);
+                  onChanged();
+                } catch (err) {
+                  onProblem(words(err));
+                } finally {
+                  setBusy(null);
+                }
+              }}
+              slotProps={{ select: { displayEmpty: true }, htmlInput: { 'aria-label': `New positions in ${l.name} start on` } }}
+              sx={{ flex: '0 0 170px', '& .MuiInputBase-input': { fontSize: 13, py: 0.6 } }}
+            >
+              <MenuItem value="">No default</MenuItem>
+              {shifts.map((s) => <MenuItem key={s.id} value={s.id}>{s.name}</MenuItem>)}
+              {l.defaultShiftId != null && !shifts.some((s) => s.id === l.defaultShiftId) && <MenuItem value={l.defaultShiftId}>A shift no longer active</MenuItem>}
+            </TextField>
+          ) : (
+            <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>{nameOf(l.defaultShiftId) ?? 'No default'}</Typography>
+          )}
+        </Box>
+      ))}
+    </Box>
+  );
+}
 
 function words(e: unknown): string {
   const err = e as { message?: string; problems?: string[] } | null;
@@ -44,6 +101,13 @@ export function LabelGroupsSheet({ open, onClose, groups, canEdit, canRemove, on
   const [doomed, setDoomed] = useState<{ group: LabelGroup; used: number | null } | null>(null);
   const [problem, setProblem] = useState<{ id: number; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
+  const [shifts, setShifts] = useState<ShiftChoice[]>([]);
+  useEffect(() => {
+    if (!open) return undefined;
+    let live = true;
+    orgApi.labelGroups.shifts().then((s) => { if (live) setShifts(s); }).catch(() => undefined);
+    return () => { live = false; };
+  }, [open]);
 
   const run = async (id: number, fn: () => Promise<unknown>) => {
     setBusy(true);
@@ -192,6 +256,7 @@ export function LabelGroupsSheet({ open, onClose, groups, canEdit, canRemove, on
             onReorder={async (ids) => { await orgApi.departmentLabels.reorder(ids, g.id); onChanged(); }}
             onRemove={async (id, moveTo) => { await orgApi.departmentLabels.remove(id, moveTo); onChanged(); }}
           />
+          <StartsOn group={g} shifts={shifts} canEdit={canEdit} onChanged={onChanged} onProblem={(text) => setProblem({ id: g.id, text })} />
         </Box>
       ))}
 
