@@ -60,10 +60,15 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const onFabErp           = !!useMatch('/:company/fab_erp/*');
   const onCfErp            = !!useMatch('/:company/cf_erp/*');
   const onCfHrms           = !!useMatch('/:company/cf_hrms/*');
+  const onCfCrm            = !!useMatch('/:company/cf_crm/*');
 
   const isGlassPage = onCompanyLanding || onAppSelector || onLoginPage;
 
   if (isGlassPage || onAudioFlow || onSalesFlow) return <>{children}</>;
+
+  // cf_crm is one full-screen page (its own app in an iframe, CfCrmFrame): no
+  // platform shell at all, on its admin URLs too.
+  if (onCfCrm) return <>{children}</>;
 
   // Admin routes (AdminLayout) render their own shell — they don't get UserLayout —
   // but an app's admin pages should still pick up that app's theme and tokens.

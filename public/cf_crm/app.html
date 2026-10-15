@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>CF CRM</title>
+<meta name="robots" content="noindex,nofollow">
+<meta name="format-detection" content="telephone=no">
+<link rel="icon" id="favicon" href="/cf_crm/icon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@500;600;700&family=Nunito+Sans:opsz,wght@6..12,400;6..12,600;6..12,700;6..12,800&display=swap">
+<link rel="stylesheet" href="/cf_crm/app.css">
+<style id="brand-style"></style>
+</head>
+<body>
+<!-- cf_crm: shown inside the platform page /:company/cf_crm (an iframe); see app.js "platform bridge". -->
+<div id="auth" class="auth" hidden></div>
+<div class="shell">
+  <aside class="rail" id="rail"></aside>
+  <div class="main">
+    <header class="topbar">
+      <div class="mobile-brand" id="mobile-brand"></div>
+      <div class="search">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input id="gsearch" type="search" placeholder="Search name, number, company, industry…" autocomplete="off" aria-label="Search">
+        <div id="gresults" class="search-results" hidden></div>
+      </div>
+      <div class="tb-actions">
+        <select id="bizsel" data-c="biz" aria-label="Business"><option value="">All businesses</option></select>
+        <button class="tb-btn" data-a="chatToggle" aria-label="Team chat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v11H9l-5 4z"/><path d="M8 9h8M8 12h5"/></svg><span class="badge" id="chat-n" hidden></span></button>
+        <button class="tb-btn" data-a="bell" aria-label="Notifications"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 16V11a6 6 0 1 1 12 0v5l1.5 2h-15z"/><path d="M10 20a2 2 0 0 0 4 0"/></svg><span class="badge" id="bell-n" hidden></span></button>
+      </div>
+    </header>
+    <div id="banner" class="banner" hidden></div>
+    <main class="view" id="view">
+      <div class="empty"><b>Opening…</b></div>
+    </main>
+  </div>
+</div>
+<nav class="tabbar" id="tabbar"></nav>
+<button class="fab" id="fab" aria-label="Quick add"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button>
+<div id="notif" class="notif" hidden></div>
+<div id="chat" class="chat" hidden></div>
+<div id="sheet-root"></div>
+<div id="toast" class="toast" hidden></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" defer></script>
+<script src="/cf_crm/app.js" defer></script>
+</body>
+</html>

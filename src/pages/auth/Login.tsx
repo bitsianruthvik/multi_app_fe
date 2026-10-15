@@ -19,6 +19,7 @@ import VisibilityOff from "@mui/icons-material/VisibilityOff";
 import api, { buildFullApiUrl } from "@core/utils/axiosConfig";
 import { useAuth } from "@core/contexts/AuthContext";
 import { isAdminRole } from "@core/utils/roles";
+import { usePublicBrand } from "@apps/cf_crm/usePublicBrand";
 
 const validationSchema = yup.object({
   email: yup
@@ -36,6 +37,9 @@ export default function Login() {
   const location = useLocation();
   const { company, app } = useParams<{ company: string; app: string }>();
   const from = location.state?.from?.pathname || "/";
+  // cf_crm signs in under its customer's own name, logo and colour
+  const brand = usePublicBrand(company, app);
+  const accent = brand?.colors.accent || "";
 
   // Redirect already-authenticated users away from login
   useEffect(() => {
@@ -169,17 +173,21 @@ export default function Login() {
               borderRadius: 3,
             }}
           >
-            <Typography
-              variant="h5"
-              sx={{
-                fontWeight: 800,
-                background: "linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)",
-                WebkitBackgroundClip: "text",
-                WebkitTextFillColor: "transparent",
-              }}
-            >
-              SC
-            </Typography>
+            {brand?.logo ? (
+              <Box component="img" src={brand.logo} alt={brand.appName || "Logo"} sx={{ width: 64, height: 64, objectFit: "contain" }} />
+            ) : (
+              <Typography
+                variant="h5"
+                sx={{
+                  fontWeight: 800,
+                  background: "linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)",
+                  WebkitBackgroundClip: "text",
+                  WebkitTextFillColor: "transparent",
+                }}
+              >
+                SC
+              </Typography>
+            )}
           </Box>
 
           {/* Welcome Text */}
@@ -201,7 +209,7 @@ export default function Login() {
               mb: 3,
             }}
           >
-            Sign in to continue
+            {brand?.appName ? `Sign in to ${brand.appName}` : "Sign in to continue"}
           </Typography>
 
           {/* Error Alert */}
@@ -323,17 +331,18 @@ export default function Login() {
               size="large"
               sx={{
                 py: 1.5,
-                bgcolor: "#2563eb",
+                bgcolor: accent || "#2563eb",
                 color: "white",
                 fontWeight: 700,
                 borderRadius: 1.5,
                 textTransform: "none",
                 fontSize: "1rem",
                 "&:hover": {
-                  bgcolor: "#1d4ed8",
+                  bgcolor: accent || "#1d4ed8",
+                  filter: accent ? "brightness(0.92)" : undefined,
                 },
                 "&:active": {
-                  bgcolor: "#1e40af",
+                  bgcolor: accent || "#1e40af",
                 },
               }}
             >
