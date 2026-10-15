@@ -16,7 +16,7 @@ import * as yup from "yup";
 import { useNavigate, useLocation, useParams } from "react-router-dom";
 import Visibility from "@mui/icons-material/Visibility";
 import VisibilityOff from "@mui/icons-material/VisibilityOff";
-import api, { buildFullApiUrl } from "@core/utils/axiosConfig";
+import api, { API_HOST, buildFullApiUrl } from "@core/utils/axiosConfig";
 import { useAuth } from "@core/contexts/AuthContext";
 import { isAdminRole } from "@core/utils/roles";
 import { usePublicBrand } from "@apps/cf_crm/usePublicBrand";
@@ -40,6 +40,7 @@ export default function Login() {
   // cf_crm signs in under its customer's own name, logo and colour
   const brand = usePublicBrand(company, app);
   const accent = brand?.colors.accent || "";
+  const isCrm = app === "cf_crm";
 
   // Redirect already-authenticated users away from login
   useEffect(() => {
@@ -83,12 +84,30 @@ export default function Login() {
         // POST to the login route under the current company/app context
         // Build absolute URL to ensure company/app slugs are included
         const fullUrl = buildFullApiUrl("/login");
-        const response = await api.post(fullUrl, values);
+        const parts = window.location.pathname.split("/").filter(Boolean);
+        let companySlug = parts[0];
+        const appSlug = parts[1];
+        let response;
+        try {
+          response = await api.post(fullUrl, values);
+        } catch (err: any) {
+          // cf_crm: one network, several companies. The password was right but
+          // the login belongs to another company of the same customer: sign in
+          // there instead of sending them off to find the other address.
+          const wrongCompany = isCrm && err.response?.status === 403 && /not in this company/i.test(err.response?.data?.message || "");
+          if (!wrongCompany) throw err;
+          const where = await fetch(`${API_HOST}/api/${encodeURIComponent(companySlug)}/cf_crm/network-sign-in`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            credentials: "omit",
+            body: JSON.stringify(values),
+          }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+          if (!where?.company) throw err;
+          companySlug = where.company;
+          response = await api.post(`${API_HOST}/api/${encodeURIComponent(companySlug)}/cf_crm/login`, values);
+        }
 
         if (response.data.token) {
-          const parts = window.location.pathname.split("/").filter(Boolean);
-          const companySlug = parts[0];
-          const appSlug = parts[1];
 
           login(response.data.token, response.data.user, companySlug, appSlug);
 
@@ -232,12 +251,12 @@ export default function Login() {
                   mb: 1,
                 }}
               >
-                User ID
+                {isCrm ? "Email" : "User ID"}
               </Typography>
               <TextField
                 fullWidth
                 size="medium"
-                placeholder="Enter your user ID"
+                placeholder={isCrm ? "you@example.com" : "Enter your user ID"}
                 id="email"
                 name="email"
                 value={formik.values.email}
@@ -350,6 +369,12 @@ export default function Login() {
             </Button>
           </form>
 
+          {isCrm ? (
+          // cf_crm accounts are made and reset by the customer's own owners
+          <Typography variant="body2" sx={{ mt: 2, color: "#6b7280" }}>
+            Forgot your password? Ask an owner of your team to reset it.
+          </Typography>
+          ) : (<>
           <Typography variant="body2" sx={{ mt: 2, color: "#6b7280" }}>
             <Box
               component="span"
@@ -370,6 +395,7 @@ export default function Login() {
               Register
             </Box>
           </Typography>
+          </>)}
         </Paper>
       </Box>
     </Container>

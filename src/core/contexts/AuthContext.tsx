@@ -78,10 +78,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             setIsAuthenticated(true);
             setCompanySlug(company);
             if (app) setAppSlug(app);
+            // cf_crm opens without a connection (home-screen app): remember who was signed in
+            if (app === "cf_crm") {
+              try { localStorage.setItem("cf_crm:verifiedUser", JSON.stringify({ company, user: verifiedUser })); } catch { /* storage full or blocked */ }
+            }
             // Fire and forget — uses baked manifest as fallback if this fails
             initRegistryRefresh({ url: `${API_HOST}/api/${company}/schema/resources` });
           }
-        } catch {
+        } catch (err: any) {
+          // cf_crm only: no answer at all (offline, server waking up) is not a
+          // refused sign-in. Keep the last confirmed session for this company;
+          // the CRM itself works from its own copy and re-checks once online.
+          // Any real answer (401, 403 …) still signs out, as for every app.
+          if (app === "cf_crm" && !err?.response) {
+            try {
+              const kept = JSON.parse(localStorage.getItem("cf_crm:verifiedUser") || "null");
+              if (kept && kept.company === company && kept.user) {
+                setUser(kept.user);
+                setIsAuthenticated(true);
+                setCompanySlug(company);
+                setAppSlug(app);
+                setIsInitialized(true);
+                return;
+              }
+            } catch { /* fall through to signing out */ }
+          }
+          localStorage.removeItem("cf_crm:verifiedUser");
           localStorage.removeItem("token");
           localStorage.removeItem("companySlug");
           localStorage.removeItem("appSlug");
@@ -132,6 +154,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const company = localStorage.getItem("companySlug");
     const app = localStorage.getItem("appSlug");
     localStorage.removeItem("token");
+    localStorage.removeItem("cf_crm:verifiedUser");
     localStorage.removeItem("companySlug");
     localStorage.removeItem("appSlug");
     setIsAuthenticated(false);

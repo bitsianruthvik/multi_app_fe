@@ -496,3 +496,22 @@ body.is-dragging,body.is-dragging *{cursor:grabbing!important;user-select:none}
 .ctx button span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ctx-hint{font-size:.72rem;color:var(--faint);padding:4px 10px 6px;border-top:1px solid var(--line);margin-top:4px}
 .audit-tbl td{vertical-align:top}
+
+/* ===== cf_crm review fixes (2026-10-15) ===== */
+/* Setup: labelled groups that wrap, never a sideways-scrolling strip; a list on a phone */
+.stabs{display:flex;flex-wrap:wrap;gap:10px 22px;margin:18px 0 16px;padding-bottom:12px;border-bottom:1px solid var(--line)}
+.stabs-g{display:flex;flex-direction:column;gap:4px;min-width:0}
+.stabs-l{font-size:.66rem;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:var(--faint);padding-left:10px}
+.stabs-b{display:flex;flex-wrap:wrap;gap:2px}
+.stabs-b button{border:0;background:none;padding:6px 10px;border-radius:8px;font-weight:600;color:var(--muted);cursor:pointer;white-space:nowrap}
+.stabs-b button:hover{color:var(--ink);background:var(--surface-2)}
+.stabs-b button.on{background:var(--accent-soft);color:var(--brand-ink)}
+.stabs-sel{display:none}
+@media (max-width:700px){
+  .stabs{display:none}
+  .stabs-sel{display:block;width:100%;margin:14px 0 16px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--surface);font-weight:700;min-height:44px}
+}
+/* tables inside dashboard panels fit their panel: tighter cells, headings may wrap */
+.grid .panel .tbl th,.grid .panel .tbl td{padding-left:8px;padding-right:8px}
+.grid .panel .tbl th{white-space:normal}
+.grid .panel .tbl td:first-child{overflow-wrap:anywhere}

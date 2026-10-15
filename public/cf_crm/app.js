@@ -39,10 +39,14 @@ const ENV=(()=>{try{if(window.parent!==window&&window.parent.__CF_CRM_ENV__)retu
 if(!ENV){if(window.top===window)location.replace('/');else document.addEventListener('DOMContentLoaded',()=>{const v=document.getElementById('view');if(v)v.innerHTML='<div class="empty"><b>Could not open the app.</b> Reload the page.</div>'});throw new Error('cf_crm runs inside the platform page')}
 const API_BASE=String(ENV.apiHost||'').replace(/\/+$/,'')+'/api/'+encodeURIComponent(ENV.company)+'/cf_crm';
 // the app's own paths (/api/sync, /api/auth?a=me …) on this app's routes
-function apiUrl(path){let p=String(path).replace(/^\/api\//,'/');if(p.startsWith('/auth?a=me'))p='/me';else if(p.startsWith('/auth?a=password'))p='/password';return API_BASE+p}
+const AUTH_ROUTES={me:'/me',password:'/password','totp-start':'/two-step/start','totp-enable':'/two-step/enable','totp-disable':'/two-step/disable','totp-verify':'/two-step/verify','end-sessions':'/sessions/end'};
+function apiUrl(path){let p=String(path).replace(/^\/api\//,'/');const m=p.match(/^\/auth\?a=([a-z-]+)/);if(m&&AUTH_ROUTES[m[1]])p=AUTH_ROUTES[m[1]];return API_BASE+p}
+// the server hands back a fresh token after a password change or a two-step code
+function setToken(t){if(!t)return;try{ENV.setToken(t)}catch(e){}}
 const authHeaders=()=>{let t='';try{t=ENV.getToken()||''}catch(e){}return t?{authorization:'Bearer '+t}:{}};
 let authLostOnce=false;
-function authLost(){if(authLostOnce)return;authLostOnce=true;try{ENV.onAuthLost()}catch(e){}}
+// the sign-in ended: erase this device's copy of the network, then sign in again
+function authLost(){if(authLostOnce)return;authLostOnce=true;const go=()=>{try{ENV.onAuthLost()}catch(e){}};let done=false;const once=()=>{if(!done){done=true;go()}};IDB.clear().then(once,once);setTimeout(once,1500)}
 
 /* ============ icons ============ */
 const I={
@@ -257,7 +261,10 @@ const IDB={db:null,
   async tx(mode,fn){try{const db=this.db||(this.db=await this.open());return await new Promise((res,rej)=>{const t=db.transaction('kv',mode);const st=t.objectStore('kv');const r=fn(st);t.oncomplete=()=>res(r&&r.result);t.onerror=()=>rej(t.error)})}catch(e){console.warn('local copy',e);return null}},
   get(k){return this.tx('readonly',s=>s.get(k))},set(k,v){return this.tx('readwrite',s=>s.put(v,k))},clear(){return this.tx('readwrite',s=>s.clear())}
 };
-const saveSnapshot=debounce(()=>{if(!S.authed||!S.cursor)return;const data={};TYPES.forEach(t=>data[t]=[...D[t].values()]);IDB.set('snap',{v:2,me:S.me,cursor:S.cursor,config:S.config,brand:S.brand,customer:S.customer,data,at:nowISO()})},2500);
+// Owners decide in Setup → General whether a device may keep a copy of the network
+// for offline use (default: nobody). Where it may not, any copy is erased.
+const deviceCopyAllowed=()=>{const p=(S.config&&S.config.deviceCopy)||'off';return p==='all'||(p==='owners'&&!!R().settings)};
+const saveSnapshot=debounce(()=>{if(!S.authed||!S.cursor)return;if(!deviceCopyAllowed()){IDB.clear();return}const data={};TYPES.forEach(t=>data[t]=[...D[t].values()]);IDB.set('snap',{v:3,me:S.me,cursor:S.cursor,config:S.config,brand:S.brand,customer:S.customer,data,at:nowISO()})},2500);
 
 /* ============ permissions ============ */
 const R=()=>{const r=clientRole(roleOf(S.me.role));if(S.me.role==='admin')return r;const p=S.me.perms||{};if(typeof p.export==='boolean')r.exp=p.export;if(typeof p.campaigns==='boolean')r.camp=p.campaigns;if(typeof p.send==='boolean')r.send=p.send;return r};
@@ -277,6 +284,8 @@ async function api(path,{method='GET',body}={}){
   let j={};try{j=await r.json()}catch(e){}
   // the platform's sign-in has ended (or the token is not valid): sign in again there
   if(r.status===401||(r.status===403&&/token/i.test(j.message||''))){S.authed=false;authLost();const err=new Error('Your session ended. Please sign in again.');err.status=401;throw err}
+  // a two-step code or a new password is needed before anything else (e.g. an owner reset it): start over at those steps
+  if(r.status===403&&(j.code==='TWO_STEP'||j.code==='PASSWORD_CHANGE')&&S.authed&&!apiUrl(path).endsWith('/me')){S.authed=false;setTimeout(()=>location.reload(),50);const err=new Error(j.error||'Please sign in again.');err.status=401;err.code='gate';throw err}
   if(!r.ok){const err=new Error(j.error||j.message||('Request failed ('+r.status+')'));err.status=r.status;throw err}
   return j;
 }
@@ -292,8 +301,11 @@ const Q=new Map();
 const saveQ=()=>LS.set('queue',[...Q.values()]);
 let flushing=null,flushTimer=null;
 const flushWaiters=[];
-function enqueueOp(op){const k=op.t+'/'+op.i;Q.delete(k);Q.set(k,op);saveQ();clearTimeout(flushTimer);flushTimer=setTimeout(flush,250)}
-const rejectMsg=w=>({scope:'That person is assigned to another owner, so the change was not saved.',private:'That person is private to another owner.',delete:'Only owners can delete people and companies.',campaigns:'Your role cannot change campaigns.',send:'Only owners can mark a campaign as sent.',mobile:'That mobile number already belongs to another person. Only an admin can give it to someone else.',business:'You do not have access to that business.'}[w]||'A change was not allowed and has been undone.');
+// a second edit before the first was sent keeps the FIRST edit's base revision
+function enqueueOp(op){const k=op.t+'/'+op.i;const prev=Q.get(k);if(prev&&prev.b!==undefined)op.b=prev.b;Q.delete(k);Q.set(k,op);saveQ();clearTimeout(flushTimer);flushTimer=setTimeout(flush,250)}
+// the revision an edit is based on: the one the edited copy came from (0 = new)
+function baseRev(type,rec){if(typeof rec._rev==='number')return rec._rev;const cur=D[type].get(rec.id);if(!cur)return 0;return typeof cur._rev==='number'?cur._rev:undefined}
+const rejectMsg=w=>({conflict:'Someone else changed that record while you were deleting it, so it was kept. Look at it again.',gone:'Someone else deleted that record, so your change could not be saved.',scope:'That person is assigned to another owner, so the change was not saved.',private:'That person is private to another owner.',delete:'Only owners can delete people and companies.',campaigns:'Your role cannot change campaigns.',send:'Only owners can mark a campaign as sent.',mobile:'That mobile number already belongs to another person. Only an admin can give it to someone else.',business:'You do not have access to that business.'}[w]||'A change was not allowed and has been undone.');
 function flush(){
   if(flushing)return flushing;
   flushing=(async()=>{
@@ -302,11 +314,19 @@ function flush(){
       for(const o of all){size+=JSON.stringify(o).length;if(n>0&&(size>2.5e6||n>=400))break;n++}
       const batch=all.slice(0,n);const note=(batch.find(o=>o.note)||{}).note||'';
       try{
-        const res=await api('/api/records',{method:'POST',body:{ops:batch.map(o=>o.x?{t:o.t,i:o.i,x:1}:{t:o.t,i:o.i,d:o.d}),note,quiet:batch.every(o=>o.quiet)}});
-        batch.forEach(o=>{const k=o.t+'/'+o.i;if(Q.get(k)===o)Q.delete(k)});saveQ();if(S.offline)setOffline(false);
-        if(res.rejected&&res.rejected.length){toast(rejectMsg(res.rejected[0].why));setTimeout(()=>pull(true),300)}
+        const res=await api('/api/records',{method:'POST',body:{ops:batch.map(o=>o.x?{t:o.t,i:o.i,x:1,b:o.b}:{t:o.t,i:o.i,d:o.d,b:o.b}),note,quiet:batch.every(o=>o.quiet)}});
+        batch.forEach(o=>{const k=o.t+'/'+o.i;if(Q.get(k)===o)Q.delete(k)});
+        // the server's new revision; a newer edit still waiting is now based on it
+        (res.revs||[]).forEach(v=>{const k=v.t+'/'+v.i;const w=Q.get(k);if(w)w.b=v.r;const rec=D[v.t]&&D[v.t].get(v.i);if(rec)rec._rev=v.r});
+        // saved over someone else's changes: show the merged record, and say so
+        (res.merged||[]).forEach(m=>{if(!D[m.t]||Q.has(m.t+'/'+m.i))return;m.d._rev=m.r;D[m.t].set(m.i,m.d);const nm=m.d.name||(m.t==='leads'?leadTitle(m.d):'')||'A record';
+          toast(m.clash&&m.clash.length?`${nm} was also changed by someone else. Both sets of changes were kept; for ${m.clash.slice(0,3).join(', ')} your value was used (theirs is in the history).`:`${nm} was also changed by someone else. Both sets of changes were kept.`)});
+        if((res.merged||[]).length)scheduleDerive();
+        saveQ();if(S.offline)setOffline(false);
+        if(res.rejected&&res.rejected.length){const first=res.rejected[0];const op=batch.find(o=>o.t===first.t&&o.i===first.i);const nm=(op&&op.d&&(op.d.name||op.d.title||(first.t==='leads'?leadTitle(op.d):'')))||'';
+          toast((res.rejected.length>1?`${res.rejected.length} changes were not saved and have been undone. `:`Not saved${nm?': '+nm:''}. `)+rejectMsg(first.why),9000);setTimeout(()=>pull(true),300)}
       }catch(e){
-        if(e.code==='offline'||e.status>=500||e.status===401){setOffline(e.code==='offline'||e.status>=500);setTimeout(flush,15000);return}
+        if(e.code==='offline'||e.status>=500||e.status===401||e.code==='gate'){setOffline(e.code==='offline'||e.status>=500);setTimeout(flush,15000);return}
         batch.forEach(o=>{const k=o.t+'/'+o.i;if(Q.get(k)===o)Q.delete(k)});saveQ();toast(e.message);setTimeout(()=>pull(true),300);
       }
     }
@@ -316,19 +336,46 @@ function flush(){
 async function put(type,rec,opts={}){
   rec=clone(rec);
   if(!rec.id)rec.id=newId();
+  const why=writeProblem(type,rec,false);if(why)refuse(why);
   if(!D[type].has(rec.id)&&!rec.createdAt){rec.createdAt=nowISO();rec.createdBy=S.me.id||''}
   rec.updatedAt=nowISO();rec.updatedBy=S.me.id||'';
+  const b=baseRev(type,rec);
   D[type].set(rec.id,rec);scheduleDerive();
-  enqueueOp({t:type,i:rec.id,d:rec,note:opts.note||'',quiet:opts.audit===false});
+  enqueueOp({t:type,i:rec.id,d:rec,b,note:opts.note||'',quiet:opts.audit===false});
   return rec;
 }
 async function putMany(type,recs,note){
+  const bad=[];recs=recs.filter(r=>{const w=writeProblem(type,Object.assign({id:r.id||''},r),false);if(w)bad.push(w);return !w});
+  if(bad.length)toast(`${plural(bad.length,'record')} not saved: ${bad[0]}`);
   recs.forEach((rec,n)=>{rec=clone(rec);if(!rec.id)rec.id=newId();if(!D[type].has(rec.id)&&!rec.createdAt){rec.createdAt=nowISO();rec.createdBy=S.me.id||''}rec.updatedAt=nowISO();rec.updatedBy=S.me.id||'';
-    D[type].set(rec.id,rec);enqueueOp({t:type,i:rec.id,d:rec,note:note||''})});
+    const b=baseRev(type,rec);D[type].set(rec.id,rec);enqueueOp({t:type,i:rec.id,d:rec,b,note:note||''})});
   scheduleDerive();clearTimeout(flushTimer);await flush();
 }
-async function del(type,id,note){D[type].delete(id);scheduleDerive();enqueueOp({t:type,i:id,x:1,note:note||''})}
-async function delMany(type,ids,note){ids.forEach(id=>{D[type].delete(id);enqueueOp({t:type,i:id,x:1,note:note||''})});scheduleDerive();clearTimeout(flushTimer);await flush()}
+// The server's rules, checked here first: a change the server would refuse is
+// not shown as saved. The server still checks everything (it also knows about
+// people this login cannot see); what it refuses is named in the message.
+const CHILD_T=new Set(['chits','re','leads','interactions','comments']);
+const canBizMe=b=>{const a=S.me.businesses||[];return !a.length||!b||a.includes(b)};
+function writeProblem(type,rec,isDel){
+  const r=R();if(!r.write)return 'Your account is read-only, so this was not saved.';
+  const cur=D[type]&&D[type].get(rec.id);
+  if(type==='campaigns'&&!r.camp)return rejectMsg('campaigns');
+  if(isDel&&['people','companies','groups','blacklist'].includes(type)&&!r.del)return rejectMsg('delete');
+  if(type==='comments'&&cur&&String(cur.byId||'')!==String(S.me.id)&&!r.settings)return 'You can only change your own comments.';
+  if(type==='campaigns'&&!isDel&&rec.status==='Sent'&&!(cur&&cur.status==='Sent')&&!r.send)return rejectMsg('send');
+  if(!r.all&&type==='people'){if(!S.me.owner)return 'You are not linked to an owner name yet, so you cannot add or change people. Ask an owner to set it in Setup → Owners & team.';if((cur&&(cur.ownerInCharge||'')!==S.me.owner)||(!isDel&&(rec.ownerInCharge||'')!==S.me.owner))return rejectMsg('scope')}
+  if(!r.all&&CHILD_T.has(type)){const pid=(!isDel&&rec.personId)||(cur&&cur.personId);const p=pid&&D.people.get(pid);if(p&&(p.ownerInCharge||'')!==S.me.owner)return rejectMsg('scope')}
+  if(type==='leads'){const bz=(!isDel&&(rec.business||rec.line))||(cur&&(cur.business||cur.line));const was=cur&&(cur.business||cur.line);if((bz&&!canBizMe(bz))||(was&&!canBizMe(was)))return rejectMsg('business')}
+  if((type==='chits'||type==='re')&&!canBizMe(type==='chits'?'chit':'re'))return rejectMsg('business');
+  if(type==='people'&&cur&&cur.private&&cur.ownerInCharge&&cur.ownerInCharge!==S.me.owner)return rejectMsg('private');
+  if(type==='people'&&!isDel&&!r.settings&&Array.isArray(rec.mobiles)){const had=new Set(((cur&&cur.mobiles)||[]).map(normPhone));
+    for(const m of rec.mobiles.map(normPhone).filter(Boolean)){if(had.has(m))continue;for(const x of D.people.values()){if(x.id!==rec.id&&(x.mobiles||[]).map(normPhone).includes(m))return `${m} already belongs to ${x.name||'another person'}. Only an owner can give a number to someone else.`}}}
+  return '';
+}
+const refuse=why=>{toast(why);const e=new Error(why);e.shown=true;throw e};
+const delBase=(type,id)=>{const cur=D[type].get(id);return cur&&typeof cur._rev==='number'?cur._rev:undefined};
+async function del(type,id,note){const cur=D[type].get(id);const why=writeProblem(type,cur||{id},true);if(why)refuse(why);const b=delBase(type,id);D[type].delete(id);scheduleDerive();enqueueOp({t:type,i:id,x:1,b,note:note||''})}
+async function delMany(type,ids,note){const bad=ids.filter(id=>writeProblem(type,D[type].get(id)||{id},true));if(bad.length){toast(`${plural(bad.length,'record')} not deleted: ${writeProblem(type,D[type].get(bad[0])||{id:bad[0]},true)}`);ids=ids.filter(id=>!bad.includes(id))}ids.forEach(id=>{const b=delBase(type,id);D[type].delete(id);enqueueOp({t:type,i:id,x:1,b,note:note||''})});scheduleDerive();clearTimeout(flushTimer);await flush()}
 function audit(action,entity,entityId,detail){api('/api/audit',{method:'POST',body:{action,entity,detail}}).catch(()=>{})}
 async function saveConfig(patch){
   const before=clone(S.config);Object.assign(S.config,patch);render();
@@ -350,7 +397,7 @@ function pull(full){
       if(j.me){const roleChanged=S.me.role&&S.cursor&&(j.me.role!==S.me.role||j.me.owner!==S.me.owner||String(j.me.businesses||[])!==String(S.me.businesses||[]));applyMe(j.me);if(roleChanged&&!full){pulling=null;return pull(true)}}
       if(j.config)S.config=Object.assign(clone(DEFAULT_CONFIG),j.config);
       if(j.brand)applyBrand(j.brand,j.customer);
-      for(const r of j.rows){if(!D[r.t])continue;if(Q.has(r.t+'/'+r.i))continue;const m=full?fresh[r.t]:D[r.t];if(r.x)m.delete(r.i);else m.set(r.i,r.d)}
+      for(const r of j.rows){if(!D[r.t])continue;if(Q.has(r.t+'/'+r.i))continue;const m=full?fresh[r.t]:D[r.t];if(r.x)m.delete(r.i);else{if(r.d&&typeof r.d==='object')r.d._rev=r.r||0;m.set(r.i,r.d)}}
       cur=j.cursor;first=false;
       if(full){S.loadedCount+=j.rows.length;const b=$('#banner');if(j.more){b.hidden=false;b.dataset.kind='load';b.textContent=`Loading your network… ${S.loadedCount.toLocaleString('en-IN')} records so far`}}
       if(!j.more)break;
@@ -678,9 +725,11 @@ function funnelFor(bid,leads,mode='now'){
   return all.filter(s=>s.kind!=='lost').map(s=>{const n=ls.filter(l=>reachedIdx(l)>=all.indexOf(s)).length;return {label:s.name,value:n,display:n+' · '+Math.round(100*n/first)+'%',cls:s.kind==='won'?'won':''}});
 }
 const filterSel=(id,label,opts,val,key)=>opts.length>BIG?combo({id,opts,val,blank:label,label,attrs:`data-df="${key}"`}):`<select id="${id}" data-df="${key}" aria-label="${esc(label)}"><option value="">${esc(label)}</option>${opts.map(o=>{const v=typeof o==='object'?o.v:o,l=typeof o==='object'?o.l:o;return `<option value="${esc(v)}" ${String(val||'')===String(v)?'selected':''}>${esc(l)}</option>`}).join('')}</select>`;
+// a Manager (sees only their own) with no owner name sees an empty app: say why
+const noOwnerNote=()=>!R().all&&!S.me.owner?`<div class="note" style="margin:0 0 16px"><b>You are not linked to an owner name yet.</b> People, leads and follow-ups are assigned to owner names, and your role shows only your own, so there is nothing to show you. Ask an owner to set your owner name in Setup → Owners & team.</div>`:'';
 VIEWS.home=()=>{
   const all=visPeople();
-  if(!all.length&&!D.companies.size&&!D.leads.size)return `<div class="ph"><div><h1>Welcome to ${esc(appName())}</h1><div class="sub">Set up your businesses, lead stages and fields, then bring in your companies and people.</div></div></div>
+  if(!all.length&&!D.companies.size&&!D.leads.size)return `<div class="ph"><div><h1>Welcome to ${esc(appName())}</h1><div class="sub">Set up your businesses, lead stages and fields, then bring in your companies and people.</div></div></div>${noOwnerNote()}
     <div class="grid g3">
       ${panel('1 · Setup',`<p class="muted">Add your businesses, lead stages, company and people fields, groups and owners.</p><button class="btn pri" data-a="go" data-v="setup">Open Setup</button>`)}
       ${panel('2 · Bring in your network',`<p class="muted">Import phone contacts, Excel lists, the chit subscriber master or the property list. Duplicates are caught on the way in.</p>${canWrite()?'<button class="btn" data-a="go" data-v="import">Import</button> <button class="btn" data-a="companyForm">Add a company</button>':''}`)}
@@ -719,6 +768,7 @@ VIEWS.home=()=>{
     ${sel2('region','All regions',regionsAZ())}
     ${anyF?'<button class="btn ghost" data-a="clearDash">Clear filters</button>':''}
   </div>
+  ${noOwnerNote()}
   <div class="grid g4" style="margin-bottom:16px">
     <div class="panel stat click" data-a="go" data-v="leads"><div class="k">Open leads</div><div class="v">${open.length}</div><div class="d">${inr(openVal)} in the pipeline</div></div>
     <div class="panel stat"><div class="k">New leads${f.period?'':' (all time)'}</div><div class="v">${created.length}</div><div class="d">${PERIODS.find(p=>p.v===(f.period||'')).l}</div></div>
@@ -726,7 +776,8 @@ VIEWS.home=()=>{
     <div class="panel stat"><div class="k">Follow-ups due</div><div class="v ${due.some(l=>l.nextDate<t)?'late':''}">${due.length}</div><div class="d">${due.filter(l=>l.nextDate<t).length} overdue · ${S.ui.todayAll?'all owners':'mine'}</div></div>
     <div class="panel stat click" data-a="go" data-v="people"><div class="k">People</div><div class="v">${ppl.length.toLocaleString('en-IN')}</div><div class="d">${ppl.filter(x=>x.holding!=='Prospect').length.toLocaleString('en-IN')} customers</div></div>
     <div class="panel stat click" data-a="go" data-v="companies"><div class="k">Companies</div><div class="v">${cos.length.toLocaleString('en-IN')}</div><div class="d">${new Set(cos.map(c=>c.c.groupId).filter(Boolean)).size} groups</div></div>
-    <div class="panel stat"><div class="k">Chit book</div><div class="v">${inr(ppl.reduce((a,x)=>a+x.chitTotal,0))}</div><div class="d">EMI ${inr(ppl.reduce((a,x)=>a+x.emi,0))}/month</div></div>
+    ${canBizMe('chit')&&businesses().some(b=>b.id==='chit')?`<div class="panel stat"><div class="k">Chit book</div><div class="v">${inr(ppl.reduce((a,x)=>a+x.chitTotal,0))}</div><div class="d">EMI ${inr(ppl.reduce((a,x)=>a+x.emi,0))}/month</div></div>`
+      :canBizMe('re')&&businesses().some(b=>b.id==='re')?`<div class="panel stat"><div class="k">Property held</div><div class="v">${inr(ppl.reduce((a,x)=>a+x.reTotal,0))}</div><div class="d">${ppl.filter(x=>x.reTotal>0).length} owners, booked or registered</div></div>`:''}
     <div class="panel stat click" data-a="setupTab" data-v="blacklist"><div class="k">Blacklisted</div><div class="v">${blackN}</div><div class="d">people and companies</div></div>
   </div>
   <div class="grid g2">
@@ -858,8 +909,8 @@ VIEWS.person=()=>{
         <div class="small muted" style="margin:12px 0 4px">Introduced ${plural(x.referred.length,'person','people')} · business generated ${inr(x.refBusiness)} · ${x.refLeads.length} leads referred</div>`+(refRows?`</div><div class="bd flush"><div class="list">${refRows}</div>`:''))}
     </div>
     <div class="stack">
-      ${panel('Chit holdings',chitRows?`<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Group / ticket</th><th class="r">Chit value</th><th class="r">EMI</th><th>Tenure</th><th>Ends</th><th>Status</th></tr></thead><tbody>${chitRows}</tbody></table></div>`:emptyBox('No chits','Chit details recorded here are for relationship context; the chit software stays the system of record.'),{flush:true,right:W?`<button class="btn sm" data-a="chitForm" data-pid="${p.id}">${ic('plus')}Chit</button>`:''})}
-      ${panel('Real estate',reRows?`<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Project / unit</th><th class="r">Ticket</th><th>Booked</th><th>Stage</th><th>Payment</th></tr></thead><tbody>${reRows}</tbody></table></div>`:emptyBox('No property',x.chits.length?'This is a chit customer with no property. Consider a real estate conversation.':'Property enquiries and bookings appear here.'),{flush:true,right:W?`<button class="btn sm" data-a="reForm" data-pid="${p.id}">${ic('plus')}Property</button>`:''})}
+      ${!canBizMe('chit')?'':panel('Chit holdings',chitRows?`<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Group / ticket</th><th class="r">Chit value</th><th class="r">EMI</th><th>Tenure</th><th>Ends</th><th>Status</th></tr></thead><tbody>${chitRows}</tbody></table></div>`:emptyBox('No chits','Chit details recorded here are for relationship context; the chit software stays the system of record.'),{flush:true,right:W?`<button class="btn sm" data-a="chitForm" data-pid="${p.id}">${ic('plus')}Chit</button>`:''})}
+      ${!canBizMe('re')?'':panel('Real estate',reRows?`<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Project / unit</th><th class="r">Ticket</th><th>Booked</th><th>Stage</th><th>Payment</th></tr></thead><tbody>${reRows}</tbody></table></div>`:emptyBox('No property',x.chits.length?'This is a chit customer with no property. Consider a real estate conversation.':'Property enquiries and bookings appear here.'),{flush:true,right:W?`<button class="btn sm" data-a="reForm" data-pid="${p.id}">${ic('plus')}Property</button>`:''})}
       ${x.refLeads.length?panel('Leads they endorsed · '+plural(x.refLeads.length,'lead'),endRows?`<div class="list">${endRows}</div>`:'<div class="muted small">These leads belong to a business you cannot see.</div>',{flush:!!endRows,right:`<span class="small muted">“${esc(bOv('leads','referrer').label||'Referred by')}” on these leads</span>`}):''}
       ${panel('Leads',leadRows?`<div class="list">${leadRows}</div>`:emptyBox('No leads','Add a lead to track an opportunity with any of your businesses.'),{flush:true,right:W?`<button class="btn sm" data-a="leadForm" data-pid="${p.id}">${ic('plus')}Lead</button>`:''})}
       ${panel('Interactions',intRows?`<div class="timeline">${intRows}</div>`:emptyBox('Nothing logged yet','Log calls, meetings and WhatsApp chats so the context is never lost.'),{right:W?`<button class="btn sm" data-a="intForm" data-pid="${p.id}">${ic('plus')}Log</button>`:''})}
@@ -1517,6 +1568,7 @@ function rolesTab(){
     <div class="row">${S.roleDirty?'<span class="small muted">Unsaved changes</span><button class="btn sm" data-a="roleReset">Undo</button>':''}<button class="btn pri sm" data-a="roleSave" ${S.roleDirty?'':'disabled'}>Save roles</button></div></div>`);
 }
 /* ---- setup ---- */
+const SETUP_GROUPS=[['Start',['overview']],['Your business',['businesses','stages','referrals','documents','groups','blacklist']],['Fields',['companyFields','peopleFields','leadFields','groupFields']],['Team and access',['team','roles']],['App',['branding','general']],['You',['account']]];
 const SETUP_TABS=[
   {v:'overview',l:'Overview'},{v:'businesses',l:'My businesses',admin:1},{v:'stages',l:'Lead stages',admin:1},
   {v:'companyFields',l:'Company fields',admin:1},{v:'peopleFields',l:'People fields',admin:1},{v:'leadFields',l:'Lead fields',admin:1},{v:'groupFields',l:'Group fields',admin:1},
@@ -1544,7 +1596,9 @@ function stagesEditor(){
 VIEWS.setup=()=>{
   const A=R().settings;const cfg=S.config;
   let tab=S.ui.stab||(A?'overview':'account');if(!A&&SETUP_TABS.find(t=>t.v===tab&&t.admin))tab='account';
-  const tabs=`<div class="tabs" role="tablist">${SETUP_TABS.filter(t=>A||!t.admin).map(t=>`<button role="tab" class="${t.v===tab?'on':''}" data-a="setupTab" data-v="${t.v}">${t.l}</button>`).join('')}</div>`;
+  const mine=SETUP_TABS.filter(t=>A||!t.admin);const lbl=v=>(SETUP_TABS.find(t=>t.v===v)||{}).l;
+  const groups=SETUP_GROUPS.map(([g,vs])=>[g,vs.filter(v=>mine.some(t=>t.v===v))]).filter(([,vs])=>vs.length);
+  const tabs=`<nav class="stabs" aria-label="Setup sections">${groups.map(([g,vs])=>`<div class="stabs-g"><span class="stabs-l">${esc(g)}</span><div class="stabs-b">${vs.map(v=>`<button class="${v===tab?'on':''}" data-a="setupTab" data-v="${v}" ${v===tab?'aria-current="page"':''}>${esc(lbl(v))}</button>`).join('')}</div></div>`).join('')}</nav><select class="stabs-sel" data-c="stab" aria-label="Setup section">${groups.map(([g,vs])=>`<optgroup label="${esc(g)}">${vs.map(v=>`<option value="${v}" ${v===tab?'selected':''}>${esc(lbl(v))}</option>`).join('')}</optgroup>`).join('')}</select>`;
   let body='';
   if(tab==='overview'){
     const step=(done,t,s,v)=>`<div class="li" data-a="setupTab" data-v="${v}"><span class="tick ${done?'ok':''}">${done?'✓':''}</span><div class="main-t"><div class="t">${t}</div><div class="s">${s}</div></div><div class="end">${ic('back','flip')}</div></div>`;
@@ -1583,7 +1637,7 @@ VIEWS.setup=()=>{
     const users=S.users||[];const auditRows=S.auditRows||[];
     body=`<div class="grid g2"><div class="stack">
     ${strayOwnersPanel()}${panel('Owners',`<form data-f="optsForm" class="stack"><input type="hidden" name="key" value="owners"><p class="small muted" style="margin:0">Owners can be assigned to companies (several per company), to people and to leads, and their names appear on comments.</p>${listEd('opt',cfg.owners,{ph:'Owner name',sort:false,orig:true})}<div><button class="btn pri sm" type="submit">Save owners</button></div></form>`)}
-    ${panel('Team & roles',`${S.users?`<div class="list">${users.map(u=>`<div class="li" style="cursor:default;padding-inline:0;flex-wrap:wrap"><div class="avatar">${esc(initials(u.name||u.email))}</div><div class="main-t"><div class="t">${esc(u.name||u.email)}${u.id===S.me.id?' (you)':''}${u.active?'':' <span class="chip bad">Disabled</span>'}${u.totpEnabled?' <span class="chip good">2-step</span>':''}</div><div class="s">${esc(u.email)} · last sign-in ${u.lastLogin?fmtDate(u.lastLogin):'never'}</div></div>
+    ${panel('Team & roles',`${S.users?`<div class="list">${users.map(u=>`<div class="li" style="cursor:default;padding-inline:0;flex-wrap:wrap"><div class="avatar">${esc(initials(u.name||u.email))}</div><div class="main-t"><div class="t">${esc(u.name||u.email)}${u.id===S.me.id?' (you)':''}${u.active?'':' <span class="chip bad">Disabled</span>'}${u.totpEnabled?' <span class="chip good">2-step</span>':''}${u.active&&!u.owner&&!roleOf(u.role).perms.all?' <span class="chip warn" title="Pick an owner name in the second dropdown">Sees nothing until given an owner name</span>':''}</div><div class="s">${esc(u.email)} · last sign-in ${u.lastLogin?fmtDate(u.lastLogin):'never'}</div></div>
         <div class="end" style="flex-wrap:wrap"><select data-c="userRole" data-id="${u.id}" aria-label="Role" ${selS}>${roleList().map(r=>`<option value="${r.id}" ${u.role===r.id?'selected':''}>${esc(r.label)}</option>`).join('')}</select><select data-c="userOwner" data-id="${u.id}" aria-label="Acts as owner" ${selS}><option value="">Staff</option>${cfg.owners.map(o=>`<option ${u.owner===o?'selected':''}>${esc(o)}</option>`).join('')}</select><button class="btn sm" data-a="userMenu" data-id="${u.id}">More</button></div></div>`).join('')}</div>`:'<div class="muted small">Loading team…</div>'}
       <div class="row" style="margin-top:12px"><button class="btn pri sm" data-a="userAdd">${ic('plus')}Add a team member</button></div>
       <div class="note" style="margin-top:10px">Owners see everything and can export. Managers see only people assigned to them and cannot export or send campaigns. Data entry staff add and update records but do not see campaigns. Read-only users can view and report.</div>`)}</div>
@@ -1594,11 +1648,12 @@ VIEWS.setup=()=>{
       <div class="list" style="margin-top:12px">${['projects','branches','sendersWA','sendersEmail'].map(k=>`<div class="li" data-a="optsEdit" data-k="${k}"><div class="main-t"><div class="t">${esc(OPT_LISTS[k].t)}</div><div class="s">${esc(OPT_LISTS[k].get().join(', ')||'None yet')}</div></div><div class="end"><span class="btn sm">Edit</span></div></div>`).join('')}</div>`)}
     ${panel('Data & backup',`<div class="stack">
       <div class="row"><button class="btn" data-a="exportPeople">${ic('download')}People (Excel)</button><button class="btn" data-a="exportCompanies">${ic('download')}Companies (Excel)</button><button class="btn" data-a="xlsxExport" data-k="leads">${ic('download')}Leads (Excel)</button><button class="btn" data-a="xlsxExport" data-k="groups">${ic('download')}Groups (Excel)</button><button class="btn" data-a="backup">${ic('download')}Full backup (JSON)</button></div><div class="small muted">Exports are limited to owners and written to the audit log. The database host also keeps restorable history.</div>
+      <label class="field"><span>Offline copy on devices</span><select data-c="deviceCopy" aria-label="Offline copy on devices" ${selS}>${[['off','Nobody (safest)'],['owners','Owners only'],['all','Everyone']].map(([v,l])=>`<option value="${v}" ${(cfg.deviceCopy||'off')===v?'selected':''}>${l}</option>`).join('')}</select><span class="hint">A device with a copy opens without a connection, but the network stays on that phone or computer until someone signs out. With “Nobody”, existing copies are erased the next time each device opens the app.</span></label>
       <div class="row"><button class="btn" data-a="loadSample">Load sample data</button><button class="btn danger" data-a="removeSample">Remove sample data</button></div>
     </div>`)}</div>`;
   }else{
-    body=panel('My account',`<dl class="kv"><dt>Name</dt><dd>${esc(S.me.name||'—')}</dd><dt>Email</dt><dd>${esc(S.me.email)}</dd><dt>Role</dt><dd>${esc(R().label)}</dd><dt>Acts as owner</dt><dd>${esc(S.me.owner||'— (staff)')}</dd>${S.customer?`<dt>Network</dt><dd>${esc(S.customer.name)}</dd>`:''}</dl>
-      <div class="row" style="margin-top:12px"><button class="btn sm" data-a="pwForm">Change password</button><button class="btn sm" data-a="logout">Sign out</button></div>`);
+    body=panel('My account',`<dl class="kv"><dt>Name</dt><dd>${esc(S.me.name||'—')}</dd><dt>Email</dt><dd>${esc(S.me.email)}</dd><dt>Role</dt><dd>${esc(R().label)}</dd><dt>Acts as owner</dt><dd>${esc(S.me.owner||'— (staff)')}</dd><dt>Two-step sign-in</dt><dd>${S.me.totpEnabled?'<span class="chip good">On</span>':'<span class="chip warn">Off</span>'}${R().settings&&!S.me.totpEnabled?' <span class="small muted">Strongly recommended for owners</span>':''}</dd>${S.customer?`<dt>Network</dt><dd>${esc(S.customer.name)}</dd>`:''}</dl>
+      <div class="row" style="margin-top:12px"><button class="btn sm" data-a="pwForm">Change password</button>${S.me.totpEnabled?'<button class="btn sm" data-a="totpOff">Turn off two-step sign-in</button>':'<button class="btn sm pri" data-a="totpOn">Turn on two-step sign-in</button>'}<button class="btn sm" data-a="endSessions">Sign out everywhere else</button><button class="btn sm" data-a="logout">Sign out</button></div>`);
   }
   return `<div class="ph"><div><h1>Setup</h1><div class="sub">Shape the app around how ${esc(shortName())} works. ${A?'':'Only owners can change most settings.'}</div></div></div>${tabs}${body}`;
 };
@@ -1612,7 +1667,7 @@ function openSheet({title,body,foot='',wide=false,form=''}){
   const f=$('#sheet-root input:not([type=hidden]):not([type=checkbox]):not([type=radio]),#sheet-root textarea');if(f&&window.innerWidth>700)setTimeout(()=>f.focus(),30);
 }
 function closeSheet(){if(typeof rec!=='undefined'&&rec){try{rec.stop()}catch(e){}}$('#sheet-root').innerHTML='';sheetOnClose&&sheetOnClose();sheetOnClose=null}
-let toastT;function toast(m){const t=$('#toast');t.textContent=m;t.hidden=false;clearTimeout(toastT);toastT=setTimeout(()=>t.hidden=true,3200)}
+let toastT;function toast(m,ms){const t=$('#toast');t.textContent=m;t.hidden=false;clearTimeout(toastT);toastT=setTimeout(()=>t.hidden=true,ms||Math.min(9000,Math.max(3200,String(m).length*55)))}
 const fld=(label,inner,o={})=>`<label class="field ${o.full?'full':''}"><span>${label}${o.req?' <b class="req" aria-hidden="true">*</b>':''}</span>${inner}${o.hint?`<span class="hint">${o.hint}</span>`:''}</label>`;
 const inp=(name,val,o={})=>`<input id="fm-${name}" name="${name}" value="${esc(val==null?'':val)}" ${o.type?`type="${o.type}"`:''} ${o.ph?`placeholder="${esc(o.ph)}"`:''} ${o.list?`list="${o.list}"`:''} ${o.req?'required':''} ${o.mode?`inputmode="${o.mode}"`:''} autocomplete="off">`;
 const selI=(name,opts,val,blank='—')=>opts.length>BIG?combo({name,id:'fm-'+name,opts:/^(region|industry)$/.test(name)?azOpts(opts):opts,val,blank:blank===null?'Choose…':blank==='—'?'Type to search…':blank,allowBlank:blank!==null}):`<select id="fm-${name}" name="${name}">${blank!==null?`<option value="">${esc(blank)}</option>`:''}${opts.map(o=>{const v=typeof o==='object'?o.v:o,l=typeof o==='object'?o.l:o;return `<option value="${esc(v)}" ${String(val)===String(v)?'selected':''}>${esc(l)}</option>`}).join('')}</select>`;
@@ -2431,7 +2486,8 @@ const ACT={
   ntClearAll:async()=>{markDueSeen(myDue());try{await api('/api/notify',{method:'POST',body:{clear:true}})}catch(e){}NT.items=[];NT.unread=0;NT.more=false;paintBell();toast('Notifications cleared')},
   ntAllRead:async()=>{try{await api('/api/notify',{method:'POST',body:{all:true}})}catch(e){}NT.items.forEach(n=>n.read=true);NT.unread=0;paintBell()},
   ntOpen:async d=>{const n=NT.items.find(x=>x.id===+d.id);if(n&&!n.read){n.read=true;NT.unread=Math.max(0,NT.unread-1);api('/api/notify',{method:'POST',body:{ids:[n.id]}}).catch(()=>{})}NT.open=false;$('#notif').hidden=true;paintBell();openLink(d.link)},
-  ntDesktop:async()=>{try{const p=await Notification.requestPermission();toast(p==='granted'?'Desktop alerts are on':'Desktop alerts are blocked in this browser');renderNotif()}catch(e){toast('This browser does not support desktop alerts.')}},
+  ntDesktop:async()=>{try{const p=await Notification.requestPermission();if(p!=='granted'){toast('Alerts are blocked in this browser. Allow notifications for this site in the browser settings.');return renderNotif()}
+    const ok=await subscribePush();toast(ok?'Alerts are on for this device':'Alerts are on while the app is open. This browser cannot receive them when it is closed (on an iPhone, add the app to the home screen first).');renderNotif()}catch(e){toast('This browser does not support alerts.')}},
   chatToggle:()=>{CH.open?closeChat():openChat()},chatClose:()=>closeChat(),chatBack:()=>{CH.view='list';CH.editThread=null;renderChat();loadThreads()},
   chatOpen:d=>{CH.cur=d.id;CH.view='thread';renderChat();loadMsgs(true)},chatNew:()=>{CH.view='new';renderChat()},chatNewGroup:()=>{CH.view='group';CH.editThread=null;renderChat()},
   chatGroupEdit:()=>{CH.view='group';CH.editThread=CH.cur;renderChat()},
@@ -2494,6 +2550,8 @@ openPerson:d=>go('person',d.id),openCompany:d=>go('company',d.id),openCampaign:d
   mergeSel:()=>mergeSheet([...S.ui.sel].slice(0,4)),merge:d=>mergeSheet(d.ids.split(',')),
   notDup:async d=>{const ids=d.ids.split(',');await putMany('people',ids.slice(1).map(id=>Object.assign(clone(D.people.get(id)),{notDup:true})));toast('Marked as not duplicates')},
   brandLogoClear:()=>{S.brandDraft=Object.assign(S.brandDraft||{},{logo:''});render()},brandReset:()=>{S.brandDraft=null;render()},
+  endSessions:async()=>{const ok=await ask({title:'Sign out everywhere else?',text:'Every other phone and browser signed in as you is signed out. This one stays signed in.',buttons:[{l:'Cancel',v:null},{l:'Sign them out',v:1,cls:'pri'}]});if(!ok)return;try{const r=await api('/api/auth?a=end-sessions',{method:'POST',body:{}});setToken(r.token);toast('Your other sessions are signed out')}catch(e){toast(e.message)}},
+  reload:()=>location.reload(),
   logout:()=>logout(),leaveApp:()=>{try{ENV.leave()}catch(e){location.replace('/')}},pwForm:()=>pwForm(),totpOn:()=>totpOn(),totpOff:()=>totpOff(),userAdd:()=>userAdd(),userMenu:d=>userMenu(d.id),userEdit:d=>userEdit(d.id),refList:d=>refListSheet(d.id,d.k),auditFull:()=>{const sc=S._auditScope;closeSheet();S.ui.au=Object.assign(S.ui.au||{},{scope:sc&&sc.title!=='Everything'?sc:null});S.audv=null;go('audit')},auditMore:()=>loadAuditView(true),auditReload:()=>{S.audv=null;render()},auditClearScope:()=>{S.ui.au.scope=null;S.audv=null;render()},
   auditRefresh:()=>{S.auditRows=null;render()},
   userPw:d=>userPw(d.id),userToggle:d=>updateUser({id:d.id,active:d.v==='1'}),userTotp:d=>updateUser({id:d.id,resetTotp:true}),
@@ -2573,6 +2631,8 @@ document.addEventListener('change',async e=>{
     if(el.value==='lead')leadForm(null,{pid:el.dataset.id,source:'Campaign'})}
   else if(c==='brandLogo'){const f=el.files&&el.files[0];if(!f)return;if(!/^image\/(png|jpeg|webp|svg\+xml)$/.test(f.type))return toast('Use a PNG, JPEG, WebP or SVG picture.');if(f.size>220*1024)return toast('That picture is over 220 KB. Use a smaller one.');
     const url=await new Promise((res,rej)=>{const fr=new FileReader();fr.onload=()=>res(String(fr.result));fr.onerror=()=>rej(fr.error);fr.readAsDataURL(f)});S.brandDraft=Object.assign(S.brandDraft||{},{logo:url});render()}
+  else if(c==='stab'){S.ui.stab=el.value;go('setup')}
+  else if(c==='deviceCopy'){if(!R().settings)return toast('Only an owner can change this.');saveConfig({deviceCopy:el.value}).then(()=>toast('Saved'))}
   else if(c==='userRole'){await updateUser({id:el.dataset.id,role:el.value})}
   else if(c==='userOwner'){await updateUser({id:el.dataset.id,owner:el.value})}
 });
@@ -2597,7 +2657,7 @@ document.addEventListener('submit',async e=>{
   const btn=f.querySelector('button[type=submit]');if(btn){if(btn.disabled)return;btn.disabled=true}
   const fd=new FormData(f);
   try{
-    if(k==='setup'||k==='login')await authSubmit(k,fd);
+    if(k==='setup'||k==='login'||k==='code'||k==='newpw')await authSubmit(k,fd);
     else if(k==='chatSend')await chatSend(fd);
     else if(k==='chatGroup'){const t=fd.get('thread');const r=await api('/api/chat?a='+(t?'groupEdit':'group'),{method:'POST',body:{thread:t,name:fd.get('gname'),members:fd.getAll('members')}});await loadThreads();CH.cur=r.thread;CH.view='thread';CH.editThread=null;renderChat();loadMsgs(true)}
     else if(k==='userAccess'){const pm={};['export','campaigns','send'].forEach(x=>pm[x]=!!fd.get('p_'+x));await updateUser({id:fd.get('id'),businesses:fd.getAll('biz'),perms:pm})}
@@ -2802,7 +2862,7 @@ async function pollNotify(){
 }
 function desktopAlert(text,link){try{if('Notification' in window&&Notification.permission==='granted'&&document.visibilityState!=='visible'){const n=new Notification(appName(),{body:text,icon:S.brand.logo||'/cf_crm/icon-192.png',tag:link||text});n.onclick=()=>{window.focus();openLink(link);n.close()}}}catch(e){}}
 function paintBell(){const due=newDue().length;const b=$('#bell-n');if(b){const n=NT.unread+due;b.textContent=n>99?'99+':n;b.hidden=!n}if(NT.open)renderNotif()}
-function openLink(link){if(!link)return;const [k,id]=String(link).split(/:(.*)/s);if(k==='lead')go('lead',id);else if(k==='company')go('company',id);else if(k==='person')go('person',id);else if(k==='chat'){openChat(id)}else if(k==='home')go('home')}
+function openLink(link){if(!link)return;const [k,id]=String(link).split(/:(.*)/s);if(k==='lead')go('lead',id);else if(k==='company')go('company',id);else if(k==='person')go('person',id);else if(k==='chat'){openChat(id)}else if(k==='home')go('home');else if(k==='followups')go('followups')}
 function renderNotif(){
   const el=$('#notif');if(!el)return;const all=myDue();const fresh=all.filter(l=>!isDueSeen(l));const t=todayISO();
   const list=NT.showSeen?all:fresh;const shown=list.slice(0,100);
@@ -2814,7 +2874,7 @@ function renderNotif(){
   ${shown.length?shown.map(dueI).join('')+(list.length>shown.length?`<div class="np-empty">${list.length-shown.length} more…</div>`:''):`<div class="np-empty">${all.length?`No new follow-ups. ${plural(all.length,'follow-up')} still due.`:'No follow-ups due.'}</div>`}
   ${all.length?`<button class="np-more" data-a="ntGoFollowups">Open Follow-ups to see all ${all.length} due ›</button>`:''}
   <div class="np-sec row" style="justify-content:space-between"><span>Activity${NT.unread?` · ${NT.unread} unread`:''}</span>${NT.unread?'<button class="linkbtn" data-a="ntAllRead">Mark all read</button>':''}</div>${NT.items.length?NT.items.map(n=>`<button class="np-i ${n.read?'':'unread'}" data-a="ntOpen" data-id="${n.id}" data-link="${esc(n.link||'')}"><span class="np-t">${esc(n.text)}</span><span class="np-d">${new Date(n.at).toLocaleString('en-IN',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})}</span></button>`).join('')+(NT.more?'<button class="np-more" data-a="ntOlder">Show older</button>':''):'<div class="np-empty">Nothing yet. You will see leads, companies and people assigned to you, comments on your leads and chat messages here.</div>'}</div>
-  ${'Notification' in window&&Notification.permission!=='granted'?`<div class="np-f"><button class="btn sm" data-a="ntDesktop">Turn on desktop alerts</button><span class="small muted">Get reminders even when this tab is in the background.</span></div>`:''}`;
+  ${'Notification' in window&&Notification.permission!=='granted'?`<div class="np-f"><button class="btn sm" data-a="ntDesktop">Turn on alerts on this device</button><span class="small muted">Follow-up reminders, assignments and messages arrive even when the app is closed.</span></div>`:''}`;
 }
 
 /* ============ chat ============ */
@@ -2876,9 +2936,9 @@ function userAdd(){
   openSheet({title:'Add a team member',form:'userAdd',body:`<div class="form">
     ${fld('Name',inp('name','',{req:true}))}${fld('Email (used to sign in)',inp('email','',{req:true,mode:'email'}))}
     ${fld('Role',selI('role',roleOpts(),'entry',null),{hint:'Define roles and what they can do in Setup → Roles.'})}
-    ${fld('Acts as owner',selI('owner',S.config.owners,'','Staff (not an owner)'),{hint:'Owners and managers see “their” people and calls.'})}
+    ${fld('Acts as owner',selI('owner',[{v:'__new__',l:'New owner name: their own name'},...S.config.owners],'','Staff (not an owner)'),{hint:'People, leads and follow-ups are assigned to owner names. A Manager sees only what is assigned to their owner name, so a Manager left as Staff gets their own.'})}
     ${(S.companies||[]).length>1?fld('Company',selI('companyId',S.companies.map(c=>({v:String(c.id),l:c.name})),String(S.me.companyId||''),null),{hint:'They sign in at this company. Every company of the network sees the same data.'}):''}
-    ${fld('Temporary password',inp('password',genPw()),{full:true,hint:'Share it with them privately. They can change it in Setup → My account. Not used if they already have a login in this company.'})}
+    ${fld('Temporary password',inp('password',genPw()),{full:true,hint:'Share it with them privately. They must choose their own password the first time they sign in. Not used if they already have a login in this company.'})}
   </div>`,foot:'<button type="button" class="btn" data-a="closeSheet">Cancel</button><button class="btn pri" type="submit">Add</button>'});
 }
 function userMenu(id){
@@ -2907,7 +2967,7 @@ function userAccess(id){
     <div class="note small">Owners always have full access. Managers only ever see people assigned to their owner name.</div></div>`,foot:'<button type="button" class="btn" data-a="closeSheet">Cancel</button><button class="btn pri" type="submit">Save access</button>'});
 }
 function userPw(id){const pw=genPw();openSheet({title:'Reset password',form:'userPw',body:`<input type="hidden" name="id" value="${esc(id)}">${fld('New temporary password',inp('password',pw),{hint:'Share it privately. Their other sessions are signed out.'})}`,foot:'<button type="button" class="btn" data-a="closeSheet">Cancel</button><button class="btn pri" type="submit">Set password</button>'})}
-function pwForm(){openSheet({title:'Change password',form:'pw',body:`<div class="form">${fld('Current password',inp('current','',{type:'password',req:true}),{full:true})}${fld('New password',inp('next','',{type:'password',req:true}),{full:true,hint:'At least 8 characters.'})}</div>`,foot:'<button type="button" class="btn" data-a="closeSheet">Cancel</button><button class="btn pri" type="submit">Change password</button>'})}
+function pwForm(){openSheet({title:'Change password',form:'pw',body:`<div class="form">${fld('Current password',inp('current','',{type:'password',req:true}),{full:true})}${fld('New password',inp('next','',{type:'password',req:true}),{full:true,hint:'At least 10 characters. Not all numbers, not a common password, not your name or email. Your other devices are signed out.'})}</div>`,foot:'<button type="button" class="btn" data-a="closeSheet">Cancel</button><button class="btn pri" type="submit">Change password</button>'})}
 async function totpOn(){
   try{const r=await api('/api/auth?a=totp-start',{method:'POST',body:{}});
     openSheet({title:'Turn on two-step sign-in',form:'totp',body:`<div class="stack"><p>Scan this with Google Authenticator, Microsoft Authenticator or any authenticator app, then enter the 6-digit code it shows.</p><img src="${r.qr}" alt="QR code for your authenticator app" width="220" height="220" style="background:#fff;padding:8px;border-radius:8px;align-self:center"><div class="small muted">Can't scan? Enter this key: <span class="code">${esc(r.secret)}</span></div>${fld('Code from the app',inp('code','',{mode:'numeric',req:true,ph:'123456'}))}</div>`,foot:'<button type="button" class="btn" data-a="closeSheet">Cancel</button><button class="btn pri" type="submit">Turn on</button>'})}
@@ -2916,17 +2976,22 @@ async function totpOn(){
 function totpOff(){openSheet({title:'Turn off two-step sign-in',form:'totpOff',body:fld('Current code from your authenticator app',inp('code','',{mode:'numeric',req:true})),foot:'<button type="button" class="btn" data-a="closeSheet">Cancel</button><button class="btn danger" type="submit">Turn off</button>'})}
 async function logout(){
   if(Q.size&&!S._forceLogout){S._forceLogout=true;return toast(`${Q.size} change(s) have not reached the server yet. Connect to the internet, or press Sign out again to discard them.`)}
+  await unsubscribePush();
   Q.clear();LS.del('queue');LS.del('queueUser');await IDB.clear();
   try{ENV.logout()}catch(e){location.replace('/')}
 }
 async function accountSubmit(k,fd){
-  if(k==='userAdd'){const r=await api('/api/users',{method:'POST',body:{name:fd.get('name'),email:fd.get('email'),role:fd.get('role'),owner:fd.get('owner'),password:fd.get('password'),companyId:fd.get('companyId')||S.me.companyId}});S.users=(S.users||[]).filter(u=>u.id!==r.user.id).concat(r.user);closeSheet();render();
+  if(k==='userAdd'){let owner=String(fd.get('owner')||'');const nm=String(fd.get('name')||'').trim();
+    // a Manager with no owner name would see nothing at all: give them their own
+    if(owner==='__new__'||(!owner&&!roleOf(String(fd.get('role'))).perms.all))owner=nm;
+    if(owner&&!S.config.owners.includes(owner))await saveConfig({owners:S.config.owners.concat(owner)});
+    const r=await api('/api/users',{method:'POST',body:{name:fd.get('name'),email:fd.get('email'),role:fd.get('role'),owner,password:fd.get('password'),companyId:fd.get('companyId')||S.me.companyId}});S.users=(S.users||[]).filter(u=>u.id!==r.user.id).concat(r.user);closeSheet();render();
     const link=location.origin+(r.loginUrl||'');
     if(r.existing){openSheet({title:'Access given',body:`<p>${esc(r.user.name||r.user.email)} already had a login. They can open the app at <b>${esc(link)}</b> with their own password.</p>`});return}
     openSheet({title:'Account created',body:`<p>Send these details to ${esc(r.user.name||r.user.email)} privately:</p><div class="msg-preview">Link: ${esc(link)}\nEmail: ${esc(r.user.email)}\nTemporary password: ${esc(fd.get('password'))}</div><div class="row" style="margin-top:10px"><button class="btn" data-a="copyText" data-v="${esc(`Link: ${link}\nEmail: ${r.user.email}\nTemporary password: ${fd.get('password')}`)}">${ic('copy')}Copy</button></div>`});return}
   if(k==='userPw'){await updateUser({id:fd.get('id'),password:fd.get('password')});toast('Password set to '+fd.get('password'));return}
-  if(k==='pw'){await api('/api/auth?a=password',{method:'POST',body:{current:fd.get('current'),next:fd.get('next')}});closeSheet();toast('Password changed');return}
-  if(k==='totp'){await api('/api/auth?a=totp-enable',{method:'POST',body:{code:fd.get('code')}});S.me.totpEnabled=true;closeSheet();render();toast('Two-step sign-in is on');return}
+  if(k==='pw'){const r=await api('/api/auth?a=password',{method:'POST',body:{current:fd.get('current'),next:fd.get('next')}});setToken(r.token);closeSheet();toast('Password changed. Your other devices are signed out.');return}
+  if(k==='totp'){const r=await api('/api/auth?a=totp-enable',{method:'POST',body:{code:fd.get('code')}});setToken(r.token);S.me.totpEnabled=true;closeSheet();render();toast('Two-step sign-in is on');return}
   if(k==='totpOff'){await api('/api/auth?a=totp-disable',{method:'POST',body:{code:fd.get('code')}});S.me.totpEnabled=false;closeSheet();render();toast('Two-step sign-in is off');return}
 }
 
@@ -2944,12 +3009,15 @@ async function openDoc(id){
 }
 
 /* ============ branding tab (owners) ============ */
+// the built-in palette (app.css), shown for any colour a customer has not set
+const LIGHT_DEFAULTS={bg:'#EFF6F9',surface:'#FFFFFF',surface2:'#E3F0F5',ink:'#0D2A33',muted:'#4A6873',line:'#D2E3EA',accent:'#08809A',accent2:'#0B97B0',accentSoft:'#D8EEF4',accentInk:'#FFFFFF',brandInk:'#0B6B80',gold:'#FFD60A',gold2:'#D9AE00',goldSoft:'#FFF5C2',goldInk:'#3D3100'};
+const DARK_DEFAULTS={bg:'#08171D',surface:'#0E2229',surface2:'#143039',ink:'#E2F0F4',muted:'#93B1BA',line:'#1E3D47',accent:'#3CC0D6',accent2:'#62D0E2',accentSoft:'#103A45',accentInk:'#04191F',brandInk:'#6FD3E3',gold:'#FFD60A',gold2:'#E3B800',goldSoft:'#3A3209',goldInk:'#FFE873'};
 const BRAND_FIELDS=[['accent','Main colour','Buttons, links, the selected menu item'],['accent2','Main colour, lighter','Hover and highlights'],['accentSoft','Main colour, pale','Selected backgrounds'],['accentInk','Text on the main colour',''],['brandInk','Wordmark and headings',''],['gold','Second colour','The quick-add button and badges'],['gold2','Second colour, deeper','Markers and borders'],['goldSoft','Second colour, pale','Picked filters'],['goldInk','Text on the second colour',''],['bg','Page background',''],['surface','Panels',''],['surface2','Panels, shaded',''],['ink','Text',''],['muted','Quiet text',''],['line','Lines and borders','']];
 const cssVar=(name)=>getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 function brandingTab(){
   const b=S.brand||{};const w=b.wordmark||{};const draft=S.brandDraft||(S.brandDraft={logo:b.logo||''});
-  const colorRow=(set,k,label,hint)=>{const cur=((b[set]||{})[k])||(set==='colors'?cssVar(BRAND_VARS[k]):'')||'#000000';const val=/^#[0-9a-fA-F]{6}$/.test(cur)?cur:'#000000';const isSet=!!((b[set]||{})[k]);
-    return `<label class="field"><span>${esc(label)}</span><span class="row" style="gap:8px;flex-wrap:nowrap"><input type="color" name="${set}_${k}" value="${esc(val)}" style="width:44px;height:32px;padding:0;border:1px solid var(--line);border-radius:6px;background:none"><span class="small muted num">${esc(val.toUpperCase())}${set==='dark'&&!isSet?' (default)':''}</span></span>${hint?`<span class="hint">${esc(hint)}</span>`:''}</label>`};
+  const colorRow=(set,k,label,hint)=>{const cur=((b[set]||{})[k])||(set==='colors'?LIGHT_DEFAULTS:DARK_DEFAULTS)[k]||'#000000';const val=/^#[0-9a-fA-F]{6}$/.test(cur)?cur:'#000000';const isSet=!!((b[set]||{})[k]);
+    return `<label class="field"><span>${esc(label)}</span><span class="row" style="gap:8px;flex-wrap:nowrap"><input type="color" name="${set}_${k}" value="${esc(val)}" style="width:44px;height:32px;padding:0;border:1px solid var(--line);border-radius:6px;background:none"><span class="small muted num">${esc(val.toUpperCase())}${!isSet?' (default)':''}</span></span>${hint?`<span class="hint">${esc(hint)}</span>`:''}</label>`};
   return `<form data-f="brandForm" class="stack">
     <div class="grid g2">${panel('Name and logo',`<div class="form">
       ${fld('App name',inp('appName',b.appName||'',{ph:'e.g. NorthEast Network'}),{full:true,hint:'Shown in the browser tab and on alerts.'})}
@@ -2968,12 +3036,29 @@ function brandingTab(){
 async function saveBrandForm(fd){
   const b=S.brand||{};const pick=set=>{const o={};BRAND_FIELDS.forEach(([k])=>{const v=String(fd.get(set+'_'+k)||'').toUpperCase();const was=((b[set]||{})[k]||'').toUpperCase();
     // a dark colour nobody chose stays unset unless it was changed here
-    if(set==='dark'&&!was){const def=cssVar(BRAND_VARS[k]).toUpperCase();if(!v||v===def||v==='#000000')return}
+    if(!was){const def=((set==='colors'?LIGHT_DEFAULTS:DARK_DEFAULTS)[k]||'').toUpperCase();if(!v||v===def)return}
     if(/^#[0-9A-F]{6}$/.test(v))o[k]=v});return o};
   const next={appName:String(fd.get('appName')||'').trim(),shortName:String(fd.get('shortName')||'').trim(),wordmark:{a:String(fd.get('wa')||'').trim(),b:String(fd.get('wb')||'').trim(),sub:String(fd.get('wsub')||'').trim()},colors:pick('colors'),dark:Object.assign({},b.dark||{},pick('dark'))};
   const logo=(S.brandDraft&&S.brandDraft.logo)||'';if(logo)next.logo=logo;
   const r=await api('/api/brand',{method:'PUT',body:{brand:next}});S.brandDraft=null;applyBrand(r.brand);saveSnapshot();render();toast('Branding saved');
 }
+
+/* ============ push: alerts when the app is closed ============ */
+// The service worker is registered by the platform page (crm-sw.js, scope /);
+// this page only subscribes it, so the server can send this device a push.
+const b64u=s=>{const p='='.repeat((4-s.length%4)%4);const b=atob((s+p).replace(/-/g,'+').replace(/_/g,'/'));return Uint8Array.from(b,c=>c.charCodeAt(0))};
+async function subscribePush(){
+  try{
+    if(!('serviceWorker' in navigator)||!('PushManager' in window)||Notification.permission!=='granted')return false;
+    const reg=await navigator.serviceWorker.getRegistration('/');if(!reg)return false;
+    const {key}=await api('/api/push/key');if(!key)return false;
+    let sub=await reg.pushManager.getSubscription();
+    if(!sub)sub=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:b64u(key)});
+    await api('/api/push/subscribe',{method:'POST',body:{subscription:sub.toJSON()}});
+    return true;
+  }catch(e){console.warn('push',e);return false}
+}
+async function unsubscribePush(){try{const reg=await navigator.serviceWorker.getRegistration('/');const sub=reg&&await reg.pushManager.getSubscription();if(sub)await api('/api/push/unsubscribe',{method:'POST',body:{endpoint:sub.endpoint}})}catch(e){}}
 
 /* ============ voice notes ============ */
 let rec=null;
@@ -2992,12 +3077,14 @@ function showAuth(mode,msg){
   S.authMode=mode;document.body.classList.add('auth-on');
   const root=$('#auth');root.hidden=false;
   const head=`<div style="padding:0 0 18px">${brandHTML()}</div>`;
+  if(mode==='code'){root.innerHTML=`<form class="auth-card" data-f="code">${head}<h1>Two-step sign-in</h1><p class="muted">Enter the 6-digit code from your authenticator app.</p>${fld('Code',inp('code','',{mode:'numeric',req:true,ph:'123456'}))}<div class="auth-msg" id="auth-msg">${esc(msg||'')}</div><button class="btn pri" type="submit">Continue</button><button type="button" class="btn ghost" data-a="logout">Sign out</button><p class="small muted">Lost your phone? Ask an owner to reset your two-step sign-in in Setup → Owners & team.</p></form>`;const f=root.querySelector('input');if(f)setTimeout(()=>f.focus(),30);return}
+  if(mode==='newpw'){root.innerHTML=`<form class="auth-card" data-f="newpw">${head}<h1>Choose your own password</h1><p class="muted">Your password was set for you. Choose a new one before you continue. It signs you out on every other device.</p>${fld('Current password',inp('current','',{type:'password',req:true}))}${fld('New password',inp('next','',{type:'password',req:true}),{hint:'At least 10 characters. Not all numbers, not a common password, not your name or email.'})}${fld('New password again',inp('again','',{type:'password',req:true}))}<div class="auth-msg" id="auth-msg">${esc(msg||'')}</div><button class="btn pri" type="submit">Save and continue</button><button type="button" class="btn ghost" data-a="logout">Sign out</button></form>`;const f=root.querySelector('input');if(f)setTimeout(()=>f.focus(),30);return}
   if(mode==='login'){root.hidden=true;document.body.classList.remove('auth-on');authLost();return}
   if(mode==='blocked'){root.innerHTML=`<div class="auth-card">${head}<h1>Can't open this app</h1><p class="muted">${esc(msg||'You do not have access.')}</p><button class="btn pri" data-a="leaveApp">Back to my apps</button></div>`;return}
   if(mode==='setup')root.innerHTML=`<form class="auth-card" data-f="setup">${head}<h1>Set up NorthEast Network</h1><p class="muted">Create the first owner account. You can add the other owners and staff after signing in.</p>
     ${fld('Your name',inp('name','',{req:true,ph:'e.g. Shaurya'}))}${fld('Your name as one of the three owners',inp('owner','',{ph:'Shown on records and follow-ups'}))}${fld('Email',inp('email','',{req:true,mode:'email'}))}${fld('Password',inp('password','',{type:'password',req:true}),{hint:'At least 8 characters.'})}
     <div class="auth-msg" id="auth-msg">${esc(msg||'')}</div><button class="btn pri" type="submit">Create owner account</button></form>`;
-  else if(mode==='offline')root.innerHTML=`<div class="auth-card">${head}<h1>You're offline</h1><p class="muted">Connect to the internet to sign in. Once signed in on this device, the app also opens offline.</p><button class="btn pri" onclick="location.reload()">Try again</button></div>`;
+  else if(mode==='offline')root.innerHTML=`<div class="auth-card">${head}<h1>You're offline</h1><p class="muted">Connect to the internet to sign in. Once signed in on this device, the app also opens offline.</p><button class="btn pri" data-a="reload">Try again</button></div>`;
   else root.innerHTML=`<form class="auth-card" data-f="login">${head}<h1>Sign in</h1>
     ${fld('Email',inp('email',S._lastEmail||'',{req:true,mode:'email'}))}${fld('Password',inp('password','',{type:'password',req:true}))}
     <div id="code-wrap" ${S._needCode?'':'hidden'}>${fld('6-digit code from your authenticator app',inp('code','',{mode:'numeric',ph:'123456'}))}</div>
@@ -3008,6 +3095,8 @@ function hideAuth(){document.body.classList.remove('auth-on');$('#auth').hidden=
 async function authSubmit(k,fd){
   const msg=$('#auth-msg');
   try{
+    if(k==='code'){const r=await api('/api/auth?a=totp-verify',{method:'POST',body:{code:fd.get('code')}});setToken(r.token);hideAuth();return boot()}
+    if(k==='newpw'){if(fd.get('next')!==fd.get('again')){msg.textContent='The two new passwords are not the same.';return}const r=await api('/api/auth?a=password',{method:'POST',body:{current:fd.get('current'),next:fd.get('next')}});setToken(r.token);hideAuth();toast('Password changed. Other devices are signed out.');return boot()}
     if(k==='setup'){const r=await api('/api/auth?a=setup',{method:'POST',body:{name:fd.get('name'),owner:fd.get('owner'),email:fd.get('email'),password:fd.get('password')}});return startSession(r.user)}
     S._lastEmail=fd.get('email');
     const r=await api('/api/auth?a=login',{method:'POST',body:{email:fd.get('email'),password:fd.get('password'),code:fd.get('code')||''}});
@@ -3022,7 +3111,9 @@ async function startSession(user){
   const qUser=LS.get('queueUser',null);if(qUser&&qUser!==user.id&&Q.size){Q.clear();saveQ()}LS.set('queueUser',user.id);
   const prev=await IDB.get('snap');
   applyMe(user);hideAuth();
-  if(prev&&prev.v===2&&prev.me&&prev.me.id===user.id&&prev.me.role===user.role&&prev.me.owner===user.owner&&String(prev.me.businesses||[])===String(user.businesses||[])){
+  const prevAllowed=prev&&prev.config&&(prev.config.deviceCopy==='all'||(prev.config.deviceCopy==='owners'&&user.role==='admin'));
+  if(prev&&!prevAllowed)IDB.clear();
+  if(prev&&prevAllowed&&prev.v===3&&prev.me&&prev.me.id===user.id&&prev.me.role===user.role&&prev.me.owner===user.owner&&String(prev.me.businesses||[])===String(user.businesses||[])){
     TYPES.forEach(t=>D[t]=new Map((prev.data[t]||[]).map(r=>[r.id,r])));S.config=Object.assign(clone(DEFAULT_CONFIG),prev.config||{});S.cursor=prev.cursor;
     for(const o of Q.values()){if(!D[o.t])continue;if(o.x)D[o.t].delete(o.i);else D[o.t].set(o.i,o.d)}
     S.ready=true;derive();render();armBack();pull(false);
@@ -3030,6 +3121,9 @@ async function startSession(user){
     S.ready=true;S.loading=true;render();armBack();await pull(true);S.loading=false;
   }
   flush();
+  // the platform page passes a link from a tapped alert; later taps arrive through openLinkHandler
+  try{ENV.openLinkHandler=openLink;if(ENV.initialLink){const l=ENV.initialLink;ENV.initialLink=null;setTimeout(()=>openLink(l),400)}}catch(e){}
+  if('Notification' in window&&Notification.permission==='granted')subscribePush();
   clearInterval(pollTimer);pollTimer=setInterval(()=>{if(S.authed){if(document.visibilityState==='visible')pull(false);if(Q.size)flush();pollNotify();loadThreads()}},20000);
   pollNotify();loadThreads();
 }
@@ -3040,11 +3134,15 @@ async function boot(){
   let me;
   try{me=await api('/api/auth?a=me')}
   catch(e){
-    if(e.code==='offline'){const snap=await IDB.get('snap');if(snap&&snap.me){if(snap.brand)applyBrand(snap.brand,snap.customer);applyMe(snap.me);S.authed=true;TYPES.forEach(t=>D[t]=new Map((snap.data[t]||[]).map(r=>[r.id,r])));for(const o of Q.values()){if(!D[o.t])continue;if(o.x)D[o.t].delete(o.i);else D[o.t].set(o.i,o.d)}S.config=Object.assign(clone(DEFAULT_CONFIG),snap.config||{});S.cursor=snap.cursor;S.ready=true;derive();render();setOffline(true);return}return showAuth('offline')}
+    if(e.code==='offline'){const snap=await IDB.get('snap');if(snap&&snap.v===3&&snap.me){if(snap.brand)applyBrand(snap.brand,snap.customer);applyMe(snap.me);S.authed=true;TYPES.forEach(t=>D[t]=new Map((snap.data[t]||[]).map(r=>[r.id,r])));for(const o of Q.values()){if(!D[o.t])continue;if(o.x)D[o.t].delete(o.i);else D[o.t].set(o.i,o.d)}S.config=Object.assign(clone(DEFAULT_CONFIG),snap.config||{});S.cursor=snap.cursor;S.ready=true;derive();render();setOffline(true);return}return showAuth('offline')}
     if(e.status===401)return; // the platform page is taking them to sign in
+    // signed in at the other company of the same network: open it there instead
+    if(e.status===403&&/not belong to this company/i.test(e.message)){try{if(await ENV.toOwnCompany())return}catch(x){}return showAuth('blocked','You are signed in to a different company. Sign out and sign in again here, or go back to your own apps.')}
     return showAuth('blocked',e.status>=500||!e.status?'The server could not be reached. Try again in a moment.':e.message);
   }
   applyBrand(me.brand,me.customer);
+  if(me.needCode)return showAuth('code');
+  if(me.mustChangePassword){S._pwUser=me.user;return showAuth('newpw')}
   startSession(me.user);
 }
 boot();

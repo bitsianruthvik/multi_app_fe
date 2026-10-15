@@ -3,6 +3,11 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<!-- No script runs on this page except app.js and the pinned Excel library: an injected
+     <script>, inline handler or javascript: link is refused, so a value that slipped past
+     escaping cannot read the sign-in token. connect-src lists the API hosts: production,
+     local dev (4000) and the second local dev pair (4100). A new API host must be added here. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https://multi-app-be-svpc.onrender.com http://localhost:4000 http://api.localhost:4100; object-src 'self' blob:; base-uri 'none'; form-action 'none'; worker-src 'none'; frame-src 'none'">
 <title>CF CRM</title>
 <meta name="robots" content="noindex,nofollow">
 <meta name="format-detection" content="telephone=no">
@@ -44,7 +49,7 @@
 <div id="chat" class="chat" hidden></div>
 <div id="sheet-root"></div>
 <div id="toast" class="toast" hidden></div>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" integrity="sha512-r22gChDnGvBylk90+2e/ycr3RVrDi8DIOkIGNhJlKfuyQM4tIRAI062MaV8sfjQKYVGjOBaZBOA87z+IhZE9DA==" crossorigin="anonymous" referrerpolicy="no-referrer" defer></script>
 <script src="/cf_crm/app.js" defer></script>
 </body>
 </html>
