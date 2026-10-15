@@ -47,13 +47,24 @@ const QUICK_CREATE = [
  * gated on the same tags — two lists that disagree about what you can create is
  * worse than one list in two places.
  */
-const PALETTE_ACTIONS: PaletteAction[] = QUICK_CREATE.map((q) => ({
-  id: `new-${q.path.split('?')[0]}`,
-  label: `New ${q.label.toLowerCase()}`,
-  hint: 'Create',
-  path: q.path,
-  permission: q.permission,
-}));
+const PALETTE_ACTIONS: PaletteAction[] = [
+  ...QUICK_CREATE.map((q) => ({
+    id: `new-${q.path.split('?')[0]}`,
+    label: `New ${q.label.toLowerCase()}`,
+    hint: 'Create',
+    path: q.path,
+    permission: q.permission,
+  })),
+  // "Do it in words" (spec §14): the command bar on the org chart, opened and focused.
+  // Gated on positions edit — the right most of its actions need; each step is checked on its own anyway.
+  {
+    id: 'do-in-words',
+    label: 'Do it in words',
+    hint: 'Add sections, roles, positions, KRAs — or move people — by describing it',
+    path: 'org-chart?words=1',
+    permission: TAG.positions.edit,
+  },
+];
 
 const RECORD_ICON = (type: string) => {
   if (type === 'employee') return <PersonRounded fontSize="small" />;
@@ -115,7 +126,7 @@ export function CfHrmsShell({ children }: { children: ReactNode }) {
   const searchRecords = useCallback(async (q: string): Promise<PaletteRecord[]> => {
     const [people, content] = await Promise.allSettled([
       peopleApi.list({ search: q }),
-      orgChartApi.search(q),
+      orgChartApi.search(q, { mode: 'exact' }),
     ]);
 
     const out: PaletteRecord[] = [];
@@ -134,7 +145,7 @@ export function CfHrmsShell({ children }: { children: ReactNode }) {
     }
 
     if (content.status === 'fulfilled') {
-      for (const hit of content.value.slice(0, 6)) {
+      for (const hit of content.value.items.slice(0, 6)) {
         const first = hit.matches[0];
         out.push({
           id: `pos-${hit.positionId}`,

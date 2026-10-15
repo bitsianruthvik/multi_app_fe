@@ -5,6 +5,7 @@ import ArrowBackRounded from '@mui/icons-material/ArrowBackRounded';
 import ImageRounded from '@mui/icons-material/ImageRounded';
 import PictureAsPdfRounded from '@mui/icons-material/PictureAsPdfRounded';
 import SearchRounded from '@mui/icons-material/SearchRounded';
+import AutoFixHighRounded from '@mui/icons-material/AutoFixHighRounded';
 import {
   ChartSkeleton,
   EmptyState,
@@ -53,6 +54,8 @@ import {
 } from '../components/OrgChartFloatingPanel';
 import { useFullscreen } from '../components/useFullscreen';
 import { OrgChartSearch } from '../components/OrgChartSearch';
+import { CommandBar } from '../components/CommandBar';
+import { useCan } from '../access/can';
 import { exportPdf, exportPng } from '../components/OrgChartExport';
 
 /**
@@ -95,6 +98,11 @@ export default function OrgChart() {
   const theme = useTheme();
   const toast = useToast();
   const [params, setParams] = useSearchParams();
+  const can = useCan();
+  const mayDoInWords = can.org.edit || can.roles.edit || can.positions.edit;
+  // "Do it in words" (spec §14): open from the button, or from ⌘K (…/org-chart?words=1).
+  const [wordsOpen, setWordsOpen] = useState(() => params.get('words') === '1');
+  const [openAfterLoad, setOpenAfterLoad] = useState<number | null>(null);
 
   const key = (suffix: string) => prefKey(company, suffix);
 
@@ -585,6 +593,25 @@ export default function OrgChart() {
     [model, reveal, openCard],
   );
 
+  // After "Do it in words" made a position: once the redrawn chart has it, open it.
+  useEffect(() => {
+    if (openAfterLoad == null || !model || !model.cardOf.has(openAfterLoad)) return;
+    const id = openAfterLoad;
+    const t = setTimeout(() => {
+      setOpenAfterLoad(null);
+      openPosition(id);
+    }, 0);
+    return () => clearTimeout(t);
+  }, [model, openAfterLoad, openPosition]);
+
+  // ?words=1 (from ⌘K) has done its job once the bar is open; keep the address clean.
+  useEffect(() => {
+    if (params.get('words') !== '1') return;
+    const next = new URLSearchParams(params);
+    next.delete('words');
+    setParams(next, { replace: true });
+  }, [params, setParams]);
+
   const closePanel = useCallback(() => {
     setViews([]);
     // Hand the keyboard back to the card the panel described, so Esc in the
@@ -658,8 +685,19 @@ export default function OrgChart() {
         actions={
           <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
             <Button size="small" startIcon={<SearchRounded />} onClick={() => setSearchOpen(true)}>
-              Search KRAs
+              Search job content
             </Button>
+            {mayDoInWords && (
+              <Button
+                size="small"
+                startIcon={<AutoFixHighRounded />}
+                variant={wordsOpen ? 'contained' : 'text'}
+                onClick={() => setWordsOpen((v) => !v)}
+                aria-expanded={wordsOpen}
+              >
+                Do it in words
+              </Button>
+            )}
             <Button
               size="small"
               variant="outlined"
@@ -681,6 +719,18 @@ export default function OrgChart() {
           </Stack>
         }
       />
+
+      {mayDoInWords && wordsOpen && !isFull && (
+        <CommandBar
+          autoFocus
+          onApplied={(r) => {
+            // Redraw the chart, then open what was made so it is in view.
+            const made = r.created.find((c) => c.kind === 'position') ?? r.created.find((c) => c.positionId);
+            setOpenAfterLoad(made ? Number(made.kind === 'position' ? made.id : made.positionId) : null);
+            load(true);
+          }}
+        />
+      )}
 
       {!!error && <ErrorNotice error={error} onRetry={() => load()} />}
 

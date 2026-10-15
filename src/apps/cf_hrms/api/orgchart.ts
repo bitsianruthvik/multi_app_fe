@@ -314,11 +314,38 @@ export interface PositionCard {
   openPoints: OpenPoint[];
 }
 
+/** The content kinds a search can be limited to. */
+export type SearchKind = 'KRA' | 'RESPONSIBILITY' | 'KPI';
+
+export interface SearchMatch {
+  kind: string;
+  definitionId: number;
+  text: string;
+  /** 0–1: how well this line answers the question. */
+  score: number;
+  /** ROLE: the role's own line. POSITION: added or reworded for this position. */
+  origin: 'ROLE' | 'POSITION';
+}
+
 export interface SearchHit {
   positionId: number;
+  cardId: number;
   positionCode: string | null;
   title: string;
-  matches: { kind: string; text: string }[];
+  /** The best match's score. */
+  score: number;
+  matches: SearchMatch[];
+  matchCount: number;
+}
+
+export interface SearchResult {
+  /** keyword: meaning was asked for but the model was not available, so exact words were used. */
+  mode: 'meaning' | 'exact' | 'keyword';
+  notice: string | null;
+  kinds: string[];
+  pending: number;
+  total: number;
+  items: SearchHit[];
 }
 
 function qs(params: Record<string, string | number | undefined | null>): string {
@@ -338,7 +365,12 @@ export const orgChartApi = {
   card: (positionId: number, on?: string) =>
     api.get<PositionCard>(`/orgchart/positions/${positionId}/card${qs({ on })}`),
 
-  /** Multi-word AND across responsibility, KRA, KPI and qualification text. */
-  search: (q: string, on?: string) =>
-    api.get<SearchHit[]>(`/orgchart/search${qs({ q, on })}`),
+  /**
+   * Job content search, answering with positions. `mode` meaning (default) ranks
+   * lines by what they mean; exact needs every word to appear.
+   */
+  search: (q: string, opts: { on?: string; kinds?: SearchKind[]; mode?: 'meaning' | 'exact' } = {}) =>
+    api.get<SearchResult>(
+      `/orgchart/search${qs({ q, on: opts.on, kinds: opts.kinds?.join(','), mode: opts.mode })}`,
+    ),
 };
