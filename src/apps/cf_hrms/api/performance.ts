@@ -21,6 +21,12 @@ export type PlanStatus = 'DRAFT' | 'ACTIVE' | 'CLOSED' | 'CANCELLED';
 export type Direction = 'HIGHER_BETTER' | 'LOWER_BETTER' | 'EXACT' | 'TEXT';
 /** "From the job" / "Changed for this period" / "Added for this period". */
 export type Mark = 'FROM_JOB' | 'CHANGED' | 'ADDED';
+/** How a KPI's slots make one actual (spec §19.1). */
+export type CombineRule = 'SUM' | 'AVERAGE' | 'LAST';
+/** A status band: on track / at risk / behind / no data. */
+export type Band = 'ON_TRACK' | 'AT_RISK' | 'BEHIND' | 'NO_DATA';
+export interface Bands { onTrack: number; atRisk: number }
+export interface BasedOn { counted: number; total: number }
 
 export interface Option<T extends string = string> { value: T; label: string }
 
@@ -34,6 +40,8 @@ export interface RoleFrequency {
 }
 export interface PerformanceSettings {
   yearStartMonth: number; yearStartMonthName: string; defaultFrequency: Frequency; ratingScale: RatingStep[]; saved: boolean;
+  /** The achievement a plan needs to be "on track" / "at risk"; below that it is "behind". */
+  bands: Bands; bandWords: Record<Band, string>;
   frequencies: Option<Frequency>[]; roles: RoleFrequency[];
 }
 
@@ -87,9 +95,26 @@ export interface PlanRow {
   kraCount: number; kpiCount: number; noKpis: boolean;
   weightsOk: boolean; weightTotal: number; weightsSet: boolean;
   activatedAt: string | null; cancelledAt: string | null; cancelReason: string | null;
+  /** The plan's score (spec §19.1): null until an actual is in. */
+  score: number | null; band: Band; bandLabel: string; basedOn: BasedOn;
+  /** "Based on 4 of 6 KPIs." / "No actuals yet." */ scoreLine: string | null;
 }
 export interface PlanList { items: PlanRow[]; total?: number; count?: number }
 
+/** One actual, as entered. Never overwritten: a correction is a new one (`corrected`, with its `reason`). */
+export interface Actual {
+  id: number; value: number | null; valueText: string | null; met: 'YES' | 'NO' | null; note: string | null;
+  source: 'MANUAL' | 'EXCEL' | 'SYSTEM' | 'FORMULA'; by: string | null; at: string; corrected: boolean; reason: string | null;
+}
+export interface Slot { start: string; end: string; name: string; open: boolean; actual: Actual | null }
+/** A KPI's actuals on the plan page: its slots, the combined actual, the achievement and band. */
+export interface KpiActuals {
+  combine: CombineRule; combineLabel: string;
+  slots: Slot[];
+  /** A number, or for words "2 of 3 met" / "YES" / "NO". */ combined: number | string | null;
+  /** The target the combined actual is held to (a SUM target taken pro rata). */ combinedTarget: number | null;
+  achievement: number | null; band: Band; bandLabel: string; counted: number; slotCount: number;
+}
 export interface TargetChange { id: number; effectiveFrom: string; reason: string; by: string | null; at: string; from: string; to: string }
 export interface PlanKpi {
   id: number; planKraId: number | null; name: string; lineKey: string | null;
@@ -97,29 +122,36 @@ export interface PlanKpi {
   /** "at least 95%", "at most 30 minutes", or the words. */ target: string;
   /** How often actuals are entered; null = the plan's frequency. */ frequency: string | null;
   weightPercent: number | null;
+  combine: CombineRule;
   mark: Mark; markLabel: string;
   /** What the job says (null for one added for this period). `target` is the job's own words ("95%", "Max 30 minutes"). */
   job: { direction: Direction; targetNumber: number | null; targetText: string | null; unit: string | null; weightPercent: number | null; written: string | null; target: string } | null;
   targetChanges: TargetChange[];
+  actuals: KpiActuals;
 }
 export interface PlanKra {
   id: number; name: string; lineKey: string | null; weightPercent: number | null; jobWeightPercent: number | null; mark: Mark; kpis: PlanKpi[];
+  score: number | null; band: Band; basedOn: BasedOn;
 }
 export interface Plan {
   plan: PlanRow & {
     manager: { positionId: number; positionCode: string | null; positionTitle: string | null; name: string | null } | null;
     weights: { anySet: boolean; total: number; ok: boolean; problems: string[] };
-    /** What THIS login may do here. */ can: { edit: boolean; activate: boolean; cancel: boolean; changeTarget: boolean };
+    /** What THIS login may do here. */ can: { edit: boolean; activate: boolean; cancel: boolean; changeTarget: boolean; enterActuals: boolean };
+    /** Why this plan takes no actuals now (a draft, closed, cancelled), or null. */ actualsLine: string | null;
   };
   kras: PlanKra[];
   ungroupedKpis: PlanKpi[];
+  ungroupedScore: { score: number | null; band: Band; basedOn: BasedOn } | null;
+  bands: Bands;
+  combineRules: Option<CombineRule>[];
   marks: Record<Mark, string>;
   directions: Option<Direction>[];
   entryFrequencies: string[];
 }
 export interface KpiInput {
   planKraId?: number | null; name?: string; direction?: Direction; targetNumber?: number | null; targetText?: string | null;
-  unit?: string | null; frequency?: string | null; weightPercent?: number | null;
+  unit?: string | null; frequency?: string | null; weightPercent?: number | null; combine?: CombineRule;
 }
 export interface TargetChangeInput { direction?: Direction; targetNumber?: number | null; targetText?: string | null; unit?: string | null; effectiveFrom?: string; reason: string }
 export interface BulkResult { done: number; doneIds: number[]; refused: { id: number; code: string; message: string; problems: string[] }[] }
@@ -128,6 +160,49 @@ export interface EmployeePlans { current: PlanRow[]; past: PlanRow[]; upcoming: 
 export interface MyPlans {
   linked: boolean; line: string | null; plans: Plan[];
   past: { id: number; period: PlanRow['period']; status: PlanStatus; kraCount: number; kpiCount: number }[];
+}
+
+/* ── actuals (spec §19) ───────────────────────────────────────────────── */
+
+export interface ActualRow {
+  key: string; planId: number; kpiId: number; slotStart: string; slotEnd: string; slotName: string; slotIndex: number;
+  periodId: number; periodName: string; planStatus: PlanStatus;
+  employeeId: number; employeeName: string; employeeCode: string | null;
+  positionId: number | null; positionCode: string | null; positionTitle: string | null;
+  roleId: number | null; roleTitle: string | null; departmentId: number | null; departmentName: string | null; managerPositionId: number | null;
+  kraName: string | null; kpiName: string; unit: string | null; direction: Direction;
+  targetNumber: number | null; targetText: string | null; target: string;
+  actual: Actual | null;
+  /** This slot's actual on its own. */ achievement: number | null; band: Band; bandLabel: string;
+  canEnter: boolean; /** Why not, when it cannot be entered. */ locked: string | null;
+}
+export interface ActualsPeriod { id: number; name: string; frequency: Frequency; start: string; end: string; status: 'OPEN' | 'CLOSED'; plans?: number; current?: boolean }
+export interface ActualsGrid {
+  period: ActualsPeriod | null;
+  periods: ActualsPeriod[];
+  slots: { key: string; start: string; end: string; name: string; whole: boolean; open: boolean; rows: number }[];
+  /** The slot shown: its key ("start|end"), or 'all'. */ slot: string | null;
+  rows: ActualRow[];
+  total?: number; count?: number;
+  counts: { rows?: number; entered?: number; drafts: number };
+  managers: { id: number; code: string | null; title: string | null }[];
+  roles: { id: number; title: string }[];
+  bands: Bands; bandWords: Record<Band, string>;
+  line: string | null;
+  /** Manager login: how many people are below them. */ people?: number;
+}
+export interface ActualInput { planId: number; kpiId: number; slotStart: string; value?: number | null; met?: 'YES' | 'NO' | null; note?: string | null; reason?: string }
+export interface ActualSaved {
+  action: 'ENTERED' | 'CORRECTED' | 'NOTE' | 'UNCHANGED';
+  actual: Actual | null; achievement: number | null; band: Band; bandLabel: string;
+  kpi: KpiActuals | null;
+  plan: { id: number; score: number | null; band: Band; bandLabel: string; basedOn: BasedOn; scoreLine: string | null };
+}
+export interface ActualHistoryRow extends Actual { slotStart: string; slotEnd: string; live: boolean; replacedAt: string | null; replacedBy: string | null }
+export interface ActualHistory { kpi: { id: number; name: string; unit: string | null; direction: Direction }; rows: ActualHistoryRow[] }
+export interface ChartBands {
+  periods: ActualsPeriod[]; periodId: number | null; bandWords: Record<Band, string>;
+  people: { employeeId: number; positionId: number | null; planId: number; periodName: string; score: number | null; band: Band; bandLabel: string; basedOn: BasedOn }[];
 }
 
 const q = (params: Record<string, string | number | null | undefined>) => {
@@ -140,7 +215,7 @@ const q = (params: Record<string, string | number | null | undefined>) => {
 /** HR routes (`/performance/…`). */
 export const performanceApi = {
   settings: () => api.get<PerformanceSettings>('/performance/settings'),
-  saveSettings: (body: { yearStartMonth?: number; defaultFrequency?: Frequency; ratingScale?: (string | RatingStep)[] }) =>
+  saveSettings: (body: { yearStartMonth?: number; defaultFrequency?: Frequency; ratingScale?: (string | RatingStep)[]; bands?: Bands }) =>
     api.put<PerformanceSettings>('/performance/settings', body),
   setRoleFrequencies: (roleIds: number[], frequency: Frequency | null) =>
     api.put<PerformanceSettings & { changed: number }>('/performance/role-frequencies', { roleIds, frequency }),
@@ -167,6 +242,12 @@ export const performanceApi = {
   changeTarget: (id: number, kpiId: number, body: TargetChangeInput) => api.post<{ ok: true; effectiveFrom: string }>(`/performance/plans/${id}/kpis/${kpiId}/target`, body),
 
   employeePlans: (employeeId: number) => api.get<EmployeePlans>(`/performance/employees/${employeeId}/plans`),
+
+  /** `search`: the address's own query string, e.g. "?periodId=3&slot=all&department=7". */
+  actuals: (search: string) => api.get<ActualsGrid>(`/performance/actuals${search && !search.startsWith('?') ? `?${search}` : search}`),
+  enterActual: (body: ActualInput) => api.put<ActualSaved>('/performance/actuals', body),
+  actualHistory: (planId: number, kpiId: number) => api.get<ActualHistory>(`/performance/plans/${planId}/kpis/${kpiId}/actuals`),
+  bands: (periodId?: number | null) => api.get<ChartBands>(`/performance/bands${q({ periodId })}`),
 };
 
 /**
@@ -181,4 +262,10 @@ export const teamPlanApi = {
   addKpi: (id: number, body: KpiInput) => api.post<{ ok: true; id: number }>(`/user/me/team/plans/${id}/kpis`, body),
   changeKpi: (id: number, kpiId: number, body: KpiInput) => api.put<{ ok: true; changedFromJob: boolean }>(`/user/me/team/plans/${id}/kpis/${kpiId}`, body),
   removeKpi: (id: number, kpiId: number) => api.del<{ ok: true }>(`/user/me/team/plans/${id}/kpis/${kpiId}`),
+  /** Actuals for the people below me (spec §19.2) — the same grid and writer as HR's. */
+  actuals: (search: string) => api.get<ActualsGrid>(`/user/me/team/actuals${search && !search.startsWith('?') ? `?${search}` : search}`),
+  enterActual: (body: ActualInput) => api.put<ActualSaved>('/user/me/team/actuals', body),
+  actualHistory: (planId: number, kpiId: number) => api.get<ActualHistory>(`/user/me/team/plans/${planId}/kpis/${kpiId}/actuals`),
+  /** A KPI's actuals on one of MY plans. */
+  myActualHistory: (planId: number, kpiId: number) => api.get<ActualHistory>(`/user/me/plan/${planId}/kpis/${kpiId}/actuals`),
 };

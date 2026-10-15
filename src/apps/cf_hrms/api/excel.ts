@@ -18,7 +18,8 @@ export type ExcelEntity =
   | 'library-kpis'
   | 'library-skills'
   | 'library-qualifications'
-  | 'library-authorities';
+  | 'library-authorities'
+  | 'actuals';
 
 export interface ExcelFile {
   fileName: string;

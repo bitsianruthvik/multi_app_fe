@@ -24,9 +24,10 @@ import {
 } from '@shared/ui';
 import {
   performanceApi, teamPlanApi,
-  type KpiInput, type Plan, type PlanKpi, type PlanKra, type TargetChangeInput,
+  type ActualHistory, type ActualInput as ActualBody, type KpiInput, type Plan, type PlanKpi, type PlanKra, type TargetChangeInput,
 } from '../api/performance';
 import { KpiRow, PlanStatusBadge } from '../components/performance/PlanParts';
+import { KpiActualsBlock, ScoreLine, type ActualCellValue } from '../components/performance/ActualParts';
 import { KpiFormDialog, TargetChangeDialog } from '../components/performance/KpiDialogs';
 import { periodDates, weightWord } from '../components/performance/planWords';
 import { longDay } from '../components/jobDates';
@@ -43,6 +44,9 @@ interface PlanSource {
   activate?: (id: number) => Promise<unknown>;
   cancel?: (id: number, reason?: string) => Promise<unknown>;
   changeTarget?: (id: number, kpiId: number, body: TargetChangeInput) => Promise<unknown>;
+  /** Actuals (spec §19): the same writer for HR and a manager. */
+  enterActual: (body: ActualBody) => Promise<unknown>;
+  actualHistory: (planId: number, kpiId: number) => Promise<ActualHistory>;
 }
 
 const SOURCES: Record<PlanMode, PlanSource> = {
@@ -53,6 +57,8 @@ const SOURCES: Record<PlanMode, PlanSource> = {
     addKpi: teamPlanApi.addKpi,
     changeKpi: teamPlanApi.changeKpi,
     removeKpi: teamPlanApi.removeKpi,
+    enterActual: teamPlanApi.enterActual,
+    actualHistory: teamPlanApi.actualHistory,
   },
 };
 
@@ -169,6 +175,8 @@ export default function PerformancePlan({ mode = 'hr' }: { mode?: PlanMode }) {
   const canActivate = mode === 'hr' && !!p?.can.activate && !!src.activate && p.status === 'DRAFT';
   const canCancel = mode === 'hr' && !!p?.can.cancel && !!src.cancel && (p.status === 'DRAFT' || p.status === 'ACTIVE');
   const canChangeTarget = mode === 'hr' && !!p?.can.changeTarget && !!src.changeTarget && p.status === 'ACTIVE';
+  const withActuals = p?.status === 'ACTIVE' || p?.status === 'CLOSED';
+  const canEnter = !!p?.can.enterActuals;
 
   const sections = useMemo(() => {
     if (!data) return [];
@@ -188,6 +196,11 @@ export default function PerformancePlan({ mode = 'hr' }: { mode?: PlanMode }) {
       </>
     );
   }
+
+  const saveActual = async (k: PlanKpi, slotStart: string, v: ActualCellValue) => {
+    await src.enterActual({ planId, kpiId: k.id, slotStart, ...v });
+    await load();
+  };
 
   const saveWeight = async (kra: PlanKra, w: number | null) => {
     await src.setKraWeight(planId, kra.id, w);
@@ -263,6 +276,11 @@ export default function PerformancePlan({ mode = 'hr' }: { mode?: PlanMode }) {
                     )
                     : 'None recorded'}
                 </FactItem>
+                {withActuals && (
+                  <FactItem label="Score">
+                    <ScoreLine score={p.score} band={p.band} line={p.scoreLine} label="" />
+                  </FactItem>
+                )}
                 <FactItem label="Copied from the job">
                   <Mono sx={{ fontSize: 13.5 }}>as on {longDay(p.copiedOn)}</Mono>
                 </FactItem>
@@ -286,7 +304,11 @@ export default function PerformancePlan({ mode = 'hr' }: { mode?: PlanMode }) {
             {p.status === 'ACTIVE' && (
               <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>
                 This plan is active: its KRAs and KPIs are locked.{canChangeTarget ? ' A target can still change, from a date and with a reason.' : ''}
+                {canEnter ? ' Enter each KPI’s actual under it; a value already entered is corrected with a reason.' : ''}
               </Typography>
+            )}
+            {p.actualsLine && p.status !== 'CANCELLED' && (
+              <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>{p.actualsLine}</Typography>
             )}
           </Stack>
         )}
@@ -324,6 +346,8 @@ export default function PerformancePlan({ mode = 'hr' }: { mode?: PlanMode }) {
                 : 'KPIs that do not belong to one of the KRAs above.'}
               actions={(
                 <Stack direction="row" spacing={1} alignItems="flex-start" useFlexGap flexWrap="wrap" justifyContent="flex-end">
+                  {withActuals && s.kra && <ScoreLine score={s.kra.score} band={s.kra.band} basedOn={s.kra.basedOn} label="KRA score" />}
+                  {withActuals && !s.kra && data.ungroupedScore && <ScoreLine score={data.ungroupedScore.score} band={data.ungroupedScore.band} basedOn={data.ungroupedScore.basedOn} label="Score" />}
                   {s.kra && (canEdit
                     ? <KraWeightInput kra={s.kra} onSave={(w) => saveWeight(s.kra!, w)} />
                     : <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)', whiteSpace: 'nowrap' }}>Weight {weightWord(s.kra.weightPercent)}</Typography>)}
@@ -338,7 +362,18 @@ export default function PerformancePlan({ mode = 'hr' }: { mode?: PlanMode }) {
               {s.kpis.length === 0 ? (
                 <Typography sx={{ fontSize: 13, color: 'var(--c-text-3)' }}>No KPIs here.</Typography>
               ) : (
-                s.kpis.map((k) => <KpiRow key={k.id} kpi={k} directions={data.directions} actions={kpiActions(k)} />)
+                s.kpis.map((k) => (
+                  <KpiRow
+                    key={k.id} kpi={k} directions={data.directions} actions={kpiActions(k)}
+                    below={withActuals && k.actuals ? (
+                      <KpiActualsBlock
+                        kpi={k} canEnter={canEnter}
+                        onSave={(slotStart, v) => saveActual(k, slotStart, v)}
+                        loadHistory={() => src.actualHistory(planId, k.id)}
+                      />
+                    ) : undefined}
+                  />
+                ))
               )}
             </SectionCard>
           ))}
@@ -351,6 +386,7 @@ export default function PerformancePlan({ mode = 'hr' }: { mode?: PlanMode }) {
         kraName={kpiDialog?.kraName ?? ''}
         directions={data.directions}
         entryFrequencies={data.entryFrequencies}
+        combineRules={data.combineRules}
         onClose={() => setKpiDialog(null)}
         onSubmit={async (body) => {
           if (!kpiDialog) return;

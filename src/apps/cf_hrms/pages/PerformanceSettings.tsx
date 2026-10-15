@@ -10,7 +10,7 @@
  * (e.g. moving the year start once periods exist) is shown in its words.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Box, Button, MenuItem, Stack, TextField, Typography } from '@mui/material';
+import { Box, Button, InputAdornment, MenuItem, Stack, TextField, Typography } from '@mui/material';
 import TuneRounded from '@mui/icons-material/TuneRounded';
 import {
   DataTable, EmptyState, ErrorNotice, ListSkeleton, Mono, PageHeader, SectionCard, useToast, type DataColumn,
@@ -71,6 +71,8 @@ export default function PerformanceSettings() {
   const [month, setMonth] = useState(4);
   const [freq, setFreq] = useState<Frequency>('QUARTERLY');
   const [scale, setScale] = useState<EditableListItem[]>([]);
+  const [onTrack, setOnTrack] = useState('90');
+  const [atRisk, setAtRisk] = useState('70');
   const nextId = useRef(1);
 
   const filters = useListFilters([]);
@@ -80,6 +82,8 @@ export default function PerformanceSettings() {
     setMonth(s.yearStartMonth);
     setFreq(s.defaultFrequency);
     setScale(s.ratingScale.map((r) => ({ id: nextId.current++, name: r.label })));
+    setOnTrack(String(s.bands?.onTrack ?? 90));
+    setAtRisk(String(s.bands?.atRisk ?? 70));
   }, []);
 
   const load = useCallback(() => {
@@ -91,14 +95,17 @@ export default function PerformanceSettings() {
   const dirty = !!data && (
     month !== data.yearStartMonth
     || freq !== data.defaultFrequency
+    || Number(onTrack) !== data.bands?.onTrack || Number(atRisk) !== data.bands?.atRisk
     || scale.map((s) => s.name).join('\u0000') !== data.ratingScale.map((r) => r.label).join('\u0000')
   );
+
+  const badBands = !(Number(onTrack) > 0 && Number(onTrack) <= 120 && Number(atRisk) > 0 && Number(atRisk) < Number(onTrack));
 
   const save = async () => {
     setSaving(true);
     setSaveError(null);
     try {
-      const s = await performanceApi.saveSettings({ yearStartMonth: month, defaultFrequency: freq, ratingScale: scale.map((x) => x.name) });
+      const s = await performanceApi.saveSettings({ yearStartMonth: month, defaultFrequency: freq, ratingScale: scale.map((x) => x.name), bands: { onTrack: Number(onTrack), atRisk: Number(atRisk) } });
       fill(s);
       toast.success('Performance settings saved.');
     } catch (e) {
@@ -234,11 +241,33 @@ export default function PerformanceSettings() {
             />
           </Box>
 
+          <Box sx={{ mt: 3, maxWidth: 640 }} data-bands="">
+            <Typography sx={{ fontSize: 14, fontWeight: 600 }}>On track, at risk, behind</Typography>
+            <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)', mb: 1.5 }}>
+              The achievement a KPI or a plan needs. Below &ldquo;at risk&rdquo; it is behind. Used by Actuals, the plan page, the Plans list and the org chart.
+            </Typography>
+            <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' } }}>
+              <TextField
+                size="small" label="On track from" value={onTrack} disabled={!mayEdit}
+                onChange={(e) => setOnTrack(e.target.value)}
+                error={badBands}
+                slotProps={{ htmlInput: { inputMode: 'decimal' }, input: { endAdornment: <InputAdornment position="end">%</InputAdornment> } }}
+              />
+              <TextField
+                size="small" label="At risk from" value={atRisk} disabled={!mayEdit}
+                onChange={(e) => setAtRisk(e.target.value)}
+                error={badBands}
+                helperText={badBands ? '“At risk” starts below “on track”; both above 0 and up to 120.' : undefined}
+                slotProps={{ htmlInput: { inputMode: 'decimal' }, input: { endAdornment: <InputAdornment position="end">%</InputAdornment> } }}
+              />
+            </Box>
+          </Box>
+
           {saveError != null && <ErrorNotice error={saveError} sx={{ mt: 2 }} />}
 
           {mayEdit && (
             <Stack direction="row" spacing={1} sx={{ mt: 2 }} alignItems="center" useFlexGap flexWrap="wrap">
-              <Button variant="contained" size="small" disabled={!dirty || saving} onClick={() => void save()}>
+              <Button variant="contained" size="small" disabled={!dirty || saving || badBands} onClick={() => void save()}>
                 {saving ? 'Saving…' : 'Save'}
               </Button>
               {dirty && (

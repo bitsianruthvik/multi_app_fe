@@ -1917,6 +1917,14 @@ export interface ChartLabelOptions {
   colourBy: { groupId: number; colours: Map<number, { fill: string; edge: string }>; names: Map<number, string> } | null;
   /** Is a department inside the label filter? Absent = no filter. */
   inFilter?: (departmentId: number | null) => boolean;
+  /**
+   * "Colour by performance" (spec §19.3): the band of the person in a row, as a
+   * small dot at the row's end. Null for somebody without a plan — no dot.
+   */
+  performance?: {
+    bandOf: (employeeId: number) => { colour: string; word: string } | null;
+    legend: { colour: string; word: string }[];
+  } | null;
 }
 
 export interface SceneHeader {
@@ -2506,9 +2514,11 @@ export function buildScene(model: ChartModel, opts: SceneOptions): ChartScene {
       }
       for (const r of I.rows) {
         const tone = rowTone(r, p);
+        // The person's band, when the chart is coloured by performance (spec §19.3).
+        const band = r.occupant && r.occupant.employeeId > 0 && opts.labels?.performance ? opts.labels.performance.bandOf(r.occupant.employeeId) : null;
         if (r.positionId != null) {
           const who = r.occupant
-            ? `${r.occupant.name?.trim() || 'Name not recorded'}${r.occupant.notice ? `, on notice, last working day ${r.occupant.notice.lastWorkingDay}` : ''}`
+            ? `${r.occupant.name?.trim() || 'Name not recorded'}${r.occupant.notice ? `, on notice, last working day ${r.occupant.notice.lastWorkingDay}` : ''}${band ? `, performance ${band.word}` : ''}`
             : r.joining
               ? `Vacant, ${joiningLabel(r.joining)}`
               : r.hiring
@@ -2576,7 +2586,11 @@ export function buildScene(model: ChartModel, opts: SceneOptions): ChartScene {
             else rowsOfPerson.set(who, [at]);
           }
         }
-        const statusW = tone.status ? 48 : 4;
+        const dotW = band ? 14 : 0;
+        const statusW = (tone.status ? 48 : 4) + dotW;
+        if (band) {
+          prims.push({ k: 'circle', cx: rx + rw - (tone.status ? 48 : 4) - 6, cy: base - 4, r: 4.5, fill: band.colour, stroke: p.surface, sw: 1 });
+        }
         // The second line: under the name, starting where the name starts, the row's full width.
         const sub = rowSub(r);
         if (sub) {
@@ -2730,6 +2744,8 @@ export function buildScene(model: ChartModel, opts: SceneOptions): ChartScene {
       legend.push({ swatch: c.edge, fill: c.fill, text: opts.labels.colourBy.names.get(labelId) ?? '' });
     }
   }
+  // "Colour by performance": one key entry per band.
+  for (const b of opts.labels?.performance?.legend ?? []) legend.push({ swatch: b.colour, fill: b.colour, text: b.word });
   legend.push({ line: 'solid', text: 'Reports to' });
   if (opts.secondaryEdges.length) legend.push({ line: 'dash', text: 'Other reporting line' });
   if (exceptionsDrawn) legend.push({ line: 'thin', text: 'Reports outside the department' });

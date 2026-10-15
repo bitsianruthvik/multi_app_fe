@@ -10,6 +10,7 @@ import AssignmentTurnedInOutlined from '@mui/icons-material/AssignmentTurnedInOu
 import { EmptyState, ErrorNotice, ListSkeleton, SectionCard, ToneBadge } from '@shared/ui';
 import { performanceApi, type EmployeePlans, type PlanRow } from '../api/performance';
 import { PlanStatusBadge } from './performance/PlanParts';
+import { AchievementChip } from './performance/ActualParts';
 import { countWords, frequencyWord, periodDates } from './performance/planWords';
 
 function PlanLine({ plan, company, quiet = false }: { plan: PlanRow; company: string; quiet?: boolean }) {
@@ -40,6 +41,7 @@ function PlanLine({ plan, company, quiet = false }: { plan: PlanRow; company: st
       {!quiet && (plan.weightsSet
         ? (plan.weightsOk ? <ToneBadge tone="success" label="Weights add up" /> : <ToneBadge tone="warning" label={`Weights add to ${plan.weightTotal}%`} />)
         : <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>No weights set</Typography>)}
+      {(plan.status === 'ACTIVE' || plan.status === 'CLOSED') && <AchievementChip achievement={plan.score} band={plan.band} title={plan.scoreLine ?? undefined} />}
       <PlanStatusBadge status={plan.status} />
     </Box>
   );

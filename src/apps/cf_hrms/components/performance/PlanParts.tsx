@@ -8,7 +8,8 @@ import { Box, Stack, Typography } from '@mui/material';
 import AddRounded from '@mui/icons-material/AddRounded';
 import EditOutlined from '@mui/icons-material/EditOutlined';
 import { StatusBadge, ToneBadge } from '@shared/ui';
-import type { Direction, Option, Plan, PlanKpi, PlanKra, PlanStatus } from '../../api/performance';
+import type { ActualHistory, Direction, Option, Plan, PlanKpi, PlanKra, PlanStatus } from '../../api/performance';
+import { KpiActualsBlock, ScoreLine } from './ActualParts';
 import { longDay } from '../jobDates';
 import { DIRECTION_LABEL, PLAN_STATUS_LABEL, PLAN_STATUS_TONE, frequencyWord, weightWord } from './planWords';
 
@@ -53,11 +54,14 @@ export function KpiRow({
   directions,
   actions,
   compact = false,
+  below,
 }: {
   kpi: PlanKpi;
   directions?: Option<Direction>[];
   actions?: ReactNode;
   compact?: boolean;
+  /** Under the KPI: its actuals (spec §19.3). */
+  below?: ReactNode;
 }) {
   const job = kpi.job;
   const jobWeightDiffers = job && job.weightPercent !== kpi.weightPercent;
@@ -75,6 +79,7 @@ export function KpiRow({
             <Fact label="Direction">{directionWord(kpi.direction, directions)}</Fact>
             <Fact label="Entered">{frequencyWord(kpi.frequency)}</Fact>
             <Fact label="Weight">{weightWord(kpi.weightPercent)}</Fact>
+            {kpi.actuals && kpi.actuals.slotCount > 1 && <Fact label="Slots">{kpi.actuals.combineLabel.toLowerCase()}</Fact>}
           </Box>
           {!compact && kpi.mark === 'CHANGED' && job && (
             <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)', mt: 0.5 }}>
@@ -98,6 +103,7 @@ export function KpiRow({
           ))}
         </Box>
       )}
+      {below}
     </Box>
   );
 }
@@ -116,11 +122,20 @@ export function KraHeading({ kra, right }: { kra: Pick<PlanKra, 'name' | 'weight
 
 /**
  * A whole plan, read-only: KRA headings with weights, the KPIs under each with
- * their targets, then the KPIs not under a KRA. For My place.
+ * their targets, then the KPIs not under a KRA. For My place. Once the plan is
+ * active (spec §19.3): the score, each KRA's score, and each KPI's actuals and
+ * achievement — read only; `history` opens a KPI's corrections.
  */
-export function PlanReadOnly({ plan, compact = true }: { plan: Plan; compact?: boolean }) {
+export function PlanReadOnly({ plan, compact = true, history }: { plan: Plan; compact?: boolean; history?: (kpiId: number) => Promise<ActualHistory> }) {
+  const withActuals = plan.plan.status === 'ACTIVE' || plan.plan.status === 'CLOSED';
+  const kraRight = (k: PlanKra) => (withActuals ? (
+    <Stack direction="row" spacing={1.5} alignItems="center" useFlexGap flexWrap="wrap">
+      <ScoreLine score={k.score} band={k.band} basedOn={k.basedOn} label="KRA score" />
+      <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)', whiteSpace: 'nowrap' }}>Weight {weightWord(k.weightPercent)}</Typography>
+    </Stack>
+  ) : undefined);
   const blocks = [
-    ...plan.kras.map((k) => ({ key: `kra-${k.id}`, head: <KraHeading kra={k} />, kpis: k.kpis })),
+    ...plan.kras.map((k) => ({ key: `kra-${k.id}`, head: <KraHeading kra={k} right={kraRight(k)} />, kpis: k.kpis })),
     ...(plan.ungroupedKpis.length
       ? [{ key: 'none', head: <KraHeading kra={{ name: 'Not under a KRA', weightPercent: null }} right={<span />} />, kpis: plan.ungroupedKpis }]
       : []),
@@ -130,12 +145,18 @@ export function PlanReadOnly({ plan, compact = true }: { plan: Plan; compact?: b
   }
   return (
     <Stack spacing={2}>
+      {withActuals && <ScoreLine score={plan.plan.score} band={plan.plan.band} line={plan.plan.scoreLine} label="Score so far" />}
       {blocks.map((b) => (
         <Box key={b.key}>
           {b.head}
           {b.kpis.length > 0 ? (
             <Box sx={{ pl: { xs: 0, sm: 1.5 } }}>
-              {b.kpis.map((k) => <KpiRow key={k.id} kpi={k} directions={plan.directions} compact={compact} />)}
+              {b.kpis.map((k) => (
+                <KpiRow
+                  key={k.id} kpi={k} directions={plan.directions} compact={compact}
+                  below={withActuals && k.actuals ? <KpiActualsBlock kpi={k} canEnter={false} loadHistory={history ? () => history(k.id) : undefined} /> : undefined}
+                />
+              ))}
             </Box>
           ) : (
             <Typography sx={{ fontSize: 13, color: 'var(--c-text-3)', mt: 0.5, pl: { xs: 0, sm: 1.5 } }}>No KPIs under this KRA.</Typography>

@@ -31,7 +31,7 @@ import { TAG, SCREEN_TAGS } from './access/can';
  *   roles      Roles, Libraries
  *   positions  Org chart, Positions
  *   employees  Employees          hiring     Hiring          documents  Documents
- *   performance  Plans
+ *   performance  Plans, Actuals
  *   time       Shifts, Holidays   leave      Leave policies
  *   setup      Code formats, Letters, Reporting types, Performance settings
  *
@@ -137,7 +137,9 @@ export const SECTIONS: NavSection[] = [
     key: 'performance',
     label: 'Performance',
     screens: [
-      { key: 'plans', label: 'Plans', path: 'plans', hasDetail: true, permission: PERFORMANCE, keywords: ['plan', 'period', 'kpi', 'kra', 'target', 'weight', 'quarter', 'month', 'performance', 'measure', 'activate'] },
+      { key: 'plans', label: 'Plans', path: 'plans', hasDetail: true, permission: PERFORMANCE, keywords: ['plan', 'period', 'kpi', 'kra', 'target', 'weight', 'quarter', 'month', 'performance', 'measure', 'activate', 'score'] },
+      // What each person achieved, slot by slot (spec §19.3).
+      { key: 'actuals', label: 'Actuals', path: 'actuals', permission: PERFORMANCE, keywords: ['actual', 'achievement', 'enter', 'result', 'on track', 'at risk', 'behind', 'kpi', 'month', 'slot', 'missing'] },
     ],
   },
 

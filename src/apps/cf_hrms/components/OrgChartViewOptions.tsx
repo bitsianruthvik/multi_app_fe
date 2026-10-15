@@ -99,6 +99,7 @@ export function LabelViewOptions({
   onColourBy,
   filter,
   onFilter,
+  performance,
 }: {
   groups: LabelGroup[];
   colourBy: number | null;
@@ -106,12 +107,17 @@ export function LabelViewOptions({
   /** The label ids chosen, comma-separated (the lists' `label` rule). */
   filter: string;
   onFilter: (value: string) => void;
+  /**
+   * "Colour by performance" (spec §19.3) — only for a login with performance view.
+   * '' off · 'now' the plans whose period holds today · a period id.
+   */
+  performance?: { value: string; onChange: (v: string) => void; periods: { id: number; name: string; status: string }[] };
 }) {
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   const usable = groups.filter((g) => g.labels.length > 0);
-  if (!usable.length) return null;
+  if (!usable.length && !performance) return null;
   const chosen = new Set(filter.split(',').map((v) => Number(v)).filter((n) => n > 0));
-  const set = colourBy != null || chosen.size > 0;
+  const set = colourBy != null || chosen.size > 0 || !!performance?.value;
   const pick = (g: LabelGroup, labelId: number | '') => {
     const mine = new Set(g.labels.map((l) => l.id));
     const rest = [...chosen].filter((id) => !mine.has(id));
@@ -128,7 +134,7 @@ export function LabelViewOptions({
         onClick={(e) => setAnchor(e.currentTarget)}
         sx={{ whiteSpace: 'nowrap', flexShrink: 0 }}
       >
-        Labels
+        {performance ? 'Colour and labels' : 'Labels'}
       </Button>
       <Popover
         open={!!anchor}
@@ -138,6 +144,24 @@ export function LabelViewOptions({
         slotProps={{ paper: { sx: { width: 320, maxWidth: 'calc(100vw - 32px)', p: 2 } } }}
       >
         <Stack spacing={1.5} role="dialog" aria-label="Labels on the chart">
+          {performance && (
+            <TextField
+              select
+              size="small"
+              label="Colour by performance"
+              value={performance.value}
+              onChange={(e) => performance.onChange(e.target.value)}
+              slotProps={{ select: { displayEmpty: true }, inputLabel: { shrink: true } }}
+              helperText="A dot on each person's row: on track, at risk or behind. People without a plan show nothing."
+            >
+              <MenuItem value="">Off</MenuItem>
+              <MenuItem value="now">The plans running today</MenuItem>
+              {performance.periods.map((p) => (
+                <MenuItem key={p.id} value={String(p.id)}>{p.name}{p.status === 'CLOSED' ? ' (closed)' : ''}</MenuItem>
+              ))}
+            </TextField>
+          )}
+          {usable.length > 0 && (<>
           <TextField
             select
             size="small"
@@ -176,8 +200,9 @@ export function LabelViewOptions({
             Positions outside the chosen labels are drawn faint, not removed. A department&apos;s own labels count — not
             the labels of the departments above it. Yours only — kept in this browser.
           </Typography>
+          </>)}
           <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-            <Button size="small" disabled={!set} onClick={() => { onColourBy(null); onFilter(''); }}>
+            <Button size="small" disabled={!set} onClick={() => { onColourBy(null); onFilter(''); performance?.onChange(''); }}>
               Clear
             </Button>
             <Button size="small" variant="contained" onClick={() => setAnchor(null)}>

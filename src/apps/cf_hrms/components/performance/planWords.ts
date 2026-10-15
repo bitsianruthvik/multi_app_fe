@@ -5,7 +5,7 @@
  * never "goal sheet", "appraisal" or "OKR".
  */
 import type { StatusTone } from '@shared/ui';
-import type { Direction, Frequency, PlanStatus } from '../../api/performance';
+import type { Actual, Band, Direction, Frequency, PlanStatus } from '../../api/performance';
 import { longDay } from '../jobDates';
 
 export const FREQUENCY_LABEL: Record<Frequency, string> = {
@@ -56,3 +56,18 @@ export function countWords(kraCount: number, kpiCount: number): string {
 
 /** A weight for reading: "25%" or "—". */
 export const weightWord = (w: number | null | undefined) => (w == null ? '—' : `${Number(w)}%`);
+
+/* ── actuals (spec §19): "on track / at risk / behind" ── */
+
+export const BAND_LABEL: Record<Band, string> = { ON_TRACK: 'On track', AT_RISK: 'At risk', BEHIND: 'Behind', NO_DATA: 'No data' };
+export const BAND_TONE: Record<Band, StatusTone> = { ON_TRACK: 'success', AT_RISK: 'warning', BEHIND: 'danger', NO_DATA: 'neutral' };
+export const BAND_OPTIONS = (['ON_TRACK', 'AT_RISK', 'BEHIND', 'NO_DATA'] as Band[]).map((b) => ({ value: b, label: BAND_LABEL[b] }));
+
+/** An actual for reading: "92", "Met", "Not met", "—". */
+export function actualWord(a: Actual | null, unit?: string | null): string {
+  if (!a) return '—';
+  if (a.met) return a.met === 'YES' ? 'Met' : 'Not met';
+  if (a.value == null) return '—';
+  const n = Number(a.value).toLocaleString('en-IN', { maximumFractionDigits: 4 });
+  return unit === '%' ? `${n}%` : unit === '₹' ? `₹${n}` : unit ? `${n} ${unit}` : n;
+}

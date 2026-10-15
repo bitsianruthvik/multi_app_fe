@@ -7,7 +7,7 @@
 import { useEffect, useState } from 'react';
 import { MenuItem, Stack, TextField, Typography } from '@mui/material';
 import { FormDialog } from '@shared/ui';
-import type { Direction, KpiInput, Option, PlanKpi, TargetChangeInput } from '../../api/performance';
+import type { CombineRule, Direction, KpiInput, Option, PlanKpi, TargetChangeInput } from '../../api/performance';
 import { todayIso } from '../jobDates';
 import { DIRECTION_LABEL, frequencyWord } from './planWords';
 
@@ -21,6 +21,7 @@ export function KpiFormDialog({
   kraName,
   directions,
   entryFrequencies,
+  combineRules = [],
   onClose,
   onSubmit,
 }: {
@@ -31,6 +32,8 @@ export function KpiFormDialog({
   kraName: string;
   directions: Option<Direction>[];
   entryFrequencies: string[];
+  /** How several slots make one actual (spec §19.1): added up, average, latest. */
+  combineRules?: Option<CombineRule>[];
   onClose: () => void;
   /** Throw to keep the dialog open with the server's words. */
   onSubmit: (body: KpiInput) => Promise<unknown>;
@@ -45,6 +48,7 @@ export function KpiFormDialog({
   const [unit, setUnit] = useState('');
   const [frequency, setFrequency] = useState('');
   const [weight, setWeight] = useState('');
+  const [combine, setCombine] = useState<CombineRule | ''>('');
 
   useEffect(() => {
     if (!open) return;
@@ -55,6 +59,7 @@ export function KpiFormDialog({
     setUnit(kpi?.unit ?? '');
     setFrequency(kpi?.frequency ?? '');
     setWeight(kpi?.weightPercent != null ? String(kpi.weightPercent) : '');
+    setCombine(kpi?.combine ?? '');
   }, [open, kpi]);
 
   const dirOptions = directions.length ? directions : DIRECTIONS.map((d) => ({ value: d, label: DIRECTION_LABEL[d] }));
@@ -70,6 +75,7 @@ export function KpiFormDialog({
       unit: unit.trim() || null,
       frequency: frequency || null,
       weightPercent: numOrNull(weight),
+      ...(combine ? { combine } : {}),
     };
     if (nameEditable) body.name = name.trim();
     return onSubmit(body);
@@ -121,6 +127,21 @@ export function KpiFormDialog({
           <MenuItem value="">Same as the plan</MenuItem>
           {entryFrequencies.map((f) => <MenuItem key={f} value={f}>{frequencyWord(f)}</MenuItem>)}
         </TextField>
+        {combineRules.length > 0 && (
+          <TextField
+            select
+            label="When it is entered more than once a period, its actual is"
+            value={combine}
+            onChange={(e) => setCombine(e.target.value as CombineRule | '')}
+            size="small"
+            fullWidth
+            slotProps={{ select: { displayEmpty: true }, inputLabel: { shrink: true } }}
+            helperText="Added up for counts and output; the average for percentages, rates and times; the latest for a level at the end."
+          >
+            {adding && <MenuItem value="">Chosen from the unit</MenuItem>}
+            {combineRules.map((c) => <MenuItem key={c.value} value={c.value}>{{ SUM: 'Added up', AVERAGE: 'The average', LAST: 'The latest' }[c.value] ?? c.label}</MenuItem>)}
+          </TextField>
+        )}
         <TextField
           label="Weight within its KRA (%)"
           value={weight}

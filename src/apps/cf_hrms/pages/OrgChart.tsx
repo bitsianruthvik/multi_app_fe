@@ -59,6 +59,7 @@ import { useCan } from '../access/can';
 import { useLabelGroups, labelColour, labelFilterText, matchesLabels } from '../components/labelGroups';
 import { LabelViewOptions } from '../components/OrgChartViewOptions';
 import { exportPdf, exportPng } from '../components/OrgChartExport';
+import { performanceApi, type ChartBands } from '../api/performance';
 
 /**
  * The org chart — the screen this application exists to replace, and the one
@@ -123,6 +124,8 @@ export default function OrgChart() {
   // positions outside the chosen labels faint. The viewer's own, kept in this browser.
   const [colourBy, setColourBy] = useState<number | null>(() => readPref<number | null>(key('colourBy'), null));
   const [labelFilter, setLabelFilter] = useState<string>(() => readPref<string>(key('labelFilter'), ''));
+  // "Colour by performance" (spec §19.3): '' off · 'now' the plans whose period holds today · a period id.
+  const [perfBy, setPerfBy] = useState<string>(() => readPref<string>(key('performanceBy'), ''));
   const [collapsed, setCollapsed] = useState<Set<number>>(
     () => new Set(readPref<number[]>(key('collapsed'), [])),
   );
@@ -221,6 +224,7 @@ export default function OrgChart() {
   useEffect(() => writePref(prefKey(company, 'colours'), colours), [colours, company]);
   useEffect(() => writePref(prefKey(company, 'colourBy'), colourBy), [colourBy, company]);
   useEffect(() => writePref(prefKey(company, 'labelFilter'), labelFilter), [labelFilter, company]);
+  useEffect(() => writePref(prefKey(company, 'performanceBy'), perfBy), [perfBy, company]);
   useEffect(() => writePref(prefKey(company, 'collapsed'), [...collapsed]), [collapsed, company]);
   useEffect(() => writePref(prefKey(company, 'foldTouched'), foldTouched), [foldTouched, company]);
   useEffect(() => writePref(prefKey(company, 'arrange'), arrange), [arrange, company]);
@@ -348,6 +352,35 @@ export default function OrgChart() {
     () => new Map((model?.departments ?? []).map((d) => [d.id, d.labels ?? []])),
     [model],
   );
+  // ── Colour by performance (spec §19.3): only for a login with performance view ──
+  const perfOn = can.performance.view && perfBy !== '';
+  const [bands, setBands] = useState<ChartBands | null>(null);
+  const [bandPeriods, setBandPeriods] = useState<ChartBands['periods']>([]);
+  useEffect(() => {
+    if (!can.performance.view) return;
+    let live = true;
+    performanceApi.bands(perfOn && perfBy !== 'now' ? Number(perfBy) : null)
+      .then((b) => { if (live) { setBandPeriods(b.periods); setBands(perfOn ? b : null); } })
+      .catch(() => { if (live) setBands(null); });
+    return () => { live = false; };
+  }, [can.performance.view, perfOn, perfBy]);
+  const performance = useMemo(() => {
+    if (!perfOn || !bands) return null;
+    const cs = getComputedStyle(document.documentElement);
+    const colourOf = (tone: string, fallback: string) => cs.getPropertyValue(`--c-${tone}-600`).trim() || fallback;
+    const colour: Record<string, string> = { ON_TRACK: colourOf('success', '#0E9F6E'), AT_RISK: colourOf('warning', '#D97706'), BEHIND: colourOf('danger', '#E11D48') };
+    const byEmployee = new Map(bands.people.map((x) => [x.employeeId, x]));
+    return {
+      bandOf: (employeeId: number) => {
+        const b = byEmployee.get(employeeId);
+        if (!b || b.band === 'NO_DATA') return null;
+        return { colour: colour[b.band], word: `${b.bandLabel.toLowerCase()} (${b.score}%, ${b.periodName})` };
+      },
+      legend: (['ON_TRACK', 'AT_RISK', 'BEHIND'] as const).map((k) => ({ colour: colour[k], word: bands.bandWords[k] })),
+    };
+    // palette: re-read the colours when the theme changes
+  }, [perfOn, bands, palette]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const labelOptions = useMemo(() => {
     const group = colourBy != null ? labelGroups.find((g) => g.id === colourBy) : undefined;
     const colourOf = group
@@ -360,8 +393,8 @@ export default function OrgChart() {
     const inFilter = labelFilter
       ? (departmentId: number | null) => departmentId != null && matchesLabels(labelFilter, deptLabels.get(departmentId), labelGroups)
       : undefined;
-    return { colourBy: colourOf, inFilter };
-  }, [colourBy, labelFilter, labelGroups, deptLabels]);
+    return { colourBy: colourOf, inFilter, performance };
+  }, [colourBy, labelFilter, labelGroups, deptLabels, performance]);
   // "Of which in Plant: …" — the same counting rule, over the cards inside the filter.
   const inLabels = useMemo(() => {
     if (!model || !labelOptions.inFilter) return null;
@@ -837,6 +870,7 @@ export default function OrgChart() {
                   onColourBy={setColourBy}
                   filter={labelFilter}
                   onFilter={setLabelFilter}
+                  performance={can.performance.view ? { value: perfBy, onChange: setPerfBy, periods: bandPeriods } : undefined}
                 />
               }
             />

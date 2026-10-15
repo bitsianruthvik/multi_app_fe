@@ -32,8 +32,9 @@ import { ListToolbar, type FilterDef } from '../components/list/ListToolbar';
 import { useListFilters } from '../components/list/useListFilters';
 import { labelFilterDefs, useLabelGroups } from '../components/labelGroups';
 import { PlanStatusBadge } from '../components/performance/PlanParts';
+import { AchievementChip } from '../components/performance/ActualParts';
 import { CreatePlansDialog } from '../components/performance/CreatePlansDialog';
-import { FREQUENCY_LABEL, PLAN_STATUS_LABEL, periodDates } from '../components/performance/planWords';
+import { BAND_OPTIONS, FREQUENCY_LABEL, PLAN_STATUS_LABEL, periodDates } from '../components/performance/planWords';
 import { longDay } from '../components/jobDates';
 
 const STATUS_OPTIONS = (['DRAFT', 'ACTIVE', 'CLOSED', 'CANCELLED'] as const).map((s) => ({ value: s, label: PLAN_STATUS_LABEL[s] }));
@@ -61,7 +62,7 @@ export default function PerformancePlans() {
   const freqParam = (params.get('frequency') ?? '') as Frequency | '';
   const periodParam = params.get('period') ?? '';
 
-  const filters = useListFilters(['status', 'department', 'label']);
+  const filters = useListFilters(['status', 'department', 'label', 'band']);
   const { groups } = useLabelGroups(can.performance.view);
 
   const [periods, setPeriods] = useState<PeriodYear | null>(null);
@@ -167,6 +168,7 @@ export default function PerformancePlans() {
       { key: 'status', label: 'Status', options: STATUS_OPTIONS },
       { key: 'department', label: 'Department (and below)', searchable: true, options: deps },
       ...labelFilterDefs(groups),
+      { key: 'band', label: 'Band', options: BAND_OPTIONS },
     ];
   }, [departments, items, groups]);
 
@@ -215,6 +217,15 @@ export default function PerformancePlans() {
           : <ToneBadge tone="warning" label={`Adds to ${r.weightTotal}%`} />),
       sortValue: (r) => (r.weightsSet ? (r.weightsOk ? 2 : 1) : 0),
       exportValue: (r) => (!r.weightsSet ? 'Not set' : r.weightsOk ? 'Yes' : `Adds to ${r.weightTotal}%`),
+    },
+    {
+      // spec §19.3: the plan's score so far, in its band; "based on N of M KPIs" on hover.
+      key: 'score', header: 'Score', width: 170,
+      render: (r) => (r.status === 'DRAFT' || r.status === 'CANCELLED'
+        ? <Typography component="span" sx={{ fontSize: 13, color: 'var(--c-text-3)' }}>—</Typography>
+        : <AchievementChip achievement={r.score} band={r.band} title={r.scoreLine ?? undefined} />),
+      sortValue: (r) => r.score ?? -1,
+      exportValue: (r) => (r.score == null ? '' : `${r.score}% · ${r.bandLabel}`),
     },
   ], []);
 

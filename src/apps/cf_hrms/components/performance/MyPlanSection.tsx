@@ -9,10 +9,11 @@
  */
 import { useEffect, useState } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
-import { Box, Stack, Typography } from '@mui/material';
+import { Box, Button, Stack, Typography } from '@mui/material';
 import { Callout, SectionCard } from '@shared/ui';
 import { teamPlanApi, type MyPlans, type PlanRow } from '../../api/performance';
 import { PlanReadOnly, PlanStatusBadge } from './PlanParts';
+import { AchievementChip } from './ActualParts';
 import { countWords, periodDates } from './planWords';
 
 export function MyPlanSection({ company }: { company: string }) {
@@ -51,7 +52,7 @@ export function MyPlanSection({ company }: { company: string }) {
                   {pl.plan.status === 'DRAFT' && (
                     <Callout tone="neutral" title="Draft — your manager may still change it" sx={{ mb: 1.5 }} />
                   )}
-                  <PlanReadOnly plan={pl} />
+                  <PlanReadOnly plan={pl} history={(kpiId) => teamPlanApi.myActualHistory(pl.plan.id, kpiId)} />
                 </Box>
               ))}
             </Stack>
@@ -70,7 +71,13 @@ export function MyPlanSection({ company }: { company: string }) {
       )}
 
       {team.length > 0 && (
-        <SectionCard title="My team's plans" subtitle="Drafts you may change before HR activates them.">
+        <SectionCard
+          title="My team's plans"
+          subtitle="Drafts you may change before HR activates them; actuals you enter once a plan is active."
+          actions={team.some((p) => p.status === 'ACTIVE') ? (
+            <Button component={RouterLink} to={`/${company}/cf_hrms/my-place/team-actuals`} size="small" variant="outlined">Enter actuals for my team</Button>
+          ) : undefined}
+        >
           {team.map((p) => (
             <Box
               key={p.id}
@@ -91,6 +98,7 @@ export function MyPlanSection({ company }: { company: string }) {
                 </Typography>
               </Box>
               <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)', whiteSpace: 'nowrap' }}>{countWords(p.kraCount, p.kpiCount)}</Typography>
+              {p.status !== 'DRAFT' && <AchievementChip achievement={p.score} band={p.band} />}
               <PlanStatusBadge status={p.status} />
             </Box>
           ))}

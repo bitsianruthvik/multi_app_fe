@@ -35,6 +35,7 @@ const DocumentDetail = lazy(() => import('./pages/DocumentDetail'));
 // Performance
 const PerformancePlans = lazy(() => import('./pages/PerformancePlans'));
 const PerformancePlan = lazy(() => import('./pages/PerformancePlan'));
+const PerformanceActuals = lazy(() => import('./pages/PerformanceActuals'));
 
 // Time and leave
 const Shifts = lazy(() => import('./pages/Shifts'));
@@ -157,6 +158,8 @@ export function getCfHrmsRoutes(
     // A manager on a team member's plan (spec §18.2: drafts only, never activate
     // or cancel). Under my-place so the shell's breadcrumb reads "My place › …".
     { path: '/:company/cf_hrms/my-place/team-plans/:id', element: guarded(TAG.named.selfView, <PerformancePlan mode="team" />) },
+    // …and enters actuals for the people below them (spec §19.2).
+    { path: '/:company/cf_hrms/my-place/team-actuals', element: guarded(TAG.named.selfView, <PerformanceActuals mode="team" />) },
 
     // Organisation
     { path: '/:company/cf_hrms/org-chart', element: guarded(TAG.positions.view, <OrgChart />) },
@@ -178,6 +181,8 @@ export function getCfHrmsRoutes(
     // Performance (spec §18.3)
     { path: '/:company/cf_hrms/plans', element: guarded(TAG.performance.view, <PerformancePlans />) },
     { path: '/:company/cf_hrms/plans/:id', element: guarded(TAG.performance.view, <PerformancePlan mode="hr" />) },
+    // Actuals (spec §19.3)
+    { path: '/:company/cf_hrms/actuals', element: guarded(TAG.performance.view, <PerformanceActuals mode="hr" />) },
 
     // Time and leave
     { path: '/:company/cf_hrms/shifts', element: guarded(TAG.time.view, <Shifts />) },
