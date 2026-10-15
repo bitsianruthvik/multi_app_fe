@@ -7,7 +7,7 @@ import { useEffect, useState } from 'react';
 import { jobContentApi, type JobContentData, type JobContentScope } from '../api/jobContent';
 
 export interface JobTarget {
-  type: 'role' | 'position';
+  type: 'role' | 'position' | 'person';
   id: number;
 }
 
@@ -48,7 +48,7 @@ export function useJobContent(target: JobTarget | null, asOf?: string, scope: Jo
     }
     setLoading(true);
     setError(null);
-    (type === 'role' ? jobContentApi.forRole(id, asOf) : jobContentApi.forPosition(id, asOf, scope))
+    (type === 'role' ? jobContentApi.forRole(id, asOf) : type === 'person' ? jobContentApi.forPerson(id, asOf, scope) : jobContentApi.forPosition(id, asOf, scope))
       .then((d) => {
         cache.set(key, { at: Date.now(), data: d });
         if (live) setData(d);
@@ -66,7 +66,7 @@ export function useJobContent(target: JobTarget | null, asOf?: string, scope: Jo
 
   // Content from the previous target must never sit under this target's title.
   const mine =
-    data && type != null && (type === 'role' ? data.subject === 'ROLE' && data.roleId === id : data.positionId === id)
+    data && type != null && (type === 'role' ? data.subject === 'ROLE' && data.roleId === id : type === 'person' ? data.subject === 'PERSON' && data.employeeId === id : data.subject === 'SEAT' && data.positionId === id)
       ? data
       : null;
   /** After an edit that answered with the new content: show it and remember it. */

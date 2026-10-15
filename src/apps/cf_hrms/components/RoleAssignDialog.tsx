@@ -12,7 +12,12 @@
  * applies between. The wording belongs to the definition, shared with every
  * other role that carries it.
  *
- * MOVING THE EFFECTIVE-FROM DATE FORWARD on an existing row does not overwrite
+ * KRAs, RESPONSIBILITIES AND KPIs ARE DATED (spec §16.1): instead of from/to
+ * fields they get "Takes effect" — today by default, a later day if chosen, a
+ * past day only for the Owner with a reason. Every change, from that day, is a
+ * new version; the old one stays readable as it stood.
+ *
+ * For the other six kinds, MOVING THE EFFECTIVE-FROM DATE FORWARD on an existing row does not overwrite
  * it: the server closes the current row the day before and opens a successor
  * (plan §2 rule 8). The dialog says so, because otherwise a date field looks
  * like any other field.
@@ -24,6 +29,8 @@ import {
 } from '@mui/material';
 import { FormDialog, Mono, useCompanySlug } from '@shared/ui';
 import { useCan } from '../access/can';
+import { TakesEffectField } from './JobDating';
+import { datedBody, longDay, takesEffectReady, todayIso } from './jobDates';
 import {
   addContent, updateContent, listMaster, getMeta, pretty,
   type ContentKind, type ContentRow, type KraGroup, type MasterItem, type HrmsMeta, type MasterKind,
@@ -199,12 +206,18 @@ export function RoleAssignDialog({
   const datedChange =
     !!row && !!form.effectiveFrom && form.effectiveFrom !== (row.effectiveFrom ?? '') &&
     (!row.effectiveFrom || form.effectiveFrom > row.effectiveFrom);
+  /** KRAs, responsibilities and KPIs: dated by "Takes effect", never by editing from/to. */
+  const jobKind = kind === 'kras' || kind === 'responsibilities' || kind === 'kpis';
+  const [day, setDay] = useState(todayIso());
+  const [reason, setReason] = useState('');
 
   async function submit() {
-    const body: Record<string, unknown> = {
-      effectiveFrom: form.effectiveFrom || null,
-      effectiveTo: form.effectiveTo || null,
-    };
+    const body: Record<string, unknown> = jobKind
+      ? { ...datedBody(day, reason) }
+      : {
+          effectiveFrom: form.effectiveFrom || null,
+          effectiveTo: form.effectiveTo || null,
+        };
     const defField = DEFINITION_FIELD[kind];
     if (defField && !row) body[defField] = form.definitionId ? Number(form.definitionId) : null;
     if (kind !== 'relationships' && kind !== 'conditions') body.notes = form.notes || null;
@@ -263,7 +276,9 @@ export function RoleAssignDialog({
 
     if (row) {
       await updateContent(kind, row.id, body);
-      onSaved(datedChange ? 'Ended the current row and opened the next one.' : 'Saved.');
+      onSaved(jobKind
+        ? (day > todayIso() ? `Saved — it takes effect on ${longDay(day)}. Until then the role reads as before.` : 'Saved. The earlier version stays readable in the history.')
+        : datedChange ? 'Ended the current row and opened the next one.' : 'Saved.');
     } else {
       await addContent(roleId, kind, body);
       onSaved('Assigned.');
@@ -312,7 +327,7 @@ export function RoleAssignDialog({
       onClose={onClose}
       onSubmit={submit}
       submitLabel={row ? 'Save' : 'Assign'}
-      submitDisabled={!!masterKind && !row && !form.definitionId}
+      submitDisabled={(!!masterKind && !row && !form.definitionId) || (jobKind && !takesEffectReady(day, reason))}
       enterSubmits={false}
       maxWidth="sm"
     >
@@ -582,7 +597,9 @@ export function RoleAssignDialog({
           </>
         )}
 
-        {dates}
+        {jobKind ? (
+          <TakesEffectField day={day} onDay={setDay} reason={reason} onReason={setReason} />
+        ) : dates}
 
         {kind !== 'relationships' && kind !== 'conditions' && (
           <TextField

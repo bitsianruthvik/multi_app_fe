@@ -61,7 +61,7 @@ export interface Preview {
     key: string; title: string; roleKey: string | null; departmentId: number | null; departmentKey: string | null;
     departmentName: string | null; path: PathPart[]; shiftName: string | null; reportsToName: string | null;
   }[];
-  lines: { key: string; kind: string; text: string; target: string | null; on: 'role' | 'position'; targetName: string; kraName: string | null }[];
+  lines: { key: string; kind: string; text: string; target: string | null; on: 'role' | 'position' | 'person'; targetName: string; kraName: string | null }[];
   moves: { key: string; employeeName: string | null; fromName: string | null; toName: string | null; toKey: string | null; toPath: PathPart[]; from: string | null }[];
   shifts: { key: string; positionName: string | null; fromShift: string | null; toShift: string | null }[];
 }

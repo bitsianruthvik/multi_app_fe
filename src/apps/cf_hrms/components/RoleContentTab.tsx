@@ -19,6 +19,12 @@
  *   - Ungrouped content is not hidden. A responsibility under no KRA is still a
  *     duty of the role; invisible content is how a JD quietly loses a duty.
  *
+ * EVERY CHANGE IS DATED (spec §16.1). Rewording a line, changing a target or a
+ * weight, renaming or deleting a KRA, unassigning a line: each takes effect
+ * today, or on a later day chosen in the dialog (a past day only for the Owner,
+ * with a reason). The wording of a line is changed HERE, for this role, from a
+ * day — the shared library text other roles carry is left alone.
+ *
  * Weights are optional (many SMEs never use them). When used they should total
  * 100, so the total is shown and a shortfall warns. It never blocks.
  */
@@ -38,6 +44,8 @@ import { fromRoleContent, jobContentApi, type JobKra, type JobLine } from '../ap
 import { JobContent } from './JobContent';
 import { clearJobContentCache } from './useJobContent';
 import { RoleAssignDialog } from './RoleAssignDialog';
+import { TakesEffectField } from './JobDating';
+import { datedBody, longDay, takesEffectReady, todayIso } from './jobDates';
 
 const KIND_OF: Record<JobLine['kind'], 'responsibilities' | 'kpis'> = { RESPONSIBILITY: 'responsibilities', KPI: 'kpis' };
 const KIND_NOUN: Record<string, string> = { kras: 'KRA', responsibilities: 'responsibility', kpis: 'KPI' };
@@ -48,7 +56,10 @@ export function RoleContentTab({
   onChanged: notifyChanged,
   dense = false,
   reach,
+  readOnly = false,
 }: {
+  /** Another day than today: shown, not edited (spec §16.4). */
+  readOnly?: boolean;
   content: RoleContent;
   onChanged: () => void;
   /** The 500px org chart panel: tighter lines, sections folded until opened. */
@@ -63,8 +74,8 @@ export function RoleContentTab({
   const toast = useToast();
   // Add / edit / move / reorder = roles.edit. Unassigning a line and deleting a KRA = roles.remove.
   const can = useCan();
-  const canEdit = can.roles.edit;
-  const canRemove = can.roles.remove;
+  const canEdit = can.roles.edit && !readOnly;
+  const canRemove = can.roles.remove && !readOnly;
   const canAct = canEdit || canRemove;
   // A role edit reaches every position holding the role: forget what was read
   // of any job, so no other view shows the role as it was.
@@ -86,6 +97,14 @@ export function RoleContentTab({
   const [kraDescription, setKraDescription] = useState('');
   const [sharedWith, setSharedWith] = useState<number | null>(null);
   const [deleting, setDeleting] = useState<KraGroup | null>(null);
+  // Spec §16.1: when a change takes effect, and why when that day has passed.
+  const [day, setDay] = useState(todayIso());
+  const [reason, setReason] = useState('');
+  const resetWhen = () => { setDay(todayIso()); setReason(''); };
+  const [reword, setReword] = useState<{ kind: 'responsibilities' | 'kpis'; row: ContentRow; name: string } | null>(null);
+  const [rewordText, setRewordText] = useState('');
+  const when = <TakesEffectField day={day} onDay={setDay} reason={reason} onReason={setReason} />;
+  const fromWhen = () => (day > todayIso() ? ` It takes effect on ${longDay(day)}.` : '');
 
   /** The role's own rows, by id — what the existing dialogs and the reorder take. */
   const rows = useMemo(() => {
@@ -114,6 +133,7 @@ export function RoleContentTab({
   // rename, how many OTHER roles share its wording.
   useEffect(() => {
     if (!kraForm) return;
+    resetWhen();
     setKraName(kraForm.kra?.definition?.name ?? '');
     setKraDescription(kraForm.kra?.definition?.description ?? '');
     setSharedWith(null);
@@ -175,13 +195,13 @@ export function RoleContentTab({
 
   const saveKra = async () => {
     if (!kraForm) return;
-    const body = { name: kraName.trim(), description: kraDescription.trim() };
+    const body = { name: kraName.trim(), description: kraDescription.trim(), ...datedBody(day, reason) };
     if (kraForm.kra) {
       const r = await jobContentApi.renameKra(kraForm.kra.id, body);
-      toast.success(r.forked ? 'Renamed for this role. The other roles keep the old wording.' : 'KRA saved.');
+      toast.success((r.forked ? 'Renamed for this role. The old name stays in the history; other roles keep theirs.' : 'KRA saved.') + fromWhen());
     } else {
       await jobContentApi.createKra(content.role.id, body);
-      toast.success('KRA added. Move the lines that serve it under it.');
+      toast.success(`KRA added. Move the lines that serve it under it.${fromWhen()}`);
     }
     setKraForm(null);
     onChanged();
@@ -373,7 +393,18 @@ export function RoleContentTab({
               setLineMenu(null);
             }}
           >
-            <ListItemText primary="Edit…" />
+            <ListItemText primary={menuLine.kind === 'KPI' ? 'Target, weight and order…' : 'Class, order and notes…'} />
+          </MenuItem>,
+          <MenuItem
+            key="reword"
+            onClick={() => {
+              resetWhen();
+              setRewordText(menuLine.name);
+              setReword({ kind: KIND_OF[menuLine.kind], row: menuRow, name: menuLine.name });
+              setLineMenu(null);
+            }}
+          >
+            <ListItemText primary="Change the wording…" secondary="For this role, from a day you choose" />
           </MenuItem>,
           <Divider key="d1" />,
           <MenuItem key="head" disabled sx={{ fontSize: 12, opacity: '1 !important', color: 'var(--c-text-2)' }}>
@@ -439,6 +470,7 @@ export function RoleContentTab({
           <MenuItem
             key="remove"
             onClick={() => {
+              resetWhen();
               setRemoving({ kind: KIND_OF[menuLine.kind], row: menuRow });
               setLineMenu(null);
             }}
@@ -500,6 +532,7 @@ export function RoleContentTab({
           <MenuItem
             key="delete"
             onClick={() => {
+              resetWhen();
               setDeleting(kraMenu.kra);
               setKraMenu(null);
             }}
@@ -552,7 +585,7 @@ export function RoleContentTab({
         onClose={() => setKraForm(null)}
         onSubmit={saveKra}
         submitLabel={kraForm?.kra ? 'Save' : 'Add the KRA'}
-        submitDisabled={!kraName.trim()}
+        submitDisabled={!kraName.trim() || !takesEffectReady(day, reason)}
       >
         <TextField
           label="KRA"
@@ -579,6 +612,38 @@ export function RoleContentTab({
             only the description changes it for all of them.
           </Box>
         )}
+        {when}
+      </FormDialog>
+
+      <FormDialog
+        open={!!reword}
+        title="Change the wording for this role"
+        subtitle={`${reach ? `${reach}. ` : ''}Every position holding the role reads the new words from the day you choose; before it, the old words stay as they were.`}
+        onClose={() => setReword(null)}
+        onSubmit={async () => {
+          if (!reword) return;
+          await jobContentApi.rewordRoleLine(reword.kind, reword.row.id, { text: rewordText.trim(), ...datedBody(day, reason) });
+          toast.success(`Reworded for this role.${fromWhen()}`);
+          setReword(null);
+          onChanged();
+        }}
+        submitLabel="Change the wording"
+        submitDisabled={!rewordText.trim() || rewordText.trim() === reword?.name.trim() || !takesEffectReady(day, reason)}
+        enterSubmits={false}
+      >
+        <TextField
+          label="New wording"
+          value={rewordText}
+          onChange={(e) => setRewordText(e.target.value.slice(0, 2000))}
+          required
+          autoFocus
+          fullWidth
+          multiline
+          minRows={2}
+          size="small"
+          helperText="One sentence, as it should read in the job description. The same line — reworded, not a new one."
+        />
+        {when}
       </FormDialog>
 
       <ConfirmDialog
@@ -586,17 +651,23 @@ export function RoleContentTab({
         title="Delete this KRA from the role?"
         entityName={deleting?.definition?.name}
         body={(
-          deletingLines > 0
-            ? `Only the KRA goes. Its ${plural(deleting?.responsibilities.length ?? 0, 'responsibility', 'responsibilities')} and ${plural(deleting?.kpis.length ?? 0, 'KPI')} are NOT deleted — they stay on this role and move to “Not yet grouped under a KRA”, where you can file them under another KRA.`
-            : 'Nothing is filed under it, so nothing else changes. Positions holding this role lose the heading too.'
-        ) + (reach ? ` ${reach}.` : '')}
+          <Stack spacing={1.5}>
+            <Box>
+              {(deletingLines > 0
+                ? `Only the KRA goes. Its ${plural(deleting?.responsibilities.length ?? 0, 'responsibility', 'responsibilities')} and ${plural(deleting?.kpis.length ?? 0, 'KPI')} are NOT deleted — they stay on this role and move to “Not yet grouped under a KRA”, where you can file them under another KRA.`
+                : 'Nothing is filed under it, so nothing else changes. Positions holding this role lose the heading too.'
+              ) + (reach ? ` ${reach}.` : '')} Before the day it goes, it stays readable as it was.
+            </Box>
+            {when}
+          </Stack>
+        )}
         confirmLabel="Delete the KRA"
         danger
         onClose={() => setDeleting(null)}
         onConfirm={async () => {
           if (!deleting) return;
-          const r = await jobContentApi.deleteKra(deleting.id);
-          toast.success(r.ungrouped > 0 ? `KRA deleted. ${plural(r.ungrouped, 'line')} kept, now ungrouped.` : 'KRA deleted.');
+          const r = await jobContentApi.deleteKra(deleting.id, datedBody(day, reason));
+          toast.success((r.ungrouped > 0 ? `KRA deleted. ${plural(r.ungrouped, 'line')} kept, now ungrouped.` : 'KRA deleted.') + fromWhen());
           setDeleting(null);
           onChanged();
         }}
@@ -631,14 +702,19 @@ export function RoleContentTab({
         open={!!removing}
         title={`Unassign this ${KIND_NOUN[removing?.kind ?? 'kras'] ?? 'item'}?`}
         entityName={removing?.row.definition?.name}
-        body={`It stops applying to this role from today, for every position that holds the role. It stays readable as history.${reach ? ` ${reach}.` : ''}`}
+        body={(
+          <Stack spacing={1.5}>
+            <Box>{`It stops applying to this role from the day you choose, for every position that holds the role. Before that day it stays readable as it was.${reach ? ` ${reach}.` : ''}`}</Box>
+            {when}
+          </Stack>
+        )}
         confirmLabel="Unassign"
         danger
         onClose={() => setRemoving(null)}
         onConfirm={async () => {
           if (!removing) return;
-          await removeContent(removing.kind, removing.row.id);
-          toast.success('Ended. It stays readable as history.');
+          await removeContent(removing.kind, removing.row.id, undefined, datedBody(day, reason));
+          toast.success(`Ended. It stays readable as history.${fromWhen()}`);
           setRemoving(null);
           onChanged();
         }}

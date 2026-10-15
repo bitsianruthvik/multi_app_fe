@@ -251,8 +251,19 @@ export const addContent = (roleId: number, kind: ContentKind, body: Record<strin
 export const updateContent = (kind: ContentKind, id: number, body: Record<string, unknown>) =>
   api.put<ContentRow>(`/role-content/${kind}/${id}`, body);
 
-export const removeContent = (kind: ContentKind, id: number, endOn?: string) =>
-  api.del<{ ok: boolean }>(`/role-content/${kind}/${id}${endOn ? `?endOn=${endOn}` : ''}`);
+/**
+ * Unassigning. KRAs, responsibilities and KPIs (spec §16.1): `dated.takesEffect` is the first day
+ * without it (default today), `dated.reason` why, for a day that has passed. `endOn` is the older
+ * way of saying it: the last day with it.
+ */
+export const removeContent = (kind: ContentKind, id: number, endOn?: string, dated: { takesEffect?: string; reason?: string } = {}) => {
+  const q = new URLSearchParams();
+  if (endOn) q.set('endOn', endOn);
+  if (dated.takesEffect) q.set('takesEffect', dated.takesEffect);
+  if (dated.reason) q.set('reason', dated.reason);
+  const qs = q.toString();
+  return api.del<{ ok: boolean }>(`/role-content/${kind}/${id}${qs ? `?${qs}` : ''}`);
+};
 
 export const reorderContent = (roleId: number, kind: ContentKind, ids: number[]) =>
   api.put<{ ok: boolean }>(`/roles/${roleId}/content/${kind}/order`, { ids });

@@ -325,7 +325,8 @@ function StepCard({
                   size="small"
                   variant="text"
                   onClick={() => {
-                    const other = oneOf.find((n) => n !== fdef.name) as string;
+                    // The next way of saying who it is for: role -> one position -> one person (spec §16.2) -> role.
+                    const other = oneOf[(oneOf.indexOf(fdef.name) + 1) % oneOf.length];
                     const fields = { ...step.fields };
                     delete fields[fdef.name];
                     fields[other] = blankField();
@@ -333,7 +334,10 @@ function StepCard({
                   }}
                   sx={{ fontSize: 12, minWidth: 0, px: 0.5, color: 'var(--c-text-3)' }}
                 >
-                  {fdef.name === 'role' ? 'or one position' : 'or the whole role'}
+                  {(() => {
+                    const next = oneOf[(oneOf.indexOf(fdef.name) + 1) % oneOf.length];
+                    return next === 'position' ? 'or one position' : next === 'person' ? 'or one person' : 'or the whole role';
+                  })()}
                 </Button>
               )}
             </Box>
@@ -444,7 +448,7 @@ function PlanPicture({ preview }: { preview: Preview }) {
     { title: 'New roles', rows: preview.roles.map((r) => r.title || 'New role') },
     {
       title: 'Job content added',
-      rows: preview.lines.map((l) => `${l.kind === 'RESPONSIBILITY' ? 'Responsibility' : l.kind} “${l.text}”${l.target ? ` (target ${l.target})` : ''} → ${l.on === 'position' ? 'position ' : ''}${l.targetName || '…'}${l.kraName ? `, under ${l.kraName}` : ''}`),
+      rows: preview.lines.map((l) => `${l.kind === 'RESPONSIBILITY' ? 'Responsibility' : l.kind} “${l.text}”${l.target ? ` (target ${l.target})` : ''} → ${l.on === 'position' ? 'position ' : l.on === 'person' ? 'for the person ' : ''}${l.targetName || '…'}${l.kraName ? `, under ${l.kraName}` : ''}`),
     },
     { title: 'Shift changes', rows: preview.shifts.map((s) => `${s.positionName ?? '…'}: ${s.fromShift ?? '?'} → ${s.toShift ?? '…'}`) },
   ].filter((l) => l.rows.length);

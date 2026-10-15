@@ -13,13 +13,14 @@
  *   says so, because a tab called "Relationships" on a role screen is exactly
  *   where someone would otherwise go looking for their manager (plan §2 rule 9).
  *
- *   Content is dated. The band above the tabs reads "everything" by default — so
- *   a future-dated assignment is visible while it is being set up — and can be
- *   pointed at any date to show what was, or will be, in force then.
+ *   Content is dated, and never overwritten (spec §16). "As on" above the tabs
+ *   reads today by default; any other day shows what was, or will be, in force
+ *   then — read-only, under a banner that says so. The History tab lists every
+ *   change to the role's KRAs, responsibilities and KPIs, newest first.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { Box, Button, ListItemIcon, ListItemText, Menu, MenuItem, Stack, TextField, Typography } from '@mui/material';
+import { Box, Button, ListItemIcon, ListItemText, Menu, MenuItem, Stack, Typography } from '@mui/material';
 import ApartmentRounded from '@mui/icons-material/ApartmentRounded';
 import WorkOutlineRounded from '@mui/icons-material/WorkOutlineRounded';
 import FlagRounded from '@mui/icons-material/FlagRounded';
@@ -31,7 +32,7 @@ import CallMadeRounded from '@mui/icons-material/CallMadeRounded';
 import CallReceivedRounded from '@mui/icons-material/CallReceivedRounded';
 import {
   DetailLayout, DetailHeader, CrossLink, FactItem, SectionCard, StatusBadge, ToneBadge, Mono,
-  Surface, Callout, ErrorNotice, DetailSkeleton, ConfirmDialog, useToast, useCompanySlug,
+  Callout, ErrorNotice, DetailSkeleton, ConfirmDialog, useToast, useCompanySlug,
   useDetailTitle, type DetailTab,
 } from '@shared/ui';
 import { useCan } from '../access/can';
@@ -44,8 +45,8 @@ import { RoleLeavePolicy } from '../components/LeavePolicyLine';
 import { RoleContentTab } from '../components/RoleContentTab';
 import { RoleContentSection } from '../components/RoleContentSection';
 import { ContentCopySheet, type ContentCopyStart } from '../components/ContentCopySheet';
-
-const todayIso = () => new Date().toISOString().slice(0, 10);
+import { AsOnBar, JobHistoryList } from '../components/JobDating';
+import { todayIso } from '../components/jobDates';
 
 export default function RoleDetail() {
   const { id } = useParams<{ id: string }>();
@@ -70,8 +71,8 @@ export default function RoleDetail() {
   // `?tab=content` lands on the editor — where the Departments screen's Edit goes.
   const [search] = useSearchParams();
   const [tab, setTab] = useState(search.get('tab') === 'content' ? 'content' : 'overview');
-  const [scope, setScope] = useState<'all' | 'effective'>('all');
   const [on, setOn] = useState(todayIso());
+  const readOnly = on !== todayIso();
   const [editing, setEditing] = useState(false);
   const [removing, setRemoving] = useState(false);
   const [copyStart, setCopyStart] = useState<ContentCopyStart | null>(null);
@@ -85,13 +86,13 @@ export default function RoleDetail() {
     }
     setError(null);
     try {
-      setContent(await getRoleContent(roleId, scope === 'all' ? { scope: 'all' } : { on }));
+      setContent(await getRoleContent(roleId, { on }));
     } catch (e) {
       setError(e);
     } finally {
       setLoading(false);
     }
-  }, [roleId, scope, on]);
+  }, [roleId, on]);
 
   useEffect(() => {
     void load();
@@ -110,6 +111,7 @@ export default function RoleDetail() {
       { value: 'relationships', label: 'Relationships', count: c.relationships ?? 0 },
       { value: 'conditions', label: 'Conditions', count: c.conditions ?? 0 },
       ...(seePositions ? [{ value: 'positions', label: 'Positions', count: role?.positionCount }] : []),
+      { value: 'history', label: 'History' },
     ];
   }, [content, role?.positionCount, seePositions]);
 
@@ -191,43 +193,14 @@ export default function RoleDetail() {
     </>
   );
 
-  /** The date this content is being read on. Content is effective-dated; the screen says which day it is showing. */
+  /** The day this content is read on (spec §16.4): today by default; another day is read-only. */
   const dateBand = (
-    <Surface e={1} sx={{ p: 1.25, mb: 2, display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
-      <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>
-        {scope === 'all'
-          ? 'Showing every position held on this role, including ones dated to start later.'
-          : `Showing the content in force on ${content.on}.`}
-      </Typography>
-      <Box sx={{ flex: 1 }} />
-      <TextField
-        label="In force on"
-        type="date"
-        size="small"
-        value={on}
-        onChange={(e) => {
-          setOn(e.target.value);
-          setScope('effective');
-        }}
-        slotProps={{ inputLabel: { shrink: true } }}
-        sx={{ width: 170 }}
-      />
-      <Button
-        size="small"
-        variant={scope === 'all' ? 'contained' : 'text'}
-        onClick={() => {
-          setScope('all');
-          setOn(todayIso());
-        }}
-      >
-        Show everything
-      </Button>
-    </Surface>
+    <AsOnBar on={on} onChange={setOn} note="Today’s job. Pick a day to read what was, or will be, expected then." />
   );
 
   return (
     <>
-      <DetailLayout header={header} crossLinks={crossLinks} beforeTabs={tab === 'overview' || tab === 'positions' ? undefined : dateBand} tabs={tabs} active={tab} onTab={setTab}>
+      <DetailLayout header={header} crossLinks={crossLinks} beforeTabs={tab === 'overview' || tab === 'positions' || tab === 'history' ? undefined : dateBand} tabs={tabs} active={tab} onTab={setTab}>
         {tab === 'positions' && seePositions && <RolePositionsTab roleId={roleId} company={company} />}
 
         {tab === 'overview' && (
@@ -298,11 +271,17 @@ export default function RoleDetail() {
           </Stack>
         )}
 
-        {tab === 'content' && <RoleContentTab content={content} onChanged={() => void load()} />}
+        {tab === 'content' && <RoleContentTab content={content} onChanged={() => void load()} readOnly={readOnly} />}
+        {tab === 'history' && (
+          <SectionCard title="History" subtitle="Every change to this role’s KRAs, responsibilities and KPIs, and when it took effect.">
+            <JobHistoryList subject={{ type: 'role', id: roleId }} />
+          </SectionCard>
+        )}
 
         {tab === 'requirements' && (
           <Stack spacing={2}>
             <RoleContentSection
+              readOnly={readOnly}
               roleId={roleId}
               kind="skills"
               rows={content.skills}
@@ -314,6 +293,7 @@ export default function RoleDetail() {
               onChanged={() => void load()}
             />
             <RoleContentSection
+              readOnly={readOnly}
               roleId={roleId}
               kind="qualifications"
               rows={content.qualifications}
@@ -325,6 +305,7 @@ export default function RoleDetail() {
               onChanged={() => void load()}
             />
             <RoleContentSection
+              readOnly={readOnly}
               roleId={roleId}
               kind="experience"
               rows={content.experience}
@@ -340,6 +321,7 @@ export default function RoleDetail() {
 
         {tab === 'authority' && (
           <RoleContentSection
+              readOnly={readOnly}
             roleId={roleId}
             kind="authorities"
             rows={content.authorities}
@@ -361,6 +343,7 @@ export default function RoleDetail() {
               Nothing on this tab ever becomes a manager.
             </Callout>
             <RoleContentSection
+              readOnly={readOnly}
               roleId={roleId}
               kind="relationships"
               rows={content.relationships}
@@ -375,6 +358,7 @@ export default function RoleDetail() {
 
         {tab === 'conditions' && (
           <RoleContentSection
+              readOnly={readOnly}
             roleId={roleId}
             kind="conditions"
             rows={content.conditions}

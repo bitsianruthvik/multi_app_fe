@@ -9,7 +9,7 @@ import { pretty } from '../api/roles';
 import ChevronRightRounded from '@mui/icons-material/ChevronRightRounded';
 import ExpandMoreRounded from '@mui/icons-material/ExpandMoreRounded';
 import type { OrgChartNode } from '../api/orgchart';
-import { OrgChartJobSection } from './OrgChartJobSection';
+import { OrgChartJobTabs } from './OrgChartJobTabs';
 import { LeavingBand, NoticeChip } from './Leaving';
 import { HiringEntry } from './HiringEntry';
 import {
@@ -136,8 +136,11 @@ function PositionJob({
   nav,
   onChanged,
   cardIdOfPosition,
+  employeeId = null,
 }: {
   positionId: number;
+  /** The person, when this is their only position: the job opens on their own (spec §16.4). */
+  employeeId?: number | null;
   title: string;
   code: string | null;
   collapsible: boolean;
@@ -206,8 +209,9 @@ function PositionJob({
       )}
       {open && (
         <Box id={bodyId} sx={collapsible ? { p: 1 } : undefined}>
-          <OrgChartJobSection
-            target={{ type: 'position', id: positionId }}
+          <OrgChartJobTabs
+            positionId={positionId}
+            employeeId={employeeId}
             roleId={null}
             asOf={asOf}
             company={company}
@@ -540,8 +544,9 @@ export function OrgChartPersonView({
         <Box sx={{ mt: 1.75 }} data-card-jobcontent="">
           <SectionTitle>KRAs, responsibilities and KPIs</SectionTitle>
           <Typography data-belongs="" sx={{ fontSize: 12.5, color: 'var(--c-text-2)', lineHeight: 1.5, mb: 0.75 }}>
-            These belong to the position, not to {view.title}: whoever sits in it has the same responsibilities and
-            KPIs, and an edit here changes the position.
+            {heldPositions.length === 1
+              ? `The position’s job, with anything changed for ${view.title} alone marked “for this person”. Their own changes stay with this position if they move.`
+              : `These belong to each position: whoever sits in it has the same responsibilities and KPIs, and an edit here changes the position.`}
           </Typography>
           <Stack spacing={1}>
             {heldPositions.map((h, i) => (
@@ -557,6 +562,7 @@ export function OrgChartPersonView({
                 nav={nav}
                 onChanged={onChanged}
                 cardIdOfPosition={cardIdOfPosition}
+                employeeId={heldPositions.length === 1 ? view.employeeId : null}
               />
             ))}
           </Stack>

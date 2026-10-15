@@ -21,6 +21,8 @@ import { positionsApi } from '../api/positions';
 import type { ResolvedRelationship } from '../api/assignments';
 import { PositionContextDialog, PositionFormDialog, PositionSiblingDialog } from '../components/PositionDialogs';
 import { SeatJobContentEditor } from '../components/SeatJobContentEditor';
+import { AsOnBar, JobHistoryList } from '../components/JobDating';
+import { todayIso } from '../components/jobDates';
 import { PositionShiftControl } from '../components/PositionShiftControl';
 import { HiringEntry } from '../components/HiringEntry';
 import { joiningSentence, vacantLabel } from '../api/hiring';
@@ -71,6 +73,8 @@ export default function PositionDetail() {
   const [loading, setLoading] = useState(true);
   const [search] = useSearchParams();
   const [tab, setTab] = useState(search.get('tab') === 'job' ? 'job' : 'overview');
+  // Spec §16.4: the job as on any day (read-only off today), and its dated history.
+  const [jobOn, setJobOn] = useState(todayIso());
   const [editing, setEditing] = useState(false);
   const [adding, setAdding] = useState(false);
   const [addingContext, setAddingContext] = useState(false);
@@ -174,6 +178,7 @@ export default function PositionDetail() {
     { value: 'reporting', label: 'Formal reporting', count: reporting.length },
     { value: 'occupants', label: 'Person', count: occupants.filter((o) => o.liveOnDate).length },
     { value: 'job', label: 'Job content' },
+    { value: 'history', label: 'History' },
   ];
 
   return (
@@ -381,12 +386,22 @@ export default function PositionDetail() {
         )}
 
         {tab === 'job' && (
-          <SeatJobContentEditor
-            positionId={position.id}
-            company={company}
-            canManage={can.positions.edit}
-            startEditing={search.get('edit') === '1'}
-          />
+          <>
+            <AsOnBar on={jobOn} onChange={setJobOn} />
+            <SeatJobContentEditor
+              key={jobOn}
+              positionId={position.id}
+              company={company}
+              canManage={can.positions.edit}
+              startEditing={search.get('edit') === '1'}
+              asOf={jobOn}
+            />
+          </>
+        )}
+        {tab === 'history' && (
+          <SectionCard title="History" subtitle="What changed in this position’s job, and when: the role’s changes, this position’s own, and its role, department, shift and reporting line.">
+            <JobHistoryList subject={{ type: 'position', id: position.id }} />
+          </SectionCard>
         )}
       </DetailLayout>
 

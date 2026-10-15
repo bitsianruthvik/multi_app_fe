@@ -14,6 +14,10 @@
  *   ADDED     specific to this seat
  *   CHANGED   the role says something else; `was` holds what
  *   OFF       the role says it and this seat does not do it
+ * `markLayer` says whose change it is: 'POSITION' (for this position) or
+ * 'PERSON' (for this person, spec §16.2). Every line also says which layer last
+ * shaped it (`layer`), since which day (`since`) and what it replaced
+ * (`changedFrom`) — spec §16.3. Nothing is overwritten: `?on=` reads any day.
  */
 import { api } from './client';
 import type { HiringRef, JoiningRef } from './hiring';
@@ -23,6 +27,15 @@ import type { SelfResponsibilities } from './self';
 
 export type JobLineKind = 'RESPONSIBILITY' | 'KPI';
 export type JobMark = 'ADDED' | 'CHANGED' | 'OFF' | null;
+export type JobLayer = 'ROLE' | 'POSITION' | 'PERSON';
+
+/** What a line said before the change at its layer (spec §16.3). */
+export interface ChangedFrom {
+  wording: string | null;
+  target: string | null;
+  weightPercent: number | null;
+  layer: JobLayer;
+}
 
 export interface JobLine {
   key: string;
@@ -43,6 +56,16 @@ export interface JobLine {
   roleRowId: number | null;
   parentKraDefinitionId: number | null;
   note: string | null;
+  /** The line's identity across its versions. */
+  lineKey?: string | null;
+  /** Whose mark it is: for this position, or for this person. */
+  markLayer?: JobLayer | null;
+  /** The layer that last shaped the line, since when, and what it replaced. */
+  layer?: JobLayer;
+  since?: string | null;
+  changedFrom?: ChangedFrom | null;
+  /** The layer that introduced the line. */
+  origin?: JobLayer;
   // KPI
   targetText?: string | null;
   targetOperator?: string | null;
@@ -61,13 +84,16 @@ export interface JobKra {
   description: string | null;
   weightPercent: number | null;
   mark: JobMark;
+  layer?: JobLayer;
+  since?: string | null;
+  changedFrom?: ChangedFrom | null;
   responsibilities: JobLine[];
   kpis: JobLine[];
 }
 
 export interface JobContentData {
   asOf?: string;
-  subject: 'ROLE' | 'SEAT';
+  subject: 'ROLE' | 'SEAT' | 'PERSON';
   roleId?: number | null;
   roleTitle?: string | null;
   positionId?: number | null;
@@ -75,6 +101,13 @@ export interface JobContentData {
   positionCode?: string | null;
   /** A seat only: how many OTHER seats hold the same role. */
   otherSeatsOnRole?: number;
+  /** A person only (spec §16.2). */
+  employeeId?: number;
+  employeeName?: string | null;
+  employeeCode?: string | null;
+  workAssignmentId?: number | null;
+  /** The person is in no position on that day: there is no job to show. */
+  notInPosition?: boolean;
   kras: JobKra[];
   ungrouped: { responsibilities: JobLine[]; kpis: JobLine[] };
   counts: {
@@ -92,6 +125,12 @@ export interface JobContentData {
   ignored?: { overrideId: number; name: string | null; why: string }[];
 }
 
+/** When a change takes effect (spec §16.1): today by default; a past day only for the Owner, with a reason. */
+export interface Dated {
+  takesEffect?: string;
+  reason?: string;
+}
+
 /** `{ operator?, value }` — a KPI target as a person types it. */
 export interface TargetInput {
   operator?: string;
@@ -99,6 +138,14 @@ export interface TargetInput {
 }
 
 const on = (date?: string) => (date ? `?on=${date}` : '');
+/** `?takesEffect=&reason=` for a DELETE, which carries no body. */
+export const datedQuery = (d: Dated = {}) => {
+  const q = new URLSearchParams();
+  if (d.takesEffect) q.set('takesEffect', d.takesEffect);
+  if (d.reason) q.set('reason', d.reason);
+  const qs = q.toString();
+  return qs ? `?${qs}` : '';
+};
 
 /**
  * Which door a POSITION's job content goes through.
@@ -111,42 +158,96 @@ const on = (date?: string) => (date ? `?on=${date}` : '');
 export type JobContentScope = 'hr' | 'team';
 const positionPath = (positionId: number, scope: JobContentScope = 'hr') =>
   `${scope === 'team' ? '/user/me/team' : ''}/positions/${positionId}/job-content`;
+/** A person's job (spec §16.2): the HR door, or a manager's own team. */
+const personPath = (employeeId: number, scope: JobContentScope = 'hr') =>
+  scope === 'team' ? `/user/me/team/employees/${employeeId}/job-content` : `/people/employees/${employeeId}/job-content`;
+
+/** Whose job an editor changes: a position's, or one person's. */
+export type JobSubject = { type: 'position'; id: number } | { type: 'person'; id: number };
+const subjectPath = (s: JobSubject, scope: JobContentScope) => (s.type === 'person' ? personPath(s.id, scope) : positionPath(s.id, scope));
+
+/* ── history (spec §16.3) ─────────────────────────────────────────────── */
+
+export type HistoryWhat =
+  | 'ADDED' | 'REWORDED' | 'TARGET_CHANGED' | 'CHANGED' | 'SWITCHED_OFF' | 'RESTORED' | 'REMOVED'
+  | 'CREATED' | 'ROLE_CHANGED' | 'DEPARTMENT_CHANGED' | 'SHIFT_CHANGED' | 'PLACE_CHANGED' | 'TITLE_CHANGED'
+  | 'REPORTS_TO' | 'STOPPED_REPORTING_TO' | 'STARTED_IN' | 'LEFT_POSITION';
+
+export interface HistoryItem {
+  /** The first day it applies; null = from the start. */
+  on: string | null;
+  layer: JobLayer;
+  kind: 'KRA' | 'RESPONSIBILITY' | 'KPI' | 'POSITION';
+  what: HistoryWhat;
+  line: string | null;
+  from: string | null;
+  to: string | null;
+  by: string | null;
+  reason: string | null;
+  lineKey: string | null;
+  /** Dated ahead: not in force yet. */
+  coming: boolean;
+}
+
+export interface JobHistory {
+  asOf: string;
+  items: HistoryItem[];
+  total: number;
+}
 
 export const jobContentApi = {
   forRole: (roleId: number, date?: string) => api.get<JobContentData>(`/roles/${roleId}/job-content${on(date)}`),
   forPosition: (positionId: number, date?: string, scope: JobContentScope = 'hr') =>
     api.get<JobContentData>(`${positionPath(positionId, scope)}${on(date)}`),
 
-  // Seat edits. Each answers with the seat's job content after the edit.
+  forPerson: (employeeId: number, date?: string, scope: JobContentScope = 'hr') =>
+    api.get<JobContentData>(`${personPath(employeeId, scope)}${on(date)}`),
+
+  // Edits of a position's (or a person's) job. Each answers with the job content after the edit, as on today.
+  add: (
+    subject: JobSubject,
+    body: { kind: JobLineKind; text: string; parentKraDefinitionId?: number | null; target?: TargetInput | null } & Dated,
+    scope: JobContentScope = 'hr',
+  ) => api.post<JobContentData>(`${subjectPath(subject, scope)}/add`, body),
+  change: (
+    subject: JobSubject,
+    body: { kind: JobLineKind; definitionId: number; text?: string; target?: TargetInput | null } & Dated,
+    scope: JobContentScope = 'hr',
+  ) => api.post<JobContentData>(`${subjectPath(subject, scope)}/change`, body),
+  switchOff: (subject: JobSubject, body: { kind: JobLineKind; definitionId: number } & Dated, scope: JobContentScope = 'hr') =>
+    api.post<JobContentData>(`${subjectPath(subject, scope)}/switch-off`, body),
+  undo: (subject: JobSubject, body: { kind: JobLineKind; definitionId: number } & Dated, scope: JobContentScope = 'hr') =>
+    api.post<JobContentData>(`${subjectPath(subject, scope)}/undo`, body),
+
+  // The older names, for a position.
   seatAdd: (
     positionId: number,
-    body: { kind: JobLineKind; text: string; parentKraDefinitionId?: number | null; target?: TargetInput | null; reason?: string },
+    body: { kind: JobLineKind; text: string; parentKraDefinitionId?: number | null; target?: TargetInput | null } & Dated,
     scope: JobContentScope = 'hr',
   ) => api.post<JobContentData>(`${positionPath(positionId, scope)}/add`, body),
-  seatChange: (
-    positionId: number,
-    body: { kind: JobLineKind; definitionId: number; text?: string; target?: TargetInput | null; reason?: string },
-    scope: JobContentScope = 'hr',
-  ) => api.post<JobContentData>(`${positionPath(positionId, scope)}/change`, body),
-  seatSwitchOff: (
-    positionId: number,
-    body: { kind: JobLineKind; definitionId: number; reason?: string },
-    scope: JobContentScope = 'hr',
-  ) => api.post<JobContentData>(`${positionPath(positionId, scope)}/switch-off`, body),
-  seatUndo: (positionId: number, body: { kind: JobLineKind; definitionId: number }, scope: JobContentScope = 'hr') =>
+  seatUndo: (positionId: number, body: { kind: JobLineKind; definitionId: number } & Dated, scope: JobContentScope = 'hr') =>
     api.post<JobContentData>(`${positionPath(positionId, scope)}/undo`, body),
 
+  // History (spec §16.3).
+  roleHistory: (roleId: number) => api.get<JobHistory>(`/roles/${roleId}/job-content/history`),
+  positionHistory: (positionId: number) => api.get<JobHistory>(`/positions/${positionId}/job-content/history`),
+  personHistory: (employeeId: number) => api.get<JobHistory>(`/people/employees/${employeeId}/job-content/history`),
+
+  /** A role's responsibility or KPI, reworded from a day: a new version of the same line. */
+  rewordRoleLine: (kind: 'responsibilities' | 'kpis', roleRowId: number, body: { text: string } & Dated) =>
+    api.post<unknown>(`/role-content/${kind}/${roleRowId}/reword`, body),
+
   // Role edits — the KRAs themselves.
-  createKra: (roleId: number, body: { name: string; description?: string }) =>
+  createKra: (roleId: number, body: { name: string; description?: string } & Dated) =>
     api.post<ContentRow>(`/roles/${roleId}/kras`, body),
-  renameKra: (roleKraAssignmentId: number, body: { name?: string; description?: string }) =>
+  renameKra: (roleKraAssignmentId: number, body: { name?: string; description?: string } & Dated) =>
     api.put<{ ok: boolean; forked: boolean; sharedWithRoles: number }>(`/role-kras/${roleKraAssignmentId}`, body),
-  deleteKra: (roleKraAssignmentId: number) =>
-    api.del<{ ok: boolean; name: string; ungrouped: number }>(`/role-kras/${roleKraAssignmentId}`),
+  deleteKra: (roleKraAssignmentId: number, dated: Dated = {}) =>
+    api.del<{ ok: boolean; name: string; ungrouped: number }>(`/role-kras/${roleKraAssignmentId}${datedQuery(dated)}`),
   /** Several lines under one KRA (or out of every KRA) in one write. */
   moveLines: (
     roleId: number,
-    body: { roleKraAssignmentId: number | null; responsibilities?: number[]; kpis?: number[] },
+    body: { roleKraAssignmentId: number | null; responsibilities?: number[]; kpis?: number[] } & Dated,
   ) => api.put<{ ok: boolean; moved: number }>(`/roles/${roleId}/content-group`, body),
 };
 

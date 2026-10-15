@@ -22,6 +22,11 @@
  * signal: the badge says it in text, so it survives a screen reader, a
  * monochrome print and anyone who does not read a line through as "removed".
  *
+ * A PERSON'S OWN CHANGES (spec §16.2) are marked the same way, in their own words —
+ * "Specific to this person", "Changed for this person" — so on a person's job the
+ * reader can tell the role's line, the position's change and the person's apart.
+ * A line changed on a date says so quietly ("Changed on 15 Oct 2026 — was …").
+ *
  * NEVER AN EMPTY BOX. "No KRAs written for this role yet" and "nothing is
  * written for this job" are different sentences and each is said outright.
  */
@@ -31,6 +36,7 @@ import ChevronRightRounded from '@mui/icons-material/ChevronRightRounded';
 import ExpandMoreRounded from '@mui/icons-material/ExpandMoreRounded';
 import { CapsLabel, ToneBadge } from '@shared/ui';
 import type { JobContentData, JobKra, JobLine, JobMark } from '../api/jobContent';
+import { longDay, todayIso } from './jobDates';
 
 const UNGROUPED = '__ungrouped';
 /** Lines shown per list before "Show all", in the dense layout. */
@@ -42,6 +48,12 @@ const MARK_LABEL: Record<Exclude<JobMark, null>, string> = {
   ADDED: 'Specific to this position',
   CHANGED: 'Changed for this position',
   OFF: 'Switched off for this position',
+};
+/** One person's own changes (spec §16.2). */
+const MARK_LABEL_PERSON: Record<Exclude<JobMark, null>, string> = {
+  ADDED: 'Specific to this person',
+  CHANGED: 'Changed for this person',
+  OFF: 'Switched off for this person',
 };
 /** Said to the person in the position, the same three facts read as theirs. */
 const MARK_LABEL_SELF: Record<Exclude<JobMark, null>, string> = {
@@ -58,6 +70,20 @@ const MARK_TONE: Record<Exclude<JobMark, null>, 'info' | 'warning' | 'neutral'> 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 const KPI_WORDS = ['KPI', 'KPIs'] as const;
 const RESP_WORDS = ['responsibility', 'responsibilities'] as const;
+
+/** "Changed on 15 Oct 2026 — was “Check the rolls”" — quiet, only when the line says what it replaced. */
+function changedText(l: { since?: string | null; changedFrom?: JobLine['changedFrom'] }): string | null {
+  const c = l.changedFrom;
+  if (!c) return null;
+  const was = [
+    c.wording ? `was “${c.wording}”` : null,
+    c.target ? `target was ${c.target}` : null,
+    c.weightPercent != null ? `weight was ${c.weightPercent}%` : null,
+  ].filter(Boolean).join(', ');
+  if (!was) return null;
+  const when = l.since ? (l.since > todayIso() ? `From ${longDay(l.since)}` : `Changed on ${longDay(l.since)}`) : 'Changed';
+  return `${when} — ${was}`;
+}
 
 function countsText(responsibilities: JobLine[], kpis: JobLine[]): string {
   const r = responsibilities.filter((l) => l.mark !== 'OFF').length;
@@ -136,7 +162,12 @@ export function JobContent({
     voice === 'self'
       ? MARK_LABEL_SELF
       : MARK_LABEL;
-  const whose = voice === 'self' ? 'your' : subject === 'SEAT' ? "this position's" : "this role's";
+  const labelOf = (l: { mark: JobMark; markLayer?: string | null }) =>
+    !l.mark ? '' : voice === 'self' ? MARK_LABEL_SELF[l.mark] : l.markLayer === 'PERSON' ? MARK_LABEL_PERSON[l.mark] : markLabel[l.mark];
+  const whose = voice === 'self' ? 'your' : subject === 'SEAT' ? "this position's" : subject === 'PERSON' ? "this person's" : "this role's";
+  const everyLine = [...kras.flatMap((k) => [...k.responsibilities, ...k.kpis]), ...ungrouped.responsibilities, ...ungrouped.kpis];
+  const byPerson = everyLine.filter((l) => l.mark && l.markLayer === 'PERSON').length;
+  const byPosition = everyLine.filter((l) => l.mark && l.markLayer !== 'PERSON').length;
 
   /* ── nothing at all ─────────────────────────────────────────────────────── */
   if (kras.length === 0 && totalLines === 0) {
@@ -145,7 +176,9 @@ export function JobContent({
         <Typography sx={{ fontSize: 13.5, color: 'var(--c-text-2)', lineHeight: 1.55 }}>
           {voice === 'self'
             ? 'Your responsibilities have not been written into the system yet. That is about the records, not about your job.'
-            : subject === 'SEAT'
+            : subject === 'PERSON' && content.notInPosition
+              ? 'Not in a position on this date, so there is no job to show.'
+            : subject === 'SEAT' || subject === 'PERSON'
               ? 'This position has no responsibilities — no KRAs, responsibilities or KPIs are written for its role yet.'
               : 'No KRAs, responsibilities or KPIs are written for this role yet.'}
           {noKrasAction ? <> {noKrasAction}</> : null}
@@ -214,9 +247,14 @@ export function JobContent({
               {l.detail}
             </Typography>
           )}
+          {!l.was && changedText(l) && !off && (
+            <Typography data-changed="" sx={{ fontSize: 12, color: 'var(--c-text-2)', lineHeight: 1.5, overflowWrap: 'anywhere' }}>
+              {changedText(l)}
+            </Typography>
+          )}
           {(l.mark || l.note) && (
             <Stack direction="row" spacing={0.75} alignItems="center" flexWrap="wrap" useFlexGap sx={{ mt: 0.4 }}>
-              {l.mark && <ToneBadge tone={MARK_TONE[l.mark]} label={markLabel[l.mark]} noIcon />}
+              {l.mark && <ToneBadge tone={MARK_TONE[l.mark]} label={labelOf(l)} noIcon />}
               {l.was && (
                 <Typography sx={{ fontSize: 12, color: 'var(--c-text-2)', overflowWrap: 'anywhere' }}>{l.was}</Typography>
               )}
@@ -350,6 +388,14 @@ export function JobContent({
         {summary ? (
           <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)', flex: 1, minWidth: 180 }}>
             {plural(counts.kras, 'KRA')} · {plural(counts.responsibilities, ...RESP_WORDS)} · {plural(counts.kpis, ...KPI_WORDS)}
+            {subject === 'PERSON' && voice === 'hr' && (
+              <>
+                {' · '}
+                {byPerson + byPosition === 0
+                  ? 'exactly as the role says'
+                  : [byPosition ? `${byPosition} for this position` : null, byPerson ? `${byPerson} for this person` : null].filter(Boolean).join(', ')}
+              </>
+            )}
             {subject === 'SEAT' && voice === 'hr' && (
               <>
                 {' · '}
@@ -397,6 +443,11 @@ export function JobContent({
               {k.mark && (
                 <Box component="span" sx={{ ml: 0.75, display: 'inline-flex', verticalAlign: 'middle' }}>
                   <ToneBadge tone={MARK_TONE[k.mark]} label={markLabel[k.mark]} noIcon />
+                </Box>
+              )}
+              {changedText(k) && (
+                <Box component="span" sx={{ display: 'block', fontSize: 12, fontWeight: 400, color: 'var(--c-text-2)' }}>
+                  {changedText(k)}
                 </Box>
               )}
             </>,

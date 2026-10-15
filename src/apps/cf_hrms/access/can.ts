@@ -186,6 +186,8 @@ export type Can = Record<Area, AreaFlags> & {
   settled: boolean;
   /** Holds the self view and no HR screen at all — a shop-floor employee login. */
   selfOnly: boolean;
+  /** The Owner: the only one who may date a job-content change in the past, with a reason (spec §16.1). */
+  owner: boolean;
 };
 
 export function useCan(): Can {
@@ -225,6 +227,7 @@ export function useCan(): Can {
       scope: snap.me?.scope ?? null,
       settled: snap.settled,
       selfOnly: named.selfView && !SCREEN_TAGS.some((t) => has(t)),
+      owner,
     };
   }, [snap, fromLogin, owner]);
 }

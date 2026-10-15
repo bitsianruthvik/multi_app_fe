@@ -8,7 +8,7 @@ import { MoveEmployeeHere } from './MoveEmployee';
 import { Link as RouterLink } from 'react-router-dom';
 import { joiningSentence } from '../api/hiring';
 import { HiringEntry } from './HiringEntry';
-import { OrgChartJobSection } from './OrgChartJobSection';
+import { OrgChartJobTabs } from './OrgChartJobTabs';
 import {
   PositionFacts,
   PositionFooter,
@@ -194,8 +194,8 @@ export function OrgChartVacantPositionView({
         <Typography data-belongs="" sx={{ fontSize: 12.5, color: 'var(--c-text-2)', lineHeight: 1.5, mb: 0.75 }}>
           These belong to the position: whoever is put in it takes them on as they stand.
         </Typography>
-        <OrgChartJobSection
-          target={{ type: 'position', id: positionId }}
+        <OrgChartJobTabs
+          positionId={positionId}
           roleId={roleId}
           asOf={asOf}
           company={company}

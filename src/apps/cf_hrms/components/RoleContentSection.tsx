@@ -83,7 +83,10 @@ export function RoleContentSection({
   addLabel,
   emptyHint,
   onChanged,
+  readOnly = false,
 }: {
+  /** Another day than today: shown, not edited. */
+  readOnly?: boolean;
   roleId: number;
   kind: ContentKind;
   rows: ContentRow[];
@@ -97,8 +100,8 @@ export function RoleContentSection({
   const toast = useToast();
   // Add / edit a line = roles.edit; remove a line = roles.remove.
   const can = useCan();
-  const canEdit = can.roles.edit;
-  const canRemove = can.roles.remove;
+  const canEdit = can.roles.edit && !readOnly;
+  const canRemove = can.roles.remove && !readOnly;
   const present = PRESENT[kind];
   const [assign, setAssign] = useState<{ row: ContentRow | null } | null>(null);
   const [removing, setRemoving] = useState<ContentRow | null>(null);

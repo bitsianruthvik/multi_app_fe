@@ -8,7 +8,7 @@ import EditRounded from '@mui/icons-material/EditRounded';
 import PhotoCameraRounded from '@mui/icons-material/PhotoCameraRounded';
 import {
   DetailLayout, DetailHeader, CrossLink, FactItem, StatusBadge, ToneBadge, Mono,
-  DetailSkeleton, ErrorNotice, useDetailTitle, useToast,
+  DetailSkeleton, ErrorNotice, SectionCard, useDetailTitle, useToast,
   type DetailTab,
 } from '@shared/ui';
 import {
@@ -25,6 +25,9 @@ import { EmployeePositionsTab } from '../components/EmployeePositionsTab';
 import { EmployeeIdentifiersTab } from '../components/EmployeeIdentifiersTab';
 import { EmployeeDocumentsTab } from '../components/EmployeeDocumentsTab';
 import { EmployeeHistoryTab } from '../components/EmployeeHistoryTab';
+import { SeatJobContentEditor } from '../components/SeatJobContentEditor';
+import { AsOnBar, JobHistoryList } from '../components/JobDating';
+import { todayIso } from '../components/jobDates';
 
 /**
  * One person (DESIGN_SYSTEM.md §4.3 Record).
@@ -39,8 +42,8 @@ import { EmployeeHistoryTab } from '../components/EmployeeHistoryTab';
  * "the manager" field would have to pick one of them and be wrong twice.
  */
 
-type TabKey = 'overview' | 'work' | 'identifiers' | 'documents' | 'history';
-const TAB_KEYS: TabKey[] = ['overview', 'work', 'identifiers', 'documents', 'history'];
+type TabKey = 'overview' | 'work' | 'job' | 'identifiers' | 'documents' | 'history';
+const TAB_KEYS: TabKey[] = ['overview', 'work', 'job', 'identifiers', 'documents', 'history'];
 
 export default function EmployeeDetail() {
   const { company, id } = useParams<{ company: string; id: string }>();
@@ -57,6 +60,8 @@ export default function EmployeeDetail() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<unknown>(null);
   const [editOpen, setEditOpen] = useState(false);
+  // Spec §16.4: their job as on any day (read-only off today).
+  const [jobOn, setJobOn] = useState(todayIso());
   const photoInput = useRef<HTMLInputElement>(null);
 
   // Tab lives in the URL so a link to somebody's documents is a link that works.
@@ -184,6 +189,7 @@ export default function EmployeeDetail() {
   const tabs: DetailTab[] = [
     { value: 'overview', label: 'Overview' },
     { value: 'work', label: 'Positions held', count: counts.activeAssignments },
+    { value: 'job', label: 'Job' },
     { value: 'identifiers', label: 'Identifiers', count: counts.identifiers },
     { value: 'documents', label: 'Documents', count: counts.documents },
     { value: 'history', label: 'History', count: counts.events },
@@ -320,6 +326,18 @@ export default function EmployeeDetail() {
             companySlug={company ?? ''}
             onChanged={() => void load()}
           />
+        )}
+
+        {tab === 'job' && (
+          <Stack spacing={2}>
+            <Box>
+              <AsOnBar on={jobOn} onChange={setJobOn} />
+              <SeatJobContentEditor key={jobOn} employeeId={employee.id} company={company ?? ''} canManage={canEdit} asOf={jobOn} />
+            </Box>
+            <SectionCard title="History of this job" subtitle="Their own changes, the positions they held, and what the role and the position changed while they held it.">
+              <JobHistoryList subject={{ type: 'person', id: employee.id }} />
+            </SectionCard>
+          </Stack>
         )}
 
         {tab === 'identifiers' && (
