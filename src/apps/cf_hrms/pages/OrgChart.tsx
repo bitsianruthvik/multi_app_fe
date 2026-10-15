@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
-import { Box, Button, IconButton, Stack, Tooltip, Typography, useTheme } from '@mui/material';
+import { Box, Button, Chip, IconButton, Stack, Tooltip, Typography, useTheme } from '@mui/material';
 import ArrowBackRounded from '@mui/icons-material/ArrowBackRounded';
 import ImageRounded from '@mui/icons-material/ImageRounded';
 import PictureAsPdfRounded from '@mui/icons-material/PictureAsPdfRounded';
-import SearchRounded from '@mui/icons-material/SearchRounded';
+import QuestionAnswerRounded from '@mui/icons-material/QuestionAnswerRounded';
 import AutoFixHighRounded from '@mui/icons-material/AutoFixHighRounded';
 import {
   ChartSkeleton,
@@ -53,7 +53,7 @@ import {
   type FloatingPanelHandle,
 } from '../components/OrgChartFloatingPanel';
 import { useFullscreen } from '../components/useFullscreen';
-import { OrgChartSearch } from '../components/OrgChartSearch';
+import { OrgChartAsk, type AskPick } from '../components/OrgChartAsk';
 import { CommandBar } from '../components/CommandBar';
 import { useCan } from '../access/can';
 import { useLabelGroups, labelColour, labelFilterText, matchesLabels } from '../components/labelGroups';
@@ -163,7 +163,11 @@ export default function OrgChart() {
   // of the card's role, so Back from a position lands on the role it belongs to.
   const [views, setViews] = useState<PanelView[]>([]);
   const panelRef = useRef<FloatingPanelHandle>(null);
-  const [searchOpen, setSearchOpen] = useState(false);
+  // Ask (spec §21): from the header button, or from ⌘K's "Ask: …" (…/org-chart?ask=<question>).
+  const [askOpen, setAskOpen] = useState(() => params.get('ask') != null);
+  const [askText, setAskText] = useState(() => params.get('ask') ?? '');
+  // A clicked answer: its positions drawn normally, every other card faint, until cleared.
+  const [highlight, setHighlight] = useState<{ ids: Set<number>; label: string } | null>(null);
   const fullscreen = useFullscreen();
 
   const [exporting, setExporting] = useState(false);
@@ -452,6 +456,14 @@ export default function OrgChart() {
     () => (model && sceneOptions ? buildScene(model, { ...sceneOptions, titleBlock: false }) : null),
     [model, sceneOptions],
   );
+  // An Ask answer on the chart: the cards holding its positions as they are, the rest faint.
+  const shownScene = useMemo(() => {
+    if (!scene || !highlight) return scene;
+    return {
+      ...scene,
+      boxes: scene.boxes.map((b) => (b.rows.some((r) => highlight.ids.has(r.positionId)) ? b : { ...b, dimmed: true })),
+    };
+  }, [scene, highlight]);
 
   // ── Zoom ────────────────────────────────────────────────────────────────
   /** The Fit button: the whole chart, however small that has to be. */
@@ -682,6 +694,31 @@ export default function OrgChart() {
     setParams(next, { replace: true });
   }, [params, setParams]);
 
+  // ?ask=<question> (⌘K "Ask: …"): open Ask with it, then keep the address clean.
+  useEffect(() => {
+    const asked = params.get('ask');
+    if (asked == null) return;
+    setAskText(asked);
+    setAskOpen(true);
+    const next = new URLSearchParams(params);
+    next.delete('ask');
+    setParams(next, { replace: true });
+  }, [params, setParams]);
+
+  /** An Ask answer clicked: highlight its positions (opening the boxes above them) and open one. */
+  const onAskPick = useCallback(
+    (pick: AskPick) => {
+      if (!model) return;
+      setHighlight({ ids: new Set(pick.positionIds), label: pick.label });
+      for (const id of pick.positionIds) {
+        const card = model.cardOf.get(id);
+        if (card != null) reveal(card);
+      }
+      if (pick.open != null) openPosition(pick.open);
+    },
+    [model, reveal, openPosition],
+  );
+
   const closePanel = useCallback(() => {
     setViews([]);
     // Hand the keyboard back to the card the panel described, so Esc in the
@@ -754,8 +791,19 @@ export default function OrgChart() {
         subtitle="Positions, who is in them, and who they answer to"
         actions={
           <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-            <Button size="small" startIcon={<SearchRounded />} onClick={() => setSearchOpen(true)}>
-              Search job content
+            {highlight && (
+              <Chip
+                size="small"
+                color="primary"
+                variant="outlined"
+                label={`Showing: ${highlight.label}`}
+                onDelete={() => setHighlight(null)}
+                title="Other positions are drawn faint. Clear to see the whole chart again."
+                sx={{ maxWidth: 280, alignSelf: 'center' }}
+              />
+            )}
+            <Button size="small" startIcon={<QuestionAnswerRounded />} onClick={() => { setAskText(''); setAskOpen(true); }}>
+              Ask
             </Button>
             {mayDoInWords && (
               <Button
@@ -920,7 +968,7 @@ export default function OrgChart() {
               sx={{ flex: 1, minHeight: 0, minWidth: 0, display: 'flex', flexDirection: 'column' }}
             >
               <OrgChartCanvas
-                  scene={scene}
+                  scene={shownScene ?? scene}
                   zoom={zoom ?? 1}
                   fontFamily={palette.fontUi}
                   selected={selected}
@@ -1053,11 +1101,14 @@ export default function OrgChart() {
         </OrgChartFloatingPanel>
       </Box>
 
-      <OrgChartSearch
-        open={searchOpen}
+      <OrgChartAsk
+        open={askOpen}
         asOf={asOf}
-        onClose={() => setSearchOpen(false)}
-        onPick={openPosition}
+        initialQuestion={askText}
+        departments={model?.departments ?? []}
+        labelGroups={labelGroups}
+        onClose={() => setAskOpen(false)}
+        onPick={onAskPick}
       />
     </Stack>
   );

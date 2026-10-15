@@ -350,6 +350,96 @@ export interface SearchResult {
   items: SearchHit[];
 }
 
+/* ── "Who owns X?" (spec §21) ─────────────────────────────────────────── */
+
+/** What an Ask can be limited to: three kinds of line, and two of structure. */
+export type AskKind = 'KRA' | 'RESPONSIBILITY' | 'KPI' | 'ROLE' | 'DEPARTMENT';
+
+export interface AskMatch {
+  /** The lines' kinds, or the structure that matched: a role, a position's own title, a department, a location. */
+  kind: 'KRA' | 'RESPONSIBILITY' | 'KPI' | 'ROLE' | 'POSITION' | 'DEPARTMENT' | 'LOCATION';
+  id: number;
+  text: string;
+  /** 0–1. */
+  score: number;
+  similarity: number | null;
+  /** Which layer the line is on for this person/position; null for structure. */
+  layer: 'ROLE' | 'POSITION' | 'PERSON' | null;
+  /** One plain sentence: "KRA of the role Manager - PPC · close in meaning". */
+  why: string;
+  positionId: number | null;
+}
+
+export interface AskPosition {
+  positionId: number;
+  cardId: number;
+  positionCode: string | null;
+  title: string;
+  roleTitle: string;
+  departmentId: number | null;
+  departmentName: string | null;
+  locationName: string | null;
+}
+
+export interface AskPerson {
+  employeeId: number;
+  name: string;
+  employeeCode: string | null;
+  /** The positions they hold — the ones that brought a match first. */
+  positions: AskPosition[];
+  score: number;
+  rank: number;
+  matchCount: number;
+  matches: AskMatch[];
+}
+
+export interface AskPositionHit extends AskPosition {
+  vacant: boolean;
+  occupants: { employeeId: number; name: string; employeeCode: string | null }[];
+  /** People in it outside the login's department scope: counted, not named. */
+  hiddenOccupants: number;
+  /** "No one — the position P0xx is vacant" for a vacant one. */
+  sentence: string | null;
+  score: number;
+  rank: number;
+  matchCount: number;
+  matches: AskMatch[];
+}
+
+export interface AskResult {
+  question: string;
+  reading: {
+    asked: string;
+    /** What was matched after the question words were taken off. */
+    searchedFor: string;
+    stripped: string[];
+    kindsFromQuestion: AskKind[] | null;
+    place: { kind: 'DEPARTMENT' | 'LABEL' | 'LOCATION'; id: number; name: string } | null;
+  };
+  mode: 'meaning' | 'exact' | 'keyword';
+  notice: string | null;
+  kinds: AskKind[];
+  pending: number;
+  asOf: string;
+  filters: { department: { id: number; name: string | null } | null; location: { id: number; name: string | null } | null; labels: string[] };
+  /** A department-scoped login: people are from its scope only. */
+  scoped: boolean;
+  totals: { people: number; positions: number; vacant: number };
+  people: AskPerson[];
+  positions: AskPositionHit[];
+  vacant: AskPositionHit[];
+}
+
+export interface AskOptions {
+  on?: string;
+  kinds?: AskKind[];
+  mode?: 'meaning' | 'exact';
+  department?: number | null;
+  label?: number[];
+  location?: number | null;
+  limit?: number;
+}
+
 function qs(params: Record<string, string | number | undefined | null>): string {
   const p = new URLSearchParams();
   for (const [k, v] of Object.entries(params)) {
@@ -374,5 +464,20 @@ export const orgChartApi = {
   search: (q: string, opts: { on?: string; kinds?: SearchKind[]; mode?: 'meaning' | 'exact' } = {}) =>
     api.get<SearchResult>(
       `/orgchart/search${qs({ q, on: opts.on, kinds: opts.kinds?.join(','), mode: opts.mode })}`,
+    ),
+
+  /** "Who owns X?" — a question in, people first, then vacant positions (spec §21). */
+  ask: (q: string, opts: AskOptions = {}) =>
+    api.get<AskResult>(
+      `/orgchart/ask${qs({
+        q,
+        on: opts.on,
+        kinds: opts.kinds?.join(','),
+        mode: opts.mode,
+        department: opts.department ?? undefined,
+        label: opts.label?.length ? opts.label.join(',') : undefined,
+        location: opts.location ?? undefined,
+        limit: opts.limit,
+      })}`,
     ),
 };

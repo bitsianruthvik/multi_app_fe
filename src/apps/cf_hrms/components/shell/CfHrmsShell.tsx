@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback, type ReactNode } from 'react';
 import PersonRounded from '@mui/icons-material/PersonRounded';
 import WorkOutlineRounded from '@mui/icons-material/WorkOutlineRounded';
 import AccountTreeRounded from '@mui/icons-material/AccountTreeRounded';
+import QuestionAnswerRounded from '@mui/icons-material/QuestionAnswerRounded';
 import {
   AppShell, ThemeScope, ToastProvider, CommandPaletteProvider,
   type Can, type PaletteAction, type PaletteRecord,
@@ -69,6 +70,7 @@ const PALETTE_ACTIONS: PaletteAction[] = [
 const RECORD_ICON = (type: string) => {
   if (type === 'employee') return <PersonRounded fontSize="small" />;
   if (type === 'position') return <AccountTreeRounded fontSize="small" />;
+  if (type === 'ask') return <QuestionAnswerRounded fontSize="small" />;
   return <WorkOutlineRounded fontSize="small" />;
 };
 
@@ -123,6 +125,7 @@ export function CfHrmsShell({ children }: { children: ReactNode }) {
    * record search is down, so a rejected half resolves to nothing rather than
    * taking the whole result with it.
    */
+  const mayAsk = access.has(TAG.positions.view);
   const searchRecords = useCallback(async (q: string): Promise<PaletteRecord[]> => {
     const [people, content] = await Promise.allSettled([
       peopleApi.list({ search: q }),
@@ -130,6 +133,18 @@ export function CfHrmsShell({ children }: { children: ReactNode }) {
     ]);
 
     const out: PaletteRecord[] = [];
+
+    // "Who owns X?" (spec §21): a question typed here is offered first as "Ask: …",
+    // which opens Ask on the org chart with it. The instant results below stay exact-word.
+    if (mayAsk && /^(who|whose|which|what)\b|\?$|\S+\s+\S+/i.test(q)) {
+      out.push({
+        id: 'ask',
+        type: 'ask',
+        label: `Ask: ${q}`,
+        hint: 'Who owns it — people first, by meaning',
+        path: `org-chart?ask=${encodeURIComponent(q)}`,
+      });
+    }
 
     if (people.status === 'fulfilled') {
       for (const e of people.value.items.slice(0, 6)) {
@@ -160,7 +175,7 @@ export function CfHrmsShell({ children }: { children: ReactNode }) {
     }
 
     return out;
-  }, []);
+  }, [mayAsk]);
 
   return (
     <ThemeScope appSlug="cf_hrms">
