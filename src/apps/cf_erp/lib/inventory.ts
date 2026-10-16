@@ -1,13 +1,14 @@
 import type { AreaPurpose, BatchStatus, LedgerMovementType, StockCategory, Weekday } from '../api/types';
 
-export const PURPOSE_LABEL: Record<AreaPurpose, string> = { storage: 'Storage', wip: 'Work in process', quarantine: 'Quarantine', dispatch: 'Dispatch' };
+export const PURPOSE_LABEL: Record<AreaPurpose, string> = { storage: 'Storage', wip: 'Work in process', quarantine: 'Quarantine', dispatch: 'Dispatch', scrap: 'Scrap' };
 export const PURPOSE_HELP: Record<AreaPurpose, string> = {
   storage: 'Stock here is available to use.',
   wip: 'Stock here is being worked on — beside a machine or in a bay.',
   quarantine: 'Stock here is held: not issued until it is moved back to storage.',
   dispatch: 'Finished and waiting to leave.',
+  scrap: 'Scrap kept here until it is sold or sent back.',
 };
-export const CATEGORY_LABEL: Record<StockCategory, string> = { available: 'Available', in_process: 'In process', held: 'Held', rejected: 'Rejected', dispatch: 'Dispatch' };
+export const CATEGORY_LABEL: Record<StockCategory, string> = { available: 'Available', in_process: 'In process', held: 'Held', rejected: 'Rejected', dispatch: 'Dispatch', scrap: 'Scrap' };
 export const MOVEMENT_LABEL: Record<LedgerMovementType, string> = { receipt: 'Receipt', issue: 'Issue', transfer: 'Transfer', adjustment: 'Count', scrap: 'Scrap', return: 'Returned to customer' };
 export const BATCH_STATUS_LABEL: Record<BatchStatus, string> = { available: 'Available', on_hold: 'On hold', rejected: 'Rejected' };
 export const WEEKDAY_SHORT: Record<Weekday, string> = { mon: 'Mon', tue: 'Tue', wed: 'Wed', thu: 'Thu', fri: 'Fri', sat: 'Sat', sun: 'Sun' };

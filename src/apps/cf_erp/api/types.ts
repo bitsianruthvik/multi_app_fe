@@ -898,13 +898,13 @@ export interface MachineCalendar { machine: { id: number; code: string; name: st
 
 // ---- Inventory -----------------------------------------------------------------------
 
-export type AreaPurpose = 'storage' | 'wip' | 'quarantine' | 'dispatch';
+export type AreaPurpose = 'storage' | 'wip' | 'quarantine' | 'dispatch' | 'scrap';
 export type BatchStatus = 'available' | 'on_hold' | 'rejected';
 export type MovementType = 'receipt' | 'issue' | 'transfer' | 'adjustment' | 'scrap';
 /** A posted movement can also be a return to a customer (customer material), which is not keyed in on the stock screens. */
 export type LedgerMovementType = MovementType | 'return';
 /** What a stock row counts as: its batch's quality state first, then its area's purpose. */
-export type StockCategory = 'available' | 'in_process' | 'held' | 'rejected' | 'dispatch';
+export type StockCategory = 'available' | 'in_process' | 'held' | 'rejected' | 'dispatch' | 'scrap';
 
 export interface StockingArea {
   id: number;

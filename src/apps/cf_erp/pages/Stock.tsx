@@ -3,135 +3,139 @@ import { Autocomplete, Box, Button, TextField } from '@mui/material';
 import FactCheckRounded from '@mui/icons-material/FactCheckRounded';
 import WarehouseRounded from '@mui/icons-material/WarehouseRounded';
 import { cfApi, type CfApiError } from '../api/client';
-import type { MovementType, StockCategory, StockRow, StockingArea } from '../api/types';
-import type { Valuation } from '../api/money';
-import { kgText, rupeeText } from '../lib/money';
-import { qtyText } from '../lib/inventory';
+import type { MovementType, ScreenTree, StockingArea } from '../api/types';
+import { checkLedger } from '../api/stockView';
+import { kgText } from '../lib/money';
+import { screenTreePath } from '../lib/classificationScreens';
+import { flattenTree } from '../lib/tree';
+import { TRACKINGS, TRACKING_CHIP, VIEW_CATEGORIES, VIEW_CATEGORY_LABEL, ledgerCheckMessage, partyName, quantitiesText } from '../lib/stockView';
 import { useLoad } from '../hooks/useLoad';
-import { useDebounced, usePagedList } from '../hooks/usePagedList';
+import { useDebounced } from '../hooks/usePagedList';
+import { useStockView } from '../hooks/useStockView';
 import { useIsPermitted } from '../hooks/useIsPermitted';
 import { useNewParam, useUrlParam } from '../hooks/useUrlState';
-import { CATEGORY_LABEL } from '../lib/inventory';
-import { EmptyState, ErrorNotice, PageHeader, StatStrip } from '../components/ui';
+import { EmptyState, ErrorNotice, PageHeader } from '../components/ui';
 import { FacetChip, FilterBar } from '../components/FilterBar';
-import { StockTable } from '../components/StockTables';
+import { StockViewTable } from '../components/StockViewTable';
+import { StockViewTotals } from '../components/StockViewTotals';
+import { PieceHistoryDialog } from '../components/PieceHistoryDialog';
 import { MovementButtons } from '../components/MovementButtons';
 import { useToast } from '../components/toastContext';
 
-const CATEGORIES: (StockCategory | '')[] = ['', 'available', 'in_process', 'held', 'rejected', 'dispatch'];
 const MOVE_TYPES: MovementType[] = ['receipt', 'issue', 'transfer', 'adjustment', 'scrap'];
+const KINDS: { value: '' | 'standard' | 'custom'; label: string }[] = [
+  { value: '', label: 'All items' }, { value: 'standard', label: 'Standard (catalog)' }, { value: 'custom', label: 'Custom (made for an order)' },
+];
 
-/** What GET /stock?paged=1 counts over every matching row (stockService.listStock). */
-interface StockCounts {
-  categories: Record<string, number>;
-  owners: { ours: number; parties: { id: number; name: string | null; code: string | null; n: number }[] };
-  stats: { lines: number; items: number; areas: number; cannotUse: number };
-  held: { partyId: number; name: string; uom: string; lines: number; quantity: number }[];
-}
-/** Columns the server sorts by (stockService STOCK_SORT). */
-const SERVER_SORT = ['item', 'area', 'batch', 'owner', 'qty', 'category', 'updated'];
-
-interface LedgerCheck { ok: boolean; checked: number; differences: { areaId: number; itemId: number; batchId: number | null; ledger: number; balance: number }[] }
-
-/** What is in stock, where, and what it counts as — across every stocking area. */
+/** What is in stock, where, whose, and what it counts as — across every stocking area (GET /stock/view). */
 export default function Stock() {
   const toast = useToast();
   const canManage = useIsPermitted()('cf_erp_inventory_manage');
   const [category, setCategory] = useUrlParam('counts', '');
   const [areaParam, setAreaParam] = useUrlParam('areaId', '');
   const [owner, setOwner] = useUrlParam('owner', '');
+  const [kind, setKind] = useUrlParam('kind', '');
+  const [tracking, setTracking] = useUrlParam('tracking', '');
+  const [classParam, setClassParam] = useUrlParam('classificationId', '');
   const [search, setSearch] = useState('');
   const [requested, setRequested] = useState<MovementType | null>(null);
   const [checking, setChecking] = useState(false);
+  const [piece, setPiece] = useState<number | null>(null);
   const areaId = Number(areaParam) || null;
+  const classificationId = Number(classParam) || null;
   useNewParam((v) => { if (canManage) setRequested(MOVE_TYPES.includes(v as MovementType) ? (v as MovementType) : 'receipt'); });
   const debounced = useDebounced(search.trim());
   const areas = useLoad(() => cfApi.get<StockingArea[]>('/stocking-areas'), []);
-  // Search, area, what it counts as and owner filter on the server, a page at a time; every figure counts all matching stock.
-  const list = usePagedList<StockRow, StockCounts>('/stock', { search: debounced, areaId, category: category || undefined, owner: owner || undefined });
-  // Whole-company money, apart from the filters: what our stock is worth, however the list below is narrowed.
-  const valuation = useLoad(() => cfApi.get<Valuation>('/stock/valuation?groupBy=owner').catch(() => null), []);
+  const tree = useLoad(() => cfApi.get<ScreenTree>(screenTreePath('items', true)).catch(() => null), []);
+  const nodes = useMemo(() => flattenTree(tree.data), [tree.data]);
+  // Every filter goes to the server, a page at a time; the chips, the totals and the scrap rate come back with the page.
+  const list = useStockView({
+    search: debounced || undefined, areaId, category: category || undefined, owner: owner || undefined,
+    kind: kind || undefined, tracking: tracking || undefined, classificationId,
+  });
   const counts = list.counts;
-  const owners = counts?.owners.parties ?? [];
-  const ownerName = (p: { name: string | null; code: string | null }) => p.name ?? p.code ?? 'Customer';
-  // What each customer has sent and we still hold — quantities per unit, never summed across units, and never into our value.
-  const held = useMemo(() => {
-    const by = new Map<number, { partyId: number; name: string; lines: number; units: Map<string, number> }>();
-    for (const h of counts?.held ?? []) {
-      const e = by.get(h.partyId) ?? { partyId: h.partyId, name: h.name, lines: 0, units: new Map() };
-      e.lines += h.lines;
-      const isT = ['t', 'mt', 'tonne', 'tonnes'].includes(String(h.uom).toLowerCase());
-      const key = isT ? 'kg' : h.uom;
-      e.units.set(key, (e.units.get(key) ?? 0) + (isT ? h.quantity * 1000 : h.quantity));
-      by.set(h.partyId, e);
-    }
-    return [...by.values()].sort((a, b) => a.name.localeCompare(b.name));
-  }, [counts?.held]);
-  const ours = valuation.data?.ours;
-  const st = counts?.stats;
-  const stats = [
-    ...(ours ? [{ label: 'Value (ours)', value: ours.value, display: ours.value === 0 && ours.uncostedQty > 0 ? 'not costed' : rupeeText(ours.value), hint: ours.uncostedQty > 0 ? 'Some of our stock has no cost and is left out' : 'All our stock, at cost' }] : []),
-    { label: 'Items', value: st?.items ?? 0, hint: 'Different items in the list below' },
-    { label: 'Stock lines', value: st?.lines ?? 0, hint: 'One line per item × area × batch' },
-    { label: 'Areas holding', value: st?.areas ?? 0 },
-    { label: 'Cannot be used', value: st?.cannotUse ?? 0, tone: 'warning' as const, hint: 'In quarantine, on hold or rejected', onClick: () => setCategory('held') },
-  ];
+  const totals = list.totals;
+  const parties = counts?.owners.parties ?? [];
+  const customers = totals?.customers ?? [];
+  const showOwner = parties.length > 0 || customers.length > 0 || list.rows.some((r) => r.owner);
+  const pickOwner = (next: string) => setOwner(owner === next ? '' : next);
   const areaOptions = areas.data ?? [];
   const handled = useCallback(() => setRequested(null), []);
-  const checkLedger = async () => {
+  const runCheck = async () => {
     setChecking(true);
     try {
-      const r = await cfApi.get<LedgerCheck>('/stock/check');
-      if (r.ok) toast.success(`Ledger checked: all ${r.checked} balances agree with their movements.`);
-      else toast.error(`${r.differences.length} balance${r.differences.length === 1 ? '' : 's'} disagree with the ledger — tell whoever looks after the system.`);
+      const m = ledgerCheckMessage(await checkLedger());
+      if (m.ok) toast.success(m.text); else toast.error(m.text);
     } catch (e) { toast.error((e as CfApiError).message); } finally { setChecking(false); }
   };
-  const filtered = !!debounced || !!areaId || !!category || !!owner;
+  const filtered = !!debounced || !!areaId || !!category || !!owner || !!kind || !!tracking || !!classificationId;
+  const clearAll = () => { setSearch(''); setAreaParam(''); setCategory(''); setOwner(''); setKind(''); setTracking(''); setClassParam(''); };
 
   return (
-    <Box>
-      <PageHeader title="Stock" subtitle="Every stocking area’s inventory in one list. Plates are kept by batch (with their heat); bolts and the like by quantity."
+    <Box sx={{ minWidth: 0 }}>
+      <PageHeader title="Stock" subtitle="Every stocking area’s stock in one list. Each row is one item in one area, by owner and by what it counts as."
         actions={(
           <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-            <Button startIcon={<FactCheckRounded />} onClick={checkLedger} disabled={checking} sx={{ color: 'var(--c-text-2)' }}>{checking ? 'Checking…' : 'Check ledger'}</Button>
+            <Button startIcon={<FactCheckRounded />} onClick={runCheck} disabled={checking} sx={{ color: 'var(--c-text-2)' }}>{checking ? 'Checking…' : 'Check ledger'}</Button>
             {canManage && <MovementButtons onPosted={list.reload} requestOpen={requested} onRequestHandled={handled} />}
           </Box>
         )} />
-      <StatStrip stats={stats} />
-      <FilterBar search={search} onSearch={setSearch} placeholder="Search item or batch">
-        {CATEGORIES.map((c) => (
-          <FacetChip key={c || 'all'} label={c ? CATEGORY_LABEL[c] : 'All'} active={category === c} count={counts?.categories[c || 'all']} onClick={() => setCategory(c)} />
-        ))}
-        {owners.length > 0 && (
-          <>
-            <FacetChip label="Ours" active={owner === 'ours'} count={counts?.owners.ours} onClick={() => setOwner(owner === 'ours' ? '' : 'ours')} />
-            <FacetChip label="All customers'" active={owner === 'customer'} count={owners.reduce((t, p) => t + p.n, 0)} onClick={() => setOwner(owner === 'customer' ? '' : 'customer')} />
-            {owners.map((p) => <FacetChip key={p.id} label={`${ownerName(p)}'s`} active={owner === String(p.id)} count={p.n} onClick={() => setOwner(owner === String(p.id) ? '' : String(p.id))} />)}
-          </>
-        )}
-        <Autocomplete size="small" options={areaOptions} value={areaOptions.find((a) => a.id === areaId) ?? null} getOptionLabel={(a) => `${a.code} · ${a.name}`}
-          isOptionEqualToValue={(a, b) => a.id === b.id} onChange={(_, a) => setAreaParam(a ? String(a.id) : '')} sx={{ flex: '1 1 220px', maxWidth: 320, minWidth: 0 }}
-          renderInput={(p) => <TextField {...p} label="Stocking area" />} />
-      </FilterBar>
-      {held.length > 0 && (
-        <Box data-testid="customer-material-held" sx={{ mb: 2, fontSize: 13, color: 'var(--c-text-2)' }}>
-          <Box component="span" sx={{ fontWeight: 600, color: 'var(--c-text)' }}>Customer material held</Box> (not ours, not in the value above — pick a customer to see only theirs):{' '}
-          {held.map((h, i) => (
-            <span key={h.partyId} data-testid="held-by-customer">{i > 0 && ' · '}
-              <Box component="button" type="button" onClick={() => setOwner(owner === String(h.partyId) ? '' : String(h.partyId))}
-                sx={{ font: 'inherit', fontWeight: 700, color: owner === String(h.partyId) ? 'var(--c-primary-700)' : 'inherit', background: 'none', border: 0, p: 0, cursor: 'pointer', textDecoration: 'underline dotted' }}>{h.name}</Box>
-              {' '}{[...h.units.entries()].map(([u, q]) => (u === 'kg' ? kgText(q) : `${qtyText(q)} ${u}`)).join(', ')}
+      {totals && <StockViewTotals totals={totals} scrapRate={list.scrapRate} owner={owner} onOwner={setOwner} />}
+      {customers.length > 0 && (
+        <Box data-testid="customer-material-held" sx={{ mb: 2, fontSize: 13, color: 'var(--c-text-2)', overflowWrap: 'anywhere' }}>
+          <Box component="span" sx={{ fontWeight: 600, color: 'var(--c-text)' }}>Customer material held</Box> (not ours, not in our value — pick a customer to see only theirs):{' '}
+          {customers.map((c, i) => (
+            <span key={c.party.id} data-testid="held-by-customer">{i > 0 && ' · '}
+              <Box component="button" type="button" onClick={() => pickOwner(String(c.party.id))}
+                sx={{ font: 'inherit', fontWeight: 700, color: owner === String(c.party.id) ? 'var(--c-primary-700)' : 'inherit', background: 'none', border: 0, p: 0, cursor: 'pointer', textDecoration: 'underline dotted' }}>{partyName(c.party)}</Box>
+              {' '}{quantitiesText(c) || kgText(c.kg)}
             </span>
           ))}
         </Box>
       )}
+      <FilterBar search={search} onSearch={setSearch} placeholder="Search item or lot">
+        <FacetChip label="All" active={!category} count={counts?.categories.all} onClick={() => setCategory('')} />
+        {VIEW_CATEGORIES.map((c) => (
+          <FacetChip key={c} label={VIEW_CATEGORY_LABEL[c]} active={category === c} count={counts?.categories[c]} onClick={() => setCategory(category === c ? '' : c)} />
+        ))}
+      </FilterBar>
+      <Box data-testid="stock-filters" sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 1, mb: 2, minWidth: 0 }}>
+        {(parties.length > 0 || !!owner) && (
+          <>
+            <FacetChip label="All owners" active={!owner} onClick={() => setOwner('')} />
+            <FacetChip label="Ours" active={owner === 'ours'} count={counts?.owners.ours} onClick={() => pickOwner('ours')} />
+            <FacetChip label="All customers'" active={owner === 'customer'} count={parties.reduce((t, p) => t + p.n, 0)} onClick={() => pickOwner('customer')} />
+            {parties.map((p) => <FacetChip key={p.id} label={`${partyName(p)}'s`} active={owner === String(p.id)} count={p.n} onClick={() => pickOwner(String(p.id))} />)}
+          </>
+        )}
+        {KINDS.map((k) => (
+          <FacetChip key={k.value || 'all'} label={k.label} active={kind === k.value} count={counts?.kinds[k.value || 'all']} onClick={() => setKind(k.value)} />
+        ))}
+        <FacetChip label="Any tracking" active={!tracking} count={counts?.tracking.all} onClick={() => setTracking('')} />
+        {TRACKINGS.map((t) => (
+          <FacetChip key={t} label={TRACKING_CHIP[t]} active={tracking === t} count={counts?.tracking[t]} onClick={() => setTracking(tracking === t ? '' : t)} />
+        ))}
+        <Autocomplete size="small" options={nodes} value={nodes.find((n) => n.id === classificationId) ?? null} getOptionLabel={(n) => n.path}
+          isOptionEqualToValue={(a, b) => a.id === b.id} onChange={(_, n) => setClassParam(n ? String(n.id) : '')} noOptionsText="No branch matches"
+          sx={{ flex: '1 1 240px', maxWidth: 360, minWidth: 0 }}
+          renderInput={(p) => <TextField {...p} label="Classification" inputProps={{ ...p.inputProps, 'data-testid': 'classification-filter' }} />} />
+        <Autocomplete size="small" options={areaOptions} value={areaOptions.find((a) => a.id === areaId) ?? null} getOptionLabel={(a) => `${a.code} · ${a.name}`}
+          isOptionEqualToValue={(a, b) => a.id === b.id} onChange={(_, a) => setAreaParam(a ? String(a.id) : '')} sx={{ flex: '1 1 220px', maxWidth: 320, minWidth: 0 }}
+          renderInput={(p) => <TextField {...p} label="Stocking area" inputProps={{ ...p.inputProps, 'data-testid': 'area-filter' }} />} />
+      </Box>
       <ErrorNotice error={list.error} onRetry={list.reload} />
-      <StockTable rows={list.rows} storageKey="stock" loading={!list.loaded} showOwner={owners.length > 0}
-        server={{ ...list.server, sortable: SERVER_SORT }}
+      <StockViewTable rows={list.rows} showOwner={showOwner} loading={!list.loaded && !list.error} sort={list.sort} onSort={list.setSort} onOpenPiece={setPiece}
+        footer={list.hasMore && (
+          <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 1.5, p: 1.5, flexWrap: 'wrap', fontSize: 13, color: 'var(--c-text-2)' }}>
+            Showing {list.rows.length} of {list.total}.
+            <Button size="small" onClick={() => { void list.loadMore(); }} disabled={list.loadingMore}>{list.loadingMore ? 'Loading…' : 'Load more'}</Button>
+          </Box>
+        )}
         empty={<EmptyState icon={<WarehouseRounded />} title={filtered ? 'Nothing matches' : 'Nothing in stock yet'}
-          hint={filtered ? 'Clear the search, the area or what it counts as.' : 'Receive material into a stocking area to start its inventory.'}
-          action={filtered ? <Button onClick={() => { setSearch(''); setAreaParam(''); setCategory(''); setOwner(''); }}>Clear filters</Button>
+          hint={filtered ? 'Clear the search or the filters.' : 'Receive material into a stocking area to start its stock.'}
+          action={filtered ? <Button onClick={clearAll}>Clear filters</Button>
             : canManage && <Button variant="contained" onClick={() => setRequested('receipt')}>Receive stock</Button>} />} />
+      <PieceHistoryDialog unitId={piece} onClose={() => setPiece(null)} />
     </Box>
   );
 }

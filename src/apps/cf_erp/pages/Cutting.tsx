@@ -10,6 +10,7 @@ import { useIsPermitted } from '../hooks/useIsPermitted';
 import { ErrorNotice, Mono, PageHeader, SectionCard, SkeletonRows } from '../components/ui';
 import { useToast } from '../components/toastContext';
 import { FlowPicker } from '../components/FlowPicker';
+import { ScrapRateCard } from '../components/ScrapRateCard';
 
 /**
  * Setup › Cutting (CF_ERP_CUT_FROM_PLAN.md §3.4, §4.4). Where cut pieces are
@@ -167,6 +168,7 @@ export default function Cutting() {
       {places.loading && !places.data ? <SkeletonRows rows={6} /> : places.data && (
         <CuttingForm places={places.data} tree={tree.data} canEdit={canEdit} onSaved={(p) => places.setData(p)} />
       )}
+      <ScrapRateCard />
     </Box>
   );
 }

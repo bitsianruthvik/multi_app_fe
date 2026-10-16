@@ -7,7 +7,7 @@ import { useLoad } from '../hooks/useLoad';
 import { PURPOSE_HELP, PURPOSE_LABEL } from '../lib/inventory';
 import { FormDialog } from './FormDialog';
 
-const PURPOSES: AreaPurpose[] = ['storage', 'wip', 'quarantine', 'dispatch'];
+const PURPOSES: AreaPurpose[] = ['storage', 'wip', 'quarantine', 'dispatch', 'scrap'];
 
 /** Creates or edits a stocking area — a place that holds an inventory. */
 export function AreaDialog({ open, existing, onClose, onSaved }: { open: boolean; existing: StockingArea | null; onClose: () => void; onSaved: (a: StockingArea) => void }) {

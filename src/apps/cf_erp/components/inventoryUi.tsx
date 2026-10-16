@@ -5,7 +5,7 @@ import type { AreaPurpose, BatchStatus, LedgerMovementType, StockCategory } from
 import { BATCH_STATUS_LABEL, CATEGORY_LABEL, MOVEMENT_LABEL, PURPOSE_HELP, PURPOSE_LABEL } from '../lib/inventory';
 import { Badge, type Family } from './ui';
 
-const CATEGORY_FAMILY: Record<StockCategory, Family> = { available: 'success', in_process: 'info', held: 'warning', rejected: 'danger', dispatch: 'neutral' };
+const CATEGORY_FAMILY: Record<StockCategory, Family> = { available: 'success', in_process: 'info', held: 'warning', rejected: 'danger', dispatch: 'neutral', scrap: 'danger' };
 export function CategoryBadge({ category }: { category: StockCategory }) {
   return <Badge family={CATEGORY_FAMILY[category]} label={CATEGORY_LABEL[category]} />;
 }
