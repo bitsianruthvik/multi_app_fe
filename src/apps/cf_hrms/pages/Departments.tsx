@@ -31,10 +31,10 @@ import {
 } from '@shared/ui';
 import { useCompanySlug } from '@shared/ui';
 import { useCan } from '../access/can';
-import { orgApi, type Department, type LabelGroup } from '../api/organisation';
-import { LabelGroupsSheet } from '../components/LabelGroupsSheet';
-import { LabelChips } from '../components/LabelChips';
-import { labelFilterDefs, matchesLabels } from '../components/labelGroups';
+import { orgApi, type Department, type DepartmentLabel } from '../api/organisation';
+import { LabelsSheet } from '../components/LabelsSheet';
+import { LabelChip } from '../components/LabelChips';
+import { labelFilterDefs, matchesLabel } from '../components/labels';
 import { CodeNote } from '../components/CodeNote';
 import { getDepartmentStaffing } from '../api/jobContent';
 import { DepartmentStaffingPanel, JobPeekSheet, type JobPeek } from '../components/DepartmentStaffing';
@@ -68,12 +68,11 @@ import { ExcelButtons } from '../components/excel/ExcelButtons';
  * opens its KRAs, responsibilities and KPIs in a side sheet, with Edit going to
  * the role's Content tab or the position's job-content editor.
  *
- * LABELS (2026-10-12, spec §9; in groups since §15). Everything is a
- * department; what it is comes from LABELS in named groups — Kind (Department,
- * Section, Machine) and the company's own ("Unit", "Area"), one label per group,
- * edited in the "Labels" side sheet (LabelGroupsSheet). Each row shows its
- * labels as chips; the toolbar filters by each group (`label=…`, the server's
- * rule). Whether a department is SHARED is a separate fact with its own switch,
+ * LABELS (2026-10-12, spec §9; the groups of §15 removed 2026-10-16).
+ * Everything is a department; what it is comes from its ONE label (Department,
+ * Section, Machine, or the company's own words), edited in the "Labels" side
+ * sheet (LabelsSheet). Each row shows its label as a chip; the toolbar filters
+ * by label (`label=…`, the server's rule). Whether a department is SHARED is a separate fact with its own switch,
  * not a label. The labels' words are never branched on.
  *
  * THE CODE IS NOT TYPED (spec §11). It is issued by Setup › Code formats when
@@ -87,21 +86,21 @@ interface DraftState {
   code: string | null;
   parentId: number | '';
   status: 'ACTIVE' | 'INACTIVE';
-  /** Its label in each group: groupId -> labelId ('' = none). Kind is one of them. */
-  labels: Record<number, number | ''>;
+  /** Its ONE label ('' only while the list is still loading). */
+  labelId: number | '';
   /** Its people serve other departments — one box on the org chart, pointing at what it serves. */
   isShared: boolean;
   serves: number[];
 }
 
-/** A new department: the first label of every required group (Kind: "Department" unless reordered), nothing in the others. */
-const emptyDraft = (parentId: number | null, groups: LabelGroup[]): DraftState => ({
+/** A new department: the first label of the list ("Department" unless reordered). */
+const emptyDraft = (parentId: number | null, labels: DepartmentLabel[]): DraftState => ({
   id: null,
   name: '',
   code: null,
   parentId: parentId ?? '',
   status: 'ACTIVE',
-  labels: Object.fromEntries(groups.map((g) => [g.id, (g.isKind || g.isRequired) && g.labels[0] ? g.labels[0].id : ''])),
+  labelId: labels[0]?.id ?? '',
   isShared: false,
   serves: [],
 });
@@ -117,8 +116,8 @@ export default function Departments() {
   const company = useCompanySlug();
   const load = useCallback(
     () =>
-      Promise.all([orgApi.departments.listWithTypes(), getDepartmentStaffing(), orgApi.labelGroups.list()]).then(
-        ([tree, staffing, groups]) => ({ ...tree, staffing, groups }),
+      Promise.all([orgApi.departments.listWithTypes(), getDepartmentStaffing(), orgApi.departmentLabels.read()]).then(
+        ([tree, staffing, labelList]) => ({ ...tree, staffing, labelList }),
       ),
     [],
   );
@@ -132,7 +131,7 @@ export default function Departments() {
   const [peek, setPeek] = useState<JobPeek | null>(null);
   const unplaced = staffingOf.get(0) ?? null;
   const rows = useMemo(() => data?.rows ?? [], [data]);
-  const groups: LabelGroup[] = useMemo(() => data?.groups ?? [], [data]);
+  const labels: DepartmentLabel[] = useMemo(() => data?.labelList.labels ?? [], [data]);
   const nameOf = useMemo(() => new Map(rows.map((r) => [r.id, r.name])), [rows]);
 
   const filters = useListFilters(['label', 'shared', 'status', 'parent']);
@@ -149,13 +148,13 @@ export default function Departments() {
     const below = underId ? descendantIds(rows, underId) : null;
     return rows.filter(
       (r) =>
-        matchesLabels(labelFilter, r.labels, groups) &&
+        matchesLabel(labelFilter, r.labelId, labels) &&
         (!sharedOnly || !!r.isShared) &&
         (!statusFilter || r.status.toLowerCase() === statusFilter.toLowerCase()) &&
         (!below || (r.id !== underId && below.has(r.id))) &&
         matchesQuery([r.name, r.code], search),
     );
-  }, [rows, labelFilter, sharedOnly, statusFilter, underId, search, groups]);
+  }, [rows, labelFilter, sharedOnly, statusFilter, underId, search, labels]);
   // Every match keeps its ancestors in the tree (so the chosen department still
   // shows as the visible ancestor of what is under it); the count is of the matches.
   const filtered = useMemo(() => {
@@ -164,8 +163,7 @@ export default function Departments() {
   }, [rows, matched]);
   const filterDefs: FilterDef[] = useMemo(
     () => [
-      // One filter per label group, all in the one `label` param (groups "and", labels of a group "or").
-      ...labelFilterDefs(groups, { withCounts: true }),
+      ...labelFilterDefs(labels, { withCounts: true }),
       { key: 'shared', label: 'Shared', kind: 'toggle' },
       {
         key: 'status',
@@ -182,7 +180,7 @@ export default function Departments() {
         options: rows.map((r) => ({ value: String(r.id), label: r.path })),
       },
     ],
-    [groups, rows],
+    [labels, rows],
   );
   const { collapsed, toggle, expandAll, collapseAll, anyCollapsed } = useTreeCollapse(rows);
 
@@ -212,8 +210,8 @@ export default function Departments() {
     ];
   }, [rows, data]);
 
-  // A new department takes the first label of Kind — "Department" unless the company reordered it.
-  const openNew = (parentId: number | null) => setDraft(emptyDraft(parentId, groups));
+  // A new department takes the first label — "Department" unless the company reordered the list.
+  const openNew = (parentId: number | null) => setDraft(emptyDraft(parentId, labels));
   const openEdit = (row: Department) =>
     setDraft({
       id: row.id,
@@ -221,7 +219,7 @@ export default function Departments() {
       code: row.code ?? null,
       parentId: row.parentId ?? '',
       status: row.status,
-      labels: Object.fromEntries(groups.map((g) => [g.id, row.labels?.find((l) => l.groupId === g.id)?.labelId ?? ''])),
+      labelId: row.labelId ?? labels.find((l) => l.name.toLowerCase() === String(row.type ?? '').toLowerCase())?.id ?? '',
       isShared: Boolean(row.isShared),
       serves: row.serves ?? [],
     });
@@ -233,8 +231,7 @@ export default function Departments() {
       name: draft.name,
       parentId: draft.parentId === '' ? null : draft.parentId,
       status: draft.status,
-      // Every group, Kind included; '' = no label in an optional group.
-      labels: Object.fromEntries(Object.entries(draft.labels).map(([g, l]) => [g, l === '' ? null : l])),
+      ...(draft.labelId === '' ? {} : { labelId: draft.labelId }),
       isShared: draft.isShared,
       // Only a shared department serves others; un-sharing one clears its list.
       serves: draft.isShared ? draft.serves : [],
@@ -389,7 +386,7 @@ export default function Departments() {
               }}
               renderTrailing={(row) => (
                 <>
-                  <LabelChips labels={row.labels} />
+                  <LabelChip name={row.type} />
                   {staffingOf.get(row.id) && <ToneBadge tone="neutral" noIcon label={staffLabel(staffingOf.get(row.id)!.counts)} />}
                   {row.isShared && <ToneBadge tone="info" noIcon label="Shared" />}
                   {row.childCount > 0 && (
@@ -471,7 +468,7 @@ export default function Departments() {
         onClose={() => setDraft(null)}
         onSubmit={save}
         submitLabel={draft?.id ? 'Save' : 'Create'}
-        submitDisabled={!draft?.name.trim() || groups.some((g) => (g.isKind || g.isRequired) && g.labels.length > 0 && draft?.labels[g.id] === '')}
+        submitDisabled={!draft?.name.trim() || (labels.length > 0 && draft?.labelId === '')}
       >
         {draft && (
           <>
@@ -507,42 +504,23 @@ export default function Departments() {
                   </MenuItem>
                 ))}
             </TextField>
-            {/* One drop-down per label group, in group order (spec §15.4). */}
-            {groups.map((g) => {
-              const required = g.isKind || g.isRequired;
-              const value = draft.labels[g.id] ?? '';
-              return (
-                <TextField
-                  key={g.id}
-                  select
-                  label={g.name}
-                  required={required}
-                  value={g.labels.some((l) => l.id === value) ? value : ''}
-                  onChange={(e) => setDraft({ ...draft, labels: { ...draft.labels, [g.id]: e.target.value === '' ? '' : Number(e.target.value) } })}
-                  fullWidth
-                  size="small"
-                  slotProps={{ select: { displayEmpty: !required }, inputLabel: { shrink: true } }}
-                  helperText={
-                    g.isKind
-                      ? 'What kind of department this is. It is shown on its box on the org chart. The lists are yours: change them with the Labels button.'
-                      : g.labels.length === 0
-                        ? `The group ${g.name} has no labels yet — add them with the Labels button.`
-                        : undefined
-                  }
-                >
-                  {!required && (
-                    <MenuItem value="">
-                      <em>None</em>
-                    </MenuItem>
-                  )}
-                  {g.labels.map((l) => (
-                    <MenuItem key={l.id} value={l.id}>
-                      {l.name}
-                    </MenuItem>
-                  ))}
-                </TextField>
-              );
-            })}
+            <TextField
+              select
+              label="Label"
+              required
+              value={labels.some((l) => l.id === draft.labelId) ? draft.labelId : ''}
+              onChange={(e) => setDraft({ ...draft, labelId: e.target.value === '' ? '' : Number(e.target.value) })}
+              fullWidth
+              size="small"
+              slotProps={{ inputLabel: { shrink: true } }}
+              helperText="What kind of department this is. It is shown on its box on the org chart. The list is yours: change it with the Labels button."
+            >
+              {labels.map((l) => (
+                <MenuItem key={l.id} value={l.id}>
+                  {l.name}
+                </MenuItem>
+              ))}
+            </TextField>
             <Box>
               <FormControlLabel
                 control={
@@ -604,10 +582,11 @@ export default function Departments() {
         )}
       </FormDialog>
 
-      <LabelGroupsSheet
+      <LabelsSheet
         open={labelsOpen}
         onClose={() => setLabelsOpen(false)}
-        groups={groups}
+        labels={labels}
+        shifts={data?.labelList.shifts ?? []}
         canEdit={can.org.edit}
         canRemove={can.org.remove}
         onChanged={reload}

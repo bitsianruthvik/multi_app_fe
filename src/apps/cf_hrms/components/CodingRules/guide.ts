@@ -21,7 +21,7 @@ export interface NameMaps {
   department: Map<string, string>;
   location: Map<string, string>;
   role: Map<string, string>;
-  /** Department labels of every group (spec §15.3). */
+  /** The company's department labels. */
   departmentLabel: Map<string, string>;
 }
 export const emptyNames = (): NameMaps => ({ department: new Map(), location: new Map(), role: new Map(), departmentLabel: new Map() });

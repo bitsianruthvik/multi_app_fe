@@ -32,7 +32,7 @@ import { orgApi, type Department } from '../api/organisation';
 import { useCan } from '../access/can';
 import { ListToolbar, type FilterDef } from '../components/list/ListToolbar';
 import { useListFilters } from '../components/list/useListFilters';
-import { labelFilterDefs, useLabelGroups } from '../components/labelGroups';
+import { labelFilterDefs, useLabels } from '../components/labels';
 import { ExcelButtons } from '../components/excel/ExcelButtons';
 import { AchievementChip, ActualInput, HistoryButton, NoteButton } from '../components/performance/ActualParts';
 import { BAND_OPTIONS, periodDates } from '../components/performance/planWords';
@@ -57,7 +57,7 @@ export default function PerformanceActuals({ mode = 'hr' }: { mode?: ActualsMode
   const periodParam = params.get('periodId') ?? '';
   const slotParam = params.get('slot') ?? '';
   const filters = useListFilters(mode === 'hr' ? ['department', 'label', 'role', 'manager', 'band', 'missing'] : ['role', 'band', 'missing']);
-  const { groups } = useLabelGroups(mode === 'hr' && can.performance.view);
+  const { labels: labelList } = useLabels(mode === 'hr' && can.performance.view);
 
   const [data, setData] = useState<ActualsGrid | null>(null);
   const [error, setError] = useState<unknown>(null);
@@ -111,13 +111,13 @@ export default function PerformanceActuals({ mode = 'hr' }: { mode?: ActualsMode
       ? departments.map((d) => ({ value: String(d.id), label: d.path || d.name }))
       : [...new Map(rows.filter((r) => r.departmentId != null).map((r) => [r.departmentId, r.departmentName ?? ''])).entries()].map(([id, name]) => ({ value: String(id), label: name }));
     return [
-      ...(mode === 'hr' ? [{ key: 'department', label: 'Department (and below)', searchable: true, options: deps } as FilterDef, ...labelFilterDefs(groups)] : []),
+      ...(mode === 'hr' ? [{ key: 'department', label: 'Department (and below)', searchable: true, options: deps } as FilterDef, ...labelFilterDefs(labelList)] : []),
       { key: 'role', label: 'Role', searchable: true, options: (data?.roles ?? []).map((r) => ({ value: String(r.id), label: r.title })) },
       ...(mode === 'hr' ? [{ key: 'manager', label: 'Manager', searchable: true, options: (data?.managers ?? []).map((m) => ({ value: String(m.id), label: [m.code, m.title].filter(Boolean).join(' — ') })) } as FilterDef] : []),
       { key: 'band', label: 'Band', options: BAND_OPTIONS },
       { key: 'missing', label: 'Show only what is missing', kind: 'toggle' },
     ];
-  }, [departments, rows, groups, data, mode]);
+  }, [departments, rows, labelList, data, mode]);
 
   const columns: DataColumn<ActualRow>[] = useMemo(() => [
     {

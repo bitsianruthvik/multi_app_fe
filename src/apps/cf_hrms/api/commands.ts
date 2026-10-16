@@ -33,7 +33,7 @@ export interface Step {
 
 export interface ActionField {
   name: string;
-  kind: 'newText' | 'department' | 'role' | 'position' | 'employee' | 'shift' | 'label' | 'labels' | 'kra' | 'date';
+  kind: 'newText' | 'department' | 'role' | 'position' | 'employee' | 'shift' | 'label' | 'kra' | 'date';
   required: boolean;
   label: string;
 }
@@ -108,20 +108,10 @@ export interface Option {
   vacant?: boolean;
 }
 
-/** A label group and its labels (spec §15) — add_department's "labels" field picks one per group other than Kind. */
-export interface CommandLabelGroup {
-  id: number;
-  name: string;
-  isKind: boolean;
-  isRequired: boolean;
-  labels: { id: number; name: string }[];
-}
-
 export interface CommandOptions {
   departments: Option[];
-  /** The Kind labels, by name. */
+  /** The company's department labels, by name. */
   labels: string[];
-  labelGroups?: CommandLabelGroup[];
   roles: Option[];
   positions: Option[];
   employees: Option[];

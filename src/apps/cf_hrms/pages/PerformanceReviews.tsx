@@ -18,7 +18,7 @@ import { orgApi, type Department } from '../api/organisation';
 import { useCan } from '../access/can';
 import { ListToolbar, type FilterDef } from '../components/list/ListToolbar';
 import { useListFilters } from '../components/list/useListFilters';
-import { labelFilterDefs, useLabelGroups } from '../components/labelGroups';
+import { labelFilterDefs, useLabels } from '../components/labels';
 import { DueChip, ReviewStatusBadge } from '../components/performance/ReviewParts';
 import { REVIEW_KIND_OPTIONS, REVIEW_STATE_OPTIONS, REVIEW_STATUS_LABEL } from '../components/performance/reviewWords';
 
@@ -29,7 +29,7 @@ export default function PerformanceReviews() {
   const navigate = useNavigate();
   const can = useCan();
   const filters = useListFilters(['period', 'kind', 'state', 'status', 'department', 'label', 'manager']);
-  const { groups } = useLabelGroups(can.performance.view);
+  const { labels: labelList } = useLabels(can.performance.view);
   const [data, setData] = useState<ReviewList | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [loading, setLoading] = useState(false);
@@ -58,13 +58,13 @@ export default function PerformanceReviews() {
       { key: 'kind', label: 'Kind', options: REVIEW_KIND_OPTIONS },
       { key: 'status', label: 'Status', options: STATUS_OPTIONS },
       { key: 'department', label: 'Department (and below)', searchable: true, options: deps },
-      ...labelFilterDefs(groups),
+      ...labelFilterDefs(labelList),
       {
         key: 'manager', label: 'Manager', searchable: true,
         options: (data?.managers ?? []).map((m) => ({ value: String(m.id), label: [m.name, m.code, m.title].filter(Boolean).join(' · ') })),
       },
     ];
-  }, [departments, items, groups, data]);
+  }, [departments, items, labelList, data]);
 
   const columns: DataColumn<Review>[] = useMemo(() => [
     {

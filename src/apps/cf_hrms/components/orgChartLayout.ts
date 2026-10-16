@@ -1004,8 +1004,8 @@ export interface DeptBox {
   id: number;
   name: string;
   type: string | null;
-  /** Its labels, Kind first (spec §15.4) — drawn as chips on the line `type` had, so the box keeps its size. */
-  labels: { groupId: number; labelId: number; name: string }[];
+  /** Its ONE label's id (`type` is its name) — drawn as a chip on the line `type` had, so the box keeps its size. */
+  labelId: number | null;
   shared: boolean;
   serves: number[];
   open: boolean;
@@ -1436,7 +1436,7 @@ export function layoutDepartments(model: ChartModel, opts: LayoutOptions): Layou
     const titleLines = wrapText(def.name, fonts.dept, w - 2 * BP - (canToggle ? 30 : 0));
     const titleH = DTP + titleLines.length * DTL + (def.type ? DNL : 0) + notes.length * DNL + 7;
     const box: DeptBox = {
-      id: d, name: def.name, type: def.type || null, labels: def.labels ?? [], shared: def.isShared, serves: def.serves,
+      id: d, name: def.name, type: def.type || null, labelId: def.labelId ?? null, shared: def.isShared, serves: def.serves,
       open, members: own, drawn: drawnCards, attach: attach.get(d) ?? null, parent, depth,
       kids: open ? kidsAll : [], below, counts,
       head: tops0.length === 1 && kidsIn(tops0[0]).length > 0 ? tops0[0] : null,
@@ -1908,13 +1908,13 @@ export interface BoxRender {
 }
 
 /**
- * Labels on the chart (spec §15.4). Nothing here moves a box: the chips sit on
- * the line the Kind label always had, the colour is the box's fill, and a
+ * Labels on the chart. Nothing here moves a box: the chip sits on
+ * the line the label always had, the colour is the box's fill, and a
  * card outside the filter is only drawn faint.
  */
 export interface ChartLabelOptions {
-  /** "Colour by" a group: each of its labels' colours. Null = no colour. */
-  colourBy: { groupId: number; colours: Map<number, { fill: string; edge: string }>; names: Map<number, string> } | null;
+  /** "Colour by label": each label's colour. Null = no colour. */
+  colourBy: { colours: Map<number, { fill: string; edge: string }>; names: Map<number, string> } | null;
   /** Is a department inside the label filter? Absent = no filter. */
   inFilter?: (departmentId: number | null) => boolean;
   /**
@@ -2290,11 +2290,10 @@ export function buildScene(model: ChartModel, opts: SceneOptions): ChartScene {
       const prims: Prim[] = [];
       // The frame is thin and uses --c-text-3: --c-border disappears in dark.
       // A shared department's frame is dashed — it belongs to no one branch.
-      // "Colour by" a label group: the fill and frame take the colour of the box's
-      // label in that group; a box with none of its labels stays as it was.
+      // "Colour by label": the fill and frame take the colour of the box's label;
+      // a box whose label is not in the list stays as it was.
       const cb = opts.labels?.colourBy ?? null;
-      const tint = cb ? b.labels.find((l) => l.groupId === cb.groupId) : undefined;
-      const colour = tint ? cb!.colours.get(tint.labelId) : undefined;
+      const colour = cb && b.labelId != null ? cb.colours.get(b.labelId) : undefined;
       prims.push({
         k: 'rect', x: b.x, y: b.y, w: b.w, h: b.h, r: 10,
         fill: colour?.fill ?? p.canvas, stroke: colour?.edge ?? p.faint, sw: colour ? 1.3 : 1, dash: b.shared ? [6, 4] : undefined,
@@ -2305,30 +2304,11 @@ export function buildScene(model: ChartModel, opts: SceneOptions): ChartScene {
         ty += 17;
       }
       if (b.type) {
-        if (b.labels.length) {
-          // The labels as small chips, Kind first, on the one line the label always had:
-          // as many as fit the width, then "+n". Same line height, so nothing moves.
-          let cx = b.x + BP;
-          const maxX = b.x + b.w - BP;
-          for (let i = 0; i < b.labels.length; i += 1) {
-            const rest = b.labels.length - i;
-            const txt = fitText(b.labels[i].name, f.deptMeta, 130);
-            const cw = textWidth(txt, f.deptMeta) + 10;
-            const moreW = rest > 1 ? textWidth(`+${rest - 1}`, f.deptMeta) + 12 : 0;
-            if (cx + cw + moreW > maxX && i > 0) {
-              prims.push({ k: 'text', x: cx + 2, y: ty - 2, size: 10.5, weight: 600, fill: p.muted, text: `+${rest}` });
-              break;
-            }
-            prims.push({ k: 'rect', x: cx, y: ty - 13, w: cw, h: 14, r: 4, fill: p.surface, stroke: p.faint, sw: 0.7 });
-            prims.push({ k: 'text', x: cx + 5, y: ty - 2.5, size: 10.5, weight: 500, fill: p.muted, text: txt });
-            cx += cw + 4;
-          }
-        } else {
-          prims.push({
-            k: 'text', x: b.x + BP, y: ty - 2, size: 11, weight: 400, fill: p.muted,
-            text: fitText(b.type, f.deptMeta, b.w - 2 * BP),
-          });
-        }
+        // The label as a small chip, on the one line the label always had. Same line height, so nothing moves.
+        const txt = fitText(b.type, f.deptMeta, b.w - 2 * BP - 10);
+        const cw = textWidth(txt, f.deptMeta) + 10;
+        prims.push({ k: 'rect', x: b.x + BP, y: ty - 13, w: cw, h: 14, r: 4, fill: p.surface, stroke: p.faint, sw: 0.7 });
+        prims.push({ k: 'text', x: b.x + BP + 5, y: ty - 2.5, size: 10.5, weight: 500, fill: p.muted, text: txt });
         ty += 15;
       }
       for (const note of b.notes) {
@@ -2348,7 +2328,7 @@ export function buildScene(model: ChartModel, opts: SceneOptions): ChartScene {
       depts.push({
         id: d, x: b.x, y: b.y, w: b.w, h: b.h, titleH: b.titleH, prims,
         label:
-          `${b.name}${b.labels.length ? `, ${b.labels.map((l) => l.name).join(', ')}` : b.type ? `, ${b.type}` : ''}. ` +
+          `${b.name}${b.type ? `, ${b.type}` : ''}. ` +
           (c.positions ? `${positionsLine(c)}. ` : 'No positions of its own. ') +
           (b.canToggle ? (b.open ? 'Open.' : `Closed${b.below ? `, ${b.below} departments inside` : ''}.`) : ''),
         open: b.open,
@@ -2738,7 +2718,7 @@ export function buildScene(model: ChartModel, opts: SceneOptions): ChartScene {
     legend.push({ swatch: p.absent, fill: p.absentFill, text: 'Absent' });
     legend.push({ swatch: p.vacant, fill: p.vacantFill, text: 'Vacant' });
   }
-  // "Colour by" a label group: one key entry per label, in the group's order.
+  // "Colour by label": one key entry per label, in the list's order.
   if (opts.labels?.colourBy) {
     for (const [labelId, c] of opts.labels.colourBy.colours) {
       legend.push({ swatch: c.edge, fill: c.fill, text: opts.labels.colourBy.names.get(labelId) ?? '' });

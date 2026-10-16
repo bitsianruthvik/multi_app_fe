@@ -218,7 +218,7 @@ function qs(params: Record<string, string | number | undefined | null>): string 
 export const hiringApi = {
   /**
    * The list's address parameters (§13.6): `q`, `status` (open, done, closed, all), `stage`,
-   * `department` (and below), `label` (label ids, spec §15.3), `role`. `total` is the rows in the chosen status; `count` what is left.
+   * `department` (and below), `label` (label ids), `role`. `total` is the rows in the chosen status; `count` what is left.
    */
   list: (f: { status?: string; positionId?: number; q?: string; stage?: string; department?: string; label?: string; role?: string } = {}) =>
     api.get<{ hirings: HiringSummary[]; total?: number; count?: number }>(`/hirings${qs(f)}`),

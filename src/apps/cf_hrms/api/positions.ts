@@ -300,7 +300,7 @@ function qs(params: object): string {
 export interface NewShiftSuggestion {
   shift: { id: number; code: string | null; name: string } | null;
   from: 'LABEL' | 'LIKE' | 'GENERAL' | null;
-  label: { id: number; name: string; groupName: string | null } | null;
+  label: { id: number; name: string } | null;
   /** "Starts on Day shift (from the label Machine)" */
   line: string;
 }

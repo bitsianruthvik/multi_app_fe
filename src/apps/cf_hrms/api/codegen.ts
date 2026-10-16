@@ -33,8 +33,6 @@ export interface CodegenConditionToken {
   values?: string[];
   phrase?: string;
   help?: string;
-  /** A department label condition on one group (`label.<groupId>`, spec §15.3). Absent on `label` = the Kind group. */
-  groupId?: number;
 }
 
 export interface CodegenEntity {

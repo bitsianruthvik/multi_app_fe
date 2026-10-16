@@ -10,7 +10,6 @@ import {
   FormControlLabel,
   FormGroup,
   InputAdornment,
-  ListSubheader,
   MenuItem,
   Stack,
   Switch,
@@ -24,7 +23,7 @@ import ExpandMoreRounded from '@mui/icons-material/ExpandMoreRounded';
 import { DialogHeader, EmptyState, ErrorNotice, ListSkeleton, Mono, Surface } from '@shared/ui';
 import type { AskKind, AskMatch, AskPerson, AskPositionHit, AskResult, OrgChartDepartment } from '../api/orgchart';
 import { orgChartApi } from '../api/orgchart';
-import type { LabelGroup, OrgLocation } from '../api/organisation';
+import type { DepartmentLabel, OrgLocation } from '../api/organisation';
 import { orgApi } from '../api/organisation';
 
 /**
@@ -172,7 +171,7 @@ export function OrgChartAsk({
   asOf,
   initialQuestion = '',
   departments,
-  labelGroups,
+  labels,
   onClose,
   onPick,
 }: {
@@ -180,7 +179,7 @@ export function OrgChartAsk({
   asOf: string;
   initialQuestion?: string;
   departments: OrgChartDepartment[];
-  labelGroups: LabelGroup[];
+  labels: DepartmentLabel[];
   onClose: () => void;
   onPick: (pick: AskPick) => void;
 }) {
@@ -378,12 +377,9 @@ export function OrgChartAsk({
                   sx={{ minWidth: 160, flex: 1 }}
                 >
                   <MenuItem value="">Any label</MenuItem>
-                  {labelGroups.flatMap((g) => [
-                    <ListSubheader key={`g${g.id}`}>{g.name}</ListSubheader>,
-                    ...g.labels.map((l) => (
-                      <MenuItem key={l.id} value={l.id}>{l.name}</MenuItem>
-                    )),
-                  ])}
+                  {labels.map((l) => (
+                    <MenuItem key={l.id} value={l.id}>{l.name}</MenuItem>
+                  ))}
                 </TextField>
                 {locations.length > 0 && (
                   <TextField

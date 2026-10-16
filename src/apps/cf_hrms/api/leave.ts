@@ -25,13 +25,11 @@ export type CarryForward = 'NONE' | 'CAPPED' | 'ALL';
 export type AppliesTo = 'ANYONE' | 'WOMEN' | 'MEN';
 
 export interface Ref { id: number; name: string; status: string }
-export interface LabelRef { id: number; name: string; groupName: string }
+export interface LabelRef { id: number; name: string }
 export interface Effective { policy: Ref | null; from: 'ROLE' | 'LABEL' | 'LOCATION' | 'COMPANY' | null;
-  /** The label it came from (spec §17), when `from` is LABEL. */
+  /** The label it came from (spec §17), when `from` is LABEL: its department's one label. */
   label?: LabelRef | null;
-  /** The department's other labels that point to a DIFFERENT policy (the first group in the group order won). */
-  conflict?: { label: LabelRef; policy: Ref }[] | null;
-  /** "Office staff — from the role" / "Shop floor — from the label Plant (Unit 2 points to Office staff; Plant comes first)" / "No leave policy" */ line: string }
+  /** "Office staff — from the role" / "Shop floor — from the label Machine" / "No leave policy" */ line: string }
 
 export interface Rule { id?: number; leaveTypeId: number; leaveTypeCode: string; leaveTypeName: string; isPaid: boolean; sortOrder: number;
   basis: LeaveBasis; days: number | null;
@@ -60,15 +58,14 @@ export interface PolicyTemplate { key: string; name: string; description: string
 export interface Assignments {
   company: { policy: Ref | null };
   locations: { locationId: number; name: string; policy: Ref | null; effective: Effective }[];
-  /** Every label of every group, group order (spec §17). positionCount = positions whose policy comes from this label. */
+  /** Every label of the company, in its order (spec §17). positionCount = positions whose policy comes from this label. */
   labels?: AssignmentLabel[];
   /** Only roles WITH an assignment of their own. */
   roles: { roleId: number; title: string; positionCount: number; policy: Ref | null }[];
   unassignedPositions: number;
 }
 
-export interface LabelConflict { positionId: number; positionCode: string | null; title: string | null; departmentName: string | null; line: string }
-export interface AssignmentLabel { groupId: number; groupName: string; labelId: number; name: string; policy: Ref | null; positionCount: number; conflicts: LabelConflict[] }
+export interface AssignmentLabel { labelId: number; name: string; policy: Ref | null; positionCount: number }
 
 export type AssignmentScope = 'COMPANY' | 'LOCATION' | 'ROLE' | 'LABEL';
 

@@ -18,7 +18,7 @@ import { ListToolbar, type FilterDef } from '../components/list/ListToolbar';
 import { useListFilters } from '../components/list/useListFilters';
 import { RowActions } from '../components/list/RowActions';
 import { ExcelButtons } from '../components/excel/ExcelButtons';
-import { labelFilterDefs, useLabelGroups } from '../components/labelGroups';
+import { labelFilterDefs, useLabels } from '../components/labels';
 
 /**
  * Positions — one chair for one person on one shift (DESIGN_SYSTEM.md §4.2 Collection).
@@ -53,9 +53,9 @@ export default function Positions() {
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<PositionRow | null>(null);
-  // `label`: one filter per label group, all in one param — the position's department's labels (spec §15.3).
+  // `label`: the label of the position's department.
   const filters = useListFilters(['department', 'label', 'role', 'shift', 'state', 'status', 'location']);
-  const { groups } = useLabelGroups(can.org.view || can.positions.view);
+  const { labels: labelList } = useLabels(can.org.view || can.positions.view);
 
   // The server does the filtering (GET /positions takes the same parameters the Excel
   // download does) and answers `total` (before the filters) and `count` (after), so
@@ -88,7 +88,7 @@ export default function Positions() {
   const items = useMemo(() => data?.items ?? [], [data]);
   const filterDefs: FilterDef[] = useMemo(() => [
     { key: 'department', label: 'Department (and below)', searchable: true, options: (options?.departments ?? []).map((d) => ({ value: String(d.id), label: d.name })) },
-    ...labelFilterDefs(groups),
+    ...labelFilterDefs(labelList),
     { key: 'role', label: 'Role', searchable: true, options: (options?.roles ?? []).map((r) => ({ value: String(r.id), label: r.name })) },
     { key: 'shift', label: 'Shift', options: (options?.shifts ?? []).map((s) => ({ value: String(s.id), label: s.name })) },
     {
@@ -102,7 +102,7 @@ export default function Positions() {
     },
     { key: 'status', label: 'Status', options: (options?.positionStatuses ?? []).map((s) => ({ value: s, label: s.charAt(0) + s.slice(1).toLowerCase() })) },
     { key: 'location', label: 'Location', options: (options?.locations ?? []).map((l) => ({ value: String(l.id), label: l.name })) },
-  ], [options, groups]);
+  ], [options, labelList]);
 
   const stats: Stat[] = useMemo(() => {
     const vacant = items.filter(isVacantRow).length;

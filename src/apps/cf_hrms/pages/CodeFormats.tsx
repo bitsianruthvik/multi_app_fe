@@ -47,8 +47,7 @@ interface Draft {
   segments: Segment[];
 }
 
-/** `groupId` / `kind`: for a department label — the group it belongs to, and whether that is Kind. */
-interface Lookup { id: number; name: string; groupId?: number; kind?: boolean }
+interface Lookup { id: number; name: string }
 type Lookups = Record<LookupKind, Lookup[]>;
 
 /** Under "This rule would make": whether the chosen record really gets this rule's code, in words. */
@@ -81,10 +80,7 @@ function ConditionValue({
     return <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>You cannot see these records.</Typography>;
   }
   if (isLookupKind(kind)) {
-    // A label condition offers the labels of ITS group: `label.<groupId>` that group, `label` Kind's.
-    const options = kind === 'departmentLabel'
-      ? lookups.departmentLabel.filter((o) => (token?.groupId != null ? o.groupId === token.groupId : o.kind))
-      : lookups[kind];
+    const options = lookups[kind];
     return many ? (
       <Autocomplete
         multiple size="small" disabled={disabled} options={options} getOptionLabel={(o) => o.name} isOptionEqualToValue={(a, b) => a.id === b.id}
@@ -375,8 +371,8 @@ export default function CodeFormats() {
     if (kindsUsed.has('location') && allowed.location) orgApi.locations.list().then((r) => put('location', r.map((x) => ({ id: x.id, name: x.path || x.name })))).catch(() => put('location', []));
     if (kindsUsed.has('role') && allowed.role) listRoles().then((r) => put('role', r.items.map((x) => ({ id: x.id, name: x.title })))).catch(() => put('role', []));
     if (kindsUsed.has('departmentLabel') && allowed.departmentLabel) {
-      orgApi.labelGroups.list()
-        .then((gs) => put('departmentLabel', gs.flatMap((g) => g.labels.map((l) => ({ id: l.id, name: l.name, groupId: g.id, kind: g.isKind })))))
+      orgApi.departmentLabels.list()
+        .then((ls) => put('departmentLabel', ls.map((l) => ({ id: l.id, name: l.name }))))
         .catch(() => put('departmentLabel', []));
     }
   }, [kindsUsed, allowed]);

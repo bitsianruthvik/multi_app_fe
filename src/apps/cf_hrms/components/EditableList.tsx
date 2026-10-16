@@ -53,7 +53,7 @@ export interface EditableListProps {
   onRemove: (id: number, moveTo?: number | 'none') => Promise<void>;
   /**
    * Offered beside "move them to…" when records may be left without an item
-   * (an optional label group: "Take it off them"). Absent = they must move.
+   * ("Take it off them"). Absent = they must move.
    */
   clearChoice?: string;
   /** The list may not be emptied below this many rows. */

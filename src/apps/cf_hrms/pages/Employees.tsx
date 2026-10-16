@@ -19,7 +19,7 @@ import { shiftsApi } from '../api/shifts';
 import { EmployeeFormDialog } from '../components/EmployeeFormDialog';
 import { StartLeavingDialog } from '../components/Leaving';
 import { ListToolbar, type FilterDef } from '../components/list/ListToolbar';
-import { labelFilterDefs, useLabelGroups } from '../components/labelGroups';
+import { labelFilterDefs, useLabels } from '../components/labels';
 import { RowActions } from '../components/list/RowActions';
 import { useListFilters, YES_NO_OPTIONS } from '../components/list/useListFilters';
 import { ExcelButtons } from '../components/excel/ExcelButtons';
@@ -69,8 +69,8 @@ export default function Employees() {
   const canCreate = can.employees.edit && can.named.employeeCreate;
 
   const filters = useListFilters(FILTER_KEYS, { defaults: DEFAULTS });
-  // `label`: one filter per label group — the labels of the department of their main position (spec §15.3).
-  const { groups } = useLabelGroups(can.org.view || can.positions.view);
+  // `label`: the label of the department of their main position.
+  const { labels: labelList } = useLabels(can.org.view || can.positions.view);
 
   const [rows, setRows] = useState<EmployeeRow[]>([]);
   // Rows the chosen status holds / rows the other filters leave — the server's `total` and `count`.
@@ -182,7 +182,7 @@ export default function Employees() {
         searchable: true,
         options: departments.map((d) => ({ value: String(d.id), label: d.path || d.name })),
       },
-      ...labelFilterDefs(groups),
+      ...labelFilterDefs(labelList),
       { key: 'role', label: 'Role', searchable: true, options: idOptions(roleOpts) },
       { key: 'shift', label: 'Shift', options: (lookups?.shifts ?? []).map((x) => ({ value: String(x.id), label: x.name })) },
       { key: 'location', label: 'Location', options: idOptions(locOpts) },
@@ -205,7 +205,7 @@ export default function Employees() {
       });
     }
     return out;
-  }, [rows, departments, lookups, pickers, groups]);
+  }, [rows, departments, lookups, pickers, labelList]);
 
   const stats: Stat[] = useMemo(() => {
     const onNotice = filtered.filter((r) => r.employmentStatus === 'NOTICE').length;

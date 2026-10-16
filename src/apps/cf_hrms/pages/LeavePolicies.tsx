@@ -14,7 +14,7 @@ import { matchesFlag, matchesQuery, useListFilters, YES_NO_OPTIONS } from '../co
 import { useCan } from '../access/can';
 import {
   POLICY_STATUS_LABEL, POLICY_STATUS_TONE, leaveApi, usedByLine,
-  type AssignmentLabel, type Assignments, type AssignmentScope, type PolicySummary, type PolicyTemplate,
+  type Assignments, type AssignmentScope, type PolicySummary, type PolicyTemplate,
 } from '../api/leave';
 import { listRoles, type Role } from '../api/roles';
 
@@ -48,11 +48,10 @@ interface NewPolicy {
 
 
 /**
- * By label (spec §17.1): per group, each label with its own policy select, the
- * positions it reaches (their policy comes from it), and the positions whose
- * department carries two labels pointing to different policies — the label of
- * the group that comes first wins, and the server's line says so.
- * A label does not pass to the departments under one that carries it.
+ * By label (spec §17.1): each label with its own policy select and the
+ * positions it reaches (their policy comes from it). A department has one
+ * label, so there is never a choice between two. A label does not pass to the
+ * departments under one that carries it.
  */
 function LabelAssignments({
   assignments, busy, policySelect, canRemove, onAssign,
@@ -64,62 +63,31 @@ function LabelAssignments({
   onAssign: (labelId: number, policyId: number | null) => void;
 }) {
   const labels = assignments.labels ?? [];
-  const groups: { groupId: number; groupName: string; labels: AssignmentLabel[] }[] = [];
-  for (const l of labels) {
-    let g = groups.find((x) => x.groupId === l.groupId);
-    if (!g) { g = { groupId: l.groupId, groupName: l.groupName, labels: [] }; groups.push(g); }
-    g.labels.push(l);
-  }
-  // One position is listed once, however many of its labels are in the conflict.
-  const conflicts = new Map<number, AssignmentLabel['conflicts'][number]>();
-  for (const l of labels) for (const c of l.conflicts) conflicts.set(c.positionId, c);
   return (
     <SectionCard
       title="By label"
       subtitle="A department label can have its own policy: every position in a department carrying it gets it, unless its role has one. Departments under it do not."
     >
-      {groups.length === 0 ? (
+      {labels.length === 0 ? (
         <Typography sx={{ fontSize: 13.5, color: 'var(--c-text-2)' }}>The company has no department labels.</Typography>
       ) : (
-        <Stack spacing={2}>
-          {conflicts.size > 0 && (
-            <Callout tone="warning" title={`${conflicts.size} position${conflicts.size === 1 ? ' is' : 's are'} in a department whose labels point to different policies`} sx={{ mb: 0 }}>
-              <Typography sx={{ fontSize: 13, lineHeight: 1.55, mb: 0.75 }}>
-                The label whose group comes first in the group order wins. Move the groups up or down under Departments › Labels, or give these labels the same policy.
+        <Stack spacing={1} data-assign-labels="">
+          {labels.map((l) => (
+            <Box key={l.labelId} data-assign={`label-${l.labelId}`} sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', columnGap: 1.5, rowGap: 0.75 }}>
+              <Typography sx={{ fontSize: 14, fontWeight: 500, flex: '1 1 160px', minWidth: 0, overflowWrap: 'anywhere' }}>{l.name}</Typography>
+              {policySelect(l.policy?.id ?? '', (policyId) => onAssign(l.labelId, policyId), 'No policy of its own', `b${l.labelId}`, `Leave policy for the label ${l.name}`)}
+              {canRemove && l.policy && (
+                <Tooltip title="Take the policy off this label">
+                  <IconButton size="small" aria-label={`Remove the policy of the label ${l.name}`} disabled={busy === `b${l.labelId}`} onClick={() => onAssign(l.labelId, null)}>
+                    <CloseRounded fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              )}
+              <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)', flex: '1 1 200px', minWidth: 0 }}>
+                {l.policy
+                  ? `Reaches ${l.positionCount} position${l.positionCount === 1 ? '' : 's'}`
+                  : 'Positions follow their location or the company'}
               </Typography>
-              <Stack component="ul" spacing={0.25} sx={{ m: 0, pl: 2.5 }} data-label-conflicts="">
-                {[...conflicts.values()].slice(0, 30).map((c) => (
-                  <Typography component="li" key={c.positionId} sx={{ fontSize: 13, overflowWrap: 'anywhere' }}>
-                    <b>{c.positionCode ?? c.title}</b>{c.title && c.positionCode ? ` ${c.title}` : ''}{c.departmentName ? ` · ${c.departmentName}` : ''} — {c.line}
-                  </Typography>
-                ))}
-                {conflicts.size > 30 && <Typography component="li" sx={{ fontSize: 13 }}>and {conflicts.size - 30} more</Typography>}
-              </Stack>
-            </Callout>
-          )}
-          {groups.map((g) => (
-            <Box key={g.groupId} data-assign-group={g.groupId}>
-              <Typography sx={{ fontSize: 12, fontWeight: 600, letterSpacing: '.04em', textTransform: 'uppercase', color: 'var(--c-text-2)', mb: 0.75 }}>{g.groupName}</Typography>
-              <Stack spacing={1}>
-                {g.labels.map((l) => (
-                  <Box key={l.labelId} data-assign={`label-${l.labelId}`} sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', columnGap: 1.5, rowGap: 0.75 }}>
-                    <Typography sx={{ fontSize: 14, fontWeight: 500, flex: '1 1 160px', minWidth: 0, overflowWrap: 'anywhere' }}>{l.name}</Typography>
-                    {policySelect(l.policy?.id ?? '', (policyId) => onAssign(l.labelId, policyId), 'No policy of its own', `b${l.labelId}`, `Leave policy for the label ${l.name}`)}
-                    {canRemove && l.policy && (
-                      <Tooltip title="Take the policy off this label">
-                        <IconButton size="small" aria-label={`Remove the policy of the label ${l.name}`} disabled={busy === `b${l.labelId}`} onClick={() => onAssign(l.labelId, null)}>
-                          <CloseRounded fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
-                    )}
-                    <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)', flex: '1 1 200px', minWidth: 0 }}>
-                      {l.policy
-                        ? `Reaches ${l.positionCount} position${l.positionCount === 1 ? '' : 's'}${l.conflicts.length ? ` · ${l.conflicts.length} with a label conflict` : ''}`
-                        : 'Positions follow their location or the company'}
-                    </Typography>
-                  </Box>
-                ))}
-              </Stack>
             </Box>
           ))}
         </Stack>

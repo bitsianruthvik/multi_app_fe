@@ -30,7 +30,7 @@ import { orgApi, type Department } from '../api/organisation';
 import { useCan } from '../access/can';
 import { ListToolbar, type FilterDef } from '../components/list/ListToolbar';
 import { useListFilters } from '../components/list/useListFilters';
-import { labelFilterDefs, useLabelGroups } from '../components/labelGroups';
+import { labelFilterDefs, useLabels } from '../components/labels';
 import { PlanStatusBadge } from '../components/performance/PlanParts';
 import { AchievementChip } from '../components/performance/ActualParts';
 import { CreatePlansDialog } from '../components/performance/CreatePlansDialog';
@@ -63,7 +63,7 @@ export default function PerformancePlans() {
   const periodParam = params.get('period') ?? '';
 
   const filters = useListFilters(['status', 'department', 'label', 'band']);
-  const { groups } = useLabelGroups(can.performance.view);
+  const { labels: labelList } = useLabels(can.performance.view);
 
   const [periods, setPeriods] = useState<PeriodYear | null>(null);
   const [periodsError, setPeriodsError] = useState<unknown>(null);
@@ -167,10 +167,10 @@ export default function PerformancePlans() {
     return [
       { key: 'status', label: 'Status', options: STATUS_OPTIONS },
       { key: 'department', label: 'Department (and below)', searchable: true, options: deps },
-      ...labelFilterDefs(groups),
+      ...labelFilterDefs(labelList),
       { key: 'band', label: 'Band', options: BAND_OPTIONS },
     ];
-  }, [departments, items, groups]);
+  }, [departments, items, labelList]);
 
   const columns: DataColumn<PlanRow>[] = useMemo(() => [
     {

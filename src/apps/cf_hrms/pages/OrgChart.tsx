@@ -56,7 +56,7 @@ import { useFullscreen } from '../components/useFullscreen';
 import { OrgChartAsk, type AskPick } from '../components/OrgChartAsk';
 import { CommandBar } from '../components/CommandBar';
 import { useCan } from '../access/can';
-import { useLabelGroups, labelColour, labelFilterText, matchesLabels } from '../components/labelGroups';
+import { useLabels, labelColour, labelFilterText, matchesLabel } from '../components/labels';
 import { LabelViewOptions } from '../components/OrgChartViewOptions';
 import { exportPdf, exportPng } from '../components/OrgChartExport';
 import { performanceApi, type ChartBands } from '../api/performance';
@@ -120,9 +120,9 @@ export default function OrgChart() {
   });
   const [shift, setShift] = useState<ShiftFilter>(() => readPref<ShiftFilter>(key('shift'), 'all'));
   const [colours, setColours] = useState<boolean>(() => readPref<boolean>(key('colours'), true));
-  // Labels on the chart (spec §15.4): colour the department boxes by a group, and draw
-  // positions outside the chosen labels faint. The viewer's own, kept in this browser.
-  const [colourBy, setColourBy] = useState<number | null>(() => readPref<number | null>(key('colourBy'), null));
+  // Labels on the chart: colour the department boxes by their label, and draw
+  // positions outside the chosen label faint. The viewer's own, kept in this browser.
+  const [colourBy, setColourBy] = useState<boolean>(() => readPref<boolean>(key('colourByLabel'), false) === true);
   const [labelFilter, setLabelFilter] = useState<string>(() => readPref<string>(key('labelFilter'), ''));
   // "Colour by performance" (spec §19.3): '' off · 'now' the plans whose period holds today · a period id.
   const [perfBy, setPerfBy] = useState<string>(() => readPref<string>(key('performanceBy'), ''));
@@ -226,7 +226,7 @@ export default function OrgChart() {
 
   useEffect(() => writePref(prefKey(company, 'shift'), shift), [shift, company]);
   useEffect(() => writePref(prefKey(company, 'colours'), colours), [colours, company]);
-  useEffect(() => writePref(prefKey(company, 'colourBy'), colourBy), [colourBy, company]);
+  useEffect(() => writePref(prefKey(company, 'colourByLabel'), colourBy), [colourBy, company]);
   useEffect(() => writePref(prefKey(company, 'labelFilter'), labelFilter), [labelFilter, company]);
   useEffect(() => writePref(prefKey(company, 'performanceBy'), perfBy), [perfBy, company]);
   useEffect(() => writePref(prefKey(company, 'collapsed'), [...collapsed]), [collapsed, company]);
@@ -350,10 +350,10 @@ export default function OrgChart() {
 
   const rootNode = rootCard && model ? model.byId.get(rootCard) : null;
 
-  // ── Labels (spec §15.4) ─────────────────────────────────────────────────
-  const { groups: labelGroups } = useLabelGroups(can.org.view || can.positions.view);
-  const deptLabels = useMemo(
-    () => new Map((model?.departments ?? []).map((d) => [d.id, d.labels ?? []])),
+  // ── Labels: one per department ──────────────────────────────────────────
+  const { labels: labelList } = useLabels(can.org.view || can.positions.view);
+  const deptLabel = useMemo(
+    () => new Map((model?.departments ?? []).map((d) => [d.id, d.labelId ?? null])),
     [model],
   );
   // ── Colour by performance (spec §19.3): only for a login with performance view ──
@@ -386,26 +386,24 @@ export default function OrgChart() {
   }, [perfOn, bands, palette]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const labelOptions = useMemo(() => {
-    const group = colourBy != null ? labelGroups.find((g) => g.id === colourBy) : undefined;
-    const colourOf = group
+    const colourOf = colourBy && labelList.length
       ? {
-          groupId: group.id,
-          colours: new Map(group.labels.map((l, i) => [l.id, labelColour(i)])),
-          names: new Map(group.labels.map((l) => [l.id, l.name])),
+          colours: new Map(labelList.map((l, i) => [l.id, labelColour(i)])),
+          names: new Map(labelList.map((l) => [l.id, l.name])),
         }
       : null;
     const inFilter = labelFilter
-      ? (departmentId: number | null) => departmentId != null && matchesLabels(labelFilter, deptLabels.get(departmentId), labelGroups)
+      ? (departmentId: number | null) => departmentId != null && matchesLabel(labelFilter, deptLabel.get(departmentId), labelList)
       : undefined;
     return { colourBy: colourOf, inFilter, performance };
-  }, [colourBy, labelFilter, labelGroups, deptLabels, performance]);
+  }, [colourBy, labelFilter, labelList, deptLabel, performance]);
   // "Of which in Plant: …" — the same counting rule, over the cards inside the filter.
   const inLabels = useMemo(() => {
     if (!model || !labelOptions.inFilter) return null;
     const ids = visibleIds.filter((id) => labelOptions.inFilter!(model.byId.get(id)?.departmentId ?? null));
     return countRows(model, ids, shift);
   }, [model, labelOptions, visibleIds, shift]);
-  const labelFilterName = labelFilter ? labelFilterText(labelFilter, labelGroups) : '';
+  const labelFilterName = labelFilter ? labelFilterText(labelFilter, labelList) : '';
 
   // Departments are drawn as boxes when the switch is on AND the payload has a
   // department tree (a backend older than 2026-10-10 sends none).
@@ -913,7 +911,7 @@ export default function OrgChart() {
               onAsOf={setAsOf}
               labels={
                 <LabelViewOptions
-                  groups={labelGroups}
+                  labels={labelList}
                   colourBy={colourBy}
                   onColourBy={setColourBy}
                   filter={labelFilter}
@@ -957,7 +955,7 @@ export default function OrgChart() {
                     : []),
                   // The label filter: how many of these are inside it (the rest are drawn faint).
                   ...(inLabels
-                    ? [{ label: `of which in ${labelFilterName || 'the chosen labels'}`, value: `${inLabels.positions} (${inLabels.filled} filled, ${inLabels.vacant} vacant)` }]
+                    ? [{ label: `of which in ${labelFilterName || 'the chosen label'}`, value: `${inLabels.positions} (${inLabels.filled} filled, ${inLabels.vacant} vacant)` }]
                     : []),
                 ]}
                 legend={scene.legend}
@@ -1106,7 +1104,7 @@ export default function OrgChart() {
         asOf={asOf}
         initialQuestion={askText}
         departments={model?.departments ?? []}
-        labelGroups={labelGroups}
+        labels={labelList}
         onClose={() => setAskOpen(false)}
         onPick={onAskPick}
       />

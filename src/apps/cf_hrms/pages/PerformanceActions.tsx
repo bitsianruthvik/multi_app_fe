@@ -17,7 +17,7 @@ import { orgApi, type Department } from '../api/organisation';
 import { useCan } from '../access/can';
 import { ListToolbar, type FilterDef } from '../components/list/ListToolbar';
 import { useListFilters } from '../components/list/useListFilters';
-import { labelFilterDefs, useLabelGroups } from '../components/labelGroups';
+import { labelFilterDefs, useLabels } from '../components/labels';
 import { ActionDialog, DueChip } from '../components/performance/ReviewParts';
 import { ACTION_STATUS_OPTIONS } from '../components/performance/reviewWords';
 import { longDay } from '../components/jobDates';
@@ -28,7 +28,7 @@ export default function PerformanceActions() {
   const toast = useToast();
   const can = useCan();
   const filters = useListFilters(['status', 'overdue', 'owner', 'period', 'department', 'label'], { defaults: { status: 'OPEN' } });
-  const { groups } = useLabelGroups(can.performance.view);
+  const { labels: labelList } = useLabels(can.performance.view);
   const [data, setData] = useState<ActionList | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [loading, setLoading] = useState(false);
@@ -61,9 +61,9 @@ export default function PerformanceActions() {
       { key: 'owner', label: 'Owner', searchable: true, options: (data?.owners ?? []).map((o) => ({ value: String(o.id), label: o.name })) },
       { key: 'period', label: 'Period', options: periods },
       { key: 'department', label: 'Department (and below)', searchable: true, options: deps },
-      ...labelFilterDefs(groups),
+      ...labelFilterDefs(labelList),
     ] as FilterDef[];
-  }, [departments, items, groups, data, periods]);
+  }, [departments, items, labelList, data, periods]);
 
   const openChange = async (a: Action) => {
     try {

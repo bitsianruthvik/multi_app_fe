@@ -1,9 +1,9 @@
 import { useState } from 'react';
-import { Box, Button, MenuItem, Popover, Stack, TextField, ToggleButton, ToggleButtonGroup, Typography } from '@mui/material';
+import { Box, Button, FormControlLabel, MenuItem, Popover, Stack, Switch, TextField, ToggleButton, ToggleButtonGroup, Typography } from '@mui/material';
 import ChevronRightRounded from '@mui/icons-material/ChevronRightRounded';
 import ExpandMoreRounded from '@mui/icons-material/ExpandMoreRounded';
 import LabelOutlined from '@mui/icons-material/LabelOutlined';
-import type { LabelGroup } from '../api/organisation';
+import type { DepartmentLabel } from '../api/organisation';
 import type { Arrange } from './orgChartLayout';
 
 /**
@@ -83,28 +83,28 @@ export function OrgChartViewOptions({
 export default OrgChartViewOptions;
 
 /**
- * The chart's label options (CF_HRMS_HIRING_SPEC.md §15.4), one compact
- * "Labels" button on the toolbar that opens:
+ * The chart's label options, one compact "Labels" button on the toolbar that
+ * opens (one label per department since 2026-10-16):
  *
- *   Colour by   None · each label group — department boxes take a soft colour
- *               per label of that group; the key is in the strip above the chart.
- *   Show only   a label per group — positions outside are drawn faint, never
- *               removed; the strip says how many are inside.
+ *   Colour by label   on / off — department boxes take a soft colour per label;
+ *                     the key is in the strip above the chart.
+ *   Show only         one label — positions outside are drawn faint, never
+ *                     removed; the strip says how many are inside.
  *
  * Yours only — kept in this browser. Nothing here moves a box.
  */
 export function LabelViewOptions({
-  groups,
+  labels,
   colourBy,
   onColourBy,
   filter,
   onFilter,
   performance,
 }: {
-  groups: LabelGroup[];
-  colourBy: number | null;
-  onColourBy: (groupId: number | null) => void;
-  /** The label ids chosen, comma-separated (the lists' `label` rule). */
+  labels: DepartmentLabel[];
+  colourBy: boolean;
+  onColourBy: (on: boolean) => void;
+  /** The label id chosen (the lists' `label` rule); '' = any. */
   filter: string;
   onFilter: (value: string) => void;
   /**
@@ -114,15 +114,9 @@ export function LabelViewOptions({
   performance?: { value: string; onChange: (v: string) => void; periods: { id: number; name: string; status: string }[] };
 }) {
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
-  const usable = groups.filter((g) => g.labels.length > 0);
-  if (!usable.length && !performance) return null;
-  const chosen = new Set(filter.split(',').map((v) => Number(v)).filter((n) => n > 0));
-  const set = colourBy != null || chosen.size > 0 || !!performance?.value;
-  const pick = (g: LabelGroup, labelId: number | '') => {
-    const mine = new Set(g.labels.map((l) => l.id));
-    const rest = [...chosen].filter((id) => !mine.has(id));
-    onFilter([...rest, ...(labelId === '' ? [] : [labelId])].join(','));
-  };
+  if (!labels.length && !performance) return null;
+  const chosen = labels.find((l) => String(l.id) === filter.split(',')[0]?.trim())?.id ?? '';
+  const set = colourBy || chosen !== '' || !!performance?.value;
   return (
     <>
       <Button
@@ -161,48 +155,35 @@ export function LabelViewOptions({
               ))}
             </TextField>
           )}
-          {usable.length > 0 && (<>
+          {labels.length > 0 && (<>
+          <Box>
+            <FormControlLabel
+              control={<Switch size="small" checked={colourBy} onChange={(e) => onColourBy(e.target.checked)} />}
+              label={<Typography sx={{ fontSize: 14 }}>Colour by label</Typography>}
+              sx={{ ml: 0 }}
+            />
+            <Typography sx={{ fontSize: 12, color: 'var(--c-text-2)' }}>Each department box takes the colour of its label.</Typography>
+          </Box>
           <TextField
             select
             size="small"
-            label="Colour by"
-            value={colourBy ?? ''}
-            onChange={(e) => onColourBy(e.target.value === '' ? null : Number(e.target.value))}
+            label="Show only"
+            value={chosen}
+            onChange={(e) => onFilter(e.target.value === '' ? '' : String(e.target.value))}
             slotProps={{ select: { displayEmpty: true }, inputLabel: { shrink: true } }}
-            helperText="Each department box takes the colour of its label in that group."
           >
-            <MenuItem value="">None</MenuItem>
-            {usable.map((g) => (
-              <MenuItem key={g.id} value={g.id}>{g.name}</MenuItem>
+            <MenuItem value="">Any label</MenuItem>
+            {labels.map((l) => (
+              <MenuItem key={l.id} value={l.id}>{l.name}</MenuItem>
             ))}
           </TextField>
-          <Typography sx={{ fontSize: 13, fontWeight: 600, color: 'var(--c-text)' }}>Show only</Typography>
-          {usable.map((g) => {
-            const value = g.labels.find((l) => chosen.has(l.id))?.id ?? '';
-            return (
-              <TextField
-                key={g.id}
-                select
-                size="small"
-                label={g.name}
-                value={value}
-                onChange={(e) => pick(g, e.target.value === '' ? '' : Number(e.target.value))}
-                slotProps={{ select: { displayEmpty: true }, inputLabel: { shrink: true } }}
-              >
-                <MenuItem value="">Any</MenuItem>
-                {g.labels.map((l) => (
-                  <MenuItem key={l.id} value={l.id}>{l.name}</MenuItem>
-                ))}
-              </TextField>
-            );
-          })}
           <Typography sx={{ fontSize: 12, color: 'var(--c-text-2)' }}>
-            Positions outside the chosen labels are drawn faint, not removed. A department&apos;s own labels count — not
-            the labels of the departments above it. Yours only — kept in this browser.
+            Positions outside the chosen label are drawn faint, not removed. A department&apos;s own label counts — not
+            the label of the departments above it. Yours only — kept in this browser.
           </Typography>
           </>)}
           <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-            <Button size="small" disabled={!set} onClick={() => { onColourBy(null); onFilter(''); performance?.onChange(''); }}>
+            <Button size="small" disabled={!set} onClick={() => { onColourBy(false); onFilter(''); performance?.onChange(''); }}>
               Clear
             </Button>
             <Button size="small" variant="contained" onClick={() => setAnchor(null)}>

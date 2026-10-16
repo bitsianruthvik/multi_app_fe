@@ -20,7 +20,6 @@ import TuneRounded from '@mui/icons-material/TuneRounded';
 import AddRounded from '@mui/icons-material/AddRounded';
 import { Surface } from '@shared/ui';
 import type { ListFilters } from './useListFilters';
-import { filterPatch, filterValue } from './filterParts';
 
 export interface FilterOption {
   value: string;
@@ -46,14 +45,6 @@ export interface FilterDef {
    * The screen sends the same value to the server — see `useListFilters` `defaults`.
    */
   defaultValue?: string;
-  /**
-   * Several filters sharing ONE address param, each owning some of its
-   * comma-separated values — the label groups (spec §15.3): `label=12,31` is
-   * the "Unit" filter holding 12 and the "Area" filter holding 31. `key` is then
-   * only this filter's name on screen; `param` is what the address and the
-   * server read, and `values` the ones this filter owns.
-   */
-  partOf?: { param: string; values: string[] };
 }
 
 function fmtCount(n: number): string {
@@ -116,8 +107,8 @@ function ActiveChip({ text, onRemove }: { text: string; onRemove: () => void }) 
 
 function FilterControl({ def, filters }: { def: FilterDef; filters: ListFilters }) {
   const kind = def.kind ?? 'select';
-  const value = filterValue(def, filters);
-  const setValue = (v: string | null) => filters.setMany(filterPatch(def, filters, v));
+  const value = filters.values[def.key] ?? '';
+  const setValue = (v: string | null) => filters.setMany({ [def.key]: v });
   const options = def.options ?? [];
   const shownValue = value || def.defaultValue || '';
 
@@ -245,7 +236,7 @@ export function ListToolbar({
 
   const list = defs ?? [];
   const active = list.filter((d) => {
-    const v = filterValue(d, filters);
+    const v = filters.values[d.key] ?? '';
     return v !== '' && v !== d.defaultValue;
   });
   // A shared param counts once in `activeCount`; on the button each filter that is set counts.
@@ -282,7 +273,7 @@ export function ListToolbar({
           disabled={setCount === 0}
           onClick={() => {
             const patch: Record<string, null> = {};
-            for (const d of list) patch[d.partOf?.param ?? d.key] = null;
+            for (const d of list) patch[d.key] = null;
             filters.setMany(patch);
           }}
         >
@@ -441,8 +432,8 @@ export function ListToolbar({
         {active.map((d) => (
           <ActiveChip
             key={d.key}
-            text={activeText(d, filterValue(d, filters))}
-            onRemove={() => filters.setMany(filterPatch(d, filters, null))}
+            text={activeText(d, filters.values[d.key] ?? '')}
+            onRemove={() => filters.setMany({ [d.key]: null })}
           />
         ))}
         {filters.isFiltered && (

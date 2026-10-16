@@ -68,9 +68,10 @@ export interface OrgChartDepartment {
   code: string | null;
   name: string;
   parentId: number | null;
+  /** Its ONE label's name. */
   type: string | null;
-  /** Its label in each group, Kind first (spec §15.4). Absent from an older backend. */
-  labels?: { groupId: number; groupName: string; labelId: number; name: string }[];
+  /** Its label's id (`type` is the name). Absent from an older backend. */
+  labelId?: number | null;
   isShared: boolean;
   /** Department ids a shared department works for. */
   serves: number[];
