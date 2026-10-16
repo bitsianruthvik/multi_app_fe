@@ -386,7 +386,12 @@ export interface NestFilesResult {
   totals: NestFilesTotals | null;
   message: string;
   saved?: { lots: number; pieces: number; offcuts: number; removedLots: number };
+  /** 2026-10-16: a save that applied queues our own Standard nesting of the same pieces (null: not queued, or an older API). */
+  autoCompare?: AutoCompareQueued | null;
 }
+
+/** What a saved upload says about our own nesting it queued in the background. */
+export interface AutoCompareQueued { queued: boolean; effort: string; message: string }
 
 export interface NestFileUpload { filename: string; file: string; plateCode?: string; nestNo?: string }
 
@@ -437,6 +442,7 @@ function normaliseFiles(out: Partial<NestFilesResult> | null | undefined): NestF
     totals: o.totals ?? null,
     message: o.message ?? '',
     saved: o.saved,
+    autoCompare: o.autoCompare ?? null,
   };
 }
 
@@ -538,7 +544,8 @@ export function cancelNestCompare(orderId: number, lineId: number): Promise<{ ok
 }
 
 /* ---- Compare (§6) ----------------------------------------------------------
- * Retired from the screen on 2026-10-13 (user: will be added back later). */
+ * Back on the screen on 2026-10-16 as the Nesting screen's Compare tab (NestCompareTab): our own Standard nesting of
+ * the pieces an upload holds, run by the server after the upload is saved. The dialog (accept a side) stays unmounted. */
 
 export interface CompareCost { value: number | null; currency?: string; basis?: string; customerPlates?: number; reason: string | null }
 
@@ -562,6 +569,12 @@ export interface CompareRun {
   decision?: 'auto' | 'uploaded' | null;
   ranAt?: string | null; startedBy?: string | null; reason?: string | null;
   params?: { effort?: string } | null;
+  /** 2026-10-16: 'upload' = the server started it after an upload was saved; 'screen' = the Compare tab; 'person' = Run pressed. */
+  trigger?: 'upload' | 'screen' | 'person' | string;
+  /** It was made for the upload saved now (false: an earlier upload of the same pieces). */
+  forThisUpload?: boolean;
+  /** It was stopped before its time was up (a person started a nesting run): its best so far. */
+  stoppedEarly?: boolean;
   metrics: CompareMetrics | null; perPlate: ComparePlate[];
   plan?: { groups?: { nests?: unknown[] }[] } | null;
 }
@@ -590,8 +603,20 @@ export interface CompareAnswer {
   } | null;
   run: RunV2 | null;
   lastFailure: { error?: { code?: string; message?: string } } | null;
+  /** 2026-10-16: the verdict in one plain line (null with no difference). */
+  headline?: string | null;
+  /** The same figures per thickness. */
+  byThickness?: CompareThicknessRow[];
+  /** What neither side holds: left over by the upload, and cut from untracked offcuts. */
+  leftOverSummary?: CompareLeftOver | null;
+  /** What the server is doing about the automatic run in this process (null after a restart). */
+  autoCompare?: { trigger: string; status: 'queued' | 'waiting' | 'started' | 'answered' | 'skipped' | 'failed' | string; message: string | null; at: string; runId: string | null } | null;
   canAccept: { uploaded: boolean; auto: boolean; reason: string | null } | null;
 }
+
+export interface CompareThicknessFigures { plates: number; tonnesBought: number; partsTonnes: number; wasteKg: number; wastePct: number | null; offcutKg: number; cost: number | null }
+export interface CompareThicknessRow { thickness: number | null; uploaded: CompareThicknessFigures | null; auto: CompareThicknessFigures | null }
+export interface CompareLeftOver { pieces: number; cutPieces: number; kg: number; heldBack: number; toNest: number; untrackedPieces: number; untrackedKg: number; sentence: string | null }
 
 export function getNestCompare(orderId: number, lineId: number, opts: { detail?: boolean } = {}): Promise<CompareAnswer> {
   return cfApi.get<Partial<CompareAnswer>>(`${base(orderId, lineId)}/compare?with=auto${opts.detail ? '&detail=1' : ''}`).then((o) => ({
@@ -600,10 +625,19 @@ export function getNestCompare(orderId: number, lineId: number, opts: { detail?:
     auto: { metrics: null, perPlate: [], runId: null, status: 'none', ...(o.auto ?? {}) } as CompareRun,
     stale: o.stale ?? null, delta: o.delta ?? null, verdict: o.verdict ?? null, likeForLike: o.likeForLike ?? null,
     wholeLine: o.wholeLine ?? null, willReplace: o.willReplace ?? null, deltaReason: o.deltaReason ?? null, run: o.run ?? null, lastFailure: o.lastFailure ?? null, canAccept: o.canAccept ?? null,
+    headline: o.headline ?? null, byThickness: Array.isArray(o.byThickness) ? o.byThickness : [], leftOverSummary: o.leftOverSummary ?? null, autoCompare: o.autoCompare ?? null,
   }));
 }
 
-export interface CompareStarted { started: boolean; running: boolean; runId: string; status: string; reason?: string }
+export interface CompareStarted { started: boolean; running: boolean; runId: string; status: string; reason?: string; answered?: boolean; message?: string }
+
+/**
+ * The Compare tab's own start (2026-10-16): our Standard nesting of the pieces the saved upload holds — the same start the
+ * server makes after an upload. Nothing is packed when a run already answers (`answered`); `rerun` packs again.
+ */
+export function startAutoCompare(orderId: number, lineId: number, opts: { rerun?: boolean } = {}): Promise<CompareStarted> {
+  return cfApi.post<CompareStarted>(`${base(orderId, lineId)}/compare`, { run: true, auto: true, rerun: !!opts.rerun });
+}
 
 /** Start the automatic side. `rerun` packs again although a run already answers. */
 export function startNestCompare(orderId: number, lineId: number, opts: { effort?: 'quick' | 'standard' | 'deep' | 'long'; rerun?: boolean } = {}): Promise<CompareStarted> {

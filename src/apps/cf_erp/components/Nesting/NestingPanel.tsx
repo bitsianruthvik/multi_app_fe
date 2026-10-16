@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent, type ReactNode } from 'react';
 import {
-  Alert, Box, Button, CircularProgress, Collapse, Dialog, DialogActions, DialogContent, DialogTitle, Switch, Tooltip, Typography,
+  Alert, Box, Button, CircularProgress, Collapse, Dialog, DialogActions, DialogContent, DialogTitle, Switch, Tab, Tabs, Tooltip, Typography,
 } from '@mui/material';
 import GridViewRounded from '@mui/icons-material/GridViewRounded';
 import AutoAwesomeRounded from '@mui/icons-material/AutoAwesomeRounded';
@@ -61,6 +61,7 @@ import { CutPlateDrawingButton } from '../Drawings/RowDrawingViewer';
 import { LineDrawingContext } from '../../hooks/lineDrawingContext';
 import { PlateChangeProvider, PlateChangesPanel } from './PlateChange';
 import { usePlateChange } from './plateChangeContext';
+import { NestCompareTab } from './NestCompareTab';
 
 /**
  * THE NESTING SCREEN — a sales order line's cut pieces laid out on real plates.
@@ -69,7 +70,8 @@ import { usePlateChange } from './plateChangeContext';
  * ProNest job files (.nif) or DXFs, the main door, NestFilesDialog checks them —
  * or we nest it ourselves (NestStartDialog starts the run). The comparison of
  * the two was taken off the screen the same day (NestCompareDialog is kept,
- * unmounted). While nothing is nested the screen is those two doors
+ * unmounted) and came back on 2026-10-16 as the Compare tab (NestCompareTab):
+ * after an upload is saved the server nests the same pieces itself. While nothing is nested the screen is those two doors
  * (NestDoors); once something is, it is one summary strip and the plates, with
  * a banner for what is left over. Everything else is in the More menu. The Excel
  * sheet upload was retired from this screen the same day (its download stays,
@@ -440,7 +442,7 @@ function GroupCard({ group, open, onToggle, cncFor, removeFor, fileFor, shapeOf,
   );
 }
 
-function PlateNestingPanel({ orderId, lineId, canManage, canEditCatalog = false, onChanged, version = 0 }: {
+function PlateNestingPanel({ orderId, lineId, canManage, canEditCatalog = false, onChanged, version = 0, onUploadState, onNestingSaved }: {
   orderId: number;
   lineId: number;
   /** Bumped when a plate change is approved elsewhere on the screen (§62): the saved plan is read again. */
@@ -451,6 +453,10 @@ function PlateNestingPanel({ orderId, lineId, canManage, canEditCatalog = false,
   canEditCatalog?: boolean;
   /** Accepting rewrites what the order will buy, so the page around it reloads. */
   onChanged?: () => void;
+  /** Whether the saved nesting holds customer plates (the Compare tab shows only then). */
+  onUploadState?: (uploaded: boolean) => void;
+  /** Something on the line's nesting was saved here: the Compare tab reads again. */
+  onNestingSaved?: () => void;
 }) {
   const toast = useToast();
   // Plate changes after a PO (§62): every plate save goes through the line's gate.
@@ -459,6 +465,8 @@ function PlateNestingPanel({ orderId, lineId, canManage, canEditCatalog = false,
   // THE SAVED PLAN, READ ON OPEN. This is the only request the screen makes by
   // itself, and it does not re-pack.
   const saved = useLoad(() => cfApi.get<NestingPlan>(path), [path, version]);
+  // The Compare tab (2026-10-16) is there once a customer's nesting is saved.
+  useEffect(() => { if (saved.data) onUploadState?.(anyImported(saved.data)); }, [saved.data, onUploadState]);
   // THE NESTING CHOICES (Steps A and B, init.sql §40). An API without them
   // answers an error; the screen then simply has no steps.
   const choicesLoad = useLoad(() => getNestingChoices(orderId, lineId).catch(() => null), [orderId, lineId, version]);
@@ -558,7 +566,7 @@ function PlateNestingPanel({ orderId, lineId, canManage, canEditCatalog = false,
   const plateChoice: PlateChoice | null | undefined = choices ? choices.plateChoice : saved.data?.line.plateChoice;
   const platesUnset = plateChoice === null;
   const [platesBusy, setPlatesBusy] = useState(false);
-  const reloadAll = () => { saved.reload(); filesLoad.reload(); onChanged?.(); };
+  const reloadAll = () => { saved.reload(); filesLoad.reload(); onChanged?.(); onNestingSaved?.(); };
   const lineName = plan ? `${plan.line.orderCode}_line${plan.line.lineNo}` : `line${lineId}`;
 
   const downloadSheet = async () => {
@@ -1231,7 +1239,7 @@ function PlateNestingPanel({ orderId, lineId, canManage, canEditCatalog = false,
       {/* THE UPLOAD DOOR: the shop's own files, checked before anything is saved. */}
       <NestFilesDialog open={!!uploads} orderId={orderId} lineId={lineId} uploads={uploads ?? []} canEditCatalog={canEditCatalog}
         onClose={() => setUploads(null)}
-        onSaved={(out: NestFilesResult) => { setProposal(null); setRun(null); reloadAll(); toast.success(out.message || 'The nesting is saved.'); }} />
+        onSaved={(out: NestFilesResult) => { setProposal(null); setRun(null); reloadAll(); toast.success([out.message || 'The nesting is saved.', out.autoCompare?.message].filter(Boolean).join(' ')); }} />
 
       <NestUntrackedDialog open={untrackedOpen} orderId={orderId} lineId={lineId} onClose={() => setUntrackedOpen(false)}
         onSaved={(out) => { setUntrackedOpen(false); reloadAll(); toast.success(out.message ?? 'Marked as cut from untracked offcuts.'); }} />
@@ -1270,14 +1278,42 @@ export function NestingPanel(props: {
   const [version, setVersion] = useState(0);
   const { onChanged } = props;
   const decided = useCallback(() => { setVersion((v) => v + 1); onChanged?.(); }, [onChanged]);
+  // THE COMPARE TAB (2026-10-16): once a customer's nesting is saved, our own Standard nesting of the same pieces runs
+  // in the background on the server, and this tab shows the two side by side. The Nesting tab stays mounted while the
+  // Compare tab is open (display none), so a proposal under review or a run being watched is not lost.
+  const [uploaded, setUploaded] = useState(false);
+  const [tab, setTab] = useState<'nesting' | 'compare'>(() => readTab(props.lineId));
+  const [compareVersion, setCompareVersion] = useState(0);
+  const pick = (t: 'nesting' | 'compare') => { setTab(t); writeTab(props.lineId, t); };
+  const nestingSaved = useCallback(() => setCompareVersion((v) => v + 1), []);
+  const showCompare = uploaded && tab === 'compare';
   return (
     <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 2, minWidth: 0 }}>
-      <LineDrawingContext.Provider value={{ orderId: props.orderId, lineId: props.lineId }}>
-        <PlateChangeProvider orderId={props.orderId} lineId={props.lineId} onChanged={decided}>
-          <PlateNestingPanel {...props} version={version} />
-        </PlateChangeProvider>
-      </LineDrawingContext.Provider>
-      <SectionNestingPanel orderId={props.orderId} lineId={props.lineId} canManage={props.canManage} onChanged={props.onChanged} />
+      {uploaded && (
+        <Tabs value={showCompare ? 'compare' : 'nesting'} onChange={(_, v) => pick(v as 'nesting' | 'compare')} aria-label="Nesting or compare"
+          variant="scrollable" allowScrollButtonsMobile data-testid="nesting-tabs" sx={{ minHeight: 40, borderBottom: '1px solid var(--c-divider)' }}>
+          <Tab value="nesting" label="Nesting" sx={{ minHeight: 40, textTransform: 'none' }} />
+          <Tab value="compare" label="Compare with ours" data-testid="compare-tab-button" sx={{ minHeight: 40, textTransform: 'none' }} />
+        </Tabs>
+      )}
+      <Box sx={{ display: showCompare ? 'none' : 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 2, minWidth: 0 }}>
+        <LineDrawingContext.Provider value={{ orderId: props.orderId, lineId: props.lineId }}>
+          <PlateChangeProvider orderId={props.orderId} lineId={props.lineId} onChanged={decided}>
+            <PlateNestingPanel {...props} version={version} onUploadState={setUploaded} onNestingSaved={nestingSaved} />
+          </PlateChangeProvider>
+        </LineDrawingContext.Provider>
+        <SectionNestingPanel orderId={props.orderId} lineId={props.lineId} canManage={props.canManage} onChanged={props.onChanged} />
+      </Box>
+      {showCompare && <NestCompareTab orderId={props.orderId} lineId={props.lineId} version={version + compareVersion} />}
     </Box>
   );
+}
+
+/** The tab last open on a line, per viewer (a convenience: storage may be blocked). */
+const tabKey = (lineId: number) => `cf_erp_nest_tab_${lineId}`;
+function readTab(lineId: number): 'nesting' | 'compare' {
+  try { return localStorage.getItem(tabKey(lineId)) === 'compare' ? 'compare' : 'nesting'; } catch { return 'nesting'; }
+}
+function writeTab(lineId: number, t: 'nesting' | 'compare') {
+  try { localStorage.setItem(tabKey(lineId), t); } catch { /* storage may be blocked */ }
 }

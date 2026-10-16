@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Alert, Box, Button, Divider, Typography } from '@mui/material';
+import { Alert, Box, Button, Divider, MenuItem, TextField, Typography } from '@mui/material';
 import { Link } from 'react-router-dom';
 import LaunchRounded from '@mui/icons-material/LaunchRounded';
 import Inventory2Rounded from '@mui/icons-material/Inventory2Rounded';
@@ -9,8 +9,8 @@ import SkipNextRounded from '@mui/icons-material/SkipNextRounded';
 import { CfApiError } from '../../api/client';
 import { getOrderPurchase } from '../../api/purchase';
 import {
-  getOrderRequisitions, raiseRequisitions, skipLines, unskipLines,
-  type LineWithout, type ReqLine, type Requisition,
+  getOrderRequisitions, raiseRequisitions, setLineSupply, skipLines, unskipLines,
+  type LineWithout, type MaterialSupply, type ReqLine, type Requisition,
 } from '../../api/requisitions';
 import type { OrderStage, SalesOrder } from '../../api/types';
 import { useCompanySlug, useLoad } from '../../hooks/useLoad';
@@ -19,6 +19,7 @@ import { invalidateNavCounts } from '../../hooks/useNavCounts';
 import { appPath } from '../../navMeta';
 import { lineCanBuy, lineIsOpen } from '../../lib/requisition';
 import { buyingSummaryWords } from '../../lib/process';
+import { raisedMessage, supplyLabel } from '../../lib/materialRequest';
 import { ErrorNotice, Mono, SectionCard, SkeletonBlock } from '../ui';
 import { useToast } from '../toastContext';
 import { StageStateBadge } from '../OrderProcess/stageUi';
@@ -27,16 +28,18 @@ import { PurchaseLanes } from './PurchaseLanes';
 import { BuyDialog, ExcessDialog, SkipDialog, StockCheckDialog } from './RequisitionDialogs';
 import { RequisitionBlock } from './RequisitionTable';
 
-const NO_MANAGE_BUYING = 'You can see the requisition, but your role cannot change it. Holding stock, skipping and buying need the inventory manage permission.';
+const NO_MANAGE_BUYING = 'You can see the material request, but your role cannot change it. Raising it, holding stock, skipping and buying need the inventory manage permission.';
 
 type Refusal = { message: string; problems: string[] };
 const refusalOf = (e: unknown): Refusal => (e instanceof CfApiError ? { message: e.message, problems: e.problems } : { message: (e as Error).message, problems: [] });
 
 /**
- * The order's Buying stage (Buying v2, CF_ERP_BUYING_V2.md). Each sales-order line has a REQUISITION: one row per
- * material, and for each one of three decisions — hold it from stock, buy it (one or several purchase orders, each
- * with its own receiving date), or skip it (the work that needs it waits for stock). Production is held by what
- * is decided here; the server says when each unit is ready. RFQs, quotes and placing live on the purchase order.
+ * The order's MATERIAL REQUEST stage (the stage once called Buying; Buying v2 + §66, CF_ERP_BUYING_V2.md). Each
+ * sales-order line has an MR: one row per material — what it needs, what is earmarked, on PO, received, open.
+ * Raising it earmarks free stock at once; what is open is bought on one or several purchase orders (each with its
+ * own receiving date) or skipped (the work waits for stock). A line the CUSTOMER supplies takes the customer's own
+ * lots and gets a purchase order made to the customer (₹0) by the server. The production order takes its material
+ * from the MR. RFQs, quotes and placing live on the purchase order.
  */
 export function OrderPurchasePanel({ order, stage, onChanged }: { order: SalesOrder; stage: OrderStage; onChanged?: () => void }) {
   const company = useCompanySlug();
@@ -65,18 +68,28 @@ export function OrderPurchasePanel({ order, stage, onChanged }: { order: SalesOr
 
   const allLines = requisitions.flatMap((r) => r.lines.map((l) => ({ req: r, line: l })));
   const openLines = allLines.filter((x) => x.line.cover.open > 0 && x.line.status !== 'not_needed');
-  const skippable = allLines.filter((x) => lineIsOpen(x.line));
-  const buyable = allLines.filter((x) => lineCanBuy(x.line) && !x.line.skipped);
+  // A material the customer supplies is never bought or skipped here — it is asked of the customer (§66).
+  const ours = (x: { req: Requisition }) => x.req.supply !== 'customer';
+  const skippable = allLines.filter((x) => ours(x) && lineIsOpen(x.line));
+  const buyable = allLines.filter((x) => ours(x) && lineCanBuy(x.line) && !x.line.skipped);
   const raisable = without.filter((w) => w.canRaise);
   const summary = buyingSummaryWords(stage.summary);
 
-  const raise = (lineIds?: number[]) => act(async () => {
-    const r = await raiseRequisitions(order.id, lineIds ? { lineIds } : {});
-    reqs.setData(r);
-  }, lineIds ? 'Requisition raised.' : 'Requisition raised for the order.');
+  /** Raise (or bring up to date) and EARMARK: free stock is held at once; a customer line asks the customer (§66). */
+  const raise = async (lineIds?: number[]) => {
+    setBusy(true); setRefusal(null);
+    try {
+      const r = await raiseRequisitions(order.id, { ...(lineIds ? { lineIds } : {}), earmark: true });
+      reqs.setData(r);
+      toast.success(raisedMessage(r, { lines: lineIds }));
+      reload();
+    } catch (e) { setRefusal(refusalOf(e)); } finally { setBusy(false); }
+  };
+  const orderSupply: MaterialSupply = data?.order.materialSupply ?? order.materialSupply ?? 'we_buy';
+  const changeSupply = (lineId: number, v: string) => act(() => setLineSupply(lineId, v === '' ? null : (v as MaterialSupply)), 'Material supply saved.');
 
   return (
-    <SectionCard title="Buying" subtitle={`${order.code}'s material: for each one, hold it from stock, buy it, or skip it. Production waits for what is not decided.`}
+    <SectionCard title="Material request" subtitle={`${order.code}'s material request (MR): what each line needs, what is earmarked from stock, on purchase orders, received and still open. The production order takes its material from the MR.`}
       actions={canView ? <Button size="small" endIcon={<LaunchRounded />} component={Link} to={`${appPath(company, 'purchase')}?order=${order.id}`}>Open on the Purchase board</Button> : undefined}>
       <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 2 }}>
         <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -84,6 +97,13 @@ export function OrderPurchasePanel({ order, stage, onChanged }: { order: SalesOr
           <Typography data-testid="buying-summary" sx={{ fontSize: 13.5, color: 'var(--c-text-2)', flex: '1 1 240px', minWidth: 0 }}>{stage.detail}</Typography>
         </Box>
         {summary && <Typography data-testid="buying-skipped" sx={{ fontSize: 13, color: 'var(--c-warning-800)' }}>{summary}</Typography>}
+        <Typography data-testid="order-supply" sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>
+          Material: <strong>{supplyLabel(orderSupply)}</strong>
+          {orderSupply === 'customer'
+            ? ' — the customer sends it. Raising the MR makes a purchase order to the customer (₹0); what arrives is kept as their stock, apart from ours.'
+            : ' — raising the MR earmarks free stock; the rest is bought on purchase orders.'}
+          {' A line can say otherwise until its MR is raised.'}
+        </Typography>
         {!canView && <Typography sx={{ fontSize: 13, color: 'var(--c-text-3)' }}>Seeing the requisition needs the inventory view permission.</Typography>}
         {canView && !canManage && <Typography data-testid="buying-readonly" sx={{ fontSize: 13, color: 'var(--c-text-3)' }}>{NO_MANAGE_BUYING}</Typography>}
         {refusal && (
@@ -100,7 +120,7 @@ export function OrderPurchasePanel({ order, stage, onChanged }: { order: SalesOr
               <Box data-testid="buying-header-actions" sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center' }}>
                 {raisable.length > 0 && (
                   <Button variant="contained" startIcon={<PlaylistAddCheckRounded />} disabled={busy} onClick={() => void raise()}>
-                    {requisitions.length ? 'Raise for the other lines' : 'Raise the requisition'}
+                    {requisitions.length ? 'Raise the MR for the other lines' : 'Raise the material request'}
                   </Button>
                 )}
                 {openLines.length > 0 && (
@@ -134,7 +154,7 @@ export function OrderPurchasePanel({ order, stage, onChanged }: { order: SalesOr
             {without.length > 0 && (
               <Box data-testid="lines-without" sx={{ display: 'grid', gap: 1 }}>
                 {requisitions.length > 0 && <Divider />}
-                {without.map((w) => <LineWithoutRow key={w.line.id} w={w} canManage={canManage} busy={busy} onRaise={() => void raise([w.line.id])} />)}
+                {without.map((w) => <LineWithoutRow key={w.line.id} w={w} canManage={canManage} busy={busy} orderSupply={orderSupply} onSupply={(v) => void changeSupply(w.line.id, v)} onRaise={() => void raise([w.line.id])} />)}
               </Box>
             )}
             {(lanes.data?.lanes.reduce((t, l) => t + l.count, 0) ?? 0) > 0 && (
@@ -162,16 +182,28 @@ export function OrderPurchasePanel({ order, stage, onChanged }: { order: SalesOr
   );
 }
 
-/** A line of the order with no requisition yet: what it would need, and a button to raise it — or why it cannot. */
-function LineWithoutRow({ w, canManage, busy, onRaise }: { w: LineWithout; canManage: boolean; busy: boolean; onRaise: () => void }) {
+/** A line of the order with no MR yet: what it would need, who supplies it (changeable until raised), and a button to raise it — or why it cannot. */
+function LineWithoutRow({ w, canManage, busy, orderSupply, onSupply, onRaise }: {
+  w: LineWithout; canManage: boolean; busy: boolean; orderSupply: MaterialSupply; onSupply: (v: string) => void; onRaise: () => void;
+}) {
   const mr = w.materialReady;
   return (
     <Box data-testid="line-without" data-line={w.line.id} sx={{ display: 'flex', gap: 1.25, alignItems: 'center', flexWrap: 'wrap' }}>
-      <Typography sx={{ fontSize: 13.5 }}><strong>Line {w.line.lineNo}</strong>{w.line.name ? ` · ${w.line.name}` : ''} has no requisition yet.</Typography>
+      <Typography sx={{ fontSize: 13.5 }}><strong>Line {w.line.lineNo}</strong>{w.line.name ? ` · ${w.line.name}` : ''} has no material request yet.</Typography>
+      {canManage
+        ? (
+          <TextField select size="small" label="Material" value={w.ownSupply ?? ''} disabled={busy} onChange={(e) => onSupply(e.target.value)}
+            sx={{ minWidth: 200 }} InputLabelProps={{ shrink: true }} SelectProps={{ displayEmpty: true, SelectDisplayProps: { 'data-testid': 'line-supply' } as never }}>
+            <MenuItem value="">As the order ({supplyLabel(orderSupply)})</MenuItem>
+            <MenuItem value="we_buy">We buy</MenuItem>
+            <MenuItem value="customer">Customer supplies</MenuItem>
+          </TextField>
+        )
+        : <Mono muted>{supplyLabel(w.supply)}</Mono>}
       {w.materials.length > 0 && <Mono muted>{w.materials.length} {w.materials.length === 1 ? 'material' : 'materials'}</Mono>}
       {mr && <MaterialReadyChip state={mr.state} date={mr.readyDate} text={mr.text} testId="line-without-ready" />}
       {w.canRaise
-        ? canManage && <Button size="small" variant="outlined" startIcon={<PlaylistAddCheckRounded />} disabled={busy} onClick={onRaise}>Raise the requisition</Button>
+        ? canManage && <Button size="small" variant="outlined" startIcon={<PlaylistAddCheckRounded />} disabled={busy} onClick={onRaise}>Raise the MR</Button>
         : <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-3)' }}>{w.reason}</Typography>}
     </Box>
   );

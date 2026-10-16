@@ -17,7 +17,7 @@ import { rupeeText } from '../lib/money';
 import { gstRateText, NO_GST_RATE } from '../lib/gst';
 import { Money } from '../components/Money';
 import { PriceCell, LastPaidHint } from '../components/PurchaseMoney';
-import { DetailSkeleton, EmptyState, ErrorNotice, Fact, Mono, SectionCard } from '../components/ui';
+import { Badge, DetailSkeleton, EmptyState, ErrorNotice, Fact, Mono, SectionCard } from '../components/ui';
 import { CrossLink, DetailHeader, DetailLayout } from '../components/DetailLayout';
 import { DataTable, type DataColumn } from '../components/DataTable';
 import { PurchaseStatusBadge } from '../components/purchaseUi';
@@ -148,7 +148,7 @@ export default function PurchaseOrderDetail() {
         <DetailHeader
           code={p.code}
           title={p.supplier?.name ?? 'No supplier yet'}
-          badges={<PurchaseStatusBadge status={p.status} />}
+          badges={<><PurchaseStatusBadge status={p.status} />{p.suppliedByCustomer && <Badge family="info" label="Customer supplies" title="The customer's own material, asked of the customer (₹0). What arrives is their stock, earmarked to the material request." />}</>}
           actions={canManage && <>
             {editable && <Button startIcon={<AddRounded />} onClick={() => setAdding(true)}>Add a line</Button>}
             {open && !p.totals.received && <Button color="error" startIcon={<BlockRounded />} onClick={() => setCancelling(true)}>Cancel</Button>}

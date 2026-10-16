@@ -5,6 +5,7 @@ import { checkGstin, getStates, type GstRegistration, type StateRow } from '../a
 import { useLoad } from '../hooks/useLoad';
 import { GstinField } from './GstUi';
 import { PartyAddresses } from './PartyAddresses';
+import { CustomerCutAllowance } from './CutAllowance';
 import type { Party, PartyRole } from '../api/types';
 import { FormDialog } from './FormDialog';
 
@@ -84,6 +85,9 @@ export function PartyDialog({ open, existing, defaultRole = 'customer', onClose,
         <Box sx={{ gridColumn: '1 / -1' }}>
           {existing ? <PartyAddresses partyId={existing.id} /> : <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-3)' }}>Save the party first, then add ship-to addresses.</Typography>}
         </Box>
+        {existing && existing.roles.includes('customer') && (
+          <Box sx={{ gridColumn: '1 / -1' }}><CustomerCutAllowance customerId={existing.id} /></Box>
+        )}
         <TextField label="Notes" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} multiline sx={{ gridColumn: '1 / -1' }} />
         {existing && (
           <TextField select label="Status" value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value as Party['status'] })} helperText="Inactive parties are not offered on new orders">

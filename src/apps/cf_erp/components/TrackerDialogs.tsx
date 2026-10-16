@@ -12,6 +12,7 @@ import { ErrorNotice, Fact, Mono, SkeletonRows } from './ui';
 import { Working } from './WorkingNote';
 import { MaterialReadyChip } from './Purchase/MaterialReadyChip';
 import { knownLineSize, releaseCheckText, rememberLineSize } from '../lib/working';
+import { materialFromMr } from '../lib/materialRequest';
 
 /** A typed quantity: empty counts as none, anything unreadable as NaN so the form can refuse it. */
 const amount = (v: string) => (v.trim() === '' ? 0 : Number(v));
@@ -84,6 +85,20 @@ export function ReleaseDialog({ line, onClose, onReleased }: {
               <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-3)', mt: 0.5 }}>There is no dispatch area yet. This makes one called &ldquo;Dispatch yard&rdquo; and picks it.</Typography>
             </Box>
           )}
+          {(() => {
+            // The material request is the production order's input (§66): what is earmarked on it becomes its reservations.
+            const fromMr = materialFromMr(c.materialReady);
+            return fromMr && (
+              <Box data-testid="release-from-mr" sx={{ p: 1.25, borderRadius: 'var(--r-sm)', background: 'var(--c-surface-2)', fontSize: 13 }}>
+                <Typography sx={{ fontSize: 13, fontWeight: 600 }}>Material from <Mono>{fromMr.code}</Mono></Typography>
+                <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)' }}>
+                  {fromMr.earmarked.length
+                    ? <>Earmarked on the MR and reserved for this production order when it is released: {fromMr.earmarked.map((e) => `${e.code} ${qtyText(e.qty)}${e.uom ? ` ${e.uom}` : ''}`).join(', ')}.</>
+                    : 'Nothing is earmarked on the MR yet. What arrives for it later is reserved with "Reserve all".'}
+                </Typography>
+              </Box>
+            );
+          })()}
           {c.materialReady && c.materialReady.known && (
             <Box data-testid="release-material-ready" sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
               <Typography sx={{ fontSize: 13 }}>Material for this line:</Typography>

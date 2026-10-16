@@ -957,3 +957,82 @@ export function untrackedLine(u: { pieces: number; kg: number } | null | undefin
 export function untrackedRequest(rows: { cutPlateId: number; qty: number }[], ticked: ReadonlySet<number>): { cutPlateId: number; quantity: number }[] {
   return rows.filter((r) => ticked.has(r.cutPlateId) && r.qty > 0).map((r) => ({ cutPlateId: r.cutPlateId, quantity: r.qty }));
 }
+
+// ── The Compare tab (2026-10-16): the customer's nesting beside our own Standard nesting of the same pieces ──
+
+/** Rupees, Indian grouping, no paise. */
+export const rupees = (v: number): string => `₹${Math.round(v).toLocaleString('en-IN')}`;
+/** A cost the server could not work out (a plate has no rate) — never shown as ₹0. */
+export const NOT_COSTED = 'not costed';
+
+/** One row of the Compare tab's table: both sides in words, the difference (ours − customer's) and who does better. */
+export interface CompareTabRow {
+  key: string; label: string; help?: string;
+  customer: string; ours: string; diff: string;
+  better: 'ours' | 'customer' | 'same' | 'none';
+  /** Why a side shows "not costed" / "—" (the server's reason). */
+  customerWhy?: string | null; oursWhy?: string | null;
+}
+
+/** The waste the tab quotes: bought − parts, offcuts INCLUDED (the user's rule, wasteShown). */
+export const compareWaste = (m: CompareMetrics) => wasteShown(null, { kg: Number(m.wasteKgTotal ?? 0), pct: m.wastePct });
+
+/**
+ * The Compare tab's rows. `lower` rows say who does better; `info` rows (parts, offcuts) only say the difference.
+ * A side with no figures reads "—"; a cost the server could not work out reads "not costed", never 0.
+ */
+export function compareTabRows(up: CompareMetrics | null | undefined, ours: CompareMetrics | null | undefined): CompareTabRow[] {
+  type Def = { key: string; label: string; help?: string; better: 'lower' | 'info'; num: (m: CompareMetrics) => number | null | undefined; text: (m: CompareMetrics) => string; diff: (d: number) => string };
+  const t3 = (n: number) => `${Math.abs(n).toFixed(3)} t`;
+  const defs: Def[] = [
+    { key: 'plates', label: 'Plates', better: 'lower', num: (m) => m.plates, text: (m) => String(m.plates), diff: (d) => `${Math.abs(d)} ${d < 0 ? 'fewer' : 'more'}` },
+    { key: 'tonnesBought', label: 'Steel bought', better: 'lower', num: (m) => m.tonnesBought, text: (m) => (m.tonnesBought == null ? '—' : `${m.tonnesBought.toFixed(3)} t`), diff: (d) => `${t3(d)} ${d < 0 ? 'less' : 'more'}` },
+    { key: 'partsTonnes', label: 'Parts', help: 'The steel in the parts. The same pieces on both sides, so the same weight.', better: 'info', num: (m) => m.partsTonnes, text: (m) => (m.partsTonnes == null ? '—' : `${m.partsTonnes.toFixed(3)} t`), diff: (d) => `${t3(d)} ${d < 0 ? 'less' : 'more'}` },
+    { key: 'waste', label: 'Waste', help: WASTE_SHOWN_HELP, better: 'lower', num: (m) => m.wasteKgTotal, text: (m) => { const w = compareWaste(m); return `${kg(w.kg)} kg · ${pct(w.pct)}`; }, diff: (d) => `${kg(Math.abs(d))} kg ${d < 0 ? 'less' : 'more'}` },
+    { key: 'offcutKg', label: 'Offcuts (in the waste)', help: 'Offcuts go back to stock, but they are counted in the waste above.', better: 'info', num: (m) => m.offcuts?.kg ?? null, text: (m) => (m.offcuts ? `${kg(m.offcuts.kg)} kg (${m.offcuts.count})` : '—'), diff: (d) => `${kg(Math.abs(d))} kg ${d < 0 ? 'less' : 'more'}` },
+    { key: 'cost', label: 'Cost', help: 'Each plate at the plate rate the order costs use (average cost, last receipt, last price paid, list price).', better: 'lower', num: (m) => m.cost?.value ?? null, text: (m) => (m.cost?.value == null ? NOT_COSTED : rupees(m.cost.value)), diff: (d) => `${rupees(Math.abs(d))} ${d < 0 ? 'less' : 'more'}` },
+    { key: 'cutLengthM', label: 'Cut length', better: 'lower', num: (m) => m.cutLengthM, text: (m) => (m.cutLengthM == null ? '—' : `${m.cutLengthM.toFixed(1)} m`), diff: (d) => `${Math.abs(d).toFixed(1)} m ${d < 0 ? 'less' : 'more'}` },
+    { key: 'piercings', label: 'Piercings', better: 'lower', num: (m) => m.piercings, text: (m) => (m.piercings == null ? '—' : String(m.piercings)), diff: (d) => `${Math.abs(d)} ${d < 0 ? 'fewer' : 'more'}` },
+  ];
+  const eps: Record<string, number> = { plates: 0.5, piercings: 0.5, tonnesBought: 0.0005, partsTonnes: 0.0005, waste: 0.5, offcutKg: 0.5, cost: 0.5, cutLengthM: 0.05 };
+  return defs.map((def) => {
+    const a = up ? def.num(up) : null;
+    const b = ours ? def.num(ours) : null;
+    const why = (m: CompareMetrics | null | undefined) => (def.key === 'cost' && m?.cost?.value == null ? (m?.cost?.reason ?? null) : null);
+    let diff = '—'; let better: CompareTabRow['better'] = 'none';
+    if (a != null && b != null && Number.isFinite(a) && Number.isFinite(b)) {
+      const d = Number(b) - Number(a);
+      if (Math.abs(d) < (eps[def.key] ?? 0.5)) { diff = 'Same'; better = 'same'; } else {
+        diff = `${d < 0 ? '↓' : '↑'} ${def.diff(d)}`;
+        better = def.better === 'info' ? 'none' : d < 0 ? 'ours' : 'customer';
+      }
+    } else if (def.key === 'cost' && up && ours) diff = 'Cannot compare';
+    return {
+      key: def.key, label: def.label, help: def.help,
+      customer: up ? def.text(up) : '—', ours: ours ? def.text(ours) : '—', diff, better,
+      customerWhy: why(up), oursWhy: why(ours),
+    };
+  });
+}
+
+/** One side of a thickness row, in one line: "3 plates · 1.200 t · waste 410 kg (45.2%) · ₹1,23,456". */
+export function thicknessLine(f: { plates: number; tonnesBought: number; wasteKg: number; wastePct: number | null; offcutKg: number; cost: number | null } | null | undefined): string {
+  if (!f) return 'No plates of this thickness.';
+  return [
+    `${f.plates} ${f.plates === 1 ? 'plate' : 'plates'}`, `${f.tonnesBought.toFixed(3)} t`,
+    `waste ${kg(f.wasteKg)} kg (${pct(f.wastePct)})`, f.offcutKg >= 0.5 ? `offcuts ${kg(f.offcutKg)} kg` : null,
+    f.cost == null ? NOT_COSTED : rupees(f.cost),
+  ].filter(Boolean).join(' · ');
+}
+
+/** Under the verdict: when our side ran and how. "Ran 3 min ago · Standard · started by the upload". */
+export function autoRanLine(auto: { ranAt?: string | null; params?: { effort?: string } | null; trigger?: string; stoppedEarly?: boolean; forThisUpload?: boolean } | null | undefined): string {
+  if (!auto) return '';
+  const effort = (auto.params?.effort ?? 'standard').toLowerCase();
+  const how = auto.trigger === 'upload' ? 'started by the upload' : auto.trigger === 'screen' ? 'started from this tab' : 'started by hand';
+  return [
+    ranAgo(auto.ranAt).replace(/^ran/, 'Ran'), effort === 'normal' ? 'Standard' : effort.charAt(0).toUpperCase() + effort.slice(1), how,
+    auto.stoppedEarly ? 'stopped early, so this is its best so far' : null,
+    auto.forThisUpload === false ? 'made for an earlier upload of the same pieces' : null,
+  ].filter(Boolean).join(' · ');
+}

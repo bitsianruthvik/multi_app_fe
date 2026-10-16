@@ -2,7 +2,7 @@ import type { PurchaseOrder } from '../../api/types';
 import { cancelPurchaseOrder, type PlannedUnits } from '../../api/requisitions';
 import { PromptDialog } from '../PromptDialog';
 
-/** The requisitions this PO's lines are bought for, by code. */
+/** The material requests (MRs) this PO's lines are bought for, by code. */
 const requisitionCodes = (po: PurchaseOrder): string[] =>
   [...new Set(po.lines.flatMap((l) => (l.orders ?? []).map((o) => o.requisition?.code).filter((c): c is string => !!c)))];
 
@@ -16,7 +16,7 @@ export function CancelPoDialog({ po, open, onClose, onCancelled }: {
 }) {
   const prs = requisitionCodes(po);
   const body = prs.length
-    ? `Cancelling ${po.code} puts what it was bought for back to Open on ${prs.join(', ')}. The work that needed this delivery waits until the material is decided again. Nothing has been received against it. It stays on the list under All.`
+    ? `Cancelling ${po.code} puts what it was bought for back to Open on ${prs.join(', ')} at once. The work that needed this delivery waits until the material is decided again. Nothing has been received against it. It stays on the list under All.`
     : 'Nothing has been received against it. It stays on the list under All.';
   return (
     <PromptDialog open={open} title={`Cancel ${po.code}?`} label="Why" confirmLabel="Cancel the order" danger body={body} onClose={onClose}

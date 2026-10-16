@@ -56,7 +56,7 @@ export const SECTIONS: NavSection[] = [
     label: 'Purchase',
     screens: [
       // One purchase order carried stage by stage (CF_ERP_PURCHASE_FLOW_PLAN): the lanes first, then every order as a list.
-      { key: 'purchase-board', label: 'Board', path: 'purchase', permission: INVENTORY, keywords: ['purchase', 'buying', 'procurement', 'lanes', 'stages', 'kanban', 'pipeline', 'request', 'rfq', 'quotation', 'quote', 'stock check', 'grn', 'timeline', 'supplier'] },
+      { key: 'purchase-board', label: 'Material requests', path: 'purchase', permission: INVENTORY, keywords: ['material request', 'mr', 'requisition', 'board', 'purchase', 'buying', 'procurement', 'lanes', 'stages', 'kanban', 'pipeline', 'request', 'rfq', 'quotation', 'quote', 'stock check', 'grn', 'timeline', 'supplier'] },
       { key: 'purchase-orders', label: 'Purchase orders', path: 'purchase-orders', hasDetail: true, permission: INVENTORY, countKey: 'openPurchases', keywords: ['po', 'supplier', 'delivery', 'goods receipt', 'grn', 'procurement', 'order'] },
       // Plate changes asked after a PO covers a line (init.sql §62): the MD approves, the buyer changes the POs.
       { key: 'plate-changes', label: 'Plate changes', path: 'plate-changes', permission: PLATE_CHANGES, keywords: ['plate change', 'approve', 'approval', 'md', 're-nest', 'nesting change', 'checklist', 'po change'] },

@@ -32,10 +32,15 @@ import { ConfirmDialog } from '../components/ConfirmDialog';
 import { MovementsTable } from '../components/StockTables';
 import { MovementButtons } from '../components/MovementButtons';
 import { ReleaseDialog } from '../components/TrackerDialogs';
+import { releasedMessage } from '../lib/materialRequest';
+import { MaterialSupplyField } from '../components/Purchase/MaterialSupplyField';
+import type { MaterialSupply } from '../api/requisitions';
 import { ReleaseView } from '../components/ReleaseView';
 import { OrderLinesPanel } from '../components/OrderLinesPanel';
 import { OrderCostsCard } from '../components/OrderCostsCard';
 import { CustomerMaterialPanel } from '../components/CustomerMaterialPanel';
+import { OrderCutAllowancePanel } from '../components/CutAllowance';
+import { OrderSpecValuesPanel } from '../components/OrderSpecValuesPanel';
 import { rupeeText } from '../lib/money';
 import { Explain, OrderStageTabs, ProcessAbsentChip, ProcessAbsentNote, StageTabsSkeleton } from '../components/OrderProcess/StageTabs';
 import { StageBody } from '../components/OrderProcess/StageBody';
@@ -56,7 +61,7 @@ const DELETABLE: OrderStatus[] = ['draft', 'inquiry', 'lost', 'cancelled'];
 const REVISABLE: OrderStatus[] = ['inquiry', 'quoted', 'confirmed'];
 
 /** Tabs that are the same whether or not the order follows a process — drawn before the process has been read. */
-const PROCESS_FREE_TABS = ['stock', 'details', 'material'];
+const PROCESS_FREE_TABS = ['stock', 'details', 'material', 'allowance', 'ordervalues'];
 
 /**
  * The order's process, as the tabs need it: the line being worked on (the one
@@ -141,6 +146,9 @@ function DetailsForm({ order, onSaved }: { order: SalesOrder; onSaved: (o: Sales
   const [error, setError] = useState<CfApiError | null>(null);
   const locked = LOCKED_STATUSES.includes(order.status);
   const hasLines = (order.lines ?? []).length > 0;
+  // §66: who supplies the material — sent only when changed (the server refuses a change once an MR is raised).
+  const [supply, setSupply] = useState<MaterialSupply>(order.materialSupply ?? 'we_buy');
+  useEffect(() => { setSupply(order.materialSupply ?? 'we_buy'); }, [order.materialSupply]);
   const save = async () => {
     setBusy(true); setError(null);
     const body: Record<string, unknown> = {
@@ -149,6 +157,7 @@ function DetailsForm({ order, onSaved }: { order: SalesOrder; onSaved: (o: Sales
     };
     if (!hasLines) body.code = form.code;
     if (order.orderType === 'customer' && customer) body.customerId = customer.id;
+    if (order.orderType === 'customer' && supply !== (order.materialSupply ?? 'we_buy')) body.materialSupply = supply;
     try { onSaved(await cfApi.put<SalesOrder>(`/orders/${order.id}`, body)); } catch (e) { setError(e as CfApiError); } finally { setBusy(false); }
   };
   return (
@@ -167,6 +176,7 @@ function DetailsForm({ order, onSaved }: { order: SalesOrder; onSaved: (o: Sales
         <TextField label="Committed date" type="date" value={form.committedDate} onChange={(e) => setForm({ ...form, committedDate: e.target.value })} InputLabelProps={{ shrink: true }} disabled={locked} />
         <TextField label="Delivery address" value={form.deliveryAddress} onChange={(e) => setForm({ ...form, deliveryAddress: e.target.value })} multiline sx={{ gridColumn: '1 / -1' }} disabled={locked} />
         <TextField label="Notes" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} multiline sx={{ gridColumn: '1 / -1' }} disabled={locked} />
+        {order.orderType === 'customer' && <MaterialSupplyField value={supply} onChange={setSupply} disabled={locked} />}
       </Box>
       {!locked && (
         <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 2 }}>
@@ -245,6 +255,10 @@ export default function OrderDetail() {
   const stockTab: DetailTab[] = canStock ? [{ value: 'stock', label: 'Stock', count: moves.data?.length }] : [];
   // Only a customer's order can have customer material.
   const materialTab: DetailTab[] = canStock && order.data?.customer ? [{ value: 'material', label: 'Customer material' }] : [];
+  // Cutting allowance (init.sql §64): a customer order with a structure — its parts can be cut a little long.
+  const allowanceTab: DetailTab[] = order.data?.orderType === 'customer' && (order.data?.lines ?? []).some((l) => l.lineType === 'custom') ? [{ value: 'allowance', label: 'Cutting allowance' }] : [];
+  // Order values (init.sql §65): coats, grade, impact class … once for the order or a line — an order with a structure.
+  const orderValuesTab: DetailTab[] = (order.data?.lines ?? []).some((l) => l.lineType === 'custom') ? [{ value: 'ordervalues', label: 'Order values' }] : [];
   const tabs: DetailTab[] = model
     ? [
       // Not stages. The three before Stock appear only when the process leaves
@@ -254,6 +268,8 @@ export default function OrderDetail() {
       ...(model.keys.includes('production') || !canTrack ? [] : [{ value: 'production', label: 'Production', count: releases }]),
       ...stockTab,
       ...materialTab,
+      ...allowanceTab,
+      ...orderValuesTab,
       { value: 'details', label: 'Details' },
     ]
     : [
@@ -262,6 +278,8 @@ export default function OrderDetail() {
       ...(canTrack ? [{ value: 'production', label: 'Production', count: releases }] : []),
       ...stockTab,
       ...materialTab,
+      ...allowanceTab,
+      ...orderValuesTab,
       { value: 'details', label: 'Details' },
     ];
   // Settled once the process question has an answer: stages, none, or an error.
@@ -473,6 +491,10 @@ export default function OrderDetail() {
     );
   } else if (tab === 'material' && canStock && o.customer) {
     body = <CustomerMaterialPanel order={o} />;
+  } else if (tab === 'ordervalues') {
+    body = <OrderSpecValuesPanel orderId={o.id} canEdit={canManage} onChanged={() => processView.reload()} />;
+  } else if (tab === 'allowance') {
+    body = <OrderCutAllowancePanel orderId={o.id} canEdit={canManage} />;
   } else if (tab === 'details') {
     body = (
       <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 2 }}>
@@ -503,9 +525,9 @@ export default function OrderDetail() {
 
       <ReleaseDialog line={releasing ? { id: releasing.id, lineNo: releasing.lineNo, label: `${releasing.item?.code ?? releasing.item?.name ?? 'This line'} ×${releasing.quantity}` } : null}
         onClose={() => setReleasing(null)}
-        onReleased={() => {
+        onReleased={(r) => {
           invalidateNavCounts();
-          toast.success(`Line ${releasing?.lineNo} released to production.`);
+          toast.success(releasedMessage(releasing?.lineNo, r));
           // Production is per line when it is a stage: open the line just released.
           if (releasing) pickLine(releasing.id);
           reloadAll();

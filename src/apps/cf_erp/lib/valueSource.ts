@@ -59,3 +59,41 @@ export function sourceOfDerived(d: { source?: string | null; calculated?: { disp
   const waiting = d.waiting?.length ? `waiting for ${d.waiting.slice(0, 3).join(', ')}${d.waiting.length > 3 ? ` and ${d.waiting.length - 3} more` : ''}` : null;
   return { from, calculated: from === 'typed' ? d.calculated?.display ?? null : null, noCalc: from === 'typed' && !d.calculated ? waiting ?? d.problem ?? null : null };
 }
+
+/* ---------------------------------------------------------------------------
+ * ORDER and LINE values (init.sql §65, lib/orderSpecDefaults): a cell that takes the order's or the
+ * line's value says so quietly ("O" / "L"); a row's own value standing over it is a button that gives
+ * the row the order's value again (the same place the "typed over a calculated value" marker sits).
+ * ------------------------------------------------------------------------ */
+export type OrderMarkFrom = 'order' | 'line' | 'row';
+
+export interface OrderMark {
+  from: OrderMarkFrom;
+  glyph: string;
+  label: string;
+  title: string;
+  /** A row's own value over the order's, on a cell that may be changed: one click takes it away. */
+  canGoBack: boolean;
+}
+
+/** What the backend says on a Values cell (orderValuesService: inherit / override / orderDisplay). */
+export interface OrderCellSource { inherit: 'order' | 'line' | null; override: 'order' | 'line' | null; orderDisplay: string | null; display: string | null }
+
+export function orderMark(s: OrderCellSource | null | undefined, editable: boolean): OrderMark | null {
+  if (!s) return null;
+  if (s.inherit) {
+    return {
+      from: s.inherit, glyph: s.inherit === 'order' ? 'O' : 'L', label: `from the ${s.inherit}`,
+      title: `From the ${s.inherit}${s.display ? ` — ${s.display}` : ''}.${editable ? ' Type a value to set this row on its own.' : ''}`,
+      canGoBack: false,
+    };
+  }
+  if (s.override) {
+    return {
+      from: 'row', glyph: '✎', label: 'set on this row',
+      title: `Set on this row — the ${s.override}’s value is ${s.orderDisplay ?? 'different'}.${editable ? ` Click to use the ${s.override}’s value.` : ''}`,
+      canGoBack: editable,
+    };
+  }
+  return null;
+}

@@ -54,11 +54,11 @@ export default function PurchaseBoard() {
   return (
     <Box>
       <PageHeader title="Purchase" subtitle={view === 'requisitions'
-        ? 'Each requisition shows how its material is covered: held from stock, on order with a date, or skipped. Open one to decide the rest.'
+        ? 'Each material request (MR) shows how its material is covered: earmarked from stock, on order with a date, or skipped. Open one to decide the rest.'
         : 'Each purchase order moves left to right: requested, stock checked, RFQ out, quotes in, ordered, received. Open a card to do its next step.'}
         actions={canManage && view === 'orders' && <Button variant="outlined" startIcon={<AddRounded />} component={Link} to={appPath(company, 'purchase-orders?new=1')}>Buy for stock</Button>} />
       <Box role="tablist" aria-label="Purchase view" sx={{ display: 'flex', gap: 0.5, mb: 1 }}>
-        {([['requisitions', 'Requisitions'], ['orders', 'Purchase orders']] as const).map(([k, l]) => (
+        {([['requisitions', 'Material requests'], ['orders', 'Purchase orders']] as const).map(([k, l]) => (
           <Button key={k} role="tab" aria-selected={view === k} data-testid={`view-${k}`} size="small" variant={view === k ? 'contained' : 'outlined'} onClick={() => setViewParam(k)}>{l}</Button>
         ))}
       </Box>
@@ -78,7 +78,7 @@ export default function PurchaseBoard() {
       {view === 'orders' && !load.data && !load.error && <SkeletonBlock h={260} r={8} />}
       {view === 'orders' && load.data && total === 0 && (
         <EmptyState icon={<ShoppingCartRounded />} title={filtered ? 'No purchase order matches' : 'Nothing to buy yet'}
-          hint={filtered ? 'Clear the filters to see every purchase order.' : 'Request items from a sales order\'s Buying stage, or start a request here.'}
+          hint={filtered ? 'Clear the filters to see every purchase order.' : 'Request items from a sales order\'s Material request stage, or start a request here.'}
           action={canManage && !filtered ? <Button variant="outlined" startIcon={<AddRounded />} component={Link} to={appPath(company, 'purchase-orders?new=1')}>Buy for stock</Button> : undefined} />
       )}
       {view === 'orders' && load.data && total > 0 && <PurchaseLanes lanes={lanes} />}

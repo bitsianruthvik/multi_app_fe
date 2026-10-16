@@ -5,6 +5,8 @@ import type { OrderType, Party, SalesOrder } from '../api/types';
 import { FormDialog } from './FormDialog';
 import { PartyDialog } from './PartyDialog';
 import { PartyPicker } from './ServerPicker';
+import { MaterialSupplyField } from './Purchase/MaterialSupplyField';
+import type { MaterialSupply } from '../api/requisitions';
 
 /**
  * A new order: a customer order starts as an inquiry, a stock order as a
@@ -16,12 +18,15 @@ export function NewOrderDialog({ open, onClose, onCreated }: { open: boolean; on
   const [customer, setCustomer] = useState<Party | null>(null);
   const [form, setForm] = useState({ title: '', customerReference: '', committedDate: '', code: '' });
   const [creatingParty, setCreatingParty] = useState(false);
-  useEffect(() => { if (open) { setOrderType('customer'); setCustomer(null); setForm({ title: '', customerReference: '', committedDate: '', code: '' }); } }, [open]);
+  // Who supplies the material is asked at the start (§66): "We buy" unless the customer sends it.
+  const [supply, setSupply] = useState<MaterialSupply>('we_buy');
+  useEffect(() => { if (open) { setOrderType('customer'); setCustomer(null); setSupply('we_buy'); setForm({ title: '', customerReference: '', committedDate: '', code: '' }); } }, [open]);
 
   const save = async () => {
     const o = await cfApi.post<SalesOrder>('/orders', {
       orderType, customerId: orderType === 'customer' ? customer?.id ?? null : null,
       title: form.title || null, customerReference: form.customerReference || null, committedDate: form.committedDate || null, code: form.code || null,
+      ...(orderType === 'customer' ? { materialSupply: supply } : {}),
     });
     onCreated(o);
   };
@@ -47,6 +52,7 @@ export function NewOrderDialog({ open, onClose, onCreated }: { open: boolean; on
           {orderType === 'customer' && <TextField label="Customer's reference" value={form.customerReference} onChange={(e) => setForm({ ...form, customerReference: e.target.value })} />}
           <TextField label="Committed date" type="date" value={form.committedDate} onChange={(e) => setForm({ ...form, committedDate: e.target.value })} InputLabelProps={{ shrink: true }} helperText="Needed before confirming" />
         </Box>
+        {orderType === 'customer' && <MaterialSupplyField value={supply} onChange={setSupply} />}
         <TextField label="Order number (optional)" value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })}
           helperText="Left empty, it takes the next number from the coding rule. It can still be changed until the first line."
           inputProps={{ style: { fontFamily: 'var(--font-mono)' } }} />

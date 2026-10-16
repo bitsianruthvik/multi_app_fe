@@ -360,7 +360,7 @@ export const CONFIRM_WHAT_HAPPENS = [
 
 export const CONFIRM_WHAT_DOES_NOT = [
   'Nothing is released to the shop floor, and no material is reserved or issued.',
-  'Nothing is bought yet: each material is held from stock, bought or skipped in the Buying stage.',
+  'Nothing is bought yet: each material is earmarked from stock, bought or skipped in the Material request stage.',
   'A structure that is still being drawn stays editable until its design is frozen.',
 ];
 

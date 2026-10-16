@@ -56,9 +56,9 @@ export default function Stock() {
   const ownerName = (p: { name: string | null; code: string | null }) => p.name ?? p.code ?? 'Customer';
   // What each customer has sent and we still hold — quantities per unit, never summed across units, and never into our value.
   const held = useMemo(() => {
-    const by = new Map<number, { name: string; lines: number; units: Map<string, number> }>();
+    const by = new Map<number, { partyId: number; name: string; lines: number; units: Map<string, number> }>();
     for (const h of counts?.held ?? []) {
-      const e = by.get(h.partyId) ?? { name: h.name, lines: 0, units: new Map() };
+      const e = by.get(h.partyId) ?? { partyId: h.partyId, name: h.name, lines: 0, units: new Map() };
       e.lines += h.lines;
       const isT = ['t', 'mt', 'tonne', 'tonnes'].includes(String(h.uom).toLowerCase());
       const key = isT ? 'kg' : h.uom;
@@ -105,6 +105,7 @@ export default function Stock() {
         {owners.length > 0 && (
           <>
             <FacetChip label="Ours" active={owner === 'ours'} count={counts?.owners.ours} onClick={() => setOwner(owner === 'ours' ? '' : 'ours')} />
+            <FacetChip label="All customers'" active={owner === 'customer'} count={owners.reduce((t, p) => t + p.n, 0)} onClick={() => setOwner(owner === 'customer' ? '' : 'customer')} />
             {owners.map((p) => <FacetChip key={p.id} label={`${ownerName(p)}'s`} active={owner === String(p.id)} count={p.n} onClick={() => setOwner(owner === String(p.id) ? '' : String(p.id))} />)}
           </>
         )}
@@ -114,9 +115,13 @@ export default function Stock() {
       </FilterBar>
       {held.length > 0 && (
         <Box data-testid="customer-material-held" sx={{ mb: 2, fontSize: 13, color: 'var(--c-text-2)' }}>
-          <Box component="span" sx={{ fontWeight: 600, color: 'var(--c-text)' }}>Customer material held</Box> (not ours, not in the value above):{' '}
+          <Box component="span" sx={{ fontWeight: 600, color: 'var(--c-text)' }}>Customer material held</Box> (not ours, not in the value above — pick a customer to see only theirs):{' '}
           {held.map((h, i) => (
-            <span key={h.name}>{i > 0 && ' · '}<b>{h.name}</b> {[...h.units.entries()].map(([u, q]) => (u === 'kg' ? kgText(q) : `${qtyText(q)} ${u}`)).join(', ')}</span>
+            <span key={h.partyId} data-testid="held-by-customer">{i > 0 && ' · '}
+              <Box component="button" type="button" onClick={() => setOwner(owner === String(h.partyId) ? '' : String(h.partyId))}
+                sx={{ font: 'inherit', fontWeight: 700, color: owner === String(h.partyId) ? 'var(--c-primary-700)' : 'inherit', background: 'none', border: 0, p: 0, cursor: 'pointer', textDecoration: 'underline dotted' }}>{h.name}</Box>
+              {' '}{[...h.units.entries()].map(([u, q]) => (u === 'kg' ? kgText(q) : `${qtyText(q)} ${u}`)).join(', ')}
+            </span>
           ))}
         </Box>
       )}

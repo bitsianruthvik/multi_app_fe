@@ -203,7 +203,7 @@ await check('the Purchase top tab sits right after Sales with Board and Purchase
   assert.deepEqual(keys.slice(0, 3), ['sales', 'purchase', 'catalog']); // Home is a one-line section ahead of them
   assert.ok(n.indexOf("key: 'home'") < n.indexOf("key: 'sales'"));
   const purchase = n.slice(n.indexOf("key: 'purchase',"), n.indexOf("key: 'catalog',"));
-  assert.match(purchase, /key: 'purchase-board', label: 'Board', path: 'purchase'/);
+  assert.match(purchase, /key: 'purchase-board', label: 'Material requests', path: 'purchase'/);
   assert.match(purchase, /key: 'purchase-orders', label: 'Purchase orders', path: 'purchase-orders', hasDetail: true/);
   assert.match(purchase, /permission: INVENTORY/);
   const inventory = n.slice(n.indexOf("key: 'inventory',"), n.indexOf("key: 'setup',"));

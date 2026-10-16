@@ -62,6 +62,7 @@ import { computeGaps, gapSentence, keepGapRows, type ValuesView } from '../Value
 import type { SheetGridHandle } from '@shared/ui';
 import { codeOrName, displayCode, isDefinitionKind } from '../../lib/displayCode';
 import { ValueReasonsDialog } from '../ValueReasonsDialog';
+import { RowCutAllowanceDialog } from '../CutAllowance';
 import { breakWords, brokenSentence, linkedFrom, linkState, touchedByPending, undecided, valueReader, type LinkAbove } from '../../lib/links';
 import { LinkChip } from './LinkChip';
 import { LinkChoiceDialog } from './LinkChoiceDialog';
@@ -210,6 +211,8 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
   const [flowPick, setFlowPick] = useState<{ anchor: HTMLElement; row: BomRow } | null>(null);
   const [rowMenu, setRowMenu] = useState<{ anchor: HTMLElement; row: BomRow } | null>(null);
   const [drawingRow, setDrawingRow] = useState<{ id: number; name: string } | null>(null);
+  /** The row whose own cutting allowance is open (init.sql §64). */
+  const [allowanceRow, setAllowanceRow] = useState<number | null>(null);
   /** The row whose drawing the viewer shows (a row that has a file opens the viewer, not the upload dialog). */
   const [viewRow, setViewRow] = useState<{ id: number; name: string } | null>(null);
   /** "Why these values…" for one row: the record whose reasons are open. */
@@ -1235,6 +1238,10 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
         {rowMenu && orderGrid && rowMenu.row.parent != null && rowMenu.row.node.kind === 'temporary' && !!links && (
           <MenuItem data-testid="row-link-menu" onClick={() => { setLinkPop({ anchor: rowMenu.anchor, recordId: rowMenu.row.node.id }); setRowMenu(null); }}>Link to identical rows…</MenuItem>
         )}
+        {/* Its own cutting allowance (init.sql §64): a plate part of an order line. */}
+        {rowMenu && gridLineId != null && state.order && rowMenu.row.parent != null && rowMenu.row.node.cutFrom === 'PLATE' && (
+          <MenuItem data-testid="row-cut-allowance" onClick={() => { setAllowanceRow(rowMenu.row.node.id); setRowMenu(null); }}>Cutting allowance…</MenuItem>
+        )}
         {/* Why each value on this row is asked: its flow reads it, somebody set it by hand, or it is worked out. */}
         {rowMenu && rowMenu.row.node.kind !== 'selection' && (
           <MenuItem data-testid="row-why-values" onClick={() => { setWhyRow({ id: rowMenu.row.node.id, name: codeOrName(rowMenu.row.node) }); setRowMenu(null); }}>Why these values…</MenuItem>
@@ -1252,6 +1259,9 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
       <Snackbar open={!!broken} autoHideDuration={12000} onClose={(_, reason) => { if (reason !== 'clickaway') setBroken(null); }} message={<span data-testid="links-broken">{broken ? brokenSentence(broken.n) : ''}</span>}
         action={broken?.undo.length ? <Button size="small" color="inherit" data-testid="links-undo" onClick={() => void undoBreak()}>Undo</Button> : undefined} />
       <ValueReasonsDialog open={!!whyRow} recordId={whyRow?.id ?? null} label={whyRow?.name ?? ''} onClose={() => setWhyRow(null)} />
+      {allowanceRow != null && gridLineId != null && state.order && (
+        <RowCutAllowanceDialog open orderId={state.order.id} lineId={gridLineId} rowId={allowanceRow} onClose={() => setAllowanceRow(null)} />
+      )}
 
 
       <Popover open={!!flowPick} anchorEl={flowPick?.anchor} onClose={() => setFlowPick(null)}

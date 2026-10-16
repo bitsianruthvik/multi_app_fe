@@ -5,6 +5,8 @@ import ContentCutRounded from '@mui/icons-material/ContentCutRounded';
 import InfoOutlined from '@mui/icons-material/InfoOutlined';
 import { cfApi, CfApiError, LONG_WRITE_MS } from '../../api/client';
 import { plateText } from '../../lib/cutPieces';
+import type { CutPieceAllowance } from '../../api/cutAllowances';
+import { allowanceTitle } from '../../lib/cutAllowance';
 import { Badge, EmptyState, ErrorNotice, Mono, SectionCard } from '../ui';
 import { useToast } from '../toastContext';
 
@@ -46,6 +48,8 @@ type Blank = {
   code: string | null;
   name: string | null;
   size: { thickness: number | null; length: number | null; width: number | null; grade: string | null };
+  /** Cut longer than its parts are drawn — the cutting allowance (init.sql §64). null: cut as drawn. */
+  allowance?: CutPieceAllowance | null;
   partCount: number;
   /** The cut piece's raw-plate line. `isSelection` (when the API says so) means it only holds the plate CHOICE — nesting picks the plate. */
   plate: { id: number; code: string | null; name: string | null; isSelection?: boolean } | null;
@@ -269,7 +273,13 @@ export function BlanksPanel({ lineId, canManage, onChanged, onGoValues, embedded
                 <Box component="tr" key={b.id} sx={{ borderTop: '1px solid', borderColor: 'divider' }}>
                   <Box component="td" sx={{ py: 0.5 }}><Mono>{b.code ?? '—'}</Mono></Box>
                   <Box component="td"><Mono>{mm(b.size?.thickness)}</Mono></Box>
-                  <Box component="td"><Mono>{mm(b.size?.length)}</Mono></Box>
+                  <Box component="td">
+                    <Mono>{mm(b.size?.length)}</Mono>
+                    {b.allowance && (
+                      <Box component="span" data-testid="cut-allowance" title={allowanceTitle(b.allowance)}
+                        sx={{ ml: 0.75, fontSize: 12, color: 'var(--c-text-2)' }}>{b.allowance.words}</Box>
+                    )}
+                  </Box>
                   <Box component="td"><Mono>{mm(b.size?.width)}</Mono></Box>
                   <Box component="td">{b.size?.grade ?? '—'}</Box>
                   <Box component="td" sx={{ textAlign: 'right' }}><Mono>{b.partCount}</Mono></Box>

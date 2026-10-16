@@ -10,6 +10,7 @@ import { useCompanySlug } from '../../hooks/useLoad';
 import { appPath } from '../../navMeta';
 import { coverChips, lineCanBuy, lineIsOpen, reqTone, type CoverChip } from '../../lib/requisition';
 import { qtyText } from '../../lib/inventory';
+import { mrFigures } from '../../lib/materialRequest';
 import { Badge, Mono } from '../ui';
 import { MaterialReadyChip } from './MaterialReadyChip';
 
@@ -47,9 +48,11 @@ export interface RowActions {
 }
 
 /**
- * The requisition of one sales-order line as a table: a row per material — what it needs, and how that is covered,
- * one chip per source (stock held, each purchase order with its quantity and date, skipped, what is still open).
- * Every state and sentence is the server's.
+ * The MATERIAL REQUEST (MR) of one sales-order line as a table: a row per material — what it needs, what is
+ * earmarked for it, on purchase orders, received and still open (§66), and how that is covered, one chip per
+ * source (stock held, each purchase order with its quantity and date, skipped). Every state and sentence is the
+ * server's. An MR the customer supplies has no Buy / Skip: what is open goes on the customer's purchase order
+ * when the MR is brought up to date.
  */
 export function RequisitionBlock({ req, canManage, busy, actions, onRefresh }: {
   req: Requisition;
@@ -61,7 +64,9 @@ export function RequisitionBlock({ req, canManage, busy, actions, onRefresh }: {
   const company = useCompanySlug();
   const tone = reqTone(req.status);
   const mr = req.materialReady;
-  const refresh = canManage && (req.stale || req.missing.length > 0);
+  const customer = req.supply === 'customer';
+  const askCustomer = canManage && customer && req.lines.some((l) => l.cover.open > 0 && l.status !== 'not_needed');
+  const refresh = canManage && !askCustomer && (req.stale || req.missing.length > 0);
   return (
     <Box data-testid="requisition" data-id={req.id} data-status={req.status} sx={{ display: 'grid', gap: 1, minWidth: 0 }}>
       <Box sx={{ display: 'flex', gap: 1.25, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -70,6 +75,7 @@ export function RequisitionBlock({ req, canManage, busy, actions, onRefresh }: {
           <Box component={Link} to={appPath(company, `orders/${req.order.id}`)} sx={linkSx}>Line {req.line.lineNo}</Box>{req.line.name ? ` · ${req.line.name}` : ''}
         </Typography>
         <Badge family={tone} label={req.statusLabel} />
+        {customer && <Badge family="info" label="Customer supplies" />}
         {mr && (
           <MaterialReadyChip state={mr.state} date={mr.readyDate} text={mr.text} testId="req-ready"
             load={() => getLineMaterialReady(req.line.id).then((r) => r.materials)} />
@@ -77,6 +83,11 @@ export function RequisitionBlock({ req, canManage, busy, actions, onRefresh }: {
         {refresh && (
           <Tooltip title={req.missing.length ? 'The line needs a material that has no row here yet.' : 'The line’s material has changed since this was raised.'}>
             <span><Button size="small" startIcon={<SyncRounded />} disabled={busy} onClick={onRefresh}>Bring up to date</Button></span>
+          </Tooltip>
+        )}
+        {askCustomer && (
+          <Tooltip title="What is still open goes on a purchase order to the customer (₹0) — the steel they send is kept as their stock and earmarked to this MR.">
+            <span><Button size="small" startIcon={<SyncRounded />} disabled={busy} onClick={onRefresh} data-testid="ask-customer">Ask the customer for what is open</Button></span>
           </Tooltip>
         )}
       </Box>
@@ -88,10 +99,11 @@ export function RequisitionBlock({ req, canManage, busy, actions, onRefresh }: {
       ) : (
         <Box sx={{ overflowX: 'auto' }}>
           <Box component="table" data-testid="req-table" sx={tableSx}>
-            <thead><tr><th>Material</th><th style={{ textAlign: 'right' }}>Needed</th><th>How it is covered</th>{canManage && <th />}</tr></thead>
+            <thead><tr><th>Material</th><th style={{ textAlign: 'right' }}>Need</th><th style={{ textAlign: 'right' }}>Earmarked</th><th style={{ textAlign: 'right' }}>On PO</th><th style={{ textAlign: 'right' }}>Received</th><th style={{ textAlign: 'right' }}>Open</th><th>How it is covered</th>{canManage && <th />}</tr></thead>
             <tbody>
               {req.lines.map((l) => {
                 const chips = coverChips(l);
+                const f = mrFigures(l);
                 return (
                   <tr key={l.id} data-testid="req-row" data-line={l.id} data-status={l.status}>
                     <td>
@@ -99,6 +111,10 @@ export function RequisitionBlock({ req, canManage, busy, actions, onRefresh }: {
                       {l.item.code && <Box sx={{ fontSize: 11.5, color: 'var(--c-text-3)' }}>{l.item.name}</Box>}
                     </td>
                     <td style={{ textAlign: 'right' }}><Mono>{qtyText(l.need)}</Mono> <Mono muted>{l.item.uom}</Mono></td>
+                    <td style={{ textAlign: 'right' }} data-testid="mr-earmarked"><Mono muted={!f.earmarked}>{qtyText(f.earmarked)}</Mono></td>
+                    <td style={{ textAlign: 'right' }} data-testid="mr-onpo"><Mono muted={!f.onPo}>{qtyText(f.onPo)}</Mono></td>
+                    <td style={{ textAlign: 'right' }} data-testid="mr-received"><Mono muted={!f.received}>{qtyText(f.received)}</Mono></td>
+                    <td style={{ textAlign: 'right' }} data-testid="mr-open"><Mono muted={!f.open}>{qtyText(f.open)}</Mono></td>
                     <td>
                       <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
                         {chips.map((c) => <CoverChipView key={c.key} chip={c} />)}
@@ -112,8 +128,8 @@ export function RequisitionBlock({ req, canManage, busy, actions, onRefresh }: {
                           {(l.cover.open > 0 || l.skipped) && l.status !== 'not_needed' && (
                             <Button size="small" variant="outlined" startIcon={<Inventory2Rounded />} disabled={busy} onClick={() => actions.onCheck(l)}>Check stock</Button>
                           )}
-                          {lineCanBuy(l) && <Button size="small" variant="outlined" startIcon={<ShoppingCartRounded />} disabled={busy} onClick={() => actions.onBuy(l)}>Buy…</Button>}
-                          {lineIsOpen(l) && <Button size="small" startIcon={<SkipNextRounded />} disabled={busy} onClick={() => actions.onSkip(l)}>Skip</Button>}
+                          {!customer && lineCanBuy(l) && <Button size="small" variant="outlined" startIcon={<ShoppingCartRounded />} disabled={busy} onClick={() => actions.onBuy(l)}>Buy…</Button>}
+                          {!customer && lineIsOpen(l) && <Button size="small" startIcon={<SkipNextRounded />} disabled={busy} onClick={() => actions.onSkip(l)}>Skip</Button>}
                           {l.skipped && <Button size="small" startIcon={<UndoRounded />} disabled={busy} onClick={() => actions.onUnskip(l)}>Undo skip</Button>}
                           {l.cover.over > 0 && <Button size="small" color="warning" disabled={busy} onClick={() => actions.onExcess(l)}>Release excess</Button>}
                         </Box>

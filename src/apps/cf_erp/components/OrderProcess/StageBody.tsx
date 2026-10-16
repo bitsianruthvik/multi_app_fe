@@ -26,6 +26,7 @@ import { NestingPanel } from '../Nesting/NestingPanel';
 import { CutPiecesButton } from '../Nesting/CutPiecesDialog';
 import { ReleaseView } from '../ReleaseView';
 import { ReleaseDialog } from '../TrackerDialogs';
+import { releasedMessage } from '../../lib/materialRequest';
 import { PieceCodesCard } from '../Production/PieceCodesCard';
 import { ProductionTabs } from '../Production/ProductionTabs';
 import { LockPanel } from '../Lock/LockPanel';
@@ -292,7 +293,7 @@ function ProductionPanel({ stage, line, order, production, productionError, hasL
       <ReleaseDialog
         line={releasing ? { id: releasing.id, lineNo: releasing.lineNo, label: `${releasing.item?.code ?? releasing.item?.name ?? 'This line'} ×${releasing.quantity}` } : null}
         onClose={() => setReleasing(null)}
-        onReleased={() => { invalidateNavCounts(); toast.success(`Line ${releasing?.lineNo} released to production.`); onReloadAll(); }} />
+        onReleased={(r) => { invalidateNavCounts(); toast.success(releasedMessage(releasing?.lineNo, r)); onReloadAll(); }} />
     </Box>
   );
   // Times and Contractors sit beside the tracker; the tracker itself is untouched.
@@ -343,7 +344,7 @@ export function StageBody({
         <ReleaseDialog
           line={releasing ? { id: releasing.id, lineNo: releasing.lineNo, label: `${releasing.item?.code ?? releasing.item?.name ?? 'This line'} ×${releasing.quantity}` } : null}
           onClose={() => setReleasing(null)}
-          onReleased={() => { invalidateNavCounts(); toast.success(`Line ${releasing?.lineNo} released to production.`); onReloadAll(); }} />
+          onReleased={(r) => { invalidateNavCounts(); toast.success(releasedMessage(releasing?.lineNo, r)); onReloadAll(); }} />
       </>
     );
   } else if (stage.stageKey === 'structure' || stage.stageKey === 'values') {

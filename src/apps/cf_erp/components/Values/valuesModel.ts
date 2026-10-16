@@ -51,6 +51,11 @@ export interface ValuesCell {
   calculated?: string;
   /** On a cell a formula could not fill: what it waits for, or why it has no answer. */
   noCalc?: string;
+  /** Order and line values (init.sql §65): the value shown (defaultDisplay) is the order's or the line's. */
+  inherit?: 'order' | 'line';
+  /** The row's own value stands over the order's / line's value — `orderDisplay` is that value. */
+  override?: 'order' | 'line';
+  orderDisplay?: string;
 }
 
 export interface ValuesRow {
@@ -117,6 +122,10 @@ export interface EffectiveCell {
   /** Typed over a calculated value: that value, in words (null when there is none yet). */
   calculated: string | null;
   noCalc: string | null;
+  /** Order and line values (init.sql §65): from the order / line, or a row value standing over it. */
+  inherit: 'order' | 'line' | null;
+  override: 'order' | 'line' | null;
+  orderDisplay: string | null;
   /** entered or defaulted — what valueService.setValues lets a person type. */
   typeable: boolean;
   editable: boolean;
@@ -145,6 +154,9 @@ export function effectiveCell(view: ValuesView, col: ValuesColumn, row: ValuesRo
     from: ('from' in cell ? cell.from : col.from) ?? null,
     calculated: cell.calculated ?? null,
     noCalc: cell.noCalc ?? null,
+    inherit: cell.inherit ?? null,
+    override: cell.override ?? null,
+    orderDisplay: cell.orderDisplay ?? null,
     typeable,
     editable: canEdit && view.editable && !row.readOnly && typeable,
   };

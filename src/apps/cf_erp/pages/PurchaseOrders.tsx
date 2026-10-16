@@ -96,7 +96,7 @@ export default function PurchaseOrders() {
         empty={<EmptyState icon={<LocalShippingRounded />}
           title={term ? 'No order matches' : status === 'open' ? 'Nothing on order' : 'No purchase orders here'}
           hint={term ? 'Clear the search, or look under All.'
-            : status === 'open' ? 'Request items from a sales order’s Buying stage, or raise one by hand.'
+            : status === 'open' ? 'Request items from a sales order’s Material request stage, or raise one by hand.'
               : 'Nothing has this status. Look under All.'}
           action={term ? <Button onClick={() => setSearch('')}>Clear search</Button>
             : status !== 'all' ? <Button onClick={() => setStatus('all')}>Show all orders</Button>

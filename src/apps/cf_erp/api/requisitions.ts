@@ -4,9 +4,17 @@ import type { PurchaseOrder } from './types';
 /**
  * Buying v2 (TM/CF_ERP_BUYING_V2.md): the REQUISITION is its own record — one per sales-order line, one line per
  * material — and the server's material-ready engine says when each unit of work may go on. Nothing about a
- * requisition's state is stored: every figure below is the server's, worked out on the read. Raising a
- * requisition earmarks nothing; only the stock check holds stock.
+ * requisition's state is stored: every figure below is the server's, worked out on the read.
+ *
+ * MATERIAL REQUEST (§66, 2026-10-16): on every screen the requisition is a MATERIAL REQUEST (MR); new ones are
+ * numbered MR-<order>-<line>. Who supplies the material is set on the order (a line may differ) and fixed on the
+ * MR when it is raised: "We buy" (earmark from stock, buy the rest) or "Customer supplies" (their own lots, and a
+ * purchase order to the customer as vendor for the rest, made by the server when the MR is raised).
  */
+
+/** Who supplies a line's material (§66). */
+export type MaterialSupply = 'we_buy' | 'customer';
+export const SUPPLY_LABEL: Record<MaterialSupply, string> = { we_buy: 'We buy', customer: 'Customer supplies' };
 
 export type ReqLineStatus = 'from_stock' | 'covered' | 'ordered_undated' | 'asked' | 'skipped' | 'part' | 'open' | 'not_needed';
 export type ReqStatus = 'empty' | 'fulfilled_from_stock' | 'covered' | 'skipped' | 'mixed' | 'partly_covered' | 'open';
@@ -51,6 +59,8 @@ export interface MaterialReady {
 export interface ReqCover {
   issued: number; reserved: number; held: number; stock: number; ordered: number; undated: number; asked: number; total: number;
   open: number; over: number; freeNow: number; pooledOnOrder: number; firstDate: string | null; lastDate: string | null; late: boolean;
+  /** MR figures (§66): earmarked = held + reserved + issued · onPo = still to come on live POs · received on its POs. */
+  earmarked?: number; onPo?: number; received?: number;
 }
 
 export interface ReqHold { id: number; quantity: number; batch: { id: number; code: string } | null; purchaseOrder: { id: number; code: string } | null }
@@ -93,6 +103,9 @@ export interface ReqCounts {
 export interface Requisition {
   id: number;
   code: string;
+  /** §66: who supplies its material — fixed when it was raised (an MR from before §66 is 'we_buy'). */
+  supply?: MaterialSupply;
+  supplyLabel?: string;
   order: { id: number; code: string; status: string; customer?: { id: number; name: string } | null };
   line: { id: number; lineNo: number; name: string; quantity: number; frozen: boolean; released: boolean };
   status: ReqStatus;
@@ -113,14 +126,20 @@ export interface Requisition {
 
 export interface LineWithout {
   line: { id: number; lineNo: number; name?: string; quantity?: number };
+  /** §66: who supplies it (the line's own answer, else the order's) and the line's own answer (null = as the order). */
+  supply?: MaterialSupply;
+  supplyLabel?: string;
+  ownSupply?: MaterialSupply | null;
   canRaise: boolean;
   reason: string | null;
   materials: { item: ReqItem; need: number }[];
   materialReady: MaterialReady | null;
 }
 
+export interface EarmarkedOnRaise { requisition: { id: number; code: string }; lineId: number; item: ReqItem; quantity: number; owner: 'ours' | 'customer' }
+
 export interface OrderRequisitions {
-  order: { id: number; code: string; status: string; open?: boolean };
+  order: { id: number; code: string; status: string; open?: boolean; materialSupply?: MaterialSupply; materialSupplyLabel?: string };
   today: string;
   reason: string | null;
   requisitions: Requisition[];
@@ -129,6 +148,9 @@ export interface OrderRequisitions {
   raised?: number;
   refreshed?: number;
   notRaised?: { lineId: number; lineNo: number; reason: string }[];
+  /** Raise only (§66): what was earmarked as it was raised, and the purchase orders made to the customer. */
+  earmarked?: EarmarkedOnRaise[];
+  customerPurchaseOrders?: PurchaseOrder[];
 }
 
 export interface LineMaterialReady {
@@ -220,8 +242,15 @@ export interface BuyingBoard {
 // ---- calls ---------------------------------------------------------------------------
 
 export const getOrderRequisitions = (orderId: number) => cfApi.get<OrderRequisitions>(`/orders/${orderId}/requisitions`);
-/** Raise (or refresh) the requisitions of an order: every line whose material is known, or only `lineIds`. */
-export const raiseRequisitions = (orderId: number, body: { lineIds?: number[]; notes?: string | null } = {}) => cfApi.post<OrderRequisitions>(`/orders/${orderId}/requisitions`, body);
+/**
+ * Raise (or bring up to date) the material requests of an order: every line whose material is known, or only
+ * `lineIds`. `earmark: true` earmarks free stock as it raises (the screen's "Raise the MR"); a line the customer
+ * supplies always takes the customer's own lots and gets a purchase order to the customer for the rest.
+ */
+export const raiseRequisitions = (orderId: number, body: { lineIds?: number[]; notes?: string | null; earmark?: boolean } = {}) => cfApi.post<OrderRequisitions>(`/orders/${orderId}/requisitions`, body);
+/** Who supplies one line's material (§66); null = as the order. Refused once the line's MR is raised. */
+export const setLineSupply = (lineId: number, supply: MaterialSupply | null) =>
+  cfApi.put<{ lineId: number; lineNo: number; materialSupply: MaterialSupply | null; supply: MaterialSupply }>(`/order-lines/${lineId}/material-supply`, { supply });
 export const getRequisition = (id: number) => cfApi.get<Requisition>(`/requisitions/${id}`);
 export const getLineMaterialReady = (lineId: number) => cfApi.get<LineMaterialReady>(`/order-lines/${lineId}/material-ready`);
 

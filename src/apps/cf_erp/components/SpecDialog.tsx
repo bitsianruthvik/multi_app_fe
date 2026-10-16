@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import {
-  Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, IconButton,
+  Box, Button, Checkbox, CircularProgress, Dialog, DialogActions, DialogContent, FormControlLabel, IconButton,
   MenuItem, TextField, Typography,
 } from '@mui/material';
 import AddRounded from '@mui/icons-material/AddRounded';
@@ -30,6 +30,8 @@ export function SpecDialog({ open, onClose, onSaved, existing, meta, canManage }
   const [decimals, setDecimals] = useState('');
   const [description, setDescription] = useState('');
   const [status, setStatus] = useState<'active' | 'inactive'>('active');
+  // Can be set for a whole order (init.sql §65): an order and its lines may carry a value every row takes.
+  const [orderLevel, setOrderLevel] = useState(false);
   const [options, setOptions] = useState<OptionDraft[]>([]);
   const [newOption, setNewOption] = useState('');
   const [tableAxes, setTableAxes] = useState<AxisDraft[]>([{ label: '', unit: '' }]);
@@ -49,6 +51,7 @@ export function SpecDialog({ open, onClose, onSaved, existing, meta, canManage }
     setDecimals(existing?.decimals == null ? '' : String(existing.decimals));
     setDescription(existing?.description ?? '');
     setStatus(existing?.status ?? 'active');
+    setOrderLevel(!!existing?.orderLevel);
     setOptions((existing?.options ?? []).map((o) => ({ id: o.id, value: o.value, label: o.label ?? '', status: o.status })));
     const axes = existing?.tableConfig?.axes;
     setTableAxes(axes?.length ? axes.map((a) => ({ label: a.label, unit: a.unit ?? '' })) : [{ label: '', unit: '' }]);
@@ -75,7 +78,7 @@ export function SpecDialog({ open, onClose, onSaved, existing, meta, canManage }
     setError(null);
     let saved: Specification | null = null;
     try {
-      const common = { name, measurementType: measurementType || null, defaultUom: defaultUom || null, decimals: decimals === '' ? null : Number(decimals), description: description || null };
+      const common = { name, measurementType: measurementType || null, defaultUom: defaultUom || null, decimals: decimals === '' ? null : Number(decimals), description: description || null, ...(dataType === 'table' ? {} : { orderLevel }) };
       if (existing) {
         // dataType goes with it: the field is editable until the spec has values,
         // and leaving it out made changing it silently do nothing.
@@ -133,6 +136,15 @@ export function SpecDialog({ open, onClose, onSaved, existing, meta, canManage }
             <TextField label="Decimals shown" type="number" value={decimals} onChange={(e) => setDecimals(e.target.value)} inputProps={{ min: 0, max: 6 }} />
           )}
           <TextField label="Description" value={description} onChange={(e) => setDescription(e.target.value)} sx={{ gridColumn: '1 / -1' }} />
+          {dataType !== 'table' && (
+            <Box sx={{ gridColumn: '1 / -1' }}>
+              <FormControlLabel control={<Checkbox checked={orderLevel} onChange={(e) => setOrderLevel(e.target.checked)} inputProps={{ 'aria-label': 'Can be set for a whole order' }} />}
+                label="Can be set for a whole order" />
+              <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-3)', ml: 4 }}>
+                An order and each of its lines can then carry one value for it (Order values tab) — coats, grade, impact class. Every row takes it unless the row has its own.
+              </Typography>
+            </Box>
+          )}
           {existing && (
             <TextField select label="Status" value={status} onChange={(e) => setStatus(e.target.value as 'active' | 'inactive')} helperText="Inactive keeps existing values but stops new use">
               <MenuItem value="active">Active</MenuItem>

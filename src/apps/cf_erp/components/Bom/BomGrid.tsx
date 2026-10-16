@@ -16,12 +16,12 @@ import { isDimension, sheetLabel } from '../../lib/stripLayout';
 import { CODE_NUMBERS_TITLE, codeWithNumbers, hasNumbers, ownCodePart, type CodeSegment } from '../../lib/codeSegments';
 import { rowColumnCodes, shownColumns, sortColumns, viewCatalog, viewCell, viewUses } from '../../lib/bomGridLayout';
 import { codeOrName, displayCode } from '../../lib/displayCode';
-import { sourceMark, sourceOfDerived, type ValueSource } from '../../lib/valueSource';
+import { orderMark, sourceMark, sourceOfDerived, type OrderCellSource, type ValueSource } from '../../lib/valueSource';
 import { ValueSourceMark } from './ValueSourceMark';
 import { CodeText } from './CodeText';
 
 export interface GridWrite { row: BomRow; code: string; text: string; saved: string }
-type Cell = { text: string; input: string; saved: string; editable: boolean; why?: string; applies?: boolean; type?: string; /** Where a formula value comes from (lib/valueSource). */ source?: ValueSource | null; options?: { id: number; value: string; label?: string | null }[] };
+type Cell = { text: string; input: string; saved: string; editable: boolean; why?: string; applies?: boolean; type?: string; /** Where a formula value comes from (lib/valueSource). */ source?: ValueSource | null; /** From the order / line, or a row value over it (init.sql §65). */ order?: OrderCellSource | null; options?: { id: number; value: string; label?: string | null }[] };
 
 /** The BOM around the shared SheetGrid: SheetGrid owns selection, clipboard and
  * the editor; this owns what a BOM cell means, plus row drag/drop and moving. */
@@ -142,6 +142,7 @@ export function BomGrid({ rows, view, records: recordValues, recordIds, pending,
     if (!view || !info || !vc) return { text: '', input: '', saved: '', editable: false, why: view ? 'This variable does not apply to this row.' : 'Loading values…' };
     return { text: vc.text, input: vc.input, saved: vc.saved, editable: vc.editable, type: vc.type, options: vc.options,
       source: vc.cell.from ? { from: vc.cell.from, calculated: vc.cell.calculated, noCalc: vc.cell.noCalc } : null,
+      order: vc.cell.inherit || vc.cell.override ? { inherit: vc.cell.inherit, override: vc.cell.override, orderDisplay: vc.cell.orderDisplay, display: vc.cell.defaultDisplay } : null,
       why: row.paste ? 'Save this copy to edit its own values.' : info.row.readOnly ?? vc.cell.why ?? (vc.cell.missing ? 'Required value is missing.' : undefined) };
   };
   const sheetCell = (row: BomRow, col: { code: string }): SheetCell => {
@@ -151,7 +152,8 @@ export function BomGrid({ rows, view, records: recordValues, recordIds, pending,
     const changed = col.code === '$quantity' ? !!row.paste || (n.lineId != null && n.lineId in pending.quantity) : col.code in (pending.values?.[n.id] ?? {});
     const gap = !!gaps?.get(n.id)?.includes(col.code);
     // A formula's value says where it comes from (worked out · from the drawing · typed by hand over it); a cell being changed says "changed" instead.
-    const src = changed ? null : sourceMark(c.source, c.editable);
+    // … and a value from the order or line says so ("O" / "L"); a row value over it is a button back to it.
+    const src = changed ? null : sourceMark(c.source, c.editable) ?? orderMark(c.order, c.editable);
     const typed = src?.from === 'typed';
     return { text: c.text, input: c.input, editable: c.editable, why: gap ? (c.why ?? 'Required value is missing.') : c.why, tone: changed ? 'warning' : typed ? 'strong' : 'normal', tint: gap && !changed ? 'var(--c-warning-200)' : undefined,
       kind: c.type === 'number' ? 'number' : c.type === 'option' ? 'option' : c.type === 'boolean' ? 'bool' : c.type === 'date' ? 'date' : 'text',

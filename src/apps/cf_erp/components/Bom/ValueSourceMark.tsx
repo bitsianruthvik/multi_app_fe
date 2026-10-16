@@ -1,6 +1,6 @@
 import type { MouseEvent } from 'react';
 import { Box } from '@mui/material';
-import type { SourceMark } from '../../lib/valueSource';
+import type { OrderMark, SourceMark } from '../../lib/valueSource';
 
 /**
  * The corner marker of a value a formula gives (lib/valueSource): a small "ƒ" for worked out, "▱"
@@ -11,14 +11,15 @@ import type { SourceMark } from '../../lib/valueSource';
  * takes them (SheetGrid ignores a click that lands on a button).
  */
 export function ValueSourceMark({ mark, label, onGoBack }: {
-  mark: SourceMark;
+  /** A formula's marker, or an order / line value's (init.sql §65: "O" / "L", and "✎" for a row value over it). */
+  mark: SourceMark | OrderMark;
   /** What the value is called, for the button's name ("Weight of Top flange"). */
   label: string;
   onGoBack?: () => void;
 }) {
   if (mark.canGoBack && onGoBack) {
     return (
-      <Box component="button" type="button" data-testid="value-typed" data-source="typed" title={mark.title}
+      <Box component="button" type="button" data-testid={mark.from === 'row' ? 'value-row-override' : 'value-typed'} data-source={mark.from} title={mark.title}
         aria-label={`${label}: ${mark.title}`}
         onClick={(e: MouseEvent) => { e.stopPropagation(); onGoBack(); }}
         onDoubleClick={(e: MouseEvent) => e.stopPropagation()}
@@ -30,7 +31,7 @@ export function ValueSourceMark({ mark, label, onGoBack }: {
     );
   }
   return (
-    <Box component="span" data-testid={mark.from === 'typed' ? 'value-typed' : 'value-source'} data-source={mark.from} title={mark.title} aria-label={mark.label}
+    <Box component="span" data-testid={mark.from === 'typed' ? 'value-typed' : mark.from === 'order' || mark.from === 'line' ? 'value-from-order' : 'value-source'} data-source={mark.from} title={mark.title} aria-label={mark.label}
       sx={{ lineHeight: 1, fontSize: 9, fontFamily: 'var(--font-ui)', color: mark.from === 'typed' ? 'var(--c-warning-800)' : 'var(--c-text-3)' }}>{mark.glyph}</Box>
   );
 }

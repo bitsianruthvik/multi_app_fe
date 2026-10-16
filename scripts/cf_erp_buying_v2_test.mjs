@@ -397,7 +397,7 @@ await check('over-cover offers Release excess: the plan is shown first, then it 
 });
 
 // ── 7: raise ───────────────────────────────────────────────────────────────────
-await check('no requisition yet: the order offers "Raise the requisition"; a line that cannot be raised says why', async () => {
+await check('no MR yet: the order offers "Raise the material request" (it earmarks: earmark true); a line that cannot be raised says why', async () => {
   reset();
   const without = [
     { line: { id: 9951, lineNo: 10, name: 'Girder' }, canRaise: true, reason: null, materials: [{ item: A, need: 10 }], materialReady: { state: 'waiting', readyDate: null, soft: false, text: 'Nothing is decided.' } },
@@ -410,9 +410,9 @@ await check('no requisition yet: the order offers "Raise the requisition"; a lin
   assert.equal(qa('requisition').length, 0);
   assert.equal(qa('line-without').length, 2);
   assert.match(text(qa('line-without')[1]), /The design is not frozen/);
-  const header = buttonIn(q1('buying-header-actions'), 'Raise the requisition');
+  const header = buttonIn(q1('buying-header-actions'), 'Raise the material request');
   await click(header); await settle();
-  assert.deepEqual(lastCall('POST', '/orders/22552/requisitions').body, {});
+  assert.deepEqual(lastCall('POST', '/orders/22552/requisitions').body, { earmark: true });
   assert.equal(qa('requisition').length, 1, 'the answer is shown at once');
 });
 await check('a stale requisition offers to bring it up to date (the refresh route)', async () => {
@@ -421,7 +421,7 @@ await check('a stale requisition offers to bring it up to date (the refresh rout
   globalThis.__routes['POST /orders/22552/requisitions'] = () => orderReqs([r]);
   await mount(orderReqs([r]));
   await click(buttonIn(document, 'Bring up to date')); await settle();
-  assert.deepEqual(lastCall('POST', '/orders/22552/requisitions').body, { lineIds: [9951] });
+  assert.deepEqual(lastCall('POST', '/orders/22552/requisitions').body, { lineIds: [9951], earmark: true });
 });
 
 // ── 8: states ──────────────────────────────────────────────────────────────────
@@ -652,7 +652,7 @@ await check('the stage foot says "n skipped, waiting for stock" from the stage s
 });
 await check('Confirm no longer says buying is optional or "requested"; the release dialog shows the line’s material-ready', () => {
   assert.doesNotMatch(src('lib/process.ts'), /items are requested from the Buying stage/);
-  assert.match(src('lib/process.ts'), /each material is held from stock, bought or skipped in the Buying stage/);
+  assert.match(src('lib/process.ts'), /each material is earmarked from stock, bought or skipped in the Material request stage/);
   const t = src('components/TrackerDialogs.tsx');
   assert.match(t, /MaterialReadyChip/); assert.match(t, /Release is never held for material/);
   assert.match(src('pages/PurchaseBoard.tsx'), /RequisitionBoard/);

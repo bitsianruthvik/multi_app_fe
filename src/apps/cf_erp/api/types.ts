@@ -108,6 +108,8 @@ export interface Specification {
   tableConfig?: TableConfig | null;
   ruleCount: number;
   valueCount: number;
+  /** Can be set for a whole order (init.sql §65): an order and its lines may carry a value every row takes. */
+  orderLevel?: boolean;
 }
 
 export interface Formula {
@@ -581,6 +583,9 @@ export interface SalesOrderLine {
   release?: { id: number; releasedAt: string } | null;
   /** The line of the previous revision this one was copied from. */
   revisesLineId: number | null;
+  /** §66: the line's own answer to who supplies its material (null = as the order), and the one that counts. */
+  materialSupply?: 'we_buy' | 'customer' | null;
+  supply?: 'we_buy' | 'customer';
 }
 
 export interface OrderTotal extends Partial<OrderTax> { amount: number; complete: boolean; unpricedLines: number[]; unmeasuredLines: number[] }
@@ -592,6 +597,8 @@ export interface SalesOrder {
   title: string | null;
   customer: { id: number; code: string | null; name: string | null } | null;
   customerReference: string | null;
+  /** §66: who supplies the order's material — "We buy" (default) or "Customer supplies"; a line may differ. */
+  materialSupply?: 'we_buy' | 'customer';
   status: OrderStatus;
   receivedOn: string | null;
   committedDate: string | null;
@@ -1134,6 +1141,12 @@ export interface Shipment { movement: Movement; release: Release | ReleaseSummar
  */
 export interface ReleaseSummary extends Omit<Release, 'items' | 'requirements' | 'progress'> {
   summary: true;
+  /** §66: what the line's material request had earmarked and became this release's reservations at release. */
+  fromMr?: {
+    requisition: { id: number; code: string } | null;
+    reserved: { item: { id: number; code: string | null; name: string; uom: string | null }; quantity: number }[];
+    left: { item: { id: number; code: string | null; name: string; uom: string | null }; quantity: number }[];
+  };
   progress: Omit<Release['progress'], 'ready' | 'notReady'> & { ready: number | null; notReady: number | null };
 }
 
@@ -1203,6 +1216,8 @@ export interface PurchaseOrderRow {
   /** Distinct sales-order codes over all lines' allocations. */
   orderCodes?: string[];
   supplier: { id: number; code: string | null; name: string } | null;
+  /** §66: the customer's own material, asked of the customer as vendor (₹0); what arrives is their lot. */
+  suppliedByCustomer?: boolean;
   expectedDate: string | null;
   orderedAt: string | null;
   createdAt: string;

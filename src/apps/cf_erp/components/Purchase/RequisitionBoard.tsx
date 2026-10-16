@@ -62,8 +62,8 @@ function Lane({ col, company }: { col: BuyingColumn; company: string }) {
 }
 
 /**
- * The requisitions of every open order by how far each has got — and, first, the ones whose work is waiting for stock
- * because buying was skipped. A card is a requisition; open it to decide material by material.
+ * The material requests (MRs) of every open order by how far each has got — and, first, the ones whose work is waiting
+ * for stock because buying was skipped. A card is an MR; open it to decide material by material.
  */
 export function RequisitionBoard({ orderId, search, canManage }: { orderId: number | null; search: string; canManage: boolean }) {
   const company = useCompanySlug();
@@ -77,7 +77,7 @@ export function RequisitionBoard({ orderId, search, canManage }: { orderId: numb
       <ErrorNotice error={load.error} onRetry={load.reload} />
       {!load.data && !load.error && <SkeletonBlock h={260} r={8} />}
       {load.data && cards.length === 0 && notRaised.length === 0 && (
-        <EmptyState title="No requisitions yet" hint={canManage ? 'Open a sales order’s Buying stage and raise its requisition.' : 'A requisition is raised from a sales order’s Buying stage.'} />
+        <EmptyState title="No material requests yet" hint={canManage ? 'Open a sales order’s Material request stage and raise its MR.' : 'A material request is raised from a sales order’s Material request stage.'} />
       )}
       {waiting.length > 0 && (
         <Box data-testid="waiting-group" sx={{ display: 'grid', gap: 0.75, p: 1.25, borderRadius: 'var(--r-md)', border: '1px solid var(--c-warning-200, var(--c-border))', background: 'var(--c-warning-50)' }}>
@@ -95,7 +95,7 @@ export function RequisitionBoard({ orderId, search, canManage }: { orderId: numb
       )}
       {notRaised.length > 0 && (
         <Box data-testid="not-raised" sx={{ display: 'grid', gap: 0.75 }}>
-          <Typography sx={{ fontSize: 13.5, fontWeight: 600 }}>No requisition yet · {notRaised.length}</Typography>
+          <Typography sx={{ fontSize: 13.5, fontWeight: 600 }}>No material request yet · {notRaised.length}</Typography>
           {notRaised.map((n) => (
             <Box key={`${n.order.id}-${n.line.id}`} data-testid="not-raised-row" sx={{ display: 'flex', gap: 1.25, alignItems: 'center', flexWrap: 'wrap', fontSize: 13 }}>
               <Box component={Link} to={`${appPath(company, `orders/${n.order.id}`)}?tab=buying`} sx={{ ...linkSx, fontFamily: 'var(--font-mono)' }}>{n.order.code}</Box>
