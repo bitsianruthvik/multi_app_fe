@@ -93,6 +93,8 @@ export const cfApi = {
   put: <T>(path: string, body?: unknown, opts?: CallOptions) => call<T>('PUT', path, body ?? {}, opts),
   patch: <T>(path: string, body?: unknown, opts?: CallOptions) => call<T>('PATCH', path, body ?? {}, opts),
   del: <T>(path: string, opts?: CallOptions) => call<T>('DELETE', path, undefined, opts),
+  /** A DELETE that carries a body (a plate change's reason, init.sql §62). */
+  delWith: <T>(path: string, body: unknown, opts?: CallOptions) => call<T>('DELETE', path, body ?? {}, opts),
 };
 
 /** Query string from an object, skipping empty values. */

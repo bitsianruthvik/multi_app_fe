@@ -7,7 +7,7 @@ import ExpandMoreRounded from '@mui/icons-material/ExpandMoreRounded';
 import ChevronRightRounded from '@mui/icons-material/ChevronRightRounded';
 import { CfApiError } from '../../api/client';
 import {
-  sendNestFiles, type NestFileRead, type NestFileUpload, type NestFilesResult, type NestJob, type NestLeftOver, type NestPartRow, type NestPlatesAdded, type NestProblem,
+  previewNestFiles, sendNestFiles, type NestFileRead, type NestFileUpload, type NestFilesResult, type NestJob, type NestLeftOver, type NestPartRow, type NestPlatesAdded, type NestProblem,
 } from '../../api/nesting';
 import {
   REPLACE_WARNING, SHAPE_JOB_WORDS, SHAPE_SOURCE_WORDS, fileNest, kg, matchedByLine, mm, mmPair, needsPick, programWord, shapeSourceOfPiece, shapeSourceOnPlate,
@@ -18,6 +18,7 @@ import { MissingAdded, NestMissingPlates } from './NestMissingPlates';
 import { PartsTable, type PartSettle } from './NestPartsTable';
 import { checkLines, reviewNames, reviewOf, type ReviewNames } from '../../lib/nestReview';
 import { ReviewSections } from './NestReview';
+import { usePlateChange } from './plateChangeContext';
 import { PlateDiagram, PlateThumb } from './PlateDiagram';
 
 /**
@@ -602,6 +603,7 @@ export function NestFilesDialog({
   // Which jobs are open: what the user set, and the ones a problem opened (they stay open once the problem is settled).
   const [jobsOpen, setJobsOpen] = useState<Record<string, boolean>>({});
   const [busy, setBusy] = useState<'read' | 'save' | null>(null);
+  const plateChange = usePlateChange();
   const [error, setError] = useState<CfApiError | null>(null);
   const [done, setDone] = useState<NestFilesResult | null>(null);
   // The one confirmation a save with warnings asks for.
@@ -632,7 +634,7 @@ export function NestFilesDialog({
     if (!open || !uploads.length || done) return undefined;
     const mine = ++ticket.current;
     setBusy('read'); setError(null);
-    sendNestFiles(orderId, lineId, { files: requestFiles(), dryRun: true, mode, choices: choiceBody })
+    previewNestFiles(orderId, lineId, { files: requestFiles(), mode, choices: choiceBody })
       .then((r) => {
         if (mine !== ticket.current) return;
         setResult(r);
@@ -656,7 +658,11 @@ export function NestFilesDialog({
     setConfirm(false);
     setBusy('save'); setError(null);
     try {
-      const out = await sendNestFiles(orderId, lineId, { files: requestFiles(), dryRun: false, mode, choices: choiceBody, force: result.needsForce });
+      const out = await plateChange.submit('Save these nesting files',
+        (f) => sendNestFiles(orderId, lineId, { files: requestFiles(), dryRun: false, mode, choices: choiceBody, force: result.needsForce, ...f }),
+        // Sent for approval (a PO covers the line): nothing is saved — the sheet says what it would do; this dialog is done.
+        { onSent: onClose });
+      if (out == null) return;
       if (out.applied) { setDone(out); onSaved(out); } else setResult(out);
     } catch (e) { setError(e as CfApiError); } finally { setBusy(null); }
   };

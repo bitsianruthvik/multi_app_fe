@@ -19,6 +19,7 @@ import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
 import RestartAltRounded from '@mui/icons-material/RestartAltRounded';
 import TableChartOutlined from '@mui/icons-material/TableChartOutlined';
 import { cfApi, LONG_WRITE_MS, CfApiError } from '../../api/client';
+import type { PlateChangeRequested } from '../../api/plateChanges';
 import { fileToBase64 } from '../../api/bomSheet';
 import {
   discardNestRun, downloadCncZip, downloadCustomerFile, downloadLotCnc, downloadNestingSheet, getNestFiles, getNestRun, getNestingChoices,
@@ -58,6 +59,8 @@ import { SectionNestingPanel } from './SectionNestingPanel';
 import { NestUntrackedDialog, UntrackedStrip } from './NestUntrackedDialog';
 import { CutPlateDrawingButton } from '../Drawings/RowDrawingViewer';
 import { LineDrawingContext } from '../../hooks/lineDrawingContext';
+import { PlateChangeProvider, PlateChangesPanel } from './PlateChange';
+import { usePlateChange } from './plateChangeContext';
 
 /**
  * THE NESTING SCREEN — a sales order line's cut pieces laid out on real plates.
@@ -437,9 +440,11 @@ function GroupCard({ group, open, onToggle, cncFor, removeFor, fileFor, shapeOf,
   );
 }
 
-function PlateNestingPanel({ orderId, lineId, canManage, canEditCatalog = false, onChanged }: {
+function PlateNestingPanel({ orderId, lineId, canManage, canEditCatalog = false, onChanged, version = 0 }: {
   orderId: number;
   lineId: number;
+  /** Bumped when a plate change is approved elsewhere on the screen (§62): the saved plan is read again. */
+  version?: number;
   /** The sales-order grant. Without it the screen is a look, and says so. */
   canManage: boolean;
   /** The catalog grant: lets a plate be marked Standard / Custom from Step B. */
@@ -448,17 +453,19 @@ function PlateNestingPanel({ orderId, lineId, canManage, canEditCatalog = false,
   onChanged?: () => void;
 }) {
   const toast = useToast();
+  // Plate changes after a PO (§62): every plate save goes through the line's gate.
+  const plateChange = usePlateChange();
   const path = `/orders/${orderId}/lines/${lineId}/nesting`;
   // THE SAVED PLAN, READ ON OPEN. This is the only request the screen makes by
   // itself, and it does not re-pack.
-  const saved = useLoad(() => cfApi.get<NestingPlan>(path), [path]);
+  const saved = useLoad(() => cfApi.get<NestingPlan>(path), [path, version]);
   // THE NESTING CHOICES (Steps A and B, init.sql §40). An API without them
   // answers an error; the screen then simply has no steps.
-  const choicesLoad = useLoad(() => getNestingChoices(orderId, lineId).catch(() => null), [orderId, lineId]);
+  const choicesLoad = useLoad(() => getNestingChoices(orderId, lineId).catch(() => null), [orderId, lineId, version]);
   const [choicesSaved, setChoicesSaved] = useState<NestingChoices | null>(null);
   const choices = choicesSaved ?? choicesLoad.data ?? null;
   // What the customer's files did to the line: may it be changed, and what is left over. An older API has none.
-  const filesLoad = useLoad<NestFilesInfo | null>(() => getNestFiles(orderId, lineId).catch(() => null), [orderId, lineId]);
+  const filesLoad = useLoad<NestFilesInfo | null>(() => getNestFiles(orderId, lineId).catch(() => null), [orderId, lineId, version]);
   const filesInfo = filesLoad.data;
   const [choicesOpen, setChoicesOpen] = useState<boolean | null>(null);
   const [proposal, setProposal] = useState<NestingPlan | null>(null);
@@ -601,8 +608,11 @@ function PlateNestingPanel({ orderId, lineId, canManage, canEditCatalog = false,
     if (removing?.id == null) return;
     setRemoveBusy(true);
     try {
-      const out = await removeNestLot(orderId, lineId, removing.id);
-      setRemoving(null); setProposal(null);
+      const lotId = removing.id;
+      setRemoving(null);
+      const out = await plateChange.submit(`Take ${removing.lotNo ?? 'the plate'} off the line`, (f) => removeNestLot(orderId, lineId, lotId, f));
+      if (!out) return;
+      setProposal(null);
       reloadAll();
       toast.success(out.message || `${removing.lotNo ?? 'The plate'} is off the line.`);
     } catch (e) { setRemoving(null); setActionError(e as CfApiError); } finally { setRemoveBusy(false); }
@@ -643,7 +653,8 @@ function PlateNestingPanel({ orderId, lineId, canManage, canEditCatalog = false,
   const pickPlates = async (next: PlateChoice) => {
     setPlatesBusy(true); setActionError(null);
     try {
-      await setNestPlates(orderId, lineId, next);
+      const out = await plateChange.submit('Change which plates nesting may use', (f) => setNestPlates(orderId, lineId, next, f), { impact: false });
+      if (!out) return;
       const fresh = await getNestingChoices(orderId, lineId);
       setChoicesSaved(fresh);
     } catch (e) { setActionError(e as CfApiError); } finally { setPlatesBusy(false); }
@@ -685,7 +696,10 @@ function PlateNestingPanel({ orderId, lineId, canManage, canEditCatalog = false,
     if (!proposal) return;
     setBusy('accept'); setActionError(null);
     try {
-      const out = await cfApi.post<NestingAccepted>(`${path}/accept`, { ...acceptBody(proposal), ...(replaceAll ? { replaceImported: true } : {}) }, { timeoutMs: LONG_WRITE_MS });
+      const body = { ...acceptBody(proposal), ...(replaceAll ? { replaceImported: true } : {}) };
+      const out = await plateChange.submit('Use this nesting', (f) => cfApi.post<NestingAccepted | PlateChangeRequested>(`${path}/accept`, { ...body, ...f }, { timeoutMs: LONG_WRITE_MS }));
+      // Sent for approval (a PO covers the line), or the reason was not given: the proposal stays on screen.
+      if (!out) return;
       setProposal(null); setRun(null); rememberRun(lineId, null);
       saved.reload(); filesLoad.reload();
       onChanged?.();
@@ -862,6 +876,7 @@ function PlateNestingPanel({ orderId, lineId, canManage, canEditCatalog = false,
           )}
         </Alert>
       )}
+      <PlateChangesPanel />
       <SectionCard
         title="Nesting"
         subtitle={showDoors
@@ -1251,10 +1266,16 @@ export function NestingPanel(props: {
   canEditCatalog?: boolean;
   onChanged?: () => void;
 }) {
+  // A plate change approved on this screen rewrites the saved plan: read it again (and tell the page).
+  const [version, setVersion] = useState(0);
+  const { onChanged } = props;
+  const decided = useCallback(() => { setVersion((v) => v + 1); onChanged?.(); }, [onChanged]);
   return (
     <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 2, minWidth: 0 }}>
       <LineDrawingContext.Provider value={{ orderId: props.orderId, lineId: props.lineId }}>
-        <PlateNestingPanel {...props} />
+        <PlateChangeProvider orderId={props.orderId} lineId={props.lineId} onChanged={decided}>
+          <PlateNestingPanel {...props} version={version} />
+        </PlateChangeProvider>
       </LineDrawingContext.Provider>
       <SectionNestingPanel orderId={props.orderId} lineId={props.lineId} canManage={props.canManage} onChanged={props.onChanged} />
     </Box>

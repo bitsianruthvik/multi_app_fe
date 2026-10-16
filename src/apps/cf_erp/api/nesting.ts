@@ -1,5 +1,6 @@
 import { cfApi, LONG_WRITE_MS } from './client';
 import type { NestRunAnswer, NestRunSnapshot, NestSheetResult, NestingChoices, PlateChoice } from './types';
+import { isRequested, type PlateChangeDirect, type PlateChangeFields, type PlateChangeRequested } from './plateChanges';
 
 /**
  * The nesting sheet and the CNC files (CF_ERP_NESTING_PLAN.md, "Decided
@@ -87,13 +88,13 @@ export function getNestingChoices(orderId: number, lineId: number): Promise<Nest
   return cfApi.get<NestingChoices>(`${base(orderId, lineId)}/choices`);
 }
 
-export function saveNestingChoices(orderId: number, lineId: number, excludedCutPlateIds: number[], excludedPlateIds: number[]): Promise<NestingChoices> {
-  return cfApi.put<NestingChoices>(`${base(orderId, lineId)}/choices`, { excludedCutPlateIds, excludedPlateIds });
+export function saveNestingChoices(orderId: number, lineId: number, excludedCutPlateIds: number[], excludedPlateIds: number[], fields: PlateChangeFields = {}): Promise<NestingChoices | PlateChangeRequested> {
+  return cfApi.put<NestingChoices | PlateChangeRequested>(`${base(orderId, lineId)}/choices`, { excludedCutPlateIds, excludedPlateIds, ...fields });
 }
 
 /** Which plates nesting may use on this line: standard only, or standard and custom. Needed before the first run. */
-export function setNestPlates(orderId: number, lineId: number, plates: PlateChoice): Promise<{ lineId: number; plateChoice: PlateChoice }> {
-  return cfApi.put<{ lineId: number; plateChoice: PlateChoice }>(`${base(orderId, lineId)}/plates`, { plates });
+export function setNestPlates(orderId: number, lineId: number, plates: PlateChoice, fields: PlateChangeFields = {}): Promise<{ lineId: number; plateChoice: PlateChoice } | PlateChangeRequested> {
+  return cfApi.put<{ lineId: number; plateChoice: PlateChoice } | PlateChangeRequested>(`${base(orderId, lineId)}/plates`, { plates, ...fields });
 }
 
 /** Flip a catalog plate between STANDARD and CUSTOM (the generic values save; needs the catalog grant). */
@@ -395,6 +396,10 @@ export interface NestFilesRequest {
   force?: boolean;
   mode?: 'merge' | 'replace';
   choices?: Record<string, Record<string, string | number>>;
+  /** A save once a PO covers the line: why (init.sql §62). */
+  reason?: string;
+  /** A save on a line with no PO: answer the before / after too. */
+  impact?: boolean;
 }
 
 const arr = <T,>(v: unknown): T[] => (Array.isArray(v) ? (v as T[]) : []);
@@ -446,15 +451,25 @@ export function getNestFiles(orderId: number, lineId: number): Promise<NestFiles
   }));
 }
 
-/** Read the files (dryRun true) or save them. One request, however many files. */
-export async function sendNestFiles(orderId: number, lineId: number, req: NestFilesRequest): Promise<NestFilesResult> {
+/** Read the files (dryRun true): a preview, never a request. */
+export async function previewNestFiles(orderId: number, lineId: number, req: Omit<NestFilesRequest, 'dryRun' | 'reason' | 'impact'>): Promise<NestFilesResult> {
+  const out = await sendNestFiles(orderId, lineId, { ...req, dryRun: true });
+  if (isRequested(out)) throw new Error('A preview cannot be a plate change request.');
+  return out;
+}
+
+/** Read the files (dryRun true) or save them. One request, however many files. A save on a line a PO covers may come back as a request (§62). */
+export async function sendNestFiles(orderId: number, lineId: number, req: NestFilesRequest): Promise<(NestFilesResult & PlateChangeDirect) | PlateChangeRequested> {
   const body = {
     files: req.files, dryRun: req.dryRun, mode: req.mode ?? 'merge',
     ...(req.force ? { force: true } : {}),
     ...(req.choices && Object.keys(req.choices).length ? { choices: req.choices } : {}),
+    ...(req.reason ? { reason: req.reason } : {}),
+    ...(req.impact ? { impact: true } : {}),
   };
-  const out = await cfApi.post<Partial<NestFilesResult>>(`${base(orderId, lineId)}/files`, body, { timeoutMs: LONG_WRITE_MS });
-  return normaliseFiles(out);
+  const out = await cfApi.post<Partial<NestFilesResult> & PlateChangeDirect>(`${base(orderId, lineId)}/files`, body, { timeoutMs: LONG_WRITE_MS });
+  if (isRequested(out)) return out;
+  return { ...normaliseFiles(out), ...(out?.plateChange ? { plateChange: out.plateChange } : {}) };
 }
 
 /** One missing plate to add: `code` only when the user changed the suggested one. */
@@ -477,9 +492,9 @@ export interface NestLotRemoved {
   totals: NestFilesTotals | null;
 }
 
-/** Take one plate off the line; its pieces go back to left over. */
-export function removeNestLot(orderId: number, lineId: number, lotId: number): Promise<NestLotRemoved> {
-  return cfApi.del<NestLotRemoved>(`${base(orderId, lineId)}/lots/${lotId}`, { timeoutMs: LONG_WRITE_MS });
+/** Take one plate off the line; its pieces go back to left over. Once a PO covers the line: a request (§62). */
+export function removeNestLot(orderId: number, lineId: number, lotId: number, fields: PlateChangeFields = {}): Promise<(NestLotRemoved & PlateChangeDirect) | PlateChangeRequested> {
+  return cfApi.delWith<(NestLotRemoved & PlateChangeDirect) | PlateChangeRequested>(`${base(orderId, lineId)}/lots/${lotId}`, fields, { timeoutMs: LONG_WRITE_MS });
 }
 
 /** The customer's file of one plate, as a download. For a ProNest plate that is the whole job file (.nif). */
@@ -597,8 +612,8 @@ export function startNestCompare(orderId: number, lineId: number, opts: { effort
 
 export interface CompareAccepted { decision: 'uploaded' | 'auto'; message: string; replaced?: { uploadedPlates: number; plates: number } }
 
-export function acceptNestCompare(orderId: number, lineId: number, side: 'uploaded' | 'auto', runId: string): Promise<CompareAccepted> {
-  return cfApi.post<CompareAccepted>(`${base(orderId, lineId)}/compare/accept`, { side, runId }, { timeoutMs: LONG_WRITE_MS });
+export function acceptNestCompare(orderId: number, lineId: number, side: 'uploaded' | 'auto', runId: string, fields: PlateChangeFields = {}): Promise<CompareAccepted | PlateChangeRequested> {
+  return cfApi.post<CompareAccepted | PlateChangeRequested>(`${base(orderId, lineId)}/compare/accept`, { side, runId, ...fields }, { timeoutMs: LONG_WRITE_MS });
 }
 
 /* ───────── §61: cut from untracked offcuts (2026-10-14) ───────── */
@@ -655,13 +670,13 @@ export function getUntracked(orderId: number, lineId: number): Promise<Untracked
 }
 
 /** Mark left-over pieces as cut from untracked offcuts: the ones named (quantity left out = all of it), or every one. */
-export function markUntracked(orderId: number, lineId: number, pieces: { cutPlateId: number; quantity?: number }[] | 'all'): Promise<UntrackedState> {
-  const body = pieces === 'all' ? { all: true } : { pieces };
-  return cfApi.post<Partial<UntrackedState>>(`${base(orderId, lineId)}/untracked`, body, { timeoutMs: LONG_WRITE_MS }).then(normaliseUntracked);
+export function markUntracked(orderId: number, lineId: number, pieces: { cutPlateId: number; quantity?: number }[] | 'all', fields: PlateChangeFields = {}): Promise<UntrackedState | PlateChangeRequested> {
+  const body = { ...(pieces === 'all' ? { all: true } : { pieces }), ...fields };
+  return cfApi.post<Partial<UntrackedState>>(`${base(orderId, lineId)}/untracked`, body, { timeoutMs: LONG_WRITE_MS }).then((o) => (isRequested(o) ? o : normaliseUntracked(o)));
 }
 
 /** Undo: the marks go and their pieces are left over again (none named = every mark). */
-export function unmarkUntracked(orderId: number, lineId: number, cutPlateIds?: number[]): Promise<UntrackedState> {
+export function unmarkUntracked(orderId: number, lineId: number, cutPlateIds?: number[], fields: PlateChangeFields = {}): Promise<UntrackedState | PlateChangeRequested> {
   const q = cutPlateIds?.length ? `?cutPlateIds=${cutPlateIds.join(',')}` : '';
-  return cfApi.del<Partial<UntrackedState>>(`${base(orderId, lineId)}/untracked${q}`, { timeoutMs: LONG_WRITE_MS }).then(normaliseUntracked);
+  return cfApi.delWith<Partial<UntrackedState>>(`${base(orderId, lineId)}/untracked${q}`, fields, { timeoutMs: LONG_WRITE_MS }).then((o) => (isRequested(o) ? o : normaliseUntracked(o)));
 }

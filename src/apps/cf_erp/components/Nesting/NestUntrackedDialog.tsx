@@ -8,6 +8,7 @@ import { getUntracked, markUntracked, unmarkUntracked, type UntrackedPiece, type
 import { cutPieceNamer, kg, untrackedLine, untrackedRequest } from '../../lib/nesting';
 import { rupeeText } from '../../lib/money';
 import { Mono } from '../ui';
+import { usePlateChange } from './plateChangeContext';
 
 /**
  * CUT FROM UNTRACKED OFFCUTS (init.sql §61, 2026-10-14).
@@ -54,6 +55,8 @@ export function NestUntrackedDialog({ open, orderId, lineId, onClose, onSaved }:
   const [ticked, setTicked] = useState<Set<number>>(new Set());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<CfApiError | null>(null);
+  // Plate changes after a PO (§62): marking goes straight through unless it changes what plates the line needs.
+  const plateChange = usePlateChange();
 
   useEffect(() => {
     if (!open) return undefined;
@@ -87,8 +90,8 @@ export function NestUntrackedDialog({ open, orderId, lineId, onClose, onSaved }:
     setBusy(true); setError(null);
     try {
       // Every piece ticked = "the rest": the server marks whatever is left over, as it is now.
-      const out = await markUntracked(orderId, lineId, every ? 'all' : untrackedRequest(rows, ticked));
-      onSaved(out);
+      const out = await plateChange.submit('Mark pieces as cut from offcuts', (f) => markUntracked(orderId, lineId, every ? 'all' : untrackedRequest(rows, ticked), f), { impact: false, tryFirst: true, onSent: onClose });
+      if (out) onSaved(out);
     } catch (e) { setError(e as CfApiError); } finally { setBusy(false); }
   };
 
@@ -177,11 +180,15 @@ export function UntrackedStrip({ summary, orderId, lineId, canUndo, onUndone }: 
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<CfApiError | null>(null);
+  const plateChange = usePlateChange();
   const words = untrackedLine(summary);
   if (!words) return null;
   const undo = async () => {
     setBusy(true); setError(null);
-    try { onUndone(await unmarkUntracked(orderId, lineId)); } catch (e) { setError(e as CfApiError); } finally { setBusy(false); }
+    try {
+      const out = await plateChange.submit('Undo pieces cut from offcuts', (f) => unmarkUntracked(orderId, lineId, undefined, f), { impact: false, tryFirst: true });
+      if (out) onUndone(out);
+    } catch (e) { setError(e as CfApiError); } finally { setBusy(false); }
   };
   return (
     <Box data-testid="untracked-strip" sx={{ display: 'grid', gap: 0.5, minWidth: 0 }}>

@@ -17,7 +17,7 @@ export interface NavScreen {
   path: string;
   /** Detail pages under this screen: /:company/cf_erp/<path>/:id */
   hasDetail?: boolean;
-  /** feature_tag that gates it; undefined = always visible. */
+  /** feature_tag that gates it; undefined = always visible. Tags joined by "|" = any one of them. */
   permission?: string;
   /** Key into GET /nav-counts for the row-2 badge. */
   countKey?: string;
@@ -37,6 +37,8 @@ const PRODUCTION = 'cf_erp_production_view';
 const INVENTORY = 'cf_erp_inventory_view';
 const FLOOR = 'cf_erp_floor';
 const PRODUCTION_MANAGE = 'cf_erp_production_manage';
+/** The MD (approve plate changes) or the buyer (stock and buying manage) — any one of them. */
+const PLATE_CHANGES = 'cf_erp_plate_change_approve|cf_erp_inventory_manage';
 
 export const SECTIONS: NavSection[] = [
   { key: 'home', label: 'Home', screens: [{ key: 'home', label: 'Home', path: 'home', keywords: ['cockpit', 'today', 'dashboard'] }] },
@@ -56,6 +58,8 @@ export const SECTIONS: NavSection[] = [
       // One purchase order carried stage by stage (CF_ERP_PURCHASE_FLOW_PLAN): the lanes first, then every order as a list.
       { key: 'purchase-board', label: 'Board', path: 'purchase', permission: INVENTORY, keywords: ['purchase', 'buying', 'procurement', 'lanes', 'stages', 'kanban', 'pipeline', 'request', 'rfq', 'quotation', 'quote', 'stock check', 'grn', 'timeline', 'supplier'] },
       { key: 'purchase-orders', label: 'Purchase orders', path: 'purchase-orders', hasDetail: true, permission: INVENTORY, countKey: 'openPurchases', keywords: ['po', 'supplier', 'delivery', 'goods receipt', 'grn', 'procurement', 'order'] },
+      // Plate changes asked after a PO covers a line (init.sql §62): the MD approves, the buyer changes the POs.
+      { key: 'plate-changes', label: 'Plate changes', path: 'plate-changes', permission: PLATE_CHANGES, keywords: ['plate change', 'approve', 'approval', 'md', 're-nest', 'nesting change', 'checklist', 'po change'] },
       // Who we buy from — the parties screen pinned to suppliers (RFQs and POs pick from them).
       { key: 'suppliers', label: 'Suppliers', path: 'suppliers', permission: INVENTORY, keywords: ['supplier', 'vendor', 'party', 'mill', 'rfq'] },
     ],

@@ -6,6 +6,7 @@ import type { NestChoiceGroup, NestChoicePiece, NestChoicePlate, NestingChoices 
 import { choicesLine, kg, mm, steelWord } from '../../lib/nesting';
 import { priceText } from '../../lib/money';
 import { Badge, ErrorNotice, Mono, SectionCard } from '../ui';
+import { usePlateChange } from './plateChangeContext';
 
 /**
  * BEFORE ANY NESTING: WHAT THE RUN WILL CONSIDER (init.sql §40).
@@ -148,6 +149,8 @@ export function NestChoices({ orderId, lineId, choices, canManage, canEditCatalo
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<CfApiError | null>(null);
   const seq = useRef(0);
+  // Plate changes after a PO (§62): once a PO covers the line, a change here is a request with its reason.
+  const plateChange = usePlateChange();
   const editable = canManage && choices.canSave;
   const disabled = !editable || saving;
   const mayFlip = canEditCatalog;
@@ -157,8 +160,8 @@ export function NestChoices({ orderId, lineId, choices, canManage, canEditCatalo
     const mine = ++seq.current;
     setSaving(true); setError(null);
     try {
-      const next = await saveNestingChoices(orderId, lineId, cutIds, plateIds);
-      if (mine === seq.current) onChange(next);
+      const next = await plateChange.submit('Change what nesting may use', (f) => saveNestingChoices(orderId, lineId, cutIds, plateIds, f), { impact: false });
+      if (next && mine === seq.current) onChange(next);
     } catch (e) {
       if (mine === seq.current) setError(e as CfApiError);
     } finally {

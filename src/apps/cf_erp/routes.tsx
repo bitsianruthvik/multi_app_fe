@@ -39,6 +39,8 @@ const Stock = lazy(() => import('./pages/Stock'));
 const PurchaseBoard = lazy(() => import('./pages/PurchaseBoard'));
 const PurchaseOrders = lazy(() => import('./pages/PurchaseOrders'));
 const PurchaseOrderDetail = lazy(() => import('./pages/PurchaseOrderDetail'));
+// Plate changes after a purchase order, approved by the MD (init.sql §62).
+const PlateChanges = lazy(() => import('./pages/PlateChanges'));
 const Movements = lazy(() => import('./pages/Movements'));
 const MovementDetail = lazy(() => import('./pages/MovementDetail'));
 const WorkInProgress = lazy(() => import('./pages/WorkInProgress'));
@@ -96,6 +98,7 @@ export function getCfErpRoutes(
     { path: '/:company/cf_erp/purchase', element: wrap(<PurchaseBoard />) },
     { path: '/:company/cf_erp/purchase-orders', element: wrap(<PurchaseOrders />) },
     { path: '/:company/cf_erp/purchase-orders/:id', element: wrap(<PurchaseOrderDetail />) },
+    { path: '/:company/cf_erp/plate-changes', element: wrap(<PlateChanges />) },
     { path: '/:company/cf_erp/movements', element: wrap(<Movements />) },
     { path: '/:company/cf_erp/movements/:id', element: wrap(<MovementDetail />) },
     { path: '/:company/cf_erp/wip', element: wrap(<WorkInProgress />) },
