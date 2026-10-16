@@ -3,7 +3,7 @@
  * reviews, due / overdue / done.
  *
  * Final reviews are made by the app: each active plan gets one when its period's
- * last month begins (the server makes them when this list is read). Check-ins are
+ * last slot opens — the period's last month, or a KPI's later last slot (the server makes them when this list is read). Check-ins are
  * opened from a plan's page. The list pattern of §13.1: search, filters (period,
  * kind, due / overdue / done, status, department and below, label, manager), the
  * count line; a row opens the review.
@@ -127,7 +127,7 @@ export default function PerformanceReviews() {
       />
       {counts && (
         <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)', mb: 1.5 }} data-review-counts="">
-          {counts.overdue} overdue · {counts.due} due · {counts.done} done. A final review is made for each active plan when its period&rsquo;s last month begins; check-ins are opened from a plan.
+          {counts.overdue} overdue · {counts.due} due · {counts.done} done. A final review is made for each active plan when its last slot opens (the period&rsquo;s last month, or later if a KPI&rsquo;s last slot starts later); check-ins are opened from a plan.
         </Typography>
       )}
       <ListToolbar
@@ -153,7 +153,7 @@ export default function PerformanceReviews() {
               action={<Button size="small" onClick={filters.clear}>Clear the filters</Button>} />
           ) : (
             <EmptyState icon={<RateReviewOutlined />} title="No reviews yet"
-              hint="Each active plan gets a final review when its period's last month begins. Open a check-in from a plan's page at any time." />
+              hint="Each active plan gets a final review when its last slot opens: the period's last month, or later if a KPI's last slot starts later. Open a check-in from a plan's page at any time." />
           )}
         />
       )}

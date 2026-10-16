@@ -23,7 +23,7 @@ export default function Libraries() {
   return (
     <TabbedScreen
       title="Libraries"
-      subtitle="The lists a role is written from. Change a line here and every role that uses it changes with it."
+      subtitle="The lists a role is written from. Fixing a line here changes it at once in every role that uses it, with no date and no history. To change one role's wording from a date, use Change the wording… on the role."
       tabs={TABS}
     />
   );

@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Box, Button, Checkbox, FormControlLabel, IconButton, MenuItem, TextField, Tooltip, Typography } from '@mui/material';
 import AddRounded from '@mui/icons-material/AddRounded';
+import ArrowDownwardRounded from '@mui/icons-material/ArrowDownwardRounded';
+import ArrowUpwardRounded from '@mui/icons-material/ArrowUpwardRounded';
 import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
 import EditOutlined from '@mui/icons-material/EditOutlined';
 import { SideSheet, ToneBadge } from '@shared/ui';
@@ -134,6 +136,14 @@ export function LabelGroupsSheet({ open, onClose, groups, canEdit, canRemove, on
     }
   };
 
+  /** Swap a group with its neighbour. The order decides which label wins a leave-policy conflict, and the order of the drop-downs. */
+  const move = (index: number, by: -1 | 1) => {
+    const ids = groups.map((g) => g.id);
+    const j = index + by;
+    [ids[index], ids[j]] = [ids[j], ids[index]];
+    void run(groups[index].id, () => orgApi.labelGroups.reorder(ids));
+  };
+
   const askRemove = (group: LabelGroup) => {
     setProblem(null);
     const used = group.labels.reduce((t, l) => t + l.departmentCount, 0);
@@ -147,9 +157,11 @@ export function LabelGroupsSheet({ open, onClose, groups, canEdit, canRemove, on
         (Department, Section, Machine), and any group of your own — a unit, an area. A department has one
         label in each group. Its labels are its own: a label on a department does not pass to the
         departments under it. Renaming a label renames it on every department that has it.
+        The order of the groups matters: when two of a department's labels point to different leave
+        policies, the label in the group higher up wins. Use the arrows to change the order.
       </Typography>
 
-      {groups.map((g) => (
+      {groups.map((g, i) => (
         <Box
           key={g.id}
           component="section"
@@ -186,6 +198,24 @@ export function LabelGroupsSheet({ open, onClose, groups, canEdit, canRemove, on
               <ToneBadge tone="neutral" noIcon label="Optional" />
             )}
             <Box sx={{ flex: 1 }} />
+            {canEdit && groups.length > 1 && renaming !== g.id && (
+              <>
+                <Tooltip title="Move up">
+                  <span>
+                    <IconButton size="small" aria-label={`Move the group ${g.name} up`} disabled={busy || i === 0} onClick={() => move(i, -1)}>
+                      <ArrowUpwardRounded fontSize="small" />
+                    </IconButton>
+                  </span>
+                </Tooltip>
+                <Tooltip title="Move down">
+                  <span>
+                    <IconButton size="small" aria-label={`Move the group ${g.name} down`} disabled={busy || i === groups.length - 1} onClick={() => move(i, 1)}>
+                      <ArrowDownwardRounded fontSize="small" />
+                    </IconButton>
+                  </span>
+                </Tooltip>
+              </>
+            )}
             {canEdit && renaming !== g.id && (
               <Tooltip title="Rename the group">
                 <IconButton size="small" aria-label={`Rename the group ${g.name}`} onClick={() => { setRenaming(g.id); setRenameText(g.name); }}>

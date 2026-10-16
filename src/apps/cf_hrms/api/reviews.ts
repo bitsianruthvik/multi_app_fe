@@ -5,7 +5,7 @@ import type { Band, BasedOn, Bands, CombineRule, Direction, Frequency, PlanStatu
  * Check-ins, reviews and action items — the client side of CF_HRMS_HIRING_SPEC.md §20.
  *
  *   CHECK_IN   for one slot of a plan (a month, usually); opened by HR or the manager
- *   FINAL      one per active plan, made by the app when the period's last month begins;
+ *   FINAL      one per active plan, made by the app when the plan's last slot opens (period's last month, or a KPI's later last slot);
  *              due a few days after the period ends (Performance settings)
  *
  *   OPEN → EMPLOYEE_DONE (the person has written their part) → DONE (the manager closed it)

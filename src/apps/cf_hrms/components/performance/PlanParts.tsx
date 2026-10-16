@@ -79,7 +79,7 @@ export function KpiRow({
             <Fact label="Direction">{directionWord(kpi.direction, directions)}</Fact>
             <Fact label="Entered">{frequencyWord(kpi.frequency)}</Fact>
             <Fact label="Weight">{weightWord(kpi.weightPercent)}</Fact>
-            {kpi.actuals && kpi.actuals.slotCount > 1 && <Fact label="Slots">{kpi.actuals.combineLabel.toLowerCase()}</Fact>}
+            {kpi.actuals && kpi.actuals.slotCount > 1 && <Fact label="Slots">{kpi.actuals.combineLabel}</Fact>}
           </Box>
           {!compact && kpi.mark === 'CHANGED' && job && (
             <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)', mt: 0.5 }}>

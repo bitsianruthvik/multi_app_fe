@@ -85,7 +85,7 @@ function LabelAssignments({
           {conflicts.size > 0 && (
             <Callout tone="warning" title={`${conflicts.size} position${conflicts.size === 1 ? ' is' : 's are'} in a department whose labels point to different policies`} sx={{ mb: 0 }}>
               <Typography sx={{ fontSize: 13, lineHeight: 1.55, mb: 0.75 }}>
-                The label whose group comes first in the group order wins. Change the group order under Departments › Labels, or give these labels the same policy.
+                The label whose group comes first in the group order wins. Move the groups up or down under Departments › Labels, or give these labels the same policy.
               </Typography>
               <Stack component="ul" spacing={0.25} sx={{ m: 0, pl: 2.5 }} data-label-conflicts="">
                 {[...conflicts.values()].slice(0, 30).map((c) => (

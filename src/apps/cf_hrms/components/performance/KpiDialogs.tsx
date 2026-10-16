@@ -139,7 +139,7 @@ export function KpiFormDialog({
             helperText="Added up for counts and output; the average for percentages, rates and times; the latest for a level at the end."
           >
             {adding && <MenuItem value="">Chosen from the unit</MenuItem>}
-            {combineRules.map((c) => <MenuItem key={c.value} value={c.value}>{{ SUM: 'Added up', AVERAGE: 'The average', LAST: 'The latest' }[c.value] ?? c.label}</MenuItem>)}
+            {combineRules.map((c) => <MenuItem key={c.value} value={c.value}>{c.label}</MenuItem>)}
           </TextField>
         )}
         <TextField
@@ -218,7 +218,7 @@ export function TargetChangeDialog({
         )}
         <TextField
           type="date"
-          label="Takes effect from"
+          label="Takes effect"
           required
           value={from}
           onChange={(e) => setFrom(e.target.value)}

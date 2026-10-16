@@ -270,7 +270,7 @@ export default function PerformanceSettings() {
           <Box sx={{ mt: 3, maxWidth: 640 }} data-grace="">
             <Typography sx={{ fontSize: 14, fontWeight: 600 }}>Final reviews</Typography>
             <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)', mb: 1.5 }}>
-              Each active plan gets a final review when its period&rsquo;s last month begins. It is due this many days after the period ends.
+              Each active plan gets a final review when its last slot opens: the period&rsquo;s last month, or later if a KPI&rsquo;s last slot starts later. It is due this many days after the period ends.
             </Typography>
             <TextField
               size="small" label="Due after the period ends" value={grace} disabled={!mayEdit}
