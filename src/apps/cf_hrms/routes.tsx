@@ -14,6 +14,9 @@ const MyPlace = lazy(() => import('./pages/MyPlace'));
 // The employee's own slice of the org chart — their landing screen. A separate
 // page from OrgChart: it imports api/self only, never the company-wide chart.
 const MyOrgChart = lazy(() => import('./pages/MyOrgChart'));
+// The person's own leave, and what waits for them to approve (spec §22.6).
+const MyLeave = lazy(() => import('./pages/MyLeave'));
+const Approvals = lazy(() => import('./pages/Approvals'));
 
 // Organisation
 const OrgChart = lazy(() => import('./pages/OrgChart'));
@@ -45,14 +48,14 @@ const Shifts = lazy(() => import('./pages/Shifts'));
 const Holidays = lazy(() => import('./pages/Holidays'));
 const LeavePolicies = lazy(() => import('./pages/LeavePolicies'));
 const LeavePolicyDetail = lazy(() => import('./pages/LeavePolicyDetail'));
-
-// Not built yet: the route answers, the menu and the command palette do not
-// offer it (navMeta.ts has no entry for these four).
-const Attendance = lazy(() => import('./pages/Attendance'));
-const Roster = lazy(() => import('./pages/Roster'));
 const LeaveRequests = lazy(() => import('./pages/LeaveRequests'));
 const LeaveRequestDetail = lazy(() => import('./pages/LeaveRequestDetail'));
 const LeaveBalances = lazy(() => import('./pages/LeaveBalances'));
+
+// Not built yet: the route answers, the menu and the command palette do not
+// offer it (navMeta.ts has no entry for these two).
+const Attendance = lazy(() => import('./pages/Attendance'));
+const Roster = lazy(() => import('./pages/Roster'));
 
 // Setup
 const CodeFormats = lazy(() => import('./pages/CodeFormats'));
@@ -166,6 +169,11 @@ export function getCfHrmsRoutes(
     // Reviews (spec §20.3): my own (I write my part), and a manager's on someone below them.
     { path: '/:company/cf_hrms/my-place/reviews/:id', element: guarded(TAG.named.selfView, <PerformanceReview mode="self" />) },
     { path: '/:company/cf_hrms/my-place/team-reviews/:id', element: guarded(TAG.named.selfView, <PerformanceReview mode="team" />) },
+    // My leave (spec §22.6): every login with the self view.
+    { path: '/:company/cf_hrms/my-leave', element: guarded(TAG.named.selfView, <MyLeave />) },
+    // Approvals: no single right opens it — a manager has items, HR and the Owner
+    // hold leave edit. The server answers for the login; an empty list is fine.
+    { path: '/:company/cf_hrms/approvals', element: wrap(<Approvals />) },
 
     // Organisation
     { path: '/:company/cf_hrms/org-chart', element: guarded(TAG.positions.view, <OrgChart />) },
@@ -199,13 +207,14 @@ export function getCfHrmsRoutes(
     { path: '/:company/cf_hrms/holidays', element: guarded(TAG.time.view, <Holidays />) },
     { path: '/:company/cf_hrms/leave-policies', element: guarded(TAG.leave.view, <LeavePolicies />) },
     { path: '/:company/cf_hrms/leave-policies/:id', element: guarded(TAG.leave.view, <LeavePolicyDetail />) },
+    // Leave requests and balances (spec §22.6). A request opens in a sheet over the list.
+    { path: '/:company/cf_hrms/leave-requests', element: guarded(TAG.leave.view, <LeaveRequests />) },
+    { path: '/:company/cf_hrms/leave-requests/:id', element: guarded(TAG.leave.view, <LeaveRequestDetail />) },
+    { path: '/:company/cf_hrms/leave-balances', element: guarded(TAG.leave.view, <LeaveBalances />) },
 
     // Time and leave — not built yet. Reachable by address only.
     { path: '/:company/cf_hrms/attendance', element: guarded(TAG.time.view, <Attendance />) },
     { path: '/:company/cf_hrms/roster', element: guarded(TAG.time.view, <Roster />) },
-    { path: '/:company/cf_hrms/leave-requests', element: guarded(TAG.leave.view, <LeaveRequests />) },
-    { path: '/:company/cf_hrms/leave-requests/:id', element: guarded(TAG.leave.view, <LeaveRequestDetail />) },
-    { path: '/:company/cf_hrms/leave-balances', element: guarded(TAG.leave.view, <LeaveBalances />) },
 
     // Setup
     { path: '/:company/cf_hrms/code-formats', element: guarded(TAG.setup.view, <CodeFormats />) },

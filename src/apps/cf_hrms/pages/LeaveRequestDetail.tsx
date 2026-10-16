@@ -1,20 +1,11 @@
-import { PageHeader, EmptyState } from '@shared/ui';
+import { Navigate, useParams } from 'react-router-dom';
 
 /**
- * Leave request — one request.
- *
- * STUB. The route, nav entry and breadcrumb are already wired; this file is the
- * only thing left to build. See TM/CF_HRMS_PLAN.md for the model and
- * DESIGN_SYSTEM.md §4 for the archetype this screen should follow.
+ * A leave request's own address. A request is read in a side sheet over the
+ * list (CF_HRMS_HIRING_SPEC.md §22.6), so its address opens the list with that
+ * sheet open; Back and a bookmark both work.
  */
 export default function LeaveRequestDetail() {
-  return (
-    <>
-      <PageHeader title="Leave request" subtitle="one request" />
-      <EmptyState
-        title="Not built yet"
-        hint="This screen is scaffolded but has no content. See CF_HRMS_PLAN.md."
-      />
-    </>
-  );
+  const { company = '', id = '' } = useParams<{ company: string; id: string }>();
+  return <Navigate to={`/${company}/cf_hrms/leave-requests?open=${encodeURIComponent(id)}`} replace />;
 }

@@ -13,10 +13,10 @@
  * The clean-up removed every screen that was a second way to do something
  * (Work assignments, Work contexts, Manpower, Open points, Import, Leave types,
  * Contractors) and folded ten small screens into two with tabs (Libraries,
- * Logins and access). Four screens that are not built yet — Attendance, Roster,
- * Leave requests, Leave balances — keep their routes but have NO entry here, so
- * neither the menu nor the command palette offers them. routes.tsx redirects
- * every old address.
+ * Logins and access). Two screens that are not built yet — Attendance and
+ * Roster — keep their routes but have NO entry here, so neither the menu nor
+ * the command palette offers them. routes.tsx redirects every old address.
+ * Leave requests and Leave balances were built on 2026-10-16 (spec §22).
  */
 import type { NavSection, CountMetaMap } from '@shared/ui';
 
@@ -32,7 +32,7 @@ import { TAG, SCREEN_TAGS } from './access/can';
  *   positions  Org chart, Positions
  *   employees  Employees          hiring     Hiring          documents  Documents
  *   performance  Plans, Actuals, Reviews, Actions
- *   time       Shifts, Holidays   leave      Leave policies
+ *   time       Shifts, Holidays   leave      Leave requests, Leave balances, Leave policies
  *   setup      Code formats, Letters, Reporting types, Performance settings
  *
  * The plans path is ONE segment (`plans`, `plans/:id`): the shell matches a
@@ -71,6 +71,13 @@ const SELF = TAG.named.selfView;
  */
 export const SELF_ONLY = 'cf_hrms_self_only';
 
+/**
+ * A sentinel, not a tag: "this login has approvals waiting, or holds leave
+ * edit" (spec §22.6). It gates the Approvals entry; CfHrmsShell answers it from
+ * the pending count (`api/approvals.ts`) and the leave edit right.
+ */
+export const APPROVER = 'cf_hrms_approver';
+
 /** Every tag that opens an HR screen. Holding any of them = not self-only. */
 export const HR_SCREEN_TAGS = SCREEN_TAGS;
 
@@ -98,6 +105,10 @@ export const SECTIONS: NavSection[] = [
        * single entry would be a menu with one item in it.
        */
       { key: 'my-place', label: 'My place', path: 'my-place', permission: SELF, keywords: ['me', 'my job', 'my manager', 'who do i report to', 'my team', 'my responsibilities', 'self', 'profile'] },
+      // The person's own leave: balances, asking for leave, their requests (spec §22.6).
+      { key: 'my-leave', label: 'My leave', path: 'my-leave', permission: SELF, keywords: ['leave', 'apply for leave', 'ask for leave', 'holiday', 'day off', 'time off', 'balance', 'casual', 'sick', 'half day'] },
+      // What waits for this login to decide — today leave. Shown with a pending count.
+      { key: 'approvals', label: 'Approvals', path: 'approvals', permission: APPROVER, countKey: 'approvals', keywords: ['approve', 'reject', 'leave requests', 'waiting', 'pending', 'my team leave', 'decide'] },
     ],
   },
 
@@ -147,8 +158,8 @@ export const SECTIONS: NavSection[] = [
   },
 
   // ── When people work, and the leave they get ─────────────────────────────
-  // Attendance, Roster, Leave requests and Leave balances are not built yet.
-  // Their routes exist (routes.tsx) but they have no entry here on purpose.
+  // Attendance and Roster are not built yet. Their routes exist (routes.tsx)
+  // but they have no entry here on purpose.
   {
     key: 'time',
     label: 'Time and leave',
@@ -156,6 +167,10 @@ export const SECTIONS: NavSection[] = [
       { key: 'shifts', label: 'Shifts', path: 'shifts', permission: TIME, keywords: ['general', 'day', 'night', 'timing', 'weekly off', 'working days'] },
       { key: 'holidays', label: 'Holidays', path: 'holidays', permission: TIME, keywords: ['calendar', 'festival', 'off'] },
       // Leave types are managed inside a policy, so "casual", "sick" and the rest find this.
+      // Every request in scope, the same sheet as Approvals, and "Ask on behalf" (spec §22.6).
+      { key: 'leave-requests', label: 'Leave requests', path: 'leave-requests', hasDetail: true, permission: LEAVE, keywords: ['leave', 'apply', 'approve', 'reject', 'cancel', 'on behalf', 'who is off', 'absent'] },
+      // Person × leave type for one year; opening balances by hand or by Excel.
+      { key: 'leave-balances', label: 'Leave balances', path: 'leave-balances', permission: LEAVE, keywords: ['balance', 'opening balance', 'carry forward', 'available', 'taken', 'excel', 'leave year'] },
       { key: 'leave-policies', label: 'Leave policies', path: 'leave-policies', hasDetail: true, permission: LEAVE, keywords: ['casual leave', 'sick leave', 'earned leave', 'leave types', 'entitlement', 'carry forward', 'encash', 'maternity', 'days a year', 'policy'] },
     ],
   },
@@ -192,4 +207,6 @@ export const SECTIONS: NavSection[] = [
  */
 export const COUNT_META: CountMetaMap = {
   vacancies: { suffix: 'vacant' },
+  // Not from /overview/nav-counts: CfHrmsShell adds it from GET /user/me/approvals.
+  approvals: { tone: 'warning', suffix: 'waiting' },
 };

@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, useCallback, type ReactNode } from 'react';
 import PersonRounded from '@mui/icons-material/PersonRounded';
 import WorkOutlineRounded from '@mui/icons-material/WorkOutlineRounded';
 import AccountTreeRounded from '@mui/icons-material/AccountTreeRounded';
@@ -8,10 +8,11 @@ import {
   type Can, type PaletteAction, type PaletteRecord,
 } from '@shared/ui';
 import { HiringDialogProvider } from '../HiringDialog';
-import { SECTIONS, COUNT_META, SELF_ONLY } from '../../navMeta';
+import { SECTIONS, COUNT_META, SELF_ONLY, APPROVER } from '../../navMeta';
 import { TAG, useAccessWatch, useCan } from '../../access/can';
 import { MyAccessLine } from '../../access/Guard';
 import { fetchNavCounts } from '../../api/client';
+import { usePendingApprovals } from '../../api/approvals';
 import { peopleApi } from '../../api/people';
 import { orgChartApi } from '../../api/orgchart';
 // Side effect: registers every cf_hrms status with its tone and label, so a
@@ -93,13 +94,20 @@ export function CfHrmsShell({ children }: { children: ReactNode }) {
    */
   useAccessWatch();
   const access = useCan();
+  /**
+   * Approvals (spec §22.6): asked for any login that could have some — the self
+   * view (a manager is an employee) or leave edit (HR, the Owner). The count is
+   * the nav badge, and it decides whether the entry shows at all.
+   */
+  const pendingApprovals = usePendingApprovals(access.named.selfView || access.leave.edit);
   const can = useCallback<Can>(
     (tag?: string) => {
       // The employee's own Org chart entry: self view and no HR screen (navMeta.ts).
       if (tag === SELF_ONLY) return access.selfOnly;
+      if (tag === APPROVER) return access.leave.edit || (pendingApprovals ?? 0) > 0;
       return access.has(tag);
     },
-    [access],
+    [access, pendingApprovals],
   );
 
   // Advisory by contract: fetchNavCounts swallows its own failures and returns
@@ -113,6 +121,11 @@ export function CfHrmsShell({ children }: { children: ReactNode }) {
       live = false;
     };
   }, []);
+
+  const navCounts = useMemo(
+    () => (pendingApprovals ? { ...counts, approvals: pendingApprovals } : counts),
+    [counts, pendingApprovals],
+  );
 
   /**
    * What "Records" means in an HRMS: a person, and the content a role is written
@@ -193,7 +206,7 @@ export function CfHrmsShell({ children }: { children: ReactNode }) {
             appSlug="cf_hrms"
             sections={SECTIONS}
             brand={{ label: 'HRMS', initial: 'H' }}
-            counts={counts}
+            counts={navCounts}
             countMeta={COUNT_META}
             quickCreate={QUICK_CREATE}
             can={can}

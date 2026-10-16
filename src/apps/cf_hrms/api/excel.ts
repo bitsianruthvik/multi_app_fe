@@ -19,7 +19,8 @@ export type ExcelEntity =
   | 'library-skills'
   | 'library-qualifications'
   | 'library-authorities'
-  | 'actuals';
+  | 'actuals'
+  | 'leave-balances';
 
 export interface ExcelFile {
   fileName: string;

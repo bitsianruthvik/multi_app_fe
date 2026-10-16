@@ -16,8 +16,10 @@
  * fixes it.
  *
  * Only screens that are in the menu appear here (clean-up of 2026-10-12): the
- * cards for open points, leave to approve and attendance to mark went with
- * their screens, and come back when those screens are built.
+ * cards for open points and attendance to mark went with their screens, and
+ * come back when those screens are built. Leave to approve came back with
+ * Approvals (spec §22.6): "N approvals waiting", read from the same count as
+ * the nav badge (`api/approvals.ts`), not from /overview/home.
  *
  * ONE REQUEST. Everything comes from `GET /overview/home`; the counts are real
  * queries, not derived from a list the page happened to load. A permission the
@@ -36,6 +38,7 @@ import EventSeatRounded from '@mui/icons-material/EventSeatRounded';
 import PersonSearchRounded from '@mui/icons-material/PersonSearchRounded';
 import DescriptionRounded from '@mui/icons-material/DescriptionRounded';
 import GroupsRounded from '@mui/icons-material/GroupsRounded';
+import EventBusyRounded from '@mui/icons-material/EventBusyRounded';
 import BadgeRounded from '@mui/icons-material/BadgeRounded';
 import {
   PageHeader, StatStrip, SectionCard, EmptyState, ErrorNotice, EntityList, EntityRow,
@@ -44,6 +47,7 @@ import {
 } from '@shared/ui';
 import { useAuth } from '@core/contexts/AuthContext';
 import { getHomeOverview, type HomeOverview, type OverviewCounts } from '../api/overview';
+import { refreshPendingApprovals, usePendingApprovals } from '../api/approvals';
 import { HomeQueueCard, type QueueTone } from '../components/HomeQueueCard';
 import { TAG, useCan, type Area } from '../access/can';
 
@@ -71,8 +75,22 @@ interface Queue {
  * `count: undefined` means the caller cannot see that figure, and the card is
  * dropped. `count: 0` means there is nothing to do, and the card stays.
  */
-function queuesFor(c: OverviewCounts): Queue[] {
+function queuesFor(c: OverviewCounts, approvals: number | undefined): Queue[] {
   return [
+    {
+      key: 'approvals',
+      // Not an area right: shown to whoever has approvals, or holds leave edit (count set by the caller).
+      permission: '',
+      icon: <EventBusyRounded />,
+      title: 'Approvals waiting',
+      count: approvals,
+      unit: 'waiting for you',
+      description: 'Leave your team has asked for. People plan around the answer, so decide early.',
+      clearNote: 'Nothing is waiting for your decision.',
+      actionLabel: 'Decide',
+      path: 'approvals',
+      tone: 'warning',
+    },
     {
       key: 'rolesNoPurpose',
       permission: TAG.roles.view,
@@ -149,6 +167,7 @@ export default function Home() {
     setError(null);
     try {
       setData(await getHomeOverview());
+      void refreshPendingApprovals();
     } catch (e) {
       // Keep whatever was last shown. A cockpit that blanks itself on one bad
       // response is worse than one holding a figure a minute old.
@@ -163,6 +182,7 @@ export default function Home() {
   }, [load]);
 
   const c = data?.counts ?? {};
+  const pendingApprovals = usePendingApprovals(can.named.selfView || can.leave.edit);
   const firstName = user?.name?.split(' ')[0] || 'there';
 
   /* ── band 1: the shape of the organisation, each figure a door ─────────── */
@@ -193,7 +213,8 @@ export default function Home() {
   ].filter(Boolean) as Stat[];
 
   /* ── band 2: the queues ────────────────────────────────────────────────── */
-  const queues = queuesFor(c).filter((q) => q.count !== undefined && can.has(q.permission));
+  const shownApprovals = pendingApprovals != null && (pendingApprovals > 0 || can.leave.edit) ? pendingApprovals : undefined;
+  const queues = queuesFor(c, shownApprovals).filter((q) => q.count !== undefined && can.has(q.permission));
   // Non-empty first, each group keeping the appendix's consequence order. A
   // queue with nothing in it cannot go wrong, so it sorts below one that can.
   const ordered = [...queues.filter((q) => (q.count ?? 0) > 0), ...queues.filter((q) => !q.count)];
