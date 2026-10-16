@@ -13,6 +13,7 @@
  */
 import { api } from './client';
 import type { Effective, Rule } from './leave';
+import type { Scorecard } from './performance';
 
 /** How this line should be drawn. `is_formal` on the relationship type decides. */
 export type LineStyle = 'SOLID' | 'DOTTED';
@@ -353,3 +354,15 @@ export interface MyOrgChart {
 /** The signed-in person's slice of the org chart. The only call the employee chart makes. */
 export const getMyOrgChart = (on?: string) =>
   api.get<MyOrgChart>(`/user/me/orgchart${on ? `?on=${encodeURIComponent(on)}` : ''}`);
+
+/** My own KPIs at a glance (My place): my plan holding the day, else my job's. No id — it is always mine. */
+export const getMyScorecard = (on?: string) =>
+  api.get<Scorecard>(`/user/me/scorecard${on ? `?on=${encodeURIComponent(on)}` : ''}`);
+
+/**
+ * The KPIs of whoever sits in a position BELOW the signed-in person (their plan,
+ * else their job's) — by position, as this view never holds employee ids.
+ * 403 NOT_YOUR_TEAM for any other position.
+ */
+export const getTeamScorecard = (positionId: number, on?: string) =>
+  api.get<Scorecard>(`/user/me/team/positions/${positionId}/scorecard${on ? `?on=${encodeURIComponent(on)}` : ''}`);

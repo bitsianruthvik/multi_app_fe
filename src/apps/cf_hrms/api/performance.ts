@@ -206,6 +206,46 @@ export interface ChartBands {
   people: { employeeId: number; positionId: number | null; planId: number; periodName: string; score: number | null; band: Band; bandLabel: string; basedOn: BasedOn }[];
 }
 
+/* ── the org chart panel's scorecard (draft v1) ─────────────────────────── */
+
+export interface ScorecardKra {
+  /** Stable within one answer; what a KPI's `kraKey` points at. */ key: string;
+  name: string; /** "Artwork approval" for "Artwork approval & version control". */ short: string;
+  weightPercent: number | null; score: number | null; band: Band;
+}
+export interface ScorecardKpi {
+  key: string; /** null for a job KPI (no plan). */ kpiId: number | null; kraKey: string | null;
+  name: string; unit: string | null; direction: Direction;
+  /** "at least 95%" · the value alone, "95%" (the reader draws ▲ ▼ = from `direction`). */ target: string; targetShort: string;
+  actual: number | string | null;
+  /** "92% · average of 2 of 3 months"; null when nothing is entered yet. */ current: string | null;
+  combine: CombineRule | null; combineLabel: string | null; counted: number; slotCount: number;
+  achievement: number | null; band: Band; bandLabel: string;
+  /** The gap in words (scoring.js): "3 pts short", "₹2.1 L ahead", "12 min over", "on target", "met". */
+  gap: number | null; gapText: string | null;
+  /** A SUM KPI part-way through the period: held to the target pro rata. */
+  pace: 'ON_PACE' | 'BEHIND_PACE' | null; /** "Target pro-rated to 1 of 3 months: ₹4 L". */ paceNote: string | null;
+  /** What the row is coloured by (scoring.resultTone): met or beaten / not met but close / below / no actual. */
+  tone: ResultTone; toneLabel: string;
+}
+/** scoring.js resultTone: MET ≥ 100% · CLOSE ≥ the at-risk threshold · BELOW · NO_DATA. */
+export type ResultTone = 'MET' | 'CLOSE' | 'BELOW' | 'NO_DATA';
+export interface Scorecard {
+  employeeId: number | null; on: string; bands?: Bands;
+  /** /user/me/scorecard only: is this login an employee? */ linked?: boolean;
+  /** PLAN: their plan holding the day · JOB: no plan, the job's KPIs · NONE: no position either. */
+  source: 'PLAN' | 'JOB' | 'NONE';
+  plan: {
+    id: number; status: PlanStatus;
+    period: { id: number; name: string; frequency: Frequency; start: string; end: string; status: string };
+    score: number | null; band: Band; bandLabel: string; basedOn: BasedOn; scoreLine: string | null;
+    kpiCount: number; otherPlans: number; /** The score's result tone (same rule as a KPI's). */ tone: ResultTone;
+  } | null;
+  /** In KRA order; `kpis` follow the same order. */ kras: ScorecardKra[];
+  kpis: ScorecardKpi[];
+  line: string | null;
+}
+
 const q = (params: Record<string, string | number | null | undefined>) => {
   const s = new URLSearchParams();
   for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== null && v !== '') s.set(k, String(v));
@@ -243,6 +283,8 @@ export const performanceApi = {
   changeTarget: (id: number, kpiId: number, body: TargetChangeInput) => api.post<{ ok: true; effectiveFrom: string }>(`/performance/plans/${id}/kpis/${kpiId}/target`, body),
 
   employeePlans: (employeeId: number) => api.get<EmployeePlans>(`/performance/employees/${employeeId}/plans`),
+  /** The org chart panel's KPIs: the plan holding `on` (default today), else the job's KPIs. */
+  scorecard: (employeeId: number, on?: string | null) => api.get<Scorecard>(`/performance/employees/${employeeId}/scorecard${q({ on })}`),
 
   /** `search`: the address's own query string, e.g. "?periodId=3&slot=all&department=7". */
   actuals: (search: string) => api.get<ActualsGrid>(`/performance/actuals${search && !search.startsWith('?') ? `?${search}` : search}`),

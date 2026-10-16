@@ -22,6 +22,8 @@ import {
 import { usePositionCard } from './usePositionCard';
 import { inPanelLink, smallLabel, type PanelNav, type PanelView } from './orgChartPanelNav';
 import { ChartReviewSummary } from './performance/ChartReviewSummary';
+import { KpiScorecard } from './performance/KpiScorecard';
+import { performanceApi } from '../api/performance';
 
 /**
  * A person, in the org chart's floating panel — which is what a FILLED
@@ -30,7 +32,8 @@ import { ChartReviewSummary } from './performance/ChartReviewSummary';
  *
  * TOP TO BOTTOM: the person (code, joined, employment); the position they were
  * opened on (its code, shift with "Change shift", role, department) and who it
- * reports to; their other positions, if they hold several; contact details;
+ * reports to; their KPIs (performance view only: the plan holding the chart's
+ * day, else the job's — KpiScorecard); their other positions, if they hold several; contact details;
  * then the position's KRAs (the role's, fixed) with its responsibilities and
  * KPIs, edited at POSITION level; then the position's actions.
  *
@@ -438,6 +441,18 @@ export function OrgChartPersonView({
           {card && <PositionReportsTo card={card} nav={nav} titleOf={titleOf} />}
           {/* The latest rating and open actions (spec §20.3) — performance view only. */}
           {can.performance.view && <ChartReviewSummary employeeId={view.employeeId} company={company} />}
+        </Box>
+      )}
+
+      {/* Their KPIs: the plan holding the chart's day, else the job's — performance view only. */}
+      {can.performance.view && (
+        <Box sx={{ mt: 1.75 }} data-personkpis="">
+          <SectionTitle>KPIs</SectionTitle>
+          <KpiScorecard
+            reloadKey={`${view.employeeId}|${asOf}`}
+            load={() => performanceApi.scorecard(view.employeeId, asOf)}
+            planHref={(id) => `/${company}/cf_hrms/plans/${id}`}
+          />
         </Box>
       )}
 

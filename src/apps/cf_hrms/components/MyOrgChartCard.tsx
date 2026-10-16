@@ -5,13 +5,15 @@ import ArrowForwardRounded from '@mui/icons-material/ArrowForwardRounded';
 import { FactItem, Mono } from '@shared/ui';
 import { SeatJobContentEditor } from './SeatJobContentEditor';
 import { TeamShiftControl } from './TeamShiftControl';
-import type { MyOrgChart, SliceNode, SliceRelation } from '../api/self';
+import { getTeamScorecard, type MyOrgChart, type SliceNode, type SliceRelation } from '../api/self';
+import { KpiScorecard } from './performance/KpiScorecard';
 
 /**
  * The floating panel's body on the EMPLOYEE chart (pages/MyOrgChart.tsx).
  *
  * It renders from the slice payload the page already holds and from nothing
- * else: no fetch, no import of api/orgchart, api/positions or api/people, and
+ * else (one exception: a team position's KPIs, read through api/self's
+ * position-keyed `getTeamScorecard`): no other fetch, no import of api/orgchart, api/positions or api/people, and
  * no link to an HR screen a self-only login would get a 403 from. That is the
  * point of a separate card — the admin panel fetches
  * `/orgchart/positions/:id/card` and offers "Close or delete…", and reusing it
@@ -289,6 +291,16 @@ export function MyOrgChartCard({
                 onChanged={() => onChanged?.()}
               />
             </Box>
+            {picked.occupants.length > 0 && (
+              <Box data-teamkpis="" sx={{ mb: 1.5 }}>
+                <Typography sx={{ fontSize: 13, fontWeight: 600, mb: 0.5 }}>KPIs</Typography>
+                <KpiScorecard
+                  reloadKey={`${picked.id}|${slice.asOf}`}
+                  load={() => getTeamScorecard(picked.id, slice.asOf)}
+                  planHref={(id) => `/${company}/cf_hrms/my-place/team-plans/${id}`}
+                />
+              </Box>
+            )}
             <SeatJobContentEditor key={picked.id} positionId={picked.id} company={company} canManage embedded scope="team" />
           </Box>
         </Section>
