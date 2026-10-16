@@ -132,6 +132,7 @@ function sentence(it: HistoryItem): string {
     case 'SHIFT_CHANGED': return `Shift changed: ${it.from ?? '—'} → ${it.to ?? '—'}`;
     case 'PLACE_CHANGED': return `Place changed: ${it.from ?? '—'} → ${it.to ?? '—'}`;
     case 'TITLE_CHANGED': return `Title changed: ${it.from ?? '—'} → ${it.to ?? '—'}`;
+    case 'CODE_CHANGED': return `Code changed: ${it.from ?? '—'} → ${it.to ?? '—'}`;
     case 'REPORTS_TO': return `Reports to ${it.to ?? it.line ?? ''}`;
     case 'STOPPED_REPORTING_TO': return `No longer reports to ${it.from ?? it.line ?? ''}`;
     case 'STARTED_IN': return `Started in ${it.to ?? it.line ?? ''}`;

@@ -170,7 +170,7 @@ const subjectPath = (s: JobSubject, scope: JobContentScope) => (s.type === 'pers
 
 export type HistoryWhat =
   | 'ADDED' | 'REWORDED' | 'TARGET_CHANGED' | 'CHANGED' | 'SWITCHED_OFF' | 'RESTORED' | 'REMOVED'
-  | 'CREATED' | 'ROLE_CHANGED' | 'DEPARTMENT_CHANGED' | 'SHIFT_CHANGED' | 'PLACE_CHANGED' | 'TITLE_CHANGED'
+  | 'CREATED' | 'ROLE_CHANGED' | 'DEPARTMENT_CHANGED' | 'SHIFT_CHANGED' | 'PLACE_CHANGED' | 'TITLE_CHANGED' | 'CODE_CHANGED'
   | 'REPORTS_TO' | 'STOPPED_REPORTING_TO' | 'STARTED_IN' | 'LEFT_POSITION';
 
 export interface HistoryItem {
