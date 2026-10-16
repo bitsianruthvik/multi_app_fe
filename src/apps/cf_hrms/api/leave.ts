@@ -20,7 +20,10 @@ import { api } from './client';
  */
 
 export type LeaveBasis = 'PER_YEAR' | 'PER_EVENT' | 'UNLIMITED_UNPAID';
-export type LeaveAccrual = 'UPFRONT' | 'MONTHLY' | 'PER_DAYS_WORKED' | 'ON_REQUEST' | 'EARNED_BY_WORK';
+export type LeaveAccrual = 'UPFRONT' | 'MONTHLY' | 'PER_DAYS_WORKED' | 'ON_REQUEST' | 'EARNED_BY_WORK' | 'HALF_YEARLY';
+
+/** One step of a notice that depends on the length of the leave (§23.1). `upToDays` null = anything longer (the last step). */
+export interface NoticeTier { upToDays: number | null; days: number }
 export type CarryForward = 'NONE' | 'CAPPED' | 'ALL';
 export type AppliesTo = 'ANYONE' | 'WOMEN' | 'MEN';
 
@@ -39,6 +42,14 @@ export interface Rule { id?: number; leaveTypeId: number; leaveTypeCode: string;
   maxDaysAtOnce: number | null; minNoticeDays: number; halfDayAllowed: boolean; countDaysOffBetween: boolean;
   proofAfterDays: number | null; appliesTo: AppliesTo; maxTimesInService: number | null;
   expiresAfterDays: number | null; negativeBalanceAllowed: boolean; notes: string | null;
+  /** §23.1 — joined after this day of a month: that month does not count (MONTHLY, or when prorating). */
+  joiningCutoffDay: number | null;
+  /** §23.1 — MONTHLY: a month's credit is given on the first day of the next month. */
+  creditInArrears: boolean;
+  /** §23.1 — the notice by length; replaces minNoticeDays when set. */
+  noticeTiers: NoticeTier[] | null;
+  /** §23.1 — leave types that may not be next to this one. */
+  notWithLeaveTypeIds: number[];
   /** Written by the server, one or two plain sentences. */
   summary: string }
 
@@ -46,6 +57,8 @@ export interface Rule { id?: number; leaveTypeId: number; leaveTypeCode: string;
 export type RuleInput = Omit<Rule, 'id' | 'leaveTypeCode' | 'leaveTypeName' | 'isPaid' | 'summary'>;
 
 export interface PolicySummary { id: number; code: string | null; name: string; description: string | null; status: string; yearStartsMonth: number;
+  /** §23.1 — 'YYYY-MM-DD': nothing is earned before it. null = from the start. */
+  effectiveFrom?: string | null;
   leaveTypes: { code: string; name: string; days: number | null; basis: string }[];
   /** "Casual 12 · Sick 12 · Earned 15 · Maternity · Paternity" */ headline: string;
   usedBy: { company: boolean; locations: number; roles: number; labels?: number; positions: number } }
@@ -78,6 +91,8 @@ export const ruleInputOf = (r: Rule, sortOrder: number): RuleInput => ({
   maxDaysAtOnce: r.maxDaysAtOnce, minNoticeDays: r.minNoticeDays, halfDayAllowed: r.halfDayAllowed, countDaysOffBetween: r.countDaysOffBetween,
   proofAfterDays: r.proofAfterDays, appliesTo: r.appliesTo, maxTimesInService: r.maxTimesInService,
   expiresAfterDays: r.expiresAfterDays, negativeBalanceAllowed: r.negativeBalanceAllowed, notes: r.notes,
+  joiningCutoffDay: r.joiningCutoffDay ?? null, creditInArrears: r.creditInArrears ?? false,
+  noticeTiers: r.noticeTiers?.length ? r.noticeTiers : null, notWithLeaveTypeIds: r.notWithLeaveTypeIds ?? [],
 });
 
 /** A rule for a leave type just added to a policy: a number of days a year, all at the start, lapsing. */
@@ -89,6 +104,7 @@ export const blankRule = (t: LeaveType, sortOrder: number): Rule => ({
   maxDaysAtOnce: null, minNoticeDays: 0, halfDayAllowed: false, countDaysOffBetween: false,
   proofAfterDays: null, appliesTo: 'ANYONE', maxTimesInService: null,
   expiresAfterDays: null, negativeBalanceAllowed: false, notes: null,
+  joiningCutoffDay: null, creditInArrears: false, noticeTiers: null, notWithLeaveTypeIds: [],
   summary: '',
 });
 
@@ -107,7 +123,7 @@ export const leaveApi = {
   createPolicy: (body: { name: string; code?: string; description?: string; yearStartsMonth?: number; fromTemplate?: string; copyOf?: number }) =>
     api.post<{ policy: Policy }>('/leave/policies', body).then((r) => r.policy),
   /** `rules`, when sent, REPLACES the policy's rule set. 422 INVALID with problems[] per rule. */
-  updatePolicy: (id: number, body: { name?: string; description?: string | null; yearStartsMonth?: number; status?: string; rules?: RuleInput[] }) =>
+  updatePolicy: (id: number, body: { name?: string; description?: string | null; yearStartsMonth?: number; effectiveFrom?: string | null; status?: string; rules?: RuleInput[] }) =>
     api.put<{ policy: Policy }>(`/leave/policies/${id}`, body).then((r) => r.policy),
   /** 409 IN_USE, saying where it is assigned. */
   removePolicy: (id: number) => api.del<unknown>(`/leave/policies/${id}`),

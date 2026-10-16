@@ -37,6 +37,8 @@ interface Draft {
   name: string;
   description: string;
   yearStartsMonth: number;
+  /** 'YYYY-MM-DD', or '' for "from the start" (§23.1). */
+  effectiveFrom: string;
   status: string;
   rules: Rule[];
 }
@@ -45,6 +47,7 @@ const draftOf = (p: Policy): Draft => ({
   name: p.name,
   description: p.description ?? '',
   yearStartsMonth: p.yearStartsMonth ?? 1,
+  effectiveFrom: p.effectiveFrom ?? '',
   status: p.status,
   rules: [...(p.rules ?? [])].sort((a, b) => a.sortOrder - b.sortOrder),
 });
@@ -54,6 +57,7 @@ const payloadOf = (d: Draft) => ({
   name: d.name.trim(),
   description: d.description.trim() || null,
   yearStartsMonth: d.yearStartsMonth,
+  effectiveFrom: d.effectiveFrom || null,
   status: d.status,
   rules: d.rules.map((r, i) => ruleInputOf(r, i + 1)),
 });
@@ -159,7 +163,7 @@ export default function LeavePolicyDetail() {
             </Button>
           )}
         </Box>
-        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'minmax(0, 1.4fr) 1fr 1fr' }, gap: 1.5 }}>
+        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr', md: 'minmax(0, 1.4fr) 1fr 1fr 1fr' }, gap: 1.5 }}>
           <TextField size="small" label="Name" required value={draft.name} disabled={!canManage} onChange={(e) => set({ name: e.target.value })} />
           <TextField
             select
@@ -173,6 +177,16 @@ export default function LeavePolicyDetail() {
             <MenuItem value={4}>April to March</MenuItem>
             {![1, 4].includes(draft.yearStartsMonth) && <MenuItem value={draft.yearStartsMonth}>Starts in month {draft.yearStartsMonth}</MenuItem>}
           </TextField>
+          <TextField
+            size="small"
+            type="date"
+            label="Takes effect"
+            value={draft.effectiveFrom}
+            disabled={!canManage}
+            onChange={(e) => set({ effectiveFrom: e.target.value })}
+            helperText="Nothing is earned before it. Blank: from the start."
+            slotProps={{ inputLabel: { shrink: true } }}
+          />
           <TextField select size="small" label="Status" value={draft.status} disabled={!canManage} onChange={(e) => set({ status: e.target.value })}>
             <MenuItem value="DRAFT">Draft — cannot be applied yet</MenuItem>
             <MenuItem value="ACTIVE">Active — can be applied</MenuItem>
@@ -246,6 +260,7 @@ export default function LeavePolicyDetail() {
               rule={r}
               canEdit={canManage}
               canRemove={canRemove && canManage}
+              leaveTypes={types}
               onChange={(next) => setRule(i, next)}
               onRemove={() => set({ rules: draft.rules.filter((_, j) => j !== i) })}
             />

@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { Box, Checkbox, FormControlLabel, IconButton, InputAdornment, MenuItem, TextField, Tooltip, Typography } from '@mui/material';
+import { Box, Button, Checkbox, FormControlLabel, IconButton, InputAdornment, MenuItem, TextField, Tooltip, Typography } from '@mui/material';
+import AddRounded from '@mui/icons-material/AddRounded';
+import CloseRounded from '@mui/icons-material/CloseRounded';
 import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
 import { Surface, ToneBadge, errorProblems } from '@shared/ui';
-import { leaveApi, ruleInputOf, type LeaveAccrual, type LeaveBasis, type Rule } from '../api/leave';
+import { leaveApi, ruleInputOf, type LeaveAccrual, type LeaveBasis, type NoticeTier, type Rule } from '../api/leave';
 
 /**
  * One leave type inside a leave policy (CF_HRMS_HIRING_SPEC.md §8.4).
@@ -34,11 +36,12 @@ const ACCRUAL_LABEL: Record<LeaveAccrual, string> = {
   PER_DAYS_WORKED: 'One day for every so many days worked',
   ON_REQUEST: 'Given when it happens',
   EARNED_BY_WORK: 'Credited when a holiday or weekly off is worked',
+  HALF_YEARLY: 'Twice a year (start of the year and of month 7)',
 };
 
 /** Which ways of earning go with which basis. */
 const ACCRUALS: Record<LeaveBasis, LeaveAccrual[]> = {
-  PER_YEAR: ['UPFRONT', 'MONTHLY', 'PER_DAYS_WORKED', 'EARNED_BY_WORK'],
+  PER_YEAR: ['UPFRONT', 'MONTHLY', 'HALF_YEARLY', 'PER_DAYS_WORKED', 'EARNED_BY_WORK'],
   PER_EVENT: ['ON_REQUEST'],
   UNLIMITED_UNPAID: ['ON_REQUEST'],
 };
@@ -95,18 +98,67 @@ function Tick({ label, checked, onChange, disabled }: { label: ReactNode; checke
   );
 }
 
+/**
+ * The notice by length (§23.1): one row per step — "Up to 3 days: ask 7 days ahead" —
+ * and the last row for anything longer. Steps are added before the last.
+ */
+function NoticeTiers({ tiers, onChange, disabled }: { tiers: NoticeTier[]; onChange: (next: NoticeTier[]) => void; disabled: boolean }) {
+  const setTier = (i: number, patch: Partial<NoticeTier>) => onChange(tiers.map((t, j) => (j === i ? { ...t, ...patch } : t)));
+  const addStep = () => {
+    const before = tiers.slice(0, -1);
+    const longest = before.length ? (before[before.length - 1].upToDays ?? 0) : 0;
+    onChange([...before, { upToDays: longest + 1, days: tiers[tiers.length - 1]?.days ?? 0 }, tiers[tiers.length - 1] ?? { upToDays: null, days: 0 }]);
+  };
+  return (
+    <Box data-noticetiers="" sx={{ display: 'grid', gap: 1, gridColumn: '1 / -1' }}>
+      {tiers.map((t, i) => {
+        const last = i === tiers.length - 1;
+        return (
+          <Box key={i} sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 1 }}>
+            {last ? (
+              <Typography sx={{ fontSize: 13.5, minWidth: 150 }}>{tiers.length > 1 ? 'Anything longer' : 'Any length'}</Typography>
+            ) : (
+              <Box sx={{ width: 150 }}>
+                <DaysField label="Up to" value={t.upToDays} disabled={disabled} onChange={(upToDays) => setTier(i, { upToDays })} />
+              </Box>
+            )}
+            <Box sx={{ width: 190 }}>
+              <DaysField label="Ask at least" unit="days ahead" value={t.days} disabled={disabled} onChange={(v) => setTier(i, { days: v ?? 0 })} />
+            </Box>
+            {!last && !disabled && (
+              <Tooltip title="Remove this step">
+                <IconButton size="small" aria-label={`Remove the step up to ${t.upToDays ?? ''} days`} onClick={() => onChange(tiers.filter((_, j) => j !== i))}>
+                  <CloseRounded fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            )}
+          </Box>
+        );
+      })}
+      {!disabled && tiers.length < 10 && (
+        <Box>
+          <Button size="small" startIcon={<AddRounded />} onClick={addStep}>Add a step</Button>
+        </Box>
+      )}
+    </Box>
+  );
+}
+
 export function LeaveRuleCard({
   rule,
   onChange,
   onRemove,
   canEdit,
   canRemove,
+  leaveTypes = [],
 }: {
   rule: Rule;
   onChange: (next: Rule) => void;
   onRemove: () => void;
   canEdit: boolean;
   canRemove: boolean;
+  /** The company's leave types — for "Cannot be next to". */
+  leaveTypes?: { id: number; name: string; status?: string }[];
 }) {
   const [summary, setSummary] = useState(rule.summary ?? '');
   const [problems, setProblems] = useState<string[]>([]);
@@ -157,7 +209,7 @@ export function LeaveRuleCard({
       accrual,
       // What the new basis has no use for is cleared, so nothing hidden is saved.
       ...(basis === 'UNLIMITED_UNPAID' ? { days: null } : {}),
-      ...(basis !== 'PER_YEAR' ? { carryForward: 'NONE' as const, carryForwardCapDays: null, encashable: false, encashCapDays: null, prorateOnJoining: false, daysWorkedPerLeaveDay: null, expiresAfterDays: null } : {}),
+      ...(basis !== 'PER_YEAR' ? { carryForward: 'NONE' as const, carryForwardCapDays: null, encashable: false, encashCapDays: null, prorateOnJoining: false, daysWorkedPerLeaveDay: null, expiresAfterDays: null, joiningCutoffDay: null, creditInArrears: false } : {}),
       ...(basis !== 'PER_EVENT' ? { maxTimesInService: null } : {}),
     });
   };
@@ -166,6 +218,8 @@ export function LeaveRuleCard({
       accrual,
       ...(accrual !== 'PER_DAYS_WORKED' ? { daysWorkedPerLeaveDay: null } : { days: null }),
       ...(accrual !== 'EARNED_BY_WORK' ? { expiresAfterDays: null } : { days: null, prorateOnJoining: false }),
+      ...(accrual !== 'MONTHLY' ? { creditInArrears: false } : {}),
+      ...(accrual === 'PER_DAYS_WORKED' || accrual === 'EARNED_BY_WORK' || (accrual !== 'MONTHLY' && !rule.prorateOnJoining) ? { joiningCutoffDay: null } : {}),
     });
 
   const perYear = rule.basis === 'PER_YEAR';
@@ -173,6 +227,12 @@ export function LeaveRuleCard({
   const unpaid = rule.basis === 'UNLIMITED_UNPAID';
   const fixedDays = !unpaid && rule.accrual !== 'PER_DAYS_WORKED' && rule.accrual !== 'EARNED_BY_WORK';
   const keepsABalance = perYear;
+  const prorates = perYear && (rule.accrual === 'UPFRONT' || rule.accrual === 'MONTHLY' || rule.accrual === 'HALF_YEARLY');
+  // The joining cut-off: a MONTHLY rule always skips a late joining month; the others only when they prorate.
+  const showCutoff = perYear && (rule.accrual === 'MONTHLY' || ((rule.accrual === 'UPFRONT' || rule.accrual === 'HALF_YEARLY') && rule.prorateOnJoining));
+  const tiers = rule.noticeTiers?.length ? rule.noticeTiers : null;
+  const otherTypes = leaveTypes.filter((t) => t.id !== rule.leaveTypeId && (t.status !== 'INACTIVE' || rule.notWithLeaveTypeIds.includes(t.id)));
+  const nameOfType = (id: number) => leaveTypes.find((t) => t.id === id)?.name ?? `Leave type ${id}`;
 
   return (
     <Surface e={1} data-leaverule={rule.leaveTypeCode} sx={{ p: { xs: 1.5, sm: 2 } }}>
@@ -260,15 +320,35 @@ export function LeaveRuleCard({
               onChange={(v) => set({ waitDaysAfterJoining: v ?? 0 })}
             />
           )}
+          {showCutoff && (
+            <DaysField
+              label="Joined after day … of a month"
+              unit="of the month"
+              value={rule.joiningCutoffDay}
+              disabled={disabled}
+              helperText="That month does not count. Blank: it always counts."
+              onChange={(joiningCutoffDay) => set({ joiningCutoffDay })}
+            />
+          )}
         </Box>
         {!unpaid && (
           <Box sx={{ display: 'grid', gap: 0.25, mt: 1 }}>
-            {perYear && (rule.accrual === 'UPFRONT' || rule.accrual === 'MONTHLY') && (
+            {prorates && (
               <Tick
-                label="Someone who joins part-way through the year gets a share for the months left"
+                label={rule.accrual === 'HALF_YEARLY'
+                  ? 'Someone who joins part-way through a half-year gets a share for the months left in it'
+                  : 'Someone who joins part-way through the year gets a share for the months left'}
                 checked={rule.prorateOnJoining}
                 disabled={disabled}
-                onChange={(prorateOnJoining) => set({ prorateOnJoining })}
+                onChange={(prorateOnJoining) => set({ prorateOnJoining, ...(!prorateOnJoining && rule.accrual !== 'MONTHLY' ? { joiningCutoffDay: null } : {}) })}
+              />
+            )}
+            {perYear && rule.accrual === 'MONTHLY' && (
+              <Tick
+                label="Credited at the start of the next month (a month’s share is given once the month is over)"
+                checked={rule.creditInArrears}
+                disabled={disabled}
+                onChange={(creditInArrears) => set({ creditInArrears })}
               />
             )}
             <Tick label="Can be taken during probation" checked={rule.allowedInProbation} disabled={disabled} onChange={(allowedInProbation) => set({ allowedInProbation })} />
@@ -331,14 +411,16 @@ export function LeaveRuleCard({
             helperText="Blank: no limit."
             onChange={(maxDaysAtOnce) => set({ maxDaysAtOnce })}
           />
-          <DaysField
-            label="Ask at least"
-            unit="days ahead"
-            value={rule.minNoticeDays || null}
-            disabled={disabled}
-            helperText="Blank: no notice needed."
-            onChange={(v) => set({ minNoticeDays: v ?? 0 })}
-          />
+          {!tiers && (
+            <DaysField
+              label="Ask at least"
+              unit="days ahead"
+              value={rule.minNoticeDays || null}
+              disabled={disabled}
+              helperText="Blank: no notice needed."
+              onChange={(v) => set({ minNoticeDays: v ?? 0 })}
+            />
+          )}
           <DaysField
             label="Proof needed beyond"
             value={rule.proofAfterDays}
@@ -361,8 +443,54 @@ export function LeaveRuleCard({
               onChange={(maxTimesInService) => set({ maxTimesInService })}
             />
           )}
+          {otherTypes.length > 0 && (
+            <TextField
+              select
+              size="small"
+              label="Cannot be next to"
+              value={rule.notWithLeaveTypeIds}
+              disabled={disabled}
+              helperText="Not touching it, even with only days off between. Blank: any."
+              slotProps={{
+                inputLabel: { shrink: true },
+                select: {
+                  multiple: true,
+                  displayEmpty: true,
+                  renderValue: (v) => {
+                    const ids = v as number[];
+                    return ids.length ? ids.map(nameOfType).join(', ') : <Box component="span" sx={{ color: 'var(--c-text-2)' }}>Any leave</Box>;
+                  },
+                },
+              }}
+              onChange={(e) => {
+                const v = e.target.value as unknown;
+                const ids = (Array.isArray(v) ? v : String(v).split(',')).map(Number).filter((n) => Number.isInteger(n) && n > 0);
+                set({ notWithLeaveTypeIds: [...new Set(ids)].sort((a, b) => a - b) });
+              }}
+            >
+              {otherTypes.map((t) => (
+                <MenuItem key={t.id} value={t.id}>
+                  <Checkbox size="small" sx={{ py: 0, pl: 0 }} checked={rule.notWithLeaveTypeIds.includes(t.id)} />
+                  {t.name}
+                </MenuItem>
+              ))}
+            </TextField>
+          )}
+          {tiers && <NoticeTiers tiers={tiers} disabled={disabled} onChange={(noticeTiers) => set({ noticeTiers })} />}
         </Box>
         <Box sx={{ display: 'grid', gap: 0.25, mt: 1 }}>
+          <Tick
+            label="The notice depends on how long the leave is"
+            checked={!!tiers}
+            disabled={disabled}
+            onChange={(on) =>
+              set(
+                on
+                  ? { noticeTiers: [{ upToDays: 3, days: rule.minNoticeDays || 0 }, { upToDays: null, days: rule.minNoticeDays || 0 }], minNoticeDays: 0 }
+                  : { noticeTiers: null, minNoticeDays: tiers?.[0]?.days ?? 0 },
+              )
+            }
+          />
           <Tick label="Half days can be taken" checked={rule.halfDayAllowed} disabled={disabled} onChange={(halfDayAllowed) => set({ halfDayAllowed })} />
           <Tick
             label="A weekly off or holiday between two leave days counts as leave"
