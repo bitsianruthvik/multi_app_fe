@@ -1,10 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Box, Button, IconButton, MenuItem, TextField, ToggleButton, ToggleButtonGroup, Typography } from '@mui/material';
+import { Box, Button, Checkbox, FormControlLabel, IconButton, MenuItem, TextField, ToggleButton, ToggleButtonGroup, Typography } from '@mui/material';
 import AddRounded from '@mui/icons-material/AddRounded';
 import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
 import { cfApi, qs } from '../api/client';
 import type { Batch, MasterRecord, Party, PurchaseLine, PurchaseOrder, Resolution, SalesOrder, StockingArea } from '../api/types';
 import { setLineOrders, type HeldReceipt } from '../api/procurement';
+
+/** §68: what a receipt on a customer's PO says beside the holds — the extra kept to go back, a substitute sent to the MD. */
+export interface ReceiveExtra { extra: string | null; substitute: string | null }
 import { useLoad } from '../hooks/useLoad';
 import { qtyText } from '../lib/inventory';
 import type { ItemPrices } from '../api/money';
@@ -117,9 +120,15 @@ export function AddPurchaseLineDialog({ orderId, forOrder, onClose, onAdded }: {
 const EPS = 1e-6;
 
 /** Booking a delivery against one line — an ordinary stock receipt underneath. */
-export function ReceiveLineDialog({ line, orderCode, onClose, onReceived }: {
-  line: PurchaseLine | null; orderCode: string | null; onClose: () => void; onReceived: (p: PurchaseOrder, held: HeldReceipt[]) => void;
+export function ReceiveLineDialog({ line, orderCode, onClose, onReceived, customer = false }: {
+  line: PurchaseLine | null; orderCode: string | null; onClose: () => void;
+  onReceived: (p: PurchaseOrder, held: HeldReceipt[], extra?: ReceiveExtra) => void;
+  /** §68: the customer's own PO — more than asked may come (it is listed to go back), and a different item, with a reason. */
+  customer?: boolean;
 }) {
+  const [other, setOther] = useState(false);
+  const [subItem, setSubItem] = useState<MasterRecord | null>(null);
+  const [subReason, setSubReason] = useState('');
   const areas = useLoad(() => cfApi.get<StockingArea[]>('/stocking-areas'), []);
   const usable = useMemo(() => (areas.data ?? []).filter((a) => a.status === 'active' && a.purpose !== 'quarantine'), [areas.data]);
   const [quantity, setQuantity] = useState('');
@@ -146,6 +155,7 @@ export function ReceiveLineDialog({ line, orderCode, onClose, onReceived }: {
     setQuantity(String(line.outstanding)); setSupplierRef(''); setReference('');
     setUnitCost(line.unitPrice == null ? '' : String(line.unitPrice));
     setMode('new'); setBatchId(''); setValues({});
+    setOther(false); setSubItem(null); setSubReason('');
   }, [line?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { setAreaId((a) => a || String(usable[0]?.id ?? '')); }, [usable]);
 
@@ -155,17 +165,19 @@ export function ReceiveLineDialog({ line, orderCode, onClose, onReceived }: {
   // have accepted, and only counts fields there is somewhere to type.
   const qty = Number(quantity);
   const left = line?.outstanding ?? 0;
-  const newBatch = byBatch && mode === 'new';
+  const newBatch = byBatch && mode === 'new' && !other;
   const stillNeeded = new Set((template.data?.missingRequired ?? []).map((m) => m.code));
   const missing = newBatch ? fields.filter((s) => stillNeeded.has(s.spec.code) && !String(values[s.spec.id] ?? '').trim()) : [];
   const waitingForTemplate = newBatch && template.loading && !template.data;
   const blocked = !line ? 'Nothing to receive.'
     : !quantity.trim() || !Number.isFinite(qty) || qty <= 0 ? 'Type how much arrived.'
-      : qty > left + EPS ? `Only ${qtyText(left)} ${line.item.uom} of this line is still outstanding.`
+      : qty > left + EPS && !customer ? `Only ${qtyText(left)} ${line.item.uom} of this line is still outstanding.`
         : !areaId ? 'Say which area it went into.'
+          : other && !subItem ? 'Choose the item the customer sent.'
+            : other && !subReason.trim() ? 'Say why a different item came.'
           : waitingForTemplate ? 'Checking what this item records per batch…'
             : newBatch && template.error ? 'What this item records per batch could not be loaded — try again.'
-              : byBatch && mode === 'existing' && !batchId ? 'Choose the batch it is being added to.'
+              : byBatch && mode === 'existing' && !batchId && !other ? 'Choose the batch it is being added to.'
                 : missing.length ? `${missing.map((s) => s.spec.name).join(', ')} ${missing.length === 1 ? 'is' : 'are'} required for a new batch.`
                   : null;
 
@@ -174,14 +186,16 @@ export function ReceiveLineDialog({ line, orderCode, onClose, onReceived }: {
     const batch = mode === 'existing'
       ? undefined
       : { supplierRef: supplierRef || null, values: Object.entries(values).filter(([, v]) => v !== '').map(([id, v]) => ({ specificationId: Number(id), value: v })) };
-    const r = await cfApi.post<{ order: PurchaseOrder; held?: HeldReceipt[] }>(`/purchase-lines/${line.id}/receive`, {
+    const r = await cfApi.post<{ order: PurchaseOrder; held?: HeldReceipt[]; extra?: { quantity: number; text: string }; substitute?: { message: string } }>(`/purchase-lines/${line.id}/receive`, {
       quantity, stockingAreaId: areaId, reference: reference || null,
       // Prefilled from the line's price; typed over if the invoice says otherwise. Empty = the line's price, or not costed.
-      ...(unitCost.trim() ? { unitCost: unitCost.trim() } : {}),
-      batchId: byBatch && mode === 'existing' ? Number(batchId) : undefined,
-      batch: byBatch && mode === 'new' ? batch : undefined,
+      ...(unitCost.trim() && !customer ? { unitCost: unitCost.trim() } : {}),
+      ...(other && subItem ? { substituteItemId: subItem.id, substituteReason: subReason.trim() } : {
+        batchId: byBatch && mode === 'existing' ? Number(batchId) : undefined,
+        batch: byBatch && mode === 'new' ? batch : undefined,
+      }),
     });
-    onReceived(r.order, r.held ?? []);
+    onReceived(r.order, r.held ?? [], { extra: r.extra?.text ?? null, substitute: r.substitute?.message ?? null });
   };
   return (
     <FormDialog open={!!line} title="Book a delivery" onClose={onClose} onSubmit={save} submitLabel="Receive" maxWidth="sm" submitDisabled={!!blocked}
@@ -195,10 +209,28 @@ export function ReceiveLineDialog({ line, orderCode, onClose, onReceived }: {
           {usable.map((a) => <MenuItem key={a.id} value={String(a.id)}>{a.code} · {a.name}</MenuItem>)}
         </TextField>
         <TextField label="Delivery note" value={reference} onChange={(e) => setReference(e.target.value)} helperText="The supplier document number" />
-        <TextField label="Unit cost (₹)" value={unitCost} onChange={(e) => setUnitCost(e.target.value)} inputProps={{ inputMode: 'decimal', style: { fontFamily: 'var(--font-mono)' } }}
-          helperText={line?.unitPrice != null ? `The line's price is ${priceText(line.unitPrice)}. Change it if the invoice differs.` : 'The line has no price — empty books it as not costed.'} />
+        {!customer && <TextField label="Unit cost (₹)" value={unitCost} onChange={(e) => setUnitCost(e.target.value)} inputProps={{ inputMode: 'decimal', style: { fontFamily: 'var(--font-mono)' } }}
+          helperText={line?.unitPrice != null ? `The line's price is ${priceText(line.unitPrice)}. Change it if the invoice differs.` : 'The line has no price — empty books it as not costed.'} />}
       </Box>
-      {byBatch && (
+      {customer && (
+        <Box data-testid="receive-customer" sx={{ display: 'grid', gap: 1 }}>
+          <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)' }}>
+            The customer's own material: it is kept as their stock, at no cost to us. If more comes than asked, the extra stays theirs, is not earmarked, and is listed to go back to them.
+          </Typography>
+          <FormControlLabel control={<Checkbox checked={other} onChange={(e) => setOther(e.target.checked)} inputProps={{ 'aria-label': 'The customer sent a different item' }} />}
+            label={<Typography sx={{ fontSize: 13 }}>The customer sent a different item</Typography>} />
+          {other && (
+            <Box sx={{ pl: 1.5, borderLeft: '2px solid var(--c-warning-200)', display: 'grid', gap: 1.25 }}>
+              <RecordPicker kinds={['catalog']} value={subItem} onChange={setSubItem} label="What came" activeOnly helperText="For example the 12 mm plate" />
+              <TextField label="Why" value={subReason} onChange={(e) => setSubReason(e.target.value)} placeholder="Customer sent 12 mm instead of 11 mm" />
+              <Typography data-testid="receive-substitute-note" sx={{ fontSize: 12.5, color: 'var(--c-warning-800)' }}>
+                It goes to the MD as a plate change. Until it is approved the lot is on hold — production cannot use it. If it is not approved, it goes back to the customer.
+              </Typography>
+            </Box>
+          )}
+        </Box>
+      )}
+      {byBatch && !other && (
         <Box sx={{ pl: 1.5, borderLeft: '2px solid var(--c-primary-200)', display: 'grid', gap: 1.5 }}>
           <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)' }}>This item is kept by batch — say which batch arrived.</Typography>
           <ToggleButtonGroup exclusive size="small" value={mode} onChange={(_, v) => v && setMode(v)} aria-label="Batch">

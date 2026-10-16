@@ -21,6 +21,7 @@ import { StockViewTotals } from '../components/StockViewTotals';
 import { PieceHistoryDialog } from '../components/PieceHistoryDialog';
 import { MovementButtons } from '../components/MovementButtons';
 import { useToast } from '../components/toastContext';
+import { CustomerMaterialStatus } from '../components/Purchase/CustomerMaterialStatus';
 
 const MOVE_TYPES: MovementType[] = ['receipt', 'issue', 'transfer', 'adjustment', 'scrap'];
 const KINDS: { value: '' | 'standard' | 'custom'; label: string }[] = [
@@ -123,6 +124,10 @@ export default function Stock() {
           isOptionEqualToValue={(a, b) => a.id === b.id} onChange={(_, a) => setAreaParam(a ? String(a.id) : '')} sx={{ flex: '1 1 220px', maxWidth: 320, minWidth: 0 }}
           renderInput={(p) => <TextField {...p} label="Stocking area" inputProps={{ ...p.inputProps, 'data-testid': 'area-filter' }} />} />
       </Box>
+      {/* The customer view (§68): what of theirs is to go back, and the different items they sent. */}
+      {(owner === 'customer' || /^\d+$/.test(owner)) && (
+        <Box data-testid="stock-customer-status" sx={{ mb: 2 }}><CustomerMaterialStatus partyId={owner === 'customer' ? null : Number(owner)} /></Box>
+      )}
       <ErrorNotice error={list.error} onRetry={list.reload} />
       <StockViewTable rows={list.rows} showOwner={showOwner} loading={!list.loaded && !list.error} sort={list.sort} onSort={list.setSort} onOpenPiece={setPiece}
         footer={list.hasMore && (

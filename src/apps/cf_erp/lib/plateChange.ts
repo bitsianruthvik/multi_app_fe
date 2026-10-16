@@ -19,7 +19,8 @@ export function statusBadge(r: Pick<PlateChangeRequest, 'status' | 'stale' | 'st
 }
 
 /** "12 mm × 3,000 × 1,500" — a plate's size, the way the shop says it. */
-export const plateSize = (p: Pick<ImpactPlate, 'thickness' | 'length' | 'width'>) => `${Number(p.thickness)} mm × ${group(Math.round(p.length))} × ${group(Math.round(p.width))}`;
+export const plateSize = (p: Pick<ImpactPlate, 'thickness' | 'length' | 'width'>) => (p.thickness == null ? 'size not known'
+  : p.length == null || p.width == null ? `${Number(p.thickness)} mm` : `${Number(p.thickness)} mm × ${group(Math.round(p.length))} × ${group(Math.round(p.width))}`);
 
 /** A cost, or "not costed" — never ₹0 for a price nobody has said. */
 export const costWord = (v: number | null | undefined) => rupeeText(v ?? null);

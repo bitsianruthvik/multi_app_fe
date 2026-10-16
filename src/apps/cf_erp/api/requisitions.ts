@@ -67,7 +67,7 @@ export interface ReqHold { id: number; quantity: number; batch: { id: number; co
 
 export interface ReqPurchase {
   allocationId: number;
-  purchaseOrder: { id: number; code: string; status: string };
+  purchaseOrder: { id: number; code: string; status: string; suppliedByCustomer?: boolean };
   purchaseLineId: number;
   supplier: { id: number; name: string } | null;
   quantity: number;
@@ -130,6 +130,8 @@ export interface LineWithout {
   supply?: MaterialSupply;
   supplyLabel?: string;
   ownSupply?: MaterialSupply | null;
+  /** §68: the customer's promised date the raise proposes (the line's committed date, else the order's). */
+  customerDateDefault?: string | null;
   canRaise: boolean;
   reason: string | null;
   materials: { item: ReqItem; need: number }[];
@@ -247,7 +249,33 @@ export const getOrderRequisitions = (orderId: number) => cfApi.get<OrderRequisit
  * `lineIds`. `earmark: true` earmarks free stock as it raises (the screen's "Raise the MR"); a line the customer
  * supplies always takes the customer's own lots and gets a purchase order to the customer for the rest.
  */
-export const raiseRequisitions = (orderId: number, body: { lineIds?: number[]; notes?: string | null; earmark?: boolean } = {}) => cfApi.post<OrderRequisitions>(`/orders/${orderId}/requisitions`, body);
+export const raiseRequisitions = (orderId: number, body: { lineIds?: number[]; notes?: string | null; earmark?: boolean; customerDate?: string } = {}) => cfApi.post<OrderRequisitions>(`/orders/${orderId}/requisitions`, body);
+/** §68: the date the customer promised to send the material on their PO (a PO made before dates were asked). */
+export const setPromisedDate = (poId: number, date: string) => cfApi.put<PurchaseOrder>(`/purchase-orders/${poId}`, { expectedDate: date });
+
+/** §68: customer material to go back (extra, a substitute not accepted) and the substitutes, worked out on the read. */
+export interface CustomerReturnRow {
+  party: { id: number; name: string | null };
+  order: { id: number; code: string } | null;
+  item: { id: number; code: string | null; name: string; uom: string | null };
+  batch: { id: number; code: string; status: string };
+  quantity: number;
+  why: 'extra' | 'substitute_rejected';
+  text: string;
+}
+export interface SubstituteRow {
+  id: number; status: 'pending' | 'approved' | 'rejected'; statusLabel: string;
+  order: { id: number; code: string } | null; line: { id: number; lineNo: number } | null;
+  purchaseOrder: { id: number; code: string };
+  ordered: { id: number; code: string | null; name: string | null }; received: { id: number; code: string | null; name: string | null };
+  quantity: number; batch: { id: number; code: string } | null; reason: string;
+  request: { id: number; code: string; status: string } | null;
+  text: string;
+}
+export interface CustomerReturns { toReturn: CustomerReturnRow[]; substitutes: SubstituteRow[] }
+export const getCustomerReturns = (q: { orderId?: number | null; partyId?: number | null } = {}) =>
+  cfApi.get<CustomerReturns>(`/customer-material/returns${qs({ orderId: q.orderId ?? undefined, partyId: q.partyId ?? undefined })}`);
+
 /** Who supplies one line's material (§66); null = as the order. Refused once the line's MR is raised. */
 export const setLineSupply = (lineId: number, supply: MaterialSupply | null) =>
   cfApi.put<{ lineId: number; lineNo: number; materialSupply: MaterialSupply | null; supply: MaterialSupply }>(`/order-lines/${lineId}/material-supply`, { supply });

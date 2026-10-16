@@ -195,9 +195,10 @@ export default function PurchaseOrderDetail() {
       <AddPurchaseLineDialog orderId={adding ? p.id : null} forOrder={p.forOrder} onClose={() => setAdding(false)} onAdded={(n) => { setAdding(false); done(n, 'Line added.'); }} />
       <PurchaseForOrderDialog order={forOrdering ? p : null} onClose={() => setForOrdering(false)} onSaved={(n) => { setForOrdering(false); done(n, n.forOrder ? `Bought for ${n.forOrder.code}.` : 'No longer bought for an order.'); }} />
       <LineOrdersDialog line={linking} onClose={() => setLinking(null)} onSaved={(n) => { setLinking(null); done(n, 'Saved who the line is bought for.'); }} />
-      <ReceiveLineDialog line={receiving} orderCode={p.code} onClose={() => setReceiving(null)} onReceived={(n, held) => {
+      <ReceiveLineDialog line={receiving} orderCode={p.code} customer={!!p.suppliedByCustomer} onClose={() => setReceiving(null)} onReceived={(n, held, x) => {
         setReceiving(null);
-        done(n, held.length ? `Delivery booked. ${held.map((h) => `Held ${qtyText(h.quantity)} for ${h.orderCode}`).join('; ')} — nobody else can use it.` : 'Delivery booked into stock.');
+        const base = held.length ? `Delivery booked. ${held.map((h) => `Held ${qtyText(h.quantity)} for ${h.orderCode}`).join('; ')} — nobody else can use it.` : 'Delivery booked into stock.';
+        done(n, [base, x?.substitute, x?.extra].filter(Boolean).join(' '));
       }} />
       <ConfirmDialog open={!!removing} danger confirmLabel="Remove" title="Remove this line?"
         entityName={removing ? `${removing.item.code ?? removing.item.name} — ${qtyText(removing.quantity)} ${removing.item.uom}` : ''}

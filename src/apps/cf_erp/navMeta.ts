@@ -95,6 +95,8 @@ export const SECTIONS: NavSection[] = [
       { key: 'stock', label: 'Stock', path: 'stock', permission: INVENTORY, countKey: 'stockLines', keywords: ['on hand', 'inventory', 'receive'] },
       { key: 'wip', label: 'Work in progress', path: 'wip', permission: INVENTORY, keywords: ['production ledger', 'pieces', 'in process', 'making', 'containers', 'segments', 'parts'] },
       { key: 'offcuts', label: 'Offcuts', path: 'offcuts', permission: INVENTORY, keywords: ['remnant', 'leftover', 'scrap', 'nest', 'plate', 'drop'] },
+      // Customer material not needed or not accepted (§68) — worked out on the read; a return movement clears it.
+      { key: 'customer-returns', label: 'To return to customers', path: 'customer-returns', permission: INVENTORY, keywords: ['customer material', 'return', 'extra', 'substitute', 'send back', 'free issue'] },
       { key: 'movements', label: 'Movements', path: 'movements', hasDetail: true, permission: INVENTORY, keywords: ['receipt', 'issue', 'transfer', 'grn', 'count', 'scrap'] },
       { key: 'batches', label: 'Batches', path: 'batches', hasDetail: true, permission: INVENTORY, countKey: 'heldBatches', keywords: ['heat', 'lot'] },
       { key: 'stocking-areas', label: 'Stocking areas', path: 'stocking-areas', hasDetail: true, permission: INVENTORY, countKey: 'areas', keywords: ['yard', 'store', 'location', 'wip'] },

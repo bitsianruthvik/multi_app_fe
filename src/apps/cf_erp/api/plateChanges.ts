@@ -14,12 +14,12 @@ export interface PlateChangeFields {
   impact?: boolean;
 }
 
-export type PlateChangeKind = 'accept' | 'compare' | 'upload' | 'sheet' | 'delete_lot' | 'choices' | 'nest_plates' | 'untracked' | 'untracked_undo';
+export type PlateChangeKind = 'accept' | 'compare' | 'upload' | 'sheet' | 'delete_lot' | 'choices' | 'nest_plates' | 'untracked' | 'untracked_undo' | 'substitute';
 export type PlateChangeStatus = 'pending' | 'stale' | 'approved' | 'applied' | 'rejected' | 'withdrawn';
 
 export interface ImpactPlate {
   plateItemId: number; code: string; name: string | null;
-  thickness: number; length: number; width: number; grade: string | null;
+  thickness: number | null; length: number | null; width: number | null; grade?: string | null;
   count: number; kg: number; customer?: number;
   from?: number; to?: number;
 }
@@ -58,6 +58,9 @@ export interface PlateChangeImpact {
   };
   before: ImpactMetrics; after: ImpactMetrics; delta: ImpactDelta;
   choice: { text: string } | null;
+  /** §68 kind substitute: what the customer sent in place of what was ordered, and the line's nesting beside it. */
+  substitute?: { id: number; purchaseOrder: { id: number; code: string }; mr: string | null; quantity: number; ordered: ImpactPlate; received: ImpactPlate; batchId: number | null };
+  nesting?: { plates: { plateItemId: number; code: string; count: number }[]; text: string };
   buying: {
     purchaseOrders: { id: number; code: string; status: string }[];
     items: ImpactBuyingItem[];

@@ -9,7 +9,7 @@ import SkipNextRounded from '@mui/icons-material/SkipNextRounded';
 import { CfApiError } from '../../api/client';
 import { getOrderPurchase } from '../../api/purchase';
 import {
-  getOrderRequisitions, raiseRequisitions, setLineSupply, skipLines, unskipLines,
+  getOrderRequisitions, raiseRequisitions, setLineSupply, setPromisedDate, skipLines, unskipLines,
   type LineWithout, type MaterialSupply, type ReqLine, type Requisition,
 } from '../../api/requisitions';
 import type { OrderStage, SalesOrder } from '../../api/types';
@@ -27,6 +27,7 @@ import { MaterialReadyChip } from './MaterialReadyChip';
 import { PurchaseLanes } from './PurchaseLanes';
 import { BuyDialog, ExcessDialog, SkipDialog, StockCheckDialog } from './RequisitionDialogs';
 import { RequisitionBlock } from './RequisitionTable';
+import { CustomerMaterialStatus, PromisedDateDialog } from './CustomerMaterialStatus';
 
 const NO_MANAGE_BUYING = 'You can see the material request, but your role cannot change it. Raising it, holding stock, skipping and buying need the inventory manage permission.';
 
@@ -76,16 +77,31 @@ export function OrderPurchasePanel({ order, stage, onChanged }: { order: SalesOr
   const summary = buyingSummaryWords(stage.summary);
 
   /** Raise (or bring up to date) and EARMARK: free stock is held at once; a customer line asks the customer (§66). */
-  const raise = async (lineIds?: number[]) => {
+  const raiseNow = async (lineIds?: number[], customerDate?: string) => {
     setBusy(true); setRefusal(null);
     try {
-      const r = await raiseRequisitions(order.id, { ...(lineIds ? { lineIds } : {}), earmark: true });
+      const r = await raiseRequisitions(order.id, { ...(lineIds ? { lineIds } : {}), earmark: true, ...(customerDate ? { customerDate } : {}) });
       reqs.setData(r);
       toast.success(raisedMessage(r, { lines: lineIds }));
       reload();
     } catch (e) { setRefusal(refusalOf(e)); } finally { setBusy(false); }
   };
   const orderSupply: MaterialSupply = data?.order.materialSupply ?? order.materialSupply ?? 'we_buy';
+  /*
+   * §68: when the raise asks the CUSTOMER for material, it first asks the date they promised — proposed from the
+   * line's committed date (else the order's); with none it must be given.
+   */
+  const [asking, setAsking] = useState<{ lineIds?: number[]; proposed: string | null } | null>(null);
+  const raise = (lineIds?: number[]) => {
+    const fresh = without.filter((w) => w.canRaise && (!lineIds || lineIds.includes(w.line.id)));
+    const theirs = fresh.filter((w) => w.supply === 'customer');
+    const again = requisitions.filter((r) => r.supply === 'customer' && lineIds?.includes(r.line.id) && r.lines.some((l) => l.cover.open > 0 && l.status !== 'not_needed'));
+    if (!theirs.length && !again.length) return raiseNow(lineIds);
+    const proposed = theirs.map((w) => w.customerDateDefault).filter((d): d is string => !!d).sort()[0] ?? null;
+    setAsking({ lineIds, proposed });
+    return Promise.resolve();
+  };
+  const savePromised = (poId: number, date: string) => act(() => setPromisedDate(poId, date), "The customer's promised date is saved.");
   const changeSupply = (lineId: number, v: string) => act(() => setLineSupply(lineId, v === '' ? null : (v as MaterialSupply)), 'Material supply saved.');
 
   return (
@@ -142,6 +158,7 @@ export function OrderPurchasePanel({ order, stage, onChanged }: { order: SalesOr
                 {i > 0 && <Divider sx={{ mb: 2 }} />}
                 <RequisitionBlock req={r} canManage={canManage} busy={busy}
                   onRefresh={() => void raise([r.line.id])}
+                  onPromisedDate={savePromised}
                   actions={{
                     onCheck: (l) => setChecking({ requisitions: [{ id: r.id, code: r.code }], only: [l.id] }),
                     onSkip: (l) => void act(() => skipLines(r.id, { lineIds: [l.id] }), `${l.item.code ?? l.item.name} is skipped — it waits for stock.`),
@@ -157,6 +174,7 @@ export function OrderPurchasePanel({ order, stage, onChanged }: { order: SalesOr
                 {without.map((w) => <LineWithoutRow key={w.line.id} w={w} canManage={canManage} busy={busy} orderSupply={orderSupply} onSupply={(v) => void changeSupply(w.line.id, v)} onRaise={() => void raise([w.line.id])} />)}
               </Box>
             )}
+            <CustomerMaterialStatus key={`cms-${reqs.data ? 1 : 0}-${busy ? 1 : 0}`} orderId={order.id} />
             {(lanes.data?.lanes.reduce((t, l) => t + l.count, 0) ?? 0) > 0 && (
               <Box sx={{ display: 'grid', gap: 0.5 }}>
                 <Typography sx={{ fontSize: 13.5, fontWeight: 600 }}>Purchase orders for this order</Typography>
@@ -168,6 +186,8 @@ export function OrderPurchasePanel({ order, stage, onChanged }: { order: SalesOr
         )}
       </Box>
 
+      <PromisedDateDialog open={!!asking} proposed={asking?.proposed ?? null} onClose={() => setAsking(null)}
+        onConfirm={async (date) => { const a = asking; setAsking(null); await raiseNow(a?.lineIds, date); }} />
       <StockCheckDialog open={!!checking} requisitions={checking?.requisitions ?? []} onlyLineIds={checking?.only} onClose={() => setChecking(null)}
         onHeld={(done, held) => { toast.success(held ? `Stock held for ${order.code}.` : 'Nothing was held.'); reload(); void done; }} />
       <SkipDialog open={!!skipping} count={skipping?.reduce((t, s) => t + s.count, 0) ?? 0} onClose={() => setSkipping(null)}

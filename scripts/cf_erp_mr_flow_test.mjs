@@ -48,7 +48,10 @@ const built = await build({
       export * from './src/apps/cf_erp/lib/materialRequest';
       export { OrderPurchasePanel } from './src/apps/cf_erp/components/Purchase/OrderPurchasePanel';
       export { MaterialSupplyField } from './src/apps/cf_erp/components/Purchase/MaterialSupplyField';
-      export { ReleaseDialog } from './src/apps/cf_erp/components/TrackerDialogs';`,
+      export { ReleaseDialog } from './src/apps/cf_erp/components/TrackerDialogs';
+      export { ReceiveLineDialog } from './src/apps/cf_erp/components/PurchaseDialogs';
+      export { CustomerMaterialStatus, PromisedDateDialog } from './src/apps/cf_erp/components/Purchase/CustomerMaterialStatus';
+      export { plateSize } from './src/apps/cf_erp/lib/plateChange';`,
     resolveDir: process.cwd(), loader: 'tsx',
   },
   plugins: [{ name: 'stubs', setup(b) {
@@ -92,6 +95,10 @@ const click = (el) => fire(el, 'click');
 const buttonIn = (scope, label) => [...scope.querySelectorAll('button, a')].find((b) => text(b) === label || text(b).startsWith(label));
 const calls = (method, path) => globalThis.__calls.filter((c) => c.method === method && c.path === path);
 const lastCall = (method, path) => calls(method, path).at(-1);
+const setValue = async (el, v) => {
+  const proto = el.tagName === 'TEXTAREA' ? dom.window.HTMLTextAreaElement.prototype : dom.window.HTMLInputElement.prototype;
+  await React.act(async () => { Object.getOwnPropertyDescriptor(proto, 'value').set.call(el, v); el.dispatchEvent(new dom.window.Event('input', { bubbles: true })); await sleep(10); });
+};
 const reset = () => { globalThis.__calls = []; globalThis.__routes = {}; globalThis.__user = null; };
 
 // ── fixtures, shaped as the backend answers (TM/MR_FLOW_RUN.md) ─────────────────
@@ -128,6 +135,7 @@ const order = { id: 30001, code: 'TEST-MR-1', materialSupply: 'we_buy' };
 const mount = (reqs, opts = {}) => {
   globalThis.__routes['GET /orders/30001/requisitions'] = () => reqs;
   globalThis.__routes['GET /orders/30001/purchase'] = () => lanesEmpty;
+  globalThis.__routes['GET /customer-material/returns'] = () => opts.returns ?? { toReturn: [], substitutes: [] };
   return render(React.createElement(m.OrderPurchasePanel, { order: opts.order ?? order, stage, onChanged: () => {} }));
 };
 const rowOf = (lineId) => document.querySelector(`[data-testid="req-row"][data-line="${lineId}"]`);
@@ -183,7 +191,82 @@ await check('a customer-supplied MR: badge, no Buy / Skip, and "Ask the customer
   assert.equal(buttonIn(q1('buying-header-actions') ?? document, 'Buy the rest'), undefined);
   assert.ok(buttonIn(rowOf(202), 'Check stock'), "Check stock stays (it finds the customer's own lots)");
   await click(q1('ask-customer')); await settle();
-  assert.deepEqual(posted, { lineIds: [802], earmark: true });
+  // §68: asking the customer first asks the date they promised — required, then sent with the raise.
+  assert.equal(posted, null, 'nothing is sent before the date is given');
+  const input = document.querySelector('[data-testid="promised-date"]');
+  assert.ok(input, 'the promised-date dialog is open');
+  assert.ok(buttonIn(document.querySelector('.MuiDialog-root'), 'Raise the MR')?.disabled, 'no date, no raise');
+  await setValue(input, '2026-11-02');
+  await click(buttonIn(document.querySelector('.MuiDialog-root'), 'Raise the MR')); await settle(80);
+  assert.deepEqual(posted, { lineIds: [802], earmark: true, customerDate: '2026-11-02' });
+});
+await check('raising a customer line proposes its committed date; an undated customer PO asks for the date on the MR', async () => {
+  reset();
+  let posted = null;
+  const without = [{ line: { id: 804, lineNo: 4, name: 'Girder' }, supply: 'customer', ownSupply: null, customerDateDefault: '2026-12-01', canRaise: true, reason: null, materials: [{ item: A, need: 4 }], materialReady: null }];
+  globalThis.__routes['POST /orders/30001/requisitions'] = (body) => { posted = body; return orderReqs([custOpen()], { raised: 1 }); };
+  await mount(orderReqs([], { linesWithout: without }));
+  await click(buttonIn(q1('buying-header-actions'), 'Raise the material request')); await settle();
+  assert.equal(document.querySelector('[data-testid="promised-date"]').value, '2026-12-01', 'the committed date is proposed');
+  await click(buttonIn(document.querySelector('.MuiDialog-root'), 'Raise the MR')); await settle(80);
+  assert.deepEqual(posted, { earmark: true, customerDate: '2026-12-01' });
+  // An older customer PO with no date: the MR says so and takes the date inline.
+  reset();
+  const undated = custOpen();
+  undated.lines[1].purchase = [share(9, 'PO-001890', 6, 0, { state: 'undated', date: null, purchaseOrder: { id: 1890, code: 'PO-001890', status: 'ordered', suppliedByCustomer: true } })];
+  let put = null;
+  globalThis.__routes['PUT /purchase-orders/1890'] = (body) => { put = body; return { id: 1890 }; };
+  await mount(orderReqs([undated]));
+  assert.match(text(q1('promised-date-row')), /Give the customer's promised date for PO-001890/);
+  await setValue(q1('promised-date-input'), '2026-11-20');
+  await click(buttonIn(q1('promised-date-row'), 'Save')); await settle(60);
+  assert.deepEqual(put, { expectedDate: '2026-11-20' });
+});
+await check('the MR shows what is to go back to the customer and the different items they sent', async () => {
+  reset();
+  const returns = {
+    toReturn: [
+      { party: { id: 5, name: 'Customer X' }, order: { id: 30001, code: 'TEST-MR-1-SUB' }, item: { id: 9001, code: 'MA', name: 'A', uom: 'kg' }, batch: { id: 70, code: 'L-70', status: 'available' }, quantity: 2, why: 'extra', text: 'More than TEST-MR-1-SUB needs — not earmarked.' },
+      { party: { id: 5, name: 'Customer X' }, order: { id: 30001, code: 'TEST-MR-1-SUB' }, item: { id: 9010, code: 'B12', name: 'B 12', uom: 'kg' }, batch: { id: 71, code: 'L-71', status: 'on_hold' }, quantity: 6, why: 'substitute_rejected', text: 'Not accepted in place of MB (PC-000102).' },
+    ],
+    substitutes: [
+      { id: 1, status: 'pending', statusLabel: 'Waiting for the MD — on hold', order: { id: 30001, code: 'TEST-MR-1-SUB' }, line: { id: 802, lineNo: 1 }, purchaseOrder: { id: 1884, code: 'PO-001884' }, ordered: { id: 9003, code: 'MC', name: 'C' }, received: { id: 9011, code: 'C12', name: 'C 12' }, quantity: 5, batch: { id: 72, code: 'L-72' }, reason: 'customer sent 12 mm', request: { id: 101, code: 'PC-000101', status: 'pending' }, text: '5 × C12 in place of MC on PO-001884 — held until the MD approves PC-000101.' },
+    ],
+  };
+  await mount(orderReqs([weBuy()]), { returns });
+  await settle(60);
+  const rows = qa('to-return-row');
+  assert.equal(rows.length, 2);
+  assert.deepEqual(rows.map((r) => r.dataset.why), ['extra', 'substitute_rejected']);
+  assert.match(text(q1('to-return')), /To return to the customer.*MA.*2 kg.*More than/);
+  assert.match(text(q1('substitute-row')), /Waiting for the MD — on hold.*held until the MD approves PC-000101/);
+  assert.equal(lastCall('GET', '/customer-material/returns').url, '/api/testco/cf_erp/customer-material/returns?orderId=30001');
+});
+await check("receiving on a customer's PO: more than asked is allowed, and a different item needs what came and why", async () => {
+  reset();
+  globalThis.__routes['GET /stocking-areas'] = () => [{ id: 3, code: 'ST', name: 'Store', purpose: 'storage', status: 'active' }];
+  const poLine = { id: 600, lineNo: 1, item: { id: 9003, code: 'MC', name: 'C', uom: 'kg', trackedBy: 'quantity' }, quantity: 5, received: 0, outstanding: 5, unitPrice: 0, orders: [] };
+  let body = null;
+  globalThis.__routes['POST /purchase-lines/600/receive'] = (b) => { body = b; return { order: { id: 1884 }, held: [], substitute: { message: 'held until the MD approves PC-000101.' } }; };
+  let got = null;
+  await render(React.createElement(m.ReceiveLineDialog, { line: poLine, orderCode: 'PO-001884', customer: true, onClose: () => {}, onReceived: (p, h, x) => { got = x; } }));
+  await settle(60);
+  assert.match(text(q1('receive-customer')), /more comes than asked, the extra stays theirs/);
+  const qty = [...document.querySelectorAll('input')].find((i) => i.value === '5');
+  await setValue(qty, '7'); await settle();
+  assert.equal(buttonIn(document, 'Receive')?.disabled, false, 'a customer may send more than asked');
+  await click(document.querySelector('input[aria-label="The customer sent a different item"]')); await settle();
+  assert.match(text(q1('receive-substitute-note')), /goes to the MD as a plate change.*on hold/);
+  assert.equal(buttonIn(document, 'Receive')?.disabled, true, 'what came and why are needed');
+  assert.match(src('components/PurchaseDialogs.tsx'), /substituteItemId: subItem.id, substituteReason: subReason.trim()/);
+  void body; void got;
+});
+await check('a plate size with no thickness is said plainly (substitute items may have none)', () => {
+  assert.equal(m.plateSize({ thickness: null, length: null, width: null }), 'size not known');
+  assert.equal(m.plateSize({ thickness: 12, length: null, width: null }), '12 mm');
+  assert.equal(m.plateSize({ thickness: 12, length: 3000, width: 1500 }), '12 mm × 3,000 × 1,500');
+  assert.match(src('navMeta.ts'), /key: 'customer-returns', label: 'To return to customers'/);
+  assert.match(src('components/Nesting/PlateChange.tsx'), /impact.nesting?.text/);
 });
 
 // ── 3: who supplies a line without an MR ──────────────────────────────────────
@@ -265,7 +348,9 @@ await check('wording: Purchase › Material requests, the board tab, the cancel 
   assert.match(src('components/Purchase/CancelPoDialog.tsx'), /back to Open on \$\{prs\.join\(', '\)\} at once/);
   assert.match(src('pages/PurchaseOrderDetail.tsx'), /p\.suppliedByCustomer && <Badge family="info" label="Customer supplies"/);
   const stock = src('pages/Stock.tsx');
-  assert.match(stock, /label="Ours"/); assert.match(stock, /label="All customers'"/); assert.match(stock, /data-testid="held-by-customer"/);
+  assert.match(stock, /label="Ours"/);
+  assert.ok(stock.includes('data-testid="stock-customer-status"') && stock.includes("<CustomerMaterialStatus partyId={owner === 'customer' ? null : Number(owner)} />"), 'the customer view shows what is to go back');
+  assert.match(stock, /label="All customers'"/); assert.match(stock, /data-testid="held-by-customer"/);
   assert.doesNotMatch(src('components/Purchase/OrderPurchasePanel.tsx'), /title="Buying"/);
 });
 

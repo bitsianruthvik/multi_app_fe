@@ -181,6 +181,8 @@ export function ImpactSheet({ impact }: { impact: PlateChangeImpact }) {
         </Box>
       </Box>
       {impact.choice?.text && !impact.sentence.includes(impact.choice.text) && <Typography sx={{ fontSize: 13 }}>{impact.choice.text}</Typography>}
+      {/* §68: a substitute the customer sent — the line's nesting beside it (it is not re-nested by this). */}
+      {impact.nesting?.text && <Typography data-testid="impact-nesting" sx={{ fontSize: 13 }}>{impact.nesting.text}</Typography>}
       <Box sx={{ display: 'grid', gap: 0.75 }}>
         <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }} data-testid="impact-buying">{impact.buying.text}</Typography>
         {items.length > 0 && (

@@ -1,4 +1,5 @@
-import { Box, Button, Tooltip, Typography } from '@mui/material';
+import { useState } from 'react';
+import { Box, Button, TextField, Tooltip, Typography } from '@mui/material';
 import { Link } from 'react-router-dom';
 import Inventory2Rounded from '@mui/icons-material/Inventory2Rounded';
 import ShoppingCartRounded from '@mui/icons-material/ShoppingCartRounded';
@@ -24,6 +25,18 @@ const CHIP_COLOUR: Record<CoverChip['tone'], { bg: string; fg: string }> = {
   danger: { bg: 'var(--c-danger-50)', fg: 'var(--c-danger-800)' },
   neutral: { bg: 'var(--c-surface-2)', fg: 'var(--c-text-2)' },
 };
+
+/** "Give the customer's promised date" for a customer PO with none (§68): a date and Save, on the MR itself. */
+function PromisedDateRow({ code, disabled, onSave }: { code: string; disabled: boolean; onSave: (date: string) => void }) {
+  const [date, setDate] = useState('');
+  return (
+    <Box data-testid="promised-date-row" sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap', p: 1, borderRadius: 'var(--r-sm)', background: 'var(--c-warning-50)' }}>
+      <Typography sx={{ fontSize: 13, color: 'var(--c-warning-800)' }}>Give the customer's promised date for <Mono>{code}</Mono> — production waits until it has one.</Typography>
+      <TextField size="small" type="date" value={date} onChange={(e) => setDate(e.target.value)} disabled={disabled} inputProps={{ 'data-testid': 'promised-date-input', 'aria-label': 'Promised date' }} />
+      <Button size="small" variant="contained" disabled={disabled || !/^\d{4}-\d{2}-\d{2}$/.test(date)} onClick={() => onSave(date)}>Save</Button>
+    </Box>
+  );
+}
 
 /** One way the material is covered. A PO chip opens its purchase order; the words carry the meaning, the colour only helps. */
 export function CoverChipView({ chip }: { chip: CoverChip }) {
@@ -54,17 +67,22 @@ export interface RowActions {
  * server's. An MR the customer supplies has no Buy / Skip: what is open goes on the customer's purchase order
  * when the MR is brought up to date.
  */
-export function RequisitionBlock({ req, canManage, busy, actions, onRefresh }: {
+export function RequisitionBlock({ req, canManage, busy, actions, onRefresh, onPromisedDate }: {
   req: Requisition;
   canManage: boolean;
   busy: boolean;
   actions: RowActions;
   onRefresh: () => void;
+  /** §68: give the date the customer promised on their purchase order (one made with none). */
+  onPromisedDate?: (poId: number, date: string) => void;
 }) {
   const company = useCompanySlug();
   const tone = reqTone(req.status);
   const mr = req.materialReady;
   const customer = req.supply === 'customer';
+  // §68: the customer's purchase orders on this MR that have no date yet — production waits until one is given.
+  const undatedPos = [...new Map(req.lines.flatMap((l) => l.purchase).filter((p) => p.state === 'undated' && p.purchaseOrder.suppliedByCustomer)
+    .map((p) => [p.purchaseOrder.id, p.purchaseOrder])).values()];
   const askCustomer = canManage && customer && req.lines.some((l) => l.cover.open > 0 && l.status !== 'not_needed');
   const refresh = canManage && !askCustomer && (req.stale || req.missing.length > 0);
   return (
@@ -92,6 +110,7 @@ export function RequisitionBlock({ req, canManage, busy, actions, onRefresh }: {
         )}
       </Box>
       <Typography data-testid="req-sentence" sx={{ fontSize: 13.5 }}>{req.sentence}</Typography>
+      {undatedPos.map((po) => <PromisedDateRow key={po.id} code={po.code} disabled={!canManage || busy} onSave={(d) => onPromisedDate?.(po.id, d)} />)}
       {!req.needKnown && <Typography sx={{ fontSize: 12.5, color: 'var(--c-warning-800)' }}>The design is not frozen again yet, so the need below is the last one raised.</Typography>}
       {req.needKnown && !req.needComplete && <Typography sx={{ fontSize: 12.5, color: 'var(--c-warning-800)' }}>A cut plate has no plate yet. Nest the line to see all its material.</Typography>}
       {req.lines.length === 0 ? (
