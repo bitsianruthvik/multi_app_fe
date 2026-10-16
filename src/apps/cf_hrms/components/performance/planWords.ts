@@ -43,6 +43,8 @@ export const DIRECTION_LABEL: Record<Direction, string> = {
   HIGHER_BETTER: 'Higher is better',
   LOWER_BETTER: 'Lower is better',
   EXACT: 'Exactly',
+  TARGET_RANGE: 'Within a range',
+  DATE: 'Done by a date',
   TEXT: 'Written as words',
 };
 
@@ -67,6 +69,8 @@ export const BAND_OPTIONS = (['ON_TRACK', 'AT_RISK', 'BEHIND', 'NO_DATA'] as Ban
 export function actualWord(a: Actual | null, unit?: string | null): string {
   if (!a) return '—';
   if (a.met) return a.met === 'YES' ? 'Met' : 'Not met';
+  // A KPI due by a date: the day it was done.
+  if (a.value == null && a.valueText && /^\d{4}-\d{2}-\d{2}$/.test(a.valueText)) return `Done ${longDay(a.valueText)}`;
   if (a.value == null) return '—';
   const n = Number(a.value).toLocaleString('en-IN', { maximumFractionDigits: 4 });
   return unit === '%' ? `${n}%` : unit === '₹' ? `₹${n}` : unit ? `${n} ${unit}` : n;

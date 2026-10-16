@@ -31,6 +31,11 @@ import { FormDialog, Mono, useCompanySlug } from '@shared/ui';
 import { useCan } from '../access/can';
 import { TakesEffectField } from './JobDating';
 import { datedBody, longDay, takesEffectReady, todayIso } from './jobDates';
+import { KpiTargetInput } from './KpiTargetInput';
+import {
+  EMPTY_DRAFT, draftOf, readTargetText, ruleOf, sameDraft, targetBody, asBetter, asMeasure,
+  type TargetDraft, type TargetSpec,
+} from './kpiTarget';
 import {
   addContent, updateContent, listMaster, getMeta, pretty,
   type ContentKind, type ContentRow, type KraGroup, type MasterItem, type HrmsMeta, type MasterKind,
@@ -107,6 +112,23 @@ const EMPTY: State = {
   conditionType: 'OTHER', description: '', effectiveFrom: '', effectiveTo: '', notes: '',
 };
 
+/** A role KPI line's target as the input reads it: its stored structure, else its words read with the KPI's rule. */
+function targetDraftOf(row: ContentRow | null, def: { measurementType?: string | null; unit?: string | null; direction?: string | null; name?: string | null } | null): TargetDraft {
+  if (!row) return { ...EMPTY_DRAFT };
+  const rule = ruleOf(def);
+  const t = row.targetValue;
+  const text = row.targetOperator === 'EQ' && typeof t === 'string' ? t : null;
+  const stored = row.targetSpec && asMeasure(row.targetSpec.measure ?? null)
+    ? ({ ...row.targetSpec, measure: asMeasure(row.targetSpec.measure ?? null), direction: asBetter(row.targetSpec.direction ?? null) } as TargetSpec)
+    : null;
+  const legacy: TargetSpec | null = !stored && t != null && typeof t !== 'string'
+    ? (row.targetOperator === 'BETWEEN' && typeof t === 'object' ? { measure: 'NUMBER', unit: null, direction: 'TARGET_RANGE', min: t.min, max: t.max }
+      : typeof t === 'number' ? { measure: 'NUMBER', unit: null, direction: row.targetOperator === 'LTE' ? 'LOWER_BETTER' : row.targetOperator === 'GTE' ? 'HIGHER_BETTER' : 'EXACT', value: t } : null)
+    : null;
+  const structured = stored ?? legacy ?? (text ? readTargetText(text, rule, def?.name ?? '') : null);
+  return draftOf({ structured, targetText: text ?? (typeof t === 'number' ? String(t) : null) }, rule);
+}
+
 function fromRow(row: ContentRow): State {
   const t = row.targetValue;
   const range = t && typeof t === 'object' ? t : null;
@@ -173,12 +195,17 @@ export function RoleAssignDialog({
   const can = useCan();
   const masterKind = MASTER_FOR[kind];
   const [form, setForm] = useState<State>(EMPTY);
+  const [target, setTarget] = useState<TargetDraft>({ ...EMPTY_DRAFT });
+  const [targetAtOpen, setTargetAtOpen] = useState<TargetDraft>({ ...EMPTY_DRAFT });
   const [master, setMaster] = useState<MasterItem[]>([]);
   const [meta, setMeta] = useState<HrmsMeta | null>(null);
 
   useEffect(() => {
     if (!open) return;
     setForm(row ? fromRow(row) : { ...EMPTY, roleKraAssignmentId: defaultKraId ? String(defaultKraId) : '' });
+    const start = targetDraftOf(row, row?.definition ?? null);
+    setTarget(start);
+    setTargetAtOpen(start);
     getMeta().then(setMeta).catch(() => setMeta(null));
     if (masterKind) listMaster(masterKind).then((r) => setMaster(r.items)).catch(() => setMaster([]));
   }, [open, row, kind, masterKind, defaultKraId]);
@@ -201,7 +228,9 @@ export function RoleAssignDialog({
     () => options.find((m) => String(m.id) === form.definitionId) ?? null,
     [options, form.definitionId],
   );
-  const kpiMeasurement = kind === 'kpis' ? (row?.definition?.measurementType ?? chosen?.measurementType ?? 'NUMBER') : null;
+  // The KPI's rule (measured in, unit, which way) — from its library definition; the target input follows it.
+  const kpiDef = kind === 'kpis' ? (row?.definition ?? chosen ?? null) : null;
+  const kpiRule = useMemo(() => ruleOf(kpiDef), [kpiDef]);
 
   const datedChange =
     !!row && !!form.effectiveFrom && form.effectiveFrom !== (row.effectiveFrom ?? '') &&
@@ -233,13 +262,8 @@ export function RoleAssignDialog({
     }
     if (kind === 'kpis') {
       body.roleKraAssignmentId = form.roleKraAssignmentId ? Number(form.roleKraAssignmentId) : null;
-      body.targetOperator = form.targetOperator || null;
-      body.targetValue =
-        form.targetOperator === 'BETWEEN'
-          ? { min: Number(form.targetMin), max: Number(form.targetMax) }
-          : form.targetOperator && form.targetOperator !== 'INFO'
-            ? form.targetValue
-            : null;
+      // Sent only when it changed: an untouched target is not a new version of the line.
+      if (!row || !sameDraft(target, targetAtOpen)) body.target = targetBody(target, kpiRule) ?? { text: '' };
       body.weightPercent = form.weightPercent === '' ? null : Number(form.weightPercent);
       body.frequencyOverride = form.frequencyOverride || null;
       body.isMandatory = form.isMandatory;
@@ -442,32 +466,7 @@ export function RoleAssignDialog({
 
         {kind === 'kpis' && (
           <>
-            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-              <TextField
-                label="Target"
-                value={form.targetOperator}
-                onChange={text('targetOperator')}
-                select
-                size="small"
-                sx={{ width: { sm: 200 } }}
-                helperText={kpiMeasurement ? `Measured as ${pretty(kpiMeasurement)}` : undefined}
-              >
-                <MenuItem value="">No target</MenuItem>
-                {(meta?.targetOperators ?? []).map((v) => (
-                  <MenuItem key={v} value={v}>
-                    {v === 'GTE' ? 'At least (≥)' : v === 'LTE' ? 'At most (≤)' : v === 'EQ' ? 'Exactly (=)' : v === 'BETWEEN' ? 'Between' : 'Tracked only'}
-                  </MenuItem>
-                ))}
-              </TextField>
-              {form.targetOperator === 'BETWEEN' ? (
-                <>
-                  <TextField label="From" value={form.targetMin} onChange={text('targetMin')} size="small" fullWidth />
-                  <TextField label="To" value={form.targetMax} onChange={text('targetMax')} size="small" fullWidth />
-                </>
-              ) : form.targetOperator && form.targetOperator !== 'INFO' ? (
-                <TextField label="Value" value={form.targetValue} onChange={text('targetValue')} size="small" fullWidth />
-              ) : null}
-            </Stack>
+            <KpiTargetInput rule={kpiRule} draft={target} onChange={setTarget} kpiName={kpiDef?.name ?? ''} />
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems="flex-start">
               <TextField label="Weight %" value={form.weightPercent} onChange={text('weightPercent')} size="small" sx={{ width: { sm: 160 } }} />
               <TextField

@@ -3,17 +3,51 @@
  *
  *   KpiFormDialog       add a KPI, or change one, on a DRAFT plan
  *   TargetChangeDialog  change a target on an ACTIVE plan — from a day, with a reason
+ *
+ * Both type the target in THE KPI target input (KpiTargetInput, spec §24 step 2): the plan KPI's
+ * which-way and unit make its rule — a number with its unit and mark, a range, a date, or words.
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { MenuItem, Stack, TextField, Typography } from '@mui/material';
 import { FormDialog } from '@shared/ui';
 import type { CombineRule, Direction, KpiInput, Option, PlanKpi, TargetChangeInput } from '../../api/performance';
 import { todayIso } from '../jobDates';
 import { DIRECTION_LABEL, frequencyWord } from './planWords';
+import { KpiTargetInput } from '../KpiTargetInput';
+import { EMPTY_DRAFT, readDraft, unitMeasure, type TargetDraft, type TargetRule } from '../kpiTarget';
 
-const DIRECTIONS: Direction[] = ['HIGHER_BETTER', 'LOWER_BETTER', 'EXACT', 'TEXT'];
+const DIRECTIONS: Direction[] = ['HIGHER_BETTER', 'LOWER_BETTER', 'EXACT', 'TARGET_RANGE', 'DATE', 'TEXT'];
 
 const numOrNull = (s: string): number | null => (s.trim() === '' ? null : Number(s));
+
+/** A plan KPI's rule for the target input: its which-way and its unit. Words: no rule (a text box). */
+function planRule(direction: Direction, unit: string | null): TargetRule {
+  if (direction === 'TEXT') return { measure: null, unit: null, direction: null };
+  if (direction === 'DATE') return { measure: 'DATE', unit: null, direction: null };
+  return { measure: unitMeasure(unit) ?? 'NUMBER', unit: unit || null, direction };
+}
+/** A plan KPI's target -> the input's draft. */
+function planDraft(kpi: Pick<PlanKpi, 'direction' | 'targetNumber' | 'targetMax' | 'targetDate' | 'targetText'> | null): TargetDraft {
+  if (!kpi) return { ...EMPTY_DRAFT };
+  const s = (n: number | null | undefined) => (n == null ? '' : String(n));
+  if (kpi.direction === 'TEXT') return { ...EMPTY_DRAFT, words: true, text: kpi.targetText ?? '' };
+  if (kpi.direction === 'DATE') return { ...EMPTY_DRAFT, date: kpi.targetDate ?? '' };
+  if (kpi.direction === 'TARGET_RANGE') return { ...EMPTY_DRAFT, min: s(kpi.targetNumber), max: s(kpi.targetMax) };
+  return { ...EMPTY_DRAFT, value: s(kpi.targetNumber) };
+}
+/** The input's draft -> a plan's target fields; `problem` when it cannot be sent. */
+function planTargetFields(direction: Direction, draft: TargetDraft, rule: TargetRule): { fields: Pick<KpiInput, 'targetNumber' | 'targetMax' | 'targetDate' | 'targetText'>; problem: string | null } {
+  if (direction === 'TEXT') {
+    const t = draft.text.trim();
+    return { fields: { targetNumber: null, targetMax: null, targetDate: null, targetText: t || null }, problem: t ? null : 'Write the target in words.' };
+  }
+  const r = readDraft({ ...draft, words: false }, rule);
+  const s = r.spec;
+  if (!s) return { fields: {}, problem: r.problem ?? 'Give the target.' };
+  if (direction === 'DATE') return { fields: { targetDate: s.date ?? null, targetNumber: null, targetMax: null, targetText: null }, problem: null };
+  if (direction === 'TARGET_RANGE') return { fields: { targetNumber: s.min ?? null, targetMax: s.max ?? null, targetDate: null, targetText: null }, problem: null };
+  return { fields: { targetNumber: s.value ?? null, targetMax: null, targetDate: null, targetText: null }, problem: null };
+}
 
 export function KpiFormDialog({
   open,
@@ -43,8 +77,7 @@ export function KpiFormDialog({
   const nameEditable = adding || kpi?.mark === 'ADDED';
   const [name, setName] = useState('');
   const [direction, setDirection] = useState<Direction>('HIGHER_BETTER');
-  const [number, setNumber] = useState('');
-  const [words, setWords] = useState('');
+  const [draft, setDraft] = useState<TargetDraft>({ ...EMPTY_DRAFT });
   const [unit, setUnit] = useState('');
   const [frequency, setFrequency] = useState('');
   const [weight, setWeight] = useState('');
@@ -54,8 +87,7 @@ export function KpiFormDialog({
     if (!open) return;
     setName(kpi?.name ?? '');
     setDirection(kpi?.direction ?? 'HIGHER_BETTER');
-    setNumber(kpi?.targetNumber != null ? String(kpi.targetNumber) : '');
-    setWords(kpi?.targetText ?? '');
+    setDraft(planDraft(kpi));
     setUnit(kpi?.unit ?? '');
     setFrequency(kpi?.frequency ?? '');
     setWeight(kpi?.weightPercent != null ? String(kpi.weightPercent) : '');
@@ -63,16 +95,20 @@ export function KpiFormDialog({
   }, [open, kpi]);
 
   const dirOptions = directions.length ? directions : DIRECTIONS.map((d) => ({ value: d, label: DIRECTION_LABEL[d] }));
-  const asWords = direction === 'TEXT';
-  const badNumber = !asWords && number.trim() !== '' && Number.isNaN(Number(number));
+  const rule = useMemo(() => planRule(direction, unit.trim() || null), [direction, unit]);
+  const target = planTargetFields(direction, draft, rule);
   const badWeight = weight.trim() !== '' && (Number.isNaN(Number(weight)) || Number(weight) < 0 || Number(weight) > 100);
+  const changeDirection = (d: Direction) => {
+    setDirection(d);
+    // Words carry over as words; a number box starts from what was there.
+    setDraft((x) => ({ ...x, words: d === 'TEXT' }));
+  };
 
   const submit = () => {
     const body: KpiInput = {
       direction,
-      targetNumber: asWords ? null : numOrNull(number),
-      targetText: asWords ? words.trim() || null : null,
-      unit: unit.trim() || null,
+      ...target.fields,
+      unit: direction === 'TEXT' || direction === 'DATE' ? null : unit.trim() || null,
       frequency: frequency || null,
       weightPercent: numOrNull(weight),
       ...(combine ? { combine } : {}),
@@ -89,32 +125,21 @@ export function KpiFormDialog({
       onClose={onClose}
       onSubmit={submit}
       submitLabel={adding ? 'Add' : 'Save'}
-      submitDisabled={(nameEditable && !name.trim()) || badNumber || badWeight}
+      submitDisabled={(nameEditable && !name.trim()) || Boolean(target.problem) || badWeight}
     >
       <Stack spacing={2} sx={{ mt: 0.5 }}>
         {nameEditable && (
           <TextField label="Name" required autoFocus value={name} onChange={(e) => setName(e.target.value)} size="small" fullWidth />
         )}
-        <TextField select label="Direction" value={direction} onChange={(e) => setDirection(e.target.value as Direction)} size="small" fullWidth>
-          {dirOptions.map((d) => <MenuItem key={d.value} value={d.value}>{d.label}</MenuItem>)}
-        </TextField>
-        {asWords ? (
-          <TextField label="Target, in words" value={words} onChange={(e) => setWords(e.target.value)} size="small" fullWidth multiline minRows={2} />
-        ) : (
-          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-            <TextField
-              label="Target"
-              value={number}
-              onChange={(e) => setNumber(e.target.value)}
-              size="small"
-              fullWidth
-              error={badNumber}
-              helperText={badNumber ? 'A number, please.' : undefined}
-              slotProps={{ htmlInput: { inputMode: 'decimal' } }}
-            />
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+          <TextField select label="Which way is better" value={direction} onChange={(e) => changeDirection(e.target.value as Direction)} size="small" fullWidth>
+            {dirOptions.map((d) => <MenuItem key={d.value} value={d.value}>{d.label}</MenuItem>)}
+          </TextField>
+          {direction !== 'TEXT' && direction !== 'DATE' && (
             <TextField label="Unit" placeholder="%, hours, count, ₹" value={unit} onChange={(e) => setUnit(e.target.value)} size="small" fullWidth />
-          </Stack>
-        )}
+          )}
+        </Stack>
+        <KpiTargetInput rule={rule} draft={draft} onChange={setDraft} kpiName={name} label={direction === 'TEXT' ? 'Target, in words' : 'Target'} allowWords={false} helper="" readWords={direction !== 'TEXT'} />
         <TextField
           select
           label="How often actuals are entered"
@@ -127,7 +152,7 @@ export function KpiFormDialog({
           <MenuItem value="">Same as the plan</MenuItem>
           {entryFrequencies.map((f) => <MenuItem key={f} value={f}>{frequencyWord(f)}</MenuItem>)}
         </TextField>
-        {combineRules.length > 0 && (
+        {combineRules.length > 0 && direction !== 'DATE' && (
           <TextField
             select
             label="When it is entered more than once a period, its actual is"
@@ -168,21 +193,20 @@ export function TargetChangeDialog({
   onClose: () => void;
   onSubmit: (body: TargetChangeInput) => Promise<unknown>;
 }) {
-  const [number, setNumber] = useState('');
-  const [words, setWords] = useState('');
+  const [draft, setDraft] = useState<TargetDraft>({ ...EMPTY_DRAFT });
   const [from, setFrom] = useState(todayIso());
   const [reason, setReason] = useState('');
 
   useEffect(() => {
     if (!open) return;
-    setNumber(kpi?.targetNumber != null ? String(kpi.targetNumber) : '');
-    setWords(kpi?.targetText ?? '');
+    setDraft(planDraft(kpi));
     setFrom(todayIso());
     setReason('');
   }, [open, kpi]);
 
-  const asWords = kpi?.direction === 'TEXT';
-  const badNumber = !asWords && (number.trim() === '' || Number.isNaN(Number(number)));
+  const direction: Direction = kpi?.direction ?? 'TEXT';
+  const rule = useMemo(() => planRule(direction, kpi?.unit ?? null), [direction, kpi?.unit]);
+  const target = planTargetFields(direction, draft, rule);
 
   return (
     <FormDialog
@@ -190,32 +214,14 @@ export function TargetChangeDialog({
       title={`Change the target of “${kpi?.name ?? ''}”`}
       subtitle="The plan is active, so the change is kept with its date and reason."
       onClose={onClose}
-      onSubmit={() => onSubmit({
-        ...(asWords ? { targetText: words.trim() } : { targetNumber: Number(number) }),
-        effectiveFrom: from,
-        reason: reason.trim(),
-      })}
+      onSubmit={() => onSubmit({ ...target.fields, effectiveFrom: from, reason: reason.trim() })}
       submitLabel="Change target"
-      submitDisabled={!reason.trim() || !from || (asWords ? !words.trim() : badNumber)}
+      submitDisabled={!reason.trim() || !from || Boolean(target.problem)}
       enterSubmits={false}
     >
       <Stack spacing={2} sx={{ mt: 0.5 }}>
         <Typography sx={{ fontSize: 13.5, color: 'var(--c-text-2)' }}>Now: {kpi?.target || '—'}</Typography>
-        {asWords ? (
-          <TextField label="New target, in words" required value={words} onChange={(e) => setWords(e.target.value)} size="small" fullWidth multiline minRows={2} />
-        ) : (
-          <TextField
-            label={`New target${kpi?.unit ? ` (${kpi.unit})` : ''}`}
-            required
-            autoFocus
-            value={number}
-            onChange={(e) => setNumber(e.target.value)}
-            size="small"
-            fullWidth
-            error={number.trim() !== '' && Number.isNaN(Number(number))}
-            slotProps={{ htmlInput: { inputMode: 'decimal' } }}
-          />
-        )}
+        <KpiTargetInput rule={rule} draft={draft} onChange={setDraft} kpiName={kpi?.name ?? ''} label={direction === 'TEXT' ? 'New target, in words' : 'New target'} allowWords={false} autoFocus helper="" readWords={direction !== 'TEXT'} />
         <TextField
           type="date"
           label="Takes effect"

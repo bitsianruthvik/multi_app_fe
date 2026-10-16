@@ -20,6 +20,7 @@
  * (`changedFrom`) — spec §16.3. Nothing is overwritten: `?on=` reads any day.
  */
 import { api } from './client';
+import type { TargetBody, TargetSpec } from '../components/kpiTarget';
 import type { HiringRef, JoiningRef } from './hiring';
 import type { NoticeRef } from './people';
 import { pretty, targetText, type ContentRow, type KraGroup, type RoleContent } from './roles';
@@ -72,6 +73,11 @@ export interface JobLine {
   targetValue?: number | string | boolean | { min: number; max: number } | null;
   measurementType?: string | null;
   unit?: string | null;
+  /** The KPI's which way is better (its library definition). */
+  direction?: string | null;
+  /** What this line stores (spec §24 step 2), and the target as it applies — null when it is words. */
+  targetSpec?: Partial<TargetSpec> | null;
+  structured?: TargetSpec | null;
   frequency?: string | null;
 }
 
@@ -132,10 +138,11 @@ export interface Dated {
 }
 
 /** `{ operator?, value }` — a KPI target as a person types it. */
-export interface TargetInput {
-  operator?: string;
-  value: string | number | { min: number; max: number } | null;
-}
+/**
+ * A target as it is sent: a structured one ({ value } / { min, max } / { date } / { done }) or free
+ * text ({ text }) — KpiTargetInput's targetBody(); the older { operator, value } is still read.
+ */
+export type TargetInput = TargetBody | { operator?: string; value: string | number | { min: number; max: number } | null };
 
 const on = (date?: string) => (date ? `?on=${date}` : '');
 /** `?takesEffect=&reason=` for a DELETE, which carries no body. */

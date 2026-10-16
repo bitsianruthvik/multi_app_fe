@@ -189,6 +189,8 @@ export interface ContentRow {
   // kpi
   targetOperator?: string | null;
   targetValue?: number | string | boolean | { min: number; max: number } | null;
+  /** The structured target this role line stores (spec §24 step 2), or null. */
+  targetSpec?: { measure?: string | null; unit?: string | null; direction?: string | null; value?: number; min?: number; max?: number; date?: string } | null;
   frequencyOverride?: string | null;
   frequency?: string | null;
   // skill / qualification / experience
@@ -431,6 +433,8 @@ export interface HrmsMeta {
   responsibilityClasses: string[];
   measurementTypes: string[];
   kpiDirections: string[];
+  /** Measured in and which way is better, in words (spec §24 step 2). */
+  kpiTargets?: { measures: { value: string; label: string; units: string[] }[]; directions: { value: string; label: string; mark: string }[] };
   frequencies: string[];
   targetOperators: string[];
   skillTypes: string[];

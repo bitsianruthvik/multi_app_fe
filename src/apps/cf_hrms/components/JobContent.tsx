@@ -244,6 +244,12 @@ export function JobContent({
               }}
             >
               {l.kind === 'KPI' && l.targetText ? 'Target: ' : ''}
+              {/* A structured target carries its which-way mark (▲ ▼ = ↔), with the sentence on hover (spec §24 step 2). */}
+              {l.kind === 'KPI' && l.structured?.mark && l.structured.mark !== '✓' && (
+                <Box component="span" title={l.structured.sentence ?? undefined} aria-label={l.structured.sentence ?? undefined} sx={{ fontSize: 11, color: 'var(--c-text-2)', mr: 0.4 }}>
+                  {l.structured.mark}
+                </Box>
+              )}
               {l.detail}
             </Typography>
           )}

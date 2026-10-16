@@ -91,11 +91,13 @@ function AchievementBar({ kpi }: { kpi: ScorecardKpi }) {
   );
 }
 
-/** ▲ higher is better · ▼ lower is better · = exactly; a target in words has none ("done or not"). */
+/** ▲ higher is better · ▼ lower is better · = exactly · ↔ within a range · by a date; a target in words has none ("done or not"). */
 const DIRECTION_MARK: Partial<Record<ScorecardKpi['direction'], { mark: string; words: string }>> = {
   HIGHER_BETTER: { mark: '▲', words: 'Higher is better' },
   LOWER_BETTER: { mark: '▼', words: 'Lower is better' },
   EXACT: { mark: '=', words: 'Exactly this' },
+  TARGET_RANGE: { mark: '↔', words: 'Within the range' },
+  DATE: { mark: 'by', words: 'Done on or before the date' },
 };
 
 /** The result's dot: never the only signal — it has a title, and the gap text says the same in words. */

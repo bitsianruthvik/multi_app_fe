@@ -33,6 +33,8 @@ import { useListFilters, matchesQuery, matchesFlag, YES_NO_OPTIONS } from './lis
 import { ListToolbar, type FilterDef } from './list/ListToolbar';
 import { RowActions } from './list/RowActions';
 import { ExcelButtons } from './excel/ExcelButtons';
+import { KpiRuleFields } from './KpiRuleFields';
+import { BETTER_MARK, BETTER_SHORT, asBetter, asMeasure, measureLabel } from './kpiTarget';
 
 // ---------------------------------------------------------------------------
 // What makes each vocabulary itself
@@ -41,7 +43,8 @@ import { ExcelButtons } from './excel/ExcelButtons';
 interface FieldDef {
   name: string;
   label: string;
-  type: 'text' | 'multiline' | 'select';
+  /** 'kpiRule': a KPI's measured in, unit and which way, as one block (spec §24 step 2). */
+  type: 'text' | 'multiline' | 'select' | 'kpiRule';
   required?: boolean;
   helper?: string;
   options?: (meta: HrmsMeta | null) => string[];
@@ -145,9 +148,27 @@ const MASTERS: Record<MasterKind, MasterDef> = {
     newLabel: 'New KPI',
     hasCode: true,
     columns: [
-      typeColumn('measurementType', 'Measured as'),
-      { key: 'unit', header: 'Unit', render: (r) => <Mono sx={{ fontSize: 12.5 }}>{r.unit || '—'}</Mono>, sortValue: (r) => r.unit ?? null },
-      typeColumn('direction', 'Direction'),
+      {
+        key: 'measurementType',
+        header: 'Measured in',
+        render: (r) => {
+          const label = measureLabel(r.measurementType, r.unit);
+          return label ? <ToneBadge tone="neutral" label={label} noIcon /> : <Box sx={{ color: 'var(--c-text-3)', fontSize: 13 }}>Not set</Box>;
+        },
+        sortValue: (r) => measureLabel(r.measurementType, r.unit),
+        exportValue: (r) => measureLabel(r.measurementType, r.unit) ?? '',
+      },
+      {
+        key: 'direction',
+        header: 'Which way',
+        render: (r) => {
+          const b = asBetter(r.direction);
+          const none = asMeasure(r.measurementType) === 'BOOLEAN' || asMeasure(r.measurementType) === 'DATE';
+          return b && !none ? <Box sx={{ fontSize: 13, whiteSpace: 'nowrap' }}>{BETTER_MARK[b]} {BETTER_SHORT[b]}</Box> : <Box sx={{ color: 'var(--c-text-3)', fontSize: 13 }}>{none ? '—' : 'Not set'}</Box>;
+        },
+        sortValue: (r) => asBetter(r.direction),
+        exportValue: (r) => (asBetter(r.direction) ? BETTER_SHORT[asBetter(r.direction) as keyof typeof BETTER_SHORT] : ''),
+      },
       typeColumn('defaultFrequency', 'Frequency'),
       { key: 'dataSource', header: 'Data source', render: (r) => <Box sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>{r.dataSource || '—'}</Box>, sortValue: (r) => r.dataSource ?? null },
       {
@@ -161,9 +182,7 @@ const MASTERS: Record<MasterKind, MasterDef> = {
     fields: [
       { name: 'code', label: 'Code', type: 'text' },
       { name: 'name', label: 'Name', type: 'text', required: true, helper: 'Name the indicator, not the target — "Rejection rate %", not "Rejection under 2%".' },
-      { name: 'measurementType', label: 'Measured as', type: 'select', required: true, options: (m) => m?.measurementTypes ?? [] },
-      { name: 'unit', label: 'Unit', type: 'text', helper: '%, minutes, kg/t.' },
-      { name: 'direction', label: 'Direction', type: 'select', allowBlank: true, options: (m) => m?.kpiDirections ?? [], helper: 'Is higher better, lower better, or inside a range?' },
+      { name: 'measurementType', label: 'Measured in · which way is better', type: 'kpiRule' },
       { name: 'defaultFrequency', label: 'Default frequency', type: 'select', allowBlank: true, options: (m) => m?.frequencies ?? [], helper: 'A role may override this.' },
       { name: 'dataSource', label: 'Data source', type: 'text', helper: 'Where the number comes from — the ERP, the shift log, a manual register.' },
       { name: 'formulaText', label: 'Formula', type: 'multiline', helper: 'Written for a person to read. Nothing evaluates it.' },
@@ -244,6 +263,7 @@ const EXCEL_ENTITY: Record<MasterKind, ExcelEntity> = {
 function blankForm(def: MasterDef): Record<string, string> {
   const out: Record<string, string> = { status: 'ACTIVE' };
   for (const f of def.fields) {
+    if (f.type === 'kpiRule') { out.measurementType = ''; out.unit = ''; out.direction = ''; continue; }
     if (f.type === 'select' && !f.allowBlank && f.name !== 'status') {
       out[f.name] = (f.options?.(null) ?? [])[0] ?? '';
     } else out[f.name] = out[f.name] ?? '';
@@ -254,6 +274,13 @@ function blankForm(def: MasterDef): Record<string, string> {
 function toForm(def: MasterDef, item: MasterItem): Record<string, string> {
   const out: Record<string, string> = {};
   for (const f of def.fields) {
+    if (f.type === 'kpiRule') {
+      // TEXT / RATING / NEUTRAL are "not set".
+      out.measurementType = asMeasure(item.measurementType) ?? '';
+      out.unit = item.unit ?? '';
+      out.direction = asBetter(item.direction) ?? '';
+      continue;
+    }
     const v = (item as unknown as Record<string, unknown>)[f.name];
     out[f.name] = v === null || v === undefined ? '' : String(v);
   }
@@ -418,7 +445,13 @@ export function RoleMasterScreen({ kind }: { kind: MasterKind }) {
 
   async function submit() {
     const body: Record<string, unknown> = {};
-    for (const f of def.fields) body[f.name] = form[f.name] === '' ? null : form[f.name];
+    for (const f of def.fields) {
+      if (f.type === 'kpiRule') {
+        for (const k of ['measurementType', 'unit', 'direction']) body[k] = form[k] ? form[k] : null;
+        continue;
+      }
+      body[f.name] = form[f.name] === '' ? null : form[f.name];
+    }
     if (editing) {
       await updateMaster(kind, editing.id, body);
       toast.success(`${form.name} saved.`);
@@ -521,6 +554,17 @@ export function RoleMasterScreen({ kind }: { kind: MasterKind }) {
       >
         <Stack spacing={2} sx={{ mt: 0.5 }}>
           {def.fields.map((f) => {
+            if (f.type === 'kpiRule') {
+              return (
+                <KpiRuleFields
+                  key={f.name}
+                  measurementType={form.measurementType ?? ''}
+                  unit={form.unit ?? ''}
+                  direction={form.direction ?? ''}
+                  onChange={(patch) => setForm((x) => ({ ...x, ...patch }))}
+                />
+              );
+            }
             const options = f.type === 'select' ? f.options?.(meta) ?? [] : [];
             return (
               <TextField

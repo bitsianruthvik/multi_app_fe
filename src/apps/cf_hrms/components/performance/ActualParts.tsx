@@ -71,7 +71,8 @@ export function ScoreLine({ score, band, basedOn, line, label = 'Score' }: { sco
   );
 }
 
-export interface ActualCellValue { value?: number | null; met?: 'YES' | 'NO' | null; note?: string | null; reason?: string }
+/** `value`: a number — or, for a KPI due by a date, the day it was done (YYYY-MM-DD). */
+export interface ActualCellValue { value?: number | string | null; met?: 'YES' | 'NO' | null; note?: string | null; reason?: string }
 
 /**
  * The cell. A first value saves by itself 700 ms after typing stops (or on Enter
@@ -91,7 +92,9 @@ export function ActualInput({
   onSave: (v: ActualCellValue) => Promise<unknown>;
 }) {
   const isText = direction === 'TEXT';
-  const initial = isText ? (actual?.met ?? '') : (actual?.value != null ? String(actual.value) : '');
+  // A KPI due by a date (spec §24 step 2): the actual is the day it was done.
+  const isDate = direction === 'DATE';
+  const initial = isText ? (actual?.met ?? '') : isDate ? (actual?.valueText ?? '') : (actual?.value != null ? String(actual.value) : '');
   const [text, setText] = useState(initial);
   const [seen, setSeen] = useState(initial);
   const [state, setState] = useState<'idle' | 'saving' | 'saved'>('idle');
@@ -108,7 +111,7 @@ export function ActualInput({
     return <Typography component="span" sx={{ fontSize: 13.5, whiteSpace: 'nowrap' }}>{actualWord(actual, unit)}</Typography>;
   }
 
-  const had = isText ? actual?.met != null : actual?.value != null;
+  const had = isText ? actual?.met != null : isDate ? actual?.valueText != null : actual?.value != null;
   const save = async (v: ActualCellValue) => {
     setState('saving');
     setProblem(null);
@@ -131,6 +134,7 @@ export function ActualInput({
     }
     let v: ActualCellValue;
     if (isText) v = { met: t as 'YES' | 'NO' };
+    else if (isDate) v = { value: t };
     else {
       const n = Number(t.replace(/,/g, ''));
       if (!Number.isFinite(n)) { setProblem('Type a number.'); return; }
@@ -143,7 +147,17 @@ export function ActualInput({
   return (
     <Box sx={{ display: 'inline-flex', flexDirection: 'column', minWidth: 0 }}>
       <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.75 }}>
-        {isText ? (
+        {isDate ? (
+          <TextField
+            type="date" size="small" value={text}
+            onChange={(e) => { setText(e.target.value); setProblem(null); }}
+            onBlur={() => commit(text)}
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); commit(text); } }}
+            error={!!problem}
+            sx={{ width: 160 }}
+            slotProps={{ htmlInput: { 'aria-label': `Done on: ${label}` } }}
+          />
+        ) : isText ? (
           <TextField
             select size="small" value={text}
             onChange={(e) => { setText(e.target.value); commit(e.target.value); }}
@@ -178,14 +192,14 @@ export function ActualInput({
           />
         )}
         <Box component="span" aria-live="polite" sx={{ fontSize: 12, color: 'var(--c-text-3)', minWidth: 40 }}>
-          {state === 'saving' ? <CircularProgress size={12} /> : state === 'saved' ? 'Saved' : (unit && !isText ? unit : '')}
+          {state === 'saving' ? <CircularProgress size={12} /> : state === 'saved' ? 'Saved' : (unit && !isText && !isDate ? unit : '')}
         </Box>
       </Box>
       {problem && <Typography role="alert" sx={{ fontSize: 12, color: 'var(--c-danger-600)', mt: 0.5, maxWidth: 280 }}>{problem}</Typography>}
       <PromptDialog
         open={!!askWhy}
         title="Correct a value already entered?"
-        body={`It was ${actualWord(actual, unit)}; it becomes ${askWhy ? (askWhy.met ? (askWhy.met === 'YES' ? 'Met' : 'Not met') : actualWord({ value: askWhy.value ?? null } as Actual, unit)) : ''}. The earlier value is kept in the history.`}
+        body={`It was ${actualWord(actual, unit)}; it becomes ${askWhy ? (askWhy.met ? (askWhy.met === 'YES' ? 'Met' : 'Not met') : typeof askWhy.value === 'string' ? actualWord({ value: null, valueText: askWhy.value } as Actual, unit) : actualWord({ value: askWhy.value ?? null } as Actual, unit)) : ''}. The earlier value is kept in the history.`}
         label="Why is it corrected?"
         required
         confirmLabel="Correct it"

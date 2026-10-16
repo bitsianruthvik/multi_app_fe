@@ -47,105 +47,16 @@ import { positionsApi } from '../api/positions';
 import { useCan } from '../access/can';
 import { JobContent } from './JobContent';
 import { useJobContent } from './useJobContent';
+import { KpiTargetInput } from './KpiTargetInput';
+import { EMPTY_DRAFT, draftOf, ruleOf, sameDraft, targetBody, type TargetDraft, type TargetRule } from './kpiTarget';
 
 const NOUN: Record<JobLineKind, string> = { RESPONSIBILITY: 'responsibility', KPI: 'KPI' };
-const OPERATORS: { value: string; label: string }[] = [
-  { value: 'GTE', label: 'At least' },
-  { value: 'LTE', label: 'At most' },
-  { value: 'EQ', label: 'Exactly' },
-  { value: 'BETWEEN', label: 'Between' },
-  { value: 'INFO', label: 'Tracked, no target' },
-];
-
-interface TargetDraft {
-  operator: string;
-  value: string;
-  min: string;
-  max: string;
-}
-
-/** Karni's KPIs are all sentences ("95%", "Zero rejections"); a numeric KPI gets an operator. */
-const isSentence = (measurementType?: string | null) => !measurementType || measurementType === 'TEXT';
-
-function draftOf(line: JobLine | null): TargetDraft {
-  const v = line?.targetValue;
-  const range = v && typeof v === 'object' ? v : null;
-  return {
-    operator: line?.targetOperator ?? (isSentence(line?.measurementType) ? 'EQ' : 'GTE'),
-    value: v == null || typeof v === 'object' ? '' : String(v),
-    min: range ? String(range.min) : '',
-    max: range ? String(range.max) : '',
-  };
-}
-
-function targetOf(d: TargetDraft, measurementType?: string | null): TargetInput {
-  if (isSentence(measurementType)) return { operator: 'EQ', value: d.value.trim() };
-  if (d.operator === 'INFO') return { operator: 'INFO', value: null };
-  if (d.operator === 'BETWEEN') return { operator: 'BETWEEN', value: { min: Number(d.min), max: Number(d.max) } };
-  return { operator: d.operator, value: d.value.trim() };
-}
-
-const sameTarget = (a: TargetDraft, b: TargetDraft) =>
-  a.operator === b.operator && a.value.trim() === b.value.trim() && a.min === b.min && a.max === b.max;
-
-function TargetFields({
-  draft,
-  onChange,
-  measurementType,
-  unit,
-  helper,
-}: {
-  draft: TargetDraft;
-  onChange: (d: TargetDraft) => void;
-  measurementType?: string | null;
-  unit?: string | null;
-  helper?: string;
-}) {
-  if (isSentence(measurementType)) {
-    return (
-      <TextField
-        label="Target"
-        value={draft.value}
-        onChange={(e) => onChange({ ...draft, value: e.target.value })}
-        fullWidth
-        size="small"
-        helperText={helper ?? 'As you would say it — "95%", "Zero rejections", "Within 2 days".'}
-      />
-    );
-  }
-  return (
-    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
-      <TextField
-        select
-        label="Target"
-        value={draft.operator}
-        onChange={(e) => onChange({ ...draft, operator: e.target.value })}
-        size="small"
-        sx={{ minWidth: 170 }}
-      >
-        {OPERATORS.map((o) => (
-          <MenuItem key={o.value} value={o.value}>
-            {o.label}
-          </MenuItem>
-        ))}
-      </TextField>
-      {draft.operator === 'BETWEEN' ? (
-        <>
-          <TextField label="From" value={draft.min} onChange={(e) => onChange({ ...draft, min: e.target.value })} size="small" fullWidth />
-          <TextField label="To" value={draft.max} onChange={(e) => onChange({ ...draft, max: e.target.value })} size="small" fullWidth />
-        </>
-      ) : draft.operator !== 'INFO' ? (
-        <TextField
-          label={unit ? `Value (${unit})` : 'Value'}
-          value={draft.value}
-          onChange={(e) => onChange({ ...draft, value: e.target.value })}
-          size="small"
-          fullWidth
-          helperText={helper}
-        />
-      ) : null}
-    </Stack>
-  );
+/** A KPI line's rule — its library KPI's measured in, unit and which way. A KPI added here has its own (unset) one. */
+const lineRule = (line: JobLine | null): TargetRule => ruleOf(line ? { measurementType: line.measurementType, unit: line.unit, direction: line.direction } : null);
+const NO_RULE: TargetRule = { measure: null, unit: null, direction: null };
+/** A draft -> what is sent. Emptied: "tracked, no target" (the older form says it). */
+function targetOf(d: TargetDraft, rule: TargetRule): TargetInput {
+  return targetBody(d, rule) ?? { operator: 'INFO', value: null };
 }
 
 type DialogState =
@@ -250,7 +161,8 @@ export function SeatJobContentEditor({
   const [text, setText] = useState('');
   const [kraId, setKraId] = useState<number | ''>('');
   const [reason, setReason] = useState('');
-  const [target, setTarget] = useState<TargetDraft>(draftOf(null));
+  const [target, setTarget] = useState<TargetDraft>({ ...EMPTY_DRAFT, words: true });
+  const [targetAtOpen, setTargetAtOpen] = useState<TargetDraft>({ ...EMPTY_DRAFT, words: true });
   const [day, setDay] = useState(todayIso());
 
   useEffect(() => {
@@ -260,10 +172,13 @@ export function SeatJobContentEditor({
     if (dialog.mode === 'add') {
       setText('');
       setKraId(dialog.kra?.definitionId ?? '');
-      setTarget(draftOf(null));
+      setTarget({ ...EMPTY_DRAFT, words: true });
+      setTargetAtOpen({ ...EMPTY_DRAFT, words: true });
     } else {
       setText(dialog.line.name);
-      setTarget(draftOf(dialog.line));
+      const start = draftOf(dialog.line, lineRule(dialog.line));
+      setTarget(start);
+      setTargetAtOpen(start);
     }
   }, [dialog]);
 
@@ -296,7 +211,7 @@ export function SeatJobContentEditor({
         kind: dialog.kind,
         text: text.trim(),
         parentKraDefinitionId: kraId === '' ? null : kraId,
-        target: dialog.kind === 'KPI' && target.value.trim() ? targetOf(target, 'TEXT') : null,
+        target: dialog.kind === 'KPI' ? targetBody(target, NO_RULE) : null,
         ...dated,
       };
       done(await jobContentApi.add(subject, body, scope), t('Added for this position only.'));
@@ -304,13 +219,13 @@ export function SeatJobContentEditor({
       const { line } = dialog;
       if (line.definitionId == null) return;
       const reworded = text.trim() !== line.name.trim();
-      const retargeted = line.kind === 'KPI' && !sameTarget(target, draftOf(line));
+      const retargeted = line.kind === 'KPI' && !sameDraft(target, targetAtOpen);
       done(
         await jobContentApi.change(subject, {
           kind: line.kind,
           definitionId: line.definitionId,
           ...(reworded ? { text: text.trim() } : {}),
-          ...(retargeted ? { target: targetOf(target, line.measurementType) } : {}),
+          ...(retargeted ? { target: targetOf(target, lineRule(line)) } : {}),
           ...dated,
         }, scope),
         t('Changed for this position only.'),
@@ -338,7 +253,7 @@ export function SeatJobContentEditor({
 
   const changeDirty =
     dialog?.mode === 'change' &&
-    (text.trim() !== dialog.line.name.trim() || (dialog.line.kind === 'KPI' && !sameTarget(target, draftOf(dialog.line))));
+    (text.trim() !== dialog.line.name.trim() || (dialog.line.kind === 'KPI' && !sameDraft(target, targetAtOpen)));
 
   const whenField = (
     <TakesEffectField day={day} onDay={setDay} reason={reason} onReason={setReason} reasonLabel={null} />
@@ -557,7 +472,7 @@ export function SeatJobContentEditor({
               size="small"
               helperText="One sentence, as it should read in the job description."
             />
-            {dialog.kind === 'KPI' && <TargetFields draft={target} onChange={setTarget} measurementType="TEXT" />}
+            {dialog.kind === 'KPI' && <KpiTargetInput rule={NO_RULE} draft={target} onChange={setTarget} kpiName={text} />}
             <TextField
               select
               label="Under which KRA"
@@ -624,11 +539,12 @@ export function SeatJobContentEditor({
               }
             />
             {dialog.line.kind === 'KPI' && (
-              <TargetFields
+              <KpiTargetInput
+                rule={lineRule(dialog.line)}
                 draft={target}
                 onChange={setTarget}
-                measurementType={dialog.line.measurementType}
-                unit={dialog.line.unit}
+                kpiName={dialog.line.name}
+                label={t('Target for this position')}
                 helper={!owned(dialog.line) ? `${person ? 'Their position’s' : 'The role’s'} target is: ${dialog.line.targetText ?? 'not set'}` : undefined}
               />
             )}

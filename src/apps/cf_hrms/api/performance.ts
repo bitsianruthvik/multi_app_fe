@@ -18,7 +18,8 @@ import { api } from './client';
 
 export type Frequency = 'MONTHLY' | 'QUARTERLY' | 'HALF_YEARLY' | 'YEARLY';
 export type PlanStatus = 'DRAFT' | 'ACTIVE' | 'CLOSED' | 'CANCELLED';
-export type Direction = 'HIGHER_BETTER' | 'LOWER_BETTER' | 'EXACT' | 'TEXT';
+/** Which way is better on a plan KPI. TARGET_RANGE: targetNumber is the lowest, targetMax the highest; DATE: done on or before targetDate. */
+export type Direction = 'HIGHER_BETTER' | 'LOWER_BETTER' | 'EXACT' | 'TARGET_RANGE' | 'DATE' | 'TEXT';
 /** "From the job" / "Changed for this period" / "Added for this period". */
 export type Mark = 'FROM_JOB' | 'CHANGED' | 'ADDED';
 /** How a KPI's slots make one actual (spec §19.1). */
@@ -114,19 +115,23 @@ export interface KpiActuals {
   slots: Slot[];
   /** A number, or for words "2 of 3 met" / "YES" / "NO". */ combined: number | string | null;
   /** The target the combined actual is held to (a SUM target taken pro rata). */ combinedTarget: number | null;
+  combinedTargetMax?: number | null;
   achievement: number | null; band: Band; bandLabel: string; counted: number; slotCount: number;
+  /** "3 pts short", "₹1 L above the range", "done 2 days late". */ gapText?: string | null;
 }
 export interface TargetChange { id: number; effectiveFrom: string; reason: string; by: string | null; at: string; from: string; to: string }
 export interface PlanKpi {
   id: number; planKraId: number | null; name: string; lineKey: string | null;
   unit: string | null; direction: Direction; targetNumber: number | null; targetText: string | null;
+  /** A range's highest (targetNumber is its lowest); a date KPI's day. */ targetMax?: number | null; targetDate?: string | null;
   /** "at least 95%", "at most 30 minutes", or the words. */ target: string;
+  /** The value alone: "95%", "₹10 L – ₹12 L", "30 Nov 2026". */ targetShort?: string;
   /** How often actuals are entered; null = the plan's frequency. */ frequency: string | null;
   weightPercent: number | null;
   combine: CombineRule;
   mark: Mark; markLabel: string;
   /** What the job says (null for one added for this period). `target` is the job's own words ("95%", "Max 30 minutes"). */
-  job: { direction: Direction; targetNumber: number | null; targetText: string | null; unit: string | null; weightPercent: number | null; written: string | null; target: string } | null;
+  job: { direction: Direction; targetNumber: number | null; targetMax?: number | null; targetDate?: string | null; targetText: string | null; unit: string | null; weightPercent: number | null; written: string | null; target: string } | null;
   targetChanges: TargetChange[];
   actuals: KpiActuals;
 }
@@ -151,10 +156,10 @@ export interface Plan {
   entryFrequencies: string[];
 }
 export interface KpiInput {
-  planKraId?: number | null; name?: string; direction?: Direction; targetNumber?: number | null; targetText?: string | null;
+  planKraId?: number | null; name?: string; direction?: Direction; targetNumber?: number | null; targetMax?: number | null; targetDate?: string | null; targetText?: string | null;
   unit?: string | null; frequency?: string | null; weightPercent?: number | null; combine?: CombineRule;
 }
-export interface TargetChangeInput { direction?: Direction; targetNumber?: number | null; targetText?: string | null; unit?: string | null; effectiveFrom?: string; reason: string }
+export interface TargetChangeInput { direction?: Direction; targetNumber?: number | null; targetMax?: number | null; targetDate?: string | null; targetText?: string | null; unit?: string | null; effectiveFrom?: string; reason: string }
 export interface BulkResult { done: number; doneIds: number[]; refused: { id: number; code: string; message: string; problems: string[] }[] }
 
 export interface EmployeePlans { current: PlanRow[]; past: PlanRow[]; upcoming: PlanRow[]; cancelled: PlanRow[] }
@@ -173,6 +178,7 @@ export interface ActualRow {
   roleId: number | null; roleTitle: string | null; departmentId: number | null; departmentName: string | null; managerPositionId: number | null;
   kraName: string | null; kpiName: string; unit: string | null; direction: Direction;
   targetNumber: number | null; targetText: string | null; target: string;
+  targetMax?: number | null; targetDate?: string | null; targetShort?: string;
   actual: Actual | null;
   /** This slot's actual on its own. */ achievement: number | null; band: Band; bandLabel: string;
   canEnter: boolean; /** Why not, when it cannot be entered. */ locked: string | null;
@@ -192,7 +198,8 @@ export interface ActualsGrid {
   line: string | null;
   /** Manager login: how many people are below them. */ people?: number;
 }
-export interface ActualInput { planId: number; kpiId: number; slotStart: string; value?: number | null; met?: 'YES' | 'NO' | null; note?: string | null; reason?: string }
+/** `value` is a number — or, for a KPI due by a date, the day it was done (YYYY-MM-DD). */
+export interface ActualInput { planId: number; kpiId: number; slotStart: string; value?: number | string | null; met?: 'YES' | 'NO' | null; note?: string | null; reason?: string }
 export interface ActualSaved {
   action: 'ENTERED' | 'CORRECTED' | 'NOTE' | 'UNCHANGED';
   actual: Actual | null; achievement: number | null; band: Band; bandLabel: string;
@@ -216,7 +223,8 @@ export interface ScorecardKra {
 export interface ScorecardKpi {
   key: string; /** null for a job KPI (no plan). */ kpiId: number | null; kraKey: string | null;
   name: string; unit: string | null; direction: Direction;
-  /** "at least 95%" · the value alone, "95%" (the reader draws ▲ ▼ = from `direction`). */ target: string; targetShort: string;
+  /** "at least 95%" · the value alone, "95%" (the reader draws ▲ ▼ = ↔ from `direction`). */ target: string; targetShort: string;
+  targetMax?: number | null; targetDate?: string | null;
   actual: number | string | null;
   /** "92% · average of 2 of 3 months"; null when nothing is entered yet. */ current: string | null;
   combine: CombineRule | null; combineLabel: string | null; counted: number; slotCount: number;
