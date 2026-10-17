@@ -191,8 +191,11 @@ function SideStrip({ drawing, view, hidden, onToggle, onAll, levels }: {
   );
 }
 
-export function DrawingViewer({ onClose, orderId, lineId, drawing, onUploadRevision, levels, large = false }: {
+export function DrawingViewer({ onClose, orderId, lineId, drawing, onUploadRevision, levels, large = false, fetchFile, downloadFile }: {
   onClose: () => void;
+  /** A file that is not an order line's (a standard drawing's part file): how to fetch and download it. */
+  fetchFile?: () => Promise<Blob>;
+  downloadFile?: () => Promise<void>;
   orderId: number;
   lineId: number;
   drawing: ViewerDrawing;
@@ -216,6 +219,7 @@ export function DrawingViewer({ onClose, orderId, lineId, drawing, onUploadRevis
   useEffect(() => {
     let live = true;
     setUses(null);
+    if (!lineId) return () => { live = false; };
     getDesignUses(lineId, { drawingId: drawing.id }).then((r) => { if (live && r && Array.isArray(r.rows) && r.total > 0) setUses(r); }).catch(() => {});
     return () => { live = false; };
   }, [lineId, drawing.id]);
@@ -226,7 +230,7 @@ export function DrawingViewer({ onClose, orderId, lineId, drawing, onUploadRevis
     setLoaded({ state: 'loading' }); setHidden(new Set());
     (async () => {
       try {
-        const blob = await fetchDrawingBlob(orderId, lineId, drawing);
+        const blob = fetchFile ? await fetchFile() : await fetchDrawingBlob(orderId, lineId, drawing);
         if (!live) return;
         if (drawing.fileKind === 'pdf') {
           const url = URL.createObjectURL(new Blob([blob], { type: 'application/pdf' }));
@@ -264,7 +268,7 @@ export function DrawingViewer({ onClose, orderId, lineId, drawing, onUploadRevis
   const showAll = (show: boolean) => setHidden(show ? new Set() : new Set(stable.map((l) => l.name)));
 
   const download = async () => {
-    try { await downloadDrawing(orderId, lineId, drawing); } catch (e) { toast.error(asError(e).message); }
+    try { if (downloadFile) await downloadFile(); else await downloadDrawing(orderId, lineId, drawing); } catch (e) { toast.error(asError(e).message); }
   };
 
   const onKeyDown = (e: KeyboardEvent) => {

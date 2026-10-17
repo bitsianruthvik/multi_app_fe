@@ -113,6 +113,8 @@ export interface DashOrderLine {
   released: boolean; releaseId: number | null; noSteps: boolean;
   committedDate: string | null;
   progressPct: number; basis: 'work' | 'count' | 'made' | null; estCoveragePct: number | null; stepsTotal: number;
+  /** 2026-10-17: the line's top pieces' own steps only (progressPct counts everything under the line). */
+  own?: { progressPct: number | null; basis: 'work' | 'count' | null; stepsTotal: number };
   tonnes: number | null; tonnesMade: number | null; tonnesDispatched: number | null;
   period: { workMin: number; pctGained: number; made: number; dispatched: number; tonnesMade: number | null; tonnesDispatched: number | null };
   plan: { last: string; first: string; entries: number } | null;
@@ -123,7 +125,9 @@ export interface DashOrder {
   id: number; code: string; revision: number; title: string | null; orderType: 'customer' | 'stock'; planPriority: number | null;
   customer: { id: number; name: string } | null;
   committedDate: string | null;
-  progress: { pct: number; basis: 'tonnes' | 'lines'; lineBasis: 'work' | 'count' | null; stepsTotal: number; workMinLeft: number | null };
+  progress: { pct: number; basis: 'tonnes' | 'lines'; lineBasis: 'work' | 'count' | null; stepsTotal: number; workMinLeft: number | null; own?: { pct: number | null; stepsTotal: number } };
+  /** Jobs started in the period on work the plan had no ship week for (§70). */
+  startedUnplanned?: number;
   tonnes: { total: number | null; made: number | null; dispatched: number | null; unweighedLines: number[] };
   lines: { total: number; released: number; made: number; dispatched: number };
   period: { workMin: number; pctGained: number; tonnesMade: number | null; tonnesDispatched: number | null };
@@ -149,6 +153,7 @@ export interface OrdersDashboard {
     tonnes: number; tonnesMade: number; tonnesDispatched: number; tonnesComplete: boolean;
     periodTonnesMade: number; periodTonnesDispatched: number;
     onHold: number; materialSteps: number;
+    startedUnplanned?: number;
     value: number | null; valueComplete?: boolean | null; invoiced: number | null; materialCost: number | null;
   };
   withMoney: boolean;
@@ -183,6 +188,10 @@ export interface DashContractor {
   id: number; code: string | null; name: string; workOrders: number; open: number; active: number;
   assigned: number; steps: number; done: number; pct: number | null; overdue: number; periodOps: number;
 }
+export interface DashSalesOrderWo {
+  id: number; code: string; revision: number | null; title: string | null; status: string;
+  workOrders: number; open: number; contractors: number; assigned: number; steps: number; done: number; pct: number | null; overdue: number; periodOps: number;
+}
 export interface WorkOrdersDashboard {
   period: DashPeriod;
   plant: {
@@ -193,6 +202,8 @@ export interface WorkOrdersDashboard {
     value: number | null;
   };
   contractors: DashContractor[];
+  /** 2026-10-17: the same figures per sales order ("Group by: Sales order"). */
+  salesOrders?: DashSalesOrderWo[];
   workOrders: DashWorkOrder[];
   meta: DashMeta;
 }

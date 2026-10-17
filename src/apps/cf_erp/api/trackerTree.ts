@@ -23,6 +23,19 @@ export interface TreeOp {
   ready?: boolean;
   /** Why it is blocked, in a few words. */
   reason?: string;
+  /** The step's planned minutes; null = no time on it (2026-10-17). */
+  minutes?: number | null;
+}
+
+/** One operation's figures over a set of steps: counted done / total, and planned minutes (null = not every step has a time). */
+export interface OpFigures { operationId: number; done: number; total: number; minutes?: number | null; minutesDone?: number | null }
+
+/** A node's OWN steps (2026-10-17): a piece's own; a line's = its top pieces' own; an order's = its lines'. */
+export interface OwnFigures {
+  completion: number | null; weight: 'minutes' | 'count' | null; steps: number; stepsDone: number;
+  minutes: number | null; minutesDone: number | null;
+  /** Sent for a line and an order; a piece's own operations are its `ops`. */
+  byOperation?: OpFigures[];
 }
 
 export interface TreeNode {
@@ -56,7 +69,12 @@ export interface TreeNode {
   pieces?: number;
   steps?: number;
   stepsDone?: number;
-  byOperation?: { operationId: number; done: number; total: number }[];
+  /** The whole subtree, own steps included. */
+  byOperation?: OpFigures[];
+  /** Own vs including (2026-10-17). Optional: an older server sends neither. */
+  own?: OwnFigures;
+  minutes?: number | null;
+  minutesDone?: number | null;
 }
 
 export interface TreeOrderChoice {
@@ -109,8 +127,9 @@ export const getTrackerTree = async (q: TreeQuery = {}): Promise<TrackerTreeResp
 })}`, SLOW);
   return { ...r, nodes: withNames(r, r.nodes) };
 };
-export const getTreeChildren = async (nodeId: string, depth = 1): Promise<TreeChildrenResponse> => {
-  const r = await cfApi.get<TreeChildrenResponse>(`/tracker/tree/children${qs({ nodeId, depth })}`, SLOW);
+/** figures: each node also brings `own` and its minutes (the dashboard's tree asks; the Tracker page does not). */
+export const getTreeChildren = async (nodeId: string, depth = 1, figures = false): Promise<TreeChildrenResponse> => {
+  const r = await cfApi.get<TreeChildrenResponse>(`/tracker/tree/children${qs({ nodeId, depth, ...(figures ? { figures: 1 } : {}) })}`, SLOW);
   return { ...r, node: withNames(r, [r.node])[0], nodes: withNames(r, r.nodes) };
 };
 export const getTreePiece = async (nodeId: string): Promise<TreePieceResponse> => {

@@ -12,6 +12,7 @@ import { useNow } from './useNow';
 import { drawingTarget, duration, errText, pieceLine, hhmm, idleSince, at, PRIMARY_H, timer } from './floorModel';
 import { ViewDrawingButton } from '../Drawings/RowDrawingViewer';
 import { ReasonSheet } from './ReasonSheet';
+import { UNPLANNED_HINT, UNPLANNED_TEXT, unplannedPicked, unplannedPlaces } from '../../lib/planCheck';
 
 export interface TabProps {
   machine: FloorMachine;
@@ -107,6 +108,8 @@ export function NowTab({ machine, operator, reasons, queue, day, refresh, say, s
   const [busy, setBusy] = useState(false);
   const [finishing, setFinishing] = useState<FloorRunning | null>(null);
   const [reasonSheet, setReasonSheet] = useState<{ since: Date | null; initial: FloorReason | null } | null>(null);
+  // Picked jobs the plan has no ship week for: warned once, then started anyway (never refused).
+  const [unplannedWarn, setUnplannedWarn] = useState<FloorStep[] | null>(null);
 
   const running = queue?.running ?? [];
   const next = queue?.next ?? [];
@@ -125,9 +128,13 @@ export function NowTab({ machine, operator, reasons, queue, day, refresh, say, s
     const fresh = picked.filter((s) => s.pausedSessionId == null);
     if (paused.length) await resumeWork(paused.map((s) => s.pausedSessionId as number));
     if (fresh.length) await startWork(machine.id, operator.id, fresh.map((s) => s.id));
-  }, () => setSelected([]));
+  }, () => { setSelected([]); setUnplannedWarn(null); });
+  const askStart = () => {
+    const off = unplannedPicked(next.filter((s) => selected.includes(s.id) && s.pausedSessionId == null));
+    if (off.length) setUnplannedWarn(off); else void start();
+  };
 
-  const toggle = (id: number) => setSelected((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]));
+  const toggle = (id: number) => { setUnplannedWarn(null); setSelected((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id])); };
   const stopWith = (reason: FloorReason, note: string, since: Date | null) =>
     act(() => stopMachine(machine.id, operator.id, reason.id, note || undefined, since?.toISOString()), () => setReasonSheet(null));
 
@@ -169,6 +176,7 @@ export function NowTab({ machine, operator, reasons, queue, day, refresh, say, s
                 <Box sx={{ fontSize: 16, color: 'var(--c-text-2)', overflowWrap: 'anywhere' }}>{pieceLine(s)}</Box>
                 {s.pausedSessionId != null && <Box sx={{ fontSize: 15, fontWeight: 600, color: 'var(--c-text-2)' }}>Paused — tap to continue</Box>}
                 {!s.ready && s.pausedSessionId == null && <Box sx={{ fontSize: 15, color: 'var(--c-warning-800)' }}>Not ready yet</Box>}
+                {s.planned === false && s.pausedSessionId == null && <Box data-testid="not-in-plan" sx={{ fontSize: 15, color: 'var(--c-warning-800)' }}>Not in the plan</Box>}
               </Box>
               <Box sx={{ textAlign: 'right', flexShrink: 0 }}>
                 <Box sx={{ fontFamily: 'var(--font-mono)', fontSize: 26, fontWeight: 700, lineHeight: 1 }}>{s.qtyLeft}</Box>
@@ -186,10 +194,21 @@ export function NowTab({ machine, operator, reasons, queue, day, refresh, say, s
         {next.length <= shown && queueTotal > next.length && <Calm>{queueTotal - next.length} more waiting — search to find one.</Calm>}
       </Box>
 
-      {selected.length > 0 && (
+      {selected.length > 0 && unplannedWarn && (
+        <Box role="alert" data-testid="unplanned-warning" sx={{ position: 'sticky', bottom: 0, p: 2, background: 'var(--c-warning-50)', border: '2px solid var(--c-warning-600)', borderRadius: 'var(--r-md)', display: 'flex', flexDirection: 'column', gap: 1.25 }}>
+          <Box sx={{ fontSize: 22, fontWeight: 700 }}>{UNPLANNED_TEXT}</Box>
+          <Box sx={{ fontSize: 17, color: 'var(--c-text-2)', overflowWrap: 'anywhere' }}>{unplannedPlaces(unplannedWarn).join(', ')}. {UNPLANNED_HINT}</Box>
+          <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap' }}>
+            <BigButton variant="outlined" onClick={() => setUnplannedWarn(null)} disabled={busy}>Back</BigButton>
+            <BigButton sx={{ flex: 1, minHeight: PRIMARY_H }} onClick={start} disabled={busy} startIcon={<PlayArrowRounded />}>{busy ? 'Starting…' : 'Start anyway'}</BigButton>
+          </Box>
+        </Box>
+      )}
+
+      {selected.length > 0 && !unplannedWarn && (
         <Box sx={{ position: 'sticky', bottom: 0, py: 1.5, background: 'var(--c-canvas)', display: 'flex', gap: 1.5 }}>
           <BigButton variant="outlined" onClick={() => setSelected([])} disabled={busy}>Clear</BigButton>
-          <BigButton sx={{ flex: 1, minHeight: PRIMARY_H }} onClick={start} disabled={busy} startIcon={<PlayArrowRounded />}>
+          <BigButton sx={{ flex: 1, minHeight: PRIMARY_H }} onClick={askStart} disabled={busy} startIcon={<PlayArrowRounded />}>
             {busy ? 'Starting…' : selected.length === 1 ? 'Start' : `Start ${selected.length} together`}
           </BigButton>
         </Box>

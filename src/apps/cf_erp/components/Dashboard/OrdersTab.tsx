@@ -7,6 +7,9 @@
  *
  * A forecast is an estimate and says so: at the last 14 days' pace, or the
  * planner's latest ship week when every line is planned — the later of the two.
+ *
+ * "Own steps" / "Including everything below" (2026-10-17): one choice for the tab, remembered per
+ * user — the order's %, each line's "Done" and every level of the tree follow it.
  */
 import { useMemo, useState } from 'react';
 import { Box, Chip, Collapse, IconButton, Table, TableBody, TableCell, TableHead, TableRow, TextField, Tooltip, Typography } from '@mui/material';
@@ -26,10 +29,13 @@ import { ProgressBar, StageStrip } from './charts';
 import { DownloadMenu, type ExtraDownload } from './DownloadMenu';
 import { EstimateTag, MiniHead, Tile, TileGrid } from './DashParts';
 import { OrderTree } from './OrderTree';
+import { StepsViewToggle } from './StepsView';
+import { lineViewPct, orderViewPct, useStepsView, type StepsView } from '../../lib/stepsView';
 
 export function OrdersTab({ data }: { data: OrdersDashboard }) {
   const [risk, setRisk] = useState<'all' | RiskStatus>('all');
   const [search, setSearch] = useState('');
+  const [view, setView] = useStepsView();
   const t = data.totals;
   const shown = useMemo(() => filterOrders(data.orders, risk, search), [data.orders, risk, search]);
   const window = periodLabel(data.period.from, data.period.to);
@@ -62,7 +68,7 @@ export function OrdersTab({ data }: { data: OrdersDashboard }) {
           <Box sx={{ mt: 0.75 }}><ProgressBar pct={madePct} inner={dispPct} label="Tonnes made and dispatched of the order book" /></Box>
         </Tile>
         <Tile testId="tile-period" label={`This period (${window})`} value={tonnesText(t.periodTonnesMade, '—')}
-          sub={`made · ${tonnesText(t.periodTonnesDispatched, '—')} dispatched`} />
+          sub={<>made · {tonnesText(t.periodTonnesDispatched, '—')} dispatched{t.startedUnplanned ? <Box component="span" data-testid="started-unplanned" sx={{ color: 'var(--c-warning-800)' }}> · {t.startedUnplanned} job{t.startedUnplanned === 1 ? '' : 's'} started outside the plan</Box> : null}</>} />
         <Tile testId="tile-blocked" label="Blocked now" tone={t.onHold ? 'danger' : t.materialSteps ? 'warning' : 'default'} value={t.onHold + t.materialSteps}
           sub={`${t.onHold} steps on hold · ${t.materialSteps} waiting for material`}
           hint="On hold: someone put the step on hold. Waiting for material: the step's material is not reserved yet (it may be in stock, on order, or still to buy)." />
@@ -78,19 +84,21 @@ export function OrdersTab({ data }: { data: OrdersDashboard }) {
           <Chip key={f.key} size="small" label={`${f.label} ${count[f.key] ?? 0}`} color={risk === f.key ? 'primary' : 'default'} variant={risk === f.key ? 'filled' : 'outlined'} onClick={() => setRisk(f.key)} />
         ) : null)}
         <Box sx={{ flex: 1 }} />
+        <StepsViewToggle view={view} onChange={setView} />
         <TextField size="small" placeholder="Order, customer, title" value={search} onChange={(e) => setSearch(e.target.value)} sx={{ width: 220 }} inputProps={{ 'aria-label': 'Find an order' }} />
         <DownloadMenu tab="orders" from={data.period.from} to={data.period.to} tables={() => ordersTables(shown, data.withMoney)} extra={allLevels} />
       </Box>
 
       {shown.length === 0
         ? <EmptyState title="No order matches" hint="Clear the filter or the search." />
-        : <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>{shown.map((o) => <OrderCard key={o.id} o={o} year={year} withMoney={data.withMoney} window={window} />)}</Box>}
+        : <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>{shown.map((o) => <OrderCard key={o.id} o={o} year={year} withMoney={data.withMoney} window={window} view={view} />)}</Box>}
     </Box>
   );
 }
 
-function OrderCard({ o, year, withMoney, window }: { o: DashOrder; year: string; withMoney: boolean; window: string }) {
+function OrderCard({ o, year, withMoney, window, view }: { o: DashOrder; year: string; withMoney: boolean; window: string; view: StepsView }) {
   const company = useCompanySlug();
+  const pct = orderViewPct(o, view);
   const [open, setOpen] = useState(false);
   const r = RISK[o.risk.status];
   const made = o.tonnes.total ? ((o.tonnes.made ?? 0) / o.tonnes.total) * 100 : 0;
@@ -121,13 +129,13 @@ function OrderCard({ o, year, withMoney, window }: { o: DashOrder; year: string;
 
         {/* How far */}
         <Box sx={{ minWidth: 0 }}>
-          <Tooltip title={progressBasisText(o)}>
+          <Tooltip title={view === 'own' ? 'Own steps: the top pieces of each line only, not the parts under them.' : progressBasisText(o)}>
             <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1 }}>
-              <Typography data-testid="order-pct" sx={{ fontFamily: 'var(--font-mono)', fontSize: 26, fontWeight: 600, lineHeight: 1 }}>{pctText(o.progress.pct)}</Typography>
-              <Typography sx={{ fontSize: 12, color: 'var(--c-text-2)' }}>complete</Typography>
+              <Typography data-testid="order-pct" data-view={view} sx={{ fontFamily: 'var(--font-mono)', fontSize: 26, fontWeight: 600, lineHeight: 1 }}>{pctText(pct)}</Typography>
+              <Typography sx={{ fontSize: 12, color: 'var(--c-text-2)' }}>{view === 'own' ? 'own steps done' : 'complete'}</Typography>
             </Box>
           </Tooltip>
-          <Box sx={{ mt: 1 }}><ProgressBar pct={o.progress.pct} label={`${o.code} complete`} /></Box>
+          <Box sx={{ mt: 1 }}><ProgressBar pct={pct ?? 0} label={`${o.code} complete`} /></Box>
           <Box sx={{ fontSize: 12, color: 'var(--c-text-2)', mt: 1 }}>
             <Box>{tonnesText(o.tonnes.made, '—')} made of {tonnesText(o.tonnes.total)} · {tonnesText(o.tonnes.dispatched, '—')} dispatched</Box>
             <Box sx={{ mt: 0.5 }}><ProgressBar pct={made} inner={disp} height={5} label={`${o.code} tonnes made and dispatched`} /></Box>
@@ -160,6 +168,9 @@ function OrderCard({ o, year, withMoney, window }: { o: DashOrder; year: string;
               Material: {[o.material.inStock && `${o.material.inStock} in stock to reserve`, o.material.onOrder && `${o.material.onOrder} on order`, o.material.toBuy && `${o.material.toBuy} to buy`].filter(Boolean).join(' · ')}
               {o.blocked.materialSteps > 0 && ` (${o.blocked.materialSteps} steps wait)`}
             </Box>
+          )}
+          {(o.startedUnplanned ?? 0) > 0 && (
+            <Box data-testid="order-unplanned" sx={{ color: 'var(--c-warning-800)' }}>{o.startedUnplanned} job{o.startedUnplanned === 1 ? '' : 's'} started outside the plan in {window}</Box>
           )}
           {withMoney && o.money && (
             <Box sx={{ mt: 0.5 }}>
@@ -196,7 +207,7 @@ function OrderCard({ o, year, withMoney, window }: { o: DashOrder; year: string;
                     {!l.released && <Box sx={{ fontSize: 11, color: 'var(--c-text-3)' }}>not released yet</Box>}
                     {l.noSteps && <Box sx={{ fontSize: 11, color: 'var(--c-text-3)' }}>nothing to make — supplied from stock</Box>}
                   </TableCell>
-                  <TableCell align="right"><Mono>{pctText(l.progressPct)}</Mono></TableCell>
+                  <TableCell align="right" data-testid="line-pct"><Mono>{pctText(lineViewPct(l, view))}</Mono></TableCell>
                   <TableCell align="right"><Mono>{tonnesText(l.tonnes)}</Mono></TableCell>
                   <TableCell align="right"><Mono>{l.made} / {l.delivered} of {l.quantity}</Mono></TableCell>
                   <TableCell>{dateLabel(l.committedDate ?? o.committedDate, year)}</TableCell>

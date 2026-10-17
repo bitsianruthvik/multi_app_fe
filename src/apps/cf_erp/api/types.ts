@@ -493,6 +493,8 @@ export interface StructureNode {
   lineNo: number | null;
   position: number | null;
   role: string | null;
+  /** A remark on its BOM line — e.g. a standard drawing's "DRILL ON ASSEMBLY" or "NEEDS DECISION" (init.sql §69). */
+  notes?: string | null;
   selection: { id: number; code: string | null; name: string; shortName?: string | null } | null;
   resolved: boolean;
   /** A selection row whose item the SYSTEM chose (its default, or its only candidate) and no person has since — "default · change" (init.sql §42). */
@@ -586,6 +588,8 @@ export interface SalesOrderLine {
   /** §66: the line's own answer to who supplies its material (null = as the order), and the one that counts. */
   materialSupply?: 'we_buy' | 'customer' | null;
   supply?: 'we_buy' | 'customer';
+  /** The standard drawing it came from (or is tied to) and which version (init.sql §69); null for an ordinary line. */
+  standard?: { id: number; number: string; name: string; versionId: number | null; versionNo: number | null } | null;
 }
 
 export interface OrderTotal extends Partial<OrderTax> { amount: number; complete: boolean; unpricedLines: number[]; unmeasuredLines: number[] }
@@ -1949,6 +1953,9 @@ export interface FloorReason { id: number; code: string; label: string; needsNot
 /** One step of work a person can pick — the same shape in the queue and in the day. */
 export interface FloorStep {
   id: number;
+  /** 2026-10-17: false = the plan has no ship week for it (starting it only warns). */
+  planned?: boolean | null;
+  lineNo?: number | null;
   pieceCode: string;
   pieceName: string;
   operation: string;

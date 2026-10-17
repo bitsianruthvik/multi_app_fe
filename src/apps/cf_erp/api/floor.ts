@@ -3,6 +3,7 @@ import type {
   FloorDay, FloorGap, FloorMachine, FloorOperator, FloorQueue, FloorReason, FloorRow, FloorRunning, FloorSession,
   FloorStep, FloorStop, OperatorRow, StopReasonRow,
 } from './types';
+import type { PlanCheck } from '../lib/planCheck';
 
 /**
  * The machine log (services/floorService.js, routes/floor.js — plan section 2).
@@ -29,7 +30,7 @@ export const toReason = (r: Loose): FloorReason => ({
 export const toStep = (r: Loose): FloorStep => {
   const s: Loose = { ...(r.step ?? {}), ...r };
   return {
-    id: num(r.stepId ?? r.step?.id ?? r.id), pieceCode: String(s.pieceCode ?? ''), pieceName: String(s.pieceName ?? s.pieceCode ?? ''),
+    id: num(r.stepId ?? r.step?.id ?? r.id), planned: typeof s.planned === 'boolean' ? s.planned : null, lineNo: numOrNull(s.lineNo), pieceCode: String(s.pieceCode ?? ''), pieceName: String(s.pieceName ?? s.pieceCode ?? ''),
     operation: String(s.operation ?? s.operationName ?? ''), qtyLeft: num(s.qtyLeft), qtyTotal: num(s.qtyTotal), orderCode: str(s.orderCode),
     state: str(s.state), ready: s.ready !== false, why: str(s.why), pausedSessionId: numOrNull(s.pausedSessionId),
     orderId: numOrNull(s.orderId), lineId: numOrNull(s.lineId), itemId: numOrNull(s.itemId),
@@ -78,6 +79,9 @@ export const getDay = async (machineId: number, date: string) =>
   toDay(await cfApi.get<Loose>(`/floor/machines/${machineId}/day${qs({ date })}`), date);
 
 export const startWork = (machineId: number, operatorId: number, stepIds: number[]) => cfApi.post<unknown>('/floor/start', { machineId, operatorId, stepIds });
+/** 2026-10-17: which of these steps the plan has no ship week for (warn only). */
+export const getPlanCheck = (stepIds: number[], via: 'floor' | 'tracker' = 'floor') =>
+  cfApi.get<PlanCheck>(`/${via}/plan-check${qs({ stepIds: stepIds.join(',') })}`);
 export const pauseWork = (sessionIds: number[]) => cfApi.post<unknown>('/floor/pause', { sessionIds });
 export const resumeWork = (sessionIds: number[]) => cfApi.post<unknown>('/floor/resume', { sessionIds });
 export const finishWork = (sessionId: number, good: number, scrap: number, done: boolean) => cfApi.post<unknown>('/floor/finish', { sessionId, good, scrap, done });

@@ -9,6 +9,9 @@
  * counts half. A work order whose line is not released yet has operations assigned
  * and nothing to complete, so it says "not released", never 0 %. Work orders carry
  * no rate or amount, so there is no money here.
+ *
+ * Group by (2026-10-17): Contractor (the summary per contractor, as before) or Sales order (the
+ * summary per sales order, and the cards under their order with its totals).
  */
 import { useMemo, useState } from 'react';
 import { Box, Chip, MenuItem, Table, TableBody, TableCell, TableHead, TableRow, TextField, Tooltip, Typography } from '@mui/material';
@@ -17,7 +20,8 @@ import type { DashWorkOrder, WorkOrdersDashboard } from '../../api/dashboard';
 import { agoText, dateLabel, pctText, periodLabel } from '../../lib/dashboard';
 import { workOrdersTables } from '../../lib/dashboardExport';
 import {
-  NOT_RELEASED_HINT, WO_SORTS, WO_STATUS, WO_STATUS_FILTERS, filterWorkOrders, inWoStatus, opsText, sortWorkOrders, type WoSort, type WoStatusFilter,
+  NOT_RELEASED_HINT, WO_GROUPS, WO_SORTS, WO_STATUS, WO_STATUS_FILTERS, filterWorkOrders, groupBySalesOrder, inWoStatus, opsText, sortWorkOrders,
+  type WoGroupBy, type WoSort, type WoStatusFilter,
 } from '../../lib/dashboardWorkOrders';
 import { useCompanySlug } from '../../hooks/useLoad';
 import { appPath } from '../../navMeta';
@@ -34,8 +38,13 @@ export function WorkOrdersTab({ data }: { data: WorkOrdersDashboard }) {
   const [status, setStatus] = useState<WoStatusFilter>('open');
   const [sort, setSort] = useState<WoSort>('attention');
   const [search, setSearch] = useState('');
+  const [groupBy, setGroupBy] = useState<WoGroupBy>('contractor');
+  const [orderId, setOrderId] = useState<number | null>(null);
   const p = data.plant;
-  const shown = useMemo(() => sortWorkOrders(filterWorkOrders(data.workOrders, contractor, status, search), sort), [data.workOrders, contractor, status, sort, search]);
+  const shown = useMemo(() => sortWorkOrders(filterWorkOrders(data.workOrders, contractor, status, search), sort).filter((w) => orderId == null || w.order.id === orderId),
+    [data.workOrders, contractor, status, sort, search, orderId]);
+  const groups = useMemo(() => (groupBy === 'order' ? groupBySalesOrder(shown) : []), [groupBy, shown]);
+  const salesOrders = data.salesOrders ?? [];
   const window = periodLabel(data.period.from, data.period.to);
   const year = data.period.today.slice(0, 4);
   const countOf = (f: WoStatusFilter) => data.workOrders.filter((w) => (contractor == null || w.contractor.id === contractor) && inWoStatus(w, f)).length;
@@ -68,7 +77,42 @@ export function WorkOrdersTab({ data }: { data: WorkOrdersDashboard }) {
           sub="operations (part-made counts part)" hint="Progress the contractors' steps recorded inside the period, in whole operations." />
       </TileGrid>
 
-      <Surface e={1} sx={{ mb: 2, overflowX: 'auto' }} data-testid="contractor-summary">
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+        <TextField select size="small" label="Group by" value={groupBy} onChange={(e) => { setGroupBy(e.target.value as WoGroupBy); setOrderId(null); }} sx={{ width: 170 }} inputProps={{ 'data-testid': 'wo-group-by' }}>
+          {WO_GROUPS.map((g) => <MenuItem key={g.key} value={g.key}>{g.label}</MenuItem>)}
+        </TextField>
+      </Box>
+
+      {groupBy === 'order' && (
+        <Surface e={1} sx={{ mb: 2, overflowX: 'auto' }} data-testid="order-summary">
+          <Table size="small">
+            <TableHead>
+              <TableRow>
+                <TableCell>Sales order</TableCell><TableCell align="right">Work orders</TableCell><TableCell align="right">Open</TableCell><TableCell align="right">Contractors</TableCell>
+                <TableCell sx={{ minWidth: 150 }}>Complete</TableCell><TableCell align="right">Operations done</TableCell><TableCell align="right">Overdue</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {salesOrders.map((s) => (
+                <TableRow key={s.id} hover selected={orderId === s.id} data-testid="order-summary-row" data-order={s.code} sx={{ cursor: 'pointer' }} onClick={() => setOrderId(orderId === s.id ? null : s.id)}>
+                  <TableCell><Mono>{s.code}</Mono>{s.title ? <Box component="span" sx={{ color: 'var(--c-text-2)' }}> · {s.title}</Box> : null}</TableCell>
+                  <TableCell align="right"><Mono>{s.workOrders}</Mono></TableCell>
+                  <TableCell align="right"><Mono>{s.open}</Mono></TableCell>
+                  <TableCell align="right"><Mono>{s.contractors}</Mono></TableCell>
+                  <TableCell>
+                    {s.pct == null ? <Typography component="span" sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>not released</Typography>
+                      : <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}><Box sx={{ flex: 1 }}><ProgressBar pct={s.pct} height={6} label={`${s.code} complete`} /></Box><Mono>{pctText(s.pct)}</Mono></Box>}
+                  </TableCell>
+                  <TableCell align="right"><Mono>{s.done} of {s.steps}</Mono></TableCell>
+                  <TableCell align="right">{s.overdue ? <Box component="span" sx={{ color: 'var(--c-danger-800)', fontWeight: 600 }}>{s.overdue}</Box> : <Mono muted>0</Mono>}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </Surface>
+      )}
+
+      {groupBy === 'contractor' && <Surface e={1} sx={{ mb: 2, overflowX: 'auto' }} data-testid="contractor-summary">
         <Table size="small">
           <TableHead>
             <TableRow>
@@ -95,7 +139,7 @@ export function WorkOrdersTab({ data }: { data: WorkOrdersDashboard }) {
             ))}
           </TableBody>
         </Table>
-      </Surface>
+      </Surface>}
 
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', mb: 1.5 }}>
         {WO_STATUS_FILTERS.map((f) => (
@@ -118,7 +162,26 @@ export function WorkOrdersTab({ data }: { data: WorkOrdersDashboard }) {
 
       {shown.length === 0
         ? <EmptyState title="No work order matches" hint="Clear a filter or the search." />
-        : <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.25 }}>{shown.map((w) => <WorkOrderCard key={w.id} w={w} year={year} now={data.period.now} window={window} />)}</Box>}
+        : groupBy === 'order'
+          ? (
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+              {groups.map((g) => (
+                <Box key={g.order.id} data-testid="wo-order-group" data-order={g.order.code}>
+                  <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1, flexWrap: 'wrap', mb: 0.75 }}>
+                    <Mono sx={{ fontWeight: 600, fontSize: 14 }}>{g.order.code}</Mono>
+                    {g.order.title && <Typography noWrap sx={{ fontSize: 13, color: 'var(--c-text-2)', minWidth: 0 }}>{g.order.title}</Typography>}
+                    <Typography data-testid="wo-order-totals" sx={{ fontSize: 12, color: 'var(--c-text-2)' }}>
+                      {g.totals.workOrders} work order{g.totals.workOrders === 1 ? '' : 's'} · {g.totals.open} open · {g.totals.contractors} contractor{g.totals.contractors === 1 ? '' : 's'}
+                      {' · '}{g.totals.pct == null ? 'not released' : `${pctText(g.totals.pct)} complete (${g.totals.done} of ${g.totals.steps})`}
+                      {g.totals.overdue ? ` · ${g.totals.overdue} overdue` : ''}
+                    </Typography>
+                  </Box>
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.25 }}>{g.workOrders.map((w) => <WorkOrderCard key={w.id} w={w} year={year} now={data.period.now} window={window} />)}</Box>
+                </Box>
+              ))}
+            </Box>
+          )
+          : <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.25 }}>{shown.map((w) => <WorkOrderCard key={w.id} w={w} year={year} now={data.period.now} window={window} />)}</Box>}
     </Box>
   );
 }

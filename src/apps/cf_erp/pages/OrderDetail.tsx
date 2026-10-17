@@ -26,6 +26,7 @@ import {
 } from '../components/ui';
 import { CrossLink, DetailHeader, DetailLayout, type DetailTab } from '../components/DetailLayout';
 import { OrderInvoicesCard } from '../components/OrderInvoicesCard';
+import { StandardLineBanner } from '../components/StandardLineBanner';
 import { BomPanel } from '../components/Bom/BomPanel';
 import { ProductionTabs } from '../components/Production/ProductionTabs';
 import { ConfirmDialog } from '../components/ConfirmDialog';
@@ -468,6 +469,7 @@ export default function OrderDetail() {
             </TextField>
           </Box>
         )}
+        <StandardLineBanner lineId={lineId} hasStandard={!!lines.find((l) => l.id === lineId)?.standard} refreshKey={o} onChanged={() => order.reload()} />
         <BomPanel key={lineId} source={{ kind: 'orderLine', lineId }} onChanged={() => { order.reload(); processView.reload(); }} />
       </Box>
     );

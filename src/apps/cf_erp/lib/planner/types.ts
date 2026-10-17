@@ -56,11 +56,6 @@ export interface Horizon {
   periods: Period[];
 }
 
-export interface PlannerSettings {
-  minLinesPerMonth: number;
-  allowPartialLines: boolean;
-}
-
 export interface PlannerFunction {
   key: string;
   name: string;
@@ -239,7 +234,6 @@ export interface PlanEntryRow {
 
 export interface PlannerSnapshot {
   horizon: Horizon;
-  settings: PlannerSettings;
   targets: Record<string, number>;
   functions: PlannerFunction[];
   orders: PlannerOrder[];

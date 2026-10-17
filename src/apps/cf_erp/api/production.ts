@@ -59,3 +59,17 @@ export const getWorkOrder = async (id: number) => toWorkOrderDetail(await cfApi.
 export const patchWorkOrder = (id: number, body: { startDate?: string | null; dueDate?: string | null; notes?: string | null }) =>
   cfApi.patch<unknown>(`/work-orders/${id}`, body);
 export const setWorkOrderStatus = (id: number, status: WorkOrderStatus) => cfApi.post<unknown>(`/work-orders/${id}/status`, { status });
+
+/* ---- Work orders grouped by sales order (2026-10-17, GET /work-orders/by-order) ---- */
+export interface WorkOrderOrderGroup {
+  order: { id: number; code: string; revision: number; title: string | null; status: string; customer: { id: number; name: string } | null };
+  totals: { workOrders: number; open: number; contractors: number; operations: number; steps: number; stepsDone: number; pct: number | null; notReleased: number };
+  workOrders: WorkOrderRow[];
+}
+export interface WorkOrdersByOrder { rows: WorkOrderOrderGroup[]; total: number; limit: number; offset: number; hasMore: boolean }
+export const listWorkOrdersByOrder = async (q: { status?: string; search?: string; limit?: number; offset?: number }): Promise<WorkOrdersByOrder> => {
+  const params = new URLSearchParams();
+  for (const [k, v] of Object.entries(q)) if (v !== undefined && v !== '') params.set(k, String(v));
+  const raw = await cfApi.get<WorkOrdersByOrder & { rows: (Omit<WorkOrderOrderGroup, 'workOrders'> & { workOrders: unknown[] })[] }>(`/work-orders/by-order?${params}`);
+  return { ...raw, rows: raw.rows.map((g) => ({ ...g, workOrders: g.workOrders.map(toWorkOrderRow) })) };
+};

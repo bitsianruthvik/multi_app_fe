@@ -6,6 +6,10 @@
  * "Open to" takes it deeper, down to every part. Nothing is read until the
  * order card is opened; each open reads only the next level (the server holds
  * a line's tree for 30 s). What is open is remembered per order on this device.
+ *
+ * "Own steps" / "Including everything below" (2026-10-17, lib/stepsView.ts): one choice for the
+ * whole tab. Own = a row's own steps (its operation strip, its own %); including = the row and
+ * everything under it (one total per operation: done / total, minutes and % on hover).
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Box, Button, ButtonGroup, CircularProgress, Typography } from '@mui/material';
@@ -22,6 +26,8 @@ import { Mono } from '../ui';
 import { PieceDrawer } from '../Tracker/PieceDrawer';
 import { BlockedMark, CompletionBar, OpStrip } from '../Tracker/TreeParts';
 import { Dot } from './DashParts';
+import { OpTotalStrip, StepsViewToggle } from './StepsView';
+import { lineViewPct, opTotals, useStepsView, viewCompletion, viewWeightText, type StepsView } from '../../lib/stepsView';
 
 const COLS = { xs: 'minmax(0, 1fr) auto', md: 'minmax(220px, 2fr) 44px 150px auto minmax(110px, 1.5fr)' };
 const rowSx = { display: 'grid', gridTemplateColumns: COLS, columnGap: 1.5, rowGap: 0.25, alignItems: 'center', px: 1, py: 0.5, minHeight: 34, borderBottom: '1px solid var(--c-divider)' };
@@ -46,12 +52,16 @@ function Chevron({ show, open, busy }: { show: boolean; open: boolean; busy: boo
   );
 }
 
-function PieceRow({ node, parent, depth, open, busy, onToggle, onOpen }: {
+function PieceRow({ node, parent, depth, open, busy, onToggle, onOpen, view, names }: {
   node: TreeNode; parent: TreeNode | undefined; depth: number; open: boolean; busy: boolean; onToggle: (n: TreeNode) => void; onOpen: (n: TreeNode) => void;
+  view: StepsView; names: OperationNames;
 }) {
   const has = node.childCount > 0;
   const act = () => (has ? onToggle(node) : onOpen(node));
-  const summary = opsSummary(node);
+  const summary = view === 'own' && !node.ops.length ? 'No steps of its own' : opsSummary(node);
+  const completion = viewCompletion(node, view);
+  // A leaf's own steps are all there is: it keeps its step pills (their states) in both views.
+  const totals = view === 'all' && has ? opTotals(node, view, names) : [];
   return (
     <Box data-testid="tree-row" data-node={node.id} data-depth={depth} role="treeitem" aria-expanded={has ? open : undefined} tabIndex={0}
       onClick={act}
@@ -72,7 +82,7 @@ function PieceRow({ node, parent, depth, open, busy, onToggle, onOpen }: {
         {node.qty != null && node.qty !== 1 ? <Mono>×{node.qty}</Mono> : null}
       </Box>
       <Box sx={{ justifySelf: { xs: 'end', md: 'stretch' } }}>
-        {node.completion != null ? <CompletionBar value={node.completion} width={96} title={node.weight ? `Weighed by ${node.weight === 'minutes' ? 'planned minutes' : 'operations counted'}.` : undefined} /> : null}
+        {completion != null ? <CompletionBar value={completion} width={96} title={viewWeightText(node, view)} /> : null}
       </Box>
       <Box sx={{ gridColumn: { xs: '1 / -1', md: 'auto' }, display: 'flex', alignItems: 'center', gap: 1, minWidth: 0, pl: { xs: `${depth * 16 + 24}px`, md: 0 } }}>
         <BlockedMark node={node} />
@@ -80,7 +90,9 @@ function PieceRow({ node, parent, depth, open, busy, onToggle, onOpen }: {
         <Box sx={{ display: { xs: 'inline', md: 'none' }, fontSize: 11.5, color: 'var(--c-text-3)', ml: 'auto' }}>{summary}</Box>
       </Box>
       <Box sx={{ display: { xs: 'none', md: 'flex' }, minWidth: 0 }}>
-        {node.ops.length > 0 ? <OpStrip ops={node.ops} /> : <Typography sx={{ fontSize: 11.5, color: 'var(--c-text-3)' }}>{summary}</Typography>}
+        {view === 'all' && totals.length > 0 ? <OpTotalStrip totals={totals} />
+          : (view === 'own' || !has) && node.ops.length > 0 ? <OpStrip ops={node.ops} />
+            : <Typography sx={{ fontSize: 11.5, color: 'var(--c-text-3)' }}>{summary}</Typography>}
       </Box>
     </Box>
   );
@@ -95,7 +107,8 @@ export function OrderTree({ order }: { order: DashOrder }) {
   const [level, setLevel] = useState<TreeLevel | null>(saved.current ? saved.current.level : DEFAULT_LEVEL);
   const [busy, setBusy] = useState<Set<string>>(new Set());
   const [errors, setErrors] = useState<Record<number, string>>({});
-  const [, setNames] = useState<OperationNames>({});
+  const [names, setNames] = useState<OperationNames>({});
+  const [view, setView] = useStepsView();
   const [drawer, setDrawer] = useState<{ id: string; lineId: number } | null>(null);
   const started = useRef(false);
   const alive = useRef(true);
@@ -109,7 +122,7 @@ export function OrderTree({ order }: { order: DashOrder }) {
     const id = lineNodeId(lineId);
     mark(id, true);
     try {
-      const r = await getTreeChildren(id, depth);
+      const r = await getTreeChildren(id, depth, true);
       let st = base ?? emptyTree();
       st = { byId: new Map(st.byId).set(r.node.id, r.node), loaded: st.loaded };
       st = mergeBranch(st, r.node.id, r.node, r.nodes);
@@ -117,7 +130,7 @@ export function OrderTree({ order }: { order: DashOrder }) {
       for (let wave = 0; wave < 8; wave++) {
         const need = nodesToFill(st, openSet);
         if (!need.length) break;
-        const got = await Promise.all(need.map((n) => getTreeChildren(n.id, 1)));
+        const got = await Promise.all(need.map((n) => getTreeChildren(n.id, 1, true)));
         got.forEach((g, i) => { st = mergeBranch(st, need[i].id, g.node, g.nodes); ops = { ...ops, ...g.operations }; });
       }
       if (!alive.current) return null;
@@ -168,7 +181,7 @@ export function OrderTree({ order }: { order: DashOrder }) {
     if (st && needsChildren(st, n)) {
       mark(n.id, true);
       try {
-        const g = await getTreeChildren(n.id, 1);
+        const g = await getTreeChildren(n.id, 1, true);
         if (!alive.current) return;
         setTrees((t) => ({ ...t, [lineId]: mergeBranch(t[lineId] ?? st, n.id, g.node, g.nodes) }));
         setNames((x) => ({ ...x, ...g.operations }));
@@ -184,6 +197,7 @@ export function OrderTree({ order }: { order: DashOrder }) {
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap', mb: 0.75 }}>
         <Typography sx={{ fontSize: 11, fontWeight: 600, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--c-text-3)' }}>Where each line stands</Typography>
         <Box sx={{ flex: 1 }} />
+        {released.length > 0 && <StepsViewToggle view={view} onChange={setView} testId="tree-steps-view" />}
         {released.length > 0 && (
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
             <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>Open to</Typography>
@@ -218,7 +232,7 @@ export function OrderTree({ order }: { order: DashOrder }) {
                   <Typography noWrap sx={{ fontSize: 12.5, color: 'var(--c-text-2)', minWidth: 0 }} title={l.item.name ?? ''}>{l.item.code ? `${l.item.code} · ` : ''}{l.item.name}{l.quantity !== 1 ? ` ×${l.quantity}` : ''}</Typography>
                 </Box>
                 <Box sx={{ display: { xs: 'none', md: 'block' } }} />
-                <Box sx={{ justifySelf: { xs: 'end', md: 'stretch' } }}>{rel ? <CompletionBar value={l.progressPct / 100} width={96} /> : null}</Box>
+                <Box sx={{ justifySelf: { xs: 'end', md: 'stretch' } }}>{rel ? (() => { const p = lineViewPct(l, view); return p == null ? <Typography sx={{ fontSize: 11.5, color: 'var(--c-text-3)' }}>No steps of its own</Typography> : <CompletionBar value={p / 100} width={96} title={view === 'own' ? 'Only the own steps of the top pieces.' : 'Everything under the line.'} />; })() : null}</Box>
                 <Box sx={{ gridColumn: { xs: '1 / -1', md: 'auto' }, fontSize: 11.5, color: 'var(--c-text-3)', pl: { xs: 3, md: 0 } }}>
                   {rel && l.tonnes != null ? <>{tonnesText(l.tonnesMade, '—')} of {tonnesText(l.tonnes)}</> : null}
                 </Box>
@@ -244,13 +258,13 @@ export function OrderTree({ order }: { order: DashOrder }) {
               {rel && isOpen && !st && !errors[l.id] && <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)', px: 1, py: 0.75, pl: 4.5 }}>Reading…</Typography>}
               {rows.map((r) => (
                 <PieceRow key={r.node.id} node={r.node} parent={r.node.parentId ? st?.byId.get(r.node.parentId) : undefined} depth={r.depth - 1}
-                  open={r.open} busy={busy.has(r.node.id)} onToggle={(n) => void toggleNode(l.id, n)} onOpen={(n) => setDrawer({ id: n.id, lineId: l.id })} />
+                  open={r.open} busy={busy.has(r.node.id)} onToggle={(n) => void toggleNode(l.id, n)} onOpen={(n) => setDrawer({ id: n.id, lineId: l.id })} view={view} names={names} />
               ))}
             </Box>
           );
         })}
       </Box>
-      <Typography sx={{ fontSize: 11, color: 'var(--c-text-3)', mt: 0.75 }}>Percentages are weighed by planned minutes where the flows carry them, otherwise by operations counted. Click a code to see its steps.</Typography>
+      <Typography sx={{ fontSize: 11, color: 'var(--c-text-3)', mt: 0.75 }}>{view === 'own' ? 'Own steps: each row counts only its own steps.' : 'Each row counts itself and everything under it.'} Percentages are weighed by planned minutes where the flows carry them, otherwise by operations counted. Click a code to see its steps.</Typography>
       <PieceDrawer nodeId={drawer?.id ?? null} basisNote={null} onClose={() => setDrawer(null)} onChanged={drawer ? changed(drawer.lineId) : () => undefined} />
     </Box>
   );

@@ -222,6 +222,9 @@ export function BomGrid({ rows, view, records: recordValues, recordIds, pending,
                 {choiceCell?.(row)}
                 {(gaps?.get(n.id)?.length ?? 0) > 0 && <Box component="span" data-testid="row-gaps" title={`Required values still empty: ${gaps?.get(n.id)?.join(', ')}`}
                   sx={{ fontSize: 10.5, fontWeight: 600, px: 0.75, borderRadius: 'var(--r-sm)', background: 'var(--c-warning-200)', color: 'var(--c-warning-800)', whiteSpace: 'nowrap', flexShrink: 0 }}>{gaps?.get(n.id)?.length} missing</Box>}
+                {/* A remark on the BOM line a person must see — a standard drawing's "DRILL ON ASSEMBLY", an open decision (init.sql §69). */}
+                {n.notes && <Box component="span" data-testid="row-note" title={n.notes} aria-label={`Note: ${n.notes}`}
+                  sx={{ fontSize: 10.5, fontWeight: 600, px: 0.75, borderRadius: 'var(--r-sm)', background: 'var(--c-warning-200)', color: 'var(--c-warning-800)', whiteSpace: 'nowrap', flexShrink: 0, cursor: 'help' }}>Note</Box>}
               </Box>
             )}
           </>,

@@ -70,6 +70,8 @@ export const SECTIONS: NavSection[] = [
     screens: [
       { key: 'items', label: 'Items', path: 'items', hasDetail: true, permission: VIEW, countKey: 'items', keywords: ['catalog', 'parts', 'material', 'classification', 'family', 'subfamily', 'variant', 'tree'] },
       { key: 'definitions', label: 'Definitions', path: 'definitions', hasDetail: true, permission: VIEW, countKey: 'definitions', keywords: ['templates', 'selections', 'blueprints', 'classification'] },
+      // Standard drawings (init.sql §69): a drawing number with its BOM and values, copied onto order lines.
+      { key: 'standard-drawings', label: 'Standard drawings', path: 'standard-drawings', hasDetail: true, permission: `${ORDERS}|${VIEW}`, keywords: ['standard', 'rdso', 'drawing number', 'girder', 'bom', 'library', 'template drawing'] },
     ],
   },
   {
@@ -79,6 +81,8 @@ export const SECTIONS: NavSection[] = [
       // Management's glance: by machine and by order. Not 'dashboard' — that path is the login landing (redirects to Home).
       { key: 'management', label: 'Dashboard', path: 'management', permission: PRODUCTION, keywords: ['management', 'utilisation', 'utilization', 'oee', 'downtime', 'stops', 'overtime', 'order progress', 'at risk', 'late', 'tonnes', 'kpi', 'report'] },
       { key: 'plan', label: 'Plan', path: 'plan', permission: PRODUCTION, keywords: ['planner', 'schedule', 'capacity', 'ship', 'month', 'goal', 'priority', 'auto-plan'] },
+      // Every released line, by sales order (2026-10-17). A production order = a release; work orders stay the contractors'.
+      { key: 'production-orders', label: 'Production orders', path: 'production-orders', permission: PRODUCTION, keywords: ['released', 'release', 'lines', 'progress', 'ship week', 'forecast', 'status', 'sales order'] },
       { key: 'tracker', label: 'Tracker', path: 'tracker', permission: PRODUCTION, countKey: 'readySteps', keywords: ['work queue', 'shop floor', 'steps', 'release', 'reserve', 'material'] },
       { key: 'floor', label: 'Machine log', path: 'floor', permission: FLOOR, keywords: ['shop floor', 'operator', 'start', 'pause', 'stop', 'my day', 'shift log', 'tablet'] },
       { key: 'machines', label: 'Machines', path: 'machines', hasDetail: true, permission: PRODUCTION, countKey: 'machines', keywords: ['shifts', 'calendar', 'equipment', 'machine types', 'classification'] },

@@ -34,6 +34,7 @@ const OperationDetail = lazy(() => import('./pages/OperationDetail'));
 const Flows = lazy(() => import('./pages/Flows'));
 const FlowDetail = lazy(() => import('./pages/FlowDetail'));
 const WorkOrders = lazy(() => import('./pages/WorkOrders'));
+const ProductionOrders = lazy(() => import('./pages/ProductionOrders'));
 const WorkOrderDetail = lazy(() => import('./pages/WorkOrderDetail'));
 const Stock = lazy(() => import('./pages/Stock'));
 const PurchaseBoard = lazy(() => import('./pages/PurchaseBoard'));
@@ -50,6 +51,9 @@ const Batches = lazy(() => import('./pages/Batches'));
 const BatchDetail = lazy(() => import('./pages/BatchDetail'));
 const StockingAreas = lazy(() => import('./pages/StockingAreas'));
 const StockingAreaDetail = lazy(() => import('./pages/StockingAreaDetail'));
+// Standard drawings (init.sql §69): the list and one standard share a file.
+const StandardDrawings = lazy(() => import('./pages/StandardDrawings'));
+const StandardDrawingDetail = lazy(() => import('./pages/StandardDrawings').then((m) => ({ default: m.StandardDrawingDetail })));
 
 /** cf_erp routes. Paths must match navMeta.ts — it is what the shell and breadcrumbs read. */
 export function getCfErpRoutes(
@@ -76,6 +80,8 @@ export function getCfErpRoutes(
     { path: '/:company/cf_erp/customers', element: wrap(<Customers />) },
     { path: '/:company/cf_erp/contractors', element: wrap(<Customers fixedRole="subcontractor" />) },
     { path: '/:company/cf_erp/suppliers', element: wrap(<Customers fixedRole="supplier" />) },
+    { path: '/:company/cf_erp/standard-drawings', element: wrap(<StandardDrawings />) },
+    { path: '/:company/cf_erp/standard-drawings/:id', element: wrap(<StandardDrawingDetail />) },
     { path: '/:company/cf_erp/items', element: wrap(<Records recordKind="item" />) },
     { path: '/:company/cf_erp/items/:id', element: wrap(<RecordDetail recordKind="item" />) },
     { path: '/:company/cf_erp/definitions', element: wrap(<Records recordKind="definition" />) },
@@ -94,6 +100,7 @@ export function getCfErpRoutes(
     { path: '/:company/cf_erp/flows', element: wrap(<Flows />) },
     { path: '/:company/cf_erp/flows/:id', element: wrap(<FlowDetail />) },
     { path: '/:company/cf_erp/work-orders', element: wrap(<WorkOrders />) },
+    { path: '/:company/cf_erp/production-orders', element: wrap(<ProductionOrders />) },
     { path: '/:company/cf_erp/work-orders/:id', element: wrap(<WorkOrderDetail />) },
     { path: '/:company/cf_erp/stock', element: wrap(<Stock />) },
     { path: '/:company/cf_erp/purchase', element: wrap(<PurchaseBoard />) },

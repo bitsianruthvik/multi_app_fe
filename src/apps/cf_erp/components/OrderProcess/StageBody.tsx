@@ -21,6 +21,7 @@ import {
   isUnbuilt, nextLineFor, notForThisLine, tabFor,
 } from '../../lib/process';
 import { EmptyState, ErrorNotice, Mono, SectionCard, StatusBadge } from '../ui';
+import { StandardLineBanner } from '../StandardLineBanner';
 import { BomPanel } from '../Bom/BomPanel';
 import { NestingPanel } from '../Nesting/NestingPanel';
 import { CutPiecesButton } from '../Nesting/CutPiecesDialog';
@@ -352,7 +353,12 @@ export function StageBody({
     // required ones still empty in amber. Values is a check on this tab, not a tab — it reaches here only
     // for a process that has a Values stage but no Structure stage to fold it into.
     body = line
-      ? <BomPanel key={line.lineId} source={{ kind: 'orderLine', lineId: line.lineId }} onChanged={onReloadAll} onGoCutPieces={() => onGoStage('cut_pieces')} />
+      ? (
+        <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 1 }}>
+          <StandardLineBanner lineId={line.lineId} hasStandard={!!order.lines?.find((l) => l.id === line.lineId)?.standard} refreshKey={order} onChanged={onReloadAll} />
+          <BomPanel key={line.lineId} source={{ kind: 'orderLine', lineId: line.lineId }} onChanged={onReloadAll} onGoCutPieces={() => onGoStage('cut_pieces')} />
+        </Box>
+      )
       : (
         <SectionCard title="Structure">
           <EmptyState icon={<AccountTreeRounded />} title="No lines yet" hint="A structure hangs under a line, so add one first."

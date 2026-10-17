@@ -1,5 +1,5 @@
 import { cfApi, qs } from './client';
-import type { PlanLevel, PlannerSettings, PlannerSnapshot } from '../lib/planner/types';
+import type { PlanLevel, PlannerSnapshot } from '../lib/planner/types';
 
 /**
  * The Planner (services/plannerService.js). One read gives everything the board needs — the
@@ -14,7 +14,6 @@ export const putEntries = (entries: EntryWrite[]) => cfApi.put<unknown>('/planne
 export const putPriorities = (orderIds: (number | string)[]) => cfApi.put<unknown>('/planner/priorities', { orderIds });
 export const putLevel = (lineId: number | string, level: PlanLevel) => cfApi.put<unknown>(`/planner/lines/${lineId}/level`, { level });
 export const putTargets = (targets: Record<string, number>) => cfApi.put<unknown>('/planner/targets', targets);
-export const putSettings = (settings: Partial<PlannerSettings>) => cfApi.put<unknown>('/planner/settings', settings);
 
 /**
  * The Save button: where units ship and each changed line's unit order (init.sql §38), in one

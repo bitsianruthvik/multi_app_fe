@@ -518,7 +518,7 @@ await check('tree: no request until an order card is opened; then the released l
   assert.equal(treeCalls().length, 0, 'first load asks for no tree');
   const card = byTestId('order-card').find((c) => c.getAttribute('data-order') === 'SO-20260930-0001');
   await click(card.querySelector('[aria-expanded]'));
-  assert.deepEqual(searches(), ['?nodeId=l1&depth=1'], treeCalls().join('\n'));
+  assert.deepEqual(searches(), ['?nodeId=l1&depth=1&figures=1'], treeCalls().join('\n'));
   assert.deepEqual(rowsOf(card), ['p10', 'p20']);
   const span = card.querySelector('[data-node="p10"]');
   assert.match(span.textContent, /SPAN1-S1/); assert.match(span.textContent, /Span 1/);
@@ -536,7 +536,7 @@ await check('tree: opening a row reads the next level only; the parent code is g
   const { root, card } = await openRisky();
   requests.length = 0;
   await click(card.querySelector('[data-node="p10"]'));
-  assert.deepEqual(searches(), ['?nodeId=p10&depth=1']);
+  assert.deepEqual(searches(), ['?nodeId=p10&depth=1&figures=1']);
   assert.deepEqual(rowsOf(card), ['p10', 'p11', 'p13', 'p20']);
   const code = card.querySelector('[data-node="p11"] [data-testid="tree-code"]');
   assert.equal(code.children[0].textContent, 'SPAN1-S1'); assert.equal(code.children[1].textContent, '-G1');
@@ -551,14 +551,14 @@ await check('tree: "Open to" level 2 / 3 / All / Lines', async () => {
   const { root, card } = await openRisky();
   const pick = async (lvl) => { requests.length = 0; await click(card.querySelector(`[data-testid="level-picker"] [data-level="${lvl}"]`)); };
   await pick('2');
-  assert.deepEqual(searches(), ['?nodeId=l1&depth=2']);
+  assert.deepEqual(searches(), ['?nodeId=l1&depth=2&figures=1']);
   assert.deepEqual(rowsOf(card), ['p10', 'p11', 'p13', 'p20']);
   await pick('3');
-  assert.deepEqual(searches(), ['?nodeId=l1&depth=3']);
+  assert.deepEqual(searches(), ['?nodeId=l1&depth=3&figures=1']);
   assert.deepEqual(rowsOf(card), ['p10', 'p11', 'p12', 'p13', 'p20']);
   assert.equal(card.querySelector('[data-node="p12"]').getAttribute('data-depth'), '2');
   await pick('all');
-  assert.deepEqual(searches(), ['?nodeId=l1&depth=99']);
+  assert.deepEqual(searches(), ['?nodeId=l1&depth=99&figures=1']);
   assert.equal(rowsOf(card).length, 5);
   await pick('0');
   assert.equal(treeCalls().length, 0, 'closing to lines asks for nothing');

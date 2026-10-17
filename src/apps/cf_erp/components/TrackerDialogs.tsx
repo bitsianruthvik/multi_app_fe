@@ -13,6 +13,7 @@ import { Working } from './WorkingNote';
 import { MaterialReadyChip } from './Purchase/MaterialReadyChip';
 import { knownLineSize, releaseCheckText, rememberLineSize } from '../lib/working';
 import { materialFromMr } from '../lib/materialRequest';
+import { UNPLANNED_HINT, UNPLANNED_TEXT, unplannedPlaces, type PlanCheck } from '../lib/planCheck';
 
 /** A typed quantity: empty counts as none, anything unreadable as NaN so the form can refuse it. */
 const amount = (v: string) => (v.trim() === '' ? 0 : Number(v));
@@ -174,6 +175,9 @@ export function ReleaseDialog({ line, onClose, onReleased }: {
 export function StartStepDialog({ step, onClose, onDone }: { step: ProductionStep | null; onClose: () => void; onDone: (r: ReleaseSummary) => void }) {
   const op = useLoad(() => (step ? cfApi.get<OperationDetail>(`/operations/${step.operation.id}`) : Promise.resolve(null)), [step?.operation.id]);
   const [machineId, setMachineId] = useState<number | null>(null);
+  // Not in the plan: said here, never a reason to refuse (2026-10-17). A failed check says nothing.
+  const plan = useLoad(() => (step ? cfApi.get<PlanCheck>(`/tracker/plan-check?stepIds=${step.id}`).catch(() => null) : Promise.resolve(null)), [step?.id]);
+  const off = plan.data?.unplanned ?? [];
   const options = useMemo(() => (op.data?.machines ?? []).filter((m) => m.eligible).map((m) => m.machine), [op.data]);
   // A different step starts blank — but where only one machine can do the work
   // the answer is already known, so fill it in rather than making someone at
@@ -183,6 +187,12 @@ export function StartStepDialog({ step, onClose, onDone }: { step: ProductionSte
   return (
     <FormDialog open={!!step} title="Start this step" onClose={onClose} onSubmit={save} submitLabel="Start" busyLabel="Starting…" maxWidth="xs"
       subtitle={step?.label}>
+      {off.length > 0 && (
+        <Box role="alert" data-testid="unplanned-warning" sx={{ p: 1.25, borderRadius: 'var(--r-sm)', background: 'var(--c-warning-50)', border: '1px solid var(--c-warning-200)' }}>
+          <Typography sx={{ fontSize: 13.5, fontWeight: 600, color: 'var(--c-warning-800)' }}>{UNPLANNED_TEXT}</Typography>
+          <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)' }}>{unplannedPlaces(off).join(', ')}. {UNPLANNED_HINT}</Typography>
+        </Box>
+      )}
       <Autocomplete options={options} value={options.find((m) => m.id === machineId) ?? null} loading={op.loading}
         getOptionLabel={(m) => `${m.code} · ${m.name}`} isOptionEqualToValue={(a, b) => a.id === b.id} onChange={(_, m) => setMachineId(m?.id ?? null)}
         noOptionsText="No machine is set up for this operation"
