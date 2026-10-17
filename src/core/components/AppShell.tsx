@@ -61,6 +61,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const onCfErp            = !!useMatch('/:company/cf_erp/*');
   const onCfHrms           = !!useMatch('/:company/cf_hrms/*');
   const onCfCrm            = !!useMatch('/:company/cf_crm/*');
+  const onKarniDashboard   = !!useMatch('/:company/karni_dashboard/*');
 
   const isGlassPage = onCompanyLanding || onAppSelector || onLoginPage;
 
@@ -69,6 +70,10 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   // cf_crm is one full-screen page (its own app in an iframe, CfCrmFrame): no
   // platform shell at all, on its admin URLs too.
   if (onCfCrm) return <>{children}</>;
+
+  // karni_dashboard wraps every route in its own shell (KarniShell, the @shared/ui
+  // kit), admin landing URLs included — the dispatcher only has to get out of the way.
+  if (onKarniDashboard) return <>{children}</>;
 
   // Admin routes (AdminLayout) render their own shell — they don't get UserLayout —
   // but an app's admin pages should still pick up that app's theme and tokens.

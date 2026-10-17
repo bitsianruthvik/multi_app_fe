@@ -22,6 +22,7 @@ import { getFabErpRoutes } from "@apps/fab_erp/routes";
 import { getCfErpRoutes } from "@apps/cf_erp/routes";
 import { getCfHrmsRoutes } from "@apps/cf_hrms/routes";
 import { getCfCrmRoutes } from "@apps/cf_crm/routes";
+import { getKarniDashboardRoutes } from "@apps/karni_dashboard/routes";
 import AppShell from "@core/components/AppShell";
 import { RequireAppAccess } from "@core/components/RequireAppAccess";
 import { ErrorBoundary } from "@core/components/ErrorBoundary";
@@ -216,6 +217,11 @@ function App() {
 
                 {/* cf_crm routes (one full-screen page) */}
                 {getCfCrmRoutes(ProtectedRoute).map(r => (
+                  <Route key={r.path as string} path={r.path as string} element={r.element as React.ReactElement} />
+                ))}
+
+                {/* karni_dashboard routes (read-only SAP Business One dashboard) */}
+                {getKarniDashboardRoutes(ProtectedRoute).map(r => (
                   <Route key={r.path as string} path={r.path as string} element={r.element as React.ReactElement} />
                 ))}
 
