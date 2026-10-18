@@ -1,11 +1,13 @@
-import { useReport, type AgeingReport } from '../api';
+import { useReport, type PartyBook } from '../api';
 import { ReportPage } from '../components/ReportPage';
 import { AgeingView } from '../components/AgeingView';
+import { useFilters } from '../filters';
 
 export function Receivables() {
-  const { data, error, loading, reload } = useReport<AgeingReport>('/receivables');
+  const f = useFilters();
+  const { data, error, loading, reload } = useReport<PartyBook>(`/receivables${f.query(false)}`);
   return (
-    <ReportPage title="Receivables" subtitle="Open A/R invoices by days past due"
+    <ReportPage title="Receivables" subtitle="Customer dues and collections" filters={f} range={false}
       asOf={data?.asOf} loading={loading} error={error} reload={reload} hasData={!!data}>
       {data && <AgeingView report={data} partyLabel="Customer" kind="receivables" />}
     </ReportPage>
@@ -13,9 +15,10 @@ export function Receivables() {
 }
 
 export function Payables() {
-  const { data, error, loading, reload } = useReport<AgeingReport>('/payables');
+  const f = useFilters();
+  const { data, error, loading, reload } = useReport<PartyBook>(`/payables${f.query(false)}`);
   return (
-    <ReportPage title="Payables" subtitle="Open A/P invoices by days past due"
+    <ReportPage title="Payables" subtitle="Vendor dues and payments" filters={f} range={false}
       asOf={data?.asOf} loading={loading} error={error} reload={reload} hasData={!!data}>
       {data && <AgeingView report={data} partyLabel="Vendor" kind="payables" />}
     </ReportPage>

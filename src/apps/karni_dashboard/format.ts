@@ -21,6 +21,25 @@ export function qty(v: number | null | undefined): string {
   return new Intl.NumberFormat('en-IN', { maximumFractionDigits: 2 }).format(v);
 }
 
+/** Short quantity: 1.2 L (lakh), 45.6 K, 950. */
+export function qtyShort(v: number | null | undefined): string {
+  if (v == null || !Number.isFinite(v)) return '—';
+  const a = Math.abs(v);
+  const sign = v < 0 ? '−' : '';
+  if (a >= 1e7) return `${sign}${(a / 1e7).toFixed(2)} Cr`;
+  if (a >= 1e5) return `${sign}${(a / 1e5).toFixed(1)} L`;
+  if (a >= 1e3) return `${sign}${(a / 1e3).toFixed(1)} K`;
+  return `${sign}${Math.round(a)}`;
+}
+
+/** "2026-10-18" → "18 Oct" */
+export function dayLabel(iso: string): string {
+  const [, m, d] = iso.split('-');
+  return `${Number(d)} ${MONTHS[Number(m) - 1]}`;
+}
+
+export const pct = (v: number | null | undefined) => (v == null || !Number.isFinite(v) ? '—' : `${v.toFixed(1)}%`);
+
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 /** "2026-10" → "Oct 26" */
 export function monthLabel(ym: string): string {

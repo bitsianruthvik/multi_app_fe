@@ -11,6 +11,9 @@ const Payables = lazy(() => import('./pages/Ageing').then((m) => ({ default: m.P
 const SalesOrders = lazy(() => import('./pages/OpenOrders').then((m) => ({ default: m.SalesOrders })));
 const PurchaseOrders = lazy(() => import('./pages/OpenOrders').then((m) => ({ default: m.PurchaseOrders })));
 const Inventory = lazy(() => import('./pages/Inventory'));
+const Dispatch = lazy(() => import('./pages/Dispatch'));
+const Purchase = lazy(() => import('./pages/Purchase'));
+const Production = lazy(() => import('./pages/Production'));
 const SapReports = lazy(() => import('./pages/SapReports'));
 const Connection = lazy(() => import('./pages/Connection'));
 
@@ -35,9 +38,12 @@ export function getKarniDashboardRoutes(
     ['overview', <Overview />],
     ['sales', <Sales />],
     ['sales-orders', <SalesOrders />],
+    ['dispatch', <Dispatch />],
     ['receivables', <Receivables />],
+    ['purchase', <Purchase />],
     ['purchase-orders', <PurchaseOrders />],
     ['payables', <Payables />],
+    ['production', <Production />],
     ['inventory', <Inventory />],
     ['sap-reports', <SapReports />],
     ['connection', <Connection />],

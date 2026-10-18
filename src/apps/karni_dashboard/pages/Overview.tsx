@@ -1,62 +1,131 @@
 import { useNavigate } from 'react-router-dom';
-import { Box, useTheme } from '@mui/material';
-import { BarChart } from '@mui/x-charts/BarChart';
-import { DataTable, SectionCard, StatStrip, useCompanySlug, type DataColumn } from '@shared/ui';
-import { useReport, type Overview as OverviewData } from '../api';
-import { ReportPage } from '../components/ReportPage';
-import { inr, inrShort, monthLabel } from '../format';
+import { Box, Stack, Typography } from '@mui/material';
+import TrendingUpRounded from '@mui/icons-material/TrendingUpRounded';
+import CalendarTodayRounded from '@mui/icons-material/CalendarTodayRounded';
+import SavingsRounded from '@mui/icons-material/SavingsRounded';
+import AccountBalanceWalletRounded from '@mui/icons-material/AccountBalanceWalletRounded';
+import ReceiptLongRounded from '@mui/icons-material/ReceiptLongRounded';
+import ShoppingCartRounded from '@mui/icons-material/ShoppingCartRounded';
+import PrecisionManufacturingRounded from '@mui/icons-material/PrecisionManufacturingRounded';
+import PaymentsRounded from '@mui/icons-material/PaymentsRounded';
+import { KpiTile, KpiGrid, SectionCard, pctChange, useCompanySlug } from '@shared/ui';
+import { useReport, type DueSoon, type Overview as OverviewData } from '../api';
+import { ReportPage, CardGrid } from '../components/ReportPage';
+import { TrendBars, Donut, RankBars, SplitBar } from '../components/Charts';
+import { useFilters } from '../filters';
+import { inr, inrShort, monthLabel, qtyShort } from '../format';
 
-type Top = OverviewData['topCustomers'][number];
+/** A comparison is shown only when the earlier period has real data (at least 5% of now). */
+const comparable = (now: number, before: number) => before > Math.abs(now) * 0.05;
 
 export default function Overview() {
-  const { data, error, loading, reload } = useReport<OverviewData>('/overview');
-  const theme = useTheme();
+  const f = useFilters();
+  const { data, error, loading, reload } = useReport<OverviewData>(`/overview${f.query(false)}`);
   const company = useCompanySlug();
   const navigate = useNavigate();
   const go = (p: string) => () => navigate(`/${company}/karni_dashboard/${p}`);
-
-  const topCols: DataColumn<Top>[] = [
-    { key: 'cardName', header: 'Customer', render: (r) => r.cardName, sortValue: (r) => r.cardName },
-    { key: 'sales', header: 'Sales (excl. tax)', numeric: true, align: 'right', render: (r) => inr(r.sales), sortValue: (r) => r.sales },
-  ];
+  const d = data;
 
   return (
-    <ReportPage title="Overview" subtitle={data ? `Financial year from ${data.fyStart}` : undefined}
-      asOf={data?.asOf} loading={loading} error={error} reload={reload} hasData={!!data}>
-      {data && (
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2.5 }}>
-          <StatStrip stats={[
-            { label: 'Sales today', value: data.salesToday, display: inrShort(data.salesToday), onClick: go('sales') },
-            { label: 'Sales this month', value: data.salesMonth, display: inrShort(data.salesMonth), tone: 'primary', onClick: go('sales') },
-            { label: 'Sales this year', value: data.salesFy, display: inrShort(data.salesFy), tone: 'primary', onClick: go('sales') },
-            { label: 'Receivables', value: data.receivables, display: inrShort(data.receivables), onClick: go('receivables'),
-              hint: `${inrShort(data.receivablesOverdue)} overdue` },
-          ]} />
-          <StatStrip stats={[
-            { label: 'Overdue receivables', value: data.receivablesOverdue, display: inrShort(data.receivablesOverdue),
-              tone: data.receivablesOverdue > 0 ? 'warning' : 'success', onClick: go('receivables') },
-            { label: 'Open sales orders', value: data.openSalesOrders.count, display: `${data.openSalesOrders.count} · ${inrShort(data.openSalesOrders.value)}`,
-              hint: `${data.openSalesOrders.late} past due date`, onClick: go('sales-orders') },
-            { label: 'Open purchase orders', value: data.openPurchaseOrders.count, display: `${data.openPurchaseOrders.count} · ${inrShort(data.openPurchaseOrders.value)}`,
-              hint: `${data.openPurchaseOrders.late} past due date`, onClick: go('purchase-orders') },
-            { label: 'Payables', value: data.payables, display: inrShort(data.payables), onClick: go('payables') },
-          ]} />
-          <Box sx={{ display: 'grid', gap: 2.5, gridTemplateColumns: { xs: '1fr', lg: '3fr 2fr' } }}>
-            <SectionCard title="Sales by month" subtitle="Last 12 months, excl. tax, net of credit notes">
-              <BarChart
-                height={300}
-                xAxis={[{ scaleType: 'band', data: data.monthly.map((m) => monthLabel(m.month)) }]}
-                yAxis={[{ valueFormatter: (v: number) => inrShort(v), width: 72 }]}
-                series={[{ data: data.monthly.map((m) => m.sales), label: 'Sales', color: theme.palette.primary.main, valueFormatter: (v) => inr(v ?? 0) }]}
-                hideLegend
-              />
+    <ReportPage title="Overview" subtitle={d ? `Financial year from ${d.fyStart}` : undefined} filters={f} range={false}
+      asOf={d?.asOf} loading={loading} error={error} reload={reload} hasData={!!d}>
+      {d && (
+        <>
+          <KpiGrid>
+            <KpiTile label="Sales this month" icon={<TrendingUpRounded />} display={inrShort(d.salesMonth)} tone="primary" onClick={go('sales?range=month')}
+              delta={{ pct: pctChange(d.salesMonth, d.salesPrevMonthSamePeriod), label: 'vs same days last month' }}
+              spark={d.daily.map((x) => x.sales)} hint="Excl. tax, net of credit notes. Sparkline: last 30 days" />
+            <KpiTile label="Sales this financial year" icon={<CalendarTodayRounded />} display={inrShort(d.salesFy)} onClick={go('sales')}
+              delta={{ pct: comparable(d.salesFy, d.salesPrevFySamePeriod) ? pctChange(d.salesFy, d.salesPrevFySamePeriod) : null, label: comparable(d.salesFy, d.salesPrevFySamePeriod) ? 'vs same period last year' : 'no comparable data last year in SAP' }}
+              footer={d.interUnitFy ? `Excludes ${inrShort(d.interUnitFy)} inter-unit billing` : undefined}
+              spark={d.monthly.map((m) => m.sales)} />
+            <KpiTile label="Collections this month" icon={<SavingsRounded />} display={inrShort(d.collectionsMonth)} onClick={go('receivables')}
+              spark={d.monthly.map((m) => m.collections)} footer={`Sales today ${inrShort(d.salesToday)}`} />
+            <KpiTile label="Receivables" icon={<AccountBalanceWalletRounded />} display={inrShort(d.receivables)} onClick={go('receivables')}
+              tone={d.receivablesOverdue > 0 ? 'warning' : 'default'}
+              footer={<><b style={{ color: 'var(--c-warning-600)' }}>{inrShort(d.receivablesOverdue)}</b> overdue</>} />
+          </KpiGrid>
+          <KpiGrid>
+            <KpiTile label="Open sales orders" icon={<ReceiptLongRounded />} display={`${d.openSalesOrders.count}`} onClick={go('sales-orders')}
+              footer={<>{inrShort(d.openSalesOrders.value)} · <b style={{ color: d.openSalesOrders.late ? 'var(--c-danger-600)' : undefined }}>{d.openSalesOrders.late} past due</b></>} />
+            <KpiTile label="Open purchase orders" icon={<ShoppingCartRounded />} display={`${d.openPurchaseOrders.count}`} onClick={go('purchase')}
+              footer={<>{inrShort(d.openPurchaseOrders.value)} · {d.openPurchaseOrders.late} past due</>} />
+            <KpiTile label="Production this month" icon={<PrecisionManufacturingRounded />} display={qtyShort(d.productionMonthQty)} onClick={go('production?range=month')}
+              footer="Output from production receipts (kg)" />
+            <KpiTile label="Payables" icon={<PaymentsRounded />} display={inrShort(d.payables)} onClick={go('payables')}
+              footer={<>{inrShort(d.payablesOverdue)} overdue · paid {inrShort(d.paymentsMonth)} this month</>} />
+          </KpiGrid>
+
+          <SectionCard title="Today" subtitle={d.today}>
+            <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: 'repeat(2, 1fr)', md: 'repeat(4, 1fr)' } }}>
+              <TodayFigure label="Sales orders booked" value={`${d.todayActivity.ordersCount}`} sub={inrShort(d.todayActivity.ordersValue)} onClick={go('sales-orders')} />
+              <TodayFigure label="Deliveries" value={`${d.todayActivity.deliveriesCount}`} sub={`${qtyShort(d.todayActivity.deliveriesQty)} qty`} onClick={go('dispatch?range=today')} />
+              <TodayFigure label="Goods received (GRN)" value={`${d.todayActivity.grnCount}`} sub={inrShort(d.todayActivity.grnValue)} onClick={go('purchase')} />
+              <TodayFigure label="Production output" value={qtyShort(d.todayActivity.productionQty)} sub={`${d.todayActivity.productionDocs} receipts`} onClick={go('production?range=today')} />
+            </Box>
+          </SectionCard>
+
+          <CardGrid cols="3fr 2fr">
+            <SectionCard title="Sales and collections" subtitle="Last 12 months · sales excl. tax, net of credit notes">
+              <TrendBars labels={d.monthly.map((m) => monthLabel(m.month))} format={inrShort}
+                series={[{ label: 'Sales', data: d.monthly.map((m) => m.sales) }, { label: 'Collections', data: d.monthly.map((m) => m.collections) }]} />
             </SectionCard>
-            <SectionCard title="Top customers this year" flush>
-              <DataTable rows={data.topCustomers} columns={topCols} getRowId={(r) => r.cardCode} pageSize={10} bare />
+            <SectionCard title="Sales by unit" subtitle="This financial year">
+              <Donut data={d.byUnit.map((u) => ({ label: u.unit, value: u.sales }))} format={inrShort}
+                center={<Box><Typography sx={{ fontSize: 11, color: 'var(--c-text-3)' }}>Total</Typography>
+                  <Typography sx={{ fontWeight: 700, fontFamily: 'var(--font-mono)' }}>{inrShort(d.salesFy)}</Typography></Box>} />
             </SectionCard>
-          </Box>
-        </Box>
+          </CardGrid>
+
+          <CardGrid cols="1fr 1fr">
+            <SectionCard title="Top customers" subtitle="This financial year, excl. tax">
+              <RankBars rows={d.topCustomers.map((c) => ({ key: c.cardCode, label: c.cardName, value: c.sales }))} format={inrShort}
+                onClick={() => navigate(`/${company}/karni_dashboard/sales`)} />
+            </SectionCard>
+            <SectionCard title="Receivables by age" subtitle="Open A/R invoices, days past due date">
+              <SplitBar format={inrShort} parts={[
+                { label: 'Not due', value: d.receivablesAgeing.notDue, color: 'var(--c-success-600)' },
+                { label: '1–30', value: d.receivablesAgeing.d0_30, color: 'var(--c-info-600)' },
+                { label: '31–60', value: d.receivablesAgeing.d31_60, color: 'var(--c-warning-600)' },
+                { label: '61–90', value: d.receivablesAgeing.d61_90, color: 'var(--c-chart-7)' },
+                { label: '90+', value: d.receivablesAgeing.d90plus, color: 'var(--c-danger-600)' },
+              ]} />
+              <Box sx={{ mt: 3, display: 'grid', gap: 2, gridTemplateColumns: '1fr 1fr' }}>
+                <DueList title="Customers to pay in the next 7 days" due={d.dueIn7Receivable} onClick={go('receivables')} />
+                <DueList title="We pay vendors in the next 7 days" due={d.dueIn7Payable} onClick={go('payables')} />
+              </Box>
+            </SectionCard>
+          </CardGrid>
+        </>
       )}
     </ReportPage>
+  );
+}
+
+function TodayFigure({ label, value, sub, onClick }: { label: string; value: string; sub: string; onClick: () => void }) {
+  return (
+    <Box onClick={onClick} sx={{ cursor: 'pointer', p: 1.5, borderRadius: 'var(--r-sm)', background: 'var(--c-surface-2)', '&:hover': { background: 'var(--c-primary-50)' } }}>
+      <Typography sx={{ fontSize: 12, color: 'var(--c-text-2)' }}>{label}</Typography>
+      <Typography sx={{ fontSize: 22, fontWeight: 600, fontFamily: 'var(--font-mono)' }}>{value}</Typography>
+      <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>{sub}</Typography>
+    </Box>
+  );
+}
+
+function DueList({ title, due, onClick }: { title: string; due: DueSoon; onClick: () => void }) {
+  return (
+    <Box onClick={onClick} sx={{ cursor: 'pointer' }}>
+      <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)', mb: 0.5 }}>{title}</Typography>
+      <Typography sx={{ fontSize: 20, fontWeight: 600, fontFamily: 'var(--font-mono)' }}>{inrShort(due.amount)}</Typography>
+      <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)', mb: 1 }}>{due.count} invoices</Typography>
+      <Stack spacing={0.5}>
+        {due.docs.slice(0, 4).map((x) => (
+          <Stack key={x.docEntry} direction="row" spacing={1} sx={{ fontSize: 12 }}>
+            <Typography noWrap sx={{ fontSize: 12, flex: 1, minWidth: 0 }}>{x.cardName}</Typography>
+            <Typography sx={{ fontSize: 12, fontFamily: 'var(--font-mono)' }}>{inr(x.balance)}</Typography>
+          </Stack>
+        ))}
+      </Stack>
+    </Box>
   );
 }

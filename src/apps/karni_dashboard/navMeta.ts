@@ -1,4 +1,4 @@
-import type { NavSection } from '@shared/ui';
+import { labelForPath, type NavSection } from '@shared/ui';
 
 /**
  * The single source of karni_dashboard navigation (top nav, section row,
@@ -8,29 +8,36 @@ export const SECTIONS: NavSection[] = [
   {
     key: 'home',
     label: 'Overview',
-    screens: [{ label: 'Overview', path: 'overview', keywords: ['home', 'kpi', 'summary'] }],
+    screens: [{ label: 'Overview', path: 'overview', keywords: ['home', 'kpi', 'summary', 'today'] }],
   },
   {
     key: 'sales',
     label: 'Sales',
     screens: [
-      { label: 'Sales', path: 'sales', keywords: ['invoices', 'revenue', 'customers'] },
-      { label: 'Sales orders', path: 'sales-orders', keywords: ['open orders', 'so'] },
-      { label: 'Receivables', path: 'receivables', keywords: ['ageing', 'aging', 'outstanding', 'debtors'] },
+      { label: 'Sales', path: 'sales', keywords: ['invoices', 'revenue', 'customers', 'register', 'item wise', 'hsn'] },
+      { label: 'Sales orders', path: 'sales-orders', keywords: ['pending so', 'open orders', 'so', 'backlog'] },
+      { label: 'Dispatch', path: 'dispatch', keywords: ['delivery', 'deliveries', 'shipping', 'logistics'] },
+      { label: 'Receivables', path: 'receivables', keywords: ['ageing', 'aging', 'outstanding', 'debtors', 'collections', 'incoming payments'] },
     ],
   },
   {
     key: 'purchase',
     label: 'Purchase',
     screens: [
-      { label: 'Purchase orders', path: 'purchase-orders', keywords: ['po', 'vendors'] },
-      { label: 'Payables', path: 'payables', keywords: ['creditors', 'ageing', 'aging'] },
+      { label: 'Purchase', path: 'purchase', keywords: ['register', 'po vs grpo', 'grn', 'vendors', 'spend'] },
+      { label: 'Purchase orders', path: 'purchase-orders', keywords: ['open po'] },
+      { label: 'Payables', path: 'payables', keywords: ['creditors', 'ageing', 'aging', 'vendor payments', 'outgoing'] },
     ],
+  },
+  {
+    key: 'production',
+    label: 'Production',
+    screens: [{ label: 'Production', path: 'production', keywords: ['machine', 'output', 'yield', 'wip', 'routing', 'printing', 'lamination', 'slitting', 'packing'] }],
   },
   {
     key: 'stock',
     label: 'Stock',
-    screens: [{ label: 'Inventory', path: 'inventory', keywords: ['items', 'stock', 'shortage'] }],
+    screens: [{ label: 'Inventory', path: 'inventory', keywords: ['items', 'stock', 'warehouse', 'godown', 'shortage', 'consumption', 'transfer'] }],
   },
   {
     key: 'sap',
@@ -41,3 +48,6 @@ export const SECTIONS: NavSection[] = [
     ],
   },
 ];
+
+/** The menu label of a screen path, e.g. "sales-orders" → "Sales orders". */
+export const labelForScreen = (path: string) => labelForPath(SECTIONS, path);
