@@ -1,5 +1,5 @@
 import { cfApi, LONG_WRITE_MS } from './client';
-import type { NestRunAnswer, NestRunSnapshot, NestSheetResult, NestingChoices, PlateChoice } from './types';
+import type { GradeCheck, NestCustomProposal, NestRunAnswer, NestRunSnapshot, NestSheetResult, NestingChoices, PlateChoice } from './types';
 import { isRequested, type PlateChangeDirect, type PlateChangeFields, type PlateChangeRequested } from './plateChanges';
 
 /**
@@ -565,6 +565,8 @@ export interface ComparePlate {
   lotNo: string | null; lotId: number | null; origin: string; file?: string | null; plateCode: string | null;
   thickness?: number | null; length?: number; width?: number; kerfMm?: number | null; pieces: number; plateKg?: number; partsKg?: number;
   wastePct: number | null; offcuts?: number; offcutKg?: number; cost: number | null; costBasis?: string | null;
+  /** §90: a custom plate size (not in the catalog yet unless inCatalog). */
+  custom?: { inCatalog: boolean; length: number; width: number; grade: string | null; impactClass: string | null; replaces?: { plateCode: string | null } | null } | null;
 }
 
 export interface CompareRun {
@@ -580,6 +582,10 @@ export interface CompareRun {
   stoppedEarly?: boolean;
   metrics: CompareMetrics | null; perPlate: ComparePlate[];
   plan?: { groups?: { nests?: unknown[] }[] } | null;
+  /** §90: every piece against its plate by grade and impact class. */
+  gradeCheck?: GradeCheck | null;
+  /** §90: the custom plate sizes AI's nesting proposes ("custom size, not in the catalog yet"). */
+  customPlates?: NestCustomProposal[];
 }
 
 export interface CompareWillReplace {
@@ -591,7 +597,7 @@ export interface CompareWillReplace {
 export interface CompareAnswer {
   line?: NestLineState;
   demand?: { pieces: number; cutPlates: number; coversWholeLine: boolean } | null;
-  uploaded: { metrics: CompareMetrics; perPlate: ComparePlate[]; files?: { lotId: number; lotNo: string; filename: string }[] } | null;
+  uploaded: { metrics: CompareMetrics; perPlate: ComparePlate[]; files?: { lotId: number; lotNo: string; filename: string }[]; gradeCheck?: GradeCheck | null } | null;
   auto: CompareRun;
   stale: { runId: string; ranAt: string | null; status: string; reason: string } | null;
   delta: Record<string, number | string | null> | null;

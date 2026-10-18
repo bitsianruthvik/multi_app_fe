@@ -1,5 +1,5 @@
 import type {
-  Nest, NestDrift, NestGroup, NestMetrics, NestPiece, NestRunSnapshot, NestSizeAdvice, NestVerdict, NestWaste, NestingPlan,
+  GradeCheck, Nest, NestCustomProposal, NestDrift, NestGroup, NestMetrics, NestPiece, NestRunSnapshot, NestSizeAdvice, NestVerdict, NestWaste, NestingPlan,
 } from '../api/types';
 import type { CompareAnswer, CompareMetrics, ComparePlate, NestExtras, NestFileRead, PieceExtras } from '../api/nesting';
 
@@ -343,6 +343,8 @@ export function acceptBody(plan: NestingPlan) {
       // them the server rebuilt a 180°/270° part at 0°/90° and checked boxes, refusing interlocked
       // parts as "overlap" (SO260014 N-002, 2026-10-18).
       ...((n as { layout?: string }).layout ? { layout: (n as { layout?: string }).layout } : {}),
+      // §90: a plate of a custom size not in the catalog yet — the server makes the catalog plate when this is accepted.
+      ...(n.plateItemId == null && n.customPlate ? { customPlate: { length: n.customPlate.length, width: n.customPlate.width, impactClass: n.customPlate.impactClass } } : {}),
       pieces: n.pieces.map((p) => {
         const x = p as NestPiece & PieceExtras;
         return {
@@ -1123,9 +1125,52 @@ export function swapPlan(a: CompareAnswer | null | undefined, gate: SwapGate | n
     fromM.netTonnes != null && toM.netTonnes != null ? `Net steel (offcuts kept): ${tWords(fromM.netTonnes)} → ${tWords(toM.netTonnes)}.` : null,
     plates.length ? `Plate sizes: ${plates.join(', ')}.` : 'The same plate sizes.',
     left > 0 ? `${left} ${left === 1 ? 'piece the customer nested is' : 'pieces the customer nested are'} not on AI's plates and will be left over.` : null,
+    to === 'ai' ? customPlatesLine(a.auto.customPlates) : null,
     to === 'ai' ? "The customer's nesting is kept. You can switch back until the line has a production order." : "AI's nesting is kept beside it.",
     onOrder,
   ].filter((x): x is string => !!x);
   const why = alt.canSwap?.ok === false ? (alt.canSwap.reason ?? alt.lockReason ?? 'It cannot be swapped now.') : null;
   return { show: true, to, mainLabel, label, ok: !why, why, title, lines, plates, confirm: empty.confirm, onOrder };
+}
+
+/* ───────────────────────────── §90 (2026-10-19): custom plate sizes, grade / impact class ───────────────────────────── */
+
+/** What a plate of a custom size says on the screen, until the catalog has it. */
+export const CUSTOM_NOT_IN_CATALOG = 'Custom size, not in the catalog yet — it is added to the catalog when this nesting is used.';
+
+/** The badge of a plate: a custom size (not in the catalog yet, or the catalog's own custom size), else null. */
+export function customPlateBadge(n: Pick<Nest, 'plateItemId' | 'customPlate'>): { label: string; title: string; family: 'warning' | 'info' } | null {
+  const c = n.customPlate;
+  if (!c) return null;
+  const size = `${mm(c.length)} × ${mm(c.width)}`;
+  const was = c.replaces?.plateCode ? ` It replaces ${c.replaces.plateCode} (${mm(c.replaces.length)} × ${mm(c.replaces.width)}).` : '';
+  if (c.inCatalog || n.plateItemId != null) return { label: 'Custom size', family: 'info', title: `AI cut this plate to ${size}, a size the catalog has (${c.code ?? 'custom'}).${was}` };
+  const steel = [c.grade, c.impactClass].filter(Boolean).join(' ');
+  return { label: 'Custom size — not in the catalog yet', family: 'warning', title: `${size}${steel ? ` ${steel}` : ''}: ${CUSTOM_NOT_IN_CATALOG}${was}` };
+}
+
+/** One line for the custom sizes a proposal or a swap brings; null when there is none new. */
+export function customPlatesLine(list: NestCustomProposal[] | null | undefined): string | null {
+  const fresh = (list ?? []).filter((x) => !x.inCatalog);
+  if (!fresh.length) return null;
+  const sizes = fresh.map((x) => `${mm(x.thickness)} mm × ${mm(x.length)} × ${mm(x.width)}`).join(', ');
+  const kg = fresh.reduce((a, x) => a + (Number(x.savingKg) || 0), 0);
+  const what = fresh.length === 1 ? 'a custom plate size' : `${fresh.length} custom plate sizes`;
+  return `AI's nesting uses ${what} not in the catalog yet (${sizes}; ${Math.round(kg).toLocaleString('en-IN')} kg less steel): ${fresh.length === 1 ? 'it is' : 'they are'} added to the catalog when it is used.`;
+}
+
+/**
+ * A grade check (the server's lib/plateGrade.gradeCheck) as the screen says it: ok / warning (a plate states no impact
+ * class) / error (a piece on a plate of the wrong grade or class), the sentence, and one line per plate and cut piece.
+ */
+export function gradeCheckView(check: GradeCheck | null | undefined): { tone: 'ok' | 'warning' | 'error'; label: string; sentence: string; lines: string[] } | null {
+  if (!check) return null;
+  const mism = check.mismatches ?? [];
+  const unknown = check.unknown ?? [];
+  // Under 'warn' (the default) a mismatch is said, not refused: a warning, not an error.
+  const tone = mism.length ? (check.rule === 'warn' || check.blocking === false ? 'warning' : 'error') : unknown.length ? 'warning' : 'ok';
+  const label = mism.length ? `${mism.length} ${mism.length === 1 ? 'mismatch' : 'mismatches'}`
+    : unknown.length ? 'Impact class not stated' : (check.substitutes ?? []).length ? 'Matches (some on a better plate)' : 'Matches';
+  const line = (e: GradeCheck['unknown'][number]) => `${e.cutPlateCode ?? 'A cut piece'} (${e.need}, ${e.pieces} ${e.pieces === 1 ? 'piece' : 'pieces'}) on ${e.lotNo ? `${e.lotNo}, ` : ''}${e.plateCode ?? 'a plate'} (${e.plate})${e.why ? ` — ${e.why}` : ''}`;
+  return { tone, label, sentence: check.sentence, lines: (mism.length ? mism : unknown).map(line) };
 }

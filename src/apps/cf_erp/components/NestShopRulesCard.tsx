@@ -6,6 +6,7 @@ import { useLoad } from '../hooks/useLoad';
 import { useIsPermitted } from '../hooks/useIsPermitted';
 import { ErrorNotice, SectionCard } from './ui';
 import { useToast } from './toastContext';
+import { NestPlateRulesCard } from './NestPlateRulesCard';
 
 /**
  * Setup › Cutting: the AI nesting's shop habits, per plate thickness (init.sql §75, services/shopRules.js),
@@ -116,6 +117,8 @@ export function NestShopRulesCard() {
           </Box>
         )}
       </SectionCard>
+      {/* §90: grade / impact class and custom plate sizes — the same setting, read and saved here. */}
+      {!rules.error && <NestPlateRulesCard rules={rules.data} onSaved={(r) => rules.setData(r)} />}
     </Box>
   );
 }

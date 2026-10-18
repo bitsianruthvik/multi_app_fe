@@ -135,8 +135,20 @@ export interface NestShopRules {
   maxPlateSizesDefault?: number;
   /** False until the database has init.sql §83. */
   sizesSchema?: boolean;
+  /** §90: false until the database has init.sql §90 (the grade rule and custom plate sizes). */
+  plateSchema?: boolean;
+  /** §90: which plate may carry a piece — null = the default ('warn': the check is shown, never refused). */
+  gradeRule?: NestGradeRule | null;
+  gradeRuleDefault?: NestGradeRule;
+  gradeRules?: NestGradeRule[];
+  /** "A (no impact test) < BR (room temperature) < BO / B0 (0 °C) < C (−20 °C)". */
+  impactOrder?: string;
+  /** §90: the custom plate sizes the AI may propose (off by default); a null limit = the catalog's own range. */
+  customPlates?: NestCustomPlateSetting;
   rows: NestShopRuleRow[];
   resolved: NestShopResolved[];
 }
 export const getNestShopRules = () => cfApi.get<NestShopRules>('/nest-shop-rules');
-export const saveNestShopRules = (body: { on?: boolean; maxPlateSizes?: number | null; rows?: NestShopRuleRow[] }) => cfApi.put<NestShopRules>('/nest-shop-rules', body);
+export type NestGradeRule = 'warn' | 'better' | 'exact' | 'higher';
+export interface NestCustomPlateSetting { on: boolean; maxLength: number | null; maxWidth: number | null; minLength: number | null; minWidth: number | null; step: number | null }
+export const saveNestShopRules = (body: { on?: boolean; maxPlateSizes?: number | null; rows?: NestShopRuleRow[]; gradeRule?: NestGradeRule | null; customPlates?: NestCustomPlateSetting }) => cfApi.put<NestShopRules>('/nest-shop-rules', body);

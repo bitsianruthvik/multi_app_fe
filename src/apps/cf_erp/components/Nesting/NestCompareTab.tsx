@@ -6,7 +6,7 @@ import {
   type CompareAnswer, type ComparePlate,
 } from '../../api/nesting';
 import type { Nest, NestingPlan } from '../../api/types';
-import { autoRanLine, compareTabRows, mm, mmPair, pct, rupees, swapPlan, thicknessLine, NOT_COSTED } from '../../lib/nesting';
+import { autoRanLine, compareTabRows, customPlatesLine, gradeCheckView, mm, mmPair, pct, rupees, swapPlan, thicknessLine, NOT_COSTED } from '../../lib/nesting';
 import { Badge, CapsLabel, ErrorNotice, Mono, SectionCard, SkeletonRows } from '../ui';
 import { NestRunCard } from './NestRunCard';
 import { PlateDiagram } from './PlateDiagram';
@@ -55,6 +55,11 @@ function PlateList({ title, plates, nests, openKey, onOpen, testid }: {
             <Mono>{p.lotNo ?? `#${i + 1}`}</Mono>
             <span>{p.length && p.width ? mmPair(p.length, p.width) : (p.plateCode ?? 'Plate')}</span>
             {p.thickness ? <Box component="span" sx={{ color: 'var(--c-text-2)' }}>{`${mm(p.thickness)} mm`}</Box> : null}
+            {p.custom && (
+              <Box component="span" data-custom={p.custom.inCatalog ? 'catalog' : 'new'} sx={{ color: p.custom.inCatalog ? 'var(--c-text-2)' : 'var(--c-warning-700)', fontWeight: 500 }}>
+                {p.custom.inCatalog ? 'custom size' : 'custom size, not in the catalog yet'}
+              </Box>
+            )}
             <Box component="span" sx={{ color: 'var(--c-text-2)' }}>{`${p.pieces} ${p.pieces === 1 ? 'piece' : 'pieces'} · waste ${pct(p.wastePct)}`}</Box>
             <Box component="span" sx={{ color: 'var(--c-text-2)', ml: 'auto' }}>{p.cost == null ? NOT_COSTED : rupees(p.cost)}</Box>
           </Box>
@@ -175,6 +180,10 @@ export function NestCompareTab({ orderId, lineId, version = 0, canManage = false
   const savedNests = useMemo(() => (saved?.groups ?? []).flatMap((g) => g.nests), [saved]);
   const autoNests = useMemo(() => ((auto?.plan?.groups ?? []) as { nests?: Nest[] }[]).flatMap((g) => g.nests ?? []), [auto]);
   const upPlates = data?.uploaded?.perPlate ?? [];
+  // §90: grade / impact class on each side, and the custom plate sizes AI's nesting proposes.
+  const gradeUp = gradeCheckView(data?.uploaded?.gradeCheck);
+  const gradeAi = hasRun ? gradeCheckView(auto?.gradeCheck) : null;
+  const customAi = hasRun ? auto?.customPlates ?? [] : [];
   const autoPlates = hasRun ? auto?.perPlate ?? [] : [];
 
   if (error && !data) return <ErrorNotice error={error} onRetry={() => { void load(true); }} />;
@@ -287,6 +296,37 @@ export function NestCompareTab({ orderId, lineId, version = 0, canManage = false
           {/* What neither side holds. */}
           {data.leftOverSummary?.sentence && (
             <Typography data-testid="compare-tab-left" sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>{data.leftOverSummary.sentence}</Typography>
+          )}
+
+          {/* §90: grade / impact class — every piece against its plate, each side by the company's rule. */}
+          {(gradeUp || gradeAi) && (
+            <Box data-testid="compare-tab-grade" sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 0.75, minWidth: 0 }}>
+              <CapsLabel>Grade and impact class</CapsLabel>
+              {([['customer', "Customer's", gradeUp], ['ours', 'By AI', gradeAi]] as const).filter(([, , v]) => !!v).map(([side, label, v]) => (
+                <Box key={side} data-side={side} data-tone={v!.tone} sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 0.25, minWidth: 0 }}>
+                  <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap', minWidth: 0 }}>
+                    <Typography sx={{ fontSize: 13, fontWeight: 600 }}>{label}</Typography>
+                    <Badge family={v!.tone === 'error' ? 'danger' : v!.tone === 'warning' ? 'warning' : 'success'} label={v!.label} noIcon title={v!.sentence} />
+                  </Box>
+                  {v!.tone !== 'ok' && (
+                    <Box component="ul" sx={{ m: 0, pl: 2.5, display: 'grid', gap: 0.25, fontSize: 12.5, color: 'var(--c-text-2)', overflowWrap: 'anywhere' }}>
+                      {v!.lines.slice(0, 8).map((t) => <li key={t}>{t}</li>)}
+                      {v!.lines.length > 8 && <li>{`${v!.lines.length - 8} more`}</li>}
+                    </Box>
+                  )}
+                </Box>
+              ))}
+            </Box>
+          )}
+
+          {/* §90: the custom plate sizes AI's nesting proposes — not in the catalog until it is used. */}
+          {customAi.length > 0 && (
+            <Alert severity="info" data-testid="compare-tab-custom">
+              <Box sx={{ fontWeight: 600, mb: 0.5 }}>{customPlatesLine(customAi) ?? 'AI uses custom plate sizes the catalog has.'}</Box>
+              <Box component="ul" sx={{ m: 0, pl: 2.5, display: 'grid', gap: 0.25, overflowWrap: 'anywhere' }}>
+                {customAi.map((c) => <li key={c.steelKey}>{c.sentence}</li>)}
+              </Box>
+            </Alert>
           )}
         </Box>
       </SectionCard>

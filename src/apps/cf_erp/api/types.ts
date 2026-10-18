@@ -1501,6 +1501,48 @@ export interface Nest {
   offcuts?: NestOffcut[];
   /** The shop's rules asked of this plate (nestingService.nestRules) — the diagram's ✓ / ⚠ badge. */
   rules?: NestRules;
+  /** §90: a plate of a CUSTOM size the AI proposed — no catalog plate yet (plateItemId null) unless inCatalog. */
+  customPlate?: NestCustomPlate | null;
+}
+
+/** §90 (2026-10-19): the custom size one plate of a proposal moved to. */
+export interface NestCustomPlate {
+  thickness: number; length: number; width: number;
+  grade: string | null; material: string | null; impactClass: string | null; density?: number | null;
+  /** True when the catalog already has this size (an earlier accepted nesting made it): itemId / code are it. */
+  inCatalog: boolean; itemId: number | null; code: string | null;
+  /** The catalog plate it replaces. */
+  replaces: { plateItemId: number | null; plateCode: string | null; length: number; width: number } | null;
+  /** "Custom size, not in the catalog yet — …" (absent when inCatalog). */
+  note?: string;
+}
+
+/** §90: the one custom plate size proposed for a steel (a group), and why. */
+export interface NestCustomProposal {
+  steelKey: string; thickness: number; length: number; width: number;
+  grade: string | null; material: string | null; impactClass: string | null;
+  inCatalog: boolean; itemId: number | null; code: string | null;
+  /** How many plates moved to it, and which catalog plates they were. */
+  plates: number;
+  replaces: { plateItemId: number | null; plateCode: string | null; length: number; width: number; plates: number }[];
+  /** Steel bought less (kg) — the waste falls by the same. */
+  savingKg: number;
+  before: { plates: number; kg: number }; after: { plates: number; kg: number };
+  limits?: { maxLength: number | null; maxWidth: number | null; minLength: number | null; minWidth: number | null; step: number; basis: string } | null;
+  sentence: string;
+}
+
+/** §90 (item 22): every piece against its plate by grade and impact class (lib/plateGrade.gradeCheck). */
+export interface GradeCheckEntry {
+  lotNo: string | null; plateCode: string | null; plate: string; cutPlateId: number | null; cutPlateCode: string | null;
+  need: string; pieces: number; code: string | null; substitute?: 'grade' | 'impact' | null; why: string | null;
+}
+export interface GradeCheck {
+  ok: boolean; rule: 'warn' | 'better' | 'exact' | 'higher' | string;
+  /** False under 'warn' (the default): a mismatch is said, never refused. */
+  blocking?: boolean;
+  mismatches?: GradeCheckEntry[]; unknown: GradeCheckEntry[]; substitutes: GradeCheckEntry[];
+  sentence: string;
 }
 
 /** One rule on one plate. ok null = could not be checked (no layout). */
@@ -1716,6 +1758,8 @@ export interface NestGroup {
   metrics: NestMetrics;
   deterministic: boolean | null;
   elapsedMs: number | null;
+  /** §90: the custom plate size proposed for this steel (null / absent = none). */
+  customPlate?: NestCustomProposal | null;
 }
 
 /**
@@ -1777,6 +1821,10 @@ export interface NestingPlan {
   /** §61, only on the saved plan: pieces cut from untracked offcuts — on no plate, so in no plate or waste figure. */
   untracked?: NestUntrackedSummary;
   totals: NestMetrics & { groups: number; unplaced: number };
+  /** Things to know that block nothing (a proposal): drawings that should have decided, a grade / impact note, a custom size. */
+  notes?: string[];
+  /** §90: one entry per steel whose plates moved to a custom size (a proposal). */
+  customPlates?: NestCustomProposal[];
 }
 
 /** "n pieces · x kg cut from untracked offcuts" (GET …/nesting `untracked`). */
@@ -1795,6 +1843,10 @@ export interface NestingAccepted {
   pieces: number;
   quantities: unknown;
   caveatCleared: string;
+  /** §90: the custom plate sizes this accept added to the catalog (or found there). */
+  customPlates?: { created: { itemId: number; code: string; name: string }[]; reused: { itemId: number; code: string | null }[] };
+  /** §90: grade / impact class — what was said but not refused. */
+  gradeCheck?: GradeCheck;
 }
 
 /** One nest as read from the uploaded sheet (POST …/nesting/sheet). */

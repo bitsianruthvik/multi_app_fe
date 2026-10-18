@@ -36,7 +36,7 @@ import {
   marginSentence, mm, mmPair, RUN_INTERRUPTED, runSummary, pct, pieceColour, platePieceKinds, sequenceOver, steelWord, tonnes,
   NO_LAYOUT, isFreeLayout, anyImported, hasLayout, isImported, lineOffcuts, verdictOf, wasteBreakdown, wasteTotalKg, wasteShown, wasteShownWord, WASTE_SHOWN_HELP,
   dropOnly, isCustomerPlate, isNestFile, isProNestPlate, nestAccept, nestKinds, originLine, ourPieceCount, pieceCounts, plateSource, restOf,
-  SHAPE_SOURCE_WORDS, shapeSourceOnPlate, shapeSources, startSentence, leftOverOf,
+  SHAPE_SOURCE_WORDS, shapeSourceOnPlate, shapeSources, startSentence, leftOverOf, customPlateBadge, customPlatesLine,
   type Effort, type NestingBudget, type ShapeSource, type StartMode,
 } from '../../lib/nesting';
 import {
@@ -175,6 +175,8 @@ function PlateCard({ nest, group, colourOf, shapeOf, jobName, onCnc, onRemove, o
   const reasons = nest.reasons ?? [];
   // Where the plate came from, and whether a drawing changed under it since it was saved.
   const from = plateSource(nest, jobName);
+  // §90: a custom plate size — "not in the catalog yet" until this nesting is used.
+  const customBadge = customPlateBadge(nest);
   const stale = nest as Nest & NestExtras;
   const [cncBusy, setCncBusy] = useState(false);
   const [details, setDetails] = useState(false);
@@ -190,6 +192,7 @@ function PlateCard({ nest, group, colourOf, shapeOf, jobName, onCnc, onRemove, o
         <Mono chip>{nest.lotNo ?? '—'}</Mono>
         <Box sx={{ fontSize: 13.5, fontWeight: 500, minWidth: 0, overflowWrap: 'anywhere' }}>{nest.plateCode ?? nest.plateName ?? 'Unnamed plate'}</Box>
         {nest.source === 'offcut' && <Badge family="success" label="Offcut" title="Left over from another plate, so it costs no new steel." />}
+        {customBadge && <Box component="span" data-testid="plate-custom-size" data-in-catalog={nest.customPlate?.inCatalog ? '1' : '0'} sx={{ display: 'inline-flex' }}><Badge family={customBadge.family} label={customBadge.label} noIcon title={customBadge.title} /></Box>}
         <Box component="span" data-testid="plate-source" data-source={from.kind} sx={{ display: 'inline-flex' }}>
           <Badge family={from.kind === 'ours' ? 'neutral' : 'info'} label={fresh && from.kind === 'ours' ? 'New plate' : from.label} noIcon title={from.help} />
         </Box>
@@ -718,7 +721,10 @@ function PlateNestingPanel({ orderId, lineId, canManage, canEditCatalog = false,
       saved.reload(); filesLoad.reload();
       onChanged?.();
       const added = (out as NestingAccepted & { additions?: { lots: number; pieces: number } }).additions;
-      toast.success(`${out.plates} plates and ${out.pieces} pieces written${out.replacedLots ? `, replacing ${out.replacedLots}` : ''}.${added?.pieces ? ` ${added.pieces} pieces added to ${added.lots} of the customer’s plates.` : ''}`);
+      // §90: the custom sizes now in the catalog, and a grade / impact class note (a plate that states no class).
+      const made = (out as NestingAccepted).customPlates?.created ?? [];
+      const graded = (out as NestingAccepted).gradeCheck;
+      toast.success(`${out.plates} plates and ${out.pieces} pieces written${out.replacedLots ? `, replacing ${out.replacedLots}` : ''}.${added?.pieces ? ` ${added.pieces} pieces added to ${added.lots} of the customer’s plates.` : ''}${made.length ? ` Added to the catalog: ${made.map((m) => m.code).join(', ')}.` : ''}${graded && ((graded.mismatches?.length ?? 0) || graded.unknown.length) ? ` ${graded.sentence}` : ''}`);
     } catch (e) { setActionError(e as CfApiError); } finally { setBusy(null); }
   };
 
@@ -1099,6 +1105,23 @@ function PlateNestingPanel({ orderId, lineId, canManage, canEditCatalog = false,
           <Box sx={{ fontWeight: 600, mb: 0.5 }}>{showPlan ? 'Some cut pieces were left out of the pack.' : 'Some cut pieces cannot be nested as they are.'}</Box>
           <Box component="ul" sx={{ m: 0, pl: 2.5, display: 'grid', gap: 0.5, minWidth: 0, overflowWrap: 'anywhere' }}>
             {plan.problems.map((p) => <li key={p}>{p}</li>)}
+          </Box>
+        </Alert>
+      )}
+
+      {/* §90: the custom plate sizes AI proposes ("not in the catalog yet"), and the plan's notes (grade / impact class). */}
+      {showPlan && (plan.customPlates?.length ?? 0) > 0 && (
+        <Alert severity="info" data-testid="nest-custom-plates">
+          <Box sx={{ fontWeight: 600, mb: 0.5 }}>{customPlatesLine(plan.customPlates) ?? 'AI uses custom plate sizes the catalog has.'}</Box>
+          <Box component="ul" sx={{ m: 0, pl: 2.5, display: 'grid', gap: 0.5, minWidth: 0, overflowWrap: 'anywhere' }}>
+            {plan.customPlates!.map((c) => <li key={c.steelKey}>{c.sentence}</li>)}
+          </Box>
+        </Alert>
+      )}
+      {showPlan && (plan.notes ?? []).filter((t) => !(plan.customPlates ?? []).some((c) => c.sentence === t)).length > 0 && (
+        <Alert severity="info" icon={<InfoOutlined fontSize="inherit" />} data-testid="nest-plan-notes">
+          <Box component="ul" sx={{ m: 0, pl: 2.5, display: 'grid', gap: 0.5, minWidth: 0, overflowWrap: 'anywhere' }}>
+            {(plan.notes ?? []).filter((t) => !(plan.customPlates ?? []).some((c) => c.sentence === t)).map((t) => <li key={t}>{t}</li>)}
           </Box>
         </Alert>
       )}
