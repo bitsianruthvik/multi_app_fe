@@ -17,6 +17,7 @@ const Purchase = lazy(() => import('./pages/Purchase'));
 const Production = lazy(() => import('./pages/Production'));
 const SapReports = lazy(() => import('./pages/SapReports'));
 const Connection = lazy(() => import('./pages/Connection'));
+const Alerts = lazy(() => import('./pages/Alerts'));
 
 /**
  * karni_dashboard routes. **Paths must match navMeta.ts.** The platform's
@@ -48,6 +49,7 @@ export function getKarniDashboardRoutes(
     ['production', <Production />],
     ['inventory', <Inventory />],
     ['sap-reports', <SapReports />],
+    ['alerts', <Alerts />],
     ['connection', <Connection />],
   ];
   const landing = ['', 'home', 'dashboard', 'admin/dashboard', 'admin/dashboard/*', ':role/dashboard'];

@@ -47,6 +47,7 @@ export const SECTIONS: NavSection[] = [
     label: 'SAP',
     screens: [
       { label: 'SAP reports', path: 'sap-reports', keywords: ['queries', 'query manager'] },
+      { label: 'Alerts', path: 'alerts', keywords: ['notifications', 'email', 'digest', 'recipients'] },
       { label: 'Connection', path: 'connection', keywords: ['connector', 'sync', 'status'] },
     ],
   },

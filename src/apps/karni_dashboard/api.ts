@@ -13,6 +13,7 @@ function base(): string {
 export const kdApi = {
   get: <T>(path: string) => apiFetch<T>(`${base()}${path}`, { method: 'GET', timeout: 60000 }),
   post: <T>(path: string, body?: unknown) => apiFetch<T>(`${base()}${path}`, { method: 'POST', body }),
+  put: <T>(path: string, body?: unknown) => apiFetch<T>(`${base()}${path}`, { method: 'PUT', body }),
 };
 
 const REFRESH_MS = 5 * 60 * 1000;
