@@ -112,8 +112,13 @@ export interface NestShopRules {
   on: boolean;
   /** False until the database has init.sql §75. */
   schema: boolean;
+  /** Most plate sizes per thickness in one AI nesting (init.sql §83): null = the default (2), 0 = no limit. */
+  maxPlateSizes?: number | null;
+  maxPlateSizesDefault?: number;
+  /** False until the database has init.sql §83. */
+  sizesSchema?: boolean;
   rows: NestShopRuleRow[];
   resolved: NestShopResolved[];
 }
 export const getNestShopRules = () => cfApi.get<NestShopRules>('/nest-shop-rules');
-export const saveNestShopRules = (body: { on?: boolean; rows?: NestShopRuleRow[] }) => cfApi.put<NestShopRules>('/nest-shop-rules', body);
+export const saveNestShopRules = (body: { on?: boolean; maxPlateSizes?: number | null; rows?: NestShopRuleRow[] }) => cfApi.put<NestShopRules>('/nest-shop-rules', body);

@@ -35,21 +35,26 @@ export function NestShopRulesCard() {
   const canEdit = useIsPermitted()('cf_erp_catalog_manage');
   const rules = useLoad(() => getNestShopRules(), []);
   const [on, setOn] = useState(false);
+  // Most plate sizes per thickness (blank = the default, 2; 0 = no limit).
+  const [maxSizes, setMaxSizes] = useState('');
   const [rows, setRows] = useState<Draft[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<CfApiError | null>(null);
-  useEffect(() => { if (rules.data) { setOn(rules.data.on); setRows(rules.data.rows.map(toDraft)); } }, [rules.data]);
+  useEffect(() => { if (rules.data) { setOn(rules.data.on); setRows(rules.data.rows.map(toDraft)); setMaxSizes(rules.data.maxPlateSizes == null ? '' : String(rules.data.maxPlateSizes)); } }, [rules.data]);
+  const sizesSchema = !!rules.data?.sizesSchema;
+  const badSizes = maxSizes.trim() !== '' && !(/^\d+$/.test(maxSizes.trim()) && Number(maxSizes) <= 20);
   /** The rules as they apply at a thickness (the nearest one the server worked out), for the placeholders. */
   const resolvedAt = (t: string): NestShopResolved | undefined => {
     const n = Number(t);
     return (rules.data?.resolved ?? []).reduce<NestShopResolved | undefined>((best, r) => (best == null || Math.abs(r.thicknessMm - n) < Math.abs(best.thicknessMm - n) ? r : best), undefined);
   };
-  const bad = rows.some((r) => !(Number(r.thicknessMm) > 0) || FIELDS.some((f) => badNum(r[f.key] ?? '')));
+  const bad = badSizes || rows.some((r) => !(Number(r.thicknessMm) > 0) || FIELDS.some((f) => badNum(r[f.key] ?? '')));
   const save = async () => {
     setBusy(true); setError(null);
     try {
       const out = await saveNestShopRules({
         on,
+        ...(sizesSchema ? { maxPlateSizes: maxSizes.trim() === '' ? null : Number(maxSizes) } : {}),
         rows: rows.map((r) => ({ thicknessMm: Number(r.thicknessMm), ...Object.fromEntries(FIELDS.map((f) => [f.key, numOrNull(r[f.key] ?? '')])) }) as NestShopRuleRow),
       });
       rules.setData(out);
@@ -71,6 +76,12 @@ export function NestShopRulesCard() {
               control={<Switch checked={on} disabled={!canEdit || !schema} onChange={(e) => setOn(e.target.checked)} inputProps={{ 'aria-label': 'Use the shop spacing in AI nesting' }} />}
               label={<Typography sx={{ fontSize: 14 }}>Use the shop&apos;s spacing in AI nesting (edge margin, gap between blocks). Off: one kerf at the edge, 5–8 mm between sequences, as before.</Typography>}
             />
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+              <Typography sx={{ fontSize: 14 }}>Plate sizes per thickness, at most</Typography>
+              <TextField size="small" value={maxSizes} disabled={!canEdit || !sizesSchema} error={badSizes} onChange={(e) => setMaxSizes(e.target.value)}
+                placeholder={String(rules.data?.maxPlateSizesDefault ?? 2)} sx={{ width: 64 }} inputProps={{ inputMode: 'numeric', 'aria-label': 'Plate sizes per thickness, at most' }} />
+              <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>The AI nesting buys few sizes, like the shop. Blank = 2; 0 = no limit.</Typography>
+            </Box>
             <Box sx={{ overflowX: 'auto', minWidth: 0 }}>
               <Box component="table" sx={{ borderCollapse: 'collapse', fontSize: 13, '& td, & th': { p: 0.5, textAlign: 'left', whiteSpace: 'nowrap' } }}>
                 <thead><tr><th>Thickness</th>{FIELDS.map((f) => <th key={f.key}><Tooltip title={f.title}><span>{f.label}</span></Tooltip></th>)}<th /></tr></thead>
