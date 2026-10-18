@@ -27,7 +27,7 @@ import { DataTable, type DataColumn } from '../components/DataTable';
 import { AddPurchaseLineDialog, LineOrdersDialog, PurchaseForOrderDialog } from '../components/PurchaseDialogs';
 import { PromptDialog } from '../components/PromptDialog';
 import { PoStageBadge, PoTypeChip } from '../components/Purchase/purchaseFlowUi';
-import { approvePurchaseOrder, closePurchaseOrder, sendForApproval } from '../api/purchaseRequests';
+import { approvePurchaseOrder, closePurchaseOrder, rejectPurchaseOrder, sendForApproval } from '../api/purchaseRequests';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { useDetailTitle } from '../components/shell/detailTitle';
 import { useToast } from '../components/toastContext';
@@ -41,9 +41,10 @@ import type { PlannedUnits } from '../api/requisitions';
 const linkSx = { color: 'inherit', textDecoration: 'none', '&:hover': { color: 'var(--c-primary-700)', textDecoration: 'underline' } };
 
 /**
- * One purchase order (§71): its stage — pending MD approval → waiting for goods → part received → closed (by itself, or
- * closed short with a reason) — and per line what was ordered, received and is still pending. The MD approves here
- * (permission cf_erp_plate_change_approve, "MD approval"); goods are received from Inventory › Receive against PO.
+ * One purchase order (§71): its stage — pending Management approval → waiting for goods → part received → closed (by itself, or
+ * closed short with a reason) — and per line what was ordered, received and is still pending. Management approves it
+ * (§73: here or in Management › Approvals — cf_erp_approve_purchase_order, a contractor's PO cf_erp_approve_contractor_po;
+ * not the person who raised it); closing short is ASKED here and approved there. Goods: Inventory › Receive against PO.
  */
 export default function PurchaseOrderDetail() {
   const { id: idParam } = useParams();
@@ -52,11 +53,11 @@ export default function PurchaseOrderDetail() {
   const toast = useToast();
   const isPermitted = useIsPermitted();
   const canManage = isPermitted('cf_erp_inventory_manage');
-  const canApprove = isPermitted('cf_erp_plate_change_approve');
   const po = useLoad(() => cfApi.get<PurchaseOrder>(`/purchase-orders/${id}`), [id]);
   const full = useFullScreen('po');
   const [adding, setAdding] = useState(false);
   const [closing, setClosing] = useState(false);
+  const [rejecting, setRejecting] = useState(false);
   const [busy, setBusy] = useState(false);
   const [forOrdering, setForOrdering] = useState(false);
   const [linking, setLinking] = useState<PurchaseLine | null>(null);
@@ -73,7 +74,12 @@ export default function PurchaseOrderDetail() {
   const done = (next: PurchaseOrder, message: string) => { po.setData(next); invalidateNavCounts(); toast.success(message); };
   const open = p.status === 'draft' || p.status === 'requested' || p.status === 'quoting' || p.status === 'ordered' || p.status === 'partially_received';
   const stage = p.stage ?? 'requested';
-  // Lines and prices change only before the MD approves it (or on an older PO not sent yet).
+  // §73: approving is Management's, by the PO's kind; what waits for them about this PO is said here.
+  const canApprove = isPermitted(p.type === 'contractor' ? 'cf_erp_approve_contractor_po' : 'cf_erp_approve_purchase_order');
+  const closeAsked = (p.pendingApprovals ?? []).find((a) => a.type === 'po_close_short') ?? null;
+  const asked = (p.pendingApprovals ?? []).find((a) => a.type === 'purchase_order' || a.type === 'contractor_po') ?? null;
+  const waitingSince = asked ? ` since ${new Date(asked.requestedAt).toLocaleDateString('en-IN')}${asked.requestedBy?.name ? ` (asked by ${asked.requestedBy.name})` : ''}` : '';
+  // Lines and prices change only before Management approves it (or on an older PO not sent yet).
   const editable = canManage && (stage === 'requested' || stage === 'pending_approval');
   const act = async (fn: () => Promise<PurchaseOrder>, message: string) => {
     setBusy(true);
@@ -194,9 +200,10 @@ export default function PurchaseOrderDetail() {
           badges={<><PoStageBadge stage={p.stage} label={p.stageLabel} /><PoTypeChip type={p.type} />{p.suppliedByCustomer && <Badge family="info" label="Customer supplies" title="The customer's own material, asked of the customer (₹0). What arrives is their stock, earmarked to the material request." />}</>}
           actions={<>
             {canApprove && stage === 'pending_approval' && <Button variant="contained" startIcon={<VerifiedRounded />} disabled={busy} data-testid="po-approve" onClick={() => void act(() => approvePurchaseOrder(p.id), `${p.code} approved — waiting for goods.`)}>Approve</Button>}
-            {canManage && stage === 'requested' && p.status !== 'cancelled' && <Button variant="contained" startIcon={<SendRounded />} disabled={busy || !p.supplier || !p.lines.length} data-testid="po-send" onClick={() => void act(() => sendForApproval(p.id), `${p.code} sent for MD approval.`)}>Send for MD approval</Button>}
+            {canApprove && stage === 'pending_approval' && <Button color="error" disabled={busy} data-testid="po-reject" onClick={() => setRejecting(true)}>Send back</Button>}
+            {canManage && stage === 'requested' && p.status !== 'cancelled' && <Button variant="contained" startIcon={<SendRounded />} disabled={busy || !p.supplier || !p.lines.length} data-testid="po-send" onClick={() => void act(() => sendForApproval(p.id), `${p.code} sent for approval.`)}>Send for approval</Button>}
             {canManage && (stage === 'waiting' || stage === 'part_received') && <Button variant="contained" startIcon={<MoveToInboxRounded />} component={Link} to={`${appPath(company, 'receive')}?po=${encodeURIComponent(p.code)}`} data-testid="po-receive">Receive goods</Button>}
-            {canManage && (stage === 'waiting' || stage === 'part_received') && <Button startIcon={<DoNotDisturbOnRounded />} onClick={() => setClosing(true)} data-testid="po-close">Close PO</Button>}
+            {canManage && (stage === 'waiting' || stage === 'part_received') && !closeAsked && <Button startIcon={<DoNotDisturbOnRounded />} onClick={() => setClosing(true)} data-testid="po-close">Close PO short</Button>}
             {editable && <Button startIcon={<AddRounded />} onClick={() => setAdding(true)}>Add a line</Button>}
             {canManage && open && !p.totals.received && <Button color="error" startIcon={<BlockRounded />} onClick={() => setCancelling(true)}>Cancel</Button>}
             <FullScreenToggle on={full.on} onToggle={full.toggle} />
@@ -232,14 +239,17 @@ export default function PurchaseOrderDetail() {
       {p.status !== 'cancelled' && <PlannedUnitsNote planned={late} />}
       {stage === 'pending_approval' && (
         <Alert severity="warning" data-testid="po-pending-approval" sx={{ mb: 1.5 }}>
-          Waiting for MD approval. Nothing can be received until the MD approves it.{!canApprove ? ' Approving needs the MD approval permission.' : ''}
+          Waiting for approval in Management{waitingSince}. Nothing can be received until it is approved.{!canApprove ? ' Approving needs the purchase order approval permission.' : ''}
         </Alert>
       )}
       {stage === 'requested' && p.status !== 'cancelled' && (
-        <Alert severity="info" sx={{ mb: 1.5 }}>Not placed yet. Name the vendor and send it for MD approval.</Alert>
+        <Alert severity="info" sx={{ mb: 1.5 }}>Not placed yet. Name the vendor and send it for approval.</Alert>
+      )}
+      {closeAsked && (
+        <Alert severity="warning" data-testid="po-close-asked" sx={{ mb: 1.5 }}>Closing short waits for Management{closeAsked.requestedBy?.name ? ` (asked by ${closeAsked.requestedBy.name})` : ''}: {closeAsked.note}. Until it is approved the PO stays open.</Alert>
       )}
       {p.approval?.status === 'approved' && (
-        <Typography data-testid="po-approved" sx={{ fontSize: 13, color: 'var(--c-text-2)', mb: 1 }}>Approved by {p.approval.by?.name ?? 'the MD'}{p.approval.at ? ` on ${String(p.approval.at).slice(0, 10)}` : ''}.</Typography>
+        <Typography data-testid="po-approved" sx={{ fontSize: 13, color: 'var(--c-text-2)', mb: 1 }}>Approved by {p.approval.by?.name ?? 'Management'}{p.approval.at ? ` on ${String(p.approval.at).slice(0, 10)}` : ''}.</Typography>
       )}
       {p.closed && (
         <Alert severity="info" data-testid="po-closed-short" sx={{ mb: 1.5 }}>Closed short{p.closed.by?.name ? ` by ${p.closed.by.name}` : ''}: {p.closed.reason}. What was pending is released; the purchase request can order it again.</Alert>
@@ -252,7 +262,7 @@ export default function PurchaseOrderDetail() {
       )}
       <SectionCard title="Lines" subtitle="Ordered, received and still pending, line by line. Goods are received from Inventory › Receive against PO; each receipt is a GRN.">
         <DataTable rows={p.lines} columns={columns} getRowId={(l) => l.id} bare storageKey="purchase-lines" exportName={`${p.code}-lines`}
-          empty={<EmptyState icon={<AddRounded />} title="No lines yet" hint="Add what is being bought, then send it for MD approval."
+          empty={<EmptyState icon={<AddRounded />} title="No lines yet" hint="Add what is being bought, then send it for approval."
             action={editable ? <Button variant="contained" startIcon={<AddRounded />} onClick={() => setAdding(true)}>Add a line</Button> : undefined} />} />
       </SectionCard>
       {(p.dateChanges?.length ?? 0) > 0 && (
@@ -272,10 +282,14 @@ export default function PurchaseOrderDetail() {
       <AddPurchaseLineDialog orderId={adding ? p.id : null} forOrder={p.forOrder} onClose={() => setAdding(false)} onAdded={(n) => { setAdding(false); done(n, 'Line added.'); }} />
       <PurchaseForOrderDialog order={forOrdering ? p : null} onClose={() => setForOrdering(false)} onSaved={(n) => { setForOrdering(false); done(n, n.forOrder ? `Bought for ${n.forOrder.code}.` : 'No longer bought for an order.'); }} />
       <LineOrdersDialog line={linking} onClose={() => setLinking(null)} onSaved={(n) => { setLinking(null); done(n, 'Saved who the line is bought for.'); }} />
-      <PromptDialog open={closing} title={`Close ${p.code} short?`} label="Why" confirmLabel="Close PO"
-        body="What is still pending is released. The purchase request's PO raised goes down by it, so a new PO can be raised for it. What arrived stays locked for its order."
+      <PromptDialog open={closing} title={`Close ${p.code} short?`} label="Why" confirmLabel="Ask Management"
+        body="Management approves it first. Then what is still pending is released: the purchase request's PO raised goes down by it, so a new PO can be raised for it. What arrived stays locked for its order."
         onClose={() => setClosing(false)}
-        onConfirm={async (reason) => { done(await closePurchaseOrder(p.id, reason), `${p.code} closed short.`); }} />
+        onConfirm={async (reason) => { done(await closePurchaseOrder(p.id, reason), `Asked Management to close ${p.code} short.`); }} />
+      <PromptDialog open={rejecting} title={`Send ${p.code} back?`} label="Why — the buyer reads it" confirmLabel="Send back"
+        body="It is not placed. The buyer can change it and send it for approval again."
+        onClose={() => setRejecting(false)}
+        onConfirm={async (note) => { done(await rejectPurchaseOrder(p.id, note), `${p.code} sent back.`); }} />
       <ConfirmDialog open={!!removing} danger confirmLabel="Remove" title="Remove this line?"
         entityName={removing ? `${removing.item.code ?? removing.item.name} — ${qtyText(removing.quantity)} ${removing.item.uom}` : ''}
         body="Nothing has been received against it, so it can go. It is not ordered from the supplier any more."

@@ -350,9 +350,9 @@ await check('the stage foot says "n skipped, waiting for stock" from the stage s
   assert.equal(m.buyingSummaryWords({ materials: 3, skipped: 1, waiting: 1, open: 0 }), '1 skipped, 1 waiting for stock now.');
   assert.equal(m.buyingSummaryWords(null), null);
 });
-await check('Confirm no longer says buying is optional or "requested"; the release dialog shows the line’s material-ready', () => {
+await check('Confirm no longer says buying is optional or "requested" (§73: the Confirm panel is gone — the customer acceptance confirms); the release dialog shows the line’s material-ready', () => {
   assert.doesNotMatch(src('lib/process.ts'), /items are requested from the Buying stage/);
-  assert.match(src('lib/process.ts'), /raise the material request; stock is taken and the rest is bought in Purchase/);
+  assert.doesNotMatch(src('lib/process.ts'), /CONFIRM_WHAT_DOES_NOT|CONFIRM_WHAT_HAPPENS/);
   const t = src('components/TrackerDialogs.tsx');
   assert.match(t, /MaterialReadyChip/); assert.match(t, /Release is never held for material/);
   assert.match(src('navMeta.ts'), /path: 'material-requests'/);

@@ -39,8 +39,13 @@ const FLOOR = 'cf_erp_floor';
 const PRODUCTION_MANAGE = 'cf_erp_production_manage';
 /** The MD (approve plate changes) or the buyer (stock and buying manage) — any one of them. */
 const PLATE_CHANGES = 'cf_erp_plate_change_approve|cf_erp_inventory_manage';
-/** The MD ("MD approval", cf_erp_plate_change_approve) approves purchase orders, so sees them. */
-const PURCHASE_ORDERS = 'cf_erp_inventory_view|cf_erp_plate_change_approve';
+/**
+ * MANAGEMENT (§73): the approvals inbox. Each kind of approval has its own tag; holding any one of them shows the
+ * Management tab (the backend's approvalService.APPROVAL_TYPES; api/approvals.ts ANY_APPROVAL is the same list).
+ */
+const APPROVE_ANY = 'cf_erp_approve_order_acceptance|cf_erp_approve_purchase_order|cf_erp_approve_contractor_po|cf_erp_approve_po_close_short|cf_erp_approve_rate_change|cf_erp_approve_rebaseline';
+/** Management approves purchase orders, so sees them (§71 the MD's "MD approval"; §73 the approval tags). */
+const PURCHASE_ORDERS = `cf_erp_inventory_view|cf_erp_plate_change_approve|${APPROVE_ANY}`;
 /**
  * THE NESTING PLATE-CHANGE GATE IS OFF (§71, user 2026-10-18: "remove nesting approval from MD for now, will add back
  * later if required") — the backend's plateChangeService gate, default off. While it is off the "Plate changes" screen is
@@ -56,8 +61,19 @@ export const SECTIONS: NavSection[] = [
     label: 'Sales',
     screens: [
       { key: 'orders', label: 'Orders', path: 'orders', hasDetail: true, permission: ORDERS, countKey: 'openOrders', keywords: ['sales order', 'inquiry', 'quote', 'project'] },
+      // §73: every customer order in its lane (inquiry → pending approval → material → production → dispatched → post-production → closed).
+      { key: 'orders-board', label: 'Orders board', path: 'orders-board', permission: ORDERS, keywords: ['board', 'kanban', 'lanes', 'pipeline', 'post-production', 'inspection', 'erection', 'handover', 'checklist'] },
       { key: 'invoices', label: 'Invoices', path: 'invoices', hasDetail: true, permission: ORDERS, keywords: ['tax invoice', 'gst', 'e-way', 'einvoice', 'irn', 'bill', 'dispatch'] },
       { key: 'customers', label: 'Customers', path: 'customers', permission: ORDERS, countKey: 'customers', keywords: ['suppliers', 'parties', 'vendors'] },
+    ],
+  },
+  {
+    // §73: what waits for Management's yes — one inbox — and room for dashboards later.
+    key: 'mgmt',
+    label: 'Management',
+    screens: [
+      { key: 'approvals', label: 'Approvals', path: 'approvals', permission: APPROVE_ANY, countKey: 'pendingApprovals', keywords: ['approve', 'approval', 'md', 'acceptance', 'rate change', 'purchase order', 'close short', 'inbox', 'pending'] },
+      { key: 'management-overview', label: 'Overview', path: 'management-overview', permission: APPROVE_ANY, keywords: ['management', 'dashboard'] },
     ],
   },
   {
@@ -132,6 +148,8 @@ export const SECTIONS: NavSection[] = [
       // A process is how an order is worked through the office — never a flow,
       // which is how a girder is made and lives under Production.
       { key: 'processes', label: 'Processes', path: 'processes', hasDetail: true, permission: ORDERS, keywords: ['stages', 'order process', 'applies to', 'house default', 'workflow'] },
+      // §73: what a customer acceptance starts from — charges, payment milestones, post-production stages.
+      { key: 'term-templates', label: 'Templates', path: 'term-templates', permission: ORDERS, keywords: ['templates', 'charges', 'rates', 'milestones', 'payment terms', 'post-production', 'stages', 'acceptance'] },
     ],
   },
 ];
@@ -143,6 +161,7 @@ export const COUNT_TONE: Record<string, { tone: BadgeTone; suffix?: string }> = 
   heldBatches: { tone: 'warning', suffix: 'held' },
   readySteps: { tone: 'success', suffix: 'ready' },
   openPurchases: { tone: 'info', suffix: 'open' },
+  pendingApprovals: { tone: 'warning', suffix: 'waiting' },
 };
 
 export interface ResolvedNav {

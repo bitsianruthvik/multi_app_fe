@@ -257,12 +257,12 @@ export const tabFor = (stageKey: string, stages: readonly Folded[]): string => {
 };
 
 /*
- * ONE ORDER, OR ONE LINE (2026-10-18). Structure & values, the Execution plan and the Material request are worked
+ * ONE ORDER, OR ONE LINE (2026-10-18). Structure & values, the Execution plan, the Material request and the Customer acceptance are worked
  * for the WHOLE order on one screen, so their tabs show the order's roll-up and there is no line picker. Freeze
  * design, Nesting and Production still work one line at a time ("Working on: Line N"). The backend says which on
  * the stage (`scope: 'order'`); this set is the same fact for an API that predates it.
  */
-const ORDER_WIDE = new Set(['structure', 'values', 'execution_plan', 'buying']);
+const ORDER_WIDE = new Set(['structure', 'values', 'execution_plan', 'buying', 'acceptance']);
 /** Whether a stage's screen is for the whole order. */
 export const isOrderWide = (stage: Pick<OrderStage, 'stageKey'> & { scope?: string | null }): boolean =>
   stage.scope === 'order' || (stage.scope === undefined && ORDER_WIDE.has(stage.stageKey));
@@ -382,26 +382,6 @@ export const blockerWho = (b: StageBlocker) => (b.lineNo != null ? `Line ${b.lin
 export const UNBUILT_STAGE: Record<string, { what: string; today: string; soon: string }> = {};
 
 export const isUnbuilt = (stageKey: string) => Object.prototype.hasOwnProperty.call(UNBUILT_STAGE, stageKey);
-
-/** What confirming does, said before the button rather than after it. */
-export const CONFIRM_WHAT_HAPPENS = [
-  'The order is committed: it stops being an inquiry and becomes a job.',
-  'Its lines can be released to production, one whole line at a time.',
-  'It can only be closed or cancelled from then on — never moved back to inquiry or quoted.',
-];
-
-export const CONFIRM_WHAT_DOES_NOT = [
-  'Nothing is released to the shop floor, and no material is reserved or issued.',
-  'Nothing is bought yet: raise the material request; stock is taken and the rest is bought in Purchase.',
-  'A structure that is still being drawn stays editable until its design is frozen.',
-];
-
-/**
- * Confirming is the process's one hard gate — and the order's header has a
- * Confirm button of its own that the gate does not touch. Saying so is the
- * difference between a screen that explains itself and one that looks broken.
- */
-export const CONFIRM_STILL_ON_THE_PAGE = 'The order’s own Confirm button, at the top of the page, still works; the process is asking for these to be settled first.';
 
 /**
  * The Buying stage's summary in a short line, for the stage foot and the Buying screen. Only what the server counted:

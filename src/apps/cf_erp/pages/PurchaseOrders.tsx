@@ -50,7 +50,7 @@ export default function PurchaseOrders() {
   const chipCount = (v: string) => (!counts ? undefined : v === 'open' ? counts.open : v === 'all' ? counts.all : counts.stage?.[v]);
   const stats = [
     { label: 'Orders', value: list.total },
-    { label: 'Pending MD approval', value: counts?.stage?.pending_approval ?? 0, tone: 'warning' as const, hint: 'Every PO to a vendor waits for the MD before it is placed' },
+    { label: 'Pending Management approval', value: counts?.stage?.pending_approval ?? 0, tone: 'warning' as const, hint: 'Every PO to a vendor waits for Management approval before it is placed' },
     { label: 'Waiting for goods', value: (counts?.stage?.waiting ?? 0) + (counts?.stage?.part_received ?? 0), tone: 'info' as const, hint: 'Approved, still waiting on the vendor' },
     { label: 'Order value', value: amount, display: amount === 0 && unpriced > 0 ? 'not priced' : rupeeText(amount), hint: unpriced ? `${unpriced} line${unpriced === 1 ? ' has' : 's have'} no price and ${unpriced === 1 ? 'is' : 'are'} left out` : 'Before tax' },
     { label: 'Outstanding', value: outstanding, display: qtyText(outstanding), hint: 'Quantity ordered and not yet received' },
@@ -90,7 +90,7 @@ export default function PurchaseOrders() {
 
   return (
     <Box>
-      <PageHeader title="Purchase orders" subtitle="Material and contractor purchase orders. Each waits for MD approval, then for the goods; goods are received from Inventory › Receive against PO."
+      <PageHeader title="Purchase orders" subtitle="Material and contractor purchase orders. Each waits for Management approval, then for the goods; goods are received from Inventory › Receive against PO."
         actions={canManage && <Button variant="contained" startIcon={<AddRounded />} onClick={() => setCreating(true)}>New purchase order</Button>} />
       <StatStrip stats={stats} />
       <FilterBar search={search} onSearch={setSearch} placeholder="Search number or supplier">

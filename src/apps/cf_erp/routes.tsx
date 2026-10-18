@@ -47,6 +47,11 @@ const PurchaseOrders = lazy(() => import('./pages/PurchaseOrders'));
 const PurchaseOrderDetail = lazy(() => import('./pages/PurchaseOrderDetail'));
 // Plate changes after a purchase order, approved by the MD (init.sql §62).
 const PlateChanges = lazy(() => import('./pages/PlateChanges'));
+// Customer acceptance, the Management inbox, the Orders board, Setup › Templates (§73).
+const Approvals = lazy(() => import('./pages/Approvals'));
+const ManagementOverview = lazy(() => import('./pages/Approvals').then((m) => ({ default: m.ManagementOverview })));
+const OrdersBoard = lazy(() => import('./pages/OrdersBoard'));
+const TermTemplates = lazy(() => import('./pages/TermTemplates'));
 const Movements = lazy(() => import('./pages/Movements'));
 const MovementDetail = lazy(() => import('./pages/MovementDetail'));
 const WorkInProgress = lazy(() => import('./pages/WorkInProgress'));
@@ -84,6 +89,10 @@ export function getCfErpRoutes(
     { path: '/:company/cf_erp/home', element: wrap(<Home />) },
     { path: '/:company/cf_erp/orders', element: wrap(<Orders />) },
     { path: '/:company/cf_erp/orders/:id', element: wrap(<OrderDetail />) },
+    { path: '/:company/cf_erp/orders-board', element: wrap(<OrdersBoard />) },
+    { path: '/:company/cf_erp/approvals', element: wrap(<Approvals />) },
+    { path: '/:company/cf_erp/management-overview', element: wrap(<ManagementOverview />) },
+    { path: '/:company/cf_erp/term-templates', element: wrap(<TermTemplates />) },
     { path: '/:company/cf_erp/invoices', element: wrap(<Invoices />) },
     { path: '/:company/cf_erp/invoices/:id', element: wrap(<InvoiceDetail />) },
     { path: '/:company/cf_erp/company-tax', element: wrap(<CompanyTax />) },

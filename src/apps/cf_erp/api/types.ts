@@ -1249,6 +1249,8 @@ export interface PurchaseOrder extends PurchaseOrderRow {
   reverseCharge?: boolean;
   /** §71: the MD's approval (null = none was asked: an older PO, or the customer's ₹0 PO) and a close short. */
   approval?: { status: 'pending' | 'approved'; by: { id: number; name: string | null } | null; at: string | null } | null;
+  /** §73: what waits for Management about this PO (its approval, a close short). */
+  pendingApprovals?: { id: number; type: string; typeLabel: string; requestedBy: { id: number; name: string | null } | null; requestedAt: string; note: string | null }[];
   closed?: { at: string; by: { id: number; name: string | null } | null; reason: string | null } | null;
   /** Every change of the PO's (lineId null) or a line's expected date, newest first, with who and when. */
   dateChanges?: { id: number; lineId: number | null; from: string | null; to: string | null; by: { id: number; name: string | null } | null; at: string }[];
@@ -1348,7 +1350,8 @@ export interface OrderStage {
   detail: string;
   blockers: StageBlocker[];
   /** When an earlier stage has to come first: one line, and the stage to jump to. */
-  waitingOn?: { stageKey: string | null; message: string; action?: 'confirm' | null } | null;
+  /** action 'confirm' = a stock order's Confirm button; 'acceptance' = the order's Customer acceptance tab (§73). */
+  waitingOn?: { stageKey: string | null; message: string; action?: 'confirm' | 'acceptance' | null } | null;
   /** Buying only (Buying v2): how many materials are decided, and how. `waiting` = skipped and not in stock yet. */
   summary?: { materials: number; fromStock?: number; onOrder?: number; skipped: number; waiting: number; open: number } | null;
   /** Drawn as a check on another stage's tab (Values on Structure & values). */
@@ -1384,7 +1387,6 @@ export interface OrderProcessView {
   stages: OrderStage[];
   /** The first stage still to be worked, or null when nothing is outstanding. */
   nextStage: string | null;
-  canConfirm: boolean;
   /** Absent when there is no process. */
   blockers?: StageBlocker[];
 }

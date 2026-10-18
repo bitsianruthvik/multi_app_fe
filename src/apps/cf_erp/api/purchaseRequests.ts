@@ -54,6 +54,8 @@ export interface MrScreen {
   stale: boolean;
   needKnown: boolean;
   needComplete: boolean;
+  /** §73: raised before the customer accepted — shared with the customer, not released to Purchase yet. */
+  heldForAcceptance?: boolean;
   canEdit: boolean;
   reason: string | null;
   lines: MrScreenLine[];
@@ -70,6 +72,8 @@ export interface MrRow {
   order: { id: number; code: string; status: string; customer?: { id: number; name: string } | null };
   line: { id: number; lineNo: number; name: string };
   status: string; statusLabel: string; materials: number; lockedLines: number; lockedWords: string;
+  /** §73: shared with the customer, waiting for the acceptance — nothing to do in Purchase yet. */
+  heldForAcceptance?: boolean;
   purchaseRequest: PrSummary | null; raisedAt: string;
 }
 
@@ -161,12 +165,15 @@ export const pendingPosOfVendor = (vendorId: number) =>
 export const raisePurchaseOrder = (vendorId: number, body: { lines: { lineId: number; quantity: number }[]; addToPoId?: number | null; notes?: string | null; expectedDate?: string | null }) =>
   cfApi.post<{ purchaseOrder: PurchaseOrder; purchaseRequest: PurchaseRequest }>(`/purchase-request-vendors/${vendorId}/purchase-orders`, body);
 
-// ---- the PO: MD approval, close short, receiving ------------------------------------------------
+// ---- the PO: Management approval, close short, receiving ------------------------------------------------
 export const approvePurchaseOrder = (id: number, note?: string | null) => cfApi.post<PurchaseOrder>(`/purchase-orders/${id}/approve`, note ? { note } : {});
+/** §73: ASKS Management to close the PO short — nothing changes until it is approved in Management › Approvals. */
 export const closePurchaseOrder = (id: number, reason: string) => cfApi.post<PurchaseOrder>(`/purchase-orders/${id}/close`, { reason });
+/** §73: Management sends the PO back to the buyer (not placed), with the reason. */
+export const rejectPurchaseOrder = (id: number, note: string) => cfApi.post<PurchaseOrder>(`/purchase-orders/${id}/reject`, { note });
 /** The PO's own expected delivery date (a line without its own date takes it); the change is recorded with who and when. */
 export const setPoExpectedDate = (id: number, expectedDate: string | null) => cfApi.put<PurchaseOrder>(`/purchase-orders/${id}`, { expectedDate });
-/** Send a PO made by hand for MD approval (it is placed when the MD approves it). */
+/** Send a PO made by hand for Management approval (it is placed when Management approves it). */
 export const sendForApproval = (id: number, supplierId?: number | null) => cfApi.post<PurchaseOrder>(`/purchase-orders/${id}/order`, supplierId ? { supplierId } : {});
 export const getPendingLines = (q: { search?: string; supplierId?: number | null } = {}) =>
   cfApi.get<{ rows: PendingLine[] }>(`/purchase-orders/pending-lines${qs({ search: q.search?.trim() || undefined, supplierId: q.supplierId ?? undefined })}`);

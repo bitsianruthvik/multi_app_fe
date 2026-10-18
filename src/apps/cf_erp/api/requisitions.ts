@@ -109,6 +109,9 @@ export interface Requisition {
   /** §66: who supplies its material — fixed when it was raised (an MR from before §66 is 'we_buy'). */
   supply?: MaterialSupply;
   supplyLabel?: string;
+  /** §73: raised before the customer accepted — shared with the customer, held from Purchase until the acceptance is approved. */
+  heldForAcceptance?: boolean;
+  customerDate?: string | null;
   order: { id: number; code: string; status: string; customer?: { id: number; name: string } | null };
   line: { id: number; lineNo: number; name: string; quantity: number; frozen: boolean; released: boolean };
   status: ReqStatus;

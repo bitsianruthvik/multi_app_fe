@@ -9,13 +9,13 @@ import { qtyText } from './inventory';
 
 /** §71: a PO's stage in words (the server sends the same words as `stageLabel`). */
 export const PO_STAGE_LABEL: Record<PurchaseStage, string> = {
-  pending_approval: 'Pending MD approval', requested: 'Not placed', waiting: 'Waiting for goods', part_received: 'Part received',
+  pending_approval: 'Pending Management approval', requested: 'Not placed', waiting: 'Waiting for goods', part_received: 'Part received',
   closed: 'Closed', closed_short: 'Closed short', cancelled: 'Cancelled',
 };
 /** The stage filter chips of the Purchase orders screen, in the order a PO moves. */
 export const PO_STAGE_FILTERS: { value: string; label: string }[] = [
   { value: 'open', label: 'Open' },
-  { value: 'pending_approval', label: 'Pending MD approval' },
+  { value: 'pending_approval', label: 'Pending Management approval' },
   { value: 'waiting', label: 'Waiting for goods' },
   { value: 'part_received', label: 'Part received' },
   { value: 'closed', label: 'Closed' },

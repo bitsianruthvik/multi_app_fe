@@ -20,6 +20,10 @@ import { StageStateBadge } from '../OrderProcess/stageUi';
 import { MaterialReadyChip } from './MaterialReadyChip';
 import { PromisedDateDialog } from './CustomerMaterialStatus';
 import { PrStatusBadge } from './purchaseFlowUi';
+import { mrDocument } from '../../api/acceptance';
+import { saveBlob } from '../../lib/acceptance';
+import PictureAsPdfRounded from '@mui/icons-material/PictureAsPdfRounded';
+import TableViewRounded from '@mui/icons-material/TableViewRounded';
 
 const linkSx = { color: 'inherit', textDecoration: 'none', '&:hover': { color: 'var(--c-primary-700)', textDecoration: 'underline' } };
 const NO_MANAGE = 'You can see the material request. Raising it needs the inventory manage permission.';
@@ -34,6 +38,7 @@ const refusalOf = (e: unknown): Refusal => (e instanceof CfApiError ? { message:
  * read-only status of each MR, with a link into Purchase.
  */
 export function OrderPurchasePanel({ order, stage, onChanged }: { order: SalesOrder; stage: OrderStage; onChanged?: () => void }) {
+  // (§73) Before the customer accepts, the MR is raised HELD: shared with the customer, nothing happens in Purchase yet.
   const company = useCompanySlug();
   const toast = useToast();
   const isPermitted = useIsPermitted();
@@ -51,6 +56,11 @@ export function OrderPurchasePanel({ order, stage, onChanged }: { order: SalesOr
   const prOf = new Map((mrs.data?.rows ?? []).map((m) => [m.id, m.purchaseRequest]));
   const orderSupply: MaterialSupply = data?.order.materialSupply ?? order.materialSupply ?? 'we_buy';
   const reload = () => { reqs.reload(); mrs.reload(); invalidateNavCounts(); onChanged?.(); };
+  // §73: the MR is shared with the customer as a file (no customer login): the order's MRs as PDF or Excel.
+  const share = async (format: 'pdf' | 'xlsx') => {
+    try { saveBlob(await mrDocument(order.id, format), `MR-${order.code.replace(/[^A-Za-z0-9._-]+/g, '-')}.${format}`); }
+    catch (e) { setRefusal(refusalOf(e)); }
+  };
 
   const raiseNow = async (lineIds?: number[], customerDate?: string) => {
     setBusy(true); setRefusal(null);
@@ -76,7 +86,15 @@ export function OrderPurchasePanel({ order, stage, onChanged }: { order: SalesOr
 
   return (
     <SectionCard title="Material request" subtitle={`Raise ${order.code}'s material request (MR) from what nesting says the lines need. Taking from stock, buying and receiving happen in Purchase.`}
-      actions={canView ? <Button size="small" endIcon={<LaunchRounded />} component={Link} to={`${appPath(company, 'material-requests')}?order=${order.id}`}>Open in Purchase</Button> : undefined}>
+      actions={(
+        <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+          {requisitions.length > 0 && <>
+            <Button size="small" variant="outlined" startIcon={<PictureAsPdfRounded />} onClick={() => void share('pdf')} data-testid="mr-share-pdf">Share as PDF</Button>
+            <Button size="small" variant="outlined" startIcon={<TableViewRounded />} onClick={() => void share('xlsx')} data-testid="mr-share-xlsx">Share as Excel</Button>
+          </>}
+          {canView && <Button size="small" endIcon={<LaunchRounded />} component={Link} to={`${appPath(company, 'material-requests')}?order=${order.id}`}>Open in Purchase</Button>}
+        </Box>
+      )}>
       <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 2 }}>
         <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'center', flexWrap: 'wrap' }}>
           <StageStateBadge stage={stage} />
@@ -87,7 +105,7 @@ export function OrderPurchasePanel({ order, stage, onChanged }: { order: SalesOr
           {orderSupply === 'customer'
             ? ' — the customer sends it. Raising the MR makes a purchase order to the customer (₹0); what arrives is kept as their stock.'
             : ' — raising the MR sends it to Purchase, where stock is taken and the rest is bought.'}
-          {' A line can say otherwise until its MR is raised.'}
+          {" A line can say otherwise until the customer's acceptance is approved."}
         </Typography>
         {!canView && <Typography sx={{ fontSize: 13, color: 'var(--c-text-3)' }}>Seeing the material request needs the inventory view permission.</Typography>}
         {canView && !canManage && <Typography data-testid="buying-readonly" sx={{ fontSize: 13, color: 'var(--c-text-3)' }}>{NO_MANAGE}</Typography>}
@@ -120,6 +138,7 @@ export function OrderPurchasePanel({ order, stage, onChanged }: { order: SalesOr
                       <Mono chip><Box component={Link} to={appPath(company, `material-requests/${r.id}`)} sx={linkSx}>{r.code}</Box></Mono>
                       <Typography component="span" sx={{ fontSize: 13 }}>Line {r.line.lineNo}</Typography>
                       {r.supply === 'customer' && <Badge family="info" label="Customer supplies" />}
+                      {r.heldForAcceptance && <Badge family="warning" noIcon label="Shared — waits for the acceptance" />}
                       <Badge family={r.done ? 'success' : 'warning'} noIcon label={r.statusLabel} />
                       <Mono muted>{lockedWords(r)}</Mono>
                       {pr && <><Mono chip><Box component={Link} to={appPath(company, `purchase-requests/${pr.id}`)} sx={linkSx}>{pr.code}</Box></Mono><PrStatusBadge status={pr.status} /></>}

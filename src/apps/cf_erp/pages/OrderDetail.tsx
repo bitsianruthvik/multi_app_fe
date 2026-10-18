@@ -45,7 +45,7 @@ import { rupeeText } from '../lib/money';
 import { Explain, OrderStageTabs, ProcessAbsentChip, ProcessAbsentNote, StageTabsSkeleton } from '../components/OrderProcess/StageTabs';
 import { StageBody } from '../components/OrderProcess/StageBody';
 import { StageFoot } from '../components/OrderProcess/StageFoot';
-import { ConfirmOrderDialog } from '../components/OrderProcess/ConfirmOrderDialog';
+import { AcceptanceStep } from '../components/Acceptance/AcceptanceStep';
 import { useWorkingLine } from '../components/OrderProcess/workingLine';
 import { PartyPicker } from '../components/ServerPicker';
 import { useDetailTitle } from '../components/shell/detailTitle';
@@ -257,11 +257,14 @@ export default function OrderDetail() {
   // ("Values for the whole order"); an old ?tab=ordervalues lands there with them open (lib/process tabAlias).
   // Structure & values (Line items merged into it, 2026-10-18) — the plain tab when there is no such stage.
   const structureTab: DetailTab = { value: 'structure', label: 'Structure & values', count: lines.length };
+  // Customer acceptance (§73) — a customer's order is confirmed only by it; the plain tab when the process has no such stage.
+  const acceptanceTab: DetailTab[] = order.data?.orderType === 'customer' ? [{ value: 'acceptance', label: 'Customer acceptance' }] : [];
   const tabs: DetailTab[] = base
     ? [
       // Not stages. The two before Stock appear only when the process leaves
       // their stage out, so every screen the order has stays one click away.
       ...(base.keys.includes('structure') ? [] : [structureTab]),
+      ...(base.keys.includes('acceptance') ? [] : acceptanceTab),
       ...(base.keys.includes('production') || !canTrack ? [] : [{ value: 'production', label: 'Production', count: releases }]),
       ...stockTab,
       ...materialTab,
@@ -270,6 +273,7 @@ export default function OrderDetail() {
     ]
     : [
       structureTab,
+      ...acceptanceTab,
       ...(canTrack ? [{ value: 'production', label: 'Production', count: releases }] : []),
       ...stockTab,
       ...materialTab,
@@ -377,6 +381,10 @@ export default function OrderDetail() {
               {transitionLabel(o.status, next)}
             </Button>
           ))}
+          {/* A customer's order is confirmed by its Customer acceptance (§73), not by a status button. */}
+          {o.orderType === 'customer' && ['inquiry', 'quoted'].includes(o.status) && (
+            <Button variant="contained" disabled={!!busy} onClick={() => setTab('acceptance')} data-testid="go-acceptance">Customer acceptance</Button>
+          )}
           {canRevise && <Button variant="outlined" disabled={!!busy} onClick={() => setRevising(true)}>Revise</Button>}
           {!locked && <Button startIcon={<EditRounded />} onClick={() => setTab('details')} sx={{ color: 'var(--c-text-2)' }}>Edit</Button>}
           {/* A later revision is taken back by discarding it, never deleted: the revision before it becomes current again. */}
@@ -458,6 +466,9 @@ export default function OrderDetail() {
   } else if (tab === 'structure') {
     // Every line of the order, with its parts and values, in one view — with or without a process.
     body = <OrderStructureStep order={o} view={view} onOrderSaved={orderSaved} onChanged={() => { order.reload(); processView.reload(); }} />;
+  } else if (tab === 'acceptance' && o.orderType === 'customer') {
+    // The customer's yes (§73) — with or without a process stage for it.
+    body = <AcceptanceStep order={o} onChanged={() => { order.reload(); processView.reload(); }} />;
   } else if (tab === 'production' && canTrack) {
     const overview = (
       <ProductionOverview order={o} lines={lines} production={production.data} productionError={production.error} loading={production.loading}
@@ -518,9 +529,7 @@ export default function OrderDetail() {
           reloadAll();
           setTab('production');
         }} />
-      <ConfirmOrderDialog open={moving === 'confirmed'} order={o} onClose={() => setMoving(null)}
-        onConfirmed={(saved) => { orderSaved(saved); invalidateNavCounts(); toast.success(`${o.code} is now confirmed.`); }} />
-      <ConfirmDialog open={!!moving && moving !== 'confirmed'} title={moving ? `${transitionLabel(o.status, moving)}?` : ''} confirmLabel={moving ? transitionLabel(o.status, moving) : 'Confirm'} danger={moving === 'cancelled'}
+      <ConfirmDialog open={!!moving} title={moving ? `${transitionLabel(o.status, moving)}?` : ''} confirmLabel={moving ? transitionLabel(o.status, moving) : 'Confirm'} danger={moving === 'cancelled'}
         entityName={`${o.code}${o.title ? ` · ${o.title}` : ''}`} body={moving ? CONFIRM_MOVE[moving] ?? '' : ''}
         onClose={() => setMoving(null)}
         onConfirm={async () => { const next = moving!; orderSaved(await cfApi.post<SalesOrder>(`/orders/${id}/status`, { status: next })); invalidateNavCounts(); toast.success(`${o.code} is now ${ORDER_STATUS_LABEL[next].toLowerCase()}.`); }} />

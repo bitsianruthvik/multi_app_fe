@@ -14,11 +14,12 @@ import { useCompanySlug } from '../../hooks/useLoad';
 import { useIsPermitted } from '../../hooks/useIsPermitted';
 import { invalidateNavCounts } from '../../hooks/useNavCounts';
 import { appPath } from '../../navMeta';
-import { LOCKED_STATUSES, ORDER_STATUS_LABEL, REVISED_NOT_RELEASED } from '../../lib/orders';
+import { CONFIRM_MOVE, LOCKED_STATUSES, ORDER_STATUS_LABEL, REVISED_NOT_RELEASED } from '../../lib/orders';
 import {
-  CONFIRM_STILL_ON_THE_PAGE, CONFIRM_WHAT_DOES_NOT, CONFIRM_WHAT_HAPPENS, DECIDED_BY_HELP, UNBUILT_STAGE,
+  DECIDED_BY_HELP, UNBUILT_STAGE,
   isOrderWide, isUnbuilt, nextLineFor, notForThisLine, tabFor,
 } from '../../lib/process';
+import { cfApi } from '../../api/client';
 import { EmptyState, ErrorNotice, Mono, SectionCard } from '../ui';
 import { NestingPanel } from '../Nesting/NestingPanel';
 import { CutPiecesButton } from '../Nesting/CutPiecesDialog';
@@ -32,8 +33,9 @@ import { OrderStructureStep } from '../OrderStructure/OrderStructureStep';
 import { ExecutionPlanPanel } from '../OrderStructure/ExecutionPlanPanel';
 import { useToast } from '../toastContext';
 import { BlockerList, StageStateBadge } from './stageUi';
-import { ConfirmOrderDialog } from './ConfirmOrderDialog';
+import { ConfirmDialog } from '../ConfirmDialog';
 import { OrderPurchasePanel } from '../Purchase/OrderPurchasePanel';
+import { AcceptanceStep } from '../Acceptance/AcceptanceStep';
 
 /**
  * What each stage tab shows, above its Back / Next foot.
@@ -78,7 +80,9 @@ export function WaitingOn({ stage, label, order, onGo, onOrderSaved, onReloadAll
   const [asking, setAsking] = useState(false);
   const w = stage.waitingOn;
   if (!w || stage.state === 'done' || stage.state === 'not_applicable') return null;
+  // A STOCK order is confirmed with its own button; a customer's order by its Customer acceptance (§73).
   const confirmIt = w.action === 'confirm' && !w.stageKey;
+  const toAcceptance = w.action === 'acceptance' && !w.stageKey;
   return (
     <Note tone="warning">
       <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'space-between' }}>
@@ -87,9 +91,15 @@ export function WaitingOn({ stage, label, order, onGo, onOrderSaved, onReloadAll
           <>
             <Button size="small" variant="outlined" color="inherit" disabled={!isPermitted('cf_erp_orders_manage') || !order.allowedTransitions.includes('confirmed')}
               onClick={() => setAsking(true)}>Confirm the order</Button>
-            <ConfirmOrderDialog open={asking} order={order} onClose={() => setAsking(false)}
-              onConfirmed={(saved) => { onOrderSaved(saved); invalidateNavCounts(); toast.success(`${saved.code} is now confirmed.`); onReloadAll(); }} />
+            <ConfirmDialog open={asking} title="Confirm order?" confirmLabel="Confirm" entityName={`${order.code}${order.title ? ` · ${order.title}` : ''}`}
+              body={CONFIRM_MOVE.confirmed ?? ''} onClose={() => setAsking(false)}
+              onConfirm={async () => {
+                const saved = await cfApi.post<SalesOrder>(`/orders/${order.id}/status`, { status: 'confirmed' });
+                onOrderSaved(saved); invalidateNavCounts(); toast.success(`${saved.code} is now confirmed.`); onReloadAll();
+              }} />
           </>
+        ) : toAcceptance ? (
+          <Button size="small" variant="outlined" color="inherit" onClick={() => onGo('acceptance')}>Go to Customer acceptance</Button>
         ) : w.stageKey ? (
           <Button size="small" variant="outlined" color="inherit" onClick={() => onGo(w.stageKey as string)}>Go to {label ?? w.stageKey}</Button>
         ) : null}
@@ -145,71 +155,6 @@ function UnbuiltStagePanel({ stage }: { stage: OrderStage }) {
         <BlockerList blockers={stage.blockers} heading={<Typography sx={{ fontSize: 12, fontWeight: 600, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--c-text-3)' }}>What is outstanding</Typography>} />
       </Box>
     </SectionCard>
-  );
-}
-
-/** The commitment, laid out before the button: what it does, what it does not, and what is holding it up. */
-function ConfirmPanel({ view, order }: { view: OrderProcessView; order: SalesOrder }) {
-  const blockers = view.blockers ?? [];
-  const settled = ['confirmed', 'closed'].includes(view.order.status);
-  const stopped = ['lost', 'cancelled', 'revised'].includes(view.order.status);
-  return (
-    <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 2 }}>
-      <SectionCard title="Confirming this order" subtitle={`${view.order.code} is ${ORDER_STATUS_LABEL[view.order.status].toLowerCase()}.`}>
-        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', md: 'repeat(2, minmax(0, 1fr))' }, gap: 2 }}>
-          <Box sx={{ minWidth: 0 }}>
-            <Typography sx={{ fontSize: 12, fontWeight: 600, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--c-text-3)', mb: 0.75 }}>What happens</Typography>
-            <Box component="ul" sx={{ m: 0, pl: 2.5, display: 'grid', gap: 0.5, fontSize: 13.5, color: 'var(--c-text)' }}>
-              {CONFIRM_WHAT_HAPPENS.map((t) => <li key={t}>{t}</li>)}
-            </Box>
-          </Box>
-          <Box sx={{ minWidth: 0 }}>
-            <Typography sx={{ fontSize: 12, fontWeight: 600, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--c-text-3)', mb: 0.75 }}>What does not</Typography>
-            <Box component="ul" sx={{ m: 0, pl: 2.5, display: 'grid', gap: 0.5, fontSize: 13.5, color: 'var(--c-text-2)' }}>
-              {CONFIRM_WHAT_DOES_NOT.map((t) => <li key={t}>{t}</li>)}
-            </Box>
-          </Box>
-        </Box>
-      </SectionCard>
-
-      <SectionCard title="Every stage of this order" subtitle="Rolled up across all its lines. A stage is done only when every line it applies to is done.">
-        <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 0.75 }}>
-          {view.stages.map((s) => (
-            <Box key={s.stageKey} sx={{
-              display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', sm: 'minmax(120px, 1fr) auto' }, alignItems: 'center',
-              columnGap: 1.5, rowGap: 0.25, py: 0.75, borderBottom: '1px solid var(--c-divider)', minWidth: 0,
-            }}>
-              <Box sx={{ minWidth: 0 }}>
-                <Box sx={{ fontSize: 13.5, fontWeight: 500, overflowWrap: 'anywhere' }}>{s.label}</Box>
-                <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)', overflowWrap: 'anywhere' }}>{s.detail}</Typography>
-              </Box>
-              <Box sx={{ justifySelf: { xs: 'start', sm: 'end' } }}><StageStateBadge stage={s} /></Box>
-            </Box>
-          ))}
-        </Box>
-      </SectionCard>
-
-      <SectionCard title={blockers.length ? 'What is holding it up' : 'Nothing is holding it up'}
-        subtitle={blockers.length ? 'Each one names the line it belongs to. None of them stops you working anywhere else.' : undefined}>
-        {blockers.length
-          ? (
-            <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 1.25 }}>
-              <BlockerList blockers={blockers} />
-              {order.allowedTransitions.includes('confirmed') && (
-                <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)' }}>{CONFIRM_STILL_ON_THE_PAGE}</Typography>
-              )}
-            </Box>
-          )
-          : (
-            <Typography sx={{ fontSize: 13.5, color: 'var(--c-text-2)' }}>
-              {settled ? `${view.order.code} is already ${ORDER_STATUS_LABEL[view.order.status].toLowerCase()}.`
-                : stopped ? `${view.order.code} is ${ORDER_STATUS_LABEL[view.order.status].toLowerCase()} — there is nothing left to confirm.`
-                  : view.canConfirm ? 'Every stage before confirmation is settled.'
-                    : 'Nothing is outstanding, but this order cannot be confirmed from the stage it is in.'}
-            </Typography>
-          )}
-      </SectionCard>
-    </Box>
   );
 }
 
@@ -379,8 +324,9 @@ export function StageBody({
   } else if (stage.stageKey === 'buying') {
     // §71: Raise MR, and a read-only status of each MR (everything after it is in Purchase).
     body = <OrderPurchasePanel order={order} stage={stage} onChanged={onReloadAll} />;
-  } else if (stage.stageKey === 'confirm') {
-    body = <ConfirmPanel view={view} order={order} />;
+  } else if (stage.stageKey === 'acceptance') {
+    // The customer's yes (§73): charges, milestones, post-production stages — sent to Management.
+    body = <AcceptanceStep order={order} onChanged={onReloadAll} />;
   } else if (isUnbuilt(stage.stageKey)) {
     body = <UnbuiltStagePanel stage={stage} />;
   } else {

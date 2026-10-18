@@ -130,7 +130,7 @@ export default function MaterialRequestDetail() {
         <DetailHeader
           code={m.code}
           title={`${m.order.code} · line ${m.line.lineNo}`}
-          badges={<>{customer ? <Badge family="info" label="Customer supplies" title="The customer sends this material. What they have not sent yet is asked of them on a purchase order (₹0)." /> : <Badge family="neutral" noIcon label="We buy" />}</>}
+          badges={<>{customer ? <Badge family="info" label="Customer supplies" title="The customer sends this material. What they have not sent yet is asked of them on a purchase order (₹0)." /> : <Badge family="neutral" noIcon label="We buy" />}{m.heldForAcceptance && <Badge family="warning" noIcon label="Waits for the customer's acceptance" />}</>}
           actions={<>{editable && <Button variant="contained" startIcon={<SaveRounded />} disabled={busy || problems.length > 0} onClick={() => void save()} data-testid="mr-save">Save</Button>}<FullScreenToggle on={full.on} onToggle={full.toggle} /></>}
           facts={<>
             <Fact label="Sales order"><Mono chip><Box component={Link} to={appPath(company, `orders/${m.order.id}`)} sx={linkSx}>{m.order.code}</Box></Mono></Fact>

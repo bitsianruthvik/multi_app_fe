@@ -137,7 +137,7 @@ const lineStages = (lockState) => ROLL.map((s) => (s.stageKey === 'lock' ? { ...
 const VIEW = {
   order: { id: 3, code: 'SO260008', status: 'inquiry' }, process: { id: 9, code: 'PRC', name: 'Sales order', status: 'active' }, reason: null,
   lines: [{ lineId: 41, lineNo: 1, item: null, quantity: 3, stages: lineStages('done') }, { lineId: 42, lineNo: 2, item: null, quantity: 1, stages: lineStages('partial') }],
-  stages: ROLL, nextStage: 'values', canConfirm: true, blockers: [],
+  stages: ROLL, nextStage: 'values', blockers: [],
 };
 const LEVELS = [{ id: 6094, name: 'Girder line', depth: 1, perUnit: 4 }, { id: 6090, name: 'Girder segment', depth: 2, perUnit: 20 }];
 const planLine = (lineId, lineNo, more = {}) => ({

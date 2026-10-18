@@ -134,7 +134,7 @@ const prFixture = (extra = {}) => ({
 const poLine = (extra = {}) => ({ id: 3001, lineNo: 1, item: PS, quantity: 3, received: 0, outstanding: 3, pending: 3, closedQty: 0, unitPrice: 62000, amount: 186000, expectedDate: '2026-10-25', effectiveDate: '2026-10-25', dateSource: 'line', note: null, receipts: [],
   orders: [{ id: 1, orderId: 9001, orderCode: 'TEST-PUR-NEST', quantity: 3, received: 0, prLineId: 102, requisition: { id: 41, code: 'MR-TEST-PUR-NEST-1', lineNo: 1 } }], unlinked: 0, ...extra });
 const poFixture = (extra = {}) => ({
-  id: 2325, code: 'PO-002325', status: 'requested', stage: 'pending_approval', stageLabel: 'Pending MD approval', type: 'material', typeLabel: 'Material', suggested: false,
+  id: 2325, code: 'PO-002325', status: 'requested', stage: 'pending_approval', stageLabel: 'Pending Management approval', type: 'material', typeLabel: 'Material', suggested: false,
   approval: { status: 'pending', by: null, at: null }, closed: null, supplier: { id: 31, code: null, name: 'Vendor A' }, suppliedByCustomer: false, expectedDate: '2026-10-25', orderedAt: null, notes: null,
   reverseCharge: false, forOrder: { id: 9001, code: 'TEST-PUR-NEST' }, createdAt: '2026-10-18', dateChanges: [],
   totals: { lines: 1, ordered: 3, received: 0, outstanding: 3, amount: 186000, unpricedLines: 0 }, lines: [poLine()], ...extra,
@@ -171,7 +171,7 @@ await check('the sums: to buy, the take-from-stock problem, the Raise PO draft, 
   assert.equal(m.quoteWords({ rate: 62000, deliveryDays: 7, remark: null }, 'nos'), '₹62,000/nos · 7 d');
   assert.equal(m.cheapestOf({ vendors: [vendor(1, 1, 'a', { 72: { rate: 9 } }), vendor(2, 2, 'b', { 72: { rate: 7 } })] }, 72), 7);
   assert.equal(m.latestDelivery('2026-10-18', [7, 10, null]), '2026-10-28'); assert.equal(m.latestDelivery('2026-10-18', [null]), null);
-  assert.equal(m.PO_STAGE_LABEL.pending_approval, 'Pending MD approval'); assert.equal(m.PO_TYPE_LABEL.contractor, 'Contractor');
+  assert.equal(m.PO_STAGE_LABEL.pending_approval, 'Pending Management approval'); assert.equal(m.PO_TYPE_LABEL.contractor, 'Contractor');
 });
 
 // ── 2: the MR screen ────────────────────────────────────────────────────────────
@@ -288,7 +288,7 @@ await check('Raise PO: that vendor\'s quoted lines, quantity filled in (needed �
   await setValue(qty[1], '2'); await settle();
   await click(buttonIn(document.querySelector('.MuiDialog-root'), 'Raise PO')); await settle(80);
   assert.deepEqual(body, { lines: [{ lineId: 71, quantity: 0 }, { lineId: 72, quantity: 2 }], addToPoId: null, expectedDate: '2026-10-28' });
-  assert.match(src('pages/PurchaseRequestDetail.tsx'), /it waits for MD approval/);
+  assert.match(src('pages/PurchaseRequestDetail.tsx'), /it waits for Management approval/);
 });
 
 // ── 4: the PO ───────────────────────────────────────────────────────────────────
@@ -296,11 +296,12 @@ await check('PO pending MD approval: the MD sees Approve (and nothing can be rec
   reset(); asUser(['cf_erp_inventory_view', 'cf_erp_inventory_manage']);
   globalThis.__routes['GET /purchase-orders/2325'] = () => poFixture();
   await page(m.PurchaseOrderDetail, '/:company/cf_erp/purchase-orders/:id', '/testco/cf_erp/purchase-orders/2325');
-  assert.match(text(document.body), /Pending MD approval/); assert.match(text(document.body), /Material/);
+  assert.match(text(document.body), /Pending Management approval/); assert.match(text(document.body), /Material/);
   assert.ok(q1('po-pending-approval'));
   assert.equal(q1('po-approve'), null, 'the buyer cannot approve');
   assert.equal(q1('po-receive'), null, 'nothing to receive yet');
-  reset(); asUser(['cf_erp_inventory_view', 'cf_erp_plate_change_approve']);
+  // §73: Management approves with cf_erp_approve_purchase_order (the inbox's tag for a PO).
+  reset(); asUser(['cf_erp_inventory_view', 'cf_erp_approve_purchase_order']);
   let approved = false;
   globalThis.__routes['GET /purchase-orders/2325'] = () => poFixture();
   globalThis.__routes['POST /purchase-orders/2325/approve'] = () => { approved = true; return poFixture({ status: 'ordered', stage: 'waiting', stageLabel: 'Waiting for goods', approval: { status: 'approved', by: { id: 1, name: 'MD' }, at: '2026-10-18T10:00:00Z' } }); };
@@ -316,7 +317,8 @@ await check('PO waiting for goods: Ordered / Received / Pending per line, Receiv
     expectedDate: '2026-10-27', dateChanges: [{ id: 5, lineId: null, from: '2026-10-25', to: '2026-10-27', by: { id: 1, name: 'Buyer' }, at: '2026-10-18T09:00:00Z' }] });
   let closeBody = null; let dateBody = null;
   globalThis.__routes['GET /purchase-orders/2325'] = () => waiting;
-  globalThis.__routes['POST /purchase-orders/2325/close'] = (b) => { closeBody = b; return poFixture({ status: 'received', stage: 'closed_short', stageLabel: 'Closed short', closed: { at: 'x', by: null, reason: b.reason }, lines: [poLine({ received: 2, outstanding: 1, pending: 0, closedQty: 1 })] }); };
+  // §73: closing short is ASKED — the PO stays open until Management approves it.
+  globalThis.__routes['POST /purchase-orders/2325/close'] = (b) => { closeBody = b; return { ...waiting, pendingApprovals: [{ id: 9, type: 'po_close_short', typeLabel: 'Close a PO short', requestedBy: { id: 2, name: 'Buyer' }, requestedAt: '2026-10-18T10:00:00Z', note: b.reason }] }; };
   globalThis.__routes['PUT /purchase-orders/2325'] = (b) => { dateBody = b; return { ...waiting, expectedDate: b.expectedDate }; };
   await page(m.PurchaseOrderDetail, '/:company/cf_erp/purchase-orders/:id', '/testco/cf_erp/purchase-orders/2325');
   assert.equal(text(q1('po-line-received')), '2'); assert.equal(text(q1('po-line-pending')), '1');
@@ -328,9 +330,14 @@ await check('PO waiting for goods: Ordered / Received / Pending per line, Receiv
   assert.deepEqual(dateBody, { expectedDate: '2026-10-30' });
   await click(q1('po-close')); await settle(60);
   const dlg = document.querySelector('[role="dialog"]');
-  assert.match(text(dlg), /What is still pending is released/);
-  await setValue(dlg.querySelector('textarea'), 'mill short'); await click(buttonIn(dlg, 'Close PO')); await settle(80);
+  assert.match(text(dlg), /Management approves it first/); assert.match(text(dlg), /what is still pending is released/);
+  await setValue(dlg.querySelector('textarea'), 'mill short'); await click(buttonIn(dlg, 'Ask Management')); await settle(80);
   assert.deepEqual(closeBody, { reason: 'mill short' });
+  assert.match(text(q1("po-close-asked")), /Closing short waits for Management/); assert.match(text(q1("po-close-asked")), /asked by Buyer/); assert.match(text(q1("po-close-asked")), /mill short/);
+  assert.equal(q1('po-close'), null, 'asked once — no second ask');
+  // Approved in the inbox: the PO reads closed short, what was pending released.
+  globalThis.__routes['GET /purchase-orders/2325'] = () => poFixture({ status: 'received', stage: 'closed_short', stageLabel: 'Closed short', closed: { at: 'x', by: null, reason: 'mill short' }, lines: [poLine({ received: 2, outstanding: 1, pending: 0, closedQty: 1 })] });
+  await page(m.PurchaseOrderDetail, '/:company/cf_erp/purchase-orders/:id', '/testco/cf_erp/purchase-orders/2325');
   assert.match(text(document.body), /Closed short/); assert.match(text(q1('po-line-pending')), /1 released/);
 });
 

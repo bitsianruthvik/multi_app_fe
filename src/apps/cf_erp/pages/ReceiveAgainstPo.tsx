@@ -86,7 +86,7 @@ export default function ReceiveAgainstPo() {
       {load.data && (
         <DataTable rows={rows} columns={columns} getRowId={(r) => r.line.id} storageKey="receive-against-po" exportName="pending-po-lines"
           empty={<EmptyState icon={<MoveToInboxRounded />} title={term ? 'Nothing pending matches' : 'Nothing is waiting to be received'}
-            hint={term ? 'Clear the search.' : 'A purchase order shows here once the MD approves it.'} />} />
+            hint={term ? 'Clear the search.' : 'A purchase order shows here once Management approves it.'} />} />
       )}
       <ReceiveLineDialog line={receiving?.line ?? null} orderCode={receiving?.po.code ?? null} customer={!!receiving?.po.suppliedByCustomer}
         onClose={() => setReceiving(null)}

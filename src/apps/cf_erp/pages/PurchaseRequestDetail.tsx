@@ -37,7 +37,7 @@ const headSx = { ...cellSx, background: 'var(--c-surface-2, var(--c-surface))', 
  * Purchase › Purchase request (§71). THE PR IS THE RFQ: rows = what is to buy, columns = vendors (three empty ones to
  * start, "+ vendor" for more; pick the vendor in the column's head). A cell is that vendor's quote for that line: the
  * rate per the line's unit, and in the small popover the delivery days and a remark. "Raise PO" on a column makes one
- * purchase order to that vendor — it waits for MD approval. "PO raised" per line is what live purchase orders hold for
+ * purchase order to that vendor — it waits for Management approval. "PO raised" per line is what live purchase orders hold for
  * it; a PO closed short gives the rest back, and a new PO can be raised for it. The grid scrolls sideways inside its
  * own box when there are many vendors; the page itself does not.
  */
@@ -139,7 +139,7 @@ export default function PurchaseRequestDetail() {
         {!lines.length && <Typography sx={{ fontSize: 13, color: 'var(--c-text-3)', mt: 1 }}>Nothing is left to buy on this PR.</Typography>}
       </SectionCard>
       {p.purchaseOrders.length > 0 && (
-        <SectionCard title="Purchase orders raised" subtitle="Each waits for MD approval, then for the goods.">
+        <SectionCard title="Purchase orders raised" subtitle="Each waits for Management approval, then for the goods.">
           <Box data-testid="pr-pos" sx={{ display: 'grid', gap: 0.75 }}>
             {p.purchaseOrders.map((po) => (
               <Box key={po.id} sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -152,7 +152,7 @@ export default function PurchaseRequestDetail() {
         </SectionCard>
       )}
       <RaisePoDialog pr={p} vendor={raising} onClose={() => setRaising(null)}
-        onRaised={(next, poId, code) => { pr.setData(next); invalidateNavCounts(); toast.success(`${code} raised — it waits for MD approval.`); void poId; }}
+        onRaised={(next, poId, code) => { pr.setData(next); invalidateNavCounts(); toast.success(`${code} raised — it waits for Management approval.`); void poId; }}
         onOpenPo={(poId) => navigate(appPath(company, `purchase-orders/${poId}`))} />
     </DetailLayout>
     </FullScreenFrame>
@@ -273,7 +273,7 @@ function RaisePoDialog({ pr, vendor, onClose, onRaised, onOpenPo }: {
   const any = rows.some((r) => Number(r.quantity) > 0);
   return (
     <FormDialog open={!!vendor} title={`Raise PO — ${vendor.supplier.name}`} onClose={onClose} maxWidth="md" submitLabel="Raise PO"
-      subtitle="The quoted lines of this vendor, at their rates. The quantity is what is still to order; change it, or 0 to leave a line out. The PO waits for MD approval."
+      subtitle="The quoted lines of this vendor, at their rates. The quantity is what is still to order; change it, or 0 to leave a line out. The PO waits for Management approval."
       submitDisabled={!any || problems.some(Boolean)}
       onSubmit={async () => {
         const r = await raisePurchaseOrder(vendor.id, { lines: rows.map((x) => ({ lineId: x.lineId, quantity: Number(x.quantity) || 0 })), addToPoId: addTo ? Number(addTo) : null, expectedDate: !addTo && expected ? expected : null });
@@ -303,10 +303,10 @@ function RaisePoDialog({ pr, vendor, onClose, onRaised, onOpenPo }: {
         )}
         {(pending.data?.purchaseOrders.length ?? 0) > 0 && (
           <TextField select size="small" label="Put it on" value={addTo} onChange={(e) => setAddTo(e.target.value)} sx={{ mt: 1 }}
-            helperText="A PO of this vendor still waiting for MD approval can take these lines too — one PO for several orders."
+            helperText="A PO of this vendor still waiting for Management approval can take these lines too — one PO for several orders."
             SelectProps={{ displayEmpty: true }} InputLabelProps={{ shrink: true }}>
             <MenuItem value="">A new purchase order</MenuItem>
-            {pending.data!.purchaseOrders.map((po) => <MenuItem key={po.id} value={String(po.id)}>{po.code} (waiting for MD approval)</MenuItem>)}
+            {pending.data!.purchaseOrders.map((po) => <MenuItem key={po.id} value={String(po.id)}>{po.code} (waiting for Management approval)</MenuItem>)}
           </TextField>
         )}
       </Box>

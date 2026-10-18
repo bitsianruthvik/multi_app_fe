@@ -102,13 +102,23 @@ await check('Wording: no user-facing "Lock the line" / "Locked" / "Go to Lock" l
   assert.match(panel, /Freeze the design/); assert.match(panel, /<strong>Frozen /);
 });
 
-await check('Confirm action: a waitingOn with action confirm shows "Confirm the order" and opens the date dialog', async () => {
-  await render(React.createElement(m.WaitingOn, { stage: stage({ stageKey: null, action: 'confirm', message: 'Confirm the order first — nothing is bought for an inquiry.' }), label: null, order, onGo: noop, onOrderSaved: noop, onReloadAll: noop }));
+await check('Confirm action (a STOCK order, §73): a waitingOn with action confirm shows "Confirm the order" and asks first', async () => {
+  await render(React.createElement(m.WaitingOn, { stage: stage({ stageKey: null, action: 'confirm', message: 'Confirm the order first — nothing is bought for a draft.' }), label: null, order, onGo: noop, onOrderSaved: noop, onReloadAll: noop }));
   assert.ok(buttons().includes('Confirm the order'));
   assert.ok(!buttons().some((t) => t.startsWith('Go to')));
   await act(async () => { [...document.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Confirm the order').click(); });
-  assert.match(document.body.textContent, /Committed date/);
   assert.match(document.body.textContent, /Confirm order\?/);
+  assert.doesNotMatch(document.body.textContent, /Committed date/);
+});
+
+await check('Acceptance action (§73): a customer order waits on its Customer acceptance — a button goes there', async () => {
+  await act(async () => { root.render(null); });
+  let went = null;
+  await render(React.createElement(m.WaitingOn, { stage: stage({ stageKey: null, action: 'acceptance', message: "The customer's acceptance must be approved first." }), label: null, order, onGo: (k) => { went = k; }, onOrderSaved: noop, onReloadAll: noop }));
+  assert.ok(buttons().includes('Go to Customer acceptance'));
+  assert.ok(!buttons().includes('Confirm the order'));
+  await act(async () => { [...document.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Go to Customer acceptance').click(); });
+  assert.equal(went, 'acceptance');
 });
 
 await check('A stage waitingOn still jumps to its stage', async () => {
