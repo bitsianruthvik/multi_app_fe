@@ -1,5 +1,5 @@
-import { useState, type ReactNode } from 'react';
-import { Box, Button, Typography } from '@mui/material';
+import { lazy, Suspense, useState, type ReactNode } from 'react';
+import { Box, Button, CircularProgress, Typography } from '@mui/material';
 import { Link } from 'react-router-dom';
 import InfoOutlined from '@mui/icons-material/InfoOutlined';
 import LaunchRounded from '@mui/icons-material/LaunchRounded';
@@ -19,17 +19,30 @@ import {
 } from '../../lib/process';
 import { cfApi } from '../../api/client';
 import { EmptyState, Mono, SectionCard } from '../ui';
-import { NestingPanel } from '../Nesting/NestingPanel';
-import { CutPiecesButton } from '../Nesting/CutPiecesDialog';
 import { ProductionStep } from '../ProductionOrders/ProductionStep';
-import { LockPanel } from '../Lock/LockPanel';
 import { OrderStructureStep } from '../OrderStructure/OrderStructureStep';
-import { ExecutionPlanPanel } from '../OrderStructure/ExecutionPlanPanel';
 import { useToast } from '../toastContext';
 import { BlockerList, StageStateBadge } from './stageUi';
 import { ConfirmDialog } from '../ConfirmDialog';
-import { OrderPurchasePanel } from '../Purchase/OrderPurchasePanel';
 import { AcceptanceStep } from '../Acceptance/AcceptanceStep';
+
+// The per-line stage panels load when their stage is opened (speed, 2026-10-19): Nesting, Freeze design,
+// Execution plan and Material request were in the order page's own chunk, downloaded before it could draw.
+// (Structure & values, Production and Acceptance stay in it — the order page draws them on its plain tabs too.)
+const NestingPanel = lazy(() => import('../Nesting/NestingPanel').then((m) => ({ default: m.NestingPanel })));
+const CutPiecesButton = lazy(() => import('../Nesting/CutPiecesDialog').then((m) => ({ default: m.CutPiecesButton })));
+const LockPanel = lazy(() => import('../Lock/LockPanel').then((m) => ({ default: m.LockPanel })));
+const ExecutionPlanPanel = lazy(() => import('../OrderStructure/ExecutionPlanPanel').then((m) => ({ default: m.ExecutionPlanPanel })));
+const OrderPurchasePanel = lazy(() => import('../Purchase/OrderPurchasePanel').then((m) => ({ default: m.OrderPurchasePanel })));
+
+/** While a stage panel's code arrives. */
+function PanelLoading() {
+  return (
+    <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }} aria-busy="true" aria-label="Loading">
+      <CircularProgress size={28} />
+    </Box>
+  );
+}
 
 /**
  * What each stage tab shows, above its Back / Next foot.
@@ -264,7 +277,7 @@ export function StageBody({
       {line && !wide && !stage.applies && <NotForThisLine view={view} stage={stage} line={line} onPickLine={onPickLine} />}
       {(line || wide) && <WaitingOn stage={stage} label={view.stages.find((x) => x.stageKey === tabFor(stage.waitingOn?.stageKey ?? '', view.stages))?.label ?? null} order={order}
         onGo={onGoStage} onOrderSaved={onOrderSaved} onReloadAll={onReloadAll} />}
-      {body}
+      <Suspense fallback={<PanelLoading />}>{body}</Suspense>
     </Box>
   );
 }

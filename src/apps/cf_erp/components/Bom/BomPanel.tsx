@@ -145,7 +145,10 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
   const state = bom.state;
   const orderGrid = source.kind === 'orderLine';
   const gridLineId = source.kind === 'orderLine' ? source.lineId : null;
-  const gridValues = useLoad(() => gridLineId == null ? Promise.resolve(null) : cfApi.get<ValuesView>(`/order-lines/${gridLineId}/values`), [gridLineId, state?.root]);
+  // Read once the structure has answered, and again after each reload of it (speed, 2026-10-19): it was also read
+  // on mount, before the structure — a second full read whose answer the structure's own (which may choose
+  // selections first) always replaced.
+  const gridValues = useLoad(() => gridLineId == null || state?.root == null ? Promise.resolve(null) : cfApi.get<ValuesView>(`/order-lines/${gridLineId}/values`), [gridLineId, state?.root]);
   // The line's drawings: the toolbar button and every row's drawing cell read the same answer.
   const drawingsOrderId = state?.order?.id ?? null;
   const drawings = useLoad(() => (drawingsOrderId == null || gridLineId == null ? Promise.resolve(null) : getDrawings(drawingsOrderId, gridLineId)), [drawingsOrderId, gridLineId]);
