@@ -20,7 +20,7 @@ import { appPath } from '../navMeta';
 import { qtyText } from '../lib/inventory';
 import { billedText, dayText, priceText } from '../lib/money';
 import { issueConfirmText, ewayHint, gstRateText, invoiceNoText, money2, NO_GST_RATE, TRANSPORT_MODES } from '../lib/gst';
-import { fileStem, downloadEinvoice, downloadEwayBill, openInvoicePrint } from '../lib/invoiceFiles';
+import { fileStem, downloadEinvoice, downloadEwayBill, openInvoicePrint, openInvoicePdf } from '../lib/invoiceFiles';
 import { Badge, DetailSkeleton, ErrorNotice, Fact, Mono, SectionCard } from '../components/ui';
 import { CrossLink, DetailHeader, DetailLayout } from '../components/DetailLayout';
 import { DataTable, type DataColumn } from '../components/DataTable';
@@ -206,6 +206,7 @@ export default function InvoiceDetail() {
       <Menu anchorEl={printAnchor} open={!!printAnchor} onClose={() => setPrintAnchor(null)}>
         {COPIES.map((c) => <MenuItem key={c.value} onClick={() => print(c.value)}>{c.label}</MenuItem>)}
       </Menu>
+      {!draft && <Button variant="outlined" onClick={() => void file('print', () => openInvoicePdf(i.id))} data-testid="invoice-pdf">PDF</Button>}
       {draft && canManage && <Tooltip title="Delete this draft — its shipments go back to un-invoiced"><IconButton aria-label="Delete draft" onClick={() => setDeleting(true)}><DeleteOutlineRounded /></IconButton></Tooltip>}
       {issued && canManage && <Button color="error" startIcon={<BlockRounded />} onClick={() => setCancelling(true)}>Cancel</Button>}
     </>

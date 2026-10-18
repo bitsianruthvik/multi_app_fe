@@ -1,4 +1,5 @@
 import { einvoiceFile, ewayBillFile, printInvoiceBlob } from '../api/gst';
+import { invoicePdf } from '../api/accounts';
 
 /** An invoice number made safe for a file name: INV/26-27/0001 → INV-26-27-0001. */
 export const fileStem = (invoiceNo: string | null | undefined, id: number) => (invoiceNo ? invoiceNo.replace(/[^A-Za-z0-9._-]+/g, '-') : `invoice-${id}`);
@@ -39,3 +40,19 @@ export async function downloadEinvoice(id: number, invoiceNo: string | null): Pr
 export async function downloadEwayBill(id: number, invoiceNo: string | null): Promise<void> {
   saveBlob(await ewayBillFile(id), `ewaybill-${fileStem(invoiceNo, id)}.json`);
 }
+
+/** Opens an issued invoice's PDF in a new tab (the request carries the sign-in, so the file is fetched first). */
+/* §74 */
+export async function openInvoicePdf(id: number): Promise<void> {
+  const tab = window.open('about:blank', '_blank');
+  try {
+    const blob = await invoicePdf(id);
+    const url = URL.createObjectURL(new Blob([blob], { type: 'application/pdf' }));
+    if (tab) tab.location.href = url; else window.open(url, '_blank');
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  } catch (e) {
+    tab?.close();
+    throw e;
+  }
+}
+

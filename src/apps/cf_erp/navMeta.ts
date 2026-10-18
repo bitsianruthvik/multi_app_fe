@@ -37,6 +37,8 @@ const PRODUCTION = 'cf_erp_production_view';
 const INVENTORY = 'cf_erp_inventory_view';
 const FLOOR = 'cf_erp_floor';
 const PRODUCTION_MANAGE = 'cf_erp_production_manage';
+/** §74: the Accounts section (Billing, Invoices, Receipts, Order costing). */
+const ACCOUNTS = 'cf_erp_accounts_view';
 /** The MD (approve plate changes) or the buyer (stock and buying manage) — any one of them. */
 const PLATE_CHANGES = 'cf_erp_plate_change_approve|cf_erp_inventory_manage';
 /**
@@ -63,7 +65,6 @@ export const SECTIONS: NavSection[] = [
       { key: 'orders', label: 'Orders', path: 'orders', hasDetail: true, permission: ORDERS, countKey: 'openOrders', keywords: ['sales order', 'inquiry', 'quote', 'project'] },
       // §73: every customer order in its lane (inquiry → pending approval → material → production → dispatched → post-production → closed).
       { key: 'orders-board', label: 'Orders board', path: 'orders-board', permission: ORDERS, keywords: ['board', 'kanban', 'lanes', 'pipeline', 'post-production', 'inspection', 'erection', 'handover', 'checklist'] },
-      { key: 'invoices', label: 'Invoices', path: 'invoices', hasDetail: true, permission: ORDERS, keywords: ['tax invoice', 'gst', 'e-way', 'einvoice', 'irn', 'bill', 'dispatch'] },
       { key: 'customers', label: 'Customers', path: 'customers', permission: ORDERS, countKey: 'customers', keywords: ['suppliers', 'parties', 'vendors'] },
     ],
   },
@@ -74,6 +75,18 @@ export const SECTIONS: NavSection[] = [
     screens: [
       { key: 'approvals', label: 'Approvals', path: 'approvals', permission: APPROVE_ANY, countKey: 'pendingApprovals', keywords: ['approve', 'approval', 'md', 'acceptance', 'rate change', 'purchase order', 'close short', 'inbox', 'pending'] },
       { key: 'management-overview', label: 'Overview', path: 'management-overview', permission: APPROVE_ANY, keywords: ['management', 'dashboard'] },
+    ],
+  },
+  {
+    // §74: ACCOUNTS — billing by payment milestones, the tax invoices, receipts, the cost sheet of each order. Contractor
+    // work orders (their bills) come here later as a "Work orders" tab.
+    key: 'accounts',
+    label: 'Accounts',
+    screens: [
+      { key: 'billing', label: 'Billing', path: 'billing', permission: ACCOUNTS, countKey: 'billingDue', keywords: ['billing', 'milestones', 'payment terms', 'due', 'raise invoice', 'advance', 'retention', 'pro-rata', 'bill'] },
+      { key: 'invoices', label: 'Invoices', path: 'invoices', hasDetail: true, permission: `${ORDERS}|${ACCOUNTS}`, keywords: ['tax invoice', 'gst', 'e-way', 'einvoice', 'irn', 'bill', 'dispatch', 'pdf'] },
+      { key: 'receipts', label: 'Receipts', path: 'receipts', permission: ACCOUNTS, keywords: ['payment', 'receipt', 'received', 'outstanding', 'part payment', 'cheque', 'neft', 'upi', 'on account'] },
+      { key: 'order-costing', label: 'Order costing', path: 'order-costing', permission: ACCOUNTS, keywords: ['cost sheet', 'margin', 'costing', 'material cost', 'consumables', 'scrap credit', 'profit'] },
     ],
   },
   {
@@ -162,6 +175,7 @@ export const COUNT_TONE: Record<string, { tone: BadgeTone; suffix?: string }> = 
   readySteps: { tone: 'success', suffix: 'ready' },
   openPurchases: { tone: 'info', suffix: 'open' },
   pendingApprovals: { tone: 'warning', suffix: 'waiting' },
+  billingDue: { tone: 'warning', suffix: 'due' },
 };
 
 export interface ResolvedNav {

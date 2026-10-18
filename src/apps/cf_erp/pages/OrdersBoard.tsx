@@ -44,6 +44,7 @@ function Card({ c, canTick, onChanged }: { c: BoardCard; canTick: boolean; onCha
         <>
           <Typography sx={{ fontSize: 12, color: 'var(--c-text-2)' }}>{c.stagesDone} of {c.stages.length} stage{c.stages.length === 1 ? '' : 's'} done</Typography>
           <StageChecklist stages={c.stages} canTick={canTick} compact onChanged={onChanged} />
+          {c.facts.payment && <Typography data-testid="board-payment" sx={{ fontSize: 12, color: c.facts.payment.fullyPaid ? 'var(--c-success-700)' : 'var(--c-warning-800)' }}>{c.facts.payment.text}{!c.facts.payment.fullyPaid && c.stagesDone >= c.stages.length ? ' — it closes once fully paid' : ''}</Typography>}
           {c.canClose && canManage && <Button size="small" variant="outlined" disabled={busy} onClick={() => void close()} data-testid="board-close">Close the order</Button>}
         </>
       )}
@@ -55,7 +56,7 @@ function Card({ c, canTick, onChanged }: { c: BoardCard; canTick: boolean; onCha
  * SALES › ORDERS BOARD (§73): every customer order in a swim lane — Inquiry / draft → Pending approval → Material →
  * In production → Dispatched → Post-production → Closed. Nothing is dragged: a card moves by itself when a tracked fact
  * changes (the acceptance approved, material locked, a line released, a dispatch). In Post-production the card is the
- * order's own stages as a checklist; the last stage done closes the order.
+ * order's own stages as a checklist; the last stage done closes the order — once it is fully paid (§74).
  */
 export default function OrdersBoard() {
   const canTick = useIsPermitted()('cf_erp_orders_manage');

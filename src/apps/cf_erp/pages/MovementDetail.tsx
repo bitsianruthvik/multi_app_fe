@@ -81,6 +81,7 @@ export default function MovementDetail() {
           <Fact label="Date"><Mono>{m.movementDate}</Mono></Fact>
           {m.party && <Fact label="Supplier">{m.party.name}</Fact>}
           {m.order && <Fact label="For order"><Mono><Box component={Link} to={to(`orders/${m.order.id}`)} sx={linkSx}>{m.order.code}</Box></Mono></Fact>}
+          {m.movementType === 'issue' && m.usedFor && <Fact label="Used for">{m.usedFor === 'general' ? 'General (overhead)' : `Sales order${m.orderLine?.lineNo ? `, line ${m.orderLine.lineNo}` : ''}`}</Fact>}
           {m.reference && <Fact label="Reference"><Mono>{m.reference}</Mono></Fact>}
           <Fact label="Lines"><Mono>{m.lines.length}</Mono></Fact>
           {m.lines.some((l) => !l.owner) && (

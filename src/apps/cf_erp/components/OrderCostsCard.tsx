@@ -1,4 +1,8 @@
-import { Box, Typography } from '@mui/material';
+import { Box, Button, Typography } from '@mui/material';
+import { Link } from 'react-router-dom';
+import { getCostSheet, type CostSheet } from '../api/accounts';
+import { useCompanySlug } from '../hooks/useLoad';
+import { appPath } from '../navMeta';
 import { cfApi } from '../api/client';
 import type { OrderCosts } from '../api/money';
 import type { SalesOrder } from '../api/types';
@@ -17,16 +21,41 @@ type Row = OrderCosts['lines'][number];
  * margin (before labour)" because that is all it is. A customer's own material
  * is never counted: it costs us nothing.
  */
+/**
+ * §74: the order's COST SHEET (Accounts › Order costing — the same numbers): charged so far, material, consumables,
+ * credits, margin. Shown when the person may see it; else the card keeps its material margin.
+ */
+function SheetFoot({ sheet }: { sheet: CostSheet }) {
+  const company = useCompanySlug();
+  return (
+    <Box data-testid="order-cost-sheet" sx={{ px: 2.5, py: 1.5, borderTop: '1px solid var(--c-divider)', display: 'grid', gap: 0.5, justifyItems: 'end' }}>
+      <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)', textAlign: 'right' }}>
+        Charged so far <Mono>{rupeeText(sheet.charged)}</Mono> · material <Mono>{rupeeText(sheet.material)}</Mono> · consumables <Mono>{rupeeText(sheet.consumables)}</Mono> · credits <Mono>{rupeeText(sheet.credits)}</Mono>
+      </Typography>
+      <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'baseline', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+        <Typography sx={{ fontSize: 13, fontWeight: 600 }}>Margin (before labour)</Typography>
+        <Mono sx={{ fontWeight: 600, fontSize: 14 }}>{rupeeText(sheet.margin)}{sheet.marginPct != null ? ` · ${sheet.marginPct}%` : ''}</Mono>
+        <Button size="small" component={Link} to={appPath(company, `order-costing?order=${sheet.order.id}`)}>Open the cost sheet</Button>
+      </Box>
+    </Box>
+  );
+}
+
 export function OrderCostsCard({ order }: { order: SalesOrder }) {
   const costs = useLoad(() => cfApi.get<OrderCosts>(`/orders/${order.id}/costs`), [order.id]);
+  const sheet = useLoad(() => getCostSheet(order.id), [order.id]);
   if (costs.error) return null;           // no inventory permission, or nothing to say: stay out of the way
   const c = costs.data;
   if (!c) return null;
+  const s = sheet.error ? null : sheet.data;
   const t = c.totals;
   // §61: steel cut from untracked offcuts is never issued from stock — it is its own column, and part of the material.
   const loose = t.untrackedValue ?? 0;
   const anyLoose = c.lines.some((l) => (l.nest.untracked?.pieces ?? 0) > 0);
   const anything = t.issuedValue > 0 || t.scrapValue > 0 || t.plateValue > 0 || anyLoose || c.lines.some((l) => l.nest.lots > 0 || l.issued.uncostedRows > 0 || l.issued.quantity > 0);
+  if (!anything && s?.hasTerms) {
+    return <SectionCard flush title="Costs" subtitle="Nothing has been issued to this order yet."><SheetFoot sheet={s} /></SectionCard>;
+  }
   if (!anything) {
     return (
       <SectionCard title="Costs" subtitle="Material at cost, once stock is issued to this order.">
@@ -75,7 +104,7 @@ export function OrderCostsCard({ order }: { order: SalesOrder }) {
   return (
     <SectionCard flush title="Costs" subtitle="What stock has cost on this order so far, at cost. Labour is not in it.">
       <DataTable bare rows={c.lines} columns={columns} getRowId={(l) => l.line.id} storageKey="order-costs" />
-      <Box data-testid="order-margin" sx={{ px: 2.5, py: 1.5, borderTop: '1px solid var(--c-divider)', display: 'grid', gap: 0.5, justifyItems: 'end' }}>
+      {s?.hasTerms ? <SheetFoot sheet={s} /> : <Box data-testid="order-margin" sx={{ px: 2.5, py: 1.5, borderTop: '1px solid var(--c-divider)', display: 'grid', gap: 0.5, justifyItems: 'end' }}>
         <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'baseline', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
           <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>Order total {total && !total.complete ? '(not complete)' : ''}</Typography>
           {total && total.amount > 0 ? <Mono>{rupeeText(total.amount)}</Mono> : <Money value={null} missing="not priced" />}
@@ -96,7 +125,7 @@ export function OrderCostsCard({ order }: { order: SalesOrder }) {
             ].filter(Boolean).join(' · ')}.
           </Typography>
         )}
-      </Box>
+      </Box>}
     </SectionCard>
   );
 }

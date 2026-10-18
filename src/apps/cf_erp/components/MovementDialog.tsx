@@ -27,13 +27,14 @@ interface LineState {
   other: boolean;
   quantity: string;
 }
+type UsedFor = 'order' | 'general';
 let nextKey = 1;
 const blankLine = (): LineState => ({ key: nextKey++, item: null, batchMode: 'new', batchCode: '', supplierRef: '', values: {}, batchId: null, stockKey: '', other: false, quantity: '' });
 
 const TITLE: Record<MovementType, string> = { receipt: 'Receive stock', issue: 'Issue stock', transfer: 'Transfer stock', scrap: 'Scrap stock', adjustment: 'Count stock' };
 const HELP: Record<MovementType, string> = {
   receipt: 'Stock arriving from a supplier. A batch-kept item starts a new batch here, with its batch values (like the heat number).',
-  issue: 'Stock leaving for use — against a sales order when it is for one.',
+  issue: 'Stock leaving for use. Say what it is used for: a sales order (order costing counts it) or General (overhead).',
   transfer: 'Stock moving between two areas; nothing is used up.',
   scrap: 'Stock written off — say why.',
   adjustment: 'Type what is really there; the difference is posted. Say why.',
@@ -151,20 +152,22 @@ export function MovementDialog({ open, type, preset = {}, onClose, onPosted }: {
   // Suppliers and orders are searched on the server as you type (ServerPicker), never loaded once and capped.
   const [supplier, setSupplier] = useState<Party | null>(null);
   const [orderPick, setOrderPick] = useState<SalesOrder | null>(null);
-  const [h, setH] = useState({ partyId: null as number | null, areaId: null as number | null, toAreaId: null as number | null, orderId: null as number | null, date: today(), reference: '', reason: '', notes: '' });
+  const [h, setH] = useState({ partyId: null as number | null, areaId: null as number | null, toAreaId: null as number | null, orderId: null as number | null, lineId: null as number | null, usedFor: null as UsedFor | null, date: today(), reference: '', reason: '', notes: '' });
   const [lines, setLines] = useState<LineState[]>([blankLine()]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<CfApiError | null>(null);
   useEffect(() => {
     if (!open) return;
     setError(null);
-    setH({ partyId: null, areaId: preset.areaId ?? null, toAreaId: null, orderId: preset.orderId ?? null, date: today(), reference: '', reason: '', notes: '' });
+    setH({ partyId: null, areaId: preset.areaId ?? null, toAreaId: null, orderId: preset.orderId ?? null, lineId: null, usedFor: preset.orderId ? 'order' : null, date: today(), reference: '', reason: '', notes: '' });
     setLines([{ ...blankLine(), item: preset.item ?? null }]);
     setSupplier(null); setOrderPick(null);
     if (preset.orderId) cfApi.get<SalesOrder>(`/orders/${preset.orderId}`).then(setOrderPick).catch(() => undefined);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, type]);
   const out = type !== 'receipt';
+  // §74: an issue for an order may name its line — the order's lines, once it is chosen.
+  const orderLines = useLoad(() => (type === 'issue' && h.orderId ? cfApi.get<SalesOrder>(`/orders/${h.orderId}`).then((o) => o.lines ?? []) : Promise.resolve([] as NonNullable<SalesOrder['lines']>)), [type, h.orderId]).data ?? [];
   const stock = useLoad(() => (out && h.areaId ? cfApi.get<StockRow[]>(`/stock${qs({ areaId: h.areaId })}`) : Promise.resolve([] as StockRow[])), [out, h.areaId, open]);
   const active = (areas.data ?? []).filter((a) => a.status === 'active');
   const fromAreas = type === 'issue' ? (areas.data ?? []).filter((a) => a.purpose !== 'quarantine') : areas.data ?? [];
@@ -176,7 +179,8 @@ export function MovementDialog({ open, type, preset = {}, onClose, onPosted }: {
     if (type === 'receipt') Object.assign(header, { partyId: h.partyId, toAreaId: h.areaId });
     else if (type === 'transfer') Object.assign(header, { fromAreaId: h.areaId, toAreaId: h.toAreaId });
     else if (type === 'adjustment') Object.assign(header, { areaId: h.areaId });
-    else Object.assign(header, { fromAreaId: h.areaId, orderId: type === 'issue' ? h.orderId : null });
+    else if (type === 'issue') Object.assign(header, { fromAreaId: h.areaId, usedFor: h.usedFor, orderId: h.usedFor === 'order' ? h.orderId : null, orderLineId: h.usedFor === 'order' ? h.lineId : null });
+    else Object.assign(header, { fromAreaId: h.areaId, orderId: null });
     header.lines = lines.map((l) => {
       if (type === 'receipt') {
         const base: Record<string, unknown> = { itemId: l.item?.id ?? null, quantity: l.quantity };
@@ -205,11 +209,12 @@ export function MovementDialog({ open, type, preset = {}, onClose, onPosted }: {
 
   // What the server would refuse anyway, said before the press.
   const named = (l: LineState) => (type === 'receipt' ? !!l.item : l.other ? !!l.item : !!l.stockKey);
-  const blocked = !h.areaId ? (type === 'receipt' ? 'Choose the area it goes into.' : type === 'adjustment' ? 'Choose the area being counted.' : 'Choose the area it comes from.')
+  const usedForMissing = type !== 'issue' ? null : (!h.usedFor ? 'Say what it is used for: a sales order, or General.' : h.usedFor === 'order' && !h.orderId ? 'Choose the sales order it is used for.' : null);
+  const blocked = usedForMissing ?? (!h.areaId ? (type === 'receipt' ? 'Choose the area it goes into.' : type === 'adjustment' ? 'Choose the area being counted.' : 'Choose the area it comes from.')
     : type === 'transfer' && !h.toAreaId ? 'Choose the area it goes into.'
       : needsReason && !h.reason.trim() ? 'Say why.'
         : !lines.some(named) ? 'Add at least one item.'
-          : null;
+          : null);
   return (
     <Dialog open={open} onClose={() => !busy && onClose()} maxWidth="md" fullWidth>
       <DialogHeader title={TITLE[type]} subtitle={HELP[type]} onClose={onClose} busy={busy} />
@@ -225,8 +230,25 @@ export function MovementDialog({ open, type, preset = {}, onClose, onPosted }: {
           {out && areaPicker(type === 'adjustment' ? 'Area counted' : 'From', h.areaId, (id) => { setH({ ...h, areaId: id }); setLines([blankLine()]); }, type === 'adjustment' ? areas.data ?? [] : fromAreas)}
           {type === 'transfer' && areaPicker('To', h.toAreaId, (id) => setH({ ...h, toAreaId: id }), active.filter((a) => a.id !== h.areaId))}
           {type === 'issue' && (
-            <OrderPicker label="For sales order (optional)" value={orderPick} onChange={(o) => { setOrderPick(o); setH((x) => ({ ...x, orderId: o?.id ?? null })); }}
-              helperText="Which job it is for" />
+            <Box sx={{ gridColumn: '1 / -1', display: 'grid', gap: 1 }} data-testid="used-for">
+              <Typography sx={{ fontSize: 13, fontWeight: 600 }}>Used for *</Typography>
+              <ToggleButtonGroup exclusive size="small" value={h.usedFor} onChange={(_, v) => v && setH((x) => ({ ...x, usedFor: v }))} aria-label="Used for">
+                <ToggleButton value="order" data-testid="used-for-order">A sales order</ToggleButton>
+                <ToggleButton value="general" data-testid="used-for-general">General (overhead)</ToggleButton>
+              </ToggleButtonGroup>
+              {h.usedFor === 'order' && (
+                <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', md: 'minmax(0, 2fr) minmax(0, 1fr)' }, gap: 1.5 }}>
+                  <OrderPicker label="Sales order *" value={orderPick} onChange={(o) => { setOrderPick(o); setH((x) => ({ ...x, orderId: o?.id ?? null, lineId: null })); }}
+                    helperText="The job it is used for — order costing counts it" />
+                  <TextField select label="Line (optional)" value={h.lineId ?? ''} onChange={(e) => setH((x) => ({ ...x, lineId: Number(e.target.value) || null }))} disabled={!orderLines.length}
+                    inputProps={{ 'data-testid': 'used-for-line' }}>
+                    <MenuItem value="">The whole order</MenuItem>
+                    {orderLines.map((l) => <MenuItem key={l.id} value={l.id}>Line {l.lineNo}{l.item ? ` · ${l.item.code ?? l.item.name}` : ''}</MenuItem>)}
+                  </TextField>
+                </Box>
+              )}
+              {h.usedFor === 'general' && <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)' }}>Overhead: not charged to any order.</Typography>}
+            </Box>
           )}
           <TextField type="date" label="Date" value={h.date} onChange={(e) => setH({ ...h, date: e.target.value })} InputLabelProps={{ shrink: true }} inputProps={{ max: today() }} />
           {(type === 'receipt' || type === 'issue' || type === 'transfer') && (

@@ -972,6 +972,9 @@ export interface Movement {
   movementDate: string;
   party: { id: number; code: string; name: string } | null;
   order: { id: number; code: string } | null;
+  orderLine?: { id: number; lineNo: number | null } | null;
+  /** §74: what an issue is used for — a sales order or General (overhead). null before §74 and on other movements. */
+  usedFor?: 'order' | 'general' | null;
   reference: string | null;
   reason: string | null;
   notes: string | null;

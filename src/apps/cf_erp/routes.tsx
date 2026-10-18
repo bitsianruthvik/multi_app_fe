@@ -52,6 +52,10 @@ const Approvals = lazy(() => import('./pages/Approvals'));
 const ManagementOverview = lazy(() => import('./pages/Approvals').then((m) => ({ default: m.ManagementOverview })));
 const OrdersBoard = lazy(() => import('./pages/OrdersBoard'));
 const TermTemplates = lazy(() => import('./pages/TermTemplates'));
+// Accounts (§74): the Billing board, receipts, order costing.
+const Billing = lazy(() => import('./pages/Billing'));
+const Receipts = lazy(() => import('./pages/Receipts'));
+const OrderCosting = lazy(() => import('./pages/OrderCosting'));
 const Movements = lazy(() => import('./pages/Movements'));
 const MovementDetail = lazy(() => import('./pages/MovementDetail'));
 const WorkInProgress = lazy(() => import('./pages/WorkInProgress'));
@@ -93,6 +97,9 @@ export function getCfErpRoutes(
     { path: '/:company/cf_erp/approvals', element: wrap(<Approvals />) },
     { path: '/:company/cf_erp/management-overview', element: wrap(<ManagementOverview />) },
     { path: '/:company/cf_erp/term-templates', element: wrap(<TermTemplates />) },
+    { path: '/:company/cf_erp/billing', element: wrap(<Billing />) },
+    { path: '/:company/cf_erp/receipts', element: wrap(<Receipts />) },
+    { path: '/:company/cf_erp/order-costing', element: wrap(<OrderCosting />) },
     { path: '/:company/cf_erp/invoices', element: wrap(<Invoices />) },
     { path: '/:company/cf_erp/invoices/:id', element: wrap(<InvoiceDetail />) },
     { path: '/:company/cf_erp/company-tax', element: wrap(<CompanyTax />) },

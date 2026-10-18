@@ -191,6 +191,8 @@ export interface BoardCard {
     lines: number; released: number; dispatched: string; material: string; materialInPlace: boolean;
     acceptance: { status: string; version?: number; note?: string | null } | null;
     rateChangePending: boolean;
+    /** §74: the money of an order with accepted terms — it closes only when fully paid. */
+    payment?: { fullyPaid: boolean; outstanding: number; due: number; upcoming: number; received: number; text: string } | null;
   };
   stages: PostStage[];
   stagesDone: number;
