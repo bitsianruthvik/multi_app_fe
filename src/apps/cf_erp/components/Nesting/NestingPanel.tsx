@@ -192,9 +192,9 @@ function PlateCard({ nest, group, colourOf, shapeOf, jobName, onCnc, onRemove, o
         <Box component="span" data-testid="plate-source" data-source={from.kind} sx={{ display: 'inline-flex' }}>
           <Badge family={from.kind === 'ours' ? 'neutral' : 'info'} label={fresh && from.kind === 'ours' ? 'New plate' : from.label} noIcon title={from.help} />
         </Box>
-        {ourPieceCount(nest) > 0 && <Badge family="info" label={`${ourPieceCount(nest)} added by us`} noIcon title="Parts our packer put in the space the customer left." />}
+        {ourPieceCount(nest) > 0 && <Badge family="info" label={`${ourPieceCount(nest)} added by AI`} noIcon title="Parts AI put in the space the customer left." />}
         {verdict && <Badge family={verdict.family} label={verdict.label} title={verdict.help} />}
-        {nest.forced && <Badge family="warning" label="Saved anyway" noIcon title="Saved although our check did not say it fits." />}
+        {nest.forced && <Badge family="warning" label="Saved anyway" noIcon title="Saved although AI's check did not say it fits." />}
         {stale.stale === true && (
           <Box component="span" data-testid="plate-stale-chip" sx={{ display: 'inline-flex' }}>
             <Badge family="warning" label={stale.staleInvalid ? 'Nest again' : 'Drawing changed'} title={stale.staleReason ?? 'A drawing changed after this plate was nested.'} />
@@ -1029,7 +1029,7 @@ function PlateNestingPanel({ orderId, lineId, canManage, canEditCatalog = false,
 
       {showLeft && (
         <LeftOverBanner pieces={leftPieces} rows={leftRows} heldBack={heldBack}
-          oursLabel={imported ? 'Nest the rest ourselves' : 'Nest the line again ourselves'}
+          oursLabel={imported ? 'Nest the rest by AI' : 'Nest the line again by AI'}
           oursWhy={!canManage ? NO_MANAGE : null} oursBusy={waiting}
           onOurs={() => openStart(imported ? 'rest' : 'again')}
           uploadWhy={uploadWhy} uploadBusy={waiting} onUpload={pickFiles}
@@ -1293,7 +1293,7 @@ export function NestingPanel(props: {
         <Tabs value={showCompare ? 'compare' : 'nesting'} onChange={(_, v) => pick(v as 'nesting' | 'compare')} aria-label="Nesting or compare"
           variant="scrollable" allowScrollButtonsMobile data-testid="nesting-tabs" sx={{ minHeight: 40, borderBottom: '1px solid var(--c-divider)' }}>
           <Tab value="nesting" label="Nesting" sx={{ minHeight: 40, textTransform: 'none' }} />
-          <Tab value="compare" label="Compare with ours" data-testid="compare-tab-button" sx={{ minHeight: 40, textTransform: 'none' }} />
+          <Tab value="compare" label="Compare with AI" data-testid="compare-tab-button" sx={{ minHeight: 40, textTransform: 'none' }} />
         </Tabs>
       )}
       <Box sx={{ display: showCompare ? 'none' : 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 2, minWidth: 0 }}>

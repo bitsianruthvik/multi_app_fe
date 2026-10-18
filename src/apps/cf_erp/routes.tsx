@@ -37,7 +37,12 @@ const WorkOrders = lazy(() => import('./pages/WorkOrders'));
 const ProductionOrders = lazy(() => import('./pages/ProductionOrders'));
 const WorkOrderDetail = lazy(() => import('./pages/WorkOrderDetail'));
 const Stock = lazy(() => import('./pages/Stock'));
-const PurchaseBoard = lazy(() => import('./pages/PurchaseBoard'));
+// Purchase flow v3 (§71): MR → PR (vendor columns) → PO → Receive against PO.
+const MaterialRequests = lazy(() => import('./pages/MaterialRequests'));
+const MaterialRequestDetail = lazy(() => import('./pages/MaterialRequestDetail'));
+const PurchaseRequests = lazy(() => import('./pages/PurchaseRequests'));
+const PurchaseRequestDetail = lazy(() => import('./pages/PurchaseRequestDetail'));
+const ReceiveAgainstPo = lazy(() => import('./pages/ReceiveAgainstPo'));
 const PurchaseOrders = lazy(() => import('./pages/PurchaseOrders'));
 const PurchaseOrderDetail = lazy(() => import('./pages/PurchaseOrderDetail'));
 // Plate changes after a purchase order, approved by the MD (init.sql §62).
@@ -66,6 +71,11 @@ export function getCfErpRoutes(
   function ToHome() {
     const { company } = useParams<{ company: string }>();
     return <Navigate to={`/${company}/cf_erp/home`} replace />;
+  }
+  /** The old purchase board's address (§71: the board went) lands on the material requests. */
+  function ToMaterialRequests() {
+    const { company } = useParams<{ company: string }>();
+    return <Navigate to={`/${company}/cf_erp/material-requests`} replace />;
   }
 
   return [
@@ -103,9 +113,15 @@ export function getCfErpRoutes(
     { path: '/:company/cf_erp/production-orders', element: wrap(<ProductionOrders />) },
     { path: '/:company/cf_erp/work-orders/:id', element: wrap(<WorkOrderDetail />) },
     { path: '/:company/cf_erp/stock', element: wrap(<Stock />) },
-    { path: '/:company/cf_erp/purchase', element: wrap(<PurchaseBoard />) },
+    { path: '/:company/cf_erp/purchase', element: <ToMaterialRequests /> },
+    { path: '/:company/cf_erp/material-requests', element: wrap(<MaterialRequests />) },
+    { path: '/:company/cf_erp/material-requests/:id', element: wrap(<MaterialRequestDetail />) },
+    { path: '/:company/cf_erp/purchase-requests', element: wrap(<PurchaseRequests />) },
+    { path: '/:company/cf_erp/purchase-requests/:id', element: wrap(<PurchaseRequestDetail />) },
+    { path: '/:company/cf_erp/receive', element: wrap(<ReceiveAgainstPo />) },
     { path: '/:company/cf_erp/purchase-orders', element: wrap(<PurchaseOrders />) },
     { path: '/:company/cf_erp/purchase-orders/:id', element: wrap(<PurchaseOrderDetail />) },
+    // Not in the menu while the plate-change gate is off (§71); a customer's substitute is still approved here.
     { path: '/:company/cf_erp/plate-changes', element: wrap(<PlateChanges />) },
     { path: '/:company/cf_erp/movements', element: wrap(<Movements />) },
     { path: '/:company/cf_erp/movements/:id', element: wrap(<MovementDetail />) },

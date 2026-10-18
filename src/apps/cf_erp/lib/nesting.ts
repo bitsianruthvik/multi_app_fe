@@ -128,7 +128,7 @@ export type StartMode = 'all' | 'rest' | 'again';
 export const PLATES_NOT_CHOSEN = 'Choose which plates to use before nesting.';
 export const STEEL_BLOCKED = 'Nesting is blocked until each steel has a plate ticked.';
 
-export const START_HEAD: Record<StartMode, string> = { all: 'Nest it ourselves', rest: 'Nest the rest ourselves', again: 'Start again' };
+export const START_HEAD: Record<StartMode, string> = { all: 'Nesting by AI', rest: 'Nest the rest by AI', again: 'Start again' };
 
 /** What the run will do, in the sentence the button's tooltip always carried. */
 export function startSentence(mode: StartMode, imported: boolean): string {
@@ -386,12 +386,12 @@ export const isImported = (n: Pick<Nest, 'origin'>) => n.origin === 'imported';
 /** Absent on the old API, which only ever sent plates it had laid out itself. */
 export const hasLayout = (n: Pick<Nest, 'hasLayout'>) => n.hasLayout !== false;
 
-export const NO_LAYOUT = 'No layout from us — cut it with the program it came from.';
+export const NO_LAYOUT = 'No layout by AI — cut it with the program it came from.';
 
 /** The check's answer in words. The API's codes never reach the screen. */
 export const VERDICT: Record<NestVerdict, { label: string; family: 'success' | 'warning' | 'danger'; help: string }> = {
-  fits: { label: 'Fits', family: 'success', help: 'We laid it out on this plate with our rules.' },
-  tight: { label: 'Tight', family: 'warning', help: "Area is enough but our layout couldn't fit it — their program may." },
+  fits: { label: 'Fits', family: 'success', help: 'AI laid it out on this plate.' },
+  tight: { label: 'Tight', family: 'warning', help: "Area is enough but AI's layout couldn't fit it — their program may." },
   wont_fit: { label: "Won't fit", family: 'danger', help: 'Not enough plate, or the wrong steel.' },
 };
 
@@ -412,7 +412,7 @@ export const WASTE_HELP: Record<WasteKey, string> = {
   rim: 'The strip along the plate edge.',
   offcut: 'Pieces big enough to keep and use again.',
   wastage: 'What is left — scrap.',
-  noLayout: 'Plates we have no layout for, so we cannot split them.',
+  noLayout: 'Plates AI has no layout for, so they cannot be split.',
 };
 
 export const WASTE_COLOUR: Record<WasteKey, string> = {
@@ -602,7 +602,7 @@ export function plateSource(n: Nest, jobName?: string | null): { kind: 'pronest'
   }
   if (isCustomerPlate(v)) return { kind: 'dxf', label: 'DXF', help: `Copied from a DXF nesting file${v.sourceFile ? `: ${v.sourceFile}` : ''}.` };
   if (isImported(n)) return { kind: 'sheet', label: 'Excel sheet', help: 'Brought in from the Excel sheet.' };
-  return { kind: 'ours', label: 'Ours', help: 'Laid out by our packer.' };
+  return { kind: 'ours', label: 'By AI', help: 'Laid out by AI.' };
 }
 
 /**

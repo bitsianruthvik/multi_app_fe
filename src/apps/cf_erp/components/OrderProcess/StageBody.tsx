@@ -126,7 +126,7 @@ function UnbuiltStagePanel({ stage }: { stage: OrderStage }) {
   const links: ReactNode[] = [];
   if (stage.stageKey === 'buying' && isPermitted('cf_erp_inventory_view')) {
     links.push(
-      <Button key="buy" size="small" variant="outlined" endIcon={<LaunchRounded />} component={Link} to={to('purchase')}>Open Purchase</Button>,
+      <Button key="buy" size="small" variant="outlined" endIcon={<LaunchRounded />} component={Link} to={to('material-requests')}>Open Purchase</Button>,
     );
   }
   return (
@@ -408,7 +408,7 @@ export function StageBody({
     body = <ProductionPanel stage={stage} line={line} order={order} production={production} productionError={productionError}
       hasLockStage={view.stages.some((s) => s.stageKey === 'lock')} onReleaseChanged={onReleaseChanged} onReloadAll={onReloadAll} onGoStage={onGoStage} />;
   } else if (stage.stageKey === 'buying') {
-    // The requisition of each line (Buying v2): hold from stock, buy, or skip — and the order's purchase orders by lane.
+    // §71: Raise MR, and a read-only status of each MR (everything after it is in Purchase).
     body = <OrderPurchasePanel order={order} stage={stage} onChanged={onReloadAll} />;
   } else if (stage.stageKey === 'confirm') {
     body = <ConfirmPanel view={view} order={order} />;

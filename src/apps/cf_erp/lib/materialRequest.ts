@@ -1,5 +1,5 @@
 import type { ReleaseSummary } from '../api/types';
-import type { LineMaterialReady, MaterialSupply, OrderRequisitions, ReqLine } from '../api/requisitions';
+import type { LineMaterialReady, MaterialSupply, OrderRequisitions, ReqLine, Requisition } from '../api/requisitions';
 import { SUPPLY_LABEL } from '../api/requisitions';
 import { qtyText } from './inventory';
 
@@ -12,6 +12,14 @@ import { qtyText } from './inventory';
 export const MR_STAGE_LABEL = 'Material request';
 
 export const supplyLabel = (s: MaterialSupply | null | undefined) => SUPPLY_LABEL[s === 'customer' ? 'customer' : 'we_buy'];
+
+/** "3 of 4 locked" for one MR (§71): its lines whose need is wholly earmarked for the order. */
+export function lockedWords(r: Pick<Requisition, 'lines'>): string {
+  const live = r.lines.filter((l) => l.status !== 'not_needed');
+  if (!live.length) return 'Nothing to buy';
+  const locked = live.filter((l) => (l.cover.earmarked ?? l.cover.stock) + 1e-6 >= l.need).length;
+  return `${locked} of ${live.length} locked`;
+}
 
 /** The five figures of an MR line, as the MR table shows them (older answers without them fall back to the cover). */
 export function mrFigures(l: ReqLine): { need: number; earmarked: number; onPo: number; received: number; open: number } {

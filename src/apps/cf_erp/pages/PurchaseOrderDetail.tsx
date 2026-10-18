@@ -1,11 +1,15 @@
 import { useState } from 'react';
-import { Box, Button, FormControlLabel, IconButton, Switch, Tooltip, Typography } from '@mui/material';
+import { Alert, Box, Button, FormControlLabel, IconButton, Switch, Tooltip, Typography } from '@mui/material';
 import { Link, useParams } from 'react-router-dom';
 import AddRounded from '@mui/icons-material/AddRounded';
 import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
 import BlockRounded from '@mui/icons-material/BlockRounded';
 import EditRounded from '@mui/icons-material/EditRounded';
 import PeopleRounded from '@mui/icons-material/PeopleRounded';
+import VerifiedRounded from '@mui/icons-material/VerifiedRounded';
+import MoveToInboxRounded from '@mui/icons-material/MoveToInboxRounded';
+import DoNotDisturbOnRounded from '@mui/icons-material/DoNotDisturbOnRounded';
+import SendRounded from '@mui/icons-material/SendRounded';
 import { cfApi } from '../api/client';
 import type { PurchaseLine, PurchaseOrder } from '../api/types';
 import { useCompanySlug, useLoad } from '../hooks/useLoad';
@@ -20,33 +24,47 @@ import { PriceCell, LastPaidHint } from '../components/PurchaseMoney';
 import { Badge, DetailSkeleton, EmptyState, ErrorNotice, Fact, Mono, SectionCard } from '../components/ui';
 import { CrossLink, DetailHeader, DetailLayout } from '../components/DetailLayout';
 import { DataTable, type DataColumn } from '../components/DataTable';
-import { PurchaseStatusBadge } from '../components/purchaseUi';
-import { AddPurchaseLineDialog, LineOrdersDialog, PurchaseForOrderDialog, ReceiveLineDialog } from '../components/PurchaseDialogs';
+import { AddPurchaseLineDialog, LineOrdersDialog, PurchaseForOrderDialog } from '../components/PurchaseDialogs';
+import { PromptDialog } from '../components/PromptDialog';
+import { PoStageBadge, PoTypeChip } from '../components/Purchase/purchaseFlowUi';
+import { approvePurchaseOrder, closePurchaseOrder, sendForApproval } from '../api/purchaseRequests';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { useDetailTitle } from '../components/shell/detailTitle';
 import { useToast } from '../components/toastContext';
-import { PoStagePanel } from '../components/Purchase/PoStagePanel';
+import { FullScreenFrame, FullScreenToggle } from '../components/FullScreen';
+import { useFullScreen } from '../hooks/useFullScreen';
 import { CancelPoDialog } from '../components/Purchase/CancelPoDialog';
 import { PlannedUnitsNote } from '../components/Purchase/PlannedUnitsNote';
+import { DateCell } from '../components/Purchase/DateCell';
 import type { PlannedUnits } from '../api/requisitions';
 
 const linkSx = { color: 'inherit', textDecoration: 'none', '&:hover': { color: 'var(--c-primary-700)', textDecoration: 'underline' } };
 
-/** One purchase order: what was asked for, what has arrived, and against which receipt. */
+/**
+ * One purchase order (§71): its stage — pending MD approval → waiting for goods → part received → closed (by itself, or
+ * closed short with a reason) — and per line what was ordered, received and is still pending. The MD approves here
+ * (permission cf_erp_plate_change_approve, "MD approval"); goods are received from Inventory › Receive against PO.
+ */
 export default function PurchaseOrderDetail() {
   const { id: idParam } = useParams();
   const id = Number(idParam);
   const company = useCompanySlug();
   const toast = useToast();
-  const canManage = useIsPermitted()('cf_erp_inventory_manage');
+  const isPermitted = useIsPermitted();
+  const canManage = isPermitted('cf_erp_inventory_manage');
+  const canApprove = isPermitted('cf_erp_plate_change_approve');
   const po = useLoad(() => cfApi.get<PurchaseOrder>(`/purchase-orders/${id}`), [id]);
+  const full = useFullScreen('po');
   const [adding, setAdding] = useState(false);
-  const [receiving, setReceiving] = useState<PurchaseLine | null>(null);
+  const [closing, setClosing] = useState(false);
+  const [busy, setBusy] = useState(false);
   const [forOrdering, setForOrdering] = useState(false);
   const [linking, setLinking] = useState<PurchaseLine | null>(null);
   const [removing, setRemoving] = useState<PurchaseLine | null>(null);
   const [cancelling, setCancelling] = useState(false);
   const [cancelPlanned, setCancelPlanned] = useState<PlannedUnits | null>(null);
+  // The planned cards a moved expected date made late (the PUT answers with them).
+  const [late, setLate] = useState<PlannedUnits | null>(null);
   const p = po.data;
   useDetailTitle(p?.code ?? null);
   if (po.error) return <ErrorNotice error={po.error} onRetry={po.reload} />;
@@ -54,8 +72,13 @@ export default function PurchaseOrderDetail() {
 
   const done = (next: PurchaseOrder, message: string) => { po.setData(next); invalidateNavCounts(); toast.success(message); };
   const open = p.status === 'draft' || p.status === 'requested' || p.status === 'quoting' || p.status === 'ordered' || p.status === 'partially_received';
-  const editable = canManage && open;
-  const changed = (message: string) => { po.reload(); invalidateNavCounts(); toast.success(message); };
+  const stage = p.stage ?? 'requested';
+  // Lines and prices change only before the MD approves it (or on an older PO not sent yet).
+  const editable = canManage && (stage === 'requested' || stage === 'pending_approval');
+  const act = async (fn: () => Promise<PurchaseOrder>, message: string) => {
+    setBusy(true);
+    try { done(await fn(), message); } catch (e) { toast.error((e as Error).message); } finally { setBusy(false); }
+  };
   const setReverse = async (on: boolean) => { try { done(await cfApi.put<PurchaseOrder>(`/purchase-orders/${p.id}`, { reverseCharge: on }), on ? 'Reverse charge on.' : 'Reverse charge off.'); } catch (e) { toast.error((e as Error).message); } };
 
   const columns: DataColumn<PurchaseLine>[] = [
@@ -70,10 +93,18 @@ export default function PurchaseOrderDetail() {
       ),
     },
     { key: 'quantity', header: 'Ordered', numeric: true, alwaysVisible: true, sortValue: (l) => l.quantity, render: (l) => <>{qtyText(l.quantity)} <Mono muted>{l.item.uom}</Mono></> },
-    { key: 'received', header: 'Received', numeric: true, sortValue: (l) => l.received, render: (l) => <Mono muted={!l.received}>{qtyText(l.received)}</Mono> },
+    { key: 'received', header: 'Received', numeric: true, alwaysVisible: true, sortValue: (l) => l.received, render: (l) => <span data-testid="po-line-received"><Mono muted={!l.received}>{qtyText(l.received)}</Mono></span> },
     {
-      key: 'outstanding', header: 'Outstanding', numeric: true, alwaysVisible: true, sortValue: (l) => l.outstanding,
-      render: (l) => (l.outstanding > 0 ? <Mono>{qtyText(l.outstanding)}</Mono> : <Mono muted>—</Mono>),
+      key: 'pending', header: 'Pending', numeric: true, alwaysVisible: true, sortValue: (l) => l.pending ?? l.outstanding,
+      render: (l) => {
+        const pend = l.pending ?? l.outstanding;
+        return (
+          <Box data-testid="po-line-pending" sx={{ textAlign: 'right' }}>
+            {pend > 0 ? <Mono>{qtyText(pend)}</Mono> : <Mono muted>—</Mono>}
+            {(l.closedQty ?? 0) > 0 && <Box sx={{ fontSize: 11.5, color: 'var(--c-text-3)' }}>{qtyText(l.closedQty ?? 0)} released</Box>}
+          </Box>
+        );
+      },
     },
     {
       key: 'price', header: 'Price (₹)', numeric: true, alwaysVisible: true, sortValue: (l) => l.unitPrice, exportValue: (l) => l.unitPrice ?? '',
@@ -106,7 +137,18 @@ export default function PurchaseOrderDetail() {
         </Box>
       ),
     },
-    { key: 'expected', header: 'Expected', sortValue: (l) => l.expectedDate, render: (l) => <Mono muted>{l.expectedDate ?? '—'}</Mono> },
+    {
+      key: 'expected', header: 'Expected', sortValue: (l) => l.expectedDate,
+      render: (l) => (
+        <Box data-testid="po-line-expected">
+          {canManage && ['pending_approval', 'requested', 'waiting', 'part_received'].includes(stage) && (l.pending ?? l.outstanding) > 0
+            ? <DateCell value={l.expectedDate} label={`Expected date for ${l.item.code ?? l.item.name}`} lineId={l.id} missing={!l.expectedDate && !p.expectedDate}
+              onSaved={(next) => { setLate(next.plannedUnits ?? null); done(next, 'Expected date saved.'); }} />
+            : <Mono muted>{l.expectedDate ? String(l.expectedDate).slice(0, 10) : '—'}</Mono>}
+          {!l.expectedDate && l.effectiveDate && <Box sx={{ fontSize: 11.5, color: 'var(--c-text-3)' }}>the PO's: {l.effectiveDate}</Box>}
+        </Box>
+      ),
+    },
     {
       key: 'receipts', header: 'Deliveries', exportValue: (l) => l.receipts.map((r) => r.code).join(' '),
       render: (l) => (l.receipts.length
@@ -142,16 +184,22 @@ export default function PurchaseOrderDetail() {
   );
 
   return (
+    <FullScreenFrame on={full.on} onExit={() => full.set(false)}>
     <DetailLayout
       crossLinks={p.supplier ? crossLinks : undefined}
       header={
         <DetailHeader
           code={p.code}
           title={p.supplier?.name ?? 'No supplier yet'}
-          badges={<><PurchaseStatusBadge status={p.status} />{p.suppliedByCustomer && <Badge family="info" label="Customer supplies" title="The customer's own material, asked of the customer (₹0). What arrives is their stock, earmarked to the material request." />}</>}
-          actions={canManage && <>
+          badges={<><PoStageBadge stage={p.stage} label={p.stageLabel} /><PoTypeChip type={p.type} />{p.suppliedByCustomer && <Badge family="info" label="Customer supplies" title="The customer's own material, asked of the customer (₹0). What arrives is their stock, earmarked to the material request." />}</>}
+          actions={<>
+            {canApprove && stage === 'pending_approval' && <Button variant="contained" startIcon={<VerifiedRounded />} disabled={busy} data-testid="po-approve" onClick={() => void act(() => approvePurchaseOrder(p.id), `${p.code} approved — waiting for goods.`)}>Approve</Button>}
+            {canManage && stage === 'requested' && p.status !== 'cancelled' && <Button variant="contained" startIcon={<SendRounded />} disabled={busy || !p.supplier || !p.lines.length} data-testid="po-send" onClick={() => void act(() => sendForApproval(p.id), `${p.code} sent for MD approval.`)}>Send for MD approval</Button>}
+            {canManage && (stage === 'waiting' || stage === 'part_received') && <Button variant="contained" startIcon={<MoveToInboxRounded />} component={Link} to={`${appPath(company, 'receive')}?po=${encodeURIComponent(p.code)}`} data-testid="po-receive">Receive goods</Button>}
+            {canManage && (stage === 'waiting' || stage === 'part_received') && <Button startIcon={<DoNotDisturbOnRounded />} onClick={() => setClosing(true)} data-testid="po-close">Close PO</Button>}
             {editable && <Button startIcon={<AddRounded />} onClick={() => setAdding(true)}>Add a line</Button>}
-            {open && !p.totals.received && <Button color="error" startIcon={<BlockRounded />} onClick={() => setCancelling(true)}>Cancel</Button>}
+            {canManage && open && !p.totals.received && <Button color="error" startIcon={<BlockRounded />} onClick={() => setCancelling(true)}>Cancel</Button>}
+            <FullScreenToggle on={full.on} onToggle={full.toggle} />
           </>}
           facts={<>
             <Fact label="Supplier">{p.supplier ? p.supplier.name : <Typography component="span" sx={{ color: 'var(--c-text-3)' }}>Chosen when the order is placed</Typography>}</Fact>
@@ -171,14 +219,30 @@ export default function PurchaseOrderDetail() {
               </Fact>
             )}
             {p.totals.gross != null && <Fact label={p.reverseCharge ? 'Supplier total' : 'Total incl. GST'}><Mono>{rupeeText(p.totals.gross, 2)}</Mono></Fact>}
-            <Fact label="Expected"><Mono muted>{p.expectedDate ?? '—'}</Mono></Fact>
+            <Fact label="Expected delivery">
+              {canManage && ['pending_approval', 'requested', 'waiting', 'part_received'].includes(stage)
+                ? <DateCell value={p.expectedDate} label="Expected delivery date of the PO" poId={p.id} testId="po-expected-date" missing={!p.expectedDate} onSaved={(next) => done(next, 'Expected delivery date saved.')} />
+                : <Mono muted>{p.expectedDate ?? '—'}</Mono>}
+            </Fact>
           </>}
         />
       }
     >
       {p.status === 'cancelled' && <PlannedUnitsNote planned={cancelPlanned} />}
-      {p.status !== 'cancelled' && (
-        <PoStagePanel po={p} canManage={canManage} onPo={done} onChanged={changed} onReceive={setReceiving} />
+      {p.status !== 'cancelled' && <PlannedUnitsNote planned={late} />}
+      {stage === 'pending_approval' && (
+        <Alert severity="warning" data-testid="po-pending-approval" sx={{ mb: 1.5 }}>
+          Waiting for MD approval. Nothing can be received until the MD approves it.{!canApprove ? ' Approving needs the MD approval permission.' : ''}
+        </Alert>
+      )}
+      {stage === 'requested' && p.status !== 'cancelled' && (
+        <Alert severity="info" sx={{ mb: 1.5 }}>Not placed yet. Name the vendor and send it for MD approval.</Alert>
+      )}
+      {p.approval?.status === 'approved' && (
+        <Typography data-testid="po-approved" sx={{ fontSize: 13, color: 'var(--c-text-2)', mb: 1 }}>Approved by {p.approval.by?.name ?? 'the MD'}{p.approval.at ? ` on ${String(p.approval.at).slice(0, 10)}` : ''}.</Typography>
+      )}
+      {p.closed && (
+        <Alert severity="info" data-testid="po-closed-short" sx={{ mb: 1.5 }}>Closed short{p.closed.by?.name ? ` by ${p.closed.by.name}` : ''}: {p.closed.reason}. What was pending is released; the purchase request can order it again.</Alert>
       )}
       {(editable || p.reverseCharge) && (
         <Box sx={{ mb: 1.5 }}>
@@ -186,20 +250,32 @@ export default function PurchaseOrderDetail() {
             label={<Typography sx={{ fontSize: 13 }}>Reverse charge — we pay the GST, not the supplier</Typography>} />
         </Box>
       )}
-      <SectionCard title="Lines" subtitle="Each line is one item. The stage above says what to do next; a delivery is booked against its line and posts an ordinary stock receipt.">
+      <SectionCard title="Lines" subtitle="Ordered, received and still pending, line by line. Goods are received from Inventory › Receive against PO; each receipt is a GRN.">
         <DataTable rows={p.lines} columns={columns} getRowId={(l) => l.id} bare storageKey="purchase-lines" exportName={`${p.code}-lines`}
-          empty={<EmptyState icon={<AddRounded />} title="No lines yet" hint="Add what is being bought, then check stock and ask suppliers to quote."
+          empty={<EmptyState icon={<AddRounded />} title="No lines yet" hint="Add what is being bought, then send it for MD approval."
             action={editable ? <Button variant="contained" startIcon={<AddRounded />} onClick={() => setAdding(true)}>Add a line</Button> : undefined} />} />
       </SectionCard>
+      {(p.dateChanges?.length ?? 0) > 0 && (
+        <SectionCard title="Expected date changes" subtitle="Who moved the expected delivery date, and when. A GRN keeps its own actual receipt date.">
+          <Box data-testid="po-date-changes" sx={{ display: 'grid', gap: 0.5 }}>
+            {p.dateChanges!.map((d) => (
+              <Typography key={d.id} sx={{ fontSize: 13, overflowWrap: 'anywhere' }}>
+                <Mono>{String(d.at).slice(0, 16).replace('T', ' ')}</Mono>{' · '}
+                {d.lineId == null ? 'The PO' : (p.lines.find((l) => l.id === d.lineId)?.item.code ?? 'A line')}: {d.from ?? 'no date'} → {d.to ?? (d.lineId == null ? 'no date' : "the PO's date")}
+                {d.by?.name ? ` · ${d.by.name}` : ''}
+              </Typography>
+            ))}
+          </Box>
+        </SectionCard>
+      )}
       {p.notes && <SectionCard title="Notes"><Typography sx={{ fontSize: 13.5, whiteSpace: 'pre-wrap' }}>{p.notes}</Typography></SectionCard>}
       <AddPurchaseLineDialog orderId={adding ? p.id : null} forOrder={p.forOrder} onClose={() => setAdding(false)} onAdded={(n) => { setAdding(false); done(n, 'Line added.'); }} />
       <PurchaseForOrderDialog order={forOrdering ? p : null} onClose={() => setForOrdering(false)} onSaved={(n) => { setForOrdering(false); done(n, n.forOrder ? `Bought for ${n.forOrder.code}.` : 'No longer bought for an order.'); }} />
       <LineOrdersDialog line={linking} onClose={() => setLinking(null)} onSaved={(n) => { setLinking(null); done(n, 'Saved who the line is bought for.'); }} />
-      <ReceiveLineDialog line={receiving} orderCode={p.code} customer={!!p.suppliedByCustomer} onClose={() => setReceiving(null)} onReceived={(n, held, x) => {
-        setReceiving(null);
-        const base = held.length ? `Delivery booked. ${held.map((h) => `Held ${qtyText(h.quantity)} for ${h.orderCode}`).join('; ')} — nobody else can use it.` : 'Delivery booked into stock.';
-        done(n, [base, x?.substitute, x?.extra].filter(Boolean).join(' '));
-      }} />
+      <PromptDialog open={closing} title={`Close ${p.code} short?`} label="Why" confirmLabel="Close PO"
+        body="What is still pending is released. The purchase request's PO raised goes down by it, so a new PO can be raised for it. What arrived stays locked for its order."
+        onClose={() => setClosing(false)}
+        onConfirm={async (reason) => { done(await closePurchaseOrder(p.id, reason), `${p.code} closed short.`); }} />
       <ConfirmDialog open={!!removing} danger confirmLabel="Remove" title="Remove this line?"
         entityName={removing ? `${removing.item.code ?? removing.item.name} — ${qtyText(removing.quantity)} ${removing.item.uom}` : ''}
         body="Nothing has been received against it, so it can go. It is not ordered from the supplier any more."
@@ -212,5 +288,6 @@ export default function PurchaseOrderDetail() {
       <CancelPoDialog po={p} open={cancelling} onClose={() => setCancelling(false)}
         onCancelled={(next, planned) => { setCancelPlanned(planned); done(next, `${p.code} cancelled.`); }} />
     </DetailLayout>
+    </FullScreenFrame>
   );
 }

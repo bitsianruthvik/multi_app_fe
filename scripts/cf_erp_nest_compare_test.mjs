@@ -337,7 +337,7 @@ await check('Use auto nesting instead asks first, says what is replaced, then po
   await waitFor(() => document.querySelector('[data-testid=compare-confirm]'), 'the confirmation');
   assert.equal(document.querySelector('[data-testid=compare-confirm]').textContent, answer().willReplace.message, 'the backend sentence, as given');
   const facts = document.querySelector('[data-testid=compare-replace-facts]').textContent;
-  assert.ok(facts.includes('Goes: 4 plates (3 uploaded, 1 ours), 3 customer files.') && facts.includes('Comes: 3 plates holding 37 pieces. 2 stay un-nested.'));
+  assert.ok(facts.includes('Goes: 4 plates (3 uploaded, 1 by AI), 3 customer files.') && facts.includes('Comes: 3 plates holding 37 pieces. 2 stay un-nested.'));
   assert.equal(posted('/compare/accept').length, 0, 'nothing is written before the confirmation');
   await click(find('Replace with auto nesting'), 'confirm');
   await waitFor(() => decided.length === 1, 'decided');

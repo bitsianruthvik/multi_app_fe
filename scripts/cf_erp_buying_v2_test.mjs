@@ -1,9 +1,8 @@
 // Run from multi_app_fe: node scripts/cf_erp_buying_v2_test.mjs
-// Buying v2 (TM/CF_ERP_BUYING_V2.md): the requisition on the order's Buying stage, rendered in jsdom against mocked routes
-// that answer with the contract's example payloads — each cover kind as a chip (a row split over three POs with three
-// dates), a requisition met from stock with no PO, the stock check as a dry run then Hold, skip / skip all / undo, Buy… with
-// two POs and a date per line, Release excess, the material-ready line in every state with its reasons, a PO line's date
-// edit and the planned cards it makes late, the board's "waiting for stock" group, the stage foot, and a read-only role.
+// Buying v2 (TM/CF_ERP_BUYING_V2.md), what is left of it after §71 (2026-10-18): the sales order's Material request stage
+// only RAISES the MR and shows its status (everything else is in Purchase — cf_erp_purchase_flow_v3_test.mjs). Rendered in
+// jsdom against mocked routes: Raise MR, the read-only and loading states, the material-ready line in every state with its
+// reasons, a PO line's date edit and the planned cards it makes late, Cancel PO, the stage foot and the readiness words.
 import assert from 'node:assert/strict';
 import { mkdir, writeFile, unlink } from 'node:fs/promises';
 import { readFileSync } from 'node:fs';
@@ -47,10 +46,9 @@ const built = await build({
       export * from './src/apps/cf_erp/lib/requisition';
       export { OrderPurchasePanel } from './src/apps/cf_erp/components/Purchase/OrderPurchasePanel';
       export { MaterialReadyChip } from './src/apps/cf_erp/components/Purchase/MaterialReadyChip';
-      export { RequisitionBoard } from './src/apps/cf_erp/components/Purchase/RequisitionBoard';
       export { CancelPoDialog } from './src/apps/cf_erp/components/Purchase/CancelPoDialog';
       export { PlannedUnitsNote } from './src/apps/cf_erp/components/Purchase/PlannedUnitsNote';
-      export { PoStagePanel } from './src/apps/cf_erp/components/Purchase/PoStagePanel';
+      export { DateCell } from './src/apps/cf_erp/components/Purchase/DateCell';
       export { StageFoot } from './src/apps/cf_erp/components/OrderProcess/StageFoot';
       export { buyingSummaryWords } from './src/apps/cf_erp/lib/process';`,
     resolveDir: process.cwd(), loader: 'tsx',
@@ -130,7 +128,6 @@ const REQ92 = {
 };
 const clone = (x) => JSON.parse(JSON.stringify(x));
 const orderReqs = (reqs, extra = {}) => ({ order: { id: 22552, code: 'BHMV2RB688-O1', status: 'confirmed', open: true }, today: '2026-10-12', reason: null, requisitions: reqs, linesWithout: [], ...extra });
-const lanesEmpty = { shortfall: [], lanes: [], held: { total: 0, rows: [] }, requisitions: [], linesWithout: [] };
 const stage = {
   stageKey: 'buying', label: 'Buying', sequence: 5, requirement: 'required', applies: true, decidedBy: 'data', state: 'done', blockers: [],
   detail: 'All 3 materials decided — 1 held in stock, 1 on order, last delivery 11 Nov 2026, 1 skipped (1 waiting for stock)',
@@ -139,265 +136,38 @@ const stage = {
 const order = { id: 22552, code: 'BHMV2RB688-O1' };
 const mount = (reqs, opts = {}) => {
   globalThis.__routes['GET /orders/22552/requisitions'] = () => (opts.reqsResult ? opts.reqsResult(reqs) : reqs);
-  globalThis.__routes['GET /orders/22552/purchase'] = () => opts.lanes ?? lanesEmpty;
+  globalThis.__routes['GET /material-requests'] = () => ({ rows: [] });
   return render(React.createElement(m.OrderPurchasePanel, { order, stage: opts.stage ?? stage, onChanged: opts.onChanged }));
 };
-const rowOf = (lineId) => document.querySelector(`[data-testid="req-row"][data-line="${lineId}"]`);
-const chipsOf = (row) => qa('cover-chip', row).map((c) => ({ kind: c.dataset.kind, label: text(c), href: c.getAttribute('href') }));
 
 // ── 1: helpers: paths, methods, bodies ──────────────────────────────────────
 await check('the helpers call the contract paths with the contract bodies', async () => {
   reset();
-  for (const [method, path] of [['GET', '/orders/22552/requisitions'], ['POST', '/orders/22552/requisitions'], ['POST', '/requisitions/92/stock-check'], ['POST', '/requisitions/92/skip'],
-    ['POST', '/requisitions/92/unskip'], ['POST', '/requisitions/purchase-orders'], ['POST', '/requisition-lines/225/release-excess'], ['GET', '/buying/board'], ['GET', '/order-lines/9951/material-ready'],
+  for (const [method, path] of [['GET', '/orders/22552/requisitions'], ['POST', '/orders/22552/requisitions'], ['GET', '/order-lines/9951/material-ready'],
     ['PUT', '/purchase-lines/1443'], ['GET', '/requisitions/92']]) globalThis.__routes[`${method} ${path}`] = () => ({});
   await m.getOrderRequisitions(22552); assert.equal(lastCall('GET', '/orders/22552/requisitions').method, 'GET');
   await m.raiseRequisitions(22552, { lineIds: [9951] }); assert.deepEqual(lastCall('POST', '/orders/22552/requisitions').body, { lineIds: [9951] });
   await m.raiseRequisitions(22552); assert.deepEqual(lastCall('POST', '/orders/22552/requisitions').body, {});
-  await m.checkStock(92); assert.deepEqual(lastCall('POST', '/requisitions/92/stock-check').body, {});
-  await m.checkStock(92, [225]); assert.deepEqual(lastCall('POST', '/requisitions/92/stock-check').body, { lineIds: [225] });
-  await m.holdStock(92, [{ lineId: 225, hold: 6 }]); assert.deepEqual(lastCall('POST', '/requisitions/92/stock-check').body, { apply: true, lines: [{ lineId: 225, hold: 6 }] });
-  await m.skipLines(92, { lineIds: [227] }, 'free-issue by the client'); assert.deepEqual(lastCall('POST', '/requisitions/92/skip').body, { lineIds: [227], note: 'free-issue by the client' });
-  await m.skipLines(92, { all: true }); assert.deepEqual(lastCall('POST', '/requisitions/92/skip').body, { all: true });
-  await m.unskipLines(92, { lineIds: [227] }); assert.deepEqual(lastCall('POST', '/requisitions/92/unskip').body, { lineIds: [227] });
-  await m.makePurchaseOrders([{ supplierId: 21630, place: true, lines: [{ prLineId: 226, quantity: 3, expectedDate: '2026-10-21' }] }]);
-  assert.deepEqual(lastCall('POST', '/requisitions/purchase-orders').body, { orders: [{ supplierId: 21630, place: true, lines: [{ prLineId: 226, quantity: 3, expectedDate: '2026-10-21' }] }] });
-  await m.releaseExcessPlan(225); assert.deepEqual(lastCall('POST', '/requisition-lines/225/release-excess').body, {});
-  await m.releaseExcess(225); assert.deepEqual(lastCall('POST', '/requisition-lines/225/release-excess').body, { apply: true });
-  await m.getBuyingBoard({ orderId: 22552, search: ' x ' }); assert.equal(lastCall('GET', '/buying/board').url, '/api/testco/cf_erp/buying/board?orderId=22552&search=x');
+  await m.getRequisition(92); assert.equal(calls('GET', '/requisitions/92').length, 1);
   await m.updatePurchaseLine(1443, { expectedDate: '2026-11-11' }); assert.deepEqual(lastCall('PUT', '/purchase-lines/1443').body, { expectedDate: '2026-11-11' });
   await m.updatePurchaseLine(1443, { quantity: 2 }); assert.deepEqual(lastCall('PUT', '/purchase-lines/1443').body, { quantity: 2 });
+  for (const gone of ['checkStock', 'holdStock', 'skipLines', 'unskipLines', 'makePurchaseOrders', 'releaseExcess', 'releaseExcessPlan', 'getBuyingBoard']) assert.equal(m[gone], undefined, `${gone} went with §71`);
 });
 
-// ── 2: the requisition table ─────────────────────────────────────────────────
-await check('the table has a row per material; each cover kind is a chip; a row split over two POs shows both dates', async () => {
-  reset();
-  await mount(orderReqs([clone(REQ92)]));
-  assert.equal(qa('req-row').length, 3);
-  assert.ok(text(q1('req-sentence')).startsWith('All 3 materials decided — 1 from stock, 1 on order'));
-  assert.deepEqual(chipsOf(rowOf(225)).map((c) => c.label), ['From stock 10']);
-  const b = chipsOf(rowOf(226));
-  assert.deepEqual(b.map((c) => c.label), ['PO-001034 · 3 · due 21 Oct', 'PO-001035 · 1 · due 11 Nov']);
-  assert.ok(b[0].href.endsWith('/purchase-orders/1537') && b[1].href.endsWith('/purchase-orders/1538'), 'each PO chip opens its PO');
-  const c = chipsOf(rowOf(227));
-  assert.deepEqual(c.map((x) => x.label), ['Skipped — waits for stock']);
-  assert.match(qa('cover-chip', rowOf(227))[0].getAttribute('aria-label'), /Skipped by Test User on 11 Oct/);
-  assert.equal(rowOf(227).dataset.status, 'skipped');
-  assert.match(text(q1('buying-summary')), /All 3 materials decided/);
-});
-await check('a row split over THREE POs shows three chips with three dates, and the received share', async () => {
-  reset();
-  const r = clone(REQ92);
-  r.lines[1].need = 9; r.lines[1].cover = { ...zero, ordered: 9, total: 9, firstDate: '2026-10-21', lastDate: '2026-12-02' };
-  r.lines[1].purchase = [po(537, 'PO-001034', 1442, S1, 3, '2026-10-21', { received: 1, outstanding: 2 }), po(538, 'PO-001035', 1443, S2, 4, '2026-11-11'), po(539, 'PO-001036', 1444, S3, 2, '2026-12-02')];
-  await mount(orderReqs([r]));
-  const labels = chipsOf(rowOf(226)).map((c) => c.label);
-  assert.deepEqual(labels, ['PO-001034 · 3 · due 21 Oct (1 received)', 'PO-001035 · 4 · due 11 Nov', 'PO-001036 · 2 · due 2 Dec']);
-});
-await check('asked, ordered-without-date, overdue, received, over and open show as their own chips in words', async () => {
-  reset();
-  const r = clone(REQ92);
-  r.lines = [
-    { ...lineB, id: 301, status: 'asked', statusLabel: 'Asked', resolved: false, sentence: '4 kg is asked for and not ordered yet — production waits until the order is placed with a date.', cover: { ...zero, asked: 4, total: 4, open: 0 }, purchase: [po(601, 'PO-000960', 1500, null, 4, null, { state: 'asked' })] },
-    { ...lineB, id: 302, status: 'ordered_undated', resolved: false, sentence: 'Ordered, but 4 kg has no receiving date — production waits until a date is set.', cover: { ...zero, undated: 4, total: 4 }, purchase: [po(602, 'PO-000012', 1501, S1, 4, null, { state: 'undated' })] },
-    { ...lineB, id: 303, status: 'covered', sentence: 'Covered — (a delivery is overdue)', cover: { ...zero, ordered: 4, total: 4, late: true }, purchase: [po(603, 'PO-000987', 1502, S1, 4, '2026-10-01', { late: true })] },
-    { ...lineB, id: 304, status: 'covered', cover: { ...zero, ordered: 4, total: 4 }, purchase: [po(604, 'PO-000500', 1503, S1, 4, '2026-10-02', { state: 'received', received: 4, outstanding: 0 })] },
-    { ...lineA, id: 305, status: 'from_stock', cover: { ...zero, held: 13, stock: 13, total: 13, over: 3 } },
-    { ...lineC, id: 306, status: 'open', statusLabel: 'Open', resolved: false, skipped: null, sentence: 'Nothing decided yet — hold stock, order it, or skip it.', cover: { ...zero, open: 2 } },
-  ];
-  await mount(orderReqs([r]));
-  assert.deepEqual(chipsOf(rowOf(301)).map((c) => c.label), ['Asked for, no date yet · 4']);
-  assert.deepEqual(chipsOf(rowOf(302)).map((c) => c.label), ['PO-000012 · 4 · no date']);
-  assert.deepEqual(chipsOf(rowOf(303)).map((c) => c.label), ['PO-000987 · 4 · was due 1 Oct']);
-  assert.equal(chipsOf(rowOf(303))[0].kind, 'po');
-  assert.deepEqual(chipsOf(rowOf(304)).map((c) => c.label), ['PO-000500 · 4 · received']);
-  assert.deepEqual(chipsOf(rowOf(305)).map((c) => c.label), ['From stock 13', 'Over by 3']);
-  assert.deepEqual(chipsOf(rowOf(306)).map((c) => c.label), ['Open 2']);
-  assert.match(text(rowOf(301)), /asked for and not ordered yet/);
-});
-await check('a requisition met entirely from stock shows no PO and says so', async () => {
-  reset();
-  const r = clone(REQ92);
-  r.status = 'fulfilled_from_stock'; r.statusLabel = 'From stock'; r.sentence = 'All 1 materials held from stock — nothing to buy.';
-  r.lines = [lineA]; r.counts = { ...counts, lines: 1, from_stock: 1, covered: 0, skipped: 0, waiting: 0 };
-  r.materialReady = { state: 'ready', readyDate: '2026-10-12', soft: false, text: 'BHMV2RB688-A: here.' };
-  await mount(orderReqs([r]), { stage: { ...stage, summary: { materials: 1, fromStock: 1, skipped: 0, waiting: 0, open: 0 }, detail: 'All 1 materials decided — 1 held in stock' } });
-  assert.deepEqual(chipsOf(rowOf(225)).map((c) => c.label), ['From stock 10']);
-  assert.equal(qa('cover-chip').filter((c) => c.dataset.kind === 'po').length, 0);
-  assert.match(text(q1('req-sentence')), /nothing to buy/);
-  assert.equal(q1('req-ready').dataset.state, 'ready');
-  assert.equal(q1('buying-skipped'), null, 'no skipped line, no skipped note');
-});
-
-// ── 3: stock check: dry run, then Hold ─────────────────────────────────────────
 const openReq = () => {
   const r = clone(REQ92);
-  r.status = 'open'; r.statusLabel = 'Open'; r.done = false; r.sentence = '3 materials to decide — hold stock, order, or skip.';
+  r.status = 'open'; r.statusLabel = 'Open'; r.done = false; r.sentence = '3 materials to decide.';
   r.counts = { ...counts, from_stock: 0, covered: 0, skipped: 0, open: 3, waiting: 0 };
   r.lines = [
-    { ...lineA, status: 'open', statusLabel: 'Open', resolved: false, sentence: 'Nothing decided yet — hold stock, order it, or skip it.', cover: { ...zero, open: 10 }, holds: [], ready: null },
-    { ...lineB, status: 'open', statusLabel: 'Open', resolved: false, sentence: 'Nothing decided yet — hold stock, order it, or skip it.', cover: { ...zero, open: 4 }, purchase: [], ready: null },
-    { ...lineC, status: 'open', statusLabel: 'Open', resolved: false, skipped: null, sentence: 'Nothing decided yet — hold stock, order it, or skip it.', cover: { ...zero, open: 2 }, ready: null },
+    { ...lineA, status: 'open', statusLabel: 'Open', resolved: false, cover: { ...zero, open: 10 }, holds: [], ready: null },
+    { ...lineB, status: 'open', statusLabel: 'Open', resolved: false, cover: { ...zero, open: 4 }, purchase: [], ready: null },
+    { ...lineC, status: 'open', statusLabel: 'Open', resolved: false, skipped: null, cover: { ...zero, open: 2 }, ready: null },
   ];
-  r.materialReady = { state: 'waiting', readyDate: null, soft: false, text: 'BHMV2RB688-A: 10 kg is not covered — nothing is held, ordered or free in stock.' };
   return r;
 };
-const DRY = {
-  applied: false, requisition: { id: 92, code: 'PR-BHMV2RB688-O1-10', status: 'open' }, canApply: true,
-  lines: [
-    { lineId: 225, item: A, need: 10, covered: 0, open: 10, status: 'open', freeInStock: 10, room: 10, proposeHold: 10 },
-    { lineId: 226, item: B, need: 4, covered: 0, open: 4, status: 'open', freeInStock: 0, room: 4, proposeHold: 0 },
-    { lineId: 227, item: C, need: 2, covered: 0, open: 2, status: 'open', freeInStock: 0, room: 2, proposeHold: 0 },
-  ],
-  sentence: '1 material can be held from stock for BHMV2RB688-O1 line 10.',
-};
-await check('Check stock is a dry run: it shows free stock as the server counts it, holds nothing, and Hold sends apply', async () => {
-  reset();
-  globalThis.__routes['POST /requisitions/92/stock-check'] = (body) => (body.apply ? { applied: true, held: [{ lineId: 225, item: A, quantity: 10 }], requisition: clone(REQ92) } : DRY);
-  await mount(orderReqs([openReq()]));
-  await click(buttonIn(rowOf(225), 'Check stock'));
-  await settle();
-  assert.deepEqual(calls('POST', '/requisitions/92/stock-check').map((c) => c.body), [{ lineIds: [225] }], 'only a dry run so far, for that one row');
-  assert.match(text(q1('stock-check-sentence')), /1 material can be held from stock/);
-  const rows = qa('stock-check-row');
-  assert.equal(rows.length, 1, 'a row-level check shows that row only');
-  assert.match(text(rows[0]), /BHMV2RB688-A.*10 kg.*10/);
-  assert.equal(q1('hold-input').value, '10');
-  const hold = buttonIn(document.querySelector('[role="dialog"]'), 'Hold');
-  await click(hold); await settle();
-  assert.deepEqual(lastCall('POST', '/requisitions/92/stock-check').body, { apply: true, lines: [{ lineId: 225, hold: 10 }] });
-  await React.act(async () => { await sleep(500); });
-  assert.ok(!document.querySelector('[role="dialog"]'), 'the dialog closes once held');
-});
-await check('Check stock refuses more than is free for this order, and Hold stays off', async () => {
-  reset();
-  globalThis.__routes['POST /requisitions/92/stock-check'] = () => DRY;
-  await mount(orderReqs([openReq()]));
-  await click(buttonIn(rowOf(225), 'Check stock')); await settle();
-  await setValue(q1('hold-input'), '99');
-  assert.match(text(document.querySelector('[role="dialog"]')), /Only 10 is free for this order/);
-  assert.equal(buttonIn(document.querySelector('[role="dialog"]'), 'Hold').disabled, true);
-});
-await check('Check stock for all dry-runs every requisition with something open and lists the rows of all of them', async () => {
-  reset();
-  const r2 = openReq(); r2.id = 93; r2.code = 'PR-BHMV2RB688-O1-20'; r2.line = { ...r2.line, id: 9952, lineNo: 20 };
-  const seen = [];
-  for (const id of [92, 93]) globalThis.__routes[`POST /requisitions/${id}/stock-check`] = (body) => { seen.push([id, body]); return { ...DRY, requisition: { id, code: `PR-${id}`, status: 'open' } }; };
-  await mount(orderReqs([openReq(), r2]));
-  await click(buttonIn(q1('buying-header-actions'), 'Check stock for all')); await settle();
-  assert.deepEqual(seen.map(([id]) => id).sort(), [92, 93]);
-  assert.equal(qa('stock-check-row').length, 6);
-});
 
-// ── 4: skip ─────────────────────────────────────────────────────────────────
-await check('Skip one sends the line; Undo skip sends unskip', async () => {
-  reset();
-  const r = openReq();
-  globalThis.__routes['POST /requisitions/92/skip'] = () => ({ changed: 1, lineIds: [227], requisition: r });
-  globalThis.__routes['POST /requisitions/92/unskip'] = () => ({ changed: 1, lineIds: [227], requisition: r });
-  await mount(orderReqs([r]));
-  await click(buttonIn(rowOf(227), 'Skip')); await settle();
-  assert.deepEqual(lastCall('POST', '/requisitions/92/skip').body, { lineIds: [227] });
-  await mount(orderReqs([clone(REQ92)]));
-  await click(buttonIn(rowOf(227), 'Undo skip')); await settle();
-  assert.deepEqual(lastCall('POST', '/requisitions/92/unskip').body, { lineIds: [227] });
-  assert.equal(buttonIn(rowOf(225), 'Skip'), undefined, 'a covered row has nothing to skip');
-});
-await check('Skip all that are open explains what it does, takes a note, and sends all:true per requisition', async () => {
-  reset();
-  globalThis.__routes['POST /requisitions/92/skip'] = () => ({ changed: 3, lineIds: [225, 226, 227], requisition: openReq() });
-  await mount(orderReqs([openReq()]));
-  await click(buttonIn(q1('buying-header-actions'), 'Skip all that are open')); await settle();
-  const dlg = document.querySelector('[role="dialog"]');
-  assert.match(text(dlg), /Skip buying 3 materials\?/); assert.match(text(dlg), /You can undo this/);
-  await setValue(dlg.querySelector('input'), 'client free-issue');
-  await click(buttonIn(dlg, 'Skip')); await settle();
-  assert.deepEqual(lastCall('POST', '/requisitions/92/skip').body, { all: true, note: 'client free-issue' });
-});
-
-// ── 5: Buy… ─────────────────────────────────────────────────────────────────
-const pickSupplier = async (scope, name) => {
-  const input = scope.querySelector('input');
-  await fire(input, 'mousedown');
-  await React.act(async () => { await sleep(420); });
-  const opt = [...document.querySelectorAll('[role="option"]')].find((o) => text(o).includes(name));
-  assert.ok(opt, `supplier option ${name}`);
-  await click(opt);
-};
-await check('Buy… makes two purchase orders for one material: a supplier and a date per line, the open part split 3 + 1', async () => {
-  reset();
-  globalThis.__routes['GET /parties'] = () => [{ id: 21630, code: 'S1', name: 'BHMV2RB688 S1' }, { id: 21631, code: 'S2', name: 'BHMV2RB688 S2' }];
-  globalThis.__routes['POST /requisitions/purchase-orders'] = () => ({ purchaseOrders: [{ id: 1034, code: 'PO-001034' }, { id: 1035, code: 'PO-001035' }], requisitions: [clone(REQ92)] });
-  await mount(orderReqs([openReq()]));
-  await click(buttonIn(rowOf(226), 'Buy…')); await settle();
-  const dlg = document.querySelector('[role="dialog"]');
-  assert.equal(qa('po-draft').length, 1);
-  assert.equal(qa('draft-line').length, 1);
-  assert.equal(q1('draft-qty').value, '4', 'starts at what is open');
-  assert.equal(buttonIn(dlg, 'Make the purchase order').disabled, true, 'a placed order needs a supplier');
-  await pickSupplier(qa('draft-supplier')[0], 'S1');
-  await setValue(q1('draft-qty'), '3');
-  await setValue(q1('draft-date'), '2026-10-21');
-  assert.match(text(q1('buy-summary')), /Not on any purchase order yet: BHMV2RB688-B 1 kg/);
-  await click(q1('add-po'));
-  const drafts = qa('po-draft');
-  assert.equal(drafts.length, 2);
-  assert.equal(qa('draft-qty')[1].value, '1', 'the second order is filled with what is left');
-  await pickSupplier(qa('draft-supplier')[1], 'S2');
-  await setValue(qa('draft-date')[1], '2026-11-04');
-  assert.equal(q1('buy-nodate'), null);
-  const make = buttonIn(dlg, 'Make 2 purchase orders');
-  assert.equal(make.disabled, false);
-  await click(make); await settle();
-  assert.deepEqual(lastCall('POST', '/requisitions/purchase-orders').body, { orders: [
-    { supplierId: 21630, place: true, lines: [{ prLineId: 226, quantity: 3, expectedDate: '2026-10-21' }] },
-    { supplierId: 21631, place: true, lines: [{ prLineId: 226, quantity: 1, expectedDate: '2026-11-04' }] },
-  ] });
-});
-await check('Buy… says a missing date out loud, refuses more than is open, and Buy the rest takes every open material', async () => {
-  reset();
-  globalThis.__routes['GET /parties'] = () => [];
-  await mount(orderReqs([openReq()]));
-  await click(buttonIn(q1('buying-header-actions'), 'Buy the rest')); await settle();
-  assert.equal(qa('draft-line').length, 3);
-  assert.match(text(q1('buy-nodate')), /3 lines have no receiving date\. Production waits until a date is set\./);
-  await setValue(qa('draft-qty')[1], '99');
-  assert.match(text(q1('buy-summary')), /only 4 is still open — 99 would buy more than the line needs/);
-});
-await check('a refused purchase order keeps the dialog and lists every problem the server named', async () => {
-  reset();
-  globalThis.__routes['GET /parties'] = () => [{ id: 21630, code: 'S1', name: 'BHMV2RB688 S1' }];
-  globalThis.__routes['POST /requisitions/purchase-orders'] = () => ({ __status: 422, body: { message: 'The purchase orders cannot be made.', code: 'INVALID', problems: ['Purchase order 1: name the supplier.', 'Purchase order 2: it has no lines.'] } });
-  await mount(orderReqs([openReq()]));
-  await click(buttonIn(rowOf(226), 'Buy…')); await settle();
-  await pickSupplier(qa('draft-supplier')[0], 'S1');
-  await click(buttonIn(document.querySelector('[role="dialog"]'), 'Make the purchase order')); await settle();
-  const dlg = document.querySelector('[role="dialog"]');
-  assert.ok(!!dlg, 'still open');
-  assert.match(text(dlg), /Purchase order 1: name the supplier\./); assert.match(text(dlg), /Purchase order 2: it has no lines\./);
-});
-
-// ── 6: Release excess ──────────────────────────────────────────────────────────
-await check('over-cover offers Release excess: the plan is shown first, then it is let go with apply', async () => {
-  reset();
-  const r = clone(REQ92);
-  r.lines = [{ ...lineA, cover: { ...zero, held: 13, stock: 13, total: 13, over: 3 } }];
-  globalThis.__routes['POST /requisition-lines/225/release-excess'] = (body) => (body.apply
-    ? { applied: true, requisitionLineId: 225, item: A, need: 10, excess: 3, plan: [], requisition: r }
-    : { applied: false, requisitionLineId: 225, item: A, need: 10, excess: 3, plan: [{ kind: 'hold', id: 45959, quantity: 3, leaves: 10, text: 'Let go 3 kg of the stock held for this line.' }] });
-  await mount(orderReqs([r]));
-  await click(buttonIn(rowOf(225), 'Release excess')); await settle();
-  assert.deepEqual(calls('POST', '/requisition-lines/225/release-excess').map((c) => c.body), [{}]);
-  assert.match(text(q1('excess-plan')), /needs 10 kg; 3 is over/); assert.match(text(q1('excess-plan')), /Let go 3 kg of the stock held/);
-  await click(buttonIn(document.querySelector('[role="dialog"]'), 'Let it go')); await settle();
-  assert.deepEqual(lastCall('POST', '/requisition-lines/225/release-excess').body, { apply: true });
-  const none = clone(REQ92);
-  await mount(orderReqs([none]));
-  assert.equal(buttonIn(rowOf(225), 'Release excess'), undefined, 'no excess, no button');
-});
-
-// ── 7: raise ───────────────────────────────────────────────────────────────────
-await check('no MR yet: the order offers "Raise the material request" (it earmarks: earmark true); a line that cannot be raised says why', async () => {
+// ── 2: the stage: Raise MR and a read-only status ─────────────────────────────────
+await check('no MR yet: the order offers "Raise MR" (it sends nothing but the order — no earmark, §71); a line that cannot be raised says why', async () => {
   reset();
   const without = [
     { line: { id: 9951, lineNo: 10, name: 'Girder' }, canRaise: true, reason: null, materials: [{ item: A, need: 10 }], materialReady: { state: 'waiting', readyDate: null, soft: false, text: 'Nothing is decided.' } },
@@ -407,21 +177,15 @@ await check('no MR yet: the order offers "Raise the material request" (it earmar
   globalThis.__routes['POST /orders/22552/requisitions'] = () => { raised = true; return orderReqs([openReq()], { raised: 1, refreshed: 0, notRaised: [] }); };
   await mount(orderReqs([], { linesWithout: without }));
   globalThis.__routes['GET /orders/22552/requisitions'] = () => (raised ? orderReqs([openReq()]) : orderReqs([], { linesWithout: without }));
-  assert.equal(qa('requisition').length, 0);
+  assert.equal(qa('mr-status-row').length, 0);
   assert.equal(qa('line-without').length, 2);
   assert.match(text(qa('line-without')[1]), /The design is not frozen/);
-  const header = buttonIn(q1('buying-header-actions'), 'Raise the material request');
-  await click(header); await settle();
-  assert.deepEqual(lastCall('POST', '/orders/22552/requisitions').body, { earmark: true });
-  assert.equal(qa('requisition').length, 1, 'the answer is shown at once');
-});
-await check('a stale requisition offers to bring it up to date (the refresh route)', async () => {
-  reset();
-  const r = openReq(); r.stale = true;
-  globalThis.__routes['POST /orders/22552/requisitions'] = () => orderReqs([r]);
-  await mount(orderReqs([r]));
-  await click(buttonIn(document, 'Bring up to date')); await settle();
-  assert.deepEqual(lastCall('POST', '/orders/22552/requisitions').body, { lineIds: [9951], earmark: true });
+  await click(q1('raise-mr')); await settle();
+  assert.deepEqual(lastCall('POST', '/orders/22552/requisitions').body, {});
+  assert.equal(qa('mr-status-row').length, 1, 'the answer is shown at once');
+  assert.match(text(qa('mr-status-row')[0]), /PR-BHMV2RB688-O1-10.*Line 10.*0 of 3 locked/);
+  assert.ok(qa('mr-status-row')[0].querySelector('a').getAttribute('href').endsWith('/material-requests/92'), 'the MR opens in Purchase');
+  assert.equal([...document.querySelectorAll('button')].filter((b) => /Check stock|Skip|Buy|Release excess/.test(text(b))).length, 0, 'no working panel on the sales order');
 });
 
 // ── 8: states ──────────────────────────────────────────────────────────────────
@@ -429,8 +193,8 @@ await check('without the manage permission the screen is read-only and says why'
   reset();
   globalThis.__user = { uiPermissions: ['cf_erp_inventory_view'] };
   await mount(orderReqs([openReq()]));
-  assert.ok(qa('req-row').length === 3);
-  assert.match(text(q1('buying-readonly')), /your role cannot change it/);
+  assert.ok(qa('mr-status-row').length === 1);
+  assert.match(text(q1('buying-readonly')), /Raising it needs the inventory manage permission/);
   assert.equal(q1('buying-header-actions'), null);
   assert.equal([...document.querySelectorAll('button')].filter((b) => /Check stock|Skip|Buy|Release excess/.test(text(b))).length, 0);
 });
@@ -445,9 +209,9 @@ await check('loading shows a skeleton, an error shows the server sentence with R
   reset();
   let release;
   globalThis.__routes['GET /orders/22552/requisitions'] = () => new Promise((r) => { release = () => r(orderReqs([])); });
-  globalThis.__routes['GET /orders/22552/purchase'] = () => lanesEmpty;
+  globalThis.__routes['GET /material-requests'] = () => ({ rows: [] });
   await render(React.createElement(m.OrderPurchasePanel, { order, stage }));
-  assert.equal(qa('req-row').length, 0);
+  assert.equal(qa('mr-status-row').length, 0);
   assert.ok(document.querySelector('.MuiSkeleton-root') || document.querySelector('[class*="keleton"]') || true);
   await React.act(async () => { release(); await sleep(30); });
   assert.match(text(q1('buying-empty')), /No line of this order buys any material/);
@@ -459,22 +223,22 @@ await check('loading shows a skeleton, an error shows the server sentence with R
   await render(React.createElement(m.OrderPurchasePanel, { order, stage }));
   assert.match(text(q1('buying-empty')), /The order is closed/);
 });
-await check('a refusal (CHANGED) shows the server sentence and every problem, with Reload that reads again', async () => {
+await check('a refusal shows the server sentence and every problem, with Reload that reads again', async () => {
   reset();
-  const r = openReq();
   let reads = 0;
-  globalThis.__routes['POST /requisitions/92/skip'] = () => ({ __status: 409, body: { message: 'Someone changed this requisition. Reload and try again.', code: 'CHANGED', problems: ['BHMV2RB688-C is already covered (from stock) — there is nothing to skip.'] } });
-  await mount(orderReqs([r]), { reqsResult: (x) => { reads++; return x; } });
+  const without = [{ line: { id: 9951, lineNo: 10, name: 'Girder' }, canRaise: true, reason: null, materials: [{ item: A, need: 10 }], materialReady: null }];
+  globalThis.__routes['POST /orders/22552/requisitions'] = () => ({ __status: 422, body: { message: 'Nothing can be put on a material request for BHMV2RB688-O1 yet.', code: 'NOTHING_TO_RAISE', problems: ['Line 10: Its material is not known yet.'] } });
+  await mount(orderReqs([], { linesWithout: without }), { reqsResult: (x) => { reads++; return x; } });
   const before = reads;
-  await click(buttonIn(rowOf(227), 'Skip')); await settle();
+  await click(q1('raise-mr')); await settle();
   const note = q1('buying-refusal');
-  assert.match(text(note), /Someone changed this requisition/); assert.match(text(note), /already covered \(from stock\)/);
+  assert.match(text(note), /Nothing can be put on a material request/);
+  assert.match(text(note), /Line 10: Its material is not known yet\./);
   await click(buttonIn(note, 'Reload')); await settle();
-  assert.ok(reads > before, 'Reload reads the requisition again');
+  assert.ok(reads > before, 'Reload reads again');
   assert.equal(q1('buying-refusal'), null);
 });
 
-// ── 9: the material-ready line ──────────────────────────────────────────────────
 const reason = (state, extra = {}) => ({ item: B, need: 4, short: 0, state, date: null, skipped: false, requisitionLineId: 226, cover: [], text: `BHMV2RB688-B: ${state}.`, ...extra });
 await check('the material-ready line reads Ready / Ready from <date> / Waiting for stock / Late since <date>, each with its reasons', async () => {
   reset();
@@ -505,7 +269,7 @@ await check('the reasons list puts what waits first, and the chip on a requisiti
   });
   await mount(orderReqs([clone(REQ92)]));
   assert.equal(calls('GET', '/order-lines/9951/material-ready').length, 0, 'nothing is fetched until the chip is opened');
-  const chip = q1('req-ready');
+  const chip = q1('mr-ready');
   assert.equal(text(chip), 'Waiting for stock');
   await click(chip); await settle();
   const states = qa('ready-reason').map((r) => r.dataset.state);
@@ -528,57 +292,19 @@ await check('a PO line has its own receiving date; changing it sends the PUT and
     { unitKey: 'l9951', code: 'BHMV2RB688-FG', order: { id: 22552, code: 'BHMV2RB688-O1' }, line: { id: 9951, lineNo: 10 }, kind: 'material_late', week: '2026-11-16', startDate: null, wasDate: '2026-11-11', wasState: 'dated', readyDate: '2026-11-26', earliest: '2026-11-30',
       message: 'Its material now arrives 26 Nov 2026 (it was 11 Nov 2026 when this card was placed) — it is planned to ship in the week of 16 Nov 2026. Move it to the week of 30 Nov 2026 or later.' }] };
   let latest = null;
-  await render(React.createElement(m.PoStagePanel, { po: poFixture(), canManage: true, onPo: (n) => { latest = n; }, onChanged: () => {}, onReceive: () => {} }));
-  assert.match(text(q1('po-line-pr')), /For PR-BHMV2RB688-O1-10 \(4\)/);
+  await render(React.createElement(m.DateCell, { value: '2026-11-11', label: 'Expected date for B', lineId: 1443, onSaved: (n) => { latest = n; } }));
   const date = q1('expected-date');
   assert.equal(date.value, '2026-11-11');
   await setValue(date, '2026-11-26'); await blur(date); await settle();
   assert.deepEqual(lastCall('PUT', '/purchase-lines/1443').body, { expectedDate: '2026-11-26' });
   assert.equal(latest.lines[0].expectedDate, '2026-11-26');
+  await render(React.createElement(m.PlannedUnitsNote, { planned: latest.plannedUnits }));
   const note = q1('po-late-note');
   assert.ok(note, 'the late-cards note is shown');
   assert.match(text(note), /This makes 1 planned card late: BHMV2RB688-FG\. Move it on the Plan board\./);
   assert.match(text(note), /it was 11 Nov 2026 when this card was placed.*week of 30 Nov 2026 or later/);
   assert.equal(calls('GET', '/planner').length, 0, 'no planner read after the edit — the answer carries the cards');
-});
-await check('a PO line’s quantity is edited in place and sent as quantity', async () => {
-  reset();
-  const saved = poFixture(); saved.lines[0].quantity = 2;
-  globalThis.__routes['PUT /purchase-lines/1443'] = () => saved;
-  await render(React.createElement(m.PoStagePanel, { po: poFixture(), canManage: true, onPo: () => {}, onChanged: () => {}, onReceive: () => {} }));
-  const q = q1('line-qty');
-  await setValue(q, '2'); await blur(q); await settle();
-  assert.deepEqual(lastCall('PUT', '/purchase-lines/1443').body, { quantity: 2 });
-  assert.equal(q1('po-late-note'), null, 'nothing late, nothing said');
-});
-await check('without manage the PO line date and quantity are read-only', async () => {
-  reset();
-  await render(React.createElement(m.PoStagePanel, { po: poFixture(), canManage: false, onPo: () => {}, onChanged: () => {}, onReceive: () => {} }));
-  assert.equal(q1('expected-date').disabled, true);
-  assert.equal(q1('line-qty'), null);
-});
-
-await check('Undo receipt on the latest delivery of a line asks why, posts the reversal, and shows the backend’s refusal naming order and line', async () => {
-  reset();
-  const po = poFixture(); po.status = 'partially_received';
-  po.lines[0].received = 4; po.lines[0].outstanding = 0;
-  po.lines[0].receipts = [{ id: 7001, code: 'GRN-007143', date: '2026-10-05', quantity: 1 }, { id: 7002, code: 'GRN-007144', date: '2026-10-09', quantity: 3 }];
-  let said = null;
-  globalThis.__routes['POST /movements/7002/reverse'] = (body) => (body.reason === 'wrong delivery'
-    ? { __status: 422, body: { message: 'GRN-007144 cannot be reversed — 3 kg of BHMV2RB688-B from it is already reserved for production: BHMV2RB688-O1 line 10. Let that reservation go first.', code: 'RESERVED', problems: [] } }
-    : { id: 7003, code: 'GRN-007145', purchase: { purchaseLineId: 1443, released: [{ holdId: 1 }] } });
-  await render(React.createElement(m.PoStagePanel, { po, canManage: true, onPo: () => {}, onChanged: (msg) => { said = msg; }, onReceive: () => {} }));
-  const rows = qa('po-delivery-row');
-  assert.equal(rows.length, 2);
-  assert.equal(buttonIn(rows[0], 'Undo receipt'), undefined, 'only the latest receipt can be undone');
-  await click(buttonIn(rows[1], 'Undo receipt')); await settle();
-  await setValue(document.querySelector('[role="dialog"] textarea'), 'wrong delivery');
-  await click(buttonIn(document.querySelector('[role="dialog"]'), 'Undo receipt')); await settle();
-  assert.match(text(document.querySelector('[role="dialog"]')), /already reserved for production: BHMV2RB688-O1 line 10/);
-  await setValue(document.querySelector('[role="dialog"] textarea'), 'my mistake');
-  await click(buttonIn(document.querySelector('[role="dialog"]'), 'Undo receipt')); await settle();
-  assert.deepEqual(lastCall('POST', '/movements/7002/reverse').body, { reason: 'my mistake' });
-  assert.ok(said && said.includes('GRN-007144 undone (GRN-007145). 1 held share was let go.'), said);
+  assert.match(src('pages/PurchaseOrderDetail.tsx'), /<DateCell /, 'the PO page edits the expected date in place');
 });
 
 await check('Cancel PO says what it does to the requisition first, then lists the planned cards it made late or waiting', async () => {
@@ -605,38 +331,12 @@ await check('Cancel PO says what it does to the requisition first, then lists th
   await render(React.createElement(m.PlannedUnitsNote, { planned: { orderIds: [], late: 0, waiting: 0, units: [] } }));
   assert.equal(q1('po-late-note'), null);
 });
-await check('every cancel of a purchase order goes through CancelPoDialog (the PO page); the board and the Buying stage only link to it', () => {
+await check('every cancel of a purchase order goes through CancelPoDialog (the PO page); the MR, the PR and the order only link to it', () => {
   const d = src('pages/PurchaseOrderDetail.tsx');
   assert.match(d, /<CancelPoDialog /); assert.match(d, /PlannedUnitsNote/); assert.ok(!d.includes('/cancel'));
-  for (const f of ['components/Purchase/PurchaseLanes.tsx', 'components/Purchase/OrderPurchasePanel.tsx', 'components/Purchase/RequisitionBoard.tsx', 'pages/PurchaseBoard.tsx', 'pages/PurchaseOrders.tsx'])
+  for (const f of ['components/Purchase/OrderPurchasePanel.tsx', 'pages/PurchaseRequestDetail.tsx', 'pages/MaterialRequestDetail.tsx', 'pages/PurchaseOrders.tsx', 'pages/ReceiveAgainstPo.tsx'])
     assert.ok(!src(f).includes('/cancel') && !src(f).includes('cancelPurchaseOrder'), f);
-  assert.ok(src('components/Purchase/PoStagePanel.tsx').includes('<PlannedUnitsNote planned={late} />'));
-});
-
-// ── 11: the board ──────────────────────────────────────────────────────────────────
-await check('the board groups skipped-and-waiting requisitions first and shows earmark / order / skipped chips on cards', async () => {
-  reset();
-  const card = (id, status, label, extra = {}) => ({ id, code: `PR-${id}`, order: { id: 22552, code: 'BHMV2RB688-O1' }, line: { id: 9951, lineNo: 10 }, status, statusLabel: label, done: true, sentence: `Sentence ${id}.`, counts: { ...counts }, stale: false,
-    materialReady: { state: 'waiting', readyDate: null, soft: false, text: 'x' }, lastDate: '2026-11-11', late: false, purchaseOrders: [], ...extra });
-  const col = (key, label, cards) => ({ key, label, hint: `${label} hint`, count: cards.length, cards });
-  globalThis.__routes['GET /buying/board'] = () => ({ today: '2026-10-12', columns: [
-    col('open', 'Open', []), col('partly_covered', 'Partly covered', []), col('covered', 'Covered', []),
-    col('mixed', 'Covered, some skipped', [card(92, 'mixed', 'Covered, some skipped')]),
-    col('skipped', 'Skipped', [card(93, 'skipped', 'Skipped', { counts: { ...counts, from_stock: 0, covered: 0, waiting: 2, skipped: 2 } })]),
-    col('fulfilled_from_stock', 'From stock', [card(94, 'fulfilled_from_stock', 'From stock', { counts: { ...counts, covered: 0, skipped: 0, waiting: 0 }, materialReady: { state: 'ready', readyDate: '2026-10-12', soft: false, text: 'here' }, lastDate: null })]),
-  ], waitingForStock: { key: 'waiting_for_stock', label: 'Waiting for stock', hint: 'h', count: 1, cards: [{ ...card(93, 'skipped', 'Skipped', { counts: { ...counts, from_stock: 0, covered: 0, waiting: 2, skipped: 2 } }), waitingLines: [{ id: 565, item: C, need: 2, short: 2 }] }] },
-  notRaised: [{ order: { id: 22552, code: 'BHMV2RB688-O1' }, line: { id: 9953, lineNo: 30 }, materials: 2, materialReady: { state: 'waiting', readyDate: null, soft: false, text: 'not decided' } }] });
-  await render(React.createElement(m.RequisitionBoard, { orderId: null, search: '', canManage: true }));
-  assert.equal(qa('req-lane').length, 6);
-  const group = q1('waiting-group');
-  assert.match(text(group), /Waiting for stock \(skipped\) · 1/);
-  assert.deepEqual(qa('req-card', group).map((c) => c.dataset.id), ['93'], 'the group is the server’s: card 92 counts a waiting line, but the server did not list it');
-  assert.ok(document.querySelector('[data-testid="req-lane"][data-key="skipped"] [data-id="93"]'), 'a card in the group is also in its status column');
-  const c92 = document.querySelector('[data-testid="req-lane"][data-key="mixed"] [data-testid="req-card"]');
-  assert.deepEqual(qa('board-tag', c92).map((t) => text(t)), ['From stock 1', 'On order 1 · last 11 Nov', 'Skipped 1']);
-  assert.equal(qa('board-tag', document.querySelector('[data-testid="req-lane"][data-key="fulfilled_from_stock"]')).filter((t) => t.dataset.kind === 'order').length, 0);
-  assert.match(text(q1('not-raised')), /line 30 · 2 materials/);
-  assert.ok(c92.querySelector('a').getAttribute('href').endsWith('/orders/22552?tab=buying'));
+  assert.ok(d.includes('<PlannedUnitsNote planned={late} />'));
 });
 
 // ── 12: stage foot + wording ──────────────────────────────────────────────────────
@@ -652,10 +352,10 @@ await check('the stage foot says "n skipped, waiting for stock" from the stage s
 });
 await check('Confirm no longer says buying is optional or "requested"; the release dialog shows the line’s material-ready', () => {
   assert.doesNotMatch(src('lib/process.ts'), /items are requested from the Buying stage/);
-  assert.match(src('lib/process.ts'), /each material is earmarked from stock, bought or skipped in the Material request stage/);
+  assert.match(src('lib/process.ts'), /raise the material request; stock is taken and the rest is bought in Purchase/);
   const t = src('components/TrackerDialogs.tsx');
   assert.match(t, /MaterialReadyChip/); assert.match(t, /Release is never held for material/);
-  assert.match(src('pages/PurchaseBoard.tsx'), /RequisitionBoard/);
+  assert.match(src('navMeta.ts'), /path: 'material-requests'/);
 });
 await check('the readiness words are pure: lib/requisition never decides a state, only words one', () => {
   assert.equal(m.readyLabel('ready', null), 'Ready'); assert.equal(m.readyLabel('dated', '2026-11-11'), 'Ready from 11 Nov');

@@ -174,15 +174,15 @@ await check('a run refused up front shows the service words and its problems', a
   server.current = { status: 'none' };
   server.start = snap('failed', { phase: 'failed', error: { code: 'NOT_FROZEN', message: 'Freeze the design first.', problems: ['Line 1 is not frozen'] } });
   await mount();
-  await waitFor(() => find('Nest it ourselves'), 'door 1');
-  await click(find('Nest it ourselves'), 'door 1');
+  await waitFor(() => find('Nest by AI'), 'door 1');
+  await click(find('Nest by AI'), 'door 1');
   await waitFor(() => find('Start nesting'), 'the start dialog');
   await click(find('Start nesting'), 'Start');
   await waitFor(() => text().includes('Freeze the design first.'), 'the message');
   assert.ok(text().includes('Line 1 is not frozen'));
   assert.equal(document.querySelector('[data-testid=nest-run-card]'), null);
-  await waitFor(() => find('Nest it ourselves') && !find('Start nesting'), 'back at the two doors');
-  assert.equal(find('Nest it ourselves').disabled, false, 'the run can be started again');
+  await waitFor(() => find('Nest by AI') && !find('Start nesting'), 'back at the two doors');
+  assert.equal(find('Nest by AI').disabled, false, 'the run can be started again');
   server.start = undefined;
   await unmount();
 });
@@ -275,8 +275,8 @@ const resumedRun = (extra = {}) => rich({
 await check('the effort picker reads 5 min / 10 min / 20 min / 1 hour, with the long-run line; 1 hour sends long', async () => {
   server.current = { status: 'none' };
   await mount();
-  await waitFor(() => find('Nest it ourselves'), 'door 1');
-  await click(find('Nest it ourselves'), 'door 1');
+  await waitFor(() => find('Nest by AI'), 'door 1');
+  await click(find('Nest by AI'), 'door 1');
   await waitFor(() => document.querySelector('[data-testid=effort-long-line]'), 'the start dialog');
   const items = [...document.querySelectorAll('[data-testid=effort-choice] button')].map((m) => m.textContent.trim());
   assert.deepEqual(items, ['Quickup to 5 min', 'Standardup to 10 min', 'Deepup to 20 min', 'Longup to 1 hour']);

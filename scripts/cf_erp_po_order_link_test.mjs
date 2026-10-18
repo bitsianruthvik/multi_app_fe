@@ -45,7 +45,7 @@ await check('releaseHold POSTs /stock/holds/:id/release', async () => {
 });
 await check('PO detail has a For cell with order chips, unlinked text and an edit action', () => {
   const s = src('pages/PurchaseOrderDetail.tsx');
-  assert.match(s, /key: 'for'/); assert.match(s, /unlinked \{qtyText/); assert.match(s, /LineOrdersDialog/); assert.match(s, /const editable = canManage && open/);
+  assert.match(s, /key: 'for'/); assert.match(s, /unlinked \{qtyText/); assert.match(s, /LineOrdersDialog/); assert.match(s, /const editable = canManage && \(stage === 'requested' \|\| stage === 'pending_approval'\)/);
   assert.match(s, /\{editable && \(\s*<Tooltip title="Change which sales orders/);
 });
 await check('PO header shows and edits "For sales order"; the add-line dialog is prefilled from it', () => {
@@ -60,16 +60,17 @@ await check('Line dialog edits rows (order + quantity), add/remove, and enforces
   assert.match(d, /An order can appear only once/); assert.match(d, /already arrived against it/); assert.match(d, /more than the line/);
   assert.match(d, /setLineOrders\(line\.id/);
 });
+// §71: goods are received from Inventory › Receive against PO.
 await check('Receiving reports what was held for which order', () => {
-  const s = src('pages/PurchaseOrderDetail.tsx'); const d = src('components/PurchaseDialogs.tsx');
-  assert.match(d, /held\?: HeldReceipt\[\]/); assert.match(s, /Held \$\{qtyText\(h\.quantity\)\} for \$\{h\.orderCode\}/); assert.match(s, /nobody else can use it/);
+  const s = src('pages/ReceiveAgainstPo.tsx'); const d = src('components/PurchaseDialogs.tsx');
+  assert.match(d, /held\?: HeldReceipt\[\]/); assert.match(s, /\$\{qtyText\(h\.quantity\)\} locked for \$\{h\.orderCode\}/); assert.match(s, /locked for the order it was bought for/);
 });
 // CHANGED for Buying v2: the "Held for this order" list is gone from the Buying stage; stock held for a requisition line
 // is the "From stock n" chip on its row (and the hold is listed in the chip's tooltip). The held rows still come from the server.
-await check('the Buying stage shows held stock as a chip on the requisition row (holds come with the line)', () => {
-  const t = src('lib/requisition.ts'); const o = src('components/Purchase/OrderPurchasePanel.tsx');
-  assert.ok(t.includes('From stock ${qtyText(c.held)}')); assert.ok(t.includes('line.holds.map')); assert.doesNotMatch(o, /order-held-row/);
-  assert.ok(src('api/purchase.ts').includes('held?: { total: number; rows: HeldRow[] }'));
+// §71: what is held for an MR line is its "Locked for this order" on the MR screen (Purchase); the sales order only says "n of m locked".
+await check('held stock shows as "Locked for this order" on the MR screen; the order stage says how many lines are locked', () => {
+  const t = src('pages/MaterialRequestDetail.tsx'); const o = src('components/Purchase/OrderPurchasePanel.tsx');
+  assert.ok(t.includes("header: 'Locked for this order'")); assert.match(o, /lockedWords\(r\)/); assert.doesNotMatch(o, /order-held-row/);
 });
 await check('Item stock renders held reservations with a Let go action behind canManage and a confirm', () => {
   const s = src('components/ItemStockPanel.tsx');

@@ -39,6 +39,15 @@ const FLOOR = 'cf_erp_floor';
 const PRODUCTION_MANAGE = 'cf_erp_production_manage';
 /** The MD (approve plate changes) or the buyer (stock and buying manage) — any one of them. */
 const PLATE_CHANGES = 'cf_erp_plate_change_approve|cf_erp_inventory_manage';
+/** The MD ("MD approval", cf_erp_plate_change_approve) approves purchase orders, so sees them. */
+const PURCHASE_ORDERS = 'cf_erp_inventory_view|cf_erp_plate_change_approve';
+/**
+ * THE NESTING PLATE-CHANGE GATE IS OFF (§71, user 2026-10-18: "remove nesting approval from MD for now, will add back
+ * later if required") — the backend's plateChangeService gate, default off. While it is off the "Plate changes" screen is
+ * not in the menu (its page stays: a customer's substitute still goes to the MD there, linked from the MR screen and
+ * Inventory › To return to customers). Turn both on together.
+ */
+export const PLATE_CHANGE_GATE = false;
 
 export const SECTIONS: NavSection[] = [
   { key: 'home', label: 'Home', screens: [{ key: 'home', label: 'Home', path: 'home', keywords: ['cockpit', 'today', 'dashboard'] }] },
@@ -55,11 +64,12 @@ export const SECTIONS: NavSection[] = [
     key: 'purchase',
     label: 'Purchase',
     screens: [
-      // One purchase order carried stage by stage (CF_ERP_PURCHASE_FLOW_PLAN): the lanes first, then every order as a list.
-      { key: 'purchase-board', label: 'Material requests', path: 'purchase', permission: INVENTORY, keywords: ['material request', 'mr', 'requisition', 'board', 'purchase', 'buying', 'procurement', 'lanes', 'stages', 'kanban', 'pipeline', 'request', 'rfq', 'quotation', 'quote', 'stock check', 'grn', 'timeline', 'supplier'] },
-      { key: 'purchase-orders', label: 'Purchase orders', path: 'purchase-orders', hasDetail: true, permission: INVENTORY, countKey: 'openPurchases', keywords: ['po', 'supplier', 'delivery', 'goods receipt', 'grn', 'procurement', 'order'] },
-      // Plate changes asked after a PO covers a line (init.sql §62): the MD approves, the buyer changes the POs.
-      { key: 'plate-changes', label: 'Plate changes', path: 'plate-changes', permission: PLATE_CHANGES, keywords: ['plate change', 'approve', 'approval', 'md', 're-nest', 'nesting change', 'checklist', 'po change'] },
+      // Purchase flow v3 (§71): MR (raised from the sales order) → PR (the RFQ, vendor columns) → PO (MD approval) → GRN.
+      { key: 'material-requests', label: 'Material requests', path: 'material-requests', hasDetail: true, permission: INVENTORY, keywords: ['material request', 'mr', 'requisition', 'take from stock', 'earmark', 'locked', 'stock', 'buying', 'procurement'] },
+      { key: 'purchase-requests', label: 'Purchase requests', path: 'purchase-requests', hasDetail: true, permission: INVENTORY, keywords: ['purchase request', 'pr', 'rfq', 'quotation', 'quote', 'vendor', 'supplier', 'compare', 'rate', 'raise po'] },
+      { key: 'purchase-orders', label: 'Purchase orders', path: 'purchase-orders', hasDetail: true, permission: PURCHASE_ORDERS, countKey: 'openPurchases', keywords: ['po', 'supplier', 'vendor', 'md approval', 'approve', 'close short', 'delivery', 'goods receipt', 'grn', 'contractor', 'material'] },
+      // Plate changes asked after a PO covers a line (init.sql §62): hidden while the gate is off (§71).
+      ...(PLATE_CHANGE_GATE ? [{ key: 'plate-changes', label: 'Plate changes', path: 'plate-changes', permission: PLATE_CHANGES, keywords: ['plate change', 'approve', 'approval', 'md', 're-nest', 'nesting change', 'checklist', 'po change'] }] : []),
       // Who we buy from — the parties screen pinned to suppliers (RFQs and POs pick from them).
       { key: 'suppliers', label: 'Suppliers', path: 'suppliers', permission: INVENTORY, keywords: ['supplier', 'vendor', 'party', 'mill', 'rfq'] },
     ],
@@ -97,6 +107,8 @@ export const SECTIONS: NavSection[] = [
     label: 'Inventory',
     screens: [
       { key: 'stock', label: 'Stock', path: 'stock', permission: INVENTORY, countKey: 'stockLines', keywords: ['on hand', 'inventory', 'receive'] },
+      // §71: GRNs against purchase orders waiting for goods — several per PO; what arrives is locked for its order.
+      { key: 'receive', label: 'Receive against PO', path: 'receive', permission: INVENTORY, keywords: ['grn', 'goods receipt', 'receive', 'delivery', 'purchase order', 'po', 'inward'] },
       { key: 'wip', label: 'Work in progress', path: 'wip', permission: INVENTORY, keywords: ['production ledger', 'pieces', 'in process', 'making', 'containers', 'segments', 'parts'] },
       { key: 'offcuts', label: 'Offcuts', path: 'offcuts', permission: INVENTORY, keywords: ['remnant', 'leftover', 'scrap', 'nest', 'plate', 'drop'] },
       // Customer material not needed or not accepted (§68) — worked out on the read; a return movement clears it.

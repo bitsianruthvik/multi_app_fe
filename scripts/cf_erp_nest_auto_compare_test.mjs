@@ -164,11 +164,11 @@ await check('no customer nesting saved: no tabs, the screen is as before', async
   await unmount();
 });
 
-await check('a customer nesting saved: "Nesting" and "Compare with ours"; the comparison is read only when the tab opens', async () => {
+await check('a customer nesting saved: "Nesting" and "Compare with AI"; the comparison is read only when the tab opens', async () => {
   reset();
   await mountPanel();
   await waitFor(() => $('nesting-tabs'), 'the tabs');
-  assert.match($('nesting-tabs').textContent, /Nesting.*Compare with ours/);
+  assert.match($('nesting-tabs').textContent, /Nesting.*Compare with AI/);
   assert.ok(!calls.some((c) => c.includes('/nesting/compare')), 'not read before the tab is opened');
   await click($('compare-tab-button'), 'the Compare tab');
   await waitFor(() => $('compare-tab-headline'), 'the verdict');
@@ -200,7 +200,7 @@ await check('side by side: plates, steel, parts, waste WITH the offcuts, offcuts
     ['plates', 'tonnesBought', 'partsTonnes', 'waste', 'offcutKg', 'cost', 'cutLengthM', 'piercings']);
   assert.equal(cell('plates', 'customer'), '5');
   assert.equal(cell('plates', 'ours'), '3');
-  assert.match(cell('plates', 'diff'), /^↓ 2 fewerours is better$/);
+  assert.match(cell('plates', 'diff'), /^↓ 2 fewerAI is better$/);
   assert.equal(cell('tonnesBought', 'customer'), '2.497 t');
   // Waste = bought − parts, offcuts included: 1,664 kg · 66.6% (not the kerf-only figure).
   assert.equal(cell('waste', 'customer'), '1,664 kg · 66.6%');
@@ -264,13 +264,13 @@ await check('the plates of both sides; one opens as a drawing; the upload stays 
 
 /* ---- while it runs, and when it was lost ---------------------------------------------------- */
 
-await check('running: "Running our nesting…", the progress card, our column says running; the old result is out of date; it polls to ready', async () => {
+await check('running: "AI is nesting…", the progress card, our column says running; the old result is out of date; it polls to ready', async () => {
   reset();
   let n = 0;
   compareNow = () => { n += 1; return n < 3 ? running() : ready({ auto: { ...ready().auto, runId: 'run-2' } }); };
   await mountTab();
   await waitFor(() => $('compare-tab-running'), 'the running state');
-  assert.match($('compare-tab-running').textContent, /Running our nesting…/);
+  assert.match($('compare-tab-running').textContent, /AI is nesting…/);
   assert.ok($('nest-run-card'), 'the run card with its progress');
   assert.equal(cell('plates', 'ours'), 'running…');
   assert.match($('compare-tab-stale').textContent, /earlier upload with other pieces\. It is out of date/);
@@ -309,7 +309,7 @@ await check('a failed run: why, in the server\'s words, and Run again (rerun)', 
   compareNow = () => ({ ...none(), lastFailure: { runId: 'run-1', error: { code: 'INTERRUPTED', message: 'The server restarted while this run was in flight, so it never finished — start it again.' } } });
   await mountTab();
   await waitFor(() => $('compare-tab-failed'), 'the failure');
-  assert.match($('compare-tab-failed').textContent, /Our nesting did not finish\. The server restarted/);
+  assert.match($('compare-tab-failed').textContent, /AI's nesting did not finish\. The server restarted/);
   assert.equal(starts.length, 0, 'a failure is not retried by itself');
   const again = [...$('compare-tab-failed').querySelectorAll('button')].find((b) => b.textContent === 'Run again');
   await click(again, 'Run again');

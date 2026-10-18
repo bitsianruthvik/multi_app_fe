@@ -1184,6 +1184,10 @@ export interface StepEvent { id: number; event: 'start' | 'progress' | 'hold' | 
 
 /** `draft` is the old word for requested; the server may still send it. */
 export type PurchaseStatus = 'draft' | 'requested' | 'quoting' | 'ordered' | 'partially_received' | 'received' | 'cancelled';
+/** §71: where a PO stands — worked out by the server from its status, the MD's approval and a close short. */
+export type PurchaseStage = 'pending_approval' | 'requested' | 'waiting' | 'part_received' | 'closed' | 'closed_short' | 'cancelled';
+/** §71: a PO is for material (default) or for a contractor (contractor POs come in a later step). */
+export type PurchaseType = 'material' | 'contractor';
 
 export interface PurchaseLine extends Partial<PurchaseTax> {
   id: number;
@@ -1199,6 +1203,12 @@ export interface PurchaseLine extends Partial<PurchaseTax> {
   expectedDate: string | null;
   note: string | null;
   receipts: { id: number; code: string; date: string; quantity: number }[];
+  /** The date that counts for this line (its own, else the PO's) and where it comes from — what the planner allocates by. */
+  effectiveDate?: string | null;
+  dateSource?: 'line' | 'po' | null;
+  /** §71: still to come (0 once the PO is closed, by itself or short) and what a close short released. */
+  pending?: number;
+  closedQty?: number;
   /** The sales orders this line is bought for; `unlinked` is the part of the quantity bought for none. */
   orders?: PurchaseLineOrder[];
   unlinked?: number;
@@ -1214,6 +1224,11 @@ export interface PurchaseOrderRow {
   id: number;
   code: string;
   status: PurchaseStatus;
+  /** §71: the stage and the type, with their words. */
+  stage?: PurchaseStage;
+  stageLabel?: string;
+  type?: PurchaseType;
+  typeLabel?: string;
   suggested: boolean;
   /** The sales order this purchase order is bought for — the default for lines added afterwards. */
   forOrder?: { id: number; code: string } | null;
@@ -1231,6 +1246,11 @@ export interface PurchaseOrderRow {
 export interface PurchaseOrder extends PurchaseOrderRow {
   /** Tax is payable by us, not part of the supplier's total. */
   reverseCharge?: boolean;
+  /** §71: the MD's approval (null = none was asked: an older PO, or the customer's ₹0 PO) and a close short. */
+  approval?: { status: 'pending' | 'approved'; by: { id: number; name: string | null } | null; at: string | null } | null;
+  closed?: { at: string; by: { id: number; name: string | null } | null; reason: string | null } | null;
+  /** Every change of the PO's (lineId null) or a line's expected date, newest first, with who and when. */
+  dateChanges?: { id: number; lineId: number | null; from: string | null; to: string | null; by: { id: number; name: string | null } | null; at: string }[];
   notes: string | null;
   lines: PurchaseLine[];
 }

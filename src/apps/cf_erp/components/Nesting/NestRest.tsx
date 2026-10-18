@@ -54,13 +54,13 @@ function AdditionRow({ add, base }: { add: NestAddition; base: Nest | undefined 
       <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
         <Mono chip>{add.lotNo}</Mono>
         <Box sx={{ fontSize: 13.5, fontWeight: 500 }}>{add.plateCode}</Box>
-        <Badge family="info" noIcon label="Gets more pieces" title="The customer's layout stays. Ours go in the space they left." />
+        <Badge family="info" noIcon label="Gets more pieces" title="The customer's layout stays. AI puts more in the space they left." />
         <Box sx={{ fontSize: 12.5, color: 'var(--c-text-2)' }}>
           {`+${add.pieces.length}: ${counts.map((c) => `${c.code} ×${c.qty}`).join(', ')}`}
         </Box>
         {merged && <Button size="small" sx={{ ml: 'auto' }} onClick={() => setOpen((o) => !o)}>{open ? 'Hide the plate' : 'Show the plate'}</Button>}
       </Box>
-      {merged && <Collapse in={open} unmountOnExit><PlateDiagram nest={merged} kerfMm={add.kerfMm ?? 0} title={`${add.lotNo} with our additions`} /></Collapse>}
+      {merged && <Collapse in={open} unmountOnExit><PlateDiagram nest={merged} kerfMm={add.kerfMm ?? 0} title={`${add.lotNo} with AI's additions`} /></Collapse>}
     </Box>
   );
 }

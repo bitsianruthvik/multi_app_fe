@@ -158,7 +158,7 @@ export function DiagramLegend({ seqs, hasOurs = false, hasOutside = false, hasSc
           <Swatch label="Customer's part" help="Where the customer's own file drew this part.">
             <rect x={1} y={1} width={16} height={10} rx={2} fill={C.scrapLine} fillOpacity={0.85} />
           </Swatch>
-          <Swatch label="Added by us" help="A part our packer added to the customer's plate, in the space they left.">
+          <Swatch label="Added by AI" help="A part AI added to the customer's plate, in the space they left.">
             <rect x={1.5} y={1.5} width={15} height={9} rx={2} fill={C.scrapLine} fillOpacity={0.35} stroke="var(--c-primary-700)" strokeWidth={1.4} strokeDasharray="3 2" />
           </Swatch>
         </>
@@ -429,7 +429,7 @@ export function PlateDiagram({ nest, kerfMm, title }: {
               ? { fillOpacity: 0.4, stroke: 'var(--c-primary-700)', strokeDasharray: '5 3', ...stroke(1.6) }
               : { fillOpacity: 0.85, stroke: 'var(--c-surface)', ...stroke(0.6) };
             const order = Number.isFinite(p.posNo) ? `cut ${p.posNo} of ${pieces.length}` : '';
-            const where = outside ? ' — runs off the plate, not counted as nested' : ours ? ` — added by us, ${order}` : free ? ` — ${order}` : ` — sequence ${p.seqNo}, row ${p.rowNo}, position ${p.posNo}`;
+            const where = outside ? ' — runs off the plate, not counted as nested' : ours ? ` — added by AI, ${order}` : free ? ` — ${order}` : ` — sequence ${p.seqNo}, row ${p.rowNo}, position ${p.posNo}`;
             const kept = (p as { shapeFrom?: string | null }).shapeFrom === 'nesting file' ? '\nShape taken from the nesting file' : '';
             const turn = p.rotationDeg ? ` turned ${mm(p.rotationDeg)}°` : p.rotated ? ' (turned)' : '';
             const tip = (

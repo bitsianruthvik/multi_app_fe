@@ -151,7 +151,7 @@ const click = async (el, what) => { assert.ok(el, `no ${what}`); await React.act
 
 const root = createRoot(document.getElementById('app'));
 await React.act(async () => { root.render(inRouter(React.createElement(NestingPanel, { orderId: 1, lineId: 1, canManage: true }))); await sleep(0); });
-await waitFor(() => find('Nest it ourselves'), 'the panel');
+await waitFor(() => find('Nest by AI'), 'the panel');
 const q = (sel) => document.querySelector(sel);
 const esc = async () => { await click(document.querySelector('#nest-more-menu .MuiBackdrop-root'), 'the menu backdrop'); await settle(60); };
 
@@ -163,16 +163,16 @@ await check('nothing nested: the step is two doors, each with one sentence and o
   const up = q('[data-testid=door-upload]').textContent;
   // UPLOAD IS THE MAIN DOOR (2026-10-13): it comes first and its button is the filled one; ours is the fallback.
   assert.deepEqual([...doors.children].map((d) => d.getAttribute('data-testid')), ['door-upload', 'door-ours'], 'upload first');
-  assert.deepEqual([...doors.querySelectorAll('button')].map((b) => b.textContent), ['Upload nesting files', 'Nest it ourselves']);
+  assert.deepEqual([...doors.querySelectorAll('button')].map((b) => b.textContent), ['Upload nesting files', 'Nest by AI']);
   assert.equal(q('[data-testid=door-upload]').getAttribute('data-primary'), 'true');
   assert.equal(q('[data-testid=door-ours]').getAttribute('data-primary'), 'false');
   assert.ok(find('Upload nesting files').className.includes('MuiButton-contained'), 'the upload button is the primary one');
-  assert.ok(find('Nest it ourselves').className.includes('MuiButton-outlined'), 'ours is outlined');
-  assert.ok(ours.includes('Nest it ourselves') && ours.includes('No nesting of your own? We lay the cut pieces out on plates from your catalog.'));
-  assert.ok(up.includes('Upload your nesting') && up.includes("Drop the ProNest job files (.nif, one per thickness) or one DXF per plate. We match the parts to this order line's cut pieces."));
+  assert.ok(find('Nest by AI').className.includes('MuiButton-outlined'), 'ours is outlined');
+  assert.ok(ours.includes('Nesting by AI') && ours.includes('No nesting of your own? AI lays the cut pieces out on plates from your catalog.'));
+  assert.ok(up.includes('Upload your nesting') && up.includes("Drop the ProNest job files (.nif, one per thickness) or one DXF per plate. AI matches the parts to this order line's cut pieces."));
   // The picker takes both kinds together (this API does not say which it reads: both).
   assert.equal(q('[data-testid=nest-files-input]').getAttribute('accept'), '.nif,.dxf');
-  assert.equal(find('Nest it ourselves').disabled, false);
+  assert.equal(find('Nest by AI').disabled, false);
   assert.equal(find('Upload nesting files').disabled, false);
   // What used to sit above and around them is behind door 1 or in More.
   assert.ok(!q('[data-testid=plates-to-use]') && !q('[data-testid=choices-summary]') && !q('[data-testid=nest-summary]'));
@@ -205,7 +205,7 @@ await check('the toolbar has a "Cut pieces (N)" button (the cut pieces are not a
 });
 
 await check('door 1 asks how hard to try (Standard picked), with the plain line, and says what the run will do', async () => {
-  await click(find('Nest it ourselves'), 'door 1');
+  await click(find('Nest by AI'), 'door 1');
   await waitFor(() => q('[data-testid=effort-line]'), 'the start dialog');
   const choice = q('[data-testid=effort-choice]');
   assert.deepEqual([...choice.querySelectorAll('button')].map((b) => b.textContent), ['Quickup to 5 min', 'Standardup to 10 min', 'Deepup to 20 min', 'Longup to 1 hour']);
@@ -285,7 +285,7 @@ await check('Step B lists the candidate plates with stock and prices; unticking 
   assert.equal(find('Start nesting').disabled, true, 'Start is disabled while blocked');
   assert.equal(q('[data-testid=nest-start-why]').textContent, 'Nesting is blocked until each steel has a plate ticked.');
   assert.ok(q('[data-testid=door-steel-blocked]'), 'and door 1 says so too, with the proposal gone');
-  assert.equal(find('Nest it ourselves').disabled, false, 'the door stays open: the plates are ticked behind it');
+  assert.equal(find('Nest by AI').disabled, false, 'the door stays open: the plates are ticked behind it');
 });
 
 await check('Reset clears both lists and unblocks Nest', async () => {
@@ -396,7 +396,7 @@ await check('after nesting: one summary strip, and a banner with two buttons for
   assert.equal(loose.textContent, 'Mark the rest as cut from offcuts');
   assert.ok(more.className.includes('MuiButton-contained') && ours.className.includes('MuiButton-outlined'));
   // Nothing on this line was uploaded, so a run of ours lays the WHOLE line out again — and the button says that.
-  assert.equal(ours.textContent, 'Nest the line again ourselves');
+  assert.equal(ours.textContent, 'Nest the line again by AI');
   assert.equal(more.textContent, 'Upload more files');
   assert.equal(ours.disabled, false); assert.equal(more.disabled, false);
   await click(ours, 'nest ourselves');
@@ -420,7 +420,7 @@ await check('a cut piece on a plate says where its shape came from, quietly', as
   assert.equal(marks[0].getAttribute('tabindex'), '0', 'the note can be reached by keyboard');
   assert.equal(marks[1].getAttribute('title'), null);
   // An automatic plate says so.
-  assert.equal(document.querySelector('[data-testid=plate-source]').textContent, 'Ours');
+  assert.equal(document.querySelector('[data-testid=plate-source]').textContent, 'By AI');
   assert.equal(document.querySelector('[data-testid=plate-stale-chip]'), null, 'nothing is stale here');
   await click(find('Hide the plates'), 'shut the group');
 });

@@ -7,6 +7,7 @@
 import assert from 'node:assert/strict';
 import { mkdir, writeFile, unlink } from 'node:fs/promises';
 import { resolve } from 'node:path';
+import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { build } from 'esbuild';
 import { JSDOM } from 'jsdom';
@@ -206,10 +207,13 @@ await check('lib: plate lines, sizes, the checklist progress and facts, the badg
   assert.equal(M.directImpact({ plateChange: { direct: true, impact: { ...impact, plates: { ...impact.plates, same: true } } } }), null, 'no plate moved: no sheet');
 });
 
-await check('nav: "Plate changes" sits under Purchase, for the MD or the buyer', async () => {
-  const s = M.SECTIONS.find((x) => x.key === 'purchase').screens.find((x) => x.key === 'plate-changes');
-  assert.equal(s.path, 'plate-changes');
-  assert.equal(s.permission, 'cf_erp_plate_change_approve|cf_erp_inventory_manage');
+// §71 (2026-10-18): the nesting plate-change gate is OFF — the screen is out of the menu (its page stays for substitutes).
+await check('nav: "Plate changes" is hidden while the gate is off; it comes back under Purchase, for the MD or the buyer', async () => {
+  assert.equal(M.SECTIONS.find((x) => x.key === 'purchase').screens.find((x) => x.key === 'plate-changes'), undefined);
+  const nav = readFileSync(resolve('src/apps/cf_erp/navMeta.ts'), 'utf8');
+  assert.match(nav, /export const PLATE_CHANGE_GATE = false;/);
+  assert.match(nav, /\.\.\.\(PLATE_CHANGE_GATE \? \[\{ key: 'plate-changes', label: 'Plate changes', path: 'plate-changes', permission: PLATE_CHANGES/);
+  assert.match(nav, /const PLATE_CHANGES = 'cf_erp_plate_change_approve\|cf_erp_inventory_manage';/);
 });
 
 /* ---- the gate ------------------------------------------------------------------------------- */

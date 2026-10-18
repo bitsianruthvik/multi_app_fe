@@ -1,6 +1,8 @@
 // Run from multi_app_fe: node scripts/cf_erp_mr_flow_test.mjs
 // MATERIAL REQUEST (MR) and CUSTOMER-SUPPLIED material (init.sql §66, TM/CF_ERP_BUYING_V2.md "2026-10-16"), rendered in jsdom
-// against mocked routes shaped like the backend's answers (multi_app_be/scripts/cf_kepl/mr_flow_test.mjs, TM/MR_FLOW_RUN.md):
+// against mocked routes shaped like the backend's answers (multi_app_be/scripts/cf_kepl/mr_flow_test.mjs, TM/MR_FLOW_RUN.md).
+// §71 (2026-10-18): the sales order's stage only RAISES the MR and shows its status; the MR table, taking from stock and
+// buying are in Purchase (cf_erp_purchase_flow_v3_test.mjs). What follows is the old list, kept where it still holds:
 // the stage is called Material request; the MR table shows need / earmarked / on PO / received / open; "Raise the material
 // request" earmarks (earmark: true) and says what was earmarked and which PO went to the customer; a customer-supplied MR has
 // no Buy / Skip and asks the customer for what is open; a line without an MR says who supplies it and can change it; the
@@ -129,24 +131,22 @@ const custOpen = () => ({
   ],
 });
 const orderReqs = (reqs, extra = {}) => ({ order: { id: 30001, code: 'TEST-MR-1', status: 'confirmed', open: true, materialSupply: 'we_buy', materialSupplyLabel: 'We buy' }, today: '2026-10-16', reason: null, requisitions: reqs, linesWithout: [], ...extra });
-const lanesEmpty = { shortfall: [], lanes: [], held: { total: 0, rows: [] }, requisitions: [], linesWithout: [] };
 const stage = { stageKey: 'buying', label: 'Material request', sequence: 5, requirement: 'required', applies: true, decidedBy: 'data', state: 'partial', blockers: [], detail: '1 material to decide', summary: null };
 const order = { id: 30001, code: 'TEST-MR-1', materialSupply: 'we_buy' };
 const mount = (reqs, opts = {}) => {
   globalThis.__routes['GET /orders/30001/requisitions'] = () => reqs;
-  globalThis.__routes['GET /orders/30001/purchase'] = () => lanesEmpty;
+  globalThis.__routes['GET /material-requests'] = () => ({ rows: [] });
   globalThis.__routes['GET /customer-material/returns'] = () => opts.returns ?? { toReturn: [], substitutes: [] };
   return render(React.createElement(m.OrderPurchasePanel, { order: opts.order ?? order, stage, onChanged: () => {} }));
 };
-const rowOf = (lineId) => document.querySelector(`[data-testid="req-row"][data-line="${lineId}"]`);
 
 // ── 1: the calls and the words ────────────────────────────────────────────────
-await check('helpers: raise sends earmark; the line supply is a PUT with { supply } (null = as the order)', async () => {
+await check('helpers: raise sends what it is given (no earmark since §71); the line supply is a PUT with { supply } (null = as the order)', async () => {
   reset();
   globalThis.__routes['POST /orders/30001/requisitions'] = () => ({});
   globalThis.__routes['PUT /order-lines/802/material-supply'] = () => ({});
-  await m.raiseRequisitions(30001, { earmark: true });
-  assert.deepEqual(lastCall('POST', '/orders/30001/requisitions').body, { earmark: true });
+  await m.raiseRequisitions(30001, {});
+  assert.deepEqual(lastCall('POST', '/orders/30001/requisitions').body, {});
   await m.setLineSupply(802, 'customer');
   assert.deepEqual(lastCall('PUT', '/order-lines/802/material-supply').body, { supply: 'customer' });
   await m.setLineSupply(802, null);
@@ -164,41 +164,27 @@ await check('words: supply labels, the MR figures, raised and released messages'
   assert.equal(m.releasedMessage(1, { fromMr: { requisition: { id: 1, code: 'MR-X-1' }, reserved: [{ item: A, quantity: 4 }, { item: B, quantity: 6 }], left: [] } }),
     'Line 1 released to production. Material from MR-X-1: MA 4 kg, MB 6 kg reserved for production.');
   assert.equal(m.releasedMessage(2, null), 'Line 2 released to production.');
+  assert.equal(m.lockedWords(weBuy()), '1 of 3 locked');
 });
 
 // ── 2: the MR table ───────────────────────────────────────────────────────────
-await check('the stage is "Material request" and each MR row shows need / earmarked / on PO / received / open', async () => {
+await check('the stage is "Material request": a read-only row per MR with its status and what is locked, linking into Purchase', async () => {
   reset();
   await mount(orderReqs([weBuy()]));
   assert.match(text(document.body), /Material request/);
-  assert.match(text(q1('order-supply')), /^Material: We buy — raising the MR earmarks free stock/);
-  const head = [...document.querySelectorAll('[data-testid="req-table"] th')].map(text);
-  assert.deepEqual(head.slice(0, 7), ['Material', 'Need', 'Earmarked', 'On PO', 'Received', 'Open', 'How it is covered']);
-  const b = rowOf(102);
-  assert.deepEqual(['mr-earmarked', 'mr-onpo', 'mr-received', 'mr-open'].map((k) => text(q1(k, b))), ['2', '4', '2', '0']);
-  assert.ok(buttonIn(rowOf(103), 'Check stock') === undefined, 'a line wholly earmarked offers no stock check');
+  assert.match(text(q1('order-supply')), /^Material: We buy — raising the MR sends it to Purchase/);
+  const row = q1('mr-status-row');
+  assert.match(text(row), /MR-TEST-MR-1-WEBUY-2.*Line 2.*Covered.*1 of 3 locked/);
+  assert.ok(row.querySelector('a').getAttribute('href').endsWith('/material-requests/41'));
+  assert.equal(q1('req-table'), null, 'the MR table is in Purchase now');
+  assert.equal([...document.querySelectorAll('button')].filter((b) => /Check stock|Skip|Buy|Release excess/.test(text(b))).length, 0);
 });
-await check('a customer-supplied MR: badge, no Buy / Skip, and "Ask the customer for what is open" re-raises with earmark', async () => {
+await check('a customer-supplied MR: badge on its row, nothing to buy or skip on the sales order', async () => {
   reset();
-  let posted = null;
-  globalThis.__routes['POST /orders/30001/requisitions'] = (body) => { posted = body; return orderReqs([custOpen()], { refreshed: 1, customerPurchaseOrders: [{ id: 1884, code: 'PO-001884', supplier: { id: 5, name: 'Customer X' } }] }); };
   await mount(orderReqs([custOpen()], { order: { ...orderReqs([]).order, materialSupply: 'customer' } }), { order: { ...order, materialSupply: 'customer' } });
-  const mr = q1('requisition');
-  assert.match(text(mr), /Customer supplies/);
+  assert.match(text(q1('mr-status-row')), /Customer supplies/);
   assert.match(text(q1('order-supply')), /the customer sends it/);
-  assert.equal(buttonIn(rowOf(202), 'Buy…'), undefined, 'no Buy… on a customer line');
-  assert.equal(buttonIn(rowOf(202), 'Skip'), undefined, 'no Skip on a customer line');
-  assert.equal(buttonIn(q1('buying-header-actions') ?? document, 'Buy the rest'), undefined);
-  assert.ok(buttonIn(rowOf(202), 'Check stock'), "Check stock stays (it finds the customer's own lots)");
-  await click(q1('ask-customer')); await settle();
-  // §68: asking the customer first asks the date they promised — required, then sent with the raise.
-  assert.equal(posted, null, 'nothing is sent before the date is given');
-  const input = document.querySelector('[data-testid="promised-date"]');
-  assert.ok(input, 'the promised-date dialog is open');
-  assert.ok(buttonIn(document.querySelector('.MuiDialog-root'), 'Raise the MR')?.disabled, 'no date, no raise');
-  await setValue(input, '2026-11-02');
-  await click(buttonIn(document.querySelector('.MuiDialog-root'), 'Raise the MR')); await settle(80);
-  assert.deepEqual(posted, { lineIds: [802], earmark: true, customerDate: '2026-11-02' });
+  assert.equal([...document.querySelectorAll('button')].filter((b) => /Buy|Skip|Ask the customer/.test(text(b))).length, 0);
 });
 await check('raising a customer line proposes its committed date; an undated customer PO asks for the date on the MR', async () => {
   reset();
@@ -206,23 +192,14 @@ await check('raising a customer line proposes its committed date; an undated cus
   const without = [{ line: { id: 804, lineNo: 4, name: 'Girder' }, supply: 'customer', ownSupply: null, customerDateDefault: '2026-12-01', canRaise: true, reason: null, materials: [{ item: A, need: 4 }], materialReady: null }];
   globalThis.__routes['POST /orders/30001/requisitions'] = (body) => { posted = body; return orderReqs([custOpen()], { raised: 1 }); };
   await mount(orderReqs([], { linesWithout: without }));
-  await click(buttonIn(q1('buying-header-actions'), 'Raise the material request')); await settle();
+  await click(q1('raise-mr')); await settle();
   assert.equal(document.querySelector('[data-testid="promised-date"]').value, '2026-12-01', 'the committed date is proposed');
   await click(buttonIn(document.querySelector('.MuiDialog-root'), 'Raise the MR')); await settle(80);
-  assert.deepEqual(posted, { earmark: true, customerDate: '2026-12-01' });
-  // An older customer PO with no date: the MR says so and takes the date inline.
-  reset();
-  const undated = custOpen();
-  undated.lines[1].purchase = [share(9, 'PO-001890', 6, 0, { state: 'undated', date: null, purchaseOrder: { id: 1890, code: 'PO-001890', status: 'ordered', suppliedByCustomer: true } })];
-  let put = null;
-  globalThis.__routes['PUT /purchase-orders/1890'] = (body) => { put = body; return { id: 1890 }; };
-  await mount(orderReqs([undated]));
-  assert.match(text(q1('promised-date-row')), /Give the customer's promised date for PO-001890/);
-  await setValue(q1('promised-date-input'), '2026-11-20');
-  await click(buttonIn(q1('promised-date-row'), 'Save')); await settle(60);
-  assert.deepEqual(put, { expectedDate: '2026-11-20' });
+  assert.deepEqual(posted, { customerDate: '2026-12-01' });
+  // (§71: an older customer PO with no date is dated on its PO page — the expected date of its lines.)
+  assert.match(src('pages/PurchaseOrderDetail.tsx'), /<DateCell /);
 });
-await check('the MR shows what is to go back to the customer and the different items they sent', async () => {
+await check('the MR (Purchase) shows what is to go back to the customer and the different items they sent', async () => {
   reset();
   const returns = {
     toReturn: [
@@ -233,8 +210,10 @@ await check('the MR shows what is to go back to the customer and the different i
       { id: 1, status: 'pending', statusLabel: 'Waiting for the MD — on hold', order: { id: 30001, code: 'TEST-MR-1-SUB' }, line: { id: 802, lineNo: 1 }, purchaseOrder: { id: 1884, code: 'PO-001884' }, ordered: { id: 9003, code: 'MC', name: 'C' }, received: { id: 9011, code: 'C12', name: 'C 12' }, quantity: 5, batch: { id: 72, code: 'L-72' }, reason: 'customer sent 12 mm', request: { id: 101, code: 'PC-000101', status: 'pending' }, text: '5 × C12 in place of MC on PO-001884 — held until the MD approves PC-000101.' },
     ],
   };
-  await mount(orderReqs([weBuy()]), { returns });
+  globalThis.__routes['GET /customer-material/returns'] = () => returns;
+  await render(React.createElement(m.CustomerMaterialStatus, { orderId: 30001 }));
   await settle(60);
+  assert.match(src('pages/MaterialRequestDetail.tsx'), /customer && <CustomerMaterialStatus orderId=\{m\.order\.id\} \/>/);
   const rows = qa('to-return-row');
   assert.equal(rows.length, 2);
   assert.deepEqual(rows.map((r) => r.dataset.why), ['extra', 'substitute_rejected']);
@@ -282,19 +261,19 @@ await check('a line without an MR says who supplies it and changes it with one P
   assert.ok(opt, 'the menu offers Customer supplies');
   await click(opt); await settle();
   assert.deepEqual(lastCall('PUT', '/order-lines/803/material-supply').body, { supply: 'customer' });
-  assert.ok(buttonIn(q1('line-without'), 'Raise the MR'));
+  assert.ok(buttonIn(q1('line-without'), 'Raise MR'));
 });
-await check('"Raise the material request" earmarks and the answer is shown at once', async () => {
+await check('"Raise MR" sends the order to Purchase and the answer is shown at once', async () => {
   reset();
   let raised = false;
   const without = [{ line: { id: 801, lineNo: 2, name: 'Girder' }, supply: 'we_buy', ownSupply: null, canRaise: true, reason: null, materials: [{ item: A, need: 4 }], materialReady: null }];
-  globalThis.__routes['POST /orders/30001/requisitions'] = () => { raised = true; return orderReqs([weBuy()], { raised: 1, earmarked: [{ requisition: { id: 41, code: 'MR-TEST-MR-1-WEBUY-2' }, lineId: 101, item: A, quantity: 1, owner: 'ours' }] }); };
+  globalThis.__routes['POST /orders/30001/requisitions'] = () => { raised = true; return orderReqs([weBuy()], { raised: 1, earmarked: [] }); };
   await mount(orderReqs([], { linesWithout: without }));
   globalThis.__routes['GET /orders/30001/requisitions'] = () => (raised ? orderReqs([weBuy()]) : orderReqs([], { linesWithout: without }));
-  await click(buttonIn(q1('buying-header-actions'), 'Raise the material request')); await settle();
-  assert.deepEqual(lastCall('POST', '/orders/30001/requisitions').body, { earmark: true });
-  assert.equal(qa('requisition').length, 1);
-  assert.match(text(q1('requisition')), /MR-TEST-MR-1-WEBUY-2/);
+  await click(q1('raise-mr')); await settle();
+  assert.deepEqual(lastCall('POST', '/orders/30001/requisitions').body, {});
+  assert.equal(qa('mr-status-row').length, 1);
+  assert.match(text(q1('mr-status-row')), /MR-TEST-MR-1-WEBUY-2/);
 });
 
 // ── 4: the order form asks who supplies the material ───────────────────────────
@@ -342,9 +321,8 @@ await check('the release dialog says "Material from MR-…" with what is earmark
 });
 
 // ── 6: the rest of the wording, the customer's PO, inventory by owner ─────────────
-await check('wording: Purchase › Material requests, the board tab, the cancel dialog; a PO to the customer is marked; Stock by owner', () => {
-  assert.match(src('navMeta.ts'), /key: 'purchase-board', label: 'Material requests'/);
-  assert.match(src('pages/PurchaseBoard.tsx'), /\['requisitions', 'Material requests'\]/);
+await check('wording: Purchase › Material requests, the cancel dialog; a PO to the customer is marked; Stock by owner', () => {
+  assert.match(src('navMeta.ts'), /key: 'material-requests', label: 'Material requests'/);
   assert.match(src('components/Purchase/CancelPoDialog.tsx'), /back to Open on \$\{prs\.join\(', '\)\} at once/);
   assert.match(src('pages/PurchaseOrderDetail.tsx'), /p\.suppliedByCustomer && <Badge family="info" label="Customer supplies"/);
   const stock = src('pages/Stock.tsx');

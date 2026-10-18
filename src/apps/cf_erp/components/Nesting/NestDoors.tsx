@@ -84,10 +84,10 @@ export function NestDoors({ ours, upload, dropping, withJobs = true }: {
     }}>
       <Door testId="door-upload" primary icon={<UploadFileRounded />} title="Upload your nesting" button="Upload nesting files" state={upload} dropping={dropping}
         sentence={withJobs
-          ? "Drop the ProNest job files (.nif, one per thickness) or one DXF per plate. We match the parts to this order line's cut pieces."
-          : "Drop one DXF per plate. We match the parts to this order line's cut pieces."} />
-      <Door testId="door-ours" icon={<AutoAwesomeRounded />} title="Nest it ourselves" button="Nest it ourselves" state={ours}
-        sentence="No nesting of your own? We lay the cut pieces out on plates from your catalog. Takes from a few seconds to an hour, depending on how hard you want it to try." />
+          ? "Drop the ProNest job files (.nif, one per thickness) or one DXF per plate. AI matches the parts to this order line's cut pieces."
+          : "Drop one DXF per plate. AI matches the parts to this order line's cut pieces."} />
+      <Door testId="door-ours" icon={<AutoAwesomeRounded />} title="Nesting by AI" button="Nest by AI" state={ours}
+        sentence="No nesting of your own? AI lays the cut pieces out on plates from your catalog. Takes from a few seconds to an hour, depending on how hard you want it to try." />
     </Box>
   );
 }

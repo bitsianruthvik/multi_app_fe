@@ -64,13 +64,15 @@ export function CustomerMaterialStatus({ orderId = null, partyId = null, data: g
  * Asks the date the customer promised to send the material (§68), before the MR makes their purchase order.
  * Proposed: the line's committed date, else the order's. With none, a date must be given.
  */
-export function PromisedDateDialog({ open, proposed, onClose, onConfirm }: {
+export function PromisedDateDialog({ open, proposed, onClose, onConfirm, submitLabel = 'Raise the MR' }: {
   open: boolean; proposed: string | null; onClose: () => void; onConfirm: (date: string) => Promise<void> | void;
+  /** The MR screen's save asks it too (§71). */
+  submitLabel?: string;
 }) {
   const [date, setDate] = useState('');
   useEffect(() => { if (open) setDate(proposed ?? ''); }, [open, proposed]);
   return (
-    <FormDialog open={open} title="The customer's promised date" onClose={onClose} onSubmit={async () => { await onConfirm(date); }} submitLabel="Raise the MR" maxWidth="xs"
+    <FormDialog open={open} title="The customer's promised date" onClose={onClose} onSubmit={async () => { await onConfirm(date); }} submitLabel={submitLabel} maxWidth="xs"
       submitDisabled={!/^\d{4}-\d{2}-\d{2}$/.test(date)}
       subtitle="The customer sends this material. Raising the MR makes a purchase order to them for what is open; production waits for this date.">
       <TextField label="Promised by" type="date" value={date} onChange={(e) => setDate(e.target.value)} InputLabelProps={{ shrink: true }} required

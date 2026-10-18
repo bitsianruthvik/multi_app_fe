@@ -123,7 +123,7 @@ function DiffBlock({ result }: { result: NestFilesResult }) {
                 <Box component="span" sx={{ color: 'var(--c-text-2)' }}>{`. ${r.parts.map((p) => `${p.cutPlateCode} ${p.was ?? 0} → ${p.now ?? 0}`).join(', ')}`}</Box>
               )}
               {r.droppedOurs && r.droppedOurs.length > 0 && (
-                <Box sx={{ color: 'var(--c-warning-800)' }}>{`Our additions on this plate are dropped: ${r.droppedOurs.map((p) => `${p.cutPlateCode} ×${p.qty}`).join(', ')}.`}</Box>
+                <Box sx={{ color: 'var(--c-warning-800)' }}>{`AI's additions on this plate are dropped: ${r.droppedOurs.map((p) => `${p.cutPlateCode} ×${p.qty}`).join(', ')}.`}</Box>
               )}
             </li>
           ))}
@@ -148,7 +148,7 @@ function DiffBlock({ result }: { result: NestFilesResult }) {
           ))}
           {d.droppedOurs.map((x) => (
             <li key={`do${x.lotId}`} data-diff="dropped-ours">
-              <strong>{`Our additions on ${x.lotNo} are dropped`}</strong>
+              <strong>{`AI's additions on ${x.lotNo} are dropped`}</strong>
               <Box component="span" sx={{ color: 'var(--c-text-2)' }}>{` — ${x.because}.`}</Box>
             </li>
           ))}
@@ -184,7 +184,7 @@ function LeftOver({ leftOver, toNest, names = null }: { leftOver: NestLeftOver[]
         : (
           <>
             <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>
-              {`These cut pieces of the line are not on any plate yet. Upload more files for them, or “Nest the rest ourselves” will place them${toNest != null ? ` (${toNest} of them)` : ''}.`}
+              {`These cut pieces of the line are not on any plate yet. Upload more files for them, or “Nest the rest by AI” will place them${toNest != null ? ` (${toNest} of them)` : ''}.`}
             </Typography>
             <Box component="ul" sx={{ m: 0, pl: 2.5, display: 'grid', gap: 0.3, fontSize: 13, overflowWrap: 'anywhere' }}>
               {leftOver.map((l) => {

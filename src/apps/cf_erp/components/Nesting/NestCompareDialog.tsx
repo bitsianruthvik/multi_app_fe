@@ -343,7 +343,7 @@ export function NestCompareDialog({
           </Typography>
           {data?.willReplace && (
             <Box component="ul" data-testid="compare-replace-facts" sx={{ m: 0, mt: 1, pl: 2.5, fontSize: 13, color: 'var(--c-text-2)', display: 'grid', gap: 0.3 }}>
-              <li>{`Goes: ${data.willReplace.plates} ${data.willReplace.plates === 1 ? 'plate' : 'plates'} (${data.willReplace.customerPlates} uploaded, ${data.willReplace.ourPlates} ours), ${data.willReplace.customerFiles} customer ${data.willReplace.customerFiles === 1 ? 'file' : 'files'}.`}</li>
+              <li>{`Goes: ${data.willReplace.plates} ${data.willReplace.plates === 1 ? 'plate' : 'plates'} (${data.willReplace.customerPlates} uploaded, ${data.willReplace.ourPlates} by AI), ${data.willReplace.customerFiles} customer ${data.willReplace.customerFiles === 1 ? 'file' : 'files'}.`}</li>
               <li>{data.willReplace.withPlates != null
                 ? `Comes: ${data.willReplace.withPlates} ${data.willReplace.withPlates === 1 ? 'plate' : 'plates'} holding ${data.willReplace.withPieces} pieces.${data.willReplace.notNestedAfter ? ` ${data.willReplace.notNestedAfter} stay un-nested.` : ''}`
                 : (data.willReplace.withReason ?? 'The whole-line plan is not worked out yet.')}</li>

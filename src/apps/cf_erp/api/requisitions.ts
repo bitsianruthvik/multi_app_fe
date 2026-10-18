@@ -6,6 +6,9 @@ import type { PurchaseOrder } from './types';
  * material — and the server's material-ready engine says when each unit of work may go on. Nothing about a
  * requisition's state is stored: every figure below is the server's, worked out on the read.
  *
+ * PURCHASE FLOW v3 (§71, 2026-10-18): the sales order only RAISES the MR; its screen, the PR and the POs are in
+ * api/purchaseRequests.ts. The MR stock check, skip, release-excess, POs straight from MR lines and the MR board went.
+ *
  * MATERIAL REQUEST (§66, 2026-10-16): on every screen the requisition is a MATERIAL REQUEST (MR); new ones are
  * numbered MR-<order>-<line>. Who supplies the material is set on the order (a line may differ) and fixed on the
  * MR when it is raised: "We buy" (earmark from stock, buy the rest) or "Customer supplies" (their own lots, and a
@@ -170,77 +173,6 @@ export interface LineMaterialReady {
   materials: ReadyReason[];
 }
 
-// ---- stock check -------------------------------------------------------------
-
-export interface ReqStockCheckLine {
-  lineId: number;
-  item: ReqItem;
-  need: number;
-  covered: number;
-  open: number;
-  status: string;
-  /** Free for THIS order: stock earmarked for anybody else is simply not counted. */
-  freeInStock: number;
-  /** The most that may be held (need − stock). */
-  room: number;
-  proposeHold: number;
-}
-
-export interface ReqStockCheck {
-  applied: false;
-  requisition: { id: number; code: string; status: string };
-  canApply: boolean;
-  lines: ReqStockCheckLine[];
-  sentence: string;
-}
-
-export interface ReqStockHeld { applied: true; held: { lineId: number; item: ReqItem; quantity: number }[]; requisition: Requisition }
-
-// ---- purchase orders from requisition lines -------------------------------------
-
-export interface MakePoLine { prLineId: number; quantity?: number; expectedDate?: string | null; unitPrice?: number | null }
-export interface MakePo { supplierId?: number | null; expectedDate?: string | null; place?: boolean; notes?: string | null; lines: MakePoLine[] }
-export interface MadePos { purchaseOrders: PurchaseOrder[]; requisitions: Requisition[] }
-
-export interface ReleaseExcessPlan { kind: 'allocation' | 'hold'; id: number; quantity: number; leaves: number; text: string; purchaseOrder?: { id: number; code: string } }
-export interface ReleaseExcess {
-  applied?: boolean;
-  requisitionLineId: number;
-  item: ReqItem;
-  need: number;
-  excess: number;
-  plan: ReleaseExcessPlan[];
-  requisition?: Requisition;
-}
-
-// ---- board -------------------------------------------------------------------------
-
-export interface BuyingCard {
-  id: number;
-  code: string;
-  order: { id: number; code: string; status?: string };
-  line: { id: number; lineNo: number; name?: string };
-  status: ReqStatus;
-  statusLabel: string;
-  done: boolean;
-  sentence: string;
-  counts: ReqCounts;
-  stale: boolean;
-  materialReady: MaterialReady | null;
-  lastDate: string | null;
-  late: boolean;
-  purchaseOrders: { id: number; code: string; status: string }[];
-}
-export interface BuyingColumn { key: ReqStatus; label: string; hint: string; count: number; cards: BuyingCard[] }
-export interface WaitingCard extends BuyingCard { waitingLines: { id: number; item: ReqItem; need: number; short: number }[] }
-export interface BuyingBoard {
-  today: string;
-  columns: BuyingColumn[];
-  /** Requisitions with a skipped material that is not in stock right now — from the server; also in their status column. */
-  waitingForStock?: { key: 'waiting_for_stock'; label: string; hint: string; count: number; cards: WaitingCard[] };
-  notRaised: { order: { id: number; code: string }; line: { id: number; lineNo: number }; materials: number; materialReady: MaterialReady | null }[];
-}
-
 // ---- calls ---------------------------------------------------------------------------
 
 export const getOrderRequisitions = (orderId: number) => cfApi.get<OrderRequisitions>(`/orders/${orderId}/requisitions`);
@@ -281,23 +213,6 @@ export const setLineSupply = (lineId: number, supply: MaterialSupply | null) =>
   cfApi.put<{ lineId: number; lineNo: number; materialSupply: MaterialSupply | null; supply: MaterialSupply }>(`/order-lines/${lineId}/material-supply`, { supply });
 export const getRequisition = (id: number) => cfApi.get<Requisition>(`/requisitions/${id}`);
 export const getLineMaterialReady = (lineId: number) => cfApi.get<LineMaterialReady>(`/order-lines/${lineId}/material-ready`);
-
-/** A dry run: what would be held. Holds nothing. */
-export const checkStock = (id: number, lineIds?: number[]) => cfApi.post<ReqStockCheck>(`/requisitions/${id}/stock-check`, lineIds?.length ? { lineIds } : {});
-/** Holds the given quantities for the requisition's lines. */
-export const holdStock = (id: number, lines: { lineId: number; hold: number }[]) => cfApi.post<ReqStockHeld>(`/requisitions/${id}/stock-check`, { apply: true, lines });
-
-export type LineSet = { lineIds: number[] } | { all: true };
-export const skipLines = (id: number, set: LineSet, note?: string | null) => cfApi.post<{ changed: number; lineIds: number[]; requisition: Requisition }>(`/requisitions/${id}/skip`, { ...set, ...(note ? { note } : {}) });
-export const unskipLines = (id: number, set: LineSet) => cfApi.post<{ changed: number; lineIds: number[]; requisition: Requisition }>(`/requisitions/${id}/unskip`, set);
-
-export const makePurchaseOrders = (orders: MakePo[]) => cfApi.post<MadePos>('/requisitions/purchase-orders', { orders });
-
-export const releaseExcessPlan = (prLineId: number) => cfApi.post<ReleaseExcess>(`/requisition-lines/${prLineId}/release-excess`, {});
-export const releaseExcess = (prLineId: number) => cfApi.post<ReleaseExcess>(`/requisition-lines/${prLineId}/release-excess`, { apply: true });
-
-export const getBuyingBoard = (q: { orderId?: number | null; search?: string } = {}) =>
-  cfApi.get<BuyingBoard>(`/buying/board${qs({ orderId: q.orderId ?? undefined, search: q.search?.trim() || undefined })}`);
 
 /** A PO line's date and/or quantity (the existing route); answers with the purchase order. */
 export const updatePurchaseLine = (lineId: number, body: { expectedDate?: string | null; quantity?: number }) => cfApi.put<WithPlanned<PurchaseOrder>>(`/purchase-lines/${lineId}`, body);

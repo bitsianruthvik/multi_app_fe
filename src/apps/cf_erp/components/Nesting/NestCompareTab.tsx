@@ -164,11 +164,11 @@ export function NestCompareTab({ orderId, lineId, version = 0 }: {
   return (
     <Box data-testid="compare-tab" sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 2, minWidth: 0 }}>
       <SectionCard
-        title="The customer's nesting beside ours"
-        subtitle={`We nest the same ${data.likeForLike?.uploadedPieces ?? data.demand?.pieces ?? ''} pieces the upload holds, at Standard effort, and keep the result.`}
+        title="The customer's nesting beside AI's"
+        subtitle={`AI nests the same ${data.likeForLike?.uploadedPieces ?? data.demand?.pieces ?? ''} pieces the upload holds, at Standard effort, and keeps the result.`}
         actions={hasRun && !running ? (
           <Button size="small" onClick={() => { void start(true); }} disabled={busy != null}
-            startIcon={busy === 'start' ? <CircularProgress size={14} color="inherit" /> : undefined}>Run ours again</Button>
+            startIcon={busy === 'start' ? <CircularProgress size={14} color="inherit" /> : undefined}>Run AI again</Button>
         ) : undefined}>
         <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 1.5, minWidth: 0 }}>
           {error && <Alert severity="error" data-testid="compare-tab-error">{error.message}</Alert>}
@@ -176,21 +176,21 @@ export function NestCompareTab({ orderId, lineId, version = 0 }: {
           {/* Where our side stands. */}
           {running && (
             <Box data-testid="compare-tab-running" sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 1, minWidth: 0 }}>
-              <Typography sx={{ fontSize: 14, fontWeight: 600 }}>Running our nesting…</Typography>
+              <Typography sx={{ fontSize: 14, fontWeight: 600 }}>AI is nesting…</Typography>
               <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>You can keep working. The figures show here when it is done.</Typography>
               {data.run && <NestRunCard run={data.run} receivedAt={receivedAt} onStop={stop} onCancel={cancel} busy={busy != null} />}
             </Box>
           )}
           {(waiting || queued) && (
-            <Alert severity="info" data-testid="compare-tab-waiting">{data.autoCompare?.message ?? 'Our nesting starts in a moment.'}</Alert>
+            <Alert severity="info" data-testid="compare-tab-waiting">{data.autoCompare?.message ?? "AI's nesting starts in a moment."}</Alert>
           )}
           {!running && !waiting && !queued && !hasRun && data.lastFailure?.error?.message && (
             <Alert severity="error" data-testid="compare-tab-failed" action={<Button color="inherit" size="small" onClick={() => { void start(true); }} disabled={busy != null}>Run again</Button>}>
-              {`Our nesting did not finish. ${data.lastFailure.error.message}`}
+              {`AI's nesting did not finish. ${data.lastFailure.error.message}`}
             </Alert>
           )}
           {!running && !waiting && !queued && !hasRun && !data.lastFailure && (
-            <Alert severity="info" data-testid="compare-tab-starting">{status === 'unavailable' ? (auto?.reason ?? 'Our nesting cannot run on this line yet.') : 'Starting our nesting…'}</Alert>
+            <Alert severity="info" data-testid="compare-tab-starting">{status === 'unavailable' ? (auto?.reason ?? "AI's nesting cannot run on this line yet.") : "Starting AI's nesting…"}</Alert>
           )}
           {data.stale && !hasRun && (
             <Typography data-testid="compare-tab-stale" sx={{ fontSize: 12.5, color: 'var(--c-text-2)' }}>
@@ -219,7 +219,7 @@ export function NestCompareTab({ orderId, lineId, version = 0 }: {
             '& td.n': { fontVariantNumeric: 'tabular-nums' },
           }}>
             <thead>
-              <tr><th style={{ width: '26%' }}>Figure</th><th>Customer&rsquo;s</th><th>Ours</th><th>Ours vs theirs</th></tr>
+              <tr><th style={{ width: '26%' }}>Figure</th><th>Customer&rsquo;s</th><th>By AI</th><th>AI vs customer</th></tr>
             </thead>
             <tbody>
               {rows.map((r) => (
@@ -233,7 +233,7 @@ export function NestCompareTab({ orderId, lineId, version = 0 }: {
                   <td data-col="diff">
                     {hasRun ? r.diff : '—'}
                     {hasRun && (r.better === 'ours' || r.better === 'customer') && (
-                      <Box component="span" sx={{ display: 'block', fontSize: 11.5, color: 'var(--c-text-2)' }}>{r.better === 'ours' ? 'ours is better' : "theirs is better"}</Box>
+                      <Box component="span" sx={{ display: 'block', fontSize: 11.5, color: 'var(--c-text-2)' }}>{r.better === 'ours' ? 'AI is better' : "the customer's is better"}</Box>
                     )}
                   </td>
                 </tr>
@@ -255,7 +255,7 @@ export function NestCompareTab({ orderId, lineId, version = 0 }: {
               <Box key={String(t.thickness)} data-thickness={t.thickness ?? ''} sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 0.25, minWidth: 0, pb: 1, borderBottom: '1px solid var(--c-divider)' }}>
                 <Typography sx={{ fontSize: 13.5, fontWeight: 600 }}>{t.thickness ? `${mm(t.thickness)} mm` : 'Thickness not known'}</Typography>
                 <Typography data-side="customer" sx={{ fontSize: 13, overflowWrap: 'anywhere' }}><Box component="span" sx={{ color: 'var(--c-text-3)' }}>Customer&rsquo;s: </Box>{thicknessLine(t.uploaded)}</Typography>
-                <Typography data-side="ours" sx={{ fontSize: 13, overflowWrap: 'anywhere' }}><Box component="span" sx={{ color: 'var(--c-text-3)' }}>Ours: </Box>{hasRun ? thicknessLine(t.auto) : (running ? 'running…' : '—')}</Typography>
+                <Typography data-side="ours" sx={{ fontSize: 13, overflowWrap: 'anywhere' }}><Box component="span" sx={{ color: 'var(--c-text-3)' }}>By AI: </Box>{hasRun ? thicknessLine(t.auto) : (running ? 'running…' : '—')}</Typography>
               </Box>
             ))}
           </Box>
@@ -265,7 +265,7 @@ export function NestCompareTab({ orderId, lineId, version = 0 }: {
       <SectionCard title="The plates" subtitle="Open a plate to see its drawing.">
         <Box sx={{ display: 'grid', gap: 1.5, gridTemplateColumns: { xs: 'minmax(0, 1fr)', md: 'repeat(2, minmax(0, 1fr))' }, minWidth: 0 }}>
           <PlateList title="Customer's" testid="compare-tab-plates-customer" plates={upPlates} nests={upPlates.map((p) => savedNests.find((n) => n.id === p.lotId))} openKey={openPlate} onOpen={setOpenPlate} />
-          <PlateList title="Ours" testid="compare-tab-plates-ours" plates={autoPlates} nests={autoPlates.map((p) => autoNests.find((n) => n.lotNo === p.lotNo))} openKey={openPlate} onOpen={setOpenPlate} />
+          <PlateList title="By AI" testid="compare-tab-plates-ours" plates={autoPlates} nests={autoPlates.map((p) => autoNests.find((n) => n.lotNo === p.lotNo))} openKey={openPlate} onOpen={setOpenPlate} />
         </Box>
         {hasRun && <Box sx={{ mt: 1 }}><Badge family="neutral" noIcon label="The upload stays the saved nesting" /></Box>}
       </SectionCard>

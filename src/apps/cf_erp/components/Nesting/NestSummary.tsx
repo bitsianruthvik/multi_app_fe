@@ -115,7 +115,7 @@ export function LeftOverBanner({ pieces, rows, heldBack, oursLabel, oursWhy, onO
       )}
       {heldBack > 0 && (
         <Box data-testid="left-over-held" sx={{ fontSize: 12.5 }}>
-          {`${heldBack} of them ${heldBack === 1 ? 'is' : 'are'} held back from automatic nesting (by hand, or unticked), so nesting ourselves will not place ${heldBack === 1 ? 'it' : 'them'}. A nesting file can.`}
+          {`${heldBack} of them ${heldBack === 1 ? 'is' : 'are'} held back from automatic nesting (by hand, or unticked), so nesting by AI will not place ${heldBack === 1 ? 'it' : 'them'}. A nesting file can.`}
         </Box>
       )}
       {uploadWhy && <Box data-testid="left-over-upload-why" sx={{ fontSize: 12.5 }}>{uploadWhy}</Box>}

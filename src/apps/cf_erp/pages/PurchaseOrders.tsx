@@ -11,42 +11,47 @@ import { useNewParam, useUrlParam } from '../hooks/useUrlState';
 import { invalidateNavCounts } from '../hooks/useNavCounts';
 import { appPath } from '../navMeta';
 import { qtyText } from '../lib/inventory';
-import { PURCHASE_FILTERS } from '../lib/purchase';
 import { rupeeText } from '../lib/money';
 import { Money } from '../components/Money';
 import { EmptyState, ErrorNotice, Mono, PageHeader, StatStrip } from '../components/ui';
 import { FacetChip, FilterBar } from '../components/FilterBar';
 import { DataTable, type DataColumn } from '../components/DataTable';
-import { PurchaseStatusBadge } from '../components/purchaseUi';
+import { PoStageBadge, PoTypeChip } from '../components/Purchase/purchaseFlowUi';
+import { PO_STAGE_FILTERS } from '../lib/purchaseRequest';
 import { NewPurchaseDialog } from '../components/PurchaseDialogs';
 
 const linkSx = { color: 'inherit', textDecoration: 'none', '&:hover': { color: 'var(--c-primary-700)', textDecoration: 'underline' } };
 
-interface PoCounts { status: Record<string, number>; open: number; all: number; sum: { amount: number; outstanding: number; unpriced: number } }
+interface PoCounts { status: Record<string, number>; stage?: Record<string, number>; open: number; all: number; sum: { amount: number; outstanding: number; unpriced: number } }
 /** Columns the server sorts (purchaseService PO_SORT). */
 const SERVER_SORT = ['code', 'status', 'supplier', 'expected', 'lines', 'ordered', 'received', 'outstanding', 'amount'];
 
-/** Every purchase order: what was asked for, from whom, and what has arrived. */
+/**
+ * Every purchase order (§71): its TYPE (material; contractor POs come in a later step) and its STAGE — pending MD
+ * approval, waiting for goods, part received, closed (by itself, or short). The chips filter by stage on the server.
+ */
 export default function PurchaseOrders() {
   const company = useCompanySlug();
   const navigate = useNavigate();
   const canManage = useIsPermitted()('cf_erp_inventory_manage');
-  const [status, setStatus] = useUrlParam('status', 'open');
+  // ?stage= (§71); 'open' and 'all' ride on the old status filter.
+  const [stage, setStage] = useUrlParam('stage', 'open');
   const [search, setSearch] = useState('');
   const [creating, setCreating] = useState(false);
   useNewParam(() => { if (canManage) setCreating(true); });
   const term = useDebounced(search.trim());
   // Search and the status chip filter on the server, a page at a time; every figure counts all matching orders.
-  const list = usePagedList<PurchaseOrderRow, PoCounts>('/purchase-orders', { status, search: term }, { defaultSort: { key: 'code', dir: 'desc' } });
+  const query = stage === 'open' || stage === 'all' ? { status: stage, search: term } : { status: 'all', stage, search: term };
+  const list = usePagedList<PurchaseOrderRow, PoCounts>('/purchase-orders', query, { defaultSort: { key: 'code', dir: 'desc' } });
   const counts = list.counts;
   const unpriced = counts?.sum.unpriced ?? 0;
   const amount = counts?.sum.amount ?? 0;
   const outstanding = counts?.sum.outstanding ?? 0;
-  const chipCount = (v: string) => (!counts ? undefined : v === 'open' ? counts.open : v === 'all' ? counts.all : counts.status[v]);
+  const chipCount = (v: string) => (!counts ? undefined : v === 'open' ? counts.open : v === 'all' ? counts.all : counts.stage?.[v]);
   const stats = [
     { label: 'Orders', value: list.total },
-    { label: 'Not placed yet', value: (counts?.status.requested ?? 0) + (counts?.status.draft ?? 0) + (counts?.status.quoting ?? 0), tone: 'warning' as const, hint: 'Requested or out for quotes — not placed with a supplier yet' },
-    { label: 'Awaiting delivery', value: (counts?.status.ordered ?? 0) + (counts?.status.partially_received ?? 0), tone: 'info' as const, hint: 'Placed, still waiting on the supplier' },
+    { label: 'Pending MD approval', value: counts?.stage?.pending_approval ?? 0, tone: 'warning' as const, hint: 'Every PO to a vendor waits for the MD before it is placed' },
+    { label: 'Waiting for goods', value: (counts?.stage?.waiting ?? 0) + (counts?.stage?.part_received ?? 0), tone: 'info' as const, hint: 'Approved, still waiting on the vendor' },
     { label: 'Order value', value: amount, display: amount === 0 && unpriced > 0 ? 'not priced' : rupeeText(amount), hint: unpriced ? `${unpriced} line${unpriced === 1 ? ' has' : 's have'} no price and ${unpriced === 1 ? 'is' : 'are'} left out` : 'Before tax' },
     { label: 'Outstanding', value: outstanding, display: qtyText(outstanding), hint: 'Quantity ordered and not yet received' },
   ];
@@ -60,7 +65,8 @@ export default function PurchaseOrders() {
         </Box>
       ),
     },
-    { key: 'status', header: 'Status', alwaysVisible: true, sortValue: (p) => p.status, render: (p) => <PurchaseStatusBadge status={p.status} /> },
+    { key: 'status', header: 'Stage', alwaysVisible: true, sortValue: (p) => p.status, render: (p) => <PoStageBadge stage={p.stage} label={p.stageLabel} /> },
+    { key: 'type', header: 'Type', exportValue: (p) => p.typeLabel ?? 'Material', render: (p) => <PoTypeChip type={p.type} /> },
     {
       key: 'supplier', header: 'Supplier', sortValue: (p) => p.supplier?.name ?? '',
       render: (p) => (p.supplier ? <>{p.supplier.name}</> : <Typography component="span" sx={{ fontSize: 12.5, color: 'var(--c-text-3)' }}>Nobody yet</Typography>),
@@ -84,22 +90,22 @@ export default function PurchaseOrders() {
 
   return (
     <Box>
-      <PageHeader title="Purchase orders" subtitle="What was asked for, from whom, and what has arrived. A delivery is booked against its line, which posts an ordinary stock receipt."
+      <PageHeader title="Purchase orders" subtitle="Material and contractor purchase orders. Each waits for MD approval, then for the goods; goods are received from Inventory › Receive against PO."
         actions={canManage && <Button variant="contained" startIcon={<AddRounded />} onClick={() => setCreating(true)}>New purchase order</Button>} />
       <StatStrip stats={stats} />
       <FilterBar search={search} onSearch={setSearch} placeholder="Search number or supplier">
-        {PURCHASE_FILTERS.map((f) => <FacetChip key={f.value} label={f.label} active={status === f.value} count={chipCount(f.value)} onClick={() => setStatus(f.value)} />)}
+        {PO_STAGE_FILTERS.map((f) => <FacetChip key={f.value} label={f.label} active={stage === f.value} count={chipCount(f.value)} onClick={() => setStage(f.value)} />)}
       </FilterBar>
       <ErrorNotice error={list.error} onRetry={list.reload} />
       <DataTable rows={list.rows} columns={columns} getRowId={(p) => p.id} loading={!list.loaded} server={{ ...list.server, sortable: SERVER_SORT }} defaultSortKey="code" defaultSortDir="desc" storageKey="purchase-orders" exportName="purchase-orders"
         onRowClick={(p) => navigate(appPath(company, `purchase-orders/${p.id}`))}
         empty={<EmptyState icon={<LocalShippingRounded />}
-          title={term ? 'No order matches' : status === 'open' ? 'Nothing on order' : 'No purchase orders here'}
+          title={term ? 'No order matches' : stage === 'open' ? 'Nothing on order' : 'No purchase orders here'}
           hint={term ? 'Clear the search, or look under All.'
-            : status === 'open' ? 'Request items from a sales order’s Material request stage, or raise one by hand.'
+            : stage === 'open' ? 'Raise one from a purchase request, or by hand.'
               : 'Nothing has this status. Look under All.'}
           action={term ? <Button onClick={() => setSearch('')}>Clear search</Button>
-            : status !== 'all' ? <Button onClick={() => setStatus('all')}>Show all orders</Button>
+            : stage !== 'all' ? <Button onClick={() => setStage('all')}>Show all orders</Button>
               : canManage ? <Button variant="contained" startIcon={<AddRounded />} onClick={() => setCreating(true)}>New purchase order</Button> : undefined} />} />
       <NewPurchaseDialog open={creating} onClose={() => setCreating(false)}
         onCreated={(p: PurchaseOrder) => { setCreating(false); invalidateNavCounts(); navigate(appPath(company, `purchase-orders/${p.id}`)); }} />

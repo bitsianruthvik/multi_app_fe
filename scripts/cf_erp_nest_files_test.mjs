@@ -210,7 +210,7 @@ await check('the preview is a dry run, and shows the diff: added, replaced, unch
   assert.ok(diff.includes('NVX-B1 is new') && diff.includes('NVX-B2 is replaced') && diff.includes('NVX-B3 is removed') && diff.includes('NVX-B5 is unchanged'));
   assert.ok(diff.includes('was 20 pieces, now 14') && diff.includes('13 moved'));
   assert.ok(diff.includes('NVX-CR 5 → 3'), 'what changed on the replaced plate');
-  assert.ok(diff.includes('Our additions on this plate are dropped: NVX-CA ×4'));
+  assert.ok(diff.includes("AI's additions on this plate are dropped: NVX-CA ×4"));
   // One headline; the server's own summary is kept, under For information (2026-10-14).
   assert.equal(document.querySelector('[data-testid=nest-headline]').textContent, 'Ready to save 2 plates');
   assert.ok(document.querySelector('[data-testid=nest-files-message]').textContent.includes('5 files read; plates: 5 added, 2 removed.'));
@@ -383,7 +383,7 @@ await check('the left-over list names the cut plate and quantity, and says Nest 
   await waitFor(() => document.querySelector('[data-testid=nest-leftover]'), 'left over');
   const t = document.querySelector('[data-testid=nest-leftover]').textContent;
   assert.ok(t.includes('Left over on this line (4)') && t.includes('NVX-CA') && t.includes('×4'));
-  assert.ok(t.includes('“Nest the rest ourselves” will place them (4 of them)'));
+  assert.ok(t.includes('“Nest the rest by AI” will place them (4 of them)'));
   await unmount();
 });
 
@@ -439,20 +439,20 @@ await check('the button takes many files at once', async () => {
   await unmount();
 });
 
-await check('a line nested by upload with pieces left over says so, with Nest the rest ourselves and Upload more files', async () => {
+await check('a line nested by upload with pieces left over says so, with Nest the rest by AI and Upload more files', async () => {
   reset();
   await mountPanel();
   await waitFor(() => document.querySelector('[data-testid=nest-left-over]'), 'the banner');
   const banner = document.querySelector('[data-testid=nest-left-over]');
   assert.ok(banner.textContent.includes('4 cut pieces are not nested yet') && banner.textContent.includes('NVX-CA') && banner.textContent.includes('×4'));
   // More files first and primary (the team nests in its own program); ours second.
-  assert.deepEqual([...banner.querySelectorAll('button')].map((b) => b.textContent), ['Upload more files', 'Nest the rest ourselves', 'Mark the rest as cut from offcuts']);
-  assert.ok(find('Upload more files').className.includes('MuiButton-contained') && find('Nest the rest ourselves').className.includes('MuiButton-outlined'));
+  assert.deepEqual([...banner.querySelectorAll('button')].map((b) => b.textContent), ['Upload more files', 'Nest the rest by AI', 'Mark the rest as cut from offcuts']);
+  assert.ok(find('Upload more files').className.includes('MuiButton-contained') && find('Nest the rest by AI').className.includes('MuiButton-outlined'));
   assert.equal(document.querySelector('[data-testid=nest-doors]'), null, 'the doors are for a line with nothing nested');
   assert.equal(document.querySelector('[data-testid=summary-pieces]').textContent, 'Cut pieces nested39 of 43');
-  await click(find('Nest the rest ourselves'), 'nest the rest');
+  await click(find('Nest the rest by AI'), 'nest the rest');
   await waitFor(() => find('Start nesting'), 'the start dialog');
-  assert.equal(document.querySelector('#nest-start-title').textContent, 'Nest the rest ourselves');
+  assert.equal(document.querySelector('#nest-start-title').textContent, 'Nest the rest by AI');
   assert.equal(document.querySelector('[data-testid=nest-start-sentence]').textContent, 'Lays out what the imported nests do not cover. Imported plates stay. Nothing is written until you use the result.');
   await click(find('Start nesting'), 'Start');
   await waitFor(() => calls.some((c) => c.startsWith('POST') && c.endsWith('/nesting/runs')), 'the run');
@@ -486,16 +486,16 @@ await check('a saved plate says where its layout came from, shows our additions 
   await waitFor(() => document.querySelector('[data-testid=plate-origin]'), 'the origin line');
   assert.equal(document.querySelector('[data-testid=plate-origin]').textContent, "Customer's layout · N12.dxf");
   assert.equal(document.querySelector('[data-testid=plate-source]').textContent, 'DXF', 'the badge says which kind of file it came from');
-  assert.ok(text().includes('1 added by us'));
+  assert.ok(text().includes('1 added by AI'));
   assert.ok(document.querySelector('svg[role=img] [data-by=ours]'), 'our part is marked');
   assert.ok(document.querySelector('svg[role=img] [data-by=customer]'));
-  assert.ok(text().includes('Added by us') && text().includes("Customer's part"), 'the legend');
+  assert.ok(text().includes('Added by AI') && text().includes("Customer's part"), 'the legend');
   assert.ok(find('Remove plate'));
   assert.ok(find('Customer’s file'));
   const thumbs = [...document.querySelectorAll('[data-testid=plate-thumbs] button')];
   await click(thumbs[1], 'the automatic plate');
   await waitFor(() => document.querySelector('[data-testid=plate-origin]').textContent === 'Nested here', 'Nested here');
-  assert.equal(document.querySelector('[data-testid=plate-source]').textContent, 'Ours');
+  assert.equal(document.querySelector('[data-testid=plate-source]').textContent, 'By AI');
   assert.ok(!find('Remove plate'), 'an automatic plate has no Remove');
   await unmount();
 });
@@ -539,7 +539,7 @@ await check('the diagram draws a path with a cut-out and a hole for a ring part,
   assert.equal(document.querySelectorAll('svg[role=img] rect[data-part=rect]').length, 2);
   const ours = document.querySelector('svg[role=img] [data-by=ours]');
   assert.ok(ours && ours.getAttribute('stroke-dasharray'), 'ours is dashed');
-  assert.ok(text().includes('Added by us'));
+  assert.ok(text().includes('Added by AI'));
   await unmount();
 });
 
@@ -596,7 +596,7 @@ await check('without the sales-order grant the upload is disabled and says why',
   assert.equal(b.disabled, true);
   assert.ok(b.parentElement.getAttribute('aria-label').includes('your role cannot change the order'));
   assert.ok(document.querySelector('[data-testid=door-upload-blocked]').textContent.includes('your role cannot change the order'), 'the blocked door says why, in words on the door');
-  assert.equal(find('Nest it ourselves').disabled, false, 'looking at a layout of ours is still allowed');
+  assert.equal(find('Nest by AI').disabled, false, 'looking at a layout of ours is still allowed');
   await unmount();
 });
 

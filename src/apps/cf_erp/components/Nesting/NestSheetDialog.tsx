@@ -60,7 +60,7 @@ export function NestSheetDialog({
             ) : (
               <Alert severity={force ? 'warning' : 'success'}>
                 {force
-                  ? `${doubts ? `${doubts} of ${nests.length} ${nests.length === 1 ? 'nest' : 'nests'} may not work with our rules.` : ''}${over.length ? `${doubts ? ' ' : ''}Some cut plates are nested more times than the line needs.` : ''} You can still save it.`
+                  ? `${doubts ? `${doubts} of ${nests.length} ${nests.length === 1 ? 'nest' : 'nests'} may not work with AI's rules.` : ''}${over.length ? `${doubts ? ' ' : ''}Some cut plates are nested more times than the line needs.` : ''} You can still save it.`
                   : `All ${nests.length} ${nests.length === 1 ? 'nest fits' : 'nests fit'}.`}
                 {' '}Saving replaces every plate on this line.
                 {short.length > 0 && ' Nest the rest afterwards for what is short.'}
