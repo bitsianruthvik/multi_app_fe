@@ -28,6 +28,13 @@ const Operators = lazy(() => import('./pages/Operators'));
 const StopReasons = lazy(() => import('./pages/StopReasons'));
 const Machines = lazy(() => import('./pages/Machines'));
 const MachineDetail = lazy(() => import('./pages/MachineDetail'));
+const Tools = lazy(() => import('./pages/Tools'));
+// Maintenance (§82): machines board, maintenance orders, preventive plans, planned downtime.
+const MaintenanceBoard = lazy(() => import('./pages/Maintenance'));
+const MaintenanceOrders = lazy(() => import('./pages/Maintenance').then((m) => ({ default: m.MaintenanceOrders })));
+const MaintenancePlans = lazy(() => import('./pages/Maintenance').then((m) => ({ default: m.MaintenancePlans })));
+const PlannedDowntime = lazy(() => import('./pages/Maintenance').then((m) => ({ default: m.PlannedDowntime })));
+const MaintenanceOrderDetail = lazy(() => import('./pages/MaintenanceOrderDetail'));
 const MachineTypeDetail = lazy(() => import('./pages/MachineTypeDetail'));
 const Operations = lazy(() => import('./pages/Operations'));
 const OperationDetail = lazy(() => import('./pages/OperationDetail'));
@@ -35,10 +42,13 @@ const Flows = lazy(() => import('./pages/Flows'));
 const FlowDetail = lazy(() => import('./pages/FlowDetail'));
 const WorkOrders = lazy(() => import('./pages/WorkOrders'));
 const ProductionOrders = lazy(() => import('./pages/ProductionOrders'));
+const ProductionOrderDetail = lazy(() => import('./pages/ProductionOrderDetail'));
 const WorkOrderDetail = lazy(() => import('./pages/WorkOrderDetail'));
 const Stock = lazy(() => import('./pages/Stock'));
 // Purchase flow v3 (§71): MR → PR (vendor columns) → PO → Receive against PO.
 const MaterialRequests = lazy(() => import('./pages/MaterialRequests'));
+// §79: Stores › To reorder (min / max and periodic items, by AI).
+const ToReorder = lazy(() => import('./pages/ToReorder'));
 const MaterialRequestDetail = lazy(() => import('./pages/MaterialRequestDetail'));
 const PurchaseRequests = lazy(() => import('./pages/PurchaseRequests'));
 const PurchaseRequestDetail = lazy(() => import('./pages/PurchaseRequestDetail'));
@@ -104,6 +114,7 @@ export function getCfErpRoutes(
     { path: '/:company/cf_erp/invoices/:id', element: wrap(<InvoiceDetail />) },
     { path: '/:company/cf_erp/company-tax', element: wrap(<CompanyTax />) },
     { path: '/:company/cf_erp/customers', element: wrap(<Customers />) },
+    { path: '/:company/cf_erp/customers/:partyId', element: wrap(<Customers />) },
     { path: '/:company/cf_erp/contractors', element: wrap(<Customers fixedRole="subcontractor" />) },
     { path: '/:company/cf_erp/suppliers', element: wrap(<Customers fixedRole="supplier" />) },
     { path: '/:company/cf_erp/standard-drawings', element: wrap(<StandardDrawings />) },
@@ -120,6 +131,12 @@ export function getCfErpRoutes(
     { path: '/:company/cf_erp/stop-reasons', element: wrap(<StopReasons />) },
     { path: '/:company/cf_erp/machines', element: wrap(<Machines />) },
     { path: '/:company/cf_erp/machines/:id', element: wrap(<MachineDetail />) },
+    { path: '/:company/cf_erp/tools', element: wrap(<Tools />) },
+    { path: '/:company/cf_erp/maintenance', element: wrap(<MaintenanceBoard />) },
+    { path: '/:company/cf_erp/maintenance-orders', element: wrap(<MaintenanceOrders />) },
+    { path: '/:company/cf_erp/maintenance-orders/:id', element: wrap(<MaintenanceOrderDetail />) },
+    { path: '/:company/cf_erp/maintenance-plans', element: wrap(<MaintenancePlans />) },
+    { path: '/:company/cf_erp/planned-downtime', element: wrap(<PlannedDowntime />) },
     { path: '/:company/cf_erp/machine-types/:id', element: wrap(<MachineTypeDetail />) },
     { path: '/:company/cf_erp/operations', element: wrap(<Operations />) },
     { path: '/:company/cf_erp/operations/:id', element: wrap(<OperationDetail />) },
@@ -127,11 +144,13 @@ export function getCfErpRoutes(
     { path: '/:company/cf_erp/flows/:id', element: wrap(<FlowDetail />) },
     { path: '/:company/cf_erp/work-orders', element: wrap(<WorkOrders />) },
     { path: '/:company/cf_erp/production-orders', element: wrap(<ProductionOrders />) },
+    { path: '/:company/cf_erp/production-orders/:id', element: wrap(<ProductionOrderDetail />) },
     { path: '/:company/cf_erp/work-orders/:id', element: wrap(<WorkOrderDetail />) },
     { path: '/:company/cf_erp/stock', element: wrap(<Stock />) },
     { path: '/:company/cf_erp/purchase', element: <ToMaterialRequests /> },
     { path: '/:company/cf_erp/material-requests', element: wrap(<MaterialRequests />) },
     { path: '/:company/cf_erp/material-requests/:id', element: wrap(<MaterialRequestDetail />) },
+    { path: '/:company/cf_erp/to-reorder', element: wrap(<ToReorder />) },
     { path: '/:company/cf_erp/purchase-requests', element: wrap(<PurchaseRequests />) },
     { path: '/:company/cf_erp/purchase-requests/:id', element: wrap(<PurchaseRequestDetail />) },
     { path: '/:company/cf_erp/receive', element: wrap(<ReceiveAgainstPo />) },

@@ -1,7 +1,7 @@
 import type { FloorDay, FloorMachine, FloorReopened, FloorRunning, FloorStep } from '../../api/types';
 
-/** "Cut plate 25 x 500 · SPAN-01-…" — what the job is done to. */
-export const pieceLine = (s: FloorStep) => [s.pieceName || s.pieceCode, s.pieceCode && s.pieceCode !== s.pieceName ? s.pieceCode : null].filter(Boolean).join(' · ');
+/** "Cut plate 25 x 500 · SPAN-01-… · SO260014-P02" — what the job is done to, and its production order (§76). */
+export const pieceLine = (s: FloorStep) => [s.pieceName || s.pieceCode, s.pieceCode && s.pieceCode !== s.pieceName ? s.pieceCode : null, s.productionOrderCode ?? null].filter(Boolean).join(' · ');
 
 /**
  * The machine log's arithmetic, kept out of the screens so it can be reasoned

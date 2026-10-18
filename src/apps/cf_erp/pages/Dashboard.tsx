@@ -19,6 +19,8 @@ import { ErrorNotice, PageHeader, SkeletonRows, StatSkeleton } from '../componen
 import { MachinesTab } from '../components/Dashboard/MachinesTab';
 import { OrdersTab } from '../components/Dashboard/OrdersTab';
 import { WorkOrdersTab } from '../components/Dashboard/WorkOrdersTab';
+// §82: downtime hours this week and what maintenance cost.
+import { MaintenanceCard } from '../components/Maintenance/MaintenanceCard';
 
 type TabKey = 'machines' | 'orders' | 'work-orders';
 /** While the period reaches today, the numbers are live: read again every few minutes. */
@@ -102,6 +104,7 @@ export default function Dashboard() {
           </Box>
         )}
       />
+      <MaintenanceCard />
       <Tabs value={tab} onChange={(_, v: TabKey) => setTab(v)} sx={{ mb: 2, borderBottom: '1px solid var(--c-divider)' }}>
         {canMachines && <Tab value="machines" label="By machine" sx={{ textTransform: 'none' }} data-testid="tab-machines" />}
         {canOrders && <Tab value="orders" label="By order" sx={{ textTransform: 'none' }} data-testid="tab-orders" />}

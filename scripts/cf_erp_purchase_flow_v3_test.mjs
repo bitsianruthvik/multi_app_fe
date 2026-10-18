@@ -240,7 +240,7 @@ await check('without the manage grant the MR is read-only', async () => {
   globalThis.__routes['GET /material-requests/41'] = () => mrScreen();
   await page(m.MaterialRequestDetail, '/:company/cf_erp/material-requests/:id', '/testco/cf_erp/material-requests/41');
   assert.equal(qa('mr-take').length, 0); assert.equal(q1('mr-save'), null);
-  assert.match(text(document.body), /Changing it needs the inventory manage permission/);
+  assert.match(text(document.body), /Changing it needs the Stores permission/);
 });
 
 // ── 3: the PR grid ──────────────────────────────────────────────────────────────
@@ -355,9 +355,11 @@ await check('Receive against PO lists every pending line and opens the GRN dialo
 });
 
 // ── 6: the menu, removed screens, the gate and the words ──────────────────────────
-await check('menu: Material requests, Purchase requests, Purchase orders; Inventory › Receive against PO; no boards; Plate changes hidden while the gate is off', () => {
+await check('menu: Purchase requests, Purchase orders (MRs in Stores, §79); Stores › Receive against PO; no boards; Plate changes hidden while the gate is off', () => {
   const purchase = m.SECTIONS.find((s) => s.key === 'purchase').screens.map((s) => s.key);
-  assert.deepEqual(purchase, ['material-requests', 'purchase-requests', 'purchase-orders', 'suppliers']);
+  // §79: MRs moved to Stores (MR inbox); Purchase sees PRs only.
+  assert.deepEqual(purchase, ['purchase-requests', 'purchase-orders', 'suppliers']);
+  assert.ok(m.SECTIONS.find((s) => s.key === 'inventory').screens.some((s) => s.key === 'material-requests' && s.label === 'MR inbox'));
   assert.equal(m.PLATE_CHANGE_GATE, false);
   assert.ok(m.SECTIONS.find((s) => s.key === 'inventory').screens.some((s) => s.key === 'receive' && s.label === 'Receive against PO'));
   for (const gone of ['pages/PurchaseBoard.tsx', 'components/Purchase/PurchaseLanes.tsx', 'components/Purchase/RequisitionBoard.tsx', 'components/Purchase/RequisitionDialogs.tsx', 'components/Purchase/RequisitionTable.tsx',

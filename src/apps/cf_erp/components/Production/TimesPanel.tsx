@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Box, Button, FormControlLabel, Switch, Tooltip, Typography } from '@mui/material';
+import { Box, Button, FormControlLabel, Switch, ToggleButton, ToggleButtonGroup, Tooltip, Typography } from '@mui/material';
 import { Link } from 'react-router-dom';
 import { SheetGrid, type SheetCell, type SheetWrite } from '@shared/ui';
 import { CfApiError } from '../../api/client';
@@ -22,7 +22,8 @@ const TOTAL = 'total';
 type Spread = { label: string; clear: boolean; cells: TimeWrite[] };
 
 /**
- * Times: how long each operation takes on each BOM row, per piece. The formula
+ * Times: how long each operation takes on each BOM row, PER PIECE — setup too (§76: setup and operation time are
+ * both per quantity; one chart, a toggle between them). The formula
  * fills every box; typing over one is an override (strong, with a dot), and
  * clearing it gives the formula back. One idea, so no save button — an edit is
  * saved as it is made. Rows with no operation (raw materials, no flow) are
@@ -77,15 +78,17 @@ export function TimesPanel({ orderId, lineId }: { orderId: number; lineId: numbe
   if (load.error && !view) return <ErrorNotice error={load.error} onRetry={load.reload} />;
   if (!view) return <SkeletonRows rows={4} height={36} />;
 
-  const editable = view.line.editable && canProduce && !view.line.released;
+  // §76: the order's "all times = N s" wins over every box; typing waits until it is cleared.
+  const overrideS = view.orderOverrideSeconds ?? null;
+  const editable = view.line.editable && canProduce && !view.line.released && overrideS == null;
   const rowByKey = new Map(view.rows.map((r) => [r.key, r]));
   const cellOf = (row: TimeRow, opKey: string): TimeCell | undefined => row.cells[opKey];
-  const rowMinutes = (row: TimeRow) => Object.values(row.cells).reduce((sum, c) => c.work == null ? sum : sum + ((c.setup ?? 0) + c.work * row.totalQty) * (c.passes ?? 1), 0);
+  const rowMinutes = (row: TimeRow) => Object.values(row.cells).reduce((sum, c) => c.work == null ? sum : sum + ((c.setup ?? 0) + c.work) * row.totalQty * (c.passes ?? 1), 0);
   const field = setup ? 'setup' : 'work';
 
   const cellAt = (rowKey: string, colKey: string): SheetCell => {
     const row = rowByKey.get(rowKey);
-    if (colKey === TOTAL) { const m = row ? rowMinutes(row) : 0; return { text: m ? hours(m) : '', tone: 'muted', editable: false, why: 'Setup plus work for every piece, added up.' }; }
+    if (colKey === TOTAL) { const m = row ? rowMinutes(row) : 0; return { text: m ? hours(m) : '', tone: 'muted', editable: false, why: '(Setup + operation time) × every piece, added up.' }; }
     const c = row ? cellOf(row, colKey) : undefined;
     if (!row) return { text: '', tone: 'blank' };
     if (!c) {
@@ -93,7 +96,8 @@ export function TimesPanel({ orderId, lineId }: { orderId: number; lineId: numbe
       return { text: '', applies: false, why: row.flowName ? `${op} is not in this row's flow (${row.flowName})` : `${op} does not apply: this row has no flow` };
     }
     const value = setup ? c.setup : c.work, formula = setup ? c.formulaSetup : c.formulaWork, over = setup ? c.setupOverridden : c.overridden;
-    const why = !view.line.editable || view.line.released ? (view.line.why || 'Times are fixed at release.') : !canProduce ? 'Your role cannot change times.' : undefined;
+    const why = overrideS != null ? `The order's override is in force: every time is ${overrideS} s. Clear it to use or type times.`
+      : !view.line.editable || view.line.released ? (view.line.why || 'Times are fixed at release.') : !canProduce ? 'Your role cannot change times.' : undefined;
     const lines = [c.machine ? `Machine: ${c.machine}` : null, over && formula != null ? `Formula says ${minutes(formula)}` : null, value == null ? c.missing || 'No time from the formula.' : null].filter(Boolean);
     return {
       text: value == null ? '' : minutes(value), input: value == null ? '' : minutes(value), kind: 'number',
@@ -174,13 +178,16 @@ export function TimesPanel({ orderId, lineId }: { orderId: number; lineId: numbe
         <Typography sx={{ fontSize: 13.5, color: 'var(--c-text-2)', flex: '1 1 260px' }}>
           {view.line.released
             ? 'Times are fixed at release — they are on the production steps now.'
-            : `${setup ? 'Setup minutes, once per run.' : 'Work minutes per piece.'} Grey is the formula; type over a box to change it, clear it to go back.`}
+            : overrideS != null ? `Every time on this order is overridden to ${overrideS} s a piece (setup and operation) — the formulas are kept.`
+              : `${setup ? 'Setup minutes per piece.' : 'Operation minutes per piece.'} Grey is the formula; type over a box to change it, clear it to go back.`}
         </Typography>
         {saved && <Typography role="status" sx={{ fontSize: 12.5, color: 'var(--c-success-800)' }}>Saved</Typography>}
         {(hiddenCount > 0 || showAll) && <FormControlLabel control={<Switch size="small" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} />}
           label={<Typography sx={{ fontSize: 12.5, color: 'var(--c-text-3)' }}>Show all rows</Typography>} sx={{ mr: 0 }} />}
-        <FormControlLabel control={<Switch size="small" checked={setup} onChange={(e) => setSetup(e.target.checked)} />}
-          label={<Typography sx={{ fontSize: 13 }}>Show setup</Typography>} sx={{ mr: 0 }} />
+        <ToggleButtonGroup size="small" exclusive value={setup ? 'setup' : 'work'} onChange={(_, v) => { if (v) setSetup(v === 'setup'); }} aria-label="Which time">
+          <ToggleButton value="work" sx={{ py: 0.25, px: 1.25, fontSize: 12.5, textTransform: 'none' }} data-testid="times-operation">Operation time</ToggleButton>
+          <ToggleButton value="setup" sx={{ py: 0.25, px: 1.25, fontSize: 12.5, textTransform: 'none' }} data-testid="times-setup">Setup time</ToggleButton>
+        </ToggleButtonGroup>
       </Box>
       {!view.line.released && !view.line.editable && view.line.why && <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>{view.line.why}</Typography>}
       {noRate.length > 0 && (

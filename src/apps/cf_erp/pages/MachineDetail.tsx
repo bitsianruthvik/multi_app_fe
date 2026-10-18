@@ -27,6 +27,7 @@ import { MachineDialog } from '../components/MachineDialog';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { ChartsPanel } from '../components/Charts/ChartsPanel';
 import { MachineShifts } from '../components/MachineShifts';
+import { MachineResourcesCard } from '../components/MachineResourcesCard';
 import { ValueHistory } from '../components/ValueHistory';
 import { useDetailTitle } from '../components/shell/detailTitle';
 import { useToast } from '../components/toastContext';
@@ -109,6 +110,7 @@ export default function MachineDetail() {
     { value: 'charts', label: 'Charts' },
     { value: 'operations', label: 'Operations', count: can.length },
     { value: 'shifts', label: 'Shifts' },
+    { value: 'resources', label: 'Tools & spares' },
     { value: 'history', label: 'History' },
   ];
 
@@ -155,6 +157,7 @@ export default function MachineDetail() {
       )}
 
       {tab === 'shifts' && <MachineShifts machine={m} />}
+      {tab === 'resources' && <MachineResourcesCard machineId={id} canManage={canManage} />}
       {tab === 'history' && <ValueHistory path={`/machines/${id}/history`} version={version} subtitle="Every change to a value on this machine — who, when, from what to what." />}
 
       <MachineDialog open={editing} existing={m} tree={tree.data} onClose={() => setEditing(false)} onSaved={(saved) => { toast.success(`${saved.code} saved.`); refreshAll(); }} />

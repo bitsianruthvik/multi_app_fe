@@ -35,6 +35,7 @@ import { OrderSpecValuesPanel } from '../OrderSpecValuesPanel';
 import { ConfirmDialog } from '../ConfirmDialog';
 import { useToast } from '../toastContext';
 import { AddLineDialog, EditOrderLineDialog, StandardLineDialog, LineStructureText } from './LineDialogs';
+import { AiLineBanner } from './AiLineBanner';
 
 const linkSx = { color: 'inherit', textDecoration: 'none', '&:hover': { color: 'var(--c-primary-700)', textDecoration: 'underline' } };
 
@@ -66,7 +67,7 @@ export function OrderStructureStep({ order, view, onOrderSaved, onChanged, onGoC
   const stopped = LOCKED_STATUSES.includes(order.status);
   const editable = isPermitted('cf_erp_orders_manage') && !stopped;
   const [open, setOpen] = useState<Set<number>>(() => readOpenGroups(order.id) ?? openGroupsAtStart(lines));
-  const [adding, setAdding] = useState<'catalog' | 'standard' | null>(null);
+  const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<SalesOrderLine | null>(null);
   const [removing, setRemoving] = useState<SalesOrderLine | null>(null);
   const [standardOf, setStandardOf] = useState<SalesOrderLine | null>(null);
@@ -96,12 +97,14 @@ export function OrderStructureStep({ order, view, onOrderSaved, onChanged, onGoC
       onOrderSaved(await reorderLines(order.id, movedLine(lines.map((l) => l.id), index, dir)));
     } catch (e) { setMoveError(e as CfApiError); } finally { setMoving(false); }
   };
+  // The end of step 1 offers "Save as a standard drawing" for each custom line not tied to one yet (and not frozen).
+  const toStandard = lines.filter((l) => l.lineType === 'custom' && !!l.item && !l.standard && !l.release && !lineLock(l));
   const lineStages = (lineId: number) => view?.lines.find((x) => x.lineId === lineId)?.stages ?? [];
 
   const addButtons = editable && (
     <>
-      <Button size="small" variant="contained" startIcon={<AddRounded />} onClick={() => setAdding('catalog')} data-testid="add-line">Add line</Button>
-      {order.orderType !== 'stock' && <Button size="small" startIcon={<ArchitectureRounded />} onClick={() => setAdding('standard')} data-testid="add-from-standard">From a standard drawing</Button>}
+      {/* ONE button, three choices inside (user, 2026-10-18): from parts, from a standard drawing, from a new drawing (AI). */}
+      <Button size="small" variant="contained" startIcon={<AddRounded />} onClick={() => setAdding(true)} data-testid="add-line">Add line</Button>
     </>
   );
 
@@ -127,7 +130,7 @@ export function OrderStructureStep({ order, view, onOrderSaved, onChanged, onGoC
           <ErrorNotice error={moveError} />
           {lines.length === 0 ? (
             <EmptyState icon={<AccountTreeRounded />} title="No lines yet"
-              hint={order.orderType === 'stock' ? 'Add the catalog items to make for stock.' : 'Add a catalog item, a template (its whole structure is laid out at once) or a standard drawing.'}
+              hint={order.orderType === 'stock' ? 'Add the catalog items to make for stock.' : 'Build a line from parts, from a standard drawing, or from a new drawing (AI reads it and adds the line).'}
               action={addButtons ? <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', justifyContent: 'center' }}>{addButtons}</Box> : undefined} />
           ) : (
             <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 0.5 }}>
@@ -199,6 +202,8 @@ export function OrderStructureStep({ order, view, onOrderSaved, onChanged, onGoC
                         {l.lineType === 'custom' && l.item
                           ? (
                             <>
+                              <AiLineBanner lineId={l.id} refreshKey={order} editable={editable && !l.release && !lineLock(l)} hasStandard={!!l.standard}
+                                onSaveStandard={() => setStandardOf(l)} onRemove={() => setRemoving(l)} onChanged={onChanged} />
                               <StandardLineBanner lineId={l.id} hasStandard={!!l.standard} refreshKey={order} onChanged={onChanged} />
                               <BomPanel key={l.id} source={{ kind: 'orderLine', lineId: l.id }} onChanged={onChanged} onGoCutPieces={onGoCutPieces} />
                             </>
@@ -215,11 +220,18 @@ export function OrderStructureStep({ order, view, onOrderSaved, onChanged, onGoC
               })}
             </Box>
           )}
+          {editable && toStandard.length > 0 && (
+            <Box data-testid="offer-standard" sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexWrap: 'wrap', fontSize: 13, color: 'var(--c-text-2)', px: 0.5 }}>
+              <ArchitectureRounded sx={{ fontSize: 17 }} aria-hidden />
+              Structure done? Keep it for the next order —
+              {toStandard.map((l) => <Button key={l.id} size="small" onClick={() => setStandardOf(l)} data-testid={`offer-standard-${l.lineNo}`}>Save line {l.lineNo} as a standard drawing</Button>)}
+            </Box>
+          )}
           {order.total && lines.length > 0 && <OrderTotalBar total={order.total} lineCount={lines.length} />}
         </SectionCard>
       </Box>
 
-      <AddLineDialog order={order} open={!!adding} initialMode={adding ?? 'catalog'} onClose={() => setAdding(null)}
+      <AddLineDialog order={order} open={adding} onClose={() => setAdding(false)}
         onDone={(saved, message) => { onOrderSaved(saved); toast.success(message ?? 'Line added.'); }} />
       <StandardLineDialog line={standardOf} order={order} onClose={() => setStandardOf(null)}
         onChanged={() => { void cfApi.get<SalesOrder>(`/orders/${order.id}`).then(onOrderSaved).catch(() => {}); }} />

@@ -11,6 +11,7 @@ import { invalidateNavCounts } from '../hooks/useNavCounts';
 import { appPath } from '../navMeta';
 import { qtyText } from '../lib/inventory';
 import { takeProblem, toBuyOf } from '../lib/purchaseRequest';
+import { mrForWords } from '../lib/stores';
 import { Badge, DetailSkeleton, ErrorNotice, Fact, Mono, SectionCard } from '../components/ui';
 import { DetailHeader, DetailLayout } from '../components/DetailLayout';
 import { DataTable, type DataColumn } from '../components/DataTable';
@@ -28,7 +29,7 @@ const num = (v: string) => (v.trim() === '' ? NaN : Number(v));
 const startTake = (l: MrScreenLine) => String(!l.takeChosen && l.proposedTake != null ? l.proposedTake : l.takeFromStock);
 
 /**
- * Purchase › Material request (§71). One table: every line with Required, In stock (free — ours, or for a
+ * Stores › Material request (§71; §79 — every MR goes to STORES, Purchase sees PRs only). One table: every line with Required, In stock (free — ours, or for a
  * customer-supplied MR the customer's own lots), Take from stock (typed), To buy and Locked for this order. Saving
  * earmarks what is taken for this order and makes / updates ONE purchase request for the rest; a customer-supplied MR
  * asks the customer for the rest on their ₹0 purchase order instead. "Locked" moves as goods arrive (read again every
@@ -39,7 +40,9 @@ export default function MaterialRequestDetail() {
   const id = Number(idParam);
   const company = useCompanySlug();
   const toast = useToast();
-  const canManage = useIsPermitted()('cf_erp_inventory_manage');
+  const permitted = useIsPermitted();
+  // §79: MRs are Stores' — the Stores tag or the older inventory manage tag saves one.
+  const canManage = permitted('cf_erp_inventory_manage') || permitted('cf_erp_stores');
   const mr = useLoad(() => getMaterialRequest(id), [id]);
   const full = useFullScreen('mr-screen');
   const m = mr.data;
@@ -68,6 +71,10 @@ export default function MaterialRequestDetail() {
   if (!m) return <DetailSkeleton />;
   const customer = m.supply === 'customer';
   const editable = canManage && m.canEdit;
+  // §79: an MR for stock refills stock — nothing is taken from it; saving puts it all on the PR.
+  const forStock = m.manual && m.forType === 'stock';
+  const takeEditable = editable && !forStock;
+  const lockedHeader = m.line ? 'Locked for this order' : 'Locked for this MR';
 
   const save = async (customerDate?: string) => {
     setBusy(true); setRefusal(null);
@@ -99,7 +106,7 @@ export default function MaterialRequestDetail() {
     { key: 'stock', header: customer ? "In the customer's stock" : 'In stock (free)', numeric: true, alwaysVisible: true, sortValue: (l) => l.inStock, render: (l) => <span data-testid="mr-in-stock"><Mono muted={!l.inStock}>{qtyText(l.inStock)}</Mono></span> },
     {
       key: 'take', header: 'Take from stock', alwaysVisible: true, sortValue: (l) => l.takeFromStock,
-      render: (l) => (editable
+      render: (l) => (takeEditable
         ? (
           <TextField size="small" value={takes[l.id] ?? ''} onChange={(e) => setTakes((t) => ({ ...t, [l.id]: e.target.value }))}
             error={!!takeProblem(l, takes[l.id] ?? '')} helperText={takeProblem(l, takes[l.id] ?? '') ?? (!l.takeChosen && l.proposedTake != null && String(l.proposedTake) === (takes[l.id] ?? '') ? 'Suggested — save to earmark' : undefined)}
@@ -113,7 +120,7 @@ export default function MaterialRequestDetail() {
     { key: 'raised', header: 'PO raised', numeric: true, sortValue: (l) => l.poRaised, render: (l) => <Mono muted={!l.poRaised}>{qtyText(l.poRaised)}</Mono> },
     { key: 'received', header: 'Received', numeric: true, defaultHidden: true, sortValue: (l) => l.received, render: (l) => <Mono muted={!l.received}>{qtyText(l.received)}</Mono> },
     {
-      key: 'locked', header: 'Locked for this order', numeric: true, alwaysVisible: true, sortValue: (l) => l.locked,
+      key: 'locked', header: lockedHeader, numeric: true, alwaysVisible: true, sortValue: (l) => l.locked,
       render: (l) => (
         <Box data-testid="mr-locked" title={l.sentence} sx={{ textAlign: 'right' }}>
           <Mono>{qtyText(l.locked)}</Mono>
@@ -129,13 +136,15 @@ export default function MaterialRequestDetail() {
       header={
         <DetailHeader
           code={m.code}
-          title={`${m.order.code} · line ${m.line.lineNo}`}
-          badges={<>{customer ? <Badge family="info" label="Customer supplies" title="The customer sends this material. What they have not sent yet is asked of them on a purchase order (₹0)." /> : <Badge family="neutral" noIcon label="We buy" />}{m.heldForAcceptance && <Badge family="warning" noIcon label="Waits for the customer's acceptance" />}</>}
+          title={mrForWords(m)}
+          badges={<><Badge family={m.forType === 'sales_order' ? 'info' : m.forType === 'stock' ? 'success' : 'neutral'} noIcon label={`For: ${m.forLabel}`} />{customer ? <Badge family="info" label="Customer supplies" title="The customer sends this material. What they have not sent yet is asked of them on a purchase order (₹0)." /> : <Badge family="neutral" noIcon label="We buy" />}{m.heldForAcceptance && <Badge family="warning" noIcon label="Waits for the customer's acceptance" />}</>}
           actions={<>{editable && <Button variant="contained" startIcon={<SaveRounded />} disabled={busy || problems.length > 0} onClick={() => void save()} data-testid="mr-save">Save</Button>}<FullScreenToggle on={full.on} onToggle={full.toggle} /></>}
           facts={<>
-            <Fact label="Sales order"><Mono chip><Box component={Link} to={appPath(company, `orders/${m.order.id}`)} sx={linkSx}>{m.order.code}</Box></Mono></Fact>
-            <Fact label="Line">{m.line.name}</Fact>
-            {m.order.customer && <Fact label="Customer">{m.order.customer.name}</Fact>}
+            {m.order && <Fact label="Sales order"><Mono chip><Box component={Link} to={appPath(company, `orders/${m.order.id}`)} sx={linkSx}>{m.order.code}</Box></Mono></Fact>}
+            {m.line && <Fact label="Line">{m.line.name}</Fact>}
+            {m.order?.customer && <Fact label="Customer">{m.order.customer.name}</Fact>}
+            {m.manual && m.notes && <Fact label="Note">{m.notes}</Fact>}
+            {m.manual && m.raisedBy?.name && <Fact label="Raised by">{m.raisedBy.name}</Fact>}
             <Fact label="Purchase request">
               {m.purchaseRequest
                 ? <Box sx={{ display: 'flex', gap: 0.75, alignItems: 'center' }}><Mono chip><Box component={Link} to={appPath(company, `purchase-requests/${m.purchaseRequest.id}`)} sx={linkSx}>{m.purchaseRequest.code}</Box></Mono><PrStatusBadge status={m.purchaseRequest.status} /></Box>
@@ -147,7 +156,7 @@ export default function MaterialRequestDetail() {
     >
       <Typography sx={{ fontSize: 13.5, color: 'var(--c-text-2)', mb: 1.5 }}>{m.sentence}</Typography>
       {!m.canEdit && m.reason && <Alert severity="info" sx={{ mb: 1.5 }}>{m.reason}</Alert>}
-      {!canManage && <Typography sx={{ fontSize: 13, color: 'var(--c-text-3)', mb: 1.5 }}>You can see this MR. Changing it needs the inventory manage permission.</Typography>}
+      {!canManage && <Typography sx={{ fontSize: 13, color: 'var(--c-text-3)', mb: 1.5 }}>You can see this MR. Changing it needs the Stores permission.</Typography>}
       {m.stale && <Alert severity="warning" sx={{ mb: 1.5 }}>The line's need changed since the MR was raised. Save to bring the purchase request up to date.</Alert>}
       {refusal && (
         <Alert severity="warning" data-testid="mr-refusal" sx={{ mb: 1.5 }} onClose={() => setRefusal(null)}>
@@ -173,7 +182,7 @@ export default function MaterialRequestDetail() {
           </Box>
         </SectionCard>
       )}
-      {customer && <CustomerMaterialStatus orderId={m.order.id} />}
+      {customer && m.order && <CustomerMaterialStatus orderId={m.order.id} />}
       <PromisedDateDialog open={asking} proposed={null} submitLabel="Save" onClose={() => setAsking(false)} onConfirm={async (date) => { setAsking(false); await save(date); }} />
     </DetailLayout>
     </FullScreenFrame>

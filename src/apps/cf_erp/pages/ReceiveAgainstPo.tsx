@@ -16,6 +16,7 @@ import { Badge, EmptyState, ErrorNotice, Mono, PageHeader, SkeletonBlock } from 
 import { FilterBar } from '../components/FilterBar';
 import { DataTable, type DataColumn } from '../components/DataTable';
 import { ReceiveLineDialog } from '../components/PurchaseDialogs';
+import { GrnDialog } from '../components/GrnDialog';
 import { useToast } from '../components/toastContext';
 import { FullScreenFrame, FullScreenToggle } from '../components/FullScreen';
 import { useFullScreen } from '../hooks/useFullScreen';
@@ -88,7 +89,20 @@ export default function ReceiveAgainstPo() {
           empty={<EmptyState icon={<MoveToInboxRounded />} title={term ? 'Nothing pending matches' : 'Nothing is waiting to be received'}
             hint={term ? 'Clear the search.' : 'A purchase order shows here once Management approves it.'} />} />
       )}
-      <ReceiveLineDialog line={receiving?.line ?? null} orderCode={receiving?.po.code ?? null} customer={!!receiving?.po.suppliedByCustomer}
+      {/* §80: a supplier's PO is booked as a GRN with the money (invoice, price, GST, freight); the customer's own material keeps the plain dialog. */}
+      <GrnDialog po={receiving && !receiving.po.suppliedByCustomer ? receiving.po : null} lineId={receiving?.line.id ?? null}
+        onClose={() => setReceiving(null)}
+        onReceived={(res) => {
+          setReceiving(null);
+          load.reload();
+          invalidateNavCounts();
+          const held = res.held ?? [];
+          const base = held.length ? `GRN booked. ${held.map((h) => `${qtyText(h.quantity)} locked for ${h.orderCode}`).join('; ')}.` : 'GRN booked into stock.';
+          const flag = res.bill.invoice.pending ? ' The supplier invoice is marked to follow.' : '';
+          const closed = res.order.stage === 'closed' ? ` ${res.order.code} is closed — everything is in.` : '';
+          toast.success(base + flag + closed);
+        }} />
+      <ReceiveLineDialog line={receiving && receiving.po.suppliedByCustomer ? receiving.line : null} orderCode={receiving?.po.code ?? null} customer={!!receiving?.po.suppliedByCustomer}
         onClose={() => setReceiving(null)}
         onReceived={(next, held, x) => {
           setReceiving(null);

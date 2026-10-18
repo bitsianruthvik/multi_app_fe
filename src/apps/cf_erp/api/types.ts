@@ -1880,6 +1880,8 @@ export interface TimeCell {
   missing: string | null;
   /** How many times the operation runs (default 1). */
   passes?: number;
+  /** §76: the order's "all times = N s" is in force for this cell. */
+  orderOverride?: boolean;
 }
 
 export interface TimeRow {
@@ -1899,6 +1901,8 @@ export interface TimeRow {
 
 export interface TimesView {
   line: { id: number; lineNo: number; released: boolean; editable: boolean; why?: string | null };
+  /** §76: "Override all times to N seconds" on the order (null = off). */
+  orderOverrideSeconds?: number | null;
   operations: OpRef[];
   rows: TimeRow[];
   totals: { byOperation: Record<string, number>; all: number };
@@ -2006,6 +2010,8 @@ export interface FloorStep {
   orderId?: number | null;
   lineId?: number | null;
   itemId?: number | null;
+  /** §76: the production order the job belongs to ("SO260014-P02"); null on an older release. */
+  productionOrderCode?: string | null;
 }
 
 /** A job running on the machine right now. */

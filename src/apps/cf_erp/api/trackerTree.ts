@@ -60,6 +60,8 @@ export interface TreeNode {
   childrenIncluded: boolean;
   match?: boolean;
   pieceNo?: number | null;
+  /** §76: the production order the piece belongs to. */
+  productionOrderId?: number | null;
   /** piece = counted for this piece; row = a group of identical parts, counted for the group. */
   basis?: 'piece' | 'row';
   itemId?: number;
@@ -80,6 +82,8 @@ export interface TreeNode {
 export interface TreeOrderChoice {
   id: number; code: string; title: string | null; customer: string | null; status: string; open: boolean;
   lines: { id: number; lineNo: number; releaseId: number; itemName: string }[];
+  /** §76: its released production orders (the Tracker can scope to one). */
+  productionOrders?: { id: number; code: string; label: string }[];
 }
 
 export type OperationNames = Record<string, { code: string; name: string }>;
@@ -110,7 +114,7 @@ export interface TreePieceResponse {
   steps: ProductionStep[];
 }
 
-export interface TreeQuery { orderId?: number | null; lineId?: number | null; depth?: number | null; search?: string | null; onlyBlocked?: boolean }
+export interface TreeQuery { orderId?: number | null; lineId?: number | null; productionOrderId?: number | null; depth?: number | null; search?: string | null; onlyBlocked?: boolean }
 
 /** A big line's tree is read in full on the server every time (~1 s locally, more on production). */
 const SLOW = { timeoutMs: 120_000 };
@@ -122,7 +126,7 @@ export function withNames<T extends { operations: OperationNames }>(r: T, nodes:
 
 export const getTrackerTree = async (q: TreeQuery = {}): Promise<TrackerTreeResponse> => {
   const r = await cfApi.get<TrackerTreeResponse>(`/tracker/tree${qs({
-  orderId: q.orderId ?? undefined, lineId: q.lineId ?? undefined, depth: q.depth ?? undefined,
+  orderId: q.orderId ?? undefined, lineId: q.lineId ?? undefined, productionOrderId: q.productionOrderId ?? undefined, depth: q.depth ?? undefined,
   search: q.search?.trim() || undefined, onlyBlocked: q.onlyBlocked ? 1 : undefined,
 })}`, SLOW);
   return { ...r, nodes: withNames(r, r.nodes) };

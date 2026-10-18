@@ -172,7 +172,7 @@ await check('the stage is "Material request": a read-only row per MR with its st
   reset();
   await mount(orderReqs([weBuy()]));
   assert.match(text(document.body), /Material request/);
-  assert.match(text(q1('order-supply')), /^Material: We buy — raising the MR sends it to Purchase/);
+  assert.match(text(q1('order-supply')), /^Material: We buy — raising the MR sends it to Stores/);
   const row = q1('mr-status-row');
   assert.match(text(row), /MR-TEST-MR-1-WEBUY-2.*Line 2.*Covered.*1 of 3 locked/);
   assert.ok(row.querySelector('a').getAttribute('href').endsWith('/material-requests/41'));
@@ -213,7 +213,7 @@ await check('the MR (Purchase) shows what is to go back to the customer and the 
   globalThis.__routes['GET /customer-material/returns'] = () => returns;
   await render(React.createElement(m.CustomerMaterialStatus, { orderId: 30001 }));
   await settle(60);
-  assert.match(src('pages/MaterialRequestDetail.tsx'), /customer && <CustomerMaterialStatus orderId=\{m\.order\.id\} \/>/);
+  assert.match(src('pages/MaterialRequestDetail.tsx'), /customer && m\.order && <CustomerMaterialStatus orderId=\{m\.order\.id\} \/>/);
   const rows = qa('to-return-row');
   assert.equal(rows.length, 2);
   assert.deepEqual(rows.map((r) => r.dataset.why), ['extra', 'substitute_rejected']);
@@ -317,12 +317,14 @@ await check('the release dialog says "Material from MR-…" with what is earmark
   await click(buttonIn(document, 'Release')); await settle(80);
   assert.ok(got, 'released');
   assert.equal(m.releasedMessage(2, got), 'Line 2 released to production. Material from MR-TEST-MR-1-WEBUY-2: MA 4 kg, MB 6 kg reserved for production.');
-  assert.match(src('components/OrderProcess/StageBody.tsx'), /releasedMessage\(releasing\?\.lineNo, r\)/);
+  // §76: a release goes by production order; its toast keeps releasedMessage's MR words (lib/productionOrders.releaseToast).
+  assert.match(src('lib/productionOrders.ts'), /releasedMessage\(undefined, \{ fromMr: f \}/);
+  assert.match(src('components/ProductionOrders/ProductionStep.tsx'), /releaseToast\(r\.released, r\.fromMr\)/);
 });
 
 // ── 6: the rest of the wording, the customer's PO, inventory by owner ─────────────
 await check('wording: Purchase › Material requests, the cancel dialog; a PO to the customer is marked; Stock by owner', () => {
-  assert.match(src('navMeta.ts'), /key: 'material-requests', label: 'Material requests'/);
+  assert.match(src('navMeta.ts'), /key: 'material-requests', label: 'MR inbox'/);
   assert.match(src('components/Purchase/CancelPoDialog.tsx'), /back to Open on \$\{prs\.join\(', '\)\} at once/);
   assert.match(src('pages/PurchaseOrderDetail.tsx'), /p\.suppliedByCustomer && <Badge family="info" label="Customer supplies"/);
   const stock = src('pages/Stock.tsx');

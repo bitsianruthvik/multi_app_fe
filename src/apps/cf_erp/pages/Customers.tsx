@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useParams } from 'react-router-dom';
 import { Box, Button, IconButton, Tooltip, Typography } from '@mui/material';
 import AddRounded from '@mui/icons-material/AddRounded';
 import EditRounded from '@mui/icons-material/EditRounded';
@@ -40,6 +41,12 @@ export default function Customers({ fixedRole }: { fixedRole?: PartyRole } = {})
   const [editing, setEditing] = useState<{ open: boolean; party: Party | null }>({ open: false, party: null });
   const [deleting, setDeleting] = useState<Party | null>(null);
   useNewParam(() => { if (canManage) setEditing({ open: true, party: null }); });
+  // customers/:partyId (links from invoices and GST checks) opens that party straight away.
+  const { partyId } = useParams();
+  useEffect(() => {
+    if (!partyId || !canManage) return;
+    cfApi.get<Party>(`/parties/${partyId}`).then((p) => setEditing({ open: true, party: p })).catch(() => toast.error('That customer was not found.'));
+  }, [partyId, canManage, toast]);
   // Search and role filter on the server, a page at a time; the figures count every match.
   const debounced = useDebounced(search.trim());
   const list = usePagedList<Party, PartyCounts>('/parties', { search: debounced, role });

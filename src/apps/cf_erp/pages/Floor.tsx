@@ -9,6 +9,9 @@ import { MachineScreen } from '../components/Floor/MachineScreen';
 import { TOUCH } from '../components/Floor/floorModel';
 import { loadMachineId, loadOperator, saveMachineId, saveOperator } from '../components/Floor/floorStore';
 import { appPath } from '../navMeta';
+// §82: RAISE A FAULT from the machine (the machine is down for planning at once; a maintenance order opens).
+import { RaiseFaultDialog } from '../components/Maintenance/MaintenanceDialogs';
+import { useToast } from '../components/toastContext';
 
 /**
  * The machine log, at the machine (plan: CF_ERP_FLOOR_LOG_PLAN.md section 3).
@@ -33,6 +36,9 @@ export default function Floor() {
     if (machineId && machines.data && !machine) { saveMachineId(company, null); setMachineId(null); }
   }, [machineId, machines.data, machine, company]);
 
+  const toast = useToast();
+  const [faulting, setFaulting] = useState(false);
+  const [faultTick, setFaultTick] = useState(0);
   const chooseMachine = (m: FloorMachine | null) => { saveMachineId(company, m?.id ?? null); setMachineId(m?.id ?? null); };
   const chooseOperator = (o: FloorOperator | null) => { saveOperator(company, o ? { id: o.id, name: o.name } : null); setOperator(o); };
 
@@ -52,6 +58,9 @@ export default function Floor() {
         <Typography component="div" sx={{ flex: 1, minWidth: 0, fontSize: { xs: 22, sm: 26 }, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {machine ? machine.name : 'Machine log'}
         </Typography>
+        {machine && (
+          <ButtonBase onClick={() => setFaulting(true)} data-testid="floor-raise-fault" sx={{ height: TOUCH, px: 2, borderRadius: 'var(--r-md)', border: '2px solid var(--c-danger-500, #d32f2f)', color: 'var(--c-danger-700, #b71c1c)', fontSize: 16, fontWeight: 700, flexShrink: 0 }}>Raise a fault</ButtonBase>
+        )}
         {operator && (
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexShrink: 0 }}>
             <Box sx={{ fontSize: 18, fontWeight: 600, display: { xs: 'none', sm: 'block' } }}>{operator.name}</Box>
@@ -64,7 +73,9 @@ export default function Floor() {
         {!machineId && <MachinePicker onPick={chooseMachine} />}
         {machineId && !machine && <LoadState loading={machines.loading} error={machines.error} onRetry={machines.reload} />}
         {machine && !operator && <OperatorPicker machine={machine} onPick={chooseOperator} />}
-        {machine && operator && <MachineScreen key={machine.id} machine={machine} operator={operator} />}
+        {machine && operator && <MachineScreen key={`${machine.id}-${faultTick}`} machine={machine} operator={operator} />}
+        <RaiseFaultDialog open={faulting} machine={machine} operatorId={operator?.id ?? null} onClose={() => setFaulting(false)}
+          onDone={(r) => { setFaulting(false); setFaultTick((n) => n + 1); toast.success(r.message); }} />
       </Box>
     </Box>
   );

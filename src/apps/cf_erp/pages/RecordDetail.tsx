@@ -45,6 +45,7 @@ import { FlowPicker } from '../components/FlowPicker';
 import { FlowTag } from '../components/FlowTag';
 import { ItemStockPanel } from '../components/ItemStockPanel';
 import { ItemMoneyFacts } from '../components/ItemMoneyFacts';
+import { ProcurementCard } from '../components/Stores/ProcurementCard';
 import { useItemMoney } from '../hooks/useItemMoney';
 import { BASIS_OPTIONS } from '../lib/money';
 import { getTaxSettings } from '../api/gst';
@@ -545,6 +546,8 @@ export default function RecordDetail({ recordKind }: { recordKind: 'item' | 'def
       {tab === 'history' && <ValueHistory path={`/records/${id}/history`} version={version} subtitle="Every change to a value on this record — who, when, from what to what. Calculated changes appear too." />}
       {tab === 'details' && <DetailsForm key={r.updatedAt} record={r} tree={tree.data} canEdit={canManage} onTreeChanged={tree.reload}
         onSaved={(saved) => { rec.setData(saved); toast.success('Details saved.'); specs.reload(); }} />}
+      {/* §79: how it is procured — on every catalog item and definition; a temporary item inherits its definition's. */}
+      {tab === 'details' && <ProcurementCard key={`proc-${id}`} masterId={id} canEdit={canManage || isPermitted('cf_erp_stores')} />}
 
       <ValueReasonsDialog open={whyOpen} recordId={id} label={isDefinition ? displayLabel(r) : r.code ?? r.name} onClose={() => setWhyOpen(false)} />
       <RevisionDialog open={revising} record={r} onClose={() => setRevising(false)} onDone={(saved) => { rec.setData(saved); toast.success(`Now at revision ${saved.revision}.`); }} />

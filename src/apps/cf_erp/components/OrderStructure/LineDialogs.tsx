@@ -1,5 +1,9 @@
-import { useEffect, useState } from 'react';
-import { Box, Button, Checkbox, Dialog, DialogContent, FormControlLabel, MenuItem, TextField, ToggleButton, ToggleButtonGroup, Typography } from '@mui/material';
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { Box, Button, Checkbox, Dialog, DialogContent, FormControlLabel, MenuItem, TextField, Typography } from '@mui/material';
+import AccountTreeRounded from '@mui/icons-material/AccountTreeRounded';
+import ArchitectureRounded from '@mui/icons-material/ArchitectureRounded';
+import AutoAwesomeRounded from '@mui/icons-material/AutoAwesomeRounded';
+import UploadFileRounded from '@mui/icons-material/UploadFileRounded';
 import { Link } from 'react-router-dom';
 import { cfApi, LONG_WRITE_MS } from '../../api/client';
 import type { MasterRecord, SalesOrder, SalesOrderLine } from '../../api/types';
@@ -21,40 +25,62 @@ import {
 import { RecordPicker } from '../RecordPicker';
 import { useToast } from '../toastContext';
 import { codeOrName } from '../../lib/displayCode';
+import { addLineFromDrawing, saveLineAsStandard } from '../../api/addLine';
+import { addChoices, choiceForKey, drawingFileKind, moveChoice, type AddChoice } from '../../lib/addLine';
 
 /**
- * The dialogs of a sales order's LINES, used by the Structure & values step (OrderStructureStep): add a line (from
- * the catalog, a template, or a standard drawing), change its quantity / date / price, and its standard drawing.
+ * The dialogs of a sales order's LINES, used by the Structure & values step (OrderStructureStep): add a line (three
+ * choices: from parts, from a standard drawing, from a new drawing read by AI), change its quantity / date / price, and its standard drawing.
  * They were the Line items stage's (OrderLinesPanel) until Line items merged into Structure & values (2026-10-18).
  */
 
 const linkSx = { color: 'inherit', textDecoration: 'none', '&:hover': { color: 'var(--c-primary-700)', textDecoration: 'underline' } };
 
 /**
- * A new line: a catalog item (standard) or a template definition (custom — its structure is created at once), or
- * FROM A STANDARD DRAWING (its BOM, values and part drawings copied, init.sql §69). A custom line can take its
- * drawing at once; ticked "This is a standard drawing", the drawing is saved to Standard drawings too.
+ * A new line — THREE CHOICES (user, 2026-10-18), shown as cards first (keys 1 / 2 / 3, arrows, Enter):
+ *   1. Build from parts — a template definition (custom: its structure is laid out at once) or a catalog item. A
+ *      custom line can take its drawing at once; ticked "This is a standard drawing", it is saved there too.
+ *   2. From a standard drawing — its BOM, values and part drawings copied (init.sql §69).
+ *   3. From a new drawing — a DWG / DXF read by AI (init.sql §77): the line is built and ADDED at once, no review
+ *      screen; rows AI was unsure of carry an amber "AI" chip with the reason. Scanned PDFs: not yet.
+ * All three end in the same editable grid on the Structure & values step.
  */
-export function AddLineDialog({ order, open, initialMode = 'catalog', onClose, onDone }: { order: SalesOrder; open: boolean; initialMode?: 'catalog' | 'standard'; onClose: () => void; onDone: (o: SalesOrder, message?: string) => void }) {
-  const [mode, setMode] = useState<'catalog' | 'standard'>(initialMode);
+export function AddLineDialog({ order, open, initialMode = null, onClose, onDone }: { order: SalesOrder; open: boolean; initialMode?: AddChoice | null; onClose: () => void; onDone: (o: SalesOrder, message?: string) => void }) {
+  const stock = order.orderType === 'stock';
+  const cards = addChoices(stock ? 'stock' : 'customer');
+  const [mode, setMode] = useState<AddChoice | null>(initialMode);
+  const [focusAt, setFocusAt] = useState(0);
+  const cardRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const [rec, setRec] = useState<MasterRecord | null>(null);
   const [std, setStd] = useState<StandardSummary | null>(null);
   const [form, setForm] = useState({ quantity: '1', committedDate: '', description: '', rate: '', basis: '' as PriceBasis | '' });
   const [file, setFile] = useState<File | null>(null);
   const [isStandard, setIsStandard] = useState(false);
   const [stdForm, setStdForm] = useState({ number: '', name: '', revision: '' });
+  const [drawing, setDrawing] = useState<File | null>(null);
+  const [drawingError, setDrawingError] = useState<string | null>(null);
   useEffect(() => {
     if (open) {
-      setMode(order.orderType === 'stock' ? 'catalog' : initialMode); setRec(null); setStd(null); setFile(null); setIsStandard(false); setStdForm({ number: '', name: '', revision: '' });
+      setMode(stock ? 'parts' : initialMode); setFocusAt(0); setRec(null); setStd(null); setFile(null); setIsStandard(false); setStdForm({ number: '', name: '', revision: '' });
+      setDrawing(null); setDrawingError(null);
       setForm({ quantity: '1', committedDate: '', description: '', rate: '', basis: '' });
     }
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
-  const stock = order.orderType === 'stock';
+  // The cards take the keyboard at once: the first one is focused when they show.
+  useEffect(() => { if (open && mode == null) setTimeout(() => cardRefs.current[0]?.focus(), 0); }, [open, mode]);
   const price = {
     // Empty rate = the item's list price (a catalog line). Empty basis = the item's own, or per tonne for a custom line.
     ...(form.rate.trim() ? { rate: form.rate.trim() } : {}), ...(form.basis ? { rateBasis: form.basis } : {}),
   };
   const save = async () => {
+    if (mode === 'drawing') {
+      if (!drawing) return;
+      const out = await addLineFromDrawing(order.id, {
+        file: { name: drawing.name, content: await fileToBase64(drawing) }, quantity: form.quantity, committedDate: form.committedDate || null, description: form.description || null, ...price,
+      });
+      onDone(out, out.fromDrawing?.sentence);
+      return;
+    }
     if (mode === 'standard') {
       if (!std) return;
       const out = await addLineFromStandard(order.id, { standardId: std.id, quantity: form.quantity, committedDate: form.committedDate || null, description: form.description || null, ...price });
@@ -83,24 +109,59 @@ export function AddLineDialog({ order, open, initialMode = 'catalog', onClose, o
   const hint = rec?.kind === 'template'
     ? `Lays ${codeOrName(rec)} out as this line’s structure, its whole Template BOM beneath it. Nothing is coded until the design is frozen.`
     : rec?.kind === 'catalog' ? 'A standard line: the catalog item as it is, with its Standard BOM if it has one.'
-      : stock ? 'Stock orders make catalog items only.' : 'A catalog item for a standard line, or a template definition for a custom one.';
+      : stock ? 'Stock orders make catalog items only.' : 'A template definition for a custom line (its parts), or a catalog item for a standard one.';
   const pickFile = (f: File | null) => {
     setFile(f);
     if (f && !stdForm.number) setStdForm((s) => ({ ...s, number: f.name.replace(/\.(dxf|pdf)$/i, '') }));
   };
-  const canSave = mode === 'standard'
-    ? !!std && !!std.version
-    : !!rec && (!file || !isStandard || !!stdForm.number.trim());
+  const pickDrawing = (f: File | null) => {
+    const k = f ? drawingFileKind(f.name) : null;
+    if (k && 'error' in k) { setDrawing(null); setDrawingError(k.error); return; }
+    setDrawingError(null); setDrawing(f);
+    if (f && !form.description) setForm((s) => ({ ...s, description: f.name.replace(/\.(dxf|dwg)$/i, '') }));
+  };
+  const canSave = mode === 'standard' ? !!std && !!std.version
+    : mode === 'drawing' ? !!drawing
+      : mode === 'parts' ? !!rec && (!file || !isStandard || !!stdForm.number.trim())
+        : false;
+  const choose = (k: AddChoice) => setMode(k);
+  const onCardsKey = (e: KeyboardEvent<HTMLElement>) => {
+    const pick = choiceForKey(e.key, cards);
+    if (pick) { e.preventDefault(); choose(pick); return; }
+    const next = moveChoice(focusAt, e.key, cards.length);
+    if (next !== focusAt) { e.preventDefault(); setFocusAt(next); cardRefs.current[next]?.focus(); }
+  };
+  const chosen = cards.find((c) => c.key === mode);
   return (
     <FormDialog open={open} title={<>Add a line to <Mono sx={{ fontSize: 'inherit' }}>{order.code}</Mono></>} onClose={onClose} onSubmit={save}
-      submitLabel="Add line" busyLabel="Adding…" submitDisabled={!canSave}>
-      {!stock && (
-        <ToggleButtonGroup exclusive size="small" value={mode} onChange={(_, v) => { if (v) setMode(v); }} aria-label="How to add the line" sx={{ flexWrap: 'wrap' }}>
-          <ToggleButton value="catalog">From the catalog</ToggleButton>
-          <ToggleButton value="standard">From a standard drawing</ToggleButton>
-        </ToggleButtonGroup>
+      subtitle={chosen ? chosen.title : 'How do you want to add it?'}
+      submitLabel={mode === 'drawing' ? 'Build the line' : 'Add line'} busyLabel={mode === 'drawing' ? 'AI is reading the drawing…' : 'Adding…'} submitDisabled={!canSave}
+      enterSubmits={mode != null} maxWidth={mode == null ? 'md' : 'sm'}
+      extraActions={mode != null && !stock ? <Button onClick={() => setMode(null)} data-testid="add-line-back">Other ways</Button> : undefined}>
+      {mode == null && (
+        <Box role="radiogroup" aria-label="How to add the line" data-testid="add-line-choices" onKeyDown={onCardsKey}
+          sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', sm: 'repeat(3, minmax(0, 1fr))' }, gap: 1.5 }}>
+          {cards.map((card, i) => (
+            <Box component="button" type="button" key={card.key} role="radio" aria-checked={false} data-testid={`add-choice-${card.key}`}
+              ref={(el: HTMLButtonElement | null) => { cardRefs.current[i] = el; }} tabIndex={i === focusAt ? 0 : -1}
+              onClick={() => choose(card.key)} onFocus={() => setFocusAt(i)}
+              sx={{
+                all: 'unset', boxSizing: 'border-box', cursor: 'pointer', display: 'grid', gap: 0.75, alignContent: 'start', p: 1.75, minHeight: 132,
+                border: '1px solid var(--c-border)', borderRadius: 'var(--r-md)', background: 'var(--c-surface)',
+                '&:hover': { borderColor: 'var(--c-primary-400)', background: 'var(--c-surface-2)' },
+                '&:focus-visible': { outline: '2px solid var(--c-primary-500)', outlineOffset: 2 },
+              }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <Box sx={{ color: 'var(--c-primary-700)', display: 'flex' }}>{card.key === 'parts' ? <AccountTreeRounded /> : card.key === 'standard' ? <ArchitectureRounded /> : <AutoAwesomeRounded />}</Box>
+                <Box sx={{ fontWeight: 600, fontSize: 14.5 }}>{card.title}</Box>
+                <Mono muted sx={{ ml: 'auto', fontSize: 11.5 }} aria-hidden>{card.hotkey}</Mono>
+              </Box>
+              <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)', whiteSpace: 'normal' }}>{card.hint}</Typography>
+            </Box>
+          ))}
+        </Box>
       )}
-      {mode === 'standard' ? (
+      {mode === 'standard' && (
         <ServerPicker<StandardSummary> search={async (term) => (await listStandards(term)).rows} value={std} onChange={setStd} noun="standard drawing"
           getId={(s) => s.id} getLabel={(s) => `${s.number} — ${s.name}`} label="Drawing number" autoFocus
           renderOption={(s) => (
@@ -116,25 +177,45 @@ export function AddLineDialog({ order, open, initialMode = 'catalog', onClose, o
             ? `Copies version ${std.version.versionNo}: ${std.version.rows} rows with their values and drawings. You can change them before the design is frozen.`
             : `${std.number} has no BOM yet. Make the line from a template, then save its BOM to the standard.`) : 'Type the drawing number.'}
           error={!!std && !std.version} />
-      ) : (
-        <RecordPicker kinds={stock ? ['catalog'] : ['catalog', 'template']} value={rec} onChange={setRec} activeOnly label="What it sells" autoFocus helperText={hint} />
       )}
-      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', sm: '140px minmax(0, 1fr)' }, gap: 2 }}>
-        <TextField label="Quantity" value={form.quantity} onChange={(e) => setForm({ ...form, quantity: e.target.value })} inputProps={{ inputMode: 'decimal', style: { fontFamily: 'var(--font-mono)' } }}
-          helperText={rec?.kind === 'template' ? 'Identical copies' : undefined} />
-        <TextField label="Committed date" type="date" value={form.committedDate} onChange={(e) => setForm({ ...form, committedDate: e.target.value })} InputLabelProps={{ shrink: true }} helperText="Empty = the order's date" />
-      </Box>
-      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', sm: 'repeat(2, minmax(0, 1fr))' }, gap: 2 }}>
-        <TextField label="Rate (₹, before tax)" value={form.rate} onChange={(e) => setForm({ ...form, rate: e.target.value })} inputProps={{ inputMode: 'decimal', style: { fontFamily: 'var(--font-mono)' } }}
-          helperText={rec?.kind === 'catalog' ? "Empty = the item's list price" : 'Optional — it can be set later'} />
-        <TextField select label="Priced" value={form.basis} onChange={(e) => setForm({ ...form, basis: e.target.value as PriceBasis | '' })}
-          helperText={rec?.kind === 'template' ? 'A custom line is priced per tonne unless you change it' : undefined}>
-          <MenuItem value="">{rec?.kind === 'template' ? 'Per tonne (usual)' : "The item's own"}</MenuItem>
-          {BASIS_OPTIONS.map((o) => <MenuItem key={o.value} value={o.value}>{o.label}</MenuItem>)}
-        </TextField>
-      </Box>
-      <TextField label="Description (optional)" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="The customer's wording" />
-      {mode === 'catalog' && rec?.kind === 'template' && (
+      {mode === 'parts' && (
+        <RecordPicker kinds={stock ? ['catalog'] : ['template', 'catalog']} value={rec} onChange={setRec} activeOnly label="What it sells" autoFocus helperText={hint} />
+      )}
+      {mode === 'drawing' && (
+        <Box sx={{ display: 'grid', gap: 1 }} data-testid="add-from-drawing">
+          <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
+            <Button component="label" variant={drawing ? 'outlined' : 'contained'} startIcon={<UploadFileRounded />} autoFocus>
+              {drawing ? 'Change the drawing' : 'Choose the drawing (DWG or DXF)'}
+              <input hidden type="file" accept=".dwg,.dxf,.pdf" aria-label="New drawing" data-testid="new-drawing-file" onChange={(e) => pickDrawing(e.target.files?.[0] ?? null)} />
+            </Button>
+            {drawing && <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)', overflowWrap: 'anywhere' }}>{drawing.name} · {Math.max(1, Math.round(drawing.size / 1024))} kB</Typography>}
+          </Box>
+          {drawingError && <Typography role="alert" sx={{ fontSize: 13, color: 'var(--c-warning-800)' }}>{drawingError}</Typography>}
+          <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)' }}>
+            AI reads the parts from the drawing’s call-outs and adds the line straight away. Rows it is not sure of get an amber “AI” chip with the reason — check those in the grid. Way off? Remove the line and build it from parts.
+          </Typography>
+        </Box>
+      )}
+      {mode != null && (
+        <>
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', sm: '140px minmax(0, 1fr)' }, gap: 2 }}>
+            <TextField label="Quantity" value={form.quantity} onChange={(e) => setForm({ ...form, quantity: e.target.value })} inputProps={{ inputMode: 'decimal', style: { fontFamily: 'var(--font-mono)' } }}
+              helperText={rec?.kind === 'template' || mode !== 'parts' ? 'Identical copies' : undefined} />
+            <TextField label="Committed date" type="date" value={form.committedDate} onChange={(e) => setForm({ ...form, committedDate: e.target.value })} InputLabelProps={{ shrink: true }} helperText="Empty = the order's date" />
+          </Box>
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', sm: 'repeat(2, minmax(0, 1fr))' }, gap: 2 }}>
+            <TextField label="Rate (₹, before tax)" value={form.rate} onChange={(e) => setForm({ ...form, rate: e.target.value })} inputProps={{ inputMode: 'decimal', style: { fontFamily: 'var(--font-mono)' } }}
+              helperText={rec?.kind === 'catalog' ? "Empty = the item's list price" : 'Optional — it can be set later'} />
+            <TextField select label="Priced" value={form.basis} onChange={(e) => setForm({ ...form, basis: e.target.value as PriceBasis | '' })}
+              helperText={rec?.kind === 'template' || mode !== 'parts' ? 'A custom line is priced per tonne unless you change it' : undefined}>
+              <MenuItem value="">{rec?.kind === 'template' || mode !== 'parts' ? 'Per tonne (usual)' : "The item's own"}</MenuItem>
+              {BASIS_OPTIONS.map((o) => <MenuItem key={o.value} value={o.value}>{o.label}</MenuItem>)}
+            </TextField>
+          </Box>
+          <TextField label="Description (optional)" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="The customer's wording" />
+        </>
+      )}
+      {mode === 'parts' && rec?.kind === 'template' && (
         <Box sx={{ display: 'grid', gap: 1.5, borderTop: '1px solid var(--c-border)', pt: 1.5 }} data-testid="line-drawing">
           <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
             <Button component="label" variant="outlined" size="small">
@@ -179,7 +260,9 @@ export function StandardLineDialog({ line, order, onClose, onChanged }: { line: 
   const [form, setForm] = useState({ number: '', name: '', revision: '' });
   useEffect(() => {
     let live = true;
-    setState(null); setError(null); setForm({ number: '', name: '', revision: '' });
+    setState(null); setError(null);
+    // Prefilled from the line's wording (an AI line's is its drawing's name) — change it to the number on the sheet.
+    setForm({ number: line?.description && line.description.length <= 60 ? line.description : '', name: line?.description ?? '', revision: '' });
     if (line) getLineStandard(line.id).then((s) => { if (live) setState(s); }).catch((e) => { if (live) setError(e instanceof Error ? e.message : String(e)); });
     return () => { live = false; };
   }, [line]);
@@ -229,10 +312,9 @@ export function StandardLineDialog({ line, order, onClose, onChanged }: { line: 
                 <TextField label="Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
                 <Box>
                   <Button variant="contained" disabled={busy || !form.number.trim()}
-                    onClick={() => act(async () => {
-                      await markLineStandard(s.line.id, { number: form.number.trim(), name: form.name.trim() || undefined, revision: form.revision.trim() || undefined });
-                      return saveLineToStandard(s.line.id);
-                    }, 'Saved as a standard drawing.')}>Save as a standard drawing</Button>
+                    data-testid="save-as-standard"
+                    onClick={() => act(() => saveLineAsStandard(s.line.id, { number: form.number.trim(), name: form.name.trim() || undefined, revision: form.revision.trim() || undefined }),
+                      'Saved as a standard drawing.')}>Save as a standard drawing</Button>
                 </Box>
               </Box>
             )}

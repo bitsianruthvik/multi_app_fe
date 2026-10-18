@@ -7,36 +7,32 @@ import AccountTreeRounded from '@mui/icons-material/AccountTreeRounded';
 import PersonRounded from '@mui/icons-material/PersonRounded';
 import SwapHorizRounded from '@mui/icons-material/SwapHorizRounded';
 import PrecisionManufacturingRounded from '@mui/icons-material/PrecisionManufacturingRounded';
-import RocketLaunchRounded from '@mui/icons-material/RocketLaunchRounded';
 import HistoryRounded from '@mui/icons-material/HistoryRounded';
 import { cfApi, CfApiError, LONG_WRITE_MS, qs } from '../api/client';
 import { lineLock } from '../api/lock';
-import type { Movement, OrderProcessView, OrderProduction, OrderRevision, OrderStage, OrderStatus, Party, ReleaseSummary, SalesOrder, SalesOrderLine } from '../api/types';
+import type { Movement, OrderProcessView, OrderProduction, OrderRevision, OrderStage, OrderStatus, Party, ReleaseSummary, SalesOrder } from '../api/types';
 import { useCompanySlug, useLoad } from '../hooks/useLoad';
 import { useIsPermitted } from '../hooks/useIsPermitted';
 import { invalidateNavCounts } from '../hooks/useNavCounts';
 import { appPath } from '../navMeta';
 import { recordPath } from '../lib/paths';
 import {
-  CONFIRM_MOVE, LOCKED_STATUSES, NEXT_STAGE, ORDER_STATUS_LABEL, REVISED_NOT_RELEASED, revisionLabel, showRevision, transitionLabel,
+  CONFIRM_MOVE, LOCKED_STATUSES, NEXT_STAGE, ORDER_STATUS_LABEL, revisionLabel, showRevision, transitionLabel,
 } from '../lib/orders';
 import {
   checksOn, firstOpenStage, isCutPiecesKey, isOrderValuesKey, isOrderWide, withOrderValuesOpen, landingStage, stageSatisfied, stagesShown, tabAlias, tabFor, tabStages, withCutPiecesOpen,
 } from '../lib/process';
 import {
-  DangerBadge, DetailSkeleton, EmptyState, ErrorNotice, Fact, Mono, OrderStatusBadge, OrderTypeChip, RevisionBadge, SectionCard, SkeletonRows,
+  DangerBadge, DetailSkeleton, ErrorNotice, Fact, Mono, OrderStatusBadge, OrderTypeChip, RevisionBadge, SectionCard, SkeletonRows,
 } from '../components/ui';
 import { CrossLink, DetailHeader, DetailLayout, type DetailTab } from '../components/DetailLayout';
 import { OrderInvoicesCard } from '../components/OrderInvoicesCard';
-import { ProductionTabs } from '../components/Production/ProductionTabs';
+import { ProductionStep } from '../components/ProductionOrders/ProductionStep';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { MovementsTable } from '../components/StockTables';
 import { MovementButtons } from '../components/MovementButtons';
-import { ReleaseDialog } from '../components/TrackerDialogs';
-import { releasedMessage } from '../lib/materialRequest';
 import { MaterialSupplyField } from '../components/Purchase/MaterialSupplyField';
 import type { MaterialSupply } from '../api/requisitions';
-import { ReleaseView } from '../components/ReleaseView';
 import { OrderStructureStep } from '../components/OrderStructure/OrderStructureStep';
 import { OrderCostsCard } from '../components/OrderCostsCard';
 import { CustomerMaterialPanel } from '../components/CustomerMaterialPanel';
@@ -86,50 +82,6 @@ function processModel(view: OrderProcessView | null, pickedLine: number | null, 
     landing: landing ? tabFor(landing, view.stages) : keys[0],
     nextKey: next ? tabFor(next, allStages) : null,
   };
-}
-
-/** Every line's release on one screen — the Production tab of an order whose process has no Production stage, or no process at all. */
-function ProductionOverview({ order, lines, production, productionError, loading, canProduce, canReserve, onRelease, onReleaseChanged, onReloadAll, onRetry }: {
-  order: SalesOrder;
-  lines: SalesOrderLine[];
-  production: OrderProduction | null;
-  productionError: CfApiError | null;
-  loading: boolean;
-  canProduce: boolean;
-  canReserve: boolean;
-  onRelease: (l: SalesOrderLine) => void;
-  onReleaseChanged: (r: ReleaseSummary) => void;
-  onReloadAll: () => void;
-  onRetry: () => void;
-}) {
-  return (
-    <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 2 }}>
-      {productionError && <ErrorNotice error={productionError} onRetry={onRetry} />}
-      {(production?.unreleased ?? []).length > 0 && (
-        <SectionCard title="Not released yet" subtitle={order.status === 'confirmed' ? 'A line is released whole: its structure becomes the tracker below, and it is frozen from then on.'
-          : order.status === 'revised' ? REVISED_NOT_RELEASED : `Lines are released once the order is confirmed — it is ${order.status} now.`}>
-          <Box sx={{ display: 'grid', gap: 1 }}>
-            {(production?.unreleased ?? []).map((u) => {
-              const l = lines.find((x) => x.id === u.id);
-              return (
-                <Box key={u.id} sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap' }}>
-                  <Mono muted>{u.lineNo}</Mono>
-                  <Mono>{u.item.code}</Mono>
-                  <Box sx={{ flex: '1 1 160px', minWidth: 0, color: 'var(--c-text-2)', fontSize: 13.5 }}>{u.item.name} ×{u.quantity}</Box>
-                  {canProduce && order.status === 'confirmed' && l && <Button size="small" variant="contained" startIcon={<RocketLaunchRounded />} onClick={() => onRelease(l)}>Release</Button>}
-                </Box>
-              );
-            })}
-          </Box>
-        </SectionCard>
-      )}
-      {loading && !production ? <SkeletonRows rows={3} height={80} /> : (production?.releases ?? []).length === 0 ? (
-        <EmptyState icon={<PrecisionManufacturingRounded />} title="Nothing released yet" hint="Release a line to see its pieces, their steps and what each waits for." />
-      ) : (production?.releases ?? []).map((r) => (
-        <ReleaseView key={r.id} release={r} canProduce={canProduce} canStock={canReserve} onChange={onReleaseChanged} onTakenBack={onReloadAll} onShipped={onReloadAll} />
-      ))}
-    </Box>
-  );
 }
 
 function DetailsForm({ order, onSaved }: { order: SalesOrder; onSaved: (o: SalesOrder) => void }) {
@@ -213,7 +165,6 @@ export default function OrderDetail() {
   const canManage = isPermitted('cf_erp_orders_manage');
   const canStock = isPermitted('cf_erp_inventory_view');
   const canTrack = isPermitted('cf_erp_production_view');
-  const canProduce = isPermitted('cf_erp_production_manage');
   const canReserve = isPermitted('cf_erp_inventory_manage');
   const canInvoices = isPermitted('cf_erp_orders_view');
   const order = useLoad(() => cfApi.get<SalesOrder>(`/orders/${id}`), [id]);
@@ -226,7 +177,6 @@ export default function OrderDetail() {
   const tabParam = params.get('tab');
   const lineParam = params.get('line');
   const [pickedLine, pickLine] = useWorkingLine(id);
-  const [releasing, setReleasing] = useState<SalesOrderLine | null>(null);
   const [moving, setMoving] = useState<OrderStatus | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [revising, setRevising] = useState(false);
@@ -470,15 +420,8 @@ export default function OrderDetail() {
     // The customer's yes (§73) — with or without a process stage for it.
     body = <AcceptanceStep order={o} onChanged={() => { order.reload(); processView.reload(); }} />;
   } else if (tab === 'production' && canTrack) {
-    const overview = (
-      <ProductionOverview order={o} lines={lines} production={production.data} productionError={production.error} loading={production.loading}
-        canProduce={canProduce} canReserve={canReserve} onRelease={setReleasing} onReleaseChanged={updateRelease} onReloadAll={reloadAll} onRetry={production.reload} />
-    );
-    // Times and Contractors sit beside the release view, which is untouched.
-    body = lines.length === 0 ? overview : (
-      <ProductionTabs orderId={o.id} released={(production.data?.releases ?? []).length > 0} tracker={overview}
-        lines={lines.map((l) => ({ id: l.id, lineNo: l.lineNo, label: l.item?.name ?? l.item?.code ?? 'Line' }))} />
-    );
+    // §76: times, then production orders — the same step an order with a process shows (release per line retired).
+    body = <ProductionStep order={o} onChanged={reloadAll} />;
   } else if (tab === 'stock' && canStock) {
     body = (
       <SectionCard flush title="Stock for this order" subtitle="Issues made against this order — what has gone to it from stock. Receipts and transfers do not name an order."
@@ -519,16 +462,6 @@ export default function OrderDetail() {
       onTab={setTab}>
       {body}
 
-      <ReleaseDialog line={releasing ? { id: releasing.id, lineNo: releasing.lineNo, label: `${releasing.item?.code ?? releasing.item?.name ?? 'This line'} ×${releasing.quantity}` } : null}
-        onClose={() => setReleasing(null)}
-        onReleased={(r) => {
-          invalidateNavCounts();
-          toast.success(releasedMessage(releasing?.lineNo, r));
-          // Production is per line when it is a stage: open the line just released.
-          if (releasing) pickLine(releasing.id);
-          reloadAll();
-          setTab('production');
-        }} />
       <ConfirmDialog open={!!moving} title={moving ? `${transitionLabel(o.status, moving)}?` : ''} confirmLabel={moving ? transitionLabel(o.status, moving) : 'Confirm'} danger={moving === 'cancelled'}
         entityName={`${o.code}${o.title ? ` · ${o.title}` : ''}`} body={moving ? CONFIRM_MOVE[moving] ?? '' : ''}
         onClose={() => setMoving(null)}

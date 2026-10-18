@@ -3,31 +3,25 @@ import { Box, Button, Typography } from '@mui/material';
 import { Link } from 'react-router-dom';
 import InfoOutlined from '@mui/icons-material/InfoOutlined';
 import LaunchRounded from '@mui/icons-material/LaunchRounded';
-import RocketLaunchRounded from '@mui/icons-material/RocketLaunchRounded';
-import PrecisionManufacturingRounded from '@mui/icons-material/PrecisionManufacturingRounded';
 import GridViewRounded from '@mui/icons-material/GridViewRounded';
 import LockRounded from '@mui/icons-material/LockRounded';
 import type { CfApiError } from '../../api/client';
 import { lineLock } from '../../api/lock';
-import type { OrderProcessLine, OrderProcessView, OrderProduction, OrderStage, ReleaseSummary, SalesOrder, SalesOrderLine } from '../../api/types';
+import type { OrderProcessLine, OrderProcessView, OrderProduction, OrderStage, ReleaseSummary, SalesOrder } from '../../api/types';
 import { useCompanySlug } from '../../hooks/useLoad';
 import { useIsPermitted } from '../../hooks/useIsPermitted';
 import { invalidateNavCounts } from '../../hooks/useNavCounts';
 import { appPath } from '../../navMeta';
-import { CONFIRM_MOVE, LOCKED_STATUSES, ORDER_STATUS_LABEL, REVISED_NOT_RELEASED } from '../../lib/orders';
+import { CONFIRM_MOVE, LOCKED_STATUSES } from '../../lib/orders';
 import {
   DECIDED_BY_HELP, UNBUILT_STAGE,
   isOrderWide, isUnbuilt, nextLineFor, notForThisLine, tabFor,
 } from '../../lib/process';
 import { cfApi } from '../../api/client';
-import { EmptyState, ErrorNotice, Mono, SectionCard } from '../ui';
+import { EmptyState, Mono, SectionCard } from '../ui';
 import { NestingPanel } from '../Nesting/NestingPanel';
 import { CutPiecesButton } from '../Nesting/CutPiecesDialog';
-import { ReleaseView } from '../ReleaseView';
-import { ReleaseDialog } from '../TrackerDialogs';
-import { releasedMessage } from '../../lib/materialRequest';
-import { PieceCodesCard } from '../Production/PieceCodesCard';
-import { ProductionTabs } from '../Production/ProductionTabs';
+import { ProductionStep } from '../ProductionOrders/ProductionStep';
 import { LockPanel } from '../Lock/LockPanel';
 import { OrderStructureStep } from '../OrderStructure/OrderStructureStep';
 import { ExecutionPlanPanel } from '../OrderStructure/ExecutionPlanPanel';
@@ -158,102 +152,13 @@ function UnbuiltStagePanel({ stage }: { stage: OrderStage }) {
   );
 }
 
-/**
- * A line built from a template is FROZEN before it is released: lock writes
- * every piece's code, and release takes them from there. Until then the panel
- * says so and points at the Freeze design stage, rather than offering a Release button
- * that can only come back with a refusal.
- */
-function LockFirst({ lineNo, hasLockStage, onGoLock }: { lineNo: number; hasLockStage: boolean; onGoLock: () => void }) {
-  return (
-    <Note tone="warning">
-      <Box><strong>Freeze the design first.</strong> Line {lineNo} is not frozen yet. Freezing comes after the values and the cut pieces: it gives every piece its code, and release takes the codes from there.</Box>
-      <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
-        {hasLockStage
-          ? <Button size="small" variant="outlined" color="inherit" startIcon={<LockRounded />} onClick={onGoLock}>Go to Freeze design</Button>
-          : <Box>This order&rsquo;s process has no Freeze design stage yet — add it under Setup › Processes.</Box>}
-      </Box>
-    </Note>
-  );
-}
-
-/** The line's release, exactly as the order-wide Production view shows it. */
-function ProductionPanel({ stage, line, order, production, productionError, hasLockStage, onReleaseChanged, onReloadAll, onGoStage }: {
-  stage: OrderStage;
-  line: OrderProcessLine | null;
-  order: SalesOrder;
-  production: OrderProduction | null;
-  productionError: CfApiError | null;
-  hasLockStage: boolean;
-  onReleaseChanged: (r: ReleaseSummary) => void;
-  onReloadAll: () => void;
-  onGoStage: (stageKey: string) => void;
-}) {
-  const isPermitted = useIsPermitted();
-  const toast = useToast();
-  const [releasing, setReleasing] = useState<SalesOrderLine | null>(null);
-  const canTrack = isPermitted('cf_erp_production_view');
-  const canProduce = isPermitted('cf_erp_production_manage');
-  const canStock = isPermitted('cf_erp_inventory_manage');
-  const orderLine = (order.lines ?? []).find((l) => l.id === line?.lineId) ?? null;
-  const release = production?.releases.find((r) => r.line.id === line?.lineId) ?? null;
-  // A line sold as it is (a catalog item) has nothing to lock; one built from a template does.
-  // An order that has stopped changing (closed, revised…) locks nothing more, so it is not asked to.
-  const mustLock = orderLine?.lineType === 'custom' && !lineLock(orderLine) && !release && !LOCKED_STATUSES.includes(order.status);
-
-  if (!canTrack) {
-    return (
-      <SectionCard title="Production">
-        <Typography sx={{ fontSize: 13.5, color: 'var(--c-text-2)' }}>
-          You can see this order, but your role cannot see production. Ask an administrator for the production permission.
-        </Typography>
-      </SectionCard>
-    );
-  }
-
-  const tracker = (
-    <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 2 }}>
-      <ErrorNotice error={productionError} onRetry={onReloadAll} sx={{ mb: 0 }} />
-      {release
-        ? <ReleaseView release={release} canProduce={canProduce} canStock={canStock} onChange={onReleaseChanged} onTakenBack={onReloadAll} onShipped={onReloadAll} />
-        : (
-          <SectionCard title={line ? `Line ${line.lineNo} is not released yet` : 'Nothing to release yet'}
-            subtitle={order.status === 'confirmed'
-              ? 'A line is released whole: its frozen pieces become the tracker, with the codes freezing gave them.'
-              : order.status === 'revised' ? REVISED_NOT_RELEASED
-                : `Lines are released once the order is confirmed — it is ${ORDER_STATUS_LABEL[order.status].toLowerCase()} now.`}
-            actions={canProduce && order.status === 'confirmed' && orderLine && !orderLine.release && !mustLock
-              ? <Button variant="contained" startIcon={<RocketLaunchRounded />} onClick={() => setReleasing(orderLine)}>Release this line</Button>
-              : undefined}>
-            {line
-              ? (
-                <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 1.25 }}>
-                  {mustLock && <LockFirst lineNo={line.lineNo} hasLockStage={hasLockStage} onGoLock={() => onGoStage('lock')} />}
-                  <Typography sx={{ fontSize: 13.5, color: 'var(--c-text-2)' }}>{stage.detail}.</Typography>
-                </Box>
-              )
-              : <EmptyState icon={<PrecisionManufacturingRounded />} title="No lines yet" hint="Add a line before anything can be made." />}
-          </SectionCard>
-        )}
-      {/* Until the line is released, the codes release will give its pieces — read-only, loaded on request. */}
-      {!release && line?.item && <PieceCodesCard key={line.lineId} lineId={line.lineId} lineNo={line.lineNo} />}
-      <ReleaseDialog
-        line={releasing ? { id: releasing.id, lineNo: releasing.lineNo, label: `${releasing.item?.code ?? releasing.item?.name ?? 'This line'} ×${releasing.quantity}` } : null}
-        onClose={() => setReleasing(null)}
-        onReleased={(r) => { invalidateNavCounts(); toast.success(releasedMessage(releasing?.lineNo, r)); onReloadAll(); }} />
-    </Box>
-  );
-  // Times and Contractors sit beside the tracker; the tracker itself is untouched.
-  if (!line) return tracker;
-  return <ProductionTabs orderId={order.id} lineId={line.lineId} lines={[{ id: line.lineId, lineNo: line.lineNo, label: '' }]} released={!!release} tracker={tracker} />;
-}
-
 export function StageBody({
-  view, stage, line, order, production, productionError,
-  onPickLine, onOrderSaved, onReleaseChanged, onReloadAll, onGoStage,
+  view, stage, line, order,
+  onPickLine, onOrderSaved, onReloadAll, onGoStage,
 }: {
   view: OrderProcessView;
-  /** The stage being worked, as it stands for the chosen line. */
+  /** The stage being worked, as it stands for the chosen line. production / productionError / onReleaseChanged: kept for
+   *  the callers; the Production step reads its production orders itself since §76. */
   stage: OrderStage;
   /** The line being worked on — null only while the order has no lines. */
   line: OrderProcessLine | null;
@@ -319,8 +224,15 @@ export function StageBody({
         </SectionCard>
       );
   } else if (stage.stageKey === 'production') {
-    body = <ProductionPanel stage={stage} line={line} order={order} production={production} productionError={productionError}
-      hasLockStage={view.stages.some((s) => s.stageKey === 'lock')} onReleaseChanged={onReleaseChanged} onReloadAll={onReloadAll} onGoStage={onGoStage} />;
+    // §76 (user, 2026-10-18): TIMES, then the production orders made from the execution plan — released, tracked and
+    // dispatched per production order. The old per-line Release / tracker left the order page; older releases stay readable.
+    body = isPermitted('cf_erp_production_view')
+      ? <ProductionStep order={order} onChanged={onReloadAll} />
+      : (
+        <SectionCard title="Production">
+          <Typography sx={{ fontSize: 13.5, color: 'var(--c-text-2)' }}>You can see this order, but your role cannot see production. Ask an administrator for the production permission.</Typography>
+        </SectionCard>
+      );
   } else if (stage.stageKey === 'buying') {
     // §71: Raise MR, and a read-only status of each MR (everything after it is in Purchase).
     body = <OrderPurchasePanel order={order} stage={stage} onChanged={onReloadAll} />;

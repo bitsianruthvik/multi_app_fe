@@ -219,7 +219,7 @@ await check('tabs: no Line items, Structure & values first, Execution plan secon
 });
 
 // ── 3. Structure & values ────────────────────────────────────────────────────
-await check('Structure & values: every line a group, with its marks and actions; add from a standard drawing right there', async () => {
+await check('Structure & values: every line a group, with its marks and actions; one Add line with three choices right there', async () => {
   reset();
   await render(React.createElement(m.OrderStructureStep, { order: order([line(41, 1), line(42, 2, { quantity: 1 }), line(43, 3, { lineType: 'standard', item: { id: 9, code: 'PL-6', name: 'MS Plate', status: 'active', kind: 'catalog', uom: 'nos', revision: null }, structure: null })]), view: VIEW, onOrderSaved: () => {}, onChanged: () => {} }));
   const step = q1('structure-step');
@@ -229,12 +229,16 @@ await check('Structure & values: every line a group, with its marks and actions;
   assert.match(text(q1('line-group-1')), /Line 1.*Bridge span.*×3.*gets its code when the design is frozen/);
   assert.match(text(q1('line-group-1')), /206 rows/);
   assert.match(text(q1('line-group-1')), /3 values missing/);
-  assert.ok(q1('add-line') && q1('add-from-standard'), 'Add line and From a standard drawing, on the step itself');
+  assert.ok(q1('add-line') && !q1('add-from-standard'), 'ONE Add line on the step (2026-10-18: three choices inside it)');
   assert.ok(q1('full-screen-toggle'), 'full screen on the step');
   assert.equal(calls('GET', '/order-lines/41/structure').length, 0, 'a folded group reads nothing');
-  await click(q1('add-from-standard'));
-  const dlg = document.querySelector('[role="dialog"]');
-  assert.ok(dlg && /Drawing number/.test(text(dlg)), 'the add dialog opens straight on "From a standard drawing"');
+  await click(q1('add-line'));
+  let dlg = document.querySelector('[role="dialog"]');
+  assert.ok(dlg && q1('add-choice-parts') && q1('add-choice-standard') && q1('add-choice-drawing'), 'the add dialog offers the three choices as cards');
+  assert.match(text(dlg), /Build from parts.*From a standard drawing.*From a new drawing/);
+  await click(q1('add-choice-standard'));
+  dlg = document.querySelector('[role="dialog"]');
+  assert.ok(dlg && /Drawing number/.test(text(dlg)), '"From a standard drawing" asks for the drawing number');
 });
 await check('lines move up and down right there; a frozen line keeps its number', async () => {
   reset();

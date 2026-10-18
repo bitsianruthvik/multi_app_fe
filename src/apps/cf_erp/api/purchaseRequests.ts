@@ -42,13 +42,23 @@ export interface MrScreenLine {
 
 export interface PrSummary { id: number; code: string; status: PrStatus; statusLabel: string }
 
-export interface MrScreen {
+/** §79: what an MR is for — the cost follows it. */
+export type MrFor = 'sales_order' | 'maintenance_order' | 'stock' | 'general';
+export const MR_FOR_LABEL: Record<MrFor, string> = { sales_order: 'Sales order', maintenance_order: 'Maintenance order', stock: 'Stock', general: 'General' };
+/** §79: the 'For' of an MR, and whether it was raised by hand (no order line; may have no order). */
+export interface MrForFields { forType: MrFor; forLabel: string; manual: boolean; maintenanceOrderId: number | null; notes: string | null }
+
+export interface MrScreen extends MrForFields {
   id: number;
   code: string;
   supply: MaterialSupply;
   supplyLabel: string;
-  order: { id: number; code: string; status: string; customer?: { id: number; name: string } | null };
-  line: { id: number; lineNo: number; name: string; quantity: number; frozen: boolean; released: boolean };
+  /** null: an MR for stock / general / maintenance with no sales order (§79). */
+  order: { id: number; code: string; status: string; customer?: { id: number; name: string } | null } | null;
+  /** null: an MR raised by hand (§79) — no order line. */
+  line: { id: number; lineNo: number; name: string; quantity: number; frozen: boolean; released: boolean } | null;
+  raisedAt?: string;
+  raisedBy?: { id: number; name: string | null } | null;
   status: string;
   statusLabel: string;
   stale: boolean;
@@ -67,10 +77,10 @@ export interface MrScreen {
   customerPurchaseOrders?: PurchaseOrder[];
 }
 
-export interface MrRow {
+export interface MrRow extends MrForFields {
   id: number; code: string; supply: MaterialSupply; supplyLabel: string;
-  order: { id: number; code: string; status: string; customer?: { id: number; name: string } | null };
-  line: { id: number; lineNo: number; name: string };
+  order: { id: number; code: string; status: string; customer?: { id: number; name: string } | null } | null;
+  line: { id: number; lineNo: number; name: string } | null;
   status: string; statusLabel: string; materials: number; lockedLines: number; lockedWords: string;
   /** §73: shared with the customer, waiting for the acceptance — nothing to do in Purchase yet. */
   heldForAcceptance?: boolean;
@@ -112,9 +122,11 @@ export interface PurchaseRequest {
   status: PrStatus;
   statusLabel: string;
   today: string;
-  requisition: { id: number; code: string };
-  order: { id: number; code: string; status: string; customer: { id: number; name: string } | null };
-  line: { id: number; lineNo: number; name: string };
+  requisition: { id: number; code: string; forType?: MrFor; forLabel?: string };
+  /** §79: the PR of an MR raised by hand (no order line; order may be null). */
+  manual?: boolean;
+  order: { id: number; code: string; status: string; customer: { id: number; name: string } | null } | null;
+  line: { id: number; lineNo: number; name: string } | null;
   canEdit: boolean;
   createdAt: string;
   notes: string | null;
@@ -126,9 +138,9 @@ export interface PurchaseRequest {
 
 export interface PrRow {
   id: number; code: string; status: PrStatus; statusLabel: string;
-  requisition: { id: number; code: string };
-  order: { id: number; code: string; status: string; customer: { id: number; name: string } | null };
-  line: { id: number; lineNo: number; name: string };
+  requisition: { id: number; code: string; forType?: MrFor; forLabel?: string };
+  order: { id: number; code: string; status: string; customer: { id: number; name: string } | null } | null;
+  line: { id: number; lineNo: number; name: string } | null;
   lines: number; toOrder: number; vendors: number; purchaseOrders: { id: number; code: string; stage: PurchaseStage }[]; createdAt: string;
 }
 
@@ -143,8 +155,9 @@ export interface PendingLine {
 }
 
 // ---- the MR ------------------------------------------------------------------------------
-export const listMaterialRequests = (q: { orderId?: number | null; search?: string; open?: boolean } = {}) =>
-  cfApi.get<{ rows: MrRow[] }>(`/material-requests${qs({ orderId: q.orderId ?? undefined, search: q.search?.trim() || undefined, open: q.open === false ? 'false' : undefined })}`);
+/** §79: Stores' MR inbox — every MR, filtered by its 'For' (and a maintenance order). */
+export const listMaterialRequests = (q: { orderId?: number | null; search?: string; open?: boolean; forType?: MrFor | null; maintenanceOrderId?: number | null } = {}) =>
+  cfApi.get<{ rows: MrRow[]; counts?: Record<string, number> }>(`/material-requests${qs({ orderId: q.orderId ?? undefined, search: q.search?.trim() || undefined, open: q.open === false ? 'false' : undefined, for: q.forType || undefined, maintenanceOrderId: q.maintenanceOrderId ?? undefined })}`);
 export const getMaterialRequest = (id: number) => cfApi.get<MrScreen>(`/material-requests/${id}`);
 /** Saves "take from stock" per line: earmarks it, and makes / updates the PR (or asks the customer for the rest). */
 export const saveMaterialRequest = (id: number, body: { lines: { lineId: number; takeFromStock: number }[]; customerDate?: string }) =>

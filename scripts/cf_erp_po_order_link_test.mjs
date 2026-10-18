@@ -70,7 +70,7 @@ await check('Receiving reports what was held for which order', () => {
 // §71: what is held for an MR line is its "Locked for this order" on the MR screen (Purchase); the sales order only says "n of m locked".
 await check('held stock shows as "Locked for this order" on the MR screen; the order stage says how many lines are locked', () => {
   const t = src('pages/MaterialRequestDetail.tsx'); const o = src('components/Purchase/OrderPurchasePanel.tsx');
-  assert.ok(t.includes("header: 'Locked for this order'")); assert.match(o, /lockedWords\(r\)/); assert.doesNotMatch(o, /order-held-row/);
+  assert.ok(t.includes("'Locked for this order'")); // §79: 'Locked for this MR' when the MR has no order line assert.match(o, /lockedWords\(r\)/); assert.doesNotMatch(o, /order-held-row/);
 });
 await check('Item stock renders held reservations with a Let go action behind canManage and a confirm', () => {
   const s = src('components/ItemStockPanel.tsx');

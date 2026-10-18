@@ -34,7 +34,7 @@ export default function PurchaseRequests() {
   const columns: DataColumn<PrRow>[] = [
     { key: 'code', header: 'PR', alwaysVisible: true, sortValue: (r) => r.code, render: (r) => <Mono chip><Box component={Link} to={appPath(company, `purchase-requests/${r.id}`)} sx={linkSx}>{r.code}</Box></Mono> },
     { key: 'status', header: 'Status', alwaysVisible: true, sortValue: (r) => r.status, render: (r) => <PrStatusBadge status={r.status} /> },
-    { key: 'mr', header: 'Material request', sortValue: (r) => r.requisition.code, render: (r) => <Box><Mono>{r.requisition.code}</Mono><Typography sx={{ fontSize: 12, color: 'var(--c-text-3)', whiteSpace: 'normal' }}>{r.order.code} · line {r.line.lineNo}</Typography></Box> },
+    { key: 'mr', header: 'Material request', sortValue: (r) => r.requisition.code, render: (r) => <Box><Mono>{r.requisition.code}</Mono><Typography sx={{ fontSize: 12, color: 'var(--c-text-3)', whiteSpace: 'normal' }}>{r.order && r.line ? `${r.order.code} · line ${r.line.lineNo}` : `For ${(r.requisition.forLabel ?? 'general').toLowerCase()}${r.order ? ` · ${r.order.code}` : ''}`}</Typography></Box> },
     { key: 'lines', header: 'Lines to order', numeric: true, sortValue: (r) => r.toOrder, render: (r) => <Mono muted={!r.toOrder}>{r.toOrder} of {r.lines}</Mono> },
     { key: 'vendors', header: 'Vendors', numeric: true, sortValue: (r) => r.vendors, render: (r) => <Mono muted={!r.vendors}>{r.vendors}</Mono> },
     { key: 'pos', header: 'Purchase orders', render: (r) => (r.purchaseOrders.length ? <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>{r.purchaseOrders.map((p) => <Mono key={p.id} chip>{p.code}</Mono>)}</Box> : <Mono muted>—</Mono>) },

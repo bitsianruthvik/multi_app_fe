@@ -24,11 +24,12 @@ const ROW_WIDE = 42;
 const ROW_NARROW = 64;
 const OVERSCAN = 12;
 
-/** "o12" / "l34" / "all" in the URL → the read's scope. */
-function scopeOf(v: string): { orderId: number | null; lineId: number | null } {
-  const m = /^([ol])(\d+)$/.exec(v);
-  if (!m) return { orderId: null, lineId: null };
-  return m[1] === 'o' ? { orderId: Number(m[2]), lineId: null } : { orderId: null, lineId: Number(m[2]) };
+/** "o12" / "l34" / "w56" (a production order, §76) / "all" in the URL → the read's scope. */
+function scopeOf(v: string): { orderId: number | null; lineId: number | null; productionOrderId: number | null } {
+  const m = /^([olw])(\d+)$/.exec(v);
+  if (!m) return { orderId: null, lineId: null, productionOrderId: null };
+  if (m[1] === 'w') return { orderId: null, lineId: null, productionOrderId: Number(m[2]) };
+  return m[1] === 'o' ? { orderId: Number(m[2]), lineId: null, productionOrderId: null } : { orderId: null, lineId: Number(m[2]), productionOrderId: null };
 }
 
 /** A child's code repeats its parent's; the part it adds is what a person reads, so the rest steps back. */
@@ -143,11 +144,11 @@ export function TrackerTree() {
 
   useEffect(() => { const t = setTimeout(() => setTerm(search.trim()), 350); return () => clearTimeout(t); }, [search]);
 
-  const { orderId, lineId } = scopeOf(scope);
+  const { orderId, lineId, productionOrderId } = scopeOf(scope);
   const query = useMemo(() => ({
-    orderId, lineId, search: term || null, onlyBlocked,
+    orderId, lineId, productionOrderId, search: term || null, onlyBlocked,
     depth: level === ALL_LEVELS ? 50 : level + 2,
-  }), [orderId, lineId, term, onlyBlocked, level]);
+  }), [orderId, lineId, productionOrderId, term, onlyBlocked, level]);
 
   useEffect(() => {
     let alive = true;
@@ -222,6 +223,10 @@ export function TrackerTree() {
             ...(o.lines.length > 1 ? o.lines.map((l) => (
               <MenuItem key={`l${l.id}`} value={`l${l.id}`} sx={{ pl: 4, fontSize: 13 }}>Line {l.lineNo} · {l.itemName}</MenuItem>
             )) : []),
+            // §76: each released production order of the order.
+            ...(o.productionOrders ?? []).map((p) => (
+              <MenuItem key={`w${p.id}`} value={`w${p.id}`} sx={{ pl: 4, fontSize: 13 }}><Mono sx={{ mr: 1 }}>{p.code}</Mono>{p.label}</MenuItem>
+            )),
           ])}
         </Select>
         <Select size="small" value={level} onChange={(e) => setLevelParam(String(e.target.value))} sx={{ height: 32, fontSize: 13 }} inputProps={{ 'aria-label': 'Open to level' }}

@@ -19,6 +19,7 @@ import { codeOrName, displayCode } from '../../lib/displayCode';
 import { orderMark, sourceMark, sourceOfDerived, type OrderCellSource, type ValueSource } from '../../lib/valueSource';
 import { ValueSourceMark } from './ValueSourceMark';
 import { CodeText } from './CodeText';
+import { splitAiNote } from '../../lib/addLine';
 
 export interface GridWrite { row: BomRow; code: string; text: string; saved: string }
 type Cell = { text: string; input: string; saved: string; editable: boolean; why?: string; applies?: boolean; type?: string; /** Where a formula value comes from (lib/valueSource). */ source?: ValueSource | null; /** From the order / line, or a row value over it (init.sql §65). */ order?: OrderCellSource | null; options?: { id: number; value: string; label?: string | null }[] };
@@ -223,8 +224,16 @@ export function BomGrid({ rows, view, records: recordValues, recordIds, pending,
                 {(gaps?.get(n.id)?.length ?? 0) > 0 && <Box component="span" data-testid="row-gaps" title={`Required values still empty: ${gaps?.get(n.id)?.join(', ')}`}
                   sx={{ fontSize: 10.5, fontWeight: 600, px: 0.75, borderRadius: 'var(--r-sm)', background: 'var(--c-warning-200)', color: 'var(--c-warning-800)', whiteSpace: 'nowrap', flexShrink: 0 }}>{gaps?.get(n.id)?.length} missing</Box>}
                 {/* A remark on the BOM line a person must see — a standard drawing's "DRILL ON ASSEMBLY", an open decision (init.sql §69). */}
-                {n.notes && <Box component="span" data-testid="row-note" title={n.notes} aria-label={`Note: ${n.notes}`}
-                  sx={{ fontSize: 10.5, fontWeight: 600, px: 0.75, borderRadius: 'var(--r-sm)', background: 'var(--c-warning-200)', color: 'var(--c-warning-800)', whiteSpace: 'nowrap', flexShrink: 0, cursor: 'help' }}>Note</Box>}
+                {/* A row AI was not sure of (a line read from a new drawing, init.sql §77): its own amber chip with the reason. */}
+                {(() => {
+                  const { ai, rest } = splitAiNote(n.notes);
+                  return <>
+                    {ai && <Box component="span" data-testid="row-ai-flag" title={`Check (by AI): ${ai}`} aria-label={`Check (by AI): ${ai}`}
+                      sx={{ fontSize: 10.5, fontWeight: 700, px: 0.75, borderRadius: 'var(--r-sm)', background: 'var(--c-warning-200)', color: 'var(--c-warning-800)', border: '1px solid var(--c-warning-600)', whiteSpace: 'nowrap', flexShrink: 0, cursor: 'help' }}>AI · check</Box>}
+                    {rest && <Box component="span" data-testid="row-note" title={rest} aria-label={`Note: ${rest}`}
+                      sx={{ fontSize: 10.5, fontWeight: 600, px: 0.75, borderRadius: 'var(--r-sm)', background: 'var(--c-warning-200)', color: 'var(--c-warning-800)', whiteSpace: 'nowrap', flexShrink: 0, cursor: 'help' }}>Note</Box>}
+                  </>;
+                })()}
               </Box>
             )}
           </>,

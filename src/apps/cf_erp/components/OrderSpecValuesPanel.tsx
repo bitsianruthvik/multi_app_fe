@@ -20,7 +20,7 @@ import { useToast } from './toastContext';
 const fieldSx = { minWidth: 0, width: '100%', '& .MuiInputBase-root': { fontSize: 13 }, '& .MuiSelect-select': { py: '6px' } };
 
 /** One value: a list for an option or yes/no, a text field (saved on Enter or leaving it) otherwise. */
-function SpecField({ spec, input, placeholder, label, disabled, onCommit, testId }: {
+export function SpecField({ spec, input, placeholder, label, disabled, onCommit, testId }: {
   spec: OrderSpec; input: string; placeholder: string; label: string; disabled: boolean; onCommit: (text: string) => void; testId: string;
 }) {
   const [text, setText] = useState(input);

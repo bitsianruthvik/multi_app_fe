@@ -297,6 +297,7 @@ await check('Add line with its drawing, "This is a standard drawing": the line, 
   let saved = null;
   await render(React.createElement(m.OrderStructureStep, { view: null, onChanged: () => {}, order: order([]), onOrderSaved: (o) => { saved = o; } }), '/testco/cf_erp/orders/3');
   await click(buttonIn(app, 'Add line'));
+  await click(q1('add-choice-parts'));   // the three choices (2026-10-18): Build from parts
   const dlg = document.querySelector('[role="dialog"]');
   const what = inputLabelled(dlg, 'What it sells');
   await setValue(what, 'span'); await fire(what, 'mousedown'); await settle(450);

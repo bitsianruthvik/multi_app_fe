@@ -1,8 +1,8 @@
 // Run from multi_app_fe: node scripts/cf_erp_production_views_test.mjs
 // Production views (2026-10-17): the "Own steps" / "Including everything below" choice (lib/stepsView,
-// OrderTree), work orders grouped by sales order (lib/dashboardWorkOrders, WorkOrdersTab), the
-// Production orders page (lib/productionOrders, pages/ProductionOrders) and the "not in the plan"
-// words (lib/planCheck) — against a pretend API. DOM-level; it does not replace a look in a browser.
+// OrderTree), work orders grouped by sales order (lib/dashboardWorkOrders, WorkOrdersTab) and the "not in the plan"
+// words (lib/planCheck) — against a pretend API. (The Production orders page moved to production orders, §76:
+// scripts/cf_erp_production_orders_test.mjs.) DOM-level; it does not replace a look in a browser.
 import assert from 'node:assert/strict';
 import { mkdir, writeFile, unlink } from 'node:fs/promises';
 import { resolve } from 'node:path';
@@ -45,11 +45,10 @@ const built = await build({
       export { React, createRoot, MemoryRouter, Routes, Route };
       export * from './src/apps/cf_erp/lib/stepsView';
       export * from './src/apps/cf_erp/lib/planCheck';
-      export * from './src/apps/cf_erp/lib/productionOrders';
       export { groupBySalesOrder } from './src/apps/cf_erp/lib/dashboardWorkOrders';
       export { OrderTree } from './src/apps/cf_erp/components/Dashboard/OrderTree';
       export { WorkOrdersTab } from './src/apps/cf_erp/components/Dashboard/WorkOrdersTab';
-      export { default as ProductionOrders } from './src/apps/cf_erp/pages/ProductionOrders';`,
+`,
     resolveDir: process.cwd(), loader: 'tsx',
   },
   plugins: [{ name: 'stubs', setup(b) {
@@ -197,50 +196,6 @@ await check('WorkOrdersTab: Group by sales order shows the order summary and the
   assert.match($('[data-testid="wo-order-totals"]').textContent, /1 work order · 1 open · 1 contractor · 50% complete \(1 of 2\)/);
   await click($('[data-testid="order-summary-row"][data-order="SO-B"]'), 'SO-B row');
   assert.deepEqual($$('[data-testid="wo-order-group"]').map((g) => g.getAttribute('data-order')), ['SO-B'], 'a row narrows to its order');
-  await React.act(async () => root.unmount());
-});
-
-await check('productionOrders words', async () => {
-  assert.equal(m.shipWeekText('2026-11-16', '2026'), 'week of 16 Nov');
-  assert.equal(m.shipWeekText(null), 'not planned');
-  assert.equal(m.shortDate('2027-01-04', '2026'), '4 Jan 2027');
-  assert.equal(m.blockedText({ onHold: 2, material: 1, total: 3 }), '2 on hold · 1 waiting for material');
-  assert.equal(m.blockedText({ onHold: 0, material: 0, total: 0 }), null);
-  assert.equal(m.orderStatusText({ lines: 3, not_started: 2, in_progress: 1, done: 0, dispatched: 0 }), '3 lines · 2 not started · 1 in progress');
-  assert.equal(m.lineTrackerPath({ orderId: 5, line: { id: 9 } }), 'orders/5?tab=production&line=9');
-});
-
-await check('Production orders page: grouped by sales order, collapsible, filters go to the server, a line opens its tracker', async () => {
-  const line = (id, lineNo, status, pct, extra = {}) => ({ releaseId: id, orderId: id < 20 ? 1 : 2, line: { id, lineNo }, item: { id: 1, code: 'IT', name: 'Girder' }, quantity: 1, made: 0, delivered: 0,
-    releasedAt: '2026-10-01', committedDate: null, plan: null, progress: { pct, basis: 'work', steps: 4, stepsDone: 1 }, forecast: { date: null, pace: null, plan: null, estimate: true }, status, blocked: { onHold: 0, material: 0, total: 0 }, ...extra });
-  const page = (offset) => ({
-    rows: offset === 0 ? [{ order: { id: 1, code: 'SO-A', revision: 1, title: 'Girders', status: 'confirmed', customer: { id: 4, name: 'Rail Co' }, committedDate: null },
-      totals: { lines: 2, not_started: 1, in_progress: 1, done: 0, dispatched: 0, progressPct: 34.3, basis: 'work', steps: 8, stepsDone: 2, blocked: 1, lastShipWeek: '2026-11-16', planned: 1, forecast: '2026-11-20' },
-      lines: [line(11, 1, 'in_progress', 37.5, { plan: { shipWeek: '2026-11-16', firstShip: '2026-11-20', lastShip: '2026-11-20', entries: 1 }, blocked: { onHold: 1, material: 0, total: 1 } }), line(12, 2, 'not_started', 0)] }]
-      : [{ order: { id: 2, code: 'SO-B', revision: 1, title: null, status: 'confirmed', customer: null, committedDate: null },
-        totals: { lines: 1, not_started: 0, in_progress: 0, done: 0, dispatched: 1, progressPct: 100, basis: 'work', steps: 1, stepsDone: 1, blocked: 0, lastShipWeek: null, planned: 0, forecast: null }, lines: [line(21, 1, 'dispatched', 100)] }],
-    total: 2, limit: 20, offset, hasMore: offset === 0, lineTotal: 3,
-    counts: { all: 3, open: 2, not_started: 1, in_progress: 1, done: 0, dispatched: 1 }, customers: [{ id: 4, name: 'Rail Co' }], status: 'open', today: '2026-10-17',
-  });
-  routes = { '/production-orders': (url) => page(/offset=20/.test(url) ? 20 : 0) };
-  calls.length = 0;
-  window.localStorage.removeItem('cf_erp.productionOrders.collapsed');
-  const root = await render(React.createElement(m.ProductionOrders), '/testco/cf_erp/production-orders');
-  await waitFor(() => $('[data-testid="po-order"]'), 'the order block');
-  assert.match(calls[0], /status=open/, 'opens on lines not dispatched');
-  assert.equal($$('[data-testid="po-line"]').length, 2);
-  assert.match($('[data-testid="po-order-totals"]').textContent, /2 lines · 1 not started · 1 in progress · ships week of 16 Nov · forecast 20 Nov · 1 blocked/);
-  const first = $('[data-testid="po-line"][data-line="11"]');
-  assert.match(first.textContent, /Line 1/); assert.match(first.textContent, /week of 16 Nov/); assert.match(first.textContent, /In progress/); assert.match(first.textContent, /1 on hold/);
-  await click($('[data-testid="po-order-head"]'), 'the order head');
-  await waitFor(() => $$('[data-testid="po-line"]').length === 0, 'folded');
-  assert.equal(window.localStorage.getItem('cf_erp.productionOrders.collapsed'), '[1]', 'remembered folded');
-  await click($('[data-testid="po-order-head"]'), 'the order head');
-  await waitFor(() => $$('[data-testid="po-line"]').length === 2, 'open again');
-  await click($('[data-testid="po-next"]'), 'Next');
-  await waitFor(() => $('[data-testid="po-order"][data-order="SO-B"]'), 'page 2');
-  assert.ok(calls.some((u) => /offset=20/.test(u)), 'the next page of orders');
-  assert.match(app.textContent, /Orders 21–21 of 2|Orders 21/);
   await React.act(async () => root.unmount());
 });
 

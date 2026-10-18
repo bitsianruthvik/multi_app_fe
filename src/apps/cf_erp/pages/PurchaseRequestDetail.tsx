@@ -71,13 +71,13 @@ export default function PurchaseRequestDetail() {
       header={
         <DetailHeader
           code={p.code}
-          title={`${p.order.code} · line ${p.line.lineNo}`}
+          title={p.order && p.line ? `${p.order.code} · line ${p.line.lineNo}` : `For: ${p.requisition.forLabel ?? 'general'}${p.order ? ` · ${p.order.code}` : ''}`}
           badges={<PrStatusBadge status={p.status} />}
           actions={<FullScreenToggle on={full.on} onToggle={full.toggle} />}
           facts={<>
             <Fact label="Material request"><Mono chip><Box component={Link} to={appPath(company, `material-requests/${p.requisition.id}`)} sx={linkSx}>{p.requisition.code}</Box></Mono></Fact>
-            <Fact label="Sales order"><Mono chip><Box component={Link} to={appPath(company, `orders/${p.order.id}`)} sx={linkSx}>{p.order.code}</Box></Mono></Fact>
-            {p.order.customer && <Fact label="Customer">{p.order.customer.name}</Fact>}
+            {p.order && <Fact label="Sales order"><Mono chip><Box component={Link} to={appPath(company, `orders/${p.order.id}`)} sx={linkSx}>{p.order.code}</Box></Mono></Fact>}
+            {p.order?.customer && <Fact label="Customer">{p.order.customer.name}</Fact>}
             <Fact label="Lines to order"><Mono>{p.counts.open} of {p.counts.lines}</Mono></Fact>
           </>}
         />

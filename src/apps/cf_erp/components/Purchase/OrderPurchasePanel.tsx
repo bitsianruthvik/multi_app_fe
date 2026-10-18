@@ -33,9 +33,9 @@ const refusalOf = (e: unknown): Refusal => (e instanceof CfApiError ? { message:
 
 /**
  * The sales order's MATERIAL REQUEST stage (§71, 2026-10-18). The MR is raised here from what nesting says the lines
- * need; from then on everything happens in Purchase (Purchase › Material requests): taking from stock, the purchase
- * request with its vendors' quotes, the POs, the MD's approval and the goods. This stage keeps only "Raise MR" and a
- * read-only status of each MR, with a link into Purchase.
+ * need; from then on (§79) it goes to STORES (Stores › MR inbox): taking from stock and raising the purchase
+ * request for the rest; Purchase then quotes, raises POs (Management approval) and Stores receive the goods. This stage keeps only "Raise MR" and a
+ * read-only status of each MR, with a link into Stores.
  */
 export function OrderPurchasePanel({ order, stage, onChanged }: { order: SalesOrder; stage: OrderStage; onChanged?: () => void }) {
   // (§73) Before the customer accepts, the MR is raised HELD: shared with the customer, nothing happens in Purchase yet.
@@ -85,14 +85,14 @@ export function OrderPurchasePanel({ order, stage, onChanged }: { order: SalesOr
   };
 
   return (
-    <SectionCard title="Material request" subtitle={`Raise ${order.code}'s material request (MR) from what nesting says the lines need. Taking from stock, buying and receiving happen in Purchase.`}
+    <SectionCard title="Material request" subtitle={`Raise ${order.code}'s material request (MR) from what nesting says the lines need. It goes to Stores: Stores take what is in stock and raise the purchase request for the rest.`}
       actions={(
         <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
           {requisitions.length > 0 && <>
             <Button size="small" variant="outlined" startIcon={<PictureAsPdfRounded />} onClick={() => void share('pdf')} data-testid="mr-share-pdf">Share as PDF</Button>
             <Button size="small" variant="outlined" startIcon={<TableViewRounded />} onClick={() => void share('xlsx')} data-testid="mr-share-xlsx">Share as Excel</Button>
           </>}
-          {canView && <Button size="small" endIcon={<LaunchRounded />} component={Link} to={`${appPath(company, 'material-requests')}?order=${order.id}`}>Open in Purchase</Button>}
+          {canView && <Button size="small" endIcon={<LaunchRounded />} component={Link} to={`${appPath(company, 'material-requests')}?order=${order.id}`}>Open in Stores</Button>}
         </Box>
       )}>
       <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 2 }}>
@@ -104,7 +104,7 @@ export function OrderPurchasePanel({ order, stage, onChanged }: { order: SalesOr
           Material: <strong>{supplyLabel(orderSupply)}</strong>
           {orderSupply === 'customer'
             ? ' — the customer sends it. Raising the MR makes a purchase order to the customer (₹0); what arrives is kept as their stock.'
-            : ' — raising the MR sends it to Purchase, where stock is taken and the rest is bought.'}
+            : ' — raising the MR sends it to Stores, where stock is taken and the rest goes to Purchase.'}
           {" A line can say otherwise until the customer's acceptance is approved."}
         </Typography>
         {!canView && <Typography sx={{ fontSize: 13, color: 'var(--c-text-3)' }}>Seeing the material request needs the inventory view permission.</Typography>}
@@ -146,7 +146,7 @@ export function OrderPurchasePanel({ order, stage, onChanged }: { order: SalesOr
                     </Box>
                   );
                 })}
-                <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>Locked = earmarked for this order; nobody else can use it. Open an MR in Purchase to take stock and buy the rest.</Typography>
+                <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>Locked = earmarked for this order; nobody else can use it. Open an MR in Stores to take stock and raise the purchase request for the rest.</Typography>
               </Box>
             )}
             {without.length > 0 && (
