@@ -184,7 +184,7 @@ await check('More holds CNC, the Excel sheet download and Start again; compare a
   await click(q('[data-testid=nest-more]'), 'More');
   await waitFor(() => q('[data-testid=more-again]'), 'the menu');
   const items = [...document.querySelectorAll('#nest-more-menu [role=menuitem]')];
-  assert.deepEqual(items.map((m) => m.getAttribute('data-testid')), ['more-cnc', 'more-sheet', 'more-again']);
+  assert.deepEqual(items.map((m) => m.getAttribute('data-testid')), ['more-cnc', 'more-cncAi', 'more-sheet', 'more-again']);
   assert.ok(!q('[data-testid=more-compare]') && !/compare/i.test(text()), 'the comparison is off the screen (2026-10-13)');
   assert.ok(q('[data-testid=more-cnc]').textContent.includes('Download CNC files (zip)'));
   assert.ok(q('[data-testid=more-sheet]').textContent.includes('Download nesting sheet') && q('[data-testid=more-sheet]').textContent.includes('For reference only.'));

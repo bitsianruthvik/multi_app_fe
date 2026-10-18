@@ -30,9 +30,10 @@ export async function downloadNestingSheet(orderId: number, lineId: number, name
   save(blob, safe(`Nesting_${name}.xlsx`));
 }
 
-export async function downloadCncZip(orderId: number, lineId: number, name: string): Promise<void> {
-  const blob = await cfApi.getBlob(`${base(orderId, lineId)}/cnc`, { timeoutMs: LONG_WRITE_MS });
-  save(blob, safe(`CNC_${name}.zip`));
+/** `ai: true` — the AI (ProNest) DXFs with leads and cut order on their own layers, and each plate's cut plan. */
+export async function downloadCncZip(orderId: number, lineId: number, name: string, opts: { ai?: boolean } = {}): Promise<void> {
+  const blob = await cfApi.getBlob(`${base(orderId, lineId)}/cnc${opts.ai ? '?style=ai&leads=1&order=1' : ''}`, { timeoutMs: LONG_WRITE_MS });
+  save(blob, safe(`${opts.ai ? 'AI_' : 'CNC_'}${name}.zip`));
 }
 
 export async function downloadLotCnc(orderId: number, lineId: number, lotId: number, lotNo: string | null): Promise<void> {

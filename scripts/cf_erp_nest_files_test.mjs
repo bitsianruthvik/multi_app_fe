@@ -468,7 +468,7 @@ await check('the More menu of an uploaded line offers the upload again, the down
   await click(document.querySelector('[data-testid=nest-more]'), 'More');
   await waitFor(() => document.querySelector('[data-testid=more-again]'), 'the menu');
   const ids = [...document.querySelectorAll('#nest-more-menu [role=menuitem]')].map((m) => m.getAttribute('data-testid'));
-  assert.deepEqual(ids, ['more-upload', 'more-cnc', 'more-sheet', 'more-again']);
+  assert.deepEqual(ids, ['more-upload', 'more-cnc', 'more-cncAi', 'more-sheet', 'more-again']);
   // The comparison is not a menu item: since 2026-10-16 it is the Compare tab (our nesting runs by itself after an upload).
   assert.ok(!/compare/i.test(document.querySelector('#nest-more-menu').textContent), 'no comparison in the menu');
   const up = document.querySelector('[data-testid=more-upload]').textContent;

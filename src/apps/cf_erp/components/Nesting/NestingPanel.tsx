@@ -494,7 +494,7 @@ function PlateNestingPanel({ orderId, lineId, canManage, canEditCatalog = false,
   const [start, setStart] = useState<StartMode | null>(null);
   // The kind last opened, so the heading does not change under the eye while the dialog fades out.
   const [startKind, setStartKind] = useState<StartMode>('all');
-  const [fileBusy, setFileBusy] = useState<'download' | 'preview' | 'cnc' | null>(null);
+  const [fileBusy, setFileBusy] = useState<'download' | 'preview' | 'cnc' | 'cncAi' | null>(null);
   // THE CUSTOMER'S FILES (nesting v2, door 2). Many DXFs at once, by button or by dropping them on the panel.
   const filesInput = useRef<HTMLInputElement>(null);
   const [uploads, setUploads] = useState<NestFileUpload[] | null>(null);
@@ -577,6 +577,11 @@ function PlateNestingPanel({ orderId, lineId, canManage, canEditCatalog = false,
   const downloadCnc = async () => {
     setFileBusy('cnc'); setActionError(null);
     try { await downloadCncZip(orderId, lineId, lineName); } catch (e) { setActionError(e as CfApiError); } finally { setFileBusy(null); }
+  };
+  // The AI style: the shop's habits (marking, leads, cut order) — services/aiNestDxf.js.
+  const downloadCncAi = async () => {
+    setFileBusy('cncAi'); setActionError(null);
+    try { await downloadCncZip(orderId, lineId, lineName, { ai: true }); } catch (e) { setActionError(e as CfApiError); } finally { setFileBusy(null); }
   };
 
   // ---- the customer's files ------------------------------------------------
@@ -843,6 +848,12 @@ function PlateNestingPanel({ orderId, lineId, canManage, canEditCatalog = false,
       help: 'One DXF per plate, for the CNC nesting software, in a zip.',
       why: proposal ? 'Use or discard the proposal first.' : !(plan.saved && t.plates > 0) ? 'Nothing is nested yet.' : !cncKnown ? 'These plates have no layout to cut from.' : waitWhy,
       busy: fileBusy === 'cnc', onClick: downloadCnc,
+    },
+    {
+      key: 'cncAi', label: 'Download AI DXFs for ProNest (zip)', icon: <PrecisionManufacturingRounded fontSize="small" />,
+      help: 'One DXF per plate the way the shop cuts: part codes marked first, holes, outlines, leads and the cut order on layers of their own — and each plate\'s cut plan as data. ProNest opens them; no CNC code is made.',
+      why: proposal ? 'Use or discard the proposal first.' : !(plan.saved && t.plates > 0) ? 'Nothing is nested yet.' : !cncKnown ? 'These plates have no layout to cut from.' : waitWhy,
+      busy: fileBusy === 'cncAi', onClick: downloadCncAi,
     },
     {
       key: 'sheet', label: 'Download nesting sheet', icon: <TableChartOutlined fontSize="small" />,

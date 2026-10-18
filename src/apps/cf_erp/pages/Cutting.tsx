@@ -11,6 +11,7 @@ import { ErrorNotice, Mono, PageHeader, SectionCard, SkeletonRows } from '../com
 import { useToast } from '../components/toastContext';
 import { FlowPicker } from '../components/FlowPicker';
 import { ScrapRateCard } from '../components/ScrapRateCard';
+import { NestShopRulesCard } from '../components/NestShopRulesCard';
 
 /**
  * Setup › Cutting (CF_ERP_CUT_FROM_PLAN.md §3.4, §4.4). Where cut pieces are
@@ -169,6 +170,7 @@ export default function Cutting() {
         <CuttingForm places={places.data} tree={tree.data} canEdit={canEdit} onSaved={(p) => places.setData(p)} />
       )}
       <ScrapRateCard />
+      <NestShopRulesCard />
     </Box>
   );
 }

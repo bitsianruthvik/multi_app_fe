@@ -94,3 +94,26 @@ export function sectionSizeText(s: Pick<SectionStockRow, 'thickness' | 'width' |
 export function saveCutOnRecord(recordId: number, body: { cutFrom?: CutFrom | null; cutStockId?: number | null }) {
   return cfApi.put<unknown>(`/records/${recordId}`, body);
 }
+
+// ---- Setup › Cutting: the AI nesting's shop habits (GET / PUT /nest-shop-rules, init.sql §75) ----------
+
+/** One thickness's rules. A null value = what the shop's ProNest files say (the default). */
+export interface NestShopRuleRow {
+  thicknessMm: number;
+  kerfMm?: number | null; edgeMarginMm?: number | null; partGapMm?: number | null; groupGapMm?: number | null;
+  leadInMm?: number | null; leadOutMm?: number | null; holeLeadRadiusMm?: number | null; holeLeadOutMm?: number | null;
+  sharedLeadInMm?: number | null; sharedLeadOutMm?: number | null; pierceOffsetMm?: number | null; freeRotationStepDeg?: number | null;
+  notes?: string | null;
+}
+/** The rules as they apply at one thickness, and where each value comes from ('files' | 'saved 16 mm'). */
+export type NestShopResolved = Record<string, number | null> & { thicknessMm: number; source: Record<string, string> };
+export interface NestShopRules {
+  /** Shop spacing in the AI nesting: edge margin and the gap between shared-line blocks. Off = as before. */
+  on: boolean;
+  /** False until the database has init.sql §75. */
+  schema: boolean;
+  rows: NestShopRuleRow[];
+  resolved: NestShopResolved[];
+}
+export const getNestShopRules = () => cfApi.get<NestShopRules>('/nest-shop-rules');
+export const saveNestShopRules = (body: { on?: boolean; rows?: NestShopRuleRow[] }) => cfApi.put<NestShopRules>('/nest-shop-rules', body);

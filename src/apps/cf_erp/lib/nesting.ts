@@ -339,16 +339,25 @@ export function acceptBody(plan: NestingPlan) {
       plateItemId: n.plateItemId,
       source: n.source,
       isManual: n.isManual ?? false,
-      pieces: n.pieces.map((p) => ({
-        cutPlateId: p.cutPlateId,
-        seqNo: p.seqNo,
-        rowNo: p.rowNo,
-        x: p.x,
-        y: p.y,
-        length: p.length,
-        width: p.width,
-        rotated: p.rotated,
-      })),
+      // A plate laid out by TRUE SHAPE says so, and every piece says its exact turn and hand: without
+      // them the server rebuilt a 180°/270° part at 0°/90° and checked boxes, refusing interlocked
+      // parts as "overlap" (SO260014 N-002, 2026-10-18).
+      ...((n as { layout?: string }).layout ? { layout: (n as { layout?: string }).layout } : {}),
+      pieces: n.pieces.map((p) => {
+        const x = p as NestPiece & PieceExtras;
+        return {
+          cutPlateId: p.cutPlateId,
+          seqNo: p.seqNo,
+          rowNo: p.rowNo,
+          x: p.x,
+          y: p.y,
+          length: p.length,
+          width: p.width,
+          rotated: p.rotated,
+          ...(x.rotationDeg != null ? { rotationDeg: x.rotationDeg } : {}),
+          ...(x.mirrored ? { mirrored: true } : {}),
+        };
+      }),
     }))),
   };
 }
