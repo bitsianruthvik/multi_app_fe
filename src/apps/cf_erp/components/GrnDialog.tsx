@@ -83,7 +83,9 @@ export function GrnDialog({ po, lineId, onClose, onReceived }: {
   const ctx = useLoad<GrnContext | null>(() => (po ? getGrnContext(po.id) : Promise.resolve(null)), [po?.id]);
   const areas = useLoad(() => cfApi.get<StockingArea[]>('/stocking-areas'), []);
   const states = useLoad<StateRow[]>(() => getStates(), []);
-  const usable = useMemo(() => (areas.data ?? []).filter((a) => a.status === 'active' && a.purpose !== 'quarantine'), [areas.data]);
+  // Goods from a supplier go to a STORE: a dispatch, WIP or scrap area is not where a purchase lands, and
+  // production only takes plates from storage / WIP (it once refused a plate received into the dispatch yard).
+  const usable = useMemo(() => (areas.data ?? []).filter((a) => a.status === 'active' && a.purpose === 'storage'), [areas.data]);
   const pending = useMemo(() => (po?.lines ?? []).filter((l) => l.outstanding > 1e-6), [po]);
 
   const [rows, setRows] = useState<Record<number, RowState>>({});
