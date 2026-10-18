@@ -177,3 +177,17 @@ export const removeEwayBill = (id: number, ewbId: number) => cfApi.del<Invoice>(
 export const printInvoiceBlob = (id: number, copy: string) => cfApi.getBlob(`/invoices/${id}/print${qs({ copy })}`);
 export const einvoiceFile = (id: number) => cfApi.getBlob(`/invoices/${id}/einvoice.json`);
 export const ewayBillFile = (id: number) => cfApi.getBlob(`/invoices/${id}/ewaybill.json`);
+
+/**
+ * HSN / GST BY CATALOG FAMILY (2026-10-18, backend taxFamilyService): the families holding catalog items, their gaps,
+ * a suggested default the user confirms, and a bulk set (items + templates of the family and everything under it).
+ */
+export interface TaxFamily {
+  nodeId: number; path: string; items: number; noHsn: number; noRate: number; hsnCodes: string[]; rates: number[];
+  suggestion: { hsnCode: string; gstRate: number; why: string; rateOnList: boolean } | null;
+}
+export interface TaxFamilies { gstRates: number[]; families: TaxFamily[]; gaps: { items: number; noHsn: number; noRate: number } }
+export interface TaxFamilyResult { dryRun: boolean; path: string; items: number; definitions: number; overwrite: boolean }
+export const getTaxFamilies = () => cfApi.get<TaxFamilies>('/tax/families');
+export const setTaxFamily = (nodeId: number, body: { hsnCode?: string | null; gstRate?: number | null; overwrite?: boolean; dryRun?: boolean }) =>
+  cfApi.put<TaxFamilyResult>(`/tax/families/${nodeId}`, body);

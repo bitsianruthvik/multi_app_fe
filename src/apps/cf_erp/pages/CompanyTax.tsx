@@ -9,6 +9,7 @@ import { gstRateText } from '../lib/gst';
 import { ErrorNotice, PageHeader, SectionCard, SkeletonRows } from '../components/ui';
 import { GstinField } from '../components/GstUi';
 import { useToast } from '../components/toastContext';
+import { TaxByFamilyCard } from '../components/Tax/TaxByFamilyCard';
 
 const empty = (s: string | null | undefined) => s ?? '';
 
@@ -114,6 +115,8 @@ export default function CompanyTax() {
       <ErrorNotice error={settings.error} onRetry={settings.reload} />
       {!settings.data && !settings.error && <SkeletonRows rows={5} height={56} />}
       {settings.data && <TaxForm settings={settings.data} states={states.data ?? []} canEdit={canEdit} onSaved={settings.setData} />}
+      {/* 2026-10-18: items with no HSN / GST rate, set a whole catalog family at once. */}
+      {settings.data && <Box sx={{ mt: 2 }}><TaxByFamilyCard /></Box>}
     </Box>
   );
 }

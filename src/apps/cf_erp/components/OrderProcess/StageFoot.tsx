@@ -8,6 +8,14 @@ import { Badge } from '../ui';
 import { DetailLine, OptionalBadge, StageStateBadge } from './stageUi';
 
 /**
+ * The foot's tooltips never get in the way of a click (walkthrough 2026-10-18 step 9: "Skip for now" opened over
+ * "Save the plan" just above it and swallowed the click). They open BESIDE their button — left of the way on, right of
+ * Back, where there is text and no button — only after a pause, and are not interactive: the pointer goes straight
+ * through a tooltip, and it closes as soon as the pointer leaves its button.
+ */
+const FOOT_TIP = { disableInteractive: true, enterDelay: 500, enterNextDelay: 300 } as const;
+
+/**
  * The foot of a stage tab: Back, where this stage stands for the line, and the
  * way on.
  *
@@ -40,9 +48,9 @@ export function StageFoot({ stages, current, checks = [], onGo }: {
         gridTemplateAreas: { xs: '"state state" "back fwd"', sm: '"back state fwd"' },
       }}>
         <Box sx={{ gridArea: 'back' }}>
-          <Tooltip title={prev ? `Back to ${prev.label}` : 'This is the first stage.'}>
+          <Tooltip {...FOOT_TIP} placement="right" title={prev ? `Back to ${prev.label}` : 'This is the first stage.'}>
             <span>
-              <Button size="small" startIcon={<ArrowBackRounded />} disabled={!prev} onClick={() => prev && onGo(prev.stageKey)}>Back</Button>
+              <Button size="small" data-guard-line="all" startIcon={<ArrowBackRounded />} disabled={!prev} onClick={() => prev && onGo(prev.stageKey)}>Back</Button>
             </span>
           </Tooltip>
         </Box>
@@ -58,9 +66,9 @@ export function StageFoot({ stages, current, checks = [], onGo }: {
         </Box>
         <Box sx={{ gridArea: 'fwd', justifySelf: 'end', minWidth: 0 }}>
           {next ? (
-            <Tooltip title={forwardHelp(next, satisfied)}>
+            <Tooltip {...FOOT_TIP} placement="left" title={forwardHelp(next, satisfied)}>
               <span>
-                <Button size="small" variant="contained" endIcon={satisfied ? <ArrowForwardRounded /> : <SkipNextRounded />}
+                <Button size="small" variant="contained" data-guard-line="all" endIcon={satisfied ? <ArrowForwardRounded /> : <SkipNextRounded />}
                   onClick={() => onGo(next.stageKey)} sx={{ maxWidth: '100%', '& .MuiButton-endIcon': { flexShrink: 0 } }}>
                   <Box component="span" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{forwardLabel(next, satisfied)}</Box>
                 </Button>

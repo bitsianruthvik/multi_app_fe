@@ -556,6 +556,8 @@ export interface CompareMetrics {
   wasteKg?: { kerf: number | null; sequenceGaps: number | null; rim: number | null; offcut: number | null; wastage: number | null };
   offcuts?: { count: number; kg: number } | null;
   cutLengthM: number | null; sharedCutM?: number | null; piercings: number | null;
+  /** §87: net steel — bought less the offcuts kept (what the job really consumes when every offcut is used again). */
+  netTonnes?: number | null;
   cost: CompareCost | null;
 }
 
@@ -613,6 +615,21 @@ export interface CompareAnswer {
   /** What the server is doing about the automatic run in this process (null after a restart). */
   autoCompare?: { trigger: string; status: 'queued' | 'waiting' | 'started' | 'answered' | 'skipped' | 'failed' | string; message: string | null; at: string; runId: string | null } | null;
   canAccept: { uploaded: boolean; auto: boolean; reason: string | null } | null;
+  /** §87 (2026-10-18): AI's nesting stored beside the upload — which one is the main nesting, and whether it may be swapped. */
+  alternative?: CompareAlternative | null;
+}
+
+/** The stored AI alternative of the upload (§87). `canSwap.to` is the side a swap makes the main one. */
+export interface CompareAlternative {
+  main: 'uploaded' | 'ai';
+  runId: string | null;
+  swapCount: number;
+  swappedAt: string | null;
+  locked: boolean;
+  lockReason: string | null;
+  canSwap: { to: 'uploaded' | 'ai'; ok: boolean; reason: string | null };
+  /** Pieces the customer nested that AI's nesting does not hold: left over after a swap to AI. */
+  leftOverAfter: number;
 }
 
 export interface CompareThicknessFigures { plates: number; tonnesBought: number; partsTonnes: number; wasteKg: number; wastePct: number | null; offcutKg: number; cost: number | null }
@@ -627,6 +644,7 @@ export function getNestCompare(orderId: number, lineId: number, opts: { detail?:
     stale: o.stale ?? null, delta: o.delta ?? null, verdict: o.verdict ?? null, likeForLike: o.likeForLike ?? null,
     wholeLine: o.wholeLine ?? null, willReplace: o.willReplace ?? null, deltaReason: o.deltaReason ?? null, run: o.run ?? null, lastFailure: o.lastFailure ?? null, canAccept: o.canAccept ?? null,
     headline: o.headline ?? null, byThickness: Array.isArray(o.byThickness) ? o.byThickness : [], leftOverSummary: o.leftOverSummary ?? null, autoCompare: o.autoCompare ?? null,
+    alternative: o.alternative ?? null,
   }));
 }
 
@@ -649,6 +667,22 @@ export interface CompareAccepted { decision: 'uploaded' | 'auto'; message: strin
 
 export function acceptNestCompare(orderId: number, lineId: number, side: 'uploaded' | 'auto', runId: string, fields: PlateChangeFields = {}): Promise<CompareAccepted | PlateChangeRequested> {
   return cfApi.post<CompareAccepted | PlateChangeRequested>(`${base(orderId, lineId)}/compare/accept`, { side, runId, ...fields }, { timeoutMs: LONG_WRITE_MS });
+}
+
+/* ───────── §87: AI's nesting beside the uploaded one (2026-10-18) ───────── */
+
+/** The light read: is there an alternative, and which side is the main nesting. main null = none. */
+export interface NestAlternativeState { main: 'uploaded' | 'ai' | null; valid: boolean; runId: string | null; swapCount: number; swappedAt: string | null; locked: boolean; lockReason: string | null }
+
+export function getNestAlternative(orderId: number, lineId: number): Promise<NestAlternativeState> {
+  return cfApi.get<NestAlternativeState>(`${base(orderId, lineId)}/alternative`);
+}
+
+export interface NestAlternativeSwapped { main: 'uploaded' | 'ai'; runId: string | null; plates: number; replacedPlates: number; leftOver: number; message: string }
+
+/** Make AI's nesting the main one (`to: 'ai'`, with the run on screen) or switch back (`to: 'uploaded'`). A plate write: the gate's fields go with it. */
+export function swapNestAlternative(orderId: number, lineId: number, to: 'uploaded' | 'ai', runId: string | null, fields: PlateChangeFields = {}): Promise<NestAlternativeSwapped | PlateChangeRequested> {
+  return cfApi.post<NestAlternativeSwapped | PlateChangeRequested>(`${base(orderId, lineId)}/alternative/swap`, { to, ...(runId ? { runId } : {}), ...fields }, { timeoutMs: LONG_WRITE_MS });
 }
 
 /* ───────── §61: cut from untracked offcuts (2026-10-14) ───────── */

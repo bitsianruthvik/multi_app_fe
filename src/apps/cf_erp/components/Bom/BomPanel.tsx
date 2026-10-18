@@ -67,6 +67,8 @@ import { breakWords, brokenSentence, linkedFrom, linkState, touchedByPending, un
 import { LinkChip } from './LinkChip';
 import { LinkChoiceDialog } from './LinkChoiceDialog';
 import { LinkMembersPopover, type LinkMember } from './LinkMembersPopover';
+import { useUnsavedGuard } from '../../hooks/useUnsavedGuard';
+import { UnsavedDialog } from '../UnsavedGuard';
 
 const TYPE_TEXT: Record<BomType, { title: string; body: string; empty: string }> = {
   standard: {
@@ -89,47 +91,6 @@ const TYPE_TEXT: Record<BomType, { title: string; body: string; empty: string }>
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 const sameNumber = (a: number, b: number) => Math.abs(a - b) < 1e-9;
 
-
-/**
- * Warns before pending edits are lost by leaving: closing or reloading the tab,
- * following a link, switching a tab, or picking another line from a list. The
- * app runs on a plain BrowserRouter, which cannot hold a route change back, so
- * the clicks (and Enter / Space on a tab) that would unmount this panel are
- * caught on their way down — before React sees them — and let through only if
- * the person agrees. A picker's own list is not leaving, so it is let alone.
- * The browser's Back button is the one way out this does not catch.
- */
-function useLeaveGuard(active: boolean, message: string) {
-  useEffect(() => {
-    if (!active) return undefined;
-    const leaving = (el: Element | null): boolean => {
-      if (!el || el.closest('.MuiAutocomplete-popper')) return false;
-      const link = el.closest('a[href]');
-      if (link) return link.getAttribute('target') !== '_blank' && !link.hasAttribute('download');
-      if (el.closest('[role="tab"][aria-selected="false"]')) return true;
-      return false;
-    };
-    const hold = (e: Event) => { if (!window.confirm(message)) { e.preventDefault(); e.stopPropagation(); } };
-    const onClick = (e: MouseEvent) => {
-      if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
-      if (leaving(e.target instanceof Element ? e.target : null)) hold(e);
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Enter' && e.key !== ' ') return;
-      const el = e.target instanceof Element ? e.target : null;
-      if (el?.closest('[role="tab"][aria-selected="false"]')) hold(e);
-    };
-    const onUnload = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ''; };
-    document.addEventListener('click', onClick, true);
-    document.addEventListener('keydown', onKey, true);
-    window.addEventListener('beforeunload', onUnload);
-    return () => {
-      document.removeEventListener('click', onClick, true);
-      document.removeEventListener('keydown', onKey, true);
-      window.removeEventListener('beforeunload', onUnload);
-    };
-  }, [active, message]);
-}
 
 /** The row's action icons are small so the code beside them has room (user, 2026-10-11) — smaller than the design system's 40px target, by request. */
 const ROW_ICON = { width: 26, height: 26, p: '3px', '& svg': { fontSize: 17 } } as const;
@@ -298,7 +259,28 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
   const { changes, invalid } = useMemo(() => pendingChanges(pruneArrangement(pending, state?.root), byLine, byRecord), [pending, byLine, byRecord, state]);
   const invalidKeys = useMemo(() => new Set(invalid), [invalid]);
   const dirty = changes.length > 0 || invalid.length > 0;
-  useLeaveGuard(editOn && dirty, `${plural(changes.length + invalid.length, 'change', 'changes')} to this BOM ${changes.length + invalid.length === 1 ? 'is' : 'are'} not saved. Leave and lose ${changes.length + invalid.length === 1 ? 'it' : 'them'}?`);
+  // Unsaved edits are never lost by a click: leaving (a link, another tab, folding this line) asks Save / Discard / Stay.
+  // Save and Discard are defined further down (after the early returns), so the guard reaches them through a ref.
+  const guardActs = useRef<{ save: () => Promise<boolean>; discard: () => void; ctrlS: () => void }>({ save: async () => false, discard: () => {}, ctrlS: () => {} });
+  const guard = useUnsavedGuard({ active: editOn && dirty, lineId: gridLineId, onSave: () => guardActs.current.save(), onDiscard: () => guardActs.current.discard() });
+  const panelRoot = useRef<HTMLDivElement>(null);
+  // Ctrl+S (⌘S) saves this panel's changes — when the keyboard is in it, or in no other BOM panel. A cell being typed in
+  // is committed first (the grid commits on blur), then the save reads the changes as they now are.
+  useEffect(() => {
+    if (!editOn || !dirty) return undefined;
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.altKey || e.key.toLowerCase() !== 's') return;
+      const at = document.activeElement;
+      const otherPanel = at?.closest('[data-bom-panel]');
+      if (otherPanel && otherPanel !== panelRoot.current) return;
+      if (document.querySelector('.MuiDialog-root')) return;
+      e.preventDefault();
+      if (at instanceof HTMLElement && panelRoot.current?.contains(at) && at.matches('input, select, textarea')) at.blur();
+      window.setTimeout(() => guardActs.current.ctrlS(), 30);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [editOn, dirty]);
 
   // Rows marked to go, and every row that goes with them.
   const removedKeys = useMemo(() => new Set(Object.keys(pending.remove).map((id) => byLine.get(Number(id))?.key).filter((k): k is string => !!k)), [pending.remove, byLine]);
@@ -677,14 +659,14 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
     return [...back, ...[...sets.values()].map((recordIds) => ({ op: 'link' as const, recordIds }))];
   };
 
-  const save = async (p: Pending = pending) => {
+  const save = async (p: Pending = pending): Promise<boolean> => {
     const sent = changesFor(p), undo = undoPlanFor(p);
     setBusy('save');
     const out = await bom.saveChanges(sent);
     setBusy(null);
     if (!out) {
       showError();
-      return;
+      return false;
     }
     setPending(NO_PENDING);
     setChecked(null);
@@ -698,6 +680,7 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
     // Rows that no longer match their copies: said once, with a way back.
     const apart = out.links?.breaks?.length ?? 0;
     if (apart > 0) setBroken({ n: apart, undo });
+    return true;
   };
   /** The one question about copies — asked only when a waiting change reaches rows that have copies and has not been answered. */
   const askLinks = (intent: 'save' | 'check'): boolean => {
@@ -707,6 +690,17 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
   };
   const proceedSave = (p: Pending) => { if (doomedTemporary > 0) setConfirming('save'); else void save(p); };
   const onSave = () => { if (!askLinks('save')) proceedSave(pending); };
+  // What the leave guard's Save / Discard and Ctrl+S do (read through the ref the guard was given above).
+  guardActs.current = {
+    save: async () => {
+      if (invalid.length) { toast.info('A quantity is not a number above zero — fix it, then save.'); return false; }
+      // A save that has a question of its own (copies, rows removed) asks it here, and the person goes on after.
+      if (undecided(touchInfo.touches, pending.linkChoice).length || doomedTemporary > 0) { onSave(); return false; }
+      return save(pending);
+    },
+    discard,
+    ctrlS: () => { if (!busy && changes.length && !invalid.length) onSave(); },
+  };
   const check = async (p: Pending = pending) => {
     setBusy('check');
     const snapshot = p;
@@ -1025,7 +1019,7 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
   };
 
   return (
-    <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 1 }} {...backgroundDrop}>
+    <Box ref={panelRoot} data-bom-panel="" sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 1 }} {...backgroundDrop}>
       {bom.actionError && <Box ref={errorAt} sx={{ scrollMarginTop: 96 }}><ErrorNotice error={bom.actionError} sx={{ mb: 0 }} /></Box>}
       <SectionCard
         title={orderGrid ? undefined : type.title}
@@ -1186,7 +1180,7 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
       {editOn && (
         <Box sx={{ position: 'sticky', bottom: 12, zIndex: 'var(--z-sticky)', minWidth: 0 }}>
           <Surface e={2} role="region" aria-label="Edit mode — changes waiting to be saved"
-            sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 1.5, px: 2, py: 1.25, borderColor: dirty ? 'var(--c-warning-200)' : 'var(--c-border)' }}>
+            sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 1.5, px: 2, py: { xs: 0.75, md: 1.25 }, borderColor: dirty ? 'var(--c-warning-200)' : 'var(--c-border)' }}>
             <Box sx={{ flex: '1 1 260px', minWidth: 0 }}>
               <Typography sx={{ fontSize: 13.5, fontWeight: 600, color: 'var(--c-text)' }} aria-live="polite">
                 {changes.length ? `${plural(shownChanges, 'change', 'changes')} waiting` : 'No unsaved changes'}
@@ -1209,7 +1203,7 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
             {invalid.length > 0 && <DangerBadge label={`${plural(invalid.length, 'quantity', 'quantities')} to fix`} title="A quantity is a number above zero. Save waits for it." />}
             <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
               <Button onClick={discard} disabled={!dirty || !!busy}>Cancel</Button>
-              <Tooltip title="Runs the save and takes it back — every problem it would meet, and what it would make.">
+              <Tooltip disableInteractive enterDelay={400} title="Runs the save and takes it back — every problem it would meet, and what it would make.">
                 <span>
                   <Button onClick={onCheck} disabled={!changes.length || invalid.length > 0 || !!busy}
                     startIcon={busy === 'check' ? <CircularProgress size={14} color="inherit" /> : undefined}>
@@ -1217,7 +1211,7 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
                   </Button>
                 </span>
               </Tooltip>
-              <Button variant="contained" onClick={onSave} disabled={!changes.length || invalid.length > 0 || !!busy}
+              <Button variant="contained" onClick={onSave} title="Save (Ctrl+S)" data-testid="bom-save" disabled={!changes.length || invalid.length > 0 || !!busy}
                 startIcon={busy === 'save' ? <CircularProgress size={14} color="inherit" /> : undefined}>
                 {busy === 'save' ? 'Saving…' : changes.length ? `Save ${plural(shownChanges, 'change', 'changes')}` : 'Save'}
               </Button>
@@ -1252,6 +1246,7 @@ export function BomPanel({ source, ownsBom = false, showWhereUsed = false, onCha
         onGoTo={goTo}
         onUnlink={(keepApart) => { const id = linkPop?.recordId; setLinkPop(null); if (id != null) void runLinkOp({ op: 'unlink', recordId: id, ...(keepApart ? { keepApart: true } : {}) }, keepApart ? 'Kept apart.' : 'Unlinked.'); }}
         onLink={() => { const rid = linkPop?.recordId; setLinkPop(null); if (rid != null && popState?.kind === 'suggest') void runLinkOp({ op: 'link', recordIds: [rid, ...popState.others] }, 'Linked.'); }} />
+      <UnsavedDialog guard={guard} count={shownChanges + invalid.length} />
       <LinkChoiceDialog open={linkAsk != null} touches={touchInfo.touches} above={touchInfo.above} intent={linkAsk ?? 'save'} onChoose={answerLinks} onClose={() => setLinkAsk(null)} />
       <ConfirmDialog open={!!breakAsk} danger confirmLabel="Go on" title="Stop matching its copies?" body={breakAsk ? breakWords(breakAsk.rows) : ''}
         onClose={() => { breakAsk?.no?.(); setBreakAsk(null); }}

@@ -15,6 +15,8 @@ import { DangerBadge, EmptyState, ErrorNotice, Mono, OrderStatusBadge, OrderType
 import { DataTable, type DataColumn } from '../components/DataTable';
 import { FacetChip, FilterBar } from '../components/FilterBar';
 import { NewOrderDialog } from '../components/NewOrderDialog';
+import { OrderValueText } from '../components/OrderValueText';
+import { orderValueText } from '../lib/orderValue';
 import { useToast } from '../components/toastContext';
 
 /**
@@ -54,6 +56,8 @@ const COLUMNS: DataColumn<SalesOrder>[] = [
   // already says "For stock". Still one click away in the column menu.
   { key: 'type', header: 'Type', render: (o) => <OrderTypeChip type={o.orderType} />, sortValue: (o) => o.orderType, defaultHidden: true },
   { key: 'lines', header: 'Lines', numeric: true, render: (o) => <Mono>{o.lineCount ?? 0}</Mono>, sortValue: (o) => o.lineCount ?? 0 },
+  // ONE order value (2026-10-18): accepted terms once they exist, else the estimate from the line rates — labelled.
+  { key: 'value', header: 'Value', numeric: true, render: (o) => <OrderValueText value={o.value} compact />, sortValue: (o) => o.value?.amount ?? -1, exportValue: (o) => orderValueText(o.value) },
   {
     key: 'committed', header: 'Committed', sortValue: (o) => o.committedDate,
     render: (o) => <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}><Mono muted={!o.committedDate}>{o.committedDate ?? '—'}</Mono>{o.overdue && <DangerBadge label="Past date" />}</Box>,

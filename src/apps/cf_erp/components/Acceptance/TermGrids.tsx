@@ -7,7 +7,7 @@ import ArrowDownwardRounded from '@mui/icons-material/ArrowDownwardRounded';
 import FunctionsRounded from '@mui/icons-material/FunctionsRounded';
 import type { AcceptanceView, ChargeRow, Estimate, MilestoneRow, Terms, Trigger, TriggerType } from '../../api/acceptance';
 import {
-  blankCharge, blankLumpSum, blankMilestone, blankStage, linkStage, milestoneOfStage, move, proRataAllowed, triggerWords, termInputSx as inputSx,
+  blankCharge, blankLumpSum, blankMilestone, blankScrapCharge, blankStage, chargeRateUnit, linkStage, milestoneOfStage, move, proRataAllowed, triggerWords, termInputSx as inputSx,
 } from '../../lib/acceptance';
 import { rupeeText } from '../../lib/money';
 import { fieldIndex, type BuilderField } from '../../lib/formulaBuilder';
@@ -86,7 +86,7 @@ export function ChargesGrid({ terms, onChange, lists, editable, estimate = null,
       <Grid testId="acc-charges" cols={cols}>
         {terms.charges.map((c, i) => {
           const est = estOf(c.key);
-          const basisValue = c.basis?.type === 'formula' ? 'formula' : `weight:${c.basis?.type === 'weight' ? c.basis.weight : 'drawing'}`;
+          const basisValue = c.basis?.type === 'formula' ? 'formula' : c.basis?.type === 'scrap' ? `scrap:${c.basis.of}` : `weight:${c.basis?.type === 'weight' ? c.basis.weight : 'drawing'}`;
           return (
             <tr key={c.key} data-testid="acc-charge-row">
               <Td><TextField size="small" value={c.label} disabled={!editable} sx={{ ...inputSx, minWidth: 140 }} onChange={(e) => setCharge(i, { label: e.target.value })} inputProps={{ 'aria-label': 'Charge', 'data-testid': 'charge-label' }} /></Td>
@@ -103,11 +103,16 @@ export function ChargesGrid({ terms, onChange, lists, editable, estimate = null,
                     onChange={(e) => {
                       const v = e.target.value;
                       if (v === 'formula') { setCharge(i, { basis: { type: 'formula', expression: c.basis?.type === 'formula' ? c.basis.expression : '', unit: c.basis?.type === 'formula' ? c.basis.unit : 'm²' } }); setFormulaFor(c.key); }
+                      else if (v.startsWith('scrap:')) setCharge(i, { basis: { type: 'scrap', of: v.slice(6) as 'scrap' | 'offcut' | 'material_pct' } });
                       else setCharge(i, { basis: { type: 'weight', weight: v === 'weight:actual' ? 'actual' : 'drawing' } });
                     }}>
                     <MenuItem value="weight:drawing">Weight — as per drawing</MenuItem>
                     <MenuItem value="weight:actual">Weight — actual</MenuItem>
                     <MenuItem value="formula">Formula…</MenuItem>
+                    {/* Scrap & offcuts (2026-10-18): the kg come from the order's nesting. */}
+                    <MenuItem value="scrap:scrap">Scrap — kg × rate</MenuItem>
+                    <MenuItem value="scrap:offcut">Offcuts — kg × rate</MenuItem>
+                    <MenuItem value="scrap:material_pct">Scrap & offcuts — % of material</MenuItem>
                   </TextField>
                   {c.basis?.type === 'formula' && (
                     <Button size="small" startIcon={<FunctionsRounded />} disabled={!editable} onClick={() => setFormulaFor(c.key)} sx={{ justifyContent: 'flex-start', textTransform: 'none' }} data-testid="charge-formula">
@@ -119,7 +124,7 @@ export function ChargesGrid({ terms, onChange, lists, editable, estimate = null,
               <Td>
                 <TextField size="small" value={numText(c.rate)} disabled={!editable} sx={{ ...inputSx, width: 110 }} onChange={(e) => setCharge(i, { rate: num(e.target.value) })}
                   inputProps={{ inputMode: 'decimal', 'aria-label': 'Rate', 'data-testid': 'charge-rate' }}
-                  InputProps={{ endAdornment: <Typography component="span" sx={{ fontSize: 11.5, color: 'var(--c-text-3)', ml: 0.5, whiteSpace: 'nowrap' }}>/{c.basis?.type === 'formula' ? c.basis.unit || 'unit' : 't'}</Typography> }} />
+                  InputProps={{ endAdornment: <Typography component="span" sx={{ fontSize: 11.5, color: 'var(--c-text-3)', ml: 0.5, whiteSpace: 'nowrap' }}>{chargeRateUnit(c.basis) === '%' ? '%' : `/${chargeRateUnit(c.basis)}`}</Typography> }} />
               </Td>
               <Td>
                 <TextField select size="small" value={c.billing ?? ''} disabled={!editable} sx={{ ...inputSx, minWidth: 150 }} onChange={(e) => setCharge(i, { billing: e.target.value as ChargeRow['billing'] })} inputProps={{ 'aria-label': 'Billed', 'data-testid': 'charge-billing' }}>
@@ -127,7 +132,13 @@ export function ChargesGrid({ terms, onChange, lists, editable, estimate = null,
                   <MenuItem value="on_completion">On completion</MenuItem>
                 </TextField>
               </Td>
-              {estimate && <Td right title={est?.note ?? undefined}><Mono>{est?.quantity ?? '—'}</Mono> <Mono muted>{est?.unit ?? ''}</Mono></Td>}
+              {estimate && (
+                <Td right title={est?.note ?? undefined}>
+                  <Mono>{est?.quantity == null ? '—' : est.unit === '₹ material' ? rupeeText(est.quantity) : est.quantity}</Mono> <Mono muted>{est?.unit === '₹ material' ? 'material' : est?.unit ?? ''}</Mono>
+                  {/* Scrap & offcuts: where the kilograms came from, said under the figure. */}
+                  {est?.basisKind === 'scrap' && est.note && <Box data-testid="charge-scrap-note" sx={{ fontSize: 11, color: est.quantity == null ? 'var(--c-warning-800)' : 'var(--c-text-3)', whiteSpace: 'normal', maxWidth: 220, ml: 'auto' }}>{est.note}</Box>}
+                </Td>
+              )}
               {estimate && <Td right><span data-testid="charge-amount"><Mono>{est?.amount == null ? '—' : rupeeText(est.amount)}</Mono></span></Td>}
               <Td>{editable && <IconButton size="small" aria-label="Remove charge" onClick={() => onChange({ charges: terms.charges.filter((_, k) => k !== i) })}><DeleteOutlineRounded fontSize="small" /></IconButton>}</Td>
             </tr>
@@ -176,6 +187,10 @@ export function ChargesGrid({ terms, onChange, lists, editable, estimate = null,
         <Box sx={{ display: 'flex', gap: 1, mt: 1 }}>
           <Button size="small" startIcon={<AddRounded />} onClick={() => onChange({ charges: [...terms.charges, blankCharge(terms.charges)] })} data-testid="add-charge">Charge</Button>
           <Button size="small" startIcon={<AddRounded />} onClick={() => onChange({ lumpSums: [...terms.lumpSums, blankLumpSum(terms.lumpSums)] })} data-testid="add-lump">Lump sum</Button>
+          {!terms.charges.some((c) => c.basis?.type === 'scrap') && (
+            <Button size="small" startIcon={<AddRounded />} onClick={() => onChange({ charges: [...terms.charges, blankScrapCharge(terms.charges, lists.operations)] })} data-testid="add-scrap-charge"
+              title="Charge the customer for the scrap and offcuts their order leaves — by kg from the nesting, or a % of the material">Scrap & offcuts</Button>
+          )}
         </Box>
       )}
       <FormulaBasisDialog open={!!formulaRow} fields={fields}

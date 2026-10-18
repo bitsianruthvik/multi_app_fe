@@ -290,7 +290,10 @@ export function SheetGrid({
       raf = 0;
       const box = scroller.current;
       if (!box) return;
-      const next = Math.max(260, Math.floor(window.innerHeight - box.getBoundingClientRect().top - 72));
+      // The top is counted from the window's top at the least: once the grid's top has scrolled above the screen its
+      // height stops growing, so the page goes on scrolling to what is below it (a save bar). Measured from where it
+      // is instead, the box grew by every pixel scrolled and whatever was under it could never be reached (2026-10-18).
+      const next = Math.max(260, Math.floor(window.innerHeight - Math.max(0, box.getBoundingClientRect().top) - 72));
       setFillH((cur) => (cur != null && Math.abs(cur - next) < 2 ? cur : next));
     };
     const queue = () => { if (!raf) raf = requestAnimationFrame(measureFill); };
@@ -667,9 +670,13 @@ export function SheetGrid({
   };
 
   const headSticky: Record<string, string | number> = stickyHeader ? { position: 'sticky', top: 0 } : {};
-  const firstSticky: Record<string, string | number> = frozenFirstColumn ? { position: 'sticky', left: 0 } : {};
+  // The frozen first column stays put from a tablet up; on a phone it scrolls with the rest, so it never sits over the
+  // cells (and their buttons) it would otherwise cover (walkthrough 2026-10-18 step 42).
+  const firstSticky: Record<string, unknown> = frozenFirstColumn ? { position: { xs: 'static', sm: 'sticky' }, left: { xs: 'auto', sm: 0 } } : {};
 
-  const capped = (w: number) => `min(${w}px, 50vw)`;
+  // Narrower as the window narrows: never more than half the screen, and on a small window about 40% of it, so the
+  // data columns beside it keep room to be seen and clicked.
+  const capped = (w: number) => `min(${w}px, max(40vw, 100vw - 700px), 50vw)`;
   const widthOf = (key: string | undefined) => (key ? colByKey.get(key)?.stripWidth ?? STRIP_WIDTH : STRIP_WIDTH);
   /** Strip: each slot is as wide as the widest cell any row puts there. */
   const slotWidths = stripKeys ? Array.from({ length: slotCount }, (_, i) => Math.max(...stripKeys.map((ks) => (ks[i] ? widthOf(ks[i]) : 0)), 40)) : [];

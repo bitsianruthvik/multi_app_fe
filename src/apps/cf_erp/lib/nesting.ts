@@ -1,7 +1,7 @@
 import type {
   Nest, NestDrift, NestGroup, NestMetrics, NestPiece, NestRunSnapshot, NestSizeAdvice, NestVerdict, NestWaste, NestingPlan,
 } from '../api/types';
-import type { CompareMetrics, NestExtras, NestFileRead, PieceExtras } from '../api/nesting';
+import type { CompareAnswer, CompareMetrics, ComparePlate, NestExtras, NestFileRead, PieceExtras } from '../api/nesting';
 
 /**
  * Words and arithmetic for the nesting screen.
@@ -996,6 +996,8 @@ export function compareTabRows(up: CompareMetrics | null | undefined, ours: Comp
   const defs: Def[] = [
     { key: 'plates', label: 'Plates', better: 'lower', num: (m) => m.plates, text: (m) => String(m.plates), diff: (d) => `${Math.abs(d)} ${d < 0 ? 'fewer' : 'more'}` },
     { key: 'tonnesBought', label: 'Steel bought', better: 'lower', num: (m) => m.tonnesBought, text: (m) => (m.tonnesBought == null ? '—' : `${m.tonnesBought.toFixed(3)} t`), diff: (d) => `${t3(d)} ${d < 0 ? 'less' : 'more'}` },
+    // §87: what the job really consumes when every offcut is kept and used again (bought − offcuts).
+    { key: 'netTonnes', label: 'Net steel (offcuts kept)', help: 'Steel bought less the offcuts that go back to stock: what the job uses if every offcut is used again.', better: 'lower', num: (m) => m.netTonnes ?? null, text: (m) => (m.netTonnes == null ? '—' : `${m.netTonnes.toFixed(3)} t`), diff: (d) => `${t3(d)} ${d < 0 ? 'less' : 'more'}` },
     { key: 'partsTonnes', label: 'Parts', help: 'The steel in the parts. The same pieces on both sides, so the same weight.', better: 'info', num: (m) => m.partsTonnes, text: (m) => (m.partsTonnes == null ? '—' : `${m.partsTonnes.toFixed(3)} t`), diff: (d) => `${t3(d)} ${d < 0 ? 'less' : 'more'}` },
     { key: 'waste', label: 'Waste', help: WASTE_SHOWN_HELP, better: 'lower', num: (m) => m.wasteKgTotal, text: (m) => { const w = compareWaste(m); return `${kg(w.kg)} kg · ${pct(w.pct)}`; }, diff: (d) => `${kg(Math.abs(d))} kg ${d < 0 ? 'less' : 'more'}` },
     { key: 'offcutKg', label: 'Offcuts (in the waste)', help: 'Offcuts go back to stock, but they are counted in the waste above.', better: 'info', num: (m) => m.offcuts?.kg ?? null, text: (m) => (m.offcuts ? `${kg(m.offcuts.kg)} kg (${m.offcuts.count})` : '—'), diff: (d) => `${kg(Math.abs(d))} kg ${d < 0 ? 'less' : 'more'}` },
@@ -1003,7 +1005,7 @@ export function compareTabRows(up: CompareMetrics | null | undefined, ours: Comp
     { key: 'cutLengthM', label: 'Cut length', better: 'lower', num: (m) => m.cutLengthM, text: (m) => (m.cutLengthM == null ? '—' : `${m.cutLengthM.toFixed(1)} m`), diff: (d) => `${Math.abs(d).toFixed(1)} m ${d < 0 ? 'less' : 'more'}` },
     { key: 'piercings', label: 'Piercings', better: 'lower', num: (m) => m.piercings, text: (m) => (m.piercings == null ? '—' : String(m.piercings)), diff: (d) => `${Math.abs(d)} ${d < 0 ? 'fewer' : 'more'}` },
   ];
-  const eps: Record<string, number> = { plates: 0.5, piercings: 0.5, tonnesBought: 0.0005, partsTonnes: 0.0005, waste: 0.5, offcutKg: 0.5, cost: 0.5, cutLengthM: 0.05 };
+  const eps: Record<string, number> = { plates: 0.5, piercings: 0.5, tonnesBought: 0.0005, netTonnes: 0.0005, partsTonnes: 0.0005, waste: 0.5, offcutKg: 0.5, cost: 0.5, cutLengthM: 0.05 };
   return defs.map((def) => {
     const a = up ? def.num(up) : null;
     const b = ours ? def.num(ours) : null;
@@ -1044,4 +1046,86 @@ export function autoRanLine(auto: { ranAt?: string | null; params?: { effort?: s
     auto.stoppedEarly ? 'stopped early, so this is its best so far' : null,
     auto.forThisUpload === false ? 'made for an earlier upload of the same pieces' : null,
   ].filter(Boolean).join(' · ');
+}
+
+// ── §87 (2026-10-18): AI's nesting stored beside the customer's — making it the main one, and switching back ──
+
+/** A purchase-order gate as the swap's confirm reads it (PlateChangeProvider's gate). */
+export interface SwapGate { covered?: boolean; needsApproval?: boolean; purchaseOrders?: { code: string }[] }
+
+/** What the Compare tab says about the swap: the button, why it is off, and the confirm's sentences. */
+export interface SwapPlan {
+  /** There is something to swap with (both sides measured). */
+  show: boolean;
+  to: 'ai' | 'uploaded';
+  /** "AI's nesting is the main one" / "The customer's nesting is the main one". */
+  mainLabel: string;
+  /** The button. */
+  label: string;
+  ok: boolean;
+  why: string | null;
+  title: string;
+  /** The confirm's lines, in order: plates, steel, net steel, the plate sizes that change, left over, purchase orders. */
+  lines: string[];
+  /** The plate sizes that change: "+2 × 12 mm 6,000 × 2,000 mm", "−1 × …". */
+  plates: string[];
+  confirm: string;
+  /** The PO sentence alone (null when no PO covers the line), so the screen can show it as a warning. */
+  onOrder: string | null;
+}
+
+const sizeKey = (p: ComparePlate) => `${Number(p.thickness ?? 0)}|${Number(p.length ?? 0)}|${Number(p.width ?? 0)}`;
+const sizeWords = (k: string) => { const [t, l, w] = k.split('|').map(Number); return `${t ? `${mm(t)} mm ` : ''}${mmPair(l, w)}`; };
+
+/** Plate sizes, from → to: what a swap adds and takes away, in words (more first, then fewer). */
+export function plateSizeChanges(from: ComparePlate[], to: ComparePlate[]): string[] {
+  const count = (ps: ComparePlate[]) => ps.reduce((m, p) => m.set(sizeKey(p), (m.get(sizeKey(p)) ?? 0) + 1), new Map<string, number>());
+  const a = count(from); const b = count(to);
+  const keys = [...new Set([...a.keys(), ...b.keys()])].sort();
+  const up: string[] = []; const down: string[] = [];
+  for (const k of keys) {
+    const d = (b.get(k) ?? 0) - (a.get(k) ?? 0);
+    if (d > 0) up.push(`+${d} × ${sizeWords(k)}`);
+    else if (d < 0) down.push(`−${-d} × ${sizeWords(k)}`);
+  }
+  return [...up, ...down];
+}
+
+const tWords = (n: number | null | undefined) => (n == null ? '—' : `${n.toFixed(3)} t`);
+
+/**
+ * THE SWAP, worked out from the comparison: which side becomes the main one, whether it may (locked by a production
+ * order, AI's nesting not ready…) and what the confirm says — plates, steel bought, net steel, the plate sizes that
+ * change, pieces left over, and the purchase orders that cover the line (nothing on them is changed by the swap).
+ */
+export function swapPlan(a: CompareAnswer | null | undefined, gate: SwapGate | null | undefined = null): SwapPlan {
+  const alt = a?.alternative ?? null;
+  const ready = !!a?.uploaded && !!a?.auto && ['ready', 'accepted', 'discarded'].includes(a.auto.status) && !!a.auto.metrics;
+  const to: 'ai' | 'uploaded' = alt?.canSwap?.to ?? (alt?.main === 'ai' ? 'uploaded' : 'ai');
+  const mainLabel = alt?.main === 'ai' ? "AI's nesting is the main one" : "The customer's nesting is the main one";
+  const label = to === 'ai' ? "Make AI's nesting the main one" : "Switch back to the customer's nesting";
+  const title = to === 'ai' ? "Make AI's nesting the main one?" : "Switch back to the customer's nesting?";
+  const empty: SwapPlan = { show: false, to, mainLabel, label, ok: false, why: null, title, lines: [], plates: [], confirm: to === 'ai' ? 'Make it the main one' : 'Switch back', onOrder: null };
+  if (!alt || !ready || !a?.uploaded || !a.auto.metrics) return empty;
+  const fromM = to === 'ai' ? a.uploaded.metrics : a.auto.metrics;
+  const toM = to === 'ai' ? a.auto.metrics : a.uploaded.metrics;
+  const fromP = to === 'ai' ? a.uploaded.perPlate : a.auto.perPlate;
+  const toP = to === 'ai' ? a.auto.perPlate : a.uploaded.perPlate;
+  const plates = plateSizeChanges(fromP ?? [], toP ?? []);
+  const pos = (gate?.purchaseOrders ?? []).map((p) => p.code);
+  const onOrder = gate?.covered && pos.length
+    ? `A purchase order covers this line (${pos.join(', ')}). The swap changes the plates the line needs${gate.needsApproval ? ' and goes to the MD for approval first' : ''}. Nothing on the purchase order is changed — the buyer changes it by hand.`
+    : null;
+  const left = to === 'ai' ? Number(alt.leftOverAfter ?? 0) : 0;
+  const lines = [
+    `Plates: ${fromM.plates} → ${toM.plates}.`,
+    `Steel bought: ${tWords(fromM.tonnesBought)} → ${tWords(toM.tonnesBought)}.`,
+    fromM.netTonnes != null && toM.netTonnes != null ? `Net steel (offcuts kept): ${tWords(fromM.netTonnes)} → ${tWords(toM.netTonnes)}.` : null,
+    plates.length ? `Plate sizes: ${plates.join(', ')}.` : 'The same plate sizes.',
+    left > 0 ? `${left} ${left === 1 ? 'piece the customer nested is' : 'pieces the customer nested are'} not on AI's plates and will be left over.` : null,
+    to === 'ai' ? "The customer's nesting is kept. You can switch back until the line has a production order." : "AI's nesting is kept beside it.",
+    onOrder,
+  ].filter((x): x is string => !!x);
+  const why = alt.canSwap?.ok === false ? (alt.canSwap.reason ?? alt.lockReason ?? 'It cannot be swapped now.') : null;
+  return { show: true, to, mainLabel, label, ok: !why, why, title, lines, plates, confirm: empty.confirm, onOrder };
 }

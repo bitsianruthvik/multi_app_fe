@@ -81,6 +81,24 @@ export async function searchSectionStock(search: string, limit = 50): Promise<Se
   return rows.map((r) => ({ ...r, code: r.code ?? null, grade: r.grade ?? null, nodeName: r.nodeName ?? null }));
 }
 
+/** A typed size, read by the server ("110 x 110 x 12", "ISA110", "L110*110*12"): profile word, dims, stock length. */
+export interface SectionSize { profile: string | null; dims: number[]; lengthMm: number | null }
+/** One catalog size near the typed one, with every bar (grade, stock length) of that size. */
+export interface NearSize {
+  key: string; label: string; profile: string | null; distance: number;
+  /** "legs 10 mm smaller, 2 mm thinner" */
+  differs: string;
+  weight: 'heavier' | 'lighter' | 'same'; weightPct: number;
+  bars: SectionStockRow[];
+}
+export interface SectionNearest { size: SectionSize | null; exact: SectionStockRow[]; nearest: NearSize[]; like: SectionStockRow | null }
+
+/** GET /section-stock/nearest — the bars of exactly the typed size, else the nearest sizes of the same profile. */
+export async function nearestSectionStock(search: string): Promise<SectionNearest> {
+  const out = await cfApi.get<Partial<SectionNearest> | null>(`/section-stock/nearest${qs({ search: search.trim() })}`);
+  return { size: out?.size ?? null, exact: out?.exact ?? [], nearest: out?.nearest ?? [], like: out?.like ?? null };
+}
+
 /** "75 × 75 × 8 · 6,000 mm · E350" — the size of a bar in the order a person says it. */
 export function sectionSizeText(s: Pick<SectionStockRow, 'thickness' | 'width' | 'depth' | 'lengthMm' | 'grade'> | SectionSteel): string {
   const dims = [s.depth, s.width, s.thickness].filter((v): v is number => v != null && Number(v) > 0).map((v) => String(Math.round(Number(v) * 100) / 100));

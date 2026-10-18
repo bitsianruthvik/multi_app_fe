@@ -17,6 +17,9 @@ import { useFullScreen } from '../../hooks/useFullScreen';
 import { invalidateNavCounts } from '../../hooks/useNavCounts';
 import { applyTemplate, percentTotal, saveBlob, saveLabel, stateWords, templateRows, termsBody, termsOf, termInputSx as inputSx } from '../../lib/acceptance';
 import { rupeeText } from '../../lib/money';
+import { Link } from 'react-router-dom';
+import { useCompanySlug } from '../../hooks/useLoad';
+import { appPath } from '../../navMeta';
 import { Badge, ErrorNotice, Mono, SectionCard, SkeletonRows } from '../ui';
 import { FullScreenFrame, FullScreenToggle } from '../FullScreen';
 import { DialogHeader } from '../FormDialog';
@@ -24,11 +27,13 @@ import { useToast } from '../toastContext';
 import { StageChecklist } from './StageChecklist';
 import { ChargesGrid, MilestonesGrid, StagesGrid } from './TermGrids';
 
-/** The estimate, in a few figures. */
-function EstimateBox({ e }: { e: Estimate }) {
+/** The estimate, in a few figures. lineEstimate = the order's estimate from the line rates (shown when it differs). */
+function EstimateBox({ e, lineEstimate = null }: { e: Estimate; lineEstimate?: number | null }) {
+  const company = useCompanySlug();
+  const notCosted = e.materialNotCosted ?? [];
   const figures: [string, string, string][] = [
-    ['value', 'Order value', rupeeText(e.value)],
-    ['material', 'Material we buy', e.materialCost == null ? 'not known' : rupeeText(e.materialCost)],
+    ['value', 'Order value (these terms)', rupeeText(e.value)],
+    ['material', 'Material we buy', e.materialCost == null ? 'not known' : notCosted.length ? `${rupeeText(e.materialCost)} + not costed` : rupeeText(e.materialCost)],
     ['margin', 'Margin over material', e.marginOverMaterial == null ? '—' : `${rupeeText(e.marginOverMaterial)}${e.marginPct != null ? ` (${e.marginPct} %)` : ''}`],
     ['weight', 'Weight', `${e.tonnes} t`],
   ];
@@ -43,6 +48,20 @@ function EstimateBox({ e }: { e: Estimate }) {
       <Typography sx={{ gridColumn: '1 / -1', fontSize: 12, color: 'var(--c-text-3)' }}>
         {e.materialCostNote}{e.unweighedLines.length ? ` Line ${e.unweighedLines.join(', ')} has no weight yet.` : ''}{e.milestonesNote ? ` ${e.milestonesNote}` : ''}
       </Typography>
+      {/* ONE order value (2026-10-18): once sent, these terms ARE the order's value; the line rates were the estimate. */}
+      {lineEstimate != null && Math.abs(lineEstimate - e.value) >= 1 && (
+        <Typography data-testid="acc-line-estimate" sx={{ gridColumn: '1 / -1', fontSize: 12.5, color: 'var(--c-warning-800)' }}>
+          The line rates estimated {rupeeText(lineEstimate)}. Once these terms are sent, the order shows {rupeeText(e.value)} (accepted · estimate {rupeeText(lineEstimate)}); billing and costing use these terms.
+        </Typography>
+      )}
+      {/* Never ₹0 silently: name each MR material with no price, with the item to set its plate rate on. */}
+      {notCosted.length > 0 && (
+        <Box data-testid="acc-not-costed" sx={{ gridColumn: '1 / -1', fontSize: 12.5, color: 'var(--c-warning-800)', display: 'flex', flexWrap: 'wrap', gap: 0.75, alignItems: 'baseline' }}>
+          Not costed — set the plate rate (list price):
+          {notCosted.slice(0, 8).map((i) => <Box key={i.itemId} component={Link} to={appPath(company, `items/${i.itemId}`)} sx={{ color: 'inherit' }}>{i.code ?? i.name ?? `item ${i.itemId}`}</Box>)}
+          {notCosted.length > 8 && <span>+{notCosted.length - 8} more</span>}
+        </Box>
+      )}
     </Box>
   );
 }
@@ -176,7 +195,7 @@ export function AcceptanceStep({ order, onChanged }: { order: SalesOrder; onChan
             </Box>
             {problems.length > 0 && <Alert severity="warning" data-testid="acc-problems">{problems.map((p) => <Box key={p}>{p}</Box>)}</Alert>}
             {check && check.changes.length > 0 && <Alert severity="info" data-testid="acc-changes">Changes from the approved terms: {check.changes.join(' ')}</Alert>}
-            <EstimateBox e={estimate} />
+            <EstimateBox e={estimate} lineEstimate={view.orderValue?.estimate ?? null} />
             {editable && <TextField size="small" label="Note for Management (optional)" value={note} onChange={(e) => setNote(e.target.value)} inputProps={{ 'data-testid': 'acc-note' }} />}
           </Box>
         </SectionCard>

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Alert, Box, Button, IconButton, MenuItem, Popover, TextField, Tooltip, Typography } from '@mui/material';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import AddRounded from '@mui/icons-material/AddRounded';
@@ -26,12 +26,23 @@ import { useToast } from '../components/toastContext';
 import { FullScreenFrame, FullScreenToggle } from '../components/FullScreen';
 import { useFullScreen } from '../hooks/useFullScreen';
 import { PoStageBadge, PrStatusBadge } from '../components/Purchase/purchaseFlowUi';
+import { draftOf, parseRate, rateText, reconcile, settle, toSend, type CellDraft } from '../lib/quoteCells';
 
 const linkSx = { color: 'inherit', textDecoration: 'none', '&:hover': { color: 'var(--c-primary-700)', textDecoration: 'underline' } };
 /** A new PR shows this many vendor columns, empty, ready for a vendor to be picked. */
 const MIN_COLUMNS = 3;
 const cellSx = { borderBottom: '1px solid var(--c-border)', padding: '8px 10px', verticalAlign: 'top', textAlign: 'left' as const };
 const headSx = { ...cellSx, background: 'var(--c-surface-2, var(--c-surface))', fontSize: 12.5, fontWeight: 600, color: 'var(--c-text-2)' };
+/**
+ * The frozen "Line" column: frozen only on a wide screen (md and up) and never wider than a third of the window there; on
+ * a narrow one it scrolls with the rest, so it never sits over a vendor column and its "Raise PO" button (walkthrough
+ * 2026-10-18 step 42). A vendor column's head and cells stay under it only while scrolled past, as a frozen column does.
+ */
+const FROZEN = {
+  position: { xs: 'static', md: 'sticky' }, left: { md: 0 }, zIndex: { md: 2 },
+  minWidth: { xs: 120, md: 160 }, maxWidth: { xs: 160, md: 'min(260px, 33vw)' }, overflowWrap: 'anywhere',
+  boxShadow: { md: 'inset -1px 0 0 var(--c-border)' },
+} as const;
 
 /**
  * Purchase › Purchase request (§71). THE PR IS THE RFQ: rows = what is to buy, columns = vendors (three empty ones to
@@ -54,6 +65,10 @@ export default function PurchaseRequestDetail() {
   useDetailTitle(p?.code ?? null);
   const [extra, setExtra] = useState(0);
   const [error, setError] = useState<CfApiError | null>(null);
+  // Quote saves answer in any order: only an answer to a LATER request than the one on screen replaces the PR, so a slow
+  // early answer never puts back what a later save already changed.
+  const asked = useRef(0);
+  const shown = useRef(0);
   const [raising, setRaising] = useState<PrVendor | null>(null);
   if (pr.error) return <ErrorNotice error={pr.error} onRetry={pr.reload} />;
   if (!p) return <DetailSkeleton />;
@@ -61,6 +76,15 @@ export default function PurchaseRequestDetail() {
   const run = async (fn: () => Promise<PurchaseRequest>, done?: string) => {
     setError(null);
     try { pr.setData(await fn()); if (done) toast.success(done); } catch (e) { setError(e as CfApiError); }
+  };
+  const saveQuote = async (vendorId: number, lineId: number, q: { rate: number | null; deliveryDays?: number | null; remark?: string | null }) => {
+    const mine = ++asked.current;
+    setError(null);
+    try {
+      const next = await setQuotes(vendorId, [{ lineId, ...q }]);
+      if (mine > shown.current) { shown.current = mine; pr.setData(next); }
+      return next;
+    } catch (e) { setError(e as CfApiError); return null; }
   };
   const lines = p.lines.filter((l) => l.needed > 0 || l.poRaised > 0);
   const empties = Math.max(0, MIN_COLUMNS - p.vendors.length) + extra;
@@ -96,7 +120,7 @@ export default function PurchaseRequestDetail() {
           <Box component="table" data-testid="pr-grid" sx={{ borderCollapse: 'separate', borderSpacing: 0, minWidth: '100%', fontSize: 13 }}>
             <thead>
               <tr>
-                <Box component="th" sx={{ ...headSx, position: 'sticky', left: 0, zIndex: 1, minWidth: 180 }}>Line</Box>
+                <Box component="th" sx={{ ...headSx, ...FROZEN }}>Line</Box>
                 <Box component="th" sx={{ ...headSx, textAlign: 'right', minWidth: 80 }}>Needed</Box>
                 <Box component="th" sx={{ ...headSx, textAlign: 'right', minWidth: 80 }}>PO raised</Box>
                 {p.vendors.map((v) => (
@@ -116,7 +140,7 @@ export default function PurchaseRequestDetail() {
             <tbody>
               {lines.map((l) => (
                 <tr key={l.id} data-testid="pr-row" data-line={l.id}>
-                  <Box component="td" sx={{ ...cellSx, position: 'sticky', left: 0, background: 'var(--c-surface)', zIndex: 1 }}>
+                  <Box component="td" sx={{ ...cellSx, ...FROZEN, background: 'var(--c-surface)' }}>
                     <Mono>{l.item.code ?? '—'}</Mono>
                     <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)', whiteSpace: 'normal' }}>{l.item.name}</Typography>
                     <Typography sx={{ fontSize: 11.5, color: 'var(--c-text-3)' }}>{l.statusLabel}</Typography>
@@ -128,7 +152,7 @@ export default function PurchaseRequestDetail() {
                   </Box>
                   {p.vendors.map((v) => (
                     <QuoteCell key={v.id} line={l} vendor={v} cheapest={cheapestOf(p, l.id)} editable={editable}
-                      onSave={(q) => run(() => setQuotes(v.id, [{ lineId: l.id, ...q }]))} />
+                      onSave={(q) => saveQuote(v.id, l.id, q)} />
                   ))}
                   {Array.from({ length: editable ? empties : 0 }, (_, i) => <Box component="td" key={`e-${i}`} sx={cellSx} />)}
                 </tr>
@@ -194,22 +218,54 @@ function VendorHead({ pr, vendor, editable, onChange, onRemove, onRaise }: {
   );
 }
 
-/** One cell: the rate inline; delivery days and a remark in a small popover. Empty = no quote. */
+/**
+ * One cell: the rate inline; delivery days and a remark in a small popover. Empty = no quote.
+ *
+ * Typing fast is safe (walkthrough 2026-10-18 step 42; the rules are lib/quoteCells): the cell is the person's while it
+ * has focus — a re-read of the PR (another cell's save) never writes into it —, it saves when left (Tab, a click
+ * elsewhere), on Enter (which also moves down the column; Shift+Enter up), or after a pause in typing, one request at a
+ * time with the newest text winning, and once its save answers the cell shows what was saved. Esc puts back the saved
+ * rate.
+ */
 function QuoteCell({ line, vendor, cheapest, editable, onSave }: {
   line: PrLine; vendor: PrVendor; cheapest: number | null; editable: boolean;
-  onSave: (q: { rate: number | null; deliveryDays?: number | null; remark?: string | null }) => Promise<void>;
+  /** Saves the cell; the PR as the server now has it, or null when the save failed (the refusal is shown above). */
+  onSave: (q: { rate: number | null; deliveryDays?: number | null; remark?: string | null }) => Promise<PurchaseRequest | null>;
 }) {
   const q = vendor.quotes[line.id];
-  const [rate, setRate] = useState(q ? String(q.rate) : '');
+  const server = rateText(q?.rate);
+  const [draft, setDraftState] = useState<CellDraft>(() => draftOf(server));
+  const live = useRef(draft);
+  const setDraft = (fn: (d: CellDraft) => CellDraft) => { live.current = fn(live.current); setDraftState(live.current); };
+  const [bad, setBad] = useState(false);
+  const idle = useRef<number | null>(null);
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   const [days, setDays] = useState(q?.deliveryDays != null ? String(q.deliveryDays) : '');
   const [remark, setRemark] = useState(q?.remark ?? '');
-  useEffect(() => { setRate(q ? String(q.rate) : ''); setDays(q?.deliveryDays != null ? String(q.deliveryDays) : ''); setRemark(q?.remark ?? ''); }, [q]);
+  // A new answer from the server: shown unless the person is typing here, or this cell's own save is on its way.
+  useEffect(() => { setDraft((d) => reconcile(d, server)); }, [server]);
+  useEffect(() => { setDays(q?.deliveryDays != null ? String(q.deliveryDays) : ''); setRemark(q?.remark ?? ''); }, [q]);
+  useEffect(() => () => { if (idle.current) window.clearTimeout(idle.current); }, []);
   const best = q && cheapest != null && q.rate <= cheapest;
-  const saveRate = () => {
-    const was = q ? String(q.rate) : '';
-    if (rate.trim() === was) return;
-    void onSave(rate.trim() === '' ? { rate: null } : { rate: Number(rate), deliveryDays: q?.deliveryDays ?? null, remark: q?.remark ?? null });
+  const quoteOf = (pr: PurchaseRequest | null) => (pr ? rateText(pr.vendors.find((v) => v.id === vendor.id)?.quotes[line.id]?.rate) : null);
+  const commit = async (): Promise<void> => {
+    if (idle.current) { window.clearTimeout(idle.current); idle.current = null; }
+    const text = toSend(live.current);
+    if (text == null) return;
+    const rate = parseRate(text);
+    if (rate === 'invalid') { setBad(true); return; }
+    setBad(false);
+    setDraft((d) => ({ ...d, sent: d.text }));
+    const next = await onSave(rate == null ? { rate: null } : { rate, deliveryDays: q?.deliveryDays ?? null, remark: q?.remark ?? null });
+    setDraft((d) => settle(d, quoteOf(next)));
+    // Typed on while it was on its way, and already left: that newer text goes now.
+    if (next && !live.current.focused && toSend(live.current) != null) await commit();
+  };
+  const move = (from: HTMLElement, step: 1 | -1) => {
+    const all = [...document.querySelectorAll<HTMLInputElement>(`input[data-testid="pr-rate"][data-vendor="${vendor.id}"]`)];
+    const at = all.findIndex((el) => el === from);
+    all[at + step]?.focus();
+    all[at + step]?.select();
   };
   if (!editable) {
     return (
@@ -221,17 +277,31 @@ function QuoteCell({ line, vendor, cheapest, editable, onSave }: {
   return (
     <Box component="td" data-testid="pr-cell" data-vendor={vendor.supplier.id} sx={{ ...cellSx, background: best ? 'var(--c-success-50)' : undefined }}>
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25 }}>
-        <TextField size="small" value={rate} placeholder="₹ rate" onChange={(e) => setRate(e.target.value)} onBlur={saveRate}
-          onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
-          inputProps={{ inputMode: 'decimal', 'aria-label': `Rate of ${vendor.supplier.name} for ${line.item.code ?? line.item.name}`, 'data-testid': 'pr-rate' }}
-          InputProps={{ endAdornment: <Typography component="span" sx={{ fontSize: 11.5, color: 'var(--c-text-3)', whiteSpace: 'nowrap' }}>/{line.item.uom}</Typography> }}
+        <TextField size="small" value={draft.text} placeholder="₹ rate" error={bad}
+          onChange={(e) => {
+            const text = e.target.value;
+            setDraft((d) => ({ ...d, text }));
+            setBad(false);
+            if (idle.current) window.clearTimeout(idle.current);
+            idle.current = window.setTimeout(() => { idle.current = null; void commit(); }, 1500);
+          }}
+          onFocus={() => setDraft((d) => ({ ...d, focused: true }))}
+          onBlur={() => { setDraft((d) => ({ ...d, focused: false })); void commit(); }}
+          onKeyDown={(e) => {
+            const el = e.target as HTMLInputElement;
+            if (e.key === 'Enter') { e.preventDefault(); void commit(); move(el, e.shiftKey ? -1 : 1); }
+            else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setDraft((d) => ({ ...d, text: d.base })); setBad(false); }
+          }}
+          inputProps={{ inputMode: 'decimal', 'aria-label': `Rate of ${vendor.supplier.name} for ${line.item.code ?? line.item.name}`, 'data-testid': 'pr-rate', 'data-vendor': vendor.id, 'aria-busy': draft.sent != null || undefined, 'aria-invalid': bad || undefined }}
+          InputProps={{ endAdornment: <Typography component="span" sx={{ fontSize: 11.5, color: 'var(--c-text-3)', whiteSpace: 'nowrap' }}>{draft.sent != null ? '…' : ''}/{line.item.uom}</Typography> }}
           sx={{ width: 140 }} />
-        <Tooltip title="Delivery days and a remark">
+        <Tooltip title="Delivery days and a remark" disableInteractive>
           <span>
             <IconButton size="small" disabled={!q} aria-label="Delivery days and remark" onClick={(e) => setAnchor(e.currentTarget)}><MoreHorizRounded sx={{ fontSize: 16 }} /></IconButton>
           </span>
         </Tooltip>
       </Box>
+      {bad && <Box sx={{ fontSize: 11.5, color: 'var(--c-danger-600)', mt: 0.25 }}>A rate is a number, like 62.5</Box>}
       {q && (q.deliveryDays != null || q.remark) && (
         <Box sx={{ fontSize: 11.5, color: 'var(--c-text-3)', mt: 0.25 }}>{[q.deliveryDays != null ? `${q.deliveryDays} days` : null, q.remark].filter(Boolean).join(' · ')}</Box>
       )}
@@ -242,7 +312,7 @@ function QuoteCell({ line, vendor, cheapest, editable, onSave }: {
           <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1 }}>
             <Button size="small" onClick={() => setAnchor(null)}>Cancel</Button>
             <Button size="small" variant="contained" data-testid="pr-cell-save"
-              onClick={() => { setAnchor(null); void onSave({ rate: q ? q.rate : Number(rate), deliveryDays: days.trim() === '' ? null : Number(days), remark: remark.trim() || null }); }}>Save</Button>
+              onClick={() => { setAnchor(null); const r = parseRate(draft.text); void onSave({ rate: q ? q.rate : typeof r === 'number' ? r : null, deliveryDays: days.trim() === '' ? null : Number(days), remark: remark.trim() || null }); }}>Save</Button>
           </Box>
         </Box>
       </Popover>

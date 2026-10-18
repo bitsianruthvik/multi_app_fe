@@ -96,8 +96,18 @@ export const recordReceipt = (input: ReceiptInput) => cfApi.post<ReceiptResult>(
 export const removeReceipt = (id: number, reason: string) => cfApi.delWith<OrderPayments>(`/accounts/receipts/${id}`, { reason });
 export const orderPayments = (orderId: number) => cfApi.get<OrderPayments>(`/accounts/orders/${orderId}/payments`);
 
+/** Something valued at nothing, and where to fix it (2026-10-18: never ₹0 silently). `to` is relative to /:company/cf_erp/. */
+export interface CostFlag { code: 'NO_SCRAP_RATE' | 'NOT_COSTED' | string; message: string; fix: { label: string; to: string } | null }
+/** SCRAP & OFFCUTS of an order: actual kg and value, against what the acceptance charges for them. */
+export interface ScrapOffcuts {
+  actual: { scrapKg: number; scrapValue: number; offcutKg: number; offcutValue: number; offcutLots: number };
+  ratePerKg: number | null;
+  charges: { key: string; label: string; of: 'scrap' | 'offcut' | 'material_pct'; estimate: number | null; unit: string | null; rate: number | null; contract: number; earned: number; actualKg: number | null; onActual: number | null }[];
+  charged: { contract: number; earned: number };
+  flags: CostFlag[];
+}
 export interface EarnedRow {
-  key: string; label: string; kind: 'charge' | 'material' | 'lump_sum'; operation?: string | null; billing?: string;
+  key: string; label: string; kind: 'charge' | 'material' | 'lump_sum' | 'scrap_charge'; operation?: string | null; billing?: string; scrapOf?: 'scrap' | 'offcut' | 'material_pct';
   quantity: number | null; earnedQuantity: number | null; unit: string | null; rate: number | null; amount: number; contract: number; note: string;
 }
 export interface CostItem { itemId: number; code: string | null; name: string | null; uom: string | null; kind: 'material' | 'consumable' | 'customer' | 'scrap' | 'offcut'; quantity: number; value: number; uncosted: number }
@@ -107,6 +117,8 @@ export interface CostRow {
   material: number; consumables: number; contractor: number; credits: number; creditsScrap: number; creditsOffcuts: number;
   customerMaterial: { rows: number; quantity: number }; uncostedRows: number;
   margin: number; marginPct: number | null;
+  /** The list only (2026-10-18): actual scrap / offcut kg, what scrap & offcut charges earned, and how many things are not costed. */
+  scrapKg?: number; offcutKg?: number; scrapCharged?: number; flags?: number;
 }
 export interface CostingList {
   rows: CostRow[];
@@ -116,6 +128,7 @@ export interface CostingList {
 export interface CostSheet extends CostRow {
   hasTerms: boolean;
   earned: { rows: EarnedRow[]; total: number; contract: number };
+  scrapOffcuts?: ScrapOffcuts;
   items: CostItem[];
   lines: OrderCosts['lines'];
   totals: OrderCosts['totals'];

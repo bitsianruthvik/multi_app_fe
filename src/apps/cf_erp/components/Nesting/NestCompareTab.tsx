@@ -1,15 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Box, Button, CircularProgress, Tooltip, Typography } from '@mui/material';
+import { Alert, Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, Tooltip, Typography } from '@mui/material';
 import { cfApi, type CfApiError } from '../../api/client';
 import {
-  cancelNestCompare, getNestCompare, startAutoCompare, stopNestCompare,
+  cancelNestCompare, getNestCompare, startAutoCompare, stopNestCompare, swapNestAlternative,
   type CompareAnswer, type ComparePlate,
 } from '../../api/nesting';
 import type { Nest, NestingPlan } from '../../api/types';
-import { autoRanLine, compareTabRows, mm, mmPair, pct, rupees, thicknessLine, NOT_COSTED } from '../../lib/nesting';
+import { autoRanLine, compareTabRows, mm, mmPair, pct, rupees, swapPlan, thicknessLine, NOT_COSTED } from '../../lib/nesting';
 import { Badge, CapsLabel, ErrorNotice, Mono, SectionCard, SkeletonRows } from '../ui';
 import { NestRunCard } from './NestRunCard';
 import { PlateDiagram } from './PlateDiagram';
+import { DialogHeader } from '../FormDialog';
+import { usePlateChange } from './plateChangeContext';
 
 /**
  * THE COMPARE TAB (2026-10-16). The user: "whenever we are uploading the nesting done manually by the customer, can you
@@ -21,6 +23,12 @@ import { PlateDiagram } from './PlateDiagram';
  * only reads it: running → the progress; done → both sides, the difference, per thickness, and the plates drawn. Pieces the
  * upload left over are in neither side and said apart. Taking our nesting instead is not offered here (the upload stays the
  * saved nesting). If the server's start was lost (a restart in the moment after the save) the tab starts it once itself.
+ *
+ * AI'S NESTING STORED BESIDE THE CUSTOMER'S (§87, the user 2026-10-18): the run above IS the line's alternative, kept
+ * beside the upload. "Make AI's nesting the main one" swaps them — AI's plates are saved on the line and the customer's
+ * are kept — and "Switch back to the customer's nesting" brings the customer's back exactly as they were. Both go through
+ * the plate-change gate (the before / after sheet; a request when a PO covers the line and approval is on) and stop
+ * once the line has a production order. The confirm says what changes first (lib/nesting.swapPlan).
  */
 
 const POLL_MS = 2000;
@@ -59,11 +67,15 @@ function PlateList({ title, plates, nests, openKey, onOpen, testid }: {
   );
 }
 
-export function NestCompareTab({ orderId, lineId, version = 0 }: {
+export function NestCompareTab({ orderId, lineId, version = 0, canManage = false, onSwapped }: {
   orderId: number;
   lineId: number;
   /** Bumped when the line's nesting is saved again (an upload, an approval): read again. */
   version?: number;
+  /** May swap which nesting is the main one (orders manage). */
+  canManage?: boolean;
+  /** A swap saved: the Nesting tab reads the line's plates again. */
+  onSwapped?: () => void;
 }) {
   const [data, setData] = useState<CompareAnswer | null>(null);
   const [error, setError] = useState<CfApiError | null>(null);
@@ -71,6 +83,10 @@ export function NestCompareTab({ orderId, lineId, version = 0 }: {
   const [receivedAt, setReceivedAt] = useState(() => Date.now());
   const [busy, setBusy] = useState<'start' | 'stop' | 'cancel' | null>(null);
   const [openPlate, setOpenPlate] = useState<string | null>(null);
+  const [swapOpen, setSwapOpen] = useState(false);
+  const [swapBusy, setSwapBusy] = useState(false);
+  const [swapDone, setSwapDone] = useState<string | null>(null);
+  const plateChange = usePlateChange();
   const alive = useRef(true);
   // The tab starts our run itself at most once per opening (when the server's own start was lost).
   const healed = useRef(false);
@@ -136,6 +152,21 @@ export function NestCompareTab({ orderId, lineId, version = 0 }: {
   const cancel = async () => {
     setBusy('cancel'); setError(null);
     try { await cancelNestCompare(orderId, lineId); await load(true); } catch (e) { setError(e as CfApiError); } finally { setBusy(null); }
+  };
+
+  const plan = useMemo(() => swapPlan(data, plateChange.data?.gate ?? null), [data, plateChange.data]);
+  const swap = async () => {
+    setSwapBusy(true); setError(null); setSwapDone(null);
+    try {
+      const out = await plateChange.submit(plan.label, (f) => swapNestAlternative(orderId, lineId, plan.to, plan.to === 'ai' ? data?.auto.runId ?? null : null, f));
+      setSwapOpen(false);
+      // null: sent for approval (or no reason was given) — nothing changed yet.
+      if (!out) return;
+      setSwapDone(out.message);
+      await load(true);
+      cfApi.get<NestingPlan>(path).then((p) => { if (alive.current) setSaved(p); }).catch(() => undefined);
+      onSwapped?.();
+    } catch (e) { setError(e as CfApiError); } finally { setSwapBusy(false); }
   };
 
   const auto = data?.auto;
@@ -205,6 +236,18 @@ export function NestCompareTab({ orderId, lineId, version = 0 }: {
               <Typography data-testid="compare-tab-ran" sx={{ fontSize: 12.5, color: 'var(--c-text-2)' }}>{autoRanLine(auto)}</Typography>
             </Box>
           )}
+          {/* §87: which nesting is the main one, and the swap. */}
+          {hasRun && plan.show && (
+            <Box data-testid="compare-tab-swap" data-main={data.alternative?.main ?? 'uploaded'} sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap', minWidth: 0 }}>
+              <Badge family={data.alternative?.main === 'ai' ? 'info' : 'neutral'} noIcon label={plan.mainLabel} />
+              {canManage && (
+                <Button size="small" variant="outlined" data-testid="compare-tab-swap-button" disabled={!plan.ok || busy != null || swapBusy || running}
+                  onClick={() => { setSwapDone(null); setSwapOpen(true); }}>{plan.label}</Button>
+              )}
+              {plan.why && <Typography data-testid="compare-tab-swap-why" sx={{ fontSize: 12.5, color: 'var(--c-text-2)', overflowWrap: 'anywhere' }}>{plan.why}</Typography>}
+            </Box>
+          )}
+          {swapDone && <Alert severity="success" data-testid="compare-tab-swap-done" onClose={() => setSwapDone(null)}>{swapDone}</Alert>}
           {unlike && (
             <Alert severity="warning" data-testid="compare-tab-unlike">
               {`The two sides do not hold the same pieces (${data.likeForLike?.uploadedPieces} and ${data.likeForLike?.autoPieces}). Read the figures with care.`}
@@ -267,8 +310,25 @@ export function NestCompareTab({ orderId, lineId, version = 0 }: {
           <PlateList title="Customer's" testid="compare-tab-plates-customer" plates={upPlates} nests={upPlates.map((p) => savedNests.find((n) => n.id === p.lotId))} openKey={openPlate} onOpen={setOpenPlate} />
           <PlateList title="By AI" testid="compare-tab-plates-ours" plates={autoPlates} nests={autoPlates.map((p) => autoNests.find((n) => n.lotNo === p.lotNo))} openKey={openPlate} onOpen={setOpenPlate} />
         </Box>
-        {hasRun && <Box sx={{ mt: 1 }}><Badge family="neutral" noIcon label="The upload stays the saved nesting" /></Box>}
+        {hasRun && <Box sx={{ mt: 1 }}><Badge family="neutral" noIcon label={data.alternative ? plan.mainLabel : 'The upload stays the saved nesting'} /></Box>}
       </SectionCard>
+
+      <Dialog open={swapOpen} onClose={swapBusy ? undefined : () => setSwapOpen(false)} maxWidth="sm" fullWidth data-testid="compare-tab-swap-dialog">
+        <DialogHeader title={plan.title} subtitle={plan.mainLabel} onClose={() => setSwapOpen(false)} busy={swapBusy} />
+        <DialogContent>
+          <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 1, minWidth: 0 }}>
+            {plan.onOrder && <Alert severity="warning" data-testid="compare-tab-swap-po">{plan.onOrder}</Alert>}
+            <Box component="ul" data-testid="compare-tab-swap-lines" sx={{ m: 0, pl: 2.5, display: 'grid', gap: 0.5, fontSize: 13.5, overflowWrap: 'anywhere' }}>
+              {plan.lines.filter((l) => l !== plan.onOrder).map((l) => <li key={l}>{l}</li>)}
+            </Box>
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setSwapOpen(false)} disabled={swapBusy}>Cancel</Button>
+          <Button variant="contained" data-testid="compare-tab-swap-confirm" onClick={() => { void swap(); }} disabled={swapBusy || !plan.ok}
+            startIcon={swapBusy ? <CircularProgress size={14} color="inherit" /> : undefined}>{swapBusy ? 'Saving…' : plan.confirm}</Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }

@@ -1,5 +1,5 @@
 import type {
-  AcceptanceView, ChargeRow, LumpSumRow, MilestoneRow, StageRow, TermTemplate, Terms, Trigger, TriggerType,
+  AcceptanceView, ChargeBasis, ChargeRow, LumpSumRow, ScrapOf, MilestoneRow, StageRow, TermTemplate, Terms, Trigger, TriggerType,
 } from '../api/acceptance';
 
 /**
@@ -18,6 +18,34 @@ export function newKey(prefix: string, rows: { key: string }[]): string {
 
 export const blankCharge = (rows: ChargeRow[]): ChargeRow => ({ key: newKey('c', rows), label: '', operationId: null, basis: { type: 'weight', weight: 'drawing' }, rate: null, billing: 'pro_rata' });
 export const blankLumpSum = (rows: LumpSumRow[]): LumpSumRow => ({ key: newKey('l', rows), label: '', amount: null });
+/**
+ * SCRAP & OFFCUTS (2026-10-18): the optional charge for the steel the nesting leaves over — scrap kg × rate (default),
+ * offcut kg × rate or a % of the material. It passes the cutting operation when the company has one.
+ */
+export const blankScrapCharge = (rows: ChargeRow[], operations: { id: number; name: string }[] = []): ChargeRow => ({
+  key: newKey('c', rows), label: 'Scrap & offcuts',
+  operationId: operations.find((o) => /cut|plasma|profil/i.test(o.name))?.id ?? null,
+  basis: { type: 'scrap', of: 'scrap' }, rate: null, billing: 'pro_rata',
+});
+export const SCRAP_BASIS_WORDS: Record<ScrapOf, string> = { scrap: 'Scrap kg × rate', offcut: 'Offcut kg × rate', material_pct: '% of the material' };
+/** A charge's basis in words (Approvals, the step's summary). */
+export function chargeBasisText(b: ChargeBasis | null | undefined): string {
+  if (!b) return '—';
+  if (b.type === 'formula') return `${b.expression} (${b.unit})`;
+  if (b.type === 'scrap') return `Scrap & offcuts — ${SCRAP_BASIS_WORDS[b.of] ?? b.of}`;
+  return b.weight === 'actual' ? 'Actual weight' : 'Weight as per drawing';
+}
+/** What the rate is per: "t", "m²", "kg", "%". */
+export function chargeRateUnit(b: ChargeBasis | null | undefined): string {
+  if (b?.type === 'formula') return b.unit || 'unit';
+  if (b?.type === 'scrap') return b.of === 'material_pct' ? '%' : 'kg';
+  return 't';
+}
+/** "₹120 / kg", "5 %". */
+export function chargeRateText(rate: number | null | undefined, b: ChargeBasis | null | undefined, money: (n: number) => string): string {
+  if (rate == null) return '—';
+  return b?.type === 'scrap' && b.of === 'material_pct' ? `${rate} % of material` : `${money(rate)} / ${chargeRateUnit(b)}`;
+}
 export const blankMilestone = (rows: MilestoneRow[]): MilestoneRow => ({ key: newKey('m', rows), label: '', kind: 'percent', value: null, trigger: { type: 'order_accepted' }, proRata: false, creditDays: 30 });
 export const blankStage = (rows: StageRow[]): StageRow => ({ key: newKey('s', rows), name: '' });
 

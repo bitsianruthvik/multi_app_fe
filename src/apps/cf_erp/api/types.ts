@@ -1,6 +1,7 @@
 import type { PriceBasis, StockOwner } from './money';
 import type { GstRegistration, LineTax, OrderTax, PurchaseTax } from './gst';
 import type { CutFrom, CutFromAnswer, CutRef, CutStockAnswer } from './cutting';
+import type { OrderValue } from '../lib/orderValue';
 /** Shapes returned by the cf_erp backend (apps/cf_erp/services). */
 
 export type DataType = 'number' | 'text' | 'boolean' | 'date' | 'option' | 'table';
@@ -594,6 +595,7 @@ export interface SalesOrderLine {
 }
 
 export interface OrderTotal extends Partial<OrderTax> { amount: number; complete: boolean; unpricedLines: number[]; unmeasuredLines: number[] }
+export type { OrderValue } from '../lib/orderValue';
 
 export interface SalesOrder {
   id: number;
@@ -611,8 +613,10 @@ export interface SalesOrder {
   deliveryAddress: string | null;
   notes: string | null;
   lineCount?: number;
-  /** The order's total so far: what is priced, and which lines are not (yet). */
+  /** The order's total so far: what is priced, and which lines are not (yet). The ESTIMATE from the line rates. */
   total?: OrderTotal;
+  /** ONE order value (2026-10-18, orderValueService): the accepted terms once they exist, else the estimate above. */
+  value?: OrderValue;
   overdue: boolean;
   allowedTransitions: OrderStatus[];
   createdAt: string;
@@ -1244,7 +1248,9 @@ export interface PurchaseOrderRow {
   expectedDate: string | null;
   orderedAt: string | null;
   createdAt: string;
-  totals: { lines: number; ordered: number; received: number; outstanding: number; amount?: number; amountReceived?: number; unpricedLines?: number; tax?: number | null; gross?: number | null };
+  totals: { lines: number; ordered: number; received: number; outstanding: number; amount?: number; amountReceived?: number; unpricedLines?: number; tax?: number | null; gross?: number | null;
+    /** Lines whose item has no GST rate — left out of the GST (2026-10-18). */
+    noGstLines?: number; taxComplete?: boolean };
 }
 
 export interface PurchaseOrder extends PurchaseOrderRow {

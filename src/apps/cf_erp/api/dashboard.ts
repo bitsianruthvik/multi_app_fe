@@ -139,6 +139,8 @@ export interface DashOrder {
   material: { requirements: number; items: number; fullyIssued: number; covered: number; inStock: number; onOrder: number; toBuy: number; short: ShortMaterial[] };
   money: {
     value: number | null; valueComplete: boolean; unpricedLines: number[];
+    /** ONE order value (2026-10-18): 'accepted' | 'awaiting_approval' | 'estimate' | 'none', its words, the line-rate estimate. */
+    valueBasis?: string; valueLabel?: string; estimate?: number | null; differs?: boolean;
     invoiced: number; invoicedCount: number; draftInvoices: number;
     materialCost: number; materialUncostedRows: number;
   } | null;

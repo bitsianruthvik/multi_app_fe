@@ -11,6 +11,7 @@ import { invalidateNavCounts } from '../hooks/useNavCounts';
 import { appPath } from '../navMeta';
 import { Badge, DangerBadge, EmptyState, ErrorNotice, ListSkeleton, Mono, PageHeader } from '../components/ui';
 import { StageChecklist } from '../components/Acceptance/StageChecklist';
+import { OrderValueText } from '../components/OrderValueText';
 import { useToast } from '../components/toastContext';
 
 const linkSx = { color: 'inherit', textDecoration: 'none', '&:hover': { color: 'var(--c-primary-700)', textDecoration: 'underline' } };
@@ -36,6 +37,7 @@ function Card({ c, canTick, onChanged }: { c: BoardCard; canTick: boolean; onCha
       </Box>
       <Typography sx={{ fontSize: 13, fontWeight: 500, overflowWrap: 'anywhere' }}>{c.customer ?? '—'}{c.title ? ` · ${c.title}` : ''}</Typography>
       <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)' }}>{c.committedDate ? `Due ${c.committedDate}` : 'No committed date'} · {c.facts.lines} line{c.facts.lines === 1 ? '' : 's'}</Typography>
+      {c.value && c.value.amount != null && <Box data-testid="board-value" sx={{ fontSize: 12 }}><OrderValueText value={c.value} compact /></Box>}
       {c.lane === 'inquiry' && a?.status === 'rejected' && <Typography sx={{ fontSize: 12, color: 'var(--c-danger-700)' }}>Sent back{a.note ? `: ${a.note}` : ''}</Typography>}
       {c.lane === 'pending_approval' && <Typography sx={{ fontSize: 12, color: 'var(--c-text-2)' }}>Acceptance v{a?.version} waits for Management</Typography>}
       {c.lane === 'material' && <Typography sx={{ fontSize: 12, color: c.facts.materialInPlace ? 'var(--c-success-700)' : 'var(--c-text-2)' }}>{c.facts.materialInPlace ? 'All material in place' : c.facts.material}</Typography>}

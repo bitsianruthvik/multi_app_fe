@@ -175,7 +175,7 @@ function OrderCard({ o, year, withMoney, window, view }: { o: DashOrder; year: s
           {withMoney && o.money && (
             <Box sx={{ mt: 0.5 }}>
               <MiniHead>Money (before tax)</MiniHead>
-              <Box>Value <b>{rupeeText(o.money.value, 0, 'not priced')}</b>{!o.money.valueComplete && o.money.value != null ? ' (part)' : ''}</Box>
+              <Box data-testid="order-money-value">Value <b>{rupeeText(o.money.value, 0, 'not priced')}</b>{o.money.value != null && o.money.valueLabel ? ` ${o.money.valueLabel}` : !o.money.valueComplete && o.money.value != null ? ' (part)' : ''}{o.money.differs && o.money.estimate != null ? ` · estimate ${rupeeText(o.money.estimate)}` : ''}</Box>
               <Box>Invoiced {rupeeText(o.money.invoiced)}{o.money.draftInvoices ? ` · ${o.money.draftInvoices} draft` : ''}</Box>
               <Box>Material issued {rupeeText(o.money.materialCost)}{o.money.materialUncostedRows ? ' + some not costed' : ''}</Box>
             </Box>

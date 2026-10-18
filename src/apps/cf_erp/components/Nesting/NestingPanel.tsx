@@ -62,6 +62,7 @@ import { LineDrawingContext } from '../../hooks/lineDrawingContext';
 import { PlateChangeProvider, PlateChangesPanel } from './PlateChange';
 import { usePlateChange } from './plateChangeContext';
 import { NestCompareTab } from './NestCompareTab';
+import { getNestAlternative } from '../../api/nesting';
 
 /**
  * THE NESTING SCREEN — a sales order line's cut pieces laid out on real plates.
@@ -1292,11 +1293,22 @@ export function NestingPanel(props: {
   // THE COMPARE TAB (2026-10-16): once a customer's nesting is saved, our own Standard nesting of the same pieces runs
   // in the background on the server, and this tab shows the two side by side. The Nesting tab stays mounted while the
   // Compare tab is open (display none), so a proposal under review or a run being watched is not lost.
-  const [uploaded, setUploaded] = useState(false);
+  const [hasUpload, setUploaded] = useState(false);
+  // §87 (2026-10-18): AI's nesting made the MAIN one — no customer's plate is saved on the line, but the comparison (and
+  // "Switch back") still lives on the Compare tab. One light read, again after every save.
+  const [aiMain, setAiMain] = useState(false);
   const [tab, setTab] = useState<'nesting' | 'compare'>(() => readTab(props.lineId));
   const [compareVersion, setCompareVersion] = useState(0);
   const pick = (t: 'nesting' | 'compare') => { setTab(t); writeTab(props.lineId, t); };
   const nestingSaved = useCallback(() => setCompareVersion((v) => v + 1), []);
+  useEffect(() => {
+    let live = true;
+    getNestAlternative(props.orderId, props.lineId).then((a) => { if (live) setAiMain(a.main === 'ai' && a.valid); }).catch(() => { if (live) setAiMain(false); });
+    return () => { live = false; };
+  }, [props.orderId, props.lineId, version, compareVersion]);
+  // A swap saved on the Compare tab: the plates on the Nesting tab are other plates now.
+  const swapped = useCallback(() => { setVersion((v) => v + 1); onChanged?.(); }, [onChanged]);
+  const uploaded = hasUpload || aiMain;
   const showCompare = uploaded && tab === 'compare';
   return (
     <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 2, minWidth: 0 }}>
@@ -1315,7 +1327,11 @@ export function NestingPanel(props: {
         </LineDrawingContext.Provider>
         <SectionNestingPanel orderId={props.orderId} lineId={props.lineId} canManage={props.canManage} onChanged={props.onChanged} />
       </Box>
-      {showCompare && <NestCompareTab orderId={props.orderId} lineId={props.lineId} version={version + compareVersion} />}
+      {showCompare && (
+        <PlateChangeProvider orderId={props.orderId} lineId={props.lineId} onChanged={decided}>
+          <NestCompareTab orderId={props.orderId} lineId={props.lineId} version={version + compareVersion} canManage={props.canManage} onSwapped={swapped} />
+        </PlateChangeProvider>
+      )}
     </Box>
   );
 }

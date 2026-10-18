@@ -9,7 +9,8 @@ import ArrowForwardRounded from '@mui/icons-material/ArrowForwardRounded';
 import DownloadRounded from '@mui/icons-material/DownloadRounded';
 import InfoOutlined from '@mui/icons-material/InfoOutlined';
 import { CfApiError } from '../../api/client';
-import { loadLock, lockLine, type LockCheck, type LockView } from '../../api/lock';
+import { loadLock, lockLine, type LockCheck, type LockFlowRow, type LockView } from '../../api/lock';
+import { GiveFlowDialog } from './GiveFlowDialog';
 import type { PieceCodesPreview } from '../../api/pieceCodes';
 import type { OrderStage } from '../../api/types';
 import { useLoad } from '../../hooks/useLoad';
@@ -68,7 +69,7 @@ function Callout({ tone, icon, children }: { tone: 'success' | 'info' | 'warning
 }
 
 /** One check: a mark that is never colour alone, what it looked at, what it found, and what to do. */
-function CheckRow({ check, stageLabel, onGo }: { check: LockCheck; stageLabel: string | null; onGo: (() => void) | null }) {
+function CheckRow({ check, stageLabel, onGo, action }: { check: LockCheck; stageLabel: string | null; onGo: (() => void) | null; action?: ReactNode }) {
   const [all, setAll] = useState(false);
   // A warning-only check never holds the freeze up: it is shown, in the same amber, as a heads-up.
   const state = !check.applies ? 'na' : check.warning && (!check.ok || (check.problems?.length ?? 0) > 0) ? 'warn' : check.ok ? 'ok' : 'todo';
@@ -103,9 +104,10 @@ function CheckRow({ check, stageLabel, onGo }: { check: LockCheck; stageLabel: s
             </Button>
           </Box>
         )}
-        {(state === 'todo' || state === 'warn') && (check.todo || onGo) && (
+        {(state === 'todo' || state === 'warn') && (check.todo || onGo || action) && (
           <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap', mt: 0.25 }}>
             {check.todo && <Typography sx={{ fontSize: 13, color: 'var(--c-text)', flex: '1 1 240px', minWidth: 0 }}>{check.todo}</Typography>}
+            {action}
             {onGo && stageLabel && (
               <Button size="small" variant="outlined" endIcon={<ArrowForwardRounded />} onClick={onGo}>Go to {stageLabel}</Button>
             )}
@@ -217,6 +219,8 @@ export function LockPanel({ lineId, lineNo, quantity, canManage, stages, onGoSta
   const toast = useToast();
   const { data: view, error, loading, reload } = useLoad(() => loadLock(lineId), [lineId]);
   const [confirming, setConfirming] = useState(false);
+  /** The made rows with no flow, while "Give them a flow" is open. */
+  const [giveFlow, setGiveFlow] = useState<LockFlowRow[] | null>(null);
   const [round, setRound] = useState(0);
   // A folded stage (Values) is checked on its host's tab (Structure), so that is where "Go to" goes and what it says.
   const stageLabel = (key?: string) => (key ? stages.find((s) => s.stageKey === tabFor(key, stages))?.label ?? null : null);
@@ -243,6 +247,7 @@ export function LockPanel({ lineId, lineNo, quantity, canManage, stages, onGoSta
       : `Line position ${pos.text} — the ${ordinal(pos.value)} of the ${plural(pos.lines, 'line')} selling this design on ${view.line.orderCode}.`
     : null;
   const failing = view.checks.filter((ch) => ch.applies && !ch.ok && !ch.warning).length;
+  const noFlowRows = view.checks.find((ch) => ch.key === 'flows')?.rows ?? null;
 
   const lock = async () => {
     const out = await lockLine(lineId);
@@ -296,7 +301,11 @@ export function LockPanel({ lineId, lineNo, quantity, canManage, stages, onGoSta
         <Box component="ul" aria-label="What freezing checks" sx={{ listStyle: 'none', m: 0, p: 0, borderTop: '1px solid var(--c-divider)' }}>
           {view.checks.map((ch) => {
             const label = stageLabel(ch.stageKey);
-            return <CheckRow key={ch.key} check={ch} stageLabel={label} onGo={label && ch.stageKey ? () => onGoStage(ch.stageKey as string) : null} />;
+            // Made rows with no flow: a heads-up only, with a one-click way to give them one (release asks for it).
+            const action = ch.key === 'flows' && canManage && ch.rows?.length
+              ? <Button size="small" variant="contained" data-testid="give-flow" onClick={() => setGiveFlow(ch.rows ?? [])}>Give them a flow</Button>
+              : undefined;
+            return <CheckRow key={ch.key} check={ch} stageLabel={label} action={action} onGo={label && ch.stageKey ? () => onGoStage(ch.stageKey as string) : null} />;
           })}
         </Box>
         {failing > 0 && (
@@ -334,8 +343,13 @@ export function LockPanel({ lineId, lineNo, quantity, canManage, stages, onGoSta
             <li>The structure, the values and the cut pieces stop changing.</li>
             <li>Nesting picks the plates for these pieces; buying and production carry on from there.</li>
             <li>A change after this means a new revision of the order.</li>
+            {(noFlowRows?.length ?? 0) > 0 && (
+              <li data-testid="freeze-no-flow">{plural(noFlowRows?.length ?? 0, 'made row')} still {noFlowRows?.length === 1 ? 'has' : 'have'} no flow — release will ask for {noFlowRows?.length === 1 ? 'it' : 'them'}. A row with no flow can still be given one after the freeze.</li>
+            )}
           </Box>
         )} />
+      <GiveFlowDialog open={!!giveFlow} lineId={lineId} rows={giveFlow ?? []} onClose={() => setGiveFlow(null)}
+        onDone={(n) => { toast.success(`${plural(n, 'row')} given a flow.`); reload(); onChanged(); }} />
     </Box>
   );
 }

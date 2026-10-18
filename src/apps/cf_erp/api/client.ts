@@ -38,7 +38,7 @@ function toCfError(err: unknown, method: Method = 'GET'): CfApiError {
   const text = err instanceof Error ? err.message : String(err);
   const m = /^API request failed: (\d{3})[^-]*- ([\s\S]*)$/.exec(text);
   if (!m) {
-    if (!text.includes('timed out')) return new CfApiError(0, 'Could not reach the server.');
+    if (!text.includes('timed out')) return new CfApiError(0, 'Could not reach the server. It may be restarting — try again in a few seconds.');
     return new CfApiError(0, method === 'GET' ? TIMED_OUT_READ : TIMED_OUT_WRITE, 'TIMED_OUT');
   }
   const status = Number(m[1]);
@@ -73,16 +73,40 @@ export interface CallOptions {
   responseType?: 'json' | 'blob';
 }
 
+/**
+ * A READ THAT FAILED FOR A MOMENT IS ASKED AGAIN, ONCE (2026-10-18). On production a read could
+ * meet a database connection the server had just closed ("Record payment" opened on "Something
+ * went wrong" and worked on the second click), or the instance being replaced ("Could not reach the
+ * server"). A GET changes nothing, so it is sent once more after a short pause before the screen
+ * hears of it; a write is never repeated here (it may have landed). A timeout is not retried — the
+ * server was there, just slow, and a second wait would double it. A plain 500 is NOT retried: the
+ * server answered, and a read is not always without effect. The database hang-up comes as a 503
+ * DB_CONNECTION_LOST since the backend's fix (lib/errors.translateDbError), and that is retried.
+ */
+export const GET_RETRY_DELAY_MS = 800;
+export function isRetryableRead(method: Method, e: CfApiError): boolean {
+  if (method !== 'GET' || e.code === 'TIMED_OUT') return false;
+  return e.status === 0 || e.status === 502 || e.status === 503 || e.status === 504;
+}
+
 async function call<T>(method: Method, path: string, body?: unknown, opts: CallOptions = {}): Promise<T> {
+  const once = () => apiFetch<T>(`${base()}${path}`, {
+    method,
+    body,
+    ...(opts.timeoutMs ? { timeout: opts.timeoutMs } : {}),
+    ...(opts.responseType ? { responseType: opts.responseType } : {}),
+  });
   try {
-    return await apiFetch<T>(`${base()}${path}`, {
-      method,
-      body,
-      ...(opts.timeoutMs ? { timeout: opts.timeoutMs } : {}),
-      ...(opts.responseType ? { responseType: opts.responseType } : {}),
-    });
+    return await once();
   } catch (err) {
-    throw toCfError(err, method);
+    const first = toCfError(err, method);
+    if (!isRetryableRead(method, first)) throw first;
+    await new Promise((r) => setTimeout(r, GET_RETRY_DELAY_MS));
+    try {
+      return await once();
+    } catch (again) {
+      throw toCfError(again, method);
+    }
   }
 }
 

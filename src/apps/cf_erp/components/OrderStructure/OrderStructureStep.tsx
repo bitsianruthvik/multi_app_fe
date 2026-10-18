@@ -111,7 +111,9 @@ export function OrderStructureStep({ order, view, onOrderSaved, onChanged, onGoC
   return (
     <FullScreenFrame on={full.on} onExit={() => full.set(false)}>
       <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 1.25, minWidth: 0 }} data-testid="structure-step">
-        <SectionCard title="Structure & values"
+        {/* overflow clip, not the card's usual hidden: hidden makes the card the scroller of every line's sticky
+            "Save N changes" bar, which then never sticks and ran below a short window (walkthrough step 11). */}
+        <SectionCard title="Structure & values" sx={{ overflow: 'clip' }}
           subtitle={lines.length
             ? `${lines.length === 1 ? 'The line' : `All ${lines.length} lines`} of the order, each with its parts and values. Fill the amber cells.`
             : 'Add the lines of the order. Each one gets its parts and values here.'}
@@ -121,7 +123,7 @@ export function OrderStructureStep({ order, view, onOrderSaved, onChanged, onGoC
               {lines.length > 1 && (
                 <>
                   <Tooltip title="Open every line"><IconButton size="small" aria-label="Open every line" onClick={() => setOpen(new Set(lines.map((l) => l.id)))}><UnfoldMoreRounded fontSize="small" /></IconButton></Tooltip>
-                  <Tooltip title="Fold every line"><IconButton size="small" aria-label="Fold every line" onClick={() => setOpen(new Set())}><UnfoldLessRounded fontSize="small" /></IconButton></Tooltip>
+                  <Tooltip title="Fold every line"><IconButton size="small" aria-label="Fold every line" data-guard-line="all" onClick={() => setOpen(new Set())}><UnfoldLessRounded fontSize="small" /></IconButton></Tooltip>
                 </>
               )}
               <FullScreenToggle on={full.on} onToggle={full.toggle} />
@@ -156,7 +158,7 @@ export function OrderStructureStep({ order, view, onOrderSaved, onChanged, onGoC
                 return (
                   <Box key={l.id} data-testid={`line-group-${l.lineNo}`} sx={{ border: '1px solid var(--c-border)', borderRadius: 'var(--r-md)', minWidth: 0 }}>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 1, py: 0.5, flexWrap: 'wrap', background: 'var(--c-surface-2)', borderBottom: isOpen ? '1px solid var(--c-border)' : 'none', borderRadius: isOpen ? 'var(--r-md) var(--r-md) 0 0' : 'var(--r-md)' }}>
-                      <IconButton size="small" onClick={() => toggle(l.id)} aria-expanded={isOpen} aria-label={`${isOpen ? 'Fold' : 'Open'} line ${l.lineNo}`} data-testid={`line-toggle-${l.lineNo}`}>
+                      <IconButton size="small" onClick={() => toggle(l.id)} aria-expanded={isOpen} data-guard-line={isOpen ? l.id : undefined} aria-label={`${isOpen ? 'Fold' : 'Open'} line ${l.lineNo}`} data-testid={`line-toggle-${l.lineNo}`}>
                         <ChevronRightRounded sx={{ fontSize: 18, transform: isOpen ? 'rotate(90deg)' : 'none', transition: 'transform var(--t-fast) var(--ease)' }} />
                       </IconButton>
                       <Mono muted>Line {l.lineNo}</Mono>
@@ -227,7 +229,7 @@ export function OrderStructureStep({ order, view, onOrderSaved, onChanged, onGoC
               {toStandard.map((l) => <Button key={l.id} size="small" onClick={() => setStandardOf(l)} data-testid={`offer-standard-${l.lineNo}`}>Save line {l.lineNo} as a standard drawing</Button>)}
             </Box>
           )}
-          {order.total && lines.length > 0 && <OrderTotalBar total={order.total} lineCount={lines.length} />}
+          {order.total && lines.length > 0 && <OrderTotalBar total={order.total} lineCount={lines.length} value={order.value} />}
         </SectionCard>
       </Box>
 

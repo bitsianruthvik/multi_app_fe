@@ -37,6 +37,12 @@ function SheetFoot({ sheet }: { sheet: CostSheet }) {
         <Mono sx={{ fontWeight: 600, fontSize: 14 }}>{rupeeText(sheet.margin)}{sheet.marginPct != null ? ` · ${sheet.marginPct}%` : ''}</Mono>
         <Button size="small" component={Link} to={appPath(company, `order-costing?order=${sheet.order.id}`)}>Open the cost sheet</Button>
       </Box>
+      {/* Never ₹0 silently (2026-10-18): what is not costed, with where to fix it. */}
+      {(sheet.scrapOffcuts?.flags ?? []).map((f, i) => (
+        <Typography key={i} data-testid="order-cost-flag" sx={{ fontSize: 12.5, color: 'var(--c-warning-800)', textAlign: 'right' }}>
+          {f.message}{f.fix && <> <Box component={Link} to={appPath(company, f.fix.to)} sx={{ color: 'inherit' }}>{f.fix.label}</Box></>}
+        </Typography>
+      ))}
     </Box>
   );
 }
@@ -96,8 +102,10 @@ export function OrderCostsCard({ order }: { order: SalesOrder }) {
     }] : []),
   ];
   const total = order.total;
+  // ONE order value (2026-10-18): the terms sent / accepted once they exist, else the line-rate estimate.
+  const value = order.value?.amount ?? total?.amount;
   const material = t.issuedValue + loose;
-  const m = materialMargin(total?.amount, material);
+  const m = materialMargin(value, material);
   const nothingCosted = material === 0 && t.uncostedRows > 0;
   // Before anything is issued there is no margin to show — a 100% would read as a result.
   const nothingIssued = material === 0 && t.uncostedRows === 0;
@@ -106,8 +114,8 @@ export function OrderCostsCard({ order }: { order: SalesOrder }) {
       <DataTable bare rows={c.lines} columns={columns} getRowId={(l) => l.line.id} storageKey="order-costs" />
       {s?.hasTerms ? <SheetFoot sheet={s} /> : <Box data-testid="order-margin" sx={{ px: 2.5, py: 1.5, borderTop: '1px solid var(--c-divider)', display: 'grid', gap: 0.5, justifyItems: 'end' }}>
         <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'baseline', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-          <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>Order total {total && !total.complete ? '(not complete)' : ''}</Typography>
-          {total && total.amount > 0 ? <Mono>{rupeeText(total.amount)}</Mono> : <Money value={null} missing="not priced" />}
+          <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>Order value {order.value ? `(${order.value.label})` : total && !total.complete ? '(not complete)' : ''}</Typography>
+          {value != null && value > 0 ? <Mono>{rupeeText(value)}</Mono> : <Money value={null} missing="not priced" />}
           <Typography sx={{ fontSize: 13, color: 'var(--c-text-2)' }}>less material</Typography>
           <Money value={nothingCosted ? null : material} />
         </Box>

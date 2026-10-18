@@ -69,7 +69,7 @@ function skipWord(s: ResolvedSpec): string {
  * Temporary items are not created here: they belong to a sales order line and
  * will be created by the order and BOM screens.
  */
-export function CreateRecordDialog({ open, onClose, onCreated, recordKind, tree, initialClassificationId, copyFrom, onTreeChanged, screen }: {
+export function CreateRecordDialog({ open, onClose, onCreated, recordKind, tree, initialClassificationId, copyFrom, onTreeChanged, screen, overrideValues }: {
   open: boolean;
   onClose: () => void;
   onCreated: (r: MasterRecord) => void;
@@ -82,6 +82,8 @@ export function CreateRecordDialog({ open, onClose, onCreated, recordKind, tree,
   onTreeChanged?: () => void;
   /** The screen whose derived tree `tree` is: the picker's "Show all branches", and what a new Variant is stamped with. */
   screen?: 'items' | 'definitions';
+  /** With copyFrom: values (by spec code, upper case) that replace the copied ones — typed-in values only. */
+  overrideValues?: Record<string, string>;
 }) {
   const isItem = recordKind === 'item';
   // A selection searches CATALOG items, so its search area is picked from the
@@ -162,8 +164,17 @@ export function CreateRecordDialog({ open, onClose, onCreated, recordKind, tree,
   useEffect(() => {
     if (!open || seeded.current || !copyId || !sourceSpecs) return;
     seeded.current = true;
-    setValues(Object.fromEntries(copied.map((s) => [s.spec.id, toInputString(s.value?.raw ?? null)])));
-  }, [open, copyId, sourceSpecs, copied]);
+    const seed: Record<number, string> = Object.fromEntries(copied.map((s) => [s.spec.id, toInputString(s.value?.raw ?? null)]));
+    // Values given by the opener win over the copied ones (a new section size made like the nearest bar: its legs and
+    // thickness) — only where the value can be typed on the new record.
+    if (overrideValues) {
+      for (const s of sourceSpecs.specs) {
+        const v = overrideValues[s.spec.code.toUpperCase()];
+        if (v != null && typeable(s, sourceSpecs.mode)) seed[s.spec.id] = v;
+      }
+    }
+    setValues(seed);
+  }, [open, copyId, sourceSpecs, copied]); // eslint-disable-line react-hooks/exhaustive-deps -- overrideValues is read once, at seeding
 
   const valueList = useMemo(() => Object.entries(values).filter(([, v]) => v !== '').map(([id, v]) => ({ specificationId: Number(id), value: v })), [values]);
   const draft = useMemo(() => ({

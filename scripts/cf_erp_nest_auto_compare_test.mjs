@@ -197,7 +197,7 @@ await check('side by side: plates, steel, parts, waste WITH the offcuts, offcuts
   await mountTab();
   await waitFor(() => row('plates'), 'the rows');
   assert.deepEqual([...document.querySelectorAll('[data-testid=compare-tab-table] tbody tr')].map((r) => r.getAttribute('data-row')),
-    ['plates', 'tonnesBought', 'partsTonnes', 'waste', 'offcutKg', 'cost', 'cutLengthM', 'piercings']);
+    ['plates', 'tonnesBought', 'netTonnes', 'partsTonnes', 'waste', 'offcutKg', 'cost', 'cutLengthM', 'piercings']);   // netTonnes: §87, 2026-10-18
   assert.equal(cell('plates', 'customer'), '5');
   assert.equal(cell('plates', 'ours'), '3');
   assert.match(cell('plates', 'diff'), /^↓ 2 fewerAI is better$/);

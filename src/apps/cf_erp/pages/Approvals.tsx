@@ -12,7 +12,7 @@ import { useUrlParam } from '../hooks/useUrlState';
 import { invalidateNavCounts } from '../hooks/useNavCounts';
 import { appPath } from '../navMeta';
 import { rupeeText } from '../lib/money';
-import { triggerWords } from '../lib/acceptance';
+import { chargeBasisText, chargeRateText, triggerWords } from '../lib/acceptance';
 import { Badge, EmptyState, ErrorNotice, ListSkeleton, Mono, PageHeader, SectionCard } from '../components/ui';
 import { FacetChip, FilterBar } from '../components/FilterBar';
 import { DialogHeader } from '../components/FormDialog';
@@ -86,8 +86,9 @@ function AcceptanceBody({ ctx }: { ctx: AcceptanceContext }) {
         rows={[
           ...ctx.terms.charges.map((c) => {
             const est = e?.charges.find((x) => x.key === c.key);
-            return [c.label, c.operation, c.basis?.type === 'formula' ? `${c.basis.expression} (${c.basis.unit})` : c.basis?.weight === 'actual' ? 'Actual weight' : 'Weight as per drawing',
-              c.rate == null ? '—' : `${rupeeText(c.rate, 2)} / ${c.basis?.type === 'formula' ? c.basis.unit : 't'}`, c.billing === 'pro_rata' ? 'Pro-rata' : 'On completion', est?.amount == null ? '—' : rupeeText(est.amount)];
+            // Scrap & offcuts (2026-10-18) show their estimated kg from the nesting beside the basis.
+            const basis = chargeBasisText(c.basis) + (c.basis?.type === 'scrap' && est?.quantity != null ? ` (est. ${est.unit === '₹ material' ? rupeeText(est.quantity) : `${est.quantity} ${est.unit ?? ''}`})` : '');
+            return [c.label, c.operation, basis, chargeRateText(c.rate, c.basis, (n) => rupeeText(n, 2)), c.billing === 'pro_rata' ? 'Pro-rata' : 'On completion', est?.amount == null ? '—' : rupeeText(est.amount)];
           }),
           ...(ctx.terms.material ? [['Material', 'Lines we buy', ctx.terms.material.weight === 'actual' ? 'Actual weight' : 'Weight as per drawing', `${rupeeText(ctx.terms.material.rate ?? 0, 2)} / t`, '', e?.material ? rupeeText(e.material.amount) : '—']] : []),
           ...(ctx.terms.lumpSums ?? []).map((l) => [l.label, 'Lump sum', '', '', '', rupeeText(l.amount ?? 0)]),

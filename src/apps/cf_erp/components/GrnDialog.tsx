@@ -10,7 +10,9 @@ import { cfApi, CfApiError } from '../api/client';
 import type { Batch, PurchaseLine, PurchaseOrder, Resolution, StockingArea } from '../api/types';
 import { bookGrn, getGrnContext, type GrnBody, type GrnContext, type GrnResult } from '../api/grn';
 import { getStates, type StateRow } from '../api/gst';
-import { useLoad } from '../hooks/useLoad';
+import { useCompanySlug, useLoad } from '../hooks/useLoad';
+import { Link } from 'react-router-dom';
+import { appPath } from '../navMeta';
 import { useFullScreen } from '../hooks/useFullScreen';
 import { qtyText } from '../lib/inventory';
 import { rupeeText } from '../lib/money';
@@ -81,6 +83,7 @@ export function GrnDialog({ po, lineId, onClose, onReceived }: {
   const open = !!po;
   const full = useFullScreen('grn-dialog');
   const ctx = useLoad<GrnContext | null>(() => (po ? getGrnContext(po.id) : Promise.resolve(null)), [po?.id]);
+  const company = useCompanySlug();
   const areas = useLoad(() => cfApi.get<StockingArea[]>('/stocking-areas'), []);
   const states = useLoad<StateRow[]>(() => getStates(), []);
   // Goods from a supplier go to a STORE: a dispatch, WIP or scrap area is not where a purchase lands, and
@@ -223,6 +226,13 @@ export function GrnDialog({ po, lineId, onClose, onReceived }: {
         {!c && !ctx.error && <Box sx={{ p: 3, textAlign: 'center' }}><CircularProgress size={22} /></Box>}
         {c && (
           <Box sx={{ display: 'grid', gap: 2, pt: 0.5 }}>
+            {/* 2026-10-18: an item with no GST rate is the gap to fix once, for its whole family — not on every GRN. */}
+            {c.lines.some((x) => x.gstRate == null) && (
+              <Alert severity="info" data-testid="grn-gst-gap">
+                {c.lines.filter((x) => x.gstRate == null).length} item{c.lines.filter((x) => x.gstRate == null).length === 1 ? ' has' : 's have'} no GST rate in the catalog — pick it on the line below.{' '}
+                <Box component={Link} to={appPath(company, 'company-tax#families')} sx={{ color: 'inherit' }}>Set HSN / GST for the whole family</Box> so the next PO and GRN have it.
+              </Alert>
+            )}
             {(c.needsCompanyState || c.needsSupplierState) && (
               <Alert severity="warning" data-testid="grn-state-warning" sx={{ alignItems: 'center' }}>
                 <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'center' }}>

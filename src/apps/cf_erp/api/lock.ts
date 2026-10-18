@@ -32,7 +32,12 @@ export interface LockCheck {
   warning?: boolean;
   /** Every sentence lock would refuse with for this check. */
   problems: string[];
+  /** 'flows' (a warning): the made rows with no flow yet — what "Give them a flow" sends. */
+  rows?: LockFlowRow[];
 }
+
+/** A made row with no flow: its record, and the BOM line that holds it (null for the line's top row). */
+export interface LockFlowRow { recordId: number; lineId: number | null; name: string }
 
 export interface LockView extends Omit<PieceCodesPreview, 'released' | 'line'> {
   line: {

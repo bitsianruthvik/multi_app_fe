@@ -38,6 +38,7 @@ import { OrderCostsCard } from '../components/OrderCostsCard';
 import { CustomerMaterialPanel } from '../components/CustomerMaterialPanel';
 import { OrderCutAllowancePanel } from '../components/CutAllowance';
 import { rupeeText } from '../lib/money';
+import { OrderValueText } from '../components/OrderValueText';
 import { Explain, OrderStageTabs, ProcessAbsentChip, ProcessAbsentNote, StageTabsSkeleton } from '../components/OrderProcess/StageTabs';
 import { StageBody } from '../components/OrderProcess/StageBody';
 import { StageFoot } from '../components/OrderProcess/StageFoot';
@@ -351,8 +352,10 @@ export default function OrderDetail() {
           <Fact label="Committed"><Mono muted={!o.committedDate}>{o.committedDate ?? '—'}</Mono></Fact>
           {o.confirmedAt && <Fact label="Confirmed"><Mono muted>{new Date(o.confirmedAt).toLocaleDateString()}</Mono></Fact>}
           <Fact label="Lines"><Mono>{lines.length}</Mono></Fact>
-          {o.total && lines.length > 0 && (
-            <Fact label="Order value">{o.total.unpricedLines.length >= lines.length ? <Mono muted>not priced</Mono> : <><Mono>{rupeeText(o.total.amount)}</Mono>{!o.total.complete && <Mono muted> · not complete</Mono>}</>}</Fact>
+          {(o.value ? o.value.basis !== 'none' || lines.length > 0 : o.total && lines.length > 0) && (
+            // ONE order value (2026-10-18): accepted terms once they exist ("accepted · estimate ₹…" when the line rates
+            // say otherwise), else the estimate from the line rates, labelled so.
+            <Fact label="Order value">{o.value ? <OrderValueText value={o.value} /> : o.total!.unpricedLines.length >= lines.length ? <Mono muted>not priced</Mono> : <><Mono>{rupeeText(o.total!.amount)}</Mono> <Mono muted>estimate</Mono></>}</Fact>
           )}
         </>
       )}>
@@ -452,7 +455,7 @@ export default function OrderDetail() {
           <Box component="span" sx={{ color: 'var(--c-text-2)' }}>{o.customer ? o.customer.name : 'For stock'}</Box>
           <OrderStatusBadge status={o.status} />
           {noProcessChip}
-          {o.total && lines.length > 0 && o.total.unpricedLines.length < lines.length && <Mono>{rupeeText(o.total.amount)}</Mono>}
+          {o.value ? (o.value.amount != null && <OrderValueText value={o.value} compact />) : o.total && lines.length > 0 && o.total.unpricedLines.length < lines.length && <Mono>{rupeeText(o.total.amount)}</Mono>}
         </>
       ) }}
       // With stages the tab row above is the tabs; without, the plain ones draw here.

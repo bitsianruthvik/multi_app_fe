@@ -23,8 +23,9 @@ export function moneyStats(m: MoneyTiles, go: (path: string) => void): Stat[] {
     out.push({ label: 'Open purchase orders', value: amount, display: amount === 0 && unpriced > 0 ? 'not priced' : rupeeText(amount), hint: unpriced ? `${unpriced} line${unpriced === 1 ? ' has' : 's have'} no price and ${unpriced === 1 ? 'is' : 'are'} left out` : `${m.openPurchases.length} open, before tax`, onClick: () => go('purchase-orders') });
   }
   if (m.orderBook) {
-    const amount = m.orderBook.reduce((t, o) => t + (o.total?.amount ?? 0), 0);
-    const partial = m.orderBook.filter((o) => o.total && !o.total.complete).length;
+    // ONE order value (2026-10-18): the accepted terms where they exist, else the line-rate estimate.
+    const amount = m.orderBook.reduce((t, o) => t + (o.value ? o.value.amount ?? 0 : o.total?.amount ?? 0), 0);
+    const partial = m.orderBook.filter((o) => (o.value ? o.value.basis === 'none' || (o.value.basis === 'estimate' && !o.value.estimateComplete) : o.total && !o.total.complete)).length;
     out.push({ label: 'Order book', value: amount, display: rupeeText(amount), hint: partial ? `${partial} order${partial === 1 ? ' is' : 's are'} not fully priced` : `${m.orderBook.length} confirmed, before tax`, onClick: () => go('orders?status=confirmed') });
   }
   return out;

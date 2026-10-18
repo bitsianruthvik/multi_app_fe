@@ -1,4 +1,5 @@
 import { cfApi, qs } from './client';
+import type { OrderValue } from '../lib/orderValue';
 
 /**
  * CUSTOMER ACCEPTANCE — the sales order's confirm step (backend init.sql §73, routes/acceptance.js; contract
@@ -7,7 +8,9 @@ import { cfApi, qs } from './client';
  */
 
 export type WeightSource = 'drawing' | 'actual';
-export type ChargeBasis = { type: 'weight'; weight: WeightSource } | { type: 'formula'; expression: string; unit: string };
+/** Scrap & offcuts (2026-10-18): scrap kg × rate, offcut kg × rate, or a % of the material. */
+export type ScrapOf = 'scrap' | 'offcut' | 'material_pct';
+export type ChargeBasis = { type: 'weight'; weight: WeightSource } | { type: 'formula'; expression: string; unit: string } | { type: 'scrap'; of: ScrapOf };
 export type ChargeBilling = 'pro_rata' | 'on_completion';
 
 export interface ChargeRow {
@@ -58,12 +61,16 @@ export interface Estimate {
   tonnes: number;
   ourTonnes: number;
   unweighedLines: number[];
-  charges: { key: string; label: string; operation: string | null; quantity: number | null; unit: string | null; rate: number | null; amount: number | null; note: string | null }[];
+  charges: { key: string; label: string; operation: string | null; quantity: number | null; unit: string | null; rate: number | null; amount: number | null; note: string | null; basisKind?: 'scrap'; scrapOf?: ScrapOf; rateUnit?: string }[];
   material: { quantity: number; unit: string; rate: number; amount: number } | null;
   lumpSums: { key: string; label: string; amount: number }[];
   value: number;
   materialCost: number | null;
   materialCostNote: string;
+  /** MR materials with no price paid and no list price — "not costed, set the plate rate" (2026-10-18). */
+  materialNotCosted?: { itemId: number; code: string | null; name: string | null }[];
+  /** What the order's saved nesting leaves over (when a scrap & offcuts charge asks). */
+  waste?: { plates: number; plateKg: number; partsKg: number; scrapKg: number; offcutKg: number; kerfKg: number; unsplit: number } | null;
   marginOverMaterial: number | null;
   marginPct: number | null;
   milestones: { key: string; label: string; amount: number }[];
@@ -155,8 +162,11 @@ export interface AcceptanceView {
     dispatchModes: Record<'each' | 'all', string>;
     billing: Record<ChargeBilling, string>;
     weightSources: Record<WeightSource, string>;
+    scrapBases?: Record<ScrapOf, string>;
   };
   templates: TermTemplate[];
+  /** ONE order value (2026-10-18): what the order header shows — and the estimate from the line rates. */
+  orderValue?: OrderValue | null;
 }
 
 export interface AcceptanceDryRun { dryRun: true; terms: Terms; estimate: Estimate; problems: string[]; changes: string[] }
@@ -187,6 +197,8 @@ export interface BoardCard {
   lane: BoardLaneKey;
   committedDate: string | null;
   overdue: boolean;
+  /** ONE order value (2026-10-18): accepted terms, else the estimate from the line rates. */
+  value?: OrderValue | null;
   facts: {
     lines: number; released: number; dispatched: string; material: string; materialInPlace: boolean;
     acceptance: { status: string; version?: number; note?: string | null } | null;

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Box, Dialog, DialogContent, DialogTitle, TextField, Typography } from '@mui/material';
 import { Link } from 'react-router-dom';
 import CalculateRounded from '@mui/icons-material/CalculateRounded';
-import { getCosting, getCostSheet, type CostRow, type CostSheet } from '../api/accounts';
+import { getCosting, getCostSheet, type CostRow, type CostSheet, type ScrapOffcuts } from '../api/accounts';
 import { useCompanySlug, useLoad } from '../hooks/useLoad';
 import { useUrlParam } from '../hooks/useUrlState';
 import { useFullScreen } from '../hooks/useFullScreen';
@@ -16,6 +16,42 @@ import { DialogCloseButton } from '../components/FormDialog';
 
 const linkSx = { color: 'inherit', textDecoration: 'none', '&:hover': { color: 'var(--c-primary-700)', textDecoration: 'underline' } };
 const KIND_WORD: Record<string, string> = { material: 'Material', consumable: 'Consumable', customer: 'Customer\'s (₹0)', scrap: 'Scrap (credit)', offcut: 'Offcut (credit)' };
+
+const kg = (n: number | null | undefined) => (n == null ? '—' : `${Number(Number(n).toFixed(1)).toLocaleString('en-IN')} kg`);
+
+/**
+ * SCRAP & OFFCUTS (2026-10-18): what the order actually left (scrap into the scrap area, offcut lots cut from its plates)
+ * against what the acceptance charges the customer for them — and every figure valued at nothing, with where to fix it.
+ */
+export function ScrapOffcutsBlock({ so }: { so: ScrapOffcuts }) {
+  const company = useCompanySlug();
+  const a = so.actual;
+  return (
+    <Box data-testid="cs-scrap-offcuts">
+      <Typography sx={{ fontSize: 13, fontWeight: 600, mb: 0.5 }}>Scrap and offcuts</Typography>
+      <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto auto', columnGap: 2, rowGap: 0.3, fontSize: 13 }}>
+        <span>Scrap (into the scrap area)</span><Mono muted>{kg(a.scrapKg)}</Mono>
+        <span data-testid="cs-scrap-value">{a.scrapKg > 0 && so.ratePerKg == null ? <Box component="span" sx={{ color: 'var(--c-warning-800)' }}>not costed</Box> : <Mono>{rupeeText(a.scrapValue, 2)}</Mono>}</span>
+        <span>Offcuts kept ({a.offcutLots} lot{a.offcutLots === 1 ? '' : 's'})</span><Mono muted>{kg(a.offcutKg)}</Mono><Mono>{rupeeText(a.offcutValue, 2)}</Mono>
+      </Box>
+      {so.charges.length > 0 ? so.charges.map((c) => (
+        <Typography key={c.key} data-testid="cs-scrap-charge" sx={{ fontSize: 12.5, color: 'var(--c-text-2)', mt: 0.5 }}>
+          Charged to the customer — {c.label}: {c.of === 'material_pct' ? `${c.rate ?? '—'} % of material` : `estimate ${kg(c.estimate)} × ${rupeeText(c.rate, 2)}/kg`} = {rupeeText(c.contract)}; earned so far {rupeeText(c.earned)}
+          {c.actualKg != null ? ` · actual ${kg(c.actualKg)}${c.onActual != null ? ` would be ${rupeeText(c.onActual)}` : ''}` : ''}.
+        </Typography>
+      )) : <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-3)', mt: 0.5 }}>Not charged to the customer (no scrap & offcuts charge in the acceptance).</Typography>}
+      {so.flags.length > 0 && (
+        <Box data-testid="cs-flags" sx={{ mt: 0.75, display: 'grid', gap: 0.25 }}>
+          {so.flags.map((f, i) => (
+            <Typography key={i} data-testid="cs-flag" data-code={f.code} sx={{ fontSize: 12.5, color: 'var(--c-warning-800)' }}>
+              {f.message}{f.fix && <> <Box component={Link} to={appPath(company, f.fix.to)} sx={{ color: 'inherit' }}>{f.fix.label}</Box></>}
+            </Typography>
+          ))}
+        </Box>
+      )}
+    </Box>
+  );
+}
 
 /** The cost sheet of one order, in plain rows: what it earned, what it used, what came back, the margin. */
 export function CostSheetBody({ sheet }: { sheet: CostSheet }) {
@@ -58,6 +94,7 @@ export function CostSheetBody({ sheet }: { sheet: CostSheet }) {
           ))}
         </Box>
       )}
+      {sheet.scrapOffcuts && <ScrapOffcutsBlock so={sheet.scrapOffcuts} />}
       {sheet.items.length > 0 && (
         <Box>
           <Typography sx={{ fontSize: 13, fontWeight: 600, mb: 0.5 }}>Items</Typography>
@@ -117,6 +154,12 @@ export default function OrderCosting() {
     { key: 'consumables', header: 'Consumables', numeric: true, sortValue: (r) => r.consumables, render: money('consumables') },
     { key: 'contractor', header: 'Contractor', numeric: true, defaultHidden: true, sortValue: (r) => r.contractor, render: money('contractor') },
     { key: 'credits', header: 'Credits', numeric: true, sortValue: (r) => r.credits, render: money('credits') },
+    // Scrap & offcuts (2026-10-18): the actual kg, and what the customer is charged for them so far.
+    { key: 'scrap', header: 'Scrap / offcuts', numeric: true, defaultHidden: true, sortValue: (r) => (r.scrapKg ?? 0) + (r.offcutKg ?? 0),
+      render: (r) => <Mono muted>{kg(r.scrapKg)} / {kg(r.offcutKg)}</Mono>, exportValue: (r) => `${r.scrapKg ?? 0} / ${r.offcutKg ?? 0}` },
+    { key: 'scrapCharged', header: 'Scrap charged', numeric: true, defaultHidden: true, sortValue: (r) => r.scrapCharged ?? 0, render: money('scrapCharged') },
+    { key: 'flags', header: 'Not costed', numeric: true, sortValue: (r) => r.flags ?? 0,
+      render: (r) => (r.flags ? <Badge family="warning" noIcon label={`${r.flags}`} /> : <Mono muted>—</Mono>) },
     {
       key: 'margin', header: 'Margin', numeric: true, alwaysVisible: true, sortValue: (r) => r.margin,
       render: (r) => <Box sx={{ display: 'inline-flex', gap: 0.75, alignItems: 'center' }}><Mono>{rupeeText(r.margin)}</Mono>{r.marginPct != null && <Badge family={marginFamily(r.marginPct)} noIcon label={`${r.marginPct} %`} />}</Box>,

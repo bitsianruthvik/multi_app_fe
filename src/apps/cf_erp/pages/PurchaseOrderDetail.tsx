@@ -222,6 +222,12 @@ export default function PurchaseOrderDetail() {
             {p.totals.tax != null && (
               <Fact label={p.reverseCharge ? 'GST (we pay)' : 'GST (input credit)'}>
                 <span data-testid="po-gst"><Mono>{rupeeText(p.totals.tax, 2)}</Mono></span>
+                {/* 2026-10-18: "GST ₹0" read as a fact when the items simply had no rate — say it, and where to set it. */}
+                {(p.totals.noGstLines ?? 0) > 0 && (
+                  <Typography data-testid="po-gst-gap" sx={{ fontSize: 11.5, color: 'var(--c-warning-800)' }}>
+                    + {p.totals.noGstLines} line{p.totals.noGstLines === 1 ? '' : 's'} with no GST rate — <Box component={Link} to={appPath(company, 'company-tax#families')} sx={{ color: 'inherit' }}>set HSN / GST by family</Box>
+                  </Typography>
+                )}
                 {p.reverseCharge && <Typography sx={{ fontSize: 11.5, color: 'var(--c-text-3)' }}>reverse charge — not in the supplier's total</Typography>}
               </Fact>
             )}
