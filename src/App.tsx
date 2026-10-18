@@ -31,6 +31,7 @@ import Register from "./pages/auth/Register";
 import ForgotPassword from "./pages/auth/ForgotPassword";
 import CompanyLanding from "./pages/auth/CompanyLanding";
 import AppSelector from "./pages/auth/AppSelector";
+import { CompanyMismatch } from "@core/components/CompanyMismatch";
 
 const ProfilePage  = lazy(() => import("@apps/sales_control/pages/user/ProfilePage"));
 const SettingsPage = lazy(() => import("@apps/sales_control/pages/user/SettingsPage"));
@@ -55,9 +56,10 @@ function getSlugsFromPathname(pathname: string) {
 }
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated, isInitialized } = useAuth();
+  const { isAuthenticated, isInitialized, companySlug, user } = useAuth();
   const location = useLocation();
   const { company } = getSlugsFromPathname(location.pathname);
+  const signedInCompany = companySlug ?? user?.company ?? null;
 
   if (!isInitialized) {
     return (
@@ -77,6 +79,12 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   if (!isAuthenticated) {
     const redirectTo = company ? `/${company}` : `/`;
     return <Navigate to={redirectTo} state={{ from: location }} replace />;
+  }
+
+  // A login only ever opens its own company: another company's address gets
+  // "no access", never this login's screens under that company's name.
+  if (company && signedInCompany && company !== signedInCompany) {
+    return <CompanyMismatch requested={company} signedIn={signedInCompany} />;
   }
 
   return <>{children}</>;
@@ -147,7 +155,7 @@ function App() {
                 <Route path="/:company" element={<CompanyLanding />} />
                 <Route
                   path="/:company/apps"
-                  element={<AppSelector />}
+                  element={<ProtectedRoute><AppSelector /></ProtectedRoute>}
                 />
 
                 {/* Public routes with slugs */}
