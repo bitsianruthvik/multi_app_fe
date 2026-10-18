@@ -7,8 +7,11 @@ import { labelForPath, type NavSection } from '@shared/ui';
 export const SECTIONS: NavSection[] = [
   {
     key: 'home',
-    label: 'Overview',
-    screens: [{ label: 'Overview', path: 'overview', keywords: ['home', 'kpi', 'summary', 'today'] }],
+    label: 'Home',
+    screens: [
+      { label: 'Needs attention', path: 'attention', keywords: ['insights', 'alerts', 'action', 'exceptions', 'issues'] },
+      { label: 'Overview', path: 'overview', keywords: ['home', 'kpi', 'summary', 'today'] },
+    ],
   },
   {
     key: 'sales',

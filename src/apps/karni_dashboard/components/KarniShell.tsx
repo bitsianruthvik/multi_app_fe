@@ -21,7 +21,7 @@ export function KarniShell({ children }: { children: ReactNode }) {
             appSlug="karni_dashboard"
             sections={SECTIONS}
             brand={{ label: 'Karni Dashboard', initial: 'K' }}
-            homePath="overview"
+            homePath="attention"
           >
             {children}
           </AppShell>

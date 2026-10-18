@@ -4,6 +4,7 @@ import { RequireAppAccess } from '@core/components/RequireAppAccess';
 import { KarniShell } from './components/KarniShell';
 import { ToOverview } from './components/ToOverview';
 
+const Attention = lazy(() => import('./pages/Attention'));
 const Overview = lazy(() => import('./pages/Overview'));
 const Sales = lazy(() => import('./pages/Sales'));
 const Receivables = lazy(() => import('./pages/Ageing').then((m) => ({ default: m.Receivables })));
@@ -35,6 +36,7 @@ export function getKarniDashboardRoutes(
     </ProtectedRoute>
   );
   const screens: [string, React.ReactNode][] = [
+    ['attention', <Attention />],
     ['overview', <Overview />],
     ['sales', <Sales />],
     ['sales-orders', <SalesOrders />],
