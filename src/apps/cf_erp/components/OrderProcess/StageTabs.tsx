@@ -17,11 +17,13 @@ import { NextMark, StageStateMark } from './stageUi';
  * the process's own sequence, joined by chevrons so the row reads as a road —
  * then a divider, then the tabs that are not stages (Stock, Details).
  *
- *   Working on: Line 10 ▾
- *   ✓ Line items › ◐ Structure › ✓ Values › … › ○ Confirm  │  Stock · Details
+ *   ◐ Structure & values › ○ Execution plan › ○ Freeze design › … › ○ Production  │  Stock · Details
  *
- * Every mark is the chosen line's own state from GET /orders/:id/process —
- * drawn here, never worked out. Nothing is ever locked: a stage that is not
+ * Every mark is from GET /orders/:id/process — drawn here, never worked out. On an
+ * order-wide step (Structure & values, Execution plan, Material request) every mark
+ * is the order's roll-up and there is no line picker; on a per-line step (Freeze
+ * design, Nesting, Production) the "Working on: Line N" picker shows, and those
+ * steps' marks are that line's own (2026-10-18). Nothing is ever locked: a stage that is not
  * finished, or does not apply to this line, is still one click away.
  *
  * The stages scroll sideways inside their own strip when they do not fit, with
@@ -108,7 +110,7 @@ function ReferenceTab({ tab, on, focusable, onPick }: { tab: DetailTab; on: bool
   );
 }
 
-export function OrderStageTabs({ process, lines, stages, line, nextKey, active, onTab, onPickLine, reference, checksFor }: {
+export function OrderStageTabs({ process, lines, stages, line, nextKey, active, onTab, onPickLine, reference, checksFor, showPicker = true }: {
   process: NonNullable<OrderProcessView['process']>;
   /** Every line of the order, each with its own stages — what the switcher offers. */
   lines: OrderProcessLine[];
@@ -124,6 +126,8 @@ export function OrderStageTabs({ process, lines, stages, line, nextKey, active, 
   reference: DetailTab[];
   /** The stages drawn as checks on a stage's tab (lib/process checksOn). */
   checksFor?: (stageKey: string) => OrderStage[];
+  /** The "Working on" line picker — only while a per-line step is open. */
+  showPicker?: boolean;
 }) {
   const company = useCompanySlug();
   const theme = useTheme();
@@ -191,7 +195,7 @@ export function OrderStageTabs({ process, lines, stages, line, nextKey, active, 
   return (
     <Box sx={{ mb: 0.75, minWidth: 0, display: 'flex', flexWrap: 'wrap', alignItems: 'center', columnGap: 1.5, rowGap: 0.25 }}>
       {/* The line switcher shares the row with the stage tabs; the process is named in the (i). */}
-      {lines.length > 0 ? (
+      {!showPicker ? null : lines.length > 0 ? (
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flex: { xs: '1 1 100%', sm: '0 1 240px' }, minWidth: 0 }}>
           <TextField select size="small" label="Working on" value={line?.lineId ?? ''}
             onChange={(e) => onPickLine(Number(e.target.value))}

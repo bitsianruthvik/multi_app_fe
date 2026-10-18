@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Box, Button, CircularProgress, IconButton, MenuItem, TextField, Tooltip } from '@mui/material';
+import { Box, Button, CircularProgress, IconButton, TextField, Tooltip } from '@mui/material';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import EditRounded from '@mui/icons-material/EditRounded';
 import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
@@ -20,14 +20,14 @@ import { recordPath } from '../lib/paths';
 import {
   CONFIRM_MOVE, LOCKED_STATUSES, NEXT_STAGE, ORDER_STATUS_LABEL, REVISED_NOT_RELEASED, revisionLabel, showRevision, transitionLabel,
 } from '../lib/orders';
-import { checksOn, firstOpenStage, isCutPiecesKey, landingStage, stageSatisfied, tabFor, tabStages, withCutPiecesOpen } from '../lib/process';
+import {
+  checksOn, firstOpenStage, isCutPiecesKey, isOrderValuesKey, isOrderWide, withOrderValuesOpen, landingStage, stageSatisfied, stagesShown, tabAlias, tabFor, tabStages, withCutPiecesOpen,
+} from '../lib/process';
 import {
   DangerBadge, DetailSkeleton, EmptyState, ErrorNotice, Fact, Mono, OrderStatusBadge, OrderTypeChip, RevisionBadge, SectionCard, SkeletonRows,
 } from '../components/ui';
 import { CrossLink, DetailHeader, DetailLayout, type DetailTab } from '../components/DetailLayout';
 import { OrderInvoicesCard } from '../components/OrderInvoicesCard';
-import { StandardLineBanner } from '../components/StandardLineBanner';
-import { BomPanel } from '../components/Bom/BomPanel';
 import { ProductionTabs } from '../components/Production/ProductionTabs';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { MovementsTable } from '../components/StockTables';
@@ -37,11 +37,10 @@ import { releasedMessage } from '../lib/materialRequest';
 import { MaterialSupplyField } from '../components/Purchase/MaterialSupplyField';
 import type { MaterialSupply } from '../api/requisitions';
 import { ReleaseView } from '../components/ReleaseView';
-import { OrderLinesPanel } from '../components/OrderLinesPanel';
+import { OrderStructureStep } from '../components/OrderStructure/OrderStructureStep';
 import { OrderCostsCard } from '../components/OrderCostsCard';
 import { CustomerMaterialPanel } from '../components/CustomerMaterialPanel';
 import { OrderCutAllowancePanel } from '../components/CutAllowance';
-import { OrderSpecValuesPanel } from '../components/OrderSpecValuesPanel';
 import { rupeeText } from '../lib/money';
 import { Explain, OrderStageTabs, ProcessAbsentChip, ProcessAbsentNote, StageTabsSkeleton } from '../components/OrderProcess/StageTabs';
 import { StageBody } from '../components/OrderProcess/StageBody';
@@ -62,31 +61,29 @@ const DELETABLE: OrderStatus[] = ['draft', 'inquiry', 'lost', 'cancelled'];
 const REVISABLE: OrderStatus[] = ['inquiry', 'quoted', 'confirmed'];
 
 /** Tabs that are the same whether or not the order follows a process — drawn before the process has been read. */
-const PROCESS_FREE_TABS = ['stock', 'details', 'material', 'allowance', 'ordervalues'];
+const PROCESS_FREE_TABS = ['stock', 'details', 'material', 'allowance'];
 
 /**
- * The order's process, as the tabs need it: the line being worked on (the one
- * remembered, else the first line the order's next stage still needs), that
- * line's own stages, and where a link that names no tab should land. Null when
- * there is nothing to draw as stages — no process, or a process with none.
+ * The order's process, as the tabs need it. Since 2026-10-18 the first steps are for the WHOLE order (Structure &
+ * values, Execution plan, and the Material request): while one of them is open every mark is the order's roll-up
+ * and there is no line picker. Freeze design, Nesting and Production are still per line (`perLine`): then the
+ * line being worked on (the one remembered, else the first line one of those steps still needs) gives those marks.
+ * Where a link that names no tab lands is worked out on the roll-up. Null when there is nothing to draw as stages —
+ * no process, or a process with none.
  */
-function processModel(view: OrderProcessView | null, pickedLine: number | null) {
+function processModel(view: OrderProcessView | null, pickedLine: number | null, perLine: boolean) {
   if (!view?.process || view.stages.length === 0) return null;
-  const fallback = view.lines.find((l) => {
-    const s = l.stages.find((x) => x.stageKey === view.nextStage);
-    return s ? !stageSatisfied(s) : false;
-  }) ?? view.lines[0] ?? null;
+  const fallback = view.lines.find((l) => l.stages.some((s) => !isOrderWide(s) && !stageSatisfied(s))) ?? view.lines[0] ?? null;
   const line = view.lines.find((l) => l.lineId === pickedLine) ?? fallback;
-  // Every state on the tabs is this line's own; with no lines, the order's roll-up is all there is.
-  const allStages = line ? line.stages : view.stages;
-  // A stage folded into another (Values into Structure) is a check on its host's tab, not a tab.
+  const allStages = stagesShown(view.stages, line, perLine);
+  // A stage folded into another (Values into Structure & values) is a check on its host's tab, not a tab.
   const stages = tabStages(allStages);
   const keys = stages.map((s) => s.stageKey);
-  const landing = landingStage(allStages);
+  const landing = landingStage(view.stages);
   const next = firstOpenStage(allStages);
   return {
-    view, process: view.process, line, stages, allStages, keys,
-    landing: landing ? tabFor(landing, allStages) : keys[0],
+    view, process: view.process, line, stages, allStages, keys, perLine,
+    landing: landing ? tabFor(landing, view.stages) : keys[0],
     nextKey: next ? tabFor(next, allStages) : null,
   };
 }
@@ -246,10 +243,8 @@ export default function OrderDetail() {
   useDetailTitle(o ? (showRevision(o) ? `${o.code} ${revisionLabel(o.revision)}` : o.code) : null);
   const lines = useMemo(() => o?.lines ?? [], [o]);
 
-  const model = processModel(view, pickedLine);
-  // Without stages, the plain Structure tab picks its own line: the remembered
-  // one, else the first custom line — it has a tree worth seeing — else the first.
-  const plainLine = lines.find((l) => l.id === pickedLine)?.id ?? lines.find((l) => l.lineType === 'custom')?.id ?? lines[0]?.id ?? null;
+  // Worked out on the order's roll-up first; a per-line tab (Freeze design, Nesting, Production) then shows its line.
+  const base = processModel(view, pickedLine, false);
 
   // ── the tabs ──
   const releases = production.data?.releases.length;
@@ -258,39 +253,41 @@ export default function OrderDetail() {
   const materialTab: DetailTab[] = canStock && order.data?.customer ? [{ value: 'material', label: 'Customer material' }] : [];
   // Cutting allowance (init.sql §64): a customer order with a structure — its parts can be cut a little long.
   const allowanceTab: DetailTab[] = order.data?.orderType === 'customer' && (order.data?.lines ?? []).some((l) => l.lineType === 'custom') ? [{ value: 'allowance', label: 'Cutting allowance' }] : [];
-  // Order values (init.sql §65): coats, grade, impact class … once for the order or a line — an order with a structure.
-  const orderValuesTab: DetailTab[] = (order.data?.lines ?? []).some((l) => l.lineType === 'custom') ? [{ value: 'ordervalues', label: 'Order values' }] : [];
-  const tabs: DetailTab[] = model
+  // Order values (init.sql §65) are no tab of their own since 2026-10-18: they open inside Structure & values
+  // ("Values for the whole order"); an old ?tab=ordervalues lands there with them open (lib/process tabAlias).
+  // Structure & values (Line items merged into it, 2026-10-18) — the plain tab when there is no such stage.
+  const structureTab: DetailTab = { value: 'structure', label: 'Structure & values', count: lines.length };
+  const tabs: DetailTab[] = base
     ? [
-      // Not stages. The three before Stock appear only when the process leaves
+      // Not stages. The two before Stock appear only when the process leaves
       // their stage out, so every screen the order has stays one click away.
-      ...(model.keys.includes('lines') ? [] : [{ value: 'lines', label: 'Lines', count: lines.length }]),
-      ...(model.keys.includes('structure') || !lines.length ? [] : [{ value: 'structure', label: 'Structure' }]),
-      ...(model.keys.includes('production') || !canTrack ? [] : [{ value: 'production', label: 'Production', count: releases }]),
+      ...(base.keys.includes('structure') ? [] : [structureTab]),
+      ...(base.keys.includes('production') || !canTrack ? [] : [{ value: 'production', label: 'Production', count: releases }]),
       ...stockTab,
       ...materialTab,
       ...allowanceTab,
-      ...orderValuesTab,
       { value: 'details', label: 'Details' },
     ]
     : [
-      { value: 'lines', label: 'Lines', count: lines.length },
-      ...(lines.length ? [{ value: 'structure', label: 'Structure' }] : []),
+      structureTab,
       ...(canTrack ? [{ value: 'production', label: 'Production', count: releases }] : []),
       ...stockTab,
       ...materialTab,
       ...allowanceTab,
-      ...orderValuesTab,
       { value: 'details', label: 'Details' },
     ];
   // Settled once the process question has an answer: stages, none, or an error.
   const settled = !!o && (!!view || !!processView.error);
-  const valid = [...(model?.keys ?? []), ...tabs.map((t) => t.value)];
-  // A link to a folded stage (?tab=values) lands on the tab that draws it.
-  const wanted = tabParam && model ? tabFor(tabParam, model.allStages) : tabParam;
+  const valid = [...(base?.keys ?? []), ...tabs.map((t) => t.value)];
+  // A link to a folded stage (?tab=values) lands on the tab that draws it; an old ?tab=lines on Structure & values.
+  const asked = tabAlias(tabParam);
+  const wanted = asked && base ? tabFor(asked, base.allStages) : asked;
   const tab = settled
-    ? (wanted && valid.includes(wanted) ? wanted : model?.landing ?? 'lines')
-    : (tabParam ?? '');
+    ? (wanted && valid.includes(wanted) ? wanted : base?.landing ?? 'structure')
+    : (asked ?? '');
+  // The open tab decides whether the marks are the order's or the chosen line's.
+  const openStage = base?.allStages.find((s) => s.stageKey === tab) ?? null;
+  const model = base && openStage && !isOrderWide(openStage) ? processModel(view, pickedLine, true) : base;
 
   const setTab = useCallback((next: string) => {
     setParams((prev) => { const p = new URLSearchParams(prev); p.set('tab', next); return p; }, { replace: true });
@@ -309,6 +306,11 @@ export default function OrderDetail() {
     // An old link to the retired Cut pieces stage opens Nesting with the cut-pieces dialog (2026-10-02).
     if (isCutPiecesKey(tabParam)) {
       setParams(withCutPiecesOpen, { replace: true });
+      return;
+    }
+    // The retired Order values tab opens Structure & values with that panel open (2026-10-18).
+    if (isOrderValuesKey(tabParam)) {
+      setParams(withOrderValuesOpen, { replace: true });
       return;
     }
     if (lineParam != null) {
@@ -341,7 +343,6 @@ export default function OrderDetail() {
     setBusy(next); setActionError(null);
     try { orderSaved(await cfApi.post<SalesOrder>(`/orders/${id}/status`, { status: next })); invalidateNavCounts(); toast.success(`${o?.code} is now ${ORDER_STATUS_LABEL[next].toLowerCase()}.`); } catch (e) { setActionError(e as CfApiError); } finally { setBusy(null); }
   };
-  const openStructure = (l: SalesOrderLine) => { pickLine(l.id); setTab('structure'); };
 
   if (order.error) return <ErrorNotice error={order.error} onRetry={order.reload} />;
   if (!o) return <DetailSkeleton />;
@@ -420,7 +421,7 @@ export default function OrderDetail() {
       <Box ref={tabsRef} sx={{ scrollMarginTop: 16 }}>
         {/* A reload that failed: the tabs keep the last answer, and say so. */}
         <ErrorNotice error={processView.error} onRetry={processView.reload} />
-        <OrderStageTabs process={model.process} lines={model.view.lines} stages={model.stages} line={model.line}
+        <OrderStageTabs process={model.process} lines={model.view.lines} stages={model.stages} line={model.line} showPicker={model.perLine}
           nextKey={model.nextKey} checksFor={(key) => checksOn(key, model.allStages)} active={tab} onTab={setTab} onPickLine={pickLine} reference={tabs} />
       </Box>
     );
@@ -448,31 +449,15 @@ export default function OrderDetail() {
   } else if (model && stage) {
     body = (
       <>
-        <StageBody key={`${stage.stageKey}:${model.line?.lineId ?? 'order'}`}
+        <StageBody key={`${stage.stageKey}:${model.perLine ? model.line?.lineId ?? 'order' : 'order'}`}
           view={model.view} stage={stage} line={model.line} order={o} production={production.data} productionError={production.error}
           onPickLine={pickLine} onOrderSaved={orderSaved} onReleaseChanged={updateRelease} onReloadAll={reloadAll} onGoStage={goStage} />
         <StageFoot key={`foot:${stage.stageKey}`} stages={model.stages} current={stage} checks={checksOn(stage.stageKey, model.allStages)} onGo={goStage} />
       </>
     );
-  } else if (tab === 'lines') {
-    body = <OrderLinesPanel order={o} onSaved={orderSaved} onOpenStructure={openStructure} onRelease={canProduce ? setReleasing : undefined} />;
   } else if (tab === 'structure') {
-    // With stages the switcher above the tabs already names the line; without, this tab has its own picker.
-    const lineId = model ? model.line?.lineId ?? null : plainLine;
-    body = lineId != null && (
-      <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 1 }}>
-        {!model && lines.length > 1 && (
-          <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
-            <TextField select size="small" label="Line" value={lineId} onChange={(e) => pickLine(Number(e.target.value))}
-              sx={{ minWidth: { xs: '100%', sm: 280 }, maxWidth: '100%', '& .MuiInputBase-root': { fontSize: 13 }, '& .MuiSelect-select': { py: '5px' } }}>
-              {lines.map((l) => <MenuItem key={l.id} value={l.id}>{`${l.lineNo} · ${l.item?.code ?? '—'} · ${l.item?.name ?? ''} ×${l.quantity}`}</MenuItem>)}
-            </TextField>
-          </Box>
-        )}
-        <StandardLineBanner lineId={lineId} hasStandard={!!lines.find((l) => l.id === lineId)?.standard} refreshKey={o} onChanged={() => order.reload()} />
-        <BomPanel key={lineId} source={{ kind: 'orderLine', lineId }} onChanged={() => { order.reload(); processView.reload(); }} />
-      </Box>
-    );
+    // Every line of the order, with its parts and values, in one view — with or without a process.
+    body = <OrderStructureStep order={o} view={view} onOrderSaved={orderSaved} onChanged={() => { order.reload(); processView.reload(); }} />;
   } else if (tab === 'production' && canTrack) {
     const overview = (
       <ProductionOverview order={o} lines={lines} production={production.data} productionError={production.error} loading={production.loading}
@@ -493,8 +478,6 @@ export default function OrderDetail() {
     );
   } else if (tab === 'material' && canStock && o.customer) {
     body = <CustomerMaterialPanel order={o} />;
-  } else if (tab === 'ordervalues') {
-    body = <OrderSpecValuesPanel orderId={o.id} canEdit={canManage} onChanged={() => processView.reload()} />;
   } else if (tab === 'allowance') {
     body = <OrderCutAllowancePanel orderId={o.id} canEdit={canManage} />;
   } else if (tab === 'details') {
@@ -521,7 +504,7 @@ export default function OrderDetail() {
       // With stages the tab row above is the tabs; without, the plain ones draw here.
       tabs={model || !settled ? undefined : tabs}
       // A new line is a new screen too, so switching it cross-fades like a tab.
-      active={model && stage ? `${tab}:${model.line?.lineId ?? 'order'}` : tab || 'loading'}
+      active={model && stage ? `${tab}:${model.perLine ? model.line?.lineId ?? 'order' : 'order'}` : tab || 'loading'}
       onTab={setTab}>
       {body}
 

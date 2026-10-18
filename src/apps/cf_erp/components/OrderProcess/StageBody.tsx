@@ -4,7 +4,6 @@ import { Link } from 'react-router-dom';
 import InfoOutlined from '@mui/icons-material/InfoOutlined';
 import LaunchRounded from '@mui/icons-material/LaunchRounded';
 import RocketLaunchRounded from '@mui/icons-material/RocketLaunchRounded';
-import AccountTreeRounded from '@mui/icons-material/AccountTreeRounded';
 import PrecisionManufacturingRounded from '@mui/icons-material/PrecisionManufacturingRounded';
 import GridViewRounded from '@mui/icons-material/GridViewRounded';
 import LockRounded from '@mui/icons-material/LockRounded';
@@ -18,11 +17,9 @@ import { appPath } from '../../navMeta';
 import { LOCKED_STATUSES, ORDER_STATUS_LABEL, REVISED_NOT_RELEASED } from '../../lib/orders';
 import {
   CONFIRM_STILL_ON_THE_PAGE, CONFIRM_WHAT_DOES_NOT, CONFIRM_WHAT_HAPPENS, DECIDED_BY_HELP, UNBUILT_STAGE,
-  isUnbuilt, nextLineFor, notForThisLine, tabFor,
+  isOrderWide, isUnbuilt, nextLineFor, notForThisLine, tabFor,
 } from '../../lib/process';
-import { EmptyState, ErrorNotice, Mono, SectionCard, StatusBadge } from '../ui';
-import { StandardLineBanner } from '../StandardLineBanner';
-import { BomPanel } from '../Bom/BomPanel';
+import { EmptyState, ErrorNotice, Mono, SectionCard } from '../ui';
 import { NestingPanel } from '../Nesting/NestingPanel';
 import { CutPiecesButton } from '../Nesting/CutPiecesDialog';
 import { ReleaseView } from '../ReleaseView';
@@ -31,7 +28,8 @@ import { releasedMessage } from '../../lib/materialRequest';
 import { PieceCodesCard } from '../Production/PieceCodesCard';
 import { ProductionTabs } from '../Production/ProductionTabs';
 import { LockPanel } from '../Lock/LockPanel';
-import { OrderLinesPanel } from '../OrderLinesPanel';
+import { OrderStructureStep } from '../OrderStructure/OrderStructureStep';
+import { ExecutionPlanPanel } from '../OrderStructure/ExecutionPlanPanel';
 import { useToast } from '../toastContext';
 import { BlockerList, StageStateBadge } from './stageUi';
 import { ConfirmOrderDialog } from './ConfirmOrderDialog';
@@ -41,14 +39,17 @@ import { OrderPurchasePanel } from '../Purchase/OrderPurchasePanel';
  * What each stage tab shows, above its Back / Next foot.
  *
  * Three rules hold this together:
- *   1. The screens that already exist are REUSED, not re-drawn — the Lines
- *      panel, the BOM panel and the release view are the same components an
+ *   1. The screens that already exist are REUSED, not re-drawn — the
+ *      Structure & values step and the release view are the same components an
  *      order without a process shows on its plain tabs, so the two can never
  *      offer different things.
  *   2. A stage the app cannot work yet says so in plain words and points at
  *      where that work is done today. It does not pretend to be a screen.
  *   3. A stage that does not apply to the chosen line still shows its body.
  *      The notice explains; it never takes anything away.
+ *   4. An order-wide step (Structure & values, Execution plan, Material
+ *      request — 2026-10-18) is handed the order's roll-up and works every line
+ *      at once; only Freeze design, Nesting and Production are per line.
  */
 
 /** A tinted note — a stage's way of explaining without taking anything away. */
@@ -322,49 +323,17 @@ export function StageBody({
   onGoStage: (stageKey: string) => void;
 }) {
   const isPermitted = useIsPermitted();
-  const toast = useToast();
-  const [releasing, setReleasing] = useState<SalesOrderLine | null>(null);
-  const canProduce = isPermitted('cf_erp_production_manage');
-
-  // The order page always has a Structure tab while it has a line — the stage
-  // when the process has one, otherwise beside Stock and Details — so the way
-  // into a line's structure never goes dead.
-  const openStructure = (l: SalesOrderLine) => {
-    onPickLine(l.id);
-    onGoStage('structure');
-  };
+  const wide = isOrderWide(stage);
 
   let body: ReactNode;
-  if (stage.stageKey === 'lines') {
-    body = (
-      <>
-        <OrderLinesPanel order={order} onSaved={onOrderSaved} onOpenStructure={openStructure}
-          onRowClick={(l) => onPickLine(l.id)}
-          onRelease={canProduce ? setReleasing : undefined}
-          subtitle="Each line sells an item. Click a line to work the rest of the process on it." />
-        <ReleaseDialog
-          line={releasing ? { id: releasing.id, lineNo: releasing.lineNo, label: `${releasing.item?.code ?? releasing.item?.name ?? 'This line'} ×${releasing.quantity}` } : null}
-          onClose={() => setReleasing(null)}
-          onReleased={(r) => { invalidateNavCounts(); toast.success(releasedMessage(releasing?.lineNo, r)); onReloadAll(); }} />
-      </>
-    );
-  } else if (stage.stageKey === 'structure' || stage.stageKey === 'values') {
-    // ONE tab for the structure and its values (user, 2026-10-02): every row shows its own values beside it,
-    // required ones still empty in amber. Values is a check on this tab, not a tab — it reaches here only
-    // for a process that has a Values stage but no Structure stage to fold it into.
-    body = line
-      ? (
-        <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 1 }}>
-          <StandardLineBanner lineId={line.lineId} hasStandard={!!order.lines?.find((l) => l.id === line.lineId)?.standard} refreshKey={order} onChanged={onReloadAll} />
-          <BomPanel key={line.lineId} source={{ kind: 'orderLine', lineId: line.lineId }} onChanged={onReloadAll} onGoCutPieces={() => onGoStage('cut_pieces')} />
-        </Box>
-      )
-      : (
-        <SectionCard title="Structure">
-          <EmptyState icon={<AccountTreeRounded />} title="No lines yet" hint="A structure hangs under a line, so add one first."
-            action={<Button variant="contained" onClick={() => onGoStage('lines')}>Go to the lines</Button>} />
-        </SectionCard>
-      );
+  if (stage.stageKey === 'structure' || stage.stageKey === 'values') {
+    // ONE step for the whole order (user, 2026-10-18): every line is a group of one view, with its parts and its
+    // values beside them. Values is a check on this tab, not a tab — it reaches here only for a process that has a
+    // Values stage but no Structure stage to fold it into.
+    body = <OrderStructureStep order={order} view={view} onOrderSaved={onOrderSaved} onChanged={onReloadAll} onGoCutPieces={() => onGoStage('cut_pieces')} />;
+  } else if (stage.stageKey === 'execution_plan') {
+    // How the order is made and shipped, before the freeze (§72) — for the whole order, a line may differ.
+    body = <ExecutionPlanPanel orderId={order.id} onChanged={onReloadAll} />;
   } else if (stage.stageKey === 'lock') {
     // Lock belongs to ONE line: it rolls that line's structure out into pieces.
     body = line
@@ -373,7 +342,7 @@ export function StageBody({
       : (
         <SectionCard title="Freeze design">
           <EmptyState icon={<LockRounded />} title="No lines yet" hint="A line is frozen once its structure and values are settled, so add one first."
-            action={<Button variant="contained" onClick={() => onGoStage('lines')}>Go to the lines</Button>} />
+            action={<Button variant="contained" onClick={() => onGoStage('structure')}>Add a line</Button>} />
         </SectionCard>
       );
   } else if (stage.stageKey === 'nesting') {
@@ -401,7 +370,7 @@ export function StageBody({
       : (
         <SectionCard title="Nesting">
           <EmptyState icon={<GridViewRounded />} title="No lines yet" hint="Rectangles are cut for a line, so add one first."
-            action={<Button variant="contained" onClick={() => onGoStage('lines')}>Go to the lines</Button>} />
+            action={<Button variant="contained" onClick={() => onGoStage('structure')}>Add a line</Button>} />
         </SectionCard>
       );
   } else if (stage.stageKey === 'production') {
@@ -434,16 +403,8 @@ export function StageBody({
   return (
     <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 2, minWidth: 0 }}>
       {/* The notice explains; the body below it still does everything it would for a line that needs it. */}
-      {line && !stage.applies && <NotForThisLine view={view} stage={stage} line={line} onPickLine={onPickLine} />}
-      {line?.item && line.item.status !== 'active' && stage.stageKey === 'lines' && (
-        <Note tone="warning">
-          {/* A made-to-order item is a draft only because its design is not frozen yet — say that, not "Draft" (user, 2026-10-13). */}
-          {line.item.status === 'draft' && line.stages.some((st) => st.stageKey === 'lock' && st.applies)
-            ? <Box>Line {line.lineNo}’s design is not frozen yet. <Mono>{line.item.code ?? line.item.name}</Mono> gets its code and becomes active when you freeze the design.</Box>
-            : <Box>Line {line.lineNo} sells <Mono>{line.item.code ?? line.item.name}</Mono>, which is <StatusBadge status={line.item.status} />.</Box>}
-        </Note>
-      )}
-      {line && <WaitingOn stage={stage} label={view.stages.find((x) => x.stageKey === tabFor(stage.waitingOn?.stageKey ?? '', view.stages))?.label ?? null} order={order}
+      {line && !wide && !stage.applies && <NotForThisLine view={view} stage={stage} line={line} onPickLine={onPickLine} />}
+      {(line || wide) && <WaitingOn stage={stage} label={view.stages.find((x) => x.stageKey === tabFor(stage.waitingOn?.stageKey ?? '', view.stages))?.label ?? null} order={order}
         onGo={onGoStage} onOrderSaved={onOrderSaved} onReloadAll={onReloadAll} />}
       {body}
     </Box>

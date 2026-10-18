@@ -580,7 +580,8 @@ export interface SalesOrderLine {
   bomRevision: string | null;
   bom: { status: RecordStatus; currentRevision: string | null } | null;
   /** temporaryItems: the rows of its structure (cut plates included). */
-  structure: { temporaryItems: number; unresolvedSelections: number } | null;
+  /** cutPieces (2026-10-18): a line with cut pieces keeps its number when the lines are reordered. */
+  structure: { temporaryItems: number; unresolvedSelections: number; cutPieces?: number } | null;
   /** Set once the line is released to production (the whole line, decision E1). */
   release?: { id: number; releasedAt: string } | null;
   /** The line of the previous revision this one was copied from. */
@@ -1350,6 +1351,14 @@ export interface OrderStage {
   waitingOn?: { stageKey: string | null; message: string; action?: 'confirm' | null } | null;
   /** Buying only (Buying v2): how many materials are decided, and how. `waiting` = skipped and not in stock yet. */
   summary?: { materials: number; fromStock?: number; onOrder?: number; skipped: number; waiting: number; open: number } | null;
+  /** Drawn as a check on another stage's tab (Values on Structure & values). */
+  shownIn?: string | null;
+  /**
+   * 'order': the stage's screen is for the whole order (Structure & values, Execution plan, Material request) — the
+   * tabs show the order's roll-up and there is no line picker. Absent: one line at a time (Freeze design, Nesting,
+   * Production), picked with "Working on" (2026-10-18).
+   */
+  scope?: 'order' | null;
 }
 
 export interface OrderProcessLine {

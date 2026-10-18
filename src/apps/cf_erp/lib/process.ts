@@ -256,6 +256,38 @@ export const tabFor = (stageKey: string, stages: readonly Folded[]): string => {
   return s ? hostOf(s, stages) : stageKey;
 };
 
+/*
+ * ONE ORDER, OR ONE LINE (2026-10-18). Structure & values, the Execution plan and the Material request are worked
+ * for the WHOLE order on one screen, so their tabs show the order's roll-up and there is no line picker. Freeze
+ * design, Nesting and Production still work one line at a time ("Working on: Line N"). The backend says which on
+ * the stage (`scope: 'order'`); this set is the same fact for an API that predates it.
+ */
+const ORDER_WIDE = new Set(['structure', 'values', 'execution_plan', 'buying']);
+/** Whether a stage's screen is for the whole order. */
+export const isOrderWide = (stage: Pick<OrderStage, 'stageKey'> & { scope?: string | null }): boolean =>
+  stage.scope === 'order' || (stage.scope === undefined && ORDER_WIDE.has(stage.stageKey));
+/** An old link to the Line items stage (merged into Structure & values), or to the Order values tab, lands there. */
+export const tabAlias = (tab: string | null): string | null => (tab === 'lines' || tab === 'ordervalues' ? 'structure' : tab);
+/** The address param that opens "Values for the whole order" on Structure & values. */
+export const ORDER_VALUES_PARAM = 'orderValues';
+export const isOrderValuesKey = (tab: string | null | undefined): boolean => tab === 'ordervalues';
+/** Structure & values with the order's values open; everything else in the address kept. */
+export function withOrderValuesOpen(prev: URLSearchParams): URLSearchParams {
+  const p = new URLSearchParams(prev);
+  p.set('tab', 'structure');
+  p.set(ORDER_VALUES_PARAM, '1');
+  return p;
+}
+
+/**
+ * The stages as the tabs show them. Working on an order-wide stage (`perLine` false): every stage is the order's
+ * roll-up. Working on a per-line stage: those are the chosen line's own, while the order-wide ones stay the roll-up.
+ */
+export function stagesShown(rollUp: OrderStage[], line: Pick<OrderProcessLine, 'stages'> | null, perLine: boolean): OrderStage[] {
+  if (!perLine || !line) return rollUp;
+  return rollUp.map((s) => (isOrderWide(s) ? s : line.stages.find((x) => x.stageKey === s.stageKey) ?? s));
+}
+
 /** The first stage that still holds this list up — where the work is. Null when nothing does. */
 export const firstOpenStage = (stages: OrderStage[]): string | null =>
   stages.find((s) => !stageSatisfied(s))?.stageKey ?? null;
@@ -295,7 +327,7 @@ export function stageTabName(stage: OrderStage, position: number, of: number, ne
 }
 
 /** Beside the line switcher: the marks on the tabs are this line's, not the order's. */
-export const WORKING_ON_HELP = 'The stages show this line’s own state.';
+export const WORKING_ON_HELP = 'Freeze design, Nesting and Production are done one line at a time. Their marks show this line’s own state; the other steps are for the whole order.';
 
 /** In place of the line switcher, while there is nothing to switch between. */
 export const NO_LINES_YET = 'No lines yet, so the stages show the order’s own state.';

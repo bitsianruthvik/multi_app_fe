@@ -3,7 +3,7 @@
 // the real screens in jsdom against mocked routes shaped as the backend answers — the list (number, internal badge,
 // version, parts, source link), the detail (the BOM tree with its values and notes, the drawings, "Used on", a part's
 // DXF opened in the drawing viewer from the standard's own file route), Add line › From a standard drawing (what it
-// sends), Add line with its drawing marked "This is a standard drawing" (the line, then the standard tied to it), the
+// sends — on the order's Structure & values step, 2026-10-18), Add line with its drawing marked "This is a standard drawing" (the line, then the standard tied to it), the
 // line's "From standard …" text, and the banner over a line's structure: Update the standard too / Keep it as it is.
 import assert from 'node:assert/strict';
 import { mkdir, writeFile, unlink } from 'node:fs/promises';
@@ -46,7 +46,7 @@ const built = await build({
       export { React, createRoot, MemoryRouter, Routes, Route };
       export * from './src/apps/cf_erp/api/standards';
       export { default as StandardDrawings, StandardDrawingDetail } from './src/apps/cf_erp/pages/StandardDrawings';
-      export { OrderLinesPanel } from './src/apps/cf_erp/components/OrderLinesPanel';
+      export { OrderStructureStep } from './src/apps/cf_erp/components/OrderStructure/OrderStructureStep';
       export { StandardLineBanner } from './src/apps/cf_erp/components/StandardLineBanner';
       export { SECTIONS } from './src/apps/cf_erp/navMeta';`,
     resolveDir: process.cwd(), loader: 'tsx',
@@ -109,7 +109,8 @@ const setFile = async (input, name, body) => {
 };
 const calls = (method, path) => globalThis.__calls.filter((c) => c.method === method && c.path === path);
 const lastCall = (method, path) => calls(method, path).at(-1);
-const reset = () => { globalThis.__calls = []; globalThis.__routes = {}; globalThis.__user = null; };
+// The Structure & values step folds its line groups as remembered: folded here, so no line's grid is read.
+const reset = () => { globalThis.__calls = []; globalThis.__routes = {}; globalThis.__user = null; try { window.localStorage.setItem('cf_erp.so.groups.3', JSON.stringify({ open: [], known: [41, 42, 45] })); } catch { /* none */ } };
 
 // ── fixtures, shaped as the backend answers ───────────────────────────────────
 const V1 = { id: 11, versionNo: 1, rows: 56, parts: 47, weightKg: 54769.566, madeFrom: 'import', fromLineId: null, note: null, createdAt: '2026-10-17T06:00:00Z' };
@@ -244,7 +245,7 @@ await check('the Drawings and Used on tabs', async () => {
 // ── 4. on the order ──────────────────────────────────────────────────────────
 await check('a line made from a standard says so under what it sells', async () => {
   reset();
-  await render(React.createElement(m.OrderLinesPanel, { order: order([line(41, 1, { standard: { id: 7, number: 'RDSO/B-11751R3', name: 'n', versionId: 11, versionNo: 1 } }), line(42, 2)]), onSaved: () => {}, onOpenStructure: () => {} }), '/testco/cf_erp/orders/3');
+  await render(React.createElement(m.OrderStructureStep, { view: null, onChanged: () => {}, order: order([line(41, 1, { standard: { id: 7, number: 'RDSO/B-11751R3', name: 'n', versionId: 11, versionNo: 1 } }), line(42, 2)]), onOrderSaved: () => {} }), '/testco/cf_erp/orders/3');
   const marks = qa('line-standard').map(text);
   assert.deepEqual(marks, ['From standard RDSO/B-11751R3 · v1']);
 });
@@ -253,7 +254,7 @@ await check('Add line › From a standard drawing: pick by number, and what it s
   globalThis.__routes['GET /standard-drawings'] = () => ({ rows: [RDSO, EMPTY] });
   globalThis.__routes['POST /orders/3/lines/from-standard'] = () => ({ ...order([line(41, 1)]), fromStandard: { lineId: 41, standardId: 7, number: RDSO.number, versionNo: 1, rows: 56, cutPieces: { made: false, reason: null, message: null } } });
   let saved = null;
-  await render(React.createElement(m.OrderLinesPanel, { order: order([]), onSaved: (o) => { saved = o; }, onOpenStructure: () => {} }), '/testco/cf_erp/orders/3');
+  await render(React.createElement(m.OrderStructureStep, { view: null, onChanged: () => {}, order: order([]), onOrderSaved: (o) => { saved = o; } }), '/testco/cf_erp/orders/3');
   await click(buttonIn(app, 'Add line'));
   const dlg = document.querySelector('[role="dialog"]');
   await click(buttonIn(dlg, 'From a standard drawing'));
@@ -275,7 +276,7 @@ await check('Add line › From a standard drawing: pick by number, and what it s
 await check('a standard with no BOM yet cannot make a line: the button waits and the reason is said', async () => {
   reset();
   globalThis.__routes['GET /standard-drawings'] = () => ({ rows: [EMPTY] });
-  await render(React.createElement(m.OrderLinesPanel, { order: order([]), onSaved: () => {}, onOpenStructure: () => {} }), '/testco/cf_erp/orders/3');
+  await render(React.createElement(m.OrderStructureStep, { view: null, onChanged: () => {}, order: order([]), onOrderSaved: () => {} }), '/testco/cf_erp/orders/3');
   await click(buttonIn(app, 'Add line'));
   const dlg = document.querySelector('[role="dialog"]');
   await click(buttonIn(dlg, 'From a standard drawing'));
@@ -294,7 +295,7 @@ await check('Add line with its drawing, "This is a standard drawing": the line, 
   globalThis.__routes['POST /order-lines/45/standard'] = () => ({ ...DETAIL, id: 12, number: 'GA-100' });
   globalThis.__routes['GET /orders/3'] = () => order([line(45, 1, { standard: { id: 12, number: 'GA-100', name: 'n', versionId: null, versionNo: null } })]);
   let saved = null;
-  await render(React.createElement(m.OrderLinesPanel, { order: order([]), onSaved: (o) => { saved = o; }, onOpenStructure: () => {} }), '/testco/cf_erp/orders/3');
+  await render(React.createElement(m.OrderStructureStep, { view: null, onChanged: () => {}, order: order([]), onOrderSaved: (o) => { saved = o; } }), '/testco/cf_erp/orders/3');
   await click(buttonIn(app, 'Add line'));
   const dlg = document.querySelector('[role="dialog"]');
   const what = inputLabelled(dlg, 'What it sells');

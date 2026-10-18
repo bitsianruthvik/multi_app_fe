@@ -1,38 +1,32 @@
-import { useEffect, useState, type ReactNode } from 'react';
-import { Box, Button, Checkbox, Dialog, DialogContent, FormControlLabel, IconButton, MenuItem, TextField, ToggleButton, ToggleButtonGroup, Tooltip, Typography } from '@mui/material';
+import { useEffect, useState } from 'react';
+import { Box, Button, Checkbox, Dialog, DialogContent, FormControlLabel, MenuItem, TextField, ToggleButton, ToggleButtonGroup, Typography } from '@mui/material';
 import { Link } from 'react-router-dom';
-import AddRounded from '@mui/icons-material/AddRounded';
-import EditRounded from '@mui/icons-material/EditRounded';
-import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
-import AccountTreeRounded from '@mui/icons-material/AccountTreeRounded';
-import RocketLaunchRounded from '@mui/icons-material/RocketLaunchRounded';
-import ArchitectureRounded from '@mui/icons-material/ArchitectureRounded';
-import { cfApi, LONG_WRITE_MS } from '../api/client';
-import type { MasterRecord, SalesOrder, SalesOrderLine } from '../api/types';
-import type { PriceBasis } from '../api/money';
-import { BASIS_LABEL, BASIS_OPTIONS, billedText, rateText } from '../lib/money';
-import { Money } from './Money';
-import { OrderTotalBar } from './OrderTotalBar';
-import { LineTaxNote } from './GstUi';
-import { useCompanySlug } from '../hooks/useLoad';
-import { useIsPermitted } from '../hooks/useIsPermitted';
-import { appPath } from '../navMeta';
-import { recordPath } from '../lib/paths';
-import { LOCKED_STATUSES } from '../lib/orders';
-import { Badge, EmptyState, KindChip, Mono, SectionCard, StatusBadge, WarnBadge } from './ui';
-import { DataTable, type DataColumn } from './DataTable';
-import { DialogHeader, FormDialog } from './FormDialog';
-import { ServerPicker } from './ServerPicker';
-import { fileToBase64 } from '../api/bomSheet';
-import { uploadDrawings } from '../api/drawings';
+import { cfApi, LONG_WRITE_MS } from '../../api/client';
+import type { MasterRecord, SalesOrder, SalesOrderLine } from '../../api/types';
+import type { PriceBasis } from '../../api/money';
+import { BASIS_OPTIONS } from '../../lib/money';
+import { useCompanySlug } from '../../hooks/useLoad';
+import { useIsPermitted } from '../../hooks/useIsPermitted';
+import { appPath } from '../../navMeta';
+import { LOCKED_STATUSES } from '../../lib/orders';
+import { Mono, WarnBadge } from '../ui';
+import { DialogHeader, FormDialog } from '../FormDialog';
+import { ServerPicker } from '../ServerPicker';
+import { fileToBase64 } from '../../api/bomSheet';
+import { uploadDrawings } from '../../api/drawings';
 import {
   addLineFromStandard, getLineStandard, keepStandard, lineStandardSentence, listStandards, markLineStandard, saveLineToStandard, standardLabel,
   type LineStandardState, type StandardSummary,
-} from '../api/standards';
-import { RecordPicker } from './RecordPicker';
-import { ConfirmDialog } from './ConfirmDialog';
-import { useToast } from './toastContext';
-import { codeOrName, definitionLabel } from '../lib/displayCode';
+} from '../../api/standards';
+import { RecordPicker } from '../RecordPicker';
+import { useToast } from '../toastContext';
+import { codeOrName } from '../../lib/displayCode';
+
+/**
+ * The dialogs of a sales order's LINES, used by the Structure & values step (OrderStructureStep): add a line (from
+ * the catalog, a template, or a standard drawing), change its quantity / date / price, and its standard drawing.
+ * They were the Line items stage's (OrderLinesPanel) until Line items merged into Structure & values (2026-10-18).
+ */
 
 const linkSx = { color: 'inherit', textDecoration: 'none', '&:hover': { color: 'var(--c-primary-700)', textDecoration: 'underline' } };
 
@@ -41,8 +35,8 @@ const linkSx = { color: 'inherit', textDecoration: 'none', '&:hover': { color: '
  * FROM A STANDARD DRAWING (its BOM, values and part drawings copied, init.sql §69). A custom line can take its
  * drawing at once; ticked "This is a standard drawing", the drawing is saved to Standard drawings too.
  */
-function AddLineDialog({ order, open, onClose, onDone }: { order: SalesOrder; open: boolean; onClose: () => void; onDone: (o: SalesOrder, message?: string) => void }) {
-  const [mode, setMode] = useState<'catalog' | 'standard'>('catalog');
+export function AddLineDialog({ order, open, initialMode = 'catalog', onClose, onDone }: { order: SalesOrder; open: boolean; initialMode?: 'catalog' | 'standard'; onClose: () => void; onDone: (o: SalesOrder, message?: string) => void }) {
+  const [mode, setMode] = useState<'catalog' | 'standard'>(initialMode);
   const [rec, setRec] = useState<MasterRecord | null>(null);
   const [std, setStd] = useState<StandardSummary | null>(null);
   const [form, setForm] = useState({ quantity: '1', committedDate: '', description: '', rate: '', basis: '' as PriceBasis | '' });
@@ -51,10 +45,10 @@ function AddLineDialog({ order, open, onClose, onDone }: { order: SalesOrder; op
   const [stdForm, setStdForm] = useState({ number: '', name: '', revision: '' });
   useEffect(() => {
     if (open) {
-      setMode('catalog'); setRec(null); setStd(null); setFile(null); setIsStandard(false); setStdForm({ number: '', name: '', revision: '' });
+      setMode(order.orderType === 'stock' ? 'catalog' : initialMode); setRec(null); setStd(null); setFile(null); setIsStandard(false); setStdForm({ number: '', name: '', revision: '' });
       setForm({ quantity: '1', committedDate: '', description: '', rate: '', basis: '' });
     }
-  }, [open]);
+  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
   const stock = order.orderType === 'stock';
   const price = {
     // Empty rate = the item's list price (a catalog line). Empty basis = the item's own, or per tonne for a custom line.
@@ -174,7 +168,7 @@ function AddLineDialog({ order, open, onClose, onDone }: { order: SalesOrder; op
  * the standard (the first version), "Update the standard too (new version)" or "Keep the standard as it is" once the
  * BOM was changed, or mark a line's BOM as a new standard drawing.
  */
-function StandardLineDialog({ line, order, onClose, onChanged }: { line: SalesOrderLine | null; order: SalesOrder; onClose: () => void; onChanged: () => void }) {
+export function StandardLineDialog({ line, order, onClose, onChanged }: { line: SalesOrderLine | null; order: SalesOrder; onClose: () => void; onChanged: () => void }) {
   const company = useCompanySlug();
   const toast = useToast();
   const isPermitted = useIsPermitted();
@@ -250,7 +244,7 @@ function StandardLineDialog({ line, order, onClose, onChanged }: { line: SalesOr
 }
 
 /** Changes a line's quantity, date and wording. What it sells cannot change — remove it and add another. */
-function EditOrderLineDialog({ line, onClose, onDone }: { line: SalesOrderLine | null; onClose: () => void; onDone: (o: SalesOrder) => void }) {
+export function EditOrderLineDialog({ line, onClose, onDone }: { line: SalesOrderLine | null; onClose: () => void; onDone: (o: SalesOrder) => void }) {
   const [form, setForm] = useState({ quantity: '', committedDate: '', description: '', rate: '', basis: 'unit' as PriceBasis });
   useEffect(() => {
     if (line) setForm({ quantity: String(line.quantity), committedDate: line.committedDate ?? '', description: line.description ?? '', rate: line.rate == null ? '' : String(line.rate),
@@ -281,7 +275,7 @@ function EditOrderLineDialog({ line, onClose, onDone }: { line: SalesOrderLine |
 }
 
 /** What is under a line, in a phrase: a custom structure's counts, or the Standard BOM it uses. */
-function structureText(l: SalesOrderLine) {
+export function LineStructureText({ line: l }: { line: SalesOrderLine }) {
   if (l.lineType === 'custom' && l.structure) {
     const s = l.structure;
     return (
@@ -293,137 +287,4 @@ function structureText(l: SalesOrderLine) {
   }
   if (l.bom) return <Typography sx={{ fontSize: 13 }}>Standard BOM <Mono>rev {l.bomRevision ?? '—'}</Mono>{l.bom.currentRevision !== l.bomRevision && <Mono muted> (now {l.bom.currentRevision ?? '—'})</Mono>}</Typography>;
   return <Typography sx={{ fontSize: 13, color: 'var(--c-text-3)' }}>No BOM — bought or traded</Typography>;
-}
-
-/**
- * The order's lines, with everything that changes them: add, change, remove,
- * and the way into a line's structure.
- *
- * One panel, two homes — the order's Lines stage and, on an order with no
- * process, its plain Lines tab. Keeping it in one place is the point: a stage
- * that offered less than the tab it replaced is the exact failure this screen
- * was built to avoid.
- */
-export function OrderLinesPanel({ order, onSaved, onOpenStructure, onRelease, onRowClick, subtitle, title = 'Lines' }: {
-  order: SalesOrder;
-  /** The saved order that came back from adding, changing or removing a line. */
-  onSaved: (o: SalesOrder) => void;
-  onOpenStructure: (line: SalesOrderLine) => void;
-  /** Given when this screen may release a line; the button still obeys permission and status. */
-  onRelease?: (line: SalesOrderLine) => void;
-  /** Clicking a row. The Lines stage uses it to switch the line being worked on. */
-  onRowClick?: (line: SalesOrderLine) => void;
-  subtitle?: ReactNode;
-  title?: string;
-}) {
-  const company = useCompanySlug();
-  const isPermitted = useIsPermitted();
-  const toast = useToast();
-  const [adding, setAdding] = useState(false);
-  const [editing, setEditing] = useState<SalesOrderLine | null>(null);
-  const [removing, setRemoving] = useState<SalesOrderLine | null>(null);
-  const [standardOf, setStandardOf] = useState<SalesOrderLine | null>(null);
-
-  const lines = order.lines ?? [];
-  const locked = LOCKED_STATUSES.includes(order.status);
-  const editable = isPermitted('cf_erp_orders_manage') && !locked;
-  const canProduce = isPermitted('cf_erp_production_manage');
-  const to = (path: string) => appPath(company, path);
-
-  const columns: DataColumn<SalesOrderLine>[] = [
-    { key: 'no', header: 'Line', alwaysVisible: true, render: (l) => <Mono muted>{l.lineNo}</Mono> },
-    {
-      key: 'sells', header: 'Sells', alwaysVisible: true,
-      render: (l) => (
-        <Box sx={{ py: 0.5 }}>
-          <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
-            {/* The name leads: what the line sells, as the user chose it. Its code and where it came from sit under it. */}
-            {l.item
-              ? <Box component={Link} to={to(recordPath(l.item.kind, l.item.id))} sx={{ ...linkSx, fontSize: 14, fontWeight: 600 }}>{l.item.name ?? l.item.code ?? 'Unnamed item'}</Box>
-              : <Mono muted>—</Mono>}
-            {l.item && l.lineType !== 'custom' && <KindChip kind={l.item.kind} />}
-            {l.item && l.item.status !== 'active' && (l.lineType === 'custom' && l.item.status === 'draft'
-              ? <Badge family="neutral" label="Not frozen" title="Its design is not frozen yet. Freeze design gives it its code and makes it active." noIcon />
-              : <StatusBadge status={l.item.status} />)}
-          </Box>
-          <Typography component="div" sx={{ fontSize: 13, color: 'var(--c-text-2)', whiteSpace: 'normal' }}>
-            {l.lineType === 'custom'
-              ? <>Made to order from template {definitionLabel(l.design)} · {l.item?.code ? <Mono>{l.item.code}</Mono> : 'gets its code when the design is frozen'}</>
-              : l.item?.code ? <Mono>{l.item.code}</Mono> : null}
-            {l.description ? ` · “${l.description}”` : ''}
-          </Typography>
-          {l.standard && (
-            <Typography component="div" sx={{ fontSize: 12.5, color: 'var(--c-text-2)', whiteSpace: 'normal' }} data-testid="line-standard">
-              From standard <Mono>{standardLabel({ number: l.standard.number, versionNo: l.standard.versionNo })}</Mono>{l.standard.versionNo == null ? ' (BOM not saved to it yet)' : ''}
-            </Typography>
-          )}
-        </Box>
-      ),
-    },
-    { key: 'qty', header: 'Qty', numeric: true, alwaysVisible: true, render: (l) => <><Mono>{l.quantity}</Mono>{l.item?.uom && <Mono muted> {l.item.uom}</Mono>}</> },
-    {
-      key: 'rate', header: 'Rate', numeric: true, alwaysVisible: true, sortValue: (l) => l.rate, exportValue: (l) => (l.rate == null ? '' : `${l.rate} ${BASIS_LABEL[l.rateBasis ?? 'unit']}`),
-      render: (l) => (l.rate == null ? <Money value={null} missing="no rate" /> : (
-        <Box sx={{ textAlign: 'right' }}>
-          <Mono>{rateText(l.rate, l.rateBasis)}</Mono>
-          {l.rateBasis && l.rateBasis !== 'unit' && billedText(l.billed, l.billedUom) && <Box sx={{ fontSize: 11.5, color: 'var(--c-text-3)' }}><Mono muted>{billedText(l.billed, l.billedUom)}</Mono></Box>}
-        </Box>
-      )),
-    },
-    {
-      key: 'amount', header: 'Amount', numeric: true, alwaysVisible: true, sortValue: (l) => l.amount, exportValue: (l) => l.amount ?? '',
-      render: (l) => (
-        <Box sx={{ textAlign: 'right' }}>
-          {l.amount != null ? <Money value={l.amount} /> : l.amountNote && l.rate != null
-            ? <Tooltip title={l.amountNote}><Box component="span" sx={{ color: 'var(--c-text-3)', fontSize: 12, whiteSpace: 'normal', display: 'inline-block', maxWidth: 220 }}>{l.amountNote}</Box></Tooltip>
-            : <Mono muted>—</Mono>}
-          {l.amount != null && <LineTaxNote tax={l.tax} />}
-        </Box>
-      ),
-    },
-    { key: 'committed', header: 'Committed', alwaysVisible: true, render: (l) => <Mono muted={!l.committedDate}>{l.committedDate ?? order.committedDate ?? '—'}</Mono> },
-    { key: 'structure', header: 'Structure', alwaysVisible: true, render: (l) => structureText(l) },
-    ...(order.status === 'confirmed' || lines.some((l) => l.release) ? [{
-      key: 'production', header: 'Production', alwaysVisible: true,
-      render: (l: SalesOrderLine) => (l.release ? <Badge family="info" label="Released" title={`Released ${new Date(l.release.releasedAt).toLocaleDateString()}`} /> : <Badge family="neutral" noIcon label="Not released" />),
-    }] : []),
-  ];
-
-  return (
-    <>
-      <SectionCard flush title={title}
-        subtitle={subtitle ?? 'Each line sells an item: a catalog item as it is, or a temporary item made for this order from a template.'}
-        actions={editable && <Button startIcon={<AddRounded />} onClick={() => setAdding(true)}>Add line</Button>}>
-        <DataTable bare rows={lines} columns={columns} getRowId={(l) => l.id} onRowClick={onRowClick}
-          empty={<EmptyState title="No lines yet" hint={order.orderType === 'stock' ? 'Add the catalog items to make for stock.' : 'Add a catalog item, or a template definition — its whole structure is created on the spot.'}
-            action={editable && <Button variant="contained" startIcon={<AddRounded />} onClick={() => setAdding(true)}>Add line</Button>} />}
-          rowActions={(l) => (
-            <>
-              <Tooltip title="Open its structure"><IconButton size="small" aria-label={`Structure of line ${l.lineNo}`} onClick={() => onOpenStructure(l)}><AccountTreeRounded fontSize="small" /></IconButton></Tooltip>
-              {l.lineType === 'custom' && (l.standard || editable) && (
-                <Tooltip title={l.standard ? 'Its standard drawing' : 'Save as a standard drawing'}>
-                  <IconButton size="small" aria-label={`Standard drawing of line ${l.lineNo}`} onClick={() => setStandardOf(l)}><ArchitectureRounded fontSize="small" /></IconButton>
-                </Tooltip>
-              )}
-              {onRelease && canProduce && order.status === 'confirmed' && !l.release && <Button size="small" variant="outlined" startIcon={<RocketLaunchRounded />} onClick={() => onRelease(l)}>Release</Button>}
-              {editable && <Tooltip title={l.release ? 'Change the price' : 'Change'}><IconButton size="small" aria-label={`Change line ${l.lineNo}`} onClick={() => setEditing(l)}><EditRounded fontSize="small" /></IconButton></Tooltip>}
-              {editable && !l.release && <Tooltip title="Remove"><IconButton size="small" aria-label={`Remove line ${l.lineNo}`} onClick={() => setRemoving(l)}><DeleteOutlineRounded fontSize="small" /></IconButton></Tooltip>}
-            </>
-          )} />
-        {order.total && lines.length > 0 && <OrderTotalBar total={order.total} lineCount={lines.length} />}
-      </SectionCard>
-
-      <AddLineDialog order={order} open={adding} onClose={() => setAdding(false)} onDone={(saved, message) => { onSaved(saved); toast.success(message ?? 'Line added.'); }} />
-      <StandardLineDialog line={standardOf} order={order} onClose={() => setStandardOf(null)}
-        onChanged={() => { void cfApi.get<SalesOrder>(`/orders/${order.id}`).then(onSaved).catch(() => {}); }} />
-      <EditOrderLineDialog line={editing} onClose={() => setEditing(null)} onDone={(saved) => { onSaved(saved); toast.success('Line saved.'); }} />
-      <ConfirmDialog open={!!removing} danger confirmLabel="Remove line" title="Remove this line?"
-        entityName={removing ? `${order.code} · line ${removing.lineNo} · ${removing.item?.code ?? removing.item?.name ?? ''}` : undefined}
-        body={removing?.lineType === 'custom'
-          ? `${removing.item?.code ?? removing.item?.name ?? 'Its structure'} and every row below it exist only for this order, so they are deleted with the line.`
-          : 'The line goes; the catalog item stays.'}
-        onClose={() => setRemoving(null)}
-        onConfirm={async () => { onSaved(await cfApi.del<SalesOrder>(`/order-lines/${removing?.id}`)); toast.success('Line removed.'); }} />
-    </>
-  );
 }
