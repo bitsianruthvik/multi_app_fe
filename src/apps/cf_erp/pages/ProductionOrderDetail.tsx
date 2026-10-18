@@ -21,6 +21,7 @@ import { PO_STATE, progressText, releaseToast, shortDate, trackerPathOf } from '
 import { Badge, DetailSkeleton, EmptyState, ErrorNotice, Fact, Mono, PageHeader, SectionCard } from '../components/ui';
 import { FullScreenFrame, FullScreenToggle } from '../components/FullScreen';
 import { useToast } from '../components/toastContext';
+import { ContractorWorkCard } from '../components/ContractorWork/ContractorWorkCard';
 
 const STEP_FAMILY: Record<string, 'neutral' | 'info' | 'warning' | 'success' | 'danger'> = {
   done: 'success', in_progress: 'warning', ready: 'info', not_ready: 'neutral', on_hold: 'danger',
@@ -75,8 +76,8 @@ export default function ProductionOrderDetail() {
                 <Box key={p.id} sx={{ display: 'flex', gap: 1, alignItems: 'baseline', flexWrap: 'wrap', pl: Math.min(p.depth, 6) * 1.5, py: 0.5, borderTop: '1px solid var(--c-divider)' }}>
                   <Mono sx={{ minWidth: 160 }}>{p.code ?? p.label}</Mono>
                   {p.steps.map((st) => (
-                    <Box key={st.id} title={st.blockers.map((b) => b.text).join(' ') || undefined}>
-                      <Badge family={STEP_FAMILY[st.status] ?? 'neutral'} label={`${st.operation.code} ${st.qtyGood}/${st.quantity}`} noIcon />
+                    <Box key={st.id} title={st.workOrder ? `With ${st.workOrder.contractorName ?? 'a contractor'} (${st.workOrder.code}) — not done in-house.` : st.blockers.map((b) => b.text).join(' ') || undefined}>
+                      <Badge family={st.workOrder ? 'info' : STEP_FAMILY[st.status] ?? 'neutral'} label={`${st.operation.code} ${st.qtyGood}/${st.quantity}${st.workOrder ? ` · with ${st.workOrder.contractorName ?? 'contractor'} (${st.workOrder.code})` : ''}`} noIcon />
                     </Box>
                   ))}
                 </Box>
@@ -85,6 +86,9 @@ export default function ProductionOrderDetail() {
           )}
           <Typography sx={{ fontSize: 12, color: 'var(--c-text-3)', mt: 1 }}>Hover a step to see what it waits for. Work is recorded on the Floor (machine log) or in the Tracker.</Typography>
         </SectionCard>
+      </Box>
+      <Box sx={{ mt: 2 }}>
+        <ContractorWorkCard productionOrderId={po.id} canGive={canProduce || isPermitted('cf_erp_accounts_manage')} />
       </Box>
     </FullScreenFrame>
   );

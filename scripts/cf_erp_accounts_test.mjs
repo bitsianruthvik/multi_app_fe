@@ -184,7 +184,7 @@ await check('the API helpers call the §74 routes', async () => {
 await check('the menu: a top-level Accounts with Billing (its due badge), Invoices, Receipts, Order costing', () => {
   const acc = m.SECTIONS.find((s) => s.key === 'accounts');
   assert.equal(acc.label, 'Accounts');
-  assert.deepEqual(acc.screens.map((s) => s.key), ['billing', 'invoices', 'receipts', 'order-costing']);
+  assert.deepEqual(acc.screens.map((s) => s.key), ['billing', 'invoices', 'receipts', 'order-costing', 'contractor-work-orders']);
   assert.equal(acc.screens[0].countKey, 'billingDue');
   assert.equal(acc.screens[0].permission, 'cf_erp_accounts_view');
   assert.deepEqual(m.COUNT_TONE.billingDue, { tone: 'warning', suffix: 'due' }, 'the badge reads "Billing 3 due"');

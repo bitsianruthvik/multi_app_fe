@@ -21,6 +21,7 @@ const InvoiceDetail = lazy(() => import('./pages/InvoiceDetail'));
 const CompanyTax = lazy(() => import('./pages/CompanyTax'));
 const Customers = lazy(() => import('./pages/Customers'));
 const Plan = lazy(() => import('./pages/Plan'));
+const Planner = lazy(() => import('./pages/Planner'));
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const Tracker = lazy(() => import('./pages/Tracker'));
 const Floor = lazy(() => import('./pages/Floor'));
@@ -40,7 +41,8 @@ const Operations = lazy(() => import('./pages/Operations'));
 const OperationDetail = lazy(() => import('./pages/OperationDetail'));
 const Flows = lazy(() => import('./pages/Flows'));
 const FlowDetail = lazy(() => import('./pages/FlowDetail'));
-const WorkOrders = lazy(() => import('./pages/WorkOrders'));
+const ContractorWorkOrders = lazy(() => import('./pages/ContractorWorkOrders'));
+const ContractorWorkOrderDetail = lazy(() => import('./pages/ContractorWorkOrderDetail'));
 const ProductionOrders = lazy(() => import('./pages/ProductionOrders'));
 const ProductionOrderDetail = lazy(() => import('./pages/ProductionOrderDetail'));
 const WorkOrderDetail = lazy(() => import('./pages/WorkOrderDetail'));
@@ -110,6 +112,8 @@ export function getCfErpRoutes(
     { path: '/:company/cf_erp/billing', element: wrap(<Billing />) },
     { path: '/:company/cf_erp/receipts', element: wrap(<Receipts />) },
     { path: '/:company/cf_erp/order-costing', element: wrap(<OrderCosting />) },
+    { path: '/:company/cf_erp/contractor-work-orders', element: wrap(<ContractorWorkOrders />) },
+    { path: '/:company/cf_erp/contractor-work-orders/:id', element: wrap(<ContractorWorkOrderDetail />) },
     { path: '/:company/cf_erp/invoices', element: wrap(<Invoices />) },
     { path: '/:company/cf_erp/invoices/:id', element: wrap(<InvoiceDetail />) },
     { path: '/:company/cf_erp/company-tax', element: wrap(<CompanyTax />) },
@@ -125,6 +129,7 @@ export function getCfErpRoutes(
     { path: '/:company/cf_erp/definitions/:id', element: wrap(<RecordDetail recordKind="definition" />) },
     { path: '/:company/cf_erp/management', element: wrap(<Dashboard />) },
     { path: '/:company/cf_erp/plan', element: wrap(<Plan />) },
+    { path: '/:company/cf_erp/planner', element: wrap(<Planner />) },
     { path: '/:company/cf_erp/tracker', element: wrap(<Tracker />) },
     { path: '/:company/cf_erp/floor', element: wrap(<Floor />) },
     { path: '/:company/cf_erp/operators', element: wrap(<Operators />) },
@@ -142,7 +147,8 @@ export function getCfErpRoutes(
     { path: '/:company/cf_erp/operations/:id', element: wrap(<OperationDetail />) },
     { path: '/:company/cf_erp/flows', element: wrap(<Flows />) },
     { path: '/:company/cf_erp/flows/:id', element: wrap(<FlowDetail />) },
-    { path: '/:company/cf_erp/work-orders', element: wrap(<WorkOrders />) },
+    // Step 6 (§85): the old list is retired — contractor work orders live in Accounts; older ones stay readable by id.
+    { path: '/:company/cf_erp/work-orders', element: <Navigate to="../contractor-work-orders" relative="path" replace /> },
     { path: '/:company/cf_erp/production-orders', element: wrap(<ProductionOrders />) },
     { path: '/:company/cf_erp/production-orders/:id', element: wrap(<ProductionOrderDetail />) },
     { path: '/:company/cf_erp/work-orders/:id', element: wrap(<WorkOrderDetail />) },

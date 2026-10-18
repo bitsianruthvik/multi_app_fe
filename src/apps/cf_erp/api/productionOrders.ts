@@ -45,6 +45,8 @@ export interface ProductionOrderStep {
   id: number; label: string; operation: { id: number; code: string; name: string }; state: string; status: string;
   quantity: number; qtyGood: number; effMinutes: number | null; machine: { id: number; code: string } | null;
   blockers: { kind: string; text: string }[];
+  /** Step 6 (§85): set when the step is with a contractor's work order. */
+  workOrder?: { id: number; code: string; contractorName: string | null } | null;
 }
 export interface ProductionOrderDetail extends ProductionOrder {
   releases: { id: number; lineId: number }[];

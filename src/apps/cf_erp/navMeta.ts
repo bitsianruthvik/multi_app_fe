@@ -88,7 +88,7 @@ export const SECTIONS: NavSection[] = [
   },
   {
     // §74: ACCOUNTS — billing by payment milestones, the tax invoices, receipts, the cost sheet of each order. Contractor
-    // work orders (their bills) come here later as a "Work orders" tab.
+    // work orders (Step 6, §85: raised from a production order, approved by Management, paid week by week) are "Work orders".
     key: 'accounts',
     label: 'Accounts',
     screens: [
@@ -96,6 +96,7 @@ export const SECTIONS: NavSection[] = [
       { key: 'invoices', label: 'Invoices', path: 'invoices', hasDetail: true, permission: `${ORDERS}|${ACCOUNTS}`, keywords: ['tax invoice', 'gst', 'e-way', 'einvoice', 'irn', 'bill', 'dispatch', 'pdf'] },
       { key: 'receipts', label: 'Receipts', path: 'receipts', permission: ACCOUNTS, keywords: ['payment', 'receipt', 'received', 'outstanding', 'part payment', 'cheque', 'neft', 'upi', 'on account'] },
       { key: 'order-costing', label: 'Order costing', path: 'order-costing', permission: ACCOUNTS, keywords: ['cost sheet', 'margin', 'costing', 'material cost', 'consumables', 'scrap credit', 'profit'] },
+      { key: 'contractor-work-orders', label: 'Work orders', path: 'contractor-work-orders', hasDetail: true, permission: ACCOUNTS, keywords: ['contractor', 'subcontract', 'job work', 'outsource', 'weekly payment', 'contractor po', 'tonnes'] },
     ],
   },
   {
@@ -128,14 +129,16 @@ export const SECTIONS: NavSection[] = [
     screens: [
       // Management's glance: by machine and by order. Not 'dashboard' — that path is the login landing (redirects to Home).
       { key: 'management', label: 'Dashboard', path: 'management', permission: PRODUCTION, keywords: ['management', 'utilisation', 'utilization', 'oee', 'downtime', 'stops', 'overtime', 'order progress', 'at risk', 'late', 'tonnes', 'kpi', 'report'] },
-      { key: 'plan', label: 'Plan', path: 'plan', permission: PRODUCTION, keywords: ['planner', 'schedule', 'capacity', 'ship', 'month', 'goal', 'priority', 'auto-plan'] },
+      // Step 5 (§84): the planner per production order, step by step — auto (AI) / manual (Management), baseline, plan health.
+      { key: 'planner', label: 'Planner', path: 'planner', permission: PRODUCTION, keywords: ['planner', 'schedule', 'gantt', 'production order', 'capacity', 'shifts', 'baseline', 're-baseline', 'priority', 'rank', 'auto', 'manual', 'ai', 'late', 'slowed'] },
+      { key: 'plan', label: 'Plan by month', path: 'plan', permission: PRODUCTION, keywords: ['planner', 'schedule', 'capacity', 'ship', 'month', 'goal', 'priority', 'auto-plan'] },
       // Every released line, by sales order (2026-10-17). A production order = a release; work orders stay the contractors'.
       { key: 'production-orders', label: 'Production orders', path: 'production-orders', permission: PRODUCTION, keywords: ['released', 'release', 'yet to plan', 'planned', 'in production', 'dispatch', 'closed', 'progress', 'status', 'sales order'] },
       { key: 'tracker', label: 'Tracker', path: 'tracker', permission: PRODUCTION, countKey: 'readySteps', keywords: ['work queue', 'shop floor', 'steps', 'release', 'reserve', 'material'] },
       { key: 'floor', label: 'Machine log', path: 'floor', permission: FLOOR, keywords: ['shop floor', 'operator', 'start', 'pause', 'stop', 'my day', 'shift log', 'tablet'] },
       { key: 'machines', label: 'Machines', path: 'machines', hasDetail: true, permission: PRODUCTION, countKey: 'machines', keywords: ['shifts', 'calendar', 'equipment', 'machine types', 'classification'] },
       { key: 'operations', label: 'Operations', path: 'operations', hasDetail: true, permission: PRODUCTION, countKey: 'operations', keywords: ['timing', 'cut', 'weld'] },
-      { key: 'work-orders', label: 'Work orders', path: 'work-orders', hasDetail: true, permission: PRODUCTION, keywords: ['contractor', 'subcontract', 'job work', 'outsource', 'vendor'] },
+      // Work orders moved to Accounts (Step 6, §85); they are raised from a production order (Contractor work).
       { key: 'contractors', label: 'Contractors', path: 'contractors', permission: ORDERS, keywords: ['subcontractor', 'job work', 'outsource', 'vendor', 'party'] },
       { key: 'flows', label: 'Flows', path: 'flows', hasDetail: true, permission: PRODUCTION, countKey: 'draftFlows', keywords: ['routing', 'steps', 'wait for'] },
     ],

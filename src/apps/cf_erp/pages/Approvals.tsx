@@ -17,6 +17,7 @@ import { Badge, EmptyState, ErrorNotice, ListSkeleton, Mono, PageHeader, Section
 import { FacetChip, FilterBar } from '../components/FilterBar';
 import { DialogHeader } from '../components/FormDialog';
 import { useToast } from '../components/toastContext';
+import { PlanHealthCard } from '../components/Planner3/PlanHealthCard';
 
 const linkSx = { color: 'inherit', textDecoration: 'none', '&:hover': { color: 'var(--c-primary-700)', textDecoration: 'underline' } };
 const th = { px: 0.75, py: 0.5, fontSize: 11.5, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.04em', color: 'var(--c-text-3)', textAlign: 'left', borderBottom: '1px solid var(--c-divider)' } as const;
@@ -103,6 +104,19 @@ function AcceptanceBody({ ctx }: { ctx: AcceptanceContext }) {
   );
 }
 
+/** Step 5 (§84): a re-baseline — what moves if the saved plan becomes the baseline. */
+interface RebaselineContext { kind: 'rebaseline'; summary: string; later: number; earlier: number; slipDays: number; moves: { code: string; label: string; from: string | null; to: string | null; days: number | null }[] }
+function RebaselineBody({ ctx }: { ctx: RebaselineContext }) {
+  return (
+    <Box data-testid="approval-rebaseline" sx={{ display: 'grid', gap: 0.5 }}>
+      <Typography sx={{ fontSize: 13 }}>{ctx.summary}</Typography>
+      {ctx.moves.slice(0, 12).map((m) => (
+        <Typography key={m.code} sx={{ fontSize: 12.5, color: 'var(--c-text-2)' }}>{m.label}: {m.from ?? '—'} → {m.to ?? 'cannot finish'}{m.days ? ` (${m.days > 0 ? '+' : ''}${m.days} d)` : ''}</Typography>
+      ))}
+    </Box>
+  );
+}
+
 function ApprovalCard({ a, me, ownAllowed, onDecide }: { a: Approval; me: number | null; ownAllowed: boolean; onDecide: (a: Approval, d: 'approve' | 'reject') => void }) {
   const pending = a.status === 'pending';
   const mine = !!me && a.requestedBy?.id === me && !ownAllowed;
@@ -123,6 +137,7 @@ function ApprovalCard({ a, me, ownAllowed, onDecide }: { a: Approval; me: number
         {mine && pending && <Typography sx={{ fontSize: 12.5, color: 'var(--c-warning-800)' }}>You asked for this one — somebody else in Management decides it (an admin may decide their own).</Typography>}
         {a.context?.kind === 'purchase_order' && <PoBody ctx={a.context as PoContext} closeShort={a.type === 'po_close_short'} />}
         {a.context?.kind === 'order_acceptance' && <AcceptanceBody ctx={a.context as AcceptanceContext} />}
+        {(a.context as { kind?: string } | null)?.kind === 'rebaseline' &&<RebaselineBody ctx={a.context as unknown as RebaselineContext} />}
         {!a.context && a.summary && <Typography sx={{ fontSize: 13 }}>{a.summary}</Typography>}
         {!pending && <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-3)' }}>{a.status} {when(a.decidedAt)}{a.decidedBy?.name ? ` by ${a.decidedBy.name}` : ''}{a.decisionNote ? ` — ${a.decisionNote}` : ''}</Typography>}
       </Box>
@@ -205,8 +220,9 @@ export default function Approvals() {
 export function ManagementOverview() {
   return (
     <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 2 }}>
-      <PageHeader title="Overview" subtitle="Management's dashboards come here." />
-      <EmptyState icon={<FactCheckRounded />} title="Nothing here yet." hint="Approvals are on the Approvals screen." />
+      <PageHeader title="Overview" subtitle="Management's dashboards: plan health first. Approvals are on the Approvals screen." />
+      {/* Step 5 (§84): the saved plan against the baseline. */}
+      <PlanHealthCard />
     </Box>
   );
 }
