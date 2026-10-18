@@ -2,7 +2,8 @@ import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Box, Button, Typography } from '@mui/material';
 import ArrowForwardRounded from '@mui/icons-material/ArrowForwardRounded';
-import { Callout, DataTable, FacetChip, FilterBar, KpiGrid, KpiTile, SectionCard, SideSheet, ToneBadge, useCompanySlug, type DataColumn } from '@shared/ui';
+import { Callout, FacetChip, FilterBar, KpiGrid, KpiTile, SectionCard, SideSheet, ToneBadge, useCompanySlug, type DataColumn } from '@shared/ui';
+import { ReportTable } from '../components/ReportTable';
 import { useReport, type SavedReport, type SavedReports } from '../api';
 import { ReportPage } from '../components/ReportPage';
 import { labelForScreen } from '../navMeta';
@@ -62,7 +63,7 @@ export default function SapReports() {
               <FacetChip label="Show SAP standard" active={showStandard} onClick={() => setShowStandard((v) => !v)} />
               {cats.slice(0, 12).map(([c, n]) => <FacetChip key={c} label={c} count={n} active={cat === c} onClick={() => setCat(cat === c ? null : c)} />)}
             </FilterBar>
-            <DataTable bare rows={rows} columns={cols} getRowId={(r) => r.id} onRowClick={setOpen} storageKey="kd-sap-reports" exportName="sap-saved-queries" />
+            <ReportTable bare rows={rows} columns={cols} getRowId={(r) => r.id} onRowClick={setOpen} storageKey="kd-sap-reports" exportName="sap-saved-queries" />
           </SectionCard>
         </>
       )}

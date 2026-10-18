@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { Box, Stack, Tooltip, Typography } from '@mui/material';
+import { Box, Stack, Tooltip, Typography, useMediaQuery, useTheme } from '@mui/material';
 import { BarChart } from '@mui/x-charts/BarChart';
 import { PieChart } from '@mui/x-charts/PieChart';
 import { useChartPalette } from '@shared/ui';
@@ -15,14 +15,17 @@ export function TrendBars({ labels, series, height = 280, format, stacked = fals
   labels: string[]; series: Series[]; height?: number; format: (v: number) => string; stacked?: boolean;
 }) {
   const palette = useChartPalette();
+  const phone = usePhone();
   if (!labels.length) return <Empty />;
+  // Phones: shorter chart and at most ~6 labels along the bottom.
+  const every = phone ? Math.max(1, Math.ceil(labels.length / 6)) : Math.max(1, Math.ceil(labels.length / 16));
   return (
     <Box>
       {series.length > 1 && <Legend items={series.map((s, i) => ({ label: s.label, color: palette[i % palette.length] }))} />}
       <BarChart
-        height={height}
-        xAxis={[{ scaleType: 'band', data: labels, tickLabelStyle: { fontSize: 11 } }]}
-        yAxis={[{ valueFormatter: (v: number | null) => format(v ?? 0), width: 76, tickLabelStyle: { fontSize: 11 } }]}
+        height={phone ? Math.min(height, 220) : height}
+        xAxis={[{ scaleType: 'band', data: labels, tickLabelStyle: { fontSize: phone ? 10 : 11 }, tickLabelInterval: (_v: unknown, i: number) => i % every === 0 }]}
+        yAxis={[{ valueFormatter: (v: number | null) => format(v ?? 0), width: phone ? 58 : 76, tickLabelStyle: { fontSize: phone ? 10 : 11 } }]}
         series={series.map((s, i) => ({
           data: s.data, label: s.label, color: palette[i % palette.length],
           valueFormatter: (v: number | null) => (s.format || format)(v ?? 0), ...(stacked ? { stack: s.stack || 'all' } : {}),
@@ -40,6 +43,8 @@ export function Donut({ data, format, height = 240, center }: {
   data: { label: string; value: number }[]; format: (v: number) => string; height?: number; center?: ReactNode;
 }) {
   const palette = useChartPalette();
+  const phone = usePhone();
+  if (phone) height = Math.min(height, 180);
   const rows = data.filter((d) => d.value > 0);
   if (!rows.length) return <Empty />;
   const total = rows.reduce((t, d) => t + d.value, 0);
@@ -159,6 +164,11 @@ function Legend({ items }: { items: { label: string; color: string }[] }) {
       ))}
     </Stack>
   );
+}
+
+function usePhone() {
+  const theme = useTheme();
+  return useMediaQuery(theme.breakpoints.down('sm'));
 }
 
 function Empty() {

@@ -90,7 +90,7 @@ export default function Overview() {
                 { label: '61–90', value: d.receivablesAgeing.d61_90, color: 'var(--c-chart-7)' },
                 { label: '90+', value: d.receivablesAgeing.d90plus, color: 'var(--c-danger-600)' },
               ]} />
-              <Box sx={{ mt: 3, display: 'grid', gap: 2, gridTemplateColumns: '1fr 1fr' }}>
+              <Box sx={{ mt: 3, display: 'grid', gap: 2, gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' } }}>
                 <DueList title="Customers to pay in the next 7 days" due={d.dueIn7Receivable} onClick={go('receivables')} />
                 <DueList title="We pay vendors in the next 7 days" due={d.dueIn7Payable} onClick={go('payables')} />
               </Box>

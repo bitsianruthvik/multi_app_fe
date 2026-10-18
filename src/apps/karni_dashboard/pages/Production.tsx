@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Box, Stack, Typography } from '@mui/material';
-import { DataTable, DetailTabs, FacetChip, FilterBar, KpiGrid, KpiTile, SectionCard, ToneBadge, type DataColumn } from '@shared/ui';
+import { DetailTabs, FacetChip, FilterBar, KpiGrid, KpiTile, SectionCard, ToneBadge, type DataColumn } from '@shared/ui';
+import { ReportTable } from '../components/ReportTable';
 import { useReport, type ProductionOrderRow, type ProductionReport } from '../api';
 import { ReportPage, CardGrid } from '../components/ReportPage';
 import { Donut, Meter, RankBars, TrendBars } from '../components/Charts';
@@ -127,10 +128,10 @@ export default function Production() {
                 {section && <FacetChip label={section} active onClick={() => setSection(null)} />}
               </FilterBar>
             )}
-            {tab === 'machines' && <DataTable bare rows={d.machines} columns={machineCols} getRowId={(r) => r.machine} storageKey="kd-prod-machines" exportName="machine-wise-production" />}
-            {tab === 'orders' && <DataTable bare rows={orders} columns={orderCols} getRowId={(r) => r.id} storageKey="kd-prod-orders" exportName="open-production-orders" />}
-            {tab === 'yield' && <DataTable bare rows={d.yieldOrders} columns={yieldCols} getRowId={(r) => r.id} storageKey="kd-prod-yield" exportName="issue-vs-receipt" />}
-            {tab === 'operators' && <DataTable bare rows={d.operators} columns={opCols} getRowId={(r) => `${r.operator}-${r.machine}`} exportName="operator-output" />}
+            {tab === 'machines' && <ReportTable bare rows={d.machines} columns={machineCols} getRowId={(r) => r.machine} storageKey="kd-prod-machines" exportName="machine-wise-production" />}
+            {tab === 'orders' && <ReportTable bare rows={orders} columns={orderCols} getRowId={(r) => r.id} storageKey="kd-prod-orders" exportName="open-production-orders" />}
+            {tab === 'yield' && <ReportTable bare rows={d.yieldOrders} columns={yieldCols} getRowId={(r) => r.id} storageKey="kd-prod-yield" exportName="issue-vs-receipt" />}
+            {tab === 'operators' && <ReportTable bare rows={d.operators} columns={opCols} getRowId={(r) => `${r.operator}-${r.machine}`} exportName="operator-output" />}
           </SectionCard>
         </>
       )}

@@ -51,7 +51,7 @@ export function KpiTile({
       e={1}
       onClick={onClick}
       sx={{
-        p: 2, display: 'flex', flexDirection: 'column', gap: 0.75, minWidth: 0, position: 'relative', overflow: 'hidden',
+        p: { xs: 1.5, sm: 2 }, display: 'flex', flexDirection: 'column', gap: 0.75, minWidth: 0, position: 'relative', overflow: 'hidden',
         cursor: onClick ? 'pointer' : 'default',
         transition: 'box-shadow var(--t-fast) var(--ease), transform var(--t-fast) var(--ease)',
         ...(onClick && { '&:hover': { boxShadow: 'var(--e-2)', transform: 'translateY(-1px)' } }),
@@ -60,25 +60,25 @@ export function KpiTile({
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
         {icon && (
           <Box sx={{
-            width: 28, height: 28, borderRadius: 'var(--r-sm)', display: 'grid', placeItems: 'center', flexShrink: 0,
+            width: 28, height: 28, borderRadius: 'var(--r-sm)', display: { xs: 'none', sm: 'grid' }, placeItems: 'center', flexShrink: 0,
             background: 'var(--c-primary-50)', color: 'var(--c-primary-600)', '& svg': { fontSize: 17 },
           }}>{icon}</Box>
         )}
-        <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)', fontWeight: 500 }} noWrap>{label}</Typography>
+        <Typography sx={{ fontSize: { xs: 12, sm: 12.5 }, color: 'var(--c-text-2)', fontWeight: 500, lineHeight: 1.25 }}>{label}</Typography>
       </Box>
       <Box sx={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 1 }}>
         <Typography sx={{
-          fontFamily: 'var(--font-mono)', fontVariantNumeric: 'tabular-nums', fontSize: 26, fontWeight: 600, lineHeight: 1.1,
+          fontFamily: 'var(--font-mono)', fontVariantNumeric: 'tabular-nums', fontSize: { xs: 19, sm: 26 }, fontWeight: 600, lineHeight: 1.1,
           color: TONE[tone], whiteSpace: 'nowrap',
         }}>{display}</Typography>
         {spark && spark.length > 1 && (
-          <Box sx={{ width: 96, height: 34, flexShrink: 0 }} aria-hidden>
+          <Box sx={{ width: 96, height: 34, flexShrink: 0, display: { xs: 'none', sm: 'block' } }} aria-hidden>
             <SparkLineChart data={spark} height={34} width={96} area curve="natural" color={palette[0]} />
           </Box>
         )}
       </Box>
       {delta && (
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, fontSize: 12, color: 'var(--c-text-3)' }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 0.5, fontSize: { xs: 11, sm: 12 }, color: 'var(--c-text-3)' }}>
           {delta.pct == null ? (
             <span>— {delta.label}</span>
           ) : (
@@ -95,7 +95,7 @@ export function KpiTile({
           )}
         </Box>
       )}
-      {footer && <Box sx={{ fontSize: 12, color: 'var(--c-text-2)' }}>{footer}</Box>}
+      {footer && <Box sx={{ fontSize: { xs: 11, sm: 12 }, color: 'var(--c-text-2)' }}>{footer}</Box>}
     </Surface>
   );
   return hint ? <Tooltip title={hint} placement="top-start">{tile}</Tooltip> : tile;
@@ -104,7 +104,7 @@ export function KpiTile({
 /** A responsive row of KPI tiles. */
 export function KpiGrid({ children, min = 220 }: { children: ReactNode; min?: number }) {
   return (
-    <Box sx={{ display: 'grid', gap: 1.5, gridTemplateColumns: { xs: 'repeat(1, minmax(0, 1fr))', sm: `repeat(auto-fit, minmax(${min}px, 1fr))` } }}>
+    <Box sx={{ display: 'grid', gap: 1.5, gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', sm: `repeat(auto-fit, minmax(${min}px, 1fr))` } }}>
       {children}
     </Box>
   );

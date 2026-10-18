@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Box } from '@mui/material';
-import { DataTable, DetailTabs, FacetChip, FilterBar, KpiGrid, KpiTile, SectionCard, ToneBadge, type DataColumn } from '@shared/ui';
+import { DetailTabs, FacetChip, FilterBar, KpiGrid, KpiTile, SectionCard, ToneBadge, type DataColumn } from '@shared/ui';
+import { ReportTable } from '../components/ReportTable';
 import { useReport, type OpenDoc, type OpenDocs, type PendingLine, type SalesOrdersReport } from '../api';
 import { ReportPage, CardGrid } from '../components/ReportPage';
 import { RankBars } from '../components/Charts';
@@ -96,10 +97,10 @@ export function SalesOrders() {
               {(tab === 'lines' || tab === 'orders') && <FacetChip label="Past due only" active={onlyLate} onClick={() => setOnlyLate((v) => !v)} />}
               {tab === 'items' && <FacetChip label="Short only" active={onlyShort} onClick={() => setOnlyShort((v) => !v)} count={d.itemsShort} />}
             </FilterBar>
-            {tab === 'items' && <DataTable bare rows={d.byItem.filter((r) => (!onlyShort || r.short > 0) && match(r.itemCode, r.itemName))} columns={itemCols} getRowId={(r) => r.itemCode} storageKey="kd-so-items" exportName="pending-so-by-item" />}
-            {tab === 'customers' && <DataTable bare rows={d.byCustomer.filter((r) => match(r.cardName))} columns={custCols} getRowId={(r) => r.cardCode} exportName="pending-so-by-customer" />}
-            {tab === 'lines' && <DataTable bare rows={d.pending.filter((r) => (!onlyLate || r.late) && match(r.cardName, r.itemName, r.docNum))} columns={lineCols} getRowId={(r) => `${r.docEntry}-${r.lineNum}`} storageKey="kd-so-lines" exportName="pending-so-lines" />}
-            {tab === 'orders' && <DataTable bare rows={d.rows.filter((r) => (!onlyLate || r.late) && match(r.cardName, r.docNum))} columns={orderCols} getRowId={(r) => r.docEntry} storageKey="kd-so-orders" exportName="open-sales-orders" />}
+            {tab === 'items' && <ReportTable bare rows={d.byItem.filter((r) => (!onlyShort || r.short > 0) && match(r.itemCode, r.itemName))} columns={itemCols} getRowId={(r) => r.itemCode} storageKey="kd-so-items" exportName="pending-so-by-item" />}
+            {tab === 'customers' && <ReportTable bare rows={d.byCustomer.filter((r) => match(r.cardName))} columns={custCols} getRowId={(r) => r.cardCode} exportName="pending-so-by-customer" />}
+            {tab === 'lines' && <ReportTable bare rows={d.pending.filter((r) => (!onlyLate || r.late) && match(r.cardName, r.itemName, r.docNum))} columns={lineCols} getRowId={(r) => `${r.docEntry}-${r.lineNum}`} storageKey="kd-so-lines" exportName="pending-so-lines" />}
+            {tab === 'orders' && <ReportTable bare rows={d.rows.filter((r) => (!onlyLate || r.late) && match(r.cardName, r.docNum))} columns={orderCols} getRowId={(r) => r.docEntry} storageKey="kd-so-orders" exportName="open-sales-orders" />}
           </SectionCard>
         </>
       )}
@@ -136,7 +137,7 @@ export function PurchaseOrders() {
           </KpiGrid>
           <SectionCard flush>
             <FilterBar search={search} onSearch={setSearch} placeholder="Search vendor or number" />
-            <DataTable bare rows={d.rows.filter((r) => !s || r.cardName.toLowerCase().includes(s) || String(r.docNum).includes(s))} columns={cols}
+            <ReportTable bare rows={d.rows.filter((r) => !s || r.cardName.toLowerCase().includes(s) || String(r.docNum).includes(s))} columns={cols}
               getRowId={(r) => r.docEntry} storageKey="kd-po" exportName="open-purchase-orders" />
           </SectionCard>
         </>

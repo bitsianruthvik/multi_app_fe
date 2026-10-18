@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Box } from '@mui/material';
-import { DataTable, DetailTabs, KpiGrid, KpiTile, SectionCard, type DataColumn } from '@shared/ui';
+import { DetailTabs, KpiGrid, KpiTile, SectionCard, type DataColumn } from '@shared/ui';
+import { ReportTable } from '../components/ReportTable';
 import { useReport, type DispatchReport } from '../api';
 import { ReportPage, CardGrid } from '../components/ReportPage';
 import { Donut, RankBars, TrendBars } from '../components/Charts';
@@ -67,9 +68,9 @@ export default function Dispatch() {
                 { value: 'docs', label: 'Deliveries', count: d.documents.length },
               ]} />
             </Box>
-            {tab === 'customers' && <DataTable bare rows={d.byCustomer} columns={custCols} getRowId={(r) => r.cardCode} exportName="dispatch-by-customer" />}
-            {tab === 'items' && <DataTable bare rows={d.byItem} columns={itemCols} getRowId={(r) => r.itemCode} storageKey="kd-dispatch-items" exportName="dispatch-by-item" />}
-            {tab === 'docs' && <DataTable bare rows={d.documents} columns={docCols} getRowId={(r) => r.docEntry} exportName="delivery-register" />}
+            {tab === 'customers' && <ReportTable bare rows={d.byCustomer} columns={custCols} getRowId={(r) => r.cardCode} exportName="dispatch-by-customer" />}
+            {tab === 'items' && <ReportTable bare rows={d.byItem} columns={itemCols} getRowId={(r) => r.itemCode} storageKey="kd-dispatch-items" exportName="dispatch-by-item" />}
+            {tab === 'docs' && <ReportTable bare rows={d.documents} columns={docCols} getRowId={(r) => r.docEntry} exportName="delivery-register" />}
           </SectionCard>
         </>
       )}

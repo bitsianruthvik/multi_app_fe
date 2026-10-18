@@ -65,6 +65,7 @@ export {
 // ── Collections ─────────────────────────────────────────────────────────────
 export { EntityList, EntityRow, type SortableField, type SortDirection } from './EntityList';
 export { DataTable, type DataColumn } from './DataTable';
+export { DataCards } from './DataCards';
 export { FilterBar, FacetChip } from './FilterBar';
 export { SortableTableHead, type SortableColumn } from './SortableTableHead';
 export { NumberCell, QtyCell, DateCell } from './Cells';

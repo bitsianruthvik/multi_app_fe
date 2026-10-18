@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Box, Stack, Typography } from '@mui/material';
-import { DataTable, DetailTabs, KpiGrid, KpiTile, SectionCard, SideSheet, type DataColumn } from '@shared/ui';
+import { DetailTabs, KpiGrid, KpiTile, SectionCard, SideSheet, type DataColumn } from '@shared/ui';
+import { ReportTable } from '../components/ReportTable';
 import { useReport, type CustomerSales, type SalesReport } from '../api';
 import { ReportPage, CardGrid } from '../components/ReportPage';
 import { Donut, RankBars, TrendBars } from '../components/Charts';
@@ -84,10 +85,10 @@ export default function Sales() {
                 { value: 'docs', label: 'Documents', count: d.documentCount },
               ]} />
             </Box>
-            {tab === 'customers' && <DataTable bare rows={d.customers} columns={custCols} getRowId={(r) => r.cardCode} onRowClick={(r) => setCustomer(r.cardCode)} storageKey="kd-sales-cust" exportName="sales-by-customer" />}
-            {tab === 'items' && <DataTable bare rows={d.items} columns={itemCols} getRowId={(r) => r.itemCode} storageKey="kd-sales-items" exportName="sales-by-item" />}
-            {tab === 'people' && <DataTable bare rows={d.salesPersons} columns={personCols} getRowId={(r) => r.code} exportName="sales-by-employee" />}
-            {tab === 'docs' && <DataTable bare rows={d.documents} columns={docCols} getRowId={(r) => `${r.kind}-${r.docEntry}`} storageKey="kd-sales-docs" exportName="sales-register" />}
+            {tab === 'customers' && <ReportTable bare rows={d.customers} columns={custCols} getRowId={(r) => r.cardCode} onRowClick={(r) => setCustomer(r.cardCode)} storageKey="kd-sales-cust" exportName="sales-by-customer" />}
+            {tab === 'items' && <ReportTable bare rows={d.items} columns={itemCols} getRowId={(r) => r.itemCode} storageKey="kd-sales-items" exportName="sales-by-item" />}
+            {tab === 'people' && <ReportTable bare rows={d.salesPersons} columns={personCols} getRowId={(r) => r.code} exportName="sales-by-employee" />}
+            {tab === 'docs' && <ReportTable bare rows={d.documents} columns={docCols} getRowId={(r) => `${r.kind}-${r.docEntry}`} storageKey="kd-sales-docs" exportName="sales-register" />}
           </SectionCard>
           <CustomerSheet cardCode={customer} query={f.query()} onClose={() => setCustomer(null)} />
         </>
@@ -103,7 +104,7 @@ function CustomerSheet({ cardCode, query, onClose }: { cardCode: string | null; 
     <SideSheet open={!!cardCode} onClose={onClose} title={c?.cardName || 'Customer'} subtitle={c ? `${c.from} to ${c.to}` : undefined} width={560}>
       {c && (
         <Stack spacing={2.5}>
-          <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 1.5 }}>
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, 1fr)', sm: 'repeat(3, 1fr)' }, gap: 1.5 }}>
             <Fig label="Sales" value={inrShort(c.total)} />
             <Fig label="Account balance" value={inrShort(c.balance)} />
             <Fig label="Credit limit" value={c.creditLimit ? inrShort(c.creditLimit) : '—'} />

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Box } from '@mui/material';
-import { DataTable, DetailTabs, KpiGrid, KpiTile, SectionCard, type DataColumn } from '@shared/ui';
+import { DetailTabs, KpiGrid, KpiTile, SectionCard, type DataColumn } from '@shared/ui';
+import { ReportTable } from './ReportTable';
 import type { OpenItem, PartyAgeing, PartyBook } from '../api';
 import { inr, inrShort, monthLabel } from '../format';
 import { CardGrid } from './ReportPage';
@@ -84,11 +85,11 @@ export function AgeingView({ report: r, partyLabel, kind }: { report: PartyBook;
             { value: 'recent', label: `Recent ${payWord.toLowerCase()}` },
           ]} />
         </Box>
-        {tab === 'parties' && <DataTable bare rows={r.parties} columns={partyCols} getRowId={(x) => x.cardCode} storageKey={`kd-${kind}-parties`} exportName={`${kind}-by-party`} defaultSortKey="total" defaultSortDir="desc" />}
-        {tab === 'open' && <DataTable bare rows={r.open} columns={openCols} getRowId={(x) => x.docEntry} storageKey={`kd-${kind}-open`} exportName={`${kind}-open`} />}
-        {tab === 'due' && <DataTable bare rows={r.dueIn7.docs} columns={openCols} getRowId={(x) => x.docEntry} exportName={`${kind}-due-7-days`} />}
-        {tab === 'paidBy' && <DataTable bare rows={r.payments.byParty} columns={payPartyCols} getRowId={(x) => x.cardCode} exportName={`${kind}-payments-by-party`} />}
-        {tab === 'recent' && <DataTable bare rows={r.payments.recent} columns={payCols} getRowId={(x) => x.docEntry} exportName={`${kind}-payments`} />}
+        {tab === 'parties' && <ReportTable bare rows={r.parties} columns={partyCols} getRowId={(x) => x.cardCode} storageKey={`kd-${kind}-parties`} exportName={`${kind}-by-party`} defaultSortKey="total" defaultSortDir="desc" />}
+        {tab === 'open' && <ReportTable bare rows={r.open} columns={openCols} getRowId={(x) => x.docEntry} storageKey={`kd-${kind}-open`} exportName={`${kind}-open`} />}
+        {tab === 'due' && <ReportTable bare rows={r.dueIn7.docs} columns={openCols} getRowId={(x) => x.docEntry} exportName={`${kind}-due-7-days`} />}
+        {tab === 'paidBy' && <ReportTable bare rows={r.payments.byParty} columns={payPartyCols} getRowId={(x) => x.cardCode} exportName={`${kind}-payments-by-party`} />}
+        {tab === 'recent' && <ReportTable bare rows={r.payments.recent} columns={payCols} getRowId={(x) => x.docEntry} exportName={`${kind}-payments`} />}
       </SectionCard>
     </>
   );

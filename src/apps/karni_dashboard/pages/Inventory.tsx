@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Box, Stack, Typography } from '@mui/material';
-import { DataTable, DetailTabs, FacetChip, FilterBar, KpiGrid, KpiTile, SectionCard, SideSheet, ToneBadge, type DataColumn } from '@shared/ui';
+import { DetailTabs, FacetChip, FilterBar, KpiGrid, KpiTile, SectionCard, SideSheet, ToneBadge, type DataColumn } from '@shared/ui';
+import { ReportTable } from '../components/ReportTable';
 import { useReport, type InventoryItem, type InventoryItemDetail, type InventoryReport } from '../api';
 import { ReportPage, CardGrid } from '../components/ReportPage';
 import { Donut, RankBars } from '../components/Charts';
@@ -96,10 +97,10 @@ export default function Inventory() {
                 {group && <FacetChip label={group} active onClick={() => setGroup(null)} />}
               </FilterBar>
             )}
-            {tab === 'items' && <DataTable bare rows={items} columns={itemCols} getRowId={(r) => r.itemCode} onRowClick={(r) => setItem(r.itemCode)} storageKey="kd-inv-items" exportName="stock-by-item" />}
-            {tab === 'warehouses' && <DataTable bare rows={d.byWarehouse} columns={whsCols} getRowId={(r) => r.warehouse} exportName="stock-by-warehouse" />}
-            {tab === 'groups' && <DataTable bare rows={d.byGroup} columns={grpCols} getRowId={(r) => r.group} exportName="stock-by-group" />}
-            {tab === 'transfers' && <DataTable bare rows={d.transfers} columns={trCols} getRowId={(r) => r.docEntry} exportName="transfer-requests" />}
+            {tab === 'items' && <ReportTable bare rows={items} columns={itemCols} getRowId={(r) => r.itemCode} onRowClick={(r) => setItem(r.itemCode)} storageKey="kd-inv-items" exportName="stock-by-item" />}
+            {tab === 'warehouses' && <ReportTable bare rows={d.byWarehouse} columns={whsCols} getRowId={(r) => r.warehouse} exportName="stock-by-warehouse" />}
+            {tab === 'groups' && <ReportTable bare rows={d.byGroup} columns={grpCols} getRowId={(r) => r.group} exportName="stock-by-group" />}
+            {tab === 'transfers' && <ReportTable bare rows={d.transfers} columns={trCols} getRowId={(r) => r.docEntry} exportName="transfer-requests" />}
           </SectionCard>
           <ItemSheet itemCode={item} onClose={() => setItem(null)} />
         </>

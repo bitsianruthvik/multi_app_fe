@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Box } from '@mui/material';
-import { DataTable, DetailTabs, KpiGrid, KpiTile, SectionCard, ToneBadge, type DataColumn } from '@shared/ui';
+import { DetailTabs, KpiGrid, KpiTile, SectionCard, ToneBadge, type DataColumn } from '@shared/ui';
+import { ReportTable } from '../components/ReportTable';
 import { useReport, type PurchaseReport } from '../api';
 import { ReportPage, CardGrid } from '../components/ReportPage';
 import { Donut, Meter, RankBars, TrendBars } from '../components/Charts';
@@ -87,10 +88,10 @@ export default function Purchase() {
                 { value: 'pending', label: 'Pending PO lines', count: d.poVsGrn.lines.length },
               ]} />
             </Box>
-            {tab === 'vendors' && <DataTable bare rows={d.byVendor} columns={vendorCols} getRowId={(r) => r.cardCode} exportName="purchase-by-vendor" />}
-            {tab === 'items' && <DataTable bare rows={d.byItem} columns={itemCols} getRowId={(r) => r.itemCode} storageKey="kd-purchase-items" exportName="purchase-by-item" />}
-            {tab === 'fill' && <DataTable bare rows={d.poVsGrn.vendors} columns={fillCols} getRowId={(r) => r.cardCode} exportName="po-vs-grn" />}
-            {tab === 'pending' && <DataTable bare rows={d.poVsGrn.lines} columns={lineCols} getRowId={(r) => `${r.docEntry}-${r.lineNum}`} storageKey="kd-po-lines" exportName="pending-po-lines" />}
+            {tab === 'vendors' && <ReportTable bare rows={d.byVendor} columns={vendorCols} getRowId={(r) => r.cardCode} exportName="purchase-by-vendor" />}
+            {tab === 'items' && <ReportTable bare rows={d.byItem} columns={itemCols} getRowId={(r) => r.itemCode} storageKey="kd-purchase-items" exportName="purchase-by-item" />}
+            {tab === 'fill' && <ReportTable bare rows={d.poVsGrn.vendors} columns={fillCols} getRowId={(r) => r.cardCode} exportName="po-vs-grn" />}
+            {tab === 'pending' && <ReportTable bare rows={d.poVsGrn.lines} columns={lineCols} getRowId={(r) => `${r.docEntry}-${r.lineNum}`} storageKey="kd-po-lines" exportName="pending-po-lines" />}
           </SectionCard>
         </>
       )}

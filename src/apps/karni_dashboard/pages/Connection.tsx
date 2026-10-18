@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { Box, Button, Stack, Typography } from '@mui/material';
 import {
-  Callout, DataTable, PageHeader, SectionCard, ToneBadge, ErrorNotice, ListSkeleton, errorMessage, useToast,
+  Callout, PageHeader, SectionCard, ToneBadge, ErrorNotice, ListSkeleton, errorMessage, useToast,
   type DataColumn,
 } from '@shared/ui';
+import { ReportTable } from '../components/ReportTable';
 import { useAuth } from '@core/contexts/AuthContext';
 import { isAdminRole } from '@core/utils/roles';
 import { kdApi, useReport, type Connector, type DatasetState, type Status, type SyncRun } from '../api';
@@ -80,14 +81,14 @@ export default function Connection() {
             </Callout>
           )}
           <SectionCard title="Connectors" flush>
-            <DataTable rows={data.connectors} columns={connCols} getRowId={(r) => r.id} bare
+            <ReportTable rows={data.connectors} columns={connCols} getRowId={(r) => r.id} bare
               empty="No connector has registered yet. Run setup.ps1 on the SAP server." />
           </SectionCard>
           <SectionCard title="Data" subtitle="What has arrived from SAP" flush>
-            <DataTable rows={data.datasets} columns={dsCols} getRowId={(r) => r.dataset} bare />
+            <ReportTable rows={data.datasets} columns={dsCols} getRowId={(r) => r.dataset} bare />
           </SectionCard>
           <SectionCard title="Recent runs" flush>
-            <DataTable rows={data.runs} columns={runCols} getRowId={(r) => r.id} bare pageSize={20} />
+            <ReportTable rows={data.runs} columns={runCols} getRowId={(r) => r.id} bare pageSize={20} />
           </SectionCard>
         </>
       )}
