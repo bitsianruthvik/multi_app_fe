@@ -103,9 +103,9 @@ function AcceptanceBody({ ctx }: { ctx: AcceptanceContext }) {
   );
 }
 
-function ApprovalCard({ a, me, onDecide }: { a: Approval; me: number | null; onDecide: (a: Approval, d: 'approve' | 'reject') => void }) {
+function ApprovalCard({ a, me, ownAllowed, onDecide }: { a: Approval; me: number | null; ownAllowed: boolean; onDecide: (a: Approval, d: 'approve' | 'reject') => void }) {
   const pending = a.status === 'pending';
-  const mine = !!me && a.requestedBy?.id === me;
+  const mine = !!me && a.requestedBy?.id === me && !ownAllowed;
   return (
     <SectionCard title={a.title}
       subtitle={`${a.requestedBy?.name ?? 'Someone'} asked ${when(a.requestedAt)}${a.amount != null ? ` · ${rupeeText(a.amount)}` : ''}${a.requestNote ? ` · “${a.requestNote}”` : ''}`}
@@ -180,7 +180,7 @@ export default function Approvals() {
       {data && !data.rows.length && <EmptyState icon={<FactCheckRounded />} title={want === 'pending' ? 'Nothing waits for you.' : 'Nothing decided yet.'} />}
       {data && data.rows.length > 0 && (
         <Box data-testid="approvals-list" sx={{ display: 'grid', gap: 1.25, minWidth: 0 }}>
-          {data.rows.map((a) => <ApprovalCard key={a.id} a={a} me={user?.id ?? null} onDecide={(x, d) => { setAsking({ a: x, d }); setNote(''); setDecideError(null); }} />)}
+          {data.rows.map((a) => <ApprovalCard key={a.id} a={a} me={user?.id ?? null} ownAllowed={!!data.ownAllowed} onDecide={(x, d) => { setAsking({ a: x, d }); setNote(''); setDecideError(null); }} />)}
         </Box>
       )}
       <Dialog open={!!asking} onClose={() => !busy && setAsking(null)} maxWidth="sm" fullWidth>

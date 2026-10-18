@@ -76,7 +76,11 @@ export interface Approval {
   context: PoContext | AcceptanceContext | null;
 }
 
-export interface ApprovalList { rows: Approval[]; counts: Partial<Record<ApprovalType, number>>; types: { key: ApprovalType; label: string }[] }
+export interface ApprovalList {
+  rows: Approval[]; counts: Partial<Record<ApprovalType, number>>; types: { key: ApprovalType; label: string }[];
+  /** The company lets a person decide what they asked for themselves (testing phase). */
+  ownAllowed?: boolean;
+}
 
 export const listApprovals = (q: { status?: 'pending' | 'decided' | 'all'; type?: ApprovalType | ''; orderId?: number } = {}) => cfApi.get<ApprovalList>(`/approvals${qs(q)}`);
 export const getApproval = (id: number) => cfApi.get<Approval>(`/approvals/${id}`);
