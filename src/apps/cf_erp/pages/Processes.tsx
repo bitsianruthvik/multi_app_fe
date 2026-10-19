@@ -37,6 +37,7 @@ import { ConfirmDialog } from '../components/ConfirmDialog';
 import { Gated, NoManageNotice, ProcessDialog, ProcessRuleDialog, StageDialog } from '../components/ProcessDialogs';
 import { useDetailTitle } from '../components/shell/detailTitle';
 import { useToast } from '../components/toastContext';
+import { FlashOnChange } from '../motion';
 
 /**
  * Processes: how an order is worked through the office — its stages, in order,
@@ -75,7 +76,7 @@ const COLUMNS: DataColumn<Process>[] = [
       )
       : <Box sx={{ color: 'var(--c-text-3)' }}>{APPLIES_TO_NOTHING}</Box>),
   },
-  { key: 'status', header: 'Status', render: (p) => <StatusBadge status={p.status} />, sortValue: (p) => p.status },
+  { key: 'status', header: 'Status', render: (p) => <FlashOnChange value={p.status}><StatusBadge status={p.status} /></FlashOnChange>, sortValue: (p) => p.status },
 ];
 
 /** Collection / List (§4.2) of processes. */
@@ -359,7 +360,7 @@ export function ProcessDetail() {
 
   const header = (
     <DetailHeader
-      code={p.code} title={p.name} subtitle={p.description ?? undefined} badges={<StatusBadge status={p.status} />}
+      code={p.code} title={p.name} subtitle={p.description ?? undefined} badges={<FlashOnChange value={p.status}><StatusBadge status={p.status} /></FlashOnChange>}
       actions={(
         <>
           {/* A process with no stages is refused, so say why here rather than after a round trip. */}

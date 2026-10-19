@@ -20,6 +20,7 @@ import { gstRateText } from '../lib/gst';
 import { computeGrn, grnBlockers, supplyKind, type DiscountMode, type GrnLineIn } from '../lib/grnMoney';
 import { SpecValueInput } from './SpecValueInput';
 import { ErrorNotice, Mono } from './ui';
+import { nudge } from '../motion';
 
 /**
  * GRN — book a delivery against a purchase order WITH THE MONEY (init.sql §80, services/grnService.js).
@@ -106,6 +107,8 @@ export function GrnDialog({ po, lineId, onClose, onReceived }: {
   const [error, setError] = useState<CfApiError | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
   const body = useRef<HTMLDivElement | null>(null);
+  // Motion: Receive nudges once when the server refuses the GRN (the reason shows in the dialog).
+  const receiveRef = useRef<HTMLButtonElement>(null);
 
   // A fresh GRN each time it opens: the clicked line ticked, prices from the PO, HSN / rate from the item.
   useEffect(() => {
@@ -180,6 +183,7 @@ export function GrnDialog({ po, lineId, onClose, onReceived }: {
       onReceived(res);
     } catch (e) {
       setError(e instanceof CfApiError ? e : new CfApiError(0, e instanceof Error ? e.message : String(e)));
+      nudge(receiveRef.current);
     } finally { setBusy(false); }
   };
 
@@ -335,7 +339,7 @@ export function GrnDialog({ po, lineId, onClose, onReceived }: {
       <DialogActions>
         <Typography data-testid="grn-blocker" sx={{ fontSize: 12.5, color: 'var(--c-warning-800)', flex: 1, pl: 1 }}>{blockers[0] ?? ''}{blockers.length > 1 ? ` (+${blockers.length - 1} more)` : ''}</Typography>
         <Button onClick={onClose} disabled={busy}>Cancel</Button>
-        <Button variant="contained" onClick={() => void save()} disabled={busy || blockers.length > 0} data-testid="grn-receive"
+        <Button ref={receiveRef} variant="contained" onClick={() => void save()} disabled={busy || blockers.length > 0} data-testid="grn-receive"
           startIcon={busy ? <CircularProgress size={14} color="inherit" /> : undefined}>{busy ? 'Booking…' : 'Receive'}</Button>
       </DialogActions>
     </Dialog>

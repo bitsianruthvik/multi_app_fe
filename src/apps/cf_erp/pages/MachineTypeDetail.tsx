@@ -15,6 +15,7 @@ import { EntityList, EntityRow } from '../components/EntityList';
 import { ClassificationRules } from '../components/ClassificationRules';
 import { ChartsPanel } from '../components/Charts/ChartsPanel';
 import { useDetailTitle } from '../components/shell/detailTitle';
+import { FlashOnChange } from '../motion';
 
 /**
  * Record / Detail (§4.3) for a machine type: the specifications it makes every
@@ -44,7 +45,7 @@ export default function MachineTypeDetail() {
   };
 
   const header = (
-    <DetailHeader code={node.code} title={node.name} subtitle={node.description ?? undefined} badges={<StatusBadge status={node.status} />}
+    <DetailHeader code={node.code} title={node.name} subtitle={node.description ?? undefined} badges={<FlashOnChange value={node.status}><StatusBadge status={node.status} /></FlashOnChange>}
       facts={(
         <>
           <Fact label="Path"><Box component="span" data-testid="type-path">{path.map((p) => p.name).join(' › ')}</Box></Fact>

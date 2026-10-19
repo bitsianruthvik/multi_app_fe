@@ -8,6 +8,7 @@ import { CATEGORY_LABEL, MOVEMENT_LABEL, qtyText } from '../lib/inventory';
 import { kgText, ownerLabel, rupeeText } from '../lib/money';
 import { Money, OwnerTag, StockValue } from './Money';
 import { Mono, StatStrip } from './ui';
+import { FlashOnChange } from '../motion';
 import { DataTable, type DataColumn, type ServerPaging } from './DataTable';
 import { BatchStatusBadge, CategoryBadge, MovementTypeChip } from './inventoryUi';
 
@@ -81,7 +82,7 @@ export function StockTable({ rows, hide = [], bare = false, storageKey, empty, l
       key: 'owner', header: 'Owner', sortValue: (r: StockRow) => ownerLabel(r.owner), exportValue: (r: StockRow) => ownerLabel(r.owner),
       render: (r: StockRow) => <OwnerTag name={r.owner ? ownerLabel(r.owner) : null} />,
     }] : []),
-    { key: 'qty', header: 'Quantity', numeric: true, sortValue: (r) => r.quantity, render: (r) => <>{qtyText(r.quantity)} <Mono muted>{r.item.uom}</Mono></> },
+    { key: 'qty', header: 'Quantity', numeric: true, sortValue: (r) => r.quantity, render: (r) => <><FlashOnChange value={r.quantity}>{qtyText(r.quantity)}</FlashOnChange> <Mono muted>{r.item.uom}</Mono></> },
     {
       key: 'unitCost', header: 'Unit cost', numeric: true, defaultHidden: true, sortValue: (r) => (r.owner ? null : r.unitCost), exportValue: (r) => (r.owner ? '' : r.unitCost ?? ''),
       render: (r) => (r.owner ? <Mono muted>—</Mono> : <Money value={r.unitCost} digits={2} />),

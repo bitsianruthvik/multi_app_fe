@@ -17,6 +17,7 @@ import { EmptyState, ErrorNotice, Mono, PageHeader, StatStrip } from '../compone
 import { FacetChip, FilterBar } from '../components/FilterBar';
 import { DataTable, type DataColumn } from '../components/DataTable';
 import { PoStageBadge, PoTypeChip } from '../components/Purchase/purchaseFlowUi';
+import { FlashOnChange } from '../motion';
 import { PO_STAGE_FILTERS } from '../lib/purchaseRequest';
 import { NewPurchaseDialog } from '../components/PurchaseDialogs';
 
@@ -66,7 +67,7 @@ export default function PurchaseOrders() {
         </Box>
       ),
     },
-    { key: 'status', header: 'Stage', alwaysVisible: true, sortValue: (p) => p.status, render: (p) => <PoStageBadge stage={p.stage} label={p.stageLabel} /> },
+    { key: 'status', header: 'Stage', alwaysVisible: true, sortValue: (p) => p.status, render: (p) => <FlashOnChange value={p.stage}><PoStageBadge stage={p.stage} label={p.stageLabel} /></FlashOnChange> },
     { key: 'type', header: 'Type', exportValue: (p) => p.typeLabel ?? 'Material', render: (p) => <PoTypeChip type={p.type} /> },
     {
       key: 'supplier', header: 'Supplier', sortValue: (p) => p.supplier?.name ?? '',
@@ -80,7 +81,7 @@ export default function PurchaseOrders() {
     },
     { key: 'lines', header: 'Lines', numeric: true, defaultHidden: true, sortValue: (p) => p.totals.lines, render: (p) => <Mono muted>{p.totals.lines}</Mono> },
     { key: 'ordered', header: 'Ordered', numeric: true, sortValue: (p) => p.totals.ordered, render: (p) => <Mono>{qtyText(p.totals.ordered)}</Mono> },
-    { key: 'received', header: 'Received', numeric: true, sortValue: (p) => p.totals.received, render: (p) => <Mono muted={!p.totals.received}>{qtyText(p.totals.received)}</Mono> },
+    { key: 'received', header: 'Received', numeric: true, sortValue: (p) => p.totals.received, render: (p) => <FlashOnChange value={p.totals.received}><Mono muted={!p.totals.received}>{qtyText(p.totals.received)}</Mono></FlashOnChange> },
     { key: 'outstanding', header: 'Outstanding', numeric: true, sortValue: (p) => p.totals.outstanding, render: (p) => <Mono muted={!p.totals.outstanding}>{qtyText(p.totals.outstanding)}</Mono> },
     {
       key: 'amount', header: 'Amount', numeric: true, sortValue: (p) => p.totals.amount, exportValue: (p) => p.totals.amount ?? '',

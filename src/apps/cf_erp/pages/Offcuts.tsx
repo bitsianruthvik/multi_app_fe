@@ -12,6 +12,7 @@ import { Badge, EmptyState, ErrorNotice, Fact, Mono, PageHeader, type Family } f
 import { DataTable, type DataColumn } from '../components/DataTable';
 import { FacetChip, FilterBar } from '../components/FilterBar';
 import { OffcutShape } from '../components/OffcutShape';
+import { FlashOnChange } from '../motion';
 import { DialogHeader } from '../components/FormDialog';
 
 const STATUS_CHIPS: [string, string][] = [['available', 'Available'], ['planned', 'Planned'], ['used', 'Used'], ['scrapped', 'Scrapped'], ['returned', 'Returned'], ['all', 'All']];
@@ -108,7 +109,7 @@ export default function Offcuts() {
         </Box>
       ),
     },
-    { key: 'status', header: 'Status', render: (o) => <StatusChipBadge status={o.status} />, sortValue: (o) => o.status, exportValue: (o) => STATUS_LABEL[o.status] },
+    { key: 'status', header: 'Status', render: (o) => <FlashOnChange value={o.status}><StatusChipBadge status={o.status} /></FlashOnChange>, sortValue: (o) => o.status, exportValue: (o) => STATUS_LABEL[o.status] },
   ];
 
   return (

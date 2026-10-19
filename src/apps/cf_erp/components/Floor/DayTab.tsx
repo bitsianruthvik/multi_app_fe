@@ -10,6 +10,7 @@ import { BigButton, Choice, ChoiceRow } from './floorUi';
 import { useNow } from './useNow';
 import { assignLanes, at, barWindow, dateKey, dayItems, duration, hhmm, MIN, outsideShifts, reopenNote, span, TOUCH } from './floorModel';
 import { StopSheet, WorkSheet, type Target } from './EntrySheets';
+import { SuccessCheck, duration as motionDuration, transition } from '../../motion';
 
 
 /** Today / Yesterday / "Mon 29 Sep". */
@@ -114,8 +115,13 @@ function RowShell({ tone, onClick, ariaLabel, children }: { tone: 'work' | 'stop
 }
 
 /** A quiet "Saved" (or the note a save brought back, e.g. "Job reopened — 3 left") that fades on its own. */
+// Motion (shop floor — essentials only): the note fades in with a check mark that draws itself once per save.
 export function SavedNote({ show, text }: { show: boolean; text?: string | null }) {
-  return <Box role="status" aria-live="polite" sx={{ fontSize: 15, color: 'var(--c-success-800)', minHeight: 22, opacity: show ? 1 : 0, transition: 'opacity 300ms' }}>{show ? text || 'Saved' : ''}</Box>;
+  return (
+    <Box role="status" aria-live="polite" sx={{ fontSize: 15, color: 'var(--c-success-800)', minHeight: 22, display: 'flex', alignItems: 'center', gap: 0.75, opacity: show ? 1 : 0, transition: transition(['opacity'], motionDuration.slow) }}>
+      {show && <SuccessCheck size={20} label="" />}{show ? text || 'Saved' : ''}
+    </Box>
+  );
 }
 
 /** My day: the whole shift at a glance, and the way to add what happened, from paper notes or memory. */

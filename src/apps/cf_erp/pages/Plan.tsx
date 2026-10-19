@@ -21,6 +21,8 @@ import { appPath } from '../navMeta';
 import { toastMessage } from '../components/Plan/toastMessage';
 import { useToast } from '../components/toastContext';
 import { EmptyState, ErrorNotice, PageHeader, SkeletonRows } from '../components/ui';
+import { SuccessCheck, duration, nudge, transition } from '../motion';
+import { useSavedCheck } from '../hooks/useSavedCheck';
 import { AutoPlanBanner } from '../components/Plan/AutoPlanBanner';
 import { Scoreboard } from '../components/Plan/Scoreboard';
 import { UnitSheet } from '../components/Plan/UnitSheet';
@@ -68,6 +70,9 @@ export default function Plan() {
   const [hist, setHist] = useState<History | null>(null);
   const [saved, setSaved] = useState<PlanDoc | null>(null);
   const [saving, setSaving] = useState(false);
+  // Motion (light — nothing on drag): a tick in the save bar once saved; the bar nudges when the server refuses.
+  const [savedTick, markSaved] = useSavedCheck();
+  const saveBarRef = useRef<HTMLDivElement>(null);
   const [preview, setPreview] = useState<AutoPlanResult | null>(null);
   const [busy, setBusy] = useState(false);
   const [splitBusy, setSplitBusy] = useState(false);
@@ -143,13 +148,14 @@ export default function Plan() {
     setSaving(true);
     const sent = present;
     putChanges({ entries: changes.entries, ranks: changes.ranks })
-      .then(() => { setSaved(sent); setRefusal(null); toast.success(`Plan saved — ${changes.count} ${changes.count === 1 ? 'change' : 'changes'}`); })
+      .then(() => { setSaved(sent); setRefusal(null); markSaved(); toast.success(`Plan saved — ${changes.count} ${changes.count === 1 ? 'change' : 'changes'}`); })
       .catch((e) => {
         const refused = refusedUnits(e);
         if (!refused.length && !(e instanceof CfApiError && e.code === 'MATERIAL_NOT_READY')) { fail(e, 'Could not save the plan.'); return; }
         // The server refused for material: say why, and put the refused cards back where they were saved.
         const err = e as CfApiError;
         setRefusal({ message: err.message, problems: err.problems });
+        nudge(saveBarRef.current);
         const keys = new Set(refused.map((r) => r.unitKey));
         if (keys.size && saved) {
           setHist((h) => {
@@ -161,7 +167,7 @@ export default function Plan() {
         }
       })
       .finally(() => setSaving(false));
-  }, [present, changes, saving, saved, toast, fail]);
+  }, [present, changes, saving, saved, toast, fail, markSaved]);
   const discard = useCallback(() => { if (saved) { setHist(startHistory(saved)); setDrag(null); } }, [saved]);
   const doUndo = useCallback(() => setHist((h) => (h ? undo(h) : h)), []);
   const doRedo = useCallback(() => setHist((h) => (h ? redo(h) : h)), []);
@@ -473,12 +479,13 @@ export default function Plan() {
 
         <Box sx={{ flex: 1 }} />
         {canEdit && (
-          <Box data-testid="save-bar" sx={{ display: 'flex', alignItems: 'center', gap: 0.75, pl: 1, pr: 0.5, py: 0.25, borderRadius: '10px', border: '1px solid', borderColor: dirty ? 'var(--c-primary-300, var(--c-border))' : 'var(--c-border)', background: dirty ? 'var(--c-primary-50, var(--c-surface))' : 'var(--c-surface)' }}>
+          <Box ref={saveBarRef} data-testid="save-bar" sx={{ display: 'flex', alignItems: 'center', gap: 0.75, pl: 1, pr: 0.5, py: 0.25, borderRadius: '10px', border: '1px solid', borderColor: dirty ? 'var(--c-primary-300, var(--c-border))' : 'var(--c-border)', background: dirty ? 'var(--c-primary-50, var(--c-surface))' : 'var(--c-surface)', transition: transition(['border-color', 'background-color'], duration.base) }}>
             <Tooltip title="Undo (Ctrl+Z)"><span><IconButton size="small" aria-label="Undo" disabled={!hist.past.length} onClick={doUndo}><UndoRounded fontSize="small" /></IconButton></span></Tooltip>
             <Tooltip title="Redo (Ctrl+Y)"><span><IconButton size="small" aria-label="Redo" disabled={!hist.future.length} onClick={doRedo}><RedoRounded fontSize="small" /></IconButton></span></Tooltip>
             <Typography data-testid="change-count" sx={{ fontSize: 13, minWidth: 92, color: dirty ? 'var(--c-text)' : 'var(--c-text-3)' }}>
               {dirty ? `${changes.count} ${changes.count === 1 ? 'change' : 'changes'}` : 'All saved'}
             </Typography>
+            {!dirty && savedTick > 0 && <SuccessCheck key={savedTick} size={18} label="Plan saved" />}
             <Button size="small" disabled={!dirty || saving} onClick={discard}>Discard</Button>
             <Button size="small" variant="contained" disabled={!dirty || saving} onClick={save}>{saving ? 'Saving…' : 'Save'}</Button>
           </Box>

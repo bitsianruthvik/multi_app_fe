@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Box, Button, TextField, Typography } from '@mui/material';
 import { Link, useParams } from 'react-router-dom';
 import SaveRounded from '@mui/icons-material/SaveRounded';
@@ -21,6 +21,8 @@ import { FullScreenFrame, FullScreenToggle } from '../components/FullScreen';
 import { useFullScreen } from '../hooks/useFullScreen';
 import { PrStatusBadge } from '../components/Purchase/purchaseFlowUi';
 import { CustomerMaterialStatus, PromisedDateDialog } from '../components/Purchase/CustomerMaterialStatus';
+import { FlashOnChange, SuccessCheck, nudge } from '../motion';
+import { useSavedCheck } from '../hooks/useSavedCheck';
 
 const linkSx = { color: 'inherit', textDecoration: 'none', '&:hover': { color: 'var(--c-primary-700)', textDecoration: 'underline' } };
 const EPS = 1e-6;
@@ -52,6 +54,9 @@ export default function MaterialRequestDetail() {
   const [busy, setBusy] = useState(false);
   const [refusal, setRefusal] = useState<CfApiError | null>(null);
   const [asking, setAsking] = useState(false);
+  // Motion: a tick beside Save once it saved; a nudge on Save when the server refuses (the reason shows above the lines).
+  const [savedTick, markSaved] = useSavedCheck();
+  const saveRef = useRef<HTMLButtonElement>(null);
   // The typed values follow the server whenever it answers afresh.
   useEffect(() => {
     if (!m) return;
@@ -82,13 +87,14 @@ export default function MaterialRequestDetail() {
       const next = await saveMaterialRequest(m.id, { lines: m.lines.map((l) => ({ lineId: l.id, takeFromStock: num(takes[l.id] ?? '0') })), ...(customerDate ? { customerDate } : {}) });
       mr.setData(next);
       invalidateNavCounts();
+      markSaved();
       const asked = next.customerPurchaseOrders ?? [];
       toast.success(customer
         ? (asked.length ? `Saved. ${asked.map((p) => p.code).join(', ')} asks the customer for the rest.` : 'Saved.')
         : next.purchaseRequest ? `Saved. The rest is on ${next.purchaseRequest.code}.` : 'Saved. Nothing to buy.');
     } catch (e) {
       const err = e as CfApiError;
-      if (err.code === 'CUSTOMER_DATE') setAsking(true); else setRefusal(err);
+      if (err.code === 'CUSTOMER_DATE') setAsking(true); else { setRefusal(err); nudge(saveRef.current); }
     } finally { setBusy(false); }
   };
 
@@ -123,7 +129,7 @@ export default function MaterialRequestDetail() {
       key: 'locked', header: lockedHeader, numeric: true, alwaysVisible: true, sortValue: (l) => l.locked,
       render: (l) => (
         <Box data-testid="mr-locked" title={l.sentence} sx={{ textAlign: 'right' }}>
-          <Mono>{qtyText(l.locked)}</Mono>
+          <FlashOnChange value={l.locked}><Mono>{qtyText(l.locked)}</Mono></FlashOnChange>
           {l.locked + EPS >= l.required && l.required > 0 && <Box sx={{ fontSize: 11.5, color: 'var(--c-success-700)' }}>all locked</Box>}
         </Box>
       ),
@@ -138,7 +144,7 @@ export default function MaterialRequestDetail() {
           code={m.code}
           title={mrForWords(m)}
           badges={<><Badge family={m.forType === 'sales_order' ? 'info' : m.forType === 'stock' ? 'success' : 'neutral'} noIcon label={`For: ${m.forLabel}`} />{customer ? <Badge family="info" label="Customer supplies" title="The customer sends this material. What they have not sent yet is asked of them on a purchase order (₹0)." /> : <Badge family="neutral" noIcon label="We buy" />}{m.heldForAcceptance && <Badge family="warning" noIcon label="Waits for the customer's acceptance" />}</>}
-          actions={<>{editable && <Button variant="contained" startIcon={<SaveRounded />} disabled={busy || problems.length > 0} onClick={() => void save()} data-testid="mr-save">Save</Button>}<FullScreenToggle on={full.on} onToggle={full.toggle} /></>}
+          actions={<>{editable && <Button ref={saveRef} variant="contained" startIcon={<SaveRounded />} disabled={busy || problems.length > 0} onClick={() => void save()} data-testid="mr-save">Save</Button>}{savedTick > 0 && <SuccessCheck key={savedTick} size={20} label="Saved" style={{ alignSelf: 'center' }} />}<FullScreenToggle on={full.on} onToggle={full.toggle} /></>}
           facts={<>
             {m.order && <Fact label="Sales order"><Mono chip><Box component={Link} to={appPath(company, `orders/${m.order.id}`)} sx={linkSx}>{m.order.code}</Box></Mono></Fact>}
             {m.line && <Fact label="Line">{m.line.name}</Fact>}

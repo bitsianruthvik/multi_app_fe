@@ -15,6 +15,8 @@ import { appPath } from '../navMeta';
 import { rupeeText } from '../lib/money';
 import { LANE_FAMILY, tonnesText } from '../lib/contractorWorkOrders';
 import { Badge, DetailSkeleton, ErrorNotice, Fact, Mono, PageHeader, SectionCard } from '../components/ui';
+import { FlashOnChange, SuccessCheck } from '../motion';
+import { useSavedCheck } from '../hooks/useSavedCheck';
 import { FullScreenFrame, FullScreenToggle } from '../components/FullScreen';
 import { PromptDialog } from '../components/PromptDialog';
 import { PaymentDialog } from '../components/ContractorWork/PaymentDialog';
@@ -36,6 +38,8 @@ export default function ContractorWorkOrderDetail() {
   const [paying, setPaying] = useState(false);
   const [ask, setAsk] = useState<null | 'close' | 'cancel' | { removeId: number }>(null);
   const [error, setError] = useState<CfApiError | null>(null);
+  // Motion: a tick by the lane once a payment pays it in full; the lane badge and "Paid" flash when they change.
+  const [paidTick, markPaid] = useSavedCheck();
   const wo = load.data;
   const manage = can(ACCOUNTS_MANAGE);
   useEffect(() => {
@@ -54,7 +58,7 @@ export default function ContractorWorkOrderDetail() {
   };
   return (
     <FullScreenFrame on={fs.on} onExit={() => fs.set(false)}>
-      <PageHeader title={<Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}><Mono sx={{ fontWeight: 600 }}>{wo.code}</Mono><Badge family={LANE_FAMILY[wo.lane]} label={wo.laneLabel} noIcon /></Box>}
+      <PageHeader title={<Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}><Mono sx={{ fontWeight: 600 }}>{wo.code}</Mono><FlashOnChange value={wo.lane}><Badge family={LANE_FAMILY[wo.lane]} label={wo.laneLabel} noIcon /></FlashOnChange>{paidTick > 0 && <SuccessCheck key={paidTick} size={20} label="Paid in full" />}</Box>}
         subtitle={`${wo.contractor.name} · ${wo.order.code}${wo.productionOrder ? ` · ${wo.productionOrder.label}` : ''}`}
         actions={(
           <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -82,7 +86,7 @@ export default function ContractorWorkOrderDetail() {
           <Fact label="Contractor PO">{wo.purchaseOrder ? <Box component={Link} to={appPath(company, `purchase-orders/${wo.purchaseOrder.id}`)} sx={{ color: 'inherit' }}><Mono>{wo.purchaseOrder.code}</Mono> · {wo.purchaseOrder.stageLabel}</Box> : '—'}</Fact>
           <Fact label="Work">{tonnesText(wo.done)} of {tonnesText(wo.tonnes)} ({wo.pct} %)</Fact>
           <Fact label="Value">{rupeeText(wo.value, 2)}</Fact>
-          <Fact label="Paid">{rupeeText(wo.paid, 2)}{wo.owed > 0 ? ` · ${rupeeText(wo.owed, 2)} owed` : ''}</Fact>
+          <Fact label="Paid"><FlashOnChange value={wo.paid}>{rupeeText(wo.paid, 2)}{wo.owed > 0 ? ` · ${rupeeText(wo.owed, 2)} owed` : ''}</FlashOnChange></Fact>
         </Box>
       </SectionCard>
       <Box sx={{ mt: 2 }}>
@@ -130,7 +134,7 @@ export default function ContractorWorkOrderDetail() {
         </SectionCard>
       </Box>
       <PaymentDialog open={paying} wo={wo} onClose={() => setPaying(false)}
-        onSaved={(r) => { setPaying(false); done(r.closed ? `Payment recorded — ${wo.code} is ${r.workOrder.laneLabel.toLowerCase()}.` : `Payment of ${rupeeText(r.payment.amount, 2)} recorded.`); }} />
+        onSaved={(r) => { setPaying(false); if (r.closed) markPaid(); done(r.closed ? `Payment recorded — ${wo.code} is ${r.workOrder.laneLabel.toLowerCase()}.` : `Payment of ${rupeeText(r.payment.amount, 2)} recorded.`); }} />
       <PromptDialog open={ask === 'close'} title={`Close ${wo.code} short`} label="Why (Management reads it)" confirmLabel="Ask Management"
         body="The contractor will not do the rest. Management approves the close; what was done stays paid for."
         onConfirm={async (reason) => { await closeWorkOrderShort(wo.id, reason); done('Close short sent to Management.'); }} onClose={() => setAsk(null)} />

@@ -14,6 +14,7 @@ import { HelpButton } from '../help/HelpButton';
 import { DataTable, type DataColumn } from '../components/DataTable';
 import { useToast } from '../components/toastContext';
 import { LIFE_UNITS, lifeText, pieceLife, STATUS_LABEL } from '../lib/toolsResources';
+import { FlashOnChange } from '../motion';
 
 const fail = (e: unknown) => (e instanceof CfApiError ? [e.message, ...e.problems].join(' ') : String(e));
 
@@ -87,7 +88,7 @@ export default function Tools() {
       key: 'life', header: 'Life', alwaysVisible: true, sortValue: (p) => p.percentUsed ?? -1,
       render: (p) => (
         <Box sx={{ minWidth: 150 }}>
-          <Box sx={{ fontSize: 13 }}>{pieceLife(p)}</Box>
+          <Box sx={{ fontSize: 13 }}><FlashOnChange value={p.percentUsed}>{pieceLife(p)}</FlashOnChange></Box>
           {p.percentUsed != null && (
             <Box sx={{ height: 4, borderRadius: 2, background: 'var(--c-surface-2)', mt: 0.5 }}>
               <Box sx={{ height: 4, borderRadius: 2, width: `${p.percentUsed}%`, background: p.percentUsed >= 80 ? 'var(--c-danger, #b3261e)' : 'var(--c-primary-700)' }} />
@@ -96,7 +97,7 @@ export default function Tools() {
         </Box>
       ),
     },
-    { key: 'status', header: 'State', sortValue: (p) => p.status, render: (p) => STATUS_LABEL[p.status] ?? p.status },
+    { key: 'status', header: 'State', sortValue: (p) => p.status, render: (p) => <FlashOnChange value={p.status}>{STATUS_LABEL[p.status] ?? p.status}</FlashOnChange> },
   ];
   const itemColumns: DataColumn<ToolItem>[] = [
     { key: 'item', header: 'Tool', alwaysVisible: true, sortValue: (t) => t.code, render: (t) => <><Mono>{t.code}</Mono> {t.name}</> },

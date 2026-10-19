@@ -21,6 +21,7 @@ import { MachineTypeDialog } from '../components/MachineTypeDialog';
 import { ClassificationManager } from '../components/ClassificationManager';
 import { screenTreePath } from '../lib/classificationScreens';
 import { useToast } from '../components/toastContext';
+import { FlashOnChange } from '../motion';
 
 /**
  * Collection / List (§4.2) of machines. Machines are their own master (decided
@@ -88,7 +89,7 @@ export default function Machines() {
     { key: 'serial', header: 'Serial', render: (m) => <Mono muted>{m.serialNumber ?? '—'}</Mono>, sortValue: (m) => m.serialNumber },
     { key: 'bought', header: 'Bought as', render: (m) => <Mono muted>{m.catalogItem?.code ?? '—'}</Mono>, sortValue: (m) => m.catalogItem?.code, defaultHidden: true },
     { key: 'production', header: 'Production', render: (m) => (m.isProduction === false ? <Box sx={{ color: 'var(--c-text-3)' }}>Asset</Box> : <Box>Yes</Box>), sortValue: (m) => (m.isProduction === false ? 0 : 1), exportValue: (m) => (m.isProduction === false ? 'No' : 'Yes'), defaultHidden: scope !== 'all' },
-    { key: 'status', header: 'Status', render: (m) => <StatusBadge status={m.status} />, sortValue: (m) => m.status },
+    { key: 'status', header: 'Status', render: (m) => <FlashOnChange value={m.status}><StatusBadge status={m.status} /></FlashOnChange>, sortValue: (m) => m.status },
   ];
   // Counted before the status chip, like the chips themselves and like
   // Operations and Flows — so the figures hold still as you toggle Active.

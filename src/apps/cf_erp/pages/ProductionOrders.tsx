@@ -25,6 +25,7 @@ import { useToast } from '../components/toastContext';
 import {
   PO_FILTERS, PO_ORDERS_PER_PAGE, PO_STATE, loadCollapsed, productionOrderPath, progressText, releasableIds, releaseToast, saveCollapsed, shortDate,
 } from '../lib/productionOrders';
+import { FlashOnChange, Stagger, nudge } from '../motion';
 
 const linkSx = { color: 'inherit', textDecoration: 'none', '&:hover': { color: 'var(--c-primary-700)', textDecoration: 'underline' } };
 const COLS = { xs: '1fr auto', md: '130px minmax(200px, 2fr) 120px 150px 100px' };
@@ -44,10 +45,11 @@ export default function ProductionOrders() {
   const d: ProductionOrdersPage | null = data.data;
   const toggle = (id: number) => setCollapsed((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); saveCollapsed(n); return n; });
   const toRelease = releasableIds((d?.rows ?? []).flatMap((g) => g.productionOrders));
-  const releaseAll = async () => {
+  const releaseAll = async (ev: React.MouseEvent<HTMLElement>) => {
+    const anchor = ev.currentTarget; // Motion: nudged when the release is refused (the reason shows below).
     setBusy(true); setError(null);
     try { const r = await releaseProductionOrders(toRelease); toast.success(releaseToast(r.released, r.fromMr)); invalidateNavCounts(); data.reload(); }
-    catch (e) { setError(e instanceof CfApiError ? e : new CfApiError(0, String(e))); } finally { setBusy(false); }
+    catch (e) { setError(e instanceof CfApiError ? e : new CfApiError(0, String(e))); nudge(anchor); } finally { setBusy(false); }
   };
 
   return (
@@ -66,7 +68,7 @@ export default function ProductionOrders() {
             hint={term || state !== 'all' ? 'Clear a filter or the search.' : 'A sales order\'s Production step creates them from its execution plan.'} />
         ) : (
           <Box data-testid="po-list" sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
-            {d.rows.map((g) => <OrderBlock key={g.order.id} g={g} open={!collapsed.has(g.order.id)} onToggle={() => toggle(g.order.id)} />)}
+            <Stagger>{d.rows.map((g) => <OrderBlock key={g.order.id} g={g} open={!collapsed.has(g.order.id)} onToggle={() => toggle(g.order.id)} />)}</Stagger>
             {(page > 0 || d.hasMore) && (
               <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
                 <Typography sx={{ fontSize: 12.5, color: 'var(--c-text-2)' }}>Orders {d.offset + 1}–{d.offset + d.rows.length} of {d.total}</Typography>
@@ -81,11 +83,15 @@ export default function ProductionOrders() {
   );
 }
 
-function OrderBlock({ g, open, onToggle }: { g: ProductionOrdersPage['rows'][number]; open: boolean; onToggle: () => void }) {
+function OrderBlock({ g, open, onToggle, className, style }: {
+  g: ProductionOrdersPage['rows'][number]; open: boolean; onToggle: () => void;
+  /** From <Stagger> (motion): the enter animation of the first blocks. */
+  className?: string; style?: React.CSSProperties;
+}) {
   const company = useCompanySlug();
   const navigate = useNavigate();
   return (
-    <Box data-testid="po-order" data-order={g.order.code} sx={{ border: '1px solid var(--c-divider)', borderRadius: 'var(--r-md)', overflow: 'hidden' }}>
+    <Box className={className} style={style} data-testid="po-order" data-order={g.order.code} sx={{ border: '1px solid var(--c-divider)', borderRadius: 'var(--r-md)', overflow: 'hidden' }}>
       <Box role="button" tabIndex={0} aria-expanded={open} onClick={onToggle} data-testid="po-order-head"
         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle(); } }}
         sx={{ display: 'flex', alignItems: 'center', gap: 1.25, flexWrap: 'wrap', px: 1.5, py: 1, background: 'var(--c-surface-2)', cursor: 'pointer' }}>
@@ -108,7 +114,7 @@ function OrderBlock({ g, open, onToggle }: { g: ProductionOrdersPage['rows'][num
               sx={{ display: 'grid', gridTemplateColumns: COLS, gap: 1, alignItems: 'center', px: 1.5, py: 0.75, borderTop: '1px solid var(--c-divider)', fontSize: 13, cursor: 'pointer', '&:hover': { background: 'var(--c-surface-2)' } }}>
               <Mono>{po.code}</Mono>
               <Box sx={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', gridColumn: { xs: '1 / -1', md: 'auto' }, order: { xs: 2, md: 0 } }} title={po.label}>{po.label}</Box>
-              <Box><Badge family={s.family} label={s.label} noIcon /></Box>
+              <Box><FlashOnChange value={po.state}><Badge family={s.family} label={s.label} noIcon /></FlashOnChange></Box>
               <Box sx={{ display: { xs: 'none', md: 'flex' }, gap: 1, alignItems: 'center' }}><CompletionBar value={po.progress.pct / 100} width={60} title={progressText(po.progress)} /></Box>
               <Box sx={{ display: { xs: 'none', md: 'block' }, color: 'var(--c-text-3)', fontSize: 12 }}>{po.releasedAt ? `released ${shortDate(po.releasedAt)}` : ''}</Box>
             </Box>

@@ -37,6 +37,8 @@ import { CancelPoDialog } from '../components/Purchase/CancelPoDialog';
 import { PlannedUnitsNote } from '../components/Purchase/PlannedUnitsNote';
 import { DateCell } from '../components/Purchase/DateCell';
 import type { PlannedUnits } from '../api/requisitions';
+import { FlashOnChange, SuccessCheck, nudge } from '../motion';
+import { useSavedCheck } from '../hooks/useSavedCheck';
 
 const linkSx = { color: 'inherit', textDecoration: 'none', '&:hover': { color: 'var(--c-primary-700)', textDecoration: 'underline' } };
 
@@ -71,6 +73,8 @@ export default function PurchaseOrderDetail() {
   const [cancelPlanned, setCancelPlanned] = useState<PlannedUnits | null>(null);
   // The planned cards a moved expected date made late (the PUT answers with them).
   const [late, setLate] = useState<PlannedUnits | null>(null);
+  // Motion: a tick by the stage once Approve went through.
+  const [approvedTick, markApproved] = useSavedCheck();
   const p = po.data;
   useDetailTitle(p?.code ?? null);
   if (po.error) return <ErrorNotice error={po.error} onRetry={po.reload} />;
@@ -88,9 +92,10 @@ export default function PurchaseOrderDetail() {
   const waitingSince = asked ? ` since ${new Date(asked.requestedAt).toLocaleDateString('en-IN')}${asked.requestedBy?.name ? ` (asked by ${asked.requestedBy.name})` : ''}` : '';
   // Lines and prices change only before Management approves it (or on an older PO not sent yet).
   const editable = canBuy && (stage === 'requested' || stage === 'pending_approval');
-  const act = async (fn: () => Promise<PurchaseOrder>, message: string) => {
+  // Motion: `anchor` (the button pressed) gets a nudge when the server refuses; `onOk` runs after it went through.
+  const act = async (fn: () => Promise<PurchaseOrder>, message: string, anchor?: HTMLElement | null, onOk?: () => void) => {
     setBusy(true);
-    try { done(await fn(), message); } catch (e) { toast.error((e as Error).message); } finally { setBusy(false); }
+    try { done(await fn(), message); onOk?.(); } catch (e) { nudge(anchor); toast.error((e as Error).message); } finally { setBusy(false); }
   };
   const setReverse = async (on: boolean) => { try { done(await cfApi.put<PurchaseOrder>(`/purchase-orders/${p.id}`, { reverseCharge: on }), on ? 'Reverse charge on.' : 'Reverse charge off.'); } catch (e) { toast.error((e as Error).message); } };
 
@@ -106,7 +111,7 @@ export default function PurchaseOrderDetail() {
       ),
     },
     { key: 'quantity', header: 'Ordered', numeric: true, alwaysVisible: true, sortValue: (l) => l.quantity, render: (l) => <>{qtyText(l.quantity)} <Mono muted>{l.item.uom}</Mono></> },
-    { key: 'received', header: 'Received', numeric: true, alwaysVisible: true, sortValue: (l) => l.received, render: (l) => <span data-testid="po-line-received"><Mono muted={!l.received}>{qtyText(l.received)}</Mono></span> },
+    { key: 'received', header: 'Received', numeric: true, alwaysVisible: true, sortValue: (l) => l.received, render: (l) => <span data-testid="po-line-received"><FlashOnChange value={l.received}><Mono muted={!l.received}>{qtyText(l.received)}</Mono></FlashOnChange></span> },
     {
       key: 'pending', header: 'Pending', numeric: true, alwaysVisible: true, sortValue: (l) => l.pending ?? l.outstanding,
       render: (l) => {
@@ -204,11 +209,11 @@ export default function PurchaseOrderDetail() {
         <DetailHeader
           code={p.code}
           title={p.supplier?.name ?? 'No supplier yet'}
-          badges={<><PoStageBadge stage={p.stage} label={p.stageLabel} /><PoTypeChip type={p.type} />{p.suppliedByCustomer && <Badge family="info" label="Customer supplies" title="The customer's own material, asked of the customer (₹0). What arrives is their stock, earmarked to the material request." />}</>}
+          badges={<><FlashOnChange value={p.stage}><PoStageBadge stage={p.stage} label={p.stageLabel} /></FlashOnChange>{approvedTick > 0 && <SuccessCheck key={approvedTick} size={18} label="Approved" />}<PoTypeChip type={p.type} />{p.suppliedByCustomer && <Badge family="info" label="Customer supplies" title="The customer's own material, asked of the customer (₹0). What arrives is their stock, earmarked to the material request." />}</>}
           actions={<>
-            {canApprove && stage === 'pending_approval' && <Button variant="contained" startIcon={<VerifiedRounded />} disabled={busy} data-testid="po-approve" onClick={() => void act(() => approvePurchaseOrder(p.id), `${p.code} approved — waiting for goods.`)}>Approve</Button>}
+            {canApprove && stage === 'pending_approval' && <Button variant="contained" startIcon={<VerifiedRounded />} disabled={busy} data-testid="po-approve" onClick={(e) => void act(() => approvePurchaseOrder(p.id), `${p.code} approved — waiting for goods.`, e.currentTarget, markApproved)}>Approve</Button>}
             {canApprove && stage === 'pending_approval' && <Button color="error" disabled={busy} data-testid="po-reject" onClick={() => setRejecting(true)}>Send back</Button>}
-            {canBuy && stage === 'requested' && p.status !== 'cancelled' && <Button variant="contained" startIcon={<SendRounded />} disabled={busy || !p.supplier || !p.lines.length} data-testid="po-send" onClick={() => void act(() => sendForApproval(p.id), `${p.code} sent for approval.`)}>Send for approval</Button>}
+            {canBuy && stage === 'requested' && p.status !== 'cancelled' && <Button variant="contained" startIcon={<SendRounded />} disabled={busy || !p.supplier || !p.lines.length} data-testid="po-send" onClick={(e) => void act(() => sendForApproval(p.id), `${p.code} sent for approval.`, e.currentTarget)}>Send for approval</Button>}
             {canReceive && (stage === 'waiting' || stage === 'part_received') && <Button variant="contained" startIcon={<MoveToInboxRounded />} component={Link} to={`${appPath(company, 'receive')}?po=${encodeURIComponent(p.code)}`} data-testid="po-receive">Receive goods</Button>}
             {canManage && (stage === 'waiting' || stage === 'part_received') && !closeAsked && <Button startIcon={<DoNotDisturbOnRounded />} onClick={() => setClosing(true)} data-testid="po-close">Close PO short</Button>}
             {editable && <Button startIcon={<AddRounded />} onClick={() => setAdding(true)}>Add a line</Button>}

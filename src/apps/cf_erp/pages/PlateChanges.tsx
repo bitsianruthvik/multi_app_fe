@@ -9,6 +9,7 @@ import { appPath } from '../navMeta';
 import { EmptyState, ErrorNotice, ListSkeleton, PageHeader } from '../components/ui';
 import { FacetChip, FilterBar } from '../components/FilterBar';
 import { PlateChangeCard } from '../components/Nesting/PlateChange';
+import { Stagger } from '../motion';
 
 type Filter = 'pending' | 'open' | 'done' | 'all';
 const FILTERS: [Filter, string][] = [['pending', 'Waiting for approval'], ['open', 'Open'], ['done', 'Done'], ['all', 'All']];
@@ -53,9 +54,14 @@ export default function PlateChanges() {
       {data && !data.requests.length && <EmptyState icon={<SwapHorizRounded />} title={EMPTY[want]} />}
       {data && data.requests.length > 0 && (
         <Box data-testid="plate-changes-list" sx={{ display: 'grid', gap: 1.25, minWidth: 0 }}>
-          {data.requests.map((r) => (
-            <PlateChangeCard key={r.id} request={r} showLine lineHref={appPath(company, `orders/${r.order.id}`)} onChanged={load} />
-          ))}
+          {/* Motion: the first cards rise in, staggered (first 12 only). */}
+          <Stagger>
+            {data.requests.map((r) => (
+              <div key={r.id} style={{ minWidth: 0 }}>
+                <PlateChangeCard request={r} showLine lineHref={appPath(company, `orders/${r.order.id}`)} onChanged={load} />
+              </div>
+            ))}
+          </Stagger>
         </Box>
       )}
     </Box>
