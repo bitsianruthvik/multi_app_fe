@@ -50,6 +50,8 @@ export interface Rule { id?: number; leaveTypeId: number; leaveTypeCode: string;
   noticeTiers: NoticeTier[] | null;
   /** §23.1 — leave types that may not be next to this one. */
   notWithLeaveTypeIds: number[];
+  /** §28.4 — MONTHLY: a month is credited only with this many present days (read from attendance once it is live). */
+  minPresentDaysForCredit?: number | null;
   /** Written by the server, one or two plain sentences. */
   summary: string }
 
@@ -93,6 +95,7 @@ export const ruleInputOf = (r: Rule, sortOrder: number): RuleInput => ({
   expiresAfterDays: r.expiresAfterDays, negativeBalanceAllowed: r.negativeBalanceAllowed, notes: r.notes,
   joiningCutoffDay: r.joiningCutoffDay ?? null, creditInArrears: r.creditInArrears ?? false,
   noticeTiers: r.noticeTiers?.length ? r.noticeTiers : null, notWithLeaveTypeIds: r.notWithLeaveTypeIds ?? [],
+  minPresentDaysForCredit: r.minPresentDaysForCredit ?? null,
 });
 
 /** A rule for a leave type just added to a policy: a number of days a year, all at the start, lapsing. */
@@ -104,7 +107,7 @@ export const blankRule = (t: LeaveType, sortOrder: number): Rule => ({
   maxDaysAtOnce: null, minNoticeDays: 0, halfDayAllowed: false, countDaysOffBetween: false,
   proofAfterDays: null, appliesTo: 'ANYONE', maxTimesInService: null,
   expiresAfterDays: null, negativeBalanceAllowed: false, notes: null,
-  joiningCutoffDay: null, creditInArrears: false, noticeTiers: null, notWithLeaveTypeIds: [],
+  joiningCutoffDay: null, creditInArrears: false, noticeTiers: null, notWithLeaveTypeIds: [], minPresentDaysForCredit: null,
   summary: '',
 });
 

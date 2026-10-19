@@ -9,11 +9,13 @@
 import type { ReactNode } from 'react';
 import { Box, Typography } from '@mui/material';
 import EventBusyRounded from '@mui/icons-material/EventBusyRounded';
+import FingerprintRounded from '@mui/icons-material/FingerprintRounded';
 import type { ApprovalItem, ApprovalKind } from '../../api/approvals';
 import { LeaveStatusBadge } from '../leave/LeaveParts';
 
 const KIND_META: Record<ApprovalKind, { icon: ReactNode; label: string }> = {
   LEAVE: { icon: <EventBusyRounded />, label: 'Leave' },
+  ATTENDANCE: { icon: <FingerprintRounded />, label: 'Attendance' },
 };
 
 function waitingWord(n: number): string {

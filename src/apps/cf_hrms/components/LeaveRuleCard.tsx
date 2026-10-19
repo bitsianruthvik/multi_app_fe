@@ -209,7 +209,7 @@ export function LeaveRuleCard({
       accrual,
       // What the new basis has no use for is cleared, so nothing hidden is saved.
       ...(basis === 'UNLIMITED_UNPAID' ? { days: null } : {}),
-      ...(basis !== 'PER_YEAR' ? { carryForward: 'NONE' as const, carryForwardCapDays: null, encashable: false, encashCapDays: null, prorateOnJoining: false, daysWorkedPerLeaveDay: null, expiresAfterDays: null, joiningCutoffDay: null, creditInArrears: false } : {}),
+      ...(basis !== 'PER_YEAR' ? { carryForward: 'NONE' as const, carryForwardCapDays: null, encashable: false, encashCapDays: null, prorateOnJoining: false, daysWorkedPerLeaveDay: null, expiresAfterDays: null, joiningCutoffDay: null, creditInArrears: false, minPresentDaysForCredit: null } : {}),
       ...(basis !== 'PER_EVENT' ? { maxTimesInService: null } : {}),
     });
   };
@@ -218,7 +218,7 @@ export function LeaveRuleCard({
       accrual,
       ...(accrual !== 'PER_DAYS_WORKED' ? { daysWorkedPerLeaveDay: null } : { days: null }),
       ...(accrual !== 'EARNED_BY_WORK' ? { expiresAfterDays: null } : { days: null, prorateOnJoining: false }),
-      ...(accrual !== 'MONTHLY' ? { creditInArrears: false } : {}),
+      ...(accrual !== 'MONTHLY' ? { creditInArrears: false, minPresentDaysForCredit: null } : {}),
       ...(accrual === 'PER_DAYS_WORKED' || accrual === 'EARNED_BY_WORK' || (accrual !== 'MONTHLY' && !rule.prorateOnJoining) ? { joiningCutoffDay: null } : {}),
     });
 
@@ -318,6 +318,16 @@ export function LeaveRuleCard({
               disabled={disabled}
               helperText="Blank: from the first day."
               onChange={(v) => set({ waitDaysAfterJoining: v ?? 0 })}
+            />
+          )}
+          {perYear && rule.accrual === 'MONTHLY' && (
+            <DaysField
+              label="A month needs … present days"
+              unit="present days"
+              value={rule.minPresentDaysForCredit ?? null}
+              disabled={disabled}
+              helperText="Read from attendance once it is live. Blank: every month counts."
+              onChange={(minPresentDaysForCredit) => set({ minPresentDaysForCredit })}
             />
           )}
           {showCutoff && (

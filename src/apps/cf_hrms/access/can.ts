@@ -30,7 +30,7 @@ import { api } from '../api/client';
 
 /* ── the tags ─────────────────────────────────────────────────────────── */
 
-const AREAS = ['org', 'roles', 'positions', 'employees', 'hiring', 'documents', 'performance', 'time', 'leave', 'setup'] as const;
+const AREAS = ['org', 'roles', 'positions', 'employees', 'hiring', 'documents', 'performance', 'time', 'leave', 'attendance', 'payroll', 'setup'] as const;
 export type Area = (typeof AREAS)[number];
 export type Right = 'view' | 'edit' | 'remove' | 'upload';
 
@@ -49,6 +49,14 @@ const AREA_RIGHTS: Record<Area, readonly Right[]> = {
   performance: ['view', 'edit', 'remove', 'upload'],
   time: ['view', 'edit', 'remove', 'upload'],
   leave: ['view', 'edit', 'remove'],
+  /** Attendance (spec §28.7): the day board, the muster, requests, penalties, policies, devices (edit), removing a policy or a device (remove), imports (upload). */
+  attendance: ['view', 'edit', 'remove', 'upload'],
+  /**
+   * Payroll (spec §25.2): components, structures and statutory settings need
+   * view only; anything that shows a person's pay (salaries, runs, payslips,
+   * the bank file) ALSO needs the named right payView — the server asks both.
+   */
+  payroll: ['view', 'edit', 'remove', 'upload'],
   setup: ['view', 'edit', 'remove'],
 };
 

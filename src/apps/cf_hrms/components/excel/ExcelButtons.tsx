@@ -34,6 +34,7 @@ export function ExcelButtons({
   canDownload,
   canUpload,
   canBulkAdd,
+  query,
   onApplied,
 }: {
   entity: ExcelEntity;
@@ -54,6 +55,12 @@ export function ExcelButtons({
   canUpload: boolean;
   /** Employees only: may this person add NEW employees by Excel. */
   canBulkAdd?: boolean;
+  /**
+   * Sent on EVERY call — download, blank file, preview and apply — for an entity
+   * that belongs to one record (pay-items: `{ runId }`). Not a filter: it never
+   * makes the file "as filtered".
+   */
+  query?: Record<string, string>;
   /** After a successful apply: the screen reloads its list. */
   onApplied: () => void;
 }) {
@@ -77,7 +84,7 @@ export function ExcelButtons({
     if (busy) return;
     setBusy(true);
     try {
-      const file = await excelApi.workbook(entity, blank ? undefined : filters, blank);
+      const file = await excelApi.workbook(entity, blank ? query : { ...filters, ...query }, blank);
       saveBase64File(file);
     } catch (e) {
       toast.error(errorMessage(e, 'The Excel file could not be made. Try again.'));
@@ -187,6 +194,7 @@ export function ExcelButtons({
             noun={noun}
             canBulkAdd={canBulkAdd}
             filters={filters}
+            query={query}
             onApplied={onApplied}
           />
         </>

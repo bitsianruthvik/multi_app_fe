@@ -16,7 +16,16 @@ const MyPlace = lazy(() => import('./pages/MyPlace'));
 const MyOrgChart = lazy(() => import('./pages/MyOrgChart'));
 // The person's own leave, and what waits for them to approve (spec §22.6).
 const MyLeave = lazy(() => import('./pages/MyLeave'));
+// My attendance, and a manager's team calendar (spec §28.7).
+const MyAttendance = lazy(() => import('./pages/MyAttendance'));
+const TeamAttendance = lazy(() => import('./pages/TeamAttendance'));
 const Approvals = lazy(() => import('./pages/Approvals'));
+// My own salary and payslips (spec §25.2). Imports myPayApi only.
+const MyPay = lazy(() => import('./pages/MyPay'));
+// My tax › File my return (spec §25.6): the person's own income-tax return; P2 builds the rest of My tax around it.
+const MyTaxReturn = lazy(() => import('./pages/MyTaxReturn'));
+// My tax (spec §25.4): regime, declarations, proofs, the tax sheet, forms. Imports myTaxApi only.
+const MyTax = lazy(() => import('./pages/MyTax'));
 
 // Organisation
 const OrgChart = lazy(() => import('./pages/OrgChart'));
@@ -52,6 +61,30 @@ const LeaveRequests = lazy(() => import('./pages/LeaveRequests'));
 const LeaveRequestDetail = lazy(() => import('./pages/LeaveRequestDetail'));
 const LeaveBalances = lazy(() => import('./pages/LeaveBalances'));
 
+// Payroll (spec §25.2)
+const PayrollRuns = lazy(() => import('./pages/PayrollRuns'));
+const PayrollRunDetail = lazy(() => import('./pages/PayrollRunDetail'));
+const Salaries = lazy(() => import('./pages/Salaries'));
+const SalaryDetail = lazy(() => import('./pages/SalaryDetail'));
+const PayStructures = lazy(() => import('./pages/PayStructures'));
+const PayStructureDetail = lazy(() => import('./pages/PayStructureDetail'));
+const PayComponents = lazy(() => import('./pages/PayComponents'));
+const StatutorySettings = lazy(() => import('./pages/StatutorySettings'));
+
+// Income tax in payroll (spec §25.4)
+const TaxProfiles = lazy(() => import('./pages/TaxProfiles'));
+const TaxDeclarations = lazy(() => import('./pages/TaxDeclarations'));
+const TaxProofs = lazy(() => import('./pages/TaxProofs'));
+const TaxSheet = lazy(() => import('./pages/TaxSheet'));
+const TaxChallans = lazy(() => import('./pages/TaxChallans'));
+const TaxQuarterly = lazy(() => import('./pages/TaxQuarterly'));
+const TaxForms = lazy(() => import('./pages/TaxForms'));
+const TaxSettings = lazy(() => import('./pages/TaxSettings'));
+// Payroll extras P3a (spec §25.5): statutory return files, perquisites, Form 10E / 39
+const StatutoryReturns = lazy(() => import('./pages/StatutoryReturns'));
+const TaxPerquisites = lazy(() => import('./pages/TaxPerquisites'));
+const TaxForm10E = lazy(() => import('./pages/TaxForm10E'));
+
 // Not built yet: the route answers, the menu and the command palette do not
 // offer it (navMeta.ts has no entry for these two).
 const Attendance = lazy(() => import('./pages/Attendance'));
@@ -71,7 +104,7 @@ const Access = lazy(() => import('./pages/Access'));
  * means adding it in both files, or it will render without nav.
  *
  * The blocks below are in navMeta's group order (Home · Organisation · People ·
- * Performance · Time and leave · Setup) so the two files can be read side by side. After them
+ * Performance · Time and leave · Payroll · Setup) so the two files can be read side by side. After them
  * come the old addresses: every screen the 2026-10-12 clean-up removed or
  * merged redirects to where that work is done now, so a bookmark never 404s.
  */
@@ -171,6 +204,13 @@ export function getCfHrmsRoutes(
     { path: '/:company/cf_hrms/my-place/team-reviews/:id', element: guarded(TAG.named.selfView, <PerformanceReview mode="team" />) },
     // My leave (spec §22.6): every login with the self view.
     { path: '/:company/cf_hrms/my-leave', element: guarded(TAG.named.selfView, <MyLeave />) },
+    // My attendance (spec §28.7): every login with the self view; the team calendar under My place.
+    { path: '/:company/cf_hrms/my-attendance', element: guarded(TAG.named.selfView, <MyAttendance />) },
+    { path: '/:company/cf_hrms/my-place/team-attendance', element: guarded(TAG.named.selfView, <TeamAttendance />) },
+    // My pay (spec §25.2): my salary breakdown and my released payslips.
+    { path: '/:company/cf_hrms/my-pay', element: guarded(TAG.named.selfView, <MyPay />) },
+    { path: '/:company/cf_hrms/my-tax', element: guarded(TAG.named.selfView, <MyTax />) },
+    { path: '/:company/cf_hrms/my-tax/return', element: guarded(TAG.named.selfView, <MyTaxReturn />) },
     // Approvals: no single right opens it — a manager has items, HR and the Owner
     // hold leave edit. The server answers for the login; an empty list is fine.
     { path: '/:company/cf_hrms/approvals', element: wrap(<Approvals />) },
@@ -212,9 +252,34 @@ export function getCfHrmsRoutes(
     { path: '/:company/cf_hrms/leave-requests/:id', element: guarded(TAG.leave.view, <LeaveRequestDetail />) },
     { path: '/:company/cf_hrms/leave-balances', element: guarded(TAG.leave.view, <LeaveBalances />) },
 
-    // Time and leave — not built yet. Reachable by address only.
-    { path: '/:company/cf_hrms/attendance', element: guarded(TAG.time.view, <Attendance />) },
+    // Attendance (spec §28.7), behind its own area. Roster is not built yet: reachable by address only.
+    { path: '/:company/cf_hrms/attendance', element: guarded(TAG.attendance.view, <Attendance />) },
     { path: '/:company/cf_hrms/roster', element: guarded(TAG.time.view, <Roster />) },
+
+    // Payroll (spec §25.2). Runs and salaries show people's pay: the route opens on
+    // payroll view, and the page itself says so when the named pay view is missing.
+    { path: '/:company/cf_hrms/payroll-runs', element: guarded(TAG.payroll.view, <PayrollRuns />) },
+    { path: '/:company/cf_hrms/payroll-runs/:id', element: guarded(TAG.payroll.view, <PayrollRunDetail />) },
+    { path: '/:company/cf_hrms/salaries', element: guarded(TAG.payroll.view, <Salaries />) },
+    { path: '/:company/cf_hrms/salaries/:id', element: guarded(TAG.payroll.view, <SalaryDetail />) },
+    { path: '/:company/cf_hrms/pay-structures', element: guarded(TAG.payroll.view, <PayStructures />) },
+    { path: '/:company/cf_hrms/pay-structures/:id', element: guarded(TAG.payroll.view, <PayStructureDetail />) },
+    { path: '/:company/cf_hrms/pay-components', element: guarded(TAG.payroll.view, <PayComponents />) },
+    { path: '/:company/cf_hrms/statutory-settings', element: guarded(TAG.payroll.view, <StatutorySettings />) },
+    // Tax (spec §25.4): payroll view; the screens with people's amounts say so when the named pay view is missing.
+    { path: '/:company/cf_hrms/tax-profiles', element: guarded(TAG.payroll.view, <TaxProfiles />) },
+    { path: '/:company/cf_hrms/tax-declarations', element: guarded(TAG.payroll.view, <TaxDeclarations />) },
+    { path: '/:company/cf_hrms/tax-declarations/:employeeId', element: guarded(TAG.payroll.view, <TaxDeclarations />) },
+    { path: '/:company/cf_hrms/tax-proofs', element: guarded(TAG.payroll.view, <TaxProofs />) },
+    { path: '/:company/cf_hrms/tax-sheet/:employeeId', element: guarded(TAG.payroll.view, <TaxSheet />) },
+    { path: '/:company/cf_hrms/tax-challans', element: guarded(TAG.payroll.view, <TaxChallans />) },
+    { path: '/:company/cf_hrms/tax-quarterly', element: guarded(TAG.payroll.view, <TaxQuarterly />) },
+    { path: '/:company/cf_hrms/tax-forms', element: guarded(TAG.payroll.view, <TaxForms />) },
+    { path: '/:company/cf_hrms/tax-settings', element: guarded(TAG.payroll.view, <TaxSettings />) },
+    // Payroll extras P3a (spec §25.5): payroll view; amounts and files need the named pay view (the page says so).
+    { path: '/:company/cf_hrms/statutory-returns', element: guarded(TAG.payroll.view, <StatutoryReturns />) },
+    { path: '/:company/cf_hrms/tax-perquisites', element: guarded(TAG.payroll.view, <TaxPerquisites />) },
+    { path: '/:company/cf_hrms/tax-form10e', element: guarded(TAG.payroll.view, <TaxForm10E />) },
 
     // Setup
     { path: '/:company/cf_hrms/code-formats', element: guarded(TAG.setup.view, <CodeFormats />) },

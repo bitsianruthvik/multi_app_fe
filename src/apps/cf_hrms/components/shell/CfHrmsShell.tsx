@@ -8,7 +8,7 @@ import {
   type Can, type PaletteAction, type PaletteRecord,
 } from '@shared/ui';
 import { HiringDialogProvider } from '../HiringDialog';
-import { SECTIONS, COUNT_META, SELF_ONLY, APPROVER } from '../../navMeta';
+import { SECTIONS, COUNT_META, SELF_ONLY, APPROVER, PAY_SCREEN } from '../../navMeta';
 import { TAG, useAccessWatch, useCan } from '../../access/can';
 import { MyAccessLine } from '../../access/Guard';
 import { fetchNavCounts } from '../../api/client';
@@ -99,12 +99,14 @@ export function CfHrmsShell({ children }: { children: ReactNode }) {
    * view (a manager is an employee) or leave edit (HR, the Owner). The count is
    * the nav badge, and it decides whether the entry shows at all.
    */
-  const pendingApprovals = usePendingApprovals(access.named.selfView || access.leave.edit);
+  const pendingApprovals = usePendingApprovals(access.named.selfView || access.leave.edit || access.attendance.edit);
   const can = useCallback<Can>(
     (tag?: string) => {
       // The employee's own Org chart entry: self view and no HR screen (navMeta.ts).
       if (tag === SELF_ONLY) return access.selfOnly;
-      if (tag === APPROVER) return access.leave.edit || (pendingApprovals ?? 0) > 0;
+      if (tag === APPROVER) return access.leave.edit || access.attendance.edit || (pendingApprovals ?? 0) > 0;
+      // Payroll runs and salaries show people's pay: payroll view AND the named pay view (navMeta.ts).
+      if (tag === PAY_SCREEN) return access.payroll.view && access.named.payView;
       return access.has(tag);
     },
     [access, pendingApprovals],

@@ -1,6 +1,7 @@
 import { useEffect, useSyncExternalStore } from 'react';
 import { api } from './client';
 import type { LeaveRequest, Person, RequestWithContext } from './leaveRequests';
+import type { AttRequest, AttRequestWithContext } from './attendance';
 
 /**
  * Approvals — everything waiting for the signed-in login to decide
@@ -13,7 +14,8 @@ import type { LeaveRequest, Person, RequestWithContext } from './leaveRequests';
  * screen.
  */
 
-export type ApprovalKind = 'LEAVE';
+/** LEAVE (§22) and ATTENDANCE — correct a day, short permission, on duty (§28.5). */
+export type ApprovalKind = 'LEAVE' | 'ATTENDANCE';
 
 export interface ApprovalItem {
   kind: ApprovalKind;
@@ -43,6 +45,11 @@ export const approvalsApi = {
   /** The note is required. */
   rejectLeave: (id: number, note: string) =>
     api.post<{ request: LeaveRequest }>(`/user/me/approvals/leave/${id}/reject`, { note }).then((r) => r.request),
+  attendance: (id: number) => api.get<AttRequestWithContext>(`/user/me/approvals/attendance/${id}`),
+  approveAttendance: (id: number, note?: string) =>
+    api.post<{ request: AttRequest }>(`/user/me/approvals/attendance/${id}/approve`, { note: note || undefined }).then((r) => r.request),
+  rejectAttendance: (id: number, note: string) =>
+    api.post<{ request: AttRequest }>(`/user/me/approvals/attendance/${id}/reject`, { note }).then((r) => r.request),
 };
 
 /* ── the waiting count: one read shared by the nav, Home and the page ─── */

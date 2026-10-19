@@ -221,6 +221,8 @@ interface Props {
   canBulkAdd?: boolean;
   /** The screen's current filters — for "Download a fresh file". */
   filters?: Record<string, string>;
+  /** Sent on every call (pay-items: `{ runId }`) — see ExcelButtons. */
+  query?: Record<string, string>;
   /** Called once after a successful apply, so the list behind refreshes. */
   onApplied: () => void;
 }
@@ -238,7 +240,7 @@ export function ExcelUploadDialog(props: Props) {
   return <UploadBody {...props} />;
 }
 
-function UploadBody({ onClose, entity, noun, canBulkAdd, filters, onApplied }: Props) {
+function UploadBody({ onClose, entity, noun, canBulkAdd, filters, query, onApplied }: Props) {
   const theme = useTheme();
   const phone = useMediaQuery(theme.breakpoints.down('sm'), { noSsr: true });
   const toast = useToast();
@@ -291,7 +293,7 @@ function UploadBody({ onClose, entity, noun, canBulkAdd, filters, onApplied }: P
     try {
       const contentBase64 = await readFileBase64(picked);
       const next = { fileName: picked.name, contentBase64 };
-      const p = await excelApi.preview(entity, next);
+      const p = await excelApi.preview(entity, next, query);
       setFile(next);
       setPreview(p);
       setStale(false);
@@ -308,7 +310,7 @@ function UploadBody({ onClose, entity, noun, canBulkAdd, filters, onApplied }: P
     if (busy) return;
     setBusy('fresh');
     try {
-      saveBase64File(await excelApi.workbook(entity, filters));
+      saveBase64File(await excelApi.workbook(entity, { ...filters, ...query }));
     } catch (e) {
       toast.error(errorMessage(e, 'The Excel file could not be made. Try again.'));
     } finally {
@@ -327,7 +329,7 @@ function UploadBody({ onClose, entity, noun, canBulkAdd, filters, onApplied }: P
         contentBase64: file.contentBase64,
         expect: { add: preview.summary.add, change: preview.summary.change },
         ...(skip ? { skipProblemRows: true } : {}),
-      });
+      }, query);
       setResult(res);
       onApplied();
     } catch (e) {
@@ -335,7 +337,7 @@ function UploadBody({ onClose, entity, noun, canBulkAdd, filters, onApplied }: P
       if (err?.status === 409 && err?.code === 'PREVIEW_STALE') {
         // Nothing was applied. Read the same file again against today's data.
         try {
-          setPreview(await excelApi.preview(entity, file));
+          setPreview(await excelApi.preview(entity, file, query));
           setStale(true);
           setShowAll(false);
         } catch (again) {

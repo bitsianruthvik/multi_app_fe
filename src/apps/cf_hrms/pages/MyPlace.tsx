@@ -470,6 +470,10 @@ export default function MyPlace() {
               ? `${reports.length} ${reports.length === 1 ? 'person reports' : 'people report'} to you`
               : peers.length > 0 ? `${peers.length} alongside you` : undefined
           }
+          // The team calendar (spec §28.7): the attendance of the people below me.
+          actions={reports.length > 0 ? (
+            <Button component={RouterLink} to={`/${company}/cf_hrms/my-place/team-attendance`} size="small" variant="outlined" data-action="team-attendance">Team attendance</Button>
+          ) : undefined}
         >
           <ScrollPanel>
             {reports.length === 0 && peers.length === 0 ? (

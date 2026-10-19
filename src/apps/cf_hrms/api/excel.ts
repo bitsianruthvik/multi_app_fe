@@ -20,7 +20,11 @@ export type ExcelEntity =
   | 'library-qualifications'
   | 'library-authorities'
   | 'actuals'
-  | 'leave-balances';
+  | 'leave-balances'
+  /** Payroll (spec §25.2): each person's salary today. */
+  | 'pay-salaries'
+  /** Payroll: a run's one-time items — needs `{ runId }` as `query` on every call. */
+  | 'pay-items';
 
 export interface ExcelFile {
   fileName: string;
@@ -70,14 +74,19 @@ function query(filters?: Record<string, string>, blank?: boolean): string {
   return s ? `?${s}` : '';
 }
 
+const queryOf = (q?: Record<string, string>) => query(q);
+
 export const excelApi = {
   /** The workbook holding what the filters show; `blank` gives the same file with no data rows. */
   workbook: (entity: ExcelEntity, filters?: Record<string, string>, blank?: boolean) =>
     api.get<ExcelFile>(`/excel/${entity}/workbook${query(filters, blank)}`),
 
-  /** Reads the file and says what it would do. Changes nothing. */
-  preview: (entity: ExcelEntity, file: { fileName: string; contentBase64: string }) =>
-    api.post<ExcelPreview>(`/excel/${entity}/preview`, {
+  /**
+   * Reads the file and says what it would do. Changes nothing. `query` is for an
+   * entity that belongs to one record (pay-items: `{ runId }`); most send none.
+   */
+  preview: (entity: ExcelEntity, file: { fileName: string; contentBase64: string }, query?: Record<string, string>) =>
+    api.post<ExcelPreview>(`/excel/${entity}/preview${queryOf(query)}`, {
       fileName: file.fileName,
       contentBase64: file.contentBase64,
     }),
@@ -91,7 +100,8 @@ export const excelApi = {
       expect: { add: number; change: number };
       skipProblemRows?: boolean;
     },
-  ) => api.post<ExcelApplyResult>(`/excel/${entity}/apply`, body),
+    query?: Record<string, string>,
+  ) => api.post<ExcelApplyResult>(`/excel/${entity}/apply${queryOf(query)}`, body),
 
   /** Which entities this login may download and upload. */
   entities: () => api.get<ExcelEntityInfo[]>('/excel/entities'),

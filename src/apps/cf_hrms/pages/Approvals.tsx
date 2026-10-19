@@ -21,6 +21,7 @@ import {
 } from '../api/approvals';
 import { ApprovalRow } from '../components/approvals/ApprovalRow';
 import { LeaveRequestSheet, type SheetActions } from '../components/leave/LeaveRequestSheet';
+import { AttendanceRequestSheet, type AttSheetActions } from '../components/attendance/AttendanceRequestSheet';
 
 type TabKey = 'PENDING' | 'DECIDED';
 
@@ -31,16 +32,31 @@ const LEAVE_ACTIONS: SheetActions = {
   reject: approvalsApi.rejectLeave,
 };
 
+/** The approver's door to an attendance request (spec §28.5). */
+const ATTENDANCE_ACTIONS: AttSheetActions = {
+  load: approvalsApi.attendance,
+  approve: approvalsApi.approveAttendance,
+  reject: approvalsApi.rejectAttendance,
+};
+
 /** The sheet for an item's kind. */
 function KindSheet({ open, onClose, onChanged }: { open: { kind: string; id: number } | null; onClose: () => void; onChanged: () => void }) {
-  // LEAVE is the only kind today; a new kind adds its own sheet here.
+  // One sheet per kind; a new kind adds its own here.
   return (
-    <LeaveRequestSheet
-      id={open?.kind === 'LEAVE' ? open.id : null}
-      onClose={onClose}
-      actions={LEAVE_ACTIONS}
-      onChanged={onChanged}
-    />
+    <>
+      <LeaveRequestSheet
+        id={open?.kind === 'LEAVE' ? open.id : null}
+        onClose={onClose}
+        actions={LEAVE_ACTIONS}
+        onChanged={onChanged}
+      />
+      <AttendanceRequestSheet
+        id={open?.kind === 'ATTENDANCE' ? open.id : null}
+        onClose={onClose}
+        actions={ATTENDANCE_ACTIONS}
+        onChanged={onChanged}
+      />
+    </>
   );
 }
 
@@ -97,7 +113,7 @@ export default function Approvals() {
           icon={<TaskAltRounded />}
           title={tab === 'PENDING' ? 'Nothing is waiting for you' : 'Nothing decided yet'}
           hint={tab === 'PENDING'
-            ? 'When someone in your team asks for leave, it shows up here.'
+            ? 'When someone in your team asks for leave or to correct a day, it shows up here.'
             : 'Requests you approve or reject show up here.'}
         />
       ) : (
