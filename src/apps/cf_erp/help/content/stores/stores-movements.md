@@ -16,7 +16,7 @@ The stock ledger: every receipt, issue, transfer, count and scrap, newest first.
 
 ## How to post a movement
 With the inventory manage permission the buttons **Receive**, **Issue**, **Transfer**, **Count** and **Scrap** sit at the top. They open the same form as on the Stock screen:
-- **Receive stock** — stock arriving (pick an optional **Supplier**). A batch-kept item starts a new batch with its values, such as the heat number.
+- **Receive stock** — stock arriving (pick an optional **Supplier**). **Into** lists only storage and quarantine areas. A batch-kept item starts a new batch with its values, such as the heat number.
 - **Issue stock** — stock leaving for use; say what it is used for: a sales order or General.
 - **Transfer stock** — between two areas; nothing is used up.
 - **Count stock** — type what is really there; the difference is posted. Give a reason.

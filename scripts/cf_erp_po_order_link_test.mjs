@@ -45,7 +45,7 @@ await check('releaseHold POSTs /stock/holds/:id/release', async () => {
 });
 await check('PO detail has a For cell with order chips, unlinked text and an edit action', () => {
   const s = src('pages/PurchaseOrderDetail.tsx');
-  assert.match(s, /key: 'for'/); assert.match(s, /unlinked \{qtyText/); assert.match(s, /LineOrdersDialog/); assert.match(s, /const editable = canManage && \(stage === 'requested' \|\| stage === 'pending_approval'\)/);
+  assert.match(s, /key: 'for'/); assert.match(s, /unlinked \{qtyText/); assert.match(s, /LineOrdersDialog/); assert.match(s, /const editable = canBuy && \(stage === 'requested' \|\| stage === 'pending_approval'\)/);
   assert.match(s, /\{editable && \(\s*<Tooltip title="Change which sales orders/);
 });
 await check('PO header shows and edits "For sales order"; the add-line dialog is prefilled from it', () => {

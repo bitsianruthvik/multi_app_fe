@@ -7,7 +7,7 @@ import type { MaterialReconciliation, ReconItem } from '../api/money';
 import type { MasterRecord, Resolution, SalesOrder, StockRow, StockingArea } from '../api/types';
 import { useLoad } from '../hooks/useLoad';
 import { useIsPermitted } from '../hooks/useIsPermitted';
-import { qtyText } from '../lib/inventory';
+import { canReceiveInto, NO_RECEIVING_AREA, qtyText } from '../lib/inventory';
 import { kgText, qtyKgText } from '../lib/money';
 import { DataTable, type DataColumn } from './DataTable';
 import { FormDialog } from './FormDialog';
@@ -21,7 +21,8 @@ const EPS = 1e-6;
 /** Booking in material the customer sent for this order. It becomes a lot that is theirs; it costs us nothing. */
 function ReceiveMaterialDialog({ order, open, onClose, onDone }: { order: SalesOrder; open: boolean; onClose: () => void; onDone: () => void }) {
   const areas = useLoad(() => cfApi.get<StockingArea[]>('/stocking-areas'), []);
-  const usable = useMemo(() => (areas.data ?? []).filter((a) => a.status === 'active' && a.purpose !== 'quarantine'), [areas.data]);
+  // Into a store only (2026-10-19: like the GRN — never the dispatch yard, a WIP or a scrap bay; the server refuses those).
+  const usable = useMemo(() => (areas.data ?? []).filter((a) => canReceiveInto(a) && a.purpose === 'storage'), [areas.data]);
   const [item, setItem] = useState<MasterRecord | null>(null);
   const [quantity, setQuantity] = useState('');
   const [plateNo, setPlateNo] = useState('');
@@ -60,7 +61,7 @@ function ReceiveMaterialDialog({ order, open, onClose, onDone }: { order: SalesO
         <TextField label="Quantity" value={quantity} onChange={(e) => setQuantity(e.target.value)} inputProps={{ inputMode: 'decimal', style: { fontFamily: 'var(--font-mono)' } }}
           helperText={item?.item?.uom ? `In ${item.item.uom}` : ' '} />
         <TextField label="Batch / plate number" value={plateNo} onChange={(e) => setPlateNo(e.target.value)} helperText="As the customer marked it" />
-        <TextField select label="Into" value={areaId} onChange={(e) => setAreaId(e.target.value)} helperText={usable.length ? 'Where it was put' : 'No storage area is set up yet.'}>
+        <TextField select label="Into" value={areaId} onChange={(e) => setAreaId(e.target.value)} helperText={usable.length ? 'Where it was put — a storage area' : NO_RECEIVING_AREA}>
           {usable.map((a) => <MenuItem key={a.id} value={String(a.id)}>{a.code} · {a.name}</MenuItem>)}
         </TextField>
         <TextField label="Reference value per unit (₹, optional)" value={value} onChange={(e) => setValue(e.target.value)} inputProps={{ inputMode: 'decimal', style: { fontFamily: 'var(--font-mono)' } }}

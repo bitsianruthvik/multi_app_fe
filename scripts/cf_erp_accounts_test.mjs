@@ -314,6 +314,41 @@ await check('an issue says what it is used for: nothing chosen holds Post; Gener
   assert.match(text(dlg), /Choose the area it comes from\./, 'the next thing to do');
 });
 
+// ── 6b (2026-10-19): Receive stock lists only storage / quarantine areas, like the GRN ─────────────────────────────
+await check('Receive stock: Into lists storage and quarantine only; a dispatch area preset is refused by name; with none, where to make one', async () => {
+  const AREAS = [{ id: 1, code: 'ST', name: 'Store', purpose: 'storage', status: 'active' }, { id: 2, code: 'QA', name: 'Inspection', purpose: 'quarantine', status: 'active' },
+    { id: 3, code: 'DSP', name: 'Dispatch yard', purpose: 'dispatch', status: 'active' }, { id: 4, code: 'WIP1', name: 'Cutting bay', purpose: 'wip', status: 'active' }];
+  reset(); asUser(['cf_erp_inventory_view', 'cf_erp_inventory_manage']);
+  globalThis.__routes['GET /stocking-areas'] = () => AREAS;
+  await mount(React.createElement(m.MovementDialog, { open: true, type: 'receipt', onClose() {}, onPosted() {} }), '/testco/cf_erp/stock');
+  await settle(150);
+  let dlg = document.querySelector('.MuiDialog-root');
+  const input = q1('receipt-area', dlg).querySelector('input');
+  await React.act(async () => { input.focus(); input.dispatchEvent(new dom.window.MouseEvent('mousedown', { bubbles: true })); input.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true })); await sleep(60); });
+  const options = [...document.querySelectorAll('[role="option"]')].map((o) => text(o));
+  assert.deepEqual(options, ['ST · Store', 'QA · Inspection'], `options: ${options.join(' | ')}`);
+  assert.match(text(q1('receipt-area', dlg)), /Storage or quarantine only/);
+  // a page that presets a dispatch area (an old link) cannot post into it
+  reset(); asUser(['cf_erp_inventory_view', 'cf_erp_inventory_manage']);
+  globalThis.__routes['GET /stocking-areas'] = () => AREAS;
+  await mount(React.createElement(m.MovementDialog, { open: true, type: 'receipt', preset: { areaId: 3 }, onClose() {}, onPosted() {} }), '/testco/cf_erp/stock');
+  await settle(150);
+  dlg = document.querySelector('.MuiDialog-root');
+  assert.match(text(dlg), /DSP is a dispatch area — goods coming in go into a storage area/);
+  assert.equal(buttonIn(dlg, 'Post').disabled, true);
+  // no storage area at all
+  reset(); asUser(['cf_erp_inventory_view', 'cf_erp_inventory_manage']);
+  globalThis.__routes['GET /stocking-areas'] = () => AREAS.slice(2);
+  await mount(React.createElement(m.MovementDialog, { open: true, type: 'receipt', onClose() {}, onPosted() {} }), '/testco/cf_erp/stock');
+  await settle(150);
+  dlg = document.querySelector('.MuiDialog-root');
+  assert.match(text(q1('receipt-area', dlg)), /Make a storage area in Stores › Stocking areas/);
+  assert.equal(buttonIn(dlg, 'Post').disabled, true);
+  // the area page offers Receive only on a storage area; customer material lists storage areas
+  assert.match(readFileSync(resolve('src/apps/cf_erp/pages/StockingAreaDetail.tsx'), 'utf8'), /a\.purpose === 'storage' \? \['receipt', 'issue', 'transfer', 'adjustment'\] : \['transfer', 'issue', 'adjustment'\]/);
+  assert.match(readFileSync(resolve('src/apps/cf_erp/components/CustomerMaterialPanel.tsx'), 'utf8'), /canReceiveInto\(a\) && a\.purpose === 'storage'/);
+});
+
 // ── 7: the Orders board ─────────────────────────────────────────────────────────────────────────
 await check('the Orders board says what is owed: it closes once fully paid', async () => {
   reset(); asUser(['cf_erp_orders_view', 'cf_erp_orders_manage']);

@@ -213,7 +213,7 @@ await check('nav: "Plate changes" is hidden while the gate is off; it comes back
   const nav = readFileSync(resolve('src/apps/cf_erp/navMeta.ts'), 'utf8');
   assert.match(nav, /export const PLATE_CHANGE_GATE = false;/);
   assert.match(nav, /\.\.\.\(PLATE_CHANGE_GATE \? \[\{ key: 'plate-changes', label: 'Plate changes', path: 'plate-changes', permission: PLATE_CHANGES/);
-  assert.match(nav, /const PLATE_CHANGES = 'cf_erp_plate_change_approve\|cf_erp_inventory_manage';/);
+  assert.match(nav, /const PLATE_CHANGES = 'cf_erp_plate_change_approve\|cf_erp_purchase\|cf_erp_inventory_manage';/);
 });
 
 /* ---- the gate ------------------------------------------------------------------------------- */

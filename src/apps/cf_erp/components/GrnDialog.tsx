@@ -14,7 +14,7 @@ import { useCompanySlug, useLoad } from '../hooks/useLoad';
 import { Link } from 'react-router-dom';
 import { appPath } from '../navMeta';
 import { useFullScreen } from '../hooks/useFullScreen';
-import { qtyText } from '../lib/inventory';
+import { NO_RECEIVING_AREA, qtyText } from '../lib/inventory';
 import { rupeeText } from '../lib/money';
 import { gstRateText } from '../lib/gst';
 import { computeGrn, grnBlockers, supplyKind, type DiscountMode, type GrnLineIn } from '../lib/grnMoney';
@@ -251,7 +251,7 @@ export function GrnDialog({ po, lineId, onClose, onReceived }: {
               </Alert>
             )}
             <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', md: 'repeat(5, minmax(0, 1fr))' }, gap: 1.5, alignItems: 'start' }}>
-              <TextField select size="small" label="Into" value={areaId} onChange={(e) => setAreaId(e.target.value)} autoFocus helperText={usable.length ? ' ' : 'No storage area is set up.'}>
+              <TextField select size="small" label="Into" value={areaId} onChange={(e) => setAreaId(e.target.value)} autoFocus helperText={usable.length ? ' ' : NO_RECEIVING_AREA}>
                 {usable.map((a) => <MenuItem key={a.id} value={String(a.id)}>{a.code} · {a.name}</MenuItem>)}
               </TextField>
               <TextField size="small" label="Delivery note" value={reference} onChange={(e) => setReference(e.target.value)} helperText=" " />

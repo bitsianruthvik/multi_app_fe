@@ -44,7 +44,10 @@ const linkSx = { color: 'inherit', textDecoration: 'none', '&:hover': { color: '
  * One purchase order (§71): its stage — pending Management approval → waiting for goods → part received → closed (by itself, or
  * closed short with a reason) — and per line what was ordered, received and is still pending. Management approves it
  * (§73: here or in Management › Approvals — cf_erp_approve_purchase_order, a contractor's PO cf_erp_approve_contractor_po;
- * not the person who raised it); closing short is ASKED here and approved there. Goods: Inventory › Receive against PO.
+ * not the person who raised it); closing short is ASKED here and approved there. Goods: Stores › Receive against PO.
+ * WHO (2026-10-19, the same tags as routes/purchase.js): Purchase (cf_erp_purchase) edits the PO, sends it for approval,
+ * asks to close it short and cancels it; Stores (inventory manage) receives the goods — and, on the customer's own ₹0 PO
+ * (which Stores' MR raised), may also move its dates, ask to close it and cancel it.
  */
 export default function PurchaseOrderDetail() {
   const { id: idParam } = useParams();
@@ -52,7 +55,9 @@ export default function PurchaseOrderDetail() {
   const company = useCompanySlug();
   const toast = useToast();
   const isPermitted = useIsPermitted();
-  const canManage = isPermitted('cf_erp_inventory_manage');
+  const canBuy = isPermitted('cf_erp_purchase');
+  const isStores = isPermitted('cf_erp_inventory_manage') || isPermitted('cf_erp_stores');
+  const canReceive = isPermitted('cf_erp_inventory_manage');
   const po = useLoad(() => cfApi.get<PurchaseOrder>(`/purchase-orders/${id}`), [id]);
   const full = useFullScreen('po');
   const [adding, setAdding] = useState(false);
@@ -70,6 +75,8 @@ export default function PurchaseOrderDetail() {
   useDetailTitle(p?.code ?? null);
   if (po.error) return <ErrorNotice error={po.error} onRetry={po.reload} />;
   if (!p) return <DetailSkeleton />;
+  // Dates, close short and cancel: Purchase — or Stores on the customer's own PO. Lines, prices, sending: Purchase only.
+  const canManage = canBuy || (!!p.suppliedByCustomer && isStores);
 
   const done = (next: PurchaseOrder, message: string) => { po.setData(next); invalidateNavCounts(); toast.success(message); };
   const open = p.status === 'draft' || p.status === 'requested' || p.status === 'quoting' || p.status === 'ordered' || p.status === 'partially_received';
@@ -80,7 +87,7 @@ export default function PurchaseOrderDetail() {
   const asked = (p.pendingApprovals ?? []).find((a) => a.type === 'purchase_order' || a.type === 'contractor_po') ?? null;
   const waitingSince = asked ? ` since ${new Date(asked.requestedAt).toLocaleDateString('en-IN')}${asked.requestedBy?.name ? ` (asked by ${asked.requestedBy.name})` : ''}` : '';
   // Lines and prices change only before Management approves it (or on an older PO not sent yet).
-  const editable = canManage && (stage === 'requested' || stage === 'pending_approval');
+  const editable = canBuy && (stage === 'requested' || stage === 'pending_approval');
   const act = async (fn: () => Promise<PurchaseOrder>, message: string) => {
     setBusy(true);
     try { done(await fn(), message); } catch (e) { toast.error((e as Error).message); } finally { setBusy(false); }
@@ -201,8 +208,8 @@ export default function PurchaseOrderDetail() {
           actions={<>
             {canApprove && stage === 'pending_approval' && <Button variant="contained" startIcon={<VerifiedRounded />} disabled={busy} data-testid="po-approve" onClick={() => void act(() => approvePurchaseOrder(p.id), `${p.code} approved — waiting for goods.`)}>Approve</Button>}
             {canApprove && stage === 'pending_approval' && <Button color="error" disabled={busy} data-testid="po-reject" onClick={() => setRejecting(true)}>Send back</Button>}
-            {canManage && stage === 'requested' && p.status !== 'cancelled' && <Button variant="contained" startIcon={<SendRounded />} disabled={busy || !p.supplier || !p.lines.length} data-testid="po-send" onClick={() => void act(() => sendForApproval(p.id), `${p.code} sent for approval.`)}>Send for approval</Button>}
-            {canManage && (stage === 'waiting' || stage === 'part_received') && <Button variant="contained" startIcon={<MoveToInboxRounded />} component={Link} to={`${appPath(company, 'receive')}?po=${encodeURIComponent(p.code)}`} data-testid="po-receive">Receive goods</Button>}
+            {canBuy && stage === 'requested' && p.status !== 'cancelled' && <Button variant="contained" startIcon={<SendRounded />} disabled={busy || !p.supplier || !p.lines.length} data-testid="po-send" onClick={() => void act(() => sendForApproval(p.id), `${p.code} sent for approval.`)}>Send for approval</Button>}
+            {canReceive && (stage === 'waiting' || stage === 'part_received') && <Button variant="contained" startIcon={<MoveToInboxRounded />} component={Link} to={`${appPath(company, 'receive')}?po=${encodeURIComponent(p.code)}`} data-testid="po-receive">Receive goods</Button>}
             {canManage && (stage === 'waiting' || stage === 'part_received') && !closeAsked && <Button startIcon={<DoNotDisturbOnRounded />} onClick={() => setClosing(true)} data-testid="po-close">Close PO short</Button>}
             {editable && <Button startIcon={<AddRounded />} onClick={() => setAdding(true)}>Add a line</Button>}
             {canManage && open && !p.totals.received && <Button color="error" startIcon={<BlockRounded />} onClick={() => setCancelling(true)}>Cancel</Button>}
@@ -241,6 +248,16 @@ export default function PurchaseOrderDetail() {
         />
       }
     >
+      {!canManage && open && (
+        <Typography data-testid="po-readonly" sx={{ fontSize: 13, color: 'var(--c-text-3)', mb: 1.5 }}>
+          You can see this PO. Changing it, sending it for approval, closing it short and cancelling it need the Purchase permission{p.suppliedByCustomer ? " (or, on the customer's own PO, the Stores permission)" : ''}.
+        </Typography>
+      )}
+      {canManage && !canBuy && open && (
+        <Typography data-testid="po-stores-only" sx={{ fontSize: 13, color: 'var(--c-text-3)', mb: 1.5 }}>
+          The customer's own PO: Stores may move its dates, close it short and cancel it. Its lines and prices need the Purchase permission.
+        </Typography>
+      )}
       {p.status === 'cancelled' && <PlannedUnitsNote planned={cancelPlanned} />}
       {p.status !== 'cancelled' && <PlannedUnitsNote planned={late} />}
       {stage === 'pending_approval' && (
@@ -266,7 +283,7 @@ export default function PurchaseOrderDetail() {
             label={<Typography sx={{ fontSize: 13 }}>Reverse charge — we pay the GST, not the supplier</Typography>} />
         </Box>
       )}
-      <SectionCard title="Lines" subtitle="Ordered, received and still pending, line by line. Goods are received from Inventory › Receive against PO; each receipt is a GRN.">
+      <SectionCard title="Lines" subtitle="Ordered, received and still pending, line by line. Goods are received from Stores › Receive against PO; each receipt is a GRN.">
         <DataTable rows={p.lines} columns={columns} getRowId={(l) => l.id} bare storageKey="purchase-lines" exportName={`${p.code}-lines`}
           empty={<EmptyState icon={<AddRounded />} title="No lines yet" hint="Add what is being bought, then send it for approval."
             action={editable ? <Button variant="contained" startIcon={<AddRounded />} onClick={() => setAdding(true)}>Add a line</Button> : undefined} />} />

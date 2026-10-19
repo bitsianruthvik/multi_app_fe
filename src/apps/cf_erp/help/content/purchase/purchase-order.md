@@ -34,6 +34,7 @@ While it is **Not placed** or **Pending Management approval**:
 
 ## Good to know
 - GST is CGST + SGST when the supplier is in your state, IGST otherwise. "Line with no GST rate" means the item has no HSN / GST rate — use **set HSN / GST by family** (Setup › Company tax details) so the next PO and GRN have it.
+- Changing the PO, sending it for approval, closing it short and cancelling it need the Purchase permission. **Receive goods** shows with the inventory manage permission (Stores). On the customer's own PO, Stores may also move its dates, close it short and cancel it. Without the permission a grey note says what you can only look at.
 - Approving needs the purchase order approval permission (a contractor's PO, the contractor PO approval permission), and is meant for someone other than the person who raised it.
 
 ## Related

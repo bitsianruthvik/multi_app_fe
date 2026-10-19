@@ -30,7 +30,7 @@ The PR is the request for quotation (RFQ). Rows are what is to buy; columns are 
 - Every PO waits for Management approval before it is placed.
 - **PO raised** per line is what live POs hold for it. A PO closed short gives the rest back, and you can raise a new PO for it.
 - A rate must be a number, like 62.5.
-- Quotes and POs need the inventory manage permission; without it the grid is read-only.
+- Vendors, quotes and raising POs need the Purchase permission; without it the grid is read-only. Stores raises the PR but does not quote or order.
 - The grid scrolls sideways inside its own box when there are many vendors.
 
 ## Related

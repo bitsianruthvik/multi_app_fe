@@ -264,7 +264,7 @@ const prPage = () => h(MemoryRouter, { initialEntries: ['/testco/cf_erp/purchase
 const rateOf = (lineId) => [...document.querySelectorAll('[data-testid="pr-rate"]')].find((r) => r.closest(`[data-line="${lineId}"]`));
 
 await check('PR grid: a server answer (another cell\'s save) never overwrites the cell being typed in', async () => {
-  reset(); globalThis.__user = { uiPermissions: ['cf_erp_inventory_manage', 'cf_erp_inventory_view'] };
+  reset(); globalThis.__user = { uiPermissions: ['cf_erp_purchase', 'cf_erp_inventory_view'] };
   globalThis.__routes['GET /purchase-requests/61'] = () => prFixture();
   // The server answers line 71's save with line 72 still at 62000 — while line 72 is being typed in.
   globalThis.__routes['PUT /purchase-request-vendors/81/quotes'] = async (b) => { await sleep(20); const q = b.quotes[0]; return prFixture({ 71: { rate: q.lineId === 71 ? q.rate : 71000, deliveryDays: 10, remark: null }, 72: { rate: q.lineId === 72 ? q.rate : 62000, deliveryDays: 7, remark: null } }); };
@@ -281,7 +281,7 @@ await check('PR grid: a server answer (another cell\'s save) never overwrites th
   assert.equal(rateOf(72).value, '61500');
 });
 await check('PR grid: a slow early answer never puts back what a later save changed', async () => {
-  reset(); globalThis.__user = { uiPermissions: ['cf_erp_inventory_manage', 'cf_erp_inventory_view'] };
+  reset(); globalThis.__user = { uiPermissions: ['cf_erp_purchase', 'cf_erp_inventory_view'] };
   let state = { 71: { rate: 71000, deliveryDays: 10, remark: null }, 72: { rate: 62000, deliveryDays: 7, remark: null } };
   globalThis.__routes['GET /purchase-requests/61'] = () => prFixture(state);
   globalThis.__routes['PUT /purchase-request-vendors/81/quotes'] = async (b) => {
@@ -299,7 +299,7 @@ await check('PR grid: a slow early answer never puts back what a later save chan
   assert.equal(rateOf(71).value, '70000');
 });
 await check('PR grid: Enter saves and moves down the column; Esc puts back the saved rate; a bad rate is said, never sent', async () => {
-  reset(); globalThis.__user = { uiPermissions: ['cf_erp_inventory_manage', 'cf_erp_inventory_view'] };
+  reset(); globalThis.__user = { uiPermissions: ['cf_erp_purchase', 'cf_erp_inventory_view'] };
   globalThis.__routes['GET /purchase-requests/61'] = () => prFixture();
   globalThis.__routes['PUT /purchase-request-vendors/81/quotes'] = () => prFixture();
   await mount(prPage());

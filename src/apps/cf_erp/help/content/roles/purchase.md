@@ -57,4 +57,4 @@ Stores books each delivery as a GRN on [Receive against PO](help:purchase-receiv
 - [Management approvals](help:management-approvals) — where your POs are approved.
 
 ## Permissions
-In the testing phase the Test login holds everything. In real use: Purchase sees PRs and POs; typing quotes and changing POs needs the inventory manage permission; approving a PO needs the purchase order approval permission and is meant for someone other than the buyer.
+In the testing phase the Test login holds everything. In real use the Purchase permission does all of Purchase's work: vendors and quotes on a PR, raising and changing POs, sending them for approval, closing short, cancelling and the plate-change checklist. Inventory manage (Stores) no longer does these — it receives the goods. Approving a PO needs the purchase order approval permission and is meant for someone other than the buyer.

@@ -39,8 +39,8 @@ const FLOOR = 'cf_erp_floor';
 const PRODUCTION_MANAGE = 'cf_erp_production_manage';
 /** §74: the Accounts section (Billing, Invoices, Receipts, Order costing). */
 const ACCOUNTS = 'cf_erp_accounts_view';
-/** The MD (approve plate changes) or the buyer (stock and buying manage) — any one of them. */
-const PLATE_CHANGES = 'cf_erp_plate_change_approve|cf_erp_inventory_manage';
+/** The MD (approve plate changes) or the buyer (Purchase; inventory manage still reads it) — any one of them. */
+const PLATE_CHANGES = 'cf_erp_plate_change_approve|cf_erp_purchase|cf_erp_inventory_manage';
 /**
  * MANAGEMENT (§73): the approvals inbox. Each kind of approval has its own tag; holding any one of them shows the
  * Management tab (the backend's approvalService.APPROVAL_TYPES; api/approvals.ts ANY_APPROVAL is the same list).

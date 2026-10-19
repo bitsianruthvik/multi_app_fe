@@ -355,6 +355,57 @@ await check('Receive against PO lists every pending line and opens the GRN dialo
 });
 
 // ── 6: the menu, removed screens, the gate and the words ──────────────────────────
+// ── 2026-10-19: Purchase buys, Stores receives — the buttons follow the routes' tags ───────────────────────
+await check('PR: Stores (inventory manage) only looks, with the reason; a user holding ONLY cf_erp_purchase gets + Vendor and the rates', async () => {
+  reset(); asUser(['cf_erp_inventory_view', 'cf_erp_inventory_manage', 'cf_erp_stores']);
+  globalThis.__routes['GET /purchase-requests/61'] = () => prFixture();
+  await page(m.PurchaseRequestDetail, '/:company/cf_erp/purchase-requests/:id', '/testco/cf_erp/purchase-requests/61');
+  assert.match(text(q1('pr-readonly')), /need the Purchase permission/);
+  assert.equal(q1('pr-add-vendor'), null, 'no + Vendor for Stores');
+  assert.equal(document.querySelectorAll('[data-testid="pr-grid"] input').length, 0, 'no rate boxes for Stores');
+  reset(); asUser(['cf_erp_purchase']);
+  globalThis.__routes['GET /purchase-requests/61'] = () => prFixture();
+  await page(m.PurchaseRequestDetail, '/:company/cf_erp/purchase-requests/:id', '/testco/cf_erp/purchase-requests/61');
+  assert.equal(q1('pr-readonly'), null);
+  assert.ok(q1('pr-add-vendor'), '+ Vendor for Purchase');
+  assert.ok(document.querySelectorAll('[data-testid="pr-grid"] input').length > 0, 'rate boxes for Purchase');
+});
+await check('PO: Purchase sends / closes / cancels but does not receive; Stores receives but may not change a supplier PO (reason shown); on the customer\'s own PO Stores may close it', async () => {
+  const waiting = (extra = {}) => poFixture({ status: 'ordered', stage: 'waiting', stageLabel: 'Waiting for goods', approval: { status: 'approved', by: null, at: null }, ...extra });
+  reset(); asUser(['cf_erp_purchase']);
+  globalThis.__routes['GET /purchase-orders/2325'] = () => poFixture({ status: 'requested', stage: 'requested', approval: null });
+  await page(m.PurchaseOrderDetail, '/:company/cf_erp/purchase-orders/:id', '/testco/cf_erp/purchase-orders/2325');
+  assert.ok(q1('po-send'), 'Purchase sends it for approval');
+  assert.equal(q1('po-readonly'), null);
+  reset(); asUser(['cf_erp_purchase']);
+  globalThis.__routes['GET /purchase-orders/2325'] = () => waiting();
+  await page(m.PurchaseOrderDetail, '/:company/cf_erp/purchase-orders/:id', '/testco/cf_erp/purchase-orders/2325');
+  assert.ok(q1('po-close'), 'Purchase asks to close short'); assert.ok(buttonIn(document, 'Cancel'), 'Purchase cancels');
+  assert.equal(q1('po-receive'), null, 'Purchase does not book the GRN');
+  reset(); asUser(['cf_erp_inventory_view', 'cf_erp_inventory_manage', 'cf_erp_stores']);
+  globalThis.__routes['GET /purchase-orders/2325'] = () => waiting();
+  await page(m.PurchaseOrderDetail, '/:company/cf_erp/purchase-orders/:id', '/testco/cf_erp/purchase-orders/2325');
+  assert.ok(q1('po-receive'), 'Stores receives the goods');
+  assert.equal(q1('po-close'), null, 'Stores does not close a supplier PO');
+  assert.equal(buttonIn(document, 'Cancel'), undefined, 'Stores does not cancel a supplier PO');
+  assert.match(text(q1('po-readonly')), /need the Purchase permission/);
+  assert.equal(q1('po-line-expected').querySelector('input'), null, 'no date box for Stores on a supplier PO');
+  reset(); asUser(['cf_erp_inventory_view', 'cf_erp_inventory_manage', 'cf_erp_stores']);
+  globalThis.__routes['GET /purchase-orders/2325'] = () => waiting({ suppliedByCustomer: true });
+  await page(m.PurchaseOrderDetail, '/:company/cf_erp/purchase-orders/:id', '/testco/cf_erp/purchase-orders/2325');
+  assert.ok(q1('po-close'), "Stores may close the customer's own PO short");
+  assert.match(text(q1('po-stores-only')), /lines and prices need the Purchase permission/);
+  assert.equal(q1('po-readonly'), null);
+  assert.equal(q1('po-send'), null);
+  // the buttons name the same tags as the routes
+  const detail = src('pages/PurchaseOrderDetail.tsx');
+  assert.match(detail, /const canBuy = isPermitted\('cf_erp_purchase'\)/);
+  assert.match(detail, /const canReceive = isPermitted\('cf_erp_inventory_manage'\)/);
+  assert.match(src('pages/PurchaseOrders.tsx'), /useIsPermitted\(\)\('cf_erp_purchase'\)/);
+  assert.match(src('pages/PurchaseRequestDetail.tsx'), /useIsPermitted\(\)\('cf_erp_purchase'\)/);
+  assert.match(src('components/shell/TopNav.tsx'), /label: 'New purchase order', permission: 'cf_erp_purchase'/);
+});
+
 await check('menu: Purchase requests, Purchase orders (MRs in Stores, §79); Stores › Receive against PO; no boards; Plate changes hidden while the gate is off', () => {
   const purchase = m.SECTIONS.find((s) => s.key === 'purchase').screens.map((s) => s.key);
   // §79: MRs moved to Stores (MR inbox); Purchase sees PRs only.

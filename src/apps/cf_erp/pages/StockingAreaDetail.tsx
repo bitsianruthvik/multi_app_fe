@@ -50,7 +50,7 @@ export default function StockingAreaDetail() {
       badges={<><PurposeChip purpose={a.purpose} /><StatusBadge status={a.status} /></>}
       actions={canManage && (
         <>
-          <MovementButtons types={a.purpose === 'quarantine' ? ['transfer', 'adjustment', 'scrap'] : ['receipt', 'issue', 'transfer', 'adjustment']} preset={{ areaId: a.id }} onPosted={inv.reload} />
+          <MovementButtons types={a.purpose === 'quarantine' ? ['transfer', 'adjustment', 'scrap'] : a.purpose === 'storage' ? ['receipt', 'issue', 'transfer', 'adjustment'] : ['transfer', 'issue', 'adjustment']} preset={{ areaId: a.id }} onPosted={inv.reload} />
           <Button startIcon={<EditRounded />} onClick={() => setEditing(true)} sx={{ color: 'var(--c-text-2)' }}>Edit</Button>
           <Tooltip title="Delete — only an area that never held stock"><IconButton aria-label="Delete area" onClick={() => setDeleting(true)}><DeleteOutlineRounded /></IconButton></Tooltip>
         </>

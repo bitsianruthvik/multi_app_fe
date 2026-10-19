@@ -25,7 +25,7 @@ A change to a line's plates asked for after a purchase order already covers that
 ## Good to know
 - This screen is not in the menu while the nesting plate-change approval is switched off (it is off for now). A customer's substitute plate still comes here, linked from the MR and from To return to customers.
 - A red note "cannot be approved" means the line's plates or buying changed after the request. Withdraw it and ask again.
-- Opening it needs the plate change approval permission or the inventory manage permission.
+- Opening it needs the plate change approval permission, the Purchase permission or the inventory manage permission. Ticking the buyer's checklist needs the Purchase permission.
 
 ## Related
 - [A purchase order](help:purchase-order)

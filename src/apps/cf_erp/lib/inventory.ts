@@ -1,5 +1,14 @@
 import type { AreaPurpose, BatchStatus, LedgerMovementType, StockCategory, Weekday } from '../api/types';
 
+/**
+ * WHERE GOODS FROM OUTSIDE MAY BE RECEIVED (2026-10-19, the backend's stockingAreaService.RECEIVING_PURPOSES): a store, or
+ * quarantine to be inspected — never the dispatch yard, a WIP bay or a scrap bay (production takes plates only from storage /
+ * WIP). Stock / Movements › Receive and customer material list only these; a transfer moves goods on from there.
+ */
+export const RECEIVING_PURPOSES: readonly AreaPurpose[] = ['storage', 'quarantine'];
+export const canReceiveInto = (a: { status: string; purpose: AreaPurpose }) => a.status === 'active' && RECEIVING_PURPOSES.includes(a.purpose);
+export const NO_RECEIVING_AREA = 'No storage area to receive into. Make a storage area in Stores › Stocking areas.';
+
 export const PURPOSE_LABEL: Record<AreaPurpose, string> = { storage: 'Storage', wip: 'Work in process', quarantine: 'Quarantine', dispatch: 'Dispatch', scrap: 'Scrap' };
 export const PURPOSE_HELP: Record<AreaPurpose, string> = {
   storage: 'Stock here is available to use.',

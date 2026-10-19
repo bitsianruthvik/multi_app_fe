@@ -15,7 +15,8 @@ One stocking area: what it holds now and what moved through it, with the buttons
 
 ## How to move stock here
 1. Use the buttons at the top — the area is already filled in:
-   - a normal area: **Receive**, **Issue**, **Transfer**, **Count**;
+   - a storage area: **Receive**, **Issue**, **Transfer**, **Count**;
+   - a work-in-process, dispatch or scrap area: **Transfer**, **Issue**, **Count** (goods are not received straight into it — receive into storage, then transfer);
    - a quarantine area: **Transfer**, **Count**, **Scrap** (nothing is issued straight from quarantine — transfer it to storage first).
 2. Fill the form and click **Post**.
 

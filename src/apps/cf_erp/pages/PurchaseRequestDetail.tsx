@@ -58,7 +58,8 @@ export default function PurchaseRequestDetail() {
   const company = useCompanySlug();
   const toast = useToast();
   const navigate = useNavigate();
-  const canManage = useIsPermitted()('cf_erp_inventory_manage');
+  // Vendors, quotes and raising the PO are Purchase's (2026-10-19 — the same tag as the routes: cf_erp_purchase).
+  const canManage = useIsPermitted()('cf_erp_purchase');
   const pr = useLoad(() => getPurchaseRequest(id), [id]);
   const full = useFullScreen('pr-grid');
   const p = pr.data;
@@ -107,7 +108,7 @@ export default function PurchaseRequestDetail() {
         />
       }
     >
-      {!canManage && <Typography sx={{ fontSize: 13, color: 'var(--c-text-3)', mb: 1.5 }}>You can see this PR. Quotes and purchase orders need the inventory manage permission.</Typography>}
+      {!canManage && <Typography data-testid="pr-readonly" sx={{ fontSize: 13, color: 'var(--c-text-3)', mb: 1.5 }}>You can see this PR. Vendors, quotes and raising purchase orders need the Purchase permission.</Typography>}
       {error && (
         <Alert severity="warning" data-testid="pr-refusal" sx={{ mb: 1.5 }} onClose={() => setError(null)}>
           <Box>{error.message}</Box>

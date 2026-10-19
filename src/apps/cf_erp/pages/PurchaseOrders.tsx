@@ -33,7 +33,8 @@ const SERVER_SORT = ['code', 'status', 'supplier', 'expected', 'lines', 'ordered
 export default function PurchaseOrders() {
   const company = useCompanySlug();
   const navigate = useNavigate();
-  const canManage = useIsPermitted()('cf_erp_inventory_manage');
+  // Making a PO is Purchase's (2026-10-19 — the route's tag, cf_erp_purchase).
+  const canManage = useIsPermitted()('cf_erp_purchase');
   // ?stage= (§71); 'open' and 'all' ride on the old status filter.
   const [stage, setStage] = useUrlParam('stage', 'open');
   const [search, setSearch] = useState('');
@@ -90,7 +91,7 @@ export default function PurchaseOrders() {
 
   return (
     <Box>
-      <PageHeader title="Purchase orders" subtitle="Material and contractor purchase orders. Each waits for Management approval, then for the goods; goods are received from Inventory › Receive against PO."
+      <PageHeader title="Purchase orders" subtitle="Material and contractor purchase orders. Each waits for Management approval, then for the goods; goods are received from Stores › Receive against PO."
         actions={canManage && <Button variant="contained" startIcon={<AddRounded />} onClick={() => setCreating(true)}>New purchase order</Button>} />
       <StatStrip stats={stats} />
       <FilterBar search={search} onSearch={setSearch} placeholder="Search number or supplier">

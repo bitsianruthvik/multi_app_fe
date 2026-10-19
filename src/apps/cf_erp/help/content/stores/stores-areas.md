@@ -9,9 +9,9 @@ order: 70
 Every place that holds stock — a yard, a store, the WIP beside a machine, an inspection hold. Each one has its own inventory, and its purpose decides how its stock counts.
 
 ## The purposes
-- **Storage** — stock here is available to use. Purchases (GRNs) go only into storage areas.
+- **Storage** — stock here is available to use. Goods coming in — GRNs, **Receive stock**, customer material — go into a storage area (or quarantine).
 - **Work in process** — stock being worked on, beside a machine or in a bay. Cutting takes plates from storage or WIP.
-- **Quarantine** — stock held: not issued until it is moved back to storage.
+- **Quarantine** — stock held: not issued until it is moved back to storage. A receipt may go here to be inspected.
 - **Dispatch** — finished and waiting to leave.
 - **Scrap** — scrap kept until it is sold or sent back.
 
@@ -28,7 +28,8 @@ Every place that holds stock — a yard, a store, the WIP beside a machine, an i
 5. Leave **Status** active, add **Notes**, and save.
 
 ## Good to know
-- Start with where material arrives: a raw material store with the Storage purpose. Without one, a GRN has nowhere to go ("No storage area is set up").
+- Start with where material arrives: a raw material store with the Storage purpose. Without one, a GRN or a receipt has nowhere to go ("No storage area to receive into").
+- Nothing is received straight into a work-in-process, dispatch or scrap area — it is refused, naming the area and its purpose. Receive into storage, then **Transfer**.
 - Nothing goes into an inactive area; stock can still leave it.
 - Making areas needs the inventory manage permission.
 

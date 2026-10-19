@@ -28,7 +28,7 @@ Every purchase order, material and contractor, with its stage. Purchase follows 
 Most POs are raised from a purchase request's quote grid instead.
 
 ## Good to know
-- Making and changing POs needs the inventory manage permission.
+- Making and changing POs needs the Purchase permission. Stores (inventory manage) only receives the goods — and on the customer's own PO may also move its dates, close it short or cancel it.
 - Contractor POs come from production orders (Give work to a contractor) and are approved by Management like material POs.
 
 ## Related

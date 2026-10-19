@@ -8,7 +8,7 @@ import CloseRounded from '@mui/icons-material/CloseRounded';
 import { cfApi, CfApiError, qs } from '../api/client';
 import type { Batch, MasterRecord, MovementDetail, MovementType, Party, Resolution, SalesOrder, StockRow, StockingArea } from '../api/types';
 import { useLoad } from '../hooks/useLoad';
-import { qtyText } from '../lib/inventory';
+import { canReceiveInto, NO_RECEIVING_AREA, qtyText } from '../lib/inventory';
 import { RecordPicker } from './RecordPicker';
 import { SpecValueInput } from './SpecValueInput';
 import { ErrorNotice, Mono } from './ui';
@@ -172,6 +172,10 @@ export function MovementDialog({ open, type, preset = {}, onClose, onPosted }: {
   const active = (areas.data ?? []).filter((a) => a.status === 'active');
   const fromAreas = type === 'issue' ? (areas.data ?? []).filter((a) => a.purpose !== 'quarantine') : areas.data ?? [];
   const areaById = useMemo(() => new Map((areas.data ?? []).map((a) => [a.id, a])), [areas.data]);
+  // A receipt brings goods IN: a storage or quarantine area only (the server refuses any other, naming it).
+  const receiving = active.filter(canReceiveInto);
+  const presetRefused = type === 'receipt' && h.areaId ? areaById.get(h.areaId) : undefined;
+  const notReceivable = presetRefused && !canReceiveInto(presetRefused) ? presetRefused : null;
   const setLine = (i: number, l: LineState) => setLines((ls) => ls.map((x, j) => (j === i ? l : x)));
 
   const body = () => {
@@ -210,7 +214,9 @@ export function MovementDialog({ open, type, preset = {}, onClose, onPosted }: {
   // What the server would refuse anyway, said before the press.
   const named = (l: LineState) => (type === 'receipt' ? !!l.item : l.other ? !!l.item : !!l.stockKey);
   const usedForMissing = type !== 'issue' ? null : (!h.usedFor ? 'Say what it is used for: a sales order, or General.' : h.usedFor === 'order' && !h.orderId ? 'Choose the sales order it is used for.' : null);
-  const blocked = usedForMissing ?? (!h.areaId ? (type === 'receipt' ? 'Choose the area it goes into.' : type === 'adjustment' ? 'Choose the area being counted.' : 'Choose the area it comes from.')
+  const blocked = usedForMissing ?? (notReceivable ? `${notReceivable.code} is a ${notReceivable.purpose} area — goods coming in go into a storage area (or quarantine). Choose another.`
+    : type === 'receipt' && areas.data && !receiving.length ? NO_RECEIVING_AREA
+    : !h.areaId ? (type === 'receipt' ? 'Choose the area it goes into.' : type === 'adjustment' ? 'Choose the area being counted.' : 'Choose the area it comes from.')
     : type === 'transfer' && !h.toAreaId ? 'Choose the area it goes into.'
       : needsReason && !h.reason.trim() ? 'Say why.'
         : !lines.some(named) ? 'Add at least one item.'
@@ -226,7 +232,14 @@ export function MovementDialog({ open, type, preset = {}, onClose, onPosted }: {
             <PartyPicker role="supplier" label="Supplier" value={supplier} onChange={(p) => { setSupplier(p); setH((x) => ({ ...x, partyId: p?.id ?? null })); }}
               helperText="Who it came from (optional)" />
           )}
-          {type === 'receipt' && areaPicker('Into', h.areaId, (id) => setH({ ...h, areaId: id }), active)}
+          {type === 'receipt' && (
+            <Box data-testid="receipt-area">
+              {areaPicker('Into', notReceivable ? null : h.areaId, (id) => setH({ ...h, areaId: id }), receiving)}
+              <Typography sx={{ fontSize: 12, color: areas.data && !receiving.length ? 'var(--c-warning-800)' : 'var(--c-text-3)', mt: 0.5 }}>
+                {areas.data && !receiving.length ? NO_RECEIVING_AREA : 'Storage or quarantine only — dispatch, WIP and scrap areas take goods by a transfer.'}
+              </Typography>
+            </Box>
+          )}
           {out && areaPicker(type === 'adjustment' ? 'Area counted' : 'From', h.areaId, (id) => { setH({ ...h, areaId: id }); setLines([blankLine()]); }, type === 'adjustment' ? areas.data ?? [] : fromAreas)}
           {type === 'transfer' && areaPicker('To', h.toAreaId, (id) => setH({ ...h, toAreaId: id }), active.filter((a) => a.id !== h.areaId))}
           {type === 'issue' && (

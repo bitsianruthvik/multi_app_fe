@@ -23,7 +23,7 @@ Every stocking area's stock in one list. Each row is one item in one area, by ow
 ## How to post a movement
 With the inventory manage permission you see **Receive**, **Issue**, **Transfer** and **Count**.
 1. Click the button. The form's title says what it does (**Receive stock**, **Issue stock**, **Transfer stock**, **Count stock**).
-2. Pick the area(s): **Into** for a receipt, **From** for an issue, **From** and **To** for a transfer, **Area counted** for a count.
+2. Pick the area(s): **Into** for a receipt (storage or quarantine areas only), **From** for an issue, **From** and **To** for a transfer, **Area counted** for a count.
 3. For an issue, choose **Used for**: **A sales order** (pick it, and optionally the **Line**; order costing counts it) or **General (overhead)**.
 4. Add the lines: **Item** and **Quantity** (a count asks **Counted**). A batch-kept item asks for its batch.
 5. Set **Date**, **Reference** (for a receipt, **Delivery note / invoice**) and, for a count or scrap, **Reason**. Click **Post**.
@@ -31,6 +31,7 @@ With the inventory manage permission you see **Receive**, **Issue**, **Transfer*
 ## Good to know
 - Supplier deliveries against a PO are booked in Receive against PO, not here — that GRN carries the invoice, GST and the lock for the order.
 - An issue never takes from a quarantine area.
+- A receipt never goes straight into a work-in-process, dispatch or scrap area — the server refuses it, naming the area and its purpose. Receive into storage, then transfer. With no storage area the form says "Make a storage area in Stores › Stocking areas".
 - **Check ledger** recounts every balance from its movements and says whether they agree.
 
 ## Related
